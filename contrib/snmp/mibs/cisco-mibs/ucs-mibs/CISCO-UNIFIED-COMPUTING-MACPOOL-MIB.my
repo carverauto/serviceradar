@@ -1,0 +1,630 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-MACPOOL-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- MACPOOL management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-MACPOOL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsAddressMACMask,
+    CucsMacpoolPoolAssignmentOrder,
+    CucsPolicyPolicyOwner,
+    CucsPoolElementOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsMacpoolObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        MACPOOL management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 29 }
+
+cucsMacpoolAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMacpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr managed object table"
+    ::= { cucsMacpoolObjects 1 }
+
+cucsMacpoolAddrEntry OBJECT-TYPE
+    SYNTAX           CucsMacpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMacpoolAddrTable table."
+    INDEX { cucsMacpoolAddrInstanceId }
+    ::= { cucsMacpoolAddrTable 1 }
+
+CucsMacpoolAddrEntry ::= SEQUENCE {
+    cucsMacpoolAddrInstanceId                                        CucsManagedObjectId,
+    cucsMacpoolAddrDn                                                CucsManagedObjectDn,
+    cucsMacpoolAddrRn                                                SnmpAdminString,
+    cucsMacpoolAddrAssigned                                          TruthValue,
+    cucsMacpoolAddrAssignedToDn                                      SnmpAdminString,
+    cucsMacpoolAddrId                                                MacAddress,
+    cucsMacpoolAddrOwner                                             CucsPoolElementOwner,
+    cucsMacpoolAddrGlobalAssignedCnt                                 Gauge32,
+    cucsMacpoolAddrGlobalDefinedCnt                                  Gauge32
+}
+
+cucsMacpoolAddrInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMacpoolAddrEntry 1 }
+
+cucsMacpoolAddrDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:dn managed object property"
+    ::= { cucsMacpoolAddrEntry 2 }
+
+cucsMacpoolAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:rn managed object property"
+    ::= { cucsMacpoolAddrEntry 3 }
+
+cucsMacpoolAddrAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:assigned managed object property"
+    ::= { cucsMacpoolAddrEntry 4 }
+
+cucsMacpoolAddrAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:assignedToDn managed object property"
+    ::= { cucsMacpoolAddrEntry 5 }
+
+cucsMacpoolAddrId OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:id managed object property"
+    ::= { cucsMacpoolAddrEntry 6 }
+
+cucsMacpoolAddrOwner OBJECT-TYPE
+    SYNTAX       CucsPoolElementOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:owner managed object property"
+    ::= { cucsMacpoolAddrEntry 7 }
+
+cucsMacpoolAddrGlobalAssignedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:globalAssignedCnt managed object property"
+    ::= { cucsMacpoolAddrEntry 8 }
+
+cucsMacpoolAddrGlobalDefinedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Addr:globalDefinedCnt managed object property"
+    ::= { cucsMacpoolAddrEntry 9 }
+
+cucsMacpoolBlockTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMacpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS macpool:Block managed object table"
+    ::= { cucsMacpoolObjects 2 }
+
+cucsMacpoolBlockEntry OBJECT-TYPE
+    SYNTAX           CucsMacpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMacpoolBlockTable table."
+    INDEX { cucsMacpoolBlockInstanceId }
+    ::= { cucsMacpoolBlockTable 1 }
+
+CucsMacpoolBlockEntry ::= SEQUENCE {
+    cucsMacpoolBlockInstanceId                                       CucsManagedObjectId,
+    cucsMacpoolBlockDn                                               CucsManagedObjectDn,
+    cucsMacpoolBlockRn                                               SnmpAdminString,
+    cucsMacpoolBlockFrom                                             MacAddress,
+    cucsMacpoolBlockTo                                               MacAddress
+}
+
+cucsMacpoolBlockInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMacpoolBlockEntry 1 }
+
+cucsMacpoolBlockDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Block:dn managed object property"
+    ::= { cucsMacpoolBlockEntry 2 }
+
+cucsMacpoolBlockRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Block:rn managed object property"
+    ::= { cucsMacpoolBlockEntry 3 }
+
+cucsMacpoolBlockFrom OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Block:from managed object property"
+    ::= { cucsMacpoolBlockEntry 4 }
+
+cucsMacpoolBlockTo OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Block:to managed object property"
+    ::= { cucsMacpoolBlockEntry 5 }
+
+cucsMacpoolFormatTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMacpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS macpool:Format managed object table"
+    ::= { cucsMacpoolObjects 3 }
+
+cucsMacpoolFormatEntry OBJECT-TYPE
+    SYNTAX           CucsMacpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMacpoolFormatTable table."
+    INDEX { cucsMacpoolFormatInstanceId }
+    ::= { cucsMacpoolFormatTable 1 }
+
+CucsMacpoolFormatEntry ::= SEQUENCE {
+    cucsMacpoolFormatInstanceId                                      CucsManagedObjectId,
+    cucsMacpoolFormatDn                                              CucsManagedObjectDn,
+    cucsMacpoolFormatRn                                              SnmpAdminString,
+    cucsMacpoolFormatFormat                                          MacAddress,
+    cucsMacpoolFormatMask                                            CucsAddressMACMask
+}
+
+cucsMacpoolFormatInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMacpoolFormatEntry 1 }
+
+cucsMacpoolFormatDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Format:dn managed object property"
+    ::= { cucsMacpoolFormatEntry 2 }
+
+cucsMacpoolFormatRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Format:rn managed object property"
+    ::= { cucsMacpoolFormatEntry 3 }
+
+cucsMacpoolFormatFormat OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Format:format managed object property"
+    ::= { cucsMacpoolFormatEntry 4 }
+
+cucsMacpoolFormatMask OBJECT-TYPE
+    SYNTAX       CucsAddressMACMask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Format:mask managed object property"
+    ::= { cucsMacpoolFormatEntry 5 }
+
+cucsMacpoolPoolTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMacpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool managed object table"
+    ::= { cucsMacpoolObjects 4 }
+
+cucsMacpoolPoolEntry OBJECT-TYPE
+    SYNTAX           CucsMacpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMacpoolPoolTable table."
+    INDEX { cucsMacpoolPoolInstanceId }
+    ::= { cucsMacpoolPoolTable 1 }
+
+CucsMacpoolPoolEntry ::= SEQUENCE {
+    cucsMacpoolPoolInstanceId                                        CucsManagedObjectId,
+    cucsMacpoolPoolDn                                                CucsManagedObjectDn,
+    cucsMacpoolPoolRn                                                SnmpAdminString,
+    cucsMacpoolPoolAssigned                                          Gauge32,
+    cucsMacpoolPoolDescr                                             SnmpAdminString,
+    cucsMacpoolPoolIntId                                             SnmpAdminString,
+    cucsMacpoolPoolName                                              SnmpAdminString,
+    cucsMacpoolPoolSize                                              Gauge32,
+    cucsMacpoolPoolAssignmentOrder                                   CucsMacpoolPoolAssignmentOrder,
+    cucsMacpoolPoolPolicyLevel                                       Gauge32,
+    cucsMacpoolPoolPolicyOwner                                       CucsPolicyPolicyOwner
+}
+
+cucsMacpoolPoolInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMacpoolPoolEntry 1 }
+
+cucsMacpoolPoolDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:dn managed object property"
+    ::= { cucsMacpoolPoolEntry 2 }
+
+cucsMacpoolPoolRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:rn managed object property"
+    ::= { cucsMacpoolPoolEntry 3 }
+
+cucsMacpoolPoolAssigned OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:assigned managed object property"
+    ::= { cucsMacpoolPoolEntry 4 }
+
+cucsMacpoolPoolDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:descr managed object property"
+    ::= { cucsMacpoolPoolEntry 5 }
+
+cucsMacpoolPoolIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:intId managed object property"
+    ::= { cucsMacpoolPoolEntry 6 }
+
+cucsMacpoolPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:name managed object property"
+    ::= { cucsMacpoolPoolEntry 7 }
+
+cucsMacpoolPoolSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:size managed object property"
+    ::= { cucsMacpoolPoolEntry 8 }
+
+cucsMacpoolPoolAssignmentOrder OBJECT-TYPE
+    SYNTAX       CucsMacpoolPoolAssignmentOrder
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:assignmentOrder managed object property"
+    ::= { cucsMacpoolPoolEntry 9 }
+
+cucsMacpoolPoolPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:policyLevel managed object property"
+    ::= { cucsMacpoolPoolEntry 10 }
+
+cucsMacpoolPoolPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pool:policyOwner managed object property"
+    ::= { cucsMacpoolPoolEntry 11 }
+
+cucsMacpoolPoolableTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMacpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS macpool:Poolable managed object table"
+    ::= { cucsMacpoolObjects 5 }
+
+cucsMacpoolPoolableEntry OBJECT-TYPE
+    SYNTAX           CucsMacpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMacpoolPoolableTable table."
+    INDEX { cucsMacpoolPoolableInstanceId }
+    ::= { cucsMacpoolPoolableTable 1 }
+
+CucsMacpoolPoolableEntry ::= SEQUENCE {
+    cucsMacpoolPoolableInstanceId                                    CucsManagedObjectId,
+    cucsMacpoolPoolableDn                                            CucsManagedObjectDn,
+    cucsMacpoolPoolableRn                                            SnmpAdminString,
+    cucsMacpoolPoolableId                                            Unsigned64,
+    cucsMacpoolPoolablePoolDn                                        SnmpAdminString
+}
+
+cucsMacpoolPoolableInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMacpoolPoolableEntry 1 }
+
+cucsMacpoolPoolableDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Poolable:dn managed object property"
+    ::= { cucsMacpoolPoolableEntry 2 }
+
+cucsMacpoolPoolableRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Poolable:rn managed object property"
+    ::= { cucsMacpoolPoolableEntry 3 }
+
+cucsMacpoolPoolableId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Poolable:id managed object property"
+    ::= { cucsMacpoolPoolableEntry 4 }
+
+cucsMacpoolPoolablePoolDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Poolable:poolDn managed object property"
+    ::= { cucsMacpoolPoolableEntry 5 }
+
+cucsMacpoolPooledTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMacpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled managed object table"
+    ::= { cucsMacpoolObjects 6 }
+
+cucsMacpoolPooledEntry OBJECT-TYPE
+    SYNTAX           CucsMacpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMacpoolPooledTable table."
+    INDEX { cucsMacpoolPooledInstanceId }
+    ::= { cucsMacpoolPooledTable 1 }
+
+CucsMacpoolPooledEntry ::= SEQUENCE {
+    cucsMacpoolPooledInstanceId                                      CucsManagedObjectId,
+    cucsMacpoolPooledDn                                              CucsManagedObjectDn,
+    cucsMacpoolPooledRn                                              SnmpAdminString,
+    cucsMacpoolPooledAssigned                                        TruthValue,
+    cucsMacpoolPooledAssignedToDn                                    SnmpAdminString,
+    cucsMacpoolPooledId                                              MacAddress,
+    cucsMacpoolPooledPoolableDn                                      SnmpAdminString,
+    cucsMacpoolPooledPrevAssignedToDn                                SnmpAdminString
+}
+
+cucsMacpoolPooledInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMacpoolPooledEntry 1 }
+
+cucsMacpoolPooledDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled:dn managed object property"
+    ::= { cucsMacpoolPooledEntry 2 }
+
+cucsMacpoolPooledRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled:rn managed object property"
+    ::= { cucsMacpoolPooledEntry 3 }
+
+cucsMacpoolPooledAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled:assigned managed object property"
+    ::= { cucsMacpoolPooledEntry 4 }
+
+cucsMacpoolPooledAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled:assignedToDn managed object property"
+    ::= { cucsMacpoolPooledEntry 5 }
+
+cucsMacpoolPooledId OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled:id managed object property"
+    ::= { cucsMacpoolPooledEntry 6 }
+
+cucsMacpoolPooledPoolableDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled:poolableDn managed object property"
+    ::= { cucsMacpoolPooledEntry 7 }
+
+cucsMacpoolPooledPrevAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Pooled:prevAssignedToDn managed
+        object property"
+    ::= { cucsMacpoolPooledEntry 8 }
+
+cucsMacpoolUniverseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMacpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS macpool:Universe managed object table"
+    ::= { cucsMacpoolObjects 7 }
+
+cucsMacpoolUniverseEntry OBJECT-TYPE
+    SYNTAX           CucsMacpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMacpoolUniverseTable table."
+    INDEX { cucsMacpoolUniverseInstanceId }
+    ::= { cucsMacpoolUniverseTable 1 }
+
+CucsMacpoolUniverseEntry ::= SEQUENCE {
+    cucsMacpoolUniverseInstanceId                                    CucsManagedObjectId,
+    cucsMacpoolUniverseDn                                            CucsManagedObjectDn,
+    cucsMacpoolUniverseRn                                            SnmpAdminString
+}
+
+cucsMacpoolUniverseInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMacpoolUniverseEntry 1 }
+
+cucsMacpoolUniverseDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Universe:dn managed object property"
+    ::= { cucsMacpoolUniverseEntry 2 }
+
+cucsMacpoolUniverseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS macpool:Universe:rn managed object property"
+    ::= { cucsMacpoolUniverseEntry 3 }
+
+END

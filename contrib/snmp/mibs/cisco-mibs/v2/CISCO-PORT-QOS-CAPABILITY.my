@@ -1,0 +1,232 @@
+-- 
+-- *****************************************************************
+-- CISCO-PORT-QOS-CAPABILITY - Capabilities Agent for PORT-QOS MIB.
+--
+-- Jan 2001, Ranbir Parmar
+--
+-- Copyright (c) 2001-2008 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-PORT-QOS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        Integer32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoPortQosCapability MODULE-IDENTITY
+                LAST-UPDATED    "200809250000Z"
+                ORGANIZATION    "Cisco Systems, Inc."
+                CONTACT-INFO
+                        "       Cisco Systems
+                                Customer Service
+
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+
+                           Tel: +1 800 553-NETS
+
+                        E-mail: cs-port-qos@cisco.com"
+                DESCRIPTION
+                        "Agent capabilities for the CISCO-PORT-QOS-MIB"
+                REVISION        "200809250000Z"
+                DESCRIPTION
+                        "Added ciscoPortQosCapabilityV12R0250SE
+                        capabilities."
+                REVISION        "200102050000Z"
+                DESCRIPTION
+                        "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 209 }
+
+ciscoPortQosCapabilityCat2948gL3 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.0"
+STATUS          current
+DESCRIPTION     "IOS 12.0 Cisco PORT QOS MIB capabilities"
+
+SUPPORTS        CISCO-PORT-QOS-MIB
+  INCLUDES      { ciscoPortQosMIBGroup }
+
+  VARIATION cportQosRLConfigRate
+    SYNTAX    Integer32 (32000..1000000000)
+    DESCRIPTION "Cat2948g-l3 is a Layer 3 Router switch for Campus LAN.
+                 The range of values for cportQosRLConfigRate 
+                 Rate supported on this platform, is specified above."
+
+  VARIATION cportQosTSConfigRate
+    SYNTAX    Integer32 (32000..1000000000)
+    DESCRIPTION "Cat2948g-l3 is a Layer 3 Router switch for Campus LAN.
+                 The range of values for cportQosTSConfigRate
+                 Rate supported on this platform, is specified above."
+
+::= { ciscoPortQosCapability 1 }
+
+ciscoPortQosCapabilityV12R0250SE AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.2(50)SE"
+STATUS          current
+DESCRIPTION     "MIB Capability from IOS release 12.2(50)SE."
+
+SUPPORTS        CISCO-PORT-QOS-MIB
+  INCLUDES      {
+                  ciscoPortQosStatsMIBGroupRev2,
+                  ciscoPortQosStatsMIBGroupRev2Supp1,
+                  ciscoPortQosStatsMIBGroupRev2Supp4,
+                  ciscoPortQosStatsMIBGroupRev2Supp5,
+                  ciscoPortQosStatsMIBGroupRev2Supp6,
+                  ciscoPortQosStatsMIBGroupRev2Supp7,
+                  ciscoPortQosStatsMIBGroupRev2Supp8
+                }
+
+  VARIATION    cportQosIndexTypeNew
+    SYNTAX     INTEGER  {
+                   none(1),
+                   dscp(2),
+                   cos(4),
+                   police(5)
+                   }
+
+    DESCRIPTION  "ipPrecedence(3) not supported."
+
+  VARIATION    cportQosPrePolicyOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPostPolicyOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosClassifiedOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosClassifiedPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosNoChangePkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosNoChangeOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+ 
+  VARIATION    cportQosInProfPolicyPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosOutOfProfPolicyPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosVlanInProfPolicyPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x."
+
+  VARIATION    cportQosVlanOutOfProfPolicyPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosQueueEnqueuePkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3400me and 2400me." 
+
+  VARIATION    cportQosQueueDropPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3400me and 2400me." 
+
+  VARIATION    cportQosClassName
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosClassEnqueuePkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosClassDropPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+  
+  VARIATION    cportQosClassDiscontinuityTime
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosClassNameLevel1
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+    VARIATION    cportQosClassNameLevel2
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosPoliceConformPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosPoliceConformOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPoliceExceedPkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported by 3750x and 3560x." 
+
+  VARIATION    cportQosPoliceExceedOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPoliceViolatePkts
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPoliceViolateOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPoliceConformRate
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPoliceExceedRate
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPoliceViolateRate
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosPoliceDiscontinuityTime
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosDscpIngressOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosDscpEgressOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosCosIngressOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+  VARIATION    cportQosCosEgressOctets
+    ACCESS       not-implemented
+    DESCRIPTION  "Not supported."
+
+::= { ciscoPortQosCapability 2 }
+
+
+END
+
+
+

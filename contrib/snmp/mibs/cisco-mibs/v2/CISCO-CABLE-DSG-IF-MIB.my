@@ -1,0 +1,380 @@
+--
+-- ******************************************************************
+-- CISCO-CABLE-DSG-IF-MIB.my:
+--      Cisco Cable DOCSIS Set-top Gateway interface MIB file 
+--
+-- March 2004, Azlina Ahmad 
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ******************************************************************
+
+CISCO-CABLE-DSG-IF-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+      MODULE-IDENTITY,
+      OBJECT-TYPE,
+      Unsigned32,
+      Integer32
+           FROM SNMPv2-SMI
+      MacAddress,
+      RowStatus
+           FROM SNMPv2-TC
+      OBJECT-GROUP,
+      MODULE-COMPLIANCE
+           FROM SNMPv2-CONF
+      InetAddressType,
+      InetAddress
+           FROM INET-ADDRESS-MIB
+      SnmpAdminString
+           FROM SNMP-FRAMEWORK-MIB
+      InterfaceIndex
+           FROM IF-MIB
+      ciscoExperiment
+           FROM CISCO-SMI;
+
+ciscoCableDsgIfMIB MODULE-IDENTITY 
+    LAST-UPDATED    "200403290000Z"
+    ORGANIZATION    "Cisco Systems, Inc." 
+    CONTACT-INFO 
+	"           Cisco Systems
+                  Customer Service
+
+	Postal: 170 West Tasman Dr 
+	        San Jose, CA 95134
+	        U.S.A. 
+	Phone: +1 800 553-NETS
+	E-mail: cs-ubr@cisco.com" 
+    DESCRIPTION 
+        "This is the MIB Module for the DOCSIS Set-top Gateway
+        (DSG). The DSG provides a one-way IP datagram transport 
+        for Out-Of-Band (OOB) messaging to cable set-top terminals.
+        The one-way IP datagram transport is called a DSG Tunnel.
+        A DSG Tunnel is a multicast IP datagram stream originating
+        at the DOCSIS Set-top Gateway and carrying Out-Of-Band 
+        messages intended for set-top terminals. It is carried over
+        one or more downstream DOCSIS channels and is identified by
+        a well know Ethernet unicast MAC address. The well-known
+        Ethernet unicast MAC address is reserved and published
+        by the Conditional Access/Point Of Deployment (CA/POD)
+        provider. A CA/POD provider is limited to eight DSG Tunnels
+        to transport their OOB Messaging. Multiple DSG Tunnels may 
+        exist on a single downstream DOCSIS channel. 
+        This MIB is implemented as 3 groups, the CA Vendor Table, 
+        the DSG Tunnel Table and the Downstream Table.
+        
+        1) The DSG CA Vendor Table associates a CA Vendor Name with
+           a CA Vendor Index and the current count of tunnels 
+           carrying this CA OOB 
+        2) The DSG Tunnel Table associates an input IP Address and
+           an output MAC Address with a CA Vendor Index.
+        3) The DSG Downstream Table associates a tunnel Index with a
+           DOCSIS downstream channel interface index (ifIndex).
+	
+        These tables are all dynamic in nature. Individual rows can
+        be created or deleted as necessary. In general, the DSG is
+        configured once per CA system." 
+ 
+    REVISION "200403290000Z" 
+    DESCRIPTION 
+        "Initial revision, extracted from DOCSIS Set-top 
+        Gateway Specification." 
+    ::= { ciscoExperiment 999 } 
+
+ccdsgIfCaVendor   OBJECT IDENTIFIER ::= { ciscoCableDsgIfMIB 1 }
+ccdsgIfTunnel     OBJECT IDENTIFIER ::= { ciscoCableDsgIfMIB 2 }
+ccdsgIfDownstream OBJECT IDENTIFIER ::= { ciscoCableDsgIfMIB 3 }
+
+-- The CA Vendor Table contains the CA Vendor Index, the CA Vendor 
+-- Name and the number of configured tunnel(s) for this CA vendor. 
+
+ccdsgIfCaVendorTable OBJECT-TYPE 
+    SYNTAX     SEQUENCE OF CcdsgIfCaVendorEntry 
+    MAX-ACCESS not-accessible 
+    STATUS     current
+    DESCRIPTION 
+        "The DSG CA Vendor Table associates a CA Vendor Index
+        with the CA Vendor Name and the number of tunnels
+        that carry the CA Vendor's OOB Messaging." 
+    ::= { ccdsgIfCaVendor 1 } 
+
+ccdsgIfCaVendorEntry OBJECT-TYPE 
+    SYNTAX     CcdsgIfCaVendorEntry 
+    MAX-ACCESS not-accessible 
+    STATUS     current 
+    DESCRIPTION 
+        "An entry in the CA Vendor Table. Rows are created 
+        by an SNMP SET request setting the value of 
+        ccdsgifCaVendorRowStatus to 'createAndGo' or 
+        'createAndWait'. Rows are deleted by an SNMP SET 
+        request setting the value of ccdsgifCaVendorRowStatus to 
+        'destroy'. Active CA (that are associated to the tunnel)
+        cannot be detroyed till association is removed." 
+    INDEX { ccdsgIfCaVendorIndex }
+    ::= { ccdsgIfCaVendorTable 1 } 
+
+CcdsgIfCaVendorEntry ::=  SEQUENCE {
+    ccdsgIfCaVendorIndex      Unsigned32,
+    ccdsgIfCaVendorName       SnmpAdminString,
+    ccdsgIfCaVendorTunnelCnt  Integer32,
+    ccdsgIfCaVendorRowStatus  RowStatus
+    }
+
+ccdsgIfCaVendorIndex OBJECT-TYPE 
+    SYNTAX     Unsigned32(1..65535)
+    MAX-ACCESS not-accessible 
+    STATUS     current 
+    DESCRIPTION 
+        "The row index into the CA Vendor Table" 
+    ::= { ccdsgIfCaVendorEntry 1 } 
+
+ccdsgIfCaVendorName OBJECT-TYPE 
+    SYNTAX     SnmpAdminString (SIZE(1..20))
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The name of the CA Vendor."
+    ::= { ccdsgIfCaVendorEntry 2 } 
+
+ccdsgIfCaVendorTunnelCnt OBJECT-TYPE
+    SYNTAX     Integer32(0..8)
+    MAX-ACCESS read-only
+    STATUS     current 
+    DESCRIPTION
+        "The total count of Tunnel(s) configured for
+        the CA vendor. 
+        The value 0 implies that no tunnel is currently 
+        configured for this CA vendor."
+    ::= { ccdsgIfCaVendorEntry 3 } 
+
+ccdsgIfCaVendorRowStatus OBJECT-TYPE 
+    SYNTAX     RowStatus 
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The status of the row.  A value of active(1) 
+        indicates that DSG forwards OOB messages onto the
+        DSG Tunnel."
+    ::= { ccdsgIfCaVendorEntry 4 } 
+
+-- The DSG Tunnel Table - contains the DSG Tunnel Index, the input
+-- IP Address, the output MAC Address and the CA Vendor Index.
+
+ccdsgIfTunnelTable OBJECT-TYPE 
+    SYNTAX     SEQUENCE OF CcdsgIfTunnelEntry 
+    MAX-ACCESS not-accessible 
+    STATUS     current 
+    DESCRIPTION
+        "The DSG Tunnel Table associates an input IP Address and 
+        an output MAC Address with a CA Vendor Index."
+    ::= { ccdsgIfTunnel 1 } 
+ 
+ccdsgIfTunnelEntry OBJECT-TYPE 
+    SYNTAX     CcdsgIfTunnelEntry 
+    MAX-ACCESS not-accessible 
+    STATUS     current 
+    DESCRIPTION
+        "An entry in the DSG Tunnel Table. Rows are created by
+        an SNMP SET request setting the value of
+        ccdsgIfTunnelRowStatus to 'createAndGo' or 'createAndWait'.
+        Rows are deleted by an SNMP SET request setting the
+        value of ccdsgIfTunnelRowStatus to 'destroy'."
+    INDEX { ccdsgIfTunnelIndex }
+    ::= { ccdsgIfTunnelTable 1 }
+
+CcdsgIfTunnelEntry ::= SEQUENCE {
+    ccdsgIfTunnelIndex            Unsigned32,
+    ccdsgIfTunnelInAddressType    InetAddressType,
+    ccdsgIfTunnelInIpAddress      InetAddress,
+    ccdsgIfTunnelMacAddress       MacAddress,
+    ccdsgIfTunnelCaVendorIndex    Unsigned32,   
+    ccdsgIfTunnelRowStatus        RowStatus
+    }
+
+ccdsgIfTunnelIndex OBJECT-TYPE 
+    SYNTAX     Unsigned32(1..65535)
+    MAX-ACCESS not-accessible
+    STATUS     current 
+    DESCRIPTION 
+        "The row index into the DSG Tunnel table." 
+    ::= { ccdsgIfTunnelEntry 1 } 
+
+ccdsgIfTunnelInAddressType OBJECT-TYPE 
+    SYNTAX     InetAddressType 
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The type of internet address of ccdsgIfTunnelInIpAddress. 
+        Cannot be changed if the value of ccdsgIfTunnelRowStatus 
+        is active." 
+    ::= { ccdsgIfTunnelEntry 2 } 
+
+ccdsgIfTunnelInIpAddress OBJECT-TYPE 
+    SYNTAX     InetAddress 
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The DSG Tunnel Input IP address. Cannot be changed 
+        if the value of ccdsgIfTunnelRowStatus is active." 
+    ::= { ccdsgIfTunnelEntry 3 } 
+
+ccdsgIfTunnelMacAddress OBJECT-TYPE
+    SYNTAX     MacAddress 
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The the DSG Tunnel Output MAC address. Cannot be 
+        changed if the value of ccdsgTunnelRowStatus is active." 
+    ::= { ccdsgIfTunnelEntry 4 } 
+
+ccdsgIfTunnelCaVendorIndex OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..65535)
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The index in ccdsgIfCaVendorTable describing the vendor
+        information associated with this particular tunnel.
+        If no associated entry in ccdsgIfCaVendorTable exists,
+        this object should be zero." 
+    ::= { ccdsgIfTunnelEntry 5 } 
+
+ccdsgIfTunnelRowStatus OBJECT-TYPE 
+    SYNTAX     RowStatus 
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The status of the row." 
+    ::= { ccdsgIfTunnelEntry 6 }
+
+-- The Downstream Table associates tunnel Index with a DOCSIS 
+-- downstream channel interface index (ifIndex). All DSG Tunnels 
+-- with that tunnel Index are carried on this DOCSIS downstream 
+-- channel.  
+
+ccdsgIfDownstreamTable OBJECT-TYPE 
+    SYNTAX     SEQUENCE OF CcdsgIfDownstreamEntry 
+    MAX-ACCESS not-accessible 
+    STATUS     current 
+    DESCRIPTION 
+        "The DSG Downstream Table associates a Tunnel Index
+        with a DOCSIS downstream channel interface index 
+        (ifIndex). It could have a same tunnel associated to
+        multiple downstream channel and vise versa." 
+    ::= { ccdsgIfDownstream 1 } 
+
+ccdsgIfDownstreamEntry OBJECT-TYPE 
+    SYNTAX     CcdsgIfDownstreamEntry 
+    MAX-ACCESS not-accessible 
+    STATUS     current 
+    DESCRIPTION
+        "An entry in the DSG Downstream Table. Rows are  
+        created by an SNMP SET request setting the value  
+        of ccdsgIfDownRowStatus to 'createAndGo' or 
+        'createAndWait'. Rows are deleted by an SNMP SET 
+        request setting the value of ccdsgIfDownRowStatus 
+        to 'destroy'." 
+    INDEX { ccdsgIfDownDsgIndex  }  
+    ::= { ccdsgIfDownstreamTable 1 } 
+
+CcdsgIfDownstreamEntry ::= SEQUENCE {
+    ccdsgIfDownDsgIndex     Unsigned32,
+    ccdsgIfDownTunnelIndex  Unsigned32,
+    ccdsgIfDownIfIndex      InterfaceIndex,
+    ccdsgIfDownRowStatus    RowStatus
+    }
+
+ccdsgIfDownDsgIndex OBJECT-TYPE 
+    SYNTAX     Unsigned32(1..65535)
+    MAX-ACCESS not-accessible
+    STATUS     current 
+    DESCRIPTION 
+        "The row index into the the downstream DSG table." 
+    ::= { ccdsgIfDownstreamEntry 1 } 
+
+ccdsgIfDownTunnelIndex OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..65535)
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The index in ccdsgIfTunnelTable (ccdsgIfTunnelIndex)
+        describing the Tunnel information associated with
+        particular downstream(s)."
+    ::= { ccdsgIfDownstreamEntry 2 } 
+
+ccdsgIfDownIfIndex OBJECT-TYPE
+    SYNTAX     InterfaceIndex
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The interface index (ifIndex) of this downstream."
+    ::= { ccdsgIfDownstreamEntry 3 } 
+
+ccdsgIfDownRowStatus OBJECT-TYPE 
+    SYNTAX     RowStatus 
+    MAX-ACCESS read-create 
+    STATUS     current 
+    DESCRIPTION 
+        "The status of the row." 
+    ::= { ccdsgIfDownstreamEntry 4 }
+-- 
+-- Conformance definitions 
+-- 
+ciscoCableDsgIfConformance 
+              OBJECT IDENTIFIER ::= { ciscoCableDsgIfMIB 4 } 
+ciscoCableDsgIfCompliances
+              OBJECT IDENTIFIER ::= { ciscoCableDsgIfConformance 1 }
+ciscoCableDsgIfGroups      
+              OBJECT IDENTIFIER ::= { ciscoCableDsgIfConformance 2 }  
+
+ccdsgIfBasicCompliance MODULE-COMPLIANCE 
+    STATUS     current 
+    DESCRIPTION
+        "The compliance statement for DOCSIS Set-top Gateway 
+        systems."
+    MODULE -- ciscoCableDsgIfMIB
+        MANDATORY-GROUPS {
+            ccdsgIfCaVendorGroup,
+            ccdsgIfTunnelGroup,
+            ccdsgIfDownstreamGroup
+            }
+    ::= { ciscoCableDsgIfCompliances 1 }
+
+-- units of conformance
+
+ccdsgIfCaVendorGroup OBJECT-GROUP 
+    OBJECTS {
+        ccdsgIfCaVendorName,
+        ccdsgIfCaVendorTunnelCnt,
+        ccdsgIfCaVendorRowStatus
+        }
+    STATUS     current
+    DESCRIPTION 
+        "A collection of objects providing CA Vendor
+        configuration." 
+    ::= { ciscoCableDsgIfGroups 1 } 
+
+ccdsgIfTunnelGroup OBJECT-GROUP 
+    OBJECTS {
+        ccdsgIfTunnelInAddressType,
+        ccdsgIfTunnelInIpAddress,
+        ccdsgIfTunnelMacAddress,
+        ccdsgIfTunnelCaVendorIndex,
+        ccdsgIfTunnelRowStatus	
+        }
+    STATUS     current 
+    DESCRIPTION 
+        "A collection of objects providing DSG Tunnel 
+        configuration." 
+    ::= { ciscoCableDsgIfGroups 2 } 
+
+ccdsgIfDownstreamGroup OBJECT-GROUP
+    OBJECTS {
+        ccdsgIfDownTunnelIndex,
+        ccdsgIfDownIfIndex,
+        ccdsgIfDownRowStatus	
+        }
+    STATUS     current 
+    DESCRIPTION 
+        "A collection of objects providing DSG Downstream 
+        configuration." 
+    ::= { ciscoCableDsgIfGroups 3 } 
+END

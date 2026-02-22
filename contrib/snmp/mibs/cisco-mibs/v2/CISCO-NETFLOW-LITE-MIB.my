@@ -1,0 +1,924 @@
+-- *****************************************************************
+-- CISCO-NETFLOW-LITE-MIB.my
+--  
+-- Sep. 2011, Kay Shang
+--  
+-- Copyright (c) 2011 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+    
+CISCO-NETFLOW-LITE-MIB DEFINITIONS ::= BEGIN
+        
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter64
+        FROM SNMPv2-SMI
+        
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    
+    RowStatus,
+    StorageType
+        FROM SNMPv2-TC
+        
+    ifIndex
+        FROM IF-MIB
+        
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+
+    Dscp
+        FROM DIFFSERV-DSCP-TC
+
+    Layer2Cos,
+    CiscoVrfName
+        FROM CISCO-TC
+
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoNetflowLiteMIB MODULE-IDENTITY
+    LAST-UPDATED    "201109140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB provides a method to configure Netflow-lite feature
+        and get information in these areas:
+
+                 1. Exporter config information and statistics.
+                 2. Sampler config information.
+                 3. Monitor config information and statistics.
+
+        The following terms are used throughout this MIB:
+                 Flow
+                 A flow is defined as a unidirectional sequence of
+                 packets between a given source and destination
+                 endpoints. Network flows are highly granular;
+                 flow endpoints are identified both by IP address as
+                 well as by transport layer application port numbers.
+                 Netflow also utilizes the IP Protocol type,
+                 Type of Service (ToS) and the input interface
+                 identifier to uniquely identify flows.
+
+                 Netflow
+                 Netflow is a network protocol developed by Cisco to
+                 run on Cisco equipment for collecting IP traffic flow.
+                 With the Netflow feature enabled, Netflow records are
+                 generated, then exported in User Datagram Protocol(UDP)
+                 or Stream Control Transmission Protocol(SCTP) packets
+                 and collected using a Netflow collector.
+
+                 Netflow-lite
+                 A basic packet sampling Netflow based implementation.
+
+                 Exporter
+                 A device (for example, a router or a switch) with 
+                 Netflow services enabled. The exporter monitors packets
+                 entering an observation point and creates flows out
+                 of these packets. The information from these flows
+                 are exported in the form of Flow Records to
+                 the collector.
+
+                 Template
+                 Netflow Version 9 Export format is template based.
+                 Version 9 record format consists of a packet header
+                 followed by at least one or more template or data
+                 FlowSets. A template FlowSet (collection of one or more
+                 template) provides a description of the fields that
+                 will be present in future data FlowSets. Templates
+                 provide an extensible design to the record format,
+                 a feature that should allow future enhancements to
+                 Netflow services without requiring concurrent changes
+                 to the basic flow-record format."
+
+    REVISION        "201109140000Z"
+    DESCRIPTION
+        "Initial version of the MIB module."
+    ::= { ciscoMgmt 776 }
+
+
+ciscoNetflowLiteMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNetflowLiteMIB 0 }
+
+ciscoNetflowLiteMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoNetflowLiteMIB 1 }
+
+ciscoNetflowLiteMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoNetflowLiteMIB 2 }
+
+cnlExporter
+    OBJECT IDENTIFIER ::= { ciscoNetflowLiteMIBObjects 1 }
+cnlSampler
+    OBJECT IDENTIFIER ::= { ciscoNetflowLiteMIBObjects 2 }
+cnlMonitor
+    OBJECT IDENTIFIER ::= { ciscoNetflowLiteMIBObjects 3 }
+
+
+--
+-- cnlExporter group
+--
+
+cnlMaxExporterAllowed OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the maximum number of entries that can be configured
+        in cnlExporterTable.  A value of zero indicates no limit on the
+         numbers of  entries in the cnlExporterTable."
+    ::= { cnlExporter 1 }
+
+--
+-- Exporter Table
+--
+cnlExporterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnlExporterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains Netflow-lite exporter entries. A row is created for
+        each Netflow-lite exporter configured in a device.
+        A row cannot be removed when it's being used in 
+        cnlIfMonitorEntry."
+    ::= { cnlExporter 2 }
+
+cnlExporterEntry OBJECT-TYPE
+    SYNTAX          CnlExporterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the management information of Netflow-lite
+        exporter."
+    INDEX        { IMPLIED cnlExporterName }
+    ::= { cnlExporterTable 1 }
+
+CnlExporterEntry ::= SEQUENCE {
+        cnlExporterName                   SnmpAdminString,
+        cnlExportAddrType                 InetAddressType,
+        cnlExportDestinationAddr          InetAddress,
+        cnlExportDestinationUdpPort       InetPortNumber,
+        cnlExportDestinationUdpLoadShare  Unsigned32,
+        cnlExportSourceAddr               InetAddress,
+        cnlExportSourceUdpPort            InetPortNumber,
+        cnlExportVrf                      CiscoVrfName,
+        cnlExportTtl                      Unsigned32,
+        cnlExportCos                      Layer2Cos,
+        cnlExportDscp                     Dscp,
+        cnlExportTemplateTimeout          Unsigned32,
+        cnlExportSamplerTableTimeout      Unsigned32,
+        cnlExportInterfaceTableTimeout    Unsigned32,
+        cnlExportProtocol                 INTEGER,
+        cnlPacketExported                 Counter64,
+        cnlExporterStorageType            StorageType,
+        cnlExporterRowStatus              RowStatus
+}
+
+cnlExporterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Exporter name identifying a particular Netflow-lite
+        exporter configuration."
+    ::= { cnlExporterEntry 1 }
+
+cnlExportAddrType OBJECT-TYPE
+    SYNTAX     InetAddressType
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the type of IP address used by 
+        cnlExportDestinationAddr and cnlExportSourceAddr."
+    DEFVAL     { ipv4 }
+    ::= { cnlExporterEntry 2 }
+
+cnlExportDestinationAddr OBJECT-TYPE
+    SYNTAX     InetAddress
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the Netflow-lite collector's IP address,
+        used to construct the L3 header of export packet.
+
+        The type of this address is determined by the
+        cnlExportAddrType object."
+    ::= { cnlExporterEntry 3 }
+
+cnlExportDestinationUdpPort OBJECT-TYPE
+    SYNTAX     InetPortNumber
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the collector's UDP port, on which the remote 
+        collector can listen for export packets."
+    DEFVAL     { 0 }
+    ::= { cnlExporterEntry 4 }
+
+cnlExportDestinationUdpLoadShare OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..16)
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the number of destination UDP ports used for load 
+        sharing. The export datagrams will use a UDP destination port 
+        number that round robins between a set of consecutive 
+        destination UDP port numbers starting with based UDP port 
+        specified by cnlExportDestinationUdpPort."
+    DEFVAL     { 1 }
+    ::= { cnlExporterEntry 5 }
+
+cnlExportSourceAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the source IP address used in export packet
+        L3 header.
+
+        The type of this address is determined by the
+        cnlExportAddrType object."
+    ::= { cnlExporterEntry 6 }
+
+cnlExportSourceUdpPort OBJECT-TYPE
+    SYNTAX     InetPortNumber
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the source UDP port used in export packets."
+    ::= { cnlExporterEntry 7 }
+
+cnlExportVrf OBJECT-TYPE
+    SYNTAX          CiscoVrfName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Virtual Routing and Forwarding (VRF) domain of
+        the collector. A zero length string indicates that there is
+        no VRF domain configured and the default VRF domain is used."
+    DEFVAL          { "" }
+    ::= { cnlExporterEntry 8 }
+
+cnlExportTtl OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..254)
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the Time To Live (TTL) value to be used in the
+        export packet header."
+    DEFVAL     { 254 }
+    ::= { cnlExporterEntry 9 }
+
+cnlExportCos OBJECT-TYPE
+    SYNTAX     Layer2Cos
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the Class of Service (CoS) value of the export
+        packet header."
+    DEFVAL     { 0 }
+    ::= { cnlExporterEntry 10 }
+
+cnlExportDscp OBJECT-TYPE
+    SYNTAX     Dscp
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the Differentiated Services Code-Point (DSCP) value
+        of the export packet header."
+    DEFVAL     { 0 }
+    ::= { cnlExporterEntry 11 }
+
+cnlExportTemplateTimeout OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The maximum time the template data can exist in queue
+        before it's exported out."
+    DEFVAL     { 1800 }
+    ::= { cnlExporterEntry 12 }
+
+cnlExportSamplerTableTimeout OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The maximum time the sampler table data can exist in queue
+        before it's exported out."
+    DEFVAL          { 1800 }
+    ::= { cnlExporterEntry 13 }
+
+cnlExportInterfaceTableTimeout OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The maximum time the interface table data can exist in queue
+        table before it's exported out."
+    DEFVAL          { 1800 }
+    ::= { cnlExporterEntry 14 }
+
+cnlExportProtocol OBJECT-TYPE
+    SYNTAX         INTEGER  {
+                        ipFix(1),
+                        netflowV9(2)
+                    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Specifies the Netflow data export protocol.
+
+           ipFix:     The IP Flow Information Export protocol.
+           netflowV9: Netflow services export protocol version 9."
+    DEFVAL     { netflowV9 }
+    ::= { cnlExporterEntry 15 }
+
+cnlPacketExported OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of packets which have been exported."
+    ::= { cnlExporterEntry 16 }
+
+cnlExporterStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the storage type for this conceptual row."
+    DEFVAL          { volatile }
+    ::= { cnlExporterEntry 17 }
+
+cnlExporterRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        The new entry can be created by setting this object value to
+        'createAndGo'.
+
+        The entry may not be deleted via by setting its value to
+        'destroy' if the value of cnlExporterName is used in 
+        cnlIfExporterName.
+
+        When rows in 'active', all writable objects can be modified."
+    ::= { cnlExporterEntry 18 }
+
+
+--
+-- cnlSampler group
+--
+
+cnlMaxSamplerAllowed OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the maximum number of entries that can be configured
+        in cnlSamplerTable.  A value of zero indicates no limit on the
+        numbers of  entries in the cnlSamplerTable."
+    ::= { cnlSampler 1 }
+
+--
+-- Sampler Table
+--
+cnlSamplerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnlSamplerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains Netflow-lite sampler entries. A row is created 
+        for each Netflow-lite sampler configured in a device.
+
+        A row cannot be removed when it's being used in 
+        cnlIfMonitorEntry."
+    ::= { cnlSampler 2 }
+
+cnlSamplerEntry OBJECT-TYPE
+    SYNTAX          CnlSamplerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the management information of Netflow-lite
+        sampler."
+    INDEX           { IMPLIED cnlSamplerName }
+    ::= { cnlSamplerTable 1 }
+
+CnlSamplerEntry ::= SEQUENCE {
+        cnlSamplerName               SnmpAdminString,
+        cnlSamplerPacketRate         Unsigned32,
+        cnlSamplerPacketSectionSize  Unsigned32,
+        cnlSamplerPacketOffset       Unsigned32,
+        cnlSamplerStorageType        StorageType,
+        cnlSamplerRowStatus          RowStatus
+}
+
+cnlSamplerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Sampler name identifying a particular Netflow-lite
+        sampler configuration."
+    ::= { cnlSamplerEntry 1 }
+
+
+cnlSamplerPacketRate OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies packet being sampled at 1-in-N packets rate in
+        powers of 2, for example, 1-in-64."
+    DEFVAL      { 1 }
+    ::= { cnlSamplerEntry 2 }
+
+
+cnlSamplerPacketSectionSize OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "bytes"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies length of packet section that was extracted for 
+        export."
+    DEFVAL      { 64 }
+    ::= { cnlSamplerEntry 3 }
+
+
+cnlSamplerPacketOffset OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies the starting offset of packet section that was 
+        extracted for export."
+    DEFVAL      { 0 }
+    ::= { cnlSamplerEntry 4 }
+
+cnlSamplerStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the storage type for this conceptual row."
+    DEFVAL          { volatile }
+    ::= { cnlSamplerEntry 5 }
+
+
+cnlSamplerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        The new entry can be created by setting this object value to
+        'createAndGo'.
+
+        The entry may not be deleted via by setting its value to
+        'destroy' if this sampler is used in cnlIfSamplerName.
+
+        When rows in 'active', all writable objects can be modified."
+    ::= { cnlSamplerEntry 6 }
+
+
+--
+-- Monitor Group
+--
+
+cnlIfMonitorTable     OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnlIfMonitorEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains Netflow-lite monitor entries. A row is created to
+        activate traffic sampling on the interface."
+    ::= { cnlMonitor 1 }
+
+
+cnlIfMonitorEntry OBJECT-TYPE
+    SYNTAX          CnlIfMonitorEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the management information of Netflow-lite
+        monitor."
+    INDEX    { ifIndex, IMPLIED cnlIfMonitorSessionName}
+
+    ::= { cnlIfMonitorTable 1 }
+
+
+CnlIfMonitorEntry ::= SEQUENCE {
+        cnlIfMonitorSessionName          SnmpAdminString,
+        cnlIfMonitorActiveStatus         INTEGER,
+        cnlIfSamplerName                 SnmpAdminString,
+        cnlIfExporterName                SnmpAdminString,
+        cnlIfAveragePacketSize           Unsigned32,
+        cnlIfAveragePacketSizeObserved   Unsigned32,
+        cnlIfAveragePacketSizeUsed       Unsigned32,
+        cnlIfMonitorPktsObserved         Counter64,
+        cnlIfMonitorPktsExported         Counter64,
+        cnlIfMonitorPktsDropped          Counter64,
+        cnlIfMonitorStorageType          StorageType,
+        cnlIfMonitorRowStatus            RowStatus
+}
+
+
+cnlIfMonitorSessionName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Monitor session name identifying a particular Netflow-lite
+        monitor configuration."
+    ::= { cnlIfMonitorEntry 1 }
+
+
+cnlIfMonitorActiveStatus OBJECT-TYPE
+    SYNTAX          INTEGER {
+                      active(1),
+                      inactive(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates current monitor is in active status or not.
+
+           active(1) : means monitor parameters meet mandatory 
+                     requirement, it is in active mode.
+           inactive(2): means monitor is not in active mode."
+    ::= { cnlIfMonitorEntry 2 }
+
+
+cnlIfSamplerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies one existing Sampler entry by name, the sampler 
+        object value will be used to configure interface sampling 
+        parameters."
+    ::= { cnlIfMonitorEntry 3 }
+
+
+cnlIfExporterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies one existing Exporter entry by name, the exporter 
+        object value will be used to construct export packet header"
+    ::= { cnlIfMonitorEntry 4 }
+
+
+cnlIfAveragePacketSize OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "Specifies average packet size expected at the observation 
+        point. Used in tuning the time based sampling interval.
+        Default value 0, indicates system automatically calculate the
+        average packet size at the interface."
+    DEFVAL      { 0 }
+    ::= { cnlIfMonitorEntry 5 }
+
+
+cnlIfAveragePacketSizeObserved OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The average packet size calculated at the interface.
+        Used in tuning the time based sampling interval."
+    ::= { cnlIfMonitorEntry 6 }
+
+
+cnlIfAveragePacketSizeUsed OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The average packet size used in tuning the time based
+        in tuning sampling performance."
+    ::= { cnlIfMonitorEntry 7 }
+
+
+cnlIfMonitorPktsObserved OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of packets is observed at the interface."
+    ::= { cnlIfMonitorEntry 8 }
+
+
+cnlIfMonitorPktsExported OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of exported packets for this monitor session."
+    ::= { cnlIfMonitorEntry 9 }
+
+
+cnlIfMonitorPktsDropped OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of dropped packets for this monitor session."
+    ::= { cnlIfMonitorEntry 10 }
+
+
+cnlIfMonitorStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the storage type for this conceptual row."
+    DEFVAL          { volatile }
+    ::= { cnlIfMonitorEntry 11 }
+
+
+cnlIfMonitorRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        The new entry can be created by setting this object value to
+        'createAndGo'.
+
+        The entry can be deleted via by setting its value to 'destroy'.
+
+        When rows in 'active', all writable objects can be modified."
+    ::= { cnlIfMonitorEntry 12 }
+
+
+
+ciscoNetflowLiteMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoNetflowLiteMIBConform 1 }
+
+ciscoNetflowLiteMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoNetflowLiteMIBConform 2 }
+
+
+ciscoNetflowLiteMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cnlExporterInfoGroup,
+                        cnlSamplerInfoGroup,
+                        cnlIfMonitorInfoGroup
+                    }
+
+    OBJECT         cnlExportAddrType
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportDestinationAddr
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportDestinationUdpPort
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportDestinationUdpLoadShare
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportSourceAddr
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportSourceUdpPort
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportVrf
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportTtl
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportCos
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportDscp
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportTemplateTimeout
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportSamplerTableTimeout
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportInterfaceTableTimeout
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExportProtocol
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlExporterStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT         cnlExporterRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT         cnlSamplerPacketRate
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlSamplerPacketSectionSize
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlSamplerPacketOffset
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlSamplerStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT         cnlSamplerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT         cnlIfSamplerName
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlIfExporterName
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlIfAveragePacketSize
+    MIN-ACCESS     read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT         cnlIfMonitorStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT         cnlIfMonitorRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+    ::= { ciscoNetflowLiteMIBCompliances 1 }
+
+-- Units of Conformance
+
+cnlExporterInfoGroup OBJECT-GROUP
+        OBJECTS {
+        cnlMaxExporterAllowed,
+        cnlExportAddrType,
+        cnlExportDestinationAddr,
+        cnlExportDestinationUdpPort,
+        cnlExportDestinationUdpLoadShare,
+        cnlExportSourceAddr,
+        cnlExportSourceUdpPort,
+        cnlExportVrf,
+        cnlExportTtl,
+        cnlExportCos,
+        cnlExportDscp,
+        cnlExportTemplateTimeout,
+        cnlExportSamplerTableTimeout,
+        cnlExportInterfaceTableTimeout,
+        cnlExportProtocol,
+        cnlPacketExported,
+        cnlExporterStorageType,
+        cnlExporterRowStatus
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing information and
+             configuration of the Netflow-lite Exporter."
+    ::= { ciscoNetflowLiteMIBGroups 1 }
+
+
+cnlSamplerInfoGroup OBJECT-GROUP
+        OBJECTS {
+        cnlMaxSamplerAllowed,
+        cnlSamplerPacketRate,
+        cnlSamplerPacketSectionSize,
+        cnlSamplerPacketOffset,
+        cnlSamplerStorageType,
+        cnlSamplerRowStatus
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing information and
+             configuration of the Netflow-lite Sampler."
+    ::= { ciscoNetflowLiteMIBGroups 2 }
+
+
+cnlIfMonitorInfoGroup OBJECT-GROUP
+        OBJECTS {
+        cnlIfMonitorActiveStatus,
+        cnlIfSamplerName,
+        cnlIfExporterName,
+        cnlIfAveragePacketSize,
+        cnlIfAveragePacketSizeObserved,
+        cnlIfAveragePacketSizeUsed,
+        cnlIfMonitorPktsObserved,
+        cnlIfMonitorPktsExported,
+        cnlIfMonitorPktsDropped,
+        cnlIfMonitorStorageType,
+        cnlIfMonitorRowStatus
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing information and
+             configuration of the Netflow-lite Monitor."
+    ::= { ciscoNetflowLiteMIBGroups 3 }
+
+END

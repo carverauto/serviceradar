@@ -1,0 +1,2318 @@
+-- MIB file created 10-Feb-2003 11:11:56, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SCSI-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SCSI-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, TimeStamp, RowStatus, RowPointer, AutonomousType
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoScsiMIB OBJECT IDENTIFIER ::= { ciscoExperiment 95 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200212310000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--    Postal: 170 W Tasman Drive
+--          San Jose, CA  95134
+--          USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    The Cisco version of the SCSI MIB
+--     draft draft-ietf-ips-scsi-mib-03.txt from 
+--     the IETF.
+--  RevDate
+--    200212310000Z
+--  RevDescr
+--    Changed the SYNTAX of TruthValue object
+--     in the module compliance section so that
+--     it compiles with all MIB compilers.
+--  RevDate
+--    200211080000Z
+--  RevDescr
+--    Changed the SYNTAX of RowStatus objects in
+--     the module compliance section so that it
+--     compiles with all MIB compilers.
+--  RevDate
+--    200210050000Z
+--  RevDescr
+--    Initial version of this MIB.
+
+ciscoScsiObjects OBJECT IDENTIFIER ::= { ciscoScsiMIB 1 }
+ciscoScsiNotification OBJECT IDENTIFIER ::= { ciscoScsiMIB 2 }
+ciscoScsiConformance OBJECT IDENTIFIER ::= { ciscoScsiMIB 3 }
+ciscoScsiTransportTypes OBJECT IDENTIFIER ::= { ciscoScsiObjects 1 }
+ciscoScsiGeneral OBJECT IDENTIFIER ::= { ciscoScsiObjects 2 }
+ciscoScsiInitiator OBJECT IDENTIFIER ::= { ciscoScsiObjects 3 }
+ciscoScsiRemoteTarget OBJECT IDENTIFIER ::= { ciscoScsiInitiator 4 }
+ciscoScsiTarget OBJECT IDENTIFIER ::= { ciscoScsiObjects 4 }
+ciscoScsiRemoteInitiators OBJECT IDENTIFIER ::= { ciscoScsiTarget 3 }
+ciscoScsiLogicalUnit OBJECT IDENTIFIER ::= { ciscoScsiObjects 5 }
+ciscoScsiTranportOther OBJECT IDENTIFIER ::= { ciscoScsiTransportTypes 1 }
+ciscoScsiTranportSPI OBJECT IDENTIFIER ::= { ciscoScsiTransportTypes 2 }
+ciscoScsiTransportFCP OBJECT IDENTIFIER ::= { ciscoScsiTransportTypes 3 }
+ciscoScsiTransportSRP OBJECT IDENTIFIER ::= { ciscoScsiTransportTypes 4 }
+ciscoScsiTransportISCSI OBJECT IDENTIFIER ::= { ciscoScsiTransportTypes 5 }
+ciscoScsiTransportSBP OBJECT IDENTIFIER ::= { ciscoScsiTransportTypes 6 }
+ciscoScsiNotifications OBJECT IDENTIFIER ::= { ciscoScsiNotification 0 }
+ciscoScsiCompliances OBJECT IDENTIFIER ::= { ciscoScsiConformance 1 }
+ciscoScsiGroups OBJECT IDENTIFIER ::= { ciscoScsiConformance 2 }
+
+ScsiLUNOrZero ::= OCTET STRING(SIZE(0|2|8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention represents either a SCSI Logical 
+--     Unit Number (LUN) or a zero-length string.  Objects defined 
+--     with this syntax must specify the meaning of the zero-length 
+--     string.  The format of a LUN is: 
+--     - a zero-length octet string or  
+--     - a string of two octets if the underlying transport protocol 
+--       is SBP-3 or SPI-4 using data group transfers or 
+--     - a string of eight octets for all other cases.
+
+ScsiIndexValue ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A number greater than zero for administrative indices in a 
+--     table.
+
+ScsiPortIndexValueOrZero ::= Gauge(0..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention is an extension of the ScsiIndexValue 
+--     convention.  The latter defines a greater than zero value used 
+--     to identify an index.  This extension permits the additional 
+--     value of zero and is applicable only to indices of SCSI port.  
+--     The value zero is object-specific and must therefore be 
+--     defined as part of the description of any object, which uses 
+--     this syntax.  Examples of the usage of zero might include 
+--     situations where index was unknown, or when none or all indices 
+--     need to be referenced.
+
+ScsiIndexValueOrZero ::= Gauge(0..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention is an extension of the ScsiIndexValue 
+--     convention.  The latter defines a greater than zero value used 
+--     to identify an index.  This extension permits the additional 
+--     value of zero. The value zero is object-specific and must 
+--     therefore be defined as part of the description of any object, 
+--     which uses this syntax.  Examples of the usage of zero might 
+--     include situations where index was unknown, or when none or 
+--     all indices need to be referenced.
+
+ScsiIdentifier ::= OCTET STRING(SIZE(0|1|2|3|11|16|256|258|262))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Denotes a generic SCSI device or port identifier. 
+--     The format depends on the transport used: 
+--     - SPI: only bits:0-3   for a port identifier 
+--       (LSB is 0 and MSB is 3)  
+--     - SPI: identifier of a device is a null-length octet string. 
+--     - FCP: 3 bytes for a port identifier 
+--     - FCP: identifier of a device is a null-length octet string. 
+--     - SRP: 16 bytes identifier for a port. 
+--     - SRP: identifier of a device is a null-length octet string. 
+--     - iSCSI: 256 bytes for a device identifier. 
+--     - iSCSI: 258 bytes for a target port. 
+--     - iSCSI: 262 bytes for an initiator port. 
+--     - SBP: identifier of a device is a null-length octet string. 
+--     - SBP: 2 bytes for an initiator port identifier. 
+--     - SBP: 11 bytes for a target port identifier. 
+
+ScsiName ::= OCTET STRING(SIZE(0|8|11|16|256|258|262))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Denotes a generic SCSI device or port name. 
+--     The format depends on the transport used: 
+--     - SPI: name of a device or a port is a null-length octet string. 
+--     - FCP: 8 bytes for a port name. 
+--     - FCP: name of a device is a null-length octet string. 
+--     - SRP: 16 bytes name for a port. 
+--     - SRP: name of a device is a null-length octet string. 
+--     - iSCSI: 256 bytes for a device name. 
+--     - iSCSI: 258 bytes for a target port. 
+--     - iSCSI: 262 bytes for an initiator port. 
+--     - SBP: name of a device is a null-length octet string. 
+--     - SBP: 8 bytes for an initiator port name. 
+--     - SBP: 11 bytes for a target port name. 
+
+ScsiNameIdOrZero ::= OCTET STRING(SIZE(0|8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention represents either the SCSI name of 
+--     a logical unit or a zero-length string.  Objects defined with 
+--     this syntax must specify the meaning of the zero-length 
+--     string.  The format of the name of a LU is: 
+--     - a zero-length octet string or  
+--     - a string of eight octets.
+
+ScsiDeviceOrPort ::= INTEGER {
+        device(1),
+        port(2),
+        other(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This type allows to decide if some configuration is applicable 
+--     to a port or to a device.
+
+ScsiIdCodeSet ::= Gauge(0..15)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention specifies the code set in use with 
+--     this identifier. 
+--     The format is the same as contained in the identifier's 
+--     Identification Descriptor within the Logical Unit's Device 
+--     Identification Page.
+--  Refer
+--     ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 18 
+--      July 2001 Chapter 8: section 8.4.4, page 210 Vital Product 
+--      Data Parameters [16]
+
+ScsiIdAssociation ::= Gauge(0..3)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention specifies what the identifier is 
+--     associated with (e.g, with the addressed physical/logical 
+--     device or with a particular port).   
+--     The format is the same as contained in the identifier's 
+--     Identification Descriptor within the Logical Unit's Device 
+--     Identification Page.
+--  Refer
+--     ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 18 
+--      July 2001 - Chapter 8: section 8.4.4, page 210 Vital Product 
+--      Data Parameters [16]
+
+ScsiIdType ::= Gauge(0..15)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention specifies the type of the 
+--     identifier.  
+--     The format is the same as contained in the identifier's 
+--     Identification Descriptor within the Logical Unit's Device 
+--     Identification Page.
+--  Refer
+--     ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 
+--      Chapter 8: section 8.4.4, page 210 Vital Product Data 
+--      Parameters  [16]
+
+ScsiIdValue ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention represents an identifier. The 
+--     objects of type ScsiIdCodeSet, ScsIdAssociation, ScsiIdType, 
+--     define together the format. 
+--     The format is the same as contained in the identifier's 
+--     Identification Descriptor within the Logical Unit's Device 
+--     Identification Page.
+--  Refer
+--     ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 18 
+--      July 2001 - Chapter 8: section 8.4.4, page 210 Vital Product 
+--      Data Parameters [16]
+
+HrSWInstalledIndexOrZero ::= INTEGER(0..2147483647)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The index value for a software module's row in the Host 
+--     Resources MIB's hrSWInstalledTable.  A zero value indicates 
+--     that no row in the hrSWInstalledTable is applicable.
+--  Refer
+--    hrSWInstalledTable is defined in the Host Resources MIB, RFC 
+--     2790.
+
+ciscoScsiInstanceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiInstanceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of SCSI instances present on the system. 
+         The SCSI Instance is the top-level entity, to which 
+         everything else belongs. An SNMP agent could represent more 
+         than one instance if it represents either a stack of devices, 
+         or virtual partitions of a larger device, or a host   
+         running multiple SCSI implementations from different 
+         vendors."
+    ::= { ciscoScsiGeneral 1 }
+
+ciscoScsiInstanceEntry OBJECT-TYPE
+    SYNTAX CiscoScsiInstanceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable to 
+         a particular SCSI instance."
+    INDEX { ciscoScsiInstIndex }
+    ::= { ciscoScsiInstanceTable 1 }
+
+CiscoScsiInstanceEntry ::= SEQUENCE {
+    ciscoScsiInstIndex ScsiIndexValue,
+    ciscoScsiInstAlias SnmpAdminString,
+    ciscoScsiInstSoftwareIndex HrSWInstalledIndexOrZero,
+    ciscoScsiInstVendorVersion SnmpAdminString,
+    ciscoScsiInstNotifEnable TruthValue
+    }
+
+ciscoScsiInstIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a particular 
+         SCSI instance."
+    ::= { ciscoScsiInstanceEntry 1 }
+
+ciscoScsiInstAlias OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An administrative string, configured by the administrator to 
+         the usage of the administrator. Can be a zero-length 
+         string."
+    ::= { ciscoScsiInstanceEntry 2 }
+
+ciscoScsiInstSoftwareIndex OBJECT-TYPE
+    SYNTAX HrSWInstalledIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The index in the hrSWInstalledTable of RFC 2790 corresponding 
+         to this software entity. It is equal to zero if there is no
+         reference in the hrSWInstalledTable."
+    ::= { ciscoScsiInstanceEntry 3 }
+
+ciscoScsiInstVendorVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A text string set by the manufacturer describing the version 
+         of this instance.  The format of this string is determined 
+         solely by the manufacturer, and is for informational purposes 
+         only.  It is unrelated to the SCSI specification version 
+         numbers."
+    ::= { ciscoScsiInstanceEntry 4 }
+
+ciscoScsiInstNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows to enable/disable sending notifications."
+    DEFVAL { true }
+    ::= { ciscoScsiInstanceEntry 5 }
+
+ciscoScsiDeviceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiDeviceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of SCSI Devices present on the system."
+    ::= { ciscoScsiGeneral 2 }
+
+ciscoScsiDeviceEntry OBJECT-TYPE
+    SYNTAX CiscoScsiDeviceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable to 
+         a particular SCSI Device included in this SCSI manageable 
+         instance."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex }
+    ::= { ciscoScsiDeviceTable 1 }
+
+CiscoScsiDeviceEntry ::= SEQUENCE {
+    ciscoScsiDeviceIndex ScsiIndexValue,
+    ciscoScsiDeviceAlias SnmpAdminString,
+    ciscoScsiDeviceRole OCTET STRING,
+    ciscoScsiDevicePortNumber Gauge,
+    ciscoScsiDeviceResets Counter
+    }
+
+ciscoScsiDeviceIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a particular 
+         device."
+    ::= { ciscoScsiDeviceEntry 1 }
+
+ciscoScsiDeviceAlias OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An admistrative name for this device. May be empty."
+    ::= { ciscoScsiDeviceEntry 2 }
+
+ciscoScsiDeviceRole OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   target(0)
+        --   initiator(1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Is this device acting as an initiator, or as a target or as 
+         both."
+    ::= { ciscoScsiDeviceEntry 3 }
+
+ciscoScsiDevicePortNumber OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ports contained in this device."
+    ::= { ciscoScsiDeviceEntry 4 }
+
+ciscoScsiDeviceResets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of times that this 
+         device has reset."
+    ::= { ciscoScsiDeviceEntry 5 }
+
+ciscoScsiPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of SCSI Ports for each SCSI device in each instance."
+    ::= { ciscoScsiGeneral 3 }
+
+ciscoScsiPortEntry OBJECT-TYPE
+    SYNTAX CiscoScsiPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable to 
+         a particular SCSI port of a particular SCSI device in a 
+         particular SCSI instance."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiPortIndex }
+    ::= { ciscoScsiPortTable 1 }
+
+CiscoScsiPortEntry ::= SEQUENCE {
+    ciscoScsiPortIndex ScsiIndexValue,
+    ciscoScsiPortRole OCTET STRING,
+    ciscoScsiPortTrnsptPtr RowPointer,
+    ciscoScsiPortBusyStatuses Counter
+    }
+
+ciscoScsiPortIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a particular 
+         port."
+    ::= { ciscoScsiPortEntry 1 }
+
+ciscoScsiPortRole OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   target(0)
+        --   initiator(1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicated whther this port is acting as an 
+         initiator, or as a target or as both."
+    ::= { ciscoScsiPortEntry 2 }
+
+ciscoScsiPortTrnsptPtr OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the index of the corresponding transport 
+         definition in the ciscoScsiTrnsptTable"
+    ::= { ciscoScsiPortEntry 3 }
+
+ciscoScsiPortBusyStatuses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of port busy status sent 
+         or received by this port. Note: Initiator ports only receive 
+         busy status and target ports only send busy status."
+    ::= { ciscoScsiPortEntry 4 }
+
+ciscoScsiTrnsptTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiTrnsptEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a list of transports in use with each SCSI 
+         device."
+    ::= { ciscoScsiGeneral 5 }
+
+ciscoScsiTrnsptEntry OBJECT-TYPE
+    SYNTAX CiscoScsiTrnsptEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing parameters applicable to a transport 
+         used by a particular initiator device of a particular SCSI 
+         manageable instance."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiTrnsptIndex }
+    ::= { ciscoScsiTrnsptTable 1 }
+
+CiscoScsiTrnsptEntry ::= SEQUENCE {
+    ciscoScsiTrnsptIndex ScsiIndexValue,
+    ciscoScsiTrnsptType AutonomousType,
+    ciscoScsiTrnsptPointer RowPointer,
+    ciscoScsiTrnsptDevName ScsiName
+    }
+
+ciscoScsiTrnsptIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An administrative integer used to uniquely identify a particular 
+         transport."
+    ::= { ciscoScsiTrnsptEntry 1 }
+
+ciscoScsiTrnsptType OBJECT-TYPE
+    SYNTAX AutonomousType
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of transport for this particular transport."
+    ::= { ciscoScsiTrnsptEntry 2 }
+
+ciscoScsiTrnsptPointer OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A pointer to a conceptual row in a 'transport' MIB allowing a 
+         manager to get useful information for the transport described 
+         by this entry. 
+         For example, if the transport of this device is iSCSI, this 
+         object will point to the iSCSI Instance of the iSCSI MIB. 
+         If there is no MIB for this transport, this object has the 
+         value 0.0."
+    ::= { ciscoScsiTrnsptEntry 3 }
+
+ciscoScsiTrnsptDevName OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of this device in one of the format(s) appropriate for 
+         this type of transport."
+    ::= { ciscoScsiTrnsptEntry 4 }
+
+ciscoScsiIntrDevTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiIntrDevEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information for each local initiator 
+         device."
+    ::= { ciscoScsiInitiator 1 }
+
+ciscoScsiIntrDevEntry OBJECT-TYPE
+    SYNTAX CiscoScsiIntrDevEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing information applicable to an 
+         initiator device."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex }
+    ::= { ciscoScsiIntrDevTable 1 }
+
+CiscoScsiIntrDevEntry ::= SEQUENCE {
+    ciscoScsiIntrDevAccMode INTEGER,
+    ciscoScsiIntrDevOutResets Counter
+    }
+
+ciscoScsiIntrDevAccMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        autoEnable(2),
+        manualEnable(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls whether a discovered target is 
+         immediately authorized or not: 
+         - autoEnable(2) means that when an initiator discovers a 
+           target, it can use it immediately,  
+         - manualEnable(3) means that the initiator must wait for an 
+           operator to set ciscoScsiIntrDscTgtDiscovered  = true 
+           before it is authorized."
+    ::= { ciscoScsiIntrDevEntry 1 }
+
+ciscoScsiIntrDevOutResets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of resets sent by this initiator device since the local 
+         agent's last re-initialization."
+    ::= { ciscoScsiIntrDevEntry 2 }
+
+ciscoScsiIntrPrtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiIntrPrtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains all the initiator ports of each SCSI 
+         Initiator or Target/Initiator device."
+    ::= { ciscoScsiInitiator 3 }
+
+ciscoScsiIntrPrtEntry OBJECT-TYPE
+    SYNTAX CiscoScsiIntrPrtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing information applicable to the 
+         particular initiator port. "
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiPortIndex }
+    ::= { ciscoScsiIntrPrtTable 1 }
+
+CiscoScsiIntrPrtEntry ::= SEQUENCE {
+    ciscoScsiIntrPrtName ScsiName,
+    ciscoScsiIntrPrtIdentifier ScsiIdentifier,
+    ciscoScsiIntrPrtOutCommands Counter,
+    ciscoScsiIntrPrtWrMegaBytes Counter,
+    ciscoScsiIntrPrtReadMegaBytes Counter,
+    ciscoScsiIntrPrtHSOutCommands Counter
+    }
+
+ciscoScsiIntrPrtName OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the port assigned for use by the SCSI protocol. 
+         The format will depend of the type of transport this port is 
+         using."
+    ::= { ciscoScsiIntrPrtEntry 1 }
+
+ciscoScsiIntrPrtIdentifier OBJECT-TYPE
+    SYNTAX ScsiIdentifier
+--    Rsyntax OCTET STRING(SIZE(0|1|2|3|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The identifier of the port in one of the format(s) appropriate 
+         for the type of transport in use."
+    ::= { ciscoScsiIntrPrtEntry 2 }
+
+ciscoScsiIntrPrtOutCommands OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of commands sent by this 
+         initiator."
+    ::= { ciscoScsiIntrPrtEntry 3 }
+
+ciscoScsiIntrPrtWrMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the amount of data in Megabytes sent 
+         by this initiator."
+    ::= { ciscoScsiIntrPrtEntry 4 }
+
+ciscoScsiIntrPrtReadMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the amount of data in Megabytes 
+         received by this initiator."
+    ::= { ciscoScsiIntrPrtEntry 5 }
+
+ciscoScsiIntrPrtHSOutCommands OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of commands sent by this 
+         initiator device. This object provides support for systems 
+         which can quickly generate lots of commands because they run 
+         at high speed."
+    ::= { ciscoScsiIntrPrtEntry 6 }
+
+ciscoScsiDscTgtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiDscTgtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the remote (not in the local system) 
+         target ports that are authorized to attach to each local 
+         initiator port of this SCSI instance."
+    ::= { ciscoScsiRemoteTarget 1 }
+
+ciscoScsiDscTgtEntry OBJECT-TYPE
+    SYNTAX CiscoScsiDscTgtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row)represents a remote target port or device 
+         authorized to attach the local initiator device corresponding 
+         to the ciscoScsiDeviceIndex or the local initiator port 
+         ciscoScsiPortIndexOrZero. "
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiDscTgtIntrPortIndex, ciscoScsiDscTgtIndex }
+    ::= { ciscoScsiDscTgtTable 1 }
+
+CiscoScsiDscTgtEntry ::= SEQUENCE {
+    ciscoScsiDscTgtIntrPortIndex ScsiPortIndexValueOrZero,
+    ciscoScsiDscTgtIndex ScsiIndexValue,
+    ciscoScsiDscTgtDevOrPort ScsiDeviceOrPort,
+    ciscoScsiDscTgtName ScsiName,
+    ciscoScsiDscTgtConfigured TruthValue,
+    ciscoScsiDscTgtDiscovered TruthValue,
+    ciscoScsiDscTgtInCommands Counter,
+    ciscoScsiDscTgtWrMegaBytes Counter,
+    ciscoScsiDscTgtReadMegaBytes Counter,
+    ciscoScsiDscTgtHSInCommands Counter,
+    ciscoScsiDscTgtLastCreation TimeStamp,
+    ciscoScsiDscTgtRowStatus RowStatus
+    }
+
+ciscoScsiDscTgtIntrPortIndex OBJECT-TYPE
+    SYNTAX ScsiPortIndexValueOrZero
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is: 
+         - the index of the local scsi initiator port, 
+         - or zero, if this entry refers to the local device and 
+           therefore refers to all the local initiator ports."
+    ::= { ciscoScsiDscTgtEntry 1 }
+
+ciscoScsiDscTgtIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is an administrative integer used to uniquely 
+         identify a particular authorized target.  
+         (Authorized to attach to this initiator device or port.)"
+    ::= { ciscoScsiDscTgtEntry 2 }
+
+ciscoScsiDscTgtDevOrPort OBJECT-TYPE
+    SYNTAX ScsiDeviceOrPort
+--    Rsyntax INTEGER {
+--        device(1),
+--        port(2),
+--        other(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if this entry refers to a remote target 
+         port or remote target device."
+    ::= { ciscoScsiDscTgtEntry 3 }
+
+ciscoScsiDscTgtName OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of this authorized/discovered target device or port."
+    ::= { ciscoScsiDscTgtEntry 4 }
+
+ciscoScsiDscTgtConfigured OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object means: 
+         true(1): this entry has been configured by an administrator 
+         false(2): this entry has been added from other source. 
+         An administrator can switch this value from false to true."
+    DEFVAL { true }
+    ::= { ciscoScsiDscTgtEntry 5 }
+
+ciscoScsiDscTgtDiscovered OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object means: 
+         true(1): this entry has been discovered by the SCSI instance. 
+         false(2): this entry has been added from other source. 
+         This entry is read-only because an administrator cannot change 
+         it. 
+         Note that it is an implementation issue to decide how long to 
+         retain a row with configured=false, as and when the target is 
+         no longer visible/accessible to the local initiator."
+    ::= { ciscoScsiDscTgtEntry 6 }
+
+ciscoScsiDscTgtInCommands OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of commands received by 
+         this target port or device."
+    ::= { ciscoScsiDscTgtEntry 7 }
+
+ciscoScsiDscTgtWrMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the amount of data in Megabytes 
+         written by this target port or device."
+    ::= { ciscoScsiDscTgtEntry 8 }
+
+ciscoScsiDscTgtReadMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the amount of data in Megabytes read 
+         by this target port or device."
+    ::= { ciscoScsiDscTgtEntry 9 }
+
+ciscoScsiDscTgtHSInCommands OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of commands received by 
+         this target port or device. This object provides support for 
+         systems which can quickly generate lots of commands because 
+         they run at high speed."
+    ::= { ciscoScsiDscTgtEntry 10 }
+
+ciscoScsiDscTgtLastCreation OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the value of sysUpTime when this row 
+         was created."
+    ::= { ciscoScsiDscTgtEntry 11 }
+
+ciscoScsiDscTgtRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows to configure dynamically a new entry in this 
+         table via SNMP or eventually delete it. 
+         An administrator is not allowed to delete an entry where the
+         object ciscoScsiIntrDscTgtDiscovered is equal to true."
+    ::= { ciscoScsiDscTgtEntry 12 }
+
+ciscoScsiDscLunTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiDscLunEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the remote (not in the local system) 
+         LUNS discovered via each local initiator port of each SCSI 
+         instance."
+    ::= { ciscoScsiRemoteTarget 2 }
+
+ciscoScsiDscLunEntry OBJECT-TYPE
+    SYNTAX CiscoScsiDscLunEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) represents a LUN discovered by the local 
+         initiator device  or by the local initiator port."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiDscTgtIntrPortIndex, ciscoScsiDscTgtIndex, ciscoScsiDscLunIndex }
+    ::= { ciscoScsiDscLunTable 1 }
+
+CiscoScsiDscLunEntry ::= SEQUENCE {
+    ciscoScsiDscLunIndex ScsiIndexValue,
+    ciscoScsiDscLunLun ScsiLUNOrZero
+    }
+
+ciscoScsiDscLunIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is an administrative integer used to uniquely 
+         identify a particular LUN discovered by a particular scsi 
+         initiator port or device. This index will point to an entry 
+         for this LUN in the ciscoScsiDscLunIdTable."
+    ::= { ciscoScsiDscLunEntry 1 }
+
+ciscoScsiDscLunLun OBJECT-TYPE
+    SYNTAX ScsiLUNOrZero
+--    Rsyntax OCTET STRING(SIZE(0|2|8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the actual value of the LUN of the discovered 
+         logical unit."
+    ::= { ciscoScsiDscLunEntry 2 }
+
+ciscoScsiDscLunIdTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiDscLunIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the remote (not in the local system) 
+         LU Identifier discovered via each local initiator port or 
+         device of this SCSI instance."
+    ::= { ciscoScsiRemoteTarget 3 }
+
+ciscoScsiDscLunIdEntry OBJECT-TYPE
+    SYNTAX CiscoScsiDscLunIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) represents a LU Identifier discovered by each 
+         SCSI initiator device or port."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiDscTgtIntrPortIndex, ciscoScsiDscTgtIndex, ciscoScsiDscLunIndex, ciscoScsiDscLunIdIndex }
+    ::= { ciscoScsiDscLunIdTable 1 }
+
+CiscoScsiDscLunIdEntry ::= SEQUENCE {
+    ciscoScsiDscLunIdIndex ScsiIndexValue,
+    ciscoScsiDscLunIdCodeSet ScsiIdCodeSet,
+    ciscoScsiDscLunIdAssociation ScsiIdAssociation,
+    ciscoScsiDscLunIdType ScsiIdType,
+    ciscoScsiDscLunIdValue ScsiIdValue
+    }
+
+ciscoScsiDscLunIdIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is an administrative integer used to uniquely 
+         identify a particular LUN Identifier discovered by each scsi 
+         initiator device or port."
+    ::= { ciscoScsiDscLunIdEntry 1 }
+
+ciscoScsiDscLunIdCodeSet OBJECT-TYPE
+    SYNTAX ScsiIdCodeSet
+--    Rsyntax Gauge(0..15)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object determines the code set in use for this identifier 
+         as specified by the ANSI-SCSI Primary Commands -2 document; 
+         the code set can be binary or ascii."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2),Revision 20,   
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+          Parameters [16] "
+    ::= { ciscoScsiDscLunIdEntry 2 }
+
+ciscoScsiDscLunIdAssociation OBJECT-TYPE
+    SYNTAX ScsiIdAssociation
+--    Rsyntax Gauge(0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This value means that the identifier is associated with the 
+         addressed physical or logical device or that the identifier 
+         is associated with the port that received the request."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+          Parameters [16]"
+    ::= { ciscoScsiDscLunIdEntry 3 }
+
+ciscoScsiDscLunIdType OBJECT-TYPE
+    SYNTAX ScsiIdType
+--    Rsyntax Gauge(0..15)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the type of LU Identifier used for this 
+         identifier and indicates the format of scsiLUIdValue."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+          Parameters  [16] "
+    ::= { ciscoScsiDscLunIdEntry 4 }
+
+ciscoScsiDscLunIdValue OBJECT-TYPE
+    SYNTAX ScsiIdValue
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual value of this identifier. The format is defined 
+         by the objects ciscoScsiIntrDscLunIdCodeSet, 
+         ciscoScsiIntrDscLunIdAssoc, ciscoScsiIntrDscLunIdType."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2), 
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+        Parameters  [16]"
+    ::= { ciscoScsiDscLunIdEntry 5 }
+
+ciscoScsiAttTgtPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiAttTgtPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the remote (not in the local system) 
+         target ports that are currently attached to each local 
+         initiator port of this SCSI instance."
+    ::= { ciscoScsiRemoteTarget 6 }
+
+ciscoScsiAttTgtPortEntry OBJECT-TYPE
+    SYNTAX CiscoScsiAttTgtPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) represents a remote target port currently 
+         attached to the local initiator port corresponding to the 
+         ciscoScsiPortIndex."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiPortIndex, ciscoScsiAttTgtPortIndex }
+    ::= { ciscoScsiAttTgtPortTable 1 }
+
+CiscoScsiAttTgtPortEntry ::= SEQUENCE {
+    ciscoScsiAttTgtPortIndex ScsiIndexValue,
+    ciscoScsiAttTgtPortDscTgtIdx ScsiIndexValueOrZero,
+    ciscoScsiAttTgtPortName ScsiName,
+    ciscoScsiAttTgtPortIdentifier ScsiIdentifier
+    }
+
+ciscoScsiAttTgtPortIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An administrative integer used to uniquely identify a 
+         particular currently attached target."
+    ::= { ciscoScsiAttTgtPortEntry 1 }
+
+ciscoScsiAttTgtPortDscTgtIdx OBJECT-TYPE
+    SYNTAX ScsiIndexValueOrZero
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The corresponding index in the ciscoScsiIntrDiscTgtTable for 
+         this current attached target port or zero if this attached 
+         target port is not in the table."
+    ::= { ciscoScsiAttTgtPortEntry 2 }
+
+ciscoScsiAttTgtPortName OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the remote target port attached to this initiator 
+         port."
+    ::= { ciscoScsiAttTgtPortEntry 3 }
+
+ciscoScsiAttTgtPortIdentifier OBJECT-TYPE
+    SYNTAX ScsiIdentifier
+--    Rsyntax OCTET STRING(SIZE(0|1|2|3|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The identifier of the remote target port attached to this local 
+         initiator port."
+    ::= { ciscoScsiAttTgtPortEntry 4 }
+
+ciscoScsiTgtDevTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiTgtDevEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about each local target device."
+    ::= { ciscoScsiTarget 1 }
+
+ciscoScsiTgtDevEntry OBJECT-TYPE
+    SYNTAX CiscoScsiTgtDevEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing information applicable to a 
+         particular local target device. "
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex }
+    ::= { ciscoScsiTgtDevTable 1 }
+
+CiscoScsiTgtDevEntry ::= SEQUENCE {
+    ciscoScsiTgtDevNumberOfLUs Gauge,
+    ciscoScsiTgtDeviceStatus INTEGER,
+    ciscoScsiTgtDevNonAccLUs Gauge
+    }
+
+ciscoScsiTgtDevNumberOfLUs OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the number of Logical Units accessible via this 
+         local target device."
+    ::= { ciscoScsiTgtDevEntry 1 }
+
+ciscoScsiTgtDeviceStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        available(2),
+        broken(3),
+        readying(4),
+        abnormal(5),
+        nonAddrFailure(6),
+        nonAddrFailReadying(7),
+        nonAddrFailAbnormal(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the status of this SCSI device, 
+         summarizing the state of both the addressable devices (i.e., 
+         the logical units) and the non-addressable devices within 
+         this SCSI device: 
+           - unknown(1): This value is used when the status cannot 
+             be determined 
+           - available(2): All addressable and non-addressable devices 
+           within the SCSI device are fully operational (i.e., no 
+           logical units have an abnormal status). 
+           - broken(3): The SCSI device is not operational and cannot 
+           be made operational without external intervention. 
+           - readying(4): One or more logical units within the SCSI 
+           device are being initialized and access to the SCSI device 
+           is temporarily limited (i.e., one or more of the logical 
+           unit have a readying status). 
+           - abnormal(5): One or more addressable devices within the 
+           SCSI device are indicating a status other than available; 
+           nevertheless, the SCSI device is operational (i.e., one or 
+           more of the logical units have an abnormal status). 
+           - nonAddrFailure(6): One or more non-addressable devices 
+           within the SCSI device have failed; nevertheless, the SCSI 
+           device is operational (i.e., no logical units have an 
+           abnormal or readying status). 
+           - nonAddrFailReadying(7): One or more non-addressable devices 
+           within the SCSI device have failed; nevertheless,one or more 
+           logical units within the SCSI device are being initialized 
+           and access to the SCSI device is temporarily limited. 
+           - nonAddrFailAbnormal(8): One or more non-addressable 
+           devices within the SCSI device have failed and one or 
+           more addressable devices within the SCSI device are 
+           indicating a status other than available however the 
+           SCSI device is operational."
+    REFERENCE
+        "SCSI Controller Commands-2 (SCC-2) standard NCITS.318-1998 
+         6.3.1.8 REPORT STATES service action"
+    ::= { ciscoScsiTgtDevEntry 2 }
+
+ciscoScsiTgtDevNonAccLUs OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the number of Logical Units existing but not 
+         currently accessible via this local target device."
+    ::= { ciscoScsiTgtDevEntry 3 }
+
+ciscoScsiTgtPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiTgtPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the local target ports of all the 
+         local target devices."
+    ::= { ciscoScsiTarget 2 }
+
+ciscoScsiTgtPortEntry OBJECT-TYPE
+    SYNTAX CiscoScsiTgtPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing information applicable to a 
+         particular local target port of a particular local target 
+         device. "
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiPortIndex }
+    ::= { ciscoScsiTgtPortTable 1 }
+
+CiscoScsiTgtPortEntry ::= SEQUENCE {
+    ciscoScsiTgtPortName ScsiName,
+    ciscoScsiTgtPortIdentifier ScsiIdentifier,
+    ciscoScsiTgtPortInCommands Counter,
+    ciscoScsiTgtPortWrMegaBytes Counter,
+    ciscoScsiTgtPortReadMegaBytes Counter,
+    ciscoScsiTgtPortHSInCommands Counter
+    }
+
+ciscoScsiTgtPortName OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the port assigned for use in the SCSI protocol."
+    ::= { ciscoScsiTgtPortEntry 1 }
+
+ciscoScsiTgtPortIdentifier OBJECT-TYPE
+    SYNTAX ScsiIdentifier
+--    Rsyntax OCTET STRING(SIZE(0|1|2|3|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The identifier of the port in one of the format(s) appropriate 
+         for the type of transport."
+    ::= { ciscoScsiTgtPortEntry 2 }
+
+ciscoScsiTgtPortInCommands OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of commands received by 
+         this target port."
+    ::= { ciscoScsiTgtPortEntry 3 }
+
+ciscoScsiTgtPortWrMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the amount of data written in 
+         Megabytes by this target port."
+    ::= { ciscoScsiTgtPortEntry 4 }
+
+ciscoScsiTgtPortReadMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the amount of data read in Megabytes 
+         by this target port."
+    ::= { ciscoScsiTgtPortEntry 5 }
+
+ciscoScsiTgtPortHSInCommands OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of commands received. 
+         This object provides support for systems that can quickly 
+         generate lots of commands because they run at high speed."
+    ::= { ciscoScsiTgtPortEntry 6 }
+
+ciscoScsiAuthorizedIntrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiAuthorizedIntrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the authorized initiator devices or 
+         ports that may attach a target device or port of the local 
+         SCSI entity and that may interest an administrator, like 
+         statistics."
+    ::= { ciscoScsiRemoteInitiators 1 }
+
+ciscoScsiAuthorizedIntrEntry OBJECT-TYPE
+    SYNTAX CiscoScsiAuthorizedIntrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) represents a remote initiator port that may 
+         attach the local target port."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiAuthIntrTgtPortIndex, ciscoScsiAuthIntrIndex }
+    ::= { ciscoScsiAuthorizedIntrTable 1 }
+
+CiscoScsiAuthorizedIntrEntry ::= SEQUENCE {
+    ciscoScsiAuthIntrTgtPortIndex ScsiPortIndexValueOrZero,
+    ciscoScsiAuthIntrIndex ScsiIndexValue,
+    ciscoScsiAuthIntrDevOrPort ScsiDeviceOrPort,
+    ciscoScsiAuthIntrName ScsiName,
+    ciscoScsiAuthIntrLunMapIndex ScsiIndexValueOrZero,
+    ciscoScsiAuthIntrAttachedTimes Counter,
+    ciscoScsiAuthIntrOutCommands Counter,
+    ciscoScsiAuthIntrReadMegaBytes Counter,
+    ciscoScsiAuthIntrWrMegaBytes Counter,
+    ciscoScsiAuthIntrHSOutCommands Counter,
+    ciscoScsiAuthIntrLastCreation TimeStamp,
+    ciscoScsiAuthIntrRowStatus RowStatus
+    }
+
+ciscoScsiAuthIntrTgtPortIndex OBJECT-TYPE
+    SYNTAX ScsiPortIndexValueOrZero
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is: 
+         - the index of the local scsi target port, 
+         - or zero, if this entry refers to a local target device."
+    ::= { ciscoScsiAuthorizedIntrEntry 1 }
+
+ciscoScsiAuthIntrIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is an administrative integer used to uniquely 
+         identify a particular authorized initiator.  
+         (Authorized to attach to this target device or port.)"
+    ::= { ciscoScsiAuthorizedIntrEntry 2 }
+
+ciscoScsiAuthIntrDevOrPort OBJECT-TYPE
+    SYNTAX ScsiDeviceOrPort
+--    Rsyntax INTEGER {
+--        device(1),
+--        port(2),
+--        other(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if this entry refers to a remote 
+         initiator port or a device."
+    ::= { ciscoScsiAuthorizedIntrEntry 3 }
+
+ciscoScsiAuthIntrName OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the remote initiator device or port authorized to 
+         attach this local target device or port."
+    ::= { ciscoScsiAuthorizedIntrEntry 4 }
+
+ciscoScsiAuthIntrLunMapIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValueOrZero
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the set of entries in the 
+         ciscoScsiLunMapTable for which ciscoScsiLunMapIndex has the 
+         same value as the value of this object.  The identified set 
+         of entries constitute the LUN map to be used for accessing 
+         logical units when the remote initiator corresponding to this 
+         entry is attached to any local target corresponding to this 
+         entry. 
+         Note that this object has a value of zero if this entry should 
+         use the default LUN map."
+    ::= { ciscoScsiAuthorizedIntrEntry 5 }
+
+ciscoScsiAuthIntrAttachedTimes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Times
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times that this remote 
+         initiator has transitioned from unattached to attached to 
+         this local target device or port."
+    ::= { ciscoScsiAuthorizedIntrEntry 6 }
+
+ciscoScsiAuthIntrOutCommands OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of commands that the remote 
+         initiator corresponding to this entry has sent to the local 
+         target device or port corresponding to this entry."
+    ::= { ciscoScsiAuthorizedIntrEntry 7 }
+
+ciscoScsiAuthIntrReadMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the amount of data in Megabytes that 
+         the remote initiator corresponding to this entry has read 
+         from the local target device or port corresponding to this 
+         entry."
+    ::= { ciscoScsiAuthorizedIntrEntry 8 }
+
+ciscoScsiAuthIntrWrMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the amount of data in Megabytes that 
+         the remote initiator corresponding to this entry has written 
+         from the local target device or port corresponding to this 
+         entry."
+    ::= { ciscoScsiAuthorizedIntrEntry 9 }
+
+ciscoScsiAuthIntrHSOutCommands OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of commands sent by the 
+         remote initiator corresponding to this entry to the local 
+         target device or port corresponding to this entry. This 
+         object provides support for systems which can quickly 
+         generate lots of commands because they run at high speed."
+    ::= { ciscoScsiAuthorizedIntrEntry 10 }
+
+ciscoScsiAuthIntrLastCreation OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the value of sysUpTime when this row 
+         was last created."
+    ::= { ciscoScsiAuthorizedIntrEntry 11 }
+
+ciscoScsiAuthIntrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows an administrator to create or delete this 
+         entry."
+    ::= { ciscoScsiAuthorizedIntrEntry 12 }
+
+ciscoScsiAttIntrPrtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiAttIntrPrtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the remote initiator ports that are 
+         currently attached to each local target port of this local
+         entity."
+    ::= { ciscoScsiRemoteInitiators 2 }
+
+ciscoScsiAttIntrPrtEntry OBJECT-TYPE
+    SYNTAX CiscoScsiAttIntrPrtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) represents a remote initiator currently attached 
+         to a particular local target port of a particular target device 
+         of a particular SCSI entity."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiPortIndex, ciscoScsiAttIntrPrtIdx }
+    ::= { ciscoScsiAttIntrPrtTable 1 }
+
+CiscoScsiAttIntrPrtEntry ::= SEQUENCE {
+    ciscoScsiAttIntrPrtIdx ScsiIndexValue,
+    ciscoScsiAttIntrPrtAuthIntrIdx ScsiIndexValueOrZero,
+    ciscoScsiAttIntrPrtName ScsiName,
+    ciscoScsiAttIntrPrtId ScsiIdentifier
+    }
+
+ciscoScsiAttIntrPrtIdx OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An administrative integer used to uniquely identify a 
+         particular attached remote initiator port."
+    ::= { ciscoScsiAttIntrPrtEntry 1 }
+
+ciscoScsiAttIntrPrtAuthIntrIdx OBJECT-TYPE
+    SYNTAX ScsiIndexValueOrZero
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the corresponding index in the 
+         ciscoScsiAuthorizedIntrTable for this current attached 
+         remote initiator or zero if this remote attached initiator is 
+         not configured in that table."
+    ::= { ciscoScsiAttIntrPrtEntry 2 }
+
+ciscoScsiAttIntrPrtName OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the remote initiator attached to this local target 
+         port."
+    ::= { ciscoScsiAttIntrPrtEntry 3 }
+
+ciscoScsiAttIntrPrtId OBJECT-TYPE
+    SYNTAX ScsiIdentifier
+--    Rsyntax OCTET STRING(SIZE(0|1|2|3|11|16|256|258|262))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The identifier of the remote initiator attached to this local 
+         target port."
+    ::= { ciscoScsiAttIntrPrtEntry 4 }
+
+ciscoScsiLuTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiLuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes all the logical units exposed by a local
+         target device."
+    ::= { ciscoScsiLogicalUnit 1 }
+
+ciscoScsiLuEntry OBJECT-TYPE
+    SYNTAX CiscoScsiLuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) contains information applicable to a particular 
+         logical unit of a particular local target device. "
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiLuIndex }
+    ::= { ciscoScsiLuTable 1 }
+
+CiscoScsiLuEntry ::= SEQUENCE {
+    ciscoScsiLuIndex ScsiIndexValue,
+    ciscoScsiLuDefaultLun ScsiLUNOrZero,
+    ciscoScsiLuWwnName ScsiNameIdOrZero,
+    ciscoScsiLuVendorId SnmpAdminString,
+    ciscoScsiLuProductId SnmpAdminString,
+    ciscoScsiLuRevisionId SnmpAdminString,
+    ciscoScsiLuPeripheralType Gauge,
+    ciscoScsiLuStatus INTEGER,
+    ciscoScsiLuState OCTET STRING,
+    ciscoScsiLuInCommands Counter,
+    ciscoScsiLuReadMegaBytes Counter,
+    ciscoScsiLuWrittenMegaBytes Counter,
+    ciscoScsiLuInResets Counter,
+    ciscoScsiLuOutQueueFullStatus Counter,
+    ciscoScsiLuHSInCommands Counter
+    }
+
+ciscoScsiLuIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An administrative integer used to uniquely identify a 
+         particular logical unit."
+    ::= { ciscoScsiLuEntry 1 }
+
+ciscoScsiLuDefaultLun OBJECT-TYPE
+    SYNTAX ScsiLUNOrZero
+--    Rsyntax OCTET STRING(SIZE(0|2|8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The default Logical Unit Number (LUN) for this logical unit; it 
+         is the LUN that will appear to an initiator that was not 
+         configured to see another LUN.  
+         Note that this object will have a zero-length string if this
+         Logical Unit does not have a default LUN."
+    ::= { ciscoScsiLuEntry 2 }
+
+ciscoScsiLuWwnName OBJECT-TYPE
+    SYNTAX ScsiNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The World-Wide Name of this LU."
+    ::= { ciscoScsiLuEntry 3 }
+
+ciscoScsiLuVendorId OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string identifying the vendor of this LU according to the 
+         value in SCSI device page."
+    ::= { ciscoScsiLuEntry 4 }
+
+ciscoScsiLuProductId OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string identifying the product for this LU according to the
+         value in SCSI device page."
+    ::= { ciscoScsiLuEntry 5 }
+
+ciscoScsiLuRevisionId OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string defining the product revision of this LU according to 
+         the value in SCSI device page."
+    ::= { ciscoScsiLuEntry 6 }
+
+ciscoScsiLuPeripheralType OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the value returned to SCSI query VPD page 83. 
+         It can be: direct-access device, sequential-access device,
+         printer, communication device and so on.  
+         The values that can be returned here are defined in SCSI 
+         Primary Commands -2 ."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2), T10 Project 
+          1236- D, Revision 20, 18 July 2001  [16]"
+    ::= { ciscoScsiLuEntry 7 }
+
+ciscoScsiLuStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        available(2),
+        notAvailable(3),
+        broken(4),
+        readying(5),
+        abnormal(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this logical unit: 
+         - unknown(1): The status of this logical unit cannot be
+           determined. 
+         - available(2): The logical unit is fully operational (i.e.,
+           accepts media access SCSI commands and has no state 
+           information to report). 
+         - notAvailable(3): The logical unit is capable of being 
+           supported but not available (i.e., no logical unit is 
+           currently present or the logical unit is present but not 
+           configured for use). 
+         - broken(4): The logical unit has failed and cannot respond to
+           SCSI commands. 
+         - readying(5): The logical unit is being initialized and access 
+           is temporarily limited. 
+         - abnormal(6): The logical unit has state information available
+           that indicates it is operating with limits. The 
+           ciscoScsiLuState indicates what those limits are."
+    REFERENCE
+        " SCSI Controller Commands-2 (SCC-2) standard NCITS.318-1998 
+          6.3.1.8 REPORT STATES service action"
+    ::= { ciscoScsiLuEntry 8 }
+
+ciscoScsiLuState OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   dataLost(0)
+        --   dynamicReconfigurationInProgress(1)
+        --   exposed(2)
+        --   fractionallyExposed(3)
+        --   partiallyExposed(4)
+        --   protectedRebuild(5)
+        --   protectionDisabled(6)
+        --   rebuild(7)
+        --   recalculate(8)
+        --   spareInUse(9)
+        --   verifyInProgress(10)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "According the bit position: 
+         0 Data lost: Within the logical unit data has been lost. 
+         1 Dynamic reconfiguration in progress: The logical unit is 
+           being reconfigured. In this state all data is still 
+           protected. 
+         2 Exposed: Within the logical unit data is not protected. In 
+           this state all data is still valid, however, loss of 
+           data/data-availability is unavoidable in the event of a 
+           failure. 
+         3 Fractionally exposed: Within the logical unit part of the data
+           is not protected. In this state all data is still valid, 
+           however, a failure may cause a loss of data or a loss of data 
+           availability. 
+         4 Partially exposed: Within the logical unit one or more
+           underlying storage devices have failed. In this state all 
+           data is still protected. 
+         5 Protected rebuild: The logical unit is in the process of a
+           rebuild operation. In this state all data is protected. 
+         6 Protection disabled: Within the logical unit the data 
+           protection method has been disabled. 
+           In this state all data is still valid, however, however, loss 
+           of data/data-availability is unavoidable in the event of a 
+           failure. 
+         7 Rebuild: The data protection method is in the process of 
+           rebuilding data. In this state data is not protected. 
+         8 Recalculate: The logical unit is in the process of a
+           recalculate operation. 
+         9 Spare in use: Within the logical unit a storage device in 
+           full or part being used to store data. In this state all data 
+           is still protected. 
+        10 Verify in progress: Within the logical unit data is being 
+           verified."
+    REFERENCE
+        " SCSI Controller Commands-2 (SCC-2) standard NCITS.318-1998 
+          6.3.1.8 REPORT STATES service action"
+    ::= { ciscoScsiLuEntry 9 }
+
+ciscoScsiLuInCommands OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents the number of commands received by 
+          this logical unit."
+    ::= { ciscoScsiLuEntry 10 }
+
+ciscoScsiLuReadMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents the amount of data in Megabytes read 
+          from this logical unit."
+    ::= { ciscoScsiLuEntry 11 }
+
+ciscoScsiLuWrittenMegaBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Megabytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents the amount of data in Megabytes 
+          written by this logical unit."
+    ::= { ciscoScsiLuEntry 12 }
+
+ciscoScsiLuInResets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    resets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents the number of resets received by 
+          this logical unit."
+    ::= { ciscoScsiLuEntry 13 }
+
+ciscoScsiLuOutQueueFullStatus OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents the number of queue full statuses 
+          received by this logical unit."
+    ::= { ciscoScsiLuEntry 14 }
+
+ciscoScsiLuHSInCommands OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    commands
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents the number of commands received by 
+          this logical unit. This object provides support for systems 
+          that can quickly generate lots of commands because they run 
+          at high speed."
+    ::= { ciscoScsiLuEntry 15 }
+
+ciscoScsiLuIdTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiLuIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of identifiers for all logical units exposed by 
+         local targets device."
+    ::= { ciscoScsiLogicalUnit 2 }
+
+ciscoScsiLuIdEntry OBJECT-TYPE
+    SYNTAX CiscoScsiLuIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing information applicable to a 
+         particular identifier for a particular logical unit. "
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiLuIndex, ciscoScsiLuIdIndex }
+    ::= { ciscoScsiLuIdTable 1 }
+
+CiscoScsiLuIdEntry ::= SEQUENCE {
+    ciscoScsiLuIdIndex ScsiIndexValue,
+    ciscoScsiLuIdCodeSet ScsiIdCodeSet,
+    ciscoScsiLuIdAssociation ScsiIdAssociation,
+    ciscoScsiLuIdType ScsiIdType,
+    ciscoScsiLuIdValue ScsiIdValue
+    }
+
+ciscoScsiLuIdIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents an arbitrary integer used to 
+          uniquely identify a particular LU Identifier within a 
+          particular logical unit within a particular SCSI target 
+          device within a particular SCSI instance."
+    ::= { ciscoScsiLuIdEntry 1 }
+
+ciscoScsiLuIdCodeSet OBJECT-TYPE
+    SYNTAX ScsiIdCodeSet
+--    Rsyntax Gauge(0..15)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the code set in use with this 
+         identifier. 
+         The value is represented in the same format as is contained 
+         in the identifier's Identification Descriptor within the 
+         Logical Unit's Device Identification Page."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 ((SPC-2), Revision 20,   
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+          Parameters [16]"
+    ::= { ciscoScsiLuIdEntry 2 }
+
+ciscoScsiLuIdAssociation OBJECT-TYPE
+    SYNTAX ScsiIdAssociation
+--    Rsyntax Gauge(0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies what the identifier is associated with 
+         (e.g, with the addressed physical/logical device or with a 
+         particular port).  The value is represented in the same 
+         format as is contained in the identifier's Identification 
+         Descriptor within the Logical Unit's Device Identification 
+         Page."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+          Parameters [16]"
+    ::= { ciscoScsiLuIdEntry 3 }
+
+ciscoScsiLuIdType OBJECT-TYPE
+    SYNTAX ScsiIdType
+--    Rsyntax Gauge(0..15)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the identifier.  
+         The value is represented in the same format as is 
+         contained in the identifier's Identification Descriptor 
+         within the Logical Unit's Device Identification Page."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2), Revision 20, 
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+          Parameters  [16]"
+    ::= { ciscoScsiLuIdEntry 4 }
+
+ciscoScsiLuIdValue OBJECT-TYPE
+    SYNTAX ScsiIdValue
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This object represents the actual value of this identifier. 
+          The format is defined by the objects ciscoScsiLuIdCodeSet, 
+          ciscoScsiLuIdAssociation, ciscoScsiLuIdType. 
+          The value is represented in the same format as is contained 
+          in the identifier's Identification Descriptor within the 
+          Logical Unit's Device Identification Page."
+    REFERENCE
+        " ANSI - SCSI Primary Commands - 2 (SPC-2), 
+          Chapter 8: section 8.4.4, page 210 Vital Product Data 
+          Parameters  [16]"
+    ::= { ciscoScsiLuIdEntry 5 }
+
+ciscoScsiLunMapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoScsiLunMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes LUNs additional to the default one. A 
+         logical unit may have a different Logical Unit Number for 
+         different initiators. This table provides a mapping between 
+         a logical unit and a logical unit number."
+    ::= { ciscoScsiLogicalUnit 3 }
+
+ciscoScsiLunMapEntry OBJECT-TYPE
+    SYNTAX CiscoScsiLunMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about the mapping of a 
+         particular Logical Unit to a particular LUN.  The set of 
+         entries which all have the same values of ciscoScsiInstIndex, 
+         ciscoScsiDeviceIndex and ciscoScsiLunMapIndex constitute a LUN
+         Map."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiLunMapIndex, ciscoScsiLunMapLun }
+    ::= { ciscoScsiLunMapTable 1 }
+
+CiscoScsiLunMapEntry ::= SEQUENCE {
+    ciscoScsiLunMapIndex ScsiIndexValue,
+    ciscoScsiLunMapLun ScsiLUNOrZero,
+    ciscoScsiLunMapLuIndex ScsiIndexValue,
+    ciscoScsiLunMapRowStatus RowStatus
+    }
+
+ciscoScsiLunMapIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An administrative integer used to uniquely identify a 
+         particular LunMap."
+    ::= { ciscoScsiLunMapEntry 1 }
+
+ciscoScsiLunMapLun OBJECT-TYPE
+    SYNTAX ScsiLUNOrZero
+--    Rsyntax OCTET STRING(SIZE(0|2|8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Logical Unit Number, to which a 
+         logical unit is mapped by this row."
+    ::= { ciscoScsiLunMapEntry 2 }
+
+ciscoScsiLunMapLuIndex OBJECT-TYPE
+    SYNTAX ScsiIndexValue
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the logical unit for which the value 
+         of ciscoScsiLuIndex is the same as the value of this object.  
+         The identified logical unit is the one mapped to a LUN by this 
+         row."
+    ::= { ciscoScsiLunMapEntry 3 }
+
+ciscoScsiLunMapRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows an administrator to create and delete this 
+         entry."
+    ::= { ciscoScsiLunMapEntry 4 }
+
+ciscoScsiTgtDevStatusChanged TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoScsiNotification
+    VARIABLES {
+        ciscoScsiTgtDeviceStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        " A notification will be generated for each occurrence of the 
+          abnormal status (e.g., if the SCSI target device's current 
+          status is abnormal) providing that the SCSI instance's value 
+          of ciscoScsiInstNotifEnable is enabled. 
+          An SNMP agent implementing the SCSI MIB should not send more 
+          than three SCSI identical notifications in any 10-second 
+          period."
+    ::= 1
+
+ciscoScsiLuStatusChanged TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoScsiNotification
+    VARIABLES {
+        ciscoScsiLuStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        " A notification will be generated each time that 
+          ciscoScsiLuStatus will change providing that the SCSI 
+          instance's value of ciscoScsiInstScsiNotificationsEnable is 
+          enabled. 
+          An SNMP agent implementing the SCSI MIB should not send 
+          more than three SCSI identical notifications in any 
+          10-second period."
+    ::= 2
+
+ciscoScsiDeviceGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about SCSI 
+--    instances, devices and ports.
+--  objects
+--    ciscoScsiInstAlias, ciscoScsiInstSoftwareIndex, 
+--    ciscoScsiInstVendorVersion, ciscoScsiInstNotifEnable, 
+--    ciscoScsiDeviceAlias, ciscoScsiDeviceRole, 
+--    ciscoScsiDevicePortNumber, ciscoScsiPortRole, 
+--    ciscoScsiPortTrnsptPtr, ciscoScsiTrnsptType, 
+--    ciscoScsiTrnsptPointer, ciscoScsiTrnsptDevName
+
+ciscoScsiInitiatorGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is relevant for an initiator device and port.
+--  objects
+--    ciscoScsiIntrDevAccMode, ciscoScsiIntrPrtName, 
+--    ciscoScsiIntrPrtIdentifier, ciscoScsiAttTgtPortDscTgtIdx, 
+--    ciscoScsiAttTgtPortName, ciscoScsiAttTgtPortIdentifier
+
+ciscoScsiDiscoveryGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is relevant for the discovered targets by an 
+--    initiator port.
+--  objects
+--    ciscoScsiDscTgtDevOrPort, ciscoScsiDscTgtName, 
+--    ciscoScsiDscTgtConfigured, ciscoScsiDscTgtDiscovered, 
+--    ciscoScsiDscTgtRowStatus, ciscoScsiDscTgtLastCreation, 
+--    ciscoScsiDscLunLun, ciscoScsiDscLunIdCodeSet, 
+--    ciscoScsiDscLunIdAssociation, ciscoScsiDscLunIdType, 
+--    ciscoScsiDscLunIdValue
+
+ciscoScsiTargetGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is relevant for a target device and port.
+--  objects
+--    ciscoScsiTgtDevNumberOfLUs, ciscoScsiTgtDeviceStatus, 
+--    ciscoScsiTgtDevNonAccLUs, ciscoScsiTgtPortName, 
+--    ciscoScsiTgtPortIdentifier, ciscoScsiAttIntrPrtAuthIntrIdx, 
+--    ciscoScsiAttIntrPrtName, ciscoScsiAttIntrPrtId, 
+--    ciscoScsiLuDefaultLun, ciscoScsiLuWwnName, 
+--    ciscoScsiLuVendorId, ciscoScsiLuProductId, 
+--    ciscoScsiLuRevisionId, ciscoScsiLuPeripheralType, 
+--    ciscoScsiLuStatus, ciscoScsiLuState, ciscoScsiLuIdCodeSet, 
+--    ciscoScsiLuIdAssociation, ciscoScsiLuIdType, 
+--    ciscoScsiLuIdValue
+
+ciscoScsiLunMapGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of attributes regarding the 
+--    mapping between logical unit number, logical unit and target 
+--    device.
+--  objects
+--    ciscoScsiLunMapLuIndex, ciscoScsiLunMapRowStatus, 
+--    ciscoScsiAuthIntrDevOrPort, ciscoScsiAuthIntrName, 
+--    ciscoScsiAuthIntrLunMapIndex, ciscoScsiAuthIntrLastCreation, 
+--    ciscoScsiAuthIntrRowStatus
+
+ciscoScsiTargetStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of statistics for all 
+--    implementations of the SCSI MIB that contain targets.
+--  objects
+--    ciscoScsiTgtPortInCommands, ciscoScsiTgtPortWrMegaBytes, 
+--    ciscoScsiTgtPortReadMegaBytes, ciscoScsiLuInCommands, 
+--    ciscoScsiLuReadMegaBytes, ciscoScsiLuWrittenMegaBytes, 
+--    ciscoScsiLuInResets, ciscoScsiLuOutQueueFullStatus
+
+ciscoScsiTargetHSStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of high speed statistics for all 
+--    implementations of the SCSI MIB that contain targets.
+--  objects
+--    ciscoScsiTgtPortHSInCommands, ciscoScsiLuHSInCommands
+
+ciscoScsiLunMapStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of statistics regarding 
+--    initiators authorized to attach local logical unit and target 
+--    device.
+--  objects
+--    ciscoScsiAuthIntrAttachedTimes, ciscoScsiAuthIntrOutCommands, 
+--    ciscoScsiAuthIntrReadMegaBytes, ciscoScsiAuthIntrWrMegaBytes
+
+ciscoScsiLunMapHSStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of high speed statistics 
+--    regarding initiators authorized to attach local logical unit 
+--    and target device.
+--  objects
+--    ciscoScsiAuthIntrHSOutCommands
+
+ciscoScsiInitiatorStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of statistics for all 
+--    implementations of the SCSI MIB that contain initiators.
+--  objects
+--    ciscoScsiIntrDevOutResets, ciscoScsiIntrPrtOutCommands, 
+--    ciscoScsiIntrPrtWrMegaBytes, ciscoScsiIntrPrtReadMegaBytes
+
+ciscoScsiInitiatorHSStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of high speed statistics for all 
+--    implementations of the SCSI MIB that contain initiators.
+--  objects
+--    ciscoScsiIntrPrtHSOutCommands
+
+ciscoScsiDiscoveryStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of statistics for all 
+--    implementations of the SCSI MIB that contain discovered 
+--    initiators.
+--  objects
+--    ciscoScsiDscTgtInCommands, ciscoScsiDscTgtReadMegaBytes, 
+--    ciscoScsiDscTgtWrMegaBytes
+
+ciscoScsiDiscoveryHSStatsGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of high speed statistics for all 
+--    implementations of the SCSI MIB that contain discovered 
+--    initiators.
+--  objects
+--    ciscoScsiDscTgtHSInCommands
+
+ciscoScsiDeviceStatGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of statistics regarding about SCSI devices and 
+--    ports.
+--  objects
+--    ciscoScsiDeviceResets, ciscoScsiPortBusyStatuses
+
+ciscoScsiNotifGroup OBJECT IDENTIFIER ::= { ciscoScsiGroups 15 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of notifications.
+--  notifications
+--    ciscoScsiTgtDevStatusChanged, ciscoScsiLuStatusChanged
+
+ciscoScsiCompliance OBJECT IDENTIFIER ::= { ciscoScsiCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Describes the requirements for compliance to this  
+--     SCSI MIB. If an implementation can be both a target 
+--     and an initiator, all groups are mandatory.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoScsiDeviceGroup
+--   ObjVar
+--    ciscoScsiInstAlias
+--   ObjVar
+--    ciscoScsiInstNotifEnable
+--   ObjVar
+--    ciscoScsiDeviceAlias
+--   OptGroup
+--    ciscoScsiTargetGroup
+--   OptGroup
+--    ciscoScsiLunMapGroup
+--   ObjVar
+--    ciscoScsiAuthIntrDevOrPort
+--   ObjVar
+--    ciscoScsiAuthIntrName
+--   ObjVar
+--    ciscoScsiAuthIntrLunMapIndex
+--   ObjVar
+--    ciscoScsiAuthIntrRowStatus
+--   OptGroup
+--    ciscoScsiInitiatorGroup
+--   ObjVar
+--    ciscoScsiIntrDevAccMode
+--   OptGroup
+--    ciscoScsiDiscoveryGroup
+--   ObjVar
+--    ciscoScsiLunMapLuIndex
+--   ObjVar
+--    ciscoScsiLunMapRowStatus
+--   ObjVar
+--    ciscoScsiDscTgtDevOrPort
+--   ObjVar
+--    ciscoScsiDscTgtName
+--   ObjVar
+--    ciscoScsiDscTgtConfigured
+--   ObjVar
+--    ciscoScsiDscTgtRowStatus
+--   OptGroup
+--    ciscoScsiDeviceStatGroup
+--   OptGroup
+--    ciscoScsiInitiatorStatsGroup
+--   OptGroup
+--    ciscoScsiDiscoveryStatsGroup
+--   OptGroup
+--    ciscoScsiTargetStatsGroup
+--   OptGroup
+--    ciscoScsiLunMapStatsGroup
+--   OptGroup
+--    ciscoScsiInitiatorHSStatsGroup
+--   OptGroup
+--    ciscoScsiDiscoveryHSStatsGroup
+--   OptGroup
+--    ciscoScsiTargetHSStatsGroup
+--   OptGroup
+--    ciscoScsiLunMapHSStatsGroup
+--   OptGroup
+--    ciscoScsiNotifGroup
+
+
+END
+

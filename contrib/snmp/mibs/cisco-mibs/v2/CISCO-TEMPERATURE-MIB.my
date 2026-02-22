@@ -1,0 +1,165 @@
+-- *******************************************************************
+-- CISCO-TEMPERATURE-MIB.my
+-- Cisco Temperature MIB
+--
+-- Copyright (c) 2020 by cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-TEMPERATURE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Integer32, Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoTempMIB MODULE-IDENTITY
+        LAST-UPDATED    "202005280000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "This MIB is intended for collecting
+                telementry data such as temperature details."
+        REVISION      "202005280000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 870 }
+
+ciscoTempMIBInformation      OBJECT IDENTIFIER
+        ::= { ciscoTempMIB 1 }
+
+--********************************************************************
+--*     Configurations and Information
+--********************************************************************
+
+ciscoTempTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoTempEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                                "Entry in the information table,
+                that gives temperature value."
+        ::= { ciscoTempMIBInformation 1  }
+
+ciscoTempEntry OBJECT-TYPE
+        SYNTAX     CiscoTempEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry shows details realted to temperature."
+        INDEX   { ciscoTempIndex }
+        ::= { ciscoTempTable 1 }
+
+CiscoTempEntry ::=
+        SEQUENCE  {
+            ciscoTempIndex  Integer32,
+            ciscoTempValue  Unsigned32,
+            ciscoTempHyst   Unsigned32,
+            ciscoTempOs     Unsigned32
+                  }
+
+ciscoTempIndex OBJECT-TYPE
+        SYNTAX     Integer32 (0..2147483647)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Unique index for the temperature being instrumented.
+                This index is for SNMP purposes only, and has no
+                intrinsic meaning."
+        ::= { ciscoTempEntry 1 }
+
+ciscoTempValue OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "degrees Celsius"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The current temperature measurement value of AP."
+        ::= { ciscoTempEntry 2 }
+
+ciscoTempHyst OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "degrees Celsius"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The current T-Hyst measurement value of AP."
+        ::= { ciscoTempEntry 3 }
+
+ciscoTempOs OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "degrees Celsius"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The current T-OS measurement value of AP."
+        ::= { ciscoTempEntry 4 }
+
+--********************************************************************
+--   Conformance information
+--********************************************************************
+
+ciscoTempMIBConform OBJECT IDENTIFIER
+        ::= { ciscoTempMIB 2 }
+ciscoTempMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoTempMIBConform 1 }
+ciscoTempMIBConformGroups OBJECT IDENTIFIER
+        ::= { ciscoTempMIBConform 2 }
+
+
+--********************************************************************
+--*    Compliance statements
+--********************************************************************
+
+ciscoTempMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                 implement the ciscoTempMIB module."
+        MODULE MANDATORY-GROUPS {
+                ciscoTempMIBGlobalGroup
+             }
+        ::= { ciscoTempMIBCompliances 1 }
+
+
+--********************************************************************
+--*    Units of conformance
+--********************************************************************
+
+ciscoTempMIBGlobalGroup OBJECT-GROUP
+        OBJECTS {
+                ciscoTempValue,
+                ciscoTempHyst,
+                ciscoTempOs
+                }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide information about
+                 the temperature details of Access Point."
+        ::= { ciscoTempMIBConformGroups 1 }
+
+--********************************************************************
+--*   End of units of conformance
+--********************************************************************
+
+END
+
+

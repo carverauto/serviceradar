@@ -1,0 +1,3197 @@
+-- *****************************************************************
+-- CISCO-DYNAMIC-TEMPLATE-MIB
+-- Definitions of managed objects describing dynamic templates.
+--   
+-- September 2007, Patrick R. Gili
+--   
+-- Copyright (c) 2007, 2012 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-DYNAMIC-TEMPLATE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MacAddress,
+    RowStatus,
+    StorageType,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoVrfName
+        FROM CISCO-TC
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    InetAddressIPv4,
+    InetAddressIPv6,
+    InetAddressPrefixLength
+        FROM INET-ADDRESS-MIB
+    CbpElementName
+        FROM CISCO-CBP-TC-MIB
+    DynamicTemplateName,
+    DynamicTemplateType,
+    DynamicTemplateTargetType,
+    DynamicTemplateTargetId
+        FROM CISCO-DYNAMIC-TEMPLATE-TC-MIB
+    UnicastRpfType,
+    UnicastRpfOptions
+        FROM CISCO-IP-URPF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoDynamicTemplateMIB MODULE-IDENTITY
+    LAST-UPDATED    "200709060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB defines objects that describe dynamic templates.  A
+        dynamic template is a set of configuration attributes that a
+        system can dynamically apply to a target.
+
+        The target of a dynamic template is the entity configured by the
+        system using the configuration attributes contained by a 
+        template. At the time of this writing, an interface represents
+        the only valid target of a dynamic template.  However, the
+        architecture does not prevent other target types, and hence, the
+        MIB definition generalizes the notion of a target to allow for
+        this.
+
+        Generally, the system does not directly apply the attributes
+        contained by a dynamic template to an associated
+        target.  The system might generate a derived configuration from
+        the set of dynamic templates associated with the target.  A
+        derived configuration represents the union of the configuration
+        attributes contained by each associated dynamic template.  In
+        the case of a conflict (i.e., more than one dynamic template
+        specifies the same configuration attribute), the system accepts
+        the configuration attribute from the dynamic template with the
+        highest precedence."
+    REVISION        "200709060000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 784 }
+
+
+-- Top-Level Trees
+
+ciscoDynamicTemplateMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIB 0 }
+
+ciscoDynamicTemplateMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIB 1 }
+
+ciscoDynamicTemplateMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIB 2 }
+
+-- Object Sub-trees
+
+cdtBase  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBObjects 1 }
+
+cdtCommonIf  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBObjects 2 }
+
+cdtPpp  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBObjects 3 }
+
+cdtEthernet  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBObjects 4 }
+
+cdtIpSubscriber  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBObjects 5 }
+
+cdtService  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBObjects 6 }
+
+cdtSubscriberGroup  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBObjects 7 }
+
+-- Objects
+
+cdtTemplateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtTemplateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the dynamic templates maintained by the
+        system, including those that have been locally-configured on the
+        system and those pushed to the system by external policy
+        servers."
+    ::= { cdtBase 1 }
+
+cdtTemplateEntry OBJECT-TYPE
+    SYNTAX          CdtTemplateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a dynamic template, which serves as a
+        container for configuration attributes.  The configuration
+        attributes contained by a dynamic template depends on its type.
+
+        The system automatically creates a corresponding entry when a
+        dynamic template has been created through another management
+        entity (e.g., the system's local console).  Likewise, the system
+        automatically destroys a corresponding entry when a dynamic
+        template has been destroyed through another management entity.
+
+        The system automatically creates a corresponding entry when an
+        external policy server pushes a user profile or a service
+        profile to the system.
+
+        The system automatically creates a corresponding entry when it
+        generates a derived configuration."
+    INDEX           { cdtTemplateName } 
+    ::= { cdtTemplateTable 1 }
+
+CdtTemplateEntry ::= SEQUENCE {
+        cdtTemplateName       DynamicTemplateName,
+        cdtTemplateStatus     RowStatus,
+        cdtTemplateStorage    StorageType,
+        cdtTemplateType       DynamicTemplateType,
+        cdtTemplateSrc        INTEGER,
+        cdtTemplateUsageCount Unsigned32
+}
+
+cdtTemplateName OBJECT-TYPE
+    SYNTAX          DynamicTemplateName
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a string-value that uniquely identifies
+        the dynamic template.
+
+        If the corresponding instance of cdtTemplateSrc is not
+        'local', then the system automatically generates the name
+        identifying the dynamic template." 
+    ::= { cdtTemplateEntry 1 }
+
+cdtTemplateStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the dynamic template.  The
+        following columns must be valid before activating a dynamic
+        template:
+
+            - cdtTemplateStorage
+            - cdtTemplateType
+
+        However, these objects specify a default value.  Thus, it is
+        possible to use create-and-go semantics without setting any
+        additional columns.
+
+        An implementation must allow the EMS/NMS to modify any column
+        when this column is 'active', including columns defined in
+        tables that have a one-to-one or sparse dependent relationship
+        on this table." 
+    ::= { cdtTemplateEntry 2 }
+
+cdtTemplateStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies what happens to the dynamic template
+        upon restart.
+
+        If the corresponding instance of cdtTemplateSrc is not
+        'local', then this column must be 'volatile'."
+    DEFVAL          { volatile } 
+    ::= { cdtTemplateEntry 3 }
+
+cdtTemplateType OBJECT-TYPE
+    SYNTAX          DynamicTemplateType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the types of dynamic template."
+    DEFVAL          { other } 
+    ::= { cdtTemplateEntry 4 }
+
+cdtTemplateSrc OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        derived(2),
+                        local(3),
+                        aaaUserProfile(4),
+                        aaaServiceProfile(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source of the dynamic template:
+
+        'other'
+            The implementation of the MIB module does not recognize the
+            source of the dynamic template.
+
+        'derived'
+            The system created the set of attributes from one or
+            more dynamic templates.
+
+        'local'
+            The dynamic template was locally configured through a
+            management entity, such as the local console or a SNMP
+            entity.
+
+        'aaaUserProfile'
+            The dynamic template originated from a user profile
+            pushed from an external policy server.
+
+        'aaaServiceProfile'
+            The dynamic template originated from a service profile
+            pushed from an external policy server." 
+    ::= { cdtTemplateEntry 5 }
+
+cdtTemplateUsageCount OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of targets using a dynamic template" 
+    ::= { cdtTemplateEntry 6 }
+ 
+
+
+cdtTemplateTargetTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtTemplateTargetEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of targets associated with
+        one or more dynamic templates."
+    ::= { cdtBase 2 }
+
+cdtTemplateTargetEntry OBJECT-TYPE
+    SYNTAX          CdtTemplateTargetEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a target associated with one or more
+        dynamic templates.
+
+        The system automatically creates an entry when it associates a
+        dynamic template to a target.  Likewise, the system
+        automatically destroys an entry when a target no longer has any
+        associated dynamic templates."
+    INDEX           {
+                        cdtTemplateTargetType,
+                        cdtTemplateTargetId
+                    } 
+    ::= { cdtTemplateTargetTable 1 }
+
+CdtTemplateTargetEntry ::= SEQUENCE {
+        cdtTemplateTargetType    DynamicTemplateTargetType,
+        cdtTemplateTargetId      DynamicTemplateTargetId,
+        cdtTemplateTargetStatus  RowStatus,
+        cdtTemplateTargetStorage StorageType
+}
+
+cdtTemplateTargetType OBJECT-TYPE
+    SYNTAX          DynamicTemplateTargetType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of target." 
+    ::= { cdtTemplateTargetEntry 1 }
+
+cdtTemplateTargetId OBJECT-TYPE
+    SYNTAX          DynamicTemplateTargetId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the target within the scope of
+        its type." 
+    ::= { cdtTemplateTargetEntry 2 }
+
+cdtTemplateTargetStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the dynamic template
+        target.  The following columns must be valid before activating a
+        subscriber access profile:
+
+            - cdtTemplateTargetStorage
+
+        However, these objects specify a default value.  Thus, it is
+        possible to use create-and-go semantics without setting any
+        additional columns.
+
+        An implementation must allow the EMS/NMS to modify any column
+        when this column is 'active', including columns defined in
+        tables that have a one-to-one or sparse dependent relationship
+        on this table." 
+    ::= { cdtTemplateTargetEntry 3 }
+
+cdtTemplateTargetStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies what happens to the dynamic template
+        target upon restart."
+    DEFVAL          { volatile } 
+    ::= { cdtTemplateTargetEntry 4 }
+ 
+
+
+cdtTemplateAssociationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtTemplateAssociationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of templates associated with each
+        target.
+
+        This table has an expansion dependent relationship on the
+        cdtTemplateTargetTable, containing zero or more rows for each
+        target."
+    ::= { cdtBase 3 }
+
+cdtTemplateAssociationEntry OBJECT-TYPE
+    SYNTAX          CdtTemplateAssociationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry indicates an association of a dynamic template with a
+        target.
+
+        The system automatically creates an entry when it associates a
+        dynamic template to a target.
+
+        The system also creates an entry when it derives the
+        configuration that it applies to a target.
+
+        The system automatically destroys an entry under the following
+        circumstances:
+
+        1)  The target indicated by the entry no longer exists.
+
+        2)  The association between the target and the dynamic template
+            no longer exists."
+    INDEX           {
+                        cdtTemplateTargetType,
+                        cdtTemplateTargetId,
+                        cdtTemplateAssociationName
+                    } 
+    ::= { cdtTemplateAssociationTable 1 }
+
+CdtTemplateAssociationEntry ::= SEQUENCE {
+        cdtTemplateAssociationName       DynamicTemplateName,
+        cdtTemplateAssociationPrecedence Unsigned32
+}
+
+cdtTemplateAssociationName OBJECT-TYPE
+    SYNTAX          DynamicTemplateName
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the template associated with
+        the target." 
+    ::= { cdtTemplateAssociationEntry 1 }
+
+cdtTemplateAssociationPrecedence OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the relative precedence of the
+        associated dynamic template.  Lower values have higher
+        precedence than higher values." 
+    ::= { cdtTemplateAssociationEntry 2 }
+ 
+
+
+cdtTemplateUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtTemplateUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of targets using each dynamic
+        template.
+
+        This table has an expansion dependent relationship on the
+        cdtTemplateTable, containing zero or more rows for each
+        dynamic template."
+    ::= { cdtBase 4 }
+
+cdtTemplateUsageEntry OBJECT-TYPE
+    SYNTAX          CdtTemplateUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry indicates a target using the dynamic template.
+
+        The system automatically creates an entry when it associates a
+        dynamic template to a target.
+
+        The system also creates an entry when it derives the
+        configuration that it applies to a target.
+
+        The system automatically destroys an entry under the following
+        circumstances:
+
+        1)  The target indicated by the entry no longer exists.
+
+        2)  The association between the target and the dynamic template
+            no longer exists."
+    INDEX           {
+                        cdtTemplateName,
+                        cdtTemplateUsageTargetType,
+                        cdtTemplateUsageTargetId
+                    } 
+    ::= { cdtTemplateUsageTable 1 }
+
+CdtTemplateUsageEntry ::= SEQUENCE {
+        cdtTemplateUsageTargetType DynamicTemplateTargetType,
+        cdtTemplateUsageTargetId   DynamicTemplateTargetId
+}
+
+cdtTemplateUsageTargetType OBJECT-TYPE
+    SYNTAX          DynamicTemplateTargetType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of target using the
+        dynamic template." 
+    ::= { cdtTemplateUsageEntry 1 }
+
+cdtTemplateUsageTargetId OBJECT-TYPE
+    SYNTAX          DynamicTemplateTargetId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the target using the dynamic
+        template" 
+    ::= { cdtTemplateUsageEntry 2 }
+ 
+
+
+cdtTemplateCommonTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtTemplateCommonEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains attributes relating to all dynamic
+        templates.  Observe that the type of dynamic templates
+        containing these attributes may change with the addition of new
+        dynamic template types.
+
+        This table has a sparse-dependent relationship on the
+        cdtTemplateTable, containing a row for each dynamic template
+        having a cdtTemplateType of one of the following values:
+
+            'derived'
+            'ppp'
+            'ethernet'
+            'ipSubscriber'
+            'service'"
+    ::= { cdtBase 5 }
+
+cdtTemplateCommonEntry OBJECT-TYPE
+    SYNTAX          CdtTemplateCommonEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing attributes relating to any target.
+
+        The system automatically creates an entry when the system or the
+        EMS/NMS creates a row in the cdtTemplateTable with a
+        cdtTemplateType of on the following values:
+
+            'derived'
+            'ppp'
+            'ethernet'
+            'ipSubscriber'
+            'service'
+
+        Likewise, the system automatically destroys an entry when the
+        system or the EMS/NMS destroys the corresponding row in the
+        cdtTemplateTable."
+    INDEX           { cdtTemplateName } 
+    ::= { cdtTemplateCommonTable 1 }
+
+CdtTemplateCommonEntry ::= SEQUENCE {
+        cdtCommonValid            BITS,
+        cdtCommonDescr            SnmpAdminString,
+        cdtCommonKeepaliveInt     Unsigned32,
+        cdtCommonKeepaliveRetries Unsigned32,
+        cdtCommonVrf              CiscoVrfName,
+        cdtCommonAddrPool         SnmpAdminString,
+        cdtCommonIpv4AccessGroup  SnmpAdminString,
+        cdtCommonIpv4Unreachables TruthValue,
+        cdtCommonIpv6AccessGroup  SnmpAdminString,
+        cdtCommonIpv6Unreachables TruthValue,
+        cdtCommonSrvSubControl    CbpElementName,
+        cdtCommonSrvRedirect      CbpElementName,
+        cdtCommonSrvAcct          CbpElementName,
+        cdtCommonSrvQos           CbpElementName,
+        cdtCommonSrvNetflow       CbpElementName
+}
+
+cdtCommonValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        descr(0),
+                        keepalive(1),
+                        vrf(2),
+                        addrPool(3),
+                        ipv4AccessGroup(4),
+                        ipv4Unreachables(5),
+                        ipv6AccessGroup(6),
+                        ipv6Unreachables(7),
+                        srvSubControl(8),
+                        srvRedirect(9),
+                        srvAcct(10),
+                        srvQos(11),
+                        srvNetflow(12)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies which attributes in the dynamic template
+        have been configured to valid values.
+
+        Each bit in this bit string corresponds to a column in this
+        table.  If the bit is '0', then the value of the corresponding
+        column is not valid.  If the bit is '1', then the value of the
+        corresponding column has been configured to a valid value.
+
+        The following list specifies the mappings between bits and the
+        columns:
+
+            'descr'             => cdtCommonDescr
+            'keepaliveInt'      => cdtCommonKeepaliveInt
+            'keepaliveRetries'  => cdtCommonKeepaliveRetries
+            'vrf'               => cdtCommonVrf
+            'addrPool'          => cdtCommonAddrPool
+            'ipv4AccessGroup'   => cdtCommonIpv4AccessGroup
+            'ipv4Unreachables'  => cdtCommonIpv4Unreachables
+            'ipv6AccessGroup'   => cdtCommonIpv6AccessGroup
+            'ipv6Unreachables'  => cdtCommonIpv6Unreachables
+            'srvSubControl'     => cdtCommonSrvSubControl
+            'srvRedirect'       => cdtCommonSrvRedirect
+            'srvAcct'           => cdtCommonSrvAcct
+            'srvQos'            => cdtCommonSrvQos
+            'srvNetflow'        => cdtCommonSrvNetflow"
+    DEFVAL          { {  } } 
+    ::= { cdtTemplateCommonEntry 1 }
+
+cdtCommonDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a human-readable description for the
+        dynamic template.
+
+        This column is valid only if the 'descr' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 2 }
+
+cdtCommonKeepaliveInt OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval that the system sends
+        keepalive messages to a target.
+
+        This column is valid only if the 'keepaliveInterval' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { 10 } 
+    ::= { cdtTemplateCommonEntry 3 }
+
+cdtCommonKeepaliveRetries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    UNITS           "retries"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times the system will
+        resend a keepalive message without a response before it
+        transitions a target to an operationally down state.
+
+        This column is valid only if the 'keepaliveRetries' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { 5 } 
+    ::= { cdtTemplateCommonEntry 4 }
+
+cdtCommonVrf OBJECT-TYPE
+    SYNTAX          CiscoVrfName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the VRF with which a target
+        has an association.
+
+        This column is valid only if the 'vrf' bit of the corresponding
+        instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 5 }
+
+cdtCommonAddrPool OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the IP address pool the
+        system will use to assign an IP address to a peer of a target.
+
+        This column is valid only if the 'addrPool' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 6 }
+
+cdtCommonIpv4AccessGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name (or number) of the IPv4 ACL
+        applied to a target.
+
+        This column is valid only if the 'ipv4AccessGroup' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 7 }
+
+cdtCommonIpv4Unreachables OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether a target generates ICMPv4
+        unreachable messages.
+
+        This column is valid only if the 'ipv4Unreachables' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { true } 
+    ::= { cdtTemplateCommonEntry 8 }
+
+cdtCommonIpv6AccessGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name (or number) of the IPv4 ACL
+        applied to a target.
+
+        This column is valid only if the 'ipv6AccessGroup' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 9 }
+
+cdtCommonIpv6Unreachables OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether a target generates ICMPv6
+        unreachable messages.
+
+        This column is valid only if the 'ipv6Unreachables' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { true } 
+    ::= { cdtTemplateCommonEntry 10 }
+
+cdtCommonSrvSubControl OBJECT-TYPE
+    SYNTAX          CbpElementName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the subscriber control
+        policy applied to a target.
+
+        The system should assume that the cbpPolicyMapType (defined by
+        the CISCO-CBP-BASE-CFG-MIB) of the policy is
+        cbpPmtControlSubscriber (defined by the CISCO-CBP-TYPE-OID-MIB).
+
+        This column is valid only if the 'srvSubControl' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 11 }
+
+cdtCommonSrvRedirect OBJECT-TYPE
+    SYNTAX          CbpElementName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the traffic redirect policy
+        applied to a target.
+
+        The system should assume that the cbpPolicyMapType (defined by
+        the CISCO-CBP-BASE-CFG-MIB) of the policy is
+        cbpPmtTrafficRedirect (defined by the CISCO-CBP-TYPE-OID-MIB).
+
+        This column is valid only if the 'srvRedirect' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 12 }
+
+cdtCommonSrvAcct OBJECT-TYPE
+    SYNTAX          CbpElementName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the traffic accounting policy
+        applied to a target.
+
+        The system should assume that the cbpPolicyMapType (defined by
+        the CISCO-CBP-BASE-CFG-MIB) of the policy is
+        cbpPmtTrafficAccounting (defined by the CISCO-CBP-TYPE-OID-MIB).
+
+        This column is valid only if the 'srvAcct' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 13 }
+
+cdtCommonSrvQos OBJECT-TYPE
+    SYNTAX          CbpElementName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the traffic QoS policy
+        applied to a target.
+
+        The system should assume that the cbpPolicyMapType (defined by
+        the CISCO-CBP-BASE-CFG-MIB) of the policy is cbpPmtQos (defined
+        by the CISCO-CBP-TYPE-OID-MIB).
+
+        This column is valid only if the 'srvQos' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 14 }
+
+cdtCommonSrvNetflow OBJECT-TYPE
+    SYNTAX          CbpElementName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the NetFlow policy applied to
+        a target.
+
+        The system should assume that the cbpPolicyMapType (defined by
+        the CISCO-CBP-BASE-CFG-MIB) of the policy is
+        cbpPmtNetflow (defined by the CISCO-CBP-TYPE-OID-MIB).
+
+        This column is valid only if the 'srvNetflow' bit of the
+        corresponding instance of cdtCommonValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtTemplateCommonEntry 15 }
+ 
+
+
+cdtIfTemplateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtIfTemplateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains attributes relating to interface
+        configuration.
+
+        This table has a sparse-dependent relationship on the
+        cdtTemplateTable, containing a row for each dynamic template
+        having a cdtTemplateType of one of the following values:
+
+            'derived'
+            'ppp'
+            'ethernet'
+            'ipSubscriber'"
+    ::= { cdtCommonIf 1 }
+
+cdtIfTemplateEntry OBJECT-TYPE
+    SYNTAX          CdtIfTemplateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing attributes relating to interface
+        configuration.
+
+        The system automatically creates an entry when the system or the
+        EMS/NMS creates a row in the cdtTemplateTable with a
+        cdtTemplateType of one of the following values:
+
+            'derived'
+            'ppp'
+            'ethernet'
+            'ipSubscriber'
+
+        Likewise, the system automatically destroys an entry when the
+        system or the EMS/NMS destroys the corresponding row in the
+        cdtTemplateTable."
+    INDEX           { cdtTemplateName } 
+    ::= { cdtIfTemplateTable 1 }
+
+CdtIfTemplateEntry ::= SEQUENCE {
+        cdtIfValid                  BITS,
+        cdtIfMtu                    Unsigned32,
+        cdtIfCdpEnable              TruthValue,
+        cdtIfFlowMonitor            SnmpAdminString,
+        cdtIfIpv4Unnumbered         InterfaceIndexOrZero,
+        cdtIfIpv4SubEnable          TruthValue,
+        cdtIfIpv4Mtu                Unsigned32,
+        cdtIfIpv4TcpMssAdjust       Unsigned32,
+        cdtIfIpv4VerifyUniRpf       UnicastRpfType,
+        cdtIfIpv4VerifyUniRpfAcl    SnmpAdminString,
+        cdtIfIpv4VerifyUniRpfOpts   UnicastRpfOptions,
+        cdtIfIpv6Enable             TruthValue,
+        cdtIfIpv6SubEnable          TruthValue,
+        cdtIfIpv6TcpMssAdjust       Unsigned32,
+        cdtIfIpv6VerifyUniRpf       UnicastRpfType,
+        cdtIfIpv6VerifyUniRpfAcl    SnmpAdminString,
+        cdtIfIpv6VerifyUniRpfOpts   UnicastRpfOptions,
+        cdtIfIpv6NdPrefix           InetAddressIPv6,
+        cdtIfIpv6NdPrefixLength     InetAddressPrefixLength,
+        cdtIfIpv6NdValidLife        Unsigned32,
+        cdtIfIpv6NdPreferredLife    Unsigned32,
+        cdtIfIpv6NdOpts             BITS,
+        cdtIfIpv6NdDadAttempts      Unsigned32,
+        cdtIfIpv6NdNsInterval       Unsigned32,
+        cdtIfIpv6NdReachableTime    Unsigned32,
+        cdtIfIpv6NdRaIntervalUnits  INTEGER,
+        cdtIfIpv6NdRaIntervalMax    Unsigned32,
+        cdtIfIpv6NdRaIntervalMin    Unsigned32,
+        cdtIfIpv6NdRaLife           Unsigned32,
+        cdtIfIpv6NdRouterPreference INTEGER
+}
+
+cdtIfValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        mtu(0),
+                        cdpEnable(1),
+                        flowMonitor(2),
+                        ipv4Unnumbered(3),
+                        ipv4SubEnable(4),
+                        ipv4Mtu(5),
+                        ipv4TcpMssAdjust(6),
+                        ipv4VerifyUniRpf(7),
+                        ipv4VerifyUniRpfAcl(8),
+                        ipv4VerifyUniRpfOpts(9),
+                        ipv6Enable(10),
+                        ipv6SubEnable(11),
+                        ipv6TcpMssAdjust(12),
+                        ipv6VerifyUniRpf(13),
+                        ipv6VerifyUniRpfAcl(14),
+                        ipv6VerifyUniRpfOpts(15),
+                        ipv6NdPrefix(16),
+                        ipv6NdValidLife(17),
+                        ipv6NdPreferredLife(18),
+                        ipv6NdOpts(19),
+                        ipv6NdDadAttempts(20),
+                        ipv6NdNsInterval(21),
+                        ipv6NdReachableTime(22),
+                        ipv6NdRaIntervalMax(23),
+                        ipv6NdRaIntervalMin(24),
+                        ipv6NdRaLife(25),
+                        ipv6NdRaRouterPreference(26)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies which attributes in the dynamic template
+        have been configured to valid values.
+
+        Each bit in this bit string corresponds to a column in this
+        table.  If the bit is '0', then the value of the corresponding
+        column is not valid.  If the bit is '1', then the value of the
+        corresponding column has been configured to a valid value.
+
+        The following list specifies the mappings between bits and the
+        columns:
+
+            'mtu'                     => cdtIfMtu
+            'cdpEnable'               => cdtIfCdpEnable
+            'flowMonitor'             => cdtIfFlowMonitor
+            'ipv4Unnumbered'          => cdtIfIpv4Unnumbered
+            'ipv4SubEnable'           => cdtIfIpv4SubEnable
+            'ipv4Mtu'                 => cdtIfIpv4Mtu
+            'ipv4TcpMssAdjust'        => cdtIfIpv4TcpMssAdjust
+            'ipv4VerifyUniRpf'        => cdtIfIpv4VerifyUniRpf
+            'ipv4VerifyUniRpfAcl'     => cdtIfIpv4VerifyUniRpfAcl
+            'ipv4VerifyUniRpfOpts'    => cdtIfIpv4VerifyUniRpfOpts
+            'ipv6Enable'              => cdtIfIpv6Enable
+            'ipv6SubEnable'           => cdtIfIpv6SubEnable
+            'ipv6TcpMssAdjust'        => cdtIfIpv6TcpMssAdjust
+            'ipv6VerifyUniRpf'        => cdtIfIpv6VerifyUniRpf
+            'ipv6VerifyUniRpfAcl'     => cdtIfIpv6VerifyUniRpfAcl
+            'ipv6VerifyUniRpfOpts'    => cdtIfIpv6VerifyUniRpfOpts
+            'ipv6NdPrefix'            => cdtIfIpv6NdPrefix,
+                                         cdtIfIpv6NdPrefixLength
+            'ipv6NdValidLife'         => cdtIfIpv6NdValidLife
+            'ipv6NdPreferredLife'     => cdtIfIpv6NdPreferredLife
+            'ipv6NdOpts'              => cdtIfIpv6NdOpts
+            'ipv6NdDadAttempts'       => cdtIfIpv6NdDadAttempts
+            'ipv6NdNsInterval'        => cdtIfIpv6NdNsInterval
+            'ipv6NdReacableTime'      => cdtIfIpv6NdReacableTime
+            'ipv6NdRaIntervalMax'     => cdtIfIpv6NdRaIntervalUnits,
+                                         cdtIfIpv6NdRaIntervalMax
+            'ipv6NdRaIntervalMin'     => cdtIfIpv6NdRaIntervalMin
+            'ipv6NdRaLife'            => cdtIfIpv6NdRaLife
+            'ipv6NdRouterPreference'' => cdtIfIpv6NdRouterPreference"
+    DEFVAL          { {  } } 
+    ::= { cdtIfTemplateEntry 1 }
+
+cdtIfMtu OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 64..65535)
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Maximum Transfer Unit (MTU) size for
+        all packets sent on the target interface.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is not
+        valid.
+
+        This column is valid only if the 'mtu' bit of the corresponding
+        instance of cdtIfValid is '1'."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 2 }
+
+cdtIfCdpEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the target interface participates
+        in the Cisco Discovery Protocol (CDP).
+
+        This column is valid only if the 'cdpEnable' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { false } 
+    ::= { cdtIfTemplateEntry 3 }
+
+cdtIfFlowMonitor OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the flow monitor associated
+        with the target interface.
+
+        This column is valid only if the 'flowMonitor' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtIfTemplateEntry 4 }
+
+cdtIfIpv4Unnumbered OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interface of the source address that
+        the target interface uses when originating IPv4 packets.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is
+        not valid (e.g., immediately following the creation of an
+        instance of the object).
+
+        This column is valid only if the 'ipv4Unnumbered' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 5 }
+
+cdtIfIpv4SubEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the target interface allows IPv4
+        subscriber sessions.
+
+        This column is valid only if the 'ipv4SubEnable' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { false } 
+    ::= { cdtIfTemplateEntry 6 }
+
+cdtIfIpv4Mtu OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 128..65535)
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Maximum Transfer Unit (MTU) size for
+        IPv4 packets sent on the target interface.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is not
+        valid.
+
+        This column is valid only if the 'ipv4Mtu' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 7 }
+
+cdtIfIpv4TcpMssAdjust OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 500..1460)
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment to the Maximum Segment
+        Size (MSS) of TCP SYN packets received by the target interface
+        contained in IPv4 datagrams.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is not
+        valid.
+
+        This column is valid only if the 'ipv4TcpMssAdjust' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 8 }
+
+cdtIfIpv4VerifyUniRpf OBJECT-TYPE
+    SYNTAX          UnicastRpfType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the type of unicast RPF the
+        system performs on IPv4 packets received by the target
+        interface.
+
+        This column is valid only if the 'ipv4VerifyUniRpf' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { disabled } 
+    ::= { cdtIfTemplateEntry 9 }
+
+cdtIfIpv4VerifyUniRpfAcl OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name (or number) of the IPv4 ACL
+        used to determine whether the system should permit/deny packets
+        received by the target interface that fail unicast RPF
+        verification.
+
+        This column is valid only if the 'ipv4VerifyUniRpfAcl' bit of
+        the corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtIfTemplateEntry 10 }
+
+cdtIfIpv4VerifyUniRpfOpts OBJECT-TYPE
+    SYNTAX          UnicastRpfOptions
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the options that affect how the system
+        performs unicast RPF on IPv4 packets received by the target
+        interface.
+
+        This column is valid only if the 'ipv4VerifyUniRpfOpts' bit of
+        the corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { {  } } 
+    ::= { cdtIfTemplateEntry 11 }
+
+cdtIfIpv6Enable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system processes IPv6
+        packets received by the target interface.
+
+        This column is valid only if the 'ipv6Enable' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { false } 
+    ::= { cdtIfTemplateEntry 12 }
+
+cdtIfIpv6SubEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the target interface allows IPv6
+        subscriber sessions.
+
+        This column is valid only if the 'ipv6SubEnable' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { false } 
+    ::= { cdtIfTemplateEntry 13 }
+
+cdtIfIpv6TcpMssAdjust OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 500..1460)
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment to the Maximum Segment
+        Size (MSS) of TCP SYN packets received by the target interface
+        contained in IPv6 datagrams.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is not
+        valid.
+
+        This column is valid only if the 'ipv6TcpMssAdjust' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 14 }
+
+cdtIfIpv6VerifyUniRpf OBJECT-TYPE
+    SYNTAX          UnicastRpfType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the type of unicast RPF the
+        system performs on IPv6 packets received by the target
+        interface.
+
+        This column is valid only if the 'ipv6VerifyUniRpf' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { disabled } 
+    ::= { cdtIfTemplateEntry 15 }
+
+cdtIfIpv6VerifyUniRpfAcl OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name (or number) of the IPv6 ACL
+        used to determine whether the system should permit/deny packets
+        received by the target interface that fail unicast RPF
+        verification.
+
+        This column is valid only if the 'ipv6VerifyUniRpfAcl' bit of
+        the corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtIfTemplateEntry 16 }
+
+cdtIfIpv6VerifyUniRpfOpts OBJECT-TYPE
+    SYNTAX          UnicastRpfOptions
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the options that affect how the system
+        performs unicast RPF on IPv6 packets received by the target
+        interface.
+
+        This column is valid only if the 'ipv6VerifyUniRpfOpts' bit of
+        the corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { {  } } 
+    ::= { cdtIfTemplateEntry 17 }
+
+cdtIfIpv6NdPrefix OBJECT-TYPE
+    SYNTAX          InetAddressIPv6
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IPv6 network number included in
+        IPv6 router advertisements sent on the target interface.
+
+        This column is valid only if the 'ipv6NdPrefix' bit of
+        the corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { '00000000000000000000000000000000'H } 
+    ::= { cdtIfTemplateEntry 18 }
+
+cdtIfIpv6NdPrefixLength OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the length of the IPv6 prefix specified
+        by the corresponding instance of cdtIpv6NdPrefix.
+
+        This column is valid only if the 'ipv6NdPrefix' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 19 }
+
+cdtIfIpv6NdValidLife OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval that the system advertises
+        the IPv6 prefix (i.e., the corresponding instance of
+        cdtIfIpv6NdPrefix) as 'valid' for IPv6 router advertisements
+        sent on the target interface.
+
+        This column is valid only if the 'ipv6NdValidLife' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 2592000 } 
+    ::= { cdtIfTemplateEntry 20 }
+
+cdtIfIpv6NdPreferredLife OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval that the system advertises
+        the IPv6 prefix (i.e., the corresponding instance of
+        cdtIfIpv6NdPrefix) as 'preferred' for IPv6 router advertisements
+        sent on the target interface.
+
+        This column is valid only if the 'ipv6NdPreferredLife' bit of
+        the corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 604800 } 
+    ::= { cdtIfTemplateEntry 21 }
+
+cdtIfIpv6NdOpts OBJECT-TYPE
+    SYNTAX          BITS {
+                        advertise(0),
+                        onlink(1),
+                        router(2),
+                        autoConfig(3),
+                        advertisementInterval(4),
+                        managedConfigFlag(5),
+                        otherConfigFlag(6),
+                        framedIpv6Prefix(7),
+                        raSuppress(8)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies options that affect advertisements sent
+        on the target interface:
+
+            'advertise'
+                This option specifies that the system should advertise
+                the IPv6 prefix (i.e., the corresponding instance of
+                cdtIfIpv6NdPrefix).
+
+            'onlink'
+                This option specifies that the IPv6 prefix has been
+                assigned to a link.  If set to '0', the system
+                advertises the IPv6 prefix as 'offlink'.
+
+            'router'
+                This option indicates that the router will send the full
+                router address and not set the 'R' bit in prefix
+                advertisements.
+
+            'autoConfig'
+                This option indicates to hosts on the local link that
+                the specified prefix supports IPv6 auto-configuration.
+
+            'advertisementInterval'
+                This option specifies the advertisement interval option
+                in router advertisements sent on the target interface.
+
+            'managedConfigFlag'
+                This option causes the system to set the 'managed
+                address configuration flag' in router advertisements
+                sent on the target interface.
+
+            'otherConfigFlag'
+                This option causes the system to set the 'other stateful
+                configuration' flag in router advertisements sent on the
+                target interface.
+
+            'frameIpv6Prefix'
+                This option causes the system to add the prefix in a
+                received RADIUS framed IPv6 prefix attribute to the
+                target interface's neighbor discovery prefix queue and
+                includes it in router advertisements sent on the target
+                interface.
+
+            'raSupress'
+                This option suppresses the transmission of router
+                advertisements on the target interface.
+
+        This column is valid only if the 'ipv6NdOpts' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+         Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { { advertise , onlink , router , autoConfig } } 
+    ::= { cdtIfTemplateEntry 22 }
+
+cdtIfIpv6NdDadAttempts OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..600)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of consecutive neighbor
+        solitication messages the system sends on the target interface
+        while performing duplicate address detection on unicast IPv6
+        addresses on the target interface.  The value '0' disables
+        duplicate address detection on the target interface.
+
+        This column is valid only if the 'ipv6NdDadAttempts' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 1 } 
+    ::= { cdtIfTemplateEntry 23 }
+
+cdtIfIpv6NdNsInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1000..3600000)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval between neighbor
+        solicitation retransmissions on the target interface.
+
+        This column is valid only if the 'ipv6NdNsIntervals' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 1000 } 
+    ::= { cdtIfTemplateEntry 24 }
+
+cdtIfIpv6NdReachableTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the amount of time the system considers
+        a neighbor of the target interface reachable after a
+        reachability confirmation event has occurred.  The value '0'
+        disables neighbor reachability detection on the target
+        interface.
+
+        This column is valid only if the 'ipv6NdReachable' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 25 }
+
+cdtIfIpv6NdRaIntervalUnits OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        seconds(1),
+                        milliseconds(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the units of time for the corresponding
+        instances of cdtIfIpv6NdRaIntervalMin and
+        cdtIfIpv6NdRaIntervalMax.
+
+        This column is valid only if the 'ipv6NdRaInterval' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    DEFVAL          { seconds } 
+    ::= { cdtIfTemplateEntry 26 }
+
+cdtIfIpv6NdRaIntervalMax OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum interval between IPv6 router
+        advertisements sent on the target interface.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is not
+        valid.
+
+        This column is valid only if the 'ipv6NdRaInterval' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 27 }
+
+cdtIfIpv6NdRaIntervalMin OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum interval between IPv6 router
+        advertisements sent on the target interface.  The value of this
+        column has the following restrictions:
+
+        1)  This value cannot be less than 75% of the value specified
+            for cdtIfIpv6NdRaIntervalMax.
+
+        2)  If the corresponding instance of cdtIfIpv6NdRaIntervalUnits
+            is 'seconds', then this value cannot be less than '3'.
+
+        3)  If the corresponding instance of cdtIfIpv6NdRaIntervalUnits
+            is 'milliseconds', then this value cannot be less than '30'.
+
+        If the target interface template does not specify this value,
+        then the system automatically assumes a minimum interval that is
+        75% of the corresponding instance of cdtIfIpv6NdRaIntervalMax.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is not
+        valid.
+
+        This column is valid only if the 'ipv6NdRaInterval' bit of the
+        corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 0 } 
+    ::= { cdtIfTemplateEntry 28 }
+
+cdtIfIpv6NdRaLife OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the router lifetime value in IPv6 router
+        advertisements sent on the target interface.  The value '0'
+        specifies that neighbors should not consider the router as a
+        default router."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { 1800 } 
+    ::= { cdtIfTemplateEntry 29 }
+
+cdtIfIpv6NdRouterPreference OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        high(1),
+                        medium(2),
+                        low(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Default Router Preference (DRP) for
+        the router on the target interface.
+
+        This column is valid only if the 'ipv6NdRouterPreference' bit of
+        the corresponding instance of cdtIfValid is '1'."
+    REFERENCE
+        "T. Narten, E. Nordmark, W. Simpson, H. Soliman, 'Neighbor
+        Discovery for IP version 6 (IPv6)', RFC-4861, September 2007."
+    DEFVAL          { medium } 
+    ::= { cdtIfTemplateEntry 30 }
+ 
+
+
+cdtPppTemplateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtPppTemplateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains attributes relating to PPP connection
+        configuration.
+
+        This table has a sparse-dependent relationship on the
+        cdtTemplateTable, containing a row for each dynamic template
+        having a cdtTemplateType of one of the following values:
+
+            'derived'
+            'ppp'"
+    ::= { cdtPpp 1 }
+
+cdtPppTemplateEntry OBJECT-TYPE
+    SYNTAX          CdtPppTemplateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing attributes relating to PPP connection
+        configuration.
+
+        The system automatically creates an entry when the system or the
+        EMS/NMS creates a row in the cdtTemplateTable with a
+        cdtTemplateType of one of the following values:
+
+            'derived'
+            'ppp'
+
+        Likewise, the system automatically destroys an entry when the
+        system or the EMS/NMS destroys the corresponding row in the
+        cdtTemplateTable."
+    INDEX           { cdtTemplateName } 
+    ::= { cdtPppTemplateTable 1 }
+
+CdtPppTemplateEntry ::= SEQUENCE {
+        cdtPppValid                 BITS,
+        cdtPppAccounting            TruthValue,
+        cdtPppAuthentication        BITS,
+        cdtPppAuthenticationMethods SnmpAdminString,
+        cdtPppAuthorization         TruthValue,
+        cdtPppLoopbackIgnore        TruthValue,
+        cdtPppMaxBadAuth            Unsigned32,
+        cdtPppMaxConfigure          Unsigned32,
+        cdtPppMaxFailure            Unsigned32,
+        cdtPppMaxTerminate          Unsigned32,
+        cdtPppTimeoutAuthentication Unsigned32,
+        cdtPppTimeoutRetry          Unsigned32,
+        cdtPppChapOpts              BITS,
+        cdtPppChapHostname          SnmpAdminString,
+        cdtPppChapPassword          SnmpAdminString,
+        cdtPppMsChapV1Opts          BITS,
+        cdtPppMsChapV1Hostname      SnmpAdminString,
+        cdtPppMsChapV1Password      SnmpAdminString,
+        cdtPppMsChapV2Opts          BITS,
+        cdtPppMsChapV2Hostname      SnmpAdminString,
+        cdtPppMsChapV2Password      SnmpAdminString,
+        cdtPppPapOpts               BITS,
+        cdtPppPapUsername           SnmpAdminString,
+        cdtPppPapPassword           SnmpAdminString,
+        cdtPppEapOpts               BITS,
+        cdtPppEapIdentity           SnmpAdminString,
+        cdtPppEapPassword           SnmpAdminString,
+        cdtPppIpcpAddrOption        INTEGER,
+        cdtPppIpcpDnsOption         INTEGER,
+        cdtPppIpcpDnsPrimary        InetAddressIPv4,
+        cdtPppIpcpDnsSecondary      InetAddressIPv4,
+        cdtPppIpcpWinsOption        INTEGER,
+        cdtPppIpcpWinsPrimary       InetAddressIPv4,
+        cdtPppIpcpWinsSecondary     InetAddressIPv4,
+        cdtPppIpcpMaskOption        INTEGER,
+        cdtPppIpcpMask              InetAddressIPv4,
+        cdtPppPeerDefIpAddrOpts     BITS,
+        cdtPppPeerDefIpAddrSrc      INTEGER,
+        cdtPppPeerDefIpAddr         InetAddressIPv4
+}
+
+cdtPppValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        valid(0),
+                        accounting(1),
+                        authentication(2),
+                        autthenticationMethods(3),
+                        authorization(4),
+                        loopbackIgnore(5),
+                        maxBadAuth(6),
+                        maxConfigure(7),
+                        maxFailure(8),
+                        maxTerminate(9),
+                        timeoutAuthentication(10),
+                        timeoutRetry(11),
+                        chapOpts(12),
+                        chapHostname(13),
+                        chapPassword(14),
+                        msChapV1Opts(15),
+                        msChapV1Hostname(16),
+                        msChapV1Password(17),
+                        msChapV2Opts(18),
+                        msChapV2Hostname(19),
+                        msChapV2Password(20),
+                        papOpts(21),
+                        papUsername(22),
+                        papPassword(23),
+                        eapOpts(24),
+                        eapIdentity(25),
+                        eapPassword(26),
+                        ipcpAddrOption(27),
+                        ipcpDnsOption(28),
+                        ipcpDnsPrimary(29),
+                        ipcpDnsSecondary(30),
+                        ipcpWinsOption(31),
+                        ipcpWinsPrimary(32),
+                        ipcpWinsSecondary(33),
+                        ipcpMaskOption(34),
+                        ipcpMask(35),
+                        peerDefIpAddrOpts(36),
+                        peerDefIpAddrSrc(37),
+                        peerDefIpAddr(38)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies which attributes in the dynamic template
+        have been configured to valid values.
+
+        Each bit in this bit string corresponds to a column in this
+        table.  If the bit is '0', then the value of the corresponding
+        column is not valid.  If the bit is '1', then the value of the
+        corresponding column has been configured to a valid value.
+
+        The following list specifies the mappings between bits and the
+        columns:
+
+            accounting              => cdtPppAccounting
+            authentication          => cdtPppAuthentication
+            authenticationMethods   => cdtPppAuthenticationMethods
+            authorization           => cdtPppAuthorization
+            loopbackIgnore          => cdtPppLoopbackIgnore
+            maxBadAuth              => cdtPppMaxBadAuth
+            maxConfigure            => cdtPppMaxConfigure
+            maxFailure              => cdtPppMaxFailure
+            maxTerminate            => cdtPppMaxTerminate
+            timeoutAuthentication   => cdtPppTimeoutAuthentication
+            timeoutRetry            => cdtPppTimeoutRetry
+            chapOpts                => cdtPppChapOpts
+            chapHostname            => cdtPppChapHostname
+            chapPassword            => cdtPppChapPassword
+            msChapV1Opts            => cdtPppMsChapV1Opts
+            msChapV1Hostname        => cdtPppMsChapV1Hostname
+            msChapV1Password        => cdtPppMsChapV1Password
+            msChapV2Opts            => cdtPppMsChapV2Opts
+            msChapV2Hostname        => cdtPppMsChapV2Hostname
+            msChapV2Password        => cdtPppMsChapV2Password
+            papOpts                 => cdtPppPapOpts
+            papSentUsername         => cdtPppPapUsername
+            papSentPassword         => cdtPppPapPassword
+            eapOpts                 => cdtPppEapOpts
+            eapIdentity             => cdtPppEapIdentity
+            eapPassword             => cdtPppEapPassword
+            ipcpAddrOption          => cdtPppIpcpAddrOption
+            ipcpDnsOption           => cdtPppIpcpDnsOption
+            ipcpDnsPrimary          => cdtPppIpcpDnsPrimary
+            ipcpDnsSecondary        => cdtPppIpcpDnsSecondary
+            ipcpWinsOption          => cdtPppIpcpWinsOption
+            ipcpWinsPrimary         => cdtPppIpcpWinsPrimary
+            ipcpWinsSecondary       => cdtPppIpcpWinsSecondary
+            ipcpMaskOption          => cdtPppIpcpMaskOption
+            ipcpMask                => cdtPppIpcpMask
+            peerDefIpAddrOpts       => cdtPppPeerOpts
+            peerDefIpAddrSrc        => cdtPppPeerDefIpAddrSrc
+            peerDefIpAddr           => cdtPppPeerDefIpAddr"
+    DEFVAL          { {  } } 
+    ::= { cdtPppTemplateEntry 1 }
+
+cdtPppAccounting OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system applies accounting
+        services to the target PPP connection.
+
+        This column is valid only if the 'accounting' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { false } 
+    ::= { cdtPppTemplateEntry 2 }
+
+cdtPppAuthentication OBJECT-TYPE
+    SYNTAX          BITS {
+                        chap(0),
+                        msChap(1),
+                        msChapV2(2),
+                        pap(3),
+                        eap(4),
+                        optional(5),
+                        callin(6),
+                        oneTime(7)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies authentication services applied to a
+        target PPP connection and other options affecting authentication
+        services:
+
+            'chap'
+                This option enables the Challenge Handshake Protocol (CHAP)
+                on a target PPP connection.
+
+            'msChap'
+                This option enables Microsoft's CHAP on a target PPP
+                connection.
+
+            'msChapV2'
+                This option enables version 2 of Microsoft's CHAP on a
+                target PPP connection.
+
+            'pap'
+                This option enables Password Authentication Protocol (PAP)
+                on a target PPP connection.
+
+            'eap'
+                This option enables Extensible Authentication Protocol (EAP)
+                on a target PPP connection.
+
+            'optional'
+                This option specifies that the system accepts the connection
+                even if the peer of a target PPP connection refuses to
+                accept the authentication methods the system has
+                requested.
+
+            'callin'
+                This option specifies that authentication should only happen
+                for incoming calls.
+
+            'oneTime'
+                This option specifies that the system accepts the username
+                and password in the username field of authentication
+                responses received on a target PPP connection.
+
+        This column is valid only if the 'authentication' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { {  } } 
+    ::= { cdtPppTemplateEntry 3 }
+
+cdtPppAuthenticationMethods OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of a list of authentication
+        methods used on a target PPP connection.  If the template does
+        not include this attribute, then the system uses the default
+        method list.
+
+        This column is valid only if the 'authentication' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 4 }
+
+cdtPppAuthorization OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system applies authorization
+        services to a target PPP connection.
+
+        This column is valid only if the 'authorization' bit of the
+        corresponding instance of cditPppValid is '1'."
+    DEFVAL          { false } 
+    ::= { cdtPppTemplateEntry 5 }
+
+cdtPppLoopbackIgnore OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system ignores loopback on
+        a target PPP connection.  When the system ignores loopback,
+        loopback detection is disabled.
+
+        This column is valid only if the 'loopbackIgnore' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'The Point-to-Point Protocol (PPP)', RFC-1661,
+        July 1994."
+    DEFVAL          { false } 
+    ::= { cdtPppTemplateEntry 6 }
+
+cdtPppMaxBadAuth OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of authentication failures
+        allowed by the system before a target PPP connection is reset.
+
+        The value '0' cannot be written to an instance of this object.
+        However, it serves as a convenient value when the column is not
+        valid.
+
+        This column is valid only if the 'maxBadAuth' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { 0 } 
+    ::= { cdtPppTemplateEntry 7 }
+
+cdtPppMaxConfigure OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of unacknowledged
+        Configure-Request messages a target PPP connection can send
+        before the system abandons LCP or NCP negotiations.
+
+        This column is valid only if the 'maxConfigure' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'The Point-to-Point Protocol (PPP)', RFC-1661,
+        July 1994."
+    DEFVAL          { 10 } 
+    ::= { cdtPppTemplateEntry 8 }
+
+cdtPppMaxFailure OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of Configure-Nak messages a
+        target PPP connection can receive before the system abandons LCP
+        or NCP negotiations.
+
+        This column is valid only if the 'maxFailure' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'The Point-to-Point Protocol (PPP)', RFC-1661,
+        July 1994."
+    DEFVAL          { 5 } 
+    ::= { cdtPppTemplateEntry 9 }
+
+cdtPppMaxTerminate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of unacknowledged
+        Terminate-Request messages a target PPP connection can send
+        before the system abandons LCP or NCP negotiations.
+
+        This column is valid only if the 'maxTerminate' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'The Point-to-Point Protocol (PPP)', RFC-1661,
+        July 1994."
+    DEFVAL          { 2 } 
+    ::= { cdtPppTemplateEntry 10 }
+
+cdtPppTimeoutAuthentication OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This objects specifies the maximum time the system will wait
+        for a response to an authentication request on a target PPP
+        connection.
+
+        This column is valid only if the 'timeoutAuthentication' bit of
+        the corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { 10 } 
+    ::= { cdtPppTemplateEntry 11 }
+
+cdtPppTimeoutRetry OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This objects specifies the maximum time the system will wait
+        for a response to a PPP control packets on a target PPP
+        connection.
+
+        This column is valid only if the 'timeoutRetry' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'The Point-to-Point Protocol (PPP)', RFC-1661,
+        July 1994."
+    DEFVAL          { 3 } 
+    ::= { cdtPppTemplateEntry 12 }
+
+cdtPppChapOpts OBJECT-TYPE
+    SYNTAX          BITS {
+                        refuse(0),
+                        callin(1),
+                        wait(2),
+                        encrypted(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the system processes the CHAP on a
+        target PPP connection:
+
+            'refuse'
+                This option specifies that the system should refuse CHAP
+                requests from peers of a target PPP connection.
+
+            'callin'
+                This option specifies that the system should only refuse
+                CHAP requests for incoming calls on a target PPP
+                connection.  This option is only relevant if the
+                'refuse' option is set to '1'.
+
+            'wait'
+                This option delays CHAP authentication until after the
+                peer of a target PPP connection has authenticated itself
+                to the system.
+
+            'encrypted'
+                This option specifies that the value specified by the
+                corresponding instance of cdtPppChapPassword is already
+                encrypted.
+
+        This column is valid only if the 'chapOpts' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'PPP Challenge Handshake Authentication Protocol
+        (CHAP)', RFC-1994, August 1996."
+    DEFVAL          { { wait } } 
+    ::= { cdtPppTemplateEntry 13 }
+
+cdtPppChapHostname OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the hostname sent in a CHAP response
+        on a target PPP connection.  If the template does not include
+        this attribute, then the system uses its assigned hostname.
+
+        This column is valid only if the 'chapHostname' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'PPP Challenge Handshake Authentication Protocol
+        (CHAP)', RFC-1994, August 1996."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 14 }
+
+cdtPppChapPassword OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the password used to construct a CHAP
+        response on the target PPP connection.
+
+        This column is valid only if the 'chapPassword' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "W. Simpson, 'PPP Challenge Handshake Authentication Protocol
+        (CHAP)', RFC-1994, August 1996."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 15 }
+
+cdtPppMsChapV1Opts OBJECT-TYPE
+    SYNTAX          BITS {
+                        refuse(0),
+                        callin(1),
+                        wait(2),
+                        encrypted(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the system processes version 1 of
+        Microsoft CHAP on a target PPP connection:
+
+            'refuse'
+                This option specifies that the system should refuse
+                Microsoft CHAP (v1) requests from peers of a target PPP
+                connection.
+
+            'callin'
+                This option specifies that the system should only refuse
+                Microsoft CHAP (v1) requests for incoming calls on a
+                target PPP connection.  This option is only relevant if
+                the 'refuse' option is set to '1'.
+
+            'wait'
+                This option delays Microsoft CHAP (v1) authentication
+                until after the peer of a target PPP connection has
+                authenticated itself to the system.
+
+            'encrypted'
+                This option specifies that the value specified by the
+                corresponding instance of cdtPppMsChapV1Password is
+                already encrypted.
+
+        This column is valid only if the 'msChapV1Opts' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. Zorn, S. Cobb, 'Microsoft PPP CHAP Extensions', RFC-2433,
+        October 1998."
+    DEFVAL          { { wait } } 
+    ::= { cdtPppTemplateEntry 16 }
+
+cdtPppMsChapV1Hostname OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the hostname sent in a Microsoft CHAP
+        (v1) response on a target PPP connection.  If the template does
+        not include this attribute, then the system uses its assigned
+        hostname.
+
+        This column is valid only if the 'msChapV1Hostname' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. Zorn, S. Cobb, 'Microsoft PPP CHAP Extensions', RFC-2433,
+        October 1998."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 17 }
+
+cdtPppMsChapV1Password OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the password used to construct a
+        Microsoft CHAP (v1) response on a target PPP connection.
+
+        This column is valid only if the 'msChapV1Password' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. Zorn, S. Cobb, 'Microsoft PPP CHAP Extensions', RFC-2433,
+        October 1998."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 18 }
+
+cdtPppMsChapV2Opts OBJECT-TYPE
+    SYNTAX          BITS {
+                        refuse(0),
+                        callin(1),
+                        wait(2),
+                        encrypted(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the system processes version 2 of
+        Microsoft CHAP on a target PPP connection:
+
+            'refuse'
+                This option specifies that the system should refuse
+                Microsoft CHAP (v2) requests from peers of a target PPP
+                connection.
+
+            'callin'
+                This option specifies that the system should only refuse
+                Microsoft CHAP (v2) requests for incoming calls on a
+                target PPP connection.  This option is only relevant if
+                the 'refuse' option is set to '1'.
+
+            'wait'
+                This option delays Microsoft CHAP (v2) authentication
+                until after the peer of a target PPP connection has
+                authenticated itself to the system.
+
+            'encrypted'
+                This option specifies that the value specified by the
+                corresponding instance of cdtPppMsChapV2Password is
+                already encrypted.
+
+        This column is valid only if the 'msChapV2Opts' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. Zorn, 'Microsoft PPP CHAP Extensions, Version 2', RFC-2759,
+        January 2000."
+    DEFVAL          { { wait } } 
+    ::= { cdtPppTemplateEntry 19 }
+
+cdtPppMsChapV2Hostname OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the hostname sent in a Microsoft CHAP
+        (v2) response on a target PPP connection.  If the template does
+        not include this attribute, then the system uses its assigned
+        hostname.
+
+        This column is valid only if the 'msChapV2Hostname' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. Zorn, 'Microsoft PPP CHAP Extensions, Version 2', RFC-2759,
+        January 2000."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 20 }
+
+cdtPppMsChapV2Password OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the password used to construct a
+        Microsoft CHAP (v2) response on a target PPP connection.
+
+        This column is valid only if the 'msChapV2Password' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. Zorn, 'Microsoft PPP CHAP Extensions, Version 2', RFC-2759,
+        January 2000."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 21 }
+
+cdtPppPapOpts OBJECT-TYPE
+    SYNTAX          BITS {
+                        refuse(0),
+                        encrypted(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the system processes the PAP on a
+        target PPP connection:
+
+            'refuse'
+                This option specifies that the system should refuse PAP
+                requests from peers of a target PPP connection.
+
+            'encrypted'
+                This option specifies that the value specified by the
+                corresponding instance of cdtPppPapSentPassword is
+                already encrypted.
+
+        This column is valid only if the 'papOpts' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "B. Lloyd and W. Simpson, 'PPP Authentication Protocols',
+        RFC-1334, October 1992."
+    DEFVAL          { {  } } 
+    ::= { cdtPppTemplateEntry 22 }
+
+cdtPppPapUsername OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the username sent in a PAP response on
+        a target PPP connection.
+
+        This column is valid only if the 'papUsername' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "B. Lloyd and W. Simpson, 'PPP Authentication Protocols',
+        RFC-1334, October 1992."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 23 }
+
+cdtPppPapPassword OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the username used to construct a PAP
+        response on a target PPP connection.
+
+        This column is valid only if the 'papPassword' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "B. Lloyd and W. Simpson, 'PPP Authentication Protocols',
+        RFC-1334, October 1992."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 24 }
+
+cdtPppEapOpts OBJECT-TYPE
+    SYNTAX          BITS {
+                        refuse(0),
+                        callin(1),
+                        wait(2),
+                        local(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the system processes the EAP on a
+        target PPP connection:
+
+            'refuse'
+                This option specifies that the system should refuse EAP
+                requests from peers of a target PPP connection.
+
+            'callin'
+                This option specifies that the system should only refuse EAP
+                requests for incoming calls on a target PPP connection.
+                This option is only relevant if the 'refuse' option is
+                set to '1'.
+
+            'wait'
+                This option delays EAP authentication until after the
+                peer of a target PPP connection has authenticated itself
+                to the system.
+
+            'local'
+                This option specifies that the system should locally
+                authenticate the peer of a target PPP connection,
+                rather than acting as a proxy to an external AAA server.
+
+        This column is valid only if the 'eapOpts' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "B. Aboba, L. Blunk, J. Vollbrecht, J. Carlson, and H.
+        Levkowetz, 'Extensible Authentication Protocol (EAP)',
+        RFC-3748, June 2004."
+    DEFVAL          { {  } } 
+    ::= { cdtPppTemplateEntry 25 }
+
+cdtPppEapIdentity OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the identity sent in an EAP response on
+        a target PPP connection.
+
+        This column is valid only if the 'eapIdentity' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "B. Aboba, L. Blunk, J. Vollbrecht, J. Carlson, and H.
+        Levkowetz, 'Extensible Authentication Protocol (EAP)',
+        RFC-3748, June 2004."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 26 }
+
+cdtPppEapPassword OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the password used to construct an EAP
+        response on a target PPP connection.
+
+        This column is valid only if the 'eapPassword' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "B. Aboba, L. Blunk, J. Vollbrecht, J. Carlson, and H.
+        Levkowetz, 'Extensible Authentication Protocol (EAP)',
+        RFC-3748, June 2004."
+    DEFVAL          { "" } 
+    ::= { cdtPppTemplateEntry 27 }
+
+cdtPppIpcpAddrOption OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        accept(2),
+                        required(3),
+                        unique(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IPCP address option for a target PPP
+        connection:
+
+            'other'
+                The implementation of this MIB module does not recognize
+                the configured IPCP address option.
+
+            'accept'
+                The system accepts any non-zero IP address from the peer
+                of a target PPP connection.
+
+            'required'
+                The system disconnects the peer of a target PPP
+                connection if it could not negotiate an IP address.
+
+            'unique'
+                The system disconnects the peer of a target PPP
+                connection if the IP address is already in use.
+
+        This column is valid only if the 'ipcpAddrOption' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { other } 
+    ::= { cdtPppTemplateEntry 28 }
+
+cdtPppIpcpDnsOption OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        accept(2),
+                        request(3),
+                        reject(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IPCP DNS option for the dynamic
+        interface:
+
+            'other'
+                The implementation of this MIB module does not recognize
+                the configured DNS option.
+
+            'accept'
+                The system accepts any non-zero DNS address form the
+                peer of a target PPP connection.
+
+            'request'
+                The system requests the DNS address from the peer of a
+                target PPP connection.
+
+            'reject'
+                The system rejects the DNS option from the peer of a
+                target PPP connection.
+
+        This column is valid only if the 'ipcpDnsOption' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { other } 
+    ::= { cdtPppTemplateEntry 29 }
+
+cdtPppIpcpDnsPrimary OBJECT-TYPE
+    SYNTAX          InetAddressIPv4
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the primary DNS server
+        offered to the peer of a target PPP connection.
+
+        This column is valid only if the 'ipcpDnsPrimary' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { '00000000'H } 
+    ::= { cdtPppTemplateEntry 30 }
+
+cdtPppIpcpDnsSecondary OBJECT-TYPE
+    SYNTAX          InetAddressIPv4
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the secondary DNS
+        server offered to the peer of a target PPP connection.
+
+        This column is valid only if the 'ipcpDnsSecondary' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { '00000000'H } 
+    ::= { cdtPppTemplateEntry 31 }
+
+cdtPppIpcpWinsOption OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        accept(2),
+                        request(3),
+                        reject(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IPCP WINS option for a target PPP
+        connection:
+
+            'other'
+                The implementation of this MIB module does not recognize
+                the configured WINS option.
+
+            'accept'
+                The system accepts any non-zero WINS address from the
+                peer of a target PPP connection.
+
+            'request'
+                The system requests the WINS address from the peer of
+                a target PPP connection.
+
+            'reject'
+                The system rejects the WINS option from the peer of a
+                target PPP connection.
+
+        This column is valid only if the 'ipcpWinsOption' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { other } 
+    ::= { cdtPppTemplateEntry 32 }
+
+cdtPppIpcpWinsPrimary OBJECT-TYPE
+    SYNTAX          InetAddressIPv4
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the primary WINS server
+        offered to the peer of a target PPP connection.
+
+        This column is valid only if the 'ipcpWinsPrimary' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { '00000000'H } 
+    ::= { cdtPppTemplateEntry 33 }
+
+cdtPppIpcpWinsSecondary OBJECT-TYPE
+    SYNTAX          InetAddressIPv4
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the secondary WINS
+        server offered to the peer of a target PPP connection.
+
+        This column is valid only if the 'ipcpWinsSecondary' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { '00000000'H } 
+    ::= { cdtPppTemplateEntry 34 }
+
+cdtPppIpcpMaskOption OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        request(2),
+                        reject(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IPCP IP subnet mask option for a
+        target PPP connection:
+
+            'other'
+                The implementation of this MIB module does not recognize
+                the configured IP subnet mask option.
+
+            'request'
+                The system requests the IP subnet mask from the peer of
+                a target PPP connection.
+
+            'reject'
+                The system rejects the IP subnet mask option from the
+                peer of a target PPP connection.
+
+        This column is valid only if the 'ipcpMaskOption' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { other } 
+    ::= { cdtPppTemplateEntry 35 }
+
+cdtPppIpcpMask OBJECT-TYPE
+    SYNTAX          InetAddressIPv4
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address mask offered to the peer
+        of a target PPP connection.
+
+        This column is valid only if the 'ipcpMask' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    REFERENCE
+        "G. McGregor, 'The PPP Internet Protocol Control Protocol
+        (IPCP)', RFC-1332, May 1992."
+    DEFVAL          { '00000000'H } 
+    ::= { cdtPppTemplateEntry 36 }
+
+cdtPppPeerDefIpAddrOpts OBJECT-TYPE
+    SYNTAX          BITS {
+                        ipAddrForced(0),
+                        matchAaaPools(1),
+                        staticPool(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies options that affect how the system
+        assigns an IP address to the peer of a target PPP connection:
+
+            'ipAddrForced'
+                This option forces the system to assign the next
+                available IP address in the pool to the peer of a
+                target PPP connection.  When disabled, the peer may
+                negotiate a specific IP address or the system can assign
+                the peer its previously assigned IP address.
+
+            'matchAaaPools'
+                This option specifies that the names of the IP address
+                pools provided by an external AAA server must appear in
+                the corresponding list of IP address pool specified by
+                the cdtPppPeerIpAddrPoolTable.
+
+            'backupPools'
+                This option specifies that the corresponding names of
+                the IP address pools specified by the
+                cditPppPeerIpAddrPoolTable serve as backup pools to
+                those provided by an external AAA server.
+
+            'staticPools'
+                This option suppresses an attempt to load pools from an
+                external AAA server when the system encounters a missing
+                pool name.
+
+        This column is valid only if the 'peerIpAddrOpts' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { { ipAddrForced } } 
+    ::= { cdtPppTemplateEntry 37 }
+
+cdtPppPeerDefIpAddrSrc OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(1),
+                        pool(2),
+                        dhcp(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the system assigns an IP address to
+        the peer of a target PPP connection:
+
+            'static'
+                The system assigns the IP address specified by the
+                corresponding instance of cdtPppPeerDefIpAddr.
+
+            'pool'
+                The system allocates the first available IP address from
+                the corresponding list of named pools contained by the
+                cdtPppPeerIpAddrPoolTable.
+
+            'dhcp'
+                The system acts as a DHCP proxy-client to obtain an IP
+                address.
+
+        This column is valid only if the 'peerDefIpAddrSrc' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { pool } 
+    ::= { cdtPppTemplateEntry 38 }
+
+cdtPppPeerDefIpAddr OBJECT-TYPE
+    SYNTAX          InetAddressIPv4
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address the system assigns to the
+        peer of a target PPP connection.
+
+        This column is valid only if the 'peerDefIpAddr' bit of the
+        corresponding instance of cdtPppValid is '1'."
+    DEFVAL          { '00000000'H } 
+    ::= { cdtPppTemplateEntry 39 }
+ 
+
+
+cdtPppPeerIpAddrPoolTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtPppPeerIpAddrPoolEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a prioritized list of named pools for each
+        PPP template.  A list corresponding to a PPP template
+        specifies the pools the system searches in an attempt to
+        assign an IP address to the peer of a target PPP connection.
+        The system searches the pools in the order of their priority.
+
+        This table has an expansion dependent relationship on the
+        cdtPppTemplateTable, containing zero or more rows for each PPP
+        template."
+    ::= { cdtPpp 2 }
+
+cdtPppPeerIpAddrPoolEntry OBJECT-TYPE
+    SYNTAX          CdtPppPeerIpAddrPoolEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry specifies a named pool in a list of pools associated
+        with a PPP template.  A PPP template can only have named
+        pools associated with it if it has a cdtPppPeerIpAddrSrc of
+        'pool'.
+
+        Any attempt to create an entry for a PPP template that does not
+        have a cdtPppPeerIpAddrSrc of 'pool' must result in a response
+        having an error-status of 'inconsistentValue'.
+
+        The system automatically creates a corresponding entry when the
+        system associates a named pool with a PPP template through
+        another management entity (e.g., the system's local console).
+
+        The system automatically destroys an entry under the following
+        circumstances:
+
+        1)  The system or EMS/NMS destroys the corresponding row in the
+            cdtTemplateTable.
+
+        2)  The system or EMS/NMS sets the corresponding instance of
+            cdtPppPeerIpAddrSrc with a value other than 'pool'."
+    INDEX           {
+                        cdtTemplateName,
+                        cdtPppPeerIpAddrPoolPriority
+                    } 
+    ::= { cdtPppPeerIpAddrPoolTable 1 }
+
+CdtPppPeerIpAddrPoolEntry ::= SEQUENCE {
+        cdtPppPeerIpAddrPoolPriority Unsigned32,
+        cdtPppPeerIpAddrPoolStatus   RowStatus,
+        cdtPppPeerIpAddrPoolStorage  StorageType,
+        cdtPppPeerIpAddrPoolName     SnmpAdminString
+}
+
+cdtPppPeerIpAddrPoolPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the relative priority of the named pool
+        in the list corresponding to a PPP template.  The system
+        searches pools in the order of priority, where lower values
+        represent higher priority." 
+    ::= { cdtPppPeerIpAddrPoolEntry 1 }
+
+cdtPppPeerIpAddrPoolStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the entry.  The following
+        columns must be valid before activating a subscriber access
+        profile:
+
+            - cdtPppPeerIpAddrPoolStorage
+            - cdtPppPeerIpAddrPoolName
+
+        However, these objects specify a default value.  Thus, it is
+        possible to use create-and-go semantics without setting any
+        additional columns.
+
+        An implementation must not allow the EMS/NMS to create an entry
+        if the corresponding instance of cdtPppPeerIpAddrSrc is not
+        'pool'.
+
+        An implementation must allow the EMS/NMS to modify any column
+        when this column is 'active'." 
+    ::= { cdtPppPeerIpAddrPoolEntry 2 }
+
+cdtPppPeerIpAddrPoolStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies what happens to the name pool entry upon
+        restart.
+
+        If the corresponding instance of cdtTemplateSrc is not 'local',
+        then this column must be 'volatile'."
+    DEFVAL          { volatile } 
+    ::= { cdtPppPeerIpAddrPoolEntry 3 }
+
+cdtPppPeerIpAddrPoolName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the IP address pool
+        associated with the PPP template."
+    DEFVAL          { "" } 
+    ::= { cdtPppPeerIpAddrPoolEntry 4 }
+ 
+
+
+cdtEthernetTemplateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtEthernetTemplateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains attributes relating to dynamic interfaces
+        initiated on Ethernet virtual interfaces (e.g., EoMPLS) or
+        automatically created VLANs.
+
+        This table has a sparse-dependent relationship on the
+        cdtTemplateTable, containing a row for each dynamic template
+        having a cdtTemplateType of one of the following values:
+
+            'derived'
+            'ethernet'"
+    ::= { cdtEthernet 1 }
+
+cdtEthernetTemplateEntry OBJECT-TYPE
+    SYNTAX          CdtEthernetTemplateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing attributes relating to dynamic interfaces
+        initiated on Ethernet virtual interfaces (e.g., EoMPLS) or
+        automatically created VLANs.
+
+        The system automatically creates an entry when the system or the
+        EMS/NMS creates a row in the cdtTemplateTable with a
+        cdtTemplateType of one of the following values:
+
+            'derived'
+            'ethernet'
+
+        Likewise, the system automatically destroys an entry when the
+        system or the EMS/NMS destroys the corresponding row in the
+        cdtTemplateTable."
+    INDEX           { cdtTemplateName } 
+    ::= { cdtEthernetTemplateTable 1 }
+
+CdtEthernetTemplateEntry ::= SEQUENCE {
+        cdtEthernetValid            BITS,
+        cdtEthernetBridgeDomain     SnmpAdminString,
+        cdtEthernetPppoeEnable      TruthValue,
+        cdtEthernetIpv4PointToPoint TruthValue,
+        cdtEthernetMacAddr          MacAddress
+}
+
+cdtEthernetValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        bridgeDomain(0),
+                        pppoeEnable(1),
+                        ipv4PointToPoint(2),
+                        macAddr(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies which attributes in the dynamic template
+        have been configured to valid values.
+
+        Each bit in this bit string corresponds to a column in this
+        table.  If the bit is '0', then the value of the corresponding
+        column is not valid.  If the bit is '1', then the value of the
+        corresponding column has been configured to a valid value.
+
+        The following list specifies the mappings between bits and the
+        columns:
+
+            bridgeDomain     => cdtEthernetBridgeDomain
+            pppoeEnable      => cdtEthernetPppoeEnable
+            ipv4PointToPoint => cdtEthernetIpv4PointToPoint
+            macAddr          => cdtEthernetMacAddr"
+    DEFVAL          { {  } } 
+    ::= { cdtEthernetTemplateEntry 1 }
+
+cdtEthernetBridgeDomain OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the bridge domain..."
+    DEFVAL          { "" } 
+    ::= { cdtEthernetTemplateEntry 2 }
+
+cdtEthernetPppoeEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether..."
+    DEFVAL          { false } 
+    ::= { cdtEthernetTemplateEntry 3 }
+
+cdtEthernetIpv4PointToPoint OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether..."
+    DEFVAL          { false } 
+    ::= { cdtEthernetTemplateEntry 4 }
+
+cdtEthernetMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the..."
+    DEFVAL          { '000000000000'H } 
+    ::= { cdtEthernetTemplateEntry 5 }
+ 
+
+
+cdtSrvTemplateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdtSrvTemplateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains attributes relating to a service.
+
+        This table has a sparse-dependent relationship on the
+        cdtTemplateTable, containing a row for each dynamic template
+        having a cdtTemplateType of one of the following values:
+
+            'derived'
+            'service'"
+    ::= { cdtService 1 }
+
+cdtSrvTemplateEntry OBJECT-TYPE
+    SYNTAX          CdtSrvTemplateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing attributes relating to a service.
+
+        The system automatically creates entry when the system or the
+        EMS/NMS creates a row in the cdtTemplateTable with a
+        cdtTemplateType of one of the following values:
+
+            'derived'
+            'service'
+
+        Likewise, the system automatically destroys an entry when the
+        system or the EMS/NMS destroys the corresponding row in the
+        cdtTemplateTable."
+    INDEX           { cdtTemplateName } 
+    ::= { cdtSrvTemplateTable 1 }
+
+CdtSrvTemplateEntry ::= SEQUENCE {
+        cdtSrvValid      BITS,
+        cdtSrvNetworkSrv INTEGER,
+        cdtSrvVpdnGroup  SnmpAdminString,
+        cdtSrvSgSrvGroup SnmpAdminString,
+        cdtSrvSgSrvType  INTEGER,
+        cdtSrvMulticast  TruthValue
+}
+
+cdtSrvValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        networkSrv(0),
+                        vpdnGroup(1),
+                        sgSrvGroup(2),
+                        sgSrvType(3),
+                        multicast(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies which attributes in the dynamic template
+        have been configured to valid values.
+
+        Each bit in this bit string corresponds to a column in this
+        table.  If the bit is '0', then the value of the corresponding
+        column is not valid.  If the bit is '1', then the value of the
+        corresponding column has been configured to a valid value.
+
+        The following list specifies the mappings between bits and the
+        columns:
+
+            networkSrv     => cdtSrvNetworkSrv
+            vpdnGroup      => cdtSrvVpdnGroup
+            sgSrvGroup     => cdtSrvGroup
+            sgSrvType      => cdtSrvSgSrvType
+            multicast      => cdtSrvMulticast"
+    DEFVAL          { {  } } 
+    ::= { cdtSrvTemplateEntry 1 }
+
+cdtSrvNetworkSrv OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        none(2),
+                        local(3),
+                        vpdn(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of network service provided by
+        the target service:
+
+            'other'
+                The implementation of this MIB module does not recognize
+                the configured network service.
+
+            'none'
+                The target subscriber service does not provide a network
+                service to subscribers sessions.
+
+            'local'
+                The target subscriber service provides local termination
+                for subscriber sessions.
+
+            'vpdn'
+                The target subscriber service provides a Virtual Private
+                Dialup Network service for subscriber sessions.
+
+        This column is valid only if the 'networkSrv' bit of the
+        corresponding instance of cdtSrvValid is '1'."
+    DEFVAL          { none } 
+    ::= { cdtSrvTemplateEntry 2 }
+
+cdtSrvVpdnGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the VPDN group used to
+        configure the network service.
+
+        This column is valid only if the 'vpdnGroup' bit of the
+        corresponding instance of cdtSrvValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtSrvTemplateEntry 3 }
+
+cdtSrvSgSrvGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the service group with which
+        the system associates subscriber sessions.  A service group
+        specifies a set of services that may be active simultaneously
+        for a given subscriber session.  Typically, a service group
+        contains a primary service and one or more secondary services.
+
+        This column is valid only if the 'sgSrvGroup' bit of the
+        corresponding instance of cdtSrvValid is '1'."
+    DEFVAL          { "" } 
+    ::= { cdtSrvTemplateEntry 4 }
+
+cdtSrvSgSrvType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        primary(1),
+                        secondary(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the target service specifies a
+        network-forwarding policy:
+
+            'primary'
+                The target service specifies a network-forwarding
+                policy.  Primary services are mutually exclusive; that
+                is, only one primary service can be activated for any
+                given subscriber session.
+
+            'secondary'
+                The target service has a dependence on the primary
+                service in the group specified by the corresponding
+                instance of cdtSuBSrvSgSrvGroup.  After the system
+                activates the primary service, it activates secondary
+                services.  When the system deactivates the primary
+                service, then it deactivates all the secondary services
+                in the service group.
+
+        This column is valid only if the 'sgSrvType' bit of the
+        corresponding instance of cdtSrvValid is '1'."
+    DEFVAL          { secondary } 
+    ::= { cdtSrvTemplateEntry 5 }
+
+cdtSrvMulticast OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This objects specifies whether the system enables multicast
+        service for subscriber sessions of the target service.
+
+        This column is valid only if the 'sgSrvMcastRoutingIf' bit of
+        the corresponding instance of cdtSrvValid is '1'."
+    DEFVAL          { false } 
+    ::= { cdtSrvTemplateEntry 6 }
+ 
+
+-- Notifications
+--   
+
+--   
+-- Conformance
+
+ciscoDynamicTemplateMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBConform 1 }
+
+ciscoDynamicTemplateMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoDynamicTemplateMIBConform 2 }
+
+
+ciscoDynamicTemplateR1Compliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-DYNAMIC-TEMPLATE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cdtBaseGroup,
+                        cdtCommonGroup
+                    }
+
+    GROUP           cdtIfGroup
+    DESCRIPTION
+        "This group is only mandatory for those implementations
+        supporting PPP or Ethernet templates."
+
+    GROUP           cdtPppGroup
+    DESCRIPTION
+        "This group is only mandatory for those implementations
+        supporting PPP templates."
+
+    GROUP           cdtEthernetGroup
+    DESCRIPTION
+        "This group is only mandatory for those implementations
+        supporting Ethernet templates."
+
+    GROUP           cdtSrvGroup
+    DESCRIPTION
+        "This group is only mandatory for those implementations
+        supporting service templates."
+    ::= { ciscoDynamicTemplateMIBCompliances 1 }
+
+-- Units of Conformance
+
+cdtBaseGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdtTemplateStatus,
+                        cdtTemplateStorage,
+                        cdtTemplateType,
+                        cdtTemplateSrc,
+                        cdtTemplateUsageCount,
+                        cdtTemplateTargetStatus,
+                        cdtTemplateTargetStorage,
+                        cdtTemplateAssociationPrecedence,
+                        cdtTemplateUsageTargetType,
+                        cdtTemplateUsageTargetId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing dynamic templates,
+        targets of dynamic templates, and the associations between
+        dynamic templates and targets."
+    ::= { ciscoDynamicTemplateMIBGroups 1 }
+
+cdtCommonGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdtCommonValid,
+                        cdtCommonDescr,
+                        cdtCommonKeepaliveInt,
+                        cdtCommonKeepaliveRetries,
+                        cdtCommonVrf,
+                        cdtCommonAddrPool,
+                        cdtCommonIpv4AccessGroup,
+                        cdtCommonIpv4Unreachables,
+                        cdtCommonIpv6AccessGroup,
+                        cdtCommonIpv6Unreachables,
+                        cdtCommonSrvSubControl,
+                        cdtCommonSrvRedirect,
+                        cdtCommonSrvAcct,
+                        cdtCommonSrvQos,
+                        cdtCommonSrvNetflow
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing attributes common to
+        all dynamic templates."
+    ::= { ciscoDynamicTemplateMIBGroups 2 }
+
+cdtIfGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdtIfValid,
+                        cdtIfMtu,
+                        cdtIfCdpEnable,
+                        cdtIfFlowMonitor,
+                        cdtIfIpv4Unnumbered,
+                        cdtIfIpv4SubEnable,
+                        cdtIfIpv4Mtu,
+                        cdtIfIpv4TcpMssAdjust,
+                        cdtIfIpv4VerifyUniRpf,
+                        cdtIfIpv4VerifyUniRpfAcl,
+                        cdtIfIpv4VerifyUniRpfOpts,
+                        cdtIfIpv6Enable,
+                        cdtIfIpv6SubEnable,
+                        cdtIfIpv6TcpMssAdjust,
+                        cdtIfIpv6VerifyUniRpf,
+                        cdtIfIpv6VerifyUniRpfAcl,
+                        cdtIfIpv6VerifyUniRpfOpts,
+                        cdtIfIpv6NdPrefix,
+                        cdtIfIpv6NdPrefixLength,
+                        cdtIfIpv6NdValidLife,
+                        cdtIfIpv6NdPreferredLife,
+                        cdtIfIpv6NdOpts,
+                        cdtIfIpv6NdDadAttempts,
+                        cdtIfIpv6NdNsInterval,
+                        cdtIfIpv6NdReachableTime,
+                        cdtIfIpv6NdRaIntervalUnits,
+                        cdtIfIpv6NdRaIntervalMax,
+                        cdtIfIpv6NdRaIntervalMin,
+                        cdtIfIpv6NdRaLife,
+                        cdtIfIpv6NdRouterPreference
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing attributes common to
+        dynamic templates applied to dynamic interfaces."
+    ::= { ciscoDynamicTemplateMIBGroups 3 }
+
+cdtPppGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdtPppValid,
+                        cdtPppAccounting,
+                        cdtPppAuthentication,
+                        cdtPppAuthenticationMethods,
+                        cdtPppAuthorization,
+                        cdtPppLoopbackIgnore,
+                        cdtPppMaxBadAuth,
+                        cdtPppMaxConfigure,
+                        cdtPppMaxFailure,
+                        cdtPppMaxTerminate,
+                        cdtPppTimeoutAuthentication,
+                        cdtPppTimeoutRetry,
+                        cdtPppChapOpts,
+                        cdtPppChapHostname,
+                        cdtPppChapPassword,
+                        cdtPppMsChapV1Opts,
+                        cdtPppMsChapV1Hostname,
+                        cdtPppMsChapV1Password,
+                        cdtPppMsChapV2Opts,
+                        cdtPppMsChapV2Hostname,
+                        cdtPppMsChapV2Password,
+                        cdtPppPapOpts,
+                        cdtPppPapUsername,
+                        cdtPppPapPassword,
+                        cdtPppEapOpts,
+                        cdtPppEapIdentity,
+                        cdtPppEapPassword,
+                        cdtPppIpcpAddrOption,
+                        cdtPppIpcpDnsOption,
+                        cdtPppIpcpDnsPrimary,
+                        cdtPppIpcpDnsSecondary,
+                        cdtPppIpcpWinsOption,
+                        cdtPppIpcpWinsPrimary,
+                        cdtPppIpcpWinsSecondary,
+                        cdtPppIpcpMaskOption,
+                        cdtPppIpcpMask,
+                        cdtPppPeerDefIpAddrOpts,
+                        cdtPppPeerDefIpAddrSrc,
+                        cdtPppPeerDefIpAddr,
+                        cdtPppPeerIpAddrPoolStatus,
+                        cdtPppPeerIpAddrPoolStorage,
+                        cdtPppPeerIpAddrPoolName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing attributes contained by
+        PPP templates."
+    ::= { ciscoDynamicTemplateMIBGroups 4 }
+
+cdtEthernetGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdtEthernetValid,
+                        cdtEthernetBridgeDomain,
+                        cdtEthernetPppoeEnable,
+                        cdtEthernetIpv4PointToPoint,
+                        cdtEthernetMacAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing attributes contained by
+        Ethernet templates."
+    ::= { ciscoDynamicTemplateMIBGroups 5 }
+
+cdtSrvGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdtSrvValid,
+                        cdtSrvNetworkSrv,
+                        cdtSrvVpdnGroup,
+                        cdtSrvSgSrvGroup,
+                        cdtSrvSgSrvType,
+                        cdtSrvMulticast
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing attributes contained by
+        service templates."
+    ::= { ciscoDynamicTemplateMIBGroups 6 }
+
+END
+
+
+
+
+
+
+
+

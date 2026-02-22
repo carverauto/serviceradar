@@ -1,0 +1,95 @@
+-- *****************************************************************
+-- CISCO-PING-CAPABILITY.my: CISCO-PING-MIB AGENT-CAPABILITIES
+--
+-- August 1994, Jeffrey T. Johnson
+--
+-- Copyright (c) 1994, 2004, 2006 by cisco Systems, Inc
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-PING-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoPingCapability MODULE-IDENTITY
+        LAST-UPDATED    "200603150000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+                        
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                        
+                   Tel: +1 800 553-NETS
+                        
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for CISCO-PING-MIB."
+        REVISION        "200603150000Z"
+        DESCRIPTION
+                "Add VARIATION for notification 
+                 ciscoPingCompletion in 
+                 ciscoPingCapabilityCatOSV08R0301."
+        REVISION        "200406140000Z"
+        DESCRIPTION
+                "Fix the typo in the supporting for the CatOS
+                 platform for this MIB module."
+
+        REVISION        "200401190000Z"
+        DESCRIPTION
+                "Add supporting for the CatOS platform for
+                 this MIB module."
+     
+        REVISION        "199408180000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 36 }
+
+ciscoPingCapabilityV10R02 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 10.2"
+    STATUS              current
+    DESCRIPTION         "Cisco Ping MIB capabilities."
+
+    SUPPORTS            CISCO-PING-MIB
+        INCLUDES        { ciscoPingMIBGroup }
+
+    ::= { ciscoPingCapability 1 }
+
+ciscoPingCapabilityCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco CatOS 8.3(1)."
+    STATUS              current
+    DESCRIPTION         "CISCO-PING-MIB capabilities."
+
+    SUPPORTS            CISCO-PING-MIB
+        INCLUDES        { ciscoPingMIBGroupVpn }
+
+        VARIATION       ciscoPingVrfName
+            ACCESS      not-implemented
+            DESCRIPTION
+                        "Information not available on CatOS."
+
+        VARIATION        ciscoPingCompletion -- NOTIFICATION-TYPE
+--          OBJECTS      { ciscoPingCompleted, ciscoPingSentPackets,
+--                         ciscoPingReceivedPackets, 
+--                         ciscoPingMinRtt, ciscoPingAvgRtt,
+--                         ciscoPingMaxRtt                           
+--                       }
+            DESCRIPTION
+                    "In addition to the regular varbinds, the 
+                     instance values of ciscoPingMinRtt, 
+                     ciscoPingAvgRtt and ciscoPingMaxRtt are 
+                     appended to this notification if 
+                     ciscoPingReceivedPackets is not zero."
+
+    ::= { ciscoPingCapability 2 }
+
+END

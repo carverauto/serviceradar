@@ -1,0 +1,4266 @@
+-- **************************************************************************
+-- MPOA-MIB specified by ATM Forum
+-- Srikanth Kilaru (skilaru@cisco.com) Aug 18 1999
+-- Copyright (c) 1995-1997, 1998, 1999 by cisco Systems, Inc.
+-- All rights reserved.
+-- **************************************************************************
+ 
+MPOA-MIB DEFINITIONS ::= BEGIN
+ 
+        IMPORTS
+             MODULE-IDENTITY, OBJECT-TYPE,
+             enterprises, Counter32, Counter64, Integer32
+                  FROM SNMPv2-SMI
+             TEXTUAL-CONVENTION,
+                  MacAddress, TimeInterval, TimeStamp, TruthValue, RowStatus
+                  FROM SNMPv2-TC
+             MODULE-COMPLIANCE, OBJECT-GROUP
+                  FROM SNMPv2-CONF
+             lecIndex
+                  FROM LAN-EMULATION-CLIENT-MIB
+--             AtmAddr
+--                  FROM ATM-TC-MIB
+             ;
+ 
+   mpoaMIB MODULE-IDENTITY
+        LAST-UPDATED "9811090000Z"
+        ORGANIZATION "ATM Forum LANE/MPOA Working Group"
+        CONTACT-INFO
+             "The ATM Forum
+             2570 West El Camino Real, Suite 304
+             Mountain View, CA  94040-1313
+             USA
+ 
+             Tel: +1-650-949-6700
+             Fax: +1-650-949-6705
+ 
+             Web: http://www.atmforum.com
+             E-mail: info@atmforum.com"
+        DESCRIPTION
+             "This module defines a portion of the management
+             information base (MIB) for managing Multiprotocol Over
+             ATM clients and servers which was revised based
+             on MPOA Errata contained in MPOA v1.1.
+ 
+             The difference between af-mpoa-0092.000 and this
+             version is the mpcMpsMacAddressTable has been
+             obsoleted.  The mpcMpsMultipleMacAddressTable
+             has been added.  The mpcMpsMultipleMacAddressTable
+             replaces the mpcMpsMacAddressTable."
+ 
+        REVISION "9811090000Z"
+        DESCRIPTION
+             "MPOA v 1.1, Nov 9, 1998
+             Version of the MIB module MPOA-MIB 
+             that is contained in the MPOA v1.1 document.
+ 
+             The difference between af-mpoa-0092.000 and this
+             version is the mpcMpsMacAddressTable has been
+             obsoleted.  The mpcMpsMultipleMacAddressTable
+             has been added.  The mpcMpsMultipleMacAddressTable
+             replaces the mpcMpsMacAddressTable."
+ 
+        REVISION "9805220000Z"
+        DESCRIPTION
+             "Final Ballot Version,  May 22, 1998
+             Version of the MIB module MPOA-MIB
+             that is in:  AF-MPOA-0092.000."
+        REVISION "9802250000Z"
+        DESCRIPTION
+             "Straw Ballot Revision 1.0,  February 25, 1998
+ 
+             Version of the MIB module MPOA-MIB
+             that is in STR-MPOA-MIB-01.01."
+        ::= { atmfMpoa 1 }
+ 
+        atmForum OBJECT IDENTIFIER  ::= { enterprises 353 }
+           atmForumNetworkManagement OBJECT IDENTIFIER ::= { atmForum 5 }
+              atmfMpoa OBJECT IDENTIFIER ::= { atmForumNetworkManagement 8 }
+ 
+        --
+        --  Textual Conventions
+        --
+ 
+ AtmAddr ::= TEXTUAL-CONVENTION
+      STATUS  current
+      DESCRIPTION
+           "The ATM address used by the network entity.
+           The address types are: no address (0 octets),
+           E.164 (8 octets), and NSAP (20 octets).
+           Note: The E.164 address is encoded in BCD
+           format."
+      SYNTAX   OCTET STRING (SIZE(0|8|20))
+ 
+        LecIndex ::= TEXTUAL-CONVENTION
+             STATUS current
+             DESCRIPTION
+                  "The value of this object identifies the LEC
+                  for which the entry contains management
+                  information.  The value of this object for
+                  a particular LAN Emulation Client (LEC) has
+                  the same value as the lecIndex object, defined
+                  in the LAN-EMULATION-CLIENT MIB, for the same LEC."
+             SYNTAX  INTEGER (1..2147483647)
+ 
+        AtmConfigAddr ::= TEXTUAL-CONVENTION
+             STATUS  current
+             DESCRIPTION
+                  "The ATM address used by the network entity.
+                  The address types are: NSAP SEL Byte (1 octet)
+                  E.164 (8 octets), and NSAP (20 octets).
+                  Note: If the 1 octet NSAP SEL is given, the
+                  other 19 octets of the NSAP are derived
+                  from the system either through ILMI or another method.
+                  Note: The E.164 address is encoded in BCD format."
+             SYNTAX   OCTET STRING (SIZE(1|8|20))
+ 
+        InternetworkAddrType ::= TEXTUAL-CONVENTION
+             STATUS       current
+             DESCRIPTION
+                  "Internetwork Layer Address Types.
+                  Values are defined in Assigned Numbers,
+                  RFC1700. Note: not all of these values make sense in all
+                  contexts where this type is used in this MIB, but they are
+                  included for completeness."
+             REFERENCE
+                  "Assigned Numbers, RFC1700, ADDRESS FAMILY NUMBERS"
+             SYNTAX      INTEGER {
+                            other(0),
+                            ipV4(1),
+                            ipV6(2),
+                            nsap(3),
+                            hdlc(4),
+                            bbn1822(5),
+                            ieee802(6),
+                            e163(7),
+                            e164(8),
+                            f69(9),
+                            x121(10),
+                            ipx(11),
+                            appleTalk(12),
+                            decnetIV(13),
+                            banyanVines(14),
+                            e164WithNsap(15)
+                       }
+ 
+        InternetworkAddr ::= TEXTUAL-CONVENTION
+             STATUS       current
+             DESCRIPTION
+                  "The value of an internetwork layer address."
+             SYNTAX       OCTET STRING (SIZE (0..60))
+ 
+        MpcIndex ::= TEXTUAL-CONVENTION
+             STATUS       current
+             DESCRIPTION
+                  "A unique value, for each MPOA client
+                  which this SNMP agent manages.  It is recommended that
+                  values
+                  are assigned contiguously starting from 1.  The value for
+                  each MPOA Client must remain constant, even if the MPOA
+                  Client or SNMP agent is re-initialized."
+             SYNTAX       Integer32 (1..2147483647)
+ 
+        MpsIndex ::= TEXTUAL-CONVENTION
+             STATUS       current
+             DESCRIPTION
+                  "A unique value, for each MPOA Server
+                  which this SNMP agent manages.  It is recommended that
+                  values
+                  are assigned contiguously starting from 1.  The value for
+                  each MPOA Server must remain constant, even if the MPOA
+                  Server or SNMP agent is re-initialized."
+             SYNTAX       Integer32 (1..2147483647)
+ 
+   mpoaMIBObjects  OBJECT IDENTIFIER ::= { mpoaMIB 1 }
+ 
+       -- This MIB module consists of the following groups:
+       --
+       --  (1) MPOA Common Groups
+       --      (a) Device Type group
+       --      (b) Device Type Mps Mac group
+       --
+       --  (2) MPOA Client Groups
+       --      (a) Configuration group
+       --      (b) Actual group
+       --      (c) Data Atm Address group
+       --      (d) Statistics group
+       --      (e) Protocol support group
+       --      (f) LEC -> MPC Mapping group
+       --      (g) MPC's MPS Information group
+       --      (h) MAC Address group
+       --      (i) Ingress Cache Total Packet group
+       --      (j) Ingress Cache Total Octet group
+       --      (k) Ingress Cache group
+       --      (l) Egress Cache Total Packet group
+       --      (m) Egress Cache Total Octet group
+       --      (n) Egress Cache group
+       --
+ 
+       --  (3) MPOA Server groups
+       --      (a) Configuration group
+       --      (b) Actual group
+       --      (c) Statistics group
+       --      (d) Protocol support group
+       --      (e) LEC -> MPS Mapping group
+       --      (f) Ingress Cache group
+       --      (g) Egress Cache group
+       --
+ 
+       -- ------------------------------------------------------------- --
+ 
+   mpoaCommonObjects OBJECT IDENTIFIER ::= { mpoaMIBObjects 1 }
+ 
+   deviceTypeTable OBJECT-TYPE
+ 
+
+        SYNTAX    SEQUENCE OF DeviceTypeEntry
+        MAX-ACCESS     not-accessible
+             STATUS    current
+        DESCRIPTION
+             "The device type table
+             represents the mapping of the Lane Data ATM address
+             to the MAC device capability.
+             The unique key is the Lane data ATM address and Lec Index
+             of the LEC associated with the MAC addresses.
+             This table contains information which was
+             gathered from its environment about neighboring
+             machines.
+             This Device type table represents the information of
+             other/remote MPOA devices, discovered/gathered by each MPOA
+             device. This MIB is not the device type of MPS/MPC
+             itself; it is DISCOVERED information."
+        REFERENCE
+             "Sections:  5.2.3 Device Type TLV, and 4.2 Device Discovery,
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { mpoaCommonObjects 1 }
+ 
+   deviceTypeEntry OBJECT-TYPE
+        SYNTAX    DeviceTypeEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "An entry in this table and corresponding entries in the
+             deviceTypeMpsMacAddressTable represent a mapping of a MAC device
+             capability (i.e. the set of MAC addresses from a device) to the
+             LEC ATM Address."
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        INDEX          { deviceTypeIndex }
+        ::= { deviceTypeTable 1 }
+ 
+   DeviceTypeEntry ::= SEQUENCE {
+        deviceTypeIndex               INTEGER,
+        deviceTypeLecIndex            LecIndex,
+        deviceTypeRemoteLecAtmAddress AtmAddr,
+        deviceTypeType                INTEGER,
+        deviceTypeMpsAtmAddress       AtmAddr,
+        deviceTypeMpcAtmAddress       AtmAddr
+   }
+ 
+   deviceTypeIndex OBJECT-TYPE
+        SYNTAX       INTEGER (1..2147483647)
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+             "Index into this table and also used as one of the indices for
+             the deviceTypeMpsMacAddressTable.  This index has local
+             significance within the mpoaDeviceGroup.
+             Entries in the `deviceTypeMpsMacAddressTable' which correspond
+             to this index, and have the `deviceTypeType' value of `mps' or
+             `mpsAndMps' are considered to be MPS MAC addresses."
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { deviceTypeEntry 1 }
+ 
+   deviceTypeLecIndex OBJECT-TYPE
+        SYNTAX    LecIndex
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "LecIndex of LEC that supports this
+             data ATM address"
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { deviceTypeEntry 2 }
+ 
+   deviceTypeRemoteLecAtmAddress OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The ATM address learned by LE ARP."
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { deviceTypeEntry 3 }
+ 
+   deviceTypeType OBJECT-TYPE
+   SYNTAX    INTEGER {
+                       nonMpoa(1),
+                       mps(2),
+                       mpc(3),
+                       mpsAndMpc(4)
+                  }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "same as the TLV"
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { deviceTypeEntry 4 }
+ 
+   deviceTypeMpsAtmAddress OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Associated MPS address, zeros for non-MPOA and mpc"
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { deviceTypeEntry 5 }
+ 
+   deviceTypeMpcAtmAddress OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Associated MPC address, zeros for non-MPOA & mps"
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { deviceTypeEntry 6 }
+ 
+   --  The deviceTypeMpsMacAddress Table contains MAC addresses
+   -- from the device type TLV.  If the deviceTypeType was `mpsAndMpc'
+   -- there must be at least one MPS MAC Address (i.e. at least one entry in
+   -- this table.)  If the deviceTypeType is `mps', there may be zero or more
+   -- MPS MAC addresses in this table.  If the deviceTypeType is `nonMpoa'
+   -- or `mpc' then there will be no corresponding entries in this table.
+   -- See Section 5.2.3 of the MPOA Letter Ballot 1.0
+ 
+   deviceTypeMpsMacAddressTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF DeviceTypeMpsMacAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This table contains MPS MAC Address information gathered from
+             the MPOA DeviceTypeTLV."
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { mpoaCommonObjects 2 }
+ 
+   deviceTypeMpsMacAddressEntry OBJECT-TYPE
+        SYNTAX    DeviceTypeMpsMacAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each entry represents an MPS MAC Address.  Each entry
+             corresponds to a deviceTypeIndex value for which the
+             deviceTypeType attribute is `mps' or `mpsAndMpc'."
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        INDEX          {    deviceTypeIndex,
+                       deviceTypeMpsMacAddress
+                  }
+        ::= { deviceTypeMpsMacAddressTable 1 }
+ 
+   DeviceTypeMpsMacAddressEntry  ::=SEQUENCE {
+        deviceTypeMpsMacAddress       MacAddress
+        }
+ 
+   deviceTypeMpsMacAddress OBJECT-TYPE
+        SYNTAX    MacAddress
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "MPS MAC address contained in the Device Type TLV which
+             is identified by the deviceTypeIndex in the deviceTypeTable."
+        REFERENCE
+             "Section 5.2.3 Device Type TLV
+             MPOA Version 1.0 (Letter Ballot) AF-MPOA-0087.000"
+        ::= { deviceTypeMpsMacAddressEntry 1 }
+ 
+       --
+       --  MPOA Client Objects
+       --
+ 
+   mpcObjects OBJECT IDENTIFIER ::= { mpoaMIBObjects 2 }
+ 
+       --
+       --  MPOA Client configuration group
+       --
+ 
+   mpcNextIndex OBJECT-TYPE
+        SYNTAX    Integer32 (0..2147483647)
+        MAX-ACCESS     read-write
+        STATUS    current
+        DESCRIPTION
+             "This object contains an appropriate value to
+             be used for mpcIndex when creating entries in
+             the mpcConfigTable.  The value 0 indicates that
+             no new rows can be created.  Otherwise, it is
+             recommended that values are assigned contiguously,
+             starting from 1.
+ 
+             MPC creation by a Manager:  To obtain the mpcIndex value
+             for a new entry, the manager issues a management protocol
+             retrieval operation to obtain the current value of this
+             object.  If the value retrieved is 0 (zero), the manager
+             cannot create a row.
+ 
+             After each retrieval of a non-zero value, the manager
+             should issue a management protocol SET operation using
+             the value just retrieved.  If the SET is successful,
+             the agent should update the value to the next unassigned
+             index, or zero if appropriate.
+ 
+             NOTE:  the manager may also issue a set on this object
+             with a value of its own choosing.  If the set is successful,
+             the manager may use this value for the mpcIndex. In this
+             case, the agent would update the value to the next
+             unassigned index, or zero if appropriate.
+             The definition of `next unassigned index' is any
+             mpcNextIndex value that has not yet been set by a manager,
+             or reserved by the agent (see next paragraph), since this
+             agent was last re-initialized.
+ 
+             MPC creation by an Agent:  When a row in the
+             mpcConfigTable is created by an agent, the agent should
+             reserve the value of the index by updating the value of
+             this object to the next unassigned index
+             or zero if appropriate.  Thus, a manager will not
+             be able to set an index reserved by an agent.
+ 
+             In the situation of an agent re-initialization,  all currently
+             used mpcIndexes must be preserved.
+             In other words, the Agent should store in non-volatile memory
+             all of the currently used mpcIndexes (along with all necessary
+             configuration information from the mpcConfigTable).  When the
+             agent is re-initialized, the mpcNextIndex value is
+             any valid Integer32 value which is not being used
+             as an mpcIndex, except 0 which maintains its original
+             definition of indicating that a row cannot be created."
+        ::= { mpcObjects 1 }
+ 
+   mpcConfigTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcConfigEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "The MPOA Client Configuration Table.
+             This table contains configuration information
+             for all MPOA Clients which this agent manages."
+        ::= { mpcObjects 2 }
+ 
+   mpcConfigEntry OBJECT-TYPE
+        SYNTAX    MpcConfigEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "MPOA Client Configuration Entry.
+             Each entry contains configuration information
+             for one MPOA Client.  The configuration information, including
+             the mpcIndex, must be restored after a re-initialization of an
+             MPC or a re-initialization of the SNMP agent."
+        INDEX          { mpcIndex }
+        ::= { mpcConfigTable 1 }
+ 
+   MpcConfigEntry ::=SEQUENCE {
+ 
+        --
+        -- Primary config info: Index, mode and control address information
+        --
+        mpcIndex              MpcIndex,
+        mpcRowStatus          RowStatus,
+        mpcConfigMode         INTEGER,
+        mpcCtrlAtmAddr        AtmConfigAddr,
+        --
+        -- MPC parameters which may  be obtained from
+        -- the LECS.
+        --
+        mpcSCSetupFrameCount  Integer32,    -- MPC-p1
+        mpcSCSetupFrameTime   Integer32,    -- MPC-p2
+        -- The Flow-detection Protocols (denoted with MPC-p3)
+        -- are represented in the mpcProtocolsTable.
+        mpcInitialRetryTime   Integer32,    -- MPC-p4
+        mpcRetryTimeMaximum   Integer32,    -- MPC-p5
+        mpcHoldDownTime       Integer32     -- MPC-p6
+   }
+ 
+
+   mpcIndex OBJECT-TYPE
+        SYNTAX    MpcIndex
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A value which uniquely identifies this conceptual
+             row in the mpcConfigTable.  The `mpcNextIndex' object
+             needs to be used to determine the value of this object.
+             A row cannot be added, unless the mpcCtrlAtmAddress is unique.
+             In the event of either an MPC re-initialization or an agent
+             re-initialization, the value of this mpcIndex must remain the
+             same.  In other words, the row needs to be saved and restored
+             in the event of an MPC or SNMP Agent re-initialization."
+        ::= { mpcConfigEntry 1 }
+ 
+   mpcRowStatus OBJECT-TYPE
+        SYNTAX    RowStatus
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "This object allows creation and deletion of
+             MPOA Clients.
+ 
+             Within each conceptual mpcConfigTable row, writable objects
+             may be modified, regardless of the value of mpcRowStatus.
+             It is not necessary to set a row's status to `notInService'
+             first.
+ 
+             A row cannot be created, unless the mpcAtmCtrlAddress
+             in this table is unique.
+             When an MPOA Client is created via this object,
+             it will initially have
+             `mpcActualState' = `initialState'"
+        ::= { mpcConfigEntry 2 }
+ 
+   mpcConfigMode OBJECT-TYPE
+        SYNTAX    INTEGER {
+                       automatic(1),
+                       manual(2)
+                  }
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "Indicates whether this MPC should auto-configure
+             the next time it is (re-)initialized.
+             During the (re-)initialization of this MPC, if
+             the mode is automatic(1), the LECS is contacted and
+             requests are made for all MPC-p* parameters.
+             Otherwise, if the mode is manual(2), the values of the
+             configuration parameters are obtained from the
+             mpcConfigTableand the mpcProtocolTable.  In other words, when
+             the MPC is first initialized, it can use the default or
+             configured values from the mpcConfigTable and
+             mpcProtocolTable.  If the mode is manual (2), no further
+             action is required.  If the mode is automatic (1), then
+             the LECS should be contacted and all available MPC-p1
+             to MPC-p6 parameters would be retrieved.
+             These parameters would then overwrite the existing MPC-p1 to
+             MPC-p6 parameters.  The actual values are reflected in the
+             mpcActualTable."
+        DEFVAL { automatic }
+        ::= { mpcConfigEntry 3 }
+ 
+   mpcCtrlAtmAddr OBJECT-TYPE
+        SYNTAX    AtmConfigAddr
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "The MPC's Control ATM Address.  There exists one
+             Control ATM Address per MPC, therefore, the value
+             of this entry is unique within the table.  The control ATM
+             Address is the address which is used by the MPC in its requests
+             to the MPS.  The value of this object should not change, once
+             created."
+        ::= { mpcConfigEntry 4 }
+ 
+   mpcSCSetupFrameCount OBJECT-TYPE
+        SYNTAX    Integer32 (1..65535)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "This represents the MPC-p1 Short-cut setup frame count
+             parameter.
+ 
+             The MPC-p1 value is frames measured over mpcSCFrameTime seconds.
+             Flow detection is protocol independent. i.e. all network layers
+             mpcProtocolEntries for this MPC share the flow rate
+             specification.
+             A value of 1 causes all flows to initiate resolution/shortcut
+             process."
+        DEFVAL { 10 }
+        ::= { mpcConfigEntry 5 }
+ 
+   mpcSCSetupFrameTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..60)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPC-p2 Short-cut setup frame time, in seconds."
+        DEFVAL { 1 }
+        ::= { mpcConfigEntry 6 }
+ 
+   mpcInitialRetryTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..300)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPC-p4 is the initial value for the retry time out
+             period used for timing out MPOA Resolution Requests
+             in seconds.  Retry time consists of this initial
+             time-out (MPC-p4) and a retry multiplier (MPC-c1).
+             If a response is not received, then another request
+             is sent with a timeout of `retry time' * MPC-c1
+             seconds, or until mpcRetryTimeMaximum."
+        DEFVAL { 5 }
+        ::= { mpcConfigEntry 7 }
+ 
+   mpcRetryTimeMaximum OBJECT-TYPE
+        SYNTAX    Integer32 (10..300)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPC-p5 cumulative max value for Retry Time (MPC-p4).
+             Retries are attempted at intervals determined by the
+             algorithm described in the definition of mpcIntialRetryTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Section 4.3 MPOA Retry Mechanism"
+        DEFVAL  { 40 }
+        ::= { mpcConfigEntry 8 }
+ 
+   mpcHoldDownTime OBJECT-TYPE
+        SYNTAX    Integer32 (30..1200)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPC-p6 Hold Down Time
+             Minimum time to wait before reinitiating
+             a failed resolution attempt.  Default is
+             mpcRetryTimeMaximum * 4."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Section 4.1.2.1 MPC Parameters"
+        DEFVAL  { 160 }
+        ::= { mpcConfigEntry 9 }
+ 
+       --
+       --  MPOA Client Actual group
+       --
+ 
+   mpcActualTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcActualEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "MPOA Client Actual Table.
+             A read-only table which contains state
+             information and reflects the actual values which
+             these MPOA Clients are using.  The actual
+             values may differ from the configured values.
+             For example, the mpcConfigMode takes affect
+             only during (re-)initialization of the MPC.
+             The MPC-p1 to MPC-p6 parameters may differ
+             from the configured values because, if the
+             MPC was (re-)initialized and the mpcConfigMode
+             was set to automatic (1) then some, perhaps all,
+             of the MPC-p1 to MPC-p6 parameters were retrieved
+             from the LECS and the values from the LECS may
+             differ from the configured/default values of the
+             mpcConfigTable.  NOTE:  after re-initialization
+             a set to an object in the mpcConfigTable which
+             changes the value of the object will be reflect
+             in this Table, except for a set to the
+             mpcConfigMode which takes effect only during
+             re-initialization."
+        ::= { mpcObjects 3 }
+ 
+   mpcActualEntry OBJECT-TYPE
+        SYNTAX    MpcActualEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "An entry in the MPC Actual Table.
+             An entry represents a specific MPOA Client's
+             state information and the actual values
+             which are being used by the MPOA Client.
+             For example, the corresponding mpcConfigEntry contains
+             default and/or configured parameters, if mpcConfigMode was
+             set to manual, then these are the objects values' which are
+             reflected for the mpcActualEntry.  However, if the
+             mpcConfigMode is automatic, then the mpcActualEntry
+             will be all the corresponding mpcConfigEntry's object,
+             excluding any objects which were retrieved from the LECS.
+             In other words, the objects retrieved from the LECS during
+             the (re-)initialization of the MPC overwrite any of the default
+             and/or configured values.
+             NOTE:  any subsequent `set' to the configured values, e.g. an
+             SNMP
+             set operation, which is successful could result in a change to an
+             mpcConfigTable value, and will be reflected in this table as
+             well."
+        AUGMENTS  { mpcConfigEntry }
+        ::= { mpcActualTable 1 }
+ 
+   MpcActualEntry ::=SEQUENCE {
+        mpcActualState                INTEGER,
+        mpcDiscontinuityTime          TimeStamp,
+        --
+        -- Actual values for the MPCs.
+        --
+        mpcActualConfigMode           INTEGER,
+        mpcActualSCSetupFrameCount    Integer32,    -- MPC-p1
+        mpcActualSCSetupFrameTime     Integer32,    -- MPC-p2
+        -- The flow-detection protocols for MPC-p3 are represented
+        -- in the mpcProtocolTable.  There is no actual counterpart
+        -- for them.
+        mpcActualInitialRetryTime     Integer32,    -- MPC-p4
+        mpcActualRetryTimeMaximum     Integer32,    -- MPC-p5
+        mpcActualHoldDownTime         Integer32     -- MPC-p6
+   }
+ 
+   mpcActualState OBJECT-TYPE
+   SYNTAX    INTEGER {
+                  unknown(1),
+                  initialState(2),
+                  up(3),
+                  down(4)
+             }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This object indicates the actual state
+             of the MPOA Client."
+        ::= { mpcActualEntry 1 }
+ 
+
+   mpcDiscontinuityTime OBJECT-TYPE
+        SYNTAX    TimeStamp
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The value of sysUpTime on the most recent occasion at
+             which any one or more of this MPC's counters
+             experienced a discontinuity.  The relevant counters
+             are the specific instances associated with this
+             MPC.  If discontinuities have not occurred since the
+             last re-initialization of the local management subsystem,
+             then this object contains a zero value."
+        ::= { mpcActualEntry 2 }
+ 
+   mpcActualConfigMode OBJECT-TYPE
+        SYNTAX    INTEGER {
+                       automatic(1),
+                       manual(2)
+                  }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Indicates whether this MPC auto-configured
+             when it was last (re-)initialized."
+   ::= { mpcActualEntry 3 }
+ 
+   mpcActualSCSetupFrameCount OBJECT-TYPE
+        SYNTAX    Integer32 (1..65535)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "MPC-p1 Short-cut setup frame count.
+             In frames measured over mpcShortcutFrameTime seconds.
+             Flow detection is protocol independent. i.e. all
+             network layers mpcProtocolEntry share the flow rate
+             specification.
+             A value of 1 implies that resolutions for short-cuts
+             are attempted for all flows."
+        ::= { mpcActualEntry 4 }
+ 
+   mpcActualSCSetupFrameTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..60)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Actual MPC-p2 Short-cut setup frame time, in seconds."
+   ::= { mpcActualEntry 5 }
+ 
+
+   mpcActualInitialRetryTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..300)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Actual MPC-p4 is initial value for the
+             retry time out."
+        ::= { mpcActualEntry 6 }
+ 
+   mpcActualRetryTimeMaximum OBJECT-TYPE
+        SYNTAX    Integer32 (30..300)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "MPC-p5 cumulative maximum value for Retry Time (MPC-p4).
+             Retries are attempted at intervals determined by the
+             algorithm described in the definition of
+             mpcActualInitialRetryTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Section 4.3 MPOA Retry Mechanism"
+        ::= { mpcActualEntry 7 }
+ 
+   mpcActualHoldDownTime OBJECT-TYPE
+        SYNTAX    Integer32 (30..1200)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "MPC-p6 Hold Down Time
+             Minimum time to wait before reinitiating a failed
+             resolution attempt.  The default value is
+             mpcRetryTimeMaximum * 4."
+        ::= { mpcActualEntry 8 }
+ 
+       --
+       --  DataAtmAddresses  -> MPC
+       --
+ 
+   mpcDataAtmAddressTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcDataAtmAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A table which shows all the data ATM addresses
+             associated with  all MPOA Clients."
+        ::= { mpcObjects 4 }
+ 
+
+   mpcDataAtmAddressEntry OBJECT-TYPE
+        SYNTAX    MpcDataAtmAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each row defines one data ATM address associated with
+             an MPC.  NOTE:  if an MPC has more than one data ATM
+             address then there will be another entry which contains
+             the same mpcIndex subIdentifier, with a different
+             mpcDataAtmAddress."
+        INDEX          {    mpcIndex,
+                     mpcDataAtmAddress
+   }
+   ::= { mpcDataAtmAddressTable 1 }
+ 
+   MpcDataAtmAddressEntry  ::= SEQUENCE {
+        mpcDataAtmAddress        AtmAddr,
+        mpcDataAtmAddressRowStatus    RowStatus
+   }
+ 
+   mpcDataAtmAddress OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A data ATM Address which is associated with
+             an MPOA Client specified by the mpcIndex."
+        ::= { mpcDataAtmAddressEntry 1 }
+ 
+   mpcDataAtmAddressRowStatus OBJECT-TYPE
+        SYNTAX    RowStatus
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "This object allows creation and deletion of
+             an MPOA Client's Data ATM Addresses.  The
+             row can be created/deleted by either an NMS
+             or by the SNMP agent."
+        ::= { mpcDataAtmAddressEntry 2 }
+ 
+   --
+   --  MPOA Client statistics group
+   --
+ 
+   mpcStatisticsTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcStatisticsEntry
+        MAX-ACCESS     not-accessible
+ 
+
+        STATUS    current
+        DESCRIPTION
+             "A read-only table which contains statistical
+             information for all MPOA Clients that
+             this agent manages."
+        ::= { mpcObjects 5 }
+ 
+   mpcStatisticsEntry OBJECT-TYPE
+        SYNTAX    MpcStatisticsEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each row in this table contains statistics
+             for one MPOA Client."
+        AUGMENTS  { mpcConfigEntry }
+        ::= { mpcStatisticsTable 1 }
+ 
+   MpcStatisticsEntry ::=SEQUENCE {
+        mpcStatTxMpoaResolveRequests                   Counter32,
+        mpcStatRxMpoaResolveReplyAcks                  Counter32,
+        mpcStatRxMpoaResolveReplyInsufECResources      Counter32,
+        mpcStatRxMpoaResolveReplyInsufSCResources      Counter32,
+        mpcStatRxMpoaResolveReplyInsufEitherResources  Counter32,
+        mpcStatRxMpoaResolveReplyUnsupportedInetProt   Counter32,
+        mpcStatRxMpoaResolveReplyUnsupportedMacEncaps  Counter32,
+        mpcStatRxMpoaResolveReplyUnspecifiedOther      Counter32,
+        mpcStatRxMpoaImpRequests                       Counter32,
+        mpcStatTxMpoaImpReplyAcks                      Counter32,
+        mpcStatTxMpoaImpReplyInsufECResources          Counter32,
+        mpcStatTxMpoaImpReplyInsufSCResources          Counter32,
+        mpcStatTxMpoaImpReplyInsufEitherResources      Counter32,
+        mpcStatTxMpoaImpReplyUnsupportedInetProt       Counter32,
+        mpcStatTxMpoaImpReplyUnsupportedMacEncaps      Counter32,
+        mpcStatTxMpoaImpReplyUnspecifiedOther          Counter32,
+        mpcStatTxMpoaEgressCachePurgeRequests          Counter32,
+        mpcStatRxMpoaEgressCachePurgeReplies           Counter32,
+        mpcStatRxMpoaKeepAlives                        Counter32,
+        mpcStatRxMpoaTriggers                          Counter32,
+        mpcStatRxMpoaDataPlanePurges                   Counter32,
+        mpcStatTxMpoaDataPlanePurges                   Counter32,
+        mpcStatRxNhrpPurgeRequests                     Counter32,
+        mpcStatTxNhrpPurgeReplies                      Counter32,
+ 
+        --  NOTE: since the MPC supersedes the NHC's role,
+        --  the following counters should be counted here,
+        --  as opposed to the NHC.
+ 
+
+        mpcStatRxErrUnrecognizedExtensions             Counter32,
+        mpcStatRxErrLoopDetecteds                      Counter32,
+        mpcStatRxErrProtoAddrUnreachables              Counter32,
+        mpcStatRxErrProtoErrors                        Counter32,
+        mpcStatRxErrSduSizeExceededs                   Counter32,
+        mpcStatRxErrInvalidExtensions                  Counter32,
+        mpcStatRxErrInvalidReplies                     Counter32,
+        mpcStatRxErrAuthenticationFailures             Counter32,
+        mpcStatRxErrHopCountExceededs                  Counter32
+ 
+   }
+ 
+   mpcStatTxMpoaResolveRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Requests transmitted
+             by this MPC.
+ 
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 1 }
+ 
+   mpcStatRxMpoaResolveReplyAcks OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of positively acknowledged MPC
+             Resolved Replies received by this MPC with an MPOA
+             CIE Code of 0x00 (Success).
+             Discontinuities in the value of this counter can occur at
+             re-initialization of the management system, and/or re-
+             initialization
+             of the MPC, and at other times, as indicated by the value of
+             mpcDiscontinuityTime."
+        REFERENCE  "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 2 }
+ 
+   mpcStatRxMpoaResolveReplyInsufECResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolution Replies received with
+             an MPOA CIE Code of 0x81, `Insufficient resources to
+             accept egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 3 }
+ 
+   mpcStatRxMpoaResolveReplyInsufSCResources   OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolution Replies received with
+             an MPOA CIE Code of 0x82, `Insufficient resources to
+             accept the shortcut'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 4 }
+ 
+   mpcStatRxMpoaResolveReplyInsufEitherResources   OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolution Replies received with
+             an MPOA CIE Code of 0x83, `Insufficient resources to
+             accept either shortcut or egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 5 }
+ 
+   mpcStatRxMpoaResolveReplyUnsupportedInetProt OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolution Replies received with
+             an MPOA CIE Code of 0x84, `Unsupported Internework
+             Layer protocol'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 6 }
+ 
+   mpcStatRxMpoaResolveReplyUnsupportedMacEncaps OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolution Replies received with
+             an MPOA CIE Code of 0x85, `Unsupported MAC layer encapsulation'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 7 }
+ 
+   mpcStatRxMpoaResolveReplyUnspecifiedOther OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolution Replies received with
+             an MPOA CIE Code of 0x88, `Unspecified/Other'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 8 }
+ 
+   mpcStatRxMpoaImpRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Requests received
+             by this MPC.
+             Discontinuities in the value of this counter can occur at re-
+             initialization
+             of the management system, and/or re-initialization of the MPC,
+             and at
+             other times, as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 9 }
+ 
+   mpcStatTxMpoaImpReplyAcks OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of successful MPOA Cache Imposition replies
+             transmitted by this MPC with an MPOA CIE Code of 0x00
+             `Success'.
+             Discontinuities in the value of this counter can occur at re-
+             initialization
+             of the management system, and/or re-initialization of the MPC,
+             and at
+             other times, as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 10 }
+ 
+   mpcStatTxMpoaImpReplyInsufECResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies transmitted with
+             an MPOA CIE Code of 0x81, `Insufficient resources to
+             accept egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 11 }
+ 
+   mpcStatTxMpoaImpReplyInsufSCResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Imposition Replies transmitted with
+             an MPOA CIE Code of 0x82, `Insufficient resources to
+             accept shortcut'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+   ::= { mpcStatisticsEntry 12 }
+ 
+   mpcStatTxMpoaImpReplyInsufEitherResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Imposition Replies transmitted with
+             an MPOA CIE Code of 0x83, `Insufficient resources to
+             accept either shortcut or egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 13 }
+ 
+   mpcStatTxMpoaImpReplyUnsupportedInetProt OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Imposition Replies transmitted with
+             an MPOA CIE Code of 0x84, `Unsupported Internetwork Layer
+             protocol'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 14 }
+ 
+   mpcStatTxMpoaImpReplyUnsupportedMacEncaps OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Imposition Replies transmitted with
+             an MPOA CIE Code of 0x85, `Unsupported MAC Layer
+             encapsulation'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 15 }
+ 
+   mpcStatTxMpoaImpReplyUnspecifiedOther OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Imposition Replies transmitted with
+             an MPOA CIE Code of 0x88, `Unspecified/Other'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.  Page 62."
+        ::= { mpcStatisticsEntry 16 }
+ 
+   mpcStatTxMpoaEgressCachePurgeRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Egress Cache Purge Requests transmitted
+             by this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 17 }
+ 
+   mpcStatRxMpoaEgressCachePurgeReplies OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Egress Cache Purge Replies received by
+             this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 18 }
+ 
+   mpcStatRxMpoaKeepAlives OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Keep Alive messages received by this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 19 }
+ 
+   mpcStatRxMpoaTriggers OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Trigger messages received by this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 20 }
+ 
+   mpcStatRxMpoaDataPlanePurges OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Data Plane Purge messages received
+             by this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 21 }
+ 
+   mpcStatTxMpoaDataPlanePurges OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Data Plane Purge messages transmitted
+             by this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 22 }
+ 
+   mpcStatRxNhrpPurgeRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Purge Requests received by this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 23 }
+ 
+   mpcStatTxNhrpPurgeReplies OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Purge Replies transmitted by this MPC.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 24 }
+ 
+   mpcStatRxErrUnrecognizedExtensions OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `Unrecognized Extension'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 25 }
+ 
+   mpcStatRxErrLoopDetecteds OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `Loop Detected'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 26 }
+ 
+   mpcStatRxErrProtoAddrUnreachables OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by this
+             MPC with the error code `Protocol Address Unreachable'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 27 }
+ 
+   mpcStatRxErrProtoErrors OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `Protocol Errors'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 28 }
+ 
+   mpcStatRxErrSduSizeExceededs OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `SDU Size Exceeded'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 29 }
+ 
+   mpcStatRxErrInvalidExtensions OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `Invalid Extensions'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 30 }
+ 
+   mpcStatRxErrInvalidReplies OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `Invalid Reply'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 31 }
+ 
+   mpcStatRxErrAuthenticationFailures OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `Authentication Failure'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 32 }
+ 
+   mpcStatRxErrHopCountExceededs OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of Error Indication packets received by
+             this MPC with the error code `Hop Count Exceeded'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPC, and at other times,
+             as indicated by the value of mpcDiscontinuityTime."
+        ::= { mpcStatisticsEntry 33 }
+ 
+   --
+   --  MPOA Client Protocol support group
+   --
+ 
+   mpcProtocolTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcProtocolEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "List of protocols, per MPC, for which flow
+             detection is enabled"
+        REFERENCE
+             "Multiprotocol Over ATM Version 1.0 (Letter Ballot),
+             Section 4.1.2.1 MPC Parameters"
+        ::= { mpcObjects 6 }
+ 
+   mpcProtocolEntry OBJECT-TYPE
+        SYNTAX    MpcProtocolEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each row indicates one protocol for which an MPC will
+             do flow detection.  If the LECS was contacted for
+             configuration information, and the Control Octet of
+             the MPC-p3 has the value of 0x01, `Enable', then protocol
+             values retrieved from the LECS are reflected in this
+             table and the mpcLECSValue object will be (1) true.
+             Also, the user or agent can create rows which
+             appropriately correspond to the MPC denoted by mpcIndex,
+             and the mpcLECSValue object will be set to (2) false.
+             NOTE:  if the LECS does not return information for the
+             MPC-p3 parameter, or if in manual mode, the user or
+             agent should create at least one entry for the
+             corresponding MPC.
+             Both, LECS and user and/or agent created rows may
+             exist in this Table."
+        INDEX { mpcIndex, mpcFlowDetectProtocol }
+        ::= {mpcProtocolTable 1 }
+ 
+   MpcProtocolEntry ::= SEQUENCE {
+        mpcFlowDetectProtocol    InternetworkAddrType,
+        mpcLECSValue        TruthValue,
+        mpcProtocolRowStatus     RowStatus
+   }
+ 
+   mpcFlowDetectProtocol OBJECT-TYPE
+        SYNTAX    InternetworkAddrType
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "The protocol on which flow detection is performed.
+             If this value was obtained from the LECS then this
+             value is one of the collection of values returned
+             in the MPC-p3 parameter."
+        ::= { mpcProtocolEntry 1 }
+ 
+   mpcLECSValue OBJECT-TYPE
+        SYNTAX    TruthValue
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This object reflects if the current entry is due to
+             a retrieval from the LECS or not.  If this entry is
+             due to the LECS, then true(1) is the value for this
+             object, otherwise, false (2)."
+        ::= { mpcProtocolEntry 2 }
+ 
+   mpcProtocolRowStatus OBJECT-TYPE
+        SYNTAX    RowStatus
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "This object is used by an agent or manager to
+             create, delete or modify a row in this table."
+        ::= { mpcProtocolEntry 3 }
+ 
+   --
+   --  LEC -> MPC Mapping group
+   --
+ 
+
+   mpcMappingTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcMappingEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A table mapping the `lecIndex' values of
+             LANE Clients to the `mpcIndex' values of
+             corresponding MPOA Clients."
+        ::= { mpcObjects 7 }
+ 
+   mpcMappingEntry OBJECT-TYPE
+        SYNTAX    MpcMappingEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each row defines one lecIndex --> mpcIndex mapping.
+             The mpcIndex that a lecIndex maps to is not
+             necessarily unique (an MPC can  serve many LECs, however,
+             a LEC cannot be served by more than one MPC)."
+        REFERENCE
+             "Multiprotocol Over ATM Version 1.0 (Letter Ballot),
+             Section 4.4."
+        INDEX          { lecIndex }
+        ::= { mpcMappingTable 1 }
+ 
+   MpcMappingEntry ::=  SEQUENCE {
+        mpcMappingRowStatus      RowStatus,
+        mpcMappingIndex          MpcIndex
+   }
+ 
+   mpcMappingRowStatus OBJECT-TYPE
+        SYNTAX    RowStatus
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "This object is used by an agent or manager to create, delete
+             or modify a row in this table."
+        ::= { mpcMappingEntry 1 }
+ 
+   mpcMappingIndex OBJECT-TYPE
+        SYNTAX    MpcIndex
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "The mpcIndex of the MPOA Client that is performing
+             flow detection for the LANE Client represented by
+             the lecIndex."
+        ::= { mpcMappingEntry 2 }
+ 
+   --
+   --  MPOA Client MPS information group
+   --
+ 
+   mpcMpsTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcMpsEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This is a read-only table which contains
+             information about the MPSs that these MPCs
+             know about."
+        ::= { mpcObjects 8 }
+ 
+   mpcMpsEntry OBJECT-TYPE
+        SYNTAX    MpcMpsEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A row created by an MPC.  The MPC learns about
+             an MPS and creates a row."
+        INDEX          { mpcMpsIndex }
+        ::= { mpcMpsTable 1 }
+ 
+   MpcMpsEntry ::= SEQUENCE {
+        mpcMpsIndex         MpsIndex,
+        mpcMpsAtmAddr  AtmAddr
+   }
+ 
+   mpcMpsIndex OBJECT-TYPE
+        SYNTAX    MpsIndex
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "The MPS's index which is used to identify
+             a row in this table."
+        ::= { mpcMpsEntry 1 }
+ 
+   mpcMpsAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Control ATM Address of the MPS"
+        ::= { mpcMpsEntry 2 }
+ 
+
+   --
+   --  MPOA Client's MAC Address group
+   --
+ 
+   -- the following table has been obsoleted it does
+   -- not support  multinetted capabilities.
+   -- Please see the section  of the
+   -- MPOA v1.1 for a complete explanation of the
+   -- multinetted capabilities.
+   -- This table  has been replaced by the
+   -- mpcMpsMultipleMacAddressTable. 
+ 
+   mpcMpsMacAddressTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcMpsMacAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    obsolete
+        DESCRIPTION
+             "This is a read-only table which contains
+             information about all the MPSs' MAC Addresses
+             that these MPCs know about."
+        ::= { mpcObjects 9 }
+ 
+   mpcMpsMacAddressEntry OBJECT-TYPE
+        SYNTAX    MpcMpsMacAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    obsolete
+        DESCRIPTION
+             "A row is created by an MPC.  The MPC learns about an
+             MPS's MAC Address and creates a row."
+        INDEX          {    mpcMpsIndex,
+                       mpcLecIndex
+                  }
+        ::= { mpcMpsMacAddressTable 1 }
+ 
+   MpcMpsMacAddressEntry ::= SEQUENCE {
+        mpcLecIndex         LecIndex,
+        mpcMpsMacAddress    MacAddress
+   }
+ 
+   mpcLecIndex OBJECT-TYPE
+        SYNTAX    LecIndex
+        MAX-ACCESS     not-accessible
+        STATUS    obsolete
+        DESCRIPTION
+             "The lecIndex which represents the associated LEC."
+        ::= { mpcMpsMacAddressEntry 1 }
+ 
+   mpcMpsMacAddress OBJECT-TYPE
+        SYNTAX    MacAddress
+        MAX-ACCESS     read-only
+        STATUS    obsolete
+        DESCRIPTION
+             "The MAC Address of the MPS."
+        REFERENCE
+             "Multiprotocol Over ATM Version 1.0 (Letter Ballot),
+             Section 3.3.3.1"
+   ::= { mpcMpsMacAddressEntry 2 }
+ 
+
+   --
+   --  MPOA Client Ingress Cache group
+   --
+ 
+   mpcIngressCacheTxTotalPackets OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The total number of packets transmitted over MPC Short Cuts."
+        ::= { mpcObjects 10 }
+ 
+   mpcIngressCacheTxTotalOctets OBJECT-TYPE
+        SYNTAX    Counter64
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The total number of octets transmitted over MPC Short Cuts."
+        ::= { mpcObjects 11 }
+ 
+   mpcIngressCacheTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcIngressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This table contains information for MPC Caches for
+             the ingress MPC."
+        ::= { mpcObjects 12 }
+ 
+   mpcIngressCacheEntry OBJECT-TYPE
+        SYNTAX    MpcIngressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "An entry contains control information
+             for a row in a MPC's Ingress Cache."
+        INDEX          {    mpcIngressCacheDestInetworkAddrType,
+       mpcIngressCacheDestAddr,
+                            mpcIndex,
+                            mpcMpsIndex
+                        }
+        ::= { mpcIngressCacheTable 1 }
+ 
+   MpcIngressCacheEntry ::= SEQUENCE {
+        mpcIngressCacheDestInetworkAddrType  InternetworkAddrType,
+        mpcIngressCacheDestAddr              InternetworkAddr,
+        mpcIngressCachePrefixLen             Integer32,
+        mpcIngressCacheDestAtmAddr           AtmAddr,
+ 
+        mpcIngressCacheSrcAtmAddr            AtmAddr,
+        mpcIngressCacheEntryState            INTEGER,
+ 
+        mpcIngressCacheEgressCacheTagValid   TruthValue,
+        mpcIngressCacheEgressCacheTag        Integer32,
+ 
+        --
+        -- Information for diagnosing problems
+        --
+        mpcIngressCacheLastNhrpCieCode       INTEGER,
+        mpcIngressCacheSigErrCode            Integer32,
+        mpcIngressCacheRetries               Counter32,
+        mpcIngressCacheTimeUntilNextResolutionRequest
+                                             TimeInterval,
+        mpcIngressCacheHoldingTime           TimeInterval,
+        mpcIngressCacheServiceCategory       INTEGER
+ 
+   }
+ 
+   mpcIngressCacheDestInetworkAddrType OBJECT-TYPE
+        SYNTAX    InternetworkAddrType
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The type of the destination internetwork layer address."
+        ::= { mpcIngressCacheEntry 1 }
+ 
+   mpcIngressCacheDestAddr OBJECT-TYPE
+        SYNTAX    InternetworkAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The destination internetwork layer address for which
+             this entry is defined."
+        ::= { mpcIngressCacheEntry 2 }
+ 
+   mpcIngressCachePrefixLen OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Defines an equivalence class of addresses that match
+             Prefix Length bit positions of the destination
+             internetwork layer address."
+        ::= { mpcIngressCacheEntry 3 }
+ 
+   mpcIngressCacheDestAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Destination ATM Address received in the MPOA
+             Resolution Reply."
+        ::= { mpcIngressCacheEntry 4 }
+ 
+   mpcIngressCacheSrcAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Source ATM Address for the MPOA Resolution Request."
+        ::= { mpcIngressCacheEntry 5 }
+ 
+   mpcIngressCacheEntryState OBJECT-TYPE
+        SYNTAX    INTEGER {
+                       doesNotExist (1),
+                       inactive (2),
+                       active(3),
+                       negative(4)
+                  }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The present state of this MPC ingress cache.
+             The states are:
+             doesNotExist (1) -- the state is not yet available
+             inactive (2)     -- state exists, entry is not yet
+                                 active.  For an example, if
+                                 using the Finite State Machine
+                                 Appendix I.2, then the states
+                                 Cached and query are considered
+                                 `inactive'.
+             active (3)       -- state exists, entry is active.
+                                 For an example, if using the
+                                 Finite State Machine in Appendix I.2,
+                                 then the states resolved and refresh
+                                 are considered `active'.
+             negative (4)     -- state exists, entry is negative,
+                                 which could mean a NAK response was
+                                 received, or entry is doing a
+                                 retry, etc.  For example, if using
+                                 the Finite State Machine in Appendix
+                                 I.2, then the state `hold down' is
+                                 considered `negative'."
+        REFERENCE
+             "Multiprotocol Over ATM, Letter Ballot, Appendix I.2."
+        ::= { mpcIngressCacheEntry 6 }
+ 
+   mpcIngressCacheEgressCacheTagValid OBJECT-TYPE
+        SYNTAX    TruthValue
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "If the value of this object is true(1), then a valid
+             Egress Cache Tag is present and the value of the Egress
+             Cache Tag is in mpcIngressCacheEgressCacheTag.  Otherwise,
+             if this value is false(2), then there was no Egress Cache
+             Tag, and the value of mpcIngressCacheEgressCacheTag is
+             undefined."
+        ::= { mpcIngressCacheEntry 7 }
+ 
+   mpcIngressCacheEgressCacheTag OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "If a valid Egress Cache Tag is present, then this
+             object contains the value of that tag.  To determine
+             if this object contains a valid value,
+             mpcIngressCacheEgressTagValid should be used."
+        REFERENCE
+             "Multiprotocol Over ATM Version 1.0  (Letter Ballot),
+             Section 4.4.4.1."
+        ::= { mpcIngressCacheEntry 8 }
+ 
+   mpcIngressCacheLastNhrpCieCode OBJECT-TYPE
+        SYNTAX    INTEGER (0..255)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The last NHRP CIE code received for this entry.  This
+             value is valid only during the Hold Down period of the
+             cache entry.  This value is undefined otherwise."
+        REFERENCE
+             "Normative section 4.4.6.1.1 of Multiprotocol Over
+             ATM Version 1.0  (Letter Ballot)"
+        ::= { mpcIngressCacheEntry 9}
+ 
+   mpcIngressCacheSigErrCode OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Error code or Success of the last sinalling request
+             for this cache entry."
+        ::= { mpcIngressCacheEntry 10 }
+ 
+   mpcIngressCacheRetries OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The current number of times this MPC has issued a
+             resolution request since it received a valid reply."
+   ::= { mpcIngressCacheEntry 11 }
+ 
+   mpcIngressCacheTimeUntilNextResolutionRequest OBJECT-TYPE
+        SYNTAX    TimeInterval
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The amount of time the MPC
+             must wait before issuing the next resolution request."
+        ::= { mpcIngressCacheEntry 12 }
+ 
+   mpcIngressCacheHoldingTime OBJECT-TYPE
+        SYNTAX    TimeInterval
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The time that this MPC's Ingress Cache Entry will remain
+             valid.  If the mpcIngressCacheEntryState is not active
+             this value will be zero."
+        ::= { mpcIngressCacheEntry 13 }
+ 
+   mpcIngressCacheServiceCategory OBJECT-TYPE
+        SYNTAX    INTEGER (0..65535)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The service categories supported for this shortcut."
+        REFERENCE
+             "Lane V2 LUNI TLVs. AF-LANE-0084 page 122"
+        ::= { mpcIngressCacheEntry 14 }
+ 
+   --
+   --  MPOA Client Egress Cache group
+   --
+ 
+   mpcEgressCacheRxTotalPackets OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This counts the total number of packets
+             received by MPC Short Cuts."
+        ::= { mpcObjects 13 }
+ 
+   mpcEgressCacheRxTotalOctets OBJECT-TYPE
+        SYNTAX    Counter64
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This counts the total number of octets
+             received by MPC Short Cuts."
+        ::= { mpcObjects 14 }
+ 
+   mpcEgressCacheTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcEgressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This table contains Egress Cache information for
+             all the MPCs which this agent manages."
+        ::= { mpcObjects 15 }
+ 
+   mpcEgressCacheEntry OBJECT-TYPE
+        SYNTAX    MpcEgressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "An entry in the MPOA Client's Egress Cache table."
+        INDEX          {    
+         mpcEgressCacheId,
+                       mpcIndex,
+                       mpcMpsIndex
+                }
+        ::= { mpcEgressCacheTable 1 }
+ 
+   MpcEgressCacheEntry ::= SEQUENCE {
+        mpcEgressCacheId                    Integer32,
+        mpcEgressCacheInetworkAddrType      InternetworkAddrType,
+        mpcEgressCacheIDestAddr             InternetworkAddr,
+        mpcEgressCachePrefixLen             Integer32,
+        mpcEgressCacheEntryState            INTEGER,
+        mpcEgressCacheEgressCacheTagValid   TruthValue,
+        mpcEgressCacheEgressCacheTag        Integer32,
+        mpcEgressCacheHoldTime              TimeInterval,
+        mpcEgressCacheDataLinkHeader        OCTET STRING,
+        mpcEgressCacheIngressMpcDataAtmAddr AtmAddr,
+        mpcEgressCacheLecIndex              LecIndex,
+        mpcEgressCacheServiceCategory       INTEGER
+   }
+ 
+   mpcEgressCacheId OBJECT-TYPE
+        SYNTAX    Integer32 (1..2147483647)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Cache ID Provided by the MPS in the Cache
+             Imposition Request."
+        ::= { mpcEgressCacheEntry 1 }
+ 
+   mpcEgressCacheInetworkAddrType OBJECT-TYPE
+        SYNTAX    InternetworkAddrType
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Type of Internetwork Address in this cache entry."
+        ::= { mpcEgressCacheEntry 2 }
+ 
+   mpcEgressCacheIDestAddr OBJECT-TYPE
+        SYNTAX    InternetworkAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The destination internetwork layer address
+             for which this entry is defined."
+        ::= { mpcEgressCacheEntry 3 }
+ 
+   mpcEgressCachePrefixLen OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Defines an equivalence class of addresses that match
+             Prefix Length bit positions of the destination
+             internetwork layer address."
+        ::= { mpcEgressCacheEntry 4 }
+ 
+   mpcEgressCacheEntryState OBJECT-TYPE
+        SYNTAX    INTEGER {
+                       doesNotExist(1),
+                       inactive(2),
+                       active (3),
+                       negative (4)
+                  }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The present state of this MPC egress cache entry.
+             The states are:
+                  doesNotExist (1) -- the state is not yet available,
+                  inactive (2) -- state exists, entry is not yet active,
+                  active (3)   -- state exists, entry is active.
+                                  For example,if using the Finite State
+                                  Machine in Appendix 1.5,
+                                  the states active and flooding
+                                  are `active' state.
+                  negative (4) -- state exists, entry is negative.
+ 
+             For example,if using the Finite
+             State Machine in Appendix 1.5,
+             the state purging is `negative'."
+        REFERENCE
+             "MPOA Letter Ballot, Appendix I.5."
+        ::= { mpcEgressCacheEntry 5 }
+ 
+   mpcEgressCacheEgressCacheTagValid OBJECT-TYPE
+        SYNTAX    TruthValue
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "If the value of this object is true(1), then a valid
+             Egress Cache Tag is present and the value of the Egress
+             Cache Tag is in mpcEgressCacheEgressCacheTag.  Otherwise,
+             if this value is false(2), then there was no Egress
+             Cache Tag, and the value of mpcEgressCacheEgressCacheTag
+             is undefined."
+        ::= { mpcEgressCacheEntry 6 }
+ 
+   mpcEgressCacheEgressCacheTag OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "If a valid Egress Cache Tag is present, then this
+             object contains the value of that tag.  To determine
+             if this object contains a valid value,
+             mpcEgressCacheEgressCacheTagValid should be used."
+        ::= { mpcEgressCacheEntry 7 }
+ 
+   mpcEgressCacheHoldTime OBJECT-TYPE
+        SYNTAX    TimeInterval
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The remaining time for which this entry is valid."
+        ::= { mpcEgressCacheEntry 8 }
+ 
+   mpcEgressCacheDataLinkHeader OBJECT-TYPE
+        SYNTAX    OCTET STRING (SIZE (0..255))
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The DataLink header that the egress client rebuilds
+             the original DataLink packet with."
+        ::= { mpcEgressCacheEntry 9 }
+ 
+   mpcEgressCacheIngressMpcDataAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Data ATM Address of the ingress MPC that issued
+             the MPOA Resolution request"
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 81."
+        ::= { mpcEgressCacheEntry 10 }
+ 
+   mpcEgressCacheLecIndex OBJECT-TYPE
+        SYNTAX    LecIndex
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This is the lecIndex of the LANE Client that this flow
+             is associated with.  This can be used to get the ELAN
+             name as well as other LANE parameters."
+        ::= { mpcEgressCacheEntry 11 }
+ 
+   mpcEgressCacheServiceCategory OBJECT-TYPE
+        SYNTAX    INTEGER (0..65535)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This is a bitmap describing the service categories
+             supported for this shortcut.  This value represents
+             an inclusive OR of the bits:
+ 
+             bit 1 - if rt-VBR is supported,
+             bit 2 - if nrt-VBR is supported,
+             bit 4 - if ABR is supported,
+             bit 8 - if CBR is supported
+ 
+             A value of 0 (zero) indicates that UBR is supported."
+        REFERENCE
+             "Lane V2 LUNI TLVs.  AF-LANE-0084, page 122."
+        ::= { mpcEgressCacheEntry 12 }
+ 
+
+-- The following Table replaces the mpcMpsMacAddressTable (which 
+-- has been obsoleted.)  The following table is more flexible in
+-- that it can represent more than one MPS MAC Address used by
+-- the MPC during flow detection.
+ 
+
+   mpcMpsObjects OBJECT IDENTIFIER ::= { mpcObjects 16 }
+ 
+   mpcMpsMultipleMacAddressTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpcMpsMultipleMacAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This is a read-only table which contains
+             information about all the MPSs' MAC Addresses
+             that these MPCs use during flow detection.
+             Note that due to the multinetted case an MPC may learn
+             about more than one MAC address from an MPS,
+             thus there may be more than one MAC address for the
+             same MPC - MPS - LecIndex represented in this
+             Table.  These MacAddresses are differentiated by
+             the mpcMpsMacAddressIndex."
+        ::= { mpcMpsObjects 1 }
+ 
+   mpcMpsMultipleMacAddressEntry OBJECT-TYPE
+        SYNTAX    MpcMpsMultipleMacAddressEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A row is created by an MPC.  The MPC learns about a
+             MPS and the one or more MAC Address of the MPS which
+             the MPC uses during flow detection.  Each row represents
+             an MPS MAC Address used by an MPC during flow detection."
+        INDEX          {    mpcMpsIndex,
+                            mpcFlowDetectLecIndex,
+                            mpcMpsMacAddressIndex
+                  }
+        ::= { mpcMpsMultipleMacAddressTable 1 }
+ 
+   MpcMpsMultipleMacAddressEntry ::= SEQUENCE {
+        mpcFlowDetectLecIndex      LecIndex,
+        mpcMpsMacAddressIndex      Integer32,
+        mpcMpsFlowDetectMacAddress MacAddress
+   }
+ 
+   mpcFlowDetectLecIndex OBJECT-TYPE
+        SYNTAX    LecIndex
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "The lecIndex which represents the associated LEC."
+        ::= { mpcMpsMultipleMacAddressEntry 1 }
+ 
+    mpcMpsMacAddressIndex OBJECT-TYPE
+        SYNTAX    Integer32 (1..2147483647)
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This value is used to differentiate MAC Addresses from 
+             the same MPS used by the same MPC during flow detection.
+             This value should be unique within the scope of this table."
+        ::= { mpcMpsMultipleMacAddressEntry 2 }
+ 
+   mpcMpsFlowDetectMacAddress OBJECT-TYPE
+        SYNTAX    MacAddress
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "An MPS MAC Address used by an MPC during flow detection."
+   ::= { mpcMpsMultipleMacAddressEntry 3 }
+ 
+
+   --
+   --  MPOA Server Objects
+   --
+ 
+   mpsObjects OBJECT IDENTIFIER ::= { mpoaMIBObjects 3 }
+ 
+   mpsNextIndex OBJECT-TYPE
+        SYNTAX    Integer32 (0..2147483647)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This object contains an appropriate value to
+             be used for mpsIndex when creating entries in
+             the mpsConfigTable.  The value 0 indicates that
+             no new rows can be created.  Otherwise, it is
+             recommended that values are assigned contiguously,
+             starting from 1.
+ 
+             MPS creation by a Manager:  To obtain the mpsIndex
+             value for a new entry, the manager issues a management
+             protocol retrieval operation to obtain the current value
+             of this object.  If the value retrieved is 0 (zero), the
+             manager cannot create a row.
+ 
+
+             After each retrieval of a non-zero value, the manager
+             should issue a management protocol SET operation using
+             the value just retrieved.  If the SET is successful,
+             the agent should update the value to the next
+             unassigned index, or zero if appropriate.
+ 
+             NOTE:  the manager may also issue a set on this object
+             with a value of its own choosing.  If the set is successful,
+             the manager may use this value for the mpsIndex. In this
+             case, the agent would update the value to the next
+             unassigned index, or zero if appropriate.
+             The definition of `next unassigned index' is any
+             mpsNextIndex value that has not yet been set by a
+             manager, or reserved by the agent (see next paragraph),
+             since this agent was last re-initialized.
+ 
+             MPS creation by an Agent:  When a row in the mpsConfigTable is
+             created by an agent, the agent should reserve the value of
+             the index by updating the value of this object to
+             the next unassigned index or zero if appropriate.  Thus, a
+             manager will not be able to set an index reserved by an agent.
+             In the situation of an agent re-initialization all currently
+             used mpsIndexes must be preserved.  In other words, the Agent
+             should store in non-volatile memory  all the currently used
+             mpsIndexes (along with all necessary configuration information
+             from the mpsConfigTable).  When the agent is re-initialized,
+             the mpsNextIndex value is any valid Integer32 which is not
+             being used as an mpsIndex, except 0 which maintains its
+             original definition of indicating that a row cannot be created."
+        ::= { mpsObjects 1 }
+ 
+   --
+   --  MPOA Server configuration group
+   --
+ 
+   mpsConfigTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsConfigEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "The MPOA Server Configuration Table.
+             This table represents the configuration information for
+             all MPOA Servers which this agent manages."
+        ::= { mpsObjects 2 }
+ 
+   mpsConfigEntry OBJECT-TYPE
+        SYNTAX    MpsConfigEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "MPOA Server Configuration Entry.
+             Each entry contains configuration information
+             for one MPOA Server."
+        INDEX          { mpsIndex }
+        ::= { mpsConfigTable 1 }
+ 
+   MpsConfigEntry ::= SEQUENCE {
+ 
+        -- Primary config info: Index, mode and address information
+        --
+        mpsIndex                    MpsIndex,
+        mpsRowStatus                RowStatus,
+        mpsConfigMode               INTEGER,
+        mpsCtrlAtmAddr              AtmConfigAddr,
+ 
+        --
+        -- MPS parameters that can be obtained from
+        -- the LECS.
+        --
+        mpsKeepAliveTime            Integer32,     -- MPS-p1
+        mpsKeepAliveLifeTime        Integer32,     -- MPS-p2
+        -- The Flow-detection Protocols (denoted with MPS-p3)
+        -- are represented in the mpcProtocolsTable.
+        mpsInitialRetryTime         Integer32,     -- MPS-p4
+        mpsRetryTimeMaximum         Integer32,     -- MPS-p5
+        mpsGiveupTime               Integer32,     -- MPS-p6
+        mpsDefaultHoldingTime       Integer32      -- MPS-p7
+   }
+ 
+   mpsIndex OBJECT-TYPE
+        SYNTAX    MpsIndex
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A value which uniquely identifies this conceptual
+             row in the mpsConfigTable.  The `mpsNextIndex' object
+             needs to be used to determine the value of this object.
+             A row cannot be added, unless the mpsCtrlAtmAddress
+             is unique.
+             In the event of an MPS re-initialization, the value
+             of this mpsIndex must remain the same.  However, in
+             the event of an agent re-initialization, this value
+             does not need to be preserved."
+        ::= { mpsConfigEntry 1 }
+ 
+   mpsRowStatus OBJECT-TYPE
+        SYNTAX    RowStatus
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "This object allows creation and deletion of MPOA Servers.
+             Within each conceptual mpsConfigTable row, objects which are
+             writable may be modified regardless of the value of
+             mpsRowStatus.  It is not necessary to set a row's status
+             to `notInService' first.
+ 
+             A row cannot be created, unless the mpsAtmCtrlAddress
+             in this table is unique. When an MPOA Server is created
+             via this object, it will initially have
+                  `mpsActualState' = `initialState'."
+        ::= { mpsConfigEntry 2 }
+ 
+   mpsConfigMode OBJECT-TYPE
+        SYNTAX    INTEGER {
+                       automatic(1),
+                       manual(2)
+                  }
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "Indicates whether this MPS should auto-configure
+             the next time it is (re-)initialized.
+             In automatic(1) mode the LECS is contacted and
+             requests are made for the MPS-p* parameters.
+             In manual(2) mode, the values of the configuration
+             parameters are obtained from the mpsConfigTable
+             and the mpsProtocolTable."
+        DEFVAL { automatic }
+        ::= { mpsConfigEntry 3 }
+ 
+   mpsCtrlAtmAddr OBJECT-TYPE
+        SYNTAX    AtmConfigAddr
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "The MPS's Control ATM Address.  There exists one
+             Control ATM Address per MPS, therefore, the value
+             of this entry is unique within the table."
+        ::= { mpsConfigEntry 4 }
+ 
+   mpsKeepAliveTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..300)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPS-p1 Keep-alive time is max interval between
+             the MPS sending MPOA Keep-Alives in seconds."
+        DEFVAL { 10 }
+        ::= { mpsConfigEntry 5 }
+ 
+   mpsKeepAliveLifeTime OBJECT-TYPE
+        SYNTAX    Integer32 (3..1000)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPS-p2 Keep-Alive Lifetime
+             The length of time an MPC may consider a Keep-Alive
+             valid in seconds.  This value must be at least
+             three times the mpsKeepAliveTime (MPS-p1)."
+        DEFVAL  { 35 }
+        ::= { mpsConfigEntry 6 }
+ 
+   mpsInitialRetryTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..300)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPS-p4 is initial value in seconds for the
+             MPOA retry mechanism."
+        DEFVAL { 5 }
+        ::= { mpsConfigEntry 7 }
+ 
+   mpsRetryTimeMaximum OBJECT-TYPE
+        SYNTAX    Integer32 (10..300)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPS-p5 cumulative max value in seconds
+             for Retry Time (MPS-p4)."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Section 4.3 MPOA Retry Mechanism"
+        DEFVAL  { 40 }
+        ::= { mpsConfigEntry 8 }
+ 
+   mpsGiveupTime OBJECT-TYPE
+        SYNTAX    Integer32 (5..300)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPS-p6 Give Up Time.
+             Minimum time in seconds to wait before giving up on a
+             pending resolution request."
+        DEFVAL { 40 }
+        ::= { mpsConfigEntry 9 }
+ 
+   mpsDefaultHoldingTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..120)
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "MPS-p7 Default Holding Time in minutes.
+             The default Holding Time used in NHRP
+             Resolution Replies.  An egress MPS may use
+             local information to determine a more
+             appropriate Holding Time."
+        DEFVAL { 20 }
+        ::= { mpsConfigEntry 10 }
+ 
+   --
+   -- MPOA Server Actual group
+   --
+ 
+   mpsActualTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsActualEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A read-only table containing identification, status,
+             and operational information about the MPOA
+             Servers this agent manages."
+        ::= { mpsObjects 3 }
+ 
+   mpsActualEntry OBJECT-TYPE
+        SYNTAX    MpsActualEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "An entry in the MPS Actual Table.
+             An entry represents a specific MPOA Server's
+             status and operation information."
+        AUGMENTS { mpsConfigEntry }
+        ::= { mpsActualTable 1 }
+ 
+
+   MpsActualEntry ::= SEQUENCE {
+        mpsActualState                INTEGER,
+        mpsDiscontinuityTime          TimeStamp,
+        mpsActualConfigMode           INTEGER,
+ 
+        --
+        -- Actual values of parameters
+        --
+        mpsActualKeepAlive            Integer32, -- MPS-p1
+        mpsActualKeepAliveLifeTime    Integer32, -- MPS-p2
+        -- The Internetwork-layer Protocols for MPS-p3 are
+        -- represented in the mpsProtocolTable.
+        --
+        mpsActualInitialRetryTime     Integer32, -- MPS-p4
+        mpsActualRetryTimeMaximum     Integer32, -- MPS-p5
+        mpsActualGiveupTime           Integer32, -- MPS-p6
+        mpsActualDefaultHoldingTime   Integer32  -- MPS-p7
+ 
+   }
+ 
+   mpsActualState OBJECT-TYPE
+        SYNTAX    INTEGER {
+                       unknown(1),
+                       initialState(2),
+                       up(3),
+                       down(4)
+                  }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This object indicates the current operational
+             status of the MPOA Server."
+        ::= { mpsActualEntry 1 }
+ 
+   mpsDiscontinuityTime OBJECT-TYPE
+        SYNTAX    TimeStamp
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The value of sysUpTime on the most recent occasion at
+             which any one or more of this MPS's counters
+             experienced a discontinuity.  The relevant counters
+             are the specific instances associated with this
+             MPS.  If discontinuities have not occurred since the
+             last re-initialization of the local management subsystem,
+             then this object contains a zero value."
+        ::= { mpsActualEntry 2 }
+ 
+
+   mpsActualConfigMode OBJECT-TYPE
+        SYNTAX    INTEGER {
+                       automatic(1),
+                       manual(2)
+                  }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Indicates whether this MPS auto-configured
+             when it was last (re-)initialized."
+        ::= { mpsActualEntry 3 }
+ 
+   mpsActualKeepAlive OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The maximum amount of time in seconds this MPS waits
+             between sending MPOA Keep-Alives."
+        ::= { mpsActualEntry 5 }
+ 
+   mpsActualKeepAliveLifeTime OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The length of time in seconds this MPS
+             considers a Keep-Alive valid."
+        ::= { mpsActualEntry 6 }
+ 
+   mpsActualInitialRetryTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..300)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The actual initial value in seconds for the MPOA
+             retry mechanism."
+        DEFVAL { 5 }
+        ::= { mpsActualEntry 7 }
+ 
+   mpsActualRetryTimeMaximum OBJECT-TYPE
+        SYNTAX    Integer32 (30..300)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The actual cumulative max value in seconds
+             for Retry Time."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Section 4.3 MPOA Retry Mechanism"
+        DEFVAL  { 40 }
+        ::= { mpsActualEntry 8 }
+ 
+   mpsActualGiveupTime OBJECT-TYPE
+        SYNTAX    Integer32 (5..300)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Minimum time in seconds that this MPS waits
+             before giving up on a pending resolution request."
+        DEFVAL { 40 }
+        ::= { mpsActualEntry 9 }
+ 
+   mpsActualDefaultHoldingTime OBJECT-TYPE
+        SYNTAX    Integer32 (1..120)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The actual Holding Time in minutes used in
+             NHRP Resolution Replies."
+        ::= { mpsActualEntry 10 }
+ 
+   --
+   --  MPOA Server statistics group
+   --
+ 
+   mpsStatisticsTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsStatisticsEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This table represents the statistical information
+             for the MPSs, which this agent manages."
+        ::= { mpsObjects 4 }
+ 
+   mpsStatisticsEntry OBJECT-TYPE
+        SYNTAX    MpsStatisticsEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each row in this table contains statistics
+             for one MPOA server."
+        AUGMENTS  { mpsConfigEntry }
+        ::= { mpsStatisticsTable 1 }
+ 
+   MpsStatisticsEntry ::= SEQUENCE {
+        mpsStatRxMpoaResolveRequests                  Counter32,
+        mpsStatTxMpoaResolveReplyAcks                 Counter32,
+        mpsStatTxMpoaResolveReplyInsufECResources     Counter32,
+        mpsStatTxMpoaResolveReplyInsufSCResources     Counter32,
+        mpsStatTxMpoaResolveReplyInsufEitherResources Counter32,
+        mpsStatTxMpoaResolveReplyUnsupportedInetProt  Counter32,
+        mpsStatTxMpoaResolveReplyUnsupportedMacEncaps Counter32,
+        mpsStatTxMpoaResolveReplyUnspecifiedOther     Counter32,
+        mpsStatTxMpoaResolveReplyOther                Counter32,
+        mpsStatGiveupTimeExpireds                     Counter32,
+ 
+        mpsStatTxMpoaImpRequests                      Counter32,
+        mpsStatRxMpoaImpReplyAcks                     Counter32,
+        mpsStatRxMpoaImpReplyInsufECResources         Counter32,
+        mpsStatRxMpoaImpReplyInsufSCResources         Counter32,
+        mpsStatRxMpoaImpReplyInsufEitherResources     Counter32,
+        mpsStatRxMpoaImpReplyUnsupportedInetProt      Counter32,
+        mpsStatRxMpoaImpReplyUnsupportedMacEncaps     Counter32,
+        mpsStatRxMpoaImpReplyUnspecifiedOther         Counter32,
+        mpsStatRxMpoaImpReplyOther                    Counter32,
+ 
+        mpsStatRxMpoaEgressCachePurgeRequests         Counter32,
+        mpsStatTxMpoaEgressCachePurgeReplies          Counter32,
+        mpsStatTxMpoaTriggers                         Counter32,
+        mpsStatTxNhrpResolveRequests                  Counter32,
+        mpsStatRxNhrpResolveReplies                   Counter32,
+        mpsStatRxNhrpResolveRequests                  Counter32,
+        mpsStatTxNhrpResolveReplies                   Counter32
+   }
+ 
+   mpsStatRxMpoaResolveRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Requests received
+             by this MPS which are translated to NHRP
+             resolve requests.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 1 }
+ 
+
+   mpsStatTxMpoaResolveReplyAcks OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this
+             MPS which contain the MPOA CIE Code of 0x00, `Success'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 2 }
+ 
+   mpsStatTxMpoaResolveReplyInsufECResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this MPS
+             which contain the MPOA CIE Code of 0x81, `Insufficient
+             resources to accept egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 3 }
+ 
+   mpsStatTxMpoaResolveReplyInsufSCResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this MPS
+             which contain the MPOA CIE Code of 0x82,
+             `Insufficient resources to accept shortcut'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 4 }
+ 
+
+   mpsStatTxMpoaResolveReplyInsufEitherResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this MPS
+             which contain the MPOA CIE CODE of 0x83, `Insufficient
+             resources to accept either shortcut or egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+   ::= { mpsStatisticsEntry 5 }
+ 
+   mpsStatTxMpoaResolveReplyUnsupportedInetProt OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this MPS
+             which contain the MPOA CIE CODE of 0x84, `Unsupported
+             Internetwork
+             Layer protocol'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 6 }
+ 
+   mpsStatTxMpoaResolveReplyUnsupportedMacEncaps OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this MPS
+             which contain the MPOA CIE CODE of 0x85, `Unsupported MAC
+             layer encapsulation'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 7 }
+ 
+   mpsStatTxMpoaResolveReplyUnspecifiedOther OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this MPS
+             which contain the MPOA CIE CODE of 0x88, `Unspecified/Other'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 8 }
+ 
+   mpsStatTxMpoaResolveReplyOther OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Resolve Replies transmitted by this
+             MPS which are not counted above.  NOTE:  this would
+             include NHRP errors.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 9 }
+ 
+   mpsStatGiveupTimeExpireds OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of times the MPS Give up Time (MPS-p6)
+             has expired while waiting for a reply from a
+             re-originated MPOA resolution request, i.e. a
+             reply for a translated NHRP resolution request.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 10 }
+ 
+
+   mpsStatTxMpoaImpRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Requests
+             transmitted by this MPS.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 11 }
+ 
+   mpsStatRxMpoaImpReplyAcks OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of successful MPOA Cache Imposition Replies
+             received by this MPS which contain an MPOA CIE Code of 0x00,
+             `Success'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 12 }
+ 
+   mpsStatRxMpoaImpReplyInsufECResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies received by
+             this MPS which contain the MPOA CIE Code of 0x81,
+             `Insufficient resources to accept egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM. AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 13 }
+ 
+   mpsStatRxMpoaImpReplyInsufSCResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies received by
+             this MPS which contain the MPOA CIE Code of 0x82,
+             `Insufficient resources to accept shortcut'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM. AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 14 }
+ 
+   mpsStatRxMpoaImpReplyInsufEitherResources OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies received by
+             this MPS which contain the MPOA CIE Code of 0x83,
+             `Insufficient resources to accept either shortcut or
+             egress cache entry'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM. AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 15 }
+ 
+   mpsStatRxMpoaImpReplyUnsupportedInetProt OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies received by
+             this MPS which contain the MPOA CIE Code of 0x84,
+             `Unsupported Internetwork Layer protocol'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM. AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 16 }
+ 
+   mpsStatRxMpoaImpReplyUnsupportedMacEncaps OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies received by
+             this MPS which contain the MPOA CIE Code of 0x85,
+             `Unsupported MAC layer encapsulation'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM. AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 17 }
+ 
+   mpsStatRxMpoaImpReplyUnspecifiedOther OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies received by
+             this MPS which contain the MPOA CIE Code of 0x88,
+             `Unspecified/Other'.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM. AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 18 }
+ 
+   mpsStatRxMpoaImpReplyOther OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Cache Imposition Replies received by
+             this MPS which are not counted previously.  NOTE:
+             this would include NHRP errors.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM. AF-MPOA-0087.000. Page 62."
+        ::= { mpsStatisticsEntry 19 }
+ 
+   mpsStatRxMpoaEgressCachePurgeRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Egress Cache Purges Requests
+             received by this MPS.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 20 }
+ 
+   mpsStatTxMpoaEgressCachePurgeReplies OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Egress Cache Purge Replies
+             transmitted by this MPS.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 21 }
+ 
+   mpsStatTxMpoaTriggers OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The number of MPOA Trigger messages transmitted by this MPS.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Section 4.7.2.1 MPOA Trigger"
+        ::= { mpsStatisticsEntry 22 }
+ 
+   mpsStatTxNhrpResolveRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Total count of MPOA Resolution Requests received
+             by the Ingress MPS which were translated to NHRP
+             Resolution Requests and transmitted to the NHS.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 23 }
+ 
+   mpsStatRxNhrpResolveReplies OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Total count of NHRP Resolution Replies received
+             by the Ingress.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 24 }
+ 
+   mpsStatRxNhrpResolveRequests OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Total count of NHRP Resolution Requests received by
+             the Egress MPS from the NHS.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 25 }
+ 
+   mpsStatTxNhrpResolveReplies OBJECT-TYPE
+        SYNTAX    Counter32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Total count of NHRP Resolution Replies transmitted
+             by the Egress MPS to the NHS.
+             Discontinuities in the value of this counter can occur
+             at re-initialization of the management system, and/or
+             re-initialization of the MPS, and at other times,
+             as indicated by the value of mpsDiscontinuityTime."
+        ::= { mpsStatisticsEntry 26 }
+ 
+
+   --
+   --  MPOA Server Protocol support group
+   --
+ 
+   mpsProtocolTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsProtocolEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "List of protocols, per MPS, for which
+             MPOA resolution is enabled."
+        REFERENCE
+             "Multiprotocol Over ATM Version 1.0 (Letter Ballot),
+             Section 4.1.1.1 MPS Parameters"
+        ::= { mpsObjects 5 }
+ 
+   mpsProtocolEntry OBJECT-TYPE
+        SYNTAX    MpsProtocolEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each row indicates one protocol for which an MPS
+             will perform MPOA resolution.
+             If the LECS was contacted for configuration
+             information, and the MPS-p3's control octet is set to Enable,
+             0x01, then protocol values retrieved from the LECS are reflected
+             in this table and the mpsLECSValue object will be (1) true.
+             Also, the user or agent can create rows which
+             appropriately correspond to the MPS denoted by mpsIndex,
+             and the mpsLECSValue object will be set to (2) false.
+             NOTE:  if the LECS does not return information for
+             the MPS-p3 parameter, or if in manual mode, the user or agent
+             should create at least one entry for the corresponding MPS.
+             Both, LECS and user and/or agent created rows may exist in
+             this Table."
+        INDEX          {    mpsIndex,
+                       mpsInternetworkLayerProtocol
+                  }
+        ::= {mpsProtocolTable 1 }
+ 
+   MpsProtocolEntry ::= SEQUENCE {
+        mpsInternetworkLayerProtocol  InternetworkAddrType,  -- MPS-p3
+        mpsLECSValue             TruthValue,
+        mpsProtocolRowStatus          RowStatus
+   }
+ 
+   mpsInternetworkLayerProtocol OBJECT-TYPE
+ 
+
+        SYNTAX InternetworkAddrType
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+             "MPS-p3 A protocol on which to perform MPOA resolution."
+        ::= { mpsProtocolEntry 1 }
+ 
+   mpsLECSValue OBJECT-TYPE
+        SYNTAX    TruthValue
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "This object reflects if the current entry is due to
+             a retrieval from the LECS or not.  If this entry is
+             due to the LECS, then true(1) is the value for this object,
+             otherwise, false (2)."
+        ::= { mpsProtocolEntry 2 }
+ 
+   mpsProtocolRowStatus OBJECT-TYPE
+        SYNTAX    RowStatus
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "This object allows network managers to enable
+             resolution for the `mpsInternetworkLayerProtocol'."
+        ::= { mpsProtocolEntry 3 }
+ 
+   --
+   -- MPOA Server LEC Mapping group
+   --
+ 
+   mpsMappingTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsMappingEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A table mapping the `lecIndex' values of
+             LANE Clients to the `mpsIndex' values of
+             corresponding MPOA Servers."
+        ::= { mpsObjects 6 }
+ 
+   mpsMappingEntry OBJECT-TYPE
+        SYNTAX    MpsMappingEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "Each row defines one lecIndex --> mpsIndex mapping.
+             The mpsIndex that a lecIndex maps to is not
+             necessarily unique. In other words, there can be
+             multiple LECs associated with one MPS."
+        REFERENCE
+             "LAN Emulation Client Management Specification.
+             af-lane-0044-000."
+        INDEX { lecIndex }
+        ::= { mpsMappingTable 1 }
+ 
+   MpsMappingEntry ::= SEQUENCE {
+        mpsMappingRowStatus    RowStatus,
+        mpsMappingIndex        MpsIndex
+   }
+   mpsMappingRowStatus OBJECT-TYPE
+        SYNTAX    RowStatus
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "Allows creation, enabling/disabling of this row."
+        ::= { mpsMappingEntry 1 }
+ 
+   mpsMappingIndex OBJECT-TYPE
+        SYNTAX    MpsIndex
+        MAX-ACCESS     read-create
+        STATUS    current
+        DESCRIPTION
+             "The mpsMappingIndex of the MPOA Server that is associated with
+             this LEC.  The mpsMappingIndex corresponds to the mpsIndex."
+        ::= { mpsMappingEntry 2 }
+ 
+   --
+   -- MPOA Server MPC Information Group
+   --
+ 
+   mpsMpcTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsMpcEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This read-only table contains information about the
+             MPCs that these MPSs know about."
+        ::= { mpsObjects 9 }
+ 
+   mpsMpcEntry OBJECT-TYPE
+        SYNTAX    MpsMpcEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A row created by an MPS.  The MPS learns about the MPC and
+             creates a row."
+        INDEX     {    mpsIndex,
+                       mpsMpcIndex
+                  }
+        ::= { mpsMpcTable 1 }
+ 
+   MpsMpcEntry ::= SEQUENCE {
+        mpsMpcIndex           MpcIndex,
+        mpsMpcCtrlAtmAddr     AtmAddr
+       }
+ 
+   mpsMpcIndex OBJECT-TYPE
+        SYNTAX    MpcIndex
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "The local index for the mpc represented by this entry"
+        ::= { mpsMpcEntry 1 }
+ 
+   mpsMpcCtrlAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "MPC control ATM address "
+        ::= { mpsMpcEntry 2 }
+ 
+   --
+   -- MPOA Server Ingress Cache (Address Resolution) group
+   --
+ 
+   mpsIngressCacheTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsIngressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This table tracks all the Ingress Cache information
+             of the MPSs which this agents manages."
+        ::= { mpsObjects 7 }
+ 
+   mpsIngressCacheEntry OBJECT-TYPE
+        SYNTAX    MpsIngressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "A entry contains parameters and state variables
+             for a row in a MPS's Ingress Cache."
+        INDEX     {    mpsIngressCacheDestInternetworkAddrType,
+         mpsIngressCacheDestAddr,
+         mpsIndex,        
+         mpsMpcIndex
+ 
+                  }
+        ::= { mpsIngressCacheTable 1 }
+ 
+   MpsIngressCacheEntry ::= SEQUENCE {
+        mpsIngressCacheDestInternetworkAddrType InternetworkAddrType,
+        mpsIngressCacheDestAddr                 InternetworkAddr,
+        mpsIngressCachePrefixLen                Integer32,
+        mpsIngressCacheEntryState               INTEGER,
+        mpsIngressCacheSrcInternetworkAddrType  InternetworkAddrType,
+        mpsIngressCacheSrcAddr                  InternetworkAddr,
+        mpsIngressCacheSourceMpcCtrlAtmAddr     AtmAddr,
+        mpsIngressCacheResolvedAtmAddr          AtmAddr,
+        mpsIngressCacheHoldTime                 TimeInterval,
+        mpsIngressCacheMpoaRequestId            Integer32,
+        mpsIngressCacheNhrpRequestId            Integer32,
+        mpsIngressCacheServiceCategory          INTEGER
+   }
+ 
+   mpsIngressCacheDestInternetworkAddrType OBJECT-TYPE
+        SYNTAX    InternetworkAddrType
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The type of internetwork layer address of the
+             Destination Address."
+        ::= { mpsIngressCacheEntry 1 }
+ 
+   mpsIngressCacheDestAddr OBJECT-TYPE
+        SYNTAX    InternetworkAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Ingress MPS Destination Internetwork Layer Address."
+        ::= { mpsIngressCacheEntry 2 }
+ 
+   mpsIngressCachePrefixLen OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Prefix Length of the mpsIngressCacheDestAddr."
+        ::= { mpsIngressCacheEntry 3 }
+ 
+   mpsIngressCacheEntryState OBJECT-TYPE
+        SYNTAX    INTEGER { doesNotExist (1),
+                            inactive(2),
+                            active(3),
+                            negative(4)
+                  }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The state of this MPS Ingress cache.
+             The states are:
+                  doesNotExist (1) -- the state is not yet available
+                  inactive (2) -- state exists, entry is not yet active
+                                  For example,if using the Finite
+                                  State Machine in Appendix I.3,
+                                  the state resolving is `inactive'.
+                  active (3) -- state exists, entry is active.
+                                For example,if using the Finite
+                                State Machine in Appendix I.3,
+                                the state resolved
+                                is `active' state.
+                  negative (4) -- state exists, entry is negative.
+                                  For example,if using the Finite
+                                  State Machine in Appendix I.3,
+                                  the state purging is `negative'."
+        REFERENCE
+             "Multiprotocol Over ATM, Letter Ballot, Appendix I.3."
+        ::= { mpsIngressCacheEntry 4 }
+ 
+   mpsIngressCacheSrcInternetworkAddrType OBJECT-TYPE
+        SYNTAX    InternetworkAddrType
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The type of internetwork layer address of the
+             Source Address."
+        ::= { mpsIngressCacheEntry 5 }
+ 
+   mpsIngressCacheSrcAddr OBJECT-TYPE
+        SYNTAX    InternetworkAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Ingress MPS Source Internetwork Layer Address."
+        ::= { mpsIngressCacheEntry 6 }
+ 
+   mpsIngressCacheSourceMpcCtrlAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The ATM Address from the source of this MPOA request.
+             In other words, the Ingress MPC's Control Atm Address."
+        ::= { mpsIngressCacheEntry 7 }
+ 
+   mpsIngressCacheResolvedAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The ATM Address which has been resolved by an Egress MPC."
+        ::= { mpsIngressCacheEntry 8 }
+ 
+   mpsIngressCacheHoldTime OBJECT-TYPE
+        SYNTAX    TimeInterval
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Time interval that this value is valid."
+        ::= { mpsIngressCacheEntry 9 }
+ 
+   mpsIngressCacheMpoaRequestId OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The request ID contained in the MPOA resolution request
+             from the local Ingress MPC."
+        ::= { mpsIngressCacheEntry 10 }
+ 
+   mpsIngressCacheNhrpRequestId OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The request ID which this MPS generates to identify the
+             NHRP resolution request."
+        ::= { mpsIngressCacheEntry 11 }
+ 
+   mpsIngressCacheServiceCategory OBJECT-TYPE
+        SYNTAX    INTEGER (0..65535)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The service categories supported for this shortcut."
+        REFERENCE
+             "Lane V2 LUNI TLVs"
+   ::= { mpsIngressCacheEntry 12 }
+ 
+   --
+   --  MPOA Server Egress Cache (Impositions) group
+   --
+ 
+   mpsEgressCacheTable OBJECT-TYPE
+        SYNTAX    SEQUENCE OF MpsEgressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "This table contains information regarding the
+             Egress MPOA Server Cache Table."
+        ::= { mpsObjects 8 }
+ 
+   mpsEgressCacheEntry OBJECT-TYPE
+        SYNTAX    MpsEgressCacheEntry
+        MAX-ACCESS     not-accessible
+        STATUS    current
+        DESCRIPTION
+             "An entry represents an entry in the MPS's Egress
+             cache Table which keeps track of the state of the
+             impositions."
+        INDEX     {    
+           mpsEgressCacheId,
+                  mpsIndex,
+                  mpsMpcIndex
+                  }
+        ::= { mpsEgressCacheTable 1 }
+ 
+   MpsEgressCacheEntry ::= SEQUENCE {
+        mpsEgressCacheId                       INTEGER,
+        mpsEgressCacheDestInternetworkAddrType InternetworkAddrType,
+        mpsEgressCacheDestAddr                 InternetworkAddr,
+        mpsEgressCachePrefixLen                INTEGER,
+        mpsEgressCacheHoldTime                 TimeInterval,
+        mpsEgressCacheEntryState               INTEGER,
+        mpsEgressCacheDataLinkHeader           OCTET STRING,
+        mpsEgressCacheElanId                   Integer32,
+        mpsEgressCacheSourceClientAtmAddr      AtmAddr,
+        mpsEgressCacheNhrpRequestId            Integer32,
+        mpsEgressCacheMpoaRequestId            Integer32,
+        mpsEgressCacheServiceCategory          INTEGER,
+        mpsEgressCacheNextHopInternetworkAddrType
+                                               InternetworkAddrType,
+        mpsEgressCacheNextHopAddr              InternetworkAddr
+   }
+ 
+   mpsEgressCacheId OBJECT-TYPE
+      SYNTAX  INTEGER (1..2147483647)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The id which identifies this cache entry."
+        ::= { mpsEgressCacheEntry 1 }
+ 
+   mpsEgressCacheDestInternetworkAddrType OBJECT-TYPE
+        SYNTAX    InternetworkAddrType
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The destination protocol address type."
+        ::= { mpsEgressCacheEntry 2 }
+ 
+   mpsEgressCacheDestAddr OBJECT-TYPE
+        SYNTAX    InternetworkAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The destination protocol address."
+        ::= { mpsEgressCacheEntry 3 }
+ 
+   mpsEgressCachePrefixLen OBJECT-TYPE
+        SYNTAX    INTEGER (0..255)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The destination prefix length."
+        ::= { mpsEgressCacheEntry 4 }
+ 
+   mpsEgressCacheHoldTime OBJECT-TYPE
+        SYNTAX    TimeInterval
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Time interval that this value is valid."
+        ::= { mpsEgressCacheEntry 5 }
+ 
+
+   mpsEgressCacheEntryState OBJECT-TYPE
+        SYNTAX    INTEGER   {    doesNotExist(1),
+                                 inactive(2),
+                                 active(3),
+                                 negative(4)
+                            }
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The present states of this MPS egress cache entry.
+             The states are:
+                  doesNotExist (1) -- the state is not yet available
+                  inactive (2) -- state exists, entry is not yet active
+                       For example,if using the Finite
+                       State Machine in Appendix 1.4,
+                       the state imposing is `inactive'.
+                  active (3) -- state exists, entry is active.
+                       For example,if using the Finite
+                       State Machine in Appendix 1.4,
+                       the state imposed
+                       is `active' state.
+                  negative (4) -- state exists, entry is negative.
+                       For example,if using the Finite
+                       State Machine in Appendix 1.4,
+                       the states purging and clearing
+                       are `negative'."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Appendix I.4 Egress MPS Control State Machine."
+        ::= { mpsEgressCacheEntry 6 }
+ 
+   mpsEgressCacheDataLinkHeader OBJECT-TYPE
+        SYNTAX    OCTET STRING  (SIZE (0..255))
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "Data-Link Layer Header."
+        ::= { mpsEgressCacheEntry 7 }
+ 
+   mpsEgressCacheElanId OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The elan id that this Cache Imposition is sent on."
+        ::= { mpsEgressCacheEntry 8 }
+ 
+
+   mpsEgressCacheSourceClientAtmAddr OBJECT-TYPE
+        SYNTAX    AtmAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The Ingress NHC's Atm Address used in the
+             original cache imposition."
+        REFERENCE
+             "Multiprotocol Over ATM.  AF-MPOA-0087.000.
+             Page 45."
+        ::= { mpsEgressCacheEntry 9 }
+ 
+   mpsEgressCacheNhrpRequestId OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The request id from the original NHRP Resolution Request,
+             may be only useful in the Resolving State."
+        ::= { mpsEgressCacheEntry 10 }
+ 
+   mpsEgressCacheMpoaRequestId OBJECT-TYPE
+        SYNTAX    Integer32
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The new request id which is generated for this imposition's
+             request, may be only useful in the Resolving State."
+        ::= { mpsEgressCacheEntry 11 }
+ 
+   mpsEgressCacheServiceCategory OBJECT-TYPE
+        SYNTAX    INTEGER (0..65535)
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The service categories supported for this shortcut."
+        REFERENCE
+             "Lane V2 LUNI TLVs"
+        ::= { mpsEgressCacheEntry 12 }
+ 
+   mpsEgressCacheNextHopInternetworkAddrType OBJECT-TYPE
+        SYNTAX    InternetworkAddrType
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The NextHop protocol address type."
+        ::= { mpsEgressCacheEntry 13 }
+ 
+
+   mpsEgressCacheNextHopAddr OBJECT-TYPE
+        SYNTAX    InternetworkAddr
+        MAX-ACCESS     read-only
+        STATUS    current
+        DESCRIPTION
+             "The NextHop protocol address."
+        ::= { mpsEgressCacheEntry 14 }
+ 
+   --
+   -- Conformance Information
+   --
+ 
+   mpoaMIBConformance OBJECT IDENTIFIER ::= { mpoaMIB 2 }
+ 
+   mpoaMIBGroups
+        OBJECT IDENTIFIER ::= { mpoaMIBConformance 1}
+ 
+   mpoaMIBCompliances
+        OBJECT IDENTIFIER ::= { mpoaMIBConformance 2}
+ 
+   --
+   -- Compliance Statements
+   --
+ 
+   mpoaMpcMibBasicCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+             "The basic implementation requirements for SNMP entities
+             which support MPOA Clients."
+ 
+        MODULE -- this module
+             MANDATORY-GROUPS    {    mpcConfigGroup,
+                                 mpcActualGroup,
+                                 mpcDataAtmAddressGroup,
+                                 mpcStatisticsGroup,
+                                 mpcProtocolGroup,
+                                 mpcMpsGroup,
+                                 mpcIngressCacheGroup,
+                                 mpcEgressCacheGroup,
+                                 mpcMpsMultipleMacAddressGroup
+                            }
+ 
+        OBJECT    mpcRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+        OBJECT    mpcDataAtmAddressRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+        OBJECT    mpcProtocolRowStatus
+        MIN-ACCESS     read-only
+        DESCRIPTION
+             "Write access is not required."
+ 
+   --
+   -- MPC Mapping Group Compliance
+   --
+ 
+        GROUP mpcMappingGroup
+        DESCRIPTION
+             "This group is mandatory only when there is NOT a one-to-one
+             relationship between the MPOA Client and the LANE Client.
+             Optionally, a one-to-one relationship between an MPOA Client
+             and a LANE Client can be enforced.  To enforce this
+             one-to-one relationship the lecIndex for the LANE Client
+             and the mpcIndex for the MPOA Client must have the same
+             value.
+             If this one-to-one mapping is enforced, then the implementation
+             of the mpcMappingTable is unnecessary.  (Since the lecIndex and
+             the mpcIndex contain the same value, there is no need to provide
+             a mapping of mpcIndex value to lecIndex value.)
+             The relationship between MPC and LEC is maintained by
+             ensuring that the mpcIndex is the same as the lecIndex
+             that is associated with it."
+ 
+        OBJECT    mpcMappingRowStatus
+        MIN-ACCESS     read-only
+        DESCRIPTION
+             "Write access is not required."
+ 
+        OBJECT    mpcMappingIndex
+        MIN-ACCESS     read-only
+        DESCRIPTION
+             "Write access is not required."
+ 
+        ::= { mpoaMIBCompliances 1 }
+ 
+   mpoaMpcMibAdvancedCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+             "The advanced implementation requirements for SNMP entities
+             which support MPOA Clients."
+        MODULE -- this module
+             MANDATORY-GROUPS    {
+                                 mpoaDeviceTypeGroup,
+                                 mpoaDeviceTypeMpsMacGroup,
+                                 mpcConfigGroup,
+                                 mpcActualGroup,
+                                 mpcDataAtmAddressGroup,
+                                 mpcStatisticsGroup,
+                                 mpcProtocolGroup,
+                                 mpcMpsGroup,
+                                 mpcIngressCacheTotalPacketGroup,
+                                 mpcIngressCacheGroup,
+                                 mpcEgressCacheTotalPacketGroup,
+                                 mpcEgressCacheGroup,
+                                 mpcMpsMultipleMacAddressGroup
+                            }
+ 
+             OBJECT    mpcRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+             OBJECT    mpcDataAtmAddressRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+             OBJECT    mpcProtocolRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+   --
+   -- MPC Mapping Group Compliance
+   --
+ 
+        GROUP     mpcMappingGroup
+        DESCRIPTION
+             "This group is mandatory only when there is NOT a one-to-one
+             relationship between the MPOA Client and the LANE Client.
+             Optionally, a one-to-one relationship between an MPOA Client
+             and a LANE Client can be enforced.  To enforce this
+             one-to-one relationship the lecIndex for the LANE Client
+             and the mpcIndex for the MPOA Client must have the same
+             value.
+             If this one-to-one mapping is enforced, then the implementation
+             of the mpcMappingTable is unnecessary.  (Since the lecIndex and
+             the mpcIndex contain the same value, there is no need to provide
+             a mapping of mpcIndex value to lecIndex value.)
+             The relationship between MPC and LEC is maintained by
+             ensuring that the mpcIndex is the same as the lecIndex
+             that is associated with it."
+ 
+             OBJECT    mpcMappingRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION    "Write access is not required."
+ 
+             OBJECT    mpcMappingIndex
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+        ::= { mpoaMIBCompliances 2 }
+ 
+   mpoaMpcMibAdvancedPlusOctetsCompliance MODULE-COMPLIANCE
+        STATUS    current
+        DESCRIPTION
+             "The AdvancedPlusOctets implementation requirements for SNMP
+             entities
+             which support MPOA Clients.  This includes supporting
+             the 64 bit octet counters."
+        MODULE -- this module
+             MANDATORY-GROUPS    {
+                                 mpoaDeviceTypeGroup,
+                                 mpoaDeviceTypeMpsMacGroup,
+                                 mpcConfigGroup,
+                                 mpcActualGroup,
+                                 mpcDataAtmAddressGroup,
+                                 mpcStatisticsGroup,
+                                 mpcProtocolGroup,
+                                 mpcMpsGroup,
+                                 mpcIngressCacheTotalPacketGroup,
+                                 mpcIngressCacheTotalOctetGroup,
+                                 mpcIngressCacheGroup,
+                                 mpcEgressCacheTotalPacketGroup,
+                                 mpcEgressCacheTotalOctetGroup,
+                                 mpcEgressCacheGroup,
+                                 mpcMpsMultipleMacAddressGroup
+                            }
+ 
+             OBJECT    mpcRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+             OBJECT    mpcDataAtmAddressRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+             OBJECT    mpcProtocolRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+   --
+   -- MPC Mapping Group Compliance
+   --
+ 
+             GROUP     mpcMappingGroup
+             DESCRIPTION
+                  "This group is mandatory only when there is NOT a one-to-one
+                  relationship between the MPOA Client and the LANE Client.
+                  Optionally, a one-to-one relationship between an MPOA Client
+                  and a LANE Client can be enforced.  To enforce this
+                  one-to-one relationship the lecIndex for the LANE Client
+                  and the mpcIndex for the MPOA Client must have the same
+                  value.
+                  If this one-to-one mapping is enforced, then the
+                  implementation
+                  of the mpcMappingTable is unnecessary.  (Since the lecIndex
+                  and
+                  the mpcIndex contain the same value, there is no need to
+                  provide
+ 
+
+                  a mapping of mpcIndex value to lecIndex value.)
+                  The relationship between MPC and LEC is maintained by
+                  ensuring that the mpcIndex is the same as the lecIndex
+                  that is associated with it."
+ 
+             OBJECT    mpcMappingRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+
+             OBJECT    mpcMappingIndex
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+        ::= { mpoaMIBCompliances 3 }
+ 
+   mpoaMpsMibBasicCompliance MODULE-COMPLIANCE
+        STATUS    current
+        DESCRIPTION
+             "The implementation requirements for SNMP entities
+             which support MPOA Servers."
+        MODULE -- this module
+             MANDATORY-GROUPS    {
+                                 mpsConfigGroup,
+                                 mpsActualGroup,
+                                 mpsStatisticsGroup,
+                                 mpsProtocolGroup,
+                                 mpsIngressCacheGroup,
+                                 mpsEgressCacheGroup
+                            }
+ 
+             OBJECT    mpsRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+             OBJECT    mpsProtocolRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+   --
+   -- MPS Mapping Group Compliance
+   --
+ 
+             GROUP mpsMappingGroup
+             DESCRIPTION
+                  "This group is mandatory only when there is NOT a one-to-one
+                  relationship between the MPOA Server and the LANE Client.
+                  Optionally, a one-to-one relationship between an MPOA Server
+                  and a LANE Client can be enforced.  To enforce this
+                  one-to-one relationship the lecIndex for the LANE Client
+                  and the mpcIndex for the MPOA Server must have the same
+                  value.
+                  If this one-to-one mapping is enforced, then the
+                  implementation
+                  of the mpsMappingTable is unnecessary.  (Since the lecIndex
+                  and
+                  the mpsIndex contain the same value, there is no need to
+                  provide
+                  a mapping of mpsIndex value to lecIndex value.)
+                  The relationship between MPS and LEC is maintained by
+                  ensuring that the mpsIndex is the same as the lecIndex
+                  that is associated with it."
+ 
+             OBJECT    mpsMappingRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+        ::= { mpoaMIBCompliances 4 }
+ 
+   mpoaMpsMibAdvancedCompliance MODULE-COMPLIANCE
+        STATUS    current
+        DESCRIPTION
+             "The advanced implementation requirements for SNMP entities
+             which support MPOA Servers."
+        MODULE -- this module
+             MANDATORY-GROUPS    {
+                                 mpoaDeviceTypeGroup,
+                                 mpoaDeviceTypeMpsMacGroup,
+                                 mpsConfigGroup,
+                                 mpsActualGroup,
+                                 mpsStatisticsGroup,
+                                 mpsProtocolGroup,
+                                 mpsIngressCacheGroup,
+                                 mpsEgressCacheGroup
+                            }
+ 
+             OBJECT    mpsRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+             OBJECT    mpsProtocolRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+   --
+   -- MPS Mapping Group Compliance
+ 
+
+   --
+ 
+             GROUP mpsMappingGroup
+             DESCRIPTION
+                  "This group is mandatory only when there is NOT a one-to-one
+                  relationship between the MPOA Server and the LANE Client.
+                  Optionally, a one-to-one relationship between an MPOA Server
+                  and a LANE Client can be enforced.  To enforce this
+                  one-to-one relationship the lecIndex for the LANE Client
+                  and the mpcIndex for the MPOA Server must have the same
+                  value.
+                  If this one-to-one mapping is enforced, then the
+                  implementation
+                  of the mpsMappingTable is unnecessary.  (Since the lecIndex
+                  and
+                  the mpsIndex contain the same value, there is no need to
+                  provide
+                  a mapping of mpsIndex value to lecIndex value.)
+                  The relationship between MPS and LEC is maintained by
+                  ensuring that the mpsIndex is the same as the lecIndex
+                  that is associated with it."
+ 
+             OBJECT    mpsMappingRowStatus
+             MIN-ACCESS     read-only
+             DESCRIPTION
+                  "Write access is not required."
+ 
+        ::= { mpoaMIBCompliances 5 }
+ 
+   --
+   -- Units of Conformance
+   --
+ 
+   mpoaDeviceTypeGroup OBJECT-GROUP
+        OBJECTS   {
+             deviceTypeLecIndex,
+             deviceTypeRemoteLecAtmAddress,
+             deviceTypeType,
+             deviceTypeMpsAtmAddress,
+             deviceTypeMpcAtmAddress
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which exists when
+             the MPOA device learns the MPOA device type and
+             MPOA control addresses of neighboring MPOA devices
+             using the LANEv2 Device Type TLV."
+        ::= { mpoaMIBGroups 1 }
+ 
+   mpoaDeviceTypeMpsMacGroup OBJECT-GROUP
+        OBJECTS   { deviceTypeMpsMacAddress }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which is present when the
+             MPOA device learns the MPOA device type and MPOA
+             control addresses of neighboring MPOA devices using
+             the LANEv2 Device Type TLV."
+        ::= { mpoaMIBGroups 2 }
+ 
+   mpcConfigGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcNextIndex,
+             mpcRowStatus,
+             mpcConfigMode,
+             mpcCtrlAtmAddr,
+             mpcSCSetupFrameCount,
+             mpcSCSetupFrameTime,
+             mpcInitialRetryTime,
+             mpcRetryTimeMaximum,
+             mpcHoldDownTime
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects used for creating and
+             configuring MPOA Clients."
+        ::= { mpoaMIBGroups 3 }
+ 
+   mpcActualGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcActualState,
+             mpcDiscontinuityTime,
+             mpcActualConfigMode,
+             mpcActualSCSetupFrameCount,
+             mpcActualSCSetupFrameTime,
+             mpcActualInitialRetryTime,
+             mpcActualRetryTimeMaximum,
+             mpcActualHoldDownTime
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects describing the status
+             and operational parameters of the managed MPC."
+        ::= { mpoaMIBGroups 4 }
+ 
+   mpcDataAtmAddressGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcDataAtmAddressRowStatus
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which describe the
+             set of data ATM addresses for the MPCs."
+             ::= { mpoaMIBGroups 5 }
+ 
+   mpcStatisticsGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcStatTxMpoaResolveRequests,
+             mpcStatRxMpoaResolveReplyAcks,
+             mpcStatRxMpoaResolveReplyInsufECResources,
+             mpcStatRxMpoaResolveReplyInsufSCResources,
+             mpcStatRxMpoaResolveReplyInsufEitherResources,
+             mpcStatRxMpoaResolveReplyUnsupportedInetProt,
+             mpcStatRxMpoaResolveReplyUnsupportedMacEncaps,
+             mpcStatRxMpoaResolveReplyUnspecifiedOther,
+             mpcStatRxMpoaImpRequests,
+             mpcStatTxMpoaImpReplyAcks,
+             mpcStatTxMpoaImpReplyInsufECResources,
+             mpcStatTxMpoaImpReplyInsufSCResources,
+             mpcStatTxMpoaImpReplyInsufEitherResources,
+             mpcStatTxMpoaImpReplyUnsupportedInetProt,
+             mpcStatTxMpoaImpReplyUnsupportedMacEncaps,
+             mpcStatTxMpoaImpReplyUnspecifiedOther,
+             mpcStatTxMpoaEgressCachePurgeRequests,
+             mpcStatRxMpoaEgressCachePurgeReplies,
+             mpcStatRxMpoaKeepAlives,
+             mpcStatRxMpoaTriggers,
+             mpcStatRxMpoaDataPlanePurges,
+             mpcStatTxMpoaDataPlanePurges,
+             mpcStatRxNhrpPurgeRequests,
+             mpcStatTxNhrpPurgeReplies,
+             mpcStatRxErrUnrecognizedExtensions,
+             mpcStatRxErrLoopDetecteds,
+             mpcStatRxErrProtoAddrUnreachables,
+             mpcStatRxErrProtoErrors,
+             mpcStatRxErrSduSizeExceededs,
+             mpcStatRxErrInvalidExtensions,
+             mpcStatRxErrInvalidReplies,
+             mpcStatRxErrAuthenticationFailures,
+             mpcStatRxErrHopCountExceededs
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects that provide statistics
+             on the MPOA protocol parameters."
+        ::= { mpoaMIBGroups 6 }
+ 
+   mpcProtocolGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcLECSValue,
+             mpcProtocolRowStatus
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects to specify which
+             parameters this MPC is enabled for."
+        ::= { mpoaMIBGroups 7 }
+ 
+   mpcMappingGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcMappingRowStatus,
+             mpcMappingIndex
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects to map from LEC to MPC"
+        ::= { mpoaMIBGroups 8 }
+ 
+   mpcMpsGroup OBJECT-GROUP
+        OBJECTS   { mpcMpsAtmAddr }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which aid the MPCs to track
+             information for all the MPSs which are known by the MPCs."
+        ::= { mpoaMIBGroups 9 }
+ 
+   mpcMpsMacAddressGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcMpsMacAddress
+        }
+        STATUS    obsolete
+        DESCRIPTION
+             "A collection of objects which aid the MPCs to track
+             MAC Address information for all the MPSs which are known
+             by the MPCs."
+        ::= { mpoaMIBGroups 10 }
+ 
+
+   mpcIngressCacheTotalPacketGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcIngressCacheTxTotalPackets
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which count the total
+             number of packets transmitted over MPC
+             short cuts."
+        ::= { mpoaMIBGroups 11 }
+ 
+   mpcIngressCacheTotalOctetGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcIngressCacheTxTotalOctets
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which count the total
+             number of octets transmitted over MPC
+             short cuts."
+        ::= { mpoaMIBGroups 12 }
+ 
+   mpcIngressCacheGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcIngressCacheDestInetworkAddrType,
+             mpcIngressCacheDestAddr,
+             mpcIngressCachePrefixLen,
+             mpcIngressCacheDestAtmAddr,
+             mpcIngressCacheSrcAtmAddr,
+             mpcIngressCacheEntryState,
+             mpcIngressCacheEgressCacheTagValid,
+             mpcIngressCacheEgressCacheTag,
+             mpcIngressCacheLastNhrpCieCode,
+             mpcIngressCacheSigErrCode,
+             mpcIngressCacheRetries,
+             mpcIngressCacheTimeUntilNextResolutionRequest,
+             mpcIngressCacheHoldingTime,
+             mpcIngressCacheServiceCategory
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects used to monitor the
+             MPOA ingress cache."
+        ::= { mpoaMIBGroups 13 }
+ 
+   mpcEgressCacheTotalPacketGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcEgressCacheRxTotalPackets
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which count the total
+             number of packets received by MPC short cuts."
+        ::= { mpoaMIBGroups 14 }
+ 
+   mpcEgressCacheTotalOctetGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcEgressCacheRxTotalOctets
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which count the total
+             number of octets received by MPC short cuts."
+        ::= { mpoaMIBGroups 15 }
+ 
+   mpcEgressCacheGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcEgressCacheId,
+             mpcEgressCacheInetworkAddrType,
+             mpcEgressCacheIDestAddr,
+             mpcEgressCachePrefixLen,
+             mpcEgressCacheEntryState,
+             mpcEgressCacheEgressCacheTagValid,
+             mpcEgressCacheEgressCacheTag,
+             mpcEgressCacheHoldTime,
+             mpcEgressCacheDataLinkHeader,
+             mpcEgressCacheIngressMpcDataAtmAddr,
+             mpcEgressCacheLecIndex,
+             mpcEgressCacheServiceCategory
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects used to monitor the
+             MPOA egress cache."
+        ::= { mpoaMIBGroups 16 }
+ 
+ 
+ 
+   mpsConfigGroup OBJECT-GROUP
+        OBJECTS   {
+             mpsNextIndex,
+             mpsRowStatus,
+             mpsConfigMode,
+             mpsCtrlAtmAddr,
+             mpsKeepAliveTime,
+             mpsKeepAliveLifeTime,
+             mpsInitialRetryTime,
+             mpsRetryTimeMaximum,
+             mpsGiveupTime,
+             mpsDefaultHoldingTime
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects used for creating and
+             configuring MPOA Servers."
+        ::= { mpoaMIBGroups 17 }
+ 
+   mpsActualGroup OBJECT-GROUP
+        OBJECTS   {
+             mpsActualState,
+             mpsDiscontinuityTime,
+             mpsActualConfigMode,
+             mpsActualKeepAlive,
+             mpsActualKeepAliveLifeTime,
+             mpsActualInitialRetryTime,
+             mpsActualRetryTimeMaximum,
+             mpsActualGiveupTime,
+             mpsActualDefaultHoldingTime
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects describing the status
+             and operational parameters of the managed MPS."
+        ::= { mpoaMIBGroups 18 }
+ 
+   mpsStatisticsGroup OBJECT-GROUP
+        OBJECTS   {
+             mpsStatRxMpoaResolveRequests,
+             mpsStatTxMpoaResolveReplyAcks,
+             mpsStatTxMpoaResolveReplyInsufECResources,
+             mpsStatTxMpoaResolveReplyInsufSCResources,
+             mpsStatTxMpoaResolveReplyInsufEitherResources,
+             mpsStatTxMpoaResolveReplyUnsupportedInetProt,
+             mpsStatTxMpoaResolveReplyUnsupportedMacEncaps,
+             mpsStatTxMpoaResolveReplyUnspecifiedOther,
+             mpsStatTxMpoaResolveReplyOther,
+             mpsStatGiveupTimeExpireds,
+             mpsStatTxMpoaImpRequests,
+             mpsStatRxMpoaImpReplyAcks,
+             mpsStatRxMpoaImpReplyInsufECResources,
+             mpsStatRxMpoaImpReplyInsufSCResources,
+             mpsStatRxMpoaImpReplyInsufEitherResources,
+             mpsStatRxMpoaImpReplyUnsupportedInetProt,
+             mpsStatRxMpoaImpReplyUnsupportedMacEncaps,
+             mpsStatRxMpoaImpReplyUnspecifiedOther,
+             mpsStatRxMpoaImpReplyOther,
+             mpsStatRxMpoaEgressCachePurgeRequests,
+             mpsStatTxMpoaEgressCachePurgeReplies,
+             mpsStatTxMpoaTriggers,
+             mpsStatTxNhrpResolveRequests,
+             mpsStatRxNhrpResolveReplies,
+             mpsStatRxNhrpResolveRequests,
+             mpsStatTxNhrpResolveReplies
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects that provide statistics
+             on the MPOA Server protocol parameters."
+        ::= { mpoaMIBGroups 19 }
+ 
+   mpsProtocolGroup OBJECT-GROUP
+        OBJECTS   {
+             mpsLECSValue,
+             mpsProtocolRowStatus
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects to specify which
+             parameters this MPS is enabled for."
+        ::= { mpoaMIBGroups 20 }
+ 
+   mpsMappingGroup OBJECT-GROUP
+        OBJECTS   {
+             mpsMappingRowStatus,
+             mpsMappingIndex
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects to map from MPSs to LECs."
+        ::= { mpoaMIBGroups 21 }
+ 
+   mpsMpcGroup OBJECT-GROUP
+        OBJECTS   { mpsMpcCtrlAtmAddr }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which aid the MPSs to track
+             information for all the MPCs which are known by the
+             MPSs."
+        ::= {mpoaMIBGroups 22 }
+ 
+
+   mpsIngressCacheGroup OBJECT-GROUP
+        OBJECTS   {
+             mpsIngressCacheDestInternetworkAddrType,
+             mpsIngressCacheDestAddr,
+             mpsIngressCachePrefixLen,
+             mpsIngressCacheEntryState,
+             mpsIngressCacheSrcInternetworkAddrType,
+             mpsIngressCacheSrcAddr,
+             mpsIngressCacheSourceMpcCtrlAtmAddr,
+             mpsIngressCacheResolvedAtmAddr,
+             mpsIngressCacheHoldTime,
+             mpsIngressCacheMpoaRequestId,
+             mpsIngressCacheNhrpRequestId,
+             mpsIngressCacheServiceCategory
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects to monitor the MPS
+             ingress cache."
+        ::= { mpoaMIBGroups 23 }
+ 
+   mpsEgressCacheGroup OBJECT-GROUP
+        OBJECTS   {
+             mpsEgressCacheId,
+             mpsEgressCacheDestInternetworkAddrType,
+             mpsEgressCacheDestAddr,
+             mpsEgressCachePrefixLen,
+             mpsEgressCacheHoldTime,
+             mpsEgressCacheEntryState,
+             mpsEgressCacheDataLinkHeader,
+             mpsEgressCacheElanId,
+             mpsEgressCacheSourceClientAtmAddr,
+             mpsEgressCacheNhrpRequestId,
+             mpsEgressCacheMpoaRequestId,
+             mpsEgressCacheServiceCategory,
+             mpsEgressCacheNextHopInternetworkAddrType,
+             mpsEgressCacheNextHopAddr
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects to monitor MPS's egress
+             cache parameters."
+        ::= { mpoaMIBGroups 24 }
+ 
+
+   mpcMpsMultipleMacAddressGroup OBJECT-GROUP
+        OBJECTS   {
+             mpcMpsFlowDetectMacAddress
+        }
+        STATUS    current
+        DESCRIPTION
+             "A collection of objects which aid the MPCs to track
+             MAC Address information for all the MPSs which are
+             used during flow detection by the MPCs."
+        ::= { mpoaMIBGroups 25 }
+ 
+END

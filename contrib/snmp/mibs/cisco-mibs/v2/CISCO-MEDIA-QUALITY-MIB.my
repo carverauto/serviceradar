@@ -1,0 +1,2756 @@
+-- *****************************************************************
+-- CISCO-MEDIA-QUALITY-MIB.my
+--   
+-- December 2010  Lizzie Cheung
+--   
+-- Copyright (c) 2010-2011 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MEDIA-QUALITY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    callActiveSetupTime,
+    callActiveIndex
+        FROM DIAL-CONTROL-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    cCallHistoryIndex
+        FROM CISCO-DIAL-CONTROL-MIB
+    CvcGUid,
+    CvcCoderTypeRate,
+    CvcCallReferenceIdOrZero
+        FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMediaQualityMIB MODULE-IDENTITY
+    LAST-UPDATED    "201103230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-voice@cisco.com"
+    DESCRIPTION
+        "This MIB module enhances the DIAL-CONTROL-MIB
+        (RFC2128) by providing call information and voice 
+        and video quality statistics of call legs over a  
+        telephony and voice over IP network.
+
+        *** ABBREVIATIONS, ACRONYMS AND SYMBOLS ***
+
+        ASP    - Acoustic Shock Protection
+        MIC    - Microphone
+        MOS    - Mean Opinion Score
+        NR     - Noise Reduction
+        TDM    - Time-Division Multiplexing
+        VOIP   - Voice Over IP"
+    REVISION        "201103230000Z"
+    DESCRIPTION
+        "Modified descriptions of cmqVideoCallActiveEntry and
+        cmqVideoCallHistoryEntry."
+    REVISION        "201103220000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 769 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoMediaQualityMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIB 0 }
+
+ciscoMediaQualityMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIB 1 }
+
+ciscoMediaQualityMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIB 2 }
+
+ciscoMediaQualityMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIBConform 1 }
+
+cmqVoiceCallActive  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIBObjects 1 }
+
+cmqVoiceCallHistory  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIBObjects 2 }
+
+cmqVideoCallActive  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIBObjects 3 }
+
+cmqVideoCallHistory  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIBObjects 4 }
+
+
+cmqVoIPCallActiveTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqVoIPCallActiveEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the VoIP extension to the callActiveTable of
+        DIAL-CONTROL-MIB. It contains voice quality information
+        and statistics for the VoIP call leg."
+    ::= { cmqVoiceCallActive 1 }
+
+cmqVoIPCallActiveEntry OBJECT-TYPE
+    SYNTAX          CmqVoIPCallActiveEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqVoIPCallActiveTable.
+
+        An entry into this table is created when its associated call
+        active entry in the DIAL-CONTROL-MIB is created which has
+        corresponding callActiveInfoType equals to 'speech'. 
+
+        The entry is deleted when its associated call active entry in
+        the DIAL-CONTROL-MIB is deleted."
+    INDEX           {
+                        callActiveSetupTime,
+                        callActiveIndex
+                    } 
+    ::= { cmqVoIPCallActiveTable 1 }
+
+CmqVoIPCallActiveEntry ::= SEQUENCE {
+        cmqVoIPCallActiveConnectionId          CvcGUid,
+        cmqVoIPCallActiveCallReferenceId       CvcCallReferenceIdOrZero,
+        cmqVoIPCallActiveRxCodecId             CvcCoderTypeRate,
+        cmqVoIPCallActiveRxSevConcealRatioPct  Unsigned32,
+        cmqVoIPCallActiveRxCallConcealRatioPct Unsigned32,
+        cmqVoIPCallActiveRxPktLossRatioPct     Unsigned32,
+        cmqVoIPCallActiveRxRoundTripTime       Unsigned32,
+        cmqVoIPCallActiveRxCallDur             Unsigned32,
+        cmqVoIPCallActiveRxVoiceDur            Unsigned32,
+        cmqVoIPCallActiveRxPktLossConcealDur   Unsigned32,
+        cmqVoIPCallActiveRxPktCntExpected      Counter32,
+        cmqVoIPCallActiveRxPktCntNotArrived    Counter32,
+        cmqVoIPCallActiveRxPktCntComfortNoise  Counter32,
+        cmqVoIPCallActiveRxPktCntUnusableLate  Counter32,
+        cmqVoIPCallActiveRxPktCntDiscarded     Counter32,
+        cmqVoIPCallActiveRxPktCntEffLoss       Counter32,
+        cmqVoIPCallActiveRxUnimpairedSecOK     Counter32,
+        cmqVoIPCallActiveRxConcealSec          Counter32,
+        cmqVoIPCallActiveRxSevConcealSec       Counter32,
+        cmqVoIPCallActiveRxJBufMode            INTEGER,
+        cmqVoIPCallActiveRxJBufNomDelay        Unsigned32,
+        cmqVoIPCallActiveRxJBufDlyNow          Unsigned32,
+        cmqVoIPCallActiveRxJBufLowWater        Unsigned32,
+        cmqVoIPCallActiveRxJBuffHiWater        Unsigned32,
+        cmqVoIPCallActive3550JShortTermAvg     Unsigned32,
+        cmqVoIPCallActive3550JCallAvg          Unsigned32,
+        cmqVoIPCallActiveRxSignalLvl           Integer32,
+        cmqVoIPCallActiveRxPred107Rscore       Unsigned32,
+        cmqVoIPCallActiveRxPred107RMosListen   Unsigned32,
+        cmqVoIPCallActiveRxPred107RScoreConv   Unsigned32,
+        cmqVoIPCallActiveRxPred107RMosConv     Unsigned32,
+        cmqVoIPCallActiveRxPred107CodecIeBase  Unsigned32,
+        cmqVoIPCallActiveRxPred107CodecBPL     Unsigned32,
+        cmqVoIPCallActiveRxPred107DefaultR0    Unsigned32,
+        cmqVoIPCallActiveRxPred107IeEff        Unsigned32,
+        cmqVoIPCallActiveRxPred107Idd          Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoAvg       Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoRecent    Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoBaseline  Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoMin       Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoNumWin    Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoBursts    Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoFrLoss    Unsigned32,
+        cmqVoIPCallActiveRxPredMosLqoVerID     SnmpAdminString,
+        cmqVoIPCallActiveTxCodecId             CvcCoderTypeRate,
+        cmqVoIPCallActiveTxVadEnabled          TruthValue,
+        cmqVoIPCallActiveTxTmrCallDur          Unsigned32,
+        cmqVoIPCallActiveTxTmrActSpeechDur     Unsigned32,
+        cmqVoIPCallActiveTxSignalLvl           Integer32,
+        cmqVoIPCallActiveTxNoiseFloor          Integer32
+}
+
+cmqVoIPCallActiveConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the active VoIP leg of the
+        call." 
+    ::= { cmqVoIPCallActiveEntry 1 }
+
+cmqVoIPCallActiveCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint.  An audio-only call with a call
+        reference ID of zero will not have a video call entry associated
+        with it, although an audio-only call can also have a reference
+        ID greater than zero." 
+    ::= { cmqVoIPCallActiveEntry 2 }
+
+cmqVoIPCallActiveRxCodecId OBJECT-TYPE
+    SYNTAX          CvcCoderTypeRate
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The codec type of the endpoint for the established
+        voice path." 
+    ::= { cmqVoIPCallActiveEntry 3 }
+
+cmqVoIPCallActiveRxSevConcealRatioPct OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ratio of severely concealed seconds to the sum of
+        unimpaired seconds and concealed seconds." 
+    ::= { cmqVoIPCallActiveEntry 4 }
+
+cmqVoIPCallActiveRxCallConcealRatioPct OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ratio of the recent concealment time to recent talk-mode
+        time interval. The talk-mode interval is 3 seconds." 
+    ::= { cmqVoIPCallActiveEntry 5 }
+
+cmqVoIPCallActiveRxPktLossRatioPct OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ratio of total effective received packet loss to the number
+        of RTP packets expected." 
+    ::= { cmqVoIPCallActiveEntry 6 }
+
+cmqVoIPCallActiveRxRoundTripTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The round-trip delay is the sum of measured network delay plus
+        transmit and receive endpoint processing delays." 
+    ::= { cmqVoIPCallActiveEntry 7 }
+
+cmqVoIPCallActiveRxCallDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of receive path open from this peer to voice gateway
+        for the call leg." 
+    ::= { cmqVoIPCallActiveEntry 8 }
+
+cmqVoIPCallActiveRxVoiceDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of speech received from this peer to voice gateway for
+        the call leg." 
+    ::= { cmqVoIPCallActiveEntry 9 }
+
+cmqVoIPCallActiveRxPktLossConcealDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of error predictive concealment and bad protocol
+        concealment in milliseconds." 
+    ::= { cmqVoIPCallActiveEntry 10 }
+
+cmqVoIPCallActiveRxPktCntExpected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The expected number of packets to be received." 
+    ::= { cmqVoIPCallActiveEntry 11 }
+
+cmqVoIPCallActiveRxPktCntNotArrived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The expected number of packets minus the number of received
+        packets." 
+    ::= { cmqVoIPCallActiveEntry 12 }
+
+cmqVoIPCallActiveRxPktCntComfortNoise OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of received comfort noise packets for the
+        call leg." 
+    ::= { cmqVoIPCallActiveEntry 13 }
+
+cmqVoIPCallActiveRxPktCntUnusableLate OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of received voice packets that arrived too late to
+        playout with CODEC (Coder/Decoder) during the call." 
+    ::= { cmqVoIPCallActiveEntry 14 }
+
+cmqVoIPCallActiveRxPktCntDiscarded OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of the number of late packets and the number of bad
+        protocol packets." 
+    ::= { cmqVoIPCallActiveEntry 15 }
+
+cmqVoIPCallActiveRxPktCntEffLoss OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of never-arrived packets and the number of
+        discarded packets." 
+    ::= { cmqVoIPCallActiveEntry 16 }
+
+cmqVoIPCallActiveRxUnimpairedSecOK OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative number of seconds during which there was no
+        concealment and is considered as OK seconds." 
+    ::= { cmqVoIPCallActiveEntry 17 }
+
+cmqVoIPCallActiveRxConcealSec OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative number of seconds during which there was some
+        concealment." 
+    ::= { cmqVoIPCallActiveEntry 18 }
+
+cmqVoIPCallActiveRxSevConcealSec OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of seconds that are severely concealed from
+        the start of the voice stream. A severly concealed second has 
+        more than 50ms of concealment." 
+    ::= { cmqVoIPCallActiveEntry 19 }
+
+cmqVoIPCallActiveRxJBufMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        adaptive(1),
+                        fixed(2),
+                        unknown(3),
+                        disabled(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The jitter buffer mode configured for the endpoint.
+        adaptive (1): an adaptive size algorithm for jitter buffer, 
+        fixed (2): a fixed size algorithm for jitter buffer, 
+        unknown (3): an unknown size algorithm for jitter buffer,
+        disabled (4): no jitter buffer is configured." 
+    ::= { cmqVoIPCallActiveEntry 20 }
+
+cmqVoIPCallActiveRxJBufNomDelay OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The nominal jitter buffer playout delay in milliseconds
+        configured for the endpoint." 
+    ::= { cmqVoIPCallActiveEntry 21 }
+
+cmqVoIPCallActiveRxJBufDlyNow OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The playout delay buffer in milliseconds to accommodate
+        interarrival jitter. The interarrival jitter is the network
+        arrival jitter between consecutive frames measured at the
+        receiver." 
+    ::= { cmqVoIPCallActiveEntry 22 }
+
+cmqVoIPCallActiveRxJBufLowWater OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum jitter buffer playout delay in milliseconds
+        configured for the endpoint." 
+    ::= { cmqVoIPCallActiveEntry 23 }
+
+cmqVoIPCallActiveRxJBuffHiWater OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum jitter buffer playout delay in milliseconds
+        configured for the endpoint." 
+    ::= { cmqVoIPCallActiveEntry 24 }
+
+cmqVoIPCallActive3550JShortTermAvg OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous RFC3550 playout delay buffer in milliseconds
+        to accommodate packet jitter." 
+    ::= { cmqVoIPCallActiveEntry 25 }
+
+cmqVoIPCallActive3550JCallAvg OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The long-term average of multiple RFC3550 playout delay buffer
+        in milliseconds to accommodate packet jitter." 
+    ::= { cmqVoIPCallActiveEntry 26 }
+
+cmqVoIPCallActiveRxSignalLvl OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous input signal level to the telephony
+        interface (TDM to IP network) that is used by the call leg." 
+    ::= { cmqVoIPCallActiveEntry 27 }
+
+cmqVoIPCallActiveRxPred107Rscore OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The R-factor based MOS Listening Quality, which is listening
+        quality minus clarity only, with no delay component. A value of
+        0 indicates an invalid score and a positive value indicates a
+        valid score." 
+    ::= { cmqVoIPCallActiveEntry 28 }
+
+cmqVoIPCallActiveRxPred107RMosListen OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MOS Listening Quality Estimate is computed on a running
+        basis with a new value every 10 seconds of received speech. A
+        value of 0 indicates an invalid score and a positive value
+        indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 29 }
+
+cmqVoIPCallActiveRxPred107RScoreConv OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The R-factor based MOS Conversation Quality, which is based on
+        loss plus absolute delay. A value of 0 indicates an invalid
+        score and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 30 }
+
+cmqVoIPCallActiveRxPred107RMosConv OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Th MOS Conversation Quality Estimate is computed on a running
+        basis with a new value every 10 seconds of received speech. A
+        value of 0 indicates an invalid score and a positive value
+        indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 31 }
+
+cmqVoIPCallActiveRxPred107CodecIeBase OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The base Ie score is a factor to calculate IeEff value. It is
+        obtained from G.113 table according to the codec type and is
+        defined in kilobits per second." 
+    ::= { cmqVoIPCallActiveEntry 32 }
+
+cmqVoIPCallActiveRxPred107CodecBPL OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The bpl is a factor to calculate IeEff value. It is obtained
+        from G.113 table according to the codec type and is defined in
+        kilobits per second." 
+    ::= { cmqVoIPCallActiveEntry 33 }
+
+cmqVoIPCallActiveRxPred107DefaultR0 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "R0 is a factor based on signal-to-noise ratio which also
+        includes loudness ratings." 
+    ::= { cmqVoIPCallActiveEntry 34 }
+
+cmqVoIPCallActiveRxPred107IeEff OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ie-eff is one of the components to contribute to MOS R-factor
+        calculations, where R-factor is based on ITU-T G.107. Ie is a
+        component which depends on the real-time packet loss, where as
+        Ie-eff stands for equipment impairment factor which includes
+        codec type and packet loss." 
+    ::= { cmqVoIPCallActiveEntry 35 }
+
+cmqVoIPCallActiveRxPred107Idd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Idd is one of the components to contribute to MOS R-factor
+        calculations, where R-factor is based on ITU-T G.107. Idd is a
+        delay impairment factor which depends on the real-time round
+        trip delay and echo." 
+    ::= { cmqVoIPCallActiveEntry 36 }
+
+cmqVoIPCallActiveRxPredMosLqoAvg OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The statistical average MOS score of all the previous
+        instantaneous values. A value of 0 indicates an invalid score
+        and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 37 }
+
+cmqVoIPCallActiveRxPredMosLqoRecent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The most recent MOS score with K-factor input based on frame
+        loss and codec. A value of 0 indicates an invalid score and a
+        positive value indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 38 }
+
+cmqVoIPCallActiveRxPredMosLqoBaseline OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum or codec zero-impairment baseline MOS score of all
+        the previous instantaneous values. A value of 0 indicates an
+        invalid score and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 39 }
+
+cmqVoIPCallActiveRxPredMosLqoMin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The statistical minimum MOS score of all the previous
+        instantaneous values. A value of 0 indicates an invalid score
+        and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 40 }
+
+cmqVoIPCallActiveRxPredMosLqoNumWin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A window in 8 seconds of frame loss data required to calculate
+        the MOS estimate." 
+    ::= { cmqVoIPCallActiveEntry 41 }
+
+cmqVoIPCallActiveRxPredMosLqoBursts OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MOS score calculated with K-factor input of consecutive
+        frame loss events, or error bursts. A value of 0 indicates an
+        invalid score and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallActiveEntry 42 }
+
+cmqVoIPCallActiveRxPredMosLqoFrLoss OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average frame loss count since call start." 
+    ::= { cmqVoIPCallActiveEntry 43 }
+
+cmqVoIPCallActiveRxPredMosLqoVerID OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MOS K-factor version ID, e.g. CVTQ v0.95" 
+    ::= { cmqVoIPCallActiveEntry 44 }
+
+cmqVoIPCallActiveTxCodecId OBJECT-TYPE
+    SYNTAX          CvcCoderTypeRate
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The codec type of the endpoint for the established
+        voice path." 
+    ::= { cmqVoIPCallActiveEntry 45 }
+
+cmqVoIPCallActiveTxVadEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether VAD (Voice Activation Detector)
+        is enabled or disabled. A value of 'true' indicates enabled and
+        a value of 'false' indicates disabled. Default is disabled." 
+    ::= { cmqVoIPCallActiveEntry 46 }
+
+cmqVoIPCallActiveTxTmrCallDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of transmit path open from this peer to voice gateway
+        for the call leg." 
+    ::= { cmqVoIPCallActiveEntry 47 }
+
+cmqVoIPCallActiveTxTmrActSpeechDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of speech transmitted from this peer to voice gateway
+        for the call leg." 
+    ::= { cmqVoIPCallActiveEntry 48 }
+
+cmqVoIPCallActiveTxSignalLvl OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous output signal level from the telephony
+        interface (TDM to IP network) that is used by the call leg." 
+    ::= { cmqVoIPCallActiveEntry 49 }
+
+cmqVoIPCallActiveTxNoiseFloor OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous noise floor level estimate if VAD is
+        enabled." 
+    ::= { cmqVoIPCallActiveEntry 50 }
+ 
+
+
+cmqCommonCallActiveNRTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqCommonCallActiveNREntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the voice and VoIP extension to the
+        callActiveTable of DIAL-CONTROL-MIB. It contains voice quality
+        information and statistics when noise reduction is applied to
+        the call leg."
+    ::= { cmqVoiceCallActive 2 }
+
+cmqCommonCallActiveNREntry OBJECT-TYPE
+    SYNTAX          CmqCommonCallActiveNREntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqCommonCallActiveNRTable.
+
+        An entry into this table is created when its associated call
+        active entry in the DIAL-CONTROL-MIB is created which has
+        corresponding callActiveInfoType equals to 'speech'. 
+
+        The entry is deleted when its associated call active entry in
+        the DIAL-CONTROL-MIB is deleted."
+    INDEX           {
+                        callActiveSetupTime,
+                        callActiveIndex
+                    } 
+    ::= { cmqCommonCallActiveNRTable 1 }
+
+CmqCommonCallActiveNREntry ::= SEQUENCE {
+        cmqCommonCallActiveNRConnectionId         CvcGUid,
+        cmqCommonCallActiveNRCallReferenceId      CvcCallReferenceIdOrZero,
+        cmqCommonCallActiveNRCallType             INTEGER,
+        cmqCommonCallActiveNREnabledMic           TruthValue,
+        cmqCommonCallActiveNREnabledEar           TruthValue,
+        cmqCommonCallActiveNRDirMic               INTEGER,
+        cmqCommonCallActiveNRDirEar               INTEGER,
+        cmqCommonCallActiveNRLibVer               Unsigned32,
+        cmqCommonCallActiveNRIntensity            Integer32,
+        cmqCommonCallActivePreNRNoiseFloorEstMic  Integer32,
+        cmqCommonCallActivePostNRNoiseFloorEstMic Integer32,
+        cmqCommonCallActivePreNRNoiseFloorEstEar  Integer32,
+        cmqCommonCallActivePostNRNoiseFloorEstEar Integer32
+}
+
+cmqCommonCallActiveNRConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the active leg of the
+        call." 
+    ::= { cmqCommonCallActiveNREntry 1 }
+
+cmqCommonCallActiveNRCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint.  An audio-only call with a
+        call reference ID of zero will not have a video call entry
+        associated with it, although an audio-only call can also have a
+        reference ID greater than zero." 
+    ::= { cmqCommonCallActiveNREntry 2 }
+
+cmqCommonCallActiveNRCallType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        voip(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the call type of the active call leg.
+        tdm(1): TDM call leg.
+        voip (2): VoIP call leg." 
+    ::= { cmqCommonCallActiveNREntry 3 }
+
+cmqCommonCallActiveNREnabledMic OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether noise reduction is enabled or
+        disabled in the MIC direction. A value of 'true' for this object
+        indicates enabled and a value of 'false' indicates disabled.
+        Default is disabled." 
+    ::= { cmqCommonCallActiveNREntry 4 }
+
+cmqCommonCallActiveNREnabledEar OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether noise reduction is enabled or
+        disabled in the ear direction. A value of 'true' for this object
+        indicates enabled and a value of 'false' indicates disabled.
+        Default is disabled." 
+    ::= { cmqCommonCallActiveNREntry 5 }
+
+cmqCommonCallActiveNRDirMic OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which noise reduction is
+        applied in the network with respect to MIC.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallActiveNREntry 6 }
+
+cmqCommonCallActiveNRDirEar OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which noise reduction is
+        applied in the network with respect to ear.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallActiveNREntry 7 }
+
+cmqCommonCallActiveNRLibVer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The library version of noise reduction module being used." 
+    ::= { cmqCommonCallActiveNREntry 8 }
+
+cmqCommonCallActiveNRIntensity OBJECT-TYPE
+    SYNTAX          Integer32 (0..6)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The intensity of the noise reduction being applied to audio
+        signals." 
+    ::= { cmqCommonCallActiveNREntry 9 }
+
+cmqCommonCallActivePreNRNoiseFloorEstMic OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level before noise redunction is
+        applied in the MIC direction." 
+    ::= { cmqCommonCallActiveNREntry 10 }
+
+cmqCommonCallActivePostNRNoiseFloorEstMic OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level after noise redunction is
+        applied in the MIC direction." 
+    ::= { cmqCommonCallActiveNREntry 11 }
+
+cmqCommonCallActivePreNRNoiseFloorEstEar OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level before noise redunction is
+        applied in the ear direction." 
+    ::= { cmqCommonCallActiveNREntry 12 }
+
+cmqCommonCallActivePostNRNoiseFloorEstEar OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level after noise redunction is
+        applied in the ear direction." 
+    ::= { cmqCommonCallActiveNREntry 13 }
+ 
+
+
+cmqCommonCallActiveASPTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqCommonCallActiveASPEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the voice and VoIP extension to the
+        callActiveTable of DIAL-CONTROL-MIB. It contains voice quality
+        information and statistics when acoustic shock protection is
+        applied to the
+        call leg."
+    ::= { cmqVoiceCallActive 3 }
+
+cmqCommonCallActiveASPEntry OBJECT-TYPE
+    SYNTAX          CmqCommonCallActiveASPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqCommonCallActiveASPTable.
+
+        An entry into this table is created when its associated call
+        active entry in the DIAL-CONTROL-MIB is created which has
+        corresponding callActiveInfoType equals to 'speech'. 
+
+        The entry is deleted when its associated call active entry in
+        the DIAL-CONTROL-MIB is deleted."
+    INDEX           {
+                        callActiveSetupTime,
+                        callActiveIndex
+                    } 
+    ::= { cmqCommonCallActiveASPTable 1 }
+
+CmqCommonCallActiveASPEntry ::= SEQUENCE {
+        cmqCommonCallActiveASPConnectionId             CvcGUid,
+        cmqCommonCallActiveASPCallReferenceId          CvcCallReferenceIdOrZero,
+        cmqCommonCallActiveASPCallType                 INTEGER,
+        cmqCommonCallActiveASPEnabledMic               TruthValue,
+        cmqCommonCallActiveASPEnabledEar               TruthValue,
+        cmqCommonCallActiveASPDirMic                   INTEGER,
+        cmqCommonCallActiveASPDirEar                   INTEGER,
+        cmqCommonCallActiveASPMode                     INTEGER,
+        cmqCommonCallActiveASPVer                      Unsigned32,
+        cmqCommonCallActiveNumSigASPTriggMic           Unsigned32,
+        cmqCommonCallActiveDurSigASPTriggMic           Unsigned32,
+        cmqCommonCallActiveTotNumASPTriggMic           Unsigned32,
+        cmqCommonCallActiveTotASPDurMic                Unsigned32,
+        cmqCommonCallActiveLoudestFreqEstForLongEpiMic Unsigned32,
+        cmqCommonCallActiveLongestDurEpiMic            Unsigned32,
+        cmqCommonCallActiveNumSigASPTriggEar           Unsigned32,
+        cmqCommonCallActiveDurSigASPTriggEar           Unsigned32,
+        cmqCommonCallActiveTotNumASPTriggEar           Unsigned32,
+        cmqCommonCallActiveTotASPDurEar                Unsigned32,
+        cmqCommonCallActiveLoudestFreqEstForLongEpiEar Unsigned32,
+        cmqCommonCallActiveLongestDurEpiEar            Unsigned32
+}
+
+cmqCommonCallActiveASPConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the active leg of the
+        call." 
+    ::= { cmqCommonCallActiveASPEntry 1 }
+
+cmqCommonCallActiveASPCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint.  An audio-only call with a
+        call reference ID of zero will not have a video call entry
+        associated with it, although an audio-only call can also have a
+        reference ID greater than zero." 
+    ::= { cmqCommonCallActiveASPEntry 2 }
+
+cmqCommonCallActiveASPCallType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        voip(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the call type of the active call leg.
+        tdm (1): TDM call leg.
+        voip (2): VoIP call leg." 
+    ::= { cmqCommonCallActiveASPEntry 3 }
+
+cmqCommonCallActiveASPEnabledMic OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether acoustic shock protection is
+        enabled or disabled in the MIC direction. A value of 'true' for
+        this object indicates enabled and a value of 'false' indicates
+        disabled. Default is disabled." 
+    ::= { cmqCommonCallActiveASPEntry 4 }
+
+cmqCommonCallActiveASPEnabledEar OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether acoustic shock protection is
+        enabled or disabled in the ear direction. A value of 'true' for
+        this object indicates enabled and a value of 'false' indicates
+        disabled. Default is disabled." 
+    ::= { cmqCommonCallActiveASPEntry 5 }
+
+cmqCommonCallActiveASPDirMic OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which acoustic shock
+        protection is applied in the network with respect to MIC.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallActiveASPEntry 6 }
+
+cmqCommonCallActiveASPDirEar OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which acoustic shock
+        protection is applied in the network with respect to ear.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallActiveASPEntry 7 }
+
+cmqCommonCallActiveASPMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        slow(2),
+                        fast(3),
+                        expert(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The acoutsic shock protection mode indicates the sensitivity of
+        operation. 
+        auto (1): default mode, a trade-off between slow and fast mode,
+        slow (2): slower detection mode,
+        fast (3): faster detection mode, 
+        expert (4): expert defined mode." 
+    ::= { cmqCommonCallActiveASPEntry 8 }
+
+cmqCommonCallActiveASPVer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The version of acoustic shock protection applied to the audio
+        signal." 
+    ::= { cmqCommonCallActiveASPEntry 9 }
+
+cmqCommonCallActiveNumSigASPTriggMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of significant acoustic shock protection triggers
+        which has a duration of greater than 2 seconds and is applied
+        in the MIC direction." 
+    ::= { cmqCommonCallActiveASPEntry 10 }
+
+cmqCommonCallActiveDurSigASPTriggMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative duration of all significant aooustic shock
+        protection triggers in the MIC direction." 
+    ::= { cmqCommonCallActiveASPEntry 11 }
+
+cmqCommonCallActiveTotNumASPTriggMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of acoustic shock protection triggers in the
+        MIC direction." 
+    ::= { cmqCommonCallActiveASPEntry 12 }
+
+cmqCommonCallActiveTotASPDurMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total duration of active acoustic shock protection
+        suppression in milliseconds in the MIC direction." 
+    ::= { cmqCommonCallActiveASPEntry 13 }
+
+cmqCommonCallActiveLoudestFreqEstForLongEpiMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "frequency"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The loudest frequency estimate for the longest acoustic shock
+        protection episode in the MIC direction." 
+    ::= { cmqCommonCallActiveASPEntry 14 }
+
+cmqCommonCallActiveLongestDurEpiMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The duration of the longest acoustic shock protection episode
+        in the MIC direction." 
+    ::= { cmqCommonCallActiveASPEntry 15 }
+
+cmqCommonCallActiveNumSigASPTriggEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of significant acoustic shock protection triggers
+        which has a duration of greater than 2 seconds and is applied
+        in the ear direction." 
+    ::= { cmqCommonCallActiveASPEntry 16 }
+
+cmqCommonCallActiveDurSigASPTriggEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative duration of all significant aooustic shock
+        protection triggers in the ear direction." 
+    ::= { cmqCommonCallActiveASPEntry 17 }
+
+cmqCommonCallActiveTotNumASPTriggEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of acoustic shock protection triggers in the
+        ear direction." 
+    ::= { cmqCommonCallActiveASPEntry 18 }
+
+cmqCommonCallActiveTotASPDurEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total duration of active acoustic shock protection
+        suppression in milliseconds in the ear direction." 
+    ::= { cmqCommonCallActiveASPEntry 19 }
+
+cmqCommonCallActiveLoudestFreqEstForLongEpiEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "frequency"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The loudest frequency estimate for the longest acoustic shock
+        protection episode in the ear direction." 
+    ::= { cmqCommonCallActiveASPEntry 20 }
+
+cmqCommonCallActiveLongestDurEpiEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The duration of the longest acoustic shock protection episode
+        in the ear direction." 
+    ::= { cmqCommonCallActiveASPEntry 21 }
+ 
+
+
+cmqVoIPCallHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqVoIPCallHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the VoIP extension to the cCallHistoryTable of
+        CISCO-DIAL-CONTROL-MIB. It contains voice quality information
+        and statistics for the VoIP call leg."
+    ::= { cmqVoiceCallHistory 1 }
+
+cmqVoIPCallHistoryEntry OBJECT-TYPE
+    SYNTAX          CmqVoIPCallHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqVoIPCallHistoryTable.
+
+        An entry into this table is created when its associated call
+        history entry in the CISCO-DIAL-CONTROL-MIB is created 
+        which has corresponding cCallHistoryInfoType equals to 'speech'.
+
+
+        The entry is deleted when its associated call history entry in
+        the CISCO-DIAL-CONTROL-MIB is deleted."
+    INDEX           { cCallHistoryIndex } 
+    ::= { cmqVoIPCallHistoryTable 1 }
+
+CmqVoIPCallHistoryEntry ::= SEQUENCE {
+        cmqVoIPCallHistoryConnectionId          CvcGUid,
+        cmqVoIPCallHistoryCallReferenceId       CvcCallReferenceIdOrZero,
+        cmqVoIPCallHistoryRxCodecId             CvcCoderTypeRate,
+        cmqVoIPCallHistoryRxSevConcealRatioPct  Unsigned32,
+        cmqVoIPCallHistoryRxCallConcealRatioPct Unsigned32,
+        cmqVoIPCallHistoryRxPktLossRatioPct     Unsigned32,
+        cmqVoIPCallHistoryRxRoundTripTime       Unsigned32,
+        cmqVoIPCallHistoryRxCallDur             Unsigned32,
+        cmqVoIPCallHistoryRxVoiceDur            Unsigned32,
+        cmqVoIPCallHistoryRxPktLossConcealDur   Unsigned32,
+        cmqVoIPCallHistoryRxPktCntExpected      Counter32,
+        cmqVoIPCallHistoryRxPktCntNotArrived    Counter32,
+        cmqVoIPCallHistoryRxPktCntComfortNoise  Counter32,
+        cmqVoIPCallHistoryRxPktCntUnusableLate  Counter32,
+        cmqVoIPCallHistoryRxPktCntDiscarded     Counter32,
+        cmqVoIPCallHistoryRxPktCntEffLoss       Counter32,
+        cmqVoIPCallHistoryRxUnimpairedSecOK     Counter32,
+        cmqVoIPCallHistoryRxConcealSec          Counter32,
+        cmqVoIPCallHistoryRxSevConcealSec       Counter32,
+        cmqVoIPCallHistoryRxJBufMode            INTEGER,
+        cmqVoIPCallHistoryRxJBufNomDelay        Unsigned32,
+        cmqVoIPCallHistoryRxJBufDlyNow          Unsigned32,
+        cmqVoIPCallHistoryRxJBufLowWater        Unsigned32,
+        cmqVoIPCallHistoryRxJBuffHiWater        Unsigned32,
+        cmqVoIPCallHistory3550JShortTermAvg     Unsigned32,
+        cmqVoIPCallHistory3550JCallAvg          Unsigned32,
+        cmqVoIPCallHistoryRxSignalLvl           Integer32,
+        cmqVoIPCallHistoryRxPred107Rscore       Unsigned32,
+        cmqVoIPCallHistoryRxPred107RMosListen   Unsigned32,
+        cmqVoIPCallHistoryRxPred107RScoreConv   Unsigned32,
+        cmqVoIPCallHistoryRxPred107RMosConv     Unsigned32,
+        cmqVoIPCallHistoryRxPred107CodecIeBase  Unsigned32,
+        cmqVoIPCallHistoryRxPred107CodecBPL     Unsigned32,
+        cmqVoIPCallHistoryRxPred107DefaultR0    Unsigned32,
+        cmqVoIPCallHistoryRxPred107IeEff        Unsigned32,
+        cmqVoIPCallHistoryRxPred107Idd          Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoAvg       Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoRecent    Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoBaseline  Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoMin       Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoNumWin    Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoBursts    Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoFrLoss    Unsigned32,
+        cmqVoIPCallHistoryRxPredMosLqoVerID     SnmpAdminString,
+        cmqVoIPCallHistoryTxCodecId             CvcCoderTypeRate,
+        cmqVoIPCallHistoryTxVadEnabled          TruthValue,
+        cmqVoIPCallHistoryTxTmrCallDur          Unsigned32,
+        cmqVoIPCallHistoryTxTmrActSpeechDur     Unsigned32,
+        cmqVoIPCallHistoryTxSignalLvl           Integer32,
+        cmqVoIPCallHistoryTxNoiseFloor          Integer32
+}
+
+cmqVoIPCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the VoIP leg of the
+        call." 
+    ::= { cmqVoIPCallHistoryEntry 1 }
+
+cmqVoIPCallHistoryCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint.  An audio-only call with a
+        call reference ID of zero will not have a video call entry
+        associated with it, although an audio-only call can also have a
+        reference ID greater than zero." 
+    ::= { cmqVoIPCallHistoryEntry 2 }
+
+cmqVoIPCallHistoryRxCodecId OBJECT-TYPE
+    SYNTAX          CvcCoderTypeRate
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The codec type of the endpoint for the established
+        voice path." 
+    ::= { cmqVoIPCallHistoryEntry 3 }
+
+cmqVoIPCallHistoryRxSevConcealRatioPct OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ratio of severely concealed seconds to the sum of
+        unimpaired seconds and concealed seconds." 
+    ::= { cmqVoIPCallHistoryEntry 4 }
+
+cmqVoIPCallHistoryRxCallConcealRatioPct OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ratio of the recent concealment time to recent talk-mode
+        time interval. The talk-mode interval is 3 seconds." 
+    ::= { cmqVoIPCallHistoryEntry 5 }
+
+cmqVoIPCallHistoryRxPktLossRatioPct OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ratio of total effective received packet loss to the number
+        of RTP packets expected." 
+    ::= { cmqVoIPCallHistoryEntry 6 }
+
+cmqVoIPCallHistoryRxRoundTripTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The round-trip delay is the sum of measured network delay plus
+        transmit and receive endpoint processing delays." 
+    ::= { cmqVoIPCallHistoryEntry 7 }
+
+cmqVoIPCallHistoryRxCallDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of receive path open from this peer to voice gateway
+        for the call leg." 
+    ::= { cmqVoIPCallHistoryEntry 8 }
+
+cmqVoIPCallHistoryRxVoiceDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of speech received from this peer to voice gateway for
+        the call leg." 
+    ::= { cmqVoIPCallHistoryEntry 9 }
+
+cmqVoIPCallHistoryRxPktLossConcealDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of error predictive concealment and bad protocol
+        concealment in milliseconds." 
+    ::= { cmqVoIPCallHistoryEntry 10 }
+
+cmqVoIPCallHistoryRxPktCntExpected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The expected number of packets to be received." 
+    ::= { cmqVoIPCallHistoryEntry 11 }
+
+cmqVoIPCallHistoryRxPktCntNotArrived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The expected number of packets minus the number of received
+        packets." 
+    ::= { cmqVoIPCallHistoryEntry 12 }
+
+cmqVoIPCallHistoryRxPktCntComfortNoise OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of received comfort noise packets for the
+        call leg." 
+    ::= { cmqVoIPCallHistoryEntry 13 }
+
+cmqVoIPCallHistoryRxPktCntUnusableLate OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of received voice packets that arrived too late to
+        playout with CODEC (Coder/Decoder) during the call." 
+    ::= { cmqVoIPCallHistoryEntry 14 }
+
+cmqVoIPCallHistoryRxPktCntDiscarded OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of the number of late packets and the number of bad
+        protocol packets." 
+    ::= { cmqVoIPCallHistoryEntry 15 }
+
+cmqVoIPCallHistoryRxPktCntEffLoss OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of never-arrived packets and the number of
+        discarded packets." 
+    ::= { cmqVoIPCallHistoryEntry 16 }
+
+cmqVoIPCallHistoryRxUnimpairedSecOK OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative number of seconds during which there was no
+        concealment and is considered as OK seconds." 
+    ::= { cmqVoIPCallHistoryEntry 17 }
+
+cmqVoIPCallHistoryRxConcealSec OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative number of seconds during which there was some
+        concealment." 
+    ::= { cmqVoIPCallHistoryEntry 18 }
+
+cmqVoIPCallHistoryRxSevConcealSec OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of seconds that are severely concealed from
+        the start of the voice stream. A severly concealed second has 
+        more than 50ms of concealment." 
+    ::= { cmqVoIPCallHistoryEntry 19 }
+
+cmqVoIPCallHistoryRxJBufMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        adaptive(1),
+                        fixed(2),
+                        unknown(3),
+                        disabled(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The jitter buffer mode configured for the endpoint.
+        adaptive(1): an adaptive size algorithm for jitter buffer, 
+        fixed (2): a fixed size algorithm for jitter buffer, 
+        unknown (3): an unknown size algorithm for jitter buffer,
+        disabled (4): no jitter buffer is configured." 
+    ::= { cmqVoIPCallHistoryEntry 20 }
+
+cmqVoIPCallHistoryRxJBufNomDelay OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The nominal jitter buffer playout delay in milliseconds
+        configured for the endpoint." 
+    ::= { cmqVoIPCallHistoryEntry 21 }
+
+cmqVoIPCallHistoryRxJBufDlyNow OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The playout delay buffer in milliseconds to accommodate
+        interarrival jitter. The  interarrival jitter is the network
+        arrival jitter between consecutive frames measured at the
+        receiver." 
+    ::= { cmqVoIPCallHistoryEntry 22 }
+
+cmqVoIPCallHistoryRxJBufLowWater OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum jitter buffer playout delay in milliseconds
+        configured for the endpoint." 
+    ::= { cmqVoIPCallHistoryEntry 23 }
+
+cmqVoIPCallHistoryRxJBuffHiWater OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum jitter buffer playout delay in milliseconds
+        configured for the endpoint." 
+    ::= { cmqVoIPCallHistoryEntry 24 }
+
+cmqVoIPCallHistory3550JShortTermAvg OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous RFC3550 playout delay buffer in milliseconds
+        to accommodate packet jitter." 
+    ::= { cmqVoIPCallHistoryEntry 25 }
+
+cmqVoIPCallHistory3550JCallAvg OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The long-term average of multiple RFC3550 playout delay buffer
+        in milliseconds to accommodate packet jitter." 
+    ::= { cmqVoIPCallHistoryEntry 26 }
+
+cmqVoIPCallHistoryRxSignalLvl OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous input signal level to the telephony
+        interface (TDM to IP network) that is used by the call leg." 
+    ::= { cmqVoIPCallHistoryEntry 27 }
+
+cmqVoIPCallHistoryRxPred107Rscore OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The R-factor based MOS Listening Quality, which is listening
+        quality minus clarity only, with no delay component. A value of
+        0 indicates an invalid score and a positive value indicates a
+        valid score." 
+    ::= { cmqVoIPCallHistoryEntry 28 }
+
+cmqVoIPCallHistoryRxPred107RMosListen OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MOS Listening Quality Estimate is computed on a running
+        basis with a new value every 10 seconds of received speech. A
+        value of 0 indicates an invalid score and a positive value
+        indicates a valid score." 
+    ::= { cmqVoIPCallHistoryEntry 29 }
+
+cmqVoIPCallHistoryRxPred107RScoreConv OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The R-factor based MOS Conversation Quality, which is based on
+        loss plus absolute delay. A value of 0 indicates an invalid
+        score and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallHistoryEntry 30 }
+
+cmqVoIPCallHistoryRxPred107RMosConv OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Th MOS Conversation Quality Estimate is computed on a running
+        basis with a new value every 10 seconds of received speech. A
+        value of 0 indicates an invalid score and a positive value
+        indicates a
+        valid score." 
+    ::= { cmqVoIPCallHistoryEntry 31 }
+
+cmqVoIPCallHistoryRxPred107CodecIeBase OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The base Ie score is a factor to calculate IeEff value. It is
+        obtained from G.113 table according to the codec type and is
+        defined in killobits per second." 
+    ::= { cmqVoIPCallHistoryEntry 32 }
+
+cmqVoIPCallHistoryRxPred107CodecBPL OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The bpl is a factor to calculate IeEff value. It is obtained
+        from G.113 table according to the codec type and is defined in
+        kilobits per second." 
+    ::= { cmqVoIPCallHistoryEntry 33 }
+
+cmqVoIPCallHistoryRxPred107DefaultR0 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "R0 is a factor based on signal-to-noise ratio which also
+        includes loudness ratings." 
+    ::= { cmqVoIPCallHistoryEntry 34 }
+
+cmqVoIPCallHistoryRxPred107IeEff OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ie-eff is one of the components to contribute to MOS R-factor
+        calculations, where R-factor is based on ITU-T G.107. Ie is a
+        component which depends on the real-time packet loss, where as
+        Ie-eff stands for equipment impairment factor which includes
+        codec type and packet loss." 
+    ::= { cmqVoIPCallHistoryEntry 35 }
+
+cmqVoIPCallHistoryRxPred107Idd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Idd is one of the components to contribute to MOS R-factor
+        calculations, where R-factor is based on ITU-T G.107. Idd is a
+        delay impairment factor which depends on the real-time round
+        trip delay and echo." 
+    ::= { cmqVoIPCallHistoryEntry 36 }
+
+cmqVoIPCallHistoryRxPredMosLqoAvg OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The statistical average MOS score of all the previous
+        instantaneous values. A value of 0 indicates an invalid score
+        and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallHistoryEntry 37 }
+
+cmqVoIPCallHistoryRxPredMosLqoRecent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The most recent MOS score with K-factor input based on frame
+        loss and codec. A value of 0 indicates an invalid score and a
+        positive value indicates a valid score." 
+    ::= { cmqVoIPCallHistoryEntry 38 }
+
+cmqVoIPCallHistoryRxPredMosLqoBaseline OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum or codec zero-impairment baseline MOS score of all
+        the previous instantaneous values. A value of 0 indicates an
+        invalid score and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallHistoryEntry 39 }
+
+cmqVoIPCallHistoryRxPredMosLqoMin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The statistical minimum MOS score of all the previous
+        instantaneous values. A value of 0 indicates an invalid score
+        and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallHistoryEntry 40 }
+
+cmqVoIPCallHistoryRxPredMosLqoNumWin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A window in 8 seconds of frame loss data required to calculate
+        the MOS estimate." 
+    ::= { cmqVoIPCallHistoryEntry 41 }
+
+cmqVoIPCallHistoryRxPredMosLqoBursts OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MOS score calculated with K-factor input of consecutive
+        frame loss events, or error bursts. A value of 0 indicates an
+        invalid score and a positive value indicates a valid score." 
+    ::= { cmqVoIPCallHistoryEntry 42 }
+
+cmqVoIPCallHistoryRxPredMosLqoFrLoss OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average frame loss count since call start." 
+    ::= { cmqVoIPCallHistoryEntry 43 }
+
+cmqVoIPCallHistoryRxPredMosLqoVerID OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MOS K-factor version ID, e.g. CVTQ v0.95" 
+    ::= { cmqVoIPCallHistoryEntry 44 }
+
+cmqVoIPCallHistoryTxCodecId OBJECT-TYPE
+    SYNTAX          CvcCoderTypeRate
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The codec type of the endpoint for the established
+        voice path." 
+    ::= { cmqVoIPCallHistoryEntry 45 }
+
+cmqVoIPCallHistoryTxVadEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether VAD (Voice Activation Detector) is
+        enabled or disabled. A value of 'true' indicates enabled and a
+        value of 'false' indicates disabled. Default is disabled." 
+    ::= { cmqVoIPCallHistoryEntry 46 }
+
+cmqVoIPCallHistoryTxTmrCallDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of transmit path open from this peer to voice gateway
+        for the call leg." 
+    ::= { cmqVoIPCallHistoryEntry 47 }
+
+cmqVoIPCallHistoryTxTmrActSpeechDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Duration of speech transmitted from this peer to voice gateway
+        for the call leg." 
+    ::= { cmqVoIPCallHistoryEntry 48 }
+
+cmqVoIPCallHistoryTxSignalLvl OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous output signal level from the telephony
+        interface (TDM to IP network) that is used by the call leg." 
+    ::= { cmqVoIPCallHistoryEntry 49 }
+
+cmqVoIPCallHistoryTxNoiseFloor OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instantaneous noise floor level estimate if VAD is
+        enabled." 
+    ::= { cmqVoIPCallHistoryEntry 50 }
+ 
+
+
+cmqCommonCallHistoryNRTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqCommonCallHistoryNREntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the voice and VoIP extension to the
+        cCallHistoryTable of CISCO-DIAL-CONTROL-MIB. It contains voice
+        quality information and statistics when noise reduction is
+        applied to the call leg."
+    ::= { cmqVoiceCallHistory 2 }
+
+cmqCommonCallHistoryNREntry OBJECT-TYPE
+    SYNTAX          CmqCommonCallHistoryNREntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqCommonCallHistoryTable.
+
+        An entry into this table is created when its associated call
+        history entry in the CISCO-DIAL-CONTROL-MIB is created 
+        which has corresponding cCallHistoryInfoType equals to 'speech'.
+
+        The entry is deleted when its associated call history entry in
+        the CISCO-DIAL-CONTROL-MIB is deleted."
+    INDEX           { cCallHistoryIndex } 
+    ::= { cmqCommonCallHistoryNRTable 1 }
+
+CmqCommonCallHistoryNREntry ::= SEQUENCE {
+        cmqCommonCallHistoryNRConnectionId         CvcGUid,
+        cmqCommonCallHistoryNRCallReferenceId      CvcCallReferenceIdOrZero,
+        cmqCommonCallHistoryNRCallType             INTEGER,
+        cmqCommonCallHistoryNREnabledMic           TruthValue,
+        cmqCommonCallHistoryNREnabledEar           TruthValue,
+        cmqCommonCallHistoryNRDirMic               INTEGER,
+        cmqCommonCallHistoryNRDirEar               INTEGER,
+        cmqCommonCallHistoryNRLibVer               Unsigned32,
+        cmqCommonCallHistoryNRIntensity            Integer32,
+        cmqCommonCallHistoryPreNRNoiseFloorEstMic  Integer32,
+        cmqCommonCallHistoryPostNRNoiseFloorEstMic Integer32,
+        cmqCommonCallHistoryPreNRNoiseFloorEstEar  Integer32,
+        cmqCommonCallHistoryPostNRNoiseFloorEstEar Integer32
+}
+
+cmqCommonCallHistoryNRConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the history leg of the
+        call." 
+    ::= { cmqCommonCallHistoryNREntry 1 }
+
+cmqCommonCallHistoryNRCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint.  An audio-only call with a
+        call reference ID of zero will not have a video call entry
+        associated with it, although an audio-only call can also have a
+        reference ID greater than zero." 
+    ::= { cmqCommonCallHistoryNREntry 2 }
+
+cmqCommonCallHistoryNRCallType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        voip(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the call type of the history call leg.
+        tdm (1): TDM call leg.
+        voip (2): VoIP call leg." 
+    ::= { cmqCommonCallHistoryNREntry 3 }
+
+cmqCommonCallHistoryNREnabledMic OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether noise reduction is enabled or
+        disabled in the MIC direction. A value of 'true' for this object
+        indicates enabled and a value of 'false' indicates disabled.
+        Default is disabled." 
+    ::= { cmqCommonCallHistoryNREntry 4 }
+
+cmqCommonCallHistoryNREnabledEar OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether noise reduction is enabled or
+        disabled in the ear direction. A value of 'true' for this object
+        indicates enabled and a value of 'false' indicates disabled.
+        Default is disabled." 
+    ::= { cmqCommonCallHistoryNREntry 5 }
+
+cmqCommonCallHistoryNRDirMic OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which noise reduction is
+        applied in the network with respect to MIC.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallHistoryNREntry 6 }
+
+cmqCommonCallHistoryNRDirEar OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which noise reduction is
+        applied in the network with respect to ear.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallHistoryNREntry 7 }
+
+cmqCommonCallHistoryNRLibVer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The library version of noise reduction module being used." 
+    ::= { cmqCommonCallHistoryNREntry 8 }
+
+cmqCommonCallHistoryNRIntensity OBJECT-TYPE
+    SYNTAX          Integer32 (0..6)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The intensity of the noise reduction being applied to audio
+        signals." 
+    ::= { cmqCommonCallHistoryNREntry 9 }
+
+cmqCommonCallHistoryPreNRNoiseFloorEstMic OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level before noise redunction is
+        applied in the MIC direction." 
+    ::= { cmqCommonCallHistoryNREntry 10 }
+
+cmqCommonCallHistoryPostNRNoiseFloorEstMic OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level after noise redunction is
+        applied in the MIC direction." 
+    ::= { cmqCommonCallHistoryNREntry 11 }
+
+cmqCommonCallHistoryPreNRNoiseFloorEstEar OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level before noise redunction is
+        applied in the ear direction." 
+    ::= { cmqCommonCallHistoryNREntry 12 }
+
+cmqCommonCallHistoryPostNRNoiseFloorEstEar OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0.1 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The estimated noise floor level after noise redunction is
+        applied in the ear direction." 
+    ::= { cmqCommonCallHistoryNREntry 13 }
+ 
+
+
+cmqCommonCallHistoryASPTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqCommonCallHistoryASPEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the voice and VoIP extension to the
+        cCallHistoryTable of CISCO-DIAL-CONTROL-MIB. It contains voice
+        quality information and statistics when acoustic shock
+        protection is applied to the call leg."
+    ::= { cmqVoiceCallHistory 3 }
+
+cmqCommonCallHistoryASPEntry OBJECT-TYPE
+    SYNTAX          CmqCommonCallHistoryASPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqCommonCallHistoryTable.
+
+        An entry into this table is created when its associated call
+        history entry in the CISCO-DIAL-CONTROL-MIB is created 
+        which has corresponding cCallHistoryInfoType equals to 'speech'.
+
+        The entry is deleted when its associated call history entry in
+        the CISCO-DIAL-CONTROL-MIB is deleted."
+    INDEX           { cCallHistoryIndex } 
+    ::= { cmqCommonCallHistoryASPTable 1 }
+
+CmqCommonCallHistoryASPEntry ::= SEQUENCE {
+        cmqCommonCallHistoryASPConnectionId             CvcGUid,
+        cmqCommonCallHistoryASPCallReferenceId          CvcCallReferenceIdOrZero,
+        cmqCommonCallHistoryASPCallType                 INTEGER,
+        cmqCommonCallHistoryASPEnabledMic               TruthValue,
+        cmqCommonCallHistoryASPEnabledEar               TruthValue,
+        cmqCommonCallHistoryASPDirMic                   INTEGER,
+        cmqCommonCallHistoryASPDirEar                   INTEGER,
+        cmqCommonCallHistoryASPMode                     INTEGER,
+        cmqCommonCallHistoryASPVer                      Integer32,
+        cmqCommonCallHistoryNumSigASPTriggMic           Unsigned32,
+        cmqCommonCallHistoryDurSigASPTriggMic           Unsigned32,
+        cmqCommonCallHistoryTotNumASPTriggMic           Unsigned32,
+        cmqCommonCallHistoryTotASPDurMic                Unsigned32,
+        cmqCommonCallHistoryLoudestFreqEstForLongEpiMic Unsigned32,
+        cmqCommonCallHistoryLongestDurEpiMic            Unsigned32,
+        cmqCommonCallHistoryNumSigASPTriggEar           Unsigned32,
+        cmqCommonCallHistoryDurSigASPTriggEar           Unsigned32,
+        cmqCommonCallHistoryTotNumASPTriggEar           Unsigned32,
+        cmqCommonCallHistoryTotASPDurEar                Unsigned32,
+        cmqCommonCallHistoryLoudestFreqEstForLongEpiEar Unsigned32,
+        cmqCommonCallHistoryLongestDurEpiEar            Unsigned32
+}
+
+cmqCommonCallHistoryASPConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the history leg of the
+        call." 
+    ::= { cmqCommonCallHistoryASPEntry 1 }
+
+cmqCommonCallHistoryASPCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint.  An audio-only call with a
+        call reference ID of zero will not have a video call entry
+        associated with it, although an audio-only call can also have a
+        reference ID greater than zero." 
+    ::= { cmqCommonCallHistoryASPEntry 2 }
+
+cmqCommonCallHistoryASPCallType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        voip(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the call type of the history call leg.
+        tdm (1): TDM call leg
+        voip (2): VoIP call leg." 
+    ::= { cmqCommonCallHistoryASPEntry 3 }
+
+cmqCommonCallHistoryASPEnabledMic OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether acoustic shock protection is
+        enabled or disabled in the MIC direction. A value of 'true' for
+        this object indicates enabled and a value of 'false' indicates
+        disabled. Default is disabled."
+    DEFVAL          { false } 
+    ::= { cmqCommonCallHistoryASPEntry 4 }
+
+cmqCommonCallHistoryASPEnabledEar OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates whether acoustic shock protection is
+        enabled or disabled in the ear direction. A value of 'true' for
+        this object indicates enabled and a value of 'false' indicates
+        disabled. Default is disabled." 
+    ::= { cmqCommonCallHistoryASPEntry 5 }
+
+cmqCommonCallHistoryASPDirMic OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which acoustic shock
+        protection is applied in the network with respect to MIC.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallHistoryASPEntry 6 }
+
+cmqCommonCallHistoryASPDirEar OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tdm(1),
+                        wan(2),
+                        lan(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction to which acoustic shock
+        protection is applied in the network with respect to ear.
+        tdm (1): audio stream is from TDM,
+        wan (2): audio stream is from WAN,
+        lan (3): audio stream is from LAN." 
+    ::= { cmqCommonCallHistoryASPEntry 7 }
+
+cmqCommonCallHistoryASPMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        slow(2),
+                        fast(3),
+                        expert(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The acoutsic shock protection mode indicates the sensitivity of
+        operation. 
+        auto (1): default mode, a trade-off between slow and fast mode,
+        slow (2): slower detection mode,
+        fast (3): faster detection mode, 
+        expert (4): expert defined mode." 
+    ::= { cmqCommonCallHistoryASPEntry 8 }
+
+cmqCommonCallHistoryASPVer OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The version of acoutsic shock protection applied to audio
+        signals." 
+    ::= { cmqCommonCallHistoryASPEntry 9 }
+
+cmqCommonCallHistoryNumSigASPTriggMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of significant acoustic shock protection triggers
+        which has a duration of greater than 2 seconds and is applied
+        in the MIC direction." 
+    ::= { cmqCommonCallHistoryASPEntry 10 }
+
+cmqCommonCallHistoryDurSigASPTriggMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative duration of all significant aooustic shock
+        protection triggers in the MIC direction." 
+    ::= { cmqCommonCallHistoryASPEntry 11 }
+
+cmqCommonCallHistoryTotNumASPTriggMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of acoustic shock protection triggers in the
+        MIC direction." 
+    ::= { cmqCommonCallHistoryASPEntry 12 }
+
+cmqCommonCallHistoryTotASPDurMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total duration of acoustic shock protection suppression in
+        milliseconds in the MIC direction." 
+    ::= { cmqCommonCallHistoryASPEntry 13 }
+
+cmqCommonCallHistoryLoudestFreqEstForLongEpiMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "frequency"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The loudest frequency estimate for the longest acoustic shock
+        protection episode in the MIC direction." 
+    ::= { cmqCommonCallHistoryASPEntry 14 }
+
+cmqCommonCallHistoryLongestDurEpiMic OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The duration of the longest acoustic shock protection episode
+        in the MIC direction." 
+    ::= { cmqCommonCallHistoryASPEntry 15 }
+
+cmqCommonCallHistoryNumSigASPTriggEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of significant acoustic shock protection triggers
+        which has a duration of greater than 2 seconds and is applied
+        in the ear direction." 
+    ::= { cmqCommonCallHistoryASPEntry 16 }
+
+cmqCommonCallHistoryDurSigASPTriggEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative duration of all significant aooustic shock
+        protection triggers in the ear direction." 
+    ::= { cmqCommonCallHistoryASPEntry 17 }
+
+cmqCommonCallHistoryTotNumASPTriggEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of acoustic shock protection triggers in the
+        ear direction." 
+    ::= { cmqCommonCallHistoryASPEntry 18 }
+
+cmqCommonCallHistoryTotASPDurEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total duration of acoustic shock protection suppression in
+        milliseconds in the ear direction." 
+    ::= { cmqCommonCallHistoryASPEntry 19 }
+
+cmqCommonCallHistoryLoudestFreqEstForLongEpiEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "frequency"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The loudest frequency estimate for the longest acoustic shock
+        protection episode in the ear direction." 
+    ::= { cmqCommonCallHistoryASPEntry 20 }
+
+cmqCommonCallHistoryLongestDurEpiEar OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The duration of the longest acoustic shock protection episode
+        in the ear direction." 
+    ::= { cmqCommonCallHistoryASPEntry 21 }
+ 
+
+
+cmqVideoCallActiveTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqVideoCallActiveEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the video extension to the call active table of
+        DIAL-CONTROL-MIB. It contains video quality information for
+        the VoIP call leg."
+    ::= { cmqVideoCallActive 1 }
+
+cmqVideoCallActiveEntry OBJECT-TYPE
+    SYNTAX          CmqVideoCallActiveEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqVideoCallActiveTable.
+
+        An entry is added to the table when the below conditions are
+        met:
+        1.  A call active entry in callActiveTable of the IETF Dial
+        Control MIB with video callActiveInfoType is created. 
+        2.  An entry in cVideoCommonActiveTable of the Cisco Video
+        Session MIB is created whose cVideoCommonActiveCallType is
+        pointToPointCall, conferenceCall, or monitoredCall.
+
+        The entry is deleted when its associated call active entry in
+        callActiveTable of the IETF Dial Control MIB is deleted."
+    INDEX           {
+                        callActiveSetupTime,
+                        callActiveIndex
+                    } 
+    ::= { cmqVideoCallActiveTable 1 }
+
+CmqVideoCallActiveEntry ::= SEQUENCE {
+        cmqVideoCallActiveConnectionId               CvcGUid,
+        cmqVideoCallActiveCallReferenceId            CvcCallReferenceIdOrZero,
+        cmqVideoCallActiveRxMOSInstant               Unsigned32,
+        cmqVideoCallActiveRxCompressDegradeInstant   Unsigned32,
+        cmqVideoCallActiveRxNetworkDegradeInstant    Unsigned32,
+        cmqVideoCallActiveRxTransscodeDegradeInstant Unsigned32,
+        cmqVideoCallActiveRxMOSAverage               Unsigned32,
+        cmqVideoCallActiveRxCompressDegradeAverage   Unsigned32,
+        cmqVideoCallActiveRxNetworkDegradeAverage    Unsigned32,
+        cmqVideoCallActiveRxTransscodeDegradeAverage Unsigned32
+}
+
+cmqVideoCallActiveConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the video leg of the
+        call." 
+    ::= { cmqVideoCallActiveEntry 1 }
+
+cmqVideoCallActiveCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint." 
+    ::= { cmqVideoCallActiveEntry 2 }
+
+cmqVideoCallActiveRxMOSInstant OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Instantaneous aggregated MOS in the receive direction, where
+        0 is an invalid score and the lowest score starts with 1. A
+        value of 100 indicates the best video quality." 
+    ::= { cmqVideoCallActiveEntry 3 }
+
+cmqVideoCallActiveRxCompressDegradeInstant OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX instantaneous
+        MOS) due to the initial compression of video at an end point
+        introduced by a video encoder." 
+    ::= { cmqVideoCallActiveEntry 4 }
+
+cmqVideoCallActiveRxNetworkDegradeInstant OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX instantaneous
+        MOS) due to network factors, such as jitter, delay and packet
+        loss." 
+    ::= { cmqVideoCallActiveEntry 5 }
+
+cmqVideoCallActiveRxTransscodeDegradeInstant OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX instantaneous
+        MOS) due to the transcoding, including transrating, of a video
+        stream." 
+    ::= { cmqVideoCallActiveEntry 6 }
+
+cmqVideoCallActiveRxMOSAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Average aggregated MOS in the receive direction since the
+        beginning of the video session. 0 indicates an invalid score and
+        the lowest score starts with 1. A value of 100 indicates the
+        best video quality." 
+    ::= { cmqVideoCallActiveEntry 7 }
+
+cmqVideoCallActiveRxCompressDegradeAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX average MOS)
+        due to the initial compression of video at an end point
+        introduced by a video encoder." 
+    ::= { cmqVideoCallActiveEntry 8 }
+
+cmqVideoCallActiveRxNetworkDegradeAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX average MOS)
+        due to network factors, such as jitter, delay and packet loss." 
+    ::= { cmqVideoCallActiveEntry 9 }
+
+cmqVideoCallActiveRxTransscodeDegradeAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX average MOS)
+        due to the transcoding, including transrating, of a video
+        stream." 
+    ::= { cmqVideoCallActiveEntry 10 }
+ 
+
+
+cmqVideoCallHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmqVideoCallHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is the video extension to the call history table of
+        CISCO-DIAL-CONTROL-MIB. It contains video quality information
+        for the VoIP call leg."
+    ::= { cmqVideoCallHistory 1 }
+
+cmqVideoCallHistoryEntry OBJECT-TYPE
+    SYNTAX          CmqVideoCallHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmqVideoCallHistoryTable.
+
+        An entry is added to the table when the below conditions are
+        met:
+        1.  A call history entry in cCallHistoryTable of the Cisco
+        Dial Control MIB with video cCallHistoryInfoType is created. 
+        2.  An entry in cVideoCommonActiveTable of the Cisco Video
+        Session MIB is created whose cVideoCommonActiveCallType is
+        pointToPointCall, conferenceCall, or monitoredCall.
+
+        The entry is deleted when its associated call history entriy in
+        cCallHistoryTable of the Cisco Dial Control MIB is deleted."
+    INDEX           { cCallHistoryIndex } 
+    ::= { cmqVideoCallHistoryTable 1 }
+
+CmqVideoCallHistoryEntry ::= SEQUENCE {
+        cmqVideoCallHistoryConnectionId               CvcGUid,
+        cmqVideoCallHistoryCallReferenceId            CvcCallReferenceIdOrZero,
+        cmqVideoCallHistoryRxMOSAverage               Unsigned32,
+        cmqVideoCallHistoryRxCompressDegradeAverage   Unsigned32,
+        cmqVideoCallHistoryRxNetworkDegradeAverage    Unsigned32,
+        cmqVideoCallHistoryRxTransscodeDegradeAverage Unsigned32
+}
+
+cmqVideoCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX          CvcGUid
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The global connection identifier for the video leg of the
+        call." 
+    ::= { cmqVideoCallHistoryEntry 1 }
+
+cmqVideoCallHistoryCallReferenceId OBJECT-TYPE
+    SYNTAX          CvcCallReferenceIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call reference ID associates the video call entry and voice
+        call entry of the same endpoint." 
+    ::= { cmqVideoCallHistoryEntry 2 }
+
+cmqVideoCallHistoryRxMOSAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Average aggregated MOS in the receive direction since the
+        beginning of the video session. 0 indicates an invalid score and
+        the lowest score starts with 1. A value of 100 indicates the
+        best video quality." 
+    ::= { cmqVideoCallHistoryEntry 3 }
+
+cmqVideoCallHistoryRxCompressDegradeAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX average MOS)
+        due to the initial compression of video at an end point
+        introduced by a video encoder." 
+    ::= { cmqVideoCallHistoryEntry 4 }
+
+cmqVideoCallHistoryRxNetworkDegradeAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX average MOS)
+        due to network factors, such as jitter, delay and packet loss." 
+    ::= { cmqVideoCallHistoryEntry 5 }
+
+cmqVideoCallHistoryRxTransscodeDegradeAverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of quality loss (indicated by RX average MOS)
+        due to the transcoding, including transrating, of a video
+        stream." 
+    ::= { cmqVideoCallHistoryEntry 6 }
+ 
+
+ciscoMediaQualityMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoMediaQualityMIBConform 2 }
+
+
+ciscoMediaQualityMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+        that implement ciscoMediaQualityMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cmqVoiceCallActiveGroup,
+                        cmqVoiceCallHistoryGroup,
+                        cmqVideoCallActiveGroup,
+                        cmqVideoCallHistoryGroup
+                    }
+    ::= { ciscoMediaQualityMIBCompliances 1 }
+
+-- Units of Conformance
+
+cmqVoiceCallActiveGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmqVoIPCallActiveConnectionId,
+                        cmqVoIPCallActiveRxSevConcealRatioPct,
+                        cmqVoIPCallActiveRxCallConcealRatioPct,
+                        cmqVoIPCallActiveRxPktLossRatioPct,
+                        cmqVoIPCallActiveRxRoundTripTime,
+                        cmqVoIPCallActiveRxCallDur,
+                        cmqVoIPCallActiveRxVoiceDur,
+                        cmqVoIPCallActiveRxPktLossConcealDur,
+                        cmqVoIPCallActiveRxPktCntExpected,
+                        cmqVoIPCallActiveRxPktCntNotArrived,
+                        cmqVoIPCallActiveRxPktCntComfortNoise,
+                        cmqVoIPCallActiveRxPktCntUnusableLate,
+                        cmqVoIPCallActiveRxPktCntDiscarded,
+                        cmqVoIPCallActiveRxPktCntEffLoss,
+                        cmqVoIPCallActiveRxUnimpairedSecOK,
+                        cmqVoIPCallActiveRxConcealSec,
+                        cmqVoIPCallActiveRxSevConcealSec,
+                        cmqVoIPCallActiveRxJBufMode,
+                        cmqVoIPCallActiveRxJBufNomDelay,
+                        cmqVoIPCallActiveRxJBufDlyNow,
+                        cmqVoIPCallActiveRxJBufLowWater,
+                        cmqVoIPCallActiveRxJBuffHiWater,
+                        cmqVoIPCallActive3550JShortTermAvg,
+                        cmqVoIPCallActive3550JCallAvg,
+                        cmqVoIPCallActiveRxSignalLvl,
+                        cmqVoIPCallActiveRxPred107Rscore,
+                        cmqVoIPCallActiveRxPred107RMosListen,
+                        cmqVoIPCallActiveRxPred107RScoreConv,
+                        cmqVoIPCallActiveRxPred107RMosConv,
+                        cmqVoIPCallActiveRxPred107CodecIeBase,
+                        cmqVoIPCallActiveRxPred107CodecBPL,
+                        cmqVoIPCallActiveRxPred107DefaultR0,
+                        cmqVoIPCallActiveRxPred107IeEff,
+                        cmqVoIPCallActiveRxPred107Idd,
+                        cmqVoIPCallActiveRxPredMosLqoAvg,
+                        cmqVoIPCallActiveRxPredMosLqoRecent,
+                        cmqVoIPCallActiveRxPredMosLqoBaseline,
+                        cmqVoIPCallActiveRxPredMosLqoMin,
+                        cmqVoIPCallActiveRxPredMosLqoNumWin,
+                        cmqVoIPCallActiveRxPredMosLqoBursts,
+                        cmqVoIPCallActiveRxPredMosLqoFrLoss,
+                        cmqVoIPCallActiveRxPredMosLqoVerID,
+                        cmqVoIPCallActiveTxCodecId,
+                        cmqVoIPCallActiveTxVadEnabled,
+                        cmqVoIPCallActiveTxTmrCallDur,
+                        cmqVoIPCallActiveTxTmrActSpeechDur,
+                        cmqVoIPCallActiveTxSignalLvl,
+                        cmqVoIPCallActiveTxNoiseFloor,
+                        cmqVoIPCallActiveCallReferenceId,
+                        cmqVoIPCallActiveRxCodecId,
+                        cmqCommonCallActiveNRConnectionId,
+                        cmqCommonCallActiveNRCallReferenceId,
+                        cmqCommonCallActiveNREnabledMic,
+                        cmqCommonCallActivePreNRNoiseFloorEstMic,
+                        cmqCommonCallActivePostNRNoiseFloorEstMic,
+                        cmqCommonCallActiveASPConnectionId,
+                        cmqCommonCallActiveASPCallReferenceId,
+                        cmqCommonCallActiveASPEnabledMic,
+                        cmqCommonCallActiveNumSigASPTriggMic,
+                        cmqCommonCallActiveTotNumASPTriggMic,
+                        cmqCommonCallActiveTotASPDurMic,
+                        cmqCommonCallActiveLongestDurEpiMic,
+                        cmqCommonCallActiveLoudestFreqEstForLongEpiMic,
+                        cmqCommonCallActiveDurSigASPTriggMic,
+                        cmqCommonCallActiveNREnabledEar,
+                        cmqCommonCallActiveNRDirEar,
+                        cmqCommonCallActiveNumSigASPTriggEar,
+                        cmqCommonCallActiveTotNumASPTriggEar,
+                        cmqCommonCallActiveTotASPDurEar,
+                        cmqCommonCallActiveLongestDurEpiEar,
+                        cmqCommonCallActiveLoudestFreqEstForLongEpiEar,
+                        cmqCommonCallActiveDurSigASPTriggEar,
+                        cmqCommonCallActiveNRDirMic,
+                        cmqCommonCallActiveNRLibVer,
+                        cmqCommonCallActiveNRIntensity,
+                        cmqCommonCallActiveASPDirMic,
+                        cmqCommonCallActiveASPMode,
+                        cmqCommonCallActiveASPVer,
+                        cmqCommonCallActiveNRCallType,
+                        cmqCommonCallActiveASPCallType,
+                        cmqCommonCallActivePreNRNoiseFloorEstEar,
+                        cmqCommonCallActivePostNRNoiseFloorEstEar,
+                        cmqCommonCallActiveASPEnabledEar,
+                        cmqCommonCallActiveASPDirEar
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects that provide voice quality
+        statistics for active voice calls."
+    ::= { ciscoMediaQualityMIBGroups 1 }
+
+cmqVoiceCallHistoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmqVoIPCallHistoryConnectionId,
+                        cmqVoIPCallHistoryRxCodecId,
+                        cmqVoIPCallHistoryRxSevConcealRatioPct,
+                        cmqVoIPCallHistoryRxCallConcealRatioPct,
+                        cmqVoIPCallHistoryRxPktLossRatioPct,
+                        cmqVoIPCallHistoryRxRoundTripTime,
+                        cmqVoIPCallHistoryRxCallDur,
+                        cmqVoIPCallHistoryRxVoiceDur,
+                        cmqVoIPCallHistoryRxPktLossConcealDur,
+                        cmqVoIPCallHistoryRxPktCntExpected,
+                        cmqVoIPCallHistoryRxPktCntNotArrived,
+                        cmqVoIPCallHistoryRxPktCntComfortNoise,
+                        cmqVoIPCallHistoryRxPktCntUnusableLate,
+                        cmqVoIPCallHistoryRxPktCntDiscarded,
+                        cmqVoIPCallHistoryRxPktCntEffLoss,
+                        cmqVoIPCallHistoryRxUnimpairedSecOK,
+                        cmqVoIPCallHistoryRxConcealSec,
+                        cmqVoIPCallHistoryRxSevConcealSec,
+                        cmqVoIPCallHistoryRxJBufMode,
+                        cmqVoIPCallHistoryRxJBufNomDelay,
+                        cmqVoIPCallHistoryRxJBufDlyNow,
+                        cmqVoIPCallHistoryRxJBufLowWater,
+                        cmqVoIPCallHistoryRxJBuffHiWater,
+                        cmqVoIPCallHistory3550JShortTermAvg,
+                        cmqVoIPCallHistory3550JCallAvg,
+                        cmqVoIPCallHistoryRxSignalLvl,
+                        cmqVoIPCallHistoryRxPred107Rscore,
+                        cmqVoIPCallHistoryRxPred107RMosListen,
+                        cmqVoIPCallHistoryRxPred107RScoreConv,
+                        cmqVoIPCallHistoryRxPred107RMosConv,
+                        cmqVoIPCallHistoryRxPred107CodecIeBase,
+                        cmqVoIPCallHistoryRxPred107CodecBPL,
+                        cmqVoIPCallHistoryRxPred107DefaultR0,
+                        cmqVoIPCallHistoryRxPred107IeEff,
+                        cmqVoIPCallHistoryRxPred107Idd,
+                        cmqVoIPCallHistoryRxPredMosLqoAvg,
+                        cmqVoIPCallHistoryRxPredMosLqoRecent,
+                        cmqVoIPCallHistoryRxPredMosLqoBaseline,
+                        cmqVoIPCallHistoryRxPredMosLqoMin,
+                        cmqVoIPCallHistoryRxPredMosLqoNumWin,
+                        cmqVoIPCallHistoryRxPredMosLqoBursts,
+                        cmqVoIPCallHistoryRxPredMosLqoFrLoss,
+                        cmqVoIPCallHistoryRxPredMosLqoVerID,
+                        cmqVoIPCallHistoryTxCodecId,
+                        cmqVoIPCallHistoryTxVadEnabled,
+                        cmqVoIPCallHistoryTxTmrCallDur,
+                        cmqVoIPCallHistoryTxTmrActSpeechDur,
+                        cmqVoIPCallHistoryTxSignalLvl,
+                        cmqVoIPCallHistoryTxNoiseFloor,
+                        cmqVoIPCallHistoryCallReferenceId,
+                        cmqCommonCallHistoryNRConnectionId,
+                        cmqCommonCallHistoryNRCallReferenceId,
+                        cmqCommonCallHistoryNREnabledMic,
+                        cmqCommonCallHistoryPreNRNoiseFloorEstMic,
+                        cmqCommonCallHistoryPostNRNoiseFloorEstMic,
+                        cmqCommonCallHistoryASPConnectionId,
+                        cmqCommonCallHistoryASPCallReferenceId,
+                        cmqCommonCallHistoryASPEnabledMic,
+                        cmqCommonCallHistoryNumSigASPTriggMic,
+                        cmqCommonCallHistoryDurSigASPTriggMic,
+                        cmqCommonCallHistoryTotNumASPTriggMic,
+                        cmqCommonCallHistoryTotASPDurMic,
+                        cmqCommonCallHistoryLongestDurEpiMic,
+                        cmqCommonCallHistoryLoudestFreqEstForLongEpiMic,
+                        cmqCommonCallHistoryPreNRNoiseFloorEstEar,
+                        cmqCommonCallHistoryPostNRNoiseFloorEstEar,
+                        cmqCommonCallHistoryNumSigASPTriggEar,
+                        cmqCommonCallHistoryDurSigASPTriggEar,
+                        cmqCommonCallHistoryTotNumASPTriggEar,
+                        cmqCommonCallHistoryTotASPDurEar,
+                        cmqCommonCallHistoryLongestDurEpiEar,
+                        cmqCommonCallHistoryLoudestFreqEstForLongEpiEar,
+                        cmqCommonCallHistoryNRDirMic,
+                        cmqCommonCallHistoryNRLibVer,
+                        cmqCommonCallHistoryNRIntensity,
+                        cmqCommonCallHistoryASPDirMic,
+                        cmqCommonCallHistoryASPMode,
+                        cmqCommonCallHistoryASPVer,
+                        cmqCommonCallHistoryNRCallType,
+                        cmqCommonCallHistoryASPCallType,
+                        cmqCommonCallHistoryNREnabledEar,
+                        cmqCommonCallHistoryNRDirEar,
+                        cmqCommonCallHistoryASPEnabledEar,
+                        cmqCommonCallHistoryASPDirEar
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects that provide voice quality
+        statistics for history voice calls."
+    ::= { ciscoMediaQualityMIBGroups 2 }
+
+cmqVideoCallActiveGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmqVideoCallActiveConnectionId,
+                        cmqVideoCallActiveCallReferenceId,
+                        cmqVideoCallActiveRxMOSInstant,
+                        cmqVideoCallActiveRxMOSAverage,
+                        cmqVideoCallActiveRxCompressDegradeInstant,
+                        cmqVideoCallActiveRxNetworkDegradeInstant,
+                        cmqVideoCallActiveRxTransscodeDegradeInstant,
+                        cmqVideoCallActiveRxCompressDegradeAverage,
+                        cmqVideoCallActiveRxNetworkDegradeAverage,
+                        cmqVideoCallActiveRxTransscodeDegradeAverage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects that provide video quality
+        statistics for active video calls."
+    ::= { ciscoMediaQualityMIBGroups 3 }
+
+cmqVideoCallHistoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmqVideoCallHistoryConnectionId,
+                        cmqVideoCallHistoryCallReferenceId,
+                        cmqVideoCallHistoryRxMOSAverage,
+                        cmqVideoCallHistoryRxCompressDegradeAverage,
+                        cmqVideoCallHistoryRxNetworkDegradeAverage,
+                        cmqVideoCallHistoryRxTransscodeDegradeAverage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects that provide video quality
+        statistics for history video calls."
+    ::= { ciscoMediaQualityMIBGroups 4 }
+
+END
+
+
+
+
+

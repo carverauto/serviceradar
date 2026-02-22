@@ -1,0 +1,539 @@
+-- *****************************************************************
+-- structure.my
+--   
+-- Copyright (c) 2005-2006, 2018 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+--   
+-- This MIB implements two tables.  The first table is for
+-- status and control of OOB Narrowband Digital Forward (NDF)
+-- channels and second table is for status and control of the
+-- OOB Narrowband Digital Return (NDR) channels  for
+-- Cisco RPHY architecture.
+
+RPHY-NDF-NDR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    MacAddress
+        FROM SNMPv2-TC
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+rphyNdfNdrMIB MODULE-IDENTITY
+    LAST-UPDATED    "201809250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "description"
+    REVISION        "201809180000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 857 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+rphyNdfNdrMIBNotifs  OBJECT IDENTIFIER
+    ::= { rphyNdfNdrMIB 0 }
+
+rphyNdfNdrMIBObjects  OBJECT IDENTIFIER
+    ::= { rphyNdfNdrMIB 1 }
+
+rphyNdfNdrMIBConform  OBJECT IDENTIFIER
+    ::= { rphyNdfNdrMIB 2 }
+
+
+docsRphyRpdDevNdfCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsRphyRpdDevNdfCfgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides OOB NDF channel's status and configuration
+        information, for example channel frequency, width, poweradjust,
+        admin status etc. This table also allows to enable or disable
+        the NDF channel's admin status."
+    ::= { rphyNdfNdrMIBObjects 1 }
+
+docsRphyRpdDevNdfCfgEntry OBJECT-TYPE
+    SYNTAX          DocsRphyRpdDevNdfCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains status and configuration information for a
+        single NDF Channel."
+    INDEX           {
+                        docsRphyRpdDevNdfUniqueId,
+                        docsRphyRpdDevNdfRfPort,
+                        docsRphyRpdDevNdfRfChannel
+                    } 
+    ::= { docsRphyRpdDevNdfCfgTable 1 }
+
+DocsRphyRpdDevNdfCfgEntry ::= SEQUENCE {
+        docsRphyRpdDevNdfUniqueId       MacAddress,
+        docsRphyRpdDevNdfRfPort         Unsigned32,
+        docsRphyRpdDevNdfRfChannel      Unsigned32,
+        docsRphyRpdDevNdfEnable         TruthValue,
+        docsRphyRpdDevNdfDstIPAddr      InetAddress,
+        docsRphyRpdDevNdfSrcIPAddr      InetAddress,
+        docsRphyRpdDevNdfSessionId      Unsigned32,
+        docsRphyRpdDevNdfFrequency      Unsigned32,
+        docsRphyRpdDevNdfBandwidth      Unsigned32,
+        docsRphyRpdDevNdfPowerAdjust    Integer32,
+        docsRphyRpdDevNdfRfMute         TruthValue,
+        docsRphyRpdDevNdfIsUnicast      TruthValue,
+        docsRphyRpdDevNdfRpdStatus      OCTET STRING,
+        docsRphyRpdDevNdfRpdInPktCount  Counter64,
+        docsRphyRpdDevNdfRpdOutPktCount Counter64
+}
+
+docsRphyRpdDevNdfUniqueId OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key attribute specifies a globally unique 6-byte
+        identifier for the RPD. By convention, an RPD SHOULD use the MAC
+        address of the lowest numbered Ethernet port facing the CIN." 
+    ::= { docsRphyRpdDevNdfCfgEntry 1 }
+
+docsRphyRpdDevNdfRfPort OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key attribute reports the RPD RF port number carrying this
+        NDF channel."
+    DEFVAL          { "" } 
+    ::= { docsRphyRpdDevNdfCfgEntry 2 }
+
+docsRphyRpdDevNdfRfChannel OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key attribute reports the NDF channel number."
+    DEFVAL          { "" } 
+    ::= { docsRphyRpdDevNdfCfgEntry 3 }
+
+docsRphyRpdDevNdfEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute indicates whether the NDF stream is enabled or
+        disabled. Also, using this attribute NDF stream can be enabled
+        or disabled." 
+    ::= { docsRphyRpdDevNdfCfgEntry 4 }
+
+docsRphyRpdDevNdfDstIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the Group IP address of the RPD
+        multicast NDF stream. When this filed is 0.0.0.0 or 0::0 (::)
+        then the NDF stream is a unicast NDF stream." 
+    ::= { docsRphyRpdDevNdfCfgEntry 5 }
+
+docsRphyRpdDevNdfSrcIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the IP address of the transmitter of the
+        L2TP stream." 
+    ::= { docsRphyRpdDevNdfCfgEntry 6 }
+
+docsRphyRpdDevNdfSessionId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the L2TP session ID of the NDF stream."
+    DEFVAL          { 0 } 
+    ::= { docsRphyRpdDevNdfCfgEntry 7 }
+
+docsRphyRpdDevNdfFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Hertz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the center frequency of the NDF
+        channel."
+    DEFVAL          { 0 } 
+    ::= { docsRphyRpdDevNdfCfgEntry 8 }
+
+docsRphyRpdDevNdfBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Hertz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the bandwidth of the NDF channel.
+        Channel widths supported for NDF are- Mode 0 : 80000Hz, Mode 1 :
+        160000Hz, Mode 2 : 320000Hz, Mode 3 : 640000Hz, Mode 4 :
+        1280000Hz, Mode 5 : 2560000Hz, Mode 6 : 5120000Hz, Mode 7 :
+        25600000Hz."
+    DEFVAL          { "" } 
+    ::= { docsRphyRpdDevNdfCfgEntry 9 }
+
+docsRphyRpdDevNdfPowerAdjust OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "TenthdB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute specifies power level adjustment for the NDF
+        channel relative to the base power level configured for the DS
+        RF port."
+    DEFVAL          { 0 } 
+    ::= { docsRphyRpdDevNdfCfgEntry 10 }
+
+docsRphyRpdDevNdfRfMute OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the current state of the RF output of
+        the NDF channel. When Rf-mute is set to TRUE, the output RF
+        signal is off. Similarly, when Rf-mute is set to FALSE, the
+        output RF signal is active." 
+    ::= { docsRphyRpdDevNdfCfgEntry 11 }
+
+docsRphyRpdDevNdfIsUnicast OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute indicates whether the NDF stream is unicast or
+        multicast. When Group-IP filed is 0.0.0.0 or 0::0 (::) then the
+        NDF stream is a unicast NDF stream." 
+    ::= { docsRphyRpdDevNdfCfgEntry 12 }
+
+docsRphyRpdDevNdfRpdStatus OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the string describing the current status
+        of the RPD i.e 'Online' or 'Offline'. For config modify to take
+        effect, the RPD status shoud be 'Online'." 
+    ::= { docsRphyRpdDevNdfCfgEntry 13 }
+
+docsRphyRpdDevNdfRpdInPktCount OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the number of packets received by the
+        RPD on a given NDF stream. RPD status should be 'Online' to get
+        the actual input packets count." 
+    ::= { docsRphyRpdDevNdfCfgEntry 14 }
+
+docsRphyRpdDevNdfRpdOutPktCount OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the number of packets transmitted by the
+        RPD. RPD status should be 'Online' to get the actual output
+        packets count." 
+    ::= { docsRphyRpdDevNdfCfgEntry 15 }
+ 
+
+
+docsRphyRpdDevNdrCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsRphyRpdDevNdrCfgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides OOB NDR channel's status and configuration
+        information, for example channel frequency, width, poweradjust,
+        admin status etc. This table also allows to enable or disable
+        the NDR channel's admin status."
+    ::= { rphyNdfNdrMIBObjects 2 }
+
+docsRphyRpdDevNdrCfgEntry OBJECT-TYPE
+    SYNTAX          DocsRphyRpdDevNdrCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains status and configuration information for a
+        single NDR Channel."
+    INDEX           {
+                        docsRphyRpdDevNdrUniqueId,
+                        docsRphyRpdDevNdrRfPort,
+                        docsRphyRpdDevNdrRfChannel
+                    } 
+    ::= { docsRphyRpdDevNdrCfgTable 1 }
+
+DocsRphyRpdDevNdrCfgEntry ::= SEQUENCE {
+        docsRphyRpdDevNdrUniqueId       MacAddress,
+        docsRphyRpdDevNdrRfPort         Unsigned32,
+        docsRphyRpdDevNdrRfChannel      Unsigned32,
+        docsRphyRpdDevNdrEnable         TruthValue,
+        docsRphyRpdDevNdrDstIPAddr      InetAddress,
+        docsRphyRpdDevNdrSrcIPAddr      InetAddress,
+        docsRphyRpdDevNdrSessionId      Unsigned32,
+        docsRphyRpdDevNdrFrequency      Unsigned32,
+        docsRphyRpdDevNdrBandwidth      Unsigned32,
+        docsRphyRpdDevNdrMtuSize        Unsigned32,
+        docsRphyRpdDevNdrPhb            Unsigned32,
+        docsRphyRpdDevNdrPowerAdjust    Integer32,
+        docsRphyRpdDevNdrRpdStatus      OCTET STRING,
+        docsRphyRpdDevNdrRpdInPktCount  Counter64,
+        docsRphyRpdDevNdrRpdOutPktCount Counter64
+}
+
+docsRphyRpdDevNdrUniqueId OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key attribute specifies a globally unique 6-byte
+        identifier for the RPD. By convention, an RPD SHOULD use the MAC
+        address of the lowest numbered Ethernet port facing the CIN." 
+    ::= { docsRphyRpdDevNdrCfgEntry 1 }
+
+docsRphyRpdDevNdrRfPort OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key attribute reports the RPD RF port number" 
+    ::= { docsRphyRpdDevNdrCfgEntry 2 }
+
+docsRphyRpdDevNdrRfChannel OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key attribute reports the NDR channel number." 
+    ::= { docsRphyRpdDevNdrCfgEntry 3 }
+
+docsRphyRpdDevNdrEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute indicates whether the NDR stream is enabled or
+        disabled. Also, using this attribute NDR stream can be enabled
+        or disabled." 
+    ::= { docsRphyRpdDevNdrCfgEntry 4 }
+
+docsRphyRpdDevNdrDstIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the IP address of the receiver of the
+        NDR L2TP stream." 
+    ::= { docsRphyRpdDevNdrCfgEntry 5 }
+
+docsRphyRpdDevNdrSrcIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the IP address of the RPD transmitting
+        the L2TP stream." 
+    ::= { docsRphyRpdDevNdrCfgEntry 6 }
+
+docsRphyRpdDevNdrSessionId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the L2TP session ID of the NDR stream." 
+    ::= { docsRphyRpdDevNdrCfgEntry 7 }
+
+docsRphyRpdDevNdrFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Hertz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the center frequency of the NDR
+        channel."
+    DEFVAL          { 0 } 
+    ::= { docsRphyRpdDevNdrCfgEntry 8 }
+
+docsRphyRpdDevNdrBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Hertz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the bandwidth of the NDR channel.Channel
+        widths supported for NDR are- Mode 0 : 80000Hz, Mode 1 :
+        160000Hz, Mode 2 : 320000Hz, Mode 3 : 640000Hz, Mode 4 :
+        1280000Hz, Mode 5 : 2560000Hz, Mode 6 : 5120000Hz."
+    DEFVAL          { "" } 
+    ::= { docsRphyRpdDevNdrCfgEntry 9 }
+
+docsRphyRpdDevNdrMtuSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the Maximum Transmission Unit or maximum
+        packet size for the L2TP stream." 
+    ::= { docsRphyRpdDevNdrCfgEntry 10 }
+
+docsRphyRpdDevNdrPhb OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the DSCP QOS value configured for a L2TP
+        packets. Default PHB is 0x0 means Best-Effort packet delivery."
+    DEFVAL          { 0 } 
+    ::= { docsRphyRpdDevNdrCfgEntry 11 }
+
+docsRphyRpdDevNdrPowerAdjust OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "TenthdBmV"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the desired target receive power
+        level adjust for the selected NDR channel from the base target
+        power reference level specified for the corresponding US RF
+        port. The value represents power spectral density and is
+        specified in units of TenthdB per 1.6 MHz of equivalent RF
+        spectrum. The channel’s target receive power is computed by
+        adding the value of this attribute to the value of base target
+        power reference level for the corresponding RF port. This object
+        specifies the commanded input power level for the NDR channel as
+        specified in [R-OOB]." 
+    ::= { docsRphyRpdDevNdrCfgEntry 12 }
+
+docsRphyRpdDevNdrRpdStatus OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the string describing the current status
+        of the RPD i.e 'Online' or 'Offline'. For config modify to take
+        effect, the RPD status shoud be 'Online'." 
+    ::= { docsRphyRpdDevNdrCfgEntry 13 }
+
+docsRphyRpdDevNdrRpdInPktCount OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the number of packets received by the
+        RPD on a given NDR stream. RPD status should be 'Online' to get
+        the actual input packets count." 
+    ::= { docsRphyRpdDevNdrCfgEntry 14 }
+
+docsRphyRpdDevNdrRpdOutPktCount OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute reports the number of packets transmitted by the
+        RPD. RPD status should be 'Online' to get the actual output
+        packets count." 
+    ::= { docsRphyRpdDevNdrCfgEntry 15 }
+ 
+
+
+-- Default Notification Type
+
+rphyNdfNdrMIBEventName NOTIFICATION-TYPE
+    STATUS          current
+    DESCRIPTION
+        "Test Notifiation Type"
+   ::= { rphyNdfNdrMIBNotifs 1 }
+rphyNdfNdrMIBCompliances  OBJECT IDENTIFIER
+    ::= { rphyNdfNdrMIBConform 1 }
+
+rphyNdfNdrMIBGroups  OBJECT IDENTIFIER
+    ::= { rphyNdfNdrMIBConform 2 }
+
+
+rphyNdfNdrMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        rphyNdfNdrMIBMainObjectGroup,
+                        rphyNdfNdrMIBNotificationGroup
+                    }
+    ::= { rphyNdfNdrMIBCompliances 1 }
+
+-- Units of Conformance
+
+rphyNdfNdrMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        docsRphyRpdDevNdfEnable,
+                        docsRphyRpdDevNdfDstIPAddr,
+                        docsRphyRpdDevNdfSrcIPAddr,
+                        docsRphyRpdDevNdfSessionId,
+                        docsRphyRpdDevNdfFrequency,
+                        docsRphyRpdDevNdfBandwidth,
+                        docsRphyRpdDevNdfPowerAdjust,
+                        docsRphyRpdDevNdfRfMute,
+                        docsRphyRpdDevNdfIsUnicast,
+                        docsRphyRpdDevNdfRpdStatus,
+                        docsRphyRpdDevNdfRpdInPktCount,
+                        docsRphyRpdDevNdfRpdOutPktCount,
+                        docsRphyRpdDevNdrEnable,
+                        docsRphyRpdDevNdrDstIPAddr,
+                        docsRphyRpdDevNdrSrcIPAddr,
+                        docsRphyRpdDevNdrSessionId,
+                        docsRphyRpdDevNdrFrequency,
+                        docsRphyRpdDevNdrBandwidth,
+                        docsRphyRpdDevNdrMtuSize,
+                        docsRphyRpdDevNdrPhb,
+                        docsRphyRpdDevNdrPowerAdjust,
+                        docsRphyRpdDevNdrRpdStatus,
+                        docsRphyRpdDevNdrRpdInPktCount,
+                        docsRphyRpdDevNdrRpdOutPktCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The is a test group."
+    ::= { rphyNdfNdrMIBGroups 1 }
+
+rphyNdfNdrMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { rphyNdfNdrMIBEventName }
+    STATUS          current
+    DESCRIPTION
+        "The is a test group."
+    ::= { rphyNdfNdrMIBGroups 2 }
+
+END
+
+

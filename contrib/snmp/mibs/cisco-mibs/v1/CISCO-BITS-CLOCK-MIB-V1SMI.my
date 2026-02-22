@@ -1,0 +1,269 @@
+-- MIB file created 22-Feb-2005 18:59:45, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-BITS-CLOCK-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-BITS-CLOCK-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    entPhysicalDescr, entPhysicalIndex
+            FROM ENTITY-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoBitsClockMIB OBJECT IDENTIFIER ::= { ciscoMgmt 459 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200501210000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems, Inc
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB provides information on Building Integrated 
+--     Timing Supply(BITS) clocking sources and modes of 
+--     operations.  It is used to generate notifications to
+--     indicate when clocking sources change roles or become
+--     unavailable. 
+--     
+--     GR-1233CORE sections 8.1.2 Major Alarms and
+--                          8.1.3 Critical Alarms
+--  RevDate
+--    200501210000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoBitsClockMIBNotifs OBJECT IDENTIFIER ::= { ciscoBitsClockMIB 0 }
+ciscoBitsClockMIBObjects OBJECT IDENTIFIER ::= { ciscoBitsClockMIB 1 }
+ciscoBitsClockMIBConform OBJECT IDENTIFIER ::= { ciscoBitsClockMIB 2 }
+ciscoBitsClockMIBCompliances OBJECT IDENTIFIER ::= { ciscoBitsClockMIBConform 1 }
+ciscoBitsClockMIBGroups OBJECT IDENTIFIER ::= { ciscoBitsClockMIBConform 2 }
+
+cBitsClkSourceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CBitsClkSourceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains one row per clock source and is a 
+         sparse augmentation of the entPhysicalTable.  This table
+         provides additional information for each entry of the
+         entPhysicalTable that acts as clock source."
+    ::= { ciscoBitsClockMIBObjects 1 }
+
+cBitsClkSourceEntry OBJECT-TYPE
+    SYNTAX CBitsClkSourceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about a particular clock source."
+    INDEX { entPhysicalIndex }
+    ::= { cBitsClkSourceTable 1 }
+
+CBitsClkSourceEntry ::= SEQUENCE {
+    cBitsClkSourceRoleAdmin INTEGER,
+    cBitsClkSourceRoleCurrent INTEGER,
+    cBitsClkSourceTimestamp TimeStamp,
+    cBitsClkSourceActiveSeconds Counter,
+    cBitsClkSourceInactiveSeconds Counter,
+    cBitsClkSourceDescription SnmpAdminString
+    }
+
+cBitsClkSourceRoleAdmin OBJECT-TYPE
+    SYNTAX INTEGER {
+        primary(1),
+        secondary(2),
+        tertiary(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the role of this clock source as defined by
+         system administrator. "
+    ::= { cBitsClkSourceEntry 1 }
+
+cBitsClkSourceRoleCurrent OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        unavailable(0),
+        primary(1),
+        secondary(2),
+        tertiary(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current role of BITS clock source. Also, indicates 
+         when clock source is unavailable. The 'unavailable' value 
+         indicates that the external source of clock signal has 
+         failed and indicates that this entry can not serve 
+         as clock source."
+    ::= { cBitsClkSourceEntry 2 }
+
+cBitsClkSourceTimestamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timestamp used it indicate when this clock source entered
+         the current role defined by cBitsClkSourceRoleCurrent 
+         object"
+    ::= { cBitsClkSourceEntry 3 }
+
+cBitsClkSourceActiveSeconds OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of seconds that this clock source was
+         active and able to serve role as specified as
+         cBitsClkSourceRoleCurrent object."
+    ::= { cBitsClkSourceEntry 4 }
+
+cBitsClkSourceInactiveSeconds OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of seconds that this clock source was
+         inactive and unable to serve role as specified as
+         cBitsClkSourceRoleCurrent object."
+    ::= { cBitsClkSourceEntry 5 }
+
+cBitsClkSourceDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This will provide description in addition to
+         entPhysicalDescr or ifDescr(if available) for the 
+         clock source."
+    ::= { cBitsClkSourceEntry 6 }
+
+cBitsClkNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The BITS clocking notification truth value.                
+        
+        'true'  Indicates that all notification contained within 
+                this MIB are to be generated.
+                
+        'false' Indicates that all notification contained within 
+                this MIB are disabled."
+    DEFVAL { false }
+    ::= { ciscoBitsClockMIBObjects 2 }
+
+ciscoBitsClockSource TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoBitsClockMIB
+    VARIABLES {
+        entPhysicalDescr, cBitsClkSourceDescription, 
+        cBitsClkSourceRoleAdmin, cBitsClkSourceRoleCurrent }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Indicates the clock source has switch roles as clock 
+         source as indicated by cBitsClkSourceRoleCurrent"
+    ::= 1
+
+ciscoBitsClockFreerun TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoBitsClockMIB
+    VARIABLES {
+        entPhysicalDescr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An external clock source is unavailable.  The internal 
+         clock will operate in freerun mode using appropiate 
+         local oscillator. Therefore, it does not provide 
+         synchronous clocking. This is the least stable of 
+         all operating modes."
+    ::= 2
+
+ciscoBitsClockHoldover TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoBitsClockMIB
+    VARIABLES {
+        entPhysicalDescr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An external clock source is unavailable. The internal 
+         clock will operate in holdover mode. The network clock 
+         module has stored information about the incoming clock
+         signal, it can faithfully reproduce the lost signal 
+         while in holdover mode until a switchover to 
+         another clock source occurs."
+    ::= 3
+
+ciscoBitsClockSourceGroup OBJECT IDENTIFIER ::= { ciscoBitsClockMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    BITS Clock Source Object Group
+--  objects
+--    cBitsClkSourceRoleAdmin, cBitsClkSourceRoleCurrent, 
+--    cBitsClkSourceTimestamp, cBitsClkSourceActiveSeconds, 
+--    cBitsClkSourceInactiveSeconds, cBitsClkSourceDescription, 
+--    cBitsClkNotifEnabled
+
+ciscoBitsClockNotifGroup OBJECT IDENTIFIER ::= { ciscoBitsClockMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    BITS Clock Source Notifications Group
+--  notifications
+--    ciscoBitsClockSource, ciscoBitsClockFreerun, 
+--    ciscoBitsClockHoldover
+
+ciscoBitsClockMIBCompliance OBJECT IDENTIFIER ::= { ciscoBitsClockMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--     the CISCO-BITS-CLOCK-MIB.my MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoBitsClockSourceGroup
+--   MandGroup
+--    ciscoBitsClockNotifGroup
+
+
+END
+

@@ -1,0 +1,121 @@
+-- MIB file created 27-Jun-2001 11:16:40, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+IANA-ADDRESS-FAMILY-NUMBERS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "IANA-ADDRESS-FAMILY-NUMBERS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1;
+
+ianaAddressFamilyNumbers OBJECT IDENTIFIER ::= { mib-2 72 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200009080000Z
+--  OrgName
+--    IANA
+--  ContactInfo
+--    Postal:    Internet Assigned Numbers Authority 
+--                Internet Corporation for Assigned Names 
+--                and Numbers 
+--                4676 Admiralty Way, Suite 330 
+--                Marina del Rey, CA 90292-6601 
+--                USA 
+--    
+--    Tel:    +1  310-823-9358 
+--    E-Mail: iana@iana.org
+--  Descr
+--    The MIB module defines the AddressFamilyNumbers 
+--    textual convention.
+--  RevDate
+--    200009080000Z
+--  RevDescr
+--    AddressFamilyNumbers assignments 19 to 
+--    xtpoveripv4, 20 to xtpoveripv6, and 21 to 
+--    xtpnativemodextp.
+--  RevDate
+--    200003010000Z
+--  RevDescr
+--    AddressFamilyNumbers assignment 17 to distinguishedname.  
+--    AddressFamilyNumbers assignment 18 to asnumber.
+--  RevDate
+--    200002040000Z
+--  RevDescr
+--    AddressFamilyNumbers assignment 16 to dns.
+--  RevDate
+--    9908260000Z
+--  RevDescr
+--    Initial version, for more explanation, see RFC 2677.
+
+AddressFamilyNumbers ::= INTEGER {
+        --?? enum value of zero may cause problems
+        other(0),
+        ipV4(1),
+        ipV6(2),
+        nsap(3),
+        hdlc(4),
+        bbn1822(5),
+        all802(6),
+        e163(7),
+        e164(8),
+        f69(9),
+        x121(10),
+        ipx(11),
+        appletalk(12),
+        decnetIV(13),
+        banyanVines(14),
+        e164withNsap(15),
+        dns(16),
+        distinguishedname(17),
+        asnumber(18),
+        xtpoveripv4(19),
+        xtpoveripv6(20),
+        xtpnativemodextp(21),
+        reserved(65535)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The definition of this textual convention with the 
+--    addition of newly assigned values is published 
+--    periodically by the IANA, in either the Assigned 
+--    Numbers RFC, or some derivative of it specific to 
+--    Internet Network Management number assignments. 
+--    (The latest arrangements can be obtained by 
+--    contacting the IANA.) 
+--    
+--    The enumerations are described as: 
+--    
+--    other(0),    == none of the following 
+--    ipV4(1),     == IP Version 4 
+--    ipV6(2),     == IP Version 6 
+--    nsap(3),     == NSAP 
+--    hdlc(4),     == (8-bit multidrop) 
+--    bbn1822(5), 
+--    all802(6),   == (includes all 802 media 
+--                 ==   plus Ethernet 'canonical format') 
+--    e163(7), 
+--    e164(8),     == (SMDS, Frame Relay, ATM) 
+--    f69(9),      == (Telex) 
+--    x121(10),    == (X.25, Frame Relay) 
+--    ipx(11),     == IPX (Internet Protocol Exchange) 
+--    appletalk(12),  == Apple Talk 
+--    decnetIV(13),   == DEC Net Phase IV 
+--    banyanVines(14),  == Banyan Vines 
+--    e164withNsap(15), 
+--                 == (E.164 with NSAP format subaddress) 
+--    dns(16),     == (Domain Name System) 
+--    distinguishedname(17), == (Distinguished Name, per X.500) 
+--    asnumber(18), == (16-bit quantity, per the AS number space) 
+--    reserved(65535) 
+--    
+--    
+--    Requests for new values should be made to IANA via 
+--    email (iana@iana.org).
+
+
+END
+

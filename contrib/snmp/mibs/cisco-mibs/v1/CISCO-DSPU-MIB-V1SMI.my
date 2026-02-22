@@ -1,0 +1,1813 @@
+-- MIB created 6/25/99 12:57:12, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-DSPU-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DSPU-MIB.my"
+
+IMPORTS
+    Counter32, Integer32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    DisplayString, MacAddress, TruthValue, TimeStamp, RowStatus
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoDspuMIB OBJECT IDENTIFIER ::= { ciscoMgmt 24 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9508150000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--      Customer Service
+--    
+--    Postal: 170 West Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    Used to define and manage DSPU objects.
+--  RevDate
+--    9512180000Z
+--  RevDescr
+--    Declare some Trap objects obsolete and create
+--    new Trap Objects to permit Trap generation.
+--  RevDate
+--    9508150000Z
+--  RevDescr
+--    Specify a correct (non-negative) range for several
+--    index objects.
+--  RevDate
+--    9501250000Z
+--  RevDescr
+--    Updated compliance/conformance information.
+
+dspuObjects     OBJECT IDENTIFIER ::= { ciscoDspuMIB 1 }
+dspuNode        OBJECT IDENTIFIER ::= { dspuObjects 1 }
+dspuPoolClass   OBJECT IDENTIFIER ::= { dspuObjects 2 }
+dspuPooledLu    OBJECT IDENTIFIER ::= { dspuObjects 3 }
+dspuPu          OBJECT IDENTIFIER ::= { dspuObjects 4 }
+dspuLu          OBJECT IDENTIFIER ::= { dspuObjects 5 }
+dspuSap         OBJECT IDENTIFIER ::= { dspuObjects 6 }
+dspuPuTraps     OBJECT IDENTIFIER ::= { dspuPu 4 }
+dspuPuTrapsPrefix OBJECT IDENTIFIER ::= { dspuPuTraps 0 }
+dspuLuTraps     OBJECT IDENTIFIER ::= { dspuLu 3 }
+dspuLuTrapsPrefix OBJECT IDENTIFIER ::= { dspuLuTraps 0 }
+dspuSapTraps    OBJECT IDENTIFIER ::= { dspuSap 2 }
+ciscoDspuMIBConformance OBJECT IDENTIFIER ::= { ciscoDspuMIB 2 }
+ciscoDspuMIBCompliances OBJECT IDENTIFIER ::= { ciscoDspuMIBConformance 1 }
+ciscoDspuMIBGroups OBJECT IDENTIFIER ::= { ciscoDspuMIBConformance 2 }
+
+dspuNodeRsrb OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "RSRB feature enabled/disabled for the DSPU node.
+           TRUE  -> RSRB feature enabled
+           FALSE -> RSRB feature disabled
+        
+         If the RSRB feature is enabled, the following object 
+           values must be valid (i.e. non-zero):
+             - dspuNodeRsrbLocalVirtualRing
+             - dspuNodeRsrbBridgeNumber
+             - dspuNodeRsrbTargetVirtualRing
+             - dspuNodeRsrbVirtualMacAddress"
+    DEFVAL { false }
+    ::= { dspuNode 1 }
+
+dspuNodeRsrbLocalVirtualRing OBJECT-TYPE
+    SYNTAX INTEGER(0..4096)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Local virtual ring number used by the DSPU node.
+         LocalVirtualRing is zero if RSRB is not enabled."
+    ::= { dspuNode 2 }
+
+dspuNodeRsrbBridgeNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..15)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Bridge number connecting the DSPU LocalVirtualRing 
+           with the RSRB TargetVirtualRing.
+        
+         Currently, the only valid BridgeNumber supported is 1.
+        
+         BridgeNumber must be one if RSRB is enabled.
+         BridgeNumber is zero if RSRB is not enabled."
+    ::= { dspuNode 3 }
+
+dspuNodeRsrbTargetVirtualRing OBJECT-TYPE
+    SYNTAX INTEGER(0..4096)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Target virtual ring number used for RSRB.
+         TargetVirtualRing is zero if RSRB is not enabled."
+    ::= { dspuNode 4 }
+
+dspuNodeRsrbVirtualMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Virtual MAC address of the the DSPU node.
+         VirtualMacAddress is zero if RSRB is not enabled."
+    ::= { dspuNode 5 }
+
+dspuNodeDefaultPu OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Default-PU feature enabled/disabled for the DSPU node.
+           TRUE  -> Default-PU feature enabled
+           FALSE -> Default-PU feature disabled"
+    DEFVAL { false }
+    ::= { dspuNode 6 }
+
+dspuNodeDefaultPuWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(1..127)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Send/receive window size to be used across the link 
+           between the default-PU and a remote PU."
+    DEFVAL { 7 }
+    ::= { dspuNode 7 }
+
+dspuNodeDefaultPuMaxIframe OBJECT-TYPE
+    SYNTAX INTEGER(64..18432)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum size of an I-frame that can be transmitted/received 
+           across the link between the default-PU and a remote PU."
+    DEFVAL { 1472 }
+    ::= { dspuNode 8 }
+
+dspuNodeActivationWindow OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Activation pacing window used by the DSPU node to limit 
+           the number of activation RUs sent for a given SAP before 
+           waiting for responses from the remote."
+    DEFVAL { 10 }
+    ::= { dspuNode 9 }
+
+dspuNodeLastConfigChgTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Timestamp of last change to DSPU configuration parameters.
+         LastConfigChgTime reflects any change in DSPU configuration."
+    ::= { dspuNode 10 }
+
+dspuPoolClassTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuPoolClassEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing defined pool classes for the DSPU node.
+        
+         A pool class is defined at the DSPU node as a pool 
+           of upstream LUs that may be shared among downstream PUs.
+        
+         Each entry in the table represents a separate 
+           pool class definition.
+        
+         Entries in the table may not be created/deleted;
+           however, values in existing entries may be modified.
+        
+         Pool classes are created when an existing LU is 
+           defined as a member of the pool class."
+    ::= { dspuPoolClass 1 }
+
+dspuPoolClassEntry OBJECT-TYPE
+    SYNTAX DspuPoolClassEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a defined pool class."
+    INDEX { dspuPoolClassIndex }
+    ::= { dspuPoolClassTable 1 }
+
+DspuPoolClassEntry ::= SEQUENCE {
+    dspuPoolClassIndex Integer32(0..2147483647),
+    dspuPoolClassName DisplayString,
+    dspuPoolClassInactivityTimeout INTEGER,
+    dspuPoolClassOperUpStreamLuDefs Integer32,
+    dspuPoolClassOperDnStreamLuDefs Integer32
+    }
+
+dspuPoolClassIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index of a pool class entry in the dspuPoolClassTable."
+    ::= { dspuPoolClassEntry 1 }
+
+dspuPoolClassName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..10))
+--    Rsyntax OCTET STRING(SIZE(0..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name identifier of the pool class."
+    ::= { dspuPoolClassEntry 2 }
+
+dspuPoolClassInactivityTimeout OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Value (in minutes) of the inactivity timeout that 
+           will be applied to active LU sessions assigned 
+           from the pool class. 
+        
+         The inactivity timeout feature for pooled LUs is 
+           disabled if the InactivityTimeout value is zero."
+    DEFVAL { 0 }
+    ::= { dspuPoolClassEntry 3 }
+
+dspuPoolClassOperUpStreamLuDefs OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of upstream LUs defined in the pool class."
+    ::= { dspuPoolClassEntry 4 }
+
+dspuPoolClassOperDnStreamLuDefs OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of downstream LUs defined in the pool class."
+    ::= { dspuPoolClassEntry 5 }
+
+dspuPooledLuTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuPooledLuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing all LUs defined in a specified pool class.
+        
+         The entries in the table provide information such that
+           the downstream LUs in the pool can be correlated with 
+           the upstream LUs to which they may be assigned 
+           and vice versa.
+        
+         If all upstream LUs have been assigned, 
+           downstream LUs may be waiting for assignment.
+        
+         If there are no downstream LUs waiting for assignment,
+           upstream LUs may be unassigned."
+    ::= { dspuPooledLu 1 }
+
+dspuPooledLuEntry OBJECT-TYPE
+    SYNTAX DspuPooledLuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents an LU that is defined 
+           as a member of the specified pool class."
+    INDEX { dspuPoolClassIndex, dspuPuOperIndex, dspuLuOperLuLocalAddress }
+    ::= { dspuPooledLuTable 1 }
+
+DspuPooledLuEntry ::= SEQUENCE {
+    dspuPooledLuPeerPuIndex Integer32,
+    dspuPooledLuPeerLuLocalAddress INTEGER
+    }
+
+dspuPooledLuPeerPuIndex OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Index (dspuPuOperIndex) of the peer PU that owns 
+           the peer LU.  
+         PeerPuIndex is zero if peer LU has not been assigned."
+    ::= { dspuPooledLuEntry 1 }
+
+dspuPooledLuPeerLuLocalAddress OBJECT-TYPE
+    SYNTAX INTEGER(0..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "NAU address (dspuLuOperLuLocalAddress) of the peer LU.
+         PeerLuLocalAddress is zero if peer LU has not been assigned."
+    ::= { dspuPooledLuEntry 2 }
+
+dspuPuAdminTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuPuAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing all defined upstream/downstream PUs 
+           that are owned by the DSPU node.
+        
+        NOTE: The dspuPuAdminTable does not include default 
+              downstream PUs that may be dynamically created."
+    ::= { dspuPu 1 }
+
+dspuPuAdminEntry OBJECT-TYPE
+    SYNTAX DspuPuAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a defined upstream/downstream PU."
+    INDEX { dspuPuAdminIndex }
+    ::= { dspuPuAdminTable 1 }
+
+DspuPuAdminEntry ::= SEQUENCE {
+    dspuPuAdminIndex Integer32(0..2147483647),
+    dspuPuAdminName DisplayString,
+    dspuPuAdminType INTEGER,
+    dspuPuAdminRemoteMacAddress MacAddress,
+    dspuPuAdminRemoteSapAddress INTEGER,
+    dspuPuAdminLocalSapAddress INTEGER,
+    dspuPuAdminXid Integer32,
+    dspuPuAdminXidFmt INTEGER,
+    dspuPuAdminWindowSize INTEGER,
+    dspuPuAdminMaxIframe INTEGER,
+    dspuPuAdminLinkRetryCount INTEGER,
+    dspuPuAdminLinkRetryTimeout INTEGER,
+    dspuPuAdminStartPu TruthValue,
+    dspuPuAdminDlcType INTEGER,
+    dspuPuAdminDlcUnit INTEGER,
+    dspuPuAdminDlcPort INTEGER,
+    dspuPuAdminFocalPoint TruthValue,
+    dspuPuAdminRowStatus RowStatus,
+    dspuPuAdminRemoteAddress DisplayString
+    }
+
+dspuPuAdminIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index of the PU entry in the dspuPuAdminTable."
+    ::= { dspuPuAdminEntry 1 }
+
+dspuPuAdminName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..8))
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the PU."
+    ::= { dspuPuAdminEntry 2 }
+
+dspuPuAdminType OBJECT-TYPE
+    SYNTAX INTEGER {
+        upstreamPu(1),
+        dnstreamPu(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "PU Type is either upstream or downstream."
+    ::= { dspuPuAdminEntry 3 }
+
+dspuPuAdminRemoteMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "MAC address of the remote PU."
+    ::= { dspuPuAdminEntry 4 }
+
+dspuPuAdminRemoteSapAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SAP address of the remote PU."
+    DEFVAL { 4 }
+    ::= { dspuPuAdminEntry 5 }
+
+dspuPuAdminLocalSapAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SAP address of the local PU."
+    DEFVAL { 8 }
+    ::= { dspuPuAdminEntry 6 }
+
+dspuPuAdminXid OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Upstream PU : XID that will be sent to the remote PU.
+         Dnstream PU : XID that must be received from the remote PU."
+    ::= { dspuPuAdminEntry 7 }
+
+dspuPuAdminXidFmt OBJECT-TYPE
+    SYNTAX INTEGER {
+        formatUnknown(1),
+        format0(2),
+        format3(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Type of XID format used during activation of the link 
+           between this dspuNode and the remote PU."
+    DEFVAL { format3 }
+    ::= { dspuPuAdminEntry 8 }
+
+dspuPuAdminWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(1..127)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Send/Receive window size to be used across the link 
+           between this dspuNode and the remote PU."
+    DEFVAL { 7 }
+    ::= { dspuPuAdminEntry 9 }
+
+dspuPuAdminMaxIframe OBJECT-TYPE
+    SYNTAX INTEGER(64..18432)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum size of an I-frame that can be transmitted/received 
+           across the link between this dspuNode and the remote PU."
+    DEFVAL { 1472 }
+    ::= { dspuPuAdminEntry 10 }
+
+dspuPuAdminLinkRetryCount OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times that the DSPU node will attempt to activate 
+           the link between the dspuNode and the remote PU."
+    DEFVAL { 4 }
+    ::= { dspuPuAdminEntry 11 }
+
+dspuPuAdminLinkRetryTimeout OBJECT-TYPE
+    SYNTAX INTEGER(1..600)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Value (in seconds) for the delay between link activation 
+           attempts between the dspuNode and the remote PU."
+    DEFVAL { 30 }
+    ::= { dspuPuAdminEntry 12 }
+
+dspuPuAdminStartPu OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Attempt link activation with the remote PU.
+           TRUE  -> Attempt link activation with remote PU.
+           FALSE -> Do not attempt link activation with remote PU."
+    DEFVAL { false }
+    ::= { dspuPuAdminEntry 13 }
+
+dspuPuAdminDlcType OBJECT-TYPE
+    SYNTAX INTEGER {
+        undefined(1),
+        sdlc(2),
+        ethernet(5),
+        tokenRing(6),
+        rsrb(8),
+        framerelay(9),
+        fddi(10),
+        qllc(11)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DLC type used by the dspuNode for link activation 
+           with the remote PU."
+    ::= { dspuPuAdminEntry 14 }
+
+dspuPuAdminDlcUnit OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DLC unit used by the dspuNode for link activation
+           with the remote PU."
+    ::= { dspuPuAdminEntry 15 }
+
+dspuPuAdminDlcPort OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DLC port used by the dspuNode for link activation 
+           with the remote PU."
+    ::= { dspuPuAdminEntry 16 }
+
+dspuPuAdminFocalPoint OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "PU serves as a focal point for alert forwarding.
+           TRUE  -> PU serves as focal point
+           FALSE -> PU does not serve as focal point
+        
+         Only an upstream PU may be defined as a focal point.
+        
+         Downstream PUs can never be defined as a focal point;
+           FocalPoint is always FALSE for downstream PUs.
+        
+         The DSPU node may define only one upstream PU as
+           a focal point PU."
+    DEFVAL { false }
+    ::= { dspuPuAdminEntry 17 }
+
+dspuPuAdminRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used by a Management Station to create or delete the row 
+           entry in the dspuPuAdminTable following the RowStatus 
+           textual convention.
+        
+         Upon successful creation of the row, an Agent automatically 
+           creates a corresponding entry in the dspuPuOperTable.
+        
+         The Management Station can set the value to 'destroy (6)' 
+           and the Agent will then delete the rows corresponding 
+           to this PU from the dspuPuAdminTable and dspuPuOperTable."
+    ::= { dspuPuAdminEntry 18 }
+
+dspuPuAdminRemoteAddress OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..20))
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Poll address, DLCI, or subscriber address 
+         associated with the remote PU."
+    ::= { dspuPuAdminEntry 19 }
+
+dspuPuOperTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuPuOperEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing all active upstream/downstream PUs
+           that are owned by the DSPU node (including default PUs).
+        
+        NOTE: In addition to the explicitly defined PUs from 
+              the dspuPuAdminTable, the dspuPuOperTable also includes 
+              default downstream PUs that may be dynamically created."
+    ::= { dspuPu 2 }
+
+dspuPuOperEntry OBJECT-TYPE
+    SYNTAX DspuPuOperEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents an active upstream/downstream PU."
+    INDEX { dspuPuOperIndex }
+    ::= { dspuPuOperTable 1 }
+
+DspuPuOperEntry ::= SEQUENCE {
+    dspuPuOperIndex Integer32(0..2147483647),
+    dspuPuOperName DisplayString,
+    dspuPuOperType INTEGER,
+    dspuPuOperRemoteMacAddress MacAddress,
+    dspuPuOperRemoteSapAddress INTEGER,
+    dspuPuOperLocalSapAddress INTEGER,
+    dspuPuOperXid Integer32,
+    dspuPuOperXidFmt INTEGER,
+    dspuPuOperWindowSize INTEGER,
+    dspuPuOperMaxIframe INTEGER,
+    dspuPuOperLinkRetryCount INTEGER,
+    dspuPuOperLinkRetryTimeout INTEGER,
+    dspuPuOperStartPu TruthValue,
+    dspuPuOperDlcType INTEGER,
+    dspuPuOperDlcUnit INTEGER,
+    dspuPuOperDlcPort INTEGER,
+    dspuPuOperFocalPoint TruthValue,
+    dspuPuOperState INTEGER,
+    dspuPuOperFsmState INTEGER,
+    dspuPuOperStartTime TimeStamp,
+    dspuPuOperLastStateChgTime TimeStamp,
+    dspuPuOperRemoteAddress DisplayString
+    }
+
+dspuPuOperIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index of the PU entry in dspuPuOperTable."
+    ::= { dspuPuOperEntry 1 }
+
+dspuPuOperName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..8))
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the PU."
+    ::= { dspuPuOperEntry 2 }
+
+dspuPuOperType OBJECT-TYPE
+    SYNTAX INTEGER {
+        upstreamPu(1),
+        dnstreamPu(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "PU type is either upstream or downstream."
+    ::= { dspuPuOperEntry 3 }
+
+dspuPuOperRemoteMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MAC address of the remote PU."
+    ::= { dspuPuOperEntry 4 }
+
+dspuPuOperRemoteSapAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "SAP address of the remote PU."
+    DEFVAL { 4 }
+    ::= { dspuPuOperEntry 5 }
+
+dspuPuOperLocalSapAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "SAP address of the local PU."
+    DEFVAL { 8 }
+    ::= { dspuPuOperEntry 6 }
+
+dspuPuOperXid OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Upstream PU : XID that was sent to the remote PU.
+         Dnstream PU : XID that was received from the remote PU."
+    ::= { dspuPuOperEntry 7 }
+
+dspuPuOperXidFmt OBJECT-TYPE
+    SYNTAX INTEGER {
+        formatUnknown(1),
+        format0(2),
+        format3(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of XID format used during activation of the link 
+           between this dspuNode and the remote PU."
+    ::= { dspuPuOperEntry 8 }
+
+dspuPuOperWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(1..127)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Send/Receive window size to be used across the link 
+           between this dspuNode and the remote PU."
+    DEFVAL { 7 }
+    ::= { dspuPuOperEntry 9 }
+
+dspuPuOperMaxIframe OBJECT-TYPE
+    SYNTAX INTEGER(64..18432)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum size of an I-frame that can be transmitted/received 
+           across the link between this dspuNode and the remote PU."
+    DEFVAL { 1472 }
+    ::= { dspuPuOperEntry 10 }
+
+dspuPuOperLinkRetryCount OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times that the DSPU node will attempt to activate 
+           the link between the dspuNode and the remote PU."
+    DEFVAL { 4 }
+    ::= { dspuPuOperEntry 11 }
+
+dspuPuOperLinkRetryTimeout OBJECT-TYPE
+    SYNTAX INTEGER(1..600)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Value (in seconds) for the delay between link activation 
+           attempts between the dspuNode and the remote PU."
+    DEFVAL { 30 }
+    ::= { dspuPuOperEntry 12 }
+
+dspuPuOperStartPu OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Attempt link activation with the remote PU.
+           TRUE  -> Attempt link activation with remote PU.
+           FALSE -> Do not attempt link activation with remote PU."
+    DEFVAL { false }
+    ::= { dspuPuOperEntry 13 }
+
+dspuPuOperDlcType OBJECT-TYPE
+    SYNTAX INTEGER {
+        undefined(1),
+        sdlc(2),
+        ethernet(5),
+        tokenRing(6),
+        rsrb(8),
+        framerelay(9),
+        fddi(10),
+        qllc(11)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "DLC type used by the dspuNode for link activation 
+           with the remote PU."
+    ::= { dspuPuOperEntry 14 }
+
+dspuPuOperDlcUnit OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "DLC unit used by the dspuNode for link activation 
+           with the remote PU."
+    ::= { dspuPuOperEntry 15 }
+
+dspuPuOperDlcPort OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "DLC port used by the dspuNode for link activation 
+           with the remote PU."
+    ::= { dspuPuOperEntry 16 }
+
+dspuPuOperFocalPoint OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "PU serves as a focal point for alert forwarding.
+           TRUE  -> PU serves as focal point
+           FALSE -> PU does not serve as focal point
+        
+         Only an upstream PU may be defined as a focal point.
+        
+         Downstream PUs can never be defined as a focal point;
+           FocalPoint is always FALSE for downstream PUs.
+        
+         The DSPU node may define only one upstream PU as
+           a focal point PU."
+    DEFVAL { false }
+    ::= { dspuPuOperEntry 17 }
+
+dspuPuOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        inactive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational state of PU is either active or inactive."
+    ::= { dspuPuOperEntry 18 }
+
+dspuPuOperFsmState OBJECT-TYPE
+    SYNTAX INTEGER {
+        linkReset(1),
+        linkPendConnOut(2),
+        linkPendConnIn(3),
+        linkPendXid(4),
+        linkXidNeg(5),
+        linkConnOut(6),
+        linkConnIn(7),
+        linkConnected(8),
+        puPendAct(9),
+        puActive(10),
+        puBusy(11),
+        puPendInact(12),
+        linkPendDisc(13),
+        linkPendClose(14)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current FSM state of the PU as follows:
+           linkReset
+             - Link is in reset state - not connected
+           linkPendConnOut
+             - Pending ConnectOut to establish link
+           linkPendConnIn
+             - Pending ConnectIn to establish link
+           linkPendXid
+             - Pending XID negotiation on the link
+           linkXidNeg
+             - XID negotiation proceeding on link
+           linkConnOut
+             - ConnectOut link activation
+           linkConnIn
+             - ConnectIn link activation
+           linkConnected
+             - Link connected, PU inactive
+           puPendAct
+             - Link connected, PU pending activation
+           puActive
+             - Link connected, PU active
+           puBusy
+             - Link connected, PU busy
+           puPendInact
+             - Link connected, PU pending deactivation
+           linkPendDisc
+             - Pending disconnect of link
+           linkPendClose
+             - Pending close of link station"
+    ::= { dspuPuOperEntry 19 }
+
+dspuPuOperStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Timestamp of PU activation (when ACTPU +rsp received)."
+    ::= { dspuPuOperEntry 20 }
+
+dspuPuOperLastStateChgTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "TimeStamp of last PU state change between active<->inactive."
+    ::= { dspuPuOperEntry 21 }
+
+dspuPuOperRemoteAddress OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..20))
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Poll address, DLCI, or subscriber address 
+         associated with the remote PU."
+    ::= { dspuPuOperEntry 22 }
+
+dspuPuStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuPuStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing the statistics recorded for each PU."
+    ::= { dspuPu 3 }
+
+dspuPuStatsEntry OBJECT-TYPE
+    SYNTAX DspuPuStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents an active upstream/downstream PU
+           and has a corresponding entry in the dspuPuOperTable."
+    INDEX { dspuPuOperIndex }
+    ::= { dspuPuStatsTable 1 }
+
+DspuPuStatsEntry ::= SEQUENCE {
+    dspuPuStatsSentBytes Counter32,
+    dspuPuStatsRcvdBytes Counter32,
+    dspuPuStatsSentFrames Counter32,
+    dspuPuStatsRcvdFrames Counter32,
+    dspuPuStatsSentNegativeRsps Counter32,
+    dspuPuStatsRcvdNegativeRsps Counter32,
+    dspuPuStatsActiveLus Counter32,
+    dspuPuStatsInactiveLus Counter32,
+    dspuPuStatsBindLus Counter32,
+    dspuPuStatsActivationFailures Counter32,
+    dspuPuStatsLastActivationFailureReason INTEGER
+    }
+
+dspuPuStatsSentBytes OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes sent by this PU."
+    ::= { dspuPuStatsEntry 1 }
+
+dspuPuStatsRcvdBytes OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes received by this PU."
+    ::= { dspuPuStatsEntry 2 }
+
+dspuPuStatsSentFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames sent by this PU."
+    ::= { dspuPuStatsEntry 3 }
+
+dspuPuStatsRcvdFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames received by this PU."
+    ::= { dspuPuStatsEntry 4 }
+
+dspuPuStatsSentNegativeRsps OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of negative responses sent by this PU."
+    ::= { dspuPuStatsEntry 5 }
+
+dspuPuStatsRcvdNegativeRsps OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of negative responses received by this PU."
+    ::= { dspuPuStatsEntry 6 }
+
+dspuPuStatsActiveLus OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of active LUs on this PU 
+           (LU becomes active when ACTLU +rsp received)."
+    ::= { dspuPuStatsEntry 7 }
+
+dspuPuStatsInactiveLus OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of inactive LUs on this PU 
+           (LU is inactive until ACTLU rq or ACTLU +rsp received)."
+    ::= { dspuPuStatsEntry 8 }
+
+dspuPuStatsBindLus OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of LUs on this PU which are active-in-session.
+           (LU is active-in-session when BIND rq received)"
+    ::= { dspuPuStatsEntry 9 }
+
+dspuPuStatsActivationFailures OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of activation failures for this PU."
+    ::= { dspuPuStatsEntry 10 }
+
+dspuPuStatsLastActivationFailureReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        noError(1),
+        otherError(2),
+        internalError(3),
+        configurationError(4),
+        puNegativeResponse(5),
+        puAlreadyActive(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reason for last activation failure of this PU as follows:
+           noError
+             - No PU activation failure has been detected
+           otherError
+             - Undefined error detected during PU activation
+           internalError
+             - Internal resources error detected during PU activation
+           configurationError
+             - PU configuration error - PU could not be activated
+           puNegativeResponse
+             - Negative ACTPU response received from remote PU
+           puAlreadyActive
+             - PU is already active"
+    ::= { dspuPuStatsEntry 11 }
+
+dspuLuAdminTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuLuAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing all LUs owned by the PU.
+        
+        NOTE: The dspuLuAdminTable does not include LUs owned by 
+              default downstream PUs that may be dynamically created."
+    ::= { dspuLu 1 }
+
+dspuLuAdminEntry OBJECT-TYPE
+    SYNTAX DspuLuAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a defined LU owned by the PU."
+    INDEX { dspuPuAdminIndex, dspuLuAdminLuLocalAddress }
+    ::= { dspuLuAdminTable 1 }
+
+DspuLuAdminEntry ::= SEQUENCE {
+    dspuLuAdminLuLocalAddress INTEGER,
+    dspuLuAdminType INTEGER,
+    dspuLuAdminPoolClassName DisplayString,
+    dspuLuAdminPeerPuIndex Integer32,
+    dspuLuAdminPeerLuLocalAddress INTEGER,
+    dspuLuAdminRowStatus RowStatus
+    }
+
+dspuLuAdminLuLocalAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "NAU address of the local LU."
+    ::= { dspuLuAdminEntry 1 }
+
+dspuLuAdminType OBJECT-TYPE
+    SYNTAX INTEGER {
+        pooled(1),
+        dedicated(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "LU type is either pooled or dedicated."
+    ::= { dspuLuAdminEntry 2 }
+
+dspuLuAdminPoolClassName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..10))
+--    Rsyntax OCTET STRING(SIZE(0..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Pool class to which the LU is defined as a member.
+         The dspuLuAdminPoolClassName is valid for pooled LUs only."
+    ::= { dspuLuAdminEntry 3 }
+
+dspuLuAdminPeerPuIndex OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "For downstream LUs, the PeerPuIndex identifies 
+           the upstream PU that owns the upstream LU to
+           which this downstream LU is assigned.
+        
+         For upstream LUs, the PeerPuIndex identifies
+           the downstream PU that owns the downstream LU
+           to which this upstream LU is assigned.
+        
+         The PeerPuIndex is valid for dedicated LUs only;
+           otherwise, the PeerPuIndex is zero."
+    ::= { dspuLuAdminEntry 4 }
+
+dspuLuAdminPeerLuLocalAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "For downstream LUs, the PeerLuLocalAddress identifies
+           the NAU address of the upstream LU to which this
+           downstream LU is assigned.
+        
+         For upstream LUs, the PeerLuLocalAddress identifies
+           the NAU address of the downstream LU to which this
+           upstream LU is assigned.
+        
+         The PeerLuLocalAddress is valid for dedicated LUs only;
+           otherwise, the PeerLuLocalAddress is zero."
+    ::= { dspuLuAdminEntry 5 }
+
+dspuLuAdminRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used by a Management Station to create or delete the row 
+           entry in the dspuLuAdminTable following the RowStatus 
+           textual convention.
+        
+         Upon successful creation of the row, an Agent automatically 
+           creates a corresponding entry in the dspuLuOperTable.
+        
+         The Management Station can set the value to 'destroy (6)' 
+           and the Agent will then delete the rows corresponding to 
+           this LU from the dspuLuAdminTable and the dspuLuOperTable."
+    ::= { dspuLuAdminEntry 6 }
+
+dspuLuOperTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuLuOperEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing all LUs owned by the PU.
+        
+        NOTE: In addition to the LUs owned by explicitly defined PUs 
+              from the dspuLuAdminTable, the dspuLuOperTable also 
+              includes the LUs owned by default downstream PUs 
+              that may be dynamically created."
+    ::= { dspuLu 2 }
+
+dspuLuOperEntry OBJECT-TYPE
+    SYNTAX DspuLuOperEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a defined LU owned by the PU."
+    INDEX { dspuPuOperIndex, dspuLuOperLuLocalAddress }
+    ::= { dspuLuOperTable 1 }
+
+DspuLuOperEntry ::= SEQUENCE {
+    dspuLuOperLuLocalAddress INTEGER,
+    dspuLuOperType INTEGER,
+    dspuLuOperPoolClassName DisplayString,
+    dspuLuOperPeerPuIndex Integer32,
+    dspuLuOperPeerLuLocalAddress INTEGER,
+    dspuLuOperState INTEGER,
+    dspuLuOperFsmState INTEGER,
+    dspuLuOperSessionState INTEGER,
+    dspuLuOperLastActivationFailureReason INTEGER
+    }
+
+dspuLuOperLuLocalAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "NAU address of the local LU."
+    ::= { dspuLuOperEntry 1 }
+
+dspuLuOperType OBJECT-TYPE
+    SYNTAX INTEGER {
+        pooled(1),
+        dedicated(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "LU type is either pooled or dedicated."
+    ::= { dspuLuOperEntry 2 }
+
+dspuLuOperPoolClassName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..10))
+--    Rsyntax OCTET STRING(SIZE(0..10))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Pool class to which the LU is defined as a member.
+         The dspuLuOperPoolClassName is valid for pooled LUs only."
+    ::= { dspuLuOperEntry 3 }
+
+dspuLuOperPeerPuIndex OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For downstream LUs, the PeerPuIndex identifies 
+           the upstream PU that owns the upstream LU to
+           which this downstream LU is assigned.
+        
+         For upstream LUs, the PeerPuIndex identifies
+           the downstream PU that owns the downstream LU
+           to which this upstream LU is assigned.
+        
+         If PeerPuIndex is zero, the LU is a pooled LU and has
+           not been assigned a peer LU from the pool."
+    ::= { dspuLuOperEntry 4 }
+
+dspuLuOperPeerLuLocalAddress OBJECT-TYPE
+    SYNTAX INTEGER(0..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For downstream LUs, the PeerLuLocalAddress identifies
+           the NAU address of the upstream LU to which this
+           downstream LU is assigned.
+        
+         For upstream LUs, the PeerLuLocalAddress identifies
+           the NAU address of the downstream LU to which this
+           upstream LU is assigned.
+        
+         If the PeerLuLocalAddress is zero, the LU is a pooled LU 
+           and has not been assigned a peer LU from the pool."
+    ::= { dspuLuOperEntry 5 }
+
+dspuLuOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        inactive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational state of LU is either active or inactive."
+    ::= { dspuLuOperEntry 6 }
+
+dspuLuOperFsmState OBJECT-TYPE
+    SYNTAX INTEGER {
+        reset(1),
+        dnLuStarted(2),
+        upLuActive(3),
+        dnLuPendAct(4),
+        dnLuActUnav(5),
+        upLuPendAvail(6),
+        bothAvail(7),
+        dnLuPendInact(8),
+        upLuPendInact(9),
+        luInactivityTimeout(10),
+        dnInactivityPendInact(11)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current FSM state of the LU as follows:
+           reset
+             - neither dnLu or upLu active
+           dnLuStarted
+             - dnLu active, upLu inactive
+           upLuActive
+             - upLu active, dnLu inactive
+           dnLuPendAct
+             - dnLu pending activation, upLu active-unavailable
+           dnLuActUnav
+             - dnLu active-unavailable, upLu active-available
+           upLuPendAvail
+             - upLu pending-available
+           bothAvail
+             - both upLu and dnLu active-available
+           dnLuPendInact
+             - dnLu pending inactive
+           upLuPendInact
+             - upLu pending inactive
+           luInactivityTimeout
+             - inactivity Timeout on LU-to-LU session
+           dnInactivityPendInact
+             - dnLu pending inactive from inactivity timeout"
+    ::= { dspuLuOperEntry 7 }
+
+dspuLuOperSessionState OBJECT-TYPE
+    SYNTAX INTEGER {
+        bound(1),
+        unbound(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational state of LU session is either bound or unbound."
+    ::= { dspuLuOperEntry 8 }
+
+dspuLuOperLastActivationFailureReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        noError(1),
+        otherError(2),
+        luNegativeResponse(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reason for last activation failure of this PU as follows:
+           noError
+             - No LU activation failure has been detected
+           otherError
+             - Undefined error detected during LU activation
+           luNegativeResponse
+             - Negative ACTLU response received from remote LU"
+    ::= { dspuLuOperEntry 9 }
+
+dspuSapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DspuSapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table listing the SAPs that are enabled for the DSPU node."
+    ::= { dspuSap 1 }
+
+dspuSapEntry OBJECT-TYPE
+    SYNTAX DspuSapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents an enabled SAP for the DSPU node."
+    INDEX { dspuSapDlcType, dspuSapDlcUnit, dspuSapDlcPort, dspuSapAddress }
+    ::= { dspuSapTable 1 }
+
+DspuSapEntry ::= SEQUENCE {
+    dspuSapAddress INTEGER,
+    dspuSapType INTEGER,
+    dspuSapDlcType INTEGER,
+    dspuSapDlcUnit INTEGER,
+    dspuSapDlcPort INTEGER,
+    dspuSapOperState INTEGER,
+    dspuSapRowStatus RowStatus
+    }
+
+dspuSapAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..254)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "SAP address of the local SAP."
+    ::= { dspuSapEntry 1 }
+
+dspuSapType OBJECT-TYPE
+    SYNTAX INTEGER {
+        upstreamSap(1),
+        dnstreamSap(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Local SAP type is either upstreamSap or downstreamSap."
+    ::= { dspuSapEntry 2 }
+
+dspuSapDlcType OBJECT-TYPE
+    SYNTAX INTEGER {
+        undefined(1),
+        sdlc(2),
+        ethernet(5),
+        tokenRing(6),
+        rsrb(8),
+        framerelay(9),
+        fddi(10),
+        qllc(11)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "DLC type of the adapter that owns the local SAP."
+    ::= { dspuSapEntry 3 }
+
+dspuSapDlcUnit OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "DLC unit of the adapter that owns the local SAP."
+    ::= { dspuSapEntry 4 }
+
+dspuSapDlcPort OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "DLC port of the adapter that owns the local SAP."
+    ::= { dspuSapEntry 5 }
+
+dspuSapOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        sapClosed(1),
+        sapOpening(2),
+        sapOpened(3),
+        sapClosing(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational state of the local SAP as follows:
+           - sapClosed
+           - sapOpening
+           - sapOpened
+           - sapClosing"
+    ::= { dspuSapEntry 6 }
+
+dspuSapRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by a Management Station to create
+           or delete the row entry in the dspuSapTable following
+           the RowStatus textual convention.
+        
+         The Management Station can set the value to 'destroy (6)' 
+           and the Agent will then delete the rows corresponding to 
+           this SAP from the dspuSapTable. 
+        
+         The local SAP address is enabled on the specified adapter
+           when a row entry in the dspuSapTable is created."
+    ::= { dspuSapEntry 7 }
+
+-- dspuPuStateChangeTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+--     ENTERPRISE dspuPuTraps
+--     VARIABLES {
+--         dspuPuOperName, dspuPuOperState }
+--  Status
+--    obsolete
+--      DESCRIPTION
+--         "Generated when the operational state 
+--           of the PU changes between active<- ->inactive.
+--         
+--          The following information is returned:
+--            dspuPuOperName  -> PU name
+--            dspuPuOperState -> Current operational state of the PU"
+--     ::= 1
+
+-- dspuPuActivationFailureTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+--     ENTERPRISE dspuPuTraps
+--     VARIABLES {
+--         dspuPuOperName, dspuPuOperState, 
+--         dspuPuStatsLastActivationFailureReason }
+--  Status
+--    obsolete
+--     DESCRIPTION
+--         "Generated whenever a PU activation failure is detected.
+--         
+--          The following information is returned:
+--            dspuPuOperName
+--              -> PU name
+--            dspuPuOperState 
+--              -> Current operational state of the PU
+--           dspuPuStatsLastActivationFailureReason
+--             -> Reason for PU activation failure"
+--     ::= 2
+
+newdspuPuStateChangeTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE dspuPuTraps
+    VARIABLES {
+        dspuPuOperName, dspuPuOperState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Generated when the operational state 
+           of the PU changes between active<-->inactive.
+        
+         The following information is returned:
+           dspuPuOperName  -> PU name
+           dspuPuOperState -> Current operational state of the PU"
+    ::= 1
+
+newdspuPuActivationFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE dspuPuTraps
+    VARIABLES {
+        dspuPuOperName, dspuPuOperState, 
+        dspuPuStatsLastActivationFailureReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Generated whenever a PU activation failure is detected.
+        
+         The following information is returned:
+           dspuPuOperName
+             -> PU name
+           dspuPuOperState 
+             -> Current operational state of the PU
+          dspuPuStatsLastActivationFailureReason
+            -> Reason for PU activation failure"
+    ::= 2
+
+-- dspuLuStateChangeTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+--     ENTERPRISE dspuLuTraps
+--     VARIABLES {
+--         dspuPuOperName, dspuLuOperLuLocalAddress, dspuLuOperState }
+--  Status
+--    obsolete
+--     DESCRIPTION
+--         "Generated when the operational state 
+--            of the PU changes between active<- ->inactive.
+--         
+--         The following information is returned:
+--           dspuPuOperName 
+--             -> PU name
+--           dspuLuOperLuLocalAddress 
+--             -> NAU address of LU
+--           dspuLuOperState  
+--             -> Current operational state of the LU"
+--     ::= 1
+
+newdspuLuStateChangeTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE dspuLuTraps
+    VARIABLES {
+        dspuPuOperName, dspuLuOperState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Generated when the operational state 
+           of the LU changes between active<-->inactive.
+        
+        The following information is returned:
+          dspuPuOperName 
+            -> PU name
+          dspuLuOperState  
+            -> Current operational state of the LU"
+    ::= 1
+
+dspuLuActivationFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE dspuLuTraps
+    VARIABLES {
+        dspuPuOperName, dspuLuOperState, 
+        dspuLuOperLastActivationFailureReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Generated whenever an LU activation failure is detected.
+        
+         The following information is returned:
+           dspuPuOperName
+             -> PU name
+           dspuLuOperState 
+             -> Current operational state of the LU
+           dspuLuOperLastActivationFailureReason
+             ->  Reason for LU activation failure"
+    ::= 2
+
+dspuSapStateChangeTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE dspuSapTraps
+    VARIABLES {
+        dspuSapDlcType, dspuSapDlcUnit, dspuSapDlcPort, 
+        dspuSapAddress, dspuSapOperState }
+--  Status
+--    obsolete
+    DESCRIPTION
+        "Generated when the operational state of the SAP changes
+        between 'open' or 'closed'.
+        
+        The following information is returned:
+          dspuSapOperDlcType
+            -> DLC type of the adapter on which SAP is located
+          dspuSapOperDlcUnit
+            -> Unit ID of the adapter on which SAP is located
+          dspuSapOperDlcPort
+            -> Port ID of the adapter on which SAP is located
+          dspuSapOperAddress
+            -> SAP address
+          dspuSapOperState
+            -> Current operational state of the SAP"
+    ::= 1
+
+dspuNodeGroup OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Global DSPU node information
+--  objects
+--    dspuNodeRsrb, dspuNodeRsrbLocalVirtualRing, 
+--    dspuNodeRsrbBridgeNumber, dspuNodeRsrbTargetVirtualRing, 
+--    dspuNodeRsrbVirtualMacAddress, dspuNodeDefaultPu, 
+--    dspuNodeDefaultPuWindowSize, dspuNodeDefaultPuMaxIframe, 
+--    dspuNodeActivationWindow, dspuNodeLastConfigChgTime
+
+dspuPoolClassGroup OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    LU pool class information
+--  objects
+--    dspuPoolClassName, dspuPoolClassInactivityTimeout, 
+--    dspuPoolClassOperUpStreamLuDefs, 
+--    dspuPoolClassOperDnStreamLuDefs
+
+dspuPooledLuGroup OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Pooled LU information
+--  objects
+--    dspuPooledLuPeerPuIndex, dspuPooledLuPeerLuLocalAddress
+
+dspuPuGroup OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    Upstream/Downstream PU node information
+--  objects
+--    dspuPuAdminName, dspuPuAdminType, dspuPuAdminRemoteMacAddress, 
+--    dspuPuAdminRemoteSapAddress, dspuPuAdminLocalSapAddress, 
+--    dspuPuAdminXid, dspuPuAdminXidFmt, dspuPuAdminWindowSize, 
+--    dspuPuAdminMaxIframe, dspuPuAdminLinkRetryCount, 
+--    dspuPuAdminLinkRetryTimeout, dspuPuAdminStartPu, 
+--    dspuPuAdminDlcType, dspuPuAdminDlcUnit, dspuPuAdminDlcPort, 
+--    dspuPuAdminFocalPoint, dspuPuAdminRowStatus, dspuPuOperName, 
+--    dspuPuOperType, dspuPuOperRemoteMacAddress, 
+--    dspuPuOperRemoteSapAddress, dspuPuOperLocalSapAddress, 
+--    dspuPuOperXid, dspuPuOperXidFmt, dspuPuOperWindowSize, 
+--    dspuPuOperMaxIframe, dspuPuOperLinkRetryCount, 
+--    dspuPuOperLinkRetryTimeout, dspuPuOperStartPu, 
+--    dspuPuOperDlcType, dspuPuOperDlcUnit, dspuPuOperDlcPort, 
+--    dspuPuOperFocalPoint, dspuPuOperState, dspuPuOperFsmState, 
+--    dspuPuOperStartTime, dspuPuOperLastStateChgTime, 
+--    dspuPuStatsSentBytes, dspuPuStatsRcvdBytes, 
+--    dspuPuStatsSentFrames, dspuPuStatsRcvdFrames, 
+--    dspuPuStatsSentNegativeRsps, dspuPuStatsRcvdNegativeRsps, 
+--    dspuPuStatsActiveLus, dspuPuStatsInactiveLus, 
+--    dspuPuStatsBindLus, dspuPuStatsActivationFailures, 
+--    dspuPuStatsLastActivationFailureReason
+
+dspuLuGroup OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    Upstream/Downstream LU information
+--  objects
+--    dspuLuAdminType, dspuLuAdminPoolClassName, 
+--    dspuLuAdminPeerPuIndex, dspuLuAdminPeerLuLocalAddress, 
+--    dspuLuAdminRowStatus, dspuLuOperType, dspuLuOperPoolClassName, 
+--    dspuLuOperPeerPuIndex, dspuLuOperPeerLuLocalAddress, 
+--    dspuLuOperState, dspuLuOperFsmState, dspuLuOperSessionState
+
+dspuSapGroup OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Local SAP information
+--  objects
+--    dspuSapType, dspuSapOperState, dspuSapRowStatus
+
+dspuPuGroupV11R01 OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Upstream/Downstream PU node information
+--  objects
+--    dspuPuAdminName, dspuPuAdminType, dspuPuAdminRemoteMacAddress, 
+--    dspuPuAdminRemoteSapAddress, dspuPuAdminLocalSapAddress, 
+--    dspuPuAdminXid, dspuPuAdminXidFmt, dspuPuAdminWindowSize, 
+--    dspuPuAdminMaxIframe, dspuPuAdminLinkRetryCount, 
+--    dspuPuAdminLinkRetryTimeout, dspuPuAdminStartPu, 
+--    dspuPuAdminDlcType, dspuPuAdminDlcUnit, dspuPuAdminDlcPort, 
+--    dspuPuAdminFocalPoint, dspuPuAdminRowStatus, 
+--    dspuPuAdminRemoteAddress, dspuPuOperName, dspuPuOperType, 
+--    dspuPuOperRemoteMacAddress, dspuPuOperRemoteSapAddress, 
+--    dspuPuOperLocalSapAddress, dspuPuOperXid, dspuPuOperXidFmt, 
+--    dspuPuOperWindowSize, dspuPuOperMaxIframe, 
+--    dspuPuOperLinkRetryCount, dspuPuOperLinkRetryTimeout, 
+--    dspuPuOperStartPu, dspuPuOperDlcType, dspuPuOperDlcUnit, 
+--    dspuPuOperDlcPort, dspuPuOperFocalPoint, dspuPuOperState, 
+--    dspuPuOperFsmState, dspuPuOperStartTime, 
+--    dspuPuOperLastStateChgTime, dspuPuOperRemoteAddress, 
+--    dspuPuStatsSentBytes, dspuPuStatsRcvdBytes, 
+--    dspuPuStatsSentFrames, dspuPuStatsRcvdFrames, 
+--    dspuPuStatsSentNegativeRsps, dspuPuStatsRcvdNegativeRsps, 
+--    dspuPuStatsActiveLus, dspuPuStatsInactiveLus, 
+--    dspuPuStatsBindLus, dspuPuStatsActivationFailures, 
+--    dspuPuStatsLastActivationFailureReason
+
+dspuLuGroupV11R01 OBJECT IDENTIFIER ::= { ciscoDspuMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Upstream/Downstream LU information
+--  objects
+--    dspuLuAdminType, dspuLuAdminPoolClassName, 
+--    dspuLuAdminPeerPuIndex, dspuLuAdminPeerLuLocalAddress, 
+--    dspuLuAdminRowStatus, dspuLuOperType, dspuLuOperPoolClassName, 
+--    dspuLuOperPeerPuIndex, dspuLuOperPeerLuLocalAddress, 
+--    dspuLuOperState, dspuLuOperFsmState, dspuLuOperSessionState, 
+--    dspuLuOperLastActivationFailureReason
+
+ciscoDspuMIBCompliance OBJECT IDENTIFIER ::= { ciscoDspuMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for the SNMPv2 entities
+--    which implement the Cisco DSPU MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    dspuNodeGroup
+--   MandGroup
+--    dspuPoolClassGroup
+--   MandGroup
+--    dspuPooledLuGroup
+--   MandGroup
+--    dspuPuGroup
+--   MandGroup
+--    dspuLuGroup
+--   MandGroup
+--    dspuSapGroup
+
+ciscoDspuMIBComplianceV11R01 OBJECT IDENTIFIER ::= { ciscoDspuMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMPv2 entities
+--    which implement the Cisco DSPU MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    dspuNodeGroup
+--   MandGroup
+--    dspuPoolClassGroup
+--   MandGroup
+--    dspuPooledLuGroup
+--   MandGroup
+--    dspuPuGroupV11R01
+--   MandGroup
+--    dspuLuGroupV11R01
+--   MandGroup
+--    dspuSapGroup
+
+
+END
+

@@ -1,0 +1,1726 @@
+Changes in MIB support on the Catalyst 6000 and 6500 series switches
+from Cisco IOS Software release to release running on the Supervisor. 
+If not specifically mentioned, the implementation is the same as the previous 
+software release.
+
+Last updated 10/16/2013. The full MIB support list is available at
+http://www.cisco.com/public/mibs/supportlists/wsc6000/wsc6000-supportlist-ios.html
+
+----------------------------------------------------------------------------------
+Changes in Cisco IOS Software version 15.1(2)SY:
+
+      CISCO-CAT6K-CROSSBAR-MIB
+           - Add the following MIB groups support
+             -- cc6kxbarStatisticsLbusDropGroup
+
+      CISCO-ERR-DISABLE-MIB
+           - Add the following MIB groups support
+             -- ciscoErrDisableFeatureFlapGroup
+           - Add the following enum values support for cErrDisableFeatureConfigurable
+             -- flapControl(4)
+
+      CISCO-POWER-ETHERNET-EXT-MIB
+           - Add the following MIB groups support
+             -- cpeExtPsePortLldpPowerGroup
+
+      CISCO-STP-EXTENSIONS-MIB
+           - Add the following enum values support for stpxFastStartPortMode
+             -- network(5)
+
+      CISCO-SWITCH-FABRIC-MIB (New)
+
+      CISCO-SWITCH-STATS-MIB
+           - Add the following MIB groups support
+             -- ciscoSwitchStatsLayer3Group
+             -- ciscoSwitchStatsLayer3ExtGroup
+             -- ciscoSwitchStatsTotalGroup
+             -- ciscoSwitchStatsRewriteEngineStatsGroup
+
+      CISCO-VTP-MIB
+           - Add the following MIB groups support
+             -- vtpSourceInterfaceGroup
+             -- vtpConfigFileGroup
+             -- vtpVlanLocalShutdownGroup
+             -- vtpLocalUpdaterGroup
+             -- vtpDeviceIdGroup
+
+Changes in Cisco IOS Software version 15.1(1)SY1:
+
+      CISCO-CALLHOME-MIB
+           - Add the following MIB groups support
+             -- ccmHttpProxyServerGroup
+             -- ccmUserDefCmdGroup
+             -- ccmCallHomePeriodicMinutesGroup
+             -- ccmOnDemandCliMsgGroup
+             -- ccmCallHomeDiagSignatureGroup
+             -- ccmCallHomeSecurityLevelGroup
+             -- ccmCallHomeAnonymousReportingGroup
+             -- ccmCallHomeAaaGroup
+
+      CISCO-POWER-ETHERNET-EXT-MIB
+           - Add the following MIB groups support
+             -- cpeExtPowerPriorityGroup
+             -- cpeExtPsePortLldpGroup
+             -- cpeExtPsePortCapabilitiesGroup
+           - Add the following enum values support for cpeExtPdStatsClass
+             -- class4(6)
+
+      CISCO-SWITCH-CEF-MIB (New)
+
+      CISCO-SWITCH-ENGINE-MIB
+           - Add the following MIB groups support 
+             -- cseStatisticsFlowGroup1
+
+      CISCO-TRUSTSEC-INTERFACE-MIB
+           - Add the following MIB groups support 
+             -- ciscoTrustSecIfMIBNotifsCtrlGrp
+             -- ciscoTrustSecIfMIBNotifsOnlyInfoGrp
+             -- ciscoTrustSecIfMIBNotifsGrp
+
+      CISCO-TRUSTSEC-SXP-MIB
+           - Add the following MIB groups support
+             -- ctsxSxpBindingLogGroup
+             -- ctsxSxpBindingNotifInfoGroup
+             -- ctsxSxpNotifErrMsgGroup
+             -- ctsxSxpNodeIdInfoGroup
+             -- ctsxSxpSgtMapGroup
+             -- ctsxNotifsControlGroup
+             -- ctsxNotifsGroup
+             -- ctsxSxpGlobalHoldTimeGroup
+             -- ctsxSxpConnHoldTimeGroup
+             -- ctsxSxpConnCapbilityGroup
+             -- ctsxSxpVersionSupportGroup
+             -- ctsxSgtMapPeerSeqGroup
+
+      CISCO-VIRTUAL-SWITCH-MIB
+           - Add the following MIB groups support
+             -- cvsCoreSwitchLocationGroup,
+             -- cvsDualActiveDetectionNotifsControlGroup,
+             -- cvsDualActiveDetectionNotifsInfoGroup,
+             -- cvsDualActiveDetectionNotifsGroup
+
+Changes in Cisco IOS Software version 15.1(1)SY1(from 12.2(33)SXJ):
+
+      CISCO-TRUSTSEC-MIB (New)
+
+      CISCO-TRUSTSEC-SERVER-MIB (New)
+
+      CISCO-TRUSTSEC-POLICY-MIB (New)
+
+Changes in Cisco IOS Software version 15.1(1)SY1(from 15.0(1)SY1):
+
+      CISCO-AUTH-FRAMEWORK-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cafMacMoveConfigGroup
+             -- cafCoACommandConfigGroup
+
+      CISCO-PORT-STORM-CONTROL-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cpscStatusGroup
+             -- cpscNotificationGroupRev1
+             -- cpscNotifConfigurationGroup
+
+      CISCO-TRUSTSEC-MIB
+           - Add the following MIB groups support
+             -- ciscoTrustSecSwKeystoreNotifsInfoGroup
+             -- ciscoTrustSecSwKeystoreNotifsControlGroup
+             -- ciscoTrustSecSwKeystoreNotifsGroup
+             -- ciscoTrustSecFileErrNotifsInfoGroup
+             -- ciscoTrustSecNotifsMessageStringInfoGroup
+             -- ciscoTrustSecCacheFileNotifsControlGroup
+             -- ciscoTrustSecCacheFileNotifsGroup
+             -- ciscoTrustSecCtrDrbgNotifsControlGroup
+             -- ciscoTrustSecCtrDrbgNotifsGroup
+
+      CISCO-TRUSTSEC-POLICY-MIB
+           - Add the following MIB groups support 
+             -- ctspNotifCtrlGroup
+             -- ctspNotifGroup
+             -- ctspNotifInfoGroup
+             -- ctspIfSgtMappingGroup
+             -- ctspVlanSgtMappingGroup
+             -- ctspSgtCachingGroup
+             -- ctspSgaclMonitorGroup
+             -- ctspSgaclMonitorStatisticGroup
+
+      CISCO-TRUSTSEC-SERVER-MIB
+           - Add the following MIB groups support 
+             -- ciscoTrustSecServerMIBKeyWrapGroup
+             -- ciscoTrustSecServerMIBNotifsCtrlGroup
+             -- ciscoTrustSecServerMIBNotifsGroup
+             -- ciscoTrustSecServerMIBNotifsOnlyInfoGroup
+
+      IEEE8021-PAE-MIB
+           - Add the following MIB groups support
+             -- dot1xPaeSuppStatsGroup2
+
+
+Changes in Cisco IOS Software version 15.0(1)SY1:
+
+      CISCO-HW-MODULE-CONTROL-MIB Enhancement
+           - Add the following MIB groups support
+             -- ciscoHmcMIBOperModeGroup
+
+      CISCO-INTERFACE-TOPN-EXT-MIB Enhancement
+           - Add the following enum values support for citneInterfaceTopNInterfaceType  
+             -- fortyGigaEthernet(9)
+
+      CISCO-UDLDP-MIB Enhancement (IOS images only)
+           - Add the following MIB groups support
+             -- ciscoUdldpFastHelloGroup
+             -- ciscoUdldpFastHelloNotificationGroup
+
+Changes in Cisco IOS Software version 15.0(1)SY (from 12.2(50)SY):
+
+      CISCO-DHCP-SNOOPING-MIB Enhancement
+           - Add the following MIB groups support
+             -- cdsVlanOperStatusGroup
+
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+           - Add the following MIB groups support
+             -- cefcFRUPowerRealTimeStatusGroup
+             -- cefcFRUPowerCapabilityGroup
+             -- cefcFRUCoolingUnitGroup
+             -- cefcFRUFanCoolingUnitGroup
+             -- cefcCoolingGroup2
+             -- cefcFanCoolingGroup
+
+      CISCO-ERR-DISABLE-MIB Enhancement
+           - Add the following enum value support for CErrDisableFeatureID:
+             -- tranceiverIncomp(35)
+
+      CISCO-HW-MODULE-CONTROL-MIB (New)
+
+      CISCO-LAG-MIB Enhancement  
+           - Add the following enum values support for ClagDistributionProtocol
+             -- vlanIpPort(4)
+             -- vlanIp(5)
+             -- ipPort(6)
+
+      CISCO-PAGP-MIB Enhancement 
+           - Add the following enum values support for pagpDistributionProtocol
+             -- vlanIpPort(4)
+             -- vlanIp(5)
+             -- ipPort(6)
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+           - Add the following enum value support for cseTcamResourceType:
+             -- dgtSgtRegion(31)
+             -- anyAnyRegion(32)
+             -- tcamALabel(33)
+             -- tcamBLabel(34)
+             -- destInfoIn(35)
+             -- destInfoOut(36)
+
+      CISCO-SWITCH-HARDWARE-CAPACITY-MIB Enhancement  
+           - Add the following MIB groups support
+             -- cshcFibTcamUsageExtGroup
+           - Add the following enum values support for cshcCPURateLimiterNetworkLayer
+             -- layer2Input(3)
+             -- layer2Output(4)
+
+      CISCO-SWITCH-QOS-MIB Enhancement  
+           - Add the following MIB groups support
+             -- ciscoSwitchQosModuleClassChangedGroup
+             -- ciscoSwitchQosTenGOnlyModeGroup
+             -- ciscoSwitchQosIfQueueModeGroup
+             -- ciscoSwitchQosIfQueueSchedulingGroup
+             -- ciscoSwitchQosIfQueueingGroup
+             -- ciscoSwitchQosIfLanQueuingGroup
+             -- ciscoSwitchQosIfQueueBufferGroup
+
+      CISCO-TRUSTSEC-SXP-MIB Enhancement
+           - Add the following MIB groups support
+             -- ctsxSxpVersionGroup
+
+      CISCO-TRUSTSEC-MIB Enhancement
+           - Add the following MIB groups support
+             -- ciscoTrustSecEnvSecGroupNameGroup
+
+      CISCO-VIRTUAL-SWITCH-MIB Enhancement
+           - Add the following MIB groups support
+             -- cvsVssModuleStandbyGroup
+             -- cvsVSLStatisticsExtGroup
+
+      CISCO-VLAN-GROUP-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cvgConfigTableSizeGroup
+
+      CISCO-VTP-MIB Enhancement
+           - Add the following MIB groups support
+             -- vlanTrunkPortActiveVlansGroup
+             -- vtpTrunkPruningGroup3
+             -- vtpConfigNotificationsGroup8
+
+      IANA-MAU-MIB (New)
+
+      MAU-MIB Enhancement (RFC4836)
+           - Add the following enum values support for ifJackType
+             -- cx4(15)
+           - Add the following OIDs supports for ifMauType & ifMauDefaultType
+             -- dot3MauType100BaseBX10D
+             -- dot3MauType1000BaseBX10D
+             -- dot3MauType100BaseBX10U
+             -- dot3MauType1000BaseBX10U
+             -- dot3MauType10GbaseLRM
+             -- dot3MauType10GbaseT
+           - Add the following enum value support for ifMauTypeListBits:
+             -- e10GbaseT(54)
+           - Add the following enum value support for ifMauAutoNegCapBits:
+             -- b10GbaseT(16)
+
+      Q-BRIDGE-MIB Enhancement
+           - Add the following MIB groups support 
+             - qBridgeFdbUnicastGroup
+
+Changes in Cisco IOS Software version 12.2(50)SY (from 12.2(33)SXI4):
+
+      CISCO-BRIDGE-EXT-MIB Enhancement
+           - Add the following MIB groups support 
+             - cbeDot1dOperVlanGroup
+
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cc6kxbarErrRcvryThresholdGroup,
+             -- cc6kxbarErrRcvrySwitchoverGroup,
+             -- cc6kxbarErrRcvryPersLinkResGroup,
+             -- cc6kxbarErrRcvryChResyncGroup
+
+      CISCO-CALLHOME-MIB Enhancement
+           - Add the following MIB groups support 
+             -- ccmMessageSourceGroup
+      
+      CISCO-CEF-MIB (New)
+
+      CISCO-DATA-COLLECTION-MIB (New)
+
+      CISCO-ENTITY-DIAG-MIB Enhancement
+           - Add the following MIB groups support 
+             -- ceDiagHMTestThreshWindowGroup
+
+      CISCO-ENTITY-DISPLAY-MIB Enhancement
+           - Add the following MIB groups support 
+             -- ceDisplayBeaconGroup
+
+      CISCO-ENTITY-SENSOR-MIB Enhancement
+           - Add the following MIB groups support 
+             -- entitySensorValueGroupSup1
+             -- entitySensorNotifCtrlGlobalGroup
+
+      CISCO-IGMP-SNOOPING-MIB Enhancement 
+           - Add the following MIB groups support for the switch with DFC4
+             -- BaseConfigGroup
+             -- cisGlobalIgmpV3ConfigGroup
+             -- cisGlobalIgmpV3InfoGroup
+             -- cisExtConfig1Group
+             -- cisExtConfig2Group
+             -- cisGlobalTcnGroup
+             -- cisStatsGroup
+             -- cisV3StatsGroup
+             -- cisVlanConfigGroup
+             -- cisL2EntryLimitGroup,
+             -- cisTrackingLimitGroup,
+             -- cisSourceOnlyLimitGroup,
+             -- cisIgmpQuerierConfigGroup,
+             -- cisIgmpQuerierInfoGroup,
+             -- cisRateLimitGroup2,
+             -- cisVlanConfigGroup2,
+             -- cisSourceOnlyAgeTimerInSecGroup,
+             -- cisMulticastGroupInfoGroup,
+             -- cisMulticastGroupPortInfoGroup,
+             -- cisMulticastGroupConfigGroup,
+             -- cisMulticastRouterConfigGroup,
+             -- cisLeaveQueryConfigGroup,
+             -- cisQuerierGlobalConfigGroup,
+             -- cisIgmpQuerierConfigExtGroup,
+             -- cisRobustnessConfigGroup,
+             -- cisTimeToLiveConfigGroup,
+             -- cisRouterAlertConfigGroup,
+             -- cisVlanExplicitTrackingCfgGroup,
+             -- cisIfLimitGroup,
+             -- cisIfLimitTotalGroup,
+             -- cisIfAccessGroupGroup,
+             -- cisVlanFilterConfigGroup,
+             -- cisFilterStatisticsGroup
+
+      CISCO-LAG-MIB Enhancement
+           - Add the following MIB groups support 
+             -- clagAggRateGroup,
+             -- clagAggChannelIfLacpGroup,
+             -- clagAggChannelIfMinLinkGroup,
+             -- clagAggChannelIfHashDistMethodGroup,
+             -- clagAggHashDistGlobalGroup
+
+      CISCO-PAGP-MIB Enhancement
+           - Add the following MIB groups support
+             -- ciscoPagpRateAndTimeOutGroup 
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+           - The following MIB groups are supported for the switch with DFC4 
+             -- cseStatisticsGroup,
+             -- cseVlanStatisticsGroup,
+             -- cseNetflowLSGroup,
+             -- cseFlowMgmtOperStatusGroup,
+             -- cseFlowMgmtGroupRev1,
+             -- cseVlanStatisticsExtGroup,
+             -- cseStatisticsFlowGroup,
+             -- cseFlowMgmtExtGroup2,
+             -- cseTcamUsageGroup,
+             -- cseMetUsageGroup,
+             -- cseL3SwitchedPktsPerSecGroup
+
+      CISCO-SWITCH-QOS-MIB Enhancement
+           - Add the following MIB groups support 
+             -- ciscoSwitchQosModuleStatsExtGroup,
+             -- ciscoSwitchQosIfStatsExtGroup
+    
+      CISCO-SWITCH-NETFLOW-MIB (New) 
+           - Add the following MIB groups support for the switch with DFC4 
+             -- csnGlobalGroup,
+             -- csnUsageThreshNotifControlGroup,
+             -- csnUsageThreshGroup,
+             -- csnUtilizationGroup,
+             -- csnUsageThreshNotifGroup,
+             -- csnNetflowTableSizeGroup,
+             -- csnSamplerGroup
+    
+      CISCO-SWITCH-MULTICAST-MIB Enhancement
+           - Add the following MIB groups support for the switch with DFC4 
+             -- cswmGlobalReplicationGroup,
+             -- cswmMvrfBiDirPimDfUsageGroup,
+             -- cswmForwardingGroup,
+             -- cswmFlowQueryResultGroup
+    
+      CISCO-SWITCH-STATS-MIB (New)
+           - Add the following MIB groups support for the switch with DFC4 
+             -- ciscoSwitchStatsConfOptionGroup,
+             -- ciscoSwitchStatsConfMapGroup,
+             -- ciscoSwitchStatsConfIfGroup,
+             -- ciscoSwitchStatsVlanGroup,
+             -- ciscoSwitchStatsL2Group,
+             -- ciscoSwitchStatsL3Group
+
+      CISCO-TRUSTSEC-INTERFACE-MIB (New)
+           - Add the following MIB groups support 
+             -- ciscoTrustSecIfMIBIfConfigGroup,
+             -- ciscoTrustSecIfMIBDot1xGroup,
+             -- ciscoTrustSecIfMIBManualGroup,
+             -- ciscoTrustSecIfMIBL3ForwardGroup,
+             -- ciscoTrustSecIfMIBStatusGroup,
+             -- ciscoTrustSecIfMIBStatisticGroup,
+             -- ciscoTrustSecIfMIBAuthorizationGroup,
+             -- ciscoTrustSecIfMIBIfcStatisticGroup,
+             -- ciscoTrustSecIfMIBEventStatisticGroup,
+             -- ciscoTrustSecIfMIBIfModeStatisticGroup
+
+      CISCO-TRUSTSEC-MIB (New)
+           - Add the following MIB groups support 
+             -- ciscoTrustSecCacheGroup
+             -- ciscoTrustSecSgtGroup
+             -- ciscoTrustSecCredentialsGroup
+             -- ciscoTrustSecHwKeystoreInfoGroup
+             -- ciscoTrustSecEnvDataGroup
+             -- ciscoTrustSecSgtAssignmentGroup
+
+      CISCO-TRUSTSEC-POLICY-MIB (New)
+           - Add the following MIB groups support 
+             -- ctspGlobalSgaclEnforcementGroup
+             -- ctspVlanConfigGroup
+             -- ctspConfigSgaclMappingGroup
+             -- ctspOperSgaclMappingGroup
+             -- ctspIpSwStatisticsGroup
+             -- ctspIpHwStatisticsGroup
+             -- ctspDefSwStatisticsGroup
+             -- ctspDefHwStatisticsGroup
+             -- ctspSgaclIpv4DropNetflowMonitorGroup
+             -- ctspSgaclIpv6DropNetflowMonitorGroup
+             -- ctspPeerPolicyGroup
+             -- ctspDownloadedSgaclMappingGroup
+             -- ctspLayer3TransportGroup
+             -- ctspIpSgtMappingGroup
+             -- ctspIfL3PolicyConfigGroup
+             -- ctspSgtPolicyGroup
+             -- ctspPeerPolicyActionGroup
+
+      CISCO-TRUSTSEC-SERVER-MIB (New)
+           - Add the following MIB groups support 
+             -- cafMacMoveConfigGroup
+             -- cafCoACommandConfigGroup
+
+      DISMAN-EXPRESSION-MIB (RFC2982) (New)
+
+      IP-TUNNEL-MIB (New)
+
+Changes in Cisco IOS software version 12.2(33)SXJ:
+
+      CISCO-AUTH-FRAMEWORK-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cafMacMoveConfigGroup
+             -- cafCoACommandConfigGroup
+
+      CISCO-PORT-STORM-CONTROL-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cpscStatusGroup
+             -- cpscNotificationGroupRev1
+             -- cpscNotifConfigurationGroup
+
+      CISCO-TRUSTSEC-SXP-MIB Enhancement
+           - Add the following MIB groups support 
+             -- ctsxSxpVersionGroup
+
+      CISCO-VLAN-GROUP-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cvgConfigTableSizeGroup
+
+      CISCO-VTP-MIB Enhancement
+           - Add the following MIB groups support 
+             -- vlanTrunkPortActiveVlansGroup
+
+      MAU-MIB Enhancement
+           - Add the following enum values support for ifJackType  
+             -- cx4(15)
+           - Add the following OIDs supports for ifMauType & ifMauDefaultType
+             -- dot3MauType100BaseBX10D
+             -- dot3MauType1000BaseBX10D
+             -- dot3MauType100BaseBX10U
+             -- dot3MauType1000BaseBX10U
+             -- dot3MauType10GbaseLRM
+             -- dot3MauType10GbaseT
+           - Add the following enum value support for ifMauTypeListBits:
+             -- e10GbaseT(54)
+           - Add the following enum value support for ifMauAutoNegCapBits:
+             -- b10GbaseT(16)
+
+      IEEE8021-PAE-MIB Enhancement
+           - Add the following MIB groups support 
+             -- dot1xPaeSuppStatsGroup2
+
+Changes in Cisco IOS software version 12.2(33)SXI4:
+
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement
+           - Add the following MIB groups support for Sup32
+             -- cc6kxbarTMSwBusUtilGroup
+             -- cc6kxbarTMSwBusUtilNotifControlGroup
+             -- cc6kxbarTMSwBusUtilNotifObjectGroup
+             -- cc6kxbarTMSwBusUtilNotifGroup
+
+           - Add the following MIB groups support for Sup720
+             -- cc6kxbarTMSwBusUtilGroup
+             -- cc6kxbarTMSwBusUtilNotifControlGroup
+             -- cc6kxbarTMSwBusUtilNotifObjectGroup
+             -- cc6kxbarTMSwBusUtilNotifGroup
+             -- cc6kxbarTMChUtilGroup
+             -- cc6kxbarTMChUtilNotifControlGroup
+             -- cc6kxbarTMChUtilNotifObjectGroup
+             -- cc6kxbarTMChUtilNotifGroup
+
+      CISCO-DHCP-SNOOPING-MIB Enhancement
+           - Add the following MIB groups support
+             -- cdsNotifControlGroup
+             -- cdsBindingsNotificationGroup 
+
+      CISCO-EIGRP-MIB (New)
+
+      CISCO-ERR-DISABLE-MIB (New)
+           - Add the following MIB groups support
+             -- ciscoErrDisableGlobalCfgGroup
+             -- ciscoErrDisableFeatureCfgGroup
+             -- ciscoErrDisableIfStatusGroup
+             -- ciscoErrDisableNotifCfgGroup
+             -- ciscoErrDisableNotifGroupRev1
+             -- ciscoErrDisableShutdownVlanGroup
+
+      CISCO-ETHERLIKE-EXT-MIB (New)
+           - Add the following MIB groups support
+             -- ciscoEtherExtPauseGroup 
+
+      CISCO-HW-MODULE-CONTROL-MIB (New)
+           - Add the following MIB groups support
+             -- ciscoHmcMIBOversubBaseGroup
+             -- ciscoHmcMIBOversubPgClearBlkGrp
+
+      CISCO-PAE-MIB Enhancement
+           - Add the following MIB groups support
+             -- cpaeSuppPortProfileGroup
+             -- cpaeSuppHostInfoGroup
+   
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+           - Add the following enum values of cseTcamResourceType support 
+             -- aclHighStorageMask(18)
+             -- aclHighStorageValue(19)
+             -- aclLowStorageMask(20)
+             -- aclLowStorageValue(21)
+             -- qosHighStorageMask(22)
+             -- qosHighStorageValue(23)
+             -- qosLowStorageMask(24)
+             -- qosLowStorageValue(25)
+   
+      CISCO-SWITCH-QOS-MIB Enhancement
+           - Add the following MIB groups support
+             -- ciscoSwitchQosIfDscpAssignGroup
+   
+      CISCO-TRUSESEC-SXP-MIB Enhancement 
+           - Add the following MIB groups support
+             -- ctsxSxpGlobalGroup
+             -- ctsxSxpConnectionGroup
+             -- ctsxIpSgtMappingGroup
+   
+      CISCO-UDLDP-MIB Enhancement (IOS images only)
+           - Add the following MIB groups support
+             -- ciscoUdldpFastHelloGroup
+             -- ciscoUdldpFastHelloNotificationGroup
+   
+      CISCO-VIRTUAL-SWITCH-MIB Enhancement 
+           - Add the following MIB groups support
+             -- cvsVssModuleStandbyGroup
+             -- cvsVSLStatisticsExtGroup
+   
+      CISCO-VLAN-GROUP-MIB (New)
+           - Add the following MIB groups support
+             -- ciscoVlanGroupConfigGroup
+   
+      CISCO-VLAN-MEMBERSHIP-MIB Enhancement 
+           - Add the following MIB groups support
+             -- vmVlanCreationGroup
+   
+      CISCO-VTP-MIB Enhancement
+           - Add the following MIB groups support
+             -- vtpTrunkPruningGroup3
+             -- vtpConfigNotificationsGroup8
+   
+      EtherLike-MIB Enhancement
+           - Add the following MIB objects support
+             -- dot3PauseAdminMode
+             -- dot3PauseOperMode 
+
+      IEEE8021-PAE-MIB Enhancement 
+           - Add the following MIB groups support
+             -- dot1xPaeSuppConfigGroup
+             -- dot1xPaeSuppConfigGroup2
+   
+Changes in Cisco IOS software version 12.2(33)SXI2:
+
+      CISCO-ADMISSION-POLICY-MIB (New)
+
+      CISCO-AUTH-FRAMEWORK-MIB Enhancement
+           - Add the following MIB groups support
+             -- cafSessionVlanGroupNameGroup
+
+      CISCO-CALLHOME-MIB Enhancement
+           - Add the following MIB groups support
+             -- ccmCallHomeVrfGroup
+
+      CISCO-ENTITY-DIAG-MIB Enhancement
+           - Add the following MIB groups support
+             -- ceDiagTestPerfLastTestMethodGroup
+
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+           - Add ModuleOperType 'upgrading' and 'okButAuthFailed' enum value support
+           - Enhance cefcModuleTable to populate sub-modules
+
+      CISCO-IP-URPF-MIB (New)
+
+----------------------------------------------------------------------------------
+Changes in Cisco IOS software version 12.2(33)SXI1:
+      CISCO-IP-IF-MIB (New)
+
+----------------------------------------------------------------------------------
+Changes in Cisco IOS software version 12.2(33)SXI:
+      CISCO-AUTH-FRAMEWORK-MIB (New) 
+           - Add the following MIB groups support
+             -- cafAuthMethodRegGroup
+             -- cafAaaNoRespRecoveryDelayGroup
+             -- cafAuthPortConfigGroup
+             -- cafPortMethodGroup
+             -- cafAuthFailedEventGroup
+             -- cafClientNoRespEventGroup
+             -- cafServerEventGroup
+             -- cafSessionGroup
+             -- cafSessionMethodInfoGroup
+             -- cafSecViolationNotifEnableGroup
+             -- cafSecurityViolationNotifGroup
+             -- cafSecurityViolationClientGroup
+
+      CISCO-CALLHOME-MIB Enhancement 
+           - Add the following MIB groups support
+             -- ccmOnDemandMsgSendControlGroup
+             -- ccmOnDemandMsgStatusGroup
+             -- ccmSmartCallHomeGroup
+             -- ccmEventStatsGroup
+
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement
+           - Add the following MIB groups support for Sup32
+             -- cc6kxbarSysCapPfcOperModeGroup
+             -- cc6kxbarSysCapSwitchResGroup
+             -- cc6kxbarSwBusGroup1
+           - Add the following MIB groups support for Sup720
+             -- cc6kxbarSysCapPfcOperModeGroup
+             -- cc6kxbarSysCapSwitchResGroup
+             -- cc6kxbarChannelUtilGroup1
+             -- cc6kxbarSwBusGroup1
+             -- cc6kxbarErrorGroup
+
+      CISCO-ENTITY-ALARM-MIB (New) 
+
+      CISCO-ENTITY-DIAG-MIB Enhancement
+           - Add the following MIB groups and objects support
+             -- ceDiagNotifControlGroup
+             -- ceDiagNotifErrorMsgGroup
+             -- ceDiagNotificationGroup
+             -- ceDiagHMTestThreshold
+             -- ceDiagHMTestThresholdDefault
+
+      CISCO-ENTITY-EXT-MIB Enhancement
+           - Enhance this MIB to populate DFC and WAN Card CPU information;
+
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+           - Add the following MIB groups support
+             -- cefcMIBInLinePowerCurrentGroup
+             -- cefcMIBPowerRedundancyInfoGroup
+             -- cefcFanCoolingCapGroup
+           - Add cefcModuleAdminStatus 'disabled' enum value support
+
+      CISCO-FLASH-MIB Enhancement
+           - Add the following MIB group support
+             -- ciscoFlashFileTypeInfoGroup
+
+      CISCO-IGMP-SNOOPING-MIB (New)
+           - Add the following MIB groups support
+             -- cisBaseConfigGroup
+             -- cisGlobalIgmpV3ConfigGroup
+             -- cisExtConfig1Group
+             -- cisExtConfig2Group
+             -- cisStatsGroup
+             -- cisV3StatsGroup
+             -- cisVlanConfigGroup
+             -- cisIgmpQuerierConfigGroup
+             -- cisIgmpQuerierInfoGroup
+             -- cisL2EntryLimitGroup
+             -- cisTrackingLimitGroup
+             -- cisSourceOnlyLimitGroup
+             -- cisRateLimitGroup2
+             -- cisVlanConfigGroup2
+             -- cisSourceOnlyAgeTimerInSecGroup
+
+      CISCO-L2-TUNNEL-CONFIG-MIB Enhancement
+           - Add the following MIB groups support
+             -- cltcTunnelTotalDropGroup,
+             -- cltcTunnelSysDropNotifEnableGroup,
+             -- cltcTunnelSysDropGroup,
+             -- cltcTunnelSysDropNotifGroup
+           - Add cltcTunneledProtocolType 'lldp' enum value support
+
+      CISCO-MAC-AUTH-BYPASS-MIB (New)
+           - Add the following MIB group support
+             -- cmabIfConfigGroup,
+             -- cmabClientInfoGroup
+
+      CISCO-MAU-EXT-MIB (New)
+           - Add the following MIB group support
+             -- cmExtJackConfigGroup,
+             -- cmExtIfAutoMdixConfigGroup 
+
+      CISCO-MODULE-AUTO-SHUTDOWN-MIB Enhancement
+           - Add the following MIB groups support
+             -- cmasModuleGroup,
+             -- cmasNotificationEnableGroup,
+             -- cmasNotificationsGroup
+
+      CISCO-NAC-NAD-MIB (New)
+
+      CISCO-PACKET-CAPTURE-MIB (New)
+           - Add the following MIB groups support
+             -- enericConfigGroup,
+             -- cpcFilterConfigGroup,
+             -- cpcMacFilterConfigGroup,
+             -- cpcDestFileNameConfigGroup,
+             -- cpcPacketLengthFilterConfigGroup,
+             -- cpcEthertypeFilterConfigGroup,
+             -- cpcVlanFilterConfigGroup,
+             -- cpcAccessGroupFilterConfigGroup,
+             -- cpcBufferConfigGroup,
+             -- cpcScheduleConfigGroup,
+             -- cpcSessionStatsGroup,
+             -- cpcMaxMacFilterConfigGroup,
+             -- cpcMaxIpFilterConfigGroup,
+             -- cpcSessionPacketRateLimitGroup,
+             -- cpcSessionDescrGroup
+
+      CISCO-PAE-MIB Enhancement
+           - Add the following MIB group support
+             -- cpaeGuestVlanGroup2,
+             -- cpaeHostInfoGroup3,
+             -- cpaeHostAuthInfoGroup,
+             -- cpaeGuestVlanNotifEnableGroup,
+             -- cpaeGuestVlanNotifGroup,
+             -- cpaeAuthFailVlanNotifEnableGrp,
+             -- cpaeAuthFailVlanNotifGroup,
+             -- cpaePortCapabilitiesConfigGroup,
+             -- cpaeDot1xSuppToGuestVlanGroup,
+             -- cpaeCriticalEapolConfigGroup,
+             -- cpaeHostSessionIdGroup
+           - Add the following enum values of cpaePortMode support 
+             -- multiAuth(3) 
+             -- other(4)
+
+      CISCO-POWER-ETHERNET-EXT-MIB Enhancement
+           - Add the following MIB group support
+             -- cpeExtPdStatsGroup
+
+      CISCO-RMON-CONFIG-MIB Enhancement
+           - Add the following MIB group support
+             -- crcSpanCapacityGroup
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+           - Add the following MIB groups support
+             -- cseFlowMcastRtrMgmtGroup,
+             -- cseCacheStatisticsGroup,
+             -- cseL3SwitchedPktsPerSecGroup
+           - Add the following enum values of cseTcamResourceType support 
+             -- louSource(13),
+             -- louDestination(14),
+             -- andOr(15),
+             -- orAnd(16),
+             -- aclAdjacency(17)
+
+      CISCO-SWITCH-HARDWARE-CAPACITY-MIB (New)
+           - Add the following MIB groups support
+             -- cshcMacUsageGroup,
+             -- cshcVpnCamUsageGroup,
+             -- cshcFibTcamUsageGroup,
+             -- cshcProtocolFibTcamUsageGroup,
+             -- cshcAdjacencyUsageGroup,
+             -- cshcForwardingLoadGroup,
+             -- cshcModuleInterfaceDropsGroup,
+             -- cshcInterfaceBufferGroup,
+             -- cshcInternalChannelGroup,
+             -- cshcCPURateLimiterResourcesGroup,
+             -- cshcIcamResourcesGroup,
+             -- cshcNetflowFlowMaskResourceGroup
+
+      CISCO-SWITCH-MULTICAST-MIB Enhancement
+           - Add the following MIB groups support
+             -- cswmBiDirPimDfUsageGroup,
+             -- cswmLtlUsageGroup
+
+      CISCO-SWITCH-QOS-MIB Enhancement
+           - Add the following MIB group support
+             -- ciscoSwitchQosPolicerUsageGroup
+
+      CISCO-VTP-MIB Enhancement
+           - Add the following MIB groups support for managing VTP v3;
+             -- vtpDiscoverGroup,
+             -- vtpDatabaseGroup,
+             -- vtpAuthGroup,
+             -- vlanStatsGroup,
+             -- vtpConfigNotificationsGroup6
+           - Add the support for enum value three(4) of vtpVersion; 
+           - Add the support for enum value version3(4) of managementDomainVersionInUse; 
+
+      HC-ALARM-MIB (New)
+
+      IEEE8021-PAE-MIB Enhancement
+           - Add the following MIB group support
+             -- dot1xPaeAuthConfigGroup2
+
+      MAU-MIB Enhancement
+           - Add the following MIB group support
+             -- mauIfGrpJack 
+
+      RMON-MIB Enhancement
+           - Added RFC 2819 support
+
+      Q-BRIDGE-MIB (New)
+           - Add the following MIB object support
+             -- dot1qMaxSupportedVlans
+
+Changes in Cisco IOS software version 12.2(33)SXH3:
+      CISCO-MODULE-AUTO-SHUTDOWN-MIB (New) 
+           - Add the following MIB groups support
+             -- cmasModuleSysActionGroup,
+             -- cmasNotificationsGroup2 
+
+Changes in Cisco IOS software version 12.2(33)SXH1:
+
+      CISCO-VIRTUAL-SWITCH-MIB (New)
+           - Add the following MIB groups support
+             -- cvsGlobalGroup,
+             -- cvsCoreSwitchGroup,
+             -- cvsChassisGroup,
+             -- cvsVSLConnectionGroup,
+             -- cvsVSLStatisticsGroup,
+             -- cvsModuleGroup,
+             -- cvsConnectionNotifsGroup
+
+Changes in Cisco IOS software version 12.2(33)SXH:
+      CISCO-BRIDGE-EXT-MIB Enhancement
+           - Add the following MIB group support
+             -- cbeDot1dStaticGroup
+
+      CISCO-CALLHOME-MIB (New)
+           - Add the following MIB groups support
+             -- chSystemInformationGroup1,
+             -- ccmConfigurationGroup3,
+             -- chMultipleSmtpServersGroup,
+             -- chStatisticsGroup,
+             -- ccmMIBNotificationsConfigGroup,
+             -- ccmProfileActivationGroup,
+             -- ccmProfileTestGroup,
+             -- ccmProfileAlertGroupsGroup,
+             -- ccmProfileAlertGroupControlGroup,
+             -- ccmSmtpServersPriorityGroup,
+             -- ccmAlertGroupCapabilityGroup,
+             -- ccmHttpCfgGroup,
+             -- ccmSeverityAlertGroupCfgGroup,
+             -- ccmPeriodicAlertGroupCfgGroup,
+             -- ccmPatternAlertGroupCfgGroup,
+             -- ccmEventAlertGroupCfgGroup,
+             -- ccmSmtpMsgSendFailNotifCtrlGroup,
+             -- ccmAlertHCStatisticsGroup,
+             -- ccmAlertRateLimitGroup,
+             -- ccmSmtpServerStatusGroup,
+             -- ccmSmtpServerStatusGroup,
+             -- ccmProfileHiMessageSizeGroup
+
+             -- ccmMIBNotificationsGroup1,
+             -- ccmSmtpMsgSendFailNotifGroup,
+ 
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement
+           - Add the following MIB groups support for Sup32
+             -- cc6kxbarSwBusGroup,
+             -- cc6kxbarFlowCtrlBusThreshGroup
+             -- cc6kxbarFlowCtrlNotifCtrlGroup,
+
+             -- cc6kxbarSwBusNotifGroup,
+             -- cc6kxbarFlowCtrlBusThrNotifGroup.
+
+          - Add the following MIB groups support for Sup720
+             -- cc6kxbarDcefOnlyModeAllowedGroup 
+             -- cc6kxbarForceBusModeGroup,
+             -- cc6kxbarBusOnlyModeOperGroup 
+
+      CISCO-CDP-MIB Enhancement
+           - Add the following MIB group support
+             -- ciscoCdpV2IfExtGroup 
+
+      CISCO-CLASS-BASED-QOS-MIB Enhancement
+           - Add the following MIB group support
+             -- cbQosPoliceCfgExtGroup 
+
+      CISCO-DHCP-SNOOPING-MIB (New)
+           - Add the following MIB group support
+             -- cdsGlobalEnableGroup,
+             -- cdsRelayAgentInfoOptGroup,
+             -- cdsMatchMacAddressGroup,
+             -- cdsVlanConfigGroup,
+             -- cdsIfConfigGroup,
+             -- cdsIfRateLimitGroup,
+             -- cdsIfFeatureConfigGroup,
+             -- cdsBindingsGroup,
+             -- cdsStaticBindingsGroup,
+             -- cdsIfSrcGuardTrafficFilterGroup,
+             -- cdsIfSrcGuardGroupRev1,
+             -- cdsIfSrcGuardIpFilterGroup,
+             -- cdsIfSrcGuardExtGroup 
+
+      CISCO-DYNAMIC-ARP-INSPECTION-MIB (New)
+           - Add the following MIB groups support
+             -- cdaiVlanConfigGroup,
+             -- cdaiIfConfigGroup
+             -- cdaiIfRateLimitGroup
+ 
+      CISCO-ENHANCED-IMAGE-MIB (New)
+
+      CISCO-ENTITY-DIAG-MIB (New)
+           - Add the following MIB groups support
+             -- ceDiagDescrGroup,
+             -- ceDiagGlobalConfigGroup,
+             -- ceDiagEntityGroup,
+             -- ceDiagOnDemandGroup,
+             -- ceDiagScheduledGroup,
+             -- ceDiagTestPerfGroup,
+             -- ceDiagHealthMonitorGroup,
+             -- ceDiagEventGroup
+
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+           - Add the following MIB groups support
+             -- cefcPowerCapacityGroup,
+             -- cefcCoolingGroup,
+             -- cefcConnectorRatingGroup,
+             -- cefcMIBNotificationEnablesGroup2,
+             -- cefcMgmtNotificationsGroup3
+ 
+      CISCO-ENTITY-DISPLAY-MIB (New)
+           - Add the following MIB groups support
+             -- ceDisplayGroup,
+             -- ceDisplayLEDGroup,
+             -- ceDisplayAlphaNumericGroup   
+ 
+      CISCO-IF-EXTENSIONS-MIB Enhancement 
+            - Add the following MIB groups support:
+              -- ciscoIfExtUtilizationGroup 
+              -- ciscoIfExtIfNameMappingGroup
+
+      CISCO-INTERFACETOPN-EXT-MIB (New)
+           - Add the following MIB groups support
+             -- ciscoIfTopNExtCapsGroup, 
+             -- ciscoIfTopNExtControlGroup,
+             -- ciscoIfTopNExtCtrlVlanGroup
+
+      CISCO-IP-TAP-MIB (New)
+           - Add the following MIB group support
+             -- ciscoIpTapStreamComplianceGroup
+
+      CISCO-L2-CONTROL-MIB enhancement
+           - Add the following MIB groups support
+             -- cclcUnicastFloodGroup
+ 
+      CISCO-L2-TUNNEL-CONFIG-MIB enhancement
+           - Add the following MIB groups support
+             -- cltcTunnelDropStatisticsGroup,
+             -- cltcNotifsEnableGroup,
+             -- cltcTunnelThresholdNotifsGroup
+ 
+      CISCO-LAG-MIB Enhancement      
+           - Add the following MIB group support
+             -- clagAggPortListGroup 
+
+      CISCO-MAC-NOTIFICATION-MIB Enhancement
+           - Add the following MIB groups support
+             -- cmnGlobalGroup,
+             -- cmnInterfaceGroup,
+             -- cmnNotificationGroup
+
+      CISCO-NETFLOW-MIB (New)
+           - Add the following MIB groups support
+             -- cnfCacheInfoGroup,
+             -- cnfProtocolStatGroup,
+             -- cnfExportInfoGroup,
+             -- cnfExportStatisticsGroup
+             -- cnfExportTemplateGroup,
+             -- cnfTopFlowsDataGroup1
+             -- cnfTopFlowsDataGroup2
+             -- cnfTopFlowsControlGroup1
+             -- cnfTopFlowsControlGroup2
+             -- cnfMcastNetflowControlGroup,
+             -- cnfBridgedFlowStatsCtrlGroup,
+             -- cnfTopFlowsReportGenerateGroup
+
+      CISCO-NETINT-MIB (New)
+           - Add the following MIB group support
+             -- ciscoThrottleGroup
+
+      CISCO-PAE-MIB Enhancement
+           - Add the following MIB groups support
+             -- cpaePortEntryGroup,
+             -- cpaeGuestVlanGroup3,
+             -- cpaePortAuthFailVlanGroup,
+             -- cpaePortOperVlanGroup,
+             -- cpaeNoGuestVlanNotifEnableGrp,
+             -- cpaeNoAuthFailVlanNotifEnableGrp,
+             -- cpaeNoGuestVlanNotifGroup,
+             -- cpaeNoAuthFailVlanNotifGroup,
+             -- cpaeMacAuthBypassGroup,
+             -- cpaeMacAuthBypassGroup3,
+             -- cpaeAuthConfigGroup,
+             -- cpaeHostInfoGroup2,
+             -- cpaePortAuthFailVlanGroup2,
+             -- cpaeHostPostureTokenGroup
+ 
+      CISCO-PORT-STORM-CONTROL-MIB (New)
+           - Add the following MIB groups support
+             -- cpscConfigurationGroup,
+             -- cpscStatisticsGroup
+ 
+      CISCO-POWER-ETHERNET-EXT-MIB (New)
+           - Add the following MIB groups support
+             -- cpeExtPsePortGroup,
+             -- cpeExtPsePortPwrMonitorGroup,
+             -- cpeExtMainPseGroup2,
+             -- cpeExtPortEntityIndexGroup,
+             -- cpeExtPortPolicingGroup
+
+      CISCO-PROCESS-MIB Enhancement
+           - Add the following MIB groups support
+              -- cpmCPUPosixMemoryGroup
+              -- cpmPosixProcessGroup
+              -- cpmThreadGroup
+              -- cpmVirtualProcessGroup
+
+      CISCO-QOS-POLICY-CONFIG-MIB (New)
+           - Add the following MIB groups support
+             -- qosGlobalGroup
+             -- qosInterfaceCapabilityGroup
+
+      CISCO-RMON-CONFIG-MIB enhancement
+           - Add the following MIB groups support
+             -- smonExtsions9Group,
+             -- crcERSpanIFOptionGroup,
+             -- crcSpanEgressReplicationGroup
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+           - Add the following MIB groups support
+             -- cseStatisticsFlowGroup
+             -- cseFlowMgmtExtGroup2
+             -- cseL3ErrorsLCGroup
+             -- cseFlowMcastMgmtGroup1
+             -- cseFlowMcastMgmtGroup2
+             -- cseMetUsageGroup
+
+      CISCO-SWITCH-MULTICAST-MIB (New)
+           - Add the following MIB groups support
+             -- cswmGlobalGroup,
+             -- cswmConsistCheckGroup,
+             -- cswmReplicationGroup,
+             -- cswmMvrfStatsGroup
+
+      CISCO-SWITCH-QOS-MIB (New)
+           - Add the following MIB group support
+             -- ciscoSwitchQosIfConfigGroup,
+             -- ciscoSwitchQosIfStatsGroup,
+             -- ciscoSwitchQosModuleStatsGroup,
+             -- ciscoSwitchQosPortQueueingGroup,
+             -- ciscoSwitchQosRedirectPolicingGroup,
+             -- ciscoSwitchQosDscpRewriteGroup,
+             -- ciscoSwitchQosMappingGroup,
+             -- ciscoSwitchQosMutationGroup,
+             -- ciscoSwitchQosIfCosToQueueGroup,
+             -- ciscoSwitchQosIfDropConfigGroup,
+             -- ciscoSwitchQosIfQueueGroup,
+             -- ciscoSwitchQosMarkingStatsGroup,
+             -- ciscoSwitchQosIfModeConfigGroup,
+             -- ciscoSwitchQosIfCCGroup
+ 
+      CISCO-TAP2-MIB (New)
+           - Add the following MIB group support
+             -- ciscoTap2MediationComplianceGroup
+             -- ciscoTap2StreamComplianceGroup
+             -- ciscoTap2MediationCpbComplianceGroup
+             -- ciscoTap2StreamHCStatsGroup
+
+           - Add the following notification support
+             -- ciscoTap2MIBActive,
+             -- ciscoTap2MediationTimedOut,
+             -- ciscoTap2MediationDebug,
+             -- ciscoTap2StreamDebug
+
+      CISCO-VLAN-MEMBERSHIP-MIB Enhancement
+           - Add the following MIB group support
+             -- vmMembershipExtGroup
+
+      CISCO-VTP-MIB enhancement
+           - Add the support for enum value off(4) of managementDomainLocalMode
+
+      EtherLike-MIB Enhancement
+           - Add the following MIB objects support
+             -- dot3ControlFunctionsSupported
+             -- dot3PauseAdminMode
+             -- dot3PauseOperMode 
+
+      IEEE8021-PAE-MIB Enhancement
+           - Enhance the following objects to support 'in' directions  
+             -- dot1xAuthAdminControlledDirections  
+             -- dot1xAuthOperControlledDirections  
+           - Add the following MIB group support
+             -- dot1xPaeAuthSessionStatsGroup
+
+      INTERFACETOPN-MIB (New)
+           - Add the following MIB group support
+             -- interfaceTopNGroup
+
+       MAU-MIB (New)
+           - Add the following MIB group support
+             -- mauIfGrpBasic,
+             -- mauIfGrpHighCapacity,
+             -- mauIfGrpAutoNeg2
+
+      POWER-ETHERNET-MIB (New)
+           - Add the following MIB groups support
+             -- pethPsePortGroup,
+             -- pethPsePortNotificationGroup,
+             -- pethNotificationControlGroup,
+             -- pethMainPseGroup
+
+Changes in Cisco IOS software version 12.2(18)SXF5:
+
+      CISCO-EMBEDDED-EVENT-MGR-MIB (New)
+
+Changes in Cisco IOS software version 12.2(18)SXF:
+
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement
+           - Add the following MIB groups support 
+             -- cc6kxbarIntBusNotifControlGroup
+             -- cc6kxbarIntBusCRCErrNotifGroup
+             -- cc6kxbarIntBusCRCErrGroup
+
+      CISCO-FLEX-LINKS-MIB (New)
+           - Add the following MIB groups support 
+             -- ciscoFlexLinksIfConfigGroup,
+             -- ciscoFlexLinksIfStatusGroup,
+             -- ciscoFlexLinksEnableNotifGroup,
+             -- ciscoFlexLinksNotifGroup
+
+      CISCO-PORT-SECURITY-MIB (New)
+           - Add the following MIB groups support 
+             -- cpsGlobalGroup,
+             -- cpsInterfaceGroup2,
+             -- cpsIfVlanSecureMacAddrGroup,
+             -- cpsExtInterfaceGroup,
+             -- cpsNotificationGroup,
+             -- cpsGlobalClearAddressGroup,
+             -- cpsIfMultiVlanGroup,
+             -- cpsIfVlanSecureNotificationGroup,
+             -- cpsExtInterfaceGroup1
+
+      CISCO-STP-EXTENSIONS-MIB Enhancement 
+           - Add the following MIB groups support 
+             -- stpxSMSTGroup,
+             -- stpxSMSTInstanceGroup,
+             -- stpxSMSTInstanceEditGroup,
+             -- stpxSMSTPortStatusGroup,
+             -- stpxSMSTInstanceCISTGroup,
+             -- stpxRSTPTransmitHoldCountGroup,
+             -- stpxSMSTPortMSTModeGroup,
+             -- stpxSMSTMaxHopCountGroup,
+             -- stpxSMSTConfigDigestGroup,
+             -- stpxMSTGroup4
+
+
+Changes in Cisco IOS software version 12.2(18)SXE:
+
+      CISCO-BRIDGE-EXT-MIB(New)
+           - Add the following MIB groups support
+             -- cbeDot1dTpGroup
+             -- cbeDot1dTpVlanGroup
+
+      CISCO-ENHANCED-MEMPOOL-MIB Enhancement
+           - Enhance this MIB to report DFC memory information
+
+      CISCO-PROCESS-MIB Enhancement
+           - Enhance this MIB to report DFC process information
+
+      CISCO-RMON-CONFIG-MIB Enhancement
+           - Add the following MIB groups support
+             -- crcSpanDstPermitListGroup
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement 
+           - Add the following MIB groups support
+             -- cseCefFibAdjacencyGroup
+
+      CISCO-STP-EXTENSIONS-MIB Enhancement 
+           - Add the following MIB groups support
+             -- stpxPathCostOperModeGroup
+           - Add following additional BITS value support for 
+             stpxNotificationEnable object
+             -- inconsistency(2), 
+             -- rootInconsistency(3),
+             -- loopInconsistency(4) 
+
+      CISCO-VLAN-TRANSLATION-MIB (New)   
+           - Add the following MIB groups support
+             -- cvtGlobalTranslationGroup
+             -- cvtPortTranslationGroup
+
+      CISCO-VTP-MIB enhancement     
+           - Add the following MIB groups support
+             -- vtpInternalVlanGrp
+
+Changes in Cisco IOS software version 12.2(18)SXD:
+
+      BRIDGE-MIB Enhancement
+           - Allow the access via SNMPv3 context
+           - Allow the access via MST instance of Community/SNMPv3 context
+           - Add HA SSO support;
+
+      CISCO-CABLE-DIAG-MIB (New)
+            - Add the following MIB groups support
+              -- ccdPrbsGroup
+              -- ccdTdrGroup
+
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement
+           - Add HA SSO support
+           - Add the following MIB groups support 
+             -- cc6kxbarTruncatedOperGroup
+
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-ENVMON-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-L2L3-INTERFACE-CONFIG-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-L2-CONTROL-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-L2-TUNNEL-CONFIG-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-LAG-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-NDE-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-PAE-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-PAGP-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-PRIVATE-VLAN-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-RF-MIB Enhancement
+           - Enhance cRFHistorySwitchOverTable to contain list of the
+             switchover happened previously 
+
+      CISCO-RMON-CONFIG-MIB Enhancement
+           - Add HA SSO support;
+           - Add the following MIB groups support
+             -- crcSpanSessionGroup,
+             -- crcERSpanSessionGroup,
+             -- crcERSpanIFGroup,
+
+      CISCO-STACK-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-STP-EXTENSIONS-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-SVI-AUTOSTATE-MIB (New) 
+           - Add the following MIB groups support
+             -- ciscoSVIAutostateGroup
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+           - Add HA SSO support;         
+
+      CISCO-UDLDP-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-VLAN-MEMBERSHIP-MIB Enhancement
+           - Add HA SSO support;
+
+      CISCO-VTP-MIB Enhancement
+           - Add HA SSO support;
+
+      ENTITY-MIB Enhancement
+           - Add HA SSO support; 
+           - Enhance entLogicalTable to populating MST instances information 
+
+      IEEE8021-PAE-MIB Enhancement
+           - Add HA SSO support;
+
+      IEEE8023-LAG-MIB Enhancement
+           - Add HA SSO support;
+
+      IF-MIB Enhancement
+           - Have HA SSO Support
+
+      NOTIFICATION-LOG-MIB Enhancement
+           - Have HA SSO Support
+
+      SNMP-COMMUNITY-MIB (New) 
+
+      SNMP-FRAMEWORK-MIB Enhancement
+           - Have HA SSO Support
+
+      SNMP-NOTIFICATION-MIB Enhancement 
+           - Have HA SSO Support
+
+      SNMP-TARGET-MIB Enhancement 
+           - Have HA SSO Support
+
+      SNMP-USM-MIB Enhancement
+           - Have HA SSO Support
+
+      SNMP-VACM-MIB Enhancement       
+           - Have HA SSO Support
+
+      SNMPv2-MIB Enhancement    
+           - Have HA SSO Support
+
+      SMON-MIB Enhancement
+           - Add HA SSO support;
+
+Changes in Cisco IOS software version 12.2(17b)SXA:
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+           - Added cefcIntelliModuleTable 
+
+      CISCO-STP-EXTENSIONS-MIB Enhancement
+            - Add the following MIB groups support
+              -- stpxExtendedSysIDGroup 
+              -- stpxNotificationEnableGroup
+              -- stpxFastStartOperModeGroup
+
+      CISCO-IF-EXTENSIONS-MIB (New)
+            - Add the following MIB groups support:
+              -- ciscoIfExtensionTablePacketGroup 
+              -- ciscoIfExtensionTableIntfGroup  
+              -- ciscoIfExtDot1qEtherTypeGroup   
+              -- ciscoIfExtDot1dBaseMappingGroup 
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+            - Add the following MIB groups support:
+              -- cseFlowMcastMgmtGroup
+              -- cseFlowMgmtGroupRev1 
+              -- cseL3ErrorsLCGroup 
+
+      MPLS-LDP-MIB (New) 
+
+      MPLS-LSR-MIB (New) 
+
+      MPLS-TE-MIB  (New)
+
+      MPLS-VPN-MIB (New)
+
+Changes in Cisco IOS software version 12.2(17a)SX:
+ 
+      CISCO-ENHANCED-MEMPOOL-MIB (New)
+            - Support cempMemPoolGroup
+            - Support cempMemPoolExtGroup
+
+      CISCO-ENTITY-EXT-MIB (New)
+            - Support ciscoEntityExtPhysicalProcessorGroup 
+            - Support ciscoEntityExtConfigRegGroup
+
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+            - Add cefcPowerRedundanceOperMode support
+
+      CISCO-IETF-IP-FORWARD-MIB (New)
+
+      CISCO-IETF-IP-MIB (New)
+
+      CISCO-L2-CONTROL-MIB (New)
+            - Support clcVlanMacAddressLimitGroup 
+            - Support clcVlanMacLimitNotifsGroup
+
+      CISCO-MAC-NOTIFICATION-MIB (New)
+            - Support cmnMACMoveGroup 
+            - Support cmnMACMoveNotifGroup 
+
+            - Support cmnMACThresholdGroup 
+            - Support cmnMACThresholdNotifGroup 
+
+      CISCO-PROCESS-MIB Enhancement
+            - Add the monitor of the SP(Switch Process) information 
+
+      CISCO-RF-MIB Enhancement
+            - Add ciscoRFHistoryGroup support
+
+      CISCO-STACK-MIB Enhancement
+            - Add portCpbTable support
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+            - Add the following MIB tables and objects support 
+              -- cseCacheUtilTable
+              -- cseFlowExcludeTable
+              -- cseFlowLongAgingTime
+
+              -- cseFlowEstablishedAgingTime
+              -- cseFlowOperEstablishedAgingTime
+
+              -- cseFlowFastAgingTime
+              -- cseFlowOperFastAgingTime
+
+              -- cseFlowFastAgePktThreshold
+              -- cseFlowOperFastAgePktThreshold
+
+              -- cseFlowIPXEstablishedAgingTime
+              -- cseFlowOperIPXAgingTime
+              -- cseFlowIPXFlowMask
+              -- cseFlowIpFlowMask
+
+              -- cseTcamUsageTable
+
+      CISCO-VLAN-MEMBERSHIP-MIB Enhancement
+            - Add the following MIB object support
+              -- vmMembershipSummaryMember2kPorts 
+
+      IF-MIB Enhancement
+            - Support the following statistics for L2 VLANs on sup2/sup720:
+              -- ifInOctets 
+              -- ifInUcastPkts
+              -- ifInNUcastPkts
+              -- ifOutOctets     (supported on sup720 only)
+              -- ifOutUcastPkts
+              -- ifOutNUcastPkts (supported on sup720 only)
+              -- ifHCInOctets
+              -- ifHCInUcastPkts
+              -- ifHCOutOctets   (supported on sup720 only)
+              -- ifHCOutUcastPkts
+
+      NOTIFICATION-LOG-MIB (New)
+
+Changes in Cisco IOS software version 12.2(14)SX:
+
+      BRIDGE-MIB Enhancement
+            - Add dot1dStaticTable support 
+
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement 
+            - Add the following MIB objects and notification support:
+              -- cc6kxbarModuleChannelSpeed;
+              -- cc6kxbarSwBusSwitchingStatus;
+              -- cc6kxbarSwBusFailureDuration;
+              -- cc6kxbarSwBusNotifEnable;
+
+              -- cc6kxbarSwBusStatusChangeNotif;
+
+      CISCO-ENTITY-ASSET-MIB (New) 
+
+      CISCO-LAG-MIB Enhancement 
+             - add the following MIB object support:
+               -- clagAggDistributionMplsProtocol 
+
+      CISCO-NDE-MIB Enhancement 
+             - support multiple NDE Export Destination configuration
+
+      CISCO-NTP-MIB (New) 
+
+      CISCO-SWITCH-ENGINE-MIB Enhancement
+             - Add the following MIB objects support 
+               -- cseL3VlanInPkts       
+               -- cseL3VlanInOctets      
+
+      CISCO-UDLDP-MIB  (New) 
+
+      ENTITY-MIB Enhancement
+             - support the version of entPhysicalTable defined in RFC2737
+             - add entAliasMappingTable support; 
+
+      EtherLike-MIB Enhancement
+             - Support the version of dot3StatsTable defined in RFC2665
+
+Changes in Cisco IOS software version 12.1(25.04)E:
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement 
+            - Add the following MIB objects support:
+              -- cc6kxbarIntBusCRCErrExcdStatus,
+              -- cc6kxbarIntBusCRCErrExcdCount;
+
+Changes in Cisco IOS software version 12.1(23)E1:
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement 
+            - Add the following MIB objects and notification support:
+              -- cc6kxbarIntBusNotifEnable;
+
+              -- cc6kxbarIntBusCRCErrExcdNotif,
+              -- cc6kxbarIntBusCRCErrRcvrdNotif;
+
+Changes in Cisco IOS software version 12.1(19)E:
+      CISCO-CAT6K-CROSSBAR-MIB Enhancement 
+            - Add the following MIB objects and notification support:
+              -- cc6kxbarSwBusSwitchingStatus;
+              -- cc6kxbarSwBusFailureDuration;
+              -- cc6kxbarSwBusNotifEnable;
+
+              -- cc6kxbarSwBusStatusChangeNotif;
+
+
+Changes in Cisco IOS software version 12.1(13)E4:
+      CISCO-ENVMON-MIB
+            - Support the following additional MIB objects and notifications
+              -- ciscoEnvMonEnableStatChangeNotif
+
+              -- ciscoEnvMonTempStatusChangeNotif
+              -- ciscoEnvMonFanStatusChangeNotif
+              -- ciscoEnvMonSuppStatusChangeNotif
+
+      CISCO-FLASH-MIB 
+            - Support the following additional MIB objects and notifications
+              -- ciscoFlashCfgDevInsNotifEnable
+              -- ciscoFlashCfgDevRemNotifEnable
+              -- ciscoFlashDeviceInsertedNotif
+              -- ciscoFlashDeviceRemovedNotif
+
+Changes in Cisco IOS software version 12.1(13)E:
+      CISCO-ATM-PVC-MIB 
+            -- New
+
+      CISCO-BCP-MIB 
+            -- New
+
+      CISCO-ENTITY-FRU-CONTROL-MIB Enhancement
+            -- support inline power management 
+
+      CISCO-FLASH-MIB
+            - Support the following additional MIB objects and notifications
+              -- ciscoFlashCfgDevInsNotifEnable
+              -- ciscoFlashCfgDevRemNotifEnable
+              -- ciscoFlashDeviceInsertedNotif
+              -- ciscoFlashDeviceRemovedNotif
+
+      CISCO-PAE-MIB     
+            -- New 
+
+      CISCO-SONET-MIB
+            - Add the following notifications support
+              -- ciscoSonetSectionStatusChange
+              -- ciscoSonetLineStatusChange
+              -- ciscoSonetPathStatusChange 
+
+      CISCO-STACK-MIB Enhancement
+            - Add the following port flow control MIB objects support:
+              -- portAdminRxFlowControl
+              -- portOperRxFlowControl
+              -- portAdminTxFlowControl
+              -- portOperTxFlowControl
+              -- portMacControlTransmitFrames
+              -- portMacControlReceiveFrames
+              -- portLinkFaultStatus.
+
+      CISCO-STP-EXTENSIONS-MIB Enhancement
+            - Add the following MIB objects for supporting Rapid PVST+: 
+              -- stpxUplinkFastOperEnabled 
+              -- stpxBackboneFastOperEnabled 
+              -- stpxRSTPPortTable
+              -- stpxRSTPPortRoleTable
+              -- stpxRPVSTPortTable
+
+      CISCO-VLAN-MEMBERSHIP-MIB Enhancement
+            - Add the following MIB object for supporting voice vlan feature: 
+              -- vmVoiceVlanId
+
+      CISCO-VTP-MIB Enhancement
+            - Support the following addtional MIB objects & notifications:
+              -- vtpVlanCreatedNotifEnabled
+              -- vtpVlanDeletedNotifEnabled
+              -- vtpLocalModeChanged
+              -- vtpVersionInUseChanged
+              -- vtpVlanCreated
+              -- vtpVlanDeleted 
+
+      IEEE8021-PAE-MIB     
+            -- New 
+
+      SMON-MIB
+            -- Add RSPAN support;
+
+Changes in Cisco IOS software version 12.1(11b)EX:
+
+      BRIDGE-MIB Enhancement
+            - Add the following traps support: 
+              -- newRoot
+              -- topologyChange
+    
+      CISCO-ENTITY-FRU-CONTROL-MIB 
+            -- New
+
+      CISCO-ENTITY-SENSOR-MIB 
+            -- New
+
+      CISCO-ENVMON-MIB 
+            -- New
+
+      CISCO-L2-TUNNEL-CONFIG-MIB  
+            -- New                
+
+      CISCO-LAG-MIB 
+            -- New               
+ 
+      CISCO-NDE-MIB 
+            -- New                
+
+      CISCO-RF-MIB 
+            -- New
+
+      CISCO-RMON-CONFIG-MIB Enhancement
+            - Add the following MIB objects support: 
+              -- portCopyLoVlanMask    
+              -- portCopyHiVlanMask    
+              -- portCopyDestLoVlanMask 
+              -- portCopyDestHiVlanMask 
+              -- portCopyOption        
+              -- portCopySessionType   
+
+      CISCO-STACK-MIB Enhancement     
+            - add 4k vlan range support for the following MIB objects
+              -- moduleIPAddressVlan
+              -- vlanTable
+              -- vlanPortVlan in vlanPortTable
+
+      CISCO-STP-EXTENSIONS-MIB Enhancement 
+            - Add MIB tables and objects for the following features
+              -- supporting 802.1s & 802.1w   
+              -- stpxPVSTVlanTable
+              -- Root Guard config
+              -- Root Inconsistency
+              -- stpxLongStpPortPathCostTable
+              -- Loop Guard config
+              -- Loop Inconsistnecy
+              -- Fast Start
+              -- Fast Start Bpdu Filter
+              -- Fast Start Bpdu Guard
+            - Add the following traps support:
+              stpxInconsistencyUpdate
+              stpxRootInconsistencyUpdate
+              stpxLoopInconsistnecyUpdate
+
+      CISCO-SWITCH-ENGINE-MIB (New)     
+            -- support the following subset of cseL3Objects       
+               cseL3VlanOutPkts
+               cseL3VlanOutOctets
+               cseL3VlanInUnicastPkts
+               cseL3VlanInUnicastOctets
+               cseL3VlanOutUnicastPkts
+               cseL3VlanOutUnicastOctets
+               cseL3StatsTable
+            -- support cseL2Objects
+            -- support cseNetflowLS 
+            -- support cseErrorStatsTable
+
+      CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB Enhancement
+            - add 4k vlan range support
+
+      CISCO-VLAN-MEMBERSHIP-MIB Enhancement 
+            - Add MIB objects for supporting 4k VLANs range     
+
+      CISCO-VTP-MIB Enhancement     
+            - add 4k VLAN range support      
+            - add 802.1q tunneling support
+
+      EtherLike-MIB (RFC1398) 
+            -- New
+
+      IEEE8023-LAG-MIB 
+            -- New
+
+      SMON-MIB Enhancement                
+            - Add the following VLAN statistics tables support 
+              -- smonVlanStatsControlTable
+              -- smonVlanIdStatsTable
+
+Changes in Cisco IOS software version 12.1(8a)EX:
+
+      CISCO-CAT6K-CROSSBAR-MIB
+            -- New 
+
+      CISCO-PRIVATE-VLAN-MIB  
+            -- New 
+
+      ENTITY-MIB(RFC 2037)   
+            - New 
+            - Support the following MIB groups and table 
+               -- entityPhysical
+               -- entityLogical
+               -- entityMapping
+               -- entPhysicalContainsTable
+               -- entityGeneral
+
+      CISCO-BULK-FILE-MIB
+            -- New 
+
+      CISCO-FTP-CLIENT-MIB
+            -- New
+
+      CISCO-CLASS-BASED-QOS-MIB
+            -- New
+
+      CISCO-RMON-CONFIG-MIB  
+            - Support the following MIB objects:
+              -- portCopySessionNo
+              -- portCopyRemoveSrc
+
+      CISCO-STACK-MIB   
+            - Add the following MIB object support:
+              -- sysStatus
+

@@ -1,0 +1,95 @@
+-- MIB created 1/15/101 14:36:35, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+IANA-RTPROTO-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "IANA-RTPROTO-MIB.my"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1;
+
+ianaRtProtoMIB OBJECT IDENTIFIER ::= { mib-2 84 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200009260000Z
+--  OrgName
+--    IANA
+--  ContactInfo
+--     Internet Assigned Numbers Authority
+--      Internet Corporation for Assigned Names and Numbers
+--      4676 Admiralty Way, Suite 330
+--      Marina del Rey, CA 90292-6601
+--    
+--      Phone: +1 310 823 9358
+--      EMail: iana@iana.org
+--  Descr
+--    This MIB module defines the IANAipRouteProtocol and
+--    IANAipMRouteProtocol textual conventions for use in MIBs
+--    which need to identify unicast or multicast routing
+--    mechanisms.
+--    
+--    Any additions or changes to the contents of this MIB module
+--    require either publication of an RFC, or Designated Expert
+--    Review as defined in RFC 2434, Guidelines for Writing an
+--    IANA Considerations Section in RFCs.  The Designated Expert 
+--    will be selected by the IESG Area Director(s) of the Routing
+--    Area.
+--  RevDate
+--    200009260000Z
+--  RevDescr
+--    Original version, published in coordination
+--    with RFC 2932.
+
+IANAipRouteProtocol ::= INTEGER {
+        other(1),
+        local(2),
+        netmgmt(3),
+        icmp(4),
+        egp(5),
+        ggp(6),
+        hello(7),
+        rip(8),
+        isIs(9),
+        esIs(10),
+        ciscoIgrp(11),
+        bbnSpfIgp(12),
+        ospf(13),
+        bgp(14),
+        idpr(15),
+        ciscoEigrp(16),
+        dvmrp(17)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A mechanism for learning routes.  Inclusion of values for
+--    routing protocols is not intended to imply that those
+--    protocols need be supported.
+
+IANAipMRouteProtocol ::= INTEGER {
+        other(1),
+        local(2),
+        netmgmt(3),
+        dvmrp(4),
+        mospf(5),
+        pimSparseDense(6),
+        cbt(7),
+        pimSparseMode(8),
+        pimDenseMode(9),
+        igmpOnly(10),
+        bgmp(11),
+        msdp(12)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The multicast routing protocol.  Inclusion of values for
+--    multicast routing protocols is not intended to imply that
+--    those protocols need be supported.
+
+
+END
+

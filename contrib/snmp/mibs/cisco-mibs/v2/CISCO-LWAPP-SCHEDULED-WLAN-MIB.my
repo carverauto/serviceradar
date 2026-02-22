@@ -1,0 +1,403 @@
+-- *******************************************************************
+-- CISCO-LWAPP-SCHEDULED-WLAN-MIB.my
+-- This MIB helps to manage the WLANs on the controller
+-- April 2019, Austin D Silva
+--   
+-- Copyright (c) 2019 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-SCHEDULED-WLAN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCapwapScheduledWlanMIB MODULE-IDENTITY
+    LAST-UPDATED    "201904070000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central Controllers (CC)  that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        This MIB helps to manage calendar profiles  on
+        the controller.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends it to the controller to which
+        it is logically connected to.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'.
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        controllers.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. 
+
+        Calendar Profile 
+
+        Calendar profile enables controller to do specific
+        action in time intervals. Calendar profile is 
+        provisioned with configuring start and end timer,
+        recurrentce(daiy, weekly and monthly).
+
+        Schedule WLAN and Denial of service features inherits
+        calander profile functioanlity by configuring calendar
+        profile information in policy profile and provide
+        action as schedule WLAN or Denial of server in policy
+        profile. On the expiration of start and end time, feature
+        specifice functionality will be invoked.
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol 
+
+        [3] IEEE 802.11 - The original 1 Mbit/s and 2 Mbit/s, 
+        2.4 GHz RF and IR standard."
+    REVISION        "201904070000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 864 }
+
+
+ciscoLwappScheduledWlanMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCapwapScheduledWlanMIB 0 }
+
+ciscoLwappScheduledWlanMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCapwapScheduledWlanMIB 1 }
+
+ciscoLwappScheduledWlanConform  OBJECT IDENTIFIER
+    ::= { ciscoCapwapScheduledWlanMIB 2 }
+
+ciscoLwappScheduledWlanConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappScheduledWlanMIBObjects 1 }
+
+-- ********************************************************************
+-- Calendar Profile  configuration
+-- ********************************************************************
+
+cLCalendarProfileConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCalendarProfileConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represent calendar profile definition
+        which is provisioned with start and end timer
+        configuration, recurrence information."
+    ::= { ciscoLwappScheduledWlanConfig 1 }
+
+cLCalendarProfileConfigEntry OBJECT-TYPE
+    SYNTAX          CLCalendarProfileConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents information
+        about calendar profile."
+    INDEX           { cLCalendarProfileName } 
+    ::= { cLCalendarProfileConfigTable 1 }
+
+CLCalendarProfileConfigEntry ::= SEQUENCE {
+        cLCalendarProfileName       SnmpAdminString,
+        cLCalendarProfileRowStatus  RowStatus,
+        cLCalendarProfileStartTime  SnmpAdminString,
+        cLCalendarProfileEndTime    SnmpAdminString,
+        cLCalendarProfileRecurrence INTEGER
+}
+
+cLCalendarProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies unique instance of
+        calendar profile" 
+    ::= { cLCalendarProfileConfigEntry 1 }
+
+cLCalendarProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { cLCalendarProfileConfigEntry 2 }
+
+cLCalendarProfileStartTime OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies starting time of calendar profile.
+        At the scheduled time, feature specific fuctionalities
+        will be executed." 
+    ::= { cLCalendarProfileConfigEntry 3 }
+
+cLCalendarProfileEndTime OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies ending time of calendar profile.
+        At the scheduled time, feature specific functionalities 
+        will be executed." 
+    ::= { cLCalendarProfileConfigEntry 4 }
+
+cLCalendarProfileRecurrence OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        daily(0),
+                        weekly(1),
+                        monthly(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies recurrence of the calendar profile.
+        daily   - Feature specific functionality will be triggered
+                  daily on specified time.
+        weekly  - Feature specific funtionality will be triggered
+                  on specified time only on configured week days.
+        monthly - Feature specific functionality will be triggered
+                  on specified time only on configured dates." 
+    ::= { cLCalendarProfileConfigEntry 5 }
+ 
+
+-- ********************************************************************
+-- Calendar profile weekly configuration
+-- ********************************************************************
+
+cLCalendarProfileWeeklyConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCalendarProfileWeeklyConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies weekly calendar table which is provisioned
+        with configuring multiple weekly days for recurrence weekly."
+    ::= { ciscoLwappScheduledWlanConfig 2 }
+
+cLCalendarProfileWeeklyConfigEntry OBJECT-TYPE
+    SYNTAX          CLCalendarProfileWeeklyConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents information
+        about weekly calendar profile."
+    INDEX           {
+                        cLCalendarProfileName,
+                        cLCalendarProfileWeeklyProfileDay
+                    } 
+    ::= { cLCalendarProfileWeeklyConfigTable 1 }
+
+CLCalendarProfileWeeklyConfigEntry ::= SEQUENCE {
+        cLCalendarProfileWeeklyProfileDay       INTEGER,
+        cLCalendarProfileWeeklyProfileRowStatus RowStatus
+}
+
+cLCalendarProfileWeeklyProfileDay OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        monday(1),
+                        tuesday(2),
+                        wednesday(3),
+                        thursday(4),
+                        friday(5),
+                        saturday(6),
+                        sunday(7)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies week day information which is a
+        unique instance for weekly calendar profile table." 
+    ::= { cLCalendarProfileWeeklyConfigEntry 1 }
+
+cLCalendarProfileWeeklyProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { cLCalendarProfileWeeklyConfigEntry 2 }
+ 
+
+-- ********************************************************************
+-- Calendar profile monthly configuration
+-- ********************************************************************
+
+cLCalendarProfileMonthlyConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCalendarProfileMonthlyConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies  monthly calendar table
+        which is provisioned with configuring multiple 
+        date for recurrence monthly."
+    ::= { ciscoLwappScheduledWlanConfig 3 }
+
+cLCalendarProfileMonthlyConfigEntry OBJECT-TYPE
+    SYNTAX          CLCalendarProfileMonthlyConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents information
+        about monthly calendar profile."
+    INDEX           {
+                        cLCalendarProfileName,
+                        cLCalendarProfileMonthlyProfileDate
+                    } 
+    ::= { cLCalendarProfileMonthlyConfigTable 1 }
+
+CLCalendarProfileMonthlyConfigEntry ::= SEQUENCE {
+        cLCalendarProfileMonthlyProfileDate      Unsigned32,
+        cLCalendarProfileMonthlyProfileRowStatus RowStatus
+}
+
+cLCalendarProfileMonthlyProfileDate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies date information which is a
+        unique instance for monthly calendar profile table." 
+    ::= { cLCalendarProfileMonthlyConfigEntry 1 }
+
+cLCalendarProfileMonthlyProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { cLCalendarProfileMonthlyConfigEntry 2 }
+ 
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappScheduledWlanCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappScheduledWlanConform 1 }
+
+ciscoLwappScheduledWlanGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappScheduledWlanConform 2 }
+
+
+ciscoLwappScheduledWlanCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoCapwapScheduledWlanMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappScheduledWlanConfigGroup }
+    ::= { ciscoLwappScheduledWlanCompliances 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappScheduledWlanConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLCalendarProfileRowStatus,
+                        cLCalendarProfileStartTime,
+                        cLCalendarProfileEndTime,
+                        cLCalendarProfileRecurrence,
+                        cLCalendarProfileWeeklyProfileRowStatus,
+                        cLCalendarProfileMonthlyProfileRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the calendar
+        profile specific configuration parameters."
+    ::= { ciscoLwappScheduledWlanGroups 1 }
+
+END
+
+

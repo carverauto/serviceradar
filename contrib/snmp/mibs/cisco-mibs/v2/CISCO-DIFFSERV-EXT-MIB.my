@@ -1,0 +1,916 @@
+-- *********************************************************************
+-- CISCO-DIFFSERV-EXT-MIB.my: Diff Serv Extension MIB
+--
+-- October 2003 H K Vivek
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+ 
+CISCO-DIFFSERV-EXT-MIB  DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Unsigned32                        FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP   FROM    SNMPv2-CONF
+        TEXTUAL-CONVENTION, RowStatus,
+        TruthValue, RowPointer            FROM    SNMPv2-TC 
+        ciscoMgmt                         FROM    CISCO-SMI
+        SnmpAdminString                   FROM    SNMP-FRAMEWORK-MIB
+        InterfaceIndexOrZero              FROM    IF-MIB
+        vsanIndex                         FROM    CISCO-VSAN-MIB
+        IndexInteger, 
+        diffServClfrEntry,
+        IndexIntegerNextFree              FROM    DIFFSERV-MIB;
+
+ciscoDiffServExtMIB  MODULE-IDENTITY
+        LAST-UPDATED  "200411160000Z"
+        ORGANIZATION  "Cisco Systems Inc."
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "This MIB is a Cisco extension to the
+                 DIFFSERV-MIB, RFC 3289. This MIB defines
+                 a Fibre Channel (FC) Multi Field filter to 
+                 be used in conjunction with the DIFFSERV-MIB.
+                 It also helps in associating Differentiated
+                 Services Classifiers to interfaces on a VSAN
+                 (Virtual Storage Area Network) via the 
+                 cdsmDataPathTable defined in this MIB."
+        REVISION  "200411160000Z"
+        DESCRIPTION
+                "Changed max lengths of cdsmClfrName and
+                 cdsmFCMultiFieldClfrName to 63 bytes."
+        REVISION  "200312180000Z"
+        DESCRIPTION
+                "Added cdsmClfrNextFreeElement and
+                 cdsmFCMultiFieldClfrNextFreeStmt."
+        REVISION  "200312120000Z"
+        DESCRIPTION
+                "Added cdsmChkSumTable.
+                 Added cdsmFCMultiFieldMatchWildCard object to
+                 cdsmFCMultiFieldMatchStmtTable."
+        REVISION  "200312050000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 381 }
+
+
+ciscoDiffServExtMIBObjects OBJECT IDENTIFIER
+                           ::= { ciscoDiffServExtMIB 1 }
+ciscoDiffServExtMIBConform OBJECT IDENTIFIER
+                           ::= { ciscoDiffServExtMIB 2 }
+cdsmConfiguration          OBJECT IDENTIFIER
+                           ::= { ciscoDiffServExtMIBObjects 1 }
+
+-- Textual Conventions
+
+CdsmDataDirection ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+       "Specifies a direction of data travel on a VSAN. 
+        'inbound' traffic is operated on during reception from
+       the VSAN, while 'outbound' traffic is operated on prior 
+       to transmission on the VSAN."
+    SYNTAX  INTEGER {
+                inbound(1),
+                outbound(2)
+            }
+
+CdsmFcAddrAndMask ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+       "Represents a Fibre Channel Address and, for some
+        formats, an associated mask. If a Fibre Channel 
+        World Wide Name (WWN) is represented, the length 
+        is 8 octets. If a Fibre Channel ID (FC-ID) is 
+        represented, the length is 3 octets. If a Fibre 
+        Channel ID is represented with the 3 octet mask, 
+        then the length is 6 octets.
+        Objects defined with this syntax must specify the
+        meaning of the zero-length string."
+    SYNTAX OCTET STRING (SIZE(0 | 3 | 6 | 8))
+
+-- Data Path Table
+
+cdsmDataPathTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CdsmDataPathEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table facilitates setting up of data
+                 path classifier elements in the DIFFSERV-MIB. 
+                 This table acts as a trigger for setting up 
+                 interface based classifier element(s) from a 
+                 VSAN based classifier element.
+
+                 Creation of an entry in this table on a 
+                 VSAN and setting of cdsmDataPathClfrStart, 
+                 results in the classifier elements of the
+                 data path elements from the corresponding
+                 interface(s) being set. Specifically, the
+                 instance(s) of diffServMeterSucceedNext
+                 object in the diffServMeterTable, which is
+                 pointed to by diffServDataPathStart of the
+                 corresponding interface(s) in that VSAN,
+                 are set with the value of 
+                 cdsmDataPathClfrStart object for that
+                 VSAN.
+
+                 Deletion of an entry in this table on a 
+                 VSAN or setting of cdsmDataPathClfrStart
+                 to zeroDotZero on a VSAN, results in the
+                 corresponding classifier element being removed 
+                 from the data path elements in the interface(s)
+                 belonging to that VSAN."
+        ::= { cdsmConfiguration 1 }
+
+cdsmDataPathEntry OBJECT-TYPE
+        SYNTAX        CdsmDataPathEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        INDEX { vsanIndex, cdsmDataPathDirection }
+        ::= { cdsmDataPathTable 1 }
+
+CdsmDataPathEntry ::= SEQUENCE {
+        cdsmDataPathDirection        CdsmDataDirection,
+        cdsmDataPathClfrStart        RowPointer,
+        cdsmDataPathStatus           RowStatus
+}
+
+cdsmDataPathDirection OBJECT-TYPE
+        SYNTAX         CdsmDataDirection
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "Specifies the direction of traffic flow on
+                 this VSAN."
+        ::= { cdsmDataPathEntry 1 }
+
+cdsmDataPathClfrStart OBJECT-TYPE
+        SYNTAX         RowPointer
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+                "This object selects the first Differentiated
+                 Services Classifier Element to handle
+                 traffic on this VSAN. 
+
+                 This RowPointer should point to an instance of
+                 diffServClfrEntry.
+
+                 The value of this RowPointer will be copied to
+                 instance(s) of diffServMeterSucceedNext object in
+                 the diffServMeterEntry in the DIFFSERV-MIB, which
+                 is (are) pointed to by corresponding 
+                 diffServDataPathStart object(s) from the 
+                 diffServDataPathTable.
+
+                 A value of zeroDotZero in this attribute indicates
+                 that no Differentiated Services classification is
+                 performed on traffic of this data path and on the
+                 interface(s) on this VSAN.
+
+                 Setting this to point to a target that does not exist 
+                 results in an error.  If the row pointed to is removed 
+                 or becomes inactive by other means, the treatment is 
+                 as if this attribute contains a value of zeroDotZero."
+        ::= { cdsmDataPathEntry 2 }
+
+cdsmDataPathStatus OBJECT-TYPE
+        SYNTAX         RowStatus
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+                "The status of this conceptual row."
+        ::= { cdsmDataPathEntry 3 }
+
+-- Extension to diffServClfrTable
+
+cdsmClfrTable OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CdsmClfrEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "This table is an extension to the
+                 diffServClfrTable defined in the
+                 DIFFSERV-MIB."
+        ::= { cdsmConfiguration 2 }
+
+cdsmClfrEntry OBJECT-TYPE
+        SYNTAX         CdsmClfrEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        AUGMENTS { diffServClfrEntry }
+        ::= { cdsmClfrTable 1 }
+
+CdsmClfrEntry ::= SEQUENCE {
+        cdsmClfrName             SnmpAdminString,
+        cdsmClfrNextFreeElement  IndexIntegerNextFree
+}
+
+cdsmClfrName OBJECT-TYPE
+        SYNTAX          SnmpAdminString (SIZE(1..63))
+        MAX-ACCESS      read-create
+        STATUS          current
+        DESCRIPTION
+                "The name of this classifier entry. The name
+                 of a classifier entry should be unique.
+                 This object is a human readable string.
+                 
+                 This object cannot be modified while the
+                 value of the corresponding instance of
+                 diffServClfrStatus in diffServClfrTable
+                 is 'active'.
+
+                 This object MUST be set before or concurrently
+                 with setting the corresponding instance of
+                 diffServClfrStatus object to 'active'."
+        ::= { cdsmClfrEntry 1 }
+
+cdsmClfrNextFreeElement OBJECT-TYPE
+        SYNTAX          IndexIntegerNextFree
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "This object contains an unused value for
+                 diffServClfrElementId for this value of
+                 diffServClfrId, or a value of zero if
+                 none exist."
+        ::= { cdsmClfrEntry 2 }
+
+-- Fibre Channel (FC) Multi-field classification table
+
+cdsmFCMultiFieldClfrTable OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CdsmFCMultiFieldClfrEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "A table of FC multi-field classifier filter
+                 entries. These can be used to identify FC
+                 traffic."
+        ::= { cdsmConfiguration 3 }
+
+cdsmFCMultiFieldClfrEntry OBJECT-TYPE
+        SYNTAX         CdsmFCMultiFieldClfrEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "An entry (conceptual row) in this table
+                 defines a single filter.
+
+                 An instance of diffServClfrElementSpecific
+                 object (in the diffServClfrElementTable of
+                 DIFFSERV-MIB) which points to an entry in
+                 this table, identifies a Fibre Channel
+                 filter." 
+        INDEX { cdsmFCMultiFieldClfrId }
+        ::= { cdsmFCMultiFieldClfrTable 1 }
+
+CdsmFCMultiFieldClfrEntry ::= SEQUENCE {
+        cdsmFCMultiFieldClfrId            IndexInteger,
+        cdsmFCMultiFieldClfrName          SnmpAdminString,
+        cdsmFCMultiFieldClfrMatch         TruthValue,
+        cdsmFCMultiFieldClfrStatus        RowStatus,
+        cdsmFCMultiFieldClfrNextFreeStmt  IndexIntegerNextFree
+}
+
+cdsmFCMultiFieldClfrId OBJECT-TYPE
+        SYNTAX        IndexInteger
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An index that enumerates the MultiField 
+                 Classifier filter entries."
+        ::= { cdsmFCMultiFieldClfrEntry 1 }
+
+cdsmFCMultiFieldClfrName OBJECT-TYPE
+        SYNTAX        SnmpAdminString (SIZE(1..63))
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "The name of this filter entry. The name should
+                 be unique. This object is a human readable
+                 string.
+
+                 This object cannot be modified while the value
+                 of the corresponding instance of
+                 cdsmFCMultiFieldClfrStatus object is 'active'.
+
+                 This object MUST be set before or concurrently
+                 with setting the corresponding instance of
+                 cdsmFCMultiFieldClfrStatus object to 'active'."
+        ::= { cdsmFCMultiFieldClfrEntry 2 }
+
+cdsmFCMultiFieldClfrMatch OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object specifies how this filter should
+                 be applied.
+
+                 If this object is set to 'true', then all the
+                 match statements associated with this filter must 
+                 be satisfied in order for this filter match to be
+                 considered successful.
+
+                 If this object is set to 'false', then even if
+                 any one of the criteria associated with this filter
+                 is satisfied, then the filter match is considered
+                 successful."
+        ::= { cdsmFCMultiFieldClfrEntry 3 }
+
+
+cdsmFCMultiFieldClfrStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "The status of this conceptual row. All writable
+                 objects in this row can be modified at any time, 
+                 with the exception of cdsmFCMultiFieldClfrName."
+        ::= { cdsmFCMultiFieldClfrEntry 4 }
+
+cdsmFCMultiFieldClfrNextFreeStmt OBJECT-TYPE
+        SYNTAX        IndexIntegerNextFree
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object contains an unused value for
+                 cdsmFCMultiFieldMatchId for this value of
+                 cdsmFCMultiFieldClfrId, or a value of zero 
+                 if none exist."
+        ::= { cdsmFCMultiFieldClfrEntry 5 }
+
+cdsmFCMultiFieldMatchStmtTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CdsmFCMultiFieldMatchStmtEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "A table of FC match statements to be used for
+                 classifying FC traffic after associating with
+                 an FC multi-field classifier."
+        ::= { cdsmConfiguration 4 }
+
+cdsmFCMultiFieldMatchStmtEntry OBJECT-TYPE
+        SYNTAX        CdsmFCMultiFieldMatchStmtEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table.
+                 An FC multi-field classifier is represented by
+                 cdsmFCMultiFieldClfrId and match statements are
+                 represented by cdsmFCMultiFieldMatchId. All match 
+                 statements which belong to the same classifier 
+                 have a common cdsmFCMultiFieldClfrId.
+
+                 Note that certain restrictions are applicable in
+                 configuring match statements for MultiField
+                 classifier entries.
+
+                 1. Suppose the match statement(s) belong to a 
+                    classifier filter that has the corresponding 
+                    instance of cdsmFCMultiFieldClfrMatch object 
+                    set to 'true'. This essentially means that
+                    all match statements belonging to that
+                    classifier filter should be matched for the
+                    match to be considered successful. In such a
+                    case, a maximum of only one instance of each 
+                    criterion can be set in the corresponding match 
+                    statement(s). That is, there can be one 
+                    instance of the source address, one instance
+                    of destination address and one of interface.
+                    These can be in one or more match statements.
+                    Attempt to set more than one instance of a 
+                    match criterion in this case, results in error.
+
+                 2. Suppose there is a classifier filter that has
+                    the corresponding instance of 
+                    cdsmFCMultiFieldClfrMatch object set to 'false'.
+                    Such a classifier filter can have multiple 
+                    instances of match criteria associated with it.
+                    However, it would be an error to set the
+                    cdsmFCMultiFieldClfrMatch object for this
+                    classifier filter to 'true', as it does not
+                    comply with 1. above."
+        INDEX { cdsmFCMultiFieldClfrId, cdsmFCMultiFieldMatchId }
+        ::= { cdsmFCMultiFieldMatchStmtTable 1 }
+
+CdsmFCMultiFieldMatchStmtEntry ::= SEQUENCE {
+        cdsmFCMultiFieldMatchId         Unsigned32,
+        cdsmFCMultiFieldMatchSrcAddr    CdsmFcAddrAndMask,
+        cdsmFCMultiFieldMatchDstAddr    CdsmFcAddrAndMask,
+        cdsmFCMultiFieldMatchIntf       InterfaceIndexOrZero,
+        cdsmFCMultiFieldMatchStatus     RowStatus,
+        cdsmFCMultiFieldMatchWildCard   TruthValue
+}
+
+cdsmFCMultiFieldMatchId OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..64)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "Uniquely represents a match statement."
+        ::= { cdsmFCMultiFieldMatchStmtEntry 1 }
+
+cdsmFCMultiFieldMatchSrcAddr OBJECT-TYPE
+        SYNTAX        CdsmFcAddrAndMask
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object represents an FC address that needs
+                 to be matched with the source address in a 
+                 FC frame. This address can be either an 8 octet
+                 long FC World Wide Name (WWN) or a 3 octet long
+                 FC-ID. If this object is set to an FC-ID, then
+                 it can be optionally followed by a 3 octet mask.
+                 The mask can have one of the following values:
+                 0xff0000 or 0xffff00 or 0xffffff.
+
+                 The zero-length string means no address is
+                 configured for matching with the source address
+                 in a FC frame. Setting this object to the zero
+                 length string is equivalent to disabling this
+                 match criterion."
+        DEFVAL { ''H }
+        ::= { cdsmFCMultiFieldMatchStmtEntry 2 }
+
+cdsmFCMultiFieldMatchDstAddr OBJECT-TYPE
+        SYNTAX        CdsmFcAddrAndMask
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object represents an FC address that needs
+                 to be matched with the destination address in a 
+                 FC frame. This address can be either an 8 octet
+                 long FC World Wide Name (WWN) or a 3 octet long
+                 FC-ID. If this object is set to an FC-ID, then
+                 it can be optionally followed by a 3 octet mask.
+                 The mask can have one of the following values:
+                 0xff0000 or 0xffff00 or 0xffffff.
+
+                 The zero-length string means no address is
+                 configured for matching with the destination 
+                 address in a FC frame. Setting this object to
+                 the zero length string is equivalent to
+                 disabling this match criterion."
+        DEFVAL { ''H }
+        ::= { cdsmFCMultiFieldMatchStmtEntry 3 }
+
+cdsmFCMultiFieldMatchIntf OBJECT-TYPE
+        SYNTAX        InterfaceIndexOrZero
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object represents an FC interface on the 
+                 local device on which a frame should arrive in
+                 order to be classified by this filter.
+
+                 A value of zero indicates that no interface is
+                 configured. Setting this object to zero is
+                 equivalent to disabling this match criterion."
+        DEFVAL { 0 }
+        ::= { cdsmFCMultiFieldMatchStmtEntry 4 }
+
+cdsmFCMultiFieldMatchStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "The status of this conceptual row. All writable
+                 objects in this row can be modified at any time."
+        ::= { cdsmFCMultiFieldMatchStmtEntry 5 }
+
+cdsmFCMultiFieldMatchWildCard OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object specifies whether the wild-card option
+                 has been set.
+
+                 If this object is set to 'true', then the 
+                 wild-card option is set and all the FC traffic 
+                 will be considered to match the corresponding
+                 multi-field classifier.
+
+                 If this object is set to 'false', then the 
+                 wild-card option is not set.
+
+                 Setting this object to 'true' in a multi-field
+                 classifier which has other match criteria set is
+                 an error."
+        DEFVAL { false }
+        ::= { cdsmFCMultiFieldMatchStmtEntry 6 }
+
+-- Extension for diffServMeterSpecific pointer
+
+cdsmRateLimitTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CdsmRateLimitEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table specifies a set of rate limit
+                 parameter(s) for interfaces on the local
+                 device."
+        ::= { cdsmConfiguration 5 }
+
+cdsmRateLimitEntry OBJECT-TYPE
+        SYNTAX        CdsmRateLimitEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table.
+                 An instance of diffServMeterSpecific object
+                 (in the diffServMeterTable of DIFFSERV-MIB)
+                 which points to an entry in this table,
+                 identifies a rate-limit meter."
+        INDEX { cdsmRateLimitId }
+        ::= { cdsmRateLimitTable 1 }
+
+CdsmRateLimitEntry ::= SEQUENCE {
+        cdsmRateLimitId      IndexInteger,
+        cdsmRateLimitPercent Unsigned32
+}
+
+cdsmRateLimitId OBJECT-TYPE
+        SYNTAX        IndexInteger
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "Uniquely represents a rate-limit meter."
+        ::= { cdsmRateLimitEntry 1 }
+
+cdsmRateLimitPercent OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..100)
+        UNITS         "percent"
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "Specifies the rate-limit factor on this
+                 interface."
+        DEFVAL { 100 }
+        ::= { cdsmRateLimitEntry 2 }
+
+
+-- Scheduler Q Table
+
+cdsmSchedulerQTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CdsmSchedulerQEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table contains configuration information
+                 regarding the scheduler queues on the local
+                 device."
+        ::= { cdsmConfiguration 6 }
+
+cdsmSchedulerQEntry OBJECT-TYPE
+        SYNTAX        CdsmSchedulerQEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        INDEX { cdsmSchedulerQNum }
+        ::= { cdsmSchedulerQTable 1 } 
+
+CdsmSchedulerQEntry ::= SEQUENCE {
+        cdsmSchedulerQNum       Unsigned32,
+        cdsmSchedulerQWeight    Unsigned32
+}
+
+cdsmSchedulerQNum OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..3)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "The index of this scheduler queue."
+        ::= { cdsmSchedulerQEntry 1 }
+
+cdsmSchedulerQWeight OBJECT-TYPE
+        SYNTAX        Unsigned32 (5..100)
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+                "The weight associated with this queue."
+        ::= { cdsmSchedulerQEntry 2 }
+
+cdsmChkSumTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CdsmChkSumEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table contains checksums for the local
+                 FC Qos configuration on all configured VSANs."
+        ::= { cdsmConfiguration 7 }
+
+cdsmChkSumEntry OBJECT-TYPE
+        SYNTAX        CdsmChkSumEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        INDEX { vsanIndex }
+        ::= { cdsmChkSumTable 1 }
+
+CdsmChkSumEntry ::= SEQUENCE {
+        cdsmChkSumValue      Unsigned32        
+}
+
+cdsmChkSumValue OBJECT-TYPE
+        SYNTAX        Unsigned32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The checksum corresponding to the local
+                 FC Qos configuration on this VSAN."
+        ::= { cdsmChkSumEntry 1 }
+
+-- Conformance
+
+ciscoDiffServExtMIBCompliances OBJECT IDENTIFIER
+                       ::= { ciscoDiffServExtMIBConform 1 }
+
+ciscoDiffServExtMIBGroups      OBJECT IDENTIFIER
+                       ::= { ciscoDiffServExtMIBConform 2 }
+
+ciscoDiffServExtMIBCompliance MODULE-COMPLIANCE
+        STATUS  deprecated
+             -- superceded by ciscoDiffServExtMIBComplianceR1
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Cisco Extension to the 
+                 DIFFSERV-MIB."
+        MODULE  MANDATORY-GROUPS {
+                     ciscoDiffServExtGroup
+                }
+
+        GROUP       ciscoDiffServVsanGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that have the notion of a VSAN."
+
+        GROUP       ciscoDiffServSchedQGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that support DWRR scheduler queues."
+
+        OBJECT      cdsmDataPathStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        OBJECT      cdsmFCMultiFieldMatchStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        OBJECT      cdsmFCMultiFieldClfrStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+        ::= { ciscoDiffServExtMIBCompliances 1 }
+
+ciscoDiffServExtMIBComplianceR1 MODULE-COMPLIANCE
+        STATUS  deprecated
+             -- superceded by ciscoDiffServExtMIBComplianceR2
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Cisco Extension to the 
+                 DIFFSERV-MIB."
+        MODULE  MANDATORY-GROUPS {
+                     ciscoDiffServExtGroup1
+                }
+
+        GROUP       ciscoDiffServVsanGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that have the notion of a VSAN."
+
+        GROUP       ciscoDiffServSchedQGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that support DWRR scheduler queues."
+
+        GROUP       ciscoDiffServChkSumGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that support checksum for the configuration."
+
+        OBJECT      cdsmDataPathStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        OBJECT      cdsmFCMultiFieldMatchStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        OBJECT      cdsmFCMultiFieldClfrStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+        ::= { ciscoDiffServExtMIBCompliances 2 }
+
+ciscoDiffServExtMIBComplianceR2 MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Cisco Extension to the 
+                 DIFFSERV-MIB."
+        MODULE  MANDATORY-GROUPS {
+                     ciscoDiffServExtGroup2
+                }
+
+        GROUP       ciscoDiffServVsanGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that have the notion of a VSAN."
+
+        GROUP       ciscoDiffServSchedQGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that support DWRR scheduler queues."
+
+        GROUP       ciscoDiffServChkSumGroup
+        DESCRIPTION
+                "This group is required only for implementations
+                 that support checksum for the configuration."
+
+        OBJECT      cdsmDataPathStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        OBJECT      cdsmFCMultiFieldMatchStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        OBJECT      cdsmFCMultiFieldClfrStatus
+        SYNTAX      INTEGER {             
+                       active(1),
+                       createAndGo(4),
+                       destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+        ::= { ciscoDiffServExtMIBCompliances 3 }
+
+-- Units of conformance
+
+ciscoDiffServVsanGroup OBJECT-GROUP
+        OBJECTS   {
+             cdsmDataPathClfrStart,
+             cdsmDataPathStatus
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring VSAN related information."
+        ::= { ciscoDiffServExtMIBGroups 1 }
+
+ciscoDiffServExtGroup OBJECT-GROUP
+        OBJECTS   {
+             cdsmClfrName,
+             cdsmFCMultiFieldClfrName,
+             cdsmFCMultiFieldClfrMatch,
+             cdsmFCMultiFieldClfrStatus,
+             cdsmFCMultiFieldMatchSrcAddr,
+             cdsmFCMultiFieldMatchDstAddr,
+             cdsmFCMultiFieldMatchIntf,
+             cdsmFCMultiFieldMatchStatus,
+             cdsmRateLimitPercent
+        }
+        STATUS  deprecated
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring FC multi-field filters and other
+                 extensions to the DIFFSERV-MIB."
+        ::= { ciscoDiffServExtMIBGroups 2 }
+
+ciscoDiffServSchedQGroup OBJECT-GROUP
+        OBJECTS   {
+             cdsmSchedulerQWeight
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring DWRR scheduler Q weights."
+        ::= { ciscoDiffServExtMIBGroups 3 }
+
+ciscoDiffServExtGroup1 OBJECT-GROUP
+        OBJECTS   {
+             cdsmClfrName,
+             cdsmFCMultiFieldClfrName,
+             cdsmFCMultiFieldClfrMatch,
+             cdsmFCMultiFieldClfrStatus,
+             cdsmFCMultiFieldMatchSrcAddr,
+             cdsmFCMultiFieldMatchDstAddr,
+             cdsmFCMultiFieldMatchIntf,
+             cdsmFCMultiFieldMatchStatus,
+             cdsmFCMultiFieldMatchWildCard,
+             cdsmRateLimitPercent
+        }
+        STATUS  deprecated
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring FC multi-field filters and other
+                 extensions to the DIFFSERV-MIB."
+        ::= { ciscoDiffServExtMIBGroups 4 }
+
+ciscoDiffServChkSumGroup OBJECT-GROUP
+        OBJECTS   {
+             cdsmChkSumValue
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of object(s) for displaying FC
+                 Qos configuration checksum."
+        ::= { ciscoDiffServExtMIBGroups 5 }
+
+ciscoDiffServExtGroup2 OBJECT-GROUP
+        OBJECTS   {
+             cdsmClfrName,
+             cdsmClfrNextFreeElement,
+             cdsmFCMultiFieldClfrName,
+             cdsmFCMultiFieldClfrMatch,
+             cdsmFCMultiFieldClfrStatus,
+             cdsmFCMultiFieldClfrNextFreeStmt,
+             cdsmFCMultiFieldMatchSrcAddr,
+             cdsmFCMultiFieldMatchDstAddr,
+             cdsmFCMultiFieldMatchIntf,
+             cdsmFCMultiFieldMatchStatus,
+             cdsmFCMultiFieldMatchWildCard,
+             cdsmRateLimitPercent
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring FC multi-field filters and other
+                 extensions to the DIFFSERV-MIB."
+        ::= { ciscoDiffServExtMIBGroups 6 }
+END

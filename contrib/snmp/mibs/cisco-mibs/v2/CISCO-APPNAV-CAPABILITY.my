@@ -1,0 +1,65 @@
+-- *****************************************************************
+-- CISCO-APPNAV-CAPABILITY.my : A MIB for CISCO-APPNAV-MIB capabilities
+--   
+-- April 2012, Umang Tandon.
+-- Copyright (c) 2006, 2012 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-APPNAV-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoAppnavCapability MODULE-IDENTITY
+    LAST-UPDATED    "201204170000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-APPNAV-MIB."
+    REVISION        "201204170000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoAgentCapability 610 }
+
+
+
+ciscoAppNavCapabilityWAASV5R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=WAAS
+                     OSVERSION=V501"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-APPNAV-MIB capabilities"
+
+    SUPPORTS        CISCO-APPNAV-MIB
+    INCLUDES        {
+                        cAppNavServiceContextGroup,
+                        cAppNavACGGroup,
+                        cAppNavSNGGroup,
+                        cAppNavACGroup,
+                        cAppNavSNGroup
+                    }
+    ::= { ciscoAppnavCapability 1 }
+
+END
+
+
+
+

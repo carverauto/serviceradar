@@ -1,0 +1,302 @@
+-- *****************************************************************
+-- LOOP-PROTECTION-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-LOOP-PROTECTION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200LoopProtectionMib MODULE-IDENTITY
+    LAST-UPDATED "201604270000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private MIB for loop protection"
+    REVISION    "201604270000Z"
+    DESCRIPTION
+        "Add loop detected notification"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402100000Z"
+    DESCRIPTION
+        "Removed empty capabilities OID"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401270000Z"
+    DESCRIPTION
+        "Rearrange interface hierachies"
+    REVISION    "201401240000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 91 }
+
+
+ME1200LoopProtectionAction ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the available actions for when a loop on an
+         interface is detected."
+    SYNTAX      INTEGER { shutdown(0), shutdownAndLogEvent(1), logEvent(2) }
+
+me1200LoopProtectionObjects OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionMib 1 }
+
+me1200LoopProtectionConfig OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionObjects 2 }
+
+me1200LoopProtectionGlobals OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionConfig 1 }
+
+me1200LoopProtectionGlobalsEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global enabled for loop protection on any port."
+    ::= { me1200LoopProtectionGlobals 1 }
+
+me1200LoopProtectionGlobalsTransmitInterval OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Port transmission interval (seconds). Valid range: 1-10 seconds."
+    ::= { me1200LoopProtectionGlobals 2 }
+
+me1200LoopProtectionGlobalsShutdownPeriod OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Port shutdown period (seconds). Valid range: 0 to 604800 seconds."
+    ::= { me1200LoopProtectionGlobals 3 }
+
+me1200LoopProtectionConfigInterface OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionConfig 2 }
+
+me1200LoopProtectionInterfaceParamTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LoopProtectionInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of loop protection interface parameters"
+    ::= { me1200LoopProtectionConfigInterface 1 }
+
+me1200LoopProtectionInterfaceParamEntry OBJECT-TYPE
+    SYNTAX      ME1200LoopProtectionInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each physical interface has a set of parameters"
+    INDEX       { me1200LoopProtectionInterfaceParamIfIndex }
+    ::= { me1200LoopProtectionInterfaceParamTable 1 }
+
+ME1200LoopProtectionInterfaceParamEntry ::= SEQUENCE {
+    me1200LoopProtectionInterfaceParamIfIndex     ME1200InterfaceIndex,
+    me1200LoopProtectionInterfaceParamEnabled     TruthValue,
+    me1200LoopProtectionInterfaceParamAction      ME1200LoopProtectionAction,
+    me1200LoopProtectionInterfaceParamTransmit    TruthValue
+}
+
+me1200LoopProtectionInterfaceParamIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LoopProtectionInterfaceParamEntry 1 }
+
+me1200LoopProtectionInterfaceParamEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enabled loop protection on port"
+    ::= { me1200LoopProtectionInterfaceParamEntry 2 }
+
+me1200LoopProtectionInterfaceParamAction OBJECT-TYPE
+    SYNTAX      ME1200LoopProtectionAction
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action if loop detected"
+    ::= { me1200LoopProtectionInterfaceParamEntry 3 }
+
+me1200LoopProtectionInterfaceParamTransmit OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Actively generate PDUs"
+    ::= { me1200LoopProtectionInterfaceParamEntry 4 }
+
+me1200LoopProtectionStatus OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionObjects 3 }
+
+me1200LoopProtectionStatusInterface OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionStatus 2 }
+
+me1200LoopProtectionInterfaceStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LoopProtectionInterfaceStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of loop protection interface status"
+    ::= { me1200LoopProtectionStatusInterface 1 }
+
+me1200LoopProtectionInterfaceStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200LoopProtectionInterfaceStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each physical interface has a set of status objects"
+    INDEX       { me1200LoopProtectionInterfaceStatusIfIndex }
+    ::= { me1200LoopProtectionInterfaceStatusTable 1 }
+
+ME1200LoopProtectionInterfaceStatusEntry ::= SEQUENCE {
+    me1200LoopProtectionInterfaceStatusIfIndex    ME1200InterfaceIndex,
+    me1200LoopProtectionInterfaceStatusDisabled   TruthValue,
+    me1200LoopProtectionInterfaceStatusLoopDetected   TruthValue,
+    me1200LoopProtectionInterfaceStatusLoopCount      Unsigned32,
+    me1200LoopProtectionInterfaceStatusLastLoop   Integer32
+}
+
+me1200LoopProtectionInterfaceStatusIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LoopProtectionInterfaceStatusEntry 1 }
+
+me1200LoopProtectionInterfaceStatusDisabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Whether a port is currently disabled"
+    ::= { me1200LoopProtectionInterfaceStatusEntry 2 }
+
+me1200LoopProtectionInterfaceStatusLoopDetected OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Whether a port has a loop detected"
+    ::= { me1200LoopProtectionInterfaceStatusEntry 3 }
+
+me1200LoopProtectionInterfaceStatusLoopCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of times a loop has been detected on a port"
+    ::= { me1200LoopProtectionInterfaceStatusEntry 4 }
+
+me1200LoopProtectionInterfaceStatusLastLoop OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Time of last loop condition"
+    ::= { me1200LoopProtectionInterfaceStatusEntry 5 }
+
+me1200LoopProtectionNotificationPrefix OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionObjects 4 }
+
+me1200LoopProtectionNotification OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionNotificationPrefix 0 }
+
+me1200LoopProtectionNotificationLoopDetected NOTIFICATION-TYPE
+    OBJECTS { me1200LoopProtectionInterfaceStatusLoopCount,
+              me1200LoopProtectionInterfaceStatusLastLoop }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when a loop is detected."
+   ::= { me1200LoopProtectionNotification 1 }
+
+me1200LoopProtectionMibConformance OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionMib 2 }
+
+me1200LoopProtectionMibCompliances OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionMibConformance 1 }
+
+me1200LoopProtectionMibGroups OBJECT IDENTIFIER
+    ::= { me1200LoopProtectionMibConformance 2 }
+
+me1200LoopProtectionGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LoopProtectionGlobalsEnabled, 
+                  me1200LoopProtectionGlobalsTransmitInterval, 
+                  me1200LoopProtectionGlobalsShutdownPeriod }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LoopProtectionMibGroups 1 }
+
+me1200LoopProtectionInterfaceParamTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LoopProtectionInterfaceParamEnabled, 
+                  me1200LoopProtectionInterfaceParamAction, 
+                  me1200LoopProtectionInterfaceParamTransmit }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LoopProtectionMibGroups 2 }
+
+me1200LoopProtectionInterfaceStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LoopProtectionInterfaceStatusDisabled, 
+                  me1200LoopProtectionInterfaceStatusLoopDetected, 
+                  me1200LoopProtectionInterfaceStatusLoopCount, 
+                  me1200LoopProtectionInterfaceStatusLastLoop }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LoopProtectionMibGroups 3 }
+
+me1200LoopProtectionNotificationInfoGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { me1200LoopProtectionNotificationLoopDetected }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LoopProtectionMibGroups 4 }
+
+me1200LoopProtectionMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200LoopProtectionGlobalsInfoGroup, 
+                  me1200LoopProtectionInterfaceParamTableInfoGroup, 
+                  me1200LoopProtectionInterfaceStatusTableInfoGroup,
+                  me1200LoopProtectionNotificationInfoGroup }
+
+    ::= { me1200LoopProtectionMibCompliances 1 }
+
+END

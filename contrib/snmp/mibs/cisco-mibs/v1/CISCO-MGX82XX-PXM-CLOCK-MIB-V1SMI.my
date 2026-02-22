@@ -1,0 +1,461 @@
+-- MIB file created 14-Jun-2003 22:30:12, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MGX82XX-PXM-CLOCK-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MGX82XX-PXM-CLOCK-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    cardSpecific
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoMgx82xxPxmClockMIB OBJECT IDENTIFIER ::= { ciscoWan 72 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200305270000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--            Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module to describe the clock configuration
+--    in Processor Switch Module(PXM) in MGX82xx product.
+--    
+--    Back cards supported for PXM1:
+--     PXM-UI     : T1 Clock port, E1 Clock Port
+--     PXM-UI-S3  : External Clock1 for T1/E1 Clock input.
+--  RevDate
+--    200305270000Z
+--  RevDescr
+--    Initial version of the MIB.
+--    
+--    The content of this MIB was originally available
+--    in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+--    The applicable objects from CISCO-WAN-AXIPOP-MIB
+--    are defined using SMIv2 in this MIB. Also the
+--    descriptions of some of the objects have been 
+--    modified.
+
+pxmClockConfig  OBJECT IDENTIFIER ::= { cardSpecific 16 }
+cmpClockMIBConformance OBJECT IDENTIFIER ::= { ciscoMgx82xxPxmClockMIB 2 }
+cmpClockMIBGroups OBJECT IDENTIFIER ::= { cmpClockMIBConformance 1 }
+cmpClockMIBCompliances OBJECT IDENTIFIER ::= { cmpClockMIBConformance 2 }
+
+CmpClockConnectorType ::= INTEGER {
+        rj45Type(1),
+        smbType(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents the connector type for the clock
+--    device.
+--    
+--    rj45Type(1): RJ-45 Connector. This is for T1/E1 clock
+--                 input.
+--    smbType (2): SMB Connector. This is for E1 clock input.
+
+CmpClockSourceType ::= INTEGER {
+        pxmInbandClock1(1),
+        pxmServiceModuleClock1(2),
+        pxmTopSRMClock(3),
+        pxmExternalClock(4),
+        pxmInbandClock2(5),
+        pxmServiceModuleClock2(6),
+        pxmBottomSRMClock(7),
+        pxmInternalOscillator(8),
+        pxmExternalClock2(9)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This object identifies the source of the
+--    Mux Clock on PXM card.
+--    
+--    pxmInbandClock1 (1),
+--    pxmInbandClock2 (5): clock is derived from physical line
+--    
+--    pxmServiceModuleClock1(2),
+--    pxmServiceModuleClock2(6): clock is derived from service module.
+--    
+--    pxmTopSRMClock         (3),
+--    pxmBottomSRMClock      (7): clock is derived from SRM module.
+--    
+--    pxmExternalClock(4),
+--    pxmExternalClock2(9)      :clock is derived from the port.
+--    
+--    pxmInternalOscillator  (8): clock is derived from internal
+--                                 oscillator.
+
+CmpCurrentClock ::= INTEGER {
+        primary(1),
+        secondary(2),
+        intOscillator(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This TEXTUAL Convention represents the clock source currently 
+--    selected for PXM card.
+--    
+--    primary(1): The primary clock source is described by
+--                pxmPrimaryMuxClockSource
+--    
+--    secondary(2): The secondary clock source is described by
+--                  pxmSecondaryMuxClockSource.
+--    intOscillator(3): Current clock is internal oscillator.
+
+CmpClockExistence ::= INTEGER {
+        clkNotPresent(1),
+        clkPresent(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This TEXTUAL Convention represents the existence of
+--    the clock source.
+--    
+--    clkNotPresent (1): The T1/E1 external clock not present.
+--    clkPresent    (2): The T1/E1 external clock present.
+
+CmpClockImpedance ::= INTEGER {
+        ohms75(1),
+        ohms100(2),
+        ohms120(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention provides the impedance on
+--    external clock input on PXM-UI-S3 back card.
+
+pxmPrimaryMuxClockSource OBJECT-TYPE
+    SYNTAX CmpClockSourceType
+--    Rsyntax INTEGER {
+--        pxmInbandClock1(1),
+--        pxmServiceModuleClock1(2),
+--        pxmTopSRMClock(3),
+--        pxmExternalClock(4),
+--        pxmInbandClock2(5),
+--        pxmServiceModuleClock2(6),
+--        pxmBottomSRMClock(7),
+--        pxmInternalOscillator(8),
+--        pxmExternalClock2(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the source of the
+        Primary Mux Clock for PXM card."
+    ::= { pxmClockConfig 1 }
+
+pxmPrimaryInbandClockSourceLineNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..4)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the inband line number.
+        This is applicable when pxmPrimaryMuxClockSource is 
+        pxmInbandClock1(1) or pxmServiceModuleClock2 (5)."
+    ::= { pxmClockConfig 2 }
+
+pxmPrimarySMClockSourceSlotNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the service module slot number.
+        This is applicable when pxmPrimaryMuxClockSource is
+        pxmServiceModuleClock1(2) or pxmServiceModuleClock2(6)."
+    ::= { pxmClockConfig 3 }
+
+pxmSecondaryMuxClockSource OBJECT-TYPE
+    SYNTAX CmpClockSourceType
+--    Rsyntax INTEGER {
+--        pxmInbandClock1(1),
+--        pxmServiceModuleClock1(2),
+--        pxmTopSRMClock(3),
+--        pxmExternalClock(4),
+--        pxmInbandClock2(5),
+--        pxmServiceModuleClock2(6),
+--        pxmBottomSRMClock(7),
+--        pxmInternalOscillator(8),
+--        pxmExternalClock2(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the source of the
+        Secondary Mux Clock for PXM card."
+    ::= { pxmClockConfig 4 }
+
+pxmSecondaryInbandClockSourceLineNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..4)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the inband line number.
+        This is applicable when pxmSecondaryMuxClockSource is 
+        pxmInbandClock1(1) or pxmServiceModuleClock2 (5)."
+    ::= { pxmClockConfig 5 }
+
+pxmSecondarySMClockSourceSlotNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the service module slot number.
+        This is applicable when pxmSecondaryMuxClockSource is
+        pxmServiceModuleClock1(2) or pxmServiceModuleClock2(6)."
+    ::= { pxmClockConfig 6 }
+
+pxmCurrentClock OBJECT-TYPE
+    SYNTAX CmpCurrentClock
+--    Rsyntax INTEGER {
+--        primary(1),
+--        secondary(2),
+--        intOscillator(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the clock source currently 
+        selected for PXM card.
+        
+        primary(1): The primary clock source is described by
+                    pxmPrimaryMuxClockSource
+        secondary(2): The secondary clock source is described by
+                      pxmSecondaryMuxClockSource.
+        intOscillator(3): Current clock is internal oscillator."
+    ::= { pxmClockConfig 7 }
+
+pxmPreviousClock OBJECT-TYPE
+    SYNTAX CmpCurrentClock
+--    Rsyntax INTEGER {
+--        primary(1),
+--        secondary(2),
+--        intOscillator(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the clock source previously 
+        selected for PXM card."
+    ::= { pxmClockConfig 8 }
+
+pxmExtClockPresent OBJECT-TYPE
+    SYNTAX CmpClockExistence
+--    Rsyntax INTEGER {
+--        clkNotPresent(1),
+--        clkPresent(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Status of External T1/E1 Clock on PXM card."
+    ::= { pxmClockConfig 9 }
+
+pxmExtClkSrcImpedance OBJECT-TYPE
+    SYNTAX CmpClockImpedance
+--    Rsyntax INTEGER {
+--        ohms75(1),
+--        ohms100(2),
+--        ohms120(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Impedance on external clock input for PXM card."
+    ::= { pxmClockConfig 10 }
+
+pxmExtClkConnectorType OBJECT-TYPE
+    SYNTAX CmpClockConnectorType
+--    Rsyntax INTEGER {
+--        rj45Type(1),
+--        smbType(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the type of connector available
+        for connecting the external clock source to the PXM."
+    ::= { pxmClockConfig 11 }
+
+pxmClkStratumLevel OBJECT-TYPE
+    SYNTAX INTEGER {
+        stratumUnknown(1),
+        stratumLevel1(2),
+        stratumLevel2(3),
+        stratumLevel3E(4),
+        stratumLevel3(5),
+        stratumLevel4(6),
+        stratumLevel4E(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the lowest stratum level
+        provided by the interface the external clock source to
+        the PXM back card."
+    ::= { pxmClockConfig 12 }
+
+pxmClkErrReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        goodClk(1),
+        unknownReason(2),
+        noClkSignal(3),
+        freqTooHigh(4),
+        freqTooLow(5),
+        excessiveJitter(6),
+        missingCard(7),
+        missingLogicalIf(8),
+        noClock(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives more information about clock 
+        status.
+        The possible values are :
+        
+         goodClk(1)         : Clock is good
+         unkownReason(2)    : reason not known
+         noClkSignal(3)     : Loss of signal(LOS) on clock source
+         freqTooHigh(4)     : frequency drifted too high
+         freqTooLow(5)      : frequency drifted too low
+         excessiveJitter(6) : jitter has exceeded the tolerance
+         missingCard    (7) : no clock hardware found
+         missingLogicalIf(8): Logical Interface missing
+                              or not operational
+         noClock         (9): No clock."
+    ::= { pxmClockConfig 13 }
+
+pxmExtClock2Present OBJECT-TYPE
+    SYNTAX CmpClockExistence
+--    Rsyntax INTEGER {
+--        clkNotPresent(1),
+--        clkPresent(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of external T1/E1 
+        Clock on port 2 of PXMUI-S3 back card."
+    ::= { pxmClockConfig 14 }
+
+pxmExtClk2SrcImpedance OBJECT-TYPE
+    SYNTAX CmpClockImpedance
+--    Rsyntax INTEGER {
+--        ohms75(1),
+--        ohms100(2),
+--        ohms120(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides the impedance on external clock 
+        input on port 2 of PXMUI-S3 back card."
+    ::= { pxmClockConfig 15 }
+
+pxmExtClk2ConnectorType OBJECT-TYPE
+    SYNTAX CmpClockConnectorType
+--    Rsyntax INTEGER {
+--        rj45Type(1),
+--        smbType(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the type of connector 
+        available for connecting the external clock source 
+        to the port 2 of PXM-UI-S3 back card of PXM."
+    ::= { pxmClockConfig 16 }
+
+cmpClockInfoGroup OBJECT IDENTIFIER ::= { cmpClockMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    providing information on PXM Clock configuration.
+--  objects
+--    pxmCurrentClock, pxmPreviousClock, pxmClkStratumLevel, 
+--    pxmClkErrReason
+
+cmpPrimaryClockInfoGroup OBJECT IDENTIFIER ::= { cmpClockMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    providing information on Primary Clock configuration.
+--  objects
+--    pxmPrimaryMuxClockSource, 
+--    pxmPrimaryInbandClockSourceLineNumber, 
+--    pxmPrimarySMClockSourceSlotNumber
+
+cmpSecondaryClockInfoGroup OBJECT IDENTIFIER ::= { cmpClockMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    providing information on Secondary Clock configuration.
+--  objects
+--    pxmSecondaryMuxClockSource, 
+--    pxmSecondaryInbandClockSourceLineNumber, 
+--    pxmSecondarySMClockSourceSlotNumber
+
+cmpExtClockInfoGroup OBJECT IDENTIFIER ::= { cmpClockMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    providing general information on PXM Clock 
+--    configuration.
+--  objects
+--    pxmExtClockPresent, pxmExtClkSrcImpedance, 
+--    pxmExtClkConnectorType, pxmExtClock2Present, 
+--    pxmExtClk2SrcImpedance, pxmExtClk2ConnectorType
+
+cmpClockCompliance OBJECT IDENTIFIER ::= { cmpClockMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for objects related
+--    to PXM Clock mib.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmpClockInfoGroup
+--   MandGroup
+--    cmpPrimaryClockInfoGroup
+--   MandGroup
+--    cmpSecondaryClockInfoGroup
+--   MandGroup
+--    cmpExtClockInfoGroup
+
+
+END
+

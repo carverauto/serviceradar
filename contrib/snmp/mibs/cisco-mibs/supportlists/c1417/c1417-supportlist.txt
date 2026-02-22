@@ -1,0 +1,81 @@
+Router MIB Support Lists
+
+
+The below MIBs are supported by IOS version 12.2 and later. SNMP version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are in the v2 directory. Note that for most every MIB .my in
+the v2 directory, there exists a SNMP version 1 conversion of the MIB -V1SMI.my in the v1 directory. The exception is SNMPv2-TC.my. Thanks go to David T. Perkins for his package smicng
+which was used to produce most of the v1 conversions. 
+
+At a minimum, you will want to download all of the OLD-CISCO- and CISCO- mibs (including -TC and -SMI) for your network management workstation. 
+
+
+
+IOS 12.2 Support 
+  
+
+       Supported SNMP version 1 MIBs:
+
+              BRIDGE-MIB.my 
+              NOVELL-IPX-MIB.my 
+              NOVELL-NLSP-MIB.my 
+              NOVELL-RIPSAP-MIB.my 
+              OLD-CISCO-CHASSIS-MIB.my 
+              OLD-CISCO-CPU-MIB.my 
+              OLD-CISCO-FLASH-MIB.my 
+              OLD-CISCO-IP-MIB.my 
+              OLD-CISCO-MEMORY-MIB.my 
+              OLD-CISCO-NOVELL-MIB.my 
+              OLD-CISCO-SYSTEM-MIB.my 
+              OLD-CISCO-TCP-MIB.my 
+              OLD-CISCO-TS-MIB.my 
+              RFC1213-MIB.my 
+              RFC1253-MIB.my 
+              RFC1381-MIB.my 
+              RFC1382-MIB.my 
+              RMON-MIB.my
+
+       Supported SNMP version 2 MIBs: 
+
+              ATM-MIB.my 
+              BGP4-MIB.my 
+              CISCO-AAL5-MIB.my 
+              CISCO-ATM-EXT-MIB.my 
+              CISCO-CAR-MIB.my 
+              CISCO-CDP-MIB.my 
+              CISCO-CIRCUIT-INTERFACE-MIB.my 
+              CISCO-CONFIG-COPY-MIB.my 
+              CISCO-CONFIG-MAN-MIB.my 
+              CISCO-ENTITY-ASSET-MIB.my 
+              CISCO-FLASH-MIB.my 
+              CISCO-HSRP-EXT-MIB 
+              CISCO-HSRP-MIB.my 
+              CISCO-IETF-ATM2-PVCTRAP-MIB.my 
+              CISCO-IMAGE-MIB.my 
+              CISCO-IP-STAT-MIB.my 
+              CISCO-IPMROUTE-MIB.my 
+              CISCO-MEMORY-POOL-MIB.my 
+              CISCO-NTP-MIB.my 
+              CISCO-PING-MIB.my 
+              CISCO-PROCESS-MIB.my 
+              CISCO-QUEUE-MIB.my 
+              CISCO-RTTMON-MIB.my 
+              CISCO-SNAPSHOT-MIB.my 
+              CISCO-TCP-MIB.my 
+              CISCO-VPDN-MGMT-MIB.my 
+              ENTITY-MIB.my 
+              HC-RMON-MIB.my 
+              IF-MIB.my 
+              IGMP-MIB.my 
+              INT-SERV-GUARANTEED-MIB.my 
+              INT-SERV-MIB.my 
+              IPMROUTE-MIB.my 
+              MSDP-MIB.my 
+              PIM-MIB.my 
+              RMON2-MIB.my 
+              RS-232-MIB.my 
+              RSVP-MIB.my 
+              SMON-MIB.my 
+              SNMPv2-MIB.my 
+              TCP-MIB.my 
+              UDP-MIB.my 
+               
+

@@ -1,0 +1,462 @@
+-- *****************************************************************
+-- CISCO-DOCS-REMOTE-QUERY.my: Cisco Data Over Cable Service Remote 
+--                             Query MIB file
+--
+-- January 2000, Lynn Tran
+--
+-- Copyright (c) 2000-2001, 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-DOCS-REMOTE-QUERY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Integer32,
+        Unsigned32
+                FROM SNMPv2-SMI
+        TruthValue,
+        TimeStamp,
+        TimeInterval
+                FROM SNMPv2-TC
+        OBJECT-GROUP,
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        TenthdBmV,
+        TenthdB
+                FROM DOCS-IF-MIB
+        ciscoExperiment
+                FROM CISCO-SMI
+        SnmpAdminString,
+        SnmpEngineID
+                FROM SNMP-FRAMEWORK-MIB
+        cdxCmCpeMacAddress
+                FROM CISCO-DOCS-EXT-MIB;
+
+ciscoDocsRemoteQueryMIB MODULE-IDENTITY
+        LAST-UPDATED    "200408060000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 West Tasman Drive
+                    San Jose, CA 95134
+                    U.S.A
+               Tel: +1 800 553-NETS 
+            E-mail: cs-ubr@cisco.com"
+
+        DESCRIPTION
+            "This MIB module provides the management of 
+            the Cisco Cable Modem Termination Systems 
+            (CMTS) Remote Query feature.
+
+            This feature, implemented on a CMTS, facilitates 
+            SNMP polling of remote cable modems (CMs).
+
+            This MIB includes the configuration and 
+            status objects of the CMTS CM Poller and 
+            remote CMs that polled by the CMTS CM Poller"
+
+        REVISION        "200408060000Z"
+        DESCRIPTION 
+             "Change of range for cdrqCmtsCmPollerInterval.
+              Change of description for cdrqCmtsCmPollerEnable
+              and cdrqCmtsCmPollerInterval"
+        REVISION        "200012210000Z"
+        DESCRIPTION
+            "Change the range of cdrqCmtsCmPollerInterval"
+        REVISION        "200003080000Z"
+        DESCRIPTION
+            "Initial version of this MIB. "
+
+        ::= { ciscoExperiment 59}
+
+ciscoDocsRemQueryMIBObjects  OBJECT IDENTIFIER ::= 
+                               { ciscoDocsRemoteQueryMIB 1 }
+cdrqPoller                   OBJECT IDENTIFIER ::= 
+                               { ciscoDocsRemQueryMIBObjects 1 }
+cdrqCM                       OBJECT IDENTIFIER ::= 
+                               { ciscoDocsRemQueryMIBObjects 2 }
+
+--
+-- Poller Group  
+--
+-- Allows to configure and monitor the CMTS CM Poller 
+--
+
+-- CMTS CM Poller 
+-- 
+
+cdrqCmtsCmPollerEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "An indication of whether the CMTS CM Poller is running.
+
+            When the poller is enabled, it polls the remote CMs 
+            periodically specified in the cdrqCmtsCmPollerInterval
+            mib object.
+
+            cdrqCmtsCmPollerInterval and cdrqCmtsCmPollerCommunity
+            need to have valid values in order to be able to set
+            cdrqCmtsCmPollerEnable to TRUE.
+
+            The operation can be expensive depending on how many CMs 
+            that the poller would be polling.  It is suggested to 
+            have it disabled when not needed."
+
+        ::= { cdrqPoller 1 }
+
+cdrqCmtsCmPollerInterval OBJECT-TYPE
+        SYNTAX      TimeInterval(0 | 1..8640000)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "An interval between two polling cycles of the CMTS CM 
+            Poller. 
+
+            The poller will not start the next cycle until it 
+            finished polling for the last CM , even though the 
+            time has expired.  If the cdrqCmtsCmPollerInterval is 
+            too small with a large number of CMs, the poller would
+            tie up the CPU and resources and possibly degrade the
+            system's performance.
+           
+            Any change in the cdrqCmtsCmPollerInterval will not
+            be reflected if the poller has already been enabled.
+
+            User cannot set cdrqCmtsCmPollerInterval to 0 but
+            will read 0 when CMTS is first restarted and remote-query
+            is not configured. Once poller is configured,
+            cdrqCmtsCmPollerInterval will retain the value even if
+            poller is later disabled"
+
+        ::= { cdrqPoller 2 }
+
+cdrqCmtsCmPollerCommunity OBJECT-TYPE
+        SYNTAX      OCTET STRING 
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The read community string is used for polling the CMs.
+
+            Any change in the cdrqCmtsCmPollerCommunity will not
+            be reflected if the poller has already been enabled.
+
+            For SNMPv3, this object will contain a user name 
+            instead of a community string."
+        ::= { cdrqPoller 3 }
+
+cdrqCmtsCmPollerContextEngineID OBJECT-TYPE
+        SYNTAX       SnmpEngineID
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+            "The contextEngineID indicating the location of the
+            context in which management information is accessed
+            when using the user name specified by the
+            corresponding instance of cdrqCmtsCmPollerCommunity.
+      
+            This object is implemented to support SNMPv3"
+        ::= { cdrqPoller 4 }
+
+cdrqCmtsCmPollerContextName OBJECT-TYPE
+        SYNTAX       SnmpAdminString (SIZE(0..32))
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+            "The context in which management information is accessed
+            when using the user name specified by the 
+            corresponding instance of cdrqCmtsCmPollerCommunity.
+
+            This object is implemented to support SNMPv3"
+        DEFVAL      { ''H }   -- the empty string
+        ::= { cdrqPoller 5 }
+
+cdrqCmtsCmPollerStartTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The value of sysUpTime when the last polling cycle 
+             started. 
+
+            cdrqCmtsCmPollerStartTime is set to 0 when the CMTS 
+            is first restarted and doesn't get reset after the 
+            poller is disabled."
+        ::= { cdrqPoller 6 }
+
+cdrqCmtsCmPollerStopTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The value of sysUpTime when the last polling cycle 
+            finished.
+                
+            cdrqCmtsCmPollerStopTime is set to 0 when the CMTS 
+            is first restarted and doesn't get reset after the poller
+            is disabled."
+        ::= { cdrqPoller 7 }
+
+
+--
+-- CM Group  
+--
+-- Allows to monitor the status of CM
+--
+--
+-- CMTS Remote Cable modem (CM) Table
+--
+--
+
+cdrqCmtsCmStatusTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CdrqCmtsCmStatusEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "This table contains the status of the cable modems that 
+           are polled by the CMTS CM Poller. The information will be 
+           overwritten when a new polling cycle starts.
+
+           The removal of CM from the list or adding a new CM to the 
+           list won't be reflected until the next polling cycle.
+
+           Depending on how many CMs that the poller is polling, 
+           polling this table constantly can be quite expensive; 
+           Therefore, it is best to poll upon receipt of the 
+           cdrqCmtsCmRQDoneNotification. As a hedge against lost 
+           notifications, periodic background polling should 
+           be performed.  Howerver, excessive polling could 
+           degrade performance."
+       ::= { cdrqCM 1 }
+
+cdrqCmtsCmStatusEntry OBJECT-TYPE
+        SYNTAX      CdrqCmtsCmStatusEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A list of the cable modem's attributes 
+                 that are polled by a CMTS. "
+        INDEX {cdxCmCpeMacAddress }
+        ::= { cdrqCmtsCmStatusTable 1 } 
+
+CdrqCmtsCmStatusEntry ::= SEQUENCE {
+        cdrqCmtsCmDownChannelPower      TenthdBmV, 
+        cdrqCmtsCmStatusTxPower         TenthdBmV,
+        cdrqCmtsCmUpChnlTxTimingOffset  Unsigned32,
+        cdrqCmtsCmSigQSignalNoise       TenthdB,
+        cdrqCmtsCmSigQMicroreflections  Integer32,
+        cdrqCmtsCmPollTime              TimeStamp 
+        }
+
+cdrqCmtsCmDownChannelPower OBJECT-TYPE
+        SYNTAX      TenthdBmV
+        UNITS       "dBmV"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The CM's received power level.  This object
+            may be set to zero if the CM does not support
+            power level measurement.
+
+            If the CM downstream interface is down, this object 
+            either returns the most current value or the value of 0."
+        REFERENCE
+                "DOCSIS Radio Frequency Interface Specification,
+                 Table 4-12 and Table 4-13."
+::={ cdrqCmtsCmStatusEntry 1 }
+
+cdrqCmtsCmStatusTxPower OBJECT-TYPE
+        SYNTAX      TenthdBmV
+        UNITS       "dBmV"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The operational transmit power for the CM upstream 
+            channel."
+        REFERENCE
+            "DOCSIS Radio Frequency Interface specification, 
+            Section 4.2.8."
+        ::= { cdrqCmtsCmStatusEntry 2 }
+
+cdrqCmtsCmUpChnlTxTimingOffset OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "A measure of the current round trip time.  Used for 
+            timing of CM upstream transmissions to ensure 
+            synchronized arrivals at the CMTS." 
+        REFERENCE
+                "DOCSIS Radio Frequency Interface Specification,
+                Section 6.5."
+        ::= { cdrqCmtsCmStatusEntry 3 }
+
+cdrqCmtsCmSigQSignalNoise OBJECT-TYPE
+        SYNTAX      TenthdB
+        UNITS       "dB"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Signal/Noise ratio as perceived for the CM downstream 
+            channel."
+        REFERENCE
+            "DOCSIS Radio Frequency Interface specification,
+            Table 2-1 and 2-2"
+        ::= { cdrqCmtsCmStatusEntry 4 }
+
+cdrqCmtsCmSigQMicroreflections OBJECT-TYPE
+        SYNTAX      Integer32 (0..255)
+        UNITS       "dBc"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Total microreflections including in-channel 
+            response as perceived on the CM downstream, 
+            measured in dBc below the signal level.
+
+            This object is not assumed to return an absolutely
+            accurate value, but is meant to give a rough indication
+            of microreflections received on this interface.
+            It is up to the implementor to provide information
+            as accurate as possible."
+        REFERENCE
+            "DOCSIS Radio Frequency Interface specification,
+            Table 2-1 and 2-2"
+        ::= { cdrqCmtsCmStatusEntry 5 }
+
+cdrqCmtsCmPollTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The value of sysUpTime when this CM entry was polled.  
+
+            If this value is larger than the cdrqCmtsCmPollerStopTime,
+            either by receiving it from the 
+            cdrqCmtsCmRQDoneNotification or by polling the object 
+            itself, it indicates that the status has already been 
+            overwritten by a new polling cycle.  To avoid this 
+            to happen, the NMS can increase the cdrqCmtsCmPollInterval 
+            so that the cdrqCmtsCmPollTime 
+            would fall in between the cdrqCmtsCmPollerStartTime and 
+            the cdrqCmtsCmPollerStopTime."
+        ::= { cdrqCmtsCmStatusEntry 6 }
+
+
+--
+-- The Cisco DOCS REMOTE QUERY MIB Notifications 
+--
+
+ciscoDocsRQNotificationsPrefix   OBJECT IDENTIFIER
+                   ::= { ciscoDocsRemoteQueryMIB 2 }
+ciscoDocsRQNotifications         OBJECT IDENTIFIER
+                   ::= { ciscoDocsRQNotificationsPrefix 0 }
+
+
+cdrqCmtsCmRQDoneNotification NOTIFICATION-TYPE
+       OBJECTS    { 
+                  cdrqCmtsCmPollerStartTime,
+                  cdrqCmtsCmPollerStopTime
+       }
+       STATUS  current
+       DESCRIPTION
+           "This notification is sent when CMTS CM Poller 
+           finished polling for the current cycle. 
+
+           The cdrqCmtsCmPollerStartTime is the time when the 
+           polling cycle started.
+
+           The cdrqCmtsCmPollerStopTime is the time when the 
+           polling cycle finished."
+
+       ::= { ciscoDocsRQNotifications 1 }
+
+
+--
+-- The Cisco DOCS Remote Query MIB Conformance Statements 
+--
+
+--
+-- Conformance statement
+--
+
+ciscoDocsRemoteQueryConformance              OBJECT IDENTIFIER 
+    ::= { ciscoDocsRemoteQueryMIB 3 }
+cdrqDocsRemoteQueryCompliances               OBJECT IDENTIFIER 
+    ::= { ciscoDocsRemoteQueryConformance 1 }
+cdrqDocsRemoteQueryGroups                    OBJECT IDENTIFIER 
+    ::= { ciscoDocsRemoteQueryConformance 2 }
+
+
+-- compliance statements
+
+cdrqDocsRemoteQueryCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+            "The compliance statement for entities which 
+            implement the Cisco Remote Query MIB"
+        MODULE        -- this module
+            MANDATORY-GROUPS { 
+                             cdrqPollerGroup,
+                             cdrqCMGroup
+                }    
+
+        ::= { cdrqDocsRemoteQueryCompliances 1 }
+
+
+-- MIB groupings
+
+cdrqPollerGroup OBJECT-GROUP
+        OBJECTS {
+                cdrqCmtsCmPollerInterval,
+                cdrqCmtsCmPollerCommunity,
+                cdrqCmtsCmPollerContextEngineID,
+                cdrqCmtsCmPollerContextName,
+                cdrqCmtsCmPollerEnable,
+                cdrqCmtsCmPollerStartTime,
+                cdrqCmtsCmPollerStopTime
+        }
+        STATUS    current
+        DESCRIPTION
+                "Group of objects implemented in Cable Modem 
+                Termination Systems (CMTS) for configuring and 
+                monitoring the CMTS CM Poller."
+
+        ::= { cdrqDocsRemoteQueryGroups 1 }
+
+cdrqCMGroup OBJECT-GROUP
+        OBJECTS {
+                cdrqCmtsCmDownChannelPower, 
+                cdrqCmtsCmStatusTxPower,
+                cdrqCmtsCmUpChnlTxTimingOffset,
+                cdrqCmtsCmSigQSignalNoise,
+                cdrqCmtsCmSigQMicroreflections,
+                cdrqCmtsCmPollTime
+        }
+        STATUS    current
+        DESCRIPTION
+                "Group of objects implemented in Cable Modem 
+                Termination Systems (CMTS) for monitoring cable 
+                modems via CMTS CM Poller."
+
+        ::= { cdrqDocsRemoteQueryGroups 2 }
+
+cdrqNotificationGroup NOTIFICATION-GROUP
+       NOTIFICATIONS {
+               cdrqCmtsCmRQDoneNotification
+       }
+       STATUS    current
+       DESCRIPTION
+               "The notification which a CISCO-DOCS-REMOTE-QUERY-MIB
+            entity may implement."
+       ::= { cdrqDocsRemoteQueryGroups 3 }
+
+END

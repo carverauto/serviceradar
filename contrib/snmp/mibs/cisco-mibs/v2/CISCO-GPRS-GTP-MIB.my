@@ -1,0 +1,1031 @@
+-- $ID$
+-- ********************************************************************
+-- CISCO-GPRS-GTP-MIB.my: MIB file for GPRS Tunnelling Protocol(GTP)
+--
+-- December 1998, Ying He
+-- March 2001, Jeyachitra Alagar
+--
+-- Copyright (c) 1998-1999, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- NOTE WELL
+-- All objects defined in this mib are applicable to R1.4 GGSN only &
+-- they will be obsolete for the Cisco GGSN releases subsequent to 
+-- R1.4 GGSN.  They will be replaced with objects  defined in the 
+-- CISCO-GTP-MIB.my, CISCO-GGSN-MIB.my, CISCO-GPRS-CHARGING-MIB.my
+-- and CISCO-GPRS-ACC-PT-MIB.my documents.  Management applications 
+-- should not be examining the objects defined in this document
+-- for Cisco GGSN releases beyond GGSN R1.4 release.
+--
+-- ********************************************************************
+-- $Endlog$
+
+CISCO-GPRS-GTP-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Integer32,
+        Counter32,
+        Gauge32,
+        IpAddress 
+                FROM SNMPv2-SMI
+        DisplayString,
+        TruthValue,
+        RowStatus
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        ciscoExperiment
+                FROM CISCO-SMI;
+
+
+ciscoGprsGtpMIB MODULE-IDENTITY
+        LAST-UPDATED    "200509190000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+ 
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                   Tel: +1 800 553-NETS
+ 
+                E-mail: cs-gprs@cisco.com"
+        DESCRIPTION
+                "The MIB Module for managing the General Packet Radio 
+                 Service(GPRS) Tunnelling Protocol(GTP) on Gateway GPRS 
+                 Support Node (GGSN) and Serving GPRS Support 
+                 Node(SGSN)."
+        REVISION       "200509190000Z"
+        DESCRIPTION
+                "This MIB is now obsolete."
+        REVISION       "200107300000Z"
+        DESCRIPTION
+                "The information regarding the deprecation of this MIB 
+                 has been changed."
+        REVISION       "200103080000Z"
+        DESCRIPTION
+                "This MIB is being deprecated. All the objects defined
+                in this MIB have been replaced with objects defined in
+                CISCO-GTP-MIB.my, CISCO-GGSN-MIB.my,
+                CISCO-GPRS-CHARGING-MIB.my and CISCO-GPRS-ACC-PT-MIB.my
+                "
+        REVISION       "9907120000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoExperiment 48 }
+
+
+
+-- ******************************************************************
+-- Object definitions
+-- ******************************************************************
+
+ciscoGprsGtpMIBObjects	OBJECT IDENTIFIER ::= { ciscoGprsGtpMIB 1 }
+
+ciscoGprsGtpConfig	OBJECT IDENTIFIER 
+                        ::= { ciscoGprsGtpMIBObjects 1 }
+ciscoGprsGtpStats       OBJECT IDENTIFIER 
+                        ::= { ciscoGprsGtpMIBObjects 2 }
+ 
+-- Configuration objects group
+cgprsGtpGeneralConfig   OBJECT IDENTIFIER ::= { ciscoGprsGtpConfig 1 }
+cgprsGtpGgsnConfig      OBJECT IDENTIFIER ::= { ciscoGprsGtpConfig 2 }
+ 
+-- Statistics objects group
+cgprsGtpGeneralStats    OBJECT IDENTIFIER ::= { ciscoGprsGtpStats 1 }
+cgprsGtpGgsnStats       OBJECT IDENTIFIER ::= { ciscoGprsGtpStats 2 }
+cgprsGtpGgsnStatus      OBJECT IDENTIFIER ::= { ciscoGprsGtpStats 3 }
+
+
+--  ******************************************************************
+--  Configuration Parameters for GGSN and SGSN
+--  ******************************************************************
+
+cgprsGtpT3TunnelTimer  OBJECT-TYPE
+    SYNTAX		Integer32 (1..180)
+    UNITS               "seconds"
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+        "The T3-TUNNEL timer for mobility management. This timer is 
+         started by the 'Old SGSN'. Whilst the timer is running, the 
+         T-PDUs received by the 'Old SGSN' (from the GGSN), and any 
+         buffered T-PDUs are forwarded to the 'New SGSN'. "
+    REFERENCE 
+        "ETSI GSM 04.08.
+        "
+    DEFVAL { 20 }
+    ::= { cgprsGtpGeneralConfig 1 }
+
+
+cgprsGtpT3ResponseTimer  OBJECT-TYPE
+    SYNTAX		Integer32 (1..60)
+    UNITS               "seconds"
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+        "The T3-RESPONSE timer for retransmission. This timer is started
+by GGSN, upon the transmission of a signalling request message; it is 
+used for message retransmission purposes, in the event that no response
+ is received by the time the timer expires.  Note that the total wait 
+time (cgprsGtpT3ResponseTimer*cgprsGtpN3Requests) must be shorter than 
+the Mobile System (MS) wait time between retries of Attach and RA 
+Updates; The product of cgprsGtpT3ResponseTimer and cgprsGtpN3requests 
+must be less than the minimum value of the Attach Timer(T3310) and the 
+Routing Area Update timer(T3330). The cgprsGtpT3ResponseTimer timer, 
+according to the standards, recommends an adaptive back-off mechanism, 
+using increasing values, e.g., 1, 2, 4, and 8 seconds."
+    REFERENCE 
+        "ETSI GSM 04.08.
+        "
+    DEFVAL { 1 }
+    ::= { cgprsGtpGeneralConfig 2 }
+
+
+cgprsGtpN3Request  OBJECT-TYPE
+    SYNTAX		Integer32 (1..20)
+    UNITS               "messages"
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+        "The N3-REQUESTS value. Maximum number of times a signalling 
+         request message is retransmitted in the event of no 
+         corresponding response message. 
+        "
+    DEFVAL { 5 }
+    ::= { cgprsGtpGeneralConfig 3 }
+
+
+cgprsGtpN3BufferSize  OBJECT-TYPE
+    SYNTAX		Integer32 (1..65535)
+    UNITS              "bytes"
+    MAX-ACCESS         read-write 
+    STATUS             obsolete 
+    DESCRIPTION
+        "The N3-BUFFER-SIZE value. This is the size of the receive 
+         buffer for G-PDUs and signalling request messages. If a packet 
+         arrives with more data bytes then the receive buffer can 
+         contain, the excess bytes will be discarded."
+    DEFVAL { 8192 }
+    ::= { cgprsGtpGeneralConfig 4 }
+
+ 
+cgprsGtpEchoRequestTimer  OBJECT-TYPE
+    SYNTAX		Integer32 (60..300)
+    UNITS               "seconds"
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+        "The time interval to transmit 'Echo Request' message.
+         'Echo Response' message is normally received in response
+         to 'Echo Request' message. In the event of no response to the
+         'Echo Request' message, a notification is generated 
+         identifying the peer GSN (i.e. cgprsGtpGSNid ), which fails to
+         respond."
+    DEFVAL { 60 }
+    ::= { cgprsGtpGeneralConfig 5 }
+
+
+cgprsGtpGSNTotalBandwidthResrc  OBJECT-TYPE
+    SYNTAX		Integer32 (1..3000)
+    UNITS               "bits/sec"
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+        "The total amount of bandwidth resource on the GGSN.
+        "
+    ::= { cgprsGtpGeneralConfig 6 }
+ 
+cgprsGtpMaxNumPDPCxts  OBJECT-TYPE
+    SYNTAX		Integer32(1..1000000)
+    UNITS               "PDP contexts"
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+        "The Maximum number of PDP contexts allowed. The PDP context
+         contains the Session Management parameters that are necessary 
+         to transfer between SGSNs at the Inter SGSN Routeing Update 
+         procedure."
+    DEFVAL { 45000 }
+    ::= { cgprsGtpGeneralConfig 7 }
+
+cgprsGtpDroppedPktsMonTime  OBJECT-TYPE
+    SYNTAX		Integer32 (0..65535)
+    UNITS               "seconds"
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+         "The time duration for monitoring the excessive rate at which 
+          packets are dropped by the GSN due to unknown GTP header 
+          problem."
+    DEFVAL { 300 }
+    ::= { cgprsGtpGeneralConfig 8 }
+
+cgprsGtpNoRespToEchoNotifEnable  OBJECT-TYPE
+    SYNTAX		TruthValue
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+    "The object  indicates  whether  the  system   produces the
+     cgprsGtpGSNEchoFailedNotif. A false value will prevent 
+     the cgprsGtpGSNEchoFailedNotif from being generated 
+     by this system.
+    "
+    DEFVAL { true }
+    ::= { cgprsGtpGeneralConfig 9 }
+
+cgprsGtpPDPCxtActRejNotifEnable OBJECT-TYPE
+    SYNTAX		TruthValue
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+    "The object  indicates  whether  the  system   produces the
+     cgprsGtpPDPCxtActivationRejNotif.A false value will 
+     prevent the cgprsGtpPDPCxtActivationRejNotif  
+     from being generated by this system.
+    "
+    DEFVAL { true }
+    ::= { cgprsGtpGeneralConfig 10 }
+
+
+--  ******************************************************************
+--  Configuration Parameters for GGSN 
+--  ******************************************************************
+cgprsGtpAPNAddrAllocMethodGlobDef OBJECT-TYPE
+    SYNTAX	        INTEGER {
+                        radius(1),
+                        dhcp(2),
+                        disable(3),
+                        notconfig(4)
+                        }
+    MAX-ACCESS          read-write 
+    STATUS              obsolete 
+    DESCRIPTION
+        " The global default value of APN address allocation method. 
+          Individual APN address allocation method 
+          configuration overrides global default value. 
+        "
+    DEFVAL { disable }
+    ::= { cgprsGtpGgsnConfig 1 }
+
+--
+--  Charging Gateway Table  for GGSN
+--
+
+cgprsGtpChargingGWTable OBJECT-TYPE
+    SYNTAX              SEQUENCE OF CgprsGtpChargingGWEntry
+    MAX-ACCESS          not-accessible 
+    STATUS              obsolete 
+    DESCRIPTION
+        " Charging Gateway table. Charging information in GPRS
+          is collected for each MS by SGSNs and GGSNs that are serving
+          the MS.  The information that the operator uses to generate
+          the bill to a subscriber is operator-specific, such as
+          usage of the radio interface, PDP addresses, duration of
+          PDP context, usage of general GPRS resources, location of
+          MS, traffic distination, usage of external data network
+          and so on. 
+          Charging Gateways act as a storage buffer for real time
+          Charging Data Record (CDR) collection. It provides the
+          CDRs to the billing system. 
+          Charging Gateway Table lists all the charging gateways
+          and their operational states. Backup charging gateway type
+          is not allowed if there is no primary charging gateway type
+          entry in the table. In addition, there is only one primary
+          charging gateway entry.
+        "
+    REFERENCE 
+        " ETSI GSM 10.17 - Charging in GPRS.
+        "
+    ::= { cgprsGtpGgsnConfig 2 }
+
+cgprsGtpChargingGWEntry OBJECT-TYPE
+    SYNTAX              CgprsGtpChargingGWEntry
+    MAX-ACCESS          not-accessible
+    STATUS              obsolete 
+    DESCRIPTION
+        "Charging Gateway entry.
+        "
+    INDEX    { cgprsGtpChargingGWid }
+    ::= { cgprsGtpChargingGWTable 1}
+ 
+CgprsGtpChargingGWEntry ::= SEQUENCE {
+    cgprsGtpChargingGWid         IpAddress,
+    cgprsGtpChargingGWName       DisplayString,
+    cgprsGtpChargingGWType       INTEGER,
+    cgprsGtpChargingGWOperState  INTEGER,
+    cgprsGtpChargingGWNotifEnable TruthValue,
+    cgprsGtpChargingGWRowStatus  RowStatus
+    
+}
+ 
+ 
+cgprsGtpChargingGWid OBJECT-TYPE
+    SYNTAX              IpAddress
+    MAX-ACCESS          not-accessible
+    STATUS              obsolete 
+    DESCRIPTION
+         " The IP address that is used to identify the  unique 
+           charging  gateway.
+         "
+    ::= { cgprsGtpChargingGWEntry 1 }
+
+cgprsGtpChargingGWName OBJECT-TYPE
+    SYNTAX              DisplayString
+    MAX-ACCESS          read-create
+    STATUS              obsolete 
+    DESCRIPTION
+         "The name of the charging gateway.
+         "
+    DEFVAL { "" }
+    ::= { cgprsGtpChargingGWEntry 2 }
+
+
+cgprsGtpChargingGWType OBJECT-TYPE
+    SYNTAX              INTEGER {
+                               primary(1),
+                               backup(2)
+                               }
+    MAX-ACCESS          read-create
+    STATUS              obsolete 
+    DESCRIPTION
+         "The type of the charging gateway. The object can ge set to 
+          'primary' if the gateway is a primary charging gateway.
+          One primary charging gateway and one backup charging 
+          gateway are allowed for the system to work properly.
+         "
+    DEFVAL { primary }
+    ::= { cgprsGtpChargingGWEntry 3 }
+
+
+cgprsGtpChargingGWOperState OBJECT-TYPE
+    SYNTAX              INTEGER {
+                                up(1),
+                                down(2),
+                                unknown(3)
+                                }
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         "The operation state of the charging gateway.
+          'up' is when the charging gateway is up.
+          'down' is when the charging gateway is down.
+          'unknown' is when the charging gateway state can not be 
+          determined, such as during the time between it is configured 
+          and actual state is detected as functional."
+    ::= { cgprsGtpChargingGWEntry 4 }
+
+cgprsGtpChargingGWNotifEnable OBJECT-TYPE
+    SYNTAX              TruthValue
+    MAX-ACCESS          read-create
+    STATUS              obsolete 
+    DESCRIPTION
+         "The object  indicates  whether  the  system   produces the
+          cgprsGtpChargingGWNotif. A false value will prevent the 
+          cgprsGtpChargingGWUpDownNotif from being generated by this 
+          system.
+         "
+    DEFVAL { true }
+    ::= { cgprsGtpChargingGWEntry 5 }
+
+
+cgprsGtpChargingGWRowStatus OBJECT-TYPE
+    SYNTAX       RowStatus
+    MAX-ACCESS   read-create
+    STATUS       obsolete 
+    DESCRIPTION
+        "This object is used to create a new row or modify or delete an
+         existing row in this table.
+        "
+    ::= { cgprsGtpChargingGWEntry 6 }
+
+--
+-- APN table for GGSN
+--
+
+cgprsGtpAPNTable OBJECT-TYPE
+    SYNTAX		SEQUENCE OF CgprsGtpAPNEntry
+    MAX-ACCESS          not-accessible 
+    STATUS              obsolete 
+    DESCRIPTION
+        " The table of Access Point Name (APN). APN is the information
+          relayed by the SGSN to the GGSN, that is used by the GGSN
+          to differentiate between accesses to different external packet
+          data networks using the same PDP type. APN is uniquely 
+          identified by its name.
+        "
+    ::= { cgprsGtpGgsnConfig 3 }
+
+cgprsGtpAPNEntry OBJECT-TYPE
+    SYNTAX		CgprsGtpAPNEntry
+    MAX-ACCESS          not-accessible
+    STATUS	        obsolete	
+    DESCRIPTION
+        "APN entry that contains APN name and method of ip address
+         allocation. Ip address for a MS can be allocated from external 
+         DHCP server, or local ip address pool, or static, depends on 
+         configuration."
+    INDEX { cgprsGtpAPNId } 
+    ::= { cgprsGtpAPNTable 1}
+
+CgprsGtpAPNEntry ::= SEQUENCE {
+    cgprsGtpAPNId	  Integer32,
+    cgprsGtpAPNName       DisplayString,
+    cgprsGtpAPNAddrAllocMethod     INTEGER,
+    cgprsGtpAPNRowStatus RowStatus
+}
+
+cgprsGtpAPNId OBJECT-TYPE
+    SYNTAX	        Integer32 (0..65535)  	
+    MAX-ACCESS		not-accessible
+    STATUS              obsolete 
+    DESCRIPTION
+         " APN index.
+         "
+    ::= { cgprsGtpAPNEntry 1 }
+
+cgprsGtpAPNName OBJECT-TYPE
+    SYNTAX	        DisplayString	
+    MAX-ACCESS	        read-create	
+    STATUS              obsolete 
+    DESCRIPTION
+         " APN name.
+         "
+    ::= { cgprsGtpAPNEntry 2 }
+
+cgprsGtpAPNAddrAllocMethod OBJECT-TYPE
+    SYNTAX		INTEGER {
+                        radius(1),
+                        dhcp(2),
+                        disable(3),
+	                notconfig(4)}
+    MAX-ACCESS		read-create
+    STATUS              obsolete 
+    DESCRIPTION
+         " APN ip address allocation method. Default is to use global 
+           default setting.
+         "
+    DEFVAL { disable }
+    ::= { cgprsGtpAPNEntry 3 }
+
+cgprsGtpAPNRowStatus OBJECT-TYPE
+    SYNTAX              RowStatus
+    MAX-ACCESS          read-create
+    STATUS     	        obsolete	
+    DESCRIPTION
+        "This object is used to create a new row or modify or delete an
+         existing row in this table.
+        "
+    ::= { cgprsGtpAPNEntry 4 }
+
+
+-- ******************************************************************
+-- GTP Statistics or Status information for GGSN and SGSN
+-- ******************************************************************
+
+cgprsGtpCurRxPacketQueueSize  OBJECT-TYPE
+    SYNTAX		Gauge32
+    UNITS               "packets"
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         "The current size of the Rx Packet Queue on the GSN node (for
+          data received from the APN, on the Gi interface).
+         "
+    ::= { cgprsGtpGeneralStats 1 }
+
+cgprsGtpCurActivatedPDPCxtsCnt OBJECT-TYPE
+    SYNTAX		Gauge32
+    UNITS               "PDP contexts"
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         "The current number of PDP contexts established on the GSN 
+          node."
+    ::= { cgprsGtpGeneralStats 2 }
+
+cgprsGtpCurUnexpRxGpduCnt  OBJECT-TYPE
+    SYNTAX		Counter32
+    UNITS               "PDUs"
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+    "The total number of G-PDUs received from a SGSN for a
+     non-existing or an inactive PDP context since system 
+     startup.
+    "
+    ::= { cgprsGtpGeneralStats 3 }
+
+cgprsGtpCurRejPDPCxtActivationCnt  OBJECT-TYPE
+    SYNTAX                Counter32
+    UNITS                 "PDP contexts"
+    MAX-ACCESS            read-only
+    STATUS                obsolete 
+    DESCRIPTION
+    "The total number of Rejected PDP Context activation, due to
+     an overload or other abnormal conditions since system startup.
+    "
+    ::= { cgprsGtpGeneralStats 4 }
+
+
+cgprsGtpTotalPktsDropped OBJECT-TYPE
+    SYNTAX		Counter32
+    UNITS               "packets"
+    MAX-ACCESS		read-only
+    STATUS	        obsolete	
+    DESCRIPTION
+	"Total number of packets dropped due to unknown GTP header,
+         since system is up.
+        "
+    ::= { cgprsGtpGeneralStats 5 }
+
+
+cgprsGtpDroppedPktsTimeFrame  OBJECT-TYPE
+    SYNTAX              Integer32 (0..65535)
+    UNITS               "seconds"
+    MAX-ACCESS           read-only
+    STATUS               obsolete 
+    DESCRIPTION
+         "The time frame within which the number GTP  packets, defined
+          by cgprsGtpDroppedPktsCnt, are dropped. 
+         "
+    ::= { cgprsGtpGeneralStats 6 }
+ 
+cgprsGtpDroppedPktsCnt  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         "The number of packets dropped by GTPwithin 
+          cgprsGtpDroppedPktsTimeFrame.
+         "
+    ::= { cgprsGtpGeneralStats 7 }
+
+cgprsGtpCurMTForPremiumQos  OBJECT-TYPE
+    SYNTAX                Gauge32
+    UNITS                 "bits/sec"
+    MAX-ACCESS            read-only
+    STATUS                obsolete 
+    DESCRIPTION
+    "The mean throughput for premium class QOS users on the GSN.
+    "
+    ::= { cgprsGtpGeneralStats 8 }
+
+
+cgprsGtpCurMTForNormalQos  OBJECT-TYPE
+    SYNTAX                 Gauge32
+    UNITS                  "bits/sec"
+    MAX-ACCESS             read-only
+    STATUS                 obsolete 
+    DESCRIPTION
+    "The mean throughput for normal class QOS users on the GSN.
+    "
+    ::= { cgprsGtpGeneralStats 9 }
+
+
+cgprsGtpCurMTForBestEffortQos  OBJECT-TYPE
+    SYNTAX                  Gauge32
+    UNITS                   "bits/sec"
+    MAX-ACCESS              read-only
+    STATUS                  obsolete 
+    DESCRIPTION
+    "The mean throughput for a 'best effort' class QOS users on 
+     the GSN.
+    "
+    ::= { cgprsGtpGeneralStats 10 }
+
+
+cgprsGtpCurGSNBandwidthResrcUsed  OBJECT-TYPE
+    SYNTAX                  Gauge32
+    UNITS                   "bits/sec"
+    MAX-ACCESS              read-only
+    STATUS                  obsolete 
+    DESCRIPTION
+        "The current amount of bandwidth resource used on the GSN.
+         The current amount of bandwidth resource available on GSN
+         can be obtained by deducting the value of this object from
+         the value of the object cgprsGtpGSNTotalBandwidthResrc.
+        "
+    ::= { cgprsGtpGeneralStats 11 }
+
+--
+-- GSN Table for GGSN and SGSN
+-- 
+cgprsGtpGSNTable OBJECT-TYPE
+    SYNTAX		SEQUENCE OF CgprsGtpGSNEntry
+    MAX-ACCESS          not-accessible 
+    STATUS              obsolete 
+    DESCRIPTION
+        " GSN peer table. The SGSN-GGSN peer relationship is established
+          as following:
+          o A table in DNS listing the APN and corresponding ip 
+            address of GGSN.
+          o When Mobile System (MS) wants service, it sends packets to 
+            a SGSN with specific APN.
+          o SGSN asks DNS for ip address of a GGSN that service this 
+            APN.
+          o DHCP returns a GGSN.
+          o SGSN requires a path to the GGSN using GTP protocol.
+          o The SGSN and GGSN peer maintains path by sending echo 
+            request message to each other. If one side fails in echo 
+            reply for certain times, the other side will send a trap to
+            NMS.
+          
+          Note:  
+          o Multiple-Multiple peer relationship, i.e. a SGSN have
+            multiple GGSN as peers, while a GGSN have multiple SGSN
+            peers, depending on routing path.
+          o Path is kept in database.
+        "
+    ::= { cgprsGtpGeneralStats 12 }
+
+cgprsGtpGSNEntry OBJECT-TYPE
+    SYNTAX		CgprsGtpGSNEntry
+    MAX-ACCESS          not-accessible
+    STATUS	        obsolete	
+    DESCRIPTION
+        "GSN entry. The entry is created when a path between a GGSN
+         and SGSN is setup and the end point of the path (either
+         GGSN or SGSN) is not listed in the GSN peer table yet.
+         The entry is deleted when the path is released, or echo
+         test message on the path times out after certain retry
+         number defined as cgprsGtpN3Request.
+        "
+    INDEX    { cgprsGtpGSNid }
+    ::= { cgprsGtpGSNTable 1}
+
+CgprsGtpGSNEntry ::= SEQUENCE {
+    cgprsGtpGSNid                IpAddress,
+    cgprsGtpGSNEchoFailedNotifCnt   Counter32
+    }
+
+cgprsGtpGSNid OBJECT-TYPE
+    SYNTAX		IpAddress
+    MAX-ACCESS		not-accessible
+    STATUS              obsolete 
+    DESCRIPTION
+         "Ip address that uniquely identify a GSN node.
+         "
+    ::= { cgprsGtpGSNEntry 1 }
+
+cgprsGtpGSNEchoFailedNotifCnt OBJECT-TYPE
+    SYNTAX	        Counter32	
+    MAX-ACCESS		read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         " The echo test failure count before the entry is deleted.
+         "
+    ::= { cgprsGtpGSNEntry 2 }
+
+-- ******************************************************************
+-- GTP Statistics for GGSN 
+-- ******************************************************************
+
+cgprsGtpTotalNumAllocIpAddr  OBJECT-TYPE
+    SYNTAX		Gauge32
+    UNITS               "allocated dynamic addreses"
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         "The current number of total allocated ip addresses on the 
+          GGSN."
+    ::= { cgprsGtpGgsnStats 1 }
+
+cgprsGtpChargingMsgCnt  OBJECT-TYPE
+    SYNTAX		Gauge32
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         "The current number of total charging messages in the queue.
+         "
+    ::= { cgprsGtpGgsnStats 2 }
+
+--
+-- Allocated Ip Address Num table for GGSN
+--
+
+cgprsGtpNumAllocIpAddrTable  OBJECT-TYPE
+    SYNTAX		SEQUENCE OF CgprsGtpNumAllocIpAddrEntry
+    MAX-ACCESS          not-accessible 
+    STATUS              obsolete 
+    DESCRIPTION
+         "The table for  currently allocated number of dynamic 
+          addreses , associated with a given APN."
+    ::= { cgprsGtpGgsnStats 3 }
+ 
+cgprsGtpNumAllocIpAddrEntry  OBJECT-TYPE
+    SYNTAX		CgprsGtpNumAllocIpAddrEntry
+    MAX-ACCESS          not-accessible 
+    STATUS              obsolete 
+    DESCRIPTION
+         "The entry is created when a new APN is created.
+          The entry is deleted when the associated APN is deleted.
+         "
+    INDEX   { cgprsGtpAPNId }
+    ::= { cgprsGtpNumAllocIpAddrTable 1 }
+ 
+ 
+CgprsGtpNumAllocIpAddrEntry  ::= SEQUENCE {
+    cgprsGtpNumAllocIpAddr   Gauge32
+}
+
+
+cgprsGtpNumAllocIpAddr OBJECT-TYPE
+    SYNTAX		Gauge32
+    MAX-ACCESS          read-only
+    STATUS              obsolete 
+    DESCRIPTION
+         "Number of ip  addresses allocated for the specified 
+          APN (as identified by cgprsGtpAPNId).
+         "
+    ::= { cgprsGtpNumAllocIpAddrEntry 1 }
+
+
+-- ******************************************************************
+-- GTP Status information for GGSN 
+-- ******************************************************************
+cgprsGtpVersion OBJECT-TYPE
+    SYNTAX            DisplayString
+    MAX-ACCESS        read-only
+    STATUS            obsolete 
+    DESCRIPTION
+         "The gtp version supported.
+         "
+    ::= { cgprsGtpGgsnStatus 1 }
+
+cgprsGtpLastGSNidNoRespToEcho OBJECT-TYPE
+    SYNTAX            DisplayString
+    MAX-ACCESS        read-only 
+    STATUS            obsolete 
+    DESCRIPTION
+         "The name of the last peer GSN that does  not reply
+          to echo message. 
+         "
+    ::= { cgprsGtpGgsnStatus 2 }
+
+cgprsGtpLastGSNidRecovered OBJECT-TYPE
+    SYNTAX            DisplayString
+    MAX-ACCESS        read-only 
+    STATUS            obsolete 
+    DESCRIPTION
+         "The name of the last peer GSN that does  not reply
+          to echo message. 
+         "
+    ::= { cgprsGtpGgsnStatus 3 }
+
+
+cgprsGtpGSNidOfLastUnexpPDPCxt  OBJECT-TYPE
+    SYNTAX            DisplayString
+    MAX-ACCESS        read-only 
+    STATUS            obsolete 
+    DESCRIPTION
+         "The name of the peer GSN whose PDP context is
+          unexpected.
+         "
+    ::= { cgprsGtpGgsnStatus 4 }
+
+
+cgprsGtpTIDOfLastUnexpPDPCxt OBJECT-TYPE
+    SYNTAX         DisplayString
+    MAX-ACCESS     read-only
+    STATUS         obsolete 
+    DESCRIPTION
+         "The TID of the last unexpected PDP Context activation.
+         "
+    ::= { cgprsGtpGgsnStatus 5 }
+
+
+cgprsGtpRejReasonOfLastUnexpPDPCxt  OBJECT-TYPE
+    SYNTAX            DisplayString
+    MAX-ACCESS        read-only
+    STATUS            obsolete 
+    DESCRIPTION
+         "The reason for rejecting the PDP Context activation. 
+         "
+    ::= { cgprsGtpGgsnStatus 6 }
+
+
+
+-- ******************************************************************
+-- Trap definitions
+-- ******************************************************************
+
+ciscoGprsGtpNotifPrefix OBJECT IDENTIFIER ::= { ciscoGprsGtpMIB 2 }
+ciscoGprsGtpNotifs      OBJECT IDENTIFIER 
+                        ::= { ciscoGprsGtpNotifPrefix 0 }
+
+--
+-- Traps for GGSN and SGSN
+--
+cgprsGtpGSNPathFailedNotif  NOTIFICATION-TYPE
+    OBJECTS {        
+            cgprsGtpLastGSNidNoRespToEcho
+    }
+    STATUS obsolete 
+    DESCRIPTION
+    "The  notification is sent when the GSN peer is failed to respond 
+     to the GTP 'Echo Request' message for cgprsGtpN3Request times and 
+     before the GSN entry is deleted from the GSN peer table."
+    ::= { ciscoGprsGtpNotifs 1 }
+
+cgprsGtpGSNPathRecoveredNotif  NOTIFICATION-TYPE
+    OBJECTS {        
+            cgprsGtpLastGSNidRecovered
+    }
+    STATUS obsolete 
+    DESCRIPTION
+    "The  notification is sent when the GSN peer is recovered from 
+     failure."
+    ::= { ciscoGprsGtpNotifs 2 }
+
+cgprsGtpPDPCxtActivationRejNotif  NOTIFICATION-TYPE
+    OBJECTS {                  
+            cgprsGtpGSNidOfLastUnexpPDPCxt,
+            cgprsGtpTIDOfLastUnexpPDPCxt,
+            cgprsGtpRejReasonOfLastUnexpPDPCxt
+    }
+    STATUS obsolete 
+    DESCRIPTION
+    "This trap indicates that a PDP Context activation was rejected due
+     to an overload, or some other abnormal condition. The trap 
+     indicates the Id of the GSN that rejected the PDP Context 
+     Activation, the IMSI Id of the MS, and the reson for rejection."
+    ::= { ciscoGprsGtpNotifs 3 }
+
+
+--
+-- Traps for GGSN 
+--
+cgprsGtpPrimaryChargingGWUpNotif NOTIFICATION-TYPE
+    STATUS obsolete 
+    DESCRIPTION
+    "This notification is sent when  primary charging gateway is up.
+    "
+    ::= { ciscoGprsGtpNotifs 4 }
+
+cgprsGtpPrimaryChargingGWDownNotif NOTIFICATION-TYPE
+    STATUS obsolete 
+    DESCRIPTION
+    "This notification is sent when primary charging gateway is down.
+    "
+    ::= { ciscoGprsGtpNotifs 5 }
+
+cgprsGtpSecondaryChargingGWUpNotif NOTIFICATION-TYPE
+    STATUS obsolete 
+    DESCRIPTION
+    "This notification is sent when secondary charging gateway is up.
+    "
+    ::= { ciscoGprsGtpNotifs 6 }
+
+cgprsGtpSecondaryChargingGWDownNotif NOTIFICATION-TYPE
+    STATUS obsolete 
+    DESCRIPTION
+    "This notification is sent when secondary charging gateway is down.
+    "
+    ::= { ciscoGprsGtpNotifs 7 }
+
+-- ******************************************************************
+-- Conformances definitions
+-- ******************************************************************
+
+ciscoGprsGtpConformances   OBJECT IDENTIFIER ::= { ciscoGprsGtpMIB 3 }
+
+cgprsGtpCompliances        OBJECT IDENTIFIER 
+                           ::= { ciscoGprsGtpConformances 1}
+cgprsGtpGroups             OBJECT IDENTIFIER 
+                           ::= { ciscoGprsGtpConformances 2}
+
+-- compliance statements
+
+cgprsGtpCompliance MODULE-COMPLIANCE
+    STATUS obsolete 
+    DESCRIPTION
+	" The compliance statement for entities which implement the
+          CISCO GPRS GTP MIB.
+        "
+    MODULE
+        MANDATORY-GROUPS { cgprsGtpGeneralConfigGroup, 
+                           cgprsGtpGeneralStatsGroup 
+	                 }
+        GROUP cgprsGtpGgsnConfigGroup
+        DESCRIPTION
+            "This group is mandatory only for a system that supports 
+             GGSN feature."
+        GROUP cgprsGtpGgsnStatsGroup
+        DESCRIPTION
+            "This group is mandatory only for a system that supports 
+             GGSN feature."
+        GROUP cgprsGtpGgsnStatusGroup
+        DESCRIPTION
+            "This group is mandatory only for a system that supports 
+             GGSN feature."
+	::= {cgprsGtpCompliances 1}
+
+-- units of conformance
+
+cgprsGtpGeneralConfigGroup OBJECT-GROUP
+    OBJECTS { cgprsGtpT3TunnelTimer, 
+              cgprsGtpT3ResponseTimer,
+              cgprsGtpN3Request, 
+              cgprsGtpN3BufferSize,
+              cgprsGtpEchoRequestTimer, 
+              cgprsGtpGSNTotalBandwidthResrc, 
+              cgprsGtpMaxNumPDPCxts,
+              cgprsGtpDroppedPktsMonTime,
+              cgprsGtpNoRespToEchoNotifEnable,
+              cgprsGtpPDPCxtActRejNotifEnable
+             }
+    STATUS obsolete 
+    DESCRIPTION
+        " A collection of configurable GTP parameters for GGSN and SGSN.
+        "
+    ::= {cgprsGtpGroups 1}
+
+cgprsGtpGgsnConfigGroup OBJECT-GROUP
+    OBJECTS { 
+              cgprsGtpAPNAddrAllocMethodGlobDef,
+              cgprsGtpChargingGWName,
+              cgprsGtpChargingGWType,
+              cgprsGtpChargingGWOperState,
+              cgprsGtpChargingGWNotifEnable,
+              cgprsGtpChargingGWRowStatus,
+	      cgprsGtpAPNName,
+              cgprsGtpAPNAddrAllocMethod,
+              cgprsGtpAPNRowStatus
+             }
+    STATUS obsolete 
+    DESCRIPTION
+        " A collection of configurable GTP parameters on GGSN.
+        "
+    ::= {cgprsGtpGroups 2}
+
+cgprsGtpGeneralStatsGroup OBJECT-GROUP
+    OBJECTS { cgprsGtpCurRxPacketQueueSize, 
+              cgprsGtpCurActivatedPDPCxtsCnt,
+              cgprsGtpCurUnexpRxGpduCnt, 
+              cgprsGtpCurRejPDPCxtActivationCnt,
+	      cgprsGtpTotalPktsDropped,
+	      cgprsGtpDroppedPktsTimeFrame,
+              cgprsGtpDroppedPktsCnt,
+              cgprsGtpCurMTForPremiumQos,
+	      cgprsGtpCurMTForNormalQos,
+              cgprsGtpCurMTForBestEffortQos,
+              cgprsGtpCurGSNBandwidthResrcUsed,
+              cgprsGtpGSNEchoFailedNotifCnt
+	    }
+    STATUS obsolete 
+    DESCRIPTION
+        " A collection of stats for GTP on GGSN and SGSN.
+        " 
+    ::= { cgprsGtpGroups 3 }
+
+cgprsGtpGgsnStatsGroup OBJECT-GROUP
+    OBJECTS { 
+              cgprsGtpTotalNumAllocIpAddr,  
+	      cgprsGtpChargingMsgCnt
+	    }
+    STATUS obsolete 
+    DESCRIPTION
+        " A collection of statistics for GTP on GGSN. 
+        " 
+    ::= { cgprsGtpGroups 4 }
+
+cgprsGtpGgsnStatusGroup OBJECT-GROUP
+    OBJECTS { 
+              cgprsGtpVersion,
+              cgprsGtpLastGSNidNoRespToEcho,
+              cgprsGtpLastGSNidRecovered,
+              cgprsGtpGSNidOfLastUnexpPDPCxt,
+              cgprsGtpTIDOfLastUnexpPDPCxt,
+              cgprsGtpRejReasonOfLastUnexpPDPCxt,
+              cgprsGtpNumAllocIpAddr
+	    }
+    STATUS obsolete 
+    DESCRIPTION
+        " A collection of status for GTP on GGSN. 
+        " 
+    ::= { cgprsGtpGroups 5 }
+
+cgprsGtpGgsnNotifGroup   NOTIFICATION-GROUP 
+    NOTIFICATIONS      {
+                         cgprsGtpGSNPathFailedNotif,
+                         cgprsGtpGSNPathRecoveredNotif,
+                         cgprsGtpPDPCxtActivationRejNotif,
+                         cgprsGtpPrimaryChargingGWUpNotif,
+                         cgprsGtpPrimaryChargingGWDownNotif,
+                         cgprsGtpSecondaryChargingGWUpNotif,
+                         cgprsGtpSecondaryChargingGWDownNotif
+                       }
+     STATUS obsolete
+     DESCRIPTION
+        " A collection of notifications on GGSN."
+     ::= { cgprsGtpGroups 6 } 
+
+END

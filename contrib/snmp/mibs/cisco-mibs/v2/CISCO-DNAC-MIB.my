@@ -1,0 +1,420 @@
+-- *****************************************************************
+-- CISCO-DNAC-MIB.my: Cisco DNA Controller MIB.
+--   
+-- Aug 2019, Aniruddh Dikhit, Vasanthan Murugan
+--   
+-- Copyright (c) 2019 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-DNAC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoDnacMIB MODULE-IDENTITY
+    LAST-UPDATED    "201908010000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-dnac@cisco.com"
+    DESCRIPTION
+        "Notifications from Cisco DNAC appliance providing status of
+        underlying hardware, software and external services like ISE,
+        IPAM, CMX and ITSM that DNAC depends on for functioning. The 
+        MIB describes the structure of notification providing 
+        information on the identity of sub-system and details 
+        pertaining to state change. An example of sub-system is 
+        Memory Module 3 on DNAC node 2 whereas an example of state
+        change is the time the state change was reported, previous
+        state and the current state. SNMP Notifications provide
+        external management applications that are used for managing
+        customer environment besides what is managed via DNAC."
+    REVISION        "201908150000Z"
+    DESCRIPTION
+        "Included EventID and Tags attributes."
+    REVISION        "201908130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 867 }
+
+
+-- Notification group
+
+ciscoDnacMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoDnacMIB 0 }
+
+-- MIB Object
+
+ciscoDnacMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDnacMIB 1 }
+
+-- Conformance Object
+
+ciscoDnacMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoDnacMIB 2 }
+
+cDnacAlarms  OBJECT IDENTIFIER
+    ::= { ciscoDnacMIBObjects 1 }
+
+
+cDnacAlarmsMax OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Maximum number of entries permissible in the cenAlarmTable."
+    DEFVAL          { 1000 } 
+    ::= { cDnacAlarms 1 }
+
+cDnacAlarmsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CDnacAlarmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing the alarm values."
+    ::= { cDnacAlarms 2 }
+
+cDnacAlarmEntry OBJECT-TYPE
+    SYNTAX          CDnacAlarmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The information regarding a single notification alarm.
+        An entry is created when an notification is processed."
+    INDEX           { cDnacIndex } 
+    ::= { cDnacAlarmsTable 1 }
+
+CDnacAlarmEntry ::= SEQUENCE {
+        cDnacIndex       Unsigned32,
+        cDnacInstanceID  SnmpAdminString,
+        cDnacEventID     SnmpAdminString,
+        cDnacName        SnmpAdminString,
+        cDnacDescription SnmpAdminString,
+        cDnacTags        SnmpAdminString,
+        cDnacVersion     SnmpAdminString,
+        cDnacTimestamp   TimeStamp,
+        cDnacDomain      SnmpAdminString,
+        cDnacSubDomain   SnmpAdminString,
+        cDnacCategory    SnmpAdminString,
+        cDnacType        SnmpAdminString,
+        cDnacSeverity    Integer32,
+        cDnacSource      SnmpAdminString,
+        cDnacUserMessage OCTET STRING
+}
+
+-- Alarm attributes
+
+cDnacIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A monotonically increasing integer for the sole
+        purpose of indexing the attributes in 
+        ciscoDnacMIBObjects. When the maximum value is 
+        reached, this value wraps back to 1." 
+    ::= { cDnacAlarmEntry 1 }
+
+cDnacInstanceID OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Unique Notification Instance ID." 
+    ::= { cDnacAlarmEntry 2 }
+
+cDnacEventID OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Unique Notification Event ID." 
+    ::= { cDnacAlarmEntry 3 }
+
+cDnacName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of the event to classify the events based
+        on the domain, subdomain and the state of the system
+        which is being monitored." 
+    ::= { cDnacAlarmEntry 4 }
+
+cDnacDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A detailed description of the Notification." 
+    ::= { cDnacAlarmEntry 5 }
+
+cDnacTags OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A optional tag which can used for the Notification." 
+    ::= { cDnacAlarmEntry 6 }
+
+cDnacVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Application Version that comes as part of Notification Event." 
+    ::= { cDnacAlarmEntry 7 }
+
+cDnacTimestamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time when the Notification was raised." 
+    ::= { cDnacAlarmEntry 8 }
+
+cDnacDomain OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Domain of the Notification event." 
+    ::= { cDnacAlarmEntry 9 }
+
+cDnacSubDomain OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The subdomain of the Notification event." 
+    ::= { cDnacAlarmEntry 10 }
+
+cDnacCategory OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The category of the Notification generated." 
+    ::= { cDnacAlarmEntry 11 }
+
+cDnacType OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the Notification generated."
+    DEFVAL          { "SYSTEM" } 
+    ::= { cDnacAlarmEntry 12 }
+
+cDnacSeverity OBJECT-TYPE
+    SYNTAX          Integer32 (1..5)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The severity of the Notification generated." 
+    ::= { cDnacAlarmEntry 13 }
+
+cDnacSource OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The source of the Notification generated." 
+    ::= { cDnacAlarmEntry 14 }
+
+cDnacUserMessage OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE(0..8192))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "In case of any custom or adhoc values, this attribute
+        can be used." 
+    ::= { cDnacAlarmEntry 15 }
+ 
+
+
+-- Notification Type
+
+cDnacAlarm NOTIFICATION-TYPE
+    OBJECTS         {
+                        cDnacInstanceID,
+                        cDnacEventID,
+                        cDnacName,
+                        cDnacDescription,
+                        cDnacTags,
+                        cDnacVersion,
+                        cDnacTimestamp,
+                        cDnacDomain,
+                        cDnacSubDomain,
+                        cDnacCategory,
+                        cDnacType,
+                        cDnacSeverity,
+                        cDnacSource,
+                        cDnacUserMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Notification of the status of the managed object as
+        generated by the  management server."
+   ::= { ciscoDnacMIBNotifs 1 }
+-- Conformance information
+
+ciscoDnacMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoDnacMIBConform 1 }
+
+ciscoDnacMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoDnacMIBConform 2 }
+
+
+-- Compliance
+
+ciscoDnacMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-DNAC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoDnacObjectGroup,
+                        ciscoDnacAlarmGroup
+                    }
+
+    OBJECT          cDnacAlarmsMax
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cDnacInstanceID
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacEventID
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacName
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacDescription
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacTags
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacVersion
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacTimestamp
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacDomain
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacSubDomain
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacCategory
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacType
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacSeverity
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacSource
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    OBJECT          cDnacUserMessage
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+    ::= { ciscoDnacMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoDnacObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cDnacInstanceID,
+                        cDnacEventID,
+                        cDnacName,
+                        cDnacDescription,
+                        cDnacTags,
+                        cDnacVersion,
+                        cDnacTimestamp,
+                        cDnacDomain,
+                        cDnacSubDomain,
+                        cDnacCategory,
+                        cDnacType,
+                        cDnacSeverity,
+                        cDnacSource,
+                        cDnacUserMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Notifications reflecting the event generated in DNAC."
+    ::= { ciscoDnacMIBGroups 1 }
+
+ciscoDnacAlarmGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cDnacAlarm }
+    STATUS          current
+    DESCRIPTION
+        "The collection of notifications."
+    ::= { ciscoDnacMIBGroups 2 }
+
+END
+
+

@@ -1,0 +1,1655 @@
+-- *****************************************************************
+-- DOCS-LOADBALANCING-MIB.my:
+--   
+-- December 2007, Senthil Nathan K Muthu Karuppan
+--   
+-- Initial Version: DEC 2007: Annex Q from CM-SP-OSSIv3.0-I05-071206
+--   
+-- Reversion: Aug 2008: DOCS-LOADBAL3-MIB-I07-080522.txt
+--   
+-- Copyright (c) 2007-2009 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+DOCS-LOADBAL3-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    RowStatus,
+    TruthValue,
+    MacAddress,
+    TimeStamp,
+    RowPointer
+        FROM SNMPv2-TC
+    InterfaceIndexOrZero,
+    InterfaceIndex,
+    ifIndex
+        FROM IF-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    SnmpTagList
+        FROM SNMP-TARGET-MIB
+    RcpId,
+    ChannelList,
+    docsIf3CmtsCmRegStatusEntry
+        FROM DOCS-IF3-MIB
+    NodeName
+        FROM CLAB-TOPO-MIB
+    clabProjDocsis
+        FROM CLAB-DEF-MIB;
+
+
+docsLoadbal3Mib MODULE-IDENTITY
+    LAST-UPDATED    "200805220000Z"
+    ORGANIZATION    "Cable Television Laboratories, Inc."
+    CONTACT-INFO
+            "Postal: Cable Television Laboratories, Inc.
+            858 Coal Creek Circle
+            Louisville, Colorado 80027-9750
+            U.S.A.
+            Phone: +1 303-661-9100
+            Fax:   +1 303-661-9199
+            E-mail: mibs@cablelabs.com"
+    DESCRIPTION
+        "This MIB module contains the management objects 
+        for the DOCSIS 3.0 CMTS Load Balanding operation.
+        Copyright 1999-2006 Cable Television Laboratories, Inc.
+        All rights reserved."
+    REVISION        "200805220000Z"
+    DESCRIPTION
+        "Revised Version includes ECN OSSIv3.0-N-08.0645-4
+        and published as I07"
+    REVISION        "200712060000Z"
+    DESCRIPTION
+        "Initial version, published as part of the CableLabs
+        OSSIv3.0 specification CM-SP-OSSIv3.0-I05-071206 via 
+        ECN OSSIv3.0-N-07.0522-7"
+    ::= { clabProjDocsis 22 }
+
+
+
+-- Textual Conventions
+
+ChChgInitTechMap ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This data type enumerates the allowed initialization
+        techniques for Dynamic Channel Change (DCC) and Dynamic 
+        Bonding Change (DBC) operations. The techniques are represented
+        by the 5 most significant bits (MSB). Bits 0 through 4 map to
+        initialization techniques 0 through 4.  
+
+        Each bit position represents the internal associated technique 
+        as described below:
+
+        'reinitializeMac' Reinitialize the MAC
+        'broadcastInitRanging'
+          Perform Broadcast initial 
+          ranging on new channel before 
+          normal operation
+        'unicastInitRanging'
+          Perform unicast ranging on new
+          channel before normal operation
+        'initRanging'
+          Perform either broadcast or 
+          unicast ranging on new channel before
+          normal operation
+        'direct'
+          Use the new channel(s) directly 
+          without re-initializing or ranging
+
+         Multiple bits may be set to 1 to allow the CMTS to select the 
+         most suitable technique in a proprietary manner. 
+         An empty value or a value with all bits in '0' means no channel
+         changes allowed"
+
+    REFERENCE
+        "DOCSIS 3.0 MAC and Uper Layer Protocol Specification, 
+        CM-SP-MULPIv3.0-I08-080522, Channel Assignment During 
+        Registration section."
+    SYNTAX          BITS {
+                        reinitializeMac(0),
+                        broadcastInitRanging(1),
+                        unicastInitRanging(2),
+                        initRanging(3),
+                        direct(4)
+                    }
+docsLoadbal3MibObjects  OBJECT IDENTIFIER
+    ::= { docsLoadbal3Mib 1 }
+
+docsLoadbal3System  OBJECT IDENTIFIER
+    ::= { docsLoadbal3MibObjects 1 }
+
+
+docsLoadbal3SystemEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute when set to 'true' enables Autonomous
+        Load Balancing operation on the CMTS, otherwise
+        Autonomous Load Balancing is disabled. A failure to
+        enable Autonomous Load Balancing operation is registered
+        in the EnableError attribute.
+        When Autonomous Load Balancing is enabled, the CMTS
+        may reject Externally-Directed Load Balancing operations.
+        However, even when Autonomous Load Balancing
+        is disabled, the CMTS is required to assign load balancing
+        parameters to CMs as provisioned in the configuration
+        file and/or RestrictCM object. 
+        This attribute value persists after system reinitialization.
+        There might be cases where this attribute
+        reports a failure and Load Balancing is enabled, for
+        example after system reinitialization where Load
+        Balancing was previously set to enabled but there are
+        issues with the CMTS configuration."
+    REFERENCE
+        "DOCSIS 3.0 Operations Support System Interface
+        Specification CM-SP-OSSIv3.0-I07-080522 Externally-Directed
+        Load Balancing section."
+    DEFVAL          { true } 
+    ::= { docsLoadbal3System 1 }
+
+docsLoadbal3SystemEnableError OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents a text message that describes
+        a failure to enable load balancing due configuration
+        errors, or other considerations. The zero-length
+        string indicates no errors occurred during the
+        last Autonomous Load Balancing activation." 
+    ::= { docsLoadbal3System 2 }
+docsLoadbal3ChgOverGroup  OBJECT IDENTIFIER
+    ::= { docsLoadbal3MibObjects 2 }
+
+
+docsLoadbal3ChgOverGroupMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the MAC address of the cable
+        modem that the CMTS instructs to move to a new downstream
+        and/or upstream channel set."
+    DEFVAL          { '000000000000'H } 
+    ::= { docsLoadbal3ChgOverGroup 1 }
+
+docsLoadbal3ChgOverGroupInitTech OBJECT-TYPE
+    SYNTAX          ChChgInitTechMap
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the initialization technique
+        that the cable modem is instructed to use when
+        performing multiple-channel change-over operation.
+        The value of this attribute applies to all upstream
+        channels in the channel set." 
+    ::= { docsLoadbal3ChgOverGroup 2 }
+
+docsLoadbal3ChgOverGroupForceUCC OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute when set to 'true' indicates that the CMTS
+        forces UCC messages instead of DCC messages. In some cases 
+        the CMTS may still use UCC commands even though this 
+        attribute value is 'false', for example in an upstream-only
+        change-over operation directed to a CM that the CMTS is 
+        aware is only capable of UCC, but the operator is not aware
+        of the CM capabilities.  This attribute value is ignored when
+        the target CM for the change-over operation is in MRC mode, 
+        or the UsChSet attribute is the zero-length string, or the 
+        operation includes changes for downstream channels."
+    DEFVAL          { false } 
+    ::= { docsLoadbal3ChgOverGroup 3 }
+
+docsLoadbal3ChgOverGroupdownFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents a single-downstream frequency
+        to which the cable modem is instructed to move
+        using a DCC request. The value zero indicates that
+        this attribute is ignored during a commit operation."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3ChgOverGroup 4 }
+
+docsLoadbal3ChgOverGroupMdIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute describes the MAC Domain Interface
+        index of the triplet: Mac Domain, RCP-ID and RCC Status
+        Index of the RccStatus object that represents the
+        RCC used in the change-over operation.  This MAC Domain
+        Interface Index is also used to provide context for
+        the UsChSet and ServiceFlowInfo attributes."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I08-080522, CM Receive Channel
+         (RCP/RCC) Encodings section and DOCSIS 3.0 Operations Support
+         System Interface Specification CM-SP-OSSIv3.0-I05-071206, RCC
+         Status Objects section."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3ChgOverGroup 5 }
+
+docsLoadbal3ChgOverGroupRcpId OBJECT-TYPE
+    SYNTAX          RcpId
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute describes the RCP-ID of the triplet:
+        Mac Domain, RCP-ID and RCC Status Index of the RccStatus
+        object that represents the RCC  used in the change-over
+        operation."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I08-080522  CM Receive Channel
+         (RCP/RCC) Encodings section and  DOCSIS 3.0 Operations Support
+         System Interface Specification CM-SP-OSSIv3.0-I05-071206, 
+         RCC Status Objects 
+         section."
+    DEFVAL          { '0000000000'H } 
+    ::= { docsLoadbal3ChgOverGroup 6 }
+
+docsLoadbal3ChgOverGroupRccId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute describes the RCC Status Index of the
+        triplet: Mac Domain, RCP-ID and RCC Status Index of
+        the RccStatus object that  represents the RCC used in
+        the change-over operation."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I08-080522,  CM Receive 
+         Channel (RCP/RCC) Encodings section and  DOCSIS 3.0 
+         Operations Support System Interface Specification 
+         CM-SP-OSSIv3.0-I05-071206 RCC Status Objects section."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3ChgOverGroup 7 }
+
+docsLoadbal3ChgOverGroupUsChSet OBJECT-TYPE
+    SYNTAX          ChannelList
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute describes the Channel list (within
+        the context of the MAC domain identified by MdIfIndex)
+        that represents the final TCS expected from the change-over
+        operation.
+        When the operation is intended for an RCC-only, this
+        attribute is set to zero and the attribute InitTech is
+        ignored."
+    DEFVAL          { ''H } 
+    ::= { docsLoadbal3ChgOverGroup 8 }
+
+docsLoadbal3ChgOverGroupServiceFlowInfo OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute provides a list of Service Flow ID-Channel
+        Set ID pairs used to control Service Flow assignment
+        in the change-over operation. This is intended
+        as an override to the normal assignment based on SF
+        attributes.  This attribute is encoded as a series of
+        32-bit pairs as follows: 
+        - The first four bytes correspond to the value of the Service
+        Flow ID (attribute Id of the ServiceFlow object
+        of the DOCSIS QOS objects. 
+        - The last four bytes correspond to the value of the attribute
+        ChSetId of the UsChSet or DsChSet object of the
+        CMTS Bonding Objects. 
+
+        If this attribute does not include tuples for some of
+        the CM's Service Flows, the CMTS determines the respective
+        channels based on SF attributes. Service Flow
+        ID-Channel Set ID pairs matching upstream service
+        flows are ignored if the change-over operation does
+        not affect the TCC of the CM.  Similarly, Service Flow
+        ID-Channel Set ID pairs matching downstream service
+        flows are ignored if the change-over operation does
+        not affect the RCC of the CM."
+    DEFVAL          { ''H } 
+    ::= { docsLoadbal3ChgOverGroup 9 }
+
+docsLoadbal3ChgOverGroupTransactionId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents an operator identifier
+        for the change-over operation to be used to correlate
+        logged information in the ChangeOver3 Status object.
+        The CMTS uses this value as the Transaction ID in
+        the DBC-REQ or DCC-REQ message transmitted in association
+        with this operation. If this value is set to zero
+        the CMTS defines its own MAC message Transaction ID
+        value."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3ChgOverGroup 10 }
+
+docsLoadbal3ChgOverGroupCommit OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute when set to 'true' triggers the change-over
+        operation for Externally-Directed Load Balancing.
+
+        Setting this attribute to 'true' is known as a commit
+        operation. A commit operation is considered successful
+        if the CMTS considers that the entered information
+        is valid and the transaction can be initiated. It
+        does not imply that the channel-change operation itself
+        (i.e. UCC, DCC, DBC transaction) reports success
+        or completion.  A commit operation is considered unsuccessful
+        if the CMTS determines that there are invalid
+        attributes values in the ChangeOver object such
+        that the change-over operation cannot be initiated.
+
+
+        After system initialization all ChangeOver object
+        parameters are set to default values. 
+        After a successful commit operation all ChangeOver
+        object parameters are set to default values with the
+        exception of this attribute (commit) that is set to 'true'.
+        An unsuccessful commit operation is rejected
+        and this attribute reports false in subsequent value
+        queries.
+        With regard to error checking on a commit operation,
+        the following aspects are defined:
+        - The CMTS rejects the commit operation when the MAC address
+        in MacAddr attribute is not from an existing and
+        operational cable modem in the CMTS.
+        - The CMTS rejects the commit operation when there is
+        already a change-over operation in progress for the
+        CM, i.e. the corresponding attribute value in the -ChangeOverStatus
+        object is one of 'messageSent', 'modemDeparting'
+        or 'waitToSendMessage'.
+        - The CMTS rejects the commit operation when neither
+        of the upstream or downstream attribute parameters
+        of the change-over operation are set.
+
+        When the CM is in MRC disabled mode, only UCC/DCC commands
+        are valid, therefore:
+        - The CMTS ignores the values of RcpId, RccId, and ServiceFlowInfo
+        in the commit operation.
+        - The CMTS rejects the commit operation if neither of
+        DownFrequency or UsChSet were set to non-default values.
+
+        - The CMTS rejects the commit operation when the UsChSet
+        indicates more than one upstream channel.
+        - A single-upstream-channel change-over operation
+         (no downstream information) is rejected if the upstream
+        channel information corresponds to a non-existent
+        channel or a channel with operational status down.
+
+        - The CMTS rejects the commit operation for a downstream
+        frequency that the CMTS can determine to be invalid.
+        For example, the downstream frequency corresponds
+        to a channel that is part of the MD-DS-SG in which the
+        target CM is currently registered, and this Downstream
+        Channel is known to be operationally down, in a
+        test mode, mute state, etc.
+        - To move a MRC/MTC-capable CM to a MRC/MTC enabled MAC
+        Domain, the operator needs to reinitialize the CM via
+        a DCC operation by including the appropriate DownFrequency
+        and an InitTech allowing only the 'reinitialize
+        MAC' initialization technique.
+
+        When the CM is in MRC enabled mode, DCC and DBC commands
+        are valid, therefore:
+        - The CMTS rejects the commit operation if both the Downstream
+        Frequency (via the DownFrequency attribute)
+        and the RCC (via the RcpId and RccId) are set to non-default
+        values.
+        - The CMTS rejects the commit operation if the MdIfIndex
+        attribute value is invalid, or if the triplet MdIfIndex,
+        RcpId, RccId does not resolve in a valid RCC,
+        or at least one of the indicated downstream channels
+        is know to be operationally down, in a test mode, mute
+        state, etc.
+        - The CMTS rejects the commit operation if it can detect
+        the UsChSet includes one or more channels that are
+        not part of the US-SG of the CM, or any of those channels
+        are in operational status down.
+        - The CMTS rejects the commit operation if a service flow
+        entry in the ServiceFlowInfo attribute includes
+        channels that are not part of the CMs target RCS or TCS.
+
+
+        After processing the commit operation the CMTS creates
+        or overwrites (if it already exists) an instance
+        of the ChgOverStatus object for the associated CM.
+
+        After a successful commit operation, the CMTS initiates
+        the change-over transaction using the most appropriate
+        technique.  The potential techniques are:
+        - UCC - For upstream-channel-only changes on CMs not
+        operating in MRC mode.
+        - DCC - For upstream and/or downstream channel changes
+        on CMs not operating in MRC mode.
+        - DCC followed by channel assignment in REG-RSP-MP -
+        For MAC Domain re-assignment on CMs operating in MRC
+        mode.  In this case, the change-over command might only
+        include a downstream frequency, or might include
+        an RCC defined in the target MAC domain.  The upstream
+        channel set may or may not be provided.  The only applicable
+        Initialization Technique for this operation
+        is 'reinitializeMAC'.   
+        - DBC - For upstream and/or downstream channel set changes
+        on CMs operating in MRC mode."
+    DEFVAL          { false } 
+    ::= { docsLoadbal3ChgOverGroup 11 }
+
+docsLoadbal3ChgOverGroupLastCommit OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when  the attribute Commit was
+        last set to true. Zero if never set." 
+    ::= { docsLoadbal3ChgOverGroup 12 }
+
+docsLoadbal3ChgOverStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3ChgOverStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object reports the status of cable modems instructed
+        to move to a new downstream and/or upstream channel
+        or channel sets when commanded either by an operation
+        in the ChgOver object. An instance in this object
+        is created for each change-over operation committed
+        successfully. If the instance value attribute
+        is not final (the change-over operation is still pending
+        completion), this instance is expected to be updated
+        at some point later to reflect the final state
+        of the change-over operation."
+    ::= { docsLoadbal3MibObjects 3 }
+
+docsLoadbal3ChgOverStatusEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3ChgOverStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3ChgOverStatus."
+    INDEX           { docsLoadbal3ChgOverStatusId } 
+    ::= { docsLoadbal3ChgOverStatusTable 1 }
+
+DocsLoadbal3ChgOverStatusEntry ::= SEQUENCE {
+        docsLoadbal3ChgOverStatusId              Unsigned32,
+        docsLoadbal3ChgOverStatusMacAddr         MacAddress,
+        docsLoadbal3ChgOverStatusInitTech        ChChgInitTechMap,
+        docsLoadbal3ChgOverStatusDownFrequency   Unsigned32,
+        docsLoadbal3ChgOverStatusMdIfIndex       InterfaceIndex,
+        docsLoadbal3ChgOverStatusRcpId           RcpId,
+        docsLoadbal3ChgOverStatusRccId           Unsigned32,
+        docsLoadbal3ChgOverStatusUsChSet         ChannelList,
+        docsLoadbal3ChgOverStatusServiceFlowInfo OCTET STRING,
+        docsLoadbal3ChgOverStatusCmd             INTEGER,
+        docsLoadbal3ChgOverStatusTransactionId   Unsigned32,
+        docsLoadbal3ChgOverStatusValue           INTEGER,
+        docsLoadbal3ChgOverStatusUpdate          TimeStamp
+}
+
+docsLoadbal3ChgOverStatusId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents a monotonically increasing value
+        for the record that stores the status of the change-over
+        operation.  When the ChOverStatus object exceeds
+        the size limit of this object the lowest Id value
+        instances are removed so that the total number of entries
+        no longer exceeds the size limit allowing the CMTS
+        to maintain the most current entries." 
+    ::= { docsLoadbal3ChgOverStatusEntry 1 }
+
+docsLoadbal3ChgOverStatusMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the Mac address set in the
+        ChgOver object commit operation." 
+    ::= { docsLoadbal3ChgOverStatusEntry 2 }
+
+docsLoadbal3ChgOverStatusInitTech OBJECT-TYPE
+    SYNTAX          ChChgInitTechMap
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The initialization technique set in change-over
+        operation." 
+    ::= { docsLoadbal3ChgOverStatusEntry 3 }
+
+docsLoadbal3ChgOverStatusDownFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1000000000)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the new downstream frequency
+        to which the cable modem is instructed to move.
+        The value 0 indicates that the CMTS does not create a
+        TLV for the downstream frequency in the DCC-REQ message.
+        This object has no meaning when executing UCC operations." 
+    ::= { docsLoadbal3ChgOverStatusEntry 4 }
+
+docsLoadbal3ChgOverStatusMdIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the MAC Domain Interface
+        index set in the ChgOver3 object commit operation,
+        or zero." 
+    ::= { docsLoadbal3ChgOverStatusEntry 5 }
+
+docsLoadbal3ChgOverStatusRcpId OBJECT-TYPE
+    SYNTAX          RcpId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the RCP-ID set in the MultipleChChgOver
+        object commit operation, or all zeros
+        RCP-ID." 
+    ::= { docsLoadbal3ChgOverStatusEntry 6 }
+
+docsLoadbal3ChgOverStatusRccId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the RCC Status Index set
+        in the ChgOver3 object commit operation, or zero." 
+    ::= { docsLoadbal3ChgOverStatusEntry 7 }
+
+docsLoadbal3ChgOverStatusUsChSet OBJECT-TYPE
+    SYNTAX          ChannelList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the Upstream Channel Set
+        ID in the ChgOver3 object commit operation, or zero." 
+    ::= { docsLoadbal3ChgOverStatusEntry 8 }
+
+docsLoadbal3ChgOverStatusServiceFlowInfo OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..484))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the list of Service Flow-Channel
+        Set ID pairs set in the ChgOver object commit
+        operation, or zero-length string." 
+    ::= { docsLoadbal3ChgOverStatusEntry 9 }
+
+docsLoadbal3ChgOverStatusCmd OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ucc(1),
+                        dcc(2),
+                        dbc(3),
+                        crossMD(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The load balancing MAC Management Message exchange
+        type used by the CMTS for the change-over operation
+        in the ChgOver object commit operation.
+        - 'ucc' indicates the usage of Upstream Channel Change
+        (UCC) messages exchange.
+        - 'dcc' indicates the usage of Dynamic Channel Change
+        (DCC) messages exchange.
+        - 'dbc' indicates the usage of Dynamic Bonding  Change
+        (DCC) messages exchange
+        - 'crossMD' although this term does not correspond to
+        a MAC Management Message type, it indicates the movement
+        of a CM to a different MAC Domain that includes a
+        sequence of different MAC Management Messages types
+        (i.e. DCC to move the CM to the correct MAC Domain, followed
+        by channel assignment in REG-RSP-MP)." 
+    ::= { docsLoadbal3ChgOverStatusEntry 10 }
+
+docsLoadbal3ChgOverStatusTransactionId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the transaction Id value
+        used in the change-over operation." 
+    ::= { docsLoadbal3ChgOverStatusEntry 11 }
+
+docsLoadbal3ChgOverStatusValue OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        messageSent(1),
+                        noOpNeeded(2),
+                        modemDeparting(3),
+                        waitToSendMessage(4),
+                        cmOperationRejected(5),
+                        cmtsOperationRejected(6),
+                        timeOutT13(7),
+                        timeOutT15(8),
+                        rejectinit(9),
+                        success(10),
+                        dbcTimeout(11)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the status of the specified
+        change-over operation. The enumerations are:
+
+        Change-over using  DCC message exchange:
+        'modemDeparting'
+        The cable modem has responded with a change-over response
+        of either a DCC-RSP with a confirmation code of
+        depart(180) or a UCC-RSP. 
+        'timeOutT13'
+        Failure due to no DCC-RSP with confirmation code depart(180)
+        received prior to expiration of the T13 timer.
+
+        'timeOutT15'
+        T15 timer timed out prior to the arrival of a bandwidth
+        request, RNG-REQ message, or DCC-RSP message with
+        confirmation code of arrive(181) from the cable modem.
+
+        Change-over using  DBC message exchange: 
+        'dbcTimeout'
+        The number of DBC-REQ retries was exceeded and no DBC-RSP
+        was received
+        Change-over CMTS verifications:
+        'messageSent'
+        The CMTS has sent a DOCSIS MAC message request to instruct
+        the CM to do the change-over operation.
+        'noOpNeed'
+         A change-over operation was requested in which neither
+        the DS and US channels where the CM is operational
+        changed. 
+        'waitToSendMessage'
+         The specified operation is active and CMTS is waiting
+        to send the channel change message with channel info
+        to the cable modem. 
+        'cmOperationRejected'
+         Channel Change operation was rejected by the cable modem.
+
+        'cmtsOperationRejected'
+        Channel Change operation was rejected by the Cable Modem
+        Termination System.
+        'rejectInit'
+        Operation rejected due to unsupported initialization
+        tech requested. 
+        'success'
+        CMTS received an indication that the CM successfully
+        completed the change-over operation. e.g., If an initialization
+        technique of re-initialize the MAC is
+        used, success in indicated by the receipt of a DCC-RSP
+        message with a confirmation code of depart(180) or
+        DBC confirmation code ok/success. In all other DCC
+        cases, success is indicated by: (1) the CMTS received
+        a DCC-RSP message with confirmation code of arrive(181)
+        or (2) the CMTS internally confirms the presence
+        of the CM on the new channel(s)." 
+    ::= { docsLoadbal3ChgOverStatusEntry 12 }
+
+docsLoadbal3ChgOverStatusUpdate OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when the attribute value of
+        this instance was last updated." 
+    ::= { docsLoadbal3ChgOverStatusEntry 13 }
+ 
+
+
+docsLoadbal3CmtsCmParamsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3CmtsCmParamsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the autonomous load balancing
+        parameters provisioned for cable modem. The CMTS
+        selects the cable modem Load Balancing Group (GrpId
+        attribute of this object) from multiple sources by
+        following the rules and sequence described below:
+
+        The CMTS selects the assignment of the CM to a Load Balancing
+        Group by determining first if the CM is in a Restricted
+        Load Balancing Group or in its absence to the General
+        Load Balancing group that corresponds to the
+        MD-CM-SG of the CM. The selection of the Restricted Load
+        Balancing group is achieved by first matching the
+        CM in the RestrictCmCfg Object and if no match is found,
+        by selecting the best match within the ResGrpCfg
+        object. 
+        The best match within the ResGrpCfg follows the MULPI
+        requirements on precedences of the CM signaled TLVs:
+        ServiceType ID and Load Balancing Group ID (for backward
+        compatibility of provisioned Group IDs)."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Uper Layer Protocol Specification, 
+        CM-SP-MULPIv3.0-I08-080522, Channel Assignment During 
+        Registration section."
+    ::= { docsLoadbal3MibObjects 4 }
+
+docsLoadbal3CmtsCmParamsEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3CmtsCmParamsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3CmtsCmParams."
+    AUGMENTS           { docsIf3CmtsCmRegStatusEntry  } 
+ 
+    ::= { docsLoadbal3CmtsCmParamsTable 1 }
+
+DocsLoadbal3CmtsCmParamsEntry ::= SEQUENCE {
+        docsLoadbal3CmtsCmParamsProvGrpId            Unsigned32,
+        docsLoadbal3CmtsCmParamsCurrentGrpId         Unsigned32,
+        docsLoadbal3CmtsCmParamsProvServiceTypeID    SnmpAdminString,
+        docsLoadbal3CmtsCmParamsCurrentServiceTypeID SnmpAdminString,
+        docsLoadbal3CmtsCmParamsPolicyId             Unsigned32,
+        docsLoadbal3CmtsCmParamsPriority             Unsigned32
+}
+
+docsLoadbal3CmtsCmParamsProvGrpId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute indicates the provisioned Load Balancing
+        Group ID TLV the CM signaled to the CMTS during
+        registration, or zero if not provisioned in the CM." 
+    ::= { docsLoadbal3CmtsCmParamsEntry 1 }
+
+docsLoadbal3CmtsCmParamsCurrentGrpId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute references the Load Balancing Group
+        Identifier (Id attribute from the GrpStatus object)
+        associated with the cable modem after the CMTS validates
+        the CM Load Balancing Group ID TLV, Service Type
+        ID TLV and Restricted CM list. The value zero indicates
+        that the Load Balancing Group is invalid, or the
+        General Load Balancing Group is invalid due ambiguous
+        topology resolution." 
+    ::= { docsLoadbal3CmtsCmParamsEntry 2 }
+
+docsLoadbal3CmtsCmParamsProvServiceTypeID OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..16))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute indicates the provisioned Service
+        Type ID TLV the CM signaled to the CMTS during registration,
+        or the zero-length string if not provisioned
+        in the CM." 
+    ::= { docsLoadbal3CmtsCmParamsEntry 3 }
+
+docsLoadbal3CmtsCmParamsCurrentServiceTypeID OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the Service Type ID the
+        CMTS picked from the Restricted Group of Restricted
+        CM list, or the Service Type Id TLV the CM signaled to the
+        CMTS during registration, or the zero-length string
+        if none was used." 
+    ::= { docsLoadbal3CmtsCmParamsEntry 4 }
+
+docsLoadbal3CmtsCmParamsPolicyId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute references the Load Balancing Policy
+        ID associated to the cable modem either from the configuration
+        file or from the General or Restricted
+        Load Balancing Groups CMTS configuration." 
+    ::= { docsLoadbal3CmtsCmParamsEntry 5 }
+
+docsLoadbal3CmtsCmParamsPriority OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute references the Load Balancing Priority
+        associated to the cable modem either from the configuration
+        file or from the General or Restricted
+        Load Balancing Groups CMTS configuration." 
+    ::= { docsLoadbal3CmtsCmParamsEntry 6 }
+ 
+
+docsLoadbal3GeneralGrpDefaults  OBJECT IDENTIFIER
+    ::= { docsLoadbal3MibObjects 5 }
+
+
+docsLoadbal3GeneralGrpDefaultsEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the default value for the
+        Enable attribute of the GeneralLoadBalGrp object."
+    DEFVAL          { true } 
+    ::= { docsLoadbal3GeneralGrpDefaults 1 }
+
+docsLoadbal3GeneralGrpDefaultsPolicyId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the default value for the
+        PolicyId attribute of the GeneralLoadBalGrp object."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3GeneralGrpDefaults 2 }
+
+docsLoadbal3GeneralGrpDefaultsInitTech OBJECT-TYPE
+    SYNTAX          ChChgInitTechMap
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the default value for the
+        InitTechnique attribute of the GeneralLoadBalGrp
+        object."
+    DEFVAL          { 'F8'H } 
+    ::= { docsLoadbal3GeneralGrpDefaults 3 }
+
+docsLoadbal3GeneralGrpCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3GeneralGrpCfgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object provides the parameters for the General
+        Load Balancing Groups of MD-CM-SGs associated with
+        MAC Domain-Fiber Node pairs. This object allows configuration
+        of load balancing parameters for General
+        Load Balancing Groups by way of MAC Domain-Fiber
+        Node pairs.  In many deployments, a MAC Domain-Fiber
+        Node pair will equate to an MD-CM-SG (which always equates
+        to a GLBG).  In the case where an MD-CM-SG spans multiple
+        Fiber Nodes, there will be multiple instances
+        of this object that represent the General Load Balancing
+        Group (MD-CM-SG).  The CMTS MUST enforce that
+        such instances all have the same attribute values.  Any
+        time a fiber node is associated to a MAC Domain an instance
+        of this object is defined by the CMTS and populated
+        with default values from the GeneralGrpDefaults
+        object. Similarly when a fiber node is no longer paired
+        with a MAC Domain the corresponding instance is
+        deleted from the object."
+    ::= { docsLoadbal3MibObjects 6 }
+
+docsLoadbal3GeneralGrpCfgEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3GeneralGrpCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3GeneralGrpCfg.
+        The CMTS MUST persist all instances of GeneralGrpCfg across reinitializations."
+    INDEX           {
+                        ifIndex,
+                        docsLoadbal3GeneralGrpCfgNodeName
+                    } 
+    ::= { docsLoadbal3GeneralGrpCfgTable 1 }
+
+DocsLoadbal3GeneralGrpCfgEntry ::= SEQUENCE {
+        docsLoadbal3GeneralGrpCfgNodeName NodeName,
+        docsLoadbal3GeneralGrpCfgEnable   TruthValue,
+        docsLoadbal3GeneralGrpCfgPolicyId Unsigned32,
+        docsLoadbal3GeneralGrpCfgInitTech ChChgInitTechMap,
+        docsLoadbal3GeneralGrpCfgStatus   RowStatus
+}
+
+docsLoadbal3GeneralGrpCfgNodeName OBJECT-TYPE
+    SYNTAX          NodeName
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents the fiber node name being associated
+        with a MAC Domain." 
+    ::= { docsLoadbal3GeneralGrpCfgEntry 1 }
+
+docsLoadbal3GeneralGrpCfgEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute when set to 'true' enables Autonomous
+        Load Balancing for the General Load Balancing Group
+        associated with this instance. When set to 'false'
+        Autonomous Load Balancing is disabled."
+    DEFVAL          { true } 
+    ::= { docsLoadbal3GeneralGrpCfgEntry 2 }
+
+docsLoadbal3GeneralGrpCfgPolicyId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the default load balancing
+        policy for the General Load Balancing Group associated
+        with this instance."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3GeneralGrpCfgEntry 3 }
+
+docsLoadbal3GeneralGrpCfgInitTech OBJECT-TYPE
+    SYNTAX          ChChgInitTechMap
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the load balancing initialization
+        technique for the General Load Balancing Group
+        associated with this instance."
+    DEFVAL          { '00'H } 
+    ::= { docsLoadbal3GeneralGrpCfgEntry 4 }
+
+docsLoadbal3GeneralGrpCfgStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row status of this object." 
+    ::= { docsLoadbal3GeneralGrpCfgEntry 5 }
+ 
+
+
+docsLoadbal3ResGrpCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3ResGrpCfgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the configuration of Restricted
+        Load Balancing Groups."
+    ::= { docsLoadbal3MibObjects 7 }
+
+docsLoadbal3ResGrpCfgEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3ResGrpCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3ResGrpCfg.
+        The CMTS MUST persist all instances of ResGrpCfg across reinitializations."
+    INDEX           { docsLoadbal3ResGrpCfgId } 
+    ::= { docsLoadbal3ResGrpCfgTable 1 }
+
+DocsLoadbal3ResGrpCfgEntry ::= SEQUENCE {
+        docsLoadbal3ResGrpCfgId            Unsigned32,
+        docsLoadbal3ResGrpCfgMdIfIndex     InterfaceIndexOrZero,
+        docsLoadbal3ResGrpCfgDsChList      ChannelList,
+        docsLoadbal3ResGrpCfgUsChList      ChannelList,
+        docsLoadbal3ResGrpCfgEnable        TruthValue,
+        docsLoadbal3ResGrpCfgInitTech      ChChgInitTechMap,
+        docsLoadbal3ResGrpCfgPolicyId      Unsigned32,
+        docsLoadbal3ResGrpCfgServiceTypeId SnmpTagList,
+        docsLoadbal3ResGrpCfgStatus        RowStatus
+}
+
+docsLoadbal3ResGrpCfgId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents a unique index assigned to the
+        Restricted Load Balancing Group by the user for provisioning
+        purposes. This value is unique within a CMTS
+        and is matched with the CM signaled Load Balancing Group
+        ID TLV value when determining the CM Load Balancing
+        Group assignment based on such TLV value."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Uper Layer Protocol Specification, 
+        CM-SP-MULPIv3.0-I08-080522, Channel Assignment During 
+        Registration section." 
+    ::= { docsLoadbal3ResGrpCfgEntry 1 }
+
+docsLoadbal3ResGrpCfgMdIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the MAC domain where the
+        Restricted Load balancing Group applies. The value
+        zero is allowed to indicate that vendor-specific mechanisms
+        are used to define the Restricted Load Balancing
+        Group. For example, to provide Load Balancing
+        Groups across MAC domains." 
+    ::= { docsLoadbal3ResGrpCfgEntry 2 }
+
+docsLoadbal3ResGrpCfgDsChList OBJECT-TYPE
+    SYNTAX          ChannelList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the list of downstream channels
+        of the Restricted Load Balancing Group."
+    DEFVAL          { ''H } 
+    ::= { docsLoadbal3ResGrpCfgEntry 3 }
+
+docsLoadbal3ResGrpCfgUsChList OBJECT-TYPE
+    SYNTAX          ChannelList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the list of upstream channels
+        of the Restricted Load Balancing Group."
+    DEFVAL          { ''H } 
+    ::= { docsLoadbal3ResGrpCfgEntry 4 }
+
+docsLoadbal3ResGrpCfgEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute when set to 'true' enables Autonomous
+        Load Balancing on this Restricted Load Balancing
+        Group. The value 'false' disables the load balancing
+        operation on this group."
+    DEFVAL          { true } 
+    ::= { docsLoadbal3ResGrpCfgEntry 5 }
+
+docsLoadbal3ResGrpCfgInitTech OBJECT-TYPE
+    SYNTAX          ChChgInitTechMap
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the initialization techniques
+        that the CMTS can use to load balance cable modems
+        in the Load Balancing Group."
+    DEFVAL          { 'F8'H } 
+    ::= { docsLoadbal3ResGrpCfgEntry 6 }
+
+docsLoadbal3ResGrpCfgPolicyId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the default load balancing
+        policy of this Restricted Load Balancing Group.
+        A policy is described by a set of conditions (rules)
+        that govern the load balancing process for a cable modem.
+        The CMTS assigns this Policy ID value to a cable modem
+        associated with the group ID when the cable modem
+        does not signal a Policy ID during registration.
+
+         The Policy ID value is intended to be a numeric reference
+        to an instance of  the Policy object. However, It is
+        not required to have an existing or active policy instance
+        in which case it indicates no policy is associated
+        with the Load Balancing Group.
+
+         The Policy ID of value 0 is reserved to indicate no policy
+        is associated with the load balancing group."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3ResGrpCfgEntry 7 }
+
+docsLoadbal3ResGrpCfgServiceTypeId OBJECT-TYPE
+    SYNTAX          SnmpTagList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute represent a space separated list of
+        ServiceType IDs that will be compared against the cable
+        modem provisioned Service Type ID to determine
+        the most appropriate Restricted Load Balancing Group."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Uper Layer Protocol Specification, 
+        CM-SP-MULPIv3.0-I08-080522, Channel Assignment During 
+        Registration section." 
+    ::= { docsLoadbal3ResGrpCfgEntry 8 }
+
+docsLoadbal3ResGrpCfgStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row status of this object." 
+    ::= { docsLoadbal3ResGrpCfgEntry 9 }
+ 
+
+
+docsLoadbal3GrpStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3GrpStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the status of all General
+        and Restricted Load Balancing Groups in this CMTS.
+        This object summarizes the load balancing parameters
+        that applies to CMTS system wide Load Balancing Groups.
+        The Load Balancing Groups defined in this object
+        include the configured Restricted Load Balancing
+        Groups and the General Load Balancing Groups derived
+        from the GeneralGrpCfg object."
+    ::= { docsLoadbal3MibObjects 8 }
+
+docsLoadbal3GrpStatusEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3GrpStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3GrpStatus."
+    INDEX           { docsLoadbal3GrpStatusId } 
+    ::= { docsLoadbal3GrpStatusTable 1 }
+
+DocsLoadbal3GrpStatusEntry ::= SEQUENCE {
+        docsLoadbal3GrpStatusId             Unsigned32,
+        docsLoadbal3GrpStatusCfgIdOrZero    Unsigned32,
+        docsLoadbal3GrpStatusMdIfIndex      InterfaceIndexOrZero,
+        docsLoadbal3GrpStatusMdCmSgId       Unsigned32,
+        docsLoadbal3GrpStatusDsChList       ChannelList,
+        docsLoadbal3GrpStatusUsChList       ChannelList,
+        docsLoadbal3GrpStatusEnable         TruthValue,
+        docsLoadbal3GrpStatusInitTech       ChChgInitTechMap,
+        docsLoadbal3GrpStatusPolicyId       Unsigned32,
+        docsLoadbal3GrpStatusChgOverSuccess Counter32,
+        docsLoadbal3GrpStatusChgOverFails   Counter32
+}
+
+docsLoadbal3GrpStatusId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents an unique identifier of a Load
+        Balancing Group in the CMTS." 
+    ::= { docsLoadbal3GrpStatusEntry 1 }
+
+docsLoadbal3GrpStatusCfgIdOrZero OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute references the Id attribute of the
+        instance of the ResGrpCfg this instance corresponds
+        to. The value zero indicates that the instance corresponds
+        to a General Load Balancing Group." 
+    ::= { docsLoadbal3GrpStatusEntry 2 }
+
+docsLoadbal3GrpStatusMdIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the MAC domain where the
+        Load Balancing Group applies. The value zero is allowed
+        to indicate that vendor-specific mechanisms are
+        used in load balancing operations. For example, to
+        provide Load Balancing Groups across MAC domains." 
+    ::= { docsLoadbal3GrpStatusEntry 3 }
+
+docsLoadbal3GrpStatusMdCmSgId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute corresponds to the MD-CM-SG-ID that
+        includes all the upstream and downstream channels
+        of the Load Balancing Group. The value zero indicates
+        that this instance corresponds to a Restricted  Load
+        Balancing Group . If there are vendor-specific Load
+        Balancing Groups configuration ( e.g. MdIfIndex
+        set to zero), this attribute value might not be meaningful." 
+    ::= { docsLoadbal3GrpStatusEntry 4 }
+
+docsLoadbal3GrpStatusDsChList OBJECT-TYPE
+    SYNTAX          ChannelList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the list of downstream channels
+        of the Load Balancing Group. If there are vendor-specific
+        Load Balancing Groups configuration (
+        e.g. MdIfIndex set to zero), this attribute value might
+        not be meaningful." 
+    ::= { docsLoadbal3GrpStatusEntry 5 }
+
+docsLoadbal3GrpStatusUsChList OBJECT-TYPE
+    SYNTAX          ChannelList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the list of the upstream channels
+        of the Load Balancing Group. If there are vendor-specific
+        Load Balancing Groups configuration
+        ( e.g. MdIfIndex set to zero), this attribute value might
+        not be meaningful." 
+    ::= { docsLoadbal3GrpStatusEntry 6 }
+
+docsLoadbal3GrpStatusEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute when set to 'true' indicates that load
+        balancing is enabled on this group, or disabled if
+        set to 'false'." 
+    ::= { docsLoadbal3GrpStatusEntry 7 }
+
+docsLoadbal3GrpStatusInitTech OBJECT-TYPE
+    SYNTAX          ChChgInitTechMap
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute indicates the initialization techniques
+        that the CMTS can use when load balancing cable
+        modems that are associated with the Load Balancing
+        Group." 
+    ::= { docsLoadbal3GrpStatusEntry 8 }
+
+docsLoadbal3GrpStatusPolicyId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute indicates the Policy that the CMTS
+        can use when load balancing cable modems that are associated
+        with the Load Balancing Group." 
+    ::= { docsLoadbal3GrpStatusEntry 9 }
+
+docsLoadbal3GrpStatusChgOverSuccess OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute counts the number of successful Autonomous
+        Load Balancing operations associated with
+        this Load Balancing Group." 
+    ::= { docsLoadbal3GrpStatusEntry 10 }
+
+docsLoadbal3GrpStatusChgOverFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute counts the number of failed Autonomous
+        load balancing operations associated with this
+        Load Balancing Group." 
+    ::= { docsLoadbal3GrpStatusEntry 11 }
+ 
+
+
+docsLoadbal3RestrictCmCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3RestrictCmCfgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object describes the list of cable modems being
+        statically provisioned at the CMTS to a Restricted
+        Load Balancing Group.
+        When a CM registers it is either assigned to"
+    ::= { docsLoadbal3MibObjects 9 }
+
+docsLoadbal3RestrictCmCfgEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3RestrictCmCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3RestrictCmCfg.
+        The CMTS MUST persist all instances of RestrictCmCfg across reinitializations."
+    INDEX           { docsLoadbal3RestrictCmCfgId } 
+    ::= { docsLoadbal3RestrictCmCfgTable 1 }
+
+DocsLoadbal3RestrictCmCfgEntry ::= SEQUENCE {
+        docsLoadbal3RestrictCmCfgId            Unsigned32,
+        docsLoadbal3RestrictCmCfgMacAddr       MacAddress,
+        docsLoadbal3RestrictCmCfgMacAddrMask   MacAddress,
+        docsLoadbal3RestrictCmCfgGrpId         Unsigned32,
+        docsLoadbal3RestrictCmCfgServiceTypeId OCTET STRING,
+        docsLoadbal3RestrictCmCfgStatus        RowStatus
+}
+
+docsLoadbal3RestrictCmCfgId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents the unique identifier of an instance
+        in this object.
+        the CMTS maintains an unique instance per MAC Address/MAC
+        Address Mask combination" 
+    ::= { docsLoadbal3RestrictCmCfgEntry 1 }
+
+docsLoadbal3RestrictCmCfgMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the Mac Address of the cable
+        modem within the Restricted Load Balancing Group."
+    DEFVAL          { '000000000000'H } 
+    ::= { docsLoadbal3RestrictCmCfgEntry 2 }
+
+docsLoadbal3RestrictCmCfgMacAddrMask OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute corresponds to a  bit mask acting as
+        a wild card to associate a cable modem MAC addresses
+        to a Restricted Load Balancing Group ID referenced by
+        a restricted group Id or a Service Type ID.
+        The cable modem matching criteria is performed by bit-Anded
+        the cable modem MAC address with the MacAddrMAsk
+        attribute and being compared with the bit-ANDed
+        of attributes MacdAddr and MacAddrMask.
+
+        A cable modem MAC address look up is performed first with
+        instances containing this attribute value not null,
+        if several entries match, the largest consecutive
+        bit match from MSB to LSB is used."
+    DEFVAL          { 'FFFFFFFFFFFF'H } 
+    ::= { docsLoadbal3RestrictCmCfgEntry 3 }
+
+docsLoadbal3RestrictCmCfgGrpId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The attribute represents the Restricted Load Balancing
+        Group identifier of this entry associated with
+        the cable modem MAC address - MAC address mask combination.
+        The value zero indicates that the instance
+        is matched only against the ServiceTypeId value."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3RestrictCmCfgEntry 4 }
+
+docsLoadbal3RestrictCmCfgServiceTypeId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..16))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the Service Type Id associated
+        with this cable modem MAC address - MAC Address
+        mask combination.. The zero-length string indicates
+        that the instance is matched only against the GrpId
+        value, if both GrpId and this attribute are not present
+        the instance is ignored for matching purposes."
+    DEFVAL          { "" } 
+    ::= { docsLoadbal3RestrictCmCfgEntry 5 }
+
+docsLoadbal3RestrictCmCfgStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the status of this conceptual object.
+
+        There is no restriction on setting columns in this table
+        any time." 
+    ::= { docsLoadbal3RestrictCmCfgEntry 6 }
+ 
+
+
+docsLoadbal3PolicyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3PolicyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object describes the set of load balancing policies.
+        Instances from this object might be referenced
+        by GrpStatus object . All the rules contained in a
+        load balancing policy apply to an Autonomous Load Balancing
+        operations. Load balancing rules are defined
+        within this specification or can be vendor-defined
+        as well."
+    ::= { docsLoadbal3MibObjects 10 }
+
+docsLoadbal3PolicyEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3PolicyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3Policy.
+        The CMTS MUST persist all instances of Policy object across reinitializations."
+    INDEX           {
+                        docsLoadbal3PolicyId,
+                        docsLoadbal3PolicyRuleId
+                    } 
+    ::= { docsLoadbal3PolicyTable 1 }
+
+DocsLoadbal3PolicyEntry ::= SEQUENCE {
+        docsLoadbal3PolicyId        Unsigned32,
+        docsLoadbal3PolicyRuleId    Unsigned32,
+        docsLoadbal3PolicyPtr       RowPointer,
+        docsLoadbal3PolicyRowStatus RowStatus
+}
+
+docsLoadbal3PolicyId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents the identifier of a load balancing
+        policy." 
+    ::= { docsLoadbal3PolicyEntry 1 }
+
+docsLoadbal3PolicyRuleId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents a rule contained within a balancing
+        policy." 
+    ::= { docsLoadbal3PolicyEntry 2 }
+
+docsLoadbal3PolicyPtr OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents a reference to an instance
+        in a rule or other policy object like BasicRule object." 
+    ::= { docsLoadbal3PolicyEntry 3 }
+
+docsLoadbal3PolicyRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row status of this object." 
+    ::= { docsLoadbal3PolicyEntry 4 }
+ 
+
+
+docsLoadbal3BasicRuleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsLoadbal3BasicRuleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a basic ruleset applicable
+        to a load balancing policy that references it."
+    ::= { docsLoadbal3MibObjects 11 }
+
+docsLoadbal3BasicRuleEntry OBJECT-TYPE
+    SYNTAX          DocsLoadbal3BasicRuleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsLoadbal3BasicRule.
+        The CMTS MUST persist all instances of BasicRule object across reinitializations."
+    INDEX           { docsLoadbal3BasicRuleId } 
+    ::= { docsLoadbal3BasicRuleTable 1 }
+
+DocsLoadbal3BasicRuleEntry ::= SEQUENCE {
+        docsLoadbal3BasicRuleId        Unsigned32,
+        docsLoadbal3BasicRuleEnable    INTEGER,
+        docsLoadbal3BasicRuleDisStart  Unsigned32,
+        docsLoadbal3BasicRuleDisPeriod Unsigned32,
+        docsLoadbal3BasicRuleRowStatus RowStatus
+}
+
+docsLoadbal3BasicRuleId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key represents a unique identifier for balancing
+        ruleset of this object." 
+    ::= { docsLoadbal3BasicRuleEntry 1 }
+
+docsLoadbal3BasicRuleEnable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2),
+                        disabledPeriod(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute when set to 'enabled' enables Autonomous
+        Load Balancing (independently of the load balancing
+        group enable/disable state), the rule set is
+        disabled if set to 'disabled', or is disabled during
+        a period of time it set to 'disabledPeriod'."
+    DEFVAL          { disabled } 
+    ::= { docsLoadbal3BasicRuleEntry 2 }
+
+docsLoadbal3BasicRuleDisStart OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute disables load balancing from the time
+        stated by this attribute when the attribute Enable
+        is set to 'disablePeriod'. The time is defined in seconds
+        since midnight."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3BasicRuleEntry 3 }
+
+docsLoadbal3BasicRuleDisPeriod OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute disables load balancing until the
+        time stated by this attribute when the attribute Enable
+        is set to 'disablePeriod'. The time is defined in
+        seconds of the wall clock since midnight."
+    DEFVAL          { 0 } 
+    ::= { docsLoadbal3BasicRuleEntry 4 }
+
+docsLoadbal3BasicRuleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row status of this object." 
+    ::= { docsLoadbal3BasicRuleEntry 5 }
+ 
+
+docsLoadbal3MibConformance  OBJECT IDENTIFIER
+    ::= { docsLoadbal3Mib 2 }
+
+docsLoadbal3MibCompliances  OBJECT IDENTIFIER
+    ::= { docsLoadbal3MibConformance 1 }
+
+docsLoadbal3MibGroups  OBJECT IDENTIFIER
+    ::= { docsLoadbal3MibConformance 2 }
+
+
+docsLoadbal3Compliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for..."
+    MODULE          -- this module
+    MANDATORY-GROUPS { docsLoadbal3Group }
+    ::= { docsLoadbal3MibCompliances 1 }
+
+docsLoadbal3Group OBJECT-GROUP
+    OBJECTS         {
+                        docsLoadbal3SystemEnable,
+                        docsLoadbal3SystemEnableError,
+                        docsLoadbal3PolicyPtr,
+                        docsLoadbal3PolicyRowStatus,
+                        docsLoadbal3BasicRuleEnable,
+                        docsLoadbal3BasicRuleDisStart,
+                        docsLoadbal3BasicRuleDisPeriod,
+                        docsLoadbal3BasicRuleRowStatus,
+                        docsLoadbal3ChgOverGroupMacAddress,
+                        docsLoadbal3ChgOverGroupInitTech,
+                        docsLoadbal3ChgOverGroupForceUCC,
+                        docsLoadbal3ChgOverGroupdownFrequency,
+                        docsLoadbal3ChgOverGroupMdIfIndex,
+                        docsLoadbal3ChgOverGroupRcpId,
+                        docsLoadbal3ChgOverGroupRccId,
+                        docsLoadbal3ChgOverGroupUsChSet,
+                        docsLoadbal3ChgOverGroupServiceFlowInfo,
+                        docsLoadbal3ChgOverGroupTransactionId,
+                        docsLoadbal3ChgOverGroupCommit,
+                        docsLoadbal3ChgOverGroupLastCommit,
+                        docsLoadbal3ChgOverStatusMacAddr,
+                        docsLoadbal3ChgOverStatusInitTech,
+                        docsLoadbal3ChgOverStatusDownFrequency,
+                        docsLoadbal3ChgOverStatusMdIfIndex,
+                        docsLoadbal3ChgOverStatusRcpId,
+                        docsLoadbal3ChgOverStatusRccId,
+                        docsLoadbal3ChgOverStatusUsChSet,
+                        docsLoadbal3ChgOverStatusServiceFlowInfo,
+                        docsLoadbal3ChgOverStatusCmd,
+                        docsLoadbal3ChgOverStatusTransactionId,
+                        docsLoadbal3ChgOverStatusValue,
+                        docsLoadbal3ChgOverStatusUpdate,
+                        docsLoadbal3CmtsCmParamsProvGrpId,
+                        docsLoadbal3CmtsCmParamsCurrentGrpId,
+                        docsLoadbal3CmtsCmParamsProvServiceTypeID,
+                        docsLoadbal3CmtsCmParamsCurrentServiceTypeID,
+                        docsLoadbal3CmtsCmParamsPolicyId,
+                        docsLoadbal3CmtsCmParamsPriority,
+                        docsLoadbal3GeneralGrpDefaultsEnable,
+                        docsLoadbal3GeneralGrpDefaultsPolicyId,
+                        docsLoadbal3GeneralGrpDefaultsInitTech,
+                        docsLoadbal3GeneralGrpCfgEnable,
+                        docsLoadbal3GeneralGrpCfgPolicyId,
+                        docsLoadbal3GeneralGrpCfgInitTech,
+                        docsLoadbal3GeneralGrpCfgStatus,
+                        docsLoadbal3ResGrpCfgMdIfIndex,
+                        docsLoadbal3ResGrpCfgDsChList,
+                        docsLoadbal3ResGrpCfgUsChList,
+                        docsLoadbal3ResGrpCfgEnable,
+                        docsLoadbal3ResGrpCfgInitTech,
+                        docsLoadbal3ResGrpCfgPolicyId,
+                        docsLoadbal3ResGrpCfgServiceTypeId,
+                        docsLoadbal3ResGrpCfgStatus,
+                        docsLoadbal3GrpStatusCfgIdOrZero,
+                        docsLoadbal3GrpStatusMdIfIndex,
+                        docsLoadbal3GrpStatusMdCmSgId,
+                        docsLoadbal3GrpStatusDsChList,
+                        docsLoadbal3GrpStatusUsChList,
+                        docsLoadbal3GrpStatusEnable,
+                        docsLoadbal3GrpStatusInitTech,
+                        docsLoadbal3GrpStatusPolicyId,
+                        docsLoadbal3GrpStatusChgOverSuccess,
+                        docsLoadbal3GrpStatusChgOverFails,
+                        docsLoadbal3RestrictCmCfgMacAddr,
+                        docsLoadbal3RestrictCmCfgMacAddrMask,
+                        docsLoadbal3RestrictCmCfgGrpId,
+                        docsLoadbal3RestrictCmCfgServiceTypeId,
+                        docsLoadbal3RestrictCmCfgStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in"
+    ::= { docsLoadbal3MibGroups 1 }
+
+END
+

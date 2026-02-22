@@ -1,0 +1,2112 @@
+-- MIB file created 18-May-2015 11:10:08, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-SI-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-SI-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, MacAddress
+            FROM SNMPv2-TC-v1
+    CLDot11Band
+            FROM CISCO-LWAPP-TC-MIB
+    ciscoLwappSpectrum, cLApName, cLApSysMacAddress, 
+    cLApDot11IfSlotId
+            FROM CISCO-LWAPP-AP-MIB
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoLwappSiMIB OBJECT IDENTIFIER ::= { ciscoLwappSpectrum 1 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201505180000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-snmp@cisco.com
+--  Descr
+--    This MIB module defines objects that describes the
+--    configuration and status of the spectrum intelligence 
+--    capabilities of the 802.11 Access points.
+--    
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central Controllers (CC) that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Light-weight LWAPP Access Points.
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--    +......+     +......+     +......+           +......+
+--    +      +     +      +     +      +           +      +
+--    +  CC  +     +  CC  +     +  CC  +           +  CC  +
+--    +      +     +      +     +      +           +      +
+--    +......+     +......+     +......+           +......+
+--    ..            .             .                 .
+--    ..            .             .                 .
+--    .  .            .             .                 .
+--    .    .            .             .                 .
+--    .      .            .             .                 .
+--    .        .            .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    .              .             .                 .
+--    .  .              .             .                 .
+--    .    .              .             .                 .
+--    .      .              .             .                 .
+--    .        .              .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends it to the controller to which
+--    it is logically connected.
+--    
+--    Basic Service Set Identifier (BSSID)
+--    
+--    The identifier for the service set comprising of
+--    all the 802.11 stations under the control of
+--    one coordinating Access Point.  This identifier
+--    happens to be the MAC address of the dot11 radio
+--    interface of the Access Point.  The wireless
+--    clients that associate with the Access Point
+--    get the wired uplink through this particular 
+--    dot11 interface. 
+--    
+--    Central Controller ( CC )
+--    
+--    The central entity that terminates the LWAPP protocol
+--    tunnel from the LWAPP APs.  Throughout this MIB,
+--    this entity also referred to as 'controller'. 
+--    
+--    Light Weight Access Point Protocol ( LWAPP ) 
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. 
+--    
+--    Station Management (SMT)
+--    
+--    This term refers to the internal management of the
+--    802.11 protocol operations by the AP to work
+--    cooperatively with the other APs and 802.11
+--    devices in the network.
+--    
+--    Spectrum Intelligence (SI) 
+--    
+--    Radio frequency (RF) interference from devices 
+--    operating in the unlicensed 2.4-GHz and 5-GHz
+--    bands used by wireless LANs (WLANs) is a growing 
+--    concern for organizations deploying indoor and outdoor 
+--    wireless networks. A variety of RF devices are now 
+--    available that can cause interference, including 
+--    cordless phones, Bluetooth devices, cameras, paging systems,
+--    unauthorized access points, and clients in ad-hoc mode.
+--    
+--    Left unaddressed, RF interference can result in low data 
+--    rates and throughput, lack of sufficient WLAN coverage, 
+--    WLAN performance degradation, poor voice quality, and low
+--    end-user satisfaction. This, in turn, can lead to decreased 
+--    network capacity, an increase in support calls, 
+--    network downtime, rising operational costs, and potential 
+--    security vulnerabilities from malicious interference.
+--    
+--    Spectrum Intelligence, industry-leading solution from Cisco 
+--    detects, classifies, and locates devices causing RF 
+--    interference in the unlicensed 2.4-GHz and 5-GHz bands. 
+--    When the source of the interference is determined, 
+--    customers can remove, move, shield, adjust, or replace the 
+--    interference source. This helps organizations troubleshoot 
+--    the wireless network to determine the root causes of 
+--    interference problems and optimize network performance.
+--    
+--    Sensord
+--    
+--    The Sensord software looks at the timing and frequency of 
+--    interference bursts, and the discovered attributes of the 
+--    bursts such as the modulation type and identified sync words. 
+--    This high-level information is then used to perform the final 
+--    identification and separation of one device from another. 
+--    This final classification step provides the powerful features 
+--    of SI: Identifying the specific source of the interference, 
+--    where it is located, and how it can be mitigated.
+--    
+--    Persistent Device Propagation
+--    
+--    Interference devices usually affect multiple wireless 
+--    access points. Using persistent device propagation information 
+--    regarding persistent interference devices can be passed from one
+--    access point to another access point effectively improving
+--    radio resource management.
+--    
+--    Radio Resource Management ( RRM )
+--    
+--    RRM is the system level control of co-channel 
+--    interference and other radio transmission 
+--    characteristics in wireless communication systems.        
+--    REFERENCE
+--    
+--    [1] Part 11 Wireless LAN Medium Access Control ( MAC )
+--    and Physical Layer ( PHY ) Specifications.
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol.
+--  RevDate
+--    201505180000Z
+--  RevDescr
+--    Added following NOTIFICATION-GROUP
+--    - ciscoLwappSiMIBNotifGroupRev1. 
+--    Added new compliance 
+--    - ciscoLwappApSiMIBComplianceRev2. 
+--    Updated the description of following obejcts 
+--    - cLSiD11AqiTrapThreshold 
+--    - cLSiD11IdrUnclassifiedTrapEnable 
+--    - cLSiD11IdrUnclassifiedTrapThreshold 
+--    - cLSiApIfSensordErrorCode 
+--    Updated following notifications 
+--    - ciscoLwappSiAqLow 
+--    - ciscoLwappSiIdrDevice 
+--    Deprecated following NOTIFICATION-GROUP 
+--    - ciscoLwappSiMIBNotifGroup.
+--  RevDate
+--    201110010000Z
+--  RevDescr
+--    Added following objects to existing table,
+--    cLSiDot11BandEntry:
+--    
+--    cLSiD11IdrPersistentDevicePropagation
+--    cLSiD11IdrUnclassifiedTrapEnable
+--    cLSiD11IdrUnclassifiedTrapThreshold.
+--    
+--    Added following object to existing table,
+--    cLSiDot11BandEventDrivenRrmEntry:
+--    
+--    cLSiD11EventDrivenRrmCustomThresVal.
+--    
+--    Added one more enumeration('custom') for custom
+--    configuration for the existing variable,
+--    cLSiD11EventDrivenRrmThresLvl.
+--    
+--    Added the notification variable,
+--    cLSiD11IdrUnclassifiedCurrentSevIndex.
+--    
+--    Added one more notification, ciscoLwappSiAqLowSeverityHigh.
+--  RevDate
+--    201105160000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappSiMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappSiMIB 0 }
+ciscoLwappSiMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappSiMIB 1 }
+ciscoLwappSiMIBConform OBJECT IDENTIFIER ::= { ciscoLwappSiMIB 2 }
+ciscoLwappSiMIBNotifObjects OBJECT IDENTIFIER ::= { ciscoLwappSiMIB 3 }
+ciscoLwappAirQuality OBJECT IDENTIFIER ::= { ciscoLwappSiMIBObjects 1 }
+ciscoLwappInterference OBJECT IDENTIFIER ::= { ciscoLwappSiMIBObjects 2 }
+ciscoLwappSiDot11Band OBJECT IDENTIFIER ::= { ciscoLwappSiMIBObjects 3 }
+ciscoLwappSiApIf OBJECT IDENTIFIER ::= { ciscoLwappSiMIBObjects 4 }
+ciscoLwappSiMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappSiMIBConform 1 }
+ciscoLwappSiMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappSiMIBConform 2 }
+
+cLSiApIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiApIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        air quality parameters corresponding to
+        the dot11 interfaces of the APs that have joined
+        the controller."
+    ::= { ciscoLwappSiApIf 1 }
+
+cLSiApIfEntry OBJECT-TYPE
+    SYNTAX CLSiApIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table represents the 802.11
+        AQ parameters of a channel on a  dot11 interface 
+        of an AP that has joined the controller."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId }
+    ::= { cLSiApIfTable 1 }
+
+CLSiApIfEntry ::= SEQUENCE {
+    cLSiApIfSpectrumIntelligenceEnable TruthValue,
+    cLSiApIfSpectrumCapable TruthValue,
+    cLSiApIfRapidUpdateEnable TruthValue,
+    cLSiApIfDetailSpectrumModeEnable TruthValue,
+    cLSiApIfSensordOperationalStatus INTEGER,
+    cLSiApIfNumOfSeActiveConnection Gauge,
+    cLSiApIfSensordErrorCode INTEGER
+    }
+
+cLSiApIfSpectrumIntelligenceEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether Spectrum Intelligence (SI) is
+        enabled on this radio. A value of 'true' indicates SI 
+        is enabled. A value of 'false' indicates SI is disabled."
+    DEFVAL { true }
+    ::= { cLSiApIfEntry 1 }
+
+cLSiApIfSpectrumCapable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether Spectrum Intelligence (SI)
+        can be enabled on this radio. A value of 'true' indicates SI 
+        can be  enabled. A value of 'false' indicates SI cannot be 
+        enabled."
+    ::= { cLSiApIfEntry 2 }
+
+cLSiApIfRapidUpdateEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether rapid update is
+        enabled on this radio. A value of 'true' indicates Rapid 
+        update is enabled. A value of 'false' indicates Rapid Update 
+        is disabled."
+    DEFVAL { false }
+    ::= { cLSiApIfEntry 3 }
+
+cLSiApIfDetailSpectrumModeEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether detailed spectrum mode is
+        enabled on this radio. A value of 'true' indicates detailed 
+        spectrum mode is enabled. A value of 'false' indicates 
+        detailed spectrum mode is disabled."
+    DEFVAL { false }
+    ::= { cLSiApIfEntry 4 }
+
+cLSiApIfSensordOperationalStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2),
+        notApplicable(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current operational status of
+        the Sensord"
+    DEFVAL { notApplicable }
+    ::= { cLSiApIfEntry 5 }
+
+cLSiApIfNumOfSeActiveConnection OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of active
+        spectrum expert(SE) connections per slot of AP."
+    ::= { cLSiApIfEntry 6 }
+
+cLSiApIfSensordErrorCode OBJECT-TYPE
+    SYNTAX INTEGER {
+        configured(1),
+        invalidSIConfig(2),
+        apNonCleanAirMode(3),
+        failedChannelConfig(4),
+        failedResourceAllocation(5),
+        failedConnectionWithSensor(6),
+        radioNotCleanAirCapable(7),
+        failedSIStream(8),
+        radioDisabled(9),
+        recoverableError(129),
+        unrecoverableCrash(130)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the error code of the Sensord:
+        
+        configured(1)  
+            Configured.
+        invalidSIConfig(2) 
+            Invalid SI configuration.
+        apNonCleanAirMode(3)
+            AP not in CleanAir mode.
+        failedChannelConfig(4) 
+            Could not get channel configuration.
+        failedResourceAllocation(5) 
+            Resource allocation failure.
+        failedConnectionWithSensor(6) 
+            Could not establish connection with sensor.
+        radioNotCleanAirCapable(7) 
+            Radio is not CleanAir capable.
+        failedSIStream(8) 
+            Could not create SI streams.
+        radioDisabled(9) 
+            Radio disabled.
+        recoverableError(129)
+            Recoverable error and AP will reset itself.
+        unrecoverableCrash(130) 
+            Sensord crashed."
+    ::= { cLSiApIfEntry 7 }
+
+cLSiDot11BandTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiDot11BandEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        air quality parameters corresponding to
+        the dot11 band of the APs that have joined
+        the controller."
+    ::= { ciscoLwappSiDot11Band 1 }
+
+cLSiDot11BandEntry OBJECT-TYPE
+    SYNTAX CLSiDot11BandEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table represents the
+        AQ parameters on a  dot11 band 
+        of an AP that has joined the controller."
+    INDEX { cLSiD11Band }
+    ::= { cLSiDot11BandTable 1 }
+
+CLSiDot11BandEntry ::= SEQUENCE {
+    cLSiD11Band CLDot11Band,
+    cLSiD11SpectrumIntelligenceEnable TruthValue,
+    cLSiD11InterferenceDeviceList OCTET STRING,
+    cLSiD11PollingInterval Gauge,
+    cLSiD11IdrReportingEnable TruthValue,
+    cLSiD11AqiTrapEnable TruthValue,
+    cLSiD11AqiTrapThreshold Gauge,
+    cLSiD11IdrTrapEnable TruthValue,
+    cLSiD11IdrTrapDeviceList OCTET STRING,
+    cLSiD11IdrPersistentDevicePropagation TruthValue,
+    cLSiD11IdrUnclassifiedTrapEnable TruthValue,
+    cLSiD11IdrUnclassifiedTrapThreshold Gauge
+    }
+
+cLSiD11Band OBJECT-TYPE
+    SYNTAX CLDot11Band
+--    Rsyntax INTEGER {
+--        band2dot4(1),
+--        band5(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the band for this entry."
+    ::= { cLSiDot11BandEntry 1 }
+
+cLSiD11SpectrumIntelligenceEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether Spectrum Intelligence (SI) is
+        enabled on this band. A value of 'true' indicates SI 
+        is enabled. A value of 'false' indicates SI is disabled."
+    DEFVAL { true }
+    ::= { cLSiDot11BandEntry 2 }
+
+cLSiD11InterferenceDeviceList OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..3))
+        -- BITS are:
+        --   wiMaxFixed(0)
+        --   wiMaxMobile(1)
+        --   xbox(2)
+        --   canopy(3)
+        --   radar(4)
+        --   superAg(5)
+        --   wifiInvalidChannel(6)
+        --   wifiInverted(7)
+        --   eightZeroTwoDot15dot4(8)
+        --   videoCamera(9)
+        --   dectLikePhone(10)
+        --   continuousTransmitter(11)
+        --   jammer(12)
+        --   tddTransmitter(13)
+        --   bluetoothDiscovery(14)
+        --   eightZeroTwoDot11Fh(15)
+        --   microwaveOven(16)
+        --   bluetoothLink(17)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the interference device list which
+        would be considered for detection by controller on the
+        corresponding radio interface. If bit corresponding to
+        particular interference device category is set, if existing
+        in radio interface, the same would be detected and reported.
+        If bit corresponding to particular interference
+        device category is cleared, the same would not be considered
+        for detection and reporting, even though existing in particular
+        radio interface."
+    ::= { cLSiDot11BandEntry 3 }
+
+cLSiD11PollingInterval OBJECT-TYPE
+    SYNTAX Gauge(15..60)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the Air Quality polling interval."
+    ::= { cLSiDot11BandEntry 4 }
+
+cLSiD11IdrReportingEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether IDR is enabled on this band.
+        A value of 'true' indicates IDR is enabled. A value of 'false' 
+        indicates IDR is disabled."
+    DEFVAL { false }
+    ::= { cLSiDot11BandEntry 6 }
+
+cLSiD11AqiTrapEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether AQ notification is enabled
+        on this band. A value of 'true' indicates AQ notification 
+        is enabled. A value of 'false' indicates AQ notification is 
+        disabled."
+    DEFVAL { true }
+    ::= { cLSiDot11BandEntry 7 }
+
+cLSiD11AqiTrapThreshold OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the threshold value for the
+        trap, ciscoLwappSiAqLowRev1."
+    ::= { cLSiDot11BandEntry 8 }
+
+cLSiD11IdrTrapEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether IDR notification is enabled
+        on this band. A value of 'true' indicates IDR notification 
+        is enabled. A value of 'false' indicates IDR notification is 
+        disabled."
+    DEFVAL { true }
+    ::= { cLSiDot11BandEntry 9 }
+
+cLSiD11IdrTrapDeviceList OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..3))
+        -- BITS are:
+        --   wiMaxFixed(0)
+        --   wiMaxMobile(1)
+        --   xbox(2)
+        --   canopy(3)
+        --   radar(4)
+        --   superAg(5)
+        --   wifiInvalidChannel(6)
+        --   wifiInverted(7)
+        --   eightZeroTwoDot15dot4(8)
+        --   videoCamera(9)
+        --   dectLikePhone(10)
+        --   continuousTransmitter(11)
+        --   jammer(12)
+        --   tddTransmitter(13)
+        --   bluetoothDiscovery(14)
+        --   eightZeroTwoDot11Fh(15)
+        --   microwaveOven(16)
+        --   bluetoothLink(17)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the interference device list,
+        that are enabled to generate traps. When bit corresponding 
+        to particular interference category is set, when detected 
+        by controller, trap  indicating the detection of this 
+        interference device would be sent. And if bit corresponding 
+        to particular interference category is cleared, when detected 
+        by controller, trap indicating the detection of this 
+        interference device would not be sent."
+    ::= { cLSiDot11BandEntry 10 }
+
+cLSiD11IdrPersistentDevicePropagation OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether Persistent Device Propagation to
+        neighboring access points is enabled on this band or not. 
+        A value of 'true' indicates that Persistent Device Propagation 
+        is enabled. A value of 'false' indicates Persistent Device 
+        Propagation is disabled."
+    ::= { cLSiDot11BandEntry 11 }
+
+cLSiD11IdrUnclassifiedTrapEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether trap,
+        ciscoLwappSiAqLowSeverityHighRev1, would be sent for 
+        unclassified interference category on this band. 
+        A value of 'true' indicates trap enabled. A value of 'false' 
+        indicates trap is disabled."
+    ::= { cLSiDot11BandEntry 12 }
+
+cLSiD11IdrUnclassifiedTrapThreshold OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+--  Units
+--    percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the threshold which would be considered
+        while sending trap, ciscoLwappSiAqLowSeverityHighRev1, for 
+        unclassified interference category. When the interference
+        severity index reaches this threshold, trap would be sent
+        out."
+    ::= { cLSiDot11BandEntry 13 }
+
+cLSiAqTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiAqEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        air quality parameters corresponding to
+        the dot11 interfaces of the APs that have joined
+        the controller for a given channel."
+    ::= { ciscoLwappAirQuality 1 }
+
+cLSiAqEntry OBJECT-TYPE
+    SYNTAX CLSiAqEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes the AQ parameters of a
+        channel on a 802.11 radio interface of an AP. 
+        
+        A row in this table will be created when a report 
+        is received on controller from an AP for a channel.
+        The reports will be updated in every 15 minutes.
+        When new reports come in, old entries would be deleted
+        and updated with new entries."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId, cLSiAqChannelNumber }
+    ::= { cLSiAqTable 1 }
+
+CLSiAqEntry ::= SEQUENCE {
+    cLSiAqChannelNumber Gauge,
+    cLSiAqMinIndex Gauge,
+    cLSiAqIndex Gauge,
+    cLSiAqTotalChannelPower INTEGER,
+    cLSiAqTotalChannelDutyCycle Gauge,
+    cLSiAqInterferencePower INTEGER,
+    cLSiAqInterferenceDutyCycle Gauge,
+    cLSiAqInterferenceDeviceCount Gauge,
+    cLSiAqInterfererClassReportCount Gauge,
+    cLSiAqTimeStamp Gauge
+    }
+
+cLSiAqChannelNumber OBJECT-TYPE
+    SYNTAX Gauge(1..300)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the channel number
+        for which the report was received by the controller."
+    ::= { cLSiAqEntry 1 }
+
+cLSiAqMinIndex OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the minimum
+        air quality Index. This value lies 
+        between 1 and 100 where value '1' 
+        indicates worst air quality and value '100' 
+        indicates best air quality."
+    ::= { cLSiAqEntry 2 }
+
+cLSiAqIndex OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the air quality
+        index. This value lies between 1 
+        and 100 where value '1' indicates 
+        worst air quality and value '100' 
+        indicates best air quality."
+    ::= { cLSiAqEntry 3 }
+
+cLSiAqTotalChannelPower OBJECT-TYPE
+    SYNTAX INTEGER(-90..-60)
+--  Units
+--    dbm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the RSSI value
+        for total channel power."
+    ::= { cLSiAqEntry 4 }
+
+cLSiAqTotalChannelDutyCycle OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total
+        channel duty cycle."
+    ::= { cLSiAqEntry 5 }
+
+cLSiAqInterferencePower OBJECT-TYPE
+    SYNTAX INTEGER(-90..-60)
+--  Units
+--    dbm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the power or RSSI value
+        of the interfering device. Received signal 
+        strength indicator (RSSI) is a measurement 
+        of the power present in a received radio signal."
+    ::= { cLSiAqEntry 6 }
+
+cLSiAqInterferenceDutyCycle OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the duty cycle
+        of interfering device."
+    ::= { cLSiAqEntry 7 }
+
+cLSiAqInterferenceDeviceCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number
+        of interference devices identified by AP."
+    ::= { cLSiAqEntry 8 }
+
+cLSiAqInterfererClassReportCount OBJECT-TYPE
+    SYNTAX Gauge(0..5)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of
+        worst air quality interference report
+        that will be generated per channel of
+        a dot11 interface of an AP."
+    ::= { cLSiAqEntry 9 }
+
+cLSiAqTimeStamp OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time when the
+        Air Quality(AQ) report was received by the controller.
+        
+        This represents number of seconds elapsed since 00:00:00
+        on January 1, 1970, Coordinated Universal Time (UTC).  So
+        a value of '1131362704' means 'Mon Nov  7 16:55:04 2005'."
+    ::= { cLSiAqEntry 10 }
+
+cLSiAqInterferenceClassReportTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiAqInterferenceClassReportEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        worst air quality interference report on a 
+        channel of the dot11 interfaces of the APs 
+        that have joined the controller. 
+        The total number of entries are represented 
+        by cLSiAqInterfererClassReportCount object."
+    ::= { ciscoLwappAirQuality 2 }
+
+cLSiAqInterferenceClassReportEntry OBJECT-TYPE
+    SYNTAX CLSiAqInterferenceClassReportEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes the worst interference
+        report generated for a channel on a 802.11 radio 
+        interface of an AP. 
+        
+        There will be a maximum of 
+        cLSiAqInterfererClassReportCount worst air quality
+        reports per channel on a dot11 interface of an AP."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId, cLSiAqChannelNumber, cLSiAqInterferenceClassReportIndex }
+    ::= { cLSiAqInterferenceClassReportTable 1 }
+
+CLSiAqInterferenceClassReportEntry ::= SEQUENCE {
+    cLSiAqInterferenceClassReportIndex Gauge,
+    cLSiAqInterferenceClassReportDeviceClass INTEGER,
+    cLSiAqInterferenceClassReportSeverityIndex Gauge,
+    cLSiAqInterferenceClassReportPower INTEGER,
+    cLSiAqInterferenceClassReportDutyCycle Gauge,
+    cLSiAqInterferenceClassReportDeviceCount Gauge
+    }
+
+cLSiAqInterferenceClassReportIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the category index
+        for this report."
+    ::= { cLSiAqInterferenceClassReportEntry 1 }
+
+cLSiAqInterferenceClassReportDeviceClass OBJECT-TYPE
+    SYNTAX INTEGER {
+        bluetoothLink(1),
+        microwaveOven(8),
+        eightZeroTwoDot11Fh(10),
+        bluetoothDiscovery(17),
+        tddTransmitter(18),
+        jammer(19),
+        continuousTransmitter(25),
+        dectLikePhone(26),
+        videoCamera(27),
+        eightZeroTwoDot15dot4(28),
+        wifiInverted(30),
+        wifiInvalidChannel(31),
+        superAg(32),
+        radar(33),
+        canopy(34),
+        microsoftDevice(35),
+        wiMaxMobile(36),
+        wiMaxFixed(37)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the device type of the
+        identified interference devices mentioned in the report."
+    ::= { cLSiAqInterferenceClassReportEntry 2 }
+
+cLSiAqInterferenceClassReportSeverityIndex OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the severity index
+        for this report. This value lies between 1 
+        and 100 where value '1' indicates low interference
+        and value '100' indicated high interference."
+    ::= { cLSiAqInterferenceClassReportEntry 3 }
+
+cLSiAqInterferenceClassReportPower OBJECT-TYPE
+    SYNTAX INTEGER(-90..-60)
+--  Units
+--    dbm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the power of interfering
+        device reported in worst air quality report."
+    ::= { cLSiAqInterferenceClassReportEntry 4 }
+
+cLSiAqInterferenceClassReportDutyCycle OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the duty cycle of interfering
+        device reported in worst air quality report"
+    ::= { cLSiAqInterferenceClassReportEntry 5 }
+
+cLSiAqInterferenceClassReportDeviceCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of
+        total interference devices in the worst
+        air quality report."
+    ::= { cLSiAqInterferenceClassReportEntry 6 }
+
+cLSiIdrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiIdrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        IDR parameters for a given interfering device. 
+        These devices are detected and reported per 
+        the dot11 interfaces of the APs that have joined
+        the controller."
+    ::= { ciscoLwappInterference 1 }
+
+cLSiIdrEntry OBJECT-TYPE
+    SYNTAX CLSiIdrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes the IDR(Interference Device Report)
+        parameters of the 802.11 radio interface of an AP that has 
+        joined the controller. IDR will be generated for
+        each interfering device which has been detected by the
+        access points. 
+        
+        A row in this table will be created when a report 
+        is received on controller from an AP for the
+        dot11. The rows will be updated when controller
+        has received new IDR report from an AP."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId, cLSiIdrDeviceId }
+    ::= { cLSiIdrTable 1 }
+
+CLSiIdrEntry ::= SEQUENCE {
+    cLSiIdrDeviceId Gauge,
+    cLSiIdrClusterId MacAddress,
+    cLSiIdrTimeStamp Gauge,
+    cLSiIdrDeviceType INTEGER,
+    cLSiIdrSeverity Gauge,
+    cLSiIdrDetectingApMac MacAddress,
+    cLSiIdrDutyCycle Gauge,
+    cLSiIdrAntennaId Gauge,
+    cLSiIdrRssi INTEGER,
+    cLSiIdrRadioBandId CLDot11Band,
+    cLSiIdrAffectedChannels Gauge,
+    cLSiIdrDeviceSignatureLen Gauge,
+    cLSiIdrDeviceSignature OCTET STRING
+    }
+
+cLSiIdrDeviceId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the unique identification
+        number of  the interfering device."
+    ::= { cLSiIdrEntry 1 }
+
+cLSiIdrClusterId OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the cluster id.
+        
+        The interference causing device can be detected 
+        by several CleanAir APs listening on the same channel. 
+        The WLC on receiving the records, merges the records 
+        to avoid multiple listing for the same interfering device. 
+        The WLC clusters records to create one record, with 
+        the AP most affected by the interferer as the 
+        cluster center."
+    ::= { cLSiIdrEntry 2 }
+
+cLSiIdrTimeStamp OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time when the
+        interferer was reported to the controller by
+        access point.
+        
+        This represents number of seconds elapsed since 00:00:00
+        on January 1, 1970, Coordinated Universal Time (UTC).  So
+        a value of '1131362704' means 'Mon Nov  7 16:55:04 2005'."
+    ::= { cLSiIdrEntry 3 }
+
+cLSiIdrDeviceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        bluetoothLink(1),
+        microwaveOven(8),
+        eightZeroTwoDot11Fh(10),
+        bluetoothDiscovery(17),
+        tddTransmitter(18),
+        jammer(19),
+        continuousTransmitter(25),
+        dectLikePhone(26),
+        videoCamera(27),
+        eightZeroTwoDot15dot4(28),
+        wifiInverted(30),
+        wifiInvalidChannel(31),
+        superAg(32),
+        radar(33),
+        canopy(34),
+        microsoftDevice(35),
+        wiMaxMobile(36),
+        wiMaxFixed(37)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the device type
+        and category of interfering device."
+    ::= { cLSiIdrEntry 4 }
+
+cLSiIdrSeverity OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the severity of
+        the interference created by interfering device."
+    ::= { cLSiIdrEntry 5 }
+
+cLSiIdrDetectingApMac OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the mac address of the AP
+        which detected the interfering device."
+    ::= { cLSiIdrEntry 6 }
+
+cLSiIdrDutyCycle OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the duty cycle of the
+        interfering device."
+    ::= { cLSiIdrEntry 7 }
+
+cLSiIdrAntennaId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the antenna information
+        which has detected the interfering device."
+    ::= { cLSiIdrEntry 8 }
+
+cLSiIdrRssi OBJECT-TYPE
+    SYNTAX INTEGER(-90..-60)
+--  Units
+--    dbm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the RSSI value
+        for transmit channel power."
+    ::= { cLSiIdrEntry 9 }
+
+cLSiIdrRadioBandId OBJECT-TYPE
+    SYNTAX CLDot11Band
+--    Rsyntax INTEGER {
+--        band2dot4(1),
+--        band5(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the 802.11 band this entry
+        corresponds to."
+    ::= { cLSiIdrEntry 10 }
+
+cLSiIdrAffectedChannels OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the channels affected by
+        the interfering devices."
+    ::= { cLSiIdrEntry 11 }
+
+cLSiIdrDeviceSignatureLen OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the length of the
+        Device Signature Id of the interfering device."
+    ::= { cLSiIdrEntry 12 }
+
+cLSiIdrDeviceSignature OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the Device Signature Id of
+        the interfering device."
+    DEFVAL { "" }
+    ::= { cLSiIdrEntry 13 }
+
+cLSiIdrClusterTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiIdrClusterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        IDR parameters corresponding to clusters within
+        dot11 radio interfaces.
+        
+        Interferers can be detected by several 
+        CleanAir APs listening on the same channel. 
+        So WLC attempts to merge together interferer 
+        records to avoid multiple listings for the same interferer. 
+        The WLC tries to cluster records it thinks are for the 
+        same interferer into one object, with the AP most 
+        affected by the interferer as the cluster center."
+    ::= { ciscoLwappInterference 2 }
+
+cLSiIdrClusterEntry OBJECT-TYPE
+    SYNTAX CLSiIdrClusterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table represents the 802.11
+        IDR parameters corresponding to a cluster within
+        dot11 radio interface."
+    INDEX { cLSiIdrClusterRadioBandId, cLSiIdrClusterClusterId, cLSiIdrClusterDeviceIndex }
+    ::= { cLSiIdrClusterTable 1 }
+
+CLSiIdrClusterEntry ::= SEQUENCE {
+    cLSiIdrClusterRadioBandId CLDot11Band,
+    cLSiIdrClusterClusterId MacAddress,
+    cLSiIdrClusterDeviceIndex Gauge,
+    cLSiIdrClusterDeviceId Gauge,
+    cLSiIdrClusterTimeStamp Gauge,
+    cLSiIdrClusterDeviceType INTEGER,
+    cLSiIdrClusterSeverity Gauge,
+    cLSiIdrClusterDetectingApMac MacAddress,
+    cLSiIdrClusterDutyCycle Gauge,
+    cLSiIdrClusterAntennaId Gauge,
+    cLSiIdrClusterRssi INTEGER,
+    cLSiIdrClusterAffectedChannels Gauge,
+    cLSiIdrClusterDeviceSignatureLen Gauge,
+    cLSiIdrClusterDeviceSignature OCTET STRING,
+    cLSiIdrClusterCenterIndex Gauge,
+    cLSiIdrClusterType INTEGER
+    }
+
+cLSiIdrClusterRadioBandId OBJECT-TYPE
+    SYNTAX CLDot11Band
+--    Rsyntax INTEGER {
+--        band2dot4(1),
+--        band5(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the 802.11 band this entry
+        corresponds to."
+    ::= { cLSiIdrClusterEntry 1 }
+
+cLSiIdrClusterClusterId OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the MAC address of the
+        interfering device for which the cluster is created."
+    ::= { cLSiIdrClusterEntry 2 }
+
+cLSiIdrClusterDeviceIndex OBJECT-TYPE
+    SYNTAX Gauge(1..10)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the device
+        index inside the Cluster."
+    ::= { cLSiIdrClusterEntry 3 }
+
+cLSiIdrClusterDeviceId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the device which
+        uniquely identifies an entry in this table."
+    ::= { cLSiIdrClusterEntry 4 }
+
+cLSiIdrClusterTimeStamp OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time when the
+        interferer registered with the controller.
+        
+        This represents number of seconds elapsed since 00:00:00
+        on January 1, 1970, Coordinated Universal Time (UTC).  So
+        a value of '1131362704' means 'Mon Nov  7 16:55:04 2005'."
+    ::= { cLSiIdrClusterEntry 5 }
+
+cLSiIdrClusterDeviceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        bluetoothLink(1),
+        microwaveOven(8),
+        eightZeroTwoDot11Fh(10),
+        bluetoothDiscovery(17),
+        tddTransmitter(18),
+        jammer(19),
+        continuousTransmitter(25),
+        dectLikePhone(26),
+        videoCamera(27),
+        eightZeroTwoDot15dot4(28),
+        wifiInverted(30),
+        wifiInvalidChannel(31),
+        superAg(32),
+        radar(33),
+        canopy(34),
+        microsoftDevice(35),
+        wiMaxMobile(36),
+        wiMaxFixed(37),
+        wifiAci(38),
+        unclassified(39),
+        unknown(40)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the device type
+        and category."
+    ::= { cLSiIdrClusterEntry 6 }
+
+cLSiIdrClusterSeverity OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the severity."
+    ::= { cLSiIdrClusterEntry 7 }
+
+cLSiIdrClusterDetectingApMac OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the mac address of
+        the AP which detected the interfering device."
+    ::= { cLSiIdrClusterEntry 8 }
+
+cLSiIdrClusterDutyCycle OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the duty cycle."
+    ::= { cLSiIdrClusterEntry 9 }
+
+cLSiIdrClusterAntennaId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the antenna information
+        for the cluster."
+    ::= { cLSiIdrClusterEntry 10 }
+
+cLSiIdrClusterRssi OBJECT-TYPE
+    SYNTAX INTEGER(-90..-60)
+--  Units
+--    dbm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the RSSI value
+        for transmit channel power."
+    ::= { cLSiIdrClusterEntry 11 }
+
+cLSiIdrClusterAffectedChannels OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the affected channels."
+    ::= { cLSiIdrClusterEntry 12 }
+
+cLSiIdrClusterDeviceSignatureLen OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the length of Device Signature."
+    ::= { cLSiIdrClusterEntry 13 }
+
+cLSiIdrClusterDeviceSignature OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the Device Signature Id."
+    DEFVAL { "" }
+    ::= { cLSiIdrClusterEntry 14 }
+
+cLSiIdrClusterCenterIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the cluster center index.
+        With respect to clustering in CleanAir, the cluster
+        center is the access point which is most affected by
+        the interferer."
+    ::= { cLSiIdrClusterEntry 15 }
+
+cLSiIdrClusterType OBJECT-TYPE
+    SYNTAX INTEGER {
+        bluetoothLink(1),
+        microwaveOven(8),
+        eightZeroTwoDot11Fh(10),
+        bluetoothDiscovery(17),
+        tddTransmitter(18),
+        jammer(19),
+        continuousTransmitter(25),
+        dectLikePhone(26),
+        videoCamera(27),
+        eightZeroTwoDot15dot4(28),
+        wifiInverted(30),
+        wifiInvalidChannel(31),
+        superAg(32),
+        radar(33),
+        canopy(34),
+        microsoftDevice(35),
+        wiMaxMobile(36),
+        wiMaxFixed(37),
+        wifiAci(38),
+        unclassified(39),
+        unknown(40)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the cluster type."
+    ::= { cLSiIdrClusterEntry 16 }
+
+cLSiDot11BandEventDrivenRrmTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiDot11BandEventDrivenRrmEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        event driven RRM corresponding to the dot11 band
+        of the APs that have joined
+        the controller."
+    ::= { ciscoLwappSiDot11Band 2 }
+
+cLSiDot11BandEventDrivenRrmEntry OBJECT-TYPE
+    SYNTAX CLSiDot11BandEventDrivenRrmEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table represents the
+        event driven RRM on a dot 11 band of an
+        AP that has joined the controller."
+    INDEX { cLSiD11Band }
+    ::= { cLSiDot11BandEventDrivenRrmTable 1 }
+
+CLSiDot11BandEventDrivenRrmEntry ::= SEQUENCE {
+    cLSiD11EventDrivenRrmEnable TruthValue,
+    cLSiD11EventDrivenRrmThresLvl INTEGER,
+    cLSiD11EventDrivenRrmCustomThresVal Gauge
+    }
+
+cLSiD11EventDrivenRrmEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether event driven RRM
+        is enabled on this band. A value of 'true' indicates
+        event driven RRM is enabled. A value of 'false' 
+        indicates event driven RRM is disabled."
+    DEFVAL { true }
+    ::= { cLSiDot11BandEventDrivenRrmEntry 1 }
+
+cLSiD11EventDrivenRrmThresLvl OBJECT-TYPE
+    SYNTAX INTEGER {
+        low(1),
+        medium(2),
+        high(3),
+        custom(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the event driven RRM threshold level.
+        
+        'low' - low level event driven RRM threshold value
+        'medium' - medium level event driven RRM threshold value
+        'high' - high level event driven RRM threshold value
+        'custom' - user specified value of even driven RRM threshold"
+    ::= { cLSiDot11BandEventDrivenRrmEntry 2 }
+
+cLSiD11EventDrivenRrmCustomThresVal OBJECT-TYPE
+    SYNTAX Gauge(0..99)
+--  Units
+--    percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the event driven RRM Custom
+        threshold value. This object only takes effect when 
+        the value of cLSiD11EventDrivenRrmThresLvl is 'custom'."
+    ::= { cLSiDot11BandEventDrivenRrmEntry 3 }
+
+cLSiPersistentDeviceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiPersistentDeviceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        Persistent interference devices corresponding to
+        the dot11 interface of the APs that have joined
+        the controller for a given device.
+        
+        Persistent devices are category of interference devices 
+        that are present right now and will interfere with controller 
+        operation, even if they are not detectable all the time."
+    ::= { ciscoLwappInterference 3 }
+
+cLSiPersistentDeviceEntry OBJECT-TYPE
+    SYNTAX CLSiPersistentDeviceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table represents the 802.11
+        persistent interference devices of a radio
+        of an AP that has joined the controller."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId, cLSiPersistentDeviceId }
+    ::= { cLSiPersistentDeviceTable 1 }
+
+CLSiPersistentDeviceEntry ::= SEQUENCE {
+    cLSiPersistentDeviceId Gauge,
+    cLSiPersistentDeviceType OCTET STRING,
+    cLSiPersistentTimeStamp Gauge
+    }
+
+cLSiPersistentDeviceId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the device ID
+        ."
+    ::= { cLSiPersistentDeviceEntry 1 }
+
+cLSiPersistentDeviceType OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the device type
+        and category"
+    ::= { cLSiPersistentDeviceEntry 2 }
+
+cLSiPersistentTimeStamp OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the Time Stamp when
+        this persistent device was last updated in
+        controller."
+    ::= { cLSiPersistentDeviceEntry 3 }
+
+cLSiPersistentDeviceChanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLSiPersistentDeviceChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the detail like Channel number, Duty
+        Cycle(DC), RSSI of channels affected due to 
+        interference caused by persistence device."
+    ::= { ciscoLwappInterference 4 }
+
+cLSiPersistentDeviceChanEntry OBJECT-TYPE
+    SYNTAX CLSiPersistentDeviceChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table represents the 802.11
+        persistent device affecting which channel(s)
+        and with how much DC level and RSSI."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId, cLSiPersistentDeviceId, cLSiPersistentDeviceChanIndex }
+    ::= { cLSiPersistentDeviceChanTable 1 }
+
+CLSiPersistentDeviceChanEntry ::= SEQUENCE {
+    cLSiPersistentDeviceChanIndex Gauge,
+    cLSiChannelAffected Gauge,
+    cLSiChannelUtil Gauge,
+    cLSiChannelRSSI INTEGER
+    }
+
+cLSiPersistentDeviceChanIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the index to the
+        channel affected by the persistent device."
+    ::= { cLSiPersistentDeviceChanEntry 1 }
+
+cLSiChannelAffected OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the channel affected
+        by the persistent device"
+    ::= { cLSiPersistentDeviceChanEntry 2 }
+
+cLSiChannelUtil OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the DC level in
+        a channel."
+    ::= { cLSiPersistentDeviceChanEntry 3 }
+
+cLSiChannelRSSI OBJECT-TYPE
+    SYNTAX INTEGER(-127..128)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the RSSI in
+        a channel."
+    ::= { cLSiPersistentDeviceChanEntry 4 }
+
+cLSiAlarmClear OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether this event is
+        raise or clear.
+        A value of 'true' indicates this event is cleared
+        A value of 'false' indicates this even is raised."
+    ::= { ciscoLwappSiMIBNotifObjects 1 }
+
+cLSiIdrPreviousClusterId OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the previous cluster id."
+    ::= { ciscoLwappSiMIBNotifObjects 2 }
+
+cLSiApAqLimit OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents limit on number of Monitor Mode APs
+        supported for Air Quality monitoring."
+    ::= { ciscoLwappSiMIBNotifObjects 3 }
+
+cLSiD11IdrUnclassifiedCurrentSevIndex OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+--  Units
+--    percent
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current severity
+        index for unclassified category of interference devices.
+        If the severity value goes above threshold indicated by
+        cLSiD11IdrUnclassifiedTrapThreshold, a notification
+        would be generated."
+    ::= { ciscoLwappSiMIBNotifObjects 4 }
+
+ciscoLwappSiAqLow TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLApSysMacAddress, cLApDot11IfSlotId, cLSiAqChannelNumber, 
+        cLSiAqIndex, cLSiD11AqiTrapThreshold, cLSiAlarmClear }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification  is generated when the air quality
+        index of an AP falls below a specified threshold value 
+        indicated by cLSiD11AqiTrapThreshold.
+        ciscoLwappSiAqLow object is superseded by ciscoLwappSiAqLowRev1."
+    ::= 1
+
+ciscoLwappSiIdrDevice TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLApSysMacAddress, cLApDot11IfSlotId, cLSiIdrDeviceId, 
+        cLSiIdrDeviceType, cLSiIdrAffectedChannels, cLSiIdrSeverity, 
+        cLSiIdrClusterId, cLSiAlarmClear, cLApName, 
+        cLSiIdrPreviousClusterId }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification is generated when a device has
+        been identified as a interferer. This notification 
+        can be configured per interference device category.
+        ciscoLwappSiIdrDevice object is superseded by ciscoLwappSiIdrDeviceRev1."
+    ::= 2
+
+ciscoLwappSiSensorCrash TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLApSysMacAddress, cLApName, cLApDot11IfSlotId, 
+        cLSiApIfSensordOperationalStatus, cLSiApIfSensordErrorCode }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification is generated when a crash is
+        observed in the SensorD functionality of a radio 
+        on an AP.
+        ciscoLwappSiSensorCrash object is superseded by ciscoLwappSiSensorCrashRev1."
+    ::= 3
+
+ciscoLwappSiAqBufferUnavailable TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLApSysMacAddress, cLApDot11IfSlotId, cLSiApAqLimit, 
+        cLSiAlarmClear }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification is generated when the controller detects
+        that the Air Quality Buffer is unavailable.
+        ciscoLwappSiAqBufferUnavailable object is superseded by ciscoLwappSiAqBufferUnavailableRev1."
+    ::= 4
+
+ciscoLwappSiAqLowSeverityHigh TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLApSysMacAddress, cLApDot11IfSlotId, cLSiAqChannelNumber, 
+        cLSiAqIndex, cLSiD11AqiTrapThreshold, 
+        cLSiD11IdrUnclassifiedTrapThreshold, 
+        cLSiD11IdrUnclassifiedCurrentSevIndex, cLSiAlarmClear }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification  is generated when the air quality index
+        of an APfalls below a specified threshold value indicated by
+        cLSiD11AqiTrapThreshold or severity value goes above the 
+        threshold indicated by cLSiD11IdrUnclassifiedCurrentSevIndex.
+        
+        cLApSysMacAddress       - MAC address of the access point.
+        cLApDot11IfSlotId       - radio interface slot.
+        cLSiAqChannelNumber     - channel number.
+        cLSiAqIndex             -  air quality index.
+        cLSiD11AqiTrapThreshold - threshol value of air quality
+                               considered for generation of trap.
+        cLSiD11IdrUnclassifiedTrapThreshold - severity threshold
+                            for unclassified interference category.
+        cLSiAlarmClear          - a truth value showing if event 
+                                           was raised or cleared.
+        ciscoLwappSiAqLowSeverityHigh object is superseded by ciscoLwappSiAqLowSeverityHighRev1."
+    ::= 5
+
+ciscoLwappSiAqLowRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLSiAqIndex, cLSiD11AqiTrapThreshold, cLSiAlarmClear }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the air quality
+        index of an AP falls below a specified threshold value 
+        indicated by cLSiD11AqiTrapThreshold."
+    ::= 6
+
+ciscoLwappSiIdrDeviceRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLSiIdrDeviceType, cLSiIdrAffectedChannels, cLSiIdrSeverity, 
+        cLSiIdrClusterId, cLSiAlarmClear, cLApName, 
+        cLSiIdrPreviousClusterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a device has
+        been identified as a interferer. This notification 
+        can be configured per interference device category."
+    ::= 7
+
+ciscoLwappSiSensorCrashRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLApName, cLSiApIfSensordOperationalStatus, 
+        cLSiApIfSensordErrorCode }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a crash is
+        observed in the SensorD functionality of a radio 
+        on an AP."
+    ::= 8
+
+ciscoLwappSiAqBufferUnavailableRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLSiApAqLimit, cLSiAlarmClear }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the controller detects
+        that the Air Quality Buffer is unavailable."
+    ::= 9
+
+ciscoLwappSiAqLowSeverityHighRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappSiMIB
+    VARIABLES {
+        cLSiAqIndex, cLSiD11AqiTrapThreshold, 
+        cLSiD11IdrUnclassifiedTrapThreshold, 
+        cLSiD11IdrUnclassifiedCurrentSevIndex, cLSiAlarmClear }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the air quality index
+        of an AP falls below a specified threshold value indicated by
+        cLSiD11AqiTrapThreshold or severity value goes above the 
+        threshold indicated by cLSiD11IdrUnclassifiedCurrentSevIndex.
+        
+        cLApSysMacAddress       - MAC address of the access point.
+        cLApDot11IfSlotId       - radio interface slot.
+        cLSiAqChannelNumber     - channel number.
+        cLSiAqIndex             -  air quality index.
+        cLSiD11AqiTrapThreshold - threshold value of air quality
+                               considered for generation of trap.
+        cLSiD11IdrUnclassifiedTrapThreshold - severity threshold
+                            for unclassified interference category.
+        cLSiAlarmClear          - a truth value showing if event 
+                                           was raised or cleared."
+    ::= 10
+
+cLSiApIfConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    configuration related information about the Spectrum 
+--    Intelligence(SI) functionality of the dot11 interface 
+--    of an AP that has joined the controller.
+--  objects
+--    cLSiApIfSpectrumIntelligenceEnable, cLSiApIfRapidUpdateEnable, 
+--    cLSiApIfDetailSpectrumModeEnable
+
+cLSiApIfStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    status related information about the Spectrum 
+--    Intelligence(SI) functionality of the dot11 interface 
+--    of an AP that has joined the controller.
+--  objects
+--    cLSiApIfSpectrumCapable, cLSiApIfSensordOperationalStatus, 
+--    cLSiApIfNumOfSeActiveConnection, cLSiApIfSensordErrorCode
+
+cLSiD11ConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    configuration related information about the Air Quality
+--    (AQ) of the dot11 interface of a controller.
+--  objects
+--    cLSiD11SpectrumIntelligenceEnable, 
+--    cLSiD11InterferenceDeviceList, cLSiD11PollingInterval, 
+--    cLSiD11IdrReportingEnable, cLSiD11AqiTrapEnable, 
+--    cLSiD11AqiTrapThreshold, cLSiD11IdrTrapEnable, 
+--    cLSiD11IdrTrapDeviceList
+
+cLSiAqChannelStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    status related information about the Air Quality
+--    (AQ) of a channel on a  dot11 interface 
+--    of an AP that has joined the controller.
+--  objects
+--    cLSiAqMinIndex, cLSiAqIndex, cLSiAqTotalChannelPower, 
+--    cLSiAqTotalChannelDutyCycle, cLSiAqInterferencePower, 
+--    cLSiAqInterferenceDutyCycle, cLSiAqInterferenceDeviceCount, 
+--    cLSiAqInterfererClassReportCount, cLSiAqTimeStamp
+
+cLSiAqInterferenceClassReportStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    status related information about the Air Quality
+--    (AQ) interference category on a channel for a  
+--    dot11 interface of an AP that has joined the 
+--    controller.
+--  objects
+--    cLSiAqInterferenceClassReportDeviceClass, 
+--    cLSiAqInterferenceClassReportSeverityIndex, 
+--    cLSiAqInterferenceClassReportPower, 
+--    cLSiAqInterferenceClassReportDutyCycle, 
+--    cLSiAqInterferenceClassReportDeviceCount
+
+cLSiIdrStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    status related information about Interference Device 
+--    Reports(IDR) corresponding to the dot11 interfaces 
+--    of the APs that have joined the controller for a given device.
+--  objects
+--    cLSiIdrClusterId, cLSiIdrTimeStamp, cLSiIdrDeviceType, 
+--    cLSiIdrSeverity, cLSiIdrDetectingApMac, cLSiIdrDutyCycle, 
+--    cLSiIdrAntennaId, cLSiIdrRssi, cLSiIdrRadioBandId, 
+--    cLSiIdrAffectedChannels, cLSiIdrDeviceSignatureLen, 
+--    cLSiIdrDeviceSignature
+
+cLSiIdrClusterStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    status related information about Interference Device 
+--    Reports(IDR) per  cluster on the dot11 interfaces 
+--    for the controller for a given device.
+--  objects
+--    cLSiIdrClusterRadioBandId, cLSiIdrClusterClusterId, 
+--    cLSiIdrClusterDeviceId, cLSiIdrClusterTimeStamp, 
+--    cLSiIdrClusterDeviceType, cLSiIdrClusterSeverity, 
+--    cLSiIdrClusterDetectingApMac, cLSiIdrClusterDutyCycle, 
+--    cLSiIdrClusterAntennaId, cLSiIdrClusterRssi, 
+--    cLSiIdrClusterAffectedChannels, 
+--    cLSiIdrClusterDeviceSignatureLen, 
+--    cLSiIdrClusterDeviceSignature, cLSiIdrClusterCenterIndex, 
+--    cLSiIdrClusterType
+
+cLSiD11EventDrivenRrmConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    configuration related information about event driven RRM 
+--    (Radio Resource Management) corresponding to the dot11
+--    band of a controller.
+--  objects
+--    cLSiD11EventDrivenRrmEnable, cLSiD11EventDrivenRrmThresLvl
+
+cLSiPersistentDeviceStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    status related information about persistent interference 
+--    devices of a radio of an AP that has joined the controller.
+--  objects
+--    cLSiPersistentDeviceType, cLSiPersistentTimeStamp
+
+cLSiPersistentDeviceChanStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the general
+--    status related information about persistent interference 
+--    devices per channel on a radio of an AP that has 
+--    joined the controller.
+--  objects
+--    cLSiChannelAffected, cLSiChannelUtil, cLSiChannelRSSI
+
+cLSiD11ConfigSup1Group OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the additional general
+--    configuration related information about the Air Quality
+--    (AQ) of the dot11 interface of a controller.
+--  objects
+--    cLSiD11IdrPersistentDevicePropagation, 
+--    cLSiD11IdrUnclassifiedTrapEnable, 
+--    cLSiD11IdrUnclassifiedTrapThreshold
+
+cLSiD11EventDrivenRrmConfigSup1Group OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects specifies the general
+--    configuration related additional information about event 
+--    driven RRM (Radio Resource Management) corresponding 
+--    to the dot11 band of a controller.
+--  objects
+--    cLSiD11EventDrivenRrmCustomThresVal
+
+ciscoLwappSiMIBNotifVariableGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    notification related parameter within this MIB file.
+--  objects
+--    cLSiAlarmClear, cLSiIdrPreviousClusterId, cLSiApAqLimit, 
+--    cLSiD11IdrUnclassifiedCurrentSevIndex
+
+ciscoLwappSiMIBNotifGroup OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 13 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This collection of objects represents the notifications
+--    defined within this MIB file.
+--    ciscoLwappSiMIBNotifGroup object is superseded by ciscoLwappSiMIBNotifGroupRev1.
+--  notifications
+--    ciscoLwappSiAqLow, ciscoLwappSiIdrDevice, 
+--    ciscoLwappSiSensorCrash, ciscoLwappSiAqBufferUnavailable, 
+--    ciscoLwappSiAqLowSeverityHigh
+
+ciscoLwappSiMIBNotifGroupRev1 OBJECT IDENTIFIER ::= { ciscoLwappSiMIBGroups 15 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the notifications
+--    defined within this MIB file.
+--  notifications
+--    ciscoLwappSiAqLowRev1, ciscoLwappSiIdrDeviceRev1, 
+--    ciscoLwappSiSensorCrashRev1, 
+--    ciscoLwappSiAqBufferUnavailableRev1, 
+--    ciscoLwappSiAqLowSeverityHighRev1
+
+ciscoLwappApSiMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappSiMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappSiMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cLSiApIfConfigGroup
+--   MandGroup
+--    cLSiApIfStatusGroup
+--   MandGroup
+--    cLSiD11ConfigGroup
+--   MandGroup
+--    cLSiAqChannelStatusGroup
+--   MandGroup
+--    cLSiAqInterferenceClassReportStatusGroup
+--   MandGroup
+--    cLSiIdrStatusGroup
+--   MandGroup
+--    cLSiIdrClusterStatusGroup
+--   MandGroup
+--    cLSiD11EventDrivenRrmConfigGroup
+--   MandGroup
+--    cLSiPersistentDeviceStatusGroup
+--   MandGroup
+--    cLSiPersistentDeviceChanStatusGroup
+
+ciscoLwappApSiMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoLwappSiMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappSiMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cLSiApIfConfigGroup
+--   MandGroup
+--    cLSiApIfStatusGroup
+--   MandGroup
+--    cLSiD11ConfigGroup
+--   MandGroup
+--    cLSiD11ConfigSup1Group
+--   MandGroup
+--    cLSiAqChannelStatusGroup
+--   MandGroup
+--    cLSiAqInterferenceClassReportStatusGroup
+--   MandGroup
+--    cLSiIdrStatusGroup
+--   MandGroup
+--    cLSiIdrClusterStatusGroup
+--   MandGroup
+--    cLSiD11EventDrivenRrmConfigGroup
+--   MandGroup
+--    cLSiD11EventDrivenRrmConfigSup1Group
+--   MandGroup
+--    cLSiPersistentDeviceStatusGroup
+--   MandGroup
+--    cLSiPersistentDeviceChanStatusGroup
+--   MandGroup
+--    ciscoLwappSiMIBNotifGroup
+--   MandGroup
+--    ciscoLwappSiMIBNotifVariableGroup
+
+ciscoLwappApSiMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoLwappSiMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappSiMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cLSiApIfConfigGroup
+--   MandGroup
+--    cLSiApIfStatusGroup
+--   MandGroup
+--    cLSiD11ConfigGroup
+--   MandGroup
+--    cLSiD11ConfigSup1Group
+--   MandGroup
+--    cLSiAqChannelStatusGroup
+--   MandGroup
+--    cLSiAqInterferenceClassReportStatusGroup
+--   MandGroup
+--    cLSiIdrStatusGroup
+--   MandGroup
+--    cLSiIdrClusterStatusGroup
+--   MandGroup
+--    cLSiD11EventDrivenRrmConfigGroup
+--   MandGroup
+--    cLSiD11EventDrivenRrmConfigSup1Group
+--   MandGroup
+--    cLSiPersistentDeviceStatusGroup
+--   MandGroup
+--    cLSiPersistentDeviceChanStatusGroup
+--   MandGroup
+--    ciscoLwappSiMIBNotifVariableGroup
+--   MandGroup
+--    ciscoLwappSiMIBNotifGroupRev1
+
+
+END
+

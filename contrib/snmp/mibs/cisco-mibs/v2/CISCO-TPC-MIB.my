@@ -1,0 +1,407 @@
+-- ******************************************************************
+-- CISCO-TPC-MIB.my: Third Party Copy : XCOPY Engine
+--
+-- August 2004, Rahul Chari, Srini Kode               
+--
+-- Copyright (c) 2002, 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- ******************************************************************
+CISCO-TPC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Unsigned32,
+        Counter32,
+        Gauge32                             FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP                        FROM SNMPv2-CONF
+        RowStatus, 
+        TEXTUAL-CONVENTION                  FROM SNMPv2-TC
+        FcNameIdOrZero                      FROM CISCO-ST-TC
+        vsanIndex                           FROM CISCO-VSAN-MIB
+        ciscoMgmt                           FROM CISCO-SMI
+        PhysicalIndex                       FROM ENTITY-MIB;
+        
+                         
+ciscoTpcMIB MODULE-IDENTITY
+        LAST-UPDATED        "200501240000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "        Cisco Systems
+                         Customer Service 
+                         
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                   Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "The MIB module for Third Party Copy(TPC):
+                 Third Party Copy derives its name from the fact
+                 that there are three entities involved in the 
+                 process of copying data either for backup operations
+                 or restore operations. The three entities:
+                 - entity originating the copy commands
+                 - data source for the copy
+                 - data destination for the copy. 
+                 
+                 The entity originating the copy commands to perform
+                 the data transfer can use the SCSI Extended Copy 
+                 (XCOPY).
+                 
+                 The TPC feature exposes a disk target with
+                 Logical Unit Number(LUN) 0 that is capable of 
+                 processing the SCSI Extended Copy Command (XCOPY) 
+                 to transfer data from a specified source to a 
+                 specified destination. On receiving the XCOPY 
+                 command, the TPC target performs the actual data 
+                 transfer from the data source to the data 
+                 destination on behalf of the entity issuing the 
+                 XCOPY command.
+                 
+                 The MIB provides an interface to configure the
+                 TPC targets. The user specifies the module and
+                 the VSAN on which the TPC feature needs to be 
+                 configured. Once the feature has been configured
+                 target ports are created on the specified module
+                 and VSAN that are XCOPY capable. Any application
+                 that can source a XCOPY command can use these 
+                 targets to perform data movement.
+                 
+                 Acronyms
+                 The following acronyms are used in this document: 
+                 
+                 XCOPY: 
+                    SCSI Extended Copy Command.
+                      
+                 TPC:
+                    Third Party Copy.
+                 
+                 LUN:
+                    Logical Unit Number. 
+                    
+                 VSAN: 
+                    Virtual Storage Area Network. "
+                  
+        REVISION       "200501240000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 460 }
+
+ciscoTpcNotification       OBJECT IDENTIFIER
+                               ::= { ciscoTpcMIB 0 }
+ciscoTpcObjects            OBJECT IDENTIFIER 
+                               ::= { ciscoTpcMIB 1 }
+ciscoTpcMIBConformance     OBJECT IDENTIFIER 
+                               ::= { ciscoTpcMIB 2 }
+
+ciscoTpcConfig             OBJECT IDENTIFIER 
+                               ::= { ciscoTpcObjects 1 }
+
+-- Textual Conventions
+
+TpcTargetState  ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "Represents the state of the TPC target. 
+                
+                 'active'        - indicates that the TPC target is
+                                   ready to process XCOPY requests.
+                                   
+                 'initializing'  - indicates that the TPC target is
+                                   not ready.    
+                                   
+                 'error'         - indicates that the TPC target was
+                                   brought down due to error 
+                                   conditions. "
+        SYNTAX   INTEGER {
+                           active(1),
+                           initializing(2),
+                           error(3)
+                         }
+                         
+--               
+-- Third Party Copy Module Table
+--
+
+ctpcModuleTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CtpcModuleEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "A table listing the modules on which TPC functionality 
+                can be configured by the user. Each such module is
+                identified by ctpcModuleId. 
+                
+                The agent creates an entry in this table on 
+                detecting a module that can support TPC 
+                functionality. Similarly, it will remove the entry
+                when the TPC functionality cannot be supported on
+                this module any longer. 
+                
+                The entry in the ctpcVsanTable can only be created 
+                on a module present in this table."
+        ::= { ciscoTpcConfig 1 }
+
+ctpcModuleEntry  OBJECT-TYPE
+        SYNTAX     CtpcModuleEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "A conceptual row in the ctpcModuleTable. Each row
+               represents a TPC capable module."
+        INDEX { ctpcModuleId }
+        ::= { ctpcModuleTable 1 }
+
+CtpcModuleEntry ::= SEQUENCE {
+        ctpcModuleId	PhysicalIndex
+}
+        
+ctpcModuleId OBJECT-TYPE
+        SYNTAX     PhysicalIndex
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "This object specifies the physical index of the 
+                module on which TPC can be configured by the user.
+                This is same as the entPhysicalIndex of the module."
+        ::= { ctpcModuleEntry 1 }
+
+--               
+-- Third Party Copy Vsan Table
+--
+
+ctpcVsanTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CtpcVsanEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "A table listing all the VSANs for which TPC 
+                functionality has been configured by the user. The
+                user configures TPC functionality on a per VSAN basis
+                by specifying the module, identified by ctpcModuleId,
+                on which to configure TPC and the VSAN number.
+                
+                An entry can be created in this table only if an
+                entry exists in ctpcModuleTable for this module.
+                If a management application attempts to create
+                a row in this table corresponding to a module that 
+                does not exist in ctpcModuleTable table then the 
+                agent would respond with an error-status set to
+                 'inconsistentValue'.
+                                 
+                Once an entry is created, even if this module no 
+                longer exists in the ctpcModuleTable, still 
+                this entry is not deleted. The entry can only be 
+                deleted by setting ctpcVsanRowStatus to 'delete'."
+        ::= { ciscoTpcConfig 2 }
+
+ctpcVsanEntry  OBJECT-TYPE
+        SYNTAX     CtpcVsanEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "An entry in the TPC VSAN table for each configured
+                VSAN on this module."
+        INDEX { ctpcModuleId, vsanIndex }
+        ::= { ctpcVsanTable 1 }
+
+CtpcVsanEntry ::= SEQUENCE {
+        ctpcVsanRowStatus     RowStatus
+}
+        
+ctpcVsanRowStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+               "This object controls and reflects the status of rows
+                in this table.  When the agent successfully creates
+                the entry, this object is set to 'active' by the 
+                agent.
+                
+                Deleting an entry from this table, unconfigures the
+                TPC functionality on the module specified by the 
+                corresponding instance index 'ctpcModuleId' 
+                on the VSAN represented by the corresponding 
+                instance index 'vsanIndex'
+                
+                To delete an entry, set this object value to 
+                'destroy'."
+        ::= { ctpcVsanEntry 1 }
+
+
+--               
+-- Third Party Copy Target Table
+--
+
+ctpcTargetTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CtpcTargetEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "A list of all the TPC targets that are configured 
+                on this module and on this VSAN. There can be more
+                than one TPC target in the same VSAN on a module.
+                The number of TPC targets is implementation specific.
+                Each TPC target has a unique node world-wide-name, 
+                identified by ctpcTargetNodeName and a unique port
+                world-wide-name, identified by ctpcTargetPortName. 
+                Each TPC target exposes a single LUN (LUN 0) that is
+                XCOPY capable and is only concerned with moving data
+                in its own VSAN.
+                
+                Once an entry is created in ctpcVsanTable, one or 
+                more entries are created in this table by agent.
+                Similarly the entries in this table are deleted
+                when the entry with the same ctpcModuleId and 
+                vsanIndex is deleted from the ctpcVsanTable."
+        ::= { ciscoTpcConfig 3 }
+
+ctpcTargetEntry  OBJECT-TYPE
+        SYNTAX     CtpcTargetEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "An entry in the TPC target table for each TPC target
+                in this VSAN on this module."
+        INDEX { ctpcModuleId, vsanIndex, ctpcTargetIndex }
+        ::= { ctpcTargetTable 1 }
+
+CtpcTargetEntry ::= SEQUENCE {
+        ctpcTargetIndex         Unsigned32,
+        ctpcTargetNodeName      FcNameIdOrZero,
+        ctpcTargetPortName      FcNameIdOrZero,
+        ctpcTargetState         TpcTargetState,
+        ctpcTargetNumXcopies     Counter32,
+        ctpcTargetMinXcopy      Gauge32,
+        ctpcTargetMaxXcopy      Gauge32,
+        ctpcTargetAvgKbPerSec   Gauge32
+}
+
+ctpcTargetIndex OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "The unique id number associated with the TPC target. 
+                This id number is unique within the vsan in which 
+                the TPC target is configured."
+        ::= { ctpcTargetEntry 1 }
+
+ctpcTargetNodeName OBJECT-TYPE
+        SYNTAX     FcNameIdOrZero
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "The TPC target's node world-wide-name."
+        ::= { ctpcTargetEntry 2 }
+
+ctpcTargetPortName OBJECT-TYPE
+        SYNTAX     FcNameIdOrZero
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "The TPC target's port world-wide-name."
+        ::= { ctpcTargetEntry 3 }
+
+ctpcTargetState OBJECT-TYPE
+        SYNTAX     TpcTargetState
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "The current state of the TPC target"
+        ::= { ctpcTargetEntry 4 }
+
+ctpcTargetNumXcopies OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "commands"
+        MAX-ACCESS read-only
+        STATUS     current        
+        DESCRIPTION
+               "The total number of XCOPY commands processed by the 
+                TPC target since the module on which this target has
+                been configured has been online"
+        ::= { ctpcTargetEntry 5 }
+
+ctpcTargetMinXcopy OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "Kilobytes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "The smallest amount of data in Kilobytes transferred 
+                by the TPC target in a single xcopy command since the 
+                module on which this target has been configured has
+                been online."
+        ::= { ctpcTargetEntry 6 }
+
+ctpcTargetMaxXcopy OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "Kilobytes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "The largest amount of data in Kilobytes transferred 
+                by the TPC target in a single xcopy command since the 
+                module on which this target has been configured has
+                been online."
+        ::= { ctpcTargetEntry 7 }
+
+ctpcTargetAvgKbPerSec OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "Kilobytes/second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "The average kilobytes per second throughput of the
+                TPC target in processing the XCOPY commands."
+        ::= { ctpcTargetEntry 8 }
+
+-- Conformance
+
+ctpcMIBCompliances OBJECT IDENTIFIER 
+                        ::= { ciscoTpcMIBConformance 1 }
+ctpcMIBGroups      OBJECT IDENTIFIER 
+                        ::= { ciscoTpcMIBConformance 2 }
+
+ctpcMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+               "The compliance statement for entities which 
+                implement the CISCO-TPC-MIB mib."
+        MODULE MANDATORY-GROUPS { ctpcVsanTargetGroup }
+                                          
+        OBJECT  ctpcVsanRowStatus
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        DESCRIPTION 
+                   "Only values 'createAndGo', 'destroy' and 
+                   'active' need to be supported."
+        
+        ::= { ctpcMIBCompliances 1 }       
+
+-- Units of Conformance
+
+ctpcVsanTargetGroup  OBJECT-GROUP
+     OBJECTS  { ctpcModuleId,
+                ctpcVsanRowStatus,
+                ctpcTargetNodeName,
+                ctpcTargetPortName,
+                ctpcTargetState,
+                ctpcTargetNumXcopies,
+                ctpcTargetMinXcopy,
+                ctpcTargetMaxXcopy,
+                ctpcTargetAvgKbPerSec
+              }
+     STATUS  current
+     DESCRIPTION
+            "A collection of objects for displaying and
+             configuring the TPC target."
+        ::= { ctpcMIBGroups 1 }
+
+END

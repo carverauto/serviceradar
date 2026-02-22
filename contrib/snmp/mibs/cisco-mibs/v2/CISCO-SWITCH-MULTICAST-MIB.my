@@ -1,0 +1,1637 @@
+-- *****************************************************************
+-- CISCO-SWITCH-MULTICAST-MIB.my 
+--
+-- January 2006, Jayakumar Kadirvelu
+--
+-- Copyright (c) 2006, 2008, 2009, 2010 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+CISCO-SWITCH-MULTICAST-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    TimeStamp,
+    RowStatus,
+    TruthValue,
+    StorageType
+        FROM SNMPv2-TC
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Gauge32,
+    Integer32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI
+   InterfaceIndex,
+   InterfaceIndexOrZero
+      FROM IF-MIB
+    CiscoInterfaceIndexList,
+    EntPhysicalIndexOrZero
+      FROM CISCO-TC
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    MplsVpnId
+        FROM MPLS-VPN-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetAddressPrefixLength
+        FROM INET-ADDRESS-MIB;
+
+ciscoSwitchMulticastMIB MODULE-IDENTITY
+        LAST-UPDATED        "201005270001Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+                "This MIB module defines management objects for the
+                 Multicast Switching features on Cisco Layer 2/3 
+                 devices.
+
+                 Definition of some of the terms used in this MIB:
+
+                     Multicast Replication - The mechanism by which a 
+                     system creates one or more copies of a multicast 
+                     packet for forwarding.
+
+                     Ingress Multicast Replication - A type of multicast
+                     replication where the replication engine on the 
+                     ingress module always performs the whole replication.
+ 
+                     Egress Multicast Replication - A type of multicast
+                     replication where the replication engines on both
+                     the ingress and egress modules perform the replication. 
+
+                     VPN  -  Virtual private network.
+                     A secure IP-based network that shares resources 
+                     with one or more physical networks.
+    
+                     VRF  - VPN Routing and Forwarding instance
+                     Consists of an IP routing table, a derived 
+                     forwarding table, a set of interfaces that use
+                     the forwarding table, and a set of rules and 
+                     routing protocols that determine what goes into 
+                     the forwarding table. 
+    
+                     MVPN - Multicast VPN
+    
+                     MVRF - Multicast VRF
+                     A VRF which has multicast routing enabled.
+      
+                     VRF-lite -  A feature that enables a service 
+                     provider to support two or more VPNs, where IP 
+                     addresses can be overlapped among the VPNs.
+
+                     LTL - Local Target Logic
+                     A hardware resource table to aid in switching.
+
+                     OIF - Outgoing Interface
+                     The interface through which packets are 
+                     forwarded out.
+
+                     DF - Designated Forwarder."
+
+        REVISION        "201005270001Z"
+        DESCRIPTION
+                "Added the following groups:
+                 cswmGlobalReplicationGroup
+                 cswmMvrfBiDirPimDfUsageGroup
+                 cswmForwardingGroup
+                 cswmFlowQueryResultGroup"
+        REVISION        "200803200000Z"
+        DESCRIPTION
+                "Added cswmBiDirPimDfUsageGroup.
+                Added cswmLtlUsageGroup.
+                Corrected the enum value of cswmReplConfigCurMode:
+                From 'egress' to 'egressAndIngress'."
+
+        REVISION        "200601060000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 504 }
+
+cswmMIBNotifs   OBJECT IDENTIFIER ::=  { ciscoSwitchMulticastMIB 0 } 
+cswmMIBObjects  OBJECT IDENTIFIER ::=  { ciscoSwitchMulticastMIB 1 }
+cswmMIBConform  OBJECT IDENTIFIER ::=  { ciscoSwitchMulticastMIB 2 }
+
+-- Overview of MIB Objects:
+--
+-- Defines 7 groups of objects
+-- 1. cswmGlobal                : A group of objects providing global 
+--                                multicast switching information and 
+--                                configuration 
+--
+-- 2. cswmReplication           : A group of objects related to 
+--                                multicast replication. 
+--
+-- 3. cswmMvrfStats             : A group of objects providing  
+--                                MVRF statistics. 
+--
+-- 4. cswmBiDirPimDfStats       : A group of objects providing  
+--                                Bi-directional PIM (Protocol 
+--                                Independent Multicast) Designated 
+--                                Forwarder database statistics. 
+--
+-- 5. cswmLtlStats              : A group of objects providing  
+--                                Multicast LTL (Local Target Logic)  
+--                                statistics. 
+--
+-- 6. cswmForwarding            : A group of objects providing 
+--                                Multicast Forwarding information
+--
+-- 7. cswmFlowQueryResult       : A group of objects providing
+--                                Multicast Flow information through
+--                                Query/Result mechanism
+--
+
+
+cswmGlobal      OBJECT IDENTIFIER ::=  { cswmMIBObjects 1 }
+cswmReplication OBJECT IDENTIFIER ::=  { cswmMIBObjects 2 }
+cswmMvrfStats   OBJECT IDENTIFIER ::=  { cswmMIBObjects 3 }
+cswmBiDirPimDfStats     
+                OBJECT IDENTIFIER ::=  { cswmMIBObjects 4 }
+cswmLtlStats    OBJECT IDENTIFIER ::=  { cswmMIBObjects 5 }
+cswmForwarding
+                OBJECT IDENTIFIER ::=  { cswmMIBObjects 6 }
+cswmFlowQueryResult
+                OBJECT IDENTIFIER ::=  { cswmMIBObjects 7 }
+
+
+cswmMvpnHwSwitchingStatus OBJECT-TYPE
+    SYNTAX      INTEGER { 
+                  notCapable(1), 
+                  enable(2),
+                  disable(3)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the MVPN hardware switching status.
+    
+         'notCapable'    - This device is not capable of MVPN 
+                           hardware switching 
+   
+         'enable'        - MVPN hardware switching is enabled. 
+   
+         'disable'       - MVPN hardware switching is disabled."
+    ::= { cswmGlobal 1 }
+
+cswmVrfLiteStatus OBJECT-TYPE
+    SYNTAX      INTEGER { 
+                  notCapable(1),
+                  enable(2),
+                  disable(3)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the VRF-Lite switching status.
+   
+         'notCapable'    - This device is not capable of VRF-Lite 
+                           switching.
+   
+         'enable'        - VRF-Lite switching is enabled.
+   
+         'disable'       - VRF-Lite switching is disabled."
+    ::= { cswmGlobal 2 }
+
+cswmMRouteConsistCheck OBJECT-TYPE
+    SYNTAX      INTEGER { 
+                  notCapable(1),  -- read-only
+                  enable(2),
+                  disable(3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specifies the Multicast Routing(mroute) Table 
+         consistency checker support mode.
+         The consistency checker scans the mroute table 
+         and assures that multicast-hardware entries are 
+         consistent with mroute table.
+   
+         'notCapable'    - This device is not capable of mroute 
+                           consistency checker  
+   
+         'enable'        - mroute consistency checker is enabled.
+   
+         'disable'       - mroute consistency checker is disabled.
+       
+         When the value of this object is 'notCapable' the object
+         value is not writable.
+         The value 'notCapable' can not be set."
+    ::= { cswmGlobal 3 }
+
+cswmProcessorConsistCheck OBJECT-TYPE
+    SYNTAX      INTEGER { 
+                  notCapable(1),  -- read-only
+                  enable(2),
+                  disable(3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specifies the Processor consistency checker support mode.
+         In a multiple processor device, the consistency checker
+         assures that multicast flow entries are consistent across
+         processors. 
+
+         Example: In a Catalyst 6000 series device, which has a 
+         Route Processor (RP) and a Switch Processor (SP), the 
+         consistency checker assures that multicast flow entries on 
+         the Route Processor and the Switch Processor are consistent.
+   
+         'notCapable'    - This device is not capable of processor 
+                           consistency checker  
+   
+         'enable'        - processor consistency checker is enabled.
+   
+         'disable'       - processor consistency checker is disabled.
+      
+         When the value of this object is 'notCapable' the object
+         value is not writable.
+         The value 'notCapable' can not be set." 
+    ::= { cswmGlobal 4 }
+
+--
+-- Multicast Replication Capability information 
+-- 
+cswmReplCapabilityTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmReplCapabilityEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table containing multicast replication capability 
+         information."
+    ::= { cswmReplication 1 }
+
+cswmReplCapabilityEntry OBJECT-TYPE
+    SYNTAX      CswmReplCapabilityEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row of cswmReplCapabilityTable, containing
+         the multicast replication capability information for
+         per module (identified by entPhysicalIndex) per Internet
+         address type supported on the managed system.
+
+         An entry is created by the agent at the system power-up or
+         module insertion."
+    INDEX  { entPhysicalIndex, cswmReplConfigAddrType }
+    ::= { cswmReplCapabilityTable 1 }
+
+CswmReplCapabilityEntry ::= SEQUENCE {
+        cswmReplCapability     BITS
+}
+
+cswmReplCapability OBJECT-TYPE
+    SYNTAX      BITS { ingress(0), egress(1) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the multicast replication capability.
+         The replication capability of a module for a particular
+         address type is dependent on the hardware and software
+         capabilities of the module."
+    ::= { cswmReplCapabilityEntry 1 }
+
+--
+-- Multicast Flow Replication Config table
+--
+cswmReplConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmReplConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table containing multicast flow replication information
+         for the device."
+    ::= { cswmReplication 2 }
+
+cswmReplConfigEntry OBJECT-TYPE
+    SYNTAX      CswmReplConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row of cswmReplConfigTable, containing multicast
+         flow replication information." 
+    INDEX  { cswmReplConfigAddrType }
+    ::= { cswmReplConfigTable 1 }
+
+CswmReplConfigEntry ::= SEQUENCE {
+        cswmReplConfigAddrType          InetAddressType,
+        cswmReplConfigCurMode           INTEGER,
+        cswmReplConfigAutoDetect        INTEGER
+}
+
+cswmReplConfigAddrType OBJECT-TYPE
+    SYNTAX     InetAddressType
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The Internet address type supporting multicast flow
+         replication."
+    ::= { cswmReplConfigEntry 1 }
+
+cswmReplConfigCurMode OBJECT-TYPE
+    SYNTAX      INTEGER { 
+                  notCapable(1),  -- read-only
+                  ingress(2),
+                  egressAndIngress(3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specifies the current mode of multicast flow replication
+         for this address type.
+
+        'notCapable'       - This device is not capable of Multicast
+                             flow replication for this address type.
+
+        'ingress'          - The current mode of replication is
+                             ingress.
+
+        'egressAndIngress' - The current mode of replication is
+                             egress and ingress.
+  
+         When the value of this object is 'notCapable' the object
+         value is not writable.
+         The value 'notCapable' can not be set.
+
+         The values of cswmReplCapability for the modules on the system
+         should be considered when setting the value for this object.
+         Certain systems may not be fully operational in a particular 
+         replication mode if there is an inconsistency between 
+         this object and the values of cswmReplCapability."
+    ::= { cswmReplConfigEntry 2 }
+
+cswmReplConfigAutoDetect OBJECT-TYPE
+    SYNTAX      INTEGER { 
+                  notCapable(1),  -- read-only
+                  enable(2),
+                  disable(3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specifies the auto-detection of multicast replication
+         mode for this address type.
+       
+         'notCapable'  - This device is not capable of Auto-detection 
+                         of multicast replication mode for this 
+                         address type.
+   
+         'enable'      - The auto-detection of multicast replication
+                         mode is enabled.
+   
+         'disable'     - The auto-detection of multicast replication
+                         mode is disabled.
+
+         When the value of this object is 'notCapable' the object
+         value is not writable.
+         The value 'notCapable' can not be set."
+    ::= { cswmReplConfigEntry 3 }
+
+cswmGlobalReplcationMode OBJECT-TYPE
+    SYNTAX      INTEGER {
+                  notCapable(1),  -- read-only
+                  ingress(2),
+                  egress(3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specifies the current mode of multicast flow replication
+         for all Internet address types supporting multicast flow
+         replication.
+
+         'notCapable'  - This device is not capable of Multicast flow 
+                         replication. 
+   
+         'ingress'     - The current mode of replication is ingress.
+   
+         'egress'      - The current mode of replication is egress.
+  
+         When the value of this object is 'notCapable' the object
+         value is not writable.
+         The value 'notCapable' can not be set.
+
+         The values of cswmReplCapability for the modules on the system
+         should be considered when setting the value for this object.
+         Certain systems may not be fully operational in a particular
+         replication mode if there is an inconsistency between
+         this object and the values of cswmReplCapability."
+    ::= { cswmReplication 3}
+
+--
+-- The MVRF statistics table 
+-- 
+cswmMvrfStatsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmMvrfStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "A table containing multicast flow statistics information on 
+         each Multicast VPN routing/forwarding instance (MVRF)."
+    ::= { cswmMvrfStats 1 }
+    
+cswmMvrfStatsEntry OBJECT-TYPE
+    SYNTAX      CswmMvrfStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "A conceptual row of cswmMvrfStatsTable, containing 
+         multicast flow statistics for each MVRF."
+    INDEX  { cswmMvrfName }
+    ::= { cswmMvrfStatsTable 1 }
+    
+CswmMvrfStatsEntry ::= SEQUENCE {
+        cswmMvrfName         MplsVpnId,
+        cswmMvrfTotalFlows   Gauge32,
+        cswmMvrfPartialFlows Gauge32,
+        cswmMvrfRpfMfdFlows  Gauge32
+}
+
+cswmMvrfName OBJECT-TYPE
+    SYNTAX      MplsVpnId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The human-readable name of this VPN."
+    ::= { cswmMvrfStatsEntry 1 }
+    
+cswmMvrfTotalFlows OBJECT-TYPE
+    SYNTAX      Gauge32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the total number of multicast flow entries 
+         installed for this MVRF."
+    ::= { cswmMvrfStatsEntry 2 }
+
+cswmMvrfPartialFlows OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the total number of multicast partial short cut
+         flow entries installed for this MVRF."
+    ::= { cswmMvrfStatsEntry 3 }
+
+cswmMvrfRpfMfdFlows OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the total number of Reverse Path Forwarding(RPF)
+         Multicast Fast Drop(MFD) flow entries installed for this 
+         MVRF."
+    ::= { cswmMvrfStatsEntry 4 }
+
+--  
+-- Designated Forwarder Database usage 
+--
+cswmBiDirPimDfUsed OBJECT-TYPE
+    SYNTAX        Unsigned32
+    UNITS         "entries"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of Bi-directional PIM Designated Forwarder 
+         entries currently in use by the default MVRF on the device."
+    ::= { cswmBiDirPimDfStats 1 }
+
+cswmBiDirPimDfTotal OBJECT-TYPE
+    SYNTAX        Unsigned32
+    UNITS         "entries"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of Bi-directional PIM Designated Forwarder 
+         entries for the default MVRF on the device."
+    ::= { cswmBiDirPimDfStats 2 }
+
+--
+-- The Designated Forwarder Database usage table 
+-- 
+cswmMvrfBiDirPimDfUsageTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmMvrfBiDirPimDfUsageEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "A table containing multicast Bi-directional PIM 
+         Designated Forwarder usage information on 
+         each Multicast VPN routing/forwarding instance (MVRF)
+         for every Internet address type supported."
+    ::= { cswmBiDirPimDfStats 3 }
+    
+cswmMvrfBiDirPimDfUsageEntry OBJECT-TYPE
+    SYNTAX      CswmMvrfBiDirPimDfUsageEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "A conceptual row of cswmMvrfBiDirPimDfUsageTable, containing 
+         multicast Bi-directional PIM Designated Forwarder 
+         usage information on each MVRF per Internet address type."
+    INDEX  { cswmMvrfName, cswmMvrfBiDirPimDfAddrType }
+    ::= { cswmMvrfBiDirPimDfUsageTable 1 }
+    
+CswmMvrfBiDirPimDfUsageEntry ::= SEQUENCE {
+        cswmMvrfBiDirPimDfAddrType InetAddressType, 
+        cswmMvrfBiDirPimDfUsed     Unsigned32,
+        cswmMvrfBiDirPimDfTotal    Unsigned32
+}
+
+cswmMvrfBiDirPimDfAddrType OBJECT-TYPE
+    SYNTAX     InetAddressType
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This object indicates the internet address type  
+         for which the multicast Bi-directional PIM Designated 
+         Forwarder usage information is collected."
+    ::= { cswmMvrfBiDirPimDfUsageEntry 1 }
+
+cswmMvrfBiDirPimDfUsed OBJECT-TYPE
+    SYNTAX        Unsigned32
+    UNITS         "entries"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of Bi-directional PIM Designated Forwarder 
+         entries currently in use."
+    ::= { cswmMvrfBiDirPimDfUsageEntry 2 }
+
+cswmMvrfBiDirPimDfTotal OBJECT-TYPE
+    SYNTAX        Unsigned32
+    UNITS         "entries"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of Bi-directional PIM Designated Forwarder 
+         entries."
+    ::= { cswmMvrfBiDirPimDfUsageEntry 3 }
+
+--  
+-- Multicast LTL usage 
+--
+cswmLtlUsed OBJECT-TYPE
+    SYNTAX        Unsigned32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object indicates the number of Multicast LTL 
+         entries currently used by this device."
+    ::= { cswmLtlStats 1 }
+
+cswmLtlTotal OBJECT-TYPE
+    SYNTAX        Unsigned32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object indicates the total number of Multicast
+         LTL entries available for this device."
+    ::= { cswmLtlStats 2 }
+
+--
+-- Multicast Forwarding Table
+--
+cswmForwardingTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmForwardingEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table containing multicast forwarding information."
+    ::= { cswmForwarding 1 }
+
+cswmForwardingEntry OBJECT-TYPE
+    SYNTAX      CswmForwardingEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row of cswmForwardingTable, containing multicast
+         forwarding information on a particular interface for every
+         Internet address type supported." 
+    INDEX  { cswmInterfaceIndex, cswmForwardingAddrType }
+    ::= { cswmForwardingTable 1 }
+
+CswmForwardingEntry ::= SEQUENCE {
+        cswmInterfaceIndex              InterfaceIndex,
+        cswmForwardingAddrType          InetAddressType,
+        cswmForwardingEnabled           INTEGER
+}
+
+cswmInterfaceIndex OBJECT-TYPE
+   SYNTAX        InterfaceIndex
+   MAX-ACCESS    not-accessible
+   STATUS        current
+   DESCRIPTION
+       "This object specifies the ifIndex for interface capable of 
+        performing forwarding."
+    ::= { cswmForwardingEntry 1 }
+
+cswmForwardingAddrType OBJECT-TYPE
+    SYNTAX     InetAddressType
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the internet address type of the 
+         multicast forwarding."
+    ::= { cswmForwardingEntry 2 }
+
+cswmForwardingEnabled OBJECT-TYPE
+    SYNTAX      INTEGER {
+                  notCapable(1),  -- read-only
+                  enable(2),
+                  disable(3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+ 
+        "This object specifies whether multicast forwarding 
+         is supported on this interface for a particular 
+         internet address type. 
+ 
+         'notCapable'    - A read-only value which indicates that 
+                           this interface is not capable of multicast 
+                           forwarding for this internet address 
+                           type. 
+                           This value cannot be used in SET operation. 
+ 
+         'enable'        - multicast forwarding is enabled. 
+
+         'disable'       - multicast forwarding is disabled. 
+ 
+         This object is not writable if the value of this object 
+         is 'notCapable'."
+    ::= { cswmForwardingEntry 3 }
+
+-- Multicast Flow Query
+
+cswmFlowMaxQueries OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Maximum number of query entries allowed to be outstanding
+        at any time, in the cswmFlowQueryTable.  The typical value
+        for this object is 5."
+    ::= { cswmFlowQueryResult 1 }
+
+cswmFlowQueryTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmFlowQueryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A control table used to query the switching engine by
+        specifying retrieval criteria for IP multicast L3 flows.
+        Each row instance in the table represents a query with
+        its parameters.  The resulting per-flow data if requested
+        for each instance of a query in this table is returned
+        in the cswmFlowResultTable.
+
+        A row in this table can be created by setting the corresponding
+        instance of cswmFlowQueryStatus to 'createAndGo'.
+        A row can be deleted by setting the corresponding instance of
+        cswmFlowQueryStatus to 'destroy'.
+
+        The maximum number of entries (rows) in this table cannot
+        exceed the value of cswmFlowMaxQueries object."
+    ::= {  cswmFlowQueryResult 2 }
+
+cswmFlowQueryEntry OBJECT-TYPE
+    SYNTAX      CswmFlowQueryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row of the cswmFlowQueryTable used to
+        setup retrieval criteria to search for IP multicast L3
+        flows on a switching engine entity in the device."
+    INDEX { cswmFlowQueryIndex }
+    ::= { cswmFlowQueryTable 1 }
+
+CswmFlowQueryEntry ::= SEQUENCE {
+        cswmFlowQueryIndex          Unsigned32,
+        cswmFlowQueryMask           BITS,
+        cswmFlowQueryMvrf           MplsVpnId,
+        cswmFlowQueryAddrType       InetAddressType,
+        cswmFlowQuerySource         InetAddress,
+        cswmFlowQueryGroup          InetAddress,
+        cswmFlowQueryGroupMask      InetAddressPrefixLength,
+        cswmFlowQueryType           BITS,
+        cswmFlowQueryEntityIndex    EntPhysicalIndexOrZero,
+        cswmFlowQuerySkipNFlows     Integer32,
+        cswmFlowQueryTotalFlows     Integer32,
+        cswmFlowMcastQueryRows      Integer32,
+        cswmFlowMcastQueryMoreRows  TruthValue,
+        cswmFlowQueryOwner          SnmpAdminString,
+        cswmFlowQueryCreateTime     TimeStamp,
+        cswmFlowQueryStorage        StorageType,
+        cswmFlowQueryStatus         RowStatus
+}
+
+cswmFlowQueryIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer in the range of 1 to
+        cswmFlowMaxQueries to identify this control query."
+    ::= { cswmFlowQueryEntry 1 }
+
+cswmFlowQueryMask OBJECT-TYPE
+    SYNTAX      BITS { vrf(0), group(1), groupmask(2), source(3) }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used to set up the query criteria for
+        the multicast flows of interest.  If any one of the
+        defined BITs is set, then the objects(s) corresponding
+        to the BITS in the same row instance will be used for 
+        the search.
+        
+        Specifically, if the 'vrf' BIT is set, then the 
+        cswmFlowQueryMvrf object will be included in the
+        search criteria. The 'vrf' BIT can be set in 
+        combination with any other BIT for the search.
+
+        If the 'group' BIT is set, then the 
+        cswmFlowQueryGroup object will be used as the
+        search criteria.
+
+        If the 'groupmask' BIT is set, then the 
+        cswmFlowQueryGroup and cswmFlowQueryGroupMask objects 
+        will be used as the search criteria.
+
+        If the 'source' BIT is set, then the
+        cswmFlowQuerySource and cswmFlowQueryGroup objects 
+        will be used as the search criteria.
+
+        It is SNMP managers' responsibility to turn on certain
+        bits on in this object instance, if necessary,
+        and the corresponding flow parameter variables to the 
+        appropriate values in order to setup the desired
+        query criteria."
+       DEFVAL      { {} }
+    ::= { cswmFlowQueryEntry 2 }
+
+cswmFlowQueryMvrf OBJECT-TYPE
+    SYNTAX      MplsVpnId
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The human-readable name of the Multicast 
+        Virtual Private Network (MVPN) routing/forwarding
+        instance (MVRF). When the 'mvrf' bit of
+        cswmFlowQueryMask object in the same row is on,
+        an appropriate value should be specified and only flows
+        with the specified MVRF name will be contained in the
+        result table. If the 'mvrf' bit in the associated
+        cswmFlowQueryMask is cleared, this object is ignored
+        during the query, and all the flows corresponding to the
+        default MVRF will be considered."
+    ::= { cswmFlowQueryEntry 3 }
+
+cswmFlowQueryAddrType OBJECT-TYPE
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The Internet address type for this multicast search
+         query."
+    DEFVAL      { ipv4 }
+   ::= { cswmFlowQueryEntry 4 }
+
+cswmFlowQuerySource OBJECT-TYPE
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The source Internet address of the IP multicast layer 3 
+        flows. When the 'source' BIT of cswmFlowQueryMask
+        object in the same row is on,
+        an appropriate value should be specified and only flows
+        with the specified source address will be contained in the
+        result table. If the 'source' bit in the associated
+        cswmFlowQueryMask is off, this object is ignored
+        during the query.
+
+        The type of this address is determined by the value of the 
+        cswmFlowQueryAddrType object.
+        
+        The default value of this object is all zeros."
+    DEFVAL { '00000000'H } -- 0.0.0.0
+    ::= { cswmFlowQueryEntry 5 }
+
+cswmFlowQueryGroup OBJECT-TYPE
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The multicast group Internet address of the queried flows.
+        When the 'group' or 'groupmask'  bit of cswmFlowQueryMask 
+        object in the same row is on, an appropriate value should be
+        specified and only flows with the specified group address
+        will be contained in the result table. If the 'group' 
+        and 'groupmask' bits in the associated cswmFlowQueryMask
+        are both off, this object is ignored during the query.
+
+        The type of this address is determined by the value of the
+        cswmFlowQueryAddrType object.
+
+        The default value of this object is all zeros."
+    DEFVAL { '00000000'H } -- 0.0.0.0
+    ::= { cswmFlowQueryEntry 6 }
+
+cswmFlowQueryGroupMask OBJECT-TYPE
+    SYNTAX      InetAddressPrefixLength
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The length of the Prefix associated with cswmFlowQueryGroup. 
+        When the 'groupmask' bit of cswmFlowQueryMask object in the
+        same row is on, an appropriate value should be specified and 
+        only rows with the specied group address prefix will be 
+        returned in the result table. If the 'groupmask' bit in the
+        associated cswmFlowQueryMask is off, this object is ignored
+        during the query. 
+
+        A value of zero causes all addresses to match.
+        This prefix length will be consistent with the type specified in
+        cswmFlowQueryAddrType." 
+    DEFVAL { 0 } -- by default, any group address
+    ::= { cswmFlowQueryEntry 7 }
+
+cswmFlowQueryType OBJECT-TYPE
+    SYNTAX      BITS { perFlow(0), oifList(1), dfList(2) }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used to set up the query type for
+        the multicast flows of interest.  
+        
+        If the 'perFlow' BIT is set, then, the entries
+        matching this query will be returned in
+        in cswmFlowResultTable.
+        If the 'perFlow' BIT is not set, then only
+        the total number of flows matching this query
+        are computed and returned in cswmFlowQueryTotalFlows,
+        and there will be no entries matching this query in 
+        cswmFlowResultTable.
+
+        If the 'oifList' BIT is set, then the Outgoing Interface
+        (OIF) list is generated for each flow and populated
+        in cswmFlowResultTable.
+
+        If the 'dfList' BIT is set, then the Designated Forwarder
+        (DF) interfaces list is generated for each flow and populated
+        in cswmFlowResultTable."
+    ::= { cswmFlowQueryEntry 8 }
+
+cswmFlowQueryEntityIndex OBJECT-TYPE
+    SYNTAX      EntPhysicalIndexOrZero
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the switching engine for which the
+        query is issued.
+
+        When the value of this object is 0, the query is performed
+        on the switching engine of the active supervisor."
+    DEFVAL      { 0 }
+   ::= { cswmFlowQueryEntry 9 }
+
+cswmFlowQuerySkipNFlows OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The number of searched flows to be skipped before storing
+        any multicast flows in cswmFlowResultTable, when the 
+        'perFlow' bit is set in cswmFlowQueryType.
+       
+        This object can be used along with cswmFlowMcastQueryMoreRows
+        object to skip previously found flows and only query the
+        remaining flows in the table.
+ 
+        Note that due to the dynamical nature of the L3 flows, the
+        queried flows may be missed or repeated by setting this object."
+    DEFVAL      { 0 }
+    ::= { cswmFlowQueryEntry 10 }
+
+cswmFlowQueryTotalFlows OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of flows matching the query criteria.
+
+         The value of this object will be zero when the 'perFlow'
+         bit is set in cswmFlowQueryType."
+    ::= { cswmFlowQueryEntry 11 }
+
+cswmFlowMcastQueryRows OBJECT-TYPE
+    SYNTAX      Integer32 (-1..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicating the status of the query by following values:
+        -1 - Either the query has not been started or the
+             agent is still processing this query instance.
+             It is the default value when the row is instantiated.
+
+        0..2147483647 - The search has ended and this is the
+                        number of rows in the cswmFlowResultTable,
+                        resulting from this query."
+    ::= { cswmFlowQueryEntry 12 }
+
+cswmFlowMcastQueryMoreRows OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "If the value of the object is true when there are more
+        entries available matching this query criteria,
+        than the ones returned in cswmFlowResultTable."
+    ::= { cswmFlowQueryEntry 13 }
+
+cswmFlowQueryOwner OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The manager entity that configured this entry and is therefore
+        using the resources assigned to it.  It is used to model an
+        administratively assigned name of the owner of a resource.
+        It is recommended that this object have one or more the following
+        information: IP address, management station name, network
+        manager's name, location, or phone number."
+    ::= { cswmFlowQueryEntry 14 }
+
+cswmFlowQueryCreateTime OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Time when this query was created."
+    ::= { cswmFlowQueryEntry 15 }
+
+cswmFlowQueryStorage OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { volatile } 
+    ::= { cswmFlowQueryEntry 16 }
+
+cswmFlowQueryStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The status object used to manage rows in this table.
+        When set to 'active', the query to search for l3 multicast
+        flows is initiated. Once a row becomes active, values 
+        within the row cannot be modified, except by deleting
+        and re-creating the row."
+    ::= { cswmFlowQueryEntry 17 }
+
+
+-- Multicast Flow Query Result
+
+cswmFlowResultTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmFlowResultEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table containing current IP multicast flow information
+        corresponding to all the completed queries set up in
+        the cswmFlowQueryTable, that were initiated on the switch
+        engine(s) with the 'perFlow' bit set in cswmFlowQueryType.  
+        The query result will not become available until
+        the current search completes."
+    ::= { cswmFlowQueryResult 3 }
+
+cswmFlowResultEntry OBJECT-TYPE
+    SYNTAX      CswmFlowResultEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row of cswmFlowResultTable, containing
+        information about an IP multicast layer 3 flow that matchs
+        the search criteria set in the corresponding row of
+        cswmFlowQueryTable.  This row instance is indexed by
+        the query index (cswmFlowQueryIndex), and data entry index 
+        (cswmFlowResultIndex)."
+    INDEX { cswmFlowQueryIndex, cswmFlowResultIndex } 
+    ::= { cswmFlowResultTable 1 }
+
+CswmFlowResultEntry ::= SEQUENCE {
+        cswmFlowResultIndex            Unsigned32,
+        cswmFlowResultMvrf             MplsVpnId,
+        cswmFlowResultAddrType         InetAddressType,
+        cswmFlowResultGroup            InetAddress,
+        cswmFlowResultGroupMask        InetAddressPrefixLength,
+        cswmFlowResultSource           InetAddress,
+        cswmFlowResultFlags            BITS,
+        cswmFlowResultRpfInterface     InterfaceIndexOrZero,
+        cswmFlowResultPackets          Counter64,
+        cswmFlowResultOctets           Counter64
+}
+
+cswmFlowResultIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A positive integer which uniquely identify a result entry
+        matching a particular query."
+    ::= { cswmFlowResultEntry 1 }
+
+cswmFlowResultMvrf OBJECT-TYPE
+    SYNTAX      MplsVpnId
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The MVRF to which this flow belongs to."
+    ::= { cswmFlowResultEntry 2 }
+
+cswmFlowResultAddrType OBJECT-TYPE
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The Internet address type of cswmFlowResultGroup,
+         cswmFlowResultGroupMask and cswmFlowResultSource."
+    ::= { cswmFlowResultEntry 3 }
+
+cswmFlowResultGroup OBJECT-TYPE
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The group address of the multicast layer 3 flow."
+    ::= { cswmFlowResultEntry 4 }
+
+cswmFlowResultGroupMask OBJECT-TYPE
+    SYNTAX      InetAddressPrefixLength
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The length of the Prefix associated with cswmFlowResultGroup. 
+        A value of zero causes all addresses to match.  This prefix 
+        length will be consistent with the type specified in
+        cswmFlowResultAddrType."
+    ::= { cswmFlowResultEntry 5 }
+
+cswmFlowResultSource OBJECT-TYPE
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The source address of the multicast layer 3 flow."
+    ::= { cswmFlowResultEntry 6 }
+
+cswmFlowResultFlags OBJECT-TYPE
+    SYNTAX          BITS {
+                        copy(0),
+                        punt(1),
+                        ineligible(2),
+                        hwFail(3),
+                        bidir(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the corresponding flags for this flow:
+
+        'copy'       - indicates that traffic is copied to CPU and
+                       forwarded in hardware.
+
+        'punt'       - indicates that traffic is punted to CPU and
+                       forwarded in software.
+
+        'ineligible' - indicates that this flow is ineligible for
+                       hardware installation.
+
+        'hwFail'     - indicates that this flow failed to install
+                       in hardware.
+
+        'bidir'      - indicates that this flow is a Bidir flow."
+    ::= { cswmFlowResultEntry 7 }
+
+cswmFlowResultRpfInterface OBJECT-TYPE
+    SYNTAX      InterfaceIndexOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object represents either the InterfaceIndex of RPF 
+        interface for a RPF flow or 0 (zero). The value of zero means
+        that this flow is a non-RPF flow." 
+    ::= { cswmFlowResultEntry 8 }
+
+cswmFlowResultPackets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of multicast traffic packets forwarded
+        for this flow."
+    ::= { cswmFlowResultEntry 11 }
+
+cswmFlowResultOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of multicast traffic octets forwarded
+        for this flow."
+    ::= { cswmFlowResultEntry 12 }
+
+-- OIF List
+
+cswmFlowResultOIFTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmFlowResultOIFEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table containing list of OIF
+        for a flow listed in cswmFlowResultTable."
+    ::= { cswmFlowQueryResult 4 }
+
+cswmFlowResultOIFEntry OBJECT-TYPE
+    SYNTAX      CswmFlowResultOIFEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row of cswmFlowResultOIFTable, containing
+        information about the list of OIF for a flow
+        listed in cswmFlowResultTable. An entry is created
+        only when the 'oifList' bit is set in cswmFlowQueryType."
+    INDEX { cswmFlowQueryIndex, cswmFlowResultIndex,
+            cswmFlowResultOIFIndex }
+    ::= { cswmFlowResultOIFTable 1 }
+
+CswmFlowResultOIFEntry ::= SEQUENCE {
+        cswmFlowResultOIFIndex     Unsigned32,
+        cswmFlowResultOIFIntList   CiscoInterfaceIndexList
+}
+
+cswmFlowResultOIFIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A positive integer which uniquely identifies a list of OIF
+        for a particular result flow  matching a particular query."
+    ::= { cswmFlowResultOIFEntry 1 }
+
+cswmFlowResultOIFIntList OBJECT-TYPE
+    SYNTAX      CiscoInterfaceIndexList 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The object lists the ifIndex for a set of 64 OIF for a 
+         particular flow."
+    ::= { cswmFlowResultOIFEntry 2 }
+
+-- DF Interfaces List
+
+cswmFlowResultDFTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CswmFlowResultDFEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table containing list of DF interfaces for a flow
+         listed in cswmFlowResultTable."
+    ::= { cswmFlowQueryResult 5 }
+
+cswmFlowResultDFEntry OBJECT-TYPE
+    SYNTAX      CswmFlowResultDFEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row of cswmFlowResultDFTable, containing
+        information about the list of DF Interfaces for a flow
+        listed in cswmFlowResultTable. An entry is created
+        only when the 'dfList' bit is set in cswmFlowQueryType."
+    INDEX { cswmFlowQueryIndex, cswmFlowResultIndex,
+            cswmFlowResultDFIndex }
+    ::= { cswmFlowResultDFTable 1 }
+
+CswmFlowResultDFEntry ::= SEQUENCE {
+        cswmFlowResultDFIndex     Unsigned32,
+        cswmFlowResultDFIntList   CiscoInterfaceIndexList
+}
+
+cswmFlowResultDFIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A positive integer which uniquely identifies a list of DF
+        interfaces for a particular flow matching a particular query."
+    ::= { cswmFlowResultDFEntry 1 }
+
+cswmFlowResultDFIntList OBJECT-TYPE
+    SYNTAX      CiscoInterfaceIndexList
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The object lists the ifIndex for a set of 64 DF interfaces
+        for a particular flow."
+    ::= { cswmFlowResultDFEntry 2 }
+
+-- No Notification defined
+
+-- Conformance
+
+cswmMIBCompliances OBJECT IDENTIFIER ::= { cswmMIBConform 1 }
+cswmMIBGroups      OBJECT IDENTIFIER ::= { cswmMIBConform 2 }
+
+
+cswmMIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+            "The compliance statement for the 
+             CISCO-SWITCH-MULTICAST-MIB.
+
+             OBJECT cswmReplConfigAddrType
+             SYNTAX InetAddressType { ipv4(1), ipv6(2) }
+             DESCRIPTION
+                 An implementation is only required to support IPv4
+                 and IPv6 addresses."
+
+        MODULE  -- this module
+            MANDATORY-GROUPS { cswmGlobalGroup }
+
+            GROUP   cswmConsistCheckGroup
+            DESCRIPTION
+                "This group is mandatory where multicast consistency
+                 check is supported."
+
+            GROUP   cswmReplicationGroup
+            DESCRIPTION
+                "This group is mandatory where multicast flow
+                 replication is supported."
+
+            GROUP   cswmMvrfStatsGroup
+            DESCRIPTION
+                "This group is mandatory where MVRF 
+                 statistics are supported."
+
+        ::= { cswmMIBCompliances 1 }
+
+cswmMIBCompliance2 MODULE-COMPLIANCE
+        STATUS deprecated 
+        DESCRIPTION
+            "The compliance statement for the 
+             CISCO-SWITCH-MULTICAST-MIB.
+
+             OBJECT cswmReplConfigAddrType
+             SYNTAX InetAddressType { ipv4(1), ipv6(2) }
+             DESCRIPTION
+                 An implementation is only required to support IPv4
+                 and IPv6 addresses."
+
+        MODULE  -- this module
+            MANDATORY-GROUPS { cswmGlobalGroup }
+
+            GROUP   cswmConsistCheckGroup
+            DESCRIPTION
+                "This group is mandatory where multicast consistency
+                 check is supported."
+
+            GROUP   cswmReplicationGroup
+            DESCRIPTION
+                "This group is mandatory where multicast flow
+                 replication is supported."
+
+            GROUP   cswmMvrfStatsGroup
+            DESCRIPTION
+                "This group is mandatory where MVRF 
+                 statistics are supported."
+
+            GROUP   cswmBiDirPimDfUsageGroup
+            DESCRIPTION
+                "This group is mandatory where Bi-directional
+                 PIM Designated Forwarder database is supported."
+
+            GROUP   cswmLtlUsageGroup
+            DESCRIPTION
+                "This group is mandatory where Multicast
+                 LTL usage information is available."
+
+        ::= { cswmMIBCompliances 2 }
+
+cswmMIBCompliance3 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+            "The compliance statement for the 
+             CISCO-SWITCH-MULTICAST-MIB.
+
+             OBJECT cswmReplConfigAddrType
+             SYNTAX InetAddressType { ipv4(1), ipv6(2) }
+             DESCRIPTION
+                 An implementation is only required to support IPv4
+                 and IPv6 addresses."
+
+        MODULE  -- this module
+            MANDATORY-GROUPS { cswmGlobalGroup }
+
+            GROUP   cswmConsistCheckGroup
+            DESCRIPTION
+                "This group is mandatory where multicast consistency
+                 check is supported."
+
+            GROUP   cswmReplicationGroup
+            DESCRIPTION
+                "This group is mandatory where multicast flow
+                 replication is supported."
+
+            GROUP   cswmMvrfStatsGroup
+            DESCRIPTION
+                "This group is mandatory where MVRF 
+                 statistics are supported."
+
+            GROUP   cswmBiDirPimDfUsageGroup
+            DESCRIPTION
+                "This group is mandatory where Bi-directional
+                 PIM Designated Forwarder database is supported."
+
+            GROUP   cswmLtlUsageGroup
+            DESCRIPTION
+                "This group is mandatory where Multicast
+                 LTL usage information is available."
+
+            GROUP   cswmGlobalReplicationGroup
+            DESCRIPTION
+                "This group is mandatory where Multicast
+                 global flow replication is supported."
+
+            GROUP   cswmMvrfBiDirPimDfUsageGroup
+            DESCRIPTION
+                "This group is mandatory where Bi-directional
+                 PIM Designated Forwarder database Per MVRF
+                 is supported."
+
+            GROUP   cswmForwardingGroup
+            DESCRIPTION
+                "This group is mandatory where Multicast
+                 forwarding information is available."
+
+            GROUP   cswmFlowQueryResultGroup
+            DESCRIPTION
+                "This group is mandatory where Multicast
+                 l3 flows can be queried."
+
+            OBJECT          cswmMRouteConsistCheck
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmProcessorConsistCheck
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmReplConfigCurMode
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmReplConfigAutoDetect
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmGlobalReplcationMode
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmForwardingEnabled
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryMask
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryMvrf
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryAddrType
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQuerySource
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryGroup
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryGroupMask
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryType
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryEntityIndex
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQuerySkipNFlows
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryOwner
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryStorage
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+            OBJECT          cswmFlowQueryStatus
+            SYNTAX          INTEGER { active(1) }
+            WRITE-SYNTAX    INTEGER { createAndGo(4), destroy(6) }
+            MIN-ACCESS      read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        ::= { cswmMIBCompliances 3 }
+
+
+-- Units of Conformance
+
+cswmGlobalGroup OBJECT-GROUP
+        OBJECTS {
+            cswmMvpnHwSwitchingStatus,
+            cswmVrfLiteStatus
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing global multicast
+             information and configuration."
+        ::= { cswmMIBGroups 1 }
+
+cswmConsistCheckGroup OBJECT-GROUP
+        OBJECTS {
+            cswmMRouteConsistCheck,
+            cswmProcessorConsistCheck
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing multicast consitency
+             check information and configuration." 
+        ::= { cswmMIBGroups 2 }
+
+cswmReplicationGroup OBJECT-GROUP
+        OBJECTS {
+            cswmReplCapability,
+            cswmReplConfigCurMode,
+            cswmReplConfigAutoDetect
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing multicast
+             replication information and configuration."
+        ::= { cswmMIBGroups 3 }
+
+cswmMvrfStatsGroup OBJECT-GROUP
+        OBJECTS {
+            cswmMvrfTotalFlows,
+            cswmMvrfPartialFlows,
+            cswmMvrfRpfMfdFlows
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing MVRF
+             statistics."
+        ::= { cswmMIBGroups 4 }
+
+cswmBiDirPimDfUsageGroup  OBJECT-GROUP
+        OBJECTS {
+            cswmBiDirPimDfUsed,
+            cswmBiDirPimDfTotal
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing Bi-directional
+             PIM Designated Forwarder database Usage information."
+        ::= { cswmMIBGroups 5 }
+
+cswmLtlUsageGroup OBJECT-GROUP
+        OBJECTS {
+            cswmLtlUsed,
+            cswmLtlTotal
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing Multicast LTL 
+             usage information."
+        ::= { cswmMIBGroups 6 }
+
+cswmGlobalReplicationGroup OBJECT-GROUP
+        OBJECTS {
+            cswmGlobalReplcationMode
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing multicast
+             global replication information and configuration."
+        ::= { cswmMIBGroups 7 }
+
+cswmMvrfBiDirPimDfUsageGroup  OBJECT-GROUP
+        OBJECTS {
+            cswmMvrfBiDirPimDfUsed,
+            cswmMvrfBiDirPimDfTotal
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing Bi-directional
+             PIM Designated Forwarder database Usage information
+             for each MVRF available on the device."
+        ::= { cswmMIBGroups 8 }
+
+cswmForwardingGroup OBJECT-GROUP
+        OBJECTS {
+            cswmForwardingEnabled
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing multicast
+             forwarding information and configuration."
+        ::= { cswmMIBGroups 9 }
+
+cswmFlowQueryResultGroup OBJECT-GROUP
+        OBJECTS {
+            cswmFlowMaxQueries,
+            cswmFlowQueryMask,
+            cswmFlowQueryAddrType,
+            cswmFlowQuerySource,
+            cswmFlowQueryGroup,
+            cswmFlowQueryGroupMask,
+            cswmFlowQueryType,
+            cswmFlowQueryMvrf,
+            cswmFlowQueryEntityIndex,
+            cswmFlowQuerySkipNFlows,
+            cswmFlowQueryTotalFlows,
+            cswmFlowMcastQueryRows,
+            cswmFlowMcastQueryMoreRows,
+            cswmFlowQueryOwner,
+            cswmFlowQueryCreateTime,
+            cswmFlowQueryStorage,
+            cswmFlowQueryStatus,
+            cswmFlowResultMvrf,
+            cswmFlowResultAddrType,
+            cswmFlowResultGroup,
+            cswmFlowResultGroupMask,
+            cswmFlowResultSource,
+            cswmFlowResultFlags,
+            cswmFlowResultPackets,
+            cswmFlowResultOctets,
+            cswmFlowResultRpfInterface,
+            cswmFlowResultOIFIntList,
+            cswmFlowResultDFIntList     
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects for querying l3 multicast
+             flows."
+        ::= { cswmMIBGroups 10 }
+END
+

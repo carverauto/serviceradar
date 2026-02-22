@@ -1,0 +1,215 @@
+-- MIB file created 29-Mar-2004 18:08:34, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VISM-RSRC-PART-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VISM-RSRC-PART-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    vismPort
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVismRsrcPartMIB OBJECT IDENTIFIER ::= { ciscoWan 93 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200312090000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--        Postal: 170 W Tasman Drive 
+--                San Jose, CA  95134 
+--                USA 
+--    
+--                Tel: +1 800 553-NETS 
+--    
+--        E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module containing Port Resource 
+--     Partition information for VISM service module. 
+--  RevDate
+--    200312090000Z
+--  RevDescr
+--    Initial version of the MIB. 
+--    
+--    The content of this MIB was originally available 
+--    in SMIv1 version. The MIB has been converted to 
+--    SMIv2 version and descriptions of some of the objects 
+--    have been modified.
+
+vismPortResPartCnfGrp OBJECT IDENTIFIER ::= { vismPort 2 }
+ciscoVismRsrcPartMIBConformance OBJECT IDENTIFIER ::= { ciscoVismRsrcPartMIB 2 }
+ciscoVismRsrcPartMIBGroups OBJECT IDENTIFIER ::= { ciscoVismRsrcPartMIBConformance 1 }
+ciscoVismRsrcPartMIBCompliances OBJECT IDENTIFIER ::= { ciscoVismRsrcPartMIBConformance 2 }
+
+vismPortResPartCnfGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF VismPortResPartCnfGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The vismPortResPartCnfGrpTable contains the 
+         configuration of port resource partition. 
+         Currently this table contains a single row. "
+    ::= { vismPortResPartCnfGrp 1 }
+
+vismPortResPartCnfGrpEntry OBJECT-TYPE
+    SYNTAX VismPortResPartCnfGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for port resource partition. "
+    INDEX { vismResPartPortNum, vismResPartCtrlrNum }
+    ::= { vismPortResPartCnfGrpTable 1 }
+
+VismPortResPartCnfGrpEntry ::= SEQUENCE {
+    vismResPartPortNum INTEGER,
+    vismResPartCtrlrNum INTEGER,
+    vismResPartRowStatus INTEGER,
+    vismResPartNumOfLcnAvail INTEGER,
+    vismResPartLcnLow INTEGER,
+    vismResPartLcnHigh INTEGER,
+    vismResPartIngrPctBW INTEGER,
+    vismResPartEgrPctBW INTEGER,
+    vismResPartCtrlrID INTEGER
+    }
+
+vismResPartPortNum OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the index to vismPortResPartCnfGrpTable. 
+         If PXM1(Processor Switch Module) is used on the 
+         shelf this object should be set to 1. For PXM1E 
+         this object should be set to 255. "
+    ::= { vismPortResPartCnfGrpEntry 1 }
+
+vismResPartCtrlrNum OBJECT-TYPE
+    SYNTAX INTEGER {
+        par(1),
+        pnni(2),
+        tag(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is index to vismPortResPartCnfGrpTable. "
+    ::= { vismPortResPartCnfGrpEntry 2 }
+
+vismResPartRowStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        add(1),
+        del(2),
+        mod(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This will 'add', 'delete' or 'modify' the partition. 
+        
+         To delete an entry, this object has to be set to 'del'. 
+         The resource partition can be deleted only after 
+         deleting all the connections Logical Channel 
+         Numbers(LCNs). "
+    ::= { vismPortResPartCnfGrpEntry 3 }
+
+vismResPartNumOfLcnAvail OBJECT-TYPE
+    SYNTAX INTEGER(0..380)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This represents number of LCNs available for this 
+         controller and this port. The default value for this 
+         object is chosen based on the object vismMode 
+         (defined in CISCO-VISM-MODULE-MIB MIB) : "
+    ::= { vismPortResPartCnfGrpEntry 4 }
+
+vismResPartLcnLow OBJECT-TYPE
+    SYNTAX INTEGER(131..510)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This represents low end of reserved LCN. The LCN  
+         identifies the local VCI(Virtual Channel Identifier) 
+         value on the VISM when adding a connection. "
+    DEFVAL { 131 }
+    ::= { vismPortResPartCnfGrpEntry 5 }
+
+vismResPartLcnHigh OBJECT-TYPE
+    SYNTAX INTEGER(131..510)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This represents high end of reserved LCN. The LCN  
+         identifies the local VCI value on the VISM when 
+         adding a connection.  "
+    DEFVAL { 510 }
+    ::= { vismPortResPartCnfGrpEntry 6 }
+
+vismResPartIngrPctBW OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of total ingress bandwidth reserved. 
+         Since we have only one LCN for VoIP(Voice Over IP), 
+         the value is 100. "
+    DEFVAL { 100 }
+    ::= { vismPortResPartCnfGrpEntry 7 }
+
+vismResPartEgrPctBW OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of total egress bandwidth reserved  
+         Since we have only one LCN for VoIP, the value 
+         is 100. "
+    DEFVAL { 100 }
+    ::= { vismPortResPartCnfGrpEntry 8 }
+
+vismResPartCtrlrID OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the controller identifier of the PNNI 
+         (Private Network to Network Interface) controller.  "
+    DEFVAL { 2 }
+    ::= { vismPortResPartCnfGrpEntry 9 }
+
+ciscoVismRsrcPartGroup OBJECT IDENTIFIER ::= { ciscoVismRsrcPartMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to represent 
+--    VISM Port Resource Partition configuration.
+--  objects
+--    vismResPartPortNum, vismResPartCtrlrNum, vismResPartRowStatus, 
+--    vismResPartNumOfLcnAvail, vismResPartLcnLow, 
+--    vismResPartLcnHigh, vismResPartIngrPctBW, vismResPartEgrPctBW, 
+--    vismResPartCtrlrID
+
+ciscoVismRsrcPartCompliance OBJECT IDENTIFIER ::= { ciscoVismRsrcPartMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for objects related 
+--    to VISM Port Resource Partition configuration.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVismRsrcPartGroup
+
+
+END
+

@@ -1,0 +1,74 @@
+<TITLE>WS-C1400 MIB Support List</TITLE>
+<h1>WS-C1400 MIB Support List</h1>
+<hr>
+The lists below indicate which MIBs and SNMP traps are supported by the 
+WS-C1400 CDDI/FDDI workgroup concentrators.  Depending on the version of
+the software, different MIBs and traps are supported.
+<p>
+SNMP version 1 MIB files are in the <A HREF="../../v1">v1</A> directory and 
+SNMP version 2 MIB files are in the <A HREF="../../v2">v2</A> directory.
+Note that for most every MIB in the v2 directory, there exists a SNMP
+version 1 conversion of the MIB in the v1 directory as well.
+The corresponding schema files for SunNet Manager can be found in the 
+<A HREF="../../schema">schema</A> directory.
+Oid files for SunNet Manager can be found in the
+<A HREF="../../oid">oid</A> directory.
+Trap files for SunNet Manager can be found in the 
+<A HREF="../../traps">traps</A> directory.
+<hr>
+<h2><strong>MIBs supported since software version 1.3</strong></h2>
+<dl>
+<p>
+<dd><A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+<dd><A HREF="../../v1/RFC1213-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> RFC1213-MIB.my</A>
+<dd><A HREF="../../v1/FDDI-SMT73-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> FDDI-SMT73-MIB.my</A>
+<dd><A HREF="../../v2/IF-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> IF-MIB.my</A>
+<p>
+</dl>
+<hr>
+<h2><strong>MIBs supported in initial software version</strong></h2>
+<dl>
+<p>
+<dd><A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+<dd><A HREF="../../v1/RFC1213-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> RFC1213-MIB.my</A>
+<dd><A HREF="../../v1/FDDI-SMT73-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> FDDI-SMT73-MIB.my</A>
+<p>
+</dl>
+
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since software version 1.3</strong></h2>
+<dl>
+<p>
+<pre>
+Trap Name                MIB File
+---------------------    --------------------------
+coldStart                RFC1157-SNMP
+authenticationFailure    RFC1157-SNMP
+linkDown                 <A HREF="../../v2/IF-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> IF-MIB.my</A>
+linkUp                   <A HREF="../../v2/IF-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> IF-MIB.my</A>
+lerAlarmOn               <A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+lerAlarmOff              <A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+moduleUp                 <A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+moduleDown               <A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+chassisAlarmOn           <A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+chassisAlarmOff          <A HREF="../../v1/CISCO-STACK-MIB.my"><IMG ALIGN=absbottom BORDER=0 SRC="internal-gopher-unknown"> CISCO-STACK-MIB.my</A>
+</pre>
+</dl>
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported in initial software version</strong></h2>
+<dl>
+<p>
+<pre>
+Trap Name                MIB File
+---------------------    --------------------------
+coldStart                RFC1157-SNMP
+authenticationFailure    RFC1157-SNMP
+</pre>
+</dl>
+

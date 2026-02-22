@@ -1,0 +1,151 @@
+-- *****************************************************************
+-- CISCO-SWITCH-NETFLOW-CAPABILITY.my:
+-- Cisco CISCO-SWITCH-NETFLOW-MIB AGENT-CAPABILITIES
+--   
+-- November 2010, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2010-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-NETFLOW-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    Percent
+        FROM CISCO-QOS-PIB-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSwitchNetflowCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-SWITCH-NETFLOW-MIB."
+    REVISION        "201209110000Z"
+    DESCRIPTION
+        "Added apability statement csnCapV15R0101SYPCat6kPfc3."
+    REVISION        "201011170000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 602 }
+
+
+
+csnCapV12R0250SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-NETFLOW-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-NETFLOW-MIB
+    INCLUDES        {
+                        csnGlobalGroup,
+                        csnUsageThreshNotifControlGroup,
+                        csnUsageThreshGroup,
+                        csnUtilizationGroup,
+                        csnUsageThreshNotifGroup,
+                        csnNetflowTableSizeGroup,
+                        csnSamplerGroup
+                    }
+    VARIATION       csnNetflowDirectionType
+    SYNTAX          INTEGER  {
+                        none(1),
+                        ingress(2),
+                        ingressandegress(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       csnUsageDirection
+    SYNTAX          INTEGER  {
+                        ingress(2),
+                        egress(3)
+                    }
+    DESCRIPTION
+        "Only limited set of values
+        is supported."
+
+    VARIATION       csnUsageThreshold
+    SYNTAX          Percent (0 | 20..100)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       csnUsageInterval
+    SYNTAX          Unsigned32 (120..1000000)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        csnUsageInterval can not be set if the value
+        of the corresponding csnUsageThreshold is zero."
+
+    ::= { ciscoSwitchNetflowCapability 1 }
+
+csnCapV15R0101SYPCat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-NETFLOW-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-NETFLOW-MIB
+    INCLUDES        {
+                        csnGlobalGroup,
+                        csnUsageThreshNotifControlGroup,
+                        csnUsageThreshGroup,
+                        csnUtilizationGroup,
+                        csnUsageThreshNotifGroup
+                    }
+    VARIATION       csnNetflowDirectionType
+    SYNTAX          INTEGER  {
+                        ingress(2)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported.
+        Only limited set of enumerated values is supported."
+
+    VARIATION       csnUsageDirection
+    SYNTAX          INTEGER  {
+                        ingress(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       csnUsageThreshold
+    SYNTAX          Percent (0 | 20..100)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       csnUsageInterval
+    SYNTAX          Unsigned32 (120..1000000)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        csnUsageInterval can not be set if the value
+        of the corresponding csnUsageThreshold is zero."
+
+    ::= { ciscoSwitchNetflowCapability 2 }
+
+END
+
+
+
+
+

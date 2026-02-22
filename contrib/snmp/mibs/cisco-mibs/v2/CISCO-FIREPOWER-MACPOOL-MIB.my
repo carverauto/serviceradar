@@ -1,0 +1,636 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-MACPOOL-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- MACPOOL management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-MACPOOL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprAddressMACMask,
+    CfprMacpoolPoolAssignmentOrder,
+    CfprPolicyPolicyOwner,
+    CfprPoolElementOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprMacpoolObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        MACPOOL management information model package"
+    ::= { ciscoFirepowerMIBObjects 49 }
+
+cfprMacpoolAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprMacpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr managed object table"
+    ::= { cfprMacpoolObjects 1 }
+
+cfprMacpoolAddrEntry OBJECT-TYPE
+    SYNTAX           CfprMacpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprMacpoolAddrTable table."
+    INDEX { cfprMacpoolAddrInstanceId }
+    ::= { cfprMacpoolAddrTable 1 }
+
+CfprMacpoolAddrEntry ::= SEQUENCE {
+    cfprMacpoolAddrInstanceId                                        CfprManagedObjectId,
+    cfprMacpoolAddrDn                                                CfprManagedObjectDn,
+    cfprMacpoolAddrRn                                                SnmpAdminString,
+    cfprMacpoolAddrAssigned                                          TruthValue,
+    cfprMacpoolAddrAssignedToDn                                      SnmpAdminString,
+    cfprMacpoolAddrGlobalAssignedCnt                                 Gauge32,
+    cfprMacpoolAddrGlobalDefinedCnt                                  Gauge32,
+    cfprMacpoolAddrId                                                MacAddress,
+    cfprMacpoolAddrOwner                                             CfprPoolElementOwner
+}
+
+cfprMacpoolAddrInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprMacpoolAddrEntry 1 }
+
+cfprMacpoolAddrDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:dn managed object property"
+    ::= { cfprMacpoolAddrEntry 2 }
+
+cfprMacpoolAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:rn managed object property"
+    ::= { cfprMacpoolAddrEntry 3 }
+
+cfprMacpoolAddrAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:assigned managed object property"
+    ::= { cfprMacpoolAddrEntry 4 }
+
+cfprMacpoolAddrAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:assignedToDn managed
+        object property"
+    ::= { cfprMacpoolAddrEntry 5 }
+
+cfprMacpoolAddrGlobalAssignedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:globalAssignedCnt
+        managed object property"
+    ::= { cfprMacpoolAddrEntry 6 }
+
+cfprMacpoolAddrGlobalDefinedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:globalDefinedCnt
+        managed object property"
+    ::= { cfprMacpoolAddrEntry 7 }
+
+cfprMacpoolAddrId OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:id managed object property"
+    ::= { cfprMacpoolAddrEntry 8 }
+
+cfprMacpoolAddrOwner OBJECT-TYPE
+    SYNTAX       CfprPoolElementOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Addr:owner managed object property"
+    ::= { cfprMacpoolAddrEntry 9 }
+
+cfprMacpoolBlockTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprMacpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower macpool:Block managed object table"
+    ::= { cfprMacpoolObjects 2 }
+
+cfprMacpoolBlockEntry OBJECT-TYPE
+    SYNTAX           CfprMacpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprMacpoolBlockTable table."
+    INDEX { cfprMacpoolBlockInstanceId }
+    ::= { cfprMacpoolBlockTable 1 }
+
+CfprMacpoolBlockEntry ::= SEQUENCE {
+    cfprMacpoolBlockInstanceId                                       CfprManagedObjectId,
+    cfprMacpoolBlockDn                                               CfprManagedObjectDn,
+    cfprMacpoolBlockRn                                               SnmpAdminString,
+    cfprMacpoolBlockFrom                                             MacAddress,
+    cfprMacpoolBlockTo                                               MacAddress
+}
+
+cfprMacpoolBlockInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprMacpoolBlockEntry 1 }
+
+cfprMacpoolBlockDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Block:dn managed object property"
+    ::= { cfprMacpoolBlockEntry 2 }
+
+cfprMacpoolBlockRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Block:rn managed object property"
+    ::= { cfprMacpoolBlockEntry 3 }
+
+cfprMacpoolBlockFrom OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Block:from managed object property"
+    ::= { cfprMacpoolBlockEntry 4 }
+
+cfprMacpoolBlockTo OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Block:to managed object property"
+    ::= { cfprMacpoolBlockEntry 5 }
+
+cfprMacpoolFormatTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprMacpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower macpool:Format managed object table"
+    ::= { cfprMacpoolObjects 3 }
+
+cfprMacpoolFormatEntry OBJECT-TYPE
+    SYNTAX           CfprMacpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprMacpoolFormatTable table."
+    INDEX { cfprMacpoolFormatInstanceId }
+    ::= { cfprMacpoolFormatTable 1 }
+
+CfprMacpoolFormatEntry ::= SEQUENCE {
+    cfprMacpoolFormatInstanceId                                      CfprManagedObjectId,
+    cfprMacpoolFormatDn                                              CfprManagedObjectDn,
+    cfprMacpoolFormatRn                                              SnmpAdminString,
+    cfprMacpoolFormatFormat                                          MacAddress,
+    cfprMacpoolFormatMask                                            CfprAddressMACMask
+}
+
+cfprMacpoolFormatInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprMacpoolFormatEntry 1 }
+
+cfprMacpoolFormatDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Format:dn managed object property"
+    ::= { cfprMacpoolFormatEntry 2 }
+
+cfprMacpoolFormatRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Format:rn managed object property"
+    ::= { cfprMacpoolFormatEntry 3 }
+
+cfprMacpoolFormatFormat OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Format:format managed object property"
+    ::= { cfprMacpoolFormatEntry 4 }
+
+cfprMacpoolFormatMask OBJECT-TYPE
+    SYNTAX       CfprAddressMACMask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Format:mask managed object property"
+    ::= { cfprMacpoolFormatEntry 5 }
+
+cfprMacpoolPoolTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprMacpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool managed object table"
+    ::= { cfprMacpoolObjects 4 }
+
+cfprMacpoolPoolEntry OBJECT-TYPE
+    SYNTAX           CfprMacpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprMacpoolPoolTable table."
+    INDEX { cfprMacpoolPoolInstanceId }
+    ::= { cfprMacpoolPoolTable 1 }
+
+CfprMacpoolPoolEntry ::= SEQUENCE {
+    cfprMacpoolPoolInstanceId                                        CfprManagedObjectId,
+    cfprMacpoolPoolDn                                                CfprManagedObjectDn,
+    cfprMacpoolPoolRn                                                SnmpAdminString,
+    cfprMacpoolPoolAssigned                                          Gauge32,
+    cfprMacpoolPoolAssignmentOrder                                   CfprMacpoolPoolAssignmentOrder,
+    cfprMacpoolPoolDescr                                             SnmpAdminString,
+    cfprMacpoolPoolIntId                                             SnmpAdminString,
+    cfprMacpoolPoolName                                              SnmpAdminString,
+    cfprMacpoolPoolPolicyLevel                                       Gauge32,
+    cfprMacpoolPoolPolicyOwner                                       CfprPolicyPolicyOwner,
+    cfprMacpoolPoolSize                                              Gauge32
+}
+
+cfprMacpoolPoolInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprMacpoolPoolEntry 1 }
+
+cfprMacpoolPoolDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:dn managed object property"
+    ::= { cfprMacpoolPoolEntry 2 }
+
+cfprMacpoolPoolRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:rn managed object property"
+    ::= { cfprMacpoolPoolEntry 3 }
+
+cfprMacpoolPoolAssigned OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:assigned managed object property"
+    ::= { cfprMacpoolPoolEntry 4 }
+
+cfprMacpoolPoolAssignmentOrder OBJECT-TYPE
+    SYNTAX       CfprMacpoolPoolAssignmentOrder
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:assignmentOrder managed
+        object property"
+    ::= { cfprMacpoolPoolEntry 5 }
+
+cfprMacpoolPoolDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:descr managed object property"
+    ::= { cfprMacpoolPoolEntry 6 }
+
+cfprMacpoolPoolIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:intId managed object property"
+    ::= { cfprMacpoolPoolEntry 7 }
+
+cfprMacpoolPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:name managed object property"
+    ::= { cfprMacpoolPoolEntry 8 }
+
+cfprMacpoolPoolPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:policyLevel managed object property"
+    ::= { cfprMacpoolPoolEntry 9 }
+
+cfprMacpoolPoolPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:policyOwner managed object property"
+    ::= { cfprMacpoolPoolEntry 10 }
+
+cfprMacpoolPoolSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pool:size managed object property"
+    ::= { cfprMacpoolPoolEntry 11 }
+
+cfprMacpoolPoolableTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprMacpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower macpool:Poolable managed object table"
+    ::= { cfprMacpoolObjects 5 }
+
+cfprMacpoolPoolableEntry OBJECT-TYPE
+    SYNTAX           CfprMacpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprMacpoolPoolableTable table."
+    INDEX { cfprMacpoolPoolableInstanceId }
+    ::= { cfprMacpoolPoolableTable 1 }
+
+CfprMacpoolPoolableEntry ::= SEQUENCE {
+    cfprMacpoolPoolableInstanceId                                    CfprManagedObjectId,
+    cfprMacpoolPoolableDn                                            CfprManagedObjectDn,
+    cfprMacpoolPoolableRn                                            SnmpAdminString,
+    cfprMacpoolPoolableId                                            Unsigned64,
+    cfprMacpoolPoolablePoolDn                                        SnmpAdminString
+}
+
+cfprMacpoolPoolableInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprMacpoolPoolableEntry 1 }
+
+cfprMacpoolPoolableDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Poolable:dn managed object property"
+    ::= { cfprMacpoolPoolableEntry 2 }
+
+cfprMacpoolPoolableRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Poolable:rn managed object property"
+    ::= { cfprMacpoolPoolableEntry 3 }
+
+cfprMacpoolPoolableId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Poolable:id managed object property"
+    ::= { cfprMacpoolPoolableEntry 4 }
+
+cfprMacpoolPoolablePoolDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Poolable:poolDn managed object property"
+    ::= { cfprMacpoolPoolableEntry 5 }
+
+cfprMacpoolPooledTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprMacpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled managed object table"
+    ::= { cfprMacpoolObjects 6 }
+
+cfprMacpoolPooledEntry OBJECT-TYPE
+    SYNTAX           CfprMacpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprMacpoolPooledTable table."
+    INDEX { cfprMacpoolPooledInstanceId }
+    ::= { cfprMacpoolPooledTable 1 }
+
+CfprMacpoolPooledEntry ::= SEQUENCE {
+    cfprMacpoolPooledInstanceId                                      CfprManagedObjectId,
+    cfprMacpoolPooledDn                                              CfprManagedObjectDn,
+    cfprMacpoolPooledRn                                              SnmpAdminString,
+    cfprMacpoolPooledAssigned                                        TruthValue,
+    cfprMacpoolPooledAssignedToDn                                    SnmpAdminString,
+    cfprMacpoolPooledId                                              MacAddress,
+    cfprMacpoolPooledPoolableDn                                      SnmpAdminString,
+    cfprMacpoolPooledPrevAssignedToDn                                SnmpAdminString
+}
+
+cfprMacpoolPooledInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprMacpoolPooledEntry 1 }
+
+cfprMacpoolPooledDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled:dn managed object property"
+    ::= { cfprMacpoolPooledEntry 2 }
+
+cfprMacpoolPooledRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled:rn managed object property"
+    ::= { cfprMacpoolPooledEntry 3 }
+
+cfprMacpoolPooledAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled:assigned managed object property"
+    ::= { cfprMacpoolPooledEntry 4 }
+
+cfprMacpoolPooledAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled:assignedToDn managed
+        object property"
+    ::= { cfprMacpoolPooledEntry 5 }
+
+cfprMacpoolPooledId OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled:id managed object property"
+    ::= { cfprMacpoolPooledEntry 6 }
+
+cfprMacpoolPooledPoolableDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled:poolableDn managed
+        object property"
+    ::= { cfprMacpoolPooledEntry 7 }
+
+cfprMacpoolPooledPrevAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Pooled:prevAssignedToDn
+        managed object property"
+    ::= { cfprMacpoolPooledEntry 8 }
+
+cfprMacpoolUniverseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprMacpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower macpool:Universe managed object table"
+    ::= { cfprMacpoolObjects 7 }
+
+cfprMacpoolUniverseEntry OBJECT-TYPE
+    SYNTAX           CfprMacpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprMacpoolUniverseTable table."
+    INDEX { cfprMacpoolUniverseInstanceId }
+    ::= { cfprMacpoolUniverseTable 1 }
+
+CfprMacpoolUniverseEntry ::= SEQUENCE {
+    cfprMacpoolUniverseInstanceId                                    CfprManagedObjectId,
+    cfprMacpoolUniverseDn                                            CfprManagedObjectDn,
+    cfprMacpoolUniverseRn                                            SnmpAdminString
+}
+
+cfprMacpoolUniverseInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprMacpoolUniverseEntry 1 }
+
+cfprMacpoolUniverseDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Universe:dn managed object property"
+    ::= { cfprMacpoolUniverseEntry 2 }
+
+cfprMacpoolUniverseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower macpool:Universe:rn managed object property"
+    ::= { cfprMacpoolUniverseEntry 3 }
+
+END

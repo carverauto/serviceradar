@@ -1,0 +1,924 @@
+-- *******************************************************************
+-- CISCO-DOT11-WIDS-MIB.my 
+-- November 2004, Prasanna Viswakumar
+--
+-- Copyright (c) 2004-2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-DOT11-WIDS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Unsigned32,
+        Integer32,
+        Counter32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        MacAddress,
+        TimeStamp,
+        TruthValue
+                FROM SNMPv2-TC 
+        ifIndex
+                FROM IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoDot11WidsMIB MODULE-IDENTITY
+        LAST-UPDATED   "200411300000Z"
+        ORGANIZATION   "Cisco System Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                        Postal: 170 West Tasman Drive
+			            San Jose, CA  95134
+			            USA
+                        Tel: +1 800 553-NETS                 
+            
+                E-mail: cs-dot11@cisco.com"
+
+        DESCRIPTION
+                "This MIB is intended to be implemented on the 
+                following IOS based network entities for the purpose
+                of providing network management stations information
+                about the various attempts to compromise the security
+                in the 802.11-based wireless networks.
+                   
+                (i) 802.11 Access Points that accept wireless client
+                associations.
+ 
+                The MIB reports the information about the following
+                attacks that can happen either at the initial
+                authentication phase or during normal data
+                communication between the client and the AP.
+ 
+                EAPOL flooding - This is an attempt made by an
+                invalid 802.11 client to send too many EAPOL-Start
+                messages and bring the authentication services
+                on the Authenticator, typically the AP, down.
+
+                BlackListing - This is the process of marking
+                a client as invalid when its authentication
+                attempts fail.  The client is put in a list
+                when its authentication attempt fails for the
+                first time.  If the number of consecutive
+                failed authentication attempts reach a threshold,
+                any subsequent authentication requests made by 
+                the client will be rejected from that point for
+                a configurable period of time.
+
+                Protection Failures - These kind of failures
+                happen when the attacker injects invalid packets
+                onto the wireless network thereby corrupting the
+                802.11 data traffic between an AP and its
+                associated wireless clients.
+                                                  
+                The administrator, through the NMS, can configure
+                the thresholds on the AP using this MIB to enable
+                the AP detect the EAPOL flood attacks and provide
+                related statistics to the NMS.
+
+                To detect protection failures, the AP provides the
+                relevant statistics about the protection errors in
+                the form of MIB objects, which are compared against
+                the thresholds configured on the NMS and appropriate
+                events are raised by the NMS, if thresholds are
+                found to be exceeded.
+               
+                The hierarchy of the AP and MNs is as follows.
+
+        +~-~-~+      +~-~-~+       +~-~-~+           +~-~-~+
+        +     +      +     +       +     +           +     +
+        + AP  +      + AP  +       + AP  +           + AP  +
+        +     +      +     +       +     +           +     +
+        +~-~-~+      +~-~-~+       +~-~-~+           +~-~-~+
+          ..            .             .                 .
+          ..            .             .                 .
+         .  .            .             .                 .
+        .    .            .             .                 .
+       .      .            .             .                 .
+      .        .            .             .                 .
+     \/        \/           \/            \/                \/
+   +.....+  +.....+      +-.-.-.+       +~-~-~+          +......+
+   +     +  +     +      +      +       +     +          +      +
+   + MN  +  + MN  +      + MN   +       + MN  +          +  MN  +
+   +     +  +     +      +      +       +     +          +      +
+   +.....+  +.....+      +-.-.-.+       +~-~-~+          +......+
+
+
+                The wireless connections are represented as dotted
+                lines in the above diagram.
+
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point.
+
+                Service Set Identifier (SSID)
+
+                The Radio Service Set ID that is used by the mobile
+                wireless clients for identification during the
+                association with the APs.
+ 
+                Temporal Key Integrity Protocol (TKIP)
+
+                A security protocol defined to enhance the limitations
+                of WEP.  Message Integrity Check and per-packet keying
+                on all WEP-encrypted frames are two significant
+                enhancements provided by TKIP to WEP.
+
+
+                Counter mode with CBC-MAC Protocol (CCMP)
+
+                A security protocol that uses the counter mode in
+                conjunction with cipher block chaining.  This method
+                divides the data into blocks, encrypts the first
+                block, XORs the results with the second block,
+                encrypts the result, XORs the result with the next
+                block and continues till all the blocks are
+                processed.  This way, this protocol derives a
+                64-bit MIC which is appended to the plaintext data
+                which is again encrypted using the counter mode.
+
+
+                Message Integrity Check (MIC)
+
+                The Message Integrity Check is an improvement over the
+                Integrity Check Function (ICV) of the 802.11 standard.
+                MIC adds two new fields to the wireless frames - a
+                sequence number field for detecting out-of-order
+                frames and a MIC field to provide a frame integrity
+                check to overcome the mathematical shortcomings of
+                the ICV.
+ 
+
+                802.1x
+
+                The IEEE ratified standard for enforcing port based
+                access control.  This was originally intended for
+                use on wired LANs and later extended for use in
+                802.11 WLAN environments.  This defines an
+                architecture with three main parts - a supplicant
+                (Ex. an 802.11 wireless client), an authenticator
+                (the AP) and an authentication server(a Radius
+                server).  The authenticator passes messages back
+                and forth between the supplicant and the
+                authentication server to enable the supplicant
+                get authenticated to the network. 
+                               
+
+                Extensible Authentication Protocol Over LAN (EAPOL)
+
+                This is an encapsulation method defined by 802.1x
+                passing EAP packets over Ethernet frames. "
+ 
+--              REFERENCE
+ 
+--              [1] Wireless LAN Medium Access Control ( MAC ) and
+--              Physical Layer ( PHY ) Specifications, 
+--              Amendment 6, MAC Security Enhancements. 
+
+        REVISION      "200411300000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 456 }
+
+ciscoDot11WidsMIBNotifs  OBJECT IDENTIFIER
+        ::= { ciscoDot11WidsMIB 0 }
+
+ciscoDot11WidsMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoDot11WidsMIB 1 }
+
+ciscoDot11WidsAuthFailures OBJECT IDENTIFIER
+        ::= { ciscoDot11WidsMIBObjects 1 }
+
+ciscoDot11WidsProtectFailures OBJECT IDENTIFIER 
+        ::= { ciscoDot11WidsMIBObjects 2 }
+
+ciscoDot11WidsMIBConform OBJECT IDENTIFIER
+        ::= { ciscoDot11WidsMIB 2 }
+
+ciscoDot11WidsMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoDot11WidsMIBConform 1 }
+
+ciscoDot11WidsMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoDot11WidsMIBConform 2 }
+
+--********************************************************************
+--*  EAPOL Flooding / Black Listing global configuration 
+--********************************************************************
+
+cDot11WidsFloodDetectEnable OBJECT-TYPE
+        SYNTAX     TruthValue 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object is used to enable or disable the WIDS
+                flood detection feature.
+
+                Set this MIB object to 'true' to enable the
+                flood detection and 'false' to disable it.
+
+                Note that the values configured through 
+                cDot11WidsFloodThreshold and 
+                cDot11WidsEapolFloodInterval take effect only if 
+                flood detection is enabled through this MIB 
+                object. "
+        ::= { ciscoDot11WidsAuthFailures 1 }
+
+cDot11WidsEapolFloodThreshold OBJECT-TYPE
+        SYNTAX     Unsigned32(1..512)
+        UNITS      "attempts"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the maximum number of
+                authentication attempts allowed for all the clients
+                taken together in the interval specified by
+                cDot11WidsEapolFloodInterval.  The attempts include
+                both the successful as well as failed attempts. "
+        DEFVAL { 3 }                 
+        ::= { ciscoDot11WidsAuthFailures 2 }
+
+cDot11WidsEapolFloodInterval OBJECT-TYPE
+        SYNTAX     Unsigned32(1..300)
+        UNITS      "seconds" 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the time duration for 
+                which the client authentication attempts have to
+                be monitored for detecting the flood attack. "
+        DEFVAL { 60 }               
+        ::= { ciscoDot11WidsAuthFailures 3 }
+
+cDot11WidsBlackListThreshold OBJECT-TYPE
+        SYNTAX     Unsigned32(1..512)
+        UNITS      "attempts"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object configures the maximum threshold on
+                the number of unsuccessful authentication attempts,
+                that can be made by a particular client.  Once the
+                threshold is reached, the client is retained in the
+                list for a period of time equal to the value
+                configured through cDot11WidsBlackListDuration,
+                during which its attempts to get authenticated
+                are blocked. "
+        DEFVAL { 3 }
+        ::= { ciscoDot11WidsAuthFailures 4 }
+
+
+cDot11WidsBlackListDuration OBJECT-TYPE
+        SYNTAX     Unsigned32(1..300)
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the time duration for which a
+                particular client has to be kept in the black list
+                after the number of unsuccessful attempts reach the
+                threshold given by cDot11WidsBlackListThreshold. "
+        DEFVAL { 60 }
+        ::= { ciscoDot11WidsAuthFailures 5 }
+
+cDot11WidsFloodMaxEntriesPerIntf OBJECT-TYPE
+        SYNTAX     Integer32 (1..2147483647)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the maximum number of entries
+                that can be held for a particular 802.11 radio 
+                interface identified by ifIndex. " 
+        ::= { ciscoDot11WidsAuthFailures 6 }
+
+cDot11WidsEapolFloodTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11WidsEapolFloodEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table gives the statistics on the EAPOL flood
+                attacks observed at this radio interface.
+                
+                An entry in this table is created by the agent when
+                this 802.11 station detects an EAPOL flood attack.
+                All the columns in the entries except the
+                cDot11WidsEapolFloodStopTime are populated when
+                the attack is observed first.  The object
+                cDot11WidsEapolFloodStopTime is populated when no
+                flood conditions are observed following the initial
+                observation at the time indicated by
+                cDot11WidsEapolFloodStartTime.
+
+                This can be illustrated by the following example.
+
+                Assume that the monitoring interval is configured 
+                to 1 minute through the
+                cDot11WidsEapolFloodInterval object and the number
+                of attempts is set to 5.
+ 
+                At the end of the first minute after this
+                configuration is made,  client c1 is found to
+                have made 4 attempts and another client c2 have
+                made 3.  Hence, in total, the attempt count
+                exceeds 7 and the agent adds a new row to this
+                table.  The cDot11WidsFloodStopTime carries a
+                value of 0 at this point in the newly added row.
+                The MIB object cDot11WidsEapolFloodClientMac
+                at this point holds the MAC address of c1
+                and cDot11WidsEapolFloodClientCount holds the
+                value of 4.
+ 
+                At the end of the second interval,  assume that
+                the clients are found to have made only 4
+                attempts in total with c1 and c2 making 3 and 1
+                attempt(s) respectively.  Now the total count
+                is not found to exceed the threshold.  Hence
+                the flood is observed to be stopped.  The
+                object cDot11WidsEapolFloodStopTime is now
+                populated with this time at which the flood is
+                observed to be stopped.  The MIB object
+                cDot11WidsEapolFloodClientMac at this point
+                holds c1's MAC address and 
+                cDot11WidsEapolFloodClientCount would hold a
+                value of 7. If the count is found to exceed in
+                the next interval, it will be treated as a
+                beginning of a new flood event and hence a new
+                entry will be created for the same.
+
+                Assume the case where, at the end of the second
+                interval, the total count continues at the
+                rate above the threshold, with c1 making 5 and
+                c2 making 2 attempts respectively.  Since the
+                flood is not observed to be stopped,  the
+                object cDot11WidsFloodStopTime continues to
+                hold a value of zero.
+
+                The agent at anytime will retain only the most
+                recent and maximum number of entries, as given
+                by cDot11WidsFloodMaxEntriesPerIntf,  for a
+                particular value of ifIndex.  The older entries
+                are purged automatically when the number of
+                entries for a particular ifIndex reaches its
+                maximum.
+
+                This table has a expansion dependent relationship
+                with ifTable defined in IF-MIB.  There exists a
+                row in this table corresponding to the row for each
+                interface of iftype ieee80211(71) found in ifTable.
+                cDot11WidsEapolFloodIndex acts as the
+                expansion index. "
+        ::= { ciscoDot11WidsAuthFailures 7 }
+
+cDot11WidsEapolFloodEntry OBJECT-TYPE
+        SYNTAX     CDot11WidsEapolFloodEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry holds the statistics about one instance of
+                EAPOL flood attack observed at this particular
+                radio interface. "
+        INDEX   { ifIndex, cDot11WidsEapolFloodIndex }
+        ::=     { cDot11WidsEapolFloodTable 1 }
+
+
+CDot11WidsEapolFloodEntry ::=
+        SEQUENCE  {
+                cDot11WidsEapolFloodIndex       Unsigned32,
+                cDot11WidsEapolFloodClientMac   MacAddress,
+                cDot11WidsEapolFloodClientCount Unsigned32,
+                cDot11WidsEapolFloodStartTime   TimeStamp,
+                cDot11WidsEapolFloodStopTime    TimeStamp,
+                cDot11WidsEapolFloodTotalCount  Counter32
+        }
+
+
+cDot11WidsEapolFloodIndex OBJECT-TYPE
+        SYNTAX     Unsigned32(1..100)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object identifies the set of information about
+                one instance of an EAPOL flood event observed at
+                this radio interface between the start and stop
+                times indicated by cDot11WidsEapolFloodStartTime
+                and cDot11WidsEapolFloodStopTime. "
+        ::= { cDot11WidsEapolFloodEntry 1 }
+
+cDot11WidsEapolFloodClientMac OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object identifies the MAC address of the
+                wireless client that has made the maximum
+                number of authentication attempts in the
+                duration specified by the 
+                cDot11WidsEapolFloodInterval object.
+
+                At the end of each interval time indicated by 
+                cDot11WidsFloodInterval, the 802.11 station
+                checks whether the total count of the number of
+                authentication attempts made by all the clients
+                exceed the threshold configured through the
+                object cDot11WidsEapolFloodThreshold.  If yes,
+                then the agent populates this MIB object
+                with the MAC of the wireless client that has
+                made the maximum number of authentication
+                attempts in that interval.
+
+                When the flood event is observed to be stopped,
+                as indicated by a non-zero value for the
+                cDot11WidsEapolFloodStopTime object,
+                this object indicates the MAC of the wireless
+                client that has made the maximum number of
+                attempts for the entire duration of the flood
+                observed between the times indicated by the
+                objects cDot11WidsEapolFloodStartTime and
+                cDot11WidsEapolFloodStopTime respectively. "
+        ::= { cDot11WidsEapolFloodEntry 2 }
+
+cDot11WidsEapolFloodClientCount OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object provides the count associated with
+                the client with largest number of attempts in
+                the last interval.
+
+                When the flood event is observed to be stopped,
+                as indicated by a non-zero value for the
+                cDot11WidsEapolFloodStopTime object, this
+                object gives the count associated with the
+                client with the largest number of attempts,
+                for the entire duration of the flood observed
+                between the times indicated by the objects
+                cDot11WidsEapolFloodStartTime and
+                cDot11WidsEapolFloodStopTime respectively. "
+        ::= { cDot11WidsEapolFloodEntry 3 } 
+
+cDot11WidsEapolFloodStartTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the time at which the
+                EAPOL flood event identified by one entry of
+                this table was observed first at this radio
+                interface. "
+        ::= { cDot11WidsEapolFloodEntry 4 }
+
+cDot11WidsEapolFloodStopTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the time at which the 
+                the EAPOL flood event observed first at the
+                time indicated by cDot11WidsEapolFloodStartTime
+                has stopped.
+
+                If this 802.11 station finds that the flood
+                conditions observed in the one or more prior
+                intervals has ceased, it marks the flood
+                event as stopped at the time indicated by
+                this object.  That the flood has ceased is
+                indicated by the number of authentication
+                attempts dropping below the value specified by
+                the cDot11WidsEapolFloodThreshold object.
+
+                A value of 0 for this object indicates that
+                the number of authentication attempts continue
+                to exceed the value specified by the
+                cDot11WidsEapolFloodThreshold object. "
+        ::= { cDot11WidsEapolFloodEntry 5 }
+
+cDot11WidsEapolFloodTotalCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object gives the accumulated count of the
+                number of authentication attempts made by all the
+                clients at the time of query. " 
+        ::= { cDot11WidsEapolFloodEntry 6 }
+
+                                
+cDot11WidsBlackListTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11WidsBlackListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table gives the information about the
+                802.11 wireless clients that have been blacklisted
+                while attempting to get authenticated with this
+                802.11 station at this radio interface.
+
+                An entry is added to this table when the number
+                of consecutive failed authentication attempts
+                made by a client equals the value configured
+                through cDot11WidsBlackListThreshold.  The
+                client will then be blocked from getting
+                authenticated for a time period equal to the
+                value configured through
+                cDot11WidsBlackListDuration.  After this time
+                elapses, the client is taken off from the list
+                and the agent automatically removes the entry
+                corresponding to that client from this table.
+         
+                This table has a expansion dependent relationship on
+                the ifTable.  For each entry in this table, there
+                exists at least an entry in the ifTable of ifType
+                ieee80211(71).  cDot11BlackListIndex acts as the
+                expansion index. "
+        ::= { ciscoDot11WidsAuthFailures 8 }
+
+
+cDot11WidsBlackListEntry OBJECT-TYPE
+        SYNTAX     CDot11WidsBlackListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry holds the information about one
+                802.11 wireless client that has been blacklisted
+                when attempting to get authenticated with
+                this 802.11 station at this radio interface. "
+        INDEX   { ifIndex, cDot11WidsBlackListClientMac }
+        ::= { cDot11WidsBlackListTable 1 }
+
+
+CDot11WidsBlackListEntry ::= 
+        SEQUENCE {
+                cDot11WidsBlackListClientMac      MacAddress,
+                cDot11WidsBlackListAttemptCount   Counter32,
+                cDot11WidsBlackListTime           TimeStamp 
+        }
+
+cDot11WidsBlackListClientMac OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the Mac Address of the
+                blacklisted client. "
+        ::= { cDot11WidsBlackListEntry 1 }
+
+cDot11WidsBlackListAttemptCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of attempts
+                made by the client identified by
+                cDot11WidsBlackListClientMac to get authenticated
+                with the 802.11 station through this radio
+                interface. "
+        ::= { cDot11WidsBlackListEntry 2 }
+
+cDot11WidsBlackListTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the time at which the client
+                was blacklisted after failing in its attempt to get
+                authenticated with this 802.11 station at this radio
+                interface. "
+        ::= { cDot11WidsBlackListEntry 3 }
+
+
+--********************************************************************
+--*  End of EAPOL Flooding group parameters
+--********************************************************************
+
+--********************************************************************
+--*  MIC / Protection  failure statistics
+--********************************************************************
+
+
+cDot11WidsProtectFailClientTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11WidsProtectFailClientEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table gives the statistics on the various
+                protection failures occurred during the data
+                communication of this 802.11 station with a
+                particular client currently associated at this
+                dot11 interface.
+
+                Note that the agent populates this table with an
+                entry for an associated client if and only if 
+                at least one of the error statistics, as reported
+                by the counter-type objects of this table, has a
+                non-zero value.
+         
+                This table has a expansion dependent relationship on
+                the ifTable.  For each entry in this table, there
+                exists at least an entry in the ifTable of ifType
+                ieee80211(71).  cDot11WidsSsid and 
+                cDot11WidsClientMacAddress act as the
+                expansion indices. "
+        ::= { ciscoDot11WidsProtectFailures 1 }
+
+
+cDot11WidsProtectFailClientEntry OBJECT-TYPE
+        SYNTAX     CDot11WidsProtectFailClientEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry holds the information about the
+                protection failures observed at this radio
+                interface when this 802.11 station communicates with
+                its associated client identified by
+                cDot11WidsClientMacAddress at the interface
+                identified by ifIndex. The clients are grouped
+                according to the SSIDs they use for their
+                association with the dot11 interface. " 
+        INDEX   { ifIndex, 
+                      cDot11WidsSsid,
+                          cDot11WidsClientMacAddress }
+        ::= { cDot11WidsProtectFailClientTable 1 }
+
+CDot11WidsProtectFailClientEntry ::= 
+        SEQUENCE {
+                cDot11WidsSsid                  OCTET STRING,
+                cDot11WidsClientMacAddress      MacAddress, 
+                cDot11WidsSelPairWiseCipher     OCTET STRING,
+                cDot11WidsTkipIcvErrors         Counter32,
+                cDot11WidsTkipLocalMicFailures  Counter32,
+                cDot11WidsTkipRemoteMicFailures Counter32,
+                cDot11WidsCcmpReplays           Counter32,
+                cDot11WidsCcmpDecryptErrors     Counter32,
+                cDot11WidsTkipReplays           Counter32,
+                cDot11WidsWepReplays            Counter32,
+                cDot11WidsWepIcvErrors          Counter32,
+                cDot11WidsCkipReplays           Counter32,
+                cDot11WidsCkipCmicErrors        Counter32
+        }
+
+cDot11WidsSsid OBJECT-TYPE
+        SYNTAX     OCTET STRING (SIZE(1..32))
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "This object specifies one of the SSIDs of this
+                radio interface using which the client has
+                associated with the 802.11 station. " 
+        ::= { cDot11WidsProtectFailClientEntry 1 }
+
+cDot11WidsClientMacAddress OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object identifies the MAC address of the
+                associated client to which this set of
+                statistics are applicable. "
+        ::= { cDot11WidsProtectFailClientEntry 2 }
+
+cDot11WidsSelPairWiseCipher OBJECT-TYPE
+        SYNTAX OCTET STRING (SIZE(4))
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "This object identifies the pairwise cipher used by
+                the client identified by cDot11WidsClientMacAddress
+                during its association with this 802.11 station
+                at the interface identified by ifIndex. "
+        REFERENCE
+                "Section 7.3.2.25.1, 802.11i Amendment 6: Medium
+                Access Control(MAC) Security Enhancements. "
+        ::= { cDot11WidsProtectFailClientEntry 3 }
+
+cDot11WidsTkipIcvErrors OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of TKIP ICV
+                Errors observed in the data communication between
+                this 802.11 station and the client indicated by
+                cDot11WidsClientMacAddress since the client's
+                association with this 802.11 station at the
+                radio interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 4 }
+
+cDot11WidsTkipLocalMicFailures OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of TKIP local 
+                MIC failures observed in the data communication
+                between this 802.11 station and the client
+                indicated by cDot11WidsClientMacAddress since
+                the client's association with this 802.11 station
+                at the radio interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 5 }
+
+cDot11WidsTkipRemoteMicFailures OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of TKIP remote
+                MIC failures observed in the data communication
+                between this 802.11 station and the client
+                indicated by cDot11WidsClientMacAddress since the
+                client's association with this 802.11 station
+                at the radio interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 6 }
+
+cDot11WidsCcmpReplays OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of CCMP replay
+                failures observed in the data communication between
+                this 802.11 station and the client indicated by
+                cDot11WidsClientMacAddress since the client's
+                association with this 802.11 station at the radio
+                interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 7 }
+
+cDot11WidsCcmpDecryptErrors OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of CCMP
+                decryption failures observed in the data
+                communication between this 802.11 station and
+                the client indicated by cDot11WidsClientMacAddress
+                since the client's association with this
+                802.11 station at the radio interface identified
+                by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 8 }
+
+cDot11WidsTkipReplays OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of TKIP
+                replay failures observed in the data
+                communication between this 802.11 station and the
+                client indicated by cDot11WidsClientMacAddress
+                since the client's association with this
+                802.11 station at the radio interface identified 
+                by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 9 }
+
+cDot11WidsWepReplays OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of WEP Replay
+                errors observed in the data communication between
+                this 802.11 station and the client indicated by
+                cDot11WidsClientMacAddress since the client's
+                association with this 802.11 station at the radio
+                interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 10 }
+
+cDot11WidsWepIcvErrors OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of WEP ICV
+                errors observed in the data communication between
+                this 802.11 station and the client indicated by
+                cDot11WidsClientMacAddress since the client's
+                association with this 802.11 station at the radio
+                interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 11 }
+
+cDot11WidsCkipReplays OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of CKIP replay
+                errors observed in the data communication between
+                this 802.11 station and the client indicated by
+                cDot11WidsClientMacAddress since the client's
+                association with this 802.11 station at the radio
+                interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 12 }
+
+cDot11WidsCkipCmicErrors OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object counts the total number of CKIP-CMIC
+                errors observed in the data communication between
+                this 802.11 station and the client indicated by
+                cDot11WidsClientMacAddress since the client's 
+                association with this 802.11 station at the
+                radio interface identified by ifIndex. "
+        ::= { cDot11WidsProtectFailClientEntry 13 }
+
+--********************************************************************
+--*  End of MIC / protection  failure statistics
+--********************************************************************
+
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+ciscoDot11WidsMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                 implement the ciscoDot11WidsMIB module."
+        MODULE MANDATORY-GROUPS {                
+                ciscoDot11WidsAuthFailGroup,
+                ciscoDot11WidsProtectFailGroup
+             }
+
+        ::= { ciscoDot11WidsMIBCompliances 1 }
+
+
+--********************************************************************
+--*    Units of conformance  
+--********************************************************************
+
+ciscoDot11WidsAuthFailGroup OBJECT-GROUP
+        OBJECTS {
+                cDot11WidsFloodDetectEnable,
+                cDot11WidsEapolFloodThreshold,
+                cDot11WidsEapolFloodInterval,
+                cDot11WidsBlackListThreshold,
+                cDot11WidsBlackListDuration,
+                cDot11WidsFloodMaxEntriesPerIntf,
+                cDot11WidsEapolFloodTotalCount,
+                cDot11WidsEapolFloodClientMac,
+                cDot11WidsEapolFloodClientCount,
+                cDot11WidsEapolFloodStartTime,
+                cDot11WidsEapolFloodStopTime,
+                cDot11WidsBlackListAttemptCount,
+                cDot11WidsBlackListTime
+             }                
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide information about
+                 configuration needed on the 802.11 station to detect
+                 the EAPOL flood attacks and black-list clients,
+                 the general statistics about the detected flood
+                 flood attacks and the information about the
+                 blacklisted clients. "
+        ::= { ciscoDot11WidsMIBGroups 1 }
+
+ciscoDot11WidsProtectFailGroup OBJECT-GROUP
+        OBJECTS {
+                cDot11WidsSelPairWiseCipher,
+                cDot11WidsTkipIcvErrors,
+                cDot11WidsTkipLocalMicFailures,
+                cDot11WidsTkipRemoteMicFailures,
+                cDot11WidsCcmpReplays,
+                cDot11WidsCcmpDecryptErrors,
+                cDot11WidsTkipReplays,
+                cDot11WidsWepReplays,
+                cDot11WidsWepIcvErrors,
+                cDot11WidsCkipReplays,
+                cDot11WidsCkipCmicErrors
+        } 
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide information about
+                the various protection failures observed during the
+                associated clients' data communications with this
+                802.11 station. "
+        ::= { ciscoDot11WidsMIBGroups 2 }
+   
+--********************************************************************
+--*   End of units of conformance  
+--********************************************************************
+
+END

@@ -1,0 +1,233 @@
+-- *****************************************************************
+-- OLD-CISCO-SYSTEM-MIB.my:  Old Cisco System MIB file
+--
+-- Copyright (c) 1994-1995 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+               OLD-CISCO-SYSTEM-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+			IpAddress
+				FROM RFC1155-SMI
+			OBJECT-TYPE
+				FROM RFC-1212
+			DisplayString
+				FROM RFC1213-MIB
+			local
+				FROM CISCO-SMI;
+          
+
+               lsystem             OBJECT IDENTIFIER ::= { local 1 }
+
+
+          -- Local System Group
+
+          -- This group is present in all products.
+
+               romId OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable contains a printable octet
+                           string which contains the System Bootstrap
+                           description and version identification."
+                   ::= { lsystem 1 }
+
+               whyReload OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable contains a printable octet
+                           string which contains the reason why the
+                           system was last restarted."
+                   ::= { lsystem 2 }
+
+               hostName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable represents the name of the
+                           host in printable ascii characters."
+                   ::= { lsystem 3 }
+
+               domainName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable is the domain portion of the
+                           domain name of the host."
+                   ::= { lsystem 4 }
+
+               authAddr OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable contains the last SNMP
+                           authorization failure IP address."
+                   ::= { lsystem 5 }
+
+               bootHost OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the IP address of the host that
+                           supplied the currently running software."
+                   ::= { lsystem 6 }
+
+               netConfigAddr OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the address of the host that supplied
+                           the network-confg file."
+                   ::= { lsystem 48 }
+
+               netConfigName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the name of the network configuration
+                           file."
+                   ::= { lsystem 49 }
+
+               netConfigSet OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Cause the loading of a new network-confg
+                           file using TFTP."
+                   ::= { lsystem 50 }
+
+               hostConfigAddr OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  obsolete
+                   DESCRIPTION
+                           "Contains the address of the host that
+                           provided the host-config file."
+                   ::= { lsystem 51 }
+
+               hostConfigName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  obsolete
+                   DESCRIPTION
+                           "Contains the name of the last configured
+                           host-confg file."
+                   ::= { lsystem 52 }
+
+               hostConfigSet OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  write-only
+                   STATUS  obsolete
+                   DESCRIPTION
+                           "Cause the loading of a new host-confg file
+                           using TFTP."
+                   ::= { lsystem 53 }
+
+               writeMem OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Write configuration into non-volatile memory
+                           / erase config memory if 0."
+                   ::= { lsystem 54 }
+
+               writeNet OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Write configuration to host using TFTP."
+                   ::= { lsystem 55 }
+
+               ciscoContactInfo OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "cisco's name and address"
+                   ::= { lsystem 61 }
+
+               netConfigProto OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the protocol that supplied the
+                           network-confg file."
+                   ::= { lsystem 70 }
+
+               hostConfigProto OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the protocol that supplied the host-
+                           confg file."
+                   ::= { lsystem 71 }
+
+               sysConfigAddr OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the address of the host that supplied
+                           the system boot image."
+                   ::= { lsystem 72 }
+
+               sysConfigName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the name of the system boot image."
+                   ::= { lsystem 73 }
+
+               sysConfigProto OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        -- other(0),
+                        tftp(1),
+                        rom(2),
+                        flash(3)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the protocol or media that supplied
+                           the system boot image."
+                   ::= { lsystem 74 }
+
+               sysClearARP OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Perform a clearing of the entire ARP cache
+                           and invalidation of route caches."
+                   ::= { lsystem 75 }
+
+               sysClearInt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Clear interface given IfIndex as value."
+                   ::= { lsystem 76 }
+
+
+END
+

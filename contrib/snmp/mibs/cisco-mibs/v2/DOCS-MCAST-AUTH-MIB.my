@@ -1,0 +1,724 @@
+DOCS-MCAST-AUTH-MIB DEFINITIONS ::= BEGIN
+  IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+             FROM SNMPv2-SMI          -- RFC 2578
+    RowStatus
+             FROM SNMPv2-TC           -- RFC 2579
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+             FROM SNMPv2-CONF         -- RFC 2580
+    SnmpAdminString
+             FROM SNMP-FRAMEWORK-MIB  -- RFC 3411
+    InetAddressType,
+    InetAddress,
+    InetAddressPrefixLength
+             FROM INET-ADDRESS-MIB    -- RFC 4001
+    SnmpTagList
+             FROM SNMP-TARGET-MIB     -- RFC 3411
+    docsIf3CmtsCmRegStatusId
+             FROM DOCS-IF3-MIB
+    clabProjDocsis
+             FROM CLAB-DEF-MIB;
+
+docsMcastAuthMib MODULE-IDENTITY
+     LAST-UPDATED    "200712060000Z" -- December 6, 2007
+     ORGANIZATION    "Cable Television Laboratories, Inc."
+     CONTACT-INFO
+         "
+         Postal: Cable Television Laboratories, Inc.
+         858 Coal Creek Circle
+         Louisville, Colorado 80027-9750
+         U.S.A.
+         Phone: +1 303-661-9100
+         Fax:   +1 303-661-9199
+         E-mail: mibs@cablelabs.com"
+     DESCRIPTION
+        "This MIB module contains the management objects for the
+        management of the CMTS Multicast Authorization Module.
+        Copyright 1999-2007 Cable Television Laboratories, Inc.
+        All rights reserved."
+     REVISION        "200712060000Z" -- December 6, 2007
+     DESCRIPTION
+        "Revised version includes ECN
+         OSSIv3.0-N-07.0551-4 and published as I05."
+     REVISION        "200612071700Z" -- Dec 7, 2006
+     DESCRIPTION
+        "Initial version, published as part of the CableLabs
+        OSSIv3.0 specification CM-SP-OSSIv3.0-I01-061207."
+     ::= {  clabProjDocsis 19}
+
+-- Textual Conventions
+
+-- Object Definitions
+docsMcastAuthMibObjects  OBJECT IDENTIFIER ::= { docsMcastAuthMib 1 }
+
+docsMcastAuthCtrl OBJECT IDENTIFIER ::= { docsMcastAuthMibObjects 1 }
+
+docsMcastAuthCtrlEnable OBJECT-TYPE
+     SYNTAX      INTEGER {
+                           enable(1),
+                           disable(2)
+                         }
+     MAX-ACCESS  read-write
+     STATUS      current
+     DESCRIPTION
+        "This attribute enables the enforcement of Multicast
+        Autorization feature. When this attribute is set
+        to 'enable' Multicast Authorization is enforced;
+        otherwise clients are permitted to join any IP multicast
+        session. The factory default value of this attribute
+        is 'disable'."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, IP Multicast
+         Join Authorization section."
+     DEFVAL { disable }
+     ::= { docsMcastAuthCtrl 1 }
+
+docsMcastAuthCtrlDefProfileNameList OBJECT-TYPE
+     SYNTAX      SnmpTagList
+     MAX-ACCESS  read-write
+     STATUS      current
+     DESCRIPTION
+        "When IP Multicast Authorization is enforced, this
+        attribute provides the default set of Multicast Authorization
+        Profiles the CMTS enforces for a CM in the
+        case that this CM didn't signal a set of profiles during
+        the registration process.  If the Default Multicast
+        Authorization Group Name is zero length string,
+        the DefAction attribute determines whether a join request
+        is authorized when a CM registers without a Multicast
+        Authorization Profile Set or a list of config
+        File Session Rules. If the CMTS supports more than 1
+        profile name as a default, the CMTS enforces each of the
+        profiles in order until the maximum number of profiles
+        is reached. This attribute indicates one or more
+        Multicast Authorization Profiles."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, IP Multicast 
+         Profile Name Subtype section."
+     DEFVAL { ''H }
+     ::= { docsMcastAuthCtrl 2 }
+
+docsMcastAuthCtrlDefAction OBJECT-TYPE
+     SYNTAX      INTEGER {
+                           permit(1),
+                           deny(2)
+                         }
+     MAX-ACCESS  read-write
+     STATUS      current
+     DESCRIPTION
+        "This attribute defines the default authorization
+        action when no IP Multicast Session Rule is determined
+        to match a client's IP multicast join request."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Session Rules
+         section."
+     DEFVAL { deny }
+     ::= { docsMcastAuthCtrl 3 }
+
+docsMcastAuthCtrlDefMaxNumSess OBJECT-TYPE
+     SYNTAX      Unsigned32 (0..65535)
+     MAX-ACCESS  read-write
+     STATUS      current
+     DESCRIPTION
+        "This attribute indicates the default maximum number
+        of multicast sessions that clients reached through
+        a CM are allowed to join. If set to zero, the maximum
+        number of sessions is not limited by the CMTS. A DefMaxNumSess
+        value of 0 indicates that no dynamic joins
+        are permitted."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Maximum Multicast 
+         Sessions section."
+     DEFVAL { 0 }
+     ::= { docsMcastAuthCtrl 4 }
+
+docsMcastAuthCmtsCmStatusTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF DocsMcastAuthCmtsCmStatusEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This object maintains per-CM status of Multicast
+        Authorization policies to be applied to this CM. The
+        CM acquires these policy parameters through the CM registration
+        process, or in the absence of some or all
+        of those parameters, from the Ctrl Object.
+        This object is meaningful when the Control Enable attribute
+        is set to 'enable'.
+        In the process of authorizing a CM client's session request
+        the CMTS must check rules defined in StaticSessRule
+        object and then rules defined in ProfileSessRule
+        object. In the case of multiple multicast session
+        matches, the rule priority attribute defines the
+        final selected session rule. The selection of a session
+        rules when multiple matches have the same priority
+        is vendor specific.
+        The CMTS MAY report in the CmtsCmStatus object CMs that
+        do not signal any IP Multicast Authorization Encodings
+        in the registration process. "
+     ::= { docsMcastAuthMibObjects 2}
+
+docsMcastAuthCmtsCmStatusEntry OBJECT-TYPE
+     SYNTAX      DocsMcastAuthCmtsCmStatusEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+         "The conceptual row of docsMcastAuthCmtsCmStatus."
+     INDEX {
+             docsIf3CmtsCmRegStatusId
+           }
+     ::= { docsMcastAuthCmtsCmStatusTable 1 }
+
+DocsMcastAuthCmtsCmStatusEntry ::= SEQUENCE {
+     docsMcastAuthCmtsCmStatusCfgProfileNameList
+                  SnmpTagList,
+     docsMcastAuthCmtsCmStatusCfgListId
+                  Unsigned32,
+     docsMcastAuthCmtsCmStatusMaxNumSess
+                  Unsigned32,
+     docsMcastAuthCmtsCmStatusCfgParamFlag
+                  BITS
+     }
+
+docsMcastAuthCmtsCmStatusCfgProfileNameList OBJECT-TYPE
+     SYNTAX      SnmpTagList
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute indicates the set of Profile Names
+        associated with the CM.
+        This attribute indicates the CM signaled 'IP Multicast
+        Authorization Profile Name' encodings during the
+        CM registration process, or in the absence of instances
+        of that config file parameter, the DefProfileNameList
+        attribute from the Ctrl object."
+     ::= { docsMcastAuthCmtsCmStatusEntry 1 }
+
+docsMcastAuthCmtsCmStatusCfgListId OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the reference to a CMTS
+        created Session Rule List based on the CM signaled 'IP
+        Multicast Authorization Static Session Rule' encodings.
+        The CMTS may reuse this attribute value to reference
+        more than one CM that have signaled the same list
+        of Session Rules to the CMTS.
+        The value zero indicates that the CM did not signal Multicast
+        Session Rules to the CMTS or the CMTS does not
+        support the StaticSessRule, in which case, the CMTS
+        ignores any CM signalled Session Rule endocings during
+        registration."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804,IP Multicast Join 
+         Authorization Static Session Rule Subtype section in the 
+         Common Radio Frequency Interface Encodings Annex."
+     ::= { docsMcastAuthCmtsCmStatusEntry 2 }
+
+docsMcastAuthCmtsCmStatusMaxNumSess OBJECT-TYPE
+     SYNTAX      Unsigned32 (0..65535)
+     UNITS       "sessions"
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute indicates the CM signaled value in
+        Maximum Multicast Sessions Encoding during the CM registration
+        process. If this value is missing the DefMaxNumSess
+        attribute of the Ctrl object is used to determine
+        the maximum number of multicast sessions this
+        client may forward. The value 0 indicates that no
+        dynamic joins are permitted. The value 65535 (the largest
+        valid value) indicates that the CMTS permits any
+        number of sessions to be joined by clients reached
+        through the CM."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Maximum Multicast
+         Sessions Encoding section in the Common Radio Frequency
+         Interface Encodings Annex."
+     ::= { docsMcastAuthCmtsCmStatusEntry 3 }
+
+docsMcastAuthCmtsCmStatusCfgParamFlag OBJECT-TYPE
+     SYNTAX      BITS {
+                        profile(0),
+                        staticMulticast(1),
+                        maxNumSessions(2)
+                         }
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute represents the functions that are
+        activated through the registration process.
+        The bit 'profile' indicates whether the CM signaled
+        'IP Multicast Authorization Profile Name Subtype'
+        encodings.
+        The bit 'staticMulticast' indicates whether the CM
+        signaled 'IP Multicast Authorization Static Session
+        Rule Subtype' encodings.
+        The bit 'maxNumSess' indicates whether the CM signaled
+        the ' Maximum Multicast Sessions' encoding."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804"
+     ::= { docsMcastAuthCmtsCmStatusEntry 4 }
+
+docsMcastAuthProfileSessRuleTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF DocsMcastAuthProfileSessRuleEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This object defines Operator configured profiles
+        to be matched during the authorization process.
+        This object supports the creation and deletion of multiple
+        instances.
+        Creation of a new instance of this object requires the
+        following attributes to be set:
+        PrefixAddrType
+        SrcPrefixAddr
+        SrcPrefixLen
+        GrpPrefixAddr
+        GrpPrefixLen."
+     ::= { docsMcastAuthMibObjects 3}
+
+docsMcastAuthProfileSessRuleEntry OBJECT-TYPE
+     SYNTAX      DocsMcastAuthProfileSessRuleEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+         "The conceptual row of docsMcastAuthProfileSessRule.
+         The CMTS persists all instances of the ProfileSessRule
+         object across reinitializations."
+     INDEX {
+             docsMcastAuthProfilesName,
+             docsMcastAuthProfileSessRuleId
+           }
+     ::= { docsMcastAuthProfileSessRuleTable 1 }
+
+DocsMcastAuthProfileSessRuleEntry ::= SEQUENCE {
+     docsMcastAuthProfileSessRuleId
+                  Unsigned32,
+     docsMcastAuthProfileSessRulePriority
+                  Unsigned32,
+     docsMcastAuthProfileSessRulePrefixAddrType
+                  InetAddressType,
+     docsMcastAuthProfileSessRuleSrcPrefixAddr
+                  InetAddress,
+     docsMcastAuthProfileSessRuleSrcPrefixLen
+                  InetAddressPrefixLength,
+     docsMcastAuthProfileSessRuleGrpPrefixAddr
+                  InetAddress,
+     docsMcastAuthProfileSessRuleGrpPrefixLen
+                  InetAddressPrefixLength,
+     docsMcastAuthProfileSessRuleAction
+                  INTEGER,
+     docsMcastAuthProfileSessRuleRowStatus
+                  RowStatus
+     }
+
+docsMcastAuthProfileSessRuleId OBJECT-TYPE
+     SYNTAX      Unsigned32 (1..4294967295)
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This attribute provides a unique identifier for each
+        CMTS configured Multicast Authorization Profile
+        Session rule within a Multicast Authorization Profile
+        Name."
+     ::= { docsMcastAuthProfileSessRuleEntry 1 }
+
+docsMcastAuthProfileSessRulePriority OBJECT-TYPE
+     SYNTAX      Unsigned32 (0..255)
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute configures the rule priority for the
+        static session rule. Permitted values for this attribute
+        range from 0..255. Higher values indicate a
+        higher priority. If more than one session rule matches
+        a joined session, the session rule with the highest
+        rule priority determines the authorization action."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Session Rules
+         section."
+     ::= { docsMcastAuthProfileSessRuleEntry 2 }
+
+docsMcastAuthProfileSessRulePrefixAddrType OBJECT-TYPE
+     SYNTAX      InetAddressType
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the address family for
+        the multicast session (S,G) which corresponds to the
+        SrcPrefixAddr and GrpPrefixAddr attributes respectively."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Session Rules
+         section."
+     ::= { docsMcastAuthProfileSessRuleEntry 3 }
+
+docsMcastAuthProfileSessRuleSrcPrefixAddr OBJECT-TYPE
+     SYNTAX      InetAddress
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies a specific Multicast Source
+        Address defined for  this rule.  A Source Address
+        that is all zeros is defined as 'all source addresses'
+         (*, G).   Source prefix addresses are unicast addresses."
+     REFERENCE
+        "RFC 3569.
+         RFC 3306"
+     ::= { docsMcastAuthProfileSessRuleEntry 4 }
+
+docsMcastAuthProfileSessRuleSrcPrefixLen OBJECT-TYPE
+     SYNTAX      InetAddressPrefixLength
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the prefix of a range of
+        Source (S) IP multicast group addresses. For Group or
+        ASM based sessions this attribute is set to 0."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Session Rules
+         section."
+     ::= { docsMcastAuthProfileSessRuleEntry 5 }
+
+docsMcastAuthProfileSessRuleGrpPrefixAddr OBJECT-TYPE
+     SYNTAX      InetAddress
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the prefix of a range of
+        destination IP multicast group addresses."
+     ::= { docsMcastAuthProfileSessRuleEntry 6 }
+
+docsMcastAuthProfileSessRuleGrpPrefixLen OBJECT-TYPE
+     SYNTAX      InetAddressPrefixLength
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the prefix of a range of
+        IP multicast group addresses."
+     ::= { docsMcastAuthProfileSessRuleEntry 7 }
+
+docsMcastAuthProfileSessRuleAction OBJECT-TYPE
+     SYNTAX      INTEGER {
+                           accept(1),
+                           deny(2)
+                         }
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute specifies the authorization action
+        for a session join attempt that matches the session
+        rule.
+        The value 'accept' indicates that the rule permits a
+        matching multicast join request is allowed .  The value
+        'deny' indicates that a matching multicast join request
+        is denied."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Session Rules
+         section."
+     DEFVAL { deny }
+     ::= { docsMcastAuthProfileSessRuleEntry 8 }
+
+docsMcastAuthProfileSessRuleRowStatus OBJECT-TYPE
+     SYNTAX      RowStatus
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "The status of this instance."
+     ::= { docsMcastAuthProfileSessRuleEntry 9 }
+
+docsMcastAuthStaticSessRuleTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF DocsMcastAuthStaticSessRuleEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This object defines the Session authorization Rules
+        based on the CM or group of CMs signaled in IP Multicast
+        Join Authorization Static Session Subtype encoding
+         This object reflects the Static Session rules
+        that were included in the CM registration request message."
+     ::= { docsMcastAuthMibObjects 4}
+
+docsMcastAuthStaticSessRuleEntry OBJECT-TYPE
+     SYNTAX      DocsMcastAuthStaticSessRuleEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+         "The conceptual row of docsMcastAuthStaticSessRule.
+         The CMTS may persist all instances of the StaticSessRule
+         object across reinitializations."
+     INDEX {
+             docsMcastAuthStaticSessRuleCfgListId,
+             docsMcastAuthStaticSessRuleId
+           }
+     ::= { docsMcastAuthStaticSessRuleTable 1 }
+
+DocsMcastAuthStaticSessRuleEntry ::= SEQUENCE {
+     docsMcastAuthStaticSessRuleCfgListId
+                  Unsigned32,
+     docsMcastAuthStaticSessRuleId
+                  Unsigned32,
+     docsMcastAuthStaticSessRulePriority
+                  Unsigned32,
+     docsMcastAuthStaticSessRulePrefixAddrType
+                  InetAddressType,
+     docsMcastAuthStaticSessRuleSrcPrefixAddr
+                  InetAddress,
+     docsMcastAuthStaticSessRuleSrcPrefixLen
+                  InetAddressPrefixLength,
+     docsMcastAuthStaticSessRuleGrpPrefixAddr
+                  InetAddress,
+     docsMcastAuthStaticSessRuleGrpPrefixLen
+                  InetAddressPrefixLength,
+     docsMcastAuthStaticSessRuleAction
+                  INTEGER
+     }
+
+docsMcastAuthStaticSessRuleCfgListId OBJECT-TYPE
+     SYNTAX      Unsigned32 (1..4294967295)
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This attribute contains a CMTS-derived value for
+        a set of multicast static session rules associated to
+        one or more CMs."
+     ::= { docsMcastAuthStaticSessRuleEntry 1 }
+
+docsMcastAuthStaticSessRuleId OBJECT-TYPE
+     SYNTAX      Unsigned32 (1..4294967295)
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This attribute provides an identifier for each Multicast
+        Authorization Static Session rule in the IP
+        Multicast Join Authorization Static Session SubType
+        communicated by a CM or group of CMs during registration."
+     ::= { docsMcastAuthStaticSessRuleEntry 2 }
+
+docsMcastAuthStaticSessRulePriority OBJECT-TYPE
+     SYNTAX      Unsigned32 (0..255)
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute defines the rule priority for the static
+        session rule. Higher values indicate a higher
+        priority. If more than one session rule matches a joined
+        session, the session rule with the highest rule priority
+        determines the authorization action."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, RulePriority
+         section in the Common Radio Frequency Interface Encodings
+         Annex."
+     ::= { docsMcastAuthStaticSessRuleEntry 3 }
+
+docsMcastAuthStaticSessRulePrefixAddrType OBJECT-TYPE
+     SYNTAX      InetAddressType
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the address family for
+        the multicast session (S,G) which corresponds to the
+        SrcPrefixAddr and GrpPrefixAddr attributes respectively."
+     ::= { docsMcastAuthStaticSessRuleEntry 4 }
+
+docsMcastAuthStaticSessRuleSrcPrefixAddr OBJECT-TYPE
+     SYNTAX      InetAddress
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies a specific Multicast Source
+        Address defined for  this rule.  A Source Address
+        that is all zeros is defined as 'all source addresses
+         (*, G)'. Source Prefix Addresses are unicast host addresses."
+     REFERENCE
+        "RFC 3569.
+         RFC 3306."
+     ::= { docsMcastAuthStaticSessRuleEntry 5 }
+
+docsMcastAuthStaticSessRuleSrcPrefixLen OBJECT-TYPE
+     SYNTAX      InetAddressPrefixLength
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the prefix of a range of
+        Source (S) IP multicast group addresses. For ASM-based
+        sessions, this attribute is set to 0."
+     ::= { docsMcastAuthStaticSessRuleEntry 6 }
+
+docsMcastAuthStaticSessRuleGrpPrefixAddr OBJECT-TYPE
+     SYNTAX      InetAddress
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the prefix of a range of
+        destination IP multicast group addresses."
+     ::= { docsMcastAuthStaticSessRuleEntry 7 }
+
+docsMcastAuthStaticSessRuleGrpPrefixLen OBJECT-TYPE
+     SYNTAX      InetAddressPrefixLength
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute identifies the prefix of a range of
+        IP multicast group addresses."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804,Group Prefix
+         Length Subtype section in the Common Radio Frequency
+         Interface Encodings Annex."
+     ::= { docsMcastAuthStaticSessRuleEntry 8 }
+
+docsMcastAuthStaticSessRuleAction OBJECT-TYPE
+     SYNTAX      INTEGER {
+                           permit(1),
+                           deny(2)
+                         }
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION
+        "This attribute specifies the authorization action
+        for a session join attempt that matches the session
+        rule.
+        The value 'accept' indicates that the rule permits a
+        matching multicast join request is allowed.  The value
+        'deny' indicates that a matching multicast join request
+        is denied."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, Authorization 
+         Action section in the Common Radio Frequency Interface
+          Encodings Annex."
+     ::= { docsMcastAuthStaticSessRuleEntry 9 }
+
+docsMcastAuthProfilesTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF DocsMcastAuthProfilesEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This object contains the description of the Multicast
+        Authorization profiles for administrative purposes.
+
+        This object supports the creation and deletion of multiple
+        instances.
+        Creation of a new instance of this object requires the
+        Description attribute to be set."
+     ::= { docsMcastAuthMibObjects 5}
+
+docsMcastAuthProfilesEntry OBJECT-TYPE
+     SYNTAX      DocsMcastAuthProfilesEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+         "The conceptual row of docsMcastAuthProfiles.
+         The CMTS persists all instances of the Profiles
+         object across reinitializations"
+     INDEX {
+             docsMcastAuthProfilesName
+           }
+     ::= { docsMcastAuthProfilesTable 1 }
+
+DocsMcastAuthProfilesEntry ::= SEQUENCE {
+     docsMcastAuthProfilesName
+                  SnmpAdminString,
+     docsMcastAuthProfilesDescription
+                  SnmpAdminString,
+     docsMcastAuthProfilesRowStatus
+                  RowStatus
+     }
+
+docsMcastAuthProfilesName OBJECT-TYPE
+     SYNTAX      SnmpAdminString (SIZE (1..15))
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION
+        "This attribute is a unique name or identifier for a
+        Multicast Authorization Profile."
+     ::= { docsMcastAuthProfilesEntry 1 }
+
+docsMcastAuthProfilesDescription OBJECT-TYPE
+     SYNTAX      SnmpAdminString
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This attribute is a human readable description of
+        the Multicast Authorization Profile."
+     REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804, IP Multicast 
+         Profile Name Subtype section."
+     ::= { docsMcastAuthProfilesEntry 2 }
+
+docsMcastAuthProfilesRowStatus OBJECT-TYPE
+     SYNTAX      RowStatus
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "The status of this instance."
+     ::= { docsMcastAuthProfilesEntry 3 }
+
+-- Conformance Definitions
+docsMcastAuthMibConformance OBJECT IDENTIFIER ::= { docsMcastAuthMib 2 }
+docsMcastAuthMibCompliances OBJECT IDENTIFIER
+                                   ::= { docsMcastAuthMibConformance 1 }
+docsMcastAuthMibGroups      OBJECT IDENTIFIER
+                                   ::= { docsMcastAuthMibConformance 2 }
+
+docsMcastAuthCompliance MODULE-COMPLIANCE
+STATUS      current
+DESCRIPTION
+        "The compliance statement for devices that implement the DOCSIS
+         Multicast Authorization MIB."
+
+    MODULE -- this MODULE
+MANDATORY-GROUPS {
+     docsMcastAuthGroup
+     }
+::= { docsMcastAuthMibCompliances 1 }
+docsMcastAuthGroup OBJECT-GROUP
+    OBJECTS {
+     docsMcastAuthCtrlEnable,
+     docsMcastAuthCtrlDefProfileNameList,
+     docsMcastAuthCtrlDefAction,
+     docsMcastAuthCtrlDefMaxNumSess,
+     docsMcastAuthCmtsCmStatusCfgProfileNameList,
+     docsMcastAuthCmtsCmStatusCfgListId,
+     docsMcastAuthCmtsCmStatusMaxNumSess,
+     docsMcastAuthCmtsCmStatusCfgParamFlag,
+     docsMcastAuthProfileSessRulePriority,
+     docsMcastAuthProfileSessRulePrefixAddrType,
+     docsMcastAuthProfileSessRuleSrcPrefixAddr,
+     docsMcastAuthProfileSessRuleSrcPrefixLen,
+     docsMcastAuthProfileSessRuleGrpPrefixAddr,
+     docsMcastAuthProfileSessRuleGrpPrefixLen,
+     docsMcastAuthProfileSessRuleAction,
+     docsMcastAuthProfileSessRuleRowStatus,
+     docsMcastAuthStaticSessRulePriority,
+     docsMcastAuthStaticSessRulePrefixAddrType,
+     docsMcastAuthStaticSessRuleSrcPrefixAddr,
+     docsMcastAuthStaticSessRuleSrcPrefixLen,
+     docsMcastAuthStaticSessRuleGrpPrefixAddr,
+     docsMcastAuthStaticSessRuleGrpPrefixLen,
+     docsMcastAuthStaticSessRuleAction,
+     docsMcastAuthProfilesDescription,
+     docsMcastAuthProfilesRowStatus
+     }
+    STATUS      current
+    DESCRIPTION
+         "Group of objects implemented in the CMTS."
+    ::= { docsMcastAuthMibGroups 1 }
+END

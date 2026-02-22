@@ -1,0 +1,511 @@
+-- *****************************************************************
+-- CISCO-STUN-MIB.my: Cisco STUN MIB
+--
+-- April 1995, Bob Clouston
+--
+-- Copyright (c) 1995 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-STUN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+	Counter32,  IpAddress
+		FROM SNMPv2-SMI
+	MODULE-COMPLIANCE, OBJECT-GROUP
+		FROM SNMPv2-CONF
+	ifIndex, InterfaceIndex
+		FROM IF-MIB
+	TruthValue
+		FROM SNMPv2-TC 
+	ciscoMgmt
+		FROM CISCO-SMI;
+
+
+ciscoStunMIB MODULE-IDENTITY
+	LAST-UPDATED	"9508210000Z"
+	ORGANIZATION	"Cisco Systems, Inc."
+	CONTACT-INFO
+		"	Cisco Systems
+			Customer Service
+                     
+		Postal: 170 W. Tasman Drive
+			San Jose, CA 95134
+			USA
+
+		   Tel: +1 800 553-NETS
+		e-mail: cs-snmp@cisco.com"
+	DESCRIPTION
+		"The MIB module for serial Tunneling.
+
+   Overview of STUN MIB
+  
+   MIB description
+   
+   The STUN MIB provides the configuration and operational information 
+   on Cisco's serial tunnelling implementation.  The following entities
+   are managed:
+    1) Global STUN information
+    2) STUN groups
+    3) STUN ports
+    4) STUN routes
+  
+   The following example configuration shows how the STUN MIB returns
+   STUN information, from either CISCO A or CISCO B.
+  
+    HOST == SDLC == Cisco A == IP Network == Cisco B == SDLC  == SDLC
+            line                                        line     device
+  
+   1) The STUN global entry identifies the IP address by which the
+      router is known to other STUN peers.
+   2) The STUN group table identifies the STUN group number and protocol
+      type that Cisco A and Cisco B use to route SDLC traffic over the 
+      IP network.  The table contains an entry for each STUN group
+      defined on the router.
+   3) The STUN port table identifies the serial interface to the SDLC 
+      line for which the router is doing serial tunnelling.  The MIB also
+      identifies the STUN group this interface is defined for, and
+      identifies the default routing for unrecognized SDLC addresses.
+      There is a port entry for each STUN-enabled interface on the router.
+   4) The STUN route table has an entry for each address defined for
+      routing within the STUN group, and an entry for the default routing
+      if the 'stun route all' command is configured.  The route entry
+      includes identification of the STUN peer, priority, state, whether
+      local acknowledgment is enabled, and packet and byte counters.
+   "
+	REVISION	"9508210000Z"
+	DESCRIPTION
+		"Added revision clause, formatting cleanup."
+	REVISION	"9503170000Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+	::= { ciscoMgmt 30 }
+
+stunObjects   OBJECT IDENTIFIER ::= { ciscoStunMIB 1}
+stunGlobal    OBJECT IDENTIFIER ::= { stunObjects 1}
+stunGroups    OBJECT IDENTIFIER ::= { stunObjects 2}
+stunPorts     OBJECT IDENTIFIER ::= { stunObjects 3}
+stunRoutes    OBJECT IDENTIFIER ::= { stunObjects 4}
+
+-- ******************************************************************
+-- * global values for router
+-- ******************************************************************
+  
+stunIPAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The configured IP address used for all serial tunnelling
+         in this router."
+    ::= { stunGlobal 1 }
+
+-- ******************************************************************
+-- * stun Group Table
+-- ******************************************************************
+
+stunGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF StunGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "A table of entries representing STUN groups configured on the
+         router.  Each STUN-enabled interface is assigned to a STUN
+         group, and packets can only travel between STUN-enabled
+         interfaces in the same group."
+    ::= { stunGroups 1 }
+
+stunGroupEntry OBJECT-TYPE
+    SYNTAX StunGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Status and parameter values for a group."
+    INDEX { stunGroupIndex }
+    ::= { stunGroupTable 1 }
+
+StunGroupEntry ::=
+    SEQUENCE {
+        stunGroupIndex
+            INTEGER,
+        stunProtocolType
+            INTEGER
+    }
+
+
+stunGroupIndex OBJECT-TYPE
+    SYNTAX INTEGER (1..255)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The configured STUN group number."
+    ::= { stunGroupEntry 1 }
+
+stunProtocolType OBJECT-TYPE
+    SYNTAX INTEGER
+     {
+      basic(1),   -- non-SDLC, such as HDLC 
+      sdlc(2),    -- SDLC protocol
+      sdlctg(3),  -- SNA transmission group
+      custom(4)    -- customer-defined protocol
+     }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The protocol type for this STUN group."
+    ::= { stunGroupEntry 2 }
+
+-- ******************************************************************
+-- * stun Port Table
+-- ******************************************************************
+
+stunPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF StunPortEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "A list of STUN-enabled interfaces (ports)."
+    ::= { stunPorts 1 }
+
+stunPortEntry OBJECT-TYPE
+    SYNTAX StunPortEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Status and parameter values for a STUN port."
+    INDEX { ifIndex }
+    ::= { stunPortTable 1 }
+
+StunPortEntry ::=
+    SEQUENCE {
+        stunPortGroupIndex
+            INTEGER,
+        stunPortDefaultPeerType
+            INTEGER,
+        stunPortDefaultPeerIP   
+            IpAddress,
+        stunPortDefaultPeerSerialInterface  
+            InterfaceIndex
+    }
+
+stunPortGroupIndex OBJECT-TYPE
+    SYNTAX INTEGER (1..255)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The group number to which the stun port
+         belongs.  Frames will only be routed to other 
+         ports (on this or another router) in the same 
+         stun group.  This group must match a stunGroupIndex
+         in the stunGroupTable."
+    ::= { stunPortEntry 1 }
+
+
+stunPortDefaultPeerType OBJECT-TYPE
+    SYNTAX INTEGER 
+     { 
+      other(1), 
+      ip(2), 
+      direct(3), 
+      frameRelay(4) 
+     }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The type of identification of the default partner 
+         for unrecognized addresses. If there
+         is no default route then the stunRouteType
+         field of stunPortDefaultRemote is 'other'.
+         If ip then the value is in stunRouteIP; if serial or
+         serialDirect then the value is in stunRouteSerial."
+    ::= { stunPortEntry 2 }
+
+stunPortDefaultPeerIP OBJECT-TYPE
+    SYNTAX IpAddress
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The ip address of the remote default STUN partner,
+         for unrecognized addresses.  
+         0.0.0.0 is returned if the default route type is not ip."
+    ::= { stunPortEntry 3 }
+
+stunPortDefaultPeerSerialInterface OBJECT-TYPE
+    SYNTAX InterfaceIndex
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "If stunRouteType is serial then this is the 
+         serial interface index of the point-to-point
+         link to the remote partner; 
+         if stunRouteType is serialDirect then the 
+         partner is in the local STUN.
+         if stunRouteType is ip then this field is
+         0."
+    ::= { stunPortEntry 4 }
+
+-- ******************************************************************
+-- * Route Table
+-- ******************************************************************
+
+stunRouteTable OBJECT-TYPE
+    SYNTAX   SEQUENCE OF StunRouteEntry
+    MAX-ACCESS   not-accessible
+    STATUS   current
+    DESCRIPTION
+       "A table containing information about specific SDLC
+        addresses.  There is one table entry for each SDLC
+        address configured by the STUN ROUTE command."
+    ::= { stunRoutes 1 }
+
+stunRouteEntry OBJECT-TYPE
+    SYNTAX   StunRouteEntry
+    MAX-ACCESS   not-accessible
+    STATUS   current
+    DESCRIPTION
+       "The information regarding a single STUN address."
+    INDEX { stunGroupIndex, stunRouteStationAddress }
+    ::= { stunRouteTable 1 }
+
+
+StunRouteEntry ::=
+    SEQUENCE {
+         stunRouteStationAddress
+            INTEGER,
+         stunRouteType
+            INTEGER,
+         stunRouteRemoteIP   
+            IpAddress,
+         stunRouteSerialInterface  
+            InterfaceIndex,
+         stunRoutePriority
+            INTEGER,
+         stunRoutePeerState
+            INTEGER,
+         stunRouteLocalAck
+            TruthValue,
+         stunRouteRxPackets
+            Counter32,
+         stunRouteTxPackets
+            Counter32,
+         stunRouteRxBytes
+            Counter32,
+         stunRouteTxBytes
+            Counter32
+    }
+
+stunRouteStationAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..256)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The poll address of the station.  256 indicates the ALL parameter
+         on the STUN ROUTE command, which is the route for all 
+         unrecognized addresses." 
+    ::= { stunRouteEntry 1 }
+
+stunRouteType OBJECT-TYPE
+    SYNTAX INTEGER 
+     { 
+      other(1), 
+      ip(2), 
+      direct(3), 
+      frameRelay(4) 
+     }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The type of identification of the remote partner."
+    ::= { stunRouteEntry 2 }
+
+stunRouteRemoteIP OBJECT-TYPE
+    SYNTAX IpAddress
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The ip address of the remote STUN partner. 
+         0.0.0.0 if partner type is not ip."
+    ::= { stunRouteEntry 3 }
+
+stunRouteSerialInterface OBJECT-TYPE
+    SYNTAX InterfaceIndex
+    MAX-ACCESS read-only 
+    STATUS current
+    DESCRIPTION
+        "The local interface index to the remote partner.
+         0 is returned if the partner type is not direct or frameRelay."
+   ::= { stunRouteEntry 4 }
+
+stunRoutePriority OBJECT-TYPE
+    SYNTAX INTEGER 
+     {
+      low(1), 
+      normal(2), 
+      medium(3), 
+      high(4)
+     }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The priority with which this station's traffic will
+         be routed across the network."
+    ::= { stunRouteEntry 5 }
+            
+stunRoutePeerState OBJECT-TYPE
+    SYNTAX INTEGER 
+     {
+      dead(1), 
+      closed(2), 
+      opening(3), 
+      openWait(4),
+      connected(5), 
+      direct(6)
+     }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The state of the peer connection through the
+         STUN tunnel."
+    ::= { stunRouteEntry 6 }
+            
+stunRouteLocalAck OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+       "Indicates if the STUN connection is locally acknowledged.       
+        TRUE-> STUN connection is locally acknowledged
+        FALSE-> STUN connection is not locally acknowledged
+       " 
+    ::= { stunRouteEntry 7 }
+    
+stunRouteRxPackets OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "Count of frames received from the serial
+         interface with this station's address."
+    ::= { stunRouteEntry 8 }
+
+stunRouteTxPackets OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "Count of frames transmitted at the serial
+         interface with this station's address."
+    ::= { stunRouteEntry 9 }
+
+stunRouteRxBytes OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "Count of bytes received from the serial
+         interface with this station's address."
+    ::= { stunRouteEntry 10 }
+
+stunRouteTxBytes OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "Count of bytes transmitted at the serial
+         interface with this station's address."
+    ::= { stunRouteEntry 11 }
+
+-- *************************************************************************
+-- * STUN notifications               
+-- *************************************************************************
+
+stunNotificationPrefix OBJECT IDENTIFIER ::= { ciscoStunMIB 2 }
+stunNotifications OBJECT IDENTIFIER ::= { stunNotificationPrefix 0 }
+
+stunPeerStateChangeNotification NOTIFICATION-TYPE
+     OBJECTS { stunRoutePeerState }
+     STATUS      current
+     DESCRIPTION
+        "This notification indicates that the state of a STUN route
+         has transitioned to active (connected or direct) or inactive
+         (dead or closed)."
+     ::= { stunNotifications 1 }
+     
+
+-- *************************************************************************
+-- * Conformance Information
+-- *************************************************************************
+--
+
+stunMibConformance   OBJECT IDENTIFIER ::= { ciscoStunMIB 3 }
+stunMibCompliances   OBJECT IDENTIFIER ::= { stunMibConformance 1 }
+stunMibGroups        OBJECT IDENTIFIER ::= { stunMibConformance 2 }
+--
+-- *************************************************************************
+-- * Compliance Statements
+-- *************************************************************************
+stunMibCompliance    MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for STUN."
+        MODULE  -- this module
+                MANDATORY-GROUPS {
+                        stunGlobalGroup,
+			stunGroupGroup,
+                        stunPortGroup,
+                        stunRouteGroup
+		}
+         ::= { stunMibCompliances 1 }
+         
+stunGlobalGroup OBJECT-GROUP
+        OBJECTS {
+                stunIPAddr
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing global STUN information."
+        ::= { stunMibGroups 1}
+         
+stunGroupGroup OBJECT-GROUP
+        OBJECTS {
+                stunProtocolType
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing information about 
+                 STUN groups ."
+        ::= { stunMibGroups 2 }
+
+stunPortGroup OBJECT-GROUP
+        OBJECTS {
+                stunPortGroupIndex,
+                stunPortDefaultPeerType,
+                stunPortDefaultPeerIP,
+                stunPortDefaultPeerSerialInterface
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing information about
+                 STUN enabled interfaces."
+        ::= { stunMibGroups 3}
+stunRouteGroup OBJECT-GROUP
+        OBJECTS {
+                stunRouteType,
+                stunRouteRemoteIP,
+                stunRouteSerialInterface,
+                stunRoutePriority,
+                stunRoutePeerState,
+                stunRouteLocalAck,
+                stunRouteRxPackets,
+                stunRouteTxPackets,
+                stunRouteRxBytes,
+                stunRouteTxBytes
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing information about
+                 STUN defined routes."
+        ::= { stunMibGroups 4}
+END

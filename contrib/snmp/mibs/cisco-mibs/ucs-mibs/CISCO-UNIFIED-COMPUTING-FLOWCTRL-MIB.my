@@ -1,0 +1,261 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-FLOWCTRL-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- FLOWCTRL management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-FLOWCTRL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsFlowctrlConfig,
+    CucsFlowctrlFlowControl,
+    CucsFlowctrlPriorityPause,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsFlowctrlObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        FLOWCTRL management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 23 }
+
+cucsFlowctrlDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFlowctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition managed object table"
+    ::= { cucsFlowctrlObjects 1 }
+
+cucsFlowctrlDefinitionEntry OBJECT-TYPE
+    SYNTAX           CucsFlowctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFlowctrlDefinitionTable table."
+    INDEX { cucsFlowctrlDefinitionInstanceId }
+    ::= { cucsFlowctrlDefinitionTable 1 }
+
+CucsFlowctrlDefinitionEntry ::= SEQUENCE {
+    cucsFlowctrlDefinitionInstanceId                                 CucsManagedObjectId,
+    cucsFlowctrlDefinitionDn                                         CucsManagedObjectDn,
+    cucsFlowctrlDefinitionRn                                         SnmpAdminString,
+    cucsFlowctrlDefinitionDescr                                      SnmpAdminString,
+    cucsFlowctrlDefinitionIntId                                      SnmpAdminString,
+    cucsFlowctrlDefinitionName                                       SnmpAdminString,
+    cucsFlowctrlDefinitionPolicyLevel                                Gauge32,
+    cucsFlowctrlDefinitionPolicyOwner                                CucsPolicyPolicyOwner
+}
+
+cucsFlowctrlDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFlowctrlDefinitionEntry 1 }
+
+cucsFlowctrlDefinitionDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition:dn managed object property"
+    ::= { cucsFlowctrlDefinitionEntry 2 }
+
+cucsFlowctrlDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition:rn managed object property"
+    ::= { cucsFlowctrlDefinitionEntry 3 }
+
+cucsFlowctrlDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition:descr managed object property"
+    ::= { cucsFlowctrlDefinitionEntry 4 }
+
+cucsFlowctrlDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition:intId managed object property"
+    ::= { cucsFlowctrlDefinitionEntry 5 }
+
+cucsFlowctrlDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition:name managed object property"
+    ::= { cucsFlowctrlDefinitionEntry 6 }
+
+cucsFlowctrlDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition:policyLevel managed
+        object property"
+    ::= { cucsFlowctrlDefinitionEntry 7 }
+
+cucsFlowctrlDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Definition:policyOwner managed
+        object property"
+    ::= { cucsFlowctrlDefinitionEntry 8 }
+
+cucsFlowctrlItemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFlowctrlItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item managed object table"
+    ::= { cucsFlowctrlObjects 2 }
+
+cucsFlowctrlItemEntry OBJECT-TYPE
+    SYNTAX           CucsFlowctrlItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFlowctrlItemTable table."
+    INDEX { cucsFlowctrlItemInstanceId }
+    ::= { cucsFlowctrlItemTable 1 }
+
+CucsFlowctrlItemEntry ::= SEQUENCE {
+    cucsFlowctrlItemInstanceId                                       CucsManagedObjectId,
+    cucsFlowctrlItemDn                                               CucsManagedObjectDn,
+    cucsFlowctrlItemRn                                               SnmpAdminString,
+    cucsFlowctrlItemName                                             SnmpAdminString,
+    cucsFlowctrlItemPrio                                             CucsFlowctrlPriorityPause,
+    cucsFlowctrlItemRcv                                              CucsFlowctrlFlowControl,
+    cucsFlowctrlItemSnd                                              CucsFlowctrlFlowControl,
+    cucsFlowctrlItemConfig                                           CucsFlowctrlConfig
+}
+
+cucsFlowctrlItemInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFlowctrlItemEntry 1 }
+
+cucsFlowctrlItemDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item:dn managed object property"
+    ::= { cucsFlowctrlItemEntry 2 }
+
+cucsFlowctrlItemRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item:rn managed object property"
+    ::= { cucsFlowctrlItemEntry 3 }
+
+cucsFlowctrlItemName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item:name managed object property"
+    ::= { cucsFlowctrlItemEntry 4 }
+
+cucsFlowctrlItemPrio OBJECT-TYPE
+    SYNTAX       CucsFlowctrlPriorityPause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item:prio managed object property"
+    ::= { cucsFlowctrlItemEntry 5 }
+
+cucsFlowctrlItemRcv OBJECT-TYPE
+    SYNTAX       CucsFlowctrlFlowControl
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item:rcv managed object property"
+    ::= { cucsFlowctrlItemEntry 6 }
+
+cucsFlowctrlItemSnd OBJECT-TYPE
+    SYNTAX       CucsFlowctrlFlowControl
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item:snd managed object property"
+    ::= { cucsFlowctrlItemEntry 7 }
+
+cucsFlowctrlItemConfig OBJECT-TYPE
+    SYNTAX       CucsFlowctrlConfig
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS flowctrl:Item:config managed object property"
+    ::= { cucsFlowctrlItemEntry 8 }
+
+END

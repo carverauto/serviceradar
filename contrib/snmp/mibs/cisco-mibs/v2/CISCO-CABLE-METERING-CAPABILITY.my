@@ -1,0 +1,77 @@
+-- *****************************************************************
+-- CISCO-CABLE-METERING-CAPABILITY.my: CISCO-CABLE-METERING-MIB
+-- AGENT-CAPABILITIES
+--   
+-- Copyright (c) 2009 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CABLE-METERING-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoCableMeteringCapability MODULE-IDENTITY
+    LAST-UPDATED    "200906160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ubr@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-CABLE-METERING-MIB"
+    REVISION        "200906160000Z"
+    DESCRIPTION
+        "Initial version of this MIB Module."
+    ::= { ciscoAgentCapability 582 }
+
+
+
+ciscoCableMeteringCapabilityV122R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2S"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Cable Metering MIB capabilities."
+
+    SUPPORTS        CISCO-CABLE-METERING-MIB
+    INCLUDES        {
+                        ccmtrMeteringNotifCtrlGroup,
+                        ccmtrMeteringNotifGroup,
+                        ccmtrMeteringObjGroupRev1,
+                        ccmtrMeteringSrcIntfObjGroup,
+                        ccmtrMeteringRateCtrlObjGroup
+                    }
+    VARIATION       ccmtrCollectionRevInterval
+    SYNTAX          Unsigned32 (2..1440)
+    DESCRIPTION
+        "The low boundary of this object is 2 and the high boundary is
+        1440."
+
+    ::= { ciscoCableMeteringCapability 1 }
+
+END
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,163 @@
+-- *****************************************************************
+-- CISCO-CIRCUIT-INTERFACE-MIB.my:  CISCO-CIRCUIT-INTERFACE MIB
+--
+-- March 2000, Vinod B C
+--
+-- Copyright (c) 2000 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+--
+
+CISCO-CIRCUIT-INTERFACE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE
+                FROM SNMPv2-SMI
+        RowStatus
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE, OBJECT-GROUP
+                FROM SNMPv2-CONF
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        ifIndex
+                FROM IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoCircuitInterfaceMIB MODULE-IDENTITY
+        LAST-UPDATED "200005090000Z"
+        ORGANIZATION "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "The MIB module to configure the circuit description
+                for an interface.
+                The circuit description can be used to describe and
+                identify circuits on interfaces like ATM,
+                frame-relay etc."
+        REVISION     "200005090000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 160 }
+
+ciscoCircuitInterfaceMIBObjects OBJECT IDENTIFIER ::=
+        { ciscoCircuitInterfaceMIB 1 }
+cciDescription OBJECT IDENTIFIER ::=
+        { ciscoCircuitInterfaceMIBObjects 1 }
+
+--
+-- Circuit Description Table
+--
+
+cciDescriptionTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CciDescriptionEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "This table contains a circuit description to identify
+                circuit based interfaces like ATM, Frame-Relay etc.
+                The circuit description could be used for example, to
+                correlate performance statistics associated with the
+                corresponding interfaces."
+        ::= { cciDescription 1 }
+
+cciDescriptionEntry OBJECT-TYPE
+        SYNTAX      CciDescriptionEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "Each cciDescriptionEntry contains the circuit
+                description for a particular circuit based interface.
+                The entry is identified by the ifIndex which would
+                typically correspond to circuit based interfaces.
+                Interfaces with ifType equal to atm(37),
+                frameRelay(32) frameRelayService(44) are some
+                examples.
+
+                Entries can only be created by management station
+                action.
+                Entries can be deleted by setting the cciStatus object
+                to destroy(6). The agent will delete any cciEntry if
+                the corresponding ifEntry is deleted.
+                Entries are not maintained in any kind of NV-storage,
+                and will not be recreated by the agent after a reboot."
+        INDEX       { ifIndex }
+        ::= { cciDescriptionTable 1 }
+
+CciDescriptionEntry ::= SEQUENCE {
+        cciDescr    SnmpAdminString,
+        cciStatus   RowStatus
+        }
+
+cciDescr OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The circuit description of the interface. It has no
+                default value."
+        ::= { cciDescriptionEntry 1 }
+
+cciStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The row status object, but with restricted values.
+                Only two values are allowed for this object:
+                createAndGo(4) and destroy(6).
+                The row is created by specifying the value for
+                cciDescr and setting this object to createAndGo(4).
+                If the row creation is succesfull, the cciStatus
+                would be active(1). In the active(1) state, the
+                cciDescr can be modifed.
+                The row is deleted by setting this object to
+                destroy(6)."
+
+        ::= { cciDescriptionEntry 2 }
+
+-- Conformance Information
+
+ciscoCircuitInterfaceMIBConformance OBJECT IDENTIFIER ::=
+        { ciscoCircuitInterfaceMIB 3 }
+ciscoCircuitInterfaceMIBCompliances OBJECT IDENTIFIER ::=
+        { ciscoCircuitInterfaceMIBConformance 1 }
+ciscoCircuitInterfaceMIBGroups OBJECT IDENTIFIER ::=
+        { ciscoCircuitInterfaceMIBConformance 2 }
+
+-- Compliance Statement
+
+ciscoCircuitInterfaceMIBCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+                "The compliance statement for Cisco agents which
+                implement the Cisco Circuit Interface MIB."
+        MODULE -- this module
+                MANDATORY-GROUPS {
+                                ciscoCircuitInterfaceGroup
+                }
+        ::= { ciscoCircuitInterfaceMIBCompliances 1 }
+
+-- Units of Conformance:
+
+ciscoCircuitInterfaceGroup OBJECT-GROUP
+        OBJECTS {
+                cciDescr,
+                cciStatus
+        }
+        STATUS      current
+        DESCRIPTION
+                "The Cisco Circuit Interface MIB objects."
+        ::= { ciscoCircuitInterfaceMIBGroups 1 }
+
+END

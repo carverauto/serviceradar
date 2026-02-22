@@ -1,0 +1,1222 @@
+-- *********************************************************************
+-- CISCO-PKI-PARTICIPATION-MIB.my: Cisco Public Key Infrastructure
+-- Participation MIB
+--
+-- May 2005, Ramachandran V R
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *********************************************************************
+
+CISCO-PKI-PARTICIPATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+       FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+       FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    DateAndTime, TruthValue, StorageType, RowStatus
+       FROM SNMPv2-TC
+    SnmpAdminString
+       FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+       FROM CISCO-SMI;
+
+cpkiMIB MODULE-IDENTITY
+    LAST-UPDATED        "200510220000Z"
+    ORGANIZATION        "Cisco Systems, Inc."
+    CONTACT-INFO
+        "       Cisco Systems
+                Network Management Technology Group
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail:  cs-san@cisco.com"
+    DESCRIPTION
+        "A networking device may provide several security services
+        and  protocols  like SSL, SSH, IPSec/IKE  etc. which  need
+        identities  in the form of  X509 certificates. The  device
+        uses these  certificates (called identity certificates) to
+        authenticate itself to various  clients communicating with
+        the device using these protocols and also to provide other
+        protection  for  the  communication  like confidentiality,
+        integrity and non-repudiation. In addition, the device may
+        need to  authenticate the  clients  which involves,  among
+        other things, verifying  the certificates presented by the
+        clients (peer certificates) during the protocol exchanges.
+        The  certificate   verification,  in  turn,  involves  the
+        certificate revocation status checking and the certificate
+        signature verification. This MIB applies to the public key
+        infrastructure (PKI) participation feature which enables a
+        networking  device  to  participate in  one  or  more  PKI
+        services  (also called  Certificate Authorities)  enabling
+        it to  obtain one or more  X509 identity certificates  for
+        its own use as well as to verify peer certificates.
+
+        This MIB organizes the various certificates, key-pairs and
+        Certificate Authority related information into the tables:
+        the trustpoint  table for  certificate and  CA information
+        and a key-pair table for the key-pair information for each
+        type of key-pair  such as RSA, DSA  etc. An  entry in  the
+        trustpoint table corresponds to a trusted CA for obtaining
+        an  identity  certificate from and also for  verifying the
+        peer certificates  issued by  that CA. The entry  contains
+        information   about  the   CA  certificate,  the  identity
+        certificate - if obtained - from the CA, the corresponding
+        key-pair  from  a key-pair table   (for which the identity
+        certificate was obtained) and the  information needed  for
+        revocation checking of certitifates issued by  the CA.
+
+        For each type (RSA, DSA etc.) of key-pair supported by the
+        device, a key-pair table is present and contains an  entry
+        for each key-pair of that type present in the device. This
+        allows future expansion of the MIB  to support  additional
+        key-pair types (currently only RSA key-pair is supported).
+
+        As seen above, a key-pair entry from a key-pair table  can
+        be associated to an entry in the trustpoint table. A  key-
+        pair entry can be associated to multiple trustpoint  table
+        entries but not vice versa.
+
+        This MIB  supports  the certificate  work-flow operations,
+        generally used for generating the key-pairs and  obtaining
+        the certificates for them from various CAs. The  following
+        are the steps in one typical work-flow:
+
+        1. create a trustpoint  (an entry in  trustpoint table) in
+           the device.
+        2. Authenticate a CA (this involves manually verifying the
+           CA certificate/chain fingerprints and then inputing the
+           CA certificate/chain into the trustpoint).
+        3. Generate a key-pair (an entry in key-pair table).
+        4. Associate the key-pair to the trustpoint.
+        5. Generate a pkcs#10 Certificate Signing Request (CSR) in
+           the trustpoint.
+        7. Submit CSR to the CA and get the identity certificate.
+        9. Input the identity certificate into the trustpoint.
+
+        In another typical certificate work-flow, the key-pair and
+        the  corresponding  identity certificate are allowed to be
+        generated/obtained  outside  the device by  whatever means
+        and then input to the device in the pkcs#12 form.
+
+        This MIB does  not support the configuration of individual
+        security  services  like SSL, SSH, IPsec/IKE  etc. to  use
+        particular trustpoints or  certificates  and key-pairs  in
+        them. Instead  the  security  services  certificate  usage
+        configuration is supported in the respective feature MIBs.
+
+ 
+        Glossary of the terms used in this MIB:
+         --------------------------------------
+        key-pair -
+           A pair of public-key cryptographic keys in which one is
+           public and the other private.
+        RSA key-pair - 
+           A key-pair belonging to the RSA public-key cryptography
+           algorithm.
+        Certificate Authority (CA) -
+           A service which issues X509 certificates to certify the
+           identity (name) and public-key of end entities.
+        X509 -
+           A standard for certificates and CRLs.
+           Reference: RFC 2459.
+        CA certificate - 
+           The self-signed certificate of a CA certifying its  own
+           identity and public-key.
+        CA certificate chain -
+           If a CA is certified by another CA which,  in turn, was
+           certified by a third CA and so on, ending in a CA which
+           is  self-certified,  the  original  CA is  said to be a
+           subordinate CA and its CA certificate is a chain  which
+           is the set of CA certificates of all CAs involved.
+        Identity certificate -
+          The certificate of a device issued by a CA in  which the
+          device identity and public-key are certified. 
+        Trustpoint -
+           The various  information  about a CA  (including its CA
+           certificate/chain), which the device wants to trust  so
+           that it  can use it  to enroll with  the CA to g et  an
+           identity certificate and/or  use it to verify the  peer
+           certificates issed by the CA.
+        Certificate fingerptint -
+           The digest of a  certificate computed using MD5 or SHA
+           hash algorithm.
+        CA authentication -
+          The process of configuring  the CA certificate/chain for
+          a  trustpoint. The  process  involves   calculating  the
+          fingerprints of the CA  certificates  and verifying them
+          against the same already published by the CAs.
+        Enrollment -
+          The process of creating a Certificate Signing Request in
+          a trustpoint, submitting it to corresponding CA, getting
+          back the identity certificate and  inputing it into  the
+          trustpoint.
+        Certificate verification -
+          The process of verifying the signature on a  certificate
+          to see if it was really  signed by the CA who issued it.
+          This verification process uses the CA certificate/chain.
+          The certificate verification also involves verifying the
+          validity of certificate with respect to current  time by
+          checking against the  validity  interval  given  in  the
+          certificate and the revocation status of the certificate
+          as maintained by the CA.
+        Certificate Signing Request (CSR) -
+          A request to a CA for signing a certificate of an entity.
+          The request contains the public key, the name and  other
+          attributes of the entity.
+        pkcs#10 -
+          A standard syntax for the CSR, Reference: RFC 2986.
+        pkcs#12 -
+          A standard  for  exporting  and  importing a certificate
+          along with associated key-pair and CA certificate/chain.
+          Reference: PKCS #12 v1.0: Personal Information Exchange
+          Syntax Standard, RSA Laboratories, June 24, 1999
+        CRL -
+          Certificate Revocation List, a list of certificates that
+          are revoked, as maintained by a CA.
+        OCSP -
+          Online Certificate Staus Protocol, a protocol for online
+          checking of the revocation status of certificates.
+        PEM format -
+          A printable text encoding  format for  certificates,
+          key-pairs and CRLs, as employed by the Privacy Enhanced
+          Mail standard. Reference: RFCs 1421-1424.
+         "
+
+    REVISION  "200510220000Z"
+    DESCRIPTION
+        "Initial version."
+
+    ::= { ciscoMgmt 505 }
+
+--
+--  Objects, Notifications & Conformances
+--
+
+cpkiMIBNotifs         OBJECT IDENTIFIER
+                                  ::= { cpkiMIB 0 }
+cpkiMIBObjects        OBJECT IDENTIFIER
+                                  ::= { cpkiMIB 1 }
+cpkiMIBConform        OBJECT IDENTIFIER
+                                  ::= { cpkiMIB 2 }
+cpkiConfig                 OBJECT IDENTIFIER
+                                  ::= { cpkiMIBObjects 1 }
+
+--
+-- Textual Conventions
+--
+CiscoPkiAction ::= TEXTUAL-CONVENTION
+    STATUS         current
+    DESCRIPTION
+        "The PKI Support Actions for performing the certificate
+        work-flow operations.
+        
+         'noop'      - No operation
+
+         'caauth'    - Certificate Authority (CA) authentication.
+                       This operation is provided to authenticate
+                       a CA and install its CA certificate/chain
+                       in a trustpoint This action needs to be
+                       followed up with the 'certconfirm' or
+                       'certnoconfirm' action explained below.
+                       
+
+         'cadelete'  - CA Certificate/chain deletion. This
+                       operation is provided to delete the CA
+                       certificate/chain from a trustpoint.
+
+         'certreq'   - Identity certificate Request creation. This
+                       operation is provided to generate a pkcs#10
+                       format certificate request needed to obtain
+                       an identity certificate from a CA.
+            
+         'certimport' - Identity certificate import. This
+                        operation is provided to install an
+                        identity certificate obtained from a CA
+                        for an earlier certificate request, in
+                        a trustpoint.
+
+         'certdelete' - Identity certificate deletion. This
+                        operation is provided to delete the
+                        identity certificate from a trustpoint.
+                        If the certificate is the only generic
+                        certificate in the device, delete is not
+                        allowed; 'forcecertdelete' operation needs
+                        to be used to force the delete.
+            
+         'pkcs12import' - This operation is provided to facilitate
+                          the importing of the identity
+                          certificate, corresponding key-pair and
+                          CA certificate/chain in pkcs#12 format
+                          into a trustpoint.
+            
+         'pkcs12export' - This operation is provided to facilitate
+                          the exporting of the key-pair, identity
+                          certificate and the CA certificate in
+                          pkcs#12format from a trustpoint.
+
+         'certconfirm' - This operation is provided to confirm the
+                         acceptability of a certificate after
+                         manual verification of its fingerprint
+                         subsequent to the action 'caauth', there
+                         by completing that action and installing
+                         the certificate in the trustpoint.
+
+         'certnoconfirm' - This operation is provided to confirm
+                           the unacceptability of a certificate
+                           after the manual verification of its
+                           fingerprint subsequent to the action
+                           'caauth', there by rejecting the
+                           certificate and completing that action.
+
+         'forcecertdelete' - Same as 'certdelete' except it forces
+                             the delete.
+
+         'crlimport' - CRL import. This operation is provided to
+                       import a CRL into a trustpoint.
+
+         'crldelete' - CRL delete. This operation is provided to
+                       delete the CRL from a trustpoint. 
+
+         "
+
+    SYNTAX         INTEGER {
+        noop             (1),
+        caauth           (2),
+        cadelete         (3),
+        certreq          (4),
+        certimport       (5),
+        certdelete       (6),
+        pkcs12import     (7),
+        pkcs12export     (8),
+        certconfirm      (9),
+        certnoconfirm    (10),
+        forcecertdelete  (11),
+        crlimport        (12),
+        crldelete        (13)
+
+    }
+
+CiscoPkiActionResult ::= TEXTUAL-CONVENTION
+    STATUS         current
+    DESCRIPTION
+        "Result of the PKI Support action performed. An instance
+        of this TC corresponds to an instance of the TC
+        CpkiAction.
+
+         'none'         - No action was performed yet.
+
+         'success'      - Execution of the action triggered is
+                          completed successfully.
+
+         'failed'       - Execution of the action triggered has
+                          failed.
+
+         'inProgress'   - Execution of the action triggered is
+                          in progress.
+
+         'needConfirm'  - Further continuation of execution of
+                          the action triggered requires
+                          confirmation from the user.
+         "
+    SYNTAX         INTEGER {
+        none             (1),
+        success          (2),
+        failed           (3),
+        inProgress       (4),
+        needConfirm      (5)
+    }
+
+--
+--    The RSA key-pair entries
+--
+
+cpkiRSAKeyPairTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CpkiRSAKeyPairEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A list of RSA key-pair entries."
+    ::= { cpkiConfig 1 }
+
+cpkiRSAKeyPairEntry OBJECT-TYPE
+    SYNTAX     CpkiRSAKeyPairEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The RSA key-pair entry. The entry specifies the key-pair
+        name, size, whether it is exportable and the filename
+        where the key-pair is stored. Each entry corresponds
+        to a RSA key-pair generated internally in the device or
+        imported from outside. When a new entry is created, a
+        new RSA key-pair is generated in the device and stored
+        in a corresponding file. When an entry is deleted through
+        row deletion, the corresponding key-pair is destroyed. The
+        entry is not allowed to be modified after creation as a
+        key-pair is not modifiable after its generation.
+        "
+        INDEX   { cpkiRSAKeyPairName }
+        ::= { cpkiRSAKeyPairTable 1 }
+
+CpkiRSAKeyPairEntry ::=
+    SEQUENCE {
+        cpkiRSAKeyPairName             SnmpAdminString,
+        cpkiRSAKeyPairId               Unsigned32,
+        cpkiRSAKeyPairSize             INTEGER,
+        cpkiRSAPvtKeyFileName          SnmpAdminString,
+        cpkiRSAKeyPairExportable       TruthValue,
+        cpkiRSAKeyPairStorageType      StorageType,
+        cpkiRSAKeyPairConfigRowStatus  RowStatus
+        }
+
+cpkiRSAKeyPairName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+         "The unique name or label of key-pair."
+    ::= { cpkiRSAKeyPairEntry 1 }
+
+cpkiRSAKeyPairId OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "A unique identification nubmer of the RSA key-pair.
+         This is included to support ordered lists of RSA
+         key-pairs when needed. One such scenario where such
+         ordered list may be needed is for per application
+         configuration of key-pairs."
+    ::= { cpkiRSAKeyPairEntry 2 }
+
+cpkiRSAKeyPairSize OBJECT-TYPE
+    SYNTAX     INTEGER {
+                   rsa512    (1),  -- 512-bit RSA key
+                   rsa768    (2),  -- 768-bit RSA key
+                   rsa1024   (3), -- 1024-bit RSA key
+                   rsa1536   (4), -- 1536-bit RSA key
+                   rsa2048   (5)  -- 2048-bit RSA key
+               }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+         "The size of the key.
+
+         The following modulus sizes are defined:
+         512-bit, 768-bit, 1024-bit, 1536-bit and 2048-bit.
+         Once created, the size cannot be changed. After
+         key-pair has been deleted through row deletion,
+         the entry can be created again with another size.
+         "
+    DEFVAL { rsa512 }
+    ::= { cpkiRSAKeyPairEntry 3 }
+
+cpkiRSAPvtKeyFileName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The name of the file storing the RSA private key.
+         This filename is automatically generated from the
+         key-pair name. It is a unix style '/' seperated string
+         representing the absolute path of the file in the
+         file system of the device"
+    ::= { cpkiRSAKeyPairEntry 4 }
+
+cpkiRSAKeyPairExportable OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+         "The key-pair is exportable through the 'exportpkcs12'
+         PKI support action. Once created, the exportable flag
+         value cannot be changed. After key-pair has been
+         deleted through row deletion, the entry can be created 
+         again with another value for the exportable flag"
+    DEFVAL { true }
+    ::= { cpkiRSAKeyPairEntry 5 }
+
+cpkiRSAKeyPairStorageType OBJECT-TYPE
+    SYNTAX     StorageType
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { cpkiRSAKeyPairEntry 6 }
+
+cpkiRSAKeyPairConfigRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+         "The conceptual row status of the key-pair entry.
+         Deleting an entry through row delete will fail if the
+         entry is being pointed to from an instance from
+         cpkiTrustPointTable.
+
+         The objects in the entry may not be modified while
+         the value of this object is active(1).
+
+         An attempt to set these objects while the value of
+         cpkiRSAKeyPairConfigRowStatus is active(1) will
+         result in an inconsistentValue error."
+        ::= { cpkiRSAKeyPairEntry 7 }
+
+--
+--    The trustpoint entries
+--
+
+cpkiTrustPointTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CpkiTrustPointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A list of trustpoint, associated key-pair,
+        certificates and revocation checking
+        configuration entries.
+
+        The table also provides control, actions, current
+        operating state information and last action result
+        information for the certificate work-flow if being 
+        carried out using the PKI support actions."
+    ::= { cpkiConfig 2 }
+
+cpkiTrustPointEntry OBJECT-TYPE
+    SYNTAX     CpkiTrustPointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The trustpoint configuration entry. This entry
+        specifies the trustpoint name, the associated key-pair
+        index, the identity certificate filename, some important
+        attributes in the identity certificate and the issuer
+        (CA) certificate filename and important attributes in the
+        issuer certificate.
+
+        The entry also specifies the certificate revocation
+        checking methods and OCSP URL configuration.
+        "
+        INDEX   { cpkiTrustPointName }
+        ::= { cpkiTrustPointTable 1 }
+
+CpkiTrustPointEntry ::=
+    SEQUENCE {
+        cpkiTrustPointName             SnmpAdminString,
+        cpkiTrustPointId               Unsigned32,
+        cpkiKeyPairName                SnmpAdminString,
+        cpkiIdCertFileName             SnmpAdminString,
+        cpkiIdCertSubjectName          SnmpAdminString,
+        cpkiIdCertSerialNum            SnmpAdminString,
+        cpkiIdCertStartDate            DateAndTime,
+        cpkiIdCertEndDate              DateAndTime,
+        cpkiIdCertFingerPrint          SnmpAdminString,
+        cpkiIssuerCertFileName         SnmpAdminString,
+        cpkiIssuerCertSubjectName         SnmpAdminString,
+        cpkiIssuerCertSerialNum        SnmpAdminString,
+        cpkiIssuerCertStartDate        DateAndTime,
+        cpkiIssuerCertEndDate          DateAndTime,
+        cpkiIssuerCertFingerPrint      SnmpAdminString,
+        cpkiRevokeCheckMethods         OCTET STRING,
+        cpkiOCSPurl                    SnmpAdminString,
+        cpkiAction                     CiscoPkiAction,
+        cpkiActionUrl                  SnmpAdminString,
+        cpkiActionPassword             SnmpAdminString,
+        cpkiLastAction                 CiscoPkiAction,
+        cpkiLastActionResult           CiscoPkiActionResult,
+        cpkiLastActionFailureReason    SnmpAdminString,
+        cpkiTrustPointStorageType      StorageType,
+        cpkiTrustPointConfigRowStatus  RowStatus
+        }
+
+cpkiTrustPointName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+         "The unique name or label of a trustpoint."
+    ::= { cpkiTrustPointEntry 1 }
+
+cpkiTrustPointId OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "A unique identification number of the trustpoint.
+         This is included to support ordered lists of trustpoints
+         when needed. One such scenario where such ordered list
+         may be needed is for per application configuration of
+         trustpoints for certificate selection"
+    ::= { cpkiTrustPointEntry 2 }
+
+cpkiKeyPairName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..64))
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+         "The name of the associated key-pair from a key-pair
+         table. If a key-pair is not yet associated, the value
+         of this object will be a zero length string.
+
+         If a key-pair is already associated, it can be modified
+         only if the identity certificate is absent as indicated
+         by a non-zero length string value of the object
+         cpkiIssuerCertFileName. This is because of the fact that
+         the identity certificate is certifying this key-pair."
+    ::= { cpkiTrustPointEntry 3 }
+
+cpkiIdCertFileName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The name of the file storing the identity
+         certificate. It is a unix style '/' seperated string
+         representing the absolute path of the file in the
+         file system of the device. If there is no identity
+         certificate obtained as yet, the value of this object
+         will be a zero length string. 
+
+         This object gets its non-zero length string value
+         after a successful 'certimport' or 'pkcs12import'
+         PKI support action triggered on the object cpkiAction.
+
+         This object gets set to zero length string when the
+         identity certificate is deleted through a successful
+         'certdelete' action triggered on the object
+         cpkiAction."
+    ::= { cpkiTrustPointEntry 4 }
+
+cpkiIdCertSubjectName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The subject name of the identity certificate.
+         If there is no certificate (as indicated by a zero
+         length string value of the object cpkiIdCertFileName)
+         or no subject name in the certificate, the value of
+         this object will be a zero length string."
+    REFERENCE  
+         "RFC 2459, Internet X.509 Public Key Infrastructure
+         Certificate and CRL Profile, Section 4.1.2.6" 
+    ::= { cpkiTrustPointEntry 5 }
+
+cpkiIdCertSerialNum OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The serial number of the identity certificate.  
+         If there is no certificate (as indicated by a zero
+         length string value of the object cpkiIdCertFileName),
+         the value of this object will be a zero length string."
+    REFERENCE
+         "RFC 2459, Internet X.509 Public Key Infrastructure
+         Certificate and CRL Profile, Section 4.1.2.2"
+    ::= { cpkiTrustPointEntry 6 }
+
+cpkiIdCertStartDate OBJECT-TYPE
+    SYNTAX     DateAndTime
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The time when the identity certificate starts to be
+         valid, corresponding to the notBefore field in the
+         certificate. 
+
+         If there is no certificate (as indicated by a zero
+         length string value of the object cpkiIdCertFileName),
+         the value of this object will be a zero length string."
+    REFERENCE
+         "RFC 2459, Internet X.509 Public Key Infrastructure
+         Certificate and CRL Profile, Section 4.1.2.5"
+    ::= { cpkiTrustPointEntry 7 }
+
+cpkiIdCertEndDate OBJECT-TYPE
+    SYNTAX     DateAndTime
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The time when the identity certificate validity ends,
+         corresponding to the notAfter field in the
+         certificate. 
+
+         If there is no certificate (as indicated by the zero
+         length string value of the object cpkiIdCertFileName),
+         the value of this object will be a zero length string."
+    REFERENCE
+         "RFC 2459, Internet X.509 Public Key Infrastructure
+         Certificate and CRL Profile, Section 4.1.2.5"
+    ::= { cpkiTrustPointEntry 8 }
+
+cpkiIdCertFingerPrint OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The MD5 fingerprint of the identity certificate in
+         HEX string format.
+
+         If there is no certificate (as indicated by a zero
+         length string value of the object cpkiIdCertFileName),
+         the value of this object will be a zero length string."
+    ::= { cpkiTrustPointEntry 9 }
+
+cpkiIssuerCertFileName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The name of the file storing the issuer certificate.
+         It is a unix style '/' seperated string representing
+         the absolute path of the file in the file system of
+         the device. If there is no issuer certificate obtained
+         yet, the value of this object will be a zero length
+         string.
+
+         This object gets its non-zero length string value
+         after a successful 'caauth' PKI support action
+         triggered on the object cpkiAction.
+
+         This object gets set to zero length string when the
+         issuer certificate is deleted through a successful
+         'cadelete' action triggered on the object
+         cpkiAction."
+    ::= { cpkiTrustPointEntry 10 }
+
+cpkiIssuerCertSubjectName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The issuer name (subject name in issuer certificate
+         which will be the same as the issuer name in the
+         identity certificate if present).
+
+         If there is no certificate (as indicated by a zero
+         length string value of the object cpkiIssuerCertFileName),
+         the value will be a zero length string."
+    REFERENCE  
+         "1. RFC 2459, Internet X.509 Public Key Infrastructure
+             Certificate and CRL Profile, Section 4.1.2.6
+          2. RFC 2459, Internet X.509 Public Key Infrastructure
+             Certificate and CRL Profile, Section 5.1.2.3"
+    ::= { cpkiTrustPointEntry 11 }
+
+cpkiIssuerCertSerialNum OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The serial number of the issuer certificate.
+
+        If there is no certificate (as indicated by a zero
+        length string value of the object
+        cpkiIssuerCertFileName), the value will be a zero
+        length string."
+    REFERENCE
+         "RFC 2459, Internet X.509 Public Key Infrastructure
+         Certificate and CRL Profile, Section 4.1.2.2"
+    ::= { cpkiTrustPointEntry 12 }
+
+cpkiIssuerCertStartDate OBJECT-TYPE
+    SYNTAX     DateAndTime
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The time when the issuer certificate starts to be
+         valid, corresponding to the notBefore field in the
+         certificate.
+
+        If there is no certificate (as indicated by a zero
+        length string value of the object
+        cpkiIssuerCertFileName), the value will be a zero
+        length string."
+    REFERENCE
+         "RFC 2459, Internet X.509 Public Key Infrastructure
+         Certificate and CRL Profile, Section 4.1.2.5"
+    ::= { cpkiTrustPointEntry 13 }
+
+cpkiIssuerCertEndDate OBJECT-TYPE
+    SYNTAX     DateAndTime
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The time when the issuer certificate validity ends,
+         corresponding to the notAfter field on in the
+         certificate.
+
+        If there is no certificate (as indicated by a zero
+        length string value of the object
+        cpkiIssuerCertFileName), the value will be a zero
+        length string."
+    REFERENCE
+         "RFC 2459, Internet X.509 Public Key Infrastructure
+         Certificate and CRL Profile, Section 4.1.2.5"
+    ::= { cpkiTrustPointEntry 14 }
+
+cpkiIssuerCertFingerPrint OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "The MD5 fingerprint of the issuer's certificate in
+         HEX string format.
+
+         If there is no certificate (as indicated by a
+         zero length string value of cpkiIssuerCertFileName),
+         the value of this object will be a zero length string."
+    ::= { cpkiTrustPointEntry 15 }
+
+cpkiRevokeCheckMethods OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE (16))
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+         "Revocation checking methods list which is an ordered
+         list of certificate revocation checking methods to be
+         employed while verifying peer certificates issued by
+         the CA corresponding to this trust point entry.
+
+         The value of this object is a ordered list of one or
+         more 1-octet values, where each 1-octet value
+         corresponds to a method in the revocation checking method
+         enumeration:
+
+         none (1)         - No revocation status checking needed;
+                          instead consider the certificate as
+                          not revoked.
+
+         crl  (2)         - Use CRL for checking the revocation
+                          status of certificates.
+
+         ocsp (3)         - Use OCSP for checking the revocation
+                          status of certificates.
+
+         If 'none' occures in the list, it should be the last value.
+         The octets after the last value in the ordered list
+         should be zero octets.
+
+         The order in which the revocation checking methods
+         occur within the value of this object determines
+         the order the revocation checking methods are attempted
+         during the verification of a peer certificate.
+
+         The default value of this object (after row creation)
+         contains only the revocation checking method 'crl'."
+
+    DEFVAL { '02000000000000000000000000000000'H }
+    ::= { cpkiTrustPointEntry 16 }
+
+cpkiOCSPurl OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..255))
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+         "The contact http url of the external OCSP server for 
+         certificate revocation checking using OCSP protocol.
+
+         The default value of this object (after row creation)
+         is a zero length string"
+    DEFVAL { ''H }
+    ::= { cpkiTrustPointEntry 17 }
+
+cpkiAction   OBJECT-TYPE
+    SYNTAX        CiscoPkiAction
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The PKI support action to be triggered for this
+        trustpoint entry.
+
+        The PKI support actions are steps in the certificate
+        work-flow used to facilitate the configuration of the
+        RSAkey-pair, identity certificate and CA certificates
+        in a trustpoint. A PKI support action is triggered by
+        setting this object to the corresponding value as defined
+        in TC CiscoPkiAction. The value of this object and the
+        values of the objects cpkiActionUrl and cpkiActionPassword
+        are interpreted and applied together as single action
+        trigger. All thease actions operate over the trustpoint
+        and modify appropriate columns in the entry.
+
+        An attempt to set this object when the value of the
+        object cpkiActionResult is 'inProgress' will result in an
+        inconsistentValue error.
+
+        The work-flow nature of certificate operations requires
+        that the trustpoint entry already exists. Some of the
+        operation requires that some other previous operations
+        are already performed successfully, as seen below.
+
+        The following is a brief of each action semantics, its
+        parameters and the result:
+
+        'caauth' - This action is used to authenticate a CA and
+        configure its CA certificate/chain in this trustpoint. This
+        is generally the first step in a certificate work-flow.
+        It requires the parameter objects cpkiActionUrl and
+        cpkiActionPassword set with appropriate values. The CA
+        certificate/chain being installed should be available in
+        PEM fromat in a file on bootflash. The filename is
+        specified as 'bootflash:<filename>' as the value of the
+        object cpkiActionUrl. On successful completion of the
+        operation, the CA certificate fingerprint will be
+        available as the value of the object
+        cpkiIssuerCertFingerPrint and the value of the object
+        cpkiLastActionResult will be 'needConfirm'. This action
+        is to be followed up with a subsequent 'certconfirm' or
+        'certnoconfirm' as explained later, to complete the CA
+        authentication process.
+
+        'cadelete' - This action is used to delete the CA
+        certificate/chain from this trustpoint. On successful
+        completion of the operation, the values of all issuer
+        certificate related objects (cpkiIssuerCertFileName
+        etc.) in this trustpoint entry will zero length strings.
+        For this action to succeed, a CA certificate/chain should
+        have been already configured through the 'caauth' action.
+
+        'certreq' - This action is used to generate a pkcs#10
+        certificate signing request (CSR) needed to obtain an
+        identity certificate from the CA corresponding to this
+        trustpoint entry. This entry should have a key-pair
+        already associated (as indicated by non-zero value of
+        cpkiKeyPairIndex in the entry). Also the CA certificate/
+        chain should have been already configured through the
+        'caauth' action. This action requires the parameter
+        object cpkiActionPassword to be set with a password string
+        which will be used as the 'challenge password' attribute
+        in the CSR being created (the password being opional, it
+        should be a zero length string if no password is being
+        specified). On successful completion of the operation, the
+        value of the object cpkiActionUrl will contain a file name
+        string in the format 'bootflash:<filename>' which will
+        contain the CSR generated in PEM format. This CSR has to be
+        submitted to the CA to get the identity certificate. The
+        process of submitting CSR to the CA and getting the identity
+        certificate is a step not supported by this MIB currently.
+        Once the identity certificate is obtained, it has to be
+        installed in this trustpoint with a subsequent 'certimport'
+        action explained next.
+
+        'certimport' - This action is used to import in this
+        trustpoint, an idenetity certificate obtained from the
+        corresponding CA for an earlier CSR generated (previous
+        operation 'certreq'). It requires that the identity
+        certificate being installed be available in PEM fromat in a
+        file on bootflash. The filename is specified  as
+        'bootflash:<filename>' as the value of the object
+        cpkiActionUrl. On successful completion of the operation,
+        the values of all identity certificate related objects
+        (cpkiIdCertFileName etc.) in this entry will get filled
+        with the appropriate strings as per the corresponding
+        attributes in the identity certificate.
+
+        'certdelete' - This action is used to delete the identity
+        certificate from this trustpoint. On successful completion
+        of the operation, the values of all identity certificate
+        related objects (cpkiIdCertFileName etc.) in this entry
+        will become zero length strings.
+
+        'pkcs12import' - This action is used to import the
+        key-pair, identity certificate and the CA certificate/chain
+        in pkcs#12 format into this trustpoint. It requires
+        that the file containing the import data be
+        available on bootflash and whose filename be specified as
+        'bootflash:<filename>' as the value of the object
+        cpkiActionUrl. It also requires that the parameter
+        object cpkiActionPassword to be set with a password
+        string to be used for decoding the pkcs#12 data. On
+        successful completion of the operation, an entry in the
+        cpkiRSAKeyPairTable will be created corresponding to the
+        imported key-pair and it will be named using the trustpoint
+        name specified. Secondly, the values of all identity
+        certificate related objects (cpkiIdCertFileName etc.)
+        and the values of all issuer certificate related objects
+        (cpkiIssuerCertFileName etc.)in this entry will get filled
+        with the appropriate strings as per the corresponding
+        attributes in the identity and CA certificates
+        respectively.
+
+        'pkcs12export' - This action is used to export the
+        key-pair, identity certificate and the CA certificate/chain
+        in pkcs#12 format from this trustpoint. It requires that
+        the filename to contain the exported data be specified  as
+        'bootflash:<filename>' as the value of the object
+        cpkiActionUrl. It also requires that the parameter
+        object cpkiActionPassword to be set with a password string
+        to be used for encoding the pkcs#12 data. On successful
+        completion of the operation, the exported data will be
+        available on bootflash in the specified file.
+
+        'certconfirm' - This action is used to confirm as
+        acceptable, the certificate fingerprint for the action
+        'caauth' in this trustpoint As mentioned earlier, the
+        certificate fingerprint is available as the value of the
+        object cpkiIssuerCertFingerPrint and the value of the
+        object cpkiActionResult will be 'needConfirm' after a
+        successfull 'caauth' action on a trustpoint. On successful
+        completion of the 'certconfirm' operation, values of all
+        issuer certificate related objects (cpkiIssuerCertFileName
+        etc.) in this entry get filled with the appropriate strings
+        as per the attributes in the CA certificate.
+
+        'certnoconfirm' - This action is used to confirm as not
+        acceptable, the certificate fingerprint for the action
+        'caauth. As mentioned earlier, the certificate fingerprint
+        is available as the value of the object
+        cpkiIssuerCertFingerPrint and the value of the object
+        cpkiActionResult will be 'needConfirm' after a successfull
+        'caauth' action on a trustpoint. On successful completion
+        of the 'certnoconfirm' action subsequent to a 'caauth'
+        action, the import pending CA certificate/chain will be
+        rejected.
+
+        'forcecertdelete' - Same as 'certdelete' but the operation
+        is forced even if the certificate being deleted is the
+        last-most one.
+
+        'crlimport' - This action is used to import in this
+        trustpoint, the CRL obtained from the corresponding CA.
+        It requires that the CRL being imported be available in
+        PEM fromat in a file on bootflash. The filename is specified
+        as 'bootflash:<filename>' as the value of the object
+        cpkiActionUrl. On successful completion of the operation,
+        the CRL will be installed in the trustpoint. For this
+        action to succeed, a CA certificate/chain should
+        have been already configured through the 'caauth' action.
+
+         'crldelete' - This action is used to delete the CRL from a
+        trustpoint. This action does not require any parameters.
+
+        On successful completion of any of the above actions, the
+        result object cpkiActionResult will have the value
+        'success'. on any error during the execution of the action,
+        the object cpkiActionResult will be set with the value
+        'failed' and the object cpkiActionFailureReason will have
+        the appropriate failure message string.
+
+        An attempt to set this object with a value other than
+        'certconfirm' or 'certnoconfirm', when the value of the
+        object cpkiActionResult is 'needConfirm', will result in
+        an inconsistentValue error.
+
+        All Actions are done on existing entry, action trigger is
+        not allowed as part of row creation.
+
+        Retrieving the value of this object via SNMP will always
+        return 'noop'.
+        "
+    DEFVAL { noop } 
+    ::= { cpkiTrustPointEntry 18 }
+
+cpkiActionUrl OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+         "The value of this object indicates the filename
+         containig the input or output certificate data needed
+         for the PKI support action being triggered on this entry.
+         The filename should pe specified as 'bootflash:<filename>'
+         and it should be available on bootflash or get created on
+         bootflash depending upon the action being triggered. 
+         "
+    ::= { cpkiTrustPointEntry 19 }
+
+cpkiActionPassword OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (0..64))
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The value of this object indicates the password
+        required to perform the PKI support action being
+        triggered. This password is required to be
+        specified only for 'certreq', 'importpkcs12' and
+        'exportpkcs12' actions.
+
+        For security reasons, the value of this object, whenever
+        it is retrieved by the management prototcol, is always
+        the zero length string.
+        "
+    DEFVAL { ''H }
+    ::= { cpkiTrustPointEntry 20 }
+
+cpkiLastAction OBJECT-TYPE
+    SYNTAX        CiscoPkiAction
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The PKI support action attempted last. In otherwords,
+        the value attempted to be set for cpkiAction object
+        last. If no action has been triggered for the trustpoint
+        after its creation, then retrieving the value of this
+        object will return 'noop'."
+    ::= { cpkiTrustPointEntry 21 }
+
+cpkiLastActionResult OBJECT-TYPE
+    SYNTAX         CiscoPkiActionResult
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The result of the execution of the last PKI support
+        action (represented by the value of cpkiLastAction).
+        When the value of this object is 'inProgress', an
+        attempt to set the value of cpkiAction object will
+        return inConsistentError.
+        "
+    ::= { cpkiTrustPointEntry 22 }
+
+cpkiLastActionFailureReason OBJECT-TYPE
+    SYNTAX         SnmpAdminString
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The failure reason description for the failed
+        execution of PKI support action. If the object
+        cpkiActionResult has the value 'failed', then
+        this object contains the reason string as to why
+        it failed.  Otherwise, the value of this object is
+        a zero length string.
+        "
+    ::= { cpkiTrustPointEntry 23 }
+
+cpkiTrustPointStorageType OBJECT-TYPE
+    SYNTAX     StorageType
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL     { nonVolatile }
+    ::= { cpkiTrustPointEntry 24 }
+
+cpkiTrustPointConfigRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+         "The conceptual row status of the trustpoint entry.
+
+         After row creation, the value of this object will
+         become active(1) as there is no prerequisite of certain
+         objects to be set to make this object active.
+
+         The various read-only objects of the row can be
+         populated only by means of the various PKI support
+         actions attempted by setting the cpkiAction object
+         with appropriate value.
+
+         Except the read-only objects mentioned, all other
+         objects of the entry can be modified when the row
+         is active subject to the restrictions, if any,
+         specified for each"
+    ::= { cpkiTrustPointEntry 25 }
+
+--
+-- Conformance
+--
+
+cpkiMIBCompliances    OBJECT IDENTIFIER
+                                ::= { cpkiMIBConform 1 }
+cpkiMIBGroups         OBJECT IDENTIFIER
+                                ::= { cpkiMIBConform 2 }
+
+cpkiMIBCompliance     MODULE-COMPLIANCE
+    STATUS       current
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+         CISCO-PKI-PARTICIPATION-MIB.my.
+         "
+    MODULE
+       MANDATORY-GROUPS {
+           cpkiConfigGroup
+       }
+
+    OBJECT cpkiRSAKeyPairStorageType
+    MIN-ACCESS  read-only
+    DESCRIPTION
+        "Only read-only needs to be supported"
+
+    OBJECT cpkiTrustPointStorageType
+    MIN-ACCESS  read-only
+    DESCRIPTION
+        "Only read-only needs to be supported"
+
+    OBJECT cpkiRSAKeyPairConfigRowStatus
+    SYNTAX     INTEGER {
+                active (1),
+                createAndGo (4),
+                destroy (6)
+               }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need to be
+         supported."
+
+    OBJECT cpkiTrustPointConfigRowStatus
+    SYNTAX     INTEGER {
+                active (1),
+                createAndGo (4),
+                destroy (6)
+               }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need to be
+         supported."
+
+    ::= { cpkiMIBCompliances 1 }
+
+--
+-- Units of Conformance
+--
+
+cpkiConfigGroup  OBJECT-GROUP
+    OBJECTS {
+        cpkiRSAKeyPairId,
+        cpkiRSAKeyPairSize,
+        cpkiRSAPvtKeyFileName,
+        cpkiRSAKeyPairExportable,
+        cpkiRSAKeyPairStorageType,
+        cpkiRSAKeyPairConfigRowStatus,
+        cpkiTrustPointId,
+        cpkiKeyPairName,
+        cpkiIdCertFileName,
+        cpkiIdCertSubjectName,
+        cpkiIdCertSerialNum,
+        cpkiIdCertStartDate,
+        cpkiIdCertEndDate,
+        cpkiIdCertFingerPrint,
+        cpkiIssuerCertFileName,
+        cpkiIssuerCertSubjectName,
+        cpkiIssuerCertSerialNum,
+        cpkiIssuerCertStartDate,
+        cpkiIssuerCertEndDate,
+        cpkiIssuerCertFingerPrint,
+        cpkiRevokeCheckMethods,
+        cpkiOCSPurl,
+        cpkiAction,
+        cpkiActionUrl,
+        cpkiActionPassword,
+        cpkiLastAction,
+        cpkiLastActionResult,
+        cpkiLastActionFailureReason,
+        cpkiTrustPointStorageType,
+        cpkiTrustPointConfigRowStatus
+    }
+    STATUS         current
+    DESCRIPTION
+        "A collection of objects for configurations of the PKI support
+        "
+    ::= { cpkiMIBGroups 1 }
+
+END

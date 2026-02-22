@@ -1,0 +1,959 @@
+-- MIB file created 18-Mar-2009 09:23:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-FRR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-FRR-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus, TimeStamp
+            FROM SNMPv2-TC-v1
+    InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    MplsTunnelIndex, MplsTunnelInstanceIndex, MplsTunnelAffinity, 
+    MplsBitRate, MplsLsrIdentifier
+            FROM MPLS-TC-STD-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+cmplsFrrMIB OBJECT IDENTIFIER ::= { ciscoExperiment 98 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200804291200Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    
+--             Adrien Grise
+--     Postal: 300 Apollo Drive
+--             Cisco Systems, Inc.
+--             Chelmsford, MA 01824
+--     Tel:    +1-978-497-3989
+--     Email:  agrise@cisco.com
+--    
+--             Thomas D. Nadeau
+--     Postal: Cisco Systems, Inc.
+--             250 Apollo Drive
+--             Chelmsford, MA 01924
+--     Tel:    +1-978-244-3051
+--     Email:  tnadeau@cisco.com
+--    
+--             MPLS MIB Development Team
+--     Postal: Cisco Systems, Inc.
+--             250 Apollo Drive
+--             Chelmsford, MA 01924
+--     Tel:    +1-978-497-3989
+--     Email:  ch-mpls-mib-dev@cisco.com
+--    
+--  Descr
+--    This MIB module contains managed object definitions for MPLS
+--     Fast Reroute (FRR) as defined in:Pan, P., Gan, D., Swallow, G.,
+--     Vasseur, J.Ph., Cooper, D., Atlas, A., Jork, M., Fast Reroute
+--     Techniques in RSVP-TE, draft-ietf-mpls-rsvp-lsp-fastreroute-
+--     00.txt, January 2002.
+--  RevDate
+--    200804291200Z
+--  RevDescr
+--    Added support for cmplsFrrUnProtected notification.  It is
+--    defined in version 2 of the ietf draft.  The notification's
+--    variable bindings have been modified from the draft form to
+--    match the previous approved Cisco-ized draft form as defined
+--    for the cmplsFrrProtected notification.
+--  RevDate
+--    200211051200Z
+--  RevDescr
+--    Cisco'ized the MPLS-FRR-MIB.my file
+--  RevDate
+--    200211011200Z
+--  RevDescr
+--    Added support for Facility-based FRR.
+--    
+--     Removed tables that were redundant with
+--       other MPLS MIBs.
+--    
+--     Assigned experimental.120.
+--  RevDate
+--    200203221200Z
+--  RevDescr
+--    Initial draft version.
+
+cmplsFrrNotif   OBJECT IDENTIFIER ::= { cmplsFrrMIB 0 }
+cmplsFrrScalars OBJECT IDENTIFIER ::= { cmplsFrrMIB 1 }
+cmplsFrrObjects OBJECT IDENTIFIER ::= { cmplsFrrMIB 2 }
+cmplsFrrGeneralObjects OBJECT IDENTIFIER ::= { cmplsFrrObjects 1 }
+cmplsFrr1to1Objects OBJECT IDENTIFIER ::= { cmplsFrrObjects 2 }
+cmplsFrrFacObjects OBJECT IDENTIFIER ::= { cmplsFrrObjects 3 }
+cmplsFrrConformance OBJECT IDENTIFIER ::= { cmplsFrrMIB 3 }
+cmplsFrrGroups  OBJECT IDENTIFIER ::= { cmplsFrrConformance 1 }
+cmplsFrrCompliances OBJECT IDENTIFIER ::= { cmplsFrrConformance 2 }
+
+MplsFrrDetourIndex ::= INTEGER(1..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Index into mplsFrrDetourTable.
+
+cmplsFrrDetourIncoming OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of detour LSPs entering the device if
+        mplsFrrConstProtectionMethod is set to oneToOneBackup(0), or
+        or 0 if mplsFrrConstProtectionMethod is set to
+        facilityBackup(1)."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 1 }
+
+cmplsFrrDetourOutgoing OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of detour LSPs leaving the device if
+        mplsFrrConstProtectionMethod is set to oneToOneBackup(0),
+        or 0 if mplsFrrConstProtectionMethod is set to 
+        to facilityBackup(1)."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 2 }
+
+cmplsFrrDetourOriginating OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of detour LSPs originating at this PLR if
+        mplsFrrConstProtectionMethod is set to oneToOneBackup(0).
+        This object MUST return 0 if the mplsFrrConstProtectionMethod 
+        is set to facilityBackup(1)."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 3 }
+
+cmplsFrrSwitchover OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of tunnel instances that are switched over to their
+        corresponding detour LSP if mplsFrrConstProtectionMethod is set
+        to oneToOneBackup(0), or tunnels being switched over if
+        mplsFrrConstProtectionMethod is set to facilityBackup(1)."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 4 }
+
+cmplsFrrNumOfConfIfs OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of MPLS interfaces configured for 
+         protection by the FRR feature, otherwise this value
+         MUST return 0 to indicate that LSPs traversing any 
+         interface may be protected."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 5 }
+
+cmplsFrrActProtectedIfs OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of interfaces currently being protected 
+         by the FRR feature if mplsFrrConstProtectionMethod is set to
+         facilityBackup(1), otherwise this value should return 0 to
+         indicate that LSPs traversing any interface may be protected.
+         This value MUST be less than or equal to mplsFrrConfIfs."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 6 }
+
+cmplsFrrConfProtectingTuns OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of bypass tunnels configured to 
+        protect facilities on this LSR using the FRR feature 
+        if mplsFrrConstProtectionMethod is set to 
+        facilityBackup(1), otherwise this value MUST return 
+        0."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 7 }
+
+cmplsFrrActProtectedTuns OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of bypass tunnels indicated in
+        mplsFrrConfProtectingTuns whose operStatus
+        is up(1) indicating that they are currently protecting
+        facilities on this LSR using the FRR feature. This
+        object MUST return 0 if mplsFrrConstProtectionMethod 
+        is set to facilityBackup(1)."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 8 }
+
+cmplsFrrActProtectedLSPs OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of LSPs currently protected by 
+        the FRR feature. If mplsFrrConstProtectionMethod is set 
+        to facilityBackup(1)this object MUST return 0."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 9 }
+
+cmplsFrrConstProtectionMethod OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        oneToOneBackup(0),
+        facilityBackup(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates which protection method is to be used for fast
+         reroute. Some devices may require a reboot of their routing
+         processors if this variable is changed. An agent which
+         does not wish to reboot or modify its FRR mode 
+         MUST return an inconsistentValue error. Please 
+         consult the device's agent capability statement 
+         for more details."
+    ::= { cmplsFrrScalars 10 }
+
+cmplsFrrNotifsEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables or disables FRR notifications defined in this MIB
+        module. Notifications are disabled by default."
+    DEFVAL { false }
+    ::= { cmplsFrrScalars 11 }
+
+cmplsFrrLogTableMaxEntries OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum number of entries allowed in the FRR
+         Log table. Agents receiving SETs for values that cannot be
+         used must return an inconsistent value error. If a manager
+         sets this value to 0, this indicates that no logging should
+         take place by the agent.  
+        
+         If this value is returned as 0, this indicates
+         that no additional log entries will be added to the current
+         table either because the table has been completely
+         filled or logging has been disabled. However, agents
+         may wish to not delete existing entries in the log table
+         so that managers may review them in the future. 
+        
+         It is implied that when mplsFrrLogTableCurrEntries 
+         has reached the value of this variable, that logging 
+         entries may not continue to be added to the table, 
+         although existing ones may remain.  Furthermore, an
+         agent may begin to delete existing (perhaps the
+         oldest entries) entries to make room for new ones."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 12 }
+
+cmplsFrrLogTableCurrEntries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the current number of entries in the FRR log
+        table."
+    ::= { cmplsFrrScalars 13 }
+
+cmplsFrrNotifMaxRate OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates the number of milliseconds
+         that must elapse between notification emissions. If
+         events occur more rapidly, the implementation may
+         simply fail to emit these notifications during that
+         period, or may queue them until an appropriate
+         time in the future. A value of 0 means no minimum 
+         elapsed period is specified."
+    DEFVAL { 0 }
+    ::= { cmplsFrrScalars 14 }
+
+cmplsFrrConstTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CMplsFrrConstEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table shows detour setup constraints."
+    ::= { cmplsFrrGeneralObjects 1 }
+
+cmplsFrrConstEntry OBJECT-TYPE
+    SYNTAX CMplsFrrConstEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table represents detour LSP or bypass tunnel 
+         setup constraints for a tunnel instance to be protected by 
+         detour LSPs or a tunnel. Agents must allow entries in this table 
+         to be created only for tunnel instances that require fast-reroute.
+         Entries indexed with mplsFrrConstIfIndex set to 0 apply to all
+         interfaces on this device for which the FRR feature can operate
+         on."
+    INDEX { cmplsFrrConstIfIndex, cmplsFrrConstTunnelIndex, cmplsFrrConstTunnelInstance }
+    ::= { cmplsFrrConstTable 1 }
+
+CMplsFrrConstEntry ::= SEQUENCE {
+    cmplsFrrConstIfIndex InterfaceIndexOrZero,
+    cmplsFrrConstTunnelIndex MplsTunnelIndex,
+    cmplsFrrConstTunnelInstance MplsTunnelInstanceIndex,
+    cmplsFrrConstSetupPrio Gauge,
+    cmplsFrrConstHoldingPrio Gauge,
+    cmplsFrrConstInclAnyAffinity MplsTunnelAffinity,
+    cmplsFrrConstInclAllAffinity MplsTunnelAffinity,
+    cmplsFrrConstExclAllAffinity MplsTunnelAffinity,
+    cmplsFrrConstHopLimit Gauge,
+    cmplsFrrConstBandwidth MplsBitRate,
+    cmplsFrrConstRowStatus RowStatus,
+    cmplsFrrConstNumProtectingTunOnIf Gauge,
+    cmplsFrrConstNumProtectedTunOnIf Gauge
+    }
+
+cmplsFrrConstIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies an interface for which fast reroute is
+        configured. Tabular entries indexed with a 0 value apply to all
+        interfaces on this device for which the FRR feature can operate
+        on."
+    ::= { cmplsFrrConstEntry 1 }
+
+cmplsFrrConstTunnelIndex OBJECT-TYPE
+    SYNTAX MplsTunnelIndex
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies a tunnel for which fast reroute is
+        requested."
+    ::= { cmplsFrrConstEntry 2 }
+
+cmplsFrrConstTunnelInstance OBJECT-TYPE
+    SYNTAX MplsTunnelInstanceIndex
+--    Rsyntax Gauge(0|1..65535|65536..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies an instance of this tunnel for which fast
+        reroute is requested."
+    ::= { cmplsFrrConstEntry 3 }
+
+cmplsFrrConstSetupPrio OBJECT-TYPE
+    SYNTAX Gauge(0..7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the setup priority of detour LSP."
+    REFERENCE
+        "1. RSVP-TE: Extensions to RSVP for LSP Tunnels, Awduche et al,
+        RFC 3209, December 2001"
+    DEFVAL { 7 }
+    ::= { cmplsFrrConstEntry 4 }
+
+cmplsFrrConstHoldingPrio OBJECT-TYPE
+    SYNTAX Gauge(0..7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the holding priority for detour LSP."
+    REFERENCE
+        "1. RSVP-TE: Extensions to RSVP for LSP Tunnels, Awduche et al,
+        RFC 3209, December 2001"
+    DEFVAL { 0 }
+    ::= { cmplsFrrConstEntry 5 }
+
+cmplsFrrConstInclAnyAffinity OBJECT-TYPE
+    SYNTAX MplsTunnelAffinity
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A link satisfies the include-any constraint if and only if the
+        constraint is zero, or the link and the constraint have a
+        resource class in common."
+    REFERENCE
+        "1. RSVP-TE: Extensions to RSVP for LSP Tunnels, Awduche et al,
+        RFC 3209, December 2001."
+    DEFVAL { 0 }
+    ::= { cmplsFrrConstEntry 6 }
+
+cmplsFrrConstInclAllAffinity OBJECT-TYPE
+    SYNTAX MplsTunnelAffinity
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A link satisfies the include-all constraint if and only if the
+        link contains all of the administrative groups specified in the
+        constraint."
+    REFERENCE
+        "1. RSVP-TE: Extensions to RSVP for LSP Tunnels, Awduche et al,
+        RFC 3209, December 2001."
+    DEFVAL { 0 }
+    ::= { cmplsFrrConstEntry 7 }
+
+cmplsFrrConstExclAllAffinity OBJECT-TYPE
+    SYNTAX MplsTunnelAffinity
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A link satisfies the exclude-all constraint if and only if the
+        link contains none of the administrative groups specified in the
+        constraint."
+    REFERENCE
+        "1. RSVP-TE: Extensions to RSVP for LSP Tunnels, Awduche et al,
+        RFC 3209, December 2001."
+    DEFVAL { 0 }
+    ::= { cmplsFrrConstEntry 8 }
+
+cmplsFrrConstHopLimit OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of hops that the detour LSP may traverse."
+    REFERENCE
+        "Pan, P., Gan, D., Swallow, G., Vasseur, J.Ph., Cooper, D.,
+        Atlas, A., Jork, M., Fast Reroute Techniques in RSVP-TE, draft-
+        ietf-mpls-rsvp-lsp-fastreroute-00.txt, January 2002. Work in
+        progress."
+    DEFVAL { 32 }
+    ::= { cmplsFrrConstEntry 9 }
+
+cmplsFrrConstBandwidth OBJECT-TYPE
+    SYNTAX MplsBitRate
+--    Rsyntax Gauge(0|1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable represents the bandwidth for detour LSPs of this
+        tunnel, in units of thousands of bits per second (Kbps)."
+    DEFVAL { 1 }
+    ::= { cmplsFrrConstEntry 10 }
+
+cmplsFrrConstRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create, modify, and/or delete a row in
+         this table."
+    ::= { cmplsFrrConstEntry 11 }
+
+cmplsFrrConstNumProtectingTunOnIf OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of backup tunnels protecting the specified
+        interface."
+    ::= { cmplsFrrConstEntry 12 }
+
+cmplsFrrConstNumProtectedTunOnIf OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of tunnels protected on this interface."
+    ::= { cmplsFrrConstEntry 13 }
+
+cmplsFrrLogTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CMplsFrrLogEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The fast reroute log table records fast reroute events such
+         as protected links going up or down or the FRR feature
+         kicking in."
+    ::= { cmplsFrrGeneralObjects 2 }
+
+cmplsFrrLogEntry OBJECT-TYPE
+    SYNTAX CMplsFrrLogEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table is created to describe one fast
+         reroute event.  Entries in this table are only created and
+         destroyed by the agent implementation. The maximum number 
+         of entries in this log is governed by the scalar."
+    INDEX { cmplsFrrLogIndex }
+    ::= { cmplsFrrLogTable 1 }
+
+CMplsFrrLogEntry ::= SEQUENCE {
+    cmplsFrrLogIndex Gauge,
+    cmplsFrrLogEventTime TimeStamp,
+    cmplsFrrLogInterface InterfaceIndexOrZero,
+    cmplsFrrLogEventType INTEGER,
+    cmplsFrrLogEventDuration TimeTicks,
+    cmplsFrrLogEventReasonString OCTET STRING
+    }
+
+cmplsFrrLogIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies a fast reroute event entry."
+    ::= { cmplsFrrLogEntry 1 }
+
+cmplsFrrLogEventTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides the amount of time ticks since this
+        event occured."
+    ::= { cmplsFrrLogEntry 2 }
+
+cmplsFrrLogInterface OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which interface was affected by this
+        FRR event. This value may be set to 0 if
+        mplsFrrConstProtectionMethod is set to oneToOneBackup(0)."
+    ::= { cmplsFrrLogEntry 3 }
+
+cmplsFrrLogEventType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        protected(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes what type of fast reroute event
+        occured."
+    ::= { cmplsFrrLogEntry 4 }
+
+cmplsFrrLogEventDuration OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the duration of this event."
+    ::= { cmplsFrrLogEntry 5 }
+
+cmplsFrrLogEventReasonString OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(128))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains an implementation-specific explanation
+        of the event."
+    ::= { cmplsFrrLogEntry 6 }
+
+cmplsFrrFacRouteDBTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CMplsFrrFacRouteDBEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The mplsFrrFacRouteDBTable provides information about the 
+        fast reroute database.  Each entry belongs to an interface,
+        protecting backup tunnel and protected tunnel. MPLS 
+        interfaces defined on this node are protected by backup
+        tunnels and are indexed by mplsFrrFacRouteProtectedIndex.
+        Backup tunnels defined to protect the tunnels traversing an
+        interface, and are indexed by 
+        mplsFrrFacRouteProtectingTunIndex.  Note that the tunnel 
+        instance index is not required, since it is implied to be 0, 
+        which indicates the tunnel head interface for the protecting 
+        tunnel. The protecting tunnel is defined to exist on the PLR 
+        in the FRR specification.  Protected tunnels are the LSPs that 
+        traverse the protected link.  These LSPs are uniquely 
+        identified by mplsFrrFacRouteProtectedTunIndex,
+        mplsFrrFacRouteProtectedTunInstance, 
+        mplsFrrFacRouteProtectedTunIngressLSRId, and 
+        mplsFrrFacRouteProtectedTunEgressLSRId."
+    REFERENCE
+        "Srinivansan, C., and A. Viswanathan, T. Nadeau, MPLS Traffic
+        Engineering Management Information Base Using SMIv2,
+         draft-ietf-mpls-te-mib-06.txt "
+    ::= { cmplsFrrFacObjects 1 }
+
+cmplsFrrFacRouteDBEntry OBJECT-TYPE
+    SYNTAX CMplsFrrFacRouteDBEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the mplsFrrDBTable represents a single protected
+        LSP, protected by a backup tunnel and defined for a specific
+        protected interface. Note that for brevity, managers should
+        consult the mplsTunnelTable present in the MPLS-TE MIB for
+        additional information about the protecting and protected
+        tunnels, and the ifEntry in the IF-MIB for the protected
+        interface."
+    REFERENCE
+        "Srinivansan, C., and A. Viswanathan, T. Nadeau, MPLS Label
+         Switch Router Management Information Base Using SMIv2,
+         draft-ietf-mpls-lsr-mib-07.txt Srinivansan, C., and A.
+         Viswanathan, T. Nadeau, MPLS Traffic Engineering Management
+         Information Base Using SMIv2, draft-ietf-mpls-te-mib-
+         06.txt."
+    INDEX { cmplsFrrFacRouteProtectedIfIndex, cmplsFrrFacRouteProtectingTunIndex, cmplsFrrFacRouteProtectedTunIndex, cmplsFrrFacRouteProtectedTunInstance, cmplsFrrFacRouteProtectedTunIngressLSRId, cmplsFrrFacRouteProtectedTunEgressLSRId }
+    ::= { cmplsFrrFacRouteDBTable 1 }
+
+CMplsFrrFacRouteDBEntry ::= SEQUENCE {
+    cmplsFrrFacRouteProtectedIfIndex InterfaceIndex,
+    cmplsFrrFacRouteProtectingTunIndex MplsTunnelIndex,
+    cmplsFrrFacRouteProtectedTunIndex MplsTunnelIndex,
+    cmplsFrrFacRouteProtectedTunInstance MplsTunnelInstanceIndex,
+    cmplsFrrFacRouteProtectedTunIngressLSRId MplsLsrIdentifier,
+    cmplsFrrFacRouteProtectedTunEgressLSRId MplsLsrIdentifier,
+    cmplsFrrFacRouteProtectedTunStatus INTEGER,
+    cmplsFrrFacRouteProtectingTunResvBw MplsBitRate,
+    cmplsFrrFacRouteProtectingTunProtectionType INTEGER
+    }
+
+cmplsFrrFacRouteProtectedIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies the interface configured for FRR protection."
+    ::= { cmplsFrrFacRouteDBEntry 1 }
+
+cmplsFrrFacRouteProtectingTunIndex OBJECT-TYPE
+    SYNTAX MplsTunnelIndex
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies the mplsTunnelEntry primary index for
+         the tunnel head interface designated to protect the 
+         interface as specified in the mplsFrrFacRouteIfProtectedIndex
+         (and all of the tunnels using this interface)."
+    ::= { cmplsFrrFacRouteDBEntry 2 }
+
+cmplsFrrFacRouteProtectedTunIndex OBJECT-TYPE
+    SYNTAX MplsTunnelIndex
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies an mplsTunnelEntry that is
+          being protected by FRR."
+    ::= { cmplsFrrFacRouteDBEntry 3 }
+
+cmplsFrrFacRouteProtectedTunInstance OBJECT-TYPE
+    SYNTAX MplsTunnelInstanceIndex
+--    Rsyntax Gauge(0|1..65535|65536..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies an mplsTunnelEntry that is
+         being protected by FRR."
+    ::= { cmplsFrrFacRouteDBEntry 4 }
+
+cmplsFrrFacRouteProtectedTunIngressLSRId OBJECT-TYPE
+    SYNTAX MplsLsrIdentifier
+--    Rsyntax OCTET STRING(SIZE(4))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies an mplsTunnelEntry that is
+         being protected by FRR."
+    REFERENCE
+        "1. RSVP-TE: Extensions to RSVP for LSP Tunnels,
+          Awduche et al, RFC 3209, December 2001
+         2. Constraint-Based LSP Setup using LDP, Jamoussi
+          (Editor), RFC 3212, January 2002"
+    ::= { cmplsFrrFacRouteDBEntry 5 }
+
+cmplsFrrFacRouteProtectedTunEgressLSRId OBJECT-TYPE
+    SYNTAX MplsLsrIdentifier
+--    Rsyntax OCTET STRING(SIZE(4))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies an mplsTunnelEntry that is
+         being protected by FRR."
+    ::= { cmplsFrrFacRouteDBEntry 6 }
+
+cmplsFrrFacRouteProtectedTunStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        ready(2),
+        partial(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the state of the protected tunnel.
+         
+         active  This tunnel's label has been placed in the
+                  LFIB and is ready to be applied to incoming
+                  packets.
+                  
+         ready -  This tunnel's label entry has been created but is
+                  not yet in the LFIB.
+                  
+         partial - This tunnel's label entry as not been fully
+                   created."
+    ::= { cmplsFrrFacRouteDBEntry 7 }
+
+cmplsFrrFacRouteProtectingTunResvBw OBJECT-TYPE
+    SYNTAX MplsBitRate
+--    Rsyntax Gauge(0|1..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the amount of bandwidth in megabytes per second
+         that is actually reserved by the backup tunnel for
+         facility backup. This value is repeated here from the MPLS-
+         TE MIB because the tunnel entry will reveal the bandwidth
+         reserved by the signaling protocol, which is typically 0
+         for backup tunnels so as to not over-book bandwidth.
+         However, internal reservations are typically made on the
+         PLR, thus this value should be revealed here."
+    ::= { cmplsFrrFacRouteDBEntry 8 }
+
+cmplsFrrFacRouteProtectingTunProtectionType OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        linkProtection(0),
+        nodeProtection(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates type of the resource protection."
+    DEFVAL { nodeProtection }
+    ::= { cmplsFrrFacRouteDBEntry 9 }
+
+cmplsFrrProtected TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cmplsFrrMIB
+    VARIABLES {
+        cmplsFrrConstNumProtectingTunOnIf, 
+        cmplsFrrConstNumProtectedTunOnIf, cmplsFrrConstBandwidth }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a tunnel running over an
+         interface as specified in the mplsFrrConstTable is initially
+         protected by the backup tunnel also specified in the
+         cmplsFrrConstTable. This notification should not be generated
+         for each subsequent tunnel that is backed up by the FRR feature
+         on this LSR, as this may result in potential scaling issues
+         with regard to LSR performance and network loading. Note also
+         that notifications MUST be generated in accordance with the
+         cmplsFrrNotifMaxRate."
+    ::= 1
+
+cmplsFrrUnProtected TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cmplsFrrMIB
+    VARIABLES {
+        cmplsFrrConstNumProtectingTunOnIf, 
+        cmplsFrrConstNumProtectedTunOnIf, cmplsFrrConstBandwidth }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the final tunnel that is
+         being protected by a backup tunnel as specified in the
+         cmplsFrrConstTable is restored to normal operation. This
+         notification should not be generated for each restored tunnel,
+         as this may result in potential scaling issues with regard to
+         LSR performance and network loading. Note also that
+         notifications MUST be generated in accordance with the
+         cmplsFrrNotifMaxRate."
+    ::= 2
+
+cmplsFrrScalarGroup OBJECT IDENTIFIER ::= { cmplsFrrGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects that are required to gather fast reroute statistics.
+--  objects
+--    cmplsFrrDetourIncoming, cmplsFrrDetourOutgoing, 
+--    cmplsFrrDetourOriginating, cmplsFrrSwitchover, 
+--    cmplsFrrNumOfConfIfs, cmplsFrrActProtectedIfs, 
+--    cmplsFrrConfProtectingTuns, cmplsFrrActProtectedTuns, 
+--    cmplsFrrActProtectedLSPs, cmplsFrrConstProtectionMethod, 
+--    cmplsFrrNotifsEnabled, cmplsFrrLogTableMaxEntries, 
+--    cmplsFrrLogTableCurrEntries, cmplsFrrNotifMaxRate
+
+cmplsFrrConstGroup OBJECT IDENTIFIER ::= { cmplsFrrGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects that are required to configure fast reroute constraints
+--    at the ingress LSR of the tunnel that requires fast reroute
+--    service.
+--  objects
+--    cmplsFrrConstProtectionMethod, cmplsFrrConstSetupPrio, 
+--    cmplsFrrConstHoldingPrio, cmplsFrrConstInclAnyAffinity, 
+--    cmplsFrrConstInclAllAffinity, cmplsFrrConstExclAllAffinity, 
+--    cmplsFrrConstHopLimit, cmplsFrrConstBandwidth, 
+--    cmplsFrrConstRowStatus, cmplsFrrConstNumProtectingTunOnIf, 
+--    cmplsFrrConstNumProtectedTunOnIf
+
+cmplsFrrLogGroup OBJECT IDENTIFIER ::= { cmplsFrrGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects that are required to represent FRR logging information
+--    at the detour ingress, transit and egress LSRs.
+--  objects
+--    cmplsFrrLogEventTime, cmplsFrrLogInterface, 
+--    cmplsFrrLogEventType, cmplsFrrLogEventDuration, 
+--    cmplsFrrLogEventReasonString
+
+cmplsFrrFacRouteDBGroup OBJECT IDENTIFIER ::= { cmplsFrrGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects that are required to represent the FRR 
+--     Facility Route Database information.
+--  objects
+--    cmplsFrrFacRouteProtectedTunStatus, 
+--    cmplsFrrFacRouteProtectingTunResvBw, 
+--    cmplsFrrFacRouteProtectingTunProtectionType
+
+cmplsFrrNotifGroup OBJECT IDENTIFIER ::= { cmplsFrrGroups 7 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Objects that are required to represent FRR notifications.
+--  notifications
+--    cmplsFrrProtected
+
+cmplsFrrNotifGroupRev1 OBJECT IDENTIFIER ::= { cmplsFrrGroups 8 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects that are required to represent FRR notifications.
+--  notifications
+--    cmplsFrrProtected, cmplsFrrUnProtected
+
+cmplsFrrModuleCompliance OBJECT IDENTIFIER ::= { cmplsFrrCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    Compliance statements for agents that support the MPLS FRR
+--    MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmplsFrrScalarGroup
+--   MandGroup
+--    cmplsFrrConstGroup
+--   MandGroup
+--    cmplsFrrLogGroup
+--   OptGroup
+--    cmplsFrrFacRouteDBGroup
+--   OptGroup
+--    cmplsFrrNotifGroup
+--   ObjVar
+--    cmplsFrrConstSetupPrio
+--   ObjVar
+--    cmplsFrrConstHoldingPrio
+--   ObjVar
+--    cmplsFrrConstInclAnyAffinity
+--   ObjVar
+--    cmplsFrrConstInclAllAffinity
+--   ObjVar
+--    cmplsFrrConstExclAllAffinity
+--   ObjVar
+--    cmplsFrrConstHopLimit
+--   ObjVar
+--    cmplsFrrConstBandwidth
+--   ObjVar
+--    cmplsFrrConstRowStatus
+--   ObjVar
+--    cmplsFrrConstNumProtectingTunOnIf
+--   ObjVar
+--    cmplsFrrConstNumProtectedTunOnIf
+
+cmplsFrrModuleComplianceRev1 OBJECT IDENTIFIER ::= { cmplsFrrCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statements for agents that support the MPLS FRR
+--    MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmplsFrrScalarGroup
+--   MandGroup
+--    cmplsFrrConstGroup
+--   MandGroup
+--    cmplsFrrLogGroup
+--   OptGroup
+--    cmplsFrrFacRouteDBGroup
+--   OptGroup
+--    cmplsFrrNotifGroupRev1
+--   ObjVar
+--    cmplsFrrConstSetupPrio
+--   ObjVar
+--    cmplsFrrConstHoldingPrio
+--   ObjVar
+--    cmplsFrrConstInclAnyAffinity
+--   ObjVar
+--    cmplsFrrConstInclAllAffinity
+--   ObjVar
+--    cmplsFrrConstExclAllAffinity
+--   ObjVar
+--    cmplsFrrConstHopLimit
+--   ObjVar
+--    cmplsFrrConstBandwidth
+--   ObjVar
+--    cmplsFrrConstRowStatus
+--   ObjVar
+--    cmplsFrrConstNumProtectingTunOnIf
+--   ObjVar
+--    cmplsFrrConstNumProtectedTunOnIf
+
+
+END
+

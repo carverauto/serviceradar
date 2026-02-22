@@ -1,0 +1,127 @@
+CISCO-VLAN-BRIDGING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE                      FROM SNMPv2-SMI
+    ciscoMgmt                        FROM CISCO-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP  FROM SNMPv2-CONF
+    vtpVlanIndex                     FROM CISCO-VTP-MIB;
+
+
+ciscoVlanBridgingMIB MODULE-IDENTITY
+    LAST-UPDATED    "9609120000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-vlans@cisco.com"
+    DESCRIPTION
+            "A set of managed objects for optimizing access to
+             bridging related data from RFC 1493.  This MIB is
+             modeled after portions of RFC 1493, adding VLAN ID
+             based indexing and bitmapped encoding of frequently
+             accessed data."
+    REVISION        "9609120000Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+    ::= { ciscoMgmt 56 }
+
+
+ciscoVlanBridgingMIBObjects OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIB 1 }
+
+cvbStp OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBObjects 1 }
+
+
+--
+-- Spanning Tree Status
+--
+
+cvbStpTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CiscoVlanStpEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+           "This table contains device STP status information
+            for each VLAN."
+    ::= { cvbStp  1 }
+ 
+
+cvbStpEntry OBJECT-TYPE
+    SYNTAX  CiscoVlanStpEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+           "Device STP status for specified VLAN."
+    INDEX         { vtpVlanIndex }
+    ::= { cvbStpTable  1 }
+ 
+
+CiscoVlanStpEntry ::=
+    SEQUENCE {
+        cvbStpForwardingMap     OCTET STRING
+    }
+
+
+cvbStpForwardingMap OBJECT-TYPE
+    SYNTAX  OCTET STRING  (SIZE (0..128))
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+           "An indication of which ports are forwarding by spanning tree
+            for the specified VLAN. The octet string contains one bit
+            per port on the bridge for the specified VLAN. 
+
+            Each bit within the octet string represents one port of the
+            device.  The ordering of ports represented within the octet
+            string is in the same order as in the RFC 1493 dot1dStpPortTable.
+
+            The bit value interpretation is related to RFC 1493
+            dot1dStpPortState values is as follows:
+               1 = forwarding
+               0 = disabled, blocking, listening, learning, broken, or
+                   nonexistent"
+
+    ::= { cvbStpEntry 2 }
+ 
+
+
+-- Conformance
+
+ciscoVlanBridgingMIBConformance
+               OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIB 3 }
+ciscoVlanBridgingMIBCompliances 
+               OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBConformance 1 }
+ciscoVlanBridgingMIBGroups
+               OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoVlanBridgingMIBCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for entities which implement
+            the Cisco VLAN Bridging MIB."
+    MODULE  -- this module
+            MANDATORY-GROUPS { ciscoVlanBridgingMIBGroup }
+    ::= { ciscoVlanBridgingMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoVlanBridgingMIBGroup OBJECT-GROUP
+    OBJECTS { cvbStpForwardingMap }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects providing the VLAN bridging MIB
+            capability."
+    ::= { ciscoVlanBridgingMIBGroups 1 }
+
+END
+

@@ -1,0 +1,1155 @@
+-- *****************************************************************
+-- CISCO-VPC-MIB.my: Cisco Virtual Port Channel MIB.
+--   
+-- May 2012, Alex Zhang and Li Quan Fan
+--   
+-- Copyright (c) 2012-2013 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-VPC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DateAndTime,
+    TruthValue,
+    MacAddress
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    CounterBasedGauge64
+        FROM HCNUM-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex,
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoVpcMIB MODULE-IDENTITY
+    LAST-UPDATED    "201305090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines MIB objects which provide
+        management information for configuring and monitoring
+        of Virtual Port Channel(VPC) on Cisco devices.
+
+        The following terms are used throughout this MIB:
+
+        ISSU:  In Service Software Upgrade
+        ToS:   Type of Service
+        UDP:   User Datagram Protocol
+        VPC:   Virtual Port Channel
+        VRF:   Virtual Routing and Forwarding"
+    REVISION        "201305090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 807 }
+
+
+ciscoVpcMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIB 0 }
+
+ciscoVpcMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIB 1 }
+
+ciscoVpcMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIB 2 }
+
+cVpcPeerKeepAlive  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIBObjects 1 }
+
+cVpcRole  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIBObjects 2 }
+
+cVpcStatistics  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIBObjects 3 }
+
+cVpcStatus  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIBObjects 4 }
+
+
+cVpcPeerKeepAliveConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CVpcPeerKeepAliveConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the VPC peer-keepalive link and message
+        configuration information in the managed device."
+    ::= { cVpcPeerKeepAlive 1 }
+
+cVpcPeerKeepAliveConfigEntry OBJECT-TYPE
+    SYNTAX          CVpcPeerKeepAliveConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing VPC peer-keepalive link and
+        message configuration information."
+    INDEX           { cVpcPeerKeepAliveConfigDomainID } 
+    ::= { cVpcPeerKeepAliveConfigTable 1 }
+
+CVpcPeerKeepAliveConfigEntry ::= SEQUENCE {
+        cVpcPeerKeepAliveConfigDomainID Unsigned32,
+        cVpcPeerKeepAliveDestAddrType   InetAddressType,
+        cVpcPeerKeepAliveDestAddr       InetAddress,
+        cVpcPeerKeepAliveSourceAddrType InetAddressType,
+        cVpcPeerKeepAliveSourceAddr     InetAddress,
+        cVpcPeerKeepAliveUdpPort        InetPortNumber,
+        cVpcPeerKeepAliveInterval       Unsigned32,
+        cVpcPeerKeepAliveTimeout        Unsigned32,
+        cVpcPeerKeepAliveHoldTimeout    Unsigned32,
+        cVpcPeerKeepAliveTos            Unsigned32,
+        cVpcPeerKeepAlivePrecedence     Unsigned32,
+        cVpcPeerKeepAliveTosByte        Unsigned32,
+        cVpcPeerKeepAliveVrfName        SnmpAdminString
+}
+
+cVpcPeerKeepAliveConfigDomainID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value to uniquely identify the VPC management
+        domain on the local system.
+
+        Value zero indicates no VPC management domain has been
+        configured for this device." 
+    ::= { cVpcPeerKeepAliveConfigEntry 1 }
+
+cVpcPeerKeepAliveDestAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies type of Internet address of destination
+        address for peer device." 
+    ::= { cVpcPeerKeepAliveConfigEntry 2 }
+
+cVpcPeerKeepAliveDestAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies destination ip address of peer device.
+
+        The type of this address is determined by the
+        cVpcPeerKeepAliveDestAddrType object." 
+    ::= { cVpcPeerKeepAliveConfigEntry 3 }
+
+cVpcPeerKeepAliveSourceAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies type of Internet address of source
+        address used for peer-keepalive hello messages." 
+    ::= { cVpcPeerKeepAliveConfigEntry 4 }
+
+cVpcPeerKeepAliveSourceAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies source address used in this
+        peer-keepalive hello messages.
+
+        The type of this address is determined by the
+        cVpcPeerKeepAliveSourceAddrType object." 
+    ::= { cVpcPeerKeepAliveConfigEntry 5 }
+
+cVpcPeerKeepAliveUdpPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies UDP Port number used for
+        peer-keepalive hello messages."
+    DEFVAL          { 3200 } 
+    ::= { cVpcPeerKeepAliveConfigEntry 6 }
+
+cVpcPeerKeepAliveInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milli-seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval of peer-keepalive
+        hello messages."
+    DEFVAL          { 1000 } 
+    ::= { cVpcPeerKeepAliveConfigEntry 7 }
+
+cVpcPeerKeepAliveTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timeout of peer-keepalive
+        hello messages."
+    DEFVAL          { 5 } 
+    ::= { cVpcPeerKeepAliveConfigEntry 8 }
+
+cVpcPeerKeepAliveHoldTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies hold timeout to ignore stale
+        peer alive messages."
+    DEFVAL          { 3 } 
+    ::= { cVpcPeerKeepAliveConfigEntry 9 }
+
+cVpcPeerKeepAliveTos OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..15)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ToS value used for peer-keepalive
+        hello messages." 
+    ::= { cVpcPeerKeepAliveConfigEntry 10 }
+
+cVpcPeerKeepAlivePrecedence OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..7)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Precedence value used for peer-keepalive
+        hello messages." 
+    ::= { cVpcPeerKeepAliveConfigEntry 11 }
+
+cVpcPeerKeepAliveTosByte OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ToS-Byte value used for peer-keepalive
+        messages.
+
+        Only low eight-bit byte of this double word is used.  Bit 0 is reserved.
+        Bits 1 to 5 represent the value of cVpcPeerKeepAliveTos. Bits 6 to 8 
+        come into cVpcPeerKeepAlivePrecedence. ToS-Byte indicates the value of 
+        the whole byte including ToS, Precedence and reserved bit 0."
+    DEFVAL          { 192 } 
+    ::= { cVpcPeerKeepAliveConfigEntry 12 }
+
+cVpcPeerKeepAliveVrfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the VRF name to be used for peer-keepalive
+        messages routing."
+    DEFVAL          { "management" } 
+    ::= { cVpcPeerKeepAliveConfigEntry 13 }
+ 
+
+-- VPC Peer Keepalive Information
+
+cVpcPeerKeepAliveTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CVpcPeerKeepAliveEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the VPC peer-keepalive link status
+        information in the managed device."
+    ::= { cVpcPeerKeepAlive 2 }
+
+cVpcPeerKeepAliveEntry OBJECT-TYPE
+    SYNTAX          CVpcPeerKeepAliveEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing VPC peer-keepalive link status information."
+    INDEX           { cVpcPeerKeepAliveDomainID } 
+    ::= { cVpcPeerKeepAliveTable 1 }
+
+CVpcPeerKeepAliveEntry ::= SEQUENCE {
+        cVpcPeerKeepAliveDomainID            Unsigned32,
+        cVpcPeerKeepAliveStatus              INTEGER,
+        cVpcPeerKeepAliveTime                CounterBasedGauge64,
+        cVpcPeerKeepAliveMsgSendStatus       INTEGER,
+        cVpcPeerKeepAliveMsgLastSendTime     DateAndTime,
+        cVpcPeerKeepAliveMsgSendInterface    InterfaceIndexOrZero,
+        cVpcPeerKeepAliveMsgRcvrStatus       INTEGER,
+        cVpcPeerKeepAliveMsgLastReceiveTime  DateAndTime,
+        cVpcPeerKeepAliveMsgReceiveInterface InterfaceIndexOrZero
+}
+
+cVpcPeerKeepAliveDomainID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value to uniquely identify the VPC management
+        domain on the local system.
+
+        Value zero indicates there is no VPC management domain
+        being configured for this device." 
+    ::= { cVpcPeerKeepAliveEntry 1 }
+
+cVpcPeerKeepAliveStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disabled(1),
+                        alive(2),
+                        peerUnreachable(3),
+                        aliveButDomainIdDismatch(4),
+                        suspendedAsISSU(5),
+                        suspendedAsDestIPUnreachable(6),
+                        suspendedAsVRFUnusable(7),
+                        misconfigured(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates VPC peer keep-alive status.
+
+        disabled(1) : Peer-keepalive is disabled.
+
+        alive(2) : Peer-keepalive is alive.
+
+        peerUnreachable(3) : Peer is unreachable through
+        Peer-keepalive link.
+
+        aliveButDomainIdDismatch(4) : Peer-keepalive is alive, 
+        but VPC domain doesn't match with each other.
+
+        suspendedAsISSU(5) : Peer-keepalive is suspended during ISSU.
+
+        suspendedAsDestIPUnreachable(6) : Peer-keepalive is suspended
+        since destination ip is unreachable.
+
+        suspendedAsVRFUnusable(7) : Peer-keepalive is suspended since
+        the current VRF is unusable.
+
+        misconfigured(8) : Misconfigure Peer-keepalive feature." 
+    ::= { cVpcPeerKeepAliveEntry 2 }
+
+cVpcPeerKeepAliveTime OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "milli-seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time (in msec) since the peer
+        became alive.
+
+        It will hold value 0 if peer-keepalive never becomes alive." 
+    ::= { cVpcPeerKeepAliveEntry 3 }
+
+cVpcPeerKeepAliveMsgSendStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        success(1),
+                        failure(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates VPC peer keep-alive message sending
+        status." 
+    ::= { cVpcPeerKeepAliveEntry 4 }
+
+cVpcPeerKeepAliveMsgLastSendTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates date and time of VPC peer
+        keep-alive message last send.
+
+        This object contains value 0x0000010100000000, if
+        peer-keepalive message has never been sent." 
+    ::= { cVpcPeerKeepAliveEntry 5 }
+
+cVpcPeerKeepAliveMsgSendInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ifIndex of interface of VPC
+        peer keep-alive message sent on." 
+    ::= { cVpcPeerKeepAliveEntry 6 }
+
+cVpcPeerKeepAliveMsgRcvrStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        success(1),
+                        failure(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates VPC peer keep-alive message
+        receiving status." 
+    ::= { cVpcPeerKeepAliveEntry 7 }
+
+cVpcPeerKeepAliveMsgLastReceiveTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates date and time of VPC peer
+        keep-alive message last received.
+
+        This object contains value 0x0000010100000000, if
+        peer-keepalive message has never been received." 
+    ::= { cVpcPeerKeepAliveEntry 8 }
+
+cVpcPeerKeepAliveMsgReceiveInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ifIndex of interface of
+        VPC peer keep-alive message last received." 
+    ::= { cVpcPeerKeepAliveEntry 9 }
+ 
+
+-- VPC Role Information
+
+cVpcRoleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CVpcRoleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the VPC role status
+        information in the managed device."
+    ::= { cVpcRole 1 }
+
+cVpcRoleEntry OBJECT-TYPE
+    SYNTAX          CVpcRoleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing VPC role information."
+    INDEX           { cVpcRoleDomainID } 
+    ::= { cVpcRoleTable 1 }
+
+CVpcRoleEntry ::= SEQUENCE {
+        cVpcRoleDomainID              Unsigned32,
+        cVpcRoleStatus                INTEGER,
+        cVpcDualActiveDetectionStatus TruthValue,
+        cVpcSystemAdminMacAddress     MacAddress,
+        cVpcSystemOperMacAddress      MacAddress,
+        cVpcLocalOperMacAddress       MacAddress,
+        cVpcSystemAdminPriority       Unsigned32,
+        cVpcSystemOperPriority        Unsigned32,
+        cVpcLocalRoleAdminPriority    Unsigned32,
+        cVpcLocalRoleOperPriority     Unsigned32
+}
+
+cVpcRoleDomainID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value to uniquely identify the VPC management
+        domain on the local system.
+
+        Value zero indicates there is no VPC management domain
+        being configured for this device." 
+    ::= { cVpcRoleEntry 1 }
+
+cVpcRoleStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        primarySecondary(1),
+                        primary(2),
+                        secondaryPrimary(3),
+                        secondary(4),
+                        noneEstablished(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the VPC role status of the peer device.
+
+        primarySecondary(1) : primary, and operational secondary.
+
+        primary(2) : primary, and operational primary.
+
+        secondaryPrimary(3) : secondary, and operational primary.
+
+        secondary(4) : secondary, and operational secondary.
+
+        noneEstabished(5) : none peer device." 
+    ::= { cVpcRoleEntry 2 }
+
+cVpcDualActiveDetectionStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the dual active detection
+        status of peer device.
+
+        true(1) : indicate that Dual Active is detected.
+
+        false(2) : indicate that Dual Active is not detected." 
+    ::= { cVpcRoleEntry 3 }
+
+cVpcSystemAdminMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies VPC system MAC address." 
+    ::= { cVpcRoleEntry 4 }
+
+cVpcSystemOperMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates VPC system operational MAC address." 
+    ::= { cVpcRoleEntry 5 }
+
+cVpcLocalOperMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates VPC local system operational
+        MAC address." 
+    ::= { cVpcRoleEntry 6 }
+
+cVpcSystemAdminPriority OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies VPC system priority." 
+    ::= { cVpcRoleEntry 7 }
+
+cVpcSystemOperPriority OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates VPC system operational priority." 
+    ::= { cVpcRoleEntry 8 }
+
+cVpcLocalRoleAdminPriority OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies VPC local role priority." 
+    ::= { cVpcRoleEntry 9 }
+
+cVpcLocalRoleOperPriority OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates VPC local role operational priority." 
+    ::= { cVpcRoleEntry 10 }
+ 
+
+-- VPC statistics information
+
+cVpcStatsPeerKeepAliveTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CVpcStatsPeerKeepAliveEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the statistics of VPC peer-keepalive
+        messages in the managed device."
+    ::= { cVpcStatistics 1 }
+
+cVpcStatsPeerKeepAliveEntry OBJECT-TYPE
+    SYNTAX          CVpcStatsPeerKeepAliveEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing statistics of the VPC peer-keepalive
+        messages."
+    INDEX           { cVpcStatsPeerKeepAliveDomainID } 
+    ::= { cVpcStatsPeerKeepAliveTable 1 }
+
+CVpcStatsPeerKeepAliveEntry ::= SEQUENCE {
+        cVpcStatsPeerKeepAliveDomainID    Unsigned32,
+        cVpcStatsPeerKeepAliveMsgsSent    Counter32,
+        cVpcStatsPeerKeepAliveMsgsRcved   Counter32,
+        cVpcStatsPeerKeepAliveAvgInterval Unsigned32,
+        cVpcStatsPeerStatusChangeCount    Counter32
+}
+
+cVpcStatsPeerKeepAliveDomainID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value to uniquely identify the VPC management
+        domain on the local system.
+
+        Value zero indicates there is no VPC management domain
+        being configured for this device." 
+    ::= { cVpcStatsPeerKeepAliveEntry 1 }
+
+cVpcStatsPeerKeepAliveMsgsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of peer-keepalive
+        messages sent to peer." 
+    ::= { cVpcStatsPeerKeepAliveEntry 2 }
+
+cVpcStatsPeerKeepAliveMsgsRcved OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of peer-keepalive
+        messages received from peer." 
+    ::= { cVpcStatsPeerKeepAliveEntry 3 }
+
+cVpcStatsPeerKeepAliveAvgInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average interval for
+        the peer-keepalive messages received from peer." 
+    ::= { cVpcStatsPeerKeepAliveEntry 4 }
+
+cVpcStatsPeerStatusChangeCount OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times that
+        the peer status gets changed." 
+    ::= { cVpcStatsPeerKeepAliveEntry 5 }
+ 
+
+-- VPC Peer-link Status Information
+
+cVpcStatusPeerLinkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CVpcStatusPeerLinkEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the list of VPC peer-links in
+        the managed device."
+    ::= { cVpcStatus 1 }
+
+cVpcStatusPeerLinkEntry OBJECT-TYPE
+    SYNTAX          CVpcStatusPeerLinkEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing VPC peer-link management information
+        applicable to a particular VPC domain."
+    INDEX           { cVpcStatusPeerLinkDomainID } 
+    ::= { cVpcStatusPeerLinkTable 1 }
+
+CVpcStatusPeerLinkEntry ::= SEQUENCE {
+        cVpcStatusPeerLinkDomainID Unsigned32,
+        cVpcStatusPeerLinkIfIndex  InterfaceIndex
+}
+
+cVpcStatusPeerLinkDomainID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value to uniquely identify the VPC management
+        domain." 
+    ::= { cVpcStatusPeerLinkEntry 1 }
+
+cVpcStatusPeerLinkIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of the ifIndex corresponding to the peer link of
+        this VPC domain." 
+    ::= { cVpcStatusPeerLinkEntry 2 }
+ 
+
+-- VPC Host-link Status Information
+
+cVpcStatusHostLinkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CVpcStatusHostLinkEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the VPC host-link summary information in
+        the managed device."
+    ::= { cVpcStatus 2 }
+
+cVpcStatusHostLinkEntry OBJECT-TYPE
+    SYNTAX          CVpcStatusHostLinkEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing VPC host-link summary information."
+    INDEX           {
+                        cVpcStatusHostLinkDomainID,
+                        cVpcStatusHostLinkVpcID
+                    } 
+    ::= { cVpcStatusHostLinkTable 1 }
+
+CVpcStatusHostLinkEntry ::= SEQUENCE {
+        cVpcStatusHostLinkDomainID          Unsigned32,
+        cVpcStatusHostLinkVpcID             Unsigned32,
+        cVpcStatusHostLinkIfIndex           InterfaceIndexOrZero,
+        cVpcStatusHostLinkStatus            INTEGER,
+        cVpcStatusHostLinkConsistencyStatus INTEGER,
+        cVpcStatusHostLinkConsistencyDetail SnmpAdminString
+}
+
+cVpcStatusHostLinkDomainID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value to uniquely identify the VPC management
+        domain." 
+    ::= { cVpcStatusHostLinkEntry 1 }
+
+cVpcStatusHostLinkVpcID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value to uniquely identify a VPC link between
+        the host and the switch for a given VPC management domain." 
+    ::= { cVpcStatusHostLinkEntry 2 }
+
+cVpcStatusHostLinkIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of the ifIndex corresponding to a host-link
+        interface." 
+    ::= { cVpcStatusHostLinkEntry 3 }
+
+cVpcStatusHostLinkStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        down(1),
+                        downStar(2),
+                        up(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current status of VPC host-link.
+
+        down(1) : Host link is down.
+
+        downStar(2) : Local host link is down, forwarding via vPC 
+        peer-link.
+
+        up(3) : Host link is up." 
+    ::= { cVpcStatusHostLinkEntry 4 }
+
+cVpcStatusHostLinkConsistencyStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        success(1),
+                        failed(2),
+                        notApplicable(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of configuration consistency
+        check of this VPC host link." 
+    ::= { cVpcStatusHostLinkEntry 5 }
+
+cVpcStatusHostLinkConsistencyDetail OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason of consistency check
+        status change detail." 
+    ::= { cVpcStatusHostLinkEntry 6 }
+ 
+
+-- Conformance information
+
+ciscoVpcMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIBConformance 1 }
+
+ciscoVpcMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoVpcMIBConformance 2 }
+
+
+-- Compliance statements
+
+ciscoVpcMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for CISCO-VPC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cVpcPeerKeepAliveConfigInfoGroup,
+                        cVpcPeerKeepAliveStatusInfoGroup,
+                        cVpcMIBRoleGroup,
+                        cVpcMIBStatisticsGroup,
+                        cVpcMIBPeerLinkStatusGroup,
+                        cVpcMIBHostLinkStatusGroup
+                    }
+
+    OBJECT          cVpcPeerKeepAliveDestAddrType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveDestAddr
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveSourceAddrType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveSourceAddr
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveUdpPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveHoldTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveTos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAlivePrecedence
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveTosByte
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcPeerKeepAliveVrfName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcSystemAdminMacAddress
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcSystemAdminPriority
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cVpcLocalRoleAdminPriority
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoVpcMIBCompliances 1 }
+
+-- Units of Conformance
+
+cVpcPeerKeepAliveConfigInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cVpcPeerKeepAliveDestAddrType,
+                        cVpcPeerKeepAliveDestAddr,
+                        cVpcPeerKeepAliveSourceAddrType,
+                        cVpcPeerKeepAliveSourceAddr,
+                        cVpcPeerKeepAliveUdpPort,
+                        cVpcPeerKeepAliveInterval,
+                        cVpcPeerKeepAliveTimeout,
+                        cVpcPeerKeepAliveHoldTimeout,
+                        cVpcPeerKeepAliveTos,
+                        cVpcPeerKeepAlivePrecedence,
+                        cVpcPeerKeepAliveTosByte,
+                        cVpcPeerKeepAliveVrfName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing peer-keepalive link
+        and messages configuration information."
+    ::= { ciscoVpcMIBGroups 1 }
+
+cVpcPeerKeepAliveStatusInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cVpcPeerKeepAliveStatus,
+                        cVpcPeerKeepAliveTime,
+                        cVpcPeerKeepAliveMsgSendStatus,
+                        cVpcPeerKeepAliveMsgLastSendTime,
+                        cVpcPeerKeepAliveMsgSendInterface,
+                        cVpcPeerKeepAliveMsgRcvrStatus,
+                        cVpcPeerKeepAliveMsgLastReceiveTime,
+                        cVpcPeerKeepAliveMsgReceiveInterface
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing peer-keepalive
+        status information."
+    ::= { ciscoVpcMIBGroups 2 }
+
+cVpcMIBRoleGroup OBJECT-GROUP
+    OBJECTS         {
+                        cVpcRoleStatus,
+                        cVpcDualActiveDetectionStatus,
+                        cVpcSystemAdminMacAddress,
+                        cVpcSystemOperMacAddress,
+                        cVpcLocalOperMacAddress,
+                        cVpcSystemAdminPriority,
+                        cVpcSystemOperPriority,
+                        cVpcLocalRoleAdminPriority,
+                        cVpcLocalRoleOperPriority
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing peer-keepalive
+        role information."
+    ::= { ciscoVpcMIBGroups 3 }
+
+cVpcMIBStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cVpcStatsPeerKeepAliveMsgsSent,
+                        cVpcStatsPeerKeepAliveMsgsRcved,
+                        cVpcStatsPeerKeepAliveAvgInterval,
+                        cVpcStatsPeerStatusChangeCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing peer-keepalive
+        statistics information."
+    ::= { ciscoVpcMIBGroups 4 }
+
+cVpcMIBPeerLinkStatusGroup OBJECT-GROUP
+    OBJECTS         { cVpcStatusPeerLinkIfIndex }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing peer-link status
+        information"
+    ::= { ciscoVpcMIBGroups 5 }
+
+cVpcMIBHostLinkStatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        cVpcStatusHostLinkIfIndex,
+                        cVpcStatusHostLinkStatus,
+                        cVpcStatusHostLinkConsistencyStatus,
+                        cVpcStatusHostLinkConsistencyDetail
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing host-link VPC
+        status information."
+    ::= { ciscoVpcMIBGroups 6 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

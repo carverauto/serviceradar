@@ -1,0 +1,519 @@
+SCTE-HMS-QAM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	OBJECT-TYPE, OBJECT-IDENTITY, MODULE-IDENTITY, 
+	enterprises, Integer32, Unsigned32
+		FROM SNMPv2-SMI
+	OBJECT-GROUP, MODULE-COMPLIANCE
+		FROM SNMPv2-CONF
+	entPhysicalIndex
+		FROM ENTITY-MIB
+	ifIndex
+		FROM IF-MIB
+	InetAddress, InetAddressType
+		FROM INET-ADDRESS-MIB
+	QAMChannelModulationFormat, QAMChannelInterleaveMode
+	    FROM SCTE-HMS-HEADENDIDENT-TC-MIB;
+
+heDigitalQamMIB MODULE-IDENTITY
+	LAST-UPDATED "200807160305Z"
+	ORGANIZATION 
+		"SCTE HMS Working Group"
+	CONTACT-INFO 
+		"SCTE HMS Subcommittee, Chairman
+		mailto:standards@scte.org "
+	DESCRIPTION 
+		"This MIB module is for representing Edge QAM equipment present 
+                 in the headend (or indoor) and is supported by a SNMP agent.
+                 It defines QAM channel related configuration MIB objects 
+                 associated with both QAM channel's physical and logical
+                 characteristics.
+                 
+                 qamChannelTable is optional for devices that are supporting 
+                 equivalent DOCSIS MIB objects.
+
+                 qamConfigTable is optional and applies to devices that choose to 
+                 provide logical level configuration. "  
+
+	REVISION "200807160305Z"
+	DESCRIPTION 
+		"Updated Objects based on Comments at 7/11/08 meeting.
+		1. Made QAMChannelInterleave mode an imported enumeration and used the
+		values from the docsiFDownChannelInterleave enumeration.
+	      2. Changed name of QAMModulationFormat to QAMChannelModulationFormat.
+		3. Added unknown and other to qamChannelAnnexMode
+		4. For consistency changed values names for qamChannelCommonOutputBw, 
+		qamChannelCommonUtilization to add the word Common to the names.
+	    5. Changed description clause of qamConfigQamChannelIdMin and 
+	        qamConfigQamChannelIdMax to reference entPhysicalIndex. "
+
+	REVISION "200804181055Z"
+	DESCRIPTION 
+		"Renumbered objects in qamConfigTable to remove gaps."
+
+	REVISION "200802041850Z"
+	DESCRIPTION 
+		"Changes based on comments, 
+		1. Changed description of qamChannelPower.
+		2. Added units to qamChannelOutputBw.
+		3. Changed Units on qamChannelUtilization to 0.1 Percent."
+
+      REVISION "200712171150Z"
+	DESCRIPTION 
+		"Changes based on comments, 
+		1. Removed IpAddress import.
+		2. Changed UNITS,comment, SYNTAX on qamChannelUtilization."
+
+      REVISION "200710031700Z"
+	DESCRIPTION 
+		"Added SCTE-HMS-HEADENDIDENT-TC name to file. Added
+		QAMModulationFormat textual convention."
+            
+      REVISION "200710021200Z"
+	DESCRIPTION 
+		"Prepare MIB for ballot."
+      
+::= { enterprises scteRoot(5591) scteHmsTree(1) insidePlantIdent(11) heDigital(5) heDigitalQAM(3) 1}
+
+-- 
+-- Node definitions
+-- 
+qamMIBObjects  OBJECT-IDENTITY
+	STATUS     current
+	DESCRIPTION 
+		"This branch specifies the QAM MIB objects."
+	::= { heDigitalQamMIB 1 }
+
+qamMIBConformance  OBJECT-IDENTITY
+	STATUS     current
+	DESCRIPTION 
+		"This branch describes the different QAM MIB object groups and 
+		the different level of compliance."
+	::= { heDigitalQamMIB 2 }
+
+qamMIBCompliances  OBJECT-IDENTITY
+	STATUS     current
+	DESCRIPTION 
+		"The different levels of compliance to the QAM MIB."
+	::= { qamMIBConformance 1 }
+
+qamMIBGroups  OBJECT-IDENTITY
+	STATUS     current
+	DESCRIPTION 
+		"The QAM MIB object groups."
+	::= { qamMIBConformance 2 }
+
+qamChannelTable  OBJECT-TYPE
+	SYNTAX SEQUENCE OF QamChannelEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+		"This table describes the configuration and attributes of each
+		QAM channel of the QAM designated by ifIndex."
+	::= { qamMIBObjects 1 }
+
+qamChannelEntry  OBJECT-TYPE
+	SYNTAX 	QamChannelEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+		"There is an entry in the table for each QAM channel. The index 
+		to this table is the ifIndex of each QAM channel."
+	INDEX { ifIndex }
+	::= { qamChannelTable 1 }
+
+QamChannelEntry ::= SEQUENCE {
+	qamChannelFrequency
+		Unsigned32,
+	qamChannelModulationFormat
+		QAMChannelModulationFormat,
+	qamChannelInterleaverLevel
+		INTEGER,
+	qamChannelInterleaverMode
+		QAMChannelInterleaveMode,
+	qamChannelPower
+		Integer32,
+	qamChannelSquelch
+		INTEGER,
+	qamChannelContWaveMode
+		INTEGER,
+	qamChannelAnnexMode
+		INTEGER
+}
+
+qamChannelFrequency  OBJECT-TYPE
+	SYNTAX     Unsigned32
+	UNITS 	"Hertz"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The center frequency of the QAM channel."
+	::= { qamChannelEntry 1 }
+
+qamChannelModulationFormat  OBJECT-TYPE
+	SYNTAX     QAMChannelModulationFormat
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"RF Modululation for this output QAM channel when 
+		qamChannelContWaveMode is off."
+	::= { qamChannelEntry 2 }
+
+qamChannelInterleaverLevel  OBJECT-TYPE
+	SYNTAX     INTEGER {
+		level1 (1),
+		level2 (2)
+	}
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The interleaver level for FEC coding. 
+		
+		level1 - implies interleaver level 1
+		level2 - implies interleaver level 2
+		
+		This object is only valid when AnnexMode has the value annexB."
+	::= { qamChannelEntry 3 }
+
+qamChannelInterleaverMode  OBJECT-TYPE
+	SYNTAX     QAMChannelInterleaveMode
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The interleaving depth or operation mode of the interleaver.		
+    'taps8Increment16':   protection 5.9/4.1 usec,
+                                    latency .22/.15 msec
+    'taps16Increment8':   protection 12/8.2 usec,
+                           latency .48/.33 msec
+    'taps32Increment4':   protection 24/16 usec,
+                           latency .98/.68 msec
+    'taps64Increment2':   protection 47/33 usec,
+                           latency 2/1.4 msec
+    'taps128Increment1':  protection 95/66 usec,
+                           latency 4/2.8 msec
+    'taps12increment17':  protection 18/14 usec,
+                           latency 0.43/0.32 msec
+    'taps128increment2':  protection 190/132 usec,
+                           latency 8/5.6 msec
+    'taps128increment3': protection 285/198 usec,
+                           latency 12/8.4 msec
+    'taps128increment4': protection 380/264 usec,
+                           latency 16/11 msec
+    'taps128increment5': protection 475/330 usec,
+                           latency 20/14 msec
+    'taps128increment6': protection 570/396 usec,
+                           latency 24/17 msec
+    'taps128increment7: protection 664/462 usec,
+                           latency 28/20 msec
+    'taps128increment8': protection 759/528 usec,
+                           latency 32/22 msec
+    
+    The value 'taps12increment17' is supported by EuroDOCSIS
+    cable systems only, and the others by DOCSIS cable systems.
+
+    If the QAM chammel interface is down, this object either 
+    returns the configured value,
+    or the value of 'unknown'.
+    The value of 'other' is returned if the interleave
+    is known but not defined in the above list.
+    
+    When the qamChannelInterleaverLevel is set to 'level 1', a 
+		single interleaving depth is supported, namely 'taps128Increment1'.
+		
+		When the qamChannelInterleaverLevel is set to 'level2', all the 
+		other interleaving depths are also supported."
+	REFERENCE 
+		"ITU-T J.83 Annex B."
+	::= { qamChannelEntry 4 }
+
+qamChannelPower  OBJECT-TYPE
+	SYNTAX     Integer32
+	UNITS 	"0.1 dBmV"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The output power of the QAM channel. If the QAM channel is muted,
+		value is not valid."
+	::= { qamChannelEntry 5 }
+
+qamChannelSquelch  OBJECT-TYPE
+	SYNTAX     INTEGER {
+		unmuted (1),
+		muted (2)
+	}
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"Indicates whether the QAM port is muted or not."
+	::= { qamChannelEntry 6 }
+
+qamChannelContWaveMode  OBJECT-TYPE
+	SYNTAX     INTEGER {
+		cwmOff (1),
+		cwmOn (2)
+	}
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"Indicates whether Continuous Wave mode is enabled or not for
+		output."
+	::= { qamChannelEntry 7 }
+
+qamChannelAnnexMode  OBJECT-TYPE
+	SYNTAX     INTEGER {
+	   unknown(1),
+	   other(2),
+	   annexA(3),
+	   annexB(4),
+	   annexC(5)
+	}
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"Specifies the ITU-T standard supported by the QAM channel
+		
+		annexA - standard specified by Annex A of ITU-T J.83
+		annexB - standard specified by Annex B of ITU-T J.83
+		annexC - standard specified by Annex C of ITU-T J.83
+		Other  - other standard that may apply."
+	::= { qamChannelEntry 8 }
+
+qamChannelCommonTable  OBJECT-TYPE
+	SYNTAX SEQUENCE OF QamChannelCommonEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+		"This table decribes MPEG and DOCSIS characteristics that are
+		not part of the DOCSIS-IF-MIB."
+	::= { qamMIBObjects 2 }
+
+qamChannelCommonEntry  OBJECT-TYPE
+	SYNTAX 	QamChannelCommonEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+		"Each entry of this table describes attributes of an RF channel
+		for both MPEG and DOCSIS QAMs."
+	INDEX { ifIndex }
+	::= { qamChannelCommonTable 1 }
+
+QamChannelCommonEntry ::= SEQUENCE {
+	qamChannelCommonOutputBw
+		Integer32,
+	qamChannelCommonUtilization
+		Integer32
+}
+
+qamChannelCommonOutputBw  OBJECT-TYPE
+	SYNTAX     Integer32
+	UNITS 	"bps"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The QAM channel output bandwidth or capacity."
+	::= { qamChannelCommonEntry 1 }
+
+qamChannelCommonUtilization  OBJECT-TYPE
+	SYNTAX     Integer32 (-1|0..1000)
+	UNITS 	"0.1 Percent"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The utilization of the QAM channel in 0.1 percentage.
+		This rate may be calculated as transport stream packets / 
+		( transport stream packets + null packets ). If not 
+            applicable, a value of -1 is returned."
+	::= { qamChannelCommonEntry 2 }
+
+qamConfigTable  OBJECT-TYPE
+	SYNTAX SEQUENCE OF QamConfigEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+		"This table is designed to show the IP addresses configuration
+		for the QAM channels, optionally UDP port range, Program Number
+		range associated with QAM channels. Configuring these parameters
+		is necessary when performing session-based provisioning. A  
+		session-based provisioning request must conform to the
+		configurations in this table. The QAM channels within an QAM 
+		device may be partitioned to support multiple UDP, QAM or
+		ProgramNo ranges. Though it's helpful to partition the QAM
+		channels when the total number of QAM channel increases, this is
+		not a must. This table may also be used to show the reserved UDP
+		ports, or program numbers for special purposes instead of using
+		default ones allowed by hardware, software, or MPEG protocol."
+	::= { qamMIBObjects 3 }
+
+qamConfigEntry  OBJECT-TYPE
+	SYNTAX 	QamConfigEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+		"Each entry corresponds to the configuration of a QAM channel
+		range."
+	INDEX { entPhysicalIndex, 
+		qamConfigIndex }
+	::= { qamConfigTable 1 }
+
+QamConfigEntry ::= SEQUENCE {
+	qamConfigIndex
+		Unsigned32,
+	qamConfigQamChannelIdMin
+		Integer32,
+	qamConfigQamChannelIdMax
+		Integer32,
+	qamConfigIPAddrType
+		InetAddressType,
+	qamConfigIPAddr
+		InetAddress,
+	qamConfigUdpPortRangeMin
+		Integer32,
+	qamConfigUdpPortRangeMax
+		Integer32,
+	qamConfigOutputProgNoMin
+		Integer32,
+	qamConfigOutputProgNoMax
+		Integer32
+}
+
+qamConfigIndex  OBJECT-TYPE
+	SYNTAX     Unsigned32
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+		"The table index."
+	::= { qamConfigEntry 1 }
+
+qamConfigQamChannelIdMin  OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"QAMChannelId maybe within a line card or global depending on
+		entPhysicalIndex."
+	DEFVAL { 1 }
+	::= { qamConfigEntry 2 }
+
+qamConfigQamChannelIdMax  OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"QAMChannelId maybe within a line card or global depending on
+		entPhysicalIndex."
+	::= { qamConfigEntry 3 }
+
+qamConfigIPAddrType  OBJECT-TYPE
+	SYNTAX     InetAddressType
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The type of the program destination address as defined by 
+		inetAddressType. The default value is 1 for ipv4(1)"
+	DEFVAL { ipv4 }
+	::= { qamConfigEntry 4 }
+
+qamConfigIPAddr  OBJECT-TYPE
+	SYNTAX     InetAddress
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"IP address of the QAM channel."
+	::= { qamConfigEntry 5 }
+
+qamConfigUdpPortRangeMin  OBJECT-TYPE
+	SYNTAX     Integer32 (0..65535)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The lowest UDP port of the UDP port range that can be used
+		on this QAM channel."
+	::= { qamConfigEntry 6 }
+
+qamConfigUdpPortRangeMax  OBJECT-TYPE
+	SYNTAX     Integer32 (0..65535)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The highest UDP port of the UDP port range that can be used on
+		this QAM channel."
+	::= { qamConfigEntry 7 }
+
+qamConfigOutputProgNoMin  OBJECT-TYPE
+	SYNTAX     Integer32 (1..65535)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The lowest MPEG output program number that can be used on the
+		QAM channel."
+	DEFVAL { 1 }
+	::= { qamConfigEntry 8 }
+
+qamConfigOutputProgNoMax  OBJECT-TYPE
+	SYNTAX     Integer32 (1..65535)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+		"The highest MPEG output program number that can be used on the
+		QAM channel."
+	DEFVAL { 255 }
+	::= { qamConfigEntry 9 }
+
+qamSupport  MODULE-COMPLIANCE
+	STATUS     current
+	DESCRIPTION 
+		"These objects describe the support level for QAM."
+	MODULE
+		MANDATORY-GROUPS { qamChannelGroup } 
+		GROUP qamConfigGroup
+		DESCRIPTION 
+		"The qamConfigGroup is unconditionally optional"
+	::= { qamMIBCompliances 1 }
+
+docsisSupport  MODULE-COMPLIANCE
+	STATUS     current
+	DESCRIPTION 
+		"These objects are not covered by any DOCSIS MIB, but
+		they would need to be supported by a DOCSIS EQAM."
+	MODULE
+		MANDATORY-GROUPS { qamMpegDocsisCommonGroup } 
+	::= { qamMIBCompliances 2 }
+
+qamMpegDocsisCommonGroup  OBJECT-GROUP
+	OBJECTS { qamChannelCommonOutputBw, 
+		qamChannelCommonUtilization }
+	STATUS     current
+	DESCRIPTION 
+		"These objects are not covered by any DOCSIS MIB. It is
+		legitimate for a DOCSIS QAM to support them."
+	::= { qamMIBGroups 1 }
+
+qamChannelGroup  OBJECT-GROUP
+	OBJECTS { qamChannelFrequency, 
+		qamChannelModulationFormat, 
+		qamChannelInterleaverLevel, 
+		qamChannelInterleaverMode, 
+		qamChannelPower, 
+		qamChannelSquelch, 
+		qamChannelContWaveMode, 
+		qamChannelAnnexMode }
+	STATUS     current
+	DESCRIPTION 
+		"The objects characterizing the RF channel and that may be
+		supported by an equivalent DOCSIS MIB object."
+	::= { qamMIBGroups 2 }
+
+qamConfigGroup  OBJECT-GROUP
+	OBJECTS { qamConfigQamChannelIdMin, 
+		qamConfigQamChannelIdMax, 
+		qamConfigIPAddrType, 
+		qamConfigIPAddr, 
+		qamConfigUdpPortRangeMin, 
+		qamConfigUdpPortRangeMax, 
+		qamConfigOutputProgNoMin, 
+		qamConfigOutputProgNoMax }
+	STATUS     current
+	DESCRIPTION 
+		"QAM configuration objects."
+	::= { qamMIBGroups 3 }
+END

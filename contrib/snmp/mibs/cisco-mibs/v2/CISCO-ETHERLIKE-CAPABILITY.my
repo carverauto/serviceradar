@@ -1,0 +1,320 @@
+-- *****************************************************************
+-- CISCO-ETHERLIKE-CAPABILITY.my:  EtherLike-MIB AGENT-CAPABILITIES
+--   
+-- January 2000, Nicholas Basker
+-- September  2003, Liwei Lue
+--   
+-- Copyright (c) 2000, 2003, 2007, 2010-2011 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-ETHERLIKE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Counter32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEtherlikeCapability MODULE-IDENTITY
+    LAST-UPDATED    "201104010000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ethermibs@cisco.com
+            cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for EtherLike-MIB."
+    REVISION        "201104010000Z"
+    DESCRIPTION
+        "Added capability statement
+        cEtherlikeCapV15R0002SGPCat4K"
+    REVISION        "201010290000Z"
+    DESCRIPTION
+        "Added capability statement
+        cEtherlikeCapV12R0250SYPCat6K."
+    REVISION        "201003170000Z"
+    DESCRIPTION
+        "Added capability statement
+        cEtherlikeCapV12R0233SXI4PCat6K."
+    REVISION        "200707030000Z"
+    DESCRIPTION
+        "Added capability statement
+        cEtherlikeCapV12R0233SXHPCat6k."
+    REVISION        "200309080000Z"
+    DESCRIPTION
+        "Added ciscoEtherlikeCapV12R0111bEX
+        for IOS 12.1(11b)EX on Catalyst 6000/6500 and
+        Cisco 7600 series devices.
+
+        Added ciscoEtherlikeCapV12R0214SX 
+        for IOS 12.2(14)SX on Catalyst 6000/6500 and
+        Cisco 7600 series devices.
+
+        Added ciscoEtherlikeCapV08R0101 for Cisco CatOS
+        8.1(1)."
+    REVISION        "200001211400Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 130 }
+
+
+
+ciscoEtherlikeCapabilityV12R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.1 Ethernet MIB capabilities."
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        { etherStatsGroup }
+    VARIATION       dot3StatsSQETestErrors
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Hardcoded to 0."
+
+    VARIATION       dot3StatsInternalMacTransmitErrors
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Hardcoded to 0."
+
+    VARIATION       dot3StatsEtherChipSet
+    SYNTAX          OBJECT IDENTIFIER
+    DESCRIPTION
+        "Hardcoded to 0.0."
+
+    VARIATION       dot3CollCount
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3CollEntry not supported."
+
+    VARIATION       dot3CollFrequencies
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3CollEntry not supported."
+
+    VARIATION       dot3ControlFunctionsSupported
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3ControlEntry not supported."
+
+    VARIATION       dot3ControlInUnknownOpcodes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3ControlEntry not supported."
+
+    VARIATION       dot3PauseAdminMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3PauseEntry not supported."
+
+    VARIATION       dot3PauseOperMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3PauseEntry not supported."
+
+    VARIATION       dot3InPauseFrames
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3PauseEntry not supported."
+
+    VARIATION       dot3OutPauseFrames
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Table for dot3PauseEntry not supported."
+
+    ::= { ciscoEtherlikeCapability 1 }
+
+ciscoEtherlikeCapV12R0111bEX AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "EtherLike-MIB capabilities"
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        {
+                        etherStatsBaseGroup,
+                        etherStatsLowSpeedGroup
+                    }
+    ::= { ciscoEtherlikeCapability 2 }
+
+ciscoEtherlikeCapV12R0214SX AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(14)SX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "EtherLike-MIB capabilities."
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        {
+                        etherStatsGroup,
+                        etherStatsHighSpeedGroup,
+                        etherDuplexGroup
+                    }
+    VARIATION       dot3StatsEtherChipSet
+    DESCRIPTION
+        "Always return 0.0."
+
+    ::= { ciscoEtherlikeCapability 3 }
+
+ciscoEtherlikeCapV08R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1)."
+    STATUS          current
+    DESCRIPTION
+        "EtherLike-MIB capabilities"
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        {
+                        etherStatsGroup,
+                        etherStatsHighSpeedGroup,
+                        etherDuplexGroup
+                    }
+    VARIATION       dot3StatsEtherChipSet
+    DESCRIPTION
+        "Always return 0.0."
+
+    ::= { ciscoEtherlikeCapability 4 }
+
+cEtherlikeCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "EtherLike-MIB capabilities."
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        {
+                        etherStatsGroup,
+                        etherStatsHighSpeedGroup,
+                        etherDuplexGroup,
+                        etherStatsLowSpeedGroup,
+                        etherStatsBaseGroup2,
+                        etherStatsHalfDuplexGroup,
+                        etherControlGroup,
+                        etherControlPauseGroup
+                    }
+    VARIATION       dot3StatsEtherChipSet
+    DESCRIPTION
+        "Always return 0.0."
+
+    VARIATION       dot3ControlInUnknownOpcodes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot3PauseAdminMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot3PauseOperMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoEtherlikeCapability 5 }
+
+cEtherlikeCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "EtherLike-MIB capabilities."
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        {
+                        etherStatsGroup,
+                        etherStatsHighSpeedGroup,
+                        etherDuplexGroup,
+                        etherStatsLowSpeedGroup,
+                        etherStatsBaseGroup2,
+                        etherStatsHalfDuplexGroup,
+                        etherControlGroup,
+                        etherControlPauseGroup
+                    }
+    VARIATION       dot3StatsEtherChipSet
+    DESCRIPTION
+        "Always return 0.0."
+
+    VARIATION       dot3ControlInUnknownOpcodes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoEtherlikeCapability 6 }
+
+cEtherlikeCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "EtherLike-MIB capabilities."
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        {
+                        etherStatsGroup,
+                        etherStatsHighSpeedGroup,
+                        etherDuplexGroup,
+                        etherStatsLowSpeedGroup,
+                        etherStatsBaseGroup2,
+                        etherStatsHalfDuplexGroup,
+                        etherControlGroup,
+                        etherControlPauseGroup
+                    }
+    VARIATION       dot3StatsEtherChipSet
+    DESCRIPTION
+        "Always return 0.0."
+
+    VARIATION       dot3ControlInUnknownOpcodes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoEtherlikeCapability 7 }
+
+cEtherlikeCapV15R0002SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(2)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "EtherLike-MIB capabilities."
+
+    SUPPORTS        EtherLike-MIB
+    INCLUDES        {
+                        etherStatsGroup,
+                        etherStatsHighSpeedGroup,
+                        etherDuplexGroup,
+                        etherStatsLowSpeedGroup,
+                        etherStatsBaseGroup2,
+                        etherStatsHalfDuplexGroup,
+                        etherControlGroup,
+                        etherControlPauseGroup
+                    }
+    VARIATION       dot3StatsEtherChipSet
+    DESCRIPTION
+        "Always return 0.0."
+
+    VARIATION       dot3ControlInUnknownOpcodes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoEtherlikeCapability 8 }
+
+END
+
+
+

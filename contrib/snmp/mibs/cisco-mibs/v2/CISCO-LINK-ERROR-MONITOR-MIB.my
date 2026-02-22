@@ -1,0 +1,409 @@
+-- ****************************************************                
+-- CISCO-LINK-ERROR-MONITOR-MIB.my
+--        MIB support for the Link Error Monitor Feature
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- ****************************************************
+
+CISCO-LINK-ERROR-MONITOR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Unsigned32,
+        NOTIFICATION-TYPE
+                FROM SNMPv2-SMI
+
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+
+        TruthValue,
+        TEXTUAL-CONVENTION 
+                FROM SNMPv2-TC
+   
+        ifIndex
+                FROM IF-MIB
+
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoLinkErrorMonitorMIB MODULE-IDENTITY
+        LAST-UPDATED        "200411190000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+                "The MIB module for managing Link Error Monitoring
+                Feature on devices. 
+
+                Link Error Monitoring Feature provides a mechanism
+                to monitor a certain set of link error counters on 
+                an interface and take certain actions when the 
+                increase in the error counters between two consecutive 
+                samplings exceeds the configurable thresholds 
+                consecutively for a certain number of times."   
+        REVISION            "200411190000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 426  }
+
+ciscoLinkErrMonMIBNotifs  OBJECT IDENTIFIER ::=  
+                          { ciscoLinkErrorMonitorMIB 0 }
+
+ciscoLinkErrMonMIBObjects OBJECT IDENTIFIER ::=  
+                          { ciscoLinkErrorMonitorMIB 1 }
+
+ciscoLinkErrMonMIBConform OBJECT IDENTIFIER ::=  
+                          { ciscoLinkErrorMonitorMIB 2 }
+
+clemGlobalObjects         OBJECT IDENTIFIER ::=  
+                          { ciscoLinkErrMonMIBObjects 1 }
+
+clemInterfaceObjects      OBJECT IDENTIFIER ::=  
+                          { ciscoLinkErrMonMIBObjects 2 }
+
+--
+-- Textual Conventions
+--
+ClemCounterType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+            "The link error counters on interfaces to be monitored 
+            by the Link Error Monitor feature.
+
+            rxcrc -  the counter on the number of received 
+                     packets with CRC and alignment errors.
+
+            txcrc -  the counter on the number of transmitted 
+                     packets with CRC errors.
+
+            inerrors - the ifInErrors counter as defined in IF-MIB.
+            "
+    SYNTAX      INTEGER {
+                          rxcrc(1),
+                          txcrc(2),
+                          inerrors(3)
+                        }
+
+--
+-- clemGlobalObjects
+--
+
+clemEnabled OBJECT-TYPE
+    SYNTAX      TruthValue 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+            "Specifies whether the Link Error Monitor Feature is 
+            enabled on the device or not." 
+    ::= { clemGlobalObjects 1 }
+
+clemSamplingInterval  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    UNITS       "seconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+            "Specifies the sampling interval to sample the 
+            interfaces' monitored link error counters." 
+    ::= { clemGlobalObjects 2 }
+
+clemSamplingTimes  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+            "Specifies the consecutive number of times with 
+            error counter increase over thresholds between two 
+            consecutive samplings before corresponding notifications 
+            can be sent and actions can be taken on an interface." 
+    ::= { clemGlobalObjects 3 }
+    
+clemAction  OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         errdisable(1),
+                         failover(2)
+                        }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+            "Specifies the action to be taken on an interface
+            when the increase in an error counter on that 
+            interface between two consecutive sampling 
+            exceeds the corresponding clemThresholdHigh for 
+            consecutive number of times as specified by 
+            clemSamplingTimes. 
+            
+            errdisable -- the interface is disabled by forcing
+                          its link down.  
+                            
+            failover -- when the interface is a member of a channel 
+                        and it is the only operational member in 
+                        the channel, then no operation will be taken. 
+                        Otherwise, disable the interface by forcing 
+                        its link down, i.e., errdisable the interface.  
+            "
+    ::= { clemGlobalObjects 4 }
+    
+clemThresholdTable  OBJECT-TYPE          
+    SYNTAX       SEQUENCE OF ClemThresholdEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+            "A table containing threshold configuration for
+            the monitored link error counters." 
+    ::= { clemGlobalObjects 5 }
+
+clemThresholdEntry OBJECT-TYPE
+    SYNTAX       ClemThresholdEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+            "An entry containing threshold configuration for 
+            each type of link error counter that can be 
+            monitored by this feature on the device."
+    INDEX { clemThresholdCounterType }
+    ::= { clemThresholdTable 1 }
+
+ClemThresholdEntry ::= SEQUENCE {
+    clemThresholdCounterType  ClemCounterType,
+    clemThresholdLow  Unsigned32,
+    clemThresholdHigh Unsigned32 
+    }
+
+clemThresholdCounterType  OBJECT-TYPE
+    SYNTAX        ClemCounterType
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+            "Indicates the type of link error counter to be 
+            monitored."  
+    ::= { clemThresholdEntry 1 }
+
+clemThresholdLow  OBJECT-TYPE
+    SYNTAX        Unsigned32
+    MAX-ACCESS    read-write 
+    STATUS        current
+    DESCRIPTION
+            "Specifies the low threshold for an error counter 
+            type.                
+            When the increase in this error counter type on 
+            an interface between two consecutive sampling exceeds 
+            the instance value of clemThresholdLow for this error 
+            counter type consecutively for clemSamplingTimes number 
+            of times, a clemLowThresholdExceeded notification on 
+            that interface will be sent."
+    ::= { clemThresholdEntry 2 }
+
+clemThresholdHigh  OBJECT-TYPE
+    SYNTAX        Unsigned32
+    MAX-ACCESS    read-write 
+    STATUS        current
+    DESCRIPTION
+            "Specifies the high threshold for an error counter 
+            type.                
+            When the increase in this error counter type on an 
+            interface between two consecutive sampling exceeds the 
+            instance value of clemThresholdHigh for this error counter 
+            type consecutively for clemSamplingTimes number of times, 
+            a clemHighThresholdExceeded notification on that interface 
+            will be sent. And, the action specified by clemAction 
+            will be taken on that interface. The instance value of
+            this clemThresholdHigh must be greater than the instance
+            value of the clemThresholdLow of the same row."
+    ::= { clemThresholdEntry 3 }
+
+clemNotifEnable  OBJECT-TYPE
+    SYNTAX      BITS {
+                       lowThresholdExceeded(0),
+                       highThresholdExceeded(1)
+                }  
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+            "Indicates whether the generation of a specified 
+            notification is enabled or not. If a bit corresponding 
+            to a notification is set to 1, then that notification 
+            can be generated. 
+
+            lowThresholdExcd -- the clemLowThresholdExceeded 
+                                notification.
+
+            highThresholdExcd -- the clemHighThresholdExceeded
+                                notification. 
+            "
+    ::= { clemGlobalObjects 6 }
+
+-- 
+-- interface level objects
+--
+clemIfCounterTable   OBJECT-TYPE
+    SYNTAX       SEQUENCE OF ClemIfCounterEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+            "A table containing interface-specific link error 
+            monitoring information for each error counter type 
+            monitored by the feature." 
+    ::= { clemInterfaceObjects 1 }
+
+clemIfCounterEntry OBJECT-TYPE
+    SYNTAX       ClemIfCounterEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+            "An entry containing link error monitoring information 
+            on each capable interface for each error counter type 
+            monitored by the feature."
+    INDEX { ifIndex,
+            clemIfCounterType }
+    ::= { clemIfCounterTable 1 }
+
+ClemIfCounterEntry ::= SEQUENCE {
+    clemIfCounterType ClemCounterType,
+    clemIfCounterEnable  TruthValue
+    }
+
+clemIfCounterType OBJECT-TYPE
+    SYNTAX        ClemCounterType
+    MAX-ACCESS    not-accessible 
+    STATUS        current
+    DESCRIPTION
+            "Indicates the type of link error counter to be 
+            monitored on an interface."  
+    ::= { clemIfCounterEntry 1 }
+
+clemIfCounterEnable  OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+            "Specifies whether the sampling on the corresponding 
+            error counter type is enabled on an interface or not."
+    ::= { clemIfCounterEntry 2 }
+
+--
+-- Notifications
+--
+
+clemLowThresholdExceeded  NOTIFICATION-TYPE
+    OBJECTS     { clemThresholdLow, ifIndex }
+    STATUS      current
+    DESCRIPTION
+            "This notification will be sent when the increase in 
+            an error counter type on an interface between two 
+            consecutive sampling exceeds the error counter's 
+            clemThresholdLow consecutively for clemSamplingTimes 
+            number of times."
+    ::= { ciscoLinkErrMonMIBNotifs 1 }
+ 
+clemHighThresholdExceeded  NOTIFICATION-TYPE
+    OBJECTS     { clemThresholdHigh, ifIndex }
+    STATUS      current
+    DESCRIPTION
+            "This notification will be sent when the increase in 
+            an error counter type on an interface between two 
+            consecutive sampling exceeds the error counter's 
+            clemThresholdHigh consecutively for clemSamplingTimes 
+            number of times."
+    ::= { ciscoLinkErrMonMIBNotifs 2 }
+
+
+--
+-- MIB Conformance statements
+--
+
+ciscoLinkErrMonMIBCompliances  OBJECT IDENTIFIER ::= 
+                               { ciscoLinkErrMonMIBConform 1 }
+
+ciscoLinkErrMonMIBGroups  OBJECT IDENTIFIER ::= 
+                               { ciscoLinkErrMonMIBConform 2 }
+
+ciscoLinkErrMonMIBCompliance  MODULE-COMPLIANCE
+    STATUS   current
+    DESCRIPTION 
+            "The compliance statement for CISCO-LINK-ERROR-MONITOR-MIB."
+            MODULE -- this module
+            MANDATORY-GROUPS { clemGlobalGroup,
+                               clemThresholdGroup,
+                               clemIfCounterGroup,
+                               clemNotificationGroup,
+                               clemNotificationControlGroup }
+    ::= { ciscoLinkErrMonMIBCompliances 1 }
+
+-- 
+-- Units of Conformance
+-- 
+
+clemGlobalGroup  OBJECT-GROUP
+    OBJECTS {
+             clemEnabled,
+             clemSamplingInterval,
+             clemSamplingTimes,
+             clemAction
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects to configure link error 
+            monitoring functionality globally for all interfaces
+            on the device."
+        ::= { ciscoLinkErrMonMIBGroups 1 }
+
+clemThresholdGroup  OBJECT-GROUP
+    OBJECTS {
+             clemThresholdLow,
+             clemThresholdHigh
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects to configure the threshold for
+            the monitored error counters by this feature." 
+        ::= { ciscoLinkErrMonMIBGroups 2 }
+
+clemIfCounterGroup  OBJECT-GROUP
+    OBJECTS {
+             clemIfCounterEnable
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects to configure link error
+            monitoring functionality at interface level on
+            each error counter type."
+        ::= { ciscoLinkErrMonMIBGroups 3 }
+
+clemNotificationGroup  NOTIFICATION-GROUP
+    NOTIFICATIONS {
+                   clemLowThresholdExceeded,
+                   clemHighThresholdExceeded
+                  }
+    STATUS  current
+    DESCRIPTION
+            "A collection of notifications for link error 
+            monitoring feature."
+    ::= { ciscoLinkErrMonMIBGroups 4 }
+
+clemNotificationControlGroup OBJECT-GROUP
+    OBJECTS {
+             clemNotifEnable
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects to control the notification
+            generation for link error monitoring feature."  
+        ::= { ciscoLinkErrMonMIBGroups 5 }
+
+END
+

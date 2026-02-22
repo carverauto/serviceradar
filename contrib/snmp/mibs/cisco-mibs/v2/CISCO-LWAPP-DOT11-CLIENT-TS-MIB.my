@@ -1,0 +1,677 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOT11-CLIENT-TS-MIB.my:
+-- Wireless Client Trouble Shooting
+--   
+-- March 2007, Ambika Prasad Mohanty
+--   
+-- Copyright (c) 2007, 2011-2012 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DOT11-CLIENT-TS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    cldcClientMacAddress
+        FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoLwappDot11ClientTsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201206110000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        This MIB provides information about troubleshooting 802.11
+        clients during their association with the controller.
+        The clients that need to be monitored are added by the
+        controller to a watchlist. Once added the controller 
+        will start storing the messages related to that client.
+        These messages are useful to troubleshoot the reasons 
+        for failures during assoication. 
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'.
+
+        Cisco Compatible eXtensions (CCX)
+
+        Wireless LAN Access Points (APs) manufactured by Cisco
+        Systems have features and capabilities beyond those in
+        related standards (e.g., IEEE 802.11 suite of 
+        standards, Wi-Fi recommendations by WECA, 802.1X 
+        security suite, etc). A number of features provide 
+        higher performance. For example, Cisco AP transmits a 
+        specific Information Element, which the clients adapt 
+        to for enhanced performance. Similarly, a number of 
+        features are implemented by means of proprietary 
+        Information Elements, which Cisco clients use in 
+        specific ways to carry out tasks above and beyond the
+        standard. Other examples of feature categories are 
+        roaming and power saving.
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the 
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point.  The terms  
+        'Mobile node' and 'client' are used interchangeably. 
+
+        Radio Management (RM)
+
+        This term refers to managing the 802.11 radio
+        environment to provide the best quality service to
+        to the 802.11 wireless clients. 
+
+        Service Set Identifier ( SSID ) 
+
+        SSID is a unique identifier that APs and clients
+        use to identify with each other.  SSID is a simple
+        means of access control and is not for security.
+        The SSID can be any alphanumeric entry up to 32
+        characters.
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol"
+    REVISION        "201206110000Z"
+    DESCRIPTION
+        "Added new bit mobility to cldctWatchListModuleList
+        and cldctClientInfoModule."
+    REVISION        "201201250000Z"
+    DESCRIPTION
+        "Added the following new object to cldctClientInfoTable.
+        cldctClientInfoMessageType and cldctClientInfoMessageSubType 
+
+        Added two new bits voiceQoS and misc to 
+        cldctWatchListModuleList and cldctClientInfoModule. 
+
+        Added a new supplement group 
+        ciscoLwappDot11ClientTsStatusSupGroupRev1. 
+
+        Added new compliance ciscoLwappDot11ClientTsMIBComplianceRev1 
+        which deprecates ciscoLwappDot11ClientTsMIBCompliance."
+    REVISION        "200703080000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 622 }
+
+
+ciscoLwappDot11ClientTsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIB 0 }
+
+ciscoLwappDot11ClientTsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIB 1 }
+
+ciscoLwappDot11ClientTsMIBConfirm  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIB 2 }
+
+cldctClientInfo  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIBObjects 1 }
+
+cldctWatchList  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIBObjects 2 }
+
+cldctLastPemStateInfo  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIBObjects 3 }
+
+
+cldctWatchListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldctWatchListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the clients which are being monitored by
+        the controller during association.
+        The types of clients that can be monitored are CCX, non-CCX
+        and WGB clients.
+
+        Entries are created by explicit management action by the 
+        user.
+
+        A row is created by specifying the cldctWatchListModuleList,
+         cldctWatchListTimeRemaining and cldcClientMacAddress with the
+        'RowStatus' changed to createAndGo.
+        This indicates that the request is made to start storing the
+        the messages on the controller for the client identified by 
+        cldcClientMacAddress.
+
+        The added row is deleted by setting the corresponding
+        instance of the RowStatus object to 'destroy'. In
+        case if the agent finds that the time duration
+        represented by cldctWatchListTimeRemaining has elapsed since
+        the addtion of the client to the watchlist, it proceeds to 
+        delete the row automatically, if the row exists at that point
+        of time.
+        The messages stored on the controller can be obtained
+        from cldctClientInfoTable."
+    ::= { cldctWatchList 1 }
+
+cldctWatchListEntry OBJECT-TYPE
+    SYNTAX          CldctWatchListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents one instance
+        of the client troubleshooting initiated by the user
+        through a network manager."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldctWatchListTable 1 }
+
+CldctWatchListEntry ::= SEQUENCE {
+        cldctWatchListModuleList    BITS,
+        cldctWatchListTimeRemaining Unsigned32,
+        cldctWatchListRowStatus     RowStatus
+}
+
+cldctWatchListModuleList OBJECT-TYPE
+    SYNTAX          BITS {
+                        dot11(0),
+                        dot1x(1),
+                        pem(2),
+                        dhcp(3),
+                        aaa(4),
+                        voiceQoS(5),
+                        misc(6),
+                        mobility(7)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to specify the list of modules per
+        client whose messages will be stored by the controller. 
+        Any combination of the modules can be set.
+
+        'dot11' - This value represents the module in controller
+                  responsible for handling the 802.11 messages.
+
+        'dot1x' - This value represents the module responsible 
+                  for handling the extensible authentication protocol
+                  related messages.
+
+        'pem'  -  This value represents the module responsible for 
+                  handling the policy enforcement module.
+
+        'dhcp' -  This value represents the module responsible for 
+                  handling dhcp related messages.
+
+        'aaa'  -  This value represents the module responsible for
+                  handling radius related messages.
+
+        'voiceQoS'  -  This value represents the module responsible for
+                  handling voice/Qos module related messages. 
+
+        'misc' - This value represents the module responsible for 
+                 handling miscellaneous module messages 
+                 (eg: roam history). 
+
+        'mobility'  -  This value represents the module responsible for
+                  handling mobility related messages." 
+    ::= { cldctWatchListEntry 1 }
+
+cldctWatchListTimeRemaining OBJECT-TYPE
+    SYNTAX          Unsigned32 (5..1000)
+    UNITS           "minutes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to specify the time after which
+        the client will be automatically removed from the 
+        watchlist."
+    DEFVAL          { 10 } 
+    ::= { cldctWatchListEntry 2 }
+
+cldctWatchListRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the status of a row and
+        is used to create and delete specific instances 
+        of rows in this table." 
+    ::= { cldctWatchListEntry 3 }
+ 
+
+-- ******************************************************************
+-- Client Debug Logs
+-- ******************************************************************
+
+cldctClientInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldctClientInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Ths table populates the messages generated during client's
+        association with the controller. 
+        Entries are automatically addded by the controller
+        when the client for the cldctWatchListTable associates
+        with the controller.
+        Each row represents a message generated on the
+        controller for the client on the watch list.
+        Entries are automatically removed by the controller
+        when the client is removed from the watchlist.  
+        The number of message per client is limited to the number
+        specified by the cldctClientInfoMaxEntries object. When 
+        the maximum number of entries is reached the older entries
+        will be deleted."
+    ::= { cldctClientInfo 1 }
+
+cldctClientInfoEntry OBJECT-TYPE
+    SYNTAX          CldctClientInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the messages
+        generated on the controller during the client's
+        association with it."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldctClientInfoIndex
+                    } 
+    ::= { cldctClientInfoTable 1 }
+
+CldctClientInfoEntry ::= SEQUENCE {
+        cldctClientInfoIndex          Unsigned32,
+        cldctClientInfoGeneratedTime  TimeStamp,
+        cldctClientInfoLevel          INTEGER,
+        cldctClientInfoSeverity       INTEGER,
+        cldctClientInfoModule         INTEGER,
+        cldctClientInfoResultCode     TruthValue,
+        cldctClientInfoMsgString      OCTET STRING,
+        cldctClientInfoMessageType    Unsigned32,
+        cldctClientInfoMessageSubType Unsigned32
+}
+
+cldctClientInfoIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the sequence number of
+        the message for a watch listed client." 
+    ::= { cldctClientInfoEntry 1 }
+
+cldctClientInfoGeneratedTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the absolute time when entry
+        was added to table." 
+    ::= { cldctClientInfoEntry 2 }
+
+cldctClientInfoLevel OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        phase(1),
+                        state(2),
+                        normal(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the types of messages generated
+        by the watch listed client.
+
+        There can be three types of messages.
+
+        'phase' - This value represents phase transition of a
+                 wireless client. The various phases include
+                 802.11, 8021x, dhcp etc.
+
+        'state' - This value represents a state transition of a
+                 wireless client. The states could be association
+                 request, authentication request etc. for 802.11 
+                 phase.
+
+        'normal' - This value represents an informational message 
+                  generated during 802.11 client's association to
+                  the controller." 
+    ::= { cldctClientInfoEntry 3 }
+
+cldctClientInfoSeverity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        info(1),
+                        error(2),
+                        critical(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates severity of the information of
+        the client trouble shooting messages. This object holds
+        good only if the corresponding cldctClientInfoLevel is set
+        to 'normal'.
+
+        'info' -  This is an information message.
+
+        'error' - This is an error message.
+
+        'critical' - This is a critical message." 
+    ::= { cldctClientInfoEntry 4 }
+
+cldctClientInfoModule OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dot11(1),
+                        dot1x(2),
+                        pem(3),
+                        dhcp(4),
+                        aaa(5),
+                        voiceQoS(6),
+                        misc(7),
+                        mobility(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the module which
+        generated the message.  
+
+        'dot11' - This value represents the module in controller 
+                  responsible for handling the 802.11 messages.
+
+        'dot1x' - This value represents the module responsible for
+                  handling the extensible authentication protocol.
+
+        'pem'   - This value represents the module responsible for
+                  handling the policy enforcement module.
+
+        'dhcp'  - This value represents the module responsible for 
+                  handling dhcp related messages.
+
+        'aaa'   - This value represents the module responsible for
+                  handling radius related messages.
+
+        'voiceQoS'  -  This value represents the module responsible for
+                  handling voice/Qos module related messages. 
+
+        'misc' - This value represents the module responsible for
+                 handling miscellaneous module messages.
+                 (eg: roam history). 
+
+        'mobility'  - This value represents the module responsible for
+                  handling mobility related messages." 
+    ::= { cldctClientInfoEntry 5 }
+
+cldctClientInfoResultCode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates if this message is an
+        informational message or an error message.
+        This object holds good only if the corresponding
+        cldctClientInfoLevel object has a value of
+        'phase' or 'state'.
+        A value of true indicates that this message is an
+        informational message.
+        A value of false indicates that this message is an
+        error message." 
+    ::= { cldctClientInfoEntry 6 }
+
+cldctClientInfoMsgString OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the variable part of the
+        message generated by the controller for this client.
+        For example if the message to be shown to the user is
+        'Client got ip address 10.52.43.54', the '10.52.43.54'
+        is a variable part which will be different for different
+        clients." 
+    ::= { cldctClientInfoEntry 7 }
+
+cldctClientInfoMessageType OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of the
+        messsage generated by the controller for this client." 
+    ::= { cldctClientInfoEntry 8 }
+
+cldctClientInfoMessageSubType OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This objects represents sub-type of the
+        messsage generated by the controller for this client." 
+    ::= { cldctClientInfoEntry 9 }
+ 
+
+
+cldctClientInfoMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum number of
+        entries per client(cldcClientMacAddress) in the
+        cldctClientInfoTable."
+    DEFVAL          { 2000 } 
+    ::= { cldctClientInfo 2 }
+
+cldctLastPemStateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldctLastPemStateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table stores the last policy enforcement
+        state of client in the controller. The state here is
+        represented as a string. For example the state can be
+        'RUN','WEBAUTH_REQUIRED' etc. 
+        Entries are automaticaly added to this table when a 
+        802.11 client associates to a controller.
+        Entries in this table are automaticaly deleted by
+        the controller when the 802.11 client disassociates
+        from the controller."
+    ::= { cldctLastPemStateInfo 1 }
+
+cldctLastPemStateEntry OBJECT-TYPE
+    SYNTAX          CldctLastPemStateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        An entry represents the last PEM state report by a wireless
+        client."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldctLastPemStateTable 1 }
+
+CldctLastPemStateEntry ::= SEQUENCE {
+        cldctLastPemState SnmpAdminString
+}
+
+cldctLastPemState OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the last policy enforcement
+        manager state of the client in controller." 
+    ::= { cldctLastPemStateEntry 1 }
+ 
+
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoLwappDot11ClientTsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIBConfirm 1 }
+
+ciscoLwappDot11ClientTsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientTsMIBConfirm 2 }
+
+
+ciscoLwappDot11ClientTsMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappDot11ClientTsMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappDot11ClientTsConfigGroup,
+                        ciscoLwappDot11ClientTsStatusGroup
+                    }
+    ::= { ciscoLwappDot11ClientTsMIBCompliances 1 }
+
+ciscoLwappDot11ClientTsMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappDot11ClientTsMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappDot11ClientTsConfigGroup,
+                        ciscoLwappDot11ClientTsStatusGroup,
+                        ciscoLwappDot11ClientTsStatusSupGroupRev1
+                    }
+    ::= { ciscoLwappDot11ClientTsMIBCompliances 2 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+ciscoLwappDot11ClientTsConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cldctWatchListModuleList,
+                        cldctWatchListTimeRemaining
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured per 802.11 clients for the 
+        controller to start monitoring them."
+    ::= { ciscoLwappDot11ClientTsMIBGroups 1 }
+
+ciscoLwappDot11ClientTsStatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        cldctClientInfoGeneratedTime,
+                        cldctClientInfoLevel,
+                        cldctClientInfoSeverity,
+                        cldctClientInfoModule,
+                        cldctClientInfoResultCode,
+                        cldctClientInfoMsgString,
+                        cldctWatchListRowStatus,
+                        cldctClientInfoMaxEntries,
+                        cldctLastPemState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which represent
+        the information of various watch listed
+        clients present on the controller. The information
+        includes the various states and phases that the client
+        goes through while getting associated with the
+        controller."
+    ::= { ciscoLwappDot11ClientTsMIBGroups 2 }
+
+ciscoLwappDot11ClientTsStatusSupGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cldctClientInfoMessageType,
+                        cldctClientInfoMessageSubType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which represent
+        the information on the types and sub-types of 
+        messages generated by the controller for the clients."
+    ::= { ciscoLwappDot11ClientTsMIBGroups 3 }
+
+END
+
+
+

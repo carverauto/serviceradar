@@ -1,0 +1,121 @@
+-- MIB file created 06-Dec-2002 15:59:12, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-IP-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-IP-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alStatsIp, alIpGroup
+            FROM ALTIGA-MIB
+    alIpMibModule
+            FROM ALTIGA-GLOBAL-REG
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaIpStatsMibModule OBJECT IDENTIFIER ::= { alIpMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga IP Statistics MIB models counters and objects that are 
+--     of management interest for IP. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       IP:         Internet Protocol 
+--    
+--       LAN:        Local-Area Network  
+--    
+--       MIB:        Management Information Base 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsIpGlobal OBJECT IDENTIFIER ::= { alStatsIp 1 }
+altigaIpStatsMibConformance OBJECT IDENTIFIER ::= { altigaIpStatsMibModule 1 }
+altigaIpStatsMibCompliances OBJECT IDENTIFIER ::= { altigaIpStatsMibConformance 1 }
+
+alIpInterfaceStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlIpInterfaceStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "IP Interface Statistics table."
+    ::= { alStatsIpGlobal 1 }
+
+alIpInterfaceStatsEntry OBJECT-TYPE
+    SYNTAX AlIpInterfaceStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alIpInterfaceStatsTable."
+    INDEX { alIpInterfaceStatsIndex }
+    ::= { alIpInterfaceStatsTable 1 }
+
+AlIpInterfaceStatsEntry ::= SEQUENCE {
+    alIpInterfaceStatsIndex INTEGER,
+    alIpInterfaceStatsCurrentDuplex INTEGER
+    }
+
+alIpInterfaceStatsIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of this row."
+    ::= { alIpInterfaceStatsEntry 1 }
+
+alIpInterfaceStatsCurrentDuplex OBJECT-TYPE
+    SYNTAX INTEGER {
+        full(2),
+        half(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current LAN duplex mode for this interface."
+    ::= { alIpInterfaceStatsEntry 2 }
+
+altigaIpStatsGroup OBJECT IDENTIFIER ::= { alIpGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for Ip Statistics.
+--  objects
+--    alIpInterfaceStatsIndex, alIpInterfaceStatsCurrentDuplex
+
+altigaIpStatsMibCompliance OBJECT IDENTIFIER ::= { altigaIpStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga IP Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaIpStatsGroup
+
+
+END
+

@@ -1,0 +1,2019 @@
+-- *******************************************************************
+-- CISCO-LWAPP-CLOUD-SERVICES-MIB.my
+-- Feb 2017, Leelaram Paspulati.
+--   
+-- Copyright(c) 2017-2018 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-CLOUD-SERVICES-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MacAddress,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappCloudServicesMIB MODULE-IDENTITY
+    LAST-UPDATED    "201807030000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that 
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        This MIB provides configuration of Network Assurance
+        (NA) ,Connected Mobility Experience (CMX) and Data 
+        Externalization(dx) which comes under Cloud services. 
+
+        Network Assurance (NA)
+        Its a cloud based Assurance which provided by Cisco
+        to monitor the health of the network by collecting 
+        data from controllers and Sensors.
+
+        Connected Mobility Experience (CMX)
+        The MIB is used for programming Cloud based CMX services. 
+        The Network Mobility Service Protocol(NMSP) data is exported 
+        to CMX Cloud Server through https connection. The NMSP encoding 
+        will remain as it is for the TCP/TLS connection.
+        Use the MIB for configuring URL and Token ID and to enable 
+        this serrvice. The Controller will act as https client and 
+        will establish https connection with CMX URL. 
+        Controller will verify the CMX cloud server while the cloud 
+        server will authenticate the Controller using the configured 
+        id-token.
+
+        Data Externalization(dx)
+        dx is a feature in wlc which allows it to collect the 
+        data which may get published to the NA server for 
+        analaytics.
+
+        The relationship between CC, NA server and the 
+        LWAPP APs can be depicted as follows: 
+
+                  +......+     +......+     +......+
+                  +      +     +      +     +      +
+                  +  CC  +     +  CC  +.....+  NA  +
+                  +      +     +      +     +      +
+                  +......+     +......+     +......+
+                    ..            . .           .
+                    ..            .  .          .
+                   .  .            .    .        .
+                  .    .            .      .      .
+                 .      .            .       .     .
+                .        .            .         .   .
+            +......+ +......+     +......+      +..........+
+            +      + +      +     +      +      +          +
+            +  AP  + +  AP  +     +  AP  +......+  SENSOR  +
+            +      + +      +     +      +      +   AP     +
+            +......+ +......+     +......+      +..........+
+                       .              .             .
+                     .  .              .             .
+                    .    .              .             .
+                   .      .              .             .
+                  .        .              .             .
+               +......+ +......+     +......+      +......+
+               +      + +      +     +      +      +      +
+               +  MN  + +  MN  +     +  MN  +      +  MN  +
+               +      + +      +     +      +      +      +
+               +......+ +......+     +......+      +......+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                               GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the 
+        communication between the Access Points and the
+        Central Controller. 
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. Mobile Node 
+        and client are used interchangeably.
+
+        Sensors 
+
+        These are wireless clients which periodically connect 
+        to a wireless network, run some tests and report back 
+        the test status to Cisco Network Assurance Server. 
+
+        The sensors are controlled and instructed by the 
+        Network Assurance server. APs can be tentatively put 
+        in Sensor mode to do the Sensor Job. There can be 
+        dedicated sensors as well.
+
+        Filtered Channels ( FC )
+
+        These are user-defined channels which use the filters
+        configured by the user to choose and carry the required 
+        data."
+    REVISION        "201807030000Z"
+    DESCRIPTION
+        "Added cLCSNAServerResetSubscriptions,
+        cLCSWebhookResetSubscriptions,
+        clCSCMXOnPremisesEnable
+        Added cLCSTelemetryFCTable,
+        cLCSTelemetryFCFilterTable,
+        cLCSNAServerChannelTable,
+        cLCSWebhookChannelTable,
+        clCSTelemetryConfigGroup,
+        clCSNAGlobalConfigGroupRev2,
+        clCSWebhookConfigGroupRev1,
+        clCSCMXConfigGroupRev1
+        Deprecated clCSNAServerOnchangeEnable,
+             clCSNAServerSyncInterval,
+             clCSNAServerSubscriptionAction,
+             clCSNAServerSubscriptionTopic,
+             clCSNAGlobalConfigGroupRev1,
+             clCSWebhookConfigGroup,
+             clCSCMXConfigGroup"
+    REVISION        "201804240000Z"
+    DESCRIPTION
+        "Added clCSNAServerOnchangeEnable,
+        clCSNAServerSyncInterval,
+        clCSNAServerSubscriptionAction,
+        clCSNAServerSubscriptionTopic
+        Added clCSMIBComplianceRev2,
+        clCSNAGlobalConfigGroupRev1,
+        clCSWebhookConfigGroup
+        Deprecated clCSNAASIEnable, 
+            clCSNADiffSyncEnable,
+            clCSNAGlobalConfigGroup,
+            clCSMIBComplianceRev1"
+    REVISION        "201712210000Z"
+    DESCRIPTION
+        "Updated clCSNAGlobalConfigGroup.
+        Deprecate clCSMIBCompliance and replaced by 
+        clCSMIBComplianceRev1.
+        Added clCSNAASIEnable,clCSNADiffSyncEnable,clCSSecTunObjects,
+        clCSSecTunConfig,clCSSecTunInfo,clCSSecTunNotifs."
+    REVISION        "201702220000Z"
+    DESCRIPTION
+        "Initial version of config cloud services MIB module."
+    ::= { ciscoMgmt 838 }
+
+
+clCSMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappCloudServicesMIB 0 }
+
+clCSNANotifs  OBJECT IDENTIFIER
+    ::= { clCSMIBNotifs 0 }
+
+clCSSecTunNotifs  OBJECT IDENTIFIER
+    ::= { clCSMIBNotifs 1 }
+
+clCSMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappCloudServicesMIB 1 }
+
+clCSNAObjects  OBJECT IDENTIFIER
+    ::= { clCSMIBObjects 1 }
+
+clCSNAServerConfig  OBJECT IDENTIFIER
+    ::= { clCSNAObjects 1 }
+
+clCSNAGlobalConfig  OBJECT IDENTIFIER
+    ::= { clCSNAObjects 2 }
+
+clCSNATrapMgmtObjects  OBJECT IDENTIFIER
+    ::= { clCSNAObjects 3 }
+
+clCSNAServerConfigTable  OBJECT IDENTIFIER
+    ::= { clCSNAObjects 4 }
+
+clCSDXObjects  OBJECT IDENTIFIER
+    ::= { clCSMIBObjects 2 }
+
+clCSDxConfig  OBJECT IDENTIFIER
+    ::= { clCSDXObjects 1 }
+
+clCSCMXObjects  OBJECT IDENTIFIER
+    ::= { clCSMIBObjects 3 }
+
+clCSCMXServerConfig  OBJECT IDENTIFIER
+    ::= { clCSCMXObjects 1 }
+
+clCSCMXConfig  OBJECT IDENTIFIER
+    ::= { clCSCMXObjects 2 }
+
+clCSSecTunObjects  OBJECT IDENTIFIER
+    ::= { clCSMIBObjects 4 }
+
+clCSSecTunConfig  OBJECT IDENTIFIER
+    ::= { clCSSecTunObjects 1 }
+
+clCSSecTunInfo  OBJECT IDENTIFIER
+    ::= { clCSSecTunObjects 2 }
+
+clCSWebhookGlobalObjects  OBJECT IDENTIFIER
+    ::= { clCSMIBObjects 5 }
+
+clCSWebhookTableObjects  OBJECT IDENTIFIER
+    ::= { clCSMIBObjects 6 }
+
+clCSFilterChanTableObjects  OBJECT IDENTIFIER
+    ::= { clCSMIBObjects 7 }
+
+clCSMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappCloudServicesMIB 2 }
+
+
+-- ****************************************************
+-- cisco LWAPP network assurance server configuration
+-- ****************************************************
+
+clCSNAServerUrl OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the URL for network assurance server."
+    DEFVAL          { "" } 
+    ::= { clCSNAServerConfig 1 }
+
+clCSNAServerIdToken OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the token id for network assurance
+        server."
+    DEFVAL          { "" } 
+    ::= { clCSNAServerConfig 2 }
+
+clCSNAServerOnchangeEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the type of telemetry data that will be
+        externalized from the controller. 
+        The type can be bulk or onChange.
+        With onChange enabled, NA server will receive 
+        only the change in data.
+        With onChange disabled, NA server will receive 
+        the entire dataset(bulk)
+
+        A value of 'true' indicates that onchange is enabled.
+        A value of 'false' indicates that onChange is disabled.
+        clCSNAServerOnchangeEnable object is superseded by 
+        clCSNAServerChannelOnChangeMode."
+    DEFVAL          { false } 
+    ::= { clCSNAServerConfig 3 }
+
+clCSNAServerSyncInterval OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        fixed(1),
+                        adaptive(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the frequency
+        at which the telemetry data would be received 
+        at the NA server. 
+
+        fixed    - The controller will provide the 
+                   telemetry data once in every 5 minutes
+        adaptive - The controller will provide the 
+                   telemetry data once in every 30 seconds
+        clCSNAServerSyncInterval object is superseded by 
+        clCSNAServerChannelSyncInterval."
+    DEFVAL          { fixed } 
+    ::= { clCSNAServerConfig 4 }
+
+clCSNAServerSubscriptionAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        add(1),
+                        remove(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the possible modifications
+        to the data content in the telemetry stream 
+        sent to the NA server.
+
+        add    - will add the specified channel 
+                 to the telemetry data stream
+        remove - will remove the specified channel 
+                 from the telemetry data stream
+        clCSNAServerSubscriptionAction object is superseded by 
+        clCSNAServerChannelRowStatus."
+    DEFVAL          { add } 
+    ::= { clCSNAServerConfig 5 }
+
+clCSNAServerSubscriptionTopic OBJECT-TYPE
+    SYNTAX          BITS {
+                        system(0),
+                        network(1),
+                        client(2),
+                        ap(3),
+                        rogue(4),
+                        interferer(5),
+                        apEvent(6),
+                        clientEvent(7),
+                        scanReport(8),
+                        clientDnsReport(9),
+                        fra(10),
+                        mapserver(11)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the channels that can be modified
+        in the telemetry data stream that is sent to the NA server. 
+        The user can configure a channel from the given enums
+
+        system(0)            - Configures the system channel
+        network(1)           - Configures the network channel
+        client(2)            - Configures the client channel
+        ap(3)                - Configures the AP channel
+        rogue(4)             - Configures the rogue channel
+        interferer(5)        - Configures the interferer channel
+        apEvent(6)           - Configures the ap-event channel
+        clientEvent(7)       - Configures the client-event channel
+        scanReport(8)        - Configures the scan-report channel
+        clientDnsReport(9)   - Configures the client-dns-report channel
+        fra(10)              - Configures the fra channel
+        mapserver(11)        - Configures the mapserver channel
+        clCSNAServerSubscriptionTopic object is superseded by 
+        clCSNAServerChannelName
+        ." 
+    ::= { clCSNAServerConfig 6 }
+
+cLCSNAServerResetSubscriptions OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specfies the option to reset NA server channel
+        subscriptions to defaults.
+        A value of 'true' indicates that subscriptions are reset.
+        A value of 'false' indicates that subscriptions are not reset.
+        User can only set the value 'true'.
+        Read on this object always returns the value 'false'."
+    DEFVAL          { false } 
+    ::= { clCSNAServerConfig 7 }
+
+cLCSNAServerChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCSNAServerChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents NA server subscription channel
+        related configurations."
+    ::= { clCSNAServerConfigTable 1 }
+
+cLCSNAServerChannelEntry OBJECT-TYPE
+    SYNTAX          CLCSNAServerChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents and includes the
+        attributes needed for subscribing a NA server channel"
+    INDEX           { clCSNAServerChannelName } 
+    ::= { cLCSNAServerChannelTable 1 }
+
+CLCSNAServerChannelEntry ::= SEQUENCE {
+        clCSNAServerChannelName         SnmpAdminString,
+        clCSNAServerChannelSyncInterval INTEGER,
+        clCSNAServerChannelOnChangeMode TruthValue,
+        clCSNAServerIsFilterChannel     TruthValue,
+        clCSNAServerChannelRowStatus    RowStatus
+}
+
+clCSNAServerChannelName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the NA server channel name
+        to subscribe/unsubscribe/set sync interval/set on-change 
+        mode based on the value of respective objects.
+        'ap': This value indicates aps channel.
+        'ap-fra': This value indicates ap-fra channel.
+        'ap-capwap': This value indicates ap-capwap channel.
+        'ap-channel': This value indicates ap-channel channel.
+        'ap-fra-sensor': This value indicates ap-fra-sensor channel.
+        'ap-interface-stats': This value indicates ap-interface-stats 
+         channel.
+        'ap-inventory': This value indicates ap-inventory channel.
+        'ap-network-stats': This value indicates ap-network-stats 
+         channel.
+        'ap-reports': This value indicates ap-reports channel.
+        'ap-rf': This value indicates ap-rf channel.
+        'ap-rf-neighbors': This value indicates ap-rf-neighbors channel.
+        'ap-rf-stats': This value indicates ap-rf-stats channel.
+        'ap-events': This value indicates ap-events channel.
+        'ap-system': This value indicates ap-system channel.
+        'cdp': This value indicates cdp channel.
+        'client-app-stats': This value indicates client-app-stats 
+         channel.
+        'client-mobility-stats': This value indicates 
+         client-mobility-stats channel.
+        'client-network-stats': This value indicates 
+         client-network-stats channel.
+        'client-policies': This value indicates client-policies channel.
+        'client-reports': This value indicates client-reports channel.
+        'client-rf-measurements': This value indicates 
+         client-rf-measurements channel.
+        'client-traffic-measurements': This value indicates 
+         client-traffic-measurements channel.
+        'client-wireless-stats': This value indicates 
+         client-wireless-stats channel.
+        'client-dns-reports': This value indicates 
+         client-dns-reports channel.
+        'client-events': This value indicates client-events channel.
+        'client': This value indicates clients channel.
+        'dhcp': This value indicates dhcp channel.
+        'eogre': This value indicates eogre channel.
+        'fabric': This value indicates fabric channel.
+        'interferers': This value indicates interferers channel.
+        'licensing': This value indicates licensing channel.
+        'mobility': This value indicates mobility channel.
+        'ndp': This value indicates ndp channel.
+        'radius-events': This value indicates radius-events channel.
+        'radius': This value indicates radius channel.
+        'redundancy-events': This value indicates redundancy-events 
+         channel.
+        'redundancy': This value indicates redundancy channel.
+        'rogues': This value indicates rogues channel.
+        'scan-reports': This value indicates scan-reports channel.
+        'system-core-stats': This value indicates system-core-stats 
+         channel.
+        'system-dataplane-stats': This value indicates 
+         system-dataplane-stats channel.
+        'system-general-stats': This value indicates 
+         system-general-stats channel.
+        'system-port-stats': This value indicates system-port-stats 
+         channel.
+        'system-process-stats': This value indicates 
+         system-process-stats channel.
+        'tacacs': This value indicates tacacs channel.
+        <filter channel name> : User can also specify filter channel 
+         name to subscribe" 
+    ::= { cLCSNAServerChannelEntry 1 }
+
+clCSNAServerChannelSyncInterval OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        fifteen(15),
+                        thirty(30),
+                        sixty(60),
+                        threehundred(300)
+                    }
+    UNITS           "Seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the NA server channel sync interval.
+        fifteen(15): This value indicates 15 sec interval
+        thirty(30): This value indicates 30 sec interval
+        sixty(60): This value indicates 60 sec interval
+        threehundred(300): This value indicates 300 sec interval.
+        This object can't be used to set interval for 
+        filter-channels." 
+    ::= { cLCSNAServerChannelEntry 2 }
+
+clCSNAServerChannelOnChangeMode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the value of on-change mode of a
+        NA server channel. Only the changed data is synced if it's 
+        enabled. 
+        A value of 'true' indicates that only changed data 
+        will be synced. 
+        A value of 'false' indicates that all the data 
+        present in DB will be synced. 
+        This object can't be used to set 
+        on-change mode for filter-channels." 
+    ::= { cLCSNAServerChannelEntry 3 }
+
+clCSNAServerIsFilterChannel OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether the given channel is filter
+        channel or static channel.
+        A value of 'true' indicates that the channel is filter channel
+        A value of 'false' indicates that the channel is 
+        static channel" 
+    DEFVAL          { false } 
+    ::= { cLCSNAServerChannelEntry 4 }
+
+clCSNAServerChannelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cLCSNAServerChannelEntry 5 }
+ 
+
+-- *********************************************************
+-- cisco LWAPP network Telemetry Filter channel configuration
+-- *********************************************************
+
+cLCSTelemetryFCTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCSTelemetryFCEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents telemetry filter channel
+        related configurations. Filter channel is a user
+        created channel which uses filters added by user 
+        to externalize the data."
+    ::= { clCSFilterChanTableObjects 1 }
+
+cLCSTelemetryFCEntry OBJECT-TYPE
+    SYNTAX          CLCSTelemetryFCEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the attributes
+        needed for managing a filter channel."
+    INDEX           { clCSTelemetryFCName } 
+    ::= { cLCSTelemetryFCTable 1 }
+
+CLCSTelemetryFCEntry ::= SEQUENCE {
+        clCSTelemetryFCName        SnmpAdminString,
+        clCSTelemetryFCParent      SnmpAdminString,
+        clCSTelemetryFCSubStatus   INTEGER,
+        clCSTelemetryFCFilterCount Unsigned32,
+        clCSTelemetryFCRowStatus   RowStatus
+}
+
+clCSTelemetryFCName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of filter channel." 
+    ::= { cLCSTelemetryFCEntry 1 }
+
+clCSTelemetryFCParent OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of parent channel to which
+        the filter channel belongs. Parent channel should be 
+        a static channel." 
+    ::= { cLCSTelemetryFCEntry 2 }
+
+clCSTelemetryFCSubStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        assurance(2),
+                        webhook(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether the filter channel is
+        subscribed or not.
+        none(1): This value indicates that filter channel is
+        not subscribed.
+        assurance(2): This value indicates that filter channel
+        is subscribed to assurance.
+        webhook(3): This value indicates that filter channel
+        is subscribed to webhook."
+    DEFVAL          { none } 
+    ::= { cLCSTelemetryFCEntry 3 }
+
+clCSTelemetryFCFilterCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of filters configured
+        on this filter channel."
+    DEFVAL          { 0 } 
+    ::= { cLCSTelemetryFCEntry 4 }
+
+clCSTelemetryFCRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cLCSTelemetryFCEntry 5 }
+ 
+
+
+cLCSTelemetryFCFilterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCSTelemetryFCFilterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents all the filters configured on the
+        filter channels."
+    ::= { clCSFilterChanTableObjects 2 }
+
+cLCSTelemetryFCFilterEntry OBJECT-TYPE
+    SYNTAX          CLCSTelemetryFCFilterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the attributes
+        needed for managing the filters of a perticular filter
+        channel"
+    INDEX           {
+                        clCSTelemetryFCName,
+                        clCSTelemetryFCFilter
+                    } 
+    ::= { cLCSTelemetryFCFilterTable 1 }
+
+CLCSTelemetryFCFilterEntry ::= SEQUENCE {
+        clCSTelemetryFCFilter          SnmpAdminString,
+        clCSTelemetryFCFilterRowStatus RowStatus
+}
+
+clCSTelemetryFCFilter OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the filters of a given filter channel.
+        Filter channel extracts the data from parent channel 
+        based on the provided filters." 
+    ::= { cLCSTelemetryFCFilterEntry 1 }
+
+clCSTelemetryFCFilterRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cLCSTelemetryFCFilterEntry 2 }
+ 
+
+
+-- *********************************************************
+-- cisco LWAPP network assurance Global configuration
+-- *********************************************************
+
+clCSNAEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether network assurance is
+        enabled or disabled.
+        A value of 'true' indicates that enables network assurance.
+        A value of 'false' indicates that disables network assurance."
+    DEFVAL          { true } 
+    ::= { clCSNAGlobalConfig 1 }
+
+clCSNASensorBackhaulSSID OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the SSID for network assurance
+        sensor backhaul."
+    DEFVAL          { "" } 
+    ::= { clCSNAGlobalConfig 2 }
+
+clCSNASensorBackhaulAuthType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dot1x(1),
+                        psk(2),
+                        open(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies about authentication type of
+        network assurance sensor backhaul.
+        dot1x(1): This value represents the authentication 
+        type as dot1x.
+        psk(2): This value represents the authentication 
+        type as psk.
+        open(3): This value represents the authentication 
+        type as open."
+    DEFVAL          { open } 
+    ::= { clCSNAGlobalConfig 3 }
+
+clCSNASensorBackhaulEapType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        eapfast(1),
+                        peap(2),
+                        none(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies about Extensible Authentication
+        Protocol (EAP) type of network assurance sensor backhaul.
+        eapfast(1): This value represents the EAP type as eapfast. 
+        peap(2): This value represents the EAP type as peap.
+        none(3): This value represents the EAP type as none."
+    DEFVAL          { none } 
+    ::= { clCSNAGlobalConfig 4 }
+
+clCSNASensorBackhaulUsername OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies about the username for dot1x type
+        authentication type of cloud services sensor backhaul."
+    DEFVAL          { "" } 
+    ::= { clCSNAGlobalConfig 5 }
+
+clCSNASensorBackhaulPassword OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies about the password for
+        dot1x authentication type of network assurance 
+        sensor backhaul."
+    DEFVAL          { "" } 
+    ::= { clCSNAGlobalConfig 6 }
+
+clCSNASensorBackhaulPskMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ascii(1),
+                        hex(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies about the psk mode for psk
+        authentication type of network assurance for sensor 
+        backhaul.
+        ascii(1): This value represents psk mode as ascii. 
+        hex(2):This value represents psk mode as hex."
+    DEFVAL          { ascii } 
+    ::= { clCSNAGlobalConfig 7 }
+
+clCSNASensorBackhaulPsk OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies about the psk value for psk
+        authentication type of network assurance for sensor 
+        backhaul."
+    DEFVAL          { "" } 
+    ::= { clCSNAGlobalConfig 8 }
+
+clCSNAASIEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies whether Network Assurance Adaptive
+        Sync Interval (ASI) mode is enabled or disabled.
+        A value of 'true' indicates that Network Assurance ASI 
+        mode is enabled.
+        A value of 'false' indicates that network assurance ASI 
+        mode is disabled."
+    DEFVAL          { false } 
+    ::= { clCSNAGlobalConfig 9 }
+
+clCSNADiffSyncEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies whether Network Assurance diff sync is
+        enabled or disabled. In diff sync mode only modified parameters 
+        are externalized from the controller.
+        A value of 'true' indicates that network assurance diff sync 
+        mode is enabled.
+        A value of 'false' indicates that network assurance diff sync 
+        mode is disabled."
+    DEFVAL          { false } 
+    ::= { clCSNAGlobalConfig 10 }
+
+-- ****************************************************
+-- cisco DX configuration
+-- ****************************************************
+
+clCSDxMode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether data externalization is
+        enabled or disabled.
+        A value of 'true' indicates that enables DX.
+        A value of 'false' indicates that  disables DX.
+        It requires reboot after enable"
+    DEFVAL          { false } 
+    ::= { clCSDxConfig 1 }
+
+-- ************************************************************
+-- cisco LWAPP cloud services server configuration
+-- ************************************************************
+
+clCSCMXServerUrl OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the URL for cloud services
+        server."
+    DEFVAL          { "" } 
+    ::= { clCSCMXServerConfig 1 }
+
+clCSCMXServerIdToken OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the token id for cloud services
+        server."
+    DEFVAL          { "" } 
+    ::= { clCSCMXServerConfig 2 }
+
+-- *********************************************************
+-- cisco LWAPP cloud services CMX configuration
+-- *********************************************************
+
+clCSCMXEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether cloud services for
+        CMX is enabled or disabled.
+        A value of 'true' indicates that cloud services enables
+        for CMX.
+        A value of 'false' indicates that cloud services disables
+        for CMX."
+    DEFVAL          { false } 
+    ::= { clCSCMXConfig 1 }
+
+clCSCMXOnPremisesEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether NMSP service for on-premises
+        CMX is enabled or disabled.
+        A value of 'true' indicates that NMSP service is enabled for 
+        on-premises CMX.
+        A value of 'false' indicates that NMSP service is disabled for
+        on-premises CMX."
+    DEFVAL          { true } 
+    ::= { clCSCMXConfig 2 }
+
+-- ************************************************************
+-- cisco LWAPP Secure tunnel configuration - clCSSecTunConfig
+-- ************************************************************
+
+clCSSecTunEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of secure tunnel
+        mode on the controller.
+        A value of 'true' indicates that, secure tunnel 
+        is enabled.
+        A value of 'false' indicates that, secure tunnel 
+        is disabled."
+    DEFVAL          { false } 
+    ::= { clCSSecTunConfig 1 }
+
+clCSSecTunTlsGwFqdn OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Fully Qualified Domain Name(FQDN)
+        of the TLS Gateway with which secure tunnel is established."
+    DEFVAL          { "" } 
+    ::= { clCSSecTunConfig 2 }
+
+clCSSecTunTlsGwIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the TLS Gateway IP
+        address type." 
+    ::= { clCSSecTunConfig 3 }
+
+clCSSecTunTlsGwIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the TLS
+        Gateway with which secure tunnel is established." 
+    ::= { clCSSecTunConfig 4 }
+
+clCSSecTunTlsGwPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the TLS Gateway port
+        number."
+    DEFVAL          { 0 } 
+    ::= { clCSSecTunConfig 5 }
+
+clCSSecTunPskId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the PSK Id for the given WLC.
+        Id along with clCSSecTunPskKey are used as part of 
+        secure tunnel setup with TLS gateway."
+    DEFVAL          { "" } 
+    ::= { clCSSecTunConfig 6 }
+
+clCSSecTunPskKey OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the key of the PSK cipher,
+        which is used while setting up the secure tunnel 
+        with TLS gateway"
+    DEFVAL          { "" } 
+    ::= { clCSSecTunConfig 7 }
+
+clCSSecTunRadiusEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the secure tunneling status of
+        RADIUS traffic like Authentication and Accounting servers.
+        A value of 'true' indicates that, RADIUS traffic on secure 
+        tunnel is enabled.
+        A value of 'false' indicates that, RADIUS traffic on secure 
+        tunnel is disabled."
+    DEFVAL          { false } 
+    ::= { clCSSecTunConfig 8 }
+
+clCSSecTunSnmpTrapEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the secure tunneling trap is
+        enabled or disabled.
+        A value of 'true' indicates that secure tunnel status 
+        trap is enabled. 
+        A value of 'false' indicates that secure tunnel status 
+        trap is disabled."
+    DEFVAL          { false } 
+    ::= { clCSSecTunConfig 9 }
+
+cLCSSecTunStaticNetworkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCSSecTunStaticNetworkEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents static Networks configured
+        for Secure tunneling of it's traffic. This is the 
+        explicit way of configuration to send traffic of 
+        a given network over TLS secure tunnel"
+    ::= { clCSSecTunConfig 10 }
+
+cLCSSecTunStaticNetworkEntry OBJECT-TYPE
+    SYNTAX          CLCSSecTunStaticNetworkEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the
+        attributes of secure tunnel network."
+    INDEX           {
+                        cLSCSecTunNetworkIPAddressType,
+                        cLSCSecTunNetworkIPAddress,
+                        cLSCSecTunNetworkIPNetmaskType,
+                        cLSCSecTunNetworkIPNetmask
+                    } 
+    ::= { cLCSSecTunStaticNetworkTable 1 }
+
+CLCSSecTunStaticNetworkEntry ::= SEQUENCE {
+        cLSCSecTunNetworkIPAddressType InetAddressType,
+        cLSCSecTunNetworkIPAddress     InetAddress,
+        cLSCSecTunNetworkIPNetmaskType InetAddressType,
+        cLSCSecTunNetworkIPNetmask     InetAddress,
+        cLSCSecTunNetworkRowStatus     RowStatus
+}
+
+cLSCSecTunNetworkIPAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address type
+        of cLSCSecTunNetworkIPAddress." 
+    ::= { cLCSSecTunStaticNetworkEntry 1 }
+
+cLSCSecTunNetworkIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address or subnet of
+        the network to be added for secure tunneling" 
+    ::= { cLCSSecTunStaticNetworkEntry 2 }
+
+cLSCSecTunNetworkIPNetmaskType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies IP netmask type of
+        cLSCSecTunNetworkIPNetmask." 
+    ::= { cLCSSecTunStaticNetworkEntry 3 }
+
+cLSCSecTunNetworkIPNetmask OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP netmask of the
+        network added for secure tunneling." 
+    ::= { cLCSSecTunStaticNetworkEntry 4 }
+
+cLSCSecTunNetworkRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies status column for this
+        row and used to create and delete specific 
+        instances of rows in this table." 
+    ::= { cLCSSecTunStaticNetworkEntry 5 }
+ 
+
+
+-- ************************************************************
+-- cisco LWAPP Secure tunnel information - clCSSecTunConfig
+-- ************************************************************
+
+clCSSecTunCurrentState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        secureTunnelDown(1),
+                        secureTunnelUp(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current state of the
+        secure tunnel. 
+        secureTunnelDown(1): This value indicates that secure tunnel 
+        is down. 
+        secureTunnelUp(2): This values indicates that secure tunnel 
+        is up."
+    DEFVAL          { secureTunnelDown } 
+    ::= { clCSSecTunInfo 1 }
+
+clCSSecTunTlsGwIpAddrInUseType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This objects represents the TLS Gateway IP
+        address type" 
+    ::= { clCSSecTunInfo 2 }
+
+clCSSecTunTlsGwIpInUseAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IP address of the TLS Gateway
+        which is currently in-use. User can configure FQDN or 
+        IP address for TLS Gateway. The preference is to resolve 
+        the FQDN and get the IP address, if that fails it will 
+        use the statically configured IP address." 
+    ::= { clCSSecTunInfo 3 }
+
+clCSSecTunInnerIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This objects represents the IP address type
+        of the TLS client." 
+    ::= { clCSSecTunInfo 4 }
+
+clCSSecTunInnerIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the inner IP address of the TLS
+        client on the controller. This IP is issued by TLS 
+        gateway as part of the secure tunnel setup and informed
+        to TLS client as config update." 
+    ::= { clCSSecTunInfo 5 }
+
+clCSSecTunTLSClientProcState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tlscProcDown(1),
+                        tlscProcInProg(2),
+                        tlscProcUp(3),
+                        tlscProcReStart(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the state of the TLS Client process.
+        TLS Client process is responsible in establishing TLS tunnel 
+        with the Gateway. It encapsulates the data packets before 
+        sending them to the Gateway over the tunnel. 
+        tlscProcDown(1): This value indicates that the process 
+        is down,
+        tlscProcInProg(2): This value indicates that the 
+        process is just coming up and is in-progress.
+            tlscProcUp(3): This value indicates that the process 
+            is up and running. 
+        tlscProcReStart(4): This value indicates that the process 
+        is in restart."
+    DEFVAL          { tlscProcDown } 
+    ::= { clCSSecTunInfo 6 }
+
+cLCSSecTunRouteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCSSecTunRouteEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the routes for various devices
+        and networks currently managed by the secure tunnel 
+        module for tunneling of the management traffic. Plumbing
+        and deletion of the routes to linux occurs based on the 
+        tunnel state changes."
+    ::= { clCSSecTunInfo 7 }
+
+cLCSSecTunRouteEntry OBJECT-TYPE
+    SYNTAX          CLCSSecTunRouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents attributes
+        needed for adding a route for secure tunneling"
+    INDEX           {
+                        cLSCSecTunRouteIPAddressType,
+                        cLSCSecTunRouteIPAddress,
+                        cLSCSecTunRouteNetmaskType,
+                        cLSCSecTunRouteNetmask
+                    } 
+    ::= { cLCSSecTunRouteTable 1 }
+
+CLCSSecTunRouteEntry ::= SEQUENCE {
+        cLSCSecTunRouteIPAddressType  InetAddressType,
+        cLSCSecTunRouteIPAddress      InetAddress,
+        cLSCSecTunRouteNetmaskType    InetAddressType,
+        cLSCSecTunRouteNetmask        InetAddress,
+        cLSCSecTunRouteTableRowStatus Unsigned32
+}
+
+cLSCSecTunRouteIPAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IP address type
+        of cLSCSecTunRouteIPAddress." 
+    ::= { cLCSSecTunRouteEntry 1 }
+
+cLSCSecTunRouteIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IP address or subnet
+        of the route to be added for secure tunneling" 
+    ::= { cLCSSecTunRouteEntry 2 }
+
+cLSCSecTunRouteNetmaskType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents IP netmask type of
+        cLSCSecTunNetworkIPNetmask." 
+    ::= { cLCSSecTunRouteEntry 3 }
+
+cLSCSecTunRouteNetmask OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IP netmask of the
+        route to be added for secure tunneling." 
+    ::= { cLCSSecTunRouteEntry 4 }
+
+cLSCSecTunRouteTableRowStatus OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the entry status
+        of this conceptual row." 
+    ::= { cLCSSecTunRouteEntry 5 }
+ 
+
+
+-- ****************************************************
+-- cisco LWAPP network webhook server configuration
+-- ****************************************************
+
+clCSWebhookUrl OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the URL for the webhook server"
+    DEFVAL          { "" } 
+    ::= { clCSWebhookGlobalObjects 1 }
+
+clCSWebhookAuthToken OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the authentication token
+        of the webhook server."
+    DEFVAL          { "" } 
+    ::= { clCSWebhookGlobalObjects 2 }
+
+-- *********************************************************
+-- cisco LWAPP network webhook Global configuration
+-- *********************************************************
+
+clCSWebhookEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of the controller
+        telemetry data externalization to the webhook server.
+        A value of 'true' indicates that externalization 
+        to the webhook server is enabled.
+        A value of 'false' indicates that externalization 
+        to the webhook server is disabled"
+    DEFVAL          { false } 
+    ::= { clCSWebhookGlobalObjects 3 }
+
+clCSWebhookOnchangeEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the type of telemetry data that will be
+        externalized. The type can be bulk or onChange. 
+
+        With onChange enabled, the server will 
+        receive only the change in data.
+        With onChange disabled, the server will 
+        receive the entire dataset(bulk)
+
+        A value of 'true' indicates that onchange is enabled.
+        A value of 'false' indicates that onChange is disabled.
+        clCSWebhookOnchangeEnable object is superseded by 
+        clCSWebhookChannelOnChangeMode."
+    DEFVAL          { false } 
+    ::= { clCSWebhookGlobalObjects 4 }
+
+clCSWebhookSyncInterval OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        fixed(1),
+                        adaptive(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the frequency
+        at which the telemetry data
+        would be received at the webhook server. 
+
+        A value of fixed will provide data once in every 5 minutes
+        A value of adaptive will provide data once in 30 seconds
+        clCSWebhookSyncInterval object is superseded by 
+        clCSWebhookChannelSyncInterval
+
+        ."
+    DEFVAL          { fixed } 
+    ::= { clCSWebhookGlobalObjects 5 }
+
+clCSWebhookSubscriptionAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        add(1),
+                        remove(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the possible
+        modifications to the data content 
+        in the telemetry stream sent to the webhook server.
+
+        add - will add the channel to the telemetry stream
+        remove - will remove the channel from the telemetry stream
+        clCSWebhookSubscriptionAction object is superseded by 
+        clCSWebhookChannelRowStatus."
+    DEFVAL          { add } 
+    ::= { clCSWebhookGlobalObjects 6 }
+
+clCSWebhookSubscriptionTopic OBJECT-TYPE
+    SYNTAX          BITS {
+                        system(0),
+                        network(1),
+                        client(2),
+                        ap(3),
+                        rogue(4),
+                        interferer(5),
+                        mapserver(6)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the channels that can be modified
+        in the telemetry data stream that is 
+        sent to the webhook server. 
+        The user can configure a channel from the given enums
+
+        system(0)      - Configures the system channel
+        network(1)     - Configures the network channel
+        client(2)      - Configures the client channel
+        ap(3)          - Configures the AP channel
+        rogue(4)       - Configures the rogue channel
+        interferer(5)  - Configures the interferer channel
+        mapserver(6)   - Configures the mapserver channel
+        clCSWebhookSubscriptionTopic object is superseded by 
+        clCSWebhookChannelName." 
+    ::= { clCSWebhookGlobalObjects 7 }
+
+cLCSWebhookResetSubscriptions OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specfies the option to reset webhook channel
+        subscriptions to defaults.
+        A value of 'true' indicates that subscriptions are reset.
+        A value of 'false' indicates that subscriptions are not reset.
+        User can only set the value 'true'.
+        Read on this object always returns the value 'false'."
+    DEFVAL          { false } 
+    ::= { clCSWebhookGlobalObjects 8 }
+
+cLCSWebhookChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLCSWebhookChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents Webhook subscription channel
+        related configurations."
+    ::= { clCSWebhookTableObjects 1 }
+
+cLCSWebhookChannelEntry OBJECT-TYPE
+    SYNTAX          CLCSWebhookChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents and includes the
+        attributes needed for subscribing a webhook channel"
+    INDEX           { clCSWebhookChannelName } 
+    ::= { cLCSWebhookChannelTable 1 }
+
+CLCSWebhookChannelEntry ::= SEQUENCE {
+        clCSWebhookChannelName         SnmpAdminString,
+        clCSWebhookChannelSyncInterval INTEGER,
+        clCSWebhookChannelOnChangeMode TruthValue,
+        clCSWebhookChannelRowStatus    RowStatus
+}
+
+clCSWebhookChannelName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the webhook channel name
+        to subscribe/unsubscribe/set sync interval/set on-change 
+        mode based on the value of respective objects.
+        'ap': This value indicates aps channel.
+        'ap-fra': This value indicates ap-fra channel.
+        'ap-capwap': This value indicates ap-capwap channel.
+        'ap-channel': This value indicates ap-channel channel.
+        'ap-fra-sensor': This value indicates ap-fra-sensor channel.
+        'ap-interface-stats': This value indicates ap-interface-stats 
+         channel.
+        'ap-inventory': This value indicates ap-inventory channel.
+        'ap-network-stats': This value indicates ap-network-stats 
+         channel.
+        'ap-reports': This value indicates ap-reports channel.
+        'ap-rf': This value indicates ap-rf channel.
+        'ap-rf-neighbors': This value indicates ap-rf-neighbors channel.
+        'ap-rf-stats': This value indicates ap-rf-stats channel.
+        'ap-events': This value indicates ap-events channel.
+        'ap-system': This value indicates ap-system channel.
+        'cdp': This value indicates cdp channel.
+        'client-app-stats': This value indicates client-app-stats 
+         channel.
+        'client-mobility-stats': This value indicates 
+         client-mobility-stats channel.
+        'client-network-stats': This value indicates 
+         client-network-stats channel.
+        'client-policies': This value indicates client-policies channel.
+        'client-reports': This value indicates client-reports channel.
+        'client-rf-measurements': This value indicates 
+         client-rf-measurements channel.
+        'client-traffic-measurements': This value indicates 
+         client-traffic-measurements channel.
+        'client-wireless-stats': This value indicates 
+         client-wireless-stats channel.
+        'client-dns-reports': This value indicates client-dns-reports 
+         channel.
+        'client-events': This value indicates client-events channel.
+        'client': This value indicates clients channel.
+        'dhcp': This value indicates dhcp channel.
+        'eogre': This value indicates eogre channel.
+        'fabric': This value indicates fabric channel.
+        'interferers': This value indicates interferers channel.
+        'licensing': This value indicates licensing channel.
+        'mobility': This value indicates mobility channel.
+        'ndp': This value indicates ndp channel.
+        'radius-events': This value indicates radius-events channel.
+        'radius': This value indicates radius channel.
+        'redundancy-events': This value indicates redundancy-events 
+         channel.
+        'redundancy': This value indicates redundancy channel.
+        'rogues': This value indicates rogues channel.
+        'system-core-stats': This value indicates system-core-stats 
+         channel.
+        'system-dataplane-stats': This value indicates 
+         system-dataplane-stats channel.
+        'system-general-stats': This value indicates 
+         system-general-stats channel.
+        'system-port-stats': This value indicates system-port-stats 
+         channel.
+        'system-process-stats': This value indicates 
+         system-process-stats channel.
+        'tacacs': This value indicates tacacs channel." 
+    ::= { cLCSWebhookChannelEntry 1 }
+
+clCSWebhookChannelSyncInterval OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        fifteen(15),
+                        thirty(30),
+                        sixty(60),
+                        threehundred(300)
+                    }
+    UNITS           "Seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the webhook channel sync interval.
+        fifteen(15): This value indicates 15 sec interval
+        thirty(30): This value indicates 30 sec interval
+        sixty(60): This value indicates 60 sec interval
+        threehundred(300): This value indicates 300 sec interval." 
+    ::= { cLCSWebhookChannelEntry 2 }
+
+clCSWebhookChannelOnChangeMode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the value of on-change mode
+        of a webhook server channel.
+        A value of 'true' indicates that only changed data will be 
+        synced.
+        A value of 'false' indicates that all the data present
+        in DB will be synced." 
+    ::= { cLCSWebhookChannelEntry 3 }
+
+clCSWebhookChannelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cLCSWebhookChannelEntry 4 }
+ 
+
+
+-- ****************************************************
+-- Objects for Notifications
+-- ****************************************************
+
+clCSNASensorLradMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the AP mac adress
+        of the sensor." 
+    ::= { clCSNATrapMgmtObjects 1 }
+
+clCSNASensorStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        wsaNoUpdate(1),
+                        wsaStatusOk(2),
+                        wsaServerUrlNotReachable(3),
+                        wsaServerwrongIdToken(4),
+                        wsaServerProxyNotReachable(5),
+                        wsaSensorIntf24Error(6),
+                        wsaSensorIntf24ProxyError(7),
+                        wsaSensorIntf50Error(8),
+                        wsaSensorIntf50ProxyError(9),
+                        wsaApLicenseDenied(10),
+                        wsaNAServerUnreachable(11),
+                        wsaAttemptAssocToRoot(12),
+                        wsaAssocToRoot(13),
+                        wsaTestCfgRcvd(14),
+                        wsaStatusmax(15)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Sensor reachablity to
+        NA Server.
+        wsaNoUpdate(1): This value indicated that NA server 
+        status as no update.
+        wsaStatusOk(2): This value indicated that NA server 
+        status as Reachable.
+        wsaServerUrlNotReachable(3): This value indicated that 
+        NA server status as Url not reachable. 
+        wsaServerwrongIdToken(4): This value indicated that NA 
+        server status as Wrong Id token configured.
+        wsaServerProxyNotReachable(5): This value indicated that 
+        NA server status as Proxy server not reachable.
+        wsaSensorIntf24Error(6): This value indicated that NA 
+        server status as Sensor backhaul error.
+        wsaSensorIntf24ProxyError(7): This value indicated that 
+        NA server status as Sensor backhaul error.
+        wsaSensorIntf50Error(8): This value indicated that NA 
+        server status as Sensor backhaul error.
+        wsaSensorIntf50ProxyError(9): This value indicated that 
+        NA server status as Sensor backhaul error.
+        wsaApLicenseDenied(10): This value indicated that NA 
+        server status as License denied.
+        wsaNAServerUnreachable(11): This value indicated that 
+        NA server status as Cloud server not reachable.
+        wsaAttemptAssocToRoot(12): This value indicated that 
+        NA server status as attempeting the assocation. 
+        wsaAssocToRoot(13): This value indicated that NA server 
+        status as Associated to Root.
+        wsaTestCfgRcvd(14): This value indicated that NA server 
+        status as Test coverage Recieved.
+        wsaStatusmax(15): This value indicated that NA server 
+        status as Status maximum." 
+    ::= { clCSNATrapMgmtObjects 2 }
+
+clCSNASensorErrCode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        wsaSensorBackhaulWronSsid(1),
+                        wsaSensorBackhaulInvalidCredential(2),
+                        wsaSensorConnError(3),
+                        wsaNAServerNotFound(4),
+                        wsaNAServerInternalError(5)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents Sensor conectivity status.
+        wsaSensorBackhaulWronSsid(1): This value indicated that 
+        NA server status as Invalid ssid.
+        wsaSensorBackhaulInvalidCredential(2): This value indicated 
+        that NA server status as Invalid credentials.
+        wsaSensorConnError(3): This value indicated that NA server 
+        status as Sensor connection error.
+        wsaNAServerNotFound(4): This value indicated that NA server 
+        status as Server not found-404
+        wsaNAServerInternalError(5):This value indicated that NA server 
+        status as Sensor connection error." 
+    ::= { clCSNATrapMgmtObjects 3 }
+
+clCSNASensorNotReachableDevStatus NOTIFICATION-TYPE
+    OBJECTS         {
+                        clCSNASensorLradMacAddr,
+                        clCSNASensorStatus,
+                        clCSNASensorErrCode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This object is used to send a trap whenever the
+        device status moves out of compliance with 
+        respect to smart-licensing"
+   ::= { clCSNANotifs 1 }
+
+-- ****************************************************
+-- Objects for secure tunnel notifications
+-- ****************************************************
+
+clCSSecTunStateChange NOTIFICATION-TYPE
+    OBJECTS         { clCSSecTunCurrentState }
+    STATUS          current
+    DESCRIPTION
+        "This object is used to send secure
+        tunnel status change."
+   ::= { clCSSecTunNotifs 1 }
+-- *******************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+clCSMIBCompliances  OBJECT IDENTIFIER
+    ::= { clCSMIBConform 1 }
+
+clCSMIBGroups  OBJECT IDENTIFIER
+    ::= { clCSMIBConform 2 }
+
+
+clCSMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clCSNAServerConfigGroup,
+                        clCSNAGlobalConfigGroup,
+                        clCSCMXServerConfigGroup,
+                        clCSCMXConfigGroup,
+                        clCSNATrapGroup,
+                        clCSNASensorTrapGroup,
+                        clCSDxConfigGroup
+                    }
+    ::= { clCSMIBCompliances 1 }
+
+clCSMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clCSNAServerConfigGroup,
+                        clCSNAGlobalConfigGroup,
+                        clCSCMXServerConfigGroup,
+                        clCSCMXConfigGroup,
+                        clCSNATrapGroup,
+                        clCSNASensorTrapGroup,
+                        clCSDxConfigGroup,
+                        clCSSecTunConfigGroup,
+                        clCSSecTunInfoGroup,
+                        clCSSecTunNotifsGroup
+                    }
+    ::= { clCSMIBCompliances 2 }
+
+clCSMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clCSNAServerConfigGroup,
+                        clCSNAGlobalConfigGroupRev1,
+                        clCSCMXServerConfigGroup,
+                        clCSCMXConfigGroup,
+                        clCSNATrapGroup,
+                        clCSNASensorTrapGroup,
+                        clCSDxConfigGroup,
+                        clCSSecTunConfigGroup,
+                        clCSSecTunInfoGroup,
+                        clCSSecTunNotifsGroup,
+                        clCSWebhookConfigGroup
+                    }
+    ::= { clCSMIBCompliances 3 }
+
+clCSMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clCSNAServerConfigGroup,
+                        clCSNAGlobalConfigGroupRev2,
+                        clCSCMXServerConfigGroup,
+                        clCSCMXConfigGroupRev1,
+                        clCSNATrapGroup,
+                        clCSNASensorTrapGroup,
+                        clCSDxConfigGroup,
+                        clCSSecTunConfigGroup,
+                        clCSSecTunInfoGroup,
+                        clCSSecTunNotifsGroup,
+                        clCSWebhookConfigGroupRev1,
+                        clCSTelemetryConfigGroup
+                    }
+    ::= { clCSMIBCompliances 4 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+clCSNAServerConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSNAServerUrl,
+                        clCSNAServerIdToken
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of server on the controller to be passed
+        to an LWAPP AP."
+    ::= { clCSMIBGroups 1 }
+
+clCSNAGlobalConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSNAEnable,
+                        clCSNASensorBackhaulSSID,
+                        clCSNASensorBackhaulAuthType,
+                        clCSNASensorBackhaulEapType,
+                        clCSNASensorBackhaulUsername,
+                        clCSNASensorBackhaulPassword,
+                        clCSNASensorBackhaulPsk,
+                        clCSNASensorBackhaulPskMode,
+                        clCSNAASIEnable,
+                        clCSNADiffSyncEnable
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of Network Assuranceon the controller 
+        to be passed to an LWAPP AP."
+    ::= { clCSMIBGroups 2 }
+
+clCSCMXServerConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSCMXServerUrl,
+                        clCSCMXServerIdToken
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of Connected Mobility Experience (CMX) 
+        server on the controller to be passed to an LWAPP AP."
+    ::= { clCSMIBGroups 3 }
+
+clCSCMXConfigGroup OBJECT-GROUP
+    OBJECTS         { clCSCMXEnable }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the configuration
+        for Connected Mobility Experience (CMX) on the controller
+        to be passed to an LWAPP AP.
+        clCSCMXConfigGroup object is superseded by 
+        clCSCMXConfigGroupRev1."
+    ::= { clCSMIBGroups 4 }
+
+clCSDxConfigGroup OBJECT-GROUP
+    OBJECTS         { clCSDxMode }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the configuration
+        for data externalization(dx) on the controller to be 
+        passed to an LWAPP AP."
+    ::= { clCSMIBGroups 5 }
+
+clCSNATrapGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSNASensorLradMacAddr,
+                        clCSNASensorStatus,
+                        clCSNASensorErrCode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        trap configuration of NA sent by the agent 
+        to a network management station."
+    ::= { clCSMIBGroups 6 }
+
+clCSNASensorTrapGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { clCSNASensorNotReachableDevStatus }
+    STATUS          current
+    DESCRIPTION
+        "This supplemental collection of objects represents the
+        NA related notifications sent by the agent to a network
+        management station."
+    ::= { clCSMIBGroups 7 }
+
+clCSSecTunConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSSecTunEnable,
+                        clCSSecTunTlsGwFqdn,
+                        clCSSecTunTlsGwIpAddrType,
+                        clCSSecTunTlsGwIpAddr,
+                        clCSSecTunTlsGwPort,
+                        clCSSecTunPskId,
+                        clCSSecTunPskKey,
+                        clCSSecTunRadiusEnable,
+                        clCSSecTunSnmpTrapEnable,
+                        cLSCSecTunNetworkRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        secure Tunnel configuration."
+    ::= { clCSMIBGroups 8 }
+
+clCSSecTunInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSSecTunCurrentState,
+                        clCSSecTunTlsGwIpAddrInUseType,
+                        clCSSecTunTlsGwIpInUseAddr,
+                        clCSSecTunInnerIpAddrType,
+                        clCSSecTunInnerIpAddr,
+                        clCSSecTunTLSClientProcState,
+                        cLSCSecTunRouteTableRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        secure Tunnel information."
+    ::= { clCSMIBGroups 9 }
+
+clCSSecTunNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { clCSSecTunStateChange }
+    STATUS          current
+    DESCRIPTION
+        "This supplemental collection of objects represents the
+        Secure Tunnel related notifications sent by the agent to 
+        a network management station."
+    ::= { clCSMIBGroups 10 }
+
+clCSNAGlobalConfigGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        clCSNAEnable,
+                        clCSNASensorBackhaulSSID,
+                        clCSNASensorBackhaulAuthType,
+                        clCSNASensorBackhaulEapType,
+                        clCSNASensorBackhaulUsername,
+                        clCSNASensorBackhaulPassword,
+                        clCSNASensorBackhaulPsk,
+                        clCSNASensorBackhaulPskMode,
+                        clCSNAServerOnchangeEnable,
+                        clCSNAServerSyncInterval,
+                        clCSNAServerSubscriptionAction,
+                        clCSNAServerSubscriptionTopic
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of Network Assuranceon the controller 
+        to be passed to a Network Assurance Server.
+        clCSNAGlobalConfigGroupRev1 object is superseded by 
+        clCSNAGlobalConfigGroupRev2."
+    ::= { clCSMIBGroups 11 }
+
+clCSNAGlobalConfigGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        clCSNAEnable,
+                        clCSNASensorBackhaulSSID,
+                        clCSNASensorBackhaulAuthType,
+                        clCSNASensorBackhaulEapType,
+                        clCSNASensorBackhaulUsername,
+                        clCSNASensorBackhaulPassword,
+                        clCSNASensorBackhaulPsk,
+                        clCSNASensorBackhaulPskMode,
+                        clCSNAServerChannelSyncInterval,
+                        clCSNAServerChannelOnChangeMode,
+                        clCSNAServerChannelRowStatus,
+                        clCSNAServerIsFilterChannel,
+                        cLCSNAServerResetSubscriptions
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of network assurance on the controller 
+        to be passed to a network assurance server."
+    ::= { clCSMIBGroups 12 }
+
+clCSWebhookConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSWebhookUrl,
+                        clCSWebhookAuthToken,
+                        clCSWebhookEnable,
+                        clCSWebhookOnchangeEnable,
+                        clCSWebhookSyncInterval,
+                        clCSWebhookSubscriptionAction,
+                        clCSWebhookSubscriptionTopic
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of a webhook server to receive telemetry 
+        data from the controller
+        clCSWebhookConfigGroup object is superseded by 
+        clCSWebhookConfigGroupRev1."
+    ::= { clCSMIBGroups 13 }
+
+clCSWebhookConfigGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        clCSWebhookUrl,
+                        clCSWebhookAuthToken,
+                        clCSWebhookEnable,
+                        clCSWebhookChannelSyncInterval,
+                        clCSWebhookChannelOnChangeMode,
+                        clCSWebhookChannelRowStatus,
+                        cLCSWebhookResetSubscriptions
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of a webhook server to receive telemetry 
+        data from the controller"
+    ::= { clCSMIBGroups 14 }
+
+clCSCMXConfigGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        clCSCMXEnable,
+                        clCSCMXOnPremisesEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the configuration
+        for Connected Mobility Experience (CMX) on the controller
+        to be passed to an LWAPP AP."
+    ::= { clCSMIBGroups 15 }
+
+clCSTelemetryConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCSTelemetryFCParent,
+                        clCSTelemetryFCSubStatus,
+                        clCSTelemetryFCFilterCount,
+                        clCSTelemetryFCRowStatus,
+                        clCSTelemetryFCFilterRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        configuration of  telemetry filter channels."
+    ::= { clCSMIBGroups 16 }
+
+END
+
+

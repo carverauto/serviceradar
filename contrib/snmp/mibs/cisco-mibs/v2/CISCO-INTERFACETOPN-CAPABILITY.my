@@ -1,0 +1,101 @@
+-- *****************************************************************
+-- CISCO-INTERFACETOPN-CAPABILITY.my:
+-- Cisco INTERFACETOPN-MIB AGENT-CAPABILITIES
+--   
+-- July 2007, Liwei Wang
+--   
+-- Copyright (c) 2007 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-INTERFACETOPN-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    OwnerString
+        FROM RMON-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoTopNCapability MODULE-IDENTITY
+    LAST-UPDATED    "200707060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of INTERFACETOPN-MIB."
+    REVISION        "200707060000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 544 }
+
+
+
+ciscoTopNCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "INTERFACETOPN-MIB capabilities."
+
+    SUPPORTS        INTERFACETOPN-MIB
+    INCLUDES        { interfaceTopNGroup }
+    VARIATION       interfaceTopNObjectVariable
+    SYNTAX          INTEGER  {
+                        ifInErrors(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       interfaceTopNObjectSampleType
+    SYNTAX          INTEGER  {
+                        absoluteValue(1),
+                        deltaValue(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       interfaceTopNNormalizationReq
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       interfaceTopNNormalizationFactor
+    SYNTAX          Integer32 (1 )
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       interfaceTopNTimeRemaining
+    SYNTAX          Integer32 (0..999 )
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       interfaceTopNOwner
+    SYNTAX          OwnerString (SIZE (0..79))
+    DESCRIPTION
+        "Only up to 79 bytes long are supported."
+
+    ::= { ciscoTopNCapability 1 }
+
+END
+

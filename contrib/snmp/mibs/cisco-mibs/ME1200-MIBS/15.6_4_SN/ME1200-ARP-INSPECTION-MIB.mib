@@ -1,0 +1,514 @@
+-- *****************************************************************
+-- ARP-INSPECTION-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-ARP-INSPECTION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200ArpInspectionMib MODULE-IDENTITY
+    LAST-UPDATED "201403280000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the ARP Inspection MIB"
+    REVISION    "201403280000Z"
+    DESCRIPTION
+        "Change VLAN ID range specification from (0..4094) to (1..4095)"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310250000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 63 }
+
+
+ME1200ArpInspectionLogType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the ARP entry log type."
+    SYNTAX      INTEGER { none(0), deny(1), permit(2), all(3) }
+
+ME1200ArpInspectionRegisterStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the ARP entry registration type."
+    SYNTAX      INTEGER { static(0), dynamic(1) }
+
+me1200ArpInspectionMIBObjects OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionMib 1 }
+
+me1200ArpInspectionConfig OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionMIBObjects 2 }
+
+me1200ArpInspectionGlobals OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionConfig 1 }
+
+me1200ArpInspectionGlobalsAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the ARP Inspection global functionality."
+    ::= { me1200ArpInspectionGlobals 1 }
+
+me1200ArpInspectionPortConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ArpInspectionPortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing ARP Inspection per port basis"
+    ::= { me1200ArpInspectionConfig 2 }
+
+me1200ArpInspectionPortConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionPortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200ArpInspectionPortConfigIfIndex }
+    ::= { me1200ArpInspectionPortConfigTable 1 }
+
+ME1200ArpInspectionPortConfigEntry ::= SEQUENCE {
+    me1200ArpInspectionPortConfigIfIndex      ME1200InterfaceIndex,
+    me1200ArpInspectionPortConfigMode     TruthValue,
+    me1200ArpInspectionPortConfigCheckVlan    TruthValue,
+    me1200ArpInspectionPortConfigLogType      ME1200ArpInspectionLogType
+}
+
+me1200ArpInspectionPortConfigIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200ArpInspectionPortConfigEntry 1 }
+
+me1200ArpInspectionPortConfigMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the ARP Inspection per-port functionality. Only when
+         both Global Mode and Port Mode on a given port are enabled, ARP
+         Inspection is enabled on this given port."
+    ::= { me1200ArpInspectionPortConfigEntry 2 }
+
+me1200ArpInspectionPortConfigCheckVlan OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable the ARP Inspection VLAN checking will log the inspected entries
+         by referring to arpInspectionVlanConfigTable setting. Disable the ARP
+         Inspection VLAN checking will log the inspected entries by referring to
+         arpInspectionPortConfigTable setting."
+    ::= { me1200ArpInspectionPortConfigEntry 3 }
+
+me1200ArpInspectionPortConfigLogType OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionLogType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The capability to log the inspected entries per port basis. none(0)
+         will log nothing. deny(1) will log the denied entries. permit(2) will
+         log the permitted entries. all(3) will log all kinds of inspected
+         entries."
+    ::= { me1200ArpInspectionPortConfigEntry 4 }
+
+me1200ArpInspectionVlanConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ArpInspectionVlanConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing ARP Inspection per VLAN basis"
+    ::= { me1200ArpInspectionConfig 3 }
+
+me1200ArpInspectionVlanConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionVlanConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each VLAN has a set of parameters"
+    INDEX       { me1200ArpInspectionVlanConfigVlanId }
+    ::= { me1200ArpInspectionVlanConfigTable 1 }
+
+ME1200ArpInspectionVlanConfigEntry ::= SEQUENCE {
+    me1200ArpInspectionVlanConfigVlanId   Integer32,
+    me1200ArpInspectionVlanConfigLogType      ME1200ArpInspectionLogType,
+    me1200ArpInspectionVlanConfigAction   ME1200RowEditorState
+}
+
+me1200ArpInspectionVlanConfigVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The VID of the VLAN."
+    ::= { me1200ArpInspectionVlanConfigEntry 1 }
+
+me1200ArpInspectionVlanConfigLogType OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionLogType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The capability to log the inspected entries per VLAN basis. none(0)
+         will log nothing. deny(1) will log the denied entries. permit(2) will
+         log the permitted entries. all(3) will log all kinds of inspected
+         entries."
+    ::= { me1200ArpInspectionVlanConfigEntry 2 }
+
+me1200ArpInspectionVlanConfigAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ArpInspectionVlanConfigEntry 100 }
+
+me1200ArpInspectionVlanConfigTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionConfig 4 }
+
+me1200ArpInspectionVlanConfigTableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VID of the VLAN."
+    ::= { me1200ArpInspectionVlanConfigTableRowEditor 1 }
+
+me1200ArpInspectionVlanConfigTableRowEditorLogType OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionLogType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The capability to log the inspected entries per VLAN basis. none(0)
+         will log nothing. deny(1) will log the denied entries. permit(2) will
+         log the permitted entries. all(3) will log all kinds of inspected
+         entries."
+    ::= { me1200ArpInspectionVlanConfigTableRowEditor 2 }
+
+me1200ArpInspectionVlanConfigTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ArpInspectionVlanConfigTableRowEditor 100 }
+
+me1200ArpInspectionStaticConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ArpInspectionStaticConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing static ARP Inspection configuration"
+    ::= { me1200ArpInspectionConfig 5 }
+
+me1200ArpInspectionStaticConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionStaticConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200ArpInspectionStaticConfigIfIndex, me1200ArpInspectionStaticConfigVlanId, me1200ArpInspectionStaticConfigMacAddress, me1200ArpInspectionStaticConfigIpAddress }
+    ::= { me1200ArpInspectionStaticConfigTable 1 }
+
+ME1200ArpInspectionStaticConfigEntry ::= SEQUENCE {
+    me1200ArpInspectionStaticConfigIfIndex    ME1200InterfaceIndex,
+    me1200ArpInspectionStaticConfigVlanId     Integer32,
+    me1200ArpInspectionStaticConfigMacAddress     MacAddress,
+    me1200ArpInspectionStaticConfigIpAddress      IpAddress,
+    me1200ArpInspectionStaticConfigAction     ME1200RowEditorState
+}
+
+me1200ArpInspectionStaticConfigIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200ArpInspectionStaticConfigEntry 1 }
+
+me1200ArpInspectionStaticConfigVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The VID of the VLAN."
+    ::= { me1200ArpInspectionStaticConfigEntry 2 }
+
+me1200ArpInspectionStaticConfigMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned MAC address."
+    ::= { me1200ArpInspectionStaticConfigEntry 3 }
+
+me1200ArpInspectionStaticConfigIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv4 address."
+    ::= { me1200ArpInspectionStaticConfigEntry 4 }
+
+me1200ArpInspectionStaticConfigAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ArpInspectionStaticConfigEntry 100 }
+
+me1200ArpInspectionStaticConfigTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionConfig 6 }
+
+me1200ArpInspectionStaticConfigTableRowEditorIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200ArpInspectionStaticConfigTableRowEditor 1 }
+
+me1200ArpInspectionStaticConfigTableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VID of the VLAN."
+    ::= { me1200ArpInspectionStaticConfigTableRowEditor 2 }
+
+me1200ArpInspectionStaticConfigTableRowEditorMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Assigned MAC address."
+    ::= { me1200ArpInspectionStaticConfigTableRowEditor 3 }
+
+me1200ArpInspectionStaticConfigTableRowEditorIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv4 address."
+    ::= { me1200ArpInspectionStaticConfigTableRowEditor 4 }
+
+me1200ArpInspectionStaticConfigTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ArpInspectionStaticConfigTableRowEditor 100 }
+
+me1200ArpInspectionStatus OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionMIBObjects 3 }
+
+me1200ArpInspectionDynamicAddressTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ArpInspectionDynamicAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying all ARP Inspection entries"
+    ::= { me1200ArpInspectionStatus 1 }
+
+me1200ArpInspectionDynamicAddressEntry OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionDynamicAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200ArpInspectionDynamicAddressIfIndex, me1200ArpInspectionDynamicAddressVlanId, me1200ArpInspectionDynamicAddressMacAddress, me1200ArpInspectionDynamicAddressIpAddress }
+    ::= { me1200ArpInspectionDynamicAddressTable 1 }
+
+ME1200ArpInspectionDynamicAddressEntry ::= SEQUENCE {
+    me1200ArpInspectionDynamicAddressIfIndex      ME1200InterfaceIndex,
+    me1200ArpInspectionDynamicAddressVlanId   Integer32,
+    me1200ArpInspectionDynamicAddressMacAddress   MacAddress,
+    me1200ArpInspectionDynamicAddressIpAddress    IpAddress,
+    me1200ArpInspectionDynamicAddressType     ME1200ArpInspectionRegisterStatus
+}
+
+me1200ArpInspectionDynamicAddressIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200ArpInspectionDynamicAddressEntry 1 }
+
+me1200ArpInspectionDynamicAddressVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The VID of the VLAN."
+    ::= { me1200ArpInspectionDynamicAddressEntry 2 }
+
+me1200ArpInspectionDynamicAddressMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned MAC address."
+    ::= { me1200ArpInspectionDynamicAddressEntry 3 }
+
+me1200ArpInspectionDynamicAddressIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv4 address."
+    ::= { me1200ArpInspectionDynamicAddressEntry 4 }
+
+me1200ArpInspectionDynamicAddressType OBJECT-TYPE
+    SYNTAX      ME1200ArpInspectionRegisterStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Either static(0) or dynamic(1) for the specific ARP entry."
+    ::= { me1200ArpInspectionDynamicAddressEntry 5 }
+
+me1200ArpInspectionControl OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionMIBObjects 4 }
+
+me1200ArpInspectionControlGlobals OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionControl 1 }
+
+me1200ArpInspectionControlGlobalsTranslateDynamicToStatic OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "To trigger the control action (only) when TRUE."
+    ::= { me1200ArpInspectionControlGlobals 1 }
+
+me1200ArpInspectionMIBConformance OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionMib 2 }
+
+me1200ArpInspectionMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionMIBConformance 1 }
+
+me1200ArpInspectionMIBGroups OBJECT IDENTIFIER
+    ::= { me1200ArpInspectionMIBConformance 2 }
+
+me1200ArpInspectionGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionGlobalsAdminState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 1 }
+
+me1200ArpInspectionPortConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionPortConfigMode, 
+                  me1200ArpInspectionPortConfigCheckVlan, 
+                  me1200ArpInspectionPortConfigLogType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 2 }
+
+me1200ArpInspectionVlanConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionVlanConfigLogType, 
+                  me1200ArpInspectionVlanConfigAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 3 }
+
+me1200ArpInspectionVlanConfigTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionVlanConfigTableRowEditorVlanId, 
+                  me1200ArpInspectionVlanConfigTableRowEditorLogType, 
+                  me1200ArpInspectionVlanConfigTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 4 }
+
+me1200ArpInspectionStaticConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionStaticConfigAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 5 }
+
+me1200ArpInspectionStaticConfigTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionStaticConfigTableRowEditorIfIndex, 
+                  me1200ArpInspectionStaticConfigTableRowEditorVlanId, 
+                  me1200ArpInspectionStaticConfigTableRowEditorMacAddress, 
+                  me1200ArpInspectionStaticConfigTableRowEditorIpAddress, 
+                  me1200ArpInspectionStaticConfigTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 6 }
+
+me1200ArpInspectionDynamicAddressTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionDynamicAddressType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 7 }
+
+me1200ArpInspectionControlGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ArpInspectionControlGlobalsTranslateDynamicToStatic }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200ArpInspectionMIBGroups 8 }
+
+me1200ArpInspectionMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200ArpInspectionGlobalsInfoGroup, 
+                  me1200ArpInspectionPortConfigTableInfoGroup, 
+                  me1200ArpInspectionVlanConfigTableInfoGroup, 
+                  me1200ArpInspectionVlanConfigTableRowEditorInfoGroup, 
+                  me1200ArpInspectionStaticConfigTableInfoGroup, 
+                  me1200ArpInspectionStaticConfigTableRowEditorInfoGroup, 
+                  me1200ArpInspectionDynamicAddressTableInfoGroup, 
+                  me1200ArpInspectionControlGlobalsInfoGroup }
+
+    ::= { me1200ArpInspectionMIBCompliances 1 }
+
+END

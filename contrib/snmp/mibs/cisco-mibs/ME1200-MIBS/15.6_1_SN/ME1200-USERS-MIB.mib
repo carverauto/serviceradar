@@ -1,0 +1,210 @@
+-- *****************************************************************
+-- USERS-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-USERS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ;
+
+me1200UsersMIB MODULE-IDENTITY
+    LAST-UPDATED "201401290000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of Users"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Fixed minor camel case issue."
+    REVISION    "201312110000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 58 }
+
+
+me1200UsersMIBObjects OBJECT IDENTIFIER
+    ::= { me1200UsersMIB 1 }
+
+me1200UsersConfig OBJECT IDENTIFIER
+    ::= { me1200UsersMIBObjects 2 }
+
+me1200UsersConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200UsersConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The table is Users onfiguration table. The index is user name."
+    ::= { me1200UsersConfig 1 }
+
+me1200UsersConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200UsersConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200UsersConfigUsername }
+    ::= { me1200UsersConfigTable 1 }
+
+ME1200UsersConfigEntry ::= SEQUENCE {
+    me1200UsersConfigUsername     ME1200DisplayString,
+    me1200UsersConfigPrivilege    Unsigned32,
+    me1200UsersConfigEncrypted    TruthValue,
+    me1200UsersConfigPassword     ME1200DisplayString,
+    me1200UsersConfigAction   ME1200RowEditorState
+}
+
+me1200UsersConfigUsername OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Name of user."
+    ::= { me1200UsersConfigEntry 1 }
+
+me1200UsersConfigPrivilege OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Privilege level of the user."
+    ::= { me1200UsersConfigEntry 2 }
+
+me1200UsersConfigEncrypted OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The flag indicates the password is encrypted or not. TRUE means the
+         password is encrypted. FALSE means the password is plain text."
+    ::= { me1200UsersConfigEntry 3 }
+
+me1200UsersConfigPassword OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..44))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Password of the user. The password length depends on the type of
+         password. If the password is encrypted, then the length is from 4 to
+         44. If it is unencrypted, then the maximum length is 31."
+    ::= { me1200UsersConfigEntry 4 }
+
+me1200UsersConfigAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200UsersConfigEntry 100 }
+
+me1200UsersConfigTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200UsersConfig 2 }
+
+me1200UsersConfigTableRowEditorUsername OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Name of user."
+    ::= { me1200UsersConfigTableRowEditor 1 }
+
+me1200UsersConfigTableRowEditorPrivilege OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Privilege level of the user."
+    ::= { me1200UsersConfigTableRowEditor 2 }
+
+me1200UsersConfigTableRowEditorEncrypted OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The flag indicates the password is encrypted or not. TRUE means the
+         password is encrypted. FALSE means the password is plain text."
+    ::= { me1200UsersConfigTableRowEditor 3 }
+
+me1200UsersConfigTableRowEditorPassword OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..44))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Password of the user. The password length depends on the type of
+         password. If the password is encrypted, then the length is from 4 to
+         44. If it is unencrypted, then the maximum length is 31."
+    ::= { me1200UsersConfigTableRowEditor 4 }
+
+me1200UsersConfigTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200UsersConfigTableRowEditor 100 }
+
+me1200UsersMIBConformance OBJECT IDENTIFIER
+    ::= { me1200UsersMIB 2 }
+
+me1200UsersMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200UsersMIBConformance 1 }
+
+me1200UsersMIBGroups OBJECT IDENTIFIER
+    ::= { me1200UsersMIBConformance 2 }
+
+me1200UsersConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200UsersConfigPrivilege, me1200UsersConfigEncrypted, 
+                  me1200UsersConfigPassword, me1200UsersConfigAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200UsersMIBGroups 1 }
+
+me1200UsersConfigTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200UsersConfigTableRowEditorUsername, 
+                  me1200UsersConfigTableRowEditorPrivilege, 
+                  me1200UsersConfigTableRowEditorEncrypted, 
+                  me1200UsersConfigTableRowEditorPassword, 
+                  me1200UsersConfigTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200UsersMIBGroups 2 }
+
+me1200UsersMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200UsersConfigTableInfoGroup, 
+                  me1200UsersConfigTableRowEditorInfoGroup }
+
+    ::= { me1200UsersMIBCompliances 1 }
+
+END

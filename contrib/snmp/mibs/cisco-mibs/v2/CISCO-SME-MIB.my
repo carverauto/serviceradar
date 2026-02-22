@@ -1,0 +1,709 @@
+-- CISCO-SME-MIB.my: Storage Media Encryption MIB
+--
+-- Jan 2008, Anand Parthasarathy and Arpakorn Boonkongchuen
+--
+-- Copyright (c) 2007-2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- 
+-- ********************************************************************
+
+CISCO-SME-MIB DEFINITIONS  ::= BEGIN
+
+IMPORTS        
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+     TEXTUAL-CONVENTION,
+    TruthValue,
+    TimeStamp,
+    RowStatus,
+    StorageType
+        FROM SNMPv2-TC
+    InterfaceIndex,
+    ifDescr
+        FROM IF-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    FcNameId
+        FROM CISCO-ST-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSmeMIB MODULE-IDENTITY
+    LAST-UPDATED    "200803280000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+        "MIB module to manage Storage Media Encryption (SME) service.
+        SME is an encryption service provided by an encryption node
+        residing on a linecard in a storage device. It receives 
+        clear-text data from host, encrypts it, then sends it to be
+        written to tape or disk. It does the reverse in the opposite 
+        direction so the service is completely transparent to the 
+        host. The purpose of this service is to enhance data security
+        in case the tape or disk is lost or stolen.
+
+        As with any important service, user requires that it provides
+        some level of fault tolerant in a graceful manner.
+        SME provides this by allowing encryption nodes to be grouped 
+        into cluster. Nodes in the same cluster immediately pick up 
+        the work of a failed node so user does not see service 
+        disruption."
+    REVISION        "200803280000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { ciscoMgmt 632 }
+
+
+
+ciscoSmeMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSmeMIB 0 }
+
+ciscoSmeMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSmeMIB 1 }
+
+ciscoSmeMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSmeMIB 2 }
+
+cSmeConfig  OBJECT IDENTIFIER
+    ::= { ciscoSmeMIBObjects 1 }
+
+
+-- Textual Conventions
+
+CiscoSmeInterfaceStatus ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+        "Operational state of the SME interface.
+        'unknown(1)' -- interface is in an unknown state
+        'initializing(2)' -- interface is being initialized
+        'offline(3)' -- interface is not active
+        'online(4)' -- interface is online and can be used"
+        SYNTAX  INTEGER {
+                        unknown(1),
+                        initializing(2),
+                        offline(3),
+                        online(4)
+        }
+
+CiscoSmeClusterStatus ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+        "Operational state of the SME cluster
+        'unknown(1)' -- cluster is in an unknown state
+        'inactive(2)' -- cluster is not active
+        'degraded(3)' -- cluster has lost some of its members
+        'recovery(4)' -- cluster is recovering from membership lost
+        'active(5)'   -- cluster is active"
+        SYNTAX  INTEGER {
+                        unknown(1),
+                        inactive(2),
+                        degraded(3),
+                        recovery(4),
+                        active(5)
+        }
+
+CiscoSmeClusterIndex ::= TEXTUAL-CONVENTION
+	STATUS	current
+	DESCRIPTION
+        "This denotes the globally unique index for a SME
+        cluster. The value of the CiscoSmeClusterIndex is
+        a thirty-two-octet unsigned integer value encoded in
+        a network-byte order."
+    SYNTAX          OCTET STRING (SIZE (32))
+-- SME Configuration Group
+--   
+
+-- SME Cluster Table
+
+cSmeClusterTable	OBJECT-TYPE
+	SYNTAX		SEQUENCE OF CSmeClusterEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+		"This table lists all the SME clusters that are configured
+        on this device. As with any important service, user requires
+        that it provides some level of fault tolerant in a graceful
+        manner. SME provides this by allowing encryption nodes to be
+        grouped into cluster. Nodes in the same cluster immediately 
+        pick up the work of a failed node so user does not see 
+        service disruption."
+	::= { cSmeConfig 1 }
+
+cSmeClusterEntry	OBJECT-TYPE
+	SYNTAX		CSmeClusterEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+        "A conceptual row in the cSmeClusterTable. Each
+        row represents a SME cluster in the system and 
+        provides the runtime and configuration information
+        of a cluster."
+	INDEX		{ cSmeClusterId }
+	::= { cSmeClusterTable 1 }
+
+CSmeClusterEntry ::= SEQUENCE {
+        cSmeClusterId                 CiscoSmeClusterIndex,
+		cSmeClusterName			SnmpAdminString,
+        cSmeClusterState              CiscoSmeClusterStatus,
+                cSmeClusterMasterInetAddrType	InetAddressType,
+        cSmeClusterMasterInetAddr     InetAddress,
+        cSmeClusterStorageType        StorageType,
+        cSmeClusterRowStatus          RowStatus
+	}
+
+cSmeClusterId OBJECT-TYPE
+    SYNTAX          CiscoSmeClusterIndex
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+        "Globally unique index that identifies a SME cluster.
+        This index must be generated in such a way that the 
+        same value is never reused even after cluster has been 
+        deleted." 
+	::= { cSmeClusterEntry 1 }
+
+cSmeClusterName OBJECT-TYPE
+	SYNTAX		SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS      read-create
+	STATUS		current
+	DESCRIPTION
+        "The name of the SME cluster."
+    DEFVAL          { "" } 
+	::= { cSmeClusterEntry 2 }
+
+cSmeClusterState OBJECT-TYPE
+    SYNTAX          CiscoSmeClusterStatus
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+		"The operational state of the SME cluster."
+	::= { cSmeClusterEntry 3 }
+
+cSmeClusterMasterInetAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+        "The type of Internet address of the SME cluster
+        master.  The Internet address of SME cluster master is
+        specified by the value of the corresponding instance
+        of cSmeClusterMasterInetAddr." 
+	::= { cSmeClusterEntry 4 }
+
+cSmeClusterMasterInetAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+        "The Internet address of the SME cluster master
+        device. The type of this Internet address is
+        determined by the value of the corresponding
+        instance of cSmeClusterMasterInetAddrType." 
+	::= { cSmeClusterEntry 5 }
+
+cSmeClusterStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+	STATUS		current
+	DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row." 
+	::= { cSmeClusterEntry 6 }
+
+cSmeClusterRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        There is no restriction on the value of other columns
+        before a newly created row can be made active." 
+    ::= { cSmeClusterEntry 7 }
+ 
+
+-- SME Cluster Member Switch Table
+
+cSmeClusterMembersTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CSmeClusterMembersEntry 
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+        "This table lists the information of devices, local or
+        remote, which are members of SME clusters configured on a
+        device."
+	::= { cSmeConfig 2 }
+
+cSmeClusterMembersEntry OBJECT-TYPE
+    SYNTAX          CSmeClusterMembersEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	
+        "A conceptual row in the cSmeClusterMembersTable.
+        Each row represents a member device within a 
+        specified SME Cluster."
+	INDEX	{ 
+			cSmeClusterId,
+                        cSmeMemberInetAddrType,
+                        cSmeMemberInetAddr
+	}
+    ::= { cSmeClusterMembersTable 1 }
+
+CSmeClusterMembersEntry ::= SEQUENCE {
+        cSmeMemberInetAddrType       InetAddressType,
+        cSmeMemberInetAddr           InetAddress,
+		cSmeFabric              SnmpAdminString,
+        cSmeIsMemberLocal            TruthValue,
+        cSmeMemberIsMaster           TruthValue,
+        cSmeClusterMemberStorageType StorageType,
+        cSmeClusterMemberRowStatus   RowStatus
+	}
+
+cSmeMemberInetAddrType OBJECT-TYPE
+	SYNTAX		InetAddressType
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+        "The type of Internet address of a cluster member within
+        a specified SME cluster. The Internet address of this
+        device is specified by the value of the corresponding
+        instance of cSmeMemberInetAddr." 
+    ::= { cSmeClusterMembersEntry 1 }
+
+cSmeMemberInetAddr OBJECT-TYPE
+	SYNTAX		InetAddress (SIZE (0..32))
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+        "The Internet address of the cluster member device
+        within a specified SME cluster.
+        The type of this Internet address is determined
+        by the value of the corresponding instance of 
+        cSmeMemberInetAddrType." 
+    ::= { cSmeClusterMembersEntry 2 }
+
+cSmeFabric OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-create
+	STATUS		current
+	DESCRIPTION
+        "Refers to the name of physical fibre channel fabric in the
+        SAN. A typical SAN deployment consists of a dual fabric 
+        topology which corresponds to two physical fabrics. 
+        In such a deployment, a VSAN and a cluster is configured 
+        in both fabrics to allow multi-pathing and redundancy.
+                
+        The user specifies the physical fabric to which a device 
+        belongs to when the cluster is configured." 
+    ::= { cSmeClusterMembersEntry 3 }
+
+cSmeIsMemberLocal OBJECT-TYPE
+	SYNTAX		TruthValue
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+        "Identifies if the device is a local or remote member of
+        this cluster.
+        'true' means this device is a local device.
+        'false' means this device is a remote device." 
+    ::= { cSmeClusterMembersEntry 4 }
+
+cSmeMemberIsMaster OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates if this device is currently the master of
+        the SME cluster.
+
+        The value 'true' means this device is the master.
+        The value 'false' means this device is not the master.
+
+        Devices in a cluster select one of the cluster member 
+        to be a master.  The master is responsible for 
+        handling cluster membership." 
+    ::= { cSmeClusterMembersEntry 5 }
+
+cSmeClusterMemberStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row." 
+    ::= { cSmeClusterMembersEntry 6 }
+
+cSmeClusterMemberRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        There is no restriction on the value of other columns
+        before a newly created row can be made active.
+
+        When a cluster is deleted, all entries in this table
+        should be purged automatically." 
+    ::= { cSmeClusterMembersEntry 7 }
+
+
+-- SME Cluster Member Interface Table
+
+cSmeClusterMemberIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CSmeClusterMemberIfEntry 
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+        "This table lists the information of SME interfaces on all
+        devices, local or remote, which are members of SME clusters
+        configured on a device."
+	::= { cSmeConfig 3 }
+
+cSmeClusterMemberIfEntry OBJECT-TYPE
+    SYNTAX          CSmeClusterMemberIfEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	
+        "A conceptual row in the cSmeClusterMemberIfTable.
+        Each row represents a participating interface on 
+        local/remote device member within the specified 
+        SME cluster."
+	INDEX	{ 
+			cSmeClusterId,
+                        cSmeMemberInetAddrType,
+                        cSmeMemberInetAddr,
+                        cSmeClusterInterfaceIndex
+	}
+    ::= { cSmeClusterMemberIfTable 1 }
+
+CSmeClusterMemberIfEntry ::= SEQUENCE {
+        cSmeClusterInterfaceIndex InterfaceIndex,
+        cSmeClusterInterfaceState CiscoSmeInterfaceStatus
+	}
+
+cSmeClusterInterfaceIndex OBJECT-TYPE
+	SYNTAX		InterfaceIndex
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+        "A unique Interface index for a SME interface on a device
+        in this cluster.  This is the same as ifIndex of the 
+        ifTable of RFC1213." 
+    ::= { cSmeClusterMemberIfEntry 1 }
+
+cSmeClusterInterfaceState OBJECT-TYPE
+    SYNTAX          CiscoSmeInterfaceStatus
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+        "The operational state of this SME interface." 
+    ::= { cSmeClusterMemberIfEntry 2 }
+
+
+-- SME Local Interface Table
+
+cSmeInterfaceTable      OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CSmeInterfaceEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+        "This table lists all SME interfaces on the local device and
+        its corresponding information."
+        ::= { cSmeConfig 4 }
+
+cSmeInterfaceEntry      OBJECT-TYPE
+        SYNTAX          CSmeInterfaceEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+        "A conceptual row in the cSmeInterfaceTable.
+        Each row represents a particular SME interface on 
+        a local device."
+        INDEX           { cSmeInterfaceIndex }
+        ::= { cSmeInterfaceTable 1 }
+
+CSmeInterfaceEntry ::= SEQUENCE {
+        cSmeInterfaceIndex       InterfaceIndex,
+        cSmeInterfaceState       CiscoSmeInterfaceStatus,
+        cSmeInterfaceClusterId   CiscoSmeClusterIndex,
+        cSmeInterfaceStorageType StorageType,
+        cSmeInterfaceRowStatus RowStatus
+        }
+
+cSmeInterfaceIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique Interface index for a SME interface on this device.
+        This is the same as ifIndex of the ifTable of RFC1213." 
+    ::= { cSmeInterfaceEntry 1 }
+
+cSmeInterfaceState OBJECT-TYPE
+    SYNTAX          CiscoSmeInterfaceStatus
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+        "Operational state of this SME interface." 
+    ::= { cSmeInterfaceEntry 2 }
+
+cSmeInterfaceClusterId OBJECT-TYPE
+    SYNTAX          CiscoSmeClusterIndex
+    MAX-ACCESS      read-create
+        STATUS          current
+        DESCRIPTION
+        "Identifies the cluster to which this SME interface belongs." 
+    ::= { cSmeInterfaceEntry 3 }
+
+cSmeInterfaceStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row." 
+    ::= { cSmeInterfaceEntry 4 }
+
+cSmeInterfaceRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        There is no restriction on the value of other columns
+        before a newly created row can be made active.
+        For example, cSmeInterfaceClusterId column can be set
+        independently later." 
+    ::= { cSmeInterfaceEntry 5 }
+ 
+
+-- SME Host Port Table
+
+cSmeHostPortTable           OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CSmeHostPortEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "This table lists the hosts that are configured for
+                SME. In the case of application servers, the disks
+                that are accessed by the hosts may be encrypted. In the
+                case of backup/restore master/media servers, the tapes 
+                accessed by the hosts may be encrypted."
+        ::= { cSmeConfig 5 }
+
+cSmeHostPortEntry           OBJECT-TYPE
+        SYNTAX          CSmeHostPortEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+        "A conceptual row in the cSmeHostPortTable.
+        Each row represents a particular host configured for
+        SME service in a particular cluster."
+        INDEX           { cSmeHostPortName }
+        ::= { cSmeHostPortTable 1 }
+
+CSmeHostPortEntry ::= SEQUENCE {
+                cSmeHostPortName                FcNameId,
+        cSmeHostPortClusterId   CiscoSmeClusterIndex,
+        cSmeHostPortStorageType StorageType,
+        cSmeHostPortRowStatus   RowStatus
+        }
+
+cSmeHostPortName        OBJECT-TYPE
+        SYNTAX          FcNameId
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "Fibre-channel Port name (P_WWN) of the Host Nx_Port."
+        ::= { cSmeHostPortEntry 1 }
+
+cSmeHostPortClusterId   OBJECT-TYPE
+    SYNTAX          CiscoSmeClusterIndex
+    MAX-ACCESS      read-create
+        STATUS          current
+        DESCRIPTION
+        "Identifies the cluster to which this host port belongs." 
+        ::= { cSmeHostPortEntry 2 }
+
+cSmeHostPortStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row." 
+    ::= { cSmeHostPortEntry 3 }
+
+cSmeHostPortRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        There is no restriction on the value of other columns
+        before a newly created row can be made active." 
+    ::= { cSmeHostPortEntry 4 }
+ 
+
+
+-- Time last changed for the agents to know if they have to look at
+-- these tables.
+
+cSmeConfigTableLastChanged      OBJECT-TYPE
+        SYNTAX          TimeStamp
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "The value of sysUpTime when a change to any SME MIB
+        table other than the cSmeHostPortTable last occurred." 
+        ::= { cSmeConfig 6 }
+
+cSmeHostPortTableLastChanged      OBJECT-TYPE
+        SYNTAX          TimeStamp
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+        "The value of sysUpTime when a change to cSmeHostPortTable
+        last occurred." 
+        ::= { cSmeConfig 7 }
+
+-- Notification control object
+
+cSmeNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the SME notifications
+        should be generated or not.
+
+        If the value of this object is 'true', then
+        the notifications are generated.
+
+        If the value of this object is 'false, then
+        the notifications are not generated."
+    DEFVAL          { true } 
+    ::= { cSmeConfig 8 }
+
+-- Notifications
+
+ciscoSmeInterfaceCreate NOTIFICATION-TYPE
+    OBJECTS         { ifDescr }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when a SME interface
+        associated with a local device is created."
+   ::= { ciscoSmeMIBNotifs 1 }
+
+ciscoSmeInterfaceDelete NOTIFICATION-TYPE
+    OBJECTS         { ifDescr }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when a SME interface
+        associated with a local device is deleted."
+   ::= { ciscoSmeMIBNotifs 2 }
+
+ciscoSmeClusterNewMaster NOTIFICATION-TYPE
+    OBJECTS         {
+                        cSmeClusterName,
+                        cSmeClusterMasterInetAddrType,
+                        cSmeClusterMasterInetAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the sending device
+        who is participating in a SME cluster has transitioned 
+        to be the master of the cluster."
+   ::= { ciscoSmeMIBNotifs 3 }
+-- Conformance
+
+ciscoSmeMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSmeMIBConform 1 }
+
+ciscoSmeMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSmeMIBConform 2 }
+
+
+-- Compliance Statements
+
+ciscoSmeMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities that implement
+                SME."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoSmeConfigGroup,
+                        ciscoSmeNotifControlGroup,
+                        ciscoSmeNotifsGroup
+                    }
+    ::= { ciscoSmeMIBCompliances 1 }
+
+ciscoSmeConfigGroup OBJECT-GROUP
+        OBJECTS {
+                        cSmeClusterState,
+                        cSmeClusterMasterInetAddrType,
+                        cSmeClusterMasterInetAddr,
+		cSmeIsMemberLocal, 
+		cSmeClusterInterfaceState,
+                        cSmeInterfaceState,
+                        cSmeInterfaceClusterId,
+                cSmeHostPortClusterId,
+                        cSmeConfigTableLastChanged,
+                        cSmeHostPortTableLastChanged,
+                        cSmeFabric,
+                        cSmeClusterName,
+                        cSmeInterfaceRowStatus,
+                        cSmeClusterRowStatus,
+                        cSmeMemberIsMaster,
+                        cSmeClusterMemberRowStatus,
+                        cSmeClusterStorageType,
+                        cSmeClusterMemberStorageType,
+                        cSmeInterfaceStorageType,
+                        cSmeHostPortStorageType,
+                        cSmeHostPortRowStatus
+        }
+        STATUS  current
+        DESCRIPTION
+        "A collection of objects for SME configuration."
+    ::= { ciscoSmeMIBGroups 1 }
+
+ciscoSmeNotifControlGroup OBJECT-GROUP
+    OBJECTS         { cSmeNotifyEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for controlling SME notification."
+    ::= { ciscoSmeMIBGroups 2 }
+
+ciscoSmeNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoSmeInterfaceCreate,
+                        ciscoSmeInterfaceDelete,
+                        ciscoSmeClusterNewMaster
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for notification of SME events."
+    ::= { ciscoSmeMIBGroups 3 }
+
+END

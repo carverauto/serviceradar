@@ -1,0 +1,407 @@
+-- *****************************************************************
+-- CISCO-SWITCH-FABRIC-MIB
+--   
+-- November 2011, Padma Pullela
+--   
+-- Copyright (c) 2011-2012, 2014 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-FABRIC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    DateAndTime
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    entPhysicalIndex, 
+    PhysicalIndex
+        FROM ENTITY-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSwitchFabricMIB MODULE-IDENTITY
+    LAST-UPDATED    "201407300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defined managed objects that
+        facilitates the management of switching fabric
+        information in a Cisco switch."
+    REVISION        "201407300000Z"
+    DESCRIPTION
+        "Added the following OBJECT-GROUP
+         - csfFabricCrcErrorNotifsControlGroup 
+         - csfFabricCrcErrorNotifsInfoGroup 
+         - csfFabricCrcErrorNotifsGroup.
+         Added new compliance csfSwitchFabricMIBCompliance1."
+    REVISION        "201206120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+          ::= { ciscoMgmt 803 }
+
+ciscoSwitchFabricMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIB 0 }
+
+ciscoSwitchFabricMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIB 1 }
+
+ciscoSwitchFabricMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIB 2 }
+
+csfFabricStatistics  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIBObjects 1 }
+csfNotifsControl  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIBObjects 2 }
+csfNotifsOnlyInfo  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIBObjects 3 }
+
+--
+-- Textual Conventions
+--
+
+CsfFabricLinkType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The type of fabric link.
+
+        other                       - none of the following
+        qEngineFacingLcXbarLink     - queue engine facing linecard 
+                                      crossbar link 
+        fabricXbarLink              - fabric module crossbar link
+        fabricFacingLcXbarLink      - fabric module facing linecard 
+                                      crossbar link
+        lcXbarInterLink             - linecard crossbar interlink
+        fabricXbarInterLink         - fabric module crossbar interlink
+        centralXbarLink             - central fabric link"
+    SYNTAX          INTEGER  {
+                        other(1),
+                        qEngineFacingLcXbarLink(2),
+                        fabricXbarLink(3),
+                        fabricFacingLcXbarLink(4),
+                        lcXbarInterLink(5),
+                        fabricXbarInterLink(6),
+                        centralXbarLink(7)
+                    }
+
+CsfPercentOrMinusOne ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "An integer that is in the range of a percent value.
+
+        A value of -1 means that the percentage is not available."
+    SYNTAX Integer32 (-1 | 0..100)
+
+--
+-- Fabric Statistics
+--
+
+csfFabricUtilTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsfFabricUtilEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing fabric utilization information."
+    ::= { csfFabricStatistics 1 }
+
+csfFabricUtilEntry OBJECT-TYPE
+    SYNTAX          CsfFabricUtilEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row containing the fabric utilization
+        information for a particular type of traffic utilization
+        of a fabric entity.
+
+        An entry of this table is created if a traffic utilization
+        on a fabric entity is detected by the managed system.
+
+        An entry of this table is deleted when the removal of fabric
+        entity."
+    INDEX           {
+                        entPhysicalIndex,
+                        csfFabricUtilLinkType,
+                        csfFabricUtilIndex
+                    } 
+    ::= { csfFabricUtilTable 1 }
+
+CsfFabricUtilEntry ::= SEQUENCE {
+        csfFabricUtilLinkType           CsfFabricLinkType,
+        csfFabricUtilIndex              Unsigned32,
+        csfFabricUtilDescr              SnmpAdminString,
+        csfFabricUtilBandwidth          Unsigned32,
+        csfFabricUtilIn                 CsfPercentOrMinusOne,
+        csfFabricUtilInPeak             CsfPercentOrMinusOne,
+        csfFabricUtilInPeakTime         DateAndTime,
+        csfFabricUtilOut                CsfPercentOrMinusOne,
+        csfFabricUtilOutPeak            CsfPercentOrMinusOne,
+        csfFabricUtilOutPeakTime        DateAndTime
+}
+
+csfFabricUtilLinkType OBJECT-TYPE
+    SYNTAX          CsfFabricLinkType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of fabric link on which 
+        fabric traffic utilization is monitored."
+    ::= { csfFabricUtilEntry 1 }
+
+csfFabricUtilIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer value which
+        uniquely identifies the type of traffic utilization."
+    ::= { csfFabricUtilEntry 2 }
+
+csfFabricUtilDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the human-readable description of
+        the type of fabric traffic utilization."
+    ::= { csfFabricUtilEntry 3 }
+
+csfFabricUtilBandwidth  OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "gigabits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of the fabric link."
+    ::= { csfFabricUtilEntry 4 }
+
+csfFabricUtilIn OBJECT-TYPE
+    SYNTAX          CsfPercentOrMinusOne
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the utilization on the
+        fabric link input."
+    ::= { csfFabricUtilEntry 5 }
+
+csfFabricUtilInPeak  OBJECT-TYPE
+    SYNTAX          CsfPercentOrMinusOne
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak utilization on the
+        fabric link input."
+    ::= { csfFabricUtilEntry 6 }
+
+csfFabricUtilInPeakTime   OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time of the most recent change in
+        the corresponding instance value of csfFabricUtilInPeak.
+
+        This object contains value 0x0000010100000000 when the
+        corresponding instance value of csfFabricUtilInPeak is
+        '0 or '-1'."
+    ::= { csfFabricUtilEntry 7 }
+
+csfFabricUtilOut    OBJECT-TYPE
+    SYNTAX          CsfPercentOrMinusOne
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the utilization on the
+        fabric link output."
+    ::= { csfFabricUtilEntry 8 }
+
+csfFabricUtilOutPeak  OBJECT-TYPE
+    SYNTAX          CsfPercentOrMinusOne
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak utilization on the
+        fabric link output."
+    ::= { csfFabricUtilEntry 9 }
+
+csfFabricUtilOutPeakTime   OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time of the most recent change in
+        the corresponding instance value of csfFabricUtilOutPeak.
+
+        This object contains value 0x0000010100000000 when the
+        corresponding instance value of csfFabricUtilInPeak is
+        '0 or '-1'."
+    ::= { csfFabricUtilEntry 10 }
+
+csfFabricCrcErrorNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+         "This object specifies whether the system generates the
+         cfsFabricCrcErrorNotif.
+
+         A value of 'false' will prevent cfsFabricCrcErrorNotif
+         notifications from being generated by this system."
+    ::= { csfNotifsControl 1 }
+
+csfFabricCrcErrorEntPhysicalIndex OBJECT-TYPE
+    SYNTAX          PhysicalIndex
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the entPhysicalIndex of the fabric
+        entity on which fabric CRC error happens."
+    ::= { csfNotifsOnlyInfo 1 }
+
+csfFabricCrcErrorDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the fabric CRC error description.
+        A zero-length string indicates that the error description
+        is not available."
+    ::= { csfNotifsOnlyInfo 2 }
+
+csfFabricCrcErrorNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        csfFabricCrcErrorEntPhysicalIndex,
+                        csfFabricCrcErrorDescr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A cfsFabricCrcErrorNotif is generated when
+        fabric CRC errors are detected by the managed system."
+    ::= { ciscoSwitchFabricMIBNotifs 1 }
+
+
+-- Conformance
+
+csfSwitchFabricMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIBConform 1 }
+
+csfSwitchFabricMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSwitchFabricMIBConform 2 }
+
+-- Compliance
+
+csfSwitchFabricMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for
+        the CISCO-SWITCH-FABRIC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csfFabricUtilGroup
+                     }
+    ::= { csfSwitchFabricMIBCompliances 1 }
+
+csfSwitchFabricMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for
+        the CISCO-SWITCH-FABRIC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csfFabricUtilGroup
+                     }
+    GROUP csfFabricCrcErrorNotifsControlGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+         fabric CRC errors detection in the managed device."
+
+    GROUP csfFabricCrcErrorNotifsInfoGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+         fabric CRC errors detection in the managed device."
+
+    GROUP  csfFabricCrcErrorNotifsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+         fabric CRC errors detection in the managed device."
+
+    OBJECT  csfFabricCrcErrorNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { csfSwitchFabricMIBCompliances 2 }
+-- Units of Conformance
+
+csfFabricUtilGroup OBJECT-GROUP
+    OBJECTS {
+        csfFabricUtilDescr,
+        csfFabricUtilBandwidth,
+        csfFabricUtilIn,             
+        csfFabricUtilInPeak,
+        csfFabricUtilInPeakTime,
+        csfFabricUtilOut,
+        csfFabricUtilOutPeak,
+        csfFabricUtilOutPeakTime
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing the information
+        about utilization on the fabric link." 
+    ::= { csfSwitchFabricMIBGroups 1 }
+
+csfFabricCrcErrorNotifsControlGroup OBJECT-GROUP
+    OBJECTS {
+       csfFabricCrcErrorNotifEnable
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing notification 
+        control for csfFabricCrcErrorNotif."
+    ::= { csfSwitchFabricMIBGroups 2 }
+
+csfFabricCrcErrorNotifsInfoGroup OBJECT-GROUP
+   OBJECTS {
+      csfFabricCrcErrorEntPhysicalIndex,
+      csfFabricCrcErrorDescr
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of object(s) providing the variable binding  
+        for csfFabricCrcErrorNotif."
+    ::= { csfSwitchFabricMIBGroups 3 }
+
+csfFabricCrcErrorNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS  {
+       csfFabricCrcErrorNotif
+   }
+   STATUS  current
+   DESCRIPTION
+        "A collection of Fabric CRC Error notifications for 
+        CISCO-SWITCH-FABRIC-MIB."
+    ::= { csfSwitchFabricMIBGroups 4 }
+
+END
+
+

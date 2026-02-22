@@ -1,0 +1,110 @@
+-- *********************************************************************
+-- CISCO-MGC-CAPABILITY
+--
+-- AGENT-CAPABILITIES MIB for CISCO-MGC-MIB
+--
+-- February 2004,  Yizhong Shen
+--
+-- Copyright(c) 2004 by Cisco Systems,Inc.
+--
+-- *********************************************************************
+
+CISCO-MGC-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        Integer32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoMgcCapability MODULE-IDENTITY
+        LAST-UPDATED    "200402050000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-voice-gateway@cisco.com"
+
+        DESCRIPTION
+            "The agent capabilities for CISCO-MGC-MIB."
+
+        REVISION "200402050000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+
+        ::= { ciscoAgentCapability 370 }
+
+
+ciscoMgcCapabilityV5R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "MGX8850 Release 5.0.0"
+    STATUS           current
+    DESCRIPTION      "Agent capabilities for VXSM in release 5.0.0."
+
+    SUPPORTS     CISCO-MGC-MIB
+
+    INCLUDES     { cMgcMIBGroup,
+                   cMgcIpMIBGroup,
+                   cMgcGrpParamGroup,
+                   cMgcGrpGroup,
+                   cMgcGrpProtocolGroup
+                 }
+
+    VARIATION    cMgcIpConfigEntry
+    CREATION-REQUIRES { cMgcIpAddress }
+    DESCRIPTION  "The object is mandatory for entry creation, 
+                  and cannot be modified when the entry is active."
+
+    VARIATION    cMgcIndex 
+    SYNTAX       Integer32 (1..4)
+    DESCRIPTION  "Support 4 MGCs."
+
+    VARIATION    cMgcIpAddress
+    SYNTAX       OCTET STRING (SIZE(4))
+    DESCRIPTION  "Only InetAddressIPv4 is supported.
+                  InetAddressIPv6, InetAddressIPv4z, InetAddressIPv6z,
+                  and InetAddressDNS are not supported."
+
+    VARIATION    cMgcIpAddressType
+    SYNTAX       INTEGER { ipv4(1) }
+    DESCRIPTION  "Only 'ipv4' type is supported.
+                  'ipv6', 'ipv4z', 'ipv6z' and 'dns' are not supported"
+
+    VARIATION    cMgcGrpProtocolPreference
+    SYNTAX       Integer32(1..1)
+    DESCRIPTION  "Valid value is 1"
+
+    VARIATION    cMgcIpIndex 
+    SYNTAX       Integer32 (1..4)
+    DESCRIPTION  "Support 4 IP addresses per MGC."
+
+    VARIATION    cMgcIpPreference
+    SYNTAX       Integer32 (1..4)
+    DESCRIPTION	 "Limited data values are supported."
+
+    VARIATION    cMgcGrpMgcPreference
+    SYNTAX       Integer32 (1..4)
+    DESCRIPTION	 "Limited data values are supported."
+
+    VARIATION    cMgcGrpMgcUdpPort
+    SYNTAX       Integer32(1024..16383)
+    DESCRIPTION  "Valid values are 1024 to 16383."
+
+    VARIATION    cMgcGrpStateChangeNtfy
+    DESCRIPTION	 "This object is not applicable if 
+                  cmgwSignalProtocol is set to 'h248(3)'."
+
+    ::= { ciscoMgcCapability 1 }
+
+END
+
+

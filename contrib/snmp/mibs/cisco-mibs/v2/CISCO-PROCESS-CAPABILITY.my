@@ -1,0 +1,565 @@
+-- *****************************************************************
+-- CISCO-PROCESS-CAPABILITY.my: CISCO-PROCESS-MIB AGENT-CAPABILITIES
+--   
+-- November 2001, Srinivas Davuluri
+-- August   2003, Padma Pullela
+-- November 2004, Nandini. V
+-- Mar 2009, Narendra B.
+--   
+-- Copyright (c) 2001, 2003-2005, 2006, 2007-2009, 2013 by cisco Systems Inc.
+-- by cisco Systems Inc.
+--   
+-- Cisco Systems Inc. All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-PROCESS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoProcessCapability MODULE-IDENTITY
+    LAST-UPDATED    "201308290000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com
+            cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-PROCESS-MIB"
+    REVISION        "201308290000Z"
+    DESCRIPTION
+        "Added the capabilities for CISCO WAAS 5.3.0."
+    REVISION        "200903180000Z"
+    DESCRIPTION
+        "Added ciscoProcessCapabilityGssV03R01 agent
+        capabilities for Global Site Selector(GSS)
+        release 3.1(0)."
+    REVISION        "200809150000Z"
+    DESCRIPTION
+        "Added ciscoProcessCapabilityGssV03R00 agent
+        capabilities for Global Site Selector(GSS)
+        release 3.0."
+    REVISION        "200711270000Z"
+    DESCRIPTION
+        "Added ciscoProcessCapabilityIONV12R02SXH33
+        for Cisco Modular IOS(ION) release 12.2SXH33.
+        -Added ciscoProcessCapabilityIOSV12R02SXH33
+        for Cisco IOS release 12.2SXH33"
+    REVISION        "200711220000Z"
+    DESCRIPTION
+        "Added ciscoProcessCapc4710aceVA1R700 agent
+        capabilities for ACE 4710 Application 
+        Control Engine Appliance."
+    REVISION        "200603220000Z"
+    DESCRIPTION
+        "Added ciscoProcessCapIOSXRV2R0CRS1 agent
+        capabilities for IOS XR release 2.0 CRS1"
+    REVISION        "200602210000Z"
+    DESCRIPTION
+        "-Added Agent capabilities
+        ciscoProcessCapabilityACSWV03R000 for 
+        Cisco Application Control Engine (ACE)."
+    REVISION        "200512120000Z"
+    DESCRIPTION
+        "-Added ciscoProcessCapabilitySANOSV3R0001 for
+        SAN-OS 3.0(1)."
+    REVISION        "200411050000Z"
+    DESCRIPTION
+        "-Added ciscoProcessCapabilityV12R02S for
+        Cisco IOS 12.2(S).
+        -Added ciscoProcessCapabilityV12R03 for
+        Cisco IOS 12.3.
+        -Added ciscoProcessCapabilityV12R03T for
+        Cisco IOS 12.3(T)"
+    REVISION        "200308060000Z"
+    DESCRIPTION
+        "Added ciscoProcessCapCatOSV07R0201 for
+        Cisco CatOS 7.2(1)."
+    REVISION        "200111200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 256 }
+
+
+
+ciscoProcessCapabilityV12R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.0S"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.0S CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroup,
+                        cpmProcessGroup,
+                        cpmProcessExtGroup,
+                        cpmCPUTotalGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev
+                    }
+    VARIATION       cpmProcExtPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { ciscoProcessCapability 1 }
+
+ciscoProcessCapabilityV12R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.1 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroup,
+                        cpmProcessGroup,
+                        cpmProcessExtGroup,
+                        cpmCPUTotalGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev
+                    }
+    VARIATION       cpmProcExtPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { ciscoProcessCapability 2 }
+
+ciscoProcessCapabilityV12R02 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroup,
+                        cpmProcessGroup,
+                        cpmProcessExtGroup,
+                        cpmCPUTotalGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev
+                    }
+    VARIATION       cpmProcExtPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { ciscoProcessCapability 3 }
+
+ciscoProcessCapCatOSV07R0201 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 7.2(1)"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroup,
+                        cpmProcessGroup,
+                        cpmProcessExtGroup,
+                        cpmProcessExtGroupRev,
+                        cpmCPUTotalGroupRev,
+                        cpmProcessGroupRev
+                    }
+    VARIATION       cpmProcExtPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { ciscoProcessCapability 4 }
+
+ciscoProcessCapabilityV12R02S AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2S"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroup,
+                        cpmProcessGroup,
+                        cpmProcessExtGroup,
+                        cpmCPUTotalGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev,
+                        cpmCPUHistoryGroup,
+                        cpmCPUThresholdGroup
+                    }
+    VARIATION       cpmProcExtPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    VARIATION       cpmCPUHistorySize
+    ACCESS          read-only
+    DESCRIPTION
+        "Write not implemented."
+
+    VARIATION       cpmCPUHistoryThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    VARIATION       cpmCPUThresholdEntryStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    VARIATION       cpmCPURisingThresholdValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    VARIATION       cpmCPURisingThresholdPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create  not implemented."
+
+    VARIATION       cpmCPUFallingThresholdValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create  not implemented."
+
+    ::= { ciscoProcessCapability 5 }
+
+ciscoProcessCapabilityV12R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.3"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.3 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroup,
+                        cpmProcessGroup,
+                        cpmProcessExtGroup,
+                        cpmCPUTotalGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev
+                    }
+    VARIATION       cpmProcExtPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { ciscoProcessCapability 6 }
+
+ciscoProcessCapabilityV12R03T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.3T"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.3T CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroup,
+                        cpmProcessGroup,
+                        cpmProcessExtGroup,
+                        cpmCPUTotalGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev,
+                        cpmCPUHistoryGroup,
+                        cpmCPUThresholdGroup
+                    }
+    VARIATION       cpmProcExtPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    VARIATION       cpmCPUHistorySize
+    ACCESS          read-only
+    DESCRIPTION
+        "Write not implemented."
+
+    VARIATION       cpmCPUHistoryThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    VARIATION       cpmCPUThresholdEntryStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    VARIATION       cpmCPURisingThresholdValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    VARIATION       cpmCPURisingThresholdPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create  not implemented."
+
+    VARIATION       cpmCPUFallingThresholdValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create  not implemented."
+
+    ::= { ciscoProcessCapability 7 }
+
+ciscoProcessCapabilitySAN3R0001 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "SAN-OS 3.0(1)"
+    STATUS          current
+    DESCRIPTION
+        "SAN-OS 3.0(1) CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev
+                    }
+    ::= { ciscoProcessCapability 8 }
+
+ciscoProcessCapabilityACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "ACSW 3.0 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev,
+                        cpmCPUTotalGroupRev1
+                    }
+    VARIATION       cpmCPUInterruptMonIntervalValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoProcessCapability 9 }
+
+ciscoProcessCapIOSXRV2R0CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 2.0 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PROCESS-MIB capabilities for
+        IOS XR release 2.0"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev
+                    }
+    VARIATION       cpmCPUTotal5secRev
+    ACCESS          not-implemented
+    DESCRIPTION
+        "IOS XR do not count CPU usage in
+        5sec granularity"
+
+    VARIATION       cpmProcExtUtil5SecRev
+    ACCESS          not-implemented
+    DESCRIPTION
+        "IOS XR do not count CPU usage in
+        5sec granularity"
+
+    ::= { ciscoProcessCapability 10 }
+
+ciscoProcessCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                for ACE 4710 Application Control Engine 
+                Appliance"
+    STATUS          current
+    DESCRIPTION
+        "ACSW A1(7) CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmProcessExtGroupRev,
+                        cpmProcessGroupRev,
+                        cpmCPUTotalGroupRev1
+                    }
+    VARIATION       cpmCPUInterruptMonIntervalValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoProcessCapability 11 }
+
+ciscoProcessCapabilityIONV12R02SXH33 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Modular IOS(ION) 12.2SXH33"
+    STATUS          current
+    DESCRIPTION
+        "ION 12.2SXH33 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroupRev1,
+                        cpmProcessGroupRev,
+                        cpmProcessExtGroupRev,
+                        cpmCPUPosixMemoryGroup,
+                        cpmPosixProcessGroup,
+                        cpmThreadGroup,
+                        cpmVirtualProcessGroup
+                    }
+    ::= { ciscoProcessCapability 12 }
+
+ciscoProcessCapabilityIOSV12R02SXH33 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2SXH33"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2SXH33 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroupRev1,
+                        cpmProcessGroupRev,
+                        cpmProcessExtGroupRev
+                    }
+    ::= { ciscoProcessCapability 13 }
+
+ciscoProcessCapabilityGssV03R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Global Site Selector(GSS) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "GSS 3.0 CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroupRev1,
+                        cpmCPUThresholdNotificationGroup
+                    }
+    VARIATION       cpmCPUTotalPhysicalIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpmCPUInterruptMonIntervalValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoProcessCapability 14 }
+
+ciscoProcessCapabilityGssV03R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Global Site Selector(GSS) 3.1(0)"
+    STATUS          current
+    DESCRIPTION
+        "GSS 3.1(0) CISCO-PROCESS-MIB capabilities"
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        {
+                        cpmCPUTotalGroupRev1,
+                        cpmCPUThresholdNotificationGroup,
+                        cpmProcessGroupRev,
+                        cpmPosixProcessGroup
+                    }
+    VARIATION       cpmCPUTotalPhysicalIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmCPUInterruptMonIntervalValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessAverageUSecs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessRespawnAfterLastPatch
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessMemoryCore
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessLastRestartUser
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessTextSegmentSize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessDataSegmentSize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessStackSize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cpmProcessDynamicMemorySize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    ::= { ciscoProcessCapability 15 }
+
+ciscoProcessCapabilityWAASV05R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=WAAS
+                     OSVERSION=5.3.0"
+    STATUS          current
+    DESCRIPTION
+        "Cisco WAAS 5.3.0 CISCO-PROCESS-MIB Capabilities."
+
+    SUPPORTS        CISCO-PROCESS-MIB
+    INCLUDES        { cpmCPUTotalGroupRev1 }
+    VARIATION       cpmCPUTotalPhysicalIndex
+    DESCRIPTION
+        "Average value across all the CPUs is implemented. Hence, this
+        object is not supported in the current implementation."
+
+    VARIATION       cpmCPUMonInterval
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpmCPUTotalMonIntervalValue
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpmCPUInterruptMonIntervalValue
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoProcessCapability 16 }
+
+END
+
+
+
+
+
+
+
+
+

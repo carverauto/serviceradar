@@ -1,0 +1,306 @@
+-- MIB file created 31-Aug-2004 18:25:41, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LATITUDE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LATITUDE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    enterprises
+            FROM SNMPv2-SMI-v1
+    DisplayString
+            FROM SNMPv2-TC-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+latitudeComm OBJECT IDENTIFIER ::= { enterprises 7185 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200408160000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems
+--             Customer Service
+--    
+--             Postal: 170 W Tasman Drive
+--                     San Jose, CA 95134
+--                     USA
+--    
+--                Tel: +1 800 553-NETS
+--    
+--             E-mail: cse-meetingplace@cisco.com
+--  Descr
+--    The MIB module for the managment of Cisco Latitude MeetingPlace
+--     conferencing solution.
+--    
+--     MeetignPlace MIB traps are generated under the following 
+--     conditions.
+--    
+--         - T1 status
+--         - Gateway System Integrity
+--         - Major hardware alarm
+--         - Minor hardware alarm
+--         - Major software alarm
+--         - Minor software alarm
+--    
+--     Each major and minor hardware and software notification
+--     includes an integer alarm code that indicates which software
+--     module and server reported the alarm.  For hardware alarms,
+--     four additional codes identify the device type, the device
+--     address, slot number, and port number.
+--  RevDate
+--    200408160000Z
+--  RevDescr
+--    Initial version of this MIB.
+
+latitudeReg     OBJECT IDENTIFIER ::= { latitudeComm 1 }
+latitudeModules OBJECT IDENTIFIER ::= { latitudeReg 1 }
+latitudeGeneric OBJECT IDENTIFIER ::= { latitudeComm 2 }
+latitudeProducts OBJECT IDENTIFIER ::= { latitudeComm 3 }
+meetingplace    OBJECT IDENTIFIER ::= { latitudeProducts 1 }
+meetingplaceConfs OBJECT IDENTIFIER ::= { meetingplace 1 }
+meetingplaceObjs OBJECT IDENTIFIER ::= { meetingplace 2 }
+meetingplaceEvents OBJECT IDENTIFIER ::= { meetingplace 3 }
+meetingplaceEventsV2 OBJECT IDENTIFIER ::= { meetingplaceEvents 0 }
+ciscoLatitudeMIBCompliances OBJECT IDENTIFIER ::= { meetingplaceConfs 1 }
+ciscoLatitudeMIBGroups OBJECT IDENTIFIER ::= { meetingplaceConfs 2 }
+
+mpExCode OBJECT-TYPE
+    SYNTAX INTEGER(0..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MeetingPlace Exception Code.
+        
+         This is the primary code associated with each 
+         MeetingPlace exception condition.
+        
+         The mpAlarmDesc OID will provide a textual description 
+         of the exception code.  Refer to the MeetingPlace 
+         System Managers Guide for more details."
+    ::= { meetingplaceEvents 1 }
+
+mpSysUnit OBJECT-TYPE
+    SYNTAX INTEGER(0..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MeetingPlace Server Unit Number.
+         This is the unit (server) number of the server that 
+         reported the exception."
+    ::= { meetingplaceEvents 2 }
+
+mpHwDev OBJECT-TYPE
+    SYNTAX INTEGER {
+        mpTemperature(1),
+        mpPowerSupply(2),
+        mpSerialPort(3),
+        mpTapeDrive(4),
+        mpHardDrive(5),
+        mpDisketteDrive(6),
+        mpEthernet(7),
+        mpModem(8),
+        mpSystemMisc(9),
+        mpDSPMSC(10),
+        mpDSPPRC(11),
+        mpT1Blade(12),
+        mpAnalogBlade(13),
+        mpT1Network(14),
+        mpSystemIntegrityCard(15),
+        mpMainMemory(16),
+        mpE1Blade(17),
+        mpE1Network(18),
+        mpVoIPBlade(19)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MeetingPlace Hardware Device Code.
+         This defines the class of device that generated a 
+         hardware fault.
+        
+         'mpTemperature'         - Temperature Sensor
+         'mpPowerSupply'         - Power Supply
+         'mpSerialPort'          - Serial Port
+         'mpTapeDrive'           - Tape Drive
+         'mpHardDrive'           - Hard Drive
+         'mpDisketteDrive'       - Diskette Drive
+         'mpEthernet'            - Ethernet Port
+         'mpModem'               - Modem Port
+         'mpSystemMisc'          - System Misc
+         'mpDSPMSC'              - Master Switch Controller
+         'mpDSPPRC'              - Port Resource Card
+         'mpT1Blade'             - T1 Blade
+         'mpAnalogBlade'         - Analog Blade
+         'mpT1Network'           - T1 Network Interface
+         'mpSystemIntegrityCard' - System Integrity Card
+         'mpMainMemory'          - Main Memory
+         'mpE1Blade'             - E1 Blade
+         'mpE1Network'           - E1 Network Interface
+         'mpVoIPBlade'           - VoIP Blade"
+    ::= { meetingplaceEvents 3 }
+
+mpHwUnit OBJECT-TYPE
+    SYNTAX INTEGER(0..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MeetingPlace Hardware Device Unit Number.
+         This is the unit number of the hardware device that
+         generated a fault.  For a disk this would be the SCSI 
+         ID.  For a blade this would the the logical card number
+         as defined in the system configuration."
+    ::= { meetingplaceEvents 4 }
+
+mpHwSlot OBJECT-TYPE
+    SYNTAX INTEGER(0..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MeetingPlace Hardware Device Slot Number.
+         This is the location of the hardware device that 
+         generated a fault.  For a blade this would be the slot
+         number."
+    ::= { meetingplaceEvents 5 }
+
+mpHwPort OBJECT-TYPE
+    SYNTAX INTEGER(0..254)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MeetingPlace Hardware Device Port Number.
+         This is the logical port number associated with a 
+         hardware fault.  For a T1 alarm, this is the logical 
+         span number."
+    ::= { meetingplaceEvents 6 }
+
+mpAlarmDesc OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..128))
+--    Rsyntax OCTET STRING(SIZE(0..128))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MeetingPlace Alarm Description.
+         This is a one-line text description of the  exception 
+         condition.  It comprises a string indexed by the 
+         exception code filled in with context-specific values."
+    ::= { meetingplaceEvents 7 }
+
+mpT1Down TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE meetingplaceEvents
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace T1 Down Alarm.
+         This indicates generically there is a problem with a 
+         telephony port.  There are several possible alarm
+         conditions that will generate this trap.  This is from
+         Release 4.3."
+    ::= 1
+
+mpGWSimAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE meetingplaceEvents
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Gateway Alarm.
+         This indicates an alarm generated by a MeetingPlace 
+         gateway.  There are several alarms that will generate 
+         this trap.  This is from Release 4.3"
+    ::= 2
+
+mpMajHwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE meetingplaceEvents
+    VARIABLES {
+        mpExCode, mpSysUnit, mpHwDev, mpHwUnit, mpHwSlot, mpHwPort }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Major Hardware Alarm.
+         This is generated any time MeetingPlace reports a major
+         hardware alarm."
+    ::= 3
+
+mpMinHwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE meetingplaceEvents
+    VARIABLES {
+        mpExCode, mpSysUnit, mpHwDev, mpHwUnit, mpHwSlot, mpHwPort }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Minor Hardware Alarm.
+         This is generated any time MeetingPlace reports
+         a minor hardware alarm."
+    ::= 4
+
+mpMajSwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE meetingplaceEvents
+    VARIABLES {
+        mpExCode, mpSysUnit, mpAlarmDesc }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Major Software Alarm.
+         This is generated any time MeetingPlace reports a major
+         software alarm."
+    ::= 5
+
+mpMinSwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE meetingplaceEvents
+    VARIABLES {
+        mpExCode, mpSysUnit, mpAlarmDesc }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Minor Software Alarm.
+         This is generated any time MeetingPlace reports
+         a minor hardware alarm."
+    ::= 6
+
+ciscoLatitudeAlarmGroupRev1 OBJECT IDENTIFIER ::= { ciscoLatitudeMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Alarms objects within MeetingPlace.
+--  objects
+--    mpExCode, mpSysUnit, mpHwDev, mpHwUnit, mpHwSlot, mpHwPort, 
+--    mpAlarmDesc
+
+ciscoLatitudeNotifsGroupRev1 OBJECT IDENTIFIER ::= { ciscoLatitudeMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Notifications applicable to meetingplace.
+--  notifications
+--    mpT1Down, mpGWSimAlarm, mpMajHwAlarm, mpMinHwAlarm, 
+--    mpMajSwAlarm, mpMinSwAlarm
+
+ciscoLatitudeMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoLatitudeMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the
+--     MeetingPlace MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLatitudeAlarmGroupRev1
+--   MandGroup
+--    ciscoLatitudeNotifsGroupRev1
+
+
+END
+

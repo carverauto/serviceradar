@@ -1,0 +1,2697 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-LICENSE-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- LICENSE management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-LICENSE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsLicenseDownloadActivity,
+    CucsLicenseDownloaderFsmCurrentFsm,
+    CucsLicenseDownloaderFsmStageName,
+    CucsLicenseDownloaderFsmTaskItem,
+    CucsLicenseFeatureType,
+    CucsLicenseFileFsmCurrentFsm,
+    CucsLicenseFileFsmStageName,
+    CucsLicenseFileFsmTaskItem,
+    CucsLicenseFileState,
+    CucsLicenseInstanceFsmCurrentFsm,
+    CucsLicenseInstanceFsmStageName,
+    CucsLicenseInstanceFsmTaskItem,
+    CucsLicensePeerStatus,
+    CucsLicenseScope,
+    CucsLicenseState,
+    CucsLicenseTransferState,
+    CucsLicenseTransport,
+    CucsLicenseType,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsLicenseObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        LICENSE management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 25 }
+
+cucsLicenseContentsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseContentsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Contents managed object table"
+    ::= { cucsLicenseObjects 1 }
+
+cucsLicenseContentsEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseContentsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseContentsTable table."
+    INDEX { cucsLicenseContentsInstanceId }
+    ::= { cucsLicenseContentsTable 1 }
+
+CucsLicenseContentsEntry ::= SEQUENCE {
+    cucsLicenseContentsInstanceId                                    CucsManagedObjectId,
+    cucsLicenseContentsDn                                            CucsManagedObjectDn,
+    cucsLicenseContentsRn                                            SnmpAdminString,
+    cucsLicenseContentsFeatureName                                   SnmpAdminString,
+    cucsLicenseContentsTotalQuant                                    Gauge32,
+    cucsLicenseContentsVendor                                        SnmpAdminString,
+    cucsLicenseContentsVersion                                       SnmpAdminString
+}
+
+cucsLicenseContentsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseContentsEntry 1 }
+
+cucsLicenseContentsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Contents:dn managed object property"
+    ::= { cucsLicenseContentsEntry 2 }
+
+cucsLicenseContentsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Contents:rn managed object property"
+    ::= { cucsLicenseContentsEntry 3 }
+
+cucsLicenseContentsFeatureName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Contents:featureName managed object property"
+    ::= { cucsLicenseContentsEntry 4 }
+
+cucsLicenseContentsTotalQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Contents:totalQuant managed object property"
+    ::= { cucsLicenseContentsEntry 5 }
+
+cucsLicenseContentsVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Contents:vendor managed object property"
+    ::= { cucsLicenseContentsEntry 6 }
+
+cucsLicenseContentsVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Contents:version managed object property"
+    ::= { cucsLicenseContentsEntry 7 }
+
+cucsLicenseDownloaderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseDownloaderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Downloader managed object table"
+    ::= { cucsLicenseObjects 2 }
+
+cucsLicenseDownloaderEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseDownloaderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseDownloaderTable table."
+    INDEX { cucsLicenseDownloaderInstanceId }
+    ::= { cucsLicenseDownloaderTable 1 }
+
+CucsLicenseDownloaderEntry ::= SEQUENCE {
+    cucsLicenseDownloaderInstanceId                                  CucsManagedObjectId,
+    cucsLicenseDownloaderDn                                          CucsManagedObjectDn,
+    cucsLicenseDownloaderRn                                          SnmpAdminString,
+    cucsLicenseDownloaderAdminState                                  CucsLicenseDownloadActivity,
+    cucsLicenseDownloaderFileName                                    SnmpAdminString,
+    cucsLicenseDownloaderFsmDescr                                    SnmpAdminString,
+    cucsLicenseDownloaderFsmPrev                                     SnmpAdminString,
+    cucsLicenseDownloaderFsmProgr                                    Gauge32,
+    cucsLicenseDownloaderFsmRmtInvErrCode                            Gauge32,
+    cucsLicenseDownloaderFsmRmtInvErrDescr                           SnmpAdminString,
+    cucsLicenseDownloaderFsmRmtInvRslt                               CucsConditionRemoteInvRslt,
+    cucsLicenseDownloaderFsmStageDescr                               SnmpAdminString,
+    cucsLicenseDownloaderFsmStamp                                    DateAndTime,
+    cucsLicenseDownloaderFsmStatus                                   SnmpAdminString,
+    cucsLicenseDownloaderFsmTry                                      Gauge32,
+    cucsLicenseDownloaderProt                                        CucsLicenseTransport,
+    cucsLicenseDownloaderPwd                                         SnmpAdminString,
+    cucsLicenseDownloaderRemotePath                                  SnmpAdminString,
+    cucsLicenseDownloaderServer                                      SnmpAdminString,
+    cucsLicenseDownloaderTransferState                               CucsLicenseTransferState,
+    cucsLicenseDownloaderUser                                        SnmpAdminString
+}
+
+cucsLicenseDownloaderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseDownloaderEntry 1 }
+
+cucsLicenseDownloaderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:dn managed object property"
+    ::= { cucsLicenseDownloaderEntry 2 }
+
+cucsLicenseDownloaderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:rn managed object property"
+    ::= { cucsLicenseDownloaderEntry 3 }
+
+cucsLicenseDownloaderAdminState OBJECT-TYPE
+    SYNTAX       CucsLicenseDownloadActivity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:adminState managed object property"
+    ::= { cucsLicenseDownloaderEntry 4 }
+
+cucsLicenseDownloaderFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fileName managed object property"
+    ::= { cucsLicenseDownloaderEntry 5 }
+
+cucsLicenseDownloaderFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmDescr managed object property"
+    ::= { cucsLicenseDownloaderEntry 6 }
+
+cucsLicenseDownloaderFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmPrev managed object property"
+    ::= { cucsLicenseDownloaderEntry 7 }
+
+cucsLicenseDownloaderFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmProgr managed object property"
+    ::= { cucsLicenseDownloaderEntry 8 }
+
+cucsLicenseDownloaderFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsLicenseDownloaderEntry 9 }
+
+cucsLicenseDownloaderFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsLicenseDownloaderEntry 10 }
+
+cucsLicenseDownloaderFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmRmtInvRslt managed
+        object property"
+    ::= { cucsLicenseDownloaderEntry 11 }
+
+cucsLicenseDownloaderFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmStageDescr managed
+        object property"
+    ::= { cucsLicenseDownloaderEntry 12 }
+
+cucsLicenseDownloaderFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmStamp managed object property"
+    ::= { cucsLicenseDownloaderEntry 13 }
+
+cucsLicenseDownloaderFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmStatus managed object property"
+    ::= { cucsLicenseDownloaderEntry 14 }
+
+cucsLicenseDownloaderFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:fsmTry managed object property"
+    ::= { cucsLicenseDownloaderEntry 15 }
+
+cucsLicenseDownloaderProt OBJECT-TYPE
+    SYNTAX       CucsLicenseTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:prot managed object property"
+    ::= { cucsLicenseDownloaderEntry 16 }
+
+cucsLicenseDownloaderPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:pwd managed object property"
+    ::= { cucsLicenseDownloaderEntry 17 }
+
+cucsLicenseDownloaderRemotePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:remotePath managed object property"
+    ::= { cucsLicenseDownloaderEntry 18 }
+
+cucsLicenseDownloaderServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:server managed object property"
+    ::= { cucsLicenseDownloaderEntry 19 }
+
+cucsLicenseDownloaderTransferState OBJECT-TYPE
+    SYNTAX       CucsLicenseTransferState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:transferState managed
+        object property"
+    ::= { cucsLicenseDownloaderEntry 20 }
+
+cucsLicenseDownloaderUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Downloader:user managed object property"
+    ::= { cucsLicenseDownloaderEntry 21 }
+
+cucsLicenseDownloaderFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseDownloaderFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm managed object table"
+    ::= { cucsLicenseObjects 16 }
+
+cucsLicenseDownloaderFsmEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseDownloaderFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseDownloaderFsmTable table."
+    INDEX { cucsLicenseDownloaderFsmInstanceId }
+    ::= { cucsLicenseDownloaderFsmTable 1 }
+
+CucsLicenseDownloaderFsmEntry ::= SEQUENCE {
+    cucsLicenseDownloaderFsmInstanceId                               CucsManagedObjectId,
+    cucsLicenseDownloaderFsmDn                                       CucsManagedObjectDn,
+    cucsLicenseDownloaderFsmRn                                       SnmpAdminString,
+    cucsLicenseDownloaderFsmCompletionTime                           DateAndTime,
+    cucsLicenseDownloaderFsmCurrentFsm                               CucsLicenseDownloaderFsmCurrentFsm,
+    cucsLicenseDownloaderFsmDescrData                                SnmpAdminString,
+    cucsLicenseDownloaderFsmFsmStatus                                CucsFsmFsmStageStatus,
+    cucsLicenseDownloaderFsmProgress                                 Gauge32,
+    cucsLicenseDownloaderFsmRmtErrCode                               Gauge32,
+    cucsLicenseDownloaderFsmRmtErrDescr                              SnmpAdminString,
+    cucsLicenseDownloaderFsmRmtRslt                                  CucsConditionRemoteInvRslt
+}
+
+cucsLicenseDownloaderFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseDownloaderFsmEntry 1 }
+
+cucsLicenseDownloaderFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:dn managed object property"
+    ::= { cucsLicenseDownloaderFsmEntry 2 }
+
+cucsLicenseDownloaderFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:rn managed object property"
+    ::= { cucsLicenseDownloaderFsmEntry 3 }
+
+cucsLicenseDownloaderFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:completionTime
+        managed object property"
+    ::= { cucsLicenseDownloaderFsmEntry 4 }
+
+cucsLicenseDownloaderFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsLicenseDownloaderFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:currentFsm managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmEntry 5 }
+
+cucsLicenseDownloaderFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:descr managed object property"
+    ::= { cucsLicenseDownloaderFsmEntry 6 }
+
+cucsLicenseDownloaderFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:fsmStatus managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmEntry 7 }
+
+cucsLicenseDownloaderFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:progress managed object property"
+    ::= { cucsLicenseDownloaderFsmEntry 8 }
+
+cucsLicenseDownloaderFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:rmtErrCode managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmEntry 9 }
+
+cucsLicenseDownloaderFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmEntry 10 }
+
+cucsLicenseDownloaderFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsm:rmtRslt managed object property"
+    ::= { cucsLicenseDownloaderFsmEntry 11 }
+
+cucsLicenseDownloaderFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseDownloaderFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage managed object table"
+    ::= { cucsLicenseObjects 17 }
+
+cucsLicenseDownloaderFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseDownloaderFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseDownloaderFsmStageTable table."
+    INDEX { cucsLicenseDownloaderFsmStageInstanceId }
+    ::= { cucsLicenseDownloaderFsmStageTable 1 }
+
+CucsLicenseDownloaderFsmStageEntry ::= SEQUENCE {
+    cucsLicenseDownloaderFsmStageInstanceId                          CucsManagedObjectId,
+    cucsLicenseDownloaderFsmStageDn                                  CucsManagedObjectDn,
+    cucsLicenseDownloaderFsmStageRn                                  SnmpAdminString,
+    cucsLicenseDownloaderFsmStageDescrData                           SnmpAdminString,
+    cucsLicenseDownloaderFsmStageLastUpdateTime                      DateAndTime,
+    cucsLicenseDownloaderFsmStageName                                CucsLicenseDownloaderFsmStageName,
+    cucsLicenseDownloaderFsmStageOrder                               Gauge32,
+    cucsLicenseDownloaderFsmStageRetry                               Gauge32,
+    cucsLicenseDownloaderFsmStageStageStatus                         CucsFsmFsmStageStatus
+}
+
+cucsLicenseDownloaderFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseDownloaderFsmStageEntry 1 }
+
+cucsLicenseDownloaderFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:dn managed object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 2 }
+
+cucsLicenseDownloaderFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:rn managed object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 3 }
+
+cucsLicenseDownloaderFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:descr managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 4 }
+
+cucsLicenseDownloaderFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 5 }
+
+cucsLicenseDownloaderFsmStageName OBJECT-TYPE
+    SYNTAX       CucsLicenseDownloaderFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:name managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 6 }
+
+cucsLicenseDownloaderFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:order managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 7 }
+
+cucsLicenseDownloaderFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:retry managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 8 }
+
+cucsLicenseDownloaderFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmStage:stageStatus
+        managed object property"
+    ::= { cucsLicenseDownloaderFsmStageEntry 9 }
+
+cucsLicenseDownloaderFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseDownloaderFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmTask managed object table"
+    ::= { cucsLicenseObjects 3 }
+
+cucsLicenseDownloaderFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseDownloaderFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseDownloaderFsmTaskTable table."
+    INDEX { cucsLicenseDownloaderFsmTaskInstanceId }
+    ::= { cucsLicenseDownloaderFsmTaskTable 1 }
+
+CucsLicenseDownloaderFsmTaskEntry ::= SEQUENCE {
+    cucsLicenseDownloaderFsmTaskInstanceId                           CucsManagedObjectId,
+    cucsLicenseDownloaderFsmTaskDn                                   CucsManagedObjectDn,
+    cucsLicenseDownloaderFsmTaskRn                                   SnmpAdminString,
+    cucsLicenseDownloaderFsmTaskCompletion                           CucsFsmCompletion,
+    cucsLicenseDownloaderFsmTaskFlags                                CucsFsmFlags,
+    cucsLicenseDownloaderFsmTaskItem                                 CucsLicenseDownloaderFsmTaskItem,
+    cucsLicenseDownloaderFsmTaskSeqId                                Gauge32
+}
+
+cucsLicenseDownloaderFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseDownloaderFsmTaskEntry 1 }
+
+cucsLicenseDownloaderFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmTask:dn managed object property"
+    ::= { cucsLicenseDownloaderFsmTaskEntry 2 }
+
+cucsLicenseDownloaderFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmTask:rn managed object property"
+    ::= { cucsLicenseDownloaderFsmTaskEntry 3 }
+
+cucsLicenseDownloaderFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmTask:completion
+        managed object property"
+    ::= { cucsLicenseDownloaderFsmTaskEntry 4 }
+
+cucsLicenseDownloaderFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmTask:flags managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmTaskEntry 5 }
+
+cucsLicenseDownloaderFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsLicenseDownloaderFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmTask:item managed object property"
+    ::= { cucsLicenseDownloaderFsmTaskEntry 6 }
+
+cucsLicenseDownloaderFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:DownloaderFsmTask:seqId managed
+        object property"
+    ::= { cucsLicenseDownloaderFsmTaskEntry 7 }
+
+cucsLicenseEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Ep managed object table"
+    ::= { cucsLicenseObjects 4 }
+
+cucsLicenseEpEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseEpTable table."
+    INDEX { cucsLicenseEpInstanceId }
+    ::= { cucsLicenseEpTable 1 }
+
+CucsLicenseEpEntry ::= SEQUENCE {
+    cucsLicenseEpInstanceId                                          CucsManagedObjectId,
+    cucsLicenseEpDn                                                  CucsManagedObjectDn,
+    cucsLicenseEpRn                                                  SnmpAdminString
+}
+
+cucsLicenseEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseEpEntry 1 }
+
+cucsLicenseEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Ep:dn managed object property"
+    ::= { cucsLicenseEpEntry 2 }
+
+cucsLicenseEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Ep:rn managed object property"
+    ::= { cucsLicenseEpEntry 3 }
+
+cucsLicenseFeatureTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Feature managed object table"
+    ::= { cucsLicenseObjects 5 }
+
+cucsLicenseFeatureEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseFeatureTable table."
+    INDEX { cucsLicenseFeatureInstanceId }
+    ::= { cucsLicenseFeatureTable 1 }
+
+CucsLicenseFeatureEntry ::= SEQUENCE {
+    cucsLicenseFeatureInstanceId                                     CucsManagedObjectId,
+    cucsLicenseFeatureDn                                             CucsManagedObjectDn,
+    cucsLicenseFeatureRn                                             SnmpAdminString,
+    cucsLicenseFeatureDescr                                          SnmpAdminString,
+    cucsLicenseFeatureGracePeriod                                    Unsigned64,
+    cucsLicenseFeatureIntId                                          SnmpAdminString,
+    cucsLicenseFeatureName                                           SnmpAdminString,
+    cucsLicenseFeatureType                                           CucsLicenseFeatureType,
+    cucsLicenseFeatureVendor                                         SnmpAdminString,
+    cucsLicenseFeatureVersion                                        SnmpAdminString,
+    cucsLicenseFeaturePolicyLevel                                    Gauge32,
+    cucsLicenseFeaturePolicyOwner                                    CucsPolicyPolicyOwner
+}
+
+cucsLicenseFeatureInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseFeatureEntry 1 }
+
+cucsLicenseFeatureDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:dn managed object property"
+    ::= { cucsLicenseFeatureEntry 2 }
+
+cucsLicenseFeatureRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:rn managed object property"
+    ::= { cucsLicenseFeatureEntry 3 }
+
+cucsLicenseFeatureDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:descr managed object property"
+    ::= { cucsLicenseFeatureEntry 4 }
+
+cucsLicenseFeatureGracePeriod OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:gracePeriod managed object property"
+    ::= { cucsLicenseFeatureEntry 5 }
+
+cucsLicenseFeatureIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:intId managed object property"
+    ::= { cucsLicenseFeatureEntry 6 }
+
+cucsLicenseFeatureName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:name managed object property"
+    ::= { cucsLicenseFeatureEntry 7 }
+
+cucsLicenseFeatureType OBJECT-TYPE
+    SYNTAX       CucsLicenseFeatureType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:type managed object property"
+    ::= { cucsLicenseFeatureEntry 8 }
+
+cucsLicenseFeatureVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:vendor managed object property"
+    ::= { cucsLicenseFeatureEntry 9 }
+
+cucsLicenseFeatureVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:version managed object property"
+    ::= { cucsLicenseFeatureEntry 10 }
+
+cucsLicenseFeaturePolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:policyLevel managed object property"
+    ::= { cucsLicenseFeatureEntry 11 }
+
+cucsLicenseFeaturePolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Feature:policyOwner managed object property"
+    ::= { cucsLicenseFeatureEntry 12 }
+
+cucsLicenseFeatureCapProviderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseFeatureCapProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider managed object table"
+    ::= { cucsLicenseObjects 6 }
+
+cucsLicenseFeatureCapProviderEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseFeatureCapProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseFeatureCapProviderTable table."
+    INDEX { cucsLicenseFeatureCapProviderInstanceId }
+    ::= { cucsLicenseFeatureCapProviderTable 1 }
+
+CucsLicenseFeatureCapProviderEntry ::= SEQUENCE {
+    cucsLicenseFeatureCapProviderInstanceId                          CucsManagedObjectId,
+    cucsLicenseFeatureCapProviderDn                                  CucsManagedObjectDn,
+    cucsLicenseFeatureCapProviderRn                                  SnmpAdminString,
+    cucsLicenseFeatureCapProviderDefQuant                            Gauge32,
+    cucsLicenseFeatureCapProviderDeprecated                          TruthValue,
+    cucsLicenseFeatureCapProviderFeatureName                         SnmpAdminString,
+    cucsLicenseFeatureCapProviderGencount                            Gauge32,
+    cucsLicenseFeatureCapProviderGracePeriod                         Unsigned64,
+    cucsLicenseFeatureCapProviderLicVendor                           SnmpAdminString,
+    cucsLicenseFeatureCapProviderLicVersion                          SnmpAdminString,
+    cucsLicenseFeatureCapProviderMgmtPlaneVer                        SnmpAdminString,
+    cucsLicenseFeatureCapProviderModel                               SnmpAdminString,
+    cucsLicenseFeatureCapProviderRevision                            SnmpAdminString,
+    cucsLicenseFeatureCapProviderType                                CucsLicenseFeatureType,
+    cucsLicenseFeatureCapProviderVendor                              SnmpAdminString,
+    cucsLicenseFeatureCapProviderDeleted                             TruthValue,
+    cucsLicenseFeatureCapProviderSku                                 SnmpAdminString,
+    cucsLicenseFeatureCapProviderElementLoadFailures                 Gauge32,
+    cucsLicenseFeatureCapProviderElementsLoaded                      Gauge32,
+    cucsLicenseFeatureCapProviderLoadErrors                          Gauge32,
+    cucsLicenseFeatureCapProviderLoadWarnings                        Gauge32
+}
+
+cucsLicenseFeatureCapProviderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseFeatureCapProviderEntry 1 }
+
+cucsLicenseFeatureCapProviderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:dn managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 2 }
+
+cucsLicenseFeatureCapProviderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:rn managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 3 }
+
+cucsLicenseFeatureCapProviderDefQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:defQuant
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 4 }
+
+cucsLicenseFeatureCapProviderDeprecated OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:deprecated
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 5 }
+
+cucsLicenseFeatureCapProviderFeatureName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:featureName
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 6 }
+
+cucsLicenseFeatureCapProviderGencount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:gencount
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 7 }
+
+cucsLicenseFeatureCapProviderGracePeriod OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:gracePeriod
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 8 }
+
+cucsLicenseFeatureCapProviderLicVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:licVendor
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 9 }
+
+cucsLicenseFeatureCapProviderLicVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:licVersion
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 10 }
+
+cucsLicenseFeatureCapProviderMgmtPlaneVer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:mgmtPlaneVer
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 11 }
+
+cucsLicenseFeatureCapProviderModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:model managed
+        object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 12 }
+
+cucsLicenseFeatureCapProviderRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:revision
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 13 }
+
+cucsLicenseFeatureCapProviderType OBJECT-TYPE
+    SYNTAX       CucsLicenseFeatureType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:type managed
+        object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 14 }
+
+cucsLicenseFeatureCapProviderVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:vendor managed
+        object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 15 }
+
+cucsLicenseFeatureCapProviderDeleted OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:deleted managed
+        object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 16 }
+
+cucsLicenseFeatureCapProviderSku OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:sku managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 17 }
+
+cucsLicenseFeatureCapProviderElementLoadFailures OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:elementLoadFailures
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 18 }
+
+cucsLicenseFeatureCapProviderElementsLoaded OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:elementsLoaded
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 19 }
+
+cucsLicenseFeatureCapProviderLoadErrors OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:loadErrors
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 20 }
+
+cucsLicenseFeatureCapProviderLoadWarnings OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureCapProvider:loadWarnings
+        managed object property"
+    ::= { cucsLicenseFeatureCapProviderEntry 21 }
+
+cucsLicenseFeatureLineTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseFeatureLineEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine managed object table"
+    ::= { cucsLicenseObjects 7 }
+
+cucsLicenseFeatureLineEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseFeatureLineEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseFeatureLineTable table."
+    INDEX { cucsLicenseFeatureLineInstanceId }
+    ::= { cucsLicenseFeatureLineTable 1 }
+
+CucsLicenseFeatureLineEntry ::= SEQUENCE {
+    cucsLicenseFeatureLineInstanceId                                 CucsManagedObjectId,
+    cucsLicenseFeatureLineDn                                         CucsManagedObjectDn,
+    cucsLicenseFeatureLineRn                                         SnmpAdminString,
+    cucsLicenseFeatureLineExp                                        DateAndTime,
+    cucsLicenseFeatureLineId                                         SnmpAdminString,
+    cucsLicenseFeatureLinePak                                        SnmpAdminString,
+    cucsLicenseFeatureLineQuant                                      Gauge32,
+    cucsLicenseFeatureLineSig                                        SnmpAdminString,
+    cucsLicenseFeatureLineType                                       CucsLicenseType,
+    cucsLicenseFeatureLineSku                                        SnmpAdminString
+}
+
+cucsLicenseFeatureLineInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseFeatureLineEntry 1 }
+
+cucsLicenseFeatureLineDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:dn managed object property"
+    ::= { cucsLicenseFeatureLineEntry 2 }
+
+cucsLicenseFeatureLineRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:rn managed object property"
+    ::= { cucsLicenseFeatureLineEntry 3 }
+
+cucsLicenseFeatureLineExp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:exp managed object property"
+    ::= { cucsLicenseFeatureLineEntry 4 }
+
+cucsLicenseFeatureLineId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:id managed object property"
+    ::= { cucsLicenseFeatureLineEntry 5 }
+
+cucsLicenseFeatureLinePak OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:pak managed object property"
+    ::= { cucsLicenseFeatureLineEntry 6 }
+
+cucsLicenseFeatureLineQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:quant managed object property"
+    ::= { cucsLicenseFeatureLineEntry 7 }
+
+cucsLicenseFeatureLineSig OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:sig managed object property"
+    ::= { cucsLicenseFeatureLineEntry 8 }
+
+cucsLicenseFeatureLineType OBJECT-TYPE
+    SYNTAX       CucsLicenseType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:type managed object property"
+    ::= { cucsLicenseFeatureLineEntry 9 }
+
+cucsLicenseFeatureLineSku OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FeatureLine:sku managed object property"
+    ::= { cucsLicenseFeatureLineEntry 10 }
+
+cucsLicenseFileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:File managed object table"
+    ::= { cucsLicenseObjects 8 }
+
+cucsLicenseFileEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseFileTable table."
+    INDEX { cucsLicenseFileInstanceId }
+    ::= { cucsLicenseFileTable 1 }
+
+CucsLicenseFileEntry ::= SEQUENCE {
+    cucsLicenseFileInstanceId                                        CucsManagedObjectId,
+    cucsLicenseFileDn                                                CucsManagedObjectDn,
+    cucsLicenseFileRn                                                SnmpAdminString,
+    cucsLicenseFileAdminState                                        CucsLicenseFileState,
+    cucsLicenseFileFsmDescr                                          SnmpAdminString,
+    cucsLicenseFileFsmPrev                                           SnmpAdminString,
+    cucsLicenseFileFsmProgr                                          Gauge32,
+    cucsLicenseFileFsmRmtInvErrCode                                  Gauge32,
+    cucsLicenseFileFsmRmtInvErrDescr                                 SnmpAdminString,
+    cucsLicenseFileFsmRmtInvRslt                                     CucsConditionRemoteInvRslt,
+    cucsLicenseFileFsmStageDescr                                     SnmpAdminString,
+    cucsLicenseFileFsmStamp                                          DateAndTime,
+    cucsLicenseFileFsmStatus                                         SnmpAdminString,
+    cucsLicenseFileFsmTry                                            Gauge32,
+    cucsLicenseFileId                                                SnmpAdminString,
+    cucsLicenseFileName                                              SnmpAdminString,
+    cucsLicenseFileOperState                                         CucsLicenseFileState,
+    cucsLicenseFileOperStateDescr                                    SnmpAdminString,
+    cucsLicenseFileScope                                             CucsLicenseScope,
+    cucsLicenseFileVersion                                           SnmpAdminString
+}
+
+cucsLicenseFileInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseFileEntry 1 }
+
+cucsLicenseFileDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:dn managed object property"
+    ::= { cucsLicenseFileEntry 2 }
+
+cucsLicenseFileRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:rn managed object property"
+    ::= { cucsLicenseFileEntry 3 }
+
+cucsLicenseFileAdminState OBJECT-TYPE
+    SYNTAX       CucsLicenseFileState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:adminState managed object property"
+    ::= { cucsLicenseFileEntry 4 }
+
+cucsLicenseFileFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmDescr managed object property"
+    ::= { cucsLicenseFileEntry 5 }
+
+cucsLicenseFileFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmPrev managed object property"
+    ::= { cucsLicenseFileEntry 6 }
+
+cucsLicenseFileFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmProgr managed object property"
+    ::= { cucsLicenseFileEntry 7 }
+
+cucsLicenseFileFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmRmtInvErrCode managed object property"
+    ::= { cucsLicenseFileEntry 8 }
+
+cucsLicenseFileFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmRmtInvErrDescr managed object property"
+    ::= { cucsLicenseFileEntry 9 }
+
+cucsLicenseFileFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmRmtInvRslt managed object property"
+    ::= { cucsLicenseFileEntry 10 }
+
+cucsLicenseFileFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmStageDescr managed object property"
+    ::= { cucsLicenseFileEntry 11 }
+
+cucsLicenseFileFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmStamp managed object property"
+    ::= { cucsLicenseFileEntry 12 }
+
+cucsLicenseFileFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmStatus managed object property"
+    ::= { cucsLicenseFileEntry 13 }
+
+cucsLicenseFileFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:fsmTry managed object property"
+    ::= { cucsLicenseFileEntry 14 }
+
+cucsLicenseFileId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:id managed object property"
+    ::= { cucsLicenseFileEntry 15 }
+
+cucsLicenseFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:name managed object property"
+    ::= { cucsLicenseFileEntry 16 }
+
+cucsLicenseFileOperState OBJECT-TYPE
+    SYNTAX       CucsLicenseFileState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:operState managed object property"
+    ::= { cucsLicenseFileEntry 17 }
+
+cucsLicenseFileOperStateDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:operStateDescr managed object property"
+    ::= { cucsLicenseFileEntry 18 }
+
+cucsLicenseFileScope OBJECT-TYPE
+    SYNTAX       CucsLicenseScope
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:scope managed object property"
+    ::= { cucsLicenseFileEntry 19 }
+
+cucsLicenseFileVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:File:version managed object property"
+    ::= { cucsLicenseFileEntry 20 }
+
+cucsLicenseFileFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseFileFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm managed object table"
+    ::= { cucsLicenseObjects 18 }
+
+cucsLicenseFileFsmEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseFileFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseFileFsmTable table."
+    INDEX { cucsLicenseFileFsmInstanceId }
+    ::= { cucsLicenseFileFsmTable 1 }
+
+CucsLicenseFileFsmEntry ::= SEQUENCE {
+    cucsLicenseFileFsmInstanceId                                     CucsManagedObjectId,
+    cucsLicenseFileFsmDn                                             CucsManagedObjectDn,
+    cucsLicenseFileFsmRn                                             SnmpAdminString,
+    cucsLicenseFileFsmCompletionTime                                 DateAndTime,
+    cucsLicenseFileFsmCurrentFsm                                     CucsLicenseFileFsmCurrentFsm,
+    cucsLicenseFileFsmDescrData                                      SnmpAdminString,
+    cucsLicenseFileFsmFsmStatus                                      CucsFsmFsmStageStatus,
+    cucsLicenseFileFsmProgress                                       Gauge32,
+    cucsLicenseFileFsmRmtErrCode                                     Gauge32,
+    cucsLicenseFileFsmRmtErrDescr                                    SnmpAdminString,
+    cucsLicenseFileFsmRmtRslt                                        CucsConditionRemoteInvRslt
+}
+
+cucsLicenseFileFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseFileFsmEntry 1 }
+
+cucsLicenseFileFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:dn managed object property"
+    ::= { cucsLicenseFileFsmEntry 2 }
+
+cucsLicenseFileFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:rn managed object property"
+    ::= { cucsLicenseFileFsmEntry 3 }
+
+cucsLicenseFileFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:completionTime managed object property"
+    ::= { cucsLicenseFileFsmEntry 4 }
+
+cucsLicenseFileFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsLicenseFileFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:currentFsm managed object property"
+    ::= { cucsLicenseFileFsmEntry 5 }
+
+cucsLicenseFileFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:descr managed object property"
+    ::= { cucsLicenseFileFsmEntry 6 }
+
+cucsLicenseFileFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:fsmStatus managed object property"
+    ::= { cucsLicenseFileFsmEntry 7 }
+
+cucsLicenseFileFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:progress managed object property"
+    ::= { cucsLicenseFileFsmEntry 8 }
+
+cucsLicenseFileFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:rmtErrCode managed object property"
+    ::= { cucsLicenseFileFsmEntry 9 }
+
+cucsLicenseFileFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:rmtErrDescr managed object property"
+    ::= { cucsLicenseFileFsmEntry 10 }
+
+cucsLicenseFileFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsm:rmtRslt managed object property"
+    ::= { cucsLicenseFileFsmEntry 11 }
+
+cucsLicenseFileFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseFileFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage managed object table"
+    ::= { cucsLicenseObjects 19 }
+
+cucsLicenseFileFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseFileFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseFileFsmStageTable table."
+    INDEX { cucsLicenseFileFsmStageInstanceId }
+    ::= { cucsLicenseFileFsmStageTable 1 }
+
+CucsLicenseFileFsmStageEntry ::= SEQUENCE {
+    cucsLicenseFileFsmStageInstanceId                                CucsManagedObjectId,
+    cucsLicenseFileFsmStageDn                                        CucsManagedObjectDn,
+    cucsLicenseFileFsmStageRn                                        SnmpAdminString,
+    cucsLicenseFileFsmStageDescrData                                 SnmpAdminString,
+    cucsLicenseFileFsmStageLastUpdateTime                            DateAndTime,
+    cucsLicenseFileFsmStageName                                      CucsLicenseFileFsmStageName,
+    cucsLicenseFileFsmStageOrder                                     Gauge32,
+    cucsLicenseFileFsmStageRetry                                     Gauge32,
+    cucsLicenseFileFsmStageStageStatus                               CucsFsmFsmStageStatus
+}
+
+cucsLicenseFileFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseFileFsmStageEntry 1 }
+
+cucsLicenseFileFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:dn managed object property"
+    ::= { cucsLicenseFileFsmStageEntry 2 }
+
+cucsLicenseFileFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:rn managed object property"
+    ::= { cucsLicenseFileFsmStageEntry 3 }
+
+cucsLicenseFileFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:descr managed object property"
+    ::= { cucsLicenseFileFsmStageEntry 4 }
+
+cucsLicenseFileFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsLicenseFileFsmStageEntry 5 }
+
+cucsLicenseFileFsmStageName OBJECT-TYPE
+    SYNTAX       CucsLicenseFileFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:name managed object property"
+    ::= { cucsLicenseFileFsmStageEntry 6 }
+
+cucsLicenseFileFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:order managed object property"
+    ::= { cucsLicenseFileFsmStageEntry 7 }
+
+cucsLicenseFileFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:retry managed object property"
+    ::= { cucsLicenseFileFsmStageEntry 8 }
+
+cucsLicenseFileFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmStage:stageStatus managed
+        object property"
+    ::= { cucsLicenseFileFsmStageEntry 9 }
+
+cucsLicenseFileFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseFileFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmTask managed object table"
+    ::= { cucsLicenseObjects 9 }
+
+cucsLicenseFileFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseFileFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseFileFsmTaskTable table."
+    INDEX { cucsLicenseFileFsmTaskInstanceId }
+    ::= { cucsLicenseFileFsmTaskTable 1 }
+
+CucsLicenseFileFsmTaskEntry ::= SEQUENCE {
+    cucsLicenseFileFsmTaskInstanceId                                 CucsManagedObjectId,
+    cucsLicenseFileFsmTaskDn                                         CucsManagedObjectDn,
+    cucsLicenseFileFsmTaskRn                                         SnmpAdminString,
+    cucsLicenseFileFsmTaskCompletion                                 CucsFsmCompletion,
+    cucsLicenseFileFsmTaskFlags                                      CucsFsmFlags,
+    cucsLicenseFileFsmTaskItem                                       CucsLicenseFileFsmTaskItem,
+    cucsLicenseFileFsmTaskSeqId                                      Gauge32
+}
+
+cucsLicenseFileFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseFileFsmTaskEntry 1 }
+
+cucsLicenseFileFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmTask:dn managed object property"
+    ::= { cucsLicenseFileFsmTaskEntry 2 }
+
+cucsLicenseFileFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmTask:rn managed object property"
+    ::= { cucsLicenseFileFsmTaskEntry 3 }
+
+cucsLicenseFileFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmTask:completion managed object property"
+    ::= { cucsLicenseFileFsmTaskEntry 4 }
+
+cucsLicenseFileFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmTask:flags managed object property"
+    ::= { cucsLicenseFileFsmTaskEntry 5 }
+
+cucsLicenseFileFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsLicenseFileFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmTask:item managed object property"
+    ::= { cucsLicenseFileFsmTaskEntry 6 }
+
+cucsLicenseFileFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:FileFsmTask:seqId managed object property"
+    ::= { cucsLicenseFileFsmTaskEntry 7 }
+
+cucsLicenseInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Instance managed object table"
+    ::= { cucsLicenseObjects 10 }
+
+cucsLicenseInstanceEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseInstanceTable table."
+    INDEX { cucsLicenseInstanceInstanceId }
+    ::= { cucsLicenseInstanceTable 1 }
+
+CucsLicenseInstanceEntry ::= SEQUENCE {
+    cucsLicenseInstanceInstanceId                                    CucsManagedObjectId,
+    cucsLicenseInstanceDn                                            CucsManagedObjectDn,
+    cucsLicenseInstanceRn                                            SnmpAdminString,
+    cucsLicenseInstanceAbsQuant                                      Gauge32,
+    cucsLicenseInstanceDefQuant                                      Gauge32,
+    cucsLicenseInstanceFeature                                       SnmpAdminString,
+    cucsLicenseInstanceFsmDescr                                      SnmpAdminString,
+    cucsLicenseInstanceFsmPrev                                       SnmpAdminString,
+    cucsLicenseInstanceFsmProgr                                      Gauge32,
+    cucsLicenseInstanceFsmRmtInvErrCode                              Gauge32,
+    cucsLicenseInstanceFsmRmtInvErrDescr                             SnmpAdminString,
+    cucsLicenseInstanceFsmRmtInvRslt                                 CucsConditionRemoteInvRslt,
+    cucsLicenseInstanceFsmStageDescr                                 SnmpAdminString,
+    cucsLicenseInstanceFsmStamp                                      DateAndTime,
+    cucsLicenseInstanceFsmStatus                                     SnmpAdminString,
+    cucsLicenseInstanceFsmTry                                        Gauge32,
+    cucsLicenseInstanceGracePeriodUsed                               Unsigned64,
+    cucsLicenseInstanceOperState                                     CucsLicenseState,
+    cucsLicenseInstancePeerStatus                                    CucsLicensePeerStatus,
+    cucsLicenseInstanceScope                                         CucsLicenseScope,
+    cucsLicenseInstanceUsedQuant                                     Gauge32,
+    cucsLicenseInstanceIsPresent                                     TruthValue,
+    cucsLicenseInstanceSku                                           SnmpAdminString,
+    cucsLicenseInstanceSubordinateUsedQuant                          Gauge32
+}
+
+cucsLicenseInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseInstanceEntry 1 }
+
+cucsLicenseInstanceDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:dn managed object property"
+    ::= { cucsLicenseInstanceEntry 2 }
+
+cucsLicenseInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:rn managed object property"
+    ::= { cucsLicenseInstanceEntry 3 }
+
+cucsLicenseInstanceAbsQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:absQuant managed object property"
+    ::= { cucsLicenseInstanceEntry 4 }
+
+cucsLicenseInstanceDefQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:defQuant managed object property"
+    ::= { cucsLicenseInstanceEntry 5 }
+
+cucsLicenseInstanceFeature OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:feature managed object property"
+    ::= { cucsLicenseInstanceEntry 6 }
+
+cucsLicenseInstanceFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmDescr managed object property"
+    ::= { cucsLicenseInstanceEntry 7 }
+
+cucsLicenseInstanceFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmPrev managed object property"
+    ::= { cucsLicenseInstanceEntry 8 }
+
+cucsLicenseInstanceFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmProgr managed object property"
+    ::= { cucsLicenseInstanceEntry 9 }
+
+cucsLicenseInstanceFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmRmtInvErrCode managed
+        object property"
+    ::= { cucsLicenseInstanceEntry 10 }
+
+cucsLicenseInstanceFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cucsLicenseInstanceEntry 11 }
+
+cucsLicenseInstanceFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmRmtInvRslt managed object property"
+    ::= { cucsLicenseInstanceEntry 12 }
+
+cucsLicenseInstanceFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmStageDescr managed object property"
+    ::= { cucsLicenseInstanceEntry 13 }
+
+cucsLicenseInstanceFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmStamp managed object property"
+    ::= { cucsLicenseInstanceEntry 14 }
+
+cucsLicenseInstanceFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmStatus managed object property"
+    ::= { cucsLicenseInstanceEntry 15 }
+
+cucsLicenseInstanceFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:fsmTry managed object property"
+    ::= { cucsLicenseInstanceEntry 16 }
+
+cucsLicenseInstanceGracePeriodUsed OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:gracePeriodUsed managed
+        object property"
+    ::= { cucsLicenseInstanceEntry 17 }
+
+cucsLicenseInstanceOperState OBJECT-TYPE
+    SYNTAX       CucsLicenseState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:operState managed object property"
+    ::= { cucsLicenseInstanceEntry 18 }
+
+cucsLicenseInstancePeerStatus OBJECT-TYPE
+    SYNTAX       CucsLicensePeerStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:peerStatus managed object property"
+    ::= { cucsLicenseInstanceEntry 19 }
+
+cucsLicenseInstanceScope OBJECT-TYPE
+    SYNTAX       CucsLicenseScope
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:scope managed object property"
+    ::= { cucsLicenseInstanceEntry 20 }
+
+cucsLicenseInstanceUsedQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:usedQuant managed object property"
+    ::= { cucsLicenseInstanceEntry 21 }
+
+cucsLicenseInstanceIsPresent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:isPresent managed object property"
+    ::= { cucsLicenseInstanceEntry 22 }
+
+cucsLicenseInstanceSku OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:sku managed object property"
+    ::= { cucsLicenseInstanceEntry 23 }
+
+cucsLicenseInstanceSubordinateUsedQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Instance:subordinateUsedQuant
+        managed object property"
+    ::= { cucsLicenseInstanceEntry 24 }
+
+cucsLicenseInstanceFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseInstanceFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm managed object table"
+    ::= { cucsLicenseObjects 20 }
+
+cucsLicenseInstanceFsmEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseInstanceFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseInstanceFsmTable table."
+    INDEX { cucsLicenseInstanceFsmInstanceId }
+    ::= { cucsLicenseInstanceFsmTable 1 }
+
+CucsLicenseInstanceFsmEntry ::= SEQUENCE {
+    cucsLicenseInstanceFsmInstanceId                                 CucsManagedObjectId,
+    cucsLicenseInstanceFsmDn                                         CucsManagedObjectDn,
+    cucsLicenseInstanceFsmRn                                         SnmpAdminString,
+    cucsLicenseInstanceFsmCompletionTime                             DateAndTime,
+    cucsLicenseInstanceFsmCurrentFsm                                 CucsLicenseInstanceFsmCurrentFsm,
+    cucsLicenseInstanceFsmDescrData                                  SnmpAdminString,
+    cucsLicenseInstanceFsmFsmStatus                                  CucsFsmFsmStageStatus,
+    cucsLicenseInstanceFsmProgress                                   Gauge32,
+    cucsLicenseInstanceFsmRmtErrCode                                 Gauge32,
+    cucsLicenseInstanceFsmRmtErrDescr                                SnmpAdminString,
+    cucsLicenseInstanceFsmRmtRslt                                    CucsConditionRemoteInvRslt
+}
+
+cucsLicenseInstanceFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseInstanceFsmEntry 1 }
+
+cucsLicenseInstanceFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:dn managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 2 }
+
+cucsLicenseInstanceFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:rn managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 3 }
+
+cucsLicenseInstanceFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:completionTime managed
+        object property"
+    ::= { cucsLicenseInstanceFsmEntry 4 }
+
+cucsLicenseInstanceFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsLicenseInstanceFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:currentFsm managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 5 }
+
+cucsLicenseInstanceFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:descr managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 6 }
+
+cucsLicenseInstanceFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:fsmStatus managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 7 }
+
+cucsLicenseInstanceFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:progress managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 8 }
+
+cucsLicenseInstanceFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:rmtErrCode managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 9 }
+
+cucsLicenseInstanceFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsLicenseInstanceFsmEntry 10 }
+
+cucsLicenseInstanceFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsm:rmtRslt managed object property"
+    ::= { cucsLicenseInstanceFsmEntry 11 }
+
+cucsLicenseInstanceFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseInstanceFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage managed object table"
+    ::= { cucsLicenseObjects 21 }
+
+cucsLicenseInstanceFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseInstanceFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseInstanceFsmStageTable table."
+    INDEX { cucsLicenseInstanceFsmStageInstanceId }
+    ::= { cucsLicenseInstanceFsmStageTable 1 }
+
+CucsLicenseInstanceFsmStageEntry ::= SEQUENCE {
+    cucsLicenseInstanceFsmStageInstanceId                            CucsManagedObjectId,
+    cucsLicenseInstanceFsmStageDn                                    CucsManagedObjectDn,
+    cucsLicenseInstanceFsmStageRn                                    SnmpAdminString,
+    cucsLicenseInstanceFsmStageDescrData                             SnmpAdminString,
+    cucsLicenseInstanceFsmStageLastUpdateTime                        DateAndTime,
+    cucsLicenseInstanceFsmStageName                                  CucsLicenseInstanceFsmStageName,
+    cucsLicenseInstanceFsmStageOrder                                 Gauge32,
+    cucsLicenseInstanceFsmStageRetry                                 Gauge32,
+    cucsLicenseInstanceFsmStageStageStatus                           CucsFsmFsmStageStatus
+}
+
+cucsLicenseInstanceFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseInstanceFsmStageEntry 1 }
+
+cucsLicenseInstanceFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:dn managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 2 }
+
+cucsLicenseInstanceFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:rn managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 3 }
+
+cucsLicenseInstanceFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:descr managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 4 }
+
+cucsLicenseInstanceFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 5 }
+
+cucsLicenseInstanceFsmStageName OBJECT-TYPE
+    SYNTAX       CucsLicenseInstanceFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:name managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 6 }
+
+cucsLicenseInstanceFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:order managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 7 }
+
+cucsLicenseInstanceFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:retry managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 8 }
+
+cucsLicenseInstanceFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmStage:stageStatus
+        managed object property"
+    ::= { cucsLicenseInstanceFsmStageEntry 9 }
+
+cucsLicenseInstanceFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseInstanceFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmTask managed object table"
+    ::= { cucsLicenseObjects 11 }
+
+cucsLicenseInstanceFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseInstanceFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseInstanceFsmTaskTable table."
+    INDEX { cucsLicenseInstanceFsmTaskInstanceId }
+    ::= { cucsLicenseInstanceFsmTaskTable 1 }
+
+CucsLicenseInstanceFsmTaskEntry ::= SEQUENCE {
+    cucsLicenseInstanceFsmTaskInstanceId                             CucsManagedObjectId,
+    cucsLicenseInstanceFsmTaskDn                                     CucsManagedObjectDn,
+    cucsLicenseInstanceFsmTaskRn                                     SnmpAdminString,
+    cucsLicenseInstanceFsmTaskCompletion                             CucsFsmCompletion,
+    cucsLicenseInstanceFsmTaskFlags                                  CucsFsmFlags,
+    cucsLicenseInstanceFsmTaskItem                                   CucsLicenseInstanceFsmTaskItem,
+    cucsLicenseInstanceFsmTaskSeqId                                  Gauge32
+}
+
+cucsLicenseInstanceFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseInstanceFsmTaskEntry 1 }
+
+cucsLicenseInstanceFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmTask:dn managed object property"
+    ::= { cucsLicenseInstanceFsmTaskEntry 2 }
+
+cucsLicenseInstanceFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmTask:rn managed object property"
+    ::= { cucsLicenseInstanceFsmTaskEntry 3 }
+
+cucsLicenseInstanceFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmTask:completion managed
+        object property"
+    ::= { cucsLicenseInstanceFsmTaskEntry 4 }
+
+cucsLicenseInstanceFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmTask:flags managed object property"
+    ::= { cucsLicenseInstanceFsmTaskEntry 5 }
+
+cucsLicenseInstanceFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsLicenseInstanceFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmTask:item managed object property"
+    ::= { cucsLicenseInstanceFsmTaskEntry 6 }
+
+cucsLicenseInstanceFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:InstanceFsmTask:seqId managed object property"
+    ::= { cucsLicenseInstanceFsmTaskEntry 7 }
+
+cucsLicensePropTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicensePropEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Prop managed object table"
+    ::= { cucsLicenseObjects 12 }
+
+cucsLicensePropEntry OBJECT-TYPE
+    SYNTAX           CucsLicensePropEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicensePropTable table."
+    INDEX { cucsLicensePropInstanceId }
+    ::= { cucsLicensePropTable 1 }
+
+CucsLicensePropEntry ::= SEQUENCE {
+    cucsLicensePropInstanceId                                        CucsManagedObjectId,
+    cucsLicensePropDn                                                CucsManagedObjectDn,
+    cucsLicensePropRn                                                SnmpAdminString,
+    cucsLicensePropName                                              SnmpAdminString,
+    cucsLicensePropValue                                             SnmpAdminString
+}
+
+cucsLicensePropInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicensePropEntry 1 }
+
+cucsLicensePropDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Prop:dn managed object property"
+    ::= { cucsLicensePropEntry 2 }
+
+cucsLicensePropRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Prop:rn managed object property"
+    ::= { cucsLicensePropEntry 3 }
+
+cucsLicensePropName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Prop:name managed object property"
+    ::= { cucsLicensePropEntry 4 }
+
+cucsLicensePropValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Prop:value managed object property"
+    ::= { cucsLicensePropEntry 5 }
+
+cucsLicenseServerHostIdTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseServerHostIdEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:ServerHostId managed object table"
+    ::= { cucsLicenseObjects 13 }
+
+cucsLicenseServerHostIdEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseServerHostIdEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseServerHostIdTable table."
+    INDEX { cucsLicenseServerHostIdInstanceId }
+    ::= { cucsLicenseServerHostIdTable 1 }
+
+CucsLicenseServerHostIdEntry ::= SEQUENCE {
+    cucsLicenseServerHostIdInstanceId                                CucsManagedObjectId,
+    cucsLicenseServerHostIdDn                                        CucsManagedObjectDn,
+    cucsLicenseServerHostIdRn                                        SnmpAdminString,
+    cucsLicenseServerHostIdHostId                                    SnmpAdminString,
+    cucsLicenseServerHostIdScope                                     CucsLicenseScope
+}
+
+cucsLicenseServerHostIdInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseServerHostIdEntry 1 }
+
+cucsLicenseServerHostIdDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:ServerHostId:dn managed object property"
+    ::= { cucsLicenseServerHostIdEntry 2 }
+
+cucsLicenseServerHostIdRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:ServerHostId:rn managed object property"
+    ::= { cucsLicenseServerHostIdEntry 3 }
+
+cucsLicenseServerHostIdHostId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:ServerHostId:hostId managed object property"
+    ::= { cucsLicenseServerHostIdEntry 4 }
+
+cucsLicenseServerHostIdScope OBJECT-TYPE
+    SYNTAX       CucsLicenseScope
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:ServerHostId:scope managed object property"
+    ::= { cucsLicenseServerHostIdEntry 5 }
+
+cucsLicenseSourceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseSourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Source managed object table"
+    ::= { cucsLicenseObjects 14 }
+
+cucsLicenseSourceEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseSourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseSourceTable table."
+    INDEX { cucsLicenseSourceInstanceId }
+    ::= { cucsLicenseSourceTable 1 }
+
+CucsLicenseSourceEntry ::= SEQUENCE {
+    cucsLicenseSourceInstanceId                                      CucsManagedObjectId,
+    cucsLicenseSourceDn                                              CucsManagedObjectDn,
+    cucsLicenseSourceRn                                              SnmpAdminString,
+    cucsLicenseSourceAlwaysUse                                       TruthValue,
+    cucsLicenseSourceHostId                                          SnmpAdminString,
+    cucsLicenseSourceHostName                                        SnmpAdminString,
+    cucsLicenseSourceVendorDaemonPath                                SnmpAdminString,
+    cucsLicenseSourceSku                                             SnmpAdminString
+}
+
+cucsLicenseSourceInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseSourceEntry 1 }
+
+cucsLicenseSourceDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Source:dn managed object property"
+    ::= { cucsLicenseSourceEntry 2 }
+
+cucsLicenseSourceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Source:rn managed object property"
+    ::= { cucsLicenseSourceEntry 3 }
+
+cucsLicenseSourceAlwaysUse OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Source:alwaysUse managed object property"
+    ::= { cucsLicenseSourceEntry 4 }
+
+cucsLicenseSourceHostId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Source:hostId managed object property"
+    ::= { cucsLicenseSourceEntry 5 }
+
+cucsLicenseSourceHostName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Source:hostName managed object property"
+    ::= { cucsLicenseSourceEntry 6 }
+
+cucsLicenseSourceVendorDaemonPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Source:vendorDaemonPath managed
+        object property"
+    ::= { cucsLicenseSourceEntry 7 }
+
+cucsLicenseSourceSku OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Source:sku managed object property"
+    ::= { cucsLicenseSourceEntry 8 }
+
+cucsLicenseSourceFileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseSourceFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile managed object table"
+    ::= { cucsLicenseObjects 15 }
+
+cucsLicenseSourceFileEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseSourceFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseSourceFileTable table."
+    INDEX { cucsLicenseSourceFileInstanceId }
+    ::= { cucsLicenseSourceFileTable 1 }
+
+CucsLicenseSourceFileEntry ::= SEQUENCE {
+    cucsLicenseSourceFileInstanceId                                  CucsManagedObjectId,
+    cucsLicenseSourceFileDn                                          CucsManagedObjectDn,
+    cucsLicenseSourceFileRn                                          SnmpAdminString,
+    cucsLicenseSourceFileExp                                         DateAndTime,
+    cucsLicenseSourceFileHostId                                      SnmpAdminString,
+    cucsLicenseSourceFileId                                          SnmpAdminString,
+    cucsLicenseSourceFileLine                                        SnmpAdminString,
+    cucsLicenseSourceFilePak                                         SnmpAdminString,
+    cucsLicenseSourceFileQuant                                       Gauge32,
+    cucsLicenseSourceFileSig                                         SnmpAdminString,
+    cucsLicenseSourceFileType                                        CucsLicenseType
+}
+
+cucsLicenseSourceFileInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseSourceFileEntry 1 }
+
+cucsLicenseSourceFileDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:dn managed object property"
+    ::= { cucsLicenseSourceFileEntry 2 }
+
+cucsLicenseSourceFileRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:rn managed object property"
+    ::= { cucsLicenseSourceFileEntry 3 }
+
+cucsLicenseSourceFileExp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:exp managed object property"
+    ::= { cucsLicenseSourceFileEntry 4 }
+
+cucsLicenseSourceFileHostId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:hostId managed object property"
+    ::= { cucsLicenseSourceFileEntry 5 }
+
+cucsLicenseSourceFileId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:id managed object property"
+    ::= { cucsLicenseSourceFileEntry 6 }
+
+cucsLicenseSourceFileLine OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:line managed object property"
+    ::= { cucsLicenseSourceFileEntry 7 }
+
+cucsLicenseSourceFilePak OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:pak managed object property"
+    ::= { cucsLicenseSourceFileEntry 8 }
+
+cucsLicenseSourceFileQuant OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:quant managed object property"
+    ::= { cucsLicenseSourceFileEntry 9 }
+
+cucsLicenseSourceFileSig OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:sig managed object property"
+    ::= { cucsLicenseSourceFileEntry 10 }
+
+cucsLicenseSourceFileType OBJECT-TYPE
+    SYNTAX       CucsLicenseType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:SourceFile:type managed object property"
+    ::= { cucsLicenseSourceFileEntry 11 }
+
+cucsLicenseTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLicenseTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS license:Target managed object table"
+    ::= { cucsLicenseObjects 22 }
+
+cucsLicenseTargetEntry OBJECT-TYPE
+    SYNTAX           CucsLicenseTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLicenseTargetTable table."
+    INDEX { cucsLicenseTargetInstanceId }
+    ::= { cucsLicenseTargetTable 1 }
+
+CucsLicenseTargetEntry ::= SEQUENCE {
+    cucsLicenseTargetInstanceId                                      CucsManagedObjectId,
+    cucsLicenseTargetDn                                              CucsManagedObjectDn,
+    cucsLicenseTargetRn                                              SnmpAdminString,
+    cucsLicenseTargetPortId                                          Gauge32,
+    cucsLicenseTargetSlotId                                          Gauge32,
+    cucsLicenseTargetIsRackPresent                                   TruthValue,
+    cucsLicenseTargetAggrPortId                                      Gauge32
+}
+
+cucsLicenseTargetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLicenseTargetEntry 1 }
+
+cucsLicenseTargetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Target:dn managed object property"
+    ::= { cucsLicenseTargetEntry 2 }
+
+cucsLicenseTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Target:rn managed object property"
+    ::= { cucsLicenseTargetEntry 3 }
+
+cucsLicenseTargetPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Target:portId managed object property"
+    ::= { cucsLicenseTargetEntry 4 }
+
+cucsLicenseTargetSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Target:slotId managed object property"
+    ::= { cucsLicenseTargetEntry 5 }
+
+cucsLicenseTargetIsRackPresent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Target:isRackPresent managed object property"
+    ::= { cucsLicenseTargetEntry 6 }
+
+cucsLicenseTargetAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS license:Target:aggrPortId managed object property"
+    ::= { cucsLicenseTargetEntry 7 }
+
+END

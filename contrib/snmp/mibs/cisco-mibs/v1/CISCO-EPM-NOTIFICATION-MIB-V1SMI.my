@@ -1,0 +1,798 @@
+-- MIB file created 31-Aug-2004 18:25:39, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-EPM-NOTIFICATION-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-EPM-NOTIFICATION-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoEpmNotificationMIB OBJECT IDENTIFIER ::= { ciscoMgmt 311 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200406070000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     Customer Service 
+--    
+--     Postal: 170 W Tasman Drive 
+--     San Jose, CA 95134 
+--    
+--     Tel: +1 800 553-NETS 
+--    
+--     E-mail: tac@cisco.com
+--  Descr
+--    Notifications directly from hardware and software and processed 
+--    notifications from various management applications can be further 
+--    processed and forwarded by still other management applications to  
+--    indicate the status of devices and software (managed objects). 
+--    The status of these managed objects can be reported by traps. 
+--    
+--    The CISCO-EPM-NOTIFICATION-MIB contains the trap structure which  
+--    carries the identity and status info of the managed object as 
+--    analyzed by such an event processor. It is not possible for 
+--    receivers of these traps to query the mib objects. 
+--     
+--    A unique but optional feature of the application generating the  
+--    trap defined in this mib is the ability to contain multiple  
+--    partitions in the same system running the application. A  
+--    'Partition' is a logical grouping of a set of managed devices.  
+--    These devices can belong to only one partition at any given  
+--    time. The trap structure will contain information on the exact  
+--    partition number and the partition name of the device where it  
+--    resides. 
+--           
+--    The need for trap generation is to enable multiple management 
+--    applications in the network to have a consolidated view of the 
+--    whole network of Cisco and non-Cisco devices.
+--  RevDate
+--    200406070000Z
+--  RevDescr
+--    Updated the cenAlarmEntry to include new attributes. The new 
+--    attributes carries information that adds more value to the already 
+--    existing trap structure. 
+--     
+--    The Management application computes events for a device via  
+--    polling snmp mib objects on the device and/or by listening to  
+--    SNMP Traps. Multiple events on a single device roll up into what  
+--    is called an Alert - there can be only one alert for a given  
+--    device at any given time. The objects contained in the  
+--    cenAlarmEntry are the same for both Alert and Event based  
+--    notification. The attribute cenAlarmMode added in this revision 
+--    of the mib can be used to distinguish between the Alert based and  
+--    event based notification. 
+--     
+--    In case of event based notification, the cenAlertID would contain  
+--    the alert id, as computed by the management system, to which the  
+--    generated event has been rolled up.  
+--     
+--    Traps generated from systems that support mutiple Partition, the  
+--    cenPartitionNumber and cenPartitionName attributes will carry the 
+--    exact partition details of the device for which the trap is  
+--    generated. 
+--     
+--    Through the management application user interface, the user can  
+--    customize few attributes of the trap structure. Two attributes  
+--    included in this mib revision that allows the user to customize  
+--    each trap sent out are cenCustomerIdentification and  
+--    cenCustomerRevision. 
+--     
+--    ciscoEpmNotificationObjectsGroup, ciscoEpmNotificationAlarm, and 
+--    ciscoEpmNotificationMIBCompliance have been deprecated in this  
+--    revision. 
+--     
+--    ciscoEpmNotificationAlarmRev1, 
+--    ciscoEpmNotificationAlarmGroupRev1, 
+--    ciscoEpmNotificationMIBComplianceRev1,  
+--    and ciscoEpmNotificationObjectsGroupRev1 have been newly created 
+--    in this revision.
+--  RevDate
+--    200308210000Z
+--  RevDescr
+--    Included imports for Integer32, Unsigned32, and  
+--    NOTIFICATION-GROUP.
+--  RevDate
+--    200207281420Z
+--  RevDescr
+--    Initial version of this MIB.
+
+ciscoEpmNotificationMIBNotifs OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIB 0 }
+ciscoEpmNotificationMIBObjects OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIB 1 }
+ciscoEpmNotificationMIBConform OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIB 2 }
+cenAlarmData    OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBObjects 1 }
+ciscoEpmNotificationMIBCompliances OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBConform 1 }
+ciscoEpmNotificationMIBGroups OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBConform 2 }
+
+cenAlarmTableMaxLength OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of entries permissible in the cenAlarmTable."
+    DEFVAL { 1 }
+    ::= { cenAlarmData 1 }
+
+cenAlarmTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CenAlarmEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing the device identification and  
+        alarm value. The maximum number of entries permissible  
+        in this table is defined by cenAlarmTableMaxLength. When  
+        the number of entries in the table reaches the maximum  
+        limit, the next entry would replace the oldest existing  
+        entry in the table."
+    ::= { cenAlarmData 2 }
+
+cenAlarmEntry OBJECT-TYPE
+    SYNTAX CenAlarmEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single device status alarm. 
+        An entry is created when an alarm is processed."
+    INDEX { cenAlarmIndex }
+    ::= { cenAlarmTable 1 }
+
+CenAlarmEntry ::= SEQUENCE {
+    cenAlarmIndex Gauge,
+    cenAlarmVersion SnmpAdminString,
+    cenAlarmTimestamp TimeStamp,
+    cenAlarmUpdatedTimestamp TimeStamp,
+    cenAlarmInstanceID SnmpAdminString,
+    cenAlarmStatus INTEGER,
+    cenAlarmStatusDefinition SnmpAdminString,
+    cenAlarmType INTEGER,
+    cenAlarmCategory INTEGER,
+    cenAlarmCategoryDefinition SnmpAdminString,
+    cenAlarmServerAddressType InetAddressType,
+    cenAlarmServerAddress InetAddress,
+    cenAlarmManagedObjectClass SnmpAdminString,
+    cenAlarmManagedObjectAddressType InetAddressType,
+    cenAlarmManagedObjectAddress InetAddress,
+    cenAlarmDescription OCTET STRING,
+    cenAlarmSeverity INTEGER,
+    cenAlarmSeverityDefinition SnmpAdminString,
+    cenAlarmTriageValue INTEGER,
+    cenEventIDList OCTET STRING,
+    cenUserMessage1 SnmpAdminString,
+    cenUserMessage2 SnmpAdminString,
+    cenUserMessage3 SnmpAdminString,
+    cenAlarmMode INTEGER,
+    cenPartitionNumber Gauge,
+    cenPartitionName SnmpAdminString,
+    cenCustomerIdentification SnmpAdminString,
+    cenCustomerRevision SnmpAdminString,
+    cenAlertID SnmpAdminString
+    }
+
+cenAlarmIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A monotonically increasing integer for the sole  
+        purpose of indexing the attributes in  
+        ciscoEpmNotificationMIBObjects. When the maximum value is  
+        reached, this value wraps back to 1."
+    ::= { cenAlarmEntry 1 }
+
+cenAlarmVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..16))
+--    Rsyntax OCTET STRING(SIZE(1..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The release version of this MIB. The version string will 
+        be of the form <major version>.<minorversion>."
+    ::= { cenAlarmEntry 2 }
+
+cenAlarmTimestamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the alarm was raised."
+    ::= { cenAlarmEntry 3 }
+
+cenAlarmUpdatedTimestamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Alarms persist over time and can have their field(s)  
+        change values. The last time a field(s) changed, this 
+        alarm is updated. The updated time denotes this time.  
+        Each alarm is identified by the unique alarm instance  
+        id, cenAlarmInstanceID."
+    ::= { cenAlarmEntry 4 }
+
+cenAlarmInstanceID OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..20))
+--    Rsyntax OCTET STRING(SIZE(1..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Unique Alarm Instance ID."
+    ::= { cenAlarmEntry 5 }
+
+cenAlarmStatus OBJECT-TYPE
+    SYNTAX INTEGER(1..250)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The alarm status indicates the status of the alarm  
+        in integer value."
+    ::= { cenAlarmEntry 6 }
+
+cenAlarmStatusDefinition OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The short description of the status of the alarm. 
+        The string is formatted in  
+        '<integer>,<alarmStatus description>' tuples. The <integer> 
+        value is the same value that the 'cenAlarmStatus'  
+        attribute holds. <alarmStatus description> contains one line 
+        description of the alarm status generated."
+    ::= { cenAlarmEntry 7 }
+
+cenAlarmType OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        direct(2),
+        indirect(3),
+        mixed(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "unknown:  When the value for this attribute could not be  
+                   determined.        
+         direct:   Denotes an alarm generated by a set of events where  
+                   all events are reported by an observation(s) of a  
+                   managed object.  
+         indirect: Denotes an alarm generated by a set of events where  
+                   all events were deduced or inferred by the status of  
+                   managed objects as determined by the network  
+                   management system.  
+         mixed:    Denotes an alarm generated by a set of events which  
+                   were either direct or indirect."
+    ::= { cenAlarmEntry 8 }
+
+cenAlarmCategory OBJECT-TYPE
+    SYNTAX INTEGER(1..250)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The category of the alarm generated represented in  
+        integer value."
+    ::= { cenAlarmEntry 9 }
+
+cenAlarmCategoryDefinition OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The short description of the category of the alarm  
+        generated. The String is formatted in  
+        '<integer>,<alarmCategory description>' tuples. The <integer> 
+        value is the same value that the 'cenAlarmCategory'  
+        attribute holds. <alarmCategory description> contains one  
+        line description of the alarm category generated."
+    ::= { cenAlarmEntry 10 }
+
+cenAlarmServerAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address by which the server  
+        is reachable. The Server is the server  
+        that is generating this trap."
+    ::= { cenAlarmEntry 11 }
+
+cenAlarmServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP Address or the DNS name of the Management  
+        Server that raised this alarm to be notified."
+    ::= { cenAlarmEntry 12 }
+
+cenAlarmManagedObjectClass OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The class of the managed object for which this 
+        alarm was  generated. For example, Router, Switch,  
+        GateKeeper and VoicePort."
+    ::= { cenAlarmEntry 13 }
+
+cenAlarmManagedObjectAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address by which the managed  
+        object is reachable."
+    ::= { cenAlarmEntry 14 }
+
+cenAlarmManagedObjectAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP Address or the DNS name of the Managed Object."
+    ::= { cenAlarmEntry 15 }
+
+cenAlarmDescription OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..1024))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A detailed description of the alarm."
+    ::= { cenAlarmEntry 16 }
+
+cenAlarmSeverity OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The alarm severity indicates the severity of the alarm  
+        in integer value."
+    ::= { cenAlarmEntry 17 }
+
+cenAlarmSeverityDefinition OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The short description of the severity of the alarm  
+        generated. The String is formatted in  
+        '<integer>,<alarmSeverity  description>' tuples. The <integer> 
+        value is the same value that the 'cenAlarmSeverity '  
+        attribute holds. <alarmSeverity description> contains one line 
+        description of the alarm severity generated."
+    ::= { cenAlarmEntry 18 }
+
+cenAlarmTriageValue OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The triage value of an alarm is a hierarchical weighting value 
+        (applied by the application, and more importantly customizable  
+        by the end  user) to allow an artificial form of evaluating  
+        impact, interest, or other user-determined functions between  
+        alarms. The value is a positive number or zero where zero  
+        denotes an undetermined or uncomputable value."
+    ::= { cenAlarmEntry 19 }
+
+cenEventIDList OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..1024))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Comma separated list of the Unique Event identifiers  
+        that led to the generation of this Alarm."
+    ::= { cenAlarmEntry 20 }
+
+cenUserMessage1 OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "User input message. This value can be configured."
+    ::= { cenAlarmEntry 21 }
+
+cenUserMessage2 OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "User input message. This value can be configured."
+    ::= { cenAlarmEntry 22 }
+
+cenUserMessage3 OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "User input message. This value can be configured."
+    ::= { cenAlarmEntry 23 }
+
+cenAlarmMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        alert(2),
+        event(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "unknown:  When the value for this attribute could not be  
+                   determined.        
+         alert:    Denotes an alarm generated by a set of events where  
+                   all events are reported by polling of managed  
+                   objects and/or listening to SNMP notifications. 
+         event:    Denotes an event generated by polling of managed  
+                   ojects and/or listening to SNMP notifications."
+    ::= { cenAlarmEntry 24 }
+
+cenPartitionNumber OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "In traps generated by the management application that support  
+        multiple partitions, the attribute will carry the integer  
+        value assigned to identify the logical group where the managed  
+        device resides."
+    ::= { cenAlarmEntry 25 }
+
+cenPartitionName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "In traps generated by the management application that support 
+        multiple partitions, the attribute will carry the name  
+        assigned to identify the logical group where the managed 
+        device resides."
+    ::= { cenAlarmEntry 26 }
+
+cenCustomerIdentification OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "User input message. The attribute takes in a free format 
+        text. This attribute can be used by advanced management  
+        applications to sort responses from the fault management  
+        server."
+    ::= { cenAlarmEntry 27 }
+
+cenCustomerRevision OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "User input message. The attribute takes in a free format 
+        text. This attribute can be used by advanced management  
+        applications to sort responses from the fault management  
+        server."
+    ::= { cenAlarmEntry 28 }
+
+cenAlertID OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..20))
+--    Rsyntax OCTET STRING(SIZE(1..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "In event based notification, this attribute will contain the  
+        alert id to which the generated event has been rolled up 
+        to. In alert based notification, the cenAlarmInstanceId and  
+        cenAlertID would be identical."
+    ::= { cenAlarmEntry 29 }
+
+ciscoEpmNotificationAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEpmNotificationMIB
+    VARIABLES {
+        cenAlarmVersion, cenAlarmTimestamp, 
+        cenAlarmUpdatedTimestamp, cenAlarmInstanceID, 
+        cenAlarmStatus, cenAlarmStatusDefinition, cenAlarmType, 
+        cenAlarmCategory, cenAlarmCategoryDefinition, 
+        cenAlarmServerAddressType, cenAlarmServerAddress, 
+        cenAlarmManagedObjectClass, 
+        cenAlarmManagedObjectAddressType, 
+        cenAlarmManagedObjectAddress, cenAlarmDescription, 
+        cenAlarmSeverity, cenAlarmSeverityDefinition, 
+        cenAlarmTriageValue, cenEventIDList, cenUserMessage1, 
+        cenUserMessage2, cenUserMessage3 }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "Notification of the status of the managed object as  
+        generated by the  management server.  
+         
+        New attributes are added to the ciscoEpmNotificationAlarmRev1. 
+        Hence this notification is deprecated."
+    ::= 1
+
+ciscoEpmNotificationAlarmRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEpmNotificationMIB
+    VARIABLES {
+        cenAlarmVersion, cenAlarmTimestamp, 
+        cenAlarmUpdatedTimestamp, cenAlarmInstanceID, 
+        cenAlarmStatus, cenAlarmStatusDefinition, cenAlarmType, 
+        cenAlarmCategory, cenAlarmCategoryDefinition, 
+        cenAlarmServerAddressType, cenAlarmServerAddress, 
+        cenAlarmManagedObjectClass, 
+        cenAlarmManagedObjectAddressType, 
+        cenAlarmManagedObjectAddress, cenAlarmDescription, 
+        cenAlarmSeverity, cenAlarmSeverityDefinition, 
+        cenAlarmTriageValue, cenEventIDList, cenUserMessage1, 
+        cenUserMessage2, cenUserMessage3, cenAlarmMode, 
+        cenPartitionNumber, cenPartitionName, 
+        cenCustomerIdentification, cenCustomerRevision, cenAlertID }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Notification of the status of the managed object as  
+        generated by the  management server."
+    ::= 2
+
+ciscoEpmNotificationObjectsGroup OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Trap reflecting the alarm. 
+--    
+--    New attributes are added to the new notification  
+--    ciscoEpmNotificationObjectsGroupRev1. Hence 
+--    this object is deprecated.
+--  objects
+--    cenAlarmVersion, cenAlarmTimestamp, cenAlarmUpdatedTimestamp, 
+--    cenAlarmInstanceID, cenAlarmStatus, cenAlarmStatusDefinition, 
+--    cenAlarmType, cenAlarmCategory, cenAlarmCategoryDefinition, 
+--    cenAlarmServerAddressType, cenAlarmServerAddress, 
+--    cenAlarmManagedObjectClass, cenAlarmManagedObjectAddressType, 
+--    cenAlarmManagedObjectAddress, cenAlarmDescription, 
+--    cenAlarmSeverity, cenAlarmSeverityDefinition, 
+--    cenAlarmTriageValue, cenEventIDList, cenUserMessage1, 
+--    cenUserMessage2, cenUserMessage3
+
+ciscoEpmAlarmConfigGroup OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information 
+--    about the total number of cenAlarmTable entries 
+--    maintained.
+--  objects
+--    cenAlarmTableMaxLength
+
+ciscoEpmNotificationObjectsGroupRev1 OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Notification reflecting the alarm.
+--  objects
+--    cenAlarmVersion, cenAlarmTimestamp, cenAlarmUpdatedTimestamp, 
+--    cenAlarmInstanceID, cenAlarmStatus, cenAlarmStatusDefinition, 
+--    cenAlarmType, cenAlarmCategory, cenAlarmCategoryDefinition, 
+--    cenAlarmServerAddressType, cenAlarmServerAddress, 
+--    cenAlarmManagedObjectClass, cenAlarmManagedObjectAddressType, 
+--    cenAlarmManagedObjectAddress, cenAlarmDescription, 
+--    cenAlarmSeverity, cenAlarmSeverityDefinition, 
+--    cenAlarmTriageValue, cenEventIDList, cenUserMessage1, 
+--    cenUserMessage2, cenUserMessage3, cenAlarmMode, 
+--    cenPartitionNumber, cenPartitionName, 
+--    cenCustomerIdentification, cenCustomerRevision, cenAlertID
+
+ciscoEpmNotificationAlarmGroup OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBGroups 1 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The collection of notifications used to indicate managed  
+--    object status.  
+--     
+--    ciscoEpmNotificationAlarmGroupRev1 is defined. Hence this  
+--    object is deprecated.
+--  notifications
+--    ciscoEpmNotificationAlarm
+
+ciscoEpmNotificationAlarmGroupRev1 OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of notifications used to indicate managed object 
+--    status.
+--  notifications
+--    ciscoEpmNotificationAlarmRev1
+
+ciscoEpmNotificationMIBCompliance OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which  
+--    implement the CISCO-EPM-NOTIFICATION-MIB.  
+--     
+--     
+--    New attributes are included in 
+--    ciscoEpmNotificationMIBComplianceRev1. Hence this object is 
+--    deprecated.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoEpmNotificationObjectsGroup
+--   MandGroup
+--    ciscoEpmNotificationAlarmGroup
+--   OptGroup
+--    ciscoEpmAlarmConfigGroup
+--   ObjVar
+--    cenAlarmTableMaxLength
+--   ObjVar
+--    cenAlarmVersion
+--   ObjVar
+--    cenAlarmTimestamp
+--   ObjVar
+--    cenAlarmUpdatedTimestamp
+--   ObjVar
+--    cenAlarmInstanceID
+--   ObjVar
+--    cenAlarmStatus
+--   ObjVar
+--    cenAlarmStatusDefinition
+--   ObjVar
+--    cenAlarmType
+--   ObjVar
+--    cenAlarmCategory
+--   ObjVar
+--    cenAlarmCategoryDefinition
+--   ObjVar
+--    cenAlarmServerAddressType
+--   ObjVar
+--    cenAlarmServerAddress
+--   ObjVar
+--    cenAlarmManagedObjectClass
+--   ObjVar
+--    cenAlarmManagedObjectAddressType
+--   ObjVar
+--    cenAlarmManagedObjectAddress
+--   ObjVar
+--    cenAlarmDescription
+--   ObjVar
+--    cenAlarmSeverity
+--   ObjVar
+--    cenAlarmSeverityDefinition
+--   ObjVar
+--    cenAlarmTriageValue
+--   ObjVar
+--    cenEventIDList
+--   ObjVar
+--    cenUserMessage1
+--   ObjVar
+--    cenUserMessage2
+--   ObjVar
+--    cenUserMessage3
+
+ciscoEpmNotificationMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoEpmNotificationMIBCompliance 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which  
+--    implement the CISCO-EPM-NOTIFICATION-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoEpmNotificationObjectsGroupRev1
+--   MandGroup
+--    ciscoEpmNotificationAlarmGroupRev1
+--   OptGroup
+--    ciscoEpmAlarmConfigGroup
+--   ObjVar
+--    cenAlarmTableMaxLength
+--   ObjVar
+--    cenAlarmVersion
+--   ObjVar
+--    cenAlarmTimestamp
+--   ObjVar
+--    cenAlarmUpdatedTimestamp
+--   ObjVar
+--    cenAlarmInstanceID
+--   ObjVar
+--    cenAlarmStatus
+--   ObjVar
+--    cenAlarmStatusDefinition
+--   ObjVar
+--    cenAlarmType
+--   ObjVar
+--    cenAlarmCategory
+--   ObjVar
+--    cenAlarmCategoryDefinition
+--   ObjVar
+--    cenAlarmServerAddressType
+--   ObjVar
+--    cenAlarmServerAddress
+--   ObjVar
+--    cenAlarmManagedObjectClass
+--   ObjVar
+--    cenAlarmManagedObjectAddressType
+--   ObjVar
+--    cenAlarmManagedObjectAddress
+--   ObjVar
+--    cenAlarmDescription
+--   ObjVar
+--    cenAlarmSeverity
+--   ObjVar
+--    cenAlarmSeverityDefinition
+--   ObjVar
+--    cenAlarmTriageValue
+--   ObjVar
+--    cenEventIDList
+--   ObjVar
+--    cenUserMessage1
+--   ObjVar
+--    cenUserMessage2
+--   ObjVar
+--    cenUserMessage3
+--   ObjVar
+--    cenAlarmMode
+--   ObjVar
+--    cenPartitionNumber
+--   ObjVar
+--    cenPartitionName
+--   ObjVar
+--    cenCustomerIdentification
+--   ObjVar
+--    cenCustomerRevision
+--   ObjVar
+--    cenAlertID
+
+
+END
+

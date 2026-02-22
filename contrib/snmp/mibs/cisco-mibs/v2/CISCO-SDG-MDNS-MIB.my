@@ -1,0 +1,885 @@
+-- $Id$
+-- $Source$
+-- *****************************************************************
+-- CISCO-SDG-MDNS-MIB.my:  Cisco mDNS SDG MIB file.
+--   
+-- May 2017, Monal Sengar
+--   
+-- Copyright (c) 2000-2014, 2015, 2017 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+-- $Log$
+-- *****************************************************************
+-- $Endlog$
+
+CISCO-SDG-MDNS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    TimeInterval,
+    DateAndTime
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    CiscoPort,
+    TimeIntervalMin,
+    InterfaceIndexOrZero
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSdgMdnsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201709090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+
+            Postal: 170 W Tasman Drive
+
+
+            San Jose, CA  95134
+
+
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects describing the statistics of
+        local area and wide area mDNS SDG agent. Statistics could be
+        either global or per interface specific."
+    REVISION        "201705160000Z"
+    DESCRIPTION
+        "Initial Version"
+    ::= { ciscoMgmt 851 }
+
+
+-- mDNS SDG MIB object definitions
+
+cSdgMdnsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSdgMdnsMIB 1 }
+
+cSdgMdnsMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoSdgMdnsMIB 2 }
+
+csmMIBCompliances  OBJECT IDENTIFIER
+    ::= { cSdgMdnsMIBConformance 1 }
+
+-- Statistics objects
+
+csmStatistics  OBJECT IDENTIFIER
+    ::= { cSdgMdnsMIBObjects 1 }
+
+-- Global local area statistics
+
+csmGlobalStatistics  OBJECT IDENTIFIER
+    ::= { csmStatistics 1 }
+
+-- Interface specific local area statistics
+
+csmSdgStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsmSdgStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Table providing local area SDG statistics for each interface."
+    ::= { csmStatistics 2 }
+
+csmSdgStatisticsEntry OBJECT-TYPE
+    SYNTAX          CsmSdgStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Local SDG statistical information about a
+        particular interface."
+    INDEX           { csmInterface } 
+    ::= { csmSdgStatisticsTable 1 }
+
+CsmSdgStatisticsEntry ::= SEQUENCE {
+        csmInterface                 InterfaceIndexOrZero,
+        csmMdnsPakSent               Counter32,
+        csmIpv4PakSent               Counter32,
+        csmIpv6PakSent               Counter32,
+        csmIpv4AdvertisementsSentCnt Counter32,
+        csmIpv6AdvertisementsSentCnt Counter32,
+        csmIpv4QuerySentCnt          Counter32,
+        csmIpv6QuerySentCnt          Counter32,
+        csmUnicastSentCnt            Counter32,
+        csmMdnsPakRateLtd            Counter32,
+        csmMdnsPakRcvd               Counter32,
+        csmAdvertisementsReceived    Counter32,
+        csmQueriesReceived           Counter32,
+        csmIpv4AdvertisementsRcvdCnt Counter32,
+        csmIpv6AdvertisementsRcvdCnt Counter32,
+        csmIpv4QueryRcvdCnt          Counter32,
+        csmIpv6QueryRcvdCnt          Counter32,
+        csmPakDropped                Counter32,
+        csmMdnsGatewayState          Integer32
+}
+
+csmInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interface to which the
+        statistics belongs." 
+    ::= { csmSdgStatisticsEntry 1 }
+
+csmMdnsPakSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of MDNS packets sent." 
+    ::= { csmSdgStatisticsEntry 2 }
+
+csmIpv4PakSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv4  packets sent." 
+    ::= { csmSdgStatisticsEntry 3 }
+
+csmIpv6PakSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv6 packets sent." 
+    ::= { csmSdgStatisticsEntry 4 }
+
+csmIpv4AdvertisementsSentCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv4 advertisement
+        packets sent." 
+    ::= { csmSdgStatisticsEntry 5 }
+
+csmIpv6AdvertisementsSentCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv6 advertisement
+        packets sent." 
+    ::= { csmSdgStatisticsEntry 6 }
+
+csmIpv4QuerySentCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv4  query packets
+        sent." 
+    ::= { csmSdgStatisticsEntry 7 }
+
+csmIpv6QuerySentCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv6  query packets
+        sent." 
+    ::= { csmSdgStatisticsEntry 8 }
+
+csmUnicastSentCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of unicast MDNS packets
+        sent." 
+    ::= { csmSdgStatisticsEntry 9 }
+
+csmMdnsPakRateLtd OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets dropped when rate
+        limit is enabled." 
+    ::= { csmSdgStatisticsEntry 10 }
+
+csmMdnsPakRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of mDNS packets
+        received." 
+    ::= { csmSdgStatisticsEntry 11 }
+
+csmAdvertisementsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of advertisements
+        received." 
+    ::= { csmSdgStatisticsEntry 12 }
+
+csmQueriesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of queries received." 
+    ::= { csmSdgStatisticsEntry 13 }
+
+csmIpv4AdvertisementsRcvdCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv4 advertisement
+        packets received." 
+    ::= { csmSdgStatisticsEntry 14 }
+
+csmIpv6AdvertisementsRcvdCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv6 advertisement
+        packets received." 
+    ::= { csmSdgStatisticsEntry 15 }
+
+csmIpv4QueryRcvdCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv4 active query
+        packets received." 
+    ::= { csmSdgStatisticsEntry 16 }
+
+csmIpv6QueryRcvdCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv6 active query
+        packets received." 
+    ::= { csmSdgStatisticsEntry 17 }
+
+csmPakDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of MDNS packets
+        dropped." 
+    ::= { csmSdgStatisticsEntry 18 }
+
+csmMdnsGatewayState OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the mDNS gateway state." 
+    ::= { csmSdgStatisticsEntry 19 }
+ 
+
+-- Wide area statistics
+
+csmControllerStatistics  OBJECT IDENTIFIER
+    ::= { csmStatistics 3 }
+
+-- Local area cache statistics
+
+csmSdgCacheStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsmSdgCacheStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Table providing local SDG cache statistics for each interface."
+    ::= { csmStatistics 4 }
+
+csmSdgCacheStatisticsEntry OBJECT-TYPE
+    SYNTAX          CsmSdgCacheStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Local SDG cache statistics about a
+        particular interface."
+    INDEX           { csmCacheInterface } 
+    ::= { csmSdgCacheStatisticsTable 1 }
+
+CsmSdgCacheStatisticsEntry ::= SEQUENCE {
+        csmCacheInterface   InterfaceIndexOrZero,
+        csmNumOfSrvTypes    Integer32,
+        csmNumOfAAAARecords Counter32,
+        csmNumOfTXTRecords  Counter32,
+        csmNumOfSRVRecords  Counter32,
+        csmNumOfPTRRecords  Counter32,
+        csmNumOfARecords    Counter32
+}
+
+csmCacheInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interface to which the
+        cache statistics belongs." 
+    ::= { csmSdgCacheStatisticsEntry 1 }
+
+csmNumOfSrvTypes OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of service types in mDNS
+        cache." 
+    ::= { csmSdgCacheStatisticsEntry 2 }
+
+csmNumOfAAAARecords OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of type AAAA records in mDNS
+        cache." 
+    ::= { csmSdgCacheStatisticsEntry 3 }
+
+csmNumOfTXTRecords OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of type TXT records in mDNS
+        cache." 
+    ::= { csmSdgCacheStatisticsEntry 4 }
+
+csmNumOfSRVRecords OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of type SRV records in mDNS
+        cache." 
+    ::= { csmSdgCacheStatisticsEntry 5 }
+
+csmNumOfPTRRecords OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of type PTR records in mDNS
+        cache." 
+    ::= { csmSdgCacheStatisticsEntry 6 }
+
+csmNumOfARecords OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of type A records in mDNS
+        cache." 
+    ::= { csmSdgCacheStatisticsEntry 7 }
+ 
+
+
+csmAvgInRateMin OBJECT-TYPE
+    SYNTAX          TimeIntervalMin
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average input rate per minute at
+        which the mdns packets are received." 
+    ::= { csmGlobalStatistics 1 }
+
+csmAvgInRateFMin OBJECT-TYPE
+    SYNTAX          TimeIntervalMin
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average input rate per five minute at
+        which the mdns packets are received." 
+    ::= { csmGlobalStatistics 2 }
+
+csmAvgInRateHr OBJECT-TYPE
+    SYNTAX          TimeIntervalMin
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average input rate per hour at which
+        the mdns packets are received." 
+    ::= { csmGlobalStatistics 3 }
+
+csmAvgOutRateMin OBJECT-TYPE
+    SYNTAX          TimeIntervalMin
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average output rate per minute at
+        which
+        the mdns packets are received." 
+    ::= { csmGlobalStatistics 4 }
+
+csmAvgOutRateFMin OBJECT-TYPE
+    SYNTAX          TimeIntervalMin
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average output rate per five minute
+        at which
+        the mdns packets are received." 
+    ::= { csmGlobalStatistics 5 }
+
+csmAvgOutRateHr OBJECT-TYPE
+    SYNTAX          TimeIntervalMin
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average output rate per hour at which
+        the mdns packets are received." 
+    ::= { csmGlobalStatistics 6 }
+
+csmCacheLimit OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum limit of cache upto which it
+        can be allocated." 
+    ::= { csmGlobalStatistics 7 }
+
+csmCacheMemInUse OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "0"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the cache memory which is currently in
+        use." 
+    ::= { csmGlobalStatistics 8 }
+
+csmCntrlIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address of
+        controller." 
+    ::= { csmControllerStatistics 1 }
+
+csmCntrlIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Internet address of controller." 
+    ::= { csmControllerStatistics 2 }
+
+csmCntrlConnState OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the controller connection state wether it
+        is UP or DOWN." 
+    ::= { csmControllerStatistics 3 }
+
+csmCntrlSrcPort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source port of controller." 
+    ::= { csmControllerStatistics 4 }
+
+csmCntrlDestPort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the destination port of controller." 
+    ::= { csmControllerStatistics 5 }
+
+csmCntrlSrcInterface OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source interface of controller." 
+    ::= { csmControllerStatistics 6 }
+
+csmCntrlMD5Status OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether MD5 is enabled or disabled." 
+    ::= { csmControllerStatistics 7 }
+
+csmCntrlKeepAliveTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timer value
+        for active HELLO message." 
+    ::= { csmControllerStatistics 8 }
+
+csmCntrlDeadTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timer value for DEAD message." 
+    ::= { csmControllerStatistics 9 }
+
+csmCntrlTotalBCPMsgSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total BCP message sent by SDG agent
+        to APIC-EM controller." 
+    ::= { csmControllerStatistics 10 }
+
+csmCntrlTotalBCPMsgRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total BCP message received by SDG
+        agent." 
+    ::= { csmControllerStatistics 11 }
+
+csmCntrlBCPWithdrawMsgSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of BCP withdrawal message sent
+        to APIC EM." 
+    ::= { csmControllerStatistics 12 }
+
+csmCntrlIpv4QueryRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Ipv4 query requests sent to
+        APIC-EM." 
+    ::= { csmControllerStatistics 13 }
+
+csmCntrlIpv4QueryResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Ipv4 query responses
+        received by SDG agent." 
+    ::= { csmControllerStatistics 14 }
+
+csmCntrlIpv6QueryRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Ipv6 query requests sent to
+        APIC-EM." 
+    ::= { csmControllerStatistics 15 }
+
+csmCntrlIpv6QueryResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Ipv6 query responses
+        received by SDG agent." 
+    ::= { csmControllerStatistics 16 }
+
+csmCntrlIpv4ServiceAdvertised OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of IPv4 services advertised to
+        APIC EM." 
+    ::= { csmControllerStatistics 17 }
+
+csmCntrlIpv6ServiceAdvertised OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of IPv6 services advertised to
+        APIC EM." 
+    ::= { csmControllerStatistics 18 }
+
+csmCntrlPktRcvdCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets received." 
+    ::= { csmControllerStatistics 19 }
+
+csmCntrlAnnouncementQueueSize OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the queue size of announcement queue
+        which
+        stores the announcements to be exported to APIC-EM." 
+    ::= { csmControllerStatistics 20 }
+
+csmCntrlAnnouncementTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the timer value which when expired
+        initiates the announcement process." 
+    ::= { csmControllerStatistics 21 }
+
+csmCntrlAnnouncementsExported OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of annoucements exported
+        to APIC-EM." 
+    ::= { csmControllerStatistics 22 }
+
+csmCntrlPendingAnnouncements OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of pending announcement in SDG
+        agent query queue which are yet to be exported to APIC-EM." 
+    ::= { csmControllerStatistics 23 }
+
+csmCntrlNextAnnouncementTime OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time remaning to intiate the next
+        annoucement." 
+    ::= { csmControllerStatistics 24 }
+
+csmCntrlQuerySuppression OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates wether query suppression is enabled or
+        disabled." 
+    ::= { csmControllerStatistics 25 }
+
+csmCntrlPendingQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of pending queries in SDG
+        agent query queue which are yet to be exported to APIC-EM." 
+    ::= { csmControllerStatistics 26 }
+
+csmCntrlQueryQueueSize OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the queue size of query queue which
+        stores the queries to be exported to APIC-EM." 
+    ::= { csmControllerStatistics 27 }
+
+csmCntrlQueryTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the timer value which when expired
+        initiates the query process." 
+    ::= { csmControllerStatistics 28 }
+
+csmCntrlNextQueryTime OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time remaining to intiate the next
+        query." 
+    ::= { csmControllerStatistics 29 }
+
+csmCntrlTotalQueryExported OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of queries exported
+        to APIC-EM." 
+    ::= { csmControllerStatistics 30 }
+
+csmCntrlTotalResync OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of resync
+        message sent." 
+    ::= { csmControllerStatistics 31 }
+
+csmCntrlLastResync OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the timestamp of last resync message." 
+    ::= { csmControllerStatistics 32 }
+csmMIBGroups  OBJECT IDENTIFIER
+    ::= { cSdgMdnsMIBConformance 2 }
+
+
+csmMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement the Cisco
+        SDG MDNS MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csmGlobalStatisticsGroup,
+                        csmSdgStatisticsGroup,
+                        csmControllerStatisticsGroup,
+                        csmSdgCacheStatisticsGroup
+                    }
+    ::= { csmMIBCompliances 1 }
+
+csmGlobalStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csmAvgInRateMin,
+                        csmAvgInRateFMin,
+                        csmAvgInRateHr,
+                        csmAvgOutRateMin,
+                        csmAvgOutRateFMin,
+                        csmAvgOutRateHr,
+                        csmCacheLimit,
+                        csmCacheMemInUse
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides global statistics of
+        local area
+        mDNS SDG agent."
+    ::= { csmMIBGroups 1 }
+
+-- Units of Conformance
+
+csmSdgStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csmMdnsPakSent,
+                        csmUnicastSentCnt,
+                        csmMdnsPakRateLtd,
+                        csmMdnsPakRcvd,
+                        csmPakDropped,
+                        csmIpv4AdvertisementsSentCnt,
+                        csmIpv4QuerySentCnt,
+                        csmIpv6AdvertisementsSentCnt,
+                        csmIpv6QuerySentCnt,
+                        csmIpv4AdvertisementsRcvdCnt,
+                        csmIpv4QueryRcvdCnt,
+                        csmIpv6AdvertisementsRcvdCnt,
+                        csmIpv6QueryRcvdCnt,
+                        csmMdnsGatewayState,
+                        csmIpv4PakSent,
+                        csmIpv6PakSent,
+                        csmAdvertisementsReceived,
+                        csmQueriesReceived
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides statistics of local area
+        mDNS SDG agent."
+    ::= { csmMIBGroups 2 }
+
+csmControllerStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csmCntrlConnState,
+                        csmCntrlMD5Status,
+                        csmCntrlKeepAliveTimer,
+                        csmCntrlDeadTimer,
+                        csmCntrlTotalBCPMsgSent,
+                        csmCntrlTotalBCPMsgRcvd,
+                        csmCntrlTotalResync,
+                        csmCntrlLastResync,
+                        csmCntrlIpv4QueryResponses,
+                        csmCntrlIpv4QueryRequests,
+                        csmCntrlIpv6QueryRequests,
+                        csmCntrlIpv6QueryResponses,
+                        csmCntrlIpv4ServiceAdvertised,
+                        csmCntrlIpv6ServiceAdvertised,
+                        csmCntrlBCPWithdrawMsgSent,
+                        csmCntrlPktRcvdCnt,
+                        csmCntrlIpAddr,
+                        csmCntrlSrcPort,
+                        csmCntrlDestPort,
+                        csmCntrlAnnouncementQueueSize,
+                        csmCntrlAnnouncementTimer,
+                        csmCntrlPendingAnnouncements,
+                        csmCntrlAnnouncementsExported,
+                        csmCntrlNextAnnouncementTime,
+                        csmCntrlQuerySuppression,
+                        csmCntrlQueryQueueSize,
+                        csmCntrlQueryTimer,
+                        csmCntrlPendingQueries,
+                        csmCntrlTotalQueryExported,
+                        csmCntrlNextQueryTime,
+                        csmCntrlIpAddrType,
+                        csmCntrlSrcInterface
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides statistics of mDNS
+        controller."
+    ::= { csmMIBGroups 3 }
+
+csmSdgCacheStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csmNumOfSrvTypes,
+                        csmNumOfTXTRecords,
+                        csmNumOfSRVRecords,
+                        csmNumOfARecords,
+                        csmNumOfAAAARecords,
+                        csmNumOfPTRRecords
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides statistics of mDNS
+        cache."
+    ::= { csmMIBGroups 4 }
+
+END
+

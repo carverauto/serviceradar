@@ -1,0 +1,526 @@
+-- *********************************************************************
+-- CISCO-APPLICATION-ACCELERATION-MIB: Mib for Application Acceleration
+-- Entities
+--   
+-- October 2006, Manohar Hungund
+--   
+-- Copyright (c) 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *********************************************************************
+
+CISCO-APPLICATION-ACCELERATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    DateAndTime,
+    TruthValue,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoApplicationAccelerationMIB MODULE-IDENTITY
+    LAST-UPDATED    "200610300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-avs@cisco.com"
+    DESCRIPTION
+        "This is a MIB for managing Application Acceleration System(s).
+        This MIB includes instrumentation for providing the
+        performance statistics and status of the condenser which is
+        the core of the Application Acceleration System.
+        A condenser is a software accelerator that applies several
+        optimization techniques to accelerate Web application access.
+        The condenser application accelerates and optimizes any HTML or
+        XML-based application over HTTP resulting in response
+        time improvements and decrease in bandwidth requirements.
+        This application shall reside in a content switching module or
+        appliance.
+
+        Acronyms and terminology:
+
+        HTTP 
+
+        In this MIB it refers to both secure ('HTTPS') as
+        well as non-secure ('HTTP') web traffic.
+
+        IMS 
+
+        If-Modified-Since is an HTTP request type.
+        The If-Modified-Since request-header field
+        is used with a method to make it 
+        conditional: if the requested variant has not
+        been modified since the time specified in this field,
+        an entity will not be returned from the server; instead,
+        a '304' ('not modified') response will be returned without
+        any message-body.
+
+        Delta 
+
+        It is the ability of condenser to dynamically
+        update client browser caches directly
+        with content differences, or deltas,
+        resulting in faster page downloads.
+
+        FlashForward 
+
+        FlashForward is a object acceleration technology that
+        eliminates network delays associated with embedded cacheable
+        web objects such as images, style sheets, JavaScript files, etc.
+        FlashForward object acceleration places the responsibility for
+        validating object freshness on the condenser, rather than on
+        the client, making it more efficient. With FlashForward, the
+        client never needs to validate the freshness of browser-cached
+        objects with the origin server, thus significantly accelerating
+        page downloads, and reducing both upstream and downstream
+        traffic associated with object validation requests. 
+
+        Transformation 
+
+        It is the change applied on the incoming 
+        web traffic, as part of specific 
+        optimization method like delta or
+        flashforward, to achieve web traffic
+        acceleration.
+
+        Objects 
+
+        All the non-textual embedded components of a web 
+        page are referred to as Objects in this MIB.
+
+        Condensable 
+
+        It refers to all objects that can be subjected 
+        to optimization by condenser.
+
+        Non-Condensable 
+
+        It refers to all objects that cannot be
+        subjected to optimization by condenser.
+
+        REFERENCE
+
+        [1] Hypertext Transfer Protocol -- HTTP/1.1, RFC 2616
+            Section 14.25 If-Modified-Since.
+
+        "
+    REVISION        "200610300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+          ::= { ciscoMgmt 594 }
+
+
+caaMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoApplicationAccelerationMIB 0 }
+
+caaMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoApplicationAccelerationMIB 1 }
+
+caaMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoApplicationAccelerationMIB 2 }
+
+caaStats  OBJECT IDENTIFIER
+    ::= { caaMIBObjects 1 }
+
+caaNotificationObjects  OBJECT IDENTIFIER
+    ::= { caaMIBObjects 2 }
+
+-- Textual Conventions
+
+CaaState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention provides the current state of the
+        condenser.  The semantics are as follows.
+        'active'   : condenser is running and serving HTTP requests.
+        'impaired' : condenser is running, but not serving any 
+                     HTTP requests.
+        'down'     :  condenser is not running."
+    SYNTAX          INTEGER  {
+                        active(1),
+                        impaired(2),
+                        down(3)
+                    }
+
+caaStatTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CaaStatEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the information about the
+        performance related statistics and the status 
+        of the condenser on this system. An entry is added
+        to this system automatically by the  agent when 
+        the system boots up. "
+    ::= { caaStats 1 }
+
+caaStatEntry OBJECT-TYPE
+    SYNTAX          CaaStatEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in caaStatTable and corresponds to the performance
+        statistics and status of a condenser on the system."
+    INDEX           { caaPort } 
+    ::= { caaStatTable 1 }
+
+CaaStatEntry ::= SEQUENCE {
+        caaPort                         InetPortNumber,
+        caaState                        CaaState,
+        caaRequests                     Counter32,
+        caaNoncondensableRequests       Counter32,
+        caaRequestedObjectSize          Counter32,
+        caaFinalResponseSize            Counter32,
+        caaLastRestartedTime            DateAndTime,
+        caaTransformed                  Counter32,
+        caaUntransformed                Counter32,
+        caaTransformedObjectRequests    Counter32,
+        caaTransformedObjectIMSRequests Counter32,
+        caaStaticObjectHits             Counter32,
+        caaStaticObjectHitSize          Counter32,
+        caaStaticObjectMisses           Counter32,
+        caaStaticObjectMissSize         Counter32,
+        caaRefreshHits                  Counter32,
+        caaIMSHits                      Counter32,
+        caaIMSMisses                    Counter32,
+        caaDirectRequests               Counter32,
+        caaRequestSize                  Counter32,
+        caaDeltaAbandons                Counter32
+}
+
+caaPort OBJECT-TYPE
+    SYNTAX          InetPortNumber (1..65535 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the port on which the condenser
+        listens." 
+    ::= { caaStatEntry 1 }
+
+caaState OBJECT-TYPE
+    SYNTAX          CaaState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current state of
+        the condenser." 
+    ::= { caaStatEntry 2 }
+
+caaRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of end-user
+        HTTP requests the condenser has received." 
+    ::= { caaStatEntry 3 }
+
+caaNoncondensableRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of end-user
+        HTTP requests the condenser has received, that cannot
+        be optimized." 
+    ::= { caaStatEntry 4 }
+
+caaRequestedObjectSize OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the accumulated size (in bytes)
+        of each end-user requested object." 
+    ::= { caaStatEntry 5 }
+
+caaFinalResponseSize OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the accumulated size (in bytes)
+        of each responses, both for condensable and non-condensable
+        end-user HTTP request." 
+    ::= { caaStatEntry 6 }
+
+caaLastRestartedTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the time when the
+        condenser was last started." 
+    ::= { caaStatEntry 7 }
+
+caaTransformed OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "transformations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of successful
+        transformations for FlashForward Objects." 
+    ::= { caaStatEntry 8 }
+
+caaUntransformed OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "transformations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of unsuccessful
+        transformations for FlashForward Objects." 
+    ::= { caaStatEntry 9 }
+
+caaTransformedObjectRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of HTTP
+        requests (excluding the IMS requests) for the transformed
+        FlashForward objects." 
+    ::= { caaStatEntry 10 }
+
+caaTransformedObjectIMSRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IMS requests
+        for those transformed FlashForward objects." 
+    ::= { caaStatEntry 11 }
+
+caaStaticObjectHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "cache-hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of cacheable objects
+        served from the cache, excluding the '304' 
+        ('not modified') replies." 
+    ::= { caaStatEntry 12 }
+
+caaStaticObjectHitSize OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the accumulated size (in bytes)
+        of the cacheable objects served from the cache,
+        excluding '304' ('not modified') replies." 
+    ::= { caaStatEntry 13 }
+
+caaStaticObjectMisses OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "cache-misses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of cacheable
+        objects not found in the cache." 
+    ::= { caaStatEntry 14 }
+
+caaStaticObjectMissSize OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the accumulated size (in bytes)
+        of the cacheable objects not found in the cache." 
+    ::= { caaStatEntry 15 }
+
+caaRefreshHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of requests for
+        stale objects that have the responses from the origin
+        server as 'not modified'." 
+    ::= { caaStatEntry 16 }
+
+caaIMSHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IMS requests
+        for valid copies of objects in the cache." 
+    ::= { caaStatEntry 17 }
+
+caaIMSMisses OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IMS requests
+        for objects that either do not exist or are stale in
+        the cache." 
+    ::= { caaStatEntry 18 }
+
+caaDirectRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        non-cacheable object requests." 
+    ::= { caaStatEntry 19 }
+
+caaRequestSize OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the accumulated size (in bytes)
+        of each requests, both for condensable and non-condensable." 
+    ::= { caaStatEntry 20 }
+
+caaDeltaAbandons OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of abandons of
+        delta optimization requests." 
+    ::= { caaStatEntry 21 }
+ 
+
+
+-- *************************************************************
+-- *                                                           *
+-- * Notifications
+-- *                                                           *
+-- *************************************************************
+caaStateChangeNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the status of generation of the
+        caaStateChange notification in response to a change in  
+        the state of condenser.  A value of 'true' indicates
+        that the notification generation is enabled and the
+        caaStateChange notification is to be generated when the
+        state changes.  A value of 'false' indicates that the  
+        notification generation is disabled. "
+    DEFVAL          { false } 
+    ::= { caaNotificationObjects 1 }
+
+
+caaStateChange NOTIFICATION-TYPE
+    OBJECTS         { caaState }
+    STATUS          current
+    DESCRIPTION
+        "This object represents the notification to be generated
+        when a condenser undergoes a state change. caaState represents
+        the new state of the condenser."
+   ::= { caaMIBNotifications 1 }
+-- Compliance statements
+caaMIBCompliances  OBJECT IDENTIFIER
+    ::= { caaMIBConformance 1 }
+
+caaMIBGroups  OBJECT IDENTIFIER
+    ::= { caaMIBConformance 2 }
+
+
+caaMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+        that implement the ciscoApplicationAccelerationMIB
+        module. "
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        caaMIBStatsGroup,
+                        caaMIBNotificationsGroup,
+                        caaMIBNotifObjectGroup
+                    }
+    ::= { caaMIBCompliances 1 }
+
+-- Units of Conformance
+caaMIBStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        caaState,
+                        caaRequests,
+                        caaNoncondensableRequests,
+                        caaRequestedObjectSize,
+                        caaFinalResponseSize,
+                        caaLastRestartedTime,
+                        caaTransformed,
+                        caaUntransformed,
+                        caaTransformedObjectRequests,
+                        caaTransformedObjectIMSRequests,
+                        caaStaticObjectHits,
+                        caaStaticObjectHitSize,
+                        caaStaticObjectMisses,
+                        caaStaticObjectMissSize,
+                        caaRefreshHits,
+                        caaIMSHits,
+                        caaIMSMisses,
+                        caaDirectRequests,
+                        caaRequestSize,
+                        caaDeltaAbandons
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        performance statistics for a condenser."
+    ::= { caaMIBGroups 1 }
+
+caaMIBNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { caaStateChange }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        notifications generated by the system to
+        provide information about the condensers."
+    ::= { caaMIBGroups 2 }
+
+caaMIBNotifObjectGroup OBJECT-GROUP
+    OBJECTS         { caaStateChangeNotifEnabled }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        information carried by those condenser-related
+        notifications generated by the system."
+    ::= { caaMIBGroups 3 }
+
+END

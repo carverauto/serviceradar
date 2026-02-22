@@ -1,0 +1,830 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-FCPOOL-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- FCPOOL management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-FCPOOL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsAddressWWNMask,
+    CucsFcpoolBootTargetType,
+    CucsFcpoolInitiatorEpPurpose,
+    CucsFcpoolInitiatorPurpose,
+    CucsFcpoolInitiatorsAssignmentOrder,
+    CucsFcpoolInitiatorsMaxPortsPerNode,
+    CucsFcpoolInitiatorsPurpose,
+    CucsPolicyPolicyOwner,
+    CucsPoolElementOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsFcpoolObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        FCPOOL management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 21 }
+
+cucsFcpoolAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr managed object table"
+    ::= { cucsFcpoolObjects 1 }
+
+cucsFcpoolAddrEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolAddrTable table."
+    INDEX { cucsFcpoolAddrInstanceId }
+    ::= { cucsFcpoolAddrTable 1 }
+
+CucsFcpoolAddrEntry ::= SEQUENCE {
+    cucsFcpoolAddrInstanceId                                         CucsManagedObjectId,
+    cucsFcpoolAddrDn                                                 CucsManagedObjectDn,
+    cucsFcpoolAddrRn                                                 SnmpAdminString,
+    cucsFcpoolAddrAssigned                                           TruthValue,
+    cucsFcpoolAddrAssignedToDn                                       SnmpAdminString,
+    cucsFcpoolAddrId                                                 Unsigned64,
+    cucsFcpoolAddrOwner                                              CucsPoolElementOwner,
+    cucsFcpoolAddrGlobalAssignedCnt                                  Gauge32,
+    cucsFcpoolAddrGlobalDefinedCnt                                   Gauge32
+}
+
+cucsFcpoolAddrInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolAddrEntry 1 }
+
+cucsFcpoolAddrDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:dn managed object property"
+    ::= { cucsFcpoolAddrEntry 2 }
+
+cucsFcpoolAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:rn managed object property"
+    ::= { cucsFcpoolAddrEntry 3 }
+
+cucsFcpoolAddrAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:assigned managed object property"
+    ::= { cucsFcpoolAddrEntry 4 }
+
+cucsFcpoolAddrAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:assignedToDn managed object property"
+    ::= { cucsFcpoolAddrEntry 5 }
+
+cucsFcpoolAddrId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:id managed object property"
+    ::= { cucsFcpoolAddrEntry 6 }
+
+cucsFcpoolAddrOwner OBJECT-TYPE
+    SYNTAX       CucsPoolElementOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:owner managed object property"
+    ::= { cucsFcpoolAddrEntry 7 }
+
+cucsFcpoolAddrGlobalAssignedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:globalAssignedCnt managed object property"
+    ::= { cucsFcpoolAddrEntry 8 }
+
+cucsFcpoolAddrGlobalDefinedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Addr:globalDefinedCnt managed object property"
+    ::= { cucsFcpoolAddrEntry 9 }
+
+cucsFcpoolBlockTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:Block managed object table"
+    ::= { cucsFcpoolObjects 2 }
+
+cucsFcpoolBlockEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolBlockTable table."
+    INDEX { cucsFcpoolBlockInstanceId }
+    ::= { cucsFcpoolBlockTable 1 }
+
+CucsFcpoolBlockEntry ::= SEQUENCE {
+    cucsFcpoolBlockInstanceId                                        CucsManagedObjectId,
+    cucsFcpoolBlockDn                                                CucsManagedObjectDn,
+    cucsFcpoolBlockRn                                                SnmpAdminString,
+    cucsFcpoolBlockFrom                                              Unsigned64,
+    cucsFcpoolBlockTo                                                Unsigned64
+}
+
+cucsFcpoolBlockInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolBlockEntry 1 }
+
+cucsFcpoolBlockDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Block:dn managed object property"
+    ::= { cucsFcpoolBlockEntry 2 }
+
+cucsFcpoolBlockRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Block:rn managed object property"
+    ::= { cucsFcpoolBlockEntry 3 }
+
+cucsFcpoolBlockFrom OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Block:from managed object property"
+    ::= { cucsFcpoolBlockEntry 4 }
+
+cucsFcpoolBlockTo OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Block:to managed object property"
+    ::= { cucsFcpoolBlockEntry 5 }
+
+cucsFcpoolBootTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolBootTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:BootTarget managed object table"
+    ::= { cucsFcpoolObjects 3 }
+
+cucsFcpoolBootTargetEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolBootTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolBootTargetTable table."
+    INDEX { cucsFcpoolBootTargetInstanceId }
+    ::= { cucsFcpoolBootTargetTable 1 }
+
+CucsFcpoolBootTargetEntry ::= SEQUENCE {
+    cucsFcpoolBootTargetInstanceId                                   CucsManagedObjectId,
+    cucsFcpoolBootTargetDn                                           CucsManagedObjectDn,
+    cucsFcpoolBootTargetRn                                           SnmpAdminString,
+    cucsFcpoolBootTargetLun                                          SnmpAdminString,
+    cucsFcpoolBootTargetType                                         CucsFcpoolBootTargetType,
+    cucsFcpoolBootTargetWwn                                          Unsigned64
+}
+
+cucsFcpoolBootTargetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolBootTargetEntry 1 }
+
+cucsFcpoolBootTargetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:BootTarget:dn managed object property"
+    ::= { cucsFcpoolBootTargetEntry 2 }
+
+cucsFcpoolBootTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:BootTarget:rn managed object property"
+    ::= { cucsFcpoolBootTargetEntry 3 }
+
+cucsFcpoolBootTargetLun OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:BootTarget:lun managed object property"
+    ::= { cucsFcpoolBootTargetEntry 4 }
+
+cucsFcpoolBootTargetType OBJECT-TYPE
+    SYNTAX       CucsFcpoolBootTargetType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:BootTarget:type managed object property"
+    ::= { cucsFcpoolBootTargetEntry 5 }
+
+cucsFcpoolBootTargetWwn OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:BootTarget:wwn managed object property"
+    ::= { cucsFcpoolBootTargetEntry 6 }
+
+cucsFcpoolFormatTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:Format managed object table"
+    ::= { cucsFcpoolObjects 4 }
+
+cucsFcpoolFormatEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolFormatTable table."
+    INDEX { cucsFcpoolFormatInstanceId }
+    ::= { cucsFcpoolFormatTable 1 }
+
+CucsFcpoolFormatEntry ::= SEQUENCE {
+    cucsFcpoolFormatInstanceId                                       CucsManagedObjectId,
+    cucsFcpoolFormatDn                                               CucsManagedObjectDn,
+    cucsFcpoolFormatRn                                               SnmpAdminString,
+    cucsFcpoolFormatFormat                                           Unsigned64,
+    cucsFcpoolFormatMask                                             CucsAddressWWNMask
+}
+
+cucsFcpoolFormatInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolFormatEntry 1 }
+
+cucsFcpoolFormatDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Format:dn managed object property"
+    ::= { cucsFcpoolFormatEntry 2 }
+
+cucsFcpoolFormatRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Format:rn managed object property"
+    ::= { cucsFcpoolFormatEntry 3 }
+
+cucsFcpoolFormatFormat OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Format:format managed object property"
+    ::= { cucsFcpoolFormatEntry 4 }
+
+cucsFcpoolFormatMask OBJECT-TYPE
+    SYNTAX       CucsAddressWWNMask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Format:mask managed object property"
+    ::= { cucsFcpoolFormatEntry 5 }
+
+cucsFcpoolInitiatorTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolInitiatorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator managed object table"
+    ::= { cucsFcpoolObjects 5 }
+
+cucsFcpoolInitiatorEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolInitiatorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolInitiatorTable table."
+    INDEX { cucsFcpoolInitiatorInstanceId }
+    ::= { cucsFcpoolInitiatorTable 1 }
+
+CucsFcpoolInitiatorEntry ::= SEQUENCE {
+    cucsFcpoolInitiatorInstanceId                                    CucsManagedObjectId,
+    cucsFcpoolInitiatorDn                                            CucsManagedObjectDn,
+    cucsFcpoolInitiatorRn                                            SnmpAdminString,
+    cucsFcpoolInitiatorAssigned                                      TruthValue,
+    cucsFcpoolInitiatorAssignedToDn                                  SnmpAdminString,
+    cucsFcpoolInitiatorDescr                                         SnmpAdminString,
+    cucsFcpoolInitiatorId                                            Unsigned64,
+    cucsFcpoolInitiatorName                                          SnmpAdminString,
+    cucsFcpoolInitiatorPoolableDn                                    SnmpAdminString,
+    cucsFcpoolInitiatorPrevAssignedToDn                              SnmpAdminString,
+    cucsFcpoolInitiatorPurpose                                       CucsFcpoolInitiatorPurpose
+}
+
+cucsFcpoolInitiatorInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolInitiatorEntry 1 }
+
+cucsFcpoolInitiatorDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:dn managed object property"
+    ::= { cucsFcpoolInitiatorEntry 2 }
+
+cucsFcpoolInitiatorRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:rn managed object property"
+    ::= { cucsFcpoolInitiatorEntry 3 }
+
+cucsFcpoolInitiatorAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:assigned managed object property"
+    ::= { cucsFcpoolInitiatorEntry 4 }
+
+cucsFcpoolInitiatorAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:assignedToDn managed object property"
+    ::= { cucsFcpoolInitiatorEntry 5 }
+
+cucsFcpoolInitiatorDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:descr managed object property"
+    ::= { cucsFcpoolInitiatorEntry 6 }
+
+cucsFcpoolInitiatorId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:id managed object property"
+    ::= { cucsFcpoolInitiatorEntry 7 }
+
+cucsFcpoolInitiatorName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:name managed object property"
+    ::= { cucsFcpoolInitiatorEntry 8 }
+
+cucsFcpoolInitiatorPoolableDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:poolableDn managed object property"
+    ::= { cucsFcpoolInitiatorEntry 9 }
+
+cucsFcpoolInitiatorPrevAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:prevAssignedToDn managed
+        object property"
+    ::= { cucsFcpoolInitiatorEntry 10 }
+
+cucsFcpoolInitiatorPurpose OBJECT-TYPE
+    SYNTAX       CucsFcpoolInitiatorPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiator:purpose managed object property"
+    ::= { cucsFcpoolInitiatorEntry 11 }
+
+cucsFcpoolInitiatorEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolInitiatorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:InitiatorEp managed object table"
+    ::= { cucsFcpoolObjects 9 }
+
+cucsFcpoolInitiatorEpEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolInitiatorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolInitiatorEpTable table."
+    INDEX { cucsFcpoolInitiatorEpInstanceId }
+    ::= { cucsFcpoolInitiatorEpTable 1 }
+
+CucsFcpoolInitiatorEpEntry ::= SEQUENCE {
+    cucsFcpoolInitiatorEpInstanceId                                  CucsManagedObjectId,
+    cucsFcpoolInitiatorEpDn                                          CucsManagedObjectDn,
+    cucsFcpoolInitiatorEpRn                                          SnmpAdminString,
+    cucsFcpoolInitiatorEpId                                          Unsigned64,
+    cucsFcpoolInitiatorEpInitiatorDn                                 SnmpAdminString,
+    cucsFcpoolInitiatorEpPurpose                                     CucsFcpoolInitiatorEpPurpose
+}
+
+cucsFcpoolInitiatorEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolInitiatorEpEntry 1 }
+
+cucsFcpoolInitiatorEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:InitiatorEp:dn managed object property"
+    ::= { cucsFcpoolInitiatorEpEntry 2 }
+
+cucsFcpoolInitiatorEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:InitiatorEp:rn managed object property"
+    ::= { cucsFcpoolInitiatorEpEntry 3 }
+
+cucsFcpoolInitiatorEpId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:InitiatorEp:id managed object property"
+    ::= { cucsFcpoolInitiatorEpEntry 4 }
+
+cucsFcpoolInitiatorEpInitiatorDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:InitiatorEp:initiatorDn managed object property"
+    ::= { cucsFcpoolInitiatorEpEntry 5 }
+
+cucsFcpoolInitiatorEpPurpose OBJECT-TYPE
+    SYNTAX       CucsFcpoolInitiatorEpPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:InitiatorEp:purpose managed object property"
+    ::= { cucsFcpoolInitiatorEpEntry 6 }
+
+cucsFcpoolInitiatorsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolInitiatorsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators managed object table"
+    ::= { cucsFcpoolObjects 6 }
+
+cucsFcpoolInitiatorsEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolInitiatorsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolInitiatorsTable table."
+    INDEX { cucsFcpoolInitiatorsInstanceId }
+    ::= { cucsFcpoolInitiatorsTable 1 }
+
+CucsFcpoolInitiatorsEntry ::= SEQUENCE {
+    cucsFcpoolInitiatorsInstanceId                                   CucsManagedObjectId,
+    cucsFcpoolInitiatorsDn                                           CucsManagedObjectDn,
+    cucsFcpoolInitiatorsRn                                           SnmpAdminString,
+    cucsFcpoolInitiatorsAssigned                                     Gauge32,
+    cucsFcpoolInitiatorsDescr                                        SnmpAdminString,
+    cucsFcpoolInitiatorsIntId                                        SnmpAdminString,
+    cucsFcpoolInitiatorsName                                         SnmpAdminString,
+    cucsFcpoolInitiatorsPurpose                                      CucsFcpoolInitiatorsPurpose,
+    cucsFcpoolInitiatorsSize                                         Gauge32,
+    cucsFcpoolInitiatorsAssignmentOrder                              CucsFcpoolInitiatorsAssignmentOrder,
+    cucsFcpoolInitiatorsMaxPortsPerNode                              CucsFcpoolInitiatorsMaxPortsPerNode,
+    cucsFcpoolInitiatorsPolicyLevel                                  Gauge32,
+    cucsFcpoolInitiatorsPolicyOwner                                  CucsPolicyPolicyOwner
+}
+
+cucsFcpoolInitiatorsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolInitiatorsEntry 1 }
+
+cucsFcpoolInitiatorsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:dn managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 2 }
+
+cucsFcpoolInitiatorsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:rn managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 3 }
+
+cucsFcpoolInitiatorsAssigned OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:assigned managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 4 }
+
+cucsFcpoolInitiatorsDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:descr managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 5 }
+
+cucsFcpoolInitiatorsIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:intId managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 6 }
+
+cucsFcpoolInitiatorsName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:name managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 7 }
+
+cucsFcpoolInitiatorsPurpose OBJECT-TYPE
+    SYNTAX       CucsFcpoolInitiatorsPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:purpose managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 8 }
+
+cucsFcpoolInitiatorsSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:size managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 9 }
+
+cucsFcpoolInitiatorsAssignmentOrder OBJECT-TYPE
+    SYNTAX       CucsFcpoolInitiatorsAssignmentOrder
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:assignmentOrder managed
+        object property"
+    ::= { cucsFcpoolInitiatorsEntry 10 }
+
+cucsFcpoolInitiatorsMaxPortsPerNode OBJECT-TYPE
+    SYNTAX       CucsFcpoolInitiatorsMaxPortsPerNode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:maxPortsPerNode managed
+        object property"
+    ::= { cucsFcpoolInitiatorsEntry 11 }
+
+cucsFcpoolInitiatorsPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:policyLevel managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 12 }
+
+cucsFcpoolInitiatorsPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Initiators:policyOwner managed object property"
+    ::= { cucsFcpoolInitiatorsEntry 13 }
+
+cucsFcpoolPoolableTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:Poolable managed object table"
+    ::= { cucsFcpoolObjects 7 }
+
+cucsFcpoolPoolableEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolPoolableTable table."
+    INDEX { cucsFcpoolPoolableInstanceId }
+    ::= { cucsFcpoolPoolableTable 1 }
+
+CucsFcpoolPoolableEntry ::= SEQUENCE {
+    cucsFcpoolPoolableInstanceId                                     CucsManagedObjectId,
+    cucsFcpoolPoolableDn                                             CucsManagedObjectDn,
+    cucsFcpoolPoolableRn                                             SnmpAdminString,
+    cucsFcpoolPoolableId                                             Unsigned64,
+    cucsFcpoolPoolablePoolDn                                         SnmpAdminString
+}
+
+cucsFcpoolPoolableInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolPoolableEntry 1 }
+
+cucsFcpoolPoolableDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Poolable:dn managed object property"
+    ::= { cucsFcpoolPoolableEntry 2 }
+
+cucsFcpoolPoolableRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Poolable:rn managed object property"
+    ::= { cucsFcpoolPoolableEntry 3 }
+
+cucsFcpoolPoolableId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Poolable:id managed object property"
+    ::= { cucsFcpoolPoolableEntry 4 }
+
+cucsFcpoolPoolablePoolDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Poolable:poolDn managed object property"
+    ::= { cucsFcpoolPoolableEntry 5 }
+
+cucsFcpoolUniverseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fcpool:Universe managed object table"
+    ::= { cucsFcpoolObjects 8 }
+
+cucsFcpoolUniverseEntry OBJECT-TYPE
+    SYNTAX           CucsFcpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcpoolUniverseTable table."
+    INDEX { cucsFcpoolUniverseInstanceId }
+    ::= { cucsFcpoolUniverseTable 1 }
+
+CucsFcpoolUniverseEntry ::= SEQUENCE {
+    cucsFcpoolUniverseInstanceId                                     CucsManagedObjectId,
+    cucsFcpoolUniverseDn                                             CucsManagedObjectDn,
+    cucsFcpoolUniverseRn                                             SnmpAdminString
+}
+
+cucsFcpoolUniverseInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcpoolUniverseEntry 1 }
+
+cucsFcpoolUniverseDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Universe:dn managed object property"
+    ::= { cucsFcpoolUniverseEntry 2 }
+
+cucsFcpoolUniverseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fcpool:Universe:rn managed object property"
+    ::= { cucsFcpoolUniverseEntry 3 }
+
+END

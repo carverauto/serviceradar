@@ -1,0 +1,5834 @@
+-- MIB file created 15-Mar-2001 10:53:56, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+APPN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "APPN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    IANAifType
+            FROM IANAifType-MIB
+    DisplayString, VariablePointer, RowPointer, DateAndTime, 
+    TruthValue, TimeStamp
+            FROM SNMPv2-TC-v1
+    snanauMIB
+            FROM SNA-NAU-MIB
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+appnMIB OBJECT IDENTIFIER ::= { snanauMIB 4 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9807151800Z
+--  OrgName
+--    IETF SNA NAU MIB WG / AIW APPN MIBs SIG
+--  ContactInfo
+--    
+--    
+--            Bob Clouston
+--            Cisco Systems
+--            7025 Kit Creek Road
+--            P.O. Box 14987
+--            Research Triangle Park, NC 27709, USA
+--            Tel:    1 919 472 2333
+--            E-mail: clouston@cisco.com
+--    
+--            Bob Moore
+--            IBM Corporation
+--            4205 S. Miami Boulevard
+--            BRQA/501
+--            P.O. Box 12195
+--            Research Triangle Park, NC 27709, USA
+--            Tel:    1 919 254 4436
+--            E-mail: remoore@us.ibm.com
+--  Descr
+--    This is the MIB module for objects used to
+--     manage network devices with APPN capabilities.
+--  RevDate
+--    9807151800Z
+--  RevDescr
+--    Minor editorial fixes; new value 'none(5)' added
+--    to the enumeration for the appnLocalTgBranchLinkType
+--    object.
+--  RevDate
+--    9805261800Z
+--  RevDescr
+--    Post-RFC 2155 conformance definitions added,
+--    appnNodeLsCounterType and appnNodeBrNn objects
+--    added, appnNodeMibVersion object deprecated.
+--  RevDate
+--    9707311800Z
+--  RevDescr
+--    Branch network node (Branch Extender) objects added.
+--  RevDate
+--    9703311800Z
+--  RevDescr
+--    MLTG objects added.
+--  RevDate
+--    9703201200Z
+--  RevDescr
+--    RFC 2155 (Proposed Standard)
+
+appnObjects     OBJECT IDENTIFIER ::= { appnMIB 1 }
+appnNode        OBJECT IDENTIFIER ::= { appnObjects 1 }
+appnGeneralInfoAndCaps OBJECT IDENTIFIER ::= { appnNode 1 }
+appnNnUniqueInfoAndCaps OBJECT IDENTIFIER ::= { appnNode 2 }
+appnEnUniqueCaps OBJECT IDENTIFIER ::= { appnNode 3 }
+appnPortInformation OBJECT IDENTIFIER ::= { appnNode 4 }
+appnLinkStationInformation OBJECT IDENTIFIER ::= { appnNode 5 }
+appnVrnInfo     OBJECT IDENTIFIER ::= { appnNode 6 }
+appnNn          OBJECT IDENTIFIER ::= { appnObjects 2 }
+appnNnTopo      OBJECT IDENTIFIER ::= { appnNn 1 }
+appnNnTopology  OBJECT IDENTIFIER ::= { appnNn 2 }
+appnLocalTopology OBJECT IDENTIFIER ::= { appnObjects 3 }
+appnDir         OBJECT IDENTIFIER ::= { appnObjects 4 }
+appnDirPerf     OBJECT IDENTIFIER ::= { appnDir 1 }
+appnCos         OBJECT IDENTIFIER ::= { appnObjects 5 }
+appnSessIntermediate OBJECT IDENTIFIER ::= { appnObjects 6 }
+appnIsInGlobal  OBJECT IDENTIFIER ::= { appnSessIntermediate 1 }
+appnTraps       OBJECT IDENTIFIER ::= { appnMIB 2 }
+appnConformance OBJECT IDENTIFIER ::= { appnMIB 3 }
+appnCompliances OBJECT IDENTIFIER ::= { appnConformance 1 }
+appnGroups      OBJECT IDENTIFIER ::= { appnConformance 2 }
+
+SnaNodeIdentification ::= OCTET STRING(SIZE(8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An SNA Node Identification consists of two parts, which
+--    together comprise four bytes of hexadecimal data.  In SNA the
+--    Node Identification is transported in bytes 2-5 of the XID.
+--    
+--    The block number is the first three digits of the Node
+--    Identification.  These 3 hexadecimal digits identify the
+--    product.
+--    
+--    The ID number is the last 5 digits of the Node Identification.
+--    These 5 hexadecimal digits are administratively defined and
+--    combined with the 3-digit block number form the 8-digit Node
+--    Identification.  A unique value is required for connections to
+--    SNA subarea.  In some implementations, the value 'bbb00000'
+--    (where 'bbb' represents a 3-digit block number) is returned to
+--    mean that the ID number is not unique on this node.
+--    
+--    An SNA Node Identification is represented as eight
+--    ASCII-encoded hexadecimal digits, using the characters '0' -
+--    '9' and 'A' - 'F'.
+
+SnaControlPointName ::= OCTET STRING(SIZE(3..17))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A fully qualified SNA control point name, consisting of a 1 to
+--    8 character network identifier (NetId), a period ('.'), and a 1
+--    to 8 character control point name (CpName).
+--    
+--    The NetId and CpName are constructed from the uppercase letters
+--    'A' - 'Z' and the numerics '0' - '9', all encoded in ASCII,
+--    with the restriction that the first character of each must be
+--    a letter.  Trailing blanks are not allowed.
+--    
+--    Earlier versions of SNA permitted three additional characters
+--    in NetIds and CpNames:  '#', '@', and '$'.  While this use of
+--    these characters has been retired, a Management Station should
+--    still accept them for backward compatibility.
+
+SnaClassOfServiceName ::= OCTET STRING(SIZE(0..8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An SNA class-of-service (COS) name, ranging from 1 to 8
+--    ASCII characters.  COS names take one of two forms:
+--    
+--       -  a user-defined COS name is constructed from the uppercase
+--          letters 'A' - 'Z' and the numerics '0' - '9', with the
+--          restriction that the first character of the name must be
+--          a letter.
+--       -  an SNA-defined user-session COS name begins with the
+--          character '#', which is followed by up to seven
+--          additional characters from the set of uppercase letters
+--          and numerics.
+--    
+--    Trailing blanks are not allowed in either form of COS name.
+--    
+--    A zero-length string indicates that a COS name is not
+--    available.
+
+SnaModeName ::= OCTET STRING(SIZE(0..8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An SNA mode name, ranging from 1 to 8 ASCII characters.
+--    Mode names take one of two forms:
+--    
+--       -  a user-defined mode name is constructed from the
+--          uppercase letters 'A' - 'Z' and the numerics '0' - '9',
+--          with the restriction that the first character of the name
+--          must be a letter.
+--       -  an SNA-defined user-session mode name begins with the
+--          character '#', which is followed by up to seven
+--          additional characters from the set of uppercase letters
+--          and numerics.
+--    
+--    Trailing blanks are not allowed in either form of mode name,
+--    with the single exception of the all-blank mode name, where
+--    a string consisting of 8 blanks is returned.
+--    
+--    A zero-length string indicates that a mode name is not
+--    available.
+
+SnaSenseData ::= OCTET STRING(SIZE(8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    To facilitate their display by a Management Station, sense
+--    data objects in the MIB are represented as OCTET STRINGS
+--    containing eight ASCII characters.  Eight '0' characters
+--    indicates that no sense data identifying an SNA error
+--    condition is available.
+--    
+--    An SNA sense data is represented as eight hexadecimal digits,
+--    using the characters '0' - '9' and 'A' - 'F'.
+
+DisplayableDlcAddress ::= OCTET STRING(SIZE(0..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    DLC address of a port or link station, represented as an
+--    OCTET STRING containing 0 to 64 ASCII characters.
+--    A Management Station should use a value of this type only
+--    for display.  The 'real' DLC address, i.e., the sequence of
+--    bytes that flow in the DLC header, is often available in a
+--    DLC-specific MIB.
+--    
+--    The zero-length string indicates that the DLC address in
+--    question is not known to the agent.
+
+AppnNodeCounter ::= Counter
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An object providing global statistics for the entire APPN
+--    node.  A Management Station can detect discontinuities in this
+--    counter by monitoring the appnNodeCounterDisconTime object.
+
+AppnPortCounter ::= Counter
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An object providing statistics for an APPN port.  A
+--    Management Station can detect discontinuities in this counter
+--    by monitoring the appnPortCounterDisconTime object.
+
+AppnLinkStationCounter ::= Counter
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An object providing statistics for an APPN link station.  A
+--    Management Station can detect discontinuities in this counter
+--    by monitoring the appnLsCounterDisconTime object.
+
+AppnTopologyEntryTimeLeft ::= INTEGER(0..15)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Number of days before deletion of this entry from the topology
+--    database.  Range is 0-15.  A value of 0 indicates that the
+--    entry is either in the process of being deleted, or is being
+--    marked for deletion at the next garbage collection cycle.
+
+AppnTgDlcData ::= OCTET STRING(SIZE(0..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    DLC-specific data related to a connection network transmission
+--    group.  For other TGs, a zero-length string is returned.
+--    
+--    Examples of the type of data returned by an object with this
+--    syntax include the following:
+--    
+--          Token-Ring      - MAC/SAP
+--          X.25 Switched   - dial digits
+--          X.21 Switched   - dial digits
+--          Circuit Switch  - dial digits
+--    
+--    This MIB does not specify formats for these or any other types
+--    of DLC-specific data.  Formats may, however, be specified in
+--    documents related to a particular DLC.
+--    
+--    The contents of an object with this syntax correspond to the
+--    contents of the DLC-specific subfields of cv46, documented in
+--    (6).
+
+AppnTgEffectiveCapacity ::= OCTET STRING(SIZE(1))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A value representing the effective capacity of a transmission
+--    group.  This is an administratively assigned value derived from
+--    the link bandwidth and maximum load factor.  It is encoded in
+--    the same way as byte 7 of cv47, and represents a floating-point
+--    number in units of 300 bits per second.
+
+AppnTgSecurity ::= INTEGER {
+        nonsecure(1),
+        publicSwitchedNetwork(32),
+        undergroundCable(64),
+        secureConduit(96),
+        guardedConduit(128),
+        encrypted(160),
+        guardedRadiation(192)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A value representing the level of security on a transmission
+--    group.  A class of service definition includes an indication of
+--    the acceptable TG security value(s) for that class of service.
+--    
+--    The following seven values are defined:
+--    
+--      nonsecure(1) -
+--                        (X'01'):  none of the values listed below;
+--                        for example, satellite-connected or
+--                        located in a nonsecure country
+--      publicSwitchedNetwork(32) -
+--                        (X'20'):  public switched network; secure
+--                        in the sense that there is no
+--                        predetermined route that traffic will take
+--      undergroundCable(64) -
+--                        (X'40'):  underground cable; located in a
+--                        secure country (as determined by the
+--                        network administrator)
+--      secureConduit(96) -
+--                        (X'60'):  secure conduit, not guarded; for
+--                        example, pressurized pipe
+--      guardedConduit(128) -
+--                        (X'80'):  guarded conduit; protected
+--                        against physical tapping
+--      encrypted(160) -
+--                        (X'A0'):  link-level encryption is provided
+--      guardedRadiation(192) -
+--                        (X'C0'):  guarded conduit containing the
+--                        transmission medium; protected against
+--                        physical and radiation tapping
+
+AppnTgDelay ::= OCTET STRING(SIZE(1))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Relative amount of time that it takes for a signal to travel
+--    the length of a logical link.  This time is represented in
+--    microseconds, using the same encoding scheme used in cv47 in a
+--    topology update.  Some of the more common values, along with
+--    their encoded hex values, are:
+--    
+--               minimum(0),                 X'00'
+--               negligible(384),            X'4C'
+--               terrestrial(9216),          X'71'
+--               packet(147456),             X'91'
+--               long(294912),               X'99'
+--               maximum(2013265920)         X'FF'
+--    
+
+appnNodeCpName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned network name for this node."
+    ::= { appnGeneralInfoAndCaps 1 }
+
+appnNodeId OBJECT-TYPE
+    SYNTAX SnaNodeIdentification
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This node's Node Identification, which it sends in bytes
+        2-5 of XID."
+    ::= { appnGeneralInfoAndCaps 3 }
+
+appnNodeType OBJECT-TYPE
+    SYNTAX INTEGER {
+        networkNode(1),
+        endNode(2),
+        t21len(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of APPN node:
+        
+              networkNode(1) - APPN network node
+              endNode(2)     - APPN end node
+              t21len(4)      - LEN end node
+        
+        Note:  A branch network node SHALL return endNode(2)
+        as the value of this object.  A management application
+        can distinguish between a branch network node and an
+        actual end node by retrieving the appnNodeBrNn object."
+    ::= { appnGeneralInfoAndCaps 4 }
+
+appnNodeUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+--  Units
+--    hundredths of a second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of time (in hundredths of a second) since the APPN node
+        was last reinitialized."
+    ::= { appnGeneralInfoAndCaps 5 }
+
+appnNodeParallelTg OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node supports parallel TGs."
+    ::= { appnGeneralInfoAndCaps 6 }
+
+appnNodeAdaptiveBindPacing OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node supports adaptive bind pacing for
+        dependent LUs."
+    ::= { appnGeneralInfoAndCaps 7 }
+
+appnNodeHprSupport OBJECT-TYPE
+    SYNTAX INTEGER {
+        noHprSupport(1),
+        hprBaseOnly(2),
+        rtpTower(3),
+        controlFlowsOverRtpTower(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates this node's level of support for high-performance
+        routing (HPR):
+        
+           noHprSupport(1)             - no HPR support
+           hprBaseOnly(2)              - HPR base (option set 1400)
+                                         supported
+           rtpTower(3)                 - HPR base and RTP tower
+                                         (option set 1401) supported
+           controlFlowsOverRtpTower(4) - HPR base, RTP tower, and
+                                         control flows over RTP
+                                         (option set 1402) supported
+        
+        This object corresponds to cv4580, byte 9, bits 3-4."
+    ::= { appnGeneralInfoAndCaps 8 }
+
+appnNodeMaxSessPerRtpConn OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents a configuration parameter indicating
+        the maximum number of sessions that the APPN node is to put on
+        any HPR connection.  The value is zero if not applicable."
+    ::= { appnGeneralInfoAndCaps 9 }
+
+appnNodeHprIntRteSetups OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of HPR route setups received for routes
+        passing through this node since the node was last
+        reinitialized."
+    ::= { appnGeneralInfoAndCaps 10 }
+
+appnNodeHprIntRteRejects OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of HPR route setups rejected by this node for
+        routes passing through it since the node was last
+        reinitialized."
+    ::= { appnGeneralInfoAndCaps 11 }
+
+appnNodeHprOrgRteSetups OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of HPR route setups sent for routes
+        originating in this node since the node was last
+        reinitialized."
+    ::= { appnGeneralInfoAndCaps 12 }
+
+appnNodeHprOrgRteRejects OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of HPR route setups rejected by other nodes for
+        routes originating in this node since the node was last
+        reinitialized."
+    ::= { appnGeneralInfoAndCaps 13 }
+
+appnNodeHprEndRteSetups OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of HPR route setups received for routes
+        ending in this node since the node was last reinitialized."
+    ::= { appnGeneralInfoAndCaps 14 }
+
+appnNodeHprEndRteRejects OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of HPR route setups rejected by this node for
+        routes ending in it since the node was last reinitialized."
+    ::= { appnGeneralInfoAndCaps 15 }
+
+appnNodeCounterDisconTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the sysUpTime object the last time the APPN node
+        was reinitialized."
+    ::= { appnGeneralInfoAndCaps 16 }
+
+appnNodeLsCounterType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        noAnr(2),
+        anrForLocalNces(3),
+        allAnr(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates which ANR traffic, if any, the node includes in the
+        counts returned by the APPN link station counters
+        appnLsInXidBytes, appnLsInMsgBytes, appnLsInXidFrames,
+        appnLsInMsgFrames, appnLsOutXidBytes, appnLsOutMsgBytes,
+        appnLsOutXidFrames, and appnLsOutMsgFrames.  These counters
+        are always incremented for ISR traffic.
+        
+        The following values are defined:
+        
+           other(1)             - the node does something different
+                                  from all the options listed below
+           noAnr(2)             - the node does not include any ANR
+                                  traffic in these counts
+           anrForLocalNces(3)   - the node includes in these counts
+                                  ANR traffic for RTP connections
+                                  that terminate in this node, but
+                                  not ANR traffic for RTP connections
+                                  that pass through this node without
+                                  terminating in it
+           allAnr(4)            - the node includes all ANR traffic
+                                  in these counts."
+    ::= { appnGeneralInfoAndCaps 17 }
+
+appnNodeBrNn OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node is currently configured as a
+        branch network node.
+        
+        Note:  throughout the remainder of this MIB module, branch
+        network node is treated as a third node type, parallel to
+        network node and end node.  This is not how branch network
+        nodes are treated in the base APPN architecture, but it
+        increases clarity to do it here."
+    ::= { appnGeneralInfoAndCaps 18 }
+
+appnNodeNnCentralDirectory OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node supports central directory
+        services.
+        
+        This object corresponds to cv4580, byte 8, bit 1."
+    ::= { appnNnUniqueInfoAndCaps 1 }
+
+appnNodeNnTreeCache OBJECT-TYPE
+    SYNTAX INTEGER {
+        noCache(1),
+        cacheNoIncrUpdate(2),
+        cacheWithIncrUpdate(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates this node's level of support for caching of route
+        trees.  Three levels are specified:
+        
+           noCache(1)             - caching of route trees is not
+                                    supported
+           cacheNoIncrUpdate(2)   - caching of route trees is
+                                    supported, but without incremental
+                                    updates
+           cacheWithIncrUpdate(3) - caching of route trees with
+                                    incremental updates is supported"
+    ::= { appnNnUniqueInfoAndCaps 2 }
+
+appnNodeNnRouteAddResist OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Route addition resistance.
+        
+        This administratively assigned value indicates the relative
+        desirability of using this node for intermediate session
+        traffic.  The value, which can be any integer 0-255, is used
+        in route computation.  The lower the value, the more
+        desirable the node is for intermediate routing.
+        
+        This object corresponds to cv4580, byte 6."
+    ::= { appnNnUniqueInfoAndCaps 3 }
+
+appnNodeNnIsr OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node supports intermediate session
+        routing.
+        
+        This object corresponds to cv4580, byte 8, bit 2."
+    ::= { appnNnUniqueInfoAndCaps 4 }
+
+appnNodeNnFrsn OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last flow-reduction sequence number (FRSN) sent by this
+        node in a topology update to an adjacent network node."
+    ::= { appnNnUniqueInfoAndCaps 5 }
+
+appnNodeNnPeriBorderSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node has peripheral border node
+        support.
+        
+        This object corresponds to cv4580, byte 9, bit 0."
+    ::= { appnNnUniqueInfoAndCaps 6 }
+
+appnNodeNnInterchangeSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node has interchange node support.
+        
+        This object corresponds to cv4580, byte 9, bit 1."
+    ::= { appnNnUniqueInfoAndCaps 7 }
+
+appnNodeNnExteBorderSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node has extended border node support.
+        
+        This object corresponds to cv4580, byte 9, bit 2."
+    ::= { appnNnUniqueInfoAndCaps 8 }
+
+appnNodeNnSafeStoreFreq OBJECT-TYPE
+    SYNTAX INTEGER(0..32767)
+--  Units
+--    TDUs
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The topology safe store frequency.
+        
+        If this number is not zero, then the topology database is saved
+        each time the total number of topology database updates (TDUs)
+        received by this node increases by this number.  A value of
+        zero indicates that the topology database is not being saved."
+    ::= { appnNnUniqueInfoAndCaps 9 }
+
+appnNodeNnRsn OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Resource sequence number for this node, which it assigns and
+        controls.
+        
+        This object corresponds to the numeric value in cv4580, bytes
+        2-5."
+    ::= { appnNnUniqueInfoAndCaps 10 }
+
+appnNodeNnCongested OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node is congested.  Other network nodes
+        stop routing traffic to this node while this flag is on.
+        
+        This object corresponds to cv4580, byte 7, bit 0."
+    ::= { appnNnUniqueInfoAndCaps 11 }
+
+appnNodeNnIsrDepleted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicate whether intermediated session routing resources are
+        depleted.  Other network nodes stop routing traffic through
+        this node while this flag is on.
+        
+        This object corresponds to cv4580, byte 7, bit 1."
+    ::= { appnNnUniqueInfoAndCaps 12 }
+
+appnNodeNnQuiescing OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node is quiescing.
+        
+        This object corresponds to cv4580, byte 7, bit 5."
+    ::= { appnNnUniqueInfoAndCaps 13 }
+
+appnNodeNnGateway OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node has gateway services support.
+        
+        This object corresponds to cv4580, byte 8, bit 0."
+    ::= { appnNnUniqueInfoAndCaps 14 }
+
+appnNodeEnModeCosMap OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this end node supports mode name to COS name
+        mapping."
+    ::= { appnEnUniqueCaps 1 }
+
+appnNodeEnNnServer OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0|3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The fully qualified name of the current NN server for this end
+        node.  An NN server is identified using the format specified in
+        the SnaControlPointName textual convention.  The value is a
+        zero-length string when there is no active NN server.
+        
+        A branch network node shall also implement this object."
+    ::= { appnEnUniqueCaps 2 }
+
+appnNodeEnLuSearch OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node is to be searched for LUs as part
+        of a network broadcast search.
+        
+        A branch network node shall also implement this object."
+    ::= { appnEnUniqueCaps 3 }
+
+appnPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Port table describes the configuration and current status
+        of the ports used by APPN.  When it is known to the APPN
+        component, an OBJECT IDENTIFIER pointing to additional
+        information related to the port is included.  This may, but
+        need not, be a RowPointer to an ifTable entry for a DLC
+        interface immediately 'below' the port."
+    ::= { appnPortInformation 1 }
+
+appnPortEntry OBJECT-TYPE
+    SYNTAX AppnPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The port name is used as the index to this table."
+    INDEX { appnPortName }
+    ::= { appnPortTable 1 }
+
+AppnPortEntry ::= SEQUENCE {
+    appnPortName DisplayString,
+    appnPortCommand INTEGER,
+    appnPortOperState INTEGER,
+    appnPortDlcType IANAifType,
+    appnPortPortType INTEGER,
+    appnPortSIMRIM TruthValue,
+    appnPortLsRole INTEGER,
+    appnPortNegotLs TruthValue,
+    appnPortDynamicLinkSupport TruthValue,
+    appnPortMaxRcvBtuSize INTEGER,
+    appnPortMaxIframeWindow Gauge,
+    appnPortDefLsGoodXids AppnPortCounter,
+    appnPortDefLsBadXids AppnPortCounter,
+    appnPortDynLsGoodXids AppnPortCounter,
+    appnPortDynLsBadXids AppnPortCounter,
+    appnPortSpecific RowPointer,
+    appnPortDlcLocalAddr DisplayableDlcAddress,
+    appnPortCounterDisconTime TimeStamp
+    }
+
+appnPortName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for this APPN port."
+    ::= { appnPortEntry 1 }
+
+appnPortCommand OBJECT-TYPE
+    SYNTAX INTEGER {
+        deactivate(1),
+        activate(2),
+        recycle(3),
+        ready(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Object by which a Management Station can activate, deactivate,
+        or recycle (i.e., cause to be deactivated and then immediately
+        activated) a port, by setting the value to activate(1),
+        deactivate(2), or recycle(3), respectively.  The value ready(4)
+        is returned on GET operations until a SET has been processed;
+        after that the value received on the most recent SET is
+        returned."
+    ::= { appnPortEntry 2 }
+
+appnPortOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inactive(1),
+        pendactive(2),
+        active(3),
+        pendinact(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the current state of this port:
+        
+            inactive(1)   - port is inactive
+            pendactive(2) - port is pending active
+            active(3)     - port is active
+            pendinact(4)  - port is pending inactive"
+    ::= { appnPortEntry 3 }
+
+appnPortDlcType OBJECT-TYPE
+    SYNTAX IANAifType
+--    Rsyntax INTEGER {
+--        other(1),
+--        regular1822(2),
+--        hdh1822(3),
+--        ddnX25(4),
+--        rfc877x25(5),
+--        ethernetCsmacd(6),
+--        iso88023Csmacd(7),
+--        iso88024TokenBus(8),
+--        iso88025TokenRing(9),
+--        iso88026Man(10),
+--        starLan(11),
+--        proteon10Mbit(12),
+--        proteon80Mbit(13),
+--        hyperchannel(14),
+--        fddi(15),
+--        lapb(16),
+--        sdlc(17),
+--        ds1(18),
+--        e1(19),
+--        basicISDN(20),
+--        primaryISDN(21),
+--        propPointToPointSerial(22),
+--        ppp(23),
+--        softwareLoopback(24),
+--        eon(25),
+--        ethernet3Mbit(26),
+--        nsip(27),
+--        slip(28),
+--        ultra(29),
+--        ds3(30),
+--        sip(31),
+--        frameRelay(32),
+--        rs232(33),
+--        para(34),
+--        arcnet(35),
+--        arcnetPlus(36),
+--        atm(37),
+--        miox25(38),
+--        sonet(39),
+--        x25ple(40),
+--        iso88022llc(41),
+--        localTalk(42),
+--        smdsDxi(43),
+--        frameRelayService(44),
+--        v35(45),
+--        hssi(46),
+--        hippi(47),
+--        modem(48),
+--        aal5(49),
+--        sonetPath(50),
+--        sonetVT(51),
+--        smdsIcip(52),
+--        propVirtual(53),
+--        propMultiplexor(54),
+--        ieee80212(55),
+--        fibreChannel(56),
+--        hippiInterface(57),
+--        frameRelayInterconnect(58),
+--        aflane8023(59),
+--        aflane8025(60),
+--        cctEmul(61),
+--        fastEther(62),
+--        isdn(63),
+--        v11(64),
+--        v36(65),
+--        g703at64k(66),
+--        g703at2mb(67),
+--        qllc(68),
+--        fastEtherFX(69),
+--        channel(70),
+--        ieee80211(71),
+--        ibm370parChan(72),
+--        escon(73),
+--        dlsw(74),
+--        isdns(75),
+--        isdnu(76),
+--        lapd(77),
+--        ipSwitch(78),
+--        rsrb(79),
+--        atmLogical(80),
+--        ds0(81),
+--        ds0Bundle(82),
+--        bsc(83),
+--        async(84),
+--        cnr(85),
+--        iso88025Dtr(86),
+--        eplrs(87),
+--        arap(88),
+--        propCnls(89),
+--        hostPad(90),
+--        termPad(91),
+--        frameRelayMPI(92),
+--        x213(93),
+--        adsl(94),
+--        radsl(95),
+--        sdsl(96),
+--        vdsl(97),
+--        iso88025CRFPInt(98),
+--        myrinet(99),
+--        voiceEM(100),
+--        voiceFXO(101),
+--        voiceFXS(102),
+--        voiceEncap(103),
+--        voiceOverIp(104),
+--        atmDxi(105),
+--        atmFuni(106),
+--        atmIma(107),
+--        pppMultilinkBundle(108),
+--        ipOverCdlc(109),
+--        ipOverClaw(110),
+--        stackToStack(111),
+--        virtualIpAddress(112),
+--        mpc(113),
+--        ipOverAtm(114),
+--        iso88025Fiber(115),
+--        tdlc(116),
+--        gigabitEthernet(117)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of DLC interface, distinguished according to the
+        protocol immediately 'below' this layer."
+    ::= { appnPortEntry 4 }
+
+appnPortPortType OBJECT-TYPE
+    SYNTAX INTEGER {
+        leased(1),
+        switched(2),
+        sharedAccessFacilities(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the type of line used by this port:
+        
+            leased(1)                 - leased line
+            switched(2)               - switched line
+            sharedAccessFacilities(3) - shared access facility, such
+                                        as a LAN."
+    ::= { appnPortEntry 5 }
+
+appnPortSIMRIM OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether Set Initialization Mode (SIM) and Receive
+        Initialization Mode (RIM) are supported for this port."
+    ::= { appnPortEntry 6 }
+
+appnPortLsRole OBJECT-TYPE
+    SYNTAX INTEGER {
+        primary(1),
+        secondary(2),
+        negotiable(3),
+        abm(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Initial role for link stations activated through this port.
+        The values map to the following settings in the initial XID,
+        where 'ABM' indicates asynchronous balanced mode and 'NRM'
+        indicated normal response mode:
+        
+            primary(1):     ABM support = 0     ( = NRM)
+                            role = 01           ( = primary)
+            secondary(2):   ABM support = 0     ( = NRM)
+                            role = 00           ( = secondary)
+            negotiable(3):  ABM support = 0     ( = NRM)
+                            role = 11           ( = negotiable)
+            abm(4):         ABM support = 1     ( = ABM)
+                            role = 11           ( = negotiable)"
+    ::= { appnPortEntry 7 }
+
+appnPortNegotLs OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node supports negotiable link stations
+        for this port."
+    ::= { appnPortEntry 8 }
+
+appnPortDynamicLinkSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node allows call-in on this port from
+        nodes not defined locally."
+    ::= { appnPortEntry 9 }
+
+appnPortMaxRcvBtuSize OBJECT-TYPE
+    SYNTAX INTEGER(99..32767)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum Basic Transmission Unit (BTU) size that a link station
+        on this port can receive.
+        
+        This object corresponds to bytes 21-22 of XID3."
+    ::= { appnPortEntry 10 }
+
+appnPortMaxIframeWindow OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    I-frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of I-frames that can be received by the XID
+        sender before an acknowledgement is received."
+    ::= { appnPortEntry 11 }
+
+appnPortDefLsGoodXids OBJECT-TYPE
+    SYNTAX AppnPortCounter
+--    Rsyntax Counter
+--  Units
+--    XID exchanges
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of successful XID exchanges that have
+        occurred on all defined link stations on this port since the
+        last time this port was started."
+    ::= { appnPortEntry 12 }
+
+appnPortDefLsBadXids OBJECT-TYPE
+    SYNTAX AppnPortCounter
+--    Rsyntax Counter
+--  Units
+--    XID exchanges
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of unsuccessful XID exchanges that have
+        occurred on all defined link stations on this port since the
+        last time this port was started."
+    ::= { appnPortEntry 13 }
+
+appnPortDynLsGoodXids OBJECT-TYPE
+    SYNTAX AppnPortCounter
+--    Rsyntax Counter
+--  Units
+--    XID exchanges
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of successful XID exchanges that have
+        occurred on all dynamic link stations on this port since the
+        last time this port was started."
+    ::= { appnPortEntry 14 }
+
+appnPortDynLsBadXids OBJECT-TYPE
+    SYNTAX AppnPortCounter
+--    Rsyntax Counter
+--  Units
+--    XID exchanges
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of unsuccessful XID exchanges that have
+        occurred on all dynamic link stations on this port since the
+        last time this port was started."
+    ::= { appnPortEntry 15 }
+
+appnPortSpecific OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the object, e.g., one in a DLC-specific MIB, that
+        can provide additional information related to this port.
+        
+        If the agent is unable to identify such an object, the value
+        0.0 is returned."
+    ::= { appnPortEntry 16 }
+
+appnPortDlcLocalAddr OBJECT-TYPE
+    SYNTAX DisplayableDlcAddress
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Local DLC address of this port."
+    ::= { appnPortEntry 17 }
+
+appnPortCounterDisconTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the sysUpTime object the last time the port was
+        started."
+    ::= { appnPortEntry 18 }
+
+appnLsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnLsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains detailed information about the link
+        station configuration and its current status."
+    ::= { appnLinkStationInformation 1 }
+
+appnLsEntry OBJECT-TYPE
+    SYNTAX AppnLsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by the link station name."
+    INDEX { appnLsName }
+    ::= { appnLsTable 1 }
+
+AppnLsEntry ::= SEQUENCE {
+    appnLsName DisplayString,
+    appnLsCommand INTEGER,
+    appnLsOperState INTEGER,
+    appnLsPortName DisplayString,
+    appnLsDlcType IANAifType,
+    appnLsDynamic TruthValue,
+    appnLsAdjCpName OCTET STRING,
+    appnLsAdjNodeType INTEGER,
+    appnLsTgNum INTEGER,
+    appnLsLimResource TruthValue,
+    appnLsActOnDemand TruthValue,
+    appnLsMigration TruthValue,
+    appnLsPartnerNodeId SnaNodeIdentification,
+    appnLsCpCpSessionSupport TruthValue,
+    appnLsMaxSendBtuSize INTEGER,
+    appnLsInXidBytes AppnLinkStationCounter,
+    appnLsInMsgBytes AppnLinkStationCounter,
+    appnLsInXidFrames AppnLinkStationCounter,
+    appnLsInMsgFrames AppnLinkStationCounter,
+    appnLsOutXidBytes AppnLinkStationCounter,
+    appnLsOutMsgBytes AppnLinkStationCounter,
+    appnLsOutXidFrames AppnLinkStationCounter,
+    appnLsOutMsgFrames AppnLinkStationCounter,
+    appnLsEchoRsps AppnLinkStationCounter,
+    appnLsCurrentDelay Gauge,
+    appnLsMaxDelay Gauge,
+    appnLsMinDelay Gauge,
+    appnLsMaxDelayTime DateAndTime,
+    appnLsGoodXids AppnLinkStationCounter,
+    appnLsBadXids AppnLinkStationCounter,
+    appnLsSpecific RowPointer,
+    appnLsActiveTime Gauge,
+    appnLsCurrentStateTime TimeTicks,
+    appnLsHprSup INTEGER,
+    appnLsErrRecoSup TruthValue,
+    appnLsForAnrLabel OCTET STRING,
+    appnLsRevAnrLabel OCTET STRING,
+    appnLsCpCpNceId OCTET STRING,
+    appnLsRouteNceId OCTET STRING,
+    appnLsBfNceId OCTET STRING,
+    appnLsLocalAddr DisplayableDlcAddress,
+    appnLsRemoteAddr DisplayableDlcAddress,
+    appnLsRemoteLsName DisplayString,
+    appnLsCounterDisconTime TimeStamp,
+    appnLsMltgMember TruthValue
+    }
+
+appnLsName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for the link station.
+         The name can be from one to ten characters."
+    ::= { appnLsEntry 1 }
+
+appnLsCommand OBJECT-TYPE
+    SYNTAX INTEGER {
+        deactivate(1),
+        activate(2),
+        recycle(3),
+        ready(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Object by which a Management Station can activate, deactivate,
+        or recycle (i.e., cause to be deactivated and then immediately
+        reactivated) a link station, by setting the value to
+        activate(1), deactivate(2), or recycle(3), respectively.  The
+        value ready(4) is returned on GET operations until a SET has
+        been processed; after that the value received on the most
+        recent SET is returned."
+    ::= { appnLsEntry 2 }
+
+appnLsOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inactive(1),
+        sentConnectOut(2),
+        pendXidExch(3),
+        sendActAs(4),
+        sendSetMode(5),
+        otherPendingActive(6),
+        active(7),
+        sentDeactAsOrd(8),
+        sentDiscOrd(9),
+        sentDiscImmed(10),
+        otherPendingInact(11)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "State of this link station.  The comments map these more
+        granular states to the 'traditional' four states for SNA
+        resources.  Values (2) through (5) represent the normal
+        progression of states when a link station is being activated.
+        Value (6) represents some other state of a link station in
+        the process of being activated.  Values (8) through (10)
+        represent different ways a link station can be deactivated.
+        Value (11) represents some other state of a link station in
+        the process of being deactivated."
+    ::= { appnLsEntry 3 }
+
+appnLsPortName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for the port associated with
+        this link station.  The name can be from one to ten
+        characters."
+    ::= { appnLsEntry 4 }
+
+appnLsDlcType OBJECT-TYPE
+    SYNTAX IANAifType
+--    Rsyntax INTEGER {
+--        other(1),
+--        regular1822(2),
+--        hdh1822(3),
+--        ddnX25(4),
+--        rfc877x25(5),
+--        ethernetCsmacd(6),
+--        iso88023Csmacd(7),
+--        iso88024TokenBus(8),
+--        iso88025TokenRing(9),
+--        iso88026Man(10),
+--        starLan(11),
+--        proteon10Mbit(12),
+--        proteon80Mbit(13),
+--        hyperchannel(14),
+--        fddi(15),
+--        lapb(16),
+--        sdlc(17),
+--        ds1(18),
+--        e1(19),
+--        basicISDN(20),
+--        primaryISDN(21),
+--        propPointToPointSerial(22),
+--        ppp(23),
+--        softwareLoopback(24),
+--        eon(25),
+--        ethernet3Mbit(26),
+--        nsip(27),
+--        slip(28),
+--        ultra(29),
+--        ds3(30),
+--        sip(31),
+--        frameRelay(32),
+--        rs232(33),
+--        para(34),
+--        arcnet(35),
+--        arcnetPlus(36),
+--        atm(37),
+--        miox25(38),
+--        sonet(39),
+--        x25ple(40),
+--        iso88022llc(41),
+--        localTalk(42),
+--        smdsDxi(43),
+--        frameRelayService(44),
+--        v35(45),
+--        hssi(46),
+--        hippi(47),
+--        modem(48),
+--        aal5(49),
+--        sonetPath(50),
+--        sonetVT(51),
+--        smdsIcip(52),
+--        propVirtual(53),
+--        propMultiplexor(54),
+--        ieee80212(55),
+--        fibreChannel(56),
+--        hippiInterface(57),
+--        frameRelayInterconnect(58),
+--        aflane8023(59),
+--        aflane8025(60),
+--        cctEmul(61),
+--        fastEther(62),
+--        isdn(63),
+--        v11(64),
+--        v36(65),
+--        g703at64k(66),
+--        g703at2mb(67),
+--        qllc(68),
+--        fastEtherFX(69),
+--        channel(70),
+--        ieee80211(71),
+--        ibm370parChan(72),
+--        escon(73),
+--        dlsw(74),
+--        isdns(75),
+--        isdnu(76),
+--        lapd(77),
+--        ipSwitch(78),
+--        rsrb(79),
+--        atmLogical(80),
+--        ds0(81),
+--        ds0Bundle(82),
+--        bsc(83),
+--        async(84),
+--        cnr(85),
+--        iso88025Dtr(86),
+--        eplrs(87),
+--        arap(88),
+--        propCnls(89),
+--        hostPad(90),
+--        termPad(91),
+--        frameRelayMPI(92),
+--        x213(93),
+--        adsl(94),
+--        radsl(95),
+--        sdsl(96),
+--        vdsl(97),
+--        iso88025CRFPInt(98),
+--        myrinet(99),
+--        voiceEM(100),
+--        voiceFXO(101),
+--        voiceFXS(102),
+--        voiceEncap(103),
+--        voiceOverIp(104),
+--        atmDxi(105),
+--        atmFuni(106),
+--        atmIma(107),
+--        pppMultilinkBundle(108),
+--        ipOverCdlc(109),
+--        ipOverClaw(110),
+--        stackToStack(111),
+--        virtualIpAddress(112),
+--        mpc(113),
+--        ipOverAtm(114),
+--        iso88025Fiber(115),
+--        tdlc(116),
+--        gigabitEthernet(117)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of DLC interface, distinguished according to the
+        protocol immediately 'below' this layer."
+    ::= { appnLsEntry 5 }
+
+appnLsDynamic OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies whether this is a dynamic link station.  Dynamic
+        link stations are created when links that have not been locally
+        defined are established by adjacent nodes."
+    ::= { appnLsEntry 6 }
+
+appnLsAdjCpName OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0|3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Fully qualified name of the adjacent node for this link
+        station.  An adjacent node is identified using the format
+        specified in the SnaControlPointName textual convention.
+        
+        The value of this object is determined as follows:
+        
+           1. If the adjacent node's name was received on XID, it
+              is returned.
+        
+           2. If the adjacent node's name was not received on XID,
+              but a locally-defined value is available, it is
+              returned.
+        
+           3. Otherwise a string of length 0 is returned, indicating
+              that no name is known for the adjacent node."
+    ::= { appnLsEntry 7 }
+
+appnLsAdjNodeType OBJECT-TYPE
+    SYNTAX INTEGER {
+        networkNode(1),
+        endNode(2),
+        t21len(4),
+        unknown(255)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Node type of the adjacent node on this link:
+        
+              networkNode(1) - APPN network node
+              endNode(2)     - APPN end node
+              t21len(4)      - LEN end node
+              unknown(255)   - the agent does not know the node type
+                               of the adjacent node"
+    ::= { appnLsEntry 8 }
+
+appnLsTgNum OBJECT-TYPE
+    SYNTAX INTEGER(0..256)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number associated with the TG to this link station, with a
+        range from 0 to 256.  A value of 256 indicates that the TG
+        number has not been negotiated and is unknown at this time."
+    ::= { appnLsEntry 9 }
+
+appnLsLimResource OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the link station is a limited resource.  A
+        link station that is a limited resource is deactivated when it
+        is no longer in use."
+    ::= { appnLsEntry 10 }
+
+appnLsActOnDemand OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the link station is activatable on demand.
+        
+        Such a link station is reported in the topology as active
+        regardless of its actual state, so that it can be considered in
+        route calculations.  If the link station is inactive and is
+        chosen for a route, it will be activated at that time."
+    ::= { appnLsEntry 11 }
+
+appnLsMigration OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this link station will be used for
+        connections to down-level or migration partners.
+        
+        In general, migration nodes do not append their CP names on
+        XID3.  Such nodes:  (1) will not support parallel TGs, (2)
+        should be sent an ACTIVATE PHYSICAL UNIT (ACTPU), provided that
+        the partner supports ACTPUs, and (3) should not be sent
+        segmented BINDs.  However, if this node receives an XID3 with
+        an appended CP name, then the partner node will not be treated
+        as a migration node.
+        
+         In the case of DYNAMIC TGs this object should be set to 'no'."
+    ::= { appnLsEntry 12 }
+
+appnLsPartnerNodeId OBJECT-TYPE
+    SYNTAX SnaNodeIdentification
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The partner's Node Identification, from bytes 2-5 of the XID
+        received from the partner.  If this value is not available,
+        then the characters '00000000' are returned."
+    ::= { appnLsEntry 13 }
+
+appnLsCpCpSessionSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether CP-CP sessions are supported by this
+        link station.  For a dynamic link, this object represents
+        the default ('Admin') value."
+    ::= { appnLsEntry 14 }
+
+appnLsMaxSendBtuSize OBJECT-TYPE
+    SYNTAX INTEGER(99..32767)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Numeric value between 99 and 32767 inclusive indicating the
+        maximum number of bytes in a Basic Transmission Unit (BTU) sent
+        on this link.
+        
+        When the link state (returned by the appnLsOperState object) is
+        inactive or pending active, the value configured at this node
+        is returned.  When the link state is active, the value that was
+        negotiated for it is returned.  This negotiated value is the
+        smaller of the value configured at this node and the partner's
+        maximum receive BTU length, received in XID."
+    ::= { appnLsEntry 15 }
+
+appnLsInXidBytes OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of XID bytes received.  All of the bytes in the SNA
+        basic transmission unit (BTU), i.e., all of the bytes in the
+        DLC XID Information Field, are counted."
+    ::= { appnLsEntry 16 }
+
+appnLsInMsgBytes OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of message (I-frame) bytes received.  All of the bytes
+        in the SNA basic transmission unit (BTU), including the
+        transmission header (TH), are counted."
+    ::= { appnLsEntry 17 }
+
+appnLsInXidFrames OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    XID frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of XID frames received."
+    ::= { appnLsEntry 18 }
+
+appnLsInMsgFrames OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    I-frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of message (I-frame) frames received."
+    ::= { appnLsEntry 19 }
+
+appnLsOutXidBytes OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of XID bytes sent.  All of the bytes in the SNA basic
+        transmission unit (BTU), i.e., all of the bytes in the DLC XID
+        Information Field, are counted."
+    ::= { appnLsEntry 20 }
+
+appnLsOutMsgBytes OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of message (I-frame) bytes sent.  All of the bytes
+        in the SNA basic transmission unit (BTU), including the
+        transmission header (TH), are counted."
+    ::= { appnLsEntry 21 }
+
+appnLsOutXidFrames OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    XID frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of XID frames sent."
+    ::= { appnLsEntry 22 }
+
+appnLsOutMsgFrames OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    I-frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of message (I-frame) frames sent."
+    ::= { appnLsEntry 23 }
+
+appnLsEchoRsps OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    echo responses
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of echo responses returned from adjacent link station.
+        A response should be returned for each test frame sent by this
+        node.  Test frames are sent to adjacent nodes periodically to
+        verify connectivity and to measure the actual round trip time,
+        that is, the time interval from when the test frame is sent
+        until when the response is received."
+    ::= { appnLsEntry 24 }
+
+appnLsCurrentDelay OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time that it took for the last test signal to be sent and
+        returned from this link station to the adjacent link station.
+        This time is represented in milliseconds."
+    ::= { appnLsEntry 25 }
+
+appnLsMaxDelay OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The longest time it took for a test signal to be sent and
+        returned from this link station to the adjacent link station.
+        This time is represented in milliseconds .
+        
+        The value 0 is returned if no test signal has been sent and
+        returned."
+    ::= { appnLsEntry 26 }
+
+appnLsMinDelay OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The shortest time it took for a test signal to be sent and
+        returned from this link station to the adjacent link station.
+        This time is represented in milliseconds.
+        
+        The value 0 is returned if no test signal has been sent and
+        returned."
+    ::= { appnLsEntry 27 }
+
+appnLsMaxDelayTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the longest delay occurred.  This time can be
+        used to identify when this high water mark occurred in relation
+        to other events in the APPN node, for example, the time at
+        which an APPC session was either terminated or failed to be
+        established.  This latter time is available in the
+        appcHistSessTime object in the APPC MIB.
+        
+        The value 00000000 is returned if no test signal has been sent
+        and returned."
+    ::= { appnLsEntry 28 }
+
+appnLsGoodXids OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    XID exchanges
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of successful XID exchanges that have
+        occurred on this link station since the time it was started."
+    ::= { appnLsEntry 29 }
+
+appnLsBadXids OBJECT-TYPE
+    SYNTAX AppnLinkStationCounter
+--    Rsyntax Counter
+--  Units
+--    XID exchanges
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of unsuccessful XID exchanges that have
+        occurred on this link station since the time it was started."
+    ::= { appnLsEntry 30 }
+
+appnLsSpecific OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the object, e.g., one in a DLC-specific MIB, that
+        can provide additional information related to this link
+        station.
+        
+        If the agent is unable to identify such an object, the value
+        0.0 is returned."
+    ::= { appnLsEntry 31 }
+
+appnLsActiveTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    hundredths of a second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cumulative amount of time since the node was last
+        reinitialized, measured in hundredths of a second, that this
+        link station has been in the active state.  A zero value
+        indicates that the link station has never been active since
+        the node was last reinitialized."
+    ::= { appnLsEntry 32 }
+
+appnLsCurrentStateTime OBJECT-TYPE
+    SYNTAX TimeTicks
+--  Units
+--    hundredths of a second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time, measured in hundredths of a second, that
+        the link station has been in its current state."
+    ::= { appnLsEntry 33 }
+
+appnLsHprSup OBJECT-TYPE
+    SYNTAX INTEGER {
+        noHprSupport(1),
+        hprBaseOnly(2),
+        rtpTower(3),
+        controlFlowsOverRtpTower(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the level of high performance routing (HPR) support
+        over this link:
+        
+           noHprSupport(1)             - no HPR support
+           hprBaseOnly(2)              - HPR base (option set 1400)
+                                         supported
+           rtpTower(3)                 - HPR base and RTP tower
+                                         (option set 1401) supported
+           controlFlowsOverRtpTower(4) - HPR base, RTP tower, and
+                                         control flows over RTP
+                                         (option set 1402) supported
+        
+        If the link is not active, the defined value is returned."
+    ::= { appnLsEntry 34 }
+
+appnLsErrRecoSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the link station is supporting
+         HPR link-level error recovery."
+    ::= { appnLsEntry 35 }
+
+appnLsForAnrLabel OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The forward Automatic Network Routing (ANR) label for this
+        link station.  If the link does not support HPR or the value is
+        unknown, a zero-length string is returned."
+    ::= { appnLsEntry 36 }
+
+appnLsRevAnrLabel OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The reverse Automatic Network Routing (ANR) label for this
+        link station.  If the link does not support HPR or the value is
+        unknown, a zero-length string is returned."
+    ::= { appnLsEntry 37 }
+
+appnLsCpCpNceId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The network connection endpoint identifier (NCE ID) for CP-CP
+        sessions if this node supports the HPR transport tower, a
+        zero-length string if the value is unknown or not meaningful
+        for this node."
+    ::= { appnLsEntry 38 }
+
+appnLsRouteNceId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The network connection endpoint identifier (NCE ID) for Route
+        Setup if this node supports the HPR transport tower, a zero-
+        length string if the value is unknown or not meaningful for
+        this node."
+    ::= { appnLsEntry 39 }
+
+appnLsBfNceId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The network connection endpoint identifier (NCE ID) for the
+        APPN/HPR boundary function if this node supports the HPR
+        transport tower, a zero-length string if the value is unknown
+        or not meaningful for this node."
+    ::= { appnLsEntry 40 }
+
+appnLsLocalAddr OBJECT-TYPE
+    SYNTAX DisplayableDlcAddress
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Local address of this link station."
+    ::= { appnLsEntry 41 }
+
+appnLsRemoteAddr OBJECT-TYPE
+    SYNTAX DisplayableDlcAddress
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Address of the remote link station on this link."
+    ::= { appnLsEntry 42 }
+
+appnLsRemoteLsName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..10))
+--    Rsyntax OCTET STRING(SIZE(0..10))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote link station discovered from the XID exchange.
+        The name can be from one to ten characters.  A zero-length
+        string indicates that the value is not known."
+    ::= { appnLsEntry 43 }
+
+appnLsCounterDisconTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the sysUpTime object the last time the link
+        station was started."
+    ::= { appnLsEntry 44 }
+
+appnLsMltgMember OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the link is a member of a multi-link TG.  If
+        the link's TG has been brought up as a multi-link TG, then the
+        link is reported as a member of a multi-link TG, even if it is
+        currently the only active link in the TG."
+    ::= { appnLsEntry 45 }
+
+appnLsStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnLsStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information related to exceptional and
+        potentially exceptional conditions that occurred during the
+        activation, XID exchange, and termination of a connection.  No
+        entries are created when these activities proceed normally.
+        
+        It is an implementation option when entries are removed from
+        this table."
+    ::= { appnLinkStationInformation 2 }
+
+appnLsStatusEntry OBJECT-TYPE
+    SYNTAX AppnLsStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by the LsStatusIndex, which is an
+        integer that is continuously updated until it eventually
+        wraps."
+    INDEX { appnLsStatusIndex }
+    ::= { appnLsStatusTable 1 }
+
+AppnLsStatusEntry ::= SEQUENCE {
+    appnLsStatusIndex INTEGER,
+    appnLsStatusTime DateAndTime,
+    appnLsStatusLsName DisplayString,
+    appnLsStatusCpName DisplayString,
+    appnLsStatusPartnerId SnaNodeIdentification,
+    appnLsStatusTgNum INTEGER,
+    appnLsStatusGeneralSense SnaSenseData,
+    appnLsStatusRetry TruthValue,
+    appnLsStatusEndSense SnaSenseData,
+    appnLsStatusXidLocalSense SnaSenseData,
+    appnLsStatusXidRemoteSense SnaSenseData,
+    appnLsStatusXidByteInError INTEGER,
+    appnLsStatusXidBitInError INTEGER,
+    appnLsStatusDlcType IANAifType,
+    appnLsStatusLocalAddr DisplayableDlcAddress,
+    appnLsStatusRemoteAddr DisplayableDlcAddress
+    }
+
+appnLsStatusIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table index.  The value of the index begins at zero
+         and is incremented up to a maximum value of 2**31-1
+         (2,147,483,647) before wrapping."
+    ::= { appnLsStatusEntry 1 }
+
+appnLsStatusTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Time when the exception condition occurred.  This time can be
+        used to identify when this event occurred in relation to other
+        events in the APPN node, for example, the time at which an APPC
+        session was either terminated or failed to be established.
+        This latter time is available in the appcHistSessTime object in
+        the APPC MIB."
+    ::= { appnLsStatusEntry 2 }
+
+appnLsStatusLsName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for the link station
+        experiencing the condition."
+    ::= { appnLsStatusEntry 3 }
+
+appnLsStatusCpName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0|3..17))
+--    Rsyntax OCTET STRING(SIZE(0|3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Fully qualified name of the adjacent node for this link
+        station.  An adjacent node is identified using the format
+        specified in the SnaControlPointName textual convention.
+        
+        The value of this object is determined as follows:
+        
+           1. If the adjacent node's name was received on XID, it
+              is returned.
+        
+           2. If the adjacent node's name was not received on XID,
+              but a locally-defined value is available, it is
+              returned.
+        
+           3. Otherwise a string of length 0 is returned, indicating
+              that no name is known for the adjacent node."
+    ::= { appnLsStatusEntry 4 }
+
+appnLsStatusPartnerId OBJECT-TYPE
+    SYNTAX SnaNodeIdentification
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The partner's Node Identification, from bytes 2-5 of the XID
+        received from the partner.  If this value is not available,
+        then the characters '00000000' are returned."
+    ::= { appnLsStatusEntry 5 }
+
+appnLsStatusTgNum OBJECT-TYPE
+    SYNTAX INTEGER(0..256)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number associated with the TG to this link station, with a
+        range from 0 to 256.  A value of 256 indicates that the TG
+        number was unknown at the time of the failure."
+    ::= { appnLsStatusEntry 6 }
+
+appnLsStatusGeneralSense OBJECT-TYPE
+    SYNTAX SnaSenseData
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The error sense data associated with the start sequence of
+        activation of a link up to the beginning of the XID sequence.
+        
+        This is the sense data that came from Configuration Services
+        whenever the link did not activate or when it went inactive."
+    ::= { appnLsStatusEntry 7 }
+
+appnLsStatusRetry OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node will retry the start request to
+        activate the link."
+    ::= { appnLsStatusEntry 8 }
+
+appnLsStatusEndSense OBJECT-TYPE
+    SYNTAX SnaSenseData
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sense data associated with the termination of the link
+        connection to adjacent node.
+        
+        This is the sense data that came from the DLC layer."
+    ::= { appnLsStatusEntry 9 }
+
+appnLsStatusXidLocalSense OBJECT-TYPE
+    SYNTAX SnaSenseData
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sense data associated with the rejection of the XID.
+        
+        This is the sense data that came from the local node (this
+        node) when it built the XID Negotiation Error control vector
+        (cv22) to send to the remote node."
+    ::= { appnLsStatusEntry 10 }
+
+appnLsStatusXidRemoteSense OBJECT-TYPE
+    SYNTAX SnaSenseData
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sense data the adjacent node returned to this node
+        indicating the reason the XID was rejected.
+        
+        This is the sense data that came from the remote node in the
+        XID Negotiation Error control vector (cv22) it sent to the
+        local node (this node)."
+    ::= { appnLsStatusEntry 11 }
+
+appnLsStatusXidByteInError OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the actual byte in the XID that caused
+        the error.  The value 65536 indicates that the object has no
+        meaning.
+        
+        For values in the range 0-65535, this object corresponds to
+        bytes 2-3 of the XID Negotiation (X'22') control vector."
+    ::= { appnLsStatusEntry 12 }
+
+appnLsStatusXidBitInError OBJECT-TYPE
+    SYNTAX INTEGER(0..8)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the actual bit in error (0 through 7)
+        within the errored byte of the XID.  The value 8 indicates that
+        this object has no meaning.
+        
+        For values in the range 0-7, this object corresponds to byte 4
+        of the XID Negotiation (X'22') control vector."
+    ::= { appnLsStatusEntry 13 }
+
+appnLsStatusDlcType OBJECT-TYPE
+    SYNTAX IANAifType
+--    Rsyntax INTEGER {
+--        other(1),
+--        regular1822(2),
+--        hdh1822(3),
+--        ddnX25(4),
+--        rfc877x25(5),
+--        ethernetCsmacd(6),
+--        iso88023Csmacd(7),
+--        iso88024TokenBus(8),
+--        iso88025TokenRing(9),
+--        iso88026Man(10),
+--        starLan(11),
+--        proteon10Mbit(12),
+--        proteon80Mbit(13),
+--        hyperchannel(14),
+--        fddi(15),
+--        lapb(16),
+--        sdlc(17),
+--        ds1(18),
+--        e1(19),
+--        basicISDN(20),
+--        primaryISDN(21),
+--        propPointToPointSerial(22),
+--        ppp(23),
+--        softwareLoopback(24),
+--        eon(25),
+--        ethernet3Mbit(26),
+--        nsip(27),
+--        slip(28),
+--        ultra(29),
+--        ds3(30),
+--        sip(31),
+--        frameRelay(32),
+--        rs232(33),
+--        para(34),
+--        arcnet(35),
+--        arcnetPlus(36),
+--        atm(37),
+--        miox25(38),
+--        sonet(39),
+--        x25ple(40),
+--        iso88022llc(41),
+--        localTalk(42),
+--        smdsDxi(43),
+--        frameRelayService(44),
+--        v35(45),
+--        hssi(46),
+--        hippi(47),
+--        modem(48),
+--        aal5(49),
+--        sonetPath(50),
+--        sonetVT(51),
+--        smdsIcip(52),
+--        propVirtual(53),
+--        propMultiplexor(54),
+--        ieee80212(55),
+--        fibreChannel(56),
+--        hippiInterface(57),
+--        frameRelayInterconnect(58),
+--        aflane8023(59),
+--        aflane8025(60),
+--        cctEmul(61),
+--        fastEther(62),
+--        isdn(63),
+--        v11(64),
+--        v36(65),
+--        g703at64k(66),
+--        g703at2mb(67),
+--        qllc(68),
+--        fastEtherFX(69),
+--        channel(70),
+--        ieee80211(71),
+--        ibm370parChan(72),
+--        escon(73),
+--        dlsw(74),
+--        isdns(75),
+--        isdnu(76),
+--        lapd(77),
+--        ipSwitch(78),
+--        rsrb(79),
+--        atmLogical(80),
+--        ds0(81),
+--        ds0Bundle(82),
+--        bsc(83),
+--        async(84),
+--        cnr(85),
+--        iso88025Dtr(86),
+--        eplrs(87),
+--        arap(88),
+--        propCnls(89),
+--        hostPad(90),
+--        termPad(91),
+--        frameRelayMPI(92),
+--        x213(93),
+--        adsl(94),
+--        radsl(95),
+--        sdsl(96),
+--        vdsl(97),
+--        iso88025CRFPInt(98),
+--        myrinet(99),
+--        voiceEM(100),
+--        voiceFXO(101),
+--        voiceFXS(102),
+--        voiceEncap(103),
+--        voiceOverIp(104),
+--        atmDxi(105),
+--        atmFuni(106),
+--        atmIma(107),
+--        pppMultilinkBundle(108),
+--        ipOverCdlc(109),
+--        ipOverClaw(110),
+--        stackToStack(111),
+--        virtualIpAddress(112),
+--        mpc(113),
+--        ipOverAtm(114),
+--        iso88025Fiber(115),
+--        tdlc(116),
+--        gigabitEthernet(117)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of DLC interface, distinguished according to the
+        protocol immediately 'below' this layer."
+    ::= { appnLsStatusEntry 14 }
+
+appnLsStatusLocalAddr OBJECT-TYPE
+    SYNTAX DisplayableDlcAddress
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Local address of this link station."
+    ::= { appnLsStatusEntry 15 }
+
+appnLsStatusRemoteAddr OBJECT-TYPE
+    SYNTAX DisplayableDlcAddress
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Address of the remote link station on this link."
+    ::= { appnLsStatusEntry 16 }
+
+appnVrnTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnVrnEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table relates a virtual routing node to an APPN port."
+    ::= { appnVrnInfo 1 }
+
+appnVrnEntry OBJECT-TYPE
+    SYNTAX AppnVrnEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by the virtual routing node name, TG
+        number, and port name.  There will be a matching entry in the
+        appnLocalTgTable to represent status and characteristics of the
+        TG representing each virtual routing node definition."
+    INDEX { appnVrnName, appnVrnTgNum, appnVrnPortName }
+    ::= { appnVrnTable 1 }
+
+AppnVrnEntry ::= SEQUENCE {
+    appnVrnName SnaControlPointName,
+    appnVrnTgNum INTEGER,
+    appnVrnPortName DisplayString
+    }
+
+appnVrnName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name of the virtual routing node.
+        This is a fully qualified name, and matches the appnLocalTgDest
+        name in the appnLocalTgTable."
+    ::= { appnVrnEntry 1 }
+
+appnVrnTgNum OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Number associated with the transmission group representing
+        this virtual routing node definition."
+    ::= { appnVrnEntry 2 }
+
+appnVrnPortName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the port this virtual routing node definition is
+        defined to."
+    ::= { appnVrnEntry 3 }
+
+appnNnTopoMaxNodes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    node entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of node entries allowed in the APPN topology
+        database.  It is an implementation choice whether to count only
+        network-node entries, or to count all node entries.  If the
+        number of node entries exceeds this value, APPN will issue an
+        Alert and the node can no longer participate as a network node.
+        The value 0 indicates that the local node has no defined limit,
+        and the number of node entries is bounded only by memory."
+    ::= { appnNnTopo 1 }
+
+appnNnTopoCurNumNodes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    node entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of node entries in this node's topology
+        database.  It is an implementation choice whether to count only
+        network-node entries, or to count all node entries, but an
+        implementation must make the same choice here that it makes for
+        the appnNnTopoMaxNodes object.  If this value exceeds the
+        maximum number of nodes allowed (appnNnTopoMaxNodes, if that
+        field in not 0), APPN Alert CPDB002 is issued."
+    ::= { appnNnTopo 2 }
+
+appnNnTopoNodePurges OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    node entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of topology node records purged from this node's
+        topology database since the node was last reinitialized."
+    ::= { appnNnTopo 3 }
+
+appnNnTopoTgPurges OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    TG entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of topology TG records purged from this node's
+        topology database since the node was last reinitialized."
+    ::= { appnNnTopo 4 }
+
+appnNnTopoTotalTduWars OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    TDU wars
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of TDU wars detected by this node since its last
+        initialization."
+    ::= { appnNnTopo 5 }
+
+appnNnTopologyFRTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnNnTopologyFREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Portion of the APPN topology database that describes all of
+        the APPN network nodes and virtual routing nodes known to this
+        node."
+    ::= { appnNnTopology 3 }
+
+appnNnTopologyFREntry OBJECT-TYPE
+    SYNTAX AppnNnTopologyFREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The FRSN and the fully qualified node name are used to index
+        this table."
+    INDEX { appnNnNodeFRFrsn, appnNnNodeFRName }
+    ::= { appnNnTopologyFRTable 1 }
+
+AppnNnTopologyFREntry ::= SEQUENCE {
+    appnNnNodeFRFrsn Gauge,
+    appnNnNodeFRName SnaControlPointName,
+    appnNnNodeFREntryTimeLeft AppnTopologyEntryTimeLeft,
+    appnNnNodeFRType INTEGER,
+    appnNnNodeFRRsn Gauge,
+    appnNnNodeFRRouteAddResist INTEGER,
+    appnNnNodeFRCongested TruthValue,
+    appnNnNodeFRIsrDepleted TruthValue,
+    appnNnNodeFRQuiescing TruthValue,
+    appnNnNodeFRGateway TruthValue,
+    appnNnNodeFRCentralDirectory TruthValue,
+    appnNnNodeFRIsr TruthValue,
+    appnNnNodeFRGarbageCollect TruthValue,
+    appnNnNodeFRHprSupport INTEGER,
+    appnNnNodeFRPeriBorderSup TruthValue,
+    appnNnNodeFRInterchangeSup TruthValue,
+    appnNnNodeFRExteBorderSup TruthValue,
+    appnNnNodeFRBranchAwareness TruthValue
+    }
+
+appnNnNodeFRFrsn OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Flow reduction sequence numbers (FRSNs) are associated with
+        Topology Database Updates (TDUs) and are unique only within
+        each APPN network node.  A TDU can be associated with multiple
+        APPN resources.  This FRSN indicates the last relative time
+        this resource was updated at the agent node."
+    ::= { appnNnTopologyFREntry 1 }
+
+appnNnNodeFRName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned network name that is locally defined
+        at each network node."
+    ::= { appnNnTopologyFREntry 2 }
+
+appnNnNodeFREntryTimeLeft OBJECT-TYPE
+    SYNTAX AppnTopologyEntryTimeLeft
+--    Rsyntax INTEGER(0..15)
+--  Units
+--    days
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of days before deletion of this network node entry."
+    ::= { appnNnTopologyFREntry 3 }
+
+appnNnNodeFRType OBJECT-TYPE
+    SYNTAX INTEGER {
+        networkNode(1),
+        virtualRoutingNode(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of APPN node."
+    ::= { appnNnTopologyFREntry 4 }
+
+appnNnNodeFRRsn OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Resource sequence number, which is assigned and controlled by
+        the network node that owns this resource.  An odd number
+        indicates that information about the resource is inconsistent.
+        
+        This object corresponds to the numeric value in cv4580, bytes
+        2-5."
+    ::= { appnNnTopologyFREntry 5 }
+
+appnNnNodeFRRouteAddResist OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Route addition resistance.
+        
+        This administratively assigned value indicates the relative
+        desirability of using this node for intermediate session
+        traffic.  The value, which can be any integer 0-255, is used
+        in route computation.  The lower the value, the more
+        desirable the node is for intermediate routing.
+        
+        This object corresponds to cv4580, byte 6."
+    ::= { appnNnTopologyFREntry 6 }
+
+appnNnNodeFRCongested OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node is congested.  This node is not be
+        included in route selection by other nodes when this congestion
+        exists.
+        
+        This object corresponds to cv4580, byte 7, bit 0."
+    ::= { appnNnTopologyFREntry 7 }
+
+appnNnNodeFRIsrDepleted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether intermediate session routing resources are
+        depleted.  This node is not included in intermediate route
+        selection by other nodes when resources are depleted.
+        
+        This object corresponds to cv4580, byte 7, bit 1."
+    ::= { appnNnTopologyFREntry 8 }
+
+appnNnNodeFRQuiescing OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node is quiescing.  This node is not
+        included in route selection by other nodes when the node is
+        quiescing.
+        
+        This object corresponds to cv4580, byte 7, bit 5."
+    ::= { appnNnTopologyFREntry 9 }
+
+appnNnNodeFRGateway OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node provide gateway services.
+        
+        This object corresponds to cv4580, byte 8, bit 0."
+    ::= { appnNnTopologyFREntry 10 }
+
+appnNnNodeFRCentralDirectory OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node supports central directory
+        services.
+        
+        This object corresponds to cv4580, byte 8, bit 1."
+    ::= { appnNnTopologyFREntry 11 }
+
+appnNnNodeFRIsr OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node supports intermediate session
+        routing (ISR).
+        
+        This object corresponds to cv4580, byte 8, bit 2."
+    ::= { appnNnTopologyFREntry 12 }
+
+appnNnNodeFRGarbageCollect OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the node has been marked for garbage
+        collection (deletion from the topology database) upon the next
+        garbage collection cycle.
+        
+        This object corresponds to cv4580, byte 7, bit 3."
+    ::= { appnNnTopologyFREntry 13 }
+
+appnNnNodeFRHprSupport OBJECT-TYPE
+    SYNTAX INTEGER {
+        noHprSupport(1),
+        hprBaseOnly(2),
+        rtpTower(3),
+        controlFlowsOverRtpTower(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the node's level of support for high-performance
+        routing (HPR):
+        
+           noHprSupport(1)             - no HPR support
+           hprBaseOnly(2)              - HPR base (option set 1400)
+                                         supported
+           rtpTower(3)                 - HPR base and RTP tower
+                                         (option set 1401) supported
+           controlFlowsOverRtpTower(4) - HPR base, RTP tower, and
+                                         control flows over RTP
+                                         (option set 1402) supported
+        
+        This object corresponds to cv4580, byte 9, bits 3-4."
+    ::= { appnNnTopologyFREntry 14 }
+
+appnNnNodeFRPeriBorderSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node has peripheral border node
+        support.
+        
+        This object corresponds to cv4580, byte 9, bit 0."
+    ::= { appnNnTopologyFREntry 15 }
+
+appnNnNodeFRInterchangeSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node has interchange node support.
+        
+        This object corresponds to cv4580, byte 9, bit 1."
+    ::= { appnNnTopologyFREntry 16 }
+
+appnNnNodeFRExteBorderSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node has extended border node
+         support.
+        
+        This object corresponds to cv4580, byte 9, bit 2."
+    ::= { appnNnTopologyFREntry 17 }
+
+appnNnNodeFRBranchAwareness OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this node supports branch awareness.
+        
+        This object corresponds to cv4580, byte 8, bit 4."
+    ::= { appnNnTopologyFREntry 18 }
+
+appnNnTgTopologyFRTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnNnTgTopologyFREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Portion of the APPN topology database that describes all of
+        the APPN transmissions groups between nodes in the database."
+    ::= { appnNnTopology 4 }
+
+appnNnTgTopologyFREntry OBJECT-TYPE
+    SYNTAX AppnNnTgTopologyFREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by four columns:  FRSN, TG owner fully
+        qualified node name, TG destination fully qualified node name,
+        and TG number."
+    INDEX { appnNnTgFRFrsn, appnNnTgFROwner, appnNnTgFRDest, appnNnTgFRNum }
+    ::= { appnNnTgTopologyFRTable 1 }
+
+AppnNnTgTopologyFREntry ::= SEQUENCE {
+    appnNnTgFRFrsn Gauge,
+    appnNnTgFROwner SnaControlPointName,
+    appnNnTgFRDest SnaControlPointName,
+    appnNnTgFRNum INTEGER,
+    appnNnTgFREntryTimeLeft AppnTopologyEntryTimeLeft,
+    appnNnTgFRDestVirtual TruthValue,
+    appnNnTgFRDlcData AppnTgDlcData,
+    appnNnTgFRRsn Gauge,
+    appnNnTgFROperational TruthValue,
+    appnNnTgFRQuiescing TruthValue,
+    appnNnTgFRCpCpSession INTEGER,
+    appnNnTgFREffCap AppnTgEffectiveCapacity,
+    appnNnTgFRConnCost INTEGER,
+    appnNnTgFRByteCost INTEGER,
+    appnNnTgFRSecurity AppnTgSecurity,
+    appnNnTgFRDelay AppnTgDelay,
+    appnNnTgFRUsr1 INTEGER,
+    appnNnTgFRUsr2 INTEGER,
+    appnNnTgFRUsr3 INTEGER,
+    appnNnTgFRGarbageCollect TruthValue,
+    appnNnTgFRSubareaNum Gauge,
+    appnNnTgFRHprSup TruthValue,
+    appnNnTgFRDestHprTrans TruthValue,
+    appnNnTgFRTypeIndicator INTEGER,
+    appnNnTgFRIntersubnet TruthValue,
+    appnNnTgFRMltgLinkType TruthValue,
+    appnNnTgFRBranchTg TruthValue
+    }
+
+appnNnTgFRFrsn OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Flow reduction sequence numbers (FRSNs) are associated with
+        Topology Database Updates (TDUs) and are unique only within
+        each APPN network node.  A TDU can be associated with multiple
+        APPN resources.  This FRSN indicates the last time this
+        resource was updated at this node."
+    ::= { appnNnTgTopologyFREntry 1 }
+
+appnNnTgFROwner OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for the originating node for
+        this TG.  This is the same name specified in the node table."
+    ::= { appnNnTgTopologyFREntry 2 }
+
+appnNnTgFRDest OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned fully qualified network name for the
+        destination node for this TG."
+    ::= { appnNnTgTopologyFREntry 3 }
+
+appnNnTgFRNum OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Number associated with this transmission group.  Range is
+        0-255."
+    ::= { appnNnTgTopologyFREntry 4 }
+
+appnNnTgFREntryTimeLeft OBJECT-TYPE
+    SYNTAX AppnTopologyEntryTimeLeft
+--    Rsyntax INTEGER(0..15)
+--  Units
+--    days
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of days before deletion of this network node TG entry
+        if it is not operational or has an odd (inconsistent) RSN."
+    ::= { appnNnTgTopologyFREntry 5 }
+
+appnNnTgFRDestVirtual OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the destination node is a virtual routing
+        node."
+    ::= { appnNnTgTopologyFREntry 6 }
+
+appnNnTgFRDlcData OBJECT-TYPE
+    SYNTAX AppnTgDlcData
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "DLC-specific data related to a link connection network."
+    ::= { appnNnTgTopologyFREntry 7 }
+
+appnNnTgFRRsn OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current owning node's resource sequence number for this
+        resource.  An odd number indicates that information about the
+        resource is inconsistent.
+        
+        This object corresponds to the numeric value in cv47, bytes
+        2-5"
+    ::= { appnNnTgTopologyFREntry 8 }
+
+appnNnTgFROperational OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is operational.
+        
+        This object corresponds to cv47, byte 6, bit 0."
+    ::= { appnNnTgTopologyFREntry 9 }
+
+appnNnTgFRQuiescing OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is quiescing.
+        
+        If the TG owner is either an extended border node or a
+        branch-aware network node (indicated, respectively, by
+        the appnNnNodeFRExteBorderSup and appnNnNodeFRBranchAwareness
+        objects in the corresponding appnNnTopologyFREntry), then
+        this indicator is artificially set to TRUE in the APPN
+        topology database, to remove the TG from other nodes'
+        route calculations.  A management application can
+        determine whether the TG is actually quiescing by
+        examining its appnLocalTgQuiescing object at the TG owner.
+        
+        This object corresponds to cv47, byte 6, bit 2."
+    ::= { appnNnTgTopologyFREntry 10 }
+
+appnNnTgFRCpCpSession OBJECT-TYPE
+    SYNTAX INTEGER {
+        supportedUnknownStatus(1),
+        supportedActive(2),
+        notSupported(3),
+        supportedNotActive(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether CP-CP sessions are supported on this TG, and
+        whether the TG owner's contention-winner session is active on
+        this TG.  Some nodes in the network are not able to
+        differentiate support and status of CP-CP sessions, and thus
+        may report the 'supportedUnknownStatus' value.
+        
+        This object corresponds to cv47, byte 6, bits 3-4."
+    ::= { appnNnTgTopologyFREntry 11 }
+
+appnNnTgFREffCap OBJECT-TYPE
+    SYNTAX AppnTgEffectiveCapacity
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Effective capacity for this TG."
+    ::= { appnNnTgTopologyFREntry 12 }
+
+appnNnTgFRConnCost OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Cost per connect time.
+        
+        This is an administratively assigned value representing the
+        relative cost per unit of time to use this TG.  Range is from
+        0, which means no cost, to 255, which indicates maximum cost.
+        
+        This object corresponds to cv47, byte 13."
+    ::= { appnNnTgTopologyFREntry 13 }
+
+appnNnTgFRByteCost OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Cost per byte transmitted.
+        
+        This is an administratively assigned value representing the
+        relative cost of transmitting a byte over this TG.  Range is
+        from 0, which means no cost, to 255, which indicates maximum
+        cost.
+        
+        This object corresponds to cv47, byte 14."
+    ::= { appnNnTgTopologyFREntry 14 }
+
+appnNnTgFRSecurity OBJECT-TYPE
+    SYNTAX AppnTgSecurity
+--    Rsyntax INTEGER {
+--        nonsecure(1),
+--        publicSwitchedNetwork(32),
+--        undergroundCable(64),
+--        secureConduit(96),
+--        guardedConduit(128),
+--        encrypted(160),
+--        guardedRadiation(192)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned security level of this TG.
+        
+        This object corresponds to cv47, byte 16."
+    ::= { appnNnTgTopologyFREntry 15 }
+
+appnNnTgFRDelay OBJECT-TYPE
+    SYNTAX AppnTgDelay
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned delay associated with this TG.
+        
+        This object corresponds to cv47, byte 17."
+    ::= { appnNnTgTopologyFREntry 16 }
+
+appnNnTgFRUsr1 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "First user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG.
+        
+        This object corresponds to cv47, byte 19."
+    ::= { appnNnTgTopologyFREntry 17 }
+
+appnNnTgFRUsr2 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Second user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG.
+        
+        This object corresponds to cv47, byte 20."
+    ::= { appnNnTgTopologyFREntry 18 }
+
+appnNnTgFRUsr3 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Third user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG.
+        
+        This object corresponds to cv47, byte 21."
+    ::= { appnNnTgTopologyFREntry 19 }
+
+appnNnTgFRGarbageCollect OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the TG has been marked for garbage
+        collection (deletion from the topology database) upon the next
+        garbage collection cycle.
+        
+        This object corresponds to cv47, byte 6, bit 1."
+    ::= { appnNnTgTopologyFREntry 20 }
+
+appnNnTgFRSubareaNum OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The subarea number associated with this TG.
+        
+        This object corresponds to cv4680, bytes m+2 through m+5."
+    ::= { appnNnTgTopologyFREntry 21 }
+
+appnNnTgFRHprSup OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether high performance routing (HPR)
+        is supported over this TG.
+        
+        This object corresponds to cv4680, byte m+1, bit 2."
+    ::= { appnNnTgTopologyFREntry 22 }
+
+appnNnTgFRDestHprTrans OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the destination node supports
+        high performance routing (HPR) transport tower.
+        
+        This object corresponds to cv4680, byte m+1, bit 7."
+    ::= { appnNnTgTopologyFREntry 23 }
+
+appnNnTgFRTypeIndicator OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        appnOrBfTg(2),
+        interchangeTg(3),
+        virtualRouteTg(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the type of the TG.
+        
+        This object corresponds to cv4680, byte m+1, bits 3-4."
+    ::= { appnNnTgTopologyFREntry 24 }
+
+appnNnTgFRIntersubnet OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is an intersubnet TG,
+        which defines a border between subnetworks.
+        
+        This object corresponds to cv4680, byte m+1, bit 5."
+    ::= { appnNnTgTopologyFREntry 25 }
+
+appnNnTgFRMltgLinkType OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the transmission group is a
+        multi-link TG.  A TG that has been brought up as a multi-link
+        TG is reported as one, even if it currently has only one link
+        active.
+        
+        This object corresponds to cv47, byte 6, bit 5."
+    ::= { appnNnTgTopologyFREntry 26 }
+
+appnNnTgFRBranchTg OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is a branch TG
+        (equivalently, whether the destination of the transmission
+        group is a branch network node).
+        
+        This object corresponds to cv4680, byte m+1, bit 1."
+    ::= { appnNnTgTopologyFREntry 27 }
+
+appnLocalTgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnLocalTgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "TG Table describes all of the TGs owned by this node.  The TG
+        destination can be a virtual node, network node, LEN node, or
+        end node."
+    ::= { appnLocalTopology 1 }
+
+appnLocalTgEntry OBJECT-TYPE
+    SYNTAX AppnLocalTgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by the destination CpName and the TG
+        number."
+    INDEX { appnLocalTgDest, appnLocalTgNum }
+    ::= { appnLocalTgTable 1 }
+
+AppnLocalTgEntry ::= SEQUENCE {
+    appnLocalTgDest SnaControlPointName,
+    appnLocalTgNum INTEGER,
+    appnLocalTgDestVirtual TruthValue,
+    appnLocalTgDlcData AppnTgDlcData,
+    appnLocalTgPortName DisplayString,
+    appnLocalTgQuiescing TruthValue,
+    appnLocalTgOperational TruthValue,
+    appnLocalTgCpCpSession INTEGER,
+    appnLocalTgEffCap AppnTgEffectiveCapacity,
+    appnLocalTgConnCost INTEGER,
+    appnLocalTgByteCost INTEGER,
+    appnLocalTgSecurity AppnTgSecurity,
+    appnLocalTgDelay AppnTgDelay,
+    appnLocalTgUsr1 INTEGER,
+    appnLocalTgUsr2 INTEGER,
+    appnLocalTgUsr3 INTEGER,
+    appnLocalTgHprSup INTEGER,
+    appnLocalTgIntersubnet TruthValue,
+    appnLocalTgMltgLinkType TruthValue,
+    appnLocalTgBranchLinkType INTEGER
+    }
+
+appnLocalTgDest OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name of the destination node for
+        this TG.  This is the fully qualified name of a network node,
+        end node, LEN node, or virtual routing node."
+    ::= { appnLocalTgEntry 1 }
+
+appnLocalTgNum OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Number associated with this transmission group."
+    ::= { appnLocalTgEntry 2 }
+
+appnLocalTgDestVirtual OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the destination node for this TG is a
+        virtual routing node."
+    ::= { appnLocalTgEntry 3 }
+
+appnLocalTgDlcData OBJECT-TYPE
+    SYNTAX AppnTgDlcData
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "DLC-specific data related to a link connection network."
+    ::= { appnLocalTgEntry 4 }
+
+appnLocalTgPortName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..10))
+--    Rsyntax OCTET STRING(SIZE(0..10))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for the local port associated
+        with this TG.  A zero-length string indicates that this value
+        is unknown."
+    ::= { appnLocalTgEntry 5 }
+
+appnLocalTgQuiescing OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is quiescing."
+    ::= { appnLocalTgEntry 6 }
+
+appnLocalTgOperational OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is operational."
+    ::= { appnLocalTgEntry 7 }
+
+appnLocalTgCpCpSession OBJECT-TYPE
+    SYNTAX INTEGER {
+        supportedUnknownStatus(1),
+        supportedActive(2),
+        notSupported(3),
+        supportedNotActive(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether CP-CP sessions are supported on this TG, and
+        whether the TG owner's contention-winner session is active on
+        this TG.  Some nodes in the network are not able to
+        differentiate support and status of CP-CP sessions, and thus
+        may report the 'supportedUnknownStatus' value."
+    ::= { appnLocalTgEntry 8 }
+
+appnLocalTgEffCap OBJECT-TYPE
+    SYNTAX AppnTgEffectiveCapacity
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Effective capacity for this TG."
+    ::= { appnLocalTgEntry 9 }
+
+appnLocalTgConnCost OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Cost per connect time:  a value representing the relative cost
+        per unit of time to use the TG.  Range is from 0, which means
+        no cost, to 255."
+    ::= { appnLocalTgEntry 10 }
+
+appnLocalTgByteCost OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Relative cost of transmitting a byte over this link.
+        Range is from 0 (lowest cost) to 255."
+    ::= { appnLocalTgEntry 11 }
+
+appnLocalTgSecurity OBJECT-TYPE
+    SYNTAX AppnTgSecurity
+--    Rsyntax INTEGER {
+--        nonsecure(1),
+--        publicSwitchedNetwork(32),
+--        undergroundCable(64),
+--        secureConduit(96),
+--        guardedConduit(128),
+--        encrypted(160),
+--        guardedRadiation(192)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned security level of this TG."
+    ::= { appnLocalTgEntry 12 }
+
+appnLocalTgDelay OBJECT-TYPE
+    SYNTAX AppnTgDelay
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned delay associated with this TG."
+    ::= { appnLocalTgEntry 13 }
+
+appnLocalTgUsr1 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "First user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG."
+    ::= { appnLocalTgEntry 14 }
+
+appnLocalTgUsr2 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Second user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG."
+    ::= { appnLocalTgEntry 15 }
+
+appnLocalTgUsr3 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Third user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG."
+    ::= { appnLocalTgEntry 16 }
+
+appnLocalTgHprSup OBJECT-TYPE
+    SYNTAX INTEGER {
+        noHprSupport(1),
+        hprBaseOnly(2),
+        rtpTower(3),
+        controlFlowsOverRtpTower(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the level of high performance routing (HPR) support
+        over this TG :
+        
+           noHprSupport(1)             - no HPR support
+           hprBaseOnly(2)              - HPR base (option set 1400)
+                                         supported
+           rtpTower(3)                 - HPR base and RTP tower
+                                         (option set 1401) supported
+           controlFlowsOverRtpTower(4) - HPR base, RTP tower, and
+                                         control flows over RTP
+                                         (option set 1402) supported"
+    ::= { appnLocalTgEntry 17 }
+
+appnLocalTgIntersubnet OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is an intersubnet TG,
+        which defines a border between subnetworks."
+    ::= { appnLocalTgEntry 18 }
+
+appnLocalTgMltgLinkType OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the transmission group is a
+        multi-link TG.  A TG that has been brought up as a multi-link
+        TG is reported as one, even if it currently has only one link
+        active."
+    ::= { appnLocalTgEntry 19 }
+
+appnLocalTgBranchLinkType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        uplink(2),
+        downlink(3),
+        downlinkToBranchNetworkNode(4),
+        none(5),
+        unknown(255)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Branch link type of this TG:
+        
+           other(1)             = the agent has determined the TG's
+                                  branch link type to be a value other
+                                  than branch uplink or branch
+                                  downlink.  This is the value used
+                                  for a connection network TG owned by
+                                  a branch network node.
+           uplink(2)            = the TG is a branch uplink.
+           downlink(3)          = the TG is a branch downlink to an
+                                  end node.
+           downlinkToBranchNetworkNode(4) = the TG is a branch
+                                  downlink to a cascaded branch
+                                  network node.
+           none(5)              = the TG is not a branch TG.
+           unknown(255)         = the agent cannot determine the
+                                  branch link type of the TG."
+    ::= { appnLocalTgEntry 20 }
+
+appnLocalEnTgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnLocalEnTgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table describing all of the TGs owned by the end nodes known
+        to this node via TG registration.  This node does not represent
+        its own view of the TG on behalf of the partner node in this
+        table.  The TG destination can be a virtual routing node,
+        network node, or end node."
+    ::= { appnLocalTopology 2 }
+
+appnLocalEnTgEntry OBJECT-TYPE
+    SYNTAX AppnLocalEnTgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table requires multiple indexes to uniquely identify each
+        TG.  They are originating CPname, destination CPname, and the
+        TG number."
+    INDEX { appnLocalEnTgOrigin, appnLocalEnTgDest, appnLocalEnTgNum }
+    ::= { appnLocalEnTgTable 1 }
+
+AppnLocalEnTgEntry ::= SEQUENCE {
+    appnLocalEnTgOrigin SnaControlPointName,
+    appnLocalEnTgDest SnaControlPointName,
+    appnLocalEnTgNum INTEGER,
+    appnLocalEnTgEntryTimeLeft AppnTopologyEntryTimeLeft,
+    appnLocalEnTgDestVirtual TruthValue,
+    appnLocalEnTgDlcData AppnTgDlcData,
+    appnLocalEnTgOperational TruthValue,
+    appnLocalEnTgCpCpSession INTEGER,
+    appnLocalEnTgEffCap AppnTgEffectiveCapacity,
+    appnLocalEnTgConnCost INTEGER,
+    appnLocalEnTgByteCost INTEGER,
+    appnLocalEnTgSecurity AppnTgSecurity,
+    appnLocalEnTgDelay AppnTgDelay,
+    appnLocalEnTgUsr1 INTEGER,
+    appnLocalEnTgUsr2 INTEGER,
+    appnLocalEnTgUsr3 INTEGER,
+    appnLocalEnTgMltgLinkType TruthValue
+    }
+
+appnLocalEnTgOrigin OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name of the origin node for this
+        TG.  This is a fully qualified network name."
+    ::= { appnLocalEnTgEntry 1 }
+
+appnLocalEnTgDest OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name of the destination node for
+        this TG.  This is the fully qualified name of a network node,
+        end node, LEN node, or virtual routing node."
+    ::= { appnLocalEnTgEntry 2 }
+
+appnLocalEnTgNum OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Number associated with this transmission group."
+    ::= { appnLocalEnTgEntry 3 }
+
+appnLocalEnTgEntryTimeLeft OBJECT-TYPE
+    SYNTAX AppnTopologyEntryTimeLeft
+--    Rsyntax INTEGER(0..15)
+--  Units
+--    days
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of days before deletion of this end node TG entry."
+    ::= { appnLocalEnTgEntry 4 }
+
+appnLocalEnTgDestVirtual OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the destination node is a virtual routing
+        node."
+    ::= { appnLocalEnTgEntry 5 }
+
+appnLocalEnTgDlcData OBJECT-TYPE
+    SYNTAX AppnTgDlcData
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "DLC-specific data related to a link connection network."
+    ::= { appnLocalEnTgEntry 6 }
+
+appnLocalEnTgOperational OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the transmission group is operational."
+    ::= { appnLocalEnTgEntry 7 }
+
+appnLocalEnTgCpCpSession OBJECT-TYPE
+    SYNTAX INTEGER {
+        supportedUnknownStatus(1),
+        supportedActive(2),
+        notSupported(3),
+        supportedNotActive(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether CP-CP sessions are supported on this TG, and
+        whether the TG owner's contention-winner session is active on
+        this TG.  Some nodes in the network are not able to
+        differentiate support and status of CP-CP sessions, and thus
+        may report the 'supportedUnknownStatus' value."
+    ::= { appnLocalEnTgEntry 8 }
+
+appnLocalEnTgEffCap OBJECT-TYPE
+    SYNTAX AppnTgEffectiveCapacity
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Effective capacity for this TG."
+    ::= { appnLocalEnTgEntry 9 }
+
+appnLocalEnTgConnCost OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Cost per connect time:  a value representing the relative cost
+        per unit of time to use the TG.  Range is from 0, which means
+        no cost, to 255."
+    ::= { appnLocalEnTgEntry 10 }
+
+appnLocalEnTgByteCost OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Relative cost of transmitting a byte over this link.
+        Range is from 0, which means no cost, to 255."
+    ::= { appnLocalEnTgEntry 11 }
+
+appnLocalEnTgSecurity OBJECT-TYPE
+    SYNTAX AppnTgSecurity
+--    Rsyntax INTEGER {
+--        nonsecure(1),
+--        publicSwitchedNetwork(32),
+--        undergroundCable(64),
+--        secureConduit(96),
+--        guardedConduit(128),
+--        encrypted(160),
+--        guardedRadiation(192)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned security level of this TG."
+    ::= { appnLocalEnTgEntry 12 }
+
+appnLocalEnTgDelay OBJECT-TYPE
+    SYNTAX AppnTgDelay
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned delay associated with this TG."
+    ::= { appnLocalEnTgEntry 13 }
+
+appnLocalEnTgUsr1 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "First user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG."
+    ::= { appnLocalEnTgEntry 14 }
+
+appnLocalEnTgUsr2 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Second user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG."
+    ::= { appnLocalEnTgEntry 15 }
+
+appnLocalEnTgUsr3 OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Third user-defined TG characteristic for this TG.  This is
+        an administratively assigned value associated with the TG."
+    ::= { appnLocalEnTgEntry 16 }
+
+appnLocalEnTgMltgLinkType OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the transmission group is a
+        multi-link TG.  A TG that has been brought up as a multi-link
+        TG is reported as one, even if it currently has only one link
+        active."
+    ::= { appnLocalEnTgEntry 17 }
+
+appnDirMaxCaches OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    directory entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of cache entries allowed.  This is an
+        administratively assigned value."
+    ::= { appnDirPerf 1 }
+
+appnDirCurCaches OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    directory entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of cache entries."
+    ::= { appnDirPerf 2 }
+
+appnDirCurHomeEntries OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    directory entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of home entries."
+    ::= { appnDirPerf 3 }
+
+appnDirRegEntries OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    directory entries
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of registered entries."
+    ::= { appnDirPerf 4 }
+
+appnDirInLocates OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    Locate messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of directed Locates received since the node was last
+        reinitialized."
+    ::= { appnDirPerf 5 }
+
+appnDirInBcastLocates OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    Locate messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of broadcast Locates received since the node was last
+        reinitialized."
+    ::= { appnDirPerf 6 }
+
+appnDirOutLocates OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    Locate messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of directed Locates sent since the node was last
+        reinitialized."
+    ::= { appnDirPerf 7 }
+
+appnDirOutBcastLocates OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    Locate messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of broadcast Locates sent since the node was last
+        reinitialized."
+    ::= { appnDirPerf 8 }
+
+appnDirNotFoundLocates OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    Locate messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of directed Locates returned with a 'not found' since
+        the node was last reinitialized."
+    ::= { appnDirPerf 9 }
+
+appnDirNotFoundBcastLocates OBJECT-TYPE
+    SYNTAX AppnNodeCounter
+--    Rsyntax Counter
+--  Units
+--    Locate messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of broadcast Locates returned with a 'not found' since
+        the node was last reinitialized."
+    ::= { appnDirPerf 10 }
+
+appnDirLocateOutstands OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Locate messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of outstanding Locates, both directed and
+        broadcast.  This value varies.  A value of zero indicates
+        that no Locates are unanswered."
+    ::= { appnDirPerf 11 }
+
+appnDirTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnDirEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing information about all known LUs."
+    ::= { appnDir 2 }
+
+appnDirEntry OBJECT-TYPE
+    SYNTAX AppnDirEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by the LU name."
+    INDEX { appnDirLuName }
+    ::= { appnDirTable 1 }
+
+AppnDirEntry ::= SEQUENCE {
+    appnDirLuName DisplayString,
+    appnDirNnServerName SnaControlPointName,
+    appnDirLuOwnerName SnaControlPointName,
+    appnDirLuLocation INTEGER,
+    appnDirType INTEGER,
+    appnDirApparentLuOwnerName DisplayString
+    }
+
+appnDirLuName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..17))
+--    Rsyntax OCTET STRING(SIZE(1..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Fully qualified network LU name in the domain of the
+         serving network node.  Entries take one of three forms:
+        
+            - Explicit entries do not contain the character '*'.
+            - Partial wildcard entries have the form 'ccc*', where
+              'ccc' represents one to sixteen characters in a
+              legal SNA LuName.
+            - A full wildcard entry consists of the single
+              character '*'"
+    ::= { appnDirEntry 1 }
+
+appnDirNnServerName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Fully qualified control point (CP) name of the network node
+        server.  For unassociated end node entries, a zero-length
+        string is returned."
+    ::= { appnDirEntry 2 }
+
+appnDirLuOwnerName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Fully qualified CP name of the node at which the LU is
+        located.  This name is the same as the serving NN name when
+        the LU is located at a network node.  It is also the same as
+        the fully qualified LU name when this is the control point
+        LU for this node."
+    ::= { appnDirEntry 3 }
+
+appnDirLuLocation OBJECT-TYPE
+    SYNTAX INTEGER {
+        local(1),
+        domain(2),
+        xdomain(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the location of the LU with respect to the local
+        node."
+    ::= { appnDirEntry 4 }
+
+appnDirType OBJECT-TYPE
+    SYNTAX INTEGER {
+        home(1),
+        cache(2),
+        registered(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Directory types are:
+          1 - Home
+                The LU is in the domain of the local node, and the LU
+                information has been configured at the local node.
+        
+          2 - Cache
+                The LU has previously been located by a broadcast
+                search, and the location information has been saved.
+        
+          3 - Registered
+                The LU is at an end node that is in the domain
+                of the local network node.  Registered entries
+                are registered by the served end node."
+    ::= { appnDirEntry 5 }
+
+appnDirApparentLuOwnerName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0|3..17))
+--    Rsyntax OCTET STRING(SIZE(0|3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Fully qualified CP name of the node at which the LU appears to
+        be located.  This object and the appnDirLuOwnerName object are
+        related as follows:
+        
+        Implementations that support this object save in their
+        directory database information about an LU's owning control
+        point that was communicated in two control vectors:
+        
+             -  an Associated Resource Entry (X'3C') CV with resource
+                type X'00F4' (ENCP)
+        
+             -  a Real Owning Control Point (X'4A') CV.
+        
+        The X'4A' CV is created by a branch network node to preserve
+        the name of the real owning control point for an LU below the
+        branch network node, before it overwrites this name with its
+        own name in the X'3C' CV.  The X'4A' CV is not present for LUs
+        that are not below branch network nodes.
+        
+        If the information a node has about an LU's owning CP came only
+        in a X'3C' CV, then the name from the X'3C' is returned in the
+        appnDirLuOwnerName object, and a null string is returned in
+        this object.
+        
+        If the information a node has about an LU's owning CP came in
+        both X'3C' and X'4A' CVs, then the name from the X'4A' is
+        returned in the appnDirLuOwnerName object, and the name from
+        the X'3C' (which will be the branch network node's name) is
+        returned in this object."
+    ::= { appnDirEntry 6 }
+
+appnCosModeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnCosModeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table representing all of the defined mode names for this
+        node.  The table contains the matching COS name for each
+        mode name."
+    ::= { appnCos 1 }
+
+appnCosModeEntry OBJECT-TYPE
+    SYNTAX AppnCosModeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by the mode name."
+    INDEX { appnCosModeName }
+    ::= { appnCosModeTable 1 }
+
+AppnCosModeEntry ::= SEQUENCE {
+    appnCosModeName SnaModeName,
+    appnCosModeCosName SnaClassOfServiceName
+    }
+
+appnCosModeName OBJECT-TYPE
+    SYNTAX SnaModeName
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for this mode."
+    ::= { appnCosModeEntry 1 }
+
+appnCosModeCosName OBJECT-TYPE
+    SYNTAX SnaClassOfServiceName
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for this class of service."
+    ::= { appnCosModeEntry 2 }
+
+appnCosNameTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnCosNameEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table mapping all of the defined class-of-service names for
+        this node to their network transmission priorities."
+    ::= { appnCos 2 }
+
+appnCosNameEntry OBJECT-TYPE
+    SYNTAX AppnCosNameEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The COS name is the index to this table."
+    INDEX { appnCosName }
+    ::= { appnCosNameTable 1 }
+
+AppnCosNameEntry ::= SEQUENCE {
+    appnCosName SnaClassOfServiceName,
+    appnCosTransPriority INTEGER
+    }
+
+appnCosName OBJECT-TYPE
+    SYNTAX SnaClassOfServiceName
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for this class of service."
+    ::= { appnCosNameEntry 1 }
+
+appnCosTransPriority OBJECT-TYPE
+    SYNTAX INTEGER {
+        low(1),
+        medium(2),
+        high(3),
+        network(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Transmission priority for this class of service:
+        
+            low(1)     - (X'01'):  low priority
+            medium(2)  - (X'02'):  medium priority
+            high(3)    - (X'03'):  high priority
+            network(4) - (X'04'):  network priority"
+    ::= { appnCosNameEntry 2 }
+
+appnCosNodeRowTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnCosNodeRowEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains all node-row information for all classes
+        of service defined in this node."
+    ::= { appnCos 3 }
+
+appnCosNodeRowEntry OBJECT-TYPE
+    SYNTAX AppnCosNodeRowEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A node entry for a given class of service."
+    INDEX { appnCosNodeRowName, appnCosNodeRowIndex }
+    ::= { appnCosNodeRowTable 1 }
+
+AppnCosNodeRowEntry ::= SEQUENCE {
+    appnCosNodeRowName SnaClassOfServiceName,
+    appnCosNodeRowIndex INTEGER,
+    appnCosNodeRowWgt DisplayString,
+    appnCosNodeRowResistMin INTEGER,
+    appnCosNodeRowResistMax INTEGER,
+    appnCosNodeRowMinCongestAllow INTEGER,
+    appnCosNodeRowMaxCongestAllow INTEGER
+    }
+
+appnCosNodeRowName OBJECT-TYPE
+    SYNTAX SnaClassOfServiceName
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for this class of service."
+    ::= { appnCosNodeRowEntry 1 }
+
+appnCosNodeRowIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Subindex under appnCosNodeRowName, corresponding to a row in
+        the node table for the class of service identified in
+        appnCosNodeRowName.
+        
+        For each class of service, this subindex orders rows in the
+        appnCosNodeRowTable in the same order as that used for route
+        calculation in the APPN node."
+    ::= { appnCosNodeRowEntry 2 }
+
+appnCosNodeRowWgt OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Weight to be associated with the nodes that fit the criteria
+        specified by this node row.
+        
+        This value can either be a character representation of an
+        integer, or a formula for calculating the weight."
+    ::= { appnCosNodeRowEntry 3 }
+
+appnCosNodeRowResistMin OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum route addition resistance value for this node.
+        Range of values is 0-255.  The lower the value, the more
+        desirable the node is for intermediate routing."
+    ::= { appnCosNodeRowEntry 4 }
+
+appnCosNodeRowResistMax OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum route addition resistance value for this node.
+        Range of values is 0-255.  The lower the value, the more
+        desirable the node is for intermediate routing."
+    ::= { appnCosNodeRowEntry 5 }
+
+appnCosNodeRowMinCongestAllow OBJECT-TYPE
+    SYNTAX INTEGER(0..1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether low congestion will be tolerated.  This
+        object and appnCosNodeRowMaxCongestAllow together delineate a
+        range of acceptable congestion states for a node.  For the
+        ordered pair (minimum congestion allowed, maximum congestion
+        allowed), the values are interpreted as follows:
+        
+         - (0,0):  only low congestion is acceptable
+         - (0,1):  either low or high congestion is acceptable
+         - (1,1):  only high congestion is acceptable.
+        
+        Note that the combination (1,0) is not defined, since it
+        would identify a range whose lower bound was high congestion
+        and whose upper bound was low congestion."
+    ::= { appnCosNodeRowEntry 6 }
+
+appnCosNodeRowMaxCongestAllow OBJECT-TYPE
+    SYNTAX INTEGER(0..1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether low congestion will be tolerated.  This
+        object and appnCosNodeRowMinCongestAllow together delineate a
+        range of acceptable congestion states for a node.  For the
+        ordered pair (minimum congestion allowed, maximum congestion
+        allowed), the values are interpreted as follows:
+        
+         - (0,0):  only low congestion is acceptable
+         - (0,1):  either low or high congestion is acceptable
+         - (1,1):  only high congestion is acceptable.
+        
+        Note that the combination (1,0) is not defined, since it
+        would identify a range whose lower bound was high congestion
+        and whose upper bound was low congestion."
+    ::= { appnCosNodeRowEntry 7 }
+
+appnCosTgRowTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnCosTgRowEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing all the TG-row information for all classes of
+        service defined in this node."
+    ::= { appnCos 4 }
+
+appnCosTgRowEntry OBJECT-TYPE
+    SYNTAX AppnCosTgRowEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A TG entry for a given class of service."
+    INDEX { appnCosTgRowName, appnCosTgRowIndex }
+    ::= { appnCosTgRowTable 1 }
+
+AppnCosTgRowEntry ::= SEQUENCE {
+    appnCosTgRowName SnaClassOfServiceName,
+    appnCosTgRowIndex INTEGER,
+    appnCosTgRowWgt DisplayString,
+    appnCosTgRowEffCapMin AppnTgEffectiveCapacity,
+    appnCosTgRowEffCapMax AppnTgEffectiveCapacity,
+    appnCosTgRowConnCostMin INTEGER,
+    appnCosTgRowConnCostMax INTEGER,
+    appnCosTgRowByteCostMin INTEGER,
+    appnCosTgRowByteCostMax INTEGER,
+    appnCosTgRowSecurityMin AppnTgSecurity,
+    appnCosTgRowSecurityMax AppnTgSecurity,
+    appnCosTgRowDelayMin AppnTgDelay,
+    appnCosTgRowDelayMax AppnTgDelay,
+    appnCosTgRowUsr1Min INTEGER,
+    appnCosTgRowUsr1Max INTEGER,
+    appnCosTgRowUsr2Min INTEGER,
+    appnCosTgRowUsr2Max INTEGER,
+    appnCosTgRowUsr3Min INTEGER,
+    appnCosTgRowUsr3Max INTEGER
+    }
+
+appnCosTgRowName OBJECT-TYPE
+    SYNTAX SnaClassOfServiceName
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively assigned name for this class of service."
+    ::= { appnCosTgRowEntry 1 }
+
+appnCosTgRowIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Subindex under appnCosTgRowName, corresponding to a row in the
+        TG table for the class of service identified in
+        appnCosTgRowName.
+        
+        For each class of service, this subindex orders rows in the
+        appnCosTgRowTable in the same order as that used for route
+        calculation in the APPN node."
+    ::= { appnCosTgRowEntry 2 }
+
+appnCosTgRowWgt OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Weight to be associated with the TGs that fit the criteria
+        specified by this TG row.
+        
+        This value can either be a character representation of an
+        integer, or a formula for calculating the weight."
+    ::= { appnCosTgRowEntry 3 }
+
+appnCosTgRowEffCapMin OBJECT-TYPE
+    SYNTAX AppnTgEffectiveCapacity
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable capacity for this class of service."
+    ::= { appnCosTgRowEntry 4 }
+
+appnCosTgRowEffCapMax OBJECT-TYPE
+    SYNTAX AppnTgEffectiveCapacity
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable capacity for this class of service."
+    ::= { appnCosTgRowEntry 5 }
+
+appnCosTgRowConnCostMin OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable cost per connect time for this class of
+        service.
+        
+        Cost per connect time:  a value representing the relative
+        cost per unit of time to use this TG.  Range is from 0, which
+        means no cost, to 255."
+    ::= { appnCosTgRowEntry 6 }
+
+appnCosTgRowConnCostMax OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable cost per connect time for this class of
+        service.
+        
+        Cost per connect time:  a value representing the relative
+        cost per unit of time to use this TG.  Range is from 0, which
+        means no cost, to 255."
+    ::= { appnCosTgRowEntry 7 }
+
+appnCosTgRowByteCostMin OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable cost per byte transmitted for this class
+        of service.
+        
+        Cost per byte transmitted:  a value representing the relative
+        cost per unit of time to use this TG.  Range is from 0, which
+        means no cost, to 255."
+    ::= { appnCosTgRowEntry 8 }
+
+appnCosTgRowByteCostMax OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable cost per byte transmitted for this class
+        of service.
+        
+        Cost per byte transmitted:  a value representing the relative
+        cost of transmitting a byte over this TG.  Range is from 0,
+        which means no cost, to 255."
+    ::= { appnCosTgRowEntry 9 }
+
+appnCosTgRowSecurityMin OBJECT-TYPE
+    SYNTAX AppnTgSecurity
+--    Rsyntax INTEGER {
+--        nonsecure(1),
+--        publicSwitchedNetwork(32),
+--        undergroundCable(64),
+--        secureConduit(96),
+--        guardedConduit(128),
+--        encrypted(160),
+--        guardedRadiation(192)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable security for this class of service."
+    ::= { appnCosTgRowEntry 10 }
+
+appnCosTgRowSecurityMax OBJECT-TYPE
+    SYNTAX AppnTgSecurity
+--    Rsyntax INTEGER {
+--        nonsecure(1),
+--        publicSwitchedNetwork(32),
+--        undergroundCable(64),
+--        secureConduit(96),
+--        guardedConduit(128),
+--        encrypted(160),
+--        guardedRadiation(192)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable security for this class of service."
+    ::= { appnCosTgRowEntry 11 }
+
+appnCosTgRowDelayMin OBJECT-TYPE
+    SYNTAX AppnTgDelay
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable propagation delay for this class of
+        service."
+    ::= { appnCosTgRowEntry 12 }
+
+appnCosTgRowDelayMax OBJECT-TYPE
+    SYNTAX AppnTgDelay
+--    Rsyntax OCTET STRING(SIZE(1))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable propagation delay for this class of
+        service."
+    ::= { appnCosTgRowEntry 13 }
+
+appnCosTgRowUsr1Min OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable value for this user-defined
+        characteristic."
+    ::= { appnCosTgRowEntry 14 }
+
+appnCosTgRowUsr1Max OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable value for this user-defined
+        characteristic."
+    ::= { appnCosTgRowEntry 15 }
+
+appnCosTgRowUsr2Min OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable value for this user-defined
+        characteristic."
+    ::= { appnCosTgRowEntry 16 }
+
+appnCosTgRowUsr2Max OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable value for this user-defined
+        characteristic."
+    ::= { appnCosTgRowEntry 17 }
+
+appnCosTgRowUsr3Min OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum acceptable value for this user-defined
+        characteristic."
+    ::= { appnCosTgRowEntry 18 }
+
+appnCosTgRowUsr3Max OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum acceptable value for this user-defined
+        characteristic."
+    ::= { appnCosTgRowEntry 19 }
+
+appnIsInGlobeCtrAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        notActive(1),
+        active(2),
+        ready(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Object by which a Management Station can deactivate or
+        activate capture of intermediate-session counts and names, by
+        setting the value to notActive(1) or active(2), respectively.
+        The value ready(3) is returned on GET operations until a SET
+        has been processed; after that the value received on the most
+        recent SET is returned.
+        
+        The counts referred to here are the eight objects in the
+        AppnIsInTable, from appnIsInP2SFmdPius through
+        appnIsInS2PNonFmdBytes.  The names are the four objects in this
+        table, from appnIsInPriLuName through appnIsInCosName.
+        
+        Setting this object to the following values has the following
+        effects:
+        
+            notActive(1)  stop collecting count data.  If a count
+                          is queried, it returns the value 0.
+                          Collection of names may, but need not be,
+                          disabled.
+            active(2)     start collecting count data.  If it is
+                          supported, collection of names is enabled."
+    ::= { appnIsInGlobal 1 }
+
+appnIsInGlobeCtrOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        notActive(1),
+        active(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether or not the intermediate session counts
+        are active.  The counts referred to here are the eight
+        objects in the AppnIsInTable, from appnIsInP2SFmdPius through
+        appnIsInS2PNonFmdBytes.  These eight counts are of type
+        Unsigned32 rather than Counter32 because when this object
+        enters the notActive state, either because a Management
+        Station has set appnInInGlobeCtrAdminStatus to notActive or
+        because of a locally-initiated transition, the counts are
+        all reset to 0.
+        
+        The values for this object are:
+        
+            notActive(1):  collection of counts is not active; if it
+                           is queried, a count returns the value 0.
+            active(2):     collection of counts is active."
+    ::= { appnIsInGlobal 2 }
+
+appnIsInGlobeCtrStatusTime OBJECT-TYPE
+    SYNTAX TimeTicks
+--  Units
+--    hundredths of a second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time since the appnIsInGlobeCtrOperStatus object last
+        changed, measured in hundredths of a second.  This time can be
+        used to identify when this change occurred in relation to other
+        events in the agent, such as the last time the APPN node was
+        reinitialized."
+    ::= { appnIsInGlobal 3 }
+
+appnIsInGlobeRscv OBJECT-TYPE
+    SYNTAX INTEGER {
+        notActive(1),
+        active(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the current route selection control vector (RSCV)
+        collection option in effect, and allows a Management Station to
+        change the option.
+        
+        The values for this object are:
+        
+           notActive(1): collection of route selection control vectors
+                         is not active.
+           active(2):    collection of route selection control vectors
+                         is active."
+    ::= { appnIsInGlobal 4 }
+
+appnIsInGlobeRscvTime OBJECT-TYPE
+    SYNTAX TimeTicks
+--  Units
+--    hundredths of a second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time since the appnIsInGlobeRscv object last changed,
+        measured in hundredths of a second.  This time can be used to
+        identify when this change occurred in relation to other events
+        in the agent, such as the last time the APPN node was
+        reinitialized."
+    ::= { appnIsInGlobal 5 }
+
+appnIsInGlobeActSess OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of currently active intermediate sessions."
+    ::= { appnIsInGlobal 6 }
+
+appnIsInGlobeHprBfActSess OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of currently active HPR intermediate sessions."
+    ::= { appnIsInGlobal 7 }
+
+appnIsInTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnIsInEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Intermediate Session Information Table"
+    ::= { appnSessIntermediate 2 }
+
+appnIsInEntry OBJECT-TYPE
+    SYNTAX AppnIsInEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry of Intermediate Session Information Table."
+    INDEX { appnIsInFqCpName, appnIsInPcid }
+    ::= { appnIsInTable 1 }
+
+AppnIsInEntry ::= SEQUENCE {
+    appnIsInFqCpName SnaControlPointName,
+    appnIsInPcid OCTET STRING,
+    appnIsInSessState INTEGER,
+    appnIsInPriLuName DisplayString,
+    appnIsInSecLuName DisplayString,
+    appnIsInModeName SnaModeName,
+    appnIsInCosName SnaClassOfServiceName,
+    appnIsInTransPriority INTEGER,
+    appnIsInSessType INTEGER,
+    appnIsInSessUpTime TimeTicks,
+    appnIsInCtrUpTime TimeTicks,
+    appnIsInP2SFmdPius Gauge,
+    appnIsInS2PFmdPius Gauge,
+    appnIsInP2SNonFmdPius Gauge,
+    appnIsInS2PNonFmdPius Gauge,
+    appnIsInP2SFmdBytes Gauge,
+    appnIsInS2PFmdBytes Gauge,
+    appnIsInP2SNonFmdBytes Gauge,
+    appnIsInS2PNonFmdBytes Gauge,
+    appnIsInPsAdjCpName SnaControlPointName,
+    appnIsInPsAdjTgNum INTEGER,
+    appnIsInPsSendMaxBtuSize INTEGER,
+    appnIsInPsSendPacingType INTEGER,
+    appnIsInPsSendRpc Gauge,
+    appnIsInPsSendNxWndwSize Gauge,
+    appnIsInPsRecvPacingType INTEGER,
+    appnIsInPsRecvRpc Gauge,
+    appnIsInPsRecvNxWndwSize Gauge,
+    appnIsInSsAdjCpName SnaControlPointName,
+    appnIsInSsAdjTgNum INTEGER,
+    appnIsInSsSendMaxBtuSize INTEGER,
+    appnIsInSsSendPacingType INTEGER,
+    appnIsInSsSendRpc Gauge,
+    appnIsInSsSendNxWndwSize Gauge,
+    appnIsInSsRecvPacingType INTEGER,
+    appnIsInSsRecvRpc Gauge,
+    appnIsInSsRecvNxWndwSize Gauge,
+    appnIsInRouteInfo OCTET STRING,
+    appnIsInRtpNceId OCTET STRING,
+    appnIsInRtpTcid OCTET STRING
+    }
+
+appnIsInFqCpName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The network-qualified control point name of the node at which
+        the session and PCID originated.  For APPN and LEN nodes, this
+        is either CP name of the APPN node at which the origin LU is
+        located or the CP name of the NN serving the LEN node at which
+        the origin LU is located.  For resources served by a dependent
+        LU requester (DLUR), it is the name of the owning system
+        services control point (SSCP)."
+    ::= { appnIsInEntry 1 }
+
+appnIsInPcid OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The procedure correlation identifier (PCID) of a session.  It
+        is an 8-byte value assigned by the primary LU."
+    ::= { appnIsInEntry 2 }
+
+appnIsInSessState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inactive(1),
+        pendactive(2),
+        active(3),
+        pendinact(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the state of the session:
+        
+            inactive(1)   - session is inactive
+            pendactive(2) - session is pending active
+            active(3)     - session is active
+            pendinact(4)  - session is pending inactive
+        
+        Active sessions can be deactivated by setting this object
+        to inactive(1)."
+    ::= { appnIsInEntry 3 }
+
+appnIsInPriLuName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..17))
+--    Rsyntax OCTET STRING(SIZE(0..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary LU name of the session.  A zero-length
+        string indicates that this name is not available."
+    ::= { appnIsInEntry 4 }
+
+appnIsInSecLuName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..17))
+--    Rsyntax OCTET STRING(SIZE(0..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary LU name of the session.  A zero-length
+        string indicates that this name is not available."
+    ::= { appnIsInEntry 5 }
+
+appnIsInModeName OBJECT-TYPE
+    SYNTAX SnaModeName
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The mode name used for this session."
+    ::= { appnIsInEntry 6 }
+
+appnIsInCosName OBJECT-TYPE
+    SYNTAX SnaClassOfServiceName
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Class of Service (COS) name used for this session."
+    ::= { appnIsInEntry 7 }
+
+appnIsInTransPriority OBJECT-TYPE
+    SYNTAX INTEGER {
+        low(1),
+        medium(2),
+        high(3),
+        network(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Transmission priority for this class of service.  Values are:
+        
+            low(1)     - (X'01'):  low priority
+            medium(2)  - (X'02'):  medium priority
+            high(3)    - (X'03'):  high priority
+            network(4) - (X'04'):  network priority"
+    ::= { appnIsInEntry 8 }
+
+appnIsInSessType OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        lu62(2),
+        lu0thru3(3),
+        lu62dlur(4),
+        lu0thru3dlur(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of intermediate session.  Defined values are
+        
+            unknown      The session type is not known.
+        
+            lu62         A session between LUs of type 6.2
+                         (as indicated by the LU type in Bind)
+        
+            lu0thru3     A session between LUs of type 0, 1, 2, or 3
+                         (as indicated by the LU type in Bind)
+        
+            lu62dlur     A session between LUs of type 6.2
+                         (as indicated by the LU type in Bind).
+                         One of the LUs is a dependent LU supported
+                         by the dependent LU requester (DLUR)
+                         function at this node.
+        
+            lu0thru3dlur A session between LUs of type 0, 1, 2, or 3
+                         (as indicated by the LU type in Bind)
+                         One of the LUs is a dependent LU supported
+                         by the dependent LU requester (DLUR)
+                         function at this node."
+    ::= { appnIsInEntry 9 }
+
+appnIsInSessUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+--  Units
+--    hundredths of a second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Length of time the session has been active, measured in
+        hundredths of a second."
+    ::= { appnIsInEntry 10 }
+
+appnIsInCtrUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+--  Units
+--    hundredths of a second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Length of time the session counters have been active, measured
+        in hundredths of a second."
+    ::= { appnIsInEntry 11 }
+
+appnIsInP2SFmdPius OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    path information units (PIUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of function management data (FMD) path information
+        units (PIUs) sent from the Primary LU to the Secondary LU since
+        the counts were last activated."
+    ::= { appnIsInEntry 12 }
+
+appnIsInS2PFmdPius OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    path information units (PIUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of FMD PIUs sent from the Secondary LU to the Primary
+        LU since the counts were last activated."
+    ::= { appnIsInEntry 13 }
+
+appnIsInP2SNonFmdPius OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    path information units (PIUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of non-FMD PIUs sent from the Primary LU to the
+        Secondary LU since the counts were last activated."
+    ::= { appnIsInEntry 14 }
+
+appnIsInS2PNonFmdPius OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    path information units (PIUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of non-FMD PIUs sent from the Secondary LU to the
+        Primary LU since the counts were last activated."
+    ::= { appnIsInEntry 15 }
+
+appnIsInP2SFmdBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of FMD bytes sent from the Primary LU to the Secondary
+        LU since the counts were last activated."
+    ::= { appnIsInEntry 16 }
+
+appnIsInS2PFmdBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of FMD bytes sent from the Secondary LU to the Primary
+        LU since the counts were last activated."
+    ::= { appnIsInEntry 17 }
+
+appnIsInP2SNonFmdBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of non-FMD bytes sent from the Primary LU to the
+        Secondary LU since the counts were last activated."
+    ::= { appnIsInEntry 18 }
+
+appnIsInS2PNonFmdBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of non-FMD bytes sent from the Secondary LU to the
+        Primary LU since the counts were last activated."
+    ::= { appnIsInEntry 19 }
+
+appnIsInPsAdjCpName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage adjacent CP name of this session.  If the
+        session stage traverses an RTP connection, the CP name of the
+        remote RTP endpoint is returned."
+    ::= { appnIsInEntry 20 }
+
+appnIsInPsAdjTgNum OBJECT-TYPE
+    SYNTAX INTEGER(0..300)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage adjacent transmission group (TG) number
+        associated with this session.  If the session stage traverses
+        an RTP connection, the value 256 is returned.
+        
+        Values between 257 and 300 are available for other possible
+        TG 'stand-ins' that may be added to APPN in the future."
+    ::= { appnIsInEntry 21 }
+
+appnIsInPsSendMaxBtuSize OBJECT-TYPE
+    SYNTAX INTEGER(99..32767)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage maximum basic transmission unit (BTU) size
+        for sending data."
+    ::= { appnIsInEntry 22 }
+
+appnIsInPsSendPacingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        fixed(1),
+        adaptive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage type of pacing being used for sending data."
+    ::= { appnIsInEntry 23 }
+
+appnIsInPsSendRpc OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage send residual pace count.  This represents
+        the primary stage number of message units (MUs) that can still
+        be sent in the current session window."
+    ::= { appnIsInEntry 24 }
+
+appnIsInPsSendNxWndwSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage size of the next window which will be used
+        to send data."
+    ::= { appnIsInEntry 25 }
+
+appnIsInPsRecvPacingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        fixed(1),
+        adaptive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage type of pacing being used for receiving
+        data."
+    ::= { appnIsInEntry 26 }
+
+appnIsInPsRecvRpc OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage receive residual pace count.  This
+        represents the primary stage number of message units (MUs) that
+        can still be received in the current session window."
+    ::= { appnIsInEntry 27 }
+
+appnIsInPsRecvNxWndwSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The primary stage size of the next window which will be used
+        to receive data."
+    ::= { appnIsInEntry 28 }
+
+appnIsInSsAdjCpName OBJECT-TYPE
+    SYNTAX SnaControlPointName
+--    Rsyntax OCTET STRING(SIZE(3..17))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage adjacent CP name of this session.  If the
+        session stage traverses an RTP connection, the CP name of the
+        remote RTP endpoint is returned."
+    ::= { appnIsInEntry 29 }
+
+appnIsInSsAdjTgNum OBJECT-TYPE
+    SYNTAX INTEGER(0..300)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage adjacent transmission group (TG) number
+        associated with this session.  If the session stage traverses
+        an RTP connection, the value 256 is returned.
+        
+        Values between 257 and 300 are available for other possible
+        TG 'stand-ins' that may be added to APPN in the future."
+    ::= { appnIsInEntry 30 }
+
+appnIsInSsSendMaxBtuSize OBJECT-TYPE
+    SYNTAX INTEGER(99..32767)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage maximum basic transmission unit (BTU) size
+        for sending data."
+    ::= { appnIsInEntry 31 }
+
+appnIsInSsSendPacingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        fixed(1),
+        adaptive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage type of pacing being used for sending
+        data."
+    ::= { appnIsInEntry 32 }
+
+appnIsInSsSendRpc OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage send residual pace count.  This represents
+        the secondary stage number of message units (MUs) that can
+        still be sent in the current session window."
+    ::= { appnIsInEntry 33 }
+
+appnIsInSsSendNxWndwSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage size of the next window which will be used
+        to send data."
+    ::= { appnIsInEntry 34 }
+
+appnIsInSsRecvPacingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        fixed(1),
+        adaptive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage type of pacing being used for receiving
+        data."
+    ::= { appnIsInEntry 35 }
+
+appnIsInSsRecvRpc OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage receive residual pace count.  This
+        represents the secondary stage number of message units (MUs)
+        that can still be received in the current session window."
+    ::= { appnIsInEntry 36 }
+
+appnIsInSsRecvNxWndwSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    message units (MUs)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary stage size of the next window which will be used
+        to receive data."
+    ::= { appnIsInEntry 37 }
+
+appnIsInRouteInfo OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The route selection control vector (RSCV X'2B') used for this
+        session.  It is present for APPN nodes; but is not present for
+        LEN nodes.  The format of this vector is described in SNA
+        Formats.  If no RSCV is available, a zero-length string is
+        returned."
+    ::= { appnIsInEntry 38 }
+
+appnIsInRtpNceId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The HPR local Network Connection Endpoint of the session."
+    ::= { appnIsInEntry 39 }
+
+appnIsInRtpTcid OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The RTP connection local TCID of the session."
+    ::= { appnIsInEntry 40 }
+
+appnIsRtpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AppnIsRtpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating how many ISR sessions are transported by
+        each RTP connection."
+    ::= { appnSessIntermediate 3 }
+
+appnIsRtpEntry OBJECT-TYPE
+    SYNTAX AppnIsRtpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry of Intermediate Session RTP Table."
+    INDEX { appnIsRtpNceId, appnIsRtpTcid }
+    ::= { appnIsRtpTable 1 }
+
+AppnIsRtpEntry ::= SEQUENCE {
+    appnIsRtpNceId OCTET STRING,
+    appnIsRtpTcid OCTET STRING,
+    appnIsRtpSessions Gauge
+    }
+
+appnIsRtpNceId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The local Network Connection Endpoint of the RTP connection."
+    ::= { appnIsRtpEntry 1 }
+
+appnIsRtpTcid OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The local TCID of the RTP connection."
+    ::= { appnIsRtpEntry 2 }
+
+appnIsRtpSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of intermediate sessions using this RTP
+        connection."
+    ::= { appnIsRtpEntry 3 }
+
+alertIdNumber OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A 32-bit SNA Management Services (SNA/MS) Alert ID Number, as
+        specified in SNA/MS Formats."
+    ::= { appnTraps 2 }
+
+affectedObject OBJECT-TYPE
+    SYNTAX VariablePointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The MIB object associated with the Alert condition, if there
+        is an object associated with it.  If no associated object can
+        be identified, the value 0.0 is passed in the trap."
+    ::= { appnTraps 3 }
+
+appnNodeMibVersion OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(11))
+--    Rsyntax OCTET STRING(SIZE(11))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of LAST-UPDATED from this module's MODULE-IDENTITY
+        macro.  This object gives a Management Station an easy way of
+        determining the level of the MIB supported by an agent.
+        
+        Since this object incorporates the Year 2000-unfriendly
+        2-digit year specified in SMI for the LAST-UPDATED field, and
+        since it was not found to be particularly useful, it has been
+        deprecated.  No replacement object has been defined."
+    ::= { appnGeneralInfoAndCaps 2 }
+
+alertTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE appnTraps
+    VARIABLES {
+        alertIdNumber, affectedObject }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap carries a 32-bit SNA Management Services (SNA/MS)
+        Alert ID Number, as specified in SNA/MS Formats."
+    ::= 1
+
+appnGeneralConfGroup2 OBJECT IDENTIFIER ::= { appnGroups 26 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the instrumentation of
+--    APPN general information and capabilities.
+--  objects
+--    appnNodeCpName, appnNodeId, appnNodeType, appnNodeUpTime, 
+--    appnNodeParallelTg, appnNodeAdaptiveBindPacing, 
+--    appnNodeHprSupport, appnNodeCounterDisconTime, 
+--    appnNodeLsCounterType, appnNodeBrNn
+
+appnPortConfGroup OBJECT IDENTIFIER ::= { appnGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the instrumentation of
+--    APPN port information.
+--  objects
+--    appnPortCommand, appnPortOperState, appnPortDlcType, 
+--    appnPortPortType, appnPortSIMRIM, appnPortLsRole, 
+--    appnPortNegotLs, appnPortDynamicLinkSupport, 
+--    appnPortMaxRcvBtuSize, appnPortMaxIframeWindow, 
+--    appnPortDefLsGoodXids, appnPortDefLsBadXids, 
+--    appnPortDynLsGoodXids, appnPortDynLsBadXids, appnPortSpecific, 
+--    appnPortDlcLocalAddr, appnPortCounterDisconTime
+
+appnLinkConfGroup2 OBJECT IDENTIFIER ::= { appnGroups 27 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the instrumentation of
+--    APPN link information.
+--  objects
+--    appnLsCommand, appnLsOperState, appnLsPortName, appnLsDlcType, 
+--    appnLsDynamic, appnLsAdjCpName, appnLsAdjNodeType, 
+--    appnLsTgNum, appnLsLimResource, appnLsActOnDemand, 
+--    appnLsMigration, appnLsPartnerNodeId, 
+--    appnLsCpCpSessionSupport, appnLsMaxSendBtuSize, 
+--    appnLsInXidBytes, appnLsInMsgBytes, appnLsInXidFrames, 
+--    appnLsInMsgFrames, appnLsOutXidBytes, appnLsOutMsgBytes, 
+--    appnLsOutXidFrames, appnLsOutMsgFrames, appnLsEchoRsps, 
+--    appnLsCurrentDelay, appnLsMaxDelay, appnLsMinDelay, 
+--    appnLsMaxDelayTime, appnLsGoodXids, appnLsBadXids, 
+--    appnLsSpecific, appnLsActiveTime, appnLsCurrentStateTime, 
+--    appnLsHprSup, appnLsLocalAddr, appnLsRemoteAddr, 
+--    appnLsRemoteLsName, appnLsStatusTime, appnLsStatusLsName, 
+--    appnLsStatusCpName, appnLsStatusPartnerId, appnLsStatusTgNum, 
+--    appnLsStatusGeneralSense, appnLsStatusRetry, 
+--    appnLsStatusEndSense, appnLsStatusXidLocalSense, 
+--    appnLsStatusXidRemoteSense, appnLsStatusXidByteInError, 
+--    appnLsStatusXidBitInError, appnLsStatusDlcType, 
+--    appnLsStatusLocalAddr, appnLsStatusRemoteAddr, 
+--    appnLsCounterDisconTime, appnLsMltgMember
+
+appnLocalTgConfGroup2 OBJECT IDENTIFIER ::= { appnGroups 28 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the instrumentation of
+--    APPN local TG information.
+--  objects
+--    appnLocalTgDestVirtual, appnLocalTgDlcData, 
+--    appnLocalTgPortName, appnLocalTgQuiescing, 
+--    appnLocalTgOperational, appnLocalTgCpCpSession, 
+--    appnLocalTgEffCap, appnLocalTgConnCost, appnLocalTgByteCost, 
+--    appnLocalTgSecurity, appnLocalTgDelay, appnLocalTgUsr1, 
+--    appnLocalTgUsr2, appnLocalTgUsr3, appnLocalTgHprSup, 
+--    appnLocalTgIntersubnet, appnLocalTgMltgLinkType
+
+appnDirTableConfGroup2 OBJECT IDENTIFIER ::= { appnGroups 29 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the instrumentation of the
+--    APPN directory database.
+--  objects
+--    appnDirNnServerName, appnDirLuOwnerName, appnDirLuLocation, 
+--    appnDirType, appnDirApparentLuOwnerName
+
+appnNnUniqueConfGroup OBJECT IDENTIFIER ::= { appnGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing instrumentation unique
+--    to APPN network nodes.
+--  objects
+--    appnNodeNnCentralDirectory, appnNodeNnTreeCache, 
+--    appnNodeNnRouteAddResist, appnNodeNnIsr, appnNodeNnFrsn, 
+--    appnNodeNnPeriBorderSup, appnNodeNnInterchangeSup, 
+--    appnNodeNnExteBorderSup, appnNodeNnSafeStoreFreq, 
+--    appnNodeNnRsn, appnNodeNnCongested, appnNodeNnIsrDepleted, 
+--    appnNodeNnQuiescing, appnNodeNnGateway
+
+appnEnUniqueConfGroup OBJECT IDENTIFIER ::= { appnGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing instrumentation for
+--    APPN end nodes.  Some of these objects also appear in the
+--    instrumentation for a branch network node.
+--  objects
+--    appnNodeEnModeCosMap, appnNodeEnNnServer, appnNodeEnLuSearch
+
+appnVrnConfGroup OBJECT IDENTIFIER ::= { appnGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    An object providing the instrumentation for virtual
+--    routing node support in an APPN node.
+--  objects
+--    appnVrnPortName
+
+appnNnTopoConfGroup2 OBJECT IDENTIFIER ::= { appnGroups 30 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnNnTopoConfGroup is mandatory only for network
+--    nodes.
+--  objects
+--    appnNnTopoMaxNodes, appnNnTopoCurNumNodes, 
+--    appnNnTopoNodePurges, appnNnTopoTgPurges, 
+--    appnNnTopoTotalTduWars, appnNnNodeFREntryTimeLeft, 
+--    appnNnNodeFRType, appnNnNodeFRRsn, appnNnNodeFRRouteAddResist, 
+--    appnNnNodeFRCongested, appnNnNodeFRIsrDepleted, 
+--    appnNnNodeFRQuiescing, appnNnNodeFRGateway, 
+--    appnNnNodeFRCentralDirectory, appnNnNodeFRIsr, 
+--    appnNnNodeFRGarbageCollect, appnNnNodeFRHprSupport, 
+--    appnNnNodeFRPeriBorderSup, appnNnNodeFRInterchangeSup, 
+--    appnNnNodeFRExteBorderSup, appnNnNodeFRBranchAwareness, 
+--    appnNnTgFREntryTimeLeft, appnNnTgFRDestVirtual, 
+--    appnNnTgFRDlcData, appnNnTgFRRsn, appnNnTgFROperational, 
+--    appnNnTgFRQuiescing, appnNnTgFRCpCpSession, appnNnTgFREffCap, 
+--    appnNnTgFRConnCost, appnNnTgFRByteCost, appnNnTgFRSecurity, 
+--    appnNnTgFRDelay, appnNnTgFRUsr1, appnNnTgFRUsr2, 
+--    appnNnTgFRUsr3, appnNnTgFRGarbageCollect, 
+--    appnNnTgFRSubareaNum, appnNnTgFRHprSup, 
+--    appnNnTgFRDestHprTrans, appnNnTgFRTypeIndicator, 
+--    appnNnTgFRIntersubnet, appnNnTgFRMltgLinkType, 
+--    appnNnTgFRBranchTg
+
+appnLocalEnTopoConfGroup2 OBJECT IDENTIFIER ::= { appnGroups 31 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the instrumentation
+--    of the information that a network node possesses about
+--    the end nodes directly attached to it.
+--  objects
+--    appnLocalEnTgEntryTimeLeft, appnLocalEnTgDestVirtual, 
+--    appnLocalEnTgDlcData, appnLocalEnTgOperational, 
+--    appnLocalEnTgCpCpSession, appnLocalEnTgEffCap, 
+--    appnLocalEnTgConnCost, appnLocalEnTgByteCost, 
+--    appnLocalEnTgSecurity, appnLocalEnTgDelay, appnLocalEnTgUsr1, 
+--    appnLocalEnTgUsr2, appnLocalEnTgUsr3, 
+--    appnLocalEnTgMltgLinkType
+
+appnLocalDirPerfConfGroup OBJECT IDENTIFIER ::= { appnGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnLocalDirPerfConfGroup is mandatory only for APPN
+--    network nodes and end nodes.
+--  objects
+--    appnDirMaxCaches, appnDirCurCaches, appnDirCurHomeEntries, 
+--    appnDirRegEntries, appnDirInLocates, appnDirInBcastLocates, 
+--    appnDirOutLocates, appnDirOutBcastLocates, 
+--    appnDirNotFoundLocates, appnDirNotFoundBcastLocates, 
+--    appnDirLocateOutstands
+
+appnCosConfGroup OBJECT IDENTIFIER ::= { appnGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnCosConfGroup is mandatory only for APPN network
+--    nodes and end nodes.
+--  objects
+--    appnCosModeCosName, appnCosTransPriority, appnCosNodeRowWgt, 
+--    appnCosNodeRowResistMin, appnCosNodeRowResistMax, 
+--    appnCosNodeRowMinCongestAllow, appnCosNodeRowMaxCongestAllow, 
+--    appnCosTgRowWgt, appnCosTgRowEffCapMin, appnCosTgRowEffCapMax, 
+--    appnCosTgRowConnCostMin, appnCosTgRowConnCostMax, 
+--    appnCosTgRowByteCostMin, appnCosTgRowByteCostMax, 
+--    appnCosTgRowSecurityMin, appnCosTgRowSecurityMax, 
+--    appnCosTgRowDelayMin, appnCosTgRowDelayMax, 
+--    appnCosTgRowUsr1Min, appnCosTgRowUsr1Max, appnCosTgRowUsr2Min, 
+--    appnCosTgRowUsr2Max, appnCosTgRowUsr3Min, appnCosTgRowUsr3Max
+
+appnIntSessConfGroup OBJECT IDENTIFIER ::= { appnGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnIntSessConfGroup is mandatory only for network
+--    nodes.
+--  objects
+--    appnIsInGlobeCtrAdminStatus, appnIsInGlobeCtrOperStatus, 
+--    appnIsInGlobeCtrStatusTime, appnIsInGlobeRscv, 
+--    appnIsInGlobeRscvTime, appnIsInGlobeActSess, 
+--    appnIsInSessState, appnIsInPriLuName, appnIsInSecLuName, 
+--    appnIsInModeName, appnIsInCosName, appnIsInTransPriority, 
+--    appnIsInSessType, appnIsInSessUpTime, appnIsInCtrUpTime, 
+--    appnIsInP2SFmdPius, appnIsInS2PFmdPius, appnIsInP2SNonFmdPius, 
+--    appnIsInS2PNonFmdPius, appnIsInP2SFmdBytes, 
+--    appnIsInS2PFmdBytes, appnIsInP2SNonFmdBytes, 
+--    appnIsInS2PNonFmdBytes, appnIsInPsAdjCpName, 
+--    appnIsInPsAdjTgNum, appnIsInPsSendMaxBtuSize, 
+--    appnIsInPsSendPacingType, appnIsInPsSendRpc, 
+--    appnIsInPsSendNxWndwSize, appnIsInPsRecvPacingType, 
+--    appnIsInPsRecvRpc, appnIsInPsRecvNxWndwSize, 
+--    appnIsInSsAdjCpName, appnIsInSsAdjTgNum, 
+--    appnIsInSsSendMaxBtuSize, appnIsInSsSendPacingType, 
+--    appnIsInSsSendRpc, appnIsInSsSendNxWndwSize, 
+--    appnIsInSsRecvPacingType, appnIsInSsRecvRpc, 
+--    appnIsInSsRecvNxWndwSize, appnIsInRouteInfo
+
+appnHprBaseConfGroup OBJECT IDENTIFIER ::= { appnGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnHprBaseConfGroup is mandatory only for nodes that
+--    implement the HPR base (APPN option set 1400).
+--  objects
+--    appnNodeHprIntRteSetups, appnNodeHprIntRteRejects, 
+--    appnLsErrRecoSup, appnLsForAnrLabel, appnLsRevAnrLabel
+
+appnHprRtpConfGroup OBJECT IDENTIFIER ::= { appnGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnHprRtpConfGroup is mandatory only for nodes that
+--    implement the HPR RTP tower (APPN option set 1401).
+--  objects
+--    appnNodeMaxSessPerRtpConn, appnNodeHprOrgRteSetups, 
+--    appnNodeHprOrgRteRejects, appnNodeHprEndRteSetups, 
+--    appnNodeHprEndRteRejects, appnLsBfNceId
+
+appnHprCtrlFlowsRtpConfGroup OBJECT IDENTIFIER ::= { appnGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnHprCtrlFlowsRtpConfGroup is mandatory only for nodes
+--    that implement the HPR Control Flows over RTP tower (APPN
+--    option set 1402).
+--  objects
+--    appnLsCpCpNceId, appnLsRouteNceId
+
+appnHprBfConfGroup OBJECT IDENTIFIER ::= { appnGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnHprBfConfGroup is mandatory only for nodes that
+--    implement the APPN/HPR boundary function.
+--  objects
+--    appnIsInGlobeHprBfActSess, appnIsInRtpNceId, appnIsInRtpTcid, 
+--    appnIsRtpSessions
+
+appnTrapConfGroup OBJECT IDENTIFIER ::= { appnGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnTrapConfGroup is optional for all APPN nodes.  Nodes
+--    implementing this group shall also implement the
+--    appnTrapNotifGroup.
+--  objects
+--    alertIdNumber, affectedObject
+
+appnBrNnConfGroup OBJECT IDENTIFIER ::= { appnGroups 20 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing instrumentation for
+--    branch network nodes.  Some of these objects also appear
+--    in the instrumentation for an end node.
+--    
+--    Note:  A branch network node always returns endNode(2)
+--    as the value of the appnNodeType object from the
+--    appnGeneralConfGroup2 conformance group.
+--  objects
+--    appnNodeEnNnServer, appnNodeEnLuSearch, 
+--    appnLocalTgBranchLinkType
+
+appnGeneralConfGroup OBJECT IDENTIFIER ::= { appnGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the instrumentation of
+--    APPN general information and capabilities.
+--    
+--    This RFC 2155-level group was deprecated when the
+--    appnNodeMibVersion object was removed and the
+--    appnNodeLsCounterType and appnNodeBrNn objects were added.
+--  objects
+--    appnNodeCpName, appnNodeMibVersion, appnNodeId, appnNodeType, 
+--    appnNodeUpTime, appnNodeParallelTg, 
+--    appnNodeAdaptiveBindPacing, appnNodeHprSupport, 
+--    appnNodeCounterDisconTime
+
+appnLinkConfGroup OBJECT IDENTIFIER ::= { appnGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the instrumentation of
+--    APPN link information.
+--    
+--    This RFC 2155-level group was deprecated when the
+--    appnLsMltgMember object was added.
+--  objects
+--    appnLsCommand, appnLsOperState, appnLsPortName, appnLsDlcType, 
+--    appnLsDynamic, appnLsAdjCpName, appnLsAdjNodeType, 
+--    appnLsTgNum, appnLsLimResource, appnLsActOnDemand, 
+--    appnLsMigration, appnLsPartnerNodeId, 
+--    appnLsCpCpSessionSupport, appnLsMaxSendBtuSize, 
+--    appnLsInXidBytes, appnLsInMsgBytes, appnLsInXidFrames, 
+--    appnLsInMsgFrames, appnLsOutXidBytes, appnLsOutMsgBytes, 
+--    appnLsOutXidFrames, appnLsOutMsgFrames, appnLsEchoRsps, 
+--    appnLsCurrentDelay, appnLsMaxDelay, appnLsMinDelay, 
+--    appnLsMaxDelayTime, appnLsGoodXids, appnLsBadXids, 
+--    appnLsSpecific, appnLsActiveTime, appnLsCurrentStateTime, 
+--    appnLsHprSup, appnLsLocalAddr, appnLsRemoteAddr, 
+--    appnLsRemoteLsName, appnLsStatusTime, appnLsStatusLsName, 
+--    appnLsStatusCpName, appnLsStatusPartnerId, appnLsStatusTgNum, 
+--    appnLsStatusGeneralSense, appnLsStatusRetry, 
+--    appnLsStatusEndSense, appnLsStatusXidLocalSense, 
+--    appnLsStatusXidRemoteSense, appnLsStatusXidByteInError, 
+--    appnLsStatusXidBitInError, appnLsStatusDlcType, 
+--    appnLsStatusLocalAddr, appnLsStatusRemoteAddr, 
+--    appnLsCounterDisconTime
+
+appnLocalTgConfGroup OBJECT IDENTIFIER ::= { appnGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the instrumentation of
+--    APPN local TG information.
+--    
+--    This RFC 2155-level group was deprecated when the
+--    appnLocalTgMltgLinkType object was added.
+--  objects
+--    appnLocalTgDestVirtual, appnLocalTgDlcData, 
+--    appnLocalTgPortName, appnLocalTgQuiescing, 
+--    appnLocalTgOperational, appnLocalTgCpCpSession, 
+--    appnLocalTgEffCap, appnLocalTgConnCost, appnLocalTgByteCost, 
+--    appnLocalTgSecurity, appnLocalTgDelay, appnLocalTgUsr1, 
+--    appnLocalTgUsr2, appnLocalTgUsr3, appnLocalTgHprSup, 
+--    appnLocalTgIntersubnet
+
+appnDirTableConfGroup OBJECT IDENTIFIER ::= { appnGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the instrumentation of the
+--    APPN directory database.
+--    
+--    This RFC 2155-level group was deprecated when the
+--    appnDirApparentLuOwnerName object was added.
+--  objects
+--    appnDirNnServerName, appnDirLuOwnerName, appnDirLuLocation, 
+--    appnDirType
+
+appnNnTopoConfGroup OBJECT IDENTIFIER ::= { appnGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The appnNnTopoConfGroup is mandatory only for network
+--    nodes.
+--    
+--    This RFC 2155-level group was deprecated when the
+--    appnNnNodeFRBranchAwareness, appnNnTgFRMltgLinkType, and
+--    appnNnFRBranchTg objects were added.
+--  objects
+--    appnNnTopoMaxNodes, appnNnTopoCurNumNodes, 
+--    appnNnTopoNodePurges, appnNnTopoTgPurges, 
+--    appnNnTopoTotalTduWars, appnNnNodeFREntryTimeLeft, 
+--    appnNnNodeFRType, appnNnNodeFRRsn, appnNnNodeFRRouteAddResist, 
+--    appnNnNodeFRCongested, appnNnNodeFRIsrDepleted, 
+--    appnNnNodeFRQuiescing, appnNnNodeFRGateway, 
+--    appnNnNodeFRCentralDirectory, appnNnNodeFRIsr, 
+--    appnNnNodeFRGarbageCollect, appnNnNodeFRHprSupport, 
+--    appnNnNodeFRPeriBorderSup, appnNnNodeFRInterchangeSup, 
+--    appnNnNodeFRExteBorderSup, appnNnTgFREntryTimeLeft, 
+--    appnNnTgFRDestVirtual, appnNnTgFRDlcData, appnNnTgFRRsn, 
+--    appnNnTgFROperational, appnNnTgFRQuiescing, 
+--    appnNnTgFRCpCpSession, appnNnTgFREffCap, appnNnTgFRConnCost, 
+--    appnNnTgFRByteCost, appnNnTgFRSecurity, appnNnTgFRDelay, 
+--    appnNnTgFRUsr1, appnNnTgFRUsr2, appnNnTgFRUsr3, 
+--    appnNnTgFRGarbageCollect, appnNnTgFRSubareaNum, 
+--    appnNnTgFRHprSup, appnNnTgFRDestHprTrans, 
+--    appnNnTgFRTypeIndicator, appnNnTgFRIntersubnet
+
+appnLocalEnTopoConfGroup OBJECT IDENTIFIER ::= { appnGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The appnLocalEnTopoConfGroup is mandatory only for network
+--    nodes.
+--    
+--    This RFC 2155-level group was deprecated when the
+--    appnLocalEnTgMltgLinkType object was added.
+--  objects
+--    appnLocalEnTgEntryTimeLeft, appnLocalEnTgDestVirtual, 
+--    appnLocalEnTgDlcData, appnLocalEnTgOperational, 
+--    appnLocalEnTgCpCpSession, appnLocalEnTgEffCap, 
+--    appnLocalEnTgConnCost, appnLocalEnTgByteCost, 
+--    appnLocalEnTgSecurity, appnLocalEnTgDelay, appnLocalEnTgUsr1, 
+--    appnLocalEnTgUsr2, appnLocalEnTgUsr3
+
+appnTrapNotifGroup OBJECT IDENTIFIER ::= { appnGroups 19 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The appnTrapNotifGroup is optional for all APPN nodes.
+--    Nodes implementing this group shall also implement the
+--    appnTrapConfGroup.
+--  notifications
+--    alertTrap
+
+appnCompliance2 OBJECT IDENTIFIER ::= { appnCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMPv2 entities that
+--    implement the APPN MIB.
+--    
+--    In the descriptions for the conditionally mandatory groups that
+--    follow, the branch network node is treated as a third node type,
+--    parallel to network node and end node.  This is not how branch
+--    network nodes are treated in the base APPN architecture, but it
+--    increases clarity here to do it.
+--  Module
+--    >>current<<
+--   MandGroup
+--    appnGeneralConfGroup2
+--   MandGroup
+--    appnPortConfGroup
+--   MandGroup
+--    appnLinkConfGroup2
+--   MandGroup
+--    appnLocalTgConfGroup2
+--   MandGroup
+--    appnDirTableConfGroup2
+--   OptGroup
+--    appnNnUniqueConfGroup
+--   OptGroup
+--    appnEnUniqueConfGroup
+--   OptGroup
+--    appnVrnConfGroup
+--   OptGroup
+--    appnNnTopoConfGroup2
+--   OptGroup
+--    appnLocalEnTopoConfGroup2
+--   OptGroup
+--    appnLocalDirPerfConfGroup
+--   OptGroup
+--    appnCosConfGroup
+--   OptGroup
+--    appnIntSessConfGroup
+--   OptGroup
+--    appnHprBaseConfGroup
+--   OptGroup
+--    appnHprRtpConfGroup
+--   OptGroup
+--    appnHprCtrlFlowsRtpConfGroup
+--   OptGroup
+--    appnHprBfConfGroup
+--   OptGroup
+--    appnTrapConfGroup
+--   OptGroup
+--    appnTrapNotifGroup
+--   OptGroup
+--    appnBrNnConfGroup
+
+appnCompliance OBJECT IDENTIFIER ::= { appnCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMPv2 entities that
+--    implement the APPN MIB.
+--    
+--    This is the compliance statement for the RFC 2155-level version
+--    of the APPN MIB.  It was deprecated as new objects were added
+--    to the MIB for MLTG, branch network node, and other extensions
+--    to the APPN architecture.
+--  Module
+--    >>current<<
+--   MandGroup
+--    appnGeneralConfGroup
+--   MandGroup
+--    appnPortConfGroup
+--   MandGroup
+--    appnLinkConfGroup
+--   MandGroup
+--    appnLocalTgConfGroup
+--   MandGroup
+--    appnDirTableConfGroup
+--   OptGroup
+--    appnNnUniqueConfGroup
+--   OptGroup
+--    appnEnUniqueConfGroup
+--   OptGroup
+--    appnVrnConfGroup
+--   OptGroup
+--    appnNnTopoConfGroup
+--   OptGroup
+--    appnLocalEnTopoConfGroup
+--   OptGroup
+--    appnLocalDirPerfConfGroup
+--   OptGroup
+--    appnCosConfGroup
+--   OptGroup
+--    appnIntSessConfGroup
+--   OptGroup
+--    appnHprBaseConfGroup
+--   OptGroup
+--    appnHprRtpConfGroup
+--   OptGroup
+--    appnHprCtrlFlowsRtpConfGroup
+--   OptGroup
+--    appnHprBfConfGroup
+--   OptGroup
+--    appnTrapConfGroup
+--   OptGroup
+--    appnTrapNotifGroup
+
+
+END
+

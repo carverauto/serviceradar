@@ -1,0 +1,125 @@
+-- MIB file created 04-Dec-2002 18:55:54, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-DNS-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-DNS-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alStatsDns, alDnsGroup
+            FROM ALTIGA-MIB
+    alDnsMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaDnsStatsMibModule OBJECT IDENTIFIER ::= { alDnsMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga DNS Statistics MIB models counters and objects that are 
+--     of management interest for DNS. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       DNS:        Domain Name Service 
+--    
+--       MIB:        Management Information Base 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsDnsResolverGlobal OBJECT IDENTIFIER ::= { alStatsDns 1 }
+altigaDnsStatsMibConformance OBJECT IDENTIFIER ::= { altigaDnsStatsMibModule 1 }
+altigaDnsStatsMibCompliances OBJECT IDENTIFIER ::= { altigaDnsStatsMibConformance 1 }
+
+alDnsStatsAttemptedQueries OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DNS queries that were attempted."
+    ::= { alStatsDnsResolverGlobal 1 }
+
+alDnsStatsSuccessfulResponses OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of queries that were successfully resolved."
+    ::= { alStatsDnsResolverGlobal 2 }
+
+alDnsStatsTimeoutFailures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failures because there was no response from  
+         the server."
+    ::= { alStatsDnsResolverGlobal 3 }
+
+alDnsStatsUnreachableServerFailures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failures because the address of the server 
+         is not reachable according to the Concentrator's routing  
+         table."
+    ::= { alStatsDnsResolverGlobal 4 }
+
+alDnsStatsMiscFailures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failures for an unspecified reason."
+    ::= { alStatsDnsResolverGlobal 5 }
+
+altigaDnsStatsGroup OBJECT IDENTIFIER ::= { alDnsGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for the DNS resolver module statistics.
+--  objects
+--    alDnsStatsAttemptedQueries, alDnsStatsSuccessfulResponses, 
+--    alDnsStatsTimeoutFailures, 
+--    alDnsStatsUnreachableServerFailures, alDnsStatsMiscFailures
+
+altigaDnsStatsMibCompliance OBJECT IDENTIFIER ::= { altigaDnsStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga DNS Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaDnsStatsGroup
+
+
+END
+

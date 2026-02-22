@@ -1,0 +1,145 @@
+-- MIB file created 26-Jul-2012 17:57:59, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CBP-TC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CBP-TC-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI;
+
+ciscoCbpTcMIB OBJECT IDENTIFIER ::= { ciscoMgmt 662 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200806240000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB module defines textual conventions used by the
+--    CISCO-CBP-BASE-CFG-MIB, CISCO-CBP-BASE-MON-MIB, and any MIB
+--    modules extending these MIB modules.
+--  RevDate
+--    200806240000Z
+--  RevDescr
+--    The initial version of the MIB module.
+
+CbpElementName ::= OCTET STRING(SIZE(0..127))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    127a
+--  Status
+--    mandatory
+--  Descr
+--    A string-value that identifies an element used to specify
+--    a class-based policy.  The semantics of the string-value are
+--    the same those specified by the SnmpAdminString textual
+--    convention defined by the SNMP-FRAMEWORK-MIB [RFC3411].
+--    
+--    Observe that the null string is reserved for cases when an
+--    instance of an object needs to specify 'no element'.
+--  Refer
+--    D. Harrington, R. Resuhn, B. Wijnen, 'An Architecture for
+--    Describing Simple Network Management Protocol (SNMP)
+--    Management Frameworks', RFC-3411, December 2002.
+
+CbpElementIdentifier ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A positive, non-zero integer-value that uniquely identifies
+--    an element used to specify a class-based policy.
+
+CbpElementIdentifierOrZero ::= Gauge(0..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention serves as an extension of the
+--    CbpElementIdentifier textual convention, which permits the value
+--    '0'.  The use of the value '0' is specific to an object, thus
+--    requiring the descriptive text associated with the object to
+--    describe the semantics of its use.
+
+CbpInstanceIdentifier ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A positive, non-zero integer-value that uniquely identifies
+--    an instance of an element used to define a class-based policy.
+
+CbpInstanceIdentifierOrZero ::= Gauge(0..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention serves as an extension of the
+--    CbpInstanceIdentifier textual convention, which permits the
+--    value '0'.  The use of the value '0' is specific to an object,
+--    thus requiring the descriptive text associated with the object
+--    to describe the semantics of its use.
+
+CbpExecutionPriority ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An positive, integer-value denoting the relative priority of an
+--    element, where '1' represents the highest priority and greater
+--    values represent lower priorities.
+--    
+--    The priority assigned to an element determines the order in
+--    which the system processes the elements relative to like
+--    elements having the same parent, where the system processes
+--    elements having a greater priority first.  The system processes
+--    sibling elements having the same priority in the order they were
+--    created.
+
+CbpExecutionStrategy ::= INTEGER {
+        other(1),
+        doUntilSuccess(2),
+        doUntilFailure(3),
+        doAll(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An enumerated integer-value describing how to execute an
+--    ordered set of actions:
+--    
+--        'other'
+--            The implementation of the MIB using this textual
+--            convention does not recognize the specified execution
+--            strategy.
+--    
+--        'doUntilSuccess'
+--            The system sequentially executes the actions in the
+--            set until one succeeds.
+--    
+--        'doUntilFailure'
+--            The system sequentially executes the actions in the
+--            set until one fails.
+--    
+--        'doAll'
+--            The system sequentially executes all actions in the set,
+--            regardless of whether they succeed or fail.
+
+
+END
+

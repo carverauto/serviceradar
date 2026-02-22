@@ -1,0 +1,592 @@
+-- *****************************************************************
+-- DHCP-SNOOPING-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-DHCP-SNOOPING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200DhcpSnoopingMIB MODULE-IDENTITY
+    LAST-UPDATED "201403280000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the DHCP Snooping MIB"
+    REVISION    "201403280000Z"
+    DESCRIPTION
+        "Change VLAN ID range specification from (0..4094) to (1..4095)"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310300000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 56 }
+
+
+me1200DhcpSnoopingMIBObjects OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingMIB 1 }
+
+me1200DhcpSnoopingConfig OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingMIBObjects 2 }
+
+me1200DhcpSnoopingGlobals OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingConfig 1 }
+
+me1200DhcpSnoopingGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the DHCP snooping mode operation. Possible modes are -
+         true(1): Enable DHCP snooping mode operation. When DHCP snooping mode
+         operation is enabled, the DHCP request messages will be forwarded to
+         trusted ports and only allow reply packets from trusted ports.
+         false(2): Disable DHCP snooping mode operation."
+    ::= { me1200DhcpSnoopingGlobals 1 }
+
+me1200DhcpSnoopingInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpSnoopingInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of DHCP Snooping port configuration parameters"
+    ::= { me1200DhcpSnoopingConfig 2 }
+
+me1200DhcpSnoopingInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpSnoopingInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200DhcpSnoopingInterfaceIfIndex }
+    ::= { me1200DhcpSnoopingInterfaceTable 1 }
+
+ME1200DhcpSnoopingInterfaceEntry ::= SEQUENCE {
+    me1200DhcpSnoopingInterfaceIfIndex    ME1200InterfaceIndex,
+    me1200DhcpSnoopingInterfaceTrustMode      TruthValue
+}
+
+me1200DhcpSnoopingInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200DhcpSnoopingInterfaceEntry 1 }
+
+me1200DhcpSnoopingInterfaceTrustMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the DHCP snooping port mode. Possible port modes are -
+         true(1): Configures the port as trusted source of the DHCP messages.
+         false(2): Configures the port as untrusted source of the DHCP messages."
+    ::= { me1200DhcpSnoopingInterfaceEntry 2 }
+
+me1200DhcpSnoopingStatus OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingMIBObjects 3 }
+
+me1200DhcpSnoopingAssignedIpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpSnoopingAssignedIpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of assigned IP information in DHCP Snooping "
+    ::= { me1200DhcpSnoopingStatus 1 }
+
+me1200DhcpSnoopingAssignedIpEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpSnoopingAssignedIpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200DhcpSnoopingAssignedIpMacAddress, me1200DhcpSnoopingAssignedIpVlanId }
+    ::= { me1200DhcpSnoopingAssignedIpTable 1 }
+
+ME1200DhcpSnoopingAssignedIpEntry ::= SEQUENCE {
+    me1200DhcpSnoopingAssignedIpMacAddress    MacAddress,
+    me1200DhcpSnoopingAssignedIpVlanId    Integer32,
+    me1200DhcpSnoopingAssignedIpIfIndex   ME1200InterfaceIndex,
+    me1200DhcpSnoopingAssignedIpIpAddress     IpAddress,
+    me1200DhcpSnoopingAssignedIpNetmask   IpAddress,
+    me1200DhcpSnoopingAssignedIpDhcpServerIp      IpAddress
+}
+
+me1200DhcpSnoopingAssignedIpMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "MAC address."
+    ::= { me1200DhcpSnoopingAssignedIpEntry 1 }
+
+me1200DhcpSnoopingAssignedIpVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN id of the VLAN."
+    ::= { me1200DhcpSnoopingAssignedIpEntry 2 }
+
+me1200DhcpSnoopingAssignedIpIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port of the DHCP client."
+    ::= { me1200DhcpSnoopingAssignedIpEntry 3 }
+
+me1200DhcpSnoopingAssignedIpIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "IP address assigned to DHCP client by DHCP server."
+    ::= { me1200DhcpSnoopingAssignedIpEntry 4 }
+
+me1200DhcpSnoopingAssignedIpNetmask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Netmask assigned to DHCP client by DHCP server."
+    ::= { me1200DhcpSnoopingAssignedIpEntry 5 }
+
+me1200DhcpSnoopingAssignedIpDhcpServerIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "IP address of the DHCP server that assigns the IP address and netmask."
+    ::= { me1200DhcpSnoopingAssignedIpEntry 6 }
+
+me1200DhcpSnoopingInterfaceStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpSnoopingInterfaceStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of port statistics in DHCP Snooping "
+    ::= { me1200DhcpSnoopingStatus 2 }
+
+me1200DhcpSnoopingInterfaceStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpSnoopingInterfaceStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200DhcpSnoopingInterfaceStatisticsIfIndex }
+    ::= { me1200DhcpSnoopingInterfaceStatisticsTable 1 }
+
+ME1200DhcpSnoopingInterfaceStatisticsEntry ::= SEQUENCE {
+    me1200DhcpSnoopingInterfaceStatisticsIfIndex      ME1200InterfaceIndex,
+    me1200DhcpSnoopingInterfaceStatisticsRxDiscover   Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxOffer      Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxRequest    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxDecline    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxAck    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxNak    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxRelease    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxInform     Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxLeaseQuery     Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxLeaseUnassigned    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxLeaseUnknown   Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxLeaseActive    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxDiscardChksumErr   Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsRxDiscardUntrust     Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxDiscover   Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxOffer      Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxRequest    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxDecline    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxAck    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxNak    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxRelease    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxInform     Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxLeaseQuery     Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxLeaseUnassigned    Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxLeaseUnknown   Unsigned32,
+    me1200DhcpSnoopingInterfaceStatisticsTxLeaseActive    Unsigned32
+}
+
+me1200DhcpSnoopingInterfaceStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 1 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxDiscover OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of discover (option 53 with value 1) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 2 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxOffer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of offer (option 53 with value 2) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 3 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxRequest OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of request (option 53 with value 3) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 4 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxDecline OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of decline (option 53 with value 4) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 5 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of ACK (option 53 with value 5) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 6 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxNak OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of NAK (option 53 with value 6) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 7 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxRelease OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of release (option 53 with value 7) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 8 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxInform OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of inform (option 53 with value 8) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 9 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxLeaseQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease query (option 53 with value 10) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 10 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxLeaseUnassigned OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease unassigned (option 53 with value 11) packets
+         received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 11 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxLeaseUnknown OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease unknown (option 53 with value 12) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 12 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxLeaseActive OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease active (option 53 with value 13) packets received."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 13 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxDiscardChksumErr OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of discard packet that IP/UDP checksum is error."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 14 }
+
+me1200DhcpSnoopingInterfaceStatisticsRxDiscardUntrust OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of discard packet that are coming from untrusted port."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 15 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxDiscover OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of discover (option 53 with value 1) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 16 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxOffer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of offer (option 53 with value 2) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 17 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxRequest OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of request (option 53 with value 3) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 18 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxDecline OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of decline (option 53 with value 4) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 19 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of ACK (option 53 with value 5) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 20 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxNak OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of NAK (option 53 with value 6) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 21 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxRelease OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of release (option 53 with value 7) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 22 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxInform OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of inform (option 53 with value 8) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 23 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxLeaseQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease query (option 53 with value 10) packets transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 24 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxLeaseUnassigned OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease unassigned (option 53 with value 11) packets
+         transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 25 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxLeaseUnknown OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease unknown (option 53 with value 12) packets
+         transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 26 }
+
+me1200DhcpSnoopingInterfaceStatisticsTxLeaseActive OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of lease active (option 53 with value 13) packets
+         transmited."
+    ::= { me1200DhcpSnoopingInterfaceStatisticsEntry 27 }
+
+me1200DhcpSnoopingControl OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingMIBObjects 4 }
+
+me1200DhcpSnoopingInterfaceClearStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpSnoopingInterfaceClearStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to clear port statistics in DHCP Snooping"
+    ::= { me1200DhcpSnoopingControl 1 }
+
+me1200DhcpSnoopingInterfaceClearStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpSnoopingInterfaceClearStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200DhcpSnoopingInterfaceClearStatisticsIfIndex }
+    ::= { me1200DhcpSnoopingInterfaceClearStatisticsTable 1 }
+
+ME1200DhcpSnoopingInterfaceClearStatisticsEntry ::= SEQUENCE {
+    me1200DhcpSnoopingInterfaceClearStatisticsIfIndex     ME1200InterfaceIndex,
+    me1200DhcpSnoopingInterfaceClearStatisticsClear   TruthValue
+}
+
+me1200DhcpSnoopingInterfaceClearStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200DhcpSnoopingInterfaceClearStatisticsEntry 1 }
+
+me1200DhcpSnoopingInterfaceClearStatisticsClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "clear statistics per physical port."
+    ::= { me1200DhcpSnoopingInterfaceClearStatisticsEntry 2 }
+
+me1200DhcpSnoopingMIBConformance OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingMIB 2 }
+
+me1200DhcpSnoopingMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingMIBConformance 1 }
+
+me1200DhcpSnoopingMIBGroups OBJECT IDENTIFIER
+    ::= { me1200DhcpSnoopingMIBConformance 2 }
+
+me1200DhcpSnoopingGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpSnoopingGlobalsMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpSnoopingMIBGroups 1 }
+
+me1200DhcpSnoopingInterfaceInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpSnoopingInterfaceTrustMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpSnoopingMIBGroups 2 }
+
+me1200DhcpSnoopingAssignedIpTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpSnoopingAssignedIpIfIndex, 
+                  me1200DhcpSnoopingAssignedIpIpAddress, 
+                  me1200DhcpSnoopingAssignedIpNetmask, 
+                  me1200DhcpSnoopingAssignedIpDhcpServerIp }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpSnoopingMIBGroups 3 }
+
+me1200DhcpSnoopingInterfaceStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpSnoopingInterfaceStatisticsRxDiscover, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxOffer, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxRequest, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxDecline, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxAck, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxNak, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxRelease, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxInform, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxLeaseQuery, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxLeaseUnassigned, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxLeaseUnknown, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxLeaseActive, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxDiscardChksumErr, 
+                  me1200DhcpSnoopingInterfaceStatisticsRxDiscardUntrust, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxDiscover, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxOffer, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxRequest, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxDecline, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxAck, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxNak, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxRelease, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxInform, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxLeaseQuery, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxLeaseUnassigned, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxLeaseUnknown, 
+                  me1200DhcpSnoopingInterfaceStatisticsTxLeaseActive }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpSnoopingMIBGroups 4 }
+
+me1200DhcpSnoopingInterfaceClearStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpSnoopingInterfaceClearStatisticsClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpSnoopingMIBGroups 5 }
+
+me1200DhcpSnoopingMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200DhcpSnoopingGlobalsInfoGroup, 
+                  me1200DhcpSnoopingInterfaceInfoGroup, 
+                  me1200DhcpSnoopingAssignedIpTableInfoGroup, 
+                  me1200DhcpSnoopingInterfaceStatisticsTableInfoGroup, 
+                  me1200DhcpSnoopingInterfaceClearStatisticsTableInfoGroup }
+
+    ::= { me1200DhcpSnoopingMIBCompliances 1 }
+
+END

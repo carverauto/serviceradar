@@ -1,0 +1,833 @@
+-- MIB file created 13-Feb-2014 16:05:15, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VPN-LIC-USAGE-MONITOR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VPN-LIC-USAGE-MONITOR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVpnLicUsageMonitorMIB OBJECT IDENTIFIER ::= { ciscoMgmt 816 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201309130000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    
+--    Postal: 170 W Tasman Drive
+--    
+--    San Jose, CA  95134
+--    
+--    USA
+--    
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    
+--    E-mail: cs-<list>@cisco.com
+--  Descr
+--    Acronyms and Definitions
+--    The following acronyms and terms are used in this 
+--    document:
+--    
+--      IPSec: Secure IP Protocol
+--    
+--      VPN:   Virtual Private Network
+--    
+--      LAN:   Local Area Network
+--    
+--      Group: A collection of VPN license usage users grouped
+--             and managed together as a single entity for
+--             administrative convenience.
+--    
+--      SVC:    SSL VPN Client
+--    
+--      LicServer: Multi-site shared License server.
+--    
+--      LicBkpServer: Multi-site shared License Backup server.
+--    
+--      LicClient: Multi-site shared License client.
+--    
+--    Overview of the MIB
+--    
+--    This is a MIB Module for monitoring licenses in Virtual 
+--    Private Networks. The MIB seeks to create a common model of
+--    VPN License 
+--    Usage across different VPN implementations. The MIB defines
+--    counters 
+--    and objects of interest to usage/message monitoring in a 
+--    way which is independent of which VPN technology is
+--    requested.
+--    
+--    MIB contains four major groups of objects which are used 
+--    to get VPN License Usage information
+--     a) VPN Lic device type
+--        This section defines if the device is acting as a
+--    server,
+--        backupserver, client(participant) in a shared license
+--    system.
+--    
+--    b) VPN License Server Usage group
+--        This section defines total network license usage
+--    information
+--        and also server information as well along with backup
+--    server address. 
+--        service.
+--    
+--    c) VPN License Backup server Usage group
+--        This section defines backup license server information
+--    in detail,
+--        along with statistics of hello, sync and update messages
+--    from 
+--        server.
+--    
+--    d) VPN License client Usage group
+--        This section defines license usage information by this
+--    client.
+--        along with statistics about registration, get
+--    request,release request
+--        and transfer request.
+--  RevDate
+--    201309130000Z
+--  RevDescr
+--    Latest version of this MIB module.
+
+ciscoVpnLicUsageMonitorMIBObjects OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIB 0 }
+ciscoVpnLicUsageMonitorMIBConform OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIB 1 }
+ciscoVpnLicUsageMonitorMIBCompliances OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBConform 1 }
+cvpnLicServer   OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBObjects 2 }
+cvpnLicBkpServer OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBObjects 3 }
+cvpnLicClient   OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBObjects 4 }
+ciscoVpnLicUsageMonitorMIBGroups OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBConform 2 }
+
+VPNLicType ::= INTEGER {
+        other(1),
+        anyconnectpremium(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Type of VPN supporting shared license
+--    
+--    other             -       other VPN type
+--    anyconnectpremium -       anyconnect VPN type.
+
+VPNLicDeviceRole ::= INTEGER {
+        server(1),
+        bkpserver(2),
+        client(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Role the device is playing in shared license system.
+--    If it's acting as server/backup server, it also acts as license
+--    client.
+--    
+--    server     -    License server acting as both server and client.
+--    
+--    bkpserver  -    backup license server acting as both backup 
+--        server and client.
+--        
+--    client     -    Client.
+
+LicServerStatus ::= INTEGER {
+        active(1),
+        inactive(2),
+        expired(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Status of a license server, indicating if the server
+--    is currently active or backup (inactive).
+--    *Note* : backup will still be acting as a client.
+--    
+--    active       -   Server is active.
+--    
+--    inactive     -   Server is inactive.
+--    
+--    expired      -   Server expired.
+
+LicServerRegistered ::= INTEGER {
+        no(1),
+        yes(2),
+        invalid(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    State of the Backup License server 
+--    registered as a participant.
+--    
+--    no      -    ASA is not registered.
+--    
+--    yes     -    ASA is registered.
+--    
+--    invalid -   Unknown value.
+
+cvpnLicDeviceRole OBJECT-TYPE
+    SYNTAX VPNLicDeviceRole
+--    Rsyntax INTEGER {
+--        server(1),
+--        bkpserver(2),
+--        client(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "ASA Device Role in a shared License System
+        as server/backup/client."
+    ::= { ciscoVpnLicUsageMonitorMIBObjects 1 }
+
+cvpnLicServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP address type of Shared License Server."
+    ::= { cvpnLicServer 1 }
+
+cvpnLicServerAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP address of Shared License Server."
+    ::= { cvpnLicServer 2 }
+
+cvpnLicBkpSerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP address Type of Shared License Backup Server."
+    ::= { cvpnLicServer 3 }
+
+cvpnLicBkpSerAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP address of Shared License Backup Server."
+    ::= { cvpnLicServer 4 }
+
+cvpnLicServerVer OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Shared License Server version."
+    ::= { cvpnLicServer 5 }
+
+cvpnLicServerStatus OBJECT-TYPE
+    SYNTAX LicServerStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        inactive(2),
+--        expired(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Shared License Server Status."
+    ::= { cvpnLicServer 6 }
+
+cvpnLicServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvpnLicServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the Shared License Usage Information per VPN
+        type.
+        For each VPN type, it lists 
+        Total capacity, current usage, total available"
+    ::= { cvpnLicServer 7 }
+
+cvpnLicServerEntry OBJECT-TYPE
+    SYNTAX CvpnLicServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the statistics of License usage like Total
+        capacity, current usage, total available."
+    INDEX { cvpnLicServerVPNLicType }
+    ::= { cvpnLicServerTable 1 }
+
+CvpnLicServerEntry ::= SEQUENCE {
+    cvpnLicServerVPNLicType VPNLicType,
+    cvpnLicServerNumLicCapacity Gauge,
+    cvpnLicServerNumLicAvail Gauge,
+    cvpnLicServerUtilized Gauge
+    }
+
+cvpnLicServerVPNLicType OBJECT-TYPE
+    SYNTAX VPNLicType
+--    Rsyntax INTEGER {
+--        other(1),
+--        anyconnectpremium(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Statistics for a particular VPN type."
+    ::= { cvpnLicServerEntry 1 }
+
+cvpnLicServerNumLicCapacity OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    license
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of shared license capacity for network for this
+        VPN type."
+    DEFVAL { 0 }
+    ::= { cvpnLicServerEntry 2 }
+
+cvpnLicServerNumLicAvail OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    license
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Available License in network for this VPN type."
+    DEFVAL { 0 }
+    ::= { cvpnLicServerEntry 3 }
+
+cvpnLicServerUtilized OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    license
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Licenses utilised by the entire network for this
+        License type."
+    DEFVAL { 0 }
+    ::= { cvpnLicServerEntry 4 }
+
+cvpnLicBkpServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP address type of Shared License Backup Server"
+    ::= { cvpnLicBkpServer 1 }
+
+cvpnLicBkpServerAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP address of Shared License Backup Server"
+    ::= { cvpnLicBkpServer 2 }
+
+cvpnLicBkpServerDevID OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Device ID of the shared license backup server."
+    ::= { cvpnLicBkpServer 3 }
+
+cvpnLicBkpServerVer OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    license
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Shared License Backup Server version."
+    ::= { cvpnLicBkpServer 4 }
+
+cvpnLicBkpServerRegd OBJECT-TYPE
+    SYNTAX LicServerRegistered
+--    Rsyntax INTEGER {
+--        no(1),
+--        yes(2),
+--        invalid(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Shared License Backup Server Registered information."
+    ::= { cvpnLicBkpServer 5 }
+
+cvpnLicBkpServerHAPeerDevID OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Device ID of the shared license backup server HA Peer."
+    ::= { cvpnLicBkpServer 6 }
+
+cvpnLicBkpServerHAPeerRegd OBJECT-TYPE
+    SYNTAX LicServerRegistered
+--    Rsyntax INTEGER {
+--        no(1),
+--        yes(2),
+--        invalid(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Shared License Backup Server HA Peer registered information"
+    ::= { cvpnLicBkpServer 7 }
+
+cvpnLicBkpServerStatus OBJECT-TYPE
+    SYNTAX LicServerStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        inactive(2),
+--        expired(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Shared License Backup Server Status."
+    ::= { cvpnLicBkpServer 8 }
+
+cvpnLicServerHelloTx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Hello packets transmitted from 
+        this license server."
+    ::= { cvpnLicBkpServer 9 }
+
+cvpnLicServerHelloRx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Hello packets received by the 
+        license server."
+    ::= { cvpnLicBkpServer 10 }
+
+cvpnLicServerHelloError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of erroneous Hello packet received.
+        e.g. request received with no Rx data."
+    ::= { cvpnLicBkpServer 11 }
+
+cvpnLicServerSyncTx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Sync packets transmitted from 
+        this license server."
+    ::= { cvpnLicBkpServer 12 }
+
+cvpnLicServerSyncRx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Sync packets received by the 
+        license server."
+    ::= { cvpnLicBkpServer 13 }
+
+cvpnLicServerSyncError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of erroneous Sync packet received
+        e.g. request received with no Rx data."
+    ::= { cvpnLicBkpServer 14 }
+
+cvpnLicServerUpdateTx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Update packets transmitted from this 
+        license server."
+    ::= { cvpnLicBkpServer 15 }
+
+cvpnLicServerUpdateRx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Update packets received by the 
+        license server."
+    ::= { cvpnLicBkpServer 16 }
+
+cvpnLicServerUpdateError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of erroneous Update packet received.
+        e.g. request received with no Rx data."
+    ::= { cvpnLicBkpServer 17 }
+
+cvpnLicClntInfoTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvpnLicClntInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all the License LicClnt Information.
+        For each LicClnt, it lists the 
+        attributes (Hostname,Device ID,Current usage,
+        High,Registration Tx/Rx/Error,Get Tx/Rx/Error
+        Release Tx/Rx/Error, Transfer Tx/Rx/Error"
+    ::= { cvpnLicClient 1 }
+
+cvpnLicClntInfoEntry OBJECT-TYPE
+    SYNTAX CvpnLicClntInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes, statistics
+        of a shared license client."
+    INDEX { cvpnLicClntVPNLicType, cvpnLicClntInfoDeviceID }
+    ::= { cvpnLicClntInfoTable 1 }
+
+CvpnLicClntInfoEntry ::= SEQUENCE {
+    cvpnLicClntVPNLicType VPNLicType,
+    cvpnLicClntInfoDeviceID SnmpAdminString,
+    cvpnLicClntInfoHostName SnmpAdminString,
+    cvpnLicClntInfoPlatLmt Gauge,
+    cvpnLicClntInfoCurUsage Gauge,
+    cvpnLicClntInfoHigh Gauge,
+    cvpnLicClntInfoRegReqTx Counter,
+    cvpnLicClntInfoRegReqRx Counter,
+    cvpnLicClntInfoRegReqError Counter,
+    cvpnLicClntInfoGetReqTx Counter,
+    cvpnLicClntInfoGetReqRx Counter,
+    cvpnLicClntInfoGetReqError Counter,
+    cvpnLicClntInfoRelReqTx Counter,
+    cvpnLicClntInfoRelReqRx Counter,
+    cvpnLicClntInfoRelReqError Counter,
+    cvpnLicClntInfoTransferReqTx Counter,
+    cvpnLicClntInfoTransferReqRx Counter,
+    cvpnLicClntInfoTransferReqError Counter
+    }
+
+cvpnLicClntVPNLicType OBJECT-TYPE
+    SYNTAX VPNLicType
+--    Rsyntax INTEGER {
+--        other(1),
+--        anyconnectpremium(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "VPN Type of Shared License client"
+    ::= { cvpnLicClntInfoEntry 1 }
+
+cvpnLicClntInfoDeviceID OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Device ID of the shared license client."
+    ::= { cvpnLicClntInfoEntry 2 }
+
+cvpnLicClntInfoHostName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Hostname of the shared license Client."
+    ::= { cvpnLicClntInfoEntry 3 }
+
+cvpnLicClntInfoPlatLmt OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    license
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Platform limit for max License on this client."
+    ::= { cvpnLicClntInfoEntry 4 }
+
+cvpnLicClntInfoCurUsage OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    license
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current Usage of Shared License by this device."
+    ::= { cvpnLicClntInfoEntry 5 }
+
+cvpnLicClntInfoHigh OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    license
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of licenses provided by the license 
+        server to the client."
+    ::= { cvpnLicClntInfoEntry 6 }
+
+cvpnLicClntInfoRegReqTx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Registration Request packets transmitted on
+        this client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 7 }
+
+cvpnLicClntInfoRegReqRx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Registration Request packets received on
+        this client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 8 }
+
+cvpnLicClntInfoRegReqError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Registration Request packet errors on this
+        client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 9 }
+
+cvpnLicClntInfoGetReqTx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Get Request packets transmitted on this
+        client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 10 }
+
+cvpnLicClntInfoGetReqRx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Get Request packets Received on this client
+        for this VPN type."
+    ::= { cvpnLicClntInfoEntry 11 }
+
+cvpnLicClntInfoGetReqError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Get Request packet errors on this client
+        for this VPN type."
+    ::= { cvpnLicClntInfoEntry 12 }
+
+cvpnLicClntInfoRelReqTx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Release Request packets transmitted on this
+        client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 13 }
+
+cvpnLicClntInfoRelReqRx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Release Request packets received on this
+        client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 14 }
+
+cvpnLicClntInfoRelReqError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Release Request packet errors on this
+        client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 15 }
+
+cvpnLicClntInfoTransferReqTx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Transfer Request packets transmitted on
+        this client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 16 }
+
+cvpnLicClntInfoTransferReqRx OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Transfer Request packets received on this
+        client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 17 }
+
+cvpnLicClntInfoTransferReqError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Transfer Request packet errros on this
+        client for this VPN type."
+    ::= { cvpnLicClntInfoEntry 18 }
+
+ciscoVPNSharedLicUsageMandatoryGroup OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group categorizes mandatory objects pertaining
+--    to usage statistics of shared licenses
+--  objects
+--    cvpnLicDeviceRole, cvpnLicServerAddrType, cvpnLicServerAddr, 
+--    cvpnLicBkpSerAddrType, cvpnLicBkpSerAddr, cvpnLicServerVer, 
+--    cvpnLicServerStatus, cvpnLicServerNumLicCapacity, 
+--    cvpnLicServerNumLicAvail, cvpnLicServerUtilized, 
+--    cvpnLicClntInfoHostName, cvpnLicClntInfoPlatLmt, 
+--    cvpnLicClntInfoCurUsage, cvpnLicClntInfoHigh
+
+ciscoVPNSharedLicOptUsageGroup OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group categorizes optional objects pertaining
+--    to usage statistics of shared licenses
+--  objects
+--    cvpnLicBkpServerAddrType, cvpnLicBkpServerAddr, 
+--    cvpnLicBkpServerDevID, cvpnLicBkpServerVer, 
+--    cvpnLicBkpServerRegd, cvpnLicBkpServerHAPeerDevID, 
+--    cvpnLicBkpServerHAPeerRegd, cvpnLicBkpServerStatus, 
+--    cvpnLicServerHelloTx, cvpnLicServerHelloRx, 
+--    cvpnLicServerHelloError, cvpnLicServerSyncTx, 
+--    cvpnLicServerSyncRx, cvpnLicServerSyncError, 
+--    cvpnLicServerUpdateTx, cvpnLicServerUpdateRx, 
+--    cvpnLicServerUpdateError, cvpnLicClntInfoRegReqTx, 
+--    cvpnLicClntInfoRegReqRx, cvpnLicClntInfoRegReqError, 
+--    cvpnLicClntInfoGetReqTx, cvpnLicClntInfoGetReqRx, 
+--    cvpnLicClntInfoGetReqError, cvpnLicClntInfoRelReqTx, 
+--    cvpnLicClntInfoRelReqRx, cvpnLicClntInfoRelReqError, 
+--    cvpnLicClntInfoTransferReqTx, cvpnLicClntInfoTransferReqRx, 
+--    cvpnLicClntInfoTransferReqError
+
+ciscoVpnLicUsageMonitorMIBCompliance OBJECT IDENTIFIER ::= { ciscoVpnLicUsageMonitorMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities
+--    the Cisco VPN License Usage Monitoring MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVPNSharedLicUsageMandatoryGroup
+--   OptGroup
+--    ciscoVPNSharedLicOptUsageGroup
+
+
+END
+

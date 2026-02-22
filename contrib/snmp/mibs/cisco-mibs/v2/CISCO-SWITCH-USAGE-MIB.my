@@ -1,0 +1,186 @@
+--
+-- *****************************************************************
+-- Cisco Switch Resource Usage MIB
+--
+-- Mar, 2001 Ranbir Parmar
+--
+-- Copyright (c) 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-SWITCH-USAGE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, Counter32, Counter64,
+        OBJECT-TYPE            FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP           FROM SNMPv2-CONF
+        ifIndex
+                               FROM IF-MIB
+        ciscoMgmt              FROM CISCO-SMI;
+
+
+ciscoSwitchUsageMIB   MODULE-IDENTITY
+        LAST-UPDATED	"200105020000Z"
+        ORGANIZATION	"Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-switch-usage-mib@cisco.com"
+        DESCRIPTION
+                "This MIB defines objects related to statistics 
+                for the usage of switch fabric. The switch fabric
+                is used by the incoming packets from the line/network
+                to a interface. Such packets are called ingress packets.
+                Counters are maintained for number of ingress packets/
+                octets switched by the switch fabric for each 
+                interface.
+                NOTE: These counters are not counting the total number 
+                of incoming packets and octets for a particular 
+                interface. Instead only the counts of packets and 
+                octets that actually use the switch-fabric are being
+                accounted for by this MIB.  Therefore, the counters in 
+                this MIB are distinctly different from packet and octet 
+                counters found in the IF-MIB."
+
+        REVISION        "200105020000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 201 }
+
+
+ciscoSwitchUsageMIBObjects OBJECT IDENTIFIER 
+                         ::= { ciscoSwitchUsageMIB 1 }
+
+ciscoSwitchUsageStats      OBJECT IDENTIFIER
+                         ::= { ciscoSwitchUsageMIBObjects 1 }
+
+
+-- the switch usage statistics group
+ 
+cswitchUsageStatTable OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CswitchUsageStatEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION    
+                "A list of switch resouce usage statistics 
+                entries. The statistics will give information 
+                on the switch usage by each interface." 
+        ::= { ciscoSwitchUsageStats 1 }
+ 
+cswitchUsageStatEntry OBJECT-TYPE
+        SYNTAX         CswitchUsageStatEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "Entry contains information of a particular 
+                interface in terms of how much switch resource 
+                it has used.
+                An entry in this table exists for each ifEntry 
+                with an ifType of fastEther(62) for FastEthernet
+                interface and gigabitEthernet (117) for Gigabit
+                interface."
+        INDEX          { ifIndex }
+        ::= { cswitchUsageStatTable 1 }
+ 
+CswitchUsageStatEntry ::= 
+        SEQUENCE {
+                 cswitchUsageByIngrsIntfPkts        Counter32,
+                 cswitchUsageByIngrsIntfHCPkts      Counter64,
+                 cswitchUsageByIngrsIntfOctets      Counter32,
+                 cswitchUsageByIngrsIntfHCOctets    Counter64
+        }
+
+cswitchUsageByIngrsIntfPkts OBJECT-TYPE     
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The number of ingress packets of a interface 
+                which use the switch resource."
+        ::= { cswitchUsageStatEntry  1 }
+
+cswitchUsageByIngrsIntfHCPkts OBJECT-TYPE
+        SYNTAX        Counter64
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The number of ingress packets of a interface
+                which use the switch resource.
+
+                This is a 64 bit (High Capacity) version of
+                the cswitchUsageByIngrsIntfPkts counter for
+                use with SNMP v2c or v3 Managers."
+        ::= { cswitchUsageStatEntry  2 }
+
+cswitchUsageByIngrsIntfOctets OBJECT-TYPE     
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The number of ingress octets of a interface 
+                which use the switch resource."
+        ::= { cswitchUsageStatEntry  3 }
+
+cswitchUsageByIngrsIntfHCOctets OBJECT-TYPE
+        SYNTAX        Counter64
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The number of ingress octets of a interface
+                which use the switch resource.
+                This is a 64 bit (High Capacity) version of
+                the cswitchUsageByIngrsIntfOctets counter for
+                use with SNMP v2c or v3 Managers."
+        ::= { cswitchUsageStatEntry  4 }
+
+-- notifications
+
+ciscoSwitchUsageMIBNotifyPrefix  OBJECT IDENTIFIER
+                             ::= { ciscoSwitchUsageMIB 2 }
+ciscoSwitchUsageMIBNotifications  OBJECT IDENTIFIER 
+                 ::= { ciscoSwitchUsageMIBNotifyPrefix 0 }
+
+-- conformance information
+
+ciscoSwitchUsageMIBConformance    OBJECT IDENTIFIER 
+                             ::= { ciscoSwitchUsageMIB 3 }
+ciscoSwitchUsageMIBCompliances    OBJECT IDENTIFIER 
+                             ::= { ciscoSwitchUsageMIBConformance 1 }
+ciscoSwitchUsageMIBGroups         OBJECT IDENTIFIER 
+                             ::= { ciscoSwitchUsageMIBConformance 2 }
+
+-- compliance statement
+
+ciscoSwitchUsageMIBCompliance  MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for the switch usage 
+                statistics group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoSwitchUsageMIBGroup }
+        ::= { ciscoSwitchUsageMIBCompliances 1 }
+
+-- units of conformance
+
+ciscoSwitchUsageMIBGroup   OBJECT-GROUP
+        OBJECTS { 
+                cswitchUsageByIngrsIntfPkts,
+                cswitchUsageByIngrsIntfHCPkts,
+                cswitchUsageByIngrsIntfOctets,
+                cswitchUsageByIngrsIntfHCOctets
+        }
+        STATUS    current
+        DESCRIPTION
+                "The Object Group for switch usage statistics"
+        ::= { ciscoSwitchUsageMIBGroups 1 }
+ 
+END

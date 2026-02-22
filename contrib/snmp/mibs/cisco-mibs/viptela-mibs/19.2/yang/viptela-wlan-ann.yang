@@ -1,0 +1,15 @@
+module viptela-wlan-ann {
+  namespace "http://viptela.com/wlan-ann";
+  prefix viptela-wlan-ann;
+
+  import viptela-wlan {
+    prefix wlan;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "Defines annotations for wlan module";
+}

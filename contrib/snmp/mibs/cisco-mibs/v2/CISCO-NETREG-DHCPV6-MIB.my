@@ -1,0 +1,2250 @@
+-- *********************************************************************
+-- CISCO-NETREG-DHCPV6-MIB.my :
+-- In the future, this mib may be removed entirely, or re-implemented
+-- on short notice.  Application developers should not depend on
+-- long-term access to this MIB.
+--   
+-- This MIB implements a small subset of actual functions required to
+-- manage Dynamic Host Configuration Protocol for IPv6 (DHCPv6).
+-- This MIB is provided as a temporary fix to support those platforms
+-- with a limited implementation of SNMP infrastructure.
+-- %DNP Therefore, customer should understand that :
+-- %DNP This MIB can not be ported to any platforms without first
+-- %DNP contacting the mib-police to ensure that the target plaform
+-- %DNP meets the restrictions for using this MIB.  Cisco Network
+-- %DNP Registrar 7.0.x will be allowed to implement this MIBS.
+--   
+-- Copyright (c) 2007-2022 by Cisco Systems Inc.
+-- All rights reserved.
+-- *********************************************************************
+
+CISCO-NETREG-DHCPV6-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    IpAddress,
+    Counter32,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv6,
+    InetAddressPrefixLength
+        FROM INET-ADDRESS-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+ciscoNetRegDhcpv6MIB MODULE-IDENTITY
+    LAST-UPDATED    "202205090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-cnr-snmp@cisco.com"
+    DESCRIPTION
+        "The CISCO-NETREG-DHCPV6-MIB contains the counters and
+        notification structures which carry the identity and status 
+        information of the managed object as analyzed by an event 
+        processor. The DHCPv6 counters can be queried using the mib 
+        objects. The design of this MIB is limited to platforms that
+        can not fully support structures normally supported by device
+        as follows.
+        -- Platform can not support object within tables and are 
+           limited to scalar objects.
+        -- Platform can not support setting or retrieval of 
+           configuration data.  Therefore, data in notification must 
+           be provided by objects defined with MAX-ACCESS of 
+           accessible-for-notify. 
+
+        Descriptions of acronyms and definitions:
+        address                   An IP layer identifier for an
+                                  interface or a set of interfaces.
+
+        host                      Any node that is not a router.
+
+        IP                        Internet Protocol Version 6 (IPv6). 
+                                  The terms IPv4 and IPv6 are used 
+                                  only in contexts where it is 
+                                  necessary to avoid ambiguity.
+
+        interface                 A node's attachment to a link.
+
+        link                      A communication facility or medium
+                                  over which nodes can communicate at 
+                                  the link layer, i.e., the layer 
+                                  immediately below IP.  Examples are 
+                                  Ethernet (simple or bridged); Token 
+                                  Ring; PPP links, X.25, Frame Relay, 
+                                  or ATM networks; and Internet (or 
+                                  higher) layer tunnels, such as 
+                                  tunnels over IPv4 or IPv6 itself.
+
+        link-layer identifier     A link-layer identifier for an
+                                  interface.  Examples include IEEE 802
+                                  addresses for Ethernet or Token Ring  
+                                  network interfaces, and E.164 
+                                  addresses for ISDN links.
+
+        node                      A device that implements IP.
+
+        packet                    An IP header plus payload.
+
+        prefix                    The initial bits of an address, or a
+                                  set of IP addresses that share the
+                                  same initial bits.
+
+        prefix length             The number of bits in a prefix.
+
+        router                    A node that forwards IP packets not
+                                  explicitly addressed to itself.
+
+        DHCP relay agent          A node that acts as an               
+                                  intermediary to deliver DHCP messages
+                                  between clients and servers, and is
+                                  on the same link as the client.
+
+        DHCP server (or server)   A node that responds to requests from
+                                  clients, and may or may not be on the
+                                  same link as the client(s).
+
+        DUID                      A DHCP Unique IDentifier for a DHCP
+                                  participant; each DHCP client and    
+                                  server has exactly one DUID.  
+
+        Scope                     A DHCP Scope object. A scope defines 
+                                  a set of dynamic address pools on a
+                                  subnet that share its configuration
+                                  attributes. A scope can also contain 
+                                  reserved  addresses on the specified 
+                                  subnet that should use the 
+                                  configuration.
+
+        client-class              A client-class defines the selection
+                                  criteria and configuration for a 
+                                  group of clients.
+
+        selection-tag             A selection-tag refers to a named
+                                  entity that is used to control 
+                                  matching client and client-class 
+                                  entries with candidate scopes.
+
+        grouping                  A grouping defines the aggregation of
+                                  the free address levels of scopes."
+    REVISION        "202205090000Z"
+    DESCRIPTION
+        "Added following objects in ciscoNetRegDhcpv6TotalCounters:
+        cnrdhcpv6TotalExtensionErrors
+        cnrdhcpv6TotalExtensionDrops
+
+        Added following objects in ciscoNetRegDhcpv6PeriodCounters:
+        cnrdhcpv6PeriodExtensionErrors
+        cnrdhcpv6PeriodExtensionDrops"
+    REVISION        "201704180000Z"
+    DESCRIPTION
+        "Deprecated the following notification:
+        ciscoNetRegDhcpv6DuplicatePrefix
+
+        Deprecated following objects:
+        cnrdhcpv6DupPrefix
+        cnrdhcpv6DupPrefixLength
+        cnrdhcpv6DupPrefixDetectedBy
+		
+        Updated following object:
+        cnrdhcpv6DupIpv6AddressDetectedBy"
+    REVISION        "201305240000Z"
+    DESCRIPTION
+        "Added following tables:
+        ciscoNetRegDhcpv6FailoverCounters
+        ciscoNetRegDhcpv6FailoverPeriodCounters
+
+        Added following objects in ciscoNetRegDhcpv6NotifObjects:
+        cnrdhcpv6PartnerServerAddr
+        cnrdhcpv6PartnerServerIpv6Addr
+        cnrdhcpv6ContestedIpv6Address
+        cnrdhcpv6ContestedIpv6Prefix
+        cnrdhcpv6ContestedIpv6PrefixLength
+        cnrdhcpv6FailoverPairName
+
+        Added following objects in ciscoNetRegDhcpv6FailoverCounters:
+        cnrdhcpv6FOStateRcvd
+        cnrdhcpv6FOBindingUpdsRcvd
+        cnrdhcpv6FOBindingAcksRcvd
+        cnrdhcpv6FOBindingNaksRcvd
+        cnrdhcpv6FOConnectRcvd
+        cnrdhcpv6FOConnectAckRcvd
+        cnrdhcpv6FOContactRcvd
+        cnrdhcpv6FODisconnectRcvd
+        cnrdhcpv6FOUpdateReqRcvd
+        cnrdhcpv6FOUpdateDoneRcvd
+        cnrdhcpv6FOPoolRequestsRcvd
+        cnrdhcpv6FOPoolResponseRcvd
+        cnrdhcpv6FOStateSent
+        cnrdhcpv6FOBindingUpdsSent
+        cnrdhcpv6FOBindingAcksSent
+        cnrdhcpv6FOBindingNaksSent
+        cnrdhcpv6FOConnectSent
+        cnrdhcpv6FOConnectAckSent
+        cnrdhcpv6FOContactSent
+        cnrdhcpv6FODisconnectSent
+        cnrdhcpv6FOUpdateReqSent
+        cnrdhcpv6FOUpdateDoneSent
+        cnrdhcpv6FOPoolRequestSent
+        cnrdhcpv6FOPoolResponsesSent
+        cnrdhcpv6FOInvalidMsgsRcvd
+        cnrdhcpv6FODiscardedMsgs
+        cnrdhcpv6FOSuccessConn
+        cnrdhcpv6FOFailedConn
+        cnrdhcpv6FOInvalidConn
+        cnrdhcpv6FOSelfTermConn
+        cnrdhcpv6FOPeerTermConn
+
+        Added following objects in 
+        ciscoNetRegDhcpv6FailoverPeriodCounters:
+        cnrdhcpv6FOPeriodStateRcvd
+        cnrdhcpv6FOPeriodBindingUpdsRcvd
+        cnrdhcpv6FOPeriodBindingAcksRcvd
+        cnrdhcpv6FOPeriodBindingNaksRcvd
+        cnrdhcpv6FOPeriodConnectRcvd
+        cnrdhcpv6FOPeriodConnectAckRcvd
+        cnrdhcpv6FOPeriodContactRcvd
+        cnrdhcpv6FOPeriodDisconnectRcvd
+        cnrdhcpv6FOPeriodUpdateReqRcvd
+        cnrdhcpv6FOPeriodUpdateDoneRcvd
+        cnrdhcpv6FOPeriodPoolRequestsRcvd
+        cnrdhcpv6FOPeriodPoolResponseRcvd
+        cnrdhcpv6FOPeriodStateSent
+        cnrdhcpv6FOPeriodBindingUpdsSent
+        cnrdhcpv6FOPeriodBindingAcksSent
+        cnrdhcpv6FOPeriodBindingNaksSent
+        cnrdhcpv6FOPeriodConnectSent
+        cnrdhcpv6FOPeriodConnectAckSent
+        cnrdhcpv6FOPeriodContactSent
+        cnrdhcpv6FOPeriodDisconnectSent
+        cnrdhcpv6FOPeriodUpdateReqSent
+        cnrdhcpv6FOPeriodUpdateDoneSent
+        cnrdhcpv6FOPeriodPoolRequestSent
+        cnrdhcpv6FOPeriodPoolResponsesSent
+        cnrdhcpv6FOPeriodInvalidMsgsRcvd
+        cnrdhcpv6FOPeriodDiscardedMsgs
+        cnrdhcpv6FOPeriodSuccessConn
+        cnrdhcpv6FOPeriodFailedConn
+        cnrdhcpv6FOPeriodInvalidConn
+        cnrdhcpv6FOPeriodSelfTermConn
+        cnrdhcpv6FOPeriodPeerTermConn
+        cnrdhcpv6FOPeriodStartTime
+        cnrdhcpv6FOPeriodEndTime
+
+        Added following notifications in ciscoNetRegDhcpv6MIBNotifs:
+        ciscoNetRegDhcpv6AddressConflict
+        ciscoNetRegDhcpv6PrefixConflict"
+    REVISION        "201005120000Z"
+    DESCRIPTION
+        "Clarified duplicate address trap descriptions."
+    REVISION        "200711280000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoExperiment 139 }
+
+
+ciscoNetRegDhcpv6MIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIB 0 }
+
+ciscoNetRegDhcpv6MIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIB 1 }
+
+ciscoNetRegDhcpv6MIBConform  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIB 2 }
+
+ciscoNetRegDhcpv6NotifObjects  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIBObjects 1 }
+
+ciscoNetRegDhcpv6TotalCounters  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIBObjects 2 }
+
+ciscoNetRegDhcpv6PeriodCounters  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIBObjects 3 }
+
+ciscoNetRegDhcpv6FailoverCounters  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIBObjects 4 }
+
+ciscoNetRegDhcpv6FailoverPeriodCounters  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIBObjects 5 }
+
+
+-- ciscoNetRegDhcpv6MIBNotifs
+
+ciscoNetRegDhcpv6AddressShortageStart NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnrdhcpv6LinkName,
+                        cnrdhcpv6FreeAddressValue,
+                        cnrdhcpv6Threshold,
+                        cnrdhcpv6PrefixAddress,
+                        cnrdhcpv6PrefixLength,
+                        cnrdhcpv6ThresholdType,
+                        cnrdhcpv6TypeDesc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the number
+        of available IPv6 addresses for a particular prefix or link
+        has fallen below the value of cnrdhcpv6Threshold.
+
+        This notification signals a shortage of addresses.
+        The shortage will continue until the number of free 
+        addresses has reached or exceeded the threshold specified by  
+        cnrdhcpv6Threshold. This notification will only be generated 
+        when the shortages of IPv6 addresses is first encountered.
+
+        When ciscoNetRegDhcpv6AddressShortageStop is generated, it 
+        enables this notification to trigger again the next time 
+        the number of free addresses for that prefix or link falls 
+        below the value indicated by cnrdhcpv6Threshold.
+
+        At the time this event is triggered, cnrdhcpv6LinkName 
+        indicates the name of the link or prefix, 
+        cnrdhcpv6FreeAddressValue provides the count of the addresses, 
+        cnrdhcpv6Threshold  indicates the configured percentage that 
+        was crossed. In case cnrdhcpv6ThresholdType is of type 'prefix'
+        then cnrdhcpv6PrefixAddress and cnrdhcpv6PrefixLength indicate 
+        the address and length of the prefix and cnrdhcpv6TypeDesc 
+        indicates extra grouping information on the prefix or link that 
+        triggered this event."
+    REFERENCE       "RFC3315, Section 4.1."
+   ::= { ciscoNetRegDhcpv6MIBNotifs 1 }
+
+ciscoNetRegDhcpv6AddressShortageStop NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnrdhcpv6LinkName,
+                        cnrdhcpv6FreeAddressValue,
+                        cnrdhcpv6Threshold,
+                        cnrdhcpv6PrefixAddress,
+                        cnrdhcpv6PrefixLength,
+                        cnrdhcpv6ThresholdType,
+                        cnrdhcpv6TypeDesc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the shortage of
+        available IPv6 addresses for a particular prefix or link is 
+        over and is generated when the number of free addresses for
+        that prefix or link reaches or exceed value specified by 
+        cnrdhcpv6Threshold.
+
+        This notification will only be generated when exceeding the
+        threshold specified by cnrdhcpv6Threshold for the first time. 
+        When ciscoNetRegDhcpv6AddressShortageStart is generated, it 
+        enables this notification to trigger again the next time the 
+        number of free addresses for that prefix or link reaches or 
+        exceed value specified by cnrdhcpv6Threshold.
+
+        At the time this event is triggered, cnrdhcpv6LinkName 
+        indicates the name of the link or prefix, 
+        cnrdhcpv6FreeAddressValue provides the count of the addresses, 
+        cnrdhcpv6Threshold  specifies the configured percentage that 
+        was crossed. In case cnrdhcpv6ThresholdType is of type 'prefix' 
+        then cnrdhcpv6PrefixAddress and cnrdhcpv6PrefixLength indicate 
+        the address and length of the prefix and cnrdhcpv6TypeDesc 
+        indicates extra grouping information on the prefix or link that
+        triggered this event."
+    REFERENCE       "RFC3315, Section 4.1."
+   ::= { ciscoNetRegDhcpv6MIBNotifs 2 }
+
+ciscoNetRegDhcpv6DuplicateAddress NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnrdhcpv6DupIpv6Address,
+                        cnrdhcpv6ClientId,
+                        cnrdhcpv6ClientLookupKey,
+                        cnrdhcpv6DupIpv6AddressDetectedBy
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is triggered when a duplicate IPv6
+        address assignment is detected. This notification is
+        generated if a client sends a Decline message. The DHCPv6
+        client is required to do Duplicate Address Detection (DAD)
+        before using the address and therefore would send the
+        Decline message if it found that the address was in use.
+
+        The DHCP server marks the IP address as unavailable for
+        leasing to clients. cnrdhcpv6DupIpv6Address indicates the
+        IPv6 address that triggered this event, cnrdhcpv6ClientId
+        and cnrdhcpv6ClientLookupKey indicate the client identifier
+        option and lookup key for the client that triggered this
+        event and cnrdhcpv6DupIpv6AddressDetectedBy object
+        indicates whether the client or server detected this 
+        condition."
+    REFERENCE       "RFC3315, Section 18.1.7, 18.2.7."
+   ::= { ciscoNetRegDhcpv6MIBNotifs 3 }
+
+ciscoNetRegDhcpv6DuplicatePrefix NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnrdhcpv6DupPrefix,
+                        cnrdhcpv6DupPrefixLength,
+                        cnrdhcpv6ClientId,
+                        cnrdhcpv6ClientLookupKey,
+                        cnrdhcpv6DupPrefixDetectedBy
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification is triggered when a duplicate IPv6 prefix
+        assignment is detected. This notification is generated if a
+        client sends a Decline message. The DHCPv6 client is required
+        to do Duplicate Address Detection (DAD) before using the
+        prefix and therefore would send the Decline message if it
+        found that the address was in use.  
+
+        The DHCP server marks the prefix as unavailable for leasing
+        to clients.  cnrdhcpv6DupPrefix and cnrdhcpv6DupPrefixLength
+        indicate the duplicate prefix and length that triggered this
+        event, cnrdhcpv6ClientId and cnrdhcpv6ClientLookupKey indicate
+        the client identifier option and lookup key for the client
+        that triggered this event and cnrdhcpv6DupIpv6AddressDetectedBy
+        object indicates whether the client or server detected this
+        condition."
+    REFERENCE       "RFC3315, Section 18.1.7, 18.2.7."
+   ::= { ciscoNetRegDhcpv6MIBNotifs 4 }
+
+ciscoNetRegDhcpv6AddressConflict NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnrdhcpv6PartnerServerAddr,
+                        cnrdhcpv6PartnerServerIpv6Addr,
+                        cnrdhcpv6ContestedIpv6Address,
+                        cnrdhcpv6FailoverPairName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that the DHCP server on this host,
+        and a DHCP server on another host, have claimed ownership for
+        the same IPv6 address.  The cnrdhcpv6ContestedIpv6Address object
+        indicates which address is under contention. The
+        cnrdhcpv6PartnerServerAddr or cnrdhcpv6PartnerServerIpv6Addr
+        object indicates with which other server a conflict was
+        detected. The cnrdhcpv6FailoverPairName object indicates
+        failover pair name."
+   ::= { ciscoNetRegDhcpv6MIBNotifs 5 }
+
+ciscoNetRegDhcpv6PrefixConflict NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnrdhcpv6PartnerServerAddr,
+                        cnrdhcpv6PartnerServerIpv6Addr,
+                        cnrdhcpv6ContestedIpv6Prefix,
+                        cnrdhcpv6ContestedIpv6PrefixLength,
+                        cnrdhcpv6FailoverPairName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that the DHCP server on this host,
+        and a DHCP server on another host, have claimed ownership for
+        the same IPv6 prefix.  The cnrdhcpv6ContestedIpv6Prefix object
+        indicates which prefix is under contention.
+        cnrdhcpv6ContestedIpv6PrefixLength indicates the length of the
+        prefix. The cnrdhcpv6PartnerServerAddr or
+        cnrdhcpv6PartnerServerIpv6Addr object indicates with which other
+        server a conflict was detected. The cnrdhcpv6FailoverPairName
+        object indicates failover pair name."
+   ::= { ciscoNetRegDhcpv6MIBNotifs 6 }
+
+-- ciscoNetRegDhcpv6NotifObjects
+
+cnrdhcpv6LinkName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the link or prefix,
+        depending on type, experiencing the 
+        ciscoNetRegDhcpv6AddressShortageStart or
+        ciscoNetRegDhcpv6AddressShortageStop event."
+    REFERENCE       "RFC3315, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 1 }
+
+cnrdhcpv6FreeAddressValue OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of free addresses at the
+        time the ciscoNetRegDhcpv6AddressShortageStart or
+        ciscoNetRegDhcpv6AddressShortageStop event was triggered." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 2 }
+
+cnrdhcpv6Threshold OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percentage"
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured percentage threshold
+        that was crossed at the time the 
+        ciscoNetRegDhcpv6AddressShortageStart or
+        ciscoNetRegDhcpv6AddressShortageStop event was triggered." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 3 }
+
+cnrdhcpv6PrefixAddress OBJECT-TYPE
+    SYNTAX          InetAddressIPv6
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address of the prefix that triggered
+        the ciscoNetRegDhcpv6AddressShortageStart or 
+        ciscoNetRegDhcpv6AddressShortageStop event. This attribute is 
+        available only if the cnrdhcpv6ThresholdType object for the 
+        event has the value 'prefix'."
+    REFERENCE       "RFC3315, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 4 }
+
+cnrdhcpv6PrefixLength OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the length of the IPv6 prefix that
+        triggered the ciscoNetRegDhcpv6AddressShortageStart or 
+        ciscoNetRegDhcpv6AddressShortageStop event. This attribute is
+        available only if the cnrdhcpv6ThresholdType object for the
+        event has the value 'prefix'."
+    REFERENCE       "RFC3315, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 5 }
+
+cnrdhcpv6ThresholdType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        prefix(1),
+                        link(2),
+                        selectionTags(3)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the threshold that triggered the
+        ciscoNetRegDhcpv6AddressShortageStart or 
+        ciscoNetRegDhcpv6AddressShortageStop event was configured at 
+        the level of a single prefix, an entire group of prefixes 
+        sharing the same link, or a group of prefixes sharing the same 
+        link and selection tag ." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 6 }
+
+cnrdhcpv6TypeDesc OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the grouping for the prefix that
+        triggered the ciscoNetRegDhcpv6AddressShortageStart or 
+        ciscoNetRegDhcpv6AddressShortageStop event. For a single 
+        prefix, it is the prefix address. For a prefix that is part 
+        of a link grouping, it is the link name. For a prefix that is 
+        part of a selection-tag grouping, it is the prefix selection 
+        tag." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 7 }
+
+cnrdhcpv6DupIpv6Address OBJECT-TYPE
+    SYNTAX          InetAddressIPv6
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IPv6 address that triggered the
+        ciscoNetRegDhcpv6DuplicateAddress event."
+    REFERENCE       "RFC3315, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 8 }
+
+cnrdhcpv6ClientId OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (2..128))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Client Identifier option (DUID)
+        for the client, if specified, that triggered the 
+        ciscoNetRegDhcpv6DuplicateAddress event."
+    REFERENCE       "RFC3315, Section 9." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 9 }
+
+cnrdhcpv6ClientLookupKey OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the lookup key for the client that
+        triggered the ciscoNetRegDhcpv6DuplicateAddress event." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 10 }
+
+cnrdhcpv6DupIpv6AddressDetectedBy OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dhcpClient(1),
+                        dhcpServer(2)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how a duplicated IPv6 address is
+        detected. 
+        dhcpClient: The duplicate address is detected by the DHCP 
+        client and reported to the server via a Decline message." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 11 }
+
+cnrdhcpv6DupPrefix OBJECT-TYPE
+    SYNTAX          InetAddressIPv6
+    MAX-ACCESS      accessible-for-notify
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the IPv6 prefix that triggered the
+        ciscoNetRegDhcpv6DuplicatePrefix event."
+    REFERENCE       "RFC3315, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 12 }
+
+cnrdhcpv6DupPrefixLength OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      accessible-for-notify
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the length of the IPv6 prefix that
+        triggered the ciscoNetRegDhcpv6DuplicatePrefix event."
+    REFERENCE       "RFC3315, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 13 }
+
+cnrdhcpv6DupPrefixDetectedBy OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dhcpServer(1),
+                        dhcpClient(2)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates how a duplicated IPv6 prefix is
+        detected. 
+        dhcpClient: The duplicate prefix is detected by the DHCP 
+        client and reported to the server via a Decline message." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 14 }
+
+cnrdhcpv6PartnerServerAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The IPv4 Address of a server with which CNR is attempting to
+        communicate." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 15 }
+
+cnrdhcpv6PartnerServerIpv6Addr OBJECT-TYPE
+    SYNTAX          InetAddressIPv6
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The IPv6 Address of a server with which CNR is attempting to
+        communicate." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 16 }
+
+cnrdhcpv6ContestedIpv6Address OBJECT-TYPE
+    SYNTAX          InetAddressIPv6
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The IPv6 address for which ownership is claimed by two or more
+        DHCP servers." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 17 }
+
+cnrdhcpv6ContestedIpv6Prefix OBJECT-TYPE
+    SYNTAX          InetAddressIPv6
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The IPv6 prefix for which ownership is claimed by two or more
+        DHCP servers." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 18 }
+
+cnrdhcpv6ContestedIpv6PrefixLength OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The length of the IPv6 prefix for which ownership is claimed by
+        two or more DHCP servers." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 19 }
+
+cnrdhcpv6FailoverPairName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The name of the failover-pair." 
+    ::= { ciscoNetRegDhcpv6NotifObjects 20 }
+
+-- ciscoNetRegDhcpv6TotalCounters
+
+cnrdhcpv6TotalPacketsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        received."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 1 }
+
+cnrdhcpv6TotalPacketsRcvdRelay OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6
+        Relay-Forw messages received."
+    REFERENCE       "RFC3315, Section 15.13." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 2 }
+
+cnrdhcpv6TotalSolicits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Solicit
+        messages received."
+    REFERENCE       "RFC3315, Section 15.2." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 3 }
+
+cnrdhcpv6TotalRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Request
+        messages received."
+    REFERENCE       "RFC3315, Section 15.4." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 4 }
+
+cnrdhcpv6TotalConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Confirm
+        messages received."
+    REFERENCE       "RFC3315, Section 15.5." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 5 }
+
+cnrdhcpv6TotalRenews OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Renew
+        messages received."
+    REFERENCE       "RFC3315, Sec 15.6." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 6 }
+
+cnrdhcpv6TotalRebinds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Rebind
+        messages received."
+    REFERENCE       "RFC3315, Section 15.7." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 7 }
+
+cnrdhcpv6TotalReleases OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Release
+        messages received."
+    REFERENCE       "RFC3315, Section 15.9." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 8 }
+
+cnrdhcpv6TotalDeclines OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Decline
+        messages received."
+    REFERENCE       "RFC3315, Section 15.8." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 9 }
+
+cnrdhcpv6TotalInfoRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6
+        Information-Request messages received."
+    REFERENCE       "RFC3315, Section 15.12." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 10 }
+
+cnrdhcpv6TotalInvalidPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of unparseable DHCPv6
+        packets received."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 11 }
+
+cnrdhcpv6TotalPacketsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        sent."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 12 }
+
+cnrdhcpv6TotalPacketsSentRelay OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6
+        Relay-Repl messages sent."
+    REFERENCE       "RFC3315, Section 15.14." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 13 }
+
+cnrdhcpv6TotalAdvertises OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Advertise
+        messages sent."
+    REFERENCE       "RFC3315, Section 15.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 14 }
+
+cnrdhcpv6TotalReplies OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Reply
+        messages sent."
+    REFERENCE       "RFC3315, Section 15.10." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 15 }
+
+cnrdhcpv6TotalReconfigures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 Reconfigure
+        messages sent."
+    REFERENCE       "RFC3315, Section 15.11." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 16 }
+
+cnrdhcpv6TotalAuthFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        dropped due to authentication failure."
+    REFERENCE       "RFC3315, Section 21.4.2." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 17 }
+
+cnrdhcpv6TotalDiscards OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        discarded due to validation failures."
+    REFERENCE       "RFC3315, Section 5.3, Section 21.4.2." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 18 }
+
+cnrdhcpv6TotalDuplicates OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 duplicate
+        packets dropped."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 19 }
+
+cnrdhcpv6TotalInvalidClients OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        dropped from invalid clients."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 20 }
+
+cnrdhcpv6TotalUnknownLinks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        dropped from unknown links."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 21 }
+
+cnrdhcpv6TotalDroppedOthers OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        dropped during processing for reasons other than those 
+        captured by cnrdhcpv6TotalAuthFails, cnrdhcpv6TotalDiscards, 
+        cnrdhcpv6TotalDuplicates, cnrdhcpv6TotalInvalidClients and 
+        cnrdhcpv6TotalUnknownLinks."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 22 }
+
+cnrdhcpv6TotalDroppedConfig OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        dropped due to server or client configuration."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 23 }
+
+cnrdhcpv6TotalActiveLeases OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "leases"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 leases,
+        reservations and delegated prefixes that are currently 
+        unavailable to new clients." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 24 }
+
+cnrdhcpv6TotalAllocatedLeases OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "leases"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 leases,
+        reservations and delegated prefixes that are presently 
+        allocated." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 25 }
+
+cnrdhcpv6TotalReservedLeases OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "leases"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 reserved
+        leases and reserved prefixes that are presently configured." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 26 }
+
+cnrdhcpv6TotalReservedActiveLeases OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "leases"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 reserved
+        leases and reserved prefixes that are unavailable to new 
+        clients." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 27 }
+
+cnrdhcpv6TotalLeaseQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of LeaseQuery messages
+        received by the server."
+    REFERENCE       "RFC5007, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 28 }
+
+cnrdhcpv6TotalLeaseQueryReplies OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of LeaseQuery-Reply
+        messages sent by the server."
+    REFERENCE       "RFC5007, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6TotalCounters 29 }
+
+cnrdhcpv6TotalExtensionErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        dropped due to extension processing failure."
+    ::= { ciscoNetRegDhcpv6TotalCounters 30 }
+
+cnrdhcpv6TotalExtensionDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DHCPv6 packets
+        dropped that an extension requested."
+    ::= { ciscoNetRegDhcpv6TotalCounters 31 }
+
+-- ciscoNetRegDhcpv6PeriodCounters
+--   
+-- All objects under ciscoNetRegDhcpv6PeriodCounters provide count of
+-- occurence from cnrdhcpv6PeriodStartTime to cnrdhcpv6PeriodEndTime.
+-- The difference between cnrdhcpv6PeriodStartTime and
+-- cnrdhcpv6PeriodEndTime is the length of the period. This value
+-- can be configured using the CNR CLI or WebUI and defaults to
+-- 5 minutes.
+
+cnrdhcpv6PeriodPacketsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets received
+        during reporting period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 1 }
+
+cnrdhcpv6PeriodPacketsRcvdRelay OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Relay-Forw
+        messages received using during reporting period."
+    REFERENCE       "RFC3315, Section 15.13." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 2 }
+
+cnrdhcpv6PeriodSolicits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Solicit messages
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 15.2." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 3 }
+
+cnrdhcpv6PeriodRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Request messages
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 15.4." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 4 }
+
+cnrdhcpv6PeriodConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Confirm messages
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 15.5." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 5 }
+
+cnrdhcpv6PeriodRenews OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Renew messages
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 15.6." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 6 }
+
+cnrdhcpv6PeriodRebinds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Rebind messages
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 15.7." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 7 }
+
+cnrdhcpv6PeriodReleases OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Release messages
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 15.9." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 8 }
+
+cnrdhcpv6PeriodDeclines OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Decline messages
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 15.8." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 9 }
+
+cnrdhcpv6PeriodInfoRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Information-Request
+        messages received during reporting period."
+    REFERENCE       "RFC3315, Section 15.12." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 10 }
+
+cnrdhcpv6PeriodInvalidPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unparseable DHCPv6 packets
+        received during reporting period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 11 }
+
+cnrdhcpv6PeriodPacketsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets sent during
+        reporting period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 12 }
+
+cnrdhcpv6PeriodPacketsSentRelay OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Relay-Repl
+        messages sent during reporting period."
+    REFERENCE       "RFC3315, Section 15.14." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 13 }
+
+cnrdhcpv6PeriodAdvertises OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Advertise messages
+        sent during reporting period."
+    REFERENCE       "RFC3315, Section 15.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 14 }
+
+cnrdhcpv6PeriodReplies OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Reply messages
+        sent during reporting period."
+    REFERENCE       "RFC3315, Section 15.10." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 15 }
+
+cnrdhcpv6PeriodReconfigures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 Reconfigure
+        messages sent during reporting period."
+    REFERENCE       "RFC3315, Section 15.11." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 16 }
+
+cnrdhcpv6PeriodAuthFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets dropped
+        due to authentication failures during reporting period."
+    REFERENCE       "RFC3315, Section 21.4.2." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 17 }
+
+cnrdhcpv6PeriodDiscards OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets discarded
+        due to RFC3315 validation failures during reporting period."
+    REFERENCE       "RFC3315, Section 5.3, Section 21.4.2." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 18 }
+
+cnrdhcpv6PeriodDuplicates OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 duplicate packets
+        dropped during reporting period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 19 }
+
+cnrdhcpv6PeriodInvalidClients OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets dropped
+        from invalid clients during reporting period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 20 }
+
+cnrdhcpv6PeriodUnknownLinks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets dropped
+        from unknown links during reporting period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 21 }
+
+cnrdhcpv6PeriodDroppedOthers OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets dropped
+        during processing for reasons other than those captured by 
+        cnrdhcpv6PeriodAuthFails, cnrdhcpv6PeriodDiscards, 
+        cnrdhcpv6PeriodDuplicates, cnrdhcpv6PeriodInvalidClients and 
+        cnrdhcpv6PeriodUnknownLinks during reporting period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 22 }
+
+cnrdhcpv6PeriodDroppedConfig OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets dropped
+        due to server or client configuration during reporting
+        period."
+    REFERENCE       "RFC3315, Section 5.3." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 23 }
+
+cnrdhcpv6PeriodLeaseQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of LeaseQuery messages
+        received during reporting period."
+    REFERENCE       "RFC5007, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 24 }
+
+cnrdhcpv6PeriodLeaseQueryReplies OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of LeaseQuery messages sent
+        during reporting period."
+    REFERENCE       "RFC5007, Section 4.1." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 25 }
+
+cnrdhcpv6PeriodStartTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sysUpTime value when the reporting
+        period starts." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 26 }
+
+cnrdhcpv6PeriodEndTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sysUpTime value when the reporting
+        period ends." 
+    ::= { ciscoNetRegDhcpv6PeriodCounters 27 }
+
+cnrdhcpv6PeriodExtensionErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets dropped
+        due to extension processing failure during the reporting
+        period."
+    ::= { ciscoNetRegDhcpv6PeriodCounters 28 }
+
+cnrdhcpv6PeriodExtensionDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DHCPv6 packets dropped
+        that an extension requested during the reporting period."
+    ::= { ciscoNetRegDhcpv6PeriodCounters 29 }
+
+-- ciscoNetRegDhcpv6FailoverCounters
+
+cnrdhcpv6FOStateRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover STATE messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 1 }
+
+cnrdhcpv6FOBindingUpdsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover BNDUPD6 packets received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 2 }
+
+cnrdhcpv6FOBindingAcksRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover BNDUPD6 messages, where
+        no updates were negatively acknowledged, received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 3 }
+
+cnrdhcpv6FOBindingNaksRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover BNDUPD6 messages, where
+        one or more updates were negatively acknowledged, received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 4 }
+
+cnrdhcpv6FOConnectRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover CONNECT messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 5 }
+
+cnrdhcpv6FOConnectAckRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover CONNECTACK messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 6 }
+
+cnrdhcpv6FOContactRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover CONTACT messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 7 }
+
+cnrdhcpv6FODisconnectRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover DISCONNECT messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 8 }
+
+cnrdhcpv6FOUpdateReqRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover UPDREQ6/UPDREQALL6 messages
+        received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 9 }
+
+cnrdhcpv6FOUpdateDoneRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover UPDDONE6 messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 10 }
+
+cnrdhcpv6FOPoolRequestsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover POOLREQ6 messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 11 }
+
+cnrdhcpv6FOPoolResponseRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover POOLRESP6 messages received." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 12 }
+
+cnrdhcpv6FOStateSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover STATE messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 13 }
+
+cnrdhcpv6FOBindingUpdsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover BNDUPD6 messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 14 }
+
+cnrdhcpv6FOBindingAcksSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover BNDUPD6 messages, where
+        no updates were negatively acknowledged, sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 15 }
+
+cnrdhcpv6FOBindingNaksSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover BNDUPD6 messages, where
+        one or more updates were negatively acknowledged, sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 16 }
+
+cnrdhcpv6FOConnectSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover CONNECT messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 17 }
+
+cnrdhcpv6FOConnectAckSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover CONNECTACK messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 18 }
+
+cnrdhcpv6FOContactSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover CONTACT messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 19 }
+
+cnrdhcpv6FODisconnectSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover DISCONNECT messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 20 }
+
+cnrdhcpv6FOUpdateReqSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover UPDREQ6/UPDREQALL6 messages
+        sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 21 }
+
+cnrdhcpv6FOUpdateDoneSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover UPDDONE6 messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 22 }
+
+cnrdhcpv6FOPoolRequestSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover POOLREQ6 messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 23 }
+
+cnrdhcpv6FOPoolResponsesSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover POOLRESP6 messages sent." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 24 }
+
+cnrdhcpv6FOInvalidMsgsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover messages received that
+        contained an unknown request or could not be parsed." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 25 }
+
+cnrdhcpv6FODiscardedMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover messages received that
+        were discarded because they were determined to be 
+        related to an earlier failover connection." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 26 }
+
+cnrdhcpv6FOSuccessConn OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover connections successfully
+        opened with the partner (CONNECT/CONNECTACK exchanged)." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 27 }
+
+cnrdhcpv6FOFailedConn OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover connections that failed
+        to successfully connected." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 28 }
+
+cnrdhcpv6FOInvalidConn OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover connections that were
+        not from our parnter." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 29 }
+
+cnrdhcpv6FOSelfTermConn OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover connections that were
+        terminated by this server." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 30 }
+
+cnrdhcpv6FOPeerTermConn OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failover connections that were
+        terminated by the partner server." 
+    ::= { ciscoNetRegDhcpv6FailoverCounters 31 }
+
+-- ciscoNetRegDhcpv6FailoverPeriodCounters
+--   
+-- All objects under ciscoNetRegDhcpv6FailoverPeriodCounters provide
+-- count of occurence from cnrdhcpv6FOPeriodStartTime to
+-- cnrdhcpv6FOPeriodEndTime. The difference between
+-- cnrdhcpv6FOPeriodStartTime and cnrdhcpv6FOPeriodEndTime is the
+-- length of the period. This value can be configured using the CNR
+-- CLI or WebUI and defaults to 5 minutes.
+
+cnrdhcpv6FOPeriodStateRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover STATE messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 1 }
+
+cnrdhcpv6FOPeriodBindingUpdsRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover BNDUPD6 packets received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 2 }
+
+cnrdhcpv6FOPeriodBindingAcksRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover BNDUPD6 messages, where no updates
+        were negatively acknowledged, received during the reporting
+        interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 3 }
+
+cnrdhcpv6FOPeriodBindingNaksRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover BNDUPD6 messages, where one or more
+        updates were negatively acknowledged, received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 4 }
+
+cnrdhcpv6FOPeriodConnectRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover CONNECT messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 5 }
+
+cnrdhcpv6FOPeriodConnectAckRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover CONNECTACK messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 6 }
+
+cnrdhcpv6FOPeriodContactRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover CONTACT messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 7 }
+
+cnrdhcpv6FOPeriodDisconnectRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover DISCONNECT messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 8 }
+
+cnrdhcpv6FOPeriodUpdateReqRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover UPDREQ6/UPDREQALL6 messages received
+        during the reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 9 }
+
+cnrdhcpv6FOPeriodUpdateDoneRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover UPDDONE6 messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 10 }
+
+cnrdhcpv6FOPeriodPoolRequestsRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover POOLREQ6 messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 11 }
+
+cnrdhcpv6FOPeriodPoolResponseRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover POOLRESP6 messages received during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 12 }
+
+cnrdhcpv6FOPeriodStateSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover STATE messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 13 }
+
+cnrdhcpv6FOPeriodBindingUpdsSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover BNDUPD6 messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 14 }
+
+cnrdhcpv6FOPeriodBindingAcksSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover BNDUPD6 messages, where no updates
+        were negatively acknowledged, sent during the reporting
+        interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 15 }
+
+cnrdhcpv6FOPeriodBindingNaksSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover BNDUPD6 messages, where one or more
+        updates were negatively acknowledged, sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 16 }
+
+cnrdhcpv6FOPeriodConnectSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover CONNECT messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 17 }
+
+cnrdhcpv6FOPeriodConnectAckSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover CONNECTACK messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 18 }
+
+cnrdhcpv6FOPeriodContactSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover CONTACT messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 19 }
+
+cnrdhcpv6FOPeriodDisconnectSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover DISCONNECT messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 20 }
+
+cnrdhcpv6FOPeriodUpdateReqSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover UPDREQ6/UPDREQALL6 messages sent
+        during the reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 21 }
+
+cnrdhcpv6FOPeriodUpdateDoneSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover UPDDONE6 messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 22 }
+
+cnrdhcpv6FOPeriodPoolRequestSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover POOLREQ6 messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 23 }
+
+cnrdhcpv6FOPeriodPoolResponsesSent OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover POOLRESP6 messages sent during the
+        reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 24 }
+
+cnrdhcpv6FOPeriodInvalidMsgsRcvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover messages received that contained an
+        unknown request or could not be parsed during the reporting
+        interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 25 }
+
+cnrdhcpv6FOPeriodDiscardedMsgs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover messages received that were discarded
+        because they were determined to be related to an earlier 
+        failover connection during the reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 26 }
+
+cnrdhcpv6FOPeriodSuccessConn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover connections successfully opened with
+        the partner (CONNECT/CONNECTACK exchanged) during the reporting
+        interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 27 }
+
+cnrdhcpv6FOPeriodFailedConn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover connections that failed to successfully
+        connected during the reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 28 }
+
+cnrdhcpv6FOPeriodInvalidConn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover connections that were not from our
+        parnter during the reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 29 }
+
+cnrdhcpv6FOPeriodSelfTermConn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover connections that were terminated
+        by this server during the reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 30 }
+
+cnrdhcpv6FOPeriodPeerTermConn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failover connections that were terminated
+        by the partner server during the reporting interval." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 31 }
+
+cnrdhcpv6FOPeriodStartTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sysUpTime value when the reporting
+        period starts." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 32 }
+
+cnrdhcpv6FOPeriodEndTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sysUpTime value when the reporting
+        period ends." 
+    ::= { ciscoNetRegDhcpv6FailoverPeriodCounters 33 }
+-- Conformance
+
+ciscoNetRegDhcpv6MIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIBConform 1 }
+
+ciscoNetRegDhcpv6MIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoNetRegDhcpv6MIBConform 2 }
+
+
+-- Compliance
+
+ciscoNetRegDhcpv6MIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        CISCO-NETREG-DHCPV6-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoNetRegDhcpv6TotalCountersGroup }
+
+    GROUP           ciscoNetRegDhcpv6NotificationsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+        notifications."
+
+    GROUP           ciscoNetRegDhcpv6NotificationObjectsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+        notifications."
+
+    GROUP           ciscoNetRegDhcpv6PeriodCountersGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+        collection of period counters."
+
+    GROUP           ciscoNetRegDhcpv6FailoverCountersGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+        collection of failover counters."
+
+    GROUP           ciscoNetRegDhcpv6FailoverPeriodCountersGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which support
+        collection of failover period counters."
+    ::= { ciscoNetRegDhcpv6MIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoNetRegDhcpv6TotalCountersGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnrdhcpv6TotalPacketsRcvd,
+                        cnrdhcpv6TotalPacketsRcvdRelay,
+                        cnrdhcpv6TotalSolicits,
+                        cnrdhcpv6TotalRequests,
+                        cnrdhcpv6TotalConfirms,
+                        cnrdhcpv6TotalRenews,
+                        cnrdhcpv6TotalRebinds,
+                        cnrdhcpv6TotalReleases,
+                        cnrdhcpv6TotalDeclines,
+                        cnrdhcpv6TotalInfoRequests,
+                        cnrdhcpv6TotalInvalidPackets,
+                        cnrdhcpv6TotalPacketsSent,
+                        cnrdhcpv6TotalPacketsSentRelay,
+                        cnrdhcpv6TotalAdvertises,
+                        cnrdhcpv6TotalReplies,
+                        cnrdhcpv6TotalReconfigures,
+                        cnrdhcpv6TotalAuthFails,
+                        cnrdhcpv6TotalDiscards,
+                        cnrdhcpv6TotalDuplicates,
+                        cnrdhcpv6TotalInvalidClients,
+                        cnrdhcpv6TotalUnknownLinks,
+                        cnrdhcpv6TotalDroppedConfig,
+                        cnrdhcpv6TotalDroppedOthers,
+                        cnrdhcpv6TotalActiveLeases,
+                        cnrdhcpv6TotalAllocatedLeases,
+                        cnrdhcpv6TotalReservedLeases,
+                        cnrdhcpv6TotalReservedActiveLeases,
+                        cnrdhcpv6TotalLeaseQueries,
+                        cnrdhcpv6TotalLeaseQueryReplies,
+                        cnrdhcpv6TotalExtensionErrors,
+                        cnrdhcpv6TotalExtensionDrops
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing counter values for DHCP V6
+        server."
+    ::= { ciscoNetRegDhcpv6MIBGroups 1 }
+
+ciscoNetRegDhcpv6NotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoNetRegDhcpv6AddressShortageStart,
+                        ciscoNetRegDhcpv6AddressShortageStop,
+                        ciscoNetRegDhcpv6DuplicateAddress,
+                        ciscoNetRegDhcpv6DuplicatePrefix,
+                        ciscoNetRegDhcpv6AddressConflict,
+                        ciscoNetRegDhcpv6PrefixConflict
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing support for DHCP V6
+        notifications."
+    ::= { ciscoNetRegDhcpv6MIBGroups 2 }
+
+ciscoNetRegDhcpv6NotificationObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnrdhcpv6DupIpv6Address,
+                        cnrdhcpv6ClientId,
+                        cnrdhcpv6ClientLookupKey,
+                        cnrdhcpv6DupIpv6AddressDetectedBy,
+                        cnrdhcpv6LinkName,
+                        cnrdhcpv6FreeAddressValue,
+                        cnrdhcpv6Threshold,
+                        cnrdhcpv6PrefixAddress,
+                        cnrdhcpv6PrefixLength,
+                        cnrdhcpv6ThresholdType,
+                        cnrdhcpv6TypeDesc,
+                        cnrdhcpv6DupPrefix,
+                        cnrdhcpv6DupPrefixDetectedBy,
+                        cnrdhcpv6DupPrefixLength,
+                        cnrdhcpv6PartnerServerAddr,
+                        cnrdhcpv6PartnerServerIpv6Addr,
+                        cnrdhcpv6ContestedIpv6Address,
+                        cnrdhcpv6ContestedIpv6Prefix,
+                        cnrdhcpv6ContestedIpv6PrefixLength,
+                        cnrdhcpv6FailoverPairName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects used by DHCP V6 notifications."
+    ::= { ciscoNetRegDhcpv6MIBGroups 3 }
+
+ciscoNetRegDhcpv6PeriodCountersGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnrdhcpv6PeriodPacketsRcvd,
+                        cnrdhcpv6PeriodPacketsRcvdRelay,
+                        cnrdhcpv6PeriodSolicits,
+                        cnrdhcpv6PeriodRequests,
+                        cnrdhcpv6PeriodConfirms,
+                        cnrdhcpv6PeriodRenews,
+                        cnrdhcpv6PeriodRebinds,
+                        cnrdhcpv6PeriodReleases,
+                        cnrdhcpv6PeriodDeclines,
+                        cnrdhcpv6PeriodInfoRequests,
+                        cnrdhcpv6PeriodInvalidPackets,
+                        cnrdhcpv6PeriodPacketsSent,
+                        cnrdhcpv6PeriodPacketsSentRelay,
+                        cnrdhcpv6PeriodAdvertises,
+                        cnrdhcpv6PeriodReplies,
+                        cnrdhcpv6PeriodReconfigures,
+                        cnrdhcpv6PeriodAuthFails,
+                        cnrdhcpv6PeriodDiscards,
+                        cnrdhcpv6PeriodDuplicates,
+                        cnrdhcpv6PeriodInvalidClients,
+                        cnrdhcpv6PeriodUnknownLinks,
+                        cnrdhcpv6PeriodDroppedConfig,
+                        cnrdhcpv6PeriodDroppedOthers,
+                        cnrdhcpv6PeriodLeaseQueries,
+                        cnrdhcpv6PeriodLeaseQueryReplies,
+                        cnrdhcpv6PeriodStartTime,
+                        cnrdhcpv6PeriodEndTime,
+                        cnrdhcpv6PeriodExtensionErrors,
+                        cnrdhcpv6PeriodExtensionDrops
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing counter values for
+        DHCP V6 server during reporting period."
+    ::= { ciscoNetRegDhcpv6MIBGroups 4 }
+
+ciscoNetRegDhcpv6FailoverCountersGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnrdhcpv6FOStateRcvd,
+                        cnrdhcpv6FOBindingUpdsRcvd,
+                        cnrdhcpv6FOBindingAcksRcvd,
+                        cnrdhcpv6FOBindingNaksRcvd,
+                        cnrdhcpv6FOConnectRcvd,
+                        cnrdhcpv6FOConnectAckRcvd,
+                        cnrdhcpv6FOContactRcvd,
+                        cnrdhcpv6FODisconnectRcvd,
+                        cnrdhcpv6FOUpdateReqRcvd,
+                        cnrdhcpv6FOUpdateDoneRcvd,
+                        cnrdhcpv6FOPoolRequestsRcvd,
+                        cnrdhcpv6FOPoolResponseRcvd,
+                        cnrdhcpv6FOStateSent,
+                        cnrdhcpv6FOBindingUpdsSent,
+                        cnrdhcpv6FOBindingAcksSent,
+                        cnrdhcpv6FOBindingNaksSent,
+                        cnrdhcpv6FOConnectSent,
+                        cnrdhcpv6FOConnectAckSent,
+                        cnrdhcpv6FOContactSent,
+                        cnrdhcpv6FODisconnectSent,
+                        cnrdhcpv6FOUpdateReqSent,
+                        cnrdhcpv6FOUpdateDoneSent,
+                        cnrdhcpv6FOPoolRequestSent,
+                        cnrdhcpv6FOPoolResponsesSent,
+                        cnrdhcpv6FOInvalidMsgsRcvd,
+                        cnrdhcpv6FODiscardedMsgs,
+                        cnrdhcpv6FOSuccessConn,
+                        cnrdhcpv6FOFailedConn,
+                        cnrdhcpv6FOInvalidConn,
+                        cnrdhcpv6FOSelfTermConn,
+                        cnrdhcpv6FOPeerTermConn
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing failover counter values for
+        a DHCPv6 server."
+    ::= { ciscoNetRegDhcpv6MIBGroups 5 }
+
+ciscoNetRegDhcpv6FailoverPeriodCountersGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnrdhcpv6FOPeriodStateRcvd,
+                        cnrdhcpv6FOPeriodBindingUpdsRcvd,
+                        cnrdhcpv6FOPeriodBindingAcksRcvd,
+                        cnrdhcpv6FOPeriodBindingNaksRcvd,
+                        cnrdhcpv6FOPeriodConnectRcvd,
+                        cnrdhcpv6FOPeriodConnectAckRcvd,
+                        cnrdhcpv6FOPeriodContactRcvd,
+                        cnrdhcpv6FOPeriodDisconnectRcvd,
+                        cnrdhcpv6FOPeriodUpdateReqRcvd,
+                        cnrdhcpv6FOPeriodUpdateDoneRcvd,
+                        cnrdhcpv6FOPeriodPoolRequestsRcvd,
+                        cnrdhcpv6FOPeriodPoolResponseRcvd,
+                        cnrdhcpv6FOPeriodStateSent,
+                        cnrdhcpv6FOPeriodBindingUpdsSent,
+                        cnrdhcpv6FOPeriodBindingAcksSent,
+                        cnrdhcpv6FOPeriodBindingNaksSent,
+                        cnrdhcpv6FOPeriodConnectSent,
+                        cnrdhcpv6FOPeriodConnectAckSent,
+                        cnrdhcpv6FOPeriodContactSent,
+                        cnrdhcpv6FOPeriodDisconnectSent,
+                        cnrdhcpv6FOPeriodUpdateReqSent,
+                        cnrdhcpv6FOPeriodUpdateDoneSent,
+                        cnrdhcpv6FOPeriodPoolRequestSent,
+                        cnrdhcpv6FOPeriodPoolResponsesSent,
+                        cnrdhcpv6FOPeriodInvalidMsgsRcvd,
+                        cnrdhcpv6FOPeriodDiscardedMsgs,
+                        cnrdhcpv6FOPeriodSuccessConn,
+                        cnrdhcpv6FOPeriodFailedConn,
+                        cnrdhcpv6FOPeriodInvalidConn,
+                        cnrdhcpv6FOPeriodSelfTermConn,
+                        cnrdhcpv6FOPeriodPeerTermConn,
+                        cnrdhcpv6FOPeriodStartTime,
+                        cnrdhcpv6FOPeriodEndTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing failover counter values for
+        DHCP V6 server during reporting period."
+    ::= { ciscoNetRegDhcpv6MIBGroups 6 }
+
+END
+
+
+-- %DNP%  MLC -Submitted MLC
+

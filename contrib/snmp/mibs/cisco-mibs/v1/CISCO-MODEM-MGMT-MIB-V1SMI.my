@@ -1,0 +1,1714 @@
+-- MIB file created 21-Jan-2006 19:20:34, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MODEM-MGMT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MODEM-MGMT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, DisplayString
+            FROM SNMPv2-TC-v1
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoModemMgmtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 47 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200512060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--    Postal: 170 W Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    
+--       Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB module provides modem call related data for 
+--     tracking the progress and status of a call.
+--  RevDate
+--    200512060000Z
+--  RevDescr
+--    Imported Unsigned32 from SNMPv2-SMI instead of CISCO-TC
+--  RevDate
+--    200112011200Z
+--  RevDescr
+--    Added one more comment for cmTXAnalogSignalLevel
+--  RevDate
+--    200110011200Z
+--  RevDescr
+--    General cleanup
+--  RevDate
+--    200004010000Z
+--  RevDescr
+--    Added cmStateNotification and cmStateNotifyEnable
+--  RevDate
+--    9812160000Z
+--  RevDescr
+--    Added cmTotalCallDuration
+--  RevDate
+--    9806180000Z
+--  RevDescr
+--    Added the new enum values for cmDisconnectReason
+--  RevDate
+--    9712220000Z
+--  RevDescr
+--    Changed the modulation from v27 to v29.
+--  RevDate
+--    9710130000Z
+--  RevDescr
+--    Added new compliance statement for as5300 and c3600.
+--  RevDate
+--    9707180000Z
+--  RevDescr
+--    Added new MIB variables cmInitialTxLineConnections and  
+--     cmInitialRxLineConnections
+--  RevDate
+--    9803090000Z
+--  RevDescr
+--    Added the new enum values v90 and v27ter for  
+--     cmModulationSchemeUsed.
+--  RevDate
+--    9712160000Z
+--  RevDescr
+--    Changed the modulation from v27 to v29.
+--  RevDate
+--    9705010000Z
+--  RevDescr
+--    Added objects: 
+--            cmSystemModemsInUse 
+--            cmSystemModemsAvailable 
+--            cmSystemModemsUnavailable 
+--            cmSystemModemsOffline 
+--            cmSystemModemsDead
+--  RevDate
+--    9704290000Z
+--  RevDescr
+--    Changed the modulation from v29 to v27.
+--  RevDate
+--    9706110000Z
+--  RevDescr
+--    DEFVAL update for cmSystemWatchdogTime,cmSystemStatusPollTime.
+--  RevDate
+--    9703210000Z
+--  RevDescr
+--    New enum values added for cmModulationSchemeUsed.
+--  RevDate
+--    9703170000Z
+--  RevDescr
+--    New enum values added for cmDisconnectReason.
+--  RevDate
+--    9601110000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoModemMgmtMIBObjects OBJECT IDENTIFIER ::= { ciscoModemMgmtMIB 1 }
+cmSystemInfo    OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBObjects 1 }
+cmGroupInfo     OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBObjects 2 }
+cmLineInfo      OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBObjects 3 }
+cmNotificationConfig OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBObjects 4 }
+cmMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoModemMgmtMIB 2 }
+cmMIBNotifications OBJECT IDENTIFIER ::= { cmMIBNotificationPrefix 0 }
+ciscoModemMgmtMIBConformance OBJECT IDENTIFIER ::= { ciscoModemMgmtMIB 3 }
+ciscoModemMgmtMIBCompliances OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBConformance 1 }
+ciscoModemMgmtMIBGroups OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBConformance 2 }
+
+cmSystemInstalledModem OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    modems
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual number of modems that are currently installed  
+         within this system."
+    ::= { cmSystemInfo 1 }
+
+cmSystemConfiguredGroup OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual number of modem groups that are currently  
+         configured within this system.  Maximum value for this 
+         object is cmSystemInstalledModem."
+    ::= { cmSystemInfo 2 }
+
+cmSystemWatchdogTime OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A passive software watchdog timer value will be used to  
+         recover a modem which enters into an unexpected state and  
+         hangs. When this watch dog timer times out, the modem  
+         associated Call Processing state will be set back to IDLE,  
+         all related TDM paths will be restored to default  
+         configurations, and all of call processing related actions  
+         will stop for the modem."
+    DEFVAL { 6 }
+    ::= { cmSystemInfo 3 }
+
+cmSystemStatusPollTime OBJECT-TYPE
+    SYNTAX INTEGER(2..120)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ideal time interval between modem status polling via the 
+         out of band management port."
+    DEFVAL { 12 }
+    ::= { cmSystemInfo 4 }
+
+cmSystemMaxRetries OBJECT-TYPE
+    SYNTAX INTEGER(0..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A reply event is expected to be received for every message  
+         sent to the modem through the out of band management port.  
+         If an expected reply event is not received, the message will 
+         be sent to the modem again. This object specifies the maximum 
+         number of retries that should be executed."
+    DEFVAL { 3 }
+    ::= { cmSystemInfo 5 }
+
+cmSystemModemsInUse OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of modems in the system that are in the 
+         following states: connected, offHook, loopback, 
+         or downloadFirmware."
+    ::= { cmSystemInfo 6 }
+
+cmSystemModemsAvailable OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of modems in the system that are onHook. 
+         That is, they are ready to accept a call."
+    ::= { cmSystemInfo 7 }
+
+cmSystemModemsUnavailable OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of modems in the system that cannot 
+         accept calls. 
+         They are in a state other than onHook."
+    ::= { cmSystemInfo 8 }
+
+cmSystemModemsOffline OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of modems in the system, which have 
+         been held administratively offline"
+    ::= { cmSystemInfo 9 }
+
+cmSystemModemsDead OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of modems in the system with the state 
+         bad or downloadFirmwareFailed."
+    ::= { cmSystemInfo 10 }
+
+cmGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of descriptive and status information about the groups 
+         of modems."
+    ::= { cmGroupInfo 1 }
+
+cmGroupEntry OBJECT-TYPE
+    SYNTAX CmGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing information about a single 
+         group of modems."
+    INDEX { cmGroupIndex }
+    ::= { cmGroupTable 1 }
+
+CmGroupEntry ::= SEQUENCE {
+    cmGroupIndex Gauge,
+    cmGroupTotalDevices INTEGER
+    }
+
+cmGroupIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the group containing the modems for  
+         which this entry contains information."
+    ::= { cmGroupEntry 1 }
+
+cmGroupTotalDevices OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of modem devices which are configured in 
+         the group."
+    ::= { cmGroupEntry 2 }
+
+cmGroupMemberTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmGroupMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of information about the modem members in modem groups."
+    ::= { cmGroupInfo 2 }
+
+cmGroupMemberEntry OBJECT-TYPE
+    SYNTAX CmGroupMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing information about modem 
+         members in a group.  The modem groups are currently created  
+         when an associated Async interface groups are configured 
+         via CLI command 'interface group-async' and not via SNMP."
+    INDEX { cmGroupIndex, cmSlotIndex, cmPortIndex }
+    ::= { cmGroupMemberTable 1 }
+
+CmGroupMemberEntry ::= SEQUENCE {
+    cmSlotIndex Gauge,
+    cmPortIndex Gauge
+    }
+
+cmSlotIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The modem feature card slot number in the group."
+    ::= { cmGroupMemberEntry 1 }
+
+cmPortIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem port number of a modem feature card in the group."
+    ::= { cmGroupMemberEntry 2 }
+
+cmLineStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmLineStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of objects that describe the status of the modem."
+    ::= { cmLineInfo 1 }
+
+cmLineStatusEntry OBJECT-TYPE
+    SYNTAX CmLineStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing status information about a  
+         single modem."
+    INDEX { cmSlotIndex, cmPortIndex }
+    ::= { cmLineStatusTable 1 }
+
+CmLineStatusEntry ::= SEQUENCE {
+    cmInterface InterfaceIndex,
+    cmGroup INTEGER,
+    cmManufacturerID DisplayString,
+    cmProductDetails DisplayString,
+    cmManageable TruthValue,
+    cmState INTEGER,
+    cmCallDirection INTEGER,
+    cmDisconnectReason INTEGER,
+    cmCallDuration TimeTicks,
+    cmCallPhoneNumber DisplayString,
+    cmCallerID DisplayString,
+    cmModulationSchemeUsed INTEGER,
+    cmProtocolUsed INTEGER,
+    cmTXRate Gauge,
+    cmRXRate Gauge,
+    cmTXAnalogSignalLevel INTEGER,
+    cmRXAnalogSignalLevel INTEGER
+    }
+
+cmInterface OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interface that this modem is connected."
+    ::= { cmLineStatusEntry 1 }
+
+cmGroup OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem group number that the modem may be in."
+    ::= { cmLineStatusEntry 2 }
+
+cmManufacturerID OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A textual description to identify the modem, including the  
+         manufacturer's name and type of modem."
+    ::= { cmLineStatusEntry 3 }
+
+cmProductDetails OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A textual description of the modem, including hardware revision 
+         number, firmware revision number, feature set and optionally,  
+         its serial number."
+    ::= { cmLineStatusEntry 4 }
+
+cmManageable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Manageable modem allows to be accessed through the out of 
+         band management port in which the modem statistic data can be  
+         retrieved, and the Direct Connect session can be used to  
+         provide the test and debugging ability. This object specifies  
+         whether this modem is a Manageable modem."
+    ::= { cmLineStatusEntry 5 }
+
+cmState OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        onHook(2),
+        offHook(3),
+        connected(4),
+        busiedOut(5),
+        disabled(6),
+        bad(7),
+        loopback(8),
+        downloadFirmware(9),
+        downloadFirmwareFailed(10)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the current state of modem.  The meaning of each  
+         state code is explained below: 
+        
+             unknown: the current state of the modem is unknown. 
+        
+             onHook: the condition similar to hanging up a telephone 
+             receiver.  The call cannot enter a connected state when 
+             the modem is onHook. 
+        
+             offHook: The condition similar to picking up a telephone  
+             receiver to dial or answer a call. 
+        
+             connected: The modem is in a state when it can transmit or 
+             receive data over the communications line. 
+        
+             busiedOut: The modem is busied out (i.e. taken out of 
+             service) and cannot make outgoing calls or receive incoming 
+             calls. 
+        
+             disabled: The modem is in a reset state and non-functional. 
+             This state can be set and clear via cmHoldReset. 
+        
+             bad: The modem is suspected or proven to be bad.  The 
+             operator can take the modem out of service and mark 
+             the modem as 'bad' via cmBad. 
+        
+             loopback: The modem is in a state where it is currently 
+             running back-to-back loopback testing. 
+        
+             downloadFirmware: The modem is in a state where it is  
+             currently downloading the firmware. 
+        
+             downloadFirmwareFailed: The modem is not operational because 
+             the downloading of firmware to it has failed."
+    ::= { cmLineStatusEntry 6 }
+
+cmCallDirection OBJECT-TYPE
+    SYNTAX INTEGER {
+        incoming(1),
+        outgoing(2),
+        none(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem can be used either as an incoming call or 
+         outgoing call. This object specifies the direction of 
+         the current or previous call."
+    ::= { cmLineStatusEntry 7 }
+
+cmDisconnectReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        lostCarrier(2),
+        noCarrier(3),
+        noDialTone(4),
+        busy(5),
+        modemWatchdogTimeout(6),
+        dtrDrop(7),
+        userHangup(8),
+        compressionProblem(9),
+        retrainFailure(10),
+        remoteLinkDisconnect(11),
+        abort(12),
+        inactivityTimeout(13),
+        dialStringError(14),
+        linkFailure(15),
+        modulationError(16),
+        dialTimeout(17),
+        remoteHangup(18),
+        mnp10ProtocolError(19),
+        lapmProtocolError(20),
+        faxClass2Error(21),
+        trainupFailure(22),
+        fallbackTerminate(23),
+        excessiveEC(24),
+        hostDrop(25),
+        terminate(26),
+        autoLogonError(27),
+        ccpNotSeen(28),
+        callbackFailed(29),
+        blacklist(30),
+        lapmTimeout(31),
+        reliableLinkTxTimeout(32),
+        dspAccessFailure(33),
+        cdOffTimeout(34),
+        codewordSizeMismatch(35),
+        dspDownloadFailure(36),
+        modemDrNone(37),
+        modemDrSoftwareReset(38),
+        modemDrEcTerminated(39),
+        modemDrBadMnp5Rxdata(40),
+        modemDrBadV42bisRxdata(41),
+        modemDrBadCopState(42),
+        modemDrAth(43),
+        modemDrAborted(44),
+        modemDrConnectTimeout(45),
+        modemDrResetDsp(46),
+        modemDrNoCarrier(47),
+        modemDrNoAbtDetected(48),
+        modemDrTrainupFailure(49),
+        modemDrRetrainLimit(50),
+        modemDrAbtEndFailure(51),
+        modemDrNoLr(52),
+        modemDrLrParam1(53),
+        modemDrLrIncompat(54),
+        modemDrRetransmitLimit(55),
+        modemDrInactivity(56),
+        modemDrProtocolError(57),
+        modemDrFallbackTerminate(58),
+        modemDrNoXid(59),
+        modemDrXidIncompat(60),
+        modemDrDisc(61),
+        modemDrDm(62),
+        modemDrBadNr(63),
+        modemDrSabmeOnline(64),
+        modemDrXidOnline(65),
+        modemDrLrOnline(66),
+        modemDrBadCmnd(67),
+        modemDrFrmrBadCmnd(68),
+        modemDrFrmrData(69),
+        modemDrFrmrLength(70),
+        modemDrFrmrBadNr(71),
+        modemDrLdNoLr(72),
+        modemDrLdLrParam1(73),
+        modemDrLdLrIncompat(74),
+        modemDrLdRetransLimit(75),
+        modemDrLdInactivity(76),
+        modemDrLdProtocol(77),
+        modemDrLdUser(78),
+        modemDrHostNonspecific(79),
+        modemDrHostBusy(80),
+        modemDrHostNoAnswer(81),
+        modemDrHostDtr(82),
+        modemDrHostAth(83),
+        modemDrHostNoDialtone(84),
+        modemDrHostNoCarrier(85),
+        modemDrHostAck(86),
+        modemDrMohClrd(87),
+        modemDrMohTimeout(88),
+        modemDrCotAck(89),
+        modemDrCotNak1(90),
+        modemDrCotNak2(91),
+        modemDrCotOff(92),
+        modemDrCotTimeout(93),
+        modemDrDcIllegalCodewordStepup(94),
+        modemDrDcIllegalTokenEmptyNode(95),
+        modemDrDcIllegalTokenTooLarge(96),
+        modemDrDcReservedCommand(97),
+        modemDrDcIllegalCharacterSizeStepup(98),
+        modemDrDcRxDictionaryFull(99),
+        modemDrDcRxHistoryFull(100),
+        modemDrDcRxStringSizeExceeded(101),
+        modemDrDcNegotiationError(102),
+        modemDrDcCompressionError(103)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the reason that the last connection or call attempt 
+         disconnected.  The meaning of each reason code is explained 
+         below: 
+        
+             unknown: the failure reason is unknown or there has been 
+             no previous call. 
+        
+             lostCarrier: the call was disconnected because the loss 
+             of carrier. 
+        
+             noCarrier: the dial out attempt has failed because the 
+             modem detects no carrier. 
+        
+             noDialTone: the dial out attempt has failed because the 
+             modem failed to detect a dial tone. 
+        
+             busy: the call attempt failed because the modem detected 
+             a busy signal. 
+        
+             modemWatchdogTimeout: the modem internal watchdog timer 
+             has expired. 
+        
+             dtrDrop: DTR has been turned off while the modem is to 
+             disconnect on DTR drop. 
+        
+             userHangup: normal disconnect where the user hangs up call. 
+        
+             compressionProblem: the call is disconnected due to a 
+             problem detected during compression in the modem. 
+        
+             retrainFailure: the modem did not successfully train and 
+             reach data mode on the previous connections. 
+        
+             remoteLinkDisconnect: the remote link disconnected the 
+             connection. 
+        
+             abort: the call was aborted. 
+        
+             inactivityTimeout: the modem automatically hangs up because 
+             data is not sent or received within the inactivity time out. 
+        
+             dialStringError: the dialed phone number is invalid. 
+        
+             linkFailure: the modem detects a link failure. 
+        
+             modulationError: the modem detects a modulation error. 
+        
+             dialTimeout: the modem times out while attempting to dial. 
+        
+             remoteHangup: the remote side hangs up the connection. 
+        
+             mnp10ProtocolError: MNP10 Protocol Error. 
+        
+             lapmProtocolError: LAPM Protocol Error. 
+        
+             faxClass2Error: Fax Class 2 Error. 
+        
+             trainupFailure: failure to trainup with a remote peer. 
+        
+             fallbackTerminate: User has EC fallback set to disconnect. 
+        
+             excessiveEC: Link loss due to excessive EC retransmissions. 
+             EC packet transmit limit exceeded. 
+        
+             hostDrop: Host initiated link drop. 
+        
+             terminate: Lost Carrier Microcom HDMS product relating to 
+             password security issues. 
+        
+             autoLogonError: An autologon sequence did not complete 
+             successfully. 
+        
+             ccpNotSeen: The Credit Card Prompt was not detected. 
+        
+             callbackFailed: Applies to leased line connection.  If after 
+             a switched line dialback due to a leased line connection 
+             failure, the switched line connection also fails and a 
+             connection can still not be made on the leased line, a 
+             disconnect occurs with this reason set. 
+        
+             blacklist: In coutries that support blacklisting, an attempt 
+             was made to go off hook with a null dial string (ATD). 
+        
+             lapmTimeout: Timed out waiting for a reply from remote. 
+        
+             reliableLinkTxTimeout: Have not received the 
+             link acknowledgement in the first 30 seconds of the 
+             connection. 
+        
+             dspAccessFailure: Timed out trying to access the 
+             DSP chip. 
+        
+             cdOffTimeout: Timed out waiting for carrier to return 
+             after a retrain or rate renegotiation. 
+        
+             codewordSizeMismatch: The codeword size are mismatched. 
+        
+             dspDownloadFailure: Error during the DSP code download. 
+             The time taken to recover and repeat the download 
+             would take too long to complete the handshake."
+    ::= { cmLineStatusEntry 8 }
+
+cmCallDuration OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the call duration of the current 
+         or previous call."
+    ::= { cmLineStatusEntry 9 }
+
+cmCallPhoneNumber OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The dialed outgoing telephone number of the current or 
+         previous call."
+    ::= { cmLineStatusEntry 10 }
+
+cmCallerID OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The incoming caller identification of the current or 
+         previous call if this entry is not in the connected state."
+    ::= { cmLineStatusEntry 11 }
+
+cmModulationSchemeUsed OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        bell103a(2),
+        bell212a(3),
+        v21(4),
+        v22(5),
+        v22bis(6),
+        v32(7),
+        v32bis(8),
+        vfc(9),
+        v34(10),
+        v17(11),
+        v29(12),
+        v33(13),
+        k56flex(14),
+        v23(15),
+        v32terbo(16),
+        v34plus(17),
+        v90(18),
+        v27ter(19),
+        v110(20),
+        piafs(21)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem modulation scheme used in the current or previous  
+         call.  This object is valid only for modems which have  
+         cmManageable to be true."
+    ::= { cmLineStatusEntry 12 }
+
+cmProtocolUsed OBJECT-TYPE
+    SYNTAX INTEGER {
+        normal(1),
+        direct(2),
+        reliableMNP(3),
+        reliableLAPM(4),
+        syncMode(5),
+        asyncMode(6),
+        ara10(7),
+        ara20(8),
+        unknown(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem protocol used in the current or previous call. 
+         This object is valid only for modems which have cmManageable 
+         to be true."
+    ::= { cmLineStatusEntry 13 }
+
+cmTXRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits/second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The speed of modem transmit rate of the current or previous  
+         call in bits per second.  This object is valid only for modems 
+         which have cmManageable to be true."
+    ::= { cmLineStatusEntry 14 }
+
+cmRXRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits/second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The speed of modem receive rate of the current or previous  
+         call in bits per second.  This object is valid only for modems 
+         which have cmManageable to be true."
+    ::= { cmLineStatusEntry 15 }
+
+cmTXAnalogSignalLevel OBJECT-TYPE
+    SYNTAX INTEGER(-43..-9|0)
+--  Units
+--    dBm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem transmit analog signal level in the current or  
+         previous call.  The unit used is in dBm.  This object  
+         is valid for modems that have cmManageable set to true(1) 
+         otherwise 0 will be returned."
+    ::= { cmLineStatusEntry 16 }
+
+cmRXAnalogSignalLevel OBJECT-TYPE
+    SYNTAX INTEGER(-128..-1|0)
+--  Units
+--    dBm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem transmit analog signal level in the current or  
+         previous call.  The unit used is in dBm.  This object  
+         is valid for modems that have cmManageable set to true(1) 
+         otherwise 0 will be returned."
+    ::= { cmLineStatusEntry 17 }
+
+cmLineConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmLineConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of objects that describe some of the configuration 
+         info of the modem."
+    ::= { cmLineInfo 2 }
+
+cmLineConfigEntry OBJECT-TYPE
+    SYNTAX CmLineConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing configuration information  
+         about a single modem."
+    INDEX { cmSlotIndex, cmPortIndex }
+-- Augments cmLineStatusEntry
+    ::= { cmLineConfigTable 1 }
+
+CmLineConfigEntry ::= SEQUENCE {
+    cmATModePermit TruthValue,
+    cmStatusPolling TruthValue,
+    cmBusyOutRequest TruthValue,
+    cmShutdown TruthValue,
+    cmHoldReset TruthValue,
+    cmBad TruthValue
+    }
+
+cmATModePermit OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Direct Connect session is used for test and debugging purpose  
+         by using the modem AT commands through the out of band  
+         management port when cmManageable is true. 
+        
+         This object specifies whether the Direct Connect session is  
+         permitted to be used at this modem. 
+        
+         If cmManageable is true(1), Direct Connect session via the out  
+         of band port is allowed and false(2) indicates that it isn't  
+         allowed for the modem."
+    DEFVAL { true }
+    ::= { cmLineConfigEntry 1 }
+
+cmStatusPolling OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Modem status and events can be polled through the out of band  
+         management port when the cmManageable is true. 
+        
+         This object specifies whether this status polling feature is  
+         enabled at this modem. 
+        
+         If cmManageable is true(1), status polling will occur for the  
+         modem and false(2) indicates that no status polling will occur."
+    DEFVAL { true }
+    ::= { cmLineConfigEntry 2 }
+
+cmBusyOutRequest OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to put modem out of service, i.e. modem 
+         cannot make calls or answer calls. If the modem to 
+         be busyout is handling a call, the busyout action will 
+         be taken after the current call is disconnected. After 
+         modem is busyout, the following commands can be applied 
+         to those modems - reset, bad modem, download modem firmware,  
+         etc. This is called nice or graceful busyout. 
+        
+         The value of true(1) indicates the busyOut request has been 
+         issued to the modem, but the busyout could be pending. The 
+         management entity needs to query the cmState to see 
+         if the modem is successfully busied out. The value of false(2) 
+         indicates the modem is not given the busyOut command."
+    DEFVAL { false }
+    ::= { cmLineConfigEntry 3 }
+
+cmShutdown OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to put modem out of service, i.e. modem 
+         cannot make calls or answer calls. This is a hard busyout  
+         command to bring the modem out of service immediately without  
+         waiting for the call to be ended normally.  After modem is  
+         shutdown, the following commands can be applied to those  
+         modems - reset, bad modem, download modem firmware, etc. 
+        
+         The value of true(1) indicates the hard busyout has been 
+         issued to the modem.  The value of false(2) indicates the  
+         modem has not been hard busyout."
+    DEFVAL { false }
+    ::= { cmLineConfigEntry 4 }
+
+cmHoldReset OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A command hold-reset will put the state of modem into reset mode 
+         until an inverse command to bring modem out of RESET mode. 
+         During the period of reset mode, this modem can not be used 
+         and is non-functional. 
+        
+         This object is only valid when cmState is onHook, busiedOut, or 
+         disabled.  The value of true(1) attempts to put the modem in  
+         reset mode, and the value of false(2) takes the modem out of  
+         reset. 
+          
+         This object is not applicable for Mica modems."
+    DEFVAL { false }
+    ::= { cmLineConfigEntry 5 }
+
+cmBad OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object can hold modem out of service and marks the modem  
+         as suspected or proven to be bad. During the router start-up  
+         initialization sequence, modem back-to-back tests will test  
+         modems and mark those modems failing tests as bad modems.  The 
+         management entity also can use this command to lock out the  
+         suspicious modem or unlock the modem to do further debugging  
+         or test. This command will be used accompanied with cmholdReset  
+         command to put modem out of service.  This command doesn't do  
+         the reset. For a normally good modem, it can start handling  
+         calls after it exits from modem reset mode. For a bad modem, it  
+         cannot start handling calls after it exits from modem reset  
+         mode. The manager needs to take modem out of bad modem mode  
+         in order to handle calls. 
+        
+         This object is only valid when cmState is onHook or 
+         busiedOut. The value of true(1) indicates the modem is  
+         suspected to be bad and its state is set to bad.  The  
+         value of false(2) indicates the modem has not been suspected  
+         to be bad or has been re-marked as good."
+    DEFVAL { false }
+    ::= { cmLineConfigEntry 6 }
+
+cmLineStatisticsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmLineStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of objects that describe the status of the modem."
+    ::= { cmLineInfo 3 }
+
+cmLineStatisticsEntry OBJECT-TYPE
+    SYNTAX CmLineStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing status information about a 
+         single modem."
+    INDEX { cmSlotIndex, cmPortIndex }
+-- Augments cmLineStatusEntry
+    ::= { cmLineStatisticsTable 1 }
+
+CmLineStatisticsEntry ::= SEQUENCE {
+    cmRingNoAnswers Counter,
+    cmIncomingConnectionFailures Counter,
+    cmIncomingConnectionCompletions Counter,
+    cmOutgoingConnectionFailures Counter,
+    cmOutgoingConnectionCompletions Counter,
+    cmFailedDialAttempts Counter,
+    cmNoDialTones Counter,
+    cmDialTimeouts Counter,
+    cmWatchdogTimeouts Counter,
+    cm2400OrLessConnections Counter,
+    cm2400To14400Connections Counter,
+    cmGreaterThan14400Connections Counter,
+    cmNoCarriers Counter,
+    cmLinkFailures Counter,
+    cmProtocolErrors Counter,
+    cmPollingTimeouts Counter,
+    cmTotalCallDuration Counter
+    }
+
+cmRingNoAnswers OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter to count the calls that ringing was detected but 
+         the call was not answered at this modem."
+    ::= { cmLineStatisticsEntry 1 }
+
+cmIncomingConnectionFailures OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of incoming 
+         connection requests that this modem answered in  
+         which it could not train with the other DCE.  
+         This object is valid only for modems which have 
+         cmManageable to be true."
+    ::= { cmLineStatisticsEntry 2 }
+
+cmIncomingConnectionCompletions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of incoming 
+         connection requests that this modem answered and  
+         successfully trained with the other DCE.  This  
+         object is valid only for modems which have  
+         cmManageable to be true."
+    ::= { cmLineStatisticsEntry 3 }
+
+cmOutgoingConnectionFailures OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of outgoing  
+         calls from this modem which successfully went off  
+         hook and dialed, in which it could not train with  
+         the other DCE.  This object is valid only for  
+         modems which have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 4 }
+
+cmOutgoingConnectionCompletions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of outgoing  
+         calls from this modem which resulted in successfully  
+         training with the other DCE.This object is valid  
+         only for modems which have cmManageable to  
+         be true."
+    ::= { cmLineStatisticsEntry 5 }
+
+cmFailedDialAttempts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of call  
+         attempts that failed because the modem didn't go  
+         off hook, or there was no dial tone."
+    ::= { cmLineStatisticsEntry 6 }
+
+cmNoDialTones OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of times the  
+         dial tone expected but not received.  This object  
+         is valid only for modems which have cmManageable  
+         to be true."
+    ::= { cmLineStatisticsEntry 7 }
+
+cmDialTimeouts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of times the  
+         dial time-out occurred.  This object is valid only 
+         for modems which have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 8 }
+
+cmWatchdogTimeouts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the Call Processing watchdog  
+         timer has expired."
+    ::= { cmLineStatisticsEntry 9 }
+
+cm2400OrLessConnections OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The number of connections initially established at  
+         a modulation speed of 2400 bits per second or less. 
+         This object is valid only for modems which have  
+         cmManageable to be true."
+    ::= { cmLineStatisticsEntry 10 }
+
+cm2400To14400Connections OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The number of connections initially established at a modulation 
+         speed of greater than 2400 bits per second and less than 14400  
+         bits per second.  This object is valid only for modems which  
+         have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 11 }
+
+cmGreaterThan14400Connections OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The number of connections initially established at a modulation 
+         speed of greater than 14400 bits per second.  This object is 
+         valid only for modems which have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 12 }
+
+cmNoCarriers OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of times that the  
+         disconnect reason is no carrier.  This object is valid only for  
+         modems which have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 13 }
+
+cmLinkFailures OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of times that the  
+         disconnect reason is link failure.  This object is valid only  
+         for modems which have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 14 }
+
+cmProtocolErrors OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    errors
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of times that the out of  
+         band protocol error occurred.  This object is valid only for  
+         modems which have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 15 }
+
+cmPollingTimeouts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    errors
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates the number of times that the out of  
+         band protocol time-out error occurred.  This object is valid  
+         only for modems which have cmManageable to be true."
+    ::= { cmLineStatisticsEntry 16 }
+
+cmTotalCallDuration OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A counter that indicates total call duration on the modem. This  
+         includes the duration of all previous calls."
+    ::= { cmLineStatisticsEntry 17 }
+
+cmLineSpeedStatisticsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmLineSpeedStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of objects that describe the intial modem  
+         line speeds and connections"
+    ::= { cmLineInfo 4 }
+
+cmLineSpeedStatisticsEntry OBJECT-TYPE
+    SYNTAX CmLineSpeedStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing initial speed and  
+         connection information about a single modem."
+    INDEX { cmSlotIndex, cmPortIndex, cmInitialLineSpeed }
+    ::= { cmLineSpeedStatisticsTable 1 }
+
+CmLineSpeedStatisticsEntry ::= SEQUENCE {
+    cmInitialLineSpeed Gauge,
+    cmInitialLineConnections Counter,
+    cmInitialTxLineConnections Counter,
+    cmInitialRxLineConnections Counter
+    }
+
+cmInitialLineSpeed OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A discrete initial speed at which the given line  
+         may operate"
+    ::= { cmLineSpeedStatisticsEntry 1 }
+
+cmInitialLineConnections OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The number of connections initially established at a 
+         given modulation speed. An instance of this object 
+         will be only present for those speeds where one or more 
+         connections have occurred"
+    ::= { cmLineSpeedStatisticsEntry 2 }
+
+cmInitialTxLineConnections OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Transmit connections initially established at a 
+         given modulation speed. An instance of this object 
+         will be only present for those speeds where one or more 
+         connections have occurred"
+    ::= { cmLineSpeedStatisticsEntry 3 }
+
+cmInitialRxLineConnections OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Receive connections initially established at a 
+         given modulation speed. An instance of this object 
+         will be only present for those speeds where one or more 
+         connections have occurred"
+    ::= { cmLineSpeedStatisticsEntry 4 }
+
+cmStateNotifyEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls generation of the 
+         cmStateNotification. 
+        
+         When this variable is 'true(1)', generation of 
+         cmStateNotification is enabled.  When this variable 
+         is 'false(2)', generation of cmStateNotification 
+         is disabled. 
+        
+         The default value is 'false(2)'. "
+    ::= { cmNotificationConfig 1 }
+
+cmStateNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cmMIBNotificationPrefix
+    VARIABLES {
+        cmState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A modem port state change notification is generated whenever 
+         the port transitions to a state where it is offline due to 
+         a failure or administrative action. 
+        
+         The values of cmState which will trigger this notification are: 
+             busiedOut(5)               - Administratively out of service 
+             disabled(6)                - Administratively out of service 
+             bad(7)                     - Internally detected failure or 
+                                          administrative action 
+             loopback(8)                - Testing 
+             downloadFirmware(9)        - Administrative action 
+             downloadFirmwareFailed(10) - Internally detected failure 
+          "
+    ::= 1
+
+cmSystemInfoGroup OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    A collection of objects providing system configuration and 
+--     status information.
+--  objects
+--    cmSystemInstalledModem, cmSystemConfiguredGroup, 
+--    cmSystemWatchdogTime, cmSystemStatusPollTime, 
+--    cmSystemMaxRetries
+
+cmGroupInfoGroup OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for modem groups.
+--  objects
+--    cmGroupTotalDevices, cmPortIndex
+
+cmLineInfoGroup OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for individual modem.
+--  objects
+--    cmInterface, cmGroup, cmManufacturerID, cmProductDetails, 
+--    cmManageable, cmState, cmDisconnectReason, cmCallDirection, 
+--    cmCallDuration, cmCallPhoneNumber, cmCallerID, cmATModePermit, 
+--    cmStatusPolling, cmBusyOutRequest, cmShutdown, cmHoldReset, 
+--    cmBad, cmRingNoAnswers, cmFailedDialAttempts, 
+--    cmWatchdogTimeouts
+
+cmManagedLineInfoGroup OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for individual managed modems.
+--  objects
+--    cmModulationSchemeUsed, cmProtocolUsed, cmTXRate, cmRXRate, 
+--    cmTXAnalogSignalLevel, cmRXAnalogSignalLevel, 
+--    cmIncomingConnectionFailures, cmIncomingConnectionCompletions, 
+--    cmOutgoingConnectionFailures, cmOutgoingConnectionCompletions, 
+--    cmNoDialTones, cmDialTimeouts, cm2400OrLessConnections, 
+--    cm2400To14400Connections, cmGreaterThan14400Connections, 
+--    cmNoCarriers, cmLinkFailures, cmProtocolErrors, 
+--    cmPollingTimeouts, cmTotalCallDuration
+
+cmLineSpeedInfoGroup OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for individual managed modems.
+--  objects
+--    cmInitialLineConnections
+
+cmSystemInfoGroupRev1 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing system configuration and 
+--     status information.
+--  objects
+--    cmSystemInstalledModem, cmSystemConfiguredGroup, 
+--    cmSystemWatchdogTime, cmSystemStatusPollTime, 
+--    cmSystemMaxRetries, cmSystemModemsInUse, 
+--    cmSystemModemsAvailable, cmSystemModemsUnavailable, 
+--    cmSystemModemsOffline, cmSystemModemsDead
+
+cmLineSpeedInfoGroupRev1 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for individual managed modems.
+--  objects
+--    cmInitialLineConnections, cmInitialTxLineConnections, 
+--    cmInitialRxLineConnections
+
+cmManagedLineInfoGroupRev1 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for individual managed modems.
+--  objects
+--    cmModulationSchemeUsed, cmProtocolUsed, cmTXRate, cmRXRate, 
+--    cmTXAnalogSignalLevel, cmRXAnalogSignalLevel, 
+--    cmIncomingConnectionFailures, cmIncomingConnectionCompletions, 
+--    cmOutgoingConnectionFailures, cmOutgoingConnectionCompletions, 
+--    cmNoDialTones, cmDialTimeouts, cm2400OrLessConnections, 
+--    cm2400To14400Connections, cmGreaterThan14400Connections, 
+--    cmNoCarriers, cmLinkFailures, cmProtocolErrors, 
+--    cmPollingTimeouts, cmTotalCallDuration
+
+cmNotificationConfigGroup OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for configuring the notification behavior 
+--     of this MIB. 
+--  objects
+--    cmStateNotifyEnable
+
+cmLineSpeedInfoGroupRev2 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for individual managed modems.
+--  objects
+--    cmInitialTxLineConnections, cmInitialRxLineConnections
+
+cmManagedLineInfoGroupRev2 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing modem configuration and 
+--     statistics information for individual managed modems.
+--  objects
+--    cmModulationSchemeUsed, cmProtocolUsed, cmTXRate, cmRXRate, 
+--    cmTXAnalogSignalLevel, cmRXAnalogSignalLevel, 
+--    cmIncomingConnectionFailures, cmIncomingConnectionCompletions, 
+--    cmOutgoingConnectionFailures, cmOutgoingConnectionCompletions, 
+--    cmNoDialTones, cmDialTimeouts, cmNoCarriers, cmLinkFailures, 
+--    cmProtocolErrors, cmPollingTimeouts, cmTotalCallDuration
+
+cmNotificationGroup OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBGroups 10 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of notifications used for 
+--     monitoring modem status
+--  notifications
+--    cmStateNotification
+
+ciscoModemMgmtMIBCompliance OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for entities which implement 
+--     the cisco Modem Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmSystemInfoGroup
+--   MandGroup
+--    cmLineInfoGroup
+--   MandGroup
+--    cmGroupInfoGroup
+--   OptGroup
+--    cmManagedLineInfoGroup
+
+ciscoModemMgmtMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for entities which implement 
+--     the cisco Modem Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmSystemInfoGroup
+--   MandGroup
+--    cmLineInfoGroup
+--   MandGroup
+--    cmGroupInfoGroup
+--   OptGroup
+--    cmManagedLineInfoGroup
+--   OptGroup
+--    cmLineSpeedInfoGroup
+
+ciscoModemMgmtMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for entities which implement 
+--     the cisco Modem Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmSystemInfoGroupRev1
+--   MandGroup
+--    cmLineInfoGroup
+--   MandGroup
+--    cmGroupInfoGroup
+--   OptGroup
+--    cmManagedLineInfoGroup
+--   OptGroup
+--    cmLineSpeedInfoGroup
+--   ObjVar
+--    cmSystemWatchdogTime
+
+ciscoModemMgmtMIBComplianceRev3 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for entities which implement 
+--     the cisco Modem Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmSystemInfoGroupRev1
+--   MandGroup
+--    cmLineInfoGroup
+--   MandGroup
+--    cmGroupInfoGroup
+--   OptGroup
+--    cmManagedLineInfoGroup
+--   OptGroup
+--    cmLineSpeedInfoGroupRev1
+--   ObjVar
+--    cmSystemWatchdogTime
+
+ciscoModemMgmtMIBComplianceRev4 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for entities which implement 
+--     the cisco Modem Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmGroupInfoGroup
+--   OptGroup
+--    cmLineSpeedInfoGroupRev1
+--   OptGroup
+--    cmManagedLineInfoGroup
+--   ObjVar
+--    cmTXAnalogSignalLevel
+--   ObjVar
+--    cmPollingTimeouts
+--   OptGroup
+--    cmLineInfoGroup
+--   ObjVar
+--    cmATModePermit
+--   ObjVar
+--    cmHoldReset
+--   ObjVar
+--    cmStatusPolling
+--   OptGroup
+--    cmSystemInfoGroupRev1
+--   ObjVar
+--    cmSystemWatchdogTime
+--   ObjVar
+--    cmSystemStatusPollTime
+--   ObjVar
+--    cmSystemMaxRetries
+
+ciscoModemMgmtMIBComplianceRev5 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBCompliances 6 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement 
+--     the cisco Modem Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmGroupInfoGroup
+--   OptGroup
+--    cmLineSpeedInfoGroupRev1
+--   OptGroup
+--    cmManagedLineInfoGroupRev1
+--   ObjVar
+--    cmTXAnalogSignalLevel
+--   ObjVar
+--    cmPollingTimeouts
+--   OptGroup
+--    cmLineInfoGroup
+--   ObjVar
+--    cmATModePermit
+--   ObjVar
+--    cmHoldReset
+--   ObjVar
+--    cmStatusPolling
+--   OptGroup
+--    cmSystemInfoGroupRev1
+--   ObjVar
+--    cmSystemWatchdogTime
+--   ObjVar
+--    cmSystemStatusPollTime
+--   ObjVar
+--    cmSystemMaxRetries
+--   OptGroup
+--    cmNotificationConfigGroup
+--   OptGroup
+--    cmNotificationGroup
+
+ciscoModemMgmtMIBComplianceRev6 OBJECT IDENTIFIER ::= { ciscoModemMgmtMIBCompliances 7 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement 
+--     the cisco Modem Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmGroupInfoGroup
+--   OptGroup
+--    cmLineSpeedInfoGroupRev2
+--   OptGroup
+--    cmManagedLineInfoGroupRev2
+--   ObjVar
+--    cmTXAnalogSignalLevel
+--   ObjVar
+--    cmPollingTimeouts
+--   OptGroup
+--    cmLineInfoGroup
+--   ObjVar
+--    cmATModePermit
+--   ObjVar
+--    cmHoldReset
+--   ObjVar
+--    cmStatusPolling
+--   OptGroup
+--    cmSystemInfoGroupRev1
+--   ObjVar
+--    cmSystemWatchdogTime
+--   ObjVar
+--    cmSystemStatusPollTime
+--   ObjVar
+--    cmSystemMaxRetries
+--   OptGroup
+--    cmNotificationConfigGroup
+--   OptGroup
+--    cmNotificationGroup
+
+
+END
+

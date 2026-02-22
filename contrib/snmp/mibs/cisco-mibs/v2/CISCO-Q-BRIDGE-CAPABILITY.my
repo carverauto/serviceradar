@@ -1,0 +1,224 @@
+-- *****************************************************************
+-- CISCO-Q-BRIDGE-CAPABILITY.my:
+-- Q-BRIDGE-MIB AGENT-CAPABILITIES
+--   
+-- January 2004, Seth Wang, Wen Xu
+--   
+-- Copyright (c) 2004, 2008, 2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-Q-BRIDGE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoQBridgeCapability MODULE-IDENTITY
+    LAST-UPDATED    "201109270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        Q-BRIDGE-MIB."
+    REVISION        "201109270000Z"
+    DESCRIPTION
+        "Added capability statement ciscoQBridgeCapV15R0001SYPCat6K."
+    REVISION        "201107270000Z"
+    DESCRIPTION
+        "Added capability statement ciscoQBridgeCapNxOSV05R0201PN7K."
+    REVISION        "200810280000Z"
+    DESCRIPTION
+        "Added ciscoQBridgeCapV12R0233SXIPCat6K."
+    REVISION        "200401150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 389 }
+
+
+
+ciscoQBridgeCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "Q-BRIDGE-MIB capabilities."
+
+    SUPPORTS        Q-BRIDGE-MIB
+    INCLUDES        {
+                        qBridgeBaseGroup,
+                        qBridgeFdbUnicastGroup,
+                        qBridgeVlanGroup,
+                        qBridgeVlanStaticGroup
+                    }
+    VARIATION       dot1qVlanStaticName
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation only supports
+        read-only access."
+
+    VARIATION       dot1qVlanStaticEgressPorts
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation only supports
+        read-only access."
+
+    VARIATION       dot1qVlanForbiddenEgressPorts
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation only supports
+        read-only access."
+
+    VARIATION       dot1qVlanStaticUntaggedPorts
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation only supports
+        read-only access."
+
+    VARIATION       dot1qVlanStaticRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation only supports
+        read-only access."
+
+    ::= { ciscoQBridgeCapability 1 }
+
+ciscoQBridgeCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "Q-BRIDGE-MIB capabilities."
+
+    SUPPORTS        Q-BRIDGE-MIB
+    INCLUDES        { qBridgeBaseGroup }
+    VARIATION       dot1qVlanVersionNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qMaxVlanId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qNumVlans
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qGvrpStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoQBridgeCapability 2 }
+
+ciscoQBridgeCapNxOSV05R0201PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.2(1) on Nexus 7000
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "Q-BRIDGE-MIB capabilities."
+
+    SUPPORTS        Q-BRIDGE-MIB
+    INCLUDES        {
+                        qBridgeBaseGroup,
+                        qBridgeFdbUnicastGroup
+                    }
+    VARIATION       dot1qVlanVersionNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qMaxVlanId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qNumVlans
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qGvrpStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qTpFdbPort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qTpFdbStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoQBridgeCapability 3 }
+
+ciscoQBridgeCapV15R0001SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "Q-BRIDGE-MIB capabilities."
+
+    SUPPORTS        Q-BRIDGE-MIB
+    INCLUDES        {
+                        qBridgeBaseGroup,
+                        qBridgeFdbUnicastGroup
+                    }
+    VARIATION       dot1qVlanVersionNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qMaxVlanId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qNumVlans
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qGvrpStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qTpFdbPort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1qTpFdbStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoQBridgeCapability 4 }
+
+END
+
+
+
+

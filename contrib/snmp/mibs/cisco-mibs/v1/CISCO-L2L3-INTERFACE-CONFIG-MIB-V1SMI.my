@@ -1,0 +1,157 @@
+-- MIB created 5/12/100 12:18:57, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-L2L3-INTERFACE-CONFIG-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-L2L3-INTERFACE-CONFIG-MIB.my"
+
+IMPORTS
+    OBJECT-TYPE
+            FROM RFC-1212
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoL2L3IfConfigMIB OBJECT IDENTIFIER ::= { ciscoMgmt 151 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200005101900Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    Interface switchport mode configuration management MIB.
+--    
+--    This MIB is used to monitor and control 
+--    configuration of interface switchport and routed mode.
+--  RevDate
+--    200005101900Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoL2L3IfConfigMIBObjects OBJECT IDENTIFIER ::= { ciscoL2L3IfConfigMIB 1 }
+cL2L3IfConfig   OBJECT IDENTIFIER ::= { ciscoL2L3IfConfigMIBObjects 1 }
+ciscoL2L3IfConfigMIBConformance OBJECT IDENTIFIER ::= { ciscoL2L3IfConfigMIB 3 }
+ciscoL2L3IfConfigMIBCompliances OBJECT IDENTIFIER ::= { ciscoL2L3IfConfigMIBConformance 1 }
+ciscoL2L3IfConfigMIBGroups OBJECT IDENTIFIER ::= { ciscoL2L3IfConfigMIBConformance 2 }
+
+CL2L3InterfaceMode ::= INTEGER {
+        routed(1),
+        switchport(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The operational mode of the interface.
+--    
+--    For administrative and operational states, valid values are: 
+--    routed(1), switchport(2).
+--    
+--    routed(1): Routed mode interfaces direct traffic using 
+--    layer 3 protocols.
+--    
+--    switchport(2):  Switchport-mode interfaces direct traffic using 
+--    layer 2 protocols.  A switchport-mode interface can be in
+--    access mode, or trunk mode, or multi-mode.
+--    
+--    Switchport interface operating mode can be configured manually,
+--    or negotiated by Dynamic Trunking Protocol (DTP) or Dynamic 
+--    Inter-Switch Link (DISL).
+--    
+--    Access-mode interfaces carry one VLAN's traffic.  Access-mode
+--    interface parameters are configured in CISCO-VLAN-MEMBERSHIP-MIB.
+--    
+--    Trunk-mode interfaces carry one or more VLANs.  VLAN-related 
+--    trunk-mode interface parameters are configured in CISCO-VTP-MIB.
+--    
+--    Multi-mode interfaces carry one VLAN to each alias of a 
+--    single connected end-station.  VLAN-related multi-mode 
+--    interface parameters are configured in CISCO-VTP-MIB.
+
+cL2L3IfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CL2L3IfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table shows the administratively requested and
+        actual operating configuration for switchport interfaces."
+    ::= { cL2L3IfConfig 1 }
+
+cL2L3IfEntry OBJECT-TYPE
+    SYNTAX CL2L3IfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry represents the configuration and operation of a
+        switchport interface.
+        
+        Entries are created and deleted automatically in tandem 
+        with the corresponding ifEntries."
+    INDEX { ifIndex }
+    ::= { cL2L3IfTable 1 }
+
+CL2L3IfEntry ::= SEQUENCE {
+    cL2L3IfModeAdmin CL2L3InterfaceMode,
+    cL2L3IfModeOper CL2L3InterfaceMode
+    }
+
+cL2L3IfModeAdmin OBJECT-TYPE
+    SYNTAX CL2L3InterfaceMode
+--    Rsyntax INTEGER {
+--        routed(1),
+--        switchport(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The administratively desired interface mode."
+    ::= { cL2L3IfEntry 1 }
+
+cL2L3IfModeOper OBJECT-TYPE
+    SYNTAX CL2L3InterfaceMode
+--    Rsyntax INTEGER {
+--        routed(1),
+--        switchport(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational interface mode."
+    ::= { cL2L3IfEntry 2 }
+
+ciscoL2L3IfConfigMIBGroup OBJECT IDENTIFIER ::= { ciscoL2L3IfConfigMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Interface L2 & L3 mode objects
+--  objects
+--    cL2L3IfModeAdmin, cL2L3IfModeOper
+
+ciscoL2L3IfConfigMIBCompliance OBJECT IDENTIFIER ::= { ciscoL2L3IfConfigMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--     the Cisco L2L3 Interface Configuration Management MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoL2L3IfConfigMIBGroup
+
+
+END
+

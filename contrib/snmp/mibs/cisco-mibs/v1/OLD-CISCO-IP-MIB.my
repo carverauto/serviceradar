@@ -1,0 +1,444 @@
+-- *****************************************************************
+-- OLD-CISCO-IP-MIB.my:  Old Local IP MIB file
+--
+-- May 1994, Nick Thille
+--
+-- Copyright (c) 1994 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+            OLD-CISCO-IP-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+                    IpAddress, Counter, TimeTicks
+			FROM RFC1155-SMI
+                    OBJECT-TYPE
+			FROM RFC-1212
+                    ipAdEntAddr, ipRouteDest, DisplayString
+			FROM RFC1213-MIB
+                    local
+			FROM CISCO-SMI;
+          
+               lip OBJECT IDENTIFIER ::= { local 4 }
+
+               -- Local IP Group
+
+          -- This group is present in all products which are using the
+          -- IP protocol.
+
+
+          -- Local IP Address Table
+
+          -- This group provides additional objects to the table
+          -- defined by RFC 1213.
+
+               lipAddrTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LipAddrEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP address entries."
+                   ::= { lip 1 }
+
+               lipAddrEntry OBJECT-TYPE
+                   SYNTAX LipAddrEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of additional objects in the
+                            cisco IP implementation."
+                   INDEX { ipAdEntAddr }
+               ::= { lipAddrTable 1 }
+
+               LipAddrEntry ::=
+                   SEQUENCE {
+                       locIPHow
+                           DisplayString,
+                       locIPWho
+                           IpAddress,
+                       locIPHelper
+                           IpAddress,
+                       locIPSecurity
+                           INTEGER,
+                       locIPRedirects
+                           INTEGER,
+                       locIPUnreach
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               locIPHow OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Method of how this interface obtained its IP
+                           address."
+                   ::= { lipAddrEntry 1 }
+
+               locIPWho OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP address of who supplied this interface
+                           its IP address."
+                   ::= { lipAddrEntry 2 }
+
+               locIPHelper OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP helper address for broadcast forwarding
+                           support."
+                   ::= { lipAddrEntry 3 }
+
+               locIPSecurity OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP security level. See RFC 1038."
+                   ::= { lipAddrEntry 4 }
+
+               locIPRedirects OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether ICMP redirects will be sent
+                           or not."
+                   ::= { lipAddrEntry 5 }
+
+               locIPUnreach OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether ICMP unreachables will be
+                           sent or not."
+                   ::= { lipAddrEntry 6 }
+
+               -- End of table
+
+
+
+               -- Local IP Routing Table
+
+          -- This group provides additional objects to the table
+          -- defined by RFC1156.
+
+               lipRouteTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LipRouteEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP routing entries."
+                   ::= { lip 2 }
+
+               lipRouteEntry OBJECT-TYPE
+                   SYNTAX LipRouteEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of additional objects in the
+                            cisco IP routing implementation."
+                   INDEX { ipRouteDest }
+               ::= { lipRouteTable 1 }
+
+               LipRouteEntry ::=
+                   SEQUENCE {
+                       locRtMask
+                           IpAddress,
+                       locRtCount
+                           INTEGER,
+                       locRtUses
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               locRtMask OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Routing table network mask."
+                   ::= { lipRouteEntry 1 }
+
+               locRtCount OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of parallel routes within routing
+                           table."
+                   ::= { lipRouteEntry 2 }
+
+               locRtUses OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of times this route was used in a
+                           forward operation."
+                   ::= { lipRouteEntry 3 }
+
+               -- End of table
+
+
+               actThresh OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Threshold of IP accounting records in use
+                           before IP traffic will be unaccounted."
+                   ::= { lip 4 }
+
+               actLostPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Lost IP packets due to memory limitations."
+                   ::= { lip 5 }
+
+               actLostByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total bytes of lost IP packets."
+                   ::= { lip 6 }
+
+
+               -- Local IP Accounting Table
+
+          -- This group provides access to the cisco IP accounting
+          -- support.
+
+               lipAccountingTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LipAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP accounting entries."
+                   ::= { lip 7 }
+
+               lipAccountEntry OBJECT-TYPE
+                   SYNTAX LipAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of objects necessary for IP
+                            accounting."
+                   INDEX { actSrc, actDst }
+               ::= { lipAccountingTable 1 }
+
+               LipAccountEntry ::=
+                   SEQUENCE {
+                       actSrc
+                           IpAddress,
+                       actDst
+                           IpAddress,
+                       actPkts
+                           INTEGER,
+                       actByts
+                           INTEGER,
+                       actViolation
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               actSrc OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Source address for host traffic matrix."
+                   ::= { lipAccountEntry 1 }
+
+               actDst OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Destination address for host traffic
+                           matrix."
+                   ::= { lipAccountEntry 2 }
+
+               actPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of IP packets sent from source to
+                           destination."
+                   ::= { lipAccountEntry 3 }
+
+               actByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bytes in IP packets from
+                           source to destination."
+                   ::= { lipAccountEntry 4 }
+
+               actViolation OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Access list number violated by packets from
+                           this source to this destination.  A zero value
+                           indicates that no access list was violated."
+                   ::= { lipAccountEntry 5 }
+
+               -- End of table
+
+
+               actAge OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The age of the data in the current data
+                           matrix."
+                   ::= { lip 8 }
+
+
+               -- Local IP Checkpoint Accounting Table
+
+          -- This group provides access to the cisco
+          -- IP checkpoint accounting support.
+
+               lipCkAccountingTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LipCkAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP checkpoint accounting
+                            entries."
+                   ::= { lip 9 }
+
+               lipCkAccountEntry OBJECT-TYPE
+                   SYNTAX LipCkAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of objects necessary for IP
+                            checkpoint accounting."
+                   INDEX { ckactSrc, ckactDst }
+               ::= { lipCkAccountingTable 1 }
+
+               LipCkAccountEntry ::=
+                   SEQUENCE {
+                       ckactSrc
+                           IpAddress,
+                       ckactDst
+                           IpAddress,
+                       ckactPkts
+                           INTEGER,
+                       ckactByts
+                           INTEGER,
+                       ckactViolation
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               ckactSrc OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Source address for host in checkpoint
+                           traffic matrix."
+                   ::= { lipCkAccountEntry 1 }
+
+               ckactDst OBJECT-TYPE
+                   SYNTAX  IpAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Destination address for host in
+                           checkpoint traffic matrix."
+                   ::= { lipCkAccountEntry 2 }
+
+               ckactPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of IP packets sent from source to
+                           destination in checkpoint matrix."
+                   ::= { lipCkAccountEntry 3 }
+
+               ckactByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bytes in IP packets from
+                           source to destination in checkpoint matrix.
+                           A zero value indicates that no access list 
+                           was violated."
+                   ::= { lipCkAccountEntry 4 }
+
+               ckactViolation OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Access list number violated by packets from
+                           source to destination in checkpoint matrix."
+                   ::= { lipCkAccountEntry 5 }
+
+               -- End of table
+
+
+               ckactAge OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Age of data in the checkpoint matrix."
+                   ::= { lip 10 }
+
+               actCheckPoint OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Check points the accounting database. This
+                           mib variable must be read and then set with
+                           the same value for the check point to
+                           succeed. The value read and then set will be
+                           incremented after a successful set request"
+                   ::= { lip 11 }
+
+               ipNoaccess OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to
+                           access control failure."
+                   ::= { lip 12 }
+END
+

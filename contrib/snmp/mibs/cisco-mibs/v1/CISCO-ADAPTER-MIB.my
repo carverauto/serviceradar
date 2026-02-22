@@ -1,0 +1,389 @@
+CISCO-ADAPTER-MIB DEFINITIONS ::= BEGIN
+
+-- Title:       Cisco Systems Adapter MIB in concise format
+-- Date:        December 14, 1995
+-- By:          Cal Palmore <palmore@cisco.com>
+
+IMPORTS
+        enterprises, IpAddress
+                FROM RFC1155-SMI
+        OBJECT-TYPE
+                FROM RFC-1212
+        DisplayString
+                FROM RFC1213-MIB;
+
+cisco               OBJECT IDENTIFIER ::= { enterprises 9 }
+workgroup           OBJECT IDENTIFIER ::= { cisco 5 }
+
+adapterCard         OBJECT IDENTIFIER ::= { workgroup 2 }
+
+
+-- the adapter group
+
+adptrNumber OBJECT-TYPE
+        SYNTAX        INTEGER (1..10)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The number of Cisco network adapter cards in the
+                      machine."
+        ::= { adapterCard 1 }
+
+-- the adapter table
+
+adptrTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF AdptrEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of adapter table entries.  The number of entries
+                      is given by adptrNumber."
+        ::= { adapterCard 2 }
+
+adptrEntry OBJECT-TYPE
+        SYNTAX        AdptrEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "An adapter table entry containing information about a
+                      Cisco network adapter card."
+        INDEX         { adptrIndex }
+        ::= { adptrTable 1 }
+
+AdptrEntry ::=
+        SEQUENCE {
+                adptrIndex
+                        INTEGER,
+                adptrType
+                        INTEGER,
+                adptrSerialNumber
+                        INTEGER,
+                adptrHwHiVersion
+                        INTEGER,
+                adptrHwLoVersion
+                        INTEGER,
+                adptrFwHiVersion
+                        INTEGER,
+                adptrFwLoVersion
+                        INTEGER,
+                adptrSwHiVersion
+                        INTEGER,
+                adptrSwLoVersion
+                        INTEGER,
+                adptrStatus
+                        INTEGER,
+                adptrSelfTestResult
+                        INTEGER,
+                adptrDriverHiVersion
+                        INTEGER,
+                adptrDriverLoVersion
+                        INTEGER,
+                adptrMediaType
+                        INTEGER,
+                adptrModel
+                        DisplayString
+        }
+
+adptrIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..10)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A unique value for each Cisco adapter card in the
+                      machine.  The value ranges between 1 and the value of
+                      adptrNumber.  The value for each adapter card must
+                      remain constant at least from one re-initialization
+                      of the entity's network management system to the next
+                      re-initialization."
+        ::= { adptrEntry 1 }
+
+adptrType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),         -- none of the following
+                                sBusCddi(2),      -- SBus CDDI Adapter
+                                sBusFddiSt(3),    -- SBus FDDI Adapter/ST
+                                sBusFddi(4),      -- SBus FDDI Adapter
+                                mcaCddi(5),       -- MCA CDDI Adapter
+                                mcaFddiSt(6),     -- MCA FDDI Adapter/ST
+                                mcaFddi(7),       -- MCA FDDI Adapter
+                                eisaCddi(8),      -- EISA CDDI Adapter
+                                eisaFddi(10)      -- EISA FDDI Adapter
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The type of adapter card."
+        ::= { adptrEntry 2 }
+
+adptrSerialNumber OBJECT-TYPE
+        SYNTAX        INTEGER (0..999999999)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The serial number of the adapter card."
+        ::= { adptrEntry 3 }
+
+adptrHwHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the hardware version of the adapter 
+                      card.  For example, if the hardware version is 3.1, the 
+                      value of adptrHwHiVersion is 3."
+        ::= { adptrEntry 4 }
+
+adptrHwLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the hardware version of the adapter 
+                      card.  For example, if the hardware version is 3.1, the 
+                      value of adptrHwLoVersion is 1."
+        ::= { adptrEntry 5 }
+
+adptrFwHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the firmware version of the adapter 
+                      card.  For example, if the firmware version is 3.1, the 
+                      value of adptrFwHiVersion is 3."
+        ::= { adptrEntry 6 }
+
+adptrFwLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the firmware version of the adapter 
+                      card.  For example, if the firmware version is 3.1, the 
+                      value of adptrFwLoVersion is 1."
+        ::= { adptrEntry 7 }
+
+adptrSwHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the software version number.  For 
+                      example, if the software version is 3.1, the value of 
+                      adptrSwHiVersion is 3."
+        ::= { adptrEntry 8 }
+
+adptrSwLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the software version number.  For 
+                      example, if the software version is 3.1, the value of 
+                      adptrSwLoVersion is 1."
+        ::= { adptrEntry 9 }
+
+adptrStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                ok(2),          -- status ok
+                                minorFault(3),  -- minor problem
+                                majorFault(4)   -- major problem
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The operational status of the adapter card.  If the 
+                      status is not ok(2), the value of adptrSelfTestResult 
+                      gives more detailed information about the adapter card's
+                      failure condition(s)."
+        ::= { adptrEntry 10 }
+
+adptrSelfTestResult OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The result of the adapter card's self test.  A zero 
+                      indicates that the adapter passed all tests.  Bits set 
+                      in the result indicate error conditions."
+        ::= { adptrEntry 11 }
+
+adptrDriverHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the driver version number.  For 
+                      example, if the driver version is 3.1, the value of 
+                      adptrDriverHiVersion is 3."
+        ::= { adptrEntry 13 }
+
+adptrDriverLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the driver version number.  For 
+                      example, if the driver version is 3.1, the value of 
+                      adptrDriverLoVersion is 1."
+        ::= { adptrEntry 14 }
+
+-- adptrEntry 15 unused
+-- adptrEntry 16 unused
+
+adptrMediaType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                cddi(2),        -- CDDI (UTP FDDI)
+                                fiber(3),       -- multimode fiber FDDI
+                                tppmd(4),       -- ANSI standard UTP FDDI
+                                mlt3(5),        -- MLT-3 UTP FDDI
+                                sddi(6),        -- STP FDDI
+                                smf(7)          -- single-mode fiber FDDI
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The type of physical layer medium dependent interface
+                      on the adapter port(s)."
+        ::= { adptrEntry 17 }
+
+adptrModel OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..8))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The manufacturer's model number for the adapter."
+        ::= { adptrEntry 18 }
+
+-- the trap receiver table
+
+adptrTrapReceiverTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF AdptrTrapReceiverEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "The adapter trap receiver table (0 to 10 entries).
+                      This table lists the addresses of Network Management 
+                      Stations that should receive trap messages from this
+                      adapter when an exception condition occurs."
+        ::= { adapterCard 3 }
+
+adptrTrapReceiverEntry OBJECT-TYPE
+        SYNTAX        AdptrTrapReceiverEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A trap receiver table entry."
+        INDEX         { adptrTrapReceiverAddr }
+        ::= { adptrTrapReceiverTable 1 }
+
+AdptrTrapReceiverEntry ::=
+        SEQUENCE {
+                adptrTrapReceiverType
+                        INTEGER,
+                adptrTrapReceiverAddr
+                        IpAddress,
+                adptrTrapReceiverComm
+                        DisplayString
+        }
+
+adptrTrapReceiverType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                invalid(2)      -- an invalid address
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Setting this object to invalid(2) removes the 
+                      corresponding entry from the adptrTrapReceiverTable.  
+                      To add a new entry to the adptrTrapReceiverTable, set
+                      the adptrTrapReceiverAddr to an IpAddress which is not 
+                      already in the table.  The adptrTrapReceiverType for 
+                      that entry is automatically set to other(1)."
+        ::= { adptrTrapReceiverEntry 1 }
+
+adptrTrapReceiverAddr OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "IP address for trap receiver."
+        ::= { adptrTrapReceiverEntry 2 }
+
+adptrTrapReceiverComm OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..20))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Community string used for trap messages to this trap 
+                      receiver."
+        ::= { adptrTrapReceiverEntry 3 }
+
+-- the community table
+
+adptrCommunityTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF AdptrCommunityEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "The adapter community table (4 entries).  This table 
+                      lists community strings and their access levels.  When 
+                      an SNMP message is received by this adapter, the 
+                      community string in the message is compared with this 
+                      table to determine access rights of the sender."
+        ::= { adapterCard 4 }
+
+adptrCommunityEntry OBJECT-TYPE
+        SYNTAX        AdptrCommunityEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A community table entry."
+        INDEX         { adptrCommunityAccess }
+        ::= { adptrCommunityTable 1 }
+
+AdptrCommunityEntry ::=
+        SEQUENCE {
+                adptrCommunityAccess
+                        INTEGER,
+                adptrCommunityString
+                        DisplayString
+        }
+
+adptrCommunityAccess OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                readOnly(2),    -- read but not write all but 
+                                                -- adptrCommunityTable
+                                readWrite(3),   -- read and write all but 
+                                                -- adptrCommunityTable
+                                readWriteAll(4) -- read and write all
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A value of readWriteAll(4) allows the community to 
+                      read and write all objects in the MIB.  A value of 
+                      readWrite(3) allows the community to read and write all 
+                      objects except the adptrCommunityTable, which it cannot 
+                      access at all.  A value of readOnly(2) allows the 
+                      community to read all objects except the 
+                      adptrCommunityTable.  A value of other(1) allows the 
+                      community no access."
+        ::= { adptrCommunityEntry 1 }
+
+adptrCommunityString OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..20))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Configurable community string with access rights 
+                      defined by the value of adptrCommunityAccess."
+        ::= { adptrCommunityEntry 2 }
+
+adptrMgmtType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),  -- none of the following
+                                snmp(2),   -- Simple Network Management Protocol
+                                smux(3)    -- SNMP MUX Protocol
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The type of network management for the adapter."
+        ::= { adapterCard 5 }
+
+adptrMgmtHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the network management version number.
+                      For example, if the network management version is 3.1,
+                      the value of adptrMgmtHiVersion is 3."
+        ::= { adapterCard 6 }
+
+adptrMgmtLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the network management version number.
+                      For example, if the network management version is 3.1,
+                      the value of adptrMgmtLoVersion is 1."
+        ::= { adapterCard 7 }
+
+END

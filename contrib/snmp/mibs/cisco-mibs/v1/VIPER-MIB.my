@@ -1,0 +1,2586 @@
+CISCO-ES-STACK-MIB
+DEFINITIONS ::= BEGIN
+
+-- Copyright 1995 Cisco Systems Inc.
+-- All rights reserved.
+
+-- This SNMP Management Information Specification 
+-- embodies Cisco's confidential and proprietary
+-- intellectual property.  Cisco retains all title
+-- and ownership in the Specification including any revisions.
+
+-- This Specification is supplied "AS IS", and Cisco Systems Inc
+-- makes no warranty, either expressed or implied,
+-- as to the use, operation, condition, or performance of the
+-- Specification.
+
+
+IMPORTS
+	TimeTicks, IpAddress, Counter, Gauge, enterprises
+			                FROM RFC1155-SMI
+	OBJECT-TYPE
+			                FROM RFC-1212
+
+	DisplayString, sysName, sysLocation
+			                FROM RFC1213-MIB
+
+        TRAP-TYPE
+                                        FROM RFC-1215
+;
+
+cisco OBJECT IDENTIFIER ::= { enterprises 9 }
+
+workgroup OBJECT IDENTIFIER ::= { cisco 5 }
+
+-- Ethernet station MAC address
+
+MacAddr ::= OCTET STRING (SIZE(6))
+
+-- From RFC1493
+
+BridgeId ::= OCTET STRING (SIZE (8))
+
+-- EtherSwitch objects
+
+esStack	                OBJECT IDENTIFIER ::= { workgroup 14 }
+
+-- Managed Groups defined in this module
+
+-- Global objects for Cisco EtherSwitch
+
+ciscoEsMain	        OBJECT IDENTIFIER ::= { esStack 1 }
+
+--      Configuration objects
+
+ciscoEsConfig	        OBJECT IDENTIFIER ::= { ciscoEsMain 1 }
+
+-- Rack/Stack Management Group
+
+ciscoEsStack	        OBJECT IDENTIFIER ::= { esStack 2 }
+
+-- Module Management Group 
+
+ciscoEsModule	        OBJECT IDENTIFIER ::= { esStack 3 }
+
+-- Port Level Managed Group
+
+ciscoEsPort	        OBJECT IDENTIFIER ::= { esStack 4 }
+
+-- VirtualEtherSwitch (Domain) Management Group (obseleted since 2.0 )
+
+ciscoEsDmns             OBJECT IDENTIFIER ::= { esStack 5 }
+
+-- EtherChannel Management Group
+
+ciscoEsEChannel         OBJECT IDENTIFIER ::= { esStack 6 }
+
+-- Filter Configuration Group
+
+ciscoEsFilter           OBJECT IDENTIFIER ::= { esStack 7 }
+
+-- VirtualEtherSwitch (VLAN) Management Group
+
+ciscoEsVLANs            OBJECT IDENTIFIER ::= { esStack 8 }
+
+-- LATTE/Mocha Router Group
+
+ciscoEsRouter            OBJECT IDENTIFIER ::= { esStack 9 }
+
+-- Configuration objects
+
+ciscoEsIpAddr OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "The IP address of the current vlan."
+	::= { ciscoEsConfig 1 }
+
+ciscoEsNetMask OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "The subnet mask of the current vlan."
+	::= { ciscoEsConfig 2 }
+
+ciscoEsDefaultGateway OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "IP default gateway of the current vlan."
+	::= { ciscoEsConfig 3 }
+
+ciscoEsSysCurTime OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..128))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Current time at the switch. To set the time
+	         use the format yyyy mm dd hh mm ss. All 
+		 fields are required. Setting this object will
+                 reset the time in all the switches in the stack 
+                 to the new value."
+	::= { ciscoEsConfig 4 }
+
+ciscoEsConfiguration OBJECT-TYPE
+	SYNTAX	INTEGER 
+		{ 
+			stand-alone (1), 
+			back-to-back (2), 
+			prostack-matrix (3) 
+		}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The stack configuration of the system. A
+                 system can exist in three possible configurations.
+
+                 1. Stand alone mode where the system has only one
+                 switch and is not connected to any other switches.
+
+                 2. Back to Back mode in which a pair of
+                 switches are connected back to back through Stack
+		 Port.
+
+                 3. Matrix mode in which the stack has
+                 up to eight switches connected to a Matrix
+                 through the Stack Port."
+	::= { ciscoEsConfig 5 }
+
+ciscoEsNumSwitches OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of switches in the stack."
+	::= { ciscoEsConfig 6 }
+
+ciscoEsStackStatus OBJECT-TYPE
+	SYNTAX	INTEGER  { running (1) , updating (2)}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Stack status indicates if the stack is going through
+		 the Stack Management Update protocol. Management stations
+		 should check this status if they receive a generr on a
+		 SET request for any of the stack wide attributes."
+	::= { ciscoEsConfig 7 }
+
+ciscoEsTftpServer OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"TFTP sever's IP address."
+	::= { ciscoEsConfig 8}
+
+ciscoEsTftpServerDomain OBJECT-TYPE
+	SYNTAX	INTEGER (0..63) 
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"VLAN to which the server is connected."
+	::= { ciscoEsConfig 9 }
+
+ciscoEsTftpFileLoc OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE(0..256))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Location of the binary file on the server."
+	::= { ciscoEsConfig 10 }
+
+ciscoEsSetLock OBJECT-TYPE
+	SYNTAX  IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"This object has not been in use since 2.0 release and there 
+		 are currently no plans to implement it as defined below. 
+		 This object when set to the manager's IP address 
+		 locks out every other manager from doing any SET
+		 operations. This lock out expires after a fixed 
+		 interval of 5 minutes. The Manager holding the 
+		 lock can renew the lock by doing SET on this 
+		 object again before the timeout expires otherwise
+		 it will contend with other managers trying to
+		 lock. The IP Address value should match the
+		 IP address that the manager uses to generate the
+		 SET request."
+	::= { ciscoEsConfig 11 }
+
+ciscoEsProStackMatrixStatus OBJECT-TYPE
+	SYNTAX	INTEGER { primary (1), secondary (2) , none (3), failed (4)}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Active Matrix module in the stack. This object 
+		 is set to none if the switch is not connected to a
+		 Matrix."
+	::= { ciscoEsConfig 12 }
+
+ciscoEsNumMatrixModules OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of Matrix modules in the stack. This object 
+		 is set to zero if the switch is not connected to a
+		 Matrix."
+	::= { ciscoEsConfig 13 }
+
+ciscoEsLLPortDsbld OBJECT-TYPE
+        SYNTAX  INTEGER {
+                disabled(1)     -- port is disabled
+                }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This OID is sent out along with the LINK_DOWN Trap only
+                 when the port is disabled due to the port security feature
+                 (learn and lock). Port could be disabled due to the
+                 discovery of invalid MAC address."
+        ::= { ciscoEsConfig 14 }
+
+-- Trap Receiver Table
+ciscoEsTrapRcvrTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsTrapRcvrEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Trap Receiver Table for each vlan."
+	::= { ciscoEsConfig 25 }
+
+ciscoEsTrapRcvrEntry OBJECT-TYPE
+	SYNTAX	CiscoEsTrapRcvrEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the vlan specific trap
+                 receiver table."
+
+	INDEX	{ ciscoEsTrapRcvrIndex }
+	::= { ciscoEsTrapRcvrTable 1 }
+
+CiscoEsTrapRcvrEntry ::= SEQUENCE {
+	ciscoEsTrapRcvrIndex		INTEGER,
+	ciscoEsTrapRcvrStatus		INTEGER,
+	ciscoEsTrapRcvrIpAddress	IpAddress,
+	ciscoEsTrapRcvrComm	        DisplayString,
+	ciscoEsTrapRcvrVLANs             OCTET STRING
+        }
+
+ciscoEsTrapRcvrIndex OBJECT-TYPE
+	SYNTAX	INTEGER (1..20)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Trap receiver index for each entry." 
+	::= { ciscoEsTrapRcvrEntry 1 }
+
+ciscoEsTrapRcvrStatus OBJECT-TYPE
+	SYNTAX	INTEGER {
+		other(1),	-- none of the following
+		valid(2),	-- a valid address
+		invalid(3),	-- an invalid address
+		create(4)	-- create row
+		}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Setting the value of this object to invalid(3)
+		deletes the row from the table.  The value
+		invalid(3) should never be returned on a GET.  
+
+                Setting this value to create(4) causes a new row
+                to be created if the row does not already exist.
+                To create a new row set ciscoEsTrapRcvrStatus to 
+                create(4) and ciscoEsTrapRcvrIndex to any valid 
+		index which does not already exist.
+
+		The value returned on GETs should be valid(2) or
+		other(1), which is used to indicate any other
+		condition."
+	::= { ciscoEsTrapRcvrEntry 2 }
+
+
+ciscoEsTrapRcvrIpAddress OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"IP address for an SNMP manager that is to receive
+		the trap."
+	::= { ciscoEsTrapRcvrEntry 3 }
+
+ciscoEsTrapRcvrComm OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..16))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Community string to use."
+	::= { ciscoEsTrapRcvrEntry 4 }
+
+ciscoEsTrapRcvrVLANs OBJECT-TYPE
+	SYNTAX	OCTET STRING (SIZE(128))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"VLANs to which traps to this target are sent 
+		out on. Each octet within the value of this object 
+                specifies a set of eight vlans, with the first 
+		octet specifying vlans 0 through 7, the second 
+		octet specifying vlans 8 through 15, etc.  
+		Within each octet, the most significant bit 
+		represents the lowest numbered vlan, and the 
+		least significant bit represents the highest 
+		numbered vlan.  Thus, each vlan of the stack
+                is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that vlan is included in the set of
+                ports; the vlan is not included if its bit has a
+                value of '0'."
+	::= { ciscoEsTrapRcvrEntry 5 }
+
+-- Stack management group
+-- 
+ciscoEsStackTable OBJECT-TYPE 
+	SYNTAX	SEQUENCE OF CiscoEsStackEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Stack information table. This table provides
+                 the current configuration of the stack. It also
+                 provides a mapping of Switch Numbers to their 
+                 addresses.
+
+                 The Management Application is required to retrieve this
+                 table and verify its own view of the stack periodically
+                 and/or when it receives a trap indicating a change in the 
+		 stack configuration."
+	::= { ciscoEsStack 1 }
+
+ciscoEsStackEntry OBJECT-TYPE
+	SYNTAX	CiscoEsStackEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the Stack Table"
+	INDEX	{ ciscoEsStackSwitchNumber, ciscoEsStackSwitchAddr }
+	::= { ciscoEsStackTable 1 }
+
+CiscoEsStackEntry ::= SEQUENCE {
+	ciscoEsStackSwitchNumber        	INTEGER,
+	ciscoEsStackSwitchAddr	        	MacAddr,
+	ciscoEsStackSwitchFwVersion     	DisplayString,
+	ciscoEsStackSwitchHwVersion     	DisplayString,
+        ciscoEsStackSwitchUptime        	TimeTicks,
+        ciscoEsStackSwitchStatus        	INTEGER,
+        ciscoEsStackSwitchTemperature   	INTEGER,
+	ciscoEsStackSwitchMemory	        INTEGER,
+        ciscoEsStackSwitchProbe         	INTEGER,
+        ciscoEsStackSwitchProbeDirection       	INTEGER,
+	ciscoEsStackSwitchFeatureStatus		INTEGER,
+	ciscoEsStackSwitchFeatureKey		INTEGER,
+        ciscoEsStackSwitchPorts			OCTET STRING,
+	ciscoEsStackSwitchAgingTime             INTEGER,
+	ciscoEsStackSwitchAgingLevel            INTEGER,
+	ciscoEsStackSwitchBufferOverruns        Counter,
+	ciscoEsStackSwitchSoftwareFrames        Counter,
+	ciscoEsStackSwitchInErrFrames           Counter,
+	ciscoEsStackSwitchInShortFrames         Counter,
+	ciscoEsStackSwitchInLongFrames          Counter,
+	ciscoEsStackSwitchInNoSpaceFrames       Counter,
+	ciscoEsStackSwitchOutTotalReqs          Counter,
+	ciscoEsStackSwitchOutTotalFrames        Counter,
+	ciscoEsStackSwitchOutDroppedFrames      Counter,
+	ciscoEsStackSwitchLongestHashChain   	Gauge,
+	ciscoEsStackSwitchHashTableFulls	Counter,
+	ciscoEsStackSwitchId        	        OBJECT IDENTIFIER,
+	ciscoEsStackSwitchDplxCtrl              INTEGER
+	}
+
+ciscoEsStackSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoEsStackEntry 1 }
+
+ciscoEsStackSwitchAddr  OBJECT-TYPE
+	SYNTAX	MacAddr
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Mac address of the switch."
+	::= { ciscoEsStackEntry 2 }
+
+ciscoEsStackSwitchFwVersion  OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..128))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Version number for the firmware running on the switch."
+	::= { ciscoEsStackEntry 3 }
+
+ciscoEsStackSwitchHwVersion  OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..128))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Hardware version number for the switch."
+	::= { ciscoEsStackEntry 4 }
+
+ciscoEsStackSwitchUptime  OBJECT-TYPE
+	SYNTAX	TimeTicks
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Time ticks since the switch was last reset."
+	::= { ciscoEsStackEntry 6 }
+
+ciscoEsStackSwitchStatus  OBJECT-TYPE
+	SYNTAX	INTEGER 
+                  { 
+                        running (1), 
+                        coldReset(2), 
+                        warmReset (3)
+                  }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Operational status of the box. Setting this value
+                 to either coldReset (2) or warmReset (3) will cause
+                 cold start or warm start to occur after a specific
+                 time delay."
+	::= { ciscoEsStackEntry 7 }
+
+ciscoEsStackSwitchTemperature  OBJECT-TYPE
+	SYNTAX	INTEGER {normal (1), toohigh (2), unknown (3) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Temperature status of each switch."
+	::= { ciscoEsStackEntry 8 }
+
+ciscoEsStackSwitchMemory  OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Installed memory on the switch in MB."
+	::= { ciscoEsStackEntry 9 }
+
+ciscoEsStackSwitchProbe OBJECT-TYPE
+	SYNTAX	INTEGER (0..32)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Port number to be monitored through the SwitchProbe.
+		 Setting this object to zero turns off SwitchProbe."
+	::= { ciscoEsStackEntry 10 }
+
+ciscoEsStackSwitchProbeDirection OBJECT-TYPE
+	SYNTAX	INTEGER
+		{
+			transmit (1), -- For FDX Ports only
+		        receive  (2), -- For FDX Ports only
+			both     (3), -- For HDX ports only
+			none    (4)   -- SwitchProbe turned off
+		}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Direction of traffic to monitor on the SwitchProbe."
+	::= { ciscoEsStackEntry 11 }
+
+ciscoEsStackSwitchFeatureStatus OBJECT-TYPE
+	SYNTAX	INTEGER { standard (1), enhanced (2) , unknown (3)}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"This object indicates whether the switch is enabled 
+		 to support enhanced features."
+	::= { ciscoEsStackEntry 12 }
+
+ciscoEsStackSwitchFeatureKey OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Feature key to enable enhanced features."
+	::= { ciscoEsStackEntry 13 }
+
+ciscoEsStackSwitchPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"A bit mask representing all the ports present in this
+                switch. Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                EtherSwitch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'." 
+        ::= { ciscoEsStackEntry 14 }
+
+ciscoEsStackSwitchAgingTime OBJECT-TYPE
+        SYNTAX  INTEGER (0..9999)
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+		"Aging time in minutes for the master address table entries
+		 on this switch."
+	::= { ciscoEsStackEntry 15 }
+
+ciscoEsStackSwitchAgingLevel OBJECT-TYPE
+	SYNTAX	INTEGER  (0..90)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Threshold to demand age the master address table. All
+	         numbers refer to percentage of the address table. The
+		 only values accepted by the agent are 50,60,70,80,90
+		 and 0. Setting the value to 0 disables demand aging."
+	::= { ciscoEsStackEntry 16 }
+
+ciscoEsStackSwitchBufferOverruns OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Number of times the switch was out of buffers."
+	::= { ciscoEsStackEntry 17 }
+
+ciscoEsStackSwitchSoftwareFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of frames sent to the CPU on this switch."
+	::= { ciscoEsStackEntry 18 }
+
+ciscoEsStackSwitchInErrFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of frames in error on this switch."
+	::= { ciscoEsStackEntry 19}
+
+
+ciscoEsStackSwitchInShortFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of frames which were too short received
+		 on this switch."
+	::= { ciscoEsStackEntry 20 }
+
+ciscoEsStackSwitchInLongFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of frames which were too long received 
+		 on this switch."
+	::= { ciscoEsStackEntry 21 }
+
+ciscoEsStackSwitchOutDroppedFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of received frames dropped by switch."
+	::= { ciscoEsStackEntry 22 }
+
+ciscoEsStackSwitchInNoSpaceFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Number of times incoming frames had to be dropped
+		 because of no more memory available."
+	::= { ciscoEsStackEntry 23 }
+
+ciscoEsStackSwitchOutTotalReqs OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of requests made by the CPU to send
+		 out a frame."
+	::= { ciscoEsStackEntry 24 }
+
+ciscoEsStackSwitchOutTotalFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of frames sent out from this switch 	
+		 requested by the CPU."
+	::= { ciscoEsStackEntry 25 }
+
+ciscoEsStackSwitchLongestHashChain OBJECT-TYPE
+        SYNTAX  Gauge
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"The length of the longest hash chain in the CPU hash 
+		 table."
+	::= { ciscoEsStackEntry 26 }
+
+ciscoEsStackSwitchHashTableFulls OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Total number of times the hash table was full when
+		 trying to add an entry."
+	::= { ciscoEsStackEntry 27 }
+
+ciscoEsStackSwitchId  OBJECT-TYPE
+	SYNTAX	OBJECT IDENTIFIER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The switch Id used to uniquely identify the kind of the
+		 cisco ethernet switch."
+	::= { ciscoEsStackEntry 28 }
+
+ciscoEsStackSwitchDplxCtrl  OBJECT-TYPE
+	SYNTAX	INTEGER {hardware (1), software (2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Control of setting the ports to full or half duplex."
+	::= { ciscoEsStackEntry 29 }
+
+-- Module Configuration Table
+
+ciscoEsModTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsModEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Module configuration table. Each EtherSwitch
+                 the set of 10 MB Ports is considered as slot 1.
+                 Each additional card which plugs into the system
+                 is numbered based on where the card is plugged into."
+	::= { ciscoEsModule 1 }
+
+ciscoEsModEntry OBJECT-TYPE
+	SYNTAX	CiscoEsModEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the Module Table"
+	INDEX	{ 
+                        ciscoEsModSwitchNumber,
+                        ciscoEsModNumber 
+                }
+	::= { ciscoEsModTable 1 }
+
+CiscoEsModEntry ::= SEQUENCE {
+        ciscoEsModSwitchNumber          INTEGER,
+	ciscoEsModNumber                INTEGER,
+	ciscoEsModState			INTEGER,
+	ciscoEsModType			INTEGER,
+	ciscoEsModRevision		INTEGER,
+	ciscoEsModNumPorts		INTEGER,
+	ciscoEsModUptime		TimeTicks
+	}
+
+ciscoEsModSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoEsModEntry 1 }
+
+ciscoEsModNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The module number."
+	::= { ciscoEsModEntry 2 }
+
+ciscoEsModState  OBJECT-TYPE
+	SYNTAX	INTEGER { nomodule (1), running (2), stopped (3), faulty (4) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The state indicates the current operational state of the
+		 module."
+	::= { ciscoEsModEntry 3 }
+
+ciscoEsModType  OBJECT-TYPE
+	SYNTAX	INTEGER 
+		{
+		 system              (1),  -- 16 Port 10BaseT and CPU
+		 ws-X3004            (2),  -- PFP Port Module
+		 ws-X3001            (3),  -- 100 Mb Ethernet TX 
+		 ws-X3005            (4),  -- 100 Mb Ethernet FX
+	         ws-X3002            (5),  -- 4 Port 10BaseT
+		 ws-X3013           (6),  -- 3 Port 10Base2
+		 ws-X3003            (7),  -- 3 Port 10BaseF
+		 ws-X3006            (8),  -- ATM Module
+		 unknown             (9),  -- Unknown Module
+		 none                (10), -- Slot is empty
+		 ws-X3007-8          (11), -- 100Base(F/T)-VG
+                 ws-X3009            (12), -- ISL FX
+                 ws-X3010            (13), -- ISL TX
+                 ws-X3011            (14)  -- Latte Router module
+		}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The type of module plugged in to the slot. Module type 
+		 system (1) represents the mother board with the CPU and
+		 system memory. In RSM the system module always occupies
+		 slot 2. Module state none (6) represents a slot with no
+	         modules plugged in (indicated by ciscoEsModState)."
+	::= { ciscoEsModEntry 4 }
+
+ciscoEsModRevision  OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The module revision number."
+	::= { ciscoEsModEntry 5 }
+
+ciscoEsModNumPorts  OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of ports in the module."
+	::= { ciscoEsModEntry 6 }
+
+ciscoEsModUptime  OBJECT-TYPE
+	SYNTAX	TimeTicks
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Time in 1/100 seconds since the module was last reset."
+	::= { ciscoEsModEntry 7 }
+
+-- EtherSwitch Port table
+
+ciscoEsPortTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsPortEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of information about each port. For 
+		 Cisco ports only the following Counters
+		 are valid:
+		 	ciscoEsPortInFrames
+		 	ciscoEsPortOutFrames
+		 	ciscoEsPortInOctets
+		 	ciscoEsPortOutOctets
+		 	ciscoEsPortLongFrames
+		 	ciscoEsPortShortFrames
+		 	ciscoEsPortSWHandledFrames
+		 	ciscoEsPortInBufOverflows
+		 	ciscoEsPortOutBufOverflows
+		 	ciscoEsPortPktsInErrors
+			ciscoEsPortForwardedFrames
+		All other Counters will return 0 for such ports."
+	::= { ciscoEsPort 1 }
+
+ciscoEsPortEntry OBJECT-TYPE
+	SYNTAX	CiscoEsPortEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of rows in the port table."
+	INDEX	{ ciscoEsPortSwitchNumber, ciscoEsPortNumber }
+	::= { ciscoEsPortTable 1 }
+
+CiscoEsPortEntry ::= SEQUENCE {
+        ciscoEsPortSwitchNumber         INTEGER,
+	ciscoEsPortNumber		INTEGER,
+ 	ciscoEsPortModNumber            INTEGER,
+	ciscoEsPortIfIndex		INTEGER,
+	ciscoEsPortDuplex 	        INTEGER,
+	ciscoEsPortRcvLocalFrames    	Counter,
+	ciscoEsPortForwardedFrames   	Counter,
+	ciscoEsPortMostStations		Counter,
+	ciscoEsPortMaxStations		Counter,
+	ciscoEsPortSWHandledFrames   	Counter,
+	ciscoEsPortLocalStations	Counter,
+	ciscoEsPortRemoteStations    	Counter,
+	ciscoEsPortUnknownStaFrames  	Counter,
+	ciscoEsPortResetStats		INTEGER,
+	ciscoEsPortResetTimer		TimeTicks,
+	ciscoEsPortResetAddrs		INTEGER,
+	ciscoEsPortInFrames             Counter,
+	ciscoEsPortOutFrames            Counter,
+	ciscoEsPortLongFrames           Counter,
+	ciscoEsPortShortFrames          Counter,
+	ciscoEsPortInBufOverflows       Counter,
+	ciscoEsPortOutBufOverflows      Counter,
+	ciscoEsPortRcvBcasts	        Counter,
+	ciscoEsPortRcvMcasts	        Counter,
+	ciscoEsPortSwitchedFrames    	Counter,
+	ciscoEsPortInOctets	    	Counter,
+	ciscoEsPortOutOctets    	Counter,
+	ciscoEsPortPktsInErrors    	Counter,
+	ciscoEsPortLinkState		INTEGER,
+	ciscoEsPortOprStatus		INTEGER,
+	ciscoEsPortMdiMdix		INTEGER,
+	ciscoEsPortHashOverflows	Counter,
+	ciscoEsPortTableOverflows	Counter,
+	ciscoEsPortAddrAgingTime        INTEGER,
+	ciscoEsPortDemandAgingLevel     INTEGER,
+	ciscoEsPortCfgMode              INTEGER,
+	ciscoEsPortActiveMode           INTEGER,
+	ciscoEsPortErrThreshold         INTEGER,
+	ciscoEsPortLearningState        INTEGER,
+	ciscoEsPortRuntlessMode         INTEGER,
+	ciscoEsPortType                 INTEGER,
+	ciscoEsPortCDPTimeToLive        INTEGER,
+        ciscoEsPortFastPort             INTEGER, 
+        ciscoEsPortISLOperStatus        INTEGER, 
+        ciscoEsPortISLAdminStatus       INTEGER 
+	}
+
+ciscoEsPortSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoEsPortEntry 1 }
+
+ciscoEsPortNumber OBJECT-TYPE
+	SYNTAX	INTEGER (1..32)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A unique value for each port entry.  The value
+		corresponds the port number."
+	::= { ciscoEsPortEntry 2 }
+
+ciscoEsPortModNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..4)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Module number of the module that contains this port."
+	::= { ciscoEsPortEntry 3 }
+
+ciscoEsPortIfIndex OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A pointer to the entry in the ifTable corresponding
+                 to this port."
+	::= { ciscoEsPortEntry 4 }
+
+ciscoEsPortDuplex OBJECT-TYPE
+	SYNTAX	INTEGER {
+		fullDuplex(1),
+		halfDuplex(2)
+		}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Indicates whether the port is jumper configured
+		for full or half duplex operation.  Note:
+		internal connected ports are always
+		halfDuplex(2)."
+	::= { ciscoEsPortEntry 5 }
+
+ciscoEsPortRcvLocalFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of frames received where the destination
+		is on this port."
+	::= { ciscoEsPortEntry 6 }
+
+ciscoEsPortForwardedFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of frames received on this port and
+		 forwarded to another port or the system module 
+                 for processing."
+	::= { ciscoEsPortEntry 7 }
+
+ciscoEsPortMostStations OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Highest number of stations ever active at any
+		time since the last reset of the switch as seen by
+		this port."
+	::= { ciscoEsPortEntry 8 }
+
+ciscoEsPortMaxStations OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Maximum number of stations which the port can
+		support simultaneously."
+	::= { ciscoEsPortEntry 9 }
+
+ciscoEsPortSWHandledFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of Frames received on this port and
+		delivered to the system module for processing."
+	::= { ciscoEsPortEntry 10 }
+
+ciscoEsPortLocalStations OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of stations on this port which belong to
+		the local segment."
+	::= { ciscoEsPortEntry 11 }
+
+ciscoEsPortRemoteStations OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of stations on this port which belong to
+		another segment."
+	::= { ciscoEsPortEntry 12 }
+
+ciscoEsPortUnknownStaFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of unicast frames received on this port
+		and forwarded to the system module for processing
+		because the source or destination station address 
+		is not in the port's forwarding table."
+	::= { ciscoEsPortEntry 13 }
+
+ciscoEsPortResetStats OBJECT-TYPE
+	SYNTAX	INTEGER {
+		other(1),	-- none of the following
+		running(2),	-- port is functioning
+		reset(3)	-- reset port counters
+		}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Setting this object to reset(3) causes all
+		traffic counters for this port to be set to zero.
+		Also the value of ciscoEsPortResetTimer is set to
+		zero."
+	::= { ciscoEsPortEntry 14 }
+
+ciscoEsPortResetTimer OBJECT-TYPE
+	SYNTAX	TimeTicks
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Time (in 100th second ticks) since the port
+		counters were reset."
+	::= { ciscoEsPortEntry 15 }
+
+
+ciscoEsPortResetAddrs OBJECT-TYPE
+	SYNTAX	INTEGER {
+		other(1),	-- none of the following
+		running(2),	-- port is functioning
+		reset(3)	-- clear address table &
+		}		--  reset port counters
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Setting this object to reset(3) clears all
+		address table entries for this port as well as
+		setting all port traffic counters to zero and
+		setting ciscoEsPortResetTimer to zero."
+	::= { ciscoEsPortEntry 16 }
+
+ciscoEsPortInFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total Number of Frames received on this port."
+	::= { ciscoEsPortEntry 17 }
+
+ciscoEsPortOutFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total Number of Frames transmitted by this port."
+	::= { ciscoEsPortEntry 18 }
+
+ciscoEsPortLongFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total Number of Frames received on this port which were
+		 too long."
+	::= { ciscoEsPortEntry 19 }
+
+ciscoEsPortShortFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total Number of Frames received on this port which were
+		 too short."
+	::= { ciscoEsPortEntry 20 }
+
+ciscoEsPortInBufOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total Number of Frames received on this port which
+		 caused a receive buffer overflow."
+	::= { ciscoEsPortEntry 21 }
+
+ciscoEsPortOutBufOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total Number of Frames which could not be transmitted
+		 from this port because of transmit buffer overflow."
+	::= { ciscoEsPortEntry 22 }
+
+ciscoEsPortRcvBcasts OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of Broadcast Frames received on this port
+		without errors."
+	::= { ciscoEsPortEntry 23 }
+
+ciscoEsPortRcvMcasts OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of Multicast Frames received on this port
+		without errors."
+	::= { ciscoEsPortEntry 24 }
+
+ciscoEsPortSwitchedFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of frames switched on this port."
+	::= { ciscoEsPortEntry 25 }
+
+ciscoEsPortInOctets OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of octets received through this 
+		 port. This counter is the same as the 
+		 ifInOctets counter in ifTable corresponding
+		 to this port."
+	::= { ciscoEsPortEntry 26 }
+
+ciscoEsPortOutOctets OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of octets transmitted from this 
+		 port. This counter is the same as the 
+		 ifOutOctets counter in ifTable corresponding
+		 to this port."
+	::= { ciscoEsPortEntry 27 }
+
+ciscoEsPortPktsInErrors OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of packets received or transmitted
+		 from this port and there was an error."
+	::= { ciscoEsPortEntry 28 }
+
+ciscoEsPortLinkState OBJECT-TYPE
+	SYNTAX	INTEGER { up (1), down (2) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Link state of the port."
+	::= { ciscoEsPortEntry 29 }
+
+ciscoEsPortOprStatus OBJECT-TYPE
+	SYNTAX	INTEGER { enabled (1), disabled (2), failed(3) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Operational status of the port. Failed is returned
+		 when the the port fails power-on diagnostic tests."
+	::= { ciscoEsPortEntry 30 }
+
+ciscoEsPortMdiMdix OBJECT-TYPE
+	SYNTAX	INTEGER {
+		mdi (1),	-- port in MDI mode
+		mdix (2),	-- port in MDIX mode
+		none (3),	-- MDI/MDIX mode not applicable for port
+                internal-term-on (4), -- mode valid ony for GI Joe ports
+                internal-term-off (5) -- mode valid ony for GI Joe ports
+		}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Indicates whether the port is configured as MDI or 
+		 MDIX or none (meaning not applicable). This object is also
+		 used to show the termination status for 10Base2 type ports."
+	::= { ciscoEsPortEntry 31 }
+
+ciscoEsPortHashOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of times a hash bucket was full when trying to 
+		 add an entry to the port address table."
+	::= { ciscoEsPortEntry 32 }
+
+ciscoEsPortTableOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of times the address table  was full when trying 
+		 to add an entry to the port address table."
+	::= { ciscoEsPortEntry 33 }
+
+ciscoEsPortAddrAgingTime OBJECT-TYPE
+	SYNTAX	INTEGER (0..9999)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "Port level address aging time in minutes. Setting this object
+		 to zero disables address aging."
+	::= { ciscoEsPortEntry 34 }
+
+ciscoEsPortDemandAgingLevel OBJECT-TYPE
+	SYNTAX	INTEGER  (0..90)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Threshold to demand age the port address table. All
+	         numbers refer to percentage of the address table. The
+		 only values accepted by the agent are 50,60,70,80,90
+		 and 0. Setting the value to 0 disables demand aging."
+	::= { ciscoEsPortEntry 35 }
+
+
+ciscoEsPortCfgMode OBJECT-TYPE
+	SYNTAX	INTEGER { ieee8021d (1), cutthru (2), auto (3) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "Set bridging mode for the port."
+	::= { ciscoEsPortEntry 36 }
+
+ciscoEsPortActiveMode OBJECT-TYPE
+	SYNTAX	INTEGER { ieee8021d (1), cutthru (2), unknown (3) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Operational bridging mode for the port."
+	::= { ciscoEsPortEntry 37 }
+
+ciscoEsPortErrThreshold OBJECT-TYPE
+	SYNTAX	INTEGER (0..100)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Threshold error rate when the port moves from
+		 cut-through to store and forward mode."
+	::= { ciscoEsPortEntry 38 }
+
+ciscoEsPortLearningState OBJECT-TYPE
+	SYNTAX	INTEGER 
+		{
+			normal (1),
+			disableSrcLearning (2),
+			disableDstnLearning (3),
+			disableLearning (4)
+		}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Configure learning state on this port."
+	::= { ciscoEsPortEntry 39 }
+
+ciscoEsPortRuntlessMode OBJECT-TYPE
+	SYNTAX	INTEGER { on (1), off (2) } 
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Turn on/off runtless filtering on this port.  When this
+		 this mode is turned on, no runts will be forwarded."
+	::= { ciscoEsPortEntry 40 }
+
+ciscoEsPortType OBJECT-TYPE
+	SYNTAX	INTEGER 
+		{ 
+		 type-10BaseT            (1),  -- 10 Mb Ethernet Twisted Pair
+		 type-StkPort            (2),  -- 280 Mb Port
+		 type-100BaseT           (3),  -- 100 Mb Ethernet Twisted Pair
+		 type-100BaseFx          (4),  -- 100 Mb Ethernet Fiber
+	         type-10BaseT-4          (5),  -- 10 Mb Ethernet Twisted Pair 4 port
+		 type-10Base2            (6),  -- 10 Mb Ethernet Thinnet 3 port
+		 type-10BaseFL           (7),  -- 10 Mb Ethernet Fiber 3 port
+		 type-ATM155             (8),  -- 155 Mb ATM Fiber
+		 unknown                 (9),
+                 type-100VG-Fx           (10), -- 100(VG)Mb Fiber
+                 type-100VG-Tx           (11), -- 100(VG)Mb Copper
+                 type-ISL-FX             (12), -- ISL FX
+                 type-ISL-TX             (13), -- ISL TX
+                 type-R2503              (14)  -- Latte 2503 Router
+		 }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Type of port."
+	::= { ciscoEsPortEntry 41 }
+
+ciscoEsPortCDPTimeToLive OBJECT-TYPE
+	SYNTAX	INTEGER(0..255)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The advertised time-to-live parameter on all CDP messages
+		generated by this switch on this vlan."
+	::= { ciscoEsPortEntry 42 }
+
+ciscoEsPortFastPort OBJECT-TYPE
+        SYNTAX  INTEGER {
+                disable(1),
+                enable(2)
+                }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "Indicates whether the port is enable or disable
+                for fast port support.  When fast port is enable,
+                port state will go to forwarding as soon as the
+                link is up."
+        ::= { ciscoEsPortEntry 43 }
+
+ciscoEsPortISLOperStatus OBJECT-TYPE
+        SYNTAX  INTEGER {
+                trunking(1),
+                non-trunking(2)
+                }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The current operational mode for an ISL port." 
+        ::= { ciscoEsPortEntry 44 }
+
+ciscoEsPortISLAdminStatus OBJECT-TYPE
+        SYNTAX  INTEGER {
+                on(1),
+                off(2),
+                desirable (3),
+                auto (4)
+                }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "Used to configure the DISL modes for an ISL trunk port."
+        ::= { ciscoEsPortEntry 45 }
+-- EtherSwitch Port station table
+
+ciscoEsPortStnTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsPortStnEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+                "Port station table."        
+	::= { ciscoEsPort 3 }
+
+ciscoEsPortStnEntry OBJECT-TYPE
+	SYNTAX	CiscoEsPortStnEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of the Conceptual row in the Port station table."
+	INDEX { 
+                  ciscoEsPortStnSwitchNumber,
+                  ciscoEsPortStnPortNum, 
+                  ciscoEsPortStnAddress 
+              }
+	::= { ciscoEsPortStnTable 1 }
+
+CiscoEsPortStnEntry ::= SEQUENCE {
+        ciscoEsPortStnSwitchNumber      INTEGER,
+	ciscoEsPortStnPortNum		INTEGER,
+	ciscoEsPortStnAddress           MacAddr,            
+	ciscoEsPortStnLocation		INTEGER,
+	ciscoEsPortStnSrcFrames		Counter,
+	ciscoEsPortStnSrcBytes		Counter,
+	ciscoEsPortStnDestnFrames       Counter,
+	ciscoEsPortStnDestnBytes	Counter,
+	ciscoEsPortStnPortOfExit        OCTET STRING
+        }
+
+ciscoEsPortStnSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoEsPortStnEntry 1 }
+
+ciscoEsPortStnPortNum OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Port number corresponding to this entry."
+	::= { ciscoEsPortStnEntry 2 }
+
+ciscoEsPortStnAddress OBJECT-TYPE
+	SYNTAX	MacAddr
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Station MAC address."
+	::= { ciscoEsPortStnEntry 3 }
+
+ciscoEsPortStnLocation OBJECT-TYPE
+	SYNTAX	INTEGER {local (1), remote (2) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Where the station is located."
+	::= { ciscoEsPortStnEntry 4 }
+
+ciscoEsPortStnSrcFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Number of frames with this station as the source."
+	::= { ciscoEsPortStnEntry  5}
+
+
+ciscoEsPortStnSrcBytes OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Number of Bytes with this station as the source."
+	::= { ciscoEsPortStnEntry 6}
+
+ciscoEsPortStnDestnFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Number of frames with this station as the destination."
+	::= { ciscoEsPortStnEntry 7 }
+
+ciscoEsPortStnDestnBytes OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "Number of bytes with this station as the destination."
+	::= { ciscoEsPortStnEntry 8 }
+
+ciscoEsPortStnPortOfExit OBJECT-TYPE
+	SYNTAX	OCTET STRING (SIZE(4))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A bit string that identifies the ports that frames
+		destined to this address are forwarded to when received
+		on this port.
+		Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                EtherSwitch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'." 
+
+        ::= { ciscoEsPortStnEntry 9 }
+
+-- An "optimized" version of the port station table
+
+ciscoEsOptPortStaTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsOptPortStaEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of station addresses known at an
+		individual port.  This table is designed to reduce
+		the number of SNMP GETNEXT requests.  This is done
+		by packing many values into an octet string.  (The
+		maximum size frame should be used to return the
+		result.) The instance returned for a GETNEXT is
+		the value that identifies the last 'row' in the
+		octet string.  When the table is completely
+		retrieved with one or more GETNEXTs, duplicate
+		entries may be present, and entries may be skipped
+		if the table is changing while being retrieved."
+	::= { ciscoEsPort 2 }
+
+ciscoEsOptPortStaEntry OBJECT-TYPE
+	SYNTAX	CiscoEsOptPortStaEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of the rows in the optimized port
+		station address table.	Rows can not be created or
+		deleted via SNMP requests."
+	INDEX	{ 
+                  ciscoEsPortSwitchNumber,
+                  ciscoEsPortNumber,
+		  ciscoEsOptPortStaPos 
+		}
+
+	::= { ciscoEsOptPortStaTable 1 }
+
+CiscoEsOptPortStaEntry ::= SEQUENCE {
+	ciscoEsOptPortStaPos	INTEGER,
+	ciscoEsOptPortStaVal	OCTET STRING
+	}
+
+ciscoEsOptPortStaPos OBJECT-TYPE
+	SYNTAX	INTEGER (0..65535)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Third index for items in the optimized port
+		station address table."
+	::= { ciscoEsOptPortStaEntry 1 }
+
+ciscoEsOptPortStaVal OBJECT-TYPE
+	SYNTAX	OCTET STRING
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"An OCTET STRING containing a multiple number of
+		stations from a port station address table. Each entry
+		is encoded in the following format:
+		Station MAC address - 6 octets
+		Location 1 - local
+		         2 - remote - 1 octet
+		Port of exit Mask   - 4 octets  
+	        Source Frame Count  - 4 octets (integer in little endian)
+	        Destn Frame Count   - 4 octets (integer in little endian)
+	        Source Byte Count   - 4 octets (integer in little endian)
+	        Destn Byte Count    - 4 octets (integer in little endian)
+
+		The Port of exit mask is encoded in its raw form as stored
+		in the switch.
+          		       Octet 1
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number  31 30 29 28 27 26 25 24
+          		       Octet 2
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number  23 22 21 20 19 18 17 16
+          		       Octet 3
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number  15 14 13 12 11 10  9  8
+          		       Octet 4
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number   7  6  5  4  3  2  1 CPU "
+	::= { ciscoEsOptPortStaEntry 2 }
+
+-- VLAN Table 
+-- Supports dynamic configuration of vlans
+
+ciscoEsVLANPortTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsVLANPortEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"VLAN configuration table."
+	::= { ciscoEsVLANs 1 }
+
+ciscoEsVLANPortEntry OBJECT-TYPE
+	SYNTAX	CiscoEsVLANPortEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the vlan Table"
+	INDEX	{ 
+			ciscoEsVLANPortVLANNumber, 
+			ciscoEsVLANPortSwitchNumber
+		}
+	::= { ciscoEsVLANPortTable 1 }
+
+CiscoEsVLANPortEntry ::= SEQUENCE {
+	ciscoEsVLANPortVLANNumber           INTEGER,
+	ciscoEsVLANPortSwitchNumber        INTEGER,
+        ciscoEsVLANPortPorts               OCTET STRING
+	}
+
+ciscoEsVLANPortVLANNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (0..63)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"VLAN identifier for this row."
+	::= { ciscoEsVLANPortEntry 1 }
+
+ciscoEsVLANPortSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoEsVLANPortEntry 2 }
+
+ciscoEsVLANPortPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of ports in this switch which belong to this 
+                VLAN. Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                EtherSwitch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'." 
+        ::= { ciscoEsVLANPortEntry 3 }
+
+-- VLAN information Table
+
+ciscoEsVLANInfoTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsVLANInfoEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"VLAN Information table."
+	::= { ciscoEsVLANs 2 }
+
+ciscoEsVLANInfoEntry OBJECT-TYPE
+	SYNTAX	CiscoEsVLANInfoEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the vlan Table"
+	INDEX	{ ciscoEsVLANInfoVLANNumber }
+	::= { ciscoEsVLANInfoTable 1 }
+
+CiscoEsVLANInfoEntry ::= SEQUENCE {
+	ciscoEsVLANInfoVLANNumber               INTEGER,
+	ciscoEsVLANInfoState                   INTEGER,
+	ciscoEsVLANInfoName		      DisplayString,
+        ciscoEsVLANInfoBaseAddr                MacAddr,
+	ciscoEsVLANInfoIfIndex                 INTEGER,
+	ciscoEsVLANInfoIpState                 INTEGER,
+	ciscoEsVLANInfoIpAddress               IpAddress,
+	ciscoEsVLANInfoIpSubnetMask            IpAddress,
+	ciscoEsVLANInfoIpDefaultGateway        IpAddress,
+        ciscoEsVLANInfoStp                     INTEGER,
+        ciscoEsVLANInfoNumStations             Gauge,
+        ciscoEsVLANInfoMaxStations             INTEGER
+	}
+
+ciscoEsVLANInfoVLANNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (0..63)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"VLAN identifier for this row."
+	::= { ciscoEsVLANInfoEntry 1 }
+
+
+ciscoEsVLANInfoState  OBJECT-TYPE
+	SYNTAX	INTEGER { active (1), inactive (2) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Current state of the vlan. If a vlan has at least
+		 one port, it is considered active (1)."
+	::= { ciscoEsVLANInfoEntry 2 }
+
+ciscoEsVLANInfoName OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..32))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"User defined name of the vlan."
+	::= { ciscoEsVLANInfoEntry 3}
+
+ciscoEsVLANInfoBaseAddr  OBJECT-TYPE
+	SYNTAX	MacAddr
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+                "The MAC address assigned to this vlan. This address
+                 is the MAC address of the lowest numbered port in the
+                 vlan."
+	::= { ciscoEsVLANInfoEntry 4 }
+
+ciscoEsVLANInfoIfIndex  OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The ifIndex of the interface entry corresponding
+                 to each vlan."
+	::= { ciscoEsVLANInfoEntry 5 }
+
+ciscoEsVLANInfoIpState  OBJECT-TYPE
+	SYNTAX	INTEGER { disabled (1), auto-bootp(2), always-bootp (3) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		 "IP configuration for this vlan."
+	::= { ciscoEsVLANInfoEntry 6 }
+
+ciscoEsVLANInfoIpAddress  OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "IP Address assigned to this vlan. Changes to the
+                 IP Address of the vlan to which the management
+                 station belongs cause loss of connectivity until
+                 the management station updates its information about
+                 the IP Address."
+	::= { ciscoEsVLANInfoEntry 7 }
+
+ciscoEsVLANInfoIpSubnetMask  OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The subnet mask for this vlan."
+	::= { ciscoEsVLANInfoEntry 8 }
+
+ciscoEsVLANInfoIpDefaultGateway  OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The IP Address of the default gateway for this VLAN."
+	::= { ciscoEsVLANInfoEntry 9 }
+
+ciscoEsVLANInfoStp OBJECT-TYPE
+	SYNTAX	INTEGER { on (1), off (2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Turn Spanning tree on or off."
+	::= { ciscoEsVLANInfoEntry 10 }
+
+ciscoEsVLANInfoNumStations OBJECT-TYPE
+	SYNTAX	Gauge
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of local stations (nodes) in the vlan."
+	::= { ciscoEsVLANInfoEntry 11 }
+
+ciscoEsVLANInfoMaxStations OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Aggregate of the highest number of local stations
+		(nodes) in the vlan calculated separately on each
+		box."
+	::= { ciscoEsVLANInfoEntry 12 }
+
+
+-- VLAN Spanning tree Group
+
+ciscoEsVLANStpTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsVLANStpEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Spanning tree information table for each vlan."
+	::= { ciscoEsVLANs 3 }
+
+ciscoEsVLANStpEntry OBJECT-TYPE
+	SYNTAX	CiscoEsVLANStpEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the vlan specific spanning 
+                 tree information table."
+	INDEX	{ ciscoEsVLANStpVLANIndex }
+	::= { ciscoEsVLANStpTable 1 }
+
+CiscoEsVLANStpEntry ::= SEQUENCE {
+	ciscoEsVLANStpVLANIndex	              INTEGER,
+        ciscoEsVLANStpPriority                 INTEGER,
+        ciscoEsVLANStpTimeSinceTopologyChange  TimeTicks,
+        ciscoEsVLANStpTopChanges               Counter,
+        ciscoEsVLANStpDesignatedRoot           BridgeId,
+        ciscoEsVLANStpRootCost                 INTEGER,
+        ciscoEsVLANStpRootPort                 INTEGER,
+        ciscoEsVLANStpMaxAge                   INTEGER,
+        ciscoEsVLANStpHelloTime                INTEGER,
+        ciscoEsVLANStpHoldTime                 INTEGER,
+        ciscoEsVLANStpForwardDelay             INTEGER,
+        ciscoEsVLANStpBridgeMaxAge             INTEGER,
+        ciscoEsVLANStpBridgeHelloTime          INTEGER,
+        ciscoEsVLANStpBridgeForwardDelay       INTEGER
+	}
+                
+ciscoEsVLANStpVLANIndex OBJECT-TYPE
+        SYNTAX  INTEGER (0..63)
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Integer reference to the vlan number in the vlan table."
+        ::= { ciscoEsVLANStpEntry 1 }
+               
+ciscoEsVLANStpPriority OBJECT-TYPE
+        SYNTAX  INTEGER (0..65535)
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The value of the write-able portion of the Bridge
+                ID, i.e., the first two octets of the (8 octet
+                long) Bridge ID.  The other (last) 6 octets of the
+                Bridge ID are given by the value of
+                ciscoEsVLANBaseBridgeAddress. The bridge ID corresponds
+                to the particular instance of spanning tree running
+                in this vlan"
+        ::= { ciscoEsVLANStpEntry 2 }
+
+ciscoEsVLANStpTimeSinceTopologyChange OBJECT-TYPE
+        SYNTAX  TimeTicks
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The time (in hundredths of a second) since the
+                last time a topology change was detected by the
+                bridge entity."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 6.8.1.1.3"
+        ::= { ciscoEsVLANStpEntry 3 }
+
+ciscoEsVLANStpTopChanges OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The total number of topology changes detected by
+                this vlan since the management entity was last
+                reset or initialized."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 6.8.1.1.3"
+        ::= { ciscoEsVLANStpEntry 4 }
+
+ciscoEsVLANStpDesignatedRoot OBJECT-TYPE
+        SYNTAX  BridgeId
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The bridge identifier of the root of the spanning
+                tree as determined by the Spanning Tree Protocol
+                as executed by this node.  This value is used as
+                the Root Identifier parameter in all Configuration
+                Bridge PDUs originated by this vlan."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.1"
+        ::= { ciscoEsVLANStpEntry 5 }
+
+ciscoEsVLANStpRootCost OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The cost of the path to the root as seen from
+                this vlan."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.2"
+        ::= { ciscoEsVLANStpEntry 6 }
+
+ciscoEsVLANStpRootPort OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The port number of the port which offers the
+                lowest cost path from this vlan to the root
+                bridge."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.3"
+        ::= { ciscoEsVLANStpEntry 7 }
+
+ciscoEsVLANStpMaxAge OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The maximum age of Spanning Tree Protocol
+                information learned from the network on any port
+                before it is discarded, in units of hundredths of
+                a second.  This is the actual value that this
+                vlan is currently using."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.4"
+        ::= { ciscoEsVLANStpEntry 8 }
+
+ciscoEsVLANStpHelloTime OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The amount of time between the transmission of
+                Configuration bridge PDUs by this node on any port
+                when it is the root of the spanning tree or trying
+                to become so, in units of hundredths of a second.
+                This is the actual value that this vlan is
+                currently using."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.5"
+        ::= { ciscoEsVLANStpEntry 9 }
+
+ciscoEsVLANStpHoldTime OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This time value determines the interval length
+                during which no more than two Configuration bridge
+                PDUs shall be transmitted by this vlan, in units
+                of hundredths of a second."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.14"
+        ::= { ciscoEsVLANStpEntry 10 }
+
+ciscoEsVLANStpForwardDelay OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This time value, measured in units of hundredths
+                of a second, controls how fast a port changes its
+                spanning state when moving towards the Forwarding
+                state.  The value determines how long the port
+                stays in each of the Listening and Learning
+                states, which precede the Forwarding state.  This
+                value is also used, when a topology change has
+                been detected and is underway, to age all dynamic
+                entries in the Forwarding Database.  [Note that
+                this value is the one that this vlan is
+                currently using, in contrast to
+                ciscoEsVLANStpBridgeForwardDelay which is the value that
+                this vlan and all others would start using
+                if/when this vlan were to become the root.]"
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.6"
+        ::= { ciscoEsVLANStpEntry 11 }
+
+ciscoEsVLANStpBridgeMaxAge OBJECT-TYPE
+        SYNTAX  INTEGER (600..4000)
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The value that all bridges use for MaxAge when
+                this vlan is acting as the root.  Note that
+                802.1D-1990 specifies that the range for this
+                parameter is related to the value of
+                ciscoEsVLANStpBridgeHelloTime. The granularity of this
+                timer is specified by 802.1D-1990 to be 1 second.
+                An agent may return a badValue error if a set is
+                attempted to a value which is not a whole number
+                of seconds."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.8"
+        ::= { ciscoEsVLANStpEntry 12 }
+
+ciscoEsVLANStpBridgeHelloTime OBJECT-TYPE
+        SYNTAX  INTEGER (100..1000)
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The value that all bridges use for HelloTime when
+                this vlan is acting as the root.  The
+                granularity of this timer is specified by 802.1D-
+                1990 to be 1 second.  An agent may return a
+                badValue error if a set is attempted to a value
+                which is not a whole number of seconds."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.9"
+        ::= { ciscoEsVLANStpEntry 13 }
+
+ciscoEsVLANStpBridgeForwardDelay OBJECT-TYPE
+        SYNTAX  INTEGER (400..3000)
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The value that all bridges use for ForwardDelay
+                when this vlan is acting as the root.  Note that
+                802.1D-1990 specifies that the range for this
+                parameter is related to the value of
+                ciscoEsVLANStpBridgeMaxAge.  The granularity of this
+                timer is specified by 802.1D-1990 to be 1 second.
+                An agent may return a badValue error if a set is
+                attempted to a value which is not a whole number
+                of seconds."
+        REFERENCE
+                "IEEE 802.1D-1990: Section 4.5.3.10"
+        ::= { ciscoEsVLANStpEntry 14 }
+
+-- VLAN Station Table
+
+ciscoEsVLANStationTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsVLANStationEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Stations seen in each vlan."
+	::= { ciscoEsVLANs 4 }
+
+ciscoEsVLANStationEntry OBJECT-TYPE
+	SYNTAX	CiscoEsVLANStationEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the vlan specific 
+                 station table."
+	INDEX	{ 
+			ciscoEsVLANStationVLANIndex, 
+			ciscoEsVLANStationBoxNum, 
+			ciscoEsVLANStationAddress 
+		}
+	::= { ciscoEsVLANStationTable 1 }
+
+CiscoEsVLANStationEntry ::= SEQUENCE {
+	ciscoEsVLANStationVLANIndex	        INTEGER,
+	ciscoEsVLANStationBoxNum 	        INTEGER,
+	ciscoEsVLANStationAddress	        OCTET STRING,
+	ciscoEsVLANStationPort 	                INTEGER,
+	ciscoEsVLANStationTraffic	        OCTET STRING
+        }
+        
+ciscoEsVLANStationVLANIndex OBJECT-TYPE
+        SYNTAX  INTEGER (0..63)
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+            "Integer reference to the vlan number in the vlan table."        
+        ::= { ciscoEsVLANStationEntry 1 }
+
+ciscoEsVLANStationBoxNum OBJECT-TYPE
+        SYNTAX  INTEGER (1..8)
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+            "Integer reference to the switch number on which the table entry
+            resides."
+        ::= { ciscoEsVLANStationEntry 2 }
+
+ciscoEsVLANStationAddress OBJECT-TYPE
+        SYNTAX	OCTET STRING (SIZE(6))
+        ACCESS	read-only
+        STATUS	mandatory
+        DESCRIPTION
+    	        "The Station's MAC address."
+        ::= { ciscoEsVLANStationEntry 3 }
+
+ciscoEsVLANStationPort OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The source port for the Station."
+        ::= { ciscoEsVLANStationEntry 4 }
+
+ciscoEsVLANStationTraffic OBJECT-TYPE
+	SYNTAX	OCTET STRING (SIZE(4))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A bit string that identifies with value of one of
+		the ports that this station has generated traffic
+		to or from. Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                EtherSwitch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'." 
+
+        ::= { ciscoEsVLANStationEntry 5 }
+
+
+-- An "optimized" version of the vlan station table
+
+ciscoEsOptVLANStaTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsOptVLANStaEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of station addresses known at an
+		individual port.  This table is designed to reduce
+		the number of SNMP GETNEXT requests.  This is done
+		by packing many values into an octet string.  (The
+		maximum size frame should be used to return the
+		result.) The instance returned for a GETNEXT is
+		the value that identifies the last 'row' in the
+		octet string.  When the table is completely
+		retrieved with one or more GETNEXTs, duplicate
+		entries may be present, and entries may be skipped
+		if the table is changing while being retrieved."
+	::= { ciscoEsVLANs 5 }
+
+ciscoEsOptVLANStaEntry OBJECT-TYPE
+	SYNTAX	CiscoEsOptVLANStaEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of the rows in the optimized port
+		station address table.	Rows can not be created or
+		deleted via SNMP requests."
+	INDEX	{ 
+                  ciscoEsVLANStationVLANIndex, 
+		  ciscoEsVLANStationBoxNum, 
+		  ciscoEsOptVLANStaPos 
+		}
+
+	::= { ciscoEsOptVLANStaTable 1 }
+
+CiscoEsOptVLANStaEntry ::= SEQUENCE {
+	ciscoEsOptVLANStaPos	INTEGER,
+	ciscoEsOptVLANStaVal	OCTET STRING
+	}
+
+ciscoEsOptVLANStaPos OBJECT-TYPE
+	SYNTAX	INTEGER (0..65535)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Third index for items in the optimized port
+		station address table."
+	::= { ciscoEsOptVLANStaEntry 1 }
+
+ciscoEsOptVLANStaVal OBJECT-TYPE
+	SYNTAX	OCTET STRING
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"An OCTET STRING containing a multiple number of
+		stations from the vlan station address table. Each entry
+		is encoded in the following format:
+		Station MAC address - 6 octets
+		Port of Entry       - 1 octet
+		Traffic Mask        - 4 octets  
+
+		The traffic mask is encoded in its raw form as stored
+		in the switch.
+          		       Octet 1
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number  31 30 29 28 27 26 25 24
+          		       Octet 2
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number  23 22 21 20 19 18 17 16
+          		       Octet 3
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number  15 14 13 12 11 10  9  8
+          		       Octet 4
+                Bit position  7  6  5  4  3  2  1  0 
+	        Port Number   7  6  5  4  3  2  1 CPU "
+	::= { ciscoEsOptVLANStaEntry 2 }
+
+ciscoEsTransitedConfiguredVLANs OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(128))
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+            "A string of octets containing one bit per VLAN in the management
+            domain.  The first octet corresponds to VLANs with VlanIndex 1
+            through 8; the second octet to VLANs 9 through 16; etc.  The most
+            significant bit of each octet corresponds to the lowest value
+            VlanIndex in that octet.  If the bit correspond to a VLAN is set to
+            '1', then the VLAN is a configured transited VLAN on the local
+            device.  (Default VLANs which must transit the local device are
+            always considered to be 'configured transited VLANs'.)  Any attempt
+            to set a bit string which has: more bits set than the local device
+            can transit; or does not have all bits set corresponding to default
+            VLANs which must transit the device; or set any bits corresponding
+            to non-existant VLANs (VLANs whose IDs are not defined in the
+            management domain) will be completely rejected as an illegal
+            value."
+
+    ::= { ciscoEsVLANs 6 }
+
+ciscoEsTransitedVLANs OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(128))
+    ACCESS  read-only
+    STATUS  mandatory        
+    DESCRIPTION
+            "A string of octets containing one bit per VLAN in the management
+            domain.  The first octet corresponds to VLANs with VlanIndex 1
+            through 8; the second octet to VLANs 9 through 16; etc.  The most
+            significant bit of each octet corresponds to the lowest value
+            VlanIndex in that octet.  If the bit corresponding to a VLAN is set
+            to '1', then the VLAN transits the local device either because it
+            was configured to or because it was selected to automatically by
+            the selection algorithm."
+
+    ::= { ciscoEsVLANs 7 }
+
+-- EtherChannel Table. 
+
+ciscoEsECTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsECEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"The EtherChannel table."
+	::= { ciscoEsEChannel 1 }
+
+ciscoEsECEntry OBJECT-TYPE
+	SYNTAX	CiscoEsECEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the EtherChannel 
+                 table."
+	INDEX	{ 
+                   ciscoEsECSwitchNumber,
+                   ciscoEsECNumber
+                }
+	::= { ciscoEsECTable 1 }
+
+CiscoEsECEntry ::= SEQUENCE {
+	ciscoEsECSwitchNumber     INTEGER,
+	ciscoEsECNumber           INTEGER,
+        ciscoEsECPorts            OCTET STRING
+        }
+
+ciscoEsECSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoEsECEntry 1 }
+
+ciscoEsECNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The EtherChannel number for this row."
+	::= { ciscoEsECEntry 2 }
+
+ciscoEsECPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of ports in this switch which are active in this 
+                EtherChannel. Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                EtherSwitch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'."
+        ::= { ciscoEsECEntry 3 }
+
+
+-- EPS Filter Group
+
+ciscoEsFilterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Filters set up in the switch."
+	::= { ciscoEsFilter 1 }
+
+ciscoEsFilterEntry OBJECT-TYPE
+	SYNTAX	CiscoEsFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the filter table."
+	INDEX	{ 
+			ciscoEsFilterSwitchNumber, 
+			ciscoEsFilterStationAddress,
+	        	ciscoEsFilterType
+		}
+	::= { ciscoEsFilterTable 1 }
+
+CiscoEsFilterEntry ::= SEQUENCE {
+        ciscoEsFilterSwitchNumber    INTEGER,   
+        ciscoEsFilterStationAddress  MacAddr,
+        ciscoEsFilterType      	     INTEGER,
+        ciscoEsFilterPorts           OCTET STRING,
+        ciscoEsFilterMask            OCTET STRING,
+	ciscoEsFilterRemoteSwitch    INTEGER,
+	ciscoEsFilterRemotePort      INTEGER,
+	ciscoEsFilterStatus          INTEGER
+        }
+
+ciscoEsFilterSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+        ::= { ciscoEsFilterEntry 1 }
+
+ciscoEsFilterStationAddress OBJECT-TYPE
+        SYNTAX  MacAddr
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The destination MAC address in a frame to which
+                this entry's filtering information applies."
+	::= { ciscoEsFilterEntry 2 }
+
+
+ciscoEsFilterType OBJECT-TYPE
+        SYNTAX  INTEGER {
+		    source-filter (1),
+		    destination-filter (2)
+                }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "There are two types of filters
+		 (i) source filters which act on the source address
+		 portion of a packet and
+		 (ii) destination filters which act on the destination 
+		 address portion of a packet."
+        ::= { ciscoEsFilterEntry 3 }
+
+ciscoEsFilterPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of ports to which this filter is applied.
+                Each octet within the value of this object specifies 
+                a set of eight ports, with the first octet specifying 
+                ports 1 through 8, the second octet specifying ports 9
+                through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                EtherSwitch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'."
+        ::= { ciscoEsFilterEntry 4 }
+
+ciscoEsFilterMask OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The filter mask for this station. The semantics of the
+		filter mask depend on the type of filter.
+                Each octet within the value of this object specifies 
+                a set of eight ports, with the first octet specifying 
+                ports 1 through 8, the second octet specifying ports 9
+                through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                EtherSwitch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'."
+        ::= { ciscoEsFilterEntry 5 }
+
+ciscoEsFilterRemoteSwitch OBJECT-TYPE
+	SYNTAX INTEGER (0..8)
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION 
+		"In case of destination filters you can specify 
+		 a particular port in a remote box as the destination
+		 port for a given station address. A value of 0 indicates
+		 no remote switch is configured."
+	::= { ciscoEsFilterEntry 6 }
+
+ciscoEsFilterRemotePort OBJECT-TYPE
+	SYNTAX INTEGER (0..29)
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION 
+		"In case of destination filters you can specify 
+		 a particular port in a remote box as the destination
+		 port for a given station address. A value of 0 indicates
+		 no remote ports assigned."
+	::= { ciscoEsFilterEntry 7 }
+
+ciscoEsFilterStatus OBJECT-TYPE
+	SYNTAX INTEGER { valid (1), invalid (2) }
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION 
+		"GET request always returns valid (1). Set this object
+	         to invalid (2) to delete an entry."
+	::= { ciscoEsFilterEntry 8 }
+
+
+-- EPS Router Group
+-- Latte & Mocha
+
+ciscoEsRouterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoEsRouterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Router Port information."
+	::= { ciscoEsRouter 1 }
+
+ciscoEsRouterEntry OBJECT-TYPE
+	SYNTAX	CiscoEsRouterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the Router Table"
+	INDEX	{ ciscoEsRouterBox, ciscoEsRouterPort }
+	::= { ciscoEsRouterTable 1 }
+
+CiscoEsRouterEntry ::= SEQUENCE {
+	ciscoEsRouterBox        	INTEGER,
+	ciscoEsRouterPort	        INTEGER,
+	ciscoEsRouterOpState     	INTEGER,
+	ciscoEsRouterNetAddr		IpAddress,
+	ciscoEsRouterBoardId		INTEGER,
+	ciscoEsRouterRev			INTEGER
+	}
+
+ciscoEsRouterBox OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS read-only
+	STATUS mandatory
+	DESCRIPTION 
+		"Index into the router table row."
+	::= { ciscoEsRouterEntry 1 }
+
+ciscoEsRouterPort OBJECT-TYPE
+    SYNTAX  INTEGER
+	ACCESS read-only
+	STATUS mandatory
+	DESCRIPTION 
+		"Index into the router table column."
+	::= { ciscoEsRouterEntry 2 }
+
+ciscoEsRouterOpState OBJECT-TYPE
+	SYNTAX	INTEGER { up (1), down (2) , empty(3), unknown(4)}
+	ACCESS read-only
+	STATUS mandatory
+	DESCRIPTION 
+		"GET request returns up (1) down(2) for operation state."
+	::= { ciscoEsRouterEntry 3 }
+
+ciscoEsRouterNetAddr OBJECT-TYPE
+    SYNTAX  IpAddress
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+                "The IP address of the router."
+    ::= { ciscoEsRouterEntry 4 }
+
+ciscoEsRouterBoardId OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+                "The Board Id of the router."
+    ::= { ciscoEsRouterEntry 5 }
+
+ciscoEsRouterRev OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+                "The Board Rev of the router."
+    ::= { ciscoEsRouterEntry 6 }
+
+
+
+-- Copyright 1995 Cisco Systems Inc.
+-- All rights reserved.
+
+-- This Specification is supplied "AS IS", and Cisco Systems Inc
+-- makes no warranty, either expressed or implied,
+-- as to the use, operation, condition, or performance of the
+-- Specification.
+
+ciscoEsStackCfgChange TRAP-TYPE
+        ENTERPRISE  ciscoEsConfig
+        VARIABLES   { sysName, sysLocation, ciscoEsNumSwitches }    
+        DESCRIPTION
+		"This trap is generated when there is a change in the 
+		 stack configuration i.e. when either a new switch is 
+		 added to the stack or a switch leaves a stack.
+		 ciscoEsNumSwitches indicates the current number of switches
+		 which are part of the stack. The management station has to 
+		 update its stack information according to the
+	         stack table."
+        ::= 1
+
+ciscoEsStackProStackMatrixChange TRAP-TYPE
+        ENTERPRISE  ciscoEsConfig
+        VARIABLES   { sysName, sysLocation, ciscoEsProStackMatrixStatus }
+        DESCRIPTION
+		"This trap is generated when the stack switches over
+		 from primary to secondary Matrix or from 
+		 secondary back to primary Matrix."
+        ::= 2
+
+ciscoEsStackTempChange TRAP-TYPE
+        ENTERPRISE  ciscoEsStack
+        VARIABLES   { sysName, sysLocation, ciscoEsStackSwitchTemperature }
+        DESCRIPTION
+                "This trap is generated when the temperature in a 
+                 switch exceeds normal or returns to normal."    
+        ::= 1
+
+-- Store and forward entry trap
+
+ciscoEsPortStrNFwdEntry TRAP-TYPE
+        ENTERPRISE  ciscoEsPort
+        VARIABLES   { sysName, sysLocation, ciscoEsPortActiveMode }    
+        DESCRIPTION
+                "This trap is generated when a port automatically
+		 enters store and forward mode when the error rate 
+		 exceeds the threshold."
+        ::= 1
+
+
+-- Traps for the Spanning Tree Protocol
+
+ciscoEsVLANNewRoot TRAP-TYPE
+        ENTERPRISE  ciscoEsVLANs
+        VARIABLES   { ciscoEsVLANInfoVLANNumber }    
+        DESCRIPTION
+                "This trap is a vlan specific version of the
+                newRoot trap as described in RFC1493.
+        
+                The newRoot trap indicates that the sending agent
+                has become the new root of the Spanning Tree; the
+                trap is sent by a bridge soon after its election
+                as the new root, e.g., upon expiration of the
+                Topology Change Timer immediately subsequent to
+                its election.  Implementation of this trap is
+                optional."
+        ::= 1
+
+ciscoEsVLANTopologyChange TRAP-TYPE
+        ENTERPRISE  ciscoEsVLANs
+        VARIABLES   { ciscoEsVLANInfoVLANNumber }    
+        DESCRIPTION
+                "This trap is a vlan specific version of the
+                topologyChange trap as described in RFC1493.
+                
+                A topologyChange trap is sent by a bridge when
+                any of its configured ports transitions from the
+                Learning state to the Forwarding state, or from
+                the Forwarding state to the Blocking state.  The
+                trap is not sent if a newRoot trap is sent for the
+                same transition.  Implementation of this trap is
+                optional."
+        ::= 2
+
+ciscoEsEtherChannelFailed TRAP-TYPE
+        ENTERPRISE  ciscoEsEChannel
+        VARIABLES   {sysName, sysLocation, ciscoEsECPorts }    
+        DESCRIPTION
+                "This trap is sent when one of the links in an
+                 EtherChannel fail. The variable ciscoEsECPorts
+                 contains the ports which are operational in the
+                 EtherChannel."   
+        ::= 1
+
+END

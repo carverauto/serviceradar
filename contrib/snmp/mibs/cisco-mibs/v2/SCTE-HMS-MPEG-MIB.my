@@ -1,0 +1,2369 @@
+SCTE-HMS-MPEG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+  OBJECT-TYPE, OBJECT-IDENTITY, MODULE-IDENTITY, 
+  enterprises, Counter32, Integer32, Unsigned32, Counter64
+    FROM SNMPv2-SMI
+  OBJECT-GROUP, MODULE-COMPLIANCE
+    FROM SNMPv2-CONF
+  DateAndTime, TruthValue, RowPointer, AutonomousType 
+    FROM SNMPv2-TC
+  InterfaceIndex
+    FROM IF-MIB
+  InetAddress, InetAddressType, InetPortNumber
+    FROM INET-ADDRESS-MIB
+  HePIDValue, ProgDataType    
+    FROM SCTE-HMS-HEADENDIDENT-TC-MIB;
+
+
+heMpegCommonMIB MODULE-IDENTITY
+  LAST-UPDATED "200810031700Z" -- Oct 3, 2008
+  ORGANIZATION 
+    "SCTE HMS Subcommittee"
+  CONTACT-INFO 
+    "SCTE HMS Subcommittee, Chairman
+    mailto:standards@scte.org "
+  DESCRIPTION 
+    "This MIB module is for representing MPEG equipment present in
+    the headend and is supported by a SNMP agent. It defines both 
+    the MPEG input and output MIB objects for managing
+    MPEG input and output transport streams, programs and elementary 
+    streams. It provides both input and output related statistics,
+    as well as program mapping and video session information. 
+
+    All the tables, except mpegProgramMappingTable and 
+    mpegVideoSessionTable, capture and store the information
+    related to active transport streams only. Optional
+    MIB objects will have default values defined in this MIB file."
+  REVISION "200810031700Z"
+  DESCRIPTION 
+	"Resolved compile errors:
+	1. LAST-UPDATED date matches last REVISION date.
+	2. Removed illegal characters such as line feed (ascii 0xa0).
+	3. Added mpegInputTSActiveConnection to at least one conformance
+	   group.
+	4. Removed extra mpegSessionsGroup in compliance statement."
+  REVISION "200810030649Z" -- Oct 3, 2008
+  DESCRIPTION 
+	"1. Added mpegInputTSActiveConnection entry.
+	2. Added mpegInputTSOutputSessionCreateTime.
+	3. Added mpegInputUdpOriginationInputTSIndex.
+	4. Added mpegOutputUdpDestinationOutputTSIndex." 
+  REVISION "200810030135Z" -- Oct 3, 2008
+  DESCRIPTION 
+      "Fixed spelling mistakes." 
+  REVISION "200810030000Z" -- Oct 3, 2008 
+  DESCRIPTION 
+      "Changes included in the SCTE F2F meetings 
+      July 9-10 and Sept 24-25
+      1. mpegInputTSEntry, mpegOutputTSEntry, mpegProgESEntry  are no
+      longer indexed by ifIndex.
+      2. mpegInputTSTransportType and mpegInputTSPacketsDetected 
+      removed from mpegInputTSEntry to accomodate the Input 
+      extensibility such as udpOrigination.
+      3. Added to mpegInputTSEntry  mpegInputTSConnectionType and 
+      mpegInputTSConnection.
+      4. mpegInputTSPatVersion and mpegInputTSCatVersion value -1 
+      added to indicate unknown or not supported.
+      5. MpegProgESEntry  sequence elements names updates to align 
+      with mpegProgES* prefix.
+      6. mpegStatsStreamTable renamed to mpegInputStatsTable. 
+      7. mpegInputStatsPcrJitter and mpegInputStatsMaxPacketJitter
+      support value -1 to indicate not supported measurement. 
+      8. Added mpegInputUdpOriginationTable and 
+      mpegOutputUdpOriginationTable to generalize the input/output TS 
+      construct.
+      9. Updated parent OID of mpegInsertPacketTable to reflect the
+      output nature of the construct.
+      10. Renamed mpegInsertPacketDeviceIndex as 
+      mpegInsertPacketDeviceIfIndex.
+      11. mpegOutputStatsTotalPackets set to 64 bits counter.  
+      12.mpegOutputStatsChannelUtilization units set to 1 tenth of 
+      percent.
+      13. Added to mpegOutputTSEntry  mpegOutputTSConnectionType 
+      and mpegOutputTSConnection.
+      14. mpegOutputProgNo changed ACCESS to read-only.
+      15. mpegOutputProgESPid renamed to mpegOutputProgElemStatsPid
+      to preserve the construct prefix MpegOutputProgElemStats*. 
+      16. Added mpegOutputUdpDestinationTable. 
+      17. Deleted mpegProgramMappingDeviceChannelId and 
+      mpegProgramMappingInputIfIndex from MpegProgramMappingEntry.
+      18. MpegVideoSessionEntry  Added:
+        mpegVideoSessionPIDRemap, mpegVideoSessionMode, 
+        mpegVideoSessionEncryptionType, mpegVideoSessionEncryptionInfo,
+        mpegVideoSessionBitRate, mpegVideoSessionSelectedInput.
+      19. MpegVideoSessionEntry  Deleted:  
+        mpegVideoSessionUdpPort, mpegVideoSessionDestAddrType,
+        mpegVideoSessionDestAddr, mpegVideoSessionSrcAddrType,
+        mpegVideoSessionSrcAddr.
+      20. Added mpegVideoSessionPtrTable.
+      21. Updated mpegInputProgESGroup and mpegOutputProgElemStatsGroup
+        description.
+      22. Updated OBJECT-GROUP mpegInputGroup, mpegInputProgESGroup,
+      mpegOutputGroup, mpegMappingsGroup, mpegSessionsGroup.   
+      23. Added mpegInputStatsPcrIntervalExceeds to the MPEG input 
+      statistics.
+      24. Added the table mpegInputUdpOriginationSessionTable."
+  REVISION "200802041700Z"
+  DESCRIPTION 
+    " Changes due to voting comments
+    1. Changed description of mpegInputTSPsiDetected.
+    2. Changed mpegInputTSRate, mpegInputTXMaxRate, mpegInsertPacketIndex, 
+    and mpegInsertPacketListId be Unsigned32 instead of Integer32.
+    3. Unit clause added to mpegOutputStatsAvailableBandwidth specifying bps.
+    4. Modified all references to QAM and used the word Device instead.
+    5. mpegOutputTSPmtInsertRate description changed, mpegOutputTSPmtInsertRate
+    value changed to tables/ms.
+    6. mpegProgramMappingInputProgIndex in description changed
+    rfDeviceInputProgIndex to mpegInputProgIndex.
+    7. mpegProgramMappingInputTSIndex in description changed
+    rfDeviceInputTSIndex to mpgetInputTSIndex."
+
+      REVISION "200712171700Z"
+  DESCRIPTION 
+    " Changes due to voting comments
+    1. Removed TEXTUAL-CONVENTION import
+    2. Reworded the last sentence of the Module definition.
+    3. Reordered MIB tree to fit under the heDigital branch."
+
+      REVISION "200710031700Z"
+  DESCRIPTION 
+    " Added SCTE-HMS-HEADENDIDENT-TC name for HePidValue, remove name from
+              this file. Created TC ProgDataType so it can be used everywhere. Removed
+              0 from enumerated types just for convention."     
+::= { enterprises scteRoot(5591) scteHmsTree(1) insidePlantIdent(11) heDigital(5) heDigitalMPEG(4) 1 }
+
+
+--
+-- Textual Conventions can be found in SCTE-HMS-HEADENDIDENT-TC-MIB
+--
+
+-- 
+-- Node definitions
+-- 
+mpegMIBObjects  OBJECT-IDENTITY
+  STATUS     current
+  DESCRIPTION 
+    "This branch specifies the MPEG Common MIB objects that can be common
+    to any device using MPEG."
+  ::= { heMpegCommonMIB 1 }
+
+mpegDigitalInputs  OBJECT-IDENTITY
+  STATUS     current
+  DESCRIPTION 
+    "This branch specifies the attributes of the incoming streams
+    to the MPEG device."
+  ::= { mpegMIBObjects 1 }
+
+mpegOutputs  OBJECT-IDENTITY
+  STATUS     current
+  DESCRIPTION 
+    "This branch specifies the attributes of the output streams of
+    the MPEG device."
+  ::= { mpegMIBObjects 2 }
+
+mpegMIBConformance  OBJECT-IDENTITY
+  STATUS     current
+  DESCRIPTION 
+    "This branch describes the different MPEG MIB object groups and
+    the different levels of compliance."
+  ::= { heMpegCommonMIB 2 }
+
+mpegMIBCompliances  OBJECT-IDENTITY
+  STATUS     current
+  DESCRIPTION 
+    "The different levels of compliance to the MPEG MIB."
+  ::= { mpegMIBConformance 1 }
+
+mpegMIBGroups  OBJECT-IDENTITY
+  STATUS     current
+  DESCRIPTION 
+    "The MPEG MIB object groups."
+  ::= { mpegMIBConformance 2 }
+
+
+--
+-- mpegDigitalInputs
+--
+mpegLossOfSignalTimeout  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS   "milliseconds"
+  MAX-ACCESS read-write
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the loss of signal timeout on any
+    incoming stream."
+  ::= { mpegDigitalInputs 1 }
+
+mpegInputTSTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegInputTSEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This table specifies the attributes of video sessions or SPTSs."
+  ::= { mpegDigitalInputs 2 }
+
+mpegInputTSEntry  OBJECT-TYPE
+  SYNTAX   MpegInputTSEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the attributes of a transport stream
+    (SPTS/MPTS)."
+  INDEX { mpegInputTSIndex }
+  ::= { mpegInputTSTable 1 }
+
+MpegInputTSEntry ::= SEQUENCE {
+  mpegInputTSIndex
+    Unsigned32,
+  mpegInputTSType
+    INTEGER,
+  mpegInputTSConnectionType
+    INTEGER,
+  mpegInputTSConnection
+    RowPointer,
+  mpegInputTSActiveConnection
+    RowPointer,
+  mpegInputTSPsiDetected
+    TruthValue,
+  mpegInputTSStartTime
+    DateAndTime,
+  mpegInputTSResourceAllocated
+    TruthValue,
+  mpegInputTSNumPrograms
+    Unsigned32,
+  mpegInputTSRate
+    Unsigned32,
+  mpegInputTSMaxRate
+    Unsigned32,
+  mpegInputTSPatVersion
+    Integer32,
+  mpegInputTSCatVersion
+    Integer32,
+  mpegInputTSNitPid
+    HePIDValue,
+  mpegInputTSNumEmms
+    Unsigned32,
+  mpegInputTSTSID
+    Unsigned32,
+  mpegInputTSLock
+    INTEGER
+}
+
+mpegInputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The unique identifier of the Input TS."
+  ::= { mpegInputTSEntry 1 }
+
+mpegInputTSType  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    spts (1),
+    mpts (2)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The type of stream, e.g., SPTS or MPTS."
+  ::= { mpegInputTSEntry 2 }
+
+mpegInputTSConnectionType  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    other(1),
+    udp(2)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The type of input flow of the stream.
+    The value 'udp' indicates either unicast or multicast 
+    udp origination flows."
+  ::= { mpegInputTSEntry 3 }
+
+mpegInputTSConnection  OBJECT-TYPE
+  SYNTAX     RowPointer
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The reference to the start of the data source table that
+    feeds content to the input stream.
+    For the Connection Type 'udp' this object contains the
+    pointer to the first entry of the UDP Origination table
+    
+    Below is an example of the value expected for a Connection Type
+    'udp'.
+    An input stream (mpegInputTSIndex = 8) is being feed by a udp
+    Connection (mpegInputUdpOriginationIndex = 4) with 3 associated
+    udp streams each one identified by
+    mpegInputUdpOriginationId = 1,2,3.
+    
+    mpegInputTSEntry
+    TSIndex   ConnectionType  Connection
+    1         1               <any>
+    2         1               <any>
+               ...
+    8         1               mpegInputUdpOriginationIfIndex.4.3
+    9         2               <any>
+    
+    MpegInputUdpOriginationEntry
+    UdpOriginationIndex            UdpOriginationId
+    3                              1,4,5
+    4                              1,2,3
+                ..."
+  ::= { mpegInputTSEntry 4 }
+
+mpegInputTSActiveConnection  OBJECT-TYPE
+  SYNTAX     RowPointer
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The reference to the instance of the data source that is
+    feeding the input stream.
+    For the Connection Type 'udp' this object contains the
+    pointer to the UDP Origination table that the input Stream is
+    using.
+    
+    Below is an example of the value expected for a Connection Type
+    'udp'.
+    An input stream (mpegInputTSIndex = 8) is being feed by a udp
+    Connection (mpegInputUdpOriginationIndex = 4) have associated 3
+    udp streams each one identified by
+    mpegInputUdpOriginationId = 1,2,3. The Udp stream 3 is currently
+    used by the input transport stream.
+    
+    mpegInputTSEntry
+    TSIndex   ConnectionType  ActiveConnection
+    1         1               <any>
+    2         1               <any>
+               ...
+    8         1               mpegInputUdpOriginationIfIndex.4.3
+    9         2               <any>
+    
+    MpegInputUdpOriginationEntry
+    UdpOriginationIndex            UdpOriginationId
+    3                              1,4,5
+    4                              1,2,3
+                ...
+    Note in the example that the sub oid 4
+    (in mpegInputUdpOriginationIfIndex.4.3) represents the sub-oid
+    that aggregates all the udp origination flows associated with the
+    transport stream."
+  ::= { mpegInputTSEntry 5 }
+
+mpegInputTSPsiDetected  OBJECT-TYPE
+  SYNTAX     TruthValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "A simple check that Program Specific Information has or has
+    not been detected.
+    The value 'true' indicates PSI was detected."
+  ::= { mpegInputTSEntry 6 }
+
+mpegInputTSStartTime  OBJECT-TYPE
+  SYNTAX     DateAndTime
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Specifies the time the MPEG device started receiving the
+    stream, i.e., the time the entry was added to the table."
+  ::= { mpegInputTSEntry 7 }
+
+mpegInputTSResourceAllocated  OBJECT-TYPE
+  SYNTAX     TruthValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "If true, all resources have been allocated for the stream."
+  ::= { mpegInputTSEntry 8 }
+
+mpegInputTSNumPrograms  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The number of programs in the input transport stream."
+  ::= { mpegInputTSEntry 9 }
+
+mpegInputTSRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The data rate of the incoming program or SPTS."
+  ::= { mpegInputTSEntry 10 }
+
+mpegInputTSMaxRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The maximum data rate of the incoming stream for either
+    a variable or constant bit rate stream (VBR/CVR)."
+  ::= { mpegInputTSEntry 11 }
+
+mpegInputTSPatVersion  OBJECT-TYPE
+  SYNTAX     Integer32 (-1..31)
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Program Association Table version of the transport stream.
+    The value -1 means PAT version is not supported for input 
+    transport stream."
+  DEFVAL { -1 }
+  ::= { mpegInputTSEntry 12 }
+
+mpegInputTSCatVersion  OBJECT-TYPE
+  SYNTAX     Integer32 (-1..31)
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The Conditional Access Table version number of transport
+    stream. The value -1 means CAT version is not supported
+    for input transport stream."
+  DEFVAL { 0 }
+  ::= { mpegInputTSEntry 13 }
+
+mpegInputTSNitPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "NIT PID of the input transport stream."
+  ::= { mpegInputTSEntry 14 }
+
+mpegInputTSNumEmms  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The number of EMMs in the input stream. The default value 9999
+    means the device does not support encryption."
+                        DEFVAL { 9999 }
+  ::= { mpegInputTSEntry 15 }
+
+mpegInputTSTSID  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The input TSID of the transport stream. A valid TSID is of 16
+    bits length. If TSID is not supported, all 32-bits shall be set
+    to 1."
+  ::= { mpegInputTSEntry 16 }
+
+mpegInputTSLock  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    locked(1),
+    notLocked(2),
+    intermittent(3),
+    notMonitored(4)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the lock status of the transport stream.
+    'intermittent' means the transport stream is transitioning between
+    lock and unlock state over a period of time. This condition is 
+    vendor-specific.
+    'notMonitored' means the device is not tracking the locking state."
+  ::= { mpegInputTSEntry 17 }
+
+mpegInputProgTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegInputProgEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The table describing the PSI of each incoming program."
+  ::= { mpegDigitalInputs 3 }
+
+mpegInputProgEntry  OBJECT-TYPE
+  SYNTAX   MpegInputProgEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the parameters for each incoming
+    program."
+  INDEX { 
+          mpegInputTSIndex, 
+          mpegInputProgIndex 
+        }
+  ::= { mpegInputProgTable 1 }
+
+MpegInputProgEntry ::= SEQUENCE {
+  mpegInputProgIndex
+    Unsigned32,
+  mpegInputProgNo
+    Unsigned32,
+  mpegInputProgPmtVersion
+    Unsigned32,
+  mpegInputProgPmtPid
+    HePIDValue,
+  mpegInputProgPcrPid
+    HePIDValue,
+  mpegInputProgEcmPid
+    HePIDValue,
+  mpegInputProgNumElems
+    Unsigned32,
+  mpegInputProgNumEcms
+    Unsigned32,
+  mpegInputProgCaDescr
+    OCTET STRING,
+  mpegInputProgScte35Descr
+    OCTET STRING,
+  mpegInputProgScte18Descr
+    OCTET STRING
+}
+
+mpegInputProgIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This object serves as the third index of this mib table. The
+    index should uniquely identify a program given a transport
+    stream index. In other words, it's unique within same transport
+    stream."
+  ::= { mpegInputProgEntry 1 }
+
+mpegInputProgNo  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the identifier of the program present
+    in the transport stream of the incoming video stream. This
+    information is contained in PAT table."
+  ::= { mpegInputProgEntry 2 }
+
+mpegInputProgPmtVersion  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the PMT version of the program. It is a
+    5-bit unsigned integer. The default value of 0 means input
+    program PMT version is no supported."
+                  DEFVAL { 0 }
+  ::= { mpegInputProgEntry 3 }
+
+mpegInputProgPmtPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "PMT PID of the program."
+  ::= { mpegInputProgEntry 4 }
+
+mpegInputProgPcrPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "PCR PID of the program."
+  ::= { mpegInputProgEntry 5 }
+
+mpegInputProgEcmPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the ECM PID of the program."
+  ::= { mpegInputProgEntry 6 }
+
+mpegInputProgNumElems  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The number of elementary streams in the program."
+  ::= { mpegInputProgEntry 7 }
+
+mpegInputProgNumEcms  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The number of ECMs for the program. The default value 9999
+    means the device does not support encryption."
+      DEFVAL { 9999 }
+  ::= { mpegInputProgEntry 8 }
+
+mpegInputProgCaDescr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Conditional access descriptor is used to specify both 
+    system-wide conditional access management information such as
+    EMMS and elementary stream-specific information such as ECMs.
+    If any elementary stream is scrambled, a CA descriptor shall be
+    present for the program containing that elementary stream. This
+    object specifies the CA descriptor for this program.  If the
+    program does not have an associated CA descriptor, then this
+    object has a zero-length string."
+  ::= { mpegInputProgEntry 9 }
+
+mpegInputProgScte35Descr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "SCTE 35 descriptor. If not present, a zero-length string is
+    returned. This field is optional for some devices that supports
+    large number of input programs due to the fact that extensive 
+    decoding can be resource intensive and effect scalability. A
+    zero-length string is returned. "
+  ::= { mpegInputProgEntry 10 }
+
+mpegInputProgScte18Descr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "SCTE 18 descriptor. If not present, a zero-length string is
+    returned. This field is optional for some devices that supports
+    large number of input programs due to the fact that extensive 
+    decoding can be resource intensive and effect scalability. A
+    zero-length string is returned. "
+  ::= { mpegInputProgEntry 11 }
+
+mpegProgESTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegProgESEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This table contains information about the elementary streams
+    in a program."
+  ::= { mpegDigitalInputs 4 }
+
+mpegProgESEntry  OBJECT-TYPE
+  SYNTAX   MpegProgESEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "A combination of mpegInputTSIndex, mpegInputProgIndex and 
+    mpegProgESIndex uniquely identifies an entry in the mpegProgESTable."
+  INDEX {  
+          mpegInputTSIndex, 
+          mpegInputProgIndex, 
+          mpegProgESIndex
+        }
+  ::= { mpegProgESTable 1 }
+
+MpegProgESEntry ::= SEQUENCE {
+  mpegProgESIndex
+    Unsigned32,
+  mpegProgESPID
+    Integer32,
+  mpegProgESType
+    ProgDataType,
+  mpegProgESCaDescr
+    OCTET STRING,
+  mpegProgESScte35Descr
+    OCTET STRING,
+  mpegProgESScte18Descr
+    OCTET STRING
+}
+
+mpegProgESIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The unique index of the elementary stream."
+  ::= { mpegProgESEntry 1 }
+
+mpegProgESPID  OBJECT-TYPE
+  SYNTAX     Integer32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This is the PID for each transport stream packet which
+    carries the program element."
+  ::= { mpegProgESEntry 2 }
+
+mpegProgESType  OBJECT-TYPE
+      SYNTAX ProgDataType
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The type of elementary stream(video, audio, or data) of the
+     incoming video session received from the video server."
+  ::= { mpegProgESEntry 3 }
+
+mpegProgESCaDescr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "CA descriptor associated with the elementary stream. If there
+    is no CA descriptor for the elementary stream, then this object
+    has a zero-length string."
+  ::= { mpegProgESEntry 4 }
+
+mpegProgESScte35Descr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "SCTE 35 descriptor. If not supported or present, a zero-length
+    string is returned."
+  ::= { mpegProgESEntry 5 }
+
+mpegProgESScte18Descr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "SCTE 18 descriptor. If not supported or present, a zero-length 
+    string is returned."
+  ::= { mpegProgESEntry 6 }
+
+mpegInputStatsTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegInputStatsEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Stream statistics, SPTS or MPTS."
+  ::= { mpegDigitalInputs 5 }
+
+mpegInputStatsEntry  OBJECT-TYPE
+  SYNTAX   MpegInputStatsEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry describes statistics for each Input TS."
+  INDEX { mpegInputTSIndex }
+  ::= { mpegInputStatsTable 1 }
+
+MpegInputStatsEntry ::= SEQUENCE {
+  mpegInputStatsPcrJitter
+    Integer32,
+  mpegInputStatsMaxPacketJitter
+    Integer32,
+  mpegInputStatsPcrPackets
+    Counter32,
+  mpegInputStatsNonPcrPackets
+    Counter32,
+  mpegInputStatsUnexpectedPackets
+    Counter32,
+  mpegInputStatsContinuityErrors
+    Counter32,
+  mpegInputStatsSyncLossPackets
+    Counter32,
+  mpegInputStatsPcrIntervalExceeds
+    Counter32
+}
+
+mpegInputStatsPcrJitter OBJECT-TYPE
+  SYNTAX     Integer32 (-1..2147483647)
+  UNITS      "nanoseconds"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object stores the difference between 
+    the actual value of the PCR and its expected value. It is 
+    expressed in nanoseconds. This object is default to -1 
+    if it's not supported."
+  ::= { mpegInputStatsEntry 1 }
+
+mpegInputStatsMaxPacketJitter OBJECT-TYPE
+  SYNTAX     Integer32 (-1..2147483647)
+  UNITS   "milliseconds"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object stores the measurement of the maximum variation 
+     in arrival time or delay between individual packets. 
+     It is expressed in milliseconds. This object is default to -1
+     if it's not supported."
+  ::= { mpegInputStatsEntry 2 }
+
+mpegInputStatsPcrPackets  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This reflects the number of MPEG transport packets, having 
+    PCR, received for the stream."
+  ::= { mpegInputStatsEntry 3 }
+
+mpegInputStatsNonPcrPackets  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This reflects the number of MPEG transport packets, without 
+    PCR, received for the stream. "
+  ::= { mpegInputStatsEntry 4 }
+
+mpegInputStatsUnexpectedPackets  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This reflects the number of transport packets whose PIDs are
+    not expected."
+  ::= { mpegInputStatsEntry 5 }
+
+mpegInputStatsContinuityErrors  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Transport packets have continuity counters.  Successive
+    packets have contiguous values in the continuity counter.
+    Continuity counter error occurs when the successive packets do
+    not have contiguous value and discontinuity indicator is not 
+    set. This object reflects the number of continuity counter
+    errors."
+  ::= { mpegInputStatsEntry 6 }
+
+mpegInputStatsSyncLossPackets  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "When a sync byte is missing in a MPEG packet this value is 
+    incremented. This value indicates the number of MPEG packets
+    that had missing sync byte per stream."
+  ::= { mpegInputStatsEntry 7 }
+
+mpegInputStatsPcrIntervalExceeds  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the number of times that the interval between two 
+    successive PCR packets for any program in the transport stream
+    exceeds 100 milliseconds."
+  ::= { mpegInputStatsEntry 8 }
+  
+  
+mpegInputUdpOriginationTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegInputUdpOriginationEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Specifies the UDP unicast or multicast flows of an  
+    input transport stram.
+    For unicast it represents the UDP port and optionally 
+    destination IP address of the input TS origination UDP IP flow.
+    for Multicast it represents the set of SSM multicast groups
+    of the input TS origination UDP IP flow."
+  ::= { mpegDigitalInputs 6 }
+
+mpegInputUdpOriginationEntry  OBJECT-TYPE
+  SYNTAX   MpegInputUdpOriginationEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the IP UDP information of the 
+    input TS origination."
+  INDEX { mpegInputUdpOriginationIndex, 
+          mpegInputUdpOriginationId }
+  ::= { mpegInputUdpOriginationTable 1 }
+
+MpegInputUdpOriginationEntry ::= SEQUENCE {
+  mpegInputUdpOriginationIndex
+    Unsigned32,
+  mpegInputUdpOriginationId
+    Unsigned32,
+  mpegInputUdpOriginationIfIndex
+    InterfaceIndex,
+  mpegInputUdpOriginationInetAddrType
+    InetAddressType,
+  mpegInputUdpOriginationSrcInetAddr
+    InetAddress,
+  mpegInputUdpOriginationDestInetAddr
+    InetAddress,
+  mpegInputUdpOriginationDestPort
+    InetPortNumber,
+ mpegInputUdpOriginationActive
+    TruthValue,
+  mpegInputUdpOriginationPacketsDetected
+    TruthValue,
+  mpegInputUdpOriginationRank
+    Unsigned32,
+  mpegInputUdpOriginationInputTSIndex
+    Unsigned32
+
+}
+
+mpegInputUdpOriginationIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The unique identifier of the UDP input TS origination 
+    information."
+  ::= { mpegInputUdpOriginationEntry 1 }
+  
+  
+mpegInputUdpOriginationId  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The unique identifier of each UDP IP flow associated with the 
+    input TS UDP origination."
+  ::= { mpegInputUdpOriginationEntry 2 }
+  
+mpegInputUdpOriginationIfIndex  OBJECT-TYPE
+  SYNTAX     InterfaceIndex
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The interface index where the UDP flow is being received."
+  ::= { mpegInputUdpOriginationEntry 3 }
+
+mpegInputUdpOriginationInetAddrType  OBJECT-TYPE
+  SYNTAX     InetAddressType
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The address type associated with input TS origination 
+    UDP IP flow. 'ipv4' and 'ipv6' are the only used types."
+  ::= { mpegInputUdpOriginationEntry 4 }
+  
+mpegInputUdpOriginationSrcInetAddr  OBJECT-TYPE
+  SYNTAX     InetAddress
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "For Multicast it represents the Source Specific Multicast 
+    IP Address of the UDP IP flow.
+    For unicast UDP IP flows is either the the IP source address
+    of the IP flow or the all zeros address if unknown or irrelevant
+    for the input TS."
+  ::= { mpegInputUdpOriginationEntry 5 }
+  
+  
+mpegInputUdpOriginationDestInetAddr  OBJECT-TYPE
+  SYNTAX     InetAddress
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "For multicast it represents the group address of the SSM
+    origination input TS.
+    For unicast UDP IP flows is either the IP destination address
+    of the udp flow  or the all zeros address if unknown or irrelevant
+    for the input TS."
+  ::= { mpegInputUdpOriginationEntry 6 }
+  
+mpegInputUdpOriginationDestPort  OBJECT-TYPE
+  SYNTAX     InetPortNumber
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The UDP destination port of the UDP IP flow of the input TS."
+  ::= { mpegInputUdpOriginationEntry 7 }
+
+mpegInputUdpOriginationActive  OBJECT-TYPE
+  SYNTAX     TruthValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The activation state of the UDP flow.
+    The value 'true' indicates the UDP flow data stream is being 
+    sensed or buffered for the input TS, independently of that 
+    flow being used for a video session.
+    Otherwise the value 'false' is reported.
+    For multicast UDP origination flows the value 'true' indicates 
+    the UDP flow was successfully joined."
+  ::= { mpegInputUdpOriginationEntry 8 }
+
+mpegInputUdpOriginationPacketsDetected  OBJECT-TYPE
+  SYNTAX     TruthValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates whether UDP flow packets are being detected.
+    It is vendor dependent the determination if packets for a
+    UDP flow are being detected."
+  ::= { mpegInputUdpOriginationEntry 9 }
+
+mpegInputUdpOriginationRank  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Rank Priority used to determine the UDP flow
+    selected for the input TS processing and Video Session 
+    assignments."
+  ::= { mpegInputUdpOriginationEntry 10 } 
+
+mpegInputUdpOriginationInputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The mpegInputTSIndex that this entry is associated with"
+  ::= { mpegInputUdpOriginationEntry 11 } 
+
+--
+-- mpegOutputs
+--
+
+mpegInsertPacketTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegInsertPacketEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This table describes packet insertion information. Typical
+    packets that are inserted at the RF output of a device are PSI,
+    PSIP, and CVCT MPEG packets. These packets have their own PID.
+    This table may be empty if the video device does not support
+    packet insertion or do not have any packet insertion
+    configured."
+  ::= { mpegOutputs 1 }
+
+mpegInsertPacketEntry  OBJECT-TYPE
+  SYNTAX   MpegInsertPacketEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "An entry in the Packet Management Table."
+  INDEX { mpegInsertPacketIndex }
+  ::= { mpegInsertPacketTable 1 }
+
+MpegInsertPacketEntry ::= SEQUENCE {
+  mpegInsertPacketIndex
+    Unsigned32,
+  mpegInsertPacketListId
+    Unsigned32,
+  mpegInsertPacketImmediateExecution
+    TruthValue,
+  mpegInsertPacketStartTime
+    DateAndTime,
+  mpegInsertPacketRepeat
+    INTEGER,
+  mpegInsertPacketContinuousFlag
+    TruthValue,
+  mpegInsertPacketRate
+    Unsigned32,
+  mpegInsertPacketDeviceIfIndex
+    InterfaceIndex
+}
+
+mpegInsertPacketIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32 (1..65536)
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Index of list of packets being inserted into all MPEG
+    streams. This index is unique within the SNMP agent that
+            may be managing multiple MPEG devices."
+  ::= { mpegInsertPacketEntry 1 }
+
+mpegInsertPacketListId  OBJECT-TYPE
+  SYNTAX     Unsigned32 (0..65535)
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Reference number of packets being inserted into MPEG stream."
+  ::= { mpegInsertPacketEntry 2 }
+
+mpegInsertPacketImmediateExecution  OBJECT-TYPE
+  SYNTAX     TruthValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "If true, packet insertion starts immediately."
+  ::= { mpegInsertPacketEntry 3 }
+
+mpegInsertPacketStartTime  OBJECT-TYPE
+  SYNTAX     DateAndTime
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Unix epoch start time for insertions (if Immediate Execution
+    is false)."
+  ::= { mpegInsertPacketEntry 4 }
+
+mpegInsertPacketRepeat  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    repeat (1),
+    oneTime (2)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates whether the insert packet is one-time or
+    repetitive."
+  ::= { mpegInsertPacketEntry 5 }
+
+mpegInsertPacketContinuousFlag  OBJECT-TYPE
+  SYNTAX     TruthValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "If true, packet will be sent periodically, until cancelled."
+  ::= { mpegInsertPacketEntry 6 }
+
+mpegInsertPacketRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS   "milliseconds"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Rate at which packet list should be inserted."
+  ::= { mpegInsertPacketEntry 7 }
+
+mpegInsertPacketDeviceIfIndex  OBJECT-TYPE
+  SYNTAX     InterfaceIndex
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The ifIndex of the output device interface that the packet will
+    be inserted at."
+  ::= { mpegInsertPacketEntry 8 }
+
+mpegOutputStatsTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegOutputStatsEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The table specifies the diagnostic stats objects for the  
+    outputs transport stream of an MPEG device."
+  ::= { mpegOutputs 2 }
+
+mpegOutputStatsEntry  OBJECT-TYPE
+  SYNTAX   MpegOutputStatsEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the diagnostics for each output TS."
+  INDEX { mpegOutputTSIndex }
+  ::= { mpegOutputStatsTable 1 }
+
+MpegOutputStatsEntry ::= SEQUENCE {
+  mpegOutputStatsDroppedPackets
+    Counter32,
+  mpegOutputStatsFifoOverflow
+    Counter32,
+        mpegOutputStatsFifoUnderflow
+    Counter32,
+  mpegOutputStatsDataRate
+    Unsigned32,
+  mpegOutputStatsAvailableBandwidth
+    Unsigned32,
+  mpegOutputStatsChannelUtilization
+    Integer32,
+  mpegOutputStatsTotalPackets
+    Counter64
+}
+
+mpegOutputStatsDroppedPackets  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Number of MPEG packets dropped on this output transport stream."
+  ::= { mpegOutputStatsEntry 1 }
+
+mpegOutputStatsFifoOverflow  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Number of FIFO overflows on this output transport stream."
+  ::= { mpegOutputStatsEntry 2 }
+
+mpegOutputStatsFifoUnderflow  OBJECT-TYPE
+  SYNTAX     Counter32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Number of FIFO underflows on this output transport stream."
+  ::= { mpegOutputStatsEntry 3 }
+
+mpegOutputStatsDataRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS   "bps"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Data rate for the content on this output transport stream."
+  ::= { mpegOutputStatsEntry 4 }
+
+mpegOutputStatsAvailableBandwidth  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS   "bps"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Unused bandwidth on this port."
+  ::= { mpegOutputStatsEntry 5 }
+
+mpegOutputStatsChannelUtilization  OBJECT-TYPE
+  SYNTAX     Integer32 (-1|0..1000)
+  UNITS   "0.1 Percent"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The current utilization of a channel defined as 
+    (measured data rate / total bandwidth ) * 1000.
+    If not applicable, a value of -1 is returned."
+  ::= { mpegOutputStatsEntry 6 }
+
+mpegOutputStatsTotalPackets  OBJECT-TYPE
+  SYNTAX     Counter64
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The total number of packets output for this transport stream
+    since the start of the output stream."
+  ::= { mpegOutputStatsEntry 7 }
+
+mpegOutputTSTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegOutputTSEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This table specifies the attributes of an outgoing transport
+    stream SPTS or MPTS."
+  ::= { mpegOutputs 3 }
+
+mpegOutputTSEntry  OBJECT-TYPE
+  SYNTAX   MpegOutputTSEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the attributes of an output transport
+    stream, SPTS or MPTS."
+  INDEX { mpegOutputTSIndex }
+  ::= { mpegOutputTSTable 1 }
+
+MpegOutputTSEntry ::= SEQUENCE {
+  mpegOutputTSIndex
+    Unsigned32,
+  mpegOutputTSType
+    INTEGER,
+  mpegOutputTSConnectionType
+    INTEGER,
+  mpegOutputTSConnection
+    RowPointer,  
+  mpegOutputTSNumPrograms
+    Unsigned32,
+  mpegOutputTSTSID
+    Unsigned32,
+  mpegOutputTSNitPid
+    HePIDValue,
+  mpegOutputTSCaPid
+    HePIDValue,
+  mpegOutputTSCatInsertRate
+    Unsigned32,
+  mpegOutputTSPatInsertRate
+    Unsigned32,
+  mpegOutputTSPmtInsertRate
+    Unsigned32,
+  mpegOutputTSStartTime  
+    DateAndTime
+}
+
+mpegOutputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Table index. It uniquely identifies a mpegOutputTSEntry. 
+    This index is independent from mpegOutputTSTSID."
+  ::= { mpegOutputTSEntry 1 }
+
+mpegOutputTSType  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    spts (1),
+    mpts (2)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The type of stream, e.g., SPTS or MPTS."
+  ::= { mpegOutputTSEntry 2 }
+
+mpegOutputTSConnectionType  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    other(1),
+    qam(2),
+    udp(3)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The type of output flow of the stream.
+    The value 'qam' indicates a QAM output for the stream
+    The value 'udp' indicates either unicast or multicast 
+    udp destination flows for the stream."
+  ::= { mpegOutputTSEntry 3 }
+
+mpegOutputTSConnection  OBJECT-TYPE
+  SYNTAX     RowPointer
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The reference to the instance of the output connection fpr the 
+    output stream.
+    For the Connection Type 'qam' this object contains the ifIndex object
+    identifier of the QAM channel for the output stream.
+    
+    For the Connection Type 'udp' this object contains the 
+    pointer to the UDP Destination table being used for the output stream.
+    This is similar to mpegInputTSConnection - See description for details."
+  ::= { mpegOutputTSEntry 4 }
+
+
+mpegOutputTSNumPrograms  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The number of programs in the output transport stream."
+  ::= { mpegOutputTSEntry 5 }
+
+mpegOutputTSTSID  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The TSID of the output transport stream."
+  ::= { mpegOutputTSEntry 6 }
+
+mpegOutputTSNitPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "NIT PID of the outgoing transport stream."
+  ::= { mpegOutputTSEntry 7 }
+
+mpegOutputTSCaPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The CA PID of the outgoing transport stream."
+  ::= { mpegOutputTSEntry 8 }
+
+mpegOutputTSCatInsertRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS      "tables/ms"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The CAT insertion rate."
+  ::= { mpegOutputTSEntry 9 }
+
+mpegOutputTSPatInsertRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS   "tables/ms"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The PAT table interval expressed in ms."
+  ::= { mpegOutputTSEntry 10 }
+
+mpegOutputTSPmtInsertRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS   "tables/ms"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The PMT insertion rate. This is expressed in tables/second."
+  ::= { mpegOutputTSEntry 11 }
+
+mpegOutputTSStartTime  OBJECT-TYPE
+  SYNTAX     DateAndTime
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the time the MPEG device started 
+    transmitting the output stream, i.e., the time the entry was
+    added to the table.
+    The support of this object is optional. If not supported, this
+    object is default to a zero length string."
+  ::= { mpegOutputTSEntry 12 }
+
+mpegOutputProgTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegOutputProgEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The table describing the PSI of each outgoing program."
+  ::= { mpegOutputs 4 }
+
+mpegOutputProgEntry  OBJECT-TYPE
+  SYNTAX   MpegOutputProgEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the parameters for each incoming  
+    program."
+  INDEX { 
+           mpegOutputTSIndex, 
+          mpegOutputProgIndex 
+        }
+  ::= { mpegOutputProgTable 1 }
+
+MpegOutputProgEntry ::= SEQUENCE {
+  mpegOutputProgIndex
+    Unsigned32,
+  mpegOutputProgNo
+    Unsigned32,
+  mpegOutputProgPmtVersion
+    Unsigned32,
+  mpegOutputProgPmtPid
+    HePIDValue,
+  mpegOutputProgPcrPid
+    HePIDValue,
+  mpegOutputProgEcmPid
+    HePIDValue,
+  mpegOutputProgNumElems
+    Unsigned32,
+  mpegOutputProgNumEcms
+    Unsigned32,
+  mpegOutputProgCaDescr
+    OCTET STRING,
+  mpegOutputProgScte35Descr
+    OCTET STRING,
+  mpegOutputProgScte18Descr
+    OCTET STRING
+}
+
+mpegOutputProgIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This object is the table index for output program."
+  ::= { mpegOutputProgEntry 1 }
+
+mpegOutputProgNo  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the identifier of the program present
+    in the transport stream of the outgoing program."
+  ::= { mpegOutputProgEntry 2 }
+
+mpegOutputProgPmtVersion  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the PMT version of the outgoing
+    program. The default value of 0 means output program PMT
+    version is not supported."
+                  DEFVAL { 0 }
+  ::= { mpegOutputProgEntry 3 }
+
+mpegOutputProgPmtPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "PMT PID of the outgoing program."
+  ::= { mpegOutputProgEntry 4 }
+
+mpegOutputProgPcrPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "PCR PID of the outgoing program."
+  ::= { mpegOutputProgEntry 5 }
+
+mpegOutputProgEcmPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object specifies the ECM PID of the outgoing program."
+  ::= { mpegOutputProgEntry 6 }
+
+mpegOutputProgNumElems  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The number of elementary streams in the outgoing program."
+  ::= { mpegOutputProgEntry 7 }
+
+mpegOutputProgNumEcms  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The number of ECMs for the outgoing program. The default value
+    9999 means the device does not support encryption."
+  DEFVAL { 9999 }
+  ::= { mpegOutputProgEntry 8 }
+
+mpegOutputProgCaDescr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Conditional access descriptor is used to specify both 
+    system-wide conditional access management information such as
+    EMMS and elementary stream-specific information such as ECMs. 
+    If any elementary stream is scrambled, a CA descriptor shall be
+    present for the program containing that elementary stream.
+    This object specifies the CA descriptor for this program. If 
+    the outgoing program does not have an associated CA descriptor,
+    then this object has a zero-length string."
+  ::= { mpegOutputProgEntry 9 }
+
+mpegOutputProgScte35Descr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "SCTE 35 descriptor in the outgoing program. This object is set 
+    to a string of zero-length if there's no SCTE 35 descriptor in
+    the outgoing program or not supported."
+  ::= { mpegOutputProgEntry 10 }
+
+mpegOutputProgScte18Descr  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..256))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "SCTE 18 descriptor. If not present or not supported, a
+    zero-length string is returned."
+  ::= { mpegOutputProgEntry 11 }
+
+mpegOutputProgElemStatsTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegOutputProgElemStatsEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The stats associated with the elementary streams of an MPEG
+    program."
+  ::= { mpegOutputs 5 }
+
+mpegOutputProgElemStatsEntry  OBJECT-TYPE
+  SYNTAX   MpegOutputProgElemStatsEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry constitutes the stats for a program associated with
+    a transport stream."
+  INDEX {  
+          mpegOutputTSIndex, 
+          mpegOutputProgIndex, 
+          mpegOutputProgElemStatsIndex 
+        }
+  ::= { mpegOutputProgElemStatsTable 1 }
+
+MpegOutputProgElemStatsEntry ::= SEQUENCE {
+  mpegOutputProgElemStatsIndex
+    Unsigned32,
+  mpegOutputProgElemStatsPid
+    HePIDValue,
+  mpegOutputProgElemStatsElemType
+    INTEGER,
+  mpegOutputProgElemStatsDataRate
+    Integer32
+}
+
+mpegOutputProgElemStatsIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The unique identifier of the elementary stream."
+  ::= { mpegOutputProgElemStatsEntry 1 }
+
+mpegOutputProgElemStatsPid  OBJECT-TYPE
+  SYNTAX     HePIDValue
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The Pid of output program elementary stream."
+  ::= { mpegOutputProgElemStatsEntry 2 }
+
+mpegOutputProgElemStatsElemType  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    video (1),
+    audio (2),
+    data (3),
+    scte18 (4),
+    scte35 (5),
+    unknown (6)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The type of elementary stream (video, audio, or data) of the
+    program. Some devices, such as device, may choose not to report
+    exact type due to scalability issues, in which case, this object
+    shall be set to unknown."
+  ::= { mpegOutputProgElemStatsEntry 3 }
+
+mpegOutputProgElemStatsDataRate  OBJECT-TYPE
+  SYNTAX     Integer32
+  UNITS   "bps"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The data rate of the elementary stream. Return -1 if not
+    supported."
+  ::= { mpegOutputProgElemStatsEntry 4 }
+
+mpegOutputUdpDestinationTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegOutputUdpDestinationEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Specifies the UDP unicast or multicast of the  
+    output TS this entry references.
+    For unicast it represents the UDP port and optionally 
+    destination IP address of the output TS destination UDP IP flow.
+    for Multicast it represents the set of SSM multicast groups
+    of the output TS destination UDP IP flow."
+  ::= { mpegOutputs 6 }
+
+mpegOutputUdpDestinationEntry  OBJECT-TYPE
+  SYNTAX   MpegOutputUdpDestinationEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the IP UDP information of the 
+    output TS destination."
+  INDEX { mpegOutputUdpDestinationIndex, 
+    mpegOutputUdpDestinationId }
+  ::= { mpegOutputUdpDestinationTable 1 }
+
+MpegOutputUdpDestinationEntry ::= SEQUENCE {
+  mpegOutputUdpDestinationIndex
+    Unsigned32,
+  mpegOutputUdpDestinationId
+    Unsigned32,
+  mpegOutputUdpDestinationIfIndex
+    InterfaceIndex,  
+  mpegOutputUdpDestinationInetAddrType
+    InetAddressType,
+  mpegOutputUdpDestinationSrcInetAddr
+    InetAddress,
+  mpegOutputUdpDestinationDestInetAddr
+    InetAddress,
+  mpegOutputUdpDestinationDestPort
+    InetPortNumber,
+  mpegOutputUdpDestinationOutputTSIndex
+    Unsigned32
+  }  
+
+mpegOutputUdpDestinationIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The unique identifier of the UDP output TS destination 
+    information."
+  ::= { mpegOutputUdpDestinationEntry 1 }
+  
+  
+  mpegOutputUdpDestinationId  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The unique identifier of each UDP IP flow associated with the 
+    output TS UDP destination."
+  ::= { mpegOutputUdpDestinationEntry 2 }
+  
+  mpegOutputUdpDestinationIfIndex  OBJECT-TYPE
+  SYNTAX     InterfaceIndex
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The interface index where the UDP flow is being sent."
+  ::= { mpegOutputUdpDestinationEntry 3 }
+
+  mpegOutputUdpDestinationInetAddrType  OBJECT-TYPE
+  SYNTAX     InetAddressType
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The address type associated with output TS destination 
+    UDP IP flow."
+  ::= { mpegOutputUdpDestinationEntry 4 }
+  
+  mpegOutputUdpDestinationSrcInetAddr  OBJECT-TYPE
+  SYNTAX     InetAddress
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "For Multicast it represents the Source Specific Multicast 
+    IP Address of the UDP IP flow.
+    For unicast UDP IP flows is either the the IP source address
+    of the IP flow or the all zeros address if unknown or irrelevant
+    for the destination output TS."
+  ::= { mpegOutputUdpDestinationEntry 5 }
+  
+  
+  mpegOutputUdpDestinationDestInetAddr  OBJECT-TYPE
+  SYNTAX     InetAddress
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "For multicast it represents the group address of the SSM
+    destination output TS.
+    For unicast UDP IP flows is either the IP destination address
+    of the udp flow  or the all zeros address if unknown or irrelevant
+    for the destination output TS."
+  ::= { mpegOutputUdpDestinationEntry 6 }
+  
+  mpegOutputUdpDestinationDestPort  OBJECT-TYPE
+  SYNTAX     InetPortNumber
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The UDP port of the UDP IP flow of the output TS."
+  ::= { mpegOutputUdpDestinationEntry 7 }
+
+  mpegOutputUdpDestinationOutputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The mpegOutputTSIndex that this entry is associated with."
+  ::= { mpegOutputUdpDestinationEntry 8 }
+
+mpegProgramMappingTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegProgramMappingEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This table describes program mappings, i.e., ties the input
+    destination to the output destination for every program active
+    in the device."
+  ::= { mpegMIBObjects 3 }
+
+mpegProgramMappingEntry  OBJECT-TYPE
+  SYNTAX   MpegProgramMappingEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry describes the mapping, i.e., ties input
+    destination to output destination for a given program."
+  INDEX { mpegProgramMappingIndex }
+  ::= { mpegProgramMappingTable 1 }
+
+MpegProgramMappingEntry ::= SEQUENCE {
+  mpegProgramMappingIndex
+    Unsigned32,
+  mpegProgramMappingOutputProgIndex
+    Unsigned32,
+  mpegProgramMappingOutputTSIndex
+    Unsigned32,
+  mpegProgramMappingInputProgIndex
+    Unsigned32,
+  mpegProgramMappingInputTSIndex
+    Unsigned32
+}
+
+mpegProgramMappingIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The table index uniquely identifies an entry in mpegProgramMappingTable. 
+    This index should be unique within the same SNMP agent that may be 
+    managing multiple MPEG devices."
+  ::= { mpegProgramMappingEntry 1 }
+
+mpegProgramMappingOutputProgIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object is set to mpegOutputProgIndex of the corresponding 
+    entry in mpegOutputProgTable for a given output program."
+  ::= { mpegProgramMappingEntry 2 }
+
+mpegProgramMappingOutputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object is set to mpegOutputTSIndex of the
+    corresponding entry in mpegOutputProgTable for a given output
+    program."
+  ::= { mpegProgramMappingEntry 3 }
+
+mpegProgramMappingInputProgIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object is set to the value of mpegInputProgIndex of the
+    corresponding entry in mpegInputProgTable for a given input
+    program."
+  ::= { mpegProgramMappingEntry 4 }
+
+mpegProgramMappingInputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object is set to the value of mpegInputTSIndex of the 
+    corresponding entry in mpegInputProgTable for a given input 
+    program."
+  ::= { mpegProgramMappingEntry 5 }
+
+
+mpegVideoSessionTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegVideoSessionEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This table is used to store video session information. The
+    session may be of VOD, SDV or DB type. It captures logical 
+    information about a video stream, such as source and
+    destination addresses, UDP port etc, and also ties it with its
+    direct mapping of input and output programs.
+    
+    This table captures video sessions provisioned by both
+    session-based and table-based method. It is capable to support
+    N-M mapping of video programs that's required for redundant
+    source or video stream cloning etc."
+  ::= { mpegMIBObjects 4 }
+
+mpegVideoSessionEntry  OBJECT-TYPE
+  SYNTAX   MpegVideoSessionEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry describes a logical video session."
+  INDEX { mpegVideoSessionIndex }
+  ::= { mpegVideoSessionTable 1 }
+
+MpegVideoSessionEntry ::= SEQUENCE {
+  mpegVideoSessionIndex
+    Unsigned32,
+  mpegVideoSessionPhyMappingIndex
+    Unsigned32,
+  mpegVideoSessionPIDRemap
+    TruthValue,  
+  mpegVideoSessionMode
+    INTEGER,
+  mpegVideoSessionState
+    INTEGER,
+  mpegVideoSessionProvMethod
+    INTEGER,
+  mpegVideoSessionEncryptionType
+    INTEGER,  
+  mpegVideoSessionEncryptionInfo
+    AutonomousType,
+  mpegVideoSessionBitRate
+    Unsigned32,
+  mpegVideoSessionID
+    OCTET STRING,
+  mpegVideoSessionSelectedInput
+    RowPointer,
+  mpegVideoSessionSelectedOutput
+    RowPointer
+}
+
+mpegVideoSessionIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "The table index uniquely identifies an entry in 
+    mpegVideoSessionTable.
+    This index should be unique within the same SNMP agent that
+    may be managing multiple MPEG devices."
+  ::= { mpegVideoSessionEntry 1 }
+
+mpegVideoSessionPhyMappingIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object shall be set to mpegProgramMappingIndex of the
+    corresponding mpegProgramMappingEntry which contains
+    physical mapping between the input and output program."
+  ::= { mpegVideoSessionEntry 2 }
+
+mpegVideoSessionPIDRemap  OBJECT-TYPE
+  SYNTAX     TruthValue
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "This object value 'true' indicates that the session has PID
+    remapping. The value 'false' indicates that the session has no
+    PID remapping."
+  ::= { mpegVideoSessionEntry 3 }
+
+mpegVideoSessionMode  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    other(1),
+    passThrough(2),
+    multiplexing(3) --explicit session
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates whether the transport stream is associated
+    with a multiplexed session or is pass-through.
+    For pass-through type transport streams, all elementary stream
+    level information in optional."
+  ::= { mpegVideoSessionEntry 4 }
+
+mpegVideoSessionState  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    active (1),
+    provisioned (2)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "active means in-use, provisioned means not-in-use or active 
+    such as video session provisioned for redundant source."
+  ::= { mpegVideoSessionEntry 5 }
+
+mpegVideoSessionProvMethod  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    tableBased (1),
+    sessionBased (2),
+    other(3)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The type of session, e.g., in QAM table-based or session-based."
+  ::= { mpegVideoSessionEntry 6 }
+
+mpegVideoSessionEncryptionType  OBJECT-TYPE
+  SYNTAX     INTEGER {
+    none(1),
+    other(2),
+    preencrypted(3),
+    des(4),
+    des3(5),
+    aes(6),
+    dvbCsa(7),
+    pkey(8),
+    mediac(9),
+    dvs042(10)
+  }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the encryption algorithm of the session."
+  ::= { mpegVideoSessionEntry 7 }
+
+mpegVideoSessionEncryptionInfo  OBJECT-TYPE
+  SYNTAX     AutonomousType
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates a vendor-specific reference to information 
+     associated to the session encryption algorithm."
+  ::= { mpegVideoSessionEntry 8 }
+
+
+mpegVideoSessionBitRate  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  UNITS      "bps"
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates a session throughtput in bps."
+  ::= { mpegVideoSessionEntry 9 }
+
+mpegVideoSessionID  OBJECT-TYPE
+  SYNTAX     OCTET STRING (SIZE(0..16))
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The session ID associated with the stream in the case of a
+    session-based QAM. This is not applicable to a table-based QAM.
+    This ID may be used by NMS system to uniquely identify an input 
+    program to output program mapping."
+  ::= { mpegVideoSessionEntry 10 }
+
+mpegVideoSessionSelectedInput  OBJECT-TYPE
+  SYNTAX     RowPointer
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The reference to the entry of the input flow currently being
+     used in the video session."
+  ::= { mpegVideoSessionEntry 11 }
+  
+  mpegVideoSessionSelectedOutput  OBJECT-TYPE
+  SYNTAX     RowPointer
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "The reference to the entry of the output flow currently being
+     used in the video session."
+  ::= { mpegVideoSessionEntry 12 }
+
+
+mpegVideoSessionPtrTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegVideoSessionPtrEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "This table is used to provide a quick reference of the 
+    Program Mapping and input/output TS connection information 
+    associated with a Video Session."
+  ::= { mpegMIBObjects 5 }
+
+mpegVideoSessionPtrEntry OBJECT-TYPE
+  SYNTAX   MpegVideoSessionPtrEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry describes the associations with ProgramMapping and
+    transport stream connections."
+  INDEX { mpegVideoSessionIndex,
+          mpegVideoSessionPtrInputProgIndex,
+          mpegVideoSessionPtrInputTSIndex,
+          mpegVideoSessionPtrInputTSConnType,
+          mpegVideoSessionPtrInputTSConnection, 
+          mpegVideoSessionPtrOutputProgIndex,
+          mpegVideoSessionPtrOutputTSIndex,
+          mpegVideoSessionPtrOutputTSConnType,
+          mpegVideoSessionPtrOutputTSConnection
+}
+  ::= { mpegVideoSessionPtrTable 1 }
+
+MpegVideoSessionPtrEntry ::= SEQUENCE {
+  mpegVideoSessionPtrInputProgIndex
+    Unsigned32,
+  mpegVideoSessionPtrInputTSIndex
+    Unsigned32,  
+  mpegVideoSessionPtrInputTSConnType
+    Unsigned32,
+  mpegVideoSessionPtrInputTSConnection
+    Unsigned32,
+  mpegVideoSessionPtrOutputProgIndex
+    Unsigned32,  
+  mpegVideoSessionPtrOutputTSIndex
+    Unsigned32,
+  mpegVideoSessionPtrOutputTSConnType
+    Unsigned32,  
+  mpegVideoSessionPtrOutputTSConnection
+    Unsigned32,
+  mpegVideoSessionPtrStatus
+    INTEGER
+}
+
+mpegVideoSessionPtrInputProgIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Input Program index value of the video
+     session."
+  ::= { mpegVideoSessionPtrEntry 1 }
+
+
+mpegVideoSessionPtrInputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the input TS index value of the video
+     session."
+  ::= { mpegVideoSessionPtrEntry 2 }
+
+mpegVideoSessionPtrInputTSConnType  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Input TS Connection type value of the video 
+    session."
+  ::= { mpegVideoSessionPtrEntry 3 }
+
+mpegVideoSessionPtrInputTSConnection  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Input TS Connection value of the video 
+    session."
+  ::= { mpegVideoSessionPtrEntry 4 }
+
+mpegVideoSessionPtrOutputProgIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Output Program index value of the video
+     session."
+  ::= { mpegVideoSessionPtrEntry 5 }
+  
+mpegVideoSessionPtrOutputTSIndex  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Output TS index value of the video 
+    session."
+  ::= { mpegVideoSessionPtrEntry 6 }
+  
+mpegVideoSessionPtrOutputTSConnType  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Output TS Connection type value of the video 
+    session."
+  ::= { mpegVideoSessionPtrEntry 7 }
+
+mpegVideoSessionPtrOutputTSConnection  OBJECT-TYPE
+  SYNTAX     Unsigned32
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Output TS Connection value of the video 
+    session."
+  ::= { mpegVideoSessionPtrEntry 8 }
+
+mpegVideoSessionPtrStatus  OBJECT-TYPE
+  SYNTAX     INTEGER {
+                      active(1),
+                      closed(2)
+                     }
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the status of the session.
+    Only active sessions need to be reported."
+  ::= { mpegVideoSessionPtrEntry 9 }
+
+mpegInputTSOutputSessionTable  OBJECT-TYPE
+  SYNTAX SEQUENCE OF MpegInputTSOutputSessionEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Specifies the list of Output Session indexes that the
+    Input TS entry is feeding. For unicast it will typically point
+    to just one output Session. For multicast, it will point to
+    all the output Sessions using this internally replicated
+    input TS."
+  ::= { mpegMIBObjects 6 }
+
+mpegInputTSOutputSessionEntry OBJECT-TYPE
+  SYNTAX   MpegInputTSOutputSessionEntry
+  MAX-ACCESS not-accessible
+  STATUS     current
+  DESCRIPTION 
+    "Each entry specifies the sessionID associated with the
+    Input TS Entry Index."
+  INDEX { mpegInputTSIndex,
+          mpegVideoSessionIndex
+}
+  ::= { mpegInputTSOutputSessionTable 1 }
+
+MpegInputTSOutputSessionEntry ::= SEQUENCE {
+  mpegInputTSOutputSessionCreateTime
+    DateAndTime
+}
+
+mpegInputTSOutputSessionCreateTime  OBJECT-TYPE
+  SYNTAX     DateAndTime
+  MAX-ACCESS read-only
+  STATUS     current
+  DESCRIPTION 
+    "Indicates the Creation Time of the session referenced by 
+    this entry."
+  ::= { mpegInputTSOutputSessionEntry 1 }
+
+mpegSupport  MODULE-COMPLIANCE
+  STATUS     current
+  DESCRIPTION 
+    "These objects describe the support level for MPEG."
+  MODULE
+    MANDATORY-GROUPS { mpegInputGroup,
+          mpegOutputGroup } 
+
+    GROUP mpegMappingsGroup
+    DESCRIPTION 
+      "The mpegMappingsGroup is unconditionally optional."
+
+    GROUP mpegSessionsGroup
+    DESCRIPTION 
+      "The mpegSessionsGroup is unconditionally optional."
+
+    GROUP mpegInputProgESGroup
+    DESCRIPTION 
+      "This group is optional for devices that only support
+       'passThrough' sessions, or devices that choose not to decode
+       and store extensive information which is available from other
+       sources, such as video server, encoder, satellite, etc."
+
+    GROUP mpegOutputProgElemStatsGroup
+    DESCRIPTION 
+      "This group is optional for devices that only support'passThrough'
+      sessions."
+
+  ::= { mpegMIBCompliances 1 }
+
+mpegInputGroup  OBJECT-GROUP
+  OBJECTS { 
+    mpegInputTSType, 
+    mpegInputTSConnectionType, 
+    mpegInputTSConnection, 
+    mpegInputTSActiveConnection, 
+    mpegLossOfSignalTimeout, 
+    mpegInputTSPsiDetected, 
+    mpegInputTSStartTime, 
+    mpegInputTSResourceAllocated, 
+    mpegInputTSNumPrograms, 
+    mpegInputTSRate, 
+    mpegInputTSMaxRate, 
+    mpegInputTSPatVersion, 
+    mpegInputTSCatVersion, 
+    mpegInputTSNitPid, 
+    mpegInputTSNumEmms, 
+    mpegInputTSTSID, 
+    mpegInputTSLock,
+    mpegInputUdpOriginationIfIndex,
+    mpegInputUdpOriginationInetAddrType,
+    mpegInputUdpOriginationSrcInetAddr,
+    mpegInputUdpOriginationDestInetAddr,
+    mpegInputUdpOriginationDestPort,
+    mpegInputUdpOriginationActive,
+    mpegInputUdpOriginationPacketsDetected,
+    mpegInputUdpOriginationRank,
+    mpegInputUdpOriginationInputTSIndex,
+    mpegInputProgPmtVersion,  
+    mpegInputProgNo,
+    mpegInputProgPmtVersion, 
+    mpegInputProgPmtPid, 
+    mpegInputProgPcrPid, 
+    mpegInputProgEcmPid, 
+    mpegInputProgNumElems, 
+    mpegInputProgNumEcms, 
+    mpegInputProgCaDescr, 
+    mpegInputProgScte35Descr, 
+    mpegInputProgScte18Descr, 
+    mpegInputStatsPcrPackets, 
+    mpegInputStatsNonPcrPackets, 
+    mpegInputStatsUnexpectedPackets, 
+    mpegInputStatsContinuityErrors, 
+    mpegInputStatsSyncLossPackets,
+    mpegInputStatsPcrIntervalExceeds, 
+    mpegInputStatsPcrJitter, 
+    mpegInputStatsMaxPacketJitter }
+  STATUS     current
+  DESCRIPTION 
+    "The input objects of the MPEG device."
+  ::= { mpegMIBGroups 1 }
+
+mpegInputProgESGroup  OBJECT-GROUP
+  OBJECTS { mpegProgESScte18Descr, 
+    mpegProgESScte35Descr, 
+    mpegProgESCaDescr, 
+    mpegProgESPID, 
+    mpegProgESType }
+  STATUS     current
+  DESCRIPTION 
+    "This table contains information about the elementary streams
+    in a program. "
+  ::= { mpegMIBGroups 2 }
+
+mpegOutputGroup  OBJECT-GROUP
+  OBJECTS { mpegInsertPacketListId, 
+    mpegInsertPacketImmediateExecution, 
+    mpegInsertPacketStartTime, 
+    mpegInsertPacketRepeat, 
+    mpegInsertPacketContinuousFlag, 
+    mpegInsertPacketRate, 
+    mpegInsertPacketDeviceIfIndex, 
+    mpegOutputStatsDroppedPackets, 
+    mpegOutputStatsFifoOverflow,
+    mpegOutputStatsFifoUnderflow, 
+    mpegOutputStatsDataRate, 
+    mpegOutputStatsAvailableBandwidth, 
+    mpegOutputProgNo,
+    mpegOutputProgPmtVersion, 
+    mpegOutputProgPmtPid, 
+    mpegOutputProgPcrPid, 
+    mpegOutputProgEcmPid, 
+    mpegOutputProgNumElems, 
+    mpegOutputProgNumEcms, 
+    mpegOutputProgCaDescr, 
+    mpegOutputProgScte35Descr, 
+    mpegOutputTSType, 
+    mpegOutputTSConnectionType, 
+    mpegOutputTSConnection, 
+    mpegOutputTSNumPrograms, 
+    mpegOutputTSTSID, 
+    mpegOutputTSNitPid, 
+    mpegOutputTSCaPid, 
+    mpegOutputTSCatInsertRate, 
+    mpegOutputTSPatInsertRate, 
+    mpegOutputProgScte18Descr, 
+    mpegOutputTSPmtInsertRate, 
+    mpegOutputTSStartTime,
+    mpegOutputUdpDestinationIfIndex,
+    mpegOutputUdpDestinationInetAddrType,
+    mpegOutputUdpDestinationSrcInetAddr,
+    mpegOutputUdpDestinationDestInetAddr,
+    mpegOutputUdpDestinationDestPort,
+    mpegOutputUdpDestinationOutputTSIndex,
+    mpegOutputStatsChannelUtilization, 
+    mpegOutputStatsTotalPackets }
+  STATUS     current
+  DESCRIPTION 
+    "The output objects of the MPEG device."
+  ::= { mpegMIBGroups 3 }
+
+mpegOutputProgElemStatsGroup  OBJECT-GROUP
+  OBJECTS { mpegOutputProgElemStatsDataRate, 
+    mpegOutputProgElemStatsElemType }
+  STATUS     current
+  DESCRIPTION 
+    "The stats associated with the elementary streams of an MPEG
+    program."
+  ::= { mpegMIBGroups 4 }
+
+mpegMappingsGroup  OBJECT-GROUP
+  OBJECTS { mpegProgramMappingOutputProgIndex, 
+    mpegProgramMappingOutputTSIndex,
+    mpegProgramMappingInputProgIndex, 
+    mpegProgramMappingInputTSIndex }
+  STATUS     current
+  DESCRIPTION 
+    "The group of objects describing program mappings within the
+    Device."
+  ::= { mpegMIBGroups 5 }
+
+mpegSessionsGroup  OBJECT-GROUP
+  OBJECTS { mpegVideoSessionPhyMappingIndex, 
+    mpegVideoSessionPIDRemap,
+    mpegVideoSessionMode,
+    mpegVideoSessionState, 
+    mpegVideoSessionProvMethod, 
+    mpegVideoSessionEncryptionType,
+    mpegVideoSessionEncryptionInfo,
+    mpegVideoSessionBitRate, 
+    mpegVideoSessionID,
+    mpegVideoSessionSelectedInput,
+    mpegVideoSessionSelectedOutput,
+    mpegVideoSessionPtrStatus,
+    mpegInputTSOutputSessionCreateTime
+     }
+  STATUS     current
+  DESCRIPTION 
+    "The group of objects describing program mappings within the
+    Device."
+  ::= { mpegMIBGroups 6 }
+
+
+END
+

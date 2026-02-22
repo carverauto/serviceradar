@@ -1,0 +1,67 @@
+-- *****************************************************************
+-- CISCO-LWAPP-TSM-CAPABILITY.my:  
+-- CISCO-LWAPP-TSM MIB CAPABILITIES
+--
+-- May 2006 -  Prasanna Viswakumar
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-LWAPP-TSM-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoLwappTsmCapability MODULE-IDENTITY  
+        LAST-UPDATED         "200605150000Z"
+        ORGANIZATION         "Cisco Systems, Inc."
+        CONTACT-INFO
+                "             Cisco Systems
+                              Customer Service
+
+                      Postal: 170 W Tasman Drive
+                              San Jose, CA  95134
+                              USA
+  
+                         Tel: +1 800 553-NETS
+ 
+                      E-mail: cs-wnbu-snmp@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for CISCO-LWAPP-TSM-MIB. "
+        REVISION      "200605150000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoAgentCapability 506 }
+
+ciscoLwappTsmCapabilityCUWNSV4R0 AGENT-CAPABILITIES
+   
+PRODUCT-RELEASE         "Cisco Unified Wireless Network Software
+                        Release 4.0 for Cisco WLAN Controllers"
+        STATUS          current
+        DESCRIPTION     "CISCO-LWAPP-TSM-MIB capabilities. "
+        SUPPORTS        CISCO-LWAPP-TSM-MIB
+        INCLUDES        {
+                        ciscoLwappTsmDot11ConfigGroup,
+                        ciscoLwappTsmDot11StatsGroup
+                        }   
+
+        VARIATION       cLTsmDot11MaxClientsPerDot11Intf
+        ACCESS          read-only
+        DESCRIPTION
+                        "This object is implemented as
+                        read-only. "
+
+        VARIATION       cLTsmDot11MaxTsmStatsEntries
+        ACCESS          read-only
+        DESCRIPTION
+                        "This object is implemented as
+                        read-only. "
+        ::= { ciscoLwappTsmCapability 1 }
+END

@@ -1,0 +1,592 @@
+-- *********************************************************************
+-- CISCO-FLEX-LINKS-MIB.my: Flex Links MIB
+--
+-- March 2005, Dipesh Gorashia
+-- January 2010, Jayakumar Kadirvelu
+--
+-- Copyright (c) 2005, 2010 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *********************************************************************
+CISCO-FLEX-LINKS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+     MODULE-IDENTITY,
+     OBJECT-TYPE,
+     NOTIFICATION-TYPE,
+     Unsigned32
+                FROM SNMPv2-SMI
+     MODULE-COMPLIANCE,
+     OBJECT-GROUP,
+     NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+     TruthValue,
+     RowStatus,
+     StorageType
+                FROM SNMPv2-TC 
+     ciscoMgmt
+                FROM CISCO-SMI
+     InterfaceIndex,
+     InterfaceIndexOrZero
+                FROM IF-MIB
+     VlanIdOrNone
+                FROM Q-BRIDGE-MIB
+     Cisco2KVlanList
+                FROM CISCO-TC;
+
+ciscoFlexLinksMIB MODULE-IDENTITY
+        LAST-UPDATED        "201002040000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+                "This MIB module is for configuration and status query
+                of Flex Links feature on the Cisco device.
+
+                Flex Links are a pair of Layer 2 interfaces, where one
+                interface is configured to act as a backup to the other.
+                The feature provides an alternative solution to the
+                Spanning Tree Protocol (STP), allowing users to turn
+                off STP and still provide basic link redundancy.
+
+                Flex Links are typically configured in service provider
+                or enterprise networks where users do not want to run
+                STP on the device."
+        REVISION        "201002040000Z"
+        DESCRIPTION
+                "Added the followings groups:
+                    ciscoFlexLinksMmuPrimaryVlanGroup,
+                    ciscoFlexLinksPreemptionGroup,
+                    ciscoFlexLinksPreferVlanGroup.
+
+                 Added enumeration 'vlbAll', 'vlbConfig' and
+                 'vlbPreempt' to cflIfStatus."
+        REVISION        "200504250000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 471 }
+
+
+ciscoFlexLinksMIBNotifs      OBJECT IDENTIFIER ::=
+                                          { ciscoFlexLinksMIB 0 }
+ciscoFlexLinksMIBObjects     OBJECT IDENTIFIER ::=
+                                          { ciscoFlexLinksMIB 1 }
+ciscoFlexLinksMIBConformance OBJECT IDENTIFIER ::=
+                                          { ciscoFlexLinksMIB 2 }
+
+cflConfig                    OBJECT IDENTIFIER ::= 
+                                          { ciscoFlexLinksMIBObjects 1 }
+cflStatus                    OBJECT IDENTIFIER ::=
+                                          { ciscoFlexLinksMIBObjects 2 }
+
+-- Flex Links configuration table
+
+cflIfConfigTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CflIfConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table allows user to configure Flex Links.
+
+                The Flex Links feature requires interface pairs to be
+                setup. This table allows user to specify such 
+                interface pairs.
+
+                An interface can become part of only one such interface
+                pair at any given time."
+        ::= { cflConfig 1 }
+
+cflIfConfigEntry OBJECT-TYPE
+        SYNTAX     CflIfConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry containing information about Flex Links
+                configuration. Each entry configures a pair of
+                interfaces for a Flex Links.
+
+                Only those Layer 2 interfaces which are capable of
+                performing Flex Links operation may be configured
+                in this table.
+
+                Once an interface is configured as part of a Flex Links
+                pair, such an interface, can not be configured as a
+                part of other Flex Links pairs."
+        INDEX { cflIfConfigPrimary }
+        ::= { cflIfConfigTable 1 }
+
+CflIfConfigEntry ::= SEQUENCE {
+        cflIfConfigPrimary      InterfaceIndex,
+        cflIfConfigBackUp       InterfaceIndexOrZero,
+        cflIfConfigStorageType  StorageType,
+        cflIfConfigStatus       RowStatus
+}
+
+cflIfConfigPrimary OBJECT-TYPE
+        SYNTAX     InterfaceIndex
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The object indicates the primary interface in this 
+                Flex Links pair."
+    ::= { cflIfConfigEntry 1 }
+
+cflIfConfigBackUp OBJECT-TYPE
+        SYNTAX     InterfaceIndexOrZero
+        MAX-ACCESS read-create 
+        STATUS     current
+        DESCRIPTION
+                "The object indicates the back up interface in this 
+                Flex Links pair.
+
+                The value of this object is changed to 0 (zero) if this 
+                interface is removed from the ifTable. The SNMP agent
+                is responsible for updating this object's value once
+                the interface is added to the ifTable. The value of
+                0 (zero) cannot be set."
+    ::= { cflIfConfigEntry 2 }
+
+cflIfConfigStorageType OBJECT-TYPE
+        SYNTAX     StorageType
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The storage type for this conceptual row."
+        DEFVAL { nonVolatile }
+    ::= { cflIfConfigEntry 3 }
+
+cflIfConfigStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create 
+        STATUS     current
+        DESCRIPTION
+                "The object to manage this RowStatus entry.
+                 
+                This object must be set to 'creatAndGo' to  
+                create an entry and set to 'destroy' to delete an 
+                entry.
+
+                The other objects in this conceptual row can be 
+                modified any time, even when the value of this entry 
+                RowStatus object is 'active'."
+    ::= { cflIfConfigEntry 4 }
+
+cflEnableStatusChangeNotif OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This variable indicates whether the system
+                produces the cflIfStatusChangeNotif.
+                
+                A value of 'false' will prevent
+                cflIfStatusChangeNotif."
+    ::= { cflConfig 2 }
+
+-- Flex Links configuration Extension table
+
+cflIfConfigExtTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CflIfConfigExtEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table contains management information, such as
+                of MAC address-table Move Update(MMU), preemption
+                mechanism, VLAN load balancing of Flex Links pair,
+                of interfaces which are capable of supporting these
+                features." 
+        ::= { cflConfig 3 }
+
+cflIfConfigExtEntry OBJECT-TYPE
+        SYNTAX     CflIfConfigExtEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry containing Flex Links management information
+                for a particular interface."
+        INDEX { cflIfConfigPrimary }
+        ::= { cflIfConfigExtTable 1 }
+
+CflIfConfigExtEntry ::= SEQUENCE {
+        cflIfConfigMmuPrimaryVlan        VlanIdOrNone,
+        cflIfConfigPreemptionMode        INTEGER,
+        cflIfConfigPreemptionDelay       Unsigned32,
+        cflIfConfigPrefer2kVlan          Cisco2KVlanList,
+        cflIfConfigPrefer4kVlan          Cisco2KVlanList
+}
+
+cflIfConfigMmuPrimaryVlan OBJECT-TYPE
+        SYNTAX     VlanIdOrNone
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The object specifies the MAC address-table Move
+                Update primary VLAN for the Flex Links interface pair.
+
+                A value of zero indicates that no primary VLAN has been
+                configured for MAC address-table Move Update."
+    ::= { cflIfConfigExtEntry 1 }
+
+cflIfConfigPreemptionMode OBJECT-TYPE
+        SYNTAX     INTEGER {
+                       off(1),
+                       forced(2),
+                       bandwidth(3)
+                   }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The object specifies the preemption mechanism for
+                a Flex Link interface pair.
+
+                off - No preemption happens from active interface
+                      to backup interface.
+
+                forced - The active interface always preempts the
+                      backup interface.  The preemption occurs
+                      after the time specified in
+                      cflIfConfigPreemptionDelay.
+
+                bandwidth - The interface with higher bandwidth
+                      always acts as the active interface."
+    ::= { cflIfConfigExtEntry 2 }
+
+cflIfConfigPreemptionDelay OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The object specifies the delay time until an
+                interface preempts another interface for a
+                Flex Link interface pair."
+    ::= { cflIfConfigExtEntry 3 }
+
+cflIfConfigPrefer2kVlan OBJECT-TYPE
+        SYNTAX     Cisco2KVlanList
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "A string of octets containing one bit per
+                perferred VLAN of VLANs with VlanId values of 0
+                through 2047 for VLAN load balancing."
+    ::= { cflIfConfigExtEntry 4 }
+
+cflIfConfigPrefer4kVlan OBJECT-TYPE
+        SYNTAX     Cisco2KVlanList
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "A string of octets containing one bit per
+                perferred VLAN of VLANs with VlanId values of 2048
+                through 4095 for VLAN load balancing."
+    ::= { cflIfConfigExtEntry 5 }
+
+
+-- Flex Links status table
+
+cflIfStatusTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CflIfStatusEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A list of interfaces which are members of Flex Links."
+        ::= { cflStatus 1 }
+
+cflIfStatusEntry OBJECT-TYPE
+        SYNTAX     CflIfStatusEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry, containing status information about a 
+                Flex Links interface.
+
+                Entry is created when an interface is configured as
+                a member of a Flex Links. When an entry is created
+                in the cflIfConfigTable, entries corresponding to
+                cflIfConfigPrimary and cflIfConfigBackUp are created
+                in this table.
+
+                Entry is deleted when an interface is removed from
+                a Flex Links. When an entry is removed from the
+                cflIfConfigTable, entries corresponding to
+                cflIfConfigPrimary and cflIfConfigBackUp are deleted
+                from this table."
+        INDEX { cflIfIndex }
+        ::= { cflIfStatusTable 1 }
+
+CflIfStatusEntry ::= SEQUENCE {
+        cflIfIndex                InterfaceIndex,
+        cflIfStatus               INTEGER
+}
+
+cflIfIndex OBJECT-TYPE
+        SYNTAX     InterfaceIndex
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The index value which uniquely identifies the
+                interface to which this entry is applicable.
+                cflIfIndex is the same as the ifIndex of the
+                interface associated with a Flex Links."
+    ::= { cflIfStatusEntry 1 }
+
+cflIfStatus OBJECT-TYPE
+        SYNTAX     INTEGER {
+                        forwarding(1),
+                        blocking(2),
+                        down(3),
+                        waitingToSync(4),
+                        waitingForPeerStrate(5),
+                        unknown(6),
+                        vlbAll(7),
+                        vlbConfig(8),
+                        vlbPreempt(9)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The status of an interface which is participating in
+                Flex Links operation.
+
+                A value of 'forwarding' indicates that, the interface is
+                participating in Flex Links operation and is
+                actively forwarding traffic.
+
+                A value of 'blocking' indicates that, interface is
+                participating in Flex Links operation and is ready
+                to forward traffic if the interface it backs up in
+                Flex Links operation goes down.
+
+                A value of 'down' indicates that, the interface
+                participating in Flex Links operation has gone down.
+
+                A value of 'waitingToSync' indicates that, the interface
+                is participating in Flex Links operation and is waiting
+                to sync with its peer interface.
+
+                A value of 'waitingForPeerState' indicates that, the
+                interface is participating in Flex Links operation and
+                is waiting for its peer's state.
+
+                A value of 'unknown' indicates that, the interface
+                is participating Flex Links operation and has entered  
+                an unknown state.
+
+                A value of 'vlbAll' indicates that, the interface is
+                linkup and VLANs preferred on the peer interface are
+                moved to this interface of the Flex Link pair.
+                This means that this interface carries all preferred
+                VLANs of the Flex Link pair.
+
+                A value of 'vlbConfig' indicates that, the interface
+                is linkup and VLANs preferred on this interface have
+                moved to forwarding state on the interface.
+
+                A value of 'vlbPreempt' indicates that, the interface
+                is linkup and waiting for the timer to expire to
+                move into 'vlbConfig' state."
+    ::= { cflIfStatusEntry 2 }
+
+-- Notifications
+
+cflIfStatusChangeNotif NOTIFICATION-TYPE
+        OBJECTS {
+                cflIfStatus
+        }
+        STATUS  current
+        DESCRIPTION
+                "A cflIfStatusChangeNotif is generated when the 
+                value of cflIfStatus changes."
+    ::= { ciscoFlexLinksMIBNotifs 1 }
+
+-- Conformance
+
+ciscoFlexLinksMIBCompliances OBJECT IDENTIFIER 
+                                  ::= { ciscoFlexLinksMIBConformance 1 }
+ciscoFlexLinksMIBGroups      OBJECT IDENTIFIER
+                                  ::= { ciscoFlexLinksMIBConformance 2 }
+
+ciscoFlexLinksMIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the CISCO-FLEX-LINKS-MIB.
+
+                This compliance is deprecated and replaced by
+                ciscoFlexLinksMIBCompliance2." 
+        MODULE        -- this module
+                MANDATORY-GROUPS {
+                        ciscoFlexLinksIfConfigGroup,
+                        ciscoFlexLinksIfStatusGroup,
+                        ciscoFlexLinksEnableNotifGroup,
+                        ciscoFlexLinksNotifGroup
+                }
+        ::= { ciscoFlexLinksMIBCompliances 1 }
+
+ciscoFlexLinksMIBCompliance2 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the CISCO-FLEX-LINKS-MIB."
+        MODULE        -- this module
+                MANDATORY-GROUPS {
+                        ciscoFlexLinksIfConfigGroup,
+                        ciscoFlexLinksIfStatusGroup,
+                        ciscoFlexLinksEnableNotifGroup,
+                        ciscoFlexLinksNotifGroup
+                }
+        GROUP           ciscoFlexLinksMmuPrimaryVlanGroup
+        DESCRIPTION
+                "This group is mandatory in devices running software
+                which support MMU primary VLAN feature."
+
+        GROUP           ciscoFlexLinksPreemptionGroup
+        DESCRIPTION
+                "This group is mandatory in devices running software
+                which support preemption feature."
+
+        GROUP           ciscoFlexLinksPreferVlanGroup
+        DESCRIPTION
+                "This group is mandatory in devices running software
+                which support preferred VLANs of vlan load balancing
+                feature."
+
+        OBJECT          cflIfConfigBackUp
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT          cflIfConfigStorageType
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT          cflIfConfigStatus
+        SYNTAX          INTEGER  { active(1) }
+        WRITE-SYNTAX    INTEGER  { createAndGo(4), destroy(6) }
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required.
+            Support for createAndWait and notInService is not required."
+
+        OBJECT          cflEnableStatusChangeNotif
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT          cflIfConfigMmuPrimaryVlan
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT          cflIfConfigPreemptionMode
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT          cflIfConfigPreemptionDelay
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT          cflIfConfigPrefer2kVlan
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT          cflIfConfigPrefer4kVlan
+        MIN-ACCESS      read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        ::= { ciscoFlexLinksMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoFlexLinksIfConfigGroup OBJECT-GROUP
+        OBJECTS {
+                cflIfConfigBackUp,
+                cflIfConfigStorageType,
+                cflIfConfigStatus
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interface 
+                configuration information for Flex Links."
+        ::= { ciscoFlexLinksMIBGroups 1 }
+
+ciscoFlexLinksIfStatusGroup OBJECT-GROUP
+        OBJECTS {
+                cflIfStatus
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interface 
+                status information for Flex Links."
+        ::= { ciscoFlexLinksMIBGroups 2 }
+
+ciscoFlexLinksEnableNotifGroup OBJECT-GROUP
+        OBJECTS {
+                cflEnableStatusChangeNotif
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing enabling/disabling
+                 of the status change notifications for Flex
+                 Links."
+        ::= { ciscoFlexLinksMIBGroups 3 }
+
+ciscoFlexLinksNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS  {
+                 cflIfStatusChangeNotif
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of notifications providing the status
+                 change for Flex Links."
+        ::= { ciscoFlexLinksMIBGroups 4 }
+
+ciscoFlexLinksMmuPrimaryVlanGroup OBJECT-GROUP
+        OBJECTS {
+                 cflIfConfigMmuPrimaryVlan
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interface
+                MMU primary VLAN information of Flex Links."
+        ::= { ciscoFlexLinksMIBGroups 5 }
+
+ciscoFlexLinksPreemptionGroup OBJECT-GROUP
+        OBJECTS {
+                 cflIfConfigPreemptionMode,
+                 cflIfConfigPreemptionDelay
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interface
+                preemption information of Flex Links."
+        ::= { ciscoFlexLinksMIBGroups 6 }
+
+ciscoFlexLinksPreferVlanGroup OBJECT-GROUP
+        OBJECTS {
+                 cflIfConfigPrefer2kVlan,
+                 cflIfConfigPrefer4kVlan
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interface
+                preferred VLANs of vlan load balancing information
+                of Flex Links."
+        ::= { ciscoFlexLinksMIBGroups 7 }
+
+END
+

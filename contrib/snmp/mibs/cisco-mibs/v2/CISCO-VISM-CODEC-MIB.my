@@ -1,0 +1,545 @@
+-- *****************************************************************
+-- ciscoVismCodecMIB
+--   The MIB is for Codec information 
+--   on VISM(Voice Interworking Service Module)
+--
+-- March 2005, Rashmi Purandare
+--
+-- Copyright (c) 2004, 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VISM-CODEC-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+                               FROM SNMPv2-SMI
+    SnmpAdminString            FROM SNMP-FRAMEWORK-MIB
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    voice                      FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoVismCodecMIB MODULE-IDENTITY
+    LAST-UPDATED    "200505240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module contains tables for configurating and 
+        maintaining Codec on VISM service module."
+
+    REVISION    "200505240000Z"
+    DESCRIPTION
+        "Added alternate codec strings.
+        "
+
+    REVISION    "200401070000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+    ::= { ciscoWan 97 }
+
+
+   vismCodecTemplateCnfGrp   OBJECT IDENTIFIER ::= { voice 7 }
+   vismCodecCnfGrp           OBJECT IDENTIFIER ::= { voice 18 }
+
+--
+-- vismCodecCnf  group
+--
+
+vismCodecCnfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismCodecCnfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains configuration information about 
+         different codecs and their packetization periods. 
+        "
+    ::= { vismCodecCnfGrp 1 }
+
+vismCodecCnfEntry OBJECT-TYPE
+    SYNTAX      VismCodecCnfEntry 
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the vismCodecCnfTable contains
+         packetization period information for a specific codec.
+
+         These entries are created by the agent when the card
+         comes up with appropriate default values and the user
+         can modify the packetization period for a particular
+         codec any point in time.
+        "
+    INDEX { vismCodecCnfIndex }
+    ::= { vismCodecCnfTable 1 }
+
+VismCodecCnfEntry ::=
+    SEQUENCE
+       {
+          vismCodecCnfIndex    INTEGER,
+          vismCodecName        SnmpAdminString,
+          vismCodecPktPeriod   INTEGER,
+          vismCodecPreference  Integer32,
+          vismCodecString      SnmpAdminString,
+          vismCodecIanaType    Integer32,
+          vismAltCodecString1  SnmpAdminString,
+          vismAltCodecString2  SnmpAdminString,
+          vismAltCodecString3  SnmpAdminString 
+       }
+
+vismCodecCnfIndex    OBJECT-TYPE
+    SYNTAX      INTEGER {
+                                g711u        (1),
+                                g711a        (2),
+                                g726r32000   (3),
+                                g729a        (4),
+                                g729ab       (5),
+                                clearChannel (6),
+                                g726r16000   (7),
+                                g726r24000   (8),
+                                g726r40000   (9),
+                                g723h        (11),
+                                g723ah       (12),
+                                g723l        (13),
+                                g723al       (14),
+                                lossless     (15)
+              }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is an index to this table.
+            1 represents  G.711u  
+            2 represents  G.711a  
+            3 represents  G.726 at rate 32 kbps 
+            4 represents  G.729a   
+            5 represents  G.729ab 
+            6 represents  clear channel
+            7 represents  G.726 at rate 16 kbps
+            8 represents  G.726 at rate 24 kbps
+            9 represents  G.726 at rate 40 kbps
+           10 RESERVED
+           11 represents  G.723.1-H at rate 6.4kbps
+           12 represents  G.723.1a-H at rate 6.4kbps with SID
+           13 represents  G.723.1-L at rate 5.3kbps
+           14 represents  G.723.1a-L at rate 5.3kbps with SID
+           15 represents  Lossless
+        "
+    ::= { vismCodecCnfEntry 1 }
+
+vismCodecName   OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object holds the name of a codec. For example, 
+         index 1 will have G.711u as the codec name
+         index 2 will have G.711a as the codec name and so on.
+        "
+     ::= { vismCodecCnfEntry 2 }
+
+vismCodecPktPeriod OBJECT-TYPE
+    SYNTAX      INTEGER
+           {
+             ten    (10),
+             twenty (20),
+             thirty (30),
+             fourty (40),
+             sixty  (60)
+           }
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        " This object gives the packetization period for a 
+          particular codec.
+             for  G.711u  allowed values are 10 & 20
+             for  G.711a  allowed values are  10 & 20
+             for  G.726 at 32 kbps allowed values are 10, 20, 30 & 40
+             for  G.729a   allowed values are 10, 20, 30 & 40
+             for  G.729ab  allowed values are 10, 20, 30 & 40 
+             for clear channel allowed values are 10 and 20
+             for  G.726 at 16 kbps allowed values are 10, 20, 30 & 40
+             for  G.726 at 14 kbps allowed values are 10, 20, 30 & 40
+             for  G.726 at 40 kbps allowed values are 10, 20, 30 & 40  
+             for  G.723  allowed values are  30 & 60
+             for  Lossless allowed values are 10 and 20
+             Default value for G.723 is 30, for other codecs it is 10.
+        "
+    ::= { vismCodecCnfEntry 3 }
+
+vismCodecPreference OBJECT-TYPE
+     SYNTAX       Integer32 (0..65535) 
+     MAX-ACCESS   read-write
+     STATUS       current
+     DESCRIPTION
+         "This object contains the user configured preference for
+          each codec. Lower the number, higher the preference of the
+          codec.
+
+          If the call agent does not specify the preferred codec list
+          in CRCX(CreateConnection) request then the codec used 
+          will be the one of highest preference, as configured 
+          in this object.
+
+          The default preference based on the codec type is 
+             G729ab will have preference 1
+             G729a  will have preference 2
+             G726 at rate 16 kbps will have preference 3
+             G726 at rate 24 kbps will have preference 4 
+             G726 at rate 32 kbps will have preference 5 
+             G726 at rate 40 kbps will have preference 6 
+             G.711u will have preference 7 for T1 and will have
+                                 preference 8 for E1 
+             G.711a will have preference 7 for E1 card and will
+                             have preference 8 for T1 
+             clearChannel will have preference 9 
+             G723H  will have preference 10
+             G723AH will have preference 11
+             G723L  will have preference 12
+             G723AL will have preference 13
+             Lossless will have preference 14
+
+          If the preference of a codec is zero then that codec
+          will not be used. 
+         "  
+       ::= { vismCodecCnfEntry 4 }
+
+vismCodecString      OBJECT-TYPE
+      SYNTAX         SnmpAdminString (SIZE (1..64))
+      MAX-ACCESS     read-write
+      STATUS         current
+      DESCRIPTION
+        "The local connection option or SDP(Session Description
+         Protocol) descriptor string that VISM would get from
+         the call agent for the codec to be used will be
+         in the form of PCMU, PCMA, G726 at rate 32 kbps,
+         G729a, CCD .....
+            where in PCMU stands for G711u
+                     PCMA stands for G711a
+                and  CCD  stands for clear channel
+
+         This object serves as a mapping string, and VISM will use the 
+         value configured in this object to match the SDP 
+         descriptor string obtained for a codec in a CRCX 
+         or MDCX(ModifyConnection) message.
+
+         Since the entries in this table are implicitly created
+         by default the entry with codec = 
+                G.711u  will have a value of PCMU
+                G.711a  will have a value of PCMA
+                clear channel will have a value of CCD
+                G.726 at rate 32 kbps will have G726 at rate 32 kbps
+                G.726 at rate 16 kbps will have G726 at rate 16 kbps
+                G.726 at rate 24 kbps will have G726 at rate 24 kbps
+                G.726 at rate 40 kbps will have G726 at rate 40 kbps
+                G.729a  will have G729a
+                G.729ab will have G729ab
+                G.723.1-H will have G723H
+                G.723.1a-H will have G723AH
+                G.723.1-L will have G723L
+                G.723.1a-L will have G723AL
+                Lossless will have Lossless
+        " 
+       ::= { vismCodecCnfEntry 5 }
+
+vismCodecIanaType    OBJECT-TYPE
+     SYNTAX          Integer32 (0..127)
+     MAX-ACCESS      read-write
+     STATUS          current
+     DESCRIPTION
+          "This object specifies the payload types (PT) of
+           a codec. PT numbers for CODECS are assigned by
+           IANA(Internet assigned number Authority).
+           
+           If in a SDP string we would just receive an IANA type
+           number and not the codec string, then VISM would use
+           the value in this object to derive the actual codec
+           to be used in the bearer path.
+          "
+     REFERENCE
+          "RFC 1890, Table 2 - RTP Profile for Audio and Video
+           Conferences with Minimal Control."
+     
+         ::= { vismCodecCnfEntry 6 } 
+
+vismAltCodecString1  OBJECT-TYPE
+      SYNTAX         SnmpAdminString (SIZE (0..64))
+      MAX-ACCESS     read-write
+      STATUS         current
+      DESCRIPTION
+        "This is an alternate codec string to that specified
+         in vismCodecString. 
+         This object will also serve as a mapping string 
+         along with the vismCodecString object and the VISM 
+         will use the value in these objects to match the SDP
+         descriptor string obtained for a codec in a CRCX or 
+         MDCX(ModifyConnection) message. 
+
+         If alternate codec strings need to be configured, this
+         object will need to be configured first.
+
+         The local connection option or SDP(Session Description
+         Protocol) descriptor string that VISM would get from
+         the call agent for the codec to be used will be
+         in the form of PCMU, PCMA, G726 at rate 32 kbps,
+         G729a, CCD .....
+            where in PCMU stands for G711u
+                     PCMA stands for G711a
+                and  CCD  stands for clear channel
+    
+         This is an optional parameter which, if not configured,
+         has a default value as specified.
+        " 
+       DEFVAL {""}
+       ::= { vismCodecCnfEntry 7 }
+
+vismAltCodecString2  OBJECT-TYPE
+      SYNTAX         SnmpAdminString (SIZE (0..64))
+      MAX-ACCESS     read-write
+      STATUS         current
+      DESCRIPTION
+        "This is an alternate codec string to that specified
+         in vismCodecString and vismAltCodecString1. 
+         This object will also serve as a mapping string 
+         along with the vismCodecString and vismAltCodecString1 
+         objects and the VISM will use the value in these objects 
+         to match the SDP descriptor string obtained for a codec 
+         in a CRCX or MDCX(ModifyConnection) message. 
+
+         If alternate codec strings needs to be configured, this
+         object will need to be configured second after
+         vismAltCodecString1.
+
+         The local connection option or SDP(Session Description
+         Protocol) descriptor string that VISM would get from
+         the call agent for the codec to be used will be
+         in the form of PCMU, PCMA, G726 at rate 32 kbps,
+         G729a, CCD .....
+            where in PCMU stands for G711u
+                     PCMA stands for G711a
+                and  CCD  stands for clear channel
+
+         This is an optional parameter which, if not configured,
+         has a default value as specified.
+        " 
+       DEFVAL {""}
+       ::= { vismCodecCnfEntry 8 }
+
+vismAltCodecString3  OBJECT-TYPE
+      SYNTAX         SnmpAdminString (SIZE (0..64))
+      MAX-ACCESS     read-write
+      STATUS         current
+      DESCRIPTION
+        "This is an alternate codec string to that specified
+         in vismCodecString vismAltCodecString1 and 
+         vismAltCodecString2. 
+         This object will also serve as a mapping string 
+         along with the vismCodecString, vismAltCodecString1
+         and vismAltCodecString2 objects and the VISM will 
+         use the value in these objects to match the SDP 
+         descriptor string obtained for a codec in a CRCX or 
+         MDCX(ModifyConnection) message. 
+
+         If alternate codec strings need to be configured, this
+         object will need to be configured third after 
+         vismAltCodecString1 and vismAltCodecString2.
+
+         The local connection option or SDP(Session Description
+         Protocol) descriptor string that VISM would get from
+         the call agent for the codec to be used will be
+         in the form of PCMU, PCMA, G726 at rate 32 kbps,
+         G729a, CCD .....
+            where in PCMU stands for G711u
+                     PCMA stands for G711a
+                and  CCD  stands for clear channel
+
+         This is an optional parameter which, if not configured,
+         has a default value as specified.
+        " 
+       DEFVAL {""}
+       ::= { vismCodecCnfEntry 9 }
+
+---
+-- VISM Codec Template Configuration group
+---
+
+vismCodecTemplateCnfGrpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismCodecTemplateCnfGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table defines the DSP templates that are applicable on
+        a card basis. It defines the set of codecs supported in each
+        template and the maximum number of DS0s supported on the VISM
+        card for a given template.
+        "
+    ::= { vismCodecTemplateCnfGrp 1 }
+
+vismCodecTemplateCnfGrpEntry    OBJECT-TYPE
+    SYNTAX      VismCodecTemplateCnfGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry is defined for each set of codecs supported.
+                The codecs supported are a combination of :
+                G.711Mu (PCM - Mu-law)
+                G.711A (PCM - A-law)
+                G.726/32 (ADPCM)
+                G.729a (CS-ACELP - Annex A)
+                G.729ab (CS-ACELP - Annex B)
+                clearChannel (clear channel voice)
+                G.723.1-H
+                G.723.1a-H
+                G.723.1-L
+                G.723.1a-L
+                Lossless
+        "
+    INDEX { vismCodecTemplateNum }
+    ::= { vismCodecTemplateCnfGrpTable 1 }
+
+VismCodecTemplateCnfGrpEntry ::=
+    SEQUENCE {
+                vismCodecTemplateNum            Integer32,
+                vismCodecSupported              Integer32,
+                vismCodecTemplateMaxChanCount   Integer32
+}
+
+vismCodecTemplateNum    OBJECT-TYPE
+    SYNTAX     Integer32 (1..100)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the index for the CodecTemplate
+        table. Template number is input at the time of configuring
+        a template using 'cncodectmpl' CLI command."
+    ::= { vismCodecTemplateCnfGrpEntry  1 }
+
+vismCodecSupported  OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This attribute represents a bit map of Codecs supported
+                in this template.
+                Bit 0 - represents the G.711 Mu-law codec.
+                Bit 1 - represents the G.711 A-law codec.
+                Bit 2 - represents the G.726 at rate 32 kbps.
+                Bit 3 - represents the G.729a codec.
+                Bit 4 - represents the G.729ab codec.
+                Bit 5 - represents clear channel.
+                Bit 6 - represents the G.726 at rate 16 kbps
+                Bit 7 - represents the G.726 at rate 24 kbps
+                Bit 8 - represents the G.726 at rate 40 kbps
+                Bit 9 - Internal use (T.38)
+                Bit 10 - represents the G.723.1-H codec.
+                Bit 11 - represents the G.723.1a-H codec.
+                Bit 12 - represents the G.723.1-L codec.
+                Bit 13 - represents the G.723.1a-L codec.
+                Bit 14 - represents the Lossless codec.
+        "
+    ::= { vismCodecTemplateCnfGrpEntry 2 }
+
+vismCodecTemplateMaxChanCount   OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The maximum number of channels supported for this template.
+        "
+    ::= { vismCodecTemplateCnfGrpEntry 3 }
+
+-- conformance information
+
+ciscoVismCodecMIBConformance  OBJECT IDENTIFIER ::= 
+                              { ciscoVismCodecMIB 2 }
+
+ciscoVismCodecMIBCompliances  OBJECT IDENTIFIER ::=
+                              { ciscoVismCodecMIBConformance 1 }
+
+ciscoVismCodecMIBGroups       OBJECT IDENTIFIER ::=
+                              { ciscoVismCodecMIBConformance 2 }
+
+-- compliance statements
+
+ciscoVismCodecCompliance MODULE-COMPLIANCE
+    STATUS  deprecated --Replaced by ciscoVismCodecComplianceRev1
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM Codec module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+          ciscoVismCodecCnfGroup,
+          ciscoVismCodecTemplateGrp 
+        }
+    ::= { ciscoVismCodecMIBCompliances 1 }
+
+ciscoVismCodecComplianceRev1 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM Codec module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+          ciscoVismCodecCnfGroup,
+          ciscoVismCodecTemplateGrp 
+        }
+    GROUP ciscoAltVismCodecCnfGroup
+    DESCRIPTION
+        "Objects in this group are not mandatory."
+    ::= { ciscoVismCodecMIBCompliances 2 }
+
+ciscoVismCodecCnfGroup OBJECT-GROUP
+     OBJECTS {
+          vismCodecCnfIndex,
+          vismCodecName,
+          vismCodecPktPeriod,
+          vismCodecPreference,
+          vismCodecString,
+          vismCodecIanaType
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM Codec configuration."
+      ::= { ciscoVismCodecMIBGroups 1 }
+
+ciscoVismCodecTemplateGrp OBJECT-GROUP
+     OBJECTS {
+           vismCodecTemplateNum,
+           vismCodecSupported,
+           vismCodecTemplateMaxChanCount
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM Codec Template configuration."
+      ::= { ciscoVismCodecMIBGroups 2 }
+
+  ciscoAltVismCodecCnfGroup OBJECT-GROUP
+     OBJECTS {
+          vismAltCodecString1,
+          vismAltCodecString2, 
+          vismAltCodecString3
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          non-mandatory objects of the VISM Codec configuration."
+      ::= { ciscoVismCodecMIBGroups 3 }          
+END

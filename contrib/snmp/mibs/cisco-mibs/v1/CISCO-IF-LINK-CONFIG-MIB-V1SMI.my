@@ -1,0 +1,247 @@
+-- MIB file created 26-Nov-2002 10:44:38, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IF-LINK-CONFIG-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IF-LINK-CONFIG-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    InterfaceIndex
+            FROM IF-MIB
+    CiscoLocationSpecifier
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIfLinkConfigMIB OBJECT IDENTIFIER ::= { ciscoMgmt 175 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200110050000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module for configuration of bulk distribution
+--     (de-multiplexing of traffic from higher-bandwidth to 
+--     lower-bandwidth interfaces).
+--    
+--     Terminology :
+--    
+--     bulk-distribution        : The bulk distribution is the 
+--                                feature by which a line/interface
+--                                on one module can replace the line
+--                                for the other.
+--    
+--     bulk-distribution module : The module which links its 
+--                                interfaces to the target module.
+--    
+--     target module            : A module that gets incoming traffic
+--                                from a bulk distribution module 
+--                                rather than from a back card.
+--                  
+--     The Module which supports bulk distribution, converts 
+--     traffic from its lines (may be T3, OC-N) to lines on 
+--     the target module (may be
+--     T3, T1 etc). The bulk distribution is achieved by having a 
+--     point-to-point connection (bulk-distribution bus) between the 
+--     bulk-distribution module and the target module. The benefit 
+--     of bulk distribution is that the target module need not have
+--     the back cards. The lines/interfaces from bulk-distribution
+--     module will be used as lines for the target module.
+--    
+--     An example is given here on linking interfaces.
+--    
+--    
+--        |================================================|
+--        |                                                |
+--        |             |==============================|   |
+--        |             |           |             |    |   |
+--        |             |           |=============|    |   |
+--      Ta|rget Module  |           |             |    |   |
+--     =======       =======     =======     ===============
+--     |     |       |     |     |     |     |              |
+--     |     |       |     |     |     |     |              |
+--     |  T1 |       | T1  |     |T1   |     | Bulk         |
+--     |card |       |card |     |card |     | Distribution |
+--     |     |       |     |     |     |     |              |
+--     |     |       |     |     |     |     | Module       |
+--     |     |       |     |     |     |     |              |
+--     |     |       |     |     |     |     | (T3 card)    |
+--     |     |       |     |     |     |     |              |
+--     =======       =======     =======      ===============
+--     
+--  RevDate
+--    200110050000Z
+--  RevDescr
+--    Add object cilTargetModuleFramingType in cilConfTable table
+--  RevDate
+--    200009140000Z
+--  RevDescr
+--    Initial version of this MIB module
+
+cilConfigMIBObjects OBJECT IDENTIFIER ::= { ciscoIfLinkConfigMIB 1 }
+cilConfig       OBJECT IDENTIFIER ::= { cilConfigMIBObjects 1 }
+cilConfigMIBConformance OBJECT IDENTIFIER ::= { ciscoIfLinkConfigMIB 3 }
+cilConfigMIBCompliances OBJECT IDENTIFIER ::= { cilConfigMIBConformance 1 }
+cilConfigMIBGroups OBJECT IDENTIFIER ::= { cilConfigMIBConformance 2 }
+
+cilConfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CilConfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The interface link configuration table."
+    ::= { cilConfig 1 }
+
+cilConfEntry OBJECT-TYPE
+    SYNTAX CilConfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cilConfTable. This entry is used for  
+         linking an interface identified by cilSourceInterface
+         to an interface identified by cilTaregetModuleInterface.
+         The entries are created and deleted using the 
+         cilRowStatus object. An interface on the bulk-distribution
+         module cannot be linked to multiple interfaces in the
+         target module."
+    INDEX { cilSourceInterface }
+    ::= { cilConfTable 1 }
+
+CilConfEntry ::= SEQUENCE {
+    cilSourceInterface InterfaceIndex,
+    cilTargetModuleInterface CiscoLocationSpecifier,
+    cilRowStatus RowStatus,
+    cilTargetModuleFramingType INTEGER
+    }
+
+cilSourceInterface OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An interface of the bulk-distribution module (Source) which
+         will be linked with the interface of the target module. It
+         represents an entry in the ifTable."
+    ::= { cilConfEntry 1 }
+
+cilTargetModuleInterface OBJECT-TYPE
+    SYNTAX CiscoLocationSpecifier
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Location of the managed entity on the target module.
+         Following is the supported  format for this object and
+         all the values must be present.
+        
+         shelf=<value>, slot=<value>, subSlot=<value> port =<value>.
+        
+         The zero length value for this object is not supported."
+    ::= { cilConfEntry 2 }
+
+cilRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or delete
+         an existing row in the table. The cilTargetModuleFramingType
+         need not be specified to create a row. If cilTargetModuleFramingType
+         is not specified, a default value will be assumed as described in the
+         description of cilTargetModuleFramingType."
+    ::= { cilConfEntry 3 }
+
+cilTargetModuleFramingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        notApplicable(1),
+        dsx1D4(2),
+        dsx1ESF(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the framing type of the target interface.
+         notApplicable(1) can not be set.
+        
+             dsx1ESF         Extended SuperFrame DS1 (T1.107)
+             dsx1D4          AT&T D4 format DS1 (T1.107)
+        
+         Default value is dsx1ESF(3) if cilTargetModuleInterface is a T1 interface 
+         and sonet/sdh byte-synchronous mapping is used on the cilSourceInterface.
+         Otherwise, the default value is notApplicable(1)."
+    ::= { cilConfEntry 4 }
+
+cilConfMIBGroup OBJECT IDENTIFIER ::= { cilConfigMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    These are objects related to interface link 
+--     configuration group. This group has been replaced
+--     by cilConfMIBGroupRev1.
+--  objects
+--    cilTargetModuleInterface, cilRowStatus
+
+cilConfMIBGroupRev1 OBJECT IDENTIFIER ::= { cilConfigMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to interface link
+--     configuration group. This group replaces the
+--     cilConfMIBGroup.
+--  objects
+--    cilTargetModuleInterface, cilRowStatus, 
+--    cilTargetModuleFramingType
+
+cilConfigMIBCompliance OBJECT IDENTIFIER ::= { cilConfigMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The Compliance statement for interface link configuration group.
+--    This has been replaced by the cilConfigMIBComplianceRev1 statement.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cilConfMIBGroup
+
+cilConfigMIBComplianceRev1 OBJECT IDENTIFIER ::= { cilConfigMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The Compliance statement for interface link configuration group.
+--     This statement replaces cilConfigMIBCompliance statement.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cilConfMIBGroupRev1
+--   ObjVar
+--    cilTargetModuleFramingType
+
+
+END
+

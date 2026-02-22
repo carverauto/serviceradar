@@ -1,0 +1,167 @@
+-- *****************************************************************
+-- BASIS-RAS-DISK-MIB
+--
+-- June 2002
+--
+-- Copyright (c) 1996-1998, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+-- 
+-- LAST-UPDATED "200206030000Z"
+-- DESCRIPTION "This MIB contains information on the
+--              Disk Related Objects for MGX8220."
+--
+-- REVISION "200206030000Z"
+-- DESCRIPTION
+-- 	"Added Cisco Copyrights to the MIB."
+--
+
+ BASIS-RAS-DISK-MIB DEFINITIONS ::= BEGIN 
+
+IMPORTS
+    OBJECT-TYPE                      FROM   RFC-1212
+    DisplayString                    FROM   RFC1213-MIB
+    axisDiagnostics                  FROM   BASIS-MIB;
+
+rasDsk                      OBJECT IDENTIFIER ::= { axisDiagnostics 2 }
+
+-- ----------------------------------------------------------------------
+--
+-- Group "axisDiagnostics"
+-- This group contains information pertained to RAS Disk diagnostics in
+-- AXIS.
+--
+-- ----------------------------------------------------------------------
+
+rasDskStatus    OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        enable  (1),
+                        disable (2)
+                        }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "Indicates whether the RAS Disk diagnostics has been
+		 Enabled or not.
+                "
+        DEFVAL  { disable }
+
+        ::= { rasDsk 1 }
+
+
+dskHealth       OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        pass    (1),
+                        fail    (2),
+                        unknown (3),
+                        testInProgress (4)
+                        }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Shows the Status of the Hard Disk, which depends on the
+                 number of corrupted files and number of Bad sectors in
+		 the ASC. The Status is PASS if there are no Corrupted
+		 files in the Disk AND the number of Bad Sectors is within
+		 the threshold value. If the Disk has one or more
+		 Corrupted files OR if the Number of Bad Sectors exceeds
+		 the threshold value, the Status is FAIL. If Diagnostics
+		 is going on, the Status is TestInProgress. Status will be
+		 UNKNOWN until the diagnostics starts for the first time.
+                "
+        DEFVAL  { unknown }
+
+        ::= { rasDsk 2 }
+
+
+standbyDskHealth        OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        pass    (1),
+                        fail    (2),
+                        unknown (3),
+                        testInProgress (4)
+                        }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Shows the Status of the Standby ASC Hard Disk, which 
+		 depends on the number of corrupted files and number of
+		 Bad sectors in the Standby ASC. The Status is UNKNOWN, if
+		 there is no Standby ASC in the shelf.
+                "
+        DEFVAL  { unknown }
+
+        ::= { rasDsk 3 }
+
+
+wakeupInterval  OBJECT-TYPE
+        SYNTAX  INTEGER (12..168)
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "Indicates the RAS Disk diagnostics task Wake up time 
+	         period, in HOURS. This Interval is configurable between
+		 12 hours and 7 days. If RAS Disk diagnostics is Enabled,
+		 the diagnostics starts whenever the wakeupInterval is
+		 elapsed. If RAS Disk diagnostics is Enabled AND if the
+		 CLI cnfrasdsk is executed, then the Disk diagnostics
+		 starts immediately.
+                "
+        DEFVAL  { 12 }
+
+        ::= { rasDsk 4 }
+
+
+lastTime        OBJECT-TYPE
+        SYNTAX  DisplayString (SIZE (20))
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Shows the Time when the RAS Disk diagnostics was
+                 Last done. The format is  DD MONTH   HH:MM:SS.
+                "
+        ::= { rasDsk 5 }
+
+
+numBadSectors   OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Indicates the Number of Bad Sectors found in the Disk.
+                "
+        DEFVAL  { 0 }
+
+        ::= { rasDsk 6 }
+
+
+crptdPRIfiles   OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Indicates the Number of SM configuration files,
+	         corrupted.
+                "
+        DEFVAL  { 0 }
+
+        ::= { rasDsk 7 }
+
+
+crptdFWfiles    OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Indicates the Number of FirmWare files, corrupted.
+                "
+        DEFVAL  { 0 }
+
+        ::= { rasDsk 8 }
+
+END
+
+
+
+	

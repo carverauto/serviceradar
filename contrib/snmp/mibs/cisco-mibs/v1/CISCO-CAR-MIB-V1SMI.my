@@ -1,0 +1,566 @@
+-- MIB file created 09-Jul-2002 15:28:57, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CAR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CAR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCarMIB OBJECT IDENTIFIER ::= { ciscoMgmt 113 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    0002180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--     San Jose, CA  95134-1706
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-qos@cisco.com
+--  Descr
+--    Cisco CAR MIB - Overview
+--    
+--      Cisco Weighted Rate-limit, known as Commited Access Rate (CAR),
+--      is a traffic control method which uses a set of rate limits
+--      to be applied to an interface for packet switching purpose.
+--      Each rate limit has a configurable action to be taken
+--      when a condition suffices.
+--    
+--      This MIB incorporates objects from the Cisco Rate-limit line interfaces.
+--      Its purpose is to provide Weighted Rate-Limit packet filtering information.
+--      
+--  RevDate
+--    9707180000Z
+--  RevDescr
+--    Initial version of this MIB module.
+--  RevDate
+--    0002180000Z
+--  RevDescr
+--    Added 32-bit overflow counters, as well as 
+--    64-bit counters for both switched and filtered
+--    bytes and packet counts to the statistics table
+--    (ccarStatTable).
+
+ciscoCarMIBObjects OBJECT IDENTIFIER ::= { ciscoCarMIB 1 }
+ccarConfigs     OBJECT IDENTIFIER ::= { ciscoCarMIBObjects 1 }
+ccarStats       OBJECT IDENTIFIER ::= { ciscoCarMIBObjects 2 }
+ciscoCarMIBConformance OBJECT IDENTIFIER ::= { ciscoCarMIB 3 }
+ciscoCarMIBCompliances OBJECT IDENTIFIER ::= { ciscoCarMIBConformance 1 }
+ciscoCarMIBGroups OBJECT IDENTIFIER ::= { ciscoCarMIBConformance 2 }
+
+PacketSource ::= INTEGER {
+        input(1),
+        output(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The source of the packet rate-limited for.
+--    
+--    input statistics of the input packets.
+--    output statistics of the output packets.
+
+RateLimitType ::= INTEGER {
+        all(1),
+        quickAcc(2),
+        standardAcc(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of traffic rate-limited for.
+--    
+--    all  all traffic.
+--    quickAcc traffic matches rate-limit's access list.
+--    standardAcc traffic matches standard access list.
+
+RateLimitAction ::= INTEGER {
+        drop(1),
+        xmit(2),
+        continue(3),
+        precedXmit(4),
+        precedCont(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The action taken after evaluating the rate limit.
+--    
+--    drop  drop the packet.
+--    xmit  transmit the packet.
+--    continue continue to evaluate to the subsequent
+--      rate limits.
+--    precedXmit rewrite the IP precedence and transmit
+--      the packet.
+--    precedCont rewrite the IP precedence and allow it
+--      evaluated by subsequent rate limits.
+
+ccarConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcarConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of rate limit configuration entries.
+        Rate Limit is a method of traffic control.  It allows a set
+        of rate limits to be configured and applied to packets flowing
+        into/out of an interface to regulate network traffic."
+    ::= { ccarConfigs 1 }
+
+ccarConfigEntry OBJECT-TYPE
+    SYNTAX CcarConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of rate-limit configuration objects on this 
+        interface.  Entries in the ccarConfigTable is created
+        and deleted via the rate-limit command line interface."
+    INDEX { ifIndex, ccarConfigDirection, ccarConfigRowIndex }
+    ::= { ccarConfigTable 1 }
+
+CcarConfigEntry ::= SEQUENCE {
+    ccarConfigDirection PacketSource,
+    ccarConfigRowIndex INTEGER,
+    ccarConfigType RateLimitType,
+    ccarConfigAccIdx INTEGER,
+    ccarConfigRate INTEGER,
+    ccarConfigLimit INTEGER,
+    ccarConfigExtLimit INTEGER,
+    ccarConfigConformAction RateLimitAction,
+    ccarConfigExceedAction RateLimitAction
+    }
+
+ccarConfigDirection OBJECT-TYPE
+    SYNTAX PacketSource
+--    Rsyntax INTEGER {
+--        input(1),
+--        output(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The data source for the Rate Limit object."
+    ::= { ccarConfigEntry 1 }
+
+ccarConfigRowIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary index for rate limit objects.
+        It will increase as the list is traversed,
+        but may skip."
+    ::= { ccarConfigEntry 2 }
+
+ccarConfigType OBJECT-TYPE
+    SYNTAX RateLimitType
+--    Rsyntax INTEGER {
+--        all(1),
+--        quickAcc(2),
+--        standardAcc(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of traffic rate-limited against."
+    ::= { ccarConfigEntry 3 }
+
+ccarConfigAccIdx OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The index to the access list if RateLimitType is either
+        quickAcc or standardAcc."
+    ::= { ccarConfigEntry 4 }
+
+ccarConfigRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bits/second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The comitted access rate.  This is the sustained
+        rate permitted by the rate limit."
+    ::= { ccarConfigEntry 5 }
+
+ccarConfigLimit OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The rate limit.  The amout of traffic, in bytes,
+        in excess of the committed access rate which will be
+        instantaneously permitted by the rate limit."
+    ::= { ccarConfigEntry 6 }
+
+ccarConfigExtLimit OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The extended burst limit. The amount of traffic,
+        in bytes, in excess of the burst limit which may be
+        conditionnally permitted by the rate limit.
+        The probability that the traffic is not permitted
+        increases as the received burst increases.
+        
+        P(not permitted) =
+            (BurstRate - ConfLimit) / (ConfLimitExt - ConfLimit)."
+    ::= { ccarConfigEntry 7 }
+
+ccarConfigConformAction OBJECT-TYPE
+    SYNTAX RateLimitAction
+--    Rsyntax INTEGER {
+--        drop(1),
+--        xmit(2),
+--        continue(3),
+--        precedXmit(4),
+--        precedCont(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Action to be taken when the traffic is within
+        the Rate Limit."
+    ::= { ccarConfigEntry 8 }
+
+ccarConfigExceedAction OBJECT-TYPE
+    SYNTAX RateLimitAction
+--    Rsyntax INTEGER {
+--        drop(1),
+--        xmit(2),
+--        continue(3),
+--        precedXmit(4),
+--        precedCont(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Action to be taken when the traffic exceeds
+        the Rate Limit."
+    ::= { ccarConfigEntry 9 }
+
+ccarStatTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcarStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of rate limit status entries."
+    ::= { ccarStats 1 }
+
+ccarStatEntry OBJECT-TYPE
+    SYNTAX CcarStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of rate-limit status objects on this 
+        interface.  Entries are created and deleted via
+        the rate-limit command line interface."
+    INDEX { ifIndex, ccarConfigDirection, ccarConfigRowIndex }
+-- Augments ccarConfigEntry
+    ::= { ccarStatTable 1 }
+
+CcarStatEntry ::= SEQUENCE {
+    ccarStatSwitchedPkts Counter,
+    ccarStatSwitchedBytes Counter,
+    ccarStatFilteredPkts Counter,
+    ccarStatFilteredBytes Counter,
+    ccarStatCurBurst Gauge,
+    ccarStatSwitchedPktsOverflow Counter,
+    ccarStatSwitchedBytesOverflow Counter,
+    ccarStatFilteredPktsOverflow Counter,
+    ccarStatFilteredBytesOverflow Counter,
+    ccarStatHCSwitchedPkts Counter,
+    ccarStatHCSwitchedBytes Counter,
+    ccarStatHCFilteredPkts Counter,
+    ccarStatHCFilteredBytes Counter
+    }
+
+ccarStatSwitchedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets permitted by this rate limit."
+    ::= { ccarStatEntry 1 }
+
+ccarStatSwitchedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes permitted by this interface."
+    ::= { ccarStatEntry 2 }
+
+ccarStatFilteredPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets which exceeded this rate limit."
+    ::= { ccarStatEntry 3 }
+
+ccarStatFilteredBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes which exceeded this rate limit."
+    ::= { ccarStatEntry 4 }
+
+ccarStatCurBurst OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current received burst size."
+    ::= { ccarStatEntry 5 }
+
+ccarStatSwitchedPktsOverflow OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high-word of the counter of packets permitted 
+         by this rate limit.
+        
+           NOTE:  The object ccarStatSwitchedPkts contains the
+           lower 32 bits of the switched packet counts.
+           If the number of switched packets is larger
+           than what can be stored in a 32 bit value, then
+           the high word value is stored in this object.
+           As such SNMP Manager applications should 
+           combine this object along with the 
+           ccarStatSwitchedPkts object to come up with the
+           64-bit value.
+        
+           SNMP v2c or v3 Manager can use the 
+           ccarStatHCSwitchedPkts object directly 
+           (which is a 64-bit object)."
+    ::= { ccarStatEntry 6 }
+
+ccarStatSwitchedBytesOverflow OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high-word of the counter of bytes permitted by 
+         this interface.
+        
+           NOTE:  The object ccarStatSwitchedBytes contains the
+           lower 32 bits of the switched byte counts.
+           If the number of switched bytes is larger
+           than what can be stored in a 32 bit value, then
+           the high word value is stored in this object.
+           As such SNMP Manager applications should 
+           combine this object along with the 
+           ccarStatSwitchedBytes object to come up with the
+           64-bit value.
+        
+           SNMP v2c or v3 Manager can use the 
+           ccarStatHCSwitchedBytes object directly 
+           (which is a 64-bit object)."
+    ::= { ccarStatEntry 7 }
+
+ccarStatFilteredPktsOverflow OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high-word of the counter of packets which exceeded 
+         this rate limit.
+        
+           NOTE:  The object ccarStatFilteredPkts contains the
+           lower 32 bits of the filtered packet counts.
+           If the number of filtered packets is larger
+           than what can be stored in a 32 bit value, then
+           the high word value is stored in this object.
+           As such SNMP Manager applications should combine 
+           this object along with the ccarStatFilteredPkts 
+           object to come up with the 64-bit value.
+        
+           SNMP v2c or v3 Manager can use the 
+           ccarStatHCFilteredPkts object directly 
+           (which is a 64-bit object)."
+    ::= { ccarStatEntry 8 }
+
+ccarStatFilteredBytesOverflow OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high-word of the counter of bytes which exceeded 
+         this rate limit.
+        
+           NOTE:  The object ccarStatFilteredBytes contains the
+           lower 32 bits of the filtered byte counts.
+           If the number of filtered bytes is larger
+           than what can be stored in a 32 bit value, then
+           the high word value is stored in this object.
+           As such SNMP Manager applications should combine 
+           this object along with the ccarStatFilteredBytes 
+           object to come up with the 64-bit value.
+        
+           SNMP v2c or v3 Manager can use the 
+           ccarStatHCFilteredBytes object directly 
+           (which is a 64-bit object)."
+    ::= { ccarStatEntry 9 }
+
+ccarStatHCSwitchedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets permitted by this rate limit.
+        
+           NOTE:  This is a 64 bit (High Capacity)
+           version of the ccarStatSwitchedPkts
+           counter for use with SNMP v2c or v3 Managers"
+    ::= { ccarStatEntry 10 }
+
+ccarStatHCSwitchedBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes permitted by this interface.
+        
+           NOTE:  This is a 64 bit (High Capacity)
+           version of the ccarStatSwitchedBytes
+           counter for use with SNMP v2c or v3 Managers"
+    ::= { ccarStatEntry 11 }
+
+ccarStatHCFilteredPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets which exceeded this rate limit.
+        
+           NOTE:  This is a 64 bit (High Capacity)
+           version of the ccarStatFilteredPkts
+           counter for use with SNMP v2c or v3 Managers"
+    ::= { ccarStatEntry 12 }
+
+ccarStatHCFilteredBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes which exceeded this rate limit.
+        
+           NOTE:  This is a 64 bit (High Capacity)
+           version of the ccarStatFilteredBytes
+           counter for use with SNMP v2c or v3 Managers"
+    ::= { ccarStatEntry 13 }
+
+ciscoCarMIBGroup OBJECT IDENTIFIER ::= { ciscoCarMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing CAR monitoring.
+--  objects
+--    ccarConfigType, ccarConfigAccIdx, ccarConfigRate, 
+--    ccarConfigLimit, ccarConfigExtLimit, ccarConfigConformAction, 
+--    ccarConfigExceedAction, ccarStatSwitchedPkts, 
+--    ccarStatSwitchedBytes, ccarStatFilteredPkts, 
+--    ccarStatFilteredBytes, ccarStatCurBurst
+
+ciscoCarMIBHCGroup OBJECT IDENTIFIER ::= { ciscoCarMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of high capacity counters (64-bit) provided 
+--    for CAR monitoring.
+--  objects
+--    ccarStatSwitchedPktsOverflow, ccarStatSwitchedBytesOverflow, 
+--    ccarStatFilteredPktsOverflow, ccarStatFilteredBytesOverflow, 
+--    ccarStatHCSwitchedPkts, ccarStatHCSwitchedBytes, 
+--    ccarStatHCFilteredPkts, ccarStatHCFilteredBytes
+
+ciscoCarMIBCompliance OBJECT IDENTIFIER ::= { ciscoCarMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the CAR on a Cisco router.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoCarMIBGroup
+
+ciscoCarMIBComplianceHCCounters OBJECT IDENTIFIER ::= { ciscoCarMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities that implement
+--    64-bit counters for Switched/Filtered Packet/Bytes objects
+--    for CAR on a Cisco router.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoCarMIBGroup
+--   MandGroup
+--    ciscoCarMIBHCGroup
+
+
+END
+

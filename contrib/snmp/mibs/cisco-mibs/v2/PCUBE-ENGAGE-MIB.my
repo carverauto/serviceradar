@@ -1,0 +1,761 @@
+-- ****
+-- *------------------------------------------------------------------
+-- * CISCO-SCAS-BB-MIB.my:  Main SNMP MIB for Cisco SCAS BB.
+-- *
+-- * PCube was acquired by Cisco Systems on August 23, 2004 
+-- *
+-- * Copyright (c) May 2006 by Cisco Systems, Inc.
+-- * All rights reserved.
+-- * Author: Guy Keinan
+-- *------------------------------------------------------------------
+-- ****
+
+
+CISCO-SCAS-BB-MIB DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+    pcubeWorkgroup, pcubeModules
+        FROM PCUBE-SMI
+    linkModuleIndex, linkIndex, spvIndex, pmoduleIndex
+                FROM PCUBE-SE-MIB
+    MODULE-IDENTITY, OBJECT-TYPE, Counter32,Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB;
+
+        
+pcubeEngageMIB  MODULE-IDENTITY
+    LAST-UPDATED "200605100000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+                 "Cisco Systems
+                  Customer Service
+                  
+           Postal: 170 W Tasman Drive
+                   San Jose, CA  95134
+                   USA
+
+              Tel: +1 800 553-NETS
+
+           E-mail: cs-sce@cisco.com"
+    DESCRIPTION 
+        "Main SNMP MIB for Cisco SCAS BB application
+        which runs over Service Control Engine devices."
+        
+    REVISION    "200605100000Z"     
+    DESCRIPTION 
+        "MIB revised as a part of integration into
+         Cisco SNMP MIB standard.
+         Changed contacts,
+         Added OBJECT-GROUPS,
+         Added MODULE-COMPLIANCE."
+        
+    REVISION    "200412210000Z"     
+    DESCRIPTION 
+        "Main SNMP MIB for P-cube's Engage Applictaion, 
+        revised for Engage 2.5."
+        
+    REVISION    "200407010000Z"     
+    DESCRIPTION 
+        "Main SNMP MIB for P-cube's Engage Applictaion."
+        
+    REVISION    "200207032000Z"     
+    DESCRIPTION 
+        "This MIB provides runtime status and monitoring 
+        capabilities for the SCAS BB application."
+    ::= { pcubeModules 4 }
+
+
+pcubeEngageObjs           OBJECT IDENTIFIER ::= { pcubeWorkgroup 2 }
+pcubeEngageConformance    OBJECT IDENTIFIER ::= { pcubeEngageMIB 3 }
+pcubeEngageGroups         OBJECT IDENTIFIER 
+                               ::= { pcubeEngageConformance 1 }
+-- Compliances to the SNMP agents running SCABB application
+pcubeEngageCompliances    OBJECT IDENTIFIER 
+                                ::= { pcubeEngageConformance 2 }
+
+--
+-- GenericApp Objects
+--
+serviceGrp              OBJECT IDENTIFIER ::= { pcubeEngageObjs 1 }
+linkGrp                 OBJECT IDENTIFIER ::= { pcubeEngageObjs 2 }
+packageGrp              OBJECT IDENTIFIER ::= { pcubeEngageObjs 3 }
+subscriberGrp           OBJECT IDENTIFIER ::= { pcubeEngageObjs 4 }
+serviceCounterGrp       OBJECT IDENTIFIER ::= { pcubeEngageObjs 5 }
+             
+--
+-- Service group
+--
+
+--  OBJECT-TYPE which is a leaf cannot have 'not-accessible' 
+-- access according to SMICNG
+--  Thus we removed it and declared an OBJECT IDENTIFIER instead.
+--serviceTable OBJECT-TYPE
+--        SYNTAX        Counter32 
+--        MAX-ACCESS    not-accessible
+--        STATUS        deprecated
+--        DESCRIPTION   "The Service table is no longer supported, the 
+--                       Tables in the Counter group are used instead."
+--        ::= { serviceGrp 1 }
+serviceTable OBJECT IDENTIFIER ::= { serviceGrp 1 }
+
+--
+-- Link group
+--
+
+-- Link counter table
+linkServiceUsageTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF LinkServiceUsageEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "The Link Service-usage table provides
+            information per link per global-scope
+            service-counter."
+        ::= { linkGrp 1 }
+
+linkServiceUsageEntry OBJECT-TYPE
+        SYNTAX        LinkServiceUsageEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "A linkServiceUsageTable entry."
+        INDEX         { linkModuleIndex,
+                        linkIndex,
+                        globalScopeServiceCounterIndex 
+                       }
+        ::= { linkServiceUsageTable 1 }
+     
+LinkServiceUsageEntry ::=
+    SEQUENCE {
+            linkServiceUsageUpVolume            Counter32,
+            linkServiceUsageDownVolume          Counter32,
+            linkServiceUsageNumSessions         Counter32,
+            linkServiceUsageDuration            Counter32,
+            linkServiceUsageConcurrentSessions  Counter32,
+            linkServiceUsageActiveSubscribers   Counter32,
+            linkServiceUpDroppedPackets         Counter32,
+            linkServiceDownDroppedPackets       Counter32,
+            linkServiceUpDroppedBytes           Counter32,
+            linkServiceDownDroppedBytes         Counter32
+            }
+
+        
+linkServiceUsageUpVolume OBJECT-TYPE
+        SYNTAX        Counter32 
+        UNITS         "KBytes"  
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter upstream volume."
+        ::= { linkServiceUsageEntry 1 }
+
+linkServiceUsageDownVolume OBJECT-TYPE
+        SYNTAX        Counter32 
+        UNITS         "KBytes" 
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter downstream volume."
+        ::= { linkServiceUsageEntry 2 }
+
+linkServiceUsageNumSessions OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "sessions"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter."
+        ::= { linkServiceUsageEntry 3 }
+
+linkServiceUsageDuration OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "seconds"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter aggregated 
+            session duration."
+        ::= { linkServiceUsageEntry 4 }
+
+linkServiceUsageConcurrentSessions OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "sessions"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter concurrent sessions."
+        ::= { linkServiceUsageEntry 5 }
+
+linkServiceUsageActiveSubscribers OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "subscribers"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter amount of active
+            subscribers."
+        ::= { linkServiceUsageEntry 6 }
+
+linkServiceUpDroppedPackets  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "packets"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter number of dropped
+            packets on the upstream, when accelerate 
+            packet drop is enabled this counter will 
+            always return 0xFFFFFFFF."
+        ::= { linkServiceUsageEntry 7 }
+
+linkServiceDownDroppedPackets  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "packets"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter number of dropped
+            packets on the downstream when accelerate 
+            packet drop is enabled this counter will 
+            always return 0xFFFFFFFF."
+        ::= { linkServiceUsageEntry 8 }
+
+linkServiceUpDroppedBytes  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "bytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter number of dropped
+            bytes on the upstream when accelerate packet 
+            drop is enabled this counter will always 
+            return 0xFFFFFFFF."
+        ::= { linkServiceUsageEntry 9 }
+
+linkServiceDownDroppedBytes  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "bytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The link service-counter number of dropped 
+            bytes on the downstream when accelerate packet
+            drop is enabled this counter will always 
+            return 0xFFFFFFFF."
+        ::= { linkServiceUsageEntry 10 }
+
+--
+-- Package group
+--
+
+-- Package table
+packageCounterTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF PackageCounterEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "This table provides information per each
+            package-counter configured into the system."
+        ::= { packageGrp 1 }
+
+packageCounterEntry OBJECT-TYPE
+        SYNTAX        PackageCounterEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "A packageCounterTable entry."
+        INDEX         { pmoduleIndex, packageCounterIndex }
+        ::= { packageCounterTable 1 }
+     
+PackageCounterEntry ::=
+    SEQUENCE {
+            packageCounterIndex             Integer32,
+            packageCounterStatus            INTEGER,
+            packageCounterName              SnmpAdminString,
+            packageCounterActiveSubscribers Counter32 
+              }
+
+packageCounterIndex OBJECT-TYPE
+        SYNTAX        Integer32 (1..255)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter index."
+        ::= { packageCounterEntry 1 }
+
+packageCounterStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                disabled(0),     
+                                enabled(1) 
+                                }
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter status."   
+    ::= { packageCounterEntry 2 }
+
+
+packageCounterName OBJECT-TYPE
+        SYNTAX        SnmpAdminString
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The name of the package-counter."
+        ::= { packageCounterEntry 3 }
+
+packageCounterActiveSubscribers OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The total amount of active subscribers of the
+            package-counter."
+        ::= { packageCounterEntry 4 }
+
+
+-- Package service-usage table
+packageServiceUsageTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF PackageServiceUsageEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "The Package Service Usage table contains 
+            counters per package-counter per global-scope
+            service-counter."
+        ::= { packageGrp 2 }
+
+packageServiceUsageEntry OBJECT-TYPE
+        SYNTAX        PackageServiceUsageEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "A packageServiceUsageTable entry."
+        INDEX         {  pmoduleIndex,
+                         packageCounterIndex,
+                         globalScopeServiceCounterIndex }
+        ::= { packageServiceUsageTable 1 }
+     
+PackageServiceUsageEntry ::=
+    SEQUENCE {
+            packageServiceUsageUpVolume             Counter32,
+            packageServiceUsageDownVolume           Counter32,
+            packageServiceUsageNumSessions          Counter32,
+            packageServiceUsageDuration             Counter32,
+            packageServiceUsageConcurrentSessions   Counter32,
+            packageServiceUsageActiveSubscribers    Counter32,
+            packageServiceUpDroppedPackets          Counter32,
+            packageServiceDownDroppedPackets        Counter32,
+            packageServiceUpDroppedBytes            Counter32,
+            packageServiceDownDroppedBytes          Counter32 
+            }
+
+packageServiceUsageUpVolume OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "KBytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service-counter upstream
+            volume."
+        ::= { packageServiceUsageEntry 1 }
+
+packageServiceUsageDownVolume OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "KBytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service-counter downstream
+            volume."
+        ::= { packageServiceUsageEntry 2 }
+
+packageServiceUsageNumSessions OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "sessions"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service-counter 
+            number of sessions."
+        ::= { packageServiceUsageEntry 3 }
+
+packageServiceUsageDuration OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "seconds"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service-counter aggregated 
+            session duration."
+        ::= { packageServiceUsageEntry 4 }
+
+packageServiceUsageConcurrentSessions OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "sessions"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service-counter 
+            concurrent sessions."
+        ::= { packageServiceUsageEntry 5 }
+
+packageServiceUsageActiveSubscribers OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "subscribers"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service-counter amount of 
+            active subscribers."
+        ::= { packageServiceUsageEntry 6 }
+
+packageServiceUpDroppedPackets  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "packets"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service number of dropped
+            packets on the upstream when accelerate packet
+            drop is enabled this counter will always return
+            0xFFFFFFFF."
+        ::= { packageServiceUsageEntry 7 }
+
+packageServiceDownDroppedPackets  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "packets"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service number of dropped
+            packets on the downstream when accelerate
+            packet drop is enabled this counter will always
+            return 0xFFFFFFFF."
+        ::= { packageServiceUsageEntry 8 }
+
+packageServiceUpDroppedBytes  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "bytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service number of dropped
+            bytes on the upstream when accelerate packet 
+            drop is enabled this counter will always return
+            0xFFFFFFFF."
+        ::= { packageServiceUsageEntry 9 }
+
+packageServiceDownDroppedBytes  OBJECT-TYPE
+        SYNTAX        Counter32
+        UNITS         "bytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The package-counter service number of dropped 
+            bytes on the downstream when accelerate packet
+            drop is enabled this counter will always return
+            0xFFFFFFFF."
+        ::= { packageServiceUsageEntry 10 }
+
+--
+-- Subscriber group
+--
+
+
+-- Subscribers table
+subscribersTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF SubscribersEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "This table provides information for 
+            each subscriber."
+        ::= { subscriberGrp 1 }
+
+subscribersEntry OBJECT-TYPE
+        SYNTAX        SubscribersEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "A subscribersTable entry."
+        INDEX         { pmoduleIndex, spvIndex }
+        ::= { subscribersTable 1 }
+     
+SubscribersEntry ::=
+    SEQUENCE {
+            subscriberPackageIndex              Integer32
+            }
+
+subscriberPackageIndex OBJECT-TYPE
+        SYNTAX        Integer32 (1..255)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The subscriber package index."
+        ::= { subscribersEntry 1 }
+
+
+
+-- Subscribers service-usage table
+subscriberServiceUsageTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF SubscriberServiceUsageEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "This table provides information for each 
+            subscriber for each subscriber-scope 
+            service-counter."
+        ::= { subscriberGrp 2 }
+
+subscriberServiceUsageEntry OBJECT-TYPE
+        SYNTAX        SubscriberServiceUsageEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "A subscriberServiceUsageTable entry."
+        INDEX         { pmoduleIndex,
+                        spvIndex, 
+                        subscriberScopeServiceCounterIndex }
+        ::= { subscriberServiceUsageTable 1 }
+     
+SubscriberServiceUsageEntry ::=
+    SEQUENCE {
+            subscriberServiceUsageUpVolume              Counter32,
+            subscriberServiceUsageDownVolume            Counter32,
+            subscriberServiceUsageNumSessions           Integer32,
+            subscriberServiceUsageDuration              Integer32
+            }
+
+subscriberServiceUsageUpVolume OBJECT-TYPE
+        SYNTAX        Counter32 
+        UNITS         "KBytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The upstream volume."
+        ::= { subscriberServiceUsageEntry 1 }
+
+subscriberServiceUsageDownVolume OBJECT-TYPE
+        SYNTAX        Counter32 
+        UNITS         "KBytes"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The downstream volume."
+        ::= { subscriberServiceUsageEntry 2 }
+
+subscriberServiceUsageNumSessions OBJECT-TYPE
+        SYNTAX        Integer32 (0..65535)
+        UNITS         "sessions"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The number of sessions."
+        ::= { subscriberServiceUsageEntry 3 }
+
+subscriberServiceUsageDuration OBJECT-TYPE
+        SYNTAX        Integer32 (0..65535)
+        UNITS         "seconds"
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "Aggregated session duration."
+        ::= { subscriberServiceUsageEntry 4 }
+
+--
+-- Service Counter group
+--
+globalScopeServiceCounterTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF GlobalScopeServiceCounterEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "The Global-scope Service-counter table 
+            consists of data regarding each service-counter
+            configured into the system, used by the link 
+            and package entries."
+        ::= { serviceCounterGrp 1 }
+
+globalScopeServiceCounterEntry OBJECT-TYPE
+        SYNTAX        GlobalScopeServiceCounterEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "A globalScopeServiceCounterEntry entry."
+        INDEX         { pmoduleIndex, globalScopeServiceCounterIndex }
+        ::= { globalScopeServiceCounterTable 1 }
+     
+GlobalScopeServiceCounterEntry ::=
+    SEQUENCE {
+            globalScopeServiceCounterIndex       Integer32,
+            globalScopeServiceCounterStatus      INTEGER,
+            globalScopeServiceCounterName        SnmpAdminString
+            }
+
+globalScopeServiceCounterIndex OBJECT-TYPE
+        SYNTAX        Integer32 (1..255)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "The global-scope service-counter index."
+        ::= { globalScopeServiceCounterEntry 1 }
+
+globalScopeServiceCounterStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                disabled(0),     
+                                enabled(1) 
+                              }
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The global-scope service-counter status."   
+    ::= { globalScopeServiceCounterEntry 2 }
+
+globalScopeServiceCounterName OBJECT-TYPE
+        SYNTAX        SnmpAdminString
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The name of the global-scope service-counter."
+        ::= { globalScopeServiceCounterEntry 3 }
+
+
+subscriberScopeServiceCounterTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF SubscriberScopeServiceCounterEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "The Subscriber-Scope Service-counter table
+            consists of data regarding each service-counter
+            definition configured into the system,
+            used by the subscriber entries."
+        ::= { serviceCounterGrp 2 }
+
+subscriberScopeServiceCounterEntry OBJECT-TYPE
+        SYNTAX        SubscriberScopeServiceCounterEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "A subscriberScopeServiceCounterEntry entry."
+        INDEX         { pmoduleIndex, 
+                        subscriberScopeServiceCounterIndex }
+        ::= { subscriberScopeServiceCounterTable 1 }
+     
+SubscriberScopeServiceCounterEntry ::=
+    SEQUENCE {
+            subscriberScopeServiceCounterIndex          Integer32,
+            subscriberScopeServiceCounterStatus         INTEGER,
+            subscriberScopeServiceCounterName           SnmpAdminString 
+            }
+
+subscriberScopeServiceCounterIndex OBJECT-TYPE
+        SYNTAX        Integer32 (1..255)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+            "The subscriber-scope service-counter index."
+        ::= { subscriberScopeServiceCounterEntry 1 }
+
+subscriberScopeServiceCounterStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                disabled(0),     
+                enabled(1) 
+                                }
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The subscriber-scope service-counter status."
+    ::= { subscriberScopeServiceCounterEntry 2 }
+
+subscriberScopeServiceCounterName OBJECT-TYPE
+        SYNTAX        SnmpAdminString
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The name of the subscriber-scope 
+            service-counter."
+        ::= { subscriberScopeServiceCounterEntry 3 }
+
+
+--Compliances
+pcubeEngageCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "A compliance statement defined in this MIB module,
+             for SCABB SNMP agents."
+    MODULE  -- this module
+    -- Currently all groups are mandatory.
+    MANDATORY-GROUPS {  
+        pcubeLinkGroup,
+        pcubePackageGroup,
+        pcubeSubscriberGroup,
+        pcubeServiceCounterGroup }
+    ::= { pcubeEngageCompliances 1 }     
+    
+pcubeLinkGroup        OBJECT-GROUP
+    OBJECTS { 
+        linkServiceUsageUpVolume,
+        linkServiceUsageDownVolume,
+        linkServiceUsageNumSessions,
+        linkServiceUsageDuration,
+        linkServiceUsageConcurrentSessions,
+        linkServiceUsageActiveSubscribers,
+        linkServiceUpDroppedPackets,
+        linkServiceDownDroppedPackets,
+        linkServiceUpDroppedBytes,
+        linkServiceDownDroppedBytes }
+    STATUS current
+    DESCRIPTION 
+        "Link related inforamtion."
+    ::= { pcubeEngageGroups 2 }
+                
+pcubePackageGroup OBJECT-GROUP
+    OBJECTS { 
+        packageCounterStatus,
+        packageCounterName,
+        packageCounterActiveSubscribers,
+        packageServiceUsageUpVolume,
+        packageServiceUsageDownVolume,
+        packageServiceUsageNumSessions,
+        packageServiceUsageDuration,
+        packageServiceUsageConcurrentSessions,
+        packageServiceUsageActiveSubscribers,
+        packageServiceUpDroppedPackets,
+        packageServiceDownDroppedPackets,
+        packageServiceUpDroppedBytes,
+        packageServiceDownDroppedBytes }
+    STATUS  current
+    DESCRIPTION 
+        "Package related information."
+    ::= { pcubeEngageGroups 3 }
+
+pcubeSubscriberGroup OBJECT-GROUP
+    OBJECTS { 
+        subscriberPackageIndex,
+        subscriberServiceUsageUpVolume,
+        subscriberServiceUsageDownVolume,
+        subscriberServiceUsageNumSessions,
+        subscriberServiceUsageDuration }
+    STATUS  current
+    DESCRIPTION 
+        "Subscriber related information."
+    ::= { pcubeEngageGroups 4 }
+
+pcubeServiceCounterGroup OBJECT-GROUP
+    OBJECTS { 
+        globalScopeServiceCounterStatus,
+        globalScopeServiceCounterName,
+        subscriberScopeServiceCounterStatus,
+        subscriberScopeServiceCounterName }
+    STATUS current
+    DESCRIPTION 
+        "Service related information."
+    ::= { pcubeEngageGroups 5 }
+    
+END
+
+

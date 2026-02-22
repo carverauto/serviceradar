@@ -1,0 +1,344 @@
+-- MIB file created 03-Dec-2002 13:08:52, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-SYNC-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-SYNC-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    alStatsSync, alSyncGroup
+            FROM ALTIGA-MIB
+    alSyncMibModule
+            FROM ALTIGA-GLOBAL-REG
+    InterfaceIndex
+            FROM IF-MIB
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaSyncStatsMibModule OBJECT IDENTIFIER ::= { alSyncMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga Sync Statistics MIB models counters and objects 
+--     that are of management interest. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       CRC:        Cyclic Redundancy Check 
+--    
+--       HDLC:       High-level Data Link Control 
+--    
+--       MIB:        Management Information Base 
+--    
+--       MTU:        Maximum Transmission Unit 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsSyncGlobal OBJECT IDENTIFIER ::= { alStatsSync 1 }
+altigaSyncStatsMibConformance OBJECT IDENTIFIER ::= { altigaSyncStatsMibModule 1 }
+altigaSyncStatsMibCompliances OBJECT IDENTIFIER ::= { altigaSyncStatsMibConformance 1 }
+
+alSyncStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlSyncStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The SYNC interface statistics MIB."
+    ::= { alStatsSync 2 }
+
+alSyncStatsEntry OBJECT-TYPE
+    SYNTAX AlSyncStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry the alSyncStatsTable."
+    INDEX { alSyncStatsSlot, alSyncStatsConn, alSyncStatsChannel }
+    ::= { alSyncStatsTable 1 }
+
+AlSyncStatsEntry ::= SEQUENCE {
+    alSyncStatsRowStatus RowStatus,
+    alSyncStatsSlot INTEGER,
+    alSyncStatsConn INTEGER,
+    alSyncStatsChannel INTEGER,
+    alSyncStatsIfIndex InterfaceIndex,
+    alSyncStatsPortState INTEGER,
+    alSyncStatsRxFrames Counter,
+    alSyncStatsRxOctets Counter,
+    alSyncStatsRxReplenFails Counter,
+    alSyncStatsRxClockErrors Counter,
+    alSyncStatsRxDpllErrors Counter,
+    alSyncStatsRxFrameTooLongErrors Counter,
+    alSyncStatsRxFrameOctetAlignErrors Counter,
+    alSyncStatsRxAbortErrors Counter,
+    alSyncStatsRxCrcErrors Counter,
+    alSyncStatsRxRcvrOverrunErrors Counter,
+    alSyncStatsTxFrames Counter,
+    alSyncStatsTxOctets Counter,
+    alSyncStatsTxRingFullDropsErrors Counter,
+    alSyncStatsTxClockErrors Counter,
+    alSyncStatsTxFrameTooLongErrors Counter,
+    alSyncStatsTxUnderrunErrors Counter
+    }
+
+alSyncStatsRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row."
+    ::= { alSyncStatsEntry 1 }
+
+alSyncStatsSlot OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The physical slot for this Sync port. Part of the index."
+    ::= { alSyncStatsEntry 2 }
+
+alSyncStatsConn OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The physical connector for this Sync port. Part of the index."
+    ::= { alSyncStatsEntry 3 }
+
+alSyncStatsChannel OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The virtual channel for this Sync port. Part of the index."
+    ::= { alSyncStatsEntry 4 }
+
+alSyncStatsIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IfIndex of this SYNC slot/conn/channel. This is 
+         configured, but configuration is not available via 
+         SNMP."
+    ::= { alSyncStatsEntry 5 }
+
+alSyncStatsPortState OBJECT-TYPE
+    SYNTAX INTEGER {
+        init(1),
+        running(2),
+        up(3),
+        down(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current operational state of the interface.   
+         The init(1) state indicates the port is in the state  
+         of trying to come up. It will transition to running(2) 
+         once initialization is complete. up(3) indicates the  
+         interface is capable of passing packets. down(4) indicates 
+         the interface is no longer capable of passing packets."
+    ::= { alSyncStatsEntry 6 }
+
+alSyncStatsRxFrames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received on this HDLC interface."
+    ::= { alSyncStatsEntry 7 }
+
+alSyncStatsRxOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received on this HDLC interface."
+    ::= { alSyncStatsEntry 8 }
+
+alSyncStatsRxReplenFails OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times receive buffers could not be allocated  
+        on this HDLC interface."
+    ::= { alSyncStatsEntry 9 }
+
+alSyncStatsRxClockErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of clock errors on this HDLC interface."
+    ::= { alSyncStatsEntry 10 }
+
+alSyncStatsRxDpllErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DPLL errors received on this HDLC interface."
+    ::= { alSyncStatsEntry 11 }
+
+alSyncStatsRxFrameTooLongErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received long frame errors received on this  
+         HDLC interface."
+    ::= { alSyncStatsEntry 12 }
+
+alSyncStatsRxFrameOctetAlignErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received long frame errors received on  
+         this HDLC interface."
+    ::= { alSyncStatsEntry 13 }
+
+alSyncStatsRxAbortErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received abort errors received on  
+         this HDLC interface."
+    ::= { alSyncStatsEntry 14 }
+
+alSyncStatsRxCrcErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received CRC errors received on  
+         this HDLC interface."
+    ::= { alSyncStatsEntry 15 }
+
+alSyncStatsRxRcvrOverrunErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received CRC errors received on  
+         this HDLC interface."
+    ::= { alSyncStatsEntry 16 }
+
+alSyncStatsTxFrames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted frames on this HDLC interface."
+    ::= { alSyncStatsEntry 17 }
+
+alSyncStatsTxOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted frames on this HDLC interface."
+    ::= { alSyncStatsEntry 18 }
+
+alSyncStatsTxRingFullDropsErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames dropped on this HDLC interface because 
+         the transmit ring was full."
+    ::= { alSyncStatsEntry 19 }
+
+alSyncStatsTxClockErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmit clock errors on this HDLC interface."
+    ::= { alSyncStatsEntry 20 }
+
+alSyncStatsTxFrameTooLongErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames dropped this HDLC interface because they 
+         were long than the interface's MTU."
+    ::= { alSyncStatsEntry 21 }
+
+alSyncStatsTxUnderrunErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitter underruns on this HDLC interface."
+    ::= { alSyncStatsEntry 22 }
+
+altigaSyncStatsGroup OBJECT IDENTIFIER ::= { alSyncGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for SYNC configuration.
+--  objects
+--    alSyncStatsRowStatus, alSyncStatsSlot, alSyncStatsConn, 
+--    alSyncStatsChannel, alSyncStatsIfIndex, alSyncStatsPortState, 
+--    alSyncStatsRxFrames, alSyncStatsRxOctets, 
+--    alSyncStatsRxReplenFails, alSyncStatsRxClockErrors, 
+--    alSyncStatsRxDpllErrors, alSyncStatsRxFrameTooLongErrors, 
+--    alSyncStatsRxFrameOctetAlignErrors, alSyncStatsRxAbortErrors, 
+--    alSyncStatsRxCrcErrors, alSyncStatsRxRcvrOverrunErrors, 
+--    alSyncStatsTxFrames, alSyncStatsTxOctets, 
+--    alSyncStatsTxRingFullDropsErrors, alSyncStatsTxClockErrors, 
+--    alSyncStatsTxFrameTooLongErrors, alSyncStatsTxUnderrunErrors
+
+altigaSyncStatsMibCompliance OBJECT IDENTIFIER ::= { altigaSyncStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga Sync Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaSyncStatsGroup
+
+
+END
+

@@ -1,0 +1,68 @@
+
+-- *****************************************************************
+-- CISCO-ETHER-WIS-CAPABILITY.my: Capability statement for ETHER-WIS MIB
+--   
+-- January 2007, Sunil Dath Krothapalli
+--   
+-- Copyright (c) 2007 by Cisco Systems, Inc.
+--   
+-- *****************************************************************
+
+CISCO-ETHER-WIS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEtherWisCapability MODULE-IDENTITY
+    LAST-UPDATED    "200701231200Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION     "The Agent Capabilities for ETHER-WIS."
+    REVISION        "200701231200Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+          ::= { ciscoAgentCapability 531 }
+
+
+
+ciscoEtherWisCapabilityV120S AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.0S for GSR."
+    STATUS          current
+    DESCRIPTION     "ETHER-WIS capabilities for GSR platform."
+
+    SUPPORTS        ETHER-WIS
+    INCLUDES        {
+                        etherWisSectionGroup,
+                        etherWisPathGroup,
+                        etherWisFarEndPathGroup
+                    }
+    VARIATION       etherWisSectionCurrentJ0Transmitted
+    ACCESS          read-only
+    DESCRIPTION     "This object is supported read-only."
+
+    VARIATION       etherWisPathCurrentJ1Transmitted
+    ACCESS          read-only
+    DESCRIPTION     "This object is supported read-only."
+
+    ::= { ciscoEtherWisCapability 1 }
+
+END
+
+
+

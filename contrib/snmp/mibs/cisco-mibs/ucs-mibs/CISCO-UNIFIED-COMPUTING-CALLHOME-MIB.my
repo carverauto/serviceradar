@@ -1,0 +1,1428 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-CALLHOME-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- CALLHOME management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-CALLHOME-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsCallhomeAdminState,
+    CucsCallhomeAlertGroup,
+    CucsCallhomeAlertGroups,
+    CucsCallhomeAlertLevel,
+    CucsCallhomeAlertMessageSubtype,
+    CucsCallhomeAlertMessageType,
+    CucsCallhomeAlertThrottlingAdminState,
+    CucsCallhomeAnonymousReportingAdminState,
+    CucsCallhomeEpConfigState,
+    CucsCallhomeEpFsmCurrentFsm,
+    CucsCallhomeEpFsmStageName,
+    CucsCallhomeEpFsmTaskItem,
+    CucsCallhomeFormat,
+    CucsCallhomeLevel,
+    CucsCallhomePolicyAdminState,
+    CucsCallhomeUrgency,
+    CucsConditionCallHomeCause,
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsCallhomeObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        CALLHOME management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 6 }
+
+cucsCallhomeAnonymousReportingTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeAnonymousReportingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:AnonymousReporting managed object table"
+    ::= { cucsCallhomeObjects 12 }
+
+cucsCallhomeAnonymousReportingEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeAnonymousReportingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeAnonymousReportingTable table."
+    INDEX { cucsCallhomeAnonymousReportingInstanceId }
+    ::= { cucsCallhomeAnonymousReportingTable 1 }
+
+CucsCallhomeAnonymousReportingEntry ::= SEQUENCE {
+    cucsCallhomeAnonymousReportingInstanceId                         CucsManagedObjectId,
+    cucsCallhomeAnonymousReportingDn                                 CucsManagedObjectDn,
+    cucsCallhomeAnonymousReportingRn                                 SnmpAdminString,
+    cucsCallhomeAnonymousReportingAdminState                         CucsCallhomeAnonymousReportingAdminState,
+    cucsCallhomeAnonymousReportingCount                              Gauge32,
+    cucsCallhomeAnonymousReportingSleepInterval                      Gauge32,
+    cucsCallhomeAnonymousReportingUserAcknowledged                   TruthValue
+}
+
+cucsCallhomeAnonymousReportingInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeAnonymousReportingEntry 1 }
+
+cucsCallhomeAnonymousReportingDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:AnonymousReporting:dn managed object property"
+    ::= { cucsCallhomeAnonymousReportingEntry 2 }
+
+cucsCallhomeAnonymousReportingRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:AnonymousReporting:rn managed object property"
+    ::= { cucsCallhomeAnonymousReportingEntry 3 }
+
+cucsCallhomeAnonymousReportingAdminState OBJECT-TYPE
+    SYNTAX       CucsCallhomeAnonymousReportingAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:AnonymousReporting:adminState
+        managed object property"
+    ::= { cucsCallhomeAnonymousReportingEntry 4 }
+
+cucsCallhomeAnonymousReportingCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:AnonymousReporting:count managed
+        object property"
+    ::= { cucsCallhomeAnonymousReportingEntry 5 }
+
+cucsCallhomeAnonymousReportingSleepInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:AnonymousReporting:sleepInterval
+        managed object property"
+    ::= { cucsCallhomeAnonymousReportingEntry 6 }
+
+cucsCallhomeAnonymousReportingUserAcknowledged OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:AnonymousReporting:userAcknowledged
+        managed object property"
+    ::= { cucsCallhomeAnonymousReportingEntry 7 }
+
+cucsCallhomeDestTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeDestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:Dest managed object table"
+    ::= { cucsCallhomeObjects 1 }
+
+cucsCallhomeDestEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeDestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeDestTable table."
+    INDEX { cucsCallhomeDestInstanceId }
+    ::= { cucsCallhomeDestTable 1 }
+
+CucsCallhomeDestEntry ::= SEQUENCE {
+    cucsCallhomeDestInstanceId                                       CucsManagedObjectId,
+    cucsCallhomeDestDn                                               CucsManagedObjectDn,
+    cucsCallhomeDestRn                                               SnmpAdminString,
+    cucsCallhomeDestEmail                                            SnmpAdminString
+}
+
+cucsCallhomeDestInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeDestEntry 1 }
+
+cucsCallhomeDestDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Dest:dn managed object property"
+    ::= { cucsCallhomeDestEntry 2 }
+
+cucsCallhomeDestRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Dest:rn managed object property"
+    ::= { cucsCallhomeDestEntry 3 }
+
+cucsCallhomeDestEmail OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Dest:email managed object property"
+    ::= { cucsCallhomeDestEntry 4 }
+
+cucsCallhomeEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep managed object table"
+    ::= { cucsCallhomeObjects 2 }
+
+cucsCallhomeEpEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeEpTable table."
+    INDEX { cucsCallhomeEpInstanceId }
+    ::= { cucsCallhomeEpTable 1 }
+
+CucsCallhomeEpEntry ::= SEQUENCE {
+    cucsCallhomeEpInstanceId                                         CucsManagedObjectId,
+    cucsCallhomeEpDn                                                 CucsManagedObjectDn,
+    cucsCallhomeEpRn                                                 SnmpAdminString,
+    cucsCallhomeEpAdminState                                         CucsCallhomeAdminState,
+    cucsCallhomeEpAlertThrottlingAdminState                          CucsCallhomeAlertThrottlingAdminState,
+    cucsCallhomeEpFsmDescr                                           SnmpAdminString,
+    cucsCallhomeEpFsmPrev                                            SnmpAdminString,
+    cucsCallhomeEpFsmProgr                                           Gauge32,
+    cucsCallhomeEpFsmRmtInvErrCode                                   Gauge32,
+    cucsCallhomeEpFsmRmtInvErrDescr                                  SnmpAdminString,
+    cucsCallhomeEpFsmRmtInvRslt                                      CucsConditionRemoteInvRslt,
+    cucsCallhomeEpFsmStageDescr                                      SnmpAdminString,
+    cucsCallhomeEpFsmStamp                                           DateAndTime,
+    cucsCallhomeEpFsmStatus                                          SnmpAdminString,
+    cucsCallhomeEpFsmTry                                             Gauge32,
+    cucsCallhomeEpConfigState                                        CucsCallhomeEpConfigState,
+    cucsCallhomeEpDescr                                              SnmpAdminString,
+    cucsCallhomeEpIntId                                              SnmpAdminString,
+    cucsCallhomeEpName                                               SnmpAdminString,
+    cucsCallhomeEpPolicyLevel                                        Gauge32,
+    cucsCallhomeEpPolicyOwner                                        CucsPolicyPolicyOwner
+}
+
+cucsCallhomeEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeEpEntry 1 }
+
+cucsCallhomeEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:dn managed object property"
+    ::= { cucsCallhomeEpEntry 2 }
+
+cucsCallhomeEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:rn managed object property"
+    ::= { cucsCallhomeEpEntry 3 }
+
+cucsCallhomeEpAdminState OBJECT-TYPE
+    SYNTAX       CucsCallhomeAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:adminState managed object property"
+    ::= { cucsCallhomeEpEntry 4 }
+
+cucsCallhomeEpAlertThrottlingAdminState OBJECT-TYPE
+    SYNTAX       CucsCallhomeAlertThrottlingAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:alertThrottlingAdminState
+        managed object property"
+    ::= { cucsCallhomeEpEntry 5 }
+
+cucsCallhomeEpFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmDescr managed object property"
+    ::= { cucsCallhomeEpEntry 6 }
+
+cucsCallhomeEpFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmPrev managed object property"
+    ::= { cucsCallhomeEpEntry 7 }
+
+cucsCallhomeEpFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmProgr managed object property"
+    ::= { cucsCallhomeEpEntry 8 }
+
+cucsCallhomeEpFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmRmtInvErrCode managed object property"
+    ::= { cucsCallhomeEpEntry 9 }
+
+cucsCallhomeEpFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmRmtInvErrDescr managed object property"
+    ::= { cucsCallhomeEpEntry 10 }
+
+cucsCallhomeEpFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmRmtInvRslt managed object property"
+    ::= { cucsCallhomeEpEntry 11 }
+
+cucsCallhomeEpFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmStageDescr managed object property"
+    ::= { cucsCallhomeEpEntry 12 }
+
+cucsCallhomeEpFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmStamp managed object property"
+    ::= { cucsCallhomeEpEntry 13 }
+
+cucsCallhomeEpFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmStatus managed object property"
+    ::= { cucsCallhomeEpEntry 14 }
+
+cucsCallhomeEpFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:fsmTry managed object property"
+    ::= { cucsCallhomeEpEntry 15 }
+
+cucsCallhomeEpConfigState OBJECT-TYPE
+    SYNTAX       CucsCallhomeEpConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:configState managed object property"
+    ::= { cucsCallhomeEpEntry 16 }
+
+cucsCallhomeEpDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:descr managed object property"
+    ::= { cucsCallhomeEpEntry 17 }
+
+cucsCallhomeEpIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:intId managed object property"
+    ::= { cucsCallhomeEpEntry 18 }
+
+cucsCallhomeEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:name managed object property"
+    ::= { cucsCallhomeEpEntry 19 }
+
+cucsCallhomeEpPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:policyLevel managed object property"
+    ::= { cucsCallhomeEpEntry 20 }
+
+cucsCallhomeEpPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Ep:policyOwner managed object property"
+    ::= { cucsCallhomeEpEntry 21 }
+
+cucsCallhomeEpFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm managed object table"
+    ::= { cucsCallhomeObjects 10 }
+
+cucsCallhomeEpFsmEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeEpFsmTable table."
+    INDEX { cucsCallhomeEpFsmInstanceId }
+    ::= { cucsCallhomeEpFsmTable 1 }
+
+CucsCallhomeEpFsmEntry ::= SEQUENCE {
+    cucsCallhomeEpFsmInstanceId                                      CucsManagedObjectId,
+    cucsCallhomeEpFsmDn                                              CucsManagedObjectDn,
+    cucsCallhomeEpFsmRn                                              SnmpAdminString,
+    cucsCallhomeEpFsmCompletionTime                                  DateAndTime,
+    cucsCallhomeEpFsmCurrentFsm                                      CucsCallhomeEpFsmCurrentFsm,
+    cucsCallhomeEpFsmDescrData                                       SnmpAdminString,
+    cucsCallhomeEpFsmFsmStatus                                       CucsFsmFsmStageStatus,
+    cucsCallhomeEpFsmProgress                                        Gauge32,
+    cucsCallhomeEpFsmRmtErrCode                                      Gauge32,
+    cucsCallhomeEpFsmRmtErrDescr                                     SnmpAdminString,
+    cucsCallhomeEpFsmRmtRslt                                         CucsConditionRemoteInvRslt
+}
+
+cucsCallhomeEpFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeEpFsmEntry 1 }
+
+cucsCallhomeEpFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:dn managed object property"
+    ::= { cucsCallhomeEpFsmEntry 2 }
+
+cucsCallhomeEpFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:rn managed object property"
+    ::= { cucsCallhomeEpFsmEntry 3 }
+
+cucsCallhomeEpFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:completionTime managed object property"
+    ::= { cucsCallhomeEpFsmEntry 4 }
+
+cucsCallhomeEpFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsCallhomeEpFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:currentFsm managed object property"
+    ::= { cucsCallhomeEpFsmEntry 5 }
+
+cucsCallhomeEpFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:descr managed object property"
+    ::= { cucsCallhomeEpFsmEntry 6 }
+
+cucsCallhomeEpFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:fsmStatus managed object property"
+    ::= { cucsCallhomeEpFsmEntry 7 }
+
+cucsCallhomeEpFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:progress managed object property"
+    ::= { cucsCallhomeEpFsmEntry 8 }
+
+cucsCallhomeEpFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:rmtErrCode managed object property"
+    ::= { cucsCallhomeEpFsmEntry 9 }
+
+cucsCallhomeEpFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:rmtErrDescr managed object property"
+    ::= { cucsCallhomeEpFsmEntry 10 }
+
+cucsCallhomeEpFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsm:rmtRslt managed object property"
+    ::= { cucsCallhomeEpFsmEntry 11 }
+
+cucsCallhomeEpFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage managed object table"
+    ::= { cucsCallhomeObjects 11 }
+
+cucsCallhomeEpFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeEpFsmStageTable table."
+    INDEX { cucsCallhomeEpFsmStageInstanceId }
+    ::= { cucsCallhomeEpFsmStageTable 1 }
+
+CucsCallhomeEpFsmStageEntry ::= SEQUENCE {
+    cucsCallhomeEpFsmStageInstanceId                                 CucsManagedObjectId,
+    cucsCallhomeEpFsmStageDn                                         CucsManagedObjectDn,
+    cucsCallhomeEpFsmStageRn                                         SnmpAdminString,
+    cucsCallhomeEpFsmStageDescrData                                  SnmpAdminString,
+    cucsCallhomeEpFsmStageLastUpdateTime                             DateAndTime,
+    cucsCallhomeEpFsmStageName                                       CucsCallhomeEpFsmStageName,
+    cucsCallhomeEpFsmStageOrder                                      Gauge32,
+    cucsCallhomeEpFsmStageRetry                                      Gauge32,
+    cucsCallhomeEpFsmStageStageStatus                                CucsFsmFsmStageStatus
+}
+
+cucsCallhomeEpFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeEpFsmStageEntry 1 }
+
+cucsCallhomeEpFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:dn managed object property"
+    ::= { cucsCallhomeEpFsmStageEntry 2 }
+
+cucsCallhomeEpFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:rn managed object property"
+    ::= { cucsCallhomeEpFsmStageEntry 3 }
+
+cucsCallhomeEpFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:descr managed object property"
+    ::= { cucsCallhomeEpFsmStageEntry 4 }
+
+cucsCallhomeEpFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:lastUpdateTime managed
+        object property"
+    ::= { cucsCallhomeEpFsmStageEntry 5 }
+
+cucsCallhomeEpFsmStageName OBJECT-TYPE
+    SYNTAX       CucsCallhomeEpFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:name managed object property"
+    ::= { cucsCallhomeEpFsmStageEntry 6 }
+
+cucsCallhomeEpFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:order managed object property"
+    ::= { cucsCallhomeEpFsmStageEntry 7 }
+
+cucsCallhomeEpFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:retry managed object property"
+    ::= { cucsCallhomeEpFsmStageEntry 8 }
+
+cucsCallhomeEpFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmStage:stageStatus managed
+        object property"
+    ::= { cucsCallhomeEpFsmStageEntry 9 }
+
+cucsCallhomeEpFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmTask managed object table"
+    ::= { cucsCallhomeObjects 3 }
+
+cucsCallhomeEpFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeEpFsmTaskTable table."
+    INDEX { cucsCallhomeEpFsmTaskInstanceId }
+    ::= { cucsCallhomeEpFsmTaskTable 1 }
+
+CucsCallhomeEpFsmTaskEntry ::= SEQUENCE {
+    cucsCallhomeEpFsmTaskInstanceId                                  CucsManagedObjectId,
+    cucsCallhomeEpFsmTaskDn                                          CucsManagedObjectDn,
+    cucsCallhomeEpFsmTaskRn                                          SnmpAdminString,
+    cucsCallhomeEpFsmTaskCompletion                                  CucsFsmCompletion,
+    cucsCallhomeEpFsmTaskFlags                                       CucsFsmFlags,
+    cucsCallhomeEpFsmTaskItem                                        CucsCallhomeEpFsmTaskItem,
+    cucsCallhomeEpFsmTaskSeqId                                       Gauge32
+}
+
+cucsCallhomeEpFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeEpFsmTaskEntry 1 }
+
+cucsCallhomeEpFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmTask:dn managed object property"
+    ::= { cucsCallhomeEpFsmTaskEntry 2 }
+
+cucsCallhomeEpFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmTask:rn managed object property"
+    ::= { cucsCallhomeEpFsmTaskEntry 3 }
+
+cucsCallhomeEpFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmTask:completion managed object property"
+    ::= { cucsCallhomeEpFsmTaskEntry 4 }
+
+cucsCallhomeEpFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmTask:flags managed object property"
+    ::= { cucsCallhomeEpFsmTaskEntry 5 }
+
+cucsCallhomeEpFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsCallhomeEpFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmTask:item managed object property"
+    ::= { cucsCallhomeEpFsmTaskEntry 6 }
+
+cucsCallhomeEpFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:EpFsmTask:seqId managed object property"
+    ::= { cucsCallhomeEpFsmTaskEntry 7 }
+
+cucsCallhomePeriodicSystemInventoryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomePeriodicSystemInventoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory managed object table"
+    ::= { cucsCallhomeObjects 4 }
+
+cucsCallhomePeriodicSystemInventoryEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomePeriodicSystemInventoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomePeriodicSystemInventoryTable table."
+    INDEX { cucsCallhomePeriodicSystemInventoryInstanceId }
+    ::= { cucsCallhomePeriodicSystemInventoryTable 1 }
+
+CucsCallhomePeriodicSystemInventoryEntry ::= SEQUENCE {
+    cucsCallhomePeriodicSystemInventoryInstanceId                    CucsManagedObjectId,
+    cucsCallhomePeriodicSystemInventoryDn                            CucsManagedObjectDn,
+    cucsCallhomePeriodicSystemInventoryRn                            SnmpAdminString,
+    cucsCallhomePeriodicSystemInventoryAdminState                    CucsCallhomeAdminState,
+    cucsCallhomePeriodicSystemInventoryIntervalDays                  Gauge32,
+    cucsCallhomePeriodicSystemInventoryLastDeadline                  DateAndTime,
+    cucsCallhomePeriodicSystemInventoryMaximumRetryCount             Gauge32,
+    cucsCallhomePeriodicSystemInventoryMinimumSendNowIntervalSeconds Gauge32,
+    cucsCallhomePeriodicSystemInventoryNextDeadline                  DateAndTime,
+    cucsCallhomePeriodicSystemInventoryPollIntervalSeconds           Gauge32,
+    cucsCallhomePeriodicSystemInventoryRetryCount                    Gauge32,
+    cucsCallhomePeriodicSystemInventoryRetryDelayMinutes             Gauge32,
+    cucsCallhomePeriodicSystemInventorySendNow                       TruthValue,
+    cucsCallhomePeriodicSystemInventoryTimeOfDayHour                 Gauge32,
+    cucsCallhomePeriodicSystemInventoryTimeOfDayMinute               Gauge32,
+    cucsCallhomePeriodicSystemInventoryTimeOfLastAttempt             DateAndTime,
+    cucsCallhomePeriodicSystemInventoryTimeOfLastSuccess             DateAndTime
+}
+
+cucsCallhomePeriodicSystemInventoryInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 1 }
+
+cucsCallhomePeriodicSystemInventoryDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:dn
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 2 }
+
+cucsCallhomePeriodicSystemInventoryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:rn
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 3 }
+
+cucsCallhomePeriodicSystemInventoryAdminState OBJECT-TYPE
+    SYNTAX       CucsCallhomeAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:adminState
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 4 }
+
+cucsCallhomePeriodicSystemInventoryIntervalDays OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:intervalDays
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 5 }
+
+cucsCallhomePeriodicSystemInventoryLastDeadline OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:lastDeadline
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 6 }
+
+cucsCallhomePeriodicSystemInventoryMaximumRetryCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:maximumRetryCount
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 7 }
+
+cucsCallhomePeriodicSystemInventoryMinimumSendNowIntervalSeconds OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:minimumSendNowInterval
+        Seconds managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 8 }
+
+cucsCallhomePeriodicSystemInventoryNextDeadline OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:nextDeadline
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 9 }
+
+cucsCallhomePeriodicSystemInventoryPollIntervalSeconds OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:pollIntervalSeconds
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 10 }
+
+cucsCallhomePeriodicSystemInventoryRetryCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:retryCount
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 11 }
+
+cucsCallhomePeriodicSystemInventoryRetryDelayMinutes OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:retryDelayMinutes
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 12 }
+
+cucsCallhomePeriodicSystemInventorySendNow OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:sendNow
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 13 }
+
+cucsCallhomePeriodicSystemInventoryTimeOfDayHour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:timeOfDayHour
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 14 }
+
+cucsCallhomePeriodicSystemInventoryTimeOfDayMinute OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:timeOfDayMinute
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 15 }
+
+cucsCallhomePeriodicSystemInventoryTimeOfLastAttempt OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:timeOfLastAttempt
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 16 }
+
+cucsCallhomePeriodicSystemInventoryTimeOfLastSuccess OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:PeriodicSystemInventory:timeOfLastSuccess
+        managed object property"
+    ::= { cucsCallhomePeriodicSystemInventoryEntry 17 }
+
+cucsCallhomePolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomePolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:Policy managed object table"
+    ::= { cucsCallhomeObjects 5 }
+
+cucsCallhomePolicyEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomePolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomePolicyTable table."
+    INDEX { cucsCallhomePolicyInstanceId }
+    ::= { cucsCallhomePolicyTable 1 }
+
+CucsCallhomePolicyEntry ::= SEQUENCE {
+    cucsCallhomePolicyInstanceId                                     CucsManagedObjectId,
+    cucsCallhomePolicyDn                                             CucsManagedObjectDn,
+    cucsCallhomePolicyRn                                             SnmpAdminString,
+    cucsCallhomePolicyAdminState                                     CucsCallhomePolicyAdminState,
+    cucsCallhomePolicyCause                                          CucsConditionCallHomeCause,
+    cucsCallhomePolicyDescr                                          SnmpAdminString,
+    cucsCallhomePolicyName                                           SnmpAdminString
+}
+
+cucsCallhomePolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomePolicyEntry 1 }
+
+cucsCallhomePolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Policy:dn managed object property"
+    ::= { cucsCallhomePolicyEntry 2 }
+
+cucsCallhomePolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Policy:rn managed object property"
+    ::= { cucsCallhomePolicyEntry 3 }
+
+cucsCallhomePolicyAdminState OBJECT-TYPE
+    SYNTAX       CucsCallhomePolicyAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Policy:adminState managed object property"
+    ::= { cucsCallhomePolicyEntry 4 }
+
+cucsCallhomePolicyCause OBJECT-TYPE
+    SYNTAX       CucsConditionCallHomeCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Policy:cause managed object property"
+    ::= { cucsCallhomePolicyEntry 5 }
+
+cucsCallhomePolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Policy:descr managed object property"
+    ::= { cucsCallhomePolicyEntry 6 }
+
+cucsCallhomePolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Policy:name managed object property"
+    ::= { cucsCallhomePolicyEntry 8 }
+
+cucsCallhomeProfileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile managed object table"
+    ::= { cucsCallhomeObjects 6 }
+
+cucsCallhomeProfileEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeProfileTable table."
+    INDEX { cucsCallhomeProfileInstanceId }
+    ::= { cucsCallhomeProfileTable 1 }
+
+CucsCallhomeProfileEntry ::= SEQUENCE {
+    cucsCallhomeProfileInstanceId                                    CucsManagedObjectId,
+    cucsCallhomeProfileDn                                            CucsManagedObjectDn,
+    cucsCallhomeProfileRn                                            SnmpAdminString,
+    cucsCallhomeProfileAlertGroups                                   CucsCallhomeAlertGroups,
+    cucsCallhomeProfileDescr                                         SnmpAdminString,
+    cucsCallhomeProfileFormat                                        CucsCallhomeFormat,
+    cucsCallhomeProfileLevel                                         CucsCallhomeLevel,
+    cucsCallhomeProfileMaxSize                                       Gauge32,
+    cucsCallhomeProfileName                                          SnmpAdminString
+}
+
+cucsCallhomeProfileInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeProfileEntry 1 }
+
+cucsCallhomeProfileDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:dn managed object property"
+    ::= { cucsCallhomeProfileEntry 2 }
+
+cucsCallhomeProfileRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:rn managed object property"
+    ::= { cucsCallhomeProfileEntry 3 }
+
+cucsCallhomeProfileAlertGroups OBJECT-TYPE
+    SYNTAX       CucsCallhomeAlertGroups
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:alertGroups managed object property"
+    ::= { cucsCallhomeProfileEntry 4 }
+
+cucsCallhomeProfileDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:descr managed object property"
+    ::= { cucsCallhomeProfileEntry 5 }
+
+cucsCallhomeProfileFormat OBJECT-TYPE
+    SYNTAX       CucsCallhomeFormat
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:format managed object property"
+    ::= { cucsCallhomeProfileEntry 6 }
+
+cucsCallhomeProfileLevel OBJECT-TYPE
+    SYNTAX       CucsCallhomeLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:level managed object property"
+    ::= { cucsCallhomeProfileEntry 8 }
+
+cucsCallhomeProfileMaxSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:maxSize managed object property"
+    ::= { cucsCallhomeProfileEntry 9 }
+
+cucsCallhomeProfileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Profile:name managed object property"
+    ::= { cucsCallhomeProfileEntry 10 }
+
+cucsCallhomeSmtpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeSmtpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:Smtp managed object table"
+    ::= { cucsCallhomeObjects 7 }
+
+cucsCallhomeSmtpEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeSmtpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeSmtpTable table."
+    INDEX { cucsCallhomeSmtpInstanceId }
+    ::= { cucsCallhomeSmtpTable 1 }
+
+CucsCallhomeSmtpEntry ::= SEQUENCE {
+    cucsCallhomeSmtpInstanceId                                       CucsManagedObjectId,
+    cucsCallhomeSmtpDn                                               CucsManagedObjectDn,
+    cucsCallhomeSmtpRn                                               SnmpAdminString,
+    cucsCallhomeSmtpHost                                             SnmpAdminString,
+    cucsCallhomeSmtpPort                                             Gauge32
+}
+
+cucsCallhomeSmtpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeSmtpEntry 1 }
+
+cucsCallhomeSmtpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Smtp:dn managed object property"
+    ::= { cucsCallhomeSmtpEntry 2 }
+
+cucsCallhomeSmtpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Smtp:rn managed object property"
+    ::= { cucsCallhomeSmtpEntry 3 }
+
+cucsCallhomeSmtpHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Smtp:host managed object property"
+    ::= { cucsCallhomeSmtpEntry 4 }
+
+cucsCallhomeSmtpPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Smtp:port managed object property"
+    ::= { cucsCallhomeSmtpEntry 5 }
+
+cucsCallhomeSourceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeSourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:Source managed object table"
+    ::= { cucsCallhomeObjects 8 }
+
+cucsCallhomeSourceEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeSourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeSourceTable table."
+    INDEX { cucsCallhomeSourceInstanceId }
+    ::= { cucsCallhomeSourceTable 1 }
+
+CucsCallhomeSourceEntry ::= SEQUENCE {
+    cucsCallhomeSourceInstanceId                                     CucsManagedObjectId,
+    cucsCallhomeSourceDn                                             CucsManagedObjectDn,
+    cucsCallhomeSourceRn                                             SnmpAdminString,
+    cucsCallhomeSourceAddr                                           SnmpAdminString,
+    cucsCallhomeSourceContact                                        SnmpAdminString,
+    cucsCallhomeSourceContract                                       SnmpAdminString,
+    cucsCallhomeSourceCustomer                                       SnmpAdminString,
+    cucsCallhomeSourceEmail                                          SnmpAdminString,
+    cucsCallhomeSourceFrom                                           SnmpAdminString,
+    cucsCallhomeSourcePhone                                          SnmpAdminString,
+    cucsCallhomeSourceReplyTo                                        SnmpAdminString,
+    cucsCallhomeSourceSite                                           SnmpAdminString,
+    cucsCallhomeSourceUrgency                                        CucsCallhomeUrgency
+}
+
+cucsCallhomeSourceInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeSourceEntry 1 }
+
+cucsCallhomeSourceDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:dn managed object property"
+    ::= { cucsCallhomeSourceEntry 2 }
+
+cucsCallhomeSourceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:rn managed object property"
+    ::= { cucsCallhomeSourceEntry 3 }
+
+cucsCallhomeSourceAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:addr managed object property"
+    ::= { cucsCallhomeSourceEntry 4 }
+
+cucsCallhomeSourceContact OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:contact managed object property"
+    ::= { cucsCallhomeSourceEntry 5 }
+
+cucsCallhomeSourceContract OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:contract managed object property"
+    ::= { cucsCallhomeSourceEntry 6 }
+
+cucsCallhomeSourceCustomer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:customer managed object property"
+    ::= { cucsCallhomeSourceEntry 7 }
+
+cucsCallhomeSourceEmail OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:email managed object property"
+    ::= { cucsCallhomeSourceEntry 8 }
+
+cucsCallhomeSourceFrom OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:from managed object property"
+    ::= { cucsCallhomeSourceEntry 9 }
+
+cucsCallhomeSourcePhone OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:phone managed object property"
+    ::= { cucsCallhomeSourceEntry 10 }
+
+cucsCallhomeSourceReplyTo OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:replyTo managed object property"
+    ::= { cucsCallhomeSourceEntry 11 }
+
+cucsCallhomeSourceSite OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:site managed object property"
+    ::= { cucsCallhomeSourceEntry 12 }
+
+cucsCallhomeSourceUrgency OBJECT-TYPE
+    SYNTAX       CucsCallhomeUrgency
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:Source:urgency managed object property"
+    ::= { cucsCallhomeSourceEntry 13 }
+
+cucsCallhomeTestAlertTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCallhomeTestAlertEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert managed object table"
+    ::= { cucsCallhomeObjects 9 }
+
+cucsCallhomeTestAlertEntry OBJECT-TYPE
+    SYNTAX           CucsCallhomeTestAlertEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCallhomeTestAlertTable table."
+    INDEX { cucsCallhomeTestAlertInstanceId }
+    ::= { cucsCallhomeTestAlertTable 1 }
+
+CucsCallhomeTestAlertEntry ::= SEQUENCE {
+    cucsCallhomeTestAlertInstanceId                                  CucsManagedObjectId,
+    cucsCallhomeTestAlertDn                                          CucsManagedObjectDn,
+    cucsCallhomeTestAlertRn                                          SnmpAdminString,
+    cucsCallhomeTestAlertDescription                                 SnmpAdminString,
+    cucsCallhomeTestAlertGroup                                       CucsCallhomeAlertGroup,
+    cucsCallhomeTestAlertLevel                                       CucsCallhomeAlertLevel,
+    cucsCallhomeTestAlertMessageSubtype                              CucsCallhomeAlertMessageSubtype,
+    cucsCallhomeTestAlertMessageType                                 CucsCallhomeAlertMessageType,
+    cucsCallhomeTestAlertSendNow                                     TruthValue
+}
+
+cucsCallhomeTestAlertInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCallhomeTestAlertEntry 1 }
+
+cucsCallhomeTestAlertDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:dn managed object property"
+    ::= { cucsCallhomeTestAlertEntry 2 }
+
+cucsCallhomeTestAlertRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:rn managed object property"
+    ::= { cucsCallhomeTestAlertEntry 3 }
+
+cucsCallhomeTestAlertDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:description managed object property"
+    ::= { cucsCallhomeTestAlertEntry 4 }
+
+cucsCallhomeTestAlertGroup OBJECT-TYPE
+    SYNTAX       CucsCallhomeAlertGroup
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:group managed object property"
+    ::= { cucsCallhomeTestAlertEntry 5 }
+
+cucsCallhomeTestAlertLevel OBJECT-TYPE
+    SYNTAX       CucsCallhomeAlertLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:level managed object property"
+    ::= { cucsCallhomeTestAlertEntry 6 }
+
+cucsCallhomeTestAlertMessageSubtype OBJECT-TYPE
+    SYNTAX       CucsCallhomeAlertMessageSubtype
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:messageSubtype managed
+        object property"
+    ::= { cucsCallhomeTestAlertEntry 7 }
+
+cucsCallhomeTestAlertMessageType OBJECT-TYPE
+    SYNTAX       CucsCallhomeAlertMessageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:messageType managed object property"
+    ::= { cucsCallhomeTestAlertEntry 8 }
+
+cucsCallhomeTestAlertSendNow OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS callhome:TestAlert:sendNow managed object property"
+    ::= { cucsCallhomeTestAlertEntry 9 }
+
+END

@@ -1,0 +1,384 @@
+-- *****************************************************************
+-- HQOS-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-HQOS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200HqosMib MODULE-IDENTITY
+    LAST-UPDATED "201501090000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private MIB for HQoS"
+    REVISION    "201501090000Z"
+    DESCRIPTION
+        "Minor description changes"
+    REVISION    "201404100000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 125 }
+
+
+ME1200hqosSchMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The HQoS scheduling mode."
+    SYNTAX      INTEGER { normal(0), basic(1), hierarchical(2) }
+
+me1200HqosMibObjects OBJECT IDENTIFIER
+    ::= { me1200HqosMib 1 }
+
+me1200HqosConfig OBJECT IDENTIFIER
+    ::= { me1200HqosMibObjects 2 }
+
+me1200HqosConfigInterface OBJECT IDENTIFIER
+    ::= { me1200HqosConfig 2 }
+
+me1200HqosConfigInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200HqosConfigInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides HQoS configuration for interfaces"
+    ::= { me1200HqosConfigInterface 1 }
+
+me1200HqosConfigInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200HqosConfigInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an interface"
+    INDEX       { me1200HqosConfigInterfaceIfIndex }
+    ::= { me1200HqosConfigInterfaceTable 1 }
+
+ME1200HqosConfigInterfaceEntry ::= SEQUENCE {
+    me1200HqosConfigInterfaceIfIndex      ME1200InterfaceIndex,
+    me1200HqosConfigInterfaceSchMode      ME1200hqosSchMode
+}
+
+me1200HqosConfigInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200HqosConfigInterfaceEntry 1 }
+
+me1200HqosConfigInterfaceSchMode OBJECT-TYPE
+    SYNTAX      ME1200hqosSchMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "HQoS scheduling mode."
+    ::= { me1200HqosConfigInterfaceEntry 2 }
+
+me1200HqosConfigInterfaceHqosTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200HqosConfigInterfaceHqosEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the configuration for HQoS entries"
+    ::= { me1200HqosConfigInterface 2 }
+
+me1200HqosConfigInterfaceHqosEntry OBJECT-TYPE
+    SYNTAX      ME1200HqosConfigInterfaceHqosEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an HQoS entry"
+    INDEX       { me1200HqosConfigInterfaceHqosIfIndex, me1200HqosConfigInterfaceHqosHqosId }
+    ::= { me1200HqosConfigInterfaceHqosTable 1 }
+
+ME1200HqosConfigInterfaceHqosEntry ::= SEQUENCE {
+    me1200HqosConfigInterfaceHqosIfIndex      ME1200InterfaceIndex,
+    me1200HqosConfigInterfaceHqosHqosId   Integer32,
+    me1200HqosConfigInterfaceHqosDwrrCount    ME1200Unsigned8,
+    me1200HqosConfigInterfaceHqosShaperEnable     TruthValue,
+    me1200HqosConfigInterfaceHqosShaperRate   Unsigned32,
+    me1200HqosConfigInterfaceHqosMinRate      Unsigned32,
+    me1200HqosConfigInterfaceHqosAction   ME1200RowEditorState
+}
+
+me1200HqosConfigInterfaceHqosIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200HqosConfigInterfaceHqosEntry 1 }
+
+me1200HqosConfigInterfaceHqosHqosId OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "HQoS ID, allowed range depends on platform."
+    ::= { me1200HqosConfigInterfaceHqosEntry 2 }
+
+me1200HqosConfigInterfaceHqosDwrrCount OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of queues using DWRR."
+    ::= { me1200HqosConfigInterfaceHqosEntry 3 }
+
+me1200HqosConfigInterfaceHqosShaperEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable shaper."
+    ::= { me1200HqosConfigInterfaceHqosEntry 4 }
+
+me1200HqosConfigInterfaceHqosShaperRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Shaper rate in kbps."
+    ::= { me1200HqosConfigInterfaceHqosEntry 5 }
+
+me1200HqosConfigInterfaceHqosMinRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Minimum guaranteed bandwidth in kbps."
+    ::= { me1200HqosConfigInterfaceHqosEntry 6 }
+
+me1200HqosConfigInterfaceHqosAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200HqosConfigInterfaceHqosEntry 10000 }
+
+me1200HqosConfigInterfaceHqosTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200HqosConfigInterface 3 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200HqosConfigInterfaceHqosTableRowEditor 1 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorHqosId OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "HQoS ID, allowed range depends on platform."
+    ::= { me1200HqosConfigInterfaceHqosTableRowEditor 2 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorDwrrCount OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of queues using DWRR."
+    ::= { me1200HqosConfigInterfaceHqosTableRowEditor 3 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorShaperEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable shaper."
+    ::= { me1200HqosConfigInterfaceHqosTableRowEditor 4 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorShaperRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Shaper rate in kbps."
+    ::= { me1200HqosConfigInterfaceHqosTableRowEditor 5 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorMinRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Minimum guaranteed bandwidth in kbps."
+    ::= { me1200HqosConfigInterfaceHqosTableRowEditor 6 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200HqosConfigInterfaceHqosTableRowEditor 10000 }
+
+me1200HqosConfigInterfaceHqosQueueTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200HqosConfigInterfaceHqosQueueEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the configuration for HQoS queues"
+    ::= { me1200HqosConfigInterface 4 }
+
+me1200HqosConfigInterfaceHqosQueueEntry OBJECT-TYPE
+    SYNTAX      ME1200HqosConfigInterfaceHqosQueueEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a queue of an HQoS entry"
+    INDEX       { me1200HqosConfigInterfaceHqosQueueIfIndex, me1200HqosConfigInterfaceHqosQueueHqosId, me1200HqosConfigInterfaceHqosQueueQueue }
+    ::= { me1200HqosConfigInterfaceHqosQueueTable 1 }
+
+ME1200HqosConfigInterfaceHqosQueueEntry ::= SEQUENCE {
+    me1200HqosConfigInterfaceHqosQueueIfIndex     ME1200InterfaceIndex,
+    me1200HqosConfigInterfaceHqosQueueHqosId      Integer32,
+    me1200HqosConfigInterfaceHqosQueueQueue   Integer32,
+    me1200HqosConfigInterfaceHqosQueueShaperEnable    TruthValue,
+    me1200HqosConfigInterfaceHqosQueueShaperRate      Unsigned32,
+    me1200HqosConfigInterfaceHqosQueueSchedulerWeight     ME1200Unsigned8
+}
+
+me1200HqosConfigInterfaceHqosQueueIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200HqosConfigInterfaceHqosQueueEntry 1 }
+
+me1200HqosConfigInterfaceHqosQueueHqosId OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "HQoS ID, allowed range depends on platform."
+    ::= { me1200HqosConfigInterfaceHqosQueueEntry 2 }
+
+me1200HqosConfigInterfaceHqosQueueQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue number."
+    ::= { me1200HqosConfigInterfaceHqosQueueEntry 3 }
+
+me1200HqosConfigInterfaceHqosQueueShaperEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable shaper."
+    ::= { me1200HqosConfigInterfaceHqosQueueEntry 4 }
+
+me1200HqosConfigInterfaceHqosQueueShaperRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Shaper rate in kbps."
+    ::= { me1200HqosConfigInterfaceHqosQueueEntry 5 }
+
+me1200HqosConfigInterfaceHqosQueueSchedulerWeight OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Scheduler weight, 1-100."
+    ::= { me1200HqosConfigInterfaceHqosQueueEntry 6 }
+
+me1200HqosConfigHqos OBJECT IDENTIFIER
+    ::= { me1200HqosConfig 4 }
+
+me1200HqosMibConformance OBJECT IDENTIFIER
+    ::= { me1200HqosMib 2 }
+
+me1200HqosMibCompliances OBJECT IDENTIFIER
+    ::= { me1200HqosMibConformance 1 }
+
+me1200HqosMibGroups OBJECT IDENTIFIER
+    ::= { me1200HqosMibConformance 2 }
+
+me1200HqosConfigInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200HqosConfigInterfaceSchMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200HqosMibGroups 1 }
+
+me1200HqosConfigInterfaceHqosTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200HqosConfigInterfaceHqosDwrrCount, 
+                  me1200HqosConfigInterfaceHqosShaperEnable, 
+                  me1200HqosConfigInterfaceHqosShaperRate, 
+                  me1200HqosConfigInterfaceHqosMinRate, 
+                  me1200HqosConfigInterfaceHqosAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200HqosMibGroups 2 }
+
+me1200HqosConfigInterfaceHqosTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200HqosConfigInterfaceHqosTableRowEditorIfIndex, 
+                  me1200HqosConfigInterfaceHqosTableRowEditorHqosId, 
+                  me1200HqosConfigInterfaceHqosTableRowEditorDwrrCount, 
+                  me1200HqosConfigInterfaceHqosTableRowEditorShaperEnable, 
+                  me1200HqosConfigInterfaceHqosTableRowEditorShaperRate, 
+                  me1200HqosConfigInterfaceHqosTableRowEditorMinRate, 
+                  me1200HqosConfigInterfaceHqosTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200HqosMibGroups 3 }
+
+me1200HqosConfigInterfaceHqosQueueTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200HqosConfigInterfaceHqosQueueShaperEnable, 
+                  me1200HqosConfigInterfaceHqosQueueShaperRate, 
+                  me1200HqosConfigInterfaceHqosQueueSchedulerWeight }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200HqosMibGroups 4 }
+
+me1200HqosMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200HqosConfigInterfaceTableInfoGroup, 
+                  me1200HqosConfigInterfaceHqosTableInfoGroup, 
+                  me1200HqosConfigInterfaceHqosTableRowEditorInfoGroup, 
+                  me1200HqosConfigInterfaceHqosQueueTableInfoGroup }
+
+    ::= { me1200HqosMibCompliances 1 }
+
+END

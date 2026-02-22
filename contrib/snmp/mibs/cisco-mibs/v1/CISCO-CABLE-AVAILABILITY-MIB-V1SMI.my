@@ -1,0 +1,965 @@
+-- MIB file created 02-Apr-2003 11:09:14, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CABLE-AVAILABILITY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CABLE-AVAILABILITY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, DisplayString
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddress, InetAddressType
+            FROM INET-ADDRESS-MIB
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoCableAvailabilityMIB OBJECT IDENTIFIER ::= { ciscoMgmt 242 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200302200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems
+--             Customer Service
+--    
+--     Postal: Cisco Systems
+--             170 West Tasman Drive
+--             San Jose, CA 95134
+--             U.S.A.
+--     Phone:  +1 800 553-NETS
+--     E-mail: cs-ubr@cisco.com
+--  Descr
+--    This is the MIB module for management of Hot Standby 
+--    Connection to Connection Protocol (HCCP) features. HCCP is 
+--    a Cisco proprietary solution for High System Availability 
+--    for Cable Modem Termination Systems (CMTS). 
+--    
+--    The HCCP protocol is primarily responsible for failure 
+--    detection and to initiate switchover from one CMTS to 
+--    another.
+--      
+--    The CMTS protection is at the RF mac domain level, 
+--    where protecting and working CMTS cable interfaces operate
+--    on the same downstream and upstream frequency.
+--    
+--    HCCP Terminology:
+--    HCCP group:  A set of RF MAC interfaces which communicate 
+--                 using HCCP messaging.
+--    
+--    HCCP member: Each RF MAC interface configured for HCCP.
+--    
+--    Protect:     A member in a HCCP group which acts as the
+--                 hot standby and protecting other members.
+--    
+--    Working:     The member in a HCCP group that is being
+--                 protected.
+--    
+--    Thus a 'HCCP group' consists of 'HCCP members' which are
+--    RF MAC interfaces configured to function as  'Protect' or
+--    'Working'.
+--    
+--    Some RF mac interfaces are configured to form a 
+--    'HCCP group' and members within one 'HCCP group' 
+--    communicate with each other using HCCP messaging. 
+--    By HCCP messaging, some member acting as 'Protect' or 
+--    hot standby can detect a failure on the other members
+--    which are designated as 'Working' in the same HCCP group.
+--    The 'Protect' can then take over traffic on the failed 
+--    interface. 
+--    
+--    Protection scenarios can be N+1 or 1+1. In the N+1 
+--    protection scenario, there is only one CMTS designated 
+--    for protection of N CMTS.
+--    
+--    For example in 1+1 : When one linecard fails, the other
+--    automatically takes over its traffic. During normal 
+--    operation, only one linecard forwards traffic, the other 
+--    linecard stands by and listens to the messages passed 
+--    from the active one. While in the standby mode, the 
+--    linecard does not forward traffic. HCCP will automatically
+--    switchover to the standby in cases of software failures 
+--    (crash), linecard insertion/removal, interface shutdowns 
+--    and cable wiring failures etc. 
+--    
+--    Both Protect and Working are preconfigured on the CMTS 
+--    and all HCCP configuration must comply with the actual 
+--    cable plant deployment for correct operation of the HCCP 
+--    protocol.
+--    
+--    This MIB includes objects to support the HCCP feature  
+--    on the CMTS.
+--  RevDate
+--    200302200000Z
+--  RevDescr
+--    Changed range of object ccaHCCPMemChanSwitchPosition 
+--    and added ciscoCableAvailabilityComplianceRev1 to 
+--    allow MIN-ACCESS as read-only for the same. 
+--  RevDate
+--    200111250000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoCableAvailabilityMIBObjects OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIB 1 }
+ccaHCCPObjects  OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBObjects 1 }
+ciscoCableAvailabilityMIBNotificationsPrefix OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIB 2 }
+ciscoCableAvailabilityMIBNotifications OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBNotificationsPrefix 0 }
+ciscoCableAvailabilityMIBConformance OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIB 3 }
+ciscoCableAvailabilityMIBCompliances OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBConformance 1 }
+ciscoCableAvailabilityMIBGroups OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBConformance 2 }
+
+ccaHCCPVersion OBJECT-TYPE
+    SYNTAX INTEGER {
+        others(1),
+        version1(2),
+        version2(3),
+        version3(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current version of HCCP features.  
+        others(1)   : Any other HCCP Version other than the 
+                      following list.
+        
+        version1(2) : HCCP Version 1.0 supports for 1+1 
+                      Availability. (1 RF MAC protecting 1 
+                      RF MAC without load sharing on the 
+                      same upstream and downstream frequencies with 
+                      DOCSIS1.0+ features) 
+        
+        version2(3) : HCCP Version 2.0 supports for 1+1 
+                      Availability. (1 RF MAC protecting 1 
+                      RF MAC without load sharing on the 
+                      same upstream and downstream frequencies with 
+                      DOCSIS1.1 features) 
+        
+        version3(4) : HCCP Version 3.0 supports for N+1 
+                      Availability. (1 RF MAC protecting N 
+                      RF MAC without load sharing on different
+                      upstream and downstream frequencies with 
+                      DOCSIS1.1 features)."
+    REFERENCE
+        "Data-Over-Cable Service Interface Specifications (DOCSIS)
+        Radio Frequency Interface Specification"
+    ::= { ccaHCCPObjects 1 }
+
+ccaHCCPGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcaHCCPGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information of the HCCP groups 
+        on the CMTS.
+        
+        A HCCP group consists of a set of Working along with 
+        a Protect and each group is identified by a unique group 
+        ID number. Only members within a group are allowed to 
+        communicate with each other via HCCP messaging. "
+    ::= { ccaHCCPObjects 2 }
+
+ccaHCCPGroupEntry OBJECT-TYPE
+    SYNTAX CcaHCCPGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of attributes of a HCCP group on the CMTS. 
+        An entry in this table exists for each configured 
+        HCCP group on the CMTS."
+    INDEX { ccaHCCPGroupID }
+    ::= { ccaHCCPGroupTable 1 }
+
+CcaHCCPGroupEntry ::= SEQUENCE {
+    ccaHCCPGroupID INTEGER,
+    ccaHCCPGroupAuthentication INTEGER,
+    ccaHCCPGroupAuthKeyChain SnmpAdminString,
+    ccaHCCPGroupHelloTime INTEGER,
+    ccaHCCPGroupHoldTime INTEGER,
+    ccaHCCPGroupRevertEnable TruthValue,
+    ccaHCCPGroupProtectIpAddrType InetAddressType,
+    ccaHCCPGroupProtectIpAddress InetAddress
+    }
+
+ccaHCCPGroupID OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Identification of the HCCP protection group. Only members
+        of the same group talk to each other via HCCP messaging."
+    ::= { ccaHCCPGroupEntry 1 }
+
+ccaHCCPGroupAuthentication OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        md5(2),
+        text(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object specifies the type of 
+        authentication method used. 
+        none(1) : No authentication is performed on that group.
+        md5(2)  : The MD5 Message Digest algorithm.
+        text(3) : Authentication based on a textual string. "
+    REFERENCE
+        "Rivest, R., 'The MD5 Message-Digest Algorithm', RFC1321,
+         MIT LCS & RSA Data Security, Inc., April 1992."
+    ::= { ccaHCCPGroupEntry 2 }
+
+ccaHCCPGroupAuthKeyChain OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the name of a globally configured key 
+        chain. It is used to enable authentication and determine 
+        the set of keys which may be used on a particular group. 
+        
+        If ccaHCCPGroupAuthentication is text(3), it is used as the
+        authentication password.  
+        If ccaHCCPGroupAuthentication is md5(2), it is used as the 
+        message digest for md5.
+        
+        If a key chain has not been configured, no authentication 
+        is performed on that group."
+    ::= { ccaHCCPGroupEntry 3 }
+
+ccaHCCPGroupHelloTime OBJECT-TYPE
+    SYNTAX INTEGER(333..5000)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Hello time is the interval(in milliseconds) between 
+        consecutive HELLO messages.
+        
+        HELLO is a one-way message in HCCP sent from Protect to all
+        Working in the group. It indicates that Protect is ready 
+        to receive data and expects HELLO_ACK. HELLO message  
+        indicates the existence and state of Protect. Failing to 
+        send this message indicates Protect is not in service."
+    ::= { ccaHCCPGroupEntry 4 }
+
+ccaHCCPGroupHoldTime OBJECT-TYPE
+    SYNTAX INTEGER(1000..25000)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Hold time is the interval(in milliseconds) between the 
+        time of receiving the last HELLO ACK message and the time to
+        assume that the cable interface is out of service.
+        
+        In the case of Working, it is the interval in milliseconds 
+        between the time when the Working receives a HELLO 
+        message and the time to assume that Protect 
+        has failed. 
+        In the case of Protect, it is the interval in 
+        milliseconds between the time when the Protect sends 
+        last HELLO message without seeing HELLO_ACK and the 
+        time to assume that Working has failed.  
+        
+        It is carried by HELLO message and is used by Protect 
+        and all Working."
+    ::= { ccaHCCPGroupEntry 5 }
+
+ccaHCCPGroupRevertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Enable or disable the Protect to revert switchover after 
+        Working is restored to operation. It can be 
+        disabled (default) if user wants to perform some tests 
+        before revert switching."
+    ::= { ccaHCCPGroupEntry 6 }
+
+ccaHCCPGroupProtectIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address of ccaHCCPGroupProtectIpAddress."
+    ::= { ccaHCCPGroupEntry 7 }
+
+ccaHCCPGroupProtectIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the Protect interface for the group that
+        sends the HELLO message. "
+    ::= { ccaHCCPGroupEntry 8 }
+
+ccaHCCPGroupIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcaHCCPGroupIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides the mapping of the RF MAC interfaces
+        on the CMTS to its functionality in the HCCP group. 
+        It indicates if the RF MAC interface has been configured
+        as Protect or as a Working.It provides interface specific
+        configuration and state information as well as statistics."
+    ::= { ccaHCCPObjects 3 }
+
+ccaHCCPGroupIfEntry OBJECT-TYPE
+    SYNTAX CcaHCCPGroupIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A mapping of a RF MAC interface to its configured 
+        functionality as Protect or Working. It provides
+        interface specific configuration and state 
+        information as well as statistics.
+        Entries in this table exist for each ifEntry with ifType
+        of docsCableUpstream(129)."
+    INDEX { ccaHCCPGroupID, ifIndex }
+    ::= { ccaHCCPGroupIfTable 1 }
+
+CcaHCCPGroupIfEntry ::= SEQUENCE {
+    ccaHCCPGroupIfStatus INTEGER,
+    ccaHCCPGroupIfRevertTime INTEGER,
+    ccaHCCPGroupIfTrackEnable TruthValue,
+    ccaHCCPGroupIfState INTEGER,
+    ccaHCCPGroupIfLastSwitchReason INTEGER,
+    ccaHCCPGroupIfOnTransitions Counter,
+    ccaHCCPGroupIfOffTransitions Counter
+    }
+
+ccaHCCPGroupIfStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        protect(2),
+        working(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies if the interface is
+        functioning as Working or Protect in the HCCP group."
+    ::= { ccaHCCPGroupIfEntry 1 }
+
+ccaHCCPGroupIfRevertTime OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Revert time used by Working specifies the time interval 
+        to wait before automatic revert switching. 
+        Within that time interval, manual switchover is allowed 
+        to happen."
+    ::= { ccaHCCPGroupIfEntry 2 }
+
+ccaHCCPGroupIfTrackEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Enable or disable failover based on interface state. The 
+        interface can be any interface on the router, which is 
+        monitored by keep alive timer. 
+        
+        If it is set to true, ccaHCCPGroupTrackInterfaceTable 
+        contains the list of interfaces that are being tracked.  
+        
+        By default the current interface is under tracking."
+    ::= { ccaHCCPGroupIfEntry 3 }
+
+ccaHCCPGroupIfState OBJECT-TYPE
+    SYNTAX INTEGER {
+        forwarding(1),
+        blocking(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current state of the HCCP group. The members can 
+        either be forwarding traffic or blocking all traffic. "
+    ::= { ccaHCCPGroupIfEntry 4 }
+
+ccaHCCPGroupIfLastSwitchReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        holdTimeExpire(2),
+        hwIfDown(3),
+        failTest(4),
+        failLinkDown(5),
+        failBundleDown(6),
+        internal(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The reason for last switch. 
+        none(1)            : No switchover has occurred.
+        holdTimeExpire(2)  : Occurs when HCCP fails to hear 
+                             HELLO/HELLO_ACK and the hold time 
+                             expires. 
+        hwIfDown(3)        : Occurs when the hardware interface
+                             is down. (eg shut/no shut)
+        failTest(3)        : Failover was CLI initiated or SNMP 
+                             initiated through 
+                             ccaHCCPGroupSwitchNow. 
+        failLinkDown(4)    : Failure in the cable wiring or a 
+                             hardware interface. 
+        failBundleDown(5)  : A bundled interface failure.
+        internal(6)        : All other failures . "
+    ::= { ccaHCCPGroupIfEntry 5 }
+
+ccaHCCPGroupIfOnTransitions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times the value of ccaHCCPGroupIfState transitioned
+        from 'blocking' to 'forwarding'."
+    ::= { ccaHCCPGroupIfEntry 6 }
+
+ccaHCCPGroupIfOffTransitions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times the value of ccaHCCPGroupIfState transitioned
+        from 'forwarding' to 'blocking'. "
+    ::= { ccaHCCPGroupIfEntry 7 }
+
+ccaHCCPGroupTrackInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcaHCCPGroupTrackInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the attributes of all the interfaces
+        that are being tracked by this group. The interface 
+        can be any interface on the chassis, which is monitored 
+        by a keep alive timer."
+    ::= { ccaHCCPObjects 4 }
+
+ccaHCCPGroupTrackInterfaceEntry OBJECT-TYPE
+    SYNTAX CcaHCCPGroupTrackInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of attributes of an interfaces being tracked
+        within a group. "
+    INDEX { ccaHCCPGroupID, ifIndex, ccaHCCPGroupTrackIfID }
+    ::= { ccaHCCPGroupTrackInterfaceTable 1 }
+
+CcaHCCPGroupTrackInterfaceEntry ::= SEQUENCE {
+    ccaHCCPGroupTrackIfID INTEGER,
+    ccaHCCPGroupTrackIfDescr DisplayString
+    }
+
+ccaHCCPGroupTrackIfID OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object uniquely identifies an 
+        interface that is being tracked within this group."
+    ::= { ccaHCCPGroupTrackInterfaceEntry 1 }
+
+ccaHCCPGroupTrackIfDescr OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A textual string containing information about the
+        interface that is being tracked. This corresponds to the 
+        ifDescr of the tracked interface."
+    ::= { ccaHCCPGroupTrackInterfaceEntry 2 }
+
+ccaHCCPMemberTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcaHCCPMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the attributes of HCCP members. 
+        Each RF MAC interface configured for HCCP is called a
+        HCCP member.
+        Entries in this table are created for all members. 
+        
+        In the case of Protect, it gives information of all the 
+        Working members under it's protection group. In the case 
+        of Working, it gives information about itself."
+    ::= { ccaHCCPObjects 5 }
+
+ccaHCCPMemberEntry OBJECT-TYPE
+    SYNTAX CcaHCCPMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A configurable attributes of a HCCP member within a 
+        group. "
+    INDEX { ccaHCCPGroupID, ifIndex, ccaHCCPMemberID }
+    ::= { ccaHCCPMemberTable 1 }
+
+CcaHCCPMemberEntry ::= SEQUENCE {
+    ccaHCCPMemberID INTEGER,
+    ccaHCCPMemberIpAddrType InetAddressType,
+    ccaHCCPMemberIpAddress InetAddress,
+    ccaHCCPMemberState INTEGER,
+    ccaHCCPMemberSwitchNow TruthValue
+    }
+
+ccaHCCPMemberID OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the Working member's 
+        ID inside a group.
+        
+        Members within the same group are uniquely identified by
+        this ID. The ID can be reused outside the group."
+    ::= { ccaHCCPMemberEntry 1 }
+
+ccaHCCPMemberIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address of ccaHCCPMemberIpAddress."
+    ::= { ccaHCCPMemberEntry 2 }
+
+ccaHCCPMemberIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the member. If the member functions 
+        as Working it represents an IP address on its interface. 
+        However in case of Protect, it represents IP address of 
+        the Working member that are being protected."
+    ::= { ccaHCCPMemberEntry 3 }
+
+ccaHCCPMemberState OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        standby(2),
+        nonFunctional(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of to this HCCP group member.
+        
+        If the RF MAC interface is Working, this 
+        represents the status of the Working member. 
+        active(1)       : Working member is forwarding traffic.
+        standby(2)      : Working member is blocking traffic.
+        
+        If the RF MAC interface is Protect, this represents
+        the Protect status to this member.
+        active(1)       : The Protect is taking over and 
+                          forwarding the traffic from this Working
+                          member which is now blocking.  
+        standby(2)      : The Protect is standby(blocking). This 
+                          means that Working member is forwarding
+                          traffic and thus works fine.
+        
+        nonFunctional(3): This member is disabled."
+    ::= { ccaHCCPMemberEntry 4 }
+
+ccaHCCPMemberSwitchNow OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to initiate the switchover.
+        When it is set to true(1) and this interface is Protect, 
+        it will cause the switchover to specified Working member.
+        When it is set to true(1), and if this interface is 
+        Working, it will cause the switchover to the Protect in 
+        it's protection group.
+        
+        Switchover can thus be initiated by either the Protect or
+        the Working.
+        
+        Reading this object will always return false(2)."
+    ::= { ccaHCCPMemberEntry 5 }
+
+ccaHCCPMemChanSwitchTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcaHCCPMemChanSwitchEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This is an adjunct to ccaHCCPMemberTable. It provides 
+        information of HCCP member channel switches. It specifies
+        the RF channel switch type, the RF switch over 
+        group and the RF switch module. The upconvertor IP addresses
+        can also be retrieved from this table. 
+          
+        This table does not exist if no channel switch has been 
+        enabled for this member in the group."
+    ::= { ccaHCCPObjects 6 }
+
+ccaHCCPMemChanSwitchEntry OBJECT-TYPE
+    SYNTAX CcaHCCPMemChanSwitchEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of attributes of the channel switch  
+        specifying  the channel switch details per member
+        (ccaHCCPMemberID) on an interface (ifType is 
+        docsCableMaclayer(127)) of a HCCP group. "
+    INDEX { ccaHCCPGroupID, ifIndex, ccaHCCPMemberID, ccaHCCPMemChanSwitchID }
+    ::= { ccaHCCPMemChanSwitchTable 1 }
+
+CcaHCCPMemChanSwitchEntry ::= SEQUENCE {
+    ccaHCCPMemChanSwitchID INTEGER,
+    ccaHCCPMemChanSwitchType INTEGER,
+    ccaHCCPMemChanSwitchIpAddrType InetAddressType,
+    ccaHCCPMemChanSwitchIpAddress InetAddress,
+    ccaHCCPMemChanSwitchModule INTEGER,
+    ccaHCCPMemChanSwitchProtIpAddrType InetAddressType,
+    ccaHCCPMemChanSwitchProtIpAddr InetAddress,
+    ccaHCCPMemChanSwitchProtModule INTEGER,
+    ccaHCCPMemChanSwitchPosition INTEGER,
+    ccaHCCPMemChanSwitchSnmpEnable TruthValue
+    }
+
+ccaHCCPMemChanSwitchID OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies the entry for channel switch for a 
+        member. The channel switch is the RF component that allows
+        downstream and upstream channel switching."
+    ::= { ccaHCCPMemChanSwitchEntry 1 }
+
+ccaHCCPMemChanSwitchType OBJECT-TYPE
+    SYNTAX INTEGER {
+        others(1),
+        ucWavecom(2),
+        rfSwitchGrp(3),
+        rfSwitchModule(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of the channel switch. 
+        others(1)         : Any other channel switch which is not 
+                            in the following list. 
+        
+        ucWavecom(2)      : Represents the Wavecom upconvertor.
+        
+        rfSwitchGrp(3)    : Weinschel channel switch.
+                            If ccaHCCPMemChanSwitchModule represents
+                            the bitmap of selected modules inside a 
+                            RF switch chassis.
+        
+        rfSwitchModule(4) : Weinschel channel switch. 
+                            If ccaHCCPMemChanSwitchModule represents
+                            the switch module number inside RF switch 
+                            chassis."
+    ::= { ccaHCCPMemChanSwitchEntry 2 }
+
+ccaHCCPMemChanSwitchIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address of ccaHCCPMemChanSwitchIpAddress."
+    ::= { ccaHCCPMemChanSwitchEntry 3 }
+
+ccaHCCPMemChanSwitchIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Ipv4 Address of channel switch.
+        
+        It represents the IP address of the upconverter that this
+        Working member connects to if ccaHCCPMemChanSwitchType
+        is ucWavecom(2).
+        
+        It specifies the RF Switch's IP address if 
+        ccaHCCPMemChanSwitchType is rfSwitchGrp(3) or 
+        rfSwitchModule(4)."
+    ::= { ccaHCCPMemChanSwitchEntry 4 }
+
+ccaHCCPMemChanSwitchModule OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The module number of channel switch for this member .
+        It is the module number on the upconverter that this 
+        member connects to if ccaHCCPMemChanSwitchType is 
+        ucWavecom(2).
+        
+        It specifies the RF Switch module number inside an RF Switch
+        chassis if ccaHCCPMemChanSwitchType is rfSwitchModule(4). 
+        
+        It is the bitmap of selected modules inside a 
+        RF Switch chassis if ccaHCCPMemChanSwitchType is 
+        rfSwitchGrp(3)."
+    ::= { ccaHCCPMemChanSwitchEntry 5 }
+
+ccaHCCPMemChanSwitchProtIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address of ccaHCCPMemChanSwitchProtIpAddr."
+    ::= { ccaHCCPMemChanSwitchEntry 6 }
+
+ccaHCCPMemChanSwitchProtIpAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the Wavecom upconvertor 
+        that is connected to the corresponding Protect for this
+        Working member.
+        
+        This object is meaningful only if 
+        ccaHCCPMemChanSwitchType is ucWavecom(2) and has no 
+        meaning for other types of switches and is ignored in 
+        this case."
+    ::= { ccaHCCPMemChanSwitchEntry 7 }
+
+ccaHCCPMemChanSwitchProtModule OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The module number on the Wavecom upconvertor that
+        is connected to the corresponding Protect for this 
+        Working member.
+        
+        This object is meaningful only if 
+        ccaHCCPMemChanSwitchType is ucWavecom(2)."
+    ::= { ccaHCCPMemChanSwitchEntry 8 }
+
+ccaHCCPMemChanSwitchPosition OBJECT-TYPE
+    SYNTAX INTEGER(1..8)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The position within a switch module for this Working 
+        member. This object is valid for 
+        ccaHCCPMemChanSwitchType rfSwitchGrp(3) and 
+        rfSwitchModule(4). "
+    ::= { ccaHCCPMemChanSwitchEntry 9 }
+
+ccaHCCPMemChanSwitchSnmpEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable SNMP remote control 
+        on the Wavecom upconvertor.
+        When it is set to true(1), SNMP remote control is 
+        enabled on the upconvertor.
+        When it is set to false(2), SNMP remote control is
+        disabled and front panel manual operation is enabled.
+        
+        This object is meaningful only if
+        ccaHCCPMemChanSwitchType is ucWavecom(2)."
+    ::= { ccaHCCPMemChanSwitchEntry 10 }
+
+ccaHCCPOnOffNotificationEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of whether the ccaHCCPOnNotification
+        and ccaHCCPOffNotification are enabled or disabled."
+    DEFVAL { false }
+    ::= { ccaHCCPObjects 7 }
+
+ccaHCCPOnNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCableAvailabilityMIBNotificationsPrefix
+    VARIABLES {
+        ccaHCCPGroupIfStatus, ccaHCCPGroupIfLastSwitchReason, 
+        ccaHCCPMemberState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification that is sent when failover occurred and 
+        this interface is taking over the traffic from the peer.
+        
+        For example if Protect is taking over a Working member 
+        from it's protection group,this notification is
+        sent by the Protect. When Working is restored to operation
+        and is now taking over from the Protect, this
+        notification is sent by Working."
+    ::= 1
+
+ccaHCCPOffNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCableAvailabilityMIBNotificationsPrefix
+    VARIABLES {
+        ccaHCCPGroupIfStatus, ccaHCCPGroupIfLastSwitchReason, 
+        ccaHCCPMemberState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification that is sent when failover occurs and this
+        interface is turning over all traffic to it's peer and is 
+        now blocking. 
+        
+        For example if Protect is taking over a Working member
+        from it's protection group,this notification is
+        sent by the Working. When Working is restored to operation
+        and is now taking over from the Protect, this   
+        notification is sent by Protect."
+    ::= 2
+
+ccaHCCPGroup OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects implemented in CMTS 
+--    providing HCCP group information. 
+--  objects
+--    ccaHCCPVersion, ccaHCCPOnOffNotificationEnable, 
+--    ccaHCCPGroupAuthentication, ccaHCCPGroupAuthKeyChain, 
+--    ccaHCCPGroupHelloTime, ccaHCCPGroupHoldTime, 
+--    ccaHCCPGroupRevertEnable, ccaHCCPGroupProtectIpAddrType, 
+--    ccaHCCPGroupProtectIpAddress, ccaHCCPGroupIfRevertTime, 
+--    ccaHCCPGroupIfTrackEnable, ccaHCCPGroupIfStatus, 
+--    ccaHCCPGroupIfLastSwitchReason, ccaHCCPGroupIfOnTransitions, 
+--    ccaHCCPGroupIfOffTransitions, ccaHCCPGroupTrackIfDescr, 
+--    ccaHCCPGroupIfState
+
+ccaHCCPMemberGroup OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects implemented in CMTS 
+--    providing HCCP member and channel 
+--    switch information.
+--  objects
+--    ccaHCCPMemberIpAddrType, ccaHCCPMemberIpAddress, 
+--    ccaHCCPMemberState, ccaHCCPMemberSwitchNow, 
+--    ccaHCCPMemChanSwitchType, ccaHCCPMemChanSwitchIpAddrType, 
+--    ccaHCCPMemChanSwitchIpAddress, ccaHCCPMemChanSwitchModule, 
+--    ccaHCCPMemChanSwitchProtIpAddrType, 
+--    ccaHCCPMemChanSwitchProtIpAddr, 
+--    ccaHCCPMemChanSwitchProtModule, ccaHCCPMemChanSwitchPosition, 
+--    ccaHCCPMemChanSwitchSnmpEnable
+
+ccaHCCPNotificationGroup OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notification which a CISCO-CABLE-AVAILABILITY-MIB
+--    entity is required to implement.
+--  notifications
+--    ccaHCCPOnNotification, ccaHCCPOffNotification
+
+ciscoCableAvailabilityCompliance OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for CMTS devices that implement
+--    the Hot Standby Connection to Connection Protocol. 
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccaHCCPGroup
+--   MandGroup
+--    ccaHCCPMemberGroup
+--   MandGroup
+--    ccaHCCPNotificationGroup
+
+ciscoCableAvailabilityComplianceRev1 OBJECT IDENTIFIER ::= { ciscoCableAvailabilityMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for CMTS devices that implement
+--    the Hot Standby Connection to Connection Protocol. 
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccaHCCPGroup
+--   MandGroup
+--    ccaHCCPMemberGroup
+--   MandGroup
+--    ccaHCCPNotificationGroup
+--   ObjVar
+--    ccaHCCPMemChanSwitchPosition
+
+
+END
+

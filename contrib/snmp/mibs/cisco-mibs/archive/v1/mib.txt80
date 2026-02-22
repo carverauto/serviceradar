@@ -1,0 +1,8160 @@
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                                    cisco MIB*
+
+                             Sun Nov 19 22:27:19 1989
+
+
+                               cisco Systems, Inc.
+                                 1350 Willow Road
+                              Menlo Park, CA  94025
+
+                            customer-service@cisco.com
+
+
+
+
+          1.  Introduction
+
+          This memo describes the variables that are implemented for the
+          cisco Systems, Inc.  set of products including the Gateway
+          Server, Terminal Server, Trouter, and Protocol Translator.
+          The document relies upon the Structure of Management
+          Information (SMI), RFC1065.  It is presented in a format
+          similar to the Management Information Base for Network
+          Management of TCP/IP-based internets, RFC1066.
+
+          This  document describes the cisco local Management
+          Information Base (MIB) variables for version 8.0 of the system
+          software.
+
+          2.  Objects
+
+          Managed objects defined in this MIB are only accessible by the
+          RFC1098 SNMP and are defined using Abstract Syntax Notation
+          One (ASN.1).
+
+          2.1.  Object Groupings
+
+          The SMI enterprises subtree was broken up into pieces so each
+          vendor would have a specific location for MIB variables that
+          were either proprietary or unique to their products.  cisco
+          was authorized to use the tree starting with the ASN.1 object
+          identifier of 9.  The full object identifier path is:
+
+          
+             *This file is machine generated. Do not edit.
+
+
+
+
+
+
+          cisco MIB                                             [Page 1]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                                  1.3.6.1.4.1.9
+
+
+          The tree below the cisco assigned object identifier is broken
+          up into three groups:
+
+               - Product names
+               - Local variables
+               - Temporary variables
+
+          The product name space is reserved for naming products which
+          require an object identifier from the vendor's specific tree.
+          See the RFC1066 MIB variable sysObjectID.  The local and
+          temporary variables contain objects which can be monitored or
+          managed by a network management protocol.  The local variable
+          space is laid out exactly as specified in RFC1066 as follows:
+
+               - Local System
+               - Local Interfaces
+               - Local Address Translation
+               - Local IP
+               - Local ICMP
+               - Local TCP
+               - Local UDP
+               - Local EGP
+
+          Only the groups which have local variables defined will exist
+          in the local variable space.
+
+          In addition, the following group was added to provide support
+          beyond what RFC1066 provided.
+
+               - Local Terminal Server
+
+          The temporary variables are defined as a place to hold objects
+          whose lifetime may only be a single software release.  It
+          exists for experimentation purposes and to hold other vendors'
+          objects until that vendor may define their own.  These
+          variables are not guaranteed to be preserved for any length of
+          time.
+
+          2.2.  Format of Definitions
+
+          This section describes the format of each of the objects
+          within the cisco local MIB.  This format is identical to the
+
+
+
+
+
+          cisco MIB                                             [Page 2]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          format used in RFC1066.  In fact this entire description was
+          shamelessly cribbed from that RFC's section 4.2.
+
+               OBJECT:
+               -------
+                 A textual name, termed the OBJECT DESCRIPTOR, for the
+                 object type, along with its corresponding OBJECT
+                 IDENTIFIER.
+
+               Syntax:
+                 The abstract syntax for the object type, presented
+                 using ASN.1.  This must resolve to an instance of the
+                 ASN.1 type ObjectSyntax defined in the SMI.
+
+               Definition:
+                 A textual description of the semantics of the object
+                 type.  Implementations should ensure that their
+                 interpretation of the object type fulfills this
+                 definition since this MIB is intended for use in
+                 multi-vendor environments.  As such it is vital that
+                 object types have consistent meaning across all
+                 machines.
+
+               Access:
+                 One of read-only, read-write, write-only, or not-
+                 accessible.
+
+               Status:
+                 One of mandatory, optional, or obsolete.
+
+          3.  Object Definitions
+
+               CISCO-MIB { iso org(3) dod(6) internet(1) private(4)
+                                       enterprises(1) 9 }
+
+               DEFINITIONS ::= BEGIN
+
+               IMPORTS
+                    enterprises, OBJECT-TYPE, NetworkAddress, IpAddress,
+                    Counter, Gauge, TimeTicks, OBJECT-TYPE
+                    FROM RFC1065-SMI
+
+
+               cisco               OBJECT IDENTIFIER ::= { enterprises 9 }
+
+
+
+
+
+
+          cisco MIB                                             [Page 3]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               products            OBJECT IDENTIFIER ::= { cisco 1 }
+               local               OBJECT IDENTIFIER ::= { cisco 2 }
+               temporary           OBJECT IDENTIFIER ::= { cisco 3 }
+
+               gateway-server      OBJECT IDENTIFIER ::= { products 1 }
+               terminal-server     OBJECT IDENTIFIER ::= { products 2 }
+               trouter             OBJECT IDENTIFIER ::= { products 3 }
+               protocol-translator OBJECT IDENTIFIER ::= { products 4 }
+
+               lsystem             OBJECT IDENTIFIER ::= { local 1 }
+               linterfaces         OBJECT IDENTIFIER ::= { local 2 }
+               lat                 OBJECT IDENTIFIER ::= { local 3 }
+               lip                 OBJECT IDENTIFIER ::= { local 4 }
+               licmp               OBJECT IDENTIFIER ::= { local 5 }
+               ltcp                OBJECT IDENTIFIER ::= { local 6 }
+               ludp                OBJECT IDENTIFIER ::= { local 7 }
+               legp                OBJECT IDENTIFIER ::= { local 8 }
+               lts                 OBJECT IDENTIFIER ::= { local 9 }
+
+               decnet              OBJECT IDENTIFIER ::= { temporary 1 }
+               xns                 OBJECT IDENTIFIER ::= { temporary 2 }
+               appletalk           OBJECT IDENTIFIER ::= { temporary 3 }
+               novell              OBJECT IDENTIFIER ::= { temporary 4 }
+
+               END
+
+          3.1.  Product Section
+
+          The product section contains the different product's object
+          identifiers.  Each product has a unique object identifier
+          allocated from this section which is referenced by the
+          sysObjectID variable from RFC1066.
+
+               Gateway-Server      OBJECT IDENTIFIER ::= { products 1 }
+               Terminal-Server     OBJECT IDENTIFIER ::= { products 2 }
+               TRouter             OBJECT IDENTIFIER ::= { products 3 }
+               Protocol-Translator OBJECT IDENTIFIER ::= { products 4 }
+
+          New products will be added at the end of this list.
+
+          3.2.  Local Variable Section
+
+          This section describes the local variables within the cisco
+          product line.  Groups may or may not be present depending on
+          the software options present in the managed device.
+
+
+
+
+
+          cisco MIB                                             [Page 4]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          3.2.1.  Local System Group
+
+          This group is present in all products.
+
+               OBJECT:
+               -------
+                    romId { lsystem 1 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    This variable contains a printable octet string
+                    which contains the System Bootstrap description and
+                    version identification.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    whyReload { lsystem 2 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    This variable contains a printable octet string
+                    which contains the reason why the system was last
+                    restarted.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    hostName { lsystem 3 }
+
+
+
+
+
+          cisco MIB                                             [Page 5]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    This variable represents the name of the host in
+                    printable ascii characters.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    domainName { lsystem 4 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    This variable is the domain portion of the domain
+                    name of the host.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    authAddr { lsystem 5 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    This variable contains the last SNMP authorization
+                    failure IP address.
+
+               Access:
+                    read-only.
+
+
+
+
+
+          cisco MIB                                             [Page 6]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bootHost { lsystem 6 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    Contains the IP address of the host that supplied
+                    the currently running software.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    ping { lsystem 7 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Supplies a way to ping a host from this entity.
+
+               Access:
+                    read-write.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    freeMem { lsystem 8 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+          cisco MIB                                             [Page 7]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Return the amount of free memory in bytes.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferElFree { lsystem 9 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of free buffer elements.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferElMax { lsystem 10 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the maximum number of buffer elements.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                             [Page 8]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    bufferElHit { lsystem 11 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of buffer element hits.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferElMiss { lsystem 12 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of buffer element misses.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferElCreate { lsystem 13 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of buffer element creates.
+
+               Access:
+                    read-only.
+
+
+
+
+
+          cisco MIB                                             [Page 9]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferSmSize { lsystem 14 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the size of small buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferSmTotal { lsystem 15 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the total number of small buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferSmFree { lsystem 16 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+
+          cisco MIB                                            [Page 10]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Contains the number of free small buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferSmMax { lsystem 17 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the maximum number of small buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferSmHit { lsystem 18 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of small buffer hits.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 11]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    bufferSmMiss { lsystem 19 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of small buffer misses.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferSmTrim { lsystem 20 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of small buffer trims.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferSmCreate { lsystem 21 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of small buffer creates.
+
+               Access:
+                    read-only.
+
+
+
+
+
+          cisco MIB                                            [Page 12]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferMdSize { lsystem 22 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the size of medium buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferMdTotal { lsystem 23 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the total number of medium buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferMdFree { lsystem 24 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+
+          cisco MIB                                            [Page 13]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Contains the number of free medium buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferMdMax { lsystem 25 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the maximum number of medium buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferMdHit { lsystem 26 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of medium buffer hits.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 14]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    bufferMdMiss { lsystem 27 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of medium buffer misses.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferMdTrim { lsystem 28 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of medium buffer trims.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferMdCreate { lsystem 29 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of medium buffer creates.
+
+               Access:
+                    read-only.
+
+
+
+
+
+          cisco MIB                                            [Page 15]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferBgSize { lsystem 30 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the size of big buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferBgTotal { lsystem 31 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the total number of big buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferBgFree { lsystem 32 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+
+          cisco MIB                                            [Page 16]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Contains the number of free big buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferBgMax { lsystem 33 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the maximum number of big buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferBgHit { lsystem 34 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of big buffer hits.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 17]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    bufferBgMiss { lsystem 35 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of big buffer misses.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferBgTrim { lsystem 36 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of big buffer trims.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferBgCreate { lsystem 37 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of big buffer creates.
+
+               Access:
+                    read-only.
+
+
+
+
+
+          cisco MIB                                            [Page 18]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferLgSize { lsystem 38 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the size of large buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferLgTotal { lsystem 39 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the total number of large buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferLgFree { lsystem 40 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+
+          cisco MIB                                            [Page 19]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Contains the number of free large buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferLgMax { lsystem 41 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the maximum number of large buffers.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferLgHit { lsystem 42 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of large buffer hits.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 20]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    bufferLgMiss { lsystem 43 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of large buffer misses.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferLgTrim { lsystem 44 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of large buffer trims.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferLgCreate { lsystem 45 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Contains the number of large buffer creates.
+
+               Access:
+                    read-only.
+
+
+
+
+
+          cisco MIB                                            [Page 21]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferFail { lsystem 46 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Count of the number of buffer allocation failures.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    bufferNoMem { lsystem 47 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Count of the number of buffer create failures due to
+                    no free memory.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    netConfigIP { lsystem 48 }
+
+               Syntax:
+                    NetworkAddress
+
+
+
+
+
+          cisco MIB                                            [Page 22]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Holds the IP address of the host that supplied the
+                    network-confg file.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    netConfigName { lsystem 49 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Holds the name of the network configuration file.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    netConfigSet { lsystem 50 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Permit the loading of a new network-confg file.
+
+               Access:
+                    read-write.
+
+               Status:
+                    mandatory.
+
+
+
+
+
+
+
+          cisco MIB                                            [Page 23]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    hostConfigIP { lsystem 51 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    Contains the IP address of the host that provided
+                    the host-config file.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    hostConfigName { lsystem 52 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Contains the name of the last configured host-confg
+                    file.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    hostConfigSet { lsystem 53 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Permit the loading of a new host-confg file.
+
+
+
+
+
+          cisco MIB                                            [Page 24]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Access:
+                    read-write.
+
+               Status:
+                    mandatory.
+
+
+          3.2.2.  Local Interface Group
+
+          This group is present in all products.
+
+          3.2.2.1.  Local Interface Table
+
+          This group provides additional objects to the table defined by
+          RFC1066.
+
+               OBJECT:
+               -------
+                    lifTable { linterfaces 1 }
+
+               Syntax:
+                    SEQUENCE OF LIfEntry
+
+               Definition:
+                    A list of interface entries.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+                    lifEntry { lifTable 1 }
+
+               Syntax:
+                    LIfEntry ::= SEQUENCE {
+                       locIfHardType
+                          OCTET STRING,
+                       locIfLineProt
+                          INTEGER,
+                       locIfLastIn
+                          INTEGER,
+                       locIfLastOut
+
+
+
+
+
+          cisco MIB                                            [Page 25]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                          INTEGER,
+                       locIfLastOutHang
+                          INTEGER,
+                       locIfInBitsSec
+                          INTEGER,
+                       locIfInPktsSec
+                          INTEGER,
+                       locIfOutBitsSec
+                          INTEGER,
+                       locIfOutPktsSec
+                          INTEGER,
+                       locIfInRunts
+                          INTEGER,
+                       locIfInGiants
+                          INTEGER,
+                       locIfInCRC
+                          INTEGER,
+                       locIfInFrame
+                          INTEGER,
+                       locIfInOverrun
+                          INTEGER,
+                       locIfInIgnored
+                          INTEGER,
+                       locIfInAbort
+                          INTEGER,
+                       locIfResets
+                          INTEGER,
+                       locIfRestarts
+                          INTEGER,
+                       locIfKeep
+                          INTEGER,
+                       locIfReason
+                          OCTET STRING,
+                    }
+
+               Definition:
+                    A collection of additional objects in the cisco
+                    interface.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+
+
+
+
+          cisco MIB                                            [Page 26]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          The following section describes the components of the table.
+
+               OBJECT:
+               -------
+                    locIfHardType { lifEntry 1 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Return the type of interface in printable ascii.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfLineProt { lifEntry 2 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Boolean whether interface line protocol is up or
+                    not.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfLastIn { lifEntry 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+
+
+
+
+
+          cisco MIB                                            [Page 27]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    Elapsed time since last successful protocol input
+                    packet was received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfLastOut { lifEntry 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Elapsed time since last successful protocol output
+                    was was transmitted.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfLastOutHang { lifEntry 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Elapsed time since last protocol output packet could
+                    not be uccessfully transmited.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+
+
+
+
+          cisco MIB                                            [Page 28]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    locIfInBitsSec { lifEntry 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Five minute average of input bits per second.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInPktsSec { lifEntry 7 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Five minute average of input packets per second.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfOutBitsSec { lifEntry 8 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Five minute average of output bits per second.
+
+               Access:
+
+
+
+
+
+          cisco MIB                                            [Page 29]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfOutPktsSec { lifEntry 9 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Five minute average of output packets per second.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInRunts { lifEntry 10 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of packets input which were smaller then the
+                    allowable physical edia permitted.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInGiants { lifEntry 11 }
+
+
+
+
+
+
+          cisco MIB                                            [Page 30]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of input packets which were larger then the
+                    physical media ermitted.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInCRC { lifEntry 12 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of input packets which had cyclic redundancy
+                    checksum errors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInFrame { lifEntry 13 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of input packet which were misaligned.
+
+               Access:
+                    read-only.
+
+
+
+
+
+
+          cisco MIB                                            [Page 31]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInOverrun { lifEntry 14 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Count of input which arrived too quickly for the to
+                    hardware receive.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInIgnored { lifEntry 15 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of input packets which were simply ignored by
+                    this interface.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfInAbort { lifEntry 16 }
+
+               Syntax:
+
+
+
+
+
+          cisco MIB                                            [Page 32]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    INTEGER
+
+               Definition:
+                    Number of input packets which were aborted.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfResets { lifEntry 17 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of times the interface internally reset.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfRestarts { lifEntry 18 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of time interface needed to be completely
+                    restarted.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+
+
+
+          cisco MIB                                            [Page 33]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    locIfKeep { lifEntry 19 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Boolean whether keepalives are enabled on this
+                    interface.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIfReason { lifEntry 20 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Printable ascii reason for interface last status
+                    change.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+          3.2.3.  Local IP Group
+
+          This group is present in all products which are using the IP
+          protocol.
+
+          3.2.3.1.  Local IP Address Table
+
+          This group provides additional objects to the table defined by
+          RFC1066.
+
+
+
+
+
+          cisco MIB                                            [Page 34]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    lipAddrTable { lip 1 }
+
+               Syntax:
+                    SEQUENCE OF LIpAddrEntry
+
+               Definition:
+                    A list of IP address entries.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+                    lipAddrEntry { lipAddrTable 1 }
+
+               Syntax:
+                    LIpAddrEntry ::= SEQUENCE {
+                       locIPHow
+                          OCTET STRING,
+                       locIPWho
+                          NetworkAddress,
+                       locIPHelper
+                          NetworkAddress,
+                       locIPSecurity
+                          INTEGER,
+                       locIPRedirects
+                          INTEGER,
+                       locIPUnreach
+                          INTEGER,
+                    }
+
+               Definition:
+                    A collection of additional objects in the cisco IP
+                    implementation.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+
+
+
+          cisco MIB                                            [Page 35]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          The following section describes the components of the table.
+
+               OBJECT:
+               -------
+                    locIPHow { lipAddrEntry 1 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Printable ascii method of how this interface
+                    obtained its IP address.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIPWho { lipAddrEntry 2 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    IP address of who supplied this interface its IP
+                    address.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIPHelper { lipAddrEntry 3 }
+
+               Syntax:
+                    NetworkAddress
+
+
+
+
+
+
+          cisco MIB                                            [Page 36]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    IP helper address for broadcast forwarding support.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIPSecurity { lipAddrEntry 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    IP security level. See RFCXXX.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locIPRedirects { lipAddrEntry 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Boolean whether ICMP redirects will be sent or not.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 37]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    locIPUnreach { lipAddrEntry 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Boolean whether ICMP unreachables will be sent or
+                    not.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+          3.2.3.2.  Local IP Routing Table
+
+          This group provides additional objects to the table defined by
+          RFC1066.
+
+               OBJECT:
+               -------
+                    lipRoutingTable { lip 2 }
+
+               Syntax:
+                    SEQUENCE OF LIpRouteEntry
+
+               Definition:
+                    A list of IP routing entries.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+                    lipRouteEntry { lipRoutingTable 1 }
+
+               Syntax:
+                    LIpRouteEntry ::= SEQUENCE {
+                       locRtMask
+
+
+
+
+
+          cisco MIB                                            [Page 38]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                          NetworkAddress,
+                       locRtCount
+                          INTEGER,
+                       locRtUses
+                          INTEGER,
+                    }
+
+               Definition:
+                    A collection of additional objects in the cisco IP
+                    routing implementation.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+          The following section describes the components of the table.
+
+               OBJECT:
+               -------
+                    locRtMask { lipRouteEntry 1 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    Routing table network mask.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locRtCount { lipRouteEntry 2 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+
+
+
+
+
+          cisco MIB                                            [Page 39]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    Number of parallel routes within routing table.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    locRtUses { lipRouteEntry 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of times this route was used in a forward
+                    operation.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    routeFilter { lip 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    A simple routing filter used for testing.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 40]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    actThresh { lip 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Threshold of IP accounting records in use before IP
+                    traffic will be iscarded.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    actLostPkts { lip 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Lost IP packets due to memory limitations.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    actLostByts { lip 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total bytes of lost IP packets.
+
+               Access:
+
+
+
+
+
+          cisco MIB                                            [Page 41]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+          3.2.3.3.  Local IP Accounting Table
+
+          This group provides access to the cisco IP accounting support.
+
+               OBJECT:
+               -------
+                    lipAccountingTable { lip 7 }
+
+               Syntax:
+                    SEQUENCE OF LIpAccountEntry
+
+               Definition:
+                    A list of IP accounting entries.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+                    lipAccountEntry { lipAccountingTable 1 }
+
+               Syntax:
+                    LIpAccountEntry ::= SEQUENCE {
+                       actSrc
+                          NetworkAddress,
+                       actDst
+                          NetworkAddress,
+                       actPkts
+                          INTEGER,
+                       actByts
+                          INTEGER,
+                    }
+
+               Definition:
+                    A collection of objects necessary for IP accounting.
+
+
+
+
+
+
+          cisco MIB                                            [Page 42]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+          The following section describes the components of the table.
+
+               OBJECT:
+               -------
+                    actSrc { lipAccountEntry 1 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    IP Source address for host traffic matrix.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    actDst { lipAccountEntry 2 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    IP Destination address for host traffic matrix.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+
+
+
+
+
+          cisco MIB                                            [Page 43]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    actPkts { lipAccountEntry 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of IP packets sent from source to
+                    destination.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    actByts { lipAccountEntry 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of bytes in IP packets from source to
+                    destination.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+          3.2.4.  Local TCP Group
+
+          This group is present in all products which are using the TCP
+          protocol.
+
+          3.2.4.1.  Local TCP Connection Table
+
+          This group provides additional objects to the table defined by
+          RFC1066.
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 44]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    ltcpConnTable { ltcp 1 }
+
+               Syntax:
+                    SEQUENCE OF LTcpConnEntry
+
+               Definition:
+                    A list of TCP connection entries.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+                    ltcpConnEntry { ltcpConnTable 1 }
+
+               Syntax:
+                    LTcpConnEntry ::= SEQUENCE {
+                       loctcpConnInBytes
+                          INTEGER,
+                       loctcpConnOutBytes
+                          INTEGER,
+                       loctcpConnInPkts
+                          INTEGER,
+                       loctcpConnOutPkts
+                          INTEGER,
+                       loctcpConnElapsed
+                          TimeTicks,
+                    }
+
+               Definition:
+                    A collection of additional objects in the cisco TCP
+                    implementation.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    mandatory.
+
+
+
+
+
+
+
+
+          cisco MIB                                            [Page 45]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          The following section describes the components of the table.
+
+               OBJECT:
+               -------
+                    loctcpConnInBytes { ltcpConnEntry 1 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Bytes input for this TCP connection.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    loctcpConnOutBytes { ltcpConnEntry 2 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Bytes output for this TCP connection.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    loctcpConnInPkts { ltcpConnEntry 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Packets input for this TCP connection.
+
+
+
+
+
+          cisco MIB                                            [Page 46]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    loctcpConnOutPkts { ltcpConnEntry 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Packets output for this TCP connection.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+               OBJECT:
+               -------
+                    loctcpConnElapsed { ltcpConnEntry 5 }
+
+               Syntax:
+                    TimeTicks
+
+               Definition:
+                    How long this TCP connection has been established.
+
+               Access:
+                    read-only.
+
+               Status:
+                    mandatory.
+
+
+          3.2.5.  Local cisco Terminal Server Group
+
+          This group is present in all products which contain
+          asynchronous terminal lines.
+
+
+
+
+
+          cisco MIB                                            [Page 47]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    tsLines { lts 1 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of physical lines on this device.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+          3.2.5.1.  Local Terminal Server Line Table
+
+          This group contains terminal server specific information on a
+          per line basis.
+
+               OBJECT:
+               -------
+                    ltsLineTable { lts 2 }
+
+               Syntax:
+                    SEQUENCE OF LTsLineEntry
+
+               Definition:
+                    A list of terminal server line entries.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+                    ltsLineEntry { ltsLineTable 1 }
+
+               Syntax:
+                    LTsLineEntry ::= SEQUENCE {
+                       tsLineActive
+
+
+
+
+
+          cisco MIB                                            [Page 48]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                          INTEGER,
+                       tsLineType
+                          INTEGER,
+                       tsLineAutobaud
+                          INTEGER,
+                       tsLineSpeedin
+                          INTEGER,
+                       tsLineSpeedout
+                          INTEGER,
+                       tsLineFlow
+                          INTEGER,
+                       tsLineModem
+                          INTEGER,
+                       tsLineLoc
+                          OCTET STRING,
+                       tsLineTerm
+                          OCTET STRING,
+                       tsLineScrlen
+                          INTEGER,
+                       tsLineScrwid
+                          INTEGER,
+                       tsLineEsc
+                          OCTET STRING,
+                       tsLineTmo
+                          INTEGER,
+                       tsLineSestmo
+                          INTEGER,
+                       tsLineRotary
+                          INTEGER,
+                       tsLineUses
+                          INTEGER,
+                       tsLineNses
+                          INTEGER,
+                       tsLineUser
+                          OCTET STRING,
+                    }
+
+               Definition:
+                    A collection of per TTY objects in the cisco
+                    Terminal Server implementation.
+
+               Access:
+                    not-accessible.
+
+               Status:
+
+
+
+
+
+          cisco MIB                                            [Page 49]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    optional.
+
+
+          The following section describes the components of the table.
+
+               OBJECT:
+               -------
+                    tsLineActive { ltsLineEntry 1 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Boolean whether this line is active or not.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineType { ltsLineEntry 2 }
+
+               Syntax:
+                    INTEGER {
+                         unknown(1),
+                         console(2),
+                         terminal(3),
+                         line-printer(4),
+                         virtual-terminal(5),
+                         auxiliary(6)
+                    }
+
+               Definition:
+                    Type of line.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+
+
+
+
+          cisco MIB                                            [Page 50]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    tsLineAutobaud { ltsLineEntry 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Boolean whether line will autobaud or not.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineSpeedin { ltsLineEntry 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    What input speed the line is running at.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineSpeedout { ltsLineEntry 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    What output speed the line is running at.
+
+               Access:
+
+
+
+
+
+          cisco MIB                                            [Page 51]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineFlow { ltsLineEntry 6 }
+
+               Syntax:
+                    INTEGER {
+                         unknown(1),
+                         none(2),
+                         software-input(3),
+                         software-output(4),
+                         software-both(5),
+                         hardware-input(6),
+                         hardware-output(7),
+                         hardware-both(8)
+                    }
+
+               Definition:
+                    What kind of flow control the line is using.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineModem { ltsLineEntry 7 }
+
+               Syntax:
+                    INTEGER {
+                         unknown(1),
+                         none(2),
+                         call-in(3),
+                         call-out(4),
+                         cts-required(5),
+                         rs-is-cd(6)
+                    }
+
+
+
+
+
+          cisco MIB                                            [Page 52]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    What kind of modem control the line is using.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineLoc { ltsLineEntry 8 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Printable ascii string which describes the line's
+                    physical location.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineTerm { ltsLineEntry 9 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Printable ascii string which describes the line's
+                    terminal type.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+
+
+
+
+          cisco MIB                                            [Page 53]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    tsLineScrlen { ltsLineEntry 10 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Length in lines of the screen of terminal attached
+                    to this line.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineScrwid { ltsLineEntry 11 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Width in characters of the screen of terminal
+                    attached to this line.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineEsc { ltsLineEntry 12 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Escape character used to break out of active
+
+
+
+
+
+          cisco MIB                                            [Page 54]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    sessions.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineTmo { ltsLineEntry 13 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Line idleness timeout in seconds.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineSestmo { ltsLineEntry 14 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Session idleness timeout in second.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+
+
+
+
+
+          cisco MIB                                            [Page 55]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    tsLineRotary { ltsLineEntry 15 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Rotary group number the line belongs in.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineUses { ltsLineEntry 16 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Number of times this line was been activated.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineNses { ltsLineEntry 17 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Current number of sessions in use on this line.
+
+               Access:
+                    read-only.
+
+
+
+
+
+
+          cisco MIB                                            [Page 56]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tsLineUser { ltsLineEntry 18 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    TACACS user name, if TACACS enabled, of user on this
+                    line.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+          3.2.5.2.  Local Terminal Server Line Session Table
+
+          This group contains terminal server specific information on a
+          per line and session basis.
+
+               OBJECT:
+               -------
+                    ltsLineSessionTable { lts 3 }
+
+               Syntax:
+                    SEQUENCE OF LTsLineSessionEntry
+
+               Definition:
+                    A list of terminal server line and session entries.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 57]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    ltsLineSessionEntry { ltsLineSessionTable 1 }
+
+               Syntax:
+                    LTsLineSessionEntry ::= SEQUENCE {
+                       tslineSesType
+                          INTEGER,
+                       tslineSesDir
+                          INTEGER,
+                       tslineSesAddr
+                          NetworkAddress,
+                       tslineSesName
+                          OCTET STRING,
+                       tslineSesCur
+                          INTEGER,
+                       tslineSesIdle
+                          INTEGER,
+                    }
+
+               Definition:
+                    A collection of per session and per TTY objects in
+                    the cisco Terminal Server implementation.
+
+               Access:
+                    not-accessible.
+
+               Status:
+                    optional.
+
+
+          The following section describes the components of the table.
+
+               OBJECT:
+               -------
+                    tslineSesType { ltsLineSessionEntry 1 }
+
+               Syntax:
+                    INTEGER {
+                         unknown(1),
+                         pad(2),
+                         stream(3),
+                         rlogin(4),
+                         telnet(5)
+                    }
+
+               Definition:
+
+
+
+
+
+          cisco MIB                                            [Page 58]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    Type of session.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tslineSesDir { ltsLineSessionEntry 2 }
+
+               Syntax:
+                    INTEGER {
+                         unknown(1),
+                         incoming(2),
+                         outgoing(3)
+                    }
+
+               Definition:
+                    Direction of session.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tslineSesAddr { ltsLineSessionEntry 3 }
+
+               Syntax:
+                    NetworkAddress
+
+               Definition:
+                    Remote host address of session. [What about PAD
+                    connections?]
+
+               Access:
+                    read-only.
+
+               Status:
+
+
+
+
+
+          cisco MIB                                            [Page 59]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tslineSesName { ltsLineSessionEntry 4 }
+
+               Syntax:
+                    OCTET STRING
+
+               Definition:
+                    Remote host name of session.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tslineSesCur { ltsLineSessionEntry 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Boolean whether session is the currently active one.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+               OBJECT:
+               -------
+                    tslineSesIdle { ltsLineSessionEntry 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+
+
+
+
+
+          cisco MIB                                            [Page 60]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    Time in seconds session has been idle.
+
+               Access:
+                    read-only.
+
+               Status:
+                    optional.
+
+
+          3.3.  Temporary Variable Section
+
+          This section is equivalent to the experimental space defined
+          by the SMI. It contains variables that are useful to have but
+          are beyond cisco's ability to control and maintain. This
+          section can change from release to release without warning.
+          This document controls what is contained here for this
+          version.
+
+          3.3.1.  Temporary DECNET Section
+
+          This group is present in all router based products.
+
+               OBJECT:
+               -------
+                    dnForward { decnet 1 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of DECNET packets forwarded.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnReceived { decnet 2 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+          cisco MIB                                            [Page 61]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Count of total DECNET packets received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnFormaterr { decnet 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of DECNET packets received with header
+                    errors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnNotgateway { decnet 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of packets received while not routing.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+
+
+
+
+
+          cisco MIB                                            [Page 62]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    dnNotimp { decnet 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of received unknown control packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnHellos { decnet 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of Hellos received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnBadhello { decnet 7 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of received bad Hellos.
+
+               Access:
+
+
+
+
+
+          cisco MIB                                            [Page 63]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnNotlong { decnet 8 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of received packets not in long format.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnDatas { decnet 9 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of received data packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnBigaddr { decnet 10 }
+
+               Syntax:
+
+
+
+
+
+          cisco MIB                                            [Page 64]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    INTEGER
+
+               Definition:
+                    Total number of too large addresses.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnNoroute { decnet 11 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of packets dropped due to no route
+                    present.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnNoencap { decnet 12 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of packets dropped due to output
+                    encapsulation failure.
+
+               Access:
+                    read-only.
+
+               Status:
+
+
+
+
+
+          cisco MIB                                            [Page 65]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnLevel1s { decnet 13 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of Level 1 routing packets received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnBadlevel1 { decnet 14 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of bad Level 1 routing packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnToomanyhops { decnet 15 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+
+          cisco MIB                                            [Page 66]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Total number of packets received which cisited too
+                    many nodes.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnHellosent { decnet 16 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total numver of Hellos output.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnLevel1sent { decnet 17 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of Level 1 routing packets sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+
+
+
+
+
+          cisco MIB                                            [Page 67]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    dnNomemory { decnet 18 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of memory requests denied.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnOtherhello { decnet 19 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of Hellos received from another area.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnOtherlevel1 { decnet 20 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of Level 1 routing packets received
+                    from another area.
+
+
+
+
+
+
+          cisco MIB                                            [Page 68]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnLevel2s { decnet 21 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of Level 2 routing packets received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnLevel2sent { decnet 22 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of Level 2 routing packets sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnNovector { decnet 23 }
+
+
+
+
+
+
+          cisco MIB                                            [Page 69]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of missing routing vectors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnOtherlevel2 { decnet 24 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of received Level 2 routing packets
+                    from another area.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    dnNoaccess { decnet 25 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of packets dropped due to access
+                    control failure.
+
+               Access:
+                    read-only.
+
+
+
+
+
+
+          cisco MIB                                            [Page 70]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    experimental.
+
+
+          3.3.2.  Temporary XNS Section
+
+          This group is present in all router based products.
+
+               OBJECT:
+               -------
+                    xnsInput { xns 1 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total input count of number of XNS packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsLocal { xns 2 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of XNS input packets for this host.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsBcastin { xns 3 }
+
+
+
+
+
+          cisco MIB                                            [Page 71]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS input broadcast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsForward { xns 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS packets forwarded.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsBcastout { xns 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS output broadcast
+                    packets.
+
+               Access:
+                    read-only.
+
+
+
+
+
+
+          cisco MIB                                            [Page 72]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsErrin { xns 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS Error input packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsErrout { xns 7 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS Error output packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsFormerr { xns 8 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+
+          cisco MIB                                            [Page 73]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Total count of number of XNS input packets with
+                    header errors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsChksum { xns 9 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS input packets with
+                    checksum erors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsNotgate { xns 10 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS input packets received
+                    while not routing.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+
+
+
+          cisco MIB                                            [Page 74]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    xnsHopcnt { xns 11 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS input packets that have
+                    exceeded the maximum hop count.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsNoroute { xns 12 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS packets dropped due to
+                    no route.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsNoencap { xns 13 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS packets dropped due to
+
+
+
+
+
+          cisco MIB                                            [Page 75]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    output encapsulation failed.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsOutput { xns 14 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS output packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsInmult { xns 15 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS input multicast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 76]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    xnsUnknown { xns 16 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of unknown XNS input packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsFwdbrd { xns 17 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS broadcast packets
+                    forwarded.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsEchoreqin { xns 18 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS Echo request packets
+                    received.
+
+
+
+
+
+
+          cisco MIB                                            [Page 77]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsEchoreqout { xns 19 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS Echo request packets
+                    sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    xnsEchorepin { xns 20 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS Echo reply packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+
+
+
+
+
+          cisco MIB                                            [Page 78]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    xnsEchorepout { xns 21 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of XNS Echo reply packets
+                    sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+          3.3.3.  Temporary AppleTalk Section
+
+          This group is present in all router based products.
+
+               OBJECT:
+               -------
+                    atInput { appletalk 1 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total input count of number of AppleTalk packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atLocal { appletalk 2 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+
+
+
+
+
+          cisco MIB                                            [Page 79]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    Total count of AppleTalk input packets for this
+                    host.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atBcastin { appletalk 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk input broadcast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atForward { appletalk 4 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk packets
+                    forwarded.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+
+
+
+
+          cisco MIB                                            [Page 80]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    atBcastout { appletalk 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk output broadcast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atFormerr { appletalk 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk input packets
+                    with header errors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atChksum { appletalk 7 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk input packets
+
+
+
+
+
+          cisco MIB                                            [Page 81]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    with checksum erors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atNotgate { appletalk 8 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of AppleTalk input packets received
+                    while not routing.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atHopcnt { appletalk 9 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk input packets
+                    that have exceeded the maximum hop count.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+
+
+
+
+
+          cisco MIB                                            [Page 82]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    atNoaccess { appletalk 10 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total number of AppleTalk packets dropped due to
+                    access control.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atNoroute { appletalk 11 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk packets dropped
+                    due to no route.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atNoencap { appletalk 12 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk packets dropped
+
+
+
+
+
+          cisco MIB                                            [Page 83]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    due to output encapsulation failed.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atOutput { appletalk 13 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk output packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atInmult { appletalk 14 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk input multicast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+
+
+
+
+
+          cisco MIB                                            [Page 84]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               -------
+                    atRtmpin { appletalk 15 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk RTMP packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atRtmpout { appletalk 16 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk RTMP packets
+                    sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atNbpin { appletalk 17 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk NBP packets
+                    received.
+
+
+
+
+
+          cisco MIB                                            [Page 85]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atNbpout { appletalk 18 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk NBP packets sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atAtp { appletalk 19 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk ATP packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atZipin { appletalk 20 }
+
+
+
+
+
+          cisco MIB                                            [Page 86]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk ZIP packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atZipout { appletalk 21 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk ZIP packets sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atEcho { appletalk 22 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk Echo packets
+                    received.
+
+               Access:
+                    read-only.
+
+
+
+
+
+
+          cisco MIB                                            [Page 87]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atEchoill { appletalk 23 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of illegal AppleTalk Echo
+                    packets received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atDdpshort { appletalk 24 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of short AppleTalk DDP packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atDdplong { appletalk 25 }
+
+               Syntax:
+
+
+
+
+
+          cisco MIB                                            [Page 88]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    INTEGER
+
+               Definition:
+                    Total count of number of long AppleTalk DDP packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atDdpbad { appletalk 26 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of illegal sized AppleTalk DDP
+                    packets received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atNobuffer { appletalk 27 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk packets lost due
+                    to no memory.
+
+               Access:
+                    read-only.
+
+
+
+
+
+
+          cisco MIB                                            [Page 89]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atArpreq { appletalk 28 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of input AppleTalk ARP request
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atArpreply { appletalk 29 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of AppleTalk ARP reply packets
+                    output.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atArpprobe { appletalk 30 }
+
+               Syntax:
+
+
+
+
+
+          cisco MIB                                            [Page 90]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    INTEGER
+
+               Definition:
+                    Total count of number of input AppleTalk ARP probe
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    atUnknown { appletalk 31 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of unknown AppleTalk input
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+          3.3.4.  Temporary Novell Section
+
+          This group is present in all router based products.
+
+               OBJECT:
+               -------
+                    novellInput { novell 1 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total input count of number of NOVELL packets.
+
+
+
+
+
+
+          cisco MIB                                            [Page 91]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellBcastin { novell 2 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL input broadcast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellForward { novell 3 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL packets forwarded.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellBcastout { novell 4 }
+
+
+
+
+
+          cisco MIB                                            [Page 92]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL output broadcast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellFormerr { novell 5 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL input packets with
+                    header errors.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellChksum { novell 6 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL input packets with
+                    checksum erors.
+
+               Access:
+                    read-only.
+
+
+
+
+
+          cisco MIB                                            [Page 93]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellHopcnt { novell 7 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL input packets that
+                    have exceeded the maximum hop count.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellNoroute { novell 8 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL packets dropped due
+                    to no route.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellNoencap { novell 9 }
+
+               Syntax:
+
+
+
+
+
+          cisco MIB                                            [Page 94]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL packets dropped due
+                    to output encapsulation failed.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellOutput { novell 10 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL output packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellInmult { novell 11 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL input multicast
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+
+
+
+
+
+          cisco MIB                                            [Page 95]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellLocal { novell 12 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of NOVELL input packets for this host.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellUnknown { novell 13 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of unknown NOVELL input
+                    packets.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellSapreqin { novell 14 }
+
+               Syntax:
+                    INTEGER
+
+
+
+
+
+
+          cisco MIB                                            [Page 96]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               Definition:
+                    Total count of number of NOVELL SAP request packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellSapresin { novell 15 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL SAP response packets
+                    received.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+               OBJECT:
+               -------
+                    novellSapout { novell 16 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL SAP request packets
+                    sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+
+
+
+          cisco MIB                                            [Page 97]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               OBJECT:
+               -------
+                    novellSapreply { novell 17 }
+
+               Syntax:
+                    INTEGER
+
+               Definition:
+                    Total count of number of NOVELL SAP reply packets
+                    sent.
+
+               Access:
+                    read-only.
+
+               Status:
+                    experimental.
+
+
+          4.  Definitions
+
+          CISCO-MIB { iso org(3) dod(6) internet(1) private(4)
+                                  enterprises(1) 9 }
+
+          DEFINITIONS ::= BEGIN
+
+          IMPORTS
+               enterprises, OBJECT-TYPE, NetworkAddress, IpAddress,
+               Counter, Gauge, TimeTicks, OBJECT-TYPE
+               FROM RFC1065-SMI
+
+
+          cisco               OBJECT IDENTIFIER ::= { enterprises 9 }
+
+          products            OBJECT IDENTIFIER ::= { cisco 1 }
+          local               OBJECT IDENTIFIER ::= { cisco 2 }
+          temporary           OBJECT IDENTIFIER ::= { cisco 3 }
+
+          gateway-server      OBJECT IDENTIFIER ::= { products 1 }
+          terminal-server     OBJECT IDENTIFIER ::= { products 2 }
+          trouter             OBJECT IDENTIFIER ::= { products 3 }
+          protocol-translator OBJECT IDENTIFIER ::= { products 4 }
+
+          lsystem             OBJECT IDENTIFIER ::= { local 1 }
+          linterfaces         OBJECT IDENTIFIER ::= { local 2 }
+          lat                 OBJECT IDENTIFIER ::= { local 3 }
+
+
+
+
+
+          cisco MIB                                            [Page 98]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          lip                 OBJECT IDENTIFIER ::= { local 4 }
+          licmp               OBJECT IDENTIFIER ::= { local 5 }
+          ltcp                OBJECT IDENTIFIER ::= { local 6 }
+          ludp                OBJECT IDENTIFIER ::= { local 7 }
+          legp                OBJECT IDENTIFIER ::= { local 8 }
+          lts                 OBJECT IDENTIFIER ::= { local 9 }
+
+          decnet              OBJECT IDENTIFIER ::= { temporary 1 }
+          xns                 OBJECT IDENTIFIER ::= { temporary 2 }
+          appletalk           OBJECT IDENTIFIER ::= { temporary 3 }
+          novell              OBJECT IDENTIFIER ::= { temporary 4 }
+
+          -- the Local System group
+
+          romId OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 1 }
+
+          whyReload OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 2 }
+
+          hostName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 3 }
+
+          domainName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 4 }
+
+          authAddr OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 5 }
+
+          bootHost OBJECT-TYPE
+
+
+
+
+
+          cisco MIB                                            [Page 99]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 6 }
+
+          ping OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-write
+               STATUS  mandatory
+               ::= { lsystem 7 }
+
+          freeMem OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 8 }
+
+          bufferElFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 9 }
+
+          bufferElMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 10 }
+
+          bufferElHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 11 }
+
+          bufferElMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 12 }
+
+          bufferElCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+
+
+
+
+
+          cisco MIB                                           [Page 100]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ::= { lsystem 13 }
+
+          bufferSmSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 14 }
+
+          bufferSmTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 15 }
+
+          bufferSmFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 16 }
+
+          bufferSmMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 17 }
+
+          bufferSmHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 18 }
+
+          bufferSmMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 19 }
+
+          bufferSmTrim OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 20 }
+
+          bufferSmCreate OBJECT-TYPE
+
+
+
+
+
+          cisco MIB                                           [Page 101]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 21 }
+
+          bufferMdSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 22 }
+
+          bufferMdTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 23 }
+
+          bufferMdFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 24 }
+
+          bufferMdMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 25 }
+
+          bufferMdHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 26 }
+
+          bufferMdMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 27 }
+
+          bufferMdTrim OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+
+
+
+
+
+          cisco MIB                                           [Page 102]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ::= { lsystem 28 }
+
+          bufferMdCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 29 }
+
+          bufferBgSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 30 }
+
+          bufferBgTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 31 }
+
+          bufferBgFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 32 }
+
+          bufferBgMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 33 }
+
+          bufferBgHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 34 }
+
+          bufferBgMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 35 }
+
+          bufferBgTrim OBJECT-TYPE
+
+
+
+
+
+          cisco MIB                                           [Page 103]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 36 }
+
+          bufferBgCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 37 }
+
+          bufferLgSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 38 }
+
+          bufferLgTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 39 }
+
+          bufferLgFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 40 }
+
+          bufferLgMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 41 }
+
+          bufferLgHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 42 }
+
+          bufferLgMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+
+
+
+
+
+          cisco MIB                                           [Page 104]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ::= { lsystem 43 }
+
+          bufferLgTrim OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 44 }
+
+          bufferLgCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 45 }
+
+          bufferFail OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 46 }
+
+          bufferNoMem OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 47 }
+
+          netConfigIP OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 48 }
+
+          netConfigName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 49 }
+
+          netConfigSet OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-write
+               STATUS  mandatory
+               ::= { lsystem 50 }
+
+          hostConfigIP OBJECT-TYPE
+
+
+
+
+
+          cisco MIB                                           [Page 105]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 51 }
+
+          hostConfigName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 52 }
+
+          hostConfigSet OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-write
+               STATUS  mandatory
+               ::= { lsystem 53 }
+          -- the Local Interfaces group
+
+          -- the Local Interface Table
+
+          lifTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIfEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { linterfaces 1 }
+
+          lifEntry OBJECT-TYPE
+               SYNTAX  LIfEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifTable 1 }
+
+          LIfEntry ::= SEQUENCE {
+             locIfHardType
+                OCTET STRING,
+             locIfLineProt
+                INTEGER,
+             locIfLastIn
+                INTEGER,
+             locIfLastOut
+                INTEGER,
+             locIfLastOutHang
+                INTEGER,
+             locIfInBitsSec
+                INTEGER,
+
+
+
+
+
+          cisco MIB                                           [Page 106]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+             locIfInPktsSec
+                INTEGER,
+             locIfOutBitsSec
+                INTEGER,
+             locIfOutPktsSec
+                INTEGER,
+             locIfInRunts
+                INTEGER,
+             locIfInGiants
+                INTEGER,
+             locIfInCRC
+                INTEGER,
+             locIfInFrame
+                INTEGER,
+             locIfInOverrun
+                INTEGER,
+             locIfInIgnored
+                INTEGER,
+             locIfInAbort
+                INTEGER,
+             locIfResets
+                INTEGER,
+             locIfRestarts
+                INTEGER,
+             locIfKeep
+                INTEGER,
+             locIfReason
+                OCTET STRING,
+          }
+
+          locIfHardType OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 1 }
+
+          locIfLineProt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 2 }
+
+          locIfLastIn OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 107]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  mandatory
+               ::= { lifEntry 3 }
+
+          locIfLastOut OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 4 }
+
+          locIfLastOutHang OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 5 }
+
+          locIfInBitsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 6 }
+
+          locIfInPktsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 7 }
+
+          locIfOutBitsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 8 }
+
+          locIfOutPktsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 9 }
+
+          locIfInRunts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 10 }
+
+
+
+
+
+
+          cisco MIB                                           [Page 108]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          locIfInGiants OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 11 }
+
+          locIfInCRC OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 12 }
+
+          locIfInFrame OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 13 }
+
+          locIfInOverrun OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 14 }
+
+          locIfInIgnored OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 15 }
+
+          locIfInAbort OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 16 }
+
+          locIfResets OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 17 }
+
+          locIfRestarts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 109]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  mandatory
+               ::= { lifEntry 18 }
+
+          locIfKeep OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 19 }
+
+          locIfReason OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 20 }
+          -- the Local IP group
+
+          -- the Local IP Address table
+
+          lipAddrTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIpAddrEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 1 }
+
+          lipAddrEntry OBJECT-TYPE
+               SYNTAX  LIpAddrEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrTable 1 }
+
+          LIpAddrEntry ::= SEQUENCE {
+             locIPHow
+                OCTET STRING,
+             locIPWho
+                NetworkAddress,
+             locIPHelper
+                NetworkAddress,
+             locIPSecurity
+                INTEGER,
+             locIPRedirects
+                INTEGER,
+             locIPUnreach
+                INTEGER,
+          }
+
+
+
+
+
+
+          cisco MIB                                           [Page 110]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          locIPHow OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 1 }
+
+          locIPWho OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 2 }
+
+          locIPHelper OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 3 }
+
+          locIPSecurity OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 4 }
+
+          locIPRedirects OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 5 }
+
+          locIPUnreach OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 6 }
+
+          -- theLocal IP Routing table
+
+          lipRoutingTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIpRouteEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 2 }
+
+          lipRouteEntry OBJECT-TYPE
+
+
+
+
+
+          cisco MIB                                           [Page 111]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               SYNTAX  LIpRouteEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipRoutingTable 1 }
+
+          LIpRouteEntry ::= SEQUENCE {
+             locRtMask
+                NetworkAddress,
+             locRtCount
+                INTEGER,
+             locRtUses
+                INTEGER,
+          }
+
+          locRtMask OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipRouteEntry 1 }
+
+          locRtCount OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipRouteEntry 2 }
+
+          locRtUses OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipRouteEntry 3 }
+
+          routeFilter OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 3 }
+
+          actThresh OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 4 }
+
+          actLostPkts OBJECT-TYPE
+
+
+
+
+
+          cisco MIB                                           [Page 112]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 5 }
+
+          actLostByts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 6 }
+
+          -- the Local IP Accounting table
+
+          lipAccountingTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIpAccountEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 7 }
+
+          lipAccountEntry OBJECT-TYPE
+               SYNTAX  LIpAccountEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountingTable 1 }
+
+          LIpAccountEntry ::= SEQUENCE {
+             actSrc
+                NetworkAddress,
+             actDst
+                NetworkAddress,
+             actPkts
+                INTEGER,
+             actByts
+                INTEGER,
+          }
+
+          actSrc OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountEntry 1 }
+
+          actDst OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 113]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  mandatory
+               ::= { lipAccountEntry 2 }
+
+          actPkts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountEntry 3 }
+
+          actByts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountEntry 4 }
+          -- the Local TCP group
+
+          -- the Local TCP Connection table
+
+          ltcpConnTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LTcpConnEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcp 1 }
+
+          ltcpConnEntry OBJECT-TYPE
+               SYNTAX  LTcpConnEntry
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnTable 1 }
+
+          LTcpConnEntry ::= SEQUENCE {
+             loctcpConnInBytes
+                INTEGER,
+             loctcpConnOutBytes
+                INTEGER,
+             loctcpConnInPkts
+                INTEGER,
+             loctcpConnOutPkts
+                INTEGER,
+             loctcpConnElapsed
+                TimeTicks,
+          }
+
+          loctcpConnInBytes OBJECT-TYPE
+               SYNTAX  INTEGER
+
+
+
+
+
+          cisco MIB                                           [Page 114]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 1 }
+
+          loctcpConnOutBytes OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 2 }
+
+          loctcpConnInPkts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 3 }
+
+          loctcpConnOutPkts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 4 }
+
+          loctcpConnElapsed OBJECT-TYPE
+               SYNTAX  TimeTicks
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 5 }
+          -- the Local Terminal Server group
+
+          tsLines OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { lts 1 }
+
+          -- the Local Terminal Server Line table
+
+          ltsLineTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LTsLineEntry
+               ACCESS  read-only
+               STATUS  optional
+               ::= { lts 2 }
+
+          ltsLineEntry OBJECT-TYPE
+               SYNTAX  LTsLineEntry
+
+
+
+
+
+          cisco MIB                                           [Page 115]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineTable 1 }
+
+          LTsLineEntry ::= SEQUENCE {
+             tsLineActive
+                INTEGER,
+             tsLineType
+                INTEGER,
+             tsLineAutobaud
+                INTEGER,
+             tsLineSpeedin
+                INTEGER,
+             tsLineSpeedout
+                INTEGER,
+             tsLineFlow
+                INTEGER,
+             tsLineModem
+                INTEGER,
+             tsLineLoc
+                OCTET STRING,
+             tsLineTerm
+                OCTET STRING,
+             tsLineScrlen
+                INTEGER,
+             tsLineScrwid
+                INTEGER,
+             tsLineEsc
+                OCTET STRING,
+             tsLineTmo
+                INTEGER,
+             tsLineSestmo
+                INTEGER,
+             tsLineRotary
+                INTEGER,
+             tsLineUses
+                INTEGER,
+             tsLineNses
+                INTEGER,
+             tsLineUser
+                OCTET STRING,
+          }
+
+          tsLineActive OBJECT-TYPE
+               SYNTAX  INTEGER
+
+
+
+
+
+          cisco MIB                                           [Page 116]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 1 }
+
+          tsLineType OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    console(2),
+                    terminal(3),
+                    line-printer(4),
+                    virtual-terminal(5),
+                    auxiliary(6)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 2 }
+
+          tsLineAutobaud OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 3 }
+
+          tsLineSpeedin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 4 }
+
+          tsLineSpeedout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 5 }
+
+          tsLineFlow OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    none(2),
+                    software-input(3),
+                    software-output(4),
+                    software-both(5),
+                    hardware-input(6),
+                    hardware-output(7),
+                    hardware-both(8)
+
+
+
+
+
+          cisco MIB                                           [Page 117]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 6 }
+
+          tsLineModem OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    none(2),
+                    call-in(3),
+                    call-out(4),
+                    cts-required(5),
+                    rs-is-cd(6)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 7 }
+
+          tsLineLoc OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 8 }
+
+          tsLineTerm OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 9 }
+
+          tsLineScrlen OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 10 }
+
+          tsLineScrwid OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 11 }
+
+          tsLineEsc OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 118]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  optional
+               ::= { ltsLineEntry 12 }
+
+          tsLineTmo OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 13 }
+
+          tsLineSestmo OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 14 }
+
+          tsLineRotary OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 15 }
+
+          tsLineUses OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 16 }
+
+          tsLineNses OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 17 }
+
+          tsLineUser OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 18 }
+
+          -- the Local Terminal Server Line Session table
+
+          ltsLineSessionTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LTsLineSessionEntry
+               ACCESS  read-only
+               STATUS  optional
+
+
+
+
+
+          cisco MIB                                           [Page 119]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ::= { lts 3 }
+
+          ltsLineSessionEntry OBJECT-TYPE
+               SYNTAX  LTsLineSessionEntry
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionTable 1 }
+
+          LTsLineSessionEntry ::= SEQUENCE {
+             tslineSesType
+                INTEGER,
+             tslineSesDir
+                INTEGER,
+             tslineSesAddr
+                NetworkAddress,
+             tslineSesName
+                OCTET STRING,
+             tslineSesCur
+                INTEGER,
+             tslineSesIdle
+                INTEGER,
+          }
+
+          tslineSesType OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    pad(2),
+                    stream(3),
+                    rlogin(4),
+                    telnet(5)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 1 }
+
+          tslineSesDir OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    incoming(2),
+                    outgoing(3)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 2 }
+
+
+
+
+
+
+          cisco MIB                                           [Page 120]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          tslineSesAddr OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 3 }
+
+          tslineSesName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 4 }
+
+          tslineSesCur OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 5 }
+
+          tslineSesIdle OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 6 }
+          -- the Temporary DECNET group
+
+          dnForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 1 }
+
+          dnReceived OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 2 }
+
+          dnFormaterr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 3 }
+
+          dnNotgateway OBJECT-TYPE
+               SYNTAX  INTEGER
+
+
+
+
+
+          cisco MIB                                           [Page 121]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 4 }
+
+          dnNotimp OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 5 }
+
+          dnHellos OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 6 }
+
+          dnBadhello OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 7 }
+
+          dnNotlong OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 8 }
+
+          dnDatas OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 9 }
+
+          dnBigaddr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 10 }
+
+          dnNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 11 }
+
+
+
+
+
+          cisco MIB                                           [Page 122]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          dnNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 12 }
+
+          dnLevel1s OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 13 }
+
+          dnBadlevel1 OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 14 }
+
+          dnToomanyhops OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 15 }
+
+          dnHellosent OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 16 }
+
+          dnLevel1sent OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 17 }
+
+          dnNomemory OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 18 }
+
+          dnOtherhello OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 123]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  experimental
+               ::= { decnet 19 }
+
+          dnOtherlevel1 OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 20 }
+
+          dnLevel2s OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 21 }
+
+          dnLevel2sent OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 22 }
+
+          dnNovector OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 23 }
+
+          dnOtherlevel2 OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 24 }
+
+          dnNoaccess OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { decnet 25 }
+          -- the Temporary XNS group
+
+          xnsInput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 1 }
+
+
+
+
+
+          cisco MIB                                           [Page 124]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          xnsLocal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 2 }
+
+          xnsBcastin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 3 }
+
+          xnsForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 4 }
+
+          xnsBcastout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 5 }
+
+          xnsErrin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 6 }
+
+          xnsErrout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 7 }
+
+          xnsFormerr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 8 }
+
+          xnsChksum OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 125]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  experimental
+               ::= { xns 9 }
+
+          xnsNotgate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 10 }
+
+          xnsHopcnt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 11 }
+
+          xnsNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 12 }
+
+          xnsNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 13 }
+
+          xnsOutput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 14 }
+
+          xnsInmult OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 15 }
+
+          xnsUnknown OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 16 }
+
+
+
+
+
+
+          cisco MIB                                           [Page 126]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          xnsFwdbrd OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 17 }
+
+          xnsEchoreqin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 18 }
+
+          xnsEchoreqout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 19 }
+
+          xnsEchorepin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 20 }
+
+          xnsEchorepout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { xns 21 }
+          -- the Temporary AppleTalk group
+
+          atInput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 1 }
+
+          atLocal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 2 }
+
+          atBcastin OBJECT-TYPE
+               SYNTAX  INTEGER
+
+
+
+
+
+          cisco MIB                                           [Page 127]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 3 }
+
+          atForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 4 }
+
+          atBcastout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 5 }
+
+          atFormerr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 6 }
+
+          atChksum OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 7 }
+
+          atNotgate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 8 }
+
+          atHopcnt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 9 }
+
+          atNoaccess OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 10 }
+
+
+
+
+
+          cisco MIB                                           [Page 128]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          atNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 11 }
+
+          atNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 12 }
+
+          atOutput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 13 }
+
+          atInmult OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 14 }
+
+          atRtmpin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 15 }
+
+          atRtmpout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 16 }
+
+          atNbpin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 17 }
+
+          atNbpout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 129]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  experimental
+               ::= { appletalk 18 }
+
+          atAtp OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 19 }
+
+          atZipin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 20 }
+
+          atZipout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 21 }
+
+          atEcho OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 22 }
+
+          atEchoill OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 23 }
+
+          atDdpshort OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 24 }
+
+          atDdplong OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 25 }
+
+
+
+
+
+
+          cisco MIB                                           [Page 130]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          atDdpbad OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 26 }
+
+          atNobuffer OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 27 }
+
+          atArpreq OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 28 }
+
+          atArpreply OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 29 }
+
+          atArpprobe OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 30 }
+
+          atUnknown OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { appletalk 31 }
+          -- the Temporary Novell group
+
+          novellInput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 1 }
+
+          novellBcastin OBJECT-TYPE
+               SYNTAX  INTEGER
+
+
+
+
+
+          cisco MIB                                           [Page 131]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 2 }
+
+          novellForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 3 }
+
+          novellBcastout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 4 }
+
+          novellFormerr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 5 }
+
+          novellChksum OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 6 }
+
+          novellHopcnt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 7 }
+
+          novellNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 8 }
+
+          novellNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 9 }
+
+
+
+
+
+          cisco MIB                                           [Page 132]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          novellOutput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 10 }
+
+          novellInmult OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 11 }
+
+          novellLocal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 12 }
+
+          novellUnknown OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 13 }
+
+          novellSapreqin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 14 }
+
+          novellSapresin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 15 }
+
+          novellSapout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  experimental
+               ::= { novell 16 }
+
+          novellSapreply OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+
+
+
+
+
+          cisco MIB                                           [Page 133]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+               STATUS  experimental
+               ::= { novell 17 }
+
+          END
+
+          5.  Identification of OBJECT instances for use with the SNMP
+
+
+          To be written.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          cisco MIB                                           [Page 134]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          6.  References
+
+          [1]  V. Cerf, IAB Recommendations for the Development of
+               Internet Network Management Standards.  Internet Working
+               Group Request for Comments 1052.  Network Information
+               Center, SRI International, Menlo Park, California,
+               (April, 1988).
+
+          [2]  M.T. Rose and K. McCloghrie, Structure and Identification
+               of Management Information for TCP/IP-based internets,
+               Internet Working Group Request for Comments 1065.
+               Network Information Center, SRI International, Menlo
+               Park, California, (August, 1988).
+
+          [3]  K. McCloghrie and M.T. Rose, Management Information Base
+               for Network Management of TCP/IP-based internets,
+               Internet Working Group Request for Comments 1066.
+               Network Information Center, SRI International, Menlo
+               Park, California, (August, 1988).
+
+          [4]  V. Cerf, Report of the Second Ad Hoc Network Management
+               Review Group, Internet Working Group Request for Comments
+               1109.  Network Information Center, SRI International,
+               Menlo Park, California, (August, 1989).
+
+          [5]  J.D. Case, M.S. Fedor, M.L. Schoffstall, and J.R. Davin,
+               Simple Network Management Protocol, Internet Working
+               Group Request for Comments 1098.  Network Information
+               Center, SRI International, Menlo Park, California,
+               (April, 1989).
+
+          [7]  Information processing systems - Open Systems
+               Interconnection - Specification of Abstract Syntax
+               Notation One (ASN.1), International Organization for
+               Standardization.  International Standard 8824, (December,
+               1987).
+
+          [8]  Information processing systems - Open Systems
+               Interconnection - Specification of Basic Encoding Rules
+               for Abstract Notation One (ASN.1), International
+               Organization for Standardization.  International Standard
+               8825, (December, 1987).
+
+
+
+
+
+
+
+
+          cisco MIB                                           [Page 135]
+
+
+
+
+
+
+          Request for Comments: Draft                cisco Systems, Inc.
+
+
+          Table of Contents
+
+
+          1 Introduction ..........................................    1
+          2 Objects ...............................................    1
+          2.1 Object Groupings ....................................    1
+          2.2 Format of Definitions ...............................    2
+          3 Object Definitions ....................................    3
+          3.1 Product Section .....................................    4
+          3.2 Local Variable Section ..............................    4
+          3.2.1 Local System Group ................................    5
+          3.2.2 Local Interface Group .............................   25
+          3.2.2.1 Local Interface Table ...........................   25
+          3.2.3 Local IP Group ....................................   34
+          3.2.3.1 Local IP Address Table ..........................   34
+          3.2.3.2 Local IP Routing Table ..........................   38
+          3.2.3.3 Local IP Accounting Table .......................   42
+          3.2.4 Local TCP Group ...................................   44
+          3.2.4.1 Local TCP Connection Table ......................   44
+          3.2.5 Local cisco Terminal Server Group .................   47
+          3.2.5.1 Local Terminal Server Line Table ................   48
+          3.2.5.2 Local Terminal Server Line Session Table ........   57
+          3.3 Temporary Variable Section ..........................   61
+          3.3.1 Temporary DECNET Section ..........................   61
+          3.3.2 Temporary XNS Section .............................   71
+          3.3.3 Temporary AppleTalk Section .......................   79
+          3.3.4 Temporary Novell Section ..........................   91
+          4 Definitions ...........................................   98
+          5 Identification of OBJECT instances for use with  the
+               SNMP ...............................................  134
+          6 References ............................................  135
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          cisco MIB                                           [Page 136]
+
+

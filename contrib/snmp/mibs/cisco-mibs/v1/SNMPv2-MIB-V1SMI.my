@@ -1,0 +1,491 @@
+-- MIB file created 02-Mar-2007 09:16:38, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+SNMPv2-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "rfc1450.mi2"
+-- Compile options "4 F H N O V 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    snmpModules
+            FROM SNMPv2-SMI-v1
+    TruthValue, DisplayString, TestAndIncr, TimeStamp
+            FROM SNMPv2-TC-v1
+    ifIndex, egpNeighAddr
+            FROM RFC1213-MIB
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+snmpMIB OBJECT IDENTIFIER ::= { snmpModules 1 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9304010000Z
+--  OrgName
+--    IETF SNMPv2 Working Group
+--  ContactInfo
+--            Marshall T. Rose
+--    
+--     Postal: Dover Beach Consulting, Inc.
+--             420 Whisman Court
+--             Mountain View, CA  94043-2186
+--             US
+--    
+--        Tel: +1 415 968 1052
+--        Fax: +1 415 968 2510
+--    
+--     E-mail: mrose@dbc.mtview.ca.us
+--  Descr
+--    The MIB module for SNMPv2 entities.
+
+snmpMIBObjects  OBJECT IDENTIFIER ::= { snmpMIB 1 }
+snmpStats       OBJECT IDENTIFIER ::= { snmpMIBObjects 1 }
+snmpV1          OBJECT IDENTIFIER ::= { snmpMIBObjects 2 }
+snmpOR          OBJECT IDENTIFIER ::= { snmpMIBObjects 3 }
+snmpTrap        OBJECT IDENTIFIER ::= { snmpMIBObjects 4 }
+snmpTraps       OBJECT IDENTIFIER ::= { snmpMIBObjects 5 }
+snmpSet         OBJECT IDENTIFIER ::= { snmpMIBObjects 6 }
+snmpMIBConformance OBJECT IDENTIFIER ::= { snmpMIB 2 }
+snmpMIBCompliances OBJECT IDENTIFIER ::= { snmpMIBConformance 1 }
+snmpMIBGroups   OBJECT IDENTIFIER ::= { snmpMIBConformance 2 }
+
+snmpStatsPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets received by the
+        SNMPv2 entity from the transport service."
+    REFERENCE
+        "Derived from RFC1213-MIB.snmpInPkts."
+    ::= { snmpStats 1 }
+
+snmpStats30Something OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets which had an initial
+        octet with a value of 30 hexadecimal received by a
+        SNMPv2 entity which does not support SNMPv1.
+        (Such packets are possibly misdirected SNMPv1
+        Messages.)"
+    REFERENCE
+        "Derived from RFC1213-MIB.snmpInASNParseErrs."
+    ::= { snmpStats 2 }
+
+snmpStatsEncodingErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets received by the
+        SNMPv2 entity which were improperly encoded or had
+        invalid syntax."
+    REFERENCE
+        "Derived from RFC1213-MIB.snmpInASNParseErrs."
+    ::= { snmpStats 3 }
+
+snmpStatsBadAuths OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of SnmpAuthMsgs delivered to the
+        SNMPv2 entity which contained an authInfo field
+        which was inconsistent with the authentication
+        protocol associated with the source party."
+    ::= { snmpStats 7 }
+
+snmpStatsNotInLifetimes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of SnmpAuthMsgs delivered to the
+        SNMPv2 entity which were deemed unauthentic due to
+        their authInfo.authSrcTimestamp field being less
+        than the source party's clock plus lifetime."
+    ::= { snmpStats 8 }
+
+snmpStatsWrongDigestValues OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of SnmpAuthMsgs delivered to the
+        SNMPv2 entity which were deemed unauthentic due to
+        their authInfo.authDigest field being unequal to
+        the expected digest value."
+    ::= { snmpStats 9 }
+
+snmpStatsUnknownContexts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of SnmpMgmtComs delivered to the
+        SNMPv2 entity for which the context field was not
+        a known SNMPv2 context."
+    ::= { snmpStats 10 }
+
+snmpStatsBadOperations OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of messages delivered to the
+        SNMPv2 entity which were silently dropped because
+        the PDU type referred to an operation not allowed
+        in the aclTable[5]."
+    ::= { snmpStats 11 }
+
+snmpStatsSilentDrops OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of GetRequest-PDUs,
+        GetNextRequest-PDUs, GetBulkRequest-PDUs,
+        SetRequest-PDUs, and InformRequest-PDUs delivered
+        to the SNMPv2 entity which were silently dropped
+        because the size of an reply containing an
+        alternate Response-PDU with an empty variable-
+        bindings field was greater than either a local
+        constraint or the maximum message size of the
+        request's source party."
+    ::= { snmpStats 12 }
+
+snmpV1BadCommunityNames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of SNMPv1 Messages delivered to
+        the SNMPv2 entity which used a community name not
+        known to the SNMPv2 entity."
+    REFERENCE
+        "Derived from RFC1213-
+        MIB.snmpInBadCommunityNames."
+    ::= { snmpV1 1 }
+
+snmpV1BadCommunityUses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of SNMPv1 Messages delivered to
+        SNMPv2 entity containing an operation which was
+        not allowed for the community named in the
+        Message."
+    REFERENCE
+        "Derived from RFC1213-MIB.snmpInBadCommunityUses."
+    ::= { snmpV1 2 }
+
+snmpORLastChange OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time of the most
+        recent change in state or value of any instance of
+        snmpORID."
+    ::= { snmpOR 1 }
+
+snmpORTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SnmpOREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the dynamically-
+        configurable object resources in a SNMPv2 entity
+        acting in an agent role.  SNMPv2 entities which do
+        not support dynamically-configurable object
+        resources will never have any instances of the
+        columnar objects in this table."
+    ::= { snmpOR 2 }
+
+snmpOREntry OBJECT-TYPE
+    SYNTAX SnmpOREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the snmpORTable."
+    INDEX { snmpORIndex }
+    ::= { snmpORTable 1 }
+
+SnmpOREntry ::= SEQUENCE {
+    snmpORIndex INTEGER,
+    snmpORID OBJECT IDENTIFIER,
+    snmpORDescr DisplayString
+    }
+
+snmpORIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The auxiliary variable used for identifying
+        instances of the columnar objects in the
+        snmpORTable."
+    ::= { snmpOREntry 1 }
+
+snmpORID OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An authoritative identification of one of the
+        dynamically-configurable object resources in a
+        SNMPv2 entity acting in an agent role.  This is
+        analogous to the sysObjectID object in MIB-II."
+    ::= { snmpOREntry 2 }
+
+snmpORDescr OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A textual description of one of the dynamically-
+        configurable object resources in a SNMPv2 entity
+        acting in an agent role.  This is analogous to the
+        sysDescr object in MIB-II."
+    ::= { snmpOREntry 3 }
+
+snmpTrapOID OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The authoritative identification of the trap
+        currently being sent.  This variable occurs as the
+        second varbind of a SNMPv2-Trap-PDU."
+    ::= { snmpTrap 1 }
+
+snmpTrapEnterprise OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The authoritative identification of the
+        enterprise associated with the trap currently
+        being sent.  When a SNMPv2 proxy agent is mapping
+        an RFC1157 Trap-PDU into a SNMPv2-Trap-PDU, this
+        variable occurs as the last varbind."
+    ::= { snmpTrap 3 }
+
+snmpV2EnableAuthenTraps OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the SNMPv2 entity, when acting
+        in an agent role, is permitted to generate
+        authenticationFailure traps.  The value of this
+        object overrides any configuration information; as
+        such, it provides a means whereby all
+        authenticationFailure traps may be disabled.
+        
+        Note that it is strongly recommended that this
+        object be stored in non-volatile memory so that it
+        remains constant between re-initializations of the
+        network management system."
+    REFERENCE
+        "Derived from RFC1213-MIB.snmpEnableAuthenTraps."
+    ::= { snmpTrap 4 }
+
+snmpSetSerialNo OBJECT-TYPE
+    SYNTAX TestAndIncr
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An advisory lock used to allow several
+        cooperating SNMPv2 entities, all acting in a
+        manager role, to coordinate their use of the
+        SNMPv2 set operation.
+        
+        This object is used for coarse-grain coordination.
+        To achieve fine-grain coordination, one or more
+        similar objects might be defined within each MIB
+        group, as appropriate."
+    ::= { snmpSet 1 }
+
+coldStart TRAP-TYPE
+-- SMIv1 "generic" trap
+    ENTERPRISE snmpTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A coldStart trap signifies that the SNMPv2
+        entity, acting in an agent role, is reinitializing
+        itself such that its configuration may be
+        altered."
+    ::= 0
+
+warmStart TRAP-TYPE
+-- SMIv1 "generic" trap
+    ENTERPRISE snmpTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A warmStart trap signifies that the SNMPv2
+        entity, acting in an agent role, is reinitializing
+        itself such that its configuration is unaltered."
+    ::= 1
+
+-- note: linkDown and linkUp have been redefined in IF-MIB-V1SMI.my.
+--       having them here too causes some mib compilers problems
+--       when IF-MIB-V1SMI imports this mib
+
+-- linkDown TRAP-TYPE
+-- SMIv1 "generic" trap
+--     ENTERPRISE snmpTraps
+--     VARIABLES {
+--         ifIndex }
+--  Status
+--    mandatory
+--     DESCRIPTION
+--         "A linkDown trap signifies that the SNMPv2 entity,
+--         acting in an agent role, recognizes a failure in
+--         one of the communication links represented in its
+--         configuration."
+--     ::= 2
+
+-- linkUp TRAP-TYPE
+-- SMIv1 "generic" trap
+--     ENTERPRISE snmpTraps
+--     VARIABLES {
+--         ifIndex }
+--  Status
+--    mandatory
+--     DESCRIPTION
+--         "A linkUp trap signifies that the SNMPv2 entity,
+--         acting in an agent role, recognizes that one of
+--         the communication links represented in its
+--         configuration has come up."
+--     ::= 3
+
+authenticationFailure TRAP-TYPE
+-- SMIv1 "generic" trap
+    ENTERPRISE snmpTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An authenticationFailure trap signifies that the
+        SNMPv2 entity, acting in an agent role, has
+        received a protocol message that is not properly
+        authenticated.  While all implementations of the
+        SNMPv2 must be capable of generating this trap,
+        the snmpV2EnableAuthenTraps object indicates
+        whether this trap will be generated."
+    ::= 4
+
+egpNeighborLoss TRAP-TYPE
+-- SMIv1 "generic" trap
+    ENTERPRISE snmpTraps
+    VARIABLES {
+        egpNeighAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An egpNeighborLoss trap signifies that an EGP
+        neighbor has been marked down and the EGP peer
+        relationship no longer obtains."
+    ::= 5
+
+snmpStatsGroup OBJECT IDENTIFIER ::= { snmpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing basic
+--    instrumentation of the SNMPv2 entity.
+--  objects
+--    snmpStatsPackets, snmpStats30Something, 
+--    snmpStatsEncodingErrors, snmpStatsBadAuths, 
+--    snmpStatsNotInLifetimes, snmpStatsWrongDigestValues, 
+--    snmpStatsUnknownContexts, snmpStatsBadOperations, 
+--    snmpStatsSilentDrops
+
+snmpV1Group OBJECT IDENTIFIER ::= { snmpMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing basic
+--    instrumentation of a SNMPv2 entity which also
+--    implements SNMPv1.
+--  objects
+--    snmpV1BadCommunityNames, snmpV1BadCommunityUses
+
+snmpORGroup OBJECT IDENTIFIER ::= { snmpMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects allowing a SNMPv2 entity
+--    acting in an agent role to describe its
+--    dynamically-configurable object resources.
+--  objects
+--    snmpORLastChange, snmpORID, snmpORDescr
+
+snmpTrapGroup OBJECT IDENTIFIER ::= { snmpMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which allow the SNMPv2
+--    entity, when acting in an agent role, to be
+--    configured to generate SNMPv2-Trap-PDUs.
+--  objects
+--    snmpV2EnableAuthenTraps
+
+snmpSetGroup OBJECT IDENTIFIER ::= { snmpMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which allow several
+--    cooperating SNMPv2 entities, all acting in a
+--    manager role, to coordinate their use of the
+--    SNMPv2 set operation.
+--  objects
+--    snmpSetSerialNo
+
+snmpMIBCompliance OBJECT IDENTIFIER ::= { snmpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMPv2 entities
+--    which implement the SNMPv2 MIB.
+--  Module
+--    RFC1213-MIB
+--   MandGroup
+--    system
+--  Module
+--    >>current<<
+--   MandGroup
+--    snmpStatsGroup
+--   MandGroup
+--    snmpORGroup
+--   MandGroup
+--    snmpTrapGroup
+--   MandGroup
+--    snmpSetGroup
+--   OptGroup
+--    snmpV1Group
+
+
+END
+

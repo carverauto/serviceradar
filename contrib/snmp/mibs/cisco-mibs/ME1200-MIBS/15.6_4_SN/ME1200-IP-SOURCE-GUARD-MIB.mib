@@ -1,0 +1,381 @@
+-- *****************************************************************
+-- IP-SOURCE-GUARD-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-IP-SOURCE-GUARD-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200IpSourceGuardMIB MODULE-IDENTITY
+    LAST-UPDATED "201403280000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the IP source guard MIB"
+    REVISION    "201403280000Z"
+    DESCRIPTION
+        "Change VLAN ID range specification from (0..4094) to (1..4095)"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310150000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 64 }
+
+
+me1200IpSourceGuardMIBObjects OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardMIB 1 }
+
+me1200IpSourceGuardConfig OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardMIBObjects 2 }
+
+me1200IpSourceGuardGlobals OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardConfig 1 }
+
+me1200IpSourceGuardGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global mode of IP source guard. true(1) is to enable IP source guard
+         and false(2) is to disable it."
+    ::= { me1200IpSourceGuardGlobals 1 }
+
+me1200IpSourceGuardInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpSourceGuardInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of IP source guard port configuration parameters"
+    ::= { me1200IpSourceGuardConfig 2 }
+
+me1200IpSourceGuardInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200IpSourceGuardInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200IpSourceGuardInterfaceIfIndex }
+    ::= { me1200IpSourceGuardInterfaceTable 1 }
+
+ME1200IpSourceGuardInterfaceEntry ::= SEQUENCE {
+    me1200IpSourceGuardInterfaceIfIndex   ME1200InterfaceIndex,
+    me1200IpSourceGuardInterfaceMode      TruthValue,
+    me1200IpSourceGuardInterfaceDynamicEntryCount     Unsigned32
+}
+
+me1200IpSourceGuardInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpSourceGuardInterfaceEntry 1 }
+
+me1200IpSourceGuardInterfaceMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Port mode of IP source guard. true(1) is to enable IP source guard on
+         the port and false(2) is to disable it on the port."
+    ::= { me1200IpSourceGuardInterfaceEntry 2 }
+
+me1200IpSourceGuardInterfaceDynamicEntryCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The dynamic entry count is the max number of dynamic entries allowed on
+         the port."
+    ::= { me1200IpSourceGuardInterfaceEntry 3 }
+
+me1200IpSourceGuardStaticConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpSourceGuardStaticConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The table is IP source guard static onfiguration table. The indexes are
+         ifindex, VLAN ID, ip and netmask."
+    ::= { me1200IpSourceGuardConfig 3 }
+
+me1200IpSourceGuardStaticConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200IpSourceGuardStaticConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200IpSourceGuardStaticConfigIfIndex, me1200IpSourceGuardStaticConfigVlanId, me1200IpSourceGuardStaticConfigIpAddress }
+    ::= { me1200IpSourceGuardStaticConfigTable 1 }
+
+ME1200IpSourceGuardStaticConfigEntry ::= SEQUENCE {
+    me1200IpSourceGuardStaticConfigIfIndex    ME1200InterfaceIndex,
+    me1200IpSourceGuardStaticConfigVlanId     Integer32,
+    me1200IpSourceGuardStaticConfigIpAddress      IpAddress,
+    me1200IpSourceGuardStaticConfigMacAddress     MacAddress,
+    me1200IpSourceGuardStaticConfigAction     ME1200RowEditorState
+}
+
+me1200IpSourceGuardStaticConfigIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpSourceGuardStaticConfigEntry 1 }
+
+me1200IpSourceGuardStaticConfigVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN id of the VLAN."
+    ::= { me1200IpSourceGuardStaticConfigEntry 2 }
+
+me1200IpSourceGuardStaticConfigIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IP address."
+    ::= { me1200IpSourceGuardStaticConfigEntry 3 }
+
+me1200IpSourceGuardStaticConfigMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Assigned MAC Address."
+    ::= { me1200IpSourceGuardStaticConfigEntry 4 }
+
+me1200IpSourceGuardStaticConfigAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpSourceGuardStaticConfigEntry 100 }
+
+me1200IpSourceGuardStaticConfigTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardConfig 4 }
+
+me1200IpSourceGuardStaticConfigTableRowEditorIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpSourceGuardStaticConfigTableRowEditor 1 }
+
+me1200IpSourceGuardStaticConfigTableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN id of the VLAN."
+    ::= { me1200IpSourceGuardStaticConfigTableRowEditor 2 }
+
+me1200IpSourceGuardStaticConfigTableRowEditorIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IP address."
+    ::= { me1200IpSourceGuardStaticConfigTableRowEditor 3 }
+
+me1200IpSourceGuardStaticConfigTableRowEditorMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Assigned MAC Address."
+    ::= { me1200IpSourceGuardStaticConfigTableRowEditor 4 }
+
+me1200IpSourceGuardStaticConfigTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpSourceGuardStaticConfigTableRowEditor 100 }
+
+me1200IpSourceGuardStatus OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardMIBObjects 3 }
+
+me1200IpSourceGuardDynamicStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpSourceGuardDynamicStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of IP source guard dynamic learning status"
+    ::= { me1200IpSourceGuardStatus 2 }
+
+me1200IpSourceGuardDynamicStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200IpSourceGuardDynamicStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200IpSourceGuardDynamicStatusIfIndex, me1200IpSourceGuardDynamicStatusVlanId, me1200IpSourceGuardDynamicStatusIpAddress }
+    ::= { me1200IpSourceGuardDynamicStatusTable 1 }
+
+ME1200IpSourceGuardDynamicStatusEntry ::= SEQUENCE {
+    me1200IpSourceGuardDynamicStatusIfIndex   ME1200InterfaceIndex,
+    me1200IpSourceGuardDynamicStatusVlanId    Integer32,
+    me1200IpSourceGuardDynamicStatusIpAddress     IpAddress,
+    me1200IpSourceGuardDynamicStatusMacAddress    MacAddress
+}
+
+me1200IpSourceGuardDynamicStatusIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpSourceGuardDynamicStatusEntry 1 }
+
+me1200IpSourceGuardDynamicStatusVlanId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN id of the VLAN."
+    ::= { me1200IpSourceGuardDynamicStatusEntry 2 }
+
+me1200IpSourceGuardDynamicStatusIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IP address."
+    ::= { me1200IpSourceGuardDynamicStatusEntry 3 }
+
+me1200IpSourceGuardDynamicStatusMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Assigned MAC Address."
+    ::= { me1200IpSourceGuardDynamicStatusEntry 4 }
+
+me1200IpSourceGuardControl OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardMIBObjects 4 }
+
+me1200IpSourceGuardControlTranslateDynamicToStatic OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The action to translate all the current dynamic entries to static
+         entries. As this is an action so the value to get is always false(2).
+         Set it to true(1) to do the action."
+    ::= { me1200IpSourceGuardControl 1 }
+
+me1200IpSourceGuardMIBConformance OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardMIB 2 }
+
+me1200IpSourceGuardMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardMIBConformance 1 }
+
+me1200IpSourceGuardMIBGroups OBJECT IDENTIFIER
+    ::= { me1200IpSourceGuardMIBConformance 2 }
+
+me1200IpSourceGuardGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpSourceGuardGlobalsMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpSourceGuardMIBGroups 1 }
+
+me1200IpSourceGuardInterfaceInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpSourceGuardInterfaceMode, 
+                  me1200IpSourceGuardInterfaceDynamicEntryCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpSourceGuardMIBGroups 2 }
+
+me1200IpSourceGuardStaticConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpSourceGuardStaticConfigMacAddress, 
+                  me1200IpSourceGuardStaticConfigAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpSourceGuardMIBGroups 3 }
+
+me1200IpSourceGuardStaticConfigTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpSourceGuardStaticConfigTableRowEditorIfIndex, 
+                  me1200IpSourceGuardStaticConfigTableRowEditorVlanId, 
+                  me1200IpSourceGuardStaticConfigTableRowEditorIpAddress, 
+                  me1200IpSourceGuardStaticConfigTableRowEditorMacAddress, 
+                  me1200IpSourceGuardStaticConfigTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpSourceGuardMIBGroups 4 }
+
+me1200IpSourceGuardDynamicStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpSourceGuardDynamicStatusMacAddress }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpSourceGuardMIBGroups 5 }
+
+me1200IpSourceGuardControlInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpSourceGuardControlTranslateDynamicToStatic }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpSourceGuardMIBGroups 6 }
+
+me1200IpSourceGuardMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200IpSourceGuardGlobalsInfoGroup, 
+                  me1200IpSourceGuardInterfaceInfoGroup, 
+                  me1200IpSourceGuardStaticConfigTableInfoGroup, 
+                  me1200IpSourceGuardStaticConfigTableRowEditorInfoGroup, 
+                  me1200IpSourceGuardDynamicStatusTableInfoGroup, 
+                  me1200IpSourceGuardControlInfoGroup }
+
+    ::= { me1200IpSourceGuardMIBCompliances 1 }
+
+END

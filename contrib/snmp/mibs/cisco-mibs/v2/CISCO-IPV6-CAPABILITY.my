@@ -1,0 +1,223 @@
+-- *****************************************************************
+-- CISCO-IPV6-CAPABILITY.my:
+-- Cisco IPV6-MIB (RFC 2465 Based) AGENT-CAPABILITIES
+--
+-- May 2006, Sreenivasulu Chalamcharla
+--
+-- Copyright (c) 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IPV6-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+cipv6Capability MODULE-IDENTITY
+        LAST-UPDATED    "200605170000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com
+                        cs-snmp@cisco.com"
+        DESCRIPTION
+                "The capabilities description of
+                 RFC 2465 Based IPV6-MIB."
+
+        REVISION        "200605170000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 503 }
+
+ciscoIpv6CapCRS1V3R3R1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS XR 3.3.1 for CRS-1"
+    STATUS              current
+    DESCRIPTION         "IPV6-MIB capabilities for
+                        IOS XR release 3.3.1"
+
+    SUPPORTS            IPV6-MIB
+        INCLUDES        { ipv6GeneralGroup }
+
+    VARIATION         ipv6Forwarding  
+    SYNTAX            INTEGER { forwarding(1) }
+    DESCRIPTION       "notForwarding(2) is not supported,
+                       because it always forwards packets.
+                       SNMP SET is also not supported"
+
+    VARIATION         ipv6DefaultHopLimit
+    DESCRIPTION       "SNMP SET is not supported"
+
+    VARIATION         ipv6IfTableLastChange
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfDescr
+    DESCRIPTION       "SNMP SET is not supported"
+
+    VARIATION         ipv6IfIdentifier
+    DESCRIPTION       "SNMP SET is not supported"
+
+    VARIATION         ipv6IfIdentifierLength
+    DESCRIPTION       "SNMP SET is not supported"
+
+    VARIATION         ipv6IfAdminStatus
+    DESCRIPTION       "SNMP SET is not supported"
+
+    VARIATION         ipv6IfLastChange
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInHdrErrors
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInTooBigErrors
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInNoRoutes
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInAddrErrors
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInUnknownProtos
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInTruncatedPkts
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInDiscards
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsInDelivers
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsOutRequests
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsOutDiscards
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsOutFragOKs
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsOutFragFails
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsOutFragCreates
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsReasmReqds
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsReasmOKs
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6IfStatsReasmFails
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6AddrPrefixOnLinkFlag
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6AddrPrefixAutonomousFlag
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6AddrPrefixAdvPreferredLifetime
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6AddrPrefixAdvValidLifetime
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteNumber
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6DiscardedRoutes
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteIfIndex
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteNextHop
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteType
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteProtocol
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RoutePolicy
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteAge
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteNextHopRDI
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteMetric
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteWeight
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteInfo
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6RouteValid
+    ACCESS            not-implemented
+    DESCRIPTION       "Not supported in current implementaion"
+
+    VARIATION         ipv6NetToMediaValid
+    DESCRIPTION       "SNMP SET is not supported and it is 
+                       hard coded to TRUE"
+
+    ::= { cipv6Capability 1 }
+
+END
+
+

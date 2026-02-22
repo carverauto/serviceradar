@@ -1,0 +1,2564 @@
+-- MIB file created 15-May-2003 14:18:54, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ISCSI-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ISCSI-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowPointer, TimeStamp, RowStatus, AutonomousType
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoIscsiModule OBJECT IDENTIFIER ::= { ciscoExperiment 94 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200210050000Z
+--  OrgName
+--    IETF IPS Working Group
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--    Postal: 170 W Tasman Drive
+--          San Jose, CA  95134
+--          USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    The iSCSI Protocol MIB module.
+--  RevDate
+--    200210050000Z
+--  RevDescr
+--    Initial revision published of this MIB module.
+
+cIscsiObjects   OBJECT IDENTIFIER ::= { ciscoIscsiModule 1 }
+cIscsiNotifications OBJECT IDENTIFIER ::= { ciscoIscsiModule 2 }
+cIscsiConformance OBJECT IDENTIFIER ::= { ciscoIscsiModule 3 }
+cIscsiDescriptors OBJECT IDENTIFIER ::= { cIscsiObjects 1 }
+cIscsiHeaderIntegrityTypes OBJECT IDENTIFIER ::= { cIscsiDescriptors 1 }
+cIscsiDataIntegrityTypes OBJECT IDENTIFIER ::= { cIscsiDescriptors 2 }
+cIscsiInstance  OBJECT IDENTIFIER ::= { cIscsiObjects 2 }
+cIscsiPortal    OBJECT IDENTIFIER ::= { cIscsiObjects 3 }
+cIscsiTargetPortal OBJECT IDENTIFIER ::= { cIscsiObjects 4 }
+cIscsiInitiatorPortal OBJECT IDENTIFIER ::= { cIscsiObjects 5 }
+cIscsiNode      OBJECT IDENTIFIER ::= { cIscsiObjects 6 }
+cIscsiTarget    OBJECT IDENTIFIER ::= { cIscsiObjects 7 }
+cIscsiTgtAuthorization OBJECT IDENTIFIER ::= { cIscsiObjects 8 }
+cIscsiInitiator OBJECT IDENTIFIER ::= { cIscsiObjects 9 }
+cIscsiIntrAuthorization OBJECT IDENTIFIER ::= { cIscsiObjects 10 }
+cIscsiSession   OBJECT IDENTIFIER ::= { cIscsiObjects 11 }
+cIscsiConnection OBJECT IDENTIFIER ::= { cIscsiObjects 12 }
+cIscsiNotificationsPrefix OBJECT IDENTIFIER ::= { cIscsiNotifications 0 }
+cIscsiGroups    OBJECT IDENTIFIER ::= { cIscsiConformance 1 }
+cIscsiCompliances OBJECT IDENTIFIER ::= { cIscsiConformance 2 }
+
+cIscsiHdrIntegrityNone OBJECT IDENTIFIER ::= { cIscsiHeaderIntegrityTypes 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The authoritative identifier when no integrity scheme (for 
+--    either the header or data) is being used.
+--  Refer
+--    iSCSI Protocol Specification.
+
+cIscsiHdrIntegrityCrc32c OBJECT IDENTIFIER ::= { cIscsiHeaderIntegrityTypes 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The authoritative identifier when the integrity scheme (for 
+--    either the header or data) is CRC-32c.
+--  Refer
+--    iSCSI Protocol Specification.
+
+cIscsiDataIntegrityNone OBJECT IDENTIFIER ::= { cIscsiDataIntegrityTypes 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The authoritative identifier when no integrity scheme (for 
+--    either the header or data) is being used.
+--  Refer
+--    iSCSI Protocol Specification.
+
+cIscsiDataIntegrityCrc32c OBJECT IDENTIFIER ::= { cIscsiDataIntegrityTypes 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The authoritative identifier when the integrity scheme (for 
+--    either the header or data) is CRC-32c.
+--  Refer
+--    iSCSI Protocol Specification.
+
+CIscsiTransportProtocols ::= Gauge(0..255)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to define the transport
+--    protocols that will carry iSCSI PDUs.
+--  Refer
+--    RFC791, RFC1700
+--    
+--    The presently known, officially delegated numbers
+--    can be found at:
+--    http://www.iana.org/assignments/protocol-numbers
+
+CIscsiDigestMethod ::= INTEGER {
+        none(1),
+        other(2),
+        noDigest(3),
+        crc32c(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This data type represents the methods possible
+--    for digest negotiation.
+--    none     - a placeholder for a secondary digest method
+--               that means only the primary method can be
+--               used.
+--    other    - a digest method other than those defined below;
+--    noDigest - does not support digests (will operate without
+--               a digest (NOTE: implementations MUST support
+--               digests to be compliant with the iSCSI RFC);
+--    CRC32c   - require a CRC32C digest.
+
+cIscsiInstanceAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiInstanceAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of iSCSI instances present on the system."
+    ::= { cIscsiInstance 1 }
+
+cIscsiInstanceAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiInstanceAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable
+        to a particular iSCSI instance."
+    INDEX { cIscsiInstIndex }
+    ::= { cIscsiInstanceAttributesTable 1 }
+
+CIscsiInstanceAttributesEntry ::= SEQUENCE {
+    cIscsiInstIndex Gauge,
+    cIscsiInstDescr SnmpAdminString,
+    cIscsiInstVersionMin Gauge,
+    cIscsiInstVersionMax Gauge,
+    cIscsiInstVendorID SnmpAdminString,
+    cIscsiInstVendorVersion SnmpAdminString,
+    cIscsiInstPortalNumber Gauge,
+    cIscsiInstNodeNumber Gauge,
+    cIscsiInstSessionNumber Gauge,
+    cIscsiInstSsnFailures Counter,
+    cIscsiInstLastSsnFailureType AutonomousType,
+    cIscsiInstLastSsnRmtNodeName SnmpAdminString
+    }
+
+cIscsiInstIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a particular
+        ISCSI instance."
+    ::= { cIscsiInstanceAttributesEntry 1 }
+
+cIscsiInstDescr OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string, determined by the implementation to describe 
+        the iSCSI instance. When only a single instance is present, this
+        object may be set to the zero-length string; with multiple 
+        iSCSI instances, it may be used in an implementation-dependent 
+        manner to describe the purpose of the respective instance."
+    ::= { cIscsiInstanceAttributesEntry 2 }
+
+cIscsiInstVersionMin OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum version number of the iSCSI specification supported by
+        this instance."
+    ::= { cIscsiInstanceAttributesEntry 3 }
+
+cIscsiInstVersionMax OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum version number of the iSCSI specification supported
+        by this instance."
+    ::= { cIscsiInstanceAttributesEntry 4 }
+
+cIscsiInstVendorID OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string describing the manufacturer of the 
+        implementation of this instance."
+    ::= { cIscsiInstanceAttributesEntry 5 }
+
+cIscsiInstVendorVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string set by the manufacturer describing the version
+        of the implementation of this instance. The format of this 
+        string is determined solely by the manufacturer, and is for 
+        informational purposes only.  It is unrelated to the iSCSI 
+        specification version numbers."
+    ::= { cIscsiInstanceAttributesEntry 6 }
+
+cIscsiInstPortalNumber OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+--  Units
+--    transport endpoints
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of rows in the cIscsiPortalAttributesTable
+        which are currently associated with this iSCSI instance."
+    ::= { cIscsiInstanceAttributesEntry 7 }
+
+cIscsiInstNodeNumber OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+--  Units
+--    Internet Network Addresses
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of rows in the cIscsiNodeAttributesTable which are
+        currently associated with this iSCSI instance."
+    ::= { cIscsiInstanceAttributesEntry 8 }
+
+cIscsiInstSessionNumber OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of rows in the cIscsiSessionAttributesTable which
+        are currently associated with this iSCSI instance."
+    ::= { cIscsiInstanceAttributesEntry 9 }
+
+cIscsiInstSsnFailures OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object counts the number of times a session belonging to 
+        this instance has been failed."
+    ::= { cIscsiInstanceAttributesEntry 10 }
+
+cIscsiInstLastSsnFailureType OBJECT-TYPE
+    SYNTAX AutonomousType
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter object in the cIscsiInstSsnErrorStatsTable that was
+        incremented when the last session failure occurred.  
+        
+        If the reason for failure is not found in the 
+        cIscsiInstSsnErrorStatsTable, the value { 0.0 } is used 
+        instead."
+    ::= { cIscsiInstanceAttributesEntry 11 }
+
+cIscsiInstLastSsnRmtNodeName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string describing the name of the remote node from 
+        the failed session."
+    ::= { cIscsiInstanceAttributesEntry 12 }
+
+cIscsiInstanceSsnErrorStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiInstanceSsnErrorStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of error types that will cause a session failure."
+    ::= { cIscsiInstance 2 }
+
+cIscsiInstanceSsnErrorStatsEntry OBJECT-TYPE
+    SYNTAX CIscsiInstanceSsnErrorStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable
+        to a particular iSCSI instance."
+    INDEX { cIscsiInstIndex }
+-- Augments cIscsiInstanceAttributesEntry
+    ::= { cIscsiInstanceSsnErrorStatsTable 1 }
+
+CIscsiInstanceSsnErrorStatsEntry ::= SEQUENCE {
+    cIscsiInstSsnDigestErrors Counter,
+    cIscsiInstSsnCxnTimeoutErrors Counter,
+    cIscsiInstSsnFormatErrors Counter
+    }
+
+cIscsiInstSsnDigestErrors OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of sessions which were failed due to receipt of a PDU
+        containing header or data digest errors."
+    ::= { cIscsiInstanceSsnErrorStatsEntry 1 }
+
+cIscsiInstSsnCxnTimeoutErrors OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of sessions which were failed due to a sequence
+        exceeding a time limit."
+    ::= { cIscsiInstanceSsnErrorStatsEntry 2 }
+
+cIscsiInstSsnFormatErrors OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of sessions which were failed due to receipt of a PDU
+        which contained a format error."
+    ::= { cIscsiInstanceSsnErrorStatsEntry 3 }
+
+cIscsiPortalAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiPortalAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of transport endpoints (using TCP or another transport 
+        protocol) used by this iSCSI instance. An iSCSI instance may 
+        use a portal to listen for incoming connections to its targets,
+        to initiate connections to other targets, or both."
+    ::= { cIscsiPortal 1 }
+
+cIscsiPortalAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiPortalAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable
+        to a particular portal instance."
+    INDEX { cIscsiInstIndex, cIscsiPortalIndex }
+    ::= { cIscsiPortalAttributesTable 1 }
+
+CIscsiPortalAttributesEntry ::= SEQUENCE {
+    cIscsiPortalIndex Gauge,
+    cIscsiPortalRowStatus RowStatus,
+    cIscsiPortalRoles OCTET STRING,
+    cIscsiPortalAddrType InetAddressType,
+    cIscsiPortalAddr InetAddress,
+    cIscsiPortalProtocol CIscsiTransportProtocols,
+    cIscsiPortalMaxRecvDataSegLength Gauge,
+    cIscsiPortalPrimaryHdrDigest CIscsiDigestMethod,
+    cIscsiPortalPrimaryDataDigest CIscsiDigestMethod,
+    cIscsiPortalSecondaryHdrDigest CIscsiDigestMethod,
+    cIscsiPortalSecondaryDataDigest CIscsiDigestMethod,
+    cIscsiPortalRecvMarker TruthValue
+    }
+
+cIscsiPortalIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a particular
+        transport endpoint within this iSCSI instance."
+    ::= { cIscsiPortalAttributesEntry 1 }
+
+cIscsiPortalRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the row."
+    ::= { cIscsiPortalAttributesEntry 2 }
+
+cIscsiPortalRoles OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   targetTypePortal(0)
+        --   initiatorTypePortal(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A portal can operate in one or both of two roles: as a target 
+        portal and/or an initiator portal.
+        
+        When a new cIscsiPortalAttributesEntry is to be created, the 
+        agent should use this object as a hint for the creation of a 
+        new cIscsiTgtPortalAttributesEntry and/or 
+        cIscsiIntrPortalAttributesEntry."
+    ::= { cIscsiPortalAttributesEntry 3 }
+
+cIscsiPortalAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet Network Address in the cIscsiPortalAddr."
+    ::= { cIscsiPortalAttributesEntry 4 }
+
+cIscsiPortalAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The portal's Internet Network Address."
+    ::= { cIscsiPortalAttributesEntry 5 }
+
+cIscsiPortalProtocol OBJECT-TYPE
+    SYNTAX CIscsiTransportProtocols
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The portal's transport protocol."
+    DEFVAL { 6 }
+    ::= { cIscsiPortalAttributesEntry 6 }
+
+cIscsiPortalMaxRecvDataSegLength OBJECT-TYPE
+    SYNTAX Gauge(512..16777215)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum PDU length this portal can receive. This may be 
+        constrained by hardware characteristics and individual 
+        implementations may chose not to allow this object to be 
+        changed."
+    DEFVAL { 8192 }
+    ::= { cIscsiPortalAttributesEntry 7 }
+
+cIscsiPortalPrimaryHdrDigest OBJECT-TYPE
+    SYNTAX CIscsiDigestMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        noDigest(3),
+--        crc32c(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The preferred header digest for this portal."
+    DEFVAL { noDigest }
+    ::= { cIscsiPortalAttributesEntry 8 }
+
+cIscsiPortalPrimaryDataDigest OBJECT-TYPE
+    SYNTAX CIscsiDigestMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        noDigest(3),
+--        crc32c(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The preferred data digest method for this portal."
+    DEFVAL { noDigest }
+    ::= { cIscsiPortalAttributesEntry 9 }
+
+cIscsiPortalSecondaryHdrDigest OBJECT-TYPE
+    SYNTAX CIscsiDigestMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        noDigest(3),
+--        crc32c(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An alternate header digest preference for this portal."
+    DEFVAL { none }
+    ::= { cIscsiPortalAttributesEntry 10 }
+
+cIscsiPortalSecondaryDataDigest OBJECT-TYPE
+    SYNTAX CIscsiDigestMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        noDigest(3),
+--        crc32c(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An alternate data digest preference for this portal."
+    DEFVAL { none }
+    ::= { cIscsiPortalAttributesEntry 11 }
+
+cIscsiPortalRecvMarker OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether or not this portal will
+        request markers in it's incoming data stream."
+    ::= { cIscsiPortalAttributesEntry 12 }
+
+cIscsiTgtPortalAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiTgtPortalAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of transport endpoints (using TCP or another transport 
+        protocol) on which this iSCSI instance listens for incoming 
+        connections to its targets."
+    ::= { cIscsiTargetPortal 1 }
+
+cIscsiTgtPortalAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiTgtPortalAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable to 
+        a particular portal instance that is used to listen for 
+        incoming connections to local targets. This row is populated 
+        for each cIscsiPortalAttributesEntry row that may be used as a 
+        target portal."
+    INDEX { cIscsiInstIndex, cIscsiPortalIndex }
+    ::= { cIscsiTgtPortalAttributesTable 1 }
+
+CIscsiTgtPortalAttributesEntry ::= SEQUENCE {
+    cIscsiTgtPortalPort Gauge,
+    cIscsiTgtPortalTag Gauge
+    }
+
+cIscsiTgtPortalPort OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The portal's transport protocol port number on which the portal
+        listens for incoming iSCSI connections when the portal is used 
+        as a target portal."
+    ::= { cIscsiTgtPortalAttributesEntry 1 }
+
+cIscsiTgtPortalTag OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The portal's aggregation tag when portal is used as a target 
+        portal.  Multiple-connection sessions may be aggregated over 
+        portals sharing an identical aggregation tag."
+    ::= { cIscsiTgtPortalAttributesEntry 2 }
+
+cIscsiIntrPortalAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiIntrPortalAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of Internet Network Addresses (using TCP or another 
+        transport protocol) from which this iSCSI instance may 
+        initiate connections to other targets."
+    ::= { cIscsiInitiatorPortal 1 }
+
+cIscsiIntrPortalAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiIntrPortalAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable to 
+        a particular portal instance that is used to initiate 
+        connections to iSCSI targets. This row is populated for each 
+        cIscsiPortalAttributesEntry row that may be used as an 
+        initiator portal."
+    INDEX { cIscsiInstIndex, cIscsiPortalIndex }
+    ::= { cIscsiIntrPortalAttributesTable 1 }
+
+CIscsiIntrPortalAttributesEntry ::= SEQUENCE {
+    cIscsiIntrPortalTag Gauge
+    }
+
+cIscsiIntrPortalTag OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The portal's aggregation tag when the portal is used as an 
+        initiator portal.  Multiple-connection sessions may be 
+        aggregated over portals sharing an identical aggregation tag."
+    ::= { cIscsiIntrPortalAttributesEntry 1 }
+
+cIscsiNodeAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiNodeAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of iSCSI nodes belonging to each iSCSI instance present 
+        on the local system.  An iSCSI node can act as an initiator, a 
+        target, or both."
+    ::= { cIscsiNode 1 }
+
+cIscsiNodeAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiNodeAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable to 
+        a particular iSCSI node."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+    ::= { cIscsiNodeAttributesTable 1 }
+
+CIscsiNodeAttributesEntry ::= SEQUENCE {
+    cIscsiNodeIndex Gauge,
+    cIscsiNodeName SnmpAdminString,
+    cIscsiNodeAlias SnmpAdminString,
+    cIscsiNodeRoles OCTET STRING,
+    cIscsiNodeTransportType RowPointer,
+    cIscsiNodeInitialR2T TruthValue,
+    cIscsiNodeBidiInitialR2T TruthValue,
+    cIscsiNodeImmediateData TruthValue,
+    cIscsiNodeMaxOutstandingR2T Gauge,
+    cIscsiNodeFirstBurstSize Gauge,
+    cIscsiNodeMaxBurstSize Gauge,
+    cIscsiNodeMaxConnections Gauge,
+    cIscsiNodeDataSequenceInOrder TruthValue,
+    cIscsiNodeDataPduInOrder TruthValue,
+    cIscsiNodeDefaultTime2Wait Gauge,
+    cIscsiNodeDefaultTime2Retain Gauge,
+    cIscsiNodeErrorRecoveryLevel Gauge
+    }
+
+cIscsiNodeIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a particular 
+        node within an iSCSI instance present on the local system."
+    ::= { cIscsiNodeAttributesEntry 1 }
+
+cIscsiNodeName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A character string that is a globally unique identifier for 
+        this iSCSI node.  The node name is independent of the location 
+        of the node, and can be resolved into a set of addresses 
+        through various discovery services."
+    ::= { cIscsiNodeAttributesEntry 2 }
+
+cIscsiNodeAlias OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A character string that is a human-readable name or description
+        of the iSCSI node.  If configured, this alias may be 
+        communicated to the initiator or target node at the remote end 
+        of the connection during a Login Request or Response message.  
+        This string is not used as an identifier, but can be displayed 
+        by the system's user interface in a list of initiators and/or 
+        targets to which it is connected.
+        
+        If no alias is configured, this object is a zero-length string."
+    ::= { cIscsiNodeAttributesEntry 3 }
+
+cIscsiNodeRoles OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   targetTypeNode(0)
+        --   initiatorTypeNode(1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A node can operate as in one or both of two roles:
+        a target role and/or an initiator role."
+    ::= { cIscsiNodeAttributesEntry 4 }
+
+cIscsiNodeTransportType OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A pointer to the corresponding scsiTrnspt object in the 
+        CISCO-SCSI-MIB (which in turn points to this iSCSI node)
+        allowing management stations to locate the SCSI-level Device 
+        that is represented by this cIscsiNode."
+    REFERENCE
+        "CISCO-SCSI-MIB"
+    ::= { cIscsiNodeAttributesEntry 5 }
+
+cIscsiNodeInitialR2T OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates InitialR2T preference for this node -
+        True = YES,
+        False = will try to negotiate NO, will accept YES "
+    DEFVAL { true }
+    ::= { cIscsiNodeAttributesEntry 6 }
+
+cIscsiNodeBidiInitialR2T OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates BidiInitialR2T preference for this node-
+          True = YES,
+          False = will try to negotiate NO, will accept YES "
+    DEFVAL { true }
+    ::= { cIscsiNodeAttributesEntry 7 }
+
+cIscsiNodeImmediateData OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates ImmediateData preference for this node
+        True = YES (but will accept NO),
+        False = NO "
+    DEFVAL { true }
+    ::= { cIscsiNodeAttributesEntry 8 }
+
+cIscsiNodeMaxOutstandingR2T OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of outstanding R2Ts allowed per task."
+    DEFVAL { 1 }
+    ::= { cIscsiNodeAttributesEntry 9 }
+
+cIscsiNodeFirstBurstSize OBJECT-TYPE
+    SYNTAX Gauge(512..16777215)
+--  Units
+--    bytes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum length (bytes) supported for unsolicited data
+        to/from this node."
+    DEFVAL { 65536 }
+    ::= { cIscsiNodeAttributesEntry 10 }
+
+cIscsiNodeMaxBurstSize OBJECT-TYPE
+    SYNTAX Gauge(512..16777215)
+--  Units
+--    bytes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of bytes which can be sent within a single
+        sequence of Data-In or Data-Out PDUs."
+    DEFVAL { 262144 }
+    ::= { cIscsiNodeAttributesEntry 11 }
+
+cIscsiNodeMaxConnections OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+--  Units
+--    connections
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of connections allowed in each
+        session to and/or from this node."
+    DEFVAL { 1 }
+    ::= { cIscsiNodeAttributesEntry 12 }
+
+cIscsiNodeDataSequenceInOrder OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DataSequenceInOrder preference of this node.
+        False (=No) indicates that iSCSI data PDU sequences may
+        be transferred in any order.  True (=Yes) indicates that
+        data PDU sequences must be transferred using
+        continuously increasing offsets, except during
+        error recovery."
+    DEFVAL { true }
+    ::= { cIscsiNodeAttributesEntry 13 }
+
+cIscsiNodeDataPduInOrder OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DataPDUInOrder preference of this node.
+        False (=No) indicates that iSCSI data PDUs within sequences
+        may be in any order.  True (=Yes) indicates that data PDUs
+        within sequences must be at continuously increasing
+        addresses, with no gaps or overlay between PDUs."
+    DEFVAL { true }
+    ::= { cIscsiNodeAttributesEntry 14 }
+
+cIscsiNodeDefaultTime2Wait OBJECT-TYPE
+    SYNTAX Gauge(0..3600)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DefaultTime2Wait preference of this node.
+        This is the minimum time, in seconds, to wait before attempting
+        an explicit/implicit logout or active task reassignment after
+        an unexpected connection termination or a connection reset."
+    DEFVAL { 2 }
+    ::= { cIscsiNodeAttributesEntry 15 }
+
+cIscsiNodeDefaultTime2Retain OBJECT-TYPE
+    SYNTAX Gauge(0..3600)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DefaultTime2Retain preference of this node.
+        This is the maximum time, in seconds after an initial wait
+        (Time2Wait), before which an active task reassignment is still
+        possible after an unexpected connection termination or a
+        connection reset."
+    DEFVAL { 20 }
+    ::= { cIscsiNodeAttributesEntry 16 }
+
+cIscsiNodeErrorRecoveryLevel OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ErrorRecoveryLevel preference of this node.
+        Currently, only 0-2 are valid.
+        This object is designed to accommodate future error recover
+        levels.
+        Higher error recovery levels imply support in addition to
+        support for the lower error level functions.  In otherwords,
+        error level 2 implies support for levels 0-1, since those
+        functions are subsets of error level 2."
+    DEFVAL { 0 }
+    ::= { cIscsiNodeAttributesEntry 17 }
+
+cIscsiTargetAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiTargetAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable to
+        a particular node that can take on a target role."
+    ::= { cIscsiTarget 1 }
+
+cIscsiTargetAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiTargetAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable
+        to a particular target."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+    ::= { cIscsiTargetAttributesTable 1 }
+
+CIscsiTargetAttributesEntry ::= SEQUENCE {
+    cIscsiTgtLoginFailures Counter,
+    cIscsiTgtLastFailureTime TimeStamp,
+    cIscsiTgtLastFailureType AutonomousType,
+    cIscsiTgtLastIntrFailureName SnmpAdminString,
+    cIscsiTgtLastIntrFailureAddrType InetAddressType,
+    cIscsiTgtLastIntrFailureAddr InetAddress
+    }
+
+cIscsiTgtLoginFailures OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed login attempts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object counts the number of times a login attempt to this
+        local target has failed."
+    ::= { cIscsiTargetAttributesEntry 1 }
+
+cIscsiTgtLastFailureTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The timestamp of the most recent failure of a login attempt to
+        this target.  A value of zero indicates that no such failures 
+        have occurred."
+    ::= { cIscsiTargetAttributesEntry 2 }
+
+cIscsiTgtLastFailureType OBJECT-TYPE
+    SYNTAX AutonomousType
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the most recent failure of a login attempt to this
+        target, represented as the OID of the counter object in 
+        cIscsiTargetLoginStatsTable for which the relevant instance was 
+        incremented.  A value of 0.0 indicates a type which is not 
+        represented by any of the counters in 
+        cIscsiTargetLoginStatsTable."
+    ::= { cIscsiTargetAttributesEntry 3 }
+
+cIscsiTgtLastIntrFailureName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string giving the name of the initiator
+        that failed the last login attempt."
+    ::= { cIscsiTargetAttributesEntry 4 }
+
+cIscsiTgtLastIntrFailureAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet Network Address in
+        cIscsiTgtLastIntrFailureAddr."
+    ::= { cIscsiTargetAttributesEntry 5 }
+
+cIscsiTgtLastIntrFailureAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An Internet Network Address giving the host address
+        of the initiator that failed the last login attempt."
+    ::= { cIscsiTargetAttributesEntry 6 }
+
+cIscsiTargetLoginStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiTargetLoginStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of counters which keep a record of the results
+        of initiators' login attempts to this target."
+    ::= { cIscsiTarget 2 }
+
+cIscsiTargetLoginStatsEntry OBJECT-TYPE
+    SYNTAX CIscsiTargetLoginStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing counters for each result of
+        a login attempt to this target."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+-- Augments cIscsiTargetAttributesEntry
+    ::= { cIscsiTargetLoginStatsTable 1 }
+
+CIscsiTargetLoginStatsEntry ::= SEQUENCE {
+    cIscsiTgtLoginAccepts Counter,
+    cIscsiTgtLoginOtherFails Counter,
+    cIscsiTgtLoginRedirects Counter,
+    cIscsiTgtLoginAuthorizeFails Counter,
+    cIscsiTgtLoginAuthenticateFails Counter,
+    cIscsiTgtLoginNegotiateFails Counter
+    }
+
+cIscsiTgtLoginAccepts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    successful logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs with status
+        0x0000, Accept Login, transmitted by this
+        target."
+    ::= { cIscsiTargetLoginStatsEntry 1 }
+
+cIscsiTgtLoginOtherFails OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Login Response PDUs which were transmitted
+        by this target, and which were not counted by any other
+        object in the row."
+    ::= { cIscsiTargetLoginStatsEntry 2 }
+
+cIscsiTgtLoginRedirects OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs with status class 0x01,
+        Redirection, transmitted by this target."
+    ::= { cIscsiTargetLoginStatsEntry 3 }
+
+cIscsiTgtLoginAuthorizeFails OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs with status 0x0202,
+        Forbidden Target, transmitted by this target.
+        
+        If this counter is incremented, an cIscsiTgtLoginFailure
+        notification should be generated."
+    ::= { cIscsiTargetLoginStatsEntry 4 }
+
+cIscsiTgtLoginAuthenticateFails OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs with status 0x0201,
+        Authentication Failed, transmitted by this target
+        
+        If this counter is incremented, an cIscsiTgtLoginFailure
+        notification should be generated."
+    ::= { cIscsiTargetLoginStatsEntry 5 }
+
+cIscsiTgtLoginNegotiateFails OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times a target has effectively refused a
+        login because the parameter negotiation failed.
+        [Ed. While this situation can occur, the exact mechanism
+        is as yet undefined in the iSCSI Protocol Spec.]
+        
+        If this counter is incremented, an cIscsiTgtLoginFailure
+        notification should be generated."
+    ::= { cIscsiTargetLoginStatsEntry 6 }
+
+cIscsiTargetLogoutStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiTargetLogoutStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "When a target receives a Logout command, it responds
+        with a Logout Response that carries a status code.
+        This table contains counters for both normal and
+        abnormal logout requests received by this target."
+    ::= { cIscsiTarget 3 }
+
+cIscsiTargetLogoutStatsEntry OBJECT-TYPE
+    SYNTAX CIscsiTargetLogoutStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing counters of Logout Response
+        PDUs that were received by this target."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+-- Augments cIscsiTargetAttributesEntry
+    ::= { cIscsiTargetLogoutStatsTable 1 }
+
+CIscsiTargetLogoutStatsEntry ::= SEQUENCE {
+    cIscsiTgtLogoutNormals Counter,
+    cIscsiTgtLogoutOthers Counter
+    }
+
+cIscsiTgtLogoutNormals OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    normal logouts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Logout Command PDUs received by this target,
+        with reason code 0 (closes the session)."
+    ::= { cIscsiTargetLogoutStatsEntry 1 }
+
+cIscsiTgtLogoutOthers OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    abnormal logouts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Logout Command PDUs received by this target,
+        with any status code other than 0."
+    ::= { cIscsiTargetLogoutStatsEntry 2 }
+
+cIscsiTgtAuthAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiTgtAuthAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of initiator identities that are authorized to
+        access each target node within each iSCSI instance
+        present on the local system."
+    ::= { cIscsiTgtAuthorization 1 }
+
+cIscsiTgtAuthAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiTgtAuthAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information
+        applicable to a particular target node's authorized
+        initiator identity."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex, cIscsiTgtAuthIndex }
+    ::= { cIscsiTgtAuthAttributesTable 1 }
+
+CIscsiTgtAuthAttributesEntry ::= SEQUENCE {
+    cIscsiTgtAuthIndex Gauge,
+    cIscsiTgtAuthRowStatus RowStatus,
+    cIscsiTgtAuthIdentity RowPointer
+    }
+
+cIscsiTgtAuthIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a particular
+        target's authorized initiator identity within an iSCSI
+        instance present on the local system."
+    ::= { cIscsiTgtAuthAttributesEntry 1 }
+
+cIscsiTgtAuthRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the row."
+    ::= { cIscsiTgtAuthAttributesEntry 2 }
+
+cIscsiTgtAuthIdentity OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A pointer to the corresponding IPS-AUTH MIB user entry
+        that will be allowed to access this iSCSI target."
+    REFERENCE
+        "IPS-AUTH MIB"
+    ::= { cIscsiTgtAuthAttributesEntry 3 }
+
+cIscsiInitiatorAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiInitiatorAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of iSCSI nodes that can take on an initiator
+        role, belonging to each iSCSI instance present on
+        the local system."
+    ::= { cIscsiInitiator 1 }
+
+cIscsiInitiatorAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiInitiatorAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information
+        applicable to a particular iSCSI node that has
+        initiator capabilities."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+    ::= { cIscsiInitiatorAttributesTable 1 }
+
+CIscsiInitiatorAttributesEntry ::= SEQUENCE {
+    cIscsiIntrLoginFailures Counter,
+    cIscsiIntrLastFailureTime TimeStamp,
+    cIscsiIntrLastFailureType AutonomousType,
+    cIscsiIntrLastTgtFailureName SnmpAdminString,
+    cIscsiIntrLastTgtFailureAddrType InetAddressType,
+    cIscsiIntrLastTgtFailureAddr InetAddress
+    }
+
+cIscsiIntrLoginFailures OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object counts the number of times a login attempt from 
+        this local initiator has failed."
+    ::= { cIscsiInitiatorAttributesEntry 1 }
+
+cIscsiIntrLastFailureTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The timestamp of the most recent failure of a login attempt
+        from this initiator.  A value of zero indicates that no such
+        failures have occurred."
+    ::= { cIscsiInitiatorAttributesEntry 2 }
+
+cIscsiIntrLastFailureType OBJECT-TYPE
+    SYNTAX AutonomousType
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the most recent failure of a login attempt
+        from this initiator, represented as the OID of the counter
+        object in cIscsiInitiatorLoginStatsTable for which the
+        relevant instance was incremented.  A value of 0.0
+        indicates a type which is not represented by any of
+        the counters in cIscsiInitiatorLoginStatsTable."
+    ::= { cIscsiInitiatorAttributesEntry 3 }
+
+cIscsiIntrLastTgtFailureName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string giving the name of the target that failed
+        the last login attempt."
+    ::= { cIscsiInitiatorAttributesEntry 4 }
+
+cIscsiIntrLastTgtFailureAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet Network Address in 
+        cIscsiIntrLastTgtFailureAddr."
+    ::= { cIscsiInitiatorAttributesEntry 5 }
+
+cIscsiIntrLastTgtFailureAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An Internet Network Address giving the host address of the 
+        target that failed the last login attempt."
+    ::= { cIscsiInitiatorAttributesEntry 6 }
+
+cIscsiInitiatorLoginStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiInitiatorLoginStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of counters which keep track of the results of
+        this initiator's login attempts."
+    ::= { cIscsiInitiator 2 }
+
+cIscsiInitiatorLoginStatsEntry OBJECT-TYPE
+    SYNTAX CIscsiInitiatorLoginStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing counters of each result
+        of this initiator's login attempts."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+-- Augments cIscsiInitiatorAttributesEntry
+    ::= { cIscsiInitiatorLoginStatsTable 1 }
+
+CIscsiInitiatorLoginStatsEntry ::= SEQUENCE {
+    cIscsiIntrLoginAcceptRsps Counter,
+    cIscsiIntrLoginOtherFailRsps Counter,
+    cIscsiIntrLoginRedirectRsps Counter,
+    cIscsiIntrLoginAuthFailRsps Counter,
+    cIscsiIntrLoginAuthenticateFails Counter,
+    cIscsiIntrLoginNegotiateFails Counter
+    }
+
+cIscsiIntrLoginAcceptRsps OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    successful logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs with status
+        0x0000, Accept Login, received by this initiator."
+    ::= { cIscsiInitiatorLoginStatsEntry 1 }
+
+cIscsiIntrLoginOtherFailRsps OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs received by this
+        initiator with any status code not counted in the
+        objects below."
+    ::= { cIscsiInitiatorLoginStatsEntry 2 }
+
+cIscsiIntrLoginRedirectRsps OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs with status class 0x01,
+        Redirection, received by this initiator."
+    ::= { cIscsiInitiatorLoginStatsEntry 3 }
+
+cIscsiIntrLoginAuthFailRsps OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Login Response PDUs with status class 0x201,
+        Authentication Failed, received by this initiator."
+    ::= { cIscsiInitiatorLoginStatsEntry 4 }
+
+cIscsiIntrLoginAuthenticateFails OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the initiator has aborted a
+        login because the target could not be authenticated.
+        
+        No response is generated.
+        
+        If this counter is incremented, an cIscsiIntrLoginFailure
+        notification should be generated."
+    ::= { cIscsiInitiatorLoginStatsEntry 5 }
+
+cIscsiIntrLoginNegotiateFails OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    failed logins
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the initiator has aborted a
+        login because parameter negotiation with the target
+        failed.
+        
+        No response is generated.
+        
+        If this counter is incremented, an cIscsiIntrLoginFailure
+        notification should be generated."
+    ::= { cIscsiInitiatorLoginStatsEntry 6 }
+
+cIscsiInitiatorLogoutStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiInitiatorLogoutStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "When an initiator attempts send a Logout command, the target
+        responds with a Logout Response that carries a status code.
+        This table contains a list of counters of Logout Response
+        PDUs of each status code, that were received by each
+        initiator belonging to this iSCSI instance present on this
+        system."
+    ::= { cIscsiInitiator 3 }
+
+cIscsiInitiatorLogoutStatsEntry OBJECT-TYPE
+    SYNTAX CIscsiInitiatorLogoutStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing counters of Logout Response
+        PDUs of each status code, that were generated by this
+        initiator."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+-- Augments cIscsiInitiatorAttributesEntry
+    ::= { cIscsiInitiatorLogoutStatsTable 1 }
+
+CIscsiInitiatorLogoutStatsEntry ::= SEQUENCE {
+    cIscsiIntrLogoutNormals Counter,
+    cIscsiIntrLogoutOthers Counter
+    }
+
+cIscsiIntrLogoutNormals OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    normal logouts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Logout Command PDUs generated by this initiator
+        with reason code 0 (closes the session)."
+    ::= { cIscsiInitiatorLogoutStatsEntry 1 }
+
+cIscsiIntrLogoutOthers OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    abnormal logouts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Logout Command PDUs generated by this initiator
+        with any status code other than 0."
+    ::= { cIscsiInitiatorLogoutStatsEntry 2 }
+
+cIscsiIntrAuthAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiIntrAuthAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of target identities which each initiator
+        on the local system may access."
+    ::= { cIscsiIntrAuthorization 1 }
+
+cIscsiIntrAuthAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiIntrAuthAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable
+        to a particular initiator node's authorized target identity."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex, cIscsiIntrAuthIndex }
+    ::= { cIscsiIntrAuthAttributesTable 1 }
+
+CIscsiIntrAuthAttributesEntry ::= SEQUENCE {
+    cIscsiIntrAuthIndex Gauge,
+    cIscsiIntrAuthRowStatus RowStatus,
+    cIscsiIntrAuthIdentity RowPointer
+    }
+
+cIscsiIntrAuthIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a
+        particular initiator node's authorized target
+        identity within an iSCSI instance present on the
+        local system."
+    ::= { cIscsiIntrAuthAttributesEntry 1 }
+
+cIscsiIntrAuthRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the row."
+    ::= { cIscsiIntrAuthAttributesEntry 2 }
+
+cIscsiIntrAuthIdentity OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A pointer to the corresponding IPS-AUTH MIB user entry
+        to which this initiator node should attempt to establish
+        an iSCSI session."
+    REFERENCE
+        "IPS-AUTH MIB"
+    ::= { cIscsiIntrAuthAttributesEntry 3 }
+
+cIscsiSessionAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiSessionAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of sessions belonging to each iSCSI instance
+        present on the system."
+    ::= { cIscsiSession 1 }
+
+cIscsiSessionAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiSessionAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable
+        to a particular session."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex, cIscsiSsnIndex }
+    ::= { cIscsiSessionAttributesTable 1 }
+
+CIscsiSessionAttributesEntry ::= SEQUENCE {
+    cIscsiSsnIndex Gauge,
+    cIscsiSsnDirection INTEGER,
+    cIscsiSsnInitiatorName SnmpAdminString,
+    cIscsiSsnTargetName SnmpAdminString,
+    cIscsiSsnTsih Gauge,
+    cIscsiSsnIsid OCTET STRING,
+    cIscsiSsnInitiatorAlias SnmpAdminString,
+    cIscsiSsnTargetAlias SnmpAdminString,
+    cIscsiSsnInitialR2T TruthValue,
+    cIscsiSsnBidiInitialR2T TruthValue,
+    cIscsiSsnImmediateData TruthValue,
+    cIscsiSsnType INTEGER,
+    cIscsiSsnMaxOutstandingR2T Gauge,
+    cIscsiSsnFirstBurstSize Gauge,
+    cIscsiSsnMaxBurstSize Gauge,
+    cIscsiSsnConnectionNumber Gauge,
+    cIscsiSsnAuthIdentity RowPointer,
+    cIscsiSsnDataSequenceInOrder TruthValue,
+    cIscsiSsnDataPduInOrder TruthValue,
+    cIscsiSsnErrorRecoveryLevel Gauge
+    }
+
+cIscsiSsnIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a
+        particular session within an iSCSI instance present
+        on the local system."
+    ::= { cIscsiSessionAttributesEntry 1 }
+
+cIscsiSsnDirection OBJECT-TYPE
+    SYNTAX INTEGER {
+        inboundSession(1),
+        outboundSession(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Direction of iSCSI session:
+        InboundSession  - session is established from an external
+                          initiator to a target within this iSCSI
+                          instance.
+        OutboundSession - session is established from an initiator
+                          within this iSCSI instance to an external
+                          target."
+    ::= { cIscsiSessionAttributesEntry 2 }
+
+cIscsiSsnInitiatorName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "If cIscsiSsnDirection is Inbound, this object is an
+        octet string that will contain the name of the remote
+        initiator.
+        
+        If cIscsiSsnDirection is Outbound, this object will
+        contain a zero-length string."
+    ::= { cIscsiSessionAttributesEntry 3 }
+
+cIscsiSsnTargetName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "If cIscsiSsnDirection is Outbound, this object is an
+        octet string that will contain the name of the remote
+        target.
+        
+        If cIscsiSsnDirection is Inbound, this object will
+        contain a zero-length string."
+    ::= { cIscsiSessionAttributesEntry 4 }
+
+cIscsiSsnTsih OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The target-defined identification handle for this session."
+    ::= { cIscsiSessionAttributesEntry 5 }
+
+cIscsiSsnIsid OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The initiator-defined portion of the iSCSI Session ID."
+    ::= { cIscsiSessionAttributesEntry 6 }
+
+cIscsiSsnInitiatorAlias OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string that gives the alias communicated by the
+        initiator end of the session during the login phase.
+        If no alias exists, the value is a zero-length string."
+    ::= { cIscsiSessionAttributesEntry 7 }
+
+cIscsiSsnTargetAlias OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string that gives the alias communicated by the
+        target end of the session during the login phase.
+        
+        If no alias exists, the value is a zero-length string."
+    ::= { cIscsiSessionAttributesEntry 8 }
+
+cIscsiSsnInitialR2T OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "If set to true, indicates that the initiator must wait
+        for an R2T before sending to the target.  If set to false,
+        the initiator may send data immediately, within limits set
+        by cIscsiSsnFirstBurstSize and the expected data transfer
+        length of the request.
+        
+        Default is true."
+    ::= { cIscsiSessionAttributesEntry 9 }
+
+cIscsiSsnBidiInitialR2T OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "If set to true, indicates that the initiator must wait
+        for an R2T before sending data to the target within a
+        bi-directional (both read and write) request.  If false,
+        the initiator may send unsolicited write data as part
+        of the request."
+    ::= { cIscsiSessionAttributesEntry 10 }
+
+cIscsiSsnImmediateData OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the initiator and target have agreed to 
+        support immediate data on this session."
+    ::= { cIscsiSessionAttributesEntry 11 }
+
+cIscsiSsnType OBJECT-TYPE
+    SYNTAX INTEGER {
+        normalSession(1),
+        discoverySession(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of iSCSI session:
+        normalSession    - session is a normal iSCSI session
+        discoverySession - session is being used only for discovery."
+    DEFVAL { normalSession }
+    ::= { cIscsiSessionAttributesEntry 12 }
+
+cIscsiSsnMaxOutstandingR2T OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of outstanding request-to-transmit
+        (R2T)s per task within this session."
+    ::= { cIscsiSessionAttributesEntry 13 }
+
+cIscsiSsnFirstBurstSize OBJECT-TYPE
+    SYNTAX Gauge(512..16777215)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum length supported for unsolicited data sent
+        within this session."
+    DEFVAL { 65536 }
+    ::= { cIscsiSessionAttributesEntry 14 }
+
+cIscsiSsnMaxBurstSize OBJECT-TYPE
+    SYNTAX Gauge(512..16777215)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of bytes which can be sent within
+        a single sequence of Data-In or Data-Out PDUs."
+    DEFVAL { 262144 }
+    ::= { cIscsiSessionAttributesEntry 15 }
+
+cIscsiSsnConnectionNumber OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+--  Units
+--    connections
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transport protocol connections that currently
+        belong to this session."
+    ::= { cIscsiSessionAttributesEntry 16 }
+
+cIscsiSsnAuthIdentity OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains a row in the IPS-AUTH MIB
+        which identifies the authentication method
+        being used on this session, as communicated
+        during the login phase."
+    REFERENCE
+        "IPS-AUTH MIB"
+    ::= { cIscsiSessionAttributesEntry 17 }
+
+cIscsiSsnDataSequenceInOrder OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "False indicates that iSCSI data PDU sequences may
+        be transferred in any order.  True indicates that
+        data PDU sequences must be transferred using
+        continuously increasing offsets, except during
+        error recovery."
+    ::= { cIscsiSessionAttributesEntry 18 }
+
+cIscsiSsnDataPduInOrder OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "False indicates that iSCSI data PDUs within sequences
+        may be in any order.  True indicates that data PDUs
+        within sequences must be at continuously increasing
+        addresses, with no gaps or overlay between PDUs.
+        
+        Default is true."
+    ::= { cIscsiSessionAttributesEntry 19 }
+
+cIscsiSsnErrorRecoveryLevel OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The level of error recovery negotiated between
+        the initiator and the target.  Higher numbers
+        represent more detailed recovery schemes."
+    ::= { cIscsiSessionAttributesEntry 20 }
+
+cIscsiSessionStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiSessionStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of general iSCSI traffic counters for each of the
+        sessions present on the system."
+    ::= { cIscsiSession 2 }
+
+cIscsiSessionStatsEntry OBJECT-TYPE
+    SYNTAX CIscsiSessionStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing general iSCSI traffic counters
+        for a particular session."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex, cIscsiSsnIndex }
+-- Augments cIscsiSessionAttributesEntry
+    ::= { cIscsiSessionStatsTable 1 }
+
+CIscsiSessionStatsEntry ::= SEQUENCE {
+    cIscsiSsnCmdPdus Counter,
+    cIscsiSsnRspPdus Counter,
+    cIscsiSsnTxDataOctets Counter,
+    cIscsiSsnRxDataOctets Counter
+    }
+
+cIscsiSsnCmdPdus OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    PDUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Command PDUs transferred on this session."
+    ::= { cIscsiSessionStatsEntry 1 }
+
+cIscsiSsnRspPdus OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    PDUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of Response PDUs transferred on this session."
+    ::= { cIscsiSessionStatsEntry 2 }
+
+cIscsiSsnTxDataOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of data octets that were transmitted by
+        the local iSCSI node on this session."
+    ::= { cIscsiSessionStatsEntry 3 }
+
+cIscsiSsnRxDataOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of data octets that were received by
+        the local iSCSI node on this session."
+    ::= { cIscsiSessionStatsEntry 4 }
+
+cIscsiSessionCxnErrorStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiSessionCxnErrorStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of error counters for each of the sessions
+        present on this system."
+    ::= { cIscsiSession 3 }
+
+cIscsiSessionCxnErrorStatsEntry OBJECT-TYPE
+    SYNTAX CIscsiSessionCxnErrorStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing error counters for
+        a particular session."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex, cIscsiSsnIndex }
+-- Augments cIscsiSessionAttributesEntry
+    ::= { cIscsiSessionCxnErrorStatsTable 1 }
+
+CIscsiSessionCxnErrorStatsEntry ::= SEQUENCE {
+    cIscsiSsnDigestErrors Counter,
+    cIscsiSsnCxnTimeoutErrors Counter
+    }
+
+cIscsiSsnDigestErrors OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    PDUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of PDUs which were received on the session and
+        contained header or data digest errors."
+    ::= { cIscsiSessionCxnErrorStatsEntry 1 }
+
+cIscsiSsnCxnTimeoutErrors OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sequences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of connections within this session
+        which have been terminated due to timeout."
+    ::= { cIscsiSessionCxnErrorStatsEntry 2 }
+
+cIscsiConnectionAttributesTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIscsiConnectionAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of connections belonging to each iSCSI instance
+        present on the system."
+    ::= { cIscsiConnection 1 }
+
+cIscsiConnectionAttributesEntry OBJECT-TYPE
+    SYNTAX CIscsiConnectionAttributesEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (row) containing management information applicable
+        to a particular connection."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex, cIscsiSsnIndex, cIscsiCxnIndex }
+    ::= { cIscsiConnectionAttributesTable 1 }
+
+CIscsiConnectionAttributesEntry ::= SEQUENCE {
+    cIscsiCxnIndex Gauge,
+    cIscsiCxnCid Gauge,
+    cIscsiCxnState INTEGER,
+    cIscsiCxnLocalAddrType InetAddressType,
+    cIscsiCxnLocalAddr InetAddress,
+    cIscsiCxnProtocol CIscsiTransportProtocols,
+    cIscsiCxnLocalPort Gauge,
+    cIscsiCxnRemoteAddrType InetAddressType,
+    cIscsiCxnRemoteAddr InetAddress,
+    cIscsiCxnRemotePort Gauge,
+    cIscsiCxnMaxRecvDataSegLength Gauge,
+    cIscsiCxnHeaderIntegrity CIscsiDigestMethod,
+    cIscsiCxnDataIntegrity CIscsiDigestMethod,
+    cIscsiCxnRecvMarker TruthValue,
+    cIscsiCxnSendMarker TruthValue
+    }
+
+cIscsiCxnIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer used to uniquely identify a
+        particular connection of a particular session within
+        an iSCSI instance present on the local system."
+    ::= { cIscsiConnectionAttributesEntry 1 }
+
+cIscsiCxnCid OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The iSCSI Connection ID for this connection."
+    ::= { cIscsiConnectionAttributesEntry 2 }
+
+cIscsiCxnState OBJECT-TYPE
+    SYNTAX INTEGER {
+        login(1),
+        full(2),
+        logout(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current state of this connection, from an iSCSI negotiation
+        point of view.  Here are the states:
+        
+        login  - The transport protocol connection has been established,
+                 but a valid iSCSI login response with the final bit set
+                 has not been sent or received.
+        full   - A valid iSCSI login response with the final bit set
+                 has been sent or received.
+        logout - A valid iSCSI logout command has been sent or
+                 received, but the transport protocol connection has
+                 not yet been closed."
+    ::= { cIscsiConnectionAttributesEntry 3 }
+
+cIscsiCxnLocalAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet Network Address in cIscsiCxnLocalAddr."
+    ::= { cIscsiConnectionAttributesEntry 4 }
+
+cIscsiCxnLocalAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The local Internet Network Address used by this connection."
+    ::= { cIscsiConnectionAttributesEntry 5 }
+
+cIscsiCxnProtocol OBJECT-TYPE
+    SYNTAX CIscsiTransportProtocols
+--    Rsyntax Gauge(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The transport protocol over which this connection is
+        running."
+    DEFVAL { 6 }
+    ::= { cIscsiConnectionAttributesEntry 6 }
+
+cIscsiCxnLocalPort OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The local transport protocol port used by this connection."
+    ::= { cIscsiConnectionAttributesEntry 7 }
+
+cIscsiCxnRemoteAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet Network Address in cIscsiCxnRemoteAddr."
+    ::= { cIscsiConnectionAttributesEntry 8 }
+
+cIscsiCxnRemoteAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The remote Internet Network Address used by this connection."
+    ::= { cIscsiConnectionAttributesEntry 9 }
+
+cIscsiCxnRemotePort OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The remote transport protocol port used by this connection."
+    ::= { cIscsiConnectionAttributesEntry 10 }
+
+cIscsiCxnMaxRecvDataSegLength OBJECT-TYPE
+    SYNTAX Gauge(512..16777215)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum data payload size supported for command
+        or data PDUs in use within this connection.
+        
+        Note that the size of reported in bytes even though
+        the negotiation is in 512k blocks."
+    DEFVAL { 8192 }
+    ::= { cIscsiConnectionAttributesEntry 11 }
+
+cIscsiCxnHeaderIntegrity OBJECT-TYPE
+    SYNTAX CIscsiDigestMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        noDigest(3),
+--        crc32c(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the iSCSI header
+        digest scheme in use within this connection."
+    ::= { cIscsiConnectionAttributesEntry 12 }
+
+cIscsiCxnDataIntegrity OBJECT-TYPE
+    SYNTAX CIscsiDigestMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        noDigest(3),
+--        crc32c(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the iSCSI data
+        digest scheme in use within this connection."
+    ::= { cIscsiConnectionAttributesEntry 13 }
+
+cIscsiCxnRecvMarker OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether or not this connection
+        is receiving markers in in its incoming data stream."
+    ::= { cIscsiConnectionAttributesEntry 14 }
+
+cIscsiCxnSendMarker OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether or not this connection
+        is inserting markers in in its outgoing data stream."
+    ::= { cIscsiConnectionAttributesEntry 15 }
+
+cIscsiTgtLoginFailure TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cIscsiNotifications
+    VARIABLES {
+        cIscsiTgtLoginFailures, cIscsiTgtLastFailureType, 
+        cIscsiTgtLastIntrFailureName, 
+        cIscsiTgtLastIntrFailureAddrType, 
+        cIscsiTgtLastIntrFailureAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Sent when a login is failed by a target.
+        
+        The implementation of this trap should not send more than
+        3 notifications of this type in any 10 second time span."
+    ::= 1
+
+cIscsiIntrLoginFailure TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cIscsiNotifications
+    VARIABLES {
+        cIscsiIntrLoginFailures, cIscsiIntrLastFailureType, 
+        cIscsiIntrLastTgtFailureName, 
+        cIscsiIntrLastTgtFailureAddrType, 
+        cIscsiIntrLastTgtFailureAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Sent when a login is failed by a initiator.
+        
+        The implementation of this trap should not send more than
+        3 notifications of this type in any 10 second time span."
+    ::= 2
+
+cIscsiInstSessionFailure TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cIscsiNotifications
+    VARIABLES {
+        cIscsiInstSsnFailures, cIscsiInstLastSsnFailureType, 
+        cIscsiInstLastSsnRmtNodeName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Sent when an active session is failed by either the initiator
+        or the target.
+        
+        The implementation of this trap should not send more than
+        3 notifications of this type in any 10 second time span."
+    ::= 3
+
+cIscsiInstanceAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about iSCSI
+--    instances.
+--  objects
+--    cIscsiInstDescr, cIscsiInstVersionMin, cIscsiInstVersionMax, 
+--    cIscsiInstVendorID, cIscsiInstVendorVersion, 
+--    cIscsiInstPortalNumber, cIscsiInstNodeNumber, 
+--    cIscsiInstSessionNumber, cIscsiInstSsnFailures, 
+--    cIscsiInstLastSsnFailureType, cIscsiInstLastSsnRmtNodeName
+
+cIscsiInstanceSsnErrorStatsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    errors that have caused a session failure for an
+--    iSCSI instance.
+--  objects
+--    cIscsiInstSsnDigestErrors, cIscsiInstSsnCxnTimeoutErrors, 
+--    cIscsiInstSsnFormatErrors
+
+cIscsiPortalAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    the transport protocol endpoints of the local targets.
+--  objects
+--    cIscsiPortalRowStatus, cIscsiPortalRoles, 
+--    cIscsiPortalAddrType, cIscsiPortalAddr, cIscsiPortalProtocol, 
+--    cIscsiPortalMaxRecvDataSegLength, 
+--    cIscsiPortalPrimaryHdrDigest, cIscsiPortalPrimaryDataDigest, 
+--    cIscsiPortalSecondaryHdrDigest, 
+--    cIscsiPortalSecondaryDataDigest, cIscsiPortalRecvMarker
+
+cIscsiTgtPortalAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    the transport protocol endpoints of the local targets.
+--  objects
+--    cIscsiTgtPortalPort, cIscsiTgtPortalTag
+
+cIscsiIntrPortalAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    the Internet Network Addresses of the local initiators.
+--  objects
+--    cIscsiIntrPortalTag
+
+cIscsiNodeAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about all
+--    local targets.
+--  objects
+--    cIscsiNodeName, cIscsiNodeAlias, cIscsiNodeRoles, 
+--    cIscsiNodeTransportType, cIscsiNodeInitialR2T, 
+--    cIscsiNodeBidiInitialR2T, cIscsiNodeImmediateData, 
+--    cIscsiNodeMaxOutstandingR2T, cIscsiNodeFirstBurstSize, 
+--    cIscsiNodeMaxBurstSize, cIscsiNodeMaxConnections, 
+--    cIscsiNodeDataSequenceInOrder, cIscsiNodeDataPduInOrder, 
+--    cIscsiNodeDefaultTime2Wait, cIscsiNodeDefaultTime2Retain, 
+--    cIscsiNodeErrorRecoveryLevel
+
+cIscsiTargetAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about all
+--    local targets.
+--  objects
+--    cIscsiTgtLoginFailures, cIscsiTgtLastFailureTime, 
+--    cIscsiTgtLastFailureType, cIscsiTgtLastIntrFailureName, 
+--    cIscsiTgtLastIntrFailureAddrType, 
+--    cIscsiTgtLastIntrFailureAddr
+
+cIscsiTargetLoginStatsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about all
+--    login attempts by remote initiators to local targets.
+--  objects
+--    cIscsiTgtLoginAccepts, cIscsiTgtLoginOtherFails, 
+--    cIscsiTgtLoginRedirects, cIscsiTgtLoginAuthorizeFails, 
+--    cIscsiTgtLoginAuthenticateFails, cIscsiTgtLoginNegotiateFails
+
+cIscsiTargetLogoutStatsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about all
+--    logout events between remote initiators to local targets.
+--  objects
+--    cIscsiTgtLogoutNormals, cIscsiTgtLogoutOthers
+
+cIscsiTargetAuthGroup OBJECT IDENTIFIER ::= { cIscsiGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    .
+--  objects
+--    cIscsiTgtAuthRowStatus, cIscsiTgtAuthIdentity
+
+cIscsiInitiatorAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    all local initiators.
+--  objects
+--    cIscsiIntrLoginFailures, cIscsiIntrLastFailureTime, 
+--    cIscsiIntrLastFailureType, cIscsiIntrLastTgtFailureName, 
+--    cIscsiIntrLastTgtFailureAddrType, 
+--    cIscsiIntrLastTgtFailureAddr
+
+cIscsiInitiatorLoginStatsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about all
+--    login attempts by local initiators to remote targets.
+--  objects
+--    cIscsiIntrLoginAcceptRsps, cIscsiIntrLoginOtherFailRsps, 
+--    cIscsiIntrLoginRedirectRsps, cIscsiIntrLoginAuthFailRsps, 
+--    cIscsiIntrLoginAuthenticateFails, 
+--    cIscsiIntrLoginNegotiateFails
+
+cIscsiInitiatorLogoutStatsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about all
+--    logout events between local initiators to remote targets.
+--  objects
+--    cIscsiIntrLogoutNormals, cIscsiIntrLogoutOthers
+
+cIscsiInitiatorAuthGroup OBJECT IDENTIFIER ::= { cIscsiGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    .
+--  objects
+--    cIscsiIntrAuthRowStatus, cIscsiIntrAuthIdentity
+
+cIscsiSessionAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information applicable to
+--    all sessions.
+--  objects
+--    cIscsiSsnDirection, cIscsiSsnInitiatorName, 
+--    cIscsiSsnTargetName, cIscsiSsnTsih, cIscsiSsnIsid, 
+--    cIscsiSsnInitiatorAlias, cIscsiSsnTargetAlias, 
+--    cIscsiSsnInitialR2T, cIscsiSsnBidiInitialR2T, 
+--    cIscsiSsnImmediateData, cIscsiSsnType, 
+--    cIscsiSsnMaxOutstandingR2T, cIscsiSsnFirstBurstSize, 
+--    cIscsiSsnMaxBurstSize, cIscsiSsnConnectionNumber, 
+--    cIscsiSsnAuthIdentity, cIscsiSsnDataSequenceInOrder, 
+--    cIscsiSsnDataPduInOrder, cIscsiSsnErrorRecoveryLevel
+
+cIscsiSessionStatsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about message
+--    and data traffic for all sessions.
+--  objects
+--    cIscsiSsnCmdPdus, cIscsiSsnRspPdus, cIscsiSsnTxDataOctets, 
+--    cIscsiSsnRxDataOctets
+
+cIscsiSessionCxnErrorStatsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about connection
+--    errors for all sessions.
+--  objects
+--    cIscsiSsnDigestErrors, cIscsiSsnCxnTimeoutErrors
+
+cIscsiConnectionAttributesGroup OBJECT IDENTIFIER ::= { cIscsiGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about all
+--    connections used by all sessions.
+--  objects
+--    cIscsiCxnCid, cIscsiCxnState, cIscsiCxnProtocol, 
+--    cIscsiCxnLocalAddrType, cIscsiCxnLocalAddr, 
+--    cIscsiCxnLocalPort, cIscsiCxnRemoteAddrType, 
+--    cIscsiCxnRemoteAddr, cIscsiCxnRemotePort, 
+--    cIscsiCxnMaxRecvDataSegLength, cIscsiCxnHeaderIntegrity, 
+--    cIscsiCxnDataIntegrity, cIscsiCxnRecvMarker, 
+--    cIscsiCxnSendMarker
+
+cIscsiTgtLgnNotificationsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 19 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications which indicate a login
+--    failure from a remote initiator to a local target.
+--  notifications
+--    cIscsiTgtLoginFailure
+
+cIscsiIntrLgnNotificationsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 20 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications which indicate a login
+--    failure from a local initiator to a remote target.
+--  notifications
+--    cIscsiIntrLoginFailure
+
+cIscsiSsnFlrNotificationsGroup OBJECT IDENTIFIER ::= { cIscsiGroups 21 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications which indicate session
+--    failures occurring after login.
+--  notifications
+--    cIscsiInstSessionFailure
+
+cIscsiComplianceV1 OBJECT IDENTIFIER ::= { cIscsiCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Initial version of compliance statement based on
+--    initial version of MIB.
+--    
+--    If an implementation can be both a target and an
+--    initiator, all groups are mandatory.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cIscsiInstanceAttributesGroup
+--   MandGroup
+--    cIscsiPortalAttributesGroup
+--   MandGroup
+--    cIscsiNodeAttributesGroup
+--   MandGroup
+--    cIscsiSessionAttributesGroup
+--   MandGroup
+--    cIscsiSessionStatsGroup
+--   MandGroup
+--    cIscsiSessionCxnErrorStatsGroup
+--   MandGroup
+--    cIscsiConnectionAttributesGroup
+--   MandGroup
+--    cIscsiSsnFlrNotificationsGroup
+--   MandGroup
+--    cIscsiInstanceSsnErrorStatsGroup
+--   OptGroup
+--    cIscsiTgtPortalAttributesGroup
+--   OptGroup
+--    cIscsiTargetAttributesGroup
+--   OptGroup
+--    cIscsiTargetLoginStatsGroup
+--   OptGroup
+--    cIscsiTargetLogoutStatsGroup
+--   OptGroup
+--    cIscsiTgtLgnNotificationsGroup
+--   OptGroup
+--    cIscsiTargetAuthGroup
+--   OptGroup
+--    cIscsiIntrPortalAttributesGroup
+--   OptGroup
+--    cIscsiInitiatorAttributesGroup
+--   OptGroup
+--    cIscsiInitiatorLoginStatsGroup
+--   OptGroup
+--    cIscsiInitiatorLogoutStatsGroup
+--   OptGroup
+--    cIscsiIntrLgnNotificationsGroup
+--   OptGroup
+--    cIscsiInitiatorAuthGroup
+
+
+END
+

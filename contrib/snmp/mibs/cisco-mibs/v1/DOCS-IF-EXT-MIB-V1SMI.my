@@ -1,0 +1,151 @@
+-- MIB file created 16-Oct-2001 13:47:52, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+DOCS-IF-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "DOCS-IF-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    docsIfMib, docsIfCmtsCmStatusIndex
+            FROM DOCS-IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+docsIfExtMib OBJECT IDENTIFIER ::= { docsIfMib 21 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    0011160000Z
+--  OrgName
+--    IETF IPCDN Working Group
+--  ContactInfo
+--     
+--  Descr
+--    This is the extension Module to rfc2670 DOCS-IF-MIB.
+--  RevDate
+--    0010080000Z
+--  RevDescr
+--    Initial Version. 
+
+docsIfExtConformance OBJECT IDENTIFIER ::= { docsIfExtMib 4 }
+docsIfExtCompliances OBJECT IDENTIFIER ::= { docsIfExtConformance 1 }
+docsIfExtGroups OBJECT IDENTIFIER ::= { docsIfExtConformance 2 }
+
+DocsisVersion ::= INTEGER {
+        docsis10(1),
+        docsis11(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicates the docsis version number.
+
+docsIfDocsisCapability OBJECT-TYPE
+    SYNTAX DocsisVersion
+--    Rsyntax INTEGER {
+--        docsis10(1),
+--        docsis11(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indication of the DOCSIS capability of the device."
+    ::= { docsIfExtMib 1 }
+
+docsIfDocsisOperMode OBJECT-TYPE
+    SYNTAX DocsisVersion
+--    Rsyntax INTEGER {
+--        docsis10(1),
+--        docsis11(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indication whether the device has registered as a 1.0 or 1.1.
+         For CMTS and unregistered CM, it is always the same as 
+         docsDocsisCapability."
+    ::= { docsIfExtMib 2 }
+
+docsIfCmtsCmStatusExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsIfCmtsCmStatusExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of objects in the CMTS, maintained for each
+         Cable Modem connected to this CMTS."
+    ::= { docsIfExtMib 3 }
+
+docsIfCmtsCmStatusExtEntry OBJECT-TYPE
+    SYNTAX DocsIfCmtsCmStatusExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Status information for a single Cable Modem.
+         An entry in this table exists for each Cable Modem
+         which is connected to the CMTS."
+    INDEX { docsIfCmtsCmStatusIndex }
+-- Augments docsIfCmtsCmStatusEntry FROM DOCS-IF-MIB
+    ::= { docsIfCmtsCmStatusExtTable 1 }
+
+DocsIfCmtsCmStatusExtEntry ::= SEQUENCE {
+    docsIfCmtsCmStatusDocsisMode DocsisVersion
+    }
+
+docsIfCmtsCmStatusDocsisMode OBJECT-TYPE
+    SYNTAX DocsisVersion
+--    Rsyntax INTEGER {
+--        docsis10(1),
+--        docsis11(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indication whether the CM has registered as a 1.0 or 1.1 modem"
+    ::= { docsIfCmtsCmStatusExtEntry 1 }
+
+docsIfDocsisVersionGroup OBJECT IDENTIFIER ::= { docsIfExtGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Object group to indicates DOCSIS version.
+--  objects
+--    docsIfDocsisCapability, docsIfDocsisOperMode
+
+docsIfExtGroup OBJECT IDENTIFIER ::= { docsIfExtGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Mandatory implementation group for CMTS.
+--  objects
+--    docsIfCmtsCmStatusDocsisMode
+
+docsIfExtCmCompliance OBJECT IDENTIFIER ::= { docsIfExtCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement.
+--  Module
+--    >>current<<
+--   MandGroup
+--    docsIfDocsisVersionGroup
+
+docsIfExtCmtsCompliance OBJECT IDENTIFIER ::= { docsIfExtCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement.
+--  Module
+--    >>current<<
+--   MandGroup
+--    docsIfExtGroup
+--   MandGroup
+--    docsIfDocsisVersionGroup
+
+
+END
+

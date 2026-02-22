@@ -1,0 +1,665 @@
+-- *****************************************************************
+-- MIBS/CISCO-IGMP-FILTER-MIB.my: Cisco IGMP Filter MIB
+
+-- Aug. 2001, Dipesh Gorashia, Pauline Shuen
+
+-- Copyright (c) 2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IGMP-FILTER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    TruthValue,
+    TestAndIncr
+        FROM SNMPv2-TC
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    ifIndex
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF;
+
+ciscoIGMPFilterMIB MODULE-IDENTITY
+    LAST-UPDATED    "200511290000Z"
+    ORGANIZATION    "Cisco Systems, Inc"
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-ipmulticast@cisco.com"
+    DESCRIPTION
+            "IGMP Filter configuration MIB. This MIB provides a
+            mechanism for users to configure the system to intercept 
+            IGMP joins for IP Multicast groups identified in this 
+            MIB and only allow certain ports to join certain 
+            multicast groups."
+    REVISION        "200511290000Z"
+    DESCRIPTION
+            "Deprecated ciscoIgmpFilterGolbalMIBCompliance
+            and added ciscoIgmpFilterGlobalMIBComplianceRev1
+            to include ciscoIgmpFilterGlobalGroup under
+            MANDATORY-GROUPS; Updated the imports such that
+            Unsigned32 is imported from SNMPv2-SMI instead
+            of CISCO-TC, and other clean up."
+    REVISION        "200205090000Z"
+    DESCRIPTION
+            "Corrected typos existing in the MIB."
+    REVISION        "200111080000Z"
+    DESCRIPTION
+            "Initial version of this MIB module"
+    ::= { ciscoMgmt 238 }
+
+ciscoIgmpFilterMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoIGMPFilterMIB 1 }
+
+cIgmpFilterGeneral OBJECT IDENTIFIER
+    ::= { ciscoIgmpFilterMIBObjects 1 }
+
+cIgmpFilterInfo OBJECT IDENTIFIER
+    ::= { ciscoIgmpFilterMIBObjects 2 }
+
+cIgmpFilterEditor OBJECT IDENTIFIER
+    ::= { ciscoIgmpFilterMIBObjects 3 }
+
+-- IGMP Filter General Group
+cIgmpFilterEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object controls whether the IGMP filtering
+            is enabled on the device. A false(2) value will 
+            prevent the IGMP filtering action on the device."
+    DEFVAL          { false }
+    ::= { cIgmpFilterGeneral 1 }
+
+cIgmpFilterMaxProfiles OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "profiles"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Indicates the maximum number of profiles supported by
+            this device.  A value of zero indicates no limitation on
+            the number of profiles."
+    ::= { cIgmpFilterGeneral 2 }
+
+-- IGMP Filter Information Group
+cIgmpFilterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CIgmpFilterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains entries that identify lists of
+            IP Multicast groups for each profile configured on
+            the device. 
+
+            Each entry contains a range of contiguous IP
+            Multicast groups associated to a profile index.
+            Multiple cIgmpFilterEntry may be associated
+            with the same cIgmpFilterProfileIndex.
+
+            All the cIgmpFilterEntry with  the same profile index 
+            are subjected to the same IGMP filtering action as 
+            defined in cIgmpFilterProfileAction.
+
+            Each profile index may be associated with zero or more 
+            interfaces through cIgmpFilterInterfaceIfIndex
+            object in cIgmpFilterInterfaceTable.
+            The maximum number of entries is determined by
+            cIgmpFilterMaxProfiles."
+    ::= { cIgmpFilterInfo 1 }
+
+cIgmpFilterEntry OBJECT-TYPE
+    SYNTAX          CIgmpFilterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry (conceptual row) in the cIgmpFilterTable.
+
+            The creation, deletion or modification of an entry
+            is controlled through the MIB objects defined under
+            cIgmpFilterEditor group."
+    INDEX           {
+                        cIgmpFilterProfileIndex,
+                        cIgmpFilterStartAddressType,
+                        cIgmpFilterStartAddress
+                    }
+    ::= { cIgmpFilterTable 1 }
+
+CIgmpFilterEntry ::= SEQUENCE {
+    cIgmpFilterProfileIndex      Unsigned32,
+    cIgmpFilterStartAddressType  InetAddressType,
+    cIgmpFilterStartAddress      InetAddress,
+    cIgmpFilterEndAddressType    InetAddressType,
+    cIgmpFilterEndAddress        InetAddress,
+    cIgmpFilterProfileAction     INTEGER
+}
+
+cIgmpFilterProfileIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "Index identifying this entry."
+    ::= { cIgmpFilterEntry 1 }
+
+cIgmpFilterStartAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object describes the type of Internet
+            address used to determine the start address 
+            of IP multicast group for a profile."
+    ::= { cIgmpFilterEntry 2 }
+
+cIgmpFilterStartAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object describes the start of the IP multicast
+            group address of a contiguous range which will be
+            subjected to filtering operation."
+    ::= { cIgmpFilterEntry 3 }
+
+cIgmpFilterEndAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the type of Internet
+            address used to determine the end address 
+            of IP multicast group for a profile."
+    ::= { cIgmpFilterEntry 4 }
+
+cIgmpFilterEndAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the end of the IP multicast
+            group address of a contiguous range which will be 
+            subjected to filtering operation."
+    ::= { cIgmpFilterEntry 5 }
+
+cIgmpFilterProfileAction OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        permit(1),
+                        deny(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object defines the action for
+            filtering IGMP reports for this profile.
+
+            If the object is set to deny(2):
+            then all IGMP reports associated to IP multicast
+            groups included in the profile identified by
+            cIgmpFilterInterfaceProfileIndex will be dropped.
+
+            If the object is set to permit(1):
+            then all IGMP reports associated to IP multicast
+            groups not included in the profile identified by
+            cIgmpFilterInterfaceProfileIndex will be dropped."
+    ::= { cIgmpFilterEntry 6 }
+
+-- The per interface IGMP filtering configuration table
+cIgmpFilterInterfaceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CIgmpFilterInterfaceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains the list of interfaces that can
+            support IGMP filter feature."
+    ::= { cIgmpFilterInfo 2 }
+
+cIgmpFilterInterfaceEntry OBJECT-TYPE
+    SYNTAX          CIgmpFilterInterfaceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry contains the configuration for associating
+            the IGMP filter profile index with the interface.
+
+            An entry is created for each of the IGMP filter capable 
+            interface on the system.
+
+            The entry is removed on removal of corresponding 
+            interface from system."
+    INDEX           { ifIndex }
+    ::= { cIgmpFilterInterfaceTable 1 }
+
+CIgmpFilterInterfaceEntry ::= SEQUENCE {
+    cIgmpFilterInterfaceProfileIndex  Unsigned32
+}
+
+cIgmpFilterInterfaceProfileIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Specifies which IGMP filter profile applies to this
+            interface. If the value of this MIB object matches the 
+            value of cIgmpFilterProfileIndex in cIgmpFilterTable, 
+            the corresponding profile configuration will apply to
+            this interface. 
+
+            Agent returns inconsistentValue if this profile 
+            does not exist in cIgmpFilterTable. 
+            A value of zero indicates no profile is associated
+            with corresponding interface.
+
+            The filtering action on each interface is also
+            defined by the associated profile."
+    DEFVAL          { 0 }
+    ::= { cIgmpFilterInterfaceEntry 1 }
+
+-- The IGMP Filter Editor Group
+
+-- Group of objects acting as buffer to add/delete/modify
+-- entries in the cIgmpFilterTable.
+-- Objects in the  group are set to appropriate values and  state of
+-- cIgmpFilterEditOperation is changed to add/delete or modify
+-- to apply the required changes to the cIgmpFilterTable.
+cIgmpFilterEditSpinLock OBJECT-TYPE
+    SYNTAX          TestAndIncr
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object is used to facilitate modification of
+            IGMP Filter Editor Group in the CISCO-IGMP-FILTER-MIB 
+            module by multiple managers.  In particular, it is 
+            useful when modifying the value of the cIgmpFilterEditor 
+            object. 
+
+            The procedure for modifying the cIgmpFilterEditor 
+            object is as follows: 
+
+                1.  Retrieve the value of cIgmpFilterEditSpinLock and 
+                    of object within cIgmpFilterEditor group. 
+
+                2.  Generate new values for 'writeable' objects
+                    in the cIgmpFilterEditor group except for 
+                    cIgmpFilterEditSpinLock object.
+
+                3.  Set the value of cIgmpFilterEditSpinLock to the 
+                    retrieved value, and the value of objects in 
+                    cIgmpFilterEditor to the new value. If the set
+                    fails for the cIgmpFilterEditSpinLock object,
+                    go back to step 1. 
+
+            The cIgmpFilterApplyStatus and cIgmpFilterEditSpinLock 
+            should be read together by NMS to make sure that the 
+            result is associated with its configuration request.
+
+            To add/delete or modify a profile ( through cIgmpFilterEditor
+            objects ) following procedure may be followed as an example.:
+
+                1.  GET(cIgmpFilterEditSpinLock.0) and save in sValue.
+                2.  SET(cIgmpFilterEditSpinLock.0 = sValue,
+                        cIgmpFilterEditProfileIndex.0 = validProfileNumber,
+                        cIgmpFilterEditStartAddress.0 = validStartAddress,
+                        cIgmpFilterEditEndAddress.0 = validEndAddress,
+                        cIgmpFilterEditOperation.0 =  validOperation)
+                3.  If the SET in step 2 is not successful go back
+                    to step 1.
+                4.  If the SET in step 2 is successful, user should 
+                    GET(cIgmpFilterEditSpinLock.0) and 
+                    GET(cIgmpFilterApplyStatus.0) simultaneously.
+
+                5.  The cIgmpFilterApplyStatus.0 reflects the outcome of
+                    step 2 only if
+                    cIgmpFilterEditSpinLock.0 = sValue + 1 or
+                    cIgmpFilterEditSpinLock.0 = 0 if sValue reaches
+                    value at which cIgmpFilterEditSpinLock wraps 
+                    around."
+    ::= { cIgmpFilterEditor 1 }
+
+cIgmpFilterEditProfileIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Buffer object to edit corresponding object
+            cIgmpFilterProfileIndex in cIgmpFilterTable.
+
+            Maximum value this object can be set to is 
+            determined by cIgmpFilterMaxProfiles object."
+    ::= { cIgmpFilterEditor 2 }
+
+cIgmpFilterEditStartAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Buffer object to edit corresponding object
+            cIgmpFilterStartAddressType in cIgmpFilterTable.
+
+            This object describes the type of Internet  
+            address used to determine the start address 
+            of IP multicast group for a profile."
+    ::= { cIgmpFilterEditor 3 }
+
+cIgmpFilterEditStartAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE (1..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Buffer object to edit corresponding object
+            cIgmpFilterStartAddress in cIgmpFilterTable
+              to establish start address of filtering
+            range for a profile."
+    ::= { cIgmpFilterEditor 4 }
+
+cIgmpFilterEditEndAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Buffer object to edit corresponding object
+            cIgmpFilterEndAddressType in cIgmpFilterTable.
+
+            This object describes the type of Internet     
+            address used to determine the start address 
+            of IP multicast group for a profile."
+    ::= { cIgmpFilterEditor 5 }
+
+cIgmpFilterEditEndAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Buffer object to edit corresponding object
+            cIgmpFilterEndAddress in cIgmpFilterTable 
+            to establish end address of filtering 
+            range for a profile."
+    ::= { cIgmpFilterEditor 6 }
+
+cIgmpFilterEditProfileAction OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        permit(1),
+                        deny(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Buffer object to edit corresponding object in
+            cIgmpFilterTable to determine filtering action
+            of each profile."
+    DEFVAL          { deny }
+    ::= { cIgmpFilterEditor 7 }
+
+cIgmpFilterEditOperation OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        none(1),
+                        add(2),
+                        delete(3),
+                        modify(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The function of this object is to allow user to
+            apply the changes in cIgmpFilterEditor objects to 
+            cIgmpFilterTable. 
+
+            This object always has the value 'none' when read.
+            When written each value causes the appropriate action:
+
+            'add' - tries to insert the information contained 
+            in cIgmpFilterEditor objects into  cIgmpFilterTable.
+            If the entry already exists in the table the 'add' 
+            fails.        
+
+            'delete' - tries to delete corresponding entry from
+            cIgmpFilterTable. If a user completely deletes a profile
+            that has corresponding entries in the
+            cIgmpFilterInterfaceTable, then all the interfaces mapped
+            to corresponding profile will be cleared and set to zero.
+
+            'modify' - Mode of operation used to edit an entry in
+             cIgmpFilterTable. If the corresponding entry does not 
+             exist, modify operation fails. This mode allows user to
+             extend/truncate a contiguous filtered range, type of
+             Internet addressing and filtering action for a profile. 
+
+            'none' - no operation is performed."
+    ::= { cIgmpFilterEditor 8 }
+
+cIgmpFilterApplyStatus OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        someOtherError(1),
+                        succeeded(2),
+                        inconsistentEdit(3),
+                        entryPresentError(4),
+                        entryNotPresentError(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The current status of an 'add', 'delete' or 'modify'
+            operation. If no apply is currently active, the status 
+            represented is that of the most recently completed 'add', 
+            'delete' or 'modify' operation.
+
+            The value of this objects indicates succeeded(2) state 
+            initially when no 'add', 'delete', 'modify' operation
+            has been carried out.
+
+            The possible values are:
+               someOtherError - the 'add', 'delete' or 'modify' failed 
+               due to undefined error(s) in apply operation.
+               (e.g., insufficient memory). 
+
+               succeeded - the 'add', 'delete' or 'modify' operation
+               was successful. (This value is also used when no
+               apply has been invoked since the last time the local 
+               system restarted.)
+
+               inconsistentEdit - the 'add', 'delete' or 'modify' failed
+               due to inconsistency of the data.
+
+               entryPresentError - the 'add' operation failed  as the 
+               corresponding entry already exists in cIgmpFilterTable.
+
+               entryNotPresentError - the 'modify' operation failed 
+               as no corresponding entry exists in cIgmpFilterTable."
+    ::= { cIgmpFilterEditor 9 }
+
+ciscoIgmpFilterMIBConformance OBJECT IDENTIFIER
+    ::= { ciscoIGMPFilterMIB 2 }
+
+ciscoIgmpFilterMIBCompliances OBJECT IDENTIFIER
+    ::= { ciscoIgmpFilterMIBConformance 1 }
+
+ciscoIgmpFilterMIBGroups OBJECT IDENTIFIER
+    ::= { ciscoIgmpFilterMIBConformance 2 }
+
+-- Compliance
+ciscoIgmpFilterGolbalMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+            "The compliance statement for entities providing
+            global control of action and implementing IGMP
+            Filter MIB.
+
+            OBJECT  cIgmpFilterEditStartAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEditStartAddress
+            SYNTAX  InetAddress (SIZE(4))
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEditEndAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEditEndAddress                  
+            SYNTAX  InetAddress (SIZE(4))      
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterStartAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterStartAddress
+            SYNTAX  InetAddress (SIZE(4))
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEndAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+
+            OBJECT  cIgmpFilterEndAddress
+            SYNTAX  InetAddress (SIZE(4))
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIgmpFilterInfoGroup,
+                        ciscoIgmpFilterEditorGroup
+                    }
+    ::= { ciscoIgmpFilterMIBCompliances 1 }
+
+ciscoIgmpFilterGlobalMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+            "The compliance statement for entities providing
+            global control of action and implementing IGMP
+            Filter MIB.
+
+            OBJECT  cIgmpFilterEditStartAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEditStartAddress
+            SYNTAX  InetAddress (SIZE(4))
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEditEndAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEditEndAddress                  
+            SYNTAX  InetAddress (SIZE(4))      
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterStartAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterStartAddress
+            SYNTAX  InetAddress (SIZE(4))
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+            OBJECT  cIgmpFilterEndAddressType
+            SYNTAX  InetAddressType { ipv4(1) }
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses.
+
+
+            OBJECT  cIgmpFilterEndAddress
+            SYNTAX  InetAddress (SIZE(4))
+            DESCRIPTION
+            An implementation is only required to support IPv4
+            addresses."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIgmpFilterGlobalGroup,
+                        ciscoIgmpFilterInfoGroup,
+                        ciscoIgmpFilterEditorGroup
+                    }
+    ::= { ciscoIgmpFilterMIBCompliances 2 }
+
+-- Units of Conformance
+ciscoIgmpFilterGlobalGroup OBJECT-GROUP
+    OBJECTS         {
+                        cIgmpFilterEnable,
+                        cIgmpFilterMaxProfiles
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing the configuration of
+            IGMP filter for the system."
+    ::= { ciscoIgmpFilterMIBGroups 1 }
+
+ciscoIgmpFilterInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cIgmpFilterEndAddressType,
+                        cIgmpFilterEndAddress,
+                        cIgmpFilterProfileAction,
+                        cIgmpFilterInterfaceProfileIndex
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing the configuration of
+            IGMP filter for the system."
+    ::= { ciscoIgmpFilterMIBGroups 2 }
+
+ciscoIgmpFilterEditorGroup OBJECT-GROUP
+    OBJECTS         {
+                        cIgmpFilterEditSpinLock,
+                        cIgmpFilterEditProfileIndex,
+                        cIgmpFilterEditStartAddressType,
+                        cIgmpFilterEditStartAddress,
+                        cIgmpFilterEditEndAddressType,
+                        cIgmpFilterEditEndAddress,
+                        cIgmpFilterEditProfileAction,
+                        cIgmpFilterEditOperation,
+                        cIgmpFilterApplyStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects acting as a buffer
+            to add/delete/modify the entries in 
+            read-only table cIgmpFilterTable."
+    ::= { ciscoIgmpFilterMIBGroups 3 }
+
+END

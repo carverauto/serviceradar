@@ -1,0 +1,475 @@
+--------------------------------------------------------------------
+-- CISCO-ISDNU-IF-MIB.my: ISDN BRI integrated U Interface MIB file
+--
+-- March 1996  Hongchi Shih   
+--
+-- Copyright (c) 1996-1997 by cisco Systems, Inc.
+-- All rights reserved.
+--------------------------------------------------------------------
+
+CISCO-ISDNU-IF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Counter32
+                FROM SNMPv2-SMI
+        DisplayString,
+        TruthValue 
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ifIndex
+                FROM IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+ciscoIsdnuIfMIB MODULE-IDENTITY
+        LAST-UPDATED    "9603180000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-isdn@cisco.com"
+        DESCRIPTION
+                "ISDN BRI integrated U Interface MIB module.
+                 This MIB manages the ISDN BRI integrated U 
+                 Interface in the router.
+                "
+
+        ::= { ciscoMgmt 18 }
+
+-- 
+-- Overview of ISDN BRI with integrated U interface MIB
+ 
+-- The ISDN BRI with integrated U interface MIB provides the static 
+-- configuration and operational status information on Cisco's ISDN 
+-- BRI integrated U interface implementation. The following entities
+-- are managed:
+-- 1) The ISDN BRI integrated U interface unit
+-- 2) The external S/T ports 
+--    the ports are used by external ISDN devices, such as ISDN FAX 
+--    machine or ISDN phone.
+--
+-- The ISDN BRI integrated U interface unit is identified by the ISDN 
+-- hardware interface index (ifIndex) that is represented by the ISDN BRI D 
+-- channel.
+-- The external S/T ports are identified by ISDN hardware interface
+-- index (ifIndex) and the external S/T port number.
+-- 
+
+ciuIfObjects                 OBJECT IDENTIFIER ::= { ciscoIsdnuIfMIB 1 }
+ciuInterface                 OBJECT IDENTIFIER ::= { ciuIfObjects 1 }
+ciuIfExternalSTPort          OBJECT IDENTIFIER ::= { ciuIfObjects 2 }
+ciuIfMIBNotificationEnables  OBJECT IDENTIFIER ::= { ciuIfObjects 3 }
+
+
+--****************************************************************************
+-- The ISDN BRI integrated U Interface Static Configuration Table
+--****************************************************************************
+ 
+ciuIfStaticConfigTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiuIfStaticConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The ISDN BRI integrated U interface Static Configuration
+                 Table. It contains items that are statically 
+                 configured by reading configuration from hardware and can 
+                 not be changed by end user without physically changing the 
+                 U Interface."
+        ::= { ciuInterface 1 }
+ 
+ciuIfStaticConfigEntry OBJECT-TYPE
+        SYNTAX      CiuIfStaticConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the static configuration table for each
+                 ISDN BRI integrated U interface."
+        INDEX   { ifIndex }
+        ::= { ciuIfStaticConfigTable 1 }
+ 
+CiuIfStaticConfigEntry ::=
+        SEQUENCE {
+                ciuIfType                  INTEGER
+         }
+ 
+ciuIfType OBJECT-TYPE
+        SYNTAX INTEGER {
+                other                  (1),
+                addOnU                 (2),
+                onBoardU               (3),
+                onBoardIntegUandSTPort (4), 
+                addOnIntegUandSTPort   (5) 
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Specifies the type of ISDN BRI integrated U interface.
+                 other - none of the following. 
+                 addOnU - An add-On card with ISDN BRI integrated U 
+                          interface. 
+                 onBoardU - An on board ISDN BRI integrated U interface
+                 onBoardIntegUandSTPort - An on board BRI integrated U 
+                                          interface with external S/T ports.
+                 addOnIntegUandSTPort - An add-on card with ISDN BRI integrated
+                                        U interface and S/T port.
+                "
+        ::= { ciuIfStaticConfigEntry 1 }
+ 
+
+--****************************************************************************
+-- The ISDN BRI integrated U interface Status Table
+--****************************************************************************
+
+ciuIfStatusTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiuIfStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The ISDN BRI integrated U interface Status Table.  Contains 
+                 information about the status of the ISDN U interface, 
+                 including the error statistics and current active EOC 
+                 (Embedded operations channel) commands from CO 
+                 (Central office).
+                "
+        ::= { ciuInterface 2 }
+
+ciuIfStatusEntry OBJECT-TYPE
+        SYNTAX      CiuIfStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the status table for each ISDN BRI integrated U 
+                 interface."
+        INDEX   { ifIndex }
+        ::= { ciuIfStatusTable 1 }
+
+CiuIfStatusEntry ::=
+        SEQUENCE {
+                ciuIfStatus                INTEGER, 
+                ciuIfEocCommand            DisplayString,
+                ciuIfOverHeadBits          OCTET STRING,
+                ciuIfFebeErrors            Counter32,
+                ciuIfNebeErrors            Counter32, 
+                ciuIfLoopStatus            INTEGER 
+        }
+
+ciuIfStatus OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    activated         (1),
+                    activationPending (2),
+                    deactivated       (3)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the operation status of the ISDN 
+                 BRI integrated U interface.
+                 activated - The ISDN U interface is activated.
+                             The interface is active and data can be 
+                             transmitted and received through the interface.
+                 activationPending - The ISDN U interface is in
+                                     activation pending state.  Either the CO 
+                                     or the router has initiated activation
+                                     of U interface, but activation has not yet 
+                                     completed.  Data cannot be transmitted
+                                     or received.
+                 deactivated - The ISDN U interface is deactivated.
+                               The ISDN line to the CO is deactivated.  
+                               Data cannot be transmitted or received on the
+                               ISDN U interface.
+                "
+        ::= { ciuIfStatusEntry 1 }
+
+ciuIfEocCommand OBJECT-TYPE
+        SYNTAX       DisplayString (SIZE (1..48))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The last EOC command sent by Central Office; the ECO command
+                 supports operations communications needs between the network 
+                 and ISDN U interface."
+        REFERENCE
+                "ANSI T1.601-1992: Sections 8.3 Embedded operations channel 
+                 (eoc) functions"
+        ::= { ciuIfStatusEntry 2 }
+
+
+ciuIfOverHeadBits OBJECT-TYPE
+--        SYNTAX      BITS {
+--                 act(0),
+--                 dea(1),
+--                 febe(2),
+--                 uoa(3),
+--                 aib(4)
+--        }
+        SYNTAX  OCTET STRING  (SIZE  (8))
+--
+-- As our existing mib publication tools do not support the BITS
+-- syntax, we are temporarily using a syntax of OCTET STRING.
+-- We should be able to use BITS correctly in the near future, at
+-- which time this MIB will be corrected.                                 
+
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object describes 5 attributes of Overhead bits. The
+                 Overhead bits contains the ISDN U interface transceiver 
+                 operations and maintenance functions that are handled by M4,
+                 M5 and M6 bits in the superframe. These bits are described 
+                 as follows:  
+                 act  - start-up bit; this bit is set to binary ONE by the 
+                        network as a part of the start-up sequence to 
+                        communicate readiness for layer-2 communication.
+                 dea  - turn-off bit; this bit is set to binary ZERO by the 
+                        network to communicate to the NT its intention to
+                        turn off.
+                 febe - Far End Block Error bit; this bit is set to binary
+                        ONE if there are no error in the superframe and binary
+                        ZERO if the superframe contains an error.
+                 uoa  - U interface only activation bit; This bit is set to 
+                        binary ONE if the S/T interface should be activated. 
+                        Otherwise, this bit should be set to binary ZERO.
+                 aib  - Alarm indication bit; this bit is set to binary
+                        ONE if the transmission path for D, B1, and B2 channels
+                        has been established all the way to the local exchange.
+                        Otherwise, this bit is set to binary ZERO.
+                "
+        REFERENCE
+                "ANSI T1.601-1992: Sections 8.2 Overhead bit functions"
+        ::= { ciuIfStatusEntry 3 }
+
+
+ciuIfFebeErrors OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of Far End Block Errors (FEBE) detected since 
+                 last boot. Whenever the CO (Central Office) receives a
+                 block of data from the router with a CRC error, the FEBE 
+                 count is incremented by one."
+        ::= { ciuIfStatusEntry 4 }
+
+ciuIfNebeErrors OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of Near End Block Errors (NEBE) detected since 
+                 last boot. Whenever the U transceiver receives a block of 
+                 data with a CRC error, the NEBE count is incremented by one."
+        ::= { ciuIfStatusEntry 5 }
+
+ciuIfLoopStatus OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    none                  (1),
+                    type2Loopback         (2),
+                    type3Loopback         (3),
+                    ntQuietMode           (4),
+                    ilmtMode              (5) 
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Current ISDN BRI integrated U interface Loop status and
+                 NT maintenance mode.  The definition of maintenance modes 
+                 are as follows:
+                 none - The U interface is not in either Loopback or
+                      maintenance mode.
+                 type2Loopback - Type 2 (CO to U interface) Loopback
+                      mode; this mode is set to perform the loopback between
+                      CO and the ISDN BRI integrated U interface.
+                 type3Loopback - Type 3 (processor to U interface) Loopback
+                      mode; this mode is set by router to perform the loopback
+                      between the router processor and the ISDN BRI integrated
+                      U interface.
+                 ntQuietMode - NT quiet mode; this mode is set by CO for
+                      metallic loop tests. In the NT quiet mode, the ISDN U 
+                      interface will not attempt a start-up or will not 
+                      initiate transmission during metallic loop tests 
+                      conducted by the network.
+                 ilmtMode - Insertion loss measurement test (ILMT); this mode 
+                      is set by CO for the Insertion loss measurement test. 
+                      The insertion loss measurement test will cause a known 
+                      test signal to be generated by the NT. This test will 
+                      be used in network measurements of DSL (Digital 
+                      Subscriber Line) transmission characteristics.
+                "
+        REFERENCE
+                "ANSI T1.601-1992: Sections 6.5 NT maintence modes"
+        ::= { ciuIfStatusEntry 6 }
+
+
+--****************************************************************************
+-- The External S/T port Status Table
+--****************************************************************************
+
+-- This table is used when the ISDN BRI integrated U interface type
+-- (ciuIfType) is set to onBoardIntegUandSTPort. This indicates that
+-- the ISDN BRI integrated U interface can support external S/T ports.
+-- The table supports multiple external S/T ports per U interface.
+
+ciuIfExternalSTPortStatusTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiuIfExternalSTPortStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The external S/T port status table. It contains the 
+                 operation status of the external ISDN S/T ports."
+        ::= { ciuIfExternalSTPort 1 }
+
+ciuIfExternalSTPortStatusEntry OBJECT-TYPE
+        SYNTAX      CiuIfExternalSTPortStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the status table for
+                 each external ISDN S/T port."
+        INDEX   { ifIndex, ciuIfExternalSTPortNumber }
+        ::= { ciuIfExternalSTPortStatusTable 1 }
+
+CiuIfExternalSTPortStatusEntry ::=
+        SEQUENCE {
+                ciuIfExternalSTPortNumber   INTEGER,
+                ciuIfExternalSTPortStatus   INTEGER
+               
+        }
+ciuIfExternalSTPortNumber OBJECT-TYPE
+        SYNTAX      INTEGER (1..8)
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The external ISDN S/T port number."
+        ::= { ciuIfExternalSTPortStatusEntry 1 }
+
+ciuIfExternalSTPortStatus OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    activated         (1),
+                    activationPending (2),
+                    deactivated       (3)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the operation status of the external 
+                 ISDN S/T port.          
+                 activated - The external ISDN S/T port is activated.
+                             The port is active and data can be transmitted 
+                             and received on the port.
+                 activationPending - The external ISDN S/T port is in
+                                     activation pending state.  Either the CO 
+                                     or the router has initiated activation
+                                     of the port, but activation has not yet 
+                                     completed.  Data cannot be transmitted
+                                     or received.
+                 deactivated - The external ISDN S/T port is deactivated.
+                               Either no ISDN device is attached to the 
+                               external S/T port or the ISDN line to the CO is 
+                               deactivated.  Data cannot be transmitted or 
+                               received on the S/T port.
+                "
+        ::= { ciuIfExternalSTPortStatusEntry 2 }
+
+--****************************************************************************
+-- Notification Enables              
+--****************************************************************************
+
+ciuIfEnableULoopStatusNotification OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Indicates whether or not an ISDN BRI integrated U 
+                 interface Loop status notification 
+                 (ciuIfLoopStatusNotification) will be generated by 
+                 this router."
+        DEFVAL { false }
+        ::= { ciuIfMIBNotificationEnables 1 }
+
+
+
+--****************************************************************************
+-- Notifications
+--****************************************************************************
+
+ciuIfMIBNotificationPrefix
+        OBJECT IDENTIFIER ::= { ciscoIsdnuIfMIB 2 }
+ciuIfMIBNotifications
+        OBJECT IDENTIFIER ::= { ciuIfMIBNotificationPrefix 0 }
+
+
+ciuIfLoopStatusNotification NOTIFICATION-TYPE
+        OBJECTS { ciuIfLoopStatus }
+        STATUS current
+        DESCRIPTION
+                " A ciuIfLoopStatusNotification is sent when there is a
+                  change in ciscoIsdnuIfLoopStatus object. The status change
+                  occurs when the ISDN BRI integrated U interface enters into
+                  or exits from Loopback or Maintenance modes.
+                "
+        ::= { ciuIfMIBNotifications 1 }
+
+
+--****************************************************************************
+-- Conformance and compliance statements
+--****************************************************************************
+
+-- conformance information
+
+ciuIfMIBConformance
+        OBJECT IDENTIFIER ::= { ciscoIsdnuIfMIB 3 }
+ciuIfMIBCompliances
+        OBJECT IDENTIFIER ::= { ciuIfMIBConformance 1 }
+ciuIfMIBGroups
+        OBJECT IDENTIFIER ::= { ciuIfMIBConformance 2 }
+
+
+-- compliance statements
+
+ciuIfMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                 the Cisco ISDN BRI integrated U interface MIB"
+        MODULE  -- compliance to this module
+                MANDATORY-GROUPS {
+                        ciuIfMIBGroup
+                }
+
+        ::= { ciuIfMIBCompliances 1 }
+
+-- units of conformance
+
+ciuIfMIBGroup OBJECT-GROUP
+        OBJECTS {
+                ciuIfType,
+                ciuIfStatus,
+                ciuIfEocCommand,
+                ciuIfOverHeadBits,
+                ciuIfFebeErrors,
+                ciuIfNebeErrors,
+                ciuIfLoopStatus,
+                ciuIfExternalSTPortStatus,
+                ciuIfEnableULoopStatusNotification
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing information
+                 about the Cisco ISDN BRI integrated U interface."
+        ::= { ciuIfMIBGroups 1 }
+
+
+END

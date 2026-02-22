@@ -1,0 +1,1027 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-FAULT-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- FAULT management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-FAULT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApConditionAckAction,
+    CfprApConditionCause,
+    CfprApConditionCode,
+    CfprApConditionLifecycle,
+    CfprApConditionRule,
+    CfprApConditionSeverity,
+    CfprApConditionTag,
+    CfprApConditionType,
+    CfprApFaultBasePolicyClearAction,
+    CfprApFaultBasePolicySoakingSeverity,
+    CfprApMoMoClassId,
+    CfprApPolicyPolicyOwner,
+    CfprApTrigAdminState,
+    CfprApTrigTrigOperState
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApFaultObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        FAULT management information model package"
+    ::= { ciscoFirepowerApMIBObjects 1 }
+
+cfprApFaultAffectedClassTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultAffectedClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:AffectedClass managed object table"
+    ::= { cfprApFaultObjects 2 }
+
+cfprApFaultAffectedClassEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultAffectedClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultAffectedClassTable table."
+    INDEX { cfprApFaultAffectedClassInstanceId }
+    ::= { cfprApFaultAffectedClassTable 1 }
+
+CfprApFaultAffectedClassEntry ::= SEQUENCE {
+    cfprApFaultAffectedClassInstanceId                               CfprApManagedObjectId,
+    cfprApFaultAffectedClassDn                                       CfprApManagedObjectDn,
+    cfprApFaultAffectedClassRn                                       SnmpAdminString,
+    cfprApFaultAffectedClassMoClassId                                CfprApMoMoClassId
+}
+
+cfprApFaultAffectedClassInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultAffectedClassEntry 1 }
+
+cfprApFaultAffectedClassDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:AffectedClass:dn managed object property"
+    ::= { cfprApFaultAffectedClassEntry 2 }
+
+cfprApFaultAffectedClassRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:AffectedClass:rn managed object property"
+    ::= { cfprApFaultAffectedClassEntry 3 }
+
+cfprApFaultAffectedClassMoClassId OBJECT-TYPE
+    SYNTAX       CfprApMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:AffectedClass:moClassId
+        managed object property"
+    ::= { cfprApFaultAffectedClassEntry 4 }
+
+cfprApFaultHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:Holder managed object table"
+    ::= { cfprApFaultObjects 3 }
+
+cfprApFaultHolderEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultHolderTable table."
+    INDEX { cfprApFaultHolderInstanceId }
+    ::= { cfprApFaultHolderTable 1 }
+
+CfprApFaultHolderEntry ::= SEQUENCE {
+    cfprApFaultHolderInstanceId                                      CfprApManagedObjectId,
+    cfprApFaultHolderDn                                              CfprApManagedObjectDn,
+    cfprApFaultHolderRn                                              SnmpAdminString,
+    cfprApFaultHolderName                                            SnmpAdminString,
+    cfprApFaultHolderTotalFaults                                     Unsigned64
+}
+
+cfprApFaultHolderInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultHolderEntry 1 }
+
+cfprApFaultHolderDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Holder:dn managed object property"
+    ::= { cfprApFaultHolderEntry 2 }
+
+cfprApFaultHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Holder:rn managed object property"
+    ::= { cfprApFaultHolderEntry 3 }
+
+cfprApFaultHolderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Holder:name managed object property"
+    ::= { cfprApFaultHolderEntry 4 }
+
+cfprApFaultHolderTotalFaults OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Holder:totalFaults managed object property"
+    ::= { cfprApFaultHolderEntry 5 }
+
+cfprApFaultInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst managed object table"
+    ::= { cfprApFaultObjects 1 }
+
+cfprApFaultInstEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultInstTable table."
+    INDEX { cfprApFaultInstInstanceId }
+    ::= { cfprApFaultInstTable 1 }
+
+CfprApFaultInstEntry ::= SEQUENCE {
+    cfprApFaultInstInstanceId                                        CfprApManagedObjectId,
+    cfprApFaultInstDn                                                CfprApManagedObjectDn,
+    cfprApFaultInstRn                                                SnmpAdminString,
+    cfprApFaultInstAffectedObjectId                                  RowPointer,
+    cfprApFaultInstAffectedObjectDn                                  CfprApManagedObjectDn,
+    cfprApFaultInstAck                                               TruthValue,
+    cfprApFaultInstCause                                             CfprApConditionCause,
+    cfprApFaultInstChangeSet                                         SnmpAdminString,
+    cfprApFaultInstCode                                              CfprApConditionCode,
+    cfprApFaultInstCreated                                           DateAndTime,
+    cfprApFaultInstDescr                                             SnmpAdminString,
+    cfprApFaultInstHighestSeverity                                   CfprApConditionSeverity,
+    cfprApFaultInstId                                                Unsigned64,
+    cfprApFaultInstLastTransition                                    DateAndTime,
+    cfprApFaultInstLc                                                CfprApConditionLifecycle,
+    cfprApFaultInstOccur                                             Gauge32,
+    cfprApFaultInstOrigSeverity                                      CfprApConditionSeverity,
+    cfprApFaultInstPrevSeverity                                      CfprApConditionSeverity,
+    cfprApFaultInstRule                                              CfprApConditionRule,
+    cfprApFaultInstSeverity                                          CfprApConditionSeverity,
+    cfprApFaultInstTags                                              CfprApConditionTag,
+    cfprApFaultInstType                                              CfprApConditionType
+}
+
+cfprApFaultInstInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultInstEntry 1 }
+
+cfprApFaultInstDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:dn managed object property"
+    ::= { cfprApFaultInstEntry 2 }
+
+cfprApFaultInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:rn managed object property"
+    ::= { cfprApFaultInstEntry 3 }
+
+cfprApFaultInstAffectedObjectId OBJECT-TYPE
+    SYNTAX       RowPointer
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:affectedObjectId managed
+        object property"
+    ::= { cfprApFaultInstEntry 4 }
+
+cfprApFaultInstAffectedObjectDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:affectedObjectDn managed
+        object property"
+    ::= { cfprApFaultInstEntry 5 }
+
+cfprApFaultInstAck OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:ack managed object property"
+    ::= { cfprApFaultInstEntry 6 }
+
+cfprApFaultInstCause OBJECT-TYPE
+    SYNTAX       CfprApConditionCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:cause managed object property"
+    ::= { cfprApFaultInstEntry 7 }
+
+cfprApFaultInstChangeSet OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:changeSet managed object property"
+    ::= { cfprApFaultInstEntry 8 }
+
+cfprApFaultInstCode OBJECT-TYPE
+    SYNTAX       CfprApConditionCode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:code managed object property"
+    ::= { cfprApFaultInstEntry 9 }
+
+cfprApFaultInstCreated OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:created managed object property"
+    ::= { cfprApFaultInstEntry 10 }
+
+cfprApFaultInstDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:descr managed object property"
+    ::= { cfprApFaultInstEntry 11 }
+
+cfprApFaultInstHighestSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:highestSeverity managed
+        object property"
+    ::= { cfprApFaultInstEntry 12 }
+
+cfprApFaultInstId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:id managed object property"
+    ::= { cfprApFaultInstEntry 13 }
+
+cfprApFaultInstLastTransition OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:lastTransition managed
+        object property"
+    ::= { cfprApFaultInstEntry 14 }
+
+cfprApFaultInstLc OBJECT-TYPE
+    SYNTAX       CfprApConditionLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:lc managed object property"
+    ::= { cfprApFaultInstEntry 15 }
+
+cfprApFaultInstOccur OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:occur managed object property"
+    ::= { cfprApFaultInstEntry 16 }
+
+cfprApFaultInstOrigSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:origSeverity managed object property"
+    ::= { cfprApFaultInstEntry 17 }
+
+cfprApFaultInstPrevSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:prevSeverity managed object property"
+    ::= { cfprApFaultInstEntry 18 }
+
+cfprApFaultInstRule OBJECT-TYPE
+    SYNTAX       CfprApConditionRule
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:rule managed object property"
+    ::= { cfprApFaultInstEntry 19 }
+
+cfprApFaultInstSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:severity managed object property"
+    ::= { cfprApFaultInstEntry 20 }
+
+cfprApFaultInstTags OBJECT-TYPE
+    SYNTAX       CfprApConditionTag
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:tags managed object property"
+    ::= { cfprApFaultInstEntry 21 }
+
+cfprApFaultInstType OBJECT-TYPE
+    SYNTAX       CfprApConditionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Inst:type managed object property"
+    ::= { cfprApFaultInstEntry 22 }
+
+cfprApFaultLocalTypedHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultLocalTypedHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:LocalTypedHolder managed object table"
+    ::= { cfprApFaultObjects 4 }
+
+cfprApFaultLocalTypedHolderEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultLocalTypedHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultLocalTypedHolderTable table."
+    INDEX { cfprApFaultLocalTypedHolderInstanceId }
+    ::= { cfprApFaultLocalTypedHolderTable 1 }
+
+CfprApFaultLocalTypedHolderEntry ::= SEQUENCE {
+    cfprApFaultLocalTypedHolderInstanceId                            CfprApManagedObjectId,
+    cfprApFaultLocalTypedHolderDn                                    CfprApManagedObjectDn,
+    cfprApFaultLocalTypedHolderRn                                    SnmpAdminString,
+    cfprApFaultLocalTypedHolderName                                  SnmpAdminString,
+    cfprApFaultLocalTypedHolderTotalFaults                           Unsigned64,
+    cfprApFaultLocalTypedHolderType                                  CfprApConditionType
+}
+
+cfprApFaultLocalTypedHolderInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultLocalTypedHolderEntry 1 }
+
+cfprApFaultLocalTypedHolderDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:LocalTypedHolder:dn managed
+        object property"
+    ::= { cfprApFaultLocalTypedHolderEntry 2 }
+
+cfprApFaultLocalTypedHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:LocalTypedHolder:rn managed
+        object property"
+    ::= { cfprApFaultLocalTypedHolderEntry 3 }
+
+cfprApFaultLocalTypedHolderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:LocalTypedHolder:name managed
+        object property"
+    ::= { cfprApFaultLocalTypedHolderEntry 4 }
+
+cfprApFaultLocalTypedHolderTotalFaults OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:LocalTypedHolder:totalFaults
+        managed object property"
+    ::= { cfprApFaultLocalTypedHolderEntry 5 }
+
+cfprApFaultLocalTypedHolderType OBJECT-TYPE
+    SYNTAX       CfprApConditionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:LocalTypedHolder:type managed
+        object property"
+    ::= { cfprApFaultLocalTypedHolderEntry 6 }
+
+cfprApFaultPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy managed object table"
+    ::= { cfprApFaultObjects 5 }
+
+cfprApFaultPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultPolicyTable table."
+    INDEX { cfprApFaultPolicyInstanceId }
+    ::= { cfprApFaultPolicyTable 1 }
+
+CfprApFaultPolicyEntry ::= SEQUENCE {
+    cfprApFaultPolicyInstanceId                                      CfprApManagedObjectId,
+    cfprApFaultPolicyDn                                              CfprApManagedObjectDn,
+    cfprApFaultPolicyRn                                              SnmpAdminString,
+    cfprApFaultPolicyAckAction                                       CfprApConditionAckAction,
+    cfprApFaultPolicyClearAction                                     CfprApFaultBasePolicyClearAction,
+    cfprApFaultPolicyClearInterval                                   TimeIntervalSec,
+    cfprApFaultPolicyDescr                                           SnmpAdminString,
+    cfprApFaultPolicyFlapInterval                                    Unsigned64,
+    cfprApFaultPolicyIntId                                           SnmpAdminString,
+    cfprApFaultPolicyName                                            SnmpAdminString,
+    cfprApFaultPolicyPolicyLevel                                     Gauge32,
+    cfprApFaultPolicyPolicyOwner                                     CfprApPolicyPolicyOwner,
+    cfprApFaultPolicyRetentionInterval                               TimeIntervalSec,
+    cfprApFaultPolicySizeLimit                                       Gauge32,
+    cfprApFaultPolicySoakInterval                                    TimeIntervalSec,
+    cfprApFaultPolicySoakingSeverity                                 CfprApFaultBasePolicySoakingSeverity
+}
+
+cfprApFaultPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultPolicyEntry 1 }
+
+cfprApFaultPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:dn managed object property"
+    ::= { cfprApFaultPolicyEntry 2 }
+
+cfprApFaultPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:rn managed object property"
+    ::= { cfprApFaultPolicyEntry 3 }
+
+cfprApFaultPolicyAckAction OBJECT-TYPE
+    SYNTAX       CfprApConditionAckAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:ackAction managed object property"
+    ::= { cfprApFaultPolicyEntry 4 }
+
+cfprApFaultPolicyClearAction OBJECT-TYPE
+    SYNTAX       CfprApFaultBasePolicyClearAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:clearAction managed object property"
+    ::= { cfprApFaultPolicyEntry 5 }
+
+cfprApFaultPolicyClearInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:clearInterval managed
+        object property"
+    ::= { cfprApFaultPolicyEntry 6 }
+
+cfprApFaultPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:descr managed object property"
+    ::= { cfprApFaultPolicyEntry 7 }
+
+cfprApFaultPolicyFlapInterval OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:flapInterval managed
+        object property"
+    ::= { cfprApFaultPolicyEntry 8 }
+
+cfprApFaultPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:intId managed object property"
+    ::= { cfprApFaultPolicyEntry 9 }
+
+cfprApFaultPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:name managed object property"
+    ::= { cfprApFaultPolicyEntry 10 }
+
+cfprApFaultPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:policyLevel managed object property"
+    ::= { cfprApFaultPolicyEntry 11 }
+
+cfprApFaultPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:policyOwner managed object property"
+    ::= { cfprApFaultPolicyEntry 12 }
+
+cfprApFaultPolicyRetentionInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:retentionInterval
+        managed object property"
+    ::= { cfprApFaultPolicyEntry 13 }
+
+cfprApFaultPolicySizeLimit OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:sizeLimit managed object property"
+    ::= { cfprApFaultPolicyEntry 14 }
+
+cfprApFaultPolicySoakInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:soakInterval managed
+        object property"
+    ::= { cfprApFaultPolicyEntry 15 }
+
+cfprApFaultPolicySoakingSeverity OBJECT-TYPE
+    SYNTAX       CfprApFaultBasePolicySoakingSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:Policy:soakingSeverity managed
+        object property"
+    ::= { cfprApFaultPolicyEntry 16 }
+
+cfprApFaultSuppressPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultSuppressPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy managed object table"
+    ::= { cfprApFaultObjects 6 }
+
+cfprApFaultSuppressPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultSuppressPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultSuppressPolicyTable table."
+    INDEX { cfprApFaultSuppressPolicyInstanceId }
+    ::= { cfprApFaultSuppressPolicyTable 1 }
+
+CfprApFaultSuppressPolicyEntry ::= SEQUENCE {
+    cfprApFaultSuppressPolicyInstanceId                              CfprApManagedObjectId,
+    cfprApFaultSuppressPolicyDn                                      CfprApManagedObjectDn,
+    cfprApFaultSuppressPolicyRn                                      SnmpAdminString,
+    cfprApFaultSuppressPolicyDescr                                   SnmpAdminString,
+    cfprApFaultSuppressPolicyIntId                                   SnmpAdminString,
+    cfprApFaultSuppressPolicyName                                    SnmpAdminString,
+    cfprApFaultSuppressPolicyPolicyLevel                             Gauge32,
+    cfprApFaultSuppressPolicyPolicyOwner                             CfprApPolicyPolicyOwner
+}
+
+cfprApFaultSuppressPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultSuppressPolicyEntry 1 }
+
+cfprApFaultSuppressPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy:dn managed object property"
+    ::= { cfprApFaultSuppressPolicyEntry 2 }
+
+cfprApFaultSuppressPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy:rn managed object property"
+    ::= { cfprApFaultSuppressPolicyEntry 3 }
+
+cfprApFaultSuppressPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy:descr managed
+        object property"
+    ::= { cfprApFaultSuppressPolicyEntry 4 }
+
+cfprApFaultSuppressPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy:intId managed
+        object property"
+    ::= { cfprApFaultSuppressPolicyEntry 5 }
+
+cfprApFaultSuppressPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy:name managed
+        object property"
+    ::= { cfprApFaultSuppressPolicyEntry 6 }
+
+cfprApFaultSuppressPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy:policyLevel
+        managed object property"
+    ::= { cfprApFaultSuppressPolicyEntry 7 }
+
+cfprApFaultSuppressPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicy:policyOwner
+        managed object property"
+    ::= { cfprApFaultSuppressPolicyEntry 8 }
+
+cfprApFaultSuppressPolicyItemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultSuppressPolicyItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicyItem managed object table"
+    ::= { cfprApFaultObjects 7 }
+
+cfprApFaultSuppressPolicyItemEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultSuppressPolicyItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultSuppressPolicyItemTable table."
+    INDEX { cfprApFaultSuppressPolicyItemInstanceId }
+    ::= { cfprApFaultSuppressPolicyItemTable 1 }
+
+CfprApFaultSuppressPolicyItemEntry ::= SEQUENCE {
+    cfprApFaultSuppressPolicyItemInstanceId                          CfprApManagedObjectId,
+    cfprApFaultSuppressPolicyItemDn                                  CfprApManagedObjectDn,
+    cfprApFaultSuppressPolicyItemRn                                  SnmpAdminString,
+    cfprApFaultSuppressPolicyItemCause                               CfprApConditionCause,
+    cfprApFaultSuppressPolicyItemDescr                               SnmpAdminString,
+    cfprApFaultSuppressPolicyItemType                                CfprApConditionType
+}
+
+cfprApFaultSuppressPolicyItemInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultSuppressPolicyItemEntry 1 }
+
+cfprApFaultSuppressPolicyItemDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicyItem:dn managed
+        object property"
+    ::= { cfprApFaultSuppressPolicyItemEntry 2 }
+
+cfprApFaultSuppressPolicyItemRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicyItem:rn managed
+        object property"
+    ::= { cfprApFaultSuppressPolicyItemEntry 3 }
+
+cfprApFaultSuppressPolicyItemCause OBJECT-TYPE
+    SYNTAX       CfprApConditionCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicyItem:cause
+        managed object property"
+    ::= { cfprApFaultSuppressPolicyItemEntry 4 }
+
+cfprApFaultSuppressPolicyItemDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicyItem:descr
+        managed object property"
+    ::= { cfprApFaultSuppressPolicyItemEntry 5 }
+
+cfprApFaultSuppressPolicyItemType OBJECT-TYPE
+    SYNTAX       CfprApConditionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressPolicyItem:type
+        managed object property"
+    ::= { cfprApFaultSuppressPolicyItemEntry 6 }
+
+cfprApFaultSuppressTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFaultSuppressTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask managed object table"
+    ::= { cfprApFaultObjects 8 }
+
+cfprApFaultSuppressTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApFaultSuppressTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFaultSuppressTaskTable table."
+    INDEX { cfprApFaultSuppressTaskInstanceId }
+    ::= { cfprApFaultSuppressTaskTable 1 }
+
+CfprApFaultSuppressTaskEntry ::= SEQUENCE {
+    cfprApFaultSuppressTaskInstanceId                                CfprApManagedObjectId,
+    cfprApFaultSuppressTaskDn                                        CfprApManagedObjectDn,
+    cfprApFaultSuppressTaskRn                                        SnmpAdminString,
+    cfprApFaultSuppressTaskAdminState                                CfprApTrigAdminState,
+    cfprApFaultSuppressTaskAutoDelete                                TruthValue,
+    cfprApFaultSuppressTaskDescr                                     SnmpAdminString,
+    cfprApFaultSuppressTaskIgnoreCap                                 TruthValue,
+    cfprApFaultSuppressTaskIntId                                     SnmpAdminString,
+    cfprApFaultSuppressTaskName                                      SnmpAdminString,
+    cfprApFaultSuppressTaskOperScheduler                             SnmpAdminString,
+    cfprApFaultSuppressTaskOperState                                 CfprApTrigTrigOperState,
+    cfprApFaultSuppressTaskOperSuppressPolicyName                    SnmpAdminString,
+    cfprApFaultSuppressTaskPolicyLevel                               Gauge32,
+    cfprApFaultSuppressTaskPolicyOwner                               CfprApPolicyPolicyOwner,
+    cfprApFaultSuppressTaskScheduler                                 SnmpAdminString,
+    cfprApFaultSuppressTaskSuppressPolicyName                        SnmpAdminString
+}
+
+cfprApFaultSuppressTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFaultSuppressTaskEntry 1 }
+
+cfprApFaultSuppressTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:dn managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 2 }
+
+cfprApFaultSuppressTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:rn managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 3 }
+
+cfprApFaultSuppressTaskAdminState OBJECT-TYPE
+    SYNTAX       CfprApTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:adminState
+        managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 4 }
+
+cfprApFaultSuppressTaskAutoDelete OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:autoDelete
+        managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 5 }
+
+cfprApFaultSuppressTaskDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:descr managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 6 }
+
+cfprApFaultSuppressTaskIgnoreCap OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:ignoreCap managed
+        object property"
+    ::= { cfprApFaultSuppressTaskEntry 7 }
+
+cfprApFaultSuppressTaskIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:intId managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 8 }
+
+cfprApFaultSuppressTaskName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:name managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 9 }
+
+cfprApFaultSuppressTaskOperScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:operScheduler
+        managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 10 }
+
+cfprApFaultSuppressTaskOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigTrigOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:operState managed
+        object property"
+    ::= { cfprApFaultSuppressTaskEntry 11 }
+
+cfprApFaultSuppressTaskOperSuppressPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:operSuppressPolicyName
+        managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 12 }
+
+cfprApFaultSuppressTaskPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:policyLevel
+        managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 13 }
+
+cfprApFaultSuppressTaskPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:policyOwner
+        managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 14 }
+
+cfprApFaultSuppressTaskScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:scheduler managed
+        object property"
+    ::= { cfprApFaultSuppressTaskEntry 15 }
+
+cfprApFaultSuppressTaskSuppressPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower fault:SuppressTask:suppressPolicyName
+        managed object property"
+    ::= { cfprApFaultSuppressTaskEntry 16 }
+
+END

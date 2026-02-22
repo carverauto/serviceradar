@@ -1,0 +1,562 @@
+-- MIB file created 21-Sep-2009 17:38:16, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VIRTUAL-INTERFACE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VIRTUAL-INTERFACE-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    IANAifType
+            FROM IANAifType-MIB
+    PortMemberList
+            FROM CISCO-ST-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVirtualInterfaceMIB OBJECT IDENTIFIER ::= { ciscoMgmt 648 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200802270000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    Postal: 170 W Tasman Drive
+--    
+--            San Jose, CA  95134
+--    
+--            USA
+--    
+--    Tel: +1 800 553 -NETS
+--    
+--    E-mail: cs-nexus5000@cisco.com
+--  Descr
+--    The MIB module for creation and deletion of Virtual Interfaces
+--    and Virtual Interface Groups.  In addition to this MIB,
+--    interface mib (rfc2863) will also contain entries for virtual
+--    interfaces.
+--    
+--    There are two ways virtual interfaces can be created and bound
+--    to an interface. The MIB Object cvifGroupsSupported indicates
+--    if a particular system supports the Virtual Interface Group
+--    concept.
+--    
+--    If Virtual Interface Groups are supported, then a virtual
+--    interface is always created/deleted in conjunction with its
+--    associated Virtual Interface Group. The Virtual Interface
+--    Group, which may be associated to multiple virtual interfaces,
+--    is then bound to a physical interface or another virtual
+--    interface like an EtherChannel.
+--    
+--    If Virtual Interface Groups are not supported, then a virtual
+--    interface is created/deleted independently. And each virtual
+--    interface is bound to a physical interface or another virtual
+--    interface like an EtherChannel.
+--    
+--    In order for a virtual interface to become operational, it must
+--    be directly or indirectly (via its Virtual Interface Group)
+--    bound to a physical interface or possibly to another virtual
+--    interface such as an EtherChannel.
+--    
+--    The cvifGroupTable is only used if the MIB object
+--    cvifGroupsSupported indicates Virtual Interface Groups are
+--    supported.
+--  RevDate
+--    200802270000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoVirtualInterfaceMIBObjects OBJECT IDENTIFIER ::= { ciscoVirtualInterfaceMIB 1 }
+ciscoVirtualInterfaceMIBConformance OBJECT IDENTIFIER ::= { ciscoVirtualInterfaceMIB 2 }
+cvifGlobals     OBJECT IDENTIFIER ::= { ciscoVirtualInterfaceMIBObjects 1 }
+cvifConfig      OBJECT IDENTIFIER ::= { ciscoVirtualInterfaceMIBObjects 2 }
+cvifMIBCompliances OBJECT IDENTIFIER ::= { ciscoVirtualInterfaceMIBConformance 1 }
+cvifMIBGroups   OBJECT IDENTIFIER ::= { ciscoVirtualInterfaceMIBConformance 2 }
+
+cvifGroupsSupported OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is a boolean that indicates whether Virtual Interface
+        Groups are supported (and enabled). Note that many agents are
+        unlikely to support write-access for this object. If there are
+        entries in the cvifGroupTable when this value is being set to
+        false, the set will fail."
+    ::= { cvifGlobals 1 }
+
+cvifGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvifGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table facilitates the creation and deletion of a Virtual
+        Interface Group.  Entries in this table exist only if
+        cvifGroupsSupported is 'true'. A Virtual Interface Group is a
+        collection of virtual interfaces on an adapter in a server. The
+        virtual interfaces within a Virtual Interface Group do not need
+        to all have the same ifType."
+    ::= { cvifConfig 1 }
+
+cvifGroupEntry OBJECT-TYPE
+    SYNTAX CvifGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is one entry in this table for each created
+        Virtual Interface Group."
+    INDEX { cvifGroupIndex }
+    ::= { cvifGroupTable 1 }
+
+CvifGroupEntry ::= SEQUENCE {
+    cvifGroupIndex Gauge,
+    cvifGroupIfIndex InterfaceIndex,
+    cvifGroupBindingIfIndex InterfaceIndexOrZero,
+    cvifGroupMemberList PortMemberList,
+    cvifGroupCreationTime TimeStamp,
+    cvifGroupFailureCause SnmpAdminString,
+    cvifGroupOperState INTEGER,
+    cvifGroupRowStatus RowStatus
+    }
+
+cvifGroupIndex OBJECT-TYPE
+    SYNTAX Gauge(1..1024)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index that uniquely identifies an entry in the
+        cvifGroupTable table."
+    ::= { cvifGroupEntry 1 }
+
+cvifGroupIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of this Virtual Interface Group."
+    ::= { cvifGroupEntry 2 }
+
+cvifGroupBindingIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the physical interface or another virtual
+        interface like an Etherchannel bound to this Virtual Interface
+        Group. The binding can happen at Virtual Interface Group
+        creation time or at a later time. In order for Virtual Interface
+        Group to become operational, binding to a physical interface or
+        a virtual interface like an Etherchannel is mandatory. When the
+        virtual interface group is not bound to an interface, this field
+        has a value of zero."
+    ::= { cvifGroupEntry 3 }
+
+cvifGroupMemberList OBJECT-TYPE
+    SYNTAX PortMemberList
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The list of Virtual interfaces in the Virtual Interface Group."
+    DEFVAL { ''H }
+    ::= { cvifGroupEntry 4 }
+
+cvifGroupCreationTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The timestamp of this entry's creation time."
+    ::= { cvifGroupEntry 5 }
+
+cvifGroupFailureCause OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cause of failure for the last bind operation. This object
+        will be zero length if and only if the bind is successful. After
+        a successful bind operation, the value of cvifGroupOperState is
+        set to 'up'."
+    ::= { cvifGroupEntry 6 }
+
+cvifGroupOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational state of the Virtual Interface Group."
+    ::= { cvifGroupEntry 7 }
+
+cvifGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. The RowStatus becomes active
+        on successful creation of a Virtual Interface Group. It is not
+        necessary for the cvifGroupBindingIfIndex to be set at the time
+        of creation."
+    ::= { cvifGroupEntry 8 }
+
+cvifTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvifEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table facilitates the creation and deletion of virtual
+        interfaces.  Virtual interfaces may or may not be associated
+        with a Virtual Interface Group according to the value of
+        cvifGroupsSupported. In order for a virtual interface to become
+        operational, it must be directly bound to a physical interface
+        or another virtual interface like an EtherChannel or indirectly
+        bound via its Virtual Interface Group.  At creation time, the
+        cvifType must be identified."
+    ::= { cvifConfig 2 }
+
+cvifEntry OBJECT-TYPE
+    SYNTAX CvifEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is one entry in this table for each created virtual
+        Interface"
+    INDEX { cvifIndex, cvifType }
+    ::= { cvifTable 1 }
+
+CvifEntry ::= SEQUENCE {
+    cvifIndex Gauge,
+    cvifType IANAifType,
+    cvifIfIndex InterfaceIndex,
+    cvifCreationTime TimeStamp,
+    cvifBindingIfIndex InterfaceIndexOrZero,
+    cvifFailureCause SnmpAdminString,
+    cvifRowStatus RowStatus
+    }
+
+cvifIndex OBJECT-TYPE
+    SYNTAX Gauge(1..1024)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "When Virtual Interface Groups (as indicated by the
+        cvifGroupsSupported MIB object) are supported, this is the
+        Virtual Interface Group index. Otherwise, this index identifies
+        the virtual interface."
+    ::= { cvifEntry 1 }
+
+cvifType OBJECT-TYPE
+    SYNTAX IANAifType
+--    Rsyntax INTEGER {
+--        other(1),
+--        regular1822(2),
+--        hdh1822(3),
+--        ddnX25(4),
+--        rfc877x25(5),
+--        ethernetCsmacd(6),
+--        iso88023Csmacd(7),
+--        iso88024TokenBus(8),
+--        iso88025TokenRing(9),
+--        iso88026Man(10),
+--        starLan(11),
+--        proteon10Mbit(12),
+--        proteon80Mbit(13),
+--        hyperchannel(14),
+--        fddi(15),
+--        lapb(16),
+--        sdlc(17),
+--        ds1(18),
+--        e1(19),
+--        basicISDN(20),
+--        primaryISDN(21),
+--        propPointToPointSerial(22),
+--        ppp(23),
+--        softwareLoopback(24),
+--        eon(25),
+--        ethernet3Mbit(26),
+--        nsip(27),
+--        slip(28),
+--        ultra(29),
+--        ds3(30),
+--        sip(31),
+--        frameRelay(32),
+--        rs232(33),
+--        para(34),
+--        arcnet(35),
+--        arcnetPlus(36),
+--        atm(37),
+--        miox25(38),
+--        sonet(39),
+--        x25ple(40),
+--        iso88022llc(41),
+--        localTalk(42),
+--        smdsDxi(43),
+--        frameRelayService(44),
+--        v35(45),
+--        hssi(46),
+--        hippi(47),
+--        modem(48),
+--        aal5(49),
+--        sonetPath(50),
+--        sonetVT(51),
+--        smdsIcip(52),
+--        propVirtual(53),
+--        propMultiplexor(54),
+--        ieee80212(55),
+--        fibreChannel(56),
+--        hippiInterface(57),
+--        frameRelayInterconnect(58),
+--        aflane8023(59),
+--        aflane8025(60),
+--        cctEmul(61),
+--        fastEther(62),
+--        isdn(63),
+--        v11(64),
+--        v36(65),
+--        g703at64k(66),
+--        g703at2mb(67),
+--        qllc(68),
+--        fastEtherFX(69),
+--        channel(70),
+--        ieee80211(71),
+--        ibm370parChan(72),
+--        escon(73),
+--        dlsw(74),
+--        isdns(75),
+--        isdnu(76),
+--        lapd(77),
+--        ipSwitch(78),
+--        rsrb(79),
+--        atmLogical(80),
+--        ds0(81),
+--        ds0Bundle(82),
+--        bsc(83),
+--        async(84),
+--        cnr(85),
+--        iso88025Dtr(86),
+--        eplrs(87),
+--        arap(88),
+--        propCnls(89),
+--        hostPad(90),
+--        termPad(91),
+--        frameRelayMPI(92),
+--        x213(93),
+--        adsl(94),
+--        radsl(95),
+--        sdsl(96),
+--        vdsl(97),
+--        iso88025CRFPInt(98),
+--        myrinet(99),
+--        voiceEM(100),
+--        voiceFXO(101),
+--        voiceFXS(102),
+--        voiceEncap(103),
+--        voiceOverIp(104),
+--        atmDxi(105),
+--        atmFuni(106),
+--        atmIma(107),
+--        pppMultilinkBundle(108),
+--        ipOverCdlc(109),
+--        ipOverClaw(110),
+--        stackToStack(111),
+--        virtualIpAddress(112),
+--        mpc(113),
+--        ipOverAtm(114),
+--        iso88025Fiber(115),
+--        tdlc(116),
+--        gigabitEthernet(117)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of virtual interface desired by the network manager.
+        If and when a row is created in this table by using a SetRequest
+        to cvifRowStatus, the corresponding ifTable row will be created
+        by the agent with its ifType as specified by this object.
+        
+        Note that agents are unlikely to support more than a few values
+        for this object, e.g., 'ethernetCsmacd(6)' and
+        'fibreChannel(56)'."
+    ::= { cvifEntry 2 }
+
+cvifIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of this virtual interface."
+    ::= { cvifEntry 3 }
+
+cvifCreationTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The timestamp of this entry's creation time."
+    ::= { cvifEntry 4 }
+
+cvifBindingIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This field is supported only when Virtual Interface Groups are
+        not supported, as indicated by the cvifGroupsSupported MIB
+        object.  It identifies the ifIndex of the interface that this
+        virtual interface is bound to. In order for a virtual interface
+        to become operational, in the absence of Virtual Interface
+        Groups, binding to an interface is mandatory. When the virtual
+        interface is not bound to an interface, this field has a
+        value of zero."
+    ::= { cvifEntry 5 }
+
+cvifFailureCause OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This field is supported only when Virtual Interface Groups are
+        not supported, as indicated by the cvifGroupsSupported MIB
+        object. The cause of failure for the last bind operation. This
+        object will be zero length if and only if the bind is
+        successful."
+    ::= { cvifEntry 6 }
+
+cvifRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. The RowStatus becomes active
+        on successful creation of a virtual interface. If Virtual
+        Interface Groups are not supported, as indicated by the
+        cvifGroupsSupported MIB object, the virtual interface must be
+        bound to a physical interface or another virtual interface like
+        an Etherchannel before it can become operational."
+    ::= { cvifEntry 7 }
+
+cvifGroupConformanceObjects OBJECT IDENTIFIER ::= { cvifMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to implementation of
+--    virtual interfaces bound to Virtual Interface Groups.
+--  objects
+--    cvifGroupIfIndex, cvifGroupBindingIfIndex, 
+--    cvifGroupMemberList, cvifGroupCreationTime, 
+--    cvifGroupFailureCause, cvifGroupOperState, cvifGroupRowStatus
+
+cvifCommonConformanceObjects OBJECT IDENTIFIER ::= { cvifMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to all implementations
+--    of virtual interfaces.
+--  objects
+--    cvifGroupsSupported, cvifIfIndex, cvifCreationTime, 
+--    cvifRowStatus
+
+cvifPhysicalConformanceObjects OBJECT IDENTIFIER ::= { cvifMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to implementation of
+--    virtual interfaces bound to physical interfaces.
+--  objects
+--    cvifBindingIfIndex, cvifFailureCause
+
+cvifGroupMIBCompliance OBJECT IDENTIFIER ::= { cvifMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the
+--    CISCO-VIRTUAL-INTERFACE-MIB mib, with support for Virtual
+--    Interface Groups, as indicated by the cvifGroupsSupported MIB
+--    object.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvifGroupConformanceObjects
+--   MandGroup
+--    cvifCommonConformanceObjects
+--   ObjVar
+--    cvifGroupsSupported
+--   ObjVar
+--    cvifGroupBindingIfIndex
+--   ObjVar
+--    cvifGroupRowStatus
+--   ObjVar
+--    cvifRowStatus
+
+cvifMIBCompliance OBJECT IDENTIFIER ::= { cvifMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the
+--    CISCO-VIRTUAL-INTERFACE-MIB mib, without support for Virtual
+--    Interface Groups, as indicated by the cvifGroupsSupported MIB
+--    object.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvifPhysicalConformanceObjects
+--   MandGroup
+--    cvifCommonConformanceObjects
+--   ObjVar
+--    cvifGroupsSupported
+--   ObjVar
+--    cvifBindingIfIndex
+--   ObjVar
+--    cvifRowStatus
+
+
+END
+

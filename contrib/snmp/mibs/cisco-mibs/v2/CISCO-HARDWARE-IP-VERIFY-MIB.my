@@ -1,0 +1,278 @@
+-- *****************************************************************
+-- CISCO-HARDWARE-IP-VERIFY-MIB.my
+--   
+-- June 2012, Yan Gao, Liang Mei
+--   
+-- Copyright (c) 2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-HARDWARE-IP-VERIFY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoHardwareIpVerifyMIB MODULE-IDENTITY
+    LAST-UPDATED    "201209040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines management objects for
+        configuration and monitoring of the Intrusion 
+        Detection System (IDS) that checks for IP packet
+        verification. 
+
+        The following terms are used throughout the MIB:
+            IDS:  Intrusion Detection System
+            CRC:  Cyclic Redundancy Check
+             DF:  Don't Fragment
+        "
+        
+    REVISION        "201209040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 804 }
+
+
+ciscoHardwareIpVerifyMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoHardwareIpVerifyMIB 0 }
+
+ciscoHardwareIpVerifyMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoHardwareIpVerifyMIB 1 }
+
+ciscoHardwareIpVerifyMIBConform   OBJECT IDENTIFIER
+    ::= { ciscoHardwareIpVerifyMIB 2 }
+
+-- --------------------------------------------------------------
+-- Objects to manage IP packet verification Information
+-- --------------------------------------------------------------
+
+chivIpVerifyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ChivIpVerifyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of IDS check configuration and statistical information 
+        for each IP type and each IDS check type on the management
+        device."
+    ::= { ciscoHardwareIpVerifyMIBObjects 1 }
+
+chivIpVerifyEntry OBJECT-TYPE
+    SYNTAX          ChivIpVerifyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry contains the IDS packet check configuration 
+        information and the associated counters."
+    INDEX           { 
+                      chivIpVerifyCheckIpType, 
+                      chivIpVerifyCheckTypeName 
+                    } 
+    ::= { chivIpVerifyTable 1 }
+
+ChivIpVerifyEntry ::= SEQUENCE {
+        chivIpVerifyCheckIpType     INTEGER,
+        chivIpVerifyCheckTypeName   INTEGER,
+        chivIpVerifyCheckStatus     INTEGER,
+        chivIpVerifyPacketsDropped  Counter64
+}
+
+chivIpVerifyCheckIpType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        ipv4(1), -- IPv4 
+                        ipv6(2)  -- IPv6 
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address type for 
+        IDS packet check." 
+    ::= { chivIpVerifyEntry 1 }
+
+chivIpVerifyCheckTypeName OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        addressSrcBroadcast(1),
+                        addressSrcMulticast(2),
+                        addressDestZero(3),
+                        addressIdentical(4),
+                        addressSrcReserved(5),
+                        addressClassE(6),
+                        checksum(7),
+                        protocol(8),
+                        fragment(9),
+                        lengthMinimum(10),
+                        lengthConsistent(11),
+                        lengthMaximumFragment(12),
+                        lengthMaximumUdp(13),
+                        lengthMaximumTcp(14),
+                        tcpFlags(15),
+                        tcpTinyFlags(16),
+                        version(17)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IDS packet check type
+        which can be configured on the device. Each check type
+        is a specific criteria. Those IP packets 
+        that matches the certain criteria are dropped. 
+
+            addressSrcBroadcast(1)
+                Drop the IPv4 packet if the source 
+                address is a broadcast IPv4 address.
+
+            addressSrcMulticast(2)
+                Drop the IPv4 packet if the source 
+                address is a multicast IPv4 address.
+
+            addressDestZero(3)
+                Drop the IPv4 packet if the destination 
+                address is 0.0.0.0.
+
+            addressIdentical(4)
+                Drop the IPv4 packet if the source IPv4 
+                address is identical to destination IPv4 
+                address.
+
+            addressSrcReserved(5)
+                Drop the IPv4 packet if the source address 
+                is a reserved IPv4 address.
+
+            addressClassE(6)
+                Drop the IPv4 packet if either the source 
+                address or destination address is a class E 
+                IPv4 address.
+
+            checksum(7)
+                Drops the IPv4 packet if its checksum is invalid.
+
+            protocol(8)
+                Drop the IPv4 packet if the packet fragment 
+                has an invalid IP protocol number
+
+            fragment(9)
+                Drop the IPv4 packet if the packet fragment 
+                has a nonzero offset and the DF bit is active.
+
+            lengthMinimum(10)
+                Drop the IPv4 packet if the Ethernet frame 
+                length is less than the IP packet length plus 
+                four octets (the CRC length).
+
+            lengthConsistent(11)
+                Drop the IPv4 or IPv6 packet where the Ethernet 
+                frame size is greater than or equal to the IP packet 
+                length plus the Ethernet header.
+
+            lengthMaximumFragment(12)
+                Drop the IPv4 or IPv6 packet if the maximum 
+                fragment offset is greater than 65536.
+
+            lengthMaximumUdp(13)
+                Drop the IPv4 or IPv6 packet if the IP payload 
+                length is less than the UDP packet length.
+
+            lengthMaximumTcp(14)
+                Drop the IPv4 or IPv6 packet if the TCP length 
+                is greater than the IP payload length.
+
+            tcpFlags(15)
+                Drop the IPv4 packet if verification of TCP 
+                packet header fails.
+
+            tcpTinyFlags(16)
+                Drop the IPv4 or IPv6 packet if the IP fragment 
+                offset is 1, or if the IP fragment offset is 0 
+                and the IP payload length is less than 16.
+
+            version(17)
+                Drop the IPv4 packet if the Ethertype is not 
+                set to 4 (IPv4); and drops the IPv6 packet if 
+                the Ethertype is not set to 6 (IPv6)."
+ 
+    ::= { chivIpVerifyEntry 2 }
+
+chivIpVerifyCheckStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disabled(1),
+                        enabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IDS packet check configuration
+        status."
+    ::= { chivIpVerifyEntry 3 }
+
+chivIpVerifyPacketsDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets which has
+        been dropped."
+    ::= { chivIpVerifyEntry 4 }
+ 
+
+-- Conformance Information
+
+ciscoHardwareIpVerifyMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoHardwareIpVerifyMIBConform 1 }
+
+ciscoHardwareIpVerifyMIBGroups       OBJECT IDENTIFIER
+    ::= { ciscoHardwareIpVerifyMIBConform 2 }
+
+-- Compliance statements
+
+ciscoHardwareIpVerifyMIBCompliance MODULE-COMPLIANCE
+    STATUS         current
+    DESCRIPTION
+        "The compliance statement for the 
+        CISCO-HARDWARE-IP-VERIFY-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoHardwareIpVerifyMIBStatisticGroup
+                    }
+                    
+    OBJECT          chivIpVerifyCheckStatus 
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { ciscoHardwareIpVerifyMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoHardwareIpVerifyMIBStatisticGroup OBJECT-GROUP
+    OBJECTS         {
+                    chivIpVerifyCheckStatus,
+                    chivIpVerifyPacketsDropped
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides configuration
+        and statistical information for IDS packet check."
+    ::= { ciscoHardwareIpVerifyMIBGroups 1 }
+
+END
+
+
+

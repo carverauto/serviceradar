@@ -1,0 +1,337 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-DHCP-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- DHCP management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-DHCP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB;
+
+cfprApDhcpObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        DHCP management information model package"
+    ::= { ciscoFirepowerApMIBObjects 15 }
+
+cfprApDhcpAcquiredTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDhcpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired managed object table"
+    ::= { cfprApDhcpObjects 1 }
+
+cfprApDhcpAcquiredEntry OBJECT-TYPE
+    SYNTAX           CfprApDhcpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDhcpAcquiredTable table."
+    INDEX { cfprApDhcpAcquiredInstanceId }
+    ::= { cfprApDhcpAcquiredTable 1 }
+
+CfprApDhcpAcquiredEntry ::= SEQUENCE {
+    cfprApDhcpAcquiredInstanceId                                     CfprApManagedObjectId,
+    cfprApDhcpAcquiredDn                                             CfprApManagedObjectDn,
+    cfprApDhcpAcquiredRn                                             SnmpAdminString,
+    cfprApDhcpAcquiredAcqts                                          DateAndTime,
+    cfprApDhcpAcquiredCookie                                         SnmpAdminString,
+    cfprApDhcpAcquiredEnds                                           DateAndTime,
+    cfprApDhcpAcquiredIp                                             InetAddressIPv4,
+    cfprApDhcpAcquiredMac                                            MacAddress,
+    cfprApDhcpAcquiredSysId                                          SnmpAdminString
+}
+
+cfprApDhcpAcquiredInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDhcpAcquiredEntry 1 }
+
+cfprApDhcpAcquiredDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:dn managed object property"
+    ::= { cfprApDhcpAcquiredEntry 2 }
+
+cfprApDhcpAcquiredRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:rn managed object property"
+    ::= { cfprApDhcpAcquiredEntry 3 }
+
+cfprApDhcpAcquiredAcqts OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:acqts managed object property"
+    ::= { cfprApDhcpAcquiredEntry 4 }
+
+cfprApDhcpAcquiredCookie OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:cookie managed object property"
+    ::= { cfprApDhcpAcquiredEntry 5 }
+
+cfprApDhcpAcquiredEnds OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:ends managed object property"
+    ::= { cfprApDhcpAcquiredEntry 6 }
+
+cfprApDhcpAcquiredIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:ip managed object property"
+    ::= { cfprApDhcpAcquiredEntry 7 }
+
+cfprApDhcpAcquiredMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:mac managed object property"
+    ::= { cfprApDhcpAcquiredEntry 8 }
+
+cfprApDhcpAcquiredSysId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Acquired:sysId managed object property"
+    ::= { cfprApDhcpAcquiredEntry 9 }
+
+cfprApDhcpInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDhcpInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Inst managed object table"
+    ::= { cfprApDhcpObjects 2 }
+
+cfprApDhcpInstEntry OBJECT-TYPE
+    SYNTAX           CfprApDhcpInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDhcpInstTable table."
+    INDEX { cfprApDhcpInstInstanceId }
+    ::= { cfprApDhcpInstTable 1 }
+
+CfprApDhcpInstEntry ::= SEQUENCE {
+    cfprApDhcpInstInstanceId                                         CfprApManagedObjectId,
+    cfprApDhcpInstDn                                                 CfprApManagedObjectDn,
+    cfprApDhcpInstRn                                                 SnmpAdminString
+}
+
+cfprApDhcpInstInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDhcpInstEntry 1 }
+
+cfprApDhcpInstDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Inst:dn managed object property"
+    ::= { cfprApDhcpInstEntry 2 }
+
+cfprApDhcpInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Inst:rn managed object property"
+    ::= { cfprApDhcpInstEntry 3 }
+
+cfprApDhcpLeaseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDhcpLeaseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease managed object table"
+    ::= { cfprApDhcpObjects 3 }
+
+cfprApDhcpLeaseEntry OBJECT-TYPE
+    SYNTAX           CfprApDhcpLeaseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDhcpLeaseTable table."
+    INDEX { cfprApDhcpLeaseInstanceId }
+    ::= { cfprApDhcpLeaseTable 1 }
+
+CfprApDhcpLeaseEntry ::= SEQUENCE {
+    cfprApDhcpLeaseInstanceId                                        CfprApManagedObjectId,
+    cfprApDhcpLeaseDn                                                CfprApManagedObjectDn,
+    cfprApDhcpLeaseRn                                                SnmpAdminString,
+    cfprApDhcpLeaseCliId                                             SnmpAdminString,
+    cfprApDhcpLeaseCookie                                            SnmpAdminString,
+    cfprApDhcpLeaseEnds                                              DateAndTime,
+    cfprApDhcpLeaseHostname                                          SnmpAdminString,
+    cfprApDhcpLeaseIntf                                              SnmpAdminString,
+    cfprApDhcpLeaseIp                                                InetAddressIPv4,
+    cfprApDhcpLeaseMac                                               MacAddress,
+    cfprApDhcpLeaseStarts                                            DateAndTime
+}
+
+cfprApDhcpLeaseInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDhcpLeaseEntry 1 }
+
+cfprApDhcpLeaseDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:dn managed object property"
+    ::= { cfprApDhcpLeaseEntry 2 }
+
+cfprApDhcpLeaseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:rn managed object property"
+    ::= { cfprApDhcpLeaseEntry 3 }
+
+cfprApDhcpLeaseCliId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:cliId managed object property"
+    ::= { cfprApDhcpLeaseEntry 4 }
+
+cfprApDhcpLeaseCookie OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:cookie managed object property"
+    ::= { cfprApDhcpLeaseEntry 5 }
+
+cfprApDhcpLeaseEnds OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:ends managed object property"
+    ::= { cfprApDhcpLeaseEntry 6 }
+
+cfprApDhcpLeaseHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:hostname managed object property"
+    ::= { cfprApDhcpLeaseEntry 7 }
+
+cfprApDhcpLeaseIntf OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:intf managed object property"
+    ::= { cfprApDhcpLeaseEntry 8 }
+
+cfprApDhcpLeaseIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:ip managed object property"
+    ::= { cfprApDhcpLeaseEntry 9 }
+
+cfprApDhcpLeaseMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:mac managed object property"
+    ::= { cfprApDhcpLeaseEntry 10 }
+
+cfprApDhcpLeaseStarts OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dhcp:Lease:starts managed object property"
+    ::= { cfprApDhcpLeaseEntry 11 }
+
+END

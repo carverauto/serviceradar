@@ -1,0 +1,579 @@
+-- *******************************************************************
+-- CISCO-DOT11-RADIO-DIAGNOSTIC-MIB.my 
+-- May 2003, Daryl Kaiser, Raju Datla, 
+-- Parthasarathy Venkatavaradhan, Prasanna Viswakumar
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-DOT11-RADIO-DIAGNOSTIC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TruthValue
+                FROM SNMPv2-TC
+        ifIndex
+                FROM IF-MIB
+        ciscoExperiment
+                FROM CISCO-SMI;
+
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoDot11RadioDiagMIB MODULE-IDENTITY
+        LAST-UPDATED   "200312230000Z"
+        ORGANIZATION   "Cisco System Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                        Postal: 170 West Tasman Drive
+                                    San Jose, CA  95134
+                                    USA
+                        Tel: +1 800 553-NETS                 
+            
+                E-mail: cs-dot11@cisco.com"
+
+        DESCRIPTION
+                "This MIB is intended to be implemented on all
+                802.11 based Access Points and Wireless Bridges
+                that need to participate in radio environment
+                diagnosis.  The devices mentioned above may house
+                any one of the 802.11a/802.11b/802.11g standard-
+                based radio interfaces in them for data
+                communication in the form of radio waves.  The
+                administrator, through the NMS, temporarily alters
+                the power and channel configurations of an 802.11
+                radio interface and the transmits power levels of
+                the associated clients, if any, by setting
+                appropriate values to the objects of this MIB to
+                perform activities like discovering neighboring APs,
+                measuring strength of the signals as received from
+                other APs, studying RF interference levels at
+                various APs, characterizing APs' coverage etc.
+                These changes to the radio interface and the clients'
+                configuration through this MIB are temporary and
+                won't be retained across reloads.
+
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+                Wireless Bridge
+
+                An 802.11 entity that provides wireless connectivity
+                between two wired LAN segments and is used in point-
+                to-point or point-multipoint configurations.
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point.
+
+                Repeater-AP
+
+                A repeater is a 'wireless AP' that is attached to a
+                parent AP on an 802.11 primary port.  The Ethernet
+                port is disabled in a Repeater-AP.
+
+                Radio Diagnosis
+
+                This process includes continuously monitoring the
+                radio environment to discover new 802.11 stations,
+                measure signal strengths, adapt robustly to
+                interferers and provide a visualization of the radio
+                topology to the administrator.
+
+                Association
+
+                The process by which an 802.11 client identifies and
+                gets connected to its parent AP through which it
+                gets the uplink to the wired network.  Note that
+                the association happens at the MAC level and the AP
+                holds the MAC addresses of all the clients for
+                whom the AP provides uplink to the wired network.
+                A client, at any point of time, can remain
+                associated only with one AP.
+
+                Channel
+
+                An instance of medium use for the purpose of passing
+                protocol data units (PDUs) that may be used
+                simultaneously, in the same volume of space, with
+                other instances of medium use (on other channels) by
+                other instances of the same physical layer (PHY), with
+                an acceptably low frame error ratio due to mutual
+                interference. Some PHYs provide only one channel,
+                whereas others provide multiple channels.
+
+                Beacons
+
+                Beacons are short frames that are sent from Access
+                Point to stations or station-to-station in order to
+                organize and synchronize the wireless communication
+                on the Wireless LAN.  Beacons serve to achieve
+                time synchronization among clients, exchange SSID
+                information, exchange information about data rates
+                supported by the 802.11 devices etc.,
+
+
+                Site Survey
+
+                Site survey is done to discover the RF behavior,
+                coverage and interference to decide the placement of
+                WLAN infrastructure devices like Access Points and
+                Wireless bridges to ensure that all the clients
+                experience continually strong RF signal strength as
+                they roam.
+
+                802.11a
+
+                This is a high speed physical layer extension to
+                the 802.11 standard on the 5 GHz band.  Interfaces
+                compliant to 802.11a support data rates upto 54Mbps
+                and operate at 5.15-5.25, 5.25-5.35 and 5.725-5.825
+                GHz Unlicensed National Information Infrastructure
+                (U-NII) bands as regulated in the United States by
+                the code of Federal Regulations, Title 47, Section
+                15.407.  The radio uses the Orthogonal Frequency
+                Division Multiplexing (OFDM) as the modulation
+                scheme that enables higher speeds at 54Mbps.
+
+                802.11b
+
+                The 802.11b standard operates at 2.4GHz and is
+                backward compatible with 802.11. An 802.11b
+                system operates at 5.5 and 11 Mbps in addition to
+                the 1 and 2 Mbps datarates specified by the 802.11
+                standard.  802.11b uses a modulation technique known
+                as Complementary Code Keying (CCK) which allows the
+                higher data speeds.
+
+                802.11g
+
+                This is the most recently approved standard.  This
+                standard specifies an operational frequency of
+                2.4GHz and datarates upto 54Mbps.  802.11g systems
+                are backward compatible with 802.11b systems because
+                of the same operational frequencies.  Like 802.11a,
+                802.11g uses the OFDM modulation scheme to achieve
+                higher speeds. "
+
+--              REFERENCE
+
+--              [1] Wireless LAN Medium Access Control ( MAC ) and
+--                  Physical Layer ( PHY ) Specifications, ANSI/
+--                  IEEE Std 802.11, 1999 Edition.
+
+--              [2] Wireless LAN Medium Access Control ( MAC ) and
+--                  Physical Layer ( PHY ) Specifications: Higher
+--                  Speed Physical Layer Extension in the 2.4 GHz
+--                  Band, IEEE Std 802.11b-1999 (Supplement to
+--                  ANSI/IEEE Std 802.11, 1999 Edition).
+
+--              [3] Wireless LAN Medium Access Control ( MAC ) and
+--                  Physical Layer ( PHY ) Specifications: Higher
+--                  Speed Physical Layer in the 5 GHz Band, IEEE
+--                  Std 802.11a-1999 (Supplement to IEEE Std 
+--                  802.11-1999).
+
+--              [4] Wireless LAN Medium Access Control ( MAC ) and
+--                  Physical Layer ( PHY ) Specifications: Further
+--                  Higher Data Rate Extension in the 2.4 GHz
+--                  Band, IEEE Std 802.11g-2003.
+
+--              [5] IEEE 802.11 Management Information Base
+--                  ( IEEE802dot11-MIB.my ).
+
+--              [6] Interface MIB ( IF-MIB.my ).
+
+        REVISION      "200312230000Z"
+        DESCRIPTION
+                "The changes made are as follows.
+
+                1) The MIB has been modified to add support for
+                   802.11a and 802.11g based interfaces.
+
+                2) The definition for the object
+                   cDot11RadioDiagTempChannel has been modified to
+                   specify the possible channel values for 802.11a
+                   based interfaces. 
+
+                3) Two new objects, cDot11RadioDiagTempClientTxPower
+                   and cDot11RadioDiagTempDataRateSet have been added
+                   to the MIB. "
+
+        REVISION      "200305080000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoExperiment 105 }
+
+cDot11RadioDiagMIBNotifs  OBJECT IDENTIFIER
+        ::= { ciscoDot11RadioDiagMIB 0 }
+
+cDot11RadioDiagMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoDot11RadioDiagMIB 1 }
+
+cDot11RadioDiagConfigGlobal OBJECT IDENTIFIER 
+        ::= { cDot11RadioDiagMIBObjects 1 }
+
+--********************************************************************
+--*  Radio Management Configuration global parameters  
+--********************************************************************
+
+cDot11RadioDiagTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11RadioDiagEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table allows a network management system to
+                control the behavior of the radio interface on an
+                802.11 station and the 802.11 clients associated with
+                that station through that particular interface for
+                the purpose of radio environment diagnosis.  The
+                administrator can modify the MIB objects in this
+                table to temporarily alter the behavior of that
+                particular dot11 radio interface and the respective
+                associated clients.
+
+                This table has a sparse dependent relationship
+                with ifTable defined in IF-MIB.  There exists a
+                row in this table corresponding to the row for each
+                dot11 interface found in ifTable.  However, this
+                table is not applicable for virtual dot11
+                interfaces. "
+        ::= { cDot11RadioDiagConfigGlobal 1 }
+
+cDot11RadioDiagEntry OBJECT-TYPE
+        SYNTAX     CDot11RadioDiagEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry holds the set of temporary values for
+                the parameters to be applied to one particular dot11
+                interface and the respective clients to temporarily
+                alter their behavior. "
+        INDEX   { ifIndex }
+        ::=     { cDot11RadioDiagTable 1 }
+
+
+CDot11RadioDiagEntry ::=
+        SEQUENCE  {
+                 cDot11RadioDiagTempChannel       Unsigned32,
+                 cDot11RadioDiagTempTxPowerLevel  Unsigned32,
+                 cDot11RadioDiagMode              INTEGER, 
+                 cDot11RadioDiagSettingsEnabled   TruthValue,
+                 cDot11RadioDiagTempClientTxPower Unsigned32,
+                 cDot11RadioDiagTempDataRateSet   OCTET STRING
+        }
+
+cDot11RadioDiagTempChannel OBJECT-TYPE
+        SYNTAX     Unsigned32(0..14 |
+                              34|36|38|40|42|44|46|48|52|56|60|64 |
+                              100|104|108|112|116|120|124|128|132 |
+                              136|140|149|153|157|161)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "Temporary channel number for the 802.11 interface
+                identified by ifIndex.
+
+                The value this object takes depends on the value of
+                the object dot11PHYType defined in
+                IEEE802dot11-MIB.
+
+                The semantics are as follows.
+
+                If dot11PHYType equals 'ofdm', the acceptable values
+                for this object are 34, 36, 38, 40, 42, 44, 46, 48,
+                52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124,
+                128, 132, 136, 140, 149, 153, 157 and 161.
+
+                If dot11PHYType equals 'dsss' or 'erp', the
+                acceptable values for this object are from 1 to 14.
+
+                The channel numbers that can be assigned to this
+                object from the set of acceptable values mentioned
+                above vary depending on the value of the MIB object
+                cd11IfCurrentCarrierSet defined in CISCO-DOT11-IF
+                MIB.
+
+                The object cDot11RadioDiagSettingsEnabled must be set
+                to 'true' to apply the temporary value specified
+                through this object to the 802.11 interface.
+                Setting cDot11RadioDiagSettingsEnabled to 'false'
+                temporary value to that interface  restores
+                the channel setting of this interface to the original
+                value that was there before applying the temporary
+                value to that interface. A value of 0 indicates that
+                this object hasn't been configured with a valid
+                channel number. "
+        REFERENCE
+                "IEEE Standard 802.11-1999, 15.4.6.2,
+                 IEEE Standard 802.11a-1999, 17.3.8.3.3,
+                 IEEE Standard 802.11g-2003, Annex D, ASN.1 coding
+                 of MAC and PHY MIB. "
+        DEFVAL { 0 }
+        ::= { cDot11RadioDiagEntry 1 }
+
+cDot11RadioDiagTempTxPowerLevel OBJECT-TYPE
+        SYNTAX     Unsigned32(0..8)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "Temporary transmit power level for the 802.11
+                interface identified by ifIndex.
+
+                A value in the range of 1 to 8 refers to one of the
+                power levels from the MIB table 'dot11PhyTxPowerTable'
+                in IEEE802dot11-MIB.  The power levels that can be
+                assigned to this object from the set of acceptable
+                values mentioned above vary depending on the value of
+                the MIB object cd11IfCurrentCarrierSet defined in
+                CISCO-DOT11-IF-MIB.
+
+                The object cDot11RadioDiagSettingsEnabled must be set
+                to 'true' to apply the temporary value specified
+                through this object to the 802.11 interface.  Setting
+                cDot11RadioDiagSettingsEnabled to 'false' restores
+                the power setting of this interface to the original
+                value that was there before applying the temporary
+                value to that interface. A value of 0 indicates that
+                this object hasn't been configured with a valid
+                power level. "
+        DEFVAL { 0 }
+        ::= { cDot11RadioDiagEntry 2 }
+
+cDot11RadioDiagMode OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         normal(1),
+                         apRadioDiscovery(2),
+                         siteSurveyTempSettings(3),
+                         siteSurveyNonTempSettings(4)
+                   }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "Test mode as carried by the Cisco Radio Management
+                Extensions in the 802.11 beacon frame.
+
+                The semantics are described as follows.
+
+                normal  - Indicates that the station is operating in
+                non-test mode.
+
+                apRadioDiscovery - Indicates that this station is
+                operating in AP Discovery mode.  In this mode, APs
+                transmit and measure each other's beacons.  APs
+                measure signal strength as received from other APs,
+                levels of RF interference experienced during
+                transmission / reception and report back the same to
+                the NM.
+
+                siteSurveyTempSettings - Indicates that
+                the  station is operating in AP assisted site survey
+                mode with temporary channel and transmit power
+                settings applied to the dot11 interface identified
+                by ifIndex.
+
+                siteSurveyNonTempSettings - Indicates
+                that station is operating in AP assisted site survey
+                mode with it's original channel and transmit power
+                with the temporary settings not applied to the dot11
+                interface identified by ifIndex. "
+        DEFVAL { normal }
+        ::= { cDot11RadioDiagEntry 3 }
+
+cDot11RadioDiagSettingsEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "A flag to indicate whether the station will apply
+                the temporary channel, transmit power settings and
+                the data rate sets configured in this entry to the
+                particular dot11 interface and the client transmit
+                power setting to the clients associated with this
+                station through that dot11 interface.
+
+                A value of 'true' indicates that the station will
+                apply the temporary channel, transmit power settings
+                and the data rate sets configured in this entry to
+                the dot11  interface and the client transmit power
+                to the respective associated clients.
+
+                A value of 'false' indicates that station will use
+                it's original channel, transmit power and data rate
+                sets for data communication over the respective dot11
+                interface.  Also, the station will revert back the
+                transmit power of the clients associated through the
+                particular dot11 interface to their original transmit
+                power levels. "
+        DEFVAL { false }
+        ::= { cDot11RadioDiagEntry 4 }
+
+cDot11RadioDiagTempClientTxPower OBJECT-TYPE
+        SYNTAX     Unsigned32(0..8)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "Temporary transmit power level for the 802.11
+                clients associated with this station through the
+                802.11 interface identified by ifIndex.
+
+                The value configured through this object is carried
+                by the beacon frames transmitted by this 802.11
+                station and picked up by the associated clients, if
+                any, from these beacon frames to set their respective
+                transmit power levels.
+
+                A value in the range of 1 to 8 refers to one of the
+                recommended power levels from the table
+                cd11IfClientTxPowerTable defined in
+                CISCO-DOT11-IF-MIB.  The power levels that can be
+                assigned to this object from the set of acceptable
+                values mentioned above vary depending on the value of
+                the MIB object cd11IfCurrentCarrierSet defined in
+                CISCO-DOT11-IF-MIB.
+
+                The object cDot11RadioDiagSettingsEnabled must be set
+                to 'true' to apply the temporary value specified
+                through this object to the respective clients.
+                Setting cDot11RadioDiagSettingsEnabled to 'false'
+                restores the transmit power setting of the associated
+                clients to the original value that was there before
+                applying this temporary value to those clients.  A
+                value of 0 indicates that this object hasn't been
+                configured with a valid power level. "
+        DEFVAL { 0 }
+        ::= { cDot11RadioDiagEntry 5 }
+
+cDot11RadioDiagTempDataRateSet OBJECT-TYPE
+        SYNTAX OCTET STRING (SIZE(1..126))
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION
+                "This object specifies the set of data rates at which
+                 the station may transmit data through the dot11
+                 interface identified by ifIndex.  The semantics of
+                 this object are similar to that of the object
+                 dot11OperationalRateSet of IEEE802dot11-MIB.
+
+                 Each octet contains a value representing a rate.
+                 Each rate shall be within the range from 2 to 127,
+                 corresponding to data rates in increments of
+                 500 kb/s from 1 Mb/s to 63.5 Mb/s, and shall be
+                 supported as indicated in the object
+                 dot11SupportedDataRatesTxTable of IEEE802dot11-MIB
+                 for receiving data.
+
+                 The object cDot11RadioDiagSettingsEnabled must be set
+                 to 'true' to apply the temporary value specified
+                 through this object to the 802.11 interface.
+                 Setting cDot11RadioDiagSettingsEnabled to 'false'
+                 restores the data rate setting of this interface to
+                 the original value that was there before applying
+                 the temporary value to that interface.  A query to
+                 this object returns a value of zero for each octet
+                 of the octet string representing this object, if
+                 this object hasn't been configured with a
+                 valid data rate set. "
+        ::= { cDot11RadioDiagEntry 6 }
+
+--********************************************************************
+--*  End of 802.11 station Global Configuration parameters
+--********************************************************************
+
+
+--********************************************************************
+--   Conformance information
+--********************************************************************
+
+cDot11RadioDiagMIBConform OBJECT IDENTIFIER 
+        ::= { ciscoDot11RadioDiagMIB 2 }
+cDot11RadioDiagMIBCompliances OBJECT IDENTIFIER 
+        ::= { cDot11RadioDiagMIBConform 1 }
+cDot11RadioDiagMIBGroups OBJECT IDENTIFIER 
+        ::= { cDot11RadioDiagMIBConform 2 }
+
+
+--********************************************************************
+--*    Compliance statements
+--********************************************************************
+
+cDot11RadioDiagMIBCompliance MODULE-COMPLIANCE
+        STATUS     deprecated -- by cDot11RadioDiagMIBComplianceRev1
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                implement the ciscoDot11RadioDiagMIB module."
+        MODULE MANDATORY-GROUPS {
+                cDot11RadioDiagConfigGlobalGroup
+             }
+        ::= { cDot11RadioDiagMIBCompliances 1 }
+
+
+cDot11RadioDiagMIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                implement the ciscoDot11RadioDiagMIB module."
+        MODULE MANDATORY-GROUPS {
+                cDot11RadioDiagConfigGroupRev1
+             }
+        ::= { cDot11RadioDiagMIBCompliances 2 }
+
+
+--********************************************************************
+--*    Units of conformance
+--********************************************************************
+
+cDot11RadioDiagConfigGlobalGroup OBJECT-GROUP
+        OBJECTS {
+                 cDot11RadioDiagTempChannel,
+                 cDot11RadioDiagTempTxPowerLevel,
+                 cDot11RadioDiagMode,
+                 cDot11RadioDiagSettingsEnabled
+             }
+        STATUS     deprecated -- by cDot11RadioDiagConfigGroupRev1
+        DESCRIPTION
+                "This collection of objects provide information about
+                 the temporary radio configuration to be applied to
+                 the station's 802.11 interfaces. "
+        ::= { cDot11RadioDiagMIBGroups 1 }
+
+
+cDot11RadioDiagConfigGroupRev1 OBJECT-GROUP
+        OBJECTS {
+                 cDot11RadioDiagTempChannel,
+                 cDot11RadioDiagTempTxPowerLevel,
+                 cDot11RadioDiagMode,
+                 cDot11RadioDiagSettingsEnabled,
+                 cDot11RadioDiagTempClientTxPower,
+                 cDot11RadioDiagTempDataRateSet
+             }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide information about
+                the temporary radio configuration to be applied to
+                the station's 802.11 interfaces and the associated
+                clients. "
+        ::= { cDot11RadioDiagMIBGroups 2 }
+
+--********************************************************************
+--*   End of units of conformance
+--********************************************************************
+
+END

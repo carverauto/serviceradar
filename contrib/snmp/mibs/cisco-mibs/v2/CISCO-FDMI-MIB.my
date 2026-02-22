@@ -1,0 +1,615 @@
+-- *********************************************************************
+-- CISCO-FDMI-MIB.my: Fabric Device Management Interface MIB
+--
+-- July 2003, Vinay Gaonkar, Srini Kode
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FDMI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS        
+     MODULE-IDENTITY, OBJECT-TYPE, 
+     Unsigned32, NOTIFICATION-TYPE          FROM SNMPv2-SMI
+     MODULE-COMPLIANCE, OBJECT-GROUP,
+     NOTIFICATION-GROUP                     FROM SNMPv2-CONF
+     TEXTUAL-CONVENTION,
+     TruthValue                             FROM SNMPv2-TC
+     SnmpAdminString                        FROM SNMP-FRAMEWORK-MIB
+     ciscoMgmt                              FROM CISCO-SMI
+     FcNameId                               FROM CISCO-ST-TC
+     vsanIndex, notifyVsanIndex             FROM CISCO-VSAN-MIB;
+
+ciscoFdmiMIB MODULE-IDENTITY
+        LAST-UPDATED "200311070000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "Fabric Device Management Interface (FDMI) MIB. This MIB
+                module defines objects for managing the devices such as
+                HBA (Host Bus Adapter). It provides device information 
+                which have registered with an FC fabric using FDMI.  
+                For more information on FDMI, refer to Fibre Channel 
+                Generic Services-4 Section 6.7 : Fabric Device 
+                Management Interface."
+        REVISION   "200311070000Z"
+        DESCRIPTION
+            "Updated with the mib number got from CANA."
+        REVISION   "200308240000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoMgmt 373 }
+
+ciscoFdmiMIBNotifications
+        OBJECT IDENTIFIER ::= { ciscoFdmiMIB 0 }
+ciscoFdmiMIBObjects
+        OBJECT IDENTIFIER ::= { ciscoFdmiMIB 1 }
+ciscoFdmiMIBConformance
+        OBJECT IDENTIFIER ::= { ciscoFdmiMIB 2 }
+ 
+cfdmiConfig OBJECT IDENTIFIER     ::= { ciscoFdmiMIBObjects 1 }
+cfdmiInfo OBJECT IDENTIFIER       ::= { ciscoFdmiMIBObjects 2 }    
+cfdmiStatistics OBJECT IDENTIFIER ::= { ciscoFdmiMIBObjects 3 }    
+
+
+-- Textual Conventions
+        
+CFdmiRejectReasonCode ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION 
+               "The reason codes for FDMI rejects for HBA requests.
+                 invalidCommandCode (1) - invalid command code in the 
+                                request
+                 unableToPerformCmdReq (2) - FDMI not able to perform
+                                the command requested
+                 invalidSize (3) - invalid size 
+               ."
+        REFERENCE 
+               "Fibre Channel Generic Services-4 Section
+                6.7.4.6 : Reason Code Explanation."
+        SYNTAX  INTEGER  {
+                 invalidCommandCode (1),
+                 unableToPerformCmdReq (2),
+                 invalidSize (3)
+                }
+                
+               
+
+CFdmiRejectReasonCodeExpl ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION 
+               "The explanations for reason codes for FDMI rejects for
+               HBA requests.
+                 noAdditionalExpl (1)            - No Additional 
+                       Explanation
+                 hbaAlreadyRegistered (2)        - HBA already 
+                       registered
+                 attrForSpecifiedHbaNotReg (3)   - Attributes for 
+                       specified HBA not registered
+                 hbaAttrMultiAttribSameType (4)  - HBA attributes 
+                       block contains multiple attributes of same type
+                 invalidHbaAttrBlockLen (5)      - Invalid HBA 
+                       attribute block length
+                 reqdHbaAttrNotPresent (6)       - Required HBA
+                       attributes not present
+                 origPortNotInRegPortList (7)    - Originating port not 
+                       in registered Port list
+                 hbaIdNotInRegPortList (8)       - HBA Id is not
+                       registered port list
+                 portAttrNotRegistered (9)       - Port attributes not 
+                       registered
+                 portNotRegistered (10)          - port not registered
+                 portAttrMultiAttrSameType (11)  - port attribute block
+                       contains multiple attributes of same type
+                 invalidPortAttrBlockLen (12)    - Invalid port 
+                       attribute block length
+                 none (13)                       - not known or 
+                       reserved
+               ."
+        REFERENCE 
+               "Fibre Channel Generic Services-4 Section
+                6.7.4.6 : Reason Code Explanation."
+        SYNTAX  INTEGER {
+                 noAdditionalExpl (1),
+                 hbaAlreadyRegistered (2),
+                 attrForSpecifiedHbaNotReg (3),
+                 hbaAttrMultiAttribSameType (4),
+                 invalidHbaAttrBlockLen (5),
+                 reqdHbaAttrNotPresent (6),
+                 origPortNotInRegPortList (7),
+                 hbaIdNotInRegPortList (8), 
+                 portAttrNotRegistered (9),
+                 portNotRegistered (10),
+                 portAttrMultiAttrSameType (11),
+                 invalidPortAttrBlockLen (12),
+                 none (13)
+        }
+
+                                       
+cfdmiRejectRegNotifyEnable OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+               "This object specifies if the FDMI should
+               generate 'cfdmiRejectRegNotify' notifications.
+                
+               If value of this object is 'true', then the 
+               notification is generated when a registration request is
+               rejected. 
+               If it is 'false', the notification is not generated."
+        DEFVAL { false }
+        ::= { cfdmiConfig 1 }
+
+
+--
+-- HBA information Table
+--
+
+cfdmiHbaInfoTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CfdmiHbaInfoEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "This table lists all the HBAs registered with the 
+               Fabric Device Management Interface."
+        ::= { cfdmiInfo 1 }
+
+cfdmiHbaInfoEntry OBJECT-TYPE
+        SYNTAX     CfdmiHbaInfoEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "An entry (conceptual row) in the cfdmiHbaInfoTable. It
+               provides information that has been registered with FDMI
+               by a HBA, identified by cfdmiHbaInfoId, where the
+               registration was received on the VSAN identified by
+               vsanIndex. 
+               If the HBA has registered some but not all of the 
+               information represented by the columnar objects in this 
+               table, then the value of the unregistered objects will 
+               be either: the zero-length string (for string-based 
+               objects) or the zero value (for interger-based objects)."
+        INDEX { vsanIndex, cfdmiHbaInfoId}
+        ::= { cfdmiHbaInfoTable 1 }
+
+CfdmiHbaInfoEntry ::= SEQUENCE {
+        cfdmiHbaInfoId             FcNameId,
+        cfdmiHbaInfoNodeName       FcNameId,
+        cfdmiHbaInfoMfg            SnmpAdminString,
+        cfdmiHbaInfoSn             SnmpAdminString,
+        cfdmiHbaInfoModel          SnmpAdminString,
+        cfdmiHbaInfoModelDescr     SnmpAdminString,
+        cfdmiHbaInfoHwVer          SnmpAdminString,
+        cfdmiHbaInfoDriverVer      SnmpAdminString,
+        cfdmiHbaInfoOptROMVer      SnmpAdminString,
+        cfdmiHbaInfoFwVer          SnmpAdminString,
+        cfdmiHbaInfoOSInfo         SnmpAdminString,
+        cfdmiHbaInfoMaxCTPayload   Unsigned32
+}
+
+cfdmiHbaInfoId OBJECT-TYPE
+        SYNTAX      FcNameId
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The WWN of this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.5.1 ."
+        ::= {cfdmiHbaInfoEntry  1}
+        
+cfdmiHbaInfoNodeName OBJECT-TYPE
+        SYNTAX      FcNameId
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The WWN of the node containing this HBA. "
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.6 ."
+        ::= {cfdmiHbaInfoEntry  2}
+
+cfdmiHbaInfoMfg OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..63))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The name of the manufacturer of this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.2 ."
+        ::= {cfdmiHbaInfoEntry  3}
+
+cfdmiHbaInfoSn OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..63))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The serial number of this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.3 ."
+        ::= {cfdmiHbaInfoEntry  4}
+
+cfdmiHbaInfoModel OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The model of this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.4 ."
+        ::= {cfdmiHbaInfoEntry  5}
+
+cfdmiHbaInfoModelDescr OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The string that describes the model of this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.5 ."
+        ::= {cfdmiHbaInfoEntry  6}
+
+cfdmiHbaInfoHwVer OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The hardware version of this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.8 ."
+        ::= {cfdmiHbaInfoEntry  7}
+
+cfdmiHbaInfoDriverVer OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The version level of the driver software controlling 
+                this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.9 ."
+        ::= {cfdmiHbaInfoEntry  8}
+
+cfdmiHbaInfoOptROMVer OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The version of the Option ROM or the BIOS of this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.10 ."
+        ::= {cfdmiHbaInfoEntry  9}
+
+cfdmiHbaInfoFwVer OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The version of the firmware executed by this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.11 ."
+        ::= {cfdmiHbaInfoEntry  10}
+
+cfdmiHbaInfoOSInfo OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The type and version of the operating system 
+                controlling this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.12 ."
+        ::= {cfdmiHbaInfoEntry  11}
+
+cfdmiHbaInfoMaxCTPayload OBJECT-TYPE
+        SYNTAX      Unsigned32
+        UNITS       "32-bit words"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The maximum size of the Common Transport (CT) payload 
+                including all CT headers but no FC frame header(s), 
+                that may be send or received by application software 
+                resident in the host containing this HBA."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.2.13 ."
+        ::= {cfdmiHbaInfoEntry  12}
+
+-- HBA port information
+
+cfdmiHbaPortTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CfdmiHbaPortEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "List of ports registered with Fibre Channel Device 
+               Management Interface."
+        ::= { cfdmiInfo 2 }
+
+cfdmiHbaPortEntry OBJECT-TYPE
+        SYNTAX     CfdmiHbaPortEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "An entry (conceptual row) in the cfdmiHbaPortTable. It
+               contains information about the Nx_port, on this HBA,
+               identified by cfdmiHbaInfoId, where the registration
+               of the HBA with FDMI was received on the VSAN identified
+               by vsanIndex.
+               If the HBA has registered some but not all of the 
+               information represented by the columnar objects in this 
+               table, then the value of the unregistered objects will 
+               be either: the zero-length string (for string-based 
+               objects) or the zero value (for interger-based objects)."
+        INDEX { vsanIndex, cfdmiHbaInfoId, cfdmiHbaPortId}
+        ::= { cfdmiHbaPortTable 1 }
+
+CfdmiHbaPortEntry ::= SEQUENCE {
+        cfdmiHbaPortId                   FcNameId,
+        cfdmiHbaPortSupportedFC4Type     OCTET STRING,
+        cfdmiHbaPortSupportedSpeed       Unsigned32,
+        cfdmiHbaPortCurrentSpeed         Unsigned32,
+        cfdmiHbaPortMaxFrameSize         Unsigned32,
+        cfdmiHbaPortOsDevName            SnmpAdminString,
+        cfdmiHbaPortHostName             SnmpAdminString
+}
+
+cfdmiHbaPortId OBJECT-TYPE
+        SYNTAX      FcNameId
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The WWN of this port."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.3.3 ."
+        ::= {cfdmiHbaPortEntry  1}
+
+cfdmiHbaPortSupportedFC4Type OBJECT-TYPE
+        SYNTAX      OCTET STRING
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The supported FC-4 types attribute registered for this 
+                port on this VSAN."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.3.6 and Section 5.2.3.8 . "
+        ::= {cfdmiHbaPortEntry  2}
+
+cfdmiHbaPortSupportedSpeed OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The supported speed registered for this port on this
+                VSAN. "
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.3.8 ."
+        ::= {cfdmiHbaPortEntry  3}
+
+cfdmiHbaPortCurrentSpeed OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The current speed registered for this port on this 
+                VSAN. "
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.3.9 ."
+        ::= {cfdmiHbaPortEntry  4}
+
+cfdmiHbaPortMaxFrameSize OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The maximum frame size attribute registered for this
+                port on this VSAN."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.3.10 ."
+        ::= {cfdmiHbaPortEntry  5}
+
+cfdmiHbaPortOsDevName OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The OS Device Name attribute registered for this port
+                on this VSAN."
+        REFERENCE
+                "Fibre Channel Generic Services-4 Rev 7.6 
+                Section 6.7.4.4.3.11 ."
+        ::= {cfdmiHbaPortEntry  6}
+        
+cfdmiHbaPortHostName OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The name of the host associated with this port."
+        REFERENCE
+                "Fibre Channel Generic Services-4, Late Comment
+                 Section 6.7.4.4.3.12 ."
+        ::= {cfdmiHbaPortEntry  7}
+       
+
+-- Notification information objects
+
+cfdmiRejectReasonCode OBJECT-TYPE
+        SYNTAX        CFdmiRejectReasonCode
+        MAX-ACCESS    accessible-for-notify
+        STATUS        current
+        DESCRIPTION
+               "The registration reject reason code. This object
+               contains the reason code corresponding to the most
+               recent FDMI Registration request failure."
+        ::= { cfdmiInfo 3 }
+
+cfdmiRejectReasonCodeExpl OBJECT-TYPE
+        SYNTAX        CFdmiRejectReasonCodeExpl
+        MAX-ACCESS    accessible-for-notify
+        STATUS        current
+        DESCRIPTION
+               "The registration reject reason code explanation. This
+               object contains the reason code explanation if the 
+               above object has a reason code corresponding to  
+               'Unable to perform command request'. This object like
+               the one above, corresponds to the most recent FDMI
+               Registration request rejection."
+        ::= { cfdmiInfo 4 }
+
+cfdmiNotifyRegOperType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                regHBA(1),
+                                regHAT(2),
+                                regPRT(3),
+                                regPA(4)
+                              }
+        MAX-ACCESS    accessible-for-notify
+        STATUS        current
+        DESCRIPTION
+               "The type of registration operation.
+               'regHBA' - register HBA.
+               'regHAT' - register HBA attributes.
+               'regPRT' - register port.
+               'regPA'  - register port attributes. "
+        ::= { cfdmiInfo 5 }
+        
+cfdmiNotifyHBAPortId OBJECT-TYPE
+        SYNTAX        FcNameId
+        MAX-ACCESS    accessible-for-notify
+        STATUS        current
+        DESCRIPTION
+               "The identifier to be sent in cfdmiRejectRegNotify.
+               The value of this object would be HBA identifier if
+               the value of 'notifyRegOperType' is either 'regHBA' or
+               'regHAT'. The value of this object would be port
+               identifier if the value of 'notifyRegOperType' is either
+               'regPRT' or 'regPA'. "
+        ::= { cfdmiInfo 6 }
+
+
+-- Notifications
+
+
+cfdmiRejectRegNotify NOTIFICATION-TYPE
+        OBJECTS   {notifyVsanIndex,
+                   cfdmiNotifyRegOperType,
+                   cfdmiNotifyHBAPortId,
+                   cfdmiRejectReasonCode,
+                   cfdmiRejectReasonCodeExpl}
+        STATUS    current
+        DESCRIPTION
+                "This notification is generated by the FDMI
+                whenever it rejects a registration request. The FDMI
+                should update the 'cfdmiRejectReasonCode' and 
+                'cfdmiRejectReasonCodeExpl' objects with
+                the corresponding reason code and reason code 
+                explanation before sending the notification. These 
+                two objects are also included along with the 
+                notification to provide the reason for the reject."
+    ::= { ciscoFdmiMIBNotifications 1 }
+
+
+-- Conformance
+
+ciscoFdmiMIBCompliances
+       OBJECT IDENTIFIER ::= { ciscoFdmiMIBConformance 1 }
+
+ciscoFdmiMIBGroups
+       OBJECT IDENTIFIER ::= { ciscoFdmiMIBConformance 2 }
+
+ciscoFdmiMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-FDMI-MIB."
+        MODULE MANDATORY-GROUPS { cfdmiConfigGroup,
+                                  cfdmiHbaInformationGroup,
+                                  cfdmiHbaPortInformationGroup,
+                                  cfdmiNotificationGroup
+                                }
+
+        ::= { ciscoFdmiMIBCompliances 1 }
+
+-- Units of Conformance
+
+cfdmiConfigGroup  OBJECT-GROUP
+        OBJECTS  { 
+           cfdmiRejectRegNotifyEnable
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for configuring FDMI."
+        ::= { ciscoFdmiMIBGroups 1 }
+        
+cfdmiHbaInformationGroup  OBJECT-GROUP
+        OBJECTS  {
+           cfdmiHbaInfoNodeName, 
+           cfdmiHbaInfoMfg,
+           cfdmiHbaInfoSn,
+           cfdmiHbaInfoModel,
+           cfdmiHbaInfoModelDescr,
+           cfdmiHbaInfoHwVer,
+           cfdmiHbaInfoDriverVer,
+           cfdmiHbaInfoOptROMVer,
+           cfdmiHbaInfoFwVer,
+           cfdmiHbaInfoOSInfo,
+           cfdmiHbaInfoMaxCTPayload,
+           cfdmiRejectReasonCode,
+           cfdmiRejectReasonCodeExpl,
+           cfdmiNotifyRegOperType,
+           cfdmiNotifyHBAPortId
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for HBA Information."
+        ::= { ciscoFdmiMIBGroups 2 }
+        
+cfdmiHbaPortInformationGroup  OBJECT-GROUP
+        OBJECTS  { 
+           cfdmiHbaPortSupportedFC4Type,
+           cfdmiHbaPortSupportedSpeed,
+           cfdmiHbaPortCurrentSpeed,
+           cfdmiHbaPortMaxFrameSize,
+           cfdmiHbaPortOsDevName,
+           cfdmiHbaPortHostName
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for HBA port information."
+        ::= { ciscoFdmiMIBGroups 3 }
+
+cfdmiNotificationGroup  NOTIFICATION-GROUP
+        NOTIFICATIONS  { 
+           cfdmiRejectRegNotify
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of notifications for managing FDMI."
+        ::= { ciscoFdmiMIBGroups 4 }
+END

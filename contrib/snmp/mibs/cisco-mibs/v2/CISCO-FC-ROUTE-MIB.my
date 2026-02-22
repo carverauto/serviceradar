@@ -1,0 +1,721 @@
+-- *********************************************************************
+-- CISCO-FC-ROUTE-MIB.my: Fibre Channel Route Mib
+--
+-- September 2002, Srini Kode
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *********************************************************************
+
+CISCO-FC-ROUTE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Unsigned32, Counter64               FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP     FROM SNMPv2-CONF
+        RowStatus, TruthValue,TimeStamp,
+        TestAndIncr                         FROM SNMPv2-TC
+        SnmpAdminString                     FROM SNMP-FRAMEWORK-MIB
+        InterfaceIndex                      FROM IF-MIB
+        ciscoMgmt                           FROM CISCO-SMI
+        FcAddressId,VsanIndex               FROM CISCO-ST-TC
+        vsanIndex                           FROM CISCO-VSAN-MIB
+        entPhysicalIndex,PhysicalIndex      FROM ENTITY-MIB;
+        
+
+ciscoFcRouteMIB MODULE-IDENTITY
+        LAST-UPDATED "200309040000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+            "The MIB module for configuring and displaying FC (Fibre
+             Channel) Route Information."
+        REVISION    "200309040000Z"
+        DESCRIPTION
+            "Updated fcRouteDomainId & fcRouteMetric range and added 
+            compliance statement for fcRouteDomainId and 
+            fcRouteMetric." 
+        REVISION    "200211010000Z"
+        DESCRIPTION
+            "Updated fcRouteProto. "
+        REVISION    "200210020000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoMgmt 284 }
+
+ciscoFcRouteMIBObjects OBJECT IDENTIFIER 
+                                ::= { ciscoFcRouteMIB 1 }
+fcRouteMIBConformance  OBJECT IDENTIFIER 
+                                ::= { ciscoFcRouteMIB 2 }
+fcRouteConfig          OBJECT IDENTIFIER 
+                                ::= { ciscoFcRouteMIBObjects 1 }
+fcRouteStatistics      OBJECT IDENTIFIER 
+                                ::= { ciscoFcRouteMIBObjects 2 }      
+fcRouteNotification    OBJECT IDENTIFIER 
+                                ::= { ciscoFcRouteMIBObjects 3 }
+fcRouteNotifications   OBJECT IDENTIFIER 
+                                ::= { fcRouteNotification 0 }
+
+
+fcRouteLastChangeTime OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+              "The value of sysUpTime at the most recent time when a 
+               conceptual row was created, modified, or deleted in 
+               fcRouteTable.
+               If no change has occurred since the last restart of the
+               management system, then the value of this object is 0. "
+        ::= { fcRouteConfig 1 } 
+
+fcRoutePreference OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..255)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+              "The value of route preference.Route preference is the
+               value used to select one route over other when more than
+               one route to the same destination is learned from 
+               different protocols, peers, or static routes from 
+               end-users. The preference value is an arbitrary assigned
+               value used to determine the order of routes to the same
+               destination in a single routing database(RIB). The 
+               active route is chosen by the lowest preference value. "
+        ::= { fcRouteConfig 2 } 
+
+fcRouteVerifyAction OBJECT-TYPE
+        SYNTAX      INTEGER {
+                        none(1),
+                        verify(2)
+                    }                    
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+              "The action to perform a consistency check of 
+               fcRouteTable.
+               none (1)   - no action
+               verify (2) - perform verify action
+               Writing verify(2) does a consistency check
+               of the fcRouteTable with either one of the following:
+               - with routeTable in the persistent database if the 
+                 fcRouteVerifyType value is pss(1)
+               - with forwarding information base software tables on
+                 the module specified by fcRouteVerifyModule, if the
+                 fcRouteVerifyType value is fibShadow(2).
+               - with forwarding information base hardware tables on
+                 the module specified by fcRouteVerifyModule if the
+                 fcRouteVerifyType value is fibHardware(3).
+               This verify action is performed on the fcRouteTable for
+               the VSAN specified by fcRouteVerifyVsanID and for the
+               route entries of the type specified by 
+               fcRouteVerifyRouteType.
+               The result is shown by fcRouteVerifyResult.
+               If a verify, due to a previous action performed, is in 
+               progress in the agent, then setting the 
+               fcRouteVerifyAction to verify(2) again will fail.
+
+               No verification is performed if the value is set to
+               none(1).
+               When read, this object always has the value 'none(1)'. "
+        DEFVAL { none }
+        ::= { fcRouteConfig 3 } 
+
+fcRouteVerifyType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                        pss(1),
+                        fibShadow(2),
+                        fibHardware(3)
+                    }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+              "The value used by fcRouteVerifyAction to perform the
+               consistency check of fcRouteTable with:
+               - route table in persistent database if value is pss(1)
+               - forwarding information base software tables if value
+                 is fibShadow(2)
+               - forwarding information base hardware tables if value
+                 is fibHardware(3). "
+        DEFVAL { fibHardware }
+        ::= { fcRouteConfig 4 } 
+
+fcRouteVerifyModule OBJECT-TYPE
+        SYNTAX      PhysicalIndex
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+              "This value identifies a particular line card module 
+               according to that module's value of entPhysicalIndex in
+               the entPhysicalTable of the ENTITY-MIB (RFC 2737). 
+               The forwarding information base present on this module 
+               is checked for consistency with the fcRouteTable.
+               The value of this object is relevant only if 
+               fcRouteVerifyType is either fibShadow(2) or
+               fibHardware(3). "
+        ::= { fcRouteConfig 5 } 
+
+fcRouteVerifyVsanID OBJECT-TYPE
+        SYNTAX      VsanIndex (1..4093)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+              "The value specifies the VSAN id. The fcRouteTable 
+               entries and the entries in the table specified by 
+               fcRouteVerifyType is checked for consistency for the
+               same VSAN id specified by this object. "
+        ::= { fcRouteConfig 6 } 
+
+fcRouteVerifyRouteType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                        unicast(1),
+                        multicast(2),
+                        label(3)
+                    }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+              "The value used by fcRouteVerifyAction to perform the
+               consistency check of fcRouteTable. If the value is
+               unicast(1) then only unicast entries in fcRouteTable
+               and the entries in the table specified by
+               fcRouteVerifyType are checked. If value is multicast(2)
+               then only multicast entries in fcRouteTable and the 
+               entries in the table specified by fcRouteVerifyType are
+               checked. If value is label(3) then only label entries
+               in fcRouteTable and the entries in the table specified
+               by fcRouteVerifyType are checked. "
+        DEFVAL { unicast }
+        ::= { fcRouteConfig 7 }
+
+fcRouteVerifyResult OBJECT-TYPE
+        SYNTAX      SnmpAdminString
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+              "The object displays the details of the first 
+               inconsistency that occured from the check. If the check
+               passes successfully then this will be a zero-length
+               string. "
+        ::= { fcRouteConfig 8 } 
+
+fcRouteVerifyLock OBJECT-TYPE
+        SYNTAX      TestAndIncr
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+              "This object is used to facilitate the verify action 
+               performed using 'fcRouteVerifyAction' by multiple 
+               managers.
+               The procedure to perform the action by the NMS is as
+               follows:
+
+               1. Retrieve the value of fcRouteVerifyLock.
+
+               2. Set the value of fcRouteVerifyLock to the retrieved
+                  value, and in the same PDU provide the following 
+                  values:
+                  fcRouteVerifyAction to 'verify(2)'
+                  fcRouteVerifyType,fcRouteVerifyVsanID,
+                  fcRouteVerifyRouteType and fcRouteVerifyModule.
+                  Note, fcRouteVerifyModule is relevent only if
+                  fcRouteVerifyType is either 'fibShadow(2)' or
+                  fibHardware(3).
+
+               3. If the set fails repeat steps 1-2.
+
+               4. Retrieve the value of fcRouteVerifyLock and 
+                  fcRouteVerifyResult in the same pdu.
+
+               5. If 'fcRouteVerifyLock' value is not one greater than
+                  the retrieved value of 'fcRouteVerifyLock' in step-1
+                  than repeat steps 1-4. "
+        ::= { fcRouteConfig 9 }
+
+
+-- Fibre Channel Routing table
+
+fcRouteTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF FcRouteEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+              "The local system's Fibre Channel Routing table.
+               This table lists all the routes that is configured/
+               calculated at the local system.
+               Traffic through the TL-Port (translation port) uses the
+               R-CTL field in the FC protocol header. During forwarding,
+               this R-CTL field is part of the the value looked-up in
+               the route table for matching.
+               The value of the object fcRoutePreference is used to
+               select one route over other when more than one route to
+               the same destination is learned from different protocols,
+               peers, or static routes from end-users.
+               Only the entries configured by the user, which are 
+               fcRouteProto of type netmgmt(3), can be deleted by the
+               user. "
+        ::= { fcRouteConfig 10 }
+
+fcRouteEntry OBJECT-TYPE
+        SYNTAX      FcRouteEntry
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+              "Each entry contains a route to a particular destination
+               in a particular VSAN via a particular output interface,
+               and learned in a particular manner. " 
+        INDEX       { vsanIndex, fcRouteDestAddrId,fcRouteDestMask,
+                      fcRouteProto,fcRouteInterface }
+        ::= { fcRouteTable 1 }
+
+FcRouteEntry ::= 
+        SEQUENCE {
+            fcRouteDestAddrId   FcAddressId,
+            fcRouteDestMask     FcAddressId,
+            fcRouteProto        INTEGER,
+            fcRouteInterface    InterfaceIndex,
+            fcRouteDomainId     Unsigned32,
+            fcRouteMetric       Unsigned32,
+            fcRouteType         INTEGER,
+            fcRoutePermanent    TruthValue,
+            fcRouteRowStatus    RowStatus
+        }
+
+fcRouteDestAddrId OBJECT-TYPE
+        SYNTAX      FcAddressId
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+              "The destination FC-ID of this route. "
+        ::= { fcRouteEntry 1 }
+
+fcRouteDestMask OBJECT-TYPE
+        SYNTAX      FcAddressId
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+              "Indicate the mask to be logical-ANDed with the
+               destination address Id before being compared to the value
+               in the fcRouteDestAddrId field.
+               This can only be 255.255.255 or 255.255.0 or 255.0.0 . "
+        ::= { fcRouteEntry 2 }
+
+fcRouteProto OBJECT-TYPE
+        SYNTAX   INTEGER {
+                other (1),
+                local (2),
+                netmgmt (3),
+                fspf (4),
+                mpls (5),
+                multicast (6)
+             }
+        MAX-ACCESS not-accessible
+        STATUS   current
+        DESCRIPTION
+              "The routing mechanism via which this route was learned.
+               other(1)  - not specified
+               local(2)  - local interface
+               netmgmt(3)- static route
+
+               The following are all dynamic routing protocols
+
+               fspf(4)   - Fibre Shortest Path First
+               mpls(5)   - Multiple Protocol Label Switching.
+               multicast(6) - multicast routes."
+        ::= { fcRouteEntry 3 }
+
+fcRouteInterface OBJECT-TYPE
+        SYNTAX      InterfaceIndex
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+              "The ifIndex value, which identifies the local interface
+               through which the next hop of this route should be 
+               reached. If the interface type is TL-Port then R-CTL 
+               field in the FC protocol header is also used for 
+               look-up in the route table during forwarding.
+               Only interfaces of type Fibre Channel and Port Channel
+               are allowed. "
+        ::= { fcRouteEntry 4 }
+
+fcRouteDomainId OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..239)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The domain ID of next hop switch.
+               However this object, when read, could have a value zero
+               if value of fcRouteProto is 'local'."
+        ::= { fcRouteEntry 5 }
+    
+fcRouteMetric OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..65536)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The routing metric for this route. 
+               The use of this object is dependent on fcRouteProto
+               used. "
+        ::= { fcRouteEntry 6 }
+
+fcRouteType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                         local(1),
+                         remote(2)
+                    }
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The type of route. 
+               local(1): refers to a route for which the next hop is
+                         the final destination; 
+               remote(2): refers to a route for which the next hop is
+                          not the final destination.
+               This object is not relevent for multicast and broadcast
+               route entries. "
+        DEFVAL {local}
+        ::= { fcRouteEntry 7 }
+
+fcRoutePermanent OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The value if true(1), indicates the route is not to be
+               removed from the relevant Forwarding information base
+               even if the port is operationally 'down'. If false(2), 
+               the route is removed from the relevant Forwarding 
+               information base (FIB) if the port is operationally 
+               'down'.
+               This object is not relevent for multicast and broadcast
+               route entries. "
+        DEFVAL  {true}
+        ::= { fcRouteEntry 8 }
+
+fcRouteRowStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The status of this conceptual row. "
+        ::= { fcRouteEntry 9 }
+
+
+-- Flow Statistics Table
+
+fcRouteFlowStatTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF FcRouteFlowStatEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+              "The table to configure and show the ingress traffic 
+               counters on physical components (e.g., Linecards).
+               The user has the option of configuring counters 
+               depending on the bits selected for the object 
+               fcRouteFlowType.  If the user selects only vsanId(0)
+               bit for all the entries, then no more than 1024 entries
+               can be created. If the user selects all the 4 bits,
+               vsanId(0), destId(1), srcId(2), port(3), for some 
+               entries, then additional entries can be created, up to
+               a maximum of 2048 entries.
+               For statistics collection R-CTL is not part of the 
+               the value looked-up in the route table, so the counters
+               are updated immaterial of R-CTL field. "
+        ::= { fcRouteStatistics 1 }
+
+fcRouteFlowStatEntry OBJECT-TYPE
+        SYNTAX      FcRouteFlowStatEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+              "Each entry provides information on the ingress traffic 
+               counters at the physical component indicated by 
+               entPhysicalIndex. Entries can only be created for 
+               physical components, e.g.,line cards, which support 
+               this type of ingress traffic counters. "
+        INDEX       { entPhysicalIndex, fcRouteFlowIndex }
+        ::= { fcRouteFlowStatTable 1 }
+
+FcRouteFlowStatEntry ::= 
+        SEQUENCE {
+            fcRouteFlowIndex                       Unsigned32,
+            fcRouteFlowType                        BITS,
+            fcRouteFlowVsanId                      VsanIndex,
+            fcRouteFlowDestId                      FcAddressId,
+            fcRouteFlowSrcId                       FcAddressId,
+            fcRouteFlowMask                        FcAddressId,
+            fcRouteFlowPort                        InterfaceIndex,
+            fcRouteFlowFrames                      Counter64,
+            fcRouteFlowBytes                       Counter64,
+            fcRouteFlowCreationTime                TimeStamp,
+            fcRouteFlowRowStatus                   RowStatus
+        }
+
+fcRouteFlowIndex  OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..2147483647)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+              "The index of this entry."
+        ::= { fcRouteFlowStatEntry 1 }
+
+fcRouteFlowType  OBJECT-TYPE
+        SYNTAX        BITS { vsanId(0),destId(1),srcId(2),port(3) }
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+              "The matching criteria by which flows are selected to be
+               included in the traffic which is instrumented by the
+               ingress traffic counters. For each bit which is set, the 
+               corresponding object must be configured by the network 
+               manager when creating an entry.
+               vsanId(0) represents object fcRouteFlowVsanId, destId(1)
+               represents fcRouteFlowDestId, srcId(2) represents 
+               fcRouteFlowSrcId, port(3) represents fcRouteFlowPort.It
+               is optional to provide fcRouteFlowMask. If 
+               fcRouteFlowMask is not provided then the default value
+               255.255.255 is used.
+
+               This object cannot be modified while the corresponding
+               value of fcRouteFlowRowStatus is equal to 'active'. "
+        ::= { fcRouteFlowStatEntry 2 }
+
+fcRouteFlowVsanId  OBJECT-TYPE
+        SYNTAX      VsanIndex (1..4093)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The id of VSAN.
+
+               This object cannot be modified while the corresponding
+               value of fcRouteFlowRowStatus is equal to 'active'. "
+        ::= { fcRouteFlowStatEntry 3 }
+
+fcRouteFlowDestId  OBJECT-TYPE
+        SYNTAX      FcAddressId
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The destination fibre channel address id.
+
+               This object cannot be modified while the corresponding
+               value of fcRouteFlowRowStatus is equal to 'active'. "
+        ::= { fcRouteFlowStatEntry 4 }
+
+fcRouteFlowSrcId  OBJECT-TYPE
+        SYNTAX      FcAddressId
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The source fibre channel address id.
+
+               This object cannot be modified while the corresponding
+               value of fcRouteFlowRowStatus is equal to 'active'. "
+        ::= { fcRouteFlowStatEntry 5 }
+
+fcRouteFlowMask  OBJECT-TYPE
+        SYNTAX      FcAddressId
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The mask for source and destination fibre channel
+               address id.
+
+               This object cannot be modified while the corresponding
+               value of fcRouteFlowRowStatus is equal to 'active'."
+        ::= { fcRouteFlowStatEntry 6 }
+
+fcRouteFlowPort  OBJECT-TYPE
+        SYNTAX      InterfaceIndex
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The physical ingress port to which this counter applies.
+
+               This object cannot be modified while the corresponding
+               value of fcRouteFlowRowStatus is equal to 'active'. "
+        ::= { fcRouteFlowStatEntry 7 }
+
+fcRouteFlowFrames  OBJECT-TYPE
+        SYNTAX      Counter64
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+              "The number of received frames for the flow created by
+               the network manager. "
+        ::= { fcRouteFlowStatEntry 8 }
+
+fcRouteFlowBytes  OBJECT-TYPE
+        SYNTAX      Counter64
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+              "The number of received frame bytes for the flow created 
+               by the network manager. "
+        ::= { fcRouteFlowStatEntry 9 }
+
+fcRouteFlowCreationTime OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current 
+        DESCRIPTION 
+              "The timestamp indicating the time the row was created
+               or modified. "
+        ::= { fcRouteFlowStatEntry 11 }
+
+fcRouteFlowRowStatus  OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+              "The status of this conceptual row. "
+        ::= { fcRouteFlowStatEntry 12 }                   
+
+
+
+-- Conformance
+
+fcRouteMIBCompliances OBJECT IDENTIFIER  ::= { fcRouteMIBConformance 1 }
+fcRouteMIBGroups      OBJECT IDENTIFIER  ::= { fcRouteMIBConformance 2 }
+
+fcRouteMIBCompliance  MODULE-COMPLIANCE
+            STATUS   deprecated  -- superceeded by 
+                                 -- fcRouteMIBCompliance1
+            DESCRIPTION
+                   "The compliance statement for entities which 
+                    implement the fc Route mib."
+            MODULE MANDATORY-GROUPS { fcRouteGroup,
+                                      fcRouteTableGroup,
+                                      fcRouteStatGroup }
+
+            OBJECT  fcRoutePermanent
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                   "It is complaint to support read only."
+
+            OBJECT  fcRouteRowStatus
+            SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+            DESCRIPTION 
+                   "Only three values 'createAndGo', 'destroy' and 
+                   'active' out of the six enumerated values need to
+                    be supported."
+
+            OBJECT  fcRouteFlowRowStatus
+            SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+            DESCRIPTION 
+                   "Only three values 'createAndGo', 'destroy' and 
+                   'active' out of the six enumerated values need to
+                    be supported."
+             
+            OBJECT  fcRouteFlowType 
+            DESCRIPTION
+                   "It is sufficient to support only a subset of all
+                    the possible combinations of the individual bit
+                    values."                 
+             
+            ::= { fcRouteMIBCompliances  1 }
+
+fcRouteMIBCompliance1  MODULE-COMPLIANCE
+            STATUS   current
+            DESCRIPTION
+                   "The compliance statement for entities which 
+                    implement the fc Route mib."
+            MODULE MANDATORY-GROUPS { fcRouteGroup,
+                                      fcRouteTableGroup,
+                                      fcRouteStatGroup }
+
+            OBJECT  fcRoutePermanent
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                   "It is complaint to support read only."
+
+            OBJECT  fcRouteRowStatus
+            SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+            DESCRIPTION 
+                   "Only three values 'createAndGo', 'destroy' and 
+                   'active' out of the six enumerated values need to
+                    be supported."
+
+            OBJECT  fcRouteFlowRowStatus
+            SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+            DESCRIPTION 
+                   "Only three values 'createAndGo', 'destroy' and 
+                   'active' out of the six enumerated values need to
+                    be supported."
+             
+            OBJECT  fcRouteFlowType 
+            DESCRIPTION
+                   "It is sufficient to support only a subset of all
+                    the possible combinations of the individual bit
+                    values."  
+                    
+            --OBJECT  fcRouteProto 
+            --DESCRIPTION
+            --       "It is sufficient to support only a subset of all
+            --        the defined values. "
+            
+            OBJECT  fcRouteDomainId 
+            DESCRIPTION
+                   "It is compliant to support only a subset of 
+                   values from the range defined."
+                   
+            OBJECT  fcRouteMetric 
+            DESCRIPTION
+                   "It is compliant to support only a subset of 
+                   values from the range defined."
+                    
+            ::= { fcRouteMIBCompliances  2 }
+
+fcRouteGroup  OBJECT-GROUP
+        OBJECTS  { fcRouteLastChangeTime,fcRoutePreference,
+                   fcRouteVerifyAction,fcRouteVerifyType,
+                   fcRouteVerifyModule,fcRouteVerifyVsanID,
+                   fcRouteVerifyRouteType,fcRouteVerifyResult,
+                   fcRouteVerifyLock}
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects giving route information."
+        ::= { fcRouteMIBGroups 1 }
+
+fcRouteTableGroup  OBJECT-GROUP
+        OBJECTS  { fcRouteDomainId,fcRouteMetric,fcRouteType,
+                   fcRoutePermanent,fcRouteRowStatus}               
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for displaying and configuring
+                 route's."
+        ::= { fcRouteMIBGroups 2 }
+
+fcRouteStatGroup  OBJECT-GROUP
+        OBJECTS  { fcRouteFlowType,fcRouteFlowVsanId,fcRouteFlowDestId,
+                   fcRouteFlowSrcId,fcRouteFlowMask,fcRouteFlowPort,
+                   fcRouteFlowFrames,fcRouteFlowBytes,
+                   fcRouteFlowCreationTime,
+                   fcRouteFlowRowStatus }               
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for displaying and configuring
+                 ingress traffic flow counters."
+        ::= { fcRouteMIBGroups 3 }
+
+END

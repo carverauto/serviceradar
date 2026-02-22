@@ -1,0 +1,219 @@
+-- *****************************************************************
+-- CISCO-MODULE-VIRTUALIZATION-CAPABILITY.my:
+-- Cisco CISCO-MODULE-VIRTUALIZATION-MIB AGENT-CAPABILITIES
+--   
+-- March 2006, Roopeshakumar N. Shalgar
+--   
+-- Copyright (c) 2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-MODULE-VIRTUALIZATION-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoModuleVirtualizationCapability MODULE-IDENTITY
+    LAST-UPDATED    "200806140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-l4l7security@cisco.com,
+            cs-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-MODULE-VIRTUALIZATION-MIB."
+    REVISION        "200806140000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoModVirtCapc4710aceVA1R700 for 
+        ACE 4710 Application Control Engine 
+        Appliance."
+    REVISION        "200605310000Z"
+    DESCRIPTION
+        "Corrected the contact E-mail id:
+        cs-l4l7security@cisco.com"
+    REVISION        "200603210000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoModuleVirtualizationCapabilityACSWV03R000 
+        for Application Control Engine (ACE)."
+    ::= { ciscoAgentCapability 497 }
+
+
+
+ciscoModuleVirtualizationCapabilityACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-MODULE-VIRTUALIZATION-MIB capabilities."
+
+    SUPPORTS        CISCO-MODULE-VIRTUALIZATION-MIB
+    INCLUDES        {
+                        cmVirtContextconfigGroup,
+                        cmVirtContextIfMapGroup,
+                        cmVirtContextNotifControlGroup,
+                        cmVirtContextNotifObjectsGroup,
+                        cmVirtContextNotificationGroup
+                    }
+    VARIATION       cmVirtContextDescr
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextURL
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmVirtContextResourceClass
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextIfMapIdHigh
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextIfMapStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextIfMapRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextNotifEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextAdded
+    DESCRIPTION
+        "cmVirtContextAdded signifies that a Virtual
+        Context has been created. Additonal varbinds
+        clogOriginIDType and clogOriginID are included
+        in the notification pdu. This helps in recognizing
+        from which particular Virtual Context of a slot
+        of a Chassis the notification was sent."
+
+    VARIATION       cmVirtContextRemoved
+    DESCRIPTION
+        "cmVirtContextAdded signifies that a Virtual
+        Context has been deleted. Additonal varbinds
+        clogOriginIDType and clogOriginID are included
+        in the notification pdu. This helps in recognizing
+        from which particular Virtual Context of a slot
+        of a Chassis the notification was sent."
+
+    ::= { ciscoModuleVirtualizationCapability 1 }
+
+ciscoModVirtCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                 for ACE 4710 Application Control Engine 
+                 Appliance"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-MODULE-VIRTUALIZATION-MIB capabilities."
+
+    SUPPORTS        CISCO-MODULE-VIRTUALIZATION-MIB
+    INCLUDES        {
+                        cmVirtContextconfigGroup,
+                        cmVirtContextIfMapGroup,
+                        cmVirtContextNotifControlGroup,
+                        cmVirtContextNotifObjectsGroup,
+                        cmVirtContextNotificationGroup
+                    }
+    VARIATION       cmVirtContextDescr
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextURL
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmVirtContextResourceClass
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextIfMapIdHigh
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextIfMapStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextIfMapRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextNotifEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       cmVirtContextAdded
+    DESCRIPTION
+        "cmVirtContextAdded signifies that a Virtual
+        Context has been created. Additonal varbinds
+        clogOriginIDType and clogOriginID are included
+        in the notification pdu. This helps in recognizing
+        from which particular Virtual Context of a slot
+        of a Chassis the notification was sent."
+
+    VARIATION       cmVirtContextRemoved
+    DESCRIPTION
+        "cmVirtContextAdded signifies that a Virtual
+        Context has been deleted. Additonal varbinds
+        clogOriginIDType and clogOriginID are included
+        in the notification pdu. This helps in recognizing
+        from which particular Virtual Context of a slot
+        of a Chassis the notification was sent."
+
+    ::= { ciscoModuleVirtualizationCapability 2 }
+
+END

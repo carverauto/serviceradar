@@ -1,0 +1,477 @@
+-- MIB created 6/25/99 12:57:38, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-SNAPSHOT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SNAPSHOT-MIB.my"
+
+IMPORTS
+    Integer32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    CiscoNetworkProtocol, CiscoNetworkAddress
+            FROM CISCO-TC;
+
+ciscoSnapshotMIB OBJECT IDENTIFIER ::= { ciscoMgmt 19 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9508150000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    Snapshot routing MIB
+--  RevDate
+--    9508150000Z
+--  RevDescr
+--    Specify a correct (non-negative) range for an index
+--    object.  Also, correct typo which caused syntax conflict.
+--  RevDate
+--    9503210000Z
+--  RevDescr
+--    Miscellaneous updates to the MIB and capabilities.
+--  RevDate
+--    9501110000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSnapshotMIBObjects OBJECT IDENTIFIER ::= { ciscoSnapshotMIB 1 }
+ciscoSnapshotMIBConformance OBJECT IDENTIFIER ::= { ciscoSnapshotMIB 2 }
+ciscoSnapshotMIBCompliances OBJECT IDENTIFIER ::= { ciscoSnapshotMIBConformance 1 }
+ciscoSnapshotMIBGroups OBJECT IDENTIFIER ::= { ciscoSnapshotMIBConformance 2 }
+
+ciscoSnapshotForceActive OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Forces the snapshot state to active for all entries
+        of the ciscoSnapshotActivityTable whose 
+        ciscoSnapshotIfIndex value is specified as parameter.
+        The interface associated with ciscoSnapshotIfIndex 
+        must be a client interface.
+        
+        Retrieval of this object will return the value of the 
+        ciscoSnapshotIfIndex that was last forced into the 
+        active state, or 0 if no interfaces have been forced into 
+        the active state since the router was reset"
+    ::= { ciscoSnapshotMIBObjects 1 }
+
+ciscoSnapshotInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoSnapshotInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of Snapshot Routing configuration entries."
+    ::= { ciscoSnapshotMIBObjects 2 }
+
+ciscoSnapshotInterfaceEntry OBJECT-TYPE
+    SYNTAX CiscoSnapshotInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A Snapshot Routing configuration entry.
+        
+        A management station wishing to create an entry should
+        create the associated instance of the row status object.
+        It should also modify, either in the same or in successive
+        PDUs, the values for the other objects if the defaults are
+        not appropriate.
+        
+        Once the appropriate instance of all the configuration
+        objects have been created, either by an explicit SNMP
+        set request or by default, the row status should be set
+        to active to initiate the request.  Note that this entire
+        procedure may be initiated via a single set request which
+        specifies a row status of createAndGo.
+        
+        In order to prevent inactive (notReady, or notInService)
+        entries from clogging the table, entries will be aged out,
+        but an entry will never be deleted within 5 minutes of
+        creation."
+    INDEX { ciscoSnapshotIfIndex }
+    ::= { ciscoSnapshotInterfaceTable 1 }
+
+CiscoSnapshotInterfaceEntry ::= SEQUENCE {
+    ciscoSnapshotIfIndex InterfaceIndex,
+    ciscoSnapshotClient TruthValue,
+    ciscoSnapshotDialer TruthValue,
+    ciscoSnapshotActiveInterval Integer32,
+    ciscoSnapshotQuietInterval Integer32,
+    ciscoSnapshotRetryInterval Integer32,
+    ciscoSnapshotIfUpAction INTEGER,
+    ciscoSnapshotRowStatus RowStatus
+    }
+
+ciscoSnapshotIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax Integer32
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The interface to which this entry pertains."
+    ::= { ciscoSnapshotInterfaceEntry 1 }
+
+ciscoSnapshotClient OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When true, this router is the client snapshot router on
+        the interface.  When false, this router is the server
+        snapshot router on the interface."
+    DEFVAL { true }
+    ::= { ciscoSnapshotInterfaceEntry 2 }
+
+ciscoSnapshotDialer OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether or not snapshot routing on this
+        interface uses Dial-on-Demand routing."
+    DEFVAL { false }
+    ::= { ciscoSnapshotInterfaceEntry 3 }
+
+ciscoSnapshotActiveInterval OBJECT-TYPE
+    SYNTAX Integer32(5..1000)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time during which routes may be exchanged
+        between the client and server routers."
+    DEFVAL { 5 }
+    ::= { ciscoSnapshotInterfaceEntry 4 }
+
+ciscoSnapshotQuietInterval OBJECT-TYPE
+    SYNTAX Integer32(8..100000)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time during which routes are retained and
+        frozen between active periods.
+        
+        An instance of this object may only be present if the value
+        of the associated ciscoSnapshotClient object is true."
+    DEFVAL { 8 }
+    ::= { ciscoSnapshotInterfaceEntry 5 }
+
+ciscoSnapshotRetryInterval OBJECT-TYPE
+    SYNTAX Integer32
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time to wait and retry a route exchange if an
+        active period elapses with no routes being exchanged.  For
+        example, if an interface is down (or a DDR phone number is
+        busy, or a DDR interface is unavailable) during the active
+        interval, instead of waiting for the amount of time specified
+        by ciscoSnapshotQuietTime to elapse before an attempt is made
+        to exchange routing updates again, the attempt is made after
+        the amount of time specified by this object has elapsed.
+        This value is calculated automatically based on the 
+        ciscoSnapshotActiveInterval.
+        
+        An instance of this object may only be present if the value
+        of the associated ciscoSnapshotClient object is true."
+    ::= { ciscoSnapshotInterfaceEntry 6 }
+
+ciscoSnapshotIfUpAction OBJECT-TYPE
+    SYNTAX INTEGER {
+        goActive(1),
+        noAction(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the action that takes place when the
+        interface associated with this entry transitions to the `up'
+        state while snapshot routing on the interface is in quiet
+        mode.
+        
+        A value of goActive will cause the immediate transition to
+        the active state.
+        
+        A value of noAction will cause no such transition.  Instead,
+        the transition to the active state will occur normally when
+        the current quiet period has expired.
+        
+        Going active immediately incurs extra routing protocol
+        overhead, but allows a fresh set of routing updates be
+        exchanged each time the line is brought up.  This is useful
+        in a Dial-on-Demand routing environment.
+        
+        An instance of this object may only be present if the value
+        of the associated ciscoSnapshotClient object is true."
+    DEFVAL { goActive }
+    ::= { ciscoSnapshotInterfaceEntry 7 }
+
+ciscoSnapshotRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this table entry.  Once the entry status is
+        set to active, the snapshot routing process will be 
+        enabled for this interface."
+    ::= { ciscoSnapshotInterfaceEntry 8 }
+
+ciscoSnapshotActivityTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoSnapshotActivityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of snapshot routing activity entries."
+    ::= { ciscoSnapshotMIBObjects 3 }
+
+ciscoSnapshotActivityEntry OBJECT-TYPE
+    SYNTAX CiscoSnapshotActivityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A snapshot routing activity entry.
+        
+        Entries in this table are added for active row entries
+        in the ciscoSnapshotInterfaceTable.  If a row entry in
+        the ciscoSnapshotInterfaceTable is set to notInService,
+        or deleted, associated entries in this table will be 
+        deleted.
+        
+        Note that if the associated row in the 
+        ciscoSnapshotInterfaceTable is for a server router, entries
+        in this table will only be present when the server is
+        actively involved in snapshot routing updates."
+    INDEX { ciscoSnapshotIfIndex, ciscoSnapshotActivityIndex }
+    ::= { ciscoSnapshotActivityTable 1 }
+
+CiscoSnapshotActivityEntry ::= SEQUENCE {
+    ciscoSnapshotActivityIndex Integer32(0..2147483647),
+    ciscoSnapshotActivityState INTEGER,
+    ciscoSnapshotActivityTimer Integer32,
+    ciscoSnapshotExchangeTimer Integer32,
+    ciscoSnapshotDialerMap Integer32,
+    ciscoSnapshotSourceProtocol CiscoNetworkProtocol,
+    ciscoSnapshotSourceAddress CiscoNetworkAddress,
+    ciscoSnapshotProtocolsExchanged OCTET STRING
+    }
+
+ciscoSnapshotActivityIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index value that uniquely identifies a Snapshot
+        Activity Entry on a given interface."
+    ::= { ciscoSnapshotActivityEntry 1 }
+
+ciscoSnapshotActivityState OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        quiet(2),
+        serverPostActive(3),
+        transitionToQuiet(4),
+        transitionToActive(5),
+        limbo(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current state of snapshot routing for this entry.
+        active means that routing information may be exchanged.
+        quiet, only present on a client snapshot interface,
+        means that routes are frozen, and that no routing
+        information may be exchanged until the active state is
+        reentered.  serverPostActive, only present on a server
+        snapshot interface, means that the active period has
+        expired, but routing information will still be accepted
+        from (but not sent to) the associated client router.
+        transitionToQuiet, and transitionToActive, only present
+        on a client, are temporary states entered after the active
+        state, wherein any down to up transition of the interface
+        will cause a move to the quiet or active state, respectively.
+        limbo is a temporary state for activity blocks that
+        are in the process of being created or destroyed."
+    ::= { ciscoSnapshotActivityEntry 2 }
+
+ciscoSnapshotActivityTimer OBJECT-TYPE
+    SYNTAX Integer32
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time remaining in the current state."
+    ::= { ciscoSnapshotActivityEntry 3 }
+
+ciscoSnapshotExchangeTimer OBJECT-TYPE
+    SYNTAX Integer32
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time during the last active state, in
+        which protocol exchanges occurred. The minimum time required
+        to allow updates to be exchanged for a 'successfull update
+        cycle' is the greater of 3 minutes, or 1/2 the active time.
+        If the ciscoSnapshotExchangeTimer is less than this, the
+        quiet state will use the retry interval to determine when next
+        to go active.
+        
+        An instance of this object will only be present when
+        the associated value of ciscoSnapshotClient is true for this
+        interface."
+    ::= { ciscoSnapshotActivityEntry 4 }
+
+ciscoSnapshotDialerMap OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Index of the dialer map entry associated with this
+        snapshot activity record.  A value of 0 indicates
+        that no dialer map is associated with this entry.
+        
+        An instance of this object will only be present when
+        the associated value of ciscoSnapshotDialer is true."
+    ::= { ciscoSnapshotActivityEntry 5 }
+
+ciscoSnapshotSourceProtocol OBJECT-TYPE
+    SYNTAX CiscoNetworkProtocol
+--    Rsyntax INTEGER {
+--        ip(1),
+--        decnet(2),
+--        pup(3),
+--        chaos(4),
+--        xns(5),
+--        x121(6),
+--        appletalk(7),
+--        clns(8),
+--        lat(9),
+--        vines(10),
+--        cons(11),
+--        apollo(12),
+--        stun(13),
+--        novell(14),
+--        qllc(15),
+--        snapshot(16),
+--        atmIlmi(17),
+--        bstun(18),
+--        x25pvc(19),
+--        unknown(65535)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The protocol of the host that initiated the snapshot
+        routing activity associated with this record.
+        
+        An instance of this object will only be present when
+        the associated value of ciscoSnapshotClient is false."
+    ::= { ciscoSnapshotActivityEntry 6 }
+
+ciscoSnapshotSourceAddress OBJECT-TYPE
+    SYNTAX CiscoNetworkAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the host that initiated the snapshot
+        routing activity associated with this record.
+        
+        An instance of this object will only be present when
+        the associated value of ciscoSnapshotClient is false."
+    ::= { ciscoSnapshotActivityEntry 7 }
+
+ciscoSnapshotProtocolsExchanged OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An array of bits that indicates whether or not routing
+        information has been exchanged for all protocols.  The
+        most significant bit of the first octet represents the
+        protocol associated with CiscoNetworkProtocol value of 0;
+        the least significant bit of the first octet represents
+        the protocol associated with CiscoNetworkProtocol value
+        of 7; the most significant bit of the second octet
+        represents the protocol associated with the
+        CiscoNetworkProtocol value of 8; and so forth.
+        Routing information for a given protocol has been exchanged
+        if the associated bit is set.
+        
+        An instance of this object will only be present when
+        the associated value of ciscoSnapshotClient is true."
+    ::= { ciscoSnapshotActivityEntry 8 }
+
+ciscoSnapshotMIBGroup OBJECT IDENTIFIER ::= { ciscoSnapshotMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing snapshot routing 
+--     ability to a Cisco agent.
+--  objects
+--    ciscoSnapshotForceActive, ciscoSnapshotClient, 
+--    ciscoSnapshotDialer, ciscoSnapshotActiveInterval, 
+--    ciscoSnapshotQuietInterval, ciscoSnapshotRetryInterval, 
+--    ciscoSnapshotIfUpAction, ciscoSnapshotRowStatus, 
+--    ciscoSnapshotActivityState, ciscoSnapshotActivityTimer, 
+--    ciscoSnapshotExchangeTimer, ciscoSnapshotDialerMap, 
+--    ciscoSnapshotSourceProtocol, ciscoSnapshotSourceAddress, 
+--    ciscoSnapshotProtocolsExchanged
+
+ciscoSnapshotMIBCompliance OBJECT IDENTIFIER ::= { ciscoSnapshotMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Snapshot MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSnapshotMIBGroup
+
+
+END
+

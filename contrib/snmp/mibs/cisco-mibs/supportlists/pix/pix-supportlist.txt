@@ -1,0 +1,41 @@
+PIX Firewall MIB Support List
+-----------------------------------------------------------------
+
+The lists below indicate which MIBs and SNMP traps are supported by the
+PIX Firewall. Depending on the version of the software, different MIBs and
+traps are supported. 
+
+SNMP version 1 MIB files are in the v1 directory and SNMP version 2 MIB
+files are in the v2 directory.  Note that for most every MIB in the v2
+directory, there exists a SNMP version 1 conversion of the MIB in the v1
+directory as well. The corresponding schema files for SunNet Manager can
+be found in the schema directory. OID (Object Identifier) files for 
+SunNet Manager can be found in the oid directory. Trap files 
+for SunNet Manager can be found in the traps directory. 
+
+MIBs supported since PIX Firewall version 5.1:
+
+        CISCO-FIREWALL-MIB-V1SMI.my (Note:  The FIREWALL mib 
+contains 2 branches - the cfwSystem branch and the cfwEvents branch.  
+The PIX only supports the cfwSystem branch of the mib.)
+        CISCO-MEMORY-POOL-MIB.my 
+        CISCO-SYSLOG-MIB-V1SMI.my 
+        RFC1213-MIB.my (System and Interfaces groups only)
+
+MIBs supported by PIX Firewall versions 3.0 to 5.0:
+
+        CISCO-SYSLOG-MIB-V1SMI.my
+        RFC1213-MIB      (System and Interfaces groups only)
+
+Traps supported by the PIX
+------------------------------------------------------------------
+
+Trap Name                MIB File
+---------------------    --------------------------
+authenticationFailure    CISCO-GENERAL-TRAPS.my
+clogNotificationsSent    CISCO-SYSLOG-MIB-V1SMI.my
+coldStart                CISCO-GENERAL-TRAPS.my
+linkDown                 CISCO-GENERAL-TRAPS.my
+linkUp                   CISCO-GENERAL-TRAPS.my
+warmStart                CISCO-GENERAL-TRAPS.my
+

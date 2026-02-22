@@ -1,0 +1,1179 @@
+--
+-- *****************************************************************
+-- CISCO-IETF-MSDP-MIB.my:  MSDP MIB file
+--
+-- May 2006, Rayen Mohanty
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+-- This mib was extracted from draft-ietf-mboned-msdp-mib-01.txt
+--
+
+CISCO-IETF-MSDP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    experimental, Counter32, Gauge32, TimeTicks, Integer32,
+    IpAddress
+        FROM SNMPv2-SMI
+    RowStatus, TruthValue, TimeStamp, DisplayString
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+ciscoIetfMsdpMIB MODULE-IDENTITY
+    LAST-UPDATED "200605190000Z"
+    ORGANIZATION "IETF MBONED Working Group"
+    CONTACT-INFO
+           "Cisco Systems
+            Customer Service
+            170 West Tasman Drive
+            San Jose, CA 95134
+            Tel: +1 800 553-NETS
+            Email: q-multicast@cisco.com"
+    DESCRIPTION
+           "An experimental MIB module for MSDP Management
+            and Monitoring.
+            Version draft-ietf-mboned-msdp-mib-01.txt is
+            ciscoized"
+
+    REVISION "200605190000Z" -- 19 May 2006
+    DESCRIPTION
+               "Initial version"
+    ::= { ciscoExperiment 130 }
+
+cMsdpMIBobjects OBJECT IDENTIFIER ::= { ciscoIetfMsdpMIB 1 }
+
+cMsdp           OBJECT IDENTIFIER ::= { cMsdpMIBobjects 1 }
+
+
+cMsdpEnabled OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+           "The state of MSDP on this MSDP speaker - globally enabled or
+            disabled.
+
+            Changes to this object should be stored to non-volatile	
+            memory."
+    ::= { cMsdp 1 }
+
+cMsdpCacheLifetime OBJECT-TYPE
+    SYNTAX     TimeTicks
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+           "The lifetime given to SA cache entries when created or
+            refreshed.  This is the [SA-State-Period] in the MSDP spec.
+            A value of 0 means no SA caching is done by this MSDP
+            speaker.
+
+            Changes to this object should be stored to non-volatile	
+            memory.	
+		
+            This object does not measure time per se; instead, it is the	
+            delta from the time at which an SA message is received at	
+            which it should be expired if not refreshed. (i.e., it is	
+            the value of cMsdpSACacheExpiryTime immediately after	
+            receiving an SA message applying to that row.) As such,	
+            TimeInterval would be a more appropriate SYNTAX; it remains	
+            TimeTicks for backwards compatability."
+    REFERENCE "RFC 3618 section 5.3"
+    ::= { cMsdp 2 }
+
+cMsdpNumSACacheEntries OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The total number of entries in the SA Cache table."
+    ::= { cMsdp 3 }
+
+-- 
+-- The spec doesn't define SA-Hold-Down-Period any more
+-- cMsdpSAHoldDownPeriod OBJECT-TYPE
+--     ::= { cMsdp 9 }
+
+-- This object was introduced in error, with a similar definition	
+-- to msdpCacheLifetime.
+-- cMsdpSAStatePeriod OBJECT-TYPE
+--     ::= { cMsdp 10 }
+
+cMsdpRPAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+           "The RP address used when sourcing MSDP SA messages.  May be
+            0.0.0.0 on non-RP's.
+
+            Changes to this object should be stored to non-volatile	
+            memory."    
+    ::= { cMsdp 11 }
+
+--
+-- The MSDP Requests table
+-- SA Requests were removed from the MSDP spec, so this entire table
+-- is deprecated.
+
+cMsdpRequestsTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CMsdpRequestsEntry
+    MAX-ACCESS not-accessible
+    STATUS     deprecated
+    DESCRIPTION
+           "The (conceptual) table listing group ranges and MSDP peers
+            used when deciding where to send an SA Request message when
+            required.  If SA Requests are not enabled, this table may be
+            empty.
+
+            In order to choose a peer to whom to send an SA Request for
+            a given group G, the subset of entries in this table whose
+            (cMsdpRequestsPeerType, cMsdpRequestsPeer) tuple represents a
+            peer whose cMsdpPeerState is established are examined.  The
+            set is further reduced by examining only those entries for
+            which cMsdpPeerRequestsGroupAddressType equals the address
+            type of G, and the entries with the highest value of
+            cMsdpRequestsGroupPrefix are considered, where the group G
+            falls within the range described by the combination of
+            cMsdpRequestsGroup and cMsdpRequestsGroupPrefix.  (This
+            sequence is commonly known as a 'longest-match' lookup.)
+
+            Finally, if multiple entries remain, the entry with the
+            lowest value of cMsdpRequestsPriority is chosen.  The SA
+            Request message is sent to the peer described by this row."
+    ::= { cMsdp 4 }
+
+cMsdpRequestsEntry OBJECT-TYPE
+    SYNTAX     CMsdpRequestsEntry
+    MAX-ACCESS not-accessible
+    STATUS     deprecated
+    DESCRIPTION
+           "An entry (conceptual row) representing a group range used
+            when deciding where to send an SA Request message."
+    INDEX { cMsdpRequestsGroupAddress, cMsdpRequestsGroupMask }
+    ::= { cMsdpRequestsTable 1 }
+
+CMsdpRequestsEntry ::= SEQUENCE {
+        cMsdpRequestsGroupAddress  IpAddress,
+        cMsdpRequestsGroupMask     IpAddress,
+        cMsdpRequestsPeer          IpAddress,
+        cMsdpRequestsStatus        RowStatus
+    }
+
+cMsdpRequestsGroupAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     deprecated
+    DESCRIPTION
+           "The group address that, when combined with the mask in this
+            entry, represents the group range to which this row
+            applies."
+    ::= { cMsdpRequestsEntry 1 }
+
+cMsdpRequestsGroupMask OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     deprecated
+    DESCRIPTION
+           "The mask that, when combined with the group address in this
+            entry, represents the group range to which this row
+            applies."
+    ::= { cMsdpRequestsEntry 2 }
+
+cMsdpRequestsPeer OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-create
+    STATUS     deprecated
+    DESCRIPTION
+           "The peer to which MSDP SA Requests for groups matching this
+            entry's group range will be sent.  This object combined with
+            cMsdpRequestsPeerType must match the INDEX of a row in the
+            cMsdpPeerTable, and to be considered, this peer's
+            cMsdpPeerState must be established."
+    ::= { cMsdpRequestsEntry 3 }
+
+cMsdpRequestsStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     deprecated
+    DESCRIPTION
+           "The status of this row, by which new rows may be added to
+            the table or old rows may be deleted."
+    ::= { cMsdpRequestsEntry 4 }
+
+
+--
+-- The MSDP Peer table
+--
+
+cMsdpPeerTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CMsdpPeerEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The (conceptual) table listing the MSDP speaker's peers."
+    ::= { cMsdp 5 }
+
+cMsdpPeerEntry OBJECT-TYPE
+    SYNTAX     CMsdpPeerEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "An entry (conceptual row) representing an MSDP peer.
+
+            If row creation is supported, dynamically added rows are	
+            added to the system's stable configuration (corresponding to	
+            a StorageType value of nonVolatile). "
+    INDEX      { cMsdpPeerRemoteAddress }
+    ::= { cMsdpPeerTable 1 }
+
+CMsdpPeerEntry ::= SEQUENCE {
+        cMsdpPeerRemoteAddress              IpAddress,
+        cMsdpPeerState                      INTEGER,
+        cMsdpPeerRPFFailures                Counter32,
+        cMsdpPeerInSAs                      Counter32,
+        cMsdpPeerOutSAs                     Counter32,
+        cMsdpPeerInSARequests               Counter32,
+        cMsdpPeerOutSARequests              Counter32,
+        cMsdpPeerInSAResponses              Counter32,
+        cMsdpPeerOutSAResponses             Counter32,
+        cMsdpPeerInControlMessages          Counter32,
+        cMsdpPeerOutControlMessages         Counter32,
+        cMsdpPeerInDataPackets              Counter32,
+        cMsdpPeerOutDataPackets             Counter32,
+        cMsdpPeerFsmEstablishedTransitions  Counter32,
+        cMsdpPeerFsmEstablishedTime         TimeStamp,
+        cMsdpPeerInMessageTime              TimeStamp,
+        cMsdpPeerLocalAddress               IpAddress,
+        cMsdpPeerConnectRetryInterval       Integer32,
+        cMsdpPeerHoldTimeConfigured         Integer32,
+        cMsdpPeerKeepAliveConfigured        Integer32,
+        cMsdpPeerDataTtl                    Integer32,
+        cMsdpPeerProcessRequestsFrom        TruthValue,
+        cMsdpPeerStatus                     RowStatus,
+        cMsdpPeerRemotePort                 Integer32,
+        cMsdpPeerLocalPort                  Integer32,
+        cMsdpPeerEncapsulationType          INTEGER,
+        cMsdpPeerConnectionAttempts         Counter32,
+        cMsdpPeerInNotifications            Counter32,
+        cMsdpPeerOutNotifications           Counter32,
+        cMsdpPeerLastError                  OCTET STRING,
+        cMsdpPeerDiscontinuityTime          TimeStamp
+    }
+
+cMsdpPeerRemoteAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The address of the remote MSDP peer."
+    ::= { cMsdpPeerEntry 1 }
+
+-- dunno what happened to 2.
+
+cMsdpPeerState OBJECT-TYPE
+    SYNTAX     INTEGER {
+                         inactive(1),
+                         listen(2),
+                         connecting(3),
+                         established(4),
+                         disabled(5)
+                       }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The state of the MSDP TCP connection with this peer."
+    ::= { cMsdpPeerEntry 3 }
+
+cMsdpPeerRPFFailures OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of SA messages received from this peer which
+            failed the Peer-RPF check.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 4 }
+
+cMsdpPeerInSAs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of MSDP SA messages received on this connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 5 }
+
+cMsdpPeerOutSAs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of MSDP SA messages transmitted on this
+            connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 6 }
+
+cMsdpPeerInSARequests OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of MSDP SA-Request messages received on this
+            connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 7 }
+
+cMsdpPeerOutSARequests OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of MSDP SA-Request messages transmitted on this
+            connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 8 }
+
+cMsdpPeerInSAResponses OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+           "The number of MSDP SA-Response messages received on this
+            connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 9 }
+
+cMsdpPeerOutSAResponses OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+           "The number of MSDP SA Response messages transmitted on this
+            TCP connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 10 }
+
+cMsdpPeerInControlMessages OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The total number of MSDP messages, excluding encapsulated	
+            data packets, received on this TCP connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 11 }
+
+cMsdpPeerOutControlMessages OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The total number of MSDP messages, excluding encapsulated	
+            data packets, transmitted on this TCP connection.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 12 }
+
+cMsdpPeerInDataPackets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The total number of encapsulated data packets received from
+            this peer.
+
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 13 }
+
+cMsdpPeerOutDataPackets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The total number of encapsulated data packets sent to this
+            peer.
+            Discontinuities in the value of this counter can occur at
+            re-initialization of the management system, and at other
+            times as indicated by the value of
+            cMsdpPeerDiscontinuityTime."
+    ::= { cMsdpPeerEntry 14 }
+
+cMsdpPeerFsmEstablishedTransitions OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The total number of times the MSDP FSM transitioned into the
+            ESTABLISHED state."
+    REFERENCE "RFC 3618 section 11"
+    ::= { cMsdpPeerEntry 15 }
+
+cMsdpPeerFsmEstablishedTime OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "This timestamp is set to the value of sysUpTime when a peer
+            transitions into or out of the ESTABLISHED state.  It is set
+            to zero when the MSDP speaker is booted."
+    REFERENCE "RFC 3618 section 11"
+    ::= { cMsdpPeerEntry 16 }
+
+cMsdpPeerInMessageTime OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The sysUpTime value when the last MSDP message was received
+            from the peer.  It is set to zero when the MSDP speaker is
+            booted."
+    ::= { cMsdpPeerEntry 17 }
+
+cMsdpPeerLocalAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "The local IP address used for this entry's MSDP TCP 
+            connection."
+    ::= { cMsdpPeerEntry 18 }
+
+-- cMsdpPeerSAAdvPeriod ([SA-Advertisement-Timer]) has been removed
+--      ::= { cMsdpPeerEntry 19 }
+-- RFC 3618 section 5.1 says it MUST be 60 seconds.
+
+
+cMsdpPeerConnectRetryInterval OBJECT-TYPE
+    SYNTAX     Integer32 (1..65535)
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "Time interval in seconds for the [ConnectRetry-period] for
+            this peer."
+    REFERENCE "RFC 3618 section 5.6"
+    DEFVAL { 30 }
+    ::= { cMsdpPeerEntry 20 }
+
+cMsdpPeerHoldTimeConfigured OBJECT-TYPE
+    SYNTAX     Integer32 (0|3..65535)
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "Time interval in seconds for the [HoldTime-Period]
+            configured for this MSDP speaker with this peer.  If the
+            value of this object is zero (0), the MSDP connection is
+            never torn down due to the absence of messages from the
+            peer."
+    REFERENCE "RFC 3618 section 5.4"
+    DEFVAL { 75 }
+    ::= { cMsdpPeerEntry 21 }
+
+cMsdpPeerKeepAliveConfigured OBJECT-TYPE
+    SYNTAX     Integer32 (0|1..21845)
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "Time interval in seconds for the [KeepAlive-Period]
+            configured for this MSDP speaker with this peer.  If the
+            value of this object is zero (0), no periodic KEEPALIVE
+            messages are sent to the peer after the MSDP connection has
+            been established."
+    REFERENCE "RFC 3618 section 5.5"
+    DEFVAL { 60 }
+    ::= { cMsdpPeerEntry 22 }
+
+cMsdpPeerDataTtl OBJECT-TYPE
+    SYNTAX     Integer32 (0..255)
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "The minimum TTL a packet is required to have before it may
+            be forwarded using SA encapsulation to this peer."
+    DEFVAL { 1 }
+    ::= { cMsdpPeerEntry 23 }
+
+cMsdpPeerProcessRequestsFrom OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-create
+    STATUS     deprecated
+    DESCRIPTION
+           "This object indicates whether or not to process MSDP SA
+            Request messages from this peer.  If True(1), MSDP SA
+            Request messages from this peer are processed and replied to
+            (if appropriate) with SA Response messages.  If False(2),
+            MSDP SA Request messages from this peer are silently
+            ignored.  It defaults to False when cMsdpCacheLifetime is 0
+            and True when cMsdpCacheLifetime is non-0.
+
+            This object is deprecated because MSDP SA Requests were
+            removed from the MSDP specification."
+    ::= { cMsdpPeerEntry 24 }
+
+cMsdpPeerStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "The RowStatus object by which peers can be added and
+            deleted.  A transition to 'active' will cause the MSDP
+            'Enable MSDP peering with P' Event to be generated.  A
+            transition out of the 'active' state will cause the MSDP
+            'Disable MSDP peering with P' Event to be generated.  Care
+            should be used in providing write access to this object
+            without adequate authentication.
+
+            cMsdpPeerRemoteAddress is the only variable that must be set
+            to a valid value before the row can be activated.  Since
+            this is the table's INDEX, a row can be activated by simply
+            setting the cMsdpPeerStatus variable.
+
+            It is possible to modify other columns in the same
+            conceptual row when the status value is active(1)."
+    REFERENCE "RFC 3618 section 11.1"
+    ::= { cMsdpPeerEntry 25 }
+
+cMsdpPeerRemotePort OBJECT-TYPE
+    SYNTAX     Integer32 (0..65535)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The remote port for the TCP connection between the MSDP
+            peers."
+    DEFVAL { 639 }
+    ::= { cMsdpPeerEntry 26 }
+
+cMsdpPeerLocalPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..65535)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The local port for the TCP connection between the MSDP
+            peers."
+    DEFVAL { 639 }
+    ::= { cMsdpPeerEntry 27 }
+
+-- cMsdpPeerEncapsulationState has been removed
+-- because there is no longer an encapsulation
+-- state machine.
+--     ::= { msdpPeerEntry 28 }
+
+cMsdpPeerEncapsulationType OBJECT-TYPE
+    SYNTAX     INTEGER {
+                         none(0),
+                         tcp(1)
+                       }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "The encapsulation in use when encapsulating data in SA
+            messages to this peer."
+    ::= { cMsdpPeerEntry 29 }
+
+cMsdpPeerConnectionAttempts OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of times the state machine has transitioned from
+            INACTIVE to CONNECTING."
+    ::= { cMsdpPeerEntry 30 }
+
+cMsdpPeerInNotifications OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+           "The number of MSDP Notification messages received from this
+            peer.
+
+            This object is deprecated because MSDP Notifications have
+            been removed from the spec."
+    ::= { cMsdpPeerEntry 31 }
+
+cMsdpPeerOutNotifications OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+           "The number of MSDP Notification messages transmitted to this
+            peer.
+
+            This object is deprecated because MSDP Notifications have
+            been removed from the spec."
+    ::= { cMsdpPeerEntry 32 }
+
+cMsdpPeerLastError OBJECT-TYPE
+    SYNTAX     OCTET STRING (SIZE (2))
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+           "The last error code and subcode received via Notification
+            from this peer.  If no error has occurred, this field is
+            zero.  Otherwise, the first byte of this two byte OCTET
+            STRING contains the O-bit and error code, and the second
+            byte contains the subcode.
+
+            This object is deprecated because MSDP Notifications have
+            been removed from the spec."
+    DEFVAL   { '0000'h }
+    ::= { cMsdpPeerEntry 33 }
+
+cMsdpPeerDiscontinuityTime OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The value of sysUpTime on the most recent occasion at which
+            one or more of this entry's counters suffered a
+            discontinuity.  See the DESCRIPTION of each object to see if
+            it is expected to have discontinuities.  These
+            discontinuities may occur at peer connection establishment.
+
+            If no such discontinuities have occurred since the last
+            reinitialization of the local management subsystem, then
+            this object contains a zero value."
+    ::= { cMsdpPeerEntry 34 }
+
+
+--
+-- The MSDP Source-Active Cache table
+--
+
+cMsdpSACacheTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CMsdpSACacheEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The (conceptual) table listing the MSDP SA advertisements
+            currently in the MSDP speaker's cache."
+    ::= { cMsdp 6 }
+
+cMsdpSACacheEntry OBJECT-TYPE
+    SYNTAX     CMsdpSACacheEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "An entry (conceptual row) representing an MSDP SA
+            advertisement.  The INDEX to this table includes
+            cMsdpSACacheOriginRP for diagnosing incorrect MSDP
+            advertisements; normally a Group and Source pair would be
+            unique.
+
+            Row creation is not permitted; msdpSACacheStatus may only be
+            used to delete rows from this table."
+    INDEX      { cMsdpSACacheGroupAddr, cMsdpSACacheSourceAddr,
+                 cMsdpSACacheOriginRP }
+    ::= { cMsdpSACacheTable 1 }
+
+CMsdpSACacheEntry ::= SEQUENCE {
+        cMsdpSACacheGroupAddr        IpAddress,
+        cMsdpSACacheSourceAddr       IpAddress,
+        cMsdpSACacheOriginRP         IpAddress,
+        cMsdpSACachePeerLearnedFrom  IpAddress,
+        cMsdpSACacheRPFPeer          IpAddress,
+        cMsdpSACacheInSAs            Counter32,
+        cMsdpSACacheInDataPackets    Counter32,
+        cMsdpSACacheUpTime           TimeTicks,
+        cMsdpSACacheExpiryTime       TimeTicks,
+        cMsdpSACacheStatus           RowStatus
+    }
+
+cMsdpSACacheGroupAddr OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The group address of the SA Cache entry."
+    ::= { cMsdpSACacheEntry 1 }
+
+cMsdpSACacheSourceAddr OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The source address of the SA Cache entry."
+    ::= { cMsdpSACacheEntry 2 }
+
+cMsdpSACacheOriginRP OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The RP of the SA Cache entry.  This field is in the INDEX in
+            order to catch multiple RP's advertising the same source and
+            group."
+    ::= { cMsdpSACacheEntry 3 }
+
+cMsdpSACachePeerLearnedFrom OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The peer from which this SA Cache entry was last accepted.
+            This address must correspond to the cMsdpPeerRemoteAddress
+            value for a row in the MSDP Peer Table.  This should be
+            0.0.0.0 on the router that originated the entry."
+    ::= { cMsdpSACacheEntry 4 }
+
+cMsdpSACacheRPFPeer OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The peer from which an SA message corresponding to this
+            cache entry would be accepted (i.e. the RPF peer for
+            cMsdpSACacheOriginRP).  This may be different than
+            cMsdpSACachePeerLearnedFrom if this entry was created by an
+            MSDP SA-Response.  This address must correspond to the
+            cMsdpPeerRemoteAddress value for a row in the MSDP Peer
+            Table, or may be 0.0.0.0 if no RPF peer exists."
+    ::= { cMsdpSACacheEntry 5 }
+
+cMsdpSACacheInSAs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of MSDP SA messages received relevant to this
+            cache entry.  This object must be initialized to zero when
+            creating a cache entry."
+    ::= { cMsdpSACacheEntry 6 }
+
+cMsdpSACacheInDataPackets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The number of MSDP encapsulated data packets received
+            relevant to this cache entry.  This object must be
+            initialized to zero when creating a cache entry."
+    ::= { cMsdpSACacheEntry 7 }
+
+cMsdpSACacheUpTime OBJECT-TYPE
+    SYNTAX     TimeTicks
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The time since this entry was first placed in the SA cache.
+
+            The first epoch is the time that the entry was first placed
+            in the SA cache, and the second epoch is the current time."
+    ::= { cMsdpSACacheEntry 8 }
+
+cMsdpSACacheExpiryTime OBJECT-TYPE
+    SYNTAX     TimeTicks
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+           "The time remaining before this entry will expire from the SA
+            cache.
+
+            The first epoch is now, and the second epoch is the time
+            that the entry will expire."
+    ::= { cMsdpSACacheEntry 9 }
+
+cMsdpSACacheStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+           "The status of this row in the table.  The only allowable
+            actions are to retrieve the status, which will be `active',
+            or to set the status to `destroy' in order to remove this
+            entry from the cache.
+
+            Row creation is not permitted.
+
+            No columnar objects are writable, so there are none that may
+            be changed while the status value is active(1).  "
+    ::= { cMsdpSACacheEntry 10 }
+
+
+--
+-- MSDP Mesh Group Membership table
+--
+
+cMsdpMeshGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CMsdpMeshGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The (conceptual) table listing MSDP Mesh Group
+            configuration."
+    ::= { cMsdp 12 }
+
+cMsdpMeshGroupEntry OBJECT-TYPE
+    SYNTAX     CMsdpMeshGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "An entry (conceptual row) repesenting a peer in an MSDP Mesh
+            Group.
+
+            If row creation is supported, dynamically added rows are
+            added to the system's stable configuration (corresponding to
+            a StorageType value of nonVolatile).  "
+    INDEX        { cMsdpMeshGroupName, cMsdpMeshGroupPeerAddress }
+    ::= { cMsdpMeshGroupTable 1 }
+
+CMsdpMeshGroupEntry ::= SEQUENCE {
+        cMsdpMeshGroupName         DisplayString,
+        cMsdpMeshGroupPeerAddress  IpAddress,
+        cMsdpMeshGroupStatus       RowStatus
+    }
+
+cMsdpMeshGroupName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE(1..64))
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "The name of the mesh group."
+    ::= { cMsdpMeshGroupEntry 1 }
+
+cMsdpMeshGroupPeerAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+           "A peer address that is a member of the mesh group with name
+            cMsdpMeshGroupName.  The cMsdpMeshGroupPeerAddress must match
+            a row in the cMsdpPeerTable."
+    ::= { cMsdpMeshGroupEntry 2 }
+
+cMsdpMeshGroupStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+           "This entry's status, by which new entries may be added to
+            the table and old entries deleted.
+
+            cMsdpMeshGroupName and cMsdpMeshGroupPeerAddress must be set
+            to valid values before the row can be activated.  Since
+            these are the table's INDEX, a row can be activated by
+            simply setting the cMsdpMeshGroupStatus variable.
+
+            It is not possible to modify other columns in the same
+            conceptual row when the status value is active(1), because
+            there only other objects in the row are part of the INDEX.
+            Changing one of these changes the row, so an old row must be
+            deleted and a new one created.  "
+    ::= { cMsdpMeshGroupEntry 3 }
+
+
+
+-- Traps
+
+cMsdpTraps   OBJECT IDENTIFIER ::= { cMsdp 0 }
+
+cMsdpEstablished NOTIFICATION-TYPE
+    OBJECTS { cMsdpPeerFsmEstablishedTransitions }
+    STATUS     current
+    DESCRIPTION
+           "The MSDP Established event is generated when the MSDP FSM
+            enters the ESTABLISHED state."
+    ::= { cMsdpTraps 1 }
+
+cMsdpBackwardTransition NOTIFICATION-TYPE
+    OBJECTS { cMsdpPeerState }
+    STATUS     current
+    DESCRIPTION
+           "The MSDPBackwardTransition Event is generated when the MSDP
+            FSM moves from a higher numbered state to a lower numbered
+            state."
+    ::= { cMsdpTraps 2 }
+
+-- conformance information
+
+cMsdpMIBConformance OBJECT IDENTIFIER ::= { cMsdp 8 }
+cMsdpMIBCompliances OBJECT IDENTIFIER ::= { cMsdpMIBConformance 1 }
+cMsdpMIBGroups      OBJECT IDENTIFIER ::= { cMsdpMIBConformance 2 }
+
+-- compliance statements
+
+cMsdpMIBCompliance MODULE-COMPLIANCE
+    STATUS     deprecated
+    DESCRIPTION
+           "The compliance statement for entities which implement a pre-
+            RFC version of MSDP.  This statement is deprecated because
+            it includes objects used for managing/monitoring aspects of
+            MSDP that were removed before it was published as an RFC."
+   MODULE  -- this module
+   MANDATORY-GROUPS { cMsdpMIBGlobalsGroup, cMsdpMIBPeerGroup,
+                      cMsdpMIBNotificationGroup }
+
+        GROUP  cMsdpMIBEncapsulationGroup
+        DESCRIPTION
+           "This group is mandatory if MSDP encapsulation interfaces are
+                not given their own interface index numbers."
+        GROUP  cMsdpMIBSACacheGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker has the ability
+                to cache SA messages."
+        GROUP  cMsdpMIBRequestsGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker has the ability
+                to send SA-Request messages and parse SA-Response
+                messages."
+        GROUP  cMsdpMIBRPGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker sources (as
+                opposed to forwards) MSDP messages."
+        GROUP  cMsdpMIBMeshGroupGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker can participate
+                in MSDP Mesh Groups."
+   ::= { cMsdpMIBCompliances 1 }
+
+cMsdpMIBFullCompliance MODULE-COMPLIANCE
+    STATUS     current
+    DESCRIPTION
+           "The compliance statement for entities which implement MSDP
+            (RFC3618)."
+   MODULE  -- this module
+   MANDATORY-GROUPS { cMsdpMIBGlobalsGroup, cMsdpMIBPeerGroup2,
+                      cMsdpMIBSACacheGroup, cMsdpMIBEncapsulationGroup }
+        GROUP  cMsdpMIBRPGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker sources (as
+                opposed to forwards) MSDP messages."
+        GROUP  cMsdpMIBMeshGroupGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker can participate
+                in MSDP Mesh Groups."
+   ::= { cMsdpMIBCompliances 2 }
+
+cMsdpMIBReadOnlyCompliance MODULE-COMPLIANCE
+    STATUS     current
+    DESCRIPTION
+           "The compliance statement for entities which implement MSDP
+            (RFC3618), but do not permit configuration (or only permit
+            partial configuration) via SNMP."
+   MODULE  -- this module
+   MANDATORY-GROUPS { cMsdpMIBGlobalsGroup, cMsdpMIBPeerGroup2,
+                      cMsdpMIBSACacheGroup, cMsdpMIBEncapsulationGroup }
+        GROUP  cMsdpMIBRPGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker sources (as
+                opposed to forwards) MSDP messages."
+        GROUP  cMsdpMIBMeshGroupGroup
+        DESCRIPTION
+           "This group is mandatory if the MSDP speaker can participate
+                in MSDP Mesh Groups."
+        OBJECT     cMsdpEnabled
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpCacheLifetime
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpPeerLocalAddress
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpPeerConnectRetryInterval
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpPeerHoldTimeConfigured
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpPeerKeepAliveConfigured
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpPeerDataTtl
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpPeerStatus
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpPeerEncapsulationType
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpSACacheStatus
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpRPAddress
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+        OBJECT     cMsdpMeshGroupStatus
+        MIN-ACCESS read-only
+        DESCRIPTION
+           "Write access is not required."
+   ::= { cMsdpMIBCompliances 3 }
+
+-- units of conformance
+
+cMsdpMIBGlobalsGroup OBJECT-GROUP
+   OBJECTS { cMsdpEnabled }
+    STATUS     current
+    DESCRIPTION
+           "A collection of objects providing information on global MSDP
+            state."
+    ::= { cMsdpMIBGroups 1 }
+
+cMsdpMIBPeerGroup OBJECT-GROUP
+   OBJECTS { cMsdpPeerRPFFailures,
+             cMsdpPeerState, cMsdpPeerInSAs, cMsdpPeerOutSAs,
+             cMsdpPeerInSARequests, cMsdpPeerOutSARequests,
+             cMsdpPeerInSAResponses, cMsdpPeerOutSAResponses,
+             cMsdpPeerInNotifications, cMsdpPeerOutNotifications,
+             cMsdpPeerInControlMessages, cMsdpPeerOutControlMessages,
+             cMsdpPeerFsmEstablishedTransitions,
+             cMsdpPeerFsmEstablishedTime,
+             cMsdpPeerLocalAddress,
+             cMsdpPeerRemotePort, cMsdpPeerLocalPort,
+             cMsdpPeerConnectRetryInterval,
+             cMsdpPeerHoldTimeConfigured,
+             cMsdpPeerKeepAliveConfigured,
+             cMsdpPeerInMessageTime,
+             cMsdpPeerProcessRequestsFrom,
+             cMsdpPeerConnectionAttempts,
+             cMsdpPeerLastError,
+             cMsdpPeerStatus,
+             cMsdpPeerDiscontinuityTime
+           }
+    STATUS     deprecated
+    DESCRIPTION
+           "A collection of objects for managing MSDP peers.  This group
+            is deprecated in favor of cMsdpMIBPeerGroup2 because it
+            contains objects for managing aspects of MSDP that were
+            removed before it was published as an RFC."
+    ::= { cMsdpMIBGroups 2 }
+
+cMsdpMIBEncapsulationGroup OBJECT-GROUP
+   OBJECTS { cMsdpPeerInDataPackets, cMsdpPeerOutDataPackets,
+             cMsdpPeerDataTtl,
+             cMsdpPeerEncapsulationType
+           }
+    STATUS     current
+    DESCRIPTION
+           "A collection of objects for managing encapsulations if the
+            MSDP encapsulation interfaces are not given interface
+            indices."
+    ::= { cMsdpMIBGroups 3 }
+
+cMsdpMIBSACacheGroup OBJECT-GROUP
+    OBJECTS { cMsdpCacheLifetime, cMsdpNumSACacheEntries,
+              cMsdpSACachePeerLearnedFrom,
+              cMsdpSACacheRPFPeer, cMsdpSACacheInSAs,
+              cMsdpSACacheInDataPackets,
+              cMsdpSACacheUpTime, cMsdpSACacheExpiryTime,
+              cMsdpSACacheStatus }
+    STATUS     current
+    DESCRIPTION
+           "A collection of objects for managing MSDP SA cache entries."
+    ::= { cMsdpMIBGroups 4 }
+
+cMsdpMIBNotificationGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { cMsdpEstablished,
+                    cMsdpBackwardTransition }
+    STATUS     current
+    DESCRIPTION
+           "A collection of notifications for signaling changes in MSDP
+            peer relationships."
+    ::= { cMsdpMIBGroups 5 }
+
+cMsdpMIBRequestsGroup OBJECT-GROUP
+    OBJECTS { cMsdpRequestsPeer, cMsdpRequestsStatus }
+    STATUS     deprecated
+    DESCRIPTION
+           "A collection of objects for managing MSDP Request
+            transmission.  This group is deprecated because Requests
+            were removed from MSDP before its publication as RFC."
+    ::= { cMsdpMIBGroups 6 }
+
+cMsdpMIBRPGroup OBJECT-GROUP
+    OBJECTS { cMsdpRPAddress }
+    STATUS     current
+    DESCRIPTION
+           "A collection of objects for MSDP speakers that source MSDP
+            messages."
+    ::= { cMsdpMIBGroups 7 }
+
+cMsdpMIBMeshGroupGroup OBJECT-GROUP
+    OBJECTS { cMsdpMeshGroupStatus }
+    STATUS     current
+    DESCRIPTION
+           "A collection of objects for MSDP speakers that can
+            participate in MSDP mesh groups."
+    ::= { cMsdpMIBGroups 8 }
+
+cMsdpMIBPeerGroup2 OBJECT-GROUP
+   OBJECTS { cMsdpPeerRPFFailures,
+             cMsdpPeerState, cMsdpPeerInSAs, cMsdpPeerOutSAs,
+             cMsdpPeerInSARequests, cMsdpPeerOutSARequests,
+             cMsdpPeerInControlMessages, cMsdpPeerOutControlMessages,
+             cMsdpPeerFsmEstablishedTransitions,
+             cMsdpPeerFsmEstablishedTime,
+             cMsdpPeerLocalAddress,
+             cMsdpPeerRemotePort, cMsdpPeerLocalPort,
+             cMsdpPeerConnectRetryInterval,
+             cMsdpPeerHoldTimeConfigured,
+             cMsdpPeerKeepAliveConfigured,
+             cMsdpPeerInMessageTime,
+             cMsdpPeerConnectionAttempts,
+             cMsdpPeerStatus,
+             cMsdpPeerDiscontinuityTime
+           }
+    STATUS     current
+    DESCRIPTION
+           "A collection of objects for managing MSDP peers."
+    ::= { cMsdpMIBGroups 9 }
+
+END

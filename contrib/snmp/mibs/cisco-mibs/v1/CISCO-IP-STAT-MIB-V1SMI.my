@@ -1,0 +1,431 @@
+-- MIB file created 14-Feb-2002 16:57:42, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IP-STAT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IP-STAT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIpStatMIB OBJECT IDENTIFIER ::= { ciscoMgmt 84 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200112202300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--     San Jose, CA  95134-1706
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: ipqos-dev@cisco.com
+--  Descr
+--     Cisco IP Statistics MIB - Overview
+--    
+--      This MIB incorporates objects to provide support for the Cisco IP
+--      statistics as implemented in command interfaces
+--    
+--      ip accounting [ mac-address {input | ouput } |
+--           precedence { input | ouput } ]
+--      
+--      The above CLI provides additional IP statistics categorized by
+--      precedence of IP packets, as well as the MAC address associated
+--      with IP packets.  This is a supplement to those defined in
+--      OLD-CISCO-IP-MIB.my.
+--      
+--  RevDate
+--    200112202300Z
+--  RevDescr
+--    Added the following table and objects for 64 bit
+--     packet/byte counters:
+--     cipPrecedenceXTable ->
+--       cipPrecedenceHCSwitchedPkts,
+--       cipPrecedenceHCSwitchedBytes
+--     cipMacXTable ->
+--       cipMacHCSwitchedPkts,
+--       cipMacHCSwitchedBytes 
+--  RevDate
+--    9707180000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIpStatMIBObjects OBJECT IDENTIFIER ::= { ciscoIpStatMIB 1 }
+cipPrecedence   OBJECT IDENTIFIER ::= { ciscoIpStatMIBObjects 1 }
+cipMacIf        OBJECT IDENTIFIER ::= { ciscoIpStatMIBObjects 2 }
+ciscoIpStatMIBConformance OBJECT IDENTIFIER ::= { ciscoIpStatMIB 3 }
+ciscoIpStatMIBCompliances OBJECT IDENTIFIER ::= { ciscoIpStatMIBConformance 1 }
+ciscoIpStatMIBGroups OBJECT IDENTIFIER ::= { ciscoIpStatMIBConformance 2 }
+
+PacketSource ::= INTEGER {
+        input(1),
+        output(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The source of the packet the statistics is for.
+--    
+--    input statistics of the input packets.
+--    output statistics of the output packets.
+
+cipPrecedenceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipPrecedenceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of entries sorted by the precedence of IP packets.
+        The table is created and deleted via ip accounting
+        command line interface."
+    ::= { cipPrecedence 1 }
+
+cipPrecedenceEntry OBJECT-TYPE
+    SYNTAX CipPrecedenceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cipPrecedenceTable is created
+        for each IP precedence value. There are 8 precedences
+        total."
+    INDEX { ifIndex, cipPrecedenceDirection, cipPrecedenceIpPrecedence }
+    ::= { cipPrecedenceTable 1 }
+
+CipPrecedenceEntry ::= SEQUENCE {
+    cipPrecedenceDirection PacketSource,
+    cipPrecedenceIpPrecedence INTEGER,
+    cipPrecedenceSwitchedPkts Counter,
+    cipPrecedenceSwitchedBytes Counter
+    }
+
+cipPrecedenceDirection OBJECT-TYPE
+    SYNTAX PacketSource
+--    Rsyntax INTEGER {
+--        input(1),
+--        output(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The data source for the object."
+    ::= { cipPrecedenceEntry 1 }
+
+cipPrecedenceIpPrecedence OBJECT-TYPE
+    SYNTAX INTEGER(0..7)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ip precedence value this object is collected upon."
+    ::= { cipPrecedenceEntry 2 }
+
+cipPrecedenceSwitchedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Traffic, in packets, at the cipPrecedenceIpPrecedence
+        precedence."
+    ::= { cipPrecedenceEntry 3 }
+
+cipPrecedenceSwitchedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Traffic, in bytes, at the cipPrecedenceIpPrecedence
+        precedence."
+    ::= { cipPrecedenceEntry 4 }
+
+cipMacTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipMacEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table is created and deleted via ip accounting
+        command line interface."
+    ::= { cipMacIf 1 }
+
+cipMacEntry OBJECT-TYPE
+    SYNTAX CipMacEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cipMacTable is created
+        for each unique MAC address which receives/sends
+        IP packets.  Entries are deleted via the command
+        line interface."
+    INDEX { ifIndex, cipMacDirection, cipMacAddress }
+    ::= { cipMacTable 1 }
+
+CipMacEntry ::= SEQUENCE {
+    cipMacDirection PacketSource,
+    cipMacAddress MacAddress,
+    cipMacSwitchedPkts Counter,
+    cipMacSwitchedBytes Counter
+    }
+
+cipMacDirection OBJECT-TYPE
+    SYNTAX PacketSource
+--    Rsyntax INTEGER {
+--        input(1),
+--        output(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The data source for the object."
+    ::= { cipMacEntry 1 }
+
+cipMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The MAC address."
+    ::= { cipMacEntry 2 }
+
+cipMacSwitchedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter in packets with respect to cipMacAddress."
+    ::= { cipMacEntry 3 }
+
+cipMacSwitchedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter in bytes with respect to cipMacAddress."
+    ::= { cipMacEntry 4 }
+
+cipMacFreeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipMacFreeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of free space available to store new MAC address
+        information."
+    ::= { cipMacIf 2 }
+
+cipMacFreeEntry OBJECT-TYPE
+    SYNTAX CipMacFreeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The MAC free space table entry.  Entry is created when
+        Entries are created and deleted via ip accounting
+        command line interface."
+    INDEX { ifIndex, cipMacFreeDirection }
+    ::= { cipMacFreeTable 1 }
+
+CipMacFreeEntry ::= SEQUENCE {
+    cipMacFreeDirection PacketSource,
+    cipMacFreeCount Gauge
+    }
+
+cipMacFreeDirection OBJECT-TYPE
+    SYNTAX PacketSource
+--    Rsyntax INTEGER {
+--        input(1),
+--        output(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The data source for the object."
+    ::= { cipMacFreeEntry 1 }
+
+cipMacFreeCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of items in the MAC free space."
+    ::= { cipMacFreeEntry 2 }
+
+cipPrecedenceXTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipPrecedenceXEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains additional objects for the
+        cipPrecedenceTable."
+    ::= { cipPrecedence 2 }
+
+cipPrecedenceXEntry OBJECT-TYPE
+    SYNTAX CipPrecedenceXEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing additional management information
+        applicable to a particular precedence value."
+    INDEX { ifIndex, cipPrecedenceDirection, cipPrecedenceIpPrecedence }
+-- Augments cipPrecedenceEntry
+    ::= { cipPrecedenceXTable 1 }
+
+CipPrecedenceXEntry ::= SEQUENCE {
+    cipPrecedenceHCSwitchedPkts Counter,
+    cipPrecedenceHCSwitchedBytes Counter
+    }
+
+cipPrecedenceHCSwitchedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Traffic, in packets, at the cipPrecedenceIpPrecedence
+        precedence.  This object is the 64-bit version of
+        cipPrecedenceSwitchedPkts."
+    ::= { cipPrecedenceXEntry 1 }
+
+cipPrecedenceHCSwitchedBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Traffic, in bytes, at the cipPrecedenceIpPrecedence
+        precedence.  This object is the 64-bit version of
+        cipPrecedenceSwitchedBytes."
+    ::= { cipPrecedenceXEntry 2 }
+
+cipMacXTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipMacXEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains additional objects for the cipMacTable."
+    ::= { cipMacIf 3 }
+
+cipMacXEntry OBJECT-TYPE
+    SYNTAX CipMacXEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing additional management information
+        applicable to a particular MAC address."
+    INDEX { ifIndex, cipMacDirection, cipMacAddress }
+-- Augments cipMacEntry
+    ::= { cipMacXTable 1 }
+
+CipMacXEntry ::= SEQUENCE {
+    cipMacHCSwitchedPkts Counter,
+    cipMacHCSwitchedBytes Counter
+    }
+
+cipMacHCSwitchedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high capacity counter in packets with respect to
+        cipMacAddress.  This object is the 64-bit version of
+        cipMacSwitchedPkts."
+    ::= { cipMacXEntry 1 }
+
+cipMacHCSwitchedBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter in bytes with respect to cipMacAddress.
+        This object is the 64-bit version of
+        cipMacSwitchedBytes."
+    ::= { cipMacXEntry 2 }
+
+ciscoIpStatMIBGroup OBJECT IDENTIFIER ::= { ciscoIpStatMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing IP Statistics
+--    monitoring.
+--    For interfaces that operate at speeds greater than 
+--    20,000,000 bits/second, it is recommended that the HC
+--    counters in the optional compliance section be supported
+--    and used.
+--  objects
+--    cipPrecedenceSwitchedPkts, cipPrecedenceSwitchedBytes, 
+--    cipMacSwitchedPkts, cipMacSwitchedBytes, cipMacFreeCount
+
+ciscoIpStatHCMIBGroup OBJECT IDENTIFIER ::= { ciscoIpStatMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing IP Statistics
+--    monitoring. This is recommended for high speed (high
+--    speed interfaces transmit and receive at speeds over
+--    20,000,000 bits/second) network interfaces.
+--  objects
+--    cipPrecedenceHCSwitchedPkts, cipPrecedenceHCSwitchedBytes, 
+--    cipMacHCSwitchedPkts, cipMacHCSwitchedBytes
+
+ciscoIpStatMIBCompliance OBJECT IDENTIFIER ::= { ciscoIpStatMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the IP Statistics on a Cisco router.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpStatMIBGroup
+
+ciscoIpStatMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoIpStatMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the IP Statistics on a Cisco router.
+--    This deprecates ciscoIpStatMIBCompliance to provide
+--    64-bit versions of packet and byte counter objects.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpStatMIBGroup
+--   OptGroup
+--    ciscoIpStatHCMIBGroup
+
+
+END
+

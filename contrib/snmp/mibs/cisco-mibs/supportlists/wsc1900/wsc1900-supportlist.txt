@@ -1,0 +1,100 @@
+MIBs supported by Catalyst 1900
+-------------------------------
+
+MIBs supported in Version 9.XX.XX Standard Edition 
+--------------------------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-CLUSTER-MIB.my
+CISCO-SMI-V1SMI.my
+CISCO-TC-V1SMI.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RS-232-MIB-V1SMI.my
+
+MIBs supported in Version 9.XX.XX Enterprise Edition 
+----------------------------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-CLUSTER-MIB.my
+CISCO-PAGP-MIB.my
+CISCO-SMI-V1SMI.my
+CISCO-STP-EXTENSIONS-MIB.my
+CISCO-TC-V1SMI.my
+CISCO-VTP-MIB.my
+CISCO-VLAN-MEMBERSHIP-MIB.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RMON-MIB.my
+RS-232-MIB-V1SMI.my
+
+MIBs supported in Version 8.XX.XX Standard Edition 
+--------------------------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-SMI-V1SMI.my
+CISCO-TC-V1SMI.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RS-232-MIB-V1SMI.my
+
+MIBs supported in Version 8.XX.XX Enterprise Edition 
+----------------------------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-PAGP-MIB.my
+CISCO-SMI-V1SMI.my
+CISCO-STP-EXTENSIONS-MIB.my
+CISCO-TC-V1SMI.my
+CISCO-VTP-MIB.my
+CISCO-VLAN-MEMBERSHIP-MIB.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RMON-MIB.my
+RS-232-MIB-V1SMI.my
+
+MIBs supported in Version 7.XX 
+------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-SMI-V1SMI.my
+CISCO-TC-V1SMI.my
+CISCO-VTP-MIB.my
+CISCO-VLAN-MEMBERSHIP-MIB.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RMON-MIB.my
+RS-232-MIB-V1SMI.my
+
+MIBs supported in Version 6.XX 
+------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-SMI-V1SMI.my
+CISCO-TC-V1SMI.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RS-232-MIB-V1SMI.my
+
+MIBs supported in Versions 5.33, 5.34 and 5.35
+----------------------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-SMI-V1SMI.my
+CISCO-TC-V1SMI.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RMON-MIB.my
+RS-232-MIB-V1SMI.my
+
+MIBs supported in Version 5.25
+------------------------------
+BRIDGE-MIB.my
+CISCO-CDP-MIB-V1SMI.my
+CISCO-SMI-V1SMI.my
+CISCO-TC-V1SMI.my
+ESSWITCH-MIB.my
+RFC1213-MIB.my
+RMON-MIB.my
+RS-232-MIB-V1SMI.my
+

@@ -1,0 +1,592 @@
+-- *****************************************************************
+-- CISCO-WAN-T38-FAXRELAY-MIB.my:  CISCO WAN T38 FAXRELAY MIB file
+--
+-- February 2004, George Ogagan 
+--
+-- Copyright (c) 1999, 2000, 2001, 2002, 2003, 2004 by
+-- Cisco Systems, Inc.
+-- All rights reserved.
+--
+--
+-- *****************************************************************
+
+
+
+CISCO-WAN-T38-FAXRELAY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32 
+                FROM SNMPv2-SMI
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+                FROM SNMPv2-CONF
+
+    ciscoWan    FROM CISCOWAN-SMI;
+
+ciscoWanT38FaxRelayMIB MODULE-IDENTITY
+    LAST-UPDATED "200402190000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-voice@cisco.com"
+
+    DESCRIPTION
+        "The MIB module for configuring T.38 fax relay
+         protocol parameters. This MIB will be used in
+         VoIP(Voice over IP) applications.
+        "
+
+    REVISION    "200402190000Z"
+    DESCRIPTION 
+        "Update descriptions in the MIB."
+
+
+    REVISION    "200206010000Z"
+    DESCRIPTION 
+        "Added new object t38T30ECM. 
+         changed t38Redundancy status from current
+         to deprecated.
+        "
+
+    REVISION    "200204121500Z"
+    DESCRIPTION
+        "Added new varbind t38Redundancy into
+         t38FaxRelayGrpTable, changed the default
+         value for t38HsDataPacketSize.
+        "
+
+    ::= { ciscoWan 19 }
+
+ciscoWanT38FaxRelayMIBObjects  OBJECT IDENTIFIER ::= 
+                                 { ciscoWanT38FaxRelayMIB 1 }
+
+t38FaxRelayGrp                 OBJECT IDENTIFIER ::= 
+                                 { ciscoWanT38FaxRelayMIBObjects 1 }
+
+t38FaxRelayGrpTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF T38FaxRelayGrpEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table contains configuration information
+         about various fax relay parameters used in
+         VoIP calls on voice interface.
+        "
+    ::= { t38FaxRelayGrp 1 }
+
+t38FaxRelayGrpEntry OBJECT-TYPE
+    SYNTAX        T38FaxRelayGrpEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "An entry is created when a DS1 interface is 
+         configured. An entry is deleted when a DS1 
+         interface is removed. All configurations 
+         information in an entry is applied to a VoIP 
+         call when the VoIP call is placed on the DS1
+         interface.
+        "
+    INDEX { t38vismDs1Number }
+    ::= { t38FaxRelayGrpTable 1 }
+
+T38FaxRelayGrpEntry ::=
+    SEQUENCE {
+          t38vismDs1Number            Integer32,
+          t38MaxFaxTxRate             INTEGER,
+          t38FaxInfoFieldSize         Integer32,
+          t38HsDataPacketSize         INTEGER,
+          t38LsDataRedundancy         Integer32,
+          t38HsDataRedundancy         Integer32,
+          t38TCFmethod                INTEGER,
+          t38ErrCorrection            INTEGER,
+          t38NSFOverride              INTEGER,
+          t38NSFCountryCode           Integer32,
+          t38NSFVendorCode            Integer32,
+          t38NseAckTimeOut            Integer32,
+          t38FxLCO                    INTEGER,
+          t38Redundancy               INTEGER,
+          t38T30ECM                   INTEGER
+       }
+
+t38vismDs1Number    OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the unique DS1 value for
+         a T1/E1 interface.
+        "
+        ::= { t38FaxRelayGrpEntry 1 }
+
+t38MaxFaxTxRate OBJECT-TYPE
+     SYNTAX      INTEGER {
+                         fx2400bps           (1),
+                         fx4800bps           (2),
+                         fx7200bps           (3),
+                         fx9600bps           (4),
+                         fx12000bps          (5),
+                         fx14400bps          (6)
+                         }
+     MAX-ACCESS  read-write
+     STATUS      current
+     DESCRIPTION
+         "This object is used for configuring the maximum fax
+          transmission rate.
+
+          'fx2400bps'  - maximum transmission rate in 2400 bps.
+          'fx4800bps'  - maximum transmission rate in 4800 bps.
+          'fx7200bps'  - maximum transmission rate in 7200 bps.
+          'fx9600bps'  - maximum transmission rate in 9600 bps.
+          'fx12000bps' - maximum transmission rate in 12000 bps. 
+          'fx14400bps' - maximum transmission rate in 14400 bps.
+         "
+     DEFVAL { fx14400bps }
+        ::= {t38FaxRelayGrpEntry 2}
+
+t38FaxInfoFieldSize   OBJECT-TYPE
+     SYNTAX      Integer32 (0..2147483647)
+     MAX-ACCESS  read-write
+     STATUS      deprecated 
+     DESCRIPTION
+         "This object is used to configure the fax information  
+          field size in bytes.
+         "
+     DEFVAL { 48 }
+        ::= {t38FaxRelayGrpEntry 3}
+
+
+t38HsDataPacketSize   OBJECT-TYPE
+     SYNTAX      INTEGER {
+                         tenms     (10),
+                         twentyms  (20),
+                         thirtyms  (30),
+                         fortyms   (40)
+                         }
+     MAX-ACCESS   read-write
+     STATUS       current 
+     DESCRIPTION
+         "This object specifies the size of primary high speed(HS)
+          - the data packet transmitted after the first phase of a T.38
+          call.
+
+          'tenms'    - size of the HS in 10 millisecond. 
+          'twentyms' - size of the HS in 20 millisecond. 
+          'thirtyms' - size of the HS in 30 millisecond.
+          'fortyms'  - size of the HS in 40 millisecond. 
+         "
+     DEFVAL { thirtyms }
+        ::= {t38FaxRelayGrpEntry 4}
+ 
+t38LsDataRedundancy  OBJECT-TYPE
+     SYNTAX        Integer32 (0..2147483647) 
+     MAX-ACCESS    read-write
+     STATUS        current 
+     DESCRIPTION
+         "This object determines the extent of the internet fax 
+          protocol(IFP) packet transmission redundancy for the
+          low-speed control information exchanged during the
+          first phase of a T.38 fax relay connection. 
+
+          Depending on whether forward error correction(FEC)
+          is enabled via the t38ErrorCorrection object,
+          t38LsDataRedundancy has different meaning. 
+
+          If FEC is disabled, then t38LsDataRedundancy is the 
+          maximum number of prior IFP packets within an unnumbered 
+          datagram protocol transport layer (UDPTL) packet carrying 
+          low speed information, not counting the primary or current 
+          IFP packet.
+
+          If FEC is enabled, then t38LsDataRedundancy is the maximum  
+          number of FEC messages within a UDPTL packet carrying low 
+          speed information.
+         "
+     DEFVAL { 5 }
+        ::= {t38FaxRelayGrpEntry 5}
+
+t38HsDataRedundancy OBJECT-TYPE
+     SYNTAX       Integer32 (0..2147483647) 
+     MAX-ACCESS   read-write
+     STATUS       current
+     DESCRIPTION
+         "This object determines the extent of the IFP packet 
+          transmission redundancy for the high-speed control  
+          and image information exchanged following the initial 
+          low-speed phase of a T.38 fax relay connection. 
+
+          Depending on whether FEC is enabled via the
+          t38ErrorCorrection object, t38HsDataRedundancy
+          has different meanings. 
+
+          If FEC is disabled, then t38HsDataRedundancy is the 
+          maximum number of prior IFP packets within a UDPTL packet 
+          carrying high speed information, not counting the primary 
+          or current IFP packet. 
+
+          If FEC is enabled, then t38HsDataRedundancy is the 
+          maximum  number of FEC messages within a UDPTL packet 
+          carrying high speed information.
+         "
+     DEFVAL { 0 }
+        ::= {t38FaxRelayGrpEntry 6}
+
+t38TCFmethod OBJECT-TYPE
+     SYNTAX       INTEGER {
+                          localTCF       (1),
+                          networkTCF     (2)
+                          }
+     MAX-ACCESS   read-write
+     STATUS       current
+     DESCRIPTION
+         "This object determines the method used to verify
+          the TCF(Training Check Field). 
+
+          For UDP-based fax transport, its value should be set 
+          to networkTCF. For TCP-based fax transport, its value 
+          should be set to localTCF. A value of localTCF may be 
+          used in rare circumstances for UDP-based fax transport. 
+
+          A value of networkTCF implies that date rate management 
+          is done end-to-end between the group 3 fax terminals, 
+          in a manner similar to the PSTN(Public Switched 
+          Telephone Network). In this case, the TCF training
+          signal is passed transparently by the IP network. 
+
+          A value of localTCF implies that media gateways are actively 
+          involved in the training and data rate management procedure, 
+          including the generation of the TCF training signal.
+          Data rate management is done by one of the media gateways on 
+          the basis of local results and results forwarded over the IP 
+          network by the other gateway. The other gateway generates
+          the TCF training signal towards its group 3 fax terminal.
+         "
+     DEFVAL { networkTCF }
+        ::= {t38FaxRelayGrpEntry 7}
+
+t38ErrCorrection  OBJECT-TYPE
+     SYNTAX       INTEGER {
+                          enabled      (1),
+                          disabled     (2)
+                          }
+     MAX-ACCESS   read-write
+     STATUS       deprecated 
+     DESCRIPTION
+         "This object is used to enable/disable the FEC 
+          scheme for UDP-based fax transport.
+         "
+     DEFVAL { enabled }
+        ::= {t38FaxRelayGrpEntry 8}
+
+t38NSFOverride  OBJECT-TYPE
+     SYNTAX       INTEGER {
+                          enabled      (1),
+                          disabled     (2)
+                          }
+     MAX-ACCESS   read-write
+     STATUS       current
+     DESCRIPTION
+         "This object is used to enable/disable the gateway to
+          override the NSF(Non-Standard Facilities) code in the 
+          following T.30 signals: NSF, NSC (Non-Standard Facilities
+          Command) and NSS (Non-Standard Facilities Set-up). The
+          NSF code is overridden to prevent the group 3 fax
+          machines from synchronizing with each other on the basis
+          of a protocol other the ITU T-series recommendations.
+          If this proprietary synchronization is prevented, the
+          group 3 fax machines will synchronize to the standard
+          T-series protocol. This action is necessary if the fax
+          relay capability of the media gateway is limited 
+          to the T-series recommendations. As defined in T.35, the NSF 
+          code consists of a one-byte Country Code, a two-byte 
+          Terminal Provider Code (also called the Vendor Code), and a 
+          variable-length (up to 255 bytes) Terminal Provider-Oriented 
+          Code. If t38NSFOverride is enabled, the Country Code and 
+          Terminal Provider Code are overridden with the values of the 
+          t38NSFCountryCode and t38NSFVendorCode respectively, while
+          the Terminal Provider-Oriented Code (which is a bit-map of
+          manufacturer-specific capabilities) is set to all-zeros.
+         "
+     DEFVAL { enabled }
+        ::= {t38FaxRelayGrpEntry 9}
+
+t38NSFCountryCode  OBJECT-TYPE
+     SYNTAX        Integer32 (0..65535)
+     MAX-ACCESS    read-write
+     STATUS        current
+     DESCRIPTION
+         "The Country Code in the NSF code is a 
+          single-byte field identifying the country where
+          the group 3 fax equipment with non-standard 
+          capabilities were manufactured. 
+
+          There are un ratified proposals on the table to extend 
+          this to a two-byte field. If the fax relay capability of the
+          gateway is limited to the ITU T-series protocol, the value 
+          of the t38NSFCountryCode object is to be written into the 
+          Country Code field to preclude non-standard synchronization 
+          of the group 3 faxs terminals. 
+          Since a value of 0x00 refers to Japan, and a value of 0xFF 
+          is a Country Code extension mechanism, these cannot be used 
+          to disable non-standard synchronization. 
+
+          The t38NSFCountryCode value used to override NSF-based
+          synchronization is 0xAD (173). 
+          If the Country Code is extended to two bytes in the future, 
+          the second byte will be set to 0x00. In conjunction with
+          this Country Code, a t38NSFVendorCode value of 0x0051
+          is used for NSF suppression. It is not possible to use a 
+          value of 0x0000 for this suppression since it refers to
+          Compression Labs. 
+          To realize NSF suppression, all bytes in the Terminal 
+          Provider-Oriented Code field, which describes the 
+          manufacturer-specific capabilities,  are set to zeros.
+         "
+     REFERENCE
+         "Per ITU T.35 section 3.1
+         "
+
+        DEFVAL { 173 }
+        ::= {t38FaxRelayGrpEntry 10}
+
+t38NSFVendorCode  OBJECT-TYPE
+     SYNTAX        Integer32 (0..65535)
+     MAX-ACCESS    read-write
+     STATUS        current
+     DESCRIPTION
+         "The Vendor Code (also called the Terminal
+          Provider Code) in the NSF code is a two-byte
+          field identifying the manufacturer of the group 
+          3 fax equipment with non-standard capabilities. 
+
+          If the fax relay capability of the gateway is limited to 
+          the ITU T-series protocol, the value of the t38NSFVendorCode 
+          object is to be written into the Vendor Code
+          (Terminal Provider Code) field to preclude non-standard 
+          synchronization of the group 3 fax terminals.
+ 
+          Since a value of 0x0000 refers to Compression Labs, it
+          cannot be used to disable non-standard synchronization.  
+          The t38NSFVendorCode value used to override NSF-based 
+          synchronization is 0x0051 (81).  
+          To realize NSF suppression, this is used in conjunction with 
+          the appropriate Country Code referring to the United States, 
+          and in conjunction with the setting of all bytes in the 
+          Terminal Provider-Oriented Code field, which describes the 
+          manufacturer-specific capabilities, to zeros.
+         "
+     REFERENCE
+         "Per ITU T.35 section 3.2
+         "       
+
+        DEFVAL { 81 }
+        ::= {t38FaxRelayGrpEntry 11}
+
+t38NseAckTimeOut  OBJECT-TYPE
+     SYNTAX        Integer32 (250..10000)
+     UNITS         "milliseconds"
+     MAX-ACCESS    read-write
+     STATUS        current
+     DESCRIPTION
+         "This object defines a timeout value in milliseconds for a 
+          provision able timer. This timer is started after sending a
+          NSE(Named Signal Event) 200 while waiting for the NSE 201
+          acknowledgement or NSE 202 negative acknowledgement.
+          Expiration of the response timer will indicate that the
+          request to switch to T.38 has been rejected or discarded
+          by the far end. 
+
+          The default value is 1 second (1000 ms) and this value
+          can only be set in the increments of 250 ms.
+         "
+     DEFVAL { 1000 }
+        ::= {t38FaxRelayGrpEntry 12}
+
+t38FxLCO   OBJECT-TYPE
+     SYNTAX        INTEGER {
+                           gwAndPt   (1),
+                           gw        (2),
+                           ptAndGw   (3),
+                           pt        (4),
+                           off       (5)
+                           }
+     MAX-ACCESS    read-write
+     STATUS        current
+     DESCRIPTION
+         "This object is a configurable default value for the 
+          fx(fax option) in LCO(Local Connection Option). In 
+          the absence of the MGCP fx LCO, this default value
+          will be used. The MGCP fx LCO will always override
+          this object.
+
+          The meanings of these enumerated types are:
+          'gwAndPt': means gateway controlled fax relay is preferred
+          over fax pass through.
+          'gw': means gateway controlled fax relay (using NSEs).
+          'ptAndGw': means fax pass through is preferred over gateway
+          controlled fax relay.
+          'pt': means fax pass through.
+          'off': means Do not do gateway controlled T.38 fax relay. 
+
+          This does not preclude upspeeding or alteration of silence
+          suppression or echo cancellation settings for the
+          connection.
+         "
+      DEFVAL { gwAndPt }
+        ::= {t38FaxRelayGrpEntry 13}
+
+t38Redundancy  OBJECT-TYPE
+     SYNTAX       INTEGER {
+                          enabled      (1),
+                          disabled     (2)
+                          }
+     MAX-ACCESS   read-write
+     STATUS       deprecated 
+     DESCRIPTION
+         "This object is used to enable/disable the Redundancy 
+          scheme for UDP-based fax transport.
+         "
+     DEFVAL { enabled }
+        ::= {t38FaxRelayGrpEntry 14}
+
+t38T30ECM  OBJECT-TYPE
+     SYNTAX       INTEGER {
+                          enabled      (1),
+                          disabled     (2)
+                          }
+     MAX-ACCESS   read-write
+     STATUS       current
+     DESCRIPTION
+         "This object is used to enable/disable T.30 
+          Error Correcting Mode(ECM). ECM is a feature
+          implemented by many new fax devices which 
+          improves image quality and page compression
+          capabilities through a reliable image data 
+          transmission protocol -- ECM. If fax calls
+          are failing due to high packet loss then disabling
+          T.30 ECM may improve the success rate.
+         "
+     DEFVAL { enabled }
+        ::= {t38FaxRelayGrpEntry 15}
+
+-- *****************************************************************
+-- t38 Fax Relay group notification
+-- *****************************************************************
+
+t38NotificationPrefix OBJECT IDENTIFIER ::= 
+                        { ciscoWanT38FaxRelayMIB 2 }
+
+t38Notifications OBJECT IDENTIFIER      ::= 
+                        { t38NotificationPrefix 0 }
+
+
+-- **********************************************************************
+-- Conformance
+-- **********************************************************************
+
+--
+-- conformance information
+--
+
+t38FaxRelayMIBConformance  OBJECT IDENTIFIER  ::= 
+                             { ciscoWanT38FaxRelayMIB 3 }
+
+
+t38FaxRelayMIBCompliances  OBJECT IDENTIFIER  ::= 
+                             { t38FaxRelayMIBConformance 1 }
+
+t38FaxRelayMIBGroups       OBJECT IDENTIFIER  ::= 
+                             { t38FaxRelayMIBConformance 2 }
+
+
+--
+-- Conformance and compliance statements statements
+--
+
+t38FaxRelayMIBCompliance MODULE-COMPLIANCE
+    STATUS deprecated -- replaced by t38FaxRelayMIBComplianceRev1  
+    DESCRIPTION
+        "The compliance statement for t38 fax relay
+         group which implement t38FaxRelayGrp MIB.
+        "
+    MODULE  -- this module
+        MANDATORY-GROUPS { t38FaxRelayGroup 
+                         }
+    ::= { t38FaxRelayMIBCompliances 1 }
+
+t38FaxRelayMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for t38 fax relay
+         group which implement t38FaxRelayGrp MIB.
+        "
+    MODULE  -- this module
+        MANDATORY-GROUPS { t38FaxRelayGroupRev1
+                         }
+    ::= { t38FaxRelayMIBCompliances 2 }
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+
+t38FaxRelayGroup OBJECT-GROUP
+    OBJECTS {
+              t38MaxFaxTxRate, 
+              t38FaxInfoFieldSize,
+              t38HsDataPacketSize,             
+              t38LsDataRedundancy,
+              t38HsDataRedundancy,     
+              t38TCFmethod,
+              t38ErrCorrection, 
+              t38NSFOverride, 
+              t38NSFCountryCode,
+              t38NSFVendorCode,
+              t38NseAckTimeOut,
+              t38FxLCO,
+              t38Redundancy,
+              t38T30ECM  
+              }
+    STATUS   deprecated 
+    DESCRIPTION
+        "This group contains objects related to 
+         configuration of T38 fax relay.
+        "
+    ::= { t38FaxRelayMIBGroups 1 }
+
+
+t38FaxRelayGroupRev1 OBJECT-GROUP
+    OBJECTS  {
+              t38MaxFaxTxRate,
+              t38HsDataPacketSize,            
+              t38LsDataRedundancy,
+              t38HsDataRedundancy,    
+              t38TCFmethod,
+              t38NSFOverride,
+              t38NSFCountryCode,
+              t38NSFVendorCode,
+              t38NseAckTimeOut,
+              t38FxLCO,
+              t38T30ECM 
+             }
+    STATUS current 
+    DESCRIPTION
+        "The collection of objects that were
+         supported earlier but deprecated now.
+        "
+    ::= { t38FaxRelayMIBGroups  2 }
+
+
+END
+ 

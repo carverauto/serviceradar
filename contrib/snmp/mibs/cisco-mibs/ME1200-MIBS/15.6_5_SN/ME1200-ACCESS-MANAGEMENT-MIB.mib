@@ -1,0 +1,679 @@
+-- *****************************************************************
+-- ACCESS-MANAGEMENT-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-ACCESS-MANAGEMENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    InetAddressIPv6 FROM INET-ADDRESS-MIB
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200AccessManagementMib MODULE-IDENTITY
+    LAST-UPDATED "201402180000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the Access Management MIB"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201312120000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 51 }
+
+
+me1200AccessManagementMIBObjects OBJECT IDENTIFIER
+    ::= { me1200AccessManagementMib 1 }
+
+me1200AccessManagementConfig OBJECT IDENTIFIER
+    ::= { me1200AccessManagementMIBObjects 2 }
+
+me1200AccessManagementGlobals OBJECT IDENTIFIER
+    ::= { me1200AccessManagementConfig 1 }
+
+me1200AccessManagementGlobalsAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the Access Management global functionality."
+    ::= { me1200AccessManagementGlobals 1 }
+
+me1200AccessManagementIpv4Table OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AccessManagementIpv4Entry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing Access Management per IPv4 basis"
+    ::= { me1200AccessManagementConfig 2 }
+
+me1200AccessManagementIpv4Entry OBJECT-TYPE
+    SYNTAX      ME1200AccessManagementIpv4Entry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200AccessManagementIpv4AccessIndex }
+    ::= { me1200AccessManagementIpv4Table 1 }
+
+ME1200AccessManagementIpv4Entry ::= SEQUENCE {
+    me1200AccessManagementIpv4AccessIndex     Integer32,
+    me1200AccessManagementIpv4VlanId      ME1200Unsigned16,
+    me1200AccessManagementIpv4StartAddress    IpAddress,
+    me1200AccessManagementIpv4EndAddress      IpAddress,
+    me1200AccessManagementIpv4WebServices     TruthValue,
+    me1200AccessManagementIpv4SnmpServices    TruthValue,
+    me1200AccessManagementIpv4TelnetServices      TruthValue,
+    me1200AccessManagementIpv4Action      ME1200RowEditorState
+}
+
+me1200AccessManagementIpv4AccessIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Index for Access Management IPv4/IPv6 table."
+    ::= { me1200AccessManagementIpv4Entry 1 }
+
+me1200AccessManagementIpv4VlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ID of specific VLAN interface that Access Management should take
+         effect for IPv4."
+    ::= { me1200AccessManagementIpv4Entry 2 }
+
+me1200AccessManagementIpv4StartAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv4 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv4Entry 3 }
+
+me1200AccessManagementIpv4EndAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv4 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv4Entry 4 }
+
+me1200AccessManagementIpv4WebServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable HTTP and HTTPS functionality via Access Management. At
+         least one of WebServices/SnmpServices/TelnetServices has to be enabled
+         for a specific AccessIndex in Access Management IPv4 table."
+    ::= { me1200AccessManagementIpv4Entry 5 }
+
+me1200AccessManagementIpv4SnmpServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable SNMP functionality via Access Management. At least one
+         of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv4 table."
+    ::= { me1200AccessManagementIpv4Entry 6 }
+
+me1200AccessManagementIpv4TelnetServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable TELNET/SSH functionality via Access Management. At least
+         one of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv4 table."
+    ::= { me1200AccessManagementIpv4Entry 7 }
+
+me1200AccessManagementIpv4Action OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AccessManagementIpv4Entry 100 }
+
+me1200AccessManagementIpv4TableRowEditor OBJECT IDENTIFIER
+    ::= { me1200AccessManagementConfig 3 }
+
+me1200AccessManagementIpv4TableRowEditorAccessIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Index for Access Management IPv4/IPv6 table."
+    ::= { me1200AccessManagementIpv4TableRowEditor 1 }
+
+me1200AccessManagementIpv4TableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ID of specific VLAN interface that Access Management should take
+         effect for IPv4."
+    ::= { me1200AccessManagementIpv4TableRowEditor 2 }
+
+me1200AccessManagementIpv4TableRowEditorStartAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv4 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv4TableRowEditor 3 }
+
+me1200AccessManagementIpv4TableRowEditorEndAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv4 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv4TableRowEditor 4 }
+
+me1200AccessManagementIpv4TableRowEditorWebServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable HTTP and HTTPS functionality via Access Management. At
+         least one of WebServices/SnmpServices/TelnetServices has to be enabled
+         for a specific AccessIndex in Access Management IPv4 table."
+    ::= { me1200AccessManagementIpv4TableRowEditor 5 }
+
+me1200AccessManagementIpv4TableRowEditorSnmpServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable SNMP functionality via Access Management. At least one
+         of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv4 table."
+    ::= { me1200AccessManagementIpv4TableRowEditor 6 }
+
+me1200AccessManagementIpv4TableRowEditorTelnetServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable TELNET/SSH functionality via Access Management. At least
+         one of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv4 table."
+    ::= { me1200AccessManagementIpv4TableRowEditor 7 }
+
+me1200AccessManagementIpv4TableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AccessManagementIpv4TableRowEditor 100 }
+
+me1200AccessManagementIpv6Table OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AccessManagementIpv6Entry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing Access Management per IPv6 basis"
+    ::= { me1200AccessManagementConfig 4 }
+
+me1200AccessManagementIpv6Entry OBJECT-TYPE
+    SYNTAX      ME1200AccessManagementIpv6Entry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200AccessManagementIpv6AccessIndex }
+    ::= { me1200AccessManagementIpv6Table 1 }
+
+ME1200AccessManagementIpv6Entry ::= SEQUENCE {
+    me1200AccessManagementIpv6AccessIndex     Integer32,
+    me1200AccessManagementIpv6VlanId      ME1200Unsigned16,
+    me1200AccessManagementIpv6StartAddress    InetAddressIPv6,
+    me1200AccessManagementIpv6EndAddress      InetAddressIPv6,
+    me1200AccessManagementIpv6WebServices     TruthValue,
+    me1200AccessManagementIpv6SnmpServices    TruthValue,
+    me1200AccessManagementIpv6TelnetServices      TruthValue,
+    me1200AccessManagementIpv6Action      ME1200RowEditorState
+}
+
+me1200AccessManagementIpv6AccessIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Index for Access Management IPv4/IPv6 table."
+    ::= { me1200AccessManagementIpv6Entry 1 }
+
+me1200AccessManagementIpv6VlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ID of specific VLAN interface that Access Management should take
+         effect for IPv6."
+    ::= { me1200AccessManagementIpv6Entry 2 }
+
+me1200AccessManagementIpv6StartAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv6 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv6Entry 3 }
+
+me1200AccessManagementIpv6EndAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv6 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv6Entry 4 }
+
+me1200AccessManagementIpv6WebServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable HTTP and HTTPS functionality via Access Management. At
+         least one of WebServices/SnmpServices/TelnetServices has to be enabled
+         for a specific AccessIndex in Access Management IPv6 table."
+    ::= { me1200AccessManagementIpv6Entry 5 }
+
+me1200AccessManagementIpv6SnmpServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable SNMP functionality via Access Management. At least one
+         of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv6 table."
+    ::= { me1200AccessManagementIpv6Entry 6 }
+
+me1200AccessManagementIpv6TelnetServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable TELNET/SSH functionality via Access Management. At least
+         one of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv6 table."
+    ::= { me1200AccessManagementIpv6Entry 7 }
+
+me1200AccessManagementIpv6Action OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AccessManagementIpv6Entry 100 }
+
+me1200AccessManagementIpv6TableRowEditor OBJECT IDENTIFIER
+    ::= { me1200AccessManagementConfig 5 }
+
+me1200AccessManagementIpv6TableRowEditorAccessIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Index for Access Management IPv4/IPv6 table."
+    ::= { me1200AccessManagementIpv6TableRowEditor 1 }
+
+me1200AccessManagementIpv6TableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ID of specific VLAN interface that Access Management should take
+         effect for IPv6."
+    ::= { me1200AccessManagementIpv6TableRowEditor 2 }
+
+me1200AccessManagementIpv6TableRowEditorStartAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv6 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv6TableRowEditor 3 }
+
+me1200AccessManagementIpv6TableRowEditorEndAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv6 address of the range that Access Management performs
+         checking."
+    ::= { me1200AccessManagementIpv6TableRowEditor 4 }
+
+me1200AccessManagementIpv6TableRowEditorWebServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable HTTP and HTTPS functionality via Access Management. At
+         least one of WebServices/SnmpServices/TelnetServices has to be enabled
+         for a specific AccessIndex in Access Management IPv6 table."
+    ::= { me1200AccessManagementIpv6TableRowEditor 5 }
+
+me1200AccessManagementIpv6TableRowEditorSnmpServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable SNMP functionality via Access Management. At least one
+         of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv6 table."
+    ::= { me1200AccessManagementIpv6TableRowEditor 6 }
+
+me1200AccessManagementIpv6TableRowEditorTelnetServices OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable TELNET/SSH functionality via Access Management. At least
+         one of WebServices/SnmpServices/TelnetServices has to be enabled for a
+         specific AccessIndex in Access Management IPv6 table."
+    ::= { me1200AccessManagementIpv6TableRowEditor 7 }
+
+me1200AccessManagementIpv6TableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AccessManagementIpv6TableRowEditor 100 }
+
+me1200AccessManagementStatus OBJECT IDENTIFIER
+    ::= { me1200AccessManagementMIBObjects 3 }
+
+me1200AccessManagementStatistics OBJECT IDENTIFIER
+    ::= { me1200AccessManagementStatus 1 }
+
+me1200AccessManagementStatisticsHttpReceivedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received count of frames via HTTP."
+    ::= { me1200AccessManagementStatistics 1 }
+
+me1200AccessManagementStatisticsHttpAllowedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Permit count of frames via HTTP."
+    ::= { me1200AccessManagementStatistics 2 }
+
+me1200AccessManagementStatisticsHttpDiscardedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Drop count of frames via HTTP."
+    ::= { me1200AccessManagementStatistics 3 }
+
+me1200AccessManagementStatisticsHttpsReceivedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received count of frames via HTTPS."
+    ::= { me1200AccessManagementStatistics 4 }
+
+me1200AccessManagementStatisticsHttpsAllowedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Permit count of frames via HTTPS."
+    ::= { me1200AccessManagementStatistics 5 }
+
+me1200AccessManagementStatisticsHttpsDiscardedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Drop count of frames via HTTPS."
+    ::= { me1200AccessManagementStatistics 6 }
+
+me1200AccessManagementStatisticsSnmpReceivedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received count of frames via SNMP."
+    ::= { me1200AccessManagementStatistics 7 }
+
+me1200AccessManagementStatisticsSnmpAllowedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Permit count of frames via SNMP."
+    ::= { me1200AccessManagementStatistics 8 }
+
+me1200AccessManagementStatisticsSnmpDiscardedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Drop count of frames via SNMP."
+    ::= { me1200AccessManagementStatistics 9 }
+
+me1200AccessManagementStatisticsTelnetReceivedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received count of frames via TELNET."
+    ::= { me1200AccessManagementStatistics 10 }
+
+me1200AccessManagementStatisticsTelnetAllowedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Permit count of frames via TELNET."
+    ::= { me1200AccessManagementStatistics 11 }
+
+me1200AccessManagementStatisticsTelnetDiscardedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Drop count of frames via TELNET."
+    ::= { me1200AccessManagementStatistics 12 }
+
+me1200AccessManagementStatisticsSshReceivedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received count of frames via SSH."
+    ::= { me1200AccessManagementStatistics 13 }
+
+me1200AccessManagementStatisticsSshAllowedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Permit count of frames via SSH."
+    ::= { me1200AccessManagementStatistics 14 }
+
+me1200AccessManagementStatisticsSshDiscardedPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Drop count of frames via SSH."
+    ::= { me1200AccessManagementStatistics 15 }
+
+me1200AccessManagementControl OBJECT IDENTIFIER
+    ::= { me1200AccessManagementMIBObjects 4 }
+
+me1200AccessManagementControlStatistics OBJECT IDENTIFIER
+    ::= { me1200AccessManagementControl 1 }
+
+me1200AccessManagementControlStatisticsClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "To trigger the control action (only) when TRUE."
+    ::= { me1200AccessManagementControlStatistics 1 }
+
+me1200AccessManagementMIBConformance OBJECT IDENTIFIER
+    ::= { me1200AccessManagementMib 2 }
+
+me1200AccessManagementMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200AccessManagementMIBConformance 1 }
+
+me1200AccessManagementMIBGroups OBJECT IDENTIFIER
+    ::= { me1200AccessManagementMIBConformance 2 }
+
+me1200AccessManagementGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AccessManagementGlobalsAdminState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AccessManagementMIBGroups 1 }
+
+me1200AccessManagementIpv4TableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AccessManagementIpv4VlanId, 
+                  me1200AccessManagementIpv4StartAddress, 
+                  me1200AccessManagementIpv4EndAddress, 
+                  me1200AccessManagementIpv4WebServices, 
+                  me1200AccessManagementIpv4SnmpServices, 
+                  me1200AccessManagementIpv4TelnetServices, 
+                  me1200AccessManagementIpv4Action }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AccessManagementMIBGroups 2 }
+
+me1200AccessManagementIpv4TableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AccessManagementIpv4TableRowEditorAccessIndex, 
+                  me1200AccessManagementIpv4TableRowEditorVlanId, 
+                  me1200AccessManagementIpv4TableRowEditorStartAddress, 
+                  me1200AccessManagementIpv4TableRowEditorEndAddress, 
+                  me1200AccessManagementIpv4TableRowEditorWebServices, 
+                  me1200AccessManagementIpv4TableRowEditorSnmpServices, 
+                  me1200AccessManagementIpv4TableRowEditorTelnetServices, 
+                  me1200AccessManagementIpv4TableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AccessManagementMIBGroups 3 }
+
+me1200AccessManagementIpv6TableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AccessManagementIpv6VlanId, 
+                  me1200AccessManagementIpv6StartAddress, 
+                  me1200AccessManagementIpv6EndAddress, 
+                  me1200AccessManagementIpv6WebServices, 
+                  me1200AccessManagementIpv6SnmpServices, 
+                  me1200AccessManagementIpv6TelnetServices, 
+                  me1200AccessManagementIpv6Action }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AccessManagementMIBGroups 4 }
+
+me1200AccessManagementIpv6TableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AccessManagementIpv6TableRowEditorAccessIndex, 
+                  me1200AccessManagementIpv6TableRowEditorVlanId, 
+                  me1200AccessManagementIpv6TableRowEditorStartAddress, 
+                  me1200AccessManagementIpv6TableRowEditorEndAddress, 
+                  me1200AccessManagementIpv6TableRowEditorWebServices, 
+                  me1200AccessManagementIpv6TableRowEditorSnmpServices, 
+                  me1200AccessManagementIpv6TableRowEditorTelnetServices, 
+                  me1200AccessManagementIpv6TableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AccessManagementMIBGroups 5 }
+
+me1200AccessManagementStatisticsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AccessManagementStatisticsHttpReceivedPkts, 
+                  me1200AccessManagementStatisticsHttpAllowedPkts, 
+                  me1200AccessManagementStatisticsHttpDiscardedPkts, 
+                  me1200AccessManagementStatisticsHttpsReceivedPkts, 
+                  me1200AccessManagementStatisticsHttpsAllowedPkts, 
+                  me1200AccessManagementStatisticsHttpsDiscardedPkts, 
+                  me1200AccessManagementStatisticsSnmpReceivedPkts, 
+                  me1200AccessManagementStatisticsSnmpAllowedPkts, 
+                  me1200AccessManagementStatisticsSnmpDiscardedPkts, 
+                  me1200AccessManagementStatisticsTelnetReceivedPkts, 
+                  me1200AccessManagementStatisticsTelnetAllowedPkts, 
+                  me1200AccessManagementStatisticsTelnetDiscardedPkts, 
+                  me1200AccessManagementStatisticsSshReceivedPkts, 
+                  me1200AccessManagementStatisticsSshAllowedPkts, 
+                  me1200AccessManagementStatisticsSshDiscardedPkts }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AccessManagementMIBGroups 6 }
+
+me1200AccessManagementControlStatisticsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AccessManagementControlStatisticsClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AccessManagementMIBGroups 7 }
+
+me1200AccessManagementMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200AccessManagementGlobalsInfoGroup, 
+                  me1200AccessManagementIpv4TableInfoGroup, 
+                  me1200AccessManagementIpv4TableRowEditorInfoGroup, 
+                  me1200AccessManagementIpv6TableInfoGroup, 
+                  me1200AccessManagementIpv6TableRowEditorInfoGroup, 
+                  me1200AccessManagementStatisticsInfoGroup, 
+                  me1200AccessManagementControlStatisticsInfoGroup }
+
+    ::= { me1200AccessManagementMIBCompliances 1 }
+
+END

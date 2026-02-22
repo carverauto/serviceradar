@@ -1,0 +1,572 @@
+-- MIB file created 13-Feb-2013 02:26:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-DOT11-LDAP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-DOT11-LDAP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, RowStatus, TruthValue, StorageType
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress, InetPortNumber
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    cLWlanIndex
+            FROM CISCO-LWAPP-WLAN-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoLwappDot11LdapMIB OBJECT IDENTIFIER ::= { ciscoMgmt 614 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200912100000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    Information provided by this MIB is used to manage
+--    LDAP features on the controller.
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--          +......+     +......+     +......+
+--          +      +     +      +     +      +
+--          +  CC  +     +  CC  +     +  CC  +
+--          +      +     +      +     +      +
+--          +......+     +......+     +......+
+--            ..            .             .
+--            ..            .             .
+--           .  .            .             .
+--          .    .            .             .
+--         .      .            .             .
+--        .        .            .             .
+--    +......+ +......+     +......+      +......+
+--    +      + +      +     +      +      +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +
+--    +      + +      +     +      +      +      +
+--    +......+ +......+     +......+      +......+
+--               .              .             .
+--             .  .              .             .
+--            .    .              .             .
+--           .      .              .             .
+--          .        .              .             .
+--       +......+ +......+     +......+      +......+
+--       +      + +      +     +      +      +      +
+--       +  MN  + +  MN  +     +  MN  +      +  MN  +
+--       +      + +      +     +      +      +      +
+--       +......+ +......+     +......+      +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Gratuitous Probe Response (GPR)
+--    
+--    The Gratuitous Probe Response feature aids in conserving
+--    battery power of WLAN-enabled cell phones by providing
+--    a high rate packet on the order of tens of milliseconds
+--    such that these kind of phones can wake up and wait at
+--    predefined intervals, to reduce battery power.  The 
+--    GPR packet is transmitted from the AP at a predefined
+--    time interval.
+--    
+--    
+--    Light Weight Access Point Protocol ( LWAPP )
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node 
+--    and client are used interchangeably. 
+--    
+--    Lightweight Directory Access Protocol ( LDAP )
+--    
+--    LDAP is a protocol used for obtaining directory services 
+--    and runs over TCP/IP.
+--    
+--    Transport Layer Security ( TLS )
+--    
+--    This is a cryptographic protocol which provides secure 
+--    communication over the network.
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    200912100000Z
+--  RevDescr
+--    A new textual-convention named CldlBindType
+--    has been defined.
+--    
+--    The range for cldlServerTimeout has been modified from
+--    1-3600 to 2-30 due to modification in back-end code.
+--    
+--    The following objects have been added to cldlServerTable.
+--    1)cldlServerBindType
+--    2)cldlServerAuthBindUserName
+--    3)cldlServerAuthBindPassword
+--    
+--    The group ciscoLwappDot11LdapMIBConfigGroupSup1 
+--    has been added.
+--    
+--    ciscoLwappDot11LdapMIBCompliance has been deprecated by  
+--    ciscoLwappDot11LdapMIBComplianceRev1.
+--  RevDate
+--    200701130000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappDot11LdapMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIB 0 }
+ciscoLwappDot11LdapMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIB 1 }
+ciscoLwappDot11LdapMIBConform OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIB 2 }
+cldlConfig      OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBObjects 1 }
+cldlStatus      OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBObjects 2 }
+ciscoLwappDot11LdapMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBConform 1 }
+ciscoLwappDot11LdapMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBConform 2 }
+
+CldlBindType ::= INTEGER {
+        anonymous(1),
+        authenticated(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention represents the kind of 
+--    authentications done by the LDAP server. 
+--    The semantics are as follows.  
+--    
+--    anonymous(1) - This indicates that the LDAP server accepts  
+--    anonymous authentication attempts.  
+--    
+--    authenticated(2) - This indicates that the LDAP server  
+--    authenticates based on the credentials provided in the 
+--    form of username/password.
+
+cldlServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldlServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the information about LDAP servers
+        configured on the controller. Entries are added or deleted
+        by the user through the use of cldlServerRowStatus."
+    ::= { cldlConfig 1 }
+
+cldlServerEntry OBJECT-TYPE
+    SYNTAX CldlServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry corresponds to a row in cldlServerTable and
+        represents the information about an LDAP server the 
+        controller would contact for its operations."
+    INDEX { cldlServerIndex }
+    ::= { cldlServerTable 1 }
+
+CldlServerEntry ::= SEQUENCE {
+    cldlServerIndex Gauge,
+    cldlServerAddressType InetAddressType,
+    cldlServerAddress InetAddress,
+    cldlServerPortNum InetPortNumber,
+    cldlServerState TruthValue,
+    cldlServerTimeout Gauge,
+    cldlServerUserBase DisplayString,
+    cldlServerUserNameAttribute DisplayString,
+    cldlServerUserName DisplayString,
+    cldlServerSecurityEnable TruthValue,
+    cldlServerStorageType StorageType,
+    cldlServerRowStatus RowStatus,
+    cldlServerBindType CldlBindType,
+    cldlServerAuthBindUserName SnmpAdminString,
+    cldlServerAuthBindPassword SnmpAdminString
+    }
+
+cldlServerIndex OBJECT-TYPE
+    SYNTAX Gauge(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies an entry in
+        cldlServerTable."
+    ::= { cldlServerEntry 1 }
+
+cldlServerAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the type of the network
+        address made available through cldlServerAddress."
+    ::= { cldlServerEntry 2 }
+
+cldlServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the address of the LDAP server
+        that can be contacted by the controller for the purpose 
+        of authentication, authorization and accounting."
+    ::= { cldlServerEntry 3 }
+
+cldlServerPortNum OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the port number at which the
+        controller contacts the LDAP server."
+    DEFVAL { 389 }
+    ::= { cldlServerEntry 4 }
+
+cldlServerState OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the LDAP server is currently
+        in use by the controller. A value of 'true' indicates that
+        the LDAP server is in use. A value of 'false' indicates that 
+        the LDAP server is not in use."
+    ::= { cldlServerEntry 5 }
+
+cldlServerTimeout OBJECT-TYPE
+    SYNTAX Gauge(2..30)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the retransmit time-out value for
+        this LDAP server. If there is no response from the LDAP
+        server, the controller will wait for this duration,
+        before retransmitting."
+    ::= { cldlServerEntry 6 }
+
+cldlServerUserBase OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the name of the sub-tree in
+        the LDAP server that contains the information about all
+        the users in that sub-tree."
+    ::= { cldlServerEntry 7 }
+
+cldlServerUserNameAttribute OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the attribute that stores
+        the name of the user."
+    ::= { cldlServerEntry 8 }
+
+cldlServerUserName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the name of the user.
+        This is the value for the attribute identified by 
+        cldlServerUserNameAttribute."
+    ::= { cldlServerEntry 9 }
+
+cldlServerSecurityEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the LDAP transactions are
+        secured. A value of 'true' indicates that all the 
+        LDAP transactions of the controller are secured the use 
+        of TLS tunnel. A value of 'false' indicates that the LDAP
+        transactions are not secured."
+    DEFVAL { false }
+    ::= { cldlServerEntry 10 }
+
+cldlServerStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the storage type for this conceptual
+        row."
+    DEFVAL { nonVolatile }
+    ::= { cldlServerEntry 11 }
+
+cldlServerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the status column for a
+        conceptual row in this table."
+    ::= { cldlServerEntry 12 }
+
+cldlServerBindType OBJECT-TYPE
+    SYNTAX CldlBindType
+--    Rsyntax INTEGER {
+--        anonymous(1),
+--        authenticated(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the kind of authentication the 
+        Controller does with the LDAP server."
+    DEFVAL { anonymous }
+    ::= { cldlServerEntry 13 }
+
+cldlServerAuthBindUserName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the name used by the Controller
+        for the authentication with the LDAP server. 
+        For values other than 'authenticated', as identified through 
+        cldlServerBindType,  this object will be populated with an 
+        empty string."
+    ::= { cldlServerEntry 14 }
+
+cldlServerAuthBindPassword OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the password used by the Controller
+        for authentication with the LDAP server.  
+        For security purposes,  this object will be populated with 
+        the string '****', when a valid password has been configured.  
+        For values other than 'authenticated', as identified through 
+        cldlServerBindType,  this object will be populated with an 
+        empty string."
+    ::= { cldlServerEntry 15 }
+
+cldlWlanLdapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldlWlanLdapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table helps to map LDAP servers for WLANs
+        from cldlServerTable through the use of  
+        cldlServerIndex. When a client gets associated to a WLAN, 
+        the controller uses those LDAP servers that are 
+        mapped to that WLAN for access to information about 
+        the clients. 
+        
+        The creation of a new row in cLWlanConfigTable,
+        through an explicit network management action,
+        results in creation of an entry in this table.
+        Similarly, deletion of a row in
+        cLWlanConfigTable through user action causes the
+        deletion of corresponding row in this table. 
+        
+        This table has an one-to-one relationship with 
+        cLWlanConfigTable of CISCO-LWAPP-WLAN-MIB. There 
+        exists an entry in this table for each corresponding 
+        entry in the cLWlanConfigTable."
+    ::= { cldlConfig 2 }
+
+cldlWlanLdapEntry OBJECT-TYPE
+    SYNTAX CldlWlanLdapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cldlWlanLdapTable and represents the LDAP 
+        configuration for a particular WLAN 
+        identified by cLWlanIndex."
+    INDEX { cLWlanIndex }
+    ::= { cldlWlanLdapTable 1 }
+
+CldlWlanLdapEntry ::= SEQUENCE {
+    cldlWlanLdapPrimaryServerIndex Gauge,
+    cldlWlanLdapSecondaryServerIndex Gauge,
+    cldlWlanLdapTertiaryServerIndex Gauge
+    }
+
+cldlWlanLdapPrimaryServerIndex OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object represents the value that maps to the
+        primary LDAP server for this WLAN. A value of 0 
+        indicates that the primary LDAP server is not 
+        configured for this WLAN."
+    DEFVAL { 0 }
+    ::= { cldlWlanLdapEntry 1 }
+
+cldlWlanLdapSecondaryServerIndex OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object represents the value that maps to the
+        secondary LDAP server for this WLAN. A value of 0 
+        indicates that the primary LDAP server is not 
+        configured for this WLAN."
+    DEFVAL { 0 }
+    ::= { cldlWlanLdapEntry 2 }
+
+cldlWlanLdapTertiaryServerIndex OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object represents the value that maps to the
+        tertiary LDAP server for this WLAN. A value of 0 
+        indicates that the primary LDAP server is not 
+        configured for this WLAN."
+    DEFVAL { 0 }
+    ::= { cldlWlanLdapEntry 3 }
+
+ciscoLwappDot11LdapMIBConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects specifies the LDAP
+--    configuration on the controller.
+--  objects
+--    cldlServerAddressType, cldlServerAddress, cldlServerPortNum, 
+--    cldlServerState, cldlServerTimeout, cldlServerUserBase, 
+--    cldlServerUserNameAttribute, cldlServerUserName, 
+--    cldlServerSecurityEnable, cldlServerRowStatus, 
+--    cldlServerStorageType, cldlWlanLdapPrimaryServerIndex, 
+--    cldlWlanLdapSecondaryServerIndex, 
+--    cldlWlanLdapTertiaryServerIndex
+
+ciscoLwappDot11LdapMIBConfigGroupSup1 OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group of objects supplements the 
+--    ciscoLwappDot11LdapMIBConfigGroup,  
+--    to configure the information about the Controller's 
+--    authentication done with the LDAP server.
+--  objects
+--    cldlServerBindType, cldlServerAuthBindUserName, 
+--    cldlServerAuthBindPassword
+
+ciscoLwappDot11LdapMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappDot11LdapMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappDot11LdapMIBConfigGroup
+
+ciscoLwappDot11LdapMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoLwappDot11LdapMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappDot11LdapMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappDot11LdapMIBConfigGroup
+--   MandGroup
+--    ciscoLwappDot11LdapMIBConfigGroupSup1
+
+
+END
+

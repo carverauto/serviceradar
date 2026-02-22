@@ -1,0 +1,1561 @@
+-- *****************************************************************
+-- CISCO-CDSTV-ISA-MIB: Cisco CDS-TV ISA Management
+-- Information Base
+--   
+-- August 2010, Rajat Ahuja.
+--   
+-- Copyright (c) 2010, 2012 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CDSTV-ISA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    TruthValue
+        FROM SNMPv2-TC
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCdstvIsaMIB MODULE-IDENTITY
+    LAST-UPDATED    "201203130000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-cds@cisco.com"
+    DESCRIPTION
+        "This MIB module defines ISA configuration objects that
+        faciliate the management of the Cisco Content Delivery System
+        for TV (CDS-TV) product family.
+
+        CDS-TV is a suite of products and software applications
+        providing ingest, storage, caching, streaming, playout and
+        on-demand delivery of video to television or set-top-box
+        clients.
+
+        Abbreviations:
+
+        ASI     Asynchronous Serial Interface
+        CDS     Content Delivery System
+        CORBA   Common Object Request Broker Architecture
+        ISA     Interactive Services Architecture
+        ISV     Integrated Streamer-Vault
+        FSI     File Service Interface
+        FTP     File Transfer Protocol
+        MPEG    Motion Picture Experts Group
+        MSA     Managed Services Architecture
+        LSCP    Lightweight Stream Control Protocol
+        RTI     Roome Telecommunications, Inc
+        RTSP    Real-Time Streaming Protocol
+        STB     Set-Top Box
+        TTV     Tampereen Tietoverkko, Finland
+
+        Common terms:
+
+        Catcher: Device responsible for receiving content (typically via
+        satellite dishes and antennae) from content providers or from a
+        Headend-In-The-Sky. 
+
+        Content Ingest: Acquisition of content from a source such as a
+        catcher or an FTP server for storing it locally and making it
+        available to streamers as needed.
+
+        Vault: Content delivery application responsible for ingesting
+        and storing video content and making it available to streamers.
+
+        Streamer: Content delivery application responsible for streaming
+        video out to STB's.
+
+        CorbaLoc: Corba Location (CorbaLoc) refers to a string object
+        reference for a CORBA object that looks similar to a URL and
+        provides a human readable and editable way to specify a location
+        where an IOR (Interoperable Object Reference) can be obtained.
+        An example of a corbaloc URL is:
+        'corbaloc::160.45.110.41:38693/StandardNS/NameServer-POA/_root'
+
+        ISA: Time Warner Cable's Interactive Services Architecture is a
+        CORBA-based framework specifying interfaces for communication
+        between various applications and servers in a cable
+        video-on-demand ecosystem, including back-office, billing,
+        subscriber management and streaming."
+    REVISION        "201203130000Z"
+    DESCRIPTION
+        "CDS-TV 3.0 version of this MIB module"
+    REVISION        "201008100000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 755 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoCdstvIsaMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIB 0 }
+
+ciscoCdstvIsaMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIB 1 }
+
+ciscoCdstvIsaMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIB 2 }
+
+cdstvISAConfigGeneral  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 1 }
+
+cdstvISAConfigContentService  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 2 }
+
+cdstvISAConfigStreamService  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 3 }
+
+cdstvISAConfigNamingService  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 4 }
+
+cdstvISAConfigNotifyService  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 5 }
+
+cdstvISAConfigContentStore  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 6 }
+
+cdstvISAConfigFactory  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 7 }
+
+cdstvISAConfigContentFactory  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 8 }
+
+cdstvISAConfigContentChannel  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 9 }
+
+cdstvISAConfigStreamChannel  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 10 }
+
+cdstvISAConfigEventChannel  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 11 }
+
+cdstvISAConfigFTP  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 12 }
+
+cdstvISAConfigLSCP  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBObjects 13 }
+
+
+cdstvISAConfigFileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the file that stores the ISA
+        configuration settings." 
+    ::= { cdstvISAConfigGeneral 1 }
+
+cdstvISAConfigWebServicePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port number used by web service
+        processes listening on this server." 
+    ::= { cdstvISAConfigGeneral 2 }
+
+cdstvISAConfigMSAEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether Managed Services Architecture
+        (MSA) is enabled or disabled.
+        'true'  - MSA is enabled.
+        'false' - MSA is disabled." 
+    ::= { cdstvISAConfigGeneral 3 }
+
+cdstvISAConfigTmeEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies whether Trick Mode Event (TME)
+        enhancements are enabled.
+        'true'  - TME enhancements enabled.
+        'false' - TME enhancements disabled.
+        cdstvISAConfigTmeEnabled object is superseded by cdstvISAConfigTmeStatus." 
+    ::= { cdstvISAConfigGeneral 4 }
+
+cdstvISAConfigLoadQueryInterval OBJECT-TYPE
+    SYNTAX          TimeIntervalSec
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time interval (in seconds) between
+        ISA process queries to the CDS database and other internal
+        sources that aid in determining the management and distribution
+        of streams and ingests." 
+    ::= { cdstvISAConfigGeneral 5 }
+
+cdstvISAConfigPlayNumThreads OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Lightweight Stream Control Protocol
+        (LSCP) number of threads." 
+    ::= { cdstvISAConfigGeneral 6 }
+
+-- OpenStream Resource Services
+
+cdstvISAConfigResourceMgrServiceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the CDS Resource Service
+        Manager that monitors orphan sessions." 
+    ::= { cdstvISAConfigGeneral 7 }
+
+cdstvISAConfigServicePollTime OBJECT-TYPE
+    SYNTAX          TimeIntervalSec
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time interval (seconds) between
+        polling for orphan sessions." 
+    ::= { cdstvISAConfigGeneral 8 }
+
+cdstvISAConfigPreEncryptionEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether pre-encryption support
+        is enabled or disabled.
+        'true' - Pre-encryption support is enabled.
+        'false' - Pre-encryption support is disabled." 
+    ::= { cdstvISAConfigGeneral 9 }
+
+cdstvISAConfigSessionGatewayTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdstvISAConfigSessionGatewayEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the Session Gateways Identifiers. This table
+        is supported only for server roles 'streamer' and 'ISV',
+        indicated by the object 'cdstvServerRole' in
+        CISCO-CDSTV-SERVER-MIB."
+    ::= { cdstvISAConfigGeneral 10 }
+
+cdstvISAConfigSessionGatewayEntry OBJECT-TYPE
+    SYNTAX          CdstvISAConfigSessionGatewayEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cdstvISAConfigSessionGatewayTable. A new row is
+        created/destroyed in the cdstvISAConfigSessionGatewayTable
+        whenever session gateway ID's are configured/unconfigured."
+    INDEX           { cdstvISAConfigSessionGatewayIndex } 
+    ::= { cdstvISAConfigSessionGatewayTable 1 }
+
+CdstvISAConfigSessionGatewayEntry ::= SEQUENCE {
+        cdstvISAConfigSessionGatewayIndex Unsigned32,
+        cdstvISAConfigSessionGatewayID    SnmpAdminString
+}
+
+cdstvISAConfigSessionGatewayIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index into the table containing Session Gateway
+        ID's." 
+    ::= { cdstvISAConfigSessionGatewayEntry 1 }
+
+cdstvISAConfigSessionGatewayID OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Session Gateway ID used by the
+        backoffice Session Gateway service for registering with the
+        Name
+        Service." 
+    ::= { cdstvISAConfigSessionGatewayEntry 2 }
+ 
+
+
+cdstvISAConfigTmeStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enableForOpenStream(1),
+                        enableForMystroMDN(2),
+                        disabled(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether Trick Mode Event (TME)
+        enhancements are Enabled or Disabled.
+        enableForOpenStream(1) - Enable for OpenStream
+        enableForMystroMDN(2) - Enable for MystroMDN
+        disabled(3) - Disabled" 
+    ::= { cdstvISAConfigGeneral 11 }
+
+cdstvISAConfigContentServiceMasterIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the master IP address of the
+        Content Service, which is specified by
+        cdstvISAConfigContentServiceMasterIp." 
+    ::= { cdstvISAConfigContentService 1 }
+
+cdstvISAConfigContentServiceMasterIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the master IP address of the Content
+        Service, which is the same for all Vault servers in an array.
+        The type of the IP address is specified by
+        cdstvISAConfigContentServiceMasterIpType." 
+    ::= { cdstvISAConfigContentService 2 }
+
+cdstvISAConfigContentServiceMasterPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port used by the master Content
+        Service for controlling content." 
+    ::= { cdstvISAConfigContentService 3 }
+
+cdstvISAConfigStreamServiceMasterIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the configured IP address for
+        the Stream Service Master, specified by
+        cdstvISAConfigStreamServiceMasterIp." 
+    ::= { cdstvISAConfigStreamService 1 }
+
+cdstvISAConfigStreamServiceMasterIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the configured IP address for the Stream
+        Service Master. The type of the IP address is specified by
+        cdstvISAConfigStreamServiceMasterIpType." 
+    ::= { cdstvISAConfigStreamService 2 }
+
+cdstvISAConfigStreamServiceMasterPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port used by the Stream
+        Service Master for controlling streams." 
+    ::= { cdstvISAConfigStreamService 3 }
+
+-- LSCP Service
+
+cdstvISAConfigStreamServiceId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the Stream Service object
+        that is registered with the OpenStream system." 
+    ::= { cdstvISAConfigStreamService 4 }
+
+cdstvISAConfigStreamServiceKind OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Service ID extension." 
+    ::= { cdstvISAConfigStreamService 5 }
+
+cdstvISAConfigMasterNumThreads OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the stream service master number of
+        threads." 
+    ::= { cdstvISAConfigStreamService 6 }
+
+cdstvISAConfigStreamSourceIPConfig OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        controlIp(2),
+                        defaultStreamSourceIp(3),
+                        streamInterfaceIp(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the source IP address that is
+        included in the session setup header. Possible values are: 
+        none(1)                   - No IP address included in session
+                                    setup header            
+        controlIp(2)              - Control IP. 
+        defaultStreamSourceIp(3)  - Default Stream Source IP. 
+        streamInterfaceIp(4)      - Stream Interface IP." 
+    ::= { cdstvISAConfigStreamService 7 }
+
+cdstvISAConfigStreamSourcePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Streamer port used for streaming." 
+    ::= { cdstvISAConfigStreamService 8 }
+
+cdstvISAConfigStreamingMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        asi(1),
+                        gige(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mode expected by the next device in
+        the network. Possible options are: 
+        asi(1)  - ASI mode.
+        gige(2) - GigE mode." 
+    ::= { cdstvISAConfigStreamService 9 }
+
+cdstvISAConfigStreamHeadendIdType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the Headend ID for the
+        Streaming Service, specified by cdstvISAConfigStreamHeadendId." 
+    ::= { cdstvISAConfigStreamService 10 }
+
+cdstvISAConfigStreamHeadendId OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Headend ID for the Streaming
+        Service. The address type of the Headend ID is specified by
+        cdstvISAConfigStreamHeadendIdType." 
+    ::= { cdstvISAConfigStreamService 11 }
+
+cdstvISAConfigStreamTimeout OBJECT-TYPE
+    SYNTAX          TimeIntervalSec
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum time allowed (seconds) before
+        a stream object is played." 
+    ::= { cdstvISAConfigStreamService 12 }
+
+cdstvISAConfigNamingServiceIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the IP address of the CORBA
+        Naming Service used by the OpenStream system. The IP address is
+        specified by cdstvISAConfigNamingServiceIp." 
+    ::= { cdstvISAConfigNamingService 1 }
+
+-- CORBA Services
+
+cdstvISAConfigNamingServiceIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the CORBA Naming
+        Service used by the OpenStream system. The type of the address
+        is specified by cdstvISAConfigNamingServiceIpType." 
+    ::= { cdstvISAConfigNamingService 2 }
+
+cdstvISAConfigNamingServicePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port of the Naming Service used by
+        the OpenStream system." 
+    ::= { cdstvISAConfigNamingService 3 }
+
+cdstvISAConfigNotifyServiceIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the IP address of the CORBA
+        Notification Service used by the OpenStream system. The IP
+        address is specified by cdstvISAConfigNotifyServiceIp." 
+    ::= { cdstvISAConfigNotifyService 1 }
+
+cdstvISAConfigNotifyServiceIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the CORBA Notification
+        Service used by the OpenStream system. The type of this address
+        is specified by cdstvISAConfigNotifyServiceIpType." 
+    ::= { cdstvISAConfigNotifyService 2 }
+
+cdstvISAConfigNotifyServicePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The port of the Notification Service used by the
+        OpenStream system." 
+    ::= { cdstvISAConfigNotifyService 3 }
+
+cdstvISAConfigNotifyServiceFactory OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name used to locate the Notify
+        Service through the 'corbaloc' protocol." 
+    ::= { cdstvISAConfigNotifyService 4 }
+
+-- Content Service
+
+cdstvISAConfigContentStoreName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the CDS Content Store object
+        that is registered with the OpenStream system." 
+    ::= { cdstvISAConfigContentStore 1 }
+
+cdstvISAConfigContentStoreKind OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the content store ID extension." 
+    ::= { cdstvISAConfigContentStore 2 }
+
+cdstvISAConfigContentNumThreads OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the content store number of threads." 
+    ::= { cdstvISAConfigContentStore 3 }
+
+cdstvISAConfigFactoryId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a name that identifies the root
+        directory of the ISA factories where all factories need to
+        register." 
+    ::= { cdstvISAConfigFactory 1 }
+
+cdstvISAConfigFactoryKind OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Factories ID extension." 
+    ::= { cdstvISAConfigFactory 2 }
+
+cdstvISAConfigContentFactoryId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the CDS Content Store Factory
+        that is registered with the OpenStream system." 
+    ::= { cdstvISAConfigContentFactory 1 }
+
+cdstvISAConfigContentFactoryKind OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the content store factory ID extension." 
+    ::= { cdstvISAConfigContentFactory 2 }
+
+cdstvISAConfigContentChannelId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a name that identifies the Content
+        Event Channel where all events concerning content objects are
+        published." 
+    ::= { cdstvISAConfigContentChannel 1 }
+
+cdstvISAConfigContentChannelKind OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Event Channel Content ID extension." 
+    ::= { cdstvISAConfigContentChannel 2 }
+
+cdstvISAConfigStreamChannelId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a name that identifies the Stream
+        Event Channel where all events concerning stream objects are
+        published." 
+    ::= { cdstvISAConfigStreamChannel 1 }
+
+cdstvISAConfigStreamChannelKind OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Event Channel Stream ID extension." 
+    ::= { cdstvISAConfigStreamChannel 2 }
+
+-- CORBA Event Channels
+
+cdstvISAConfigEventChannelId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a name that identifies the root
+        directory of the Event Channel where all event channels need to
+        register." 
+    ::= { cdstvISAConfigEventChannel 1 }
+
+cdstvISAConfigEventChannelKind OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the directory extension of the Event
+        Channel ID." 
+    ::= { cdstvISAConfigEventChannel 2 }
+
+cdstvISAConfigEventChannelFactory OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a name that identifies the Event
+        Channel Factory which is used to create event channels, and
+        resolves the Notification Service name." 
+    ::= { cdstvISAConfigEventChannel 3 }
+
+cdstvISAConfigFTPClientPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port used when the Vault receives a
+        request from the OpenStream system to act as an FTP client and
+        sends an FTP get command to the content provider acting as an
+        FTP server." 
+    ::= { cdstvISAConfigFTP 1 }
+
+cdstvISAConfigFTPServerPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port used when the Vault receives a
+        request from the OpenStream system to act as an FTP server and 
+        receives an FTP put command from the content provider  acting as
+        an FTP client." 
+    ::= { cdstvISAConfigFTP 2 }
+
+cdstvISAConfigFTPServerOutPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the configured ISA FTP Server Out Port." 
+    ::= { cdstvISAConfigFTP 3 }
+
+cdstvISAConfigFTPClientNumAttempts OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times the FTP client
+        attempts to transfer the content file." 
+    ::= { cdstvISAConfigFTP 4 }
+
+cdstvISAConfigFTPPollTimeout OBJECT-TYPE
+    SYNTAX          TimeIntervalSec
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the idle seconds allowed before an FTP
+        download is disconnected." 
+    ::= { cdstvISAConfigFTP 5 }
+
+cdstvISAConfigLscpServerPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port on the Streamer that is
+        listening for LSCP commands from the set-top box." 
+    ::= { cdstvISAConfigLSCP 1 }
+
+cdstvISAConfigLscpResponsePadding OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether LSCP response padding is enabled.
+        When enabled, three blank bytes are added to the end of the LSCP
+        response.
+        'true' - LSCP response padding is enabled.
+        'false' - LSCP response padding is disabled." 
+    ::= { cdstvISAConfigLSCP 2 }
+
+cdstvISAConfigfMsaLscpClientProto OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tvguide(1),
+                        rti(2),
+                        vodlink(3),
+                        cv(4),
+                        cisco(5),
+                        ttv(6),
+                        lscppauseateos(7)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the way LSCP clients communicate with the
+        Streamer. Possible options are:
+        tvguide(1) -  TV Guide
+        rti(2)     -  RTI
+        vodlink(3) -  VOD Link
+        cv(4)      -  CableVision
+        cisco(5)   -  Cisco
+        ttv(6)     -  TTV
+        lscppauseateos(7) - LSCP Pause at EOS" 
+    ::= { cdstvISAConfigLSCP 3 }
+ciscoCdstvIsaMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBConform 1 }
+
+ciscoCdstvIsaMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIsaMIBConform 2 }
+
+
+ciscoCdstvIsaMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the Cisco CDS TV ISA MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCdstvIsaGeneralGroup,
+                        ciscoCdstvIsaContentServiceGroup,
+                        ciscoCdstvIsaStreamServiceGroup,
+                        ciscoCdstvIsaNamingServiceGroup,
+                        ciscoCdstvIsaNotifyServiceGroup,
+                        ciscoCdstvIsaContentStoreGroup,
+                        ciscoCdstvIsaFactoryGroup,
+                        ciscoCdstvIsaContentFactoryGroup,
+                        ciscoCdstvIsaContentChannelGroup,
+                        ciscoCdstvIsaStreamChannelGroup,
+                        ciscoCdstvIsaEventChannelGroup,
+                        ciscoCdstvIsaFtpGroup,
+                        ciscoCdstvIsaLscpGroup
+                    }
+
+    OBJECT          cdstvISAConfigContentServiceMasterIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentServiceMasterIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentServiceMasterPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceMasterIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceMasterIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceMasterPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamSourceIPConfig
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamingMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamHeadendIdType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamHeadendId
+    MIN-ACCESS      read-write
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFileName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigWebServicePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPServerOutPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigMSAEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigTmeEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNamingServiceIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNamingServiceIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNamingServicePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServiceIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServiceIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServicePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServiceFactory
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigEventChannelId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigEventChannelKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentChannelId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentChannelKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamChannelId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFactoryKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamChannelKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFactoryId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigEventChannelFactory
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigLoadQueryInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentStoreName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentStoreKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentFactoryId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentFactoryKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentNumThreads
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPClientPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigPreEncryptionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPServerPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPClientNumAttempts
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPPollTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigMasterNumThreads
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigPlayNumThreads
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigLscpServerPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigLscpResponsePadding
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigfMsaLscpClientProto
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigResourceMgrServiceName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigServicePollTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamSourcePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigSessionGatewayID
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoCdstvIsaMIBCompliances 1 }
+
+ciscoCdstvIsaMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the Cisco CDS TV ISA MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCdstvIsaContentServiceGroup,
+                        ciscoCdstvIsaStreamServiceGroup,
+                        ciscoCdstvIsaNamingServiceGroup,
+                        ciscoCdstvIsaNotifyServiceGroup,
+                        ciscoCdstvIsaContentStoreGroup,
+                        ciscoCdstvIsaFactoryGroup,
+                        ciscoCdstvIsaContentFactoryGroup,
+                        ciscoCdstvIsaContentChannelGroup,
+                        ciscoCdstvIsaStreamChannelGroup,
+                        ciscoCdstvIsaEventChannelGroup,
+                        ciscoCdstvIsaFtpGroup,
+                        ciscoCdstvIsaLscpGroup,
+                        ciscoCdstvIsaGeneralGroup2
+                    }
+
+    OBJECT          cdstvISAConfigContentServiceMasterIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentServiceMasterIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentServiceMasterPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceMasterIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceMasterIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceMasterPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamSourceIPConfig
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamingMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamHeadendIdType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamHeadendId
+    MIN-ACCESS      read-write
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFileName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigWebServicePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPServerOutPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigMSAEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigTmeStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNamingServiceIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNamingServiceIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNamingServicePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServiceIpType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServiceIp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServicePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigNotifyServiceFactory
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigEventChannelId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigEventChannelKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentChannelId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentChannelKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamChannelId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFactoryKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamChannelKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFactoryId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigEventChannelFactory
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigLoadQueryInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentStoreName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentStoreKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentFactoryId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentFactoryKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigContentNumThreads
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPClientPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigPreEncryptionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPServerPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPClientNumAttempts
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigFTPPollTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamServiceKind
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigMasterNumThreads
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigPlayNumThreads
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigLscpServerPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigLscpResponsePadding
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigfMsaLscpClientProto
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigResourceMgrServiceName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigServicePollTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigStreamSourcePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvISAConfigSessionGatewayID
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoCdstvIsaMIBCompliances 2 }
+
+ciscoCdstvIsaGeneralGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigFileName,
+                        cdstvISAConfigWebServicePort,
+                        cdstvISAConfigMSAEnabled,
+                        cdstvISAConfigTmeEnabled,
+                        cdstvISAConfigLoadQueryInterval,
+                        cdstvISAConfigPlayNumThreads,
+                        cdstvISAConfigResourceMgrServiceName,
+                        cdstvISAConfigServicePollTime,
+                        cdstvISAConfigPreEncryptionEnabled,
+                        cdstvISAConfigSessionGatewayID
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects that provide general ISA configuration
+        information.
+        ciscoCdstvIsaGeneralGroup object is superseded by ciscoCdstvIsaGeneralGroup2."
+    ::= { ciscoCdstvIsaMIBGroups 1 }
+
+ciscoCdstvIsaContentServiceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigContentServiceMasterIpType,
+                        cdstvISAConfigContentServiceMasterIp,
+                        cdstvISAConfigContentServiceMasterPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Content Service
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 2 }
+
+ciscoCdstvIsaStreamServiceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigStreamServiceMasterIpType,
+                        cdstvISAConfigStreamServiceMasterIp,
+                        cdstvISAConfigStreamServiceMasterPort,
+                        cdstvISAConfigStreamServiceId,
+                        cdstvISAConfigStreamServiceKind,
+                        cdstvISAConfigMasterNumThreads,
+                        cdstvISAConfigStreamSourceIPConfig,
+                        cdstvISAConfigStreamSourcePort,
+                        cdstvISAConfigStreamingMode,
+                        cdstvISAConfigStreamHeadendIdType,
+                        cdstvISAConfigStreamHeadendId,
+                        cdstvISAConfigStreamTimeout
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Stream Service
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 3 }
+
+ciscoCdstvIsaNamingServiceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigNamingServiceIpType,
+                        cdstvISAConfigNamingServiceIp,
+                        cdstvISAConfigNamingServicePort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Naming Service
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 4 }
+
+ciscoCdstvIsaNotifyServiceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigNotifyServiceIpType,
+                        cdstvISAConfigNotifyServiceIp,
+                        cdstvISAConfigNotifyServicePort,
+                        cdstvISAConfigNotifyServiceFactory
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Notify Service
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 5 }
+
+ciscoCdstvIsaContentStoreGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigContentStoreName,
+                        cdstvISAConfigContentStoreKind,
+                        cdstvISAConfigContentNumThreads
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Content Store
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 6 }
+
+ciscoCdstvIsaFactoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigFactoryId,
+                        cdstvISAConfigFactoryKind
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA factory configuration
+        information."
+    ::= { ciscoCdstvIsaMIBGroups 7 }
+
+ciscoCdstvIsaContentFactoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigContentFactoryId,
+                        cdstvISAConfigContentFactoryKind
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Content Factory
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 8 }
+
+ciscoCdstvIsaContentChannelGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigContentChannelId,
+                        cdstvISAConfigContentChannelKind
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Content Channel
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 9 }
+
+ciscoCdstvIsaStreamChannelGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigStreamChannelId,
+                        cdstvISAConfigStreamChannelKind
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Stream Channel
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 10 }
+
+ciscoCdstvIsaEventChannelGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigEventChannelId,
+                        cdstvISAConfigEventChannelKind,
+                        cdstvISAConfigEventChannelFactory
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA Event Channel
+        configuration information."
+    ::= { ciscoCdstvIsaMIBGroups 11 }
+
+ciscoCdstvIsaFtpGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigFTPClientPort,
+                        cdstvISAConfigFTPServerPort,
+                        cdstvISAConfigFTPServerOutPort,
+                        cdstvISAConfigFTPClientNumAttempts,
+                        cdstvISAConfigFTPPollTimeout
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA FTP configuration
+        information."
+    ::= { ciscoCdstvIsaMIBGroups 12 }
+
+ciscoCdstvIsaLscpGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigLscpServerPort,
+                        cdstvISAConfigLscpResponsePadding,
+                        cdstvISAConfigfMsaLscpClientProto
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide ISA LSCP configuration
+        information."
+    ::= { ciscoCdstvIsaMIBGroups 13 }
+
+ciscoCdstvIsaGeneralGroup2 OBJECT-GROUP
+    OBJECTS         {
+                        cdstvISAConfigFileName,
+                        cdstvISAConfigWebServicePort,
+                        cdstvISAConfigMSAEnabled,
+                        cdstvISAConfigLoadQueryInterval,
+                        cdstvISAConfigPlayNumThreads,
+                        cdstvISAConfigResourceMgrServiceName,
+                        cdstvISAConfigServicePollTime,
+                        cdstvISAConfigPreEncryptionEnabled,
+                        cdstvISAConfigSessionGatewayID,
+                        cdstvISAConfigTmeStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide general ISA configuration
+        information."
+    ::= { ciscoCdstvIsaMIBGroups 14 }
+
+END
+
+
+

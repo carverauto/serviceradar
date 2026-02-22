@@ -1,0 +1,4381 @@
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                                  -- cisco MIB*
+
+                           -- Wed Apr  8 14:37:15 1992
+
+
+                              -- cisco Systems, Inc.
+                                 -- 1525 O'Brien
+                             -- Menlo Park, CA  94025
+
+                          -- customer-service@cisco.com
+
+
+
+          -- 1. Introduction
+
+          -- This memo describes the variables that are implemented for
+          -- the cisco Systems, Inc.  set of products including the
+          -- Gateway Server, Terminal Server, Trouter, and Protocol
+          -- Translator.  The document relies upon the Structure of
+          -- Management Information (SMI), RFC1155.  It is presented in
+          -- a format described in RFC1212, the Concise MIB document.
+
+          -- This  document describes the cisco local Management
+          -- Information Base (MIB) variables for
+          -- version 8.3 of the system software.
+
+
+          -- 2. Object Definitions
+
+               CISCO-MIB { iso org(3) dod(6) internet(1) private(4)
+                                       enterprises(1) 9 }
+
+               DEFINITIONS ::= BEGIN
+
+               IMPORTS
+                    enterprises, OBJECT-TYPE, NetworkAddress, IpAddress,
+                    Counter, Gauge, TimeTicks
+                    FROM RFC1155-SMI
+                    ifIndex, ipAdEntAddr, ipRouteDest, tcpConnLocalAddress,
+                    tcpConnLocalPort, tcpConnRemAddress, tcpConnRemPort
+                    FROM RFC1213-MIB;
+
+          
+             -- *This file is machine generated. Do not edit.
+
+
+
+
+
+
+          -- cisco MIB                                          [Page 1]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               cisco               OBJECT IDENTIFIER ::= { enterprises 9 }
+
+               products            OBJECT IDENTIFIER ::= { cisco 1 }
+               local               OBJECT IDENTIFIER ::= { cisco 2 }
+               temporary           OBJECT IDENTIFIER ::= { cisco 3 }
+
+               gateway-server      OBJECT IDENTIFIER ::= { products 1 }
+               terminal-server     OBJECT IDENTIFIER ::= { products 2 }
+               trouter             OBJECT IDENTIFIER ::= { products 3 }
+               protocol-translator OBJECT IDENTIFIER ::= { products 4 }
+               igs                 OBJECT IDENTIFIER ::= { products 5 }
+
+               lsystem             OBJECT IDENTIFIER ::= { local 1 }
+               linterfaces         OBJECT IDENTIFIER ::= { local 2 }
+               lat                 OBJECT IDENTIFIER ::= { local 3 }
+               lip                 OBJECT IDENTIFIER ::= { local 4 }
+               licmp               OBJECT IDENTIFIER ::= { local 5 }
+               ltcp                OBJECT IDENTIFIER ::= { local 6 }
+               ludp                OBJECT IDENTIFIER ::= { local 7 }
+               legp                OBJECT IDENTIFIER ::= { local 8 }
+               lts                 OBJECT IDENTIFIER ::= { local 9 }
+
+               decnet              OBJECT IDENTIFIER ::= { temporary 1 }
+               xns                 OBJECT IDENTIFIER ::= { temporary 2 }
+               appletalk           OBJECT IDENTIFIER ::= { temporary 3 }
+               novell              OBJECT IDENTIFIER ::= { temporary 4 }
+               vines               OBJECT IDENTIFIER ::= { temporary 5 }
+
+
+
+          -- Product Section
+
+          -- The product section contains the different product's
+          -- object identifiers.  Each product has a unique object
+          -- identifier allocated from this section which is referenced
+          -- by the sysObjectID variable from RFC1156.
+
+               -- gateway-server      OBJECT IDENTIFIER ::= { products 1 }
+               -- terminal-server     OBJECT IDENTIFIER ::= { products 2 }
+               -- trouter             OBJECT IDENTIFIER ::= { products 3 }
+               -- protocol-translator OBJECT IDENTIFIER ::= { products 4 }
+               -- igs                 OBJECT IDENTIFIER ::= { products 5 }
+
+          -- New products will be added at the end of this list.
+
+
+
+
+
+
+          -- cisco MIB                                          [Page 2]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+          -- Local Variable Section
+
+          -- This section describes the local variables within the cisco
+          -- product line.  Groups may or may not be present depending
+          -- on the software options present in the managed device.
+
+
+          -- Local System Group
+
+          -- This group is present in all products.
+
+               romId OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable contains a printable octet
+                           string which contains the System Bootstrap
+                           description and version identification."
+                   ::= { lsystem 1 }
+
+               whyReload OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable contains a printable octet
+                           string which contains the reason why the
+                           system was last restarted."
+                   ::= { lsystem 2 }
+
+               hostName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable represents the name of the
+                           host."
+                   ::= { lsystem 3 }
+
+               domainName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+
+
+
+
+
+          -- cisco MIB                                          [Page 3]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           "This variable is the domain portion of the
+                           domain name of the host."
+                   ::= { lsystem 4 }
+
+               authAddr OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "This variable contains the last SNMP
+                           authorization failure IP address."
+                   ::= { lsystem 5 }
+
+               bootHost OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the IP address of the host that
+                           supplied the currently running software."
+                   ::= { lsystem 6 }
+
+               ping OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Supplies a way to ping a host from this
+                           entity. The ping variable takes the following
+                           instance identifiers: 1 - IP protocol ping.
+                           IP - address to ping. integer - count of
+                           packets to send. integer - size of ping
+                           packet. integer - timeout delay between
+                           packets."
+                   ::= { lsystem 7 }
+
+               freeMem OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Return the amount of free memory in bytes."
+                   ::= { lsystem 8 }
+
+               bufferElFree OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                          [Page 4]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of free buffer
+                           elements."
+                   ::= { lsystem 9 }
+
+               bufferElMax OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the maximum number of buffer
+                           elements."
+                   ::= { lsystem 10 }
+
+               bufferElHit OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of buffer element hits."
+                   ::= { lsystem 11 }
+
+               bufferElMiss OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of buffer element
+                           misses."
+                   ::= { lsystem 12 }
+
+               bufferElCreate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of buffer element
+                           creates."
+                   ::= { lsystem 13 }
+
+               bufferSmSize OBJECT-TYPE
+                   SYNTAX  INTEGER
+
+
+
+
+
+          -- cisco MIB                                          [Page 5]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the size of small buffers."
+                   ::= { lsystem 14 }
+
+               bufferSmTotal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the total number of small buffers."
+                   ::= { lsystem 15 }
+
+               bufferSmFree OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of free small buffers."
+                   ::= { lsystem 16 }
+
+               bufferSmMax OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the maximum number of small
+                           buffers."
+                   ::= { lsystem 17 }
+
+               bufferSmHit OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of small buffer hits."
+                   ::= { lsystem 18 }
+
+               bufferSmMiss OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of small buffer misses."
+
+
+
+
+
+          -- cisco MIB                                          [Page 6]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ::= { lsystem 19 }
+
+               bufferSmTrim OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of small buffer trims."
+                   ::= { lsystem 20 }
+
+               bufferSmCreate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of small buffer
+                           creates."
+                   ::= { lsystem 21 }
+
+               bufferMdSize OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the size of medium buffers."
+                   ::= { lsystem 22 }
+
+               bufferMdTotal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the total number of medium
+                           buffers."
+                   ::= { lsystem 23 }
+
+               bufferMdFree OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of free medium buffers."
+                   ::= { lsystem 24 }
+
+               bufferMdMax OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                          [Page 7]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the maximum number of medium
+                           buffers."
+                   ::= { lsystem 25 }
+
+               bufferMdHit OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of medium buffer hits."
+                   ::= { lsystem 26 }
+
+               bufferMdMiss OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of medium buffer
+                           misses."
+                   ::= { lsystem 27 }
+
+               bufferMdTrim OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of medium buffer trims."
+                   ::= { lsystem 28 }
+
+               bufferMdCreate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of medium buffer
+                           creates."
+                   ::= { lsystem 29 }
+
+               bufferBgSize OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+
+
+
+
+
+          -- cisco MIB                                          [Page 8]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the size of big buffers."
+                   ::= { lsystem 30 }
+
+               bufferBgTotal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the total number of big buffers."
+                   ::= { lsystem 31 }
+
+               bufferBgFree OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of free big buffers."
+                   ::= { lsystem 32 }
+
+               bufferBgMax OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the maximum number of big buffers."
+                   ::= { lsystem 33 }
+
+               bufferBgHit OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of big buffer hits."
+                   ::= { lsystem 34 }
+
+               bufferBgMiss OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of big buffer misses."
+                   ::= { lsystem 35 }
+
+
+
+
+
+
+          -- cisco MIB                                          [Page 9]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               bufferBgTrim OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of big buffer trims."
+                   ::= { lsystem 36 }
+
+               bufferBgCreate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of big buffer creates."
+                   ::= { lsystem 37 }
+
+               bufferLgSize OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the size of large buffers."
+                   ::= { lsystem 38 }
+
+               bufferLgTotal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the total number of large buffers."
+                   ::= { lsystem 39 }
+
+               bufferLgFree OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of free large buffers."
+                   ::= { lsystem 40 }
+
+               bufferLgMax OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+
+
+
+
+
+          -- cisco MIB                                         [Page 10]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           "Contains the maximum number of large
+                           buffers."
+                   ::= { lsystem 41 }
+
+               bufferLgHit OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of large buffer hits."
+                   ::= { lsystem 42 }
+
+               bufferLgMiss OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of large buffer misses."
+                   ::= { lsystem 43 }
+
+               bufferLgTrim OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of large buffer trims."
+                   ::= { lsystem 44 }
+
+               bufferLgCreate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of large buffer
+                           creates."
+                   ::= { lsystem 45 }
+
+               bufferFail OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Count of the number of buffer allocation
+                           failures."
+                   ::= { lsystem 46 }
+
+
+
+
+
+          -- cisco MIB                                         [Page 11]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               bufferNoMem OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Count of the number of buffer create
+                           failures due to no free memory."
+                   ::= { lsystem 47 }
+
+               netConfigIP OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the IP address of the host that
+                           supplied the network-confg file."
+                   ::= { lsystem 48 }
+
+               netConfigName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Holds the name of the network configuration
+                           file."
+                   ::= { lsystem 49 }
+
+               netConfigSet OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Permit the loading of a new network-confg
+                           file using TFTP."
+                   ::= { lsystem 50 }
+
+               hostConfigIP OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the IP address of the host that
+                           provided the host-config file."
+                   ::= { lsystem 51 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 12]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               hostConfigName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the name of the last configured
+                           host-confg file."
+                   ::= { lsystem 52 }
+
+               hostConfigSet OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Permit the loading of a new host-confg file
+                           using TFTP."
+                   ::= { lsystem 53 }
+
+               writeMem OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Write configuration into non-volatile memory
+                           / erase config memory if 0"
+                   ::= { lsystem 54 }
+
+               writeNet OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  write-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Write configuration to host using TFTP."
+                   ::= { lsystem 55 }
+
+               busyPer OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "CPU busy percentage in the last 5 second
+                           period. Not the last 5 realtime seconds but
+                           the last 5 second period in the scheduler."
+                   ::= { lsystem 56 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 13]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               avgBusy1 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "1 minute exponentially-decayed moving
+                           average of the CPU busy percentage."
+                   ::= { lsystem 57 }
+
+               avgBusy5 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "5 minute exponentially-decayed moving
+                           average of the CPU busy percentage."
+                   ::= { lsystem 58 }
+
+               idleCount OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "cisco internal variable. not to be used"
+                   ::= { lsystem 59 }
+
+               idleWired OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "cisco internal variable. not to be used"
+                   ::= { lsystem 60 }
+
+               ciscoContactInfo OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "cisco's name and address"
+                   ::= { lsystem 61 }
+
+               bufferHgSize OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+
+
+
+
+
+          -- cisco MIB                                         [Page 14]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the size of huge buffers."
+                   ::= { lsystem 62 }
+
+               bufferHgTotal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the total number of huge buffers."
+                   ::= { lsystem 63 }
+
+               bufferHgFree OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of free huge buffers."
+                   ::= { lsystem 64 }
+
+               bufferHgMax OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the maximum number of huge
+                           buffers."
+                   ::= { lsystem 65 }
+
+               bufferHgHit OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of huge buffer hits."
+                   ::= { lsystem 66 }
+
+               bufferHgMiss OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of huge buffer misses."
+                   ::= { lsystem 67 }
+
+
+
+
+
+          -- cisco MIB                                         [Page 15]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               bufferHgTrim OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of huge buffer trims."
+                   ::= { lsystem 68 }
+
+               bufferHgCreate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Contains the number of huge buffer creates."
+                   ::= { lsystem 69 }
+
+
+               -- Local Interface Group
+
+          -- This group is present in all products.
+
+
+          -- Local Interface Table
+
+          -- This group provides additional objects to the table
+          -- defined by RFC1156.
+
+               lifTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LIfEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of interface entries."
+                   ::= { linterfaces 1 }
+
+               lifEntry OBJECT-TYPE
+                   SYNTAX LIfEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of additional objects in the
+                            cisco interface."
+                   INDEX { ifIndex }
+               ::= { lifTable 1 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 16]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               LIfEntry ::=
+                   SEQUENCE {
+                       locIfHardType
+                           DisplayString,
+                       locIfLineProt
+                           INTEGER,
+                       locIfLastIn
+                           INTEGER,
+                       locIfLastOut
+                           INTEGER,
+                       locIfLastOutHang
+                           INTEGER,
+                       locIfInBitsSec
+                           INTEGER,
+                       locIfInPktsSec
+                           INTEGER,
+                       locIfOutBitsSec
+                           INTEGER,
+                       locIfOutPktsSec
+                           INTEGER,
+                       locIfInRunts
+                           INTEGER,
+                       locIfInGiants
+                           INTEGER,
+                       locIfInCRC
+                           INTEGER,
+                       locIfInFrame
+                           INTEGER,
+                       locIfInOverrun
+                           INTEGER,
+                       locIfInIgnored
+                           INTEGER,
+                       locIfInAbort
+                           INTEGER,
+                       locIfResets
+                           INTEGER,
+                       locIfRestarts
+                           INTEGER,
+                       locIfKeep
+                           INTEGER,
+                       locIfReason
+                           DisplayString,
+                       locIfCarTrans
+                           INTEGER,
+                       locIfReliab
+
+
+
+
+
+          -- cisco MIB                                         [Page 17]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           INTEGER,
+                       locIfDelay
+                           INTEGER,
+                       locIfLoad
+                           INTEGER,
+                       locIfCollisions
+                           INTEGER,
+                       locIfInputQueueDrops
+                           INTEGER,
+                       locIfOutputQueueDrops
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               locIfHardType OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Returns the type of interface."
+                   ::= { lifEntry 1 }
+
+               locIfLineProt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether interface line protocol is
+                           up or not."
+                   ::= { lifEntry 2 }
+
+               locIfLastIn OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Elapsed time in milliseconds since last
+                           successful line protocol input packet was
+                           received."
+                   ::= { lifEntry 3 }
+
+               locIfLastOut OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                         [Page 18]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Elapsed time in milliseconds since last
+                           successful line protocol output packet was
+                           transmitted."
+                   ::= { lifEntry 4 }
+
+               locIfLastOutHang OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Elapsed time in milliseconds since last line
+                           protocol output packet could not be
+                           successfully transmitted."
+                   ::= { lifEntry 5 }
+
+               locIfInBitsSec OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Five minute exponentially-decayed moving
+                            average of input bits per second."
+                   ::= { lifEntry 6 }
+
+               locIfInPktsSec OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Five minute exponentially-decayed moving
+                            average of input packets per second."
+                   ::= { lifEntry 7 }
+
+               locIfOutBitsSec OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Five minute exponentially-decayed moving
+                            average of output bits per second."
+                   ::= { lifEntry 8 }
+
+
+
+
+
+          -- cisco MIB                                         [Page 19]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               locIfOutPktsSec OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Five minute exponentially-decayed moving
+                            average of output packets per second."
+                   ::= { lifEntry 9 }
+
+               locIfInRunts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of packets input which were smaller
+                           then the allowable physical media permitted."
+                   ::= { lifEntry 10 }
+
+               locIfInGiants OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of input packets which were larger
+                           then the physical media permitted."
+                   ::= { lifEntry 11 }
+
+               locIfInCRC OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of input packets which had cyclic
+                           redundancy checksum errors."
+                   ::= { lifEntry 12 }
+
+               locIfInFrame OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of input packet which were
+                           misaligned."
+                   ::= { lifEntry 13 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 20]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               locIfInOverrun OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Count of input which arrived too quickly for
+                           the to hardware receive."
+                   ::= { lifEntry 14 }
+
+               locIfInIgnored OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of input packets which were simply
+                           ignored by this interface."
+                   ::= { lifEntry 15 }
+
+               locIfInAbort OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of input packets which were aborted."
+                   ::= { lifEntry 16 }
+
+               locIfResets OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of times the interface internally
+                           reset."
+                   ::= { lifEntry 17 }
+
+               locIfRestarts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of times interface needed to be
+                           completely restarted."
+                   ::= { lifEntry 18 }
+
+               locIfKeep OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                         [Page 21]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether keepalives are enabled on
+                           this interface."
+                   ::= { lifEntry 19 }
+
+               locIfReason OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Reason for interface last status change."
+                   ::= { lifEntry 20 }
+
+               locIfCarTrans OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of times interface saw the carrier
+                           signal transition."
+                   ::= { lifEntry 21 }
+
+               locIfReliab OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The reliability of the interface. Used by
+                           IGRP."
+                   ::= { lifEntry 22 }
+
+               locIfDelay OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The amount of delay in microseconds of the
+                           interface. Used by IGRP."
+                   ::= { lifEntry 23 }
+
+               locIfLoad OBJECT-TYPE
+                   SYNTAX  INTEGER
+
+
+
+
+
+          -- cisco MIB                                         [Page 22]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The loading factor of the interface. Used by
+                           IGRP."
+                   ::= { lifEntry 24 }
+
+               locIfCollisions OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The number of output collisions detected on
+                           this interface."
+                   ::= { lifEntry 25 }
+
+               locIfInputQueueDrops OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The number of packets dropped because the
+                           input queue was full."
+                   ::= { lifEntry 26 }
+
+               locIfOutputQueueDrops OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The number of packets dropped because the
+                           output queue was full."
+                   ::= { lifEntry 27 }
+
+               -- End of table
+
+
+
+               -- Local IP Group
+
+          -- This group is present in all products which are using the
+          -- IP protocol.
+
+
+          -- Local IP Address Table
+
+
+
+
+
+          -- cisco MIB                                         [Page 23]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+          -- This group provides additional objects to the table
+          -- defined by RFC1156.
+
+               lipAddrTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LIpAddrEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP address entries."
+                   ::= { lip 1 }
+
+               lipAddrEntry OBJECT-TYPE
+                   SYNTAX LIpAddrEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of additional objects in the
+                            cisco IP implementation."
+                   INDEX { ipAdEntAddr }
+               ::= { lipAddrTable 1 }
+
+               LIpAddrEntry ::=
+                   SEQUENCE {
+                       locIPHow
+                           DisplayString,
+                       locIPWho
+                           NetworkAddress,
+                       locIPHelper
+                           NetworkAddress,
+                       locIPSecurity
+                           INTEGER,
+                       locIPRedirects
+                           INTEGER,
+                       locIPUnreach
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               locIPHow OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 24]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                           "Method of how this interface obtained its IP
+                           address."
+                   ::= { lipAddrEntry 1 }
+
+               locIPWho OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP address of who supplied this interface
+                           its IP address."
+                   ::= { lipAddrEntry 2 }
+
+               locIPHelper OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP helper address for broadcast forwarding
+                           support."
+                   ::= { lipAddrEntry 3 }
+
+               locIPSecurity OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP security level. See RFC 1038."
+                   ::= { lipAddrEntry 4 }
+
+               locIPRedirects OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether ICMP redirects will be sent
+                           or not."
+                   ::= { lipAddrEntry 5 }
+
+               locIPUnreach OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+
+
+
+
+
+          -- cisco MIB                                         [Page 25]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           "Boolean whether ICMP unreachables will be
+                           sent or not."
+                   ::= { lipAddrEntry 6 }
+
+               -- End of table
+
+
+
+               -- Local IP Routing Table
+
+          -- This group provides additional objects to the table
+          -- defined by RFC1156.
+
+               lipRoutingTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LIpRouteEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP routing entries."
+                   ::= { lip 2 }
+
+               lipRouteEntry OBJECT-TYPE
+                   SYNTAX LIpRouteEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of additional objects in the
+                            cisco IP routing implementation."
+                   INDEX { ipRouteDest }
+               ::= { lipRoutingTable 1 }
+
+               LIpRouteEntry ::=
+                   SEQUENCE {
+                       locRtMask
+                           NetworkAddress,
+                       locRtCount
+                           INTEGER,
+                       locRtUses
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 26]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               locRtMask OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Routing table network mask."
+                   ::= { lipRouteEntry 1 }
+
+               locRtCount OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of parallel routes within routing
+                           table."
+                   ::= { lipRouteEntry 2 }
+
+               locRtUses OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of times this route was used in a
+                           forward operation."
+                   ::= { lipRouteEntry 3 }
+
+               -- End of table
+
+
+               actThresh OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Threshold of IP accounting records in use
+                           before IP traffic will be discarded."
+                   ::= { lip 4 }
+
+               actLostPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Lost IP packets due to memory limitations."
+                   ::= { lip 5 }
+
+
+
+
+
+          -- cisco MIB                                         [Page 27]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               actLostByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total bytes of lost IP packets."
+                   ::= { lip 6 }
+
+
+               -- Local IP Accounting Table
+
+          -- This group provides access to the cisco IP accounting
+          -- support.
+
+               lipAccountingTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LIpAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP accounting entries."
+                   ::= { lip 7 }
+
+               lipAccountEntry OBJECT-TYPE
+                   SYNTAX LIpAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of objects necessary for IP
+                            accounting."
+                   INDEX { actSrc, actDst }
+               ::= { lipAccountingTable 1 }
+
+               LIpAccountEntry ::=
+                   SEQUENCE {
+                       actSrc
+                           NetworkAddress,
+                       actDst
+                           NetworkAddress,
+                       actPkts
+                           INTEGER,
+                       actByts
+                           INTEGER
+                   }
+
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 28]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               actSrc OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Source address for host traffic matrix."
+                   ::= { lipAccountEntry 1 }
+
+               actDst OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Destination address for host traffic
+                           matrix."
+                   ::= { lipAccountEntry 2 }
+
+               actPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of IP packets sent from source to
+                           destination."
+                   ::= { lipAccountEntry 3 }
+
+               actByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bytes in IP packets from
+                           source to destination."
+                   ::= { lipAccountEntry 4 }
+
+               -- End of table
+
+
+               actAge OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 29]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                           "The age of the data in the current data
+                           matrix."
+                   ::= { lip 8 }
+
+
+               -- Local IP Checkpoint Accounting Table
+
+          -- This group provides access to the cisco
+          -- IP checkpoint accounting support.
+
+               lipCkAccountingTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LIpCkAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IP checkpoint accounting
+                            entries."
+                   ::= { lip 9 }
+
+               lipCkAccountEntry OBJECT-TYPE
+                   SYNTAX LIpCkAccountEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of objects necessary for IP
+                            checkpoint accounting."
+                   INDEX { ckactSrc, ckactDst }
+               ::= { lipCkAccountingTable 1 }
+
+               LIpCkAccountEntry ::=
+                   SEQUENCE {
+                       ckactSrc
+                           NetworkAddress,
+                       ckactDst
+                           NetworkAddress,
+                       ckactPkts
+                           INTEGER,
+                       ckactByts
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+
+
+
+
+          -- cisco MIB                                         [Page 30]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               ckactSrc OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Source address for host in checkpoint
+                           traffic matrix."
+                   ::= { lipCkAccountEntry 1 }
+
+               ckactDst OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IP Destination address for host in
+                           checkpoint traffic matrix."
+                   ::= { lipCkAccountEntry 2 }
+
+               ckactPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of IP packets sent from source to
+                           destination in checkpoint matrix."
+                   ::= { lipCkAccountEntry 3 }
+
+               ckactByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bytes in IP packets from
+                           source to destination in checkpoint matrix."
+                   ::= { lipCkAccountEntry 4 }
+
+               -- End of table
+
+
+               ckactAge OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Age of data in the checkpoint matrix."
+
+
+
+
+
+          -- cisco MIB                                         [Page 31]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ::= { lip 10 }
+
+               actCheckPoint OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Check points the accounting database. This
+                           mib variable must be read and then set with
+                           the same value for the check point to
+                           succeed. The value read and then set will be
+                           incremented after a successful set request"
+                   ::= { lip 11 }
+
+               ipNoaccess OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to
+                           access control failure."
+                   ::= { lip 12 }
+
+
+               -- Local TCP Group
+
+          -- This group is present in all products which are using the
+          -- TCP protocol.
+
+
+          -- Local TCP Connection Table
+
+          -- This group provides additional objects to the table defined
+          -- by RFC1156.
+
+               ltcpConnTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LTcpConnEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of TCP connection entries."
+                   ::= { ltcp 1 }
+
+               ltcpConnEntry OBJECT-TYPE
+                   SYNTAX LTcpConnEntry
+
+
+
+
+
+          -- cisco MIB                                         [Page 32]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of additional objects in the
+                            cisco TCP implementation."
+                   INDEX { tcpConnLocalAddress, tcpConnLocalPort,
+                   tcpConnRemAddress, tcpConnRemPort }
+               ::= { ltcpConnTable 1 }
+
+               LTcpConnEntry ::=
+                   SEQUENCE {
+                       loctcpConnInBytes
+                           INTEGER,
+                       loctcpConnOutBytes
+                           INTEGER,
+                       loctcpConnInPkts
+                           INTEGER,
+                       loctcpConnOutPkts
+                           INTEGER,
+                       loctcpConnElapsed
+                           TimeTicks
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               loctcpConnInBytes OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Bytes input for this TCP connection."
+                   ::= { ltcpConnEntry 1 }
+
+               loctcpConnOutBytes OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Bytes output for this TCP connection."
+                   ::= { ltcpConnEntry 2 }
+
+               loctcpConnInPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+
+
+
+
+
+          -- cisco MIB                                         [Page 33]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Packets input for this TCP connection."
+                   ::= { ltcpConnEntry 3 }
+
+               loctcpConnOutPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Packets output for this TCP connection."
+                   ::= { ltcpConnEntry 4 }
+
+               loctcpConnElapsed OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "How long this TCP connection has been
+                           established."
+                   ::= { ltcpConnEntry 5 }
+
+               -- End of table
+
+
+
+               -- Local cisco Terminal Server Group
+
+          -- This group is present in all products which contain
+          -- asynchronous terminal lines.
+
+               tsLines OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of physical lines on this device."
+                   ::= { lts 1 }
+
+
+               -- Local Terminal Server Line Table
+
+          -- This group contains terminal server specific
+          -- information on a per line basis.
+
+
+
+
+
+          -- cisco MIB                                         [Page 34]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               ltsLineTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LTsLineEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of terminal server line entries."
+                   ::= { lts 2 }
+
+               ltsLineEntry OBJECT-TYPE
+                   SYNTAX LTsLineEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A collection of per TTY objects in the
+                            cisco Terminal Server implementation."
+                   INDEX { INTEGER }
+               ::= { ltsLineTable 1 }
+
+               LTsLineEntry ::=
+                   SEQUENCE {
+                       tsLineActive
+                           INTEGER,
+                       tsLineType
+                           INTEGER,
+                       tsLineAutobaud
+                           INTEGER,
+                       tsLineSpeedin
+                           INTEGER,
+                       tsLineSpeedout
+                           INTEGER,
+                       tsLineFlow
+                           INTEGER,
+                       tsLineModem
+                           INTEGER,
+                       tsLineLoc
+                           DisplayString,
+                       tsLineTerm
+                           DisplayString,
+                       tsLineScrlen
+                           INTEGER,
+                       tsLineScrwid
+                           INTEGER,
+                       tsLineEsc
+                           OCTET STRING,
+                       tsLineTmo
+
+
+
+
+
+          -- cisco MIB                                         [Page 35]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           INTEGER,
+                       tsLineSestmo
+                           INTEGER,
+                       tsLineRotary
+                           INTEGER,
+                       tsLineUses
+                           INTEGER,
+                       tsLineNses
+                           INTEGER,
+                       tsLineUser
+                           DisplayString,
+                       tsLineNoise
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               tsLineActive OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether this line is active or not."
+                   ::= { ltsLineEntry 1 }
+
+               tsLineType OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        unknown(1),
+                        console(2),
+                        terminal(3),
+                        line-printer(4),
+                        virtual-terminal(5),
+                        auxiliary(6)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Type of line."
+                   ::= { ltsLineEntry 2 }
+
+               tsLineAutobaud OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+
+
+
+
+
+          -- cisco MIB                                         [Page 36]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether line will autobaud or not."
+                   ::= { ltsLineEntry 3 }
+
+               tsLineSpeedin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "What input speed the line is running at."
+                   ::= { ltsLineEntry 4 }
+
+               tsLineSpeedout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "What output speed the line is running at."
+                   ::= { ltsLineEntry 5 }
+
+               tsLineFlow OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        unknown(1),
+                        none(2),
+                        software-input(3),
+                        software-output(4),
+                        software-both(5),
+                        hardware-input(6),
+                        hardware-output(7),
+                        hardware-both(8)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "What kind of flow control the line is
+                           using."
+                   ::= { ltsLineEntry 6 }
+
+               tsLineModem OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        unknown(1),
+                        none(2),
+                        call-in(3),
+                        call-out(4),
+
+
+
+
+
+          -- cisco MIB                                         [Page 37]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                        cts-required(5),
+                        rs-is-cd(6)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "What kind of modem control the line is
+                           using."
+                   ::= { ltsLineEntry 7 }
+
+               tsLineLoc OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Describes the line's physical location."
+                   ::= { ltsLineEntry 8 }
+
+               tsLineTerm OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Describes the line's terminal type."
+                   ::= { ltsLineEntry 9 }
+
+               tsLineScrlen OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Length in lines of the screen of terminal
+                           attached to this line."
+                   ::= { ltsLineEntry 10 }
+
+               tsLineScrwid OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Width in characters of the screen of
+                           terminal attached to this line."
+                   ::= { ltsLineEntry 11 }
+
+               tsLineEsc OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                         [Page 38]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  OCTET STRING
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Escape character used to break out of active
+                           sessions."
+                   ::= { ltsLineEntry 12 }
+
+               tsLineTmo OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Line idleness timeout in seconds."
+                   ::= { ltsLineEntry 13 }
+
+               tsLineSestmo OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Session idleness timeout in seconds."
+                   ::= { ltsLineEntry 14 }
+
+               tsLineRotary OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Rotary group number the line belongs in."
+                   ::= { ltsLineEntry 15 }
+
+               tsLineUses OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of times a connection has been made
+                           to or from this line."
+                   ::= { ltsLineEntry 16 }
+
+               tsLineNses OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 39]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                           "Current number of sessions in use on this
+                           line."
+                   ::= { ltsLineEntry 17 }
+
+               tsLineUser OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "TACACS user name, if TACACS enabled, of user
+                           on this line."
+                   ::= { ltsLineEntry 18 }
+
+               tsLineNoise OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Count of garbage characters received when
+                           line inactive."
+                   ::= { ltsLineEntry 19 }
+
+               -- End of table
+
+
+
+               -- Local Terminal Server Line Session Table
+
+          -- This group contains terminal server specific
+          -- information on a per line and per session basis.
+
+               ltsLineSessionTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LTsLineSessionEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of terminal server line and session
+                            entries."
+                   ::= { lts 3 }
+
+               ltsLineSessionEntry OBJECT-TYPE
+                   SYNTAX LTsLineSessionEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 40]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                            "A collection of per session and per TTY
+                            objects in the cisco Terminal Server
+                            implementation."
+                   INDEX { INTEGER, INTEGER }
+               ::= { ltsLineSessionTable 1 }
+
+               LTsLineSessionEntry ::=
+                   SEQUENCE {
+                       tslineSesType
+                           INTEGER,
+                       tslineSesDir
+                           INTEGER,
+                       tslineSesAddr
+                           NetworkAddress,
+                       tslineSesName
+                           DisplayString,
+                       tslineSesCur
+                           INTEGER,
+                       tslineSesIdle
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               tslineSesType OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        unknown(1),
+                        pad(2),
+                        stream(3),
+                        rlogin(4),
+                        telnet(5),
+                        tcp(6),
+                        lat(7),
+                        mop(8),
+                        slip(9),
+                        xremote(10)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Type of session."
+                   ::= { ltsLineSessionEntry 1 }
+
+
+
+
+
+          -- cisco MIB                                         [Page 41]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               tslineSesDir OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        unknown(1),
+                        incoming(2),
+                        outgoing(3)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Direction of session."
+                   ::= { ltsLineSessionEntry 2 }
+
+               tslineSesAddr OBJECT-TYPE
+                   SYNTAX  NetworkAddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Remote host address of session. [What about
+                           PAD connections?]"
+                   ::= { ltsLineSessionEntry 3 }
+
+               tslineSesName OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Remote host name of session."
+                   ::= { ltsLineSessionEntry 4 }
+
+               tslineSesCur OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Boolean whether session is the currently
+                           active one."
+                   ::= { ltsLineSessionEntry 5 }
+
+               tslineSesIdle OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Time in seconds session has been idle."
+                   ::= { ltsLineSessionEntry 6 }
+
+
+
+
+
+          -- cisco MIB                                         [Page 42]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               -- End of table
+
+
+               tsMsgTtyLine OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "tty line to send the message to. -1 will
+                           send it to all tty lines"
+                   ::= { lts 4 }
+
+               tsMsgIntervaltim OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Interval between reissuing message in
+                           milliseconds. Minimum non-zero setting is
+                           10000. 0 will cause the routine to choose its
+                           own intervals becoming more frequent as
+                           MessageDuration gets close to expiring.
+                           2hr, 1hr, 30min, 5min, 1min"
+                   ::= { lts 5 }
+
+               tsMsgDuration OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Length of time to reissue message in
+                           milliseconds. Minimum non-zero setting is
+                           10000. A setting of 0 will not repeat the
+                           message."
+                   ::= { lts 6 }
+
+               tsMsgText OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Up to 256 characters that will make up the
+                           message"
+                   ::= { lts 7 }
+
+               tsMsgTmpBanner OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                         [Page 43]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER {
+                        no(1),
+                        additive(2)
+                   }
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Should the message be used as a temporary
+                           banner. 1 - No. 2 - In addition to the normal
+                           banner"
+                   ::= { lts 8 }
+
+               tsMsgSend OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        nothing(1),
+                        reload(2),
+                        messagedone(3),
+                        abort(4)
+                   }
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Sends the message. The value determines what
+                           to do after the message has completed."
+                   ::= { lts 9 }
+
+
+               -- Temporary Variable Section
+
+          -- This section is equivalent to the experimental
+          -- space defined by the SMI. It contains variables
+          -- that are useful to have but are beyond cisco's
+          -- ability to control and maintain. This section can
+          -- change from release to release without warning.
+          -- This document controls what is contained here for
+          -- this version.
+
+
+          -- Temporary DECNET Section
+
+          -- This group is present in all router based products.
+
+               dnForward OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+
+
+
+
+
+          -- cisco MIB                                         [Page 44]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of DECNET packets forwarded."
+                   ::= { decnet 1 }
+
+               dnReceived OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Count of total DECNET packets received."
+                   ::= { decnet 2 }
+
+               dnFormaterr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of DECNET packets received with
+                           header errors."
+                   ::= { decnet 3 }
+
+               dnNotgateway OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets received while not
+                           routing."
+                   ::= { decnet 4 }
+
+               dnNotimp OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of unknown control packets
+                           received."
+                   ::= { decnet 5 }
+
+               dnHellos OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+
+
+
+
+
+          -- cisco MIB                                         [Page 45]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           "Total number of Hellos received."
+                   ::= { decnet 6 }
+
+               dnBadhello OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received bad Hellos."
+                   ::= { decnet 7 }
+
+               dnNotlong OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received packets not in long
+                           format."
+                   ::= { decnet 8 }
+
+               dnDatas OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received data packets."
+                   ::= { decnet 9 }
+
+               dnBigaddr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of too large addresses."
+                   ::= { decnet 10 }
+
+               dnNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to no
+                           route present."
+                   ::= { decnet 11 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 46]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               dnNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to
+                           output encapsulation failure."
+                   ::= { decnet 12 }
+
+               dnLevel1s OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 1 routing packets
+                           received."
+                   ::= { decnet 13 }
+
+               dnBadlevel1 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bad Level 1 routing packets
+                           received."
+                   ::= { decnet 14 }
+
+               dnToomanyhops OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets received which
+                           visited too many nodes."
+                   ::= { decnet 15 }
+
+               dnHellosent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Hellos output."
+                   ::= { decnet 16 }
+
+               dnLevel1sent OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                         [Page 47]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 1 routing packets
+                           sent."
+                   ::= { decnet 17 }
+
+               dnNomemory OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of memory requests denied."
+                   ::= { decnet 18 }
+
+               dnOtherhello OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Hellos received from another
+                           area."
+                   ::= { decnet 19 }
+
+               dnOtherlevel1 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 1 routing packets
+                           received from another area."
+                   ::= { decnet 20 }
+
+               dnLevel2s OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 2 routing packets
+                           received."
+                   ::= { decnet 21 }
+
+               dnLevel2sent OBJECT-TYPE
+                   SYNTAX  INTEGER
+
+
+
+
+
+          -- cisco MIB                                         [Page 48]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 2 routing packets
+                           sent."
+                   ::= { decnet 22 }
+
+               dnNovector OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of missing routing vectors."
+                   ::= { decnet 23 }
+
+               dnOtherlevel2 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received Level 2 routing
+                           packets from another area."
+                   ::= { decnet 24 }
+
+               dnNoaccess OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to
+                           access control failure."
+                   ::= { decnet 25 }
+
+               dnAreaTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF DnAreaTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET area routing table"
+                   ::= { decnet 26 }
+
+               dnAreaTableEntry OBJECT-TYPE
+                   SYNTAX DnAreaTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 49]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                            "DECNET area routing table"
+                   INDEX { dnArea }
+               ::= { dnAreaTable 1 }
+
+               DnAreaTableEntry ::=
+                   SEQUENCE {
+                       dnArea
+                           INTEGER,
+                       dnACost
+                           INTEGER,
+                       dnAHop
+                           INTEGER,
+                       dnAIfIndex
+                           INTEGER,
+                       dnANextHop
+                           OCTET STRING,
+                       dnAAge
+                           INTEGER,
+                       dnAPrio
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               dnArea OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "DECNet area from the area table."
+                   ::= { dnAreaTableEntry 1 }
+
+               dnACost OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Cost of area in the area table."
+                   ::= { dnAreaTableEntry 2 }
+
+               dnAHop OBJECT-TYPE
+                   SYNTAX  INTEGER
+
+
+
+
+
+          -- cisco MIB                                         [Page 50]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of hops to area in the area table."
+                   ::= { dnAreaTableEntry 3 }
+
+               dnAIfIndex OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Index of interface to the next hop address
+                           to the area. 0 denotes self."
+                   ::= { dnAreaTableEntry 4 }
+
+               dnANextHop OBJECT-TYPE
+                   SYNTAX  OCTET STRING
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Next hop DECNet address."
+                   ::= { dnAreaTableEntry 5 }
+
+               dnAAge OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Age in seconds of area route."
+                   ::= { dnAreaTableEntry 6 }
+
+               dnAPrio OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Priority of next hop router for area route."
+                   ::= { dnAreaTableEntry 7 }
+
+               -- End of table
+
+
+               dnHostTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF DnHostTableEntry
+                   ACCESS  not-accessible
+
+
+
+
+
+          -- cisco MIB                                         [Page 51]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET routing table"
+                   ::= { decnet 27 }
+
+               dnHostTableEntry OBJECT-TYPE
+                   SYNTAX DnHostTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET routing table"
+                   INDEX { INTEGER, INTEGER }
+               ::= { dnHostTable 1 }
+
+               DnHostTableEntry ::=
+                   SEQUENCE {
+                       dnHost
+                           INTEGER,
+                       dnHCost
+                           INTEGER,
+                       dnHHop
+                           INTEGER,
+                       dnHIfIndex
+                           INTEGER,
+                       dnHNextHop
+                           OCTET STRING,
+                       dnHAge
+                           INTEGER,
+                       dnHPrio
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               dnHost OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "DECNet node address from the routing table."
+                   ::= { dnHostTableEntry 1 }
+
+               dnHCost OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                         [Page 52]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Cost of path to node in the routing table."
+                   ::= { dnHostTableEntry 2 }
+
+               dnHHop OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of hops to node in the routing
+                           table."
+                   ::= { dnHostTableEntry 3 }
+
+               dnHIfIndex OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Index of interface to the next hop address
+                           to the node. 0 denotes self."
+                   ::= { dnHostTableEntry 4 }
+
+               dnHNextHop OBJECT-TYPE
+                   SYNTAX  OCTET STRING
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Next hop DECNet address."
+                   ::= { dnHostTableEntry 5 }
+
+               dnHAge OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Age in seconds of route to node."
+                   ::= { dnHostTableEntry 6 }
+
+               dnHPrio OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 53]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                           "Priority of next hop router for node."
+                   ::= { dnHostTableEntry 7 }
+
+               -- End of table
+
+
+               dnIfTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF DnIfTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET interface table"
+                   ::= { decnet 28 }
+
+               dnIfTableEntry OBJECT-TYPE
+                   SYNTAX DnIfTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET interface table"
+                   INDEX { ifIndex }
+               ::= { dnIfTable 1 }
+
+               DnIfTableEntry ::=
+                   SEQUENCE {
+                       dnIfCost
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               dnIfCost OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Cost of this interface."
+                   ::= { dnIfTableEntry 1 }
+
+               -- End of table
+
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 54]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               -- Temporary XNS Section
+
+          -- This group is present in all router based products.
+
+               xnsInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of XNS packets."
+                   ::= { xns 1 }
+
+               xnsLocal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of XNS input packets for this
+                           host."
+                   ::= { xns 2 }
+
+               xnsBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input broadcast
+                           packets."
+                   ::= { xns 3 }
+
+               xnsForward OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS packets
+                           forwarded."
+                   ::= { xns 4 }
+
+               xnsBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS output
+
+
+
+
+
+          -- cisco MIB                                         [Page 55]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           broadcast packets."
+                   ::= { xns 5 }
+
+               xnsErrin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Error input
+                           packets."
+                   ::= { xns 6 }
+
+               xnsErrout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Error output
+                           packets."
+                   ::= { xns 7 }
+
+               xnsFormerr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+                           with header errors."
+                   ::= { xns 8 }
+
+               xnsChksum OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+                           with checksum errors."
+                   ::= { xns 9 }
+
+               xnsNotgate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+
+
+
+
+
+          -- cisco MIB                                         [Page 56]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           received while not routing."
+                   ::= { xns 10 }
+
+               xnsHopcnt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+                           that have exceeded the maximum hop count."
+                   ::= { xns 11 }
+
+               xnsNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS packets dropped
+                           due to no route."
+                   ::= { xns 12 }
+
+               xnsNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS packets dropped
+                           due to output encapsulation failure."
+                   ::= { xns 13 }
+
+               xnsOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS output
+                           packets."
+                   ::= { xns 14 }
+
+               xnsInmult OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input multicast
+
+
+
+
+
+          -- cisco MIB                                         [Page 57]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           packets."
+                   ::= { xns 15 }
+
+               xnsUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown XNS input
+                           packets."
+                   ::= { xns 16 }
+
+               xnsFwdbrd OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS broadcast
+                           packets forwarded."
+                   ::= { xns 17 }
+
+               xnsEchoreqin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo request
+                           packets received."
+                   ::= { xns 18 }
+
+               xnsEchoreqout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo request
+                           packets sent."
+                   ::= { xns 19 }
+
+               xnsEchorepin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo reply
+
+
+
+
+
+          -- cisco MIB                                         [Page 58]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           packets received."
+                   ::= { xns 20 }
+
+               xnsEchorepout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo reply
+                           packets sent."
+                   ::= { xns 21 }
+
+
+               -- Temporary AppleTalk Section
+
+          -- This group is present in all router based products.
+
+               atInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of AppleTalk
+                           packets."
+                   ::= { appletalk 1 }
+
+               atLocal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of AppleTalk input packets for
+                           this host."
+                   ::= { appletalk 2 }
+
+               atBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           broadcast packets."
+                   ::= { appletalk 3 }
+
+               atForward OBJECT-TYPE
+
+
+
+
+
+          -- cisco MIB                                         [Page 59]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           forwarded."
+                   ::= { appletalk 4 }
+
+               atBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk output
+                           broadcast packets."
+                   ::= { appletalk 5 }
+
+               atChksum OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           packets with checksum erors."
+                   ::= { appletalk 7 }
+
+               atNotgate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of AppleTalk input packets
+                           received while not routing."
+                   ::= { appletalk 8 }
+
+               atHopcnt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           packets that have exceeded the maximum hop
+                           count."
+                   ::= { appletalk 9 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 60]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               atNoaccess OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of AppleTalk packets dropped
+                           due to access control."
+                   ::= { appletalk 10 }
+
+               atNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           dropped due to no route."
+                   ::= { appletalk 11 }
+
+               atNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           dropped due to output encapsulation failure."
+                   ::= { appletalk 12 }
+
+               atOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk output
+                           packets."
+                   ::= { appletalk 13 }
+
+               atInmult OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           multicast packets."
+                   ::= { appletalk 14 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 61]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               atRtmpin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk RTMP
+                           packets received."
+                   ::= { appletalk 15 }
+
+               atRtmpout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk RTMP
+                           packets sent."
+                   ::= { appletalk 16 }
+
+               atNbpin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk NBP
+                           packets received."
+                   ::= { appletalk 17 }
+
+               atNbpout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk NBP
+                           packets sent."
+                   ::= { appletalk 18 }
+
+               atAtp OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ATP
+                           packets received."
+                   ::= { appletalk 19 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 62]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               atZipin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ZIP
+                           packets received."
+                   ::= { appletalk 20 }
+
+               atZipout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ZIP
+                           packets sent."
+                   ::= { appletalk 21 }
+
+               atEcho OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk Echo
+                           packets received."
+                   ::= { appletalk 22 }
+
+               atEchoill OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of illegal AppleTalk
+                           Echo packets received."
+                   ::= { appletalk 23 }
+
+               atDdpshort OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of short AppleTalk DDP
+                           packets received."
+                   ::= { appletalk 24 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 63]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               atDdplong OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of long AppleTalk DDP
+                           packets received."
+                   ::= { appletalk 25 }
+
+               atDdpbad OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of illegal sized
+                           AppleTalk DDP packets received."
+                   ::= { appletalk 26 }
+
+               atNobuffer OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           lost due to no memory."
+                   ::= { appletalk 27 }
+
+               atArpreq OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of input AppleTalk ARP
+                           request packets."
+                   ::= { appletalk 28 }
+
+               atArpreply OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ARP reply
+                           packets output."
+                   ::= { appletalk 29 }
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 64]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+               atArpprobe OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of input AppleTalk ARP
+                           probe packets."
+                   ::= { appletalk 30 }
+
+               atUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown AppleTalk
+                           input packets."
+                   ::= { appletalk 31 }
+
+
+               -- Temporary Novell Section
+
+          -- This group is present in all router based products.
+
+               novellInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of NOVELL
+                           packets."
+                   ::= { novell 1 }
+
+               novellBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           broadcast packets."
+                   ::= { novell 2 }
+
+               novellForward OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 65]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                           "Total count of number of NOVELL packets
+                           forwarded."
+                   ::= { novell 3 }
+
+               novellBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL output
+                           broadcast packets."
+                   ::= { novell 4 }
+
+               novellFormerr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           packets with header errors."
+                   ::= { novell 5 }
+
+               novellChksum OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           packets with checksum erors."
+                   ::= { novell 6 }
+
+               novellHopcnt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           packets that have exceeded the maximum hop
+                           count."
+                   ::= { novell 7 }
+
+               novellNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+
+
+
+
+
+          -- cisco MIB                                         [Page 66]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL packets
+                           dropped due to no route."
+                   ::= { novell 8 }
+
+               novellNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL packets
+                           dropped due to output encapsulation failure."
+                   ::= { novell 9 }
+
+               novellOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL output
+                           packets."
+                   ::= { novell 10 }
+
+               novellInmult OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           multicast packets."
+                   ::= { novell 11 }
+
+               novellLocal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of NOVELL input packets for this
+                           host."
+                   ::= { novell 12 }
+
+               novellUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+
+
+
+
+
+          -- cisco MIB                                         [Page 67]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown NOVELL
+                           input packets."
+                   ::= { novell 13 }
+
+               novellSapreqin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP request
+                           packets received."
+                   ::= { novell 14 }
+
+               novellSapresin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP response
+                           packets received."
+                   ::= { novell 15 }
+
+               novellSapout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP request
+                           packets sent."
+                   ::= { novell 16 }
+
+               novellSapreply OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP reply
+                           packets sent."
+                   ::= { novell 17 }
+
+
+               -- Temporary Vines Section
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 68]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+          -- This group is present in all router based products.
+
+               vinesInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of Vines
+                           packets."
+                   ::= { vines 1 }
+
+               vinesOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines output
+                           packets."
+                   ::= { vines 2 }
+
+               vinesLocaldest OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of Vines input packets for this
+                           host."
+                   ::= { vines 3 }
+
+               vinesForwarded OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines packets
+                           forwarded."
+                   ::= { vines 4 }
+
+               vinesBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input
+                           broadcast packets."
+
+
+
+
+
+          -- cisco MIB                                         [Page 69]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   ::= { vines 5 }
+
+               vinesBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines output
+                           broadcast packets."
+                   ::= { vines 6 }
+
+               vinesBcastfwd OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines broadcast
+                           packets forwarded."
+                   ::= { vines 7 }
+
+               vinesNotlan OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines broadcast
+                           packets not forwarded to all interfaces
+                           because the LAN ONLY bit was set."
+                   ::= { vines 8 }
+
+               vinesNotgt4800 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines broadcast
+                           packets not forwarded to all interfaces
+                           because the OVER 4800 BPS bit was set."
+                   ::= { vines 9 }
+
+               vinesNocharges OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+
+
+
+
+
+          -- cisco MIB                                         [Page 70]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                           "Total count of number of Vines broadcast
+                           packets not forwarded to all interfaces
+                           because the NO CHARGES only bit was set."
+                   ::= { vines 10 }
+
+               vinesFormaterror OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input packets
+                           with header errors."
+                   ::= { vines 11 }
+
+               vinesCksumerr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input packets
+                           with checksum erors."
+                   ::= { vines 12 }
+
+               vinesHopcount OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input packets
+                           that have exceeded the maximum hop count."
+                   ::= { vines 13 }
+
+               vinesNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines packets
+                           dropped due to no route."
+                   ::= { vines 14 }
+
+               vinesEncapsfailed OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 71]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                           "Total count of number of Vines packets
+                           dropped due to output encapsulation failed."
+                   ::= { vines 15 }
+
+               vinesUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown Vines input
+                           packets."
+                   ::= { vines 16 }
+
+               vinesIcpIn OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines ICP packets
+                           received."
+                   ::= { vines 17 }
+
+               vinesIcpOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines ICP packets
+                           generaed."
+                   ::= { vines 18 }
+
+               vinesMetricOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines ICP Metric
+                           Notification packets generated."
+                   ::= { vines 19 }
+
+               vinesMacEchoIn OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+
+
+
+
+
+          -- cisco MIB                                         [Page 72]
+--
+
+
+
+
+
+          -- Request for Comments: Draft             cisco Systems, Inc.
+
+
+                   DESCRIPTION
+                           "Total count of number of Vines MAC level
+                           Echo packets received."
+                   ::= { vines 20 }
+
+               vinesMacEchoOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines MAC level
+                           Echo packets generated."
+                   ::= { vines 21 }
+
+               vinesEchoIn OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines Echo packets
+                           received."
+                   ::= { vines 22 }
+
+               vinesEchoOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines Echo packets
+                           generated."
+                   ::= { vines 23 }
+               END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          -- cisco MIB                                         [Page 73]
+--
+

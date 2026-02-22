@@ -1,0 +1,505 @@
+
+CALISTA-DPA-MIB DEFINITIONS ::= BEGIN
+
+-- This MIB is for management of Cisco DPA voicemail gateway devices.
+-- These allow interfacing of Octel voicemail systems with Cisco
+-- CallManager.
+
+IMPORTS
+        IpAddress, Counter, enterprises
+            FROM RFC1155-SMI
+        OBJECT-TYPE
+             FROM RFC-1212;
+
+
+DisplayString ::= OCTET STRING
+
+
+calista OBJECT IDENTIFIER ::= { enterprises 7505 }
+
+products OBJECT IDENTIFIER ::= { calista 1 }
+
+dpa OBJECT IDENTIFIER ::= { products 1 }
+
+serialNumber OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Unique value assigned to each DPA device."
+    ::= { dpa 1 }
+
+
+imageVersion OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The version of the main image code that the DPA
+            is currently running."
+    ::= { dpa 2 }
+
+
+loaderVersion OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The version of the boot loader code that the DPA
+            is currently running."
+    ::= { dpa 3 }
+
+
+integrationMode OBJECT-TYPE
+    SYNTAX  INTEGER { unconfigured(1), simple(2), hybrid(3) }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The integration mode in which the DPA is currently
+            operating:
+                unconfigured   the factory setting; the DPA requires
+                               configuring before it can be connected
+                               to an Octel voicemail system.
+
+                simple         the DPA is connected to only an Octel
+                               voicemail system and Cisco CallManager
+
+                hybrid         the DPA is connected to an Octel
+                               voicemail system, a PBX system and
+                               Cisco CallManager
+
+            See the DPA Administration Guide for more detailed
+            descriptions of these modes."
+    ::= { dpa 4 }
+
+
+pbxType OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The PBX type that the DPA is currently emulating in order
+            to communicate with the Octel voicemail system. This also
+            determines the protocol used on the digital telephony
+            links to the PBX, if in hybrid mode."
+    ::= { dpa 5 }
+
+
+receivedCalls OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of IP telephony calls made to this DPA. This
+            includes all calls, regardless of whether the Octel
+            answered. This could happen, for instance, if the original
+            caller hangs up before the Octel accepts the call."
+    ::= { dpa 6 }
+
+
+outgoingCallsMade OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of calls originated by the Octel which go
+            through the DPA. These include networking calls
+            (communication between peer Octel systems), pager and
+            mobile notifications and fax calls."
+    ::= { dpa 7 }
+
+
+mwiCommandsReceived OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of commands to set or clear a Message Waiting
+            Indicator received by this DPA from the Octel voicemail
+            system. These commands are relayed to the Cisco
+            CallManager via the virtual port, and, if the DPA is
+            operating in hybrid mode, the attached PBX system."
+    ::= { dpa 8 }
+
+
+pbxQueuedMWICommands OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of commands to set or clear a Message Waiting
+            Indicator which are queued within the DPA, waiting to be
+            sent to the PBX. These commands will be issued to the PBX
+            when the appropriate port becomes available.
+            If the DPA is not operating in hybrid mode, this value will
+            always be zero."
+    ::= { dpa 9 }
+
+
+pbxCompletedMWICommands OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of commands to set or clear a Message Waiting
+            Indicator which have been successfully sent to the PBX.
+            If the DPA is not operating in hybrid mode, this value will
+            always be zero."
+    ::= { dpa 10 }
+
+
+pbxMWIErrors OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of commands to set or clear a Message Waiting
+            Indicator that the DPA was unable to send successfully to
+            the PBX. Such commands will have been discarded, and the
+            cause written to the DPA's error log.
+            If the DPA is not operating in hybrid mode, this value will
+            always be zero."
+    ::= { dpa 11 }
+
+
+callManagerQueuedMWICommands OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of commands to set or clear a Message Waiting
+            Indicator which are queued within the DPA, waiting to be
+            sent to Cisco CallManager."
+    ::= { dpa 12 }
+
+
+callManagerCompletedMWICommands OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of commands to set or clear a Message Waiting
+            Indicator which have been successfully sent to Cisco
+            CallManager."
+    ::= { dpa 13 }
+
+
+callManagerMWIErrors OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The number of commands to set or clear a Message Waiting
+            Indicator that the DPA was unable to send successfully to
+            Cisco CallManager. Such commands will have been discarded,
+            and the cause written to the DPA's error log."
+    ::= { dpa 14 }
+
+
+portTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF PortEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "A list of the available ports on the DPA, with current state
+        information for each."
+    ::= { dpa 15 }
+
+
+portEntry OBJECT-TYPE
+    SYNTAX  PortEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "An entry containing all relevant information for a DPA port."
+    INDEX { portIndex }
+    ::= { portTable 1 }
+
+
+ PortEntry ::=
+    SEQUENCE {
+        portIndex
+            INTEGER,
+
+        portType
+            INTEGER,
+
+        portTelephonyLinkState
+            INTEGER,
+
+        portCallManagerLinkState
+            INTEGER,
+
+        portCallState
+            INTEGER,
+
+        portDeviceName
+            DisplayString,
+
+        portCodecInUse
+            INTEGER,
+
+        portErrors
+            INTEGER,
+
+        portDacLevel
+            INTEGER
+    }
+
+
+portIndex OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A unique value for each port. Its value ranges from
+        1 to the total number of ports."
+    ::= { portEntry 1 }
+
+portType OBJECT-TYPE
+    SYNTAX  INTEGER { notInUse(1), octel(2), pbx(3), virtual(4) }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "How this port is currently being used:
+            notInUse    not currently in use (may become active later)
+            octel       connected to an Octel voicemail system
+            pbx         connected to a digital PBX
+            virtual     not a physical port; connected only to
+                        Cisco CallManager
+
+        It should be noted that the type of a port is determined when
+        it first becomes active. Significantly, this value will not
+        change back to notInUse if a port is later disconnected; the
+        relevant portTelephonyLinkState value should be read to
+        determine whether the port is currently active."
+    ::= { portEntry 2 }
+
+portTelephonyLinkState OBJECT-TYPE
+    SYNTAX  INTEGER { notApplicable(1),
+                      down(2),
+                      registering(3),
+                      up(4) }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The state of the digital telephony link. This field only has
+        meaning for physical ports connected to Octel voicemail systems
+        or digital PBX systems. For virtual ports or those currently
+        not in use, the state will be returned as notApplicable."
+    ::= { portEntry 3 }
+
+portCallManagerLinkState OBJECT-TYPE
+    SYNTAX  INTEGER { notApplicable(1),
+                      down(2),
+                      registering(3),
+                      up(4) }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The state of this port's connection to a Cisco CallManager,
+        if such a connection exists. For ports connected to digital
+        PBX systems (see the portType entry) this will be returned as
+        notApplicable."
+    ::= { portEntry 4 }
+
+portCallState OBJECT-TYPE
+    SYNTAX  INTEGER { unknown(1),
+                      notApplicable(2),
+                      onHook(3),
+                      callIn(4),
+                      callOut(5),
+                      onCall(6),
+                      offHook(7),
+                      transfer(8),
+                      outCall(9),
+                      hangingUp(10)
+                      }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Once a port's required link(s) to an Octel / PBX and
+        CallManager have become active, it then becomes available for
+        use placing calls between the two realms. This entry shows the
+        current state of any active call for a port, as described in
+        the DPA Administration Guide."
+    ::= { portEntry 5 }
+
+portDeviceName OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The device name under which this port is registered with
+        Cisco CallManager."
+    ::= { portEntry 6 }
+
+portCodecInUse OBJECT-TYPE
+    SYNTAX  INTEGER { none(1),
+                      g711ALaw(2),
+                      g711MuLaw(3),
+                      g723dot1(4),
+                      g729a(5) }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "If there is a call in progress on this port, this entry gives
+        the codec in use, otherwise it will return none."
+    ::= { portEntry 7 }
+
+portErrors OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "The number of centiseconds during which PBX protocol errors
+        were detected for this port. It is normal for there to be
+        some errors, especially during port initialization, but very
+        large values should only be seen on disconnected ports."
+    ::= { portEntry 8 }
+
+portDacLevel OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The DAC level for the port; this is related to the voltage
+        level on the digital telephony port, and is only used in
+        diagnosis of internal hardware faults."
+    ::= { portEntry 9 }
+
+
+callManagerConnectionTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CallManagerConnectionEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "A list of all of the Cisco CallManager connections that the
+        DPA is currently maintaining."
+    ::= { dpa 16 }
+
+
+callManagerConnectionEntry OBJECT-TYPE
+    SYNTAX  CallManagerConnectionEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "An entry containing all relevant information for a connection
+        to a Cisco CallManager device."
+    INDEX { portIndex, cmConnectionIndex }
+    ::= { callManagerConnectionTable 1 }
+
+
+ CallManagerConnectionEntry ::=
+    SEQUENCE {
+        cmConnectionPortIndex
+            INTEGER,
+
+        cmConnectionIndex
+            INTEGER,
+
+        cmConnectionCallManagerName
+            DisplayString,
+
+        cmConnectionIpAddress
+            IpAddress,
+
+        cmConnectionIpPort
+            INTEGER (0..65535),
+
+        cmConnectionState
+            INTEGER
+    }
+
+cmConnectionPortIndex OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Corresponds to portIndex in PortEntry."
+    ::= { callManagerConnectionEntry 1}
+
+cmConnectionIndex OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The index of this connection; each port can have connections
+        to several Cisco CallManagers, with one active connection and
+        the rest operating in standby mode."
+    ::= { callManagerConnectionEntry 2 }
+
+cmConnectionCallManagerName OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The host name, if known, of the CallManager to which this
+        connection refers."
+    ::= { callManagerConnectionEntry 3 }
+
+cmConnectionIpAddress OBJECT-TYPE
+    SYNTAX  IpAddress
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The IP address of the CallManager to which this connection
+        refers."
+    ::= { callManagerConnectionEntry 4 }
+
+cmConnectionIpPort OBJECT-TYPE
+    SYNTAX  INTEGER (0..65535)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The TCP port number on the CallManager to which this connection
+        has been made."
+    ::= { callManagerConnectionEntry 5 }
+
+cmConnectionState OBJECT-TYPE
+    SYNTAX  INTEGER { idle(1),
+                      connecting(2),
+                      retryBackOff(3),
+                      connectPending(4),
+                      active(5),
+                      standby(6) }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The current state of this connection. The possible values have
+        the following meanings:
+            idle            initial state of the link before a
+                            connection has been attempted, and the
+                            state to which a link changes after
+                            teardown
+
+            connecting      a TCP link to a Cisco CallManager system
+                            is in the process of being established
+
+            retryBackOff    the attempt to establish to the Cisco
+                            CallManager failed; the connection stays in
+                            this state for a short while before the DPA
+                            tries again
+
+            connectPending  the retry back off period has finished and
+                            the DPA is about to re-attempt connection
+                            to the Cisco CallManager
+
+            active          the connection has been successfully
+                            established; this state signifies that the
+                            connection is being used for transmission
+                            and reception of Skinny Station Protocol
+                            messages
+
+            standby         the connection has been successfully
+                            established but it is not currently being
+                            used for data traffic; however, it would
+                            move into the active state were the
+                            currently active connection to go down
+        "
+    ::= { callManagerConnectionEntry 6 }
+
+
+
+END
+

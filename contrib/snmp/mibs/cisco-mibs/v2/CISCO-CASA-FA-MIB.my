@@ -1,0 +1,1081 @@
+-- *****************************************************************
+-- CISCO-CASA-FA-MIB: MIB for casa forwarding agent
+--
+-- May 1999, Chris O'Rourke
+--
+-- Copyright (c) 1999 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CASA-FA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE, 
+        NOTIFICATION-TYPE,
+        Counter32,
+        Counter64,
+        IpAddress,
+        Gauge32,
+	Unsigned32
+                FROM SNMPv2-SMI
+
+        CiscoPort,
+        CiscoIpProtocol
+                FROM CISCO-TC
+
+        TruthValue,
+        DateAndTime,
+        TimeStamp,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+                
+        NOTIFICATION-GROUP,
+        MODULE-COMPLIANCE, OBJECT-GROUP
+                FROM SNMPv2-CONF
+
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoCasaFaMIB MODULE-IDENTITY
+        LAST-UPDATED        "200209180000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-casa@cisco.com"
+        DESCRIPTION
+                "This MIB module in conjunction with the
+                CISCO-CASA-MIB, defines the SNMP management
+                information base for managing the Cisco Appliance
+                Services Architecture (CASA) Forwarding Agent.
+                
+                The following is a set of definitions used in the
+                rest of the MIB.
+                
+                CASA is a protocol allowing software entities (called
+                Appliances, examples are web caches, firewalls, load
+                balancers) to control the behavior of network hardware
+                devices (called Forwarding Agents, examples are
+                switches or routers) by providing a set of rules used
+                to handle network traffic.
+                
+                A Network Appliance (referred to as an Appliance) is
+                any subsystem whose purpose is to provide a specific
+                additional value-added service to the network device,
+                and could be implemented as a standalone box, a line
+                card or processor card, or a software subsystem.
+                Examples of Network Appliances would include Load
+                Balancers, WebCaches, and Firewalls.
+
+                An Appliance tells Fowarding Agents how to handle
+                packets based on their source and destination IP
+                addresses and ports, and IP protocol fields.  This set
+                of information is called an Affinity.
+                
+                A Service Manager is an Appliance that requests
+                packet flows from Forwarding Agents through CASA.
+                
+                A Real Server is a physical computing engine or part
+                of that physical computing engine that offers one or
+                more application services to a set of clients in the
+                network.
+                
+                A packet flow is a TCP connection or a sequence of UDP
+                packets between a client and a specific Real Server,
+                pertaining to a specific application. Flows are
+                represented by entries in the affinity cache tables.
+
+                The Service Manager requests packet flows from
+                Forwarding Agents by sending Affinities which contains
+                wildcards on some of the Affinity fields. Affinities
+                that contain wildcards in some of the fields are
+                called Wildcard Affinities.  The Service Manager may
+                send the Forwarding Agent an Affinity containing
+                explicit values for each of the fields.  These
+                Affinities are called Fixed Affinities.
+                
+                Typically Wildcard Affinities are used to instruct the
+                Forwarding Agent to send packets received by the
+                Forwarding Agent, which match the Wildcard Affinity,
+                to the Service Manager. When the Service Manager
+                receives the matching packet, the Service Manager
+                typically will send the Forwarding Agent a Fixed
+                Affinity. The Forwarding Agent uses Fixed Affinities
+                to match packets coming from the network, execute any
+                processing required on that packet, and forward that
+                packet to a destination IP address (designated in the
+                Fixed Affinity) called the Dispatch Address.
+                
+                When an IP packet arrives at the Forwarding Agent, the
+                Forwarding Agent attempts to match the packet with the
+                Fixed Affinities in the Fixed Affinity cache.  If
+                there is no match, an attempt is made to match the
+                packet with the list of Wildcard Affinities. If there
+                is no match the packet is routed normally. If there is
+                a match with a Wildcard Affinity, the Forwarding Agent
+                sends the packet to the Service Manager who will send
+                the Forwarding Manager a Fixed Affinity which provides
+                information on how to process IP packets similar to
+                the one received by the Forwarding Agent. Processing
+                of such packets may include sending the packet to the
+                Service Manager. Such packets are called Interest
+                Packets.  Alternatively a Tickle Packet may be sent to
+                the Service Manager which is an indication that a
+                matched packet has been received by the Forwarding
+                Agent.
+                
+                Reference: [1] Cisco Appliance Services Architecture
+                               (CASA) document.
+                           
+                           [2] CISCO-CASA-MIB.
+
+                Diagram showing Forwarding Agents, Service Manager,
+                Real Server and clients.
+                           
+                                ______            ______         ______
+                               (Real  )          (Real  )       (Real  )
+                               (Server)          (Server)       (Server)
+                               (______)          (______)       (______)
+                                  |                 |              |
+                +---------------+ |                 |              |
+                |Service Manager|-+----------+--------------+      |
+                +---------------+ |          |      |       |      |
+                            ++---------+    ++---------+  ++---------+
+                            | F. Agent |    | F. Agent |  | F. Agent |
+                            +----------+    +----------+  +----------+
+                                  |                 |              |
+                               ___|_________________|______________|__
+                              (                                       )
+                              (    N    E    T    W    O    R    K    ) 
+                              (_______________________________________)"
+                
+                
+        REVISION        "200209180000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 115 }
+
+--
+-- Object information
+--
+
+ciscoCasaFaMIBObjects    OBJECT IDENTIFIER 
+	::= { ciscoCasaFaMIB 1 }
+ccfaGlobal               OBJECT IDENTIFIER 
+	::= { ciscoCasaFaMIBObjects 1 }
+ccfaStats                OBJECT IDENTIFIER 
+	::= { ciscoCasaFaMIBObjects 2 }
+ccfaWildcardAff          OBJECT IDENTIFIER 
+	::= { ciscoCasaFaMIBObjects 3 }
+ccfaDispatchStats        OBJECT IDENTIFIER 
+	::= { ciscoCasaFaMIBObjects 4 }
+
+CasaWildcardAffIndex ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "This is unique identifier for a Wildcard Affinity."
+        SYNTAX OCTET STRING ( SIZE ( 32 ) )
+
+CasaInterestPacketSpecification ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "This enumerates the possible combinations of
+                criteria for which a packet is considered interesting.
+                A packet matching the specified combination of the
+                following criteria is sent to the device specified by
+                ccfaWildcardAffInterestAddr and 
+                ccfaWildcardAffInterestPort. The criteria 
+                enumeration follows:
+                
+                intFin - A packet which has the FIN bit set in the
+                         control bits of the TCP header [1].
+                intSyn - A packet which has the SYN bit set in the
+                         control bits of the TCP header [1].
+                intRst - A packet which has the RST bit set in the
+                         control bits of the TCP header [1].
+                intPsh - A packet which has the PSH bit set in the
+                         control bits of the TCP header [1].
+                intAck - A packet which has the ACK bit set in the
+                         control bits of the TCP header [1].
+                intUrg - A packet which has the URG bit set in the
+                         control bits of the TCP header [1].
+                intData - For a TCP/IP flow, this is a packet which
+                          contains payload data, i.e. a packet which
+                          is not associated with TCP connection 
+                          establishment, termination or some other 
+                          session control packet. For a UDP flow, 
+                          this corresponds to all packets.
+                intFirstData - For a TCP/IP flow, this corresponds to
+                               the first non control packet. For a UDP
+                               flow, this corresponds to the first 
+                               packet on the flow.
+                intFrag - Fragmented packets which match IP src 
+                          and dest IP address of the Fixed Affinity.
+                intAllPackets - All packets.
+
+                These are encoded in an octet string in the
+                order listed above, such that intFin is the least
+                significant byte of the octet string.
+                
+                Reference:
+                [1] Transmission Control Protocol. J. Postel. RFC793"
+--      SYNTAX  BITS { intFin(0),
+--                     intSyn(1),
+--                     intRst(2),
+--                     intPsh(3),
+--                     intAck(4),
+--                     intUrg(5),
+--                     intData(6),
+--                     intFirstData(7),
+--                     intFrag(8),
+--                     intAllPackets(9)
+--                   }
+        SYNTAX  OCTET STRING ( SIZE ( 16 ) )
+
+--  *************************************************************
+--  *                                                           *
+--  * CASA - Wildcard Affinities Objects                        *
+--  *                                                           *
+--  *************************************************************
+
+ccfaWildcardAffTotalBytes OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION 
+                "Number of bytes of data for all the packets
+                which matched any Wildcard Affinity." 
+        ::= { ccfaWildcardAff 1 }
+
+ccfaWildcardAffHCTotalBytes OBJECT-TYPE
+        SYNTAX      Counter64
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION 
+                "Number of bytes of data for all the packets which
+                matched any Wildcard Affinity. This object is a 64-bit
+                version of ccfaWildcardAffTotalBytes." 
+        ::= { ccfaWildcardAff 2 }
+
+ccfaWildcardAffTotalPackets OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION  
+                "Number of packets that matched any Wildcard Affinity."
+        ::= { ccfaWildcardAff 3 }
+
+ccfaWildcardAffNumOf OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "affinities"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION  
+                "This is the number of Wildcard Affinities for which 
+                this Forwarding Agent is actively using for handling 
+                TCP and UDP packets. This is the number of entries in
+                ccfaWildcardAffTable."
+        ::= { ccfaWildcardAff 4 }
+
+ccfaWildcardAffNotifEnabled OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION 
+                "true indicates that 
+                      ciscoCasaFaWildcardAffCreated and
+                      ciscoCasaFaWildcardAffDeleted
+                      notification generation is enabled.
+                false indicates that
+                      ciscoCasaFaWildcardAffCreated and
+                      ciscoCasaFaWildcardAffDeleted
+                      notification generation is disabled."
+        DEFVAL { false }
+        ::= { ccfaWildcardAff 5 }
+
+ccfaWildcardAffHiWtrMark OBJECT-TYPE
+        SYNTAX      Unsigned32
+        UNITS       "affinities"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION  
+                "This is the maximum number of Wildcard Affinities
+                (high water mark) concurrently held in the Wildcard
+                Affinity cache since last time cCasaState transitioned
+                to cCasaEnabled or since this object was reset.
+
+                Resetting this object is achieved by setting this
+                object to 0. Attempting to set this object to any
+                other value will result in a wrongValue error."
+        ::= { ccfaWildcardAff 7 }
+
+ccfaWildAffCacheHiWtrMarkReset OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This indicates when ccfaWildcardAffHiWtrMark
+                was set to 0."
+        ::= { ccfaWildcardAff 8 }
+
+ccfaWildcardAffDenies OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "affinities"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION  
+                "This is the number of Wildcard Affinities for which
+                this Forwarding Agent was not able to accept
+                (i.e. denied) because a mandatory action item included
+                with the Wildcard Affinity was not supported by this
+                Forwarding Agent."
+        ::= { ccfaWildcardAff 9 }
+
+ccfaWildcardAffDrops OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "affinities"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION  
+                "This is the number of Wildcard Affinities for which
+                this Forwarding Agent did not process (i.e. dropped).
+                This can happen because of low resource conditions
+                prevailing in the Forwarding Agent, such as low
+                memory."
+        ::= { ccfaWildcardAff 10 }
+
+--  *************************************************************
+--  *                                                           *
+--  * CASA - Wildcard Affinities Table                          *
+--  *                                                           *
+--  *************************************************************
+
+ccfaWildcardAffTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CcfaWildcardAffEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "List of Wildcard Affinity entries, which contain stats
+                on each Wildcard Affinity supported by the Forwarding
+                Agent.
+                
+                This is a dynamic table. Entries are created when the
+                Service Manager sends Wildcard Affinities to this
+                Forwarding Agent, and deleted upon instruction from
+                the Service Manager."
+        ::= { ccfaWildcardAff 6 }
+
+ccfaWildcardAffEntry OBJECT-TYPE
+        SYNTAX      CcfaWildcardAffEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A list of Wildcard Affinity entities.
+                
+                Entries are added to this table dynamically by the
+                subagent when Wildcard Affinities are received on the
+                multicast IP address (see cCasaMulticastAddress in the
+                CISCO-CASA-MIB) for which this Forwarding Agent is
+                listening."
+        INDEX { ccfaWildcardAffIndex }
+        ::= { ccfaWildcardAffTable 1 }
+
+CcfaWildcardAffEntry ::= SEQUENCE {
+        ccfaWildcardAffIndex            CasaWildcardAffIndex,
+        ccfaWildcardAffSourceAddr       IpAddress,
+        ccfaWildcardAffDestinationAddr  IpAddress,
+        ccfaWildcardAffSourcePort       CiscoPort,
+        ccfaWildcardAffDestinationPort  CiscoPort,
+        ccfaWildcardAffProtocol         CiscoIpProtocol,
+        ccfaWildcardAffFragment         TruthValue,
+        ccfaWildcardAffSourceMask       IpAddress,
+        ccfaWildcardAffDestinationMask  IpAddress,
+        ccfaWildcardAffSvcManagerAddr   IpAddress,
+        ccfaWildcardAffSvcManagerPort   CiscoPort,
+        ccfaWildcardAffBytes            Counter32,
+        ccfaWildcardAffHCBytes          Counter64,
+        ccfaWildcardAffPackets          Counter32,
+        ccfaWildcardAffHCPackets        Counter64,
+        ccfaWildcardAffFlows            Gauge32,
+        ccfaWildcardAffInsertTime       DateAndTime,
+        ccfaWildcardAffInterestTimeouts Counter32,
+        ccfaWildcardAffAdvertiseDestAddr TruthValue,
+        ccfaWildcardAffInterestAddr     IpAddress,
+        ccfaWildcardAffInterestPort     CiscoPort,
+        ccfaWildAffInterestPacketSpec   CasaInterestPacketSpecification,
+        ccfaWildAffInterestTickelSpec   CasaInterestPacketSpecification,
+        ccfaWildcardAffDispatch         TruthValue,
+        ccfaWildcardAffDispatchAddr     IpAddress
+}
+
+ccfaWildcardAffIndex OBJECT-TYPE
+        SYNTAX      CasaWildcardAffIndex
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The value of this index uniquely identifies 
+                this Wildcard Affinity from others in the table."
+        ::= { ccfaWildcardAffEntry 1 }
+
+ccfaWildcardAffSourceAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The value used to compare the source IP address
+                of the TCP and UDP packets. When the comparison is
+                done, ccfaWildcardAffSourceMask is used as the
+                mask on this object."
+        ::= { ccfaWildcardAffEntry 2 }
+
+ccfaWildcardAffDestinationAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The value used to compare the destination IP address
+                of the TCP and UDP packets. When the comparison is
+                done, ccfaWildcardAffDestinationMask is used as
+                the mask on this object."
+        ::= { ccfaWildcardAffEntry 3 }
+
+ccfaWildcardAffSourcePort OBJECT-TYPE
+        SYNTAX      CiscoPort
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The value used to compare the source port of the TCP
+                and UDP packets. A value of 0 means all port numbers
+                will match."
+        ::= { ccfaWildcardAffEntry 4 }
+
+ccfaWildcardAffDestinationPort OBJECT-TYPE
+        SYNTAX      CiscoPort
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The value used to compare the destination port of the
+                TCP and UDP packets.  A value of 0 means all port
+                numbers will match."
+        ::= { ccfaWildcardAffEntry 5 }
+
+ccfaWildcardAffProtocol OBJECT-TYPE
+        SYNTAX      CiscoIpProtocol
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The value used to compare the IP Protocol field of
+                the TCP and UDP packets.  A value of 0 means all
+                protocol numbers will match."
+        ::= { ccfaWildcardAffEntry 6 }
+
+ccfaWildcardAffFragment OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "True indicates that fragments are to be sent to the
+                      Service Manager, 
+                
+                false indicates that fragments are compared against
+                      fields in this Wildcard Affinity for a possible
+                      match in which case the fragment is sent to the
+                      Service Manager."
+        ::= { ccfaWildcardAffEntry 7 }
+
+ccfaWildcardAffSourceMask OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The IP mask indicating which bits in the
+                ccfaWildcardAffSourceAddr are relevant. For each
+                set bit in this mask, the corresponding bits in
+                ccfaWildcardAffSourceAddr and the source IP
+                address of the received packet must be equal in order
+                to match this Wildcard Affinity."
+        ::= { ccfaWildcardAffEntry 8 }
+
+ccfaWildcardAffDestinationMask OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The IP mask indicating which bits in the
+                ccfaWildcardAffDestinationAddr are relevant. For each
+                set bit in this mask, the corresponding bits in
+                ccfaWildcardAffDestinationAddr and the destination IP
+                address of the received packet must be equal in order
+                to match this Wildcard Affinity."
+        ::= { ccfaWildcardAffEntry 9 }
+
+ccfaWildcardAffSvcManagerAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "CASA Service Manager IP address to which packets 
+		matching this Wildcard Affinity are forwarded."
+        ::= { ccfaWildcardAffEntry 10 }
+
+ccfaWildcardAffSvcManagerPort OBJECT-TYPE
+        SYNTAX      CiscoPort
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Service Manager port to which packets matching this
+                Wildcard Affinity are fowarded."
+        ::= { ccfaWildcardAffEntry 11 }
+
+ccfaWildcardAffBytes OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of bytes in packets which matched this
+                Wildcard Affinity or any Fixed Affinity associated
+                with this Wildcard Affinity, that were forwarded to
+                the destination IP address."
+        ::= { ccfaWildcardAffEntry 12 }
+   
+ccfaWildcardAffHCBytes OBJECT-TYPE
+        SYNTAX      Counter64
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of bytes in packets which matched this
+                Wildcard Affinity or any Fixed Affinity associated
+                with this Wildcard Affinity, that were forwarded to
+                the destination IP address. This object is a 64-bit
+                version of ccfaWildcardAffBytes."
+        ::= { ccfaWildcardAffEntry 13 }
+
+ccfaWildcardAffPackets OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of packets which matched this Wildcard
+                Affinity or any Fixed Affinity associated with this
+                Wildcard Affinity, that were forwarded to the
+                destination IP address."
+        ::= { ccfaWildcardAffEntry 14 }
+
+ccfaWildcardAffHCPackets OBJECT-TYPE
+        SYNTAX      Counter64
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of packets which matched this Wildcard
+                Affinity or any Fixed Affinity associated with this
+                Wildcard Affinity, that were forwarded to the
+                destination IP address. This object is a 64-bit
+                version of ccfaWildcardAffPackets."
+        ::= { ccfaWildcardAffEntry 15 }
+
+ccfaWildcardAffFlows OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "affinities"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "From a logical point of view, this is the number of
+                TCP/UDP flows resulting from packets received which
+                matched this Wildcard Affinity.
+                
+                A flow is a sequence of IP packets from a specific
+                client to a specific real server going through this
+                Forwarding Agent.
+                
+                Literally this is the current number of Fixed Affinity
+                entries in the Fixed Affinity cache, that were put
+                there as a result of packets matching this Wildcard
+                Affinity."
+        ::= { ccfaWildcardAffEntry 16 }
+
+ccfaWildcardAffInsertTime OBJECT-TYPE
+        SYNTAX      DateAndTime
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Date and time when this Wildcard Affinity was
+                inserted into this table."
+        ::= { ccfaWildcardAffEntry 17 }
+
+ccfaWildcardAffInterestTimeouts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of expected Fixed Affinities that were not
+                received from the Service Manager within a period of
+                time from when a Fixed Affinity was requested by this
+                Forwarding Agent."
+        ::= { ccfaWildcardAffEntry 18 }
+
+ccfaWildcardAffAdvertiseDestAddr OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "true indicates that the IP address defined by
+                      ccfaWildcardAffDestinationAddr is to be
+                      advertised by the routing protocol in this 
+                      Forwarding Agent.
+                false indicates that the IP address is not to be
+                      advertised."
+        ::= { ccfaWildcardAffEntry 19 }
+
+ccfaWildcardAffInterestAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The IP address of the CASA entity to which Interest
+                Packets should be forwarded by this Forwarding Agent."
+        ::= { ccfaWildcardAffEntry 20 }
+
+ccfaWildcardAffInterestPort OBJECT-TYPE
+        SYNTAX      CiscoPort
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The UDP port of the CASA entity to which Interest
+                Packets should be forwarded by this Forwarding Agent."
+        ::= { ccfaWildcardAffEntry 21 }
+
+ccfaWildAffInterestPacketSpec OBJECT-TYPE
+        SYNTAX      CasaInterestPacketSpecification
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The criteria used to identify an Interest Packet.
+                When such a packet is identified, that packet is sent
+                to the entity described by
+                ccfaWildcardAffInterestAddr and
+                ccfaWildcardAffInterestPort."
+        ::= { ccfaWildcardAffEntry 22 }
+
+ccfaWildAffInterestTickelSpec OBJECT-TYPE
+        SYNTAX      CasaInterestPacketSpecification
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The criteria used to identify an Interest Packet
+                resulting in a Tickle Packet being sent to the entity
+                described by ccfaWildcardAffInterestAddr and
+                ccfaWildcardAffInterestPort."
+        ::= { ccfaWildcardAffEntry 23 }
+
+ccfaWildcardAffDispatch OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "true indicates that the MAC address of the IP packet
+                      should be modified to that of the dispatch
+                      entity who's IP address is given by
+                      ccfaWildcardAffDispatchAddr, prior to
+                      transmitting the packet on the interface. If
+                      ccfaWildcardAffDispatchAddr has value
+                      0.0.0.0 then the Forwarding Agent will discard
+                      the packet.
+                false indicates that the MAC address is not to be
+                      translated."
+        ::= { ccfaWildcardAffEntry 24 }
+
+ccfaWildcardAffDispatchAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The IP address of the dispatch entity for packets
+                matching Fixed Affinities derived from this Wildcard
+                Affinity."
+        ::= { ccfaWildcardAffEntry 25 }
+
+--  *************************************************************
+--  *                                                           *
+--  * CASA - Dispatch Address Statistics Table                  *
+--  *                                                           *
+--  *************************************************************
+
+ccfaDispatchStatsTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CcfaDispatchStatsEntry  
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "Table of traffic statistics between this Forwarding
+                Agent and the dispatch IP address. The statistics are
+                gathered by the Forwarding agent and are relative to
+                the Forwarding Agent."
+        ::= { ccfaDispatchStats 1 }
+
+ccfaDispatchStatsEntry OBJECT-TYPE
+        SYNTAX      CcfaDispatchStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A list of traffic statistics.
+                
+                Entries are added to this table dynamically by the
+                subagent when Fixed Affinities are received from the
+                Appliance indicating a dispatch IP address which is
+                not currently in the table. When there are no Fixed
+                Affinities left which contain ccfaDispatchAddress in
+                the Dispatch Address field, a timer is invoked. The
+                entry is deleted when this timer expires if no new
+                Fixed Affinities are received with the Dispatch
+                Address field equal to ccfaDispatchAddress."
+
+        INDEX { ccfaDispatchAddress }
+        ::= { ccfaDispatchStatsTable 1 }
+
+CcfaDispatchStatsEntry ::= SEQUENCE {
+        ccfaDispatchAddress        IpAddress,
+        ccfaDispatchBytesIn        Counter32,
+        ccfaDispatchHCBytesIn      Counter64,
+        ccfaDispatchBytesOut       Counter32,
+        ccfaDispatchHCBytesOut     Counter64,
+        ccfaDispatchPacketsIn      Counter32,
+        ccfaDispatchHCPacketsIn    Counter64,
+        ccfaDispatchPacketsOut     Counter32,
+        ccfaDispatchHCPacketsOut   Counter64,
+        ccfaDispatchFlows          Gauge32
+}
+
+ccfaDispatchAddress OBJECT-TYPE         
+        SYNTAX      IpAddress
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "Dispatch Address of the remote entity for which
+                these statistics are related to."
+        ::= { ccfaDispatchStatsEntry 1 }
+
+ccfaDispatchBytesIn OBJECT-TYPE     
+        SYNTAX      Counter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of bytes received by this Fowarding Agent from
+                the Dispatch Address."
+        ::= { ccfaDispatchStatsEntry 2 }
+
+ccfaDispatchHCBytesIn OBJECT-TYPE     
+        SYNTAX      Counter64
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of bytes received by this Fowarding Agent from
+                the Dispatch Address. This object is a 64-bit version
+                of ccfaDispatchBytesIn."
+        ::= { ccfaDispatchStatsEntry 3 }
+
+ccfaDispatchBytesOut OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of bytes sent by this Fowarding Agent to the
+                Dispatch Address."
+        ::= { ccfaDispatchStatsEntry 4 }
+
+ccfaDispatchHCBytesOut OBJECT-TYPE
+        SYNTAX      Counter64
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of bytes sent by this Fowarding Agent to the
+                Dispatch Address. This object is a 64-bit version of
+                ccfaDispatchBytesOut."
+        ::= { ccfaDispatchStatsEntry 5 }
+
+ccfaDispatchPacketsIn OBJECT-TYPE   
+        SYNTAX      Counter32
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Packets received by this Fowarding Agent from the
+                Dispatch Address."
+        ::= { ccfaDispatchStatsEntry 6 }
+
+ccfaDispatchHCPacketsIn OBJECT-TYPE   
+        SYNTAX      Counter64
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Packets received by this Fowarding Agent from the
+                Dispatch Address. This object is a 64-bit version of
+                ccfaDispatchPacketsIn."
+        ::= { ccfaDispatchStatsEntry 7 }
+
+ccfaDispatchPacketsOut OBJECT-TYPE  
+        SYNTAX      Counter32
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Packets sent by this Fowarding Agent to the Dispatch
+                Address."
+        ::= { ccfaDispatchStatsEntry 8 }
+
+ccfaDispatchHCPacketsOut OBJECT-TYPE  
+        SYNTAX      Counter64
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Packets sent by this Fowarding Agent to the Dispatch
+                Address.
+
+                This object is a 64-bit version of
+                ccfaDispatchPacketsOut."
+        ::= { ccfaDispatchStatsEntry 9 }
+
+ccfaDispatchFlows OBJECT-TYPE 
+        SYNTAX      Gauge32
+        UNITS       "affinities"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "From a logical point of view, this is the number of
+                TCP/UDP flows resulting from packets received which
+                matched any Wildcard Affinity active in this
+                Forwarding Agent. This is current number of Fixed
+                Affinity entries whose destination IP address is equal
+                to ccfaDispatchAddress."
+        ::= { ccfaDispatchStatsEntry 10 }
+
+--  ****************************************************************
+--  *                                                              *
+--  * CASA - Advertised Address/Dispatch Address Correlation Table *
+--  *                                                              *
+--  ****************************************************************
+
+ccfaAdvertisedDispatchTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CcfaAdvertisedDispatchEntry  
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "This table correlates dispatch addresses with their
+                corresponding advertised address."
+        ::= { ccfaDispatchStats 2 }
+
+ccfaAdvertisedDispatchEntry OBJECT-TYPE
+        SYNTAX      CcfaAdvertisedDispatchEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A list of dispatch addresses for each advertised
+                address.
+                
+                An entry is added to this table by the subagent when
+                the Wildcard Affinity associated with a received Fixed
+                Affinity has ccfaWildcardAffDispatch set to true
+                and the entry is not already in the table. An entry is
+                deleted from this table when all fixed affinities
+                containing the dispatch address for the associated
+                advertised address, time out."
+        INDEX { ccfaAdvertisedAddress }
+        ::= { ccfaAdvertisedDispatchTable 1 }
+
+CcfaAdvertisedDispatchEntry ::= SEQUENCE {
+        ccfaAdvertisedAddress         IpAddress,
+        ccfaAdvertisedDispatchAddress IpAddress
+}
+
+ccfaAdvertisedAddress OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The advertised IP Address. This corresponds to
+                ccfaWildcardAffDestinationAddr with
+                ccfaWildcardAffAdvertiseDestAddr set to true."
+        ::= { ccfaAdvertisedDispatchEntry 1 }
+
+ccfaAdvertisedDispatchAddress OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Dispatch Address of the remote entity for which
+                these statistics are related to."
+        ::= { ccfaAdvertisedDispatchEntry 2 }
+
+--
+-- Notification Information
+--
+
+ciscoCasaFaMIBNotificationPrefix OBJECT IDENTIFIER ::= 
+    { ciscoCasaFaMIB 2 }
+ciscoCasaFaMIBNotifications      OBJECT IDENTIFIER ::= 
+    { ciscoCasaFaMIBNotificationPrefix 0 }
+
+ciscoCasaFaWildcardAffCreated NOTIFICATION-TYPE
+        OBJECTS {
+                ccfaWildcardAffSourceAddr,
+                ccfaWildcardAffDestinationAddr,
+                ccfaWildcardAffSourcePort,
+                ccfaWildcardAffDestinationPort,
+                ccfaWildcardAffProtocol,
+                ccfaWildcardAffFragment,
+                ccfaWildcardAffSourceMask,
+                ccfaWildcardAffDestinationMask,
+                ccfaWildcardAffSvcManagerAddr,
+                ccfaWildcardAffSvcManagerPort
+        }
+        STATUS      current
+        DESCRIPTION 
+                "This notification indicates that this CASA Forwarding
+                Agent has created a Wildcard Affinity entry. This is
+                gated on ccfaWildcardAffNotifEnabled."
+        ::= { ciscoCasaFaMIBNotificationPrefix 1 }
+
+ciscoCasaFaWildcardAffDeleted NOTIFICATION-TYPE
+        OBJECTS {
+                ccfaWildcardAffSourceAddr,
+                ccfaWildcardAffDestinationAddr,
+                ccfaWildcardAffSourcePort,
+                ccfaWildcardAffDestinationPort,
+                ccfaWildcardAffProtocol,
+                ccfaWildcardAffFragment,
+                ccfaWildcardAffSourceMask,
+                ccfaWildcardAffDestinationMask,
+                ccfaWildcardAffSvcManagerAddr,
+                ccfaWildcardAffSvcManagerPort,
+                ccfaWildcardAffFlows
+        }
+        STATUS      current
+        DESCRIPTION 
+                "This notification indicates that this CASA Forwarding
+                Agent has deleted this Wildcard Affinity entry. This
+                is gated on ccfaWildcardAffNotifEnabled."
+        ::= { ciscoCasaFaMIBNotificationPrefix 2 }
+
+--
+-- Conformance Information
+--
+ciscoCasaFaMIBConformance OBJECT IDENTIFIER ::= { ciscoCasaFaMIB 3 }
+ciscoCasaFaMIBCompliances OBJECT IDENTIFIER ::=
+    { ciscoCasaFaMIBConformance 1 }
+ciscoCasaFaMIBGroups      OBJECT IDENTIFIER ::=
+    { ciscoCasaFaMIBConformance 2 }
+
+-- Compliance
+
+ciscoCasaFaMIBCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the Cisco CASA FA MIB."
+        MODULE -- this module
+                MANDATORY-GROUPS { ciscoCasaFaWildcardAffGroup,
+                                   ciscoCasaFaDispatchGroup,
+                                   ciscoCasaFaADGroup,
+                                   ciscoCasaFaNotifGroup
+                                 }
+        ::= { ciscoCasaFaMIBCompliances 1 }
+        
+-- Units of Conformance
+
+ciscoCasaFaWildcardAffGroup OBJECT-GROUP
+        OBJECTS {
+                ccfaWildcardAffTotalBytes,
+                ccfaWildcardAffHCTotalBytes,
+                ccfaWildcardAffTotalPackets,
+                ccfaWildcardAffNumOf,
+                ccfaWildcardAffNotifEnabled,
+                ccfaWildcardAffHiWtrMark,
+                ccfaWildAffCacheHiWtrMarkReset,
+                ccfaWildcardAffDenies,
+                ccfaWildcardAffDrops,
+                ccfaWildcardAffSourceAddr,
+                ccfaWildcardAffDestinationAddr,
+                ccfaWildcardAffSourcePort,
+                ccfaWildcardAffDestinationPort,
+                ccfaWildcardAffProtocol,
+                ccfaWildcardAffFragment,
+                ccfaWildcardAffSourceMask,
+                ccfaWildcardAffDestinationMask,
+                ccfaWildcardAffSvcManagerAddr,
+                ccfaWildcardAffSvcManagerPort,
+                ccfaWildcardAffBytes,
+                ccfaWildcardAffHCBytes,
+                ccfaWildcardAffPackets,
+                ccfaWildcardAffHCPackets,
+                ccfaWildcardAffFlows,
+                ccfaWildcardAffInsertTime,
+                ccfaWildcardAffInterestTimeouts,
+                ccfaWildcardAffAdvertiseDestAddr,
+                ccfaWildcardAffInterestAddr,
+                ccfaWildcardAffInterestPort,
+                ccfaWildAffInterestPacketSpec,
+                ccfaWildAffInterestTickelSpec,
+                ccfaWildcardAffDispatch,
+                ccfaWildcardAffDispatchAddr
+        }
+        STATUS current
+        DESCRIPTION
+                "CASA Wildcard Affinity objects."
+        ::= { ciscoCasaFaMIBGroups 3 }
+
+ciscoCasaFaDispatchGroup OBJECT-GROUP
+        OBJECTS {
+                ccfaDispatchBytesIn,
+                ccfaDispatchHCBytesIn,
+                ccfaDispatchBytesOut,
+                ccfaDispatchHCBytesOut,
+                ccfaDispatchPacketsIn,
+                ccfaDispatchHCPacketsIn,
+                ccfaDispatchPacketsOut,
+                ccfaDispatchHCPacketsOut,
+                ccfaDispatchFlows
+        }
+        STATUS current
+        DESCRIPTION
+                "CASA affinity dispatch statistics."
+        ::= { ciscoCasaFaMIBGroups 5 }
+
+ciscoCasaFaADGroup OBJECT-GROUP
+        OBJECTS {
+                ccfaAdvertisedDispatchAddress
+        }
+        STATUS current
+        DESCRIPTION
+                "CASA advertised address, dispatch address
+                correlation group."
+        ::= { ciscoCasaFaMIBGroups 6 }
+
+ciscoCasaFaNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+                ciscoCasaFaWildcardAffCreated,
+                ciscoCasaFaWildcardAffDeleted
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing CASA notifications."
+        ::= { ciscoCasaFaMIBGroups 7 }
+END

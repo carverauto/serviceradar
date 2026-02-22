@@ -1,0 +1,70 @@
+-- *****************************************************************
+-- CISCO-IPSLA-VIDEO-PROFILE-CAPABILITY.my:
+-- CISCO-IPSLA-VIDEO-PROFILE-MIB AGENT CAPABILITIES
+--   
+-- Copyright (c) 2011 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-IPSLA-VIDEO-PROFILE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIpslaVideoProfileCapability MODULE-IDENTITY
+    LAST-UPDATED    "201106010000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ipsla@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-IPSLA-VIDEO-PROFILE-MIB"
+    REVISION        "201106010000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 605 }
+
+
+
+ciscoIpslaVideoProfileCapabilityV152R02T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=IOS
+                     OSVERSION=15.2(2)T
+                     PLATFORM=c29xx,c3925,c3945,c3925E,c3945E
+                     INTERFACE=None"
+    STATUS          current
+    DESCRIPTION
+        "Cisco IPSLA Video Profile MIB Capabilities in 15.2(2)T Release"
+
+    SUPPORTS        CISCO-IPSLA-VIDEO-PROFILE-MIB
+    INCLUDES        {
+                        ciscoIpslaVideoProfileBaseGroup,
+                        ciscoIpslaVideoProfileIsrg2Pvdm3Group
+                    }
+    ::= { ciscoIpslaVideoProfileCapability 1 }
+
+END
+
+
+
+
+
+
+
+
+
+

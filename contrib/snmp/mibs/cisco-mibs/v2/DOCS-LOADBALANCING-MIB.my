@@ -1,0 +1,1175 @@
+-- *****************************************************************
+-- DOCS-LOADBALANCING-MIB.my:
+--
+-- May 2007 Bo Wu
+--
+-- Initial Version: Apr 2007: Annex I from CM-SP-OSSIv3.0-I01-061207
+--
+-- Copyright (c) 2007-2008 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+DOCS-LOADBALANCING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY,
+	OBJECT-TYPE,
+	Unsigned32,
+	Integer32,
+	Counter32,
+	zeroDotZero
+		FROM SNMPv2-SMI
+	TruthValue,
+    MacAddress,
+	RowStatus,
+	RowPointer,
+	TimeStamp,
+	TEXTUAL-CONVENTION
+		FROM SNMPv2-TC
+	OBJECT-GROUP,
+	MODULE-COMPLIANCE
+		FROM SNMPv2-CONF
+	InterfaceIndex
+		FROM IF-MIB
+	docsIfCmtsCmStatusEntry,
+	docsIfCmtsCmStatusIndex
+		FROM DOCS-IF-MIB
+	clabProjDocsis
+		FROM CLAB-DEF-MIB;
+
+docsLoadBalanceMib MODULE-IDENTITY
+	LAST-UPDATED "200403101700Z"    -- March 10, 2004
+	ORGANIZATION "Cable Television Laboratories, Inc"
+	CONTACT-INFO
+		"
+		 Postal: Cable Television Laboratories, Inc.
+		 400 Centennial Parkway
+		 Louisville, Colorado 80027-1266
+		 U.S.A.
+		 Phone: +1 303-661-9100
+		 Fax: +1 303-661-9199
+		 E-mail: mibs@cablelabs.com"
+	DESCRIPTION
+		"This is the MIB Module for the load balancing.
+		 Load balancing is manageable on a per-CM basis.
+		 Each CM is assigned:
+		 a) to a set of channels (a Load Balancing Group) among
+		    which it can be moved by the CMTS
+		 b) a policy which governs if and when the CM can be moved
+		 c) a priority value which can be used by the CMTS in order
+			to select CMs to move."
+	REVISION "200403101700Z"
+	DESCRIPTION
+		"Initial version of this mib module."
+::= { clabProjDocsis 2 }
+-- ---------------------------------------------------------
+-- Textual Conventions
+-- ---------------------------------------------------------
+
+ChannelChgInitTechMap ::= TEXTUAL-CONVENTION
+	STATUS current
+	DESCRIPTION
+		"This textual convention enumerates the Initialization
+		 techniques for Dynamic Channel Change (DCC). The techniques
+		 are represented by the 5 most significant bits (MSB).
+		 Bits 0 through 4 map to initialization techniques 0 through 4.
+		 Each bit position represents the internal associated technique
+		 as described below:
+
+		 reinitializeMac(0)     : Reinitialize the MAC
+		 broadcastInitRanging(1): Perform Broadcast initial
+				          ranging on new channel before
+					  normal operation
+		 unicastInitRanging(2)  : Perform unicast ranging on new
+					  channel before normal operation
+		 initRanging(3)         : Perform either broadcast or
+					  unicast ranging on new channel before
+					  normal operation
+		 direct(4) 		: Use the new channel(s) directly
+					  without re-initializing or ranging
+
+		 Multiple bits selection in 1's means the CMTS selects the best
+		 suitable technique among the selected in a proprietary manner.
+		 An empty value or a value with all bits in '0' means no channel changes
+		 allowed"
+	SYNTAX BITS {
+		reinitializeMac(0),
+		broadcastInitRanging(1),
+		unicastInitRanging(2),
+		initRanging(3),
+		direct(4)
+	}
+
+-- ---------------------------------------------------------------------
+-- Main Groups
+-- ---------------------------------------------------------------------
+docsLoadBalNotifications OBJECT IDENTIFIER ::= { docsLoadBalanceMib 0}
+docsLoadBalMibObjects OBJECT IDENTIFIER ::= { docsLoadBalanceMib 1}
+docsLoadBalSystem OBJECT IDENTIFIER ::= { docsLoadBalMibObjects 1 }
+docsLoadBalChgOverObjects OBJECT IDENTIFIER ::= { docsLoadBalMibObjects 2 }
+docsLoadBalGrpObjects OBJECT IDENTIFIER ::= { docsLoadBalMibObjects 3 }
+docsLoadBalPolicyObjects OBJECT IDENTIFIER ::= { docsLoadBalMibObjects 4 }
+docsLoadBalChgOverGroup OBJECT IDENTIFIER ::= { docsLoadBalChgOverObjects 1 }
+
+docsLoadBalEnable OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"Setting this object to true(1) enables internal
+		 autonomous load balancing operation on this CMTS.
+		 Setting it to false(2) disables the autonomous
+		 load balancing operations.
+		 However moving a cable modem via docsLoadBalChgOverTable
+		 is allowed even when this object is set to false(2)."
+::= { docsLoadBalSystem 1 }
+
+-- ----------------------------------------------------------------------
+-- CMTS Cable Modem channel change operation table and related
+-- objects.
+-- This group of objects determines the DCC API for execution of DCC/UCC
+-- commands The status of execution is reported in docsLoadBalChgOverStatusTable
+-- A CMTS operator may perform downstream/upstream load balancing
+-- or failure recovery using docsLoadBalChgOver parameters and red the status.
+-- ----------------------------------------------------------------------
+
+docsLoadBalChgOverMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The mac address of the cable modem that the CMTS
+		 instructs to move to a new downstream frequency and/or
+		 upstream channel."
+	DEFVAL { '000000000000'h }
+	::= { docsLoadBalChgOverGroup 1 }
+
+docsLoadBalChgOverDownFrequency OBJECT-TYPE
+    SYNTAX Integer32 (0..1000000000)
+	UNITS "hertz"
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The new downstream frequency to which the cable modem is
+		 instructed to move. The value 0 indicates that the CMTS
+		 does not create a TLV for the downstream frequency in the
+		 DCC-REQ message. This object has no meaning when executing
+		 UCC operations."
+	DEFVAL { 0 }
+	::= { docsLoadBalChgOverGroup 2 }
+docsLoadBalChgOverUpChannelId OBJECT-TYPE
+    SYNTAX Integer32 (-1..255)
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The new upstream channel ID to which the cable modem is
+		 instructed to move. The value -1 indicates that the CMTS
+		 does not create a TLV for the upstream channel ID in the
+		 channel change request."
+	DEFVAL { -1 }
+	::= { docsLoadBalChgOverGroup 3 }
+
+docsLoadBalChgOverInitTech OBJECT-TYPE
+    SYNTAX ChannelChgInitTechMap
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The initialization technique that the cable modem is
+		 instructed to use when performing change over operation.
+		 By default this object is initialized with all the defined
+		 bits having a value of '1'."
+	::= { docsLoadBalChgOverGroup 4 }
+
+docsLoadBalChgOverCmd OBJECT-TYPE
+    SYNTAX INTEGER {
+		any(1),
+		dcc(2),
+		ucc(3)
+	}
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The change over command that the CMTS is instructed
+		 use when performing change over operation.
+		 The any(1) value indicates that the CMTS is to use its
+		 own algorithm to determine the appropriate command."
+    DEFVAL { any }
+	::= { docsLoadBalChgOverGroup 5 }
+
+docsLoadBalChgOverCommit OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The command to execute the DCC/UCC operation when set to
+		 true(1).
+		 The following are reasons for rejecting an SNMP
+		 SET to this object:
+			- The MAC address in docsLoadBalChgOverMacAddr is not an
+			  existing MAC address in docsIfCmtsMacToCmEntry.
+			- docsLoadBalChgOverCmd is ucc(3) and
+			  docsLoadBalChgOverUpChannelId is '-1',
+			- docsLoadBalChgOverUpChannelId is '-1' and
+			  docsLoadBalChgOverDownFrequency is '0'.
+			- DCC/UCC operation is currently being executed for the cable modem,
+			  on which the new command is committed, specifically if the value of
+			  docsLoadBalChgOverStatusValue is one of:
+				  messageSent(1),
+				  modemDeparting(4),
+				  waitToSendMessage(6).
+			- An UCC operation is committed for a non-existing upstream
+			  channel ID or the corresponding ifOperStatus is down(2).
+			- A DCC operation is committed for an invalid or non-existing
+			  downstream frequency, or the corresponding ifOperStatus is
+			  down(2).
+		 In those cases, the SET is rejected with an error code
+		 'commitFailed'.
+
+		 After processing the SNMP SET the information in
+		 docsLoadBalChgOverGroup is updated in a corresponding
+		 entry in docsLoadBalChgOverStatusEntry.
+		 Reading this object always returns false(2)."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		 Frequency Interface Specification SP-RFIv2.0-I04-030730,
+		 Sections C.4.1, 11.4.5.1."
+    DEFVAL {false}
+	::= { docsLoadBalChgOverGroup 6 }
+
+docsLoadBalChgOverLastCommit OBJECT-TYPE
+    SYNTAX TimeStamp
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The value of sysUpTime when docsLoadBalChgOverCommit was
+		 last set to true. Zero if never set."
+	::= { docsLoadBalChgOverGroup 7 }
+
+-- ----------------------------------------------------------------------
+-- CMTS Cable Modem channel change operation Status table and related
+-- objects.
+-- This table is an AUGMENT of docsIfCmtsCmstatusTable
+-- A CMTS operator may perform downstream/upstream load balancing
+-- or failure recovery using docsLoadBalChgOverTable.
+-- ----------------------------------------------------------------------
+
+docsLoadBalChgOverStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalChgOverStatusEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"A table of CMTS operation entries to reports the status
+		 of cable modems instructed to move to a new downstream and/or
+		 upstream channel. Using the docsLoadBalChgOverGroup objects.
+		 An entry in this table is created or updated for the entry
+		 with docsIfCmtsCmStatusIndex that correspond to the cable modem
+		 MAC address of the Load Balancing operation.
+		 docsLoadBalChgOverCommit to true(1)."
+	::= { docsLoadBalChgOverObjects 2 }
+
+docsLoadBalChgOverStatusEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalChgOverStatusEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"A CMTS operation entry to instruct a cable modem to move to
+		 a new downstream frequency and/or upstream channel.
+		 An operator can use this to initiate an operation
+		 in CMTS to instruct the selected cable modem to move to a new
+		 downstream frequency and/or upstream channel."
+	INDEX { docsIfCmtsCmStatusIndex }
+	::= { docsLoadBalChgOverStatusTable 1 }
+
+DocsLoadBalChgOverStatusEntry ::= SEQUENCE {
+	docsLoadBalChgOverStatusMacAddr MacAddress,
+	docsLoadBalChgOverStatusDownFreq Integer32,
+	docsLoadBalChgOverStatusUpChnId Integer32,
+	docsLoadBalChgOverStatusInitTech ChannelChgInitTechMap,
+	docsLoadBalChgOverStatusCmd INTEGER,
+	docsLoadBalChgOverStatusValue INTEGER,
+	docsLoadBalChgOverStatusUpdate TimeStamp
+	}
+
+docsLoadBalChgOverStatusMacAddr OBJECT-TYPE
+    SYNTAX MacAddress
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The mac address set in docsLoadBalChgOverMacAddress."
+	::= { docsLoadBalChgOverStatusEntry 1 }
+
+docsLoadBalChgOverStatusDownFreq OBJECT-TYPE
+    SYNTAX Integer32 (0..1000000000)
+	UNITS "hertz"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The Downstream frequency set in
+		 docsLoadBalChgOverDownFrequency."
+    DEFVAL { 0 }
+	::= { docsLoadBalChgOverStatusEntry 2 }
+
+docsLoadBalChgOverStatusUpChnId OBJECT-TYPE
+    SYNTAX Integer32 (-1..255)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The upstream channel ID set in
+		 docsLoadBalChgOverUpChannelId."
+    DEFVAL { -1 }
+	::= { docsLoadBalChgOverStatusEntry 3 }
+
+docsLoadBalChgOverStatusInitTech OBJECT-TYPE
+    SYNTAX ChannelChgInitTechMap
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The initialization technique set in
+		 docsLoadBalChgOverInitTech."
+	::= { docsLoadBalChgOverStatusEntry 4 }
+
+docsLoadBalChgOverStatusCmd OBJECT-TYPE
+    SYNTAX INTEGER {
+		any(1),
+		dcc(2),
+		ucc(3)
+	}
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The load balancing command set in
+		 docsLoadBalChgOverCmd."
+    DEFVAL { any }
+	::= { docsLoadBalChgOverStatusEntry 5 }
+
+-- May use a textual convention to report this value
+-- since is repeated for two objects
+
+docsLoadBalChgOverStatusValue OBJECT-TYPE
+    SYNTAX INTEGER {
+		messageSent(1),
+		noOpNeeded(2),
+		modemDeparting(3),
+		waitToSendMessage(4),
+		cmOperationRejected(5),
+		cmtsOperationRejected(6),
+		timeOutT13(7),
+		timeOutT15(8),
+		rejectinit(9),
+		success(10)
+	}
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The status of the specified DCC/UCC operation.
+		 The enumerations are:
+			 messageSent(1):
+				 The CMTS has sent change over request message to the
+				 cable modem.
+			 noOpNeed(2):
+				 A operation was requested in which neither the
+				 DS Frequency nor the Upstream Channel ID was changed.
+				 An active value in this entry's row status indicates
+				 that no CMTS operation is required.
+			 modemDeparting(3):
+				 The cable modem has responded with a change over response
+				 of either a DCC-RSP with a confirmation code of depart(180)
+				 or a UCC-RSP.
+			 waitToSendMessage(4):
+				 The specified operation is active and CMTS is waiting
+				 to send the channel change message with channel info to
+				 the cable modem.
+			 cmOperationRejected(5):
+				 Channel Change (such as DCC or UCC) operation was rejected
+				 by the cable modem.
+			 cmtsOperationRejected(6)
+				 Channel Change (such as DCC or UCC) operation was rejected
+				 by the Cable modem Termination System.
+			 timeOutT13(7):
+				 Failure due to no DCC-RSP with confirmation code
+				 depart(180) received prior to expiration of the
+				 T13 timer.
+			 timeOutT15(8):
+				 T15 timer timed out prior to the arrival of a
+				 bandwidth request, RNG-REQ message, or DCC-RSP message
+				 with confirmation code of arrive(181) from the
+				 cable modem.
+			 rejectInit(9):
+				 DCC operation rejected due to unsupported
+				 initialization tech requested.
+			 success(10):
+				 CMTS received an indication that the CM successfully
+				 completed the change over operation.
+				 e.g., If an initialization technique of re-initialize the
+				 MAC is used, success in indicated by the receipt
+				 of a DCC-RSP message with a confirmation code of
+				 depart(180). In all other cases, success is
+				 indicated by:
+					 (1) the CMTS received a DCC-RSP message with
+						 confirmation code of arrive(181)
+				 or
+					 (2) the CMTS internally confirms the presence
+						 of the CM on the new channel."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		 Frequency Interface Specification SP-RFIv2.0-I04-030730,
+		 Sections C.4.1, 11.4.5.1."
+    DEFVAL { waitToSendMessage }
+	::= { docsLoadBalChgOverStatusEntry 6 }
+
+docsLoadBalChgOverStatusUpdate OBJECT-TYPE
+    SYNTAX TimeStamp
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The value of sysUpTime when docsLoadBalChgOverStatusValue
+		 was last updated."
+	::= { docsLoadBalChgOverStatusEntry 7 }
+
+-- ----------------------------------------------------------------------
+-- Load balancing group is a cluster of downstream and associated
+-- upstream channels, among which modems that are registered
+-- on any of those channels, can be load balanced.
+--
+-- There are two types of Load Balancing Groups, General Load Balancing
+-- Groups and Restricted Load Balancing Groups. A Restricted Load
+-- Balancing Group is associated with a specific, provisioned set of
+-- cable modems while General Load Balancing Groups are open for CMs
+-- which are not provisioned into a Restricted Load Balancing Group.
+-- ----------------------------------------------------------------------
+
+docsLoadBalGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"This table contains the attributes of the load balancing
+		 groups present in this CMTS."
+	::= { docsLoadBalGrpObjects 1 }
+
+docsLoadBalGrpEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"A set of attributes of load balancing group in the CMTS.
+		 It is index by a docsLoadBalGrpId which is unique
+		 within a CMTS.
+		 Entries in this table persist after CMTS initialization."
+	INDEX { docsLoadBalGrpId }
+	::= { docsLoadBalGrpTable 1 }
+
+DocsLoadBalGrpEntry ::= SEQUENCE {
+	docsLoadBalGrpId Unsigned32,
+	docsLoadBalGrpIsRestricted TruthValue,
+	docsLoadBalGrpInitTech ChannelChgInitTechMap,
+	docsLoadBalGrpDefaultPolicy Unsigned32,
+	docsLoadBalGrpEnable TruthValue,
+	docsLoadBalGrpChgOverSuccess Counter32,
+	docsLoadBalGrpChgOverFails Counter32,
+	docsLoadBalGrpStatus RowStatus
+	}
+
+docsLoadBalGrpId OBJECT-TYPE
+    SYNTAX Unsigned32 (1..4294967295)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"A unique index assigned to the load balancing
+		 group by the CMTS."
+    ::= { docsLoadBalGrpEntry 1 }
+
+docsLoadBalGrpIsRestricted OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"A value true(1)Indicates type of load balancing group.
+		 A Restricted Load Balancing Group is associated to a specific
+		 provisioned set of cable modems. Restricted Load Balancing
+		 Group is used to accommodate a topology specific or provisioning
+		 specific restriction. Example such as a group that are reserved
+		 for business customers).
+
+		 Setting this object to true(1) means it is a Restricted Load
+		 Balancing type and setting it to false(2) means it is a
+		 General Load Balancing group type.
+
+		 This object should not be changed while its group ID is referenced
+		 by an active entry in docsLoadBalRestrictCmEntry."
+
+    DEFVAL { false }
+    ::= { docsLoadBalGrpEntry 2 }
+
+docsLoadBalGrpInitTech OBJECT-TYPE
+    SYNTAX ChannelChgInitTechMap
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"The initialization techniques that the CMTS can use when load
+		 balancing cable modems in the load balancing group.
+		 By default this object is initialized with all the defined
+		 bits having a value of '1'."
+    ::= { docsLoadBalGrpEntry 3 }
+
+docsLoadBalGrpDefaultPolicy OBJECT-TYPE
+    SYNTAX Unsigned32 (0..4294967295)
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"Each Load Balancing Group has a default Load Balancing
+		 Policy. A policy is described by a set of conditions
+		 (rules) that govern the load balancing process for
+		 a cable modem. The CMTS assigns this Policy ID value to
+		 a cable modem associated with the group ID when the cable
+		 modem does not signal a Policy ID during registration.
+		 The Policy ID value is intended to be a numeric reference to
+		 a row entry in docsLoadBalPolicyEntry. However, It is not
+		 required to have an existing or active entry in
+		 docsLoadBalPolicyEntry when setting the value of
+		 docsLoadBalGrpDefaultPolicy, in which case it indicates
+		 no policy is associated with the load Balancing Group.
+		 The Policy ID of value 0 is reserved to indicate no policy is
+		 associated with the load balancing group."
+    DEFVAL { 0 }
+    ::= { docsLoadBalGrpEntry 4 }
+
+docsLoadBalGrpEnable OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"Setting this object to true(1) enables internal
+	 	 autonomous load balancing on this group. Setting it to
+		 false(2) disables the load balancing operation on this
+		 group."
+    DEFVAL { true }
+    ::= { docsLoadBalGrpEntry 5 }
+
+docsLoadBalGrpChgOverSuccess OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The number of successful load balancing change over
+		 operations initiated within this load balancing group."
+    ::= { docsLoadBalGrpEntry 6 }
+
+docsLoadBalGrpChgOverFails OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"The number of failed load balancing change over operations
+		 initiated within this load balancing group."
+    ::= { docsLoadBalGrpEntry 7 }
+
+docsLoadBalGrpStatus OBJECT-TYPE
+    SYNTAX RowStatus
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"Indicates the status of the row in this table.
+		 Setting this object to 'destroy' or 'notInService' for a group ID
+		 entry already referenced by docsLoadBalChannelEntry,
+		 docsLoadBalChnPairsEntry or docsLoadBalRestrictCmEntry returns
+		 an error code inconsistentValue."
+    ::= { docsLoadBalGrpEntry 8 }
+
+-- ----------------------------------------------------------------------
+-- It contains all the upstream and downstream channels within the
+-- load balancing group.
+-- ----------------------------------------------------------------------
+
+docsLoadBalChannelTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalChannelEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"Lists all upstream and downstream channels associated with
+		 load balancing groups."
+    ::= { docsLoadBalGrpObjects 2 }
+
+docsLoadBalChannelEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalChannelEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"Lists a specific upstream or downstream, within a
+		 load Balancing group.
+		 An entry in this table exists for each ifEntry with an ifType
+		 of docsCableDownstream(128) and docsCableUpstream(129)
+		 associated with the Load Balancing Group.
+		 Entries in this table persist after CMTS initialization."
+	INDEX { docsLoadBalGrpId, docsLoadBalChannelIfIndex }
+    ::= { docsLoadBalChannelTable 1 }
+
+DocsLoadBalChannelEntry     ::= SEQUENCE {
+	docsLoadBalChannelIfIndex InterfaceIndex,
+	docsLoadBalChannelStatus RowStatus
+}
+
+docsLoadBalChannelIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"The ifIndex of either the downstream or upstream."
+    ::= { docsLoadBalChannelEntry 1 }
+
+docsLoadBalChannelStatus OBJECT-TYPE
+    SYNTAX RowStatus
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"Indicates the status of the rows in this table.
+		 Creating entries in this table requires an existing
+		 value for docsLoadBalGrpId in docsLoadBalGrpEntry and
+		 an existing value of docsLoadBalChannelIfIndex in
+		 ifEntry, otherwise is rejected with error 'noCreation'.
+		 Setting this object to 'destroy' or 'notInService for a
+		 a row entry that is being referenced by
+		 docsLoadBalChnPairsEntry is rejected with error code
+		 inconsistentValue."
+    ::= { docsLoadBalChannelEntry 2 }
+
+-- ----------------------------------------------------------------------
+-- docsLoadBalChnPairsTable is used to override the initialization
+-- techniques for specific channel pairs within a Load Balancing Group.
+-- ----------------------------------------------------------------------
+
+docsLoadBalChnPairsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalChnPairsEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"This table contains pairs of upstream channels
+		 within a Load Balancing Group. Entries in this
+		 table are used to override the initialization techniques
+		 defined for the associated Load Balancing Group."
+    ::= { docsLoadBalGrpObjects 3 }
+
+docsLoadBalChnPairsEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalChnPairsEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"An entry in this table describes a channel pair for which an
+		 initialization technique override is needed.
+		 On a CMTS which supports logical upstream channels
+		 (ifType is equal to docsCableUpstreamChannel(205)),
+		 the entries in this table correspond to pairs of ifType 205.
+		 On a CMTS which only supports physical upstream channels
+		 (ifType is equal to docsCableUpstream(129)), the entries in this
+		 table correspond to pairs of ifType 129.
+		 Entries in this table persist after CMTS initialization."
+	INDEX { docsLoadBalGrpId, docsLoadBalChnPairsIfIndexDepart,
+			docsLoadBalChnPairsIfIndexArrive }
+    ::= { docsLoadBalChnPairsTable 1 }
+
+DocsLoadBalChnPairsEntry     ::= SEQUENCE {
+	docsLoadBalChnPairsIfIndexDepart InterfaceIndex,
+	docsLoadBalChnPairsIfIndexArrive InterfaceIndex,
+	docsLoadBalChnPairsOperStatus INTEGER,
+	docsLoadBalChnPairsInitTech ChannelChgInitTechMap,
+	docsLoadBalChnPairsRowStatus RowStatus
+}
+
+docsLoadBalChnPairsIfIndexDepart OBJECT-TYPE
+    SYNTAX InterfaceIndex
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"This index indicates the ifIndex of the upstream channel from
+		 which a cable modem would depart in a load balancing channel
+		 change operation."
+    ::= { docsLoadBalChnPairsEntry 1 }
+
+docsLoadBalChnPairsIfIndexArrive OBJECT-TYPE
+    SYNTAX InterfaceIndex
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"This index indicates the ifIndex of the upstream channel on
+		 which a cable modem would arrive in a load balancing channel
+		 change operation."
+    ::= { docsLoadBalChnPairsEntry 2 }
+
+docsLoadBalChnPairsOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+		operational(1),
+		notOperational(2)
+	}
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+		"Operational status of the channel pair. The value
+		 operational(1) indicates that ifOperStatus of both channels
+		 is up(1). The value notOperational(2) means that ifOperStatus
+		 of one or both is not up(1)."
+    ::= { docsLoadBalChnPairsEntry 3 }
+
+docsLoadBalChnPairsInitTech OBJECT-TYPE
+    SYNTAX ChannelChgInitTechMap
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"Specifies initialization technique for load balancing
+		 for the Depart/Arrive pair.
+		 By default this object's value is the initialization
+		 technique configured for the Load Balancing Group
+		 indicated by docsLoadBalGrpId."
+    ::= { docsLoadBalChnPairsEntry 4 }
+
+docsLoadBalChnPairsRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"The object for conceptual rows creation.
+		 An attempt to create a row with values for
+		 docsLoadBalChnPairsIfIndexDepart or
+		 docsLoadBalChnPairsIfIndexArrive which are not a part
+		 of the Load Balancing Group (or for a 2.0 CMTS are not
+		 logical channels (ifType 205)) are rejected with a
+		 'noCreation' error status reported.
+		 There is no restriction on settings columns in this table
+		 when the value of docsLoadBalChnPairsRowStatus is active(1)."
+    ::= { docsLoadBalChnPairsEntry 5 }
+
+-- ----------------------------------------------------------------------
+-- Restricted load balancing groups are defined to cater to a specific
+-- group of modems to accommodate a topology specific or provisioning
+-- specific restriction.
+-- Restricted load balancing groups shall be configured with the CM MAC
+-- addresses (or references to it). Such a group applies only to the
+-- modems configured in the group.
+-- ----------------------------------------------------------------------
+
+docsLoadBalRestrictCmTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalRestrictCmEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"Lists all cable modems in each Restricted Load Balancing
+		 Groups."
+    ::= { docsLoadBalGrpObjects 4 }
+
+docsLoadBalRestrictCmEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalRestrictCmEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"An entry of modem within a restricted load balancing
+		 group type.
+		 An entry represents a cable modem that is associated with the
+		 Restricted Load Balancing Group ID of a Restricted Load
+		 Balancing Group.
+		 Entries in this table persist after CMTS initialization."
+	INDEX { docsLoadBalGrpId,
+			docsLoadBalRestrictCmIndex }
+    ::= { docsLoadBalRestrictCmTable 1 }
+
+DocsLoadBalRestrictCmEntry     ::= SEQUENCE {
+	docsLoadBalRestrictCmIndex Unsigned32,
+	docsLoadBalRestrictCmMACAddr MacAddress,
+	docsLoadBalRestrictCmMacAddrMask OCTET STRING,
+	docsLoadBalRestrictCmStatus RowStatus
+}
+
+docsLoadBalRestrictCmIndex OBJECT-TYPE
+    SYNTAX Unsigned32 (1..4294967295)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"The index that uniquely identifies an entry which
+		 represents restricted cable modem(s) within each Restricted
+		 Load Balancing Group."
+    ::= { docsLoadBalRestrictCmEntry 1 }
+
+docsLoadBalRestrictCmMACAddr OBJECT-TYPE
+    SYNTAX MacAddress
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"Mac Address of the cable modem within the restricted load
+	   	 balancing group."
+    ::= { docsLoadBalRestrictCmEntry 2 }
+
+docsLoadBalRestrictCmMacAddrMask OBJECT-TYPE
+    SYNTAX OCTET STRING (SIZE (0 | 6))
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"A bit mask acting as a wild card to associate a set
+		 of modem MAC addresses to the same Group ID.
+		 Cable modem look up is performed first with entries
+		 containing this value not null, if several entries match,
+		 the largest consecutive bit match from MSB to LSB is used.
+		 Empty value is equivalent to the bit mask all in
+		 ones."
+    DEFVAL { ''h }
+    ::= { docsLoadBalRestrictCmEntry 3 }
+
+docsLoadBalRestrictCmStatus OBJECT-TYPE
+    SYNTAX RowStatus
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"Indicates the status of the rows in this table.
+		 The attempt to create an entry associated to a group ID with
+		 docsLoadBalGrpIsRestricted equal to false(2) returns an error
+		 'noCreation'.
+		 There is no restriction on settings columns in this table any
+		 time."
+    ::= { docsLoadBalRestrictCmEntry 4 }
+
+-- ----------------------------------------------------------------------
+--
+-- Load Balance policies allow control over the behavior of the autonomous
+-- load balancing process on a per cable modem basis. A load balancing
+-- policy is described by a set of conditions/rules that govern the
+-- autonomous load balancing process for the cable modem.
+--
+-- ----------------------------------------------------------------------
+
+docsLoadBalPolicyTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalPolicyEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"This table describes the set of Load Balancing policies.
+		 Rows in this table might be referenced by rows in
+		 docsLoadBalGrpEntry."
+    ::= { docsLoadBalPolicyObjects 1 }
+
+docsLoadBalPolicyEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalPolicyEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"Entries containing rules for policies.
+		 When a load balancing policy is defined by multiple
+		 rules, all the rules apply.
+		 Load balancing rules can be created to allow for
+		 specific vendor-defined load balancing actions.
+		 However there is a basic rule that the CMTS is
+		 required to support by configuring a pointer
+		 in docsLoadBalPolicyRulePtr to the table
+		 docsLoadBalBasicRuleTable. Vendor specific rules
+		 may be added by pointing the object
+		 docsLoadBalPolicyRulePtr to proprietary mib structures.
+		 Entries in this table persist after CMTS initialization."
+	INDEX { docsLoadBalPolicyId, docsLoadBalPolicyRuleId }
+    ::= { docsLoadBalPolicyTable 1 }
+
+DocsLoadBalPolicyEntry     ::= SEQUENCE {
+	docsLoadBalPolicyId Unsigned32,
+	docsLoadBalPolicyRuleId Unsigned32,
+	docsLoadBalPolicyRulePtr RowPointer,
+	docsLoadBalPolicyRowStatus RowStatus
+	}
+
+docsLoadBalPolicyId OBJECT-TYPE
+    SYNTAX Unsigned32 (1..4294967295)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"An index identifying the Load Balancing Policy."
+    ::= { docsLoadBalPolicyEntry 1 }
+
+docsLoadBalPolicyRuleId OBJECT-TYPE
+    SYNTAX Unsigned32 (1..4294967295)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"An index for the rules entries associated within a policy."
+    ::= { docsLoadBalPolicyEntry 2 }
+
+docsLoadBalPolicyRulePtr OBJECT-TYPE
+    SYNTAX RowPointer
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"A pointer to an entry in a rule table. E.g.,
+		 docsLoadBalBasicRuleEnable in docsLoadBalBasicRuleEntry.
+		 A value pointing to zeroDotZero, an inactive Row or a
+		 non-existing entry is treated as no rule defined for this
+		 policy entry."
+    DEFVAL {zeroDotZero }
+    ::= { docsLoadBalPolicyEntry 3}
+
+docsLoadBalPolicyRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"The status of this conceptual row.
+		 There is no restriction on settings columns in this table
+		 when the value of docsLoadBalPolicyRowStatus is active(1).
+		 Setting this object to 'destroy' or 'notInService' for a row
+		 entry that is being referenced by docsLoadBalGrpDefaultPolicy in
+		 docsLoadBalGrpEntry returns an error code inconsistentValue."
+    ::= { docsLoadBalPolicyEntry 5 }
+
+-- ---------------------------------------------------------
+-- docsLoadBalBasicRuleTable defines a DOCSIS required Policy
+-- Ruleset for Load Balancing. A Policy ID may have multiple
+-- rules, each rule pointing to ruleset structures like this
+-- table or a vendor defined one.
+-- ---------------------------------------------------------
+
+docsLoadBalBasicRuleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalBasicRuleEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"DOCSIS defined basic ruleset for load Balancing Policy.
+		 This table enables of disable load balancing for the groups
+		 pointing to this ruleset in the policy group."
+    ::= { docsLoadBalPolicyObjects 2 }
+
+docsLoadBalBasicRuleEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalBasicRuleEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"An entry of DOCSIS defined basic ruleset.
+		 The object docsLoadBalBasicRuleEnable is used for
+		 instantiating an entry in this table via a RowPointer.
+		 Entries in this table persist after CMTS initialization."
+	INDEX { docsLoadBalBasicRuleId }
+    ::= { docsLoadBalBasicRuleTable 1 }
+
+DocsLoadBalBasicRuleEntry     ::= SEQUENCE {
+	docsLoadBalBasicRuleId Unsigned32,
+	docsLoadBalBasicRuleEnable INTEGER,
+	docsLoadBalBasicRuleDisStart Unsigned32,
+	docsLoadBalBasicRuleDisPeriod Unsigned32,
+	docsLoadBalBasicRuleRowStatus RowStatus
+	}
+
+docsLoadBalBasicRuleId OBJECT-TYPE
+    SYNTAX Unsigned32 (1..4294967295)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"The unique index for this row."
+    ::= { docsLoadBalBasicRuleEntry 1 }
+
+docsLoadBalBasicRuleEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+		enabled(1),
+		disabled(2),
+		disabledPeriod(3)
+	}
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"When using this ruleset, load balancing is enabled or disabled
+		 by the values enabled(1) and disabled(2) respectively.
+		 Additionally, a Load Balancing disabling period is defined in
+		 docsLoadBalBasicRuleDisStart and docsLoadBalBasicRuleDisPeriod
+		 if this object value is set to disabledPeriod(3)."
+    ::= { docsLoadBalBasicRuleEntry 2 }
+
+docsLoadBalBasicRuleDisStart OBJECT-TYPE
+    SYNTAX Unsigned32 (0..86400)
+	UNITS "seconds"
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"if object docsLoadBalBasicRuleEnable is disablePeriod(3)
+		 Load Balancing is disabled starting at this object value time
+		 (seconds from 12 AM). Otherwise, this object has no meaning."
+    DEFVAL { 0 }
+    ::= { docsLoadBalBasicRuleEntry 3 }
+
+docsLoadBalBasicRuleDisPeriod OBJECT-TYPE
+    SYNTAX Unsigned32 (0..86400)
+	UNITS "seconds"
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"If object docsLoadBalBasicRuleEnable is disablePeriod(3)
+		 Load Balancing is disabled for the period of time defined
+		 between docsLoadBalBasicRuleDisStart and
+		 docsLoadBalBasicRuleDisStart plus the period of time of
+		 docsLoadBalBasicRuleDisPeriod. Otherwise, this object value
+		 has no meaning."
+    DEFVAL { 0 }
+    ::= { docsLoadBalBasicRuleEntry 4 }
+
+docsLoadBalBasicRuleRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+    MAX-ACCESS read-create
+    STATUS current
+    DESCRIPTION
+		"This object is to create or delete rows in
+		 this table. There is no restriction for changing
+		 this row status or object's values in this table
+		 at any time."
+    ::= { docsLoadBalBasicRuleEntry 5 }
+
+-- ---------------------------------------------------------
+-- This table AUGMENTS the docsIfCmtsCmStatusTable to provide
+-- the ability to associate the GroupId, PolicyId and Priority
+-- to a modem.
+-- Association of these attributes can also be done via the
+-- cable modem config file.
+-- ---------------------------------------------------------
+
+docsLoadBalCmtsCmStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DocsLoadBalCmtsCmStatusEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"The list contains the load balancing attributes
+		 associated with the cable modem. "
+    ::= { docsLoadBalSystem 4 }
+
+docsLoadBalCmtsCmStatusEntry OBJECT-TYPE
+    SYNTAX DocsLoadBalCmtsCmStatusEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+		"Additional objects for docsIfCmtsCmStatusTable entry
+		 that relate to load balancing "
+	AUGMENTS { docsIfCmtsCmStatusEntry }
+    ::= { docsLoadBalCmtsCmStatusTable 1 }
+
+DocsLoadBalCmtsCmStatusEntry     ::= SEQUENCE {
+	docsLoadBalCmtsCmStatusGroupId Unsigned32,
+	docsLoadBalCmtsCmStatusPolicyId Unsigned32,
+	docsLoadBalCmtsCmStatusPriority Unsigned32
+	}
+
+docsLoadBalCmtsCmStatusGroupId OBJECT-TYPE
+    SYNTAX Unsigned32
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The Group ID associated with this cable modem."
+    ::= { docsLoadBalCmtsCmStatusEntry 1 }
+
+docsLoadBalCmtsCmStatusPolicyId OBJECT-TYPE
+    SYNTAX Unsigned32
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The Policy ID associated with this cable modem."
+    ::= { docsLoadBalCmtsCmStatusEntry 2 }
+
+docsLoadBalCmtsCmStatusPriority OBJECT-TYPE
+    SYNTAX Unsigned32
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+		"The Priority associated with this cable modem."
+    ::= { docsLoadBalCmtsCmStatusEntry 3 }
+
+-- ---------------------------------------------------------
+-- Conformance definitions
+-- ---------------------------------------------------------
+
+docsLoadBalConformance OBJECT IDENTIFIER     ::= { docsLoadBalanceMib 2 }
+docsLoadBalCompliances OBJECT IDENTIFIER     ::= { docsLoadBalConformance 1 }
+docsLoadBalGroups OBJECT IDENTIFIER     ::= { docsLoadBalConformance 2 }
+
+docsLoadBalBasicCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+		"The compliance statement for DOCSIS load balancing
+		 systems."
+
+MODULE -- docsLoadBalancingMib
+		MANDATORY-GROUPS {
+ 			     docsLoadBalSystemGroup,
+				 docsLoadBalParametersGroup,
+				 docsLoadBalPoliciesGroup,
+				 docsLoadBalBasicRuleGroup,
+				 docsLoadBalCmtsCmStatusGroup
+    	}
+::= { docsLoadBalCompliances 1}
+
+docsLoadBalSystemGroup OBJECT-GROUP
+	   OBJECTS {
+		   docsLoadBalEnable,
+		   docsLoadBalChgOverMacAddress,
+		   docsLoadBalChgOverDownFrequency,
+		   docsLoadBalChgOverUpChannelId,
+           	   docsLoadBalChgOverInitTech,
+           	   docsLoadBalChgOverCmd,
+	           docsLoadBalChgOverCommit,
+	           docsLoadBalChgOverLastCommit,
+	           docsLoadBalChgOverStatusMacAddr,
+	           docsLoadBalChgOverStatusDownFreq,
+	           docsLoadBalChgOverStatusUpChnId,
+	           docsLoadBalChgOverStatusInitTech,
+	           docsLoadBalChgOverStatusCmd,
+	           docsLoadBalChgOverStatusValue,
+	           docsLoadBalChgOverStatusUpdate
+	}
+    STATUS current
+    DESCRIPTION
+		"A collection of objects providing system-wide
+		 parameters for load balancing."
+    ::= { docsLoadBalGroups 1}
+
+docsLoadBalParametersGroup OBJECT-GROUP
+	   OBJECTS {
+           docsLoadBalGrpIsRestricted,
+           docsLoadBalGrpInitTech,
+           docsLoadBalGrpDefaultPolicy,
+           docsLoadBalGrpEnable,
+           docsLoadBalGrpChgOverSuccess,
+           docsLoadBalGrpChgOverFails,
+           docsLoadBalGrpStatus,
+           docsLoadBalChannelStatus,
+           docsLoadBalChnPairsOperStatus,
+           docsLoadBalChnPairsInitTech,
+           docsLoadBalChnPairsRowStatus,
+           docsLoadBalRestrictCmMACAddr,
+           docsLoadBalRestrictCmMacAddrMask,
+           docsLoadBalRestrictCmStatus
+	}
+    STATUS current
+    DESCRIPTION
+		"A collection of objects containing the load balancing
+		 parameters."
+    ::= { docsLoadBalGroups 2}
+
+docsLoadBalPoliciesGroup OBJECT-GROUP
+	   OBJECTS {
+		   docsLoadBalPolicyRulePtr,
+		   docsLoadBalPolicyRowStatus
+	}
+    STATUS current
+    DESCRIPTION
+		"A collection of objects providing policies."
+    ::= { docsLoadBalGroups 3}
+
+docsLoadBalBasicRuleGroup OBJECT-GROUP
+	   OBJECTS {
+		   docsLoadBalBasicRuleEnable,
+		   docsLoadBalBasicRuleDisStart,
+		   docsLoadBalBasicRuleDisPeriod,
+		   docsLoadBalBasicRuleRowStatus
+	}
+    STATUS current
+    DESCRIPTION
+		"DOCSIS defined basic Ruleset for load balancing
+		 policies."
+    ::= { docsLoadBalGroups 4}
+
+docsLoadBalCmtsCmStatusGroup OBJECT-GROUP
+	   OBJECTS {
+		   docsLoadBalCmtsCmStatusGroupId,
+		   docsLoadBalCmtsCmStatusPolicyId,
+		   docsLoadBalCmtsCmStatusPriority
+	}
+    STATUS current
+    DESCRIPTION
+		"Cable mode status extension objects."
+    ::= { docsLoadBalGroups 5}
+END

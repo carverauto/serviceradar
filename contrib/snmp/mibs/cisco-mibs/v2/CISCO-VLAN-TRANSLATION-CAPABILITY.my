@@ -1,0 +1,149 @@
+-- *****************************************************************
+-- CISCO-VLAN-TRANSLATION-CAPABILITY.my:
+-- CISCO-VLAN-TRANSLATION-MIB AGENT-CAPABILITIES
+--   
+-- May 2004, Wen Xu
+--   
+-- Copyright (c) 2004, 2006, 2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VLAN-TRANSLATION-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVlanTranslationCapability MODULE-IDENTITY
+    LAST-UPDATED    "201201090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-VLAN-TRANSLATION-MIB."
+    REVISION        "201201090000Z"
+    DESCRIPTION
+        "Add capability statement
+        cVlanTransCapV15R0001SYPCat6kSup2T"
+    REVISION        "200602080000Z"
+    DESCRIPTION
+        "Correct cVlanTransCapV12R0218SXD1Cat6K
+        to cVlanTransCapV12R0218SXEPCat6K"
+    REVISION        "200408110000Z"
+    DESCRIPTION
+        "Add capability statement
+        cVlanTransCapV12R0218SXD1Cat6K"
+    REVISION        "200406070000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 405 }
+
+
+
+cVlanTranslationCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-TRANSLATION-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-TRANSLATION-MIB
+    INCLUDES        {
+                        cvtGlobalTranslationGroup,
+                        cvtPortTranslationGroup
+                    }
+    VARIATION       cvtGlobalTranslationStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cvtPortTranslationStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoVlanTranslationCapability 1 }
+
+cVlanTransCapV12R0218SXEPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXE on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-TRANSLATION-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-TRANSLATION-MIB
+    INCLUDES        {
+                        cvtGlobalTranslationGroup,
+                        cvtPortTranslationGroup
+                    }
+    VARIATION       cvtGlobalTranslationStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cvtPortTranslationStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoVlanTranslationCapability 2 }
+
+cVlanTransCapV15R0001SYPCat6kSup2T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                     series devices with Supervisor 2T present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-TRANSLATION-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-TRANSLATION-MIB
+    INCLUDES        { cvtPortTranslationGroup }
+    VARIATION       cvtPortTranslationStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoVlanTranslationCapability 3 }
+
+END
+
+
+
+

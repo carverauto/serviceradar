@@ -1,0 +1,957 @@
+-- *******************************************************************
+-- CISCO-LWAPP-MESH-LINKTEST-MIB.my
+-- February 2007, Devesh Pujari
+--   
+-- Copyright (c) 2006, 2007, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-MESH-LINKTEST-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MacAddress,
+    RowStatus
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappMeshLinkTestMIB MODULE-IDENTITY
+    LAST-UPDATED    "201009300000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central Controllers (CC) that
+        terminate the Light Weight Access Point Protocol
+        (LWAPP) tunnel from Light-weight  Access Points.
+
+        Link Test is performed to learn the backhaul link 
+        quality between two neighboring mesh nodes.
+
+        The deployment of the controller 
+        (referred to as CC in the diagram), mesh nodes 
+        (RAP and MAP) LWAPP APs, client(MS) and NMS appear 
+        as follows.
+
+         +.......+                 +.......+
+         +       +                 +       +
+         +  NMS  +                 +  NMS  +
+         +       +                 +       +
+         +.......+                 +.......+
+            .                         .
+         .    .                     .   .
+        .         .                .        .
+        .            .             .            .
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  RAP + +  RAP +     +  RAP  +     +  RAP +          +  RAP +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .        .              .             .                 .
+        .        .              .             .                 .
+        .        .              .             .                 .
+        .          .              .             .                 .
+        .           .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MAP + +  MS  +     +  MAP +      +  MAP +          +  MAP +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .                    .                          ..    . 
+        . .                  .                     ..        .
+        .   .                .                  ..            .
+        .     .              .              .                .
+        +......+ +......+     +......+      +......+.         +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MAP + +  MAP +     +  MAP +      +  MAP +          +  MS  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs. The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the 
+        configuration, that includes the WLAN parameters to 
+        the LWAPP APs. 
+        The APs encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs. Throughout this MIB,
+        this entity is also referred to as 'controller'.
+
+        Mobile Station ( MS )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. Mobile Station
+        and client are used interchangeably. 
+
+        Network Management System ( NMS )
+
+        The station from which the administrator manages the
+        wired and wireless networks.
+
+        Mesh Node
+
+        A mesh node is defined as a physical or logical entity
+        in the mesh network participating in forming the mesh 
+        backhaul. There are two types of mesh nodes supported 
+        in Cisco mesh network:RAP and MAP.
+
+        Root AP (RAP)
+
+        The AP forming the bridge between a wired and a mesh
+        network with an Ethernet interface to the wired 
+        network and a 802.11 radio interface to the mesh 
+        network
+
+        Mesh AP (MAP).
+
+        The AP extending wireless coverage similar to a 
+        repeater in a mesh network and consists of a 802.11 
+        uplink and a 802.11 downlink. On a single-radio 
+        backhaul, both uplink and downlink exist on the same 
+        radio and are logical links only. On a multi-radio 
+        backhaul, they may exist on different radios.
+
+        Mesh Network
+
+        Network starting with the wireless backhaul downlink
+        of the RAP and all the entities below except any 
+        attached network to the Ethernet link of MAPs. A mesh 
+        network below a single RAP is also referred to as a 
+        'Mesh Sector'.A mesh network consists of mesh nodes. 
+        A single mesh network is always augmented to a single 
+        wired network.
+
+        Mesh Link
+
+        A logical 802.11 link between two mesh nodes. A single 
+        link is point-to-point. All point-to-multipoint links 
+        are considered as multiple mesh links. Often referred 
+        to as mesh backhaul link.
+
+        Mesh Backhaul
+
+        A Mesh backhaul consists of mesh nodes and mesh links 
+        terminating at a RAP. This necessarily creates a one-
+        to-one relationship between a 'mesh network', 'mesh
+        sector' and a 'mesh backhaul' where these terms can be 
+        used interchangeably.
+
+        SNR
+        Signal to Noise ratio on the 802.11 radio.
+
+        RSSI 
+        Received Signal Strength Indication (RSSI), the IEEE 802.11 
+        standard defines a mechanism by which RF energy is to be 
+        measured by the circuitry on a wireless NIC. Its value is
+        measured in dBm and ranges from -128 to 0.
+
+        Bridged network 
+        The bridged network is defined as the network(s)
+        attached to the Ethernet port of any MAP. There can be
+        multiple such networks attached to a single mesh 
+        network.
+
+        Mesh Node Roaming
+        A mesh node may change its parent mesh node naturally 
+        when the RF/network condition changes.Child Mesh node 
+        will re-associate and re-authenticate to new parent 
+        mesh node. Mesh Security supports two types of mesh 
+        node roaming:
+        Intra-controller roaming: LWAPP session remains and 
+        no LWAPP session roam is necessary
+        Inter-controller roaming: LWAPP session is lost and 
+        LWAPP session roam may be necessary
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol"
+    REVISION        "201009300000Z"
+    DESCRIPTION
+        "Deprecated clMeshLtDataRate and replaced it with 
+        clMeshLtDataRateValue.
+        
+        Deprecated ciscoLwappMeshLinkTestRunGroup and
+        ciscoLwappMeshLinkTestMIBCompliance.
+        
+        Added ciscoLwappMeshLinkTestRunGroupRev1 and
+        ciscoLwappMeshLinkTestMIBComplianceRev1."
+    REVISION        "200702050000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 606 }
+
+
+ciscoLwappMeshLinkTestMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIB 0 }
+
+ciscoLwappMeshLinkTestMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIB 1 }
+
+ciscoLwappMeshLinkTestMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIB 2 }
+
+ciscoLwappMeshLinkTestConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIBObjects 1 }
+
+ciscoLwappMeshLinkTestRun  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIBObjects 2 }
+
+ciscoLwappMeshLinkTestStatus  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIBObjects 3 }
+
+
+-- ********************************************************************
+-- *    Link Test global configurations
+-- ********************************************************************
+
+clMeshLtPurgeTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (15..1800)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the duration for which the
+        results of a particular run of linktest is available
+        in clMeshLtResultsTable from the time of completion 
+        of that run of linktest.  At the expiry of this time, 
+        after the completion of the linktest, the entries 
+        corresponding to the linktest and the corresponding 
+        results are removed from clMeshLtTable and 
+        clMeshLtResultsTable respectively."
+    DEFVAL          { 60 } 
+    ::= { ciscoLwappMeshLinkTestConfig 1 }
+-- ********************************************************************
+-- * Mesh Link Test
+-- ********************************************************************
+
+clMeshLtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClMeshLtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to initiate linktests between
+        two neighbor mesh node AP.                
+
+        With LinkTest support, the controller can test
+        the backhaul link.
+
+        User initiates one run of linktest by adding a
+        row to this table through explicit management 
+        action from the network manager.  A row is created
+        by specifying clMeshLtIndex,
+        clMeshLtSrcMacAddress and clMeshLtDestMacAddress 
+        setting the RowStatus object to 'createAndGo'.
+        This indicates the the request made to start the 
+        linktest between two mesh nodes.
+
+        The added row is deleted by setting the corresponding
+        instance of the RowStatus object to 'destroy'.  In
+        case if the agent finds that the time duration
+        represented by clMeshLtPurgeTime has elapsed since
+        the completion of the linktest, it proceeds to
+        delete the row automatically, if the row exists at
+        that point of time.
+
+        The results of the linktest identified by 
+        clMeshLtIndex can be obtained from the queries to 
+        clMeshLtResultsTable."
+    ::= { ciscoLwappMeshLinkTestRun 1 }
+
+clMeshLtEntry OBJECT-TYPE
+    SYNTAX          ClMeshLtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents one instance
+        of the linktest initiated by the user through
+        a network manager."
+    INDEX           { clMeshLtIndex } 
+    ::= { clMeshLtTable 1 }
+
+ClMeshLtEntry ::= SEQUENCE {
+        clMeshLtIndex          Unsigned32,
+        clMeshLtSrcMacAddress  MacAddress,
+        clMeshLtDestMacAddress MacAddress,
+        clMeshLtDataRate       Unsigned32,
+        clMeshLtPktsPerSec     Unsigned32,
+        clMeshLtPktSize        Unsigned32,
+        clMeshLtDuration       Unsigned32,
+        clMeshLtRowStatus      RowStatus,
+        clMeshLtDataRateValue  INTEGER
+}
+
+clMeshLtIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..16)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies one particular
+        run of the linktest initiated between the two mesh 
+        node neighbors identified by clMeshLtSrcMacAddress 
+        and clMeshLtDestMacAddress." 
+    ::= { clMeshLtEntry 1 }
+
+clMeshLtSrcMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the source mac address of AP
+        which initiates the link test to 
+        'clMeshLtDestMacAddress' involved in the particular run 
+        of linktest. This object must be set to a valid value 
+        when setting clMeshLtRowStatus to 'createAndGo' to 
+        initiate a run of linktest." 
+    ::= { clMeshLtEntry 2 }
+
+clMeshLtDestMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the destination mac address of
+        AP involved in the particular run of linktest. This
+        object must be set to a valid value when setting
+        clMeshLtRowStatus to 'createAndGo' to initiate a
+        run of linktest." 
+    ::= { clMeshLtEntry 3 }
+
+clMeshLtDataRate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Mbps"
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the data rate on backhaul link
+        at which link test will be performed. Depending on the 
+        backhaul radio type, data rate will vary. if the 
+        backhaul radio is 802.11a, data rates can be 
+        one of the following possible values. 
+        Rates - 6,9,11,12,18,24,36,48,54,108 Mbps. If backhaul 
+        link is 802.11b then data rate can be 1,2,5.5,6,9,11 
+        If backhaul link is 802.11g 
+        1,2,5.5,6,9,11,12,18,24,36,48,54,108. This
+        object must be set to a valid value when setting
+        clMeshLtRowStatus to 'createAndGo' to initiate a
+        run of linktest. This object is deprecated and 
+        superceded by clMeshLtDataRateValue object." 
+    ::= { clMeshLtEntry 4 }
+
+clMeshLtPktsPerSec OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..3000)
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of packets to be
+        sent per sec during link test."
+    DEFVAL          { 1000 } 
+    ::= { clMeshLtEntry 5 }
+
+clMeshLtPktSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1500)
+    UNITS           "bytes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the size of packets to be sent
+        during link test."
+    DEFVAL          { 1500 } 
+    ::= { clMeshLtEntry 6 }
+
+clMeshLtDuration OBJECT-TYPE
+    SYNTAX          Unsigned32 (15..60)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the duration, in seconds, of link
+        test to be performed."
+    DEFVAL          { 30 } 
+    ::= { clMeshLtEntry 7 }
+
+clMeshLtRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is the status column used for creating
+        and deleting  instances of the columnar objects in
+        this table." 
+    ::= { clMeshLtEntry 8 }
+
+clMeshLtDataRateValue OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        mbps1(1),
+                        mbps2(2),
+                        mbps5point5(3),
+                        mbps6(4),
+                        mbps9(5),
+                        mbps11(6),
+                        mbps12(7),
+                        mbps18(8),
+                        mbps24(9),
+                        mbps36(10),
+                        mbps48(11),
+                        mbps54(12),
+                        mbps108(13),
+                        htMcs0(14),
+                        htMcs1(15),
+                        htMcs2(16),
+                        htMcs3(17),
+                        htMcs4(18),
+                        htMcs5(19),
+                        htMcs6(20),
+                        htMcs7(21),
+                        htMcs8(22),
+                        htMcs9(23),
+                        htMcs10(24),
+                        htMcs11(25),
+                        htMcs12(26),
+                        htMcs13(27),
+                        htMcs14(28),
+                        htMcs15(29)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the data rate on backhaul link
+        at which link test will be performed. Depending on the 
+        backhaul radio type, data rate will vary. 
+
+        If the value of clMeshNodeBackhaul object
+        is 'dot11a', data rates can be one of the 
+        following possible values. 
+        mbps6(4)
+        mbps9(5)
+        mbps12(7)
+        mbps18(8)
+        mbps24(9)
+        mbps36(10)
+        mbps48(11)
+        mbps54(12)
+        mbps108(13)
+
+        Additionally following data rates are supported if 802.11a 
+        supports 11n.
+        htMcs0(14)
+        htMcs1(15)
+        htMcs2(16)
+        htMcs3(17)
+        htMcs4(18)
+        htMcs5(19)
+        htMcs6(20)
+        htMcs7(21)
+        htMcs8(22)
+        htMcs9(23)
+        htMcs10(24)
+        htMcs11(25)
+        htMcs12(26)
+        htMcs13(27)
+        htMcs14(28)
+        htMcs15(29)
+
+        If the value of clMeshNodeBackhaul object
+        is 'dot11b', then data rate can be one of 
+        the following possible values.
+        mbps1(1)
+        mbps2(2)
+        mbps5point5(3)
+        mbps6(4)
+        mbps9(5)
+        mbps11(6)
+
+        If the value of clMeshNodeBackhaul object
+        is 'dot11g', then data rate can be one of
+        the following possible values.
+
+        mbps1(1)
+        mbps2(2)
+        mbps5point5(3)
+        mbps6(4)
+        mbps9(5)
+        mbps11(6)
+        mbps12(7)
+        mbps18(8)
+        mbps24(9)
+        mbps36(10)
+        mbps48(11)
+        mbps54(12)
+        mbps108(13)
+
+        This object cannot be modified when the value 
+        of clMeshLtRowStatus object in the same row is 'active'." 
+    ::= { clMeshLtEntry 9 }
+ 
+
+-- ********************************************************************
+-- * Mesh Link Test Results
+-- ********************************************************************
+
+clMeshLtResultsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClMeshLtResultsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table populates the results of the mesh
+        linktests initiated by the user through the 
+        clMeshLtTable.  
+
+        This table has a sparse dependent relationship
+        with clMeshLtEntry. There exists a row in this 
+        table corresponding to each row in clMeshLtEntry 
+        identified by clMeshLtIndex.  A row is added to this
+        table when user, through the network manager, adds
+        a row to clMeshLtEntry and initiates one run of 
+        linktest. A row can be deleted by the agent when the 
+        corresponding row of clMeshLtEntry is deleted or 
+        it will get deleted when the clMeshLtPurgeTime expires.
+
+        The manager is expected to poll clMeshLtStatus
+        to check the status of the linktest."
+    ::= { ciscoLwappMeshLinkTestStatus 1 }
+
+clMeshLtResultsEntry OBJECT-TYPE
+    SYNTAX          ClMeshLtResultsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the results
+        of the linktest identified by clMeshLtIndex."
+    INDEX           { clMeshLtIndex } 
+    ::= { clMeshLtResultsTable 1 }
+
+ClMeshLtResultsEntry ::= SEQUENCE {
+        clMeshLtTxPkts              Counter32,
+        clMeshLtRxPkts              Counter32,
+        clMeshLtRxGoodPkts          Counter32,
+        clMeshLtRxDupPkts           Counter32,
+        clMeshLtRxShortPkts         Counter32,
+        clMeshLtRxBigPkts           Counter32,
+        clMeshLtRxPhyErrPkts        Counter32,
+        clMeshLtRxCRCErrPkts        Counter32,
+        clMeshLtRxSeqErrPkts        Counter32,
+        clMeshLtRxAvgSNR            Integer32,
+        clMeshLtRxHighestSNR        Integer32,
+        clMeshLtRxLowestSNR         Integer32,
+        clMeshLtRxAvgNoiseFloor     Integer32,
+        clMeshLtRxHighestNoiseFloor Integer32,
+        clMeshLtRxLowestNoiseFloor  Integer32,
+        clMeshLtRxAvgRSSI           Integer32,
+        clMeshLtRxHighestRSSI       Integer32,
+        clMeshLtRxLowestRSSI        Integer32,
+        clMeshLtStatus              INTEGER
+}
+
+clMeshLtTxPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets sent to the destination
+        mesh node specified by clMeshLtDestMacAddress from AP 
+        specified by clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 1 }
+
+clMeshLtRxPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received by mesh
+        node specified by clMeshLtDestMacAddress from mesh 
+        node specified by clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 2 }
+
+clMeshLtRxGoodPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received without any
+        errors by mesh node specified by clMeshLtDestMacAddress 
+        from mesh node AP specified by clMeshLtSrcMacAddress ." 
+    ::= { clMeshLtResultsEntry 3 }
+
+clMeshLtRxDupPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received with same
+        sequence number by mesh node specified by 
+        clMeshLtDestMacAddress from mesh node specified by 
+        clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 4 }
+
+clMeshLtRxShortPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received that were
+        shorter than the 802.11 frame size by mesh node specified 
+        by clMeshLtDestMacAddress from mesh node specified by 
+        clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 5 }
+
+clMeshLtRxBigPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received that were
+        larger than the 802.11 frame size by mesh node specified 
+        by clMeshLtDestMacAddress from mesh node specified by 
+        clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 6 }
+
+clMeshLtRxPhyErrPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets with error detected at
+        physical layer received by mesh node specified by 
+        clMeshLtDestMacAddress from mesh node specified by 
+        clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 7 }
+
+clMeshLtRxCRCErrPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets with CRC error
+        received by mesh node specified by 
+        clMeshLtDestMacAddress from mesh node specified 
+        by clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 8 }
+
+clMeshLtRxSeqErrPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets that were received with
+        sequence number out of order by mesh node specified by 
+        clMeshLtDestMacAddress from mesh node specified by 
+        clMeshLtSrcMacAddress." 
+    ::= { clMeshLtResultsEntry 9 }
+
+clMeshLtRxAvgSNR OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average SNR value observed at the mesh node
+        specified by clMeshLtDestMacAddress." 
+    ::= { clMeshLtResultsEntry 10 }
+
+clMeshLtRxHighestSNR OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The highest SNR value observed at the mesh node
+        specified by clMeshLtDestMacAddress." 
+    ::= { clMeshLtResultsEntry 11 }
+
+clMeshLtRxLowestSNR OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The lowest SNR value observed at the mesh node specified
+        by clMeshLtDestMacAddress." 
+    ::= { clMeshLtResultsEntry 12 }
+
+clMeshLtRxAvgNoiseFloor OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average noise floor value observed at the
+        mesh node specified by clMeshLtDestMacAddress. 
+        The noise floor is the measure of the signal created 
+        from the sum of all the noise sources and unwanted 
+        signals within a measurement system." 
+    ::= { clMeshLtResultsEntry 13 }
+
+clMeshLtRxHighestNoiseFloor OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The highest Noise Floor value observed at the mesh node
+        specified by clMeshLtDestMacAddress. The noise floor is the 
+        measure of the signal created from the sum of all the 
+        noise sources and unwanted signals within a 
+        measurement system." 
+    ::= { clMeshLtResultsEntry 14 }
+
+clMeshLtRxLowestNoiseFloor OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The lowest Noise Floor value observed at the mesh node
+        specified by clMeshLtDestMacAddress. The noise floor is the 
+        measure of the signal created from the sum of all the
+        noise sources and unwanted signals within a 
+        measurement system." 
+    ::= { clMeshLtResultsEntry 15 }
+
+clMeshLtRxAvgRSSI OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average RSSI value observed at the mesh node
+        specified by clMeshLtDestMacAddress." 
+    ::= { clMeshLtResultsEntry 16 }
+
+clMeshLtRxHighestRSSI OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The highest RSSI value observed at the mesh node
+        specified by clMeshLtDestMacAddress." 
+    ::= { clMeshLtResultsEntry 17 }
+
+clMeshLtRxLowestRSSI OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The lowest RSSI value as observed at the mesh node
+        specified by clMeshLtDestMacAddress." 
+    ::= { clMeshLtResultsEntry 18 }
+
+clMeshLtStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        clMeshLtStatusFailed(1),
+                        clMeshLtStatusInProgress(2),
+                        clMeshLtStatusSuccess(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the linktest
+        this particular entry corresponds to.
+
+        The semantics as follows.
+
+        'clMeshLtStatusFailed' - This value indicates that
+        this particular linktest has failed. 
+
+        'clMeshLtStatusInProgress' - This value indicates
+        that the linktest is in progress.
+
+        'clMeshLtStatusSuccess' - This value indicates
+        that linktest has succeeded." 
+    ::= { clMeshLtResultsEntry 19 }
+ 
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappMeshLinkTestMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIBConform 1 }
+
+ciscoLwappMeshLinkTestMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappMeshLinkTestMIBConform 2 }
+
+
+ciscoLwappMeshLinkTestMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappMeshLinkTestMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappMeshLinkTestConfigGroup,
+                        ciscoLwappMeshLinkTestRunGroup
+                    }
+    ::= { ciscoLwappMeshLinkTestMIBCompliances 1 }
+
+ciscoLwappMeshLinkTestMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappMeshLinkTestMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappMeshLinkTestConfigGroup,
+                        ciscoLwappMeshLinkTestRunGroupRev1
+                    }
+    ::= { ciscoLwappMeshLinkTestMIBCompliances 2 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappMeshLinkTestConfigGroup OBJECT-GROUP
+    OBJECTS         { clMeshLtPurgeTime }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the linktest
+        parameters for configuration and result."
+    ::= { ciscoLwappMeshLinkTestMIBGroups 1 }
+
+ciscoLwappMeshLinkTestRunGroup OBJECT-GROUP
+    OBJECTS         {
+                        clMeshLtSrcMacAddress,
+                        clMeshLtDestMacAddress,
+                        clMeshLtDataRate,
+                        clMeshLtPktsPerSec,
+                        clMeshLtPktSize,
+                        clMeshLtDuration,
+                        clMeshLtRowStatus,
+                        clMeshLtTxPkts,
+                        clMeshLtRxPkts,
+                        clMeshLtRxGoodPkts,
+                        clMeshLtRxDupPkts,
+                        clMeshLtRxShortPkts,
+                        clMeshLtRxBigPkts,
+                        clMeshLtRxPhyErrPkts,
+                        clMeshLtRxCRCErrPkts,
+                        clMeshLtRxSeqErrPkts,
+                        clMeshLtRxAvgSNR,
+                        clMeshLtRxHighestSNR,
+                        clMeshLtRxLowestSNR,
+                        clMeshLtRxAvgNoiseFloor,
+                        clMeshLtRxHighestNoiseFloor,
+                        clMeshLtRxLowestNoiseFloor,
+                        clMeshLtRxAvgRSSI,
+                        clMeshLtRxHighestRSSI,
+                        clMeshLtRxLowestRSSI,
+                        clMeshLtStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects is used to initiate
+        linktests and retrieve the results of the respective
+        runs of the link test."
+    ::= { ciscoLwappMeshLinkTestMIBGroups 2 }
+    
+ciscoLwappMeshLinkTestRunGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        clMeshLtSrcMacAddress,
+                        clMeshLtDestMacAddress,
+                        clMeshLtDataRateValue,
+                        clMeshLtPktsPerSec,
+                        clMeshLtPktSize,
+                        clMeshLtDuration,
+                        clMeshLtRowStatus,
+                        clMeshLtTxPkts,
+                        clMeshLtRxPkts,
+                        clMeshLtRxGoodPkts,
+                        clMeshLtRxDupPkts,
+                        clMeshLtRxShortPkts,
+                        clMeshLtRxBigPkts,
+                        clMeshLtRxPhyErrPkts,
+                        clMeshLtRxCRCErrPkts,
+                        clMeshLtRxSeqErrPkts,
+                        clMeshLtRxAvgSNR,
+                        clMeshLtRxHighestSNR,
+                        clMeshLtRxLowestSNR,
+                        clMeshLtRxAvgNoiseFloor,
+                        clMeshLtRxHighestNoiseFloor,
+                        clMeshLtRxLowestNoiseFloor,
+                        clMeshLtRxAvgRSSI,
+                        clMeshLtRxHighestRSSI,
+                        clMeshLtRxLowestRSSI,
+                        clMeshLtStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects is used to initiate
+        linktests and retrieve the results of the respective
+        runs of the link test."
+    ::= { ciscoLwappMeshLinkTestMIBGroups 3 }
+
+
+END
+
+

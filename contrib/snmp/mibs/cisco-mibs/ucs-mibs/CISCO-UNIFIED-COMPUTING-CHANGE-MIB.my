@@ -1,0 +1,188 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-CHANGE-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- CHANGE management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-CHANGE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsChangeStatus,
+    CucsMoMoClassId
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsChangeObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        CHANGE management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 71 }
+
+cucsChangeChangedObjectRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsChangeChangedObjectRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef managed object table"
+    ::= { cucsChangeObjects 1 }
+
+cucsChangeChangedObjectRefEntry OBJECT-TYPE
+    SYNTAX           CucsChangeChangedObjectRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsChangeChangedObjectRefTable table."
+    INDEX { cucsChangeChangedObjectRefInstanceId }
+    ::= { cucsChangeChangedObjectRefTable 1 }
+
+CucsChangeChangedObjectRefEntry ::= SEQUENCE {
+    cucsChangeChangedObjectRefInstanceId                             CucsManagedObjectId,
+    cucsChangeChangedObjectRefDn                                     CucsManagedObjectDn,
+    cucsChangeChangedObjectRefRn                                     SnmpAdminString,
+    cucsChangeChangedObjectRefCentraleMoDn                           SnmpAdminString,
+    cucsChangeChangedObjectRefChangedMoClassId                       CucsMoMoClassId,
+    cucsChangeChangedObjectRefId                                     Gauge32,
+    cucsChangeChangedObjectRefOldCentraleMoDn                        SnmpAdminString,
+    cucsChangeChangedObjectRefRefObjStatus                           CucsChangeStatus,
+    cucsChangeChangedObjectRefUcsmMoDn                               SnmpAdminString,
+    cucsChangeChangedObjectRefGuid                                   SnmpAdminString
+}
+
+cucsChangeChangedObjectRefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsChangeChangedObjectRefEntry 1 }
+
+cucsChangeChangedObjectRefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:dn managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 2 }
+
+cucsChangeChangedObjectRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:rn managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 3 }
+
+cucsChangeChangedObjectRefCentraleMoDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:centraleMoDn
+        managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 4 }
+
+cucsChangeChangedObjectRefChangedMoClassId OBJECT-TYPE
+    SYNTAX       CucsMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:changedMoClassId
+        managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 5 }
+
+cucsChangeChangedObjectRefId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:id managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 6 }
+
+cucsChangeChangedObjectRefOldCentraleMoDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:oldCentraleMoDn
+        managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 7 }
+
+cucsChangeChangedObjectRefRefObjStatus OBJECT-TYPE
+    SYNTAX       CucsChangeStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:refObjStatus
+        managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 8 }
+
+cucsChangeChangedObjectRefUcsmMoDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:ucsmMoDn managed
+        object property"
+    ::= { cucsChangeChangedObjectRefEntry 9 }
+
+cucsChangeChangedObjectRefGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS change:ChangedObjectRef:guid managed object property"
+    ::= { cucsChangeChangedObjectRefEntry 10 }
+
+END

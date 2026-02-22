@@ -1,0 +1,639 @@
+-- MIB file created 15-Jun-2010 12:50:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-UDLDP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-UDLDP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex, ifName
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoUdldpMIB OBJECT IDENTIFIER ::= { ciscoMgmt 118 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200911090900Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    Cisco Uni Direction Link Detection Protocol
+--    MIB
+--  RevDate
+--    200911090900Z
+--  RevDescr
+--    Add ciscoUdldpFastHelloGroup, and
+--     ciscoUdldpFastHelloNotificationGroup.
+--  RevDate
+--    200711270000Z
+--  RevDescr
+--    Added new object cudldpHelloIntervalExt.
+--  RevDate
+--    200302210000Z
+--  RevDescr
+--    Changed enumerated integer labels in the
+--    cudldpInterfaceOperStatus object from 
+--    'bidirectional' to 'biDirectional' and 
+--    'notapplicable' to 'notApplicable'.
+--  RevDate
+--    200210100000Z
+--  RevDescr
+--    Added cudldpGlobalMode, cudldpInterfaceAdminMode
+--    and cudldpInterfaceOperMode objects. 
+--    Removed default values for 
+--    cudldpGlobalEnable, cudldpHelloInterval
+--    and udldpInterfaceEnable. Deprecated 
+--    cudldpGlobalEnable and cudldpInterfaceEnable
+--    cudldpInterfaceAggressiveMode objects.
+--  RevDate
+--    200004100000Z
+--  RevDescr
+--    Added two UDLDP AggressiveMode objects
+--  RevDate
+--    9811100000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoUdldpMIBNotifs OBJECT IDENTIFIER ::= { ciscoUdldpMIB 0 }
+ciscoUdldpMIBObjects OBJECT IDENTIFIER ::= { ciscoUdldpMIB 1 }
+cudldpGlobal    OBJECT IDENTIFIER ::= { ciscoUdldpMIBObjects 1 }
+cudldpInterface OBJECT IDENTIFIER ::= { ciscoUdldpMIBObjects 2 }
+cudldpFastHello OBJECT IDENTIFIER ::= { ciscoUdldpMIBObjects 3 }
+ciscoUdldpMIBConformance OBJECT IDENTIFIER ::= { ciscoUdldpMIB 3 }
+ciscoUdldpMIBCompliances OBJECT IDENTIFIER ::= { ciscoUdldpMIBConformance 1 }
+ciscoUdldpMIBGroups OBJECT IDENTIFIER ::= { ciscoUdldpMIBConformance 2 }
+
+cudldpGlobalEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "This variable is used to
+        enable(true)/disable(false) Uni Direction 
+        Link Detection Protocol on the device. 
+        cudldpGlobalEnable is deprecated  and
+        replaced with cudldpGlobalMode."
+    ::= { cudldpGlobal 1 }
+
+cudldpHelloInterval OBJECT-TYPE
+    SYNTAX INTEGER(7..90)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates interval in seconds at which each port
+        sends a hello packet to all of its neighbors at
+        steady state when the link has been identified as
+        bidirectional.
+        
+        For platforms which support cudldpHelloIntervalExt, when 
+        cudldpHelloIntervalExt reports a value less than the 
+        minimum value reportable by cudldpHelloInterval, then 
+        cudldpHelloInterval should report its minimum value of 7."
+    ::= { cudldpGlobal 2 }
+
+cudldpGlobalMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2),
+        aggressive(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the mode of UDLDP feature on the device.
+        enable -- Uni Direction Link Detection Protocol is 
+                  enabled on the device.
+        
+        disable -- Uni Directional Link Detection Protocol is
+                   disabled on the device.
+        
+        aggresive -- Uni Directional Link Detection protocol
+                     is enabled in aggressive mode on the
+                     device."
+    ::= { cudldpGlobal 3 }
+
+cudldpHelloIntervalExt OBJECT-TYPE
+    SYNTAX Gauge(1..90)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates interval in seconds at which each port
+        sends a hello packet to all of its neighbors at
+        steady state when the link has been identified as
+        bidirectional."
+    ::= { cudldpGlobal 4 }
+
+cudldpFastHelloLinkFailRptNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether 
+        cudldpFastHelloLinkFailRptNotification is generated by 
+        the system.
+        
+        Setting this object value to 'true' will enable
+        generation of cudldpFastHelloLinkFailRptNotification. 
+        
+        Seting this object value to 'false' will disable
+        generation of cudldpFastHelloLinkFailRptNotification."
+    ::= { cudldpGlobal 5 }
+
+cudldpFastHelloStatusChangeNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether 
+        cudldpFastHelloStatusChangeNotification is generated by 
+        the system.
+        
+        Setting this object value to 'true' will enable
+        generation of cudldpFastHelloStatusChangeNotification. 
+        
+        Seting this object value to 'false' will disable
+        generation of cudldpFastHelloStatusChangeNotification."
+    ::= { cudldpGlobal 6 }
+
+cudldpInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CudldpInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table containing the status
+        of UDLDP on the device's interfaces."
+    ::= { cudldpInterface 1 }
+
+cudldpInterfaceEntry OBJECT-TYPE
+    SYNTAX CudldpInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of cudldpInterfaceTable. An
+        entry exists for each interface that supports 
+        UDLDP."
+    INDEX { ifIndex }
+    ::= { cudldpInterfaceTable 1 }
+
+CudldpInterfaceEntry ::= SEQUENCE {
+    cudldpInterfaceEnable TruthValue,
+    cudldpInterfaceOperStatus INTEGER,
+    cudldpInterfaceAggressiveMode TruthValue,
+    cudldpInterfaceAdminMode INTEGER,
+    cudldpInterfaceOperMode INTEGER,
+    cudldpIfFastHelloInterval Gauge,
+    cudldpIfOperHelloInterval Gauge,
+    cudldpIfFastHelloOperStatus INTEGER
+    }
+
+cudldpInterfaceEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "This variable is used to enable UDLDP on this
+        interface.  If cudldpGlobalEnable is set to 
+        'false' then this variable has no effect.
+         cudldpInterfaceEnable is deprecated  and
+         replaced with cudldpInterfaceAdminMode."
+    ::= { cudldpInterfaceEntry 1 }
+
+cudldpInterfaceOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        shutdown(1),
+        indeterminant(2),
+        biDirectional(3),
+        notApplicable(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This mib object contains the following values,
+        which has the meaning as:
+        'shutdown'       - An Uni-Direction link  has been 
+                           detected and the port has been 
+                              disabled.
+        'indeterminant' - Uni-Direction Link Detection  
+                          protocol has not collected enough
+                          information to determine if the 
+                          link is bi directional or not.
+        'biDirectional' - A bi directional link has been 
+                           detected.
+        'notApplicable' - Uni-Direction Link Detection 
+                          Protocol is disabled."
+    ::= { cudldpInterfaceEntry 2 }
+
+cudldpInterfaceAggressiveMode OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "An indication of whether the UDLDP aggressive mode
+        is enabled on this interface. If the 
+        aggressive mode is set to 'true', an active port may 
+        be shutdown in case of the abrupt loss of its 
+        neighbor(s) because the loss of communication
+        (heartbeat) with the neighbor(s) is assumed to be
+        caused by a fault; thus, the cudldpInterfaceOperStatus
+        of the active port will be 'shutdown'. Instead, when
+        the aggressive mode is set to 'false', and if there
+        is a loss of communication with the neighbor(s), then
+        the cudldpInterfaceOperStatus of the active port
+        will be 'indeterminant'. 
+        Therefore, this mode is recommended 
+        only for links that don't use hubs, media converters 
+        or similar devices, and where the unexpected loss of 
+        the port's neighbor is not an admissible condition.
+        cudldpInterfaceAggressiveMode is deprecated  and
+        replaced with cudldpInterfaceAdminMode."
+    ::= { cudldpInterfaceEntry 3 }
+
+cudldpInterfaceAdminMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2),
+        aggressive(3),
+        default(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the Administrative mode of Uni Direction
+        Link Detection Protocol Feature configured on this 
+        interface.
+        
+        enable -- Uni Direction Link Detection Protocol is 
+                  enabled on this interface.
+        
+        disable -- Uni Direction Link Detection Protocol is
+                   disabled on this interface.
+        
+        aggressive -- Uni Direction Link Detection protocol
+                     is enabled in aggressive mode on this
+                     interface.
+        
+        default -- Whether the Uni Directiona Link Detection 
+                   protocol is enabled or not on this interface
+                   depends on the object value of 
+                   cudldpGlobalMode."
+    ::= { cudldpInterfaceEntry 4 }
+
+cudldpInterfaceOperMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2),
+        aggressive(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the operational mode of Uni Direction Link
+        Detection Protocol Feature on this interface."
+    ::= { cudldpInterfaceEntry 5 }
+
+cudldpIfFastHelloInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the fast hello interval at 
+         which each port sends a hello packet to all of its 
+         neighbors at steady state. By setting this object to 
+         a positive value, this interface is enabled to send
+         UDLD hello packet at a fast interval as specified by
+         this object value. 
+        
+         Setting this object to zero value, this interface is 
+         disabled to send UDLD hello packet at fast interval.
+         Instead, the interface will send the UDLD hello packet
+         at the interval as specified by cudldpHelloInterval object
+         (or cudldpHelloIntervalExt if a platform supports
+         cudldpHelloIntervalExt)."
+    ::= { cudldpInterfaceEntry 6 }
+
+cudldpIfOperHelloInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational interval value
+         at which each port sends a hello packet to all of its 
+         neighbors at steady state."
+    ::= { cudldpInterfaceEntry 7 }
+
+cudldpIfFastHelloOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        operational(1),
+        notOperational(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational status of
+         fast hello UDLD at this interface."
+    ::= { cudldpInterfaceEntry 8 }
+
+cudldpFastHelloErrorReportEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether error reporting is enabled or 
+         disabled when a fast hello UDLD link error is detected.
+        
+         'true' specifies that when a fast hello UDLD link error 
+         is detected, the link remains in its current state and 
+         a cudldpFastHelloLinkFailRptNotification event
+         will be triggered. 
+        
+         'false' specifies that when a fast hello UDLD link error is 
+         detected, the link will be automatically put in error-disable
+         state and no error report will be generated."
+    ::= { cudldpFastHello 1 }
+
+cudldpFastHelloMaxPorts OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of interfaces
+         that fast hello UDLD can be enabled to run.
+        
+         When the value of cudldpFastHelloConfigPorts reaches this
+         object value, enabling of fast hello UDLDP on additional 
+         interface will fail."
+    ::= { cudldpFastHello 2 }
+
+cudldpFastHelloConfigPorts OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of interfaces
+         that fast hello UDLD is currently enabled."
+    ::= { cudldpFastHello 3 }
+
+cudldpFastHelloOperationalPorts OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of interfaces
+         that fast hello UDLD is currently enabled and in operational
+         state."
+    ::= { cudldpFastHello 4 }
+
+cudldpFastHelloLinkFailRptNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUdldpMIB
+    VARIABLES {
+        ifName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when UDLDP detects
+         a link failure on a fast hello UDLD link and the value of
+         cudldpFastHelloErrorReportEnable is 'true'. ifName 
+         identifies the interface where the link failure is 
+         detected."
+    ::= 1
+
+cudldpFastHelloStatusChangeNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUdldpMIB
+    VARIABLES {
+        cudldpHelloInterval, cudldpIfFastHelloInterval, 
+        cudldpIfOperHelloInterval, cudldpIfFastHelloOperStatus, 
+        ifName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when there is a change
+         in the value of cudldpIfFastHelloOperStatus object.
+         cudldpHelloInterval provides the hello interval configured
+         at the device level. cudldpIfFastHelloInterval provides
+         the fast hello interval configured at the interface level.
+         cudldpIfOperHelloInterval indicates the hello interval
+         that is currently operational at this interface.
+         cudldpIfFastHelloOperStatus indicates the operational
+         status of UDLD fast hello at this interface. ifName 
+         identifies the interface that trigger the generation of
+         this notification."
+    ::= 2
+
+ciscoUdldpMIBGroup OBJECT IDENTIFIER ::= { ciscoUdldpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for use with the  Uni Direction
+--    Link Detection Protocol.
+--  objects
+--    cudldpGlobalEnable, cudldpInterfaceEnable, 
+--    cudldpInterfaceOperStatus
+
+ciscoUdldpAggreModeOptionalGroup OBJECT IDENTIFIER ::= { ciscoUdldpMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of optional objects providing UDLDP
+--    aggressive mode configuration information.
+--  objects
+--    cudldpInterfaceAggressiveMode, cudldpHelloInterval
+
+ciscoUdldpMIBGroup2 OBJECT IDENTIFIER ::= { ciscoUdldpMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Uni Direction
+--    Link Detection Protocol information.
+--  objects
+--    cudldpGlobalMode, cudldpInterfaceAdminMode, 
+--    cudldpInterfaceOperMode, cudldpHelloInterval, 
+--    cudldpInterfaceOperStatus
+
+ciscoUdldpMIBGroup3 OBJECT IDENTIFIER ::= { ciscoUdldpMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Uni Direction
+--    Link Detection Protocol information.
+--  objects
+--    cudldpHelloIntervalExt
+
+ciscoUdldpFastHelloGroup OBJECT IDENTIFIER ::= { ciscoUdldpMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which provides fast hello UDLD 
+--     information in the device.
+--  objects
+--    cudldpIfFastHelloInterval, cudldpIfOperHelloInterval, 
+--    cudldpIfFastHelloOperStatus, cudldpFastHelloErrorReportEnable, 
+--    cudldpFastHelloLinkFailRptNotifEnable, 
+--    cudldpFastHelloStatusChangeNotifEnable, 
+--    cudldpFastHelloMaxPorts, cudldpFastHelloConfigPorts, 
+--    cudldpFastHelloOperationalPorts
+
+ciscoUdldpFastHelloNotificationGroup OBJECT IDENTIFIER ::= { ciscoUdldpMIBGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications which provides fast hello
+--     UDLD notifications support in the device.
+--  notifications
+--    cudldpFastHelloLinkFailRptNotification, 
+--    cudldpFastHelloStatusChangeNotification
+
+ciscoUdldpMIBCompliance OBJECT IDENTIFIER ::= { ciscoUdldpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-UDLDP-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUdldpMIBGroup
+
+ciscoUdldpMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoUdldpMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-UDLDP-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUdldpMIBGroup
+--   OptGroup
+--    ciscoUdldpAggreModeOptionalGroup
+
+ciscoUdldpMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoUdldpMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-UDLDP-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUdldpMIBGroup2
+--   ObjVar
+--    cudldpGlobalMode
+--   ObjVar
+--    cudldpInterfaceAdminMode
+
+ciscoUdldpMIBComplianceRev3 OBJECT IDENTIFIER ::= { ciscoUdldpMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-UDLDP-MIB. This
+--     compliance statement is deprecated and superceded by
+--     ciscoUdldpMIBComplianceRev4.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUdldpMIBGroup2
+--   OptGroup
+--    ciscoUdldpMIBGroup3
+--   ObjVar
+--    cudldpGlobalMode
+--   ObjVar
+--    cudldpInterfaceAdminMode
+
+ciscoUdldpMIBComplianceRev4 OBJECT IDENTIFIER ::= { ciscoUdldpMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the CISCO-UDLDP-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUdldpMIBGroup2
+--   OptGroup
+--    ciscoUdldpMIBGroup3
+--   OptGroup
+--    ciscoUdldpFastHelloGroup
+--   OptGroup
+--    ciscoUdldpFastHelloNotificationGroup
+--   ObjVar
+--    cudldpGlobalMode
+--   ObjVar
+--    cudldpInterfaceAdminMode
+--   ObjVar
+--    cudldpHelloInterval
+--   ObjVar
+--    cudldpHelloIntervalExt
+--   ObjVar
+--    cudldpFastHelloLinkFailRptNotifEnable
+--   ObjVar
+--    cudldpFastHelloStatusChangeNotifEnable
+--   ObjVar
+--    cudldpIfFastHelloInterval
+--   ObjVar
+--    cudldpFastHelloErrorReportEnable
+
+
+END
+

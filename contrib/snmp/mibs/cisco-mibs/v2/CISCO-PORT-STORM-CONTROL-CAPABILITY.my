@@ -1,0 +1,229 @@
+-- *****************************************************************
+-- CISCO-PORT-STORM-CONTROL-CAPABILITY.my
+-- Cisco CISCO-PORT-STORM-CONTROL-MIB AGENT-CAPABILITIES
+--   
+-- July 2007, Srividya Thirumala
+--   
+-- Copyright (c) 2007-2012, 2014 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-PORT-STORM-CONTROL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoPortStormControlCapability MODULE-IDENTITY
+    LAST-UPDATED    "201404040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+            Tel: +1 800 553-NETS 
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-PORT-STORM-CONTROL-MIB."
+    REVISION        "201404040000Z"
+    DESCRIPTION
+        "Added capability statement cpscCapabilityV06R0002U0301PN3K."
+    REVISION        "201209070000Z"
+    DESCRIPTION
+        "Added capability statement cpscCapabilityV15R0101SYPCat6k."
+    REVISION        "201103240000Z"
+    DESCRIPTION
+        "Added capability statement cpscCapabilityV12R0233SXJPCat6k."
+    REVISION        "200707030000Z"
+    DESCRIPTION
+        "Added capability statement cpscCapabilityV12R0233SXHPCat6K."
+    REVISION        "200707020000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 542 }
+
+
+
+cpscCapabilityV12R0240SGCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(40)SG on Cat4K platform"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PORT-STORM-CONTROL-MIB capabilities"
+
+    SUPPORTS        CISCO-PORT-STORM-CONTROL-MIB
+    INCLUDES        {
+                        cpscConfigurationGroup,
+                        cpscStatusGroup,
+                        cpscNotificationGroup,
+                        cpscNotifConfigurationGroup,
+                        cpscStatisticsGroup
+                    }
+    VARIATION       cpscLowerThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object in this release."
+
+    VARIATION       cpscNotificationControl
+    SYNTAX          INTEGER  {
+                        none(1),
+                        both(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are supported."
+
+    VARIATION       cpscCurrentLevel
+    DESCRIPTION
+        "On an interface where storm control is supported in hardware,
+        this object is not supported."
+
+    ::= { ciscoPortStormControlCapability 1 }
+
+cpscCapabilityV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PORT-STORM-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-PORT-STORM-CONTROL-MIB
+    INCLUDES        {
+                        cpscConfigurationGroup,
+                        cpscStatisticsGroup
+                    }
+    VARIATION       cpscLowerThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object in this release."
+
+    VARIATION       cpscAction
+    SYNTAX          INTEGER  {
+                        filter(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    ::= { ciscoPortStormControlCapability 2 }
+
+cpscCapabilityV12R0233SXJPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXJ on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PORT-STORM-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-PORT-STORM-CONTROL-MIB
+    INCLUDES        {
+                        cpscConfigurationGroup,
+                        cpscStatusGroup,
+                        cpscNotificationGroupRev1,
+                        cpscNotifConfigurationGroup,
+                        cpscStatisticsGroup
+                    }
+    VARIATION       cpscLowerThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object in this release."
+
+    VARIATION       cpscNotificationControl
+    SYNTAX          INTEGER  {
+                        none(1),
+                        stormOccurred(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are supported."
+
+    VARIATION       cpscCurrentLevel
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    ::= { ciscoPortStormControlCapability 3 }
+
+cpscCapabilityV15R0101SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PORT-STORM-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-PORT-STORM-CONTROL-MIB
+    INCLUDES        {
+                        cpscConfigurationGroup,
+                        cpscStatusGroup,
+                        cpscNotificationGroupRev1,
+                        cpscNotifConfigurationGroup,
+                        cpscStatisticsGroup
+                    }
+    VARIATION       cpscLowerThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object in this release."
+
+    VARIATION       cpscNotificationControl
+    SYNTAX          INTEGER  {
+                        none(1),
+                        stormOccurred(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are supported."
+
+    VARIATION       cpscCurrentLevel
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    ::= { ciscoPortStormControlCapability 4 }
+
+cpscCapabilityV06R0002U0301PN3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.0(2)U3(1) on Nexus 3000."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PORT-STORM-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-PORT-STORM-CONTROL-MIB
+    INCLUDES        {
+                        cpscConfigurationGroup,
+                        cpscStatusGroup,
+                        cpscNotificationGroupRev1,
+                        cpscNotifConfigurationGroup,
+                        cpscStatisticsGroup
+                    }
+    VARIATION       cpscLowerThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cpscNotificationControl
+    SYNTAX          INTEGER  {
+                        none(1),
+                        stormOccurred(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       cpscCurrentLevel
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoPortStormControlCapability 5 }
+
+END
+
+
+
+
+
+

@@ -1,0 +1,682 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-FEATURE-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- FEATURE management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-FEATURE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsFeatureSupportabilityType
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsFeatureObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        FEATURE management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 77 }
+
+cucsFeatureContextEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureContextEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:ContextEp managed object table"
+    ::= { cucsFeatureObjects 1 }
+
+cucsFeatureContextEpEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureContextEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureContextEpTable table."
+    INDEX { cucsFeatureContextEpInstanceId }
+    ::= { cucsFeatureContextEpTable 1 }
+
+CucsFeatureContextEpEntry ::= SEQUENCE {
+    cucsFeatureContextEpInstanceId                                   CucsManagedObjectId,
+    cucsFeatureContextEpDn                                           CucsManagedObjectDn,
+    cucsFeatureContextEpRn                                           SnmpAdminString
+}
+
+cucsFeatureContextEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureContextEpEntry 1 }
+
+cucsFeatureContextEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:ContextEp:dn managed object property"
+    ::= { cucsFeatureContextEpEntry 2 }
+
+cucsFeatureContextEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:ContextEp:rn managed object property"
+    ::= { cucsFeatureContextEpEntry 3 }
+
+cucsFeatureDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:Definition managed object table"
+    ::= { cucsFeatureObjects 2 }
+
+cucsFeatureDefinitionEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureDefinitionTable table."
+    INDEX { cucsFeatureDefinitionInstanceId }
+    ::= { cucsFeatureDefinitionTable 1 }
+
+CucsFeatureDefinitionEntry ::= SEQUENCE {
+    cucsFeatureDefinitionInstanceId                                  CucsManagedObjectId,
+    cucsFeatureDefinitionDn                                          CucsManagedObjectDn,
+    cucsFeatureDefinitionRn                                          SnmpAdminString,
+    cucsFeatureDefinitionDescription                                 SnmpAdminString,
+    cucsFeatureDefinitionName                                        SnmpAdminString,
+    cucsFeatureDefinitionRevision                                    SnmpAdminString
+}
+
+cucsFeatureDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureDefinitionEntry 1 }
+
+cucsFeatureDefinitionDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Definition:dn managed object property"
+    ::= { cucsFeatureDefinitionEntry 2 }
+
+cucsFeatureDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Definition:rn managed object property"
+    ::= { cucsFeatureDefinitionEntry 3 }
+
+cucsFeatureDefinitionDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Definition:description managed object property"
+    ::= { cucsFeatureDefinitionEntry 4 }
+
+cucsFeatureDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Definition:name managed object property"
+    ::= { cucsFeatureDefinitionEntry 5 }
+
+cucsFeatureDefinitionRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Definition:revision managed object property"
+    ::= { cucsFeatureDefinitionEntry 6 }
+
+cucsFeatureDefinitionInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureDefinitionInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionInstance managed object table"
+    ::= { cucsFeatureObjects 3 }
+
+cucsFeatureDefinitionInstanceEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureDefinitionInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureDefinitionInstanceTable table."
+    INDEX { cucsFeatureDefinitionInstanceInstanceId }
+    ::= { cucsFeatureDefinitionInstanceTable 1 }
+
+CucsFeatureDefinitionInstanceEntry ::= SEQUENCE {
+    cucsFeatureDefinitionInstanceInstanceId                          CucsManagedObjectId,
+    cucsFeatureDefinitionInstanceDn                                  CucsManagedObjectDn,
+    cucsFeatureDefinitionInstanceRn                                  SnmpAdminString,
+    cucsFeatureDefinitionInstanceName                                SnmpAdminString,
+    cucsFeatureDefinitionInstanceRevision                            SnmpAdminString,
+    cucsFeatureDefinitionInstanceSupportability                      CucsFeatureSupportabilityType,
+    cucsFeatureDefinitionInstanceTargetDn                            SnmpAdminString
+}
+
+cucsFeatureDefinitionInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureDefinitionInstanceEntry 1 }
+
+cucsFeatureDefinitionInstanceDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionInstance:dn managed object property"
+    ::= { cucsFeatureDefinitionInstanceEntry 2 }
+
+cucsFeatureDefinitionInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionInstance:rn managed object property"
+    ::= { cucsFeatureDefinitionInstanceEntry 3 }
+
+cucsFeatureDefinitionInstanceName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionInstance:name managed
+        object property"
+    ::= { cucsFeatureDefinitionInstanceEntry 4 }
+
+cucsFeatureDefinitionInstanceRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionInstance:revision
+        managed object property"
+    ::= { cucsFeatureDefinitionInstanceEntry 5 }
+
+cucsFeatureDefinitionInstanceSupportability OBJECT-TYPE
+    SYNTAX       CucsFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionInstance:supportability
+        managed object property"
+    ::= { cucsFeatureDefinitionInstanceEntry 6 }
+
+cucsFeatureDefinitionInstanceTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionInstance:targetDn
+        managed object property"
+    ::= { cucsFeatureDefinitionInstanceEntry 7 }
+
+cucsFeatureDefinitionRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureDefinitionRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionRef managed object table"
+    ::= { cucsFeatureObjects 4 }
+
+cucsFeatureDefinitionRefEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureDefinitionRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureDefinitionRefTable table."
+    INDEX { cucsFeatureDefinitionRefInstanceId }
+    ::= { cucsFeatureDefinitionRefTable 1 }
+
+CucsFeatureDefinitionRefEntry ::= SEQUENCE {
+    cucsFeatureDefinitionRefInstanceId                               CucsManagedObjectId,
+    cucsFeatureDefinitionRefDn                                       CucsManagedObjectDn,
+    cucsFeatureDefinitionRefRn                                       SnmpAdminString,
+    cucsFeatureDefinitionRefName                                     SnmpAdminString,
+    cucsFeatureDefinitionRefRevision                                 SnmpAdminString,
+    cucsFeatureDefinitionRefSupportability                           CucsFeatureSupportabilityType,
+    cucsFeatureDefinitionRefTargetDn                                 SnmpAdminString
+}
+
+cucsFeatureDefinitionRefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureDefinitionRefEntry 1 }
+
+cucsFeatureDefinitionRefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionRef:dn managed object property"
+    ::= { cucsFeatureDefinitionRefEntry 2 }
+
+cucsFeatureDefinitionRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionRef:rn managed object property"
+    ::= { cucsFeatureDefinitionRefEntry 3 }
+
+cucsFeatureDefinitionRefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionRef:name managed object property"
+    ::= { cucsFeatureDefinitionRefEntry 4 }
+
+cucsFeatureDefinitionRefRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionRef:revision managed object property"
+    ::= { cucsFeatureDefinitionRefEntry 5 }
+
+cucsFeatureDefinitionRefSupportability OBJECT-TYPE
+    SYNTAX       CucsFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionRef:supportability
+        managed object property"
+    ::= { cucsFeatureDefinitionRefEntry 6 }
+
+cucsFeatureDefinitionRefTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:DefinitionRef:targetDn managed object property"
+    ::= { cucsFeatureDefinitionRefEntry 7 }
+
+cucsFeatureFruCapProviderInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureFruCapProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance managed object table"
+    ::= { cucsFeatureObjects 5 }
+
+cucsFeatureFruCapProviderInstanceEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureFruCapProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureFruCapProviderInstanceTable table."
+    INDEX { cucsFeatureFruCapProviderInstanceInstanceId }
+    ::= { cucsFeatureFruCapProviderInstanceTable 1 }
+
+CucsFeatureFruCapProviderInstanceEntry ::= SEQUENCE {
+    cucsFeatureFruCapProviderInstanceInstanceId                      CucsManagedObjectId,
+    cucsFeatureFruCapProviderInstanceDn                              CucsManagedObjectDn,
+    cucsFeatureFruCapProviderInstanceRn                              SnmpAdminString,
+    cucsFeatureFruCapProviderInstanceModel                           SnmpAdminString,
+    cucsFeatureFruCapProviderInstanceRevision                        SnmpAdminString,
+    cucsFeatureFruCapProviderInstanceSupportability                  CucsFeatureSupportabilityType,
+    cucsFeatureFruCapProviderInstanceTargetDn                        SnmpAdminString,
+    cucsFeatureFruCapProviderInstanceVendor                          SnmpAdminString
+}
+
+cucsFeatureFruCapProviderInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureFruCapProviderInstanceEntry 1 }
+
+cucsFeatureFruCapProviderInstanceDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance:dn managed
+        object property"
+    ::= { cucsFeatureFruCapProviderInstanceEntry 2 }
+
+cucsFeatureFruCapProviderInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance:rn managed
+        object property"
+    ::= { cucsFeatureFruCapProviderInstanceEntry 3 }
+
+cucsFeatureFruCapProviderInstanceModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance:model
+        managed object property"
+    ::= { cucsFeatureFruCapProviderInstanceEntry 4 }
+
+cucsFeatureFruCapProviderInstanceRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance:revision
+        managed object property"
+    ::= { cucsFeatureFruCapProviderInstanceEntry 5 }
+
+cucsFeatureFruCapProviderInstanceSupportability OBJECT-TYPE
+    SYNTAX       CucsFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance:supportability
+        managed object property"
+    ::= { cucsFeatureFruCapProviderInstanceEntry 6 }
+
+cucsFeatureFruCapProviderInstanceTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance:targetDn
+        managed object property"
+    ::= { cucsFeatureFruCapProviderInstanceEntry 7 }
+
+cucsFeatureFruCapProviderInstanceVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderInstance:vendor
+        managed object property"
+    ::= { cucsFeatureFruCapProviderInstanceEntry 8 }
+
+cucsFeatureFruCapProviderRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureFruCapProviderRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef managed object table"
+    ::= { cucsFeatureObjects 6 }
+
+cucsFeatureFruCapProviderRefEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureFruCapProviderRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureFruCapProviderRefTable table."
+    INDEX { cucsFeatureFruCapProviderRefInstanceId }
+    ::= { cucsFeatureFruCapProviderRefTable 1 }
+
+CucsFeatureFruCapProviderRefEntry ::= SEQUENCE {
+    cucsFeatureFruCapProviderRefInstanceId                           CucsManagedObjectId,
+    cucsFeatureFruCapProviderRefDn                                   CucsManagedObjectDn,
+    cucsFeatureFruCapProviderRefRn                                   SnmpAdminString,
+    cucsFeatureFruCapProviderRefModel                                SnmpAdminString,
+    cucsFeatureFruCapProviderRefRevision                             SnmpAdminString,
+    cucsFeatureFruCapProviderRefSupportability                       CucsFeatureSupportabilityType,
+    cucsFeatureFruCapProviderRefTargetDn                             SnmpAdminString,
+    cucsFeatureFruCapProviderRefVendor                               SnmpAdminString
+}
+
+cucsFeatureFruCapProviderRefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureFruCapProviderRefEntry 1 }
+
+cucsFeatureFruCapProviderRefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef:dn managed object property"
+    ::= { cucsFeatureFruCapProviderRefEntry 2 }
+
+cucsFeatureFruCapProviderRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef:rn managed object property"
+    ::= { cucsFeatureFruCapProviderRefEntry 3 }
+
+cucsFeatureFruCapProviderRefModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef:model managed
+        object property"
+    ::= { cucsFeatureFruCapProviderRefEntry 4 }
+
+cucsFeatureFruCapProviderRefRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef:revision managed
+        object property"
+    ::= { cucsFeatureFruCapProviderRefEntry 5 }
+
+cucsFeatureFruCapProviderRefSupportability OBJECT-TYPE
+    SYNTAX       CucsFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef:supportability
+        managed object property"
+    ::= { cucsFeatureFruCapProviderRefEntry 6 }
+
+cucsFeatureFruCapProviderRefTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef:targetDn managed
+        object property"
+    ::= { cucsFeatureFruCapProviderRefEntry 7 }
+
+cucsFeatureFruCapProviderRefVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:FruCapProviderRef:vendor managed
+        object property"
+    ::= { cucsFeatureFruCapProviderRefEntry 8 }
+
+cucsFeatureProviderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:Provider managed object table"
+    ::= { cucsFeatureObjects 7 }
+
+cucsFeatureProviderEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureProviderTable table."
+    INDEX { cucsFeatureProviderInstanceId }
+    ::= { cucsFeatureProviderTable 1 }
+
+CucsFeatureProviderEntry ::= SEQUENCE {
+    cucsFeatureProviderInstanceId                                    CucsManagedObjectId,
+    cucsFeatureProviderDn                                            CucsManagedObjectDn,
+    cucsFeatureProviderRn                                            SnmpAdminString,
+    cucsFeatureProviderName                                          SnmpAdminString
+}
+
+cucsFeatureProviderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureProviderEntry 1 }
+
+cucsFeatureProviderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Provider:dn managed object property"
+    ::= { cucsFeatureProviderEntry 2 }
+
+cucsFeatureProviderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Provider:rn managed object property"
+    ::= { cucsFeatureProviderEntry 3 }
+
+cucsFeatureProviderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:Provider:name managed object property"
+    ::= { cucsFeatureProviderEntry 4 }
+
+cucsFeatureProviderInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFeatureProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS feature:ProviderInstance managed object table"
+    ::= { cucsFeatureObjects 8 }
+
+cucsFeatureProviderInstanceEntry OBJECT-TYPE
+    SYNTAX           CucsFeatureProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFeatureProviderInstanceTable table."
+    INDEX { cucsFeatureProviderInstanceInstanceId }
+    ::= { cucsFeatureProviderInstanceTable 1 }
+
+CucsFeatureProviderInstanceEntry ::= SEQUENCE {
+    cucsFeatureProviderInstanceInstanceId                            CucsManagedObjectId,
+    cucsFeatureProviderInstanceDn                                    CucsManagedObjectDn,
+    cucsFeatureProviderInstanceRn                                    SnmpAdminString,
+    cucsFeatureProviderInstanceName                                  SnmpAdminString,
+    cucsFeatureProviderInstanceOperProviderDn                        SnmpAdminString
+}
+
+cucsFeatureProviderInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFeatureProviderInstanceEntry 1 }
+
+cucsFeatureProviderInstanceDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:ProviderInstance:dn managed object property"
+    ::= { cucsFeatureProviderInstanceEntry 2 }
+
+cucsFeatureProviderInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:ProviderInstance:rn managed object property"
+    ::= { cucsFeatureProviderInstanceEntry 3 }
+
+cucsFeatureProviderInstanceName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:ProviderInstance:name managed object property"
+    ::= { cucsFeatureProviderInstanceEntry 4 }
+
+cucsFeatureProviderInstanceOperProviderDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS feature:ProviderInstance:operProviderDn
+        managed object property"
+    ::= { cucsFeatureProviderInstanceEntry 5 }
+
+END

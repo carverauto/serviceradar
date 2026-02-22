@@ -1,0 +1,15 @@
+module viptela-policy-ann {
+  namespace "http://viptela.com/policy-ann";
+  prefix viptela-policy-ann;
+
+  import viptela-policy {
+    prefix policy;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "Defines annotations for policy module";
+}

@@ -1,0 +1,418 @@
+-- *****************************************************************
+-- CISCO-IETF-DOT11-QOS-EXT-MIB.my: CISCO IEEE 802.11E draft 
+-- QOS extension MIB file
+--
+-- April 2002, Francis Pang 
+--
+-- Copyright (c) 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+-- This MIB is a Cisco extension to the QoS MIB in
+-- IEEE 802.11e/D1.42.0, October November 2001,
+-- "Draft Supplement to STANDARD FOR Telecommunications and 
+-- Information Exchange Between Systems - 
+-- LAN/MAN Specific Requirements - 
+-- Part 11: Wireless Medium Access Control (MAC) 
+-- and physical layer (PHY) specifications: 
+-- Medium Access Control (MAC) Enhancements for
+-- Quality of Service (QoS)".
+-- Both the standard and the MIB are still under development.
+
+CISCO-IETF-DOT11-QOS-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TruthValue
+                FROM SNMPv2-TC
+        ifIndex
+                FROM IF-MIB
+        cid11TrafficCategory,
+        cid11TrafficPriority,
+        Cid11QosTrafficCategory
+                FROM CISCO-IETF-DOT11-QOS-MIB
+        cwvlWlanVlanEntry
+                FROM CISCO-WLAN-VLAN-MIB
+        ciscoExperiment
+                FROM CISCO-SMI;
+
+
+
+ciscoIetfDot11QosExtMIB MODULE-IDENTITY
+        LAST-UPDATED    "200204010000Z"
+        ORGANIZATION    "Cisco System Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive,
+                        San Jose CA 95134-1706.
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-dot11@cisco.com"
+        DESCRIPTION
+                "This MIB module provides network management 
+                support for QoS on IEEE 802.11 wireless LAN 
+                devices. This MIB is an extension to QoS MIB 
+                defined in IEEE 802.11E standard."
+--      REFERENCE
+--              "CISCO-IETF-DOT11-QOS-MIB. IEEE 802.11e/D1.42.0, 
+--              October November 2001, Draft Supplement to 
+--              STANDARD FOR Telecommunications and Information 
+--              Exchange Between Systems 
+--              - LAN/MAN Specific Requirements -
+--              Part 11: Wireless Medium Access Control (MAC)
+--              and physical layer (PHY) specifications:
+--              Medium Access Control (MAC) Enhancements for
+--              Quality of Service (QoS)".
+
+        REVISION        "200204010000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoExperiment 90 }
+
+
+
+ciscoIetfDot11QosExtMIBNotifs    OBJECT IDENTIFIER
+        ::= { ciscoIetfDot11QosExtMIB 0 }
+
+ciscoIetfDot11QosExtMIBObjects   OBJECT IDENTIFIER 
+        ::= { ciscoIetfDot11QosExtMIB 1 }
+
+ciscoIetfDot11QosExtMIBConform   OBJECT IDENTIFIER 
+        ::= { ciscoIetfDot11QosExtMIB 2 }
+
+cid11QosExtConfig       OBJECT IDENTIFIER 
+        ::= { ciscoIetfDot11QosExtMIBObjects 1 }
+
+cid11QosExtQueue        OBJECT IDENTIFIER 
+        ::= { ciscoIetfDot11QosExtMIBObjects 2 }
+
+cid11QosExtNotifControl OBJECT IDENTIFIER 
+        ::= { ciscoIetfDot11QosExtMIBObjects 3 }
+
+
+-- Configuration Objects
+
+cid11QosExtConfigTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cid11QosExtConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table contains the basic set of attributes
+                to configure QoS for a wireless LAN device. This
+                table has a sparse dependent relationship with
+                the ifTable. Each IEEE 802.11 wireless interface
+                has a set of configuration parameters for each IP
+                network traffic category. For each entry in this
+                table, there exists an entry in the ifTable of
+                ifType ieee80211(71)."
+        ::= { cid11QosExtConfig 1 }
+
+cid11QosExtConfigEntry OBJECT-TYPE
+        SYNTAX     Cid11QosExtConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry contains parameters to configure
+                traffic control on an IEEE 802.11 radio 
+                interface."
+        INDEX      { 
+                ifIndex, 
+                cid11TrafficCategory }
+        ::= { cid11QosExtConfigTable 1 }
+
+Cid11QosExtConfigEntry ::=
+        SEQUENCE {
+                cid11QosExtBackoffOffset  Unsigned32,
+                cid11QosExtMaxRetry       Unsigned32 }
+
+cid11QosExtBackoffOffset OBJECT-TYPE
+        SYNTAX     Unsigned32(0..20)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This specifies the offset of the radio
+                backoff from the transmission media for 
+                this traffic category. The backoff interval 
+                of a radio is calculated from a pseudo 
+                random integer drawn from a uniform 
+                distribution over the interval determined
+                by the maximum and minimum of the contention 
+                window."
+        DEFVAL     { 0 }
+        ::= { cid11QosExtConfigEntry 1 }
+
+cid11QosExtMaxRetry OBJECT-TYPE
+        SYNTAX     Unsigned32(0..65535)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This specifies the number of times the radio  
+                retries for a particular transmission if there
+                is a collision for the media."
+        DEFVAL     { 0 }
+        ::= { cid11QosExtConfigEntry 2 }
+ 
+
+cid11QosExtIfConfigTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cid11QosExtIfConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "This table contains the attributes indicating
+                QoS support information on the IEEE 802.11 
+                radio interfaces. This table has a sparse 
+                dependent relationship with the ifTable.
+                For each entry in this table, there exists
+                an entry in the ifTable of ifType ieee80211(71)."
+        ::= { cid11QosExtConfig 2 }
+
+cid11QosExtIfConfigEntry OBJECT-TYPE
+        SYNTAX     Cid11QosExtIfConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "Each entry contains attributes to configure 
+                QoS for an IEEE 802.11 interface."
+        INDEX      { ifIndex }
+        ::= { cid11QosExtIfConfigTable 1 }
+
+Cid11QosExtIfConfigEntry ::=
+        SEQUENCE {
+                cid11QosExtOptionEnabled  TruthValue }
+
+cid11QosExtOptionEnabled OBJECT-TYPE
+        SYNTAX     TruthValue 
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION   
+                "This object indicates if QoS is enabled
+                on this IEEE 802.11 network interface. If it
+                is 'true', QoS queueing is on and traffic is
+                prioritized according to traffic categories.
+                It it is 'false', there is no QoS queueing 
+                and traffic is not prioritized."
+        ::= { cid11QosExtIfConfigEntry 1 }
+
+cid11QosExtVlanTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cid11QosExtVlanEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table contains attributes for traffic 
+                classification of VLANs.  This table has a
+                one-to-one dependent relationship to the
+                cwvlWlanVlanTable in the CISCO-WLAN-VLAN-MIB."
+        ::= { cid11QosExtConfig 3 }
+
+cid11QosExtVlanEntry OBJECT-TYPE
+        SYNTAX     Cid11QosExtVlanEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry includes parameters determining the
+                class of service (category) of the traffic and
+                QoS configuration on the VLAN."
+        AUGMENTS   { cwvlWlanVlanEntry }
+        ::= { cid11QosExtVlanTable 1 }
+
+
+Cid11QosExtVlanEntry ::= 
+        SEQUENCE {
+                cid11QosExtVlanClassOfService  
+                        Cid11QosTrafficCategory }
+                                
+
+cid11QosExtVlanClassOfService OBJECT-TYPE
+        SYNTAX     Cid11QosTrafficCategory 
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "This is the class of service classification to 
+                the traffic transmitting on this VLAN.  The class 
+                of service determines the priority of the traffic.
+                The default VLAN for voice traffic is '4095', and 
+                the default service classification is 
+                'interactiveVoice'.  The classification on the VLAN 
+                '4095' cannot be modified by the network management 
+                system.  The service classification on all other 
+                VLANs are 'bestEffort'."
+        DEFVAL     { bestEffort }
+        ::= { cid11QosExtVlanEntry 1 }
+
+
+-- QoS Queue Objects
+
+cid11QosExtQueueTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cid11QosExtQueueEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "This table contains the priority queue   
+                configuration attributes for IEEE 802.11 radio
+                interface. This table has a sparse dependent 
+                relationship with the ifTable. For each entry 
+                in this table, there exists an entry in the 
+                ifTable of ifType ieee80211(71)."
+        ::= { cid11QosExtQueue 1 }
+
+cid11QosExtQueueEntry OBJECT-TYPE
+        SYNTAX     Cid11QosExtQueueEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "A collection of attributes to configure the
+                priority queues for each traffic category
+                on an IEEE 802.11 interface."
+        INDEX      { 
+                ifIndex, 
+                cid11TrafficCategory }
+        ::= { cid11QosExtQueueTable 1 }
+
+Cid11QosExtQueueEntry ::=
+        SEQUENCE {
+                cid11QosExtQueueQuota  Unsigned32 }
+
+cid11QosExtQueueQuota OBJECT-TYPE
+        SYNTAX     Unsigned32(0..12)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the current QoS priority queue packet 
+                quota for the traffic category on the overall 
+                bandwidth. The total quota is 12 and is shared 
+                among 8 transmitting queues. The queue with the 
+                largest quota value has the largest share of 
+                the overall bandwidth of the radio. The quota
+                is allocated by the radio driver dynamically."
+        DEFVAL     { 0 }
+        ::= { cid11QosExtQueueEntry 1 }
+
+
+-- Notification Control Objects
+
+cid11QosExtNotifEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+               "Indicates whether ciscoIetfDot11QosExtChangeNotif
+                notifications will or will not be sent by the
+                agent when the QoS configuration in the 
+                cid11QosExtIfConfigTable and cid11QosConfigTable
+                defined in the CISCO-IETF-DOT11-QOS-MIB  
+                are changed."
+        DEFVAL     { false }
+        ::= { cid11QosExtNotifControl 1 }
+
+
+
+-- *****************************************************************
+-- notifications
+-- *****************************************************************
+
+ciscoIetfDot11QosExtChangeNotif NOTIFICATION-TYPE
+        OBJECTS {
+                cid11TrafficPriority }
+        STATUS     current
+        DESCRIPTION
+                "This ciscoIetfDot11QosExtChangeNotif notification 
+                will be sent when the QoS configuration 
+                in the cid11QosExtIfConfigTable or the 
+                cid11QosConfigTable defined in the
+                CISCO-IETF-DOT11-QOS-MIB are changed.  The object 
+                cid11TrafficPriority defined in the 
+                cid11QosConfigTable specifies the traffic priority 
+                of the configuration that changed.  The sending of 
+                these notifications can be enabled or disabled via 
+                the cid11QosExtNotifEnabled object."
+        ::= { ciscoIetfDot11QosExtMIBNotifs 1 }
+
+        
+-- *****************************************************************
+--   Conformance information
+-- *****************************************************************
+
+ciscoIetfD11QosExtMIBCompliances OBJECT IDENTIFIER 
+        ::= { ciscoIetfDot11QosExtMIBConform 1 }
+
+ciscoIetfD11QosExtMIBGroups      OBJECT IDENTIFIER 
+        ::= { ciscoIetfDot11QosExtMIBConform 2 }
+
+
+-- *****************************************************************
+--   Compliance statements
+-- *****************************************************************
+
+
+ciscoIetfD11QosExtMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the 
+                configuration and status groups."
+        MODULE 
+        MANDATORY-GROUPS { 
+                ciscoIetfD11QosExtConfigGroup,
+                ciscoIetfD11QosExtQueueGroup,
+                ciscoIetfD11QosExtNotifConGroup, 
+                ciscoIetfD11QosExtNotifGroup } 
+        ::= { ciscoIetfD11QosExtMIBCompliances 1 }
+
+
+
+-- *****************************************************************
+--   Units of conformance
+-- *****************************************************************
+
+ciscoIetfD11QosExtConfigGroup OBJECT-GROUP
+        OBJECTS { 
+                cid11QosExtBackoffOffset,
+                cid11QosExtMaxRetry,
+                cid11QosExtOptionEnabled, 
+                cid11QosExtVlanClassOfService }
+        STATUS     current
+        DESCRIPTION
+                "Configurations for IEEE 802.11 QoS."
+        ::= { ciscoIetfD11QosExtMIBGroups 1 }
+
+
+ciscoIetfD11QosExtQueueGroup OBJECT-GROUP
+        OBJECTS {
+                cid11QosExtQueueQuota }
+        STATUS     current
+        DESCRIPTION
+                "Configurations for IEEE 802.11 QoS queue."
+        ::= { ciscoIetfD11QosExtMIBGroups 2 }
+
+
+ciscoIetfD11QosExtNotifConGroup OBJECT-GROUP
+        OBJECTS { 
+                cid11QosExtNotifEnabled }
+        STATUS     current
+        DESCRIPTION
+                "Notification control for IEEE 802.11 QoS."
+        ::= { ciscoIetfD11QosExtMIBGroups 3 }
+
+ciscoIetfD11QosExtNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+                ciscoIetfDot11QosExtChangeNotif }
+        STATUS     current
+        DESCRIPTION
+                "This is the notification group for the
+                CISCO-IETF-DOT11-QOS-EXT-MIB."
+        ::= { ciscoIetfD11QosExtMIBGroups 4 }
+
+END
+

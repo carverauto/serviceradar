@@ -1,0 +1,709 @@
+-- ********************************************************************
+-- CISCO-VOICE-CONNECTIVITY-MIB.my: Cisco Voice Connectivity MIB file.
+--
+-- June 2003, Chandresh Patel   
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+CISCO-VOICE-CONNECTIVITY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP, 
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        DateAndTime, 
+        TruthValue, 
+        MacAddress,
+        AutonomousType,
+        RowPointer
+                FROM SNMPv2-TC
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        ciscoMgmt
+                FROM CISCO-SMI 
+        IANAifType
+                FROM IANAifType-MIB
+        InetAddressType, 
+        InetAddress
+                FROM INET-ADDRESS-MIB;
+
+ciscoVoiceConnectivityMIB MODULE-IDENTITY
+        LAST-UPDATED        "200509130000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-itm@cisco.com"
+        DESCRIPTION
+                "This MIB module provides connectivity related
+                information for devices (e.g., 'connectivity between 
+                voice gateway, phones, gatekeepers and call processing 
+                agent').  The MIB can be used by network management 
+                applications to collect the information regarding voice 
+                connectivity among the devices in the network.  The MIB 
+                can also be used to retrieve the status of voice 
+                connectivity between the devices.    
+                
+                *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+                
+                SCCP -  Skinny Client Control Protocol
+
+                SGCP -  Simple Gateway Control Protocol
+
+                MGCP -  Media Gateway Control Protocol
+
+                H323 -  H.323 protocol
+
+                SIP  -  Session Initiation Protocol
+
+                
+                *** DEFINITIONS ***
+
+                CALL AGENT
+                A call processing agent component of a device in IP 
+                telephony and VoIP network.
+                
+                PORT
+                A port on the device that is associated with call 
+                processing agent.
+                
+                REGISTRATION
+                In an IP telephony network, there are typically keep-
+                alive messages or expected registration refresh timers
+                that are used to formulate the registration status of 
+                devices and/or users.  
+                Possible values of the registration status are as 
+                follows:
+                registered:   The port has successfully registered with
+                              the call agent
+        
+                unregistered: The port is no longer registered with the
+                              call agent
+            
+                rejected:     Registration request from the port was 
+                              rejected by the call agent."
+        REVISION        "200509130000Z"
+        DESCRIPTION
+            "The initial version of this MIB module."
+    ::= { ciscoMgmt 393 }
+
+ciscoVoiceConnectivityMIBNotifs  OBJECT IDENTIFIER
+                  ::= { ciscoVoiceConnectivityMIB 0 }
+     
+ciscoVoiceConnectivityMIBObjects  OBJECT IDENTIFIER 
+                  ::=  { ciscoVoiceConnectivityMIB 1 }
+
+ciscoVoiceConnectivityMIBConform  OBJECT IDENTIFIER 
+                  ::=  { ciscoVoiceConnectivityMIB 2 }
+
+cvcCallAgent  OBJECT IDENTIFIER 
+                  ::= { ciscoVoiceConnectivityMIBObjects 1 } 
+
+cvcPort  OBJECT IDENTIFIER 
+                  ::= { ciscoVoiceConnectivityMIBObjects 2 }
+
+cvcCallAgentConnection  OBJECT IDENTIFIER 
+                  ::= { ciscoVoiceConnectivityMIBObjects 3 }
+
+cvcNotif  OBJECT IDENTIFIER 
+                  ::= { ciscoVoiceConnectivityMIBObjects 4 }
+
+    
+cvcCallAgentTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CvcCallAgentEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+    "This table contains information about call agents.
+
+    When the network management subsystem implements this MIB, this
+    table lists the call agents that exist in this system.
+
+    This table will contain one entry per call agent.
+
+    When systems other than those hosting call agents implement this 
+    MIB, this table will contain the list of call agents to which ports
+    of this system are associated.  The entries would be representative
+    of remote call agents.
+
+    For example, if a device is a voice gateway having a T1 port 
+    associated with three call processing agents, then this table 
+    will have three entries representing each of the three call 
+    processing agents.
+
+    The network management subsystem adds conceptual rows to this table
+    for every call agent."
+    ::= { cvcCallAgent 1 }
+
+cvcCallAgentEntry OBJECT-TYPE
+    SYNTAX      CvcCallAgentEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry (conceptual row) in the cvcCallAgent table, providing
+        associated call agent information such as call agent's IP 
+        address and its type." 
+    INDEX  { cvcCallAgentIndex }
+    ::= { cvcCallAgentTable 1 }
+
+CvcCallAgentEntry ::= SEQUENCE {
+    cvcCallAgentIndex            Unsigned32,
+    cvcCallAgentName             SnmpAdminString,
+    cvcCallAgentInetAddressType  InetAddressType,
+    cvcCallAgentInetAddress      InetAddress,
+    cvcCallAgentType             AutonomousType
+
+}
+
+cvcCallAgentIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..4294967295)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An arbitrary integer, a unique value for each call agent
+        associated with the device."
+    ::= { cvcCallAgentEntry 1 }
+
+cvcCallAgentName   OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE(0..128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates name of the call agent given by call
+        agent administrator."
+    ::= { cvcCallAgentEntry 2 }
+
+cvcCallAgentInetAddressType  OBJECT-TYPE
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object reflects a particular type of internet address and
+        provides the context for interpreting one or more address 
+        objects elsewhere in this MIB module."  
+    REFERENCE
+        "RFC 3291, section 3"
+    ::= { cvcCallAgentEntry 3 }
+
+cvcCallAgentInetAddress  OBJECT-TYPE
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the IP address of the call agent. The
+        type of internet address is indicated by the value of 
+        cvcCallAgentInetAddressType."
+    REFERENCE
+        "RFC 3291, section 3"
+    ::= { cvcCallAgentEntry 4 }
+
+cvcCallAgentType   OBJECT-TYPE
+    SYNTAX      AutonomousType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the type of call agent.  A list of call
+        agent types can be found in the 
+        CISCO-VOICE-APPLICATIONS-OID-MIB."
+    ::= { cvcCallAgentEntry 5 }
+
+
+
+cvcPortTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CvcPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+    "This table contains information about ports.
+
+    When the network management subsystem implements this MIB, this
+    table lists all the ports associated with the call agents listed
+    in cvcCallAgentTable.
+
+    When systems other than those hosting call agents implement this
+    MIB, this table will contain information of all the ports of the 
+    system,associated with the call agents listed in cvcCallAgentTable.
+
+    The network management subsystem adds conceptual rows to this table
+    for every port associated to call agent."
+    ::= { cvcPort 1 }
+
+cvcPortEntry OBJECT-TYPE
+    SYNTAX      CvcPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry (conceptual row) in the port table, providing the
+        port or interface information such as name, IP address, type,
+        MAC address, type of the device containing this port and 
+        protocol used by the port."
+    INDEX  { cvcPortIndex }
+    ::= { cvcPortTable 1 }
+
+CvcPortEntry ::= SEQUENCE {
+    cvcPortIndex                    Unsigned32,
+    cvcPortAssociation              RowPointer,
+    cvcPortDeviceName               SnmpAdminString,
+    cvcPortInetAddressType          InetAddressType,
+    cvcPortInetAddress              InetAddress,
+    cvcPortMACAddress               MacAddress,
+    cvcPortType                     IANAifType,
+    cvcProductCategory              INTEGER,
+    cvcProtocol                     INTEGER,    
+    cvcVirtualInterfaceDN           SnmpAdminString
+}
+
+cvcPortIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..4294967295)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An arbitrary integer value uniquely identifying each physical
+        or virtual port of the device associated with call agent."
+    ::= { cvcPortEntry 1 }
+
+cvcPortAssociation OBJECT-TYPE
+    SYNTAX      RowPointer
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "An association to conceptual row of the port define within 
+        another MIB group.  This can be used to get more information 
+        about the port defined in other MIB group.  For example, to get
+        more information about the T1 port defined in this table, this
+        attribute points to a row in ifTable for that T1 port, e.g 
+        value for this attribute will be 'ifIndex.5'."
+    ::= { cvcPortEntry 2 }
+
+cvcPortDeviceName OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The device name under which this port has been registered with
+        call agent.  This is a mandatory field that represents the 
+        port."
+    ::= { cvcPortEntry 3 }
+
+cvcPortInetAddressType OBJECT-TYPE  
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object reflects a particular type of internet address and
+        provides the context for interpreting one or more address 
+        objects elsewhere in this MIB module."  
+    REFERENCE
+        "RFC 3291, section 3"
+    ::= { cvcPortEntry 4 }
+
+cvcPortInetAddress  OBJECT-TYPE
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the IP address of the port. The type of
+        internet address is indicated bythe value of 
+        cvcPortInetAddressType."
+    REFERENCE
+        "RFC 3291, section 3"
+    ::= { cvcPortEntry 5 }
+
+cvcPortMACAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the MAC address of the port.  For ports
+        which do not have such an address, this object should contain
+        an octet string of zero length."
+    ::= { cvcPortEntry 6 }
+
+cvcPortType OBJECT-TYPE
+       SYNTAX      IANAifType
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+        "The type of port.  Additional values for cvcPortType are
+        assigned by the Internet Assigned Numbers Authority (IANA),
+        through updating the syntax of the IANAifType textual 
+        convention. 
+        
+        If the port type is not defined in IANAifType, then value of 
+        this object will be other(1). In this case, port type can be
+        identified either by productCategory or by referring to other
+        MIB pointed by cvcPortAssociation."
+       ::= { cvcPortEntry 7 }
+
+cvcProductCategory OBJECT-TYPE
+    SYNTAX      INTEGER {
+        phone(1),
+        gateway(2),
+        h323Device(3),
+        ctiDevice(4),
+        voiceMailDevice(5),
+        mediaResourceDevice(6),
+        huntListDevice(7),
+        sipDevice(8)
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates type of the device that contains the 
+        port."
+    ::= { cvcPortEntry 8 }
+
+cvcProtocol OBJECT-TYPE
+    SYNTAX      INTEGER {
+        sccp(1),
+        sgcp(2),
+        mgcp(3),
+        h323(4),
+        sip(5)
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        " Protocol the port use for communication to its associated 
+        device." 
+    REFERENCE
+        "RFC 3435 on Media Gateway Control Protocol (MGCP) Version 1.0
+        RFC 3261 - SIP: Session Initiation Protocol
+        ITU-T Recommendation H.323v.4,'Packet-based multimedia 
+        communications systems', November 2000."            
+    ::= { cvcPortEntry 9 }
+
+cvcVirtualInterfaceDN OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute indicates directory number of the port.  This   
+        attribute is applicable only to virtual or logical interface 
+        that is associated with call agent."
+    ::= { cvcPortEntry 10 }
+
+--
+-- CallAgentConnectionInfo
+--
+
+cvcCallAgentConnectionTable   OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CvcCallAgentConnectionEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains current registration status information
+        for all the ports, listed in cvcPortTable, that are associated 
+        with the call agents listed cvcCallAgentTable.
+
+        The network management subsystem adds a conceptual row to this 
+        table per port and its associated call agent pair.  Entries in
+        this table depends on entries in cvcPortTable and 
+        cvcCallAgentTable.  
+        
+        Deletion of any entry in those other two table will result in
+        deletion of corresponding entry in this table."
+    ::= { cvcCallAgentConnection 1 }
+
+cvcCallAgentConnectionEntry  OBJECT-TYPE
+    SYNTAX      CvcCallAgentConnectionEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry (conceptual row) in the cvcCallAgentConnectionTable, 
+        containing the information about a port or interface's  
+        registration status to call agents."
+    INDEX  { cvcPortIndex, cvcCallAgentIndex}
+    ::= { cvcCallAgentConnectionTable 1 }
+
+CvcCallAgentConnectionEntry ::= SEQUENCE {
+    cvcCallAgentPriority            Unsigned32,
+    cvcRegistrationStatus           INTEGER,
+    cvcStatusReason                 INTEGER,
+    cvcLastStatusChangeTime         DateAndTime,
+    cvcLastRegisteredTime           DateAndTime
+}
+
+cvcCallAgentPriority OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "A port can be associated with multiple call agents.  In case
+        of failure of the call agent to which the port has been 
+        registered, port falls back to the back-up call agent.  To 
+        achieve this redundancy each call agent is assigned a priority
+        number in context of port.  This object indicates the call 
+        agent's priority number."
+    ::= { cvcCallAgentConnectionEntry 1 }
+
+cvcRegistrationStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+        unknown(1),
+        notapplicable(2),
+        registered(3),
+        unregistered(4),
+        rejected(5)
+    }
+    MAX-ACCESS  read-only
+    STATUS       current
+    DESCRIPTION
+        "This syntax is used to identify the registration status of 
+        the port with call agent.
+
+          unknown:        The registration status of the port is
+                          unknown.
+
+          notapplicable:  The registration status of the port is not
+                          applicable
+
+          registered:     The port has successfully registered with the
+                          call agent
+
+          unregistered:   The port is no longer registered with the
+                          call agent
+
+          rejected:       Registration request from the port was
+                          rejected by the call agent."
+    ::= { cvcCallAgentConnectionEntry 2 }
+
+cvcStatusReason OBJECT-TYPE
+    SYNTAX      INTEGER{
+        noError(1),
+        unknown(2),
+        configurationError(3),
+        deviceNameUnresolveable(4),
+        maxDevRegReached(5),
+        connectivityError(6),
+        initializationError(7),
+        deviceReset(8)
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This syntax is used as means of identifying the reasons
+        for a device registration error.  Following are possible reason
+        of registration status value.
+
+          noError:                  No Error
+
+          unknown:                  Unknown error cause
+
+          configurationError:       Device configuration error
+
+          deviceNameUnresolveable:  Unable to resolve the device name 
+                                    to an IP address
+
+          maxDevRegReached:         Maximum number of device 
+                                    registration have been reached
+
+          connectivityError:        Call agent is unable to establish 
+                                    communication with the device 
+                                    during registration
+
+          initializationError:      An error occurred during 
+                                    initialization of the device
+
+          deviceReset:              Indicates that the error was due to
+                                    device reset."
+    ::= { cvcCallAgentConnectionEntry 3 }
+
+
+cvcLastStatusChangeTime OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time registration status of the port changed."
+    ::= { cvcCallAgentConnectionEntry 4 }
+ 
+cvcLastRegisteredTime OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time the port last registered with the call agent."
+    ::= { cvcCallAgentConnectionEntry 5 }
+
+--
+-- NotificationConfigInfo
+--
+ 
+cvcNotifEnable  OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "This variable indicates whether the system generates
+            notifications defined in this MIB. A false value will
+            prevent all the notifications from being generated by
+            this system."
+    DEFVAL { false }
+    ::= { cvcNotif 1 }
+
+
+
+cvcPortRegistrationStatusChange NOTIFICATION-TYPE
+    OBJECTS {
+        cvcPortDeviceName,      
+        cvcCallAgentInetAddress,
+        cvcCallAgentPriority,
+        cvcRegistrationStatus,
+        cvcStatusReason,
+        cvcLastStatusChangeTime,
+        cvcLastRegisteredTime
+    }
+    STATUS      current
+    DESCRIPTION
+        "A cvcPortRegistrationStatusChange notification is generated 
+        when the value of cvcRegistrationStatus changes.  It can be 
+        utilized by an NMS to get current registration status change 
+        information.  cvcPortDeviceName and cvcCallAgentInetAddress can
+        be used by NMS to get information about the port and 
+        call agent from cvcPortTable and cvcCallAgentTable 
+        respectively.                       
+        
+        An NMS should periodically check the value of 
+        cvcLastStatusChangeTime to detect any missed 
+        cvcPortRegistrationStatusChange notification-events due to 
+        network problem or any other problem."
+    ::= { ciscoVoiceConnectivityMIBNotifs 1 }
+
+
+--
+--        MIB Conformance Statements
+--
+cvcMIBCompliances   
+    OBJECT IDENTIFIER ::= { ciscoVoiceConnectivityMIBConform 1 }
+cvcMIBGroups        
+    OBJECT IDENTIFIER ::= { ciscoVoiceConnectivityMIBConform 2 }
+
+-- Compliance Statements
+
+cvcMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        CISCO-VOICE-CONNECTIVITY-MIB."
+    MODULE
+    MANDATORY-GROUPS {
+        cvcCallAgentGroup,
+        cvcPortGroup,
+        cvcCallAgentConnectionGroup
+    }             
+    GROUP cvcNotifGroup
+    DESCRIPTION     "This optional group provide object to configure
+                    notification enable or disable."
+ 
+    GROUP cvcNotificationsGroup
+    DESCRIPTION     "This optional group provide notification objects."
+    
+    ::= { cvcMIBCompliances 1 }
+
+-- Units of Conformance
+
+cvcCallAgentGroup OBJECT-GROUP
+    OBJECTS {
+        cvcCallAgentName,
+        cvcCallAgentInetAddressType,
+        cvcCallAgentInetAddress,
+        cvcCallAgentType
+    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provide info like IP address and
+        HostName about all call agents to which the ports are 
+        configured to register.  Also it has call agent type."
+    ::= { cvcMIBGroups 1 }
+
+cvcPortGroup OBJECT-GROUP
+    OBJECTS {
+        cvcPortAssociation,         
+        cvcPortDeviceName,
+        cvcPortInetAddressType,
+        cvcPortInetAddress,
+        cvcPortMACAddress,
+        cvcPortType,
+        cvcProductCategory,
+        cvcProtocol,        
+        cvcVirtualInterfaceDN
+    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provide info about all port/
+        interface of the device that are configured to register to 
+        call agents.  Not all objects are applicable to all type of 
+        ports or interface.  For example some port does not have 
+        MACAddress in that case cvcPortMACAddress need not have to be 
+        populated.  Similarly for some device cvcPortAssociation is not 
+        applicable for example phone, in that case cvcPortAssociation
+        object will not be populated but DeviceName, MCAAddress and 
+        IPAddress will be populated."
+    ::= { cvcMIBGroups 2 }
+
+cvcCallAgentConnectionGroup OBJECT-GROUP
+    OBJECTS {
+        cvcCallAgentPriority,
+        cvcRegistrationStatus,
+        cvcStatusReason,
+        cvcLastStatusChangeTime,
+        cvcLastRegisteredTime
+    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides registration status
+        information for the port to the call agents defined in  
+        cvcPortTable and cvcCallAgentTable.  This also provides 
+        information about the reason why registration is failed or 
+        rejected.  It provides last time when status changes and last 
+        registered time.  In some cases, registration status is not 
+        applicable for example H.323 gateway association with call 
+        agent, in that case most of these object will not be populated
+        except cvcCallAgentPriority which can be used to find 
+        association of port with call agent."
+    ::= { cvcMIBGroups 3 }
+
+cvcNotifGroup OBJECT-GROUP
+    OBJECTS {
+    cvcNotifEnable
+    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provide info about all the 
+        notifications generated by the device that implement this MIB.
+ 
+        Implementation of this group is optional."
+    ::= { cvcMIBGroups 4 }
+
+cvcNotificationsGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+    cvcPortRegistrationStatusChange
+    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications that are generated by 
+        CISCO-VOICE-CONNECTIVITY-MIB.  This is important information 
+        when some management application decide not to poll but only 
+        rely on notification.
+
+        Implementation of this group is optional."
+    ::= { cvcMIBGroups 5 }
+
+END
+
+
+

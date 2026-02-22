@@ -1,0 +1,833 @@
+-- *****************************************************************
+-- ciscoAtmVirtualIfCapabilities MIB
+--
+-- AGENT-CAPABILITIES for CISCO-ATM-VIRTUAL-IF-MIB 
+--
+-- May 2003, Jim Bains
+--
+-- Copyright(c) 2002, 2005 by Cisco Systems,Inc.
+--
+-- *****************************************************************
+
+CISCO-ATM-VIRTUAL-IF-CAPABILITY DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY,
+        Unsigned32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoAtmVirtualIfCapability MODULE-IDENTITY
+        LAST-UPDATED    "200511140000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The Agent Capabilities for 
+                CISCO-ATM-VIRTUAL-IF-MIB.
+  
+                - cavIfCapmVirtualIfCapabilityV2R00 is
+                  for AXSM module in Release 2.0.
+
+                - cavIfCapabilityAxsmV2R0010 is
+                  for AXSM Service Module in Release 2.0.10.       
+
+                - cavIfCapabilityAxsmeV2R0160 is
+                  for AXSM-E Service Module in Release 2.1.60."
+
+        REVISION       "200511140000Z"
+        DESCRIPTION
+                "Updated the imports such that Unsigned32 is imported from 
+                SNMPv2-SMI instead of CISCO-TC."
+        REVISION       "200309100000Z"
+        DESCRIPTION
+                "Added cavIfCapabilityV5R00 for 
+                 MPSM155 service module in Release 5.0.00"
+
+        REVISION       "200303240000Z"
+        DESCRIPTION
+                "Added cavIfCapabilityV4R00 for :
+                 Service Modules AXSM-XG, AXSM-E and 
+                 Processor Switch Module PXM1E in 
+                 Release 4.0.00"
+
+        REVISION       "200205140000Z"
+        DESCRIPTION
+                "Initial version of the MIB"
+        ::= { ciscoAgentCapability 279 }
+
+cavIfCapabilityAxsmV2R00 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE  "MGX8850 Release 2.00"
+STATUS           current
+DESCRIPTION      "CISCO-ATM-VIRTUAL-IF-MIB Capabilities for
+                 AXSM Service Module."
+
+SUPPORTS CISCO-ATM-VIRTUAL-IF-MIB
+INCLUDES { caviMIBGroup,
+           caviEgressStatMIBGroup,
+           caviIngressStatMIBGroup 
+}
+
+VARIATION    caviIfType
+SYNTAX       INTEGER { uni(1),nni(2) }
+DESCRIPTION  "Does not support vnni(3), vuni(4)."
+
+VARIATION    caviMinRate
+SYNTAX       Unsigned32 (50..5651320)
+DESCRIPTION  "The upper limit is the maximum rate for 
+             oc48 which is 5651320 cells/sec."
+
+VARIATION    caviMaxRate
+SYNTAX       Unsigned32 (50..5651320)
+DESCRIPTION  "The upper limit is the maximum rate for 
+             oc48 which is 5651320 cells/sec."
+
+VARIATION    caviEgrRMCells
+DESCRIPTION  "value is always 0."
+        
+VARIATION    caviEgrXmtEFCICells
+DESCRIPTION  "value is always 0."
+
+VARIATION    caviEgrRcvEFCICells
+DESCRIPTION  "value is always 0."
+
+VARIATION    caviEgrXmtOAMCells
+DESCRIPTION  "value is always 0."
+
+VARIATION    caviIngRMCells
+DESCRIPTION  "value is always 0."
+        
+VARIATION    caviIngXmtEFCICells
+DESCRIPTION  "value is always 0."
+
+VARIATION    caviIngRcvEFCICells
+DESCRIPTION  "value is always 0."
+
+VARIATION    caviIngXmtOAMCells
+DESCRIPTION  "value is always 0."
+
+    ::= { ciscoAtmVirtualIfCapability 1 }
+
+cavIfCapabilityAxsmV2R0010 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "MGX8850 Release 2.0.10"
+STATUS          current
+DESCRIPTION     "CISCO-ATM-VIRTUAL-IF-MIB Capabilities for
+                AXSM Service Module."
+
+SUPPORTS CISCO-ATM-VIRTUAL-IF-MIB
+INCLUDES { caviMIBGroup,
+           caviEgressStatMIBGroup,
+           caviIngressStatMIBGroup 
+}
+
+VARIATION    caviIfType
+SYNTAX       INTEGER { uni(1),nni(2), vnni(3) }
+DESCRIPTION  "Does not support vuni(4)."
+
+VARIATION    caviMinRate
+SYNTAX       Unsigned32 (50..5651320)
+DESCRIPTION  "The upper limit is the maximum rate for 
+             oc48 which is 5651320 cells per sec"
+
+VARIATION    caviMaxRate
+SYNTAX       Unsigned32 (50..5651320)
+DESCRIPTION  "The upper limit is the maximum rate for 
+             oc48 which is 5651320 cells per sec."
+
+VARIATION    caviEgrRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviEgrXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHEgrXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHEgrXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviIngXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+    ::= { ciscoAtmVirtualIfCapability 2 }
+
+cavIfCapabilityAxsmeV2R0160 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE  "MGX8850 Release 2.1.60"
+STATUS           current
+DESCRIPTION      "CISCO-ATM-VIRTUAL-IF-MIB Capabilities for
+                 Enhanced AXSM (AXSM-E)module."
+
+SUPPORTS CISCO-ATM-VIRTUAL-IF-MIB
+INCLUDES { caviMIBGroup,
+           caviEgressStatMIBGroup,
+           caviIngressStatMIBGroup, 
+           caviEgressIntervalMIBGroup 
+}
+
+VARIATION    caviIfType
+SYNTAX       INTEGER { uni(1),nni(2), vnni(3) }
+DESCRIPTION  "Does not support vuni(4)."
+
+VARIATION    caviMinRate
+SYNTAX       Unsigned32 (50..1412830)
+DESCRIPTION  "The upper limit is the maximum rate for 
+             oc12 which is 1412830 cells per sec"
+
+VARIATION    caviMaxRate
+SYNTAX       Unsigned32 (50..1412830)
+DESCRIPTION  "The upper limit is the maximum rate for 
+             oc12 which is 1412830 cells per sec."
+
+VARIATION    caviEgrRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviEgrXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHEgrXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHEgrXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviIngXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+    ::= { ciscoAtmVirtualIfCapability 3 }
+
+cavIfCapabilityV4R00 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE  "MGX8950, MGX8850 Release 4.00.00"
+STATUS           current
+DESCRIPTION      "CISCO-ATM-VIRTUAL-IF-MIB Capabilities for
+                 10 Gig. AXSM module (AXSM-XG), 
+                 Enhanced AXSM module (AXSM-E) and
+                 Processor Switch Module Enhanced(PXM1E)
+                 controller card."
+
+SUPPORTS CISCO-ATM-VIRTUAL-IF-MIB
+INCLUDES { caviMIBGroupRev1,
+           caviEgressStatMIBGroup1,
+           caviIngressStatMIBGroup1, 
+           caviEgressIntervalMIBGroup1,
+           caviIngressIntervalStatMIBGroup,
+           caviIngHighSpeedStatMIBGroup2
+}
+
+--
+-- Variations applicable for AXSM-XG.
+--
+
+VARIATION    caviMinRate
+SYNTAX       Unsigned32 (50..22605280)
+DESCRIPTION  "The upper limit is the maximum rate 
+             for oc192 which is 22605280 cells per sec"
+
+VARIATION    caviMaxRate
+SYNTAX       Unsigned32 (50..22605280)
+DESCRIPTION  "The upper limit is the maximum rate
+             for oc192 which is 22605280 cells per sec."
+
+VARIATION    caviIntEgrRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+--
+-- Variations applicable for AXSM-E.
+--
+
+VARIATION    caviMinRate
+SYNTAX       Unsigned32 (50..1412830)
+DESCRIPTION  "The upper limit is the maximum rate 
+             for oc12 which is 1412830 cells per sec"
+
+VARIATION    caviMaxRate
+SYNTAX       Unsigned32 (50..1412830)
+DESCRIPTION  "The upper limit is the maximum rate 
+             for oc12 which is 1412830 cells per sec"
+
+VARIATION    caviHighIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngClp1DiscCells 
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+--
+-- Variations applicable for PXM1E.
+--
+
+VARIATION    caviMinRate
+SYNTAX       Unsigned32 (50..353207)
+DESCRIPTION  "The upper limit is the maximum rate 
+             for oc12 which is 353207 cells per sec"
+
+VARIATION    caviMaxRate
+SYNTAX       Unsigned32 (50..353207)
+DESCRIPTION  "The upper limit is the maximum rate 
+             for oc12 which is 353207 cells per sec"
+
+VARIATION    caviStatIngressTable
+--ACCESS     not-implemented
+DESCRIPTION  "This table is not supported"
+
+VARIATION    caviIngressIntervalTable
+--ACCESS     not-implemented
+DESCRIPTION  "This table is not supported"
+
+--
+-- Variations applicable for AXSM-E, PXM1E.
+--
+
+VARIATION    caviHighEgrRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrClp1DiscCells 
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+--
+-- Variations applicable for AXSM-E, AXSM-XG.
+--
+
+VARIATION    caviIngRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviIngXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+--
+-- Variations applicable for AXSM-E, AXSM-XG, PXM1E.
+--
+
+VARIATION    caviEgrRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviEgrXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+    ::= { ciscoAtmVirtualIfCapability 4 }
+
+cavIfCapabilityV5R00 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE  "MGX8950, MGX8850 Release 5.00.00"
+STATUS           current
+DESCRIPTION      "CISCO-ATM-VIRTUAL-IF-MIB Capabilities for
+                 MPSM155 service module."
+
+SUPPORTS CISCO-ATM-VIRTUAL-IF-MIB
+INCLUDES { caviMIBGroupRev1,
+           caviEgressStatMIBGroup1,
+           caviIngressStatMIBGroup1, 
+           caviEgressIntervalMIBGroup1,
+           caviIngressIntervalStatMIBGroup,
+           caviIngHighSpeedStatMIBGroup2
+}
+
+--
+-- Variations applicable for MPSM155.
+--
+
+VARIATION    caviMinRate
+SYNTAX       Unsigned32 (50..353207)
+DESCRIPTION  "The upper limit is the maximum rate 
+             for oc3 which is 353207 cells per sec"
+
+VARIATION    caviMaxRate
+SYNTAX       Unsigned32 (50..353207)
+DESCRIPTION  "The upper limit is the maximum rate
+             for oc3 which is 353207 cells per sec."
+
+VARIATION    caviIntEgrRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntEgrXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIntIngXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngClp1DiscCells 
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviStatIngressTable
+--ACCESS     not-implemented
+DESCRIPTION  "This table is not supported"
+
+VARIATION    caviIngressIntervalTable
+--ACCESS     not-implemented
+DESCRIPTION  "This table is not supported"
+
+VARIATION    caviHighEgrRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighEgrXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrClp1DiscCells 
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHighIntEgrXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviIngXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviIngRcvOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngRcvClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngRcvClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngClp0DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngClp1DiscCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngXmtClp0Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviHIntIngXmtClp1Cells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrRMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+        
+VARIATION    caviEgrXmtEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrRcvEFCICells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+VARIATION    caviEgrXmtOAMCells
+ACCESS       not-implemented
+DESCRIPTION  "Object not supported"
+
+    ::= { ciscoAtmVirtualIfCapability 5 }
+END
+ 

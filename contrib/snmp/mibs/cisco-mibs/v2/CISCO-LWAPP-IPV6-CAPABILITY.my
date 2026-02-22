@@ -1,0 +1,461 @@
+-- *******************************************************************
+-- CISCO-LWAPP-IPV6 MIB CAPABILITY
+--   
+-- November 18, 2020
+--   
+-- Copyright (c) 2020, 2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-IPV6-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoLwappIpv6Capability MODULE-IDENTITY
+    LAST-UPDATED    "202011180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for
+        CISCO-LWAPP-IPV6-MIB"
+    REVISION        "202011180000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 1151 }
+
+
+
+ciscoLwappIpv6CapabilityCEV1R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco EWLC 1.0"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-LWAPP-IPV6--MIB capabilities."
+
+    SUPPORTS        CISCO-LWAPP-IPV6-MIB
+    INCLUDES        {
+                        cLIpv6AclTable,
+                        cLIpv6NeighborBindingCounterTable,
+                        cLIpv6RaFilteringClientInfoTable,
+                        cLIpv6AclRuleTable,
+                        cLIpv6NbSnoopingDropCounterTable
+                    }
+    VARIATION       cLIpv6AclEntry
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclApplyMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclCounterClear
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterEntry
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterNdpRs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterNdpRa
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterNdpNs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterNdpNa
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterNdpRedirect
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterNdpCertSol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterNdpCertAdv
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Sol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Adv
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Request
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Confirm
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Renew
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Rebind
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Reply
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Release
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Decline
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6Recfg
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6InfoReq
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6RelayForward
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterDhcpV6RelayReplay
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbNdSuppressDropCounterTotal
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbNdSuppressDropCounterReasonSilent
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cIpv6NbNdSuppressDropCounterReasonInOut
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbNdSuppressDropCounterReasonDad
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbNdSuppressDropCounterReasonUnicast
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbNdSuppressDropCounterReasonMulticast
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbNdSuppressDropCounterReasonInt
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6RaFilteringClientInfoEntry
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6RaFilteringClientInfoApName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6RaFilteringClientInfoWlan
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6RaFilteringClientInfoPktsDropped
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottleEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottlePeriod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottleMaxThrough
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottleMaxThroughNoLimitEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottleIntervalOption
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottleAllowAtleast
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottleAllowAtmost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbRaThrottleAllowNoLimitEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleEntry
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleAction
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleDirection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleSourceInetAddressType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleSourceInetAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleSourcePrefixLength
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleDestinationInetAddressType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleDestinationInetAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleDestinationPrefixLength
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleStartSourcePort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleEndSourcePort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleStartDestinationPort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleEndDestinationPort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleDscp
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclNewRuleIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleHits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6AclRuleRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterEntry 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterType 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterTotal 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterSilent 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonInt 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonCga 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonRsa 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonLimit 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonMartian 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonMartianMac 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonNotAllowed 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonNotAuthorised 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NbSnoopingDropCounterReasonStop 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6NeighborBindingCounterClear 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cLIpv6GlobalEnabled 
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    ::= { ciscoLwappIpv6Capability 1 }
+
+END

@@ -1,0 +1,153 @@
+-- *****************************************************************
+-- CISCO-LWAPP-CLIENT-ROAMING-CAPABILITY.my:
+-- CISCO-LWAPP-CLIENT-ROAMING MIB CAPABILITIES
+--   
+-- May 2006 -  Prasanna Viswakumar
+--   
+-- Copyright (c) 2006, 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-LWAPP-CLIENT-ROAMING-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    TimeInterval
+        FROM SNMPv2-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoLwappClientRoamingCapability MODULE-IDENTITY
+    LAST-UPDATED    "201002060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for
+        CISCO-LWAPP-CLIENT-ROAMING-MIB."
+    REVISION        "201002060000Z"
+    DESCRIPTION
+        "Added ciscoLwappClientRoamingCapabilityCUWNSV7R0"
+    REVISION        "200605090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 501 }
+
+
+
+ciscoLwappClientRoamingCapabilityCUWNSV4R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Unified Wireless Network Software
+                        Release 4.0."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-LWAPP-CLIENT-ROAMING-MIB
+        capabilities."
+
+    SUPPORTS        CISCO-LWAPP-CLIENT-ROAMING-MIB
+    INCLUDES        {
+                        ciscoLwappClRoamDot11aRfParamsGroup,
+                        ciscoLwappClRoamDot11bRfParamsGroup,
+                        ciscoLwappClRoamroamReasonGroup
+                    }
+    VARIATION       clcrDot11aMode
+    SYNTAX          INTEGER  {
+                        default(1),
+                        custom(2)
+                    }
+    DESCRIPTION
+        "The values supported are 'default'
+        and 'custom'."
+
+    VARIATION       clcrDot11bMode
+    SYNTAX          INTEGER  {
+                        default(1),
+                        custom(2)
+                    }
+    DESCRIPTION
+        "The values supported are 'default'
+        and 'custom'."
+
+    ::= { ciscoLwappClientRoamingCapability 1 }
+
+ciscoLwappClientRoamingCapabilityCUWNSV7R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Unified Wireless Network Software
+                        Release 7.0."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-LWAPP-CLIENT-ROAMING-MIB capabilities."
+
+    SUPPORTS        CISCO-LWAPP-CLIENT-ROAMING-MIB
+    INCLUDES        {
+                        ciscoLwappClRoamroamReasonGroup,
+                        ciscoLwappClRoamroamingStatsGroup,
+                        ciscoLwappClRoamDot11aRfParamsGroupSup1,
+                        ciscoLwappClRoamDot11bRfParamsGroupSup1
+                    }
+    VARIATION       clcrDot11aMinRssiV2
+    SYNTAX          Integer32 (-90..-50)
+    DESCRIPTION
+        "The values supported are -90 to -50"
+
+    VARIATION       clcrDot11aHysteresisV2
+    SYNTAX          Integer32 (3..20)
+    DESCRIPTION
+        "The supported values are 3 to 20."
+
+    VARIATION       clcrDot11aAdaptiveScanThresholdV2
+    SYNTAX          Integer32 (-90..-50)
+    DESCRIPTION
+        "The supported values are -90 to -50"
+
+    VARIATION       clcrDot11aTransitionTimeV2
+    SYNTAX          TimeInterval (100..500)
+    DESCRIPTION
+        "The supported values are 100 to 500"
+
+    VARIATION       clcrDot11bMinRssiV2
+    SYNTAX          Integer32 (-90..-50)
+    DESCRIPTION
+        "The supported values are -90 to -50"
+
+    VARIATION       clcrDot11bHysteresisV2
+    SYNTAX          Integer32 (3..20)
+    DESCRIPTION
+        "The supported values are 3 to 20."
+
+    VARIATION       clcrDot11bAdaptiveScanThresholdV2
+    SYNTAX          Integer32 (-90..-50)
+    DESCRIPTION
+        "The supported values are -90 to -50."
+
+    VARIATION       clcrDot11bTransitionTimeV2
+    SYNTAX          TimeInterval (100..500)
+    DESCRIPTION
+        "The supported values are 100 to 500."
+
+    ::= { ciscoLwappClientRoamingCapability 2 }
+
+END
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,209 @@
+-- *****************************************************************
+-- CISCO-WAN-PERSISTENT-XGCP-EVENTS.my
+--  
+-- October 2003, George Ogagan 
+--
+-- Copyright (c) 2001-2003 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+--
+
+CISCO-WAN-PERSISTENT-XGCP-EVENTS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+                FROM SNMPv2-SMI
+    RowStatus
+                FROM SNMPv2-TC
+    SnmpAdminString     
+                FROM SNMP-FRAMEWORK-MIB
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+                FROM SNMPv2-CONF
+    ciscoWan    FROM CISCOWAN-SMI;
+
+
+ciscoWanPersistentXgcpEventsMIB MODULE-IDENTITY
+    LAST-UPDATED "200310200000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-voice@cisco.com"
+
+    DESCRIPTION
+            "The MIB module for managing CA(Call Agent) events.
+            "
+    REVISION    "200310200000Z"
+    DESCRIPTION "Update descriptions in the MIB.
+                "
+
+    ::= { ciscoWan 18 }
+
+ciscoWanPersistentXgcpEventsMIBObjects 
+   OBJECT IDENTIFIER ::= { ciscoWanPersistentXgcpEventsMIB 1 }
+
+persistentXgcpEvents    
+   OBJECT IDENTIFIER  ::= { ciscoWanPersistentXgcpEventsMIBObjects 1 }
+
+
+--
+-- persistentXgcpEventsTable 
+--
+-- The MIB variables in this group have been defined
+-- to enable or disable sending xGCP(Media Gateway
+-- Control Protocol) events to the CA asynchronously,
+-- for example sending NTFY(Notify) when VISM receives
+-- off hook without waiting for the CA to request for it. 
+--
+
+persistentXgcpEventsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF PersistentXgcpEventsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+           "The persistentXgcpEventsTable contains
+            configuration information about xGCP events
+            which involve a persistent notification request.
+           "
+    ::= { persistentXgcpEvents 1 }
+
+persistentXgcpEventsEntry OBJECT-TYPE
+    SYNTAX      PersistentXgcpEventsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the persistentXgcpEventsTable. Each
+         entry consists of persistentXgcpEventNum - Index
+         to the persistentXgcpEventsTable. 
+
+         persistentXgcpEventName - Name of the xGCP
+         event that needs persistent notification
+         to the call agent for example 't/hd'.
+
+         persistentXgcpEventRowStatus -This indicates
+         whether an xGCP event is added in this entry
+         or not.
+
+         This table is not created implicitly. The user
+         can add xGCP event or delete an xGCP event.
+        "
+    INDEX { persistentXgcpEventNum }
+    ::= { persistentXgcpEventsTable 1 }
+
+PersistentXgcpEventsEntry ::=
+    SEQUENCE
+       {
+          persistentXgcpEventNum       Integer32,
+          persistentXgcpEventName      SnmpAdminString,
+          persistentXgcpEventRowStatus RowStatus
+       }
+
+persistentXgcpEventNum     OBJECT-TYPE
+    SYNTAX      Integer32 (1..16) 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "This object is a index to persistentXgcpEventsTable.
+        "
+    ::= { persistentXgcpEventsEntry 1 }
+
+persistentXgcpEventName   OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object holds the name of the event
+         for example 't/hd' or 't/hu'.
+        "
+     ::= { persistentXgcpEventsEntry 2 }
+
+persistentXgcpEventRowStatus  OBJECT-TYPE
+      SYNTAX     RowStatus
+      MAX-ACCESS read-write
+      STATUS     current
+      DESCRIPTION
+           "This object allows to add or delete an entry. 
+            Modifying an entry is not allowed.
+
+            An entry may be created using the 'createAndGo' option.
+            When the row is successfully created, the RowStatus would
+            be set to 'active' by the agent. An entry may be deleted
+            by setting the RowStatus to 'destroy'. Other options
+            such as `CreateAndWait', 'notInService', 'notReady' will
+            not be used.
+
+            For creating an entry the persistentXgcpEventNum and 
+            persistentXgcpEventName must be provided.
+  
+            This object tells call control whether or not a particular 
+            xGCP event is added or not, based on this the call control 
+            module will decide  whether or not to notify (NTFY) call 
+            agent when a particular xGCP event is received,
+            without waiting for CA to request for that event.
+           "
+      ::= { persistentXgcpEventsEntry 3 } 
+
+--
+-- **********************************************************************
+-- Conformance
+-- **********************************************************************
+
+--
+-- conformance information
+--
+
+persistentXgcpEventsMIBConformance  
+   OBJECT IDENTIFIER ::= { ciscoWanPersistentXgcpEventsMIB 2 }
+
+persistentXgcpEventsMIBCompliances  
+   OBJECT IDENTIFIER ::= { persistentXgcpEventsMIBConformance 1 }
+
+persistentXgcpEventsMIBGroups       
+   OBJECT IDENTIFIER ::= { persistentXgcpEventsMIBConformance 2 }
+
+--
+-- Conformance and compliance statements statements
+--
+
+persistentXgcpEventsMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION 
+            " The complaince statement for persistent Xgcp events
+              which implement persistentXgcpEvents MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { persistentXgcpEventsMIBGroup 
+                         }
+    ::= { persistentXgcpEventsMIBCompliances 1 }
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+               
+persistentXgcpEventsMIBGroup OBJECT-GROUP
+         OBJECTS {
+                    persistentXgcpEventName,
+                    persistentXgcpEventRowStatus
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group contains objects related to
+             configuration of persistent xGCP events.
+            "
+    ::= { persistentXgcpEventsMIBGroups 1 }
+
+
+END
+

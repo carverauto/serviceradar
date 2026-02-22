@@ -1,0 +1,1326 @@
+-- MIB file created 18-May-2009 11:37:33, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+DOCS-IETF-CABLE-DEVICE-NOTIFICATION-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "DOCS-IETF-CABLE-DEVICE-NOTIFICATION-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1
+    docsDevEvLevel, docsDevEvId, docsDevEvText, docsDevSwFilename, 
+    docsDevSwServer, docsDevServerDhcp, docsDevServerTime
+            FROM DOCS-CABLE-DEVICE-MIB
+    docsIfCmCmtsAddress, docsIfCmtsCmStatusMacAddress, 
+    docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+    docsIfCmStatusModulationType, docsIfCmtsCmStatusDocsisRegMode, 
+    docsIfCmtsCmStatusModulationType
+            FROM DOCS-IF-MIB
+    ifPhysAddress
+            FROM IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+docsDevNotifMIB OBJECT IDENTIFIER ::= { mib-2 132 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200605240000Z
+--  OrgName
+--    IETF IP over Cable Data Network
+--     Working Group
+--  ContactInfo
+--            Azlina Ahmad
+--     Postal: Cisco Systems, Inc.
+--             170 West Tasman Drive
+--             San Jose, CA 95134, U.S.A.
+--     Phone:   408 853 7927
+--     E-mail: azlina@cisco.com
+--    
+--             Greg Nakanishi
+--     Postal: Motorola
+--             6450 Sequence Drive
+--             San Diego, CA 92121, U.S.A.
+--     Phone:   858 404 2366
+--     E-mail: gnakanishi@motorola.com
+--    
+--     IETF IPCDN Working Group
+--     General Discussion: ipcdn@ietf.org
+--    
+--     Subscribe: http://www.ietf.org/mailman/listinfo/ipcdn
+--     Archive: ftp://ftp.ietf.org/ietf-mail-archive/ipcdn
+--     Co-chairs: Richard Woundy,
+--                  richard_woundy@cable.comcast.com
+--                Jean-Francois Mule, jf.mule@cablelabs.com
+--  Descr
+--    The Event Notification MIB is an extension of the
+--    CABLE DEVICE MIB.  It defines various notification
+--    objects for both cable modem and cable modem termination
+--    systems.  Two groups of SNMP notification objects are
+--    defined.  One group is for notifying cable modem events,
+--    and one group is for notifying cable modem termination
+--    system events.
+--    
+--    DOCSIS defines numerous events, and each event is
+--    assigned to a functional category.  This MIB defines
+--    a notification object for each functional category.
+--    The varbinding list of each notification includes
+--    information about the event that occurred on the
+--    device.
+--    
+--    Copyright (C) The Internet Society (2006).  This version
+--    of this MIB module is part of RFC 4547; see the RFC
+--    itself for full legal notices.
+--  RevDate
+--    200605240000Z
+--  RevDescr
+--    Initial version, published as RFC 4547.
+
+docsDevNotifControl OBJECT IDENTIFIER ::= { docsDevNotifMIB 1 }
+docsDevCmNotifs OBJECT IDENTIFIER ::= { docsDevNotifMIB 2 0 }
+docsDevCmtsNotifs OBJECT IDENTIFIER ::= { docsDevNotifMIB 3 0 }
+docsDevNotifConformance OBJECT IDENTIFIER ::= { docsDevNotifMIB 4 }
+docsDevNotifGroups OBJECT IDENTIFIER ::= { docsDevNotifConformance 1 }
+docsDevNotifCompliances OBJECT IDENTIFIER ::= { docsDevNotifConformance 2 }
+
+docsDevCmNotifControl OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   cmInitTLVUnknownNotif(0)
+        --   cmDynServReqFailNotif(1)
+        --   cmDynServRspFailNotif(2)
+        --   cmDynServAckFailNotif(3)
+        --   cmBpiInitNotif(4)
+        --   cmBPKMNotif(5)
+        --   cmDynamicSANotif(6)
+        --   cmDHCPFailNotif(7)
+        --   cmSwUpgradeInitNotif(8)
+        --   cmSwUpgradeFailNotif(9)
+        --   cmSwUpgradeSuccessNotif(10)
+        --   cmSwUpgradeCVCNotif(11)
+        --   cmTODFailNotif(12)
+        --   cmDCCReqFailNotif(13)
+        --   cmDCCRspFailNotif(14)
+        --   cmDCCAckFailNotif(15)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used to enable specific CM notifications.
+         For example, if the first bit is set, then
+         docsDevCmInitTLVUnknownNotif is enabled.  If it is not set,
+         the notification is disabled.  Note that notifications are
+         also under the control of the MIB modules defined in
+         RFC3413.
+        
+         If the device is rebooted,the value of this object SHOULD
+         revert to the default value."
+    DEFVAL { '0000'h }
+    ::= { docsDevNotifControl 1 }
+
+docsDevCmtsNotifControl OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   cmtsInitRegReqFailNotif(0)
+        --   cmtsInitRegRspFailNotif(1)
+        --   cmtsInitRegAckFailNotif(2)
+        --   cmtsDynServReqFailNotif(3)
+        --   cmtsDynServRspFailNotif(4)
+        --   cmtsDynServAckFailNotif(5)
+        --   cmtsBpiInitNotif(6)
+        --   cmtsBPKMNotif(7)
+        --   cmtsDynamicSANotif(8)
+        --   cmtsDCCReqFailNotif(9)
+        --   cmtsDCCRspFailNotif(10)
+        --   cmtsDCCAckFailNotif(11)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used to enable specific CMTS notifications.
+         For example, if the first bit is set, then
+         docsDevCmtsInitRegRspFailNotif is enabled.  If it is not set,
+         the notification is disabled.  Note that notifications are
+         also under the control of the MIB modules defined in
+         RFC3413.
+        
+         If the device is rebooted,the value of this object SHOULD
+         revert to the default value."
+    DEFVAL { '0000'h }
+    ::= { docsDevNotifControl 2 }
+
+docsDevCmInitTLVUnknownNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Notification to indicate that an unknown TLV was
+          encountered during the TLV parsing process.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 1
+
+docsDevCmDynServReqFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic service
+         request during the dynamic services process.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected to (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 2
+
+docsDevCmDynServRspFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        " A notification to report the failure of a dynamic service
+         response during the dynamic services process.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 3
+
+docsDevCmDynServAckFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic service
+         acknowledgement during the dynamic services process.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 4
+
+docsDevCmBpiInitNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a BPI
+         initialization attempt during the registration process.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+        
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 5
+
+docsDevCmBPKMNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a Baseline
+         Privacy Key Management (BPKM) operation.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+        
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 6
+
+docsDevCmDynamicSANotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic security
+         association operation.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+        
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 7
+
+docsDevCmDHCPFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevServerDhcp, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a DHCP operation.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsDevServerDhcp: the IP address of the DHCP server.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 8
+
+docsDevCmSwUpgradeInitNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevSwFilename, docsDevSwServer, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to indicate that a software upgrade
+         has been initiated on the device.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 9
+
+docsDevCmSwUpgradeFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevSwFilename, docsDevSwServer, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a software upgrade
+         attempt.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsDevSwFilename: the software image file name
+         - docsDevSwServer: the IP address of the server that
+           the image is retrieved from.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 10
+
+docsDevCmSwUpgradeSuccessNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevSwFilename, docsDevSwServer, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the software upgrade success
+         status.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsDevSwFilename: the software image file name
+         - docsDevSwServer: the IP address of the server that
+           the image is retrieved from.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 11
+
+docsDevCmSwUpgradeCVCFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report that the verification of the
+         code file has failed during a secure software upgrade
+         attempt.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 12
+
+docsDevCmTODFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevServerTime, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a time of day
+        
+         operation.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsDevServerTime: the IP address of the time server.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 13
+
+docsDevCmDCCReqFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        " A notification to report the failure of a dynamic channel
+         change request during the dynamic channel change process
+         on the CM.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+        
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 14
+
+docsDevCmDCCRspFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic channel
+         change response during the dynamic channel
+         change process on the CM.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+        
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmStatusModulationType: the upstream modulation
+           methodology used by the CM."
+    ::= 15
+
+docsDevCmDCCAckFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic channel
+         change acknowledgement during the dynamic channel
+         change process on the CM.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+        
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - ifPhysAddress: the MAC address of the cable
+           interface of this cable modem.
+         - docsIfCmCmtsAddress: the MAC address of the CMTS
+           to which the CM is connected (if there is a cable
+           card/interface in the CMTS, then it is actually the
+           MAC address of the cable interface to which it is
+        
+           connected).
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmStatusDocsisOperMode: the QOS level (1.0, 1.1)
+           that the CM is operating in.
+         - docsIfCmtsCmStatusModulationType the upstream modulation
+           methodology used by the CM."
+    ::= 16
+
+docsDevCmtsInitRegReqFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a registration
+         request from a CM during the CM initialization
+         process that was detected on the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+        
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 1
+
+docsDevCmtsInitRegRspFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a registration
+         response during the CM initialization
+         process that was detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 2
+
+docsDevCmtsInitRegAckFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a registration
+         acknowledgement from the CM during the CM
+         initialization process that was detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 3
+
+docsDevCmtsDynServReqFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic service
+         request during the dynamic services process
+         that was detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 4
+
+docsDevCmtsDynServRspFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic service
+         response during the dynamic services process
+         that was detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 5
+
+docsDevCmtsDynServAckFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic service
+         acknowledgement during the dynamic services
+         process that was detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+        
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 6
+
+docsDevCmtsBpiInitNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a BPI
+         initialization attempt during the CM registration process
+         that was detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+        
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 7
+
+docsDevCmtsBPKMNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a BPKM operation
+         that is detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+        
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 8
+
+docsDevCmtsDynamicSANotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic security
+         association operation that is detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+        
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+        
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 9
+
+docsDevCmtsDCCReqFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic channel
+         change request during the dynamic channel
+         change process and is detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 10
+
+docsDevCmtsDCCRspFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic channel
+         change response during the dynamic channel
+         change process and is detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+        
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 11
+
+docsDevCmtsDCCAckFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDevNotifMIB(132) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusMacAddress, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification to report the failure of a dynamic channel
+         change acknowledgement during the dynamic channel
+         change process and is detected by the CMTS.
+        
+         This notification sends additional information about
+         the event by including the following objects in its
+         varbinding list.
+         - docsDevEvLevel: the priority level associated with the
+           event.
+         - docsDevEvId: the unique identifier of the event that
+           occurred.
+         - docsDevEvText: a textual description of the event.
+         - docsIfCmtsCmStatusMacAddress: the MAC address of the CM
+           with which this notification is associated.
+         - ifPhysAddress: the MAC address of the CMTS
+           (if there is a cable card/interface in the CMTS,
+           then it is actually the MAC address of the cable
+           interface that connected to the CM) cable interface
+           connected to the CM.
+         - docsIfCmtsCmStatusDocsisRegMode: the QOS level (1.0, 1.1)
+           that the reporting CM is operating in.
+         - docsIfDocsisBaseCapability: the highest
+           version of the DOCSIS specification (1.0, 1.1, 2.0)
+           that the device is capable of supporting.
+         - docsIfCmtsCmStatusModulationType: the upstream
+           modulation methodology used by the CM."
+    ::= 12
+
+docsDevCmNotifControlGroup OBJECT IDENTIFIER ::= { docsDevNotifGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group represents objects that allow control
+--     over CM Notifications.
+--  objects
+--    docsDevCmNotifControl
+
+docsDevCmtsNotifControlGroup OBJECT IDENTIFIER ::= { docsDevNotifGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group represents objects that allow control
+--     over CMTS Notifications.
+--  objects
+--    docsDevCmtsNotifControl
+
+docsDevCmNotificationGroup OBJECT IDENTIFIER ::= { docsDevNotifGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of CM notifications providing device status
+--    and control.
+--  notifications
+--    docsDevCmInitTLVUnknownNotif, docsDevCmDynServReqFailNotif, 
+--    docsDevCmDynServRspFailNotif, docsDevCmDynServAckFailNotif, 
+--    docsDevCmBpiInitNotif, docsDevCmBPKMNotif, 
+--    docsDevCmDynamicSANotif, docsDevCmDHCPFailNotif, 
+--    docsDevCmSwUpgradeInitNotif, docsDevCmSwUpgradeFailNotif, 
+--    docsDevCmSwUpgradeSuccessNotif, 
+--    docsDevCmSwUpgradeCVCFailNotif, docsDevCmTODFailNotif, 
+--    docsDevCmDCCReqFailNotif, docsDevCmDCCRspFailNotif, 
+--    docsDevCmDCCAckFailNotif
+
+docsDevCmtsNotificationGroup OBJECT IDENTIFIER ::= { docsDevNotifGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of CMTS notifications providing device
+--     status and control.
+--  notifications
+--    docsDevCmtsInitRegReqFailNotif, 
+--    docsDevCmtsInitRegRspFailNotif, 
+--    docsDevCmtsInitRegAckFailNotif, 
+--    docsDevCmtsDynServReqFailNotif, 
+--    docsDevCmtsDynServRspFailNotif, 
+--    docsDevCmtsDynServAckFailNotif, docsDevCmtsBpiInitNotif, 
+--    docsDevCmtsBPKMNotif, docsDevCmtsDynamicSANotif, 
+--    docsDevCmtsDCCReqFailNotif, docsDevCmtsDCCRspFailNotif, 
+--    docsDevCmtsDCCAckFailNotif
+
+docsDevCmNotifCompliance OBJECT IDENTIFIER ::= { docsDevNotifCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for CM Notifications and Control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    docsDevCmNotifControlGroup
+--   MandGroup
+--    docsDevCmNotificationGroup
+
+docsDevCmtsNotifCompliance OBJECT IDENTIFIER ::= { docsDevNotifCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for DOCSIS CMTS Notification
+--     and Control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    docsDevCmtsNotifControlGroup
+--   MandGroup
+--    docsDevCmtsNotificationGroup
+
+
+END
+

@@ -77,4 +77,26 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
     assert [%{pid: 123, name: "nginx", cpu_usage: 1.1, memory_usage: 2_048, status: "Running"}] =
              metrics.processes
   end
+
+  test "extracts corrupted index names from nested Ash errors" do
+    errors = [
+      %{
+        errors: [
+          %{
+            error:
+              "** (Postgrex.Error) ERROR XX002 (index_corrupted) right sibling's left-link doesn't match in index \"_hyper_7_87_chunk_cpu_metrics_timestamp_idx\""
+          }
+        ]
+      }
+    ]
+
+    assert "_hyper_7_87_chunk_cpu_metrics_timestamp_idx" =
+             SysmonMetricsIngestor.extract_corrupted_index_name(errors)
+  end
+
+  test "returns nil when errors do not include index corruption" do
+    errors = [%{error: "** (Postgrex.Error) ERROR 23505 (unique_violation) duplicate key"}]
+
+    assert nil == SysmonMetricsIngestor.extract_corrupted_index_name(errors)
+  end
 end

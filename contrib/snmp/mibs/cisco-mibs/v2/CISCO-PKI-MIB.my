@@ -1,0 +1,813 @@
+-- *****************************************************************
+-- CISCO-PKI-MIB.my Cisco PKI MIB
+--  
+-- Copyright (c) 1994-2000, 2014 by cisco Systems, Inc.
+-- All rights reserved.
+--  
+-- *****************************************************************
+ 
+CISCO-PKI-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString,
+    TimeInterval
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+ 
+ 
+ciscoPkiMIB MODULE-IDENTITY
+    LAST-UPDATED    "201410160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+ 
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+ 
+            Tel: +1 800 553-NETS
+ 
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "description"
+    REVISION        "201410150000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 854 }
+ 
+ 
+-- Textual Conventions definition will be defined before this line
+ 
+ciscoPkiMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIB 1 }
+ 
+ciscoPkiMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIB 2 }
+ 
+ciscoPkiMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIB 3 }
+ 
+ 
+ciscoPkiConfiguration  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIBObjects 1 }
+ 
+ciscoPkiCertificates  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIBObjects 2 }
+ 
+ciscoPkiRevocationInfo  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIBObjects 3 }
+ 
+ciscoPkiEnrollmentProfile  OBJECT IDENTIFIER
+    ::= { ciscoPkiConfiguration 1 }
+ 
+ciscoPkiTrustpoints  OBJECT IDENTIFIER
+    ::= { ciscoPkiConfiguration 2 }
+ 
+ 
+certChainTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CertChainEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Please enter the Table Description here."
+    ::= { ciscoPkiCertificates 1 }
+ 
+certChainEntry OBJECT-TYPE
+    SYNTAX          CertChainEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the xxxTable."
+    INDEX           { certChainLabel }
+    ::= { certChainTable 1 }
+ 
+CertChainEntry ::= SEQUENCE {
+        certChainLabel DisplayString,
+        certSerialNum  DisplayString,
+        certIssuerName DisplayString,
+        certStartDate  DisplayString,
+        certEndDate    DisplayString,
+        certRemainingLife DisplayString,
+        certType       DisplayString,
+        certTpLabel    DisplayString,
+        certSubName    DisplayString
+}
+ 
+certChainLabel OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 1 }
+ 
+certSerialNum OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 2 }
+ 
+certIssuerName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 3 }
+ 
+certStartDate OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 4 }
+ 
+certEndDate OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 5 }
+ 
+certType OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 6 }
+ 
+certRemainingLife OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 7 }
+ 
+certTpLabel OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 8 }
+ 
+certSubName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { certChainEntry 9 }
+ 
+ciscoPkiCRLInfo  OBJECT IDENTIFIER
+    ::= { ciscoPkiRevocationInfo 1 }
+ 
+ciscoPkiOSCPInfo  OBJECT IDENTIFIER
+    ::= { ciscoPkiRevocationInfo 2 }
+ 
+ 
+pkiCRLTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PkiCRLEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Please enter the Table Description here."
+    ::= { ciscoPkiCRLInfo 1 }
+ 
+pkiCRLEntry OBJECT-TYPE
+    SYNTAX          PkiCRLEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the xxxTable."
+    INDEX           { crlTpLabel }
+    ::= { pkiCRLTable 1 }
+ 
+PkiCRLEntry ::= SEQUENCE {
+        crlTpLabel   DisplayString,
+        issuerName   DisplayString,
+        sequenceNumb DisplayString,
+        nextUpdate   DisplayString,
+        crlSize      Unsigned32,
+        deltaCRLFlag Unsigned32
+}
+ 
+crlTpLabel OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Unique trustpoint Label"
+    ::= { pkiCRLEntry 1 }
+ 
+issuerName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "CRL Issuer name"
+    ::= { pkiCRLEntry 2 }
+ 
+sequenceNumb OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { pkiCRLEntry 3 }
+ 
+nextUpdate OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { pkiCRLEntry 4 }
+ 
+crlSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967294)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    DEFVAL          { 0 }
+    ::= { pkiCRLEntry 5 }
+ 
+deltaCRLFlag OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row.
+        The following columnar objects are allowed to be writable
+        when the storageType of this conceptual row is permanent(4):
+        (replace with list of columns)"
+    DEFVAL          { 0 }
+    ::= { pkiCRLEntry 6 }
+ 
+ 
+pkiOCSPTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PkiOCSPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Please enter the Table Description here."
+    ::= { ciscoPkiOSCPInfo 1 }
+ 
+pkiOCSPEntry OBJECT-TYPE
+    SYNTAX          PkiOCSPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the xxxTable."
+    INDEX           { ocspTpLabel }
+    ::= { pkiOCSPTable 1 }
+ 
+PkiOCSPEntry ::= SEQUENCE {
+        ocspTpLabel DisplayString,
+        responderID DisplayString,
+        thisUpdate  DisplayString,
+        nexUpdate   DisplayString
+}
+ 
+ocspTpLabel OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { pkiOCSPEntry 1 }
+ 
+responderID OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An identifier of the responder (DN name or a hash of its key)"
+    ::= { pkiOCSPEntry 2 }
+ 
+thisUpdate OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The issuing time of the revocation information."
+    ::= { pkiOCSPEntry 3 }
+ 
+nexUpdate OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The issuing time of the revocation information that will update
+        that one."
+    ::= { pkiOCSPEntry 4 }
+ 
+ 
+ciscoPkiEnrollmentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF EnrollProfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Please enter the Table Description here."
+    ::= { ciscoPkiEnrollmentProfile 1 }
+ 
+enrollProfEntry OBJECT-TYPE
+    SYNTAX          EnrollProfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the xxxTable."
+    INDEX           { enrollProfLabel }
+    ::= { ciscoPkiEnrollmentTable 1 }
+ 
+EnrollProfEntry ::= SEQUENCE {
+        enrollProfLabel    DisplayString,
+        enrolCredentials   DisplayString,
+        authLocation       DisplayString,
+        authMethod         DisplayString,
+        authVrf            DisplayString,
+        authSourceInter    DisplayString,
+        enrolMethod        DisplayString,
+        enrolLocation      DisplayString,
+        enrolVrf           DisplayString,
+        enrolSourceInter   DisplayString,
+        reenrolMethod      DisplayString,
+        reenrolLocation    DisplayString,
+        reenrolVrf         DisplayString,
+        reenrolSourceInter DisplayString
+}
+ 
+enrollProfLabel OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Unique value to display Enrollment Label.
+ 
+        If enrollment profiles are not present, string size of 0 will
+        show nothing."
+    ::= { enrollProfEntry 3 }
+ 
+enrolCredentials OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 4 }
+ 
+authLocation OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 5 }
+ 
+authMethod OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 6 }
+ 
+authVrf OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 7 }
+ 
+authSourceInter OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 8 }
+ 
+enrolMethod OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Enrollment method will be displayed which will be used to
+        authenticate and enroll.
+ 
+        If enrollment method is configured as terminal, this parameter
+        gives
+        enrollment terminal
+ 
+        If enrollment method is configured with url, this parameter
+        returns
+        enrollment url ip_addresss
+ 
+        If vrf is configured as part of enrollment url, it will be
+        shown
+        as part of enrollment url ip_address vrf interface"
+    ::= { enrollProfEntry 9 }
+ 
+enrolLocation OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 10 }
+ 
+enrolVrf OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 11 }
+ 
+enrolSourceInter OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 12 }
+ 
+reenrolMethod OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 13 }
+ 
+reenrolLocation OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 14 }
+ 
+reenrolVrf OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 15 }
+ 
+reenrolSourceInter OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Please enter the object description here"
+    ::= { enrollProfEntry 16 }
+ 
+ 
+pkiTPTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PkiTPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Please enter the Table Description here."
+    ::= { ciscoPkiTrustpoints 1 }
+ 
+pkiTPEntry OBJECT-TYPE
+    SYNTAX          PkiTPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the xxxTable."
+    INDEX           { tpLabel }
+    ::= { pkiTPTable 1 }
+ 
+PkiTPEntry ::= SEQUENCE {
+        tpLabel          DisplayString,
+        subjectName      DisplayString,
+        subjectAltName   DisplayString,
+        aaaListInfo      DisplayString,
+        enrollmentConfig DisplayString,
+        vrfConfig        DisplayString,
+        sourceInter      DisplayString,
+        autoEnroll       DisplayString,
+        keyPairLabel     DisplayString,
+        revocationMethod DisplayString,
+        hashAlgo         DisplayString,
+        trustpointState  DisplayString
+}
+ 
+tpLabel OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Unique name of Trustpoint Label.
+ 
+        When there is no trustpoint configured, size 0 shows no
+        trustpoint configured."
+    ::= { pkiTPEntry 1 }
+ 
+subjectName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Subject name configured under the trustpoint will be returned"
+    ::= { pkiTPEntry 2 }
+ 
+subjectAltName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..50))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "subject alternate name configured under the trustpoint which
+        can be used while generating the csr."
+    ::= { pkiTPEntry 3 }
+ 
+aaaListInfo OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..50))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Returns AAA authorization list to be used configured under
+        trustpoint.
+ 
+        AAA authorization list will be used during peer certificate
+        validations etc.
+ 
+        In order to access information on AAA list, please check AAA MIB
+        corresponding to this AAA label."
+    ::= { pkiTPEntry 4 }
+ 
+enrollmentConfig OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Enrollment configuration which is configured under the
+       trustpoint will be returned."
+    ::= { pkiTPEntry 5 }
+ 
+vrfConfig OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..50))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "VRF interface configured under trustpoint which can be used for
+        enrollment and obtaining CRL's"
+    ::= { pkiTPEntry 6 }
+ 
+sourceInter OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..50))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "source Interface configured under trustpoint."
+    ::= { pkiTPEntry 7 }
+ 
+autoEnroll OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..20))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "If autoEnroll is configured under the trustpoint, autoEnroll
+        returns with the percentage configured.
+ 
+        If the percentage is not configured, but auto-enroll is
+        configured under trustpoint, this parameter return auto-enroll.
+ 
+        If percentage is configured, parameter returns
+        auto-enroll <percentage>"
+    ::= { pkiTPEntry 8 }
+ 
+keyPairLabel OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Displays keypairLabel associated to this trustpoint if it is
+        enrolled.
+ 
+        During authentication, we wont generate the keypair Label."
+    ::= { pkiTPEntry 10 }
+ 
+revocationMethod OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..50))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object displays revocation check configured on the device.
+ 
+ 
+        If nothing is configured under the trustpoint, by default
+        revocation-check crl will be updated."
+    ::= { pkiTPEntry 11 }
+ 
+hashAlgo OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Hash algorithm configured under the trustpoint.
+ 
+        This will be used while selecting the HASH algorithm when CA
+        server responded with GetCACapabilities list.
+ 
+        Default value is sha1"
+    ::= { pkiTPEntry 12 }
+ 
+trustpointState OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..20))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Trustpoint state displays following
+ 
+        1) Authenticated - Trustpoint is in Authenticated state.
+ 
+        2) Enrolled - Trustpoint is authenticated and enrolled.
+        Certificate state is granted.
+ 
+        3) Pending - Trustpoint is authenticated but enrollment is in
+        pending state. This means CA server returned PENDING for the
+        router certificate.
+ 
+        4) None - Trustpoint is neither authenticated nor enrolled."
+    DEFVAL          { "0" }
+    ::= { pkiTPEntry 13 }
+ 
+ 
+ciscoPkiCertInstallAlert NOTIFICATION-TYPE
+    OBJECTS         {
+                        certSerialNum,
+                        certIssuerName,
+                        certStartDate,
+                        certEndDate,
+                        certType,
+                        certTpLabel,
+                        certSubName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "When a certificate is installed on the device, notification
+        will be sent with following information.
+ 
+        a)   Certificates Serial number
+        b)   Certificate Issuer-name
+        c)   Certificate Subject name
+        d)   Trustpoint name
+        e)   Type of certificate. (i.e. CA/ID) certificate
+        f)   Certificate Start Date
+        g)   Certificate End Date
+ 
+        Alert will not be sent for RA certificates, trustpool
+        certificates and self-signed non-persistent certificates."
+   ::= { ciscoPkiMIBNotifs 1 }
+ 
+ciscoPkiCertExpiryAlert NOTIFICATION-TYPE
+    OBJECTS         {
+                        certSerialNum,
+                        certSubName,
+                        certIssuerName,
+                        certType,
+                        certTpLabel,
+                        certRemainingLife
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Certificate Expiry alert consists of following
+        a)   Certificate Serial number
+        b)   Certificate Issuer-name
+        c)   Trustpoint name
+        d)   Type of certificate (i.e. CA/ID/SUBCA/RA)
+        e)   Certificate remaining lifetime in seconds.
+        f)   Certificate subject-name
+ 
+        When a certificate is reaching its expiry on the router, a trap
+        will be sent to SNMP server at regular intervals starting from
+        60days to till 1week. From 1week onwards daily one trap will be
+        sent with
+        following information
+ 
+        a)   Certificate Serial number
+        b)   Certificate Issuer-name
+        c)   Trustpoint name
+        d)   Type of certificate (i.e. CA/ID)
+        e)   Certificate remaining lifetime.
+ 
+        Alert will not be sent if trustpoint is configured with
+        auto-enroll and corresponding shadow certificate/rollover
+        certificate is present provided, shadow/rollover certificates
+        start time is same/behind certificate end time.
+ 
+        If shadow/rollover certificate start time is ahead of
+       certificate end time, alerts will be continued to send because
+        shadow certificate wont be valid from certificates expiry
+        time.
+ 
+        Expiry alerts will not be sent for trustpool certificates."
+   ::= { ciscoPkiMIBNotifs 2 }
+ciscoPkiMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIBConform 1 }
+ 
+ciscoPkiMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoPkiMIBConform 2 }
+ 
+ 
+ciscoPkiMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoPkiMIBMainObjectGroup,
+                        ciscoPkiMIBNotificationGroup
+                    }
+    ::= { ciscoPkiMIBCompliances 1 }
+ 
+-- Units of Conformance
+ 
+ciscoPkiMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        enrolMethod,
+                        trustpointState,
+                        revocationMethod,
+                        enrollmentConfig,
+                        subjectName,
+                        subjectAltName,
+                        aaaListInfo,
+                        vrfConfig,
+                        sourceInter,
+                        autoEnroll,
+                        keyPairLabel,
+                        issuerName,
+                        sequenceNumb,
+                        nextUpdate,
+                        crlSize,
+                        deltaCRLFlag,
+                        responderID,
+                        thisUpdate,
+                        nexUpdate,
+                        certRemainingLife,
+                        certSerialNum,
+                        certIssuerName,
+                        certStartDate,
+                        certEndDate,
+                        certType,
+                        certTpLabel,
+                        certSubName,
+                        hashAlgo,
+                        enrolCredentials,
+                        authLocation,
+                        authMethod,
+                        authVrf,
+                        authSourceInter,
+                        enrolLocation,
+                        enrolVrf,
+                        enrolSourceInter,
+                        reenrolMethod,
+                        reenrolLocation,
+                        reenrolVrf,
+                        reenrolSourceInter
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The is a test group."
+    ::= { ciscoPkiMIBGroups 1 }
+ 
+ciscoPkiMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoPkiCertInstallAlert,
+                        ciscoPkiCertExpiryAlert
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Notification alert group consists of both installation and
+        expiry notifications."
+    ::= { ciscoPkiMIBGroups 2 }
+ 
+END
+

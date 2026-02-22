@@ -1,0 +1,1302 @@
+--*********************************************************************
+-- CISCO-IETF-MEGACO-MIB
+-- 
+-- This MIB module is based on the Internet Draft 
+-- draft-ietf-megaco-mib-05.txt. 
+-- In terms of object syntax and semantics, the content of this Cisco 
+-- MIB is the same as the corresponding Internet Draft revision.
+-- This Cisco MIB was created due to the "subject to change" nature 
+-- of Internet Drafts. 
+--
+-- This Cisco MIB may later be deprecated, and the stable RFC, which 
+-- may replace the Internet Draft, may be implemented in its place.
+-- 
+-- April 2003, Margaret Hsieh
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+--
+--********************************************************************* 
+      
+CISCO-IETF-MEGACO-MIB DEFINITIONS ::= BEGIN 
+      
+IMPORTS 
+       MODULE-IDENTITY, OBJECT-TYPE, 
+       Counter32, Integer32, IpAddress, Unsigned32 
+               FROM SNMPv2-SMI 
+      
+       TEXTUAL-CONVENTION, 
+       RowStatus, TestAndIncr, AutonomousType, TimeStamp      
+               FROM SNMPv2-TC 
+      
+       MODULE-COMPLIANCE, OBJECT-GROUP                      
+               FROM SNMPv2-CONF 
+      
+       SnmpAdminString                             
+               FROM SNMP-FRAMEWORK-MIB 
+      
+       InterfaceIndex                              
+               FROM IF-MIB 
+
+       ciscoExperiment
+               FROM CISCO-SMI;
+
+      
+      
+ciscoIetfMegacoMIB MODULE-IDENTITY 
+    LAST-UPDATED   "200304281200Z" 
+    ORGANIZATION   "Cisco Systems, Inc." 
+    CONTACT-INFO 
+        "        Cisco Systems
+                 Customer Service
+        Postal: 170 W Tasman Drive
+                San Jose, CA 95134
+                USA
+           Tel: +1 800 553-NETS
+        E-mail: cs-voice-gateway@cisco.com"
+
+    DESCRIPTION 
+        "This MIB module is based on the Internet Draft 
+         draft-ietf-megaco-mib-05.txt. 
+
+         It defines the attributes of Megaco protocol. 
+         Reference: ITU H.248 (Rev. COM16-107)."
+          
+    REVISION       "200304281200Z"
+    DESCRIPTION 
+        "Initial version of this MIB module." 
+      
+    ::= { ciscoExperiment 99999 }
+      
+-- *****************************************************************  
+--  
+-- OID For the MIB 
+-- 
+-- *****************************************************************  
+      
+ciscoIetfMegacoMIBNotifs     OBJECT IDENTIFIER::= { ciscoIetfMegacoMIB 0 } 
+ciscoIetfMegacoMIBObjects    OBJECT IDENTIFIER::= { ciscoIetfMegacoMIB 1 } 
+      
+      
+-- *****************************************************************  
+-- Abbreviations/Terminologies
+--
+-- Media Gateway Link - A signaling channels that is identified by an
+--                      IP address and a UDP port of a media gateway.
+--                      A media gateway can have one or more links 
+--                      (one or more signaling channels)
+--      
+-- H248 - Media Gateway Control Protocol, ITU H.248
+--
+-- *****************************************************************  
+--
+--
+-- *****************************************************************  
+--  
+-- CISCO-IETF-MEGACO-MIB 
+--  
+-- The Media Gateway MIB contains 4 (object) groups 
+
+-- cmedConfiguration  
+--    This group consists of all the configuration related 
+--    information pertained with the Media Gateways and 
+--    Media Gateway Controllers in the network being managed. 
+--    This group contains the following three tables: 
+--    cmedLinkIdTable - Table used to provide the linkId to create 
+--                      new entries in the gateway table 
+--    cmedGatewayConfigTable - Table provides the list of 
+--                             gateways in the network and their 
+--                             configuration 
+--    cmedGwyControllerTable - Table provides the list of 
+--                             media gateway controllers in 
+--                             the network and their 
+--                             configuration 
+-- cmedStatistics 
+--    This group consists of all the statistics related information 
+--    pertained with the gateways. This group contains the following
+--    table: 
+--    cmedGatewayStatsTable - Table provides the gateway statistics 
+--                            and related information 
+--  
+-- cmedConnections 
+--    This group consists of the connections, terminations and their 
+--    properties related information for the gateways being managed 
+--    This group contains the following three tables: 
+--    cmedTermIdTable - Table used to provide the manager the next 
+--                      available termination Id. 
+--    cmedTerminationsTable - Table provides the list of 
+--                            terminations and their configuration
+--                            & status 
+--    cmedPropertyProfileTable - Table provides the list of profiles 
+--                               that are being supported by the 
+--                               gateway 
+--  
+-- cmedProperties 
+--    For Future Extension 
+--  
+--  
+-- *****************************************************************  
+--
+-- *****************************************************************  
+--  
+-- Group Objects 
+-- 
+-- *****************************************************************  
+      
+cmedConfiguration  
+    OBJECT IDENTIFIER::= { ciscoIetfMegacoMIBObjects 1 } 
+cmedStatistics     
+    OBJECT IDENTIFIER::= { ciscoIetfMegacoMIBObjects 2 } 
+cmedConnections    
+    OBJECT IDENTIFIER::= { ciscoIetfMegacoMIBObjects 3 } 
+cmedProperties     
+    OBJECT IDENTIFIER::= { ciscoIetfMegacoMIBObjects 4 } 
+   
+-- *****************************************************************  
+--  
+-- Textual conventions for the Media Gateway MIB 
+-- 
+-- *****************************************************************  
+      
+CMediaGatewayId ::= TEXTUAL-CONVENTION 
+    STATUS         current 
+    DESCRIPTION  
+        "Possible Media Gateway Id that can be used to identify 
+         any media gateway uniquely" 
+    SYNTAX         INTEGER (1..2147483647) 
+
+CMediaGatewayLinkId ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Possible Media Gateway Link Id that can be used to identify
+         any media gateway link uniquely"
+    SYNTAX      Unsigned32 (1..2147483647)
+  
+CMediaGatewayTermId ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Possible Termination Id that can be used to identify
+         any media gateway termination uniquely"
+    SYNTAX      Unsigned32 (1..2147483647)
+
+      
+-- *****************************************************************  
+-- 
+-- cmedLinkIdTable 
+--   Cisco Media Gateway LinkId Table... 
+-- 
+--   Provides the manager with the nextId for use in creating a 
+--   LinkId. There is one entry in this table for each MediaGateway. 
+-- 
+--   Link represents the signaling link between the media gateway  
+--   and the media gateway controller. The following rules guide 
+--   the creation of the LinkId 
+-- 
+--   (1) There could be more than one media gateways (cmedGatewayId) 
+--       sharing the same signaling link (cmedLinkId). 
+-- 
+--   (2) A gateway may have many links (interfaces) towards the Media 
+--       Gateway Controller but only the active link that is currently 
+--       being used to communicate with the controller would be 
+--       accounted in this table 
+-- 
+--   If this table isn't implemented, the manager would be 
+--   responsible for providing the (unique) nextId (via retaining 
+--   used id's, hashing, etc) 
+-- 
+-- *****************************************************************  
+      
+      
+cmedLinkIdTable OBJECT-TYPE 
+    SYNTAX      SEQUENCE OF CmedLinkIdEntry 
+    MAX-ACCESS  not-accessible 
+    STATUS      current 
+    DESCRIPTION 
+        "This table contains a nextLinkId for each Gateway. 
+         It provides the manager with the nextLinkId for use 
+         in creating new Gateway Table Entries." 
+    ::= { cmedConfiguration 1} 
+      
+cmedLinkIdEntry OBJECT-TYPE 
+    SYNTAX      CmedLinkIdEntry 
+    MAX-ACCESS  not-accessible 
+    STATUS      current 
+    DESCRIPTION  
+        "This table contains the NextLinkId for this Gateway 
+         and is indexed by mediaGatewayId." 
+    INDEX       { cmedGatewayId } 
+    ::= { cmedLinkIdTable 1 } 
+      
+CmedLinkIdEntry ::= SEQUENCE 
+    { 
+        cmedNextLinkId     TestAndIncr          
+    } 
+      
+cmedNextLinkId  OBJECT-TYPE 
+    SYNTAX      TestAndIncr 
+    MAX-ACCESS  read-write 
+    STATUS      current 
+    DESCRIPTION 
+        "The Next Value for a cmedGatewayLinkId.  Assists the 
+         manager in selecting a value for cmedGatewayLinkId. 
+         Using the TestAndIncr syntax, A Manager will 'lock' this 
+         variable, ensuring single access." 
+    ::= { cmedLinkIdEntry 1 } 
+      
+      
+-- *****************************************************************  
+-- 
+-- cmedGatewayConfigTable 
+-- 
+--   The Media Gateway Configuration Table... 
+--    
+--   There would be one entry in this table and is indexed by  
+--   (cmedGatewayId, cmedGatewayLinkId). The table is guided by 
+--   the following rules: 
+--    
+--   (1) There is one entry in this table for each MediaGateway 
+--       SignallingLink. 
+-- 
+--   (2) Even though gateways could share the signaling link, they 
+--       could have different IP Address and/or Port Number. 
+--       In order to accommodate that, the table is indexed by 
+--       both cmedGatewayId and cmedGatewayLinkId. 
+--    
+--   (3) Virtual MGs need not have to be represented as a separate 
+--       entry in this table
+--
+-- *****************************************************************  
+      
+cmedGatewayConfigTable OBJECT-TYPE 
+    SYNTAX        SEQUENCE OF CmedGatewayConfigEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "A list of cmedGatewayConfigEntry objects." 
+    ::= { cmedConfiguration 2 } 
+      
+cmedGatewayConfigEntry OBJECT-TYPE 
+    SYNTAX        CmedGatewayConfigEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "Entry holding configuration information about a 
+         group of Media Gateway Controllers sharing the same 
+         signaling link."
+    INDEX         { cmedGatewayId, cmedGatewayLinkId } 
+    ::= { cmedGatewayConfigTable 1 } 
+      
+CmedGatewayConfigEntry ::= SEQUENCE 
+    { 
+        cmedGatewayId                   CMediaGatewayId,
+        cmedGatewayLinkId               CMediaGatewayLinkId,
+        cmedGatewayLinkName             SnmpAdminString,
+        cmedGatewayIPAddress            IpAddress,
+        cmedGatewayPort                 Integer32,
+        cmedGatewayEncodingScheme       INTEGER,
+        cmedGatewayProtocol             INTEGER,
+        cmedGatewaySigTptProtocol       INTEGER,
+        cmedGatewayAdminStatus          INTEGER,
+        cmedGatewayOperStatus           INTEGER,
+        cmedGatewayLastStatusChange     TimeStamp,
+        cmedGatewayResetStatistics      INTEGER,
+        cmedGatewayRowStatus            RowStatus
+    } 
+      
+      
+cmedGatewayId     OBJECT-TYPE 
+    SYNTAX        CMediaGatewayId 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "The unique Media Gateway Id which identifies this 
+         media gateway" 
+    ::= { cmedGatewayConfigEntry 1 } 
+      
+cmedGatewayLinkId OBJECT-TYPE 
+    SYNTAX        CMediaGatewayLinkId
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "The unique link id which identifies the signaling 
+         link that this gateway uses to communicate with the  
+         Gateway Controllers to form an H.248 association." 
+    ::= { cmedGatewayConfigEntry 2 } 
+      
+cmedGatewayLinkName OBJECT-TYPE 
+    SYNTAX        SnmpAdminString ( SIZE (0..255) )
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "A descriptive name of this signaling link / media  
+         gateway combination" 
+    ::= { cmedGatewayConfigEntry 3 } 
+      
+cmedGatewayIPAddress OBJECT-TYPE 
+    SYNTAX        IpAddress 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "The IP address that the Media Gateway Controller 
+         will use to communicate with the Media Gateway. 
+         This object reflects the IP address over control
+         PVC that user configures in cMediaGwIpConfigTable.
+
+         The value 0.0.0.0 is returned if the entry is 
+         invalid." 
+    ::= { cmedGatewayConfigEntry 4 } 
+      
+cmedGatewayPort OBJECT-TYPE 
+    SYNTAX        Integer32 (0..65535) 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "TCP/UDP port number that the Media Gateway Controller will  
+         use to communicate with the Media Gateway. The value 
+         0 is returned if the entry is invalid." 
+    DEFVAL { 2944 } 
+    ::= { cmedGatewayConfigEntry 5 } 
+      
+cmedGatewayEncodingScheme OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                      text         (1), 
+                      binary       (2) 
+                  } 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "The encoding scheme that would be used to encode the H.248 
+         messages that are sent/received to/from the gateway  
+         controller" 
+    DEFVAL { text } 
+    ::= { cmedGatewayConfigEntry 6 } 
+      
+cmedGatewayProtocol OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                      notApplicable(1),
+                      other        (2),
+                      dss1Ip       (3),
+                      ipdc         (4),
+                      megacov1     (5),
+                      megacov2     (6), 
+                      mgcp         (7)
+                  } 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "Type of the control protocol in use 
+             notApplicable (1) - 
+             other         (2) - Other (none from the list below) 
+             dss1-ip       (3) - Q931+ 
+             ipdc          (4) - IPDC 
+             megacov1      (5) - MEGACO/H.248 Version 1 
+             megacov2      (6) - MEGACO/H.248 Version 2 
+             mgcp          (7) - MGCP "
+    ::= { cmedGatewayConfigEntry 7 } 
+      
+cmedGatewaySigTptProtocol OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                      tcp          (1),   
+                      udp          (2),   
+                      sctp         (3), 
+                      other        (4) 
+                  } 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "Type of the transport protocol that is being used to 
+         transport the H.248 signaling traffic" 
+    ::= { cmedGatewayConfigEntry 8 } 
+      
+cmedGatewayAdminStatus OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                      up      (1), 
+                      down    (2), 
+                      testing (3) 
+                  } 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "The desired state of the gateway.  
+         The testing(3) state indicates that no signaling 
+         packets can be passed.  
+         When a managed system initializes, all gateways start 
+         with cmedGatewayAdminStatus in the down(2) state.  
+         As a result of either explicit management action or 
+         per configuration information retained by the 
+         managed system, cmedGatewayAdminStatus is then changed 
+         to either the up(1) or testing(3) states (or remains in 
+         the down(2) state)." 
+    ::= { cmedGatewayConfigEntry 9 } 
+      
+cmedGatewayOperStatus OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                      up     (1),
+                      down   (2),
+                      testing(3),
+                      unknown(4)
+                  } 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "The current operational state of the gateway.  
+             up     (1) - ready to communicate with MGC 
+             down   (2) 
+             testing(3) - in some test mode 
+             unknown(4) - status can not be determined for some 
+                          reason. 
+         The testing(3) state indicates that no signaling packets 
+         can be passed.  
+         If cmedGatewayAdminStatus is down(2) then  
+         cmedGatewayOperStatus should be down(2).
+         If cmedGatewayAdminStatus is changed to up(1) then  
+         cmedGatewayOperStatus should change to up(1) if the  
+         gateway is ready to transmit and receive signaling  
+         traffic; it should remain in the down(2) state if and  
+         only if there is a fault that prevents it from going to  
+         the up(1) state" 
+    ::= { cmedGatewayConfigEntry 10 } 
+      
+cmedGatewayLastStatusChange OBJECT-TYPE 
+    SYNTAX        TimeStamp 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "The value of sysUpTime at the time the associated 
+         link entered its current operational status. If 
+         the current status was entered prior to the last 
+         re-initialization of the local network management 
+         subsystem, then this object contains a zero value." 
+    ::= { cmedGatewayConfigEntry 11 } 
+      
+cmedGatewayResetStatistics OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                      notApplicable  (1),
+                      other          (2),
+                      reset          (3)
+                  } 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "This object can be used to reset all statistics
+         collected for this media gateway link so far.
+         Statistics will be reset when the object is SET
+         to 'reset'.  Upon reset, the agent changes the value
+         of this object to 'notApplicable'."
+    ::= { cmedGatewayConfigEntry 12 } 
+      
+cmedGatewayRowStatus OBJECT-TYPE 
+    SYNTAX         RowStatus 
+    MAX-ACCESS     read-create 
+    STATUS         current 
+    DESCRIPTION 
+        "This is used to create new rows, modify existing rows
+         and to delete existing rows."
+    ::= { cmedGatewayConfigEntry 13 } 
+      
+      
+-- *****************************************************************  
+-- 
+-- cmedGwyControllerTable 
+-- 
+--   The Media Gateway Controller Table... 
+-- 
+--   This table would provide information about the media gateway  
+--   controllers in the network and their configuration. The rules 
+--   that guide this table are: 
+-- 
+--   (1) This table consists a 'List' of Media Gateway Controllers  
+--       (on a media gateway), and Configuration Information for 
+--       these  Controllers. 
+-- 
+--   (2) An Entry in this Table is automatically created when a 
+--       manager creates an entry in the cmedGatewayConfigTable
+--       because even though the same MGC could manage many gateways,
+--       they could have different logical IP address/Port number 
+--       towards each of the gateway 
+--
+--   (3) There can be many logical gateways inside a physical 
+--       gateway (cmedGatewayId) and there can be multiple media
+--       gateway controllers (cmedGwyControllerId) and there can be
+--       many links between "m" number of gateways and "n" number of 
+--       controllers (cmedGatewayLinkId).
+--          
+--       The relationship can be, for example, as follows:
+--
+--      cmedGatewayId                       cmedGwyControllerId
+--       +==========+   cmedGatewayLinkId     +==========+
+--       |      mg1 |========================>|     mgc1 |
+--       | +==========+          |            | +==========+
+--       | |      mg2 |          +=============>|     mgc2 |
+--       | | +==========+                     | | +==========+
+--       +-| |      mg3 |======================>| |    mgc3  |
+--         | |          |            |          | |          |
+--         +-|          |            +===========>|          |
+--           |          |                         |          |
+--           +==========+                         +==========+
+-- 
+-- *****************************************************************  
+      
+cmedGwyControllerTable OBJECT-TYPE 
+    SYNTAX          SEQUENCE OF CmedGwyControllerEntry 
+    MAX-ACCESS      not-accessible 
+    STATUS          current 
+    DESCRIPTION 
+        "List of the Media Gateway Controllers that are managed 
+         in the network" 
+    ::= { cmedConfiguration 3 } 
+      
+cmedGwyControllerEntry OBJECT-TYPE 
+    SYNTAX          CmedGwyControllerEntry 
+    MAX-ACCESS      not-accessible 
+    STATUS          current 
+    DESCRIPTION 
+        "Entry holding information about an individual 
+         Media Gateway Controller." 
+    INDEX          { cmedGatewayId, 
+                     cmedGatewayLinkId,
+                     cmedGwyControllerId } 
+    ::= { cmedGwyControllerTable 1 } 
+      
+CmedGwyControllerEntry ::= SEQUENCE 
+    { 
+        cmedGwyControllerId             Unsigned32,
+        cmedGwyControllerIPAddress      IpAddress,
+        cmedGwyControllerPort           Integer32,
+        cmedGwyControllerAdminStatus    INTEGER,
+        cmedGwyControllerOperStatus     INTEGER
+    }
+
+cmedGwyControllerId OBJECT-TYPE 
+    SYNTAX        Unsigned32 (1..2147483647)
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "An unique identification number that is assigned to 
+         the gateway controller by the manager" 
+    ::= { cmedGwyControllerEntry 1 } 
+      
+cmedGwyControllerIPAddress OBJECT-TYPE 
+    SYNTAX        IpAddress 
+    MAX-ACCESS    read-write 
+    STATUS        current 
+    DESCRIPTION 
+        "The IP address of the Media Gateway Controller. The 
+         value 0.0.0.0 is returned if the entry is invalid." 
+    ::= { cmedGwyControllerEntry 2 } 
+      
+cmedGwyControllerPort OBJECT-TYPE 
+    SYNTAX        Integer32 (0..65535) 
+    MAX-ACCESS    read-write 
+    STATUS        current 
+    DESCRIPTION 
+        "TCP port of the Media Gateway Controller. The value 
+         0 is returned if the entry is invalid." 
+    ::= { cmedGwyControllerEntry 3 } 
+      
+cmedGwyControllerAdminStatus OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                           up      (1), 
+                           down    (2), 
+                           testing (3) 
+                  } 
+    MAX-ACCESS    read-write 
+    STATUS        current 
+    DESCRIPTION 
+        "The desired state of the gateway.  
+         The testing(3) state indicates that no signaling 
+         packets can be passed.  
+         When a managed system initializes, all gateways start 
+         with cmedGwyControllerAdminStatus in the down(2)
+         state. As a result of either explicit management action
+         or per configuration information retained by the managed
+         system, cmedGwyControllerAdminStatus is then 
+         changed to either the up(1) or testing(3) states (or 
+         remains in the down(2) state)." 
+    ::= { cmedGwyControllerEntry 4 } 
+      
+cmedGwyControllerOperStatus OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                           up      (1),
+                           down    (2),
+                           standby (3)
+                  } 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "The current operational state of the gateway controller.   
+         The standby(3) state indicates that it is in the standby 
+         mode and no signaling packets can be passed. If  
+         cmedGwyControllerAdminStatus is down(2) then  
+         cmedGwyControllerOperStatus should be down(2).
+         If cmedGwyControllerAdminStatus is changed to 
+         up(1), then cmedGwyControllerOperStatus should 
+         change to up(1).
+         If the gateway controller is ready to transmit and receive  
+         signaling traffic; it should remain in the down(2) state 
+         if and only if there is a fault that prevents it from 
+         going to the up(1) state" 
+    ::= { cmedGwyControllerEntry 5 } 
+      
+-- *****************************************************************  
+-- 
+-- cmedGatewayStatsTable 
+-- 
+--   The Media Gateway Stats Table... 
+-- 
+--   This table provides the control protocol related statistics for 
+--   the gateways that are being managed in the network. The rules  
+--   that guide this table are: 
+-- 
+--   (1) There is one entry in this table for each 
+--       MediaGateway/SignallingLink.  
+--   (2) The Agent creates this table, when a GatewayConfigTable  
+--       Entry is created. 
+-- 
+-- *****************************************************************  
+      
+cmedGatewayStatsTable OBJECT-TYPE 
+    SYNTAX        SEQUENCE OF CmedGatewayStatsEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "A list of mediaGatewayTableEntry objects." 
+    ::= { cmedStatistics 1 } 
+      
+cmedGatewayStatsEntry OBJECT-TYPE 
+    SYNTAX        CmedGatewayStatsEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "Entry holding statistics about a group of 
+         media Gateway/signaling link pair  " 
+    INDEX         { cmedGatewayId, cmedGatewayLinkId } 
+    ::= { cmedGatewayStatsTable 1 } 
+      
+CmedGatewayStatsEntry ::= SEQUENCE 
+    { 
+        cmedNumInMessages           Counter32,
+        cmedNumInOctets             Counter32,
+        cmedNumOutMessages          Counter32,
+        cmedNumOutOctets            Counter32,
+        cmedNumErrors               Counter32,
+        cmedNumTimerRecovery        Counter32,
+        cmedTransportNumLosses      Counter32,
+        cmedTransportNumSwitchover  Counter32,
+        cmedTransportTotalNumAlarms Counter32,
+        cmedTransportLastEvent      INTEGER,
+        cmedTransportLastEventTime  TimeStamp,
+        cmedLastStatisticsReset     TimeStamp
+    } 
+      
+cmedNumInMessages OBJECT-TYPE 
+    SYNTAX        Counter32 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "Total number of messages received on the link." 
+    ::= { cmedGatewayStatsEntry 1 } 
+      
+cmedNumInOctets OBJECT-TYPE 
+    SYNTAX        Counter32 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "Total number of octets received on the link." 
+    ::= { cmedGatewayStatsEntry 2 } 
+      
+cmedNumOutMessages OBJECT-TYPE 
+    SYNTAX        Counter32 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "Total number of messages sent on the link." 
+    ::= { cmedGatewayStatsEntry 3 } 
+      
+cmedNumOutOctets OBJECT-TYPE 
+    SYNTAX         Counter32 
+    MAX-ACCESS     read-only 
+    STATUS         current 
+    DESCRIPTION 
+        "Total number of octets sent on the link." 
+    ::= { cmedGatewayStatsEntry 4 } 
+      
+cmedNumErrors    OBJECT-TYPE 
+    SYNTAX         Counter32 
+    MAX-ACCESS     read-only 
+    STATUS         current 
+    DESCRIPTION 
+        "Total number of signaling-level errors encountered. 
+         Includes, but is not limited to, number of bad 
+         messages received, number of failures to sent a 
+         message and number of other errors." 
+    ::= { cmedGatewayStatsEntry 5 } 
+      
+cmedNumTimerRecovery OBJECT-TYPE 
+    SYNTAX        Counter32 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "Total Number of timer recovery events since the 
+         statistics was last reset. This reflects all protocol 
+         timers that are supported (For H.248, T - start timer,  
+         S - short timer, L - long timer, and Z - long duration  
+         timer etc)" 
+    ::= { cmedGatewayStatsEntry 6 } 
+      
+cmedTransportNumLosses OBJECT-TYPE 
+    SYNTAX        Counter32 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "Number of times a transport link was lost 
+         (excluding switch-over cases). A link loss is defined 
+         as loss of communication with the entity (MGC) due to 
+         hardware/transient problems in the interface or other 
+         related hardware/software" 
+    ::= { cmedGatewayStatsEntry 7 } 
+      
+cmedTransportNumSwitchover OBJECT-TYPE 
+    SYNTAX        Counter32 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "Number of times when the signaling was switched 
+         over to an alternative link. This includes  
+         switchover due to the Handoffs initiated by the 
+         gateway controllers" 
+    ::= { cmedGatewayStatsEntry 8 } 
+      
+cmedTransportTotalNumAlarms OBJECT-TYPE 
+    SYNTAX        Counter32 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "Total number of all alarms issued for the transport 
+         layer." 
+    ::= { cmedGatewayStatsEntry 9 } 
+      
+cmedTransportLastEvent OBJECT-TYPE 
+    SYNTAX        INTEGER { 
+                      notApplicable   (1),
+                      other           (2),
+                      linkUp          (3),
+                      linkLoss        (4),
+                      persistentError (5),
+                      linkShutdown    (6),
+                      switchOver      (7)
+                  } 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION  
+        "Last event reported by the transport layer. 
+             notApplicable   (1) - Invalid/unknown. 
+             other           (2) - None from the list below. 
+             linkUp          (3) - Transport link is up. 
+             linkLoss        (4) - Transport link loss. 
+             persistentError (5) - No link - persistent error. 
+             linkShutdown    (6) - Link is shut down. 
+             switchOver      (7) - Fail-over."
+    ::= { cmedGatewayStatsEntry 10 } 
+      
+cmedTransportLastEventTime OBJECT-TYPE 
+    SYNTAX        TimeStamp 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "The value of sysUpTime at the time when the event 
+         specified by cmedTransportLastEvent occurred. 
+         If the last event occurred prior to the last 
+         re-initialization of the local network management 
+         subsystem, then this object contains a zero value." 
+    ::= { cmedGatewayStatsEntry 11 } 
+      
+cmedLastStatisticsReset OBJECT-TYPE 
+    SYNTAX        TimeStamp 
+    MAX-ACCESS    read-only 
+    STATUS        current 
+    DESCRIPTION 
+        "The value of sysUpTime at the time when the 
+         statistics were reset. If the reset occurred prior to 
+         the last re-initialization of the local network 
+         management subsystem, this object contains a zero 
+         value." 
+    ::= { cmedGatewayStatsEntry 12 } 
+   
+-- *****************************************************************  
+-- 
+-- cmedTermIdTable 
+-- 
+--   TerminationId Table... 
+-- 
+--   This table provides unique TerminationId for the creation of 
+--   an entry into the TerminationsTable. The following rules guide 
+--   this table: 
+-- 
+--   (1) This table provides the manager with the nextId for use in  
+--       creating a Termination. 
+--       There is one entry in this table for each MediaGateway. 
+--   (2) If this table isn't implemented, the manager would be 
+--       responsible for providing the (unique) nextId (via 
+--       retaining used id's, hashing, etc) 
+-- 
+-- *****************************************************************  
+      
+cmedTermIdTable OBJECT-TYPE 
+    SYNTAX        SEQUENCE OF CmedTermIdEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "This table contains a nextTerminationId for each 
+         Gateway. It provides the manager with the 
+         nextTerminationId for use in creating a new 
+         TerminationsTable Entry." 
+    ::= { cmedConnections 1} 
+      
+cmedTermIdEntry OBJECT-TYPE 
+    SYNTAX        CmedTermIdEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "This table contains a nextTerminationId for each 
+         Gateway, and is indexed by mediaGatewayId." 
+    INDEX        { cmedGatewayId } 
+    ::= { cmedTermIdTable 1 } 
+      
+      
+CmedTermIdEntry ::= SEQUENCE 
+    { 
+        cmedNextTerminationId    TestAndIncr
+    } 
+      
+cmedNextTerminationId OBJECT-TYPE 
+    SYNTAX        TestAndIncr 
+    MAX-ACCESS    read-write 
+    STATUS        current 
+    DESCRIPTION 
+        "The Next Value for a MediaGateway TerminationId.  
+         Assists the manager in selecting a value for 
+         cmedTermId. 
+         Using the TestAndIncr syntax, A Manager will 'lock' this 
+         variable, ensuring single access." 
+    ::= { cmedTermIdEntry 1 } 
+      
+      
+-- *****************************************************************  
+-- 
+-- cmedTerminationsTable 
+-- 
+--   This table provides the list of terminations available in 
+--   the gateway and their corresponding profile information and 
+--   related configuration information. 
+--   The following rules guide this table: 
+--   (1) There is one entry in this table for each Termination in a  
+--       MediaGateway. 
+--   (2) The list of terminations include terminations that are 
+--       present for all the contexts that are present in the 
+--       gateway (excluding the NULL context)(Subject to Discussion) 
+-- 
+-- *****************************************************************  
+      
+cmedTerminationsTable OBJECT-TYPE 
+    SYNTAX        SEQUENCE OF CmedTerminationsEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "This table contains information about terminations 
+         in a media gateway. It is a list of terminations. 
+         The number of entries equals to the total number of 
+         terminations for all contexts in a gateway." 
+    ::= { cmedConnections 2} 
+      
+cmedTerminationsEntry OBJECT-TYPE 
+    SYNTAX        CmedTerminationsEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "It contains objects that describe a termination." 
+    INDEX         { cmedGatewayId, cmedTermId } 
+    ::= { cmedTerminationsTable 1 } 
+      
+   
+CmedTerminationsEntry ::= SEQUENCE 
+    { 
+        cmedTermId                  CMediaGatewayTermId,
+        cmedTermName                SnmpAdminString,
+        cmedTermAdminStatus         INTEGER,
+        cmedTermOperStatus          INTEGER,
+        cmedTermInterfaceIdentifier InterfaceIndex,
+        cmedTermPropertyProfileId   Unsigned32,
+        cmedTermRowStatus           RowStatus
+    } 
+
+cmedTermId         OBJECT-TYPE 
+    SYNTAX         CMediaGatewayTermId
+    MAX-ACCESS     not-accessible 
+    STATUS         current 
+    DESCRIPTION 
+        "An unique identification number that is assigned to 
+         the termination by a media gateway. This is the 
+         TerminationId that would be used in the protocol 
+         messages that are sent from the gateway" 
+    ::= { cmedTerminationsEntry 1 } 
+      
+cmedTermName     OBJECT-TYPE 
+    SYNTAX         SnmpAdminString ( SIZE (0..64) ) 
+    MAX-ACCESS     read-create 
+    STATUS         current 
+    DESCRIPTION 
+        "A descriptive name that would describe this termination 
+         and its use. For example, 'emergency-ds0-1' indicating 
+         that this termination is reserved as an emergency DS0 
+         channel" 
+    ::= { cmedTerminationsEntry 2 } 
+      
+cmedTermAdminStatus OBJECT-TYPE 
+    SYNTAX         INTEGER { 
+                          inService    (1), 
+                          outOfService (2), 
+                          testing      (3) 
+                   } 
+    MAX-ACCESS     read-create 
+    STATUS         current 
+    DESCRIPTION 
+        "The desired state of the termination.  
+         The testing(3) state indicates that no connections 
+         can be created for this termination.  
+         When a managed system initializes, all terminations
+         start with cmedTermAdminStatus in the  
+         outOfService(2) state.  As a result of either 
+         explicit management action or per configuration 
+         information retained by the managed system,  
+         cmedTermAdminStatus is then changed to 
+         either the inService(1) or testing(3) states
+        (or remains in the outOfService(2) state)." 
+    ::= { cmedTerminationsEntry 3 } 
+      
+cmedTermOperStatus OBJECT-TYPE 
+    SYNTAX         INTEGER { 
+                         up      (1), 
+                         down    (2), 
+                         testing (3) 
+                   } 
+    MAX-ACCESS     read-only 
+    STATUS         current 
+    DESCRIPTION 
+        "The current operational state of the termination.   
+         The testing(3) state indicates that it is in the 
+         testing mode and no connections can be created on it.
+         If cmedTermAdminStatus is outOfService(2)
+         then cmedTermOperStatus should be down(2).
+         If cmedTermAdminStatus is changed to up(1)
+         then cmedTermOperStatus should change to up (1)
+         and the termination is ready to accept connections; 
+         it should remain in the down(2) state if and only if
+         there is a fault that prevents it from going to the 
+         up(1) state" 
+    ::= { cmedTerminationsEntry 4 } 
+      
+cmedTermInterfaceIdentifier OBJECT-TYPE
+    SYNTAX         InterfaceIndex 
+    MAX-ACCESS     read-create 
+    STATUS         current 
+    DESCRIPTION 
+        "A number that uniquely identifies the interface in 
+         the physical gateway. This is the ifIndex in the ifTable,  
+         that this termination would be using to communicate to  
+         other gateways" 
+    ::= { cmedTerminationsEntry 5 } 
+      
+cmedTermPropertyProfileId OBJECT-TYPE 
+    SYNTAX         Unsigned32 (1..2147483647)
+    MAX-ACCESS     read-create 
+    STATUS         current 
+    DESCRIPTION 
+        "This determines the profile of the termination which  
+         determines what kind of capabilities this termination has. 
+         This is an index into the cmedPropertyProfileTable 
+         which identifies all the profile that are available" 
+    ::= { cmedTerminationsEntry 6 } 
+      
+cmedTermRowStatus OBJECT-TYPE 
+    SYNTAX          RowStatus 
+    MAX-ACCESS      read-create 
+    STATUS          current 
+    DESCRIPTION 
+        "This is used to create new rows in this table, 
+         Modify existing rows, and to delete existing rows." 
+    ::= { cmedTerminationsEntry 7 } 
+      
+      
+-- *****************************************************************  
+-- 
+-- cmedPropertyProfileTable 
+-- 
+--   The Media Gateway Property Profile Table... 
+-- 
+--   This table describes different profiles and the properties 
+--   supported by each profile. The rules that guide this table are: 
+-- 
+--   (1) There are 'N' entries for each Gateway-PropertyProfile 
+--   (2) Each entry is a supported property, thus this table gives 
+--       a list of supported properties for each specified Profile. 
+--   (3) Each Property is defined as an Object Identifier in the
+--       various Package Mibs (like MEGACO-TONES-MIB etc).   
+--   (4) That OID is used to identify the particular Package, 
+--       and if the  Termination supports the property, this 
+--       Package OID is included  in its list. 
+--   (5) Terminations (in the TerminationsTable) will have a 
+--       PropertyProfileId that indicates which PropertyProfile this 
+--       Termination supports.  
+--   (6) A Manager builds a Profile of properties, then ties each  
+--       termination to a defined profile, via the PropertyProfileId 
+--   (7) Vendors are encouraged to come up with different profiles 
+--       for different scenarios in order to ensure 
+--       inter-operability among different implementations 
+-- 
+-- *****************************************************************  
+      
+      
+cmedPropertyProfileTable OBJECT-TYPE 
+    SYNTAX        SEQUENCE OF CmedPropertyProfileEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "This table contains a list of the properties 
+         supported in a Profile.  A Manager builds a Profile 
+         of properties, then ties each termination to a 
+         defined profile" 
+    ::= { cmedConnections 3} 
+      
+cmedPropertyProfileEntry OBJECT-TYPE 
+    SYNTAX        CmedPropertyProfileEntry 
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "Each row represents a default property of the 
+         Property Profile N-entries per 
+         mediaGatewayId/PropertyId, one entry per property." 
+    INDEX         { cmedGatewayId, 
+                    cmedPropertyProfileId, 
+                    cmedPropertyProfileIndex } 
+    ::= { cmedPropertyProfileTable 1 } 
+      
+CmedPropertyProfileEntry ::= SEQUENCE 
+    { 
+        cmedPropertyProfileId             Unsigned32,
+        cmedPropertyProfileIndex          Unsigned32,
+        cmedPropertyProfileProperty       AutonomousType,
+        cmedPropertyProfileRowStatus      RowStatus
+    } 
+      
+cmedPropertyProfileId OBJECT-TYPE 
+    SYNTAX        Unsigned32 (1..2147483647)
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "This PropertyProfile Identifier uniquely identifies
+         this set of properties.  
+         This is the value each termination would refer, 
+         when they would like to support all the properties
+         in this profile" 
+    ::= { cmedPropertyProfileEntry 1 } 
+      
+cmedPropertyProfileIndex OBJECT-TYPE 
+    SYNTAX        Unsigned32 (1..2147483647)
+    MAX-ACCESS    not-accessible 
+    STATUS        current 
+    DESCRIPTION 
+        "This is the index to the PropertyProfile This is just 
+         a 'counter' through the cmedPropertyProfile Table.  
+         ie, property=1 property=2 etc." 
+    ::= { cmedPropertyProfileEntry 2 } 
+      
+cmedPropertyProfileProperty OBJECT-TYPE 
+    SYNTAX        AutonomousType 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "The Property supported by this Profile. 
+         This is an Object ID (OID) defined in a package MIB  
+         to identify a Particular property (such as AnalogLines, 
+         Tones etc)." 
+    ::= { cmedPropertyProfileEntry 3 } 
+      
+cmedPropertyProfileRowStatus OBJECT-TYPE 
+    SYNTAX        RowStatus 
+    MAX-ACCESS    read-create 
+    STATUS        current 
+    DESCRIPTION 
+        "It is used to create new rows in this table, modify 
+         existing rows, and to delete existing rows." 
+    ::= { cmedPropertyProfileEntry 4 } 
+   
+-- *****************************************************************  
+-- 
+-- Conformance for the CISCO-IETF-MEGACO-MIB 
+-- 
+-- This object group provides list of groups to be conformed when  
+-- managing different types of gateways, gateway controllers 
+-- individually and both simultaneously from one single management 
+-- entity. 
+-- 
+-- *****************************************************************  
+      
+ciscoIetfMegacoMIBConformance OBJECT IDENTIFIER ::= { ciscoIetfMegacoMIB 3 } 
+      
+      
+-- *****************************************************************  
+-- 
+-- Conformance Object Groups 
+-- 
+-- There are two object groups 
+-- 
+-- cmedCompliances 
+--   This group includes all the compliance statements 
+--   (both mandatory and optional statements. 
+-- 
+-- cmedConfigGroups 
+--   This group includes all the different groups that form the 
+--   compliance statements 
+-- 
+-- *****************************************************************  
+      
+cmedCompliances   
+    OBJECT IDENTIFIER ::= { ciscoIetfMegacoMIBConformance 1 } 
+cmedConfigGroups    
+    OBJECT IDENTIFIER ::= { ciscoIetfMegacoMIBConformance 2 } 
+      
+      
+-- Compliance 
+      
+cmedCompliance MODULE-COMPLIANCE 
+    STATUS current 
+    DESCRIPTION 
+        "Compliance statement for entities which implement 
+         the CISCO-IETF-MEGACO-MIB." 
+    MODULE              -- this module 
+    MANDATORY-GROUPS 
+           { 
+                cmedConfig, 
+                cmedStatsGroup 
+           } 
+   
+    GROUP cmedGwyControllerGroup 
+    DESCRIPTION 
+        "This group is mandatory for all Systems that are gateway 
+         controllers and are being managed over a distributed 
+         environment" 
+      
+    GROUP cmedNextIdGroup 
+    DESCRIPTION 
+        "This group is not mandatory for all the agent 
+         implementations. But if this group is not implemented,
+         then the manager is responsible for uniquely determining
+         the nextId to be used in various listed objects." 
+      
+    GROUP cmedTermGroup 
+    DESCRIPTION 
+        "This group is mandatory for the system that manages 
+         terminations." 
+      
+::= { cmedCompliances 1 } 
+      
+      
+-- Units of Conformance 
+      
+cmedConfig OBJECT-GROUP 
+    OBJECTS { 
+              cmedGatewayLinkName, 
+              cmedGatewayIPAddress, 
+              cmedGatewayPort, 
+              cmedGatewayEncodingScheme, 
+              cmedGatewayProtocol, 
+              cmedGatewaySigTptProtocol, 
+              cmedGatewayAdminStatus, 
+              cmedGatewayOperStatus, 
+              cmedGatewayLastStatusChange, 
+              cmedGatewayResetStatistics,
+              cmedGatewayRowStatus 
+            } 
+    STATUS current 
+    DESCRIPTION 
+        "This group contains of all the configuration Information
+         for a Media Gateway. This group is mandatory for any 
+         implementation managing a media gateway or a group of 
+         media gateways" 
+    ::= { cmedConfigGroups 1 } 
+      
+cmedStatsGroup OBJECT-GROUP 
+    OBJECTS { 
+              cmedNumInMessages, 
+              cmedNumInOctets, 
+              cmedNumOutMessages, 
+              cmedNumOutOctets, 
+              cmedNumErrors, 
+              cmedNumTimerRecovery, 
+              cmedTransportNumLosses, 
+              cmedTransportNumSwitchover, 
+              cmedTransportTotalNumAlarms, 
+              cmedTransportLastEvent, 
+              cmedTransportLastEventTime, 
+              cmedLastStatisticsReset
+            } 
+    STATUS current 
+    DESCRIPTION 
+        "This group contains of all the statistics Information
+         for a Media Gateway. This group is mandatory for any
+         implementation managing a media gateway or a group of
+         media gateways" 
+    ::= { cmedConfigGroups 2 } 
+      
+cmedGwyControllerGroup OBJECT-GROUP 
+    OBJECTS { 
+              cmedGwyControllerIPAddress, 
+              cmedGwyControllerPort, 
+              cmedGwyControllerAdminStatus, 
+              cmedGwyControllerOperStatus 
+            } 
+    STATUS current 
+    DESCRIPTION 
+        "This group contains of all the configuration Information
+         for a Media Gateway Controller. This group is mandatory
+         for any implementation managing a media gateway
+         controller or a group of media gateway controllers. 
+         It is also mandatory for implementations managing 
+         media gateway(s)" 
+    ::= { cmedConfigGroups 3 } 
+      
+cmedNextIdGroup OBJECT-GROUP 
+    OBJECTS { 
+              cmedNextTerminationId, 
+              cmedNextLinkId 
+            } 
+    STATUS current 
+    DESCRIPTION 
+        "Agent provides NextId's to the Manager to assist in
+         selecting and creating new table entries. 
+         This group is optional for all the implementations.
+         But when it is not implemented, it is the manager's 
+         responsibility to uniquely determine these ids" 
+    ::= { cmedConfigGroups 4 } 
+      
+cmedTermGroup OBJECT-GROUP 
+    OBJECTS { 
+              cmedTermName,
+              cmedTermAdminStatus,
+              cmedTermOperStatus,
+              cmedTermInterfaceIdentifier,
+              cmedTermPropertyProfileId,
+              cmedTermRowStatus,
+              cmedPropertyProfileProperty,
+              cmedPropertyProfileRowStatus
+            } 
+    STATUS current 
+    DESCRIPTION 
+        "This group contains of all the configuration Information
+         for a termination. This group is mandatory
+         for any implementation managing termination."
+    ::= { cmedConfigGroups 5 } 
+      
+END 
+

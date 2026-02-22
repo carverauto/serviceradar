@@ -1,0 +1,664 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-NWCTRL-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- NWCTRL management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-NWCTRL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprEquipmentCardAdminState,
+    CfprEquipmentPowerState,
+    CfprFabricAdminState,
+    CfprFabricSSAPortType,
+    CfprNwctrlAdminState,
+    CfprNwctrlCardAction,
+    CfprNwctrlConfigState,
+    CfprNwctrlLinkFailAction,
+    CfprNwctrlOirState,
+    CfprNwctrlRegistrationMode,
+    CfprPolicyPolicyOwner,
+    CfprPortDuplex,
+    CfprPortEthSpeed
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprNwctrlObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        NWCTRL management information model package"
+    ::= { ciscoFirepowerMIBObjects 56 }
+
+cfprNwctrlCardConfigTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNwctrlCardConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig managed object table"
+    ::= { cfprNwctrlObjects 2 }
+
+cfprNwctrlCardConfigEntry OBJECT-TYPE
+    SYNTAX           CfprNwctrlCardConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNwctrlCardConfigTable table."
+    INDEX { cfprNwctrlCardConfigInstanceId }
+    ::= { cfprNwctrlCardConfigTable 1 }
+
+CfprNwctrlCardConfigEntry ::= SEQUENCE {
+    cfprNwctrlCardConfigInstanceId                                   CfprManagedObjectId,
+    cfprNwctrlCardConfigDn                                           CfprManagedObjectDn,
+    cfprNwctrlCardConfigRn                                           SnmpAdminString,
+    cfprNwctrlCardConfigAction                                       CfprNwctrlCardAction,
+    cfprNwctrlCardConfigAdminState                                   CfprEquipmentCardAdminState,
+    cfprNwctrlCardConfigConfigState                                  CfprNwctrlConfigState,
+    cfprNwctrlCardConfigFltAggr                                      Unsigned64,
+    cfprNwctrlCardConfigModel                                        SnmpAdminString,
+    cfprNwctrlCardConfigOirState                                     CfprNwctrlOirState,
+    cfprNwctrlCardConfigOperState                                    CfprEquipmentPowerState,
+    cfprNwctrlCardConfigPresence                                     TruthValue,
+    cfprNwctrlCardConfigRevision                                     SnmpAdminString,
+    cfprNwctrlCardConfigSlotId                                       Gauge32,
+    cfprNwctrlCardConfigTs                                           DateAndTime,
+    cfprNwctrlCardConfigVendor                                       SnmpAdminString
+}
+
+cfprNwctrlCardConfigInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNwctrlCardConfigEntry 1 }
+
+cfprNwctrlCardConfigDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:dn managed object property"
+    ::= { cfprNwctrlCardConfigEntry 2 }
+
+cfprNwctrlCardConfigRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:rn managed object property"
+    ::= { cfprNwctrlCardConfigEntry 3 }
+
+cfprNwctrlCardConfigAction OBJECT-TYPE
+    SYNTAX       CfprNwctrlCardAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:action managed object property"
+    ::= { cfprNwctrlCardConfigEntry 4 }
+
+cfprNwctrlCardConfigAdminState OBJECT-TYPE
+    SYNTAX       CfprEquipmentCardAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:adminState managed
+        object property"
+    ::= { cfprNwctrlCardConfigEntry 5 }
+
+cfprNwctrlCardConfigConfigState OBJECT-TYPE
+    SYNTAX       CfprNwctrlConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:configState
+        managed object property"
+    ::= { cfprNwctrlCardConfigEntry 6 }
+
+cfprNwctrlCardConfigFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:fltAggr managed
+        object property"
+    ::= { cfprNwctrlCardConfigEntry 7 }
+
+cfprNwctrlCardConfigModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:model managed object property"
+    ::= { cfprNwctrlCardConfigEntry 8 }
+
+cfprNwctrlCardConfigOirState OBJECT-TYPE
+    SYNTAX       CfprNwctrlOirState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:oirState managed
+        object property"
+    ::= { cfprNwctrlCardConfigEntry 9 }
+
+cfprNwctrlCardConfigOperState OBJECT-TYPE
+    SYNTAX       CfprEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:operState managed
+        object property"
+    ::= { cfprNwctrlCardConfigEntry 10 }
+
+cfprNwctrlCardConfigPresence OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:presence managed
+        object property"
+    ::= { cfprNwctrlCardConfigEntry 11 }
+
+cfprNwctrlCardConfigRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:revision managed
+        object property"
+    ::= { cfprNwctrlCardConfigEntry 12 }
+
+cfprNwctrlCardConfigSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:slotId managed object property"
+    ::= { cfprNwctrlCardConfigEntry 13 }
+
+cfprNwctrlCardConfigTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:ts managed object property"
+    ::= { cfprNwctrlCardConfigEntry 14 }
+
+cfprNwctrlCardConfigVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:CardConfig:vendor managed object property"
+    ::= { cfprNwctrlCardConfigEntry 15 }
+
+cfprNwctrlDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNwctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition managed object table"
+    ::= { cfprNwctrlObjects 1 }
+
+cfprNwctrlDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprNwctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNwctrlDefinitionTable table."
+    INDEX { cfprNwctrlDefinitionInstanceId }
+    ::= { cfprNwctrlDefinitionTable 1 }
+
+CfprNwctrlDefinitionEntry ::= SEQUENCE {
+    cfprNwctrlDefinitionInstanceId                                   CfprManagedObjectId,
+    cfprNwctrlDefinitionDn                                           CfprManagedObjectDn,
+    cfprNwctrlDefinitionRn                                           SnmpAdminString,
+    cfprNwctrlDefinitionCdp                                          CfprNwctrlAdminState,
+    cfprNwctrlDefinitionDescr                                        SnmpAdminString,
+    cfprNwctrlDefinitionIntId                                        SnmpAdminString,
+    cfprNwctrlDefinitionMacRegisterMode                              CfprNwctrlRegistrationMode,
+    cfprNwctrlDefinitionName                                         SnmpAdminString,
+    cfprNwctrlDefinitionPolicyLevel                                  Gauge32,
+    cfprNwctrlDefinitionPolicyOwner                                  CfprPolicyPolicyOwner,
+    cfprNwctrlDefinitionUplinkFailAction                             CfprNwctrlLinkFailAction,
+    cfprNwctrlDefinitionLldpReceive                                  CfprNwctrlAdminState,
+    cfprNwctrlDefinitionLldpTransmit                                 CfprNwctrlAdminState
+}
+
+cfprNwctrlDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNwctrlDefinitionEntry 1 }
+
+cfprNwctrlDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:dn managed object property"
+    ::= { cfprNwctrlDefinitionEntry 2 }
+
+cfprNwctrlDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:rn managed object property"
+    ::= { cfprNwctrlDefinitionEntry 3 }
+
+cfprNwctrlDefinitionCdp OBJECT-TYPE
+    SYNTAX       CfprNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:cdp managed object property"
+    ::= { cfprNwctrlDefinitionEntry 4 }
+
+cfprNwctrlDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:descr managed object property"
+    ::= { cfprNwctrlDefinitionEntry 5 }
+
+cfprNwctrlDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:intId managed object property"
+    ::= { cfprNwctrlDefinitionEntry 6 }
+
+cfprNwctrlDefinitionMacRegisterMode OBJECT-TYPE
+    SYNTAX       CfprNwctrlRegistrationMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:macRegisterMode
+        managed object property"
+    ::= { cfprNwctrlDefinitionEntry 7 }
+
+cfprNwctrlDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:name managed object property"
+    ::= { cfprNwctrlDefinitionEntry 8 }
+
+cfprNwctrlDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:policyLevel
+        managed object property"
+    ::= { cfprNwctrlDefinitionEntry 9 }
+
+cfprNwctrlDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:policyOwner
+        managed object property"
+    ::= { cfprNwctrlDefinitionEntry 10 }
+
+cfprNwctrlDefinitionUplinkFailAction OBJECT-TYPE
+    SYNTAX       CfprNwctrlLinkFailAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:uplinkFailAction
+        managed object property"
+    ::= { cfprNwctrlDefinitionEntry 11 }
+
+cfprNwctrlDefinitionLldpReceive OBJECT-TYPE
+    SYNTAX       CfprNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:lldpReceive
+        managed object property"
+    ::= { cfprNwctrlDefinitionEntry 12 }
+
+cfprNwctrlDefinitionLldpTransmit OBJECT-TYPE
+    SYNTAX       CfprNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:lldpTransmit
+        managed object property"
+    ::= { cfprNwctrlDefinitionEntry 13 }
+
+cfprNwctrlPortConfigTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNwctrlPortConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig managed object table"
+    ::= { cfprNwctrlObjects 3 }
+
+cfprNwctrlPortConfigEntry OBJECT-TYPE
+    SYNTAX           CfprNwctrlPortConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNwctrlPortConfigTable table."
+    INDEX { cfprNwctrlPortConfigInstanceId }
+    ::= { cfprNwctrlPortConfigTable 1 }
+
+CfprNwctrlPortConfigEntry ::= SEQUENCE {
+    cfprNwctrlPortConfigInstanceId                                   CfprManagedObjectId,
+    cfprNwctrlPortConfigDn                                           CfprManagedObjectDn,
+    cfprNwctrlPortConfigRn                                           SnmpAdminString,
+    cfprNwctrlPortConfigAdminDuplex                                  CfprPortDuplex,
+    cfprNwctrlPortConfigAdminSpeed                                   CfprPortEthSpeed,
+    cfprNwctrlPortConfigAdminState                                   CfprFabricAdminState,
+    cfprNwctrlPortConfigAggrId                                       Gauge32,
+    cfprNwctrlPortConfigAllowSharing                                 TruthValue,
+    cfprNwctrlPortConfigAutoNeg                                      TruthValue,
+    cfprNwctrlPortConfigFlowCtrlPolicy                               SnmpAdminString,
+    cfprNwctrlPortConfigPcId                                         Gauge32,
+    cfprNwctrlPortConfigPortId                                       Gauge32,
+    cfprNwctrlPortConfigSlotId                                       Gauge32,
+    cfprNwctrlPortConfigSsaPortType                                  CfprFabricSSAPortType,
+    cfprNwctrlPortConfigTs                                           DateAndTime,
+    cfprNwctrlPortConfigNwCtrlPolicyName                             SnmpAdminString,
+    cfprNwctrlPortConfigAllowAneg                                    TruthValue
+}
+
+cfprNwctrlPortConfigInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNwctrlPortConfigEntry 1 }
+
+cfprNwctrlPortConfigDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:dn managed object property"
+    ::= { cfprNwctrlPortConfigEntry 2 }
+
+cfprNwctrlPortConfigRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:rn managed object property"
+    ::= { cfprNwctrlPortConfigEntry 3 }
+
+cfprNwctrlPortConfigAdminDuplex OBJECT-TYPE
+    SYNTAX       CfprPortDuplex
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:adminDuplex
+        managed object property"
+    ::= { cfprNwctrlPortConfigEntry 4 }
+
+cfprNwctrlPortConfigAdminSpeed OBJECT-TYPE
+    SYNTAX       CfprPortEthSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:adminSpeed managed
+        object property"
+    ::= { cfprNwctrlPortConfigEntry 5 }
+
+cfprNwctrlPortConfigAdminState OBJECT-TYPE
+    SYNTAX       CfprFabricAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:adminState managed
+        object property"
+    ::= { cfprNwctrlPortConfigEntry 6 }
+
+cfprNwctrlPortConfigAggrId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:aggrId managed object property"
+    ::= { cfprNwctrlPortConfigEntry 7 }
+
+cfprNwctrlPortConfigAllowSharing OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:allowSharing
+        managed object property"
+    ::= { cfprNwctrlPortConfigEntry 8 }
+
+cfprNwctrlPortConfigAutoNeg OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:autoNeg managed
+        object property"
+    ::= { cfprNwctrlPortConfigEntry 9 }
+
+cfprNwctrlPortConfigFlowCtrlPolicy OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:flowCtrlPolicy
+        managed object property"
+    ::= { cfprNwctrlPortConfigEntry 10 }
+
+cfprNwctrlPortConfigPcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:pcId managed object property"
+    ::= { cfprNwctrlPortConfigEntry 11 }
+
+cfprNwctrlPortConfigPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:portId managed object property"
+    ::= { cfprNwctrlPortConfigEntry 12 }
+
+cfprNwctrlPortConfigSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:slotId managed object property"
+    ::= { cfprNwctrlPortConfigEntry 13 }
+
+cfprNwctrlPortConfigSsaPortType OBJECT-TYPE
+    SYNTAX       CfprFabricSSAPortType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:ssaPortType
+        managed object property"
+    ::= { cfprNwctrlPortConfigEntry 14 }
+
+cfprNwctrlPortConfigTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:ts managed object property"
+    ::= { cfprNwctrlPortConfigEntry 15 }
+
+cfprNwctrlPortConfigNwCtrlPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:nwCtrlPolicyName
+        managed object property"
+    ::= { cfprNwctrlPortConfigEntry 16 }
+
+cfprNwctrlPortConfigAllowAneg OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:PortConfig:allowAneg managed
+        object property"
+    ::= { cfprNwctrlPortConfigEntry 17 }
+
+cfprNwctrlSubIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNwctrlSubIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf managed object table"
+    ::= { cfprNwctrlObjects 4 }
+
+cfprNwctrlSubIfEntry OBJECT-TYPE
+    SYNTAX           CfprNwctrlSubIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNwctrlSubIfTable table."
+    INDEX { cfprNwctrlSubIfInstanceId }
+    ::= { cfprNwctrlSubIfTable 1 }
+
+CfprNwctrlSubIfEntry ::= SEQUENCE {
+    cfprNwctrlSubIfInstanceId                                        CfprManagedObjectId,
+    cfprNwctrlSubIfDn                                                CfprManagedObjectDn,
+    cfprNwctrlSubIfRn                                                SnmpAdminString,
+    cfprNwctrlSubIfAdminState                                        CfprFabricAdminState,
+    cfprNwctrlSubIfAllowSharing                                      TruthValue,
+    cfprNwctrlSubIfSsaPortType                                       CfprFabricSSAPortType,
+    cfprNwctrlSubIfSubId                                             Gauge32,
+    cfprNwctrlSubIfVlanId                                            INTEGER
+}
+
+cfprNwctrlSubIfInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNwctrlSubIfEntry 1 }
+
+cfprNwctrlSubIfDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf:dn managed object property"
+    ::= { cfprNwctrlSubIfEntry 2 }
+
+cfprNwctrlSubIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf:rn managed object property"
+    ::= { cfprNwctrlSubIfEntry 3 }
+
+cfprNwctrlSubIfAdminState OBJECT-TYPE
+    SYNTAX       CfprFabricAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf:adminState managed object property"
+    ::= { cfprNwctrlSubIfEntry 4 }
+
+cfprNwctrlSubIfAllowSharing OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf:allowSharing managed
+        object property"
+    ::= { cfprNwctrlSubIfEntry 5 }
+
+cfprNwctrlSubIfSsaPortType OBJECT-TYPE
+    SYNTAX       CfprFabricSSAPortType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf:ssaPortType managed object property"
+    ::= { cfprNwctrlSubIfEntry 6 }
+
+cfprNwctrlSubIfSubId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf:subId managed object property"
+    ::= { cfprNwctrlSubIfEntry 7 }
+
+cfprNwctrlSubIfVlanId OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:SubIf:vlanId managed object property"
+    ::= { cfprNwctrlSubIfEntry 8 }
+
+END

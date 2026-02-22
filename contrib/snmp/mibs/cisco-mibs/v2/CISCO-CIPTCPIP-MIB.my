@@ -1,0 +1,1174 @@
+-- *****************************************************************
+-- CISCO-CIPTCPIP-MIB - CIP TCP/IP MIB.
+--
+-- April 1995, Mike Otto
+--
+-- Copyright (c) 1995-1996, 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-CIPTCPIP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY, OBJECT-TYPE, 
+	Counter32,
+	Counter64,
+	Integer32,
+	Gauge32,
+	IpAddress
+		FROM SNMPv2-SMI
+
+	MODULE-COMPLIANCE, OBJECT-GROUP
+		FROM SNMPv2-CONF
+
+	ifIndex 
+		FROM IF-MIB
+
+	ciscoMgmt
+		FROM CISCO-SMI;
+
+ciscoCipTcpIpMIB MODULE-IDENTITY
+	LAST-UPDATED	"9508210000Z"
+	ORGANIZATION	"cisco IBM engineering Working Group"
+	CONTACT-INFO
+		"       Cisco Systems
+			Customer Service
+
+		Postal: 170 W Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		   Tel: +1 800 553-NETS
+
+		E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+      "This is the MIB module for objects used to manage
+       the cisco TCP/IP stack running on the Cisco Mainframe
+       Channel Connection (CMCC) board.
+       
+       The First application to use this stack is the IBM
+       TCP-Offload feature. The main idea with this application 
+       is to replace the TCP/IP stack on the IBM host with a 
+       protocol requiring lower host CPU utilization, and have 
+       the TCP/IP processing done on the router.
+       
+       There are multiple sets of MIB-II statistics stored by the 
+       TCP/IP implementation. Each instance of the MIB-II objects
+       corresponds to an instantiation of the TCP/IP stack which is 
+       based on the IP address of the stack.
+       
+       The IP routing table is not supported here."
+
+	REVISION        "9801060000Z"
+	DESCRIPTION
+		"With the addition of Cisco's new Channel Port
+                 Adapter cards, all the references to CIP in the
+                 MIB description and object descriptions are changed
+                 to CMCC (Cisco Mainframe Channel Connection). The
+                 object names in the form of cip... or cipCard...
+                 will remain the same, but will be valid objects
+                 for the Channel Port Adapter cards."
+
+	REVISION        "9508210000Z"
+	DESCRIPTION
+		"Minor cleanup to pacify mib compiler."
+	REVISION      "9504280000Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+::= { ciscoMgmt 32}
+
+cipTcpIpObjects   OBJECT IDENTIFIER ::= { ciscoCipTcpIpMIB 1 }
+cipIpObjects      OBJECT IDENTIFIER ::= { cipTcpIpObjects 1 }
+cipTcpObjects     OBJECT IDENTIFIER ::= { cipTcpIpObjects 2 }
+cipIcmpObjects    OBJECT IDENTIFIER ::= { cipTcpIpObjects 3 }
+cipUdpObjects     OBJECT IDENTIFIER ::= { cipTcpIpObjects 4 }
+
+
+cipIpTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF CipIpEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+   "This table contains a list of parameters and statistics
+    pertaining to each IP stack. Rows are dynamically added 
+    to this table via CMCC TCP application MIBS 
+    (ie. CISCO-TCPOFFLOAD-MIB)."
+  ::= { cipIpObjects 1 }
+
+cipIpEntry OBJECT-TYPE
+  SYNTAX      CipIpEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "A list of IP stack values."
+  INDEX   { 
+    ifIndex,
+    cipIpAddress
+  }
+::= { cipIpTable 1 }
+
+CipIpEntry ::= SEQUENCE
+{
+  cipIpAddress         IpAddress,
+  cipIpForwarding      INTEGER,
+  cipIpDefaultTTL      INTEGER,
+  cipIpInReceives      Counter32,
+  cipIpInHdrErrors     Counter32,
+  cipIpInAddrErrors    Counter32,
+  cipIpForwDatagrams   Counter32,
+  cipIpInUnknownProtos Counter32,
+  cipIpInDiscards      Counter32,
+  cipIpInDelivers      Counter32,
+  cipIpOutRequests     Counter32,
+  cipIpOutDiscards     Counter32,
+  cipIpOutNoRoutes     Counter32,
+  cipIpReasmTimeout    Integer32,
+  cipIpReasmReqds      Counter32,
+  cipIpReasmOKs        Counter32,
+  cipIpReasmFails      Counter32,
+  cipIpFragOKs         Counter32,
+  cipIpFragFails       Counter32,
+  cipIpFragCreates     Counter32,
+  cipIpRoutingDiscards Counter32
+}
+
+cipIpAddress OBJECT-TYPE 
+  SYNTAX      IpAddress
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "The IP address for this IP stack."
+  ::= { cipIpEntry 1 }
+
+cipIpForwarding OBJECT-TYPE
+  SYNTAX  INTEGER {
+    forwarding(1),    -- acting as a gateway
+    notForwarding(2) -- NOT acting as a gateway
+  }
+  MAX-ACCESS  read-write
+  STATUS  current
+  DESCRIPTION
+    "The indication of whether this entity is acting
+    as an IP gateway in respect to the forwarding of
+    datagrams received by, but not addressed to, this
+    entity.  IP gateways forward datagrams.  IP hosts
+    do not (except those source-routed via the host).
+
+    Note that for some managed nodes, this object may
+    take on only a subset of the values possible.
+    Accordingly, it is appropriate for an agent to
+    return a `badValue' response if a management
+    station attempts to change this object to an
+    inappropriate value."
+  ::= { cipIpEntry 2 }
+
+cipIpDefaultTTL OBJECT-TYPE
+  SYNTAX  INTEGER (1..255)
+  MAX-ACCESS  read-write
+  STATUS  current
+  DESCRIPTION
+    "The default value inserted into the Time-To-Live
+    field of the IP header of datagrams originated at
+    this entity, whenever a TTL value is not supplied
+    by the transport layer protocol."
+  DEFVAL { 64 }
+  ::= { cipIpEntry 3 }
+
+cipIpInReceives OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The total number of input datagrams received from
+    interfaces, including those received in error,
+    for this IP Address instance."
+  ::= { cipIpEntry 4 }
+
+cipIpInHdrErrors OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of input datagrams discarded due to
+    errors in their IP headers, including bad
+    checksums, version number mismatch, other format
+    errors, time-to-live exceeded, errors discovered
+    in processing their IP options, etc."
+  ::= { cipIpEntry 5 }
+
+cipIpInAddrErrors OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of input datagrams discarded because
+    the IP address in their IP header's destination
+    field was not a valid address to be received at
+    this entity.  This count includes invalid
+    addresses (e.g., 0.0.0.0) and addresses of
+    unsupported Classes (e.g., Class E).  For entities
+    which are not IP Gateways and therefore do not
+    forward datagrams, this counter includes datagrams
+    discarded because the destination address was not
+    a local address."
+  ::= { cipIpEntry 6 }
+
+cipIpForwDatagrams OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of input datagrams for which this
+    entity was not their final IP destination, as a
+    result of which an attempt was made to find a
+    route to forward them to that final destination.
+    In entities which do not act as IP Gateways, this
+    counter will include only those packets which were
+    Source-Routed via this entity, and the Source-
+    Route option processing was successful."
+  ::= { cipIpEntry 7 }
+
+cipIpInUnknownProtos OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of locally-addressed datagrams
+    received successfully but discarded because of an
+    unknown or unsupported protocol."
+  ::= { cipIpEntry 8 }
+
+cipIpInDiscards OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of input IP datagrams for which no
+    problems were encountered to prevent their
+    continued processing, but which were discarded
+    (e.g., for lack of buffer space).  Note that this
+    counter does not include any datagrams discarded
+    while awaiting re-assembly."
+  ::= { cipIpEntry 9 }
+
+cipIpInDelivers OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The total number of input datagrams successfully
+    delivered to IP user-protocols (including ICMP)."
+  ::= { cipIpEntry 10 }
+
+cipIpOutRequests OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The total number of IP datagrams which local IP
+    user-protocols (including ICMP) supplied to IP in
+    requests for transmission.  Note that this counter
+    does not include any datagrams counted in
+    ipForwDatagrams."
+  ::= { cipIpEntry 11 }
+
+cipIpOutDiscards OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of output IP datagrams for which no
+    problem was encountered to prevent their
+    transmission to their destination, but which were
+    discarded (e.g., for lack of buffer space).  Note
+    that this counter would include datagrams counted
+    in ipForwDatagrams if any such packets met this
+    (discretionary) discard criterion."
+  ::= { cipIpEntry 12 }
+
+cipIpOutNoRoutes OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of IP datagrams discarded because no
+    route could be found to transmit them to their
+    destination.  Note that this counter includes any
+    packets counted in ipForwDatagrams which meet this
+    `no-route' criterion.  Note that this includes any
+    datagrams which a host cannot route because all of
+    its default gateways are down."
+  ::= { cipIpEntry 13 }
+
+cipIpReasmTimeout OBJECT-TYPE
+  SYNTAX  Integer32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The maximum number of seconds which received
+    fragments are held while they are awaiting
+    reassembly at this entity."
+  ::= { cipIpEntry 14 }
+
+cipIpReasmReqds OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of IP fragments received which needed
+    to be reassembled at this entity."
+  ::= { cipIpEntry 15 }
+
+cipIpReasmOKs OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of IP datagrams successfully re-
+    assembled."
+  ::= { cipIpEntry 16 }
+
+cipIpReasmFails OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of failures detected by the IP re-
+    assembly algorithm (for whatever reason: timed
+    out, errors, etc).  Note that this is not
+    necessarily a count of discarded IP fragments
+    since some algorithms (notably the algorithm in
+    RFC 815) can lose track of the number of fragments
+    by combining them as they are received."
+  ::= { cipIpEntry 17 }
+
+cipIpFragOKs OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of IP datagrams that have been
+    successfully fragmented at this entity."
+  ::= { cipIpEntry 18 }
+
+cipIpFragFails OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of IP datagrams that have been
+    discarded because they needed to be fragmented at
+    this entity but could not be, e.g., because their
+    Don't Fragment flag was set."
+  ::= { cipIpEntry 19 }
+
+cipIpFragCreates OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of IP datagram fragments that have
+    been generated as a result of fragmentation at
+    this entity."
+  ::= { cipIpEntry 20 }
+
+cipIpRoutingDiscards OBJECT-TYPE
+  SYNTAX  Counter32
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The number of routing entries which were chosen
+    to be discarded even though they are valid.  One
+    possible reason for discarding such an entry could
+    be to free-up buffer space for other routing
+    entries."
+  ::= { cipIpEntry 21 }
+
+cipTcpStackTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF CipTcpStackEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+   "This table contains a list of parameters pertaining to each
+    TCP stack.  Rows are dynamically added to this table via 
+    CMCC TCP application MIBS (ie. CISCO-TCPOFFLOAD-MIB)."
+  ::= { cipTcpObjects 1 }
+
+cipTcpStackEntry OBJECT-TYPE
+  SYNTAX      CipTcpStackEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "A list of TCP stack values."
+  INDEX   {
+    ifIndex,
+    cipIpAddress
+  }
+  ::= { cipTcpStackTable 1 }
+
+CipTcpStackEntry ::= SEQUENCE
+{
+  cipTcpRtoAlgorithm INTEGER,
+  cipTcpRtoMin       Integer32,
+  cipTcpRtoMax       Integer32,
+  cipTcpMaxConn      Integer32,
+  cipTcpActiveOpens  Counter32,
+  cipTcpPassiveOpens Counter32,
+  cipTcpAttemptFails Counter32,
+  cipTcpEstabResets  Counter32,
+  cipTcpCurrEstab    Gauge32,
+  cipTcpInSegs       Counter32,
+  cipTcpOutSegs      Counter32,
+  cipTcpRetransSegs  Counter32,
+  cipTcpInErrs       Counter32,
+  cipTcpOutRsts      Counter32
+}
+
+cipTcpRtoAlgorithm OBJECT-TYPE
+  SYNTAX  INTEGER {
+              other(1),    -- none of the following
+              constant(2), -- a constant rto
+              rsre(3),     -- MIL-STD-1778, Appendix B
+              vanj(4)      -- Van Jacobson's algorithm [10]
+          }
+  MAX-ACCESS  read-only
+  STATUS  current
+  DESCRIPTION
+    "The algorithm used to determine the timeout value
+     used for retransmitting unacknowledged octets."
+  ::= { cipTcpStackEntry 1 }
+
+cipTcpRtoMin OBJECT-TYPE
+  SYNTAX      Integer32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The minimum value permitted by a TCP
+    implementation for the retransmission timeout,
+    measured in milliseconds.  More refined semantics
+    for objects of this type depend upon the algorithm
+    used to determine the retransmission timeout.  In
+    particular, when the timeout algorithm is rsre(3),
+    an object of this type has the semantics of the
+    LBOUND quantity described in RFC 793."
+  ::= { cipTcpStackEntry 2 }
+
+cipTcpRtoMax OBJECT-TYPE
+  SYNTAX      Integer32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The maximum value permitted by a TCP
+    implementation for the retransmission timeout,
+    measured in milliseconds.  More refined semantics
+    for objects of this type depend upon the algorithm
+    used to determine the retransmission timeout.  In
+    particular, when the timeout algorithm is rsre(3),
+    an object of this type has the semantics of the
+    UBOUND quantity described in RFC 793."
+  ::= { cipTcpStackEntry 3 }
+
+cipTcpMaxConn OBJECT-TYPE
+  SYNTAX      Integer32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The limit on the total number of TCP connections
+    the entity can support.  In entities where the
+    maximum number of connections is dynamic, this
+    object should contain the value -1."
+  ::= { cipTcpStackEntry 4 }
+
+cipTcpActiveOpens OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of times TCP connections have made a
+    direct transition to the SYN-SENT state from the
+    CLOSED state."
+  ::= { cipTcpStackEntry 5 }
+
+cipTcpPassiveOpens OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of times TCP connections have made a
+    direct transition to the SYN-RCVD state from the
+    LISTEN state."
+  ::= { cipTcpStackEntry 6 }
+
+cipTcpAttemptFails OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of times TCP connections have made a
+    direct transition to the CLOSED state from either
+    the SYN-SENT state or the SYN-RCVD state, plus the
+    number of times TCP connections have made a direct
+    transition to the LISTEN state from the SYN-RCVD
+    state."
+  ::= { cipTcpStackEntry 7 }
+
+cipTcpEstabResets OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of times TCP connections have made a
+    direct transition to the CLOSED state from either
+    the ESTABLISHED state or the CLOSE-WAIT state."
+  ::= { cipTcpStackEntry 8 }
+
+cipTcpCurrEstab OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of TCP connections for which the
+    current state is either ESTABLISHED or CLOSE-
+    WAIT."
+  ::= { cipTcpStackEntry 9 }
+
+cipTcpInSegs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of segments received, including
+    those received in error.  This count includes
+    segments received on currently established
+    connections."
+  ::= { cipTcpStackEntry 10 }
+
+cipTcpOutSegs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of segments sent, including
+    those on current connections but excluding those
+    containing only retransmitted octets."
+  ::= { cipTcpStackEntry 11 }
+
+cipTcpRetransSegs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of segments retransmitted - that
+    is, the number of TCP segments transmitted
+    containing one or more previously transmitted
+    octets."
+  ::= { cipTcpStackEntry 12 }
+
+cipTcpInErrs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of segments received in error
+    (e.g., bad TCP checksums)."
+  ::= { cipTcpStackEntry 13 }
+
+cipTcpOutRsts OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of TCP segments sent containing the
+    RST flag."
+  ::= { cipTcpStackEntry 14 }
+
+cipTcpConnTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF CipTcpConnEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+   "This table contains a list of parameters pertaining to the 
+    connections for a particular TCP Offload stack."
+  ::= { cipTcpObjects 2 }
+
+cipTcpConnEntry OBJECT-TYPE
+  SYNTAX      CipTcpConnEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "A list of TCP connection values."
+  INDEX   {
+    ifIndex,
+    cipIpAddress,
+    cipTcpConnLocalPort,
+    cipTcpConnRemAddress,
+    cipTcpConnRemPort
+  }
+  ::= { cipTcpConnTable 1 }
+
+CipTcpConnEntry ::= SEQUENCE
+{
+  cipTcpConnLocalPort     INTEGER,
+  cipTcpConnRemAddress    IpAddress,
+  cipTcpConnRemPort       INTEGER,
+  cipTcpConnState         INTEGER,
+  cipTcpConnInHCBytes     Counter64,
+  cipTcpConnInBytes       Counter32,
+  cipTcpConnOutHCBytes    Counter64,
+  cipTcpConnOutBytes      Counter32
+}
+
+cipTcpConnLocalPort OBJECT-TYPE
+  SYNTAX      INTEGER (0..65535)
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "The local port number for this TCP connection."
+  ::= { cipTcpConnEntry 1 }
+
+cipTcpConnRemAddress OBJECT-TYPE
+  SYNTAX      IpAddress
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "The remote IP address for this TCP connection."
+  ::= { cipTcpConnEntry 2 }
+
+cipTcpConnRemPort OBJECT-TYPE
+  SYNTAX      INTEGER (0..65535)
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "The remote port number for this TCP connection."
+  ::= { cipTcpConnEntry 3 }
+
+cipTcpConnState OBJECT-TYPE
+  SYNTAX  INTEGER {
+              closed(1),
+              listen(2),
+              synSent(3),
+              synReceived(4),
+              established(5),
+              finWait1(6),
+              finWait2(7),
+              closeWait(8),
+              lastAck(9),
+              closing(10),
+              timeWait(11),
+              deleteTCB(12)
+          }
+  MAX-ACCESS  read-write
+  STATUS  current
+  DESCRIPTION
+    "The state of this TCP connection.
+
+     The only value which may be set by a management
+     station is deleteTCB(12).  Accordingly, it is
+     appropriate for an agent to return a `badValue'
+     response if a management station attempts to set
+     this object to any other value.
+
+     If a management station sets this object to the
+     value deleteTCB(12), then this has the effect of
+     deleting the TCB (as defined in RFC 793) of the
+     corresponding connection on the managed node,
+     resulting in immediate termination of the
+     connection.
+
+     As an implementation-specific option, a RST
+     segment may be sent from the managed node to the
+     other TCP endpoint (note however that RST segments
+     are not sent reliably)."
+  ::= { cipTcpConnEntry 4 }
+
+cipTcpConnInHCBytes OBJECT-TYPE
+  SYNTAX      Counter64
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of bytes sent for this TCP 
+     connection.
+  
+     NOTE:  This is a 64 bit (High Capacity)
+            version of the cipCardCsnaStatsBytesTxd
+            counter for use with SNMP Version 2 
+            Managers"
+  ::= { cipTcpConnEntry 5 }
+
+cipTcpConnInBytes OBJECT-TYPE
+  SYNTAX      Counter32
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of bytes sent for this TCP 
+     connection.
+  
+     NOTE:  To support SNMP Version 1 
+            Managers, this variable is
+            supplied as a 32 bit value
+            which can wrap very 
+            frequently."
+  ::= { cipTcpConnEntry 6 }
+
+cipTcpConnOutHCBytes OBJECT-TYPE
+  SYNTAX      Counter64
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of bytes received for this TCP 
+     connection.
+  
+     NOTE:  This is a 64 bit (High Capacity)
+            version of the cipCardCsnaStatsBytesTxd
+            counter for use with SNMP Version 2 
+            Managers"
+  ::= { cipTcpConnEntry 7 }
+
+cipTcpConnOutBytes OBJECT-TYPE
+  SYNTAX      Counter32
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of bytes received for this TCP 
+     connection.
+  
+     NOTE:  To support SNMP Version 1 
+            Managers, this variable is
+            supplied as a 32 bit value
+            which can wrap very 
+            frequently."
+  ::= { cipTcpConnEntry 8 }
+
+cipIcmpTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF CipIcmpEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+   "This table contains a list of parameters pertaining to 
+    each ICMP stack. Rows are dynamically added to this 
+    table via CMCC TCP application MIBS 
+    (ie. CISCO-TCPOFFLOAD-MIB)."
+  ::= { cipIcmpObjects 1 }
+
+cipIcmpEntry OBJECT-TYPE
+  SYNTAX      CipIcmpEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "A list of ICMP values."
+  INDEX   { 
+    ifIndex,
+    cipIpAddress
+  }
+  ::= { cipIcmpTable 1 }
+
+CipIcmpEntry ::= SEQUENCE
+{
+  cipIcmpInMsgs           Counter32,
+  cipIcmpInErrors         Counter32,
+  cipIcmpInDestUnreachs   Counter32,
+  cipIcmpInTimeExcds      Counter32,
+  cipIcmpInParmProbs      Counter32,
+  cipIcmpInSrcQuenchs     Counter32,
+  cipIcmpInRedirects      Counter32,
+  cipIcmpInEchos          Counter32,
+  cipIcmpInAddrMaskReps   Counter32,
+  cipIcmpOutMsgs          Counter32,
+  cipIcmpOutErrors        Counter32,
+  cipIcmpOutDestUnreachs  Counter32,
+  cipIcmpOutEchos         Counter32,
+  cipIcmpOutEchoReps      Counter32,
+  cipIcmpOutTimestamps    Counter32,
+  cipIcmpOutTimestampReps Counter32,
+  cipIcmpOutAddrMasks     Counter32,
+  cipIcmpOutAddrMaskReps  Counter32
+}
+
+cipIcmpInMsgs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of ICMP messages which the
+    entity received.  Note that this counter includes
+    all those counted by icmpInErrors."
+  ::= { cipIcmpEntry 1 }
+
+cipIcmpInErrors OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP messages which the entity
+    received but determined as having ICMP-specific
+    errors (bad ICMP checksums, bad length, etc.)."
+  ::= { cipIcmpEntry 2 }
+
+cipIcmpInDestUnreachs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Destination Unreachable
+    messages received."
+  ::= { cipIcmpEntry 3 }
+
+cipIcmpInTimeExcds OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Time Exceeded messages received."
+  ::= { cipIcmpEntry 4 }
+
+cipIcmpInParmProbs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Parameter Problem messages received."
+  ::= { cipIcmpEntry 5 }
+
+cipIcmpInSrcQuenchs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Source Quench messages received."
+  ::= { cipIcmpEntry 6 }
+
+cipIcmpInRedirects OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Redirect messages received."
+  ::= { cipIcmpEntry 7 }
+
+cipIcmpInEchos OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Echo (request) messages received."
+  ::= { cipIcmpEntry 8 }
+
+cipIcmpInAddrMaskReps OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Address Mask Reply messages
+    received."
+  ::= { cipIcmpEntry 9 }
+
+cipIcmpOutMsgs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of ICMP messages which this
+    entity attempted to send.  Note that this counter
+    includes all those counted by icmpOutErrors."
+  ::= { cipIcmpEntry 10 }
+
+cipIcmpOutErrors OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP messages which this entity did
+    not send due to problems discovered within ICMP
+    such as a lack of buffers.  This value should not
+    include errors discovered outside the ICMP layer
+    such as the inability of IP to route the resultant
+    datagram.  In some implementations there may be no
+    types of error which contribute to this counter's
+    value."
+  ::= { cipIcmpEntry 11 }
+
+cipIcmpOutDestUnreachs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Destination Unreachable messages sent."
+  ::= { cipIcmpEntry 12 }
+
+cipIcmpOutEchos OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Echo (request) messages sent."
+  ::= { cipIcmpEntry 13 }
+
+cipIcmpOutEchoReps OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Echo Reply messages sent."
+  ::= { cipIcmpEntry 14 }
+
+cipIcmpOutTimestamps OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Timestamp (request) messages sent."
+  ::= { cipIcmpEntry 15 }
+
+cipIcmpOutTimestampReps OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Timestamp Reply messages sent."
+  ::= { cipIcmpEntry 16 }
+
+cipIcmpOutAddrMasks OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Address Mask Request messages sent."
+  ::= { cipIcmpEntry 17 }
+
+cipIcmpOutAddrMaskReps OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of ICMP Address Mask Reply messages sent."
+  ::= { cipIcmpEntry 18 }
+
+
+cipUdpTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF CipUdpEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+   "This table contains a list of parameters pertaining to 
+    each UDP stack. Rows are dynamically added to this 
+    table via CMCC TCP application MIBS 
+    (ie. CISCO-TCPOFFLOAD-MIB)."
+  ::= { cipUdpObjects 1 }
+
+cipUdpEntry OBJECT-TYPE
+  SYNTAX      CipUdpEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "A list of UDP stack values."
+  INDEX   {
+    ifIndex,
+    cipIpAddress
+  }
+  ::= { cipUdpTable 1 }
+
+CipUdpEntry ::= SEQUENCE
+{
+  cipUdpInDatagrams  Counter32,
+  cipUdpNoPorts      Counter32,
+  cipUdpInErrors     Counter32,
+  cipUdpOutDatagrams Counter32
+}
+
+cipUdpInDatagrams OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of UDP datagrams delivered to
+     UDP users."
+  ::= { cipUdpEntry 1 }
+
+cipUdpNoPorts OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of received UDP datagrams for
+     which there was no application at the destination
+     port."
+  ::= { cipUdpEntry 2 }
+
+cipUdpInErrors OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The number of received UDP datagrams that could
+     not be delivered for reasons other than the lack
+     of an application at the destination port."
+  ::= { cipUdpEntry 3 }
+
+cipUdpOutDatagrams OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The total number of UDP datagrams sent from this entity."
+  ::= { cipUdpEntry 4 }
+
+cipUdpListenersTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF CipUdpListenersEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+   "This table contains a list of parameters pertaining to the 
+    listeners for a particular UDP stack."
+  ::= { cipUdpObjects 2 }
+
+cipUdpListenersEntry OBJECT-TYPE
+  SYNTAX      CipUdpListenersEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+    "A list of UDP listener values."
+  INDEX   {
+    ifIndex,
+    cipIpAddress,
+    cipUdpLocalPort
+  }
+  ::= { cipUdpListenersTable 1 }
+
+CipUdpListenersEntry ::= SEQUENCE
+{
+  cipUdpLocalPort     INTEGER
+}
+
+cipUdpLocalPort OBJECT-TYPE
+  SYNTAX      INTEGER (0..65535)
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+    "The local port number for this UDP listener."
+  ::= { cipUdpListenersEntry 1 }
+
+--
+-- Conformance Information
+--
+
+ciscoCipTcpIpMibConformance OBJECT IDENTIFIER ::= { ciscoCipTcpIpMIB 2 }
+ciscoCipTcpIpMibCompliances OBJECT IDENTIFIER ::= 
+  { ciscoCipTcpIpMibConformance 1 }
+ciscoCipTcpIpMibGroups OBJECT IDENTIFIER ::= 
+  { ciscoCipTcpIpMibConformance 2 }
+
+--
+-- Compliance Statements
+--
+
+ciscoCipTcpIpMibCompliance MODULE-COMPLIANCE
+  STATUS current
+  DESCRIPTION
+    "The compliance statement for the CMCC TCP/IP Stack."
+  MODULE
+    MANDATORY-GROUPS {
+      ciscoCipTcpIpGroup
+    }
+    OBJECT cipIpForwarding
+    MIN-ACCESS read-only
+    DESCRIPTION "Write access not required"
+    
+    OBJECT cipIpDefaultTTL
+    MIN-ACCESS read-only
+    DESCRIPTION "Write access not required"
+    
+    OBJECT cipTcpConnState
+    MIN-ACCESS read-only
+    DESCRIPTION "Write access not required"
+    
+  ::= { ciscoCipTcpIpMibCompliances 1 }
+
+ciscoCipTcpIpGroup OBJECT-GROUP
+  OBJECTS {
+    -- cipIpTable
+    cipIpForwarding,
+    cipIpDefaultTTL,
+    cipIpInReceives,
+    cipIpInHdrErrors,
+    cipIpInAddrErrors,
+    cipIpForwDatagrams,
+    cipIpInUnknownProtos,
+    cipIpInDiscards,
+    cipIpInDelivers,
+    cipIpOutRequests,
+    cipIpOutDiscards,
+    cipIpOutNoRoutes,
+    cipIpReasmTimeout,
+    cipIpReasmReqds,
+    cipIpReasmOKs,
+    cipIpReasmFails,
+    cipIpFragOKs,
+    cipIpFragFails,
+    cipIpFragCreates,
+    cipIpRoutingDiscards,
+    
+    -- cipTcpStackTable
+    cipTcpRtoAlgorithm,
+    cipTcpRtoMin,
+    cipTcpRtoMax,
+    cipTcpMaxConn,
+    cipTcpActiveOpens,
+    cipTcpPassiveOpens,
+    cipTcpAttemptFails,
+    cipTcpEstabResets,
+    cipTcpCurrEstab,
+    cipTcpInSegs,
+    cipTcpOutSegs,
+    cipTcpRetransSegs,
+    cipTcpInErrs,
+    cipTcpOutRsts,
+    
+    -- cipTcpConnTable
+    cipTcpConnState,
+    cipTcpConnInBytes,
+    cipTcpConnInHCBytes,
+    cipTcpConnOutBytes,
+    cipTcpConnOutHCBytes,
+    
+    -- cipIcmpTable
+    cipIcmpInMsgs,
+    cipIcmpInErrors,
+    cipIcmpInDestUnreachs,
+    cipIcmpInTimeExcds,
+    cipIcmpInParmProbs,
+    cipIcmpInSrcQuenchs,
+    cipIcmpInRedirects,
+    cipIcmpInEchos,
+    cipIcmpInAddrMaskReps,
+    cipIcmpOutMsgs,
+    cipIcmpOutErrors,
+    cipIcmpOutDestUnreachs,
+    cipIcmpOutEchos,
+    cipIcmpOutEchoReps,
+    cipIcmpOutTimestamps,
+    cipIcmpOutTimestampReps,
+    cipIcmpOutAddrMasks,
+    cipIcmpOutAddrMaskReps,
+    
+    -- cipUdpTable
+    cipUdpInDatagrams,
+    cipUdpNoPorts,
+    cipUdpInErrors,
+    cipUdpOutDatagrams,
+    
+    -- cipUdpListenersTable
+    cipUdpLocalPort
+  }
+  STATUS current
+  DESCRIPTION
+    "A collection of objects providing information for 
+     the CMCC TCP/IP protocol stacks."
+  ::= { ciscoCipTcpIpMibGroups 1 }
+END

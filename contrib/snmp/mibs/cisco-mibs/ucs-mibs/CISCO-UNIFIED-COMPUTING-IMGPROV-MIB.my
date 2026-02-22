@@ -1,0 +1,220 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-IMGPROV-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- IMGPROV management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-IMGPROV-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsImgprovObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        IMGPROV management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 55 }
+
+cucsImgprovPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsImgprovPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy managed object table"
+    ::= { cucsImgprovObjects 1 }
+
+cucsImgprovPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsImgprovPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsImgprovPolicyTable table."
+    INDEX { cucsImgprovPolicyInstanceId }
+    ::= { cucsImgprovPolicyTable 1 }
+
+CucsImgprovPolicyEntry ::= SEQUENCE {
+    cucsImgprovPolicyInstanceId                                      CucsManagedObjectId,
+    cucsImgprovPolicyDn                                              CucsManagedObjectDn,
+    cucsImgprovPolicyRn                                              SnmpAdminString,
+    cucsImgprovPolicyDescr                                           SnmpAdminString,
+    cucsImgprovPolicyIntId                                           SnmpAdminString,
+    cucsImgprovPolicyName                                            SnmpAdminString,
+    cucsImgprovPolicyPolicyLevel                                     Gauge32,
+    cucsImgprovPolicyPolicyOwner                                     CucsPolicyPolicyOwner
+}
+
+cucsImgprovPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsImgprovPolicyEntry 1 }
+
+cucsImgprovPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy:dn managed object property"
+    ::= { cucsImgprovPolicyEntry 2 }
+
+cucsImgprovPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy:rn managed object property"
+    ::= { cucsImgprovPolicyEntry 3 }
+
+cucsImgprovPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy:descr managed object property"
+    ::= { cucsImgprovPolicyEntry 4 }
+
+cucsImgprovPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy:intId managed object property"
+    ::= { cucsImgprovPolicyEntry 5 }
+
+cucsImgprovPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy:name managed object property"
+    ::= { cucsImgprovPolicyEntry 6 }
+
+cucsImgprovPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy:policyLevel managed object property"
+    ::= { cucsImgprovPolicyEntry 7 }
+
+cucsImgprovPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Policy:policyOwner managed object property"
+    ::= { cucsImgprovPolicyEntry 8 }
+
+cucsImgprovTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsImgprovTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS imgprov:Target managed object table"
+    ::= { cucsImgprovObjects 2 }
+
+cucsImgprovTargetEntry OBJECT-TYPE
+    SYNTAX           CucsImgprovTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsImgprovTargetTable table."
+    INDEX { cucsImgprovTargetInstanceId }
+    ::= { cucsImgprovTargetTable 1 }
+
+CucsImgprovTargetEntry ::= SEQUENCE {
+    cucsImgprovTargetInstanceId                                      CucsManagedObjectId,
+    cucsImgprovTargetDn                                              CucsManagedObjectDn,
+    cucsImgprovTargetRn                                              SnmpAdminString,
+    cucsImgprovTargetName                                            SnmpAdminString
+}
+
+cucsImgprovTargetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsImgprovTargetEntry 1 }
+
+cucsImgprovTargetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Target:dn managed object property"
+    ::= { cucsImgprovTargetEntry 2 }
+
+cucsImgprovTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Target:rn managed object property"
+    ::= { cucsImgprovTargetEntry 3 }
+
+cucsImgprovTargetName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS imgprov:Target:name managed object property"
+    ::= { cucsImgprovTargetEntry 4 }
+
+END

@@ -1,0 +1,81 @@
+<TITLE>Community String Indexing</TITLE>
+
+<h1>Community String Indexing</h1>
+<hr>
+
+Some standard MIBs assume that a particular SNMP entity only contains one
+instance of the MIB.  Thus the standard MIB does not have any index which
+would allow one to directly access a particular instance of the MIB.  In
+these cases we provide community string indexing to access each instance
+of the standard MIB.  The syntax is [community string]@[instance number|context].
+<p>
+
+<b>[community string]@[instance number]</b>
+<p>
+
+For example, the Catalyst switch includes one instance of the standard
+BRIDGE-MIB for each Virtual LAN in the switch. If the read-only community
+string is "public" and the read-write community string is "private", one
+could use "public@25" to read the BRIDGE-MIB for VLAN 25 and use
+"private@33" to read and write the BRIDGE-MIB for VLAN 33.  If just
+"public" or "private" is used, the BRIDGE-MIB for VLAN 1 is accessed.
+<p>
+
+Traps sent from a mib that is indexed by community string also indicate
+which instance of the mib it corresponds to by using community string
+indexing.  For example, a newRoot trap from the BRIDGE-MIB for VLAN 25
+would have a community string of "public@25" assuming the read-only
+community string is "public".
+<p>
+
+Also note that community string indexing does not affect access to MIBs
+which have only one instance.  Thus "public@25" can be used to access
+RFC1213-MIB at the same time BRIDGE-MIB for VLAN 25 is being accessed.
+<p>
+
+Another example for the Catalyst switches is the SNMP-REPEATER-MIB.  To
+access this MIB for a particular repeater in the Catalyst switch, use
+[community string]@[module number/port number].  For example, if the
+read-only community string is "public", one could use "public@3/1" to
+read the SNMP-REPEATER-MIB for the repeater attached to port 1 on module 3.
+<p>
+
+<b>[community string]@[context]</b>
+<p>
+
+New options for the [context] described above have been added. The
+new options are snmp contexts. There are currently five context prefixes:
+"vlan-", "mistp-", "mod/port-", "mod-" and "mst-". In most cases, the text
+following the prefix would be a number. However, for the "mod/port-" case,
+it would be "#/#", representing the module and port.
+<p>
+
+The list of all available snmp contexts currently available on a switch can
+be obtained by issuing the command "show snmp context" on the console.
+<p>
+
+<font face="courier">
+Console> sh snmp context<br>
+Index Context<br>
+----- --------<br>
+&nbsp&nbsp&nbsp&nbsp0 <br>
+&nbsp&nbsp&nbsp&nbsp1 vlan-1<br>
+&nbsp&nbsp&nbsp&nbsp2 vlan-1002<br>
+&nbsp&nbsp&nbsp&nbsp3 vlan-1003<br>
+&nbsp&nbsp&nbsp&nbsp4 vlan-1004<br>
+&nbsp&nbsp&nbsp&nbsp5 vlan-1005<br>
+&nbsp&nbsp&nbsp&nbsp6 mst-2<br>
+&nbsp&nbsp&nbsp&nbsp7 mst-3<br>
+&nbsp&nbsp&nbsp&nbsp8 mod-7<br>
+&nbsp&nbsp&nbsp&nbsp9 mod-8<br>
+&nbsp&nbsp&nbsp10 mod-10/1<br>
+&nbsp&nbsp&nbsp11 mod-10/13<br>
+&nbsp&nbsp&nbsp12 mod-10/25<br>
+&nbsp&nbsp&nbsp13 mod-10/27<br>
+</font>
+<p>
+
+For example, in order to access a MIB for the vlan-1002 context, with the
+community string "public", one could use "public@vlan-1002".
+<p>
+

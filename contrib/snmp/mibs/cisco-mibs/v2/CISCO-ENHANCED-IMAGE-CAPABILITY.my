@@ -1,0 +1,65 @@
+-- *****************************************************************
+-- CISCO-ENHANCED-IMAGE-CAPABILITY.my:
+--      CISCO-ENHANCED-IMAGE-MIB AGENT-CAPABILITIES
+--
+--  December 2005, Sreenivasulu Chalamcharla
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-ENHANCED-IMAGE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ceImageCapability MODULE-IDENTITY
+        LAST-UPDATED    "200512290000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com
+                        cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+        "Agent capabilities for CISCO-ENHANCED-IMAGE-MIB"
+
+        REVISION        "200512290000Z"
+        DESCRIPTION
+        "Initial version of this MIB module."
+
+        ::= { ciscoAgentCapability 474 }
+
+ceImageCapabilityIOSXRV3R2R0CRS1 AGENT-CAPABILITIES
+        PRODUCT-RELEASE "Cisco IOS XR 3.2.0 for CRS-1"
+        STATUS          current
+        DESCRIPTION     "CISCO-ENHANCED-IMAGE-MIB capabilities
+                         for IOS XR release 3.2.0"
+
+        SUPPORTS        CISCO-ENHANCED-IMAGE-MIB
+        INCLUDES        { ciscoEnhancedImageMIBGroup }
+
+        VARIATION       ceImageMedia
+        SYNTAX          INTEGER {
+                          rom (2),  -- The image is in ROM
+                          other (3) -- The image is in unknown media
+                        }
+
+        DESCRIPTION     "Hard coded Media attribute value as RAM(1)
+                        because HFR OS always runs from RAM and
+                        there is no API available to provide this info."
+
+        ::= { ceImageCapability 1 }
+END

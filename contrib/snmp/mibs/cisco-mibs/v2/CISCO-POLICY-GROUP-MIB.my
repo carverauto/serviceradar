@@ -1,0 +1,520 @@
+-- *****************************************************************
+-- CISCO-POLICY-GROUP-MIB
+--
+-- January 2006, Edward Pham
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-POLICY-GROUP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    Unsigned32
+        FROM SNMPv2-SMI
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+
+    TEXTUAL-CONVENTION,
+    RowStatus
+        FROM SNMPv2-TC
+
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoPolicyGroupMIB MODULE-IDENTITY
+    LAST-UPDATED "200601131600Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "        Cisco Systems
+                 Customer Service
+
+         Postal: 170 W Tasman Drive
+                 San Jose, CA 95134
+                 USA
+
+            Tel: +1 800 553-NETS
+
+         E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The MIB module is for configuration of policy and
+         policy group. A policy group can be described as a set 
+         of entities identified by IP addresses or other means.
+         Members of a policy group will be subjected to the same policy.
+         In this MIB, user can apply a policy to policy group(s)
+         as well as configure and retrieve the group membership." 
+    REVISION    "200601131600Z"
+    DESCRIPTION
+        "Initial revision of this MIB module."
+    ::= { ciscoMgmt 507 } 
+
+--
+--  Definitions of textual convention
+--
+
+CpgPolicyName ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "128a"
+    STATUS  current
+    DESCRIPTION
+        "An octet string, preferably in human-readable form,
+        describes the name of a policy."
+    SYNTAX  OCTET STRING (SIZE (1..128))
+
+CpgPolicyNameOrEmpty ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "128a"
+    STATUS  current
+    DESCRIPTION
+        "This textual convention is an extension of the
+        CpgPolicyName convention. The latter defines a non-empty
+        policy name. This extension permits the additional value
+        of empty string."
+    SYNTAX  OCTET STRING (SIZE (0..128))
+
+CpgGroupName ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "128a"
+    STATUS  current
+    DESCRIPTION
+        "An octet string, preferably in human-readable form,
+        describes the name of a policy group."
+    SYNTAX  OCTET STRING (SIZE (1..128))
+
+--
+--     MIB object definitions
+--
+
+ciscoPolicyGroupMIBNotifs
+    OBJECT IDENTIFIER ::= { ciscoPolicyGroupMIB 0 }
+ciscoPolicyGroupMIBObjects
+    OBJECT IDENTIFIER ::= { ciscoPolicyGroupMIB 1 }
+ciscoPolicyGroupMIBConformance
+    OBJECT IDENTIFIER ::= { ciscoPolicyGroupMIB 2 }
+
+cpgGroup
+    OBJECT IDENTIFIER ::= { ciscoPolicyGroupMIBObjects 1 }
+
+cpgPolicy
+    OBJECT IDENTIFIER ::= { ciscoPolicyGroupMIBObjects 2 }
+
+--
+--  cpgGroupTable
+--
+
+cpgGroupTable OBJECT-TYPE
+        SYNTAX       SEQUENCE OF CpgGroupEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+          "A table indicates the policy groups in the device."
+        ::= { cpgGroup 1 }
+ 
+cpgGroupEntry OBJECT-TYPE
+    SYNTAX       CpgGroupEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the name of a policy group,
+         the source method which creates this group, the number
+         of IP addresses contained in the group and the status
+         of this instance. A row instance can be created or removed
+         by the system or by setting the appropriate value
+         of the RowStatus object." 
+    INDEX { IMPLIED cpgGroupName }
+    ::= { cpgGroupTable 1 }
+
+CpgGroupEntry ::= SEQUENCE {
+    cpgGroupName          CpgGroupName, 
+    cpgGroupSourceType    INTEGER,
+    cpgGroupIpAddrCount   Unsigned32,
+    cpgGroupRowStatus     RowStatus
+}
+ 
+cpgGroupName OBJECT-TYPE
+    SYNTAX      CpgGroupName 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "Indicates the name of a policy group in the device."
+    ::= { cpgGroupEntry 1 }
+
+cpgGroupSourceType OBJECT-TYPE
+    SYNTAX      INTEGER { 
+                    unknown(1), 
+                    accessList(2),
+                    configured(3)
+                } 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the source i.e. the method used to create this
+         group.
+
+         unknown(1) indicates that the source of this group cannot
+         be identified.
+
+         accessList(2) indicates that this group is added via
+         the ACL (Access Control List) feature.
+
+         configured(3) indicates that this group is added via 
+         this policy group configuration."
+    ::= { cpgGroupEntry 2 }
+
+cpgGroupIpAddrCount OBJECT-TYPE
+    SYNTAX      Unsigned32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the number of IP address(es) contained in 
+         this group. This is the number of entries for this group
+         in the cpgGroupIpTable. The initial value of this object
+         in a row created via cpgGroupRowStatus object is zero." 
+    ::= { cpgGroupEntry 3 }
+
+cpgGroupRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used to manage the creation and deletion
+        of rows in this table."
+    ::= { cpgGroupEntry 4 }
+
+--
+-- The cpgGroupIpTable
+--
+
+cpgGroupIpTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CpgGroupIpEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table provides management information for policy group
+        and its IP address(es) membership in the device."
+    ::= { cpgGroup 2 }
+ 
+cpgGroupIpEntry OBJECT-TYPE
+    SYNTAX       CpgGroupIpEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the IP address mask, source type
+        and its status. A row instance can be created or removed
+        by the system or by setting the appropriate value of its
+        RowStatus object.
+
+        A row instance is indexed by a group name, type and value
+        of an IP address. The group name index must exist in the
+        cpgGroupTable. If a group name is deleted from cpgGroupTable,
+        entries in this table using this group as an index will also be
+        automatically removed."
+    INDEX { cpgGroupIpGroupName,
+            cpgGroupIpAddrType,
+            cpgGroupIpAddress 
+          }
+    ::= { cpgGroupIpTable 1 }
+
+CpgGroupIpEntry ::= SEQUENCE {
+    cpgGroupIpGroupName       CpgGroupName, 
+    cpgGroupIpAddrType        InetAddressType,
+    cpgGroupIpAddress         InetAddress,
+    cpgGroupIpMask            InetAddress,
+    cpgGroupIpSourceType      INTEGER, 
+    cpgGroupIpRowStatus       RowStatus
+}
+ 
+cpgGroupIpGroupName OBJECT-TYPE
+    SYNTAX      CpgGroupName 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "Indicates the policy group name. This group should exist in
+         cpgGroupTable." 
+    ::= { cpgGroupIpEntry 1 }
+
+cpgGroupIpAddrType OBJECT-TYPE
+    SYNTAX      InetAddressType
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "The type of Internet address of a group member." 
+    ::= { cpgGroupIpEntry 2 }
+
+cpgGroupIpAddress OBJECT-TYPE
+    SYNTAX      InetAddress (SIZE (1..64))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The Internet address of a group member.
+         The type of this address is determined by
+         the value of the cpgGroupIpAddrType object.
+         The cpgGroupIpAddress may not be empty due to the SIZE
+         restriction."
+    ::= { cpgGroupIpEntry 3 }
+
+cpgGroupIpMask OBJECT-TYPE
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Specifies the mask to be logical-ANDed with the IP address
+        denoted in cpgGroupIpAddress object to indicate IP address
+        group membership. The type of this mask is determined by
+        the value of the cpgGroupIpAddrType object.
+
+        Value of this object can not be modified when the corresponding
+        instance of cpgGroupIpRowStatus is 'active'."
+    DEFVAL { 'FFFFFFFF'H } -- 255.255.255.255
+    ::= { cpgGroupIpEntry 4 }
+
+cpgGroupIpSourceType OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    other(1),
+                    configured(2),
+                    dot1x(3),
+                    nac(4),
+                    webAuth(5),
+                    macAuth(6)
+                } 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the source of this IP address.
+
+         other(1) indicates the source of this IP address is
+         not one of the following types.
+
+         configured(2) indicates this IP address is configured 
+         via this policy group and IP address configuration.
+
+         dot1x(3) indicates this IP address is added by 
+         802.1x feature.
+
+         nac(4) indicates this IP address is added by 
+         NAC (network admission control) feature.
+
+         webAuth(5) indicates this IP address is added 
+         by Web-Proxy Authentication feature.
+
+         macAuth(6) indicatest this IP address is added 
+         by MAC Authentication Bypass feature."
+    ::= { cpgGroupIpEntry 5 }
+
+cpgGroupIpRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used to manage the creation and deletion
+        of rows in this table. Once a row becomes active, values
+        within this row cannot be modified, except by setting this 
+        object value to 'notInService' first, or deleting and
+        re-creating it.
+
+        A conceptual row can be removed by setting this object
+        value to 'destroy' if and only if the value of corresponding
+        instance of cpgGroupIpSourceType is 'configured'."
+    ::= { cpgGroupIpEntry 6 }
+
+--
+-- Policy group  
+-- 
+
+cpgPolicyTable OBJECT-TYPE
+        SYNTAX       SEQUENCE OF CpgPolicyEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+          "A table describes the policies in the device."
+        ::= { cpgPolicy 1 }
+ 
+cpgPolicyEntry OBJECT-TYPE
+    SYNTAX       CpgPolicyEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the name of a policy
+         in the device." 
+    INDEX { IMPLIED cpgPolicyName }
+    ::= { cpgPolicyTable 1 }
+
+CpgPolicyEntry ::= SEQUENCE {
+    cpgPolicyName        CpgPolicyName,
+    cpgPolicyGroupCount  Unsigned32 
+}
+ 
+cpgPolicyName OBJECT-TYPE
+    SYNTAX     CpgPolicyName 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "Indicates a policy name in the device."
+    ::= { cpgPolicyEntry 1 }
+
+cpgPolicyGroupCount OBJECT-TYPE
+    SYNTAX      Unsigned32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the number of policy group(s) associated with 
+         this policy. This is the number of entries for this policy 
+         in the cpgPolicyGroupTable."
+    ::= { cpgPolicyEntry 2 }
+
+-- 
+-- The Policy Group Table
+--
+
+cpgPolicyGroupTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CpgPolicyGroupEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table provides the mechanism to configure association
+        between a policy and a policy group. When a policy associates
+        with a policy group, this policy is applied to all the
+        members of the group. A policy can associate with
+        multiple groups and vice versa." 
+    ::= { cpgPolicy 2 }
+ 
+cpgPolicyGroupEntry OBJECT-TYPE
+    SYNTAX       CpgPolicyGroupEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the RowStatus object to configure
+        the association between a policy and a policy group. A row
+        instance can be created or removed by the system or by setting
+        the appropriate value of the RowStatus object.
+
+        A row instance is indexed by a policy name and a policy group
+        name.  The policy name index must exist in cpgPolicyTable. The
+        policy group name index must exist in cpgGroupTable. If a policy
+        group is removed from cpgGroupTable, entries in this table
+        using this group as an index will be automatically removed."
+    INDEX { cpgPolicyGroupPolicyName, 
+            IMPLIED cpgPolicyGroupGroupName } 
+    ::= { cpgPolicyGroupTable 1 }
+
+CpgPolicyGroupEntry ::= SEQUENCE {
+    cpgPolicyGroupPolicyName         CpgPolicyName, 
+    cpgPolicyGroupGroupName          CpgGroupName, 
+    cpgPolicyGroupRowStatus          RowStatus
+}
+ 
+cpgPolicyGroupPolicyName OBJECT-TYPE
+    SYNTAX      CpgPolicyName 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the policy name used to associate
+        to the group denoted by cpgPolicyGroupGroupName. This policy 
+        must exist in cpgPolicyTable." 
+    ::= { cpgPolicyGroupEntry 1 }
+
+cpgPolicyGroupGroupName OBJECT-TYPE
+    SYNTAX      CpgGroupName 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the group name used to associate
+        to the policy denoted by cpgPolicyGroupPolicyName. This
+        group must exist in cpgGroupTable." 
+    ::= { cpgPolicyGroupEntry 2 }
+
+cpgPolicyGroupRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus 
+    MAX-ACCESS  read-create 
+    STATUS      current
+    DESCRIPTION
+        "This object is used to manage the creation and deletion
+        of rows in this table."
+    ::= { cpgPolicyGroupEntry 3 }
+
+--
+-- Conformance
+--
+
+ciscoPolicyGroupMIBCompliances
+    OBJECT IDENTIFIER ::= { ciscoPolicyGroupMIBConformance 1 }
+
+ciscoPolicyGroupMIBGroups
+    OBJECT IDENTIFIER ::= { ciscoPolicyGroupMIBConformance 2 }
+
+ciscoPolicyGroupMIBCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for the CISCO-POLICY-GROUP-MIB"
+    MODULE
+    MANDATORY-GROUPS { 
+            ciscoCpgPolicyInfoGroup,
+            ciscoCpgGroupInfoGroup,
+            ciscoCpgGroupIpInfoGroup,
+            ciscoCpgPolicyGroupInfoGroup
+    }
+
+    OBJECT   cpgGroupIpRowStatus
+    SYNTAX   INTEGER { active(1), createAndGo(4), destroy(6) }
+    DESCRIPTION
+        "Support for 'createAndWait' is not required."
+
+    OBJECT   cpgPolicyGroupRowStatus
+    SYNTAX   INTEGER { active(1), createAndGo(4), destroy(6) }
+    DESCRIPTION
+        "Support for 'createAndWait' is not required."
+
+    ::= { ciscoPolicyGroupMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoCpgGroupInfoGroup OBJECT-GROUP
+    OBJECTS {
+        cpgGroupSourceType,
+        cpgGroupIpAddrCount,
+        cpgGroupRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects which provides information on
+         policy groups in the device." 
+    ::= { ciscoPolicyGroupMIBGroups 1 }
+
+ciscoCpgGroupIpInfoGroup OBJECT-GROUP
+    OBJECTS {
+        cpgGroupIpMask,
+        cpgGroupIpSourceType,
+        cpgGroupIpRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects which provides information on
+         policy group and IP addresses membership." 
+    ::= { ciscoPolicyGroupMIBGroups 2 }
+
+ciscoCpgPolicyInfoGroup OBJECT-GROUP
+    OBJECTS {
+        cpgPolicyGroupCount
+    } 
+    STATUS current
+    DESCRIPTION
+        "A collection of objects which provides the policies data 
+         in the device." 
+    ::= { ciscoPolicyGroupMIBGroups 3 }
+
+ciscoCpgPolicyGroupInfoGroup OBJECT-GROUP
+    OBJECTS {
+        cpgPolicyGroupRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides information on
+        group and policy association." 
+    ::= { ciscoPolicyGroupMIBGroups 4 }
+
+END

@@ -1,0 +1,323 @@
+-- MIB file created 12-Aug-2004 18:54:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FABRIC-MCAST-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FABRIC-MCAST-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    entLogicalIndex
+            FROM ENTITY-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoFabricMcastMIB OBJECT IDENTIFIER ::= { ciscoMgmt 255 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200208200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-fabric@cisco.com
+--  Descr
+--    Fabric Multicast Resource MIB module.
+--    This MIB module is used for managing/tracking the fabric
+--    multicast resource related information.
+--    
+--    Acronyms and terms:
+--    FGID          - Fabric Multicast Group Identifier.
+--    LR            - Logical router.
+--  RevDate
+--    200208200000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoFabricMcastMIBNotifs OBJECT IDENTIFIER ::= { ciscoFabricMcastMIB 0 }
+ciscoFabricMcastMIBObjects OBJECT IDENTIFIER ::= { ciscoFabricMcastMIB 1 }
+ciscoFabricMcastMIBConform OBJECT IDENTIFIER ::= { ciscoFabricMcastMIB 2 }
+cfmGeneral      OBJECT IDENTIFIER ::= { ciscoFabricMcastMIBObjects 1 }
+cfmPool         OBJECT IDENTIFIER ::= { ciscoFabricMcastMIBObjects 2 }
+cfmLr           OBJECT IDENTIFIER ::= { ciscoFabricMcastMIBObjects 3 }
+cfmMIBCompliances OBJECT IDENTIFIER ::= { ciscoFabricMcastMIBConform 1 }
+cfmMIBGroups    OBJECT IDENTIFIER ::= { ciscoFabricMcastMIBConform 2 }
+
+CfmPoolIndex ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    A unique value, greater than zero, for each fabric
+--    multicast resource pool in the managed system.  It is
+--    recommended that values are assigned contiguously
+--    starting from 1.  The value for each resource pool
+--    must remain constant at least from one re-initialization
+--    of the entity's network management system to the next
+--    re-initialization.
+
+cfmGenInfoTotalFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of FGIDs resource are detected in the
+        managed system."
+    ::= { cfmGeneral 1 }
+
+cfmGenInfoInuseFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of FGIDs that are currently in use
+        by the managed system."
+    ::= { cfmGeneral 2 }
+
+cfmGenInfoHighWaterInuseFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest number of FGIDs that was in use by
+        all fabric multicast client applications in the
+        managed system."
+    ::= { cfmGeneral 3 }
+
+cfmPoolTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmPoolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains fabric multicast resource 
+         pool information."
+    ::= { cfmPool 1 }
+
+cfmPoolEntry OBJECT-TYPE
+    SYNTAX CfmPoolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single fabric multicast   
+        resource pool.
+        An entry of this table is created when a fabric 
+        multicast dedicated pool related client application is
+        registered to fabric software or the first of fabric 
+        multicast shared pool related client application is 
+        registered to fabric software.
+        An entry of this table is removed when the the last fabric 
+        multicast client application is unregistered from the pool."
+    INDEX { cfmPoolId }
+    ::= { cfmPoolTable 1 }
+
+CfmPoolEntry ::= SEQUENCE {
+    cfmPoolId CfmPoolIndex,
+    cfmPoolName SnmpAdminString,
+    cfmPoolType INTEGER,
+    cfmPoolTotalFgids Gauge,
+    cfmPoolInuseFgids Gauge,
+    cfmPoolHighWaterInuseFgids Gauge
+    }
+
+cfmPoolId OBJECT-TYPE
+    SYNTAX CfmPoolIndex
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index that uniquely represents a fabric multicast
+        resource pool. This index is assigned arbitrarily by
+        the fabric software when fabric multicast application
+        clients register for the use of fabric multicast resource."
+    ::= { cfmPoolEntry 1 }
+
+cfmPoolName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object to indicate FGID pool name."
+    ::= { cfmPoolEntry 2 }
+
+cfmPoolType OBJECT-TYPE
+    SYNTAX INTEGER {
+        shared(1),
+        dedicated(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object to indicate FGID pool type.
+        shared(1)    - the pool is shared by multiple types
+                       of FGID clients.
+        dedicated(2) - the pool is dedicated for a specific type of
+                       client to use. The dedicated pool is normally
+                       used by a critical client to prevent processes 
+                       deadlock during system initialization
+                       or restart."
+    ::= { cfmPoolEntry 3 }
+
+cfmPoolTotalFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of FGIDs in this pool. The total size might
+         be dynamically adjusted based on the utilization of each pool
+         or if a fabric multicast resource related entity is added
+         or removed  (e.g., add a new fabric rack or upgrade an old
+         fabric rack to new fabric rack)."
+    ::= { cfmPoolEntry 4 }
+
+cfmPoolInuseFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of FGIDs in this pool that are currently
+        in use by the FGID clients from one or more logical routers."
+    ::= { cfmPoolEntry 5 }
+
+cfmPoolHighWaterInuseFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest number of FGIDs in this pool that was in use 
+        by the FGID clients from one or more logical routers."
+    ::= { cfmPoolEntry 6 }
+
+cfmLrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmLrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains fabric multicast resource 
+         information for a logical router."
+    ::= { cfmLr 1 }
+
+cfmLrEntry OBJECT-TYPE
+    SYNTAX CfmLrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single logical router that
+        uses fabric multicast resource.
+        An entry of this table is created when a logical router is
+        created in the entLogicalTable of ENTITY-MIB and the logical
+        router is registered for fabric multicast resource service.
+        A logical router is identified by the value of mib-2 in
+        entLogicalType object of ENTITY-MIB.
+        An entry of this table is removed when the entry associated 
+        logical router is removed from entLogicalTable of ENTITY-MIB."
+    INDEX { entLogicalIndex }
+    ::= { cfmLrTable 1 }
+
+CfmLrEntry ::= SEQUENCE {
+    cfmLrInuseFgids Gauge,
+    cfmLrHighWaterInuseFgids Gauge
+    }
+
+cfmLrInuseFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of FGIDs that are currently in use
+        by this logical router."
+    ::= { cfmLrEntry 1 }
+
+cfmLrHighWaterInuseFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest number of FGIDs that was in use by this 
+        logical router."
+    ::= { cfmLrEntry 2 }
+
+cfmGenInfoGroup OBJECT IDENTIFIER ::= { cfmMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the general fabric 
+--    multicast resource related configuration and statistics
+--    capability.
+--  objects
+--    cfmGenInfoTotalFgids, cfmGenInfoInuseFgids, 
+--    cfmGenInfoHighWaterInuseFgids
+
+cfmPoolGroup OBJECT IDENTIFIER ::= { cfmMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information for
+--    the fabric multicast resource pools.
+--  objects
+--    cfmPoolName, cfmPoolType, cfmPoolTotalFgids, 
+--    cfmPoolInuseFgids, cfmPoolHighWaterInuseFgids
+
+cfmLrGroup OBJECT IDENTIFIER ::= { cfmMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information for
+--    the logical routers that use the fabric multicast resource.
+--  objects
+--    cfmLrInuseFgids, cfmLrHighWaterInuseFgids
+
+cfmMIBCompliance OBJECT IDENTIFIER ::= { cfmMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-FABRIC-MCAST-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cfmGenInfoGroup
+--   OptGroup
+--    cfmPoolGroup
+--   OptGroup
+--    cfmLrGroup
+
+
+END
+

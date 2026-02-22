@@ -1,0 +1,86 @@
+-- *****************************************************************
+-- CISCO-IETF-IPMROUTE-CAPABILITY.my: CISCO-IETF-IPMROUTE-MIB 
+--                                    AGENT-CAPABILITIES
+--
+-- June 2005, Gayathri Velayutham.
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-IETF-IPMROUTE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoIetfIpMrouteCapability MODULE-IDENTITY
+    LAST-UPDATED    "200507270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO  
+        "       Cisco Systems
+                Customer Service
+
+               Postal: 170 West Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-ipmulticast@cisco.com"
+    DESCRIPTION
+       "The capabilities description of  CISCO-IETF-IPMROUTE-MIB"
+
+    REVISION        "200507270000Z"
+    DESCRIPTION
+       "Initial version of this MIB module."
+    ::= {  ciscoAgentCapability 442 }
+     
+cIetfIpMrouteCapV320CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 3.2.0 for CRS-1"
+    STATUS          current
+    DESCRIPTION     "CISCO-IETF-IPMROUTE-MIB capabilities." 
+
+    SUPPORTS        CISCO-IETF-IPMROUTE-MIB 
+     INCLUDES       {        
+                     cIpMRouteMIBBasicGroup,
+                     cIpMRouteMIBHopCountGroup, 
+                     cIpMRouteMIBBoundaryGroup,
+                     cIpMRouteMIBPktsOutGroup,
+                     cIpMRouteMIBHCInterfaceGroup,
+                     cIpMRouteMIBRouteGroup,
+                     cIpMRouteMIBPktsGroup
+                    } 
+
+   VARIATION          cIpMRouteExpiryTime 
+    ACCESS            not-implemented
+    DESCRIPTION       "Not Supported."
+
+   VARIATION          cIpMRouteRtProto 
+    ACCESS            not-implemented
+    DESCRIPTION       "Not Supported."
+
+   VARIATION          cIpMRouteNextHopPkts 
+    ACCESS            not-implemented
+    DESCRIPTION       "Not Supported."
+
+   VARIATION          cIpMRouteInterfaceRateLimit 
+    ACCESS            not-implemented
+    DESCRIPTION       "Not Supported."
+
+   VARIATION          cIpMRouteInterfaceProtocol 
+    ACCESS            not-implemented
+    DESCRIPTION       "Not Supported."
+
+   VARIATION          cIpMRouteScopeNameTable 
+    ACCESS            not-implemented
+    DESCRIPTION       "Not Supported."
+
+    ::= { ciscoIetfIpMrouteCapability 1 }
+
+END

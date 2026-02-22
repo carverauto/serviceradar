@@ -1,0 +1,2161 @@
+-- ****************************************************************
+-- CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+--   
+-- January 2008, Edward Pham, Guichuan Tang, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2008-2014, 2016 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-HARDWARE-CAPACITY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Gauge32,
+    Integer32,
+    Unsigned32,
+    Counter32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DateAndTime,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    CounterBasedGauge64
+        FROM HCNUM-TC
+    InterfaceIndexOrZero,
+    ifIndex
+        FROM IF-MIB
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoInterfaceIndexList
+        FROM CISCO-TC
+    Percent
+        FROM CISCO-QOS-PIB-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSwitchHardwareCapacityMIB MODULE-IDENTITY
+    LAST-UPDATED    "201608170000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines the managed objects for hardware
+        capacity of Cisco switching devices. The hardware
+        capacity information covers the following but not limited
+        to features: forwarding, rate-limiter ... 
+
+        The following terms are used throughout the MIB:
+
+        CAM: Content Addressable Memory.
+        TCAM: Ternary Content Addressable Memory.
+        FIB: Forwarding Information Base.
+        VPN: Virtual Private Network.
+        QoS: Quality of Service.
+        CPU rate-limiter: Mechanism to rate-limit or restrict
+        undesired traffic to the CPU.
+        MPLS: Multiprotocol Label Switching."
+    REVISION        "201608170000Z"
+    DESCRIPTION
+        "Added the following OBJECT-GROUP
+        - cshcForwardingResourceGroup"
+    REVISION        "201409160000Z"
+    DESCRIPTION
+        "Added the following enumerations for object
+        cshcProtocolFibTcamProtocol
+        - allProtocols(14)
+
+        Updated the description of cshcProtocolFibTcamTotal
+        and cshcProtocolFibTcamLogicalTotal."
+    REVISION        "201401240000Z"
+    DESCRIPTION
+        "Added following OBJECT-GROUP
+        - cshcProtocolFibTcamWidthTypeGroup
+
+        Added the following enumerations for object
+        cshcProtocolFibTcamProtocol
+        - mplsVpn(11)
+        - fcMpls(12)
+        - ipv6LocalLink(13)
+
+        Added new compliance
+        - ciscoSwitchHardwareCapacityMIBCompliance3"
+    REVISION        "201305080000Z"
+    DESCRIPTION
+        "Added following OBJECT-GROUP
+        - cshcNetflowFlowResourceUsageGroup
+        - cshcMacUsageExtGroup
+        - cshcProtocolFibTcamUsageExtGroup
+        - cshcAdjacencyResourceUsageGroup 
+        - cshcQosResourceUsageGroup
+        - cshcModTopDropIfIndexListGroup
+        - cshcMetResourceUsageGroup
+
+        Added the following enumerations for          
+        object cshcProtocolFibTcamProtocol
+        - l2VpnPeer(7)
+        - l2VpnIpv4Multicast(8)
+        - l2VpnIpv6Multicast(9)
+        Added new compliance
+        - ciscoSwitchHardwareCapacityMIBCompliance2"
+    REVISION        "201011220000Z"
+    DESCRIPTION
+        "Add the following new enumerations to
+        cshcCPURateLimiterNetworkLayer:
+           layer2Input(3) and layer2Output(4).         
+
+        Add cshcFibTcamUsageExtGroup."
+    REVISION        "200807020000Z"
+    DESCRIPTION
+        "Initial revision of this MIB module."
+    ::= { ciscoMgmt 663 }
+
+
+-- MIB object definitions
+
+ciscoSwitchHardwareCapacityMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIB 0 }
+
+ciscoSwitchHardwareCapacityMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIB 1 }
+
+ciscoSwitchHardwareCapacityMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIB 2 }
+
+cshcForwarding  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBObjects 1 }
+
+cshcInterface  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBObjects 2 }
+
+cshcCPURateLimiterResources  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBObjects 3 }
+
+cshcIcamResources  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBObjects 4 }
+
+cshcNetflowFlowMaskResources  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBObjects 5 }
+
+cshcNetflowResourceUsage  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBObjects 6 }
+
+cshcQosResourceUsage  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBObjects 7 }
+
+
+-- Textual Conventions
+
+CshcInternalChannelType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value indicating the type of an internal
+        channel.
+
+        eobc - ethernet out-of-band channel.
+
+        ibc - in-band channel."
+    SYNTAX          INTEGER  {
+                        eobc(1),
+                        ibc(2)
+                    }
+-- Layer 2 Forwarding group
+
+cshcL2Forwarding  OBJECT IDENTIFIER
+    ::= { cshcForwarding 1 }
+
+-- The cshcMacUsageTable
+
+cshcMacUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcMacUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains MAC table capacity for each
+        switching engine, as specified by entPhysicalIndex in
+        ENTITY-MIB, capable of providing this information."
+    ::= { cshcL2Forwarding 1 }
+
+cshcMacUsageEntry OBJECT-TYPE
+    SYNTAX          CshcMacUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for MAC
+        table hardware capacity on a switching engine."
+    INDEX           { entPhysicalIndex } 
+    ::= { cshcMacUsageTable 1 }
+
+CshcMacUsageEntry ::= SEQUENCE {
+        cshcMacCollisions Counter32,
+        cshcMacUsed       Unsigned32,
+        cshcMacTotal      Unsigned32,
+        cshcMacMcast      Unsigned32,
+        cshcMacUcast      Unsigned32,
+        cshcMacLines      Unsigned32,
+        cshcMacLinesFull  Unsigned32
+}
+
+cshcMacCollisions OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Ethernet frames
+        whose source MAC address the switching engine failed to
+        learn while constructing its MAC table." 
+    ::= { cshcMacUsageEntry 1 }
+
+cshcMacUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of MAC table entries
+        that are currently in use for this switching engine." 
+    ::= { cshcMacUsageEntry 2 }
+
+cshcMacTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of MAC table entries
+        available for this switching engine." 
+    ::= { cshcMacUsageEntry 3 }
+
+cshcMacMcast OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of multicast MAC
+        table entries on this switching engine." 
+    ::= { cshcMacUsageEntry 4 }
+
+cshcMacUcast OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of unicast MAC
+        table entries on this switching engine." 
+    ::= { cshcMacUsageEntry 5 }
+
+cshcMacLines OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of MAC table lines
+        on this switching engine. The MAC table is organized as  
+        multiple MAC entries per line." 
+    ::= { cshcMacUsageEntry 6 }
+
+cshcMacLinesFull OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of MAC table lines
+        full on this switching engine.   A line full means all
+        the MAC entries on the line are occupied." 
+    ::= { cshcMacUsageEntry 7 }
+ 
+
+-- The cshcVpnCamUsageTable
+
+cshcVpnCamUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcVpnCamUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains VPN CAM capacity for each
+        entity, as specified by entPhysicalIndex in
+        ENTITY-MIB, capable of providing this information."
+    ::= { cshcL2Forwarding 2 }
+
+cshcVpnCamUsageEntry OBJECT-TYPE
+    SYNTAX          CshcVpnCamUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for VPN CAM
+        hardware capacity on an entity."
+    INDEX           { entPhysicalIndex } 
+    ::= { cshcVpnCamUsageTable 1 }
+
+CshcVpnCamUsageEntry ::= SEQUENCE {
+        cshcVpnCamUsed  Unsigned32,
+        cshcVpnCamTotal Unsigned32
+}
+
+cshcVpnCamUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of VPN CAM entries
+        that are currently in use." 
+    ::= { cshcVpnCamUsageEntry 1 }
+
+cshcVpnCamTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of VPN
+        CAM entries." 
+    ::= { cshcVpnCamUsageEntry 2 }
+ 
+
+-- Layer3 Forwarding
+
+cshcL3Forwarding  OBJECT IDENTIFIER
+    ::= { cshcForwarding 2 }
+
+-- The cshcFibTcamUsageTable
+
+cshcFibTcamUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcFibTcamUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains FIB TCAM capacity for each
+        entity, as specified by entPhysicalIndex in 
+        ENTITY-MIB, capable of providing this information."
+    ::= { cshcL3Forwarding 1 }
+
+cshcFibTcamUsageEntry OBJECT-TYPE
+    SYNTAX          CshcFibTcamUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for FIB TCAM
+        hardware capacity on an entity."
+    INDEX           { entPhysicalIndex } 
+    ::= { cshcFibTcamUsageTable 1 }
+
+CshcFibTcamUsageEntry ::= SEQUENCE {
+        cshc72bitsFibTcamUsed   Unsigned32,
+        cshc72bitsFibTcamTotal  Unsigned32,
+        cshc144bitsFibTcamUsed  Unsigned32,
+        cshc144bitsFibTcamTotal Unsigned32,
+        cshc288bitsFibTcamUsed  Unsigned32,
+        cshc288bitsFibTcamTotal Unsigned32
+}
+
+cshc72bitsFibTcamUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of 72 bits FIB TCAM
+        entries that are currently in use." 
+    ::= { cshcFibTcamUsageEntry 1 }
+
+cshc72bitsFibTcamTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 72 bits FIB TCAM
+        entries available." 
+    ::= { cshcFibTcamUsageEntry 2 }
+
+cshc144bitsFibTcamUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of 144 bits FIB TCAM
+        entries that are currently in use." 
+    ::= { cshcFibTcamUsageEntry 3 }
+
+cshc144bitsFibTcamTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 144 bits FIB TCAM
+        entries available." 
+    ::= { cshcFibTcamUsageEntry 4 }
+
+cshc288bitsFibTcamUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of 288 bits FIB TCAM
+        entries that are currently in use." 
+    ::= { cshcFibTcamUsageEntry 5 }
+
+cshc288bitsFibTcamTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 288 bits FIB TCAM
+        entries available." 
+    ::= { cshcFibTcamUsageEntry 6 }
+ 
+
+-- CshcProtocolFibTcamUsageTable
+
+cshcProtocolFibTcamUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcProtocolFibTcamUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains FIB TCAM usage per specified
+        Layer 3 protocol on an entity capable of providing
+        this information."
+    ::= { cshcL3Forwarding 2 }
+
+cshcProtocolFibTcamUsageEntry OBJECT-TYPE
+    SYNTAX          CshcProtocolFibTcamUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for FIB TCAM
+        usage for the specific Layer 3 protocol on an entity as
+        specified by the entPhysicalIndex in ENTITY-MIB."
+    INDEX           {
+                        entPhysicalIndex,
+                        cshcProtocolFibTcamProtocol
+                    } 
+    ::= { cshcProtocolFibTcamUsageTable 1 }
+
+CshcProtocolFibTcamUsageEntry ::= SEQUENCE {
+        cshcProtocolFibTcamProtocol     INTEGER,
+        cshcProtocolFibTcamUsed         Unsigned32,
+        cshcProtocolFibTcamTotal        Unsigned32,
+        cshcProtocolFibTcamLogicalUsed  Unsigned32,
+        cshcProtocolFibTcamLogicalTotal Unsigned32,
+        cshcProtocolFibTcamWidthType    INTEGER
+}
+
+cshcProtocolFibTcamProtocol OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ipv4(1),
+                        mpls(2),
+                        eom(3),
+                        ipv6(4),
+                        ipv4Multicast(5),
+                        ipv6Multicast(6),
+                        l2VpnPeer(7),
+                        l2VpnIpv4Multicast(8),
+                        l2VpnIpv6Multicast(9),
+                        fcoe(10),
+                        mplsVpn(11),
+                        fcMpls(12),
+                        ipv6LocalLink(13),
+                        allProtocols(14)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Layer 3 protocol utilizing FIB TCAM
+        resource.
+
+        'ipv4'               - indicates Internet Protocol version 4.
+        'mpls'               - indicates Multiprotocol Label Switching.
+        'eom'                - indicates Ethernet over MPLS.
+        'ipv6'               - indicates Internet Protocol version 6.
+        'ipv4Multicast'      - indicates Internet Protocol version 4
+                               for multicast traffic.
+        'ipv6Multicast'      - indicates Internet Protocol version 6
+                               for multicast traffic.
+        'l2VpnPeer'          - indicates Layer 2 VPN Peer traffic.
+        'l2VpnIpv4Multicast' - indicates Internet Protocol version
+                               4 for multicast traffic on Layer 2 VPN.
+        'l2VpnIpv6Multicast' - indicates Internet Protocol version 6 
+                               for multicast traffic on Layer 2 VPN.
+        'fcoe'               - indicates Fibre Channel over Ethernet.
+        'mplsVpn'            - indicates MPLS Layer 3 VPN aggregate
+                               labels.
+        'fcMpls'             - indicates Fibre Channel over MPLS
+                               tunnels.
+        'ipv6LocalLink'      - indicates Internet Protocol version 6 
+                               Local Link.
+        'allProtocols'       - indicates all protocols within the
+                               entPhysicalIndex." 
+    ::= { cshcProtocolFibTcamUsageEntry 1 }
+
+cshcProtocolFibTcamUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of FIB TCAM entries
+        that are currently in use for the protocol denoted by
+        cshcProtocolFibTcamProtocol." 
+    ::= { cshcProtocolFibTcamUsageEntry 2 }
+
+cshcProtocolFibTcamTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of FIB TCAM entries
+        are currently allocated for the protocol denoted by
+        cshcProtocolFibTcamProtocol.
+
+        A value of zero indicates that the total number of FIB TCAM
+        for the protocol denoted by cshcProtocolFibTcamProtocol
+        is not available." 
+    ::= { cshcProtocolFibTcamUsageEntry 3 }
+
+cshcProtocolFibTcamLogicalUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of logical FIB TCAM entries
+        that are currently in use for the protocol denoted by
+        cshcProtocolFibTcamProtocol." 
+    ::= { cshcProtocolFibTcamUsageEntry 4 }
+
+cshcProtocolFibTcamLogicalTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of logical FIB TCAM
+        entries that are currently allocated for the protocol denoted by
+        cshcProtocolFibTcamProtocol.
+
+        A value of zero indicates that the total number of logical FIB
+        TCAM for the protocol denoted by cshcProtocolFibTcamProtocol
+        is not available." 
+    ::= { cshcProtocolFibTcamUsageEntry 5 }
+
+cshcProtocolFibTcamWidthType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        singleWidth(1),
+                        doubleWidth(2),
+                        quadWidth(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the entry width type for the protocol
+        denoted by cshcProtocolFibTcamProtocol. 
+
+        'singleWidth'        - indicates each logical entry is using one
+                               physical entry.
+        'doubleWidth'        - indicates each logical entry is using two
+                               physical entries.
+        'quadWidth'          - indicates each logical entry is using 
+                               four physical entries." 
+    ::= { cshcProtocolFibTcamUsageEntry 6 }
+ 
+
+-- The cshcAdjacencyUsageTable
+
+cshcAdjacencyUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcAdjacencyUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains adjacency capacity for each
+        entity capable of providing this information."
+    ::= { cshcL3Forwarding 3 }
+
+cshcAdjacencyUsageEntry OBJECT-TYPE
+    SYNTAX          CshcAdjacencyUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for adjacency
+        hardware capacity on an entity, as specified by
+        entPhysicalIndex in ENTITY-MIB."
+    INDEX           { entPhysicalIndex } 
+    ::= { cshcAdjacencyUsageTable 1 }
+
+CshcAdjacencyUsageEntry ::= SEQUENCE {
+        cshcAdjacencyUsed  Unsigned32,
+        cshcAdjacencyTotal Unsigned32
+}
+
+cshcAdjacencyUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of adjacency entries
+        that are currently in use." 
+    ::= { cshcAdjacencyUsageEntry 1 }
+
+cshcAdjacencyTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of adjacency
+        entries available." 
+    ::= { cshcAdjacencyUsageEntry 2 }
+ 
+
+-- The cshcForwardingLoadTable
+
+cshcForwardingLoadTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcForwardingLoadEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains Layer 3 forwarding load information
+        for each switching engine capable of providing this
+        information."
+    ::= { cshcL3Forwarding 4 }
+
+cshcForwardingLoadEntry OBJECT-TYPE
+    SYNTAX          CshcForwardingLoadEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information of Layer 3
+        forwarding load on a switching engine, as specified
+        by entPhysicalIndex in ENTITY-MIB."
+    INDEX           { entPhysicalIndex } 
+    ::= { cshcForwardingLoadTable 1 }
+
+CshcForwardingLoadEntry ::= SEQUENCE {
+        cshcForwardingLoadPktRate     CounterBasedGauge64,
+        cshcForwardingLoadPktPeakRate CounterBasedGauge64,
+        cshcForwardingLoadPktPeakTime DateAndTime
+}
+
+cshcForwardingLoadPktRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "pps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the forwarding rate of Layer 3
+        packets." 
+    ::= { cshcForwardingLoadEntry 1 }
+
+cshcForwardingLoadPktPeakRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "pps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak forwarding rate of Layer 3
+        packets." 
+    ::= { cshcForwardingLoadEntry 2 }
+
+cshcForwardingLoadPktPeakTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object describes the time when the peak forwarding rate
+        of Layer 3 packets denoted by cshcForwardingLoadPktPeakRate
+        occurs.
+
+        This object will contain 0-1-1,00:00:00.0 if the peak time
+        information is not available." 
+    ::= { cshcForwardingLoadEntry 3 }
+ 
+
+-- The cshcAdjacencyResourceUsageTable
+
+cshcAdjacencyResourceUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcAdjacencyResourceUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains adjacency capacity per resource type
+        and its usage for each entity capable of providing this  
+        information."
+    ::= { cshcL3Forwarding 5 }
+
+cshcAdjacencyResourceUsageEntry OBJECT-TYPE
+    SYNTAX          CshcAdjacencyResourceUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains the management information for a particular
+        adjacency resource and switch engine, as specified by
+        entPhysicalIndex in ENTITY-MIB."
+    INDEX           {
+                        entPhysicalIndex,
+                        cshcAdjacencyResourceIndex
+                    } 
+    ::= { cshcAdjacencyResourceUsageTable 1 }
+
+CshcAdjacencyResourceUsageEntry ::= SEQUENCE {
+        cshcAdjacencyResourceIndex Unsigned32,
+        cshcAdjacencyResourceDescr SnmpAdminString,
+        cshcAdjacencyResourceUsed  Unsigned32,
+        cshcAdjacencyResourceTotal Unsigned32
+}
+
+cshcAdjacencyResourceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a unique value that identifies an
+        adjacency resource." 
+    ::= { cshcAdjacencyResourceUsageEntry 1 }
+
+cshcAdjacencyResourceDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a description of the adjacency
+        resource." 
+    ::= { cshcAdjacencyResourceUsageEntry 2 }
+
+cshcAdjacencyResourceUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of adjacency entries
+        that are currently in use." 
+    ::= { cshcAdjacencyResourceUsageEntry 3 }
+
+cshcAdjacencyResourceTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of adjacency
+        entries available." 
+    ::= { cshcAdjacencyResourceUsageEntry 4 }
+ 
+
+-- The cshcMetResourceUsageTable
+
+cshcMetResourceUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcMetResourceUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information regarding Multicast Expansion
+        Table (MET) resource usage and utilization for a switching
+        engine capable of providing this information."
+    ::= { cshcL3Forwarding 6 }
+
+cshcMetResourceUsageEntry OBJECT-TYPE
+    SYNTAX          CshcMetResourceUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains information of the usage and
+        utilization for a particular MET resource and
+        switching engine, as specified by entPhysicalIndex
+        in ENTITY-MIB."
+    INDEX           {
+                        entPhysicalIndex,
+                        cshcMetResourceIndex
+                    } 
+    ::= { cshcMetResourceUsageTable 1 }
+
+CshcMetResourceUsageEntry ::= SEQUENCE {
+        cshcMetResourceIndex    Unsigned32,
+        cshcMetResourceDescr    SnmpAdminString,
+        cshcMetResourceUsed     Gauge32,
+        cshcMetResourceTotal    Gauge32,
+        cshcMetResourceMcastGrp Integer32
+}
+
+cshcMetResourceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary positive integer value that uniquely identifies a
+        Met resource." 
+    ::= { cshcMetResourceUsageEntry 1 }
+
+cshcMetResourceDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a description of the MET resource." 
+    ::= { cshcMetResourceUsageEntry 2 }
+
+cshcMetResourceUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of MET entries used by
+        this MET resource." 
+    ::= { cshcMetResourceUsageEntry 3 }
+
+cshcMetResourceTotal OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of MET entries available
+        for this MET resource." 
+    ::= { cshcMetResourceUsageEntry 4 }
+
+cshcMetResourceMcastGrp OBJECT-TYPE
+    SYNTAX          Integer32 (-1..2147483647)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of the multicast group for
+        this MET resource.
+
+        A value of -1 indicates that this object is not applicable
+        on this MET feature." 
+    ::= { cshcMetResourceUsageEntry 5 }
+ 
+-- The cshcForwardingResourceTable
+
+cshcForwardingResourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcForwardingResourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information regarding forwarding 
+        resource for each entity capable of providing this
+        information."
+    ::= { cshcL3Forwarding 7 }
+
+cshcForwardingResourceEntry OBJECT-TYPE
+    SYNTAX          CshcForwardingResourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains information for a particular forwarding
+        table resource on an entity, as specified by entPhysicalIndex
+        in ENTITY-MIB."
+    INDEX           {
+                        entPhysicalIndex,
+                        cshcForwardingResourceIndex
+                    } 
+    ::= { cshcForwardingResourceTable 1 }
+
+CshcForwardingResourceEntry ::= SEQUENCE {
+        cshcForwardingResourceIndex    Unsigned32,
+        cshcForwardingResourceDescr    SnmpAdminString,
+        cshcForwardingResourceValue    Unsigned32
+}
+
+cshcForwardingResourceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary positive integer value that uniquely identifies a
+        forwarding table resource." 
+    ::= { cshcForwardingResourceEntry 1 }
+
+cshcForwardingResourceDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the description of a forwarding
+        table resource." 
+    ::= { cshcForwardingResourceEntry 2 }
+
+cshcForwardingResourceValue OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of a forwarding table
+        resource." 
+    ::= { cshcForwardingResourceEntry 3 }
+
+-- Interface group
+
+cshcModuleInterfaceDropsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcModuleInterfaceDropsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains interface drops information on each
+        module capable of providing this information."
+    ::= { cshcInterface 1 }
+
+cshcModuleInterfaceDropsEntry OBJECT-TYPE
+    SYNTAX          CshcModuleInterfaceDropsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for dropped traffic
+        on a specific module, identified by the entPhysicalIndex 
+        in ENTITY-MIB, and capable of providing this information."
+    INDEX           { entPhysicalIndex } 
+    ::= { cshcModuleInterfaceDropsTable 1 }
+
+CshcModuleInterfaceDropsEntry ::= SEQUENCE {
+        cshcModTxTotalDroppedPackets Counter64,
+        cshcModRxTotalDroppedPackets Counter64,
+        cshcModTxTopDropPort         InterfaceIndexOrZero,
+        cshcModRxTopDropPort         InterfaceIndexOrZero,
+        cshcModTxTopDropIfIndexList  CiscoInterfaceIndexList,
+        cshcModRxTopDropIfIndexList  CiscoInterfaceIndexList
+}
+
+cshcModTxTotalDroppedPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total dropped outbound packets
+        on all physical interfaces of this module." 
+    ::= { cshcModuleInterfaceDropsEntry 1 }
+
+cshcModRxTotalDroppedPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total dropped inbound packets
+        on all physical interfaces of this module." 
+    ::= { cshcModuleInterfaceDropsEntry 2 }
+
+cshcModTxTopDropPort OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ifIndex value of the interface
+        that has the largest number of total dropped outbound packets
+        among all the physical interfaces on this module.
+
+        If there were no dropped outbound packets on any  
+        physical interfaces of this module, this object has 
+        the value 0.
+
+        If there are multiple physical interfaces of this module having
+        the same largest number of total dropped outbound packets, the  
+        ifIndex of the first such interfaces will be assigned to this
+        object." 
+    ::= { cshcModuleInterfaceDropsEntry 3 }
+
+cshcModRxTopDropPort OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ifIndex value of the interface that
+        has the largest number of total dropped inbound packets among
+        all the physical interfaces of this module.
+
+        If there were no dropped inbound packets on any physical
+        interfaces of this module, this object has the value 0.
+
+        If there are multiple physical interfaces of this module having
+        the same largest number of total dropped inbound packets, the  
+        ifIndex of the first such interfaces will be assigned to this
+        object." 
+    ::= { cshcModuleInterfaceDropsEntry 4 }
+
+cshcModTxTopDropIfIndexList OBJECT-TYPE
+    SYNTAX          CiscoInterfaceIndexList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ifIndex values of the list of
+        interfaces that have the largest number of total dropped
+        outbound packets among all the physical interfaces of this
+        module." 
+    ::= { cshcModuleInterfaceDropsEntry 5 }
+
+cshcModRxTopDropIfIndexList OBJECT-TYPE
+    SYNTAX          CiscoInterfaceIndexList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ifIndex values of the list of
+        interfaces that have the largest number of total dropped
+        inbound packets among all the physical interfaces of this
+        module." 
+    ::= { cshcModuleInterfaceDropsEntry 6 }
+ 
+
+
+cshcInterfaceBufferTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcInterfaceBufferEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains buffer capacity information for each
+        physical interface capable of providing this information."
+    ::= { cshcInterface 2 }
+
+cshcInterfaceBufferEntry OBJECT-TYPE
+    SYNTAX          CshcInterfaceBufferEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains buffer capacity information for a
+        specific physical interface capable of providing this 
+        information."
+    INDEX           { ifIndex } 
+    ::= { cshcInterfaceBufferTable 1 }
+
+CshcInterfaceBufferEntry ::= SEQUENCE {
+        cshcInterfaceTransmitBufferSize Unsigned32,
+        cshcInterfaceReceiveBufferSize  Unsigned32
+}
+
+cshcInterfaceTransmitBufferSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate buffer size of all the transmit queues on this
+        interface." 
+    ::= { cshcInterfaceBufferEntry 1 }
+
+cshcInterfaceReceiveBufferSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate buffer size of all the receive queues on this
+        interface." 
+    ::= { cshcInterfaceBufferEntry 2 }
+ 
+
+
+cshcInternalChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcInternalChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information for each internal channel
+        interface on each physical entity, such as a module, 
+        capable of providing this information."
+    ::= { cshcInterface 3 }
+
+cshcInternalChannelEntry OBJECT-TYPE
+    SYNTAX          CshcInternalChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for an internal
+        channel interface of a specific type on a specific physical
+        entity, such as a module, identified by the entPhysicalIndex
+        in ENTITY-MIB, and capable of providing this information."
+    INDEX           {
+                        entPhysicalIndex,
+                        cshcIntlChnlType
+                    } 
+    ::= { cshcInternalChannelTable 1 }
+
+CshcInternalChannelEntry ::= SEQUENCE {
+        cshcIntlChnlType             CshcInternalChannelType,
+        cshcIntlChnlRxPacketRate     CounterBasedGauge64,
+        cshcIntlChnlRxTotalPackets   Counter64,
+        cshcIntlChnlRxDroppedPackets Counter64,
+        cshcIntlChnlTxPacketRate     CounterBasedGauge64,
+        cshcIntlChnlTxTotalPackets   Counter64,
+        cshcIntlChnlTxDroppedPackets Counter64
+}
+
+cshcIntlChnlType OBJECT-TYPE
+    SYNTAX          CshcInternalChannelType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of this internal channel." 
+    ::= { cshcInternalChannelEntry 1 }
+
+cshcIntlChnlRxPacketRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Five minute exponentially-decayed moving
+        average of inbound packet rate for this
+        channel." 
+    ::= { cshcInternalChannelEntry 2 }
+
+cshcIntlChnlRxTotalPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of the inbound packets accounted for
+        this channel." 
+    ::= { cshcInternalChannelEntry 3 }
+
+cshcIntlChnlRxDroppedPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of dropped inbound packets for this channel." 
+    ::= { cshcInternalChannelEntry 4 }
+
+cshcIntlChnlTxPacketRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Five minute exponentially-decayed moving
+        average of outbound packet rate for this
+        channel." 
+    ::= { cshcInternalChannelEntry 5 }
+
+cshcIntlChnlTxTotalPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of the outbound packets accounted for
+        this channel." 
+    ::= { cshcInternalChannelEntry 6 }
+
+cshcIntlChnlTxDroppedPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of dropped outbound packets for this channel." 
+    ::= { cshcInternalChannelEntry 7 }
+ 
+
+-- Rate Limit Resources group
+--   
+
+--   
+-- The cshcCPURateLimiterResourcesTable
+
+cshcCPURateLimiterResourcesTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcCPURateLimiterResourcesEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information regarding
+        CPU rate limiters resources."
+    ::= { cshcCPURateLimiterResources 1 }
+
+cshcCPURateLimiterResourcesEntry OBJECT-TYPE
+    SYNTAX          CshcCPURateLimiterResourcesEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information of CPU rate
+        limiter resources for a managed network layer."
+    INDEX           { cshcCPURateLimiterNetworkLayer } 
+    ::= { cshcCPURateLimiterResourcesTable 1 }
+
+CshcCPURateLimiterResourcesEntry ::= SEQUENCE {
+        cshcCPURateLimiterNetworkLayer INTEGER,
+        cshcCPURateLimiterTotal        Unsigned32,
+        cshcCPURateLimiterUsed         Unsigned32,
+        cshcCPURateLimiterReserved     Unsigned32
+}
+
+cshcCPURateLimiterNetworkLayer OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        layer2(1),
+                        layer3(2),
+                        layer2Input(3),
+                        layer2Output(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the network layer for which
+        the CPU rate limiters are applied.
+
+        'layer2'       - Layer 2.
+        'layer3'       - Layer 3.
+        'layer2Input'  - Ingress Layer 2.
+                         Applicable for devices which support
+                         CPU rate limiters on the Ingress Layer 2
+                         traffic.
+        'layer2Output' - Egress Layer 2.
+                         Applicable for devices which support
+                         CPU rate limiters on the Egress Layer 2
+                         traffic." 
+    ::= { cshcCPURateLimiterResourcesEntry 1 }
+
+cshcCPURateLimiterTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of CPU rate
+        limiters avaiable." 
+    ::= { cshcCPURateLimiterResourcesEntry 2 }
+
+cshcCPURateLimiterUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of CPU rate limiters
+        that is currently in use." 
+    ::= { cshcCPURateLimiterResourcesEntry 3 }
+
+cshcCPURateLimiterReserved OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of CPU rate limiters
+        which is reserved by the switching device." 
+    ::= { cshcCPURateLimiterResourcesEntry 4 }
+ 
+
+-- ICAM Resources group
+--   
+
+--   
+-- The cshcIcamUtilizationTable
+
+cshcIcamUtilizationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcIcamUtilizationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information regarding ICAM (Internal
+        Content Addressable Memory) Resource usage and utilization
+        for a switching engine capable of providing this
+        information."
+    ::= { cshcIcamResources 1 }
+
+cshcIcamUtilizationEntry OBJECT-TYPE
+    SYNTAX          CshcIcamUtilizationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information of ICAM
+        usage and utilization for a switching engine, as specified
+        as specified by entPhysicalIndex in ENTITY-MIB."
+    INDEX           { entPhysicalIndex } 
+    ::= { cshcIcamUtilizationTable 1 }
+
+CshcIcamUtilizationEntry ::= SEQUENCE {
+        cshcIcamCreated     Unsigned32,
+        cshcIcamFailed      Unsigned32,
+        cshcIcamUtilization Percent
+}
+
+cshcIcamCreated OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of ICAM
+        entries created." 
+    ::= { cshcIcamUtilizationEntry 1 }
+
+cshcIcamFailed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of ICAM entries
+        which failed to be created." 
+    ::= { cshcIcamUtilizationEntry 2 }
+
+cshcIcamUtilization OBJECT-TYPE
+    SYNTAX          Percent
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ICAM utlization in percentage
+        in this switching engine." 
+    ::= { cshcIcamUtilizationEntry 3 }
+ 
+
+-- Flow Mask  Resources group
+--   
+
+--   
+-- The cshcNetflowFlowMaskTable
+
+cshcNetflowFlowMaskTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcNetflowFlowMaskEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information regarding Netflow flow mask
+        features supported."
+    ::= { cshcNetflowFlowMaskResources 1 }
+
+cshcNetflowFlowMaskEntry OBJECT-TYPE
+    SYNTAX          CshcNetflowFlowMaskEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains supported feature information of
+        a Netflow flow mask supported by the device."
+    INDEX           {
+                        cshcNetflowFlowMaskAddrType,
+                        cshcNetflowFlowMaskIndex
+                    } 
+    ::= { cshcNetflowFlowMaskTable 1 }
+
+CshcNetflowFlowMaskEntry ::= SEQUENCE {
+        cshcNetflowFlowMaskAddrType InetAddressType,
+        cshcNetflowFlowMaskIndex    Unsigned32,
+        cshcNetflowFlowMaskType     INTEGER,
+        cshcNetflowFlowMaskFeature  BITS
+}
+
+cshcNetflowFlowMaskAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates Internet address type for this
+        flow mask." 
+    ::= { cshcNetflowFlowMaskEntry 1 }
+
+cshcNetflowFlowMaskIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the unique flow mask number
+        for a specific Internet address type." 
+    ::= { cshcNetflowFlowMaskEntry 2 }
+
+cshcNetflowFlowMaskType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        null(1),
+                        srcOnly(2),
+                        destOnly(3),
+                        srcDest(4),
+                        interfaceSrcDest(5),
+                        fullFlow(6),
+                        interfaceFullFlow(7),
+                        interfaceFullFlowOrFullFlow(8),
+                        atleastInterfaceSrcDest(9),
+                        atleastFullFlow(10),
+                        atleastInterfaceFullFlow(11),
+                        atleastSrc(12),
+                        atleastDst(13),
+                        atleastSrcDst(14),
+                        shortest(15),
+                        lessThanFullFlow(16),
+                        exceptFullFlow(17),
+                        exceptInterfaceFullFlow(18),
+                        interfaceDest(19),
+                        atleastInterfaceDest(20),
+                        interfaceSrc(21),
+                        atleastInterfaceSrc(22),
+                        srcOnlyCR(23),
+                        dstOnlyCR(24),
+                        fullFlowCR(25),
+                        interfaceFullFlowCR(26),
+                        max(27),
+                        conflict(28),
+                        err(29),
+                        unused(30),
+                        fullFlow1(31),
+                        fullFlow2(32),
+                        fullFlow3(33),
+                        vlanFullFlow1(34),
+                        vlanFullFlow2(35),
+                        vlanFullFlow3(36),
+                        reserved(37)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of flow mask." 
+    ::= { cshcNetflowFlowMaskEntry 3 }
+
+cshcNetflowFlowMaskFeature OBJECT-TYPE
+    SYNTAX          BITS {
+                        null(0),
+                        ipAcgIngress(1),
+                        ipAcgEgress(2),
+                        natIngress(3),
+                        natEngress(4),
+                        natInside(5),
+                        pbr(6),
+                        cryptoIngress(7),
+                        cryptoEgress(8),
+                        qos(9),
+                        idsIngress(10),
+                        tcpIntrcptEgress(11),
+                        guardian(12),
+                        ipv6AcgIngress(13),
+                        ipv6AcgEgress(14),
+                        mcastAcgIngress(15),
+                        mcastAcgEgress(16),
+                        mcastStub(17),
+                        mcastUrd(18),
+                        ipDsIngress(19),
+                        ipDsEgress(20),
+                        ipVaclIngress(21),
+                        ipVaclEgress(22),
+                        macVaclIngress(23),
+                        macVaclEgress(24),
+                        inspIngress(25),
+                        inspEgress(26),
+                        authProxy(27),
+                        rpf(28),
+                        wccpIngress(29),
+                        wccpEgress(30),
+                        inspDummyIngress(31),
+                        inspDummyEgress(32),
+                        nbarIngress(33),
+                        nbarEgress(34),
+                        ipv6Rpf(35),
+                        ipv6GlobalDefault(36),
+                        dai(37),
+                        ipPaclIngress(38),
+                        macPaclIngress(39),
+                        mplsIcmpBridge(40),
+                        ipSlb(41),
+                        ipv4Default(42),
+                        ipv6Default(43),
+                        mplsDefault(44),
+                        erSpanTermination(45),
+                        ipv6Mcast(46),
+                        ipDsL3Ingress(47),
+                        ipDsL3Egress(48),
+                        cryptoRedirectIngress(49),
+                        otherDefault(50),
+                        ipRecir(51),
+                        iPAdmissionL3Eou(52),
+                        iPAdmissionL2Eou(53),
+                        iPAdmissionL2EouArp(54),
+                        ipAdmissionL2Http(55),
+                        ipAdmissionL2HttpArp(56),
+                        ipv4L3IntfNde(57),
+                        ipv4L2IntfNde(58),
+                        ipSguardIngress(59),
+                        pvtHostsIngress(60),
+                        vrfNatIngress(61),
+                        tcpAdjustMssIngress(62),
+                        tcpAdjustMssEgress(63),
+                        eomIw(64),
+                        eomIw2(65),
+                        ipv4VrfNdeEgress(66),
+                        l1Egress(67),
+                        l1Ingress(68),
+                        l1GlobalEgress(69),
+                        l1GlobalIngress(70),
+                        ipDot1xAcl(71),
+                        ipDot1xAclArp(72),
+                        dot1ad(73),
+                        ipSpanPcap(74),
+                        ipv6CryptoRedirectIngress(75),
+                        svcAcclrtIngress(76),
+                        ipv6SvcAcclrtIngress(77),
+                        nfAggregation(78),
+                        nfSampling(79),
+                        ipv6Guardian(80),
+                        ipv6Qos(81),
+                        none(82)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the features supported by this flow
+        mask." 
+    ::= { cshcNetflowFlowMaskEntry 4 }
+ 
+
+-- Netflow Resource Usage group
+--   
+
+--   
+-- The cshcNetflowResourceUsageTable
+
+cshcNetflowResourceUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcNetflowResourceUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information regarding Netflow resource
+        usage and utilization for a switching engine capable of 
+        providing this information."
+    ::= { cshcNetflowResourceUsage 1 }
+
+cshcNetflowResourceUsageEntry OBJECT-TYPE
+    SYNTAX          CshcNetflowResourceUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains information of the usage and
+        utilization for a particular Netflow resource and
+        switching engine, as specified by entPhysicalIndex
+        in ENTITY-MIB."
+    INDEX           {
+                        entPhysicalIndex,
+                        cshcNetflowResourceUsageIndex
+                    } 
+    ::= { cshcNetflowResourceUsageTable 1 }
+
+CshcNetflowResourceUsageEntry ::= SEQUENCE {
+        cshcNetflowResourceUsageIndex Unsigned32,
+        cshcNetflowResourceUsageDescr SnmpAdminString,
+        cshcNetflowResourceUsageUtil  Percent,
+        cshcNetflowResourceUsageUsed  Gauge32,
+        cshcNetflowResourceUsageFree  Gauge32,
+        cshcNetflowResourceUsageFail  Integer32
+}
+
+cshcNetflowResourceUsageIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary positive integer value that uniquely identifies a
+        Netflow resource." 
+    ::= { cshcNetflowResourceUsageEntry 1 }
+
+cshcNetflowResourceUsageDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a description of the Netflow resource." 
+    ::= { cshcNetflowResourceUsageEntry 2 }
+
+cshcNetflowResourceUsageUtil OBJECT-TYPE
+    SYNTAX          Percent
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Netflow resource usage in
+        percentage value." 
+    ::= { cshcNetflowResourceUsageEntry 3 }
+
+cshcNetflowResourceUsageUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Netflow entries used by
+        this Netflow resource." 
+    ::= { cshcNetflowResourceUsageEntry 4 }
+
+cshcNetflowResourceUsageFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Netflow entries available
+        for this Netflow resource." 
+    ::= { cshcNetflowResourceUsageEntry 5 }
+
+cshcNetflowResourceUsageFail OBJECT-TYPE
+    SYNTAX          Integer32 (-1 | 0..2147483647)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Netflow entries which
+        were failed to be created for this Netflow resource.
+
+        A value of -1 indicates that this resource does not maintain
+        this counter." 
+    ::= { cshcNetflowResourceUsageEntry 6 }
+ 
+
+-- The cshcQosResourceUsageTable
+
+cshcQosResourceUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CshcQosResourceUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains QoS capacity per resource type
+        and its usage for each entity capable of providing this    
+        information."
+    ::= { cshcQosResourceUsage 1 }
+
+cshcQosResourceUsageEntry OBJECT-TYPE
+    SYNTAX          CshcQosResourceUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains management information for QoS
+        capacity and its usage on an entity, as specified by
+        entPhysicalIndex in ENTITY-MIB."
+    INDEX           {
+                        entPhysicalIndex,
+                        cshcQosResourceType
+                    } 
+    ::= { cshcQosResourceUsageTable 1 }
+
+CshcQosResourceUsageEntry ::= SEQUENCE {
+        cshcQosResourceType  INTEGER,
+        cshcQosResourceUsed  Unsigned32,
+        cshcQosResourceTotal Unsigned32
+}
+
+cshcQosResourceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        aggregatePolicers(1),
+                        distributedPolicers(2),
+                        policerProfiles(3)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the QoS resource type." 
+    ::= { cshcQosResourceUsageEntry 1 }
+
+cshcQosResourceUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of QoS entries
+        that are currently in use." 
+    ::= { cshcQosResourceUsageEntry 2 }
+
+cshcQosResourceTotal OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of QoS
+        entries available." 
+    ::= { cshcQosResourceUsageEntry 3 }
+ 
+
+-- Conformance
+
+ciscoSwitchHardwareCapacityMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBConformance 1 }
+
+ciscoSwitchHardwareCapacityMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSwitchHardwareCapacityMIBConformance 2 }
+
+
+-- ciscoSwitchHardwareCapacityMIBCompliance
+
+ciscoSwitchHardwareCapacityMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for
+        CISCO-SWITCH-HARDWARE-CAPACITY-MIB. This statement is
+        deprecated and superseded by 
+        ciscoSwitchHardwareCapacityMIBCompliance1."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cshcMacUsageGroup,
+                        cshcVpnCamUsageGroup,
+                        cshcFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcAdjacencyUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup
+                    }
+
+    GROUP           cshcCPURateLimiterResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where Rate Limit feature
+        is supported."
+
+    GROUP           cshcIcamResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where ICAM is supported."
+
+    GROUP           cshcNetflowFlowMaskResourceGroup
+    DESCRIPTION
+        "This group is mandatory where Netflow FlowMask feature
+        is supported."
+    ::= { ciscoSwitchHardwareCapacityMIBCompliances 1 }
+
+ciscoSwitchHardwareCapacityMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for
+        CISCO-SWITCH-HARDWARE-CAPACITY-MIB.
+
+        This statement is deprecated and superseded by
+        ciscoSwitchHardwareCapacityMIBCompliance2."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cshcMacUsageGroup,
+                        cshcVpnCamUsageGroup,
+                        cshcFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcAdjacencyUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup
+                    }
+
+    GROUP           cshcCPURateLimiterResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where Rate Limit feature
+        is supported."
+
+    GROUP           cshcIcamResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where ICAM is supported."
+
+    GROUP           cshcNetflowFlowMaskResourceGroup
+    DESCRIPTION
+        "This group is mandatory where Netflow FlowMask feature
+        is supported."
+
+    GROUP           cshcFibTcamUsageExtGroup
+    DESCRIPTION
+        "This group is mandatory where additional FIB TCAM
+        usage information is available."
+    ::= { ciscoSwitchHardwareCapacityMIBCompliances 2 }
+
+ciscoSwitchHardwareCapacityMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for
+        CISCO-SWITCH-HARDWARE-CAPACITY-MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cshcMacUsageGroup,
+                        cshcVpnCamUsageGroup,
+                        cshcFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcAdjacencyUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup
+                    }
+
+    GROUP           cshcCPURateLimiterResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where Rate Limit feature
+        is supported."
+
+    GROUP           cshcIcamResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where ICAM is supported."
+
+    GROUP           cshcNetflowFlowMaskResourceGroup
+    DESCRIPTION
+        "This group is mandatory where Netflow FlowMask feature
+        is supported."
+
+    GROUP           cshcFibTcamUsageExtGroup
+    DESCRIPTION
+        "This group is mandatory where additional FIB TCAM
+        usage information is available."
+
+    GROUP           cshcNetflowFlowResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where Netflow resource usage
+        information is available."
+
+    GROUP           cshcMacUsageExtGroup
+    DESCRIPTION
+        "This group is mandatory where additional Layer 2 Forwarding
+        usage information is available."
+
+    GROUP           cshcProtocolFibTcamUsageExtGroup
+    DESCRIPTION
+        "This group is mandatory where additional FIB TCAM
+        usage information is available."
+
+    GROUP           cshcAdjacencyResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where per resource type adjacency
+        capacity and usage information is available."
+
+    GROUP           cshcQosResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where QoS capacity and
+        usage information is available."
+
+    GROUP           cshcModTopDropIfIndexListGroup
+    DESCRIPTION
+        "This group is mandatory for platforms which can have
+        multiple interfaces with largest number of total dropped
+        packets on a module."
+
+    GROUP           cshcMetResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where MET usage information
+        is available."
+    ::= { ciscoSwitchHardwareCapacityMIBCompliances 3 }
+
+ciscoSwitchHardwareCapacityMIBCompliance3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for
+        CISCO-SWITCH-HARDWARE-CAPACITY-MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cshcMacUsageGroup,
+                        cshcVpnCamUsageGroup,
+                        cshcFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcAdjacencyUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup
+                    }
+
+    GROUP           cshcCPURateLimiterResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where Rate Limit feature
+        is supported."
+
+    GROUP           cshcIcamResourcesGroup
+    DESCRIPTION
+        "This group is mandatory where ICAM is supported."
+
+    GROUP           cshcNetflowFlowMaskResourceGroup
+    DESCRIPTION
+        "This group is mandatory where Netflow FlowMask feature
+        is supported."
+
+    GROUP           cshcFibTcamUsageExtGroup
+    DESCRIPTION
+        "This group is mandatory where additional FIB TCAM
+        usage information is available."
+
+    GROUP           cshcNetflowFlowResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where Netflow resource usage
+        information is available."
+
+    GROUP           cshcMacUsageExtGroup
+    DESCRIPTION
+        "This group is mandatory where additional Layer 2 Forwarding
+        usage information is available."
+
+    GROUP           cshcProtocolFibTcamUsageExtGroup
+    DESCRIPTION
+        "This group is mandatory where additional FIB TCAM
+        usage information is available."
+
+    GROUP           cshcAdjacencyResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where per resource type adjacency
+        capacity and usage information is available."
+
+    GROUP           cshcQosResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where QoS capacity and
+        usage information is available."
+
+    GROUP           cshcModTopDropIfIndexListGroup
+    DESCRIPTION
+        "This group is mandatory for platforms which can have
+        multiple interfaces with largest number of total dropped
+        packets on a module."
+
+    GROUP           cshcMetResourceUsageGroup
+    DESCRIPTION
+        "This group is mandatory where MET usage information
+        is available."
+
+    GROUP           cshcProtocolFibTcamWidthTypeGroup
+    DESCRIPTION
+        "This group is mandatory where FIB TCAM entry width
+        information is available."
+
+    GROUP           cshcForwardingResourceGroup
+    DESCRIPTION
+        "This group is mandatory where forwarding table resource 
+        information is available."
+    ::= { ciscoSwitchHardwareCapacityMIBCompliances 4 }
+
+-- Units of Conformance
+
+cshcMacUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcMacCollisions,
+                        cshcMacUsed,
+                        cshcMacTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides Layer 2
+        forwarding hardware capacity information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 1 }
+
+cshcVpnCamUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcVpnCamUsed,
+                        cshcVpnCamTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides VPN CAM
+        hardware capacity information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 2 }
+
+cshcFibTcamUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshc72bitsFibTcamUsed,
+                        cshc72bitsFibTcamTotal,
+                        cshc144bitsFibTcamUsed,
+                        cshc144bitsFibTcamTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides FIB TCAM
+        hardware capacity information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 3 }
+
+cshcProtocolFibTcamUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcProtocolFibTcamUsed,
+                        cshcProtocolFibTcamTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides FIB TCAM
+        hardware capacity information in conjunction with
+        Layer 3 protocol in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 4 }
+
+cshcAdjacencyUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcAdjacencyUsed,
+                        cshcAdjacencyTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides adjacency
+        hardware capacity information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 5 }
+
+cshcForwardingLoadGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcForwardingLoadPktRate,
+                        cshcForwardingLoadPktPeakRate,
+                        cshcForwardingLoadPktPeakTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides forwarding
+        load information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 6 }
+
+cshcModuleInterfaceDropsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcModTxTotalDroppedPackets,
+                        cshcModRxTotalDroppedPackets,
+                        cshcModTxTopDropPort,
+                        cshcModRxTopDropPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides linecard
+        drop traffic information on the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 7 }
+
+cshcInterfaceBufferGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcInterfaceTransmitBufferSize,
+                        cshcInterfaceReceiveBufferSize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides interface
+        buffer information on the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 8 }
+
+cshcInternalChannelGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcIntlChnlRxPacketRate,
+                        cshcIntlChnlRxTotalPackets,
+                        cshcIntlChnlRxDroppedPackets,
+                        cshcIntlChnlTxPacketRate,
+                        cshcIntlChnlTxTotalPackets,
+                        cshcIntlChnlTxDroppedPackets
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides internal
+        channel information on the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 9 }
+
+cshcCPURateLimiterResourcesGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcCPURateLimiterTotal,
+                        cshcCPURateLimiterUsed,
+                        cshcCPURateLimiterReserved
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides CPU rate limiter
+        resource in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 10 }
+
+cshcIcamResourcesGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcIcamCreated,
+                        cshcIcamFailed,
+                        cshcIcamUtilization
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides ICAM resources
+        information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 11 }
+
+cshcNetflowFlowMaskResourceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcNetflowFlowMaskType,
+                        cshcNetflowFlowMaskFeature
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides Netflow FlowMask
+        information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 12 }
+
+cshcFibTcamUsageExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshc288bitsFibTcamUsed,
+                        cshc288bitsFibTcamTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides additional FIB TCAM
+        hardware capacity information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 13 }
+
+cshcNetflowFlowResourceUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcNetflowResourceUsageDescr,
+                        cshcNetflowResourceUsageUtil,
+                        cshcNetflowResourceUsageUsed,
+                        cshcNetflowResourceUsageFree,
+                        cshcNetflowResourceUsageFail
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides Netflow resource
+        usage information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 14 }
+
+cshcMacUsageExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcMacMcast,
+                        cshcMacUcast,
+                        cshcMacLines,
+                        cshcMacLinesFull
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides additional Layer 2
+        forwarding hardware capacity information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 15 }
+
+cshcProtocolFibTcamUsageExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcProtocolFibTcamLogicalUsed,
+                        cshcProtocolFibTcamLogicalTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides additional FIB TCAM
+        hardware capacity information in conjunction with
+        Layer 3 protocol in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 16 }
+
+cshcAdjacencyResourceUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcAdjacencyResourceDescr,
+                        cshcAdjacencyResourceUsed,
+                        cshcAdjacencyResourceTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides adjacency
+        hardware capacity information per resource in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 17 }
+
+cshcQosResourceUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcQosResourceUsed,
+                        cshcQosResourceTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides QoS
+        hardware capacity information per resource in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 18 }
+
+cshcModTopDropIfIndexListGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcModTxTopDropIfIndexList,
+                        cshcModRxTopDropIfIndexList
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides information on
+        multiple interfaces with largest number of drop traffic 
+        on a module."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 19 }
+
+cshcMetResourceUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcMetResourceDescr,
+                        cshcMetResourceUsed,
+                        cshcMetResourceTotal,
+                        cshcMetResourceMcastGrp
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides MET hardware
+        capacity information per resource in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 20 }
+
+cshcProtocolFibTcamWidthTypeGroup OBJECT-GROUP
+    OBJECTS         { cshcProtocolFibTcamWidthType }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides FIB TCAM entry
+        width information in conjunction with Layer 3 protocol
+        in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 21 }
+
+cshcForwardingResourceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cshcForwardingResourceDescr,
+                        cshcForwardingResourceValue
+                     }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides forwarding table
+         resource information in the device."
+    ::= { ciscoSwitchHardwareCapacityMIBGroups 22}
+
+END
+
+

@@ -1,0 +1,339 @@
+-- *****************************************************************
+-- CISCO-IF-LOOPBACK-MIB
+--
+-- Loop back MIB for DS3/E3,DS1/E1,DS0 interfaces
+--
+-- Dec 2000, Zaryab Munir
+--
+-- Copyright (c) 2000 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+ 
+--
+--
+ 
+CISCO-IF-LOOPBACK-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+                        FROM SNMPv2-SMI
+    RowStatus           FROM SNMPv2-TC
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP        FROM SNMPv2-CONF
+
+    ifIndex             FROM IF-MIB
+    
+    ciscoMgmt           FROM CISCO-SMI;
+ 
+ciscoIfLoopbackMIB MODULE-IDENTITY
+    LAST-UPDATED   "200111150000Z"
+    ORGANIZATION   "Cisco Systems, Inc."
+    CONTACT-INFO
+                   "Cisco Systems
+                    Customer Service
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+                    Tel: +1 800 553-NETS
+            E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module to configure the loopback on certain interfaces 
+        in ifTable with ifType ds1/e1, ds3/e3, ds0 etc."
+    REVISION       "200111150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module"
+    ::= { ciscoMgmt 9399 }
+
+ciscoIfLoopbackMIBObjects  OBJECT IDENTIFIER ::= 
+        { ciscoIfLoopbackMIB 1 }
+
+ciscoIfLoopbackConfig OBJECT IDENTIFIER ::= 
+        { ciscoIfLoopbackMIBObjects 1 }
+
+cifLConfTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CifLConfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "This table contains configuration, control and status 
+       parameters for performing loopback on an interface 
+       in the ifTable.  "
+    ::= { ciscoIfLoopbackConfig 1 }
+
+cifLConfEntry OBJECT-TYPE
+    SYNTAX     CifLConfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "An entry can be created or deleted in this table
+       for an entry in the ifTable. An entry created in this 
+       table puts the interface specified by ifIndex
+       in loopback state.  An entry deleted from this table 
+       removes the loopback from the interface specified by
+       ifIndex.  The ifIndex refers to a unique value for an 
+       interface in the ifTable.
+       Entry is deleted from this table if corresponding 
+       ifTable entry is deleted.  "
+    INDEX  { ifIndex }
+    ::= { cifLConfTable 1 }
+ 
+CifLConfEntry ::=
+    SEQUENCE {
+        cifLLoopback           INTEGER,
+        cifLLoopbackStatus     INTEGER,
+        cifLFELoopbackDeviceAndCode       INTEGER,
+        cifLRowStatus          RowStatus
+    }
+
+cifLLoopback OBJECT-TYPE
+    SYNTAX  INTEGER {
+            farEndLineLoopback(1),
+            farEndPayloadLoopback(2),
+            remoteLineLoopback(3),
+            remotePayloadLoopback(4),
+            localLoopback(5)
+
+        }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+       "This object specifies the type of loopback to be established.
+       This object is required in order to complete the creation of a
+       row in this table. It cannot be modified when the cifLRowStatus
+       is active(1).
+
+       Possible values are :
+                
+       farEndLineLoopback(1): This loopback occurs at the CPE upon
+                receiving a special code from the
+                device which initiates the loopback.
+                Upon receiving the loop activation request
+                code, CPE enters a Line loop mode in which it
+                returns the entire line back to the initiator.
+                The CPE will continue to return the data
+                back to the initiator until it receives
+                a loopback deactivation request code.
+
+       farEndPayloadLoopback(2): This loopback occurs at the CPE
+                upon receiving a special code from the
+                device which initiates the loopback.
+                Upon receiving the loop activation request
+                code, CPE enters a Payload loop mode in which it
+                returns the Payload of the received data back 
+                to the initiator.
+                The CPE will continue to return the data
+                back to the initiator until it receives
+                loopback deactivation request code. 
+        
+       remoteLineLoopback(3): This loopback is established at the 
+                Near-end. In this loopback the entire line is looped 
+                back to the Far-end with a) bit-sequence integrity 
+                maintained,
+                b) no change in framing, and c) no removal of bi-
+                polar violations.    
+
+       remotePayloadLoopback(4): This loopback is established at 
+                the Near-end.  In this loopback the signal that is 
+                returned to the Far-end consists of the payload of 
+                the received signal (with bit sequence integrity 
+                retained) and newly generated framing information.                             
+        
+       localLoopback(5): This is also known as metallic loopback.
+                This loopback is used for checking the
+                internal circuitry of the T3/E3, T1/E1 
+                device.  Only for physical lines.  "
+
+    ::= { cifLConfEntry 1 }
+
+cifLLoopbackStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        completed(1),
+        inProgress(2),
+        clockOutOfSync(3),
+        failed(4)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+       "This object shows the current status of loopback.
+       The value for this object is valid only when
+       cifLRowStatus is active(1).
+
+       Possible values for this object:
+
+       completed(1): Loopback is successfully completed.
+
+       inProgress(2): loop up or loop down in progress.
+
+       clockOutOfSync(3): When the send and receive clocks are not
+                synchronized.
+
+       failed(4)  : Loopback failed.  "
+    ::= { cifLConfEntry 2 }
+
+cifLFELoopbackDeviceAndCode   OBJECT-TYPE
+    SYNTAX INTEGER {
+            nonLatchOCUwith1(1),
+            nonLatchOCUwithout1(2),
+            nonLatchCSU(3),
+            nonLatchDSU(4),
+            latchDS0Drop(5),
+            latchDS0Line(6),
+            latchOCU(7),
+            latchCSU(8),
+            latchDSU(9),
+            latchHL96(10),
+            v54PN127Polynomial(11),
+            lineInband(12),
+            lineLoopbackESF(13),
+            payloadLoopbackESF(14),
+            noCode (15),
+            lineLoopbackFEAC(16),
+            smartJackInband(17)
+    }
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION
+       "This object specifies the type of the end device and
+       the type of mechanism used to establish the loopback.
+       Loopback type may not be modified once the farend loopback
+       is established. 
+
+       Latching Loopback: Latching Loopback is appropriate with
+       64 kbit/s DS0-A rate.  Once invoked by a specific activation
+       sequence, it typically remains in effect until released by
+       another specific code sequence.
+
+       non-latching loopback:  Non latching activation involves
+       continuous transmission of loopback command codes, followed
+       by test data interspersed with command codes.
+        
+       nonLatchOCUwithOneDevice(1): Non-latching OCU with 
+                one device.
+
+       nonLatchOCUwithChainDevices(2): Non-latching OCU 
+                with chain of devices.
+
+       nonLatchCSU(3): Non-latching CSU.
+
+       nonLatchDSU(4): Non-latching DSU.
+
+       latchDS0Drop(5): Latching DS0-DP Drop device.
+
+       latchDS0Line(6): Latching DS0-DP line device.
+
+       latchOCU(7): Latching OCU.
+
+       latchCSU(8): Latching CSU.
+
+       latchDSU(9): Latching DSU.
+
+       latchDSU(9): Latching DSU .
+
+       latchHL96(10): Latching HL96 device.
+
+       v54PN127Polynomial(8): For fractional T1.
+                This loopback is based on 
+                CCITT-ITU V.54 and is 
+                used to place either a single 
+                DS0 or a DS0 Bundle(N*DS0) in 
+                loopback mode.
+
+       lineInband(12): This is used to loop back the
+                entire T1 line at the far end.
+                This is a repeating 5-bit
+                pattern(00001), i.e. 00001000010001....
+                                      
+       lineLoopbackESF(13): This loopback results in a full
+                1.544Mbit/s loopback of the 
+                incoming signal at the far end.
+                The loopback is activated (latched) and
+                deactivated by a bit sequence defined in
+                ANSI T1.403 - 1995.
+                This corresponds to Facility Data Link
+                (FDL) loopbacks on a T1 channel.
+                This causes a repeating, 16-bit ESF data
+                link code word (00001110 11111111) to be
+                sent to the remote end requesting that it 
+                enter into a network line loopback.
+
+       payloadLoopbackESF(14): This loopback results in 
+                1.536 Mbit/s
+                loopback of the payload of the incoming
+                signal at the far end. The loopback
+                is activated(latched) and deactivated
+                by a bit sequence defined in
+                ANSI T1.403 - 1995.
+                This corresponds to Facility Data Link
+                (FDL) loopbacks on a T1 channel.
+                This causes a repeating, 16-bit ESF data
+                link code word (00010100 11111111) to be
+                sent to the remote end requesting that it 
+                enter into a network payload loopback.
+
+       noCode (15): LoopBack is on this device - NearEnd.
+
+       lineLoopbackFEAC(16): The FEAC channel is used to request 
+                a line loopback
+                at the Far-end. Loopback activate and 
+                de-activate are specified using the 
+                code-words specified in ANSI T1.404-1994. 
+
+       smartJackInband(17): Inband loop code for SmartJack (a Telco owned
+                device that represents the demarcation point of T1 service),
+                Ref: TR-TSY-000312"
+       
+    ::= { cifLConfEntry 3 }
+
+cifLRowStatus OBJECT-TYPE
+    SYNTAX  RowStatus
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION
+        "This object is used for creating a new row or delete an
+        existing row in this table.
+        In order to successfully create a row  and set the value
+        of this object to active(1), cifLLoopback and  
+        cifLFELoopbackDeviceAndCode must be set with desired values.
+        The value of this object can be set to notInService(2) to
+        disable the loopback. 
+        "
+    ::= { cifLConfEntry 4 }
+
+
+-- conformance information
+ 
+ciscoIfLoopbackMIBConformance OBJECT IDENTIFIER ::= 
+        { ciscoIfLoopbackMIB 8 }
+ciscoIfLoopbackMIBCompliances OBJECT IDENTIFIER ::= 
+                         { ciscoIfLoopbackMIBConformance 1 }
+ciscoIfLoopbackMIBGroups   OBJECT IDENTIFIER ::=
+                         { ciscoIfLoopbackMIBConformance 2 }
+ 
+ciscoIfLoopbackMIBCompliance MODULE-COMPLIANCE
+     STATUS current
+     DESCRIPTION
+        "The Compliance statement for cisco BERT management group."
+     MODULE -- this module
+     MANDATORY-GROUPS { ciscoIfLoopbackGroup }
+     ::= { ciscoIfLoopbackMIBCompliances 1 }
+
+
+-- units of conformance
+
+ciscoIfLoopbackGroup  OBJECT-GROUP
+        OBJECTS {
+            cifLLoopback,
+            cifLLoopbackStatus,
+            cifLFELoopbackDeviceAndCode,
+            cifLRowStatus
+            }
+       STATUS current
+       DESCRIPTION
+          "Collection of objects related to Loopback Configuration and
+           Loopback status."
+       ::= { ciscoIfLoopbackMIBGroups 1}
+
+END

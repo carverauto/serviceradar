@@ -1,0 +1,174 @@
+-- MIB file created 09-Sep-2009 10:09:07, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-PW-TC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-PW-TC-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoExperiment
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI;
+
+cpwTCMIB OBJECT IDENTIFIER ::= { cpwMIB 1 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200607211200Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     
+--      Thomas D. Nadeau 
+--      Postal: Cisco Systems, Inc. 
+--              250 Apollo Drive 
+--              Chelmsford, MA 01824 
+--      Tel:    +1-978-497-3051 
+--      Email:  tnadeau@cisco.com 
+--    
+--      MPLS MIB Development Team
+--      Postal: Cisco Systems, Inc.
+--              250 Apollo Drive
+--              Chelmsford, MA 01924
+--      Tel:    +1-978-497-3989
+--      Email:  ch-mpls-mib-dev@cisco.com
+--  Descr
+--    This MIB Module provides Textual Conventions 
+--     and OBJECT-IDENTITY Objects to be used PW services.
+--  RevDate
+--    200607211200Z
+--  RevDescr
+--    Added following enumerations to cpwVcType TC:
+--    e1Satop(12), t1Satop(13), e3Satop(14), t3Satop(15), 
+--    basicCesPsn(16), basicTdmIp(17), tdmCasCesPsn(18),
+--    tdmCasTdmIp(19). The above enumerations are based 
+--    on IANAPwTypeTC TC in draft-ietf-pwe3-pw-mib-08.txt
+--  RevDate
+--    200302261200Z
+--  RevDescr
+--    Made Cisco proprietary based on the PW-TC-MIB.my file
+--     extracted from draft-ietf-pwe3-pw-tc-mib-00.txt
+--  RevDate
+--    200205281200Z
+--  RevDescr
+--    Adding PwVcType, and enhance some descriptions.
+--  RevDate
+--    200201301200Z
+--  RevDescr
+--    Adding PwVcVlanCfg, PwAddressType and  
+--     PwOperStatus.
+--  RevDate
+--    200112201200Z
+--  RevDescr
+--    Remove PwVcInstance
+--  RevDate
+--    200107121200Z
+--  RevDescr
+--    Initial version.
+
+cpwMIB          OBJECT IDENTIFIER ::= { ciscoExperiment 20000 }
+
+CpwGroupID ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An administrative identification mechanism for grouping a 
+--     set of service-specific pseudo-wire services. May only 
+--     have local significance.
+
+CpwVcIDType ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Virtual Circuit Identifier. Used to identify the VC  
+--     (together with some other fields) in the signaling  
+--     session. Zero if the VC is set-up manually.
+
+CpwVcIndexType ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Virtual Circuit Index. Locally unique index for indexing 
+--     several MIB tables associated with a particular VC.
+
+CpwVcVlanCfg ::= INTEGER(0..4097)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    VLAN configuration for Ethernet PW.  
+--     Values between 0 to 4095 indicate the actual VLAN field 
+--     value.  
+--     A value of 4096 indicates that the object refer to  
+--     untagged frames, i.e. frames without 802.1Q field. 
+--     A value of 4097 indicates that the object is not  
+--     relevant.
+
+CpwOperStatus ::= INTEGER {
+        up(1),
+        down(2),
+        testing(3),
+        unknown(4),
+        dormant(5),
+        notPresent(6),
+        lowerLayerDown(7)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicate the operational status of the PW VC. 
+--    
+--    - up:             Ready to pass packets.  
+--    - down:           If PW signaling has not yet finished, or 
+--                      indications available at the service  
+--                      level indicate that the VC is not  
+--                      passing packets. 
+--    - testing:        If AdminStatus at the VC level is set to  
+--                      test. 
+--    - dormant:        The VC is not available because of the 
+--                      required resources are occupied VC with  
+--                      higher priority VCs . 
+--    - notPresent:     Some component is missing to accomplish  
+--                      the set up of the VC. 
+--    - lowerLayerDown: The underlying PSN or outer tunnel is not 
+--                      in OperStatus 'up'.  
+
+CpwVcType ::= INTEGER {
+        --?? enum value of zero may cause problems
+        other(0),
+        frameRelay(1),
+        atmAal5Vcc(2),
+        atmTransparent(3),
+        ethernetVLAN(4),
+        ethernet(5),
+        hdlc(6),
+        ppp(7),
+        cep(8),
+        atmVccCell(9),
+        atmVpcCell(10),
+        ethernetVPLS(11),
+        e1Satop(12),
+        t1Satop(13),
+        e3Satop(14),
+        t3Satop(15),
+        basicCesPsn(16),
+        basicTdmIp(17),
+        tdmCasCesPsn(18),
+        tdmCasTdmIp(19)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicate the VC type (i.e. the carried service). 
+--     Note: the exact set of VC types is yet to be worked  
+--     out by the WG. 
+
+
+END
+

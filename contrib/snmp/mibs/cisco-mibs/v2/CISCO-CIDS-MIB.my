@@ -1,0 +1,2527 @@
+-- CISCO-CIDS-MIB.my : Cisco Intrusion Detection System MIB
+--   
+-- March 2006, Shane J London
+--   
+-- Copyright (c) 2003, 2005-2006-2009-2013 by Cisco Systems Inc.
+-- All rights reserved
+
+CISCO-CIDS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32,
+    Counter32,
+    TimeTicks,
+    Gauge32,
+    OBJECT-IDENTITY
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    DateAndTime,
+    DisplayString
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex
+        FROM IF-MIB
+    Unsigned64,
+    CiscoIpProtocol
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCidsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201308090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-netranger@cisco.com"
+    DESCRIPTION
+        "Cisco Intrusion Detection System MIB.  Provides
+        trap definitions for the evAlert and evError
+        elements of the IDIOM (Intrusion Detection and
+        Operations Messages) document and read support 
+        for the Intrusion Detection System (sensor) 
+        health information, such as if the sensor is
+        in a memory critical stage."
+    REVISION        "201308080000Z"
+    DESCRIPTION
+        "Added the following TEXTUAL-CONVENTIONS:
+        CidsApplicationStatus
+        CidsHealthStatusColor
+
+        Added the following health group:
+        ciscoCidsHealthObjectGroupRev1
+
+        Added the following TRAP notifications group:
+        ciscoCidsNotificationsGroupRev1
+
+        Deprecated cidsAlertInterfaceGroup to replace it with
+        cidsAlertVirtualSensor since the datatype is incorrect
+        (CSCsv26568)."
+    REVISION        "200806260000Z"
+    DESCRIPTION
+        "Added the following alert action objects:
+        cidsAlertDenyPacket,
+        cidsAlertBlockHost,
+        cidsAlertTcpOneWayResetSent.
+        Added ciscoCidsOptionalObjectGroupRev2,
+        ciscoCidsMIBComplianceRev3."
+    REVISION        "200603020000Z"
+    DESCRIPTION
+        "Added the CidsTargetValue and CidsAttackRelevance
+        textual conventions.  Added the following alert
+        objects:
+           cidsAlertThreatValueRating
+           cidsAlertRiskRatingTargetValue
+           cidsAlertRiskRatingRelevance
+           cidsAlertRiskRatingWatchList"
+    REVISION        "200510100000Z"
+    DESCRIPTION
+        "Added errEngineBuildFailed to the CidsErrorCode
+        textual convention.  Added the following alert
+        action objects: 
+          cidsAlertDeniedAttacker
+          cidsAlertDeniedFlow
+          cidsAlertDenyPacketReqNotPerf
+          cidsAlertDenyFlowReqNotPerf
+          cidsAlertDenyAttackerReqNotPerf
+          cidsAlertBlockConnectionReq
+          cidsAlertLogAttackerPacketsAct
+          cidsAlertLogVictimPacketsAct
+          cidsAlertLogPairPacketsActivated
+          cidsAlertRateLimitRequested
+          cidsAlertDeniedAttackVictimPair
+          cidsAlertDeniedAttackSericePair
+          cidsAlertDenyAttackVicReqNotPerf
+          cidsAlertDenyAttackSerReqNotPerf
+        Added the cidsAlertIfIndex and cidsAlertProtocol 
+        objects."
+    REVISION        "200312180000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 383 }
+
+
+ciscoCidsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIB 0 }
+
+ciscoCidsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIB 1 }
+
+ciscoCidsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIB 2 }
+
+cidsGeneral  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIBObjects 1 }
+
+cidsAlert  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIBObjects 2 }
+
+cidsError  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIBObjects 3 }
+
+
+CidsHealthStatusColor ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which identifies the status colors for
+        health related statistics. The colors are chosen since they are
+        commonly used in health dashboards when visualizing the status
+        of a component and should generally be understood.
+
+        green 
+           Indicates sensor health status is good and currently no
+        issues.
+
+        yellow 
+           Indicates degrade in health status.
+           please monitor closely until the status changes back to
+           green.
+
+        red
+           A problem has occurred and the status is unhealthy immediate
+           attention is needed."
+    SYNTAX          INTEGER  {
+                        green(1),
+                        yellow(2),
+                        red(3)
+                    }
+
+CidsApplicationStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which identifies the status values that
+        are possible for a process.
+
+        notResponding
+           The process is no longer responding and may be down.
+
+        notRunning
+           The process is not currently running.
+
+        processingTransaction
+           The process is currently processing a control transaction.
+
+        reconfiguring
+           The configuration for this process is being changed.
+
+        running
+           The process is up and running.
+
+        starting
+           The process is starting and will be up and running
+           momentarily.
+
+        stopping 
+           The process is currently being shut down.
+
+        unknown
+           Unable to determine the current process status.
+
+        upgradeInprogress
+           The process is currently being upgraded."
+    SYNTAX          INTEGER  {
+                        notResponding(1),
+                        notRunning(2),
+                        processingTransaction(3),
+                        reconfiguring(4),
+                        running(5),
+                        starting(6),
+                        stopping(7),
+                        unknown(8),
+                        upgradeInprogress(9)
+                    }
+cidsHealth  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIBObjects 4 }
+
+
+-- Textual Conventions
+
+CidsErrorCode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which identifies the general
+        category of error that occurred.
+
+        errAuthenticationTokenExpired
+             The requested action could not be carried out 
+             because the requestor has provided an 
+             authentication token (e.g. password) that has 
+             expired.
+        errConfigCollision
+             The value of the config-token request 
+             parameter in a setComponentConfig control 
+             transaction request does not match the 
+             current configuration document on the target 
+             host. Typically this indicates that the 
+             configuration on the target host has been 
+             modified by another user.
+        errInUse
+             The requested action could not be completed 
+             because it requires access to a resource
+             that is in use.
+        errInvalidDocument
+             The request contained a document that was 
+             not well-formed, contained an incorrect root 
+             element, or contained additional elements or 
+             attributes that are not permitted by the lax 
+             IDIOM schema.
+        errLimitExceeded
+             The requested action could not be completed 
+             because it would create a resource that  
+             would exceed a system resource limit.
+        errNotAvailable
+             The requested action is supported but cannot 
+             be performed due to the current 
+             configuration of the target host.
+        errNotFound
+             A resource specified in the request does 
+             not exist.
+        errNotSupported
+             The requested action is not supported on 
+             the target host.
+        errPermissionDenied
+             The requestor does not have a sufficiently 
+             high authorization level to perform the 
+             requested action.
+        errSyslog
+             Used to convey messages of interest from 
+             the host system's syslog.
+        errSystemError
+             A system error occurred, such as an 
+             out-of-memory condition, disk access error, 
+             etc.
+        errTransport
+             The requested action could not be carried 
+             out because of a communications failure 
+             with another host that is involved in the 
+             action.
+        errUnacceptableValue
+             The request document was valid but 
+             contained one or more values that could 
+             not be accepted because they either: 
+             (1) conflict with other values in the same 
+             document or (2) are not acceptable due to 
+             the current state of the system.
+        errUnclassified
+             Used to convey an unclassified error 
+             condition.
+        errWarning
+             Used to convey a software warning 
+             condition detected by an application 
+             running on the host system.
+        errEngineBuildFailed
+             The system failed to build an intrusion 
+             detection engine."
+    SYNTAX          INTEGER  {
+                        errAuthenticationTokenExpired(1),
+                        errConfigCollision(2),
+                        errInUse(3),
+                        errInvalidDocument(4),
+                        errLimitExceeded(5),
+                        errNotAvailable(6),
+                        errNotFound(7),
+                        errNotSupported(8),
+                        errPermissionDenied(9),
+                        errSyslog(10),
+                        errSystemError(11),
+                        errTransport(12),
+                        errUnacceptableValue(13),
+                        errUnclassified(14),
+                        errWarning(15),
+                        errEngineBuildFailed(16)
+                    }
+
+CidsTargetValue ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which identifies the asset
+        value associated with a target.
+
+        zeroValue
+             Target has zero perceived value to the
+             network.
+        low
+             Target has low perceived value to the 
+             network.
+        medium
+             Target has medium perceived value to the 
+             network.
+        high
+             Target has high perceived value to the 
+             network.
+        missionCritical
+             Target is a mission critical component
+             in the network."
+    SYNTAX          INTEGER  {
+                        zeroValue(1),
+                        low(2),
+                        medium(3),
+                        high(4),
+                        missionCritical(5)
+                    }
+
+CidsAttackRelevance ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which identifies an attack's
+        relevance to its target.
+
+        relevant
+             The attack is relevant to the target.
+        notRelevant
+             The attack is not relevant to the target.
+        unknown
+             The relevancy of the attack is unknown."
+    SYNTAX          INTEGER  {
+                        relevant(1),
+                        notRelevant(2),
+                        unknown(3)
+                    }
+
+-- General
+
+cidsGeneralEventId OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Identifies the sequence number of an event.
+        This value needs to be unique within the scope 
+        of the originating host." 
+    ::= { cidsGeneral 1 }
+
+cidsGeneralLocalTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The local time on the Cisco intrusion detection
+        system sensor when the alert was generated." 
+    ::= { cidsGeneral 2 }
+
+cidsGeneralUTCTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The UTC time on the Cisco intrusion detection
+        system sensor when the alert was generated." 
+    ::= { cidsGeneral 3 }
+
+cidsGeneralOriginatorHostId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "A globally unique identifier for a Cids host.  Could
+        be a host name or an IP address." 
+    ::= { cidsGeneral 4 }
+
+cidsGeneralOriginatorAppName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The optional generic name of a Cids application." 
+    ::= { cidsGeneral 5 }
+
+cidsGeneralOriginatorAppId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The optional id of this instance of the application.
+        Typically the process id (pid)." 
+    ::= { cidsGeneral 6 }
+
+cidsNotificationsEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether notifications will or will not
+        be sent when an event is generated by the device."
+    DEFVAL          { false } 
+    ::= { cidsGeneral 7 }
+
+-- Alert
+
+cidsAlertSeverity OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The severity associated with a Cids signature
+        (informational, low, medium or high for 
+        example)." 
+    ::= { cidsAlert 1 }
+
+cidsAlertAlarmTraits OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The alarm traits is an unsigned 16-bit integer
+        representing the value of the 16 user-defined 
+        alarm traits specified in the configuration for 
+        the signature that triggered the alert.  The 
+        alarmTraits bits are used to classify signatures 
+        into user-defined categories or groups." 
+    ::= { cidsAlert 2 }
+
+cidsAlertSignature OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Content is a string containing details about the
+        signature that fired, without any specifics tied 
+        to this instance of the alert.   The 
+        cidsAlertSignatureSigName, cidsAlertSignatureSigId
+        and cidsAlertSignatureSubSigId attributes define 
+        the signature that triggered this Alert." 
+    ::= { cidsAlert 3 }
+
+cidsAlertSignatureSigName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The name of the Intrusion detection signature
+        that triggered this event." 
+    ::= { cidsAlert 4 }
+
+cidsAlertSignatureSigId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The ID of the Intrusion detection signature
+        that triggered this event.  The ID combines
+        with the cidsAlertSignatureSubSigId to 
+        create a unique key that identifies the 
+        signature that generated this event." 
+    ::= { cidsAlert 5 }
+
+cidsAlertSignatureSubSigId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The optional Sub ID of the Intrusion detection
+        signature that triggered this event.  The Sub
+        ID combines with the cidsAlertSignatureSigId
+        to create a unique key that identifies the
+        signature that generated this event." 
+    ::= { cidsAlert 6 }
+
+cidsAlertSignatureVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The optional version attribute defines the version
+        number of the signature update in which the triggering
+        signature was introduced or was last modified.  
+        Example: 4.1(1.1)S47(0.1)" 
+    ::= { cidsAlert 7 }
+
+cidsAlertSummary OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Optional, if present, specifies that this is a
+        summary alert, representing one or more alerts with 
+        common characteristics. The numeric value indicates
+        the number of times the signature fired since the 
+        last summary alert with a matching 'initialAlert'  
+        attribute value.  The first and all subsequent 
+        summary alerts in a sequence will use the eventId 
+        of a previous non-summary evAlert in the initialAlert
+        attribute value. All alerts represented by the
+        summary alert share the same signature and 
+        sub-signature id.  The summaryType attribute defines 
+        the common characteristic(s) of all alerts in the 
+        summary.  The 'final' attribute indicates whether 
+        this is the last evAlert containing the same value 
+        in the 'initialAlert' attribute.  The 'final' 
+        attribute may be omitted if and only if its value 
+        is false." 
+    ::= { cidsAlert 8 }
+
+cidsAlertSummaryType OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..16))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Common characteristics shared by all non-summary
+        alerts included in a summary alert." 
+    ::= { cidsAlert 9 }
+
+cidsAlertSummaryFinal OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The optional 'final' attribute indicates whether
+        this is the last evAlert containing the same value 
+        in the 'initialAlert' attribute.  The 'final' 
+        attribute may be omitted if and only if its value 
+        is false." 
+    ::= { cidsAlert 10 }
+
+cidsAlertSummaryInitialAlert OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Serial number for the initial alert, which is
+        guaranteed unique within the scope of the 
+        originating host." 
+    ::= { cidsAlert 11 }
+
+-- cidsAlertVirtualSensor object replaces cidsAlertInterfaceGroup
+-- object.
+
+cidsAlertInterfaceGroup OBJECT-TYPE
+    SYNTAX          Integer32 (-2147483648..2147483647)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates an optional numeric identifier for a
+        sniffing
+        interface group on this host." 
+    ::= { cidsAlert 12 }
+
+cidsAlertVlan OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "An optional numeric identifier for a vlan.  Identifies
+        the vlan that uses the number in ISL or 802.3.1q 
+        headers." 
+    ::= { cidsAlert 13 }
+
+cidsAlertVictimContext OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Optional Base64-encoded representation of the stream
+        data that was sourced by the victim." 
+    ::= { cidsAlert 14 }
+
+cidsAlertAttackerContext OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Optional Base64-encoded representation of the stream
+        data that was sourced by the Attacker." 
+    ::= { cidsAlert 15 }
+
+cidsAlertAttackerAddress OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Optional IP address and ports on a monitored
+        interface.  The 'locality' attribute is a string 
+        that indicates the relative location of the IP 
+        address within the network mapping, such as whether 
+        the address falls within the address range of a 
+        protected network.  The optional 'proxy' attribute 
+        is 'true' if the sensor has reason to suspect that 
+        the address given is not the address of the true 
+        attacker.  This could be a the result of address 
+        spoofing or because the host has been compromised 
+        and is acting as a 'zombie'.  The 'proxy' attribute
+        may be omitted if and only if its value is false." 
+    ::= { cidsAlert 16 }
+
+cidsAlertVictimAddress OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Optional IP address and ports on a monitored
+        interface.  The 'locality' attribute is a string 
+        that indicates the relative location of the IP 
+        address within the network mapping, such as 
+        whether the address falls within the address range 
+        of a protected network.  The 'osIdSource' attribute
+        represents the method that the operating system
+        of the victim was identified.  The 'osType' 
+        attribute represents the operating system of the
+        target system.  The 'osRelevance' attribute
+        represents the relevance of an attack on the 
+        operating system." 
+    ::= { cidsAlert 17 }
+
+cidsAlertIpLoggingActivated OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether IP logging has been activated as
+        the result of the alert.  A separate evIpLogStatus 
+        event will be generated when logging has been 
+        completed.  The evIpLogStatus event contains the 
+        URL where the log results may be obtained.  This 
+        element may be omitted if and only if its value 
+        is false." 
+    ::= { cidsAlert 18 }
+
+cidsAlertTcpResetSent OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether a attempt was made to reset a tcp
+        connection as the result of the alert.  The addresses 
+        and ports affected must be implied from the 
+        information contained in the participant elements of 
+        the evAlert.  This element may be omitted if and only 
+        if its value is false." 
+    ::= { cidsAlert 19 }
+
+cidsAlertShunRequested OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether an IP address or tcp connection
+        has been requested to be shunned as a result of the 
+        alert.  Details about the addresses and ports 
+        involved in the shun can be obtained from evNacStatus 
+        events sent by the Network Access Controller 
+        application.  This element may be omitted if and only 
+        if its value is false." 
+    ::= { cidsAlert 20 }
+
+cidsAlertDetails OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Textual details about the specific alert instance,
+        not just the signature." 
+    ::= { cidsAlert 21 }
+
+cidsAlertIpLogId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "IP log identifiers for IP logs that were added as
+        the result of this alert." 
+    ::= { cidsAlert 22 }
+
+cidsThreatResponseStatus OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "A brief textual description of the status of
+        the alarm given by the Cisco Systems Threat
+        Response engine." 
+    ::= { cidsAlert 23 }
+
+cidsThreatResponseSeverity OBJECT-TYPE
+    SYNTAX          Integer32 (-2147483648..2147483647)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The alarm severity as assigned by the Cisco Systems
+        Threat Response engine." 
+    ::= { cidsAlert 24 }
+
+cidsAlertEventRiskRating OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "A risk factor that incorporates several additional
+        pieces of information beyond the detection of a 
+        potentially malicious action.  The factors that 
+        characterize this risk are the severity of the 
+        attack if it were to succeed, the fidelity of the 
+        signature, the relevance of the potential attack 
+        with respect to the target host, and the overall 
+        value of the target host to the customer." 
+    ::= { cidsAlert 25 }
+
+cidsAlertIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex on which the activity was detected." 
+    ::= { cidsAlert 26 }
+
+cidsAlertProtocol OBJECT-TYPE
+    SYNTAX          CiscoIpProtocol
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Identifies the IP protocol associated with the
+        alert." 
+    ::= { cidsAlert 27 }
+
+cidsAlertDeniedAttacker OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that the traffic from originating from
+        the attacker is being blocked as a result of the 
+        alert. This element may be omitted if and only if 
+        its value is false." 
+    ::= { cidsAlert 28 }
+
+cidsAlertDeniedFlow OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that the traffic on the TCP connection
+        being blocked as a result of the alert.  This 
+        element may be omitted if and only if its value 
+        is false." 
+    ::= { cidsAlert 29 }
+
+cidsAlertDenyPacketReqNotPerf OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the packet that triggered the
+        alert would have been denied as a result of the 
+        alert if the intrusion prevention system was 
+        operating in inline mode.  However, the packet 
+        was not actually denied because the intrusion 
+        prevention system was operating in promiscuous 
+        mode. This element may be omitted if and only 
+        if its value is false." 
+    ::= { cidsAlert 30 }
+
+cidsAlertDenyFlowReqNotPerf OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the flow that triggered the
+        alert would have been denied as a result of the 
+        alert if the intrusion prevention system was 
+        operating in inline mode.  However, this action 
+        was not actually taken because the intrusion 
+        prevention system was operating in promiscuous 
+        mode. This element may be omitted if and only 
+        if its value is false." 
+    ::= { cidsAlert 31 }
+
+cidsAlertDenyAttackerReqNotPerf OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the traffic from the attacker
+        that triggered the alert would have been denied as 
+        a result of the alert if the intrusion prevention 
+        system was operating in inline mode. However, this 
+        action was not actually taken because the intrusion 
+        prevention system was operating in promiscuous 
+        mode. This element may be omitted if and only if 
+        its value is false." 
+    ::= { cidsAlert 32 }
+
+cidsAlertBlockConnectionReq OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that a TCP connection has been requested
+        to be blocked as a result of the alert.  This element
+        may be omitted if and only if its value is false." 
+    ::= { cidsAlert 33 }
+
+cidsAlertLogAttackerPacketsAct OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that packets associated with the
+        attacker(s) identified by this alert are being 
+        logged.  This element may be omitted if and
+        only if its value is false." 
+    ::= { cidsAlert 34 }
+
+cidsAlertLogVictimPacketsAct OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that packets associated with the victim(s)
+        identified by this alert are being logged. This 
+        element may be omitted if and only if its value is 
+        false." 
+    ::= { cidsAlert 35 }
+
+cidsAlertLogPairPacketsActivated OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that packets associated with the
+        attacker/victim pair(s) identified by this alert 
+        are being logged. This element may be omitted if 
+        and only if its value is false." 
+    ::= { cidsAlert 36 }
+
+cidsAlertRateLimitRequested OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that traffic rate limiting based on the
+        source address and protocol associated with the alert 
+        has been requested on external network devices. This 
+        element may be omitted if and only if its value is 
+        false." 
+    ::= { cidsAlert 37 }
+
+cidsAlertDeniedAttackVictimPair OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that traffic from originating from the
+        attackers address and destined for the victims address
+        identified in the alert is being denied as a result of
+        the alert. This element may be omitted if and only if
+        its value is false." 
+    ::= { cidsAlert 38 }
+
+cidsAlertDeniedAttackSericePair OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that traffic from originating from the
+        attackers address and destined for the destination 
+        service port identified in the alert is being denied 
+        as a result of the alert. This element may be omitted
+        if and only if its value is false." 
+    ::= { cidsAlert 39 }
+
+cidsAlertDenyAttackVicReqNotPerf OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that traffic from originating from the
+        attackers address and destined for the victims address
+        identified in the alert would have been denied as a 
+        result of the alert if the intrusion prevention system 
+        was operating in inline mode. However, this action was 
+        not actually taken because the intrusion prevention 
+        system was operating in promiscuous mode.  This 
+        element may be omitted if and only if its value is 
+        false." 
+    ::= { cidsAlert 40 }
+
+cidsAlertDenyAttackSerReqNotPerf OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Indicates that traffic from originating from the
+        attackers address and destined for the destination 
+        service port identified in the alert would have been 
+        denied as a result of the alert if the intrusion 
+        prevention system was operating in inline mode. 
+        However, this action was not actually taken because 
+        the intrusion prevention system was operating in 
+        promiscuous mode.  This element may be omitted if 
+        and only if its value is false." 
+    ::= { cidsAlert 41 }
+
+cidsAlertThreatValueRating OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Value that represents the calculated threat
+        associated with the detected activity.  The threat 
+        value consists of the cidsAlertEventRiskRating 
+        adjusted for the mitigation action performed.  
+        The threat value has a range between 0 and 100 
+        (inclusive), where a value of 0 represents the 
+        lowest threat and 100 the greatest threat." 
+    ::= { cidsAlert 42 }
+
+cidsAlertRiskRatingTargetValue OBJECT-TYPE
+    SYNTAX          CidsTargetValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Represents the asset value associated with
+        a target identified in the alert." 
+    ::= { cidsAlert 43 }
+
+cidsAlertRiskRatingRelevance OBJECT-TYPE
+    SYNTAX          CidsAttackRelevance
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Value that represents an attack's relevance to
+        the destination target of this alert." 
+    ::= { cidsAlert 44 }
+
+cidsAlertRiskRatingWatchList OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Value that represents the amount that the risk
+        rating value was increased due to the source
+        of the activity associated with the alert being
+        on a watchlist." 
+    ::= { cidsAlert 45 }
+
+cidsAlertDenyPacket OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates that the traffic originating from
+        the attacker is being blocked as a result of the 
+        alert. This element may be omitted if and only if 
+        its value is 'false'." 
+    ::= { cidsAlert 46 }
+
+cidsAlertBlockHost OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates that a host has been requested
+        to be blocked as a result of the alert.  This element
+        may be omitted if and only if its value is 'false'." 
+    ::= { cidsAlert 47 }
+
+cidsAlertTcpOneWayResetSent OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an attempt to reset one side of the
+        connection (the victim side). The victim address and ports
+        affected must be implied from the information contained in the
+        participant elements of the alert. This element may be omitted
+        if and only if its value is 'false'." 
+    ::= { cidsAlert 48 }
+
+cidsAlertVirtualSensor OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the virtual sensor
+        associated with an Intrusion Prevention System alert.  From the
+        virtual sensor name one can correlate which signature set and
+        configuration to look at to trouble shoot or tune the behavior
+        of the sensor.  The virtual sensor name with the signature ID
+        should help in identifying the correct instance of the signature
+        that fired the alert." 
+    ::= { cidsAlert 49 }
+
+-- Error
+
+cidsErrorSeverity OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Severity of an error (warning, error or fatal
+        for example).  An example of a type of error 
+        that could occur would be when a requested 
+        action could not be completed because it
+        would create a resource that would exceed a 
+        system resource limit." 
+    ::= { cidsError 1 }
+
+cidsErrorName OBJECT-TYPE
+    SYNTAX          CidsErrorCode
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "An enumerated error code, which identifies a general
+        class of errors." 
+    ::= { cidsError 2 }
+
+cidsErrorMessage OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "A textual description of the error that occurred." 
+    ::= { cidsError 3 }
+
+-- Health
+
+cidsHealthPacketLoss OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of packets lost at the device
+        interface level." 
+    ::= { cidsHealth 1 }
+
+cidsHealthPacketDenialRate OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of packets denied due to
+        protocol and security violations." 
+    ::= { cidsHealth 2 }
+
+cidsHealthAlarmsGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of alarms generated, includes
+        all currently defined alarm severities." 
+    ::= { cidsHealth 3 }
+
+cidsHealthFragmentsInFRU OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of fragments currently queued in the
+        fragment reassembly unit." 
+    ::= { cidsHealth 4 }
+
+cidsHealthDatagramsInFRU OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of datagrams currently queued in the
+        fragment reassembly unit." 
+    ::= { cidsHealth 5 }
+
+cidsHealthTcpEmbryonicStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of embryonic TCP streams currently
+        queued in the device.  TCP streams are
+        considered embryonic if they have not 
+        completed the TCP three-way handshake." 
+    ::= { cidsHealth 6 }
+
+cidsHealthTCPEstablishedStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of established TCP streams currently
+        queued in the device.  Once a stream has
+        completed a TCP three-way handshake it will 
+        move to the established state." 
+    ::= { cidsHealth 7 }
+
+cidsHealthTcpClosingStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of closing TCP streams currently
+        queued in the device.  A stream will move 
+        from the established state to closing when
+        a valid FIN or RST flag is received." 
+    ::= { cidsHealth 8 }
+
+cidsHealthTcpStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of TCP streams (embryonic,
+        established and closing) currently queued 
+        in the device." 
+    ::= { cidsHealth 9 }
+
+cidsHealthActiveNodes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of active nodes currently queued in
+        the device." 
+    ::= { cidsHealth 10 }
+
+cidsHealthTcpDualIpAndPorts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number TCP nodes keyed on both IP addresses
+        and both ports currently queued in the device." 
+    ::= { cidsHealth 11 }
+
+cidsHealthUdpDualIpAndPorts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number UDP nodes keyed on both IP addresses
+        and both ports currently queued in the device." 
+    ::= { cidsHealth 12 }
+
+cidsHealthIpDualIp OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number IP nodes keyed on both IP addresses
+        currently queued in the device." 
+    ::= { cidsHealth 13 }
+
+cidsHealthIsSensorMemoryCritical OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..10)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A value between 0 and 10 that should rarely
+        get above 3.  If this is non-zero the sensor 
+        has stopped enforcing policy on some traffic in 
+        order to keep up with the current traffic load; 
+        the sensor is oversubscribed. The higher the 
+        number the more oversubscribed the sensor. It 
+        could be oversubscribed from a memory prospective
+        and not traffic speed. For example on a 200 Mbit 
+        sensor this number might be 3 if the sensor was 
+        only seeing 100Mbit of traffic but 6000 
+        connections per second which is over the rated 
+        capacity of the sensor.  When the sensor is
+        in Memory Critical state then a ciscoCidsError
+        trap will be sent accordingly." 
+    ::= { cidsHealth 14 }
+
+cidsHealthIsSensorActive OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the failover status of the device.
+        True indicates the device is currently active.
+        False indicates it is in a standby mode." 
+    ::= { cidsHealth 15 }
+
+cidsHealthCommandAndControlPort OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The status and network statistics of the
+        currently configured Command and Control 
+        interface on the device.  The Command
+        and Control interface is where all of the 
+        communications for command and control 
+        of the sensor occurs.  This is important
+        to identify what interface a user will 
+        communicate with to control the sensor 
+        remotely and general health statistics
+        for that interface." 
+    ::= { cidsHealth 16 }
+
+cidsHealthSensorStatsResetTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of SNMPv2-MIB::sysUpTime
+        when the Sensor specific statistics
+        was reset.  The reset time is 
+        collectively for the following objects: 
+           cidsHealthPacketLoss,
+           cidsHealthPacketDenies,
+           cidsHealthAlarmsGenerated,
+           cidsHealthFragmentsInFRU,
+           cidsHealthDatagramsInFRU,
+           cidsHealthTcpEmbryonicStreams,
+           cidsHealthTcpEstablishedStreams,
+           cidsHealthTcpClosingStreams,
+           cidsHealthTcpStreams" 
+    ::= { cidsHealth 17 }
+
+cidsHealthSecMonAvailability OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the availability of health and security
+        monitor statistics.  If the IPS health and security monitoring
+        service is disabled, it will return false." 
+    ::= { cidsHealth 18 }
+
+cidsHealthSecMonOverallHealth OBJECT-TYPE
+    SYNTAX          CidsHealthStatusColor
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates IPS sensor's overall health value -
+        green, yellow or red.  The overall health status is set to the
+        highest severity of all metrics that are configured to be
+        applied to the IPS's health determination.  For example, if the
+        IPS is configured to use eight metrics to determine its health
+        and seven of eight metrics are green while one of the metrics
+        is
+        red then the overall IPS health will be red.  
+
+        This object is instantiated only if the value of cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 19 }
+
+cidsHealthSecMonSoftwareVersion OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IPS software version number (e.g.,
+        6.2(1)E3).  
+
+        This object is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 20 }
+
+cidsHealthSecMonSignatureVersion OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates IPS signature version (e.g., 365.0).
+
+        This object is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 21 }
+
+cidsHealthSecMonLicenseStatus OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates IPS license status along with expiration
+        date. For example it will contain the following possible
+        values:
+
+        - signatureUpdateKey: Not expired until: <timestamp>
+        - trialKey: Not expired until: <timestamp>
+        - expiredLicense
+        - noLicense
+        - invalidLicense
+        - unknown
+
+        The timestamp will be in the format:
+        MM/DD/YYYY HH:MM:SS
+
+        This object is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 22 }
+
+cidsHealthSecMonOverallAppColor OBJECT-TYPE
+    SYNTAX          CidsHealthStatusColor
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the aggregate health status of the
+        applications - Main, Analysis Engine, Collaboration - where the
+        status is equal to the most severe status of all three
+        applications.
+        It is used in both the heart beat and the metric change health
+        traps." 
+    ::= { cidsHealth 23 }
+
+cidsHealthSecMonMainAppStatus OBJECT-TYPE
+    SYNTAX          CidsApplicationStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the running status for the control plane.
+
+        This object is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 24 }
+
+cidsHealthSecMonAnalysisEngineStatus OBJECT-TYPE
+    SYNTAX          CidsApplicationStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the running status for the Analysis
+        Engine.
+
+        This object is instantiated only if the value of cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 25 }
+
+cidsHealthSecMonCollaborationAppStatus OBJECT-TYPE
+    SYNTAX          CidsApplicationStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the running status for the Collaboration
+        Application.
+
+        This object is instantiated only if the value of cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 26 }
+
+cidsHealthSecMonByPassMode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bypass mode. A value of 'true'
+        indicates bypass mode is on and a value of 'false' indicates it is off.
+
+        This object is instantiated only if the value of cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 27 }
+
+cidsHealthSecMonMissedPktPctAndThresh OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the missed packet percentage and missed
+        packets percentage threshold aggregated for all interfaces.  
+        For example, 'missedPacketPercentage=1 redThreshold=6
+        yellowThreshold=1'.  
+
+        This object is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 28 }
+
+cidsHealthSecMonAnalysisEngMemPercent OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the percentage of memory used by Analysis
+        Engine.
+
+        This object is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 29 }
+
+cidsHealthSecMonSensorLoad OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates sensor inspection load.
+
+        This object is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'." 
+    ::= { cidsHealth 30 }
+
+cidsHealthSecMonSensorLoadColor OBJECT-TYPE
+    SYNTAX          CidsHealthStatusColor
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of current sensor load,
+        indicated 
+        using status colors.  The color is determined based on the
+        sensor load percentage and configured threshold value." 
+    ::= { cidsHealth 31 }
+
+cidsHealthSecMonVirtSensorStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CidsHealthSecMonVirtSensorStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the status of each virtual sensor. There
+        will be one entry per virtual sensor in the system. This is the
+        status of the network that the virtual sensor is monitoring.  A
+        virtual sensor can be added either through the configuration CLI
+        or through a management application such as IME/CSM; once it is
+        added to the system it will appear in this table.  If a virtual
+        sensor is removed from the system through one of the management
+        interfaces it will no longer appear in this table.  
+
+        This table is instantiated only if the value of cidsHealthSecMonAvailability is set to 'true'."
+    ::= { cidsHealth 32 }
+
+cidsHealthSecMonVirtSensorStatusEntry OBJECT-TYPE
+    SYNTAX          CidsHealthSecMonVirtSensorStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        cidsHealthSecMonVirtSensorStatusTable. There will be one per
+        virtual sensor on the system.  
+
+        A virtual sensor allows one to logically separate their sensor
+        configuration for different sets of interfaces.  For example
+        virtual sensor vs0 may apply to one set of interfaces and vs1
+        would apply to another set of interfaces.  This table allows
+        someone to get the status of each of the virtual sensors to
+        determine the health of the associated networks.
+
+        For example you could have vs0 monitoring your finance networks
+        and vs1 monitoring your engineering networks and track the
+        health of each of these networks independently."
+    INDEX           { cidsHealthSecMonVirtSensorName } 
+    ::= { cidsHealthSecMonVirtSensorStatusTable 1 }
+
+CidsHealthSecMonVirtSensorStatusEntry ::= SEQUENCE {
+        cidsHealthSecMonVirtSensorName   DisplayString,
+        cidsHealthSecMonVirtSensorStatus CidsHealthStatusColor
+}
+
+cidsHealthSecMonVirtSensorName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the virtual sensor.  Through
+        the IPS configuration the sensor name can be correlated with
+        the
+
+        sensor configuration and the associated interfaces to identify
+        which networks are having good or bad health status. The reason
+        there are multiple virtual sensor configurations is to allow
+        different configurations for different sets of network
+        interfaces." 
+    ::= { cidsHealthSecMonVirtSensorStatusEntry 1 }
+
+cidsHealthSecMonVirtSensorStatus OBJECT-TYPE
+    SYNTAX          CidsHealthStatusColor
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the virtual sensor network status level.
+        From the color rating associated with the virtual sensor you
+        can
+        determine the overall health of the attached networks.  If the
+        color is green everything is fine, the IPS is not indicating a
+        problem.  If the color is yellow you should check as there
+        maybe
+        issues occuring on the attached network.  If the status is red
+        the network needs attention as problems are detected and network
+        security is critical." 
+    ::= { cidsHealthSecMonVirtSensorStatusEntry 2 }
+ 
+
+
+cidsHealthSecMonDataStorageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CidsHealthSecMonDataStorageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is the table of disk partition details:
+
+        Partition Name
+        Total Space In Partition
+        Utilized Space
+
+        This table tells how each of the file systems are utilized on 
+        the IPS.  If the file systems approach 100% utilization that 
+        may indicate a problem. This table should remain fixed 
+        size unless an upgrade/install changes the partition count. 
+        The user does not have control over the number of partitions 
+        or the ability to add and remove partitions.
+
+        This table is instantiated only if the value of
+        cidsHealthSecMonAvailability is set to 'true'."
+    ::= { cidsHealth 33 }
+
+cidsHealthSecMonDataStorageEntry OBJECT-TYPE
+    SYNTAX          CidsHealthSecMonDataStorageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        cidsHealthSecMonDataStorageTable.
+
+        There will be one row per partition.
+
+        This table is here to track the health of the storage on the
+        IPS sensor.  The following partitions will have their status
+        displayed as part of the data storage table:
+
+        system 
+         This is the root file system on the sensor; this file system
+        should not change too much over time and should not be full.
+
+        application-data 
+         This is the main file system where application binaries,
+        application logs and configuration data is stored.  This file
+        system will change due to logging and configuration changes; if
+        this file system is full it will present stability problems. 
+        This partition is the most important in the system to monitor.
+
+        boot 
+          Kernel/boot data storage partition; this should not change
+        much other than during an image upgrade. 
+
+        application-log 
+           This partition has fixed sized files to store IPLOG data. 
+        This will likely run near full capacity without being a
+        problem.
+
+        The most important partition to monitor over time is the
+        application-data partition; if it runs to capacity problems
+        will occur as processes will no longer be able to write data to
+        the file system.
+
+        Note:  File system setup and utilization will vary per platform
+        model; there are no perfect rules for monitoring these across
+        all platforms however you should be able to use trends over
+        time to indicate if you are going to fill up a file system that
+        should not run at capacity such as the application-data
+        partition."
+    INDEX           { cidsHealthSecMonPartitionName } 
+    ::= { cidsHealthSecMonDataStorageTable 1 }
+
+CidsHealthSecMonDataStorageEntry ::= SEQUENCE {
+        cidsHealthSecMonPartitionName          DisplayString,
+        cidsHealthSecMonTotalPartitionSpace    Unsigned32,
+        cidsHealthSecMonUtilizedPartitionSpace Unsigned32
+}
+
+cidsHealthSecMonPartitionName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Name of the disk partition.  For example:
+        system
+        application-data
+        boot
+        application-log" 
+    ::= { cidsHealthSecMonDataStorageEntry 1 }
+
+cidsHealthSecMonTotalPartitionSpace OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "MB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total disk space on the partition in
+        megabytes." 
+    ::= { cidsHealthSecMonDataStorageEntry 2 }
+
+cidsHealthSecMonUtilizedPartitionSpace OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "MB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total amount of utilized disk space
+        in megabytes." 
+    ::= { cidsHealthSecMonDataStorageEntry 3 }
+ 
+
+
+-- Notifications
+--   
+-- Since notifications with a large number of bound objects
+-- can be rather large, the agent can provide two different
+-- notification generation modes.  One without optional objects
+-- to try and keep the notification size below 484 bytes and
+-- one with no size limits that will send all available optional
+-- objects as well as those explicitly listed in the OBJECTS
+-- clause of the notification definition.
+--   
+-- The following objects, defined elsewhere in this MIB module
+-- as accessible-for-notify, are optional in that they are not
+-- explicitly listed in a notification's OBJECTS clause.
+-- When the notification generation mode is set to allow optional
+-- objects to be bound, the association of the optional objects
+-- to particular notifications is as follows:
+--   
+-- ciscoCidsAlert:
+-- cidsGeneralOriginatorAppName
+-- cidsGeneralOriginatorAppId
+-- cidsAlertSignature
+-- cidsAlertSignatureVersion
+-- cidsAlertSummary
+-- cidsAlertSummaryType
+-- cidsAlertSummaryFinal
+-- cidsAlertSummaryInitialAlert
+-- cidsAlertInterfaceGroup
+-- cidsAlertVlan
+-- cidsAlertVictimContext
+-- cidsAlertAttackerContext
+-- cidsAlertIpLoggingActivated
+-- cidsAlertTcpResetSent
+-- cidsAlertShunRequested
+-- cidsAlertDetails
+-- cidsAlertIpLogId
+-- cidsThreatResponseStatus
+-- cidsThreatResponseSeverity
+-- cidsAlertEventRiskRating
+-- cidsAlertIfIndex
+-- cidsAlertProtocol
+-- cidsAlertDeniedAttacker
+-- cidsAlertDeniedFlow
+-- cidsAlertDenyPacketReqNotPerf
+-- cidsAlertDenyFlowReqNotPerf
+-- cidsAlertDenyAttackerReqNotPerf
+-- cidsAlertBlockConnectionReq
+-- cidsAlertLogAttackerPacketsAct
+-- cidsAlertLogVictimPacketsAct
+-- cidsAlertLogPairPacketsActivated
+-- cidsAlertRateLimitRequested
+-- cidsAlertDeniedAttackVictimPair
+-- cidsAlertDeniedAttackSericePair
+-- cidsAlertDenyAttackVicReqNotPerf
+-- cidsAlertDenyAttackSerReqNotPerf
+-- cidsAlertThreatValueRating
+-- cidsAlertRiskRatingTargetValue
+-- cidsAlertRiskRatingRelevance
+-- cidsAlertRiskRatingWatchList
+--   
+-- ciscoCidsError:
+-- cidsGeneralOriginatorAppName
+-- cidsGeneralOriginatorAppId
+
+ciscoCidsAlert NOTIFICATION-TYPE
+    OBJECTS         {
+                        cidsGeneralEventId,
+                        cidsGeneralLocalTime,
+                        cidsGeneralUTCTime,
+                        cidsGeneralOriginatorHostId,
+                        cidsAlertSeverity,
+                        cidsAlertSignatureSigName,
+                        cidsAlertSignatureSigId,
+                        cidsAlertSignatureSubSigId,
+                        cidsAlertAlarmTraits,
+                        cidsAlertAttackerAddress,
+                        cidsAlertVictimAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Event indicating that some suspicious or malicious
+        activity has been detected on a monitored network."
+   ::= { ciscoCidsMIBNotifs 1 }
+
+ciscoCidsError NOTIFICATION-TYPE
+    OBJECTS         {
+                        cidsGeneralEventId,
+                        cidsGeneralLocalTime,
+                        cidsGeneralUTCTime,
+                        cidsGeneralOriginatorHostId,
+                        cidsErrorSeverity,
+                        cidsErrorName,
+                        cidsErrorMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Event indicating that an error has occurred."
+   ::= { ciscoCidsMIBNotifs 2 }
+
+ciscoCidsHealthHeartBeat NOTIFICATION-TYPE
+    OBJECTS         {
+                        cidsGeneralEventId,
+                        cidsGeneralOriginatorHostId,
+                        cidsGeneralLocalTime,
+                        cidsGeneralUTCTime,
+                        cidsHealthSecMonOverallAppColor,
+                        cidsHealthSecMonSensorLoadColor,
+                        cidsHealthSecMonOverallHealth
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is triggered by the heart beat events
+        (evStatus).  The heartbeat is configured to run on a periodic
+        basis and can be enabled/disabled through heart beat
+        configuration under the health service.  If the heart beat is
+        disabled these notification events will not be sent.
+
+        This notification is supposed to mirror the heart beat evStatus
+        message however it is a subset of the most critical pieces of
+        data. Namely this will include the following pieces of data:
+
+        - Event ID
+        - Host ID
+        - Local Time
+        - UTC Time
+        - Overall Application Color
+        - Sensor/Inspection Load Color
+        - Overall Health"
+   ::= { ciscoCidsMIBNotifs 3 }
+
+ciscoCidsHealthMetricChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        cidsGeneralEventId,
+                        cidsGeneralOriginatorHostId,
+                        cidsGeneralLocalTime,
+                        cidsGeneralUTCTime,
+                        cidsHealthSecMonOverallAppColor,
+                        cidsHealthSecMonSensorLoadColor,
+                        cidsHealthSecMonOverallHealth
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification notifies the recipient of health and
+        security status changes.  This notification is triggered when 
+        there is a change in the value of monitored metrics as indicated
+        by evStatus message.  This notification will include the
+        following important subset of attributes from evStatus message:
+
+        - Event ID
+        - Host ID
+        - Local Time
+        - UTC Time
+        - Overall Application Color
+        - Sensor/Inspection Load Color
+        - Overall Health                                                
+
+        This is similar to the heart beat, however the triggering
+        condition is different.  The heart beat fires on a regular
+        interval and this is sent immediately after a change in a
+        monitored metric.  Metric change notifications can be enabled
+        while the heart beat is disabled."
+   ::= { ciscoCidsMIBNotifs 4 }
+-- Conformance
+
+ciscoCidsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIBConform 1 }
+
+ciscoCidsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCidsMIBConform 2 }
+
+
+-- Compliance
+
+ciscoCidsMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cids MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCidsGeneralObjectGroup,
+                        ciscoCidsAlertObjectGroup,
+                        ciscoCidsErrorObjectGroup,
+                        ciscoCidsHealthObjectGroup
+                    }
+    ::= { ciscoCidsMIBCompliances 1 }
+
+ciscoCidsMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cids MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCidsGeneralObjectGroupRev1,
+                        ciscoCidsAlertObjectGroupRev1,
+                        ciscoCidsErrorObjectGroup,
+                        ciscoCidsHealthObjectGroup,
+                        ciscoCidsNotificationsGroup
+                    }
+
+    GROUP           ciscoCidsOptionalObjectGroup
+    DESCRIPTION
+        "Since notifications with a large number of
+        bound objects can be rather large, the agent 
+        can provide two different notification 
+        generation modes.  One without optional objects
+        in the ciscoCidsOptionalObjectGroup to try and 
+        keep the notification size below 484 bytes and
+        one with no size limits that will send all 
+        available optional objects in the 
+        ciscoCidsOptionalObjectGroup as well as those 
+        explicitly listed in the OBJECTS clause of the 
+        notification definition."
+    ::= { ciscoCidsMIBCompliances 2 }
+
+ciscoCidsMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cids MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCidsGeneralObjectGroupRev1,
+                        ciscoCidsAlertObjectGroupRev1,
+                        ciscoCidsErrorObjectGroup,
+                        ciscoCidsHealthObjectGroup,
+                        ciscoCidsNotificationsGroup
+                    }
+
+    GROUP           ciscoCidsOptionalObjectGroupRev1
+    DESCRIPTION
+        "Since notifications with a large number of
+        bound objects can be rather large, the agent 
+        can provide two different notification 
+        generation modes.  One without optional objects
+        in the ciscoCidsOptionalObjectGroup to try and 
+        keep the notification size below 484 bytes and
+        one with no size limits that will send all 
+        available optional objects in the 
+        ciscoCidsOptionalObjectGroup as well as those 
+        explicitly listed in the OBJECTS clause of the 
+        notification definition."
+    ::= { ciscoCidsMIBCompliances 3 }
+
+ciscoCidsMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cids MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCidsGeneralObjectGroupRev1,
+                        ciscoCidsAlertObjectGroupRev1,
+                        ciscoCidsErrorObjectGroup,
+                        ciscoCidsHealthObjectGroup,
+                        ciscoCidsNotificationsGroup
+                    }
+
+    GROUP           ciscoCidsOptionalObjectGroupRev2
+    DESCRIPTION
+        "Since notifications with a large number of
+        bound objects can be rather large, the agent 
+        can provide two different notification 
+        generation modes.  One without optional objects
+        in the ciscoCidsOptionalObjectGroup to try and 
+        keep the notification size below 484 bytes and
+        one with no size limits that will send all 
+        available optional objects in the 
+        ciscoCidsOptionalObjectGroup as well as those 
+        explicitly listed in the OBJECTS clause of the 
+        notification definition."
+
+    GROUP           ciscoCidsOptionalObjectGroupRev1
+    DESCRIPTION
+        "Since notifications with a large number of
+        bound objects can be rather large, the agent 
+        can provide two different notification 
+        generation modes.  One without optional objects
+        in the ciscoCidsOptionalObjectGroup to try and 
+        keep the notification size below 484 bytes and
+        one with no size limits that will send all 
+        available optional objects in the 
+        ciscoCidsOptionalObjectGroup as well as those 
+        explicitly listed in the OBJECTS clause of the 
+        notification definition."
+    ::= { ciscoCidsMIBCompliances 4 }
+
+ciscoCidsMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cids MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCidsErrorObjectGroup,
+                        ciscoCidsGeneralObjectGroupRev1,
+                        ciscoCidsAlertObjectGroupRev2,
+                        ciscoCidsHealthObjectGroupRev1,
+                        ciscoCidsNotificationsGroupRev1,
+                        ciscoCidsHealthObjectGroup,
+                        ciscoCidsNotificationsGroup,
+                        ciscoCidsAlertObjectGroupRev1
+                    }
+
+    GROUP           ciscoCidsOptionalObjectGroupRev3
+    DESCRIPTION
+        "A collection of optional objects which provide sensor events
+        and alerts information."
+
+    GROUP           ciscoCidsOptionalObjectGroupRev2
+    DESCRIPTION
+        "A collection of optional objects which provide sensor events
+        and alerts information."
+
+    GROUP           ciscoCidsOptionalObjectGroupRev1
+    DESCRIPTION
+        "A collection of optional objects which provide sensor alert
+        information."
+    ::= { ciscoCidsMIBCompliances 5 }
+
+-- Units of Conformance
+
+ciscoCidsGeneralObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cidsGeneralEventId,
+                        cidsGeneralLocalTime,
+                        cidsGeneralUTCTime,
+                        cidsGeneralOriginatorHostId,
+                        cidsGeneralOriginatorAppName,
+                        cidsGeneralOriginatorAppId,
+                        cidsNotificationsEnabled
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "General Objects."
+    ::= { ciscoCidsMIBGroups 1 }
+
+ciscoCidsAlertObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cidsAlertSeverity,
+                        cidsAlertAlarmTraits,
+                        cidsAlertSignature,
+                        cidsAlertSignatureSigName,
+                        cidsAlertSignatureSigId,
+                        cidsAlertSignatureSubSigId,
+                        cidsAlertSignatureVersion,
+                        cidsAlertSummary,
+                        cidsAlertSummaryType,
+                        cidsAlertSummaryFinal,
+                        cidsAlertSummaryInitialAlert,
+                        cidsAlertInterfaceGroup,
+                        cidsAlertVlan,
+                        cidsAlertVictimContext,
+                        cidsAlertAttackerContext,
+                        cidsAlertVictimAddress,
+                        cidsAlertAttackerAddress,
+                        cidsAlertIpLoggingActivated,
+                        cidsAlertTcpResetSent,
+                        cidsAlertShunRequested,
+                        cidsAlertDetails,
+                        cidsAlertIpLogId,
+                        cidsThreatResponseStatus,
+                        cidsThreatResponseSeverity,
+                        cidsAlertEventRiskRating
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "Alert Objects."
+    ::= { ciscoCidsMIBGroups 2 }
+
+ciscoCidsErrorObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cidsErrorSeverity,
+                        cidsErrorName,
+                        cidsErrorMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Error Objects."
+    ::= { ciscoCidsMIBGroups 3 }
+
+ciscoCidsNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoCidsAlert,
+                        ciscoCidsError
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The notifications which are required."
+    ::= { ciscoCidsMIBGroups 4 }
+
+ciscoCidsHealthObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cidsHealthPacketLoss,
+                        cidsHealthPacketDenialRate,
+                        cidsHealthAlarmsGenerated,
+                        cidsHealthFragmentsInFRU,
+                        cidsHealthDatagramsInFRU,
+                        cidsHealthTcpEmbryonicStreams,
+                        cidsHealthTCPEstablishedStreams,
+                        cidsHealthTcpClosingStreams,
+                        cidsHealthTcpStreams,
+                        cidsHealthActiveNodes,
+                        cidsHealthTcpDualIpAndPorts,
+                        cidsHealthUdpDualIpAndPorts,
+                        cidsHealthIpDualIp,
+                        cidsHealthIsSensorMemoryCritical,
+                        cidsHealthIsSensorActive,
+                        cidsHealthCommandAndControlPort,
+                        cidsHealthSensorStatsResetTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Health Objects."
+    ::= { ciscoCidsMIBGroups 5 }
+
+ciscoCidsGeneralObjectGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cidsGeneralEventId,
+                        cidsGeneralLocalTime,
+                        cidsGeneralUTCTime,
+                        cidsGeneralOriginatorHostId,
+                        cidsNotificationsEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "General Objects."
+    ::= { ciscoCidsMIBGroups 6 }
+
+ciscoCidsAlertObjectGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cidsAlertSeverity,
+                        cidsAlertAlarmTraits,
+                        cidsAlertSignatureSigName,
+                        cidsAlertSignatureSigId,
+                        cidsAlertSignatureSubSigId,
+                        cidsAlertVictimAddress,
+                        cidsAlertAttackerAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Alert Objects."
+    ::= { ciscoCidsMIBGroups 7 }
+
+ciscoCidsOptionalObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cidsGeneralOriginatorAppName,
+                        cidsGeneralOriginatorAppId,
+                        cidsAlertSignature,
+                        cidsAlertSignatureVersion,
+                        cidsAlertSummary,
+                        cidsAlertSummaryType,
+                        cidsAlertSummaryFinal,
+                        cidsAlertSummaryInitialAlert,
+                        cidsAlertInterfaceGroup,
+                        cidsAlertVlan,
+                        cidsAlertVictimContext,
+                        cidsAlertAttackerContext,
+                        cidsAlertIpLoggingActivated,
+                        cidsAlertTcpResetSent,
+                        cidsAlertShunRequested,
+                        cidsAlertDetails,
+                        cidsAlertIpLogId,
+                        cidsThreatResponseStatus,
+                        cidsThreatResponseSeverity,
+                        cidsAlertEventRiskRating,
+                        cidsAlertIfIndex,
+                        cidsAlertProtocol,
+                        cidsAlertDeniedAttacker,
+                        cidsAlertDeniedFlow,
+                        cidsAlertDenyPacketReqNotPerf,
+                        cidsAlertDenyFlowReqNotPerf,
+                        cidsAlertDenyAttackerReqNotPerf,
+                        cidsAlertBlockConnectionReq,
+                        cidsAlertLogAttackerPacketsAct,
+                        cidsAlertLogVictimPacketsAct,
+                        cidsAlertLogPairPacketsActivated,
+                        cidsAlertRateLimitRequested,
+                        cidsAlertDeniedAttackVictimPair,
+                        cidsAlertDeniedAttackSericePair,
+                        cidsAlertDenyAttackVicReqNotPerf,
+                        cidsAlertDenyAttackSerReqNotPerf
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "Optional Objects."
+    ::= { ciscoCidsMIBGroups 8 }
+
+ciscoCidsOptionalObjectGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cidsGeneralOriginatorAppName,
+                        cidsGeneralOriginatorAppId,
+                        cidsAlertSignature,
+                        cidsAlertSignatureVersion,
+                        cidsAlertSummary,
+                        cidsAlertSummaryType,
+                        cidsAlertSummaryFinal,
+                        cidsAlertSummaryInitialAlert,
+                        cidsAlertInterfaceGroup,
+                        cidsAlertVlan,
+                        cidsAlertVictimContext,
+                        cidsAlertAttackerContext,
+                        cidsAlertIpLoggingActivated,
+                        cidsAlertTcpResetSent,
+                        cidsAlertShunRequested,
+                        cidsAlertDetails,
+                        cidsAlertIpLogId,
+                        cidsThreatResponseStatus,
+                        cidsThreatResponseSeverity,
+                        cidsAlertEventRiskRating,
+                        cidsAlertIfIndex,
+                        cidsAlertProtocol,
+                        cidsAlertDeniedAttacker,
+                        cidsAlertDeniedFlow,
+                        cidsAlertDenyPacketReqNotPerf,
+                        cidsAlertDenyFlowReqNotPerf,
+                        cidsAlertDenyAttackerReqNotPerf,
+                        cidsAlertBlockConnectionReq,
+                        cidsAlertLogAttackerPacketsAct,
+                        cidsAlertLogVictimPacketsAct,
+                        cidsAlertLogPairPacketsActivated,
+                        cidsAlertRateLimitRequested,
+                        cidsAlertDeniedAttackVictimPair,
+                        cidsAlertDeniedAttackSericePair,
+                        cidsAlertDenyAttackVicReqNotPerf,
+                        cidsAlertDenyAttackSerReqNotPerf,
+                        cidsAlertThreatValueRating,
+                        cidsAlertRiskRatingTargetValue,
+                        cidsAlertRiskRatingRelevance,
+                        cidsAlertRiskRatingWatchList
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Optional Objects."
+    ::= { ciscoCidsMIBGroups 9 }
+
+ciscoCidsOptionalObjectGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cidsAlertDenyPacket,
+                        cidsAlertBlockHost,
+                        cidsAlertTcpOneWayResetSent
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of optional objects which provide sensor events
+        and alerts information."
+    ::= { ciscoCidsMIBGroups 10 }
+
+ciscoCidsAlertObjectGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cidsAlertSignature,
+                        cidsAlertSignatureVersion,
+                        cidsAlertSummary,
+                        cidsAlertSummaryType,
+                        cidsAlertSummaryFinal,
+                        cidsAlertSummaryInitialAlert,
+                        cidsAlertVlan,
+                        cidsAlertVictimContext,
+                        cidsAlertAttackerContext,
+                        cidsAlertIpLoggingActivated,
+                        cidsAlertTcpResetSent,
+                        cidsAlertShunRequested,
+                        cidsAlertDetails,
+                        cidsAlertIpLogId,
+                        cidsThreatResponseStatus,
+                        cidsThreatResponseSeverity,
+                        cidsAlertEventRiskRating
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide sensor alert
+        information."
+    ::= { ciscoCidsMIBGroups 11 }
+
+ciscoCidsHealthObjectGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cidsHealthSecMonAvailability,
+                        cidsHealthSecMonOverallHealth,
+                        cidsHealthSecMonSoftwareVersion,
+                        cidsHealthSecMonSignatureVersion,
+                        cidsHealthSecMonLicenseStatus,
+                        cidsHealthSecMonMainAppStatus,
+                        cidsHealthSecMonAnalysisEngineStatus,
+                        cidsHealthSecMonByPassMode,
+                        cidsHealthSecMonMissedPktPctAndThresh,
+                        cidsHealthSecMonAnalysisEngMemPercent,
+                        cidsHealthSecMonSensorLoad,
+                        cidsHealthSecMonVirtSensorStatus,
+                        cidsHealthSecMonCollaborationAppStatus,
+                        cidsHealthSecMonTotalPartitionSpace,
+                        cidsHealthSecMonUtilizedPartitionSpace,
+                        cidsHealthSecMonOverallAppColor,
+                        cidsHealthSecMonSensorLoadColor
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide sensor health status."
+    ::= { ciscoCidsMIBGroups 12 }
+
+ciscoCidsOptionalObjectGroupRev3 OBJECT-GROUP
+    OBJECTS         { cidsAlertVirtualSensor }
+    STATUS          current
+    DESCRIPTION
+        "A collection of optional objects which provide sensor events
+        and alerts information."
+    ::= { ciscoCidsMIBGroups 13 }
+
+ciscoCidsNotificationsGroupRev1 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoCidsHealthHeartBeat,
+                        ciscoCidsHealthMetricChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide sensor health and metric
+        change related trap information."
+    ::= { ciscoCidsMIBGroups 14 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,469 @@
+-- MIB file created 04-Aug-2003 20:37:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ASPP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ASPP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex
+            FROM IF-MIB
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAsppMIB OBJECT IDENTIFIER ::= { ciscoMgmt 55 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200302100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--     San Jose, CA 95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--    E-mail: cs-poll-async@cisco.com
+--  Descr
+--    The ASPP MIB provides the configuration and operational 
+--     information on asynchronous polled protocols such as the
+--     asynchronous security protocols that alarm monitoring 
+--     companies use. The protocols are handled in passthrough 
+--     mode. ASPP will handle the receiving and sending of the 
+--     asychronous blocks. It will not perform any error 
+--     checking. It is the responsibilty of the end-station to
+--     perform any required error recovery. A generic protocol
+--     has been created to support asychronous protocols. In 
+--     some situations this doesn't work for all types since
+--     there is no alarm protocol standard. Specific vendor 
+--     support has been included for the following vendor's 
+--     alarm equipment and protocols:
+--       * adplex
+--       * adt
+--          - PollSelect
+--          - VariPoll
+--       * diebold
+--       * mdi
+--       * mosec (mosler)
+--       * gddb (Guang Dong Development Bank) 
+--          - This protocol is similar to Burroughs Poll/Select
+--    
+--     The following example configuration shows how the 
+--     ASPP MIB returns ASPP information, from either CISCO A 
+--     or  CISCO B.
+--    
+--    Security == ASP == Cisco == IP    == Cisco == ASP == Alarm
+--    control              A      Network    B             Panel
+--    station      
+--     
+--     The following entities are managed:
+--    
+--     1) ASPP ports (serial interfaces)
+--    
+--     The ASPP ports are identified by the interface index, 
+--     and additional information about this interface can be 
+--     obtained from the Cisco Serial Interface MIB.
+--  RevDate
+--    200302100000Z
+--  RevDescr
+--    Added Asynchronous Point of Sale(POS) to IP conversion 
+--     support.
+--    
+--     The APOS protocol utilizes asynchrounous communications
+--     with   1 start, 1 stop and  7 data bits with  even 
+--     parity. The connection to the POS terminal will always
+--     be an asynchronous leased line. The protocol has many 
+--     characteristics of BSC except it is simplified to 
+--     minimize overhead on the point to point connection. 
+--    
+--     The added APOS traffic will be locally acknowledged 
+--     unlike the other polled asynchronous protocol which 
+--     function in passthrough mode.
+--    
+--     The LRC/VRC will be verified and any necessary recovery
+--     will be done by the router.
+--     
+--     This is necessary since we are converting the protocol
+--     so the data can be passed to an IP attached host.
+--  RevDate
+--    9508210000Z
+--  RevDescr
+--    Initial mib for async security polled protocols.
+
+asppObjects     OBJECT IDENTIFIER ::= { ciscoAsppMIB 1 }
+asppPorts       OBJECT IDENTIFIER ::= { asppObjects 1 }
+asppMibConformance OBJECT IDENTIFIER ::= { ciscoAsppMIB 3 }
+asppMibCompliances OBJECT IDENTIFIER ::= { asppMibConformance 1 }
+asppMibGroups   OBJECT IDENTIFIER ::= { asppMibConformance 2 }
+
+asppPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AsppPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of asynchronous interfaces which have been 
+         configured to support an asynchronous security protocol
+         (ASP) BSTUN group."
+    ::= { asppPorts 1 }
+
+asppPortEntry OBJECT-TYPE
+    SYNTAX AsppPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Current ASP configuration settings for an asynchronous
+         port."
+    INDEX { ifIndex }
+    ::= { asppPortTable 1 }
+
+AsppPortEntry ::= SEQUENCE {
+    asppPortProtocol INTEGER,
+    asppPortRole INTEGER,
+    asppPortReceiveInterFrameTimeout INTEGER,
+    asppPortDeviceAddressOffset INTEGER,
+    asppPortEOFCharacter INTEGER,
+    asppPortSOFCharacter INTEGER,
+    asppPortIgnoreSequenceNumber TruthValue,
+    asppPortRspTimer INTEGER,
+    asppPortRxTimer INTEGER,
+    asppPortHostTimer INTEGER,
+    asppPortConnectTimer INTEGER,
+    asppPortRetryCount INTEGER,
+    asppPortDelayEnq INTEGER,
+    asppPortDisableEnq TruthValue,
+    asppPortSendAck TruthValue,
+    asppPortDirect TruthValue,
+    asppPortDCDAlways TruthValue
+    }
+
+asppPortProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        adplex(1),
+        adtPollSelect(2),
+        adtVariPoll(3),
+        diebold(4),
+        asyncGeneric(5),
+        mdi(6),
+        mosec(7),
+        gddb(8),
+        apos(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies type of asynchronous security protocol being
+         used. These protocols are implemented by individual
+         security alarm manufacturers. There is no standard 
+         protocol for alarm communications over RS-232 
+         interfaces.
+         
+         asyncGeneric(5)- provides generic polled asynchronous 
+                          support
+        
+         Specific vendor support has been included for the 
+         following vendor's alarm equipment and protocols:
+             * adplex(1)
+             * ADT
+                 - adtPollSelect(2)
+                 - adtVariPoll(3)
+              * diebold(4)
+              * mdi(6)
+              * mosec(7)
+                 - mosler equipment
+              * gddb(8)
+                 - Guang Dong Development Bank 
+                   The protocol is similar to Burroughs 
+                   Poll/Select.
+        
+          apos(9) - Protocol support for asynchronous POS
+                    devices for provide credit and debit card
+                    authorizations to an IP attached host."
+    ::= { asppPortEntry 1 }
+
+asppPortRole OBJECT-TYPE
+    SYNTAX INTEGER {
+        primary(1),
+        secondary(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the router's protocol role. 
+         primary(1) - Indicates we are attaching to the terminal
+                      or alarm panel. 
+         secondary(2) - Indicates we are attaching to the host 
+                        or alarm console.."
+    ::= { asppPortEntry 2 }
+
+asppPortReceiveInterFrameTimeout OBJECT-TYPE
+    SYNTAX INTEGER(0..1000)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the receive inter-frame-timeout period, used
+         to delimit frames. Since all the protocols are
+         implemented over RS-232 3-wire circuits (ie TX, RX and
+         GND), the only general method for start-end frame 
+         detection is to monitor the time between received 
+         characters. If this time period exceeds the inter-frame
+         timeout value, then frame end-start is detected."
+    ::= { asppPortEntry 3 }
+
+asppPortDeviceAddressOffset OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the byte offset within a frame, which 
+         contains the device address. This is used when the 
+         asynchronous interface is configured to use the async
+         generic protocol handler. Because no knowledge of the 
+         protocol is built-in to the IOS, it must be told where
+         the address field lives within the frame. That way IOS
+         can correctly route the frames for this protocol."
+    REFERENCE
+        "CISCO-BSTUN-MIB"
+    ::= { asppPortEntry 4 }
+
+asppPortEOFCharacter OBJECT-TYPE
+    SYNTAX INTEGER(0..256)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the protocol character to use to delimit
+         the end of a frame. The valid character is 0-255 and 
+         256 indicates the object is not configured."
+    ::= { asppPortEntry 5 }
+
+asppPortSOFCharacter OBJECT-TYPE
+    SYNTAX INTEGER(0..256)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the protocol character to use to delimit
+         the beginning  of a frame. The valid character is 0-255
+         and 256 indicates the object is not configured."
+    ::= { asppPortEntry 6 }
+
+asppPortIgnoreSequenceNumber OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether the asp sequence numbers used to 
+         synchronize aspp traffic between head-end and tail-end
+         routers should be ignored. This is enabled if there
+         isn't a one to one correlation between commands and
+         responses between the two routers."
+    DEFVAL { false }
+    ::= { asppPortEntry 7 }
+
+asppPortRspTimer OBJECT-TYPE
+    SYNTAX INTEGER(1..30)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the amount of time the router will wait for a
+         response to a packet before retransmission."
+    ::= { asppPortEntry 8 }
+
+asppPortRxTimer OBJECT-TYPE
+    SYNTAX INTEGER(10..60)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum amount of time the router will 
+         wait for a complete packet to be received. It starts 
+         when an STX character is received."
+    ::= { asppPortEntry 9 }
+
+asppPortHostTimer OBJECT-TYPE
+    SYNTAX INTEGER(10..120)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum amount of time the router will 
+         wait for a response to a terminal request from the 
+         host. It starts when a terminal request is forwarded 
+         to the host."
+    ::= { asppPortEntry 10 }
+
+asppPortConnectTimer OBJECT-TYPE
+    SYNTAX INTEGER(1..30)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum amount of time the router will
+         wait for the activation of the tunnel connection to the
+         host to complete. It starts when a terminal requests a 
+         session with host."
+    ::= { asppPortEntry 11 }
+
+asppPortRetryCount OBJECT-TYPE
+    SYNTAX INTEGER(1..10)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of timers a packet will be
+         retransmitted before the connection with the terminal 
+         will be disconnected."
+    ::= { asppPortEntry 12 }
+
+asppPortDelayEnq OBJECT-TYPE
+    SYNTAX INTEGER(1..1000)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the amount of time to wait after sending a 
+         connect packet to the the terminal before sending the 
+         ENQ to initiate a session"
+    ::= { asppPortEntry 13 }
+
+asppPortDisableEnq OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether sending of ENQ to initiate a session
+         with the terminal is disabled."
+    DEFVAL { false }
+    ::= { asppPortEntry 14 }
+
+asppPortSendAck OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether the router will send an ACK to 
+         acknowledge packets."
+    DEFVAL { false }
+    ::= { asppPortEntry 15 }
+
+asppPortDirect OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether the line mode is direct or dialed. 
+         If in direct the router will immediately send ENQ 
+         without waiting for AT commands"
+    DEFVAL { false }
+    ::= { asppPortEntry 16 }
+
+asppPortDCDAlways OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether DCD should always be asserted or 
+         asserted only when the connection is active."
+    DEFVAL { false }
+    ::= { asppPortEntry 17 }
+
+asppPortsGroup OBJECT IDENTIFIER ::= { asppMibGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--     interfaces that run asynchronous security protocols.
+--  objects
+--    asppPortProtocol, asppPortRole, 
+--    asppPortReceiveInterFrameTimeout, asppPortDeviceAddressOffset
+
+asppPortsGenericGroup OBJECT IDENTIFIER ::= { asppMibGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    interfaces that run asynchronous generic protocols.
+--  objects
+--    asppPortEOFCharacter, asppPortSOFCharacter, 
+--    asppPortIgnoreSequenceNumber
+
+asppPortsAposGroup OBJECT IDENTIFIER ::= { asppMibGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    interfaces that run asynchronous protocol to communicate
+--     to Point of Sale protocols.
+--  objects
+--    asppPortRspTimer, asppPortRxTimer, asppPortHostTimer, 
+--    asppPortConnectTimer, asppPortRetryCount, asppPortDelayEnq, 
+--    asppPortDisableEnq, asppPortSendAck, asppPortDirect, 
+--    asppPortDCDAlways
+
+asppMibCompliance OBJECT IDENTIFIER ::= { asppMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for ASP.
+--  Module
+--    >>current<<
+--   MandGroup
+--    asppPortsGroup
+
+asppMibComplianceRev1 OBJECT IDENTIFIER ::= { asppMibCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for ASP.
+--  Module
+--    >>current<<
+--   MandGroup
+--    asppPortsGroup
+--   OptGroup
+--    asppPortsGenericGroup
+--   OptGroup
+--    asppPortsAposGroup
+
+
+END
+

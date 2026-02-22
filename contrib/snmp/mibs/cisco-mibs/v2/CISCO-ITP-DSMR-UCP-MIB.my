@@ -1,0 +1,724 @@
+-- *****************************************************************
+-- CISCO-ITP-DSMR-UCP-MIB: Distributed Short Message Routing
+--
+-- Feburary 2005, John Linton, Shekhar Acharya
+--
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+CISCO-ITP-DSMR-UCP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        
+        CmlrName                       
+                FROM CISCO-ITP-MLR-MIB
+                
+        cgspCLLICode,
+        cgspEventSequenceNumber,
+        cgspInstNetwork
+                FROM CISCO-ITP-GSP-MIB
+        
+        ciscoMgmt
+                FROM CISCO-SMI
+             
+        InetAddressType, 
+        InetAddress,
+        InetPortNumber
+             FROM INET-ADDRESS-MIB         
+   
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+                
+        Counter32,  
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        
+        RowStatus,
+        TEXTUAL-CONVENTION,
+        TruthValue
+                FROM SNMPv2-TC;
+               
+ciscoItpDsmrUcpMIB MODULE-IDENTITY
+        LAST-UPDATED    "200505180000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems, Inc
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-ss7@cisco.com"
+                
+        DESCRIPTION                                     
+           "The MIB for providing information about Distributed 
+            Short Message Routing delivery using Universal 
+            Computer Protocol.
+                                                                    
+            Acronyms and Terms:
+            
+            DSMR       Distributed Short Message Routing
+           
+            SMPP       Short Message Peer-to-Peer (protocol)
+            
+            SMD-PP     Short Message Delivery Point to Point.  
+
+            SMS        Short Message Service
+            
+            UCP        Universal Computer Protocol. 
+            
+            WRR        Weighted Round Robin.  A variation of 
+                       the round robin algorithm that uses 
+                       server weights to allow uneven 
+                       distribution of traffic among a set 
+                       of available servers.
+           
+
+            
+            ********************************************"
+        REVISION        "200505180000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 1302 }
+
+
+-- Top-level structure of the MIB
+ciscoItpDsmrUcpMIBNotifs  OBJECT IDENTIFIER ::= 
+                                       { ciscoItpDsmrUcpMIB    0 }
+ciscoItpDsmrUcpMIBObjects OBJECT IDENTIFIER ::= 
+                                       { ciscoItpDsmrUcpMIB    1 }
+ciscoItpDsmrUcpMIBConform OBJECT IDENTIFIER ::= 
+                                       { ciscoItpDsmrUcpMIB    2 }
+
+--  ********************************************************************
+--  *                                                                  *
+--  * Textual Conventions                                              *
+--  *                                                                  *
+--  ********************************************************************
+CdsmrUcpInactivityTimer ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define Inactivity timer used by Short Message 
+            Peer-to-Peer session. The value of zero is reserved to
+            indicate that an object has not been set to value and 
+            that the default value is to be used."
+        SYNTAX Unsigned32 (0 | 1000..9000000)
+                                 
+CdsmrUcpResponseTimer ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define response timer ,in milliseconds,
+            used by Universal Computer Protocol.  The value of 
+            zero is reserved to indicate that an object has not
+            been set to value and that the default value is to 
+            be used."
+        SYNTAX Unsigned32 (0 | 1000..10000)
+
+CdsmrUcpSendWindow ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define send window used by Short Message 
+            Peer-to-Peer session.  The value of zero is reserved to
+            indicate that an object has not been set to value and 
+            that the default value is to be used."
+        SYNTAX Unsigned32 (0 | 1..100)
+
+CdsmrUcpSessionInitTimer ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define session initiation timer used to create
+            Universal Computer Protocol.  The value of zero is 
+            reserved to indicate that an object has not been set 
+            to value and that the default value is to be used."
+        SYNTAX Unsigned32 (0 | 500..120000)
+
+        
+--  *************************************************************
+--  *                                                           *
+--  * Scalars                                                   *
+--  *                                                           *
+--  *************************************************************
+cdsmrUcpScalars OBJECT IDENTIFIER ::= 
+                                  { ciscoItpDsmrUcpMIBObjects 0 }
+
+cdsmrUcpSessionStateNotifEnabled OBJECT-TYPE
+     SYNTAX                      TruthValue
+     MAX-ACCESS                  read-write
+     STATUS                      current
+     DESCRIPTION          
+         "A control to enable or disable 
+          notifications as follows:
+        'true'  Indicates that the ciscoItpDsmrUcpSessionState
+                notification should be generated..  
+                
+        'false' Indicates that ciscoItpDsmrUcpSessionState
+                notification generation is disabled."
+     DEFVAL { false }
+    ::= { cdsmrUcpScalars 1 }
+    
+        
+-- *************************************************************
+-- *                                                           *
+-- * UCP Profile                                               *
+-- *                                                           *
+-- *************************************************************
+cdsmrUcpProfileTable        OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CdsmrUcpProfileTableEntry 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION
+       "A table that is used to monitor specific information 
+        used to configure universal computer protocol profile.
+        Entries are added to this table via cdsmrUcpProfileRowStatus
+        in accordance with the RowStatus convention."
+    ::= { ciscoItpDsmrUcpMIBObjects 5 }
+
+cdsmrUcpProfileTableEntry         OBJECT-TYPE
+    SYNTAX                        CdsmrUcpProfileTableEntry 
+    MAX-ACCESS                    not-accessible
+    STATUS                        current
+    DESCRIPTION
+       "Each entry defines parameter that can be used to default 
+        values for sessions."
+    INDEX   { cgspInstNetwork,
+              cdsmrUcpProfileName
+    }
+    ::= { cdsmrUcpProfileTable  1 }
+
+CdsmrUcpProfileTableEntry ::= SEQUENCE {
+    cdsmrUcpProfileName                CmlrName,
+    cdsmrUcpProfileInactivityTimer     CdsmrUcpInactivityTimer,
+    cdsmrUcpProfileResponseTimer       CdsmrUcpResponseTimer,
+    cdsmrUcpProfileSendWindow          CdsmrUcpSendWindow,
+    cdsmrUcpProfileSessionInitTimer    CdsmrUcpSessionInitTimer,
+    cdsmrUcpProfileRowStatus           RowStatus
+}
+
+cdsmrUcpProfileName              OBJECT-TYPE
+    SYNTAX                       CmlrName
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+       "A name used to define a collection of parameters for 
+        short message peer-to-peer protocol."
+    ::= { cdsmrUcpProfileTableEntry  1}
+    
+cdsmrUcpProfileInactivityTimer   OBJECT-TYPE
+    SYNTAX                       CdsmrUcpInactivityTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object specifies the duration of the 
+        inactivity timer used by Universal Computer Protocol.
+        It indicates the maximum time lapse allowed between 
+        transactions before destination is considered inactive.
+        "
+    ::= { cdsmrUcpProfileTableEntry  2 }
+    
+cdsmrUcpProfileResponseTimer     OBJECT-TYPE
+    SYNTAX                       CdsmrUcpResponseTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object specifies the duration of the response timer
+        used by Universal Computer Protocol. It indicates the 
+        amount of time to wait before retransmitting 
+        packet."
+    ::= { cdsmrUcpProfileTableEntry  3 }
+    
+cdsmrUcpProfileSendWindow        OBJECT-TYPE
+    SYNTAX                       CdsmrUcpSendWindow
+    UNITS                        "bytes"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object specifies the Send Window size to be
+        used by Universal Computer Protocol."
+    ::= { cdsmrUcpProfileTableEntry  7 }
+    
+cdsmrUcpProfileSessionInitTimer  OBJECT-TYPE
+    SYNTAX                       CdsmrUcpSessionInitTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object specifies the duration of the session 
+        initiation timer used to create Short Message
+        Peer-to-Peer session.  It specifies the maximum amount
+        of time to wait for the session Bind to be received."
+    ::= { cdsmrUcpProfileTableEntry  8 }
+    
+cdsmrUcpProfileRowStatus         OBJECT-TYPE
+    SYNTAX                       RowStatus
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "The object is used by a management station to 
+        create or delete the row entry in cdsmrUcpProfileTable
+        following the RowStatus textual convention."
+    ::= { cdsmrUcpProfileTableEntry  9 }
+
+-- *************************************************************
+-- *                                                           *
+-- * UCP Session                                               *
+-- *                                                           *
+-- *************************************************************
+cdsmrUcpSessionTable        OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CdsmrUcpSessionTableEntry 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION
+       "A table that is used to collection information on 
+        universal computer protocol sessions. Entries are 
+        added to this table via cdsmrUcpSessionRowStatus in 
+        accordance with the RowStatus convention."
+    ::= { ciscoItpDsmrUcpMIBObjects 6 }
+
+cdsmrUcpSessionTableEntry         OBJECT-TYPE
+    SYNTAX                        CdsmrUcpSessionTableEntry 
+    MAX-ACCESS                    not-accessible
+    STATUS                        current
+    DESCRIPTION
+       "Each entry defines parameter and state information on   
+        universal computer protocol sessions."
+    INDEX   { cgspInstNetwork,
+              cdsmrUcpSessionLocalPortNumber
+    }
+    ::= { cdsmrUcpSessionTable  1 }
+
+CdsmrUcpSessionTableEntry ::= SEQUENCE {
+    cdsmrUcpSessionLocalPortNumber     InetPortNumber,
+    cdsmrUcpSessionLocalIpAddrType     InetAddressType,
+    cdsmrUcpSessionLocalIpAddress      InetAddress,
+    cdsmrUcpSessionDynamicDest         TruthValue,
+    cdsmrUcpSessionRowStatus           RowStatus
+}
+
+cdsmrUcpSessionLocalPortNumber   OBJECT-TYPE
+    SYNTAX                       InetPortNumber
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+       "Local port number used to establish Ucp Session." 
+    ::= { cdsmrUcpSessionTableEntry  1}
+    
+cdsmrUcpSessionLocalIpAddrType   OBJECT-TYPE
+        SYNTAX                   InetAddressType
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the type of the local
+             IP address used to create an session."
+    ::= { cdsmrUcpSessionTableEntry  2}
+
+cdsmrUcpSessionLocalIpAddress    OBJECT-TYPE
+        SYNTAX                   InetAddress
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the local IP address used to 
+             create the session with the partner of this 
+             session."
+    ::= { cdsmrUcpSessionTableEntry  3}
+
+cdsmrUcpSessionDynamicDest       OBJECT-TYPE
+    SYNTAX                       TruthValue
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Indicates whether dynamic destinations are allowed as 
+        follows.
+            'true'  - dynamic destination are allowed.
+            'false' - dynamic destinations are not allowed."
+    ::= { cdsmrUcpSessionTableEntry  4}
+
+cdsmrUcpSessionRowStatus         OBJECT-TYPE
+    SYNTAX                       RowStatus
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "The object is used by a management station to 
+        create or delete the row entry in cdsmrUcpSessionTable
+        following the RowStatus textual convention."
+    ::= { cdsmrUcpSessionTableEntry  5}
+
+-- *************************************************************
+-- *                                                           *
+-- * UCP Destination                                           *
+-- *                                                           *
+-- *************************************************************
+cdsmrUcpDestTable           OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CdsmrUcpDestTableEntry 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION
+       "A table that is used to define a collection of information 
+        on used to universal computer protocol destinations. 
+        Entries are added to this table via cdsmrUcpDestRowStatus
+        in accordance with the RowStatus convention."
+    ::= { ciscoItpDsmrUcpMIBObjects 7 }
+
+cdsmrUcpDestTableEntry            OBJECT-TYPE
+    SYNTAX                        CdsmrUcpDestTableEntry 
+    MAX-ACCESS                    not-accessible
+    STATUS                        current
+    DESCRIPTION
+       "Each entry defines parameter and state information on   
+        short message peer-to-peer protocol destinations."
+    INDEX   { cgspInstNetwork,
+              cdsmrUcpSessionLocalPortNumber,
+              cdsmrUcpDestName
+    }
+    ::= { cdsmrUcpDestTable  1 }
+
+CdsmrUcpDestTableEntry ::= SEQUENCE {
+    cdsmrUcpDestName                CmlrName,
+    cdsmrUcpDestInactivityTimer     CdsmrUcpInactivityTimer,
+    cdsmrUcpDestResponseTimer       CdsmrUcpResponseTimer,
+    cdsmrUcpDestSendWindow          CdsmrUcpSendWindow,
+    cdsmrUcpDestSessionInitTimer    CdsmrUcpSessionInitTimer,
+    cdsmrUcpDestRemotePortNumber    InetPortNumber,
+    cdsmrUcpDestRemoteIpAddrType    InetAddressType,
+    cdsmrUcpDestRemoteIpAddress     InetAddress,
+    cdsmrUcpDestProfileName         CmlrName,
+    cdsmrUcpDestState               INTEGER,
+    cdsmrUcpDestSentRequests        Counter32,
+    cdsmrUcpDestRcvdRequests        Counter32,
+    cdsmrUcpDestSentResponses       Counter32,
+    cdsmrUcpDestRcvdResponses       Counter32,
+    cdsmrUcpDestRowStatus           RowStatus
+}                                   
+
+cdsmrUcpDestName                 OBJECT-TYPE
+    SYNTAX                       CmlrName
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+       "A name used to uniquely identify a destination using 
+        short message peer-to-peer protocol."
+    ::= { cdsmrUcpDestTableEntry  1}
+    
+cdsmrUcpDestInactivityTimer      OBJECT-TYPE
+    SYNTAX                       CdsmrUcpInactivityTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define 
+        inactivity timer used by Universal Computer Protocol.
+        Indicates the maximum time lapse allowed between 
+        transactions before destination is considered inactive."
+    ::= { cdsmrUcpDestTableEntry  2 }
+    
+cdsmrUcpDestResponseTimer        OBJECT-TYPE
+    SYNTAX                       CdsmrUcpResponseTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object specifies the duration of the response timer
+        used by Universal Computer Protocol. It indicates the 
+        amount of time to wait before retransmitting 
+        packet."
+    ::= { cdsmrUcpDestTableEntry  3 }
+    
+cdsmrUcpDestSendWindow           OBJECT-TYPE
+    SYNTAX                       CdsmrUcpSendWindow
+    UNITS                        "bytes"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object specifies the Send Window size to be
+        used by Universal Computer Protocol."
+    ::= { cdsmrUcpDestTableEntry  4 }
+    
+cdsmrUcpDestSessionInitTimer     OBJECT-TYPE
+    SYNTAX                       CdsmrUcpSessionInitTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object specifies the duration of the session 
+        initiation timer used to create Short Message
+        Peer-to-Peer session.  It specifies the maximum amount
+        of time to wait for the session Bind to be received."
+    ::= { cdsmrUcpDestTableEntry  5 }
+    
+cdsmrUcpDestRemotePortNumber     OBJECT-TYPE
+    SYNTAX                       InetPortNumber
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Remote port number used to establish short message 
+        peer-to-peer protocol session."
+    ::= { cdsmrUcpDestTableEntry  6 }
+    
+cdsmrUcpDestRemoteIpAddrType     OBJECT-TYPE
+        SYNTAX                   InetAddressType
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the type of the remote
+             IP address used to create an session."
+    ::= { cdsmrUcpDestTableEntry  7 }
+
+cdsmrUcpDestRemoteIpAddress      OBJECT-TYPE
+        SYNTAX                   InetAddress
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the remote IP address used to 
+             create the session."
+    ::= { cdsmrUcpDestTableEntry  8 }
+
+cdsmrUcpDestProfileName          OBJECT-TYPE
+    SYNTAX                       CmlrName
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Specifies Profile from cdsmrUcpProfileTable table to 
+        define common default parameters for session."
+    ::= { cdsmrUcpDestTableEntry  9 }
+        
+cdsmrUcpDestState                OBJECT-TYPE
+        SYNTAX                   INTEGER { active(1),
+                                           inactive(2),
+                                           open(3)
+                                 }
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+            "Current state of destination.
+             'active' - Destination is available.
+             'inactive' - Destination is unvailable.
+             'open' - Device is listening on port for 
+             destination to establish connection."
+    ::= { cdsmrUcpDestTableEntry  10 }
+
+cdsmrUcpDestSentRequests         OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "requests"
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS requests sent to destination."
+    ::= { cdsmrUcpDestTableEntry  11 }
+
+cdsmrUcpDestRcvdRequests         OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "requests"
+        MAX-ACCESS               read-only 
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS requests received from destination."
+    ::= { cdsmrUcpDestTableEntry  12 }
+
+cdsmrUcpDestSentResponses        OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "responses"
+        MAX-ACCESS               read-only  
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS responses sent to destination."
+    ::= { cdsmrUcpDestTableEntry  13 }
+
+cdsmrUcpDestRcvdResponses        OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "responses"
+        MAX-ACCESS               read-only  
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS responses received from destination."
+    ::= { cdsmrUcpDestTableEntry  14 }
+    
+cdsmrUcpDestRowStatus            OBJECT-TYPE
+    SYNTAX                       RowStatus
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "The object is used by a management station to 
+        create or delete the row entry in cdsmrUcpDestTable
+        following the RowStatus textual convention."
+    ::= { cdsmrUcpDestTableEntry  15 }
+
+-- *************************************************************
+-- *                                                           *
+-- * Notifications                                             *
+-- *                                                           *
+-- *************************************************************
+ciscoItpDsmrUcpSessionState NOTIFICATION-TYPE
+     OBJECTS {
+              cgspEventSequenceNumber,
+              cgspCLLICode,
+              cdsmrUcpDestState
+     }
+     STATUS  current 
+     DESCRIPTION
+        "This notification is generated whenever SMPP destination
+         changes state. This notification provides information
+         on the availablity of the destination to receive and
+         process packets using the UCP protocol."
+     ::= { ciscoItpDsmrUcpMIBNotifs 1 }
+     
+-- *************************************************************
+-- *                                                           *
+-- * Conformance Information                                   *
+-- *                                                           *
+-- *************************************************************
+ciscoItpDsmrUcpMIBCompliances OBJECT IDENTIFIER 
+                           ::= { ciscoItpDsmrUcpMIBConform 1 }
+ciscoItpDsmrUcpMIBGroups      OBJECT IDENTIFIER 
+                           ::= { ciscoItpDsmrUcpMIBConform 2 }
+
+-- Compliance
+
+ciscoItpDsmrUcpMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+            "The compliance statement for entities which implement
+            the Cisco CISCO-ITP-MLR-MIB"
+    MODULE -- this module
+            MANDATORY-GROUPS { ciscoItpDsmrUcpGroup,
+                               ciscoItpDsmrUcpNotificationsGroup
+            }
+            
+--       *** cdsmrUcpProfileTable *********************************
+
+         OBJECT           cdsmrUcpProfileInactivityTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpProfileResponseTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpProfileSendWindow
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpProfileSessionInitTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpProfileRowStatus
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+
+
+--       *** cdsmrUcpSessionTable *********************************
+
+         OBJECT           cdsmrUcpSessionLocalIpAddrType
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpSessionLocalIpAddress
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpSessionDynamicDest
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpSessionRowStatus
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+
+
+--       *** cdsmrUcpDestTable *********************************
+
+         OBJECT           cdsmrUcpDestInactivityTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestResponseTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestSendWindow
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestSessionInitTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestRemotePortNumber
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestRemoteIpAddrType
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestRemoteIpAddress
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestProfileName
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrUcpDestRowStatus
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+        
+::= { ciscoItpDsmrUcpMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoItpDsmrUcpGroup OBJECT-GROUP       
+    OBJECTS { cdsmrUcpSessionStateNotifEnabled,
+              cdsmrUcpProfileInactivityTimer,    
+              cdsmrUcpProfileResponseTimer,    
+              cdsmrUcpProfileSendWindow,           
+              cdsmrUcpProfileSessionInitTimer,
+              cdsmrUcpProfileRowStatus,
+              cdsmrUcpSessionLocalIpAddrType,
+              cdsmrUcpSessionLocalIpAddress,
+              cdsmrUcpSessionDynamicDest,   
+              cdsmrUcpSessionRowStatus,
+              cdsmrUcpDestInactivityTimer,   
+              cdsmrUcpDestResponseTimer,   
+              cdsmrUcpDestSendWindow,      
+              cdsmrUcpDestSessionInitTimer, 
+              cdsmrUcpDestRemotePortNumber,
+              cdsmrUcpDestRemoteIpAddrType, 
+              cdsmrUcpDestRemoteIpAddress, 
+              cdsmrUcpDestProfileName,
+              cdsmrUcpDestState,           
+              cdsmrUcpDestSentRequests,    
+              cdsmrUcpDestRcvdRequests,    
+              cdsmrUcpDestSentResponses,   
+              cdsmrUcpDestRcvdResponses,
+              cdsmrUcpDestRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+       "A collection of objects providing information used to 
+        configure UCP profile and notifications."
+    ::= { ciscoItpDsmrUcpMIBGroups 1 }
+
+
+ciscoItpDsmrUcpNotificationsGroup NOTIFICATION-GROUP
+        NOTIFICATIONS { ciscoItpDsmrUcpSessionState } 
+        STATUS current
+        DESCRIPTION
+           "DSMR Universal Computer Protocol notification objects."
+        ::= { ciscoItpDsmrUcpMIBGroups 2 }
+END

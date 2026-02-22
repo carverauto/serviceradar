@@ -1,0 +1,278 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-QUERYRESULT-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- QUERYRESULT management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-QUERYRESULT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB;
+
+cucsQueryresultObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        QUERYRESULT management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 75 }
+
+cucsQueryresultDependencyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsQueryresultDependencyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency managed object table"
+    ::= { cucsQueryresultObjects 1 }
+
+cucsQueryresultDependencyEntry OBJECT-TYPE
+    SYNTAX           CucsQueryresultDependencyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsQueryresultDependencyTable table."
+    INDEX { cucsQueryresultDependencyInstanceId }
+    ::= { cucsQueryresultDependencyTable 1 }
+
+CucsQueryresultDependencyEntry ::= SEQUENCE {
+    cucsQueryresultDependencyInstanceId                              CucsManagedObjectId,
+    cucsQueryresultDependencyDn                                      CucsManagedObjectDn,
+    cucsQueryresultDependencyRn                                      SnmpAdminString,
+    cucsQueryresultDependencyClassType                               SnmpAdminString,
+    cucsQueryresultDependencyIsImportable                            TruthValue,
+    cucsQueryresultDependencyPolicyOwner                             SnmpAdminString,
+    cucsQueryresultDependencyRefConvertedDn                          SnmpAdminString,
+    cucsQueryresultDependencyRefDn                                   SnmpAdminString,
+    cucsQueryresultDependencyRefName                                 SnmpAdminString
+}
+
+cucsQueryresultDependencyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsQueryresultDependencyEntry 1 }
+
+cucsQueryresultDependencyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:dn managed object property"
+    ::= { cucsQueryresultDependencyEntry 2 }
+
+cucsQueryresultDependencyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:rn managed object property"
+    ::= { cucsQueryresultDependencyEntry 3 }
+
+cucsQueryresultDependencyClassType OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:classType managed
+        object property"
+    ::= { cucsQueryresultDependencyEntry 4 }
+
+cucsQueryresultDependencyIsImportable OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:isImportable
+        managed object property"
+    ::= { cucsQueryresultDependencyEntry 5 }
+
+cucsQueryresultDependencyPolicyOwner OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:policyOwner managed
+        object property"
+    ::= { cucsQueryresultDependencyEntry 6 }
+
+cucsQueryresultDependencyRefConvertedDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:refConvertedDn
+        managed object property"
+    ::= { cucsQueryresultDependencyEntry 7 }
+
+cucsQueryresultDependencyRefDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:refDn managed object property"
+    ::= { cucsQueryresultDependencyEntry 8 }
+
+cucsQueryresultDependencyRefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Dependency:refName managed object property"
+    ::= { cucsQueryresultDependencyEntry 9 }
+
+cucsQueryresultUsageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsQueryresultUsageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage managed object table"
+    ::= { cucsQueryresultObjects 2 }
+
+cucsQueryresultUsageEntry OBJECT-TYPE
+    SYNTAX           CucsQueryresultUsageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsQueryresultUsageTable table."
+    INDEX { cucsQueryresultUsageInstanceId }
+    ::= { cucsQueryresultUsageTable 1 }
+
+CucsQueryresultUsageEntry ::= SEQUENCE {
+    cucsQueryresultUsageInstanceId                                   CucsManagedObjectId,
+    cucsQueryresultUsageDn                                           CucsManagedObjectDn,
+    cucsQueryresultUsageRn                                           SnmpAdminString,
+    cucsQueryresultUsageClassType                                    SnmpAdminString,
+    cucsQueryresultUsageIsServiceTemplate                            TruthValue,
+    cucsQueryresultUsagePolicyOwner                                  SnmpAdminString,
+    cucsQueryresultUsageRefConvertedDn                               SnmpAdminString,
+    cucsQueryresultUsageRefDn                                        SnmpAdminString,
+    cucsQueryresultUsageRefName                                      SnmpAdminString
+}
+
+cucsQueryresultUsageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsQueryresultUsageEntry 1 }
+
+cucsQueryresultUsageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:dn managed object property"
+    ::= { cucsQueryresultUsageEntry 2 }
+
+cucsQueryresultUsageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:rn managed object property"
+    ::= { cucsQueryresultUsageEntry 3 }
+
+cucsQueryresultUsageClassType OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:classType managed object property"
+    ::= { cucsQueryresultUsageEntry 4 }
+
+cucsQueryresultUsageIsServiceTemplate OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:isServiceTemplate
+        managed object property"
+    ::= { cucsQueryresultUsageEntry 5 }
+
+cucsQueryresultUsagePolicyOwner OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:policyOwner managed object property"
+    ::= { cucsQueryresultUsageEntry 6 }
+
+cucsQueryresultUsageRefConvertedDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:refConvertedDn managed
+        object property"
+    ::= { cucsQueryresultUsageEntry 7 }
+
+cucsQueryresultUsageRefDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:refDn managed object property"
+    ::= { cucsQueryresultUsageEntry 8 }
+
+cucsQueryresultUsageRefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS queryresult:Usage:refName managed object property"
+    ::= { cucsQueryresultUsageEntry 9 }
+
+END

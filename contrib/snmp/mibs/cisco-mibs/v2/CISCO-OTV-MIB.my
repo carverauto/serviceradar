@@ -1,0 +1,1928 @@
+-- *****************************************************************
+-- CISCO-OTV-MIB.my
+--   
+-- August 2012, Dipesh Gorashia
+--   
+-- Copyright (c) 2012-2013 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-OTV-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    MacAddress,
+    StorageType
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetAddressPrefixLength
+        FROM INET-ADDRESS-MIB
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    VlanIndex
+        FROM Q-BRIDGE-MIB
+    Cisco2KVlanList
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoOtvMIB MODULE-IDENTITY
+    LAST-UPDATED    "201308050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module is for configuration & statistic query
+        of Overlay Transport Virtualization (OTV) functionality on Cisco
+        routers and switches.
+
+        Overlay Transport Virtualization is a Cisco's innovative LAN
+        extension technology.  It is an IP-based functionality that
+        provides Layer 2 extension capabilities over any transport
+        infrastructure: Layer 2 based, Layer 3 based, IP switched,
+        label switched, and so on.  OTV provides an overlay that enables
+        Layer 2 connectivity between separate Layer 2 domains while
+        keeping these domains independent and preserving the fault-
+        isolation, resiliency, and load-balancing benefits of an IP-
+        based interconnection.
+
+        OTV introduces the concept of MAC routing, which means a
+        control plane protocol is used to exchange MAC reachability
+        information between network devices providing LAN extension
+        functionality. This is a significant shift from Layer 2
+        switching that traditionally leverages data plane
+        learning, and it is justified by the need to limit flooding of
+        Layer 2 traffic across the transport infrastructure.
+
+        OTV also introduces the concept of dynamic encapsulation for
+        Layer 2 flows that need to be sent to remote locations.
+        Each Ethernet frame is individually encapsulated into an IP
+        packet and delivered across the transport network.
+
+        Finally, OTV provides a native built-in multi-homing capability
+        with automatic detection, critical to increasing high
+        availability of the overall solution. Two or more devices can be
+        leveraged in each data center to provide LAN extension
+        functionality without running the risk of creating an end-to-end
+        loop that would jeopardize the overall stability of the design.
+
+        The followings detail the OTV specific terminology:
+
+        Edge Device
+
+        The edge device performs OTV functions: it receives the Layer
+        2 traffic for all VLANs that need to be extended to remote
+        locations and dynamically encapsulates the Ethernet frames
+        into IP packets that are then sent across the transport
+        infrastructure.
+
+        Internal Interfaces
+
+        To perform OTV functionality, the edge device must receive the
+        Layer 2 traffic for all VLANs that need to be extended to
+        remote locations. The Layer 2 interfaces, where the Layer 2
+        traffic is usually received, are named internal interfaces.
+
+        Join Interface
+
+        The Join interface is used to source the OTV encapsulated
+        traffic and send it to the Layer 3 domain of the data center
+        network.
+
+        Overlay Interface
+
+        The Overlay interface is a logical multi-access and multicast-
+        capable interface that must be explicitly defined by the user
+        and where the entire OTV configuration is applied.
+
+        The following terms are used throughout this MIB:
+
+        AED     Authoritative Edge Device
+
+        ARP     Address Resolution Protocol
+
+        DNS     Domain Name System
+
+        ISIS    Intermediate System to Intermediate System Routing
+                Protocol 
+
+        LSPDB   Link State PDU Database
+
+        OTV     Overlay Transport Virtualization
+
+        VLAN    Virtual Local Area Network
+
+        VPN     Virtual Private Network"
+    REVISION        "201308050000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 810 }
+
+
+ciscoOtvMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIB 0 }
+
+ciscoOtvMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIB 1 }
+
+ciscoOtvMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIB 2 }
+
+cotvGlobalObjects  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIBObjects 1 }
+
+cotvOverlayObjects  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIBObjects 2 }
+
+cotvAdjacencyObjects  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIBObjects 3 }
+
+cotvArpNdObjects  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIBObjects 4 }
+
+cotvRouteObjects  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIBObjects 5 }
+
+cotvSiteObjects  OBJECT IDENTIFIER
+    ::= { cotvGlobalObjects 1 }
+
+cotvGlobalStatsObjects  OBJECT IDENTIFIER
+    ::= { cotvGlobalObjects 2 }
+
+
+cotvSiteIdAdmin OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (4 | 6))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies OTV site identifier for this
+        device.
+
+        The OTV site identifier could be either a
+        four octets value or a six octets valid MAC address.
+
+        If the OTV site identifier is not configured, this object
+        will have four zero octets." 
+    ::= { cotvSiteObjects 1 }
+
+cotvSiteIdOper OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (6))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates OTV site identifier in use
+        for this device.
+
+        There is no operational OTV site identifier if the value of
+        this object contains all zeros." 
+    ::= { cotvSiteObjects 2 }
+
+cotvSiteVlan OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the OTV site VLAN for this device." 
+    ::= { cotvSiteObjects 3 }
+
+cotvSiteVlanState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of OTV site VLAN.
+
+        'up'    - OTV site VLAN is up
+
+        'down'  - OTV site VLAN is down" 
+    ::= { cotvSiteObjects 4 }
+
+cotvOverlayTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvOverlayEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Overlay interfaces configured on this device."
+    ::= { cotvOverlayObjects 1 }
+
+cotvOverlayEntry OBJECT-TYPE
+    SYNTAX          CotvOverlayEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for a
+        particular Overlay interface."
+    INDEX           { cotvOverlayNumber } 
+    ::= { cotvOverlayTable 1 }
+
+CotvOverlayEntry ::= SEQUENCE {
+        cotvOverlayNumber                     Unsigned32,
+        cotvOverlayVpnName                    SnmpAdminString,
+        cotvOverlayVpnState                   INTEGER,
+        cotvOverlayVpnDownReason              INTEGER,
+        cotvOverlayVlansExtendedFirst2k       Cisco2KVlanList,
+        cotvOverlayVlansExtendedSecond2k      Cisco2KVlanList,
+        cotvOverlayControlGroupAddrType       InetAddressType,
+        cotvOverlayControlGroupAddr           InetAddress,
+        cotvOverlayBroadcastGroupAddrType     InetAddressType,
+        cotvOverlayBroadcastGroupAddr         InetAddress,
+        cotvOverlayJoinInterface              InterfaceIndexOrZero,
+        cotvOverlaySourceInterface            InterfaceIndexOrZero,
+        cotvOverlayAedCapable                 TruthValue,
+        cotvOverlayAedIncapableReason         INTEGER,
+        cotvOverlayAdjServerTransportType     INTEGER,
+        cotvOverlayAdjServerEnable            TruthValue,
+        cotvOverlayPrimaryAdjServerAddrType   InetAddressType,
+        cotvOverlayPrimaryAdjServerAddr       InetAddress,
+        cotvOverlaySecondaryAdjServerAddrType InetAddressType,
+        cotvOverlaySecondaryAdjServerAddr     InetAddress,
+        cotvOverlaySuppressArpND              TruthValue,
+        cotvOverlayStorageType                StorageType,
+        cotvOverlayRowStatus                  RowStatus
+}
+
+cotvOverlayNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique number to identify an Overlay interface." 
+    ::= { cotvOverlayEntry 1 }
+
+cotvOverlayVpnName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the Virtual Private Network
+        associated with this Overlay interface." 
+    ::= { cotvOverlayEntry 2 }
+
+cotvOverlayVpnState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(0),
+                        down(1),
+                        up(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of Virtual Private Network
+        which is associated with this Overlay interface.
+
+         'other'      - Any other state not covered by below
+                        enumerations.
+
+         'up'         - The Overlay Virtual Private Network is up
+
+         'down'       - The Overlay Virtual Private Network is down" 
+    ::= { cotvOverlayEntry 3 }
+
+cotvOverlayVpnDownReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(0),
+                        configChange(1),
+                        missingControlGroup(2),
+                        missingDataGroupRange(3),
+                        missingJoinOrSourceInterface(4),
+                        missingVpnName(5),
+                        missingJoinInterfaceAddr(6),
+                        joinInterfaceDown(7),
+                        adminDown(8),
+                        deleteHoldDown(9),
+                        reinit(10),
+                        missingSiteId(11),
+                        siteIdMismatch(12),
+                        missingSourceInterfaceAddr(13),
+                        sourceInterfaceDown(14),
+                        changingSiteId(15),
+                        changingControlGroup(16),
+                        missingDeviceId(17),
+                        changingDeviceId(18),
+                        cleanupInProgress(19)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason why this Overlay Virtual
+        Private Network is down.
+
+        'other'                 - Any other reason not covered by below
+                                  enumerations
+
+        'configChange'          - Configuration changed
+
+        'missingControlGroup'   - Control Group information
+                                  is unavailable
+
+        'missingDataGroupRange' - Data Group range information
+                                  is unavailable
+
+        'misssingJoinOrSourceInterface' - Join or Source interface
+                                          information is unavailable
+
+        'missingVpnName'        - VPN name is unavailable
+
+        'missingJoinInterfaceAddr'   - IP address is missing for
+                                       Join Interface
+
+        'joinInterfaceDown'     - Join Interface is down
+
+        'adminDown'             - Overlay is administratively shutdown
+
+        'deleteHoldDown'        - Overlay is in delete hold down phase
+
+        'reinit'                - VPN is reinitializing
+
+        'missingSiteId'         - Site ID information is unavailable
+
+        'siteIdMismatch'        - Site ID mismatch has occurred
+
+        'missingSourceInterfaceAddr' - IP address is missing for
+                                       Source Interface
+
+        'sourceInterfaceDown'   - Source interface is down
+
+        'changingSiteId'        - Changing site identifier
+
+        'changingControlGroup'  - Changing control group
+
+        'missingDeviceId'       - Device ID information is unavailable
+
+        'changingDeviceId'      - Changing device ID
+
+        'cleanupInProgress'     - Cleanup in progress" 
+    ::= { cotvOverlayEntry 4 }
+
+cotvOverlayVlansExtendedFirst2k OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the list of VLANs extended
+        on this Overlay interface.
+
+        It is a string of octets containing one bit per VLAN
+        with VlanIndex values of 0 through 2047.
+
+        If the bit corresponding to a VLAN is set to 1,
+        it indicates that VLAN is being extended on this
+        Overlay interface.
+
+        If the bit corresponding to a VLAN is set to 0,
+        it indicates that VLAN is not being extended on
+        this Overlay interface."
+    DEFVAL          { "" } 
+    ::= { cotvOverlayEntry 5 }
+
+cotvOverlayVlansExtendedSecond2k OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the list of VLANs extended
+        on this Overlay interface.
+
+        It is a string of octets containing one bit per VLAN
+        with VlanIndex values of 2048 through 4095.
+
+        If the bit corresponding to a VLAN is set to 1,
+        it indicates that VLAN is being extended on this
+        Overlay interface.
+
+        If the bit corresponding to a VLAN is set to 0,
+        it indicates that VLAN is not being extended on
+        this Overlay interface."
+    DEFVAL          { "" } 
+    ::= { cotvOverlayEntry 6 }
+
+cotvOverlayControlGroupAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of Internet address of
+        Control Group."
+    DEFVAL          { unknown } 
+    ::= { cotvOverlayEntry 7 }
+
+cotvOverlayControlGroupAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Internet address of Control Group.
+
+        The type of this address is determined by
+        cotvOverlayControlGroupAddrType."
+    DEFVAL          { "" } 
+    ::= { cotvOverlayEntry 8 }
+
+cotvOverlayBroadcastGroupAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of Internet address to be
+        used as Broadcast Group Address."
+    DEFVAL          { unknown } 
+    ::= { cotvOverlayEntry 9 }
+
+cotvOverlayBroadcastGroupAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Internet address to be used as
+        Broadcast Group Address.
+
+        The type of this address is determined by
+        cotvOverlayBroadcastGroupAddrType."
+    DEFVAL          { "" } 
+    ::= { cotvOverlayEntry 10 }
+
+cotvOverlayJoinInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the OTV Join Interface for this
+        Overlay interface."
+    DEFVAL          { 0 } 
+    ::= { cotvOverlayEntry 11 }
+
+cotvOverlaySourceInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Source Interface for
+        this Overlay interface."
+    DEFVAL          { 0 } 
+    ::= { cotvOverlayEntry 12 }
+
+cotvOverlayAedCapable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates AED (Authoritative Edge Device)
+        capability on this Overlay interface.
+
+        A value of 'true' indicates that the edge device has
+        capability to act as an AED on this Overlay interface.
+
+        A value of 'false' indicates that the edge device
+        does not have the capability to act as an AED on this
+        Overlay interface." 
+    ::= { cotvOverlayEntry 13 }
+
+cotvOverlayAedIncapableReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(0),
+                        overlayDown(1),
+                        siteIdNotConfigured(2),
+                        siteIdMismatch(3),
+                        versionMismatch(4),
+                        siteVlanDown(5),
+                        noExtendedVlanUp(6),
+                        noOverlayAdjacencyUp(7),
+                        lspdbSyncIncomplete(8),
+                        overlayDownInProgress(9),
+                        isisControlGroupSyncPending(10)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason why the overlay is
+        AED-incapable.
+
+        'other' - Any other reason not covered by below enumerations
+
+        'overlayDown' - Overlay is Down
+
+        'siteIdNotConfigured' - Site ID is not configured
+
+        'siteIdMismatch' - Site ID mismatch
+
+        'versionMismatch' - Version mismatch
+
+        'siteVlanDown' - Site VLAN is Down
+
+        'noExtendedVlanUp' - No extended VLAN is operationally up
+
+        'noOverlayAdjacencyUp' - No Overlay Adjacency is up
+
+        'lspdbSyncIncomplete'  - LSPDB sync incomplete
+
+        'overlayDownInProgress' - Overlay state down event in progress
+
+        'isisControlGroupSyncPending'  - ISIS control group sync
+                                         pending" 
+    ::= { cotvOverlayEntry 14 }
+
+cotvOverlayAdjServerTransportType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        multicastAndUnicast(1),
+                        unicastOnly(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The type of transport OTV control plane can use to
+        exchange Adjacency Server information.
+
+        'multicastAndUnicast' - OTV control plane can use both multicast
+                                and unicast to exchange Adjacency Server
+                                information
+
+        'unicastOnly'  - OTV control plane can use only unicast
+                         to exchange Adjacency Server information.
+
+         Value of this object can be set to 'unicastOnly' only if
+         the value of cotvOverlayPrimaryAdjServerAddrType is 'unknown'."
+    DEFVAL          { multicastAndUnicast } 
+    ::= { cotvOverlayEntry 15 }
+
+cotvOverlayAdjServerEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Adjacency Server functionality
+        for this Overlay interface.
+
+        Setting the object to 'true' enables Adjacency Server
+        functionality.
+
+        Setting the object to 'false' disables Adjacency Server
+        functionality."
+    DEFVAL          { false } 
+    ::= { cotvOverlayEntry 16 }
+
+cotvOverlayPrimaryAdjServerAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of Internet address of the
+        Primary Adjacency Server for this Overlay interface."
+    DEFVAL          { unknown } 
+    ::= { cotvOverlayEntry 17 }
+
+cotvOverlayPrimaryAdjServerAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Internet address of the Primary
+        Adjacency Server for this Overlay interface.
+
+        The type of this address is determined by the value of
+        cotvOverlayPrimaryAdjServerAddrType."
+    DEFVAL          { "" } 
+    ::= { cotvOverlayEntry 18 }
+
+cotvOverlaySecondaryAdjServerAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of Internet address of the
+        Secondary Adjacency Server for this Overlay interface."
+    DEFVAL          { unknown } 
+    ::= { cotvOverlayEntry 19 }
+
+cotvOverlaySecondaryAdjServerAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Internet address of the Secondary
+        Adjacency Server for this Overlay interface.
+
+        The type of this address is determined by
+        cotvOverlaySecondaryAdjServerAddrType."
+    DEFVAL          { "" } 
+    ::= { cotvOverlayEntry 20 }
+
+cotvOverlaySuppressArpND OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies ARP Neighbor Discovery behavior
+        on this Overlay interface.
+
+        Setting the object to 'true' enables suppression of
+        ARP Neighbor Discovery on this Overlay interface.
+
+        Setting the object to 'false' disables suppression of
+        ARP Neighbor Discovery on this Overlay interface."
+    DEFVAL          { false } 
+    ::= { cotvOverlayEntry 21 }
+
+cotvOverlayStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { volatile } 
+    ::= { cotvOverlayEntry 22 }
+
+cotvOverlayRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of this conceptual row." 
+    ::= { cotvOverlayEntry 23 }
+ 
+
+
+cotvVlansTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvVlansEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of VLANs extended on Overlay interfaces."
+    ::= { cotvOverlayObjects 2 }
+
+cotvVlansEntry OBJECT-TYPE
+    SYNTAX          CotvVlansEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for a
+        particular VLAN extended on an Overlay interface."
+    INDEX           {
+                        cotvOverlayNumber,
+                        cotvVlanId
+                    } 
+    ::= { cotvVlansTable 1 }
+
+CotvVlansEntry ::= SEQUENCE {
+        cotvVlanId             VlanIndex,
+        cotvVlanState          INTEGER,
+        cotvVlanInactiveReason INTEGER,
+        cotvVlanAedAddrType    InetAddressType,
+        cotvVlanAedAddr        InetAddress,
+        cotvVlanEdgeDevIsAed   TruthValue
+}
+
+cotvVlanId OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the VLAN ID of the extended VLAN." 
+    ::= { cotvVlansEntry 1 }
+
+cotvVlanState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        active(1),
+                        inactive(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of the extended VLAN.
+
+        'active'   - OTV is ready to forward traffic for this VLAN
+
+        'inactive' - OTV can not forward traffic for this VLAN" 
+    ::= { cotvVlansEntry 2 }
+
+cotvVlanInactiveReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        nonAed(2),
+                        vlanDisabled(3),
+                        overlayDown(4),
+                        deleteHoldDown(5),
+                        hwDown(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason the VLAN is
+        in 'inactive' state.
+
+        'other'          - Any other reason not covered by the
+                           below enumerations
+
+        'nonAed'         - Device is not an AED on this VLAN
+
+        'vlanDisabled'   - Vlan is in disabled state
+
+        'overlayDown'    - Overlay is currently down
+
+        'deleteHoldDown' - The VLAN is in delete hold-down state
+
+        'hwDown'         - An issue with hardware is preventing
+                           VLAN from becoming 'active'
+
+        Value of this object should be ignored if the value of
+        cotvVlanInactiveReason is not 'inactive'." 
+    ::= { cotvVlansEntry 3 }
+
+cotvVlanAedAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address of
+        Authoritative Edge Device (AED) on this VLAN." 
+    ::= { cotvVlansEntry 4 }
+
+cotvVlanAedAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Internet address of Authoritative
+        Edge Device (AED) on this VLAN.
+
+        The type of this address is determined by the value of
+        cotvVlanAedAddrType." 
+    ::= { cotvVlansEntry 5 }
+
+cotvVlanEdgeDevIsAed OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates if this device is acting as an AED
+        for the VLAN.
+
+        A value of 'true' indicates that this device is acting
+        as an AED for the VLAN.
+
+        A value of 'false' indicates that this device is not acting
+        as an AED for the VLAN." 
+    ::= { cotvVlansEntry 6 }
+ 
+
+
+cotvDataGroupConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvDataGroupConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of multicast data-group ranges configured for
+        each Overlay interface."
+    ::= { cotvOverlayObjects 3 }
+
+cotvDataGroupConfigEntry OBJECT-TYPE
+    SYNTAX          CotvDataGroupConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for a particular
+        multicast data-group range configured for an Overlay interface."
+    INDEX           {
+                        cotvOverlayNumber,
+                        cotvDataGroupMcastRangeAddrType,
+                        cotvDataGroupMcastRangeAddr,
+                        cotvDataGroupMcastRangePrefixLength
+                    } 
+    ::= { cotvDataGroupConfigTable 1 }
+
+CotvDataGroupConfigEntry ::= SEQUENCE {
+        cotvDataGroupMcastRangeAddrType     InetAddressType,
+        cotvDataGroupMcastRangeAddr         InetAddress,
+        cotvDataGroupMcastRangePrefixLength InetAddressPrefixLength,
+        cotvDataGroupStorageType            StorageType,
+        cotvDataGroupRowStatus              RowStatus
+}
+
+cotvDataGroupMcastRangeAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of multicast data-group range." 
+    ::= { cotvDataGroupConfigEntry 1 }
+
+cotvDataGroupMcastRangeAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of multicast data-group range.
+
+        The type of this address is determined by
+        the value of the cotvDataGroupMcastRangeAddrType object." 
+    ::= { cotvDataGroupConfigEntry 2 }
+
+cotvDataGroupMcastRangePrefixLength OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The length of the prefix associated with
+        cotvDataGroupMcastRangeAddr.
+
+        The type of this address prefix is determined by
+        the value of the cotvDataGroupMcastRangeAddrType object." 
+    ::= { cotvDataGroupConfigEntry 3 }
+
+cotvDataGroupStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { volatile } 
+    ::= { cotvDataGroupConfigEntry 4 }
+
+cotvDataGroupRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of this conceptual row." 
+    ::= { cotvDataGroupConfigEntry 5 }
+ 
+
+
+cotvDataGroupInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvDataGroupInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table listing management information for active
+        multicast sources and multicast groups on each
+        Overlay interface."
+    ::= { cotvOverlayObjects 4 }
+
+cotvDataGroupInfoEntry OBJECT-TYPE
+    SYNTAX          CotvDataGroupInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for an
+        active multicast data-group."
+    INDEX           {
+                        cotvOverlayNumber,
+                        cotvDataGroupActiveSrcLocation,
+                        cotvDataGroupVlanId,
+                        cotvDataGroupActiveGroupAddrType,
+                        cotvDataGroupActiveGroupAddr,
+                        cotvDataGroupActiveSrcAddrType,
+                        cotvDataGroupActiveSrcAddr,
+                        cotvDataGroupDeliveryGroupAddrType,
+                        cotvDataGroupDeliveryGroupAddr,
+                        cotvDataGroupDeliverySrcAddrType,
+                        cotvDataGroupDeliverySrcAddr
+                    } 
+    ::= { cotvDataGroupInfoTable 1 }
+
+CotvDataGroupInfoEntry ::= SEQUENCE {
+        cotvDataGroupActiveSrcLocation     INTEGER,
+        cotvDataGroupVlanId                VlanIndex,
+        cotvDataGroupActiveGroupAddrType   InetAddressType,
+        cotvDataGroupActiveGroupAddr       InetAddress,
+        cotvDataGroupActiveSrcAddrType     InetAddressType,
+        cotvDataGroupActiveSrcAddr         InetAddress,
+        cotvDataGroupDeliveryGroupAddrType InetAddressType,
+        cotvDataGroupDeliveryGroupAddr     InetAddress,
+        cotvDataGroupDeliverySrcAddrType   InetAddressType,
+        cotvDataGroupDeliverySrcAddr       InetAddress,
+        cotvDataGroupJoinInterface         InterfaceIndexOrZero,
+        cotvDataGroupLocalActiveSrcState   INTEGER
+}
+
+cotvDataGroupActiveSrcLocation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        local(1),
+                        remote(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The location of Active Multicast source." 
+    ::= { cotvDataGroupInfoEntry 1 }
+
+cotvDataGroupVlanId OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The VLAN associated with Active Multicast data-group." 
+    ::= { cotvDataGroupInfoEntry 2 }
+
+cotvDataGroupActiveGroupAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of the active multicast group
+        (multicast group of the active multicast source)." 
+    ::= { cotvDataGroupInfoEntry 3 }
+
+cotvDataGroupActiveGroupAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of the active multicast group of the
+        (multicast group of the active multicast source).
+
+        The type of this address is determined by the value of
+        cotvDataGroupActiveGroupAddrType." 
+    ::= { cotvDataGroupInfoEntry 4 }
+
+cotvDataGroupActiveSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of active multicast source." 
+    ::= { cotvDataGroupInfoEntry 5 }
+
+cotvDataGroupActiveSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of active multicast source.
+
+        The type of this address is determined by the value of
+        cotvDataGroupActiveSrcAddrType." 
+    ::= { cotvDataGroupInfoEntry 6 }
+
+cotvDataGroupDeliveryGroupAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of the delivery group that is
+        mapped to active multicast group." 
+    ::= { cotvDataGroupInfoEntry 7 }
+
+cotvDataGroupDeliveryGroupAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of delivery group that is
+        mapped to active multicast group.
+
+        The type of this address is determined by
+        cotvDataGroupDeliveryGroupAddrType." 
+    ::= { cotvDataGroupInfoEntry 8 }
+
+cotvDataGroupDeliverySrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of the delivery source that is
+        mapped to the active multicast source." 
+    ::= { cotvDataGroupInfoEntry 9 }
+
+cotvDataGroupDeliverySrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of the delivery source that is
+        mapped to the active multicast source.
+
+        The type of this address is determined by the value of
+        cotvDataGroupDeliverySrcAddrType." 
+    ::= { cotvDataGroupInfoEntry 10 }
+
+cotvDataGroupJoinInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the OTV Join interface on which
+        active multicast source is located." 
+    ::= { cotvDataGroupInfoEntry 11 }
+
+cotvDataGroupLocalActiveSrcState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        local(2),
+                        remote(3),
+                        orphan(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of the local Active
+        Multicast source.
+
+        'none'   - State of the multicast source is not
+                   applicable
+
+        'local'  - multicast source state is local
+
+        'remote' - multicast source state is remote
+
+        'orphan' - multicast source state is orphan 
+
+        Value of this object should be 'none' if
+        cotvDataGroupActiveSrcLocation is 'remote'." 
+    ::= { cotvDataGroupInfoEntry 12 }
+ 
+
+
+cotvAdjacencyDatabaseTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvAdjacencyDatabaseEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing OTV adjacency database information."
+    ::= { cotvAdjacencyObjects 1 }
+
+cotvAdjacencyDatabaseEntry OBJECT-TYPE
+    SYNTAX          CotvAdjacencyDatabaseEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information about
+        a particular OTV adjacency."
+    INDEX           {
+                        cotvOverlayNumber,
+                        cotvAdjacentDevAddrType,
+                        cotvAdjacentDevAddr
+                    } 
+    ::= { cotvAdjacencyDatabaseTable 1 }
+
+CotvAdjacencyDatabaseEntry ::= SEQUENCE {
+        cotvAdjacentDevAddrType InetAddressType,
+        cotvAdjacentDevAddr     InetAddress,
+        cotvAdjacentDevSystemID OCTET STRING,
+        cotvAdjacentDevName     SnmpAdminString,
+        cotvAdjacentDevState    INTEGER,
+        cotvAdjacentDevUpTime   Unsigned32
+}
+
+cotvAdjacentDevAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of adjacent edge device." 
+    ::= { cotvAdjacencyDatabaseEntry 1 }
+
+cotvAdjacentDevAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of adjacent edge device.
+
+        The type of this address is determined by the value of
+        cotvAdjacentDevAddrType." 
+    ::= { cotvAdjacencyDatabaseEntry 2 }
+
+cotvAdjacentDevSystemID OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0 | 6))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the system identifier of the
+        adjacent edge device.
+
+        The value of this object contains zero length octet, if the
+        system identifier of the adjacent edge devices is not
+        available." 
+    ::= { cotvAdjacencyDatabaseEntry 3 }
+
+cotvAdjacentDevName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the DNS name of the
+        adjacent edge device." 
+    ::= { cotvAdjacencyDatabaseEntry 4 }
+
+cotvAdjacentDevState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(0),
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of adjacent edge device.
+
+        'other'  - Any other state not covered by below enumeration.
+
+        'up'    - The adjacent device is up
+
+        'down'  - The adjacent device is down." 
+    ::= { cotvAdjacencyDatabaseEntry 5 }
+
+cotvAdjacentDevUpTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the amount of time for which
+        the adjacent device has been up." 
+    ::= { cotvAdjacencyDatabaseEntry 6 }
+ 
+
+
+cotvArpNdCacheTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvArpNdCacheEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing ARP Neighbor Discovery cache information."
+    ::= { cotvArpNdObjects 1 }
+
+cotvArpNdCacheEntry OBJECT-TYPE
+    SYNTAX          CotvArpNdCacheEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information about a particular
+        entry in ARP Neighbor Discovery cache."
+    INDEX           {
+                        cotvOverlayNumber,
+                        cotvVlanId,
+                        cotvArpNdCacheL3AddrType,
+                        cotvArpNdCacheL3Addr
+                    } 
+    ::= { cotvArpNdCacheTable 1 }
+
+CotvArpNdCacheEntry ::= SEQUENCE {
+        cotvArpNdCacheL3AddrType   InetAddressType,
+        cotvArpNdCacheL3Addr       InetAddress,
+        cotvArpNdCacheMacAddr      MacAddress,
+        cotvArpNdCacheAge          Unsigned32,
+        cotvArpNdCacheTimeToExpire Unsigned32
+}
+
+cotvArpNdCacheL3AddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address (IPv4/IPv6 address) of host
+        discovered using ARP Neighbor discovery." 
+    ::= { cotvArpNdCacheEntry 1 }
+
+cotvArpNdCacheL3Addr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (0..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address (IPv4/IPv6 address) of the host
+        discovered using ARP Neighbor discovery.
+
+        The type of this address is determined by the value of
+        cotvArpNdCacheL3AddrType." 
+    ::= { cotvArpNdCacheEntry 2 }
+
+cotvArpNdCacheMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MAC address discovered using
+        ARP Neighbor discovery and cached in this table." 
+    ::= { cotvArpNdCacheEntry 3 }
+
+cotvArpNdCacheAge OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the amount of time for which this
+        entry has existed on the system." 
+    ::= { cotvArpNdCacheEntry 4 }
+
+cotvArpNdCacheTimeToExpire OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the amount of time left for this
+        cache entry to be expired." 
+    ::= { cotvArpNdCacheEntry 5 }
+ 
+
+
+cotvRouteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvRouteEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table listing route (unicast) information in OTV
+        Routing Information Base (ORIB)."
+    ::= { cotvRouteObjects 1 }
+
+cotvRouteEntry OBJECT-TYPE
+    SYNTAX          CotvRouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information about a particular
+        route (unicast) in ORIB."
+    INDEX           {
+                        cotvRouteVlanId,
+                        cotvRouteMacAddr
+                    } 
+    ::= { cotvRouteTable 1 }
+
+CotvRouteEntry ::= SEQUENCE {
+        cotvRouteVlanId          VlanIndex,
+        cotvRouteMacAddr         MacAddress,
+        cotvRouteMetric          Unsigned32,
+        cotvRouteUpTime          Unsigned32,
+        cotvRouteOwner           SnmpAdminString,
+        cotvRouteNextHopIf       InterfaceIndexOrZero,
+        cotvRouteNextHopAddrType InetAddressType,
+        cotvRouteNextHopAddr     InetAddress
+}
+
+cotvRouteVlanId OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The object indicates VLAN associated with this route." 
+    ::= { cotvRouteEntry 1 }
+
+cotvRouteMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MAC address to be routed." 
+    ::= { cotvRouteEntry 2 }
+
+cotvRouteMetric OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the metric associated with this route." 
+    ::= { cotvRouteEntry 3 }
+
+cotvRouteUpTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the amount of time elapsed since
+        the MAC route entry was installed in this table." 
+    ::= { cotvRouteEntry 4 }
+
+cotvRouteOwner OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of owner (source) from where
+        the MAC address was learnt." 
+    ::= { cotvRouteEntry 5 }
+
+cotvRouteNextHopIf OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interface on the device through
+        which the MAC address will be routed.
+
+        Value of this object should be ignored if cotvRouteOwner
+        is other than 'site' or 'static'." 
+    ::= { cotvRouteEntry 6 }
+
+cotvRouteNextHopAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address of the
+        edge device through which the MAC address will be routed.
+
+        Value of this object should be ignored if cotvRouteOwner
+        is other than 'overlay'." 
+    ::= { cotvRouteEntry 7 }
+
+cotvRouteNextHopAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Internet address of the edge
+        device through which the MAC address will be routed.
+
+        The type of this address is determined by the value of
+        cotvRouteNextHopAddrType.
+
+        Value of this object should be ignored if cotvRouteOwner
+        is other than 'overlay'." 
+    ::= { cotvRouteEntry 8 }
+ 
+
+
+cotvMcastRouteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvMcastRouteEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table listing multicast route information in OTV
+        Routing Information Base (ORIB)."
+    ::= { cotvRouteObjects 2 }
+
+cotvMcastRouteEntry OBJECT-TYPE
+    SYNTAX          CotvMcastRouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing information about a particular
+        multicast route in ORIB."
+    INDEX           {
+                        cotvMcastRouteVlanId,
+                        cotvMcastRouteActiveSrcAddrType,
+                        cotvMcastRouteActiveSrcAddr,
+                        cotvMcastRouteActiveGroupAddrType,
+                        cotvMcastRouteActiveGroupAddr
+                    } 
+    ::= { cotvMcastRouteTable 1 }
+
+CotvMcastRouteEntry ::= SEQUENCE {
+        cotvMcastRouteVlanId              VlanIndex,
+        cotvMcastRouteActiveSrcAddrType   InetAddressType,
+        cotvMcastRouteActiveSrcAddr       InetAddress,
+        cotvMcastRouteActiveGroupAddrType InetAddressType,
+        cotvMcastRouteActiveGroupAddr     InetAddress,
+        cotvMcastRouteOwners              SnmpAdminString,
+        cotvMcastRouteMetric              Unsigned32,
+        cotvMcastRouteUpTime              Unsigned32
+}
+
+cotvMcastRouteVlanId OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The object indicates VLAN associated with this
+        multicast route." 
+    ::= { cotvMcastRouteEntry 1 }
+
+cotvMcastRouteActiveSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of active multicast source." 
+    ::= { cotvMcastRouteEntry 2 }
+
+cotvMcastRouteActiveSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of active multicast source.
+
+        The type of this address is determined by the value of
+        cotvMcastRouteActiveSrcAddrType." 
+    ::= { cotvMcastRouteEntry 3 }
+
+cotvMcastRouteActiveGroupAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of the active multicast group
+        (multicast group of the active multicast source)." 
+    ::= { cotvMcastRouteEntry 4 }
+
+cotvMcastRouteActiveGroupAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of the active multicast group of the
+        (multicast group of the active multicast source).
+
+        The type of this address is determined by the value of
+        cotvMcastRouteActiveGroupAddrType." 
+    ::= { cotvMcastRouteEntry 5 }
+
+cotvMcastRouteOwners OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of owner(s) (sources) from
+        where this route was learnt." 
+    ::= { cotvMcastRouteEntry 6 }
+
+cotvMcastRouteMetric OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the metric associated with this
+        multicast route." 
+    ::= { cotvMcastRouteEntry 7 }
+
+cotvMcastRouteUpTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the amount of time elapsed since
+        this multicast route was installed in this table." 
+    ::= { cotvMcastRouteEntry 8 }
+ 
+
+
+cotvMcastRouteInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CotvMcastRouteInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table listing next-hop information associated with each
+        multicast route in OTV Routing Information Base (ORIB)."
+    ::= { cotvRouteObjects 3 }
+
+cotvMcastRouteInfoEntry OBJECT-TYPE
+    SYNTAX          CotvMcastRouteInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing next-hop information about a particular
+        multicast route in ORIB."
+    INDEX           {
+                        cotvMcastRouteInfoVlanId,
+                        cotvMcastRouteInfoActiveSrcAddrType,
+                        cotvMcastRouteInfoActiveSrcAddr,
+                        cotvMcastRouteInfoActiveGroupAddrType,
+                        cotvMcastRouteInfoActiveGroupAddr,
+                        cotvMcastRouteInfoIf
+                    } 
+    ::= { cotvMcastRouteInfoTable 1 }
+
+CotvMcastRouteInfoEntry ::= SEQUENCE {
+        cotvMcastRouteInfoVlanId              VlanIndex,
+        cotvMcastRouteInfoActiveSrcAddrType   InetAddressType,
+        cotvMcastRouteInfoActiveSrcAddr       InetAddress,
+        cotvMcastRouteInfoActiveGroupAddrType InetAddressType,
+        cotvMcastRouteInfoActiveGroupAddr     InetAddress,
+        cotvMcastRouteInfoIf                  InterfaceIndexOrZero,
+        cotvMcastRouteInfoHostAddrType        InetAddressType,
+        cotvMcastRouteInfoHostAddr            InetAddress,
+        cotvMcastRouteInfoProtocolOwners      SnmpAdminString,
+        cotvMcastRouteInfoMetric              Unsigned32,
+        cotvMcastRouteInfoUpTime              Unsigned32
+}
+
+cotvMcastRouteInfoVlanId OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The object indicates VLAN associated with this
+        multicast route." 
+    ::= { cotvMcastRouteInfoEntry 1 }
+
+cotvMcastRouteInfoActiveSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of active multicast source." 
+    ::= { cotvMcastRouteInfoEntry 2 }
+
+cotvMcastRouteInfoActiveSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of active multicast source.
+
+        The type of this address is determined by the value of
+        cotvMcastRouteInfoActiveSrcAddrType." 
+    ::= { cotvMcastRouteInfoEntry 3 }
+
+cotvMcastRouteInfoActiveGroupAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of the active multicast group
+        (multicast group of the active multicast source)." 
+    ::= { cotvMcastRouteInfoEntry 4 }
+
+cotvMcastRouteInfoActiveGroupAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of the active multicast group of the
+        (multicast group of the active multicast source).
+
+        The type of this address is determined by the value of
+        cotvMcastRouteInfoActiveGroupAddrType." 
+    ::= { cotvMcastRouteInfoEntry 5 }
+
+cotvMcastRouteInfoIf OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the next-hop interface on the device
+        through which the multicast group will be routed." 
+    ::= { cotvMcastRouteInfoEntry 6 }
+
+cotvMcastRouteInfoHostAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address of the
+        next-hop edge device through which the multicast group will
+        be routed.
+
+        Value of this object will be 'unknown' if no next-hop
+        edge device information is associated with this route." 
+    ::= { cotvMcastRouteInfoEntry 7 }
+
+cotvMcastRouteInfoHostAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Internet address of the next-hop
+        edge device through which the multicast group will be routed.
+
+        The type of this address is determined by the value of
+        cotvMcastRouteInfoHostAddrType.
+
+        Value of this object will be a zero length string if no
+        next-hop edge device information is associated with
+        this route." 
+    ::= { cotvMcastRouteInfoEntry 8 }
+
+cotvMcastRouteInfoProtocolOwners OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the protocols used by multicast
+        route owner to learn this route information." 
+    ::= { cotvMcastRouteInfoEntry 9 }
+
+cotvMcastRouteInfoMetric OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the metric associated with this
+        multicast route." 
+    ::= { cotvMcastRouteInfoEntry 10 }
+
+cotvMcastRouteInfoUpTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the amount of time elapsed since
+        this multicast route entry was installed in this table." 
+    ::= { cotvMcastRouteInfoEntry 11 }
+ 
+
+-- Conformance
+
+ciscoOtvMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIBConform 1 }
+
+ciscoOtvMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoOtvMIBConform 2 }
+
+
+ciscoOtvMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for CISCO-OTV-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoOtvSiteGroup,
+                        ciscoOtvOverlayGroup,
+                        ciscoOtvVlanGroup,
+                        ciscoOtvDataGroupConfigGroup,
+                        ciscoOtvDataGroupInfoGroup,
+                        ciscoOtvAdjacencyGroup,
+                        ciscoOtvArpNdCacheGroup,
+                        ciscoOtvRouteGroup,
+                        ciscoOtvMcastRouteGroup,
+                        ciscoOtvMcastRouteInfoGroup
+                    }
+
+    OBJECT          cotvSiteIdAdmin
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvSiteVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayVlansExtendedFirst2k
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayVlansExtendedSecond2k
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayControlGroupAddrType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayControlGroupAddr
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayBroadcastGroupAddrType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayBroadcastGroupAddr
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayJoinInterface
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlaySourceInterface
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayAdjServerTransportType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayAdjServerEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayPrimaryAdjServerAddrType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayPrimaryAdjServerAddr
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlaySecondaryAdjServerAddrType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlaySecondaryAdjServerAddr
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlaySuppressArpND
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvOverlayRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvDataGroupStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cotvDataGroupRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoOtvMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoOtvSiteGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvSiteIdAdmin,
+                        cotvSiteIdOper,
+                        cotvSiteVlan,
+                        cotvSiteVlanState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing OTV site information."
+    ::= { ciscoOtvMIBGroups 1 }
+
+ciscoOtvOverlayGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvOverlayVpnName,
+                        cotvOverlayVpnState,
+                        cotvOverlayVpnDownReason,
+                        cotvOverlayVlansExtendedFirst2k,
+                        cotvOverlayVlansExtendedSecond2k,
+                        cotvOverlayControlGroupAddrType,
+                        cotvOverlayControlGroupAddr,
+                        cotvOverlayBroadcastGroupAddrType,
+                        cotvOverlayBroadcastGroupAddr,
+                        cotvOverlayJoinInterface,
+                        cotvOverlaySourceInterface,
+                        cotvOverlayAedCapable,
+                        cotvOverlayAedIncapableReason,
+                        cotvOverlayAdjServerTransportType,
+                        cotvOverlayAdjServerEnable,
+                        cotvOverlayPrimaryAdjServerAddrType,
+                        cotvOverlayPrimaryAdjServerAddr,
+                        cotvOverlaySecondaryAdjServerAddrType,
+                        cotvOverlaySecondaryAdjServerAddr,
+                        cotvOverlaySuppressArpND,
+                        cotvOverlayStorageType,
+                        cotvOverlayRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing OTV overlay information."
+    ::= { ciscoOtvMIBGroups 2 }
+
+ciscoOtvVlanGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvVlanState,
+                        cotvVlanInactiveReason,
+                        cotvVlanAedAddrType,
+                        cotvVlanAedAddr,
+                        cotvVlanEdgeDevIsAed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing OTV extended VLANs."
+    ::= { ciscoOtvMIBGroups 3 }
+
+ciscoOtvDataGroupConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvDataGroupStorageType,
+                        cotvDataGroupRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing overlay multicast
+        data-group configuration information."
+    ::= { ciscoOtvMIBGroups 4 }
+
+ciscoOtvDataGroupInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvDataGroupJoinInterface,
+                        cotvDataGroupLocalActiveSrcState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing active data-group
+        related information."
+    ::= { ciscoOtvMIBGroups 5 }
+
+ciscoOtvAdjacencyGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvAdjacentDevSystemID,
+                        cotvAdjacentDevName,
+                        cotvAdjacentDevState,
+                        cotvAdjacentDevUpTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        OTV Adjacency Database."
+    ::= { ciscoOtvMIBGroups 6 }
+
+ciscoOtvArpNdCacheGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvArpNdCacheMacAddr,
+                        cotvArpNdCacheAge,
+                        cotvArpNdCacheTimeToExpire
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing ARP/ND cache information."
+    ::= { ciscoOtvMIBGroups 7 }
+
+ciscoOtvRouteGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvRouteMetric,
+                        cotvRouteUpTime,
+                        cotvRouteOwner,
+                        cotvRouteNextHopIf,
+                        cotvRouteNextHopAddrType,
+                        cotvRouteNextHopAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        unicast routes in ORIB."
+    ::= { ciscoOtvMIBGroups 8 }
+
+ciscoOtvMcastRouteGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvMcastRouteOwners,
+                        cotvMcastRouteMetric,
+                        cotvMcastRouteUpTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        multicast routes in ORIB."
+    ::= { ciscoOtvMIBGroups 9 }
+
+ciscoOtvMcastRouteInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cotvMcastRouteInfoHostAddrType,
+                        cotvMcastRouteInfoHostAddr,
+                        cotvMcastRouteInfoProtocolOwners,
+                        cotvMcastRouteInfoMetric,
+                        cotvMcastRouteInfoUpTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing interface level information
+        for multicast routes in ORIB."
+    ::= { ciscoOtvMIBGroups 10 }
+
+END
+
+
+

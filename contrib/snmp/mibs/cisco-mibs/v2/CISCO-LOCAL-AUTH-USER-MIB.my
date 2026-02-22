@@ -1,0 +1,613 @@
+-- *****************************************************************
+-- CISCO-LOCAL-AUTH-USER-MIB.my
+--   
+-- June 2012, Prakash Vijayaragavan
+--   
+-- Copyright (c) 2005-2006-2013 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-LOCAL-AUTH-USER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    DateAndTime,
+    RowStatus,
+    StorageType
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB        
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoLocalAuthUserMIB MODULE-IDENTITY
+    LAST-UPDATED    "201311080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETSS
+
+
+            E-mail: cs-aaa@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects describing users
+        authenticated locally by a Network Access Server (NAS).
+
+            +--------+      +--------+        +---------+
+            |        |      |        |        |         |
+            | Client |<---->| Server |<------>| Network |
+            |        |      |  (NAS) |        |         |
+            +--------+      +--------+        +---------+
+
+
+        A client is a telnet or SSH user needing access to the NAS
+        box directly. Network user like PPP or dot1x will request
+        NAS box for authentication to access the network. 
+
+        NAS box authenticates user present in the local user 
+        database.
+
+        GLOSSARY
+
+        Network Access Server ( NAS )    
+        A single point of access to a remote resource and is
+        exclusively used with Authentication, Authorization
+        and Accounting. 
+
+        Point-to-Point Protocol (PPP)
+        A data link protocol commonly used in establishing a
+        direct connection between two networking nodes."
+        
+    REVISION        "201311080000Z"
+    DESCRIPTION
+    	"Deprecated clauUserTable and the following 
+    	notifications: clauUserAdded, clauUserDeleted,
+    	clauUserLoggedIn and clauUserLoggedOut;
+    	 
+    	Added the new objects and notifications defined in
+    	the following new mib groups:
+   		 clauMIBUserInfoGroup;
+   		 clauNotifControlGroup;
+   		 clauMIBNotificationGroup2;"    	        
+    REVISION        "201305090000Z"
+    DESCRIPTION
+        "Added clauUserLoggedIn and clauUserLoggedOut notification"
+    REVISION        "201207130000Z"
+    DESCRIPTION
+        "Initial version of MIB"
+    ::= { ciscoMgmt 798 }
+
+
+-- Default Notification Type
+
+ciscoLocalAuthUserMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLocalAuthUserMIB 0 }
+
+-- Local authenticated user MIB object definition
+
+ciscoLocalAuthUserMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLocalAuthUserMIB 1 }
+
+ciscoLocalAuthUserMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLocalAuthUserMIB 2 }
+
+
+-- Notification Configuration
+
+clauNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system generates
+        clauUserAdded1, clauUserDeleted1, clauUserLoggedIn1
+        and clauUserLoggedOut1 notifications."
+    DEFVAL          { false } 
+    ::= { ciscoLocalAuthUserMIBObjects 1 }
+-- Currently only Network- Guest users profiles are updated in the
+-- table.
+
+clauUserTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClauEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table lists the currently configured local users.
+        
+        This table is deprecated and replaced by 
+        clauUserConfigTable."
+    ::= { ciscoLocalAuthUserMIBObjects 2 }
+
+clauUserEntry OBJECT-TYPE
+    SYNTAX          ClauEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An entry describes a local user identified by its index.
+
+        An entry is created or modified when a user is defined with
+        IOS configuration commands via CLI. An entry is removed when 
+        a user is undefined with IOS configuration commands via CLI 
+        or by automatic expiry of users when lifetime of the user is
+        expired."
+    INDEX           { clauUserIndex } 
+    ::= { clauUserTable 1 }
+
+ClauEntry ::= SEQUENCE {
+        clauUserIndex        Unsigned32,
+        clauUserName         SnmpAdminString,
+        clauUserType         INTEGER,
+        clauUserCreationTime DateAndTime,
+        clauUserLifetime     Unsigned32
+}
+
+clauUserIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates an integer-value that uniquely identifies
+        a local user." 
+    ::= { clauUserEntry 1 }
+
+clauUserName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "A textual string containing the name of the locally
+        authenticated user." 
+    ::= { clauUserEntry 2 }
+
+clauUserType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        defaultUser(1),
+                        lobbyUser(2),
+                        managementUser(3),
+                        networkUser(4),
+                        guestUser(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the type of local user:
+
+        defaultUser    - Default user account type.
+        lobbyUser      - Management user with lobby admin privileges,
+                     can create and manage guest user account type.
+        managementUser - Management user account type.   
+        networkUser    - User requires accessing the network.
+        guestUser      - Type of networkUser with lifetime configured
+                         such that they can stay alive for a given time
+                                  period and will expire
+        therafter." 
+    ::= { clauUserEntry 3 }
+
+clauUserCreationTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the time the local user was created." 
+    ::= { clauUserEntry 4 }
+
+clauUserLifetime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the expiry duration of the local user;
+        that is, the duration the local user is valid from the
+        creation time." 
+    ::= { clauUserEntry 5 }
+    
+
+clauUserConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClauConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the currently configured local users."
+    ::= { ciscoLocalAuthUserMIBObjects 3 }
+
+clauUserConfigEntry OBJECT-TYPE
+    SYNTAX          ClauConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the configured local user."
+    INDEX           { clauUserConfigName } 
+    ::= { clauUserConfigTable 1 }
+
+ClauConfigEntry ::= SEQUENCE {        
+        clauUserConfigName            OCTET STRING,
+        clauUserConfigType            INTEGER,
+        clauUserConfigCreationTime    DateAndTime,
+        clauUserConfigLifetime        Unsigned32,
+        clauUserConfigPassword	      SnmpAdminString,
+        clauUserConfigDescription     SnmpAdminString,
+        clauUserConfigStorageType	  StorageType,
+        clauUserConfigRowStatus		  RowStatus
+}
+
+clauUserConfigName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A textual string containing the name of the locally
+        authenticated user." 
+    ::= { clauUserConfigEntry 1 }
+
+clauUserConfigType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        defaultUser(1),
+                        lobbyUser(2),
+                        managementUser(3),
+                        networkUser(4),
+                        guestUser(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of local user:
+
+        defaultUser    - Default user account type.
+        lobbyUser      - Management user with lobby admin privileges,
+                     can create and manage guest user account type.
+        managementUser - Management user account type.   
+        networkUser    - User requires accessing the network.
+        guestUser      - Type of networkUser with lifetime configured
+                         such that they can stay alive for a given time
+                                  period and will expire
+        therafter." 
+    ::= { clauUserConfigEntry 2 }
+
+clauUserConfigCreationTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time the local user was created." 
+    ::= { clauUserConfigEntry 3 }
+
+clauUserConfigLifetime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the expiry duration of the local user;
+        that is, the duration the local user is valid from thes
+        creation time." 
+    ::= { clauUserConfigEntry 4 }
+    
+clauUserConfigPassword OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+		"This object specifies the password of the locally
+		authenticated user.
+		        
+        When read, this object always returns the value of a 
+        non zero-length octet string with asterick value."
+    ::= { clauUserConfigEntry 5 }
+
+	
+clauUserConfigDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+	   "This object specifies the description of the local user."
+    ::= { clauUserConfigEntry 6 }
+
+clauUserConfigStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row in the 
+        clauUserConfigTable."    
+    ::= { clauUserConfigEntry 7 }
+    
+clauUserConfigRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object reflects the status of the row in this table.
+		It can be used for creating, deleting and modifying the 
+		entries in this table." 
+    ::= { clauUserConfigEntry 8 }
+ 
+
+clauMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLocalAuthUserMIBConform 1 }
+
+
+clauUserAdded NOTIFICATION-TYPE
+    OBJECTS         {
+    					clauUserName,
+                        clauUserType,
+                        clauUserLifetime
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification indicates when the system has added a
+        user. 
+        
+        This notification is deprecated and replaced by 
+        clauUserAdded1"
+   ::= { ciscoLocalAuthUserMIBNotifs 1 }
+
+clauUserDeleted NOTIFICATION-TYPE
+    OBJECTS         {   
+    					clauUserName,                     
+                        clauUserType
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification indicates when the system has deleted a
+        user.
+        
+        This notification is deprecated and replaced by 
+        clauUserDeleted1"
+   ::= { ciscoLocalAuthUserMIBNotifs 2 }
+
+clauUserLoggedIn NOTIFICATION-TYPE
+    OBJECTS         {                
+    					clauUserName,     
+                        clauUserType
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification indicates when the user has logged
+        into the system.
+        
+        This notification is deprecated and replaced by 
+        clauUserLoggedIn1"
+   ::= { ciscoLocalAuthUserMIBNotifs 3 }
+
+clauUserLoggedOut NOTIFICATION-TYPE
+    OBJECTS         {
+    					clauUserName,
+                        clauUserType
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification indicates when the user has logged
+        out of the system.
+        
+        This notification is deprecated and replaced by 
+        clauUserLoggedOut1"        
+   ::= { ciscoLocalAuthUserMIBNotifs 4 }
+   
+clauUserAdded1 NOTIFICATION-TYPE
+    OBJECTS         {
+                        clauUserType,
+                        clauUserLifetime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates when the system has added a
+        user."
+   ::= { ciscoLocalAuthUserMIBNotifs 5 }
+
+clauUserDeleted1 NOTIFICATION-TYPE
+    OBJECTS         {                        
+                        clauUserType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates when the system has deleted a
+        user or when user lifetime got expired."
+   ::= { ciscoLocalAuthUserMIBNotifs 6 }
+
+clauUserLoggedIn1 NOTIFICATION-TYPE
+    OBJECTS         {                     
+                        clauUserType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates when the user has logged
+        into the system."
+   ::= { ciscoLocalAuthUserMIBNotifs 7 }
+
+clauUserLoggedOut1 NOTIFICATION-TYPE
+    OBJECTS         {
+                        clauUserType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates when the user has logged
+        out of the system"
+   ::= { ciscoLocalAuthUserMIBNotifs 8 }
+   
+clauMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLocalAuthUserMIBConform 2 }
+
+
+clauMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clauMIBMainObjectGroup,
+                        clauMIBNotificationGroup                        
+                    }
+    ::= { clauMIBCompliances 1 }
+
+clauMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a default module-compliance
+        containing object and notification groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clauMIBMainObjectGroup,                        
+                        clauMIBNotificationGroup,
+                        clauMIBNotificationGroup1
+                    }
+    ::= { clauMIBCompliances 2 }
+
+clauMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing object and notification groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+    					clauNotifControlGroup,
+                        clauUserInfoGroup,
+                        clauMIBNotificationGroup2
+                    }
+    OBJECT           clauNotifEnable
+    MIN-ACCESS       read-only
+    DESCRIPTION     "Write access is not required."
+        
+    OBJECT           clauUserConfigPassword
+    MIN-ACCESS       read-only
+    DESCRIPTION     "Write access is not required."
+
+    OBJECT           clauUserConfigLifetime
+    MIN-ACCESS       read-only
+    DESCRIPTION     "Write access is not required."
+
+    OBJECT           clauUserConfigDescription
+    MIN-ACCESS       read-only
+    DESCRIPTION     "Write access is not required."
+
+    OBJECT           clauUserConfigRowStatus
+    MIN-ACCESS       read-only
+    DESCRIPTION     "Write access is not required."
+                        
+    ::= { clauMIBCompliances 3 }
+
+
+-- Units of Conformance
+
+clauMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        clauNotifEnable,
+                        clauUserType,
+                        clauUserCreationTime,
+                        clauUserLifetime,
+                        clauUserName
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a cisco Local Authenticated User MIB Main Object 
+        group."
+    ::= { clauMIBGroups 1 }
+
+
+clauMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {   						
+                        clauUserAdded,
+                        clauUserDeleted
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a cisco Local Authenticated User MIB
+        Notification group."
+    ::= { clauMIBGroups 2 }
+
+clauMIBNotificationGroup1 NOTIFICATION-GROUP
+   NOTIFICATIONS    {   					
+                        clauUserLoggedIn,
+                        clauUserLoggedOut
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of notifications about local user 
+        login and logout"
+    ::= { clauMIBGroups 3 }
+
+clauNotifControlGroup OBJECT-GROUP
+    OBJECTS         {
+    					clauNotifEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing for configuration of 
+   		notification control."
+    ::= { clauMIBGroups 4 }
+
+clauUserInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        clauUserConfigType,
+        				clauUserConfigCreationTime,                        
+                        clauUserConfigLifetime,                       
+                        clauUserConfigPassword,
+                        clauUserConfigDescription,
+                        clauUserConfigStorageType,
+                        clauUserConfigRowStatus                        
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the local user  
+		information."
+    ::= { clauMIBGroups 5 }
+
+clauMIBNotificationGroup2 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+   						clauUserAdded1,
+                        clauUserDeleted1,
+                        clauUserLoggedIn1,
+                        clauUserLoggedOut1
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications about local user addition, 
+   		deletion, login and logout."
+    ::= { clauMIBGroups 6 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

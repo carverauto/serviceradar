@@ -1,0 +1,174 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-DPSEC-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- DPSEC management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-DPSEC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprDpsecForgedTransmit,
+    CfprPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprDpsecObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        DPSEC management information model package"
+    ::= { ciscoFirepowerMIBObjects 18 }
+
+cfprDpsecMacTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDpsecMacEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac managed object table"
+    ::= { cfprDpsecObjects 1 }
+
+cfprDpsecMacEntry OBJECT-TYPE
+    SYNTAX           CfprDpsecMacEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDpsecMacTable table."
+    INDEX { cfprDpsecMacInstanceId }
+    ::= { cfprDpsecMacTable 1 }
+
+CfprDpsecMacEntry ::= SEQUENCE {
+    cfprDpsecMacInstanceId                                           CfprManagedObjectId,
+    cfprDpsecMacDn                                                   CfprManagedObjectDn,
+    cfprDpsecMacRn                                                   SnmpAdminString,
+    cfprDpsecMacDescr                                                SnmpAdminString,
+    cfprDpsecMacForge                                                CfprDpsecForgedTransmit,
+    cfprDpsecMacIntId                                                SnmpAdminString,
+    cfprDpsecMacName                                                 SnmpAdminString,
+    cfprDpsecMacPolicyLevel                                          Gauge32,
+    cfprDpsecMacPolicyOwner                                          CfprPolicyPolicyOwner
+}
+
+cfprDpsecMacInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDpsecMacEntry 1 }
+
+cfprDpsecMacDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:dn managed object property"
+    ::= { cfprDpsecMacEntry 2 }
+
+cfprDpsecMacRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:rn managed object property"
+    ::= { cfprDpsecMacEntry 3 }
+
+cfprDpsecMacDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:descr managed object property"
+    ::= { cfprDpsecMacEntry 4 }
+
+cfprDpsecMacForge OBJECT-TYPE
+    SYNTAX       CfprDpsecForgedTransmit
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:forge managed object property"
+    ::= { cfprDpsecMacEntry 5 }
+
+cfprDpsecMacIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:intId managed object property"
+    ::= { cfprDpsecMacEntry 6 }
+
+cfprDpsecMacName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:name managed object property"
+    ::= { cfprDpsecMacEntry 7 }
+
+cfprDpsecMacPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:policyLevel managed object property"
+    ::= { cfprDpsecMacEntry 8 }
+
+cfprDpsecMacPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dpsec:Mac:policyOwner managed object property"
+    ::= { cfprDpsecMacEntry 9 }
+
+END

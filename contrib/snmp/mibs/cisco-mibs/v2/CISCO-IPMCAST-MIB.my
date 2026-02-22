@@ -1,0 +1,623 @@
+    -- Draft           Cisco-Specific IP Multicast MIB           July 1994
+
+    CISCO-IPMCAST-MIB DEFINITIONS ::= BEGIN
+
+    IMPORTS
+        enterprises                      FROM RFC1155-SMI
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Integer32, Counter32, IpAddress  FROM SNMPv2-SMI
+        RowStatus, TruthValue            FROM SNMPv2-TC
+        OwnerString                      FROM RFC1271-MIB
+        MODULE-COMPLIANCE, OBJECT-GROUP  FROM SNMPv2-CONF
+        igmpInterfaceEntry               FROM IGMP-MIB;
+
+    ciscoMcastMIB MODULE-IDENTITY
+        LAST-UPDATED "9407301359Z"
+        ORGANIZATION "Cisco System Inc."
+        CONTACT-INFO
+                "    Cisco System Inc."
+        DESCRIPTION
+                "The MIB module for Cisco-specific management of IP
+                Multicast in Cisco devices."
+        ::= { enterprises 9 10 4 }
+
+    -- cisco           OBJECT IDENTIFIER ::= { enterprises 9 }
+    -- ciscoExperiment OBJECT IDENTIFIER ::= { cisco 10 }
+
+
+    ciscoMcastMIBObjects OBJECT IDENTIFIER ::= { ciscoMcastMIB 1 }
+
+    mcastAccess  OBJECT IDENTIFIER ::= { ciscoMcastMIBObjects 1 }
+    mcastTrace   OBJECT IDENTIFIER ::= { ciscoMcastMIBObjects 2 }
+    mcastFilter  OBJECT IDENTIFIER ::= { ciscoMcastMIBObjects 3 }
+
+    --
+    -- The Multicast Access-list Group
+    --
+
+    --
+    -- The PIM Rendezvous-Point Access-list Table
+    --
+    pimRpAccessListTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF PimRpAccessListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The (conceptual) table containing the access-lists of IP
+                Multicast groups configured for specific Rendezvous-
+                Points.  An RP for which there is no entry in this table
+                is configured for all groups."
+        ::= { mcastAccess 1 }
+
+    pimRpAccessListEntry OBJECT-TYPE
+        SYNTAX     PimRpAccessListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry (conceptual row) in the pimRpAccessListTable."
+        INDEX      { pimRpAccessListRP }
+        ::= { pimRpAccessListTable 1 }
+
+    PimRpAccessListEntry ::= SEQUENCE {
+        pimRpAccessListRP         IpAddress,
+        pimRpAccessListNumber     INTEGER,
+        pimRpAccessListStatus     RowStatus
+    }
+
+    pimRpAccessListRP OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The address of the Rendezvous Point for which this entry
+                contains access-list information."
+        ::= { pimRpAccessListEntry 1 }
+
+    pimRpAccessListNumber OBJECT-TYPE
+        SYNTAX     INTEGER (0..100)
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The number of the access-list which specifies the range
+                of group addresses which have this Rendezvous Point.  A
+                value of zero is equivalent to no access-list."
+        ::= { pimRpAccessListEntry 2 }
+
+    pimRpAccessListStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The status of this row."
+        ::= { pimRpAccessListEntry 3 }
+
+
+    -- The IGMP Access-list Table
+    --
+    igmpAccessListTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF IgmpAccessListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The (conceptual) table containing the configured access-
+                lists of IP Multicast groups for which join requests
+                received from hosts (i.e., directly attached group
+                members) via specific interfaces are allowed.  If no
+                access-list is defined for an interface, any group can be
+                joined via that interace."
+        ::= { mcastAccess 2 }
+
+    igmpAccessListEntry OBJECT-TYPE
+        SYNTAX     IgmpAccessListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry (conceptual row) in the igmpAccessListTable."
+        AUGMENTS      { igmpInterfaceEntry }
+        ::= { igmpAccessListTable 1 }
+
+    IgmpAccessListEntry ::= SEQUENCE {
+        igmpAccessListNumber     INTEGER
+    }
+
+    igmpAccessListNumber OBJECT-TYPE
+        SYNTAX     INTEGER (0..100)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The number of the access-list which specifies the IP
+                multicast groups for which joins are allowed on this
+                interface.  A value of zero is equivalent to no access-
+                list."
+        ::= { igmpAccessListEntry 1 }
+
+
+    --
+    --  The Multicast Tracing MIB-Group
+    --
+
+    mcastTraceRequest   OBJECT IDENTIFIER ::= { mcastTrace 1 }
+    mcastTraceResponse  OBJECT IDENTIFIER ::= { mcastTrace 2 }
+
+    --
+    -- The router provides the following a CLI command:
+    --
+    --   mrbranch <group> <branch-address>
+    --     Traces a branch of a multicast tree for group <group> in the
+    --     reverse direction from the router with the <branch-address>
+    --     up the tree to the source of the mrbranch request. Both the
+    --     request and response are unicast addressed. The number of
+    --     packets generated is 2 times the number of routers between
+    --     the source and <branch-address>.
+    --
+    -- The following objects provide for mrbranch to be invoked via SNMP
+    -- (by multiple managers, but only one at a time) using the following
+    -- procedure:
+    --
+    -- 1. wait for mrbranchState == inactive,
+    -- 2. issue a SetRequest with
+    --         mrbranchGroup = group address
+    --         mrbranchBranch = branch address
+    --         mrbranchRequestor = unique id for this request
+    --         mrbranchState = active
+    --         (optionally include mrbranchTimeout and mrbranchRequestor)
+    --   if successful, mrbranch has been started
+    --   else if error-index ==  mrbranchState
+    --        then some other NMS got in first
+    --        else check for other errors
+    -- 3. retrieve results by periodically polling for mrbranchState,
+    -- 4. when mrbranchState == inactive, retrieve all entries in the
+    --    mrbranchResponseTable to obtain the results, ensuring that
+    --    mrbranchRequestor remains unchanged,
+    -- 5. it is advisable to issue mrbranch multiple times to get best
+    --    results
+    --
+
+    mrbranchState OBJECT-TYPE
+        SYNTAX     INTEGER { inactive(1),  active(2) }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The state of the SNMP-invoked mrbranch facility.  Only
+                one such mrbranch may be in progress at a time.  When this
+                object has the value 'inactive', setting it to 'active'
+                causes an mrbranch to be invoked using the values of
+                mrbranchGroup, mrbranchBranch and mrbranchTimeout which
+                were set either concurrently or most recently.  The value
+                stays 'active' until the mrbranch completes/times-out at
+                which time it becomes 'inactive'.  Setting this value to
+                'active' when it is already 'active' it is an error.
+                Setting it to 'inactive' either cancels the active
+                mrbranch or is a no-op."
+        ::= { mcastTraceRequest 1 }
+
+    mrbranchGroup OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The IP multicast group address to be used by the next
+                SNMP-invoked mrbranch command."
+        ::= { mcastTraceRequest 2 }
+
+    mrbranchBranch OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The branch address, i.e., the IP unicast address of the
+                responding router, to be used by the next SNMP-invoked
+                mrbranch command."
+        ::= { mcastTraceRequest 3 }
+
+    mrbranchTimeout OBJECT-TYPE
+        SYNTAX     Integer32
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The maximum number of seconds to be taken by the next
+                SNMP-invoked mrbranch command."
+        ::= { mcastTraceRequest 4 }
+
+    mrbranchRequestor OBJECT-TYPE
+        SYNTAX     OwnerString
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "An indication of the identity of invoker the
+                last/current/next SNMP-invoked mrbranch command."
+        ::= { mcastTraceRequest 5 }
+
+
+
+    --
+    --  The Mrbranch Response Table
+    --
+    mrbranchResponseTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF MrbranchResponseEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The table containing mrbranch responses.  Additional
+                information from mrbranch responses is contained in the
+                mrbranchInterfaceListTable."
+        ::= { mcastTraceResponse 1 }
+
+    mrbranchResponseEntry OBJECT-TYPE
+        SYNTAX     MrbranchResponseEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in the mrbranchResponseTable, representing one
+                mrbranch response."
+        INDEX      { mrbranchResponseResponder }
+        ::= { mrbranchResponseTable 1 }
+
+    MrbranchResponseEntry ::= SEQUENCE {
+        mrbranchResponseResponder  IpAddress,
+        mrbranchResponseRtt        Integer32,
+        mrbranchResponseRPF        IpAddress
+    }
+
+    mrbranchResponseResponder OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the responder to the mrbranch request
+                for which this entry contains information."
+        ::= { mrbranchResponseEntry 1 }
+
+    mrbranchResponseRtt OBJECT-TYPE
+        SYNTAX     Integer32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The time taken for the request to be sent and the
+                response to come back for this responder to the mrbranch
+                request."
+        ::= { mrbranchResponseEntry 2 }
+
+    mrbranchResponseRPF OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the RPF neighbor of the responder to
+                the mrbranch request."
+        ::= { mrbranchResponseEntry 3 }
+
+
+    --
+    --  The Mrbranch Response Interface List Table
+    --
+    mrbranchInterfaceListTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF MrbranchInterfaceListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The table containing information on outgoing interfaces
+                as reported in a response to a mrbranch.  Each entry is
+                one of a list of outgoing interface from a particular
+                responder."
+        ::= { mcastTraceResponse 2 }
+
+    mrbranchInterfaceListEntry OBJECT-TYPE
+        SYNTAX     MrbranchInterfaceListEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in the mrbranchInterfaceListTable containing a
+                particular outgoing interface listed in the response to a
+                mrbranch received from the responder indicated by
+                mrbranchResponseResponder."
+        INDEX      { mrbranchResponseResponder,
+                     mrbranchInterfaceListAddress }
+        ::= { mrbranchInterfaceListTable 1 }
+
+    MrbranchInterfaceListEntry ::= SEQUENCE {
+        mrbranchInterfaceListAddress  IpAddress,
+        mrbranchInterfaceListNetMask  IpAddress
+    }
+
+    mrbranchInterfaceListAddress OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the outgoing interface."
+        ::= { mrbranchInterfaceListEntry 1 }
+
+    mrbranchInterfaceListNetMask OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The network mask of the IP address of the outgoing
+                interface."
+        ::= { mrbranchInterfaceListEntry 2 }
+
+
+    --
+    --  The IGMP Conditional Filtering MIB-Group
+    --
+
+    igmpConditionalFilteringEnable OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "An indication of whether IGMP Conditional Filtering is
+                enabled."
+        ::= {  mcastFilter 1 }
+
+    igmpMemberReportTimeout  OBJECT-TYPE
+        SYNTAX     Integer32
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The number of seconds for which the receipt of the most
+                recent IGMP Membership Report for a particular IP
+                multicast group on a particular interface indicates that
+                there is currently a member of that group on that
+                interface."
+        ::= {  mcastFilter 2 }
+
+
+    --
+    --  The IGMP Conditional Filtering Interface Table
+    --
+    igmpCondFilterIfTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF IgmpCondFilterIfEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The table containing information on interfaces for use
+                with IGMP Conditional Filtering."
+        ::= { mcastFilter 3 }
+
+    igmpCondFilterIfEntry OBJECT-TYPE
+        SYNTAX     IgmpCondFilterIfEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in the igmpCondFilterIfTable containing
+                information on a particular interface."
+        INDEX      { igmpCondFilterIfIndex }
+        ::= { igmpCondFilterIfTable 1 }
+
+    IgmpCondFilterIfEntry ::= SEQUENCE {
+        igmpCondFilterIfIndex      Integer32,
+        igmpCondFilterIfStatus     INTEGER,
+        igmpCondFilterIfRouter     TruthValue
+    }
+
+    igmpCondFilterIfIndex OBJECT-TYPE
+        SYNTAX     Integer32
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The ifIndex value of the interface."
+        ::= { igmpCondFilterIfEntry 1 }
+
+    igmpCondFilterIfStatus OBJECT-TYPE
+        SYNTAX     INTEGER { routerPresent(1),
+                             noRouter(2),
+                             dynamic(3) }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "An indication of whether the presense of an IP multicast
+                router on this interface is to be determined statically or
+                dynamically.  The values routerPresent(1) and noRouter(2)
+                indicate that the presence of a router is statically
+                determined to be present or not-present, respectively.
+                The value dynamic(3) indicates the presence is to be
+                determined dynamically."
+        ::= { igmpCondFilterIfEntry 2 }
+
+    igmpCondFilterIfRouter OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "An indication of whether an IP multicast router is
+                present on this interface."
+        ::= { igmpCondFilterIfEntry 3 }
+
+
+    --
+    --  The IGMP Conditional Filtering Multicast-Group Table
+    --
+    igmpCondFilterMcastTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF IgmpCondFilterMcastEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The table containing information on IP multicast groups
+                for use with IGMP Conditional Filtering."
+        ::= { mcastFilter 4 }
+
+    igmpCondFilterMcastEntry OBJECT-TYPE
+        SYNTAX     IgmpCondFilterMcastEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in the igmpCondFilterMcastTable containing
+                information on a particular IP multicast group on a
+                particular interface.  An entry is created by the agent
+                when it receives on the interface either an IP multicast
+                datagram destined to the multicast group, or an IGMP
+                Membership Report for the group.  An entry can also be
+                created by network management to indicate that datagrams
+                for the multicast group are to be forwarded to the
+                interface irrespective of the receipt/non-receipt of IGMP
+                Membership Reports."
+        INDEX      { igmpCondFilterMcastIfIndex,
+                     igmpCondFilterMcastAddress }
+        ::= { igmpCondFilterMcastTable 1 }
+
+    IgmpCondFilterMcastEntry ::= SEQUENCE {
+        igmpCondFilterMcastIfIndex    Integer32,
+        igmpCondFilterMcastAddress    IpAddress,
+        igmpCondFilterMcastMember     TruthValue,
+        igmpCondFilterMcastInPkts     Counter32,
+        igmpCondFilterMcastOutPkts    Counter32,
+        igmpCondFilterMcastStatus     RowStatus
+    }
+
+    igmpCondFilterMcastIfIndex OBJECT-TYPE
+        SYNTAX     Integer32
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The ifIndex value of the interface."
+        ::= { igmpCondFilterMcastEntry 1 }
+
+    igmpCondFilterMcastAddress OBJECT-TYPE
+        SYNTAX     IpAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The IP multicast group."
+        ::= { igmpCondFilterMcastEntry 2 }
+
+    igmpCondFilterMcastMember OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "An indication of whether there is currently a member of
+                the IP multicast group on this interface."
+        ::= { igmpCondFilterMcastEntry 3 }
+
+    igmpCondFilterMcastInPkts OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of IP multicast datagrams destined for this
+                multicast address which have been received on this
+                interface."
+        ::= { igmpCondFilterMcastEntry 4 }
+
+    igmpCondFilterMcastOutPkts OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of IP multicast datagrams destined for this
+                multicast address which have been forwarded to this
+                interface."
+        ::= { igmpCondFilterMcastEntry 5 }
+
+    igmpCondFilterMcastStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The status of this row.  If a row is created for a IP
+                multicast group on a particular interface with the
+                instance of igmpCondFilterMcastMember set to true(1), then
+                datagrams destined to the multicast group are to be
+                forwarded to the interface independent of whether IGMP
+                Membership Reports are received."
+        ::= { igmpCondFilterMcastEntry 6 }
+
+
+    -- conformance information
+
+    ciscoMcastMIBConformance
+                  OBJECT IDENTIFIER ::= { ciscoMcastMIB 2 }
+    ciscoMcastMIBCompliances
+                  OBJECT IDENTIFIER ::= { ciscoMcastMIBConformance 1 }
+    ciscoMcastMIBGroups
+                  OBJECT IDENTIFIER ::= { ciscoMcastMIBConformance 2 }
+
+
+    -- compliance statements
+
+    ciscoMcastMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for routers implementing the
+                Cisco-specific IP Multicast MIB."
+        MODULE  -- this module
+            MANDATORY-GROUPS { ciscoMcastAccessMIBGroup,
+                               ciscoMrbranchMIBGroup
+                             }
+
+            OBJECT      pimRpAccessListNumber
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                   "Write access is not required."
+
+            OBJECT      pimRpAccessListStatus
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                   "Create and write access is not required."
+
+
+            OBJECT      igmpAccessListNumber
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                   "Write access is not required."
+
+        ::= { ciscoMcastMIBCompliances 1 }
+
+    ciscoMcastCondFilterMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for bridges/switches which
+                implement Conditional IGMP Filtering."
+        MODULE  -- this module
+            MANDATORY-GROUPS { ciscoMcastFilterMIBGroup }
+        ::= { ciscoMcastMIBCompliances 2 }
+
+
+    -- units of conformance
+
+    ciscoMcastAccessMIBGroup OBJECT-GROUP
+        OBJECTS { pimRpAccessListNumber, pimRpAccessListStatus,
+                  igmpAccessListNumber
+                }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing management of Access-
+                Lists for IP Multicast in Cisco routers."
+        ::= { ciscoMcastMIBGroups 1 }
+
+    ciscoMrbranchMIBGroup OBJECT-GROUP
+        OBJECTS { mrbranchState, mrbranchGroup, mrbranchBranch,
+                  mrbranchTimeout, mrbranchRequestor,
+                  mrbranchResponseRtt, mrbranchResponseRPF,
+                  mrbranchInterfaceListNetMask
+                }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing for the invocation of
+                mrbranch commands in Cisco routers."
+        ::= { ciscoMcastMIBGroups 2 }
+
+    ciscoMcastFilterMIBGroup OBJECT-GROUP
+        OBJECTS { igmpConditionalFilteringEnable,
+                  igmpMemberReportTimeout,
+                  igmpCondFilterIfStatus,
+                  igmpCondFilterIfRouter,
+                  igmpCondFilterMcastMember,
+                  igmpCondFilterMcastInPkts,
+                  igmpCondFilterMcastOutPkts,
+                  igmpCondFilterMcastStatus
+                }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for management of
+                bridges/switches which implement IGMP Conditional
+                Filtering."
+        ::= { ciscoMcastMIBGroups 3 }
+
+
+END

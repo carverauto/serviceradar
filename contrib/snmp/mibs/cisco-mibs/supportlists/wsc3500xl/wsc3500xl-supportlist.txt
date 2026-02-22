@@ -1,0 +1,59 @@
+MIBs supported by Catalyst 3500XL series
+
+
+These are the MIBs supported by the Catalyst 3500XL series of 
+switches. Depending on the version of the IOS software installed on 
+the switch, different MIBs are supported. The difference is that 
+later releases support additional MIBs .
+
+MIBs supported in IOS release 12.0(5)XP:
+
+     BRIDGE-MIB.my
+     CISCO-2900-MIB.my
+     CISCO-CDP-MIB.my
+     CISCO-CLUSTER-MIB.my
+     CISCO-CONFIG-MAN-MIB.my
+     CISCO-IMAGE-MIB.my
+     CISCO-MEMORY-POOL-MIB.my
+     CISCO-PING-MIB.my
+     CISCO-PRODUCTS-MIB.my
+     CISCO-SMI.my
+     CISCO-STACKMAKER-MIB.my
+     CISCO-STP-EXTENSIONS-MIB.my
+     CISCO-SWITCH-CGMP-MIB.my
+     CISCO-TCP-MIB.my
+     CISCO-TC.my
+     CISCO-VLAN-MEMBERSHIP-MIB.my
+     CISCO-VTP-MIB.my
+     IANAifType-MIB.my
+     IF-MIB (RFC 1573)
+     OLD-CISCO-CHASSIS-MIB.my
+     OLD-CISCO-CPU-MIB.my
+     OLD-CISCO-INTERFACES-MIB.my< /A>
+     OLD-CISCO-IP-MIB.my
+     OLD-CISCO-MEMORY-MIB.my
+     OLD-CISCO-SYSTEM-MIB.my
+     OLD-CISCO-TCP-MIB.my
+     Note: some objects in this doc replaced by CISCO-TCP-MIB.my
+     OLD-CISCO-TS-MIB.my
+     RFC1213-MIB (MIB-II)
+     RFC1398-MIB (ETHERNET-MIB)
+     RMON-MIB (RFC 1757)
+     RS-232-MIB.my
+     SNMPv2-MIB.my
+     SNMPv2-PARTY-MIB
+     SNMPv2-SMI.my
+     SNMPv2-TC.my
+     TCP-MIB.my
+     UDP-MIB.my
+     
+     
+MIBs supported in IOS release 12.0(5)XU
+
+in addition to all those above:
+
+     CISCO-HSRP-MIB.my
+     CISCO-HSRP-EXT-MIB.my  
+
+
+

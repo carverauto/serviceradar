@@ -1,0 +1,1499 @@
+-- *****************************************************************
+-- CISCO-ATM-TRUNK-STAT-MIB 
+-- The MIB contains ATM PVC/CID statistics 
+--
+-- April 2004, Rashmi Purandare, Animesh Patel, George Ogagan 
+-- August 2005 Rashmi Purandare
+--
+-- Copyright (c) 2004, 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-ATM-TRUNK-STAT-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32                  FROM SNMPv2-SMI
+    TruthValue,
+    TimeStamp                  FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    ciscoMgmt                  FROM CISCO-SMI
+    ifIndex                    FROM IF-MIB
+    AtmVcIdentifier,
+    AtmVpIdentifier            FROM ATM-TC-MIB;
+
+ciscoAtmTrunkStatMIB MODULE-IDENTITY
+    LAST-UPDATED    "200508100000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module contains ATM Trunk statistics.
+
+         TERMINOLOGY
+         -----------
+         PVC: Permanent Virtual Circuit
+         OAM: Operation and Management
+         CRC: Cyclic redundancy check
+         AIS: Alarm Indication Signal
+         TDM: Time Division Multiplex
+         FERF: Far End Receive Failure
+         CPS: Common Part Sub-layer
+         PDU: Protocol Data Unit
+         HEC: Header Error Control 
+         DSP: Digital Signal Processing
+         CID: Channel Identifier
+         UUI: User-to-User Information
+         VoIP: Voice over IP
+         CCS: Common Channel Signaling 
+         VoAAL2: Voice over AAL2
+         SDU: Service Data Unit
+         HDLC: High Level Data Link Control
+         SAR: Segmantation and Reassembly
+         
+         External AIS - is an Alarm Indication Signal associated
+         with a maintenance alarm detected on a defective 
+         maintenance span, that is transmitted in the direction 
+         of the defect as a substitute for normal signal. 
+         The purpose is to show the downstream  entities that 
+         a defect has been identified and to prevent other 
+         maintenance alarms consequent to this first defect.
+         External AIS bit stream is represented by an all 1's 
+         signal. 
+         Ref - ITU-T Rec. M.20 sec. 5.4.2 a 
+
+         External RAI - is a Remote Alarm Indication signal 
+         that is transmitted upstream from an entity that has 
+         detected defects persisting long enough to constitute 
+         a received signal failure. Its purpose is to report in 
+         the backward direction that there is an interruption 
+         of service in the forward direction.
+         The forward direction is from the originating end of
+         the alarm to the remote end.
+         The backward direction is from the remote end to the
+         orginating end of the alarm.
+         Ref - ITU-T Rec. G.704 section 2.1.3.1.3 
+               I.366.2 - ANNEX N
+
+         External Connection AIS - is a Alarm Indicating Signal 
+         transmitted in the downstream direction from the AAL 
+         type 2 connecting point that first detects a defect 
+         affecting the AAL type 2 connection; this includes 
+         defects indicated by lower layers.
+         Ref - ITU-T Rec. I.610 sec 6.2.2.1.1.1 
+
+         External Connection RDI -  is a signal transmitted upstream 
+         by an AAl type 2 endpoint that is in an alarm state as the 
+         result of having received an AAL type2 connection AIS or 
+         having detected a defect that affects the AAL type2 
+         connection. 
+
+         All ATM alarm definitions are specified in I.610 
+         (ITU standard).
+        "
+
+    REVISION    "200508100000Z"
+    DESCRIPTION 
+        "Add new objects
+            - catsPvcOamLpbkTimeoutCnts 
+            - catsPvcNewOamLpbkTimeoutDur
+            - catsPvcActiveOamLpbkTimeoutDur
+            - catsPvcOamLpbkTimeoutThreshold"
+
+    REVISION    "200405120000Z"
+    DESCRIPTION
+        "Initial version of the MIB."
+    ::= { ciscoMgmt 407 }
+
+
+ciscoAtmTrunkStatNotifs   OBJECT IDENTIFIER ::=
+                               { ciscoAtmTrunkStatMIB 0 }
+
+ciscoAtmTrunkStatObjects  OBJECT IDENTIFIER ::= 
+                               { ciscoAtmTrunkStatMIB 1 }
+
+catsStatistics                  OBJECT IDENTIFIER ::=
+                               { ciscoAtmTrunkStatObjects 1 }
+
+catsPvcHistoryTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CatsPvcHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table represents a 24 hour history of 
+         statistics per PVC. The statistics are collected 
+         using 15 minute intervals.
+         Entries in this table are populated at the
+         end of the interval.
+        " 
+    ::= { catsStatistics 1 }
+
+catsPvcHistoryEntry  OBJECT-TYPE
+    SYNTAX      CatsPvcHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the table. Each entry represents the PVC
+         statistics for a given 15 minute interval. 
+         The ifIndex refers to the instance in the ifTable 
+         with ifType propAtm(197) or atm(37).
+        "
+    INDEX { ifIndex, 
+            catsPvcVpi,
+            catsPvcVci, 
+            catsPvcIntervalIndex
+          }
+    ::= { catsPvcHistoryTable 1 }
+
+CatsPvcHistoryEntry ::=
+    SEQUENCE {
+               catsPvcVpi                        AtmVpIdentifier,
+               catsPvcVci                        AtmVcIdentifier,
+               catsPvcIntervalIndex              Unsigned32,
+               catsPvcValidFlag                  TruthValue,
+               catsPvcDiscontinuityTime          TimeStamp,
+               catsPvcAtmXmtCells                Counter32,
+               catsPvcAtmRcvCells                Counter32,
+               catsPvcAvgAtmXmtCells             Counter32,
+               catsPvcAvgAtmRcvCells             Counter32,
+               catsPvcPeakAtmXmtCells            Counter32,
+               catsPvcPeakAtmRcvCells            Counter32,
+               catsPvcOamXmtEndLpbkCells         Counter32,
+               catsPvcOamRcvEndLpbkCells         Counter32,
+               catsPvcOamXmtSegLpbkCells         Counter32,
+               catsPvcOamRcvSegLpbkCells         Counter32,
+               catsPvcOamLpbkLostCells           Counter32,
+               catsPvcDiscardedRcvOamCells       Counter32,
+               catsPvcAisSuppressCnts            Counter32,
+               catsPvcXmtAisCnts                 Counter32,
+               catsPvcRcvAisCnts                 Counter32,
+               catsPvcXmtFerfCnts                Counter32,
+               catsPvcRcvFerfCnts                Counter32,
+               catsPvcXmtAisCells                Counter32,
+               catsPvcRcvAisCells                Counter32,
+               catsPvcXmtFerfCells               Counter32,
+               catsPvcRcvFerfCells               Counter32,
+               catsPvcOamLpbkTimeoutCnts         Counter32,
+               catsPvcNewOamLpbkTimeoutDur       Unsigned32,
+               catsPvcActiveOamLpbkTimeoutDur    Unsigned32,
+               catsPvcOamLpbkTimeoutThreshold    Unsigned32
+        }
+
+catsPvcVpi  OBJECT-TYPE
+    SYNTAX          AtmVpIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VPI value for the PVC for which the 
+          statistics are being collected.
+        "
+    ::= { catsPvcHistoryEntry 1 }
+
+catsPvcVci  OBJECT-TYPE
+    SYNTAX          AtmVcIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VCI value for the PVC for which the 
+          statistics are being collected.
+        "
+    ::= { catsPvcHistoryEntry 2 }
+
+catsPvcIntervalIndex  OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..96)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is the history interval number. 
+         The intervals are 15 minutes long and thus for
+         a 24 hour period there will be 96 intervals.
+         The 24 hour interval is aligned to wall clock. 
+         The index of 1 will represent the interval from 
+         00:00 to 00:15. The index of 2 will represent the
+         interval from 00:15 to 00:30 and so on. 
+        " 
+    ::= { catsPvcHistoryEntry 3 }
+
+catsPvcValidFlag   OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is used to indicate if the entry has 
+         valid statistics data. It contains a value of 
+         true(1) if the data is valid and false(2) otherwise.
+         A possible scenario when this flag will be set
+         to false(2) is when there are time changes due to
+         daylight savings time and/ or time zone changes.
+         This flag can also be set to false(2) if the 
+         statistics in this 15 minute interval have 
+         experienced discontinuity.
+        "
+    ::= { catsPvcHistoryEntry 4 }
+
+catsPvcDiscontinuityTime  OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object will represent the timestamp when the 
+         statistics in this 15 minute interval were 
+         discontinued due to a forced clear on the module. 
+         If this has the default value then it indicates 
+         that the statistics in this interval have not 
+         experienced any discontinuity.
+        "
+    DEFVAL { 0 }
+    ::= { catsPvcHistoryEntry 5 }
+
+catsPvcAtmXmtCells OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of cells transmitted by this 
+         PVC towards the ATM network.
+        "
+    ::= { catsPvcHistoryEntry 6 }
+
+catsPvcAtmRcvCells OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of cells received by this PVC 
+         from the ATM network.
+        "
+    ::= { catsPvcHistoryEntry 7 }
+
+catsPvcAvgAtmXmtCells   OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "cells-per-sec"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The average number of cells transmitted towards 
+         the network by this PVC.
+         The average is computed by dividing the total 
+         number of cells transmitted over this 15 minute
+         interval by the interval time (15 minutes).
+        "
+    ::= { catsPvcHistoryEntry 8 }
+
+catsPvcAvgAtmRcvCells  OBJECT-TYPE
+    SYNTAX     Counter32
+    UNITS       "cells-per-sec"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The average number of cells received from 
+         the network by the PVC.
+         The average is computed by dividing the total 
+         number of cells received over this 15 minute 
+         interval by the interval time (15 minutes).
+        " 
+    ::= { catsPvcHistoryEntry 9 }
+
+catsPvcPeakAtmXmtCells  OBJECT-TYPE
+    SYNTAX     Counter32
+    UNITS       "cells-per-sec"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The peak number of cells per second transmitted 
+         towards the network.
+         The transmitted cells per second are monitored 
+         every second and the peak value over this 15
+         minute interval is returned in this object.
+        " 
+    ::= { catsPvcHistoryEntry 10 }
+
+catsPvcPeakAtmRcvCells  OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "cells-per-sec"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The peak number of cells per second received 
+         from the network.
+         The received cells per second are monitored 
+         every second and the peak value over this 
+         15 minute interval is returned in this object.
+        " 
+    ::= { catsPvcHistoryEntry 11 }
+
+catsPvcOamXmtEndLpbkCells  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of OAM end-to-end loopback cells 
+         that were transmitted on this connection during 
+         this 15 minute interval.
+        " 
+    ::= { catsPvcHistoryEntry 12 }
+
+catsPvcOamRcvEndLpbkCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of OAM end-to-end loopback cells 
+         that were received on this connection during 
+         this 15 minute interval.
+        "
+    ::= { catsPvcHistoryEntry 13 }
+
+catsPvcOamXmtSegLpbkCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of OAM Segment loop back cells 
+         that were transmitted on this connection during
+         this 15 minute interval.
+        "
+    ::= { catsPvcHistoryEntry 14 }
+
+catsPvcOamRcvSegLpbkCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of OAM Segment loop back cells 
+         that were received on this connection during
+         this 15 minute interval.
+        "
+    ::= { catsPvcHistoryEntry 15 }
+
+catsPvcOamLpbkLostCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object keeps track of the number of 
+         OAM loopback cells lost.
+        "
+    ::= { catsPvcHistoryEntry 16 }
+
+catsPvcDiscardedRcvOamCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of OAM cells that had CRC errors 
+         and are not counted in any other counters for 
+         received OAM cells.
+        "
+    ::= { catsPvcHistoryEntry 17 }
+
+catsPvcAisSuppressCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of instances that an ATM AIS alarm 
+         was successfully suppressed which prevented the 
+         alarm from propagating to the TDM interfaces. 
+        "
+    ::= { catsPvcHistoryEntry 18 }
+
+catsPvcXmtAisCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of instances that an ATM AIS alarm 
+         was transmitted.
+        "
+    ::= { catsPvcHistoryEntry 19 }
+
+catsPvcRcvAisCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of instances that an ATM AIS alarm
+         was received.
+        "
+    ::= { catsPvcHistoryEntry 20 }
+
+catsPvcXmtFerfCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of instances that an ATM FERF alarm 
+         was transmitted.
+        "
+    ::= { catsPvcHistoryEntry 21 }
+
+catsPvcRcvFerfCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of instances that an ATM FERF alarm 
+         was received.
+        "
+    ::= { catsPvcHistoryEntry 22 }
+
+catsPvcXmtAisCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AIS cells that were transmitted 
+         on this connection during this 15 minute 
+         interval.
+        "
+    ::= { catsPvcHistoryEntry 23 }
+
+catsPvcRcvAisCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AIS cells that were received 
+         on this connection during this 15 minute
+         interval.
+        "
+    ::= { catsPvcHistoryEntry 24 }
+
+catsPvcXmtFerfCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of FERF cells that were transmitted 
+         on this connection during this 15 minute 
+         interval.
+        "
+    ::= { catsPvcHistoryEntry 25 }
+
+catsPvcRcvFerfCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of FERF cells that were received 
+         on this connection during this 15 minute 
+         interval.
+        "
+    ::= { catsPvcHistoryEntry 26 }
+
+catsPvcOamLpbkTimeoutCnts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of instances that OAM Loopback 
+         Timeout alarm had occurred within this 
+         15 minute interval.
+        "
+    ::= { catsPvcHistoryEntry 27 }
+
+catsPvcNewOamLpbkTimeoutDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The duration of new OAM Loopback Timeout 
+         alarms for this 15 minute interval expressed 
+         in seconds.
+        "
+    ::= { catsPvcHistoryEntry 28 }
+
+catsPvcActiveOamLpbkTimeoutDur OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total duration of new and past OAM loopback 
+         timeout alarms that were active during this 15 
+         minute interval. 
+         For example, if the an alarm lasted for a total of 
+         50 seconds and crossed interval boundaries. 
+         In the previous 15 minute interval it lasted for 
+         30 seconds and 20 seconds in the current 15 minute 
+         interval. There is a new alarm that lasted for 15 
+         seconds in the current 15 minute interval as well. 
+         Thus, this object will have a value of 20+15 = 35 seconds.
+        "
+    ::= { catsPvcHistoryEntry 29 }
+
+catsPvcOamLpbkTimeoutThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..60)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This is the threshold for OAM Loopback Timeout 
+         alarm expressed in seconds. If the OAM cell is  not
+         received back within the threshold specified in this 
+         object, an OAM loopback timeout alarm is generated.
+        " 
+    DEFVAL { 5 }
+    ::= { catsPvcHistoryEntry 30 }
+
+catsAal2PvcHistoryTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CatsAal2PvcHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table represents a 24 hour history of 
+         statistics per AAL2 PVC. The statistics are collected 
+         using 15 minute intervals.
+         Entries in this table are populated at the
+         end of the interval.
+        " 
+    ::= { catsStatistics 2 }
+
+catsAal2PvcHistoryEntry  OBJECT-TYPE
+    SYNTAX      CatsAal2PvcHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the table. Each entry contains the 
+         statistics for particular AAL2 PVC for the given 15
+         minute interval.
+         The primary index, ifIndex, will be of ifType propAtm(197),
+         atm(37) or aal2(187).
+        "
+    INDEX { ifIndex, 
+            catsAal2PvcVpi,
+            catsAal2PvcVci, 
+            catsAal2PvcIntervalIndex 
+          }
+    ::= { catsAal2PvcHistoryTable 1 }
+
+CatsAal2PvcHistoryEntry ::=
+    SEQUENCE {
+               catsAal2PvcVpi                    AtmVpIdentifier,
+               catsAal2PvcVci                    AtmVcIdentifier,
+               catsAal2PvcIntervalIndex          Unsigned32,
+               catsAal2PvcValidFlag              TruthValue,
+               catsAal2PvcDiscontinuityTime      TimeStamp,
+               catsAal2PvcCpsSentPkts            Counter32,
+               catsAal2PvcCpsRcvdPkts            Counter32,
+               catsAal2PvcHecErrors              Counter32,
+               catsAal2PvcCrcErrors              Counter32,
+               catsAal2PvcInvOsfCells            Counter32,
+               catsAal2PvcInvParCells            Counter32,
+               catsAal2PvcCpsInvCidPkts          Counter32,
+               catsAal2PvcCpsInvUuiPkts          Counter32,
+               catsAal2PvcCpsInvLenPkts          Counter32
+    }
+
+catsAal2PvcVpi  OBJECT-TYPE
+    SYNTAX          AtmVpIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VPI value for the AAL2 PVC for which the 
+          statistics are being collected.
+        "
+    ::= { catsAal2PvcHistoryEntry 1 }
+
+catsAal2PvcVci  OBJECT-TYPE
+    SYNTAX          AtmVcIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VCI value for the AAL2 PVC for which the 
+          statistics are being collected.
+        "
+    ::= { catsAal2PvcHistoryEntry 2 }
+
+catsAal2PvcIntervalIndex  OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..96)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is the history interval number.
+         The intervals are 15 minutes long and thus for
+         a 24 hour period there will be 96 intervals.
+         The 24 hour interval is aligned to wall clock.
+         The index of 1 will represent the interval from
+         00:00 to 00:15. The index of 2 will represent the
+         interval from 00:15 to 00:30 and so on.
+        "
+    ::= { catsAal2PvcHistoryEntry 3 }
+
+catsAal2PvcValidFlag   OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is used to indicate if the entry has 
+         valid statistics data. It contains a value of 
+         true(1) if the data is valid and false(2) otherwise.
+         A possible scenario when this flag will be set
+         to false(2) is when there are time changes due to
+         daylight savings time and/ or time zone changes.
+         This flag can also be set to false(2) if 
+         statistics in this 15 minute interval have 
+         experienced discontinuity.
+        "
+    ::= { catsAal2PvcHistoryEntry 4 }
+
+catsAal2PvcDiscontinuityTime  OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object will represent the timestamp when the 
+         statistics in this 15 minute interval were 
+         discontinued due to a forced clear on the module. 
+         If this has the default value then it indicates that 
+         the statistics in this interval have not experienced 
+         any discontinuity.
+        "
+    DEFVAL { 0 }
+    ::= { catsAal2PvcHistoryEntry 5 }
+
+catsAal2PvcCpsSentPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL2 CPS packets sent to the 
+         network during this 15 minute interval.
+        "
+    ::= { catsAal2PvcHistoryEntry 6 }
+
+catsAal2PvcCpsRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL2 CPS packets received from 
+         the network during this 15 minute interval. 
+         This does not include the packets which are 
+         counted as error packets.
+        "
+    ::= { catsAal2PvcHistoryEntry 7 }
+
+catsAal2PvcHecErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of egress AAL2(ATM Adaptation layer 2) 
+         CPS PDU dropped due to HEC error.
+        "
+    ::= { catsAal2PvcHistoryEntry 8 }
+
+catsAal2PvcCrcErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of egress AAL2 Type3 CPS PDUs dropped 
+         due to invalid CRC-10 error. 
+         CRC validation is for Type 3 packets only. 
+         Type 1 packets are not subjected to CRC-10 error 
+         validation. This does not count the Type 3 packets
+         generated by the DSP.
+        "
+    ::= { catsAal2PvcHistoryEntry 9 }
+
+catsAal2PvcInvOsfCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL2 cells dropped due to invalid 
+         OSF (OffSet Field) in the egress direction.
+        "
+    ::= { catsAal2PvcHistoryEntry 10 }
+
+catsAal2PvcInvParCells OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL2 cells dropped due to invalid
+         parity bit field in the egress direction.
+        "
+    ::= { catsAal2PvcHistoryEntry 11 }
+
+catsAal2PvcCpsInvCidPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL2 CPS packets dropped in the 
+         egress direction due to invalid CID(Channel Identifier). 
+         The CID may be considered as invalid if it is out of 
+         range or not configured.
+        "
+    ::= { catsAal2PvcHistoryEntry 12 }
+
+catsAal2PvcCpsInvUuiPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL2 CPS packets dropped in the 
+         egress direction due to invalid UUI field. 
+        "
+    ::= { catsAal2PvcHistoryEntry 13 }
+
+catsAal2PvcCpsInvLenPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL2 CPS packets dropped in the 
+         egress direction due to invalid length field. 
+        "
+    ::= { catsAal2PvcHistoryEntry 14 }
+
+
+catsAal5PvcHistoryTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CatsAal5PvcHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table represents a 24 hour history of 
+         statistics per AAL5 PVC. The statistics are collected 
+         using 15 minute intervals.
+         Entries in this table are populated at the
+         end of the interval.
+        " 
+    ::= { catsStatistics 3 }
+
+catsAal5PvcHistoryEntry  OBJECT-TYPE
+    SYNTAX      CatsAal5PvcHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the table. Each entry contains the 
+         statistics for a particular AAL5 PVC for the given 
+         15 minute interval.
+         The primary index, ifIndex, will be of ifType propAtm(197), 
+         atm(37) or aal5(49).
+        "
+    INDEX { ifIndex, 
+            catsAal5PvcVpi,
+            catsAal5PvcVci, 
+            catsAal5PvcIntervalIndex 
+          }
+    ::= { catsAal5PvcHistoryTable 1 }
+
+CatsAal5PvcHistoryEntry ::=
+    SEQUENCE {
+               catsAal5PvcVpi                    AtmVpIdentifier,
+               catsAal5PvcVci                    AtmVcIdentifier,
+               catsAal5PvcIntervalIndex          Unsigned32,
+               catsAal5PvcValidFlag              TruthValue,
+               catsAal5PvcDiscontinuityTime      TimeStamp,
+               catsAal5PvcPduSentPkts            Counter32,
+               catsAal5PvcPduRcvdPkts            Counter32,
+               catsAal5PvcInvCpiPdus             Counter32,
+               catsAal5PvcOverSizedSDUs          Counter32,
+               catsAal5PvcInvLenPdus             Counter32,
+               catsAal5PvcCrc32ErrorPdus         Counter32,
+               catsAal5PvcReassemTimerExpiryPdus Counter32
+             }
+
+catsAal5PvcVpi  OBJECT-TYPE
+    SYNTAX          AtmVpIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VPI value for the AAL5 PVC for which the 
+          statistics are being collected.
+        "
+    ::= { catsAal5PvcHistoryEntry 1 }
+
+catsAal5PvcVci  OBJECT-TYPE
+    SYNTAX          AtmVcIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VCI value for the AAL5 PVC for which the 
+          statistics are being collected.
+        "
+    ::= { catsAal5PvcHistoryEntry 2 }
+
+catsAal5PvcIntervalIndex  OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..96)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is the history interval number.
+         The intervals are 15 minutes long and thus for
+         a 24 hour period there will be 96 intervals.
+         The 24 hour interval is aligned to wall clock.
+         The index of 1 will represent the interval from
+         00:00 to 00:15. The index of 2 will represent the
+         interval from 00:15 to 00:30 and so on.
+        "
+    ::= { catsAal5PvcHistoryEntry 3 }
+
+catsAal5PvcValidFlag   OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is used to indicate if the entry has 
+         valid statistics data. It contains a value of 
+         true(1) if the data is valid and false(2) otherwise.
+         A possible scenario when this flag will be set
+         to false(2) is when there are time changes due to
+         daylight savings time and/ or time zone changes.
+         This flag can also be set to false(2) if 
+         statistics in this 15 minute interval have 
+         experienced discontinuity.
+        "
+    ::= { catsAal5PvcHistoryEntry 4 }
+
+catsAal5PvcDiscontinuityTime  OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object will represent the timestamp when the 
+         statistics in this 15 minute interval were 
+         discontinued due to a forced clear on the module. 
+         If this has the default value then it indicates 
+         that the statistics in this interval have not 
+         experienced any discontinuity.
+        "
+    DEFVAL { 0 }
+    ::= { catsAal5PvcHistoryEntry 5 }
+
+catsAal5PvcPduSentPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL5 PDUs transmitted to the network.  
+         This is applicable only to the PVCs configured as 
+         AAL5 PVCs (VoIP(Voice Over IP) PVCs or 
+         CCS PVCs in the case of VoAAL2 application).
+        "
+    ::= { catsAal5PvcHistoryEntry 6 }
+
+catsAal5PvcPduRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL5 PDUs received from the network.  
+         This is applicable only to the PVCs configured as 
+         AAL5 PVCs (VoIP(Voice Over IP) PVCs or 
+         CCS(Common Channel Signaling) PVCs in the case of 
+         VoAAL2 application).
+        "
+    ::= { catsAal5PvcHistoryEntry 7 }
+
+catsAal5PvcInvCpiPdus OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL5 PDUs dropped in the egress direction
+         due to invalid CPI(Common Part Indicator) field in the 
+         AAL5 PDU trailer. This is applicable only to the PVCs 
+         configured as AAL5 PVCs (VoIP(Voice Over IP) PVCs or 
+         CCS(Common Channel Signaling) PVCs in the case of 
+         VoAAL2 application).
+        "
+    ::= { catsAal5PvcHistoryEntry 8 }
+
+catsAal5PvcOverSizedSDUs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number AAL5 PDUs discarded on this AAL5 PVC at the 
+         interface associated with an AAL5 entity because the 
+         AAL5 SDUs were too large.
+        "
+    ::= { catsAal5PvcHistoryEntry 9 }
+
+catsAal5PvcInvLenPdus OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL5 PDUs dropped due to length 
+         violations. This is applicable to CCS PVCs. 
+         The HDLC frames should have a minimum frame size 
+         in order for the proper interpretation by the upper 
+         layer protocol. 
+        "
+    ::= { catsAal5PvcHistoryEntry 10 }
+
+catsAal5PvcCrc32ErrorPdus OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL5 PDUs dropped in the egress 
+         direction due to CRC-32 errors detected by the 
+         SAR. 
+        "
+    ::= { catsAal5PvcHistoryEntry 11 }
+
+catsAal5PvcReassemTimerExpiryPdus OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of AAL5 PDU reassembly timer expirations. 
+         The timers are maintained in the egress direction 
+         for building an AAL5 PDU from the cells.
+        "
+    ::= { catsAal5PvcHistoryEntry 12 }
+
+
+catsCidHistoryTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CatsCidHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table represents a 24 hour history of 
+         statistics per CID. The statistics are collected 
+         using 15 minute intervals.
+         The Channel IDentification (CID) is the standard 
+         term to identify an ATM AAL2 connection (ITU-T I.366.2).
+         CID is unique within a VC (SVC or PVC).
+         Entries in this table are populated at the
+         end of the interval.
+         " 
+    ::= { catsStatistics 4 }
+
+catsCidHistoryEntry  OBJECT-TYPE
+    SYNTAX      CatsCidHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the table. Each entry contains the 
+         statistics for a particular CID for the given 15
+         minute interval.
+         The primary index, ifIndex, will be of ifType propAtm(197),
+         atm(37) or aal2(37).
+        "
+    INDEX { ifIndex, 
+            catsCidVpi,
+            catsCidVci, 
+            catsCid, 
+            catsCidIntervalIndex 
+          }
+    ::= { catsCidHistoryTable 1 }
+
+CatsCidHistoryEntry ::=
+    SEQUENCE {
+               catsCidVpi                      AtmVpIdentifier,
+               catsCidVci                      AtmVcIdentifier,
+               catsCid                         Unsigned32,
+               catsCidIntervalIndex            Unsigned32,
+               catsCidValidFlag                TruthValue,
+               catsCidDiscontinuityTime        TimeStamp,
+               catsCidAvgSentPkts              Counter32,
+               catsCidAvgRcvdPkts              Counter32,
+               catsCidSentPkts                 Counter32,
+               catsCidRcvdPkts                 Counter32,
+               catsCidSentOctets               Counter32,
+               catsCidRcvdOctets               Counter32,
+               catsCidSentPeakPkts             Counter32,
+               catsCidRcvdPeakPkts             Counter32,
+               catsCidExtAISRcvdPkts           Counter32,
+               catsCidExtRAIRcvdPkts           Counter32,
+               catsCidExtConnAISRcvdPkts       Counter32,
+               catsCidExtConnRDIRcvdPkts       Counter32,
+               catsCidExtAISRcvCnts            Counter32,
+               catsCidExtRAIRcvCnts            Counter32,
+               catsCidExtConnAISCnts           Counter32,
+               catsCidExtConnRDICnts           Counter32,
+               catsCidExtAISXmtCnts            Counter32,
+               catsCidExtRAIXmtCnts            Counter32
+    }
+
+catsCidVpi  OBJECT-TYPE
+    SYNTAX          AtmVpIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VPI value of the ATM trunk connection with the CID 
+          for which the statistics are being collected.
+        "
+    ::= { catsCidHistoryEntry 1 }
+
+catsCidVci  OBJECT-TYPE
+    SYNTAX          AtmVcIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " The VCI value of the ATM trunk connection with the CID 
+          for which the statistics are being collected.
+        "
+    ::= { catsCidHistoryEntry 2 }
+
+catsCid   OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        " This object is the CID of an ATM AAL2 connection 
+          for which the statistics are being collected.
+        "
+    ::= { catsCidHistoryEntry 3 }
+
+catsCidIntervalIndex  OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..96)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is the history interval number.
+         The intervals are 15 minutes long and thus for
+         a 24 hour period there will be 96 intervals.
+         The 24 hour interval is aligned to wall clock.
+         The index of 1 will represent the interval from
+         00:00 to 00:15. The index of 2 will represent the
+         interval from 00:15 to 00:30 and so on.
+        "
+    ::= { catsCidHistoryEntry 4 }
+
+catsCidValidFlag OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used to indicate if the entry has 
+         valid statistics data. It will take a value of 
+         true(1) if the data is valid and false(2) otherwise.
+         A possible scenario when this flag will be set
+         to false(2) is when there are time changes due to
+         daylight savings time and/ or time zone changes.
+         This flag can also be set to false(2) if 
+         statistics in this 15 minute interval have 
+         experienced discontinuity.
+        "
+    ::= { catsCidHistoryEntry 5 }
+
+catsCidDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object will represent the timestamp when the 
+         statistics in this 15 minute interval were 
+         discontinued due to a forced clear on the module. 
+         If this has the default value then it indicates 
+         that the statistics in this interval have not
+         experienced any discontinuity.
+        "
+    DEFVAL { 0 }
+    ::= { catsCidHistoryEntry 6 }
+
+catsCidAvgSentPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets-per-sec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the average packets per second 
+         sent towards the network in this 15 minute interval. 
+         The average is computed by dividing the total 
+         number of packets sent over this 15 minute interval
+         by the interval time (15 minutes). 
+        "
+    ::= { catsCidHistoryEntry 7 }
+
+catsCidAvgRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets-per-sec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the average packets per second 
+         received from the network in this 15 minute interval.
+         The average is computed by dividing the total 
+         number of packets received over this 15 minute interval
+         by the interval time (15 minutes).
+        "
+    ::= { catsCidHistoryEntry 8 }
+
+catsCidSentPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the count of packets sent 
+         towards the network in this 15 minute interval. 
+        "
+    ::= { catsCidHistoryEntry 9 }
+
+catsCidRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the count of packets 
+         received from the network in this 15 minute interval. 
+        "
+    ::= { catsCidHistoryEntry 10 }
+
+catsCidSentOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the count of bytes sent 
+         towards the network in this 15 minute interval. 
+        "
+    ::= { catsCidHistoryEntry 11 }
+
+catsCidRcvdOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the count of bytes 
+         received from the network in this 15 minute 
+         interval. 
+        "
+    ::= { catsCidHistoryEntry 12 }
+
+catsCidSentPeakPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets-per-sec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the peak packets per 
+         second sent towards the network in this 15 minute
+         interval. 
+         The sent packets per second are monitored 
+         every second and the peak value over the 15 
+         minute interval is returned in this object.
+        "
+    ::= { catsCidHistoryEntry 13 }
+
+catsCidRcvdPeakPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets-per-sec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the peak packets per 
+         second received from the network in this 15 
+         minute interval. 
+         The received packets per second are monitored 
+         every second and the peak value over the 15 
+         minute interval is returned in this object.
+        "
+    ::= { catsCidHistoryEntry 14 }
+
+catsCidExtAISRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the number of external 
+         AIS AAL2 Type3 packets received in this 15 
+         minute interval. 
+        "
+    ::= { catsCidHistoryEntry 15 }
+
+catsCidExtRAIRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the number of external RAI
+         AAL2 Type3 packets received in this 15 minute 
+         interval.  
+        "
+    ::= { catsCidHistoryEntry 16 }
+
+catsCidExtConnAISRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the number of external connection 
+         AIS AAL2 Type2 packets received in this 15 minute
+         interval. 
+        "
+    ::= { catsCidHistoryEntry 17 }
+
+catsCidExtConnRDIRcvdPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the number of External Connection 
+         RDI (Remote Defect Ind.) AAL2 Type2 packets received 
+         in this 15 minute interval.  
+        "
+    ::= { catsCidHistoryEntry 18 }
+
+catsCidExtAISRcvCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the count of external AIS AAL2 
+         Type3 packets received in this 15 minute interval.  
+        "
+    ::= { catsCidHistoryEntry 19 }
+
+catsCidExtRAIRcvCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the number of external RAI 
+         AAL2 Type3 packets received in this 15 minute 
+         interval.
+        "
+    ::= { catsCidHistoryEntry 20 }
+
+catsCidExtConnAISCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains count of external connection 
+         AIS AAL2 Type2 packets received in this 15 minute
+         interval.  
+        "
+    ::= { catsCidHistoryEntry 21 }
+
+catsCidExtConnRDICnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the count of external connection 
+         RDI (Remote Defect Ind.) AAL2 Type2 packets received 
+         in this 15 minute interval. 
+        "
+    ::= { catsCidHistoryEntry 22 }
+
+catsCidExtAISXmtCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the count of external AIS AAL2 
+         Type3 packets transmitted in this 15 minute interval. 
+        "
+    ::= { catsCidHistoryEntry 23 }
+
+catsCidExtRAIXmtCnts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the count of external RAI AAL2
+         Type3 packets transmitted in this 15 minute interval. 
+        "
+    ::= { catsCidHistoryEntry 24 }
+
+-- ------------------------------------------------------------
+-- conformance information
+-- ------------------------------------------------------------
+
+catsMIBConformance          OBJECT IDENTIFIER ::= 
+                             { ciscoAtmTrunkStatMIB 2 }
+
+catsMIBGroups OBJECT IDENTIFIER ::= 
+                             { catsMIBConformance 1 }
+
+catsMIBCompliances OBJECT IDENTIFIER ::= 
+                             { catsMIBConformance 2 }
+
+-- compliance statements
+
+ciscoAtmPvcStatMIBCompliance MODULE-COMPLIANCE
+     STATUS deprecated -- Replaced by 
+                       -- ciscoAtmPvcStatMIBComplianceRev1
+     DESCRIPTION
+        "Compliance statement for CISCO-ATM-TRUNK-STAT-MIB."
+     MODULE -- this module
+     MANDATORY-GROUPS { 
+                       catsPvcStatGroup,
+                       catsAal2PvcStatGroup,
+                       catsAal5PvcStatGroup,
+                       catsCidHistoryStatGroup
+                      }
+     ::= { catsMIBCompliances 1 }
+
+ciscoAtmPvcStatMIBComplianceRev1 MODULE-COMPLIANCE
+     STATUS current
+     DESCRIPTION
+        "Compliance statement for CISCO-ATM-TRUNK-STAT-MIB."
+     MODULE -- this module
+     MANDATORY-GROUPS { 
+                       catsPvcStatGroupRev1,
+                       catsAal2PvcStatGroup,
+                       catsAal5PvcStatGroup,
+                       catsCidHistoryStatGroup
+                      }
+     ::= { catsMIBCompliances 2 }
+
+-- units of conformance
+
+catsPvcStatGroup  OBJECT-GROUP
+    OBJECTS {
+               catsPvcValidFlag,
+               catsPvcDiscontinuityTime,
+               catsPvcAtmXmtCells,
+               catsPvcAtmRcvCells,
+               catsPvcAvgAtmXmtCells,
+               catsPvcAvgAtmRcvCells,
+               catsPvcPeakAtmXmtCells,
+               catsPvcPeakAtmRcvCells,
+               catsPvcOamXmtEndLpbkCells,
+               catsPvcOamRcvEndLpbkCells,
+               catsPvcOamXmtSegLpbkCells,
+               catsPvcOamRcvSegLpbkCells,
+               catsPvcOamLpbkLostCells,
+               catsPvcDiscardedRcvOamCells,
+               catsPvcAisSuppressCnts,
+               catsPvcXmtAisCnts,
+               catsPvcRcvAisCnts,
+               catsPvcXmtFerfCnts,
+               catsPvcRcvFerfCnts,
+               catsPvcXmtAisCells,
+               catsPvcRcvAisCells,
+               catsPvcXmtFerfCells,
+               catsPvcRcvFerfCells
+             }
+    STATUS deprecated -- Replaced by catsPvcStatGroupRev1
+    DESCRIPTION
+        "A collection of objects used for maintaining history 
+         statistics per PVC.
+        "
+    ::= { catsMIBGroups 1 }
+
+catsAal2PvcStatGroup  OBJECT-GROUP
+    OBJECTS {
+               catsAal2PvcValidFlag,
+               catsAal2PvcDiscontinuityTime,
+               catsAal2PvcCpsSentPkts,
+               catsAal2PvcCpsRcvdPkts,
+               catsAal2PvcHecErrors,
+               catsAal2PvcCrcErrors,
+               catsAal2PvcInvOsfCells,
+               catsAal2PvcInvParCells,
+               catsAal2PvcCpsInvCidPkts,
+               catsAal2PvcCpsInvUuiPkts,
+               catsAal2PvcCpsInvLenPkts
+             }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects used for maintaining history 
+         statistics per AAL2 PVC.
+        "
+    ::= { catsMIBGroups 2 }
+
+catsAal5PvcStatGroup  OBJECT-GROUP
+    OBJECTS {
+               catsAal5PvcValidFlag,
+               catsAal5PvcDiscontinuityTime,
+               catsAal5PvcPduSentPkts,
+               catsAal5PvcPduRcvdPkts,
+               catsAal5PvcInvCpiPdus,
+               catsAal5PvcOverSizedSDUs,
+               catsAal5PvcInvLenPdus,
+               catsAal5PvcCrc32ErrorPdus,
+               catsAal5PvcReassemTimerExpiryPdus
+             }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects used for maintaining history 
+         statistics per AAL5 PVC.
+        "
+    ::= { catsMIBGroups 3 }
+
+catsCidHistoryStatGroup  OBJECT-GROUP
+    OBJECTS {
+               catsCidValidFlag,
+               catsCidDiscontinuityTime,
+               catsCidAvgSentPkts,
+               catsCidAvgRcvdPkts,
+               catsCidSentPkts,
+               catsCidRcvdPkts,
+               catsCidSentOctets,
+               catsCidRcvdOctets,
+               catsCidSentPeakPkts,
+               catsCidRcvdPeakPkts,
+               catsCidExtAISRcvdPkts,
+               catsCidExtRAIRcvdPkts,
+               catsCidExtConnAISRcvdPkts,
+               catsCidExtConnRDIRcvdPkts,
+               catsCidExtAISRcvCnts,
+               catsCidExtRAIRcvCnts,
+               catsCidExtConnAISCnts,
+               catsCidExtConnRDICnts,
+               catsCidExtAISXmtCnts,
+               catsCidExtRAIXmtCnts
+             }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects used for maintaining history 
+         statistics per CID.
+        "
+    ::= { catsMIBGroups 4 }
+
+catsPvcStatGroupRev1  OBJECT-GROUP
+    OBJECTS {
+               catsPvcValidFlag,
+               catsPvcDiscontinuityTime,
+               catsPvcAtmXmtCells,
+               catsPvcAtmRcvCells,
+               catsPvcAvgAtmXmtCells,
+               catsPvcAvgAtmRcvCells,
+               catsPvcPeakAtmXmtCells,
+               catsPvcPeakAtmRcvCells,
+               catsPvcOamXmtEndLpbkCells,
+               catsPvcOamRcvEndLpbkCells,
+               catsPvcOamXmtSegLpbkCells,
+               catsPvcOamRcvSegLpbkCells,
+               catsPvcOamLpbkLostCells,
+               catsPvcDiscardedRcvOamCells,
+               catsPvcAisSuppressCnts,
+               catsPvcXmtAisCnts,
+               catsPvcRcvAisCnts,
+               catsPvcXmtFerfCnts,
+               catsPvcRcvFerfCnts,
+               catsPvcXmtAisCells,
+               catsPvcRcvAisCells,
+               catsPvcXmtFerfCells,
+               catsPvcRcvFerfCells,
+               catsPvcOamLpbkTimeoutCnts,
+               catsPvcNewOamLpbkTimeoutDur,
+               catsPvcActiveOamLpbkTimeoutDur,
+               catsPvcOamLpbkTimeoutThreshold
+             }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects used for maintaining history 
+         statistics per PVC.
+        "
+    ::= { catsMIBGroups 5 }
+
+END
+
+

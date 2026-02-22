@@ -1,0 +1,805 @@
+-- MIB file created 15-Jan-2004 16:51:30, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-BULK-FILE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-BULK-FILE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    zeroDotZero
+--            FROM SNMPv2-SMI-v1
+	FROM PNNI-MIB
+    RowStatus, DisplayString, TruthValue, TimeStamp
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoBulkFileMIB OBJECT IDENTIFIER ::= { ciscoMgmt 81 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200206100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--    
+--     E-mail: cs-snmp@cisco.com
+--  Descr
+--    The MIB module for creating and deleting bulk files of
+--    SNMP data for file transfer.
+--  RevDate
+--    200206100000Z
+--  RevDescr
+--    Added enum 'forcedCreate' for object 'cbfDefineFileNow'
+--     for forced creation of configuration files.
+--  RevDate
+--    200205150000Z
+--  RevDescr
+--    Added default values for all read-write objects in table to
+--     simplify creation of table rows.
+--  RevDate
+--    200108220000Z
+--  RevDescr
+--    Modified description of objects 
+--    cbfDefineObjectTableInstance and
+--    cbfDefineObjectLastPolledInst in cbfDefineObjectTable
+--    to accept/represent Full OIDs instead of partial OIDs.
+--  RevDate
+--    200108010000Z
+--  RevDescr
+--    Enhanced the MIB for selective row transfer from
+--    MIBS. Added a notification to indicate bulk file creation 
+--    or error(during creation of the file).
+--    
+--    Added object cbfDefineFileNotifyOnCompletion to
+--    cbfDefineFileTable.
+--    Added the objects cbfDefineObjectTableInstance,
+--    cbfDefineObjectLastPolledInst and 
+--    cbfDefineObjectNumEntries to cbfDefineObjectTable.
+--    Added cbfDefineFileCompletion notification.
+--  RevDate
+--    200106261700Z
+--  RevDescr
+--    Added the following enumerations variantBERWithCksum(4) and 
+--    variantBinWithCksum(5) in cbfDefineFileFormat
+--  RevDate
+--    9810291700Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoBulkFileMIBObjects OBJECT IDENTIFIER ::= { ciscoBulkFileMIB 1 }
+cbfDefine       OBJECT IDENTIFIER ::= { ciscoBulkFileMIBObjects 1 }
+cbfStatus       OBJECT IDENTIFIER ::= { ciscoBulkFileMIBObjects 2 }
+ciscoBulkFileMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoBulkFileMIB 2 }
+ciscoBulkFileMIBNotifications OBJECT IDENTIFIER ::= { ciscoBulkFileMIBNotificationPrefix 0 }
+ciscoBulkFileMIBConformance OBJECT IDENTIFIER ::= { ciscoBulkFileMIB 3 }
+ciscoBulkFileMIBCompliances OBJECT IDENTIFIER ::= { ciscoBulkFileMIBConformance 1 }
+ciscoBulkFileMIBGroups OBJECT IDENTIFIER ::= { ciscoBulkFileMIBConformance 2 }
+
+cbfDefineMaxFiles OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of file definitions this system
+        can hold in cbfDefineFileTable.  A value of 0 indicates no
+        configured limit.
+        
+        This object may be read-only on some systems.
+        
+        Changing this number does not disturb existing entries."
+    ::= { cbfDefine 1 }
+
+cbfDefineFiles OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of file definitions in cbfDefineFileTable."
+    ::= { cbfDefine 2 }
+
+cbfDefineHighFiles OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum value of cbfDefineFiles since system 
+        initialization."
+    ::= { cbfDefine 3 }
+
+cbfDefineFilesRefused OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of attempts to create a file definition that
+        failed due to exceeding cbfDefineMaxFiles."
+    ::= { cbfDefine 4 }
+
+cbfDefineMaxObjects OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum total number of object selections to go with
+        file definitions this system, that is, the total number
+        of objects this system can hold in cbfDefineObjectTable.  A
+        value of 0 indicates no configured limit.
+        
+        This object may be read-only on some systems.
+        
+        Changing this number does not disturb existing entries."
+    ::= { cbfDefine 5 }
+
+cbfDefineObjects OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of object selections in 
+        cbfDefineObjectTable."
+    ::= { cbfDefine 6 }
+
+cbfDefineHighObjects OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum value of cbfDefineObjects since system 
+        initialization."
+    ::= { cbfDefine 7 }
+
+cbfDefineObjectsRefused OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of attempts to create an object selection that
+        failed due to exceeding cbfDefineMaxObjects."
+    ::= { cbfDefine 8 }
+
+cbfDefineFileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CbfDefineFileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of bulk file definition and creation controls."
+    ::= { cbfDefine 9 }
+
+cbfDefineFileEntry OBJECT-TYPE
+    SYNTAX CbfDefineFileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information for creation of a bulk file.
+        
+        To creat a bulk file an application creates an entry in this
+        table and corresponding entries in cbfDefineObjectTable.
+        
+        When the entry in this table and the corresponding
+        entries in cbfDefineObjectTable are 'active' the
+        appliction uses cbfDefineFileNow to create the file
+        and a corresponding entry in cbfStatusFileTable.
+        
+        Deleting an entry in cbfDefineFileTable deletes all
+        corresponding entries in cbfDefineObjectTable and
+        cbfStatusFileTable.
+        
+        An entry may not be modified or deleted while its
+        cbfDefineFileNow has the value 'running'."
+    INDEX { cbfDefineFileIndex }
+    ::= { cbfDefineFileTable 1 }
+
+CbfDefineFileEntry ::= SEQUENCE {
+    cbfDefineFileIndex Gauge,
+    cbfDefineFileName DisplayString,
+    cbfDefineFileStorage INTEGER,
+    cbfDefineFileFormat INTEGER,
+    cbfDefineFileNow INTEGER,
+    cbfDefineFileEntryStatus RowStatus,
+    cbfDefineFileNotifyOnCompletion TruthValue
+    }
+
+cbfDefineFileIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer to uniquely identify this entry.  To
+        create an entry a management application should pick a
+        random number."
+    ::= { cbfDefineFileEntry 1 }
+
+cbfDefineFileName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The file name which is to be created.
+        
+        Explicit device or path choices in the value of this object
+        override cbfDefineFileStorage."
+    DEFVAL { "" }
+    ::= { cbfDefineFileEntry 2 }
+
+cbfDefineFileStorage OBJECT-TYPE
+    SYNTAX INTEGER {
+        ephemeral(1),
+        volatile(2),
+        permanent(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of file storage to use:
+        
+        ephemeral        data exists in small amounts until read
+        volatile        data exists in volatile memory
+        permanent        data survives reboot
+        
+        An ephemeral file is suitable to be read only one time.
+        
+        Note that this value is taken as advisory and may be overridden
+        by explicit device or path choices in cbfDefineFile.
+        
+        A given system may support any or all of these."
+    DEFVAL { ephemeral }
+    ::= { cbfDefineFileEntry 3 }
+
+cbfDefineFileFormat OBJECT-TYPE
+    SYNTAX INTEGER {
+        standardBER(1),
+        bulkBinary(2),
+        bulkASCII(3),
+        variantBERWithCksum(4),
+        variantBinWithCksum(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The format of the data in the file:
+        
+        StandardBER        standard SNMP ASN.1 BER
+        bulkBinary        a binary format specified with this MIB
+        bulkASCII        a human-readable form of bulkBinary
+        variantBERWithCksum ASN.1 BER encoding with checksum
+        variantBinWithCksum a binary format with checksum
+        
+        A given system may support any or all of these."
+    DEFVAL { bulkBinary }
+    ::= { cbfDefineFileEntry 4 }
+
+cbfDefineFileNow OBJECT-TYPE
+    SYNTAX INTEGER {
+        notActive(1),
+        ready(2),
+        create(3),
+        running(4),
+        forcedCreate(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The control to cause file creation.  The only values that can
+        be set are 'create' and 'forcedCreate'. These can be set only 
+        when the value is 'ready'.  Setting it to 'create' begins a 
+        file creation and creates a corresponding entry in 
+        cbfStatusFileTable. The system may choose to use an already 
+        existing copy of the file instead of creating a new one. This
+        may happen if there has been no configuration change on the 
+        system and a request to recreate the file is received. 
+        Setting this object to 'forcedCreate' forces the system to 
+        create a new copy of the file.
+        
+        The value is 'notActve' as long as cbfDefineFileEntryStatus or
+        any corresponding cbfDefineObjectEntryStatus is not active.
+        
+        When cbfDefineFileEntryStatus becomes active and all
+        corresponding cbfDefineObjectEntryStatuses are active this 
+        object automatically goes to 'ready'."
+    DEFVAL { notActive }
+    ::= { cbfDefineFileEntry 5 }
+
+cbfDefineFileEntryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The control that allows creation, modification, and deletion
+        of entries.  For detailed rules see the DESCRIPTION for
+        cbfDefineFileEntry."
+    ::= { cbfDefineFileEntry 6 }
+
+cbfDefineFileNotifyOnCompletion OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This controls the cbfDefineFileCompletion notification.
+        
+        If true, cbfDefineFileCompletion notification
+        will be generated. It is the responsibility of the 
+        management entity to ensure that the SNMP administrative 
+        model is configured in such a way as to allow the 
+        notification to be delivered."
+    DEFVAL { false }
+    ::= { cbfDefineFileEntry 7 }
+
+cbfDefineObjectTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CbfDefineObjectEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of objects to go in bulk files."
+    ::= { cbfDefine 10 }
+
+cbfDefineObjectEntry OBJECT-TYPE
+    SYNTAX CbfDefineObjectEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about one object for a particular file.
+        
+        An application uses cbfDefineObjectEntryStatus to create entries
+        in this table in correspondence with entries in
+        cbfDefineFileTable, which must be created first.
+        
+        Entries in this table may not be changed, created or deleted
+        while the corresponding value of cbfDefineFileNow is 'running'."
+    INDEX { cbfDefineFileIndex, cbfDefineObjectIndex }
+    ::= { cbfDefineObjectTable 1 }
+
+CbfDefineObjectEntry ::= SEQUENCE {
+    cbfDefineObjectIndex Gauge,
+    cbfDefineObjectClass INTEGER,
+    cbfDefineObjectID OBJECT IDENTIFIER,
+    cbfDefineObjectEntryStatus RowStatus,
+    cbfDefineObjectTableInstance OBJECT IDENTIFIER,
+    cbfDefineObjectNumEntries Gauge,
+    cbfDefineObjectLastPolledInst OBJECT IDENTIFIER
+    }
+
+cbfDefineObjectIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer to uniquely identify this entry.
+        
+        The numeric order of the entries controls the order of
+        the objects in the file."
+    ::= { cbfDefineObjectEntry 1 }
+
+cbfDefineObjectClass OBJECT-TYPE
+    SYNTAX INTEGER {
+        object(1),
+        lexicalTable(2),
+        leastCpuTable(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The meaning of each object class is given below:
+        
+        object          a single MIB object is retrieved.
+        
+        lexicalTable    an entire table or partial table
+                        is retrieved in lexical order of rows.
+        
+        leastCpuTable   an entire table is retrieved with
+                        lowest CPU utilization.
+                        Lexical ordering of rows may not be 
+                        maintained and is dependent upon 
+                        individual MIB implementation."
+    DEFVAL { leastCpuTable }
+    ::= { cbfDefineObjectEntry 2 }
+
+cbfDefineObjectID OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object identifier of a MIB object to be included in
+        the file.
+        
+        If cbfDefineObjectClass is 'object' this must be a full OID,
+        including all instance information.
+        
+        If cbfDefineObjectClass is 'lexicalTable' or 'leastCpuTable'
+        this must be the OID of the table-defining SEQUENCE OF
+        registration point."
+    DEFVAL { zeroDotZero }
+    ::= { cbfDefineObjectEntry 3 }
+
+cbfDefineObjectEntryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The control that allows creation, modification, and deletion
+        of entries.  For detailed rules see the DESCRIPTION for
+        cbfDefineObjectEntry."
+    ::= { cbfDefineObjectEntry 4 }
+
+cbfDefineObjectTableInstance OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If cbfDefineObjectClass is 'lexicalTable', then this object
+        represents the starting instance in the cbfDefineObjectID
+        table. The file created will have entries starting from
+        the lexicographically next instance of the OID represented
+        by this object. 
+        
+        For Eg: 
+        -------
+        
+               Let us  assume we are polling ifTable and we
+               have information till the second row(ifIndex.2). Now
+               we may be interested in 10 rows lexically following
+               the second row.
+               
+               So, we set cbfDefineObjectTableInstance as ifIndex.2 
+               and cbfDefineObjectNumEntries as 10. 
+        
+               We will get information for the next 10 rows or
+               if there are less than 10 populated rows, we will
+               receive information till the end of the table is 
+               reached.
+        
+        The default value for this object is zeroDotZero.
+        
+        If this object has the value of zeroDotZero and 
+        cbfDefineObjectNumEntries has value 0, then the whole
+        table(represented by cbfDefineObjectID) is retrieved.
+        
+        If this object has the value of zeroDotZero,  
+        cbfDefineObjectNumEntries has value n (>0) and there are 
+        m(>0) entries in the table(represented by cbfDefineObjectID)
+        then the first n entries in the table are retrieved if n < m. 
+        If n >= m, then the whole table is retrieved.
+        
+        When the value of cbfDefineObjectNumEntries is 0, 
+        it means all the entries in the table(represented 
+        by cbfDefineObjectID) which lexicographically follow 
+        cbfDefineObjectTableInstance are retrieved.
+        
+        This object is irrelevent if cbfDefineObjectClass is not
+        'lexicalTable'."
+    DEFVAL { zeroDotZero }
+    ::= { cbfDefineObjectEntry 5 }
+
+cbfDefineObjectNumEntries OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If cbfDefineObjectClass is 'lexicalTable', then this object
+        represents the maximum number of entries which will be 
+        populated in the file starting from the lexicographically
+        next instance of the OID represented by 
+        cbfDefineObjectTableInstance. 
+        
+        This object is irrelevent if cbfDefineObjectClass is not
+        'lexicalTable'.
+        
+        Refer to the description of cbfDefineObjectTableInstance for
+        examples and different scenarios relating to this object."
+    DEFVAL { 0 }
+    ::= { cbfDefineObjectEntry 6 }
+
+cbfDefineObjectLastPolledInst OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the last polled instance in the
+        table.
+        
+        The value represented by this object will be relevent only
+        if the corresponding cbfStatusFileState is emptied(3) for 
+        ephemeral files or ready(2) for volatile or permanent files.
+        
+        A value of zeroDotZero indicates an absence of last polled 
+        object.
+        
+        An NMS can use the value of this object and populate the
+        cbfDefineObjectTableInstance to retrieve a contiguous set
+        of rows in a table."
+    ::= { cbfDefineObjectEntry 7 }
+
+cbfStatusMaxFiles OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of file statuses this system
+        can hold in cbfStatusFileTable.  A value of 0 indicates no
+        configured limit.
+        
+        This object may be read-only on some systems.
+        
+        Changing this number deletes the oldest finished entries until
+        the new limit is satisfied."
+    ::= { cbfStatus 1 }
+
+cbfStatusFiles OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of file statuses in cbfStatusFileTable."
+    ::= { cbfStatus 2 }
+
+cbfStatusHighFiles OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum value of cbfStatusFiles since system 
+        initialization."
+    ::= { cbfStatus 3 }
+
+cbfStatusFilesBumped OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number times the oldest entry was deleted due to exceeding
+        cbfStatusMaxFiles."
+    ::= { cbfStatus 4 }
+
+cbfStatusFileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CbfStatusFileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of bulk file status."
+    ::= { cbfStatus 5 }
+
+cbfStatusFileEntry OBJECT-TYPE
+    SYNTAX CbfStatusFileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Status for a particular file.
+        
+        An entry exists in this table for each time cbfDefineFileNow
+        has been set to 'create' and the corresponding entry here
+        has not been explicitly deleted by the application or bumped
+        to make room for a new entry.
+        
+        Deleting an entry with cbfStatusFileState 'running' aborts
+        the file creation attempt.
+        
+        It is implementation and file-system specific whether deleting
+        the entry also deletes the file."
+    INDEX { cbfDefineFileIndex, cbfStatusFileIndex }
+    ::= { cbfStatusFileTable 1 }
+
+CbfStatusFileEntry ::= SEQUENCE {
+    cbfStatusFileIndex Gauge,
+    cbfStatusFileState INTEGER,
+    cbfStatusFileCompletionTime TimeStamp,
+    cbfStatusFileEntryStatus RowStatus
+    }
+
+cbfStatusFileIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer to uniquely identify this file.
+        
+        The numeric order of the entries implies the creation
+        order of the files."
+    ::= { cbfStatusFileEntry 1 }
+
+cbfStatusFileState OBJECT-TYPE
+    SYNTAX INTEGER {
+        running(1),
+        ready(2),
+        emptied(3),
+        noSpace(4),
+        badName(5),
+        writeErr(6),
+        noMem(7),
+        buffErr(8),
+        aborted(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The file state:
+        
+        running    data is being written to the file
+        ready      the file is ready to be read
+        emptied    an ephemeral file was successfully consumed
+        noSpace    no data due to insufficient file space
+        badName    no data due to a name or path problem
+        writeErr   no data due to fatal file write error
+        noMem      no data due to insufficient dynamic memory
+        buffErr    implementation buffer too small
+        aborted    short terminated by operator command
+        
+        Only the 'ready' state implies that the file is available
+        for transfer.
+        
+        The disposition of files after an error is implementation
+        and file-syste specific."
+    ::= { cbfStatusFileEntry 2 }
+
+cbfStatusFileCompletionTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the creation attempt completed.
+        A value of 0 indicates not complete.  For ephemeral files this
+        is the time when cbfStatusFileState goes to 'emptied'.  For
+        others this is the time when the state leaves 'running'."
+    ::= { cbfStatusFileEntry 3 }
+
+cbfStatusFileEntryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The control that allows deletion of entries. For detailed rules
+        see the DESCRIPTION for cbfStatusFileEntry.
+        
+        This object may not be set to any value other than 'destroy'."
+    ::= { cbfStatusFileEntry 4 }
+
+cbfDefineFileCompletion TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoBulkFileMIBNotificationPrefix
+    VARIABLES {
+        cbfStatusFileState, cbfStatusFileCompletionTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cbfDefineFileCompletion notification is sent on 
+         the following conditions :
+         - completion of a file consumption operation in case of
+           ephemeral files.
+         - completion of file creation operation in case of 
+           volatile or permanent files.
+         - any error during file creation."
+    ::= 1
+
+ciscoBulkFileDefineGroup OBJECT IDENTIFIER ::= { ciscoBulkFileMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Bulk file definition management.
+--  objects
+--    cbfDefineMaxFiles, cbfDefineFiles, cbfDefineHighFiles, 
+--    cbfDefineFilesRefused, cbfDefineMaxObjects, cbfDefineObjects, 
+--    cbfDefineHighObjects, cbfDefineObjectsRefused, 
+--    cbfDefineFileName, cbfDefineFileStorage, cbfDefineFileFormat, 
+--    cbfDefineFileNow, cbfDefineFileEntryStatus, 
+--    cbfDefineFileNotifyOnCompletion, cbfDefineObjectClass, 
+--    cbfDefineObjectID, cbfDefineObjectEntryStatus
+
+ciscoBulkFileStatusGroup OBJECT IDENTIFIER ::= { ciscoBulkFileMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Bulk file status management.
+--  objects
+--    cbfStatusMaxFiles, cbfStatusFiles, cbfStatusHighFiles, 
+--    cbfStatusFilesBumped, cbfStatusFileState, 
+--    cbfStatusFileCompletionTime, cbfStatusFileEntryStatus
+
+ciscoBulkFileDefineGroupRev1 OBJECT IDENTIFIER ::= { ciscoBulkFileMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Bulk file definition management.
+--  objects
+--    cbfDefineMaxFiles, cbfDefineFiles, cbfDefineHighFiles, 
+--    cbfDefineFilesRefused, cbfDefineMaxObjects, cbfDefineObjects, 
+--    cbfDefineHighObjects, cbfDefineObjectsRefused, 
+--    cbfDefineFileName, cbfDefineFileStorage, cbfDefineFileFormat, 
+--    cbfDefineFileNow, cbfDefineFileEntryStatus, 
+--    cbfDefineFileNotifyOnCompletion, cbfDefineObjectClass, 
+--    cbfDefineObjectID, cbfDefineObjectEntryStatus, 
+--    cbfDefineObjectTableInstance, cbfDefineObjectNumEntries, 
+--    cbfDefineObjectLastPolledInst
+
+ciscoBulkFileNotiGroup OBJECT IDENTIFIER ::= { ciscoBulkFileMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notification objects for supporting
+--    Bulk file notification management.
+--  notifications
+--    cbfDefineFileCompletion
+
+ciscoBulkFileMIBCompliance OBJECT IDENTIFIER ::= { ciscoBulkFileMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Bulk File MIB.  Implementation of this MIB
+--    is based on individual product needs.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoBulkFileDefineGroup
+--   MandGroup
+--    ciscoBulkFileStatusGroup
+--   MandGroup
+--    ciscoBulkFileNotiGroup
+
+ciscoBulkFileMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoBulkFileMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Bulk File MIB.  Implementation of this MIB
+--    is based on individual product needs.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoBulkFileDefineGroupRev1
+--   MandGroup
+--    ciscoBulkFileStatusGroup
+--   MandGroup
+--    ciscoBulkFileNotiGroup
+
+
+END
+

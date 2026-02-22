@@ -1,0 +1,59 @@
+MIBs supported by the WS-C1200 (Catalyst Series Workgroup Switch)
+-----------------------------------------------------------------
+
+MIBs supported since version 4.0 of the software:
+
+        CISCO-STACK-MIB
+        CISCO-CDP-MIB
+        CISCO-IPMCAST-MIB
+        RFC1213-MIB      (MIB-II)
+        BRIDGE-MIB       (RFC 1493)
+        FDDI-SMT73-MIB   (RFC 1512)
+        IF-MIB           (RFC 1573)
+        ETHERLIKE-MIB    (RFC 1643)
+        RMON-MIB         (RFC 1757)
+
+MIBs supported since version 3.0 of the software:
+
+        CISCO-STACK-MIB
+        CISCO-CDP-MIB    (Cisco experimental version)
+        CISCO-IPMCAST-MIB
+        RFC1213-MIB      (MIB-II)
+        RFC1229-MIB      (Interface MIB)
+        RFC1271-MIB      (RMON MIB)
+        RFC1398-MIB      (Ethernet MIB)
+        BRIDGE-MIB       (RFC 1493)
+        FDDI-SMT73-MIB   (RFC 1512)
+
+MIBs supported in initial version of the software:
+
+        CISCO-STACK-MIB
+        RFC1213-MIB      (MIB-II)
+        RFC1229-MIB      (Interface MIB)
+        RFC1398-MIB      (Ethernet MIB)
+        BRIDGE-MIB       (RFC 1493)
+        FDDI-SMT73-MIB   (RFC 1512)
+
+
+
+Traps supported by the WS-C1200 (Catalyst Series Workgroup Switch)
+------------------------------------------------------------------
+
+Traps supported since version 4.0 of the software:
+
+        coldStart                 RFC1157-SNMP
+        authenticationFailure     RFC1157-SNMP
+        linkDown                  IF-MIB
+        linkUp                    IF-MIB
+        newRoot                   BRIDGE-MIB
+        topologyChange            BRIDGE-MIB
+        lerAlarmOn                CISCO-STACK-MIB
+        lerAlarmOff               CISCO-STACK-MIB
+        chassisAlarmOn            CISCO-STACK-MIB
+        chassisAlarmOff           CISCO-STACK-MIB
+        
+Traps supported in initial version of the software:
+
+        coldStart                 RFC1157-SNMP
+        authenticationFailure     RFC1157-SNMP
+

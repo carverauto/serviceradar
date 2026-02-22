@@ -1,0 +1,386 @@
+-- *****************************************************************
+-- CISCO-HEALTH-MONITOR-MIB.my: Health Monitor MIB
+--
+-- December 2001, Peter Hanselmann & Gene Clendon
+--
+-- Copyright (c) 2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-HEALTH-MONITOR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Gauge32,
+        Counter32
+                FROM SNMPv2-SMI
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        TruthValue,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        entPhysicalIndex
+                FROM ENTITY-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ 
+ciscoHealthMonitorMIB MODULE-IDENTITY
+        LAST-UPDATED    "200309121230Z" -- September 12, 2003 12:30 PM
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                Tel: +1 800 553-NETS
+ 
+                E-mail: cs-healthmonitor@cisco.com"
+        DESCRIPTION
+                "Health Monitor MIB module.
+
+                The Health Monitor uses a model based on events of varying 
+                severity and frequency, and predefined rules, to generate 
+                a metric that represents a system's (and its subsystems') 
+                level of health.   
+
+                The events are typically internally generated notifications
+                in response to detrimental or correctional changes in the 
+                state of the hardware or software of the system. Detrimental
+                events are classified under one of the following severity 
+                levels:
+
+                Catastrophic   - Causes or leads to system failure
+                Critical       - Major subsystem or functionality failure
+                High           - Potential for major impact to important 
+                                 functions
+                Medium         - Potential for minor impact to functionality
+                Low            - Negligible impact to functionality
+
+                Whilst correctional events fall under the following 
+                classification:
+
+                Positive       - Not a fault event. May cause or lead to 
+                                 the return of functionality
+
+                This MIB module provides information for tracking occurrences
+                of the above events, and presents the associated health 
+                metric for the system and its component subsystems."
+        REVISION        "200309121230Z" -- September 12, 2003 12:30 PM
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 243 }
+
+
+-- Health Monitor MIB objects definitions
+
+-- The Health Monitor MIB consists of:
+-- Health Monitor Notifications
+-- Health Monitor Table
+
+ciscoHealthMonitorMIBObjects OBJECT IDENTIFIER ::= { ciscoHealthMonitorMIB 1 }
+
+--
+-- Health Textual Conventions
+--
+
+HealthLevel ::= TEXTUAL-CONVENTION
+        STATUS       current
+        DESCRIPTION
+                "Reflects the health of a system or subsystem based on 
+                system events and predefined rules, expressed as a 
+                percentage. The UNITS clause associated with each object 
+                will indicate the degree of precision."
+        SYNTAX Gauge32(0..10000)
+
+
+--
+--  Health Monitor Group
+--
+
+ciscoHealthMonitorTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiscoHealthMonitorEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "This table contains Health Monitor statistics for physical 
+                entities and their constituent hardware and/or software 
+                subsystems.
+
+                The Health Monitor statistics present in each row provide 
+                information such as the computed health of the indicated 
+                subsystem and the number of faults it has experienced."
+        ::= { ciscoHealthMonitorMIBObjects 1 }
+
+ciscoHealthMonitorEntry OBJECT-TYPE
+        SYNTAX      CiscoHealthMonitorEntry
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+                "A Health Monitor statistics entry.
+
+                The entPhysicalIndex identifies the physical entity (chassis 
+                or container), while the ciscoHealthMonitorSubsysName 
+                identifies by name the appropriate subsystem for which these 
+                statistics apply.
+
+                If there are other entities such as peer routers or line 
+                cards then, in the context of this MIB, these are also 
+                defined to be in the same system. If these entities also 
+                run an instance of the Health Monitor then the summary 
+                information from the distributed Health Monitors is 
+                obtained here."
+        INDEX { entPhysicalIndex, IMPLIED ciscoHealthMonitorSubsysName }
+        ::= { ciscoHealthMonitorTable 1 }
+
+
+CiscoHealthMonitorEntry ::=
+        SEQUENCE {
+                -- implied index
+                ciscoHealthMonitorSubsysName                 SnmpAdminString,
+                -- health and notification level
+                ciscoHealthMonitorHealth                    HealthLevel,
+                ciscoHealthMonitorHealthNotifyEnable        TruthValue,
+                ciscoHealthMonitorHealthNotifyHighThreshold HealthLevel,
+                ciscoHealthMonitorHealthNotifyLowThreshold  HealthLevel,
+                -- event statistics
+                ciscoHealthMonitorCatastrophicFaults         Counter32,
+                ciscoHealthMonitorCriticalFaults             Counter32,
+                ciscoHealthMonitorHighSeverityFaults         Counter32,
+                ciscoHealthMonitorMediumSeverityFaults       Counter32,
+                ciscoHealthMonitorLowSeverityFaults          Counter32,
+                ciscoHealthMonitorPositiveEvents             Counter32
+        }
+
+ciscoHealthMonitorSubsysName OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE (1..128))
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A textual string containing the name of the hardware or
+                software subsystem. A management station wishing to obtain 
+                summary statistics for a physical entity should use a value 
+                of 'system' for this object."
+        ::= { ciscoHealthMonitorEntry 1 }
+
+ciscoHealthMonitorHealth OBJECT-TYPE
+        SYNTAX      HealthLevel
+        UNITS       "0.01 percent"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The computed current health of this subsystem on the 
+                specified entity.
+
+                This health metric is based on predefined rules that 
+                specify how the health should be adjusted in response to
+                certain events of varying severity and frequency. As these 
+                events are encountered by each subsystem or physical entity, 
+                the appropriate rules are applied and the health is modified 
+                accordingly."
+        ::= { ciscoHealthMonitorEntry 2 }
+
+ciscoHealthMonitorHealthNotifyEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Enables or disables health level notifications.  When set
+                to true(1), the ciscoHealthMonitorHealthLevel notification 
+                is enabled. When set to false(0), the 
+                ciscoHealthMonitorHealthLevel notification is disabled.
+
+                If such a notification is desired, it is the responsibility of
+                the management entity to ensure that the SNMP administrative
+                model is configured in such a way as to allow the notification
+                to be delivered."
+        DEFVAL { false }
+        ::= { ciscoHealthMonitorEntry 3 }
+
+ciscoHealthMonitorHealthNotifyHighThreshold OBJECT-TYPE
+        SYNTAX      HealthLevel
+        UNITS       "0.01 percent"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Specifies the health level at which a
+                ciscoHealthMonitorHealthLevel notification will be
+                generated for the specified subsystem and entity.
+                A notification will only be generated if the health
+                level had previously reached the low threshold level
+                prior to reaching this high threshold level.
+                Health levels oscillating within the high and the low
+                threshold levels do not generate notifications.
+                A health level going from low threshold (or below)
+                to high threshold (or above) represents a return
+                to normal health for the specified subsystem.
+                Set your optimal health level to this threshold."
+        DEFVAL { 10000 }
+        ::= { ciscoHealthMonitorEntry 4 }
+
+ciscoHealthMonitorHealthNotifyLowThreshold OBJECT-TYPE
+        SYNTAX      HealthLevel
+        UNITS       "0.01 percent"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Specifies the health level at which a
+                ciscoHealthMonitorHealthLevel notification will be
+                generated for the specified subsystem and entity.
+                A notification will only be generated if the health
+                level had previously reached the high threshold level
+                prior to reaching this low threshold level.
+                Health levels oscillating within the high and the low
+                threshold levels do not generate notifications.
+                A health level going from high threshold (or above)
+                to low threshold (or below) represents a deterioration
+                of the health for the specified subsystem.
+                Set your unacceptable health level to this threshold."
+        DEFVAL { 0 }
+        ::= { ciscoHealthMonitorEntry 5 }
+
+ciscoHealthMonitorCatastrophicFaults OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of catastrophic faults that have occurred in 
+                this subsystem on the specified entity since the system
+                was initialized."
+        ::= { ciscoHealthMonitorEntry 6 }
+
+ciscoHealthMonitorCriticalFaults OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of critical faults that have occurred in this
+                subsystem on the specified entity since the system was
+                initialized."
+        ::= { ciscoHealthMonitorEntry 7 }
+
+ciscoHealthMonitorHighSeverityFaults OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of high severity faults that have occurred in 
+                this subsystem on the specified entity since the system
+                was initialized."
+        ::= { ciscoHealthMonitorEntry 8 }
+
+ciscoHealthMonitorMediumSeverityFaults OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of medium severity faults that have occurred in
+                this subsystem on the specified entity since the system
+                was initialized."
+        ::= { ciscoHealthMonitorEntry 9 }
+
+ciscoHealthMonitorLowSeverityFaults OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of low severity faults that have occurred in 
+                this subsystem on the specified entity since the system
+                was initialized."
+        ::= { ciscoHealthMonitorEntry 10 }
+
+ciscoHealthMonitorPositiveEvents OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of positive events that have occurred in this
+                subsystem on the specified entity since the system was
+                initialized."
+        ::= { ciscoHealthMonitorEntry 11 }
+
+
+--
+-- Notifications
+--
+ciscoHealthMonitorMIBNotifs       OBJECT IDENTIFIER
+        ::= { ciscoHealthMonitorMIB 0}
+
+ciscoHealthMonitorHealthLevel NOTIFICATION-TYPE
+        OBJECTS {    
+                ciscoHealthMonitorHealth
+        }
+        STATUS      current
+        DESCRIPTION
+                "A ciscoHealthMonitorHealthLevel notification is sent when
+                the health of a subsystem reaches either the
+                ciscoHealthMonitorHealthNotifyLowThreshold or
+                ciscoHealthMonitorHealthNotifyHighThreshold threshold
+                as described above."
+        ::= { ciscoHealthMonitorMIBNotifs 1 }
+
+--
+-- Conformance information
+--
+ciscoHealthMonitorMIBConform      OBJECT IDENTIFIER
+        ::= { ciscoHealthMonitorMIB 2 }
+ciscoHealthMonitorMIBCompliances  OBJECT IDENTIFIER
+        ::= { ciscoHealthMonitorMIBConform 1 }
+ciscoHealthMonitorMIBGroups       OBJECT IDENTIFIER
+        ::= { ciscoHealthMonitorMIBConform 2 }
+
+--
+-- compliance statements
+--
+ciscoHealthMonitorMIBCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for entities which implement the
+                Cisco Health Monitor MIB"
+        MODULE -- this module
+        MANDATORY-GROUPS {
+             ciscoHealthMonitorGroup
+        }
+        ::= { ciscoHealthMonitorMIBCompliances 1 }
+
+--
+-- Units of conformance
+--
+ciscoHealthMonitorGroup OBJECT-GROUP
+       OBJECTS {
+                ciscoHealthMonitorHealth,
+                ciscoHealthMonitorHealthNotifyEnable,
+                ciscoHealthMonitorHealthNotifyHighThreshold,
+                ciscoHealthMonitorHealthNotifyLowThreshold,
+                ciscoHealthMonitorCatastrophicFaults,
+                ciscoHealthMonitorCriticalFaults,
+                ciscoHealthMonitorHighSeverityFaults,
+                ciscoHealthMonitorMediumSeverityFaults,
+                ciscoHealthMonitorLowSeverityFaults,
+                ciscoHealthMonitorPositiveEvents
+        }
+        STATUS current
+        DESCRIPTION
+                "The collection of objects providing health information."
+        ::= { ciscoHealthMonitorMIBGroups 1 }
+
+ciscoHealthMonitorMIBNotificationGroup NOTIFICATION-GROUP
+        NOTIFICATIONS { 
+                ciscoHealthMonitorHealthLevel
+        }
+        STATUS current
+        DESCRIPTION
+                "Set of notifications implemented in this module."
+        ::= { ciscoHealthMonitorMIBGroups 2 }
+
+END

@@ -1,0 +1,1623 @@
+module viptela-system {
+  namespace "http://viptela.com/system";
+  prefix viptela-system;
+
+    prefix tailf;
+  }
+  import iana-crypt-hash {
+    prefix ianach;
+  }
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-timezones {
+    prefix viptela-tz;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines data model for Viptela system management";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  typedef vconfd-initial-read-priority-type {
+    type bits {
+      bit priority0 {
+        position 0;
+      }
+      bit priority1 {
+        position 1;
+      }
+      bit priority2 {
+        position 2;
+      }
+      bit priority3 {
+        position 3;
+      }
+    }
+  }
+
+  typedef priority-enum {
+    type enumeration {
+      enum "alert" {
+        description "Immediate action needed (severity=1)";
+        value 1;
+      }
+      enum "critical" {
+        description "Critical conditions (severity=2)";
+        value 2;
+      }
+      enum "emergency" {
+        description "System is unusable (severity=0)";
+        value 0;
+      }
+      enum "error" {
+        description "Error conditions (severity=3)";
+        value 3;
+      }
+      enum "information" {
+        description "Informational messages (severity=6)";
+        value 6;
+      }
+      enum "notice" {
+        description "Normal but significant conditions (severity=5)";
+        value 5;
+      }
+      enum "warn" {
+        description "Warning conditions (severity=4)";
+        value 4;
+      }
+      enum "debug" {
+        description "Debug-level messages (severity=7)";
+        value 7;
+      }
+    }
+  }
+
+  typedef baud-rate-enum {
+    type enumeration {
+      enum "1200" {
+        value 1200;
+      }
+      enum "2400" {
+        value 2400;
+      }
+      enum "4800" {
+        value 4800;
+      }
+      enum "9600" {
+        value 9600;
+      }
+      enum "19200" {
+        value 19200;
+      }
+      enum "38400" {
+        value 38400;
+      }
+      enum "57600" {
+        value 57600;
+      }
+      enum "115200" {
+        value 115200;
+      }
+    }
+  }
+
+  container system {
+    description "System parameter information";
+    leaf ztp-status {
+      description "ZTP status";
+      type enumeration {
+        enum "in-progress";
+        enum "failed";
+        enum "success";
+      }
+      default "in-progress";
+    }
+    leaf idle-timeout {
+      description "Idle CLI timeout, in minutes";
+      type uint32 {
+        description "range <0..300>";
+        range "0..300";
+      }
+    }
+    leaf multi-tenant {
+      description "vManage is multi-tenant";
+      when "(/system/personality = 'vmanage')";
+      type empty;
+    }
+    leaf cloud-hosted {
+      description "vManage is hosted by the Viptela/Cisco cloud.";
+      when "(/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type empty;
+    }
+    leaf pseudo-confirm-commit {
+      description "Only valid for vmanage .. is always hidden";
+      type uint32 {
+        description "<0..1200>";
+      }
+    }
+    leaf personality {
+      description "System type";
+      type viptela:personality-enum;
+    }
+    leaf description {
+      description "System description";
+      type viptela:named-type;
+    }
+    leaf device-model {
+      description "System device model";
+      type viptela:device-model-enum;
+    }
+    leaf chassis-number {
+      description "System Chassis number";
+      type viptela:chassis-number;
+    }
+    leaf host-name {
+      description "Hostname";
+      type viptela:host-name;
+    }
+    leaf location {
+      description "Location description of the device";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type string;
+    }
+    leaf is-vmanaged {
+      description "Device is managed by the vmanage";
+      type boolean;
+    }
+    container gps-location {
+      description "GPS latitude and longitude of the device";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      must
+        "(latitude and longitude) or
+         (not(latitude) and not(longitude))" {
+        error-message "Both latitude and longitude must be configured";
+      }
+      leaf latitude {
+        type decimal64 {
+          range "-90..90";
+          fraction-digits 6;
+        }
+      }
+      leaf longitude {
+        type decimal64 {
+          range "-180..180";
+          fraction-digits 6;
+        }
+      }
+    }
+    leaf-list device-groups {
+      description "List of vManage groups to which the device belongs";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge' or
+          /viptela-system:system/viptela-system:personality = 'vsmart' or
+          /viptela-system:system/viptela-system:personality = 'vmanage')";
+      type string;
+    }
+    leaf system-ip {
+      description "System IP address";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type inet:ip-address;
+    }
+    leaf vmanage-system-ip {
+      description "Vmanage Assigned System IP address";
+      type inet:ip-address;
+    }
+    leaf simulated-devices {
+      description "Additional number of simulated devices";
+      when "/system/personality = 'vedge'";
+      must "../system-ip" {
+        error-message "sytem ip needs to be configured";
+      }
+      type uint32 {
+        description "<1..250>";
+        range "1..250";
+      }
+    }
+    leaf simulated-color {
+      description "Simulated device's color";
+      when "/system/personality = 'vedge'";
+      type viptela:color-enum;
+    }
+    leaf simulated-wan-ip {
+      description "Starting IP address for the simulated interface";
+      when "/system/personality = 'vedge'";
+      type inet:ip-address;
+    }
+    leaf domain-id {
+      description "Domain ID";
+      when "(/system/personality != 'vmanage') and (/system/personality != 'vcontainer')";
+      type viptela:domain-id;
+      default "1";
+    }
+    leaf overlay-id {
+      description "Overlay ID";
+      when "(/system/personality != 'vmanage') and (/system/personality != 'vcontainer')";
+      type viptela:oper-domain-id;
+      default "1";
+    }
+    leaf site-id {
+      description "Site ID";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type viptela:site-id;
+    }
+    leaf allow-same-site-tunnels {
+      description "Allow tunnels to be formed between vEdges in the same site";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      type boolean;
+      default "false";
+    }
+    leaf port-offset {
+      description "Port offset (unique value; use only if multiple Viptela devices are behind the same NAT)";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type uint32 {
+        description "<0..19>";
+        range "0..20";
+      }
+      default "0";
+    }
+    leaf system-tunnel-mtu {
+      description "Control tunnel MTU";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type uint16 {
+        description "<500..2000>";
+        range "500..2000";
+      }
+      default "1024";
+    }
+    leaf control-session-pps {
+      description "Control session policer rate, in packets per second";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge' or
+          /viptela-system:system/viptela-system:personality = 'vsmart' or
+          /viptela-system:system/viptela-system:personality = 'vmanage')";
+      type uint16 {
+        description "<1..65535> packets-per-second";
+        range "1..65535";
+      }
+      default "300";
+    }
+    leaf multicast-buffer-percent {
+      description "Percentage of buffer multicast packets can consume";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      type uint16 {
+        description "5..100";
+        range "5..100";
+      }
+      default "20";
+    }
+    leaf host-policer-pps {
+      description "Rate at which to police packets bound to the control plane (in pps) per QOS level";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      type uint32 {
+        description "1000..25000";
+        range "1000..25000";
+      }
+      default "20000";
+    }
+    leaf icmp-error-pps {
+      description "Rate at which to police ICMP error messages either generated or received (in pps). Zero implies disable";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      type uint32 {
+        description "Rate in packets per second. Zero implies disable";
+        range "0..200";
+      }
+      default "100";
+    }
+    leaf controller-group-name {
+      description "Controller group name, typically datacentre name - OBSOLETE";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vsmart' or
+          /viptela-system:system/viptela-system:personality = 'vmanage')";
+      type string {
+        length "1..127";
+      }
+      status obsolete;
+    }
+    leaf controller-group-id {
+      description "Controller group ID";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vsmart' or
+          /viptela-system:system/viptela-system:personality = 'vmanage')";
+      type uint16 {
+        description "<0..100>";
+        range "0..100";
+      }
+      default "0";
+    }
+    leaf max-controllers {
+      description "(DEPRECATED) Set the maximum number of controllers to which the device can connect - Deprecated in 15.4";
+      when "/system/personality = 'vedge'";
+      type uint8 {
+        description "<1..64>";
+        range "1..16";
+      }
+      status deprecated;
+      default "2";
+    }
+    leaf max-omp-sessions {
+      description "Set the maximum number of OMP sessions the device can have";
+      when "/system/personality = 'vedge'";
+      type uint8 {
+        description "<1..100>";
+        range "1..100";
+      }
+    }
+    leaf-list controller-group-list {
+      ordered-by user;
+      description "Controller group list";
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      type uint16 {
+        description "<1..100>";
+        range "1..100";
+      }
+    }
+    leaf allow-sw-vedge {
+      description "(HIDDEN) Allow non-release software vedges to operate without certificates";
+      type boolean;
+      default "false";
+    }
+    leaf sw-vedge-cpu-load-balance {
+      description "(HIDDEN) Allow SW vEdge to distribute flows among cores";
+      when "(/viptela-system:system/viptela-system:device-model = 'vedge-cloud')";
+      type boolean;
+      default "true";
+    }
+    leaf eco-friendly-mode {
+      description "Have vEdge Cloud router run in eco-friendly mode";
+      when "(/viptela-system:system/viptela-system:device-model = 'vedge-cloud')";
+      type boolean;
+      default "false";
+    }
+    leaf daemon-restart {
+      description "(HIDDEN) Restart restartable daemons if they fail";
+      type boolean;
+      default "false";
+    }
+    leaf daemon-reboot {
+      description "(HIDDEN) Reboot device if a non-restartable daemon fails";
+      type boolean;
+      default "false";
+    }
+    leaf reboot-on-failure {
+      description "(HIDDEN) Reboot device if any daemon fails";
+      type boolean;
+      default "true";
+    }
+    leaf admin-tech-on-failure {
+      description "Collect admin-tech before reboot due to daemon failure";
+      type boolean;
+      default "true";
+    }
+    leaf route-consistency-check {
+      when
+        "(/system/personality = 'vedge') and
+         ((/system/device-model = 'vedge-1000')    or
+         (/system/device-model = 'vedge-2000')    or
+         (/system/device-model = 'vedge-100')     or
+         (/system/device-model = 'vedge-100-W2')  or
+         (/system/device-model = 'vedge-100-WM')  or
+         (/system/device-model = 'vedge-100-M2')  or
+         (/system/device-model = 'vedge-100-M')   or
+         (/system/device-model = 'vedge-100-B')   or
+         (/system/device-model = 'vedge-cloud')   or
+         (/system/device-model = 'vedge-sim')     or
+         (/system/device-model = 'vedge-5000')    or
+         (/system/device-model = 'vedge-ISR1100-4G')   or
+         (/system/device-model = 'vedge-ISR1100-4GLTE')   or
+         (/system/device-model = 'vedge-ISR1100-6G'))";
+      description "Enable route consistency check";
+      type boolean;
+      default "false";
+    }
+    leaf fp-buffer-check {
+      description "(HIDDEN) Enable fastpath buffer validity check";
+      type boolean;
+      default "false";
+    }
+    leaf dpi-enable {
+      description "(HIDDEN) Enable/Disable DPI";
+      type boolean;
+    }
+    leaf dpi-multicore {
+      description "(HIDDEN) Enable multi-core for dpi";
+      type boolean;
+    }
+    leaf dpi-gc-time {
+      description "(HIDDEN) Garbage collect time in secs";
+      type uint16 {
+        description "<0 OR 10..600>";
+        range "0|10..600";
+      }
+      default "10";
+    }
+    leaf dpi-cache-expiry {
+      description "(HIDDEN) Cache expiry time in minutes";
+      type uint16 {
+        description "<0 OR 1..4320>";
+        range "0|1..4320";
+      }
+      default "1440";
+    }
+    leaf dpi-cache-size {
+      description "(HIDDEN) Cache size";
+      type uint16 {
+        description "<0 OR 100..28000>";
+        range "0|100..28000";
+      }
+      default "28000";
+    }
+    leaf dpi-disable-track-tx {
+      description "(HIDDEN) Enable/Disable DPI TRACK TX";
+      type boolean;
+    }
+    leaf unpin-flows-with-reboot {
+      description "(HIDDEN) Enable with reboot OR Disable flow pinning to FP cores";
+      type boolean;
+    }
+    leaf fec-seq-sparse {
+      description "configure port backpressure threshold";
+      type uint32;
+    }
+    leaf port-bp-threshold {
+      description "configure HW port backpressure threshold";
+      type uint32 {
+        description "<0 OR 1..256>";
+        range "0|1..256";
+      }
+      default "32";
+    }
+    leaf fp-sw-bp-threshold {
+      description "config SW backpressure threshold";
+      type uint32 {
+        description "<0 OR 1..65535>";
+        range "0|1..65535";
+      }
+      default "8192";
+    }
+    leaf dnsd-ttl {
+      description "config DNS reply TTL in secs";
+      type uint32;
+    }
+    leaf dpi-stat-time {
+      description "(HIDDEN) Stats collection time for dpi";
+      type uint16 {
+        description "<0 OR 1..600>";
+        range "0|1..600";
+      }
+      default "10";
+    }
+    leaf sp-organization-name {
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      description "Service Provider Organization name";
+      type viptela:organization-name;
+    }
+    leaf fp-qos-interval {
+      description "config fp qos interval";
+      type uint32;
+      default "100";
+    }
+    leaf fp-qos-weight-percent-factor {
+      description "config fp qos weight percent factor";
+      type uint32;
+      default "100";
+    }
+    leaf organization-name {
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      description "Organization name";
+      type viptela:organization-name;
+    }
+    leaf iptables-enable {
+      description "Enable iptables for all WAN interfaces";
+      when "(/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type boolean;
+      default "true";
+    }
+    leaf port-hop {
+      description "Enable port hopping for all tlocs";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type boolean;
+      default "true";
+    }
+    leaf track-transport {
+      description "Enable transport tracking";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type boolean;
+      default "true";
+    }
+    leaf track-default-gateway {
+      description "Enable/Disable default gateway tracking";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      type boolean;
+      default "true";
+    }
+    leaf track-interface-tag {
+      description "OMP Tag attached to routes based on interface tracking";
+      type viptela:route-tag;
+      when "/system/personality = 'vedge'";
+    }
+    list tracker {
+      description "Tracker configuration";
+      when "/system/personality = 'vedge'";
+      key "name";
+      max-elements "8";
+      leaf name {
+        description "Tracker name";
+        mandatory true;
+        type string {
+          description "<1..128> characters";
+          length "1..128";
+        }
+      }
+      choice endpoint {
+        mandatory true;
+        case ip-address {
+          leaf endpoint-ip {
+            description "IP address of endpoint";
+            type inet:ip-address;
+          }
+        }
+        case dns-name {
+          leaf endpoint-dns-name {
+            description "DNS name of endpoint";
+            type inet:domain-name;
+          }
+        }
+        case api-url;
+      }
+      leaf threshold {
+        description "Probe timeout threshold in milliseconds";
+        type uint16 {
+          description "<100..1000> milliseconds (default 300)";
+          range "100..1000";
+        }
+        default "300";
+      }
+      leaf interval {
+        description "Probe interval in seconds";
+        type uint16 {
+          description "<10..600> seconds (default 60)";
+          range "10..600";
+        }
+        default "60";
+      }
+      leaf multiplier {
+        description "Probe failure multiplier";
+        type uint8 {
+          description "<1..10> failed attempts (default 3)";
+          range "1..10";
+        }
+        default "3";
+      }
+    }
+    container clock {
+      description "Configure clock";
+      leaf timezone {
+        description "Set timezone for the system clock ('Area/Location')";
+        type viptela-tz:iana-timezone;
+        description
+          "The TZ database location enumeration
+           to use for the system, such as 'America/Los_Angeles'";
+        default "UTC";
+      }
+    }
+    leaf upgrade-confirm {
+      description "Configure software upgrade confirmation timeout";
+      type uint8 {
+        description "<5..60> minutes";
+        range "5..60";
+      }
+    }
+    leaf patch-confirm {
+      description "(HIDDEN) Configure software patch confirmation timeout";
+      type uint8 {
+        description "<5..60> minutes";
+        range "5..60";
+      }
+    }
+    leaf console-baud-rate {
+      description "Console baud-rate";
+      when "/system/personality = 'vedge'";
+      type baud-rate-enum;
+      default "115200";
+    }
+    leaf usb-controller {
+      description "Enable/disable the external USB controller";
+      when
+        "(/viptela-system:system/viptela-system:device-model = 'vedge-1000' or
+          /viptela-system:system/viptela-system:device-model = 'vedge-2000' or
+          /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-6G')";
+      type boolean;
+      default "false";
+    }
+    leaf device-os {
+      description "System OS type";
+      config false;
+      type viptela:os-enum;
+    }
+    leaf config-template-name {
+      description "Configuration template assigned by the vManage";
+      type string {
+        description "<1..128> characters";
+        length "1..128";
+      }
+    }
+    leaf policy-template-name {
+      description "Policy template assigned by the vManage";
+      when "(/system/personality = 'vsmart')";
+      type string {
+        description "<1..128> characters";
+        length "1..128";
+      }
+    }
+    leaf policy-template-version {
+      description "Policy template version assigned by the vManage";
+      when "(/system/personality = 'vsmart')";
+      type string {
+        description "<1..64> characters";
+        length "1..64";
+      }
+    }
+    leaf tcp-optimization-enabled {
+      description "Carve out a dedicated core to use for TCP optimization - applies after reboot";
+      when
+        "(/viptela-system:system/viptela-system:device-model = 'vedge-1000' or
+          /viptela-system:system/viptela-system:device-model = 'vedge-2000' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-cloud')";
+      type boolean;
+      default "false";
+    }
+    container timer {
+      description "Set various timer timeouts";
+      leaf dns-cache-timeout {
+        description "DNS Cache timeout, in minutes";
+        type uint8 {
+          description "<1..30> minutes";
+          range "1..30";
+        }
+        default "2";
+      }
+    }
+    container vbond {
+      description "Configure remote vBond or local IPv4 vbond address";
+      when "(/system/personality = 'vedge') or (/system/personality = 'vmanage') or (/system/personality = 'vsmart')";
+      leaf remote {
+        description "IP address/DNS name";
+        type union {
+          type inet:ip-address {
+            description "IP address";
+          }
+          type inet:domain-name {
+            description "DNS name";
+          }
+        }
+      }
+      leaf local {
+        description "Local device is vBond";
+        when "/system/personality = 'vedge'";
+        type empty;
+      }
+      leaf port {
+        description "vBond server port";
+        type inet:port-number {
+          description "<1..65335>";
+          range "1..65335";
+        }
+        default "12346";
+      }
+      leaf ztp-server {
+        description "Local device is ZTP Server";
+        when "(/system/personality = 'vedge')";
+        type empty;
+      }
+      leaf vbond-only {
+        description "(DEPRECATED) Device is a standalone vBond - Deprecated in 16.2";
+        when "(/system/personality = 'vedge') and (/system/vbond/local)";
+        type empty;
+        status deprecated;
+      }
+      leaf standalone {
+        description "(DEPRECATED) Device is a standalone vBond";
+        when "(/system/vbond/local)";
+        type boolean;
+        default "false";
+      }
+    }
+    container aaa {
+      description "Set AAA parameters";
+      leaf-list auth-order {
+        description "Authentication order";
+        ordered-by user;
+        type enumeration {
+          enum "local" {
+            description
+              "local authentication";
+          }
+          enum "radius" {
+            description
+              "radius authentication";
+          }
+          enum "tacacs" {
+            description
+              "tacacs authentication";
+          }
+        }
+      }
+      leaf-list radius-servers {
+        description "Designate RADIUS servers for authentication and accounting";
+        type leafref {
+          description "Specify RADIUS server using its tag";
+          path "/viptela-system:system/viptela-system:radius/viptela-system:server/viptela-system:tag";
+        }
+      }
+      leaf auth-fallback {
+        description "Fall back if higher-priority authentication fails";
+        type boolean;
+        default "false";
+      }
+      leaf admin-auth-order {
+        description "Authenticate admin user as per auth-order";
+        type boolean;
+        default "false";
+      }
+      list usergroup {
+        description "User group configuration";
+        key "name";
+        must
+          "(name != 'root') and (name != 'daemon') and (name != 'bin') and
+           (name != 'sys') and (name != 'adm') and (name != 'tty') and
+           (name != 'disk') and (name != 'lp') and (name != 'mail') and
+           (name != 'news') and (name != 'uucp') and (name != 'man') and
+           (name != 'proxy') and (name != 'kmem') and (name != 'input') and
+           (name != 'dialout') and (name != 'fax') and (name != 'voice') and
+           (name != 'cdrom') and (name != 'floppy') and (name != 'tape') and
+           (name != 'sudo') and (name != 'audio') and (name != 'dip') and
+           (name != 'www-data') and (name != 'backup') and (name != 'list') and
+           (name != 'irc') and (name != 'src') and (name != 'gnats') and
+           (name != 'shadow') and (name != 'utmp') and (name != 'video') and
+           (name != 'sasl') and (name != 'plugdev') and (name != 'staff') and
+           (name != 'games') and (name != 'users') and (name != 'nogroup') and
+           (name != 'sshd') and (name != 'quagga') and (name != 'quaggavty') and
+           (name != 'admin') and (name != 'vmanage-admin')" {
+          error-message "Group name is reserved";
+        }
+        leaf name {
+          description "Name of the user group";
+          type string {
+            description "<1..128> characters";
+            length "1..128";
+          }
+        }
+        list task {
+          description "Configure task permissions";
+          key "mode";
+          leaf mode {
+            description "Task mode";
+            type viptela:aaa-tasks-type;
+          }
+          leaf-list permission {
+            description "Permissions";
+            min-elements 1;
+            type viptela:aaa-permission-type;
+          }
+        }
+      }
+      list user {
+        description "User configuration";
+        key "name";
+        must
+          "(name != 'root') and (name != 'daemon') and (name != 'bin') and
+           (name != 'sys') and (name != 'sync') and (name != 'games') and
+           (name != 'man') and (name != 'lp') and (name != 'mail') and
+           (name != 'news') and (name != 'uucp') and (name != 'proxy') and
+           (name != 'www-data') and (name != 'backup') and (name != 'list') and
+           (name != 'irc') and (name != 'gnats') and (name != 'nobody') and
+           (name != 'basic') and (name != 'sshd') and (name != 'quagga') and
+           (name != 'vmanage-admin')" {
+          error-message "Username is reserved";
+        }
+        must
+          "((/viptela-system:system/viptela-system:li-license-enabled = 1) or
+           (name != 'liadmin')) " {
+          error-message "Username is reserved";
+        }
+        leaf name {
+          description "Name of the user";
+          type string {
+            description "<1..128> characters";
+            length "1..128";
+          }
+        }
+        leaf password {
+          description "Password for the user";
+          type ianach:crypt-hash {
+            description "password";
+          }
+          mandatory true;
+        }
+        leaf secret {
+          description "Secret for the user";
+          type string;
+        }
+        leaf description {
+          description "Description of the user";
+          type string {
+            description "<1..32> characters";
+            length "1..32";
+          }
+        }
+        leaf-list group {
+          description "List of user groups";
+          type leafref {
+            path "/system/aaa/usergroup/name";
+          }
+        }
+        list pubkey-chain {
+          description "List of public-keys per system user";
+          key "usertag";
+          leaf usertag {
+            description "Human readable username for identifying public-key";
+            type string;
+            mandatory true;
+          }
+          leaf key-type {
+            description "Public-key type ";
+            type viptela:public-key-type-enum;
+            default "ssh-rsa";
+          }
+          leaf key-string {
+            description "Public-key to be copied from client";
+            type string;
+            mandatory true;
+          }
+        }
+      }
+      container logs {
+        description "Configure AAA logs";
+        leaf audit-disable {
+          description "Disables audit logs";
+          type boolean;
+          default "false";
+        }
+        leaf netconf-disable {
+          description "Disables Netconf logs";
+          type boolean;
+          default "false";
+        }
+      }
+    }
+    container logging {
+      description "Configure logging";
+      container disk {
+        description "Disk logging parameters";
+        leaf enable {
+          description "Enable logging to disk";
+          type boolean;
+          default "true";
+        }
+        container file {
+          description "File to which to log messages";
+          leaf size {
+            description "Maximum size of file before it is rotated, in MB";
+            type uint16 {
+              description "<1..20> MB";
+              range "1..20";
+            }
+            default "10";
+          }
+          leaf rotate {
+            description "Number of rotations before the file is discarded";
+            type uint8 {
+              description "<1..10>";
+              range "1..10";
+            }
+            default "10";
+          }
+        }
+        leaf priority {
+          description "Set logging level for messages logged to disk";
+          type priority-enum;
+          default "information";
+        }
+      }
+      list server {
+        description "Remote host logging parameters";
+        key "name";
+        max-elements "4";
+        leaf name {
+          description "Hostname or IP address";
+          type union {
+            type inet:ipv4-address {
+              description "IP address of logging host";
+            }
+            type inet:domain-name {
+              description "DNS name of logging host";
+            }
+          }
+        }
+        leaf vpn {
+          description "VPN instance in which logging server is reachable";
+          must "not(/system/logging/server/vpn != current())" {
+            error-message "All logging servers must be in the same VPN";
+          }
+          type viptela:vpn-id;
+          default "0";
+        }
+        leaf source-interface {
+          description "Source interface for outgoing syslog messages to server";
+          must "not(/system/logging/server/source-interface != current())" {
+            error-message "Source interface must be the same for all syslog servers";
+          }
+          type string {
+            length "0..32";
+            description
+              "Interface name. On vEdge, e.g. ge0/0 or ge0/3.1 or loopback0
+               On vSmart, e.g. eth0 or eth2.1 or loopback0";
+          }
+          default "";
+        }
+        leaf priority {
+          description "Logging level for messages logged to host";
+          type priority-enum;
+          default "information";
+        }
+      }
+      list ipv6-server {
+        description "Remote host logging parameters for ipv6 server";
+        key "name";
+        max-elements "4";
+        leaf name {
+          description "IPv6 hostname or IPv6 address";
+          type union {
+            type inet:ipv6-address {
+              description "IPv6 address of logging host";
+            }
+            type inet:domain-name {
+              description "DNS name of IPv6 logging host";
+            }
+          }
+        }
+        leaf vpn {
+          description "VPN instance in which logging server is reachable";
+          must "not(/system/logging/server/vpn != current())" {
+            error-message "All logging servers must be in the same VPN";
+          }
+          type viptela:vpn-id;
+          default "0";
+        }
+        leaf source-interface {
+          description "Source interface for outgoing syslog messages to server";
+          must "not(/system/logging/server/source-interface != current())" {
+            error-message "Source interface must be the same for all syslog servers";
+          }
+          type string {
+            length "0..32";
+            description
+              "Interface name. On vEdge, e.g. ge0/0 or ge0/3.1 or loopback0
+               On vSmart, e.g. eth0 or eth2.1 or loopback0";
+          }
+          default "";
+        }
+        leaf priority {
+          description "Logging level for messages logged to host";
+          type priority-enum;
+          default "information";
+        }
+      }
+    }
+    container ntp {
+      description "Configure NTP";
+      container keys {
+        description "Configure NTP authentication keys";
+        list authentication {
+          description "Define an authentication key";
+          key "number";
+          max-elements "64";
+          leaf number {
+            type uint32 {
+              description "<1..65535> Authentication Key ID";
+              range "1..65535";
+            }
+          }
+          leaf md5 {
+            description "Value of the MD5 authentication key";
+            mandatory true;
+            type aes-cfb-128-encrypted-string {
+              description "Cleartext or AES encrypted key";
+            }
+          }
+        }
+        leaf-list trusted {
+          description "Designate one or more authentication keys as trusted";
+          type leafref {
+            path "/viptela-system:system/ntp/keys/authentication/number";
+          }
+        }
+      }
+      list server {
+        description "NTP server";
+        key "name";
+        max-elements "4";
+        leaf name {
+          description "Hostname or IP address";
+          type union {
+            type inet:ipv4-address {
+              description "IP address";
+            }
+            type inet:domain-name {
+              description "DNS name";
+            }
+          }
+        }
+        leaf key {
+          description "Authentication key ID for this server";
+          type leafref {
+            path "/viptela-system:system/ntp/keys/authentication/number";
+          }
+        }
+        leaf source-interface {
+          description "Source interface for outgoing NTP packets";
+          must "not(/system/ntp/server/source-interface != current())" {
+            error-message "Source interface must be the same for all NTP servers";
+          }
+          type string {
+            length "0..32";
+            description
+              "Interface name. On vEdge, e.g. ge0/0 or ge0/3.1 or loopback0
+               On vSmart, e.g. eth0 or eth2.1 or loopback0";
+          }
+          default "";
+        }
+        leaf vpn {
+          description "VPN instance in which the NTP server is reachable";
+          must "not(/system/ntp/server/vpn != current())" {
+            error-message "All NTP servers must be in the same VPN";
+          }
+          type viptela:vpn-id;
+          default "0";
+        }
+        leaf version {
+          description "NTP version";
+          type uint8 {
+            description "<1..4>";
+            range "1..4";
+          }
+          default "4";
+        }
+        leaf prefer {
+          description "Prefer this NTP server";
+          type boolean;
+          default "false";
+        }
+      }
+    }
+
+    grouping attributes-grouping {
+      container attributes {
+        description "set attribute key-value pairs";
+        leaf service-argument {
+          description "value of attribute";
+          type string {
+            length "1..254";
+          }
+        }
+      }
+    }
+    container radius {
+      description "Set RADIUS server parameters";
+      leaf timeout {
+        description "RADIUS timeout value";
+        type uint32 {
+          description "<1..1000>";
+          range "1..1000";
+        }
+        default "5";
+      }
+      leaf retransmit {
+        description "RADIUS retransmit count";
+        type uint32 {
+          description "<1..1000>";
+          range "1..1000";
+        }
+        default "3";
+      }
+      list server {
+        description "RADIUS server address";
+        max-elements "8";
+        key "address";
+        unique "tag";
+        leaf address {
+          description "RADIUS server address";
+          type inet:ip-address;
+        }
+        leaf auth-port {
+          description "RADIUS server authentication port";
+          type inet:port-number {
+            description "<1..65535>";
+          }
+          default "1812";
+        }
+        leaf acct-port {
+          description "RADIUS server accounting port";
+          type inet:port-number {
+            description "<1..65535>";
+          }
+          default "1813";
+        }
+        leaf tag {
+          description "Reference tag/name for the server";
+          type string {
+            description "<4..16> characters";
+            length "4..16";
+          }
+        }
+        leaf vpn {
+          description "VPN of the RADIUS server";
+          must "not(/system/radius/server/vpn != current())" {
+            error-message "All RADIUS servers must be in same VPN";
+          }
+          type viptela:vpn-id;
+          default "0";
+        }
+        leaf source-interface {
+          description "Source interface for outgoing RADIUS packets";
+          type string {
+            length "0..32";
+            description
+              "Interface name. On vEdge, e.g. ge0/0 or ge0/3.1 or loopback0
+               On vSmart, e.g. eth0 or eth2.1 or loopback0";
+          }
+          default "";
+        }
+        leaf key {
+          description "(DEPRECATED) RADIUS server key - Deprecated in 15.4";
+          type viptela:named-type;
+        }
+        leaf secret-key {
+          description "RADIUS server shared secret key";
+          type aes-cfb-128-encrypted-string {
+            description "Cleartext or AES encrypted key";
+          }
+        }
+        leaf priority {
+          description "RADIUS server priority";
+          default "0";
+          type uint8 {
+            range "0..7";
+            description "<0..7>";
+          }
+        }
+      }
+    }
+    container tacacs {
+      description "Set TACACS server parameters";
+      leaf timeout {
+        description "TACACS timeout value";
+        type uint32 {
+          description "<1..1000>";
+          range "1..1000";
+        }
+        default "5";
+      }
+      container authorization {
+        description "set authorization parameters";
+        uses attributes-grouping;
+      }
+      leaf authentication {
+        description "TACACS authentication type";
+        default "pap";
+        type enumeration {
+          enum "ascii";
+          enum "pap";
+        }
+      }
+      list server {
+        description "TACACS server address";
+        max-elements "8";
+        key "address";
+        leaf address {
+          description "TACACS server address";
+          type inet:ip-address;
+        }
+        leaf auth-port {
+          description "TACACS server port";
+          type inet:port-number {
+            description "<0..65535>";
+          }
+          default "49";
+        }
+        leaf vpn {
+          description "VPN of the TACACS server";
+          must "not(/system/tacacs/server/vpn != current())" {
+            error-message "All TACACS servers must be in same VPN";
+          }
+          type viptela:vpn-id;
+          default "0";
+        }
+        leaf source-interface {
+          description "Source interface for outgoing TACACS packets";
+          must "not(/system/tacacs/server/source-interface != current())" {
+            error-message "Source interface must be the same for all TACACS servers";
+          }
+          type string {
+            length "0..32";
+            description
+              "Interface name. On vEdge, e.g. ge0/0 or ge0/3.1 or loopback0
+               On vSmart, e.g. eth0 or eth2.1 or loopback0";
+          }
+          default "";
+        }
+        leaf key {
+          description "(DEPRECATED) TACACS server key - Deprecated in 15.4";
+          type viptela:named-type;
+        }
+        leaf secret-key {
+          description "TACACS server key";
+          type aes-cfb-128-encrypted-string {
+            description "Cleartext or AES encrypted key";
+          }
+        }
+        leaf priority {
+          description "TACACS server priority";
+          default "0";
+          type uint8 {
+            range "0..7";
+            description "<0..7>";
+          }
+        }
+      }
+    }
+    container archive {
+      presence "Enable periodic archive of config";
+      description "Configure periodic archiving";
+      must "path" {
+        error-message "path must be configured";
+      }
+      leaf path {
+        description "Remote directory path (ftp://filepath, scp://user@host:filepath, /)";
+        type string {
+          description "ftp://filepath, scp://user@host:filepath, /";
+        }
+      }
+      leaf interval {
+        description "Periodic time interval for saving configurations, in minutes";
+        type uint32 {
+          description "<5..525600>[10080] minutes";
+          range "5..525600";
+        }
+        default "10080";
+      }
+      leaf ssh-id-file {
+        description "SSH identity file path for SCP upload";
+        type string;
+      }
+      leaf vpn {
+        must "(../../personality = 'vedge') or (current() = 0) or (current() = 512)" {
+          error-message "Only 0 or 512 can be set as VPN ID";
+        }
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+    }
+    leaf cft-enable {
+      description "Enable/Disable CFT";
+      type boolean;
+      default "false";
+    }
+    leaf cft-cache-enable {
+      description "Enable/Disable CFT Cache";
+      type boolean;
+      default "false";
+    }
+    leaf anchor-wan-tunnel-pkts {
+      description "Anchor wan tunnel to core in vEdge5k or vEdge cloud";
+      when "(/system/personality = 'vedge')";
+      type boolean;
+      default "true";
+    }
+  }
+  container banner {
+    description "Banner information";
+    leaf login {
+      description "Set prelogin message";
+      type string {
+        length "1..2048";
+      }
+    }
+    leaf motd {
+      description "Set postlogin message";
+      type string {
+        length "1..2048";
+      }
+    }
+  }
+  notification process-restart {
+    uses viptela:common-notification-header;
+    leaf process-name {
+      type string;
+    }
+    leaf process-id {
+      type uint32;
+    }
+    leaf reason {
+      type string;
+    }
+  }
+  notification process-down {
+    uses viptela:common-notification-header;
+    leaf process-name {
+      type string;
+    }
+    leaf process-id {
+      type uint32;
+    }
+    leaf reason {
+      type string;
+    }
+  }
+  notification disk-usage {
+    uses viptela:common-notification-header;
+    leaf warning {
+      type string;
+    }
+    leaf total-mb {
+      description "Total disk space in MB";
+      type uint32;
+    }
+    leaf free-mb {
+      description "Available disk space in MB";
+      type uint32;
+    }
+  }
+  notification memory-usage {
+    uses viptela:common-notification-header;
+    leaf warning {
+      type string;
+    }
+    leaf total-mb {
+      description "Total memory in MB";
+      type uint32;
+    }
+    leaf free-mb {
+      description "Available memory in MB";
+      type uint32;
+    }
+  }
+  notification aaa-admin-pwd-change {
+    uses viptela:common-notification-header;
+  }
+  notification site-id-change {
+    uses viptela:common-notification-header;
+    leaf old-site-id {
+      type viptela:site-id;
+    }
+    leaf new-site-id {
+      type viptela:site-id;
+    }
+  }
+  notification domain-id-change {
+    uses viptela:common-notification-header;
+    leaf old-domain-id {
+      type uint32;
+    }
+    leaf new-domain-id {
+      type uint32;
+    }
+  }
+  notification system-ip-change {
+    uses viptela:common-notification-header;
+    leaf old-system-ip {
+      type inet:ip-address;
+    }
+    leaf new-system-ip {
+      type inet:ip-address;
+    }
+  }
+  notification org-name-change {
+    uses viptela:common-notification-header;
+    leaf old-organization-name {
+      type viptela:organization-name;
+    }
+    leaf new-organization-name {
+      type viptela:organization-name;
+    }
+  }
+  notification pseudo-commit-status {
+    uses viptela:common-notification-header;
+    leaf status-str {
+      type string;
+    }
+  }
+  notification system-login-change {
+    uses viptela:common-notification-header;
+    leaf user-name {
+      type string;
+    }
+    leaf user-id {
+      type int16;
+    }
+  }
+  notification system-logout-change {
+    uses viptela:common-notification-header;
+    leaf user-name {
+      type string;
+    }
+    leaf user-id {
+      type int16;
+    }
+  }
+  notification system-aaa-login-fail {
+    uses viptela:common-notification-header;
+    leaf user-name {
+      type string;
+    }
+    leaf remote-host {
+      type string;
+    }
+  }
+  notification system-commit {
+    uses viptela:common-notification-header;
+    leaf user-name {
+      type string;
+    }
+  }
+  notification app-dpi-flows-out-of-memory {
+    uses viptela:common-notification-header;
+    leaf dpi-out-of-memory-state {
+      type boolean;
+    }
+  }
+  notification app-dpi-flows-write-failed-vedge {
+    uses viptela:common-notification-header;
+  }
+
+  typedef aes-cfb-128-encrypted-string {
+    type string;
+    description
+      "The aes-cfb-128-encrypted-string works exactly like
+       des3-cbc-encrypted-string but AES/128bits in CFB mode is used to
+       encrypt the string.  The prefix for encrypted values is '$8$'.";
+  }
+}

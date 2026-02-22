@@ -1,0 +1,166 @@
+-- MIB file created 30-Dec-2001 22:12:01, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SWITCH-USAGE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SWITCH-USAGE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoSwitchUsageMIB OBJECT IDENTIFIER ::= { ciscoMgmt 201 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200105020000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-switch-usage-mib@cisco.com
+--  Descr
+--    This MIB defines objects related to statistics 
+--    for the usage of switch fabric. The switch fabric
+--    is used by the incoming packets from the line/network
+--    to a interface. Such packets are called ingress packets.
+--    Counters are maintained for number of ingress packets/
+--    octets switched by the switch fabric for each 
+--    interface.
+--    NOTE: These counters are not counting the total number 
+--    of incoming packets and octets for a particular 
+--    interface. Instead only the counts of packets and 
+--    octets that actually use the switch-fabric are being
+--    accounted for by this MIB.  Therefore, the counters in 
+--    this MIB are distinctly different from packet and octet 
+--    counters found in the IF-MIB.
+--  RevDate
+--    200105020000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSwitchUsageMIBObjects OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIB 1 }
+ciscoSwitchUsageStats OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIBObjects 1 }
+ciscoSwitchUsageMIBNotifyPrefix OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIB 2 }
+ciscoSwitchUsageMIBNotifications OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIBNotifyPrefix 0 }
+ciscoSwitchUsageMIBConformance OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIB 3 }
+ciscoSwitchUsageMIBCompliances OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIBConformance 1 }
+ciscoSwitchUsageMIBGroups OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIBConformance 2 }
+
+cswitchUsageStatTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CswitchUsageStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of switch resouce usage statistics 
+        entries. The statistics will give information 
+        on the switch usage by each interface."
+    ::= { ciscoSwitchUsageStats 1 }
+
+cswitchUsageStatEntry OBJECT-TYPE
+    SYNTAX CswitchUsageStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry contains information of a particular 
+        interface in terms of how much switch resource 
+        it has used.
+        An entry in this table exists for each ifEntry 
+        with an ifType of fastEther(62) for FastEthernet
+        interface and gigabitEthernet (117) for Gigabit
+        interface."
+    INDEX { ifIndex }
+    ::= { cswitchUsageStatTable 1 }
+
+CswitchUsageStatEntry ::= SEQUENCE {
+    cswitchUsageByIngrsIntfPkts Counter,
+    cswitchUsageByIngrsIntfHCPkts Counter,
+    cswitchUsageByIngrsIntfOctets Counter,
+    cswitchUsageByIngrsIntfHCOctets Counter
+    }
+
+cswitchUsageByIngrsIntfPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ingress packets of a interface 
+        which use the switch resource."
+    ::= { cswitchUsageStatEntry 1 }
+
+cswitchUsageByIngrsIntfHCPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ingress packets of a interface
+        which use the switch resource.
+        
+        This is a 64 bit (High Capacity) version of
+        the cswitchUsageByIngrsIntfPkts counter for
+        use with SNMP v2c or v3 Managers."
+    ::= { cswitchUsageStatEntry 2 }
+
+cswitchUsageByIngrsIntfOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ingress octets of a interface 
+        which use the switch resource."
+    ::= { cswitchUsageStatEntry 3 }
+
+cswitchUsageByIngrsIntfHCOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ingress octets of a interface
+        which use the switch resource.
+        This is a 64 bit (High Capacity) version of
+        the cswitchUsageByIngrsIntfOctets counter for
+        use with SNMP v2c or v3 Managers."
+    ::= { cswitchUsageStatEntry 4 }
+
+ciscoSwitchUsageMIBGroup OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The Object Group for switch usage statistics
+--  objects
+--    cswitchUsageByIngrsIntfPkts, cswitchUsageByIngrsIntfHCPkts, 
+--    cswitchUsageByIngrsIntfOctets, 
+--    cswitchUsageByIngrsIntfHCOctets
+
+ciscoSwitchUsageMIBCompliance OBJECT IDENTIFIER ::= { ciscoSwitchUsageMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the switch usage 
+--    statistics group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSwitchUsageMIBGroup
+
+
+END
+

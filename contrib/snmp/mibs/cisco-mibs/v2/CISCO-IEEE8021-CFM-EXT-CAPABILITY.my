@@ -1,0 +1,109 @@
+-- *****************************************************************
+-- CISCO-IEEE8021-CFM-EXT-CAPABILITY.my:
+-- Cisco CISCO-IEEE8021-CFM-EXT-MIB AGENT-CAPABILITIES
+--   
+-- December 2008, Wen Xu
+--   
+-- Copyright (c) 2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IEEE8021-CFM-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+ciscoIeee8021CfmExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "200812050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+        "       Cisco Systems
+                Customer Service
+
+        Postal: 170 West Tasman Drive
+                San Jose, CA  95134
+                USA
+
+           Tel: +1 800 553-NETS
+
+        E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-IEEE8021-CFM-EXT-MIB."
+    REVISION        "200812050000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 576 }
+
+ciscoIeee8021CfmExtCapCatOSV08R0702 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(2)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IEEE8021-CFM-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-IEEE8021-CFM-EXT-MIB
+    INCLUDES        {
+                        ciceCfmGlobalObjectsGroup,
+                        ciceCfmLtrConfigGroup,
+                        ciceCfmMaNetGroup,
+                        ciceCfmInterfaceGroup,
+                        ciceCfmMipGroup,
+                        ciceCfmMacEnableGroup
+                    }
+
+        VARIATION       ciceCfmLtrHoldTime
+            SYNTAX      Unsigned32 (1..2880)
+            DESCRIPTION
+                "Only limited set of values is supported."
+
+        VARIATION       ciceCfmLtrSize
+            SYNTAX      Unsigned32 (1..4095)
+            DESCRIPTION
+                "Only limited set of values is supported."
+
+        VARIATION       ciceCfmMaNetLossThreshold
+            SYNTAX      Unsigned32 (2..255)
+            DESCRIPTION
+                "Only limited set of values is supported."
+
+        VARIATION       ciceCfmMipMdLevel
+            SYNTAX      Unsigned32 (0..7)
+            DESCRIPTION
+                "Only limited set of values is supported."
+
+        VARIATION       ciceCfmMipStorageType
+            ACCESS      read-only
+            DESCRIPTION
+                "Unable to set this on CatOS."
+
+        VARIATION       ciceCfmMipRowStatus
+            SYNTAX      INTEGER { active(1),
+                                  createAndGo(4),
+                                  destroy(6)
+                                }
+            DESCRIPTION
+                "Only limited set of enumerated values
+                 is supported."
+
+        VARIATION       ciceCfmMacEnableStorageType
+            ACCESS      read-only
+            DESCRIPTION
+                "Unable to set this on CatOS."
+
+        VARIATION       ciceCfmMacEnableRowStatus
+            SYNTAX      INTEGER { active(1),
+                                  createAndGo(4),
+                                  destroy(6)
+                                }
+            DESCRIPTION
+                "Only limited set of enumerated values
+                 is supported."
+
+    ::= { ciscoIeee8021CfmExtCapability 1 }
+
+END

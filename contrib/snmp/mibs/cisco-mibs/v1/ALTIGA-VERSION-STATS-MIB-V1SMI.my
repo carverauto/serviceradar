@@ -1,0 +1,147 @@
+-- MIB file created 03-Dec-2002 09:41:39, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-VERSION-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-VERSION-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString
+            FROM SNMPv2-TC-v1
+    alStatsVersion, alVersionGroup
+            FROM ALTIGA-MIB
+    alVersionMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaVersionStatsMibModule OBJECT IDENTIFIER ::= { alVersionMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga (VPN 3000) Version MIB models counters and 
+--     objects that are of management interest. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+alStatsVersionGlobal OBJECT IDENTIFIER ::= { alStatsVersion 1 }
+altigaVersionStatsMibConformance OBJECT IDENTIFIER ::= { altigaVersionStatsMibModule 1 }
+altigaVersionStatsMibCompliances OBJECT IDENTIFIER ::= { altigaVersionStatsMibConformance 1 }
+
+alVersionMajor OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The major release number of the VPN 3000 software. In the 
+         release identifier 1.4.2, the 1 is the major release 
+         number."
+    ::= { alStatsVersionGlobal 1 }
+
+alVersionMinor OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minor release number of the VPN 3000 software. In the 
+         release identifier 1.4.2, the 4 is the minor release 
+         number."
+    ::= { alStatsVersionGlobal 2 }
+
+alVersionInt OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The integration string of the VPN 3000 software. In the 
+         release identifier 1.4.2, the 2 is the patch release 
+         number."
+    ::= { alStatsVersionGlobal 3 }
+
+alVersionString OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The string representation of the VPN 3000 software  
+         version."
+    ::= { alStatsVersionGlobal 4 }
+
+alVersionLong OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The long string representation of the VPN 3000 software 
+         version."
+    ::= { alStatsVersionGlobal 5 }
+
+alVersionShort OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The short string representation of the VPN3000 software 
+         version."
+    ::= { alStatsVersionGlobal 6 }
+
+alVersionBoot OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The version of the Boot image."
+    ::= { alStatsVersionGlobal 7 }
+
+altigaVersionStatsGroup OBJECT IDENTIFIER ::= { alVersionGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for the version statistics.
+--  objects
+--    alVersionMajor, alVersionMinor, alVersionInt, alVersionString, 
+--    alVersionLong, alVersionShort, alVersionBoot
+
+altigaVersionStatsMibCompliance OBJECT IDENTIFIER ::= { altigaVersionStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga Version Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaVersionStatsGroup
+
+
+END
+

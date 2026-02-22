@@ -1,0 +1,1435 @@
+-- *****************************************************************
+-- CISCO-WAN-MG-MIB.my:  CISCO Media Gateway MIB file
+--
+-- January 2004, George Ogagan
+-- May 2005, Rashmi Purandare
+--
+-- Copyright (c) 1999, 2000, 2001, 2002, 2003, 2004, 2005 by 
+-- Cisco Systems, Inc.  
+-- All rights reserved.
+-- 
+-- *****************************************************************
+-- $Endlog$
+--
+
+CISCO-WAN-MG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    Integer32, 
+    Unsigned32,
+    IpAddress         FROM SNMPv2-SMI
+    TruthValue,
+    RowStatus 	      FROM SNMPv2-TC
+    SnmpAdminString   FROM SNMP-FRAMEWORK-MIB
+    MODULE-COMPLIANCE, 
+    OBJECT-GROUP      FROM SNMPv2-CONF
+    ciscoWan          FROM CISCOWAN-SMI;
+
+ciscoWanMgMIB MODULE-IDENTITY
+    LAST-UPDATED "200505270000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "       Cisco Systems
+                Customer Service
+ 
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+ 
+                        Tel: +1 800 553-NETS
+ 
+                E-mail: cs-wanatm@cisco.com"
+
+    DESCRIPTION
+        "The MIB module for managing Media Gateways (MGs).
+
+         Terms used:
+         MG:   Media Gateway
+         MGC:  Media Gateway Controller
+         MGCP: Media Gateway Control Protocol
+         NE:   Notified Entity
+         RSIP: Restart In Progress (MGCP standard message)"
+   
+    REVISION    "200505270000Z"
+    DESCRIPTION
+        "Added mgEndpointExtTable.
+        "
+
+    REVISION  "200401200000Z"
+    DESCRIPTION
+        "Update descriptions in MIB."
+
+    REVISION "200206140000Z"
+    DESCRIPTION
+        "Imported Unsigned32 from SNMPv2-SMI instead
+         of CISCO-TC."
+
+    REVISION "200105250000Z"
+    DESCRIPTION
+        "deprecated following objects:
+         mgcAssociationState,
+         mgcAssociationStateControl,
+         mgcUnassociationPolicy,
+         mgcCommLossUnassociationTimeout.
+         mgcProtocolTable, 
+         mgcProtocolEntry and mgcProtocolRowStatus."
+
+    REVISION    "200007191500Z"
+    DESCRIPTION
+        "Create new table mediaGatewayDomainName.
+         Deprecated mgcDnsResolution in mgcTable.
+         Added mgcDnsResolutionFlag to mgcResolutionTable."
+
+    REVISION  "200003270000Z"
+    DESCRIPTION 
+        "Added DEFVAL clause for mgEndpointCreationPolicy."
+
+    REVISION  "199911270000Z"
+    DESCRIPTION 
+        "Initial Version of the MIB."
+    ::= { ciscoWan 10 }
+
+
+ciscoWanMgMIBObjects          
+    OBJECT IDENTIFIER ::= { ciscoWanMgMIB 1 }
+
+mediaGateway                  
+    OBJECT IDENTIFIER ::= { ciscoWanMgMIBObjects 1 }
+mediaGatewayController       
+    OBJECT IDENTIFIER ::= { ciscoWanMgMIBObjects 2 }
+mediaGatewayEndpoint          
+    OBJECT IDENTIFIER ::= { ciscoWanMgMIBObjects 3 }
+mediaGatewayLine             
+    OBJECT IDENTIFIER ::= { ciscoWanMgMIBObjects 4 }
+mediaGatewayControllerResolution 
+    OBJECT IDENTIFIER ::= { ciscoWanMgMIBObjects 5 }
+mediaGatewayDomainName        
+    OBJECT IDENTIFIER ::= { ciscoWanMgMIBObjects 6 }
+
+-- 
+-- Media Gateway Group. 
+--
+
+mgName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64)) 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Denotes name of the MG, as it is identified
+         by media gateway controllers. This corresponds
+         to a domain name under which the Media Gateway
+         could also be registered in a DNS."
+    ::= { mediaGateway 1 }
+
+mgAdministrativeState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         inService               (1),
+                         commandedOutOfService   (2),
+                         pendingOutOfService     (3)
+		}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    	"This object indicates the current admin state of 
+         the Media Gateway. 
+         The possible admin states are:
+         'inService' - The MG is ready to provide service. 
+                     In this state, the MG will respond 
+                     to connection control requests, emit autonomous
+                     messages to MGCs as applicable, etc.
+         'commandedOutOfService' - The MG does not provide 
+                     service and all resources have been released. 
+                     In this state, the MG will not 
+                     respond to any connection control requests or 
+                     emit autonomous messages.
+         'pendingOutOfService' - This is a transitional state prior
+                     to going 'commandedOutOfService'. In this state
+                     the MG provides service but does not accept new
+                     service requests (i.e. creation of connections)
+                     will transition to 'commandedOutOfService'
+                     according to 'mgShutdownGraceTime'."
+    DEFVAL { commandedOutOfService }
+    ::= { mediaGateway 2 }
+
+mgAdministrativeStateControl OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         inService             (1),
+                         forcefulOutOfService  (2),
+                         gracefulOutOfService  (3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    	"This control object is used to change the service state 
+         of the MG from 'inService' to 'commandedOutOfService' and
+         from 'commandedOutOfService' to 'inService'. The resulting
+         service state of the gateway is represented by 
+         'mgAdministrativeState'.
+
+         If set, this object triggers the following:
+         'inService': Transition 'mgAdministrativeState' to
+                    'inService'. In the course, the MG's
+                    MGCs may get notified of this transition,
+                    e.g. in the case of MGCP through emission
+                    of RSIPs to registered call agents
+                    according to policy.  
+
+         'forcefulOutOfService': Take the gateway out-of-service 
+                    forcefully. This releases any resources at 
+                    the MG. In the course, the MGCs may get notified
+                    of this transition, e.g. in the case of MGCP 
+                    through emission of RSIPs to registered call agents
+                    according to policy.
+
+         'gracefulOutOfService': Take the gateway out-of-service 
+                    gracefully. If there are no resources existing, 
+                    'mgAdministrative' transitions to
+                    'commandedOutOfService' immediately. If resources
+                    exist, 'mgAdministrativeState' transitions to 
+                    'pendingOutOfService' thus initiating a graceful 
+                    shutdown. In the course, the MGs MGCs may get
+                    notified of this transition, e.g. in the case of 
+                    MGCP through emission of RSIPs to registered call 
+                    agents according to policy."
+    DEFVAL { forcefulOutOfService }
+    ::= { mediaGateway 3 }
+
+
+mgShutdownGraceTime OBJECT-TYPE
+    SYNTAX      Integer32 (-1..65535) 
+    UNITS       "seconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the time in seconds after which an 
+         MG will transition from 'gracefulOutOfService' to
+         'forcefulOutOfService'. A value of -1 indicates that
+         the MG allows for draining, i.e. will automatically
+         transition after the last resource in use has been
+         released. Otherwise, it essentially indicates the amount
+         of time an MGC has to perform any cleanup, e.g. deletion
+         of connections etc."
+    ::= { mediaGateway 4 }
+
+
+--
+--  Media Gateway Supported Protocol Table.
+--
+
+mgSupportedProtocolTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MgSupportedProtocolEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+         "This is a table which identifies the protocols, along 
+          with their revisions that the media gateway supports 
+          for purposes of communication with an MGC. The table 
+          is created by the agent at system startup and cannot 
+          changed."
+    ::= { mediaGateway 7 }
+
+mgSupportedProtocolEntry OBJECT-TYPE
+    SYNTAX     MgSupportedProtocolEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Represents an individual table entry in 
+         mgSupportedProtocolTable."
+    INDEX  { mgProtocolNumber }
+    ::= { mgSupportedProtocolTable 1 }
+
+
+MgSupportedProtocolEntry ::= 
+    SEQUENCE {
+        mgProtocolNumber   Integer32, 
+        mgProtocolName     SnmpAdminString 
+    }
+
+
+mgProtocolNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535) 
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Serves as index to this table."
+    ::= { mgSupportedProtocolEntry 1 }
+
+mgProtocolName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64)) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "A control protocol and its revision supported by the 
+         call gateway. For example: 'MGCP 0.1 11/9/99'
+         The protocol can be one of the control protocols like
+         MGCP or it can be a signaling backhaul protocol or 
+         it can be resource co-ordination protocol like SRCP."
+    ::= { mgSupportedProtocolEntry 2 }
+
+--
+-- Media Gateway Controller Group 
+--
+
+maxConcurrentMgcs OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..65535)
+    UNITS      "controllers"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the maximum number of MGCs
+         the MG can have."
+    ::= { mediaGatewayController 3 }
+
+
+-- 
+-- Media Gateway Controller Table 
+-- 
+
+mgcTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MgcEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This is a table which contains information about the 
+         individual MGCs."
+    ::= { mediaGatewayController 1 }
+
+mgcEntry OBJECT-TYPE
+    SYNTAX     MgcEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Represents an individual table entry in 
+         mgcTable."
+    INDEX  { mgcNumber }
+    ::= { mgcTable 1 }
+
+MgcEntry ::=
+    SEQUENCE {
+        mgcNumber                       Integer32, 
+        mgcName                         SnmpAdminString,
+        mgcDnsResolution                TruthValue,
+        mgcAssociationState             INTEGER,
+        mgcAssociationStateControl      INTEGER,
+        mgcUnassociationPolicy          INTEGER,
+        mgcCommLossUnassociationTimeout Integer32,
+        mgcRowStatus                    RowStatus 
+    }
+
+mgcNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Serves as index to this table."
+    ::= { mgcEntry 1 }
+
+mgcName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64)) 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Denotes the name of the media gateway controller.
+         This corresponds to a domain name under which the 
+         MGC could also be registered in a DNS.
+         Once the row has become active, this value may not 
+         be modified."
+    ::= { mgcEntry 2 }
+
+mgcDnsResolution OBJECT-TYPE
+    SYNTAX      TruthValue 
+    MAX-ACCESS  read-only
+    STATUS      deprecated
+    DESCRIPTION
+        "Indicates how the MG resolves the IP address of the MGC. 
+         'true(1)' - the resolution is done using an external 
+         DNS server. 
+         'false(2)' -  the resolution is done using 
+         mgcResolutionTable."
+    DEFVAL { false }
+    ::= { mgcEntry 3 }
+
+mgcAssociationState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         mgcUnassociated        (1),
+                         mgcAssociated          (2),
+                         mgcAssociatedCommLoss  (3)
+		}
+    MAX-ACCESS  read-only
+    STATUS      deprecated
+    DESCRIPTION
+        "Represents the state of the association between the MG
+         and the MGC. The possible values are:
+
+         'mgcUnassociated' : MG and MGC are not associated. 
+                           For example, in the case where MGCP  
+                           is the coordination protocol, it means
+                           no subscription to autonomous messages 
+                           such as RSIP but control requests would 
+                           be answered. 
+         'mgcAssociated'   : MG and MGC are associated. E.g. in the
+                           case where MGC is the coordination
+                           protocol, it means MGC is subscribed
+                           to autonomous messages such as RSIP.
+         'mgcAssociatedCommLoss' : Associated but MGC unreachable.
+            
+         This object is being moved to the
+         mgcRedundancyGrpParamTable. This object is deprecated 
+         because the association state is defined per MGC
+         redundancy group, rather than per MGC."
+    ::= { mgcEntry 4 }
+
+mgcAssociationStateControl OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         mgcUnassociate  (1),
+                         mgcAssociate    (2),
+                         mgcClear        (3)
+		}
+    MAX-ACCESS  read-create
+    STATUS      deprecated
+    DESCRIPTION
+        "Used to control the association state, as represented by 
+         mgcAssociationState. The possible value for a set operation
+         on this object are:
+         'mgcUnassociate': Transition from any state to
+                           'mgcUnassociated'. If registered, MG
+                           will initiate deregistration.
+         'mgcAssociate'  : Transition to 'mgcAssociated'. If 
+                           applicable, MG will register with MGC.
+                           If MGCP is the coordination protocol,
+                           MG will send RSIP. 
+                           If MG cannot establish communication, 
+                           it will subsequently transition into 
+                           'mgcAssociatedCommLoss' for the 
+                           'mgcAssociationState' object.
+                           If MG is already associated with MGC, no 
+                           transition will take place and  
+                           mgcAssociationState shall not change.     
+         'mgcClear'      : No action will be taken. This means that the
+                           Media Gateway will not initiate any 
+                           association/unassociation. 
+
+         This object is being moved to the mgcRedundancyGrpParamTable. 
+         This object is deprecated because the association state
+         control is  defined per MGC redundancy group, rather
+         than per MGC."
+    DEFVAL { mgcUnassociate }
+    ::= { mgcEntry 5 }
+
+mgcUnassociationPolicy OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         mgcNoAction(1),
+                         mgcRelease (2)
+		}
+    MAX-ACCESS  read-create
+    STATUS      deprecated
+    DESCRIPTION
+        "Indicates what MG will do when mgcAssociationState transitions
+         to unassociated.
+         'mgcNoAction' : indicates that MG will take no further
+                       action. In particular, no resources will
+                       be released nor connections be flushed.
+         'mgcRelease'  : indicates that upon unassociation, the
+                       MG will release all resources and flush
+                       all connections. 
+
+         This object may not always be configurable, i.e. be read 
+         only in some agent implementations. In these cases, 
+         mgcNoAction shall be supported as the default value."
+    DEFVAL { mgcNoAction }
+    ::= { mgcEntry 6 }
+
+mgcCommLossUnassociationTimeout OBJECT-TYPE
+    SYNTAX      Integer32 (-1..65535) 
+    UNITS       "seconds"
+    MAX-ACCESS  read-create
+    STATUS      deprecated
+    DESCRIPTION
+        "Indicates how long, in seconds, upon detection of 
+         a communication loss, subscriptions to autonomous 
+         notifications (such as notification requests and RSIPs 
+         in the case of MGCP) remain valid and communications will
+         be reattempted for an MGC in 'mgcAssociatedCommLoss' state.  
+
+         A value of -1 indicates that the MGC may remain in 
+         'mgcAssociatedCommLoss' state indefinitely.  A value of 0
+         indicates that the MGC transitions into 'mgcUnassociated'
+         state immediately.  
+
+         This object may not always be configurable, i.e. be read 
+         only in some agent implementations.  An MG implementation 
+         may not support differentiation of the timeout between 
+         associations. In such an event, any modification to the 
+         value for one MGC will take effect globally." 
+    DEFVAL { -1 }
+    ::= { mgcEntry 7 }
+
+mgcRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Controls the creation and deletion of a table entry. 
+
+         An entry may be created using the 'createAndGo' option. 
+         When the row is successfully created, the RowStatus would 
+         be set to 'active' by the agent. An entry may be deleted 
+         by setting the RowStatus to 'destroy'. Other options such as 
+         `createAndWait', 'notInService', 'notReady' will not be used.
+
+         For creating the row, a value for mgcName must be provided. 
+         This mgcName should be already added in mgDomainName table
+         and at least 1 IP should associated to this mgcName.
+         To all other objects, defaults defined by the agent 
+         implementation may apply.
+
+         Deletion of a row with mgcAssociationState other than 
+         unassociated shall be rejected."
+    ::= { mgcEntry 8 }
+
+
+-- *********************************************************************
+-- Media Gateway Controller Protocol Table 
+-- *********************************************************************
+
+
+mgcProtocolTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MgcProtocolEntry
+    MAX-ACCESS not-accessible
+    STATUS     deprecated
+    DESCRIPTION
+        "This table contains information about which protocols are 
+         being used in a particular association between the gateway 
+         and the MGCs.
+
+         Because there may be a number of different protocols in use 
+         for a particular control association between the gateway 
+         and an MGC, this information is kept in a separate table 
+         rather than being included in mgcTable. In effect, it 
+         constitutes a relationship between mgcTable and 
+         mgSupportedProtocolTable.
+
+         With support for multiple MGC redundancy groups, the protocols
+         will be defined per MGC redundancy group rather than per MGC.
+         A new table mgcRedundancyGrpProtocolTable is introduced." 
+    ::= { mediaGatewayController 2 }
+
+mgcProtocolEntry OBJECT-TYPE
+    SYNTAX     MgcProtocolEntry
+    MAX-ACCESS not-accessible
+    STATUS     deprecated
+    DESCRIPTION
+        "Represents an individual table entry in 
+         mgcProtocolTable.
+
+         mgcNumber references the media gateway controller, 
+         constituting a foreign key into mgcTable and adapting 
+         the value of mgcNumber of that MGC.
+
+         mgProtocolNumber references the protocol, reflecting the 
+         mgProtocolNumber from the mgSupportedProtocolTable.
+ 
+         When active, it is expected that mgcNumber and 
+         mgcProtocolNumber contain valid values that maintain 
+         referential integrity, i.e. constitute valid foreign keys 
+         into mgcTable and mgSupportedProtocolTable respectively.  
+         The attempt to create a row that would violate referential 
+         integrity shall be rejected.   
+
+         With support for multiple MGC redundancy groups, the
+         protocols will be defined per MGC redundancy group rather
+         than per MGC." 
+    INDEX   { mgcNumber, mgProtocolNumber }
+    ::= { mgcProtocolTable 1 }
+
+MgcProtocolEntry ::=
+    SEQUENCE {
+        mgcProtocolRowStatus RowStatus 
+    }
+
+mgcProtocolRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus 
+    MAX-ACCESS  read-create
+    STATUS      deprecated
+    DESCRIPTION
+        "Controls the creation and deletion of a table entry. 
+
+         An entry may be created using the 'createAndGo' option. 
+         When the row is successfully created, the RowStatus would 
+         be set to 'active' by the agent. An entry may be deleted 
+         by setting the RowStatus to 'destroy'. Other options such as 
+         `createAndWait', 'notInService', 'notReady' will not be used.
+
+         With support for multiple MGC redundancy groups, the protocols
+         will be defined per MGC redundancy group rather than per MGC."
+    ::= { mgcProtocolEntry 1 }
+
+
+-- *****************************************************************
+-- Endpoint Group
+--
+-- This group represents the endpoints supported by the media gateway.
+-- *****************************************************************
+
+
+mgEndpointCreationPolicy OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         dynamic       (1),
+                         strictDynamic (2),
+                         static        (3)
+		}
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "Identifies whether the MG creates endpoints for 
+             connections involving single channels (e.g. DS0s) 
+             dynamically upon receipt of a create connection 
+             request in the control protocol, or whether the 
+             endpoints have to be configured statically. This 
+             does not apply for endpoints involving several 
+             channels (such as nx64) which will in general be 
+             configured statically.
+
+             'dynamic': Endpoint created dynamically if not
+                        already existing.
+             'strictDynamic': Endpoint created dynamically;
+                              connection requests must not
+                              refer to preexisting endpoint.
+             'static': Endpoint statically provisioned.  
+
+             This object will in general not be configurable, 
+             i.e. be read only in most agent implementations."
+        DEFVAL { static }
+        ::= { mediaGatewayEndpoint 2 }
+
+
+-- *****************************************************************
+-- Endpoint Table
+-- *****************************************************************
+
+mgEndpointTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MgEndpointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table contains information about the individual 
+         endpoints."
+    ::= { mediaGatewayEndpoint 1 }
+
+mgEndpointEntry OBJECT-TYPE
+    SYNTAX     MgEndpointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Represents an individual table entry in
+         mgEndpointTable."
+    INDEX   { mgEndpointNumber }
+    ::= { mgEndpointTable 1 }
+
+MgEndpointEntry ::=
+    SEQUENCE {
+        mgEndpointNumber       Integer32, 
+        mgEndpointLineNumber   Integer32,
+        mgEndpointName         SnmpAdminString,
+        mgEndpointSpeed        Unsigned32,
+        mgEndpointState        INTEGER,
+        mgEndpointChannelMap   Integer32,
+        mgEndpointRowStatus    RowStatus 
+        }
+
+
+mgEndpointNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535) 
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Identifies endpoint as it is known by the NE. The 
+         endpoint number is unique for the entire MG
+         and ranges from 1 to the maximum number of endpoints 
+         that the MG can support."
+    ::= { mgEndpointEntry 1 }
+
+mgEndpointLineNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Identifies the DS1 line. Generally, this will 
+         correspond to the ifIndex of the physical
+         interface terminating the line.
+
+         Once the row has become active, this value may not be
+         changed."
+    ::= { mgEndpointEntry 2 }
+
+mgEndpointName OBJECT-TYPE
+    SYNTAX      SnmpAdminString 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Identifies endpoint as it is known by the MGC.
+         If MG and MGC use a mutually agreed upon convention, 
+         this may be supplied by the agent, i.e. be read-only."
+    ::= { mgEndpointEntry 3 }
+
+mgEndpointSpeed OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..65535) 
+    UNITS       "Kbps"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the endpoint's bandwidth, in Kbps.  Typically, 
+         this will be 64 times the number of channels terminated
+         by the endpoint."
+    ::= { mgEndpointEntry 4 }
+
+mgEndpointState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         mgEndpointActive   (1),
+                         mgEndpointFailed   (2),
+                         mgEndpointDegraded (3)
+		}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates the state of the endpoint.
+         'mgEndpointActive' - the endpoint is in service and
+                  operational.
+         'mgEndpointFailed' - the endpoint is in service but
+                  not operational, e.g. because a line that
+                  the endpoint belongs to is in a state of
+                  service affecting alarm.
+         'mgEndpointDegraded' - the endpoint is in service
+                  but not fully 
+                    operational, e.g. in cases with endpoints with 
+                    channels on multiple lines, when one of the lines 
+                    is in a state of service affecting alarm 
+
+         If MGCP is used as the control protocol, the following 
+         transitions will generally trigger an RSIP command:
+         from 'mgEndpointActive'/'mgEndpointDegraded' to 
+         'mgEndpointFailed' or from 'mgEndpointFailed' to 
+         'mgEndpointDegraded'/'mgEndpointActive'. Transitions
+         between 'mgEndpointActive' and 'mgEndpointDegraded' will 
+         generally not trigger emission of RSIP."
+    ::= { mgEndpointEntry 5 }
+
+mgEndpointChannelMap OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Bit map of DS0s used by the endpoint. Bit positions set to 
+         '1' represent DS0s used by the endpoint. The Bit position
+         corresponds to the DS0 number.
+ 
+         Once the row has become active, this value may not be
+         changed."
+    ::= { mgEndpointEntry 6 }
+
+mgEndpointRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Controls the creation and deletion of a table entry. 
+
+         An entry may be created using the 'createAndGo' option. 
+         When the row is successfully created, the RowStatus would 
+         be set to 'active' by the agent thereby creating an endpoint. 
+         An endpoint may be deleted by setting the RowStatus to 
+         'destroy'. Other options such as `createAndWait', 
+         'notInService', 'notReady' will not be used.
+
+         On creation, values for mgEndpointLineNumber and 
+         mgEndpointChannelMap have to be supplied."
+    ::= { mgEndpointEntry 7 }
+
+-- *************************************************************
+-- Line Group
+-- *************************************************************
+
+lineAssignmentTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF LineAssignmentEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table contains information about each line in the
+         media gateway."
+        ::= { mediaGatewayLine 1 }
+
+lineAssignmentEntry OBJECT-TYPE
+    SYNTAX     LineAssignmentEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Represents an individual table entry in 
+         lineAssignmentTable."
+    INDEX   { lineNumber }
+    ::= { lineAssignmentTable 1 }
+
+LineAssignmentEntry ::=
+    SEQUENCE {
+        lineNumber        Integer32,
+        channelAssignment Integer32,
+        lineName          SnmpAdminString 
+     }
+
+lineNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535) 
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Identifies the DS1 line. Generally, this will
+         correspond to the ifIndex of the physical interface
+         terminating the line." 
+    ::= { lineAssignmentEntry 1 }
+
+channelAssignment OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Each bit that is set represents that the corresponding DS0 
+         is in use, either because it has been assigned to an endpoint 
+         or because it constitutes a signaling channel that is not 
+         available for assignment to an endpoint."
+    ::= { lineAssignmentEntry 2 }
+
+lineName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64)) 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Line name as identified by the MGC, if applicable. The 
+         default line name is 'LINE'. If MG uses a common convention, 
+         this may be supplied by the agent, i.e. be read-only."
+    ::= { lineAssignmentEntry 3 }
+
+
+-- *****************************************************************
+-- MGC Resolution Group
+-- *****************************************************************
+
+mgcResolutionTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MgcResolutionEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table provides the name to IP address mapping 
+         for each of the MGCs, external DNS server, tftp server 
+         and announcement server. It also stores the IP addresses
+         of external resolved domain name. 
+         Several addresses may be associated with a single name."
+        ::= { mediaGatewayControllerResolution 1 }
+
+mgcResolutionEntry OBJECT-TYPE
+    SYNTAX     MgcResolutionEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Represents an individual table entry in 
+         mgcResolutionTable."
+    INDEX   { mgcResolutionIndex }
+    ::= { mgcResolutionTable 1 }
+
+MgcResolutionEntry ::=
+    SEQUENCE {
+        mgcResolutionIndex       Integer32, 
+        mgcResolutionName        SnmpAdminString,
+        mgcResolutionIpAddress   IpAddress,
+        mgcResolutionCommState   INTEGER,
+        mgcResolutionPreference  Integer32,
+        mgcResolutionRowStatus   RowStatus,
+        mgcDnsResolutionFlag     INTEGER 
+        }
+
+
+mgcResolutionIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535) 
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Serves as index to this table.
+
+         The table will be divided into two, index 1 to 88 will
+         be used by the user and index 89 to 176 will be used
+         by the VDNS to fill in the externally resolved IP address."
+    ::= { mgcResolutionEntry 1 }
+
+mgcResolutionName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64)) 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+            "Denotes the name of the entity (MGC and/or NE) whose 
+             address is to be resolved. Once the row has become
+             active, this value may not be changed."
+    ::= { mgcResolutionEntry 2 }
+
+mgcResolutionIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+            "Denotes the IP address of the entity. Once the row has
+             become active, this value may not be changed. To change 
+             the IP address, an entry will have to be removed and a 
+             new entry will have to be added."
+    ::= { mgcResolutionEntry 3 }
+
+mgcResolutionCommState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                         csActive   (1),
+                         csInactive (2)
+		}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates whether the address is the one currently
+         applied for communications with the system of that
+         name.  
+         'csActive' - name resolves to that IP address
+         'csInactive' - IP address currently not in use
+            
+         On creation of the row, this value will be 'csInactive',
+         although it may transition immediately to active, 
+         triggering the notification of 'mgcCommStateActive'
+         specified in CISCO-VISM-TRAPS-MIB."
+    DEFVAL { csInactive}
+    ::= { mgcResolutionEntry 4 }
+
+mgcResolutionPreference OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535) 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object can be used by the MG in the selection 
+         of an IP address if multiple IP addresses are 
+         available for the same name.
+
+         This object cannot be modified after this entry is created. 
+         It  has to be unique among various IP addresses of a same 
+         domain name.
+
+         In which case the IP address associated with 
+         mgcResolutionPreference 1 would be selected over the IP 
+         address associated with mgcResolutionPreference 2."
+    ::= { mgcResolutionEntry 5 }
+
+mgcResolutionRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Controls the creation and deletion of a table entry. 
+
+         An entry may be created using the 'createAndGo' option. 
+         mgcResolutionIndex, mgcResolutionName,
+         mgcResolutionIpAddress, and mgcResolutionPreference
+         should be provided when creating an entry.
+         mgcResolutionIndex can be 1 - 88. Entries with
+         index 89 - 176 will be implicitly added when VDNS 
+         resolves IP addresses of domain servers. Usually maximum 8 
+         IP addresses can be added to one mgcName. 
+         For external DNS server only 3 IP addresses with the highest
+         will be used.
+         Before creating an entry in this table one entry should 
+         already been created in mgDomainNameTable with the same 
+         name as mgcResolutionName. 
+
+         When the row is successfully created, the RowStatus would 
+         be set to 'active' by the agent.
+
+         An entry may be deleted by setting the RowStatus to 
+         'destroy'.  Only mgcResolutionIndex should be provided
+         to delete an entry. The last IP within 1 - 88 should 
+         not be deleted if the mgcResolutionName is still configured
+         for MGC, tftp server, external DNS server, PRI backhaul
+         session group or announcement server and there is no 
+         external resolved IP (entry 89 - 176) for this domain name.
+
+         Other options such as `createAndWait', 'notInService', 
+         'notReady' will not be used."
+    ::= { mgcResolutionEntry 6 }
+
+mgcDnsResolutionFlag OBJECT-TYPE
+      SYNTAX    INTEGER{
+                        internal (1),
+                        external (2)
+               }
+      MAX-ACCESS   read-only
+      STATUS       current
+      DESCRIPTION
+          "All entries statically configured by the customer 
+           (i.e. all entries in the top half of the table) 
+           will have the flag set to 'internal'. All IP 
+           addresses obtained due to external resolution of 
+           the domain name (that is, entries in the bottom 
+           half of the table) will have this flag set to 
+           'external'."    
+      ::= { mgcResolutionEntry 7 }              
+
+
+-- *****************************************************************
+-- MG Domain Name Group
+-- *****************************************************************
+
+mgDomainNameTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MgDomainNameEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table provides the domain names that are 
+         configured by users. The domain names could refer
+         to Call Agents, tftp server for CAS file download, 
+         external DNS server or announcement server."
+    ::= { mediaGatewayDomainName 1 }
+
+mgDomainNameEntry OBJECT-TYPE
+    SYNTAX     MgDomainNameEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Represents an individual table entry in mgDomainNameTable."
+    INDEX   { mgDomainNameIndex }
+    ::= { mgDomainNameTable 1 }
+
+MgDomainNameEntry ::=
+    SEQUENCE {
+        mgDomainNameIndex        Integer32,
+        mgDomainName             SnmpAdminString,
+        mgDnsResolutionType      INTEGER,
+        mgDomainNameRowStatus    RowStatus
+    }
+
+mgDomainNameIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object serves as index to this table."
+    ::= { mgDomainNameEntry 1 }
+
+mgDomainName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64)) 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object denotes the domain name of MGCs, 
+         tftp server, external DNS server or announcement 
+         server. Once the row has become active, this value may 
+         not be changed."
+    ::= { mgDomainNameEntry 2 }
+
+mgDnsResolutionType  OBJECT-TYPE
+     SYNTAX     INTEGER {
+                         internalOnly  (1),
+                         externalOnly  (2),
+                         internalFirst (3),
+                         externalFirst (4)
+                }
+     MAX-ACCESS   read-create
+     STATUS       current
+     DESCRIPTION
+         "This object determines the kind of DNS resolution to 
+          be applied for a particular domain name.
+
+          'internalOnly' means that the gateway will not try to 
+          resolve the IP address for this domain name using 
+          external DNS. The IP address/es for this domain name 
+          will be obtained from the first half of mgcResolutionTable, 
+          which are added by the user.
+
+          'externalOnly' means the IP address for this domain name 
+          will be resolved externally using external DNS.
+
+          'internalFirst' means the first preference will be given 
+          to statically provisioned IP address/es, followed the IP 
+          address/es resolved using external DNS.
+
+          'externalFirst' means the first preference will be given 
+          to IP addresses resolved using external DNS followed by 
+          statically provisioned IP addresses.
+
+          This object can be modified when mgDomainNameRowStatus
+          is active except that if the mgDomainName refers to 
+          external DNS server then this object cannot be changed.
+
+          The request to change from 'internalOnly' to other types
+          will be rejected if external DNS server is 'NULL'. The
+          external DNS server can be set to 'NULL' through 
+          the object vismExtDnsServerDn in CISCO-VISM-MODULE-MIB.
+
+          When user change this object to 'internalOnly' then all
+          the externally resolved IP addresses should be implicitly
+          deleted from mgcResolutionTable."
+      DEFVAL{ internalOnly }
+      ::= { mgDomainNameEntry 3 }
+
+mgDomainNameRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Controls the creation and  deletion and of a table entry.
+
+         An entry may be created using the 'createAndGo' option.
+         User can only set mgDnsResolutionType to 'internalOnly'.
+
+         The request to set an entry with mgDnsResolutionType of 
+         'externalOnly', 'internalFirst' or 'externalFirst' would
+         be rejected if the external DNS server is 'NULL'.
+
+         When the row is successfully created, the RowStatus would
+         be set to 'active' by the agent.
+
+         An entry may be deleted by setting the RowStatus to
+         'destroy'. The deletion of an entry will be rejected 
+         if there is still reference to this domain name. 
+         For example, it cannot be deleted if it is configured as
+         MGC, tftp server, external DNS server or announcement server. 
+         Also user added IPs should already been deleted. After delete 
+         the domain name externally resolved IPs are purged implicitly.
+            
+         The request to change from 'internalOnly' to other types
+         will be rejected if external DNS server is 'NULL'. 
+
+         Other options such as `createAndWait', 'notInService', 
+         'notReady' will not be used."
+    ::= { mgDomainNameEntry 4 }
+
+
+
+mgEndpointExtTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF MgEndpointExtEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This table extends the mgEndpointTable.
+         Objects that do not directly describe the endpoint
+         but extend the rules to configure the mgEndpointTable
+         can be added to this table.
+
+         Each table entry describes an instance of an endpoint
+         on a media gateway."
+    ::= { mediaGatewayEndpoint 3 }
+
+mgEndpointExtEntry OBJECT-TYPE
+    SYNTAX        MgEndpointExtEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "Each entry represents a media gateway endpoint 
+         interface."
+    AUGMENTS  { mgEndpointEntry }
+    ::= { mgEndpointExtTable 1 }
+
+MgEndpointExtEntry::= SEQUENCE {
+    mgEndpointRepetition     Unsigned32
+}
+
+mgEndpointRepetition OBJECT-TYPE
+    SYNTAX         Unsigned32
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "This object is used to create multiple rows in the
+         mgEndpointTable as specified in the SNMP PDU,
+         starting from the row specified by the index of 
+         the instance for the number of rows specified in 
+         this object.
+ 
+         The repetition operation will start from the 
+         mgEndpointNumber, mgEndpointLineNumber and 
+         mgEndpointChannelMap that is specified in the PDU
+         and will add rows for the number specified in this 
+         object. If for a given mgEndpointLineNumber all the 
+         endpoints channels are exhausted, it will proceed 
+         to the next mgEndpointLineNumber. This will continue 
+         until the number of repetitions specified in this object 
+         is exhausted or the number of DS1s and endpoints is 
+         exhausted, whichever comes first.
+
+         The agent will need to be able to populate the objects 
+         in the mgEndpointTable with the appropriate values as new 
+         rows are created.
+        "
+    DEFVAL { 1 }
+    ::= { mgEndpointExtEntry 1 }
+
+-- ***************************************************************
+-- Media gateway control notification 
+-- ***************************************************************
+
+-- ***************************************************************
+-- Conformance 
+-- ***************************************************************
+
+mgMIBConformance OBJECT IDENTIFIER ::= { ciscoWanMgMIB 3 }
+
+mgMIBCompliances OBJECT IDENTIFIER ::= { mgMIBConformance 1 }
+
+mgMIBGroups      OBJECT IDENTIFIER ::= { mgMIBConformance 2 }
+
+
+-- 
+-- Conformance and compliance statements
+-- ************************************************************
+-- This group will not be used as mgcDnsResolution object type
+-- is deprecated from MGC table, mgcDnsResolutionFlag object
+-- is added in DNS table and also introduced a new table
+-- mgDomainTable. 
+
+mgMIBCompliance MODULE-COMPLIANCE
+    STATUS  deprecated  -- replaced by mgMIBCompliance1
+    DESCRIPTION
+            "The compliance statement for the SNMP entities 
+             which implement MGMIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { mediaGatewayGroup,
+                           mediaGatewayControllerGroup,
+                           mediaGatewayEndpointGroup,
+                           mediaGatewayLineGroup
+                         }
+    GROUP mediaGatewayControllerResolutionGroup
+    DESCRIPTION
+        "The Media Gateway Controller Resolution Group is mandatory for
+         gateways which do not support IP address resolution by DNS."
+    ::= { mgMIBCompliances 1 }
+
+
+mgMIBCompliance1 MODULE-COMPLIANCE
+    STATUS  deprecated  -- replaced by mgMIBCompliance2
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         which implement MGMIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { mediaGatewayGroup,
+                           mediaGatewayControllerGroup1,
+                           mediaGatewayEndpointGroup,
+                           mediaGatewayLineGroup,
+                           mediaGatewayDomainNameGroup 
+                         }
+    GROUP mediaGatewayControllerResolutionGroup1
+    DESCRIPTION
+        "The Media Gateway Controller Resolution Group is mandatory for
+         gateways which do not support IP address resolution by DNS."
+    ::= { mgMIBCompliances 2 }
+
+mgMIBCompliance2 MODULE-COMPLIANCE
+    STATUS  deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         which implement MGMIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { mediaGatewayGroup,
+                           mediaGatewayControllerGroup2,
+                           mediaGatewayEndpointGroup,
+                           mediaGatewayLineGroup,
+                           mediaGatewayDomainNameGroup
+                         }
+    GROUP mediaGatewayControllerResolutionGroup1
+    DESCRIPTION
+        "The Media Gateway Controller Resolution Group is mandatory for
+         gateways which do not support IP address resolution by DNS."
+
+
+    OBJECT mgEndpointName
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Object may be created by the agent with a
+         value that cannot be changed."
+
+
+    ::= { mgMIBCompliances 3 }
+
+mgMIBCompliance3 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         which implement MGMIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { mediaGatewayGroup,
+                           mediaGatewayControllerGroup2,
+                           mediaGatewayEndpointGroup,
+                           mediaGatewayLineGroup,
+                           mediaGatewayDomainNameGroup
+                         }
+    GROUP mediaGatewayControllerResolutionGroup1
+    DESCRIPTION
+        "The Media Gateway Controller Resolution Group is mandatory for
+         gateways which do not support IP address resolution by DNS."
+
+    OBJECT mgEndpointName
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Read-create access is not required for this object."
+
+    GROUP mediaGatewayEndptRepetitionGroup
+    DESCRIPTION
+        "The Media Gateway End point extension feature group. 
+         This group is mandatory for the managed system that 
+         supports the repetition operation of mgEndpointTable."
+
+    ::= { mgMIBCompliances 4 }
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+mediaGatewayGroup OBJECT-GROUP
+    OBJECTS {
+             mgName,
+             mgAdministrativeState, 
+             mgAdministrativeStateControl,
+             mgShutdownGraceTime, 
+             mgProtocolName 
+            }
+    STATUS  current
+    DESCRIPTION
+        "This group contains objects that apply to the media gateway as
+         a whole, such as global parameters and state."
+    ::= { mgMIBGroups 1 }
+
+mediaGatewayControllerGroup OBJECT-GROUP
+    OBJECTS {
+             maxConcurrentMgcs,
+             mgcName,
+             mgcDnsResolution,
+             mgcAssociationState,
+             mgcAssociationStateControl,
+             mgcUnassociationPolicy,
+             mgcCommLossUnassociationTimeout,
+             mgcRowStatus,
+             mgcProtocolRowStatus
+            }
+    STATUS    deprecated   -- replaced by mediaGatewayControllerGroup1
+    DESCRIPTION
+        "This group contains objects that describe the Media Gateway 
+         Controllers with which the Media gateway communicates."
+    ::= { mgMIBGroups 2 }
+
+mediaGatewayEndpointGroup OBJECT-GROUP
+    OBJECTS {
+             mgEndpointCreationPolicy,
+             mgEndpointName,
+             mgEndpointLineNumber,
+             mgEndpointSpeed,
+             mgEndpointState,
+             mgEndpointChannelMap,
+             mgEndpointRowStatus
+            }
+
+    STATUS  current
+    DESCRIPTION
+        "This group contains objects describing the media gateway's 
+         endpoints."
+    ::= { mgMIBGroups 3 }
+
+mediaGatewayLineGroup OBJECT-GROUP 
+    OBJECTS {
+             channelAssignment,
+             lineName
+            }
+    STATUS  current
+    DESCRIPTION
+        "This group contains objects which relate lines to endpoints. 
+         These objects complement the information contained in a line
+         MIB."
+    ::= { mgMIBGroups 4 }
+
+mediaGatewayControllerResolutionGroup OBJECT-GROUP 
+    OBJECTS {
+             mgcResolutionName,
+             mgcResolutionIpAddress,
+             mgcResolutionCommState,
+             mgcResolutionPreference,
+             mgcResolutionRowStatus
+            }
+    STATUS    deprecated  -- replaced by 
+                          -- mediaGatewayControllerResolutionGroup1
+    DESCRIPTION
+        "This group contains information to resolve names to IP 
+         addresses in the absence of DNS support."
+
+    ::= { mgMIBGroups 5 }
+
+mediaGatewayControllerGroup1 OBJECT-GROUP
+    OBJECTS {
+             maxConcurrentMgcs,
+             mgcName,
+             mgcAssociationState,
+             mgcAssociationStateControl,
+             mgcUnassociationPolicy,
+             mgcCommLossUnassociationTimeout,
+             mgcRowStatus,
+             mgcProtocolRowStatus
+            }
+    STATUS    deprecated  -- replaced by mediaGatewayControllerGroup2
+    DESCRIPTION
+        "This group contains objects that describe the MGCs with 
+         which the MG communicates."
+    ::= { mgMIBGroups 6 }
+
+mediaGatewayControllerResolutionGroup1 OBJECT-GROUP
+    OBJECTS {
+             mgcResolutionName,
+             mgcResolutionIpAddress,
+             mgcResolutionCommState,
+             mgcResolutionPreference,
+             mgcResolutionRowStatus,
+             mgcDnsResolutionFlag
+            }
+    STATUS    current
+    DESCRIPTION
+        "This group contains information to resolve names to IP 
+         addresses both in the absence of DNS support and with
+         DNS support."
+
+    ::= { mgMIBGroups 7 }
+
+mediaGatewayDomainNameGroup OBJECT-GROUP
+    OBJECTS {
+             mgDomainName,
+             mgDnsResolutionType,
+             mgDomainNameRowStatus
+            }
+    STATUS  current
+    DESCRIPTION
+        " This group contains domain names and information about how
+          these domain names will be resolved."
+    ::= { mgMIBGroups 8 } 
+
+mediaGatewayControllerGroup2 OBJECT-GROUP
+    OBJECTS {
+             maxConcurrentMgcs,
+             mgcName,
+             mgcRowStatus
+            }
+    STATUS  current
+    DESCRIPTION
+        "This group contains objects that describe the Media Gateway
+         Controllers with which the Media gateway communicates."
+    ::= { mgMIBGroups 9 }
+
+mediaGatewayEndptRepetitionGroup OBJECT-GROUP
+    OBJECTS {
+             mgEndpointRepetition
+            }
+
+    STATUS  current
+    DESCRIPTION
+        "This group contains repetition objects describing the 
+         media gateway's endpoints as defined in the 
+         mgEndpointExtTable."
+    ::= { mgMIBGroups 10 }
+
+END
+
+
+
+
+

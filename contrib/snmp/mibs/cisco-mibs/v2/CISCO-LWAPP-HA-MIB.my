@@ -1,0 +1,1291 @@
+-- *******************************************************************
+-- CISCO-LWAPP-HA-MIB.my :
+-- Jan 2012, Gayathri
+-- Nov 2017, Selvaraj Mani (Added to IOS Sources) 
+-- Copyright (c) 2018-2020 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-HA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    Counter32
+        FROM SNMPv2-SMI
+    TruthValue,
+    MacAddress,
+    DisplayString,
+    RowStatus
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    sysName
+        FROM RFC1213-MIB
+    cRFStatusPeerUnitState,
+    cRFStatusUnitState
+        FROM CISCO-RF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappHaMIB MODULE-IDENTITY
+    LAST-UPDATED    "202006070000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        This MIB is used to show and configure High 
+        availability (HA) related statistics.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+          +......+     +......+     +......+          
+          +      +     +      +     +      +           
+          +  CC  +     +  CC  +     +  CC  +           
+          +      +     +      +     +      +           
+          +......+     +......+     +......+           
+            ..            .             .                 
+            ..            .             .                 
+           .  .            .             .                 
+          .    .            .             .                 
+         .      .            .             .                 
+        .        .            .             .                 
+        +......+ +......+     +......+      +......+          
+        +      + +      +     +      +      +      +         
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          
+        +      + +      +     +      +      +      +          
+        +......+ +......+     +......+      +......+          
+             .              .             .                 
+            .  .              .             .                 
+           .    .              .             .                 
+          .      .              .             .                 
+         .        .              .             .                 
+        +......+ +......+     +......+      +......+          
+        +      + +      +     +      +      +      +          
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          
+        +      + +      +     +      +      +      +          
+        +......+ +......+     +......+      +......+          
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                               GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'. 
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the 
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. Mobile Node,
+        Mobile Station(Ms) and client are used interchangeably. 
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol."
+    REVISION        "202006070000Z"
+    DESCRIPTION     "Added Gateway Failover Interval object in
+                     (ciscoLwappMcRmiConfig)"
+    REVISION        "201907080000Z"
+    DESCRIPTION     "Added Multi-Chassis RMI configuration objects in
+                     (ciscoLwappMcRmiConfig)"
+    REVISION        "201711080000Z"
+    DESCRIPTION     "Added Multi-Chassis HA configuration objects in
+                     (ciscoLwappMcHaConfig)"
+    REVISION        "201703140000Z"
+    DESCRIPTION     "Initial version of this MIB module."
+    ::= { ciscoMgmt 843 }
+
+
+ciscoLwappHaMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIB 0 }
+
+ciscoLwappHaMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIB 1 }
+
+ciscoLwappHaMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIB 2 }
+
+ciscoLwappHaGlobalConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBObjects 1 }
+
+ciscoLwappHaNetworkConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBObjects 2 }
+
+ciscoLwappHaNotificationVariable  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBObjects 3 }
+
+ciscoLwappHaPeerStatisticsVariable  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBObjects 4 }
+
+ciscoLwappHaStatisticsVariable  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBObjects 5 }
+
+ciscoLwappMcHaConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBObjects 6 }
+
+ciscoLwappMcRmiConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBObjects 7 }
+
+ciscoLwappHaSystemStatistics  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaPeerStatisticsVariable 1 }
+
+ciscoLwappHaCpuStatistics  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaSystemStatistics 1 }
+
+ciscoLwappHaPowerSupplyStatistics  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaSystemStatistics 2 }
+
+ciscoLwappHaMemoryStatistics  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaSystemStatistics 3 }
+
+
+-- *************************************************
+-- HA Global Config
+-- *************************************************
+
+cLHaApSsoConfig OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the value of redundancy mode
+        statefull switch over (SSO).
+        A value of 'true' indicates that, redundancy mode SSO 
+        is enabled. 
+        A value of 'false' indicates that, redundancy mode SSO 
+        is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaGlobalConfig 1 }
+
+cLHaPeerIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer WLC IP address
+        type." 
+    ::= { ciscoLwappHaGlobalConfig 2 }
+
+cLHaPeerIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer WLC IP address." 
+    ::= { ciscoLwappHaGlobalConfig 3 }
+
+cLHaServicePortPeerIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer WLC service port IP
+        address type." 
+    ::= { ciscoLwappHaGlobalConfig 4 }
+
+cLHaServicePortPeerIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer WLC service port IP
+        address." 
+    ::= { ciscoLwappHaGlobalConfig 5 }
+
+cLHaServicePortPeerIpNetMaskType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer WLC service port net
+        mask IP type." 
+    ::= { ciscoLwappHaGlobalConfig 6 }
+
+cLHaServicePortPeerIpNetMask OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer WLC service port
+        net mask IP address." 
+    ::= { ciscoLwappHaGlobalConfig 7 }
+
+cLHaRedundancyIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the peer WLC redundancy management
+        interface IP address type." 
+    ::= { ciscoLwappHaGlobalConfig 8 }
+
+cLHaRedundancyIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the peer WLC redundancy management
+        interface IP address." 
+    ::= { ciscoLwappHaGlobalConfig 9 }
+
+cLHaPeerMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the peer WLC mac
+        address." 
+    ::= { ciscoLwappHaGlobalConfig 10 }
+
+cLHaVirtualMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer WLC mobility
+        MAC address." 
+    ::= { ciscoLwappHaGlobalConfig 11 }
+
+cLHaPrimaryUnit OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether this is the primary
+        or secondary unit. 
+        A value of 'true' indicates that, this unit is the 
+        primary unit. 
+        A value of 'false' indicates that, this unit is the 
+        secondary unit."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaGlobalConfig 12 }
+
+cLHaLinkEncryption OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether link encryption is
+        enabled or disabled.
+        A value of 'true' indicates that, link encryption
+        is enabled. 
+        A value of 'false' indicates that, link encryption
+        is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaGlobalConfig 13 }
+
+cLHaNetworkFailOver OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether network failover is
+        enabled or disabled.
+        A value of 'true' indicates that, network failover
+        is enabled.
+        A value of 'false' indicates that, network failover
+        is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaGlobalConfig 14 }
+
+cLHaRFStatusUnitIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer IP address
+        when Redundancy Framwork(RF) state of active/peer 
+        unit changes." 
+    ::= { ciscoLwappHaGlobalConfig 15 }
+
+cLHaKATimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies keep alive timeout value in milli
+        seconds between 100 and 1000. The value for this object 
+        configured in multiples of 50."
+    DEFVAL          { 100 } 
+    ::= { ciscoLwappHaGlobalConfig 16 }
+
+cLHaKARetryCount OBJECT-TYPE
+    SYNTAX          Unsigned32 (3..10)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies keep alive retry count and
+        The value for this object configured between 3 and
+        10."
+    DEFVAL          { 3 } 
+    ::= { ciscoLwappHaGlobalConfig 17 }
+
+cLHaGwRetryCount OBJECT-TYPE
+    SYNTAX          Unsigned32 (6..12)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies default gateway reachability retry
+        count and The value for this object configured between 6 
+        and 12."
+    DEFVAL          { 12 } 
+    ::= { ciscoLwappHaGlobalConfig 18 }
+
+cLHaPeerSearchTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (60..300)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies peer search timeout and
+        The value for this object configured between 60 
+        and 300 seconds."
+    DEFVAL          { 200 } 
+    ::= { ciscoLwappHaGlobalConfig 19 }
+
+cLHaRFStatusUnitIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peer IP address type
+        when redundancy framwork(RF) state of active/peer unit 
+        changes." 
+    ::= { ciscoLwappHaGlobalConfig 20 }
+
+-- ********************************************************************
+-- ciscoLwappMcHaConfig
+-- ********************************************************************
+
+cLMcHaPortName OBJECT-TYPE
+        SYNTAX          DisplayString
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object allows user to specify and get the
+                         interface name designated as the HA Interface
+                         in Multi-Chassis HA environments. This will be
+                         applicable only on the virtual Chassis systems.
+                         This should be the complete namestring of 
+                         the chassis interface." 
+        ::= { ciscoLwappMcHaConfig 1 }
+
+cLMcHaPortLocIpAddrType OBJECT-TYPE
+        SYNTAX          InetAddressType
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object represents the IP version to be
+                         used for HA transport. This object will apply
+                         to both local IP and the cLMcHaPortMask" 
+        ::= { ciscoLwappMcHaConfig 2 }
+
+
+cLMcHaPortLocIp OBJECT-TYPE
+        SYNTAX          InetAddress
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object allows user to specify and get the
+                         Local chassis IPv4 Address to establish the HA
+                         communication. This IP Address will be assigned
+                         to the HA Port on the configuring chassis, and
+                         it will be take effect only after a reload." 
+        ::= { ciscoLwappMcHaConfig 3 }
+
+cLMcHaPortMask OBJECT-TYPE
+        SYNTAX          InetAddress
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object allows user to specify and get the
+                         network mask for the local chassis IPv4 Address
+                         to establish the HA communication. This netmask
+                         will be assigned to designated HA interface." 
+        ::= { ciscoLwappMcHaConfig 4 }
+
+cLMcHaPortRemoteIpAddrType OBJECT-TYPE
+        SYNTAX          InetAddressType
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object represents the IP version to be
+                         used for HA transport." 
+        ::= { ciscoLwappMcHaConfig 5 }
+
+cLMcHaPortRemIp OBJECT-TYPE
+        SYNTAX          InetAddress
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object allows user to specify and get the
+                         peer chassis IPv4 Address to establish the
+                         HA communication." 
+        ::= { ciscoLwappMcHaConfig 6 }
+
+cLMcHaKeepAliveTimeOut OBJECT-TYPE
+        SYNTAX          Unsigned32 (100..1000)
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object specifies keep alive timeout value
+                         in milli seconds between 100 and 1000.
+                         The value for this object configured in
+                         multiples of 100." 
+        DEFVAL          { 100 }
+        ::= { ciscoLwappMcHaConfig 7 }
+
+cLMcHaChassisPriority OBJECT-TYPE
+        SYNTAX          Unsigned32 (1..2)
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object allows user to specify and get the
+                         current chassis priority. The higher the
+                         priority, higher the chance of local chassis
+                         becoming the Active." 
+        ::= { ciscoLwappMcHaConfig 8 }
+
+cLMcHaClearConfig OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object allows user to remove the multi-chassis
+                     HA configuration. When get, TRUE value indicating
+                     HA configuration is cleared, FALSE means not."
+    DEFVAL          { false } 
+     ::= { ciscoLwappMcHaConfig 9 }
+ 
+cLMcHaKeepAliveRetryCount OBJECT-TYPE
+    SYNTAX          Unsigned32 (3..10)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object specifies keep alive retry count and
+                     The value for this object configured between
+                     3 and 10."
+    DEFVAL          { 3 } 
+    ::= { ciscoLwappMcHaConfig 10 }
+
+-- ********************************************************************
+-- ciscoLwappMcRmiConfig
+-- ********************************************************************
+
+cLMcRmiConfigAction OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object allows user to remove the RMI
+                     configuration. When get, 1 value indicating RMI
+                     configuration is applied , 2 means clear config."
+    ::= { ciscoLwappMcRmiConfig 1 }
+ 
+
+cLMcRmiInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object specifies Chassis/Switch number and
+                     The value for this object is between 1 and 15."
+    ::= { ciscoLwappMcRmiConfig 2 }
+
+cLMcRmiChassisANum OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..15)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object specifies Chassis/Switch number and
+                     The value for this object is between 1 and 15."
+    DEFVAL          { 1 } 
+    ::= { ciscoLwappMcRmiConfig 3 }
+
+cLMcRmiChassisAIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object represents IP version to be used
+                     for RMI transport"
+    ::= { ciscoLwappMcRmiConfig 4 }
+
+
+cLMcRmiChassisAIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object allows user to specify and get the
+                     chassis. IPv4 Address to establish the RMI
+                     communication. This IP Address will be assigned
+                     to the RMI Port on the configuring chassis, and it
+                     will be take effect only after a reload." 
+    ::= { ciscoLwappMcRmiConfig 5 }
+
+cLMcRmiChassisBNum OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..15)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object specifies Chassis/Switch number and
+                     The value for this object is between 1 and 15."
+    DEFVAL          { 1 } 
+    ::= { ciscoLwappMcRmiConfig 6 }
+
+cLMcRmiChassisBIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object represents IP version to be used
+                     for RMI transport"
+    ::= { ciscoLwappMcRmiConfig 7 }
+
+
+cLMcRmiChassisBIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object allows user to specify and get the
+                     chassis. IPv4 Address to establish the RMI
+                     communication. This IP Address will be assigned
+                     to the RMI Port on the configuring chassis, and
+                     it will be take effect only after a reload." 
+    ::= { ciscoLwappMcRmiConfig 8 }
+
+
+cLMcRmiGatewayFailover OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object allows user to enable/disable
+                     RMI Gateway-Failover configuration. When get,
+                     TRUE value indicating RMI Gateway-Failover 
+                     configuration is enabled, FALSE means disabled."
+    DEFVAL          { true } 
+     ::= { ciscoLwappMcRmiConfig 9 }
+ 
+cLMcRmiGatewayFailoverInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (6..12)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "This object specifies Gateway-Failover interval and
+                     The value for this object is between 6 and 12."
+    DEFVAL          { 8 }
+    ::= { ciscoLwappMcRmiConfig 10 }
+
+
+-- ********************************************************************
+-- cLHaNeworkRoutePeerTable
+-- ********************************************************************
+
+cLHaNetworkRoutePeerConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHaNetworkRoutePeerConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the peer network route
+        entries."
+    ::= { ciscoLwappHaNetworkConfig 1 }
+
+cLHaNetworkRoutePeerConfigEntry OBJECT-TYPE
+    SYNTAX          CLHaNetworkRoutePeerConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains configuration of peer network
+        route."
+    INDEX           {
+                        cLHaNetworkRoutePeerIPAddressType,
+                        cLHaNetworkRoutePeerIPAddress
+                    } 
+    ::= { cLHaNetworkRoutePeerConfigTable 1 }
+
+CLHaNetworkRoutePeerConfigEntry ::= SEQUENCE {
+        cLHaNetworkRoutePeerIPAddressType  InetAddressType,
+        cLHaNetworkRoutePeerIPAddress      InetAddress,
+        cLHaNetworkRoutePeerIPNetmaskType  InetAddressType,
+        cLHaNetworkRoutePeerIPNetmask      InetAddress,
+        cLHaNetworkRoutePeerGatewayType    InetAddressType,
+        cLHaNetworkRoutePeerGateway        InetAddress,
+        cLHaNetworkRoutePeerTransferStatus INTEGER,
+        cLHaNetworkRoutePeerRowStatus      RowStatus
+}
+
+cLHaNetworkRoutePeerIPAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents peer network route
+        IP address type." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 1 }
+
+cLHaNetworkRoutePeerIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents peer network route
+        IP address." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 2 }
+
+cLHaNetworkRoutePeerIPNetmaskType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies peer network route
+        IP netmask type." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 3 }
+
+cLHaNetworkRoutePeerIPNetmask OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies peer network route
+        IP netmask." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 4 }
+
+cLHaNetworkRoutePeerGatewayType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents peer network route
+        gateway IP type." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 5 }
+
+cLHaNetworkRoutePeerGateway OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies peer network route
+        gateway IP address." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 6 }
+
+cLHaNetworkRoutePeerTransferStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        initiate(1),
+                        inProgress(2),
+                        success(3),
+                        failure(4),
+                        timeout(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents peer network route transfer
+        status.
+        A value of initiate(1) indicates that, network route 
+        transfer initiated.
+        A value of inProgress(2) indicates that, network route 
+        transfer in progress.
+        A value of success(3) indicates that, network route 
+        transfer success.
+        A value of failure(4) indicates that, network route 
+        transfer failure.
+        A value of timeout(5) indicates that  network route 
+        transfer time out." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 7 }
+
+cLHaNetworkRoutePeerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies status column for this row
+        and used to create and delete specific instances
+        of rows in this table." 
+    ::= { cLHaNetworkRoutePeerConfigEntry 8 }
+ 
+-- ********************************************************************
+-- *    Peer Statistics Variable
+-- ********************************************************************
+
+cLHaAllCpuUsage OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the all CPUs usage
+        of peer."
+    DEFVAL          { "" } 
+    ::= { ciscoLwappHaCpuStatistics 1 }
+
+cLHaPowerSupply1Present OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether peer switch power
+        Supply 1 is enabled or disabled. 
+        A value of 'true' indicates that, peer switch 
+        power supply 1 is enabled. 
+        A value of 'false' indicates that, peer switch power
+        supply 1 is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaPowerSupplyStatistics 1 }
+
+cLHaPowerSupply1Operational OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether peer switch power
+        supply 1 operational or not. 
+        A value of 'true' indicates that, peer switch power
+        supply 1 operational is enabled. 
+        A value of 'false' indicates that, peer switch power
+        supply 1 operational is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaPowerSupplyStatistics 2 }
+
+cLHaPowerSupply2Present OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether peer switch power
+        supply 2 is enabled or disabled. 
+        A value of 'true' indicates that, peer switch power
+        supply 2 is enabled. 
+        A value of 'false' indicates that, peer switch power
+        supply 2 is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaPowerSupplyStatistics 3 }
+
+cLHaPowerSupply2Operational OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether Peer switch power
+        Supply 2 operational or not. 
+        A value of 'true' indicates that, peer switch power
+        supply 2 operational is enabled. 
+        A value of 'false' indicates that, peer switch power
+        supply 2 operational is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoLwappHaPowerSupplyStatistics 4 }
+
+cLHaTotalSystemMemory OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total system memory in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 1 }
+
+cLHaFreeSystemMemory OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the free system memory in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 2 }
+
+cLHaUsedSystemMemory OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the used system memory in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 3 }
+
+cLHaAllocatedFromRtos OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of bytes allocated
+        from RTOS in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 4 }
+
+cLHaChunksFree OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of free chunks."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 5 }
+
+cLHaMmappedRegions OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of memory mapped regions."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 6 }
+
+cLHaSpaceInMmappedRegions OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the space in the memory mapped
+        regions in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 7 }
+
+cLHaTotalAllocatedSpace OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total allocated space
+        in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 8 }
+
+cLHaTotalNotInUseSpace OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total space not in-use in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 9 }
+
+cLHaTopMostReleasableSpace OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the top most releasable space
+        in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 10 }
+
+cLHaTotalAllocatedInclMmap OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total memory allocated including
+        memory map in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 11 }
+
+cLHaTotalUsedMmap OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total memory in-use including
+        memory map in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 12 }
+
+cLHaTotalFreeInclMmap OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total free memory including
+        memory map in Kbytes."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaMemoryStatistics 13 }
+
+-- ********************************************************************
+-- *    HA statistics Variable
+-- ********************************************************************
+
+cLHaAvgPeerReachLatency OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "Microseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents average value of peer controller
+        reachable latency in micro seconds."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaStatisticsVariable 1 }
+
+cLHaAvgGwReachLatency OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "Microseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents average value of default gate
+        way reachable latency in micro seconds."
+    DEFVAL          { 0 } 
+    ::= { ciscoLwappHaStatisticsVariable 2 }
+
+cLHaBulkSyncStatus OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents current status of bulk sync."
+    DEFVAL          { "" } 
+    ::= { ciscoLwappHaStatisticsVariable 3 }
+
+-- ********************************************************************
+-- *    NOTIFICATION Variable
+-- ********************************************************************
+
+cLHaSecondaryControllerUsageTrapType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        usageStart(1),
+                        usageComplete(2),
+                        overUsage(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the usage of secondary controller.
+        After the usuage of 90 days, one trap is generated per 
+        day for over usage.
+        A value of usageStart(1) indicates that, start of secondary 
+        controller usage.
+        A value of usageComplete(2) indicates, that completion of 
+        secondary controller usage period of 90 days.
+        A value of overUsage(3) indicates that, Secondary controller 
+        overusage." 
+    ::= { ciscoLwappHaNotificationVariable 1 }
+
+cLHaSecondaryControllerUsageDayCounter OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of days the
+        secondary controller is used." 
+    ::= { ciscoLwappHaNotificationVariable 2 }
+
+cLHaBulkSyncCompleteEvent OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        bulkSyncComplete(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the time when the bulksync
+        was complete." 
+    ::= { ciscoLwappHaNotificationVariable 3 }
+
+cLHaPeerHotStandbyEvent OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        haPeerHotstandby(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents that the peer has turned hot-standby." 
+    ::= { ciscoLwappHaNotificationVariable 4 }
+
+cLHaSecondaryControllerUsageTrap NOTIFICATION-TYPE
+    OBJECTS         {
+                        cLHaSecondaryControllerUsageTrapType,
+                        cLHaSecondaryControllerUsageDayCounter,
+                        sysName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent on the event of a generic failure
+        between the active and peer unit."
+   ::= { ciscoLwappHaMIBNotifs 1 }
+
+cLHaRFSwapInfoTrap NOTIFICATION-TYPE
+    OBJECTS         {
+                        cLHaRFStatusUnitIp,
+                        cRFStatusUnitState,
+                        cLHaPeerIpAddress,
+                        cRFStatusPeerUnitState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The notification is sent by the active redundant
+        unit whenever its RF state changes or the RF state of the peer
+        unit changes.
+
+        To avoid a flurry of notifications for all state transitions,
+        notifications will only be sent for transitions to the
+        following RF states:
+            disabled (for the peer state)
+            standbyCold
+            standbyHot
+            active
+            activeExtraload."
+   ::= { ciscoLwappHaMIBNotifs 2 }
+
+cLHaBulkSyncCompleteTrap NOTIFICATION-TYPE
+    OBJECTS         { cLHaBulkSyncCompleteEvent }
+    STATUS          current
+    DESCRIPTION
+        "The notification is sent by the active redundant
+        unit whenever the BulkSync to peer is complete."
+   ::= { ciscoLwappHaMIBNotifs 3 }
+
+cLHaPeerHotStandbyTrap NOTIFICATION-TYPE
+    OBJECTS         { cLHaPeerHotStandbyEvent }
+    STATUS          current
+    DESCRIPTION
+        "The notification is sent by the active redundant
+        unit whenever its peer unit turned hot-standby."
+   ::= { ciscoLwappHaMIBNotifs 4 }
+-- *******************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappHaMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBConform 1 }
+
+ciscoLwappHaMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappHaMIBConform 2 }
+
+
+ciscoLwappHaMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+                         --superceded by ciscoLwappHaMIBComplianceRev1
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappHaGlobalConfigGroup,
+                        ciscoLwappHaNetworkConfigGroup,
+                        ciscoLwappHaStatisticsGroup,
+                        ciscoLwappHaMIBNotificationVariableGroup,
+                        ciscoLwappHaMIBNotificationGroup,
+                        ciscoLwappMcHaConfigGroup
+                    }
+    ::= { ciscoLwappHaMIBCompliances 1 }
+
+ciscoLwappHaMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappHaGlobalConfigGroup,
+                        ciscoLwappHaNetworkConfigGroup,
+                        ciscoLwappHaStatisticsGroup,
+                        ciscoLwappHaMIBNotificationVariableGroup,
+                        ciscoLwappHaMIBNotificationGroup,
+                        ciscoLwappMcHaConfigGroup,
+                        ciscoLwappMcRmiConfigGroup
+                    }
+    ::= { ciscoLwappHaMIBCompliances 2 }
+
+-- *******************************************************************
+-- Units of Conformance
+-- *******************************************************************
+
+ciscoLwappHaGlobalConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLHaApSsoConfig,
+                        cLHaPeerIpAddressType,
+                        cLHaPeerIpAddress,
+                        cLHaServicePortPeerIpAddressType,
+                        cLHaServicePortPeerIpAddress,
+                        cLHaServicePortPeerIpNetMaskType,
+                        cLHaServicePortPeerIpNetMask,
+                        cLHaRedundancyIpAddressType,
+                        cLHaRedundancyIpAddress,
+                        cLHaPeerMacAddress,
+                        cLHaVirtualMacAddress,
+                        cLHaPrimaryUnit,
+                        cLHaLinkEncryption,
+                        cLHaNetworkFailOver,
+                        cLHaRFStatusUnitIpType,
+                        cLHaRFStatusUnitIp,
+                        cLHaKATimeout,
+                        cLHaKARetryCount,
+                        cLHaGwRetryCount,
+                        cLHaPeerSearchTimeout
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about global config of the high availability objects on 
+        the controller."
+    ::= { ciscoLwappHaMIBGroups 1 }
+
+ciscoLwappHaNetworkConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLHaNetworkRoutePeerIPNetmaskType,
+                        cLHaNetworkRoutePeerIPNetmask,
+                        cLHaNetworkRoutePeerGatewayType,
+                        cLHaNetworkRoutePeerGateway,
+                        cLHaNetworkRoutePeerTransferStatus,
+                        cLHaNetworkRoutePeerRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about network config of the high availability objects on 
+        the controller."
+    ::= { ciscoLwappHaMIBGroups 2 }
+
+ciscoLwappHaStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLHaAvgPeerReachLatency,
+                        cLHaAvgGwReachLatency,
+                        cLHaBulkSyncStatus,
+                        cLHaTotalSystemMemory,
+                        cLHaFreeSystemMemory,
+                        cLHaUsedSystemMemory,
+                        cLHaAllocatedFromRtos,
+                        cLHaChunksFree,
+                        cLHaMmappedRegions,
+                        cLHaSpaceInMmappedRegions,
+                        cLHaTotalAllocatedSpace,
+                        cLHaTotalNotInUseSpace,
+                        cLHaTopMostReleasableSpace,
+                        cLHaTotalAllocatedInclMmap,
+                        cLHaTotalUsedMmap,
+                        cLHaTotalFreeInclMmap,
+                        cLHaAllCpuUsage,
+                        cLHaPowerSupply1Present,
+                        cLHaPowerSupply1Operational,
+                        cLHaPowerSupply2Present,
+                        cLHaPowerSupply2Operational
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about the Statistics of high availability objects on the 
+        controller."
+    ::= { ciscoLwappHaMIBGroups 3 }
+
+ciscoLwappHaMIBNotificationVariableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLHaSecondaryControllerUsageTrapType,
+                        cLHaSecondaryControllerUsageDayCounter,
+                        cLHaBulkSyncCompleteEvent,
+                        cLHaPeerHotStandbyEvent
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about the Notification of high availability objects on 
+        the controller."
+    ::= { ciscoLwappHaMIBGroups 4 }
+
+ciscoLwappHaMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cLHaSecondaryControllerUsageTrap,
+                        cLHaRFSwapInfoTrap,
+                        cLHaBulkSyncCompleteTrap,
+                        cLHaPeerHotStandbyTrap
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplemental collection of objects represents the
+        HA related notifications sent by the agent to a network
+        management station."
+    ::= { ciscoLwappHaMIBGroups 5 }
+
+ciscoLwappMcHaConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLMcHaPortName,
+                        cLMcHaPortLocIpAddrType,
+                        cLMcHaPortLocIp,
+                        cLMcHaPortMask,
+                        cLMcHaPortRemoteIpAddrType,
+                        cLMcHaPortRemIp,
+                        cLMcHaKeepAliveTimeOut,
+                        cLMcHaChassisPriority,
+                        cLMcHaClearConfig,
+                        cLMcHaKeepAliveRetryCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+         about network config of the multi chassis high availability
+         RMI objects on the controller."
+    ::= { ciscoLwappHaMIBGroups 6 }
+
+ciscoLwappMcRmiConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLMcRmiConfigAction,
+                        cLMcRmiInterface,
+                        cLMcRmiChassisANum,
+                        cLMcRmiChassisAIpAddrType,
+                        cLMcRmiChassisAIp,
+                        cLMcRmiChassisBNum,
+                        cLMcRmiChassisBIpAddrType,
+                        cLMcRmiChassisBIp,
+                        cLMcRmiGatewayFailover,
+                        cLMcRmiGatewayFailoverInterval
+                    }
+    STATUS          current
+    DESCRIPTION     "This collection of objects represents the
+                     information about network config of the multi 
+                     chassis RMI objects on the controller."
+    ::= { ciscoLwappHaMIBGroups 7 }
+
+END
+

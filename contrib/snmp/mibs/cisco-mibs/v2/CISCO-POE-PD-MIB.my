@@ -1,0 +1,277 @@
+-- *******************************************************************
+-- CISCO-POE-PD-MIB.my 
+-- Cisco Power Over Ethernet Powered Device MIB 
+--
+-- March 2004, Francis Pang 
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-POE-PD-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        SnmpAdminString 
+                FROM SNMP-FRAMEWORK-MIB
+        ciscoMgmt  
+                FROM CISCO-SMI;
+
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoPoePdMIB MODULE-IDENTITY
+        LAST-UPDATED    "200405050000Z"
+        ORGANIZATION    "Cisco Systems Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                        Postal: 170 West Tasman Drive
+			San Jose, CA  95134
+			USA
+                        Tel: +1 800 553-NETS                 
+            
+                E-mail: cs-poe@cisco.com"
+
+        DESCRIPTION
+                "This MIB is intended for devices powered by 
+                external power sources, in particular Power 
+                Over Ethernet (PoE or formerly called inline 
+                power), to provide power usage configuration 
+                and information for NMS.  For example, PoE 
+                supplies DC power over standard Category 5 
+                unshielded twisted-pair (UTP) cable.  Instead 
+                of requiring wall power, powered devices such 
+                as IP telephones can utilize power provided
+                from power source equipments.  By using Cisco
+                Discovery Protocol (CDP),  powered devices 
+                can negotiated with power source equipment to
+                obtain optimum power supply. 
+                  
+                 
+                                  GLOSSARY
+
+                Midspan Injector
+                    The midspan PSE sends out a signal tone down
+                    one of the unused pairs of the standard 
+                    Category 5 cable and detects tone on the 
+                    other unused pair when the PD loops this tone
+                    back to it through a loopback transformer.  
+                    Once the midspan PSE detects this tone, it 
+                    begins to provide power down the cable using 
+                    the unused pairs.  The midspan PSE provide no 
+                    physical layer capability. 
+
+                Powered Device ( PD )
+                    These are devices powered by external electrical
+                    power sources.  They are, for example, IP 
+                    telephones and wireless Access Points or bridges. 
+
+                Power Source Equipment ( PSE )
+                    These are devices supplying electrical power to  
+                    other equipments.  They are, for example, inline 
+                    power switches and power patch panels."
+
+        REVISION      "200405050000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 414 }
+
+
+cpoePdMIBNotifications OBJECT IDENTIFIER 
+        ::= { ciscoPoePdMIB 0 }
+
+cpoePdMIBObjects       OBJECT IDENTIFIER 
+        ::= { ciscoPoePdMIB 1 }
+
+cpoePdMIBConformance   OBJECT IDENTIFIER 
+        ::= { ciscoPoePdMIB 2 }
+
+cpoePdInformation      OBJECT IDENTIFIER
+        ::= { cpoePdMIBObjects 1 }
+
+
+--********************************************************************
+--*     Textual Convention 
+--********************************************************************
+
+CpoePdPowerSourceType ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "This is the type of power source equipment supplying
+                DC power to the PD.
+                    pending   -- power source is not yet determined.
+                    acAdaptor -- power is supplied by an AC adapter
+                    thirdParty  -- power is supplied by a PSE not 
+                                   supporting Cisco CDP 
+                    classic   -- power is supplied and limited by 
+                                 a classic Cisco PSE
+                    midspan   -- power is supplied by a midspan 
+                                 injector
+                    cdpNegotiated  -- power is negotiated using Cisco
+                                      CDP
+                    highPowerClassic -- power is supplied by Cisco
+                                        PSE without negotiation."
+        SYNTAX INTEGER {
+                pending(1),
+                acAdaptor(2),
+                thirdParty(3),
+                classic(4),
+                midspan(5),
+                cdpNegotiated(6),
+                highPowerClassic(7)
+                       }
+                   
+
+--********************************************************************
+--*     Configurations and Information 
+--********************************************************************
+
+cpoePdCurrentPowerLevel OBJECT-TYPE
+        SYNTAX     Unsigned32(1..65535)
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION 
+                "This identifies the currently how much power 
+                is consummed by the device at which this agent
+                is running.  The level shall be one of the
+                cpoePdSupportedPowerLevel in the  
+                cpoePdSupportedPowerTable."  
+        ::= { cpoePdInformation 1 } 
+
+cpoePdCurrentPowerSource OBJECT-TYPE
+        SYNTAX CpoePdPowerSourceType 
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION 
+                "This is the current power source type 
+                obtained from device power source detection." 
+        ::= { cpoePdInformation 2 } 
+
+cpoePdSupportedPowerLevelTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CpoePdSupportedPowerLevelEntry
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "This table shows all the supported electrical
+                power consumption levels of this agent and the
+                corresponding modes of operation at those power
+                levels.  The mode of operation and the device 
+                capability changes as the supplied power level
+                varies.  The number of supported levels is 
+                platform and implementation dependent."
+        ::= { cpoePdInformation 3 }
+
+cpoePdSupportedPowerLevelEntry OBJECT-TYPE
+        SYNTAX     CpoePdSupportedPowerLevelEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry shows a supported power level 
+                and the corresponding mode of operation."
+        INDEX      { cpoePdSupportedPowerLevel }
+        ::= { cpoePdSupportedPowerLevelTable 1 }
+
+
+CpoePdSupportedPowerLevelEntry ::=
+        SEQUENCE  {
+            cpoePdSupportedPowerLevel  Unsigned32,
+            cpoePdSupportedPower       Unsigned32,
+            cpoePdSupportedPowerMode   SnmpAdminString
+                  }
+
+cpoePdSupportedPowerLevel OBJECT-TYPE     
+        SYNTAX     Unsigned32(1..65535)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "This index uniquely identifies the supported 
+                power consumption level."
+        ::= { cpoePdSupportedPowerLevelEntry 1 }
+
+cpoePdSupportedPower OBJECT-TYPE
+        SYNTAX     Unsigned32(1..65535)
+        UNITS      "milliwatts"
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION 
+                "This is the electrical power consummed by
+                the device operating at this supported power
+                consumption level."
+        ::= { cpoePdSupportedPowerLevelEntry 2 }
+
+cpoePdSupportedPowerMode OBJECT-TYPE
+        SYNTAX     SnmpAdminString 
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION 
+                "This is a text string describing the mode of
+                operation or capability of the device at the
+                power consumption level.  For example, the 
+                comsumption level and corresponding mode should
+                look like these:
+                    1  'Full power mode'
+                    2  'Low power mode - dot11radio 0 disabled'
+                    3  'Low power mode - dot11radio 1 disabled'
+                    4  'Low power mode - dot11 radios disabled'."
+        ::= { cpoePdSupportedPowerLevelEntry 3 }
+
+                                         
+--********************************************************************
+--      Conformance information
+--********************************************************************
+
+cpoePdMIBCompliances OBJECT IDENTIFIER 
+        ::= { cpoePdMIBConformance 1 }
+
+cpoePdMIBGroups OBJECT IDENTIFIER 
+        ::= { cpoePdMIBConformance 2 }
+
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+cpoePdMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                 implement the ciscoPoePdMIB module."
+        MODULE 
+                MANDATORY-GROUPS {
+                    cpoePdInformationGroup
+                                  } 
+        ::= { cpoePdMIBCompliances 1 }
+
+
+--********************************************************************
+--*     Compliance Groups  
+--********************************************************************
+
+cpoePdInformationGroup OBJECT-GROUP
+        OBJECTS {
+                cpoePdCurrentPowerLevel, 
+                cpoePdCurrentPowerSource,
+                cpoePdSupportedPower,
+                cpoePdSupportedPowerMode
+                }                
+        STATUS  current
+        DESCRIPTION
+                "This collection of objects provide information about
+                the supported electrical power level, current power
+                consumption, and mode of operation of this agent."
+        ::= { cpoePdMIBGroups 1 }
+
+END
+
+

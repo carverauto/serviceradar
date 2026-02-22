@@ -1,0 +1,857 @@
+-- *****************************************************************
+-- CISCO-FILTER-CONFIG: Filter Group MIB
+--
+-- April 2005, Subra Hegde
+--
+-- Copyright (c) 2005 by Cisco Systems, Inc.  
+-- All rights reserved.  
+-- *****************************************************************
+--
+CISCO-FILTER-GROUP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Integer32,                     
+        Unsigned32                     
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        RowStatus, 
+        StorageType,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        InetAddressType,
+        InetAddress,
+        InetPortNumber
+                FROM INET-ADDRESS-MIB
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        CiscoIpProtocol
+                FROM CISCO-TC
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoFilterGroupMIB MODULE-IDENTITY
+        LAST-UPDATED    "200504270000Z"
+        ORGANIZATION    "Cisco System Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive,
+                        San Jose CA 95134-1706.  
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: ip-acl@cisco.com"
+        DESCRIPTION
+                "The MIB module is for creating and configuring
+                object groups to support packet filtering and
+                access control on IP and other protocols.
+
+                The cfgFilterGroupTable allows users to create
+                delete, and get information about filter groups.
+                Filter groups are uniquely identified by the 
+                group names.  Filter groups can either be of
+                network, protocol, service and icmp and filter
+                group type cannot be changed once it has been created. 
+
+                The cfgFilterNetworkGroupTable is used for managing
+                information about IP Addresses.
+
+                The cfgFilterIpProtocolGroupTable is used for managing
+                information about protocols.
+
+                The cfgFilterIpServiceGroupTable is used for managing
+                information about services(ports).
+
+                The cfgFilterICMPGroupTable is used for managing
+                information about ICMP protocol.
+
+                The cfgFilterNestedGroupTable is used for supporting
+                nesting of filter groups(i.e configuring filter groups 
+                inside the other filter groups).
+
+                Terminologies used:
+                    ICMP - Internet Control Message Protocol."
+
+        REVISION        "200504270000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 474 }
+
+ciscoFilterGroupMIBNotifs  OBJECT IDENTIFIER 
+        ::= { ciscoFilterGroupMIB 0 }
+
+ciscoFilterGroupMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoFilterGroupMIB 1 }
+
+ciscoFilterGroupMIBConform OBJECT IDENTIFIER 
+        ::= { ciscoFilterGroupMIB 2 }
+
+cfgFilterConfig             OBJECT IDENTIFIER 
+        ::= { ciscoFilterGroupMIBObjects 1 }
+
+CfgFilterGroupName ::= TEXTUAL-CONVENTION
+    STATUS    current
+    DESCRIPTION
+        "This textual convention defines the filter
+        group.  Filter group provides a name for
+        combining multiple types of objects of
+        same category.  The object value shall be
+        an alphanumeric string."
+    SYNTAX    OCTET STRING (SIZE (0..64))  
+
+cfgFilterGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfgFilterGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table is used for creating/deleting 
+        filter groups.  A filter group allows grouping
+        of filter objects of same type.  Filter group
+        is identified by a name and this group can be
+        used in other tables to simplify filter creation.  
+        Filter objects are Internet addresses, Internet
+        Address masks, protocols, ports(services) 
+        and ICMP types."
+    ::= { cfgFilterConfig 1 }
+
+cfgFilterGroupEntry OBJECT-TYPE
+    SYNTAX     CfgFilterGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in filter group table.  Each entry 
+        contains information such as filter group type,
+        filter description."
+    INDEX      { cfgFilterGroupName  }
+    ::= { cfgFilterGroupTable 1 }
+CfgFilterGroupEntry ::= SEQUENCE {
+        cfgFilterGroupName           CfgFilterGroupName,
+        cfgFilterGroupType           INTEGER,
+        cfgFilterGroupDescription    SnmpAdminString,
+        cfgFilterGroupStorageType    StorageType,
+        cfgFilterGroupRowStatus      RowStatus
+    }
+        
+cfgFilterGroupName OBJECT-TYPE
+    SYNTAX     CfgFilterGroupName
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This object identifies unique name for the 
+        filter group."
+    ::= { cfgFilterGroupEntry 1 }
+
+cfgFilterGroupType OBJECT-TYPE
+    SYNTAX     INTEGER {
+        network    (1),
+        ipProtocol (2),
+        ipService  (3),
+        icmp       (4)
+    }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION 
+        "This object identifies the type of the filter group.
+        The possible values are:
+           network  (1) : specifies network group.
+                          This group contains information on 
+                          the IP address and address mask. 
+                          This information is available in 
+                          cfgFilterNetworkGroupTable.
+
+           ipProtocol (2) : specifies IP protocol group.
+                          This group contains protocol value.
+                          This information is available in
+                          cfgFilterIpProtocolGroupTable.
+
+           ipService  (3) : specifies IP service group. 
+                          This group contains information on 
+                          UDP/TCP port.  This information is 
+                          available in cfgFilterIpServiceGroupTable.
+
+           icmp     (4) : specifies the ICMP group.
+                          This group contains information on ICMP 
+                          Message Type and ICMP message code.  
+                          This information is available in
+                          cfgFilterICMPGroupTable.
+
+           The value of this object cannot be changed
+           when cfgFilterGroupRowStatus is 'active'."
+    ::= { cfgFilterGroupEntry 2 }
+
+cfgFilterGroupDescription OBJECT-TYPE
+    SYNTAX     SnmpAdminString
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object is used for configuring description
+        for the filter group."
+    DEFVAL { "" }
+    ::= { cfgFilterGroupEntry 3 }
+
+cfgFilterGroupStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL      { nonVolatile }
+    ::= { cfgFilterGroupEntry 4 }
+
+cfgFilterGroupRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table.  This object can  be
+        set to 'active' only if cfgFilterGroupType 
+        is configured for the row."
+    ::= { cfgFilterGroupEntry 5 }
+        
+cfgFilterNetworkGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfgFilterNetworkGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table is used for adding/deleting network
+        filter group.  A network filter group is used to
+        specify host IP addresses or subnet ranges.
+        This is applicable only for the cfgFilterGroupType
+        value of 'network'."
+    ::= { cfgFilterConfig 2 }
+
+cfgFilterNetworkGroupEntry OBJECT-TYPE
+    SYNTAX     CfgFilterNetworkGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in network filter group table.
+        Each entry contains information on the
+        IP address and the mask value that can be
+        used in filtering the packet.  Multiple entries 
+        with the same value of cfgFilterGroupName belong 
+        to the same network filter group."
+    INDEX    { cfgFilterGroupName, 
+               cfgFilterNetworkGroupIndex
+             }
+    ::= { cfgFilterNetworkGroupTable 1 }
+
+CfgFilterNetworkGroupEntry ::= SEQUENCE {
+        cfgFilterNetworkGroupIndex      Unsigned32,
+        cfgFilterNetworkAddressType     InetAddressType,
+        cfgFilterNetworkAddress         InetAddress,
+        cfgFilterNetworkMask            InetAddress,
+        cfgFilterNetworkStorageType     StorageType,
+        cfgFilterNetworkRowStatus       RowStatus
+    }
+
+cfgFilterNetworkGroupIndex OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION 
+        "This object identifies an unique entry
+        for a network filter group."
+    ::= { cfgFilterNetworkGroupEntry 1 }
+
+cfgFilterNetworkAddressType OBJECT-TYPE
+    SYNTAX     InetAddressType
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION 
+        "This is the internet address type of for the
+        cfgFilterNetworkAddress and cfgFilterNetworkMask.
+        The value of this object cannot be changed
+        when cfgFilterGroupRowStatus is 'active'."
+    ::= { cfgFilterNetworkGroupEntry 2 }
+
+cfgFilterNetworkAddress OBJECT-TYPE
+    SYNTAX     InetAddress
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The source/destination internet address to be
+        configured.  A value of zero causes all source/destination 
+        address to match in an IP filter where this group is used.
+        The object value has to be consistent with the type
+        specified in cfgFilterNetworkAddressType."
+    DEFVAL     { "0" }
+    ::= { cfgFilterNetworkGroupEntry 3 }
+
+cfgFilterNetworkMask OBJECT-TYPE
+    SYNTAX     InetAddress
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This is the wild card mask for the 
+        cfgFilterNetworkAddress bits that must match.
+        Presence of 0 bits in the mask indicate that
+        corresponding bits in the cfgFilterNetworkAddress 
+        must match in order for the matching to be successful,
+        and 1 bits are don't care bits in the matching.
+        A value of zero causes only IP packets of source
+        and destination address the same as 
+        cfgFilterNetworkAddress to match.  
+        This object value has to be consistent with the type 
+        specified in cfgFilterNetworkAddressType."
+    DEFVAL     { 'ffffffff'H } -- 255.255.255.255
+    ::= { cfgFilterNetworkGroupEntry 4 }
+
+cfgFilterNetworkStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL      { nonVolatile }
+    ::= { cfgFilterNetworkGroupEntry 5 }
+
+cfgFilterNetworkRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table.  This object can  be
+        set to 'active' only with valid value
+        for cfgFilterNetworkAddressType object." 
+    ::= { cfgFilterNetworkGroupEntry 6 }
+
+cfgFilterIpProtocolGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfgFilterIpProtocolGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table is used for adding/deleting protocol
+        filter group.  A protocol filter group is used to
+        specify protocol(s).  This is applicable only for 
+        the cfgFilterGroupType value of 'ipProtocol'."
+    ::= { cfgFilterConfig 3 }
+
+cfgFilterIpProtocolGroupEntry OBJECT-TYPE
+    SYNTAX     CfgFilterIpProtocolGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Each entry is an IP Protocol traffic filter within 
+        an IP filter profile.  Entries with the same 
+        cfgFilterGroupName belong to the same protocol
+        filter group."
+    INDEX    { cfgFilterGroupName, 
+               cfgFilterIpProtocolGroupIndex
+             }
+    ::= { cfgFilterIpProtocolGroupTable 1 }
+
+CfgFilterIpProtocolGroupEntry ::= SEQUENCE {
+        cfgFilterIpProtocolGroupIndex     Unsigned32,
+        cfgFilterIpProtocolNumber         CiscoIpProtocol,
+        cfgFilterIpProtocolStorageType    StorageType,
+        cfgFilterIpProtocolGroupRowStatus RowStatus
+    }        
+        
+cfgFilterIpProtocolGroupIndex OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This index uniquely identifies the entries
+        in this table."
+    ::= { cfgFilterIpProtocolGroupEntry 1 }
+
+cfgFilterIpProtocolNumber OBJECT-TYPE
+    SYNTAX     CiscoIpProtocol
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION 
+        "This object identifies the internet protocol number
+        in the packets.  These IP protocol numbers are defined
+        in the Network Group Request For Comments(RFC) documents.
+        For example, Cisco commonly used protocol includes:
+            1 - Internet Control Message Protocol (ICMP)
+            2 - Internet Gateway Message Protocol (IGMP)
+            4 - IP in IP tunneling
+            6 - Transmission Control Protocol (TCP)
+            9 - Cisco's IGRP routing protocol (IGRP)
+            17 - User Datagram Protocol (UDP)
+            47 - Cisco's GRE tunneling (GRE)
+            50 - Encapsulation Security Payload
+            51 - Authentication Header Protocol
+            88 - Cisco's EIGRP routing protocol
+            89 - OSPF routing protocol
+            94 - KA9Q NOS compatible IP over IP tunneling
+            103 - Protocol Independent Multicast
+            108 - Payload Compression Protocol."
+    REFERENCE
+        "RFC-790, ASSIGNED NUMBERS, September 1981, Section
+         INTERNET PROTOCOL NUMBERS."
+    DEFVAL     { 0 }
+    ::= { cfgFilterIpProtocolGroupEntry 2 }
+
+cfgFilterIpProtocolStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL      { nonVolatile }
+    ::= { cfgFilterIpProtocolGroupEntry 3 }
+
+cfgFilterIpProtocolGroupRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table.  This object can  be
+        set to 'active' only with valid value
+        for cfgFilterIpProtocolNumber object." 
+    ::= { cfgFilterIpProtocolGroupEntry 4 }
+        
+cfgFilterIpServiceGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfgFilterIpServiceGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table is used for adding/deleting service
+        filter group.  A service filter group is used to
+        specify specific or ranges of TCP/UDP ports to 
+        be defined.  This filter group can be used as
+        either the source port(s) or destination port(s)
+        in the associated cfgFilterExtTable.  This is 
+        applicable only for the cfgFilterGroupType 
+        value of 'ipService'."
+    ::= { cfgFilterConfig 4 }
+
+cfgFilterIpServiceGroupEntry OBJECT-TYPE
+    SYNTAX     CfgFilterIpServiceGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Each entry is an IP Protocol traffic filter within 
+        an IP filter profile.  Entries with the same 
+        cfgFilterGroupName belong to the same protocol
+        filter group."
+    INDEX    { cfgFilterGroupName, 
+               cfgFilterIpServiceGroupIndex
+             }
+    ::= { cfgFilterIpServiceGroupTable 1 }
+
+CfgFilterIpServiceGroupEntry ::= SEQUENCE {
+        cfgFilterIpServiceGroupIndex      Unsigned32,
+        cfgFilterIpServiceType            INTEGER,
+        cfgFilterIpServicePortLow         InetPortNumber,
+        cfgFilterIpServicePortHigh        InetPortNumber,
+        cfgFilterIpServiceStorageType     StorageType,
+        cfgFilterIpServiceGroupRowStatus  RowStatus
+    }
+        
+cfgFilterIpServiceGroupIndex OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This index uniquely identifies the entries
+        in this table."
+    ::= { cfgFilterIpServiceGroupEntry 1 }
+
+cfgFilterIpServiceType OBJECT-TYPE
+    SYNTAX     INTEGER {
+            tcp    (1),
+            udp    (2),
+            tcpUdp (3)
+    }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION 
+        "This object identifies the protocol type
+        of the port for this group.
+        The possible value(s) are :
+            tcp(1)    : TCP port.
+            udp(2)    : UDP port.
+            tcpUdp(3) : TCP/UDP port.  This value is
+                        applicable for a port which is 
+                        same for both TCP and UDP."
+    ::= { cfgFilterIpServiceGroupEntry 2 }
+
+cfgFilterIpServicePortLow OBJECT-TYPE
+    SYNTAX     InetPortNumber 
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the source or destination
+        port number.  This is the inclusive lower bound of 
+        the transport-layer source/destination port range
+        that is to be matched in the filter where this group
+        is defined.  This value must be equal to or less than 
+        the value specified for this entry in 
+        cfgFilterServicePortHigh."
+    DEFVAL     { 0 }
+    ::= { cfgFilterIpServiceGroupEntry 3 }
+
+cfgFilterIpServicePortHigh OBJECT-TYPE
+    SYNTAX     InetPortNumber 
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the source or destination
+        port number.  This is the inclusive upper bound of 
+        the transport-layer source/destination port range
+        that is to be matched in the filter where this group
+        is defined.  This value must be equal to or greater 
+        than the value specified for this entry in
+        cfgFilterServicePortLow.  If this value is '0',
+        the udp or tcp port number is ignored during matching."
+    DEFVAL     { 65535 }
+    ::= { cfgFilterIpServiceGroupEntry 4 }
+
+cfgFilterIpServiceStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL      { nonVolatile }
+    ::= { cfgFilterIpServiceGroupEntry 5 }
+
+cfgFilterIpServiceGroupRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table.  This object can  be
+        set to 'active' only with valid value
+        for cfgFilterIpServiceType object." 
+    ::= { cfgFilterIpServiceGroupEntry 6 }
+        
+cfgFilterICMPGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfgFilterICMPGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table contains lists of filters for 
+        ICMP Type filter group.  An ICMP Type filter 
+        group can be configured with multiple entries 
+        each representing the ICMP message types and 
+        ICMP message code.  This is applicable only for 
+        the cfgFilterGroupType value of 'icmp'."
+    ::= { cfgFilterConfig 5 }
+
+cfgFilterICMPGroupEntry OBJECT-TYPE
+    SYNTAX     CfgFilterICMPGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in ICMP filter group table.
+        Each entry contains information on the
+        ICMP message type and ICMP code.
+        Multiple Entries with the same value of
+        cfgFilterGroupName belong to the same
+        ICMP filter group."
+    INDEX    { cfgFilterGroupName, 
+               cfgFilterICMPGroupIndex
+             }
+    ::= { cfgFilterICMPGroupTable 1 }
+
+CfgFilterICMPGroupEntry ::= SEQUENCE {
+        cfgFilterICMPGroupIndex      Unsigned32,
+        cfgFilterICMPType            Integer32,
+        cfgFilterICMPCode            Integer32,
+        cfgFilterICMPStorageType     StorageType,
+        cfgFilterICMPGroupRowStatus  RowStatus
+    }
+        
+cfgFilterICMPGroupIndex OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This index identifies an unique entry in
+        this table."
+    ::= { cfgFilterICMPGroupEntry 1 }
+
+cfgFilterICMPType OBJECT-TYPE
+    SYNTAX     Integer32(-1..255)
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION 
+        "This object specifies the ICMP message type to be
+        configured in ICMP filter group.  Setting this object 
+        to '-1' will make the filtering match any ICMP message 
+        type.
+        Some of the commonly used ICMP Message types are:
+            0 - Echo Reply
+
+            3 - Destination Unreachable
+
+            4 - Source Quench
+
+            5 - Redirect
+
+            8 - Echo
+
+           11 - Time Exceeded
+
+           12 - Parameter Problem
+
+           13 - Timestamp
+
+           14 - Timestamp Reply
+
+           15 - Information Request
+
+           16 - Information Reply
+ 
+           17 - Mask Request
+ 
+           18 - Mask Reply
+
+           31 - Conversion Error
+
+           32 - Mobile Redirect."
+    REFERENCE
+        "RFC-792 INTERNET CONTROL MESSAGE PROTOCOL"
+    DEFVAL     { -1 }
+    ::= { cfgFilterICMPGroupEntry 2 }
+
+cfgFilterICMPCode OBJECT-TYPE
+    SYNTAX     Integer32 (-1..255)
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the ICMP message code to be
+        configured in ICMP filter group.  Setting this object to 
+        '-1' will make the filtering match any ICMP code."
+    REFERENCE
+        "RFC-792 INTERNET CONTROL MESSAGE PROTOCOL"
+    DEFVAL     { -1 }
+    ::= { cfgFilterICMPGroupEntry 3 }
+
+cfgFilterICMPStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL      { nonVolatile }
+    ::= { cfgFilterICMPGroupEntry 4 }
+
+cfgFilterICMPGroupRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table.  This object can be
+        set to 'active' only with valid value
+        for cfgFilterICMPType object."
+    ::= { cfgFilterICMPGroupEntry 5 }
+        
+cfgFilterNestedGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfgFilterNestedGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table contains lists of filter groups
+        that are configured in other filter group.
+        This table is used for configuring a group
+        as member of another group."
+    ::= { cfgFilterConfig 6 }
+
+cfgFilterNestedGroupEntry OBJECT-TYPE
+    SYNTAX     CfgFilterNestedGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in nested filter group table.
+        Each entry contains information on the
+        a group that is configured in another group."
+    INDEX    { cfgFilterParentGroupName, 
+               cfgFilterNestedGroupName
+             }
+    ::= { cfgFilterNestedGroupTable 1 }
+
+CfgFilterNestedGroupEntry ::= SEQUENCE {
+        cfgFilterParentGroupName       CfgFilterGroupName,
+        cfgFilterNestedGroupName       CfgFilterGroupName,
+        cfgFilterNestedStorageType     StorageType,
+        cfgFilterNestedGroupRowStatus  RowStatus
+    }
+        
+cfgFilterParentGroupName OBJECT-TYPE
+    SYNTAX     CfgFilterGroupName
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the filter group that is
+        previously created and to which another filter
+        group identified by cfgFilterNestedGroupName
+        will be added.  The value for this object
+        must correspond to entry in cfgFilterGroupTable."
+    ::= { cfgFilterNestedGroupEntry 1 }
+
+cfgFilterNestedGroupName OBJECT-TYPE
+    SYNTAX     CfgFilterGroupName
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the filter group that is
+        previously created and is being added to another
+        filter group identified by cfgFilterParentGroupName.
+        The value for this object must correspond to entry 
+        in cfgFilterGroupTable.  The value for this object 
+        should not be same as the value of cfgFilterParentGroupName.
+        The value for this object must be unique amongst the 
+        multiple instances with the same value of
+        cfgFilterParentGroupName."
+    ::= { cfgFilterNestedGroupEntry 2 }
+
+cfgFilterNestedStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL      { nonVolatile }
+    ::= { cfgFilterNestedGroupEntry 3 }
+
+cfgFilterNestedGroupRowStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table."
+    ::= { cfgFilterNestedGroupEntry 4 }
+        
+-- Conformance information  
+
+ciscoFilterGroupMIBCompl
+        OBJECT IDENTIFIER ::= { ciscoFilterGroupMIBConform 1 }
+
+ciscoFilterGroupMIBGroups
+        OBJECT IDENTIFIER ::= { ciscoFilterGroupMIBConform 2 }
+
+-- Compliance statements  
+
+ciscoFilterGroupConfigMIBCompliance MODULE-COMPLIANCE
+    STATUS    current
+    DESCRIPTION
+        "The compliance statement for entities implementing
+        the Cisco IP Protocol Filter MIB."
+
+    MODULE  
+    MANDATORY-GROUPS { ciscoFilterObjectGroup }        
+
+    GROUP ciscoFilterNetworkGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory
+        if filter group for internet addresses are needed."
+
+    GROUP ciscoFilterIpProtocolGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory
+        if filter group for protocol is needed."
+
+    GROUP ciscoFilterIpServiceGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory
+        if filter group for ports are needed."
+
+    GROUP ciscoFilterICMPGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory
+        if filter group for ICMP is needed."
+
+    GROUP ciscoFilterNestedGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory
+        if nesting of filter groups is supported."
+    ::= { ciscoFilterGroupMIBCompl 1 }
+
+
+-- units of conformance 
+
+ciscoFilterObjectGroup OBJECT-GROUP
+    OBJECTS {
+        cfgFilterGroupType,
+        cfgFilterGroupDescription,
+        cfgFilterGroupStorageType,
+        cfgFilterGroupRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+        "Configuration parameters for filter groups." 
+    ::= { ciscoFilterGroupMIBObjects 2 }
+
+ciscoFilterNetworkGroup OBJECT-GROUP
+    OBJECTS {
+        cfgFilterNetworkAddressType,
+        cfgFilterNetworkAddress,
+        cfgFilterNetworkMask,
+        cfgFilterNetworkStorageType,
+        cfgFilterNetworkRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+        "Configuration parameters for network filters."
+    ::= { ciscoFilterGroupMIBObjects 3 }
+
+ciscoFilterIpProtocolGroup OBJECT-GROUP
+    OBJECTS {
+        cfgFilterIpProtocolNumber,
+        cfgFilterIpProtocolStorageType,
+        cfgFilterIpProtocolGroupRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+         "Configuration parameters for protocol filters."
+    ::= { ciscoFilterGroupMIBObjects 4 }
+
+ciscoFilterIpServiceGroup OBJECT-GROUP
+    OBJECTS {
+        cfgFilterIpServiceType,
+        cfgFilterIpServicePortLow,
+        cfgFilterIpServicePortHigh,
+        cfgFilterIpServiceStorageType,
+        cfgFilterIpServiceGroupRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+        "Configuration parameters for port filters."
+    ::= { ciscoFilterGroupMIBObjects 5 }
+
+ciscoFilterICMPGroup OBJECT-GROUP
+    OBJECTS {
+        cfgFilterICMPType,
+        cfgFilterICMPCode,
+        cfgFilterICMPStorageType,
+        cfgFilterICMPGroupRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+        "Configuration parameters related to 
+        ICMP filter group."
+    ::= { ciscoFilterGroupMIBObjects 6 }
+
+ciscoFilterNestedGroup OBJECT-GROUP
+    OBJECTS {
+        cfgFilterNestedStorageType,
+        cfgFilterNestedGroupRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+        "Configuration parameters related to 
+        nesting of filter group."
+    ::= { ciscoFilterGroupMIBObjects 7 }
+
+END
+
+

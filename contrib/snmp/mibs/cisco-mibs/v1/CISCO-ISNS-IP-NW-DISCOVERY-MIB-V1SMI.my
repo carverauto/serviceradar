@@ -1,0 +1,522 @@
+-- MIB file created 08-Oct-2004 11:29:21, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ISNS-IP-NW-DISCOVERY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ISNS-IP-NW-DISCOVERY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, TestAndIncr, RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    FcNameId
+            FROM CISCO-ST-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIsnsIpNetDiscoveryMIB OBJECT IDENTIFIER ::= { ciscoMgmt 434 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200409080000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--      Postal: 170 W Tasman Drive
+--         San Jose, CA  95134
+--         USA
+--      Tel: +1 800 553 -NETS
+--      E-mail: cs-san@cisco.com
+--  Descr
+--    MIB to provide the information about the disjoint 
+--     IP networks connected to the various gigabit ethernet
+--     interfaces in the 'Fabric' and objects to discover 
+--     the same.
+--    
+--     It is possible that multiple disjoint IP networks
+--     may terminate on a single fibre channel switch
+--     in a Fabric.
+--    
+--     In such a scenario, the iSNS Server has to ensure that 
+--     the targets returned on a query by iscsi devices are 
+--     filter based on access control list (specified by the
+--     user during configuration) and also based on gigabit 
+--     ethernet ports which are reachable to the IP network, 
+--     on which the iscsi device is present.
+--    
+--     To achieve the above objective, the iSNS server 
+--     partitions all known gigabit ethernet ports into 
+--     disjoint sets based on IP reachability by sending 
+--     discovery packets. Each set is referred to as an 
+--     IP Network and the gigabit ethernet ports contained
+--     therein are referred to as IP Network members. 
+--    
+--     This MIB provides ability to initiate, configure and 
+--     show discovery results of the IP Networks in 
+--     the fabric.
+--    
+--     GLOSSARY: 
+--    
+--     Fabric - The set of physically connected fibre channel 
+--              switches. 
+--     WWN    - World Wide Name.
+--     ISNS   - Internet Storage Name Service.
+--  RevDate
+--    200409080000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIsnsIpNetDiscoveryMIBNotifs OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryMIB 0 }
+ciscoIsnsIpNetDiscoveryMIBObjs OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryMIB 1 }
+ciscoIsnsIpNetDiscoveryConform OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryMIB 2 }
+ciscoIsnsIpNetDiscoveryMIBInfo OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryMIBObjs 1 }
+ciscoIsnsIpNetDiscoveryMIBConfig OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryMIBObjs 2 }
+ciscoIsnsIpNetDiscoverCompliance OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryConform 1 }
+ciscoIsnsIpNetDiscoveryMIBGroups OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryConform 2 }
+
+ciscoIsnsIpNetAutomaticDiscovery OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the automatic discovery 
+         from the iSNS Server, to find the reachability on
+         the IP networks is enabled or not in the system. 
+        
+         If automatic discovery is not enabled in the system, 
+         then based on the user demand only, the iSNS Server 
+         runs the IP network discovery.
+        
+         The value of this object set to 'true' indicates the
+         automatic discovery for IP network is enabled in 
+         the system.
+        
+         The value of this object set to 'false' indicates the
+         automatic discovery for IP network is not enabled in
+         the system."
+    DEFVAL { false }
+    ::= { ciscoIsnsIpNetDiscoveryMIBInfo 1 }
+
+ciscoIsnsIpNetDiscoveryInterval OBJECT-TYPE
+    SYNTAX INTEGER(0..5184000)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time duration between 
+         successive automatic discovery run for the  
+         IP networks, from the iSNS server."
+    DEFVAL { 10 }
+    ::= { ciscoIsnsIpNetDiscoveryMIBInfo 2 }
+
+ciscoIsnsIpNetTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoIsnsIpNetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the list of all the IP networks connected
+         to the gigabit ethernet interfaces in the fabric."
+    ::= { ciscoIsnsIpNetDiscoveryMIBInfo 3 }
+
+ciscoIsnsIpNetEntry OBJECT-TYPE
+    SYNTAX CiscoIsnsIpNetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry represents the information about an
+         IP network connected to the gigabit ethernet interface 
+         in the fabric.
+        
+         The 'ciscoIsnsIpNetDiscoveryMechanism' object 
+         represents, whether the corresponding entry is 
+         populated by the discovery process or by the static
+         configuration of the user."
+    INDEX { ciscoIsnsIpNetName }
+    ::= { ciscoIsnsIpNetTable 1 }
+
+CiscoIsnsIpNetEntry ::= SEQUENCE {
+    ciscoIsnsIpNetName SnmpAdminString,
+    ciscoIsnsIpNetDiscoveryMechanism INTEGER,
+    ciscoIsnsIpNetRowStatus RowStatus
+    }
+
+ciscoIsnsIpNetName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..100))
+--    Rsyntax OCTET STRING(SIZE(1..100))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A human readable unique string representing the name
+         of an IP network.
+        
+         This name is used to identify the IP network to which
+         the gigabit ethernet interfaces/subinterfaces in the
+         fabric belongs."
+    ::= { ciscoIsnsIpNetEntry 1 }
+
+ciscoIsnsIpNetDiscoveryMechanism OBJECT-TYPE
+    SYNTAX INTEGER {
+        autoGenerated(1),
+        userConfigured(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents whether the IP network is 
+         dynamically discovered by the discovery process (or) 
+         statically configured by the user.
+        
+         autoGenerated (1)  - dynamically discovered by the 
+                              discovery process.
+         userConfigured (2) - IP network configuration is 
+                              statically created by user.  
+            
+         An attempt to modify this object will fail with an
+         'inconsistentValue' error if the corresponding 
+         instance of the 'ciscoIsnsIpNetRowStatus' object 
+         value is active (1).
+        
+         For Row creation the value of this object is
+         should be 'userConfigured'.
+        
+         This object represents whether the corresponding 
+         instance of IP network and its members represented
+         in the 'ciscoIsnsIpNetInterfaceTable' are created 
+         by the discovery process or by the static 
+         configuration of the user."
+    DEFVAL { userConfigured }
+    ::= { ciscoIsnsIpNetEntry 2 }
+
+ciscoIsnsIpNetRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of this entry in the
+         table."
+    ::= { ciscoIsnsIpNetEntry 3 }
+
+ciscoIsnsIpNetInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoIsnsIpNetInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table consisting of entries for all the gigabit 
+         ethernet interfaces, which are connected to the 
+         various IP networks in the Fabric.
+        
+         The members of the IP networks are either statically 
+         configured by the user or dynamically discovered by 
+         the discovery process in the iSNS Server."
+    ::= { ciscoIsnsIpNetDiscoveryMIBInfo 4 }
+
+ciscoIsnsIpNetInterfaceEntry OBJECT-TYPE
+    SYNTAX CiscoIsnsIpNetInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the 
+         'ciscoIsnsIpNetInterfaceTable'.
+          
+         Each row represents a gigabit ethernet interface in 
+         the fabric and its IP network.
+        
+         The IP network name for the gigabit ethernet interface
+         is represented by the index object 'ciscoIsnsIpNetName' 
+         from the 'ciscoIsnsIpNetTable'."
+    INDEX { ciscoIsnsIpNetName, ciscoIsnsGigEPortDeviceName, ciscoIsnsGigEPortIfIndex }
+    ::= { ciscoIsnsIpNetInterfaceTable 1 }
+
+CiscoIsnsIpNetInterfaceEntry ::= SEQUENCE {
+    ciscoIsnsGigEPortDeviceName FcNameId,
+    ciscoIsnsGigEPortIfIndex InterfaceIndex,
+    ciscoIsnsIpNetInterfaceRowStatus RowStatus
+    }
+
+ciscoIsnsGigEPortDeviceName OBJECT-TYPE
+    SYNTAX FcNameId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the World Wide Name (WWN) of 
+         the associated switch in the fabric, of the gigabit 
+         ethernet interface mentioned in corresponding instance 
+         of 'ciscoIsnsGigEPortIfIndex' object."
+    ::= { ciscoIsnsIpNetInterfaceEntry 1 }
+
+ciscoIsnsGigEPortIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the 'ifIndex' of the gigabit 
+         ethernet interface in a switch in the fabric.
+         The World Wide Name (WWN) of the switch is mentioned 
+         in the corresponding instance of 
+         'ciscoIsnsGigEPortDeviceName'.
+        
+         The gigabit ethernet interface is connected to the IP 
+         network represented by the the value of the
+         corresponding instance of 'ciscoIsnsIpNetName'."
+    ::= { ciscoIsnsIpNetInterfaceEntry 2 }
+
+ciscoIsnsIpNetInterfaceRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of this entry in the
+         table."
+    ::= { ciscoIsnsIpNetInterfaceEntry 3 }
+
+ciscoIsnsIpNetDiscoverySpinLock OBJECT-TYPE
+    SYNTAX TestAndIncr
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to facilitate modification of
+         ciscoIsnsIpNetToDiscover,ciscoIsnsGigEInterfaceToDiscover 
+         and ciscoIsnsIpNetDiscoveryCommand objects by multiple 
+         managers.
+        
+         The procedure for modifying the above three objects are
+         as follows:
+        
+         1. For IP network specific discovery, determine the new
+            values for 'ciscoIsnsIpNetToDiscover' object.
+            And For interface specific discovery, determine the new
+            value for 'ciscoIsnsGigEInterfaceToDiscover' object.
+        
+         2. Retrieve the value of 'ciscoIsnsIpNetDiscoverySpinLock'
+            object.
+        
+         3. For IP network specific discovery, 
+            Set the value of 'ciscoIsnsIpNetDiscoverySpinLock' 
+            object to the retrieved value, and (in the same PDU) 
+            the value of 'ciscoIsnsIpNetToDiscover' object to the 
+            new value. If the set fails for the 
+            'ciscoIsnsIpNetDiscoverySpinLock' object, go back to 
+            step 2.
+        
+            For Interface specific discovery, 
+            Set the value of 'ciscoIsnsIpNetDiscoverySpinLock' 
+            object to the retrieved value, and (in the same PDU) 
+            the value of 'ciscoIsnsGigEInterfaceToDiscover' to the 
+            new value. If the set fails for the 
+            'ciscoIsnsIpNetDiscoverySpinLock' object, go back to 
+            step 2.
+        
+         4. Set the value of 'ciscoIsnsIpNetDiscoverySpinLock' 
+            object to the retrieved value incremented by two, and 
+            (in the same PDU) the value of 
+            'ciscoIsnsIpNetDiscoveryCommand' object to 
+            'ipNetworkSpecific' or 'interfaceSpecific'. 
+        
+            If the set fails for 'ciscoIsnsIpNetDiscoverySpinLock' 
+            object go back to step 2.
+        
+         Note that if it's possible to include
+         'ciscoIsnsIpNetDiscoveryCommand' object  in the 
+         (Set Request) PDU of an earlier step, then step 4 , 
+         can be eliminated."
+    ::= { ciscoIsnsIpNetDiscoveryMIBConfig 1 }
+
+ciscoIsnsIpNetToDiscover OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..100))
+--    Rsyntax OCTET STRING(SIZE(0..100))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of an IP network, 
+         represented by the the value of the
+         'ciscoIsnsIpNetName' object, that needs to be 
+         (re)discovered.
+        
+         This object MUST be set to a valid value before or 
+         concurrently with setting the value of the 
+         'ciscoIsnsIpNetDiscoveryCommand' object 
+         to 'ipNetworkSpecific' ."
+    DEFVAL { "" }
+    ::= { ciscoIsnsIpNetDiscoveryMIBConfig 2 }
+
+ciscoIsnsGigEInterfaceToDiscover OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the 'ifIndex' of the specified 
+         gigabit ethernet interface for which the IP network 
+         discovery needs to be done incrementally. 
+        
+         This object MUST be set to a valid value before or 
+         concurrently with setting the value of the 
+         'ciscoIsnsIpNetDiscoveryCommand' object
+         to 'interfaceSpecific'."
+    DEFVAL { 0 }
+    ::= { ciscoIsnsIpNetDiscoveryMIBConfig 3 }
+
+ciscoIsnsIpNetDiscoveryCommand OBJECT-TYPE
+    SYNTAX INTEGER {
+        all(1),
+        noOp(2),
+        ipNetworkSpecific(3),
+        interfaceSpecific(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP network discovery command to be executed.
+        
+         Command                 Remarks
+         
+         all                Run IP network discovery for all the 
+                            gigabit ethernet interfaces in the 
+                            fabric. 
+        
+         noOp               no operation will be performed.
+        
+         ipNetworkSpecific  Run IP network discovery for all gigabit 
+                            ethernet interfaces that are configured 
+                            to be members of the IP network name 
+                            specified in the 
+                            'ciscoIsnsIpNetToDiscover' object.
+                         
+         interfaceSpecific  Run IP network discovery incrementally 
+                            for the gigabit ethernet interface 
+                            specified in the 
+                            'ciscoIsnsGigEInterfaceToDiscover' 
+                            object.
+        
+         The value of this object when read is always 'noOp'."
+    DEFVAL { noOp }
+    ::= { ciscoIsnsIpNetDiscoveryMIBConfig 4 }
+
+ciscoIsnsIpNetDiscoveryCmdStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        success(1),
+        none(2),
+        inProgress(3),
+        noIpNetworkNameSpecified(4),
+        invalidIpNetworkName(5),
+        noGigEInterfaceIndexSpecified(6),
+        invalidGigEInterfaceIndex(7),
+        generalFailure(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the last IP network discovery command 
+         operation.
+        
+         success (1) - IP network discovery operation completed 
+                        successfully.
+        
+         none (2)    - no IP network discovery operation is 
+                        performed.
+        
+         inProgress (3) - discovery operation is in progress.
+        
+         noIpNetworkNameSpecified (4) 
+                      - IP network name not specified, i.e., the 
+                        value of 'ciscoIsnsIpNetToDiscover' 
+                        object is set to empty string. 
+                                          
+         invalidIpNetworkName (5) 
+                      - IP network is not configured.
+        
+         NoGigEInterfaceIndexSpecified (6) 
+                      - 'ifIndex' of the gigabit eithernet interface 
+                        is not specified, i.e., the value of 
+                        'ciscoIsnsGigEInterfaceToDiscover' object 
+                        is set to '0'. 
+        
+         invalidGigEInterfaceIndex (7)
+                      - 'ifIndex' of the gigabit ethernet interface 
+                        specified in the 
+                        'ciscoIsnsGigEInterfaceToDiscover' object
+                        is not valid.
+        
+         generalFailure (8)- General IP network discovery operation
+                              Failure."
+    ::= { ciscoIsnsIpNetDiscoveryMIBConfig 5 }
+
+ciscoIsnsIpNetDiscoveryInfoGroup OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A Collection of objects for the IP networks
+--     configured/discovered in the fabric and its 
+--     associated gigabit ethernet interfaces details.
+--  objects
+--    ciscoIsnsIpNetAutomaticDiscovery, 
+--    ciscoIsnsIpNetDiscoveryInterval, 
+--    ciscoIsnsIpNetDiscoveryMechanism, ciscoIsnsIpNetRowStatus, 
+--    ciscoIsnsIpNetInterfaceRowStatus
+
+ciscoIsnsIpNetDiscoveryCfgGroup OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoveryMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A Collection of objects to be configured, for doing 
+--     the IP network discovery.
+--  objects
+--    ciscoIsnsIpNetDiscoverySpinLock, ciscoIsnsIpNetToDiscover, 
+--    ciscoIsnsGigEInterfaceToDiscover, 
+--    ciscoIsnsIpNetDiscoveryCommand, 
+--    ciscoIsnsIpNetDiscoveryCmdStatus
+
+ciscoIsnsIpNetDiscoveryMIBComp OBJECT IDENTIFIER ::= { ciscoIsnsIpNetDiscoverCompliance 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement 
+--     the CISCO-ISNS-IP-NW-DISCOVERY-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIsnsIpNetDiscoveryInfoGroup
+--   MandGroup
+--    ciscoIsnsIpNetDiscoveryCfgGroup
+--   ObjVar
+--    ciscoIsnsIpNetRowStatus
+--   ObjVar
+--    ciscoIsnsIpNetInterfaceRowStatus
+
+
+END
+

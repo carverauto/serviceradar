@@ -1,0 +1,90 @@
+-- *****************************************************************
+-- CISCO-VLAN-IFTABLE-RELATIONSHIP-CAPABILITY.my:
+-- Cisco CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB AGENT-CAPABILITIES
+--   
+-- Aug 2003, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2003, 2004, 2006, 2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VLAN-IFTABLE-RELATIONSHIP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVlanIfTableRelCapability MODULE-IDENTITY
+    LAST-UPDATED    "201308080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The agent capabilities description of
+        CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB."
+    REVISION        "201308080000Z"
+    DESCRIPTION
+        "Added ciscoVlanIfTableRelCapNxOSV6R0202PN7K."
+    REVISION        "200601180000Z"
+    DESCRIPTION
+        "Added ciscoVlanIfTableRelCapIOSXRV3R2CRS1
+        Agent Capabilities for IOS XR 3.2.0"
+    REVISION        "200402030000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 369 }
+
+
+
+ciscoVlanIfTableRelCapV12R0119E AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB
+        agent capabilities."
+
+    SUPPORTS        CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB
+    INCLUDES        { cviMIBGroup }
+    ::= { ciscoVlanIfTableRelCapability 1 }
+
+ciscoVlanIfTableRelCapIOSXRV3R2CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 3.2.0 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB capabilities
+        for IOS XR release 3.2.0"
+
+    SUPPORTS        CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB
+    INCLUDES        { cviMIBGroup }
+    ::= { ciscoVlanIfTableRelCapability 2 }
+
+ciscoVlanIfTableRelCapNxOSV6R0202PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on Nexus 7000
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB
+        agent capabilities."
+
+    SUPPORTS        CISCO-VLAN-IFTABLE-RELATIONSHIP-MIB
+    INCLUDES        { cviMIBGroup }
+    ::= { ciscoVlanIfTableRelCapability 3 }
+
+END
+
+

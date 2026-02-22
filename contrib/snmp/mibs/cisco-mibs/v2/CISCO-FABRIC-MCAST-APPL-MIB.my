@@ -1,0 +1,212 @@
+-- *****************************************************************
+-- CISCO-FABRIC-MCAST-APPL-MIB.my: Cisco Fabric Multicast Resource
+--                                 Application MIB file
+--
+-- July 2001,  Hongchi Shih
+--
+-- Copyright (c) 2001, 2002  by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-FABRIC-MCAST-APPL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Unsigned32,
+    Gauge32,
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    entLogicalIndex
+        FROM ENTITY-MIB
+    CfmPoolIndex
+        FROM CISCO-FABRIC-MCAST-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoFabricMcastApplMIB MODULE-IDENTITY
+    LAST-UPDATED    "200212180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W. Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-fabric@cisco.com"
+    DESCRIPTION
+        "Fabric multicast resource MIB module.
+        This MIB module is used for managing/tracking the fabric
+        multicast resource application related information.
+
+        Acronyms and terms:
+        FGID          - Fabric Multicast Group Identifier."
+
+    REVISION        "200212180000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+
+    ::= { ciscoMgmt 256 }
+
+
+--
+-- The fabric multicast resource MIB consists of the following groups
+-- [1] fabric multicast resource application group
+
+ciscoFabricMcastApplMIBObjects 
+    OBJECT IDENTIFIER ::= { ciscoFabricMcastApplMIB 1 }
+cfmaAppl           
+    OBJECT IDENTIFIER ::= { ciscoFabricMcastApplMIBObjects 1 }
+
+
+--
+-- Fabric multicast application group Table
+--
+
+cfmaApplTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CfmaApplEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains fabric multicast resource 
+        usage for a particular fabric multicast client application."
+    ::= { cfmaAppl 1 }
+
+cfmaApplEntry OBJECT-TYPE
+    SYNTAX      CfmaApplEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The information regarding a single application that
+        uses fabric multicast resource in a logical router.
+        An entry of this table is created when a fabric multicast
+        client application is registered to fabric software for the
+        use of fabric multicast resource from a logical router.
+        A logical router is identified by the value of mib-2 in
+        entLogicalType object of ENTITY-MIB.
+
+        An entry of this table is deleted when a fabric multicast
+        client application unregistered the use of fabric multicast
+        resource."
+    INDEX       { entLogicalIndex, cfmaApplId }
+    ::= { cfmaApplTable 1 }
+
+
+CfmaApplEntry ::=
+    SEQUENCE {
+        cfmaApplId                       Unsigned32,
+        cfmaApplName                     SnmpAdminString,
+        cfmaApplInuseFgids               Gauge32,
+        cfmaApplHighWaterInuseFGIDs      Gauge32,
+        cfmaApplPoolId                   CfmPoolIndex
+    }
+
+
+cfmaApplId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An unique value, greater than zero, for each fabric client
+        application that uses fabric multicast resource."
+    ::= { cfmaApplEntry 1 }
+
+cfmaApplName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The name of this fabric multicast client application."
+    ::= { cfmaApplEntry 2 }
+
+
+cfmaApplInuseFgids OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "fgid"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of FGIDs that are currently in use
+        by this application."
+    ::= { cfmaApplEntry 3 }
+
+cfmaApplHighWaterInuseFGIDs OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "fgid"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The highest number of FGIDs that was in use by this
+        application."
+    ::= { cfmaApplEntry 4 }
+
+cfmaApplPoolId OBJECT-TYPE
+    SYNTAX      CfmPoolIndex
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The fabric multicast resource pool id for the
+        resource pool which is used by this application."
+    ::= { cfmaApplEntry 5 }
+
+
+
+--*******************************************************************
+-- Notifications
+--*******************************************************************
+cfmaMIBNotificationPrefix 
+    OBJECT IDENTIFIER ::= { ciscoFabricMcastApplMIB 2 }
+cfmaMIBNotifications      
+    OBJECT IDENTIFIER ::= { cfmaMIBNotificationPrefix 0 }
+
+
+
+cfmaMIBConformance OBJECT IDENTIFIER ::=
+                                { ciscoFabricMcastApplMIB 3 }
+cfmaMIBCompliances OBJECT IDENTIFIER ::=
+                                { cfmaMIBConformance 1 }
+cfmaMIBGroups      OBJECT IDENTIFIER ::=
+                                { cfmaMIBConformance 2 }
+
+-- compliance statements
+
+cfmaMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-FABRIC-MCAST-APPL-MIB"
+    MODULE      -- this module
+    MANDATORY-GROUPS
+        { cfmaApplGroup }
+
+    ::= { cfmaMIBCompliances 1 }
+
+
+-- units of conformance
+
+
+cfmaApplGroup OBJECT-GROUP
+    OBJECTS {
+        cfmaApplName,
+        cfmaApplInuseFgids,
+        cfmaApplHighWaterInuseFGIDs, 
+        cfmaApplPoolId
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects providing information for
+        the applications that use the fabric multicast resource."
+    ::= { cfmaMIBGroups 1 }
+
+
+
+END

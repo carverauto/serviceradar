@@ -1,0 +1,1149 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-TRIG-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- TRIG management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-TRIG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApPolicyPolicyOwner,
+    CfprApTrigAdminState,
+    CfprApTrigDay,
+    CfprApTrigOperState,
+    CfprApTrigTokenOperState,
+    CfprApTrigTrigOperState,
+    CfprApTrigTriggeredState
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApTrigObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        TRIG management information model package"
+    ::= { ciscoFirepowerApMIBObjects 79 }
+
+cfprApTrigAbsWindowTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigAbsWindowEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow managed object table"
+    ::= { cfprApTrigObjects 1 }
+
+cfprApTrigAbsWindowEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigAbsWindowEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigAbsWindowTable table."
+    INDEX { cfprApTrigAbsWindowInstanceId }
+    ::= { cfprApTrigAbsWindowTable 1 }
+
+CfprApTrigAbsWindowEntry ::= SEQUENCE {
+    cfprApTrigAbsWindowInstanceId                                    CfprApManagedObjectId,
+    cfprApTrigAbsWindowDn                                            CfprApManagedObjectDn,
+    cfprApTrigAbsWindowRn                                            SnmpAdminString,
+    cfprApTrigAbsWindowConcurCap                                     Gauge32,
+    cfprApTrigAbsWindowDate                                          DateAndTime,
+    cfprApTrigAbsWindowJobCount                                      Gauge32,
+    cfprApTrigAbsWindowName                                          SnmpAdminString,
+    cfprApTrigAbsWindowProcBreak                                     SnmpAdminString,
+    cfprApTrigAbsWindowProcCap                                       Gauge32,
+    cfprApTrigAbsWindowTimeCap                                       SnmpAdminString
+}
+
+cfprApTrigAbsWindowInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigAbsWindowEntry 1 }
+
+cfprApTrigAbsWindowDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:dn managed object property"
+    ::= { cfprApTrigAbsWindowEntry 2 }
+
+cfprApTrigAbsWindowRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:rn managed object property"
+    ::= { cfprApTrigAbsWindowEntry 3 }
+
+cfprApTrigAbsWindowConcurCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:concurCap managed object property"
+    ::= { cfprApTrigAbsWindowEntry 4 }
+
+cfprApTrigAbsWindowDate OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:date managed object property"
+    ::= { cfprApTrigAbsWindowEntry 5 }
+
+cfprApTrigAbsWindowJobCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:jobCount managed object property"
+    ::= { cfprApTrigAbsWindowEntry 6 }
+
+cfprApTrigAbsWindowName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:name managed object property"
+    ::= { cfprApTrigAbsWindowEntry 7 }
+
+cfprApTrigAbsWindowProcBreak OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:procBreak managed object property"
+    ::= { cfprApTrigAbsWindowEntry 8 }
+
+cfprApTrigAbsWindowProcCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:procCap managed object property"
+    ::= { cfprApTrigAbsWindowEntry 9 }
+
+cfprApTrigAbsWindowTimeCap OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:AbsWindow:timeCap managed object property"
+    ::= { cfprApTrigAbsWindowEntry 10 }
+
+cfprApTrigClientTokenTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigClientTokenEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:ClientToken managed object table"
+    ::= { cfprApTrigObjects 2 }
+
+cfprApTrigClientTokenEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigClientTokenEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigClientTokenTable table."
+    INDEX { cfprApTrigClientTokenInstanceId }
+    ::= { cfprApTrigClientTokenTable 1 }
+
+CfprApTrigClientTokenEntry ::= SEQUENCE {
+    cfprApTrigClientTokenInstanceId                                  CfprApManagedObjectId,
+    cfprApTrigClientTokenDn                                          CfprApManagedObjectDn,
+    cfprApTrigClientTokenRn                                          SnmpAdminString,
+    cfprApTrigClientTokenActivityTs                                  DateAndTime,
+    cfprApTrigClientTokenId                                          Unsigned64,
+    cfprApTrigClientTokenOperState                                   CfprApTrigTokenOperState
+}
+
+cfprApTrigClientTokenInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigClientTokenEntry 1 }
+
+cfprApTrigClientTokenDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:ClientToken:dn managed object property"
+    ::= { cfprApTrigClientTokenEntry 2 }
+
+cfprApTrigClientTokenRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:ClientToken:rn managed object property"
+    ::= { cfprApTrigClientTokenEntry 3 }
+
+cfprApTrigClientTokenActivityTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:ClientToken:activityTs managed
+        object property"
+    ::= { cfprApTrigClientTokenEntry 4 }
+
+cfprApTrigClientTokenId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:ClientToken:id managed object property"
+    ::= { cfprApTrigClientTokenEntry 5 }
+
+cfprApTrigClientTokenOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigTokenOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:ClientToken:operState managed
+        object property"
+    ::= { cfprApTrigClientTokenEntry 6 }
+
+cfprApTrigLocalAbsWindowTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigLocalAbsWindowEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow managed object table"
+    ::= { cfprApTrigObjects 3 }
+
+cfprApTrigLocalAbsWindowEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigLocalAbsWindowEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigLocalAbsWindowTable table."
+    INDEX { cfprApTrigLocalAbsWindowInstanceId }
+    ::= { cfprApTrigLocalAbsWindowTable 1 }
+
+CfprApTrigLocalAbsWindowEntry ::= SEQUENCE {
+    cfprApTrigLocalAbsWindowInstanceId                               CfprApManagedObjectId,
+    cfprApTrigLocalAbsWindowDn                                       CfprApManagedObjectDn,
+    cfprApTrigLocalAbsWindowRn                                       SnmpAdminString,
+    cfprApTrigLocalAbsWindowConcurCap                                Gauge32,
+    cfprApTrigLocalAbsWindowDate                                     DateAndTime,
+    cfprApTrigLocalAbsWindowJobCount                                 Gauge32,
+    cfprApTrigLocalAbsWindowName                                     SnmpAdminString,
+    cfprApTrigLocalAbsWindowProcBreak                                SnmpAdminString,
+    cfprApTrigLocalAbsWindowProcCap                                  Gauge32,
+    cfprApTrigLocalAbsWindowTimeCap                                  SnmpAdminString
+}
+
+cfprApTrigLocalAbsWindowInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigLocalAbsWindowEntry 1 }
+
+cfprApTrigLocalAbsWindowDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:dn managed object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 2 }
+
+cfprApTrigLocalAbsWindowRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:rn managed object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 3 }
+
+cfprApTrigLocalAbsWindowConcurCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:concurCap
+        managed object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 4 }
+
+cfprApTrigLocalAbsWindowDate OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:date managed object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 5 }
+
+cfprApTrigLocalAbsWindowJobCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:jobCount managed
+        object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 6 }
+
+cfprApTrigLocalAbsWindowName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:name managed object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 7 }
+
+cfprApTrigLocalAbsWindowProcBreak OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:procBreak
+        managed object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 8 }
+
+cfprApTrigLocalAbsWindowProcCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:procCap managed
+        object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 9 }
+
+cfprApTrigLocalAbsWindowTimeCap OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalAbsWindow:timeCap managed
+        object property"
+    ::= { cfprApTrigLocalAbsWindowEntry 10 }
+
+cfprApTrigLocalSchedTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigLocalSchedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched managed object table"
+    ::= { cfprApTrigObjects 4 }
+
+cfprApTrigLocalSchedEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigLocalSchedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigLocalSchedTable table."
+    INDEX { cfprApTrigLocalSchedInstanceId }
+    ::= { cfprApTrigLocalSchedTable 1 }
+
+CfprApTrigLocalSchedEntry ::= SEQUENCE {
+    cfprApTrigLocalSchedInstanceId                                   CfprApManagedObjectId,
+    cfprApTrigLocalSchedDn                                           CfprApManagedObjectDn,
+    cfprApTrigLocalSchedRn                                           SnmpAdminString,
+    cfprApTrigLocalSchedAdminState                                   CfprApTrigAdminState,
+    cfprApTrigLocalSchedDescr                                        SnmpAdminString,
+    cfprApTrigLocalSchedFlgInitialActive                             TruthValue,
+    cfprApTrigLocalSchedIntId                                        SnmpAdminString,
+    cfprApTrigLocalSchedName                                         SnmpAdminString,
+    cfprApTrigLocalSchedOperState                                    CfprApTrigOperState,
+    cfprApTrigLocalSchedPolicyLevel                                  Gauge32,
+    cfprApTrigLocalSchedPolicyOwner                                  CfprApPolicyPolicyOwner
+}
+
+cfprApTrigLocalSchedInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigLocalSchedEntry 1 }
+
+cfprApTrigLocalSchedDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:dn managed object property"
+    ::= { cfprApTrigLocalSchedEntry 2 }
+
+cfprApTrigLocalSchedRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:rn managed object property"
+    ::= { cfprApTrigLocalSchedEntry 3 }
+
+cfprApTrigLocalSchedAdminState OBJECT-TYPE
+    SYNTAX       CfprApTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:adminState managed
+        object property"
+    ::= { cfprApTrigLocalSchedEntry 4 }
+
+cfprApTrigLocalSchedDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:descr managed object property"
+    ::= { cfprApTrigLocalSchedEntry 5 }
+
+cfprApTrigLocalSchedFlgInitialActive OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:flgInitialActive
+        managed object property"
+    ::= { cfprApTrigLocalSchedEntry 6 }
+
+cfprApTrigLocalSchedIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:intId managed object property"
+    ::= { cfprApTrigLocalSchedEntry 7 }
+
+cfprApTrigLocalSchedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:name managed object property"
+    ::= { cfprApTrigLocalSchedEntry 8 }
+
+cfprApTrigLocalSchedOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:operState managed
+        object property"
+    ::= { cfprApTrigLocalSchedEntry 9 }
+
+cfprApTrigLocalSchedPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:policyLevel managed
+        object property"
+    ::= { cfprApTrigLocalSchedEntry 10 }
+
+cfprApTrigLocalSchedPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:LocalSched:policyOwner managed
+        object property"
+    ::= { cfprApTrigLocalSchedEntry 11 }
+
+cfprApTrigMetaTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigMetaEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta managed object table"
+    ::= { cfprApTrigObjects 5 }
+
+cfprApTrigMetaEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigMetaEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigMetaTable table."
+    INDEX { cfprApTrigMetaInstanceId }
+    ::= { cfprApTrigMetaTable 1 }
+
+CfprApTrigMetaEntry ::= SEQUENCE {
+    cfprApTrigMetaInstanceId                                         CfprApManagedObjectId,
+    cfprApTrigMetaDn                                                 CfprApManagedObjectDn,
+    cfprApTrigMetaRn                                                 SnmpAdminString,
+    cfprApTrigMetaAdminState                                         CfprApTrigAdminState,
+    cfprApTrigMetaDescr                                              SnmpAdminString,
+    cfprApTrigMetaIntId                                              SnmpAdminString,
+    cfprApTrigMetaJobCount                                           Gauge32,
+    cfprApTrigMetaName                                               SnmpAdminString,
+    cfprApTrigMetaOperState                                          CfprApTrigOperState,
+    cfprApTrigMetaPolicyLevel                                        Gauge32,
+    cfprApTrigMetaPolicyOwner                                        CfprApPolicyPolicyOwner,
+    cfprApTrigMetaSchedName                                          SnmpAdminString,
+    cfprApTrigMetaTrigTime                                           DateAndTime,
+    cfprApTrigMetaWindowDn                                           SnmpAdminString
+}
+
+cfprApTrigMetaInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigMetaEntry 1 }
+
+cfprApTrigMetaDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:dn managed object property"
+    ::= { cfprApTrigMetaEntry 2 }
+
+cfprApTrigMetaRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:rn managed object property"
+    ::= { cfprApTrigMetaEntry 3 }
+
+cfprApTrigMetaAdminState OBJECT-TYPE
+    SYNTAX       CfprApTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:adminState managed object property"
+    ::= { cfprApTrigMetaEntry 4 }
+
+cfprApTrigMetaDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:descr managed object property"
+    ::= { cfprApTrigMetaEntry 5 }
+
+cfprApTrigMetaIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:intId managed object property"
+    ::= { cfprApTrigMetaEntry 6 }
+
+cfprApTrigMetaJobCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:jobCount managed object property"
+    ::= { cfprApTrigMetaEntry 7 }
+
+cfprApTrigMetaName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:name managed object property"
+    ::= { cfprApTrigMetaEntry 8 }
+
+cfprApTrigMetaOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:operState managed object property"
+    ::= { cfprApTrigMetaEntry 9 }
+
+cfprApTrigMetaPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:policyLevel managed object property"
+    ::= { cfprApTrigMetaEntry 10 }
+
+cfprApTrigMetaPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:policyOwner managed object property"
+    ::= { cfprApTrigMetaEntry 11 }
+
+cfprApTrigMetaSchedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:schedName managed object property"
+    ::= { cfprApTrigMetaEntry 12 }
+
+cfprApTrigMetaTrigTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:trigTime managed object property"
+    ::= { cfprApTrigMetaEntry 13 }
+
+cfprApTrigMetaWindowDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Meta:windowDn managed object property"
+    ::= { cfprApTrigMetaEntry 14 }
+
+cfprApTrigRecurrWindowTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigRecurrWindowEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow managed object table"
+    ::= { cfprApTrigObjects 6 }
+
+cfprApTrigRecurrWindowEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigRecurrWindowEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigRecurrWindowTable table."
+    INDEX { cfprApTrigRecurrWindowInstanceId }
+    ::= { cfprApTrigRecurrWindowTable 1 }
+
+CfprApTrigRecurrWindowEntry ::= SEQUENCE {
+    cfprApTrigRecurrWindowInstanceId                                 CfprApManagedObjectId,
+    cfprApTrigRecurrWindowDn                                         CfprApManagedObjectDn,
+    cfprApTrigRecurrWindowRn                                         SnmpAdminString,
+    cfprApTrigRecurrWindowConcurCap                                  Gauge32,
+    cfprApTrigRecurrWindowDay                                        CfprApTrigDay,
+    cfprApTrigRecurrWindowHour                                       Gauge32,
+    cfprApTrigRecurrWindowJobCount                                   Gauge32,
+    cfprApTrigRecurrWindowMinute                                     Gauge32,
+    cfprApTrigRecurrWindowName                                       SnmpAdminString,
+    cfprApTrigRecurrWindowProcBreak                                  SnmpAdminString,
+    cfprApTrigRecurrWindowProcCap                                    Gauge32,
+    cfprApTrigRecurrWindowTimeCap                                    SnmpAdminString
+}
+
+cfprApTrigRecurrWindowInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigRecurrWindowEntry 1 }
+
+cfprApTrigRecurrWindowDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:dn managed object property"
+    ::= { cfprApTrigRecurrWindowEntry 2 }
+
+cfprApTrigRecurrWindowRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:rn managed object property"
+    ::= { cfprApTrigRecurrWindowEntry 3 }
+
+cfprApTrigRecurrWindowConcurCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:concurCap managed
+        object property"
+    ::= { cfprApTrigRecurrWindowEntry 4 }
+
+cfprApTrigRecurrWindowDay OBJECT-TYPE
+    SYNTAX       CfprApTrigDay
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:day managed object property"
+    ::= { cfprApTrigRecurrWindowEntry 5 }
+
+cfprApTrigRecurrWindowHour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:hour managed object property"
+    ::= { cfprApTrigRecurrWindowEntry 6 }
+
+cfprApTrigRecurrWindowJobCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:jobCount managed
+        object property"
+    ::= { cfprApTrigRecurrWindowEntry 7 }
+
+cfprApTrigRecurrWindowMinute OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:minute managed object property"
+    ::= { cfprApTrigRecurrWindowEntry 8 }
+
+cfprApTrigRecurrWindowName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:name managed object property"
+    ::= { cfprApTrigRecurrWindowEntry 9 }
+
+cfprApTrigRecurrWindowProcBreak OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:procBreak managed
+        object property"
+    ::= { cfprApTrigRecurrWindowEntry 10 }
+
+cfprApTrigRecurrWindowProcCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:procCap managed
+        object property"
+    ::= { cfprApTrigRecurrWindowEntry 11 }
+
+cfprApTrigRecurrWindowTimeCap OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:RecurrWindow:timeCap managed
+        object property"
+    ::= { cfprApTrigRecurrWindowEntry 12 }
+
+cfprApTrigSchedTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigSchedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched managed object table"
+    ::= { cfprApTrigObjects 7 }
+
+cfprApTrigSchedEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigSchedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigSchedTable table."
+    INDEX { cfprApTrigSchedInstanceId }
+    ::= { cfprApTrigSchedTable 1 }
+
+CfprApTrigSchedEntry ::= SEQUENCE {
+    cfprApTrigSchedInstanceId                                        CfprApManagedObjectId,
+    cfprApTrigSchedDn                                                CfprApManagedObjectDn,
+    cfprApTrigSchedRn                                                SnmpAdminString,
+    cfprApTrigSchedAdminState                                        CfprApTrigAdminState,
+    cfprApTrigSchedDescr                                             SnmpAdminString,
+    cfprApTrigSchedFlgInitialActive                                  TruthValue,
+    cfprApTrigSchedIntId                                             SnmpAdminString,
+    cfprApTrigSchedName                                              SnmpAdminString,
+    cfprApTrigSchedOperState                                         CfprApTrigOperState,
+    cfprApTrigSchedPolicyLevel                                       Gauge32,
+    cfprApTrigSchedPolicyOwner                                       CfprApPolicyPolicyOwner
+}
+
+cfprApTrigSchedInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigSchedEntry 1 }
+
+cfprApTrigSchedDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:dn managed object property"
+    ::= { cfprApTrigSchedEntry 2 }
+
+cfprApTrigSchedRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:rn managed object property"
+    ::= { cfprApTrigSchedEntry 3 }
+
+cfprApTrigSchedAdminState OBJECT-TYPE
+    SYNTAX       CfprApTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:adminState managed object property"
+    ::= { cfprApTrigSchedEntry 4 }
+
+cfprApTrigSchedDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:descr managed object property"
+    ::= { cfprApTrigSchedEntry 5 }
+
+cfprApTrigSchedFlgInitialActive OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:flgInitialActive managed
+        object property"
+    ::= { cfprApTrigSchedEntry 6 }
+
+cfprApTrigSchedIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:intId managed object property"
+    ::= { cfprApTrigSchedEntry 7 }
+
+cfprApTrigSchedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:name managed object property"
+    ::= { cfprApTrigSchedEntry 8 }
+
+cfprApTrigSchedOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:operState managed object property"
+    ::= { cfprApTrigSchedEntry 9 }
+
+cfprApTrigSchedPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:policyLevel managed object property"
+    ::= { cfprApTrigSchedEntry 10 }
+
+cfprApTrigSchedPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Sched:policyOwner managed object property"
+    ::= { cfprApTrigSchedEntry 11 }
+
+cfprApTrigTestTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigTestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:Test managed object table"
+    ::= { cfprApTrigObjects 8 }
+
+cfprApTrigTestEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigTestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigTestTable table."
+    INDEX { cfprApTrigTestInstanceId }
+    ::= { cfprApTrigTestTable 1 }
+
+CfprApTrigTestEntry ::= SEQUENCE {
+    cfprApTrigTestInstanceId                                         CfprApManagedObjectId,
+    cfprApTrigTestDn                                                 CfprApManagedObjectDn,
+    cfprApTrigTestRn                                                 SnmpAdminString,
+    cfprApTrigTestAdminState                                         CfprApTrigAdminState,
+    cfprApTrigTestAutoDelete                                         TruthValue,
+    cfprApTrigTestCreationDate                                       DateAndTime,
+    cfprApTrigTestDescr                                              SnmpAdminString,
+    cfprApTrigTestIgnoreCap                                          TruthValue,
+    cfprApTrigTestIntId                                              SnmpAdminString,
+    cfprApTrigTestName                                               SnmpAdminString,
+    cfprApTrigTestOperScheduler                                      SnmpAdminString,
+    cfprApTrigTestOperState                                          CfprApTrigTrigOperState,
+    cfprApTrigTestPolicyLevel                                        Gauge32,
+    cfprApTrigTestPolicyOwner                                        CfprApPolicyPolicyOwner,
+    cfprApTrigTestScheduler                                          SnmpAdminString
+}
+
+cfprApTrigTestInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigTestEntry 1 }
+
+cfprApTrigTestDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:dn managed object property"
+    ::= { cfprApTrigTestEntry 2 }
+
+cfprApTrigTestRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:rn managed object property"
+    ::= { cfprApTrigTestEntry 3 }
+
+cfprApTrigTestAdminState OBJECT-TYPE
+    SYNTAX       CfprApTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:adminState managed object property"
+    ::= { cfprApTrigTestEntry 4 }
+
+cfprApTrigTestAutoDelete OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:autoDelete managed object property"
+    ::= { cfprApTrigTestEntry 5 }
+
+cfprApTrigTestCreationDate OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:creationDate managed object property"
+    ::= { cfprApTrigTestEntry 6 }
+
+cfprApTrigTestDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:descr managed object property"
+    ::= { cfprApTrigTestEntry 7 }
+
+cfprApTrigTestIgnoreCap OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:ignoreCap managed object property"
+    ::= { cfprApTrigTestEntry 8 }
+
+cfprApTrigTestIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:intId managed object property"
+    ::= { cfprApTrigTestEntry 9 }
+
+cfprApTrigTestName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:name managed object property"
+    ::= { cfprApTrigTestEntry 10 }
+
+cfprApTrigTestOperScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:operScheduler managed object property"
+    ::= { cfprApTrigTestEntry 11 }
+
+cfprApTrigTestOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigTrigOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:operState managed object property"
+    ::= { cfprApTrigTestEntry 12 }
+
+cfprApTrigTestPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:policyLevel managed object property"
+    ::= { cfprApTrigTestEntry 13 }
+
+cfprApTrigTestPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:policyOwner managed object property"
+    ::= { cfprApTrigTestEntry 14 }
+
+cfprApTrigTestScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Test:scheduler managed object property"
+    ::= { cfprApTrigTestEntry 15 }
+
+cfprApTrigTriggeredTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApTrigTriggeredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered managed object table"
+    ::= { cfprApTrigObjects 9 }
+
+cfprApTrigTriggeredEntry OBJECT-TYPE
+    SYNTAX           CfprApTrigTriggeredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApTrigTriggeredTable table."
+    INDEX { cfprApTrigTriggeredInstanceId }
+    ::= { cfprApTrigTriggeredTable 1 }
+
+CfprApTrigTriggeredEntry ::= SEQUENCE {
+    cfprApTrigTriggeredInstanceId                                    CfprApManagedObjectId,
+    cfprApTrigTriggeredDn                                            CfprApManagedObjectDn,
+    cfprApTrigTriggeredRn                                            SnmpAdminString,
+    cfprApTrigTriggeredJobCount                                      Gauge32,
+    cfprApTrigTriggeredOperState                                     CfprApTrigTriggeredState,
+    cfprApTrigTriggeredOrder                                         Gauge32,
+    cfprApTrigTriggeredTrDn                                          SnmpAdminString,
+    cfprApTrigTriggeredTrId                                          Gauge32
+}
+
+cfprApTrigTriggeredInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApTrigTriggeredEntry 1 }
+
+cfprApTrigTriggeredDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered:dn managed object property"
+    ::= { cfprApTrigTriggeredEntry 2 }
+
+cfprApTrigTriggeredRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered:rn managed object property"
+    ::= { cfprApTrigTriggeredEntry 3 }
+
+cfprApTrigTriggeredJobCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered:jobCount managed object property"
+    ::= { cfprApTrigTriggeredEntry 4 }
+
+cfprApTrigTriggeredOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigTriggeredState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered:operState managed object property"
+    ::= { cfprApTrigTriggeredEntry 5 }
+
+cfprApTrigTriggeredOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered:order managed object property"
+    ::= { cfprApTrigTriggeredEntry 6 }
+
+cfprApTrigTriggeredTrDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered:trDn managed object property"
+    ::= { cfprApTrigTriggeredEntry 7 }
+
+cfprApTrigTriggeredTrId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower trig:Triggered:trId managed object property"
+    ::= { cfprApTrigTriggeredEntry 8 }
+
+END

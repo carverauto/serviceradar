@@ -175,11 +175,16 @@ get-swiftlint: ## Check SwiftLint is installed
 	@which $(SWIFTLINT) > /dev/null || (echo "swiftlint not found, please install it from https://github.com/realm/SwiftLint" && exit 1)
 
 .PHONY: lint
-lint: get-golangcilint get-swiftlint ## Run linting checks
+lint: get-golangcilint ## Run linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
+ifeq ($(HOST_OS),Darwin)
 	@echo "$(COLOR_BOLD)Running SwiftLint$(COLOR_RESET)"
+	@which $(SWIFTLINT) > /dev/null || (echo "swiftlint not found, please install it from https://github.com/realm/SwiftLint" && exit 1)
 	@$(SWIFTLINT) lint --config .swiftlint.yml
+else
+	@echo "$(COLOR_BOLD)Skipping SwiftLint (HOST_OS=$(HOST_OS); Darwin only)$(COLOR_RESET)"
+endif
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
 	@cd rust/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings

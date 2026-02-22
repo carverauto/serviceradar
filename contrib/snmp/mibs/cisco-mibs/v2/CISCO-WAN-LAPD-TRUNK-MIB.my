@@ -1,0 +1,931 @@
+-- *****************************************************************
+-- CISCO-WAN-LAPD-TRUNK-MIB.my:  CISCO WAN LAPD Trunk MIB file
+--
+-- December 2003, George Ogagan
+--
+-- Copyright (c) 2001-2003 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-WAN-LAPD-TRUNK-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32,
+    Counter32,
+    OBJECT-TYPE
+                FROM SNMPv2-SMI
+    RowStatus
+                FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+                FROM SNMPv2-CONF
+    voice       FROM BASIS-MIB
+    ciscoWan    FROM CISCOWAN-SMI;
+
+ciscoWanLapdTrunkMIB MODULE-IDENTITY
+    LAST-UPDATED "200312110000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-vism@cisco.com"
+
+    DESCRIPTION
+            "The MIB module is defined for establishing a Trunk
+             to transport PRI (Primary Rate Interface) signaling
+             information over a RUDP (Reliable UDP) connection for
+             CCS (Common Channel Signaling) VoIP(Voice Over IP)
+             Trunking application." 
+
+    REVISION    "200312110000Z"
+    DESCRIPTION
+        "Update descriptions in the MIB.
+        "
+
+    REVISION    "200307170000Z"
+    DESCRIPTION
+        "-Added following tables:
+           vismLapdTable 
+           vismLapdStatsTable
+           vismLapdDlcTable 
+
+           These tables were defined in vismLapd.my earlier. 
+           and are now converted to SMIv2 and defined here.
+          - Added UNITS clause wherever applicable."
+
+    REVISION    "200307110000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+
+    ::= { ciscoWan 23 }
+
+vismLapdGrp                  OBJECT IDENTIFIER ::= { voice 12 }
+
+ciscoWanLapdTrunkMIBObjects  OBJECT IDENTIFIER ::= 
+                               { ciscoWanLapdTrunkMIB 1 }
+
+vismLapdTrunkGrp             OBJECT IDENTIFIER ::= 
+                               { ciscoWanLapdTrunkMIBObjects 1 }
+
+
+-- 
+-- vismLapdTrunkGrpTable
+--
+
+vismLapdTrunkGrpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismLapdTrunkGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table defines attributes used to set up a 
+         Trunked LAPD (Link Access Procedure on the
+         D-channel) connection over RUDP between 2 VISM's
+         to transport PRI D channel information. 
+         
+         Such a Trunked connection over RUDP can only be
+         created if the D-channel has already not been
+         configured for PRI Backhaul. The object
+         vismLapdTrunkType in vismLapdTable indicate
+         PRI Backhaul or Trunking is configured, also
+         an entry will be created for each D channel. PRI 
+         Backhaul and PRI Trunking can co-exist on the
+         same card but not on the same line, a line (DS1)
+         is associated with a LAPD RUDP through
+         vismLapdTrunkRudpIndex. 
+        "
+    ::= { vismLapdTrunkGrp 1 }
+
+vismLapdTrunkGrpEntry OBJECT-TYPE
+    SYNTAX      VismLapdTrunkGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the vismLapdTrunkGrpTable. 
+        "
+    INDEX { vismLapdTrunkNum }
+    ::= { vismLapdTrunkGrpTable 1 }
+
+VismLapdTrunkGrpEntry ::=
+    SEQUENCE {
+          vismLapdTrunkNum             Integer32,
+          vismLapdTrunkState           INTEGER,
+          vismLapdTrunkRudpIndex       Integer32,
+          vismLapdTrunkRowStatus       RowStatus
+       }
+
+vismLapdTrunkNum OBJECT-TYPE
+    SYNTAX       Integer32(0..2147483647)
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "This is the index of vismLapdTrunkGrpTable.
+        "
+    ::= { vismLapdTrunkGrpEntry 1 }
+
+vismLapdTrunkState  OBJECT-TYPE
+    SYNTAX      INTEGER {
+                          oos (1),
+                          is (2),
+                          unknown (3)
+                        } 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "'oos' - Out of service state. The LAPD Trunk state 
+         is independent of the RUDP session state in the sense 
+         that the LAPD state could be 'oos' while the RUDP 
+         session state is 'is' and vice versa.
+         'is' - In service state.   
+         'unknown' - This is the state other than the above states.
+         If the communication is lost between the 2 VISM's, 
+         the state of this connection becomes 'oos'.
+        "
+    ::= { vismLapdTrunkGrpEntry 2 }
+
+vismLapdTrunkRudpIndex    OBJECT-TYPE
+    SYNTAX      Integer32(0..2147483647)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "All LAPD Trunk connections are over RUDP. Each RUDP 
+         connection is characterized by a set of negotiable and
+         non-negotiable parameters. These parameters are in 
+         vismRudpSessionCnfEntry(defined in
+         CISCO-VISM-SESSION-MIB MIB) table. This object 
+         is an index into that table. Before creating an entry in
+         this table the corresponding RUDP session entry must be 
+         created in the vismRudpSessionCnfEntry table with the 
+         vismRudpSessionType(defined in the same MIB) as
+         LAPD Trunking. The RUDP session cannot be deleted
+         if the corresponding LAPD Trunk still exist. The LAPD
+         Trunk needs to be deleted before deleting RUDP session
+         as specified in CISCO-VISM-SESSION-MIB.
+        "
+    ::= { vismLapdTrunkGrpEntry 3 }
+
+vismLapdTrunkRowStatus    OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This variable allows the user to add or delete the entry 
+         for this table.
+         'createAndGo': Use this to add a LAPD Trunk connection in
+                        this table. The vismLapdTrunkRudpIndex for this
+                        corresponding entry has to be specified also.
+
+         'active': This value is returned, once the row is created.
+
+         'destroy': Use this to delete a LAPD Trunk connection
+                    from this table.
+        "
+    ::= { vismLapdTrunkGrpEntry 4 }
+
+-- LAPD configuration table.
+
+vismLapdTable   OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismLapdEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table is used for maintaining the configuration of
+         the LAPD channel on VISM.
+        "
+    ::= { vismLapdGrp 1 }
+
+vismLapdEntry   OBJECT-TYPE
+    SYNTAX      VismLapdEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry for vismLapdTable."
+    INDEX   { vismLapdIndex }
+    ::= { vismLapdTable 1 }
+
+VismLapdEntry ::=
+    SEQUENCE {
+        vismLapdIndex              Integer32,
+        vismLapdAppType            INTEGER,
+        vismLapdWinSize            Integer32,
+        vismLapdN200               Integer32,
+        vismLapdT200               Integer32,
+        vismLapdT203               Integer32,
+        vismLapdType               INTEGER,
+        vismLapdRowStatus          RowStatus,
+        vismLapdSide               INTEGER,
+        vismLapdTrunkType          INTEGER
+    }
+
+vismLapdIndex OBJECT-TYPE
+    SYNTAX      Integer32(1..248)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is an index to vismLapdTable. This is derived
+         from the following formula:
+         index = 31 * (DS1# - 1) + DS0#
+
+         where : DS1# - The T1/E1 line number in the range 1 - 8.
+                 DS0# - The DS0 channel number ranging from
+                        1 to 24 for T1 and 1 to 31 for E1.
+        "
+    ::= { vismLapdEntry 1 }
+
+vismLapdAppType OBJECT-TYPE
+    SYNTAX  INTEGER {
+                      pri(1),
+                      gr-303(2)
+                    } 
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION
+        "This object indicates the type of the LAPD interface. 
+        When the user creates a LAPD entry this object need 
+        to be specified. After creation it cannot be modified.
+  
+        'pri' - level of service provided by ISDN(Integrated 
+                Services Digital Network) that carries voice,
+                data, other services with control and signaling
+                information in D-channel. 
+        'gr-303' - standard interfaces for integrated digital
+                   loop carrier systems. 
+        "
+    DEFVAL { pri }
+    ::= { vismLapdEntry 2 }
+
+vismLapdWinSize OBJECT-TYPE
+    SYNTAX      Integer32  (1..127)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The window size - maximum number of sequentially 
+         numbered I-frames that may be outstanding.
+        "
+    DEFVAL { 7 }
+    ::= { vismLapdEntry 3 }
+
+
+vismLapdN200 OBJECT-TYPE
+    SYNTAX      Integer32 (1..10)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The maximum number of retransmissions of a frame.
+        "
+    DEFVAL { 3 }
+    ::= { vismLapdEntry 4 }
+
+vismLapdT200 OBJECT-TYPE
+    SYNTAX     Integer32 (100..1023000)
+    UNITS      "milliseconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The maximum number of time in milliseconds to wait for 
+         acknowledgement for a transmit frame. This value should
+         be less than vismLapdT203.
+         For PRI, the range is 1000 ms to 1023000 ms. The 
+         default is 1000 ms.
+         For GR-303, the range is 100 ms to 350 ms in increments 
+         of 50 ms. The default value is 150 ms.
+        "
+    ::= { vismLapdEntry 5 }
+
+vismLapdT203 OBJECT-TYPE
+    SYNTAX     Integer32 (1000..1023000)
+    UNITS      "milliseconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The maximum time (in milliseconds) allowed without 
+         frames being exchanged. This value should be greater 
+         than vismLapdT200. For PRI, the range is 1000 to 1023000 
+         and the default is 10000 ms. For GR-303, the range is 
+         10000 to 300000 ms in increments of 10000 ms. The default 
+         is 30000 ms.
+        "
+    ::= { vismLapdEntry 6 }
+
+vismLapdType   OBJECT-TYPE
+    SYNTAX      INTEGER {
+                        ccitt(1),
+                        att5EssPRA(3),
+                        att4Ess(4),
+                        ntDMS100PRA(6),
+                        vn2or3(7),
+                        insNet(8),
+                        tr6MPC(9),
+                        tr6PBX(10),
+                        ausp(12),
+                        ni1(13),
+                        etsi(14),
+                        bc303TMC(15),
+                        bc303CSC(16),
+                        ntDMS250(17),
+                        bellcore(18),
+                        ni2(19)
+                       }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies what type of interface the LAPD stack
+         will be used with.
+                 ccitt(1)        : CCITT
+                 att5EssPRA(3)   : AT&T 5ESS PRA
+                 att4Ess(4)      : AT&T 4ESS
+                 ntDMS100PRA(6)  : NT dms100 PRA
+                 vn2or3(7)       : VN 2 or VN 3
+                 insNet(8)       : INS Net
+                 tr6MPC(9)       : tr6 MPC
+                 tr6PBX(10)      : tr6 PBX
+                 ausp(12)        : Austel Primary
+                 ni1(13)         : National ISDN-1
+                 etsi(14)        : ETSI
+                 bc303TMC(15)    : Bellcorp tr303 tmc
+                 bc303CSC(16)    : Bellcorp tr303 csc
+                 ntDMS250(17)    : NT dms250
+                 bellcore(18)    : Bellcore
+                 ni2(19)         : National ISDN-2
+        "
+    DEFVAL { ni2 }
+    ::= { vismLapdEntry 7 }
+
+vismLapdRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Row status allows users to create or delete a LAPD entry. 
+         'createAndGo' - this option is use to create an entry in the
+         table. Before a LAPD entry is created, the session manager
+         should be set up(add a PRI backhaul session set,
+         and session group between VISM and the call agent). 
+         Before creating a LAPD entry the entry in HDLC table will
+         implicitly created first. If the DS0 has already been used
+         then the request of creating a LAPD channel on the same DS0
+         on the same line will be rejected. After creating the LAPD 
+         entry the corresponding entry in vismLapdStatsTable will be 
+         implicitly created.
+
+         'active' - When an entry is created it becomes active.
+         
+         'destroy' - Use this to delete an entry in this table. After
+         implicitly deleting all the entries(if there is any) in 
+         vismLapdDlcEntry table for the specific D channel the entry 
+         in vismLapdEntry will be deleted, then the entry in 
+         vismLapdStatsTable will be implicitly deleted, followed by 
+         the deletion of the HDLC entry.
+        "
+    ::= { vismLapdEntry 8 }
+
+vismLapdSide   OBJECT-TYPE
+    SYNTAX     INTEGER {
+                          network(1),
+                          user(2) 
+                       }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This object specifies whether LAPD stack is on the
+         user side or network side.
+         This object can be set when the row is created. It
+         cannot be modified for an existing row.
+        "
+    DEFVAL { network }
+    ::= { vismLapdEntry 9 }
+
+vismLapdTrunkType OBJECT-TYPE
+    SYNTAX      INTEGER {
+                           backhaul (1),
+                           lapdTrunking (2)
+                        }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates if the line is configured for 
+         Trunking or PRI Backhaul. This object is set to
+         the appropriate type when the vismRudpSessionType
+         (defined in CISCO-VISM-SESSION-MIB MIB) parameter 
+         in the vismRudpSessionCnfEntry(specify in the same
+         MIB) table is set. The motivation to have similar
+         such objects at two places is for convenience.
+        "
+    ::= { vismLapdEntry 10 }
+
+-- vismLapdStatsTable
+
+vismLapdStatsTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF VismLapdStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+             "This table contains statistics information for all 
+              LAPD (D channel Data Link) interfaces on VISM.
+             "
+        ::= { vismLapdGrp 2 }
+
+vismLapdStatsEntry OBJECT-TYPE
+        SYNTAX      VismLapdStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "An entry in the LAPD Table."
+        INDEX { vismLapdStatsIndex }
+        ::= { vismLapdStatsTable 1 }
+
+VismLapdStatsEntry ::= SEQUENCE {
+        vismLapdStatsIndex         Integer32,
+        vismLapdRxInfoFrames       Counter32,
+        vismLapdTxInfoFrames       Counter32,
+        vismLapdRxReadyFrames      Counter32,
+        vismLapdTxReadyFrames      Counter32,
+        vismLapdRxNotReadyFrames   Counter32,
+        vismLapdTxNotReadyFrames   Counter32,
+        vismLapdRxSABMFrames       Counter32,
+        vismLapdTxSABMFrames       Counter32,
+        vismLapdRxDisconFrames     Counter32,
+        vismLapdTxDisconFrames     Counter32,
+        vismLapdRxUAFrames         Counter32,
+        vismLapdTxUAFrames         Counter32,
+        vismLapdRxDiscModeFrames   Counter32,
+        vismLapdTxDiscModeFrames   Counter32,
+        vismLapdRxFrmRejectFrames  Counter32,
+        vismLapdTxFrmRejectFrames  Counter32,
+        vismLapdRxExchIdFrames     Counter32,
+        vismLapdTxExchIdFrames     Counter32,
+        vismLapdRxUnumInfoFrames   Counter32,
+        vismLapdTxUnumInfoFrames   Counter32,
+        vismLapdRxRejectFrames     Counter32,
+        vismLapdTxRejectFrames     Counter32,
+        vismLapdRxInvalidFrames    Counter32
+    }
+
+vismLapdStatsIndex OBJECT-TYPE
+    SYNTAX      Integer32(1..248)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is the index for this table. It is the same as
+         vismLapdIndex. An entry of this table will be implicitly
+         created when a LAPD entry is added.
+        "
+    ::= { vismLapdStatsEntry 1 }
+
+vismLapdRxInfoFrames OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains received information frames on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 2 }
+
+vismLapdTxInfoFrames OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains information frames transmitted on
+         a LAPD.
+        "
+    ::= { vismLapdStatsEntry 3 }
+
+vismLapdRxReadyFrames OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Receiver Ready frames received
+         on a LAPD. 
+        "
+    ::= { vismLapdStatsEntry 4 }
+
+vismLapdTxReadyFrames OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Receiver Ready frames transmitted
+         on LAPD. 
+        "
+    ::= { vismLapdStatsEntry 5 }
+
+vismLapdRxNotReadyFrames OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Receiver Not Ready frames
+         received on LAPD. 
+        "
+    ::= { vismLapdStatsEntry 6 }
+
+vismLapdTxNotReadyFrames OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Receiver Not Ready frames
+         transmitted on a LAPD. 
+        "
+    ::= { vismLapdStatsEntry 7 }
+
+vismLapdRxSABMFrames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Set Asynchronous Balanced Mode
+         frames received on a LAPD. 
+        "
+    ::= { vismLapdStatsEntry 8 }
+
+vismLapdTxSABMFrames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Set Asynchronous Balanced Mode
+         frames transmitted on LAPD. 
+        "
+    ::= { vismLapdStatsEntry 9 }
+
+vismLapdRxDisconFrames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Disconnect frames received on LAPD.
+        "
+    ::= { vismLapdStatsEntry 10 }
+
+vismLapdTxDisconFrames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Disconnect frames transmitted
+         on LAPD.
+        "
+    ::= { vismLapdStatsEntry 11 }
+
+vismLapdRxUAFrames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Unnumbered Acknowledge frames
+         received on a LAPD. 
+        "
+    ::= { vismLapdStatsEntry 12 }
+
+vismLapdTxUAFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Unnumbered Acknowledge frames
+         transmitted on a LAPD. 
+        "
+    ::= { vismLapdStatsEntry 13 }
+
+vismLapdRxDiscModeFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Disconnect Mode frames received
+         on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 14 }
+
+vismLapdTxDiscModeFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Disconnect Mode frames transmitted
+         on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 15 }
+
+vismLapdRxFrmRejectFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Frame Reject frames received on a
+         LAPD.
+        "
+    ::= { vismLapdStatsEntry 16 }
+
+vismLapdTxFrmRejectFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Frame Reject frames transmitted on a
+         LAPD.
+        "
+    ::= { vismLapdStatsEntry 17 }
+
+vismLapdRxExchIdFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Exchange Id frames received on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 18 }
+
+vismLapdTxExchIdFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Exchange Id frames transmitted on
+         a LAPD.
+        "
+    ::= { vismLapdStatsEntry 19 }
+
+vismLapdRxUnumInfoFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Unnumbered Information frames
+         received on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 20 }
+
+vismLapdTxUnumInfoFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Unnumbered Information frames
+         transmitted on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 21 }
+
+vismLapdRxRejectFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Received Reject Frames on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 22 }
+
+vismLapdTxRejectFrames OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This counter contains Reject frames transmitted on LAPD.
+        "
+    ::= { vismLapdStatsEntry 23 }
+
+vismLapdRxInvalidFrames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter contains Invalid frames received on a LAPD.
+        "
+    ::= { vismLapdStatsEntry 24 }
+
+-- vismLapdDlcTable
+ 
+vismLapdDlcTable    OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismLapdDlcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table is used for maintaining the link state 
+         of different DLCs on a LAPD channel. An entry of 
+         this table will be implicitly created when a LAPD
+         entry is added.
+        "
+    ::= { vismLapdGrp 3 }
+
+vismLapdDlcEntry    OBJECT-TYPE
+    SYNTAX      VismLapdDlcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry for vismLapdDlcTable."
+    INDEX   { vismLapdDlcIndex, vismLapdDlcSapi, vismLapdDlcTei }
+    ::= { vismLapdDlcTable 1 }
+
+VismLapdDlcEntry ::=
+    SEQUENCE {
+        vismLapdDlcIndex              Integer32,
+        vismLapdDlcSapi               Integer32,
+        vismLapdDlcTei                Integer32,
+        vismLapdDlcLinkState          INTEGER
+    }
+
+vismLapdDlcIndex OBJECT-TYPE
+    SYNTAX      Integer32(1..248)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the corresponding LAPD index. It 
+        is the same as vismLapdIndex. 
+        "
+    ::= { vismLapdDlcEntry 1 }
+
+vismLapdDlcSapi OBJECT-TYPE
+    SYNTAX      Integer32(0..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is the SAPI(Service Access Point Identifier)
+        of a specific DLC(Data Link Control).
+        "
+    ::= { vismLapdDlcEntry 2 }
+
+vismLapdDlcTei OBJECT-TYPE
+    SYNTAX      Integer32(0..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is the TEI(Terminal Endpoint Identifier) of
+         a specific DLC.
+        "
+    ::= { vismLapdDlcEntry 3 }
+
+vismLapdDlcLinkState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                          up     (1),
+                          down   (2),
+                          unknown(3)
+                        }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicate the linking state on a given DLC.
+        "
+    ::= { vismLapdDlcEntry 4 }
+
+-- *****************************************************************
+-- LAPD Trunk group notification
+-- *****************************************************************
+
+vismLapdTrunkNotificationPrefix OBJECT IDENTIFIER ::=
+                                  { ciscoWanLapdTrunkMIB 2 }
+
+vismLapdTrunkNotifications OBJECT IDENTIFIER      ::= 
+                             { vismLapdTrunkNotificationPrefix 0 }
+
+
+-- **********************************************************************
+-- Conformance
+-- **********************************************************************
+
+--
+-- conformance information
+--
+
+vismLapdTrunkMIBConformance  OBJECT IDENTIFIER  ::= 
+                               { ciscoWanLapdTrunkMIB 3 }
+
+vismLapdTrunkMIBCompliances  OBJECT IDENTIFIER  ::=
+                               { vismLapdTrunkMIBConformance 1 }
+
+vismLapdTrunkMIBGroups       OBJECT IDENTIFIER  ::= 
+                               { vismLapdTrunkMIBConformance 2 }
+
+--
+-- Conformance and compliance statements statements
+--
+
+vismLapdTrunkMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+            " The complaince statement for LAPD Trunk group
+              which implements vismLapdTrunkGrp MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { 
+                           vismLapdTrunkGroup,
+                           ciscoVismLapdGroup,
+                           ciscoVismLapdStatsGroup,
+                           ciscoVismLapdDlcTable
+                         }
+
+    OBJECT     vismLapdRowStatus 
+    SYNTAX     INTEGER {
+                  active(1),
+                  createAndGo(4),
+                  destroy(6)
+                }
+    MIN-ACCESS read-create
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+         'active' out of the six enumerated values need to
+         be supported.
+        "
+
+    ::= { vismLapdTrunkMIBCompliances 1 }
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+
+vismLapdTrunkGroup OBJECT-GROUP
+         OBJECTS {
+          vismLapdTrunkState,
+          vismLapdTrunkRudpIndex,
+          vismLapdTrunkRowStatus
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group contains objects related to configuration of
+             LAPD Trunk connections over RUDP.
+             "
+    ::= { vismLapdTrunkMIBGroups 1 }
+
+ciscoVismLapdGroup OBJECT-GROUP
+     OBJECTS {
+        vismLapdIndex,
+        vismLapdAppType,
+        vismLapdWinSize,
+        vismLapdN200,
+        vismLapdT200,
+        vismLapdT203,
+        vismLapdType,
+        vismLapdRowStatus,
+        vismLapdSide,
+        vismLapdTrunkType
+     }
+     STATUS current
+     DESCRIPTION
+            "The collection of objects which are used to represent
+            VISM LAPD information."
+      ::= { vismLapdTrunkMIBGroups 2 }
+
+ciscoVismLapdStatsGroup OBJECT-GROUP
+     OBJECTS {
+        vismLapdStatsIndex,
+        vismLapdRxInfoFrames,
+        vismLapdTxInfoFrames,
+        vismLapdRxReadyFrames,
+        vismLapdTxReadyFrames,
+        vismLapdRxNotReadyFrames,
+        vismLapdTxNotReadyFrames,
+        vismLapdRxSABMFrames,
+        vismLapdTxSABMFrames,
+        vismLapdRxDisconFrames,
+        vismLapdTxDisconFrames,
+        vismLapdRxUAFrames,
+        vismLapdTxUAFrames,
+        vismLapdRxDiscModeFrames,
+        vismLapdTxDiscModeFrames,
+        vismLapdRxFrmRejectFrames,
+        vismLapdTxFrmRejectFrames,
+        vismLapdRxExchIdFrames,
+        vismLapdTxExchIdFrames,
+        vismLapdRxUnumInfoFrames,
+        vismLapdTxUnumInfoFrames,
+        vismLapdRxRejectFrames,
+        vismLapdTxRejectFrames,
+        vismLapdRxInvalidFrames
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM LAPD Statistics information."
+      ::= { vismLapdTrunkMIBGroups 3 }
+
+ciscoVismLapdDlcTable OBJECT-GROUP
+     OBJECTS {
+        vismLapdDlcIndex,
+        vismLapdDlcSapi,
+        vismLapdDlcTei,
+        vismLapdDlcLinkState
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM LAPD link State of different DLCs on a LAPD channel."
+      ::= { vismLapdTrunkMIBGroups 4 }
+
+END
+

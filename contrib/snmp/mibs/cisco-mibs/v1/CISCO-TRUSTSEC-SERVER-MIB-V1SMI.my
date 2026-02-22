@@ -1,0 +1,1112 @@
+-- MIB file created 06-Apr-2012 11:18:21, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-TRUSTSEC-SERVER-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-TRUSTSEC-SERVER-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    StorageType, RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress, InetPortNumber
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    CtsAcsAuthorityIdentity
+            FROM CISCO-TRUSTSEC-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoTrustSecServerMIB OBJECT IDENTIFIER ::= { ciscoMgmt 741 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201112070000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    This MIB module defines management objects for
+--    configuration and monitoring of the AAA servers
+--    in Cisco Trusted Security environment.
+--    
+--    Glossary:
+--    
+--    AAA - Authentication, Authorization, Accounting
+--    
+--    PAC - Protected Access Credential
+--    
+--    RADIUS - Remote Authentication Dial In User Service
+--    
+--    TrustSec - Cisco Trusted Security system
+--    
+--    TrustSec seed device:
+--        The seed devices is the one which has the AAA server
+--        address manually configured.  All devices that connect
+--        to the seed device obtain the AAA server addresses
+--        via authentication and authorization.
+--  RevDate
+--    201112070000Z
+--  RevDescr
+--    Added following OBJECT-GROUP
+--    - ciscoTrustSecServerMIBKeyWrapGroup
+--    - ciscoTrustSecServerMIBNotifsCtrlGroup
+--    - ciscoTrustSecServerMIBNotifsGroup
+--    - ciscoTrustSecServerMIBNotifsOnlyInfoGroup
+--    Added new compliance
+--    - ciscoTrustSecServerMIBCompliance2.
+--  RevDate
+--    201006010000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoTrustSecServerMIBNotifs OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIB 0 }
+ciscoTrustSecServerMIBObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIB 1 }
+ciscoTrustSecServerMIBConform OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIB 2 }
+ctsvGlobalServerConfigObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBObjects 1 }
+ctsvServerTestConfigObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBObjects 2 }
+ctsvProvisionedServerObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBObjects 3 }
+ctsvDownloadServerListObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBObjects 4 }
+ctsvDownloadServerObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBObjects 5 }
+ctsvNotificationControlObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBObjects 6 }
+ctsvNotificationOnlyInfoObjects OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBObjects 7 }
+ciscoTrustSecServerMIBCompliances OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBConform 1 }
+ciscoTrustSecServerMIBGroups OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBConform 2 }
+
+ctsvAuthorizationList OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the AAA server group which allows the
+        TrustSec AAA library to build an AAA method list.
+        
+        Configuration of AAA named authorization list is only
+        needed for the TrustSec seed device."
+    ::= { ctsvGlobalServerConfigObjects 1 }
+
+ctsvServerDeadTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies how long a downloaded server should
+        not be selected for service once it has been marked as dead."
+    ::= { ctsvGlobalServerConfigObjects 2 }
+
+ctsvServerLoadBalanceMethod OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        leastOutstanding(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the load-balance method used for
+        selecting a downloaded server.
+        
+        none             - no load-balance method used.
+        
+        leastOutstanding - choose the server with least outstanding
+                           transactions."
+    ::= { ctsvGlobalServerConfigObjects 3 }
+
+ctsvServerLoadBalanceBatchSize OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the size of the transaction batch
+        which need to be load-balanced while choosing a downloaded
+        server.
+        
+        Setting this object may not be allowed if the value of
+        ctsvServerLoadBalanceMethod is 'none'."
+    ::= { ctsvGlobalServerConfigObjects 4 }
+
+ctsvUseSameProvisionedServer OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether using same provisioned PAC
+        server throughout an session.
+        
+        Setting this object to 'false' means don't attempt to stay with
+        the same PAC server throughout an authentication session.
+        
+        Setting this object may not be allowed if the value of
+        ctsvServerLoadBalanceMethod is 'none'."
+    ::= { ctsvGlobalServerConfigObjects 5 }
+
+ctsvAllServerTestEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the server-aliveness automated
+        test is enabled for all TrustSec downloaded servers.
+        
+        The server-aliveness automated test generates a periodic
+        test RADIUS request message to the downloaded server and
+        expects to get a response back in order to mark that
+        downloaded server as alive.
+        
+        ctsvAllServerTestEnabled is used by those
+        servers which do not have per-server enable
+        configuration.
+        
+        Setting ctsvAllServerTestEnabled affects all the
+        instances of ctsvServerTestEnabled in
+        ctsvServerTestConfigTable."
+    ::= { ctsvGlobalServerConfigObjects 6 }
+
+ctsvAllServerTestDeadTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the global server dead time
+        configuration for all TrustSec downloaded servers.
+        
+        The value of deadtime indicates how long a server
+        should not be retried once it has been marked as
+        dead by the server-aliveness automated test.
+        
+        ctsvAllServerTestDeadTime is used by those
+        servers which do not have per-server deadtime
+        configuration.
+        
+        Setting ctsvAllServerTestDeadTime affects all the
+        instances of ctsvServerTestDeadTime in
+        ctsvServerTestConfigTable."
+    ::= { ctsvGlobalServerConfigObjects 7 }
+
+ctsvAllServerTestInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the global test interval for all
+        TrustSec downloaded servers. 
+        
+        The value of interval indicates how frequent the test
+        RADIUS requests will be sent.
+        
+        ctsvAllServerTestInterval is used by those
+        servers which do not have per-server test interval
+        configuration.
+        
+        Setting ctsvAllServerTestInterval affects all the
+        instances of ctsvServerTestInterval in
+        ctsvServerTestConfigTable."
+    ::= { ctsvGlobalServerConfigObjects 8 }
+
+ctsvServerKeyWrapEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the TrustSec key wrap is
+        enabled for all TrustSec downloaded servers."
+    ::= { ctsvGlobalServerConfigObjects 9 }
+
+ctsvServerTestConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsvServerTestConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of AAA servers with server specific TrustSec
+        server-aliveness automated test configuration.
+        
+        This table contains exceptions from the global test
+        configuration.  Entry which contains same values as what
+        are in ctsvAllServerTestEnabled,
+        ctsvAllServerTestDeadTime, and ctsvAllServerTestInterval
+        may be removed by the device.
+        
+        It is up to the agent to accept or reject such identical
+        configuration."
+    ::= { ctsvServerTestConfigObjects 1 }
+
+ctsvServerTestConfigEntry OBJECT-TYPE
+    SYNTAX CtsvServerTestConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the server-aliveness automated test
+        configuration of a particular AAA server.
+        
+        An entry can be created, or deleted by using
+        ctsvServerTestRowStatus.
+        
+        System may remove an entry automatically if
+        ctsvServerTestEnabled, ctsvServerTestDeadTime, and
+        ctsvServerTestInterval contain the same value as what are in
+        ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime,
+        ctsvAllServerTestInterval.
+        
+        Each AAA server is associated with a set of automatic
+        server-aliveness test configuration.  By creating, deleting or
+        modifying an entry in this table, users can add, delete or
+        modify the server-aliveness configuration for a particular
+        AAA server."
+    INDEX { ctsvServerTestAddrType, ctsvServerTestAddr }
+    ::= { ctsvServerTestConfigTable 1 }
+
+CtsvServerTestConfigEntry ::= SEQUENCE {
+    ctsvServerTestAddrType InetAddressType,
+    ctsvServerTestAddr InetAddress,
+    ctsvServerTestEnabled TruthValue,
+    ctsvServerTestDeadTime Gauge,
+    ctsvServerTestInterval Gauge,
+    ctsvServerTestStorageType StorageType,
+    ctsvServerTestRowStatus RowStatus
+    }
+
+ctsvServerTestAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address for an AAA server."
+    ::= { ctsvServerTestConfigEntry 1 }
+
+ctsvServerTestAddr OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address for an AAA server.
+        The type of this address is determined by the value of the
+        ctsvServerTestAddrType object."
+    ::= { ctsvServerTestConfigEntry 2 }
+
+ctsvServerTestEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the server-aliveness automated
+        test is enabled or disabled for the AAA server.
+        
+        The server-aliveness automated test generates a periodic
+        test RADIUS request message to the downloaded server and
+        expects to get a response back in order to mark that
+        downloaded server as alive, otherwise will mark it as dead."
+    ::= { ctsvServerTestConfigEntry 3 }
+
+ctsvServerTestDeadTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the server-aliveness automated test
+        dead time for the AAA server.
+        
+        The value of deadtime indicates how long a server
+        should not be retried once it has been marked as
+        dead by the server-aliveness automated test."
+    ::= { ctsvServerTestConfigEntry 4 }
+
+ctsvServerTestInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the server-aliveness automated test
+        interval for the AAA server.
+        
+        The value of interval indicates how frequent the test
+        RADIUS requests will be sent."
+    ::= { ctsvServerTestConfigEntry 5 }
+
+ctsvServerTestStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { volatile }
+    ::= { ctsvServerTestConfigEntry 6 }
+
+ctsvServerTestRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        All writable objects in this row may be modified at any time."
+    ::= { ctsvServerTestConfigEntry 7 }
+
+ctsvProvisionedServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsvProvisionedServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of AAA server which has been successfully provisioned
+        with a PAC."
+    ::= { ctsvProvisionedServerObjects 1 }
+
+ctsvProvisionedServerEntry OBJECT-TYPE
+    SYNTAX CtsvProvisionedServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry providing the information of the PAC provisioned
+        AAA server.
+        
+        An entry will be created when the AAA server has been
+        successfully provisioned with PAC.
+        
+        An entry will be removed when the server no longer
+        provisioned with PAC."
+    INDEX { ctsvProvisionedServerAddrType, ctsvProvisionedServerAddr }
+    ::= { ctsvProvisionedServerTable 1 }
+
+CtsvProvisionedServerEntry ::= SEQUENCE {
+    ctsvProvisionedServerAddrType InetAddressType,
+    ctsvProvisionedServerAddr InetAddress,
+    ctsvProvisionedServerPort InetPortNumber,
+    ctsvProvisionedServerAuthorityId CtsAcsAuthorityIdentity,
+    ctsvProvisionedServerStatus INTEGER,
+    ctsvProvisionedServerTestEnabled TruthValue,
+    ctsvProvisionedServerTestInterval Gauge,
+    ctsvProvisionedServerTestDeadTime Gauge,
+    ctsvProvisionedServerKeyWrapEnabled TruthValue
+    }
+
+ctsvProvisionedServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address of the provisioned server."
+    ::= { ctsvProvisionedServerEntry 1 }
+
+ctsvProvisionedServerAddr OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address of the provisioned server.
+        The type of this address is determined by the value of
+        the ctsvProvisionedServerAddrType object."
+    ::= { ctsvProvisionedServerEntry 2 }
+
+ctsvProvisionedServerPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value indicates the UDP port number used by the
+        provisioned server."
+    ::= { ctsvProvisionedServerEntry 3 }
+
+ctsvProvisionedServerAuthorityId OBJECT-TYPE
+    SYNTAX CtsAcsAuthorityIdentity
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the authority identity of the
+        provisioned server."
+    ::= { ctsvProvisionedServerEntry 4 }
+
+ctsvProvisionedServerStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        alive(1),
+        dead(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of the provisioned server."
+    ::= { ctsvProvisionedServerEntry 5 }
+
+ctsvProvisionedServerTestEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the server-aliveness automated
+        test of the provisioned server is enabled."
+    ::= { ctsvProvisionedServerEntry 6 }
+
+ctsvProvisionedServerTestInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational server-aliveness
+        automated test interval of the provisioned server.
+        
+        The interval is used to indicate how often the test RADIUS
+        request should be sent to the PAC server."
+    ::= { ctsvProvisionedServerEntry 7 }
+
+ctsvProvisionedServerTestDeadTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the server-aliveness automated test
+        deadtime of the provisioned server.
+        
+        The deadtime indicates how long the PAC provisioned server 
+        should not be retried once it has been marked dead during the
+        server-aliveness automated test."
+    ::= { ctsvProvisionedServerEntry 8 }
+
+ctsvProvisionedServerKeyWrapEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the TrustSec key wrap operational
+        status of the provisioned server."
+    ::= { ctsvProvisionedServerEntry 9 }
+
+ctsvDownloadServerListTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsvDownloadServerListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of the downloaded server list in the TrustSec
+        system."
+    ::= { ctsvDownloadServerListObjects 1 }
+
+ctsvDownloadServerListEntry OBJECT-TYPE
+    SYNTAX CtsvDownloadServerListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the information of the specific
+        downloaded server list in TrustSec system.
+        
+        An entry is created when a new downloaded server list
+        has been acquired during the TrustSec environment
+        data downloaded.
+        
+        An entry will be removed if the downloaded server
+        list is removed after TrustSec environment data
+        refresh."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ctsvDownloadServerListName }
+    ::= { ctsvDownloadServerListTable 1 }
+
+CtsvDownloadServerListEntry ::= SEQUENCE {
+    ctsvDownloadServerListName SnmpAdminString,
+    ctsvDownloadServerListGenNum OCTET STRING,
+    ctsvDownloadServerListServerCount Gauge
+    }
+
+ctsvDownloadServerListName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of the downloaded
+        server list."
+    ::= { ctsvDownloadServerListEntry 1 }
+
+ctsvDownloadServerListGenNum OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A hexadecimal string indicating the generation number
+        of the specific downloaded server list."
+    ::= { ctsvDownloadServerListEntry 2 }
+
+ctsvDownloadServerListServerCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of servers within the
+        downloaded server list."
+    ::= { ctsvDownloadServerListEntry 3 }
+
+ctsvDownloadServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsvDownloadServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of downloaded server in the TrustSec system."
+    ::= { ctsvDownloadServerObjects 1 }
+
+ctsvDownloadServerEntry OBJECT-TYPE
+    SYNTAX CtsvDownloadServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the information of the specific
+        downloaded server.
+        
+        An entry is created when a downloaded server is added
+        during TrustSec environment data downloaded.
+        
+        An entry is removed if the downloaded server
+        is removed after TrustSec environment data downloaded."
+    INDEX { ctsvDownloadServerListName, ctsvDownloadServerAddrType, ctsvDownloadServerAddr }
+    ::= { ctsvDownloadServerTable 1 }
+
+CtsvDownloadServerEntry ::= SEQUENCE {
+    ctsvDownloadServerAddrType InetAddressType,
+    ctsvDownloadServerAddr InetAddress,
+    ctsvDownloadServerPort InetPortNumber,
+    ctsvDownloadServerProvisioned TruthValue,
+    ctsvDownloadServerAuthorityId CtsAcsAuthorityIdentity,
+    ctsvDownloadServerStatus INTEGER,
+    ctsvDownloadServerTestEnabled TruthValue,
+    ctsvDownloadServerTestInterval Gauge,
+    ctsvDownloadServerTestDeadTime Gauge,
+    ctsvDownloadServerKeyWrapEnabled TruthValue
+    }
+
+ctsvDownloadServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address of the downloaded
+        server."
+    ::= { ctsvDownloadServerEntry 1 }
+
+ctsvDownloadServerAddr OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address of the downloaded server.
+        The type of this address is determined by the value
+        of the ctsvDownloadServerAddrType object."
+    ::= { ctsvDownloadServerEntry 2 }
+
+ctsvDownloadServerPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the UDP port number used by the
+        downloaded server."
+    ::= { ctsvDownloadServerEntry 3 }
+
+ctsvDownloadServerProvisioned OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the downloaded server have
+        been successfully provisioned."
+    ::= { ctsvDownloadServerEntry 4 }
+
+ctsvDownloadServerAuthorityId OBJECT-TYPE
+    SYNTAX CtsAcsAuthorityIdentity
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the Authorization Identifier
+        of the downloaded server."
+    ::= { ctsvDownloadServerEntry 5 }
+
+ctsvDownloadServerStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        alive(1),
+        dead(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of the downloaded server."
+    ::= { ctsvDownloadServerEntry 6 }
+
+ctsvDownloadServerTestEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the server-aliveness automated
+        test of the downloaded server is currently enabled or
+        disabled."
+    ::= { ctsvDownloadServerEntry 7 }
+
+ctsvDownloadServerTestInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational test interval of
+        the downloaded server.
+        
+        The interval is used to indicate how often the test
+        RADIUS request should be sent to the downloaded server."
+    ::= { ctsvDownloadServerEntry 8 }
+
+ctsvDownloadServerTestDeadTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational deadtime of the
+        downloaded server."
+    ::= { ctsvDownloadServerEntry 9 }
+
+ctsvDownloadServerKeyWrapEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the TrustSec key wrap operational
+        status of the downloaded server. 
+        
+        Among all the servers in the same server list, only one
+        server can have operational key wrap enabled if the value
+        of ctsvAllServerKeyWrapEnabled is 'true'."
+    ::= { ctsvDownloadServerEntry 10 }
+
+ctsvNoRadiusServerNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable specifies whether the system generates the
+        ctsvNoRadiusServerNotif.
+        
+        A value of 'false' will prevent ctsvNoRadiusServerNotif
+        notifications from being generated by this system."
+    ::= { ctsvNotificationControlObjects 1 }
+
+ctsvNoProvisionSecretNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable specifies whether the system generates the
+        ctsvNoProvisionSecretNotif.
+        
+        A value of 'false' will prevent ctsvNoProvisionSecretNotif
+        notifications from being generated by this system."
+    ::= { ctsvNotificationControlObjects 2 }
+
+ctsvServerNotifMsg OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates detail message associated with
+        notifications."
+    ::= { ctsvNotificationOnlyInfoObjects 1 }
+
+ctsvServerNoProvisionSecretAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of IP address for which server
+        has no shared secret available for provisioning PAC."
+    ::= { ctsvNotificationOnlyInfoObjects 2 }
+
+ctsvServerNoProvisionSecretAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the IP address for which server has no
+        shared secret available for provisioning PAC.
+        
+        The type of this address is determined by the value of
+        ctsvServerNoProvisionSecretAddrType object."
+    ::= { ctsvNotificationOnlyInfoObjects 3 }
+
+ctsvNoRadiusServerNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoTrustSecServerMIB
+    VARIABLES {
+        ctsvServerNotifMsg }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ctsvNoRadiusServerNotif is generated if there is no
+        RADIUS servers available for a CTS AAA request."
+    ::= 1
+
+ctsvNoProvisionSecretNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoTrustSecServerMIB
+    VARIABLES {
+        ctsvServerNoProvisionSecretAddrType, 
+        ctsvServerNoProvisionSecretAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ctsvNoProvisionSecretNotif is generated if the system
+        does not have share secret available in order to provision
+        a RADIUS server with PAC."
+    ::= 2
+
+ciscoTrustSecMIBServerConfigGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the configuration
+--    for TrustSec downloaded server group.
+--  objects
+--    ctsvAuthorizationList, ctsvServerDeadTime, 
+--    ctsvServerLoadBalanceMethod, ctsvServerLoadBalanceBatchSize, 
+--    ctsvUseSameProvisionedServer
+
+ciscoTrustSecMIBGlobalServerTestGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the global
+--    configuration of server-aliveness automated test.
+--  objects
+--    ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime, 
+--    ctsvAllServerTestInterval
+
+ciscoTrustSecMIBServerTestGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the per-server
+--    configuration of server-aliveness automated test.
+--  objects
+--    ctsvServerTestEnabled, ctsvServerTestDeadTime, 
+--    ctsvServerTestInterval, ctsvServerTestStorageType, 
+--    ctsvServerTestRowStatus
+
+ciscoTrustSecMIBProvisionedServerGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the configuration for
+--    the individual server in the PAC server list.
+--  objects
+--    ctsvProvisionedServerPort, ctsvProvisionedServerAuthorityId, 
+--    ctsvProvisionedServerStatus, ctsvProvisionedServerTestEnabled, 
+--    ctsvProvisionedServerTestInterval, 
+--    ctsvProvisionedServerTestDeadTime
+
+ciscoTrustSecMIBDownloadServerListGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the configuration for
+--    the individual downloaded server list.
+--  objects
+--    ctsvDownloadServerListGenNum, 
+--    ctsvDownloadServerListServerCount
+
+ciscoTrustSecMIBDownloadServerGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the configuration for
+--    the individual server in the downloaded server group.
+--  objects
+--    ctsvDownloadServerPort, ctsvDownloadServerProvisioned, 
+--    ctsvDownloadServerAuthorityId, ctsvDownloadServerStatus, 
+--    ctsvDownloadServerTestEnabled, ctsvDownloadServerTestInterval, 
+--    ctsvDownloadServerTestDeadTime
+
+ciscoTrustSecServerMIBKeyWrapGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the Trustsec key wrap
+--    information for the downloaded servers.
+--  objects
+--    ctsvServerKeyWrapEnabled, ctsvProvisionedServerKeyWrapEnabled, 
+--    ctsvDownloadServerKeyWrapEnabled
+
+ciscoTrustSecServerMIBNotifsCtrlGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing notification control for
+--    TrustSec Server.
+--  objects
+--    ctsvNoRadiusServerNotifEnable, 
+--    ctsvNoProvisionSecretNotifEnable
+
+ciscoTrustSecServerMIBNotifsOnlyInfoGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the notification information
+--    for TrustSec Server.
+--  objects
+--    ctsvServerNotifMsg, ctsvServerNoProvisionSecretAddrType, 
+--    ctsvServerNoProvisionSecretAddr
+
+ciscoTrustSecServerMIBNotifsGroup OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBGroups 10 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for TrustSec server.
+--  notifications
+--    ctsvNoRadiusServerNotif, ctsvNoProvisionSecretNotif
+
+ciscoTrustSecServerMIBCompliance OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-TRUSTSEC-SERVER-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTrustSecMIBServerConfigGroup
+--   MandGroup
+--    ciscoTrustSecMIBGlobalServerTestGroup
+--   MandGroup
+--    ciscoTrustSecMIBServerTestGroup
+--   MandGroup
+--    ciscoTrustSecMIBProvisionedServerGroup
+--   MandGroup
+--    ciscoTrustSecMIBDownloadServerListGroup
+--   MandGroup
+--    ciscoTrustSecMIBDownloadServerGroup
+--   ObjVar
+--    ctsvAuthorizationList
+--   ObjVar
+--    ctsvServerDeadTime
+--   ObjVar
+--    ctsvServerLoadBalanceMethod
+--   ObjVar
+--    ctsvServerLoadBalanceBatchSize
+--   ObjVar
+--    ctsvUseSameProvisionedServer
+--   ObjVar
+--    ctsvAllServerTestEnabled
+--   ObjVar
+--    ctsvAllServerTestDeadTime
+--   ObjVar
+--    ctsvAllServerTestInterval
+--   ObjVar
+--    ctsvServerTestEnabled
+--   ObjVar
+--    ctsvServerTestDeadTime
+--   ObjVar
+--    ctsvServerTestInterval
+--   ObjVar
+--    ctsvServerTestStorageType
+--   ObjVar
+--    ctsvServerTestRowStatus
+
+ciscoTrustSecServerMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoTrustSecServerMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the CISCO-TRUSTSEC-SERVER-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTrustSecMIBServerConfigGroup
+--   MandGroup
+--    ciscoTrustSecMIBGlobalServerTestGroup
+--   MandGroup
+--    ciscoTrustSecMIBServerTestGroup
+--   MandGroup
+--    ciscoTrustSecMIBProvisionedServerGroup
+--   MandGroup
+--    ciscoTrustSecMIBDownloadServerListGroup
+--   MandGroup
+--    ciscoTrustSecMIBDownloadServerGroup
+--   OptGroup
+--    ciscoTrustSecServerMIBKeyWrapGroup
+--   OptGroup
+--    ciscoTrustSecServerMIBNotifsCtrlGroup
+--   OptGroup
+--    ciscoTrustSecServerMIBNotifsOnlyInfoGroup
+--   OptGroup
+--    ciscoTrustSecServerMIBNotifsGroup
+--   ObjVar
+--    ctsvAuthorizationList
+--   ObjVar
+--    ctsvServerDeadTime
+--   ObjVar
+--    ctsvServerLoadBalanceMethod
+--   ObjVar
+--    ctsvServerLoadBalanceBatchSize
+--   ObjVar
+--    ctsvUseSameProvisionedServer
+--   ObjVar
+--    ctsvAllServerTestEnabled
+--   ObjVar
+--    ctsvAllServerTestDeadTime
+--   ObjVar
+--    ctsvAllServerTestInterval
+--   ObjVar
+--    ctsvServerTestEnabled
+--   ObjVar
+--    ctsvServerTestDeadTime
+--   ObjVar
+--    ctsvServerTestInterval
+--   ObjVar
+--    ctsvServerTestStorageType
+--   ObjVar
+--    ctsvServerTestRowStatus
+--   ObjVar
+--    ctsvServerKeyWrapEnabled
+--   ObjVar
+--    ctsvNoRadiusServerNotifEnable
+--   ObjVar
+--    ctsvNoProvisionSecretNotifEnable
+
+
+END
+

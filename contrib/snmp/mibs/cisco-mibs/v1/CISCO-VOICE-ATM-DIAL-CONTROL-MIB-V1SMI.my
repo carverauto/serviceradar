@@ -1,0 +1,695 @@
+-- MIB file created 21-Jan-2006 22:36:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VOICE-ATM-DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VOICE-ATM-DIAL-CONTROL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    CvcSpeechCoderRate, CvcFaxTransmitRate, CvcGUid, 
+    CvcInBandSignaling
+            FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+    callActiveSetupTime, callActiveIndex
+            FROM DIAL-CONTROL-MIB
+    cCallHistoryIndex
+            FROM CISCO-DIAL-CONTROL-MIB
+    ifIndex
+            FROM IF-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVoiceAtmDialControlMIB OBJECT IDENTIFIER ::= { ciscoExperiment 35 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200211170000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-voice@cisco.com
+--  Descr
+--    This MIB module enhances the IETF Dial Control MIB
+--     (RFC2128) by providing ATM management information over a
+--     data network.
+--  RevDate
+--    200211170000Z
+--  RevDescr
+--    Modify the following objects:
+--     [1] Add a new enum definition in CvAtmSessionProtocol
+--     [2] Change the default value in
+--         cvAtmPeerCfgInBandSignaling
+--  RevDate
+--    9903200000Z
+--  RevDescr
+--    Add new objects for handling the following:
+--     [1] Call History object ids 6-17 to bring MIB inline with
+--         stored Call History record.
+--     [2] Added Call Active Entry objects
+--     [3] Added Dialpeer Objects for VoATM 
+
+ciscoVoiceAtmDialControlMIBObjects OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIB 1 }
+cvAtmCallHistory OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBObjects 1 }
+cvAtmCallActive OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBObjects 2 }
+cvAtmDialPeer   OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBObjects 3 }
+ciscoVoiceAtmDialControlMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIB 2 }
+ciscoVoiceAtmDialControlMIBNotifications OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBNotificationPrefix 0 }
+ciscoVoiceAtmDialControlMIBConformance OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIB 3 }
+ciscoVoiceAtmDialControlMIBCompliances OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBConformance 1 }
+ciscoVoiceAtmDialControlMIBGroups OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBConformance 2 }
+
+CvAtmSessionProtocol ::= INTEGER {
+        other(1),
+        ciscoSwitched(2),
+        aal2Trunk(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents a Session Protocol used by Voice calls between a
+--     local and remote router via the ATM backbone.
+--    
+--     other          - none of the following.
+--     ciscoSwitched  - cisco proprietary ATM session protocol.
+
+cvAtmCallHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvAtmCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the ATM extension to the call history
+         table of IETF Dial Control MIB. It contains ATM call
+         leg information about specific voice over ATM call."
+    ::= { cvAtmCallHistory 1 }
+
+cvAtmCallHistoryEntry OBJECT-TYPE
+    SYNTAX CvAtmCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single ATM call leg.
+         An entry of this table is created when its associated call
+         history entry in the IETF Dial Control MIB is created and
+         the call history entry contains information for the call
+         establishment to the peer on the data network backbone via
+         a voice over ATM peer.
+         Th the IETF Dial Control MIB is deleted."
+    INDEX { cCallHistoryIndex }
+    ::= { cvAtmCallHistoryTable 1 }
+
+CvAtmCallHistoryEntry ::= SEQUENCE {
+    cvAtmCallHistoryConnectionId CvcGUid,
+    cvAtmCallHistoryVpi INTEGER,
+    cvAtmCallHistoryVci INTEGER,
+    cvAtmCallHistoryLowerIfName DisplayString,
+    cvAtmCallHistorySessionTarget DisplayString,
+    cvAtmCallHistorySubchannelID INTEGER,
+    cvAtmCallHistorySessionProtocol CvAtmSessionProtocol,
+    cvAtmCallHistoryCalledNumber DisplayString,
+    cvAtmCallHistoryDtmfRelay TruthValue,
+    cvAtmCallHistoryUseSeqNumbers TruthValue
+    }
+
+cvAtmCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the ATM call."
+    ::= { cvAtmCallHistoryEntry 1 }
+
+cvAtmCallHistoryVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI used for this ATM connection."
+    ::= { cvAtmCallHistoryEntry 2 }
+
+cvAtmCallHistoryVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI used for this ATM connection."
+    ::= { cvAtmCallHistoryEntry 3 }
+
+cvAtmCallHistoryLowerIfName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifName of the ATM interface associated with this
+         call."
+    ::= { cvAtmCallHistoryEntry 4 }
+
+cvAtmCallHistorySessionTarget OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the session target of the peer that
+         was used for the voice over ATM call. A zero length string
+         indicates that the value is unavailable."
+    ::= { cvAtmCallHistoryEntry 5 }
+
+cvAtmCallHistorySubchannelID OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The subchannel used for this ATM connection."
+    ::= { cvAtmCallHistoryEntry 6 }
+
+cvAtmCallHistorySessionProtocol OBJECT-TYPE
+    SYNTAX CvAtmSessionProtocol
+--    Rsyntax INTEGER {
+--        other(1),
+--        ciscoSwitched(2),
+--        aal2Trunk(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the session protocol used on this call."
+    ::= { cvAtmCallHistoryEntry 7 }
+
+cvAtmCallHistoryCalledNumber OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the called party number for trunk connection
+         calls. A zero length string indicates that this data is
+         unavailable."
+    ::= { cvAtmCallHistoryEntry 8 }
+
+cvAtmCallHistoryDtmfRelay OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if Dtmf Relay was enabled for the call."
+    ::= { cvAtmCallHistoryEntry 9 }
+
+cvAtmCallHistoryUseSeqNumbers OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if Sequence Numbers were used on the voice
+         data packets."
+    ::= { cvAtmCallHistoryEntry 10 }
+
+cvAtmCallActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvAtmCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the ATM extension to the active call
+         table of IETF Dial Control MIB. It contains ATM call
+         leg information about specific voice over ATM call."
+    ::= { cvAtmCallActive 1 }
+
+cvAtmCallActiveEntry OBJECT-TYPE
+    SYNTAX CvAtmCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single ATM call leg.
+         An entry of this table is created when its associated call
+         active entry in the IETF Dial Control MIB is created. The
+         call active entry contains information for the call
+         establishment to the peer on the data network backbone via
+         a voice over ATM peer.
+         The entry is deleted when its associated call active entry
+         in the IETF Dial Control MIB is deleted."
+    INDEX { callActiveSetupTime, callActiveIndex }
+    ::= { cvAtmCallActiveTable 1 }
+
+CvAtmCallActiveEntry ::= SEQUENCE {
+    cvAtmCallActiveConnectionId CvcGUid,
+    cvAtmCallActiveVpi INTEGER,
+    cvAtmCallActiveVci INTEGER,
+    cvAtmCallActiveLowerIfName DisplayString,
+    cvAtmCallActiveSessionTarget DisplayString,
+    cvAtmCallActiveSubchannelID INTEGER,
+    cvAtmCallActiveSessionProtocol CvAtmSessionProtocol,
+    cvAtmCallActiveCalledNumber DisplayString,
+    cvAtmCallActiveDtmfRelay TruthValue,
+    cvAtmCallActiveUseSeqNumbers TruthValue
+    }
+
+cvAtmCallActiveConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the ATM call."
+    ::= { cvAtmCallActiveEntry 1 }
+
+cvAtmCallActiveVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI used for this ATM connection."
+    ::= { cvAtmCallActiveEntry 2 }
+
+cvAtmCallActiveVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI used for this ATM connection."
+    ::= { cvAtmCallActiveEntry 3 }
+
+cvAtmCallActiveLowerIfName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifName of the ATM interface associated  with this
+         call."
+    ::= { cvAtmCallActiveEntry 4 }
+
+cvAtmCallActiveSessionTarget OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the session target of the peer
+         that is used for the voice over ATM call. A null string
+         indicates that the value is unavailable."
+    ::= { cvAtmCallActiveEntry 5 }
+
+cvAtmCallActiveSubchannelID OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The subchannel used for this ATM connection."
+    ::= { cvAtmCallActiveEntry 6 }
+
+cvAtmCallActiveSessionProtocol OBJECT-TYPE
+    SYNTAX CvAtmSessionProtocol
+--    Rsyntax INTEGER {
+--        other(1),
+--        ciscoSwitched(2),
+--        aal2Trunk(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the session protocol being used on this call."
+    ::= { cvAtmCallActiveEntry 7 }
+
+cvAtmCallActiveCalledNumber OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the called party number for trunk connection
+         calls. A null string indicates that this data is
+         unavailable."
+    ::= { cvAtmCallActiveEntry 8 }
+
+cvAtmCallActiveDtmfRelay OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if Dtmf Relay is enabled for the call."
+    ::= { cvAtmCallActiveEntry 9 }
+
+cvAtmCallActiveUseSeqNumbers OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if Sequence Numbers are used on the voice data
+         packets."
+    ::= { cvAtmCallActiveEntry 10 }
+
+cvAtmPeerCfgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvATMPeerCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table contains the Voice over ATM (ATM) peer specific
+         information that is required to accept or place voice calls
+         via the ATM backbone with the session protocol specified
+         in cvAtmPeerCfgSessionProtocol."
+    ::= { cvAtmDialPeer 1 }
+
+cvAtmPeerCfgEntry OBJECT-TYPE
+    SYNTAX CvATMPeerCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A single ATM specific Peer. One entry per ATM
+         encapsulation. The entry is created when its associated
+         'voiceOverATM(152)' encapsulation ifEntry is created.
+         This entry is deleted when its associated ifEntry
+         is deleted."
+    INDEX { ifIndex }
+    ::= { cvAtmPeerCfgTable 1 }
+
+CvATMPeerCfgEntry ::= SEQUENCE {
+    cvAtmPeerCfgSessionProtocol CvAtmSessionProtocol,
+    cvAtmPeerCfgInterfaceName DisplayString,
+    cvAtmPeerCfgVpi INTEGER,
+    cvAtmPeerCfgVci INTEGER,
+    cvAtmPeerCfgVcName DisplayString,
+    cvAtmPeerCfgCoderRate CvcSpeechCoderRate,
+    cvAtmPeerCfgCodecBytes INTEGER,
+    cvAtmPeerCfgFaxRate CvcFaxTransmitRate,
+    cvAtmPeerCfgFaxBytes INTEGER,
+    cvAtmPeerCfgInBandSignaling CvcInBandSignaling,
+    cvAtmPeerCfgVADEnable TruthValue,
+    cvAtmPeerCfgUseSeqNumbers TruthValue,
+    cvAtmPeerCfgDtmfRelay TruthValue
+    }
+
+cvAtmPeerCfgSessionProtocol OBJECT-TYPE
+    SYNTAX CvAtmSessionProtocol
+--    Rsyntax INTEGER {
+--        other(1),
+--        ciscoSwitched(2),
+--        aal2Trunk(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session protocol to be used
+         for Internet call between local and remote router via
+         ATM backbone."
+    DEFVAL { ciscoSwitched }
+    ::= { cvAtmPeerCfgEntry 1 }
+
+cvAtmPeerCfgInterfaceName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the ifName on which the call will go
+         out.
+         A zero length string indicates that no interface has been
+         assigned."
+    DEFVAL { "" }
+    ::= { cvAtmPeerCfgEntry 2 }
+
+cvAtmPeerCfgVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI used for this ATM connection."
+    DEFVAL { 0 }
+    ::= { cvAtmPeerCfgEntry 3 }
+
+cvAtmPeerCfgVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI used for this ATM connection."
+    DEFVAL { 0 }
+    ::= { cvAtmPeerCfgEntry 4 }
+
+cvAtmPeerCfgVcName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VC Name used for this ATM connection."
+    DEFVAL { "" }
+    ::= { cvAtmPeerCfgEntry 5 }
+
+cvAtmPeerCfgCoderRate OBJECT-TYPE
+    SYNTAX CvcSpeechCoderRate
+--    Rsyntax INTEGER {
+--        g729r8000(1),
+--        g729Ar8000(2),
+--        g726r16000(3),
+--        g726r24000(4),
+--        g726r32000(5),
+--        g711ulawr64000(6),
+--        g711Alawr64000(7),
+--        g728r16000(8),
+--        g723r6300(9),
+--        g723r5300(10),
+--        gsmr13200(11),
+--        g729Br8000(12),
+--        g729ABr8000(13),
+--        g723Ar6300(14),
+--        g723Ar5300(15),
+--        g729IETFr8000(16),
+--        gsmeEr12200(17),
+--        clearChannel(18),
+--        g726r40000(19),
+--        llcc(20),
+--        gsmAmrNb(21)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the default voice coder rate of
+         speech for the ATM peer."
+    DEFVAL { g729Ar8000 }
+    ::= { cvAtmPeerCfgEntry 6 }
+
+cvAtmPeerCfgCodecBytes OBJECT-TYPE
+    SYNTAX INTEGER(0..240)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the payload size for the voice
+         packets to be transmitted during the call."
+    DEFVAL { 30 }
+    ::= { cvAtmPeerCfgEntry 7 }
+
+cvAtmPeerCfgFaxRate OBJECT-TYPE
+    SYNTAX CvcFaxTransmitRate
+--    Rsyntax INTEGER {
+--        none(1),
+--        voiceRate(2),
+--        fax2400(3),
+--        fax4800(4),
+--        fax7200(5),
+--        fax9600(6),
+--        fax14400(7),
+--        fax12000(8)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the default transmit rate of FAX
+         for the ATM peer. If the value of this object is 'none',
+         then the Fax relay feature is disabled; otherwise the
+         Fax relay feature is enabled."
+    DEFVAL { voiceRate }
+    ::= { cvAtmPeerCfgEntry 8 }
+
+cvAtmPeerCfgFaxBytes OBJECT-TYPE
+    SYNTAX INTEGER(0..240)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the payload size for the fax
+         packets to be transmitted during the call."
+    DEFVAL { 30 }
+    ::= { cvAtmPeerCfgEntry 9 }
+
+cvAtmPeerCfgInBandSignaling OBJECT-TYPE
+    SYNTAX CvcInBandSignaling
+--    Rsyntax INTEGER {
+--        cas(1),
+--        none(2),
+--        cept(3),
+--        transparent(4),
+--        gr303(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of in-band signaling
+         used between the two end points of the call and is used
+         by the router to determine how to interpret the ABCD
+         signaling bits sent as part of the voice payload data."
+    DEFVAL { cas }
+    ::= { cvAtmPeerCfgEntry 10 }
+
+cvAtmPeerCfgVADEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether or not VAD (Voice Activity
+         Detection) is enabled. If the object value is 'false',
+         then the voice data is continuously transmitted to
+         ATM backbone."
+    DEFVAL { true }
+    ::= { cvAtmPeerCfgEntry 11 }
+
+cvAtmPeerCfgUseSeqNumbers OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether or not Sequence Numbers are
+         generated on voice packets."
+    DEFVAL { false }
+    ::= { cvAtmPeerCfgEntry 12 }
+
+cvAtmPeerCfgDtmfRelay OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether or not Dtmf Relay is enabled.
+         If it is then dtmf digits are transported as FRF11 Annex
+         C packets, instead of being encoded as speech."
+    DEFVAL { false }
+    ::= { cvAtmPeerCfgEntry 13 }
+
+cvAtmCallHistoryGroup OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the ATM Call History
+--     entry capability.
+--  objects
+--    cvAtmCallHistoryConnectionId, cvAtmCallHistoryVpi, 
+--    cvAtmCallHistoryVci, cvAtmCallHistoryLowerIfName, 
+--    cvAtmCallHistorySessionTarget, cvAtmCallHistorySubchannelID, 
+--    cvAtmCallHistorySessionProtocol, cvAtmCallHistoryCalledNumber, 
+--    cvAtmCallHistoryDtmfRelay, cvAtmCallHistoryUseSeqNumbers
+
+cvAtmCallActiveGroup OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the ATM Call Active
+--     entry capability.
+--  objects
+--    cvAtmCallActiveConnectionId, cvAtmCallActiveVpi, 
+--    cvAtmCallActiveVci, cvAtmCallActiveLowerIfName, 
+--    cvAtmCallActiveSessionTarget, cvAtmCallActiveSubchannelID, 
+--    cvAtmCallActiveSessionProtocol, cvAtmCallActiveCalledNumber, 
+--    cvAtmCallActiveDtmfRelay, cvAtmCallActiveUseSeqNumbers
+
+cvAtmPeerCfgGroup OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the ATM Dialpeer
+--     capability. These objects have been implemented as
+--     read-only.
+--  objects
+--    cvAtmPeerCfgSessionProtocol, cvAtmPeerCfgInterfaceName, 
+--    cvAtmPeerCfgVpi, cvAtmPeerCfgVci, cvAtmPeerCfgVcName, 
+--    cvAtmPeerCfgCoderRate, cvAtmPeerCfgCodecBytes, 
+--    cvAtmPeerCfgFaxRate, cvAtmPeerCfgFaxBytes, 
+--    cvAtmPeerCfgInBandSignaling, cvAtmPeerCfgVADEnable, 
+--    cvAtmPeerCfgUseSeqNumbers, cvAtmPeerCfgDtmfRelay
+
+ciscoVoiceAtmDialControlMIBCompliance OBJECT IDENTIFIER ::= { ciscoVoiceAtmDialControlMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO VOICE ATM DIAL CONTROL MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvAtmCallHistoryGroup
+--   MandGroup
+--    cvAtmCallActiveGroup
+--   MandGroup
+--    cvAtmPeerCfgGroup
+--   ObjVar
+--    cvAtmPeerCfgSessionProtocol
+--   ObjVar
+--    cvAtmPeerCfgInterfaceName
+--   ObjVar
+--    cvAtmPeerCfgVpi
+--   ObjVar
+--    cvAtmPeerCfgVci
+--   ObjVar
+--    cvAtmPeerCfgVcName
+--   ObjVar
+--    cvAtmPeerCfgCoderRate
+--   ObjVar
+--    cvAtmPeerCfgCodecBytes
+--   ObjVar
+--    cvAtmPeerCfgFaxRate
+--   ObjVar
+--    cvAtmPeerCfgFaxBytes
+--   ObjVar
+--    cvAtmPeerCfgInBandSignaling
+--   ObjVar
+--    cvAtmPeerCfgVADEnable
+--   ObjVar
+--    cvAtmPeerCfgUseSeqNumbers
+--   ObjVar
+--    cvAtmPeerCfgDtmfRelay
+
+
+END
+

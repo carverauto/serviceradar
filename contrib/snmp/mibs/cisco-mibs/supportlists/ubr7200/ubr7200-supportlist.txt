@@ -1,0 +1,143 @@
+UBR7200 Series MIB Support Lists 
+
+The below MIBs are supported by UBR7200 series routers. SNMP version
+1 MIBs are in the v1 directory and SNMP version 2 MIBs are in the v2 directory.
+Note that for most every MIB&nbsp;<foo>.my in the v2 directory, there exists
+a SNMP version 1 conversion of the MIB&nbsp;<foo>-V1SMI.my in the v1 directory.
+The exception is SNMPv2-TC.my. Thanks go to David T. Perkins for his package
+smicng which was used to produce most of the v1 conversions.
+
+At a minimum, you will want to download all of the OLD-CISCO- and CISCO-
+mibs (including -TC and -SMI) for your network management workstation.
+
+
+** Supported SNMP version 1 MIBs since 11.3(3)T:
+
+ For all images :
+    OLD-CISCO-CHASSIS-MIB.my
+    OLD-CISCO-CPU-MIB.my
+    OLD-CISCO-INTERFACES-MIB.my
+    OLD-CISCO-IP-MIB.my
+    OLD-CISCO-MEMORY-MIB.my
+    OLD-CISCO-SYSTEM-MIB.my
+    OLD-CISCO-TCP-MIB.my
+    OLD-CISCO-TS-MIB.my
+    RFC1213-MIB.my
+    RFC1231-MIB.my
+    RFC1315-MIB.my
+    RFC1381-MIB.my
+    RFC1382-MIB.my
+    RFC1398-MIB.my
+    FDDI-SMT73-MIB.my
+    RFC1253-MIB.my
+    RMON-MIB.my
+
+  For some images: 
+    CISCO-SYSLOG-MIB.my (only supported in ubr7200-p*-mz image)
+    BRIDGE-MIB.my (not supported in ubr7200-p-mz and ubr7200-ps-mz image)
+    RFC1406-MIB.my (not supported in ubr7200-p-mz images)
+
+
+** Supported SNMP version 2 MIBs since 11.3(3)T:
+
+ For all images:
+    BGP4-MIB.my
+    CISCO-FLASH-MIB.my
+    CISCO-IMAGE-MIB.my
+    CISCO-PING-MIB.my
+    CISCO-PRODUCTS-MIB.my
+    CISCO-SMI.my
+    CISCO-TC.my
+    CISCO-TCP-MIB.my
+    RS-232-MIB.my
+    SNMPv2-MIB.my
+    SNMPv2-SMI.my
+    SNMPv2-TC.my
+    CISCO-CALL-HISTORY-MIB.my
+    CISCO-CDP-MIB.my
+    CISCO-ENVMON-MIB.my
+    CISCO-ISDN-MIB.my
+    CISCO-SNAPSHOT-MIB.my
+    CISCO-IPMROUTE-MIB.my
+    CISCO-QUEUE-MIB.my
+    IGMP-MIB.my
+    IPMROUTE-MIB.my
+    PIM-MIB.my
+    CISCO-BUS-MIB.my
+    CISCO-CONFIG-MAN-MIB.my
+    CISCO-MEMORY-POOL-MIB.my
+    IANAifType-MIB.my
+    IF-MIB.my
+    LAN-EMULATION-CLIENT-MIB.my
+    ATM-MIB.my
+    CISCO-ACCESS-ENVMON-MIB.my
+    CISCO-RTTMON-MIB.my
+    CISCO-TN3270SERVER-MIB.my
+    INT-SERV-GUARANTEED-MIB.my
+    INT-SERV-MIB.my
+    RSVP-MIB.my
+    TCP-MIB.my
+    UDP-MIB.my
+
+ For some images:
+    CISCO-LECS-MIB.my (not supported in 12.0SC and not support in ubr7200-p-mz)
+    ISDN-MIB.my (not supported in 12.0SC)
+
+
+** SNMP version 2 MIBS added in IOS 11.3NA
+
+ For all images:
+    ENTITY-MIB.my (added in 11.3(2)NA)
+    DOCS-IF-MIB.my (added in 11.3(4)NA)
+
+ For some images:
+    DOCS-BPI-MIB.my (added in 11.3(11)NA, 12.0(7)XR. 
+                    Only supported in ubr7200_*k1*-mz images)
+
+
+** SNMP version 2 MIBS added in IOS 12.0:
+
+ For all images:
+    CISCO-PROCESS-MIB.my (added in 12.0(3)T )
+    CISCO-CABLE-SPECTRUM-MIB.my (added in 12.0(5)T
+    CISCO-DOCS-EXT-MIB.my (partially supported in 11.3(9)NA, 
+                           fully supported in 12.0(5)T 
+                           except cdxIfCmtsCmStatusDynSidCount and 
+                           cdxSpecMgmtObjects which are supported from 12.1(1)T)
+
+
+** SNMP MIBS supported in IOS 12.0: 
+
+ For all images:
+    CISCO-RMON-SAMPLING-MIB.my 
+    ATM-FORUM-MIB.my 
+    ATM-FORUM-ADDR-REG.my 
+    DOT12-IF-MIB.my 
+    CISCO-IETF-ATM2-PVCTRAP-MIB.my 
+    CISCO-CAR-MIB.my 
+    CISCO-IP-STAT-MIB.my 
+    CISCO-CONFIG-COPY-MIB.my 
+    CISCO-LES-MIB.my 
+    CISCO-LEC-DATA-VCC-MIB.my 
+    RFC2006-MIB.my 
+    CISCO-CASA-FA-MIB.my 
+    CISCO-CASA-MIB.my 
+    RFC1407-MIB.my 
+    RFC1595-MIB.my 
+
+ For some images: 
+    CISCO-BULK-FILE-MIB.my (not supported in ubr7200-p-mz)
+    CISCO-FTP-CLIENT-MIB.my (not supported in ubr7200-p-mz)
+    CISCO-HSRP-MIB.my (not supported in 12.0SC) 
+    CISCO-HSRP-EXT-MIB.my (not supported in 12.0SC)
+    CISCO-VPDN-MGMT-MIB.my (not supported in ubr7200-p-mz)
+    EXPRESSION-MIB.my (not supported in ubr7200-p-mz)
+    FUNI-MIB.my (not supported in 12.0SC)
+    HC-RMON-MIB.my (not supported in 12.0SC)
+    RMON2-MIB.my (not supported in 12.0SC)
+    SMON-MIB.my (not supported in 12.0SC)
+   
+** SNMP version 2 MIBS added in IOS 12.1T:
+ For all images:
+   CISCO-DOCS-REMOTE-QUERY-MIB.my (12.1(2)T1)
+

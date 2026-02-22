@@ -1,0 +1,1042 @@
+-- *****************************************************************
+-- CISCO-RTTMON-RTP-MIB.my:   IP SLA RTP MIB file   
+--
+-- August 2005, Katherine Yang 
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-RTTMON-RTP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+  MODULE-IDENTITY,
+  OBJECT-TYPE,
+  Gauge32
+    FROM SNMPv2-SMI
+
+  TimeStamp,
+  DisplayString
+    FROM SNMPv2-TC
+
+  MODULE-COMPLIANCE, 
+  OBJECT-GROUP
+    FROM SNMPv2-CONF
+ 
+  rttMonLatestOper,
+  rttMonCtrlAdminIndex,
+  rttMonStats
+    FROM CISCO-RTTMON-MIB 
+
+  RttResponseSense
+    FROM CISCO-RTTMON-TC-MIB
+
+  ciscoMgmt
+    FROM CISCO-SMI;
+            
+ciscoRttMonRtpMIB MODULE-IDENTITY
+  LAST-UPDATED "200508090000Z"
+  ORGANIZATION "Cisco Systems, Inc."
+  CONTACT-INFO
+       "Cisco Systems, Inc.
+       Customer Service 
+
+       Postal: 170 W Tasman Drive
+       San Jose, CA 95134
+ 
+       Tel: +1 800 553 NETS
+       Email: cs-ipsla@cisco.com"
+
+  DESCRIPTION
+	"An extension to the CISCO-RTTMON-MIB for Cisco IP SLA 
+        RTP operation, Real-Time Transport Protocol(RFC 1889). This 
+        operation provides capability to measure voice quality metrics 
+        such as RTT (Round Trip Time), Jitter, MOS (Mean Opinion Score) 
+        scores by setting up RTP stream between two routers. In voice 
+        communications, particularly Internet telephony, MOS provides 
+        a numerical measure of the quality of human speech at the 
+        destination end of the circuit."
+  REVISION "200508090000Z"
+  DESCRIPTION
+       "Initial version of this MIB module."
+  ::= { ciscoMgmt 487 } 
+
+
+ciscoRttMonRtpMIBNotifs  OBJECT IDENTIFIER  ::= { ciscoRttMonRtpMIB 0}
+ciscoRttMonRtpMIBObjects OBJECT IDENTIFIER ::= { ciscoRttMonRtpMIB 1}
+
+--
+--    LatestRtpOper Table
+--
+
+rttMonLatestRtpOperTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF RttMonLatestRtpOperEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+       "A table which contains the status of latest RTP
+       operation. 
+
+       Each conceptual row corresponds to a RTP operation
+       defined in rttMonCtrlAdminTable and has same index as
+       rttMonCtrlAdminTable. 
+
+       An entry in this table is created only if the 
+       rttMonCtrlAdminRttType is 'rtp', the rttMonEchoAdminProtocol 
+       is 'rtpAppl' and the rttMonEchoAdminTargetAddress is 
+       appropriately configured. The entry will start to collect 
+       data when the rttMonCtrlAdminStatus is moved into 'active' 
+       state. The entry will be removed when the corresponding 
+       rttMonCtrlAdminStatus is in 'destroy' state."
+  ::= { rttMonLatestOper 3 }
+
+rttMonLatestRtpOperEntry OBJECT-TYPE
+  SYNTAX      RttMonLatestRtpOperEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+       "An entry in RTP operation talbe. Each entry specifies the 
+        results and statistics for the latest RTP operation." 
+  INDEX { rttMonCtrlAdminIndex
+        }
+  ::= { rttMonLatestRtpOperTable 1 }
+
+RttMonLatestRtpOperEntry  ::= SEQUENCE
+{   
+    rttMonLatestRtpOperRTT                        Gauge32,
+    rttMonLatestRtpOperIAJitterDS                 Gauge32,
+    rttMonLatestRtpOperPacketLossDS               Gauge32,
+    rttMonLatestRtpOperPacketLateDS               Gauge32,
+    rttMonLatestRtpOperPacketEarlyDS              Gauge32,
+    rttMonLatestRtpOperPacketOOSDS                Gauge32,
+    rttMonLatestRtpOperFrameLossDS                Gauge32,
+    rttMonLatestRtpOperRFactorDS                  Gauge32,
+    rttMonLatestRtpOperMOSCQDS                    Gauge32,
+    rttMonLatestRtpOperMOSLQDS                    Gauge32,
+    rttMonLatestRtpOperSense                      RttResponseSense,
+    rttMonLatestRtpErrorSenseDescription          DisplayString,
+    rttMonLatestRtpOperIAJitterSD                 Gauge32,
+    rttMonLatestRtpOperPacketLossSD               Gauge32,
+    rttMonLatestRtpOperPacketsMIA                 Gauge32,
+    rttMonLatestRtpOperRFactorSD                  Gauge32,
+    rttMonLatestRtpOperMOSCQSD	                  Gauge32,
+    rttMonLatestRtpOperMinOWSD	                  Gauge32,
+    rttMonLatestRtpOperMaxOWSD                    Gauge32,
+    rttMonLatestRtpOperAvgOWSD                    Gauge32,
+    rttMonLatestRtpOperMinOWDS                    Gauge32,
+    rttMonLatestRtpOperMaxOWDS                    Gauge32,
+    rttMonLatestRtpOperAvgOWDS                    Gauge32,
+    rttMonLatestRtpOperTotalPaksSD                Gauge32,
+    rttMonLatestRtpOperTotalPaksDS                Gauge32
+}
+
+rttMonLatestRtpOperRTT OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Round trip time for RTP packet."
+  ::= { rttMonLatestRtpOperEntry 1 }
+
+rttMonLatestRtpOperIAJitterDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Inter-arrival Jitter at source for the latest operation."
+  REFERENCE
+       "Inter-arrival Jitter: RFC 1889"
+  ::= { rttMonLatestRtpOperEntry 2 }
+
+rttMonLatestRtpOperPacketLossDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Number of packets lost from destination to source for the
+        latest operation."
+  ::= { rttMonLatestRtpOperEntry 3 }
+
+rttMonLatestRtpOperPacketLateDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Number of late packets at source for the latest operation."
+  ::= { rttMonLatestRtpOperEntry 4 }
+
+rttMonLatestRtpOperPacketEarlyDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Number of early packets at source for the latest operation."
+  ::= { rttMonLatestRtpOperEntry 5 }
+
+rttMonLatestRtpOperPacketOOSDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Number of out of sequence packets at source for the
+        latest operation."
+  ::= { rttMonLatestRtpOperEntry 6 }
+
+rttMonLatestRtpOperFrameLossDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Number of CODEC frame loss events at source for
+        latest operation."
+  ::= { rttMonLatestRtpOperEntry 7 }
+
+rttMonLatestRtpOperRFactorDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Computed value of R factor at source for latest operation."
+  REFERENCE 
+       "R-factor: ITU-T Recommendation G.107, 
+        The E-model, a computational model for use in transmission 
+        planning."
+  ::= { rttMonLatestRtpOperEntry 8 }
+
+rttMonLatestRtpOperMOSCQDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Estimated Mean Opinion Score for conversational
+        quality at source for latest operation."
+  ::= { rttMonLatestRtpOperEntry 9 }
+
+rttMonLatestRtpOperMOSLQDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Estimated Mean Opinion Score for listening quality at source
+        for latest operation."
+  ::= { rttMonLatestRtpOperEntry 10 }
+
+rttMonLatestRtpOperSense OBJECT-TYPE
+  SYNTAX      RttResponseSense
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "An application specific sense code for the completion status
+        of the latest operation."
+  ::= { rttMonLatestRtpOperEntry 11 }
+
+rttMonLatestRtpErrorSenseDescription OBJECT-TYPE
+  SYNTAX      DisplayString
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "An sense description for the completion status
+       of the latest RTP operation. "
+  ::= { rttMonLatestRtpOperEntry 12 }
+
+rttMonLatestRtpOperIAJitterSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Inter-arrival jitter at destination for latest operation."
+  ::= { rttMonLatestRtpOperEntry 13 }
+
+rttMonLatestRtpOperPacketLossSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Number of packets lost from source to destination for latest
+        operation."
+  ::= { rttMonLatestRtpOperEntry 14 }
+
+rttMonLatestRtpOperPacketsMIA OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Number of packets missing in action while measuring 
+        statistics in source to destination direction"
+  ::= { rttMonLatestRtpOperEntry 15 }
+
+rttMonLatestRtpOperRFactorSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Estimated value of R-factor at destination for latest 
+        operation."
+  ::= { rttMonLatestRtpOperEntry 16 }
+
+rttMonLatestRtpOperMOSCQSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Estimated mean opinion score for conversational quality at 
+        destination for latest operation."
+  ::= { rttMonLatestRtpOperEntry 17 }
+
+rttMonLatestRtpOperMinOWSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum one way latency value in source to destination 
+        direction."
+  ::= { rttMonLatestRtpOperEntry 18 }
+
+rttMonLatestRtpOperMaxOWSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum one way latency value in source to destination
+        direction."
+  ::= { rttMonLatestRtpOperEntry 19 }
+
+rttMonLatestRtpOperAvgOWSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average one way latency value in source to destination
+        direction."
+  ::= { rttMonLatestRtpOperEntry 20 }
+
+rttMonLatestRtpOperMinOWDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum one way latency value in destination to source
+        direction."
+  ::= { rttMonLatestRtpOperEntry 21 }
+
+rttMonLatestRtpOperMaxOWDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum one way latency value in destination to source
+        direction."
+  ::= { rttMonLatestRtpOperEntry 22 }
+
+rttMonLatestRtpOperAvgOWDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average one way latency value in destination to source
+        direction"
+  ::= { rttMonLatestRtpOperEntry 23 }
+
+rttMonLatestRtpOperTotalPaksSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Total number of packets sent in source to destination
+        direction"
+  ::= { rttMonLatestRtpOperEntry 24 }
+
+rttMonLatestRtpOperTotalPaksDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Total number of packets sent in destination to source
+        direction"
+  ::= { rttMonLatestRtpOperEntry 25 }
+
+--
+--    StatsRtp Table
+--
+
+rttMonRtpStatsTable OBJECT-TYPE
+  SYNTAX SEQUENCE OF RttMonRtpStatsEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+       "The table is for RTP operation statistics. It contains 
+        summarized information of the results for one RTP operation. 
+        A rolling accumulated history of this information 
+        is maintained in a series of hourly 'group(s)'. The operation 
+        of this table is same as that of rttMonStatsCaptureTable, 
+        except that this table will store 2 hours of data.
+        
+        It is a rollover table.  When rttMonRtpStatsStartTimeIndex
+        groups exceeds the rttMonStatisticsAdminNumHourGroups value, the
+        oldest corresponding hourly group will be deleted and will be
+        replaced with the new rttMonRtpStatsStartTimeIndex hourly
+        group."
+  ::= { rttMonStats 6 }
+
+rttMonRtpStatsEntry OBJECT-TYPE
+  SYNTAX      RttMonRtpStatsEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+       "A list of objects which accumulate the results of a
+        series of RTP operations over a 60 minute time period
+        or a time period stored in rttMonScheduleAdminRttLife,
+        whichever is smaller.
+ 
+        This entry is created only if the rttMonCtrlAdminRttType
+        is 'rtp'." 
+  INDEX { rttMonCtrlAdminIndex,
+          rttMonRtpStatsStartTimeIndex
+        }
+  ::= { rttMonRtpStatsTable 1 }
+
+RttMonRtpStatsEntry  ::= SEQUENCE
+{   
+    rttMonRtpStatsStartTimeIndex             TimeStamp,
+    rttMonRtpStatsRTTAvg                     Gauge32,
+    rttMonRtpStatsRTTMin                     Gauge32,
+    rttMonRtpStatsRTTMax                     Gauge32,
+    rttMonRtpStatsIAJitterDSAvg              Gauge32,
+    rttMonRtpStatsIAJitterDSMin              Gauge32,
+    rttMonRtpStatsIAJitterDSMax              Gauge32,
+    rttMonRtpStatsPacketLossDSAvg            Gauge32,
+    rttMonRtpStatsPacketLossDSMin            Gauge32,
+    rttMonRtpStatsPacketLossDSMax            Gauge32,
+    rttMonRtpStatsPacketLateDSAvg            Gauge32,
+    rttMonRtpStatsPacketEarlyDSAvg           Gauge32,
+    rttMonRtpStatsPacketOOSDSAvg             Gauge32,
+    rttMonRtpStatsFrameLossDSAvg             Gauge32,
+    rttMonRtpStatsFrameLossDSMin             Gauge32,
+    rttMonRtpStatsFrameLossDSMax             Gauge32,
+    rttMonRtpStatsRFactorDSAvg               Gauge32,
+    rttMonRtpStatsRFactorDSMin               Gauge32,
+    rttMonRtpStatsRFactorDSMax               Gauge32,
+    rttMonRtpStatsMOSCQDSAvg                 Gauge32,
+    rttMonRtpStatsMOSCQDSMin                 Gauge32,
+    rttMonRtpStatsMOSCQDSMax                 Gauge32,
+    rttMonRtpStatsMOSLQDSAvg                 Gauge32,
+    rttMonRtpStatsMOSLQDSMin                 Gauge32,
+    rttMonRtpStatsMOSLQDSMax                 Gauge32,
+    rttMonRtpStatsIAJitterSDAvg              Gauge32,
+    rttMonRtpStatsIAJitterSDMin              Gauge32,
+    rttMonRtpStatsIAJitterSDMax              Gauge32,
+    rttMonRtpStatsPacketLossSDAvg            Gauge32,
+    rttMonRtpStatsPacketLossSDMin            Gauge32,
+    rttMonRtpStatsPacketLossSDMax            Gauge32,
+    rttMonRtpStatsPacketsMIAAvg              Gauge32,
+    rttMonRtpStatsRFactorSDAvg               Gauge32,
+    rttMonRtpStatsRFactorSDMin               Gauge32,
+    rttMonRtpStatsRFactorSDMax               Gauge32,
+    rttMonRtpStatsMOSCQSDAvg                 Gauge32,
+    rttMonRtpStatsMOSCQSDMin                 Gauge32,
+    rttMonRtpStatsMOSCQSDMax                 Gauge32,
+    rttMonRtpStatsOperAvgOWSD                Gauge32,
+    rttMonRtpStatsOperMinOWSD                Gauge32,
+    rttMonRtpStatsOperMaxOWSD                Gauge32,
+    rttMonRtpStatsOperAvgOWDS                Gauge32,
+    rttMonRtpStatsOperMinOWDS                Gauge32,
+    rttMonRtpStatsOperMaxOWDS                Gauge32,
+    rttMonRtpStatsTotalPacketsSDAvg	     Gauge32,
+    rttMonRtpStatsTotalPacketsSDMin	     Gauge32,
+    rttMonRtpStatsTotalPacketsSDMax          Gauge32,
+    rttMonRtpStatsTotalPacketsDSAvg          Gauge32,
+    rttMonRtpStatsTotalPacketsDSMin          Gauge32,
+    rttMonRtpStatsTotalPacketsDSMax	     Gauge32
+}
+
+rttMonRtpStatsStartTimeIndex OBJECT-TYPE
+  SYNTAX      TimeStamp
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+       "The time when this row was created."
+  ::= { rttMonRtpStatsEntry 1 }
+
+rttMonRtpStatsRTTAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average Round trip time."
+  ::= { rttMonRtpStatsEntry 2 }
+
+rttMonRtpStatsRTTMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum Round trip time."
+  ::= { rttMonRtpStatsEntry 3 }
+
+rttMonRtpStatsRTTMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum Round trip time."
+  ::= { rttMonRtpStatsEntry 4 }
+
+rttMonRtpStatsIAJitterDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average of inter-arrival jitter at source."
+  ::= { rttMonRtpStatsEntry 5 }
+
+rttMonRtpStatsIAJitterDSMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum of inter-arrival jitter at source."
+  ::= { rttMonRtpStatsEntry 6 }
+
+rttMonRtpStatsIAJitterDSMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum of inter-arrival jitter at source."
+  ::= { rttMonRtpStatsEntry 7 }
+
+rttMonRtpStatsPacketLossDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of packets lost from destination to source."
+  ::= { rttMonRtpStatsEntry 8 }
+
+rttMonRtpStatsPacketLossDSMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum number of packets lost from destination to source."
+  ::= { rttMonRtpStatsEntry 9 }
+
+rttMonRtpStatsPacketLossDSMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum number of packets lost from destination to source."
+  ::= { rttMonRtpStatsEntry 10 }
+
+rttMonRtpStatsPacketLateDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of late packets at source."
+  ::= { rttMonRtpStatsEntry 11 }
+
+rttMonRtpStatsPacketEarlyDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of early packets at source."
+  ::= { rttMonRtpStatsEntry 12 }
+
+rttMonRtpStatsPacketOOSDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of out of sequence packets at source."
+  ::= { rttMonRtpStatsEntry 13 }
+
+rttMonRtpStatsFrameLossDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "frames"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average Number of Codec Frame loss events at Source."
+  ::= { rttMonRtpStatsEntry 14 }
+
+rttMonRtpStatsFrameLossDSMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "frames"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum Number of Codec Frame loss events at Source."
+  ::= { rttMonRtpStatsEntry 15 }
+
+rttMonRtpStatsFrameLossDSMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "frames"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum number of Codec Frame loss events at Source."
+  ::= { rttMonRtpStatsEntry 16 }
+
+rttMonRtpStatsRFactorDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average Computed value of R factor at Source."
+  ::= { rttMonRtpStatsEntry 17 }
+
+rttMonRtpStatsRFactorDSMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum Computed value of R factor at Source."
+  ::= { rttMonRtpStatsEntry 18 }
+
+
+rttMonRtpStatsRFactorDSMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum Computed value of R factor at Source."
+  ::= { rttMonRtpStatsEntry 19 }
+
+rttMonRtpStatsMOSCQDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average Estimated Mean Opinion Score for conversational
+        quality at Source."
+  ::= { rttMonRtpStatsEntry 20 }
+
+rttMonRtpStatsMOSCQDSMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum Estimated Mean Opinion Score for conversational
+        quality at Source."
+  ::= { rttMonRtpStatsEntry 21 }
+
+rttMonRtpStatsMOSCQDSMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum Estimated Mean Opinion Score for conversational
+        quality at Source."
+  ::= { rttMonRtpStatsEntry 22 }
+
+rttMonRtpStatsMOSLQDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average Estimated Mean Opinion Score for listening
+        quality at Source."
+  ::= { rttMonRtpStatsEntry 23 }
+
+rttMonRtpStatsMOSLQDSMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum Estimated Mean Opinion Score for listening
+        quality at Source."
+  ::= { rttMonRtpStatsEntry 24 }
+
+rttMonRtpStatsMOSLQDSMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum Estimated Mean Opinion Score for listening
+        quality at Source."
+  ::= { rttMonRtpStatsEntry 25 }
+
+rttMonRtpStatsIAJitterSDAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average of inter-arrival jitter at destination."
+  ::= { rttMonRtpStatsEntry 26 }
+
+rttMonRtpStatsIAJitterSDMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum of inter-arrival jitter at destination."
+  ::= { rttMonRtpStatsEntry 27 }
+
+rttMonRtpStatsIAJitterSDMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum of inter-arrival jitter at destination."
+  ::= { rttMonRtpStatsEntry 28 }
+
+rttMonRtpStatsPacketLossSDAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of packets lost from source to destination."
+  ::= { rttMonRtpStatsEntry 29 }
+
+rttMonRtpStatsPacketLossSDMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum number of packets lost from source to destination."
+  ::= { rttMonRtpStatsEntry 30 }
+
+rttMonRtpStatsPacketLossSDMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum number of packets lost from source to destination."
+  ::= { rttMonRtpStatsEntry 31 }
+
+rttMonRtpStatsPacketsMIAAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of lost packets whose loss direction couldn't
+       be determined."
+  ::= { rttMonRtpStatsEntry 32 }
+
+rttMonRtpStatsRFactorSDAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average estimated value of R-factor at destination."
+  ::= { rttMonRtpStatsEntry 33 }
+
+rttMonRtpStatsRFactorSDMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum estimated value of R-factor at destination."
+  ::= { rttMonRtpStatsEntry 34 }
+
+rttMonRtpStatsRFactorSDMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum estimated value of R-factor at destination."
+  ::= { rttMonRtpStatsEntry 35 }
+
+rttMonRtpStatsMOSCQSDAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average estimated mean opinion score for conversational
+        quality at destination."
+  ::= { rttMonRtpStatsEntry 36 }
+
+rttMonRtpStatsMOSCQSDMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum estimated mean opinion score for conversational
+        quality at destination."
+  ::= { rttMonRtpStatsEntry 37 }
+
+rttMonRtpStatsMOSCQSDMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "voice quality"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum estimated mean opinion score for conversational
+        quality at destination."
+  ::= { rttMonRtpStatsEntry 39 }
+
+rttMonRtpStatsOperAvgOWSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average one way latency value from source to destination"
+  ::= { rttMonRtpStatsEntry 40 }
+
+rttMonRtpStatsOperMinOWSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum one way latency value from source to destination"
+  ::= { rttMonRtpStatsEntry 41 }
+
+rttMonRtpStatsOperMaxOWSD OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum one way latency value from source to destination"
+  ::= { rttMonRtpStatsEntry 42 }
+
+rttMonRtpStatsOperAvgOWDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average one way latency value from destination to source"
+  ::= { rttMonRtpStatsEntry 43 }
+
+rttMonRtpStatsOperMinOWDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum one way latency value from destination to source"
+  ::= { rttMonRtpStatsEntry 44 }
+
+rttMonRtpStatsOperMaxOWDS OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum one way latency value from destination to source"
+  ::= { rttMonRtpStatsEntry 45 }
+
+rttMonRtpStatsTotalPacketsSDAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of packets sent from source to destination"
+  ::= { rttMonRtpStatsEntry 46 }
+
+rttMonRtpStatsTotalPacketsSDMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum number of packets sent from source to destination"
+  ::= { rttMonRtpStatsEntry 47 }
+
+rttMonRtpStatsTotalPacketsSDMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum number of packets sent from source to destination"
+  ::= { rttMonRtpStatsEntry 48 }
+
+rttMonRtpStatsTotalPacketsDSAvg OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Average number of packets sent from destination to source"
+  ::= { rttMonRtpStatsEntry 49 }
+
+rttMonRtpStatsTotalPacketsDSMax OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Maximum number of packets sent from destination to source"
+  ::= { rttMonRtpStatsEntry 50 }
+
+rttMonRtpStatsTotalPacketsDSMin OBJECT-TYPE
+  SYNTAX      Gauge32
+  UNITS       "packets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+       "Minimum number of packets sent from destination to source"
+  ::= { rttMonRtpStatsEntry 51 }
+
+--
+-- Conformance Information
+--
+
+ciscoRttMonRtpMIBConformance OBJECT IDENTIFIER 
+                             ::= { ciscoRttMonRtpMIB 2 }
+ciscoRttMonRtpMIBCompliances OBJECT IDENTIFIER
+                             ::= { ciscoRttMonRtpMIBConformance 1 }
+ciscoRttMonRtpMIBGroups      OBJECT IDENTIFIER
+                             ::= { ciscoRttMonRtpMIBConformance 2 }
+
+
+
+ciscoRttMonRtpMIBCompliance MODULE-COMPLIANCE
+  STATUS current
+  DESCRIPTION
+    "The compliance statement for new MIB extensions for
+    (1) Rtp  operation and statistics"
+  MODULE
+    MANDATORY-GROUPS {
+     ciscoRttMonRtpGroup,
+     ciscoRttMonRtpGroupRev1
+    }
+  ::= { ciscoRttMonRtpMIBCompliances 1 }
+
+ciscoRttMonRtpGroup OBJECT-GROUP
+  OBJECTS{
+      rttMonLatestRtpOperRTT,
+      rttMonLatestRtpOperIAJitterDS,
+      rttMonLatestRtpOperPacketLossDS,
+      rttMonLatestRtpOperPacketLateDS,
+      rttMonLatestRtpOperPacketEarlyDS,
+      rttMonLatestRtpOperPacketOOSDS,
+      rttMonLatestRtpOperFrameLossDS,
+      rttMonLatestRtpOperRFactorDS,
+      rttMonLatestRtpOperMOSCQDS,
+      rttMonLatestRtpOperMOSLQDS,
+      rttMonLatestRtpOperSense,
+      rttMonLatestRtpErrorSenseDescription,
+      rttMonRtpStatsRTTAvg,
+      rttMonRtpStatsRTTMin,
+      rttMonRtpStatsRTTMax,
+      rttMonRtpStatsIAJitterDSAvg,
+      rttMonRtpStatsIAJitterDSMin,
+      rttMonRtpStatsIAJitterDSMax,
+      rttMonRtpStatsPacketLossDSAvg,
+      rttMonRtpStatsPacketLossDSMin,
+      rttMonRtpStatsPacketLossDSMax,
+      rttMonRtpStatsPacketLateDSAvg,
+      rttMonRtpStatsPacketEarlyDSAvg,
+      rttMonRtpStatsPacketOOSDSAvg,
+      rttMonRtpStatsFrameLossDSAvg,
+      rttMonRtpStatsFrameLossDSMin,
+      rttMonRtpStatsFrameLossDSMax,
+      rttMonRtpStatsRFactorDSAvg,
+      rttMonRtpStatsRFactorDSMin,
+      rttMonRtpStatsRFactorDSMax,
+      rttMonRtpStatsMOSCQDSAvg,
+      rttMonRtpStatsMOSCQDSMin,
+      rttMonRtpStatsMOSCQDSMax,
+      rttMonRtpStatsMOSLQDSAvg,
+      rttMonRtpStatsMOSLQDSMin,
+      rttMonRtpStatsMOSLQDSMax
+  }
+  STATUS current
+  DESCRIPTION
+   "A collection of objects related to the  
+    statistics for RTP operation."
+  ::= {ciscoRttMonRtpMIBGroups 1}
+
+ciscoRttMonRtpGroupRev1 OBJECT-GROUP
+  OBJECTS {
+    rttMonLatestRtpOperIAJitterSD,
+    rttMonLatestRtpOperPacketLossSD,
+    rttMonLatestRtpOperPacketsMIA,
+    rttMonLatestRtpOperRFactorSD,
+    rttMonLatestRtpOperMOSCQSD,
+    rttMonLatestRtpOperMinOWSD,
+    rttMonLatestRtpOperMaxOWSD,
+    rttMonLatestRtpOperAvgOWSD,
+    rttMonLatestRtpOperMinOWDS,
+    rttMonLatestRtpOperMaxOWDS,
+    rttMonLatestRtpOperAvgOWDS,
+    rttMonLatestRtpOperTotalPaksSD,
+    rttMonLatestRtpOperTotalPaksDS,
+    rttMonRtpStatsIAJitterSDAvg,
+    rttMonRtpStatsIAJitterSDMin,
+    rttMonRtpStatsIAJitterSDMax,
+    rttMonRtpStatsPacketLossSDAvg,
+    rttMonRtpStatsPacketLossSDMin,
+    rttMonRtpStatsPacketLossSDMax,
+    rttMonRtpStatsPacketsMIAAvg,
+    rttMonRtpStatsRFactorSDAvg,
+    rttMonRtpStatsRFactorSDMin,
+    rttMonRtpStatsRFactorSDMax,
+    rttMonRtpStatsMOSCQSDAvg,
+    rttMonRtpStatsMOSCQSDMin,
+    rttMonRtpStatsMOSCQSDMax,
+    rttMonRtpStatsOperAvgOWSD,
+    rttMonRtpStatsOperMinOWSD,
+    rttMonRtpStatsOperMaxOWSD,
+    rttMonRtpStatsOperAvgOWDS,
+    rttMonRtpStatsOperMinOWDS,
+    rttMonRtpStatsOperMaxOWDS,
+    rttMonRtpStatsTotalPacketsSDAvg,
+    rttMonRtpStatsTotalPacketsSDMin,
+    rttMonRtpStatsTotalPacketsSDMax,
+    rttMonRtpStatsTotalPacketsDSAvg,
+    rttMonRtpStatsTotalPacketsDSMin,
+    rttMonRtpStatsTotalPacketsDSMax
+  }
+  STATUS current
+  DESCRIPTION
+   "A collection of objects related to the  
+    Source to Destination statistics for RTP Operation."
+  ::= {ciscoRttMonRtpMIBGroups 2 }
+
+END

@@ -1,0 +1,3056 @@
+-- *****************************************************************
+-- CISCO-FLOW-MONITOR-MIB
+-- Definitions of managed objects describing flow monitoring.
+--   
+-- October 2008-2009 Patrick R. Gili
+--   
+-- Copyright (c) 2008-2009 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-FLOW-MONITOR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    AutonomousType,
+    RowPointer,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    VlanId
+        FROM Q-BRIDGE-MIB
+    CiscoAlarmSeverity,
+    Layer2Cos
+        FROM CISCO-TC
+    ReportIntervalCount
+        FROM CISCO-REPORT-INTERVAL-TC-MIB
+    FlowMonitorIdentifier,
+    FlowIdentifier,
+    FlowPointType,
+    FlowPointIdentifier,
+    FlowMetrics,
+    FlowBitRateUnits,
+    FlowMetricValue,
+    FlowMetricScale,
+    FlowMetricPrecision,
+    FlowMonitorConditions,
+    FlowMonitorConditionsProfile,
+    FlowMonitorConditionsProfileOrZero,
+    FlowMonitorConditionIdentifier,
+    FlowMonitorAlarmGroupIdentifier,
+    FlowSetIdentifier
+        FROM CISCO-FLOW-MONITOR-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoFlowMonitorMIB MODULE-IDENTITY
+    LAST-UPDATED    "200904080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects that describe flow monitoring.
+        A typical application of this MIB module will facilitate
+        monitoring media flows, especially flows carrying video streams.
+        However, by no means does the definition of this MIB module
+        prevents other applications from using it.
+
+        FLOW MONITORS
+        =================
+
+        At the top level, this MIB module describes the notion of a flow
+        monitor.  A flow monitor is a hardware or software entity that
+        classifies traffic flows, collects data on conforming traffic
+        flows, and periodically computes metrics that reflect the
+        quality of the traffic flows.  Because a device can support more
+        than one flow monitor, the MIB module defines the
+        cfmFlowMonitorTable.  Consider an edge router that supports a
+        certain line card that has an integrated capability to monitor
+        video flows.  In this example, the cfmFlowMonitorTable would
+        contain a row describing each line card installed in the device.
+
+        TRAFFIC FLOWS
+        =================
+
+        At the next level, this MIB module describes the notion of a
+        traffic flow.  This MIB module uniquely identifies a traffic
+        flow using an auxiliary variable called cfmFlowId; however, an
+        implementation only has guarantee its uniqueness within the
+        scope of the flow monitor that has the responsibility for
+        monitoring the traffic flow.  Thus, we can think of the flow
+        monitor as a container for the traffic flows for which it
+        collects data and periodically computes metrics, as the figure
+        below illustrates.
+
+                                       +----------------------------+
+                                       | cfmFlowTable               |
+                                       |                            |
+        +----------------------+     +--------------------------------+
+        | cfmFlowMonitorId = 3 ----->|   +------------------------+   |
+        +----------------------+     |   | cfmFlowMonitorId = 3   |   |
+                                     |   | cfmFlowId = 101        |   |
+                                     |   +------------------------+   |
+                                     |   +------------------------+   |
+                                     |   | cfmFlowMonitorId = 3   |   |
+                                     |   | cfmFlowId = 102        |   |
+                                     |   +------------------------+   |
+                                     |       :                        |
+                                     |       :                        |
+                                     |   +------------------------+   |
+                                     |   | cfmFlowMonitorId = 3   |   |
+                                     |   | cfmFlowId = 150        |   |
+                                     |   +------------------------+   |
+                                     +--------------------------------+
+                                       |                            |
+        +----------------------+     +--------------------------------+
+        | cfmFlowMonitorId = 4 ----->|   +------------------------+   |
+        +----------------------+     |   | cfmFlowMonitorId = 4   |   |
+                                     |   | cfmFlowId = 1          |   |
+                                     |   +------------------------+   |
+                                     |   +------------------------+   |
+                                     |   | cfmFlowMonitorId = 4   |   |
+                                     |   | cfmFlowId = 2          |   |
+                                     |   +------------------------+   |
+                                     |       :                        |
+                                     |       :                        |
+                                     |   +------------------------+   |
+                                     |   | cfmFlowMonitorId = 4   |   |
+                                     |   | cfmFlowId = 150        |   |
+                                     |   +------------------------+   |
+                                     +--------------------------------+
+                                       |                            |
+                                       +----------------------------+
+
+        While the identifying of a traffic flow using this auxiliary
+        variable is convenient for the MIB module, it is does suffice
+        for an EMS/NMS trying to isolate faults in a network delivering
+        these traffic flows.  To aid an EMS/NMS in this task, this MIB
+        module defines a number of tables that provide layers of data
+        relating to a traffic flow, including:
+
+            o cfmFlowL2VlanTable - describes L2 VLAN data relating to
+                  traffic flows.
+
+            o cfmFlowIpTable - describes IP data relating to traffic
+                  flows.
+
+            o cfmFlowUdpTable - describes UDP data relating to traffic
+                  flows.
+
+            o cfmFlowTcpTable - describes TCP data relating to traffic
+                  flows.
+
+            o cfmFlowRtpTable - describes RTP data relating to traffic
+                  flows.
+
+        Each of these tables have a sparse dependent relationship on the
+        cfmFlowTable, as there exist situations when the data may not be
+        available for a traffic flow, including:
+
+            1)  The flow monitor simply may not collect the particular
+                data for the traffic flows that it has the
+                responsibility of monitoring.  For example, a flow
+                monitor may not have any concern for L2 VLAN data.
+
+            2)  The data may not apply to a traffic flow.  For example,
+                a TCP and RTP data do not apply for a UDP traffic flow.
+
+        To help an EMS/NMS navigate the data collected for a traffic
+        flow, the corresponding rows are daisy-chained using 'next
+        objects'.  An EMS/NMS starts with cfmFlowNext, which indicates a
+        reference to the row in the next table containing data related
+        to the traffic flow.  The first object contained by each of
+        these tables is a 'next object'.  Consider a RTP traffic flow
+        for which the flow monitor has collected IP, UDP, and RTP data.
+        The figure below illustrates how this MIB module daisy chains
+        this data through the relevant tables.
+
+        +-------------------------------------------+
+        | cfmFlowTable                              |
+        | +---------------------------------------+ |
+        | | cfmFlowMonitorId = 3                  | |
+        | | cfmFlowId = 42                        | |
+        | | cfmFlowNext = cfmFlowIpNext.3.42 ----------+
+        | +---------------------------------------+ |  |
+        +-------------------------------------------+  |
+                                                       |
+        +-------------------------------------------+  |
+        | cfmFlowIpTable                            |  |
+        | +---------------------------------------+ |  |
+        | | cfmFlowMonitorId = 3                  |<---+
+        | | cfmFlowId = 42                        | |
+        | | cfmFlowIpNext = cfmFlowUdpNext.3.42 -------+
+        | +---------------------------------------+ |  |
+        +-------------------------------------------+  |
+                                                       |
+        +-------------------------------------------+  |
+        | cfmFlowUdpTable                           |  |
+        | +---------------------------------------+ |  |
+        | | cfmFlowMonitorId = 3                  |<---+
+        | | cfmFlowId = 42                        | |
+        | | cfmFlowUdpNext = cfmFlowRtpNext.3.42 ------+
+        | +---------------------------------------+ |  |
+        +-------------------------------------------+  |
+                                                       |
+        +-------------------------------------------+  |
+        | cfmFlowRtpTable                           |  |
+        | +---------------------------------------+ |  |
+        | | cfmFlowMonitorId = 3                  |<---+
+        | | cfmFlowId = 42                        | |
+        | | cfmFlowRtpNext = zeroDotZero          | |
+        | +---------------------------------------+ |
+        +-------------------------------------------+
+
+        Observe that this structure simplifies the task of extending the
+        MIB module to support additional layers of data.  For example,
+        if there is a need for a device to collect data relating to the
+        MPEG-TS layer of a flow carrying a video stream, then it is as
+        simple as defining a table containing this data.  However, the
+        definition of such a table must comply with the following
+        requirements:
+
+            1)  The table must have a sparse dependent relationship on
+                the cfmFlowTable.
+
+            2)  The first object contained by the table must be a 'next
+                object' to support daisy chaining.
+
+        REPORTING FLOW METRICS
+        ==========================
+
+        At the next level, the MIB defines two tables that together form
+        the foundation for reporting metrics.  The cfmFlowMetricsTable
+        has a one-to-one dependent relationship on the cfmFlowTable, and
+        it contains data aggregate metrics and data relating to the
+        collection of metrics for the corresponding traffic flow.  A row
+        in this table also serves as a container for the historic
+        metrics computed by the corresponding flow monitor, as the
+        figure below illustrates.
+
+                                      +----------------------------+
+                                      | cfmFlowMetricsIntTable     |
+                                      |                            |
+        +----------------------+   +----------------------------------+
+        | cfmFlowMetricsEntry  |-->| +------------------------------+ |
+        |                      |   | | cfmFlowMonitorId = 3         | |
+        | cfmFlowMonitorId = 3 |   | | cfmFlowId = 101              | |
+        | cfmFlowid = 101      |   | | cfmFlowMetricsIntNumber = 1  | |
+        +----------------------+   | +------------------------------+ |
+                                   | +------------------------------+ |
+                                   | | cfmFlowMonitorId = 3         | |
+                                   | | cfmFlowId = 101              | |
+                                   | | cfmFlowMetricsIntNumber = 2  | |
+                                   | +------------------------------+ |
+                                   |     :                            |
+                                   |     :                            |
+                                   | +------------------------------+ |
+                                   | | cfmFlowMonitorId = 3         | |
+                                   | | cfmFlowId = 101              | |
+                                   | | cfmFlowMetricsIntNumber = N  | |
+                                   | +------------------------------+ |
+                                   +----------------------------------+
+                                      |                            |
+                                      +----------------------------+
+
+        The device collects data for a traffic flow over a configured
+        measurement interval, indicated by cfmFlowMetricsIntervalTime.
+        At the end of a measurement interval, the device computes
+        metrics from this data, generating a report.  An EMS/NMS can
+        access this report using the cfmFlowMetricsIntTable.
+        cfmFlowMetricsMaxInterval indicates the maximum number of
+        reports a device will save for the corresponding traffic flow,
+        while cfmFlowMetricsIntervals indicates the number of reports
+        currently saved by the device.
+
+        The cfmFlowMetricsTable and cfmFlowMetricsIntTable have the
+        intent of providing a foundation for reporting metrics for a
+        traffic flow.  Furthermore, it is the intent that additional MIB
+        modules define extensions to these tables describing specific
+        sets of metrics.  The following list provides some examples:
+
+            o CISCO-FLOW-MON-MDI-MIB - this MIB module defines
+                  extensions that describe MDI metrics defined by
+                  RFC-4445.
+
+            o CISCO-FLOW-MON-RTP-MIB - this MIB module defines
+                  extensions that describe RTP metrics defined by
+                  RFC-3550.
+
+            o CISCO-FLOW-MON-IP-CBR-MIB - this MIB module defines
+                  extension that describe IP CBR metrics.
+
+        The tables defined by these MIB modules have a sparse dependent
+        relationhip on the cfmFlowMetricsTable and
+        cfmFlowMetricsIntTable.  An EMS/NMS can determine the metrics
+        collected for a traffic flow from the corresponding instance of
+        cfmFlowMetricsCollected, which is nothing more than a bit
+        string-value for which each bit corresponds to a different set
+        of metrics.
+
+        FAULT MANAGEMENT
+        ====================
+
+        At the next level, this MIB module defines tables that describe
+        standing conditions.  A standing condition is a lasting error,
+        fault, or warning resulting from the application of a set of
+        criteria to the state of an entity.
+
+        For example, a flow monitor ceases monitoring a traffic flow
+        when it has not received any packets for that traffic flow in a
+        configured interval of time.  If flow monitor expires a
+        significantly large number of traffic flows during a measurement
+        interval, then this might signal a fault.
+
+        In this example, the 'set of criteria' is a rising threshold and
+        the 'state of an entity' is the number of traffic flows
+        expired by a flow monitor.
+
+        The cfmConditionTable describes the criteria applied to entities
+        managed by the device, specifically flow monitors and traffic
+        flows.  The table groups these criteria into 'conditions
+        profiles'.  The device periodically applies these criteria
+        to an entity and saves the results in a bit string-value
+        associated with the entity.
+
+        An EMS/NMS can monitor the most recent standing conditions for a
+        flow monitor by retrieving the corresponding instance of
+        cfmFlowMonitorConditions.  Likewise, an EMS/NMS can monitor the
+        most recent standing conditions for a traffic flow by retrieving
+        the corresponding instance of cfmFlowMetricsConditions.
+
+        It goes without saying that monitoring the standing conditions
+        for significantly large numbers of traffic flows becomes
+        problematic.  To aid an EMS/NMS in this task, this MIB module
+        defines many mechanisms.  The most basic of these mechanisms is
+        the notion of an alarm, which is simply a standing condition for
+        which the device signals changes in state.  This MIB module
+        provides for three means of signaling when the device raises or
+        clears an alarm condition:
+
+            1)  Logging - the device creates a record of the event and
+                    saves it in a historical account.
+
+            2)  syslog - the device generates a syslog message
+                    containing details of the event and sends it to one
+                    or more configured syslog server.
+
+            3)  SNMP - the device generates a SNMP notification
+                    containing details of the event and sends it to one
+                    or more configured targets.
+
+        An EMS/NMS can monitor the most recent alarm conditions for a
+        flow monitor by retrieving the corresponding instance of
+        cfmFlowMonitorAlarms.  Likewise, the EMS/NMS can monitor the
+        most recent alarm conditions for a traffic flow by retrieving
+        the corresponding instance of cfmFlowMetricsAlarms.
+
+        Additionally, the EMS/NMS can poll a summary of alarm conditions
+        maintained for each flow monitor and the traffic flows that it
+        monitors.  The following list summarizes the data contained by
+        this summary:
+
+            o cfmFlowMonitorAlarmSeverity
+            o cfmFlowMonitorAlarmCriticalCount
+            o cfmFlowMonitorAlarmMajorCount
+            o cfmFlowMonitorAlarmMinorCount
+            o cfmFlowMonitorAlarmWarningCount
+            o cfmFlowMonitorAlarmInfoCount
+
+        An EMS/NMS can also poll cfmAlarmHistoryLastId, which indicates
+        the value of the identifier assigned to the last record saved to
+        the historical account.  When it observes a change in the value
+        of this object, then it can retrieve the new records from the
+        cfmAlarmHistoryTable.
+
+        The burden of monitoring alarm conditions for sufficiently large
+        numbers of traffic flows can itself become a daunting task.
+        Thus, this MIB module defines the notion of an alarm group,
+        which represents a single alarm condition that aggregates a
+        standing condition for a set of traffic flows.  The
+        cfmAlarmGroupTable describes the alarm groups configured for a
+        device, and the cfmAlarmGroupFlowTable describes the sets of
+        flows aggregated by these alarm groups.
+
+        GLOSSARY
+        ============
+
+        Alarm Action - a method used by the device to signal changes in
+            an alarm condition.
+
+        Alarm Aggregation - a technique used to efficiently monitor the
+            same standing condition for a flow set.
+
+        Alarm Condition - a standing condition for which the device
+            signals changes in state.
+
+        Alarm Group - a flow set for which the device monitors a
+            configured standing condition, raising an alarm when a
+            configured number of flows in the flow set assert the
+            standing standing.
+
+        Alarm Severity - the relative disposition of an alarm condition
+            when raised by the device.  For example, a provider may
+            regard a flow stop alarm as having a higher severity than a
+            flow's loss fraction exceeding a configured threshold.
+
+        Flow Monitor - a hardware or software entity that classifies
+            traffic flows, collects flow data, and periodically
+            computes flow metrics.
+
+        Flow Metric - a measurement that reflects the quality of a
+            traffic flow.
+
+        Flow Point - represents the ingress or egress of a traffic flow.
+
+        Flow Set - a group of traffic flows.
+
+        Measurement Interval - the length of time over which a flow
+            monitor collects data related to a traffic flow, after which
+            the flow monitor computes flow metrics using the collected
+            data.
+
+        Standing Condition - represents a lasting error, fault, or
+            warning resulting from the application of a set of criteria
+            to the state of an entity, such as a flow monitor or traffic
+            flow.  For example, a flow monitor may assert a standing
+            condition if the number of traffic flows that expire in a
+            measurement interval exceeds a configured threshold.
+
+        Traffic Flow - a unidirectional stream of packets conforming to
+            a classifier.  For example, packets having a particular 
+            source IP address, destination IP address, protocol type,
+            source port number, and destination port number."
+    REVISION        "200904080000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 692 }
+
+
+-- *********************************************************************
+-- * Top-Level Trees                                                   *
+-- *********************************************************************
+
+ciscoFlowMonitorMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIB 0 }
+
+ciscoFlowMonitorMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIB 1 }
+
+ciscoFlowMonitorMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIB 2 }
+
+ciscoFlowMonitorMIBIds  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIB 3 }
+
+-- *********************************************************************
+-- * Objects                                                           *
+-- *********************************************************************
+
+cfmFlowMonitors  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBObjects 1 }
+
+
+cfmFlowMonitorTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowMonitorEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the flow monitors contained by the device."
+    ::= { cfmFlowMonitors 1 }
+
+cfmFlowMonitorEntry OBJECT-TYPE
+    SYNTAX          CfmFlowMonitorEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a flow monitor, which represents a hardware
+        or software entity that classifies traffic flows, monitors flow
+        data, and periodically computes flow metrics.
+
+        A simple device may only support a single flow monitor, where a
+        more sophisticated device may support more than one flow
+        monitor.
+
+        A device supporting multiple flow monitors creates a row in the
+        cfmFlowMonitorTable when it recognizes the addition of a new
+        flow monitor, such as might occur upon the insertion of a
+        line card that supports flow monitoring.  Likewise, such a
+        device destroys a row in the cfmFlowMonitorTable when a flow
+        monitor has been removed."
+    INDEX           { cfmFlowMonitorId } 
+    ::= { cfmFlowMonitorTable 1 }
+
+CfmFlowMonitorEntry ::= SEQUENCE {
+        cfmFlowMonitorId                 FlowMonitorIdentifier,
+        cfmFlowMonitorDescr              SnmpAdminString,
+        cfmFlowMonitorCaps               FlowMetrics,
+        cfmFlowMonitorFlowCount          Gauge32,
+        cfmFlowMonitorConditionsProfile  FlowMonitorConditionsProfileOrZero,
+        cfmFlowMonitorConditions         FlowMonitorConditions,
+        cfmFlowMonitorAlarms             FlowMonitorConditions,
+        cfmFlowMonitorAlarmSeverity      CiscoAlarmSeverity,
+        cfmFlowMonitorAlarmCriticalCount Gauge32,
+        cfmFlowMonitorAlarmMajorCount    Gauge32,
+        cfmFlowMonitorAlarmMinorCount    Gauge32,
+        cfmFlowMonitorAlarmWarningCount  Gauge32,
+        cfmFlowMonitorAlarmInfoCount     Gauge32
+}
+
+cfmFlowMonitorId OBJECT-TYPE
+    SYNTAX          FlowMonitorIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the flow monitor.  Observe that the value assigned to
+        a flow monitor does not necessarily persist across restarts or
+        the
+        removal-insertion of a physical entity supporting flow
+        monitor(s)." 
+    ::= { cfmFlowMonitorEntry 1 }
+
+cfmFlowMonitorDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human-readable description for the flow
+        monitor." 
+    ::= { cfmFlowMonitorEntry 2 }
+
+cfmFlowMonitorCaps OBJECT-TYPE
+    SYNTAX          FlowMetrics
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the capabilities of the flow monitor.
+        Specifically, the value of this column indicates a '1' for each
+        set of flow metrics the flow monitor is capable of measuring." 
+    ::= { cfmFlowMonitorEntry 3 }
+
+cfmFlowMonitorFlowCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "traffic flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of traffic flows currently
+        monitored by the flow monitor." 
+    ::= { cfmFlowMonitorEntry 4 }
+
+cfmFlowMonitorConditionsProfile OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionsProfileOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the conditions profile that contains the
+        descriptions of the standing conditions monitored for the flow
+        monitor.
+
+        If the flow monitor does not have an associated conditions
+        profile, then the value of this column must be zero." 
+    ::= { cfmFlowMonitorEntry 5 }
+
+cfmFlowMonitorConditions OBJECT-TYPE
+    SYNTAX          FlowMonitorConditions
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current standing conditions for the
+        flow monitor.
+
+        If the flow monitor does not have an associated conditions
+        profile, then the value of this column must be the null string." 
+    ::= { cfmFlowMonitorEntry 6 }
+
+cfmFlowMonitorAlarms OBJECT-TYPE
+    SYNTAX          FlowMonitorConditions
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current alarm conditions for the flow
+        monitor.
+
+        If the flow monitor does not have an associated conditions
+        profile, then the value of this column must be the null string." 
+    ::= { cfmFlowMonitorEntry 7 }
+
+cfmFlowMonitorAlarmSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the high severity alarm condition
+        currently raised by the flow monitor and the traffic flows
+        monitored by the flow monitor.
+
+        If no alarm is raised for the flow monitor and the traffic
+        flows monitored for the flow monitor, then the value of this
+        column is 'cleared'." 
+    ::= { cfmFlowMonitorEntry 8 }
+
+cfmFlowMonitorAlarmCriticalCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "alarms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of alarm conditions with a
+        critical severity currently raised for traffic flows monitored
+        by the flow monitor." 
+    ::= { cfmFlowMonitorEntry 9 }
+
+cfmFlowMonitorAlarmMajorCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "alarms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of alarm conditions with a
+        major severity currently raised for traffic flows monitored by
+        the flow monitor." 
+    ::= { cfmFlowMonitorEntry 10 }
+
+cfmFlowMonitorAlarmMinorCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "alarms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of alarm conditions with a
+        minor severity currently raised for traffic flows monitored by
+        the flow monitor." 
+    ::= { cfmFlowMonitorEntry 11 }
+
+cfmFlowMonitorAlarmWarningCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "alarms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of alarm conditions with a
+        warning severity currently raised for traffic flows monitored by
+        the flow monitor." 
+    ::= { cfmFlowMonitorEntry 12 }
+
+cfmFlowMonitorAlarmInfoCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "alarms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of alarm conditions with a
+        informational severity currently raised for traffic flows
+        monitored by the flow monitor." 
+    ::= { cfmFlowMonitorEntry 13 }
+ 
+
+
+cfmFlowMonitorTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created or destroyed a row in cfmFlowMonitorTable." 
+    ::= { cfmFlowMonitors 2 }
+cfmFlows  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBObjects 2 }
+
+
+cfmFlowTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the traffic flows monitored by each flow
+        monitor supported by the device.
+
+        This table has an expansion dependent relationship on the
+        cfmFlowMonitorTable, containing zero or more rows for each flow
+        monitor."
+    ::= { cfmFlows 1 }
+
+cfmFlowEntry OBJECT-TYPE
+    SYNTAX          CfmFlowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a traffic flow monitored by a flow monitor.
+
+        The device creates a row in the cfmFlowTable when a flow monitor
+        starts monitoring a traffic flow.  Likewise, the device
+        destroys a row in the cfmFlowTable when a traffic flow monitored
+        by a flow monitor has timed out."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmFlowTable 1 }
+
+CfmFlowEntry ::= SEQUENCE {
+        cfmFlowId                FlowIdentifier,
+        cfmFlowDescr             SnmpAdminString,
+        cfmFlowNext              RowPointer,
+        cfmFlowCreateTime        TimeStamp,
+        cfmFlowDiscontinuityTime TimeStamp,
+        cfmFlowExpirationTime    Unsigned32,
+        cfmFlowDirection         INTEGER,
+        cfmFlowAdminStatus       INTEGER,
+        cfmFlowOperStatus        INTEGER,
+        cfmFlowIngressType       FlowPointType,
+        cfmFlowIngress           FlowPointIdentifier,
+        cfmFlowEgressType        FlowPointType,
+        cfmFlowEgress            FlowPointIdentifier
+}
+
+cfmFlowId OBJECT-TYPE
+    SYNTAX          FlowIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies a traffic flow in the scope of the flow monitor that
+        learned it.  Observe that the value assigned to a flow does not
+        necessarily persist across restarts or the removal-insertion of
+        a
+        physical entity supporting flow monitor(s)." 
+    ::= { cfmFlowEntry 1 }
+
+cfmFlowDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human-readable description of the
+        traffic flow." 
+    ::= { cfmFlowEntry 2 }
+
+cfmFlowNext OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a reference to a row in another table
+        containing additional data relating to the traffic flow." 
+    ::= { cfmFlowEntry 3 }
+
+cfmFlowCreateTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime when the row was
+        created." 
+    ::= { cfmFlowEntry 4 }
+
+cfmFlowDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime on the most
+        recent occasion at which any one or more of counters associated
+        with the traffic flow suffered a discontinuity (e.g., process
+        restart or failover event)." 
+    ::= { cfmFlowEntry 5 }
+
+cfmFlowExpirationTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the expiration interval for the traffic
+        flow.  If the flow monitor receives no packets for the traffic
+        flow in this interval, then it expires the flow; that is, it
+        stops monitoring the traffic and removes the corresponding row
+        from the cfmFlowTable.  If this column is '0', then the traffic
+        flow was statically configured (as opposed to dynamically
+        learned) and it will never expire." 
+    ::= { cfmFlowEntry 6 }
+
+cfmFlowDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        ingress(2),
+                        egress(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction of the traffic flow where
+        the flow monitor collects data:
+
+            'unknown'
+                The SNMP entity does not know the direction of the
+                traffic flow at the point the flow monitor collects
+                data.
+
+            'ingress'
+                The flow monitor collects data at the point where the
+                traffic flow enters the devices
+
+            'egress'
+                The flow monitor collects data at the point where the
+                traffic flow leaves the device." 
+    ::= { cfmFlowEntry 7 }
+
+cfmFlowAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2),
+                        expire(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the desired state of the traffic flow:
+
+        'enabled'
+            The corresponding flow monitor is collecting data and
+            computing metrics for the traffic flow.
+
+        'disabled'
+            The corresponding flow monitor is not collecting data or
+            computing metrics for the traffic flow.  As long as a
+            traffic flow remains in this state, the flow monitor
+            will not expire the traffic flow.
+
+        'expire'
+            When this column is set to this value, it forces the
+            traffic flow to expire.  It is not possible to return this
+            value in a response to a retrieval operation."
+    DEFVAL          { enabled } 
+    ::= { cfmFlowEntry 8 }
+
+cfmFlowOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operational state of the traffic
+        flow:
+
+            'enabled'
+                The corresponding flow monitor is actively monitoring
+                the traffic flow.
+
+            'disabled'
+                The corresponding flow monitor is neither collecting
+                data, nor computing metrics for the traffic flow." 
+    ::= { cfmFlowEntry 9 }
+
+cfmFlowIngressType OBJECT-TYPE
+    SYNTAX          FlowPointType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of port that receives the
+        traffic for this traffic flow." 
+    ::= { cfmFlowEntry 10 }
+
+cfmFlowIngress OBJECT-TYPE
+    SYNTAX          FlowPointIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the port that receives the traffic for
+        this
+        traffic flow." 
+    ::= { cfmFlowEntry 11 }
+
+cfmFlowEgressType OBJECT-TYPE
+    SYNTAX          FlowPointType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of port that transmits the
+        traffic for this traffic flow." 
+    ::= { cfmFlowEntry 12 }
+
+cfmFlowEgress OBJECT-TYPE
+    SYNTAX          FlowPointIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the port that transmits the traffic for
+        this traffic flow." 
+    ::= { cfmFlowEntry 13 }
+ 
+
+
+cfmFlowTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created or destroyed a row in cfmFlowTable." 
+    ::= { cfmFlows 2 }
+
+cfmFlowL2VlanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowL2VlanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains additional data relating to the L2 VLAN
+        carrying traffic flows monitored by flow monitors.
+
+        This table has a sparse dependent relationship on the
+        cfmFlowTable."
+    ::= { cfmFlows 3 }
+
+cfmFlowL2VlanEntry OBJECT-TYPE
+    SYNTAX          CfmFlowL2VlanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes data relating to the L2 VLAN carrying the
+        corresponding traffic flow.
+
+        A device creates a row in the cfmFlowL2VlanTable when a flow
+        monitor has data relating to the L2 VLAN carrying a
+        corresponding traffic flow.  The device destroys a row in the
+        cfmFlowL2VlanTable when the corresponding traffic flow times
+        out."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmFlowL2VlanTable 1 }
+
+CfmFlowL2VlanEntry ::= SEQUENCE {
+        cfmFlowL2VlanNext RowPointer,
+        cfmFlowL2VlanId   VlanId,
+        cfmFlowL2VlanCos  Layer2Cos
+}
+
+cfmFlowL2VlanNext OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a reference to a row in another table
+        containing additional data relating to the corresponding traffic
+        flow." 
+    ::= { cfmFlowL2VlanEntry 1 }
+
+cfmFlowL2VlanId OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the tag associated with the VLAN
+        carrying the corresponding traffic flow." 
+    ::= { cfmFlowL2VlanEntry 2 }
+
+cfmFlowL2VlanCos OBJECT-TYPE
+    SYNTAX          Layer2Cos
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the layer 2 COS assigned to the
+        corresponding traffic flow." 
+    ::= { cfmFlowL2VlanEntry 3 }
+ 
+
+
+cfmFlowL2VlanTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device changed the cfmFlowL2VlanTable." 
+    ::= { cfmFlows 4 }
+
+cfmFlowIpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowIpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains additional data relating to the IP carrying
+        the corresponding traffic flow.
+
+        This table has a sparse dependent relationship on the
+        cfmFlowTable."
+    ::= { cfmFlows 5 }
+
+cfmFlowIpEntry OBJECT-TYPE
+    SYNTAX          CfmFlowIpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes data relating to the IP carrying the
+        corresponding traffic flow.
+
+        A device creates a row in the cfmFlowIpTable when the flow
+        monitor has data relating to the IP carrying the corresponding
+        traffic flow.   The device destroys a row in this table when the
+        corresponding traffic flow times out."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmFlowIpTable 1 }
+
+CfmFlowIpEntry ::= SEQUENCE {
+        cfmFlowIpNext         RowPointer,
+        cfmFlowIpAddrType     InetAddressType,
+        cfmFlowIpAddrSrc      InetAddress,
+        cfmFlowIpAddrDst      InetAddress,
+        cfmFlowIpValid        BITS,
+        cfmFlowIpTrafficClass Unsigned32,
+        cfmFlowIpHopLimit     Unsigned32
+}
+
+cfmFlowIpNext OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a reference to a row in another table
+        containing additional data relating to the corresponding traffic
+        flow." 
+    ::= { cfmFlowIpEntry 1 }
+
+cfmFlowIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address indicated by the
+        corresponding instances of cfmFlowIpAddrSrc and
+        cfmFlowIpAddrDst." 
+    ::= { cfmFlowIpEntry 2 }
+
+cfmFlowIpAddrSrc OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source IP address of the
+        corresponding traffic flow." 
+    ::= { cfmFlowIpEntry 3 }
+
+cfmFlowIpAddrDst OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the destination IP address of the
+        corresponding traffic flow." 
+    ::= { cfmFlowIpEntry 4 }
+
+cfmFlowIpValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        trafficClass(0),
+                        hopLimit(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        cfmFlowIpTrafficClass and cfmFlowIpHopLimit are valid." 
+    ::= { cfmFlowIpEntry 5 }
+
+cfmFlowIpTrafficClass OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the traffic class of the corresponding
+        traffic flow.
+
+        If version 4 of the IP carries the traffic flow, then the value
+        of this column corresponds to the 'Type of Service' field of the
+        IP header contained by packets in the traffic flow.
+
+        If version 6 of the IP carries the traffic flow, then the value
+        of this column corresponds to the '' field of the IP header
+        contained by packets in the traffic flow.
+
+        The value of this column is valid only if the 'trafficClass'
+        bit of the corresponding instance of cfmFlowIpValid is '1'."
+    REFERENCE
+        "J. Postel, 'Internet Protocol', RFC-791, September 1981.
+
+        J. Deering and R. Hinden, 'Internet Protocol, Version 6 (IPv6)
+        Specification', RFC-2460, December 1998." 
+    ::= { cfmFlowIpEntry 6 }
+
+cfmFlowIpHopLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the hop limit of the corresponding
+        traffic flow.
+
+        If version 4 of the IP carries the traffic flow, then the value
+        of this column corresponds to the 'Time to Live' field of the IP
+        header contained by packets in the traffic flow (as observed by
+        the flow monitor).
+
+        If version 6 of the IP carries the traffic flow, then the value
+        of this column corresponds to the 'Hop Limit' field of the IP
+        header contained by packets in the traffic flow (as observed by
+        the flow monitor).
+
+        The value of this column is valid only if the 'hopLimit' bit of
+        the corresponding instance of cfmFlowIpValid is '1'."
+    REFERENCE
+        "J. Postel, 'Internet Protocol', RFC-791, September 1981.
+
+        J. Deering and R. Hinden, 'Internet Protocol, Version 6
+        (IPv6)
+        Specification', RFC-2460, December 1998." 
+    ::= { cfmFlowIpEntry 7 }
+ 
+
+
+cfmFlowIpTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device changed the cfmFlowIpTable." 
+    ::= { cfmFlows 6 }
+
+cfmFlowUdpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowUdpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains additional data relating to the UDP
+        carrying the corresponding traffic flow.
+
+        This table has a sparse dependent relationship on the
+        cfmFlowTable."
+    ::= { cfmFlows 7 }
+
+cfmFlowUdpEntry OBJECT-TYPE
+    SYNTAX          CfmFlowUdpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes data relating to the UDP carrying the
+        corresponding traffic flow.
+
+        A device creates a row in the cfmFlowUdpTable when the flow
+        monitor has data relating to the UDP carrying the corresponding
+        traffic flow.  The device destroys a row in this table when the
+        corresponding traffic flow times out."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmFlowUdpTable 1 }
+
+CfmFlowUdpEntry ::= SEQUENCE {
+        cfmFlowUdpNext    RowPointer,
+        cfmFlowUdpPortSrc InetPortNumber,
+        cfmFlowUdpPortDst InetPortNumber
+}
+
+cfmFlowUdpNext OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a reference to a row in another table
+        containing additional data relating to the corresponding traffic
+        flow." 
+    ::= { cfmFlowUdpEntry 1 }
+
+cfmFlowUdpPortSrc OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source UDP port number of the
+        corresponding traffic flow." 
+    ::= { cfmFlowUdpEntry 2 }
+
+cfmFlowUdpPortDst OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the destination UDP port number of the
+        corresponding traffic flow." 
+    ::= { cfmFlowUdpEntry 3 }
+ 
+
+
+cfmFlowUdpTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device changed the cfmFlowUdpTable." 
+    ::= { cfmFlows 8 }
+
+cfmFlowTcpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowTcpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains additional data relating to the TCP
+        carrying the corresponding traffic flow.
+
+        This table has a sparse dependent relationship on the
+        cfmFlowTable."
+    ::= { cfmFlows 9 }
+
+cfmFlowTcpEntry OBJECT-TYPE
+    SYNTAX          CfmFlowTcpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes data relating to the TCP carrying the
+        corresponding traffic flow.
+
+        A device creates a row in the cfmFlowTcpTable when the flow
+        monitor has data relating to the TCP carrying the corresponding
+        traffic flow.  The device destroys a row in this table when the
+        corresponding traffic flow times out."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmFlowTcpTable 1 }
+
+CfmFlowTcpEntry ::= SEQUENCE {
+        cfmFlowTcpNext    RowPointer,
+        cfmFlowTcpPortSrc InetPortNumber,
+        cfmFlowTcpPortDst InetPortNumber
+}
+
+cfmFlowTcpNext OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a reference to a row in another table
+        containing additional data relating to the corresponding traffic
+        flow." 
+    ::= { cfmFlowTcpEntry 1 }
+
+cfmFlowTcpPortSrc OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source TCP port number of the
+        corresponding traffic flow." 
+    ::= { cfmFlowTcpEntry 2 }
+
+cfmFlowTcpPortDst OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the destination TCP port number of the
+        corresponding traffic flow." 
+    ::= { cfmFlowTcpEntry 3 }
+ 
+
+
+cfmFlowTcpTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device changed the cfmFlowTcpTable." 
+    ::= { cfmFlows 10 }
+
+cfmFlowRtpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowRtpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains additional data relating to the RTP
+        carrying the corresponding traffic flow.
+
+        This table has a sparse dependent relationship on the
+        cfmFlowTable."
+    ::= { cfmFlows 11 }
+
+cfmFlowRtpEntry OBJECT-TYPE
+    SYNTAX          CfmFlowRtpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes data relating to the RTP carrying the
+        corresponding traffic flow.
+
+        A device creates a row in the cfmFlowRtpTable when the flow
+        monitor has data relating to the RTP carrying the corresponding
+        traffic flow.  The device destroys a row in this table when the
+        corresponding traffic flow times out."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmFlowRtpTable 1 }
+
+CfmFlowRtpEntry ::= SEQUENCE {
+        cfmFlowRtpNext        RowPointer,
+        cfmFlowRtpVersion     Unsigned32,
+        cfmFlowRtpSsrc        Unsigned32,
+        cfmFlowRtpPayloadType Unsigned32
+}
+
+cfmFlowRtpNext OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a reference to a row in another table
+        containing additional data relating to the corresponding traffic
+        flow." 
+    ::= { cfmFlowRtpEntry 1 }
+
+cfmFlowRtpVersion OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..3)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the RTP version of the corresponding
+        traffic flow." 
+    ::= { cfmFlowRtpEntry 2 }
+
+cfmFlowRtpSsrc OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the RTP synchronized source (SSRC) of
+        the corresponding traffic flow." 
+    ::= { cfmFlowRtpEntry 3 }
+
+cfmFlowRtpPayloadType OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..127)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the RTP payload type of the
+        corresponding traffic flow." 
+    ::= { cfmFlowRtpEntry 4 }
+ 
+
+
+cfmFlowRtpTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device changed the cfmFlowRtpTable." 
+    ::= { cfmFlows 12 }
+cfmFlowMetrics  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBObjects 3 }
+
+
+cfmFlowMetricsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowMetricsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate metrics and data relating to the
+        collection of metrics for the traffic flows monitored by each of
+        the flow monitors supported by the device.
+
+        This table has a sparse dependent relationship on the
+        cfmFlowTable, containing a row for each row in the cfmFlowTable
+        for which the device is actively monitoring."
+    ::= { cfmFlowMetrics 1 }
+
+cfmFlowMetricsEntry OBJECT-TYPE
+    SYNTAX          CfmFlowMetricsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry contains aggregate metrics and data relating to the
+        collection of metrics for a corresponding traffic flow.
+
+        The device creates a row in the cfmFlowMetricsTable when a flow
+        monitor starts monitoring a traffic flow.  Likewise, the device
+        destroys a row in the cfmFlowMetricsTable when the corresponding
+        flow monitor has ceased monitoring the traffic flow (e.g., when
+        a traffic flow has timed out).  Observe that the device does not
+        destroy the row unless it has not received packets for the
+        corresponding flow for an interval of time equal to the flow's
+        expiration time, thereby giving an EMS/NMS ample time to
+        retrieve any data relating to the flow."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmFlowMetricsTable 1 }
+
+CfmFlowMetricsEntry ::= SEQUENCE {
+        cfmFlowMetricsCollected         FlowMetrics,
+        cfmFlowMetricsIntervalTime      Unsigned32,
+        cfmFlowMetricsMaxIntervals      Unsigned32,
+        cfmFlowMetricsElapsedTime       Gauge32,
+        cfmFlowMetricsIntervals         Gauge32,
+        cfmFlowMetricsInvalidIntervals  Gauge32,
+        cfmFlowMetricsConditionsProfile FlowMonitorConditionsProfileOrZero,
+        cfmFlowMetricsConditions        FlowMonitorConditions,
+        cfmFlowMetricsAlarms            FlowMonitorConditions,
+        cfmFlowMetricsAlarmSeverity     CiscoAlarmSeverity,
+        cfmFlowMetricsPkts              Counter64,
+        cfmFlowMetricsOctets            Counter64,
+        cfmFlowMetricsBitRateUnits      FlowBitRateUnits,
+        cfmFlowMetricsBitRate           Gauge32,
+        cfmFlowMetricsPktRate           Gauge32
+}
+
+cfmFlowMetricsCollected OBJECT-TYPE
+    SYNTAX          FlowMetrics
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the metrics collected by the
+        corresponding flow monitor for the corresponding traffic flow." 
+    ::= { cfmFlowMetricsEntry 1 }
+
+cfmFlowMetricsIntervalTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..3600)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the length of the measurement interval
+        for the corresponding traffic flow.  The flow monitor computes
+        the collected metrics for the corresponding traffic flow with a
+        frequency equal to the inverse of the value of this column." 
+    ::= { cfmFlowMetricsEntry 2 }
+
+cfmFlowMetricsMaxIntervals OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "intervals"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of measurement
+        intervals for which the corresponding flow monitor maintains
+        metrics for the corresponding traffic flow.
+
+        If the value of this column is '0', then the corresponding flow
+        monitor does not maintain historical metrics for the
+        corresponding traffic flow." 
+    ::= { cfmFlowMetricsEntry 3 }
+
+cfmFlowMetricsElapsedTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time that has elapsed since the
+        beginning of the current measurement interval." 
+    ::= { cfmFlowMetricsEntry 4 }
+
+cfmFlowMetricsIntervals OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "intervals"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of measurement intervals for
+        which data has been collected." 
+    ::= { cfmFlowMetricsEntry 5 }
+
+cfmFlowMetricsInvalidIntervals OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "intervals"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of measurement intervals in
+        the set of collected measurement intervals that contain invalid
+        data." 
+    ::= { cfmFlowMetricsEntry 6 }
+
+cfmFlowMetricsConditionsProfile OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionsProfileOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the conditions profile that contains the
+        descriptions of the standing conditions monitored for the
+        traffic flow.
+
+        If the flow does not have an associated conditions profile,
+        then the value of this column must be zero." 
+    ::= { cfmFlowMetricsEntry 7 }
+
+cfmFlowMetricsConditions OBJECT-TYPE
+    SYNTAX          FlowMonitorConditions
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current standing conditions for the
+        corresponding traffic flow.
+
+        If the flow does not have an associated conditions profile, then
+        the value of this column must be the null string." 
+    ::= { cfmFlowMetricsEntry 8 }
+
+cfmFlowMetricsAlarms OBJECT-TYPE
+    SYNTAX          FlowMonitorConditions
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current alarm conditions for the
+        corresponding traffic flow.
+
+        If the flow does not have an associated conditions profile, then
+        the value of this column must be the null string." 
+    ::= { cfmFlowMetricsEntry 9 }
+
+cfmFlowMetricsAlarmSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the highest severity alarm currently
+        raised for the corresponding traffic flow.
+
+        If no alarm is raised for the corresponding traffic flow, then
+        the value of this column is 'cleared'." 
+    ::= { cfmFlowMetricsEntry 10 }
+
+cfmFlowMetricsPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets processed by
+        the corresponding flow monitor for the corresponding traffic
+        flow." 
+    ::= { cfmFlowMetricsEntry 11 }
+
+cfmFlowMetricsOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of octets contained by
+        the packets processed by the corresponding flow monitor for the
+        corresponding traffic flow." 
+    ::= { cfmFlowMetricsEntry 12 }
+
+cfmFlowMetricsBitRateUnits OBJECT-TYPE
+    SYNTAX          FlowBitRateUnits
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmFlowMetricsBitRate." 
+    ::= { cfmFlowMetricsEntry 13 }
+
+cfmFlowMetricsBitRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average bit rate at which the
+        corresponding flow monitor is processing data for the
+        corresponding traffic flow.  This value is cumulative over the
+        lifetime of the traffic flow." 
+    ::= { cfmFlowMetricsEntry 14 }
+
+cfmFlowMetricsPktRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average packet rate at which the
+        corresponding flow monitor is processing data for the
+        corresponding traffic flow.  This value is cumulative over the
+        lifetime of the traffic flow." 
+    ::= { cfmFlowMetricsEntry 15 }
+ 
+
+
+cfmFlowMetricsTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created or destroyed a row in cfmFlowMetricsTable." 
+    ::= { cfmFlowMetrics 2 }
+
+cfmFlowMetricsIntTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmFlowMetricsIntEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historic metrics for the traffic flows
+        monitored by each of the flow monitors supported by the device.
+
+        This table has an expansion dependent relationship on the
+        cfmFlowMetricsTable, containing zero or more rows for each
+        traffic flow."
+    ::= { cfmFlowMetrics 3 }
+
+cfmFlowMetricsIntEntry OBJECT-TYPE
+    SYNTAX          CfmFlowMetricsIntEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes metrics collected for a previous
+        measurement interval for a corresponding traffic flow."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId,
+                        cfmFlowMetricsIntNumber
+                    } 
+    ::= { cfmFlowMetricsIntTable 1 }
+
+CfmFlowMetricsIntEntry ::= SEQUENCE {
+        cfmFlowMetricsIntNumber        Unsigned32,
+        cfmFlowMetricsIntValid         TruthValue,
+        cfmFlowMetricsIntTime          TimeStamp,
+        cfmFlowMetricsIntConditions    FlowMonitorConditions,
+        cfmFlowMetricsIntAlarms        FlowMonitorConditions,
+        cfmFlowMetricsIntAlarmSeverity CiscoAlarmSeverity,
+        cfmFlowMetricsIntPkts          ReportIntervalCount,
+        cfmFlowMetricsIntOctets        ReportIntervalCount,
+        cfmFlowMetricsIntBitRateUnits  FlowBitRateUnits,
+        cfmFlowMetricsIntBitRate       ReportIntervalCount,
+        cfmFlowMetricsIntPktRate       ReportIntervalCount
+}
+
+cfmFlowMetricsIntNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interval number identifying the
+        measurement interval.  The measurement interval identified by
+        the value '1' represents the most recent measurement interval,
+        and the interval identified by the value (n) represents the
+        interval immediately preceding the interval identified by the
+        value (n-1)." 
+    ::= { cfmFlowMetricsIntEntry 1 }
+
+cfmFlowMetricsIntValid OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the data for the measurement
+        interval is valid." 
+    ::= { cfmFlowMetricsIntEntry 2 }
+
+cfmFlowMetricsIntTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime when the
+        measurement interval was captured." 
+    ::= { cfmFlowMetricsIntEntry 3 }
+
+cfmFlowMetricsIntConditions OBJECT-TYPE
+    SYNTAX          FlowMonitorConditions
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which standing conditions were asserted
+        at least once during the measurement interval for the
+        corresponding traffic flow." 
+    ::= { cfmFlowMetricsIntEntry 4 }
+
+cfmFlowMetricsIntAlarms OBJECT-TYPE
+    SYNTAX          FlowMonitorConditions
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which alarm conditions were raised at
+        least once during the measurement interval for the
+        corresponding traffic flow." 
+    ::= { cfmFlowMetricsIntEntry 5 }
+
+cfmFlowMetricsIntAlarmSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the highest severity alarm raised during
+        the measurement interval for the corresponding traffic flow.
+
+        If no alarm was raised during the measurement interval for the
+        corresponding traffic flow, then the value of this column is
+        'cleared'." 
+    ::= { cfmFlowMetricsIntEntry 6 }
+
+cfmFlowMetricsIntPkts OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets processed by the
+        corresponding flow monitor for the corresponding traffic
+        flow during the measurement interval." 
+    ::= { cfmFlowMetricsIntEntry 7 }
+
+cfmFlowMetricsIntOctets OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of octets contained by the
+        packets processed by the corresponding flow monitor for the
+        corresponding traffic flow during the measurement interval." 
+    ::= { cfmFlowMetricsIntEntry 8 }
+
+cfmFlowMetricsIntBitRateUnits OBJECT-TYPE
+    SYNTAX          FlowBitRateUnits
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmFlowMetricsIntBitRate." 
+    ::= { cfmFlowMetricsIntEntry 9 }
+
+cfmFlowMetricsIntBitRate OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bit rate at which the corresponding
+        flow monitor processed data for the corresponding traffic flow
+        during the measurement interval." 
+    ::= { cfmFlowMetricsIntEntry 10 }
+
+cfmFlowMetricsIntPktRate OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the packet rate at which the
+        corresponding flow monitor processed data for the corresponding
+        traffic flow during the measurement interval." 
+    ::= { cfmFlowMetricsIntEntry 11 }
+ 
+
+cfmConditions  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBObjects 4 }
+
+
+cfmConditionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmConditionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the standing conditions monitored by the
+        device.  The table groups descriptions for standing conditions
+        into condition profiles.
+
+        The figure below illustrates the relationship between a flow
+        monitor and a conditions profile.  Observe that a conditions
+        profile can contain the descriptions for the standing conditions
+        monitored for more than one flow monitor.  In this case, the
+        instance of cfmFlowMonitorConditionsProfile for each of these
+        flow monitors would reference the same conditions profile.
+
+        +------------------------------------------------+
+        | flow monitor 1                                 |
+        |                                                |
+        | cfmFlowMonitorConditionsProfile.1 = 42 -----+  |
+        |                                             |  |
+        | cfmFlowMonitorConditions.1                  |  |
+        |  N       2 1 0                              |  |
+        | +-+-...-+-+-+-+                             |  |
+        | | |     | | | |                             |  |
+        | +-+-...-+-+-+-+                             |  |
+        |  ^       ^ ^ ^                              |  |
+        |  |       | | |                              |  |
+        +--|-------|-|-|------------------------------|--+
+           |       | | |                              |
+           |       | | |                              V               
+           |       | | |               +-----------------------------+
+           |       | | |               | conditions profile 42       |
+           |       | | |               | +-------------------------+ |
+           |       | | +-----------------| cfmConditionsDescr.42.0 | |
+           |       | |                 | +-------------------------+ |
+           |       | |                 | +-------------------------+ |
+           |       | +-------------------| cfmConditionsDescr.42.1 | |
+           |       |                   | +-------------------------+ |
+           |       |                   | +-------------------------+ |
+           |       +---------------------| cfmConditionsDescr.42.2 | |
+           |                           | +-------------------------+ |
+           |                           |     :                       |
+           |                           |     :                       |
+           |                           | +-------------------------+ |
+           +-----------------------------| cfmConditionsDescr.42.N | |
+                                       | +-------------------------+ |
+                                       +-----------------------------+
+
+        The figure below illustrates the relationship between a traffic
+        flow and a conditions profile.  Observe that a conditions
+        profile can contain the descriptions for the standing conditions
+        monitored for more than one traffic flow.  In this case, the
+        instance of cfmFlowMetricsConditionsProfile for each of these
+        traffic flows would reference the same conditions profile.
+
+        +------------------------------------------------+
+        | traffic flow 201                               |
+        |                                                |
+        | cfmFlowMetricsConditionsProfile.1.201 = 54 -+  |
+        |                                             |  |
+        | cfmFlowMetricsConditions.1.201              |  |
+        |  N       2 1 0                              |  |
+        | +-+-...-+-+-+-+                             |  |
+        | | |     | | | |                             |  |
+        | +-+-...-+-+-+-+                             |  |
+        |  ^       ^ ^ ^                              |  |
+        |  |       | | |                              |  |
+        +--|-------|-|-|------------------------------|--+
+           |       | | |                              |
+           |       | | |                              V               
+           |       | | |               +-----------------------------+
+           |       | | |               | conditions profile 54       |
+           |       | | |               | +-------------------------+ |
+           |       | | +-----------------| cfmConditionsDescr.54.0 | |
+           |       | |                 | +-------------------------+ |
+           |       | |                 | +-------------------------+ |
+           |       | +-------------------| cfmConditionsDescr.54.1 | |
+           |       |                   | +-------------------------+ |
+           |       |                   | +-------------------------+ |
+           |       +---------------------| cfmConditionsDescr.54.2 | |
+           |                           | +-------------------------+ |
+           |                           |     :                       |
+           |                           |     :                       |
+           |                           | +-------------------------+ |
+           +-----------------------------| cfmConditionsDescr.54.N | |
+                                       | +-------------------------+ |
+                                       +-----------------------------+
+
+        The figure below illustrates the relationship between the
+        description of a standing condition and an alarm group if the
+        standing condition indicates that the device aggregates the
+        standing condition into an alarm group (i.e., the corresponding
+        instance of cfmConditionAlarm is 'grouped').
+
+        +-----------------------------------------+
+        | conditions profile 42                   |
+        | +-------------------------------------+ |
+        | | cfmConditionAlarm.42.9 = 'grouped'  |<-------+
+        | | cfmConditionAlarmGroup.42.9 = 4 -+  | |      |
+        | +----------------------------------|--+ |<--+  |
+        |                                    |    |   |  |
+        +------------------------------------|----+   |  |
+                                             V        |  |
+        +-----------------------------------------+   |  |
+        | alarm group 4                           |   |  |
+        |                                         |   |  |
+        | cfmAlarmGroupConditionsProfile.4 = 42 ------+  |
+        | cfmAlarmGroupConditionId.4 = 9 ----------------+
+        |                                         |
+        +-----------------------------------------+"
+    ::= { cfmConditions 1 }
+
+cfmConditionEntry OBJECT-TYPE
+    SYNTAX          CfmConditionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a standing condition monitored by the
+        device.  The cfmConditionTable groups descriptions for standing
+        conditions into condition profiles.
+
+        A device creates a row in the cfmConditionTable when it has been
+        configured to monitor a standing condition for an entity, such
+        as a flow monitor or traffic flow.  Likewise, the device
+        destroys a row when it has been configured to cease monitoring a
+        previously configured standing condition."
+    INDEX           {
+                        cfmConditionProfile,
+                        cfmConditionId
+                    } 
+    ::= { cfmConditionTable 1 }
+
+CfmConditionEntry ::= SEQUENCE {
+        cfmConditionProfile             FlowMonitorConditionsProfile,
+        cfmConditionId                  FlowMonitorConditionIdentifier,
+        cfmConditionDescr               SnmpAdminString,
+        cfmConditionMonitoredElement    AutonomousType,
+        cfmConditionType                INTEGER,
+        cfmConditionThreshRiseScale     FlowMetricScale,
+        cfmConditionThreshRisePrecision FlowMetricPrecision,
+        cfmConditionThreshRise          FlowMetricValue,
+        cfmConditionThreshFallScale     FlowMetricScale,
+        cfmConditionThreshFallPrecision FlowMetricPrecision,
+        cfmConditionThreshFall          FlowMetricValue,
+        cfmConditionSampleType          INTEGER,
+        cfmConditionSampleWindow        Unsigned32,
+        cfmConditionAlarm               INTEGER,
+        cfmConditionAlarmActions        BITS,
+        cfmConditionAlarmSeverity       CiscoAlarmSeverity,
+        cfmConditionAlarmGroup          FlowMonitorAlarmGroupIdentifier
+}
+
+cfmConditionProfile OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionsProfile
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the condition profile that contains the standing
+        condition.  Observe that the value assigned to a standing
+        condition does not necessarily persist across restars." 
+    ::= { cfmConditionEntry 1 }
+
+cfmConditionId OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the condition within the scope of the profile.  The
+        value of this column corresponds to the bit position in a binary
+        string-value representing the standing (or alarm) conditions for
+        an entity, such as a flow monitor or traffic flow.  Observe that
+        the value assigned to a standing condition does not necessarily
+        persist across restarts." 
+    ::= { cfmConditionEntry 2 }
+
+cfmConditionDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human-readable description of the
+        condition." 
+    ::= { cfmConditionEntry 3 }
+
+cfmConditionMonitoredElement OBJECT-TYPE
+    SYNTAX          AutonomousType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the monitored element used in
+        determining the state of the standing condition." 
+    ::= { cfmConditionEntry 4 }
+
+cfmConditionType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        boolean(2),
+                        risingThreshold(3),
+                        fallingThreshold(4),
+                        risingAndFallingThreshold(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of condition:
+
+        'other'
+             The implementation of the MIB does not recognize the
+             condition described by this row.
+
+        'boolean'
+            The value monitored only can have one of two values: 'false'
+           or 'true'.  In this case, the condition itself evaluates to 
+               'true' if the value itself is 'true'.
+
+        'risingThreshold'
+            The condition evaluates to 'true' if the current sample
+            of the monitored value is greater than the rising
+            threshold and the last sample is less than or equal
+            to the rising threshold.
+
+        'fallingThreshold'
+            The condition evaluates to 'true' if the current sample
+            of the monitored value is less than the falling
+            threshold and the last sample is greater than or equal
+            to the falling threshold.
+
+        'risingAndFallingThreshold'
+            The condition evaluates to 'true' if one of the two
+            criteria is satisfied:
+
+            1)  The current sample of the monitored value is greater
+                than the rising threshold and the last sample is
+                less than or equal to the rising threhsold.
+
+            2)  The current sample of the monitored value is less
+                than the falling threshold and the last sample is
+                greater than or equal to the falling threshold." 
+    ::= { cfmConditionEntry 5 }
+
+cfmConditionThreshRiseScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmConditionThreshRise.
+
+        This value of this column only has relevance if the
+        corresponding instance of cfmConditionType is 'risingThreshold'
+        or 'risingAndFallingThreshold'." 
+    ::= { cfmConditionEntry 6 }
+
+cfmConditionThreshRisePrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmConditionThreshRise.
+
+        This value of this column only has relevance if the
+        corresponding instance of cfmConditionType is 'risingThreshold'
+        or 'risingAndFallingThreshold'." 
+    ::= { cfmConditionEntry 7 }
+
+cfmConditionThreshRise OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the rising threshold.
+
+        This value of this column only has relevance if the
+        corresponding instance of cfmConditionType is 'risingThreshold'
+        or 'risingAndFallingThreshold'." 
+    ::= { cfmConditionEntry 8 }
+
+cfmConditionThreshFallScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmConditionThreshFall.
+
+        The value of this column only has relevance if the
+        corresponding instance of cfmConditionType is 'fallingThreshold'
+        or 'risingAndFallingThreshold'." 
+    ::= { cfmConditionEntry 9 }
+
+cfmConditionThreshFallPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmConditionThreshFall.
+
+        The value of this column only has relevance if the
+        corresponding instance of cfmConditionType is 'fallingThreshold'
+        or 'risingAndFallingThreshold'." 
+    ::= { cfmConditionEntry 10 }
+
+cfmConditionThreshFall OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the falling threshold.
+
+        The value of this column only has relevance if the
+        corresponding instance of cfmConditionType is 'fallingThreshold'
+        or 'risingAndFallingThreshold'." 
+    ::= { cfmConditionEntry 11 }
+
+cfmConditionSampleType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        other(1),
+                        raw(2),
+                        slidingWindowAvg(3),
+                        expDecayingAvg(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how the device samples the monitored
+        value before determining whether to assert the condition:
+
+            'other'
+                The implementation of the MIB does not recognize the
+                how the device samples the monitored value.
+
+            'raw'
+                The device samples the monitored value and uses this
+                value to determine whether to assert the condition.
+
+            'slidingWindowAvg'
+                The device samples the monitored value and maintains a
+                average over a sliding window.  It uses this value of
+                this average to determine whether to assert the 
+                condition.  The corresponding instance of 
+                cfmCOnditionSampleWindow indicates the length of the
+                sliding window.
+
+            'slidingWindowAverage'
+                The device samples the monitored value and maintains a
+                exponentially decaying average over a sliding window. 
+        It
+                uses this value of this average to determine whether to
+                assert the condition.  The corresponding instance of 
+                cfmCOnditionSampleWindow indicates the length of the
+                sliding window." 
+    ::= { cfmConditionEntry 13 }
+
+cfmConditionSampleWindow OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sample window used by the device to
+        compute an exponentially decaying average in the case that the
+        corresponding instance of cfmConditionSampleType is 'averaged'.
+
+        The value of this column only has relevance if the
+        corresponding instance of cfmConditionSampleWindow is
+        'slidingWindowAvg' or 'expDecayingAvg." 
+    ::= { cfmConditionEntry 14 }
+
+cfmConditionAlarm OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        discrete(2),
+                        grouped(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the device treats the standing
+        condition as an alarm condition:
+
+            'none'
+                The device does not treat the standing condition as an
+                alarm condition.
+
+            'discrete'
+                The device treats the standing condition as an alarm
+                condition.
+
+            'grouped'
+                The device aggregates the standing condition into an
+                alarm group." 
+    ::= { cfmConditionEntry 15 }
+
+cfmConditionAlarmActions OBJECT-TYPE
+    SYNTAX          BITS {
+                        syslog(0),
+                        snmp(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the actions taken by the device when the
+        alarm condition changes state:
+
+            'syslog'
+                The device sends a syslog message.
+
+            'snmp'
+                The device sends a cfmNotifyAlarm notification if and
+                only if cfmNotifyEnable is set to 'true'.
+
+        The value of this column only has relevance if the
+        corresponding instance of cfmConditionAlarm is 'discrete'" 
+    ::= { cfmConditionEntry 16 }
+
+cfmConditionAlarmSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the severity of the alarm condition.
+
+        The value of this column only have relevance if the
+        corresponding instance of cfmConditionAlarm is 'discrete'." 
+    ::= { cfmConditionEntry 17 }
+
+cfmConditionAlarmGroup OBJECT-TYPE
+    SYNTAX          FlowMonitorAlarmGroupIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the alarm group the device aggregates the
+        standing condition into.
+
+        The value of this column only has relevance if the corresponding
+        instance of cfmConditionAlarm is 'grouped'." 
+    ::= { cfmConditionEntry 18 }
+ 
+
+
+cfmConditionTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device made a change to the cfmConditionTable." 
+    ::= { cfmConditions 2 }
+cfmAlarmGroups  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBObjects 5 }
+
+
+cfmAlarmGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmAlarmGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists alarm groups maintained by the device."
+    ::= { cfmAlarmGroups 1 }
+
+cfmAlarmGroupEntry OBJECT-TYPE
+    SYNTAX          CfmAlarmGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes an alarm group.  An alarm group defines an
+        alarm condition that is raised when a configured number of flows
+        in a set of flows asserts a configured standing condition.
+
+        The figure below illustrates the relationship between an alarm
+        group, a conditions profile, and a flow set.
+
+        +-----------------------------------------+
+        | conditions profile 42                   |
+        | +-------------------------------------+ |
+        | | cfmConditionAlarm.42.9 = 'grouped'  |<-------+
+        | | cfmConditionAlarmGroup.42.9 = 4 -+  | |      |
+        | +----------------------------------|--+ |<--+  |
+        |                                    |    |   |  |
+        +------------------------------------|----+   |  |
+                                             |        |  |
+                                             v        |  |
+        +-----------------------------------------+   |  |
+        | alarm group 4                           |   |  |
+        |                                         |   |  |
+        | cfmAlarmGroupConditionsProfile.4 = 42 ------+  |
+        | cfmAlarmGroupConditionId.4 = 9 ----------------+
+        | cfmAlarmGroupFlowset.4 = 16 -------+    |
+        |                                    |    |
+        +------------------------------------|----+
+                                             |
+                                             v
+        +-----------------------------------------+
+        | flow set 16                             |
+        |                                         |
+        |  +------------------------------------+ |
+        |  | cfmAlarmGroupFlowId.16.100         | |
+        |  +------------------------------------+ |
+        |  +------------------------------------+ |
+        |  | cfmAlarmGroupFlowId.16.101         | |
+        |  +------------------------------------+ |
+        |  +------------------------------------+ |
+        |  | cfmAlarmGroupFlowId.16.102         | |
+        |  +------------------------------------+ |
+        |      :                                  |
+        |      :                                  |
+        |  +------------------------------------+ |
+        |  | cfmAlarmGroupFlowId.16.Y           | |
+        |  +------------------------------------+ |
+        +-----------------------------------------+
+
+        A device creates a row in the cfmAlarmGroupTable when it
+        configures a new alarm group.  Likewise, the device destroys a
+        row when the alarm group ceases to exist."
+    INDEX           { cfmAlarmGroupId } 
+    ::= { cfmAlarmGroupTable 1 }
+
+CfmAlarmGroupEntry ::= SEQUENCE {
+        cfmAlarmGroupId                FlowMonitorAlarmGroupIdentifier,
+        cfmAlarmGroupDescr             SnmpAdminString,
+        cfmAlarmGroupConditionsProfile FlowMonitorConditionsProfile,
+        cfmAlarmGroupConditionId       FlowMonitorConditionIdentifier,
+        cfmAlarmGroupFlowSet           FlowSetIdentifier,
+        cfmAlarmGroupFlowCount         Gauge32,
+        cfmAlarmGroupThresholdUnits    INTEGER,
+        cfmAlarmGroupThreshold         Unsigned32,
+        cfmAlarmGroupRaised            TruthValue,
+        cfmAlarmGroupCurrentCount      Gauge32
+}
+
+cfmAlarmGroupId OBJECT-TYPE
+    SYNTAX          FlowMonitorAlarmGroupIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the alarm group.  Observe that the value assigned to
+        an alarm group does not necessarily persist across restarts." 
+    ::= { cfmAlarmGroupEntry 1 }
+
+cfmAlarmGroupDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human-readable description of the
+        alarm group." 
+    ::= { cfmAlarmGroupEntry 2 }
+
+cfmAlarmGroupConditionsProfile OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionsProfile
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the conditions profile that contains
+        the description of the standing profile aggregated by the
+        alarm group." 
+    ::= { cfmAlarmGroupEntry 3 }
+
+cfmAlarmGroupConditionId OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the standing condition aggregated by the
+        alarm group." 
+    ::= { cfmAlarmGroupEntry 4 }
+
+cfmAlarmGroupFlowSet OBJECT-TYPE
+    SYNTAX          FlowSetIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the set of traffic flows aggregated by
+        the alarm group." 
+    ::= { cfmAlarmGroupEntry 5 }
+
+cfmAlarmGroupFlowCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "traffic flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of traffic flows in the set of
+        traffic flows indicated by the corresponding instance of
+        cfmAlarmGroupFlowSet." 
+    ::= { cfmAlarmGroupEntry 6 }
+
+cfmAlarmGroupThresholdUnits OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        flows(2),
+                        percent(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmAlarmGroupThreshold:
+
+            'other'
+                The MIB implementation does not recognize the units in
+                which the value of the corresponding instance of
+                cfmAlarmGroupThreshold has been expressed.
+
+            'flows'
+                The value of the corresponding instance of
+                cfmAlarmGroupThreshold indicates a number of traffic
+                flows.
+
+            'percent'
+                The value of the corresponding instance of
+                cfmAlarmGroupThreshold indicates a percentage of traffic
+                flows." 
+    ::= { cfmAlarmGroupEntry 7 }
+
+cfmAlarmGroupThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a number of flows that must assert the
+        standing condition indicated by the corresponding instance of
+        cfmAlarmGroupCondition before raising an alarm.
+
+        If the corresponding instance of cfmAlarmGroupThresholdUnits is
+        'percent', then the value of this column must be greater than
+        or equal to zero and less than or equal to '100'." 
+    ::= { cfmAlarmGroupEntry 8 }
+
+cfmAlarmGroupRaised OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the alarm group has raised an
+        alarm." 
+    ::= { cfmAlarmGroupEntry 9 }
+
+cfmAlarmGroupCurrentCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "traffic flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of traffic flows currently
+        asserting the standing condition aggregated by the alarm group." 
+    ::= { cfmAlarmGroupEntry 10 }
+ 
+
+
+cfmAlarmGroupTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device made a change to the cfmAlarmGroupTable." 
+    ::= { cfmAlarmGroups 2 }
+
+cfmAlarmGroupFlowTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmAlarmGroupFlowEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the traffic flows contained by each set of
+        flows configured for the alarm groups contained by the
+        cfmAlarmGroupTable."
+    ::= { cfmAlarmGroups 3 }
+
+cfmAlarmGroupFlowEntry OBJECT-TYPE
+    SYNTAX          CfmAlarmGroupFlowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a traffic flow contained by a set of flows.
+
+        An alarm group aggregates a standing condition from a set of
+        flows.  cfmAlarmFlowSetId uniquely identifies a set of traffic
+        flows.
+
+        A device creates a row in the cfmAlarmGroupTable under one of
+        the following circumstances:
+
+            - It has configured a new alarm group, and hence a new set
+              of traffic flows.
+
+            - It has added a traffic flow to an existing set of flows.
+
+        Likewise, a device destroys a row under one of the following
+        circumstances:
+
+            - It has destroyed the set of traffic flows.
+
+            - It has removed the traffic flow from an existing set of
+              flows."
+    INDEX           {
+                        cfmAlarmGroupFlowSetId,
+                        cfmAlarmGroupFlowMonitorId,
+                        cfmAlarmGroupFlowId
+                    } 
+    ::= { cfmAlarmGroupFlowTable 1 }
+
+CfmAlarmGroupFlowEntry ::= SEQUENCE {
+        cfmAlarmGroupFlowSetId     FlowSetIdentifier,
+        cfmAlarmGroupFlowMonitorId FlowMonitorIdentifier,
+        cfmAlarmGroupFlowId        FlowIdentifier
+}
+
+cfmAlarmGroupFlowSetId OBJECT-TYPE
+    SYNTAX          FlowSetIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the set of traffic flows that contains the traffic
+        flow represented by the row.  Observe that the value assigned
+        to
+        a flow set does not necessarily persist across restarts." 
+    ::= { cfmAlarmGroupFlowEntry 1 }
+
+cfmAlarmGroupFlowMonitorId OBJECT-TYPE
+    SYNTAX          FlowMonitorIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the flow monitor responsible for the
+        traffic flow." 
+    ::= { cfmAlarmGroupFlowEntry 2 }
+
+cfmAlarmGroupFlowId OBJECT-TYPE
+    SYNTAX          FlowIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the traffic flow." 
+    ::= { cfmAlarmGroupFlowEntry 3 }
+ 
+
+
+cfmAlarmGroupFlowTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device made a change to the cfmAlarmGroupTable." 
+    ::= { cfmAlarmGroups 4 }
+cfmAlarmHistory  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBObjects 6 }
+
+
+cfmAlarmHistorySize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of rows the
+        cfmAlarmHistoryTable can contain at any given time.  If the
+        device raises or clears an alarm and the cfmAlarmHistoryTable
+        already contains a number of rows equal to the value of this
+        object, then it destroys the oldest row before creating a new
+        one."
+    DEFVAL          { 500 } 
+    ::= { cfmAlarmHistory 1 }
+
+cfmAlarmHistoryLastId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of cfmAlarmHistoryId
+        corresponding to the last row created in the
+        cfmAlarmHistoryTable." 
+    ::= { cfmAlarmHistory 2 }
+
+cfmAlarmHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmAlarmHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists a history of the changes in the state of alarm
+        conditions monitored by the device."
+    ::= { cfmAlarmHistory 3 }
+
+cfmAlarmHistoryEntry OBJECT-TYPE
+    SYNTAX          CfmAlarmHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the change in the state of an alarm
+        condition observed by the device.
+
+        The device creates a row in the cfmAlarmHistoryTable when it
+        observes a change in the state of an alarm condition.
+
+        The device destroys a row in the cfmAlarmHistoryTable when it
+        needs to create a new row, but the number of rows contained by
+        the cfmAlarmHistoryTable is equal to the value of
+        cfmAlarmHistorySize."
+    INDEX           { cfmAlarmHistoryId } 
+    ::= { cfmAlarmHistoryTable 1 }
+
+CfmAlarmHistoryEntry ::= SEQUENCE {
+        cfmAlarmHistoryId                Unsigned32,
+        cfmAlarmHistoryType              INTEGER,
+        cfmAlarmHistoryEntity            RowPointer,
+        cfmAlarmHistoryConditionsProfile FlowMonitorConditionsProfile,
+        cfmAlarmHistoryConditionId       FlowMonitorConditionIdentifier,
+        cfmAlarmHistorySeverity          CiscoAlarmSeverity,
+        cfmAlarmHistoryTime              TimeStamp
+}
+
+cfmAlarmHistoryId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the event.  Observe that the value assigned to a
+        alarm history entry does not necessarily persist across
+        restarts." 
+    ::= { cfmAlarmHistoryEntry 1 }
+
+cfmAlarmHistoryType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        cleared(1),
+                        raised(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of event:
+
+        'cleared'
+            The event signaled an alarm condition transitioning to
+            the cleared state.
+
+        'raised'
+            The event signalled an alarm condition transitioning to
+            the raised state." 
+    ::= { cfmAlarmHistoryEntry 2 }
+
+cfmAlarmHistoryEntity OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the entity that caused the event.
+
+        If the alarm condition has an association with a flow monitor,
+        then the value of this column is a row in the
+        cfmFlowMonitorTable.
+
+        If the alarm condition has an association with a traffic flow,
+        then the value of this column is a row in the cfmFlowTable.
+
+        If the alarm condition has an association with a alarm group,
+        then the value of this column is a row in the
+        cfmAlarmGroupTable." 
+    ::= { cfmAlarmHistoryEntry 3 }
+
+cfmAlarmHistoryConditionsProfile OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionsProfile
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the conditions profile containing the
+        description of the alarm condition that changed state." 
+    ::= { cfmAlarmHistoryEntry 4 }
+
+cfmAlarmHistoryConditionId OBJECT-TYPE
+    SYNTAX          FlowMonitorConditionIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the alarm condition that changed state." 
+    ::= { cfmAlarmHistoryEntry 5 }
+
+cfmAlarmHistorySeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the severity of the alarm condition that
+        changed state." 
+    ::= { cfmAlarmHistoryEntry 6 }
+
+cfmAlarmHistoryTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime when the alarm
+        condition changed state.
+
+        In the case the device updates standing/alarm conditions at the
+        same time it captures a measurement interval, the value of this
+        column should correlate with the corresponding value of
+        cfmFlowMetricsIntTime.  This assures that the EMS/NMS can
+        easily correlate alarms with the metrics captured in the course
+        of a measurement interval." 
+    ::= { cfmAlarmHistoryEntry 7 }
+ 
+
+cfmNotify  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBObjects 7 }
+
+
+cfmNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the device generates a
+        cfmNotifyAlarm notification when an alarm condition changes
+        state." 
+    ::= { cfmNotify 1 }
+
+-- *********************************************************************
+-- * Notifications                                                     *
+-- *********************************************************************
+
+cfmNotifyAlarm NOTIFICATION-TYPE
+    OBJECTS         {
+                        cfmAlarmHistoryType,
+                        cfmAlarmHistoryEntity,
+                        cfmAlarmHistoryConditionsProfile,
+                        cfmAlarmHistoryConditionId,
+                        cfmAlarmHistorySeverity,
+                        cfmAlarmHistoryTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when an alarm condition
+        has changed state and the value of cfmNOtifyEnable is 'true'."
+   ::= { ciscoFlowMonitorMIBNotifs 1 }
+-- *********************************************************************
+-- * Object Identifiers                                                *
+-- *********************************************************************
+
+cfmMonitoredElements  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBIds 1 }
+
+
+cfmeOther OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents a monitored element not
+        recognized by this implementation of the MIB module."
+    ::= { cfmMonitoredElements 1 }
+
+
+cfmeFlowCount OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the number of traffic flows currently monitored by a
+        flow monitor (cfmFlowMonitorFlowCount)."
+    ::= { cfmMonitoredElements 2 }
+
+
+cfmeFlowTimeouts OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the number of traffic flows that expired during the
+        last measurement interval."
+    ::= { cfmMonitoredElements 3 }
+
+
+cfmeFlowStop OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the condition that arises when a flow monitor does
+        not receive any packets for a traffic flow during the last
+        measurement interval."
+    ::= { cfmMonitoredElements 4 }
+
+
+cfmeFlowCumulativeBitRate OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average rate at which a flow monitor processes
+        bits contained by packets for a traffic flow
+        (cfmFlowMetricsBitRate)."
+    ::= { cfmMonitoredElements 5 }
+
+
+cfmeFlowCumulativePktRate OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average rate at which a flow monitor processes
+        packets for a traffic flow (cfmFlowMetricsPktRate)."
+    ::= { cfmMonitoredElements 6 }
+
+
+cfmeFlowBitRate OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average rate at which a flow monitor processes
+        bits contained by packets for a traffic flow during the last
+        measurement interval (cfmFlowMetricsIntBitRate)."
+    ::= { cfmMonitoredElements 7 }
+
+
+cfmeFlowPktRate OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average rate at which a flow monitor processes
+        packets for a traffic flow during the last measurement interval
+        (cfmFlowMetricsIntPktRate)."
+    ::= { cfmMonitoredElements 8 }
+
+-- *********************************************************************
+-- * Conformance                                                       *
+-- *********************************************************************
+
+ciscoFlowMonitorMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBConform 1 }
+
+ciscoFlowMonitorMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoFlowMonitorMIBConform 2 }
+
+
+ciscoFlowMonitorCompliance01 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-FLOW-MONITOR-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cfmFlowMonitorGroup,
+                        cfmFlowGroup,
+                        cfmFlowMetricsGroup,
+                        cfmFlowConditionsGroup,
+                        cfmAlarmAggregationGroup,
+                        cfmAlarmHistoryGroup,
+                        cfmNotifySupportGroup,
+                        cfmNotifyGroup
+                    }
+    ::= { ciscoFlowMonitorMIBCompliances 1 }
+
+-- *********************************************************************
+-- * Units of Conformance                                              *
+-- *********************************************************************
+
+cfmFlowMonitorGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmFlowMonitorDescr,
+                        cfmFlowMonitorCaps,
+                        cfmFlowMonitorFlowCount,
+                        cfmFlowMonitorConditionsProfile,
+                        cfmFlowMonitorConditions,
+                        cfmFlowMonitorAlarms,
+                        cfmFlowMonitorAlarmSeverity,
+                        cfmFlowMonitorAlarmCriticalCount,
+                        cfmFlowMonitorAlarmMajorCount,
+                        cfmFlowMonitorAlarmMinorCount,
+                        cfmFlowMonitorAlarmWarningCount,
+                        cfmFlowMonitorAlarmInfoCount,
+                        cfmFlowMonitorTableChanged
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing flow monitors."
+    ::= { ciscoFlowMonitorMIBGroups 1 }
+
+cfmFlowGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmFlowDescr,
+                        cfmFlowNext,
+                        cfmFlowCreateTime,
+                        cfmFlowDiscontinuityTime,
+                        cfmFlowExpirationTime,
+                        cfmFlowDirection,
+                        cfmFlowAdminStatus,
+                        cfmFlowOperStatus,
+                        cfmFlowIngressType,
+                        cfmFlowIngress,
+                        cfmFlowEgressType,
+                        cfmFlowEgress,
+                        cfmFlowTableChanged,
+                        cfmFlowL2VlanNext,
+                        cfmFlowL2VlanId,
+                        cfmFlowL2VlanCos,
+                        cfmFlowL2VlanTableChanged,
+                        cfmFlowIpNext,
+                        cfmFlowIpAddrType,
+                        cfmFlowIpAddrSrc,
+                        cfmFlowIpAddrDst,
+                        cfmFlowIpValid,
+                        cfmFlowIpTrafficClass,
+                        cfmFlowIpHopLimit,
+                        cfmFlowIpTableChanged,
+                        cfmFlowUdpNext,
+                        cfmFlowUdpPortSrc,
+                        cfmFlowUdpPortDst,
+                        cfmFlowUdpTableChanged,
+                        cfmFlowTcpNext,
+                        cfmFlowTcpPortSrc,
+                        cfmFlowTcpPortDst,
+                        cfmFlowTcpTableChanged,
+                        cfmFlowRtpNext,
+                        cfmFlowRtpVersion,
+                        cfmFlowRtpSsrc,
+                        cfmFlowRtpPayloadType,
+                        cfmFlowRtpTableChanged
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing traffic flows."
+    ::= { ciscoFlowMonitorMIBGroups 2 }
+
+cfmFlowMetricsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmFlowMetricsCollected,
+                        cfmFlowMetricsIntervalTime,
+                        cfmFlowMetricsMaxIntervals,
+                        cfmFlowMetricsElapsedTime,
+                        cfmFlowMetricsIntervals,
+                        cfmFlowMetricsInvalidIntervals,
+                        cfmFlowMetricsConditionsProfile,
+                        cfmFlowMetricsConditions,
+                        cfmFlowMetricsAlarms,
+                        cfmFlowMetricsAlarmSeverity,
+                        cfmFlowMetricsPkts,
+                        cfmFlowMetricsOctets,
+                        cfmFlowMetricsBitRateUnits,
+                        cfmFlowMetricsBitRate,
+                        cfmFlowMetricsPktRate,
+                        cfmFlowMetricsTableChanged,
+                        cfmFlowMetricsIntValid,
+                        cfmFlowMetricsIntTime,
+                        cfmFlowMetricsIntConditions,
+                        cfmFlowMetricsIntAlarms,
+                        cfmFlowMetricsIntAlarmSeverity,
+                        cfmFlowMetricsIntPkts,
+                        cfmFlowMetricsIntOctets,
+                        cfmFlowMetricsIntBitRateUnits,
+                        cfmFlowMetricsIntBitRate,
+                        cfmFlowMetricsIntPktRate
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing traffic flow metrics."
+    ::= { ciscoFlowMonitorMIBGroups 3 }
+
+cfmFlowConditionsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmConditionDescr,
+                        cfmConditionMonitoredElement,
+                        cfmConditionType,
+                        cfmConditionThreshRiseScale,
+                        cfmConditionThreshRisePrecision,
+                        cfmConditionThreshRise,
+                        cfmConditionThreshFallScale,
+                        cfmConditionThreshFallPrecision,
+                        cfmConditionThreshFall,
+                        cfmConditionSampleType,
+                        cfmConditionSampleWindow,
+                        cfmConditionAlarm,
+                        cfmConditionAlarmActions,
+                        cfmConditionAlarmSeverity,
+                        cfmConditionAlarmGroup,
+                        cfmConditionTableChanged
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing standing/alarm
+        conditions."
+    ::= { ciscoFlowMonitorMIBGroups 4 }
+
+cfmAlarmAggregationGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmAlarmGroupDescr,
+                        cfmAlarmGroupConditionsProfile,
+                        cfmAlarmGroupConditionId,
+                        cfmAlarmGroupFlowSet,
+                        cfmAlarmGroupFlowCount,
+                        cfmAlarmGroupThresholdUnits,
+                        cfmAlarmGroupThreshold,
+                        cfmAlarmGroupRaised,
+                        cfmAlarmGroupCurrentCount,
+                        cfmAlarmGroupTableChanged,
+                        cfmAlarmGroupFlowId,
+                        cfmAlarmGroupFlowTableChanged
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains object describing alarm aggregation."
+    ::= { ciscoFlowMonitorMIBGroups 5 }
+
+cfmAlarmHistoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmAlarmHistorySize,
+                        cfmAlarmHistoryLastId,
+                        cfmAlarmHistoryType,
+                        cfmAlarmHistoryEntity,
+                        cfmAlarmHistoryConditionsProfile,
+                        cfmAlarmHistoryConditionId,
+                        cfmAlarmHistorySeverity,
+                        cfmAlarmHistoryTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing alarm history."
+    ::= { ciscoFlowMonitorMIBGroups 6 }
+
+cfmNotifySupportGroup OBJECT-GROUP
+    OBJECTS         { cfmNotifyEnable }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects supporting notification."
+    ::= { ciscoFlowMonitorMIBGroups 7 }
+
+cfmNotifyGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cfmNotifyAlarm }
+    STATUS          current
+    DESCRIPTION
+        "This group contains notifications supporting flow monitoring."
+    ::= { ciscoFlowMonitorMIBGroups 8 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

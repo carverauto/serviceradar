@@ -1,0 +1,79 @@
+
+-- *****************************************************************
+-- CISCO-SNMP-USM-OIDS-MIB.my 
+--
+-- Cisco Extension to define OIDS for SNMP-USM-MIB & SNMP-USM-AES-MIB
+--           
+--  April 2004, Vanaja Palanisamy
+--           
+-- Copyright (c) 2004 by cisco Systems, Inc.
+-- All rights reserved.
+--           
+-- *****************************************************************
+--           
+
+CISCO-SNMP-USM-OIDS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY 
+                FROM SNMPv2-SMI
+        ciscoModules
+                FROM CISCO-SMI;
+
+ciscoSnmpUsmOidsMIB MODULE-IDENTITY
+        LAST-UPDATED    "200602280000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "This MIB extends the OID's for SNMP-USM-MIB
+                 specified in RFC 3414.
+
+                The privacy protocol OID's specified herein 
+                are intended to be used as values  for 
+                usmUserPrivProtocol when managing SNMPv3  
+                users via the snmpUsmMIB.
+
+                This MIB defines the OID's for the following
+                encryption options:
+
+                        * 192 bit key size AES
+                        * 256 bit key size AES
+                        * 168 bit key size 3DES.
+
+                OID for 128 bit key size AES encryption is 
+                defined in SNMP-USM-AES-MIB as per the 
+                RFC 3826." 
+
+        REVISION    "200602280000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoModules 6 }
+
+ciscoSnmpPrivProtocols  
+        OBJECT IDENTIFIER ::= { ciscoSnmpUsmOidsMIB 1 }
+                 
+-- The CFB128-AES-192/256 & 3DES 168 bit Privacy Protocols
+
+cusmAESCfb192PrivProtocol 
+        OBJECT IDENTIFIER ::= { ciscoSnmpPrivProtocols 1 } 
+
+cusmAESCfb256PrivProtocol 
+        OBJECT IDENTIFIER ::= { ciscoSnmpPrivProtocols 2 } 
+
+cusm3DES168PrivProtocol 
+        OBJECT IDENTIFIER ::= { ciscoSnmpPrivProtocols 3 } 
+
+END
+
+ 
+

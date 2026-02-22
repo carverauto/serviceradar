@@ -1,0 +1,234 @@
+-- MIB file created 25-Jan-2002 12:37:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-TCP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-TCP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    tcpConnLocalAddress, tcpConnLocalPort, tcpConnRemAddress, 
+    tcpConnRemPort
+            FROM TCP-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoTcpMIB OBJECT IDENTIFIER ::= { ciscoMgmt 6 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200111120000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    An extension to the IETF MIB module for managing
+--    TCP implementations
+--  RevDate
+--    200111120000Z
+--  RevDescr
+--    Added 3 new readonly MIB varaibles used
+--    for getting some vital per connection TCP
+--    statistics. They are :
+--    ciscoTcpConnRto
+--    ciscoTcpConnRetransPkts
+--    ciscoTcpConnFastRetransPkts
+--  RevDate
+--    9612030000Z
+--  RevDescr
+--    Import tcpConnEntry from TCP-MIB instead of RFC1213-MIB
+--  RevDate
+--    9407210000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoTcpMIBObjects OBJECT IDENTIFIER ::= { ciscoTcpMIB 1 }
+ciscoTcpMIBTraps OBJECT IDENTIFIER ::= { ciscoTcpMIB 2 }
+ciscoTcpMIBConformance OBJECT IDENTIFIER ::= { ciscoTcpMIB 3 }
+ciscoTcpMIBCompliances OBJECT IDENTIFIER ::= { ciscoTcpMIBConformance 1 }
+ciscoTcpMIBGroups OBJECT IDENTIFIER ::= { ciscoTcpMIBConformance 2 }
+
+ciscoTcpConnTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoTcpConnEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing TCP connection-specific information."
+    ::= { ciscoTcpMIBObjects 1 }
+
+ciscoTcpConnEntry OBJECT-TYPE
+    SYNTAX CiscoTcpConnEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Additional information about a particular current TCP
+        connection beyond that provided by the TCP-MIB tcpConnEntry.
+        An object of this type is transient, in that it ceases to
+        exist when (or soon after) the connection makes the transition
+        to the CLOSED state."
+    INDEX { tcpConnLocalAddress, tcpConnLocalPort, tcpConnRemAddress, tcpConnRemPort }
+-- Augments tcpConnEntry FROM TCP-MIB
+    ::= { ciscoTcpConnTable 1 }
+
+CiscoTcpConnEntry ::= SEQUENCE {
+    ciscoTcpConnInBytes Counter,
+    ciscoTcpConnOutBytes Counter,
+    ciscoTcpConnInPkts Counter,
+    ciscoTcpConnOutPkts Counter,
+    ciscoTcpConnElapsed TimeTicks,
+    ciscoTcpConnSRTT INTEGER,
+    ciscoTcpConnRto INTEGER,
+    ciscoTcpConnRetransPkts Counter,
+    ciscoTcpConnFastRetransPkts Counter
+    }
+
+ciscoTcpConnInBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes that have been input on this TCP
+        connection."
+    ::= { ciscoTcpConnEntry 1 }
+
+ciscoTcpConnOutBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes that have been output on this TCP
+        connection."
+    ::= { ciscoTcpConnEntry 2 }
+
+ciscoTcpConnInPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets that have been input on this TCP
+        connection."
+    ::= { ciscoTcpConnEntry 3 }
+
+ciscoTcpConnOutPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets that have been output on this TCP
+        connection."
+    ::= { ciscoTcpConnEntry 4 }
+
+ciscoTcpConnElapsed OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of time this TCP connection has been established."
+    ::= { ciscoTcpConnEntry 5 }
+
+ciscoTcpConnSRTT OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "`Smoothed' round-trip time for this TCP connection."
+    ::= { ciscoTcpConnEntry 6 }
+
+ciscoTcpConnRetransPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets retransmitted due to a timeout -
+        that is, the number of TCP segments transmitted containing
+        one or more previously transmitted octets."
+    ::= { ciscoTcpConnEntry 7 }
+
+ciscoTcpConnFastRetransPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets retransmitted using an advanced
+        algorithm such as Fast Retransmit or Selective Acknowledgement
+        - that is, the number of TCP segments transmitted containing 
+        one or more previously transmitted octets."
+    ::= { ciscoTcpConnEntry 8 }
+
+ciscoTcpConnRto OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current value used by a TCP implementation for the
+        retransmission timeout."
+    ::= { ciscoTcpConnEntry 9 }
+
+ciscoTcpMIBGroup OBJECT IDENTIFIER ::= { ciscoTcpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing TCP connection
+--    monitoring.
+--  objects
+--    ciscoTcpConnInBytes, ciscoTcpConnOutBytes, ciscoTcpConnInPkts, 
+--    ciscoTcpConnOutPkts, ciscoTcpConnElapsed, ciscoTcpConnSRTT
+
+ciscoTcpMIBGroupRev1 OBJECT IDENTIFIER ::= { ciscoTcpMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing TCP connection
+--    monitoring.
+--  objects
+--    ciscoTcpConnInBytes, ciscoTcpConnOutBytes, ciscoTcpConnInPkts, 
+--    ciscoTcpConnOutPkts, ciscoTcpConnElapsed, ciscoTcpConnSRTT, 
+--    ciscoTcpConnRto, ciscoTcpConnRetransPkts, 
+--    ciscoTcpConnFastRetransPkts
+
+ciscoTcpMIBCompliance OBJECT IDENTIFIER ::= { ciscoTcpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco TCP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTcpMIBGroup
+
+ciscoTcpMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoTcpMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco TCP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTcpMIBGroupRev1
+
+
+END
+

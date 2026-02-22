@@ -1,0 +1,86 @@
+-- *****************************************************************
+-- CISCO-SWITCH-CEF-CAPABILITY.my:
+-- Cisco CISCO-SWITCH-CEF-CAPABILITY AGENT-CAPABILITIES
+--   
+-- August 2011, Jayakumar Kadirvelu, Malathi Panyam
+--   
+-- Copyright (c) 2011-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-SWITCH-CEF-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSwitchCefCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-SWITCH-CEF-MIB."
+    REVISION        "201209070000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 614 }
+
+
+
+ciscoSwitchCefCapV15R0101SYPCat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-CEF-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-CEF-MIB
+    INCLUDES        {
+                        cscSwitchCefIpv4StatsGroup,
+                        cscSwitchCefIpv6StatsGroup,
+                        cscTotalStatsGroup,
+                        cscSwitchCefEomL2Group,
+                        cscMplsStatsGroup
+                    }
+    ::= { ciscoSwitchCefCapability 1 }
+
+ciscoSwitchCefCapV15R0101SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-CEF-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-CEF-MIB
+    INCLUDES        {
+                        cscSwitchCefIpv4StatsGroup,
+                        cscSwitchCefIpv6StatsGroup,
+                        cscTotalStatsGroup,
+                        cscSwitchCefIpv6GlobalStatsGroup,
+                        cscSwitchCefIpv6LinkLocalGroup,
+                        cscSwitchCefEomL2Group,
+                        cscMplsStatsGroup,
+                        cscMplsStatsGroupExt
+                    }
+    ::= { ciscoSwitchCefCapability 2 }
+
+END
+
+
+
+

@@ -1,0 +1,740 @@
+-- *****************************************************************
+-- SYNCE-MIB:  ME1200 Private MIB
+--
+-- ****************************************************************
+
+ME1200-SYNCE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200SynceMib MODULE-IDENTITY
+    LAST-UPDATED "201605090000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "Private SyncE MIB."
+    REVISION    "201605090000Z"
+    DESCRIPTION
+        "Added SyncE clock selector state change notification"
+    REVISION    "201406240000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 42 }
+
+
+ME1200synceAnegMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { none(0), preferedSlave(1), preferedMaster(2), forcedSlave(3) }
+
+ME1200synceEecOption ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { eecOption1(0), eecOption2(1) }
+
+ME1200synceFrequency ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { disabled(0), freq1544kHz(1), freq2048kHz(2), freq10MHz(3), freqMax(4) }
+
+ME1200syncePtsfState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { none(0), unusable(1), lossSync(2), lossAnnounce(3) }
+
+ME1200synceQualityLevel ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { qlNone(0), qlPrc(1), qlSsua(2), qlSsub(3), qlEec2(4), qlEec1(5), qlDnu(6), qlInv(7), qlFail(8), qlLink(9) }
+
+ME1200synceSelectionMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { manual(0), manualToSelected(1), autoNonrevertive(2), autoRevertive(3), forcedHoldover(4), forcedFreeRun(5) }
+
+ME1200synceSelectorState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { locked(0), holdover(1), freerun(2), ptp(3), refFailed(4), acquiring(5) }
+
+me1200SynceMibObjects OBJECT IDENTIFIER
+    ::= { me1200SynceMib 1 }
+
+me1200SynceCapabilities OBJECT IDENTIFIER
+    ::= { me1200SynceMibObjects 1 }
+
+me1200SynceCapabilitiesGlobal OBJECT IDENTIFIER
+    ::= { me1200SynceCapabilities 1 }
+
+me1200SynceCapabilitiesGlobalSourceCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of SyncE sources supported by the device."
+    ::= { me1200SynceCapabilitiesGlobal 1 }
+
+me1200SynceConfig OBJECT IDENTIFIER
+    ::= { me1200SynceMibObjects 2 }
+
+me1200SynceConfigGlobal OBJECT IDENTIFIER
+    ::= { me1200SynceConfig 1 }
+
+me1200SynceConfigGlobalClockSelectionMode OBJECT IDENTIFIER
+    ::= { me1200SynceConfigGlobal 1 }
+
+me1200SynceConfigGlobalClockSelectionModeSelectionMode OBJECT-TYPE
+    SYNTAX      ME1200synceSelectionMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The selection mode."
+    ::= { me1200SynceConfigGlobalClockSelectionMode 1 }
+
+me1200SynceConfigGlobalClockSelectionModeSource OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Nominated source for manuel selection mode."
+    ::= { me1200SynceConfigGlobalClockSelectionMode 2 }
+
+me1200SynceConfigGlobalClockSelectionModeWtrTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "WTR timer value in minutes. Range is 0 to 12 minutes where 0 means that
+         the timer is disabled."
+    ::= { me1200SynceConfigGlobalClockSelectionMode 3 }
+
+me1200SynceConfigGlobalClockSelectionModeSsmHoldover OBJECT-TYPE
+    SYNTAX      ME1200synceQualityLevel
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Tx overwrite SSM used when clock controller is hold over."
+    ::= { me1200SynceConfigGlobalClockSelectionMode 4 }
+
+me1200SynceConfigGlobalClockSelectionModeSsmFreerun OBJECT-TYPE
+    SYNTAX      ME1200synceQualityLevel
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Tx overwrite SSM used when clock controller is free run."
+    ::= { me1200SynceConfigGlobalClockSelectionMode 5 }
+
+me1200SynceConfigGlobalClockSelectionModeEecOption OBJECT-TYPE
+    SYNTAX      ME1200synceEecOption
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Synchronous Ethernet Equipment Clock option."
+    ::= { me1200SynceConfigGlobalClockSelectionMode 6 }
+
+me1200SynceConfigGlobalStationClocks OBJECT IDENTIFIER
+    ::= { me1200SynceConfigGlobal 2 }
+
+me1200SynceConfigGlobalStationClocksStationClkOut OBJECT-TYPE
+    SYNTAX      ME1200synceFrequency
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Station clock output frequency setting."
+    ::= { me1200SynceConfigGlobalStationClocks 1 }
+
+me1200SynceConfigGlobalStationClocksStationClkIn OBJECT-TYPE
+    SYNTAX      ME1200synceFrequency
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Station clock input frequency setting."
+    ::= { me1200SynceConfigGlobalStationClocks 2 }
+
+me1200SynceConfigSources OBJECT IDENTIFIER
+    ::= { me1200SynceConfig 2 }
+
+me1200SynceConfigSourcesClockSourceNominationTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SynceConfigSourcesClockSourceNominationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the SyncE source nomination configuration."
+    ::= { me1200SynceConfigSources 1 }
+
+me1200SynceConfigSourcesClockSourceNominationEntry OBJECT-TYPE
+    SYNTAX      ME1200SynceConfigSourcesClockSourceNominationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The sourceId index must be a value from 0 up to the number of sources
+         minus one."
+    INDEX       { me1200SynceConfigSourcesClockSourceNominationSourceId }
+    ::= { me1200SynceConfigSourcesClockSourceNominationTable 1 }
+
+ME1200SynceConfigSourcesClockSourceNominationEntry ::= SEQUENCE {
+    me1200SynceConfigSourcesClockSourceNominationSourceId     Integer32,
+    me1200SynceConfigSourcesClockSourceNominationNominated    TruthValue,
+    me1200SynceConfigSourcesClockSourceNominationNetworkPort      ME1200InterfaceIndex,
+    me1200SynceConfigSourcesClockSourceNominationClkInPort    ME1200Unsigned8,
+    me1200SynceConfigSourcesClockSourceNominationPriority     Unsigned32,
+    me1200SynceConfigSourcesClockSourceNominationAnegMode     ME1200synceAnegMode,
+    me1200SynceConfigSourcesClockSourceNominationSsmOverwrite     ME1200synceQualityLevel,
+    me1200SynceConfigSourcesClockSourceNominationHoldoffTime      Unsigned32
+}
+
+me1200SynceConfigSourcesClockSourceNominationSourceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 1 }
+
+me1200SynceConfigSourcesClockSourceNominationNominated OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates if source is nominated."
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 2 }
+
+me1200SynceConfigSourcesClockSourceNominationNetworkPort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Interface index of the norminated source."
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 3 }
+
+me1200SynceConfigSourcesClockSourceNominationClkInPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clock input of the norminated source."
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 4 }
+
+me1200SynceConfigSourcesClockSourceNominationPriority OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the nominated source."
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 5 }
+
+me1200SynceConfigSourcesClockSourceNominationAnegMode OBJECT-TYPE
+    SYNTAX      ME1200synceAnegMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Autonogotiation mode auto-master-slave."
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 6 }
+
+me1200SynceConfigSourcesClockSourceNominationSsmOverwrite OBJECT-TYPE
+    SYNTAX      ME1200synceQualityLevel
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "SSM overwrite quality."
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 7 }
+
+me1200SynceConfigSourcesClockSourceNominationHoldoffTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Hold Off timer value in 100ms (3 - 18). Zero means no hold off."
+    ::= { me1200SynceConfigSourcesClockSourceNominationEntry 8 }
+
+me1200SynceConfigPorts OBJECT IDENTIFIER
+    ::= { me1200SynceConfig 3 }
+
+me1200SynceConfigPortsPortConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SynceConfigPortsPortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the SyncE port configuration."
+    ::= { me1200SynceConfigPorts 1 }
+
+me1200SynceConfigPortsPortConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200SynceConfigPortsPortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The portId index must be a value from 0 up to the number of ports minus
+         one."
+    INDEX       { me1200SynceConfigPortsPortConfigPortId }
+    ::= { me1200SynceConfigPortsPortConfigTable 1 }
+
+ME1200SynceConfigPortsPortConfigEntry ::= SEQUENCE {
+    me1200SynceConfigPortsPortConfigPortId    ME1200InterfaceIndex,
+    me1200SynceConfigPortsPortConfigSsmEnabled    TruthValue
+}
+
+me1200SynceConfigPortsPortConfigPortId OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200SynceConfigPortsPortConfigEntry 1 }
+
+me1200SynceConfigPortsPortConfigSsmEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Quality level via SSM enabled."
+    ::= { me1200SynceConfigPortsPortConfigEntry 2 }
+
+me1200SynceStatus OBJECT IDENTIFIER
+    ::= { me1200SynceMibObjects 3 }
+
+me1200SynceStatusGlobal OBJECT IDENTIFIER
+    ::= { me1200SynceStatus 1 }
+
+me1200SynceStatusGlobalClockSelectionMode OBJECT IDENTIFIER
+    ::= { me1200SynceStatusGlobal 1 }
+
+me1200SynceStatusGlobalClockSelectionModeClockInput OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The clock source locked to when clock selector is in locked state."
+    ::= { me1200SynceStatusGlobalClockSelectionMode 1 }
+
+me1200SynceStatusGlobalClockSelectionModeSelectorState OBJECT-TYPE
+    SYNTAX      ME1200synceSelectorState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is indicating the state of the clock selector."
+    ::= { me1200SynceStatusGlobalClockSelectionMode 2 }
+
+me1200SynceStatusGlobalClockSelectionModeLosx OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "LOSX"
+    ::= { me1200SynceStatusGlobalClockSelectionMode 3 }
+
+me1200SynceStatusGlobalClockSelectionModeLol OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Clock selector has raised the Los Of Lock alarm."
+    ::= { me1200SynceStatusGlobalClockSelectionMode 4 }
+
+me1200SynceStatusGlobalClockSelectionModeDhold OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Clock selector has not yet calculated the holdover frequency offset to
+         local oscillator."
+    ::= { me1200SynceStatusGlobalClockSelectionMode 5 }
+
+me1200SynceStatusSources OBJECT IDENTIFIER
+    ::= { me1200SynceStatus 2 }
+
+me1200SynceStatusSourcesClockSourceNominationTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SynceStatusSourcesClockSourceNominationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the clock source nomination status."
+    ::= { me1200SynceStatusSources 1 }
+
+me1200SynceStatusSourcesClockSourceNominationEntry OBJECT-TYPE
+    SYNTAX      ME1200SynceStatusSourcesClockSourceNominationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The sourceId index must be a value must be a value from 0 up to the
+         number of sources minus one."
+    INDEX       { me1200SynceStatusSourcesClockSourceNominationSourceId }
+    ::= { me1200SynceStatusSourcesClockSourceNominationTable 1 }
+
+ME1200SynceStatusSourcesClockSourceNominationEntry ::= SEQUENCE {
+    me1200SynceStatusSourcesClockSourceNominationSourceId     Integer32,
+    me1200SynceStatusSourcesClockSourceNominationLocs     TruthValue,
+    me1200SynceStatusSourcesClockSourceNominationFos      TruthValue,
+    me1200SynceStatusSourcesClockSourceNominationSsm      TruthValue,
+    me1200SynceStatusSourcesClockSourceNominationWtr      TruthValue
+}
+
+me1200SynceStatusSourcesClockSourceNominationSourceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200SynceStatusSourcesClockSourceNominationEntry 1 }
+
+me1200SynceStatusSourcesClockSourceNominationLocs OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "LOCS"
+    ::= { me1200SynceStatusSourcesClockSourceNominationEntry 2 }
+
+me1200SynceStatusSourcesClockSourceNominationFos OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "FOS"
+    ::= { me1200SynceStatusSourcesClockSourceNominationEntry 3 }
+
+me1200SynceStatusSourcesClockSourceNominationSsm OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "SSM"
+    ::= { me1200SynceStatusSourcesClockSourceNominationEntry 4 }
+
+me1200SynceStatusSourcesClockSourceNominationWtr OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "WTR"
+    ::= { me1200SynceStatusSourcesClockSourceNominationEntry 5 }
+
+me1200SynceStatusPorts OBJECT IDENTIFIER
+    ::= { me1200SynceStatus 3 }
+
+me1200SynceStatusPortsPortStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SynceStatusPortsPortStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the port status."
+    ::= { me1200SynceStatusPorts 1 }
+
+me1200SynceStatusPortsPortStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200SynceStatusPortsPortStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The portId index must be a value must be a value from 0 up to the
+         number of ports minus one."
+    INDEX       { me1200SynceStatusPortsPortStatusPortId }
+    ::= { me1200SynceStatusPortsPortStatusTable 1 }
+
+ME1200SynceStatusPortsPortStatusEntry ::= SEQUENCE {
+    me1200SynceStatusPortsPortStatusPortId    ME1200InterfaceIndex,
+    me1200SynceStatusPortsPortStatusSsmRx     ME1200synceQualityLevel,
+    me1200SynceStatusPortsPortStatusSsmTx     ME1200synceQualityLevel,
+    me1200SynceStatusPortsPortStatusMaster    TruthValue
+}
+
+me1200SynceStatusPortsPortStatusPortId OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200SynceStatusPortsPortStatusEntry 1 }
+
+me1200SynceStatusPortsPortStatusSsmRx OBJECT-TYPE
+    SYNTAX      ME1200synceQualityLevel
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Monitoring of the received SSM QL on this port."
+    ::= { me1200SynceStatusPortsPortStatusEntry 2 }
+
+me1200SynceStatusPortsPortStatusSsmTx OBJECT-TYPE
+    SYNTAX      ME1200synceQualityLevel
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Monitoring of the transmitted SSM QL on this port."
+    ::= { me1200SynceStatusPortsPortStatusEntry 3 }
+
+me1200SynceStatusPortsPortStatusMaster OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "If PHY is in 1000BaseT Mode then this is monitoring the master/slave
+         mode."
+    ::= { me1200SynceStatusPortsPortStatusEntry 4 }
+
+me1200SynceStatusPtp OBJECT IDENTIFIER
+    ::= { me1200SynceStatus 4 }
+
+me1200SynceStatusPtpPortStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SynceStatusPtpPortStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the PTP port status."
+    ::= { me1200SynceStatusPtp 1 }
+
+me1200SynceStatusPtpPortStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200SynceStatusPtpPortStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The sourceId index must be a value must be a value from 0 up to the
+         number of PTP sources minus one."
+    INDEX       { me1200SynceStatusPtpPortStatusSourceId }
+    ::= { me1200SynceStatusPtpPortStatusTable 1 }
+
+ME1200SynceStatusPtpPortStatusEntry ::= SEQUENCE {
+    me1200SynceStatusPtpPortStatusSourceId    Integer32,
+    me1200SynceStatusPtpPortStatusSsmRx   ME1200synceQualityLevel,
+    me1200SynceStatusPtpPortStatusPtsf    ME1200syncePtsfState
+}
+
+me1200SynceStatusPtpPortStatusSourceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200SynceStatusPtpPortStatusEntry 1 }
+
+me1200SynceStatusPtpPortStatusSsmRx OBJECT-TYPE
+    SYNTAX      ME1200synceQualityLevel
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Monitoring of the received SSM QL on this port."
+    ::= { me1200SynceStatusPtpPortStatusEntry 2 }
+
+me1200SynceStatusPtpPortStatusPtsf OBJECT-TYPE
+    SYNTAX      ME1200syncePtsfState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "PTSF status for PTP source."
+    ::= { me1200SynceStatusPtpPortStatusEntry 3 }
+
+me1200SynceControl OBJECT IDENTIFIER
+    ::= { me1200SynceMibObjects 4 }
+
+me1200SynceControlSources OBJECT IDENTIFIER
+    ::= { me1200SynceControl 1 }
+
+me1200SynceControlSourcesClockSourceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SynceControlSourcesClockSourceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the SyncE sources control structure."
+    ::= { me1200SynceControlSources 1 }
+
+me1200SynceControlSourcesClockSourceEntry OBJECT-TYPE
+    SYNTAX      ME1200SynceControlSourcesClockSourceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The sourceId index must be a value must be a value from 0 up to the
+         number of sources minus one."
+    INDEX       { me1200SynceControlSourcesClockSourceSourceId }
+    ::= { me1200SynceControlSourcesClockSourceTable 1 }
+
+ME1200SynceControlSourcesClockSourceEntry ::= SEQUENCE {
+    me1200SynceControlSourcesClockSourceSourceId      Integer32,
+    me1200SynceControlSourcesClockSourceClearWtr      ME1200Unsigned8
+}
+
+me1200SynceControlSourcesClockSourceSourceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200SynceControlSourcesClockSourceEntry 1 }
+
+me1200SynceControlSourcesClockSourceClearWtr OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200SynceControlSourcesClockSourceEntry 2 }
+
+me1200SynceNotificationPrefix OBJECT IDENTIFIER
+    ::= { me1200SynceMibObjects 5 }
+
+me1200SynceNotification OBJECT IDENTIFIER
+    ::= { me1200SynceNotificationPrefix 0 }
+
+me1200SynceNotificationClockSelectorStateChange NOTIFICATION-TYPE
+    OBJECTS     { me1200SynceStatusGlobalClockSelectionModeClockInput, 
+                  me1200SynceStatusGlobalClockSelectionModeSelectorState }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the clock selector state is changed."
+   ::= { me1200SynceNotification 1 }
+
+me1200SynceMibConformance OBJECT IDENTIFIER
+    ::= { me1200SynceMib 2 }
+
+me1200SynceMibCompliances OBJECT IDENTIFIER
+    ::= { me1200SynceMibConformance 1 }
+
+me1200SynceMibGroups OBJECT IDENTIFIER
+    ::= { me1200SynceMibConformance 2 }
+
+me1200SynceCapabilitiesGlobalInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceCapabilitiesGlobalSourceCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 1 }
+
+me1200SynceConfigGlobalClockSelectionModeInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceConfigGlobalClockSelectionModeSelectionMode, 
+                  me1200SynceConfigGlobalClockSelectionModeSource, 
+                  me1200SynceConfigGlobalClockSelectionModeWtrTime, 
+                  me1200SynceConfigGlobalClockSelectionModeSsmHoldover, 
+                  me1200SynceConfigGlobalClockSelectionModeSsmFreerun, 
+                  me1200SynceConfigGlobalClockSelectionModeEecOption }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 2 }
+
+me1200SynceConfigGlobalStationClocksInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceConfigGlobalStationClocksStationClkOut, 
+                  me1200SynceConfigGlobalStationClocksStationClkIn }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 3 }
+
+me1200SynceConfigSourcesClockSourceNominationInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceConfigSourcesClockSourceNominationNominated, 
+                  me1200SynceConfigSourcesClockSourceNominationNetworkPort, 
+                  me1200SynceConfigSourcesClockSourceNominationClkInPort, 
+                  me1200SynceConfigSourcesClockSourceNominationPriority, 
+                  me1200SynceConfigSourcesClockSourceNominationAnegMode, 
+                  me1200SynceConfigSourcesClockSourceNominationSsmOverwrite, 
+                  me1200SynceConfigSourcesClockSourceNominationHoldoffTime }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 4 }
+
+me1200SynceConfigPortsPortConfigInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceConfigPortsPortConfigSsmEnabled }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 5 }
+
+me1200SynceStatusGlobalClockSelectionModeInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceStatusGlobalClockSelectionModeClockInput, 
+                  me1200SynceStatusGlobalClockSelectionModeSelectorState, 
+                  me1200SynceStatusGlobalClockSelectionModeLosx, 
+                  me1200SynceStatusGlobalClockSelectionModeLol, 
+                  me1200SynceStatusGlobalClockSelectionModeDhold }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 6 }
+
+me1200SynceStatusSourcesClockSourceNominationInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceStatusSourcesClockSourceNominationLocs, 
+                  me1200SynceStatusSourcesClockSourceNominationFos, 
+                  me1200SynceStatusSourcesClockSourceNominationSsm, 
+                  me1200SynceStatusSourcesClockSourceNominationWtr }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 7 }
+
+me1200SynceStatusPortsPortStatusInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceStatusPortsPortStatusSsmRx, 
+                  me1200SynceStatusPortsPortStatusSsmTx, 
+                  me1200SynceStatusPortsPortStatusMaster }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 8 }
+
+me1200SynceStatusPtpPortStatusInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceStatusPtpPortStatusSsmRx, 
+                  me1200SynceStatusPtpPortStatusPtsf }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 9 }
+
+me1200SynceControlSourcesClockSourceInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SynceControlSourcesClockSourceClearWtr }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 10 }
+
+me1200SynceNotificationInfoGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { me1200SynceNotificationClockSelectorStateChange }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SynceMibGroups 11 }
+
+me1200SynceMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200SynceCapabilitiesGlobalInfoGroup, 
+                  me1200SynceConfigGlobalClockSelectionModeInfoGroup, 
+                  me1200SynceConfigGlobalStationClocksInfoGroup, 
+                  me1200SynceConfigSourcesClockSourceNominationInfoGroup, 
+                  me1200SynceConfigPortsPortConfigInfoGroup, 
+                  me1200SynceStatusGlobalClockSelectionModeInfoGroup, 
+                  me1200SynceStatusSourcesClockSourceNominationInfoGroup, 
+                  me1200SynceStatusPortsPortStatusInfoGroup, 
+                  me1200SynceStatusPtpPortStatusInfoGroup, 
+                  me1200SynceControlSourcesClockSourceInfoGroup,
+                  me1200SynceNotificationInfoGroup }
+
+    ::= { me1200SynceMibCompliances 1 }
+
+END

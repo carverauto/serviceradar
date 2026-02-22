@@ -1,0 +1,445 @@
+-- MIB file created 19-Jul-2006 11:20:42, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CEF-TC DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CEF-TC.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoCefTextualConventions OBJECT IDENTIFIER ::= { ciscoMgmt 493 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200509300000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Postal: Cisco Systems, Inc.
+--    170 West Tasman Drive
+--    San Jose, CA 95134-1706
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cef@cisco.com
+--  Descr
+--    This MIB module defines Textual Conventions and
+--     OBJECT-IDENTITIES for use in documents defining
+--     management information base (MIBs) modules for 
+--     managing Cisco Express Forwarding (CEF).
+--  RevDate
+--    200509300000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+CefIpVersion ::= INTEGER {
+        ipv4(1),
+        ipv6(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The version of CEF IP forwarding.
+
+CefAdjLinkType ::= INTEGER {
+        ipv4(1),
+        ipv6(2),
+        mpls(3),
+        raw(4),
+        unknown(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Link type for the adjacency. The adjacency link type 
+--     identifies protocol stack on neighbour device which will 
+--     process packets fed through adjacency.
+
+CefAdjacencySource ::= OCTET STRING(SIZE(1..3))
+        -- BITS are:
+        --   atom(0)
+        --   linkRawAdj(1)
+        --   ipPseudowireAdj(2)
+        --   arp(3)
+        --   p2pAdj(4)
+        --   frMap(5)
+        --   atmPVC(6)
+        --   atmSVC(7)
+        --   atmTVC(8)
+        --   nbma(9)
+        --   mpoa(10)
+        --   atmBundle(11)
+        --   lec(12)
+        --   nhrp(13)
+        --   ipv6ND(14)
+        --   cmcc(15)
+        --   ipv6SixtoFourTunnel(16)
+        --   ipv6IsaTapTunnel(17)
+        --   ipv6AutoTunnel(18)
+        --   fibLc(19)
+        --   virtual(20)
+        --   multicast(21)
+        --   unknown(22)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The mechanism by which the adjacency is learned.
+--     As the mechanism of learning the adjacency can be
+--     multiple (e.g. 'arp' and 'atmPVC'), hence the 
+--     value of this object represents the bit mask of
+--     adjacency sources.
+
+CefPathType ::= INTEGER {
+        receive(1),
+        connectedPrefix(2),
+        attachedPrefix(3),
+        attachedHost(4),
+        attachedNexthop(5),
+        recursiveNexthop(6),
+        adjacencyPrefix(7),
+        specialPrefix(8),
+        unknown(9)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Type of the CEF Path.
+--      receive(1)          : path for the address
+--                            configured on any of the
+--                            interface in the device.
+--    
+--      connectedPrefix(2)  : connected prefix path
+--    
+--      attachedPrefix(3)   : attached prefix path
+--    
+--      attachedHost(4)     : attached host path 
+--    
+--      attachedNexthop(5)  : attached next hop path
+--    
+--      recursiveNexthop(6) : recursive next hop path
+--    
+--      adjacencyPrefix(7)  : adjacency prefix path
+--    
+--      specialPrefix(8)    : special prefix path
+--    
+--      unknown(9):         : unknown  path
+--    .
+
+CefPrefixSearchState ::= INTEGER {
+        running(1),
+        matchFound(2),
+        noMatchFound(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The state of prefix search operation. 
+--     The description of each state is given below:
+--    
+--       running(1)      : this state signifies that a prefix 
+--                         search request is running.
+--    
+--       matchFound(2)   : this state signifies that a prefix 
+--                         search request is completed and a prefix
+--                         match has been found.
+--    
+--       noMatchFound(3) : this state signifies that a prefix 
+--                         search request is completed and a prefix
+--                         match has not been found.
+
+CefForwardingElementSpecialType ::= INTEGER {
+        illegal(1),
+        punt(2),
+        drop(3),
+        discard(4),
+        null(5),
+        glean(6),
+        unresolved(7),
+        noRoute(8),
+        none(9)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Type of special forwarding element 
+--    
+--      illegal(1)   : illegal special forwarding element.
+--                     the packet will be dropped.
+--    
+--      punt(2)      : the packet will be punted to the
+--                     next switching path
+--    
+--      drop(3)      : not supported for Destination IP to next hop
+--                     interface and the packet will be dropped
+--    
+--      discard(4)   : the packet is for Destination IP through
+--                     next hop interface and it will be discarded
+--    
+--      null(5)      : the packet is for Destination IP to null0,
+--                     it will be dropped
+--    
+--      glean(6)     : an attempt will be made to complete the
+--                     encapsulation string through address 
+--                     resolution
+--    
+--      unResolved(7): unresolved forwarding element.
+--                     the packet will be dropped unconditionally. 
+--    
+--      noRoute(8)   : no route forwarding element.
+--                     This forwarding element will result
+--                     in rate limited punts to the next
+--                     switching path(to generate ICMP 
+--                     no route message) 
+--    
+--      none(9)      : not a special forwarding element and
+--                     the value of this object should be
+--                     ignored 
+--    
+--    
+--     
+
+CefMplsLabelList ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This contains a list of MPLS Labels, 
+--    each separated by the ';' (semi-colon) character.  
+--    
+--     MPLS Label values are in accordance with the
+--     MplsLabel TEXTUAL-CONVENTION defined in the
+--     MPLS-TC-MIB.
+--    
+--    The following is en example containing two MPLS labels: 
+--    
+--    4294;100
+--    
+--     An empty string value for this object indicates
+--     no MPLS Labels in this list. 
+
+CefAdminStatus ::= INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Admin status of CEF. The admin status of CEF
+--     may differ from the oper status of CEF depending
+--     upon the success of the admin operation.
+
+CefOperStatus ::= INTEGER {
+        up(1),
+        down(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Operational status of CEF.
+
+CefFailureReason ::= INTEGER {
+        none(1),
+        mallocFailure(2),
+        hwFailure(3),
+        keepaliveFailure(4),
+        noMsgBuffer(5),
+        invalidMsgSize(6),
+        internalError(7)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Reason of CEF Failure:
+--    
+--       none(1)                : no failure 
+--    
+--       mallocFailure(2)       : memory allocation failed for CEF
+--    
+--       hwFailure(3)           : hardware interface failure 
+--                                for CEF
+--    
+--       keepaliveFailure(4)    : keepalive was not received from 
+--                                the CEF peer entity
+--    
+--       noMsgBuffer(5)         : message buffers were exhausted 
+--                                while preparing IPC message to be 
+--                                sent to the CEF peer entity
+--    
+--       invalidMsgSize(6)      : IPC message was received with 
+--                                invalid size from the
+--                                CEF peer entity
+--    
+--       internalError(7)       : Some other internal error was 
+--                                detected for CEF
+--      
+
+CefCCType ::= INTEGER {
+        lcDetect(1),
+        scanFibLcRp(2),
+        scanFibRpLc(3),
+        scanRibFib(4),
+        scanFibRib(5),
+        scanFibHwSw(6),
+        scanFibSwHw(7),
+        fullScanRibFib(8),
+        fullScanFibRib(9),
+        fullScanFibRpLc(10),
+        fullScanFibLcRp(11),
+        fullScanFibHwSw(12),
+        fullScanFibSwHw(13)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Type of the consistency checker.
+--    
+--    lcDetect         : This is an active consistency checker
+--                      which is triggered when a packet cannot 
+--                      be forwarded because the prefix is not
+--                      in the forwarding table. It Detects 
+--                      missing prefixes on the linecard CEF 
+--                      database by sending the missing prefixes 
+--                      to the RP.
+--                 
+--    scanFibLcRp      : This is an passive consistency checker
+--                      which performs a passive scan check of
+--                      the table on the line card.
+--    
+--                      This consistency checker operates on 
+--                      the line card by examining the FIB table 
+--                      for a configurable time period and sending 
+--                      the next n prefixes to the RP. 
+--    
+--    scanFibRpLc      : This is an passive consistency checker
+--                      which performs a passive scan check of
+--                      RP by examining the FIB table for 
+--                      a configurable period and
+--                      sending the next n prefixes to the 
+--                      line card. 
+--    
+--    scanRibFib       : This is an passive consistency checker
+--                      which compares routing information base 
+--                      (RIB) to the FIB table at a configurable
+--                      interval and provides the number of 
+--                      entries missing from the FIB table. 
+--    
+--    scanFibRib       : This is an passive consistency checker
+--                      which compares FIB Tables to the 
+--                      routing information base (RIB) 
+--                      at a configurable interval and provides 
+--                      the number of entries missing from the 
+--                      FIB table. 
+--    
+--    scanFibHwSw      : This is an passive consistency checker
+--                      which compares FIB Tables in hardware
+--                      to the FIB Tables in RP.
+--    
+--    scanFibSwHw      : This is an passive consistency checker
+--                      which compares FIB Tables in RP
+--                      to the FIB Tables in hardware.
+--    
+--    fullScanRibFib   : This is an active consistency checker
+--                      which is triggered by Management Station 
+--                      request. It compares the entire routing 
+--                      information base (RIB) to the FIB table
+--                      and provide the number of entries missing
+--                       from the FIB Table.
+--    
+--    fullScanFibRib   : This is an active consistency checker
+--                      which is triggered by Management Station 
+--                      request. It compares the FIB table to the 
+--                      routing information base (RIB)
+--                      and provide the number of entries missing
+--                      from the FIB Table.
+--    
+--    fullScanFibRpLc  : This is an active consistency checker
+--                      which is triggered by Management Station 
+--                      request. It compares the RP FIB Table 
+--                      with FIB Table on each LC and report 
+--                      inconsistencies.
+--                   
+--    fullScanFibLcRp  : This is an active consistency checker
+--                      which is triggered by Management Station 
+--                      request. It compares the Fib Table on LC 
+--                      with FIB table on RP and report 
+--                      inconsistencies.
+--    
+--    fullScanFibHwSw  : This is an active consistency checker
+--                      which is triggered by Management Station 
+--                      request. It compares the Fib Table in 
+--                      hardware with FIB table in RP and report 
+--                      inconsistencies.
+--    
+--    fullScanFibSwHw  : This is an active consistency checker
+--                      which is triggered by Management Station 
+--                      request. It compares the Fib Table in RP 
+--                      with FIB table in hardware and report 
+--                      inconsistencies.
+
+CefCCAction ::= INTEGER {
+        ccActionStart(1),
+        ccActionAbort(2),
+        ccActionNone(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The action to be performed for the consistency
+--     checkers.
+--     
+--       ccActionStart(1)   :  start the Consistency checker
+--                             operation.
+--    
+--       ccActionAbort(2)   :  abort the Consistency checker 
+--                             operation. After aborting, the 
+--                             active process must recover. 
+--                             This can take some time, and 
+--                             during this period, the scan 
+--                             cannot be restarted.
+--    
+--       ccActionNone(3)    :  no operation is being performed 
+--                             on consistency checkers.
+--    
+
+CefCCStatus ::= INTEGER {
+        ccStatusIdle(1),
+        ccStatusRunning(2),
+        ccStatusDone(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The status of consistency checker operation. 
+--     The description of each state is given below:
+--    
+--       ccStatusIdle(1)    :  this state signifies that
+--                             no consistency checker request
+--                             is being performed.
+--    
+--       ccStatusRunning(2) :  this state signifies that 
+--                             consistency checker request is 
+--                             in progress.
+--    
+--       ccStatusDone(3)     : this state signifies that 
+--                             consistency checker request is 
+--                             over. 
+--                           
+
+
+END
+

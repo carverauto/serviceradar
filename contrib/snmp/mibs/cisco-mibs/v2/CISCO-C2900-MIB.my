@@ -1,0 +1,2081 @@
+-- *****************************************************************
+-- Cisco C2900 MIB
+--
+-- September, 1997 Tricia Shueh
+--
+-- Copyright (c) 1996-1999, 2000, 2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-C2900-MIB  DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    Counter32,  Gauge32,  Integer32
+        FROM SNMPv2-SMI
+    DateAndTime, TruthValue
+        FROM SNMPv2-TC
+    InterfaceIndex
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    DisplayString, sysName
+        FROM RFC1213-MIB
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF;
+
+ciscoC2900MIB  MODULE-IDENTITY
+    LAST-UPDATED "200205300000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Postal: Cisco Systems, Inc.
+             170 West Tasman Drive
+             San Jose, CA 95134-1706
+             USA
+
+             Tel: +1 800 553-NETS
+
+             E-mail: switchsnmp@cisco.com"
+    DESCRIPTION
+            "The MIB module for Catalyst 2900 enterprise specific information"
+
+    REVISION    "200205300000Z"
+    DESCRIPTION
+            "Added the c2900PortAddrSecureAgingTime,
+             c2900PortAddrSecureAgingType and 
+             c2900PortAddrSecureAgingStatic
+             MIB objects to port entry and port group;
+             Also added c2900NotificationsGroup and 
+             c2900PortStatsGroupRev1 object."
+
+    REVISION    "200107251345Z"
+    DESCRIPTION
+            "Added the c2900PortVoiceVlanId
+             MIB object to port group."
+
+    REVISION    "9909240000Z"
+    DESCRIPTION
+            "Modified the description for the c2900InfoSelfTestFailed object
+             so that the bits of the self-test bit array are explained."
+
+    REVISION    "9908240000Z"
+    DESCRIPTION
+            "Modified the description for the c2900InfoSelfTestFailed object
+             so that the bits of the self-test bit array are explained."
+
+    REVISION    "9905200000Z"
+    DESCRIPTION
+            "Added enumerated values to c2900ModuleType for:
+                ATM modules
+                VLAN-trunking 10/100 Ethernet modules
+                Gigabit Ethernet module
+
+             Added one enumerated value to c2900PortAdminSpeed
+             to describe ATM 155.52 Mbps speed."
+
+    REVISION    "9806080000Z"
+    DESCRIPTION
+            "Added the c2900PortSpantreeFast MIB object to port group."
+
+
+    REVISION    "9804300000Z"
+    DESCRIPTION
+            "Added the c2900PortNoMonitorDestinationPort MIB object
+             to remove a port from the monitored list.
+
+             Added c2900Portdot1dBasePort to C2900PortEntry.
+
+             Removed enumerated value securityDynamic(3) from the
+             MIB object c2900PortUsageApplication"
+
+    ::= { ciscoMgmt 87 }
+
+c2900MIBObjects   OBJECT IDENTIFIER ::= { ciscoC2900MIB 1 }
+
+-- MIB groups
+
+c2900SysInfo         OBJECT IDENTIFIER ::= { c2900MIBObjects 1 }
+c2900SysConfig       OBJECT IDENTIFIER ::= { c2900MIBObjects 2 }
+c2900Port            OBJECT IDENTIFIER ::= { c2900MIBObjects 4 }
+c2900BandwidthUsage  OBJECT IDENTIFIER ::= { c2900MIBObjects 5 }
+
+--
+--  General System Information
+--
+
+c2900InfoBoardRevision OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "Returns the revision number of the main board
+         on which the FastSwitch firmware resides."
+    ::= { c2900SysInfo 1 }
+
+c2900InfoPeakBuffersUsed OBJECT-TYPE
+    SYNTAX  Gauge32
+    UNITS   "buffers"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The maximum number of 64-byte buffers used in the
+         main switch buffer pool."
+    ::= { c2900SysInfo 2}
+
+c2900InfoTotalBufferDepth OBJECT-TYPE
+    SYNTAX  Gauge32
+    UNITS   "buffers"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "It represents the total number of 64-byte buffers
+         in the Ethernet Controller."
+    ::= { c2900SysInfo 3}
+
+c2900InfoAddrCapacity OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+         "The system-wide maximum number of MAC addresses
+          supported in the address table, a primary
+          resource when forwarding frames through a bridge.
+          The address table is dynamically updated with new
+          learned addresses inserted and aged addresses removed.
+          The address capacity represented by this object includes
+          dynamic, secure, and static address types.
+
+          To ensure optimal performance, the number of MAC addresses
+          in the bridged local area network to which this bridge is
+          connected should be less than the value of this object.
+
+          The system administrator can refer to this object
+          for the number of MAC addresses suppored by this box."
+    ::= { c2900SysInfo 4 }
+
+c2900InfoRestrictedStaticAddrCapacity OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The system-wide maximum number of static addresses
+         supported.  A static address is one that has explicit
+         source port filtering information assigned.
+
+         This number limits the static table's entries configured by user."
+    REFERENCE "IEEE 802.1D-1990: Section 6.7.2"
+    ::= { c2900SysInfo 5 }
+
+c2900InfoSelfTestFailed OBJECT-TYPE
+--
+--
+--   SYNTAX  BITS {
+--               systemBoard(0),
+--               cpuBuffer(1),
+--               ram(2),
+--               helpEngineAsic(3),
+--               dataBuffer(4),
+--               bufferTable(5),
+--               switchEngineAsic(6),
+--               ethernetFrontEnd(7)
+--        }
+    SYNTAX  OCTET STRING (SIZE (8))
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "A bit array where the presence of a particular bit
+         indicates a failure of a specific Power On Self Test.
+         Bit 0 - System Board Failure
+         Bit 1 - CPU Buffer Failure
+         Bit 2 - Notify RAM Failure
+         Bit 3 - Supervisor ASIC Failure
+         Bit 4 - Data Buffer Failure
+         Bit 5 - Buffer Table Failure
+         Bit 6 - Satellite ASIC Failure
+         Bit 7 - Front End  Failure"
+    ::= { c2900SysInfo 6 }
+
+c2900InfoUtilDisplay OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The number of utilization meter LEDs currently
+         lit on the front panel, if the value of
+         c2900InfoVisualIndicatorMode is selected as
+         utilization(4).  More LEDs are lit
+         as more total bandwidth through the switch
+         is being utilized.
+
+         The percentage of the utilization is calculated as follows:
+            the number of LEDs lit/the total number of LEDs.
+
+         The total number of the LEDs is twenty four for c2900 switch.
+
+         c2900InfoVisualIndicatorMode is utilization(4). If the value of
+         c2900InfoVisualIndicatorMode is not utilization(4), the value of
+         the object will be zero."
+    ::= { c2900SysInfo 7 }
+
+c2900InfoVisualIndicatorMode OBJECT-TYPE
+   SYNTAX  INTEGER {
+             portStatus(1),
+             fullDuplex(2),
+             linkRate(3),
+             utilization(4)
+            }
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "This object reflects what is currently selected
+         as the visual indication mode, selected by the
+         mode button.
+
+         The portStatus(1) mode uses the visual LEDS
+         to indicate port link status.
+
+         The fullDuplex(2) mode uses the visual LEDS
+         to indicate that a port is running with full
+         duplex or half duplex or no link status.
+
+         The linkRate(3) mode uses the visual LEDS to
+         indicate the rate of operation on a port:
+         100 MBPS or 10 MBPS or no link.
+
+         The utilization(4) mode uses the visual LEDS to
+         indicate the utiliztion of the system as more total
+         bandwidth through the switch is being utilized,
+         more LED's are lit."
+        ::= { c2900SysInfo 8}
+
+c2900InfoRedunantPowerSupplyInfo OBJECT-TYPE
+     SYNTAX  INTEGER {
+             absent(1),
+             connectedFunctional(2),
+             connectedNotFunctional(3),
+             functionalPrimaryFailed(4)
+            }
+
+     MAX-ACCESS  read-only
+     STATUS current
+     DESCRIPTION
+            "The switch allows a redundant power supply in addition
+             to its local power supply. Only one power source can be
+             supplying power to a unit.
+
+             absent(1) :the redundant power supply is not connected
+                        to the switch.
+
+             connectedFunctional(2) : the redundant power supply is
+                       connected to the switch and operational.
+
+             connectedNotFunctional(3): the redundant power supply
+                       is connected to the switch, but cannot supply
+                       power to the system.
+
+             functionalPrimaryFailed(4): the redundant power supply
+                       is installed, powered on, and operational,
+                       but a failure exists in the local power
+                       supply system."
+     ::= { c2900SysInfo 9 }
+
+c2900InfoBoardIdentifier OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "Returns the identifier of the main board
+         on which the FastSwitch firmware resides."
+    ::= { c2900SysInfo 10 }
+
+--
+--   General System Configurations
+--
+
+c2900ConfigAddressViolationAction OBJECT-TYPE
+    SYNTAX  INTEGER {
+               doNothing(1),
+               disablePort(2),
+               sendNotify(3),
+               disablePortAndNotify(4)
+             }
+    MAX-ACCESS  read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Indicates what action to take when an address violation
+         (an address mismatch or duplication) occurs on a
+         secure port.  The default action is to do nothing.
+
+          doNothing(1)       : do nothing
+          disablePort(2)     : disable port; the port can only be reenabled
+                               by an explicit management action.
+          sendNotify(3)        : generate address violation notification.
+          disablePortAndNotify(4): disable port and send notification.
+
+          Default value: doNothing(1).
+
+          This object is deprecated. A separate object
+          c2900PortAddressViolationAction is defined for each port."
+        ::= { c2900SysConfig 1 }
+
+c2900ConfigBroadcastStormAlarm OBJECT-TYPE
+    SYNTAX  TruthValue
+    MAX-ACCESS  read-write
+    STATUS deprecated
+    DESCRIPTION
+        "When set to true(1), the switch will generate
+         a broadcastStorm notification upon detecting a port is
+         receiving broadcast packets at a rate higher than
+         or equal to the specified broadcast threshold.
+         When set to false(2), no such trap will be issued.
+         Default value: false(2).
+
+         This object is deprecated. A separate object
+         c2900PortBroadcastStormAlarm is defined for each port."
+    ::= { c2900SysConfig 2 }
+
+--
+-- Module Information of c2900 switch.
+--
+
+c2900ModuleTable  OBJECT-TYPE
+        SYNTAX        SEQUENCE OF C2900ModuleEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   "A list of module entries."
+        ::= { c2900MIBObjects 3  }
+
+c2900ModuleEntry OBJECT-TYPE
+        SYNTAX        C2900ModuleEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   "Entry containing status information about one module in
+                       the c2900 chassis."
+        INDEX         { c2900ModuleIndex }
+        ::= { c2900ModuleTable 1 }
+
+C2900ModuleEntry ::=
+        SEQUENCE {
+                 c2900ModuleIndex
+                        Integer32,
+                 c2900ModuleStatus
+                        INTEGER,
+                 c2900ModuleType
+                        INTEGER,
+                 c2900ModuleHwVersion
+                        DisplayString,
+                 c2900ModuleSwVersion
+                        DisplayString
+                 }
+
+c2900ModuleIndex OBJECT-TYPE
+        SYNTAX        Integer32(1..64)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   "Module index into c2900ModuleTable ."
+        ::= { c2900ModuleEntry 1 }
+
+c2900ModuleStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    moduleNotInstalled(1),
+                    moduleInTest(2),
+                    moduleHealthy(3),
+                    moduleFaulty(4)
+                }
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The overall status of of the module."
+    ::= { c2900ModuleEntry 2 }
+
+c2900ModuleType OBJECT-TYPE
+         SYNTAX INTEGER {
+                        other(1), -- none of the following
+                        empty(2), -- nothing installed
+
+                        -- the following modules are for WS-C2900
+                        wsx2914xl(3), -- 4 port 10/100 TX
+                        wsx2922xl(4), -- 2 port 10/100 FX
+                        atm155SMLRFiber (5), -- single mode long reach
+                        atm155SMMRFiber (6), -- single mode medium reach
+                        atm155MMFiber   (7), -- multi mode fiber
+                        atm155UTP       (8), -- unshielded twisted pair
+                        wsx2914xlv      (9), -- VLAN-trunking 4 port 10/100 TX
+                        wsx2922xlv     (10), -- VLAN-trunking 2 port 10/100 FX
+                        wsx2924xlv     (11), -- VLAN-trunking 4 port 10/100 FX
+                        wsx2931xl      (12), -- 1 port Gigabit Ethernet
+                        wsx2932xl      (13)  -- 1 port Gigabit Ethernet(Copper)
+                        }
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+                "The type of module installed in malibu switch."
+         ::= { c2900ModuleEntry 3 }
+
+c2900ModuleHwVersion OBJECT-TYPE
+         SYNTAX DisplayString (SIZE (0..12))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+                "The hardware version of the module. The format
+                 of the version string x.y.z where x,y, and z
+                 are hardware register field values."
+         ::= { c2900ModuleEntry 4 }
+
+c2900ModuleSwVersion OBJECT-TYPE
+         SYNTAX DisplayString (SIZE (0..40))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+                "The software version of the module."
+         ::= { c2900ModuleEntry 5 }
+
+--
+-- switch Port Table
+--
+
+c2900PortTable OBJECT-TYPE
+     SYNTAX  SEQUENCE OF C2900PortEntry
+     MAX-ACCESS  not-accessible
+     STATUS current
+     DESCRIPTION
+         "A list of port entries.  The number of entries is
+          determined by the number of modules in the chassis
+          and the number of ports on each module."
+     ::= { c2900Port 1 }
+
+c2900PortEntry     OBJECT-TYPE
+     SYNTAX      C2900PortEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+         "Entry containing information for a particular
+          switched port on a module installed. The entries
+          are not created or deleted by management commands."
+     INDEX   { c2900PortModuleIndex, c2900PortIndex }
+     ::= { c2900PortTable 1 }
+
+C2900PortEntry ::=  SEQUENCE {
+    c2900PortModuleIndex                  Integer32,
+    c2900PortIndex                        Integer32,
+    c2900PortUsageApplication             INTEGER,
+    c2900PortGroupIndex                   Integer32,
+    c2900PortMayLearnAddress              TruthValue,  -- DEPRECATED OBJECT
+    c2900PortMayForwardFrames             TruthValue,
+    c2900PortBufferCongestionControl      TruthValue,  -- DEPRECATED OBJECT
+    c2900PortBufferCongestionThreshholdPercent Integer32,
+    c2900PortFrameAge                     Integer32,
+    c2900PortAddrSecureMaxAddresses       Integer32,
+    c2900PortAddrSecureCurrentAddresses   Gauge32,
+    c2900PortAddrSecureAddrViolations     Counter32,
+    c2900PortNumberOfLearnedAddresses     Counter32,
+    c2900PortNumberOfDroppedAddresses     Counter32,
+    c2900PortClearAddresses               TruthValue,
+    c2900PortFloodUnknownMulticasts       TruthValue,
+    c2900PortFloodUnknownUnicasts         TruthValue,
+    c2900PortLinkbeatStatus               INTEGER,
+    c2900PortBroadcastStormAction         INTEGER,
+    c2900PortBroadcastRisingThreshold     Gauge32,
+    c2900PortBroadcastFallingThreshold    Gauge32,
+    c2900PortStatus                       INTEGER,
+    c2900PortTestResult                   TruthValue,
+    c2900PortVisualIndicator              INTEGER,
+    c2900PortIfIndex                      InterfaceIndex,
+    c2900PortAddressViolationAction       INTEGER,
+    c2900PortBroadcastStormAlarm          TruthValue,
+    c2900PortMonitorDestinationPort       Integer32,
+    c2900PortSwitchPortIndex              Integer32,
+    c2900PortMonitoredPortMap             OCTET STRING,
+    c2900PortDuplexState                  INTEGER,
+    c2900PortDuplexStatus                 INTEGER,
+    c2900PortAdminSpeed                   INTEGER,
+    c2900PortNoMonitorDestinationPort     Integer32,
+    c2900Portdot1dBasePort                Integer32,
+    c2900PortSpantreeFastStart            INTEGER,
+    c2900PortVoiceVlanId                  INTEGER,
+    c2900PortAddrSecureAgingTime          Integer32,
+    c2900PortAddrSecureAgingType          INTEGER,
+    c2900PortAddrSecureAgingStatic        TruthValue
+ }
+
+c2900PortModuleIndex OBJECT-TYPE
+    SYNTAX        Integer32 (0..64)
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "An index value that uniquely identifies the module
+         where this port is located. The value is determined
+         by the chassis slot number into which the module is
+         plugged."
+    ::= { c2900PortEntry 1 }
+
+c2900PortIndex     OBJECT-TYPE
+    SYNTAX      Integer32 (1..64)
+    MAX-ACCESS  not-accessible
+    STATUS current
+    DESCRIPTION
+        "An index value that uniquely identifies this port
+         within a module."
+    ::= { c2900PortEntry 2 }
+
+c2900PortUsageApplication OBJECT-TYPE
+    SYNTAX  INTEGER {
+                    standard(1),  -- standard port usage
+                    security(2),  -- secured port usage
+                    monitor(3), -- monitor usage
+                    portGrouping(4), -- fast EtherChannel usage
+                    network(5), -- network port usage
+                    networkGroup(6), -- network port group usage
+                    portGroupDest(7), -- destination addr FEC
+                    protected(8) -- protected port usage
+                    }
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+        "This object indicates how the port is to be used.
+         The variable usage applications are shown above.
+         These applications are defined such that they
+         are mutually exclusive. In other words, a port
+         using the security(2) application cannot also
+         use the monitor(3) application at the same time.
+
+         The default usage is standard(1), or no special
+         behavior (the port behaves as normal
+         switched port).
+
+         The security(2) usage adds addressing security
+         to the port, whereby all learned addresses are 
+         secure address.
+
+         The monitor(3) usage provides network diagnosis
+         by reflecting traffic on other ports to this port.
+
+         The portGrouping(4) application treats this and other ports in
+         the same group as one(inter-switch) connection for more
+         bandwidth potential. When the c2900PortUsageApplication is
+         portGrouping, the c2900PortGroupIndex is set to the index
+         value of the port group.  The source address of a received frame
+         is used to determine on which port within the group the frame
+         should be transmitted.
+
+         The network(5) usage saves address table space when the port
+         is used as the link to a large network with many MAC addresses
+         by disabling address learning on  the port and allowing
+         unknown unicasts packets received on other ports of the vlan
+         the port associated with to be forwarded only to the port.
+
+         The networkGroup(6) usage treates this and other
+         ports in the same group as a network port group. All ports in
+         port are network ports in the sense that address learning is
+         disabled on them and unknown unicast packets received on other
+         ports of the vlan are forwarded to the group.
+
+         The portGroupDest(7) application treats this and other ports in
+         the same group as one(inter-switch) connection for more
+         bandwidth potential. When the c2900PortUsageApplication is
+         portGroupDest, the c2900PortGroupIndex is set to the index
+         value of the port group.  The destination address of a received
+         frame is used to determine on which port within the group the
+         frame should be transmitted.
+
+         The protected(8) application does not forward any traffic to other
+         protected ports. It does not forward all kinds of unicast, multicast
+         and broadcast traffic to any other protected port. The protected 
+         ports, however, forward traffic normally to non-protected ports and 
+         vice versa."
+    DEFVAL  { standard }
+    ::= { c2900PortEntry 3}
+
+c2900PortGroupIndex OBJECT-TYPE
+    SYNTAX       Integer32 (1..12)
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This object is meaningful only when the
+         corresponding c2900PortUsageApplication is portGrouping.
+         Ports assigned with the same value of c2900PortGroupIndex
+         belong to the same connection channel."
+    ::= { c2900PortEntry 4}
+
+c2900PortMayLearnAddress OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS  read-write
+    STATUS deprecated
+    DESCRIPTION
+        "This object reflects an internal state of the port
+         with regard to its ability to learn new addresses.
+         Certain port configurations such as learning time
+         limit, security usage, etc., and some Spanning
+         Tree Protocol states can temporarily prohibit the
+         port from learning.  This object is true(1) if the
+         port is allowed to learn. It is false(2) otherwise.
+
+         Setting this object to true(1) will fail,
+         if the port is not in normal state.
+
+         This object is deprecated."
+    DEFVAL  { true }
+    ::= { c2900PortEntry 5}
+
+c2900PortMayForwardFrames  OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+        "This object reflects an internal state of the port
+         with regard to its ability to forward frames.
+         A port sometimes stops forwarding frames when it
+         is blocked by the Spanning Tree Protocol, or
+         while it is undergoing temporary load balancing
+         as part of the port grouping usage.
+         This object is true(1) if the port is allowed to
+         forward frames. It is false(2) otherwise.
+
+         Setting this object to true(1) will fail,
+         if the port is in the middle of being blocked by the Spanning Tree
+         Protocol, or while it is undergoing temporary load balancing
+         as part of the port grouping usage.
+
+         This object is only supported for static VLAN access ports."
+    DEFVAL { true }
+    ::= { c2900PortEntry 6}
+
+c2900PortBufferCongestionControl  OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS  read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Seting this object to true(1) allows the switch
+         to run its buffer congestion control algorithm on the
+         port.  Setting the object to false(2) disallows
+         such control. The buffer congestion control algorithm
+         is summarized in the description of
+         the c2900PortBufferCongestionThresholdPercent below.
+
+         This object is deprecated"
+    ::= { c2900PortEntry 7}
+
+c2900PortBufferCongestionThreshholdPercent  OBJECT-TYPE
+    SYNTAX  Integer32 (1..99)
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The port buffer congestion threshold provides an early
+         warning to the switch that the port is about to
+         exhaust all its guaranteed buffers, leading to congestion.
+         This threshold is expressed as a percentage of the port's
+         total guaranteed buffer depth.  Once this threshold has
+         been crossed, the switch begins colliding with frames
+         received on the port for a fixed period of time.
+         After this time has expired, the switch determines
+         whether the port's buffer congestion has been alleviated.
+         If this situation has not changed, the switch resumes
+         this congestion control algorithm on the port."
+    ::= { c2900PortEntry 8}
+
+c2900PortFrameAge  OBJECT-TYPE
+    SYNTAX  Integer32 (50..4000)
+    UNITS "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+       "The aging interval in milliseconds after
+        which old frames queued for transmission on this
+        port are discarded."
+    REFERENCE "Section 4.2 IEEE802.1D-1993"
+    DEFVAL  { 1000 }
+    ::= { c2900PortEntry 9}
+
+c2900PortAddrSecureMaxAddresses OBJECT-TYPE
+    SYNTAX Integer32 (1..132)
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+        "The maximum number of secure addresses that can
+         be learned on this port when it is a secure port.
+         This number should be always higher than
+         c2900PortAddrSecureCurrentAddresses"
+    ::= { c2900PortEntry 10}
+
+c2900PortAddrSecureCurrentAddresses OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The current number of statically assigned
+         unicast addresses on the port."
+    ::= { c2900PortEntry 11}
+
+c2900PortAddrSecureAddrViolations OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+       "The number of times a source address was
+        seen on this port which duplicates a secured
+        address configured on another port,
+        plus the number of times a source address was
+        seen on this port which does not match any
+        addresses secured for the port."
+    ::= { c2900PortEntry 12}
+
+c2900PortNumberOfLearnedAddresses OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+       "The current number of dynamically learned
+        addresses on the port."
+    ::= { c2900PortEntry 13}
+
+c2900PortNumberOfDroppedAddresses OBJECT-TYPE
+     SYNTAX      Counter32
+     MAX-ACCESS  read-only
+     STATUS current
+     DESCRIPTION
+         "The number of times an address could not be learned
+          or assigned for the port because its address table
+          was full at one time."
+     ::= { c2900PortEntry 14}
+
+c2900PortClearAddresses OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+       "Set to true(1) to delete all learned and assigned
+        dynamic, static and secure unicast addresses the
+        port currently has. Setting the object to false(2)
+        has no effect. This object always returns false(2)
+        when read."
+     ::= { c2900PortEntry 15}
+
+c2900PortFloodUnknownMulticasts OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+       "Set to true(1) to allow forwarding to this
+        port frames addressed to multicast addresses
+        that have not been configured for the port.
+        Set to false(2) to filter and discard such frames."
+    DEFVAL { true }
+    ::= { c2900PortEntry 16}
+
+c2900PortFloodUnknownUnicasts OBJECT-TYPE
+     SYNTAX TruthValue
+     MAX-ACCESS  read-write
+     STATUS current
+     DESCRIPTION
+        "This object controls the forwarding of unknown
+         unicast frames to this port. When set to true(1),
+         the switch will, upon receiving a frame with an
+         unknown unicast destination address from
+         another port, transmit the frame to this port.
+         When set to false(2), switch will filter
+         and not transmit said frames to this port.
+         Default value: false(2) for ports  using
+         the security or monitor application;
+         true(1) for all other usage applications."
+      ::= { c2900PortEntry 17}
+
+c2900PortLinkbeatStatus OBJECT-TYPE
+    SYNTAX  INTEGER {
+                     unknown(1),
+                     linkbeat(2),
+                     nolinkbeat(3)
+                    }
+     MAX-ACCESS  read-only
+     STATUS current
+     DESCRIPTION
+        "This object depends on the physical layer in use
+         and indicates the current port linkbeat status:
+         if the physical link between two devices is
+         properly connected or not.
+         If the value is linkbeat(1), there is linkbeat.
+         If the value is nolinkbeat(2), there is no linkbeat.
+         If the value is unknown(3), the information is not
+         available."
+     ::= { c2900PortEntry 18}
+
+c2900PortBroadcastStormAction OBJECT-TYPE
+     SYNTAX  INTEGER { stopBroadcastForwarding(1),
+                       forwardBroadcast(2),
+                       disablePort(3) }
+     MAX-ACCESS  read-write
+     STATUS current
+     DESCRIPTION
+         "Indicates what action to take when the broadcast
+          rising threshold for a port is reached.
+          The default action is to forwardBroadcast(2) as usual
+          for all broadcast frames received from the port. The
+          other action is to stopBroadcastForwarding(1) frames
+          until the broadcast reception rate falls to
+          or below the falling threshold.
+          The port can also be shutdown in the event of a 
+          broadcast storm with the action disablePort(3)."
+
+     DEFVAL { forwardBroadcast }
+     ::= { c2900PortEntry  19}
+
+c2900PortBroadcastRisingThreshold OBJECT-TYPE
+    SYNTAX  Gauge32
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "The broadcast rising threshold is measured in the number
+         of broadcast frames received on a port in a second.
+
+         When the number of broadcast frames received per
+         second on this port crosses this threshold,
+         the appropriate action as specified by the object
+         c2900PortBroadcastStormAction will take place.
+         See the description of c2900PortBroadcastStormAction."
+    DEFVAL { 500 }
+    ::= { c2900PortEntry 20}
+
+c2900PortBroadcastFallingThreshold OBJECT-TYPE
+    SYNTAX  Gauge32
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "The broadcast falling threshold is measured in number of
+         broadcast frames received on a port in a second.
+
+         When the falling threshold is crossed and the
+         c2900PortBroadcastStormAction was stopBroadcastForwarding(1)
+         then broadcast forwarding will be re-enabled on the port.
+         For the other values of c2900PortBroadcastStormAction,
+         crossing the falling threshold has no affect."
+    DEFVAL { 250 }
+    ::= { c2900PortEntry 21}
+
+c2900PortStatus  OBJECT-TYPE
+    SYNTAX  INTEGER {
+                      other(1),
+                      disabled(2),
+                      blocking(3),
+                      listening(4),
+                      learning(5),
+                      preforwarding(6),
+                      forwarding(7),
+                      secureforwarding(8),
+                      suspended(9),
+                      broken(10)
+                     }
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+        "The port's current state as defined by application
+         of the Spanning Tree Protocol. This state controls
+         what action a port takes on reception of a frame.
+         If the switch has detected a port that is
+         malfunctioning it will place that port into the
+         broken(10) state.  For ports which are
+         disabled(see dot1dStpPortEnable), this object will
+         have a value of disabled(2).
+         Since the switch implements three
+         additional states which are not part of IEEE Standard,
+         these additional states are possible values for
+         c2900PortStaus.  The additional states are preforwarding(6),
+         secureforwarding(8), and suspended(9).  Note: except
+         for these additional states, this object is the same
+         as the dot1dStpPortState object.
+         Default value: blocking(2).
+
+         This object is only supported for static VLAN access ports."
+    REFERENCE "Section 4.5.5.2 IEEE802.1D-1990"
+    DEFVAL   { blocking }
+    ::= {c2900PortEntry 22}
+
+c2900PortTestResult OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "This object indicates if the port passed power on self test or not.
+         If the value of this object is true(1), the port passed test.
+         If the value of this object is false(2), the port failed test."
+        ::= { c2900PortEntry 23 }
+
+c2900PortVisualIndicator OBJECT-TYPE
+    SYNTAX  INTEGER {
+                     notused(1),
+                     black(2),
+                     amber(3),
+                     green(4)
+                    }
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+         "This object is used to indicate the current color of
+          a LED. If a LED is flashing, the value of this object will
+          represent the color of the LED at that instant in time.
+          The following conventions indicate port status:
+              Link healthy    returns green(4)
+              Link activity   usually green(4), but may return black(2).
+              Link faulty     alternating green(4)/amber(3)
+              Port disabled   returns amber(3)"
+    ::= { c2900PortEntry 24 }
+
+c2900PortIfIndex OBJECT-TYPE
+        SYNTAX        InterfaceIndex (1..2147483647)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+            "The value of the instance of the ifIndex object,
+             defined in MIB-II, for the interface corresponding
+             to this port."
+        ::= { c2900PortEntry 25  }
+
+c2900PortAddressViolationAction OBJECT-TYPE
+    SYNTAX  INTEGER {
+               doNothing(1),
+               disablePort(2),
+               sendNotify(3),
+               disablePortAndNotify(4)
+             }
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+        "Indicates what action to take when an address violation
+         (an address mismatch or duplication) occurs on a
+         secure port.  The default action is to do nothing.
+
+          doNothing(1)       : do nothing
+          disablePort(2)     : disable port; the port can only be reenabled
+                               by an explicit management action.
+          sendNotify(3)        : generate address violation notification.
+          disablePortAndNotify(4): disable port and send notification."
+    DEFVAL { doNothing }
+    ::= { c2900PortEntry 26 }
+
+c2900PortBroadcastStormAlarm OBJECT-TYPE
+    SYNTAX  TruthValue
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+        "When set to true(1), the switch will generate
+         a broadcastStorm notification upon detecting a port is
+         receiving broadcast packets at a rate higher than
+         or equal to the threshold specified by
+         c2900PortBroadcastRisingThreshold.
+         When set to false(2), no such trap will be issued.
+         Default value: false(2).
+         c2900PortBroadcastStormAlarm is defined for each port."
+    DEFVAL { false }
+    ::= { c2900PortEntry 27 }
+
+c2900PortMonitorDestinationPort     OBJECT-TYPE
+    SYNTAX      Integer32 (0..64)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Switch Port (c2900PortSwitchPortIndex) index value of the port
+         that is to be monitored by this port. A value of zero can't be
+         used to do set, it is used to return when this object is read.
+
+         To remove a port from the monitored list use the object
+         c2900PortNoMonitorDestinationPort."
+    ::= { c2900PortEntry 28 }
+
+c2900PortSwitchPortIndex     OBJECT-TYPE
+    SYNTAX      Integer32 (1..64)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Switch port index of a port is a value that uniquely
+         identifies the port within a switch. This is obtained
+         from the port index (c2900PortIndex) and the module
+         index (c2900PortModuleIndex)."
+    ::= { c2900PortEntry 29 }
+
+c2900PortMonitoredPortMap     OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Indicates which ports are actually being monitored.
+         The octet string contains one bit per port. Each bit
+         within the octet string represents one port of the device.
+         The ordering of ports represented within the octet string
+         is in the same order as in the RFC 1493 dot1dStaticAllowedToGoTo
+         in the dot1dStaticTable.
+
+         The bit value interpretation is as follows:
+                              1 = being monitored
+                              0 = not being monitored"
+    ::= { c2900PortEntry 30 }
+
+c2900PortDuplexState OBJECT-TYPE
+         SYNTAX INTEGER {
+                         fullduplex(1),
+                         halfduplex(2),
+                         autoNegotiate(3)
+                         }
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+                 "Set to fullduplex(1) to operate in full duplex mode, port
+                  will allow simultaneous transmit and receive which can
+                  double its bandwidth.
+
+                  Set to halfduplex(2) to operate in half duplex mode.
+
+                  Set to autoNegotiate(3) to allow the switch to negoti-
+                  ate with the other end of the connection.
+
+                  The status of duplex mode on a port is available with
+                  c2900PortDuplexStatus object."
+         DEFVAL { autoNegotiate }
+         ::= { c2900PortEntry 31 }
+
+c2900PortDuplexStatus OBJECT-TYPE
+         SYNTAX INTEGER {
+                        fullduplex(1),
+                        halfduplex(2)
+                        }
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+               "The status of duplex mode on this port.
+
+                When linkbeat is not present, halfduplex is always
+                reported.
+
+                When linkbeat is present, the result of full duplex
+                auto-negotiation is reported if c2900PortDuplexState is
+                set to auto-negotiate, otherwise it reports fullduplex
+                if c2900PortDuplexState is set to fullduplex or
+                halfduplex if c2900PortDuplexState is set to
+                halfduplex."
+         ::= { c2900PortEntry 32 }
+
+c2900PortAdminSpeed OBJECT-TYPE
+         SYNTAX INTEGER {
+                        autoDetect(1),
+                        s10000000(10000000),   -- 10 Mbps
+                        s100000000(100000000), -- 100 Mbps
+                        s155520000(155520000)  -- ATM 155.52 Mbps
+                        }
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+                "The object controls the speed of the port.
+                 The current operational speed of the port can be
+                 determined from ifSpeed."
+         DEFVAL { autoDetect }
+         ::= { c2900PortEntry 33 }
+
+c2900PortNoMonitorDestinationPort     OBJECT-TYPE
+    SYNTAX      Integer32 (0..64)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Switch Port (c2900PortSwitchPortIndex) index value of the port
+         that is to be removed from the monitored list. A value of zero
+         can't be used to do set, it is used to return when this object
+         is read.
+
+         To add a port to the monitored list use the object
+         c2900PortMonitorDestinationPort."
+    ::= { c2900PortEntry 34 }
+
+c2900Portdot1dBasePort OBJECT-TYPE
+    SYNTAX       Integer32 (1..65535)
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This is the dot1dBasePort associated with this port."
+    ::= { c2900PortEntry 35}
+
+ c2900PortSpantreeFastStart OBJECT-TYPE
+     SYNTAX        INTEGER { enabled(1), disabled(2) }
+     MAX-ACCESS    read-write
+     STATUS        current
+     DESCRIPTION
+         "Indicates whether the port is operating in spantree
+          fast start mode.  A port with fast start enabled is
+          immediately put in spanning tree forwarding state on
+          link up, rather than starting in blocking state which
+          is the normal operation.  This is useful when the port
+          is known to be connected to a single station which
+          has problems waiting for the normal spanning tree
+          operation to put the port in forwarding state."
+     DEFVAL { disabled }
+     ::= { c2900PortEntry 36 }
+
+c2900PortVoiceVlanId OBJECT-TYPE
+     SYNTAX          INTEGER ( 0|1..1000|4095|4096 )
+     MAX-ACCESS      read-write
+     STATUS          current
+     DESCRIPTION
+        "The Voice Virtual Vlan ID (VVID) to which this
+         port belongs to.
+         If the VVID is not supported on the port, this MIB
+         object will not be configurable and will return
+         4096.
+
+         Setting this MIB object to 4096, the CDP packets
+         transmitting through this port would not include
+         Appliance VLAN-ID TLV.
+
+         Setting this MIB object to 4095, the CDP packets
+         transmitting through this port would contain
+         Appliance VLAN-ID TLV with value of 4095 - VoIP
+         and related packets are expected to be sent and
+         received untagged without an 802.1p priority.
+
+         Setting this MIB object to 0, the CDP packets
+         transmitting through this port would contain
+         Appliance VLAN-ID TLV with value of 0 - VoIP
+         and related packets are expected to be sent and
+         received with VLAN-id=0 and an 802.1p priority.
+
+         Setting this MIB object to N (1..1000), the CDP
+         packets transmitting through this port would
+         contain Appliance VLAN-ID TLV with N - VoIP and
+         related packets are expected to be sent and received
+         with VLAN-id=N and an 802.1p priority."
+         ::= { c2900PortEntry 37 }
+
+c2900PortAddrSecureAgingTime OBJECT-TYPE
+    SYNTAX Integer32 (0..1440)
+    UNITS "minutes"
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+       "The aging interval in minutes for each secure address
+        entry on a given port. Depending on the type of aging
+        the secure address will age out after the expiration 
+        of the aging time and will be removed from the 
+        secure address list.
+
+        Any change in the value of this object will restart
+        the aging for all the secure addresses on this port.
+
+        If the value of this object is 0 for a given
+        port, the aging mechanism is disabled for this 
+        port."
+    DEFVAL { 0 }
+    ::= { c2900PortEntry 38 }
+
+c2900PortAddrSecureAgingType OBJECT-TYPE
+    SYNTAX INTEGER { absolute(1), inactivity(2) }
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+       "If the value of this object on a given port is 
+
+        absolute - all the secure addresses on this
+            port will age out exactly after the aging
+            time configured for this port.
+
+        inactivity - the secure addresses on this port 
+            will age out only if there is no data traffic
+            from the given secure source address for a 
+            time period specified by aging time.
+
+        Any change in the value of this object will restart
+        the aging for all the secure addresses on this port.
+
+        The value of this object is not effective when the 
+        value of c2900PortAddrSecureAgingTime is 0." 
+    DEFVAL { absolute }
+    ::= { c2900PortEntry 39 }
+
+c2900PortAddrSecureAgingStatic OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS  read-write
+    STATUS current
+    DESCRIPTION
+       "Set to true(1) to enable aging for statically
+        configured secure addresses on one port. Disable
+        the aging for statically configured secure 
+        addresses if set to false(2).
+
+        Any change in the value of this object will restart
+        the aging for all the configured secure addresses on
+        this port.
+
+        The value of this object is not effective when the 
+        value of c2900PortAddrSecureAgingTime is 0." 
+    DEFVAL { false }
+    ::= { c2900PortEntry 40 }
+
+--
+-- The switch Port Statistics Table
+--
+
+c2900PortStatsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF C2900PortStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A list of port entries.  The number of entries is
+         determined by the number of modules in the chassis
+         and the number of ports on each module."
+        ::= {  c2900Port 2 }
+
+c2900PortStatsEntry OBJECT-TYPE
+    SYNTAX       C2900PortStatsEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+         "Entry containing information for a particular
+          switched port on a module installed. The entry
+          cannot be created or deleted."
+     INDEX   { c2900PortModuleIndex, c2900PortIndex }
+    ::= { c2900PortStatsTable 1 }
+
+C2900PortStatsEntry ::= SEQUENCE {
+     c2900PortRxNoBwFrames          Counter32,
+     c2900PortRxNoBufferFrames      Counter32,
+     c2900PortRxNoDestUniFrames     Counter32,
+     c2900PortRxNoDestMultiFrames   Counter32,
+     c2900PortRxSuppressBcastFrames   Counter32,  -- DEPRECATED OBJECT
+     c2900PortRxFcsErrFrames        Counter32,
+     c2900PortCollFragFrames        Counter32,
+     c2900PortTxMulticastFrames     Counter32,
+     c2900PortTxBroadcastFrames     Counter32
+}
+
+c2900PortRxNoBwFrames  OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "A count of frames received on this port that were discarded
+         due to a lack of bandwidth resources in the Catalyst Switch
+         forwarding engine."
+    ::= { c2900PortStatsEntry 1 }
+
+c2900PortRxNoBufferFrames  OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "A count of frames received that were discarded due
+         to a lack of frame buffer resources in the Catalyst Switch
+         forwarding engine."
+    ::= { c2900PortStatsEntry  2 }
+
+c2900PortRxNoDestUniFrames  OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS   "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "A count of unicast frames received that were discarded,
+         because the forwarding rules stipulate that they are
+         not be forwarded."
+    ::= { c2900PortStatsEntry  3 }
+
+c2900PortRxNoDestMultiFrames  OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "A count of multicast frames received that were discarded,
+         because they have not been configured for the port."
+    ::= { c2900PortStatsEntry  4 }
+
+c2900PortRxSuppressBcastFrames  OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS deprecated
+    DESCRIPTION
+        "A count of broadcast frames received that were discarded
+         because of the threshold-based broadcast suppression.
+
+         This object is deprecated, because there is no way that the
+         Malibu system to give the brodcast_supress frames"
+    ::= { c2900PortStatsEntry  5 }
+
+c2900PortRxFcsErrFrames  OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of frames received with FCS errors.
+         This total includes all frames received with an FCS
+         error and an integral number of bytes.
+         Unlike RFC1650's dot3StatsFCSErrors,
+         this object does not include frames which are less
+         than the minimum packet size (such as collision fragments)."
+    ::= { c2900PortStatsEntry  6 }
+
+c2900PortCollFragFrames OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of frames whose lengths are less than
+         64 and have bad FCS values.
+         The preamble and sfd fields are excluded from the byte
+         count of a frame while the FCS field is included."
+        ::= { c2900PortStatsEntry 7 }
+
+c2900PortTxMulticastFrames OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+         "A count of frames that are successfully transmitted and
+          are directed to a multicast address.
+          Unlike RFC1573's ifOutMulticastPkts, this object does not
+          include those that were discarded or not sent."
+    ::= { c2900PortStatsEntry  8 }
+
+c2900PortTxBroadcastFrames  OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "frames"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+         "A count of frames that are successfully transmitted and
+          are directed to the broadcast address.
+          Unlike RFC1573's ifOutBroadcastPkts, this object does
+          not include those that were discarded or not sent."
+    ::= { c2900PortStatsEntry  9 }
+
+--
+--     Bandwidth Usage Information
+--
+
+c2900BandwidthUsageCurrent OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS   "megabits per second"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+            "The current bandwidth consumed.  The measurement unit is
+             in megabits per second (1,000,000 bits/second).
+             This value gives a reasonable estimate of the amount of
+             traffic currently flowing through the switch.
+
+             It is calculated as follows:
+
+             Octets*8 + Frames*(96 + 64)
+             ---------------------------
+             Measurement Interval * 1,000,000 * 2
+
+            Where:
+              Measurement Interval is the amount of time over which
+              the Octets and Frames were collected, in seconds.
+
+              Measurement Interval is always one second in current
+              implementation.
+
+              Octets is the total number of octets transmitted
+              or received by all network interfaces, excluding
+              framing data but including FCS. This includes octets
+              in frames which were partially transmitted or
+              received (due to collisions, for example).
+
+              Frames is the total number of frames transmitted
+              or received by all network interfaces, including
+              frames with errors.
+
+             The number of frames is multiplied by 96 plus 64 in
+             order to estimate the delay between each frame for
+             Ethernet's IPG and preamble/SFD.
+
+             The '2' in the divisor makes this a forwarding bandwidth
+             counter. A frame received on one interface is typically
+             forwarded out another interface. In order to avoid double-
+             counting this frame's bandwidth, once on the receiving
+             interface and once on the transmitting interface, the
+             total bandwidth is divided by two.
+             Since multicast and broadcast frames can be sent to multiple
+             ports, the above is at best a lower bound."
+        ::= { c2900BandwidthUsage 1 }
+
+c2900BandwidthUsageMaxPeakEntries OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+            "The maximum number of entries c2900BandwidthUsagePeakTable
+             can have."
+        ::= { c2900BandwidthUsage 2 }
+
+c2900BandwidthUsagePeakInterval OBJECT-TYPE
+        SYNTAX  INTEGER { onehour(1),threehours(3),sixhours(6),
+                          twelvehours(12),oneday(24),twodays(48),
+                          threedays(72),fourdays(96),fivedays(120),
+                          sixdays(144),oneweek(168) }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+            "This object specifies the length of time
+             which forms a peak bandwidth measurement interval.
+
+             A write to this object with any new value
+             restarts the peak bandwidth recording interval used
+             by bandwidthUsagePeakTable.
+
+             In other words, the bandwidthUsagePeakTable
+             will be cleared and entry number one will record
+             the peak with a new measurement interval."
+        DEFVAL { oneday }
+        ::= { c2900BandwidthUsage 3 }
+
+c2900BandwidthUsagePeakRestart OBJECT-TYPE
+        SYNTAX TruthValue
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+            "Set to true(1) to clear the c2900BandwidthUsagePeakTable
+             and restart the peak bandwidth recording.
+             No action will be taken if this object is set
+             to false(2).  This object returns false(2)
+             when read."
+        ::= { c2900BandwidthUsage 4 }
+
+c2900BandwidthUsageCurrentPeakEntry OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+            "A value identifying an instance of the
+             c2900BandwidthUsagePeakIndex where the
+             peak bandwidth estimation is most recent."
+        ::= { c2900BandwidthUsage 5 }
+
+c2900BandwidthUsagePeakTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF C2900BandwidthUsagePeakEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+          "A list of entries containing peak bandwidth usages in
+           a number of recording interval.
+
+           After being cleared, entries are added to the
+           bandwidthUsagePeakTable with ascending values of
+           c2900BandwidthUsagePeakIndex starting at 1.  When the number of
+           entries reaches c2900BandwidthUsageMaxPeakEntries,
+           each new recording interval is assigned the value of
+           c2900BandwidthUsagePeakIndex corresponding to the oldest entry,
+           overwriting the previous contents of that entry."
+        ::= { c2900BandwidthUsage 6 }
+
+c2900BandwidthUsagePeakEntry OBJECT-TYPE
+        SYNTAX  C2900BandwidthUsagePeakEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+            "Information about peak bandwidth usage in a recording interval."
+        INDEX   { c2900BandwidthUsagePeakIndex }
+        ::= { c2900BandwidthUsagePeakTable 1 }
+
+C2900BandwidthUsagePeakEntry ::=
+        SEQUENCE {
+                c2900BandwidthUsagePeakIndex
+                        Integer32,
+                c2900BandwidthUsageStartTime
+                        DateAndTime,
+                c2900BandwidthUsagePeak
+                        Gauge32,
+                c2900BandwidthUsagePeakTime
+                       DateAndTime
+        }
+
+c2900BandwidthUsagePeakIndex OBJECT-TYPE
+        SYNTAX  Integer32 (1..2147483647)
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+            "Number from one to c2900BandwidthUsageMaxPeakEntries
+             identifying a particular c2900BandwithUsagePeakEntry."
+        ::= { c2900BandwidthUsagePeakEntry 1 }
+
+c2900BandwidthUsageStartTime OBJECT-TYPE
+        SYNTAX DateAndTime
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The time that marks the start of this recording interval."
+        ::= { c2900BandwidthUsagePeakEntry 2 }
+
+c2900BandwidthUsagePeak OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS   "megabits per second"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+            "The maximum bandwidth usage of any measurement interval
+             within this recording interval.
+
+             This value is an estimate of the highest amount of
+             traffic flowing through the switch during this
+             recording interval.
+
+            It is calculated as follows:
+
+            Octets*8 + Frames*(96 + 64)
+            ---------------------------
+            Measurement Interval * 1,000,000 * 2
+
+            Where:
+              Measurement Interval is the amount of time over which
+              the Octets and Frames were collected, in seconds.
+
+              Measurement Interval is always one second in c2900's
+              implementation.
+
+              Octets is the total number of octets transmitted
+              or received by all network interfaces, excluding
+              framing data but including FCS. This includes octets
+              in frames which were partially transmitted or
+              received (due to collisions, for example).
+
+              Frames is the total number of frames transmitted
+              or received by all network interfaces, including
+              frames with errors.
+
+           The number of frames is multiplied by 96 plus 64 in
+           order to estimate the delay between each frame for
+           Ethernet's IPG and preamble/SFD.
+
+           The '2' in the divisor makes this a forwarding bandwidth
+           counter. A frame received on one interface is typically
+           forwarded out another interface. In order to avoid double-
+           counting this frame's bandwidth, once on the receiving
+           interface and once on the transmitting interface, the
+           total bandwidth is divided by two.
+           Since multicast and broadcast frames can be sent to multiple
+           ports, the above is at best a lower bound."
+        ::= { c2900BandwidthUsagePeakEntry 3 }
+
+c2900BandwidthUsagePeakTime OBJECT-TYPE
+        SYNTAX DateAndTime
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The start time of the measurement interval."
+        ::= { c2900BandwidthUsagePeakEntry 4 }
+
+--
+--   C a t a l y s t     N O T I F I C A T I O N S
+--
+
+c2900MibNotifications   OBJECT IDENTIFIER ::= { ciscoC2900MIB 2 }
+c2900MibNotificationsPrefix
+               OBJECT IDENTIFIER ::= { c2900MibNotifications 0 }
+
+c2900AddressViolation NOTIFICATION-TYPE
+        OBJECTS   {c2900PortIfIndex}
+        STATUS    current
+        DESCRIPTION
+            "The addressViolation notification is generated
+             when an address violation is detected
+             on a secured port. The generation of the
+             addressViolation notification can be enabled
+             or suppressed using the object
+             c2900ConfigAddressViolationAction.
+             The particular secured port is indicated by
+             the value of c2900PortIfIndex."
+        ::= { c2900MibNotificationsPrefix 1 }
+
+c2900BroadcastStorm NOTIFICATION-TYPE
+        OBJECTS   {c2900PortBroadcastRisingThreshold}
+        STATUS    current
+        DESCRIPTION
+            "The broadcastStorm notification is generated
+             upon detecting a port is receiving
+             broadcast packets at a rate crossing
+             the specified broadcast threshold.
+             This trap is only for the rising threshold.
+             The particular port is indicated by the values of
+             c2900PortModuleIndex and c2900PortIndex, and the
+             value of the threshold is given by
+             c2900PortBroadcastRisingThreshold."
+        ::= { c2900MibNotificationsPrefix 2 }
+
+c2900RpsFailed NOTIFICATION-TYPE
+        OBJECTS   {sysName}
+        STATUS    current
+        DESCRIPTION
+            "A redundant power system (RPS) is connected to the
+             switch. The RpsFailed notification is generated
+             upon detecting RPS failure."
+        ::= { c2900MibNotificationsPrefix 3 }
+
+--
+--   C o n f o r m a n c e
+--
+
+-- conformance information
+
+c2900MIBConformance  OBJECT IDENTIFIER ::= { ciscoC2900MIB 3 }
+c2900MIBCompliances  OBJECT IDENTIFIER ::= { c2900MIBConformance 1 }
+c2900MIBGroups       OBJECT IDENTIFIER ::= { c2900MIBConformance 2 }
+
+-- compliance statements
+
+c2900MIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+            "The  compliance statement for all c2900 switch."
+        MODULE -- this  module
+        MANDATORY-GROUPS { c2900SysInfoGroup,
+                           c2900SysConfigGroup,
+                           c2900PortGroup,
+                           c2900BandwidthUsageGroup
+                         }
+        ::= { c2900MIBCompliances 1 }
+
+c2900MIBComplianceSA3 MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+            "The  compliance statement for all c2900 switch."
+        MODULE -- this  module
+        MANDATORY-GROUPS { c2900SysInfoGroup,
+                           c2900ModuleGroup,
+                           c2900BandwidthUsageGroup,
+                           c2900PortGroupSA3,
+                           c2900PortStatsGroupSA3
+                         }
+        ::= { c2900MIBCompliances 3 }
+
+c2900MIBComplianceSA5 MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+            "The  compliance statement for all c2900 switch."
+        MODULE -- this  module
+        MANDATORY-GROUPS { c2900SysInfoGroup,
+                           c2900ModuleGroup,
+                           c2900BandwidthUsageGroup,
+                           c2900PortGroupSA5
+                         }
+        ::= { c2900MIBCompliances 2 }
+
+c2900MIBComplianceSA7 MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+            "The  compliance statement for all c2900 switch."
+        MODULE -- this  module
+        MANDATORY-GROUPS { c2900SysInfoGroup,
+                           c2900ModuleGroup,
+                           c2900BandwidthUsageGroup,
+                           c2900PortGroupSA7
+                         }
+        ::= { c2900MIBCompliances 4 }
+
+
+c2900MIBComplianceWC2 MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+            "The  compliance statement for all c2900 switch."
+        MODULE -- this  module
+        MANDATORY-GROUPS { c2900SysInfoGroup,
+                           c2900ModuleGroup,
+                           c2900BandwidthUsageGroup,
+                           c2900PortGroupWC2
+                         }
+        ::= { c2900MIBCompliances 5 }
+
+c2900MIBComplianceWC4 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+            "The  compliance statement for all c2900 switch."
+        MODULE -- this  module
+        MANDATORY-GROUPS { c2900SysInfoGroup,
+                           c2900ModuleGroup,
+                           c2900BandwidthUsageGroup,
+                           c2900PortGroupWC4,
+                           c2900NotificationsGroup 
+                         }
+        GROUP c2900PortStatsGroupRev1
+        DESCRIPTION
+            "This group is optional."
+
+        ::= { c2900MIBCompliances 6 }
+
+-- Units of Conformance
+
+c2900SysInfoGroup OBJECT-GROUP
+        OBJECTS {
+                  c2900InfoBoardRevision,
+                  c2900InfoPeakBuffersUsed,
+                  c2900InfoTotalBufferDepth,
+                  c2900InfoAddrCapacity,
+                  c2900InfoRestrictedStaticAddrCapacity,
+                  c2900InfoSelfTestFailed,
+                  c2900InfoUtilDisplay,
+                  c2900InfoVisualIndicatorMode,
+                  c2900InfoRedunantPowerSupplyInfo,
+                  c2900InfoBoardIdentifier
+                }
+        STATUS current
+        DESCRIPTION
+            "The collection of objects which are used to provide
+             the general switch information."
+        ::= {  c2900MIBGroups 1 }
+
+c2900SysConfigGroup  OBJECT-GROUP
+        OBJECTS {
+                  c2900ConfigAddressViolationAction,  -- DEPRECATED OBJECT
+                  c2900ConfigBroadcastStormAlarm      -- DEPRECATED OBJECT
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to configure
+             the switch."
+        ::= {  c2900MIBGroups 2 }
+
+c2900ModuleGroup  OBJECT-GROUP
+        OBJECTS {
+                  c2900ModuleStatus,
+                  c2900ModuleType,
+                  c2900ModuleHwVersion,
+                  c2900ModuleSwVersion
+                }
+        STATUS current
+        DESCRIPTION
+            "The object is used to provide the module status."
+        ::= {  c2900MIBGroups 3 }
+
+c2900PortGroup   OBJECT-GROUP
+        OBJECTS {
+                  c2900PortUsageApplication,
+                  c2900PortGroupIndex,
+                  c2900PortMayLearnAddress,              -- DEPRECATED OBJECT
+                  c2900PortMayForwardFrames,
+                  c2900PortBufferCongestionControl,      -- DEPRECATED OBJECT
+                  c2900PortBufferCongestionThreshholdPercent,
+                  c2900PortFrameAge,
+                  c2900PortAddrSecureMaxAddresses,
+                  c2900PortAddrSecureCurrentAddresses,
+                  c2900PortAddrSecureAddrViolations,
+                  c2900PortNumberOfLearnedAddresses,
+                  c2900PortNumberOfDroppedAddresses,
+                  c2900PortClearAddresses,
+                  c2900PortFloodUnknownMulticasts,
+                  c2900PortFloodUnknownUnicasts,
+                  c2900PortLinkbeatStatus,
+                  c2900PortBroadcastStormAction,
+                  c2900PortBroadcastRisingThreshold,
+                  c2900PortBroadcastFallingThreshold,
+                  c2900PortStatus,
+                  c2900PortTestResult,
+                  c2900PortVisualIndicator,
+                  c2900PortIfIndex,
+                  c2900PortAddressViolationAction,
+                  c2900PortBroadcastStormAlarm,
+                  c2900PortMonitorDestinationPort,
+                  c2900PortSwitchPortIndex,
+                  c2900PortMonitoredPortMap,
+                  c2900PortDuplexState,
+                  c2900PortDuplexStatus,
+                  c2900PortAdminSpeed,
+                  c2900PortNoMonitorDestinationPort
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port status and configuration."
+        ::= {  c2900MIBGroups 4 }
+
+c2900PortStatsGroup   OBJECT-GROUP
+        OBJECTS {
+                 c2900PortRxNoBwFrames,
+                 c2900PortRxNoBufferFrames,
+                 c2900PortRxNoDestUniFrames,
+                 c2900PortRxNoDestMultiFrames,
+                 c2900PortRxSuppressBcastFrames,    -- DEPRECATED OBJECT
+                 c2900PortRxFcsErrFrames,
+                 c2900PortCollFragFrames,
+                 c2900PortTxMulticastFrames,
+                 c2900PortTxBroadcastFrames
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port stats."
+        ::= {  c2900MIBGroups 5 }
+
+c2900BandwidthUsageGroup OBJECT-GROUP
+        OBJECTS {
+                 c2900BandwidthUsageCurrent,
+                 c2900BandwidthUsageMaxPeakEntries,
+                 c2900BandwidthUsagePeakInterval,
+                 c2900BandwidthUsagePeakRestart,
+                 c2900BandwidthUsagePeakIndex,
+                 c2900BandwidthUsageStartTime,
+                 c2900BandwidthUsagePeak,
+                 c2900BandwidthUsagePeakTime,
+                 c2900BandwidthUsageCurrentPeakEntry
+                }
+        STATUS current
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide the bandwidth information."
+        ::= {  c2900MIBGroups 6 }
+
+c2900PortGroupSA3   OBJECT-GROUP
+        OBJECTS {
+                  c2900PortUsageApplication,
+                  c2900PortGroupIndex,
+                  c2900PortMayLearnAddress,
+                  c2900PortMayForwardFrames,
+                  c2900PortBufferCongestionThreshholdPercent,
+                  c2900PortFrameAge,
+                  c2900PortAddrSecureMaxAddresses,
+                  c2900PortAddrSecureCurrentAddresses,
+                  c2900PortAddrSecureAddrViolations,
+                  c2900PortNumberOfLearnedAddresses,
+                  c2900PortNumberOfDroppedAddresses,
+                  c2900PortClearAddresses,
+                  c2900PortFloodUnknownMulticasts,
+                  c2900PortFloodUnknownUnicasts,
+                  c2900PortLinkbeatStatus,
+                  c2900PortBroadcastStormAction,
+                  c2900PortBroadcastRisingThreshold,
+                  c2900PortBroadcastFallingThreshold,
+                  c2900PortStatus,
+                  c2900PortTestResult,
+                  c2900PortVisualIndicator,
+                  c2900PortIfIndex,
+                  c2900PortAddressViolationAction,
+                  c2900PortBroadcastStormAlarm,
+                  c2900PortMonitorDestinationPort,
+                  c2900PortSwitchPortIndex,
+                  c2900PortMonitoredPortMap,
+                  c2900PortDuplexState,
+                  c2900PortDuplexStatus,
+                  c2900PortAdminSpeed,
+                  c2900PortNoMonitorDestinationPort
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port status and configuration."
+        ::= {  c2900MIBGroups 7 }
+
+c2900PortStatsGroupSA3   OBJECT-GROUP
+        OBJECTS {
+                 c2900PortRxNoBwFrames,
+                 c2900PortRxNoBufferFrames,
+                 c2900PortRxNoDestUniFrames,
+                 c2900PortRxNoDestMultiFrames,
+                 c2900PortRxFcsErrFrames,
+                 c2900PortCollFragFrames,
+                 c2900PortTxMulticastFrames,
+                 c2900PortTxBroadcastFrames
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port stats."
+        ::= {  c2900MIBGroups 8 }
+
+c2900PortGroupSA5   OBJECT-GROUP
+        OBJECTS {
+                  c2900PortUsageApplication,
+                  c2900PortGroupIndex,
+                  c2900PortMayForwardFrames,
+                  c2900PortBufferCongestionThreshholdPercent,
+                  c2900PortFrameAge,
+                  c2900PortAddrSecureMaxAddresses,
+                  c2900PortAddrSecureCurrentAddresses,
+                  c2900PortAddrSecureAddrViolations,
+                  c2900PortNumberOfLearnedAddresses,
+                  c2900PortNumberOfDroppedAddresses,
+                  c2900PortClearAddresses,
+                  c2900PortFloodUnknownMulticasts,
+                  c2900PortFloodUnknownUnicasts,
+                  c2900PortLinkbeatStatus,
+                  c2900PortBroadcastStormAction,
+                  c2900PortBroadcastRisingThreshold,
+                  c2900PortBroadcastFallingThreshold,
+                  c2900PortStatus,
+                  c2900PortTestResult,
+                  c2900PortVisualIndicator,
+                  c2900PortIfIndex,
+                  c2900PortAddressViolationAction,
+                  c2900PortBroadcastStormAlarm,
+                  c2900PortMonitorDestinationPort,
+                  c2900PortSwitchPortIndex,
+                  c2900PortMonitoredPortMap,
+                  c2900PortDuplexState,
+                  c2900PortDuplexStatus,
+                  c2900PortAdminSpeed,
+                  c2900PortNoMonitorDestinationPort,
+                  c2900Portdot1dBasePort
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port status and configuration."
+        ::= {  c2900MIBGroups 9 }
+
+c2900PortGroupSA7   OBJECT-GROUP
+        OBJECTS {
+                  c2900PortUsageApplication,
+                  c2900PortGroupIndex,
+                  c2900PortMayForwardFrames,
+                  c2900PortBufferCongestionThreshholdPercent,
+                  c2900PortFrameAge,
+                  c2900PortAddrSecureMaxAddresses,
+                  c2900PortAddrSecureCurrentAddresses,
+                  c2900PortAddrSecureAddrViolations,
+                  c2900PortNumberOfLearnedAddresses,
+                  c2900PortNumberOfDroppedAddresses,
+                  c2900PortClearAddresses,
+                  c2900PortFloodUnknownMulticasts,
+                  c2900PortFloodUnknownUnicasts,
+                  c2900PortLinkbeatStatus,
+                  c2900PortBroadcastStormAction,
+                  c2900PortBroadcastRisingThreshold,
+                  c2900PortBroadcastFallingThreshold,
+                  c2900PortStatus,
+                  c2900PortTestResult,
+                  c2900PortVisualIndicator,
+                  c2900PortIfIndex,
+                  c2900PortAddressViolationAction,
+                  c2900PortBroadcastStormAlarm,
+                  c2900PortMonitorDestinationPort,
+                  c2900PortSwitchPortIndex,
+                  c2900PortMonitoredPortMap,
+                  c2900PortDuplexState,
+                  c2900PortDuplexStatus,
+                  c2900PortAdminSpeed,
+                  c2900PortNoMonitorDestinationPort,
+                  c2900Portdot1dBasePort,
+                  c2900PortSpantreeFastStart
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port status and configuration."
+        ::= {  c2900MIBGroups 10 }
+
+c2900PortGroupWC2   OBJECT-GROUP
+        OBJECTS {
+                  c2900PortUsageApplication,
+                  c2900PortGroupIndex,
+                  c2900PortMayForwardFrames,
+                  c2900PortBufferCongestionThreshholdPercent,
+                  c2900PortFrameAge,
+                  c2900PortAddrSecureMaxAddresses,
+                  c2900PortAddrSecureCurrentAddresses,
+                  c2900PortAddrSecureAddrViolations,
+                  c2900PortNumberOfLearnedAddresses,
+                  c2900PortNumberOfDroppedAddresses,
+                  c2900PortClearAddresses,
+                  c2900PortFloodUnknownMulticasts,
+                  c2900PortFloodUnknownUnicasts,
+                  c2900PortLinkbeatStatus,
+                  c2900PortBroadcastStormAction,
+                  c2900PortBroadcastRisingThreshold,
+                  c2900PortBroadcastFallingThreshold,
+                  c2900PortStatus,
+                  c2900PortTestResult,
+                  c2900PortVisualIndicator,
+                  c2900PortIfIndex,
+                  c2900PortAddressViolationAction,
+                  c2900PortBroadcastStormAlarm,
+                  c2900PortMonitorDestinationPort,
+                  c2900PortSwitchPortIndex,
+                  c2900PortMonitoredPortMap,
+                  c2900PortDuplexState,
+                  c2900PortDuplexStatus,
+                  c2900PortAdminSpeed,
+                  c2900PortNoMonitorDestinationPort,
+                  c2900Portdot1dBasePort,
+                  c2900PortSpantreeFastStart,
+                  c2900PortVoiceVlanId
+                }
+        STATUS deprecated
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port status and configuration, includes 
+             voice vlan id."
+        ::= {  c2900MIBGroups 11 }
+
+c2900PortGroupWC4   OBJECT-GROUP
+        OBJECTS {
+                  c2900PortUsageApplication,
+                  c2900PortGroupIndex,
+                  c2900PortMayForwardFrames,
+                  c2900PortBufferCongestionThreshholdPercent,
+                  c2900PortFrameAge,
+                  c2900PortAddrSecureMaxAddresses,
+                  c2900PortAddrSecureCurrentAddresses,
+                  c2900PortAddrSecureAddrViolations,
+                  c2900PortNumberOfLearnedAddresses,
+                  c2900PortNumberOfDroppedAddresses,
+                  c2900PortClearAddresses,
+                  c2900PortFloodUnknownMulticasts,
+                  c2900PortFloodUnknownUnicasts,
+                  c2900PortLinkbeatStatus,
+                  c2900PortBroadcastStormAction,
+                  c2900PortBroadcastRisingThreshold,
+                  c2900PortBroadcastFallingThreshold,
+                  c2900PortStatus,
+                  c2900PortTestResult,
+                  c2900PortVisualIndicator,
+                  c2900PortIfIndex,
+                  c2900PortAddressViolationAction,
+                  c2900PortBroadcastStormAlarm,
+                  c2900PortMonitorDestinationPort,
+                  c2900PortSwitchPortIndex,
+                  c2900PortMonitoredPortMap,
+                  c2900PortDuplexState,
+                  c2900PortDuplexStatus,
+                  c2900PortAdminSpeed,
+                  c2900PortNoMonitorDestinationPort,
+                  c2900Portdot1dBasePort,
+                  c2900PortSpantreeFastStart,
+                  c2900PortVoiceVlanId, 
+                  c2900PortAddrSecureAgingTime, 
+                  c2900PortAddrSecureAgingType, 
+                  c2900PortAddrSecureAgingStatic
+                }
+        STATUS current
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port status and configuration, includes 
+             voice vlan id and port-security aging."
+        ::= {  c2900MIBGroups 12 }
+
+c2900NotificationsGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+                    c2900AddressViolation, 
+                    c2900BroadcastStorm, 
+                    c2900RpsFailed 
+                  }
+    STATUS        current
+    DESCRIPTION
+            "The set of  notifications provided by c2900 device."
+    ::= { c2900MIBGroups 13 }
+
+c2900PortStatsGroupRev1   OBJECT-GROUP
+        OBJECTS {
+                 c2900PortRxNoBwFrames,
+                 c2900PortRxNoBufferFrames,
+                 c2900PortRxNoDestUniFrames,
+                 c2900PortRxNoDestMultiFrames,
+                 c2900PortRxFcsErrFrames,
+                 c2900PortCollFragFrames,
+                 c2900PortTxMulticastFrames,
+                 c2900PortTxBroadcastFrames
+                }
+        STATUS current
+        DESCRIPTION
+            "The collection of objects which are used to
+             provide port stats."
+        ::= {  c2900MIBGroups 14 }
+
+END
+

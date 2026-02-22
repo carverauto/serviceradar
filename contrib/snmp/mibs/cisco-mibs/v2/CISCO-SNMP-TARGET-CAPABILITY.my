@@ -1,0 +1,391 @@
+-- *****************************************************************
+-- CISCO-SNMP-TARGET-CAPABILITY.my:
+-- Cisco SNMP-TARGET-MIB AGENT-CAPABILITIES
+--   
+-- July 2004, Rashmi Purandare
+--   
+-- Copyright (c) 2003, 2004, 2006, 2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-SNMP-TARGET-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSnmpTargetCapability MODULE-IDENTITY
+    LAST-UPDATED    "200807210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com, cs-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of SNMP-TARGET-MIB."
+    REVISION        "200807210000Z"
+    DESCRIPTION
+        "Added capability statement ciscoSnmpTargetCapc4710aceVA1R700
+        for ACE 4710 Application Control Engine Appliance.
+
+        Added VARIATION clause for snmpTargetSpinLock object in 
+        ciscoSnmpTargetCapACSWV03R000 agent capability."
+    REVISION        "200706220000Z"
+    DESCRIPTION
+        "Removed SYNTAX for snmpTargetAddrTDomain under
+        ciscoSnmpTargetCapCatOSV05R0501."
+    REVISION        "200604110000Z"
+    DESCRIPTION
+        "Added capability statement ciscoSnmpTargetCapACSWV03R000
+        for Application Control Engine (ACE)."
+    REVISION        "200407280000Z"
+    DESCRIPTION
+        "Added capabilities for VISM release 3.3."
+    REVISION        "200309160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 359 }
+
+
+
+ciscoSnmpTargetCapCatOSV05R0501 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 5.5(1)."
+    STATUS          current
+    DESCRIPTION
+        "SNMP-TARGET-MIB capabilities."
+
+    SUPPORTS        SNMP-TARGET-MIB
+    INCLUDES        {
+                        snmpTargetBasicGroup,
+                        snmpTargetResponseGroup,
+                        snmpTargetCommandResponderGroup
+                    }
+    VARIATION       snmpTargetAddrTDomain
+    DESCRIPTION
+        "Only supports snmpUDPDomain."
+
+    VARIATION       snmpTargetAddrStorageType
+    SYNTAX          INTEGER  {
+                        volatile(2),
+                        nonVolatile(3),
+                        readOnly(5)
+                    }
+    DESCRIPTION
+        "Only supports volatile(2), nonVolatile(3)
+        and readOnly(5)."
+
+    VARIATION       snmpTargetParamsMPModel
+    SYNTAX          INTEGER (0 ..0 |  1 ..1 |  3..3)
+    DESCRIPTION
+        "Only supports SNMPv1 (0), SNMPv2c (1),
+        and SNMPv3 (3)."
+
+    VARIATION       snmpTargetParamsSecurityModel
+    SYNTAX          INTEGER (1..3)
+    DESCRIPTION
+        "Only supports SNMPv1 (1), SNMPv2c (2) and
+        User-Based Security Model (3)."
+
+    VARIATION       snmpTargetParamsSecurityName
+    SYNTAX          SnmpAdminString (SIZE (1..32))
+    DESCRIPTION
+        "Maximum length supported is 32 characters."
+
+    VARIATION       snmpTargetParamsStorageType
+    SYNTAX          INTEGER  {
+                        volatile(2),
+                        nonVolatile(3),
+                        readOnly(5)
+                    }
+    DESCRIPTION
+        "Only supports volatile(2), nonVolatile(3)
+        and readOnly(5)."
+
+    ::= { ciscoSnmpTargetCapability 1 }
+
+ciscoSnmpTargetCapVISM33 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco VISM Release 3.3"
+    STATUS          current
+    DESCRIPTION
+        "SNMP-TARGET-MIB capabilities."
+
+    SUPPORTS        SNMP-TARGET-MIB
+    INCLUDES        { snmpTargetBasicGroup }
+    VARIATION       snmpTargetSpinLock
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       snmpTargetAddrTDomain
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       snmpTargetAddrTAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       snmpTargetAddrTagList
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       snmpTargetAddrParams
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       snmpTargetAddrStorageType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       snmpTargetAddrRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       snmpTargetParamsMPModel
+    SYNTAX          INTEGER (0)
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access and supports
+        only SNMPv1(0)"
+
+    VARIATION       snmpTargetParamsSecurityModel
+    SYNTAX          INTEGER (1)
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access and supports
+        only SNMPv1 (1)."
+
+    VARIATION       snmpTargetParamsSecurityName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       snmpTargetParamsSecurityLevel
+    SYNTAX          INTEGER  {
+                        noAuthNoPriv(1)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access and supports
+        only noAuthNoPriv (1)."
+
+    VARIATION       snmpTargetParamsStorageType
+    SYNTAX          INTEGER  {
+                        readOnly(5)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access and only
+        supports readOnly(5) since it
+        cannot be modified."
+
+    VARIATION       snmpTargetParamsRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    ::= { ciscoSnmpTargetCapability 2 }
+
+ciscoSnmpTargetCapACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "SNMP-TARGET-MIB capabilities."
+
+    SUPPORTS        SNMP-TARGET-MIB
+    INCLUDES        {
+                        snmpTargetBasicGroup,
+                        snmpTargetResponseGroup,
+                        snmpTargetCommandResponderGroup
+                    }
+    VARIATION       snmpTargetSpinLock
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       snmpTargetAddrTDomain
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrTAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrTagList
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrParams
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsMPModel
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsSecurityModel
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsSecurityName
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsSecurityLevel
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrRetryCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    ::= { ciscoSnmpTargetCapability 3 }
+
+ciscoSnmpTargetCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                     for ACE 4710 Application Control Engine 
+                     Appliance."
+    STATUS          current
+    DESCRIPTION
+        "SNMP-TARGET-MIB capabilities."
+
+    SUPPORTS        SNMP-TARGET-MIB
+    INCLUDES        {
+                        snmpTargetBasicGroup,
+                        snmpTargetResponseGroup,
+                        snmpTargetCommandResponderGroup
+                    }
+    VARIATION       snmpTargetSpinLock
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       snmpTargetAddrTDomain
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrTAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrTagList
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrParams
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsMPModel
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsSecurityModel
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsSecurityName
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsSecurityLevel
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetParamsRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    VARIATION       snmpTargetAddrRetryCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access."
+
+    ::= { ciscoSnmpTargetCapability 4 }
+
+END

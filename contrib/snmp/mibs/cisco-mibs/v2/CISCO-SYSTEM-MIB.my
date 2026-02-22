@@ -1,0 +1,682 @@
+-- *****************************************************************
+-- Cisco System MIB
+--   
+-- Janurary 1999, Bob Stewart
+-- September 1999, Padma Pullela
+-- March 2001, Thomas Wu
+--   
+-- Copyright (c) 1999-2001, 2007 by cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-SYSTEM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    DateAndTime,
+    TruthValue,
+    DisplayString
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    CountryCode
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSystemMIB MODULE-IDENTITY
+    LAST-UPDATED    "200709160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "The systemGroup (see RFC 1907) provides a standard set of
+        basic system information.  This MIB module contains
+        Cisco-defined extensions to the systemGroup."
+
+    REVISION    "200709160000Z"
+    DESCRIPTION
+        "Removed default values for csySummerTimeStatus,
+         csySummerTimeOffset, csySummerTimeRecurringStart and
+         csySummerTimeRecurringEnd objects."
+
+    REVISION        "200705290000Z"
+    DESCRIPTION
+        "Added the following new object:
+        - csyStandardTmZnGMTOffset
+        - csySummerTmZnGMTOffset"
+    REVISION        "200106220000Z"
+    DESCRIPTION
+        "Added SNMP authentication failure objects and clock
+        changed notification."
+    REVISION        "200001251700Z"
+    DESCRIPTION
+        "Added Summertime and ScheduledReset objects."
+    REVISION        "9902021700Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 131 }
+
+
+ciscoSystemMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIB 1 }
+
+csyClock  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBObjects 1 }
+
+csyLocation  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBObjects 2 }
+
+csySummerTime  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBObjects 3 }
+
+csyScheduledReset  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBObjects 4 }
+
+csySnmpAuthentication  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBObjects 5 }
+
+csyGeneral  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBObjects 6 }
+
+
+-- Clock Section
+
+csyClockDateAndTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The current local date and time for the system.
+
+        Setting this object is equivalent to setting an automated
+        clock and calendar.  The value of the object will track the
+        date and time from the value set.  Note that due to hardware
+        limitations some systems may not be able to preserve such
+        meaning across reboots of the system, as indicated by
+        csyClockLostOnReboot.
+
+        A constant value of all zeros and length 8 indicates the
+        system is not aware of the present date and time.
+
+        This object may be read-only on some systems." 
+    ::= { csyClock 1 }
+
+csyClockLostOnReboot OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indication of whether the system can preserve knowledge of
+        current date and time across a system reboot.
+
+        A value of 'true' indicates the clock must be reset from some
+        external source each time the system reboots.
+
+        A value of 'false' indicates the system has the ability to
+        keep time across reboots." 
+    ::= { csyClock 2 }
+
+-- Location Section
+
+csyLocationCountry OBJECT-TYPE
+    SYNTAX          CountryCode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The country where the system is physically located.
+
+        On some systems and for some technologies this value affects
+        behavior, such as standards for communication.  All such
+        technologies should default to using the setting of this
+        value, but may provide an override if necessary.
+
+        The default value of this object is 'US'.  Systems destined
+        for other countries may use a different default.  Systems in
+        which the value does not affect operation should default to
+        a zero-length value." 
+    ::= { csyLocation 1 }
+
+-- Generic Summertime Section
+
+csySummerTimeStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An indication of whether the summertime feature
+        is enabled on this device. When this object
+        is set to true, then csySummerTimeOffset, 
+        csySummerTimeRecurringStart and
+        csySummerTimeRecurringEnd  objects are set 
+        to default values provided by the system. 
+        When this object is set 
+        to false, then csySummerTimeOffset, 
+        csySummerTimeRecurringStart,
+        csySummerTimeRecurringEnd objects are 
+        not instantiated and the summertime feature 
+        is disabled."
+    ::= { csySummerTime 1 }
+
+csySummerTimeOffset OBJECT-TYPE
+    SYNTAX          INTEGER (1..1440)
+    UNITS           "Minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The value of this object indicates number of
+        minutes to add  or to subtract during summertime.
+        This object is not instantiated when 
+        csySummerTimeStatus object is set to false."
+    ::= { csySummerTime 2 }
+
+csySummerTimeRecurringStart OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (6))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates summertime starts at this time every year.
+        octets    contents     range
+        1         week        1..5,ff last = ff 
+        2-3       day         1..7 
+                              where sunday = 1 saturday = 7
+        4         month       1..12 
+                              where january = 1 december = 12
+        5         hour        0..23
+        6         min         0..59
+        For example, the first Monday in Feb at 13:30pm  
+        should be given as
+            01 00 02 02 0e 1e  
+        For the last Tuesday in dec at 1:20am should be
+        given as
+           ff 00 03 0c 01 14 
+        This object is not instantiated when 
+        csySummerTimeStatus object is set to false."
+    ::= { csySummerTime 3 }
+
+csySummerTimeRecurringEnd OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (6))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates summertime ends at this time every year.
+        octets    contents      range
+        1         week        1..5,ff where ff = last 
+        2-3       day         1..7 
+                              where sunday = 1 saturday = 7
+        4         month       1..12 
+                              where january = 1 december = 12
+        5         hour        0..23
+        6         min         0..59
+        For example, the third friday in February at 3:30am 
+        should be given as
+             03 00 06 02 03 1e
+
+        For the first Tuesday in May at 1:20am  should 
+        be given as
+            01 00 03 05 01 14
+        This object is not instantiated when 
+        csySummerTimeStatus object is set to false."
+    ::= { csySummerTime 4 }
+
+csyStandardTmZnGMTOffset OBJECT-TYPE
+    SYNTAX          Integer32 (-720..720 )
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is  used to set standard timezone offset from GMT
+        in minutes."
+    DEFVAL          { 0 } 
+    ::= { csySummerTime 5 }
+
+csySummerTmZnGMTOffset OBJECT-TYPE
+    SYNTAX          Integer32 (-720..720 )
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is  used to set summer timezone offset from GMT in
+        minutes."
+    DEFVAL          { 0 } 
+    ::= { csySummerTime 6 }
+
+-- Scheduled Reset Section
+
+csyScheduledResetTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The scheduled date and time the switch will be
+        reset at. The system will only take octet strings 
+        with length 8 for this object which indicates the 
+        local time of the switch. The maximum scheduled 
+        time is 24 days from the current system clock time.
+
+        Setting this object value to be before the current 
+        system clock time or beyond the maximum scheduled 
+        time limit will be rejected by the system. Setting 
+        the object to all-zero octet strings will cancel the 
+        previously scheduled reset time and then the system 
+        will have no pending scheduled reset time. Setting 
+        this object value to be any valid octet strings 
+        other than the above cases will override the 
+        previously scheduled reset time and cause the system 
+        to be reset at the newly specified time.
+
+
+        After the system has accepted the scheduled reset 
+        time, if the system clock is advanced ahead of the 
+        scheduled reset time, then reset will happen 
+        approximately 5 minutes after the current clock." 
+    ::= { csyScheduledReset 1 }
+
+csyScheduledResetAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        reset(1), -- reset the system,
+                        resetMinDown(2) -- reset in minimal down time                        
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Writing reset(1) to this object perform the normal
+        reset operation on the active supervisor module.
+
+        Writing resetMinDown(2) to this object resets the
+        system with the minimal system down time at the
+        scheduled time. The resetMinDown(2) is only 
+        supported in systems with redundant supervisors."
+    DEFVAL          { reset } 
+    ::= { csyScheduledReset 2 }
+
+csyScheduledResetReason OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates the reason users input when issuing
+        system's scheduled reset.  After the system 
+        is reset, this object value  will be empty octet 
+        string." 
+    ::= { csyScheduledReset 3 }
+
+-- SNMP Authentication Section
+
+csySnmpAuthFail OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of SNMP messages received by the SNMP engine
+        that were not properly authenticated." 
+    ::= { csySnmpAuthentication 1 }
+
+csySnmpAuthFailAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address by which the last received
+        SNMP message that is not properly authenticated.
+
+        The value of this object is irrelevant if the value of
+        csySnmpAuthFail is zero." 
+    ::= { csySnmpAuthentication 2 }
+
+csySnmpAuthFailAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The internet address of the SNMP entity which sent the
+        last received SNMP message that is not properly authenticated.
+
+        The value of this object is irrelevant if the value of
+        csySnmpAuthFail is zero." 
+    ::= { csySnmpAuthentication 3 }
+
+-- General Section
+
+csyNotificationsEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the system produces the
+        notifications defined by the ciscoSystemNotificationsGroup.
+        A false value will prevent notifications from being generated
+        by this system."
+    DEFVAL          { false } 
+    ::= { csyGeneral 1 }
+-- Notification
+
+ciscoSystemMIBNotificationPrefix  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIB 2 }
+
+ciscoSystemMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBNotificationPrefix 0 }
+
+
+ciscoSystemClockChanged NOTIFICATION-TYPE
+    OBJECTS         { csyClockDateAndTime }
+    STATUS          current
+    DESCRIPTION
+        "A clock changed notification is generated when the current
+        local date and time for the system has been manually changed.
+        The value of csyClockDateAndTime reflects new date and time."
+   ::= { ciscoSystemMIBNotifications 1 }
+-- Conformance
+
+ciscoSystemMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIB 3 }
+
+ciscoSystemMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBConformance 1 }
+
+ciscoSystemMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSystemMIBConformance 2 }
+
+
+-- Compliance
+
+ciscoSystemMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cisco System MIB.  Adherence to this compliance
+        statement is expected of all Cisco systems."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoSystemClockGroup,
+                        ciscoSystemLocationGroup
+                    }
+
+    OBJECT          csyClockDateAndTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not implemented on systems that do
+        not allow their clock to be set either because they
+        have a different, more reliable source or because they
+        do not use such information."
+    ::= { ciscoSystemMIBCompliances 1 }
+
+ciscoSystemMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cisco System MIB.  Adherence to this compliance
+        statement is expected of all Cisco systems."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoSystemClockGroup,
+                        ciscoSystemLocationGroup
+                    }
+
+    GROUP           ciscoSystemSummerTimeGroup
+    DESCRIPTION
+        "The ciscoSystemSummerTimeGroup is an optional group
+        containing objects providing information about generic
+        Summertime feature."
+
+    GROUP           ciscoSystemScheduledResetGroup
+    DESCRIPTION
+        "The ciscoSystemScheduledResetGroup is an optional group
+        containing objects providing information about system
+        scheduled reset feature."
+
+    OBJECT          csyClockDateAndTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not implemented on systems that do
+        not allow their clock to be set either because they
+        have a different, more reliable source or because they
+        do not use such information."
+    ::= { ciscoSystemMIBCompliances 2 }
+
+ciscoSystemMIBCompliance3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cisco System MIB.  Adherence to this compliance
+        statement is expected of all Cisco systems."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoSystemClockGroup,
+                        ciscoSystemLocationGroup
+                    }
+
+    GROUP           ciscoSystemSummerTimeGroup
+    DESCRIPTION
+        "The ciscoSystemSummerTimeGroup is an optional group
+        containing objects providing information about generic
+        Summertime feature."
+
+    GROUP           ciscoSystemScheduledResetGroup
+    DESCRIPTION
+        "The ciscoSystemScheduledResetGroup is an optional group
+        containing objects providing information about system
+        scheduled reset feature."
+
+    GROUP           ciscoSystemSnmpAuthGroup
+    DESCRIPTION
+        "The ciscoSystemSnmpAuthGroup is an optional group
+        containing objects providing information about SNMP
+        message that is not properly authenticated."
+
+    GROUP           ciscoSystemGeneralGroup
+    DESCRIPTION
+        "The ciscoSystemGeneralGroup is an optional group
+        containing objects providing information about
+        general configuration within this MIB module."
+
+    GROUP           ciscoSystemNotificationsGroup
+    DESCRIPTION
+        "The ciscoSystemNotificationsGroup is an optional
+        group containing a collection of notifications in
+        this MIB module."
+
+    OBJECT          csyClockDateAndTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not implemented on systems that do
+        not allow their clock to be set either because they
+        have a different, more reliable source or because they
+        do not use such information."
+
+    OBJECT          csySnmpAuthFailAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          csySnmpAuthFailAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+    ::= { ciscoSystemMIBCompliances 3 }
+
+ciscoSystemMIBCompliance4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cisco System MIB.  Adherence to this compliance
+        statement is expected of all Cisco systems."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoSystemClockGroup,
+                        ciscoSystemLocationGroup
+                    }
+
+    GROUP           ciscoSystemSummerTimeGroupRev1
+    DESCRIPTION
+        "The ciscoSystemSummerTimeGroup is an optional group
+        containing objects providing information about generic
+        Summertime feature."
+
+    GROUP           ciscoSystemScheduledResetGroup
+    DESCRIPTION
+        "The ciscoSystemScheduledResetGroup is an optional group
+        containing objects providing information about system
+        scheduled reset feature."
+
+    GROUP           ciscoSystemSnmpAuthGroup
+    DESCRIPTION
+        "The ciscoSystemSnmpAuthGroup is an optional group
+        containing objects providing information about SNMP
+        message that is not properly authenticated."
+
+    GROUP           ciscoSystemGeneralGroup
+    DESCRIPTION
+        "The ciscoSystemGeneralGroup is an optional group
+        containing objects providing information about
+        general configuration within this MIB module."
+
+    GROUP           ciscoSystemNotificationsGroup
+    DESCRIPTION
+        "The ciscoSystemNotificationsGroup is an optional
+        group containing a collection of notifications in
+        this MIB module."
+
+    OBJECT          csyClockDateAndTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not implemented on systems that do
+        not allow their clock to be set either because they
+        have a different, more reliable source or because they
+        do not use such information."
+
+    OBJECT          csySnmpAuthFailAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          csySnmpAuthFailAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+    ::= { ciscoSystemMIBCompliances 4 }
+
+-- Units of Conformance
+
+ciscoSystemClockGroup OBJECT-GROUP
+    OBJECTS         {
+                        csyClockDateAndTime,
+                        csyClockLostOnReboot
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Clock attributes."
+    ::= { ciscoSystemMIBGroups 1 }
+
+ciscoSystemLocationGroup OBJECT-GROUP
+    OBJECTS         { csyLocationCountry }
+    STATUS          current
+    DESCRIPTION
+        "Physical location attributes."
+    ::= { ciscoSystemMIBGroups 2 }
+
+ciscoSystemSummerTimeGroup OBJECT-GROUP
+    OBJECTS         {
+                        csySummerTimeStatus,
+                        csySummerTimeOffset,
+                        csySummerTimeRecurringStart,
+                        csySummerTimeRecurringEnd
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects used to set Summertime.
+
+        Implementation of this group is optional. If the
+        generic Summertime feature is supported, the entire 
+        group should be implemented."
+    ::= { ciscoSystemMIBGroups 3 }
+
+ciscoSystemScheduledResetGroup OBJECT-GROUP
+    OBJECTS         {
+                        csyScheduledResetTime,
+                        csyScheduledResetAction,
+                        csyScheduledResetReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects used to set scheduled reset time.
+
+        Implementation of this group is optional. If the system
+        scheduled reset feature is supported, the entire group 
+        should be implemented."
+    ::= { ciscoSystemMIBGroups 4 }
+
+ciscoSystemSnmpAuthGroup OBJECT-GROUP
+    OBJECTS         {
+                        csySnmpAuthFail,
+                        csySnmpAuthFailAddressType,
+                        csySnmpAuthFailAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provide information
+        about SNMP message that is not properly authenticated."
+    ::= { ciscoSystemMIBGroups 5 }
+
+ciscoSystemGeneralGroup OBJECT-GROUP
+    OBJECTS         { csyNotificationsEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provide information
+        about general configuration within this MIB module."
+    ::= { ciscoSystemMIBGroups 6 }
+
+ciscoSystemNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoSystemClockChanged }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications in this MIB module."
+    ::= { ciscoSystemMIBGroups 7 }
+
+ciscoSystemSummerTimeGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        csySummerTimeStatus,
+                        csySummerTimeOffset,
+                        csySummerTimeRecurringStart,
+                        csySummerTimeRecurringEnd,
+                        csyStandardTmZnGMTOffset,
+                        csySummerTmZnGMTOffset
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects used to set Summertime.
+
+        Implementation of this group is optional. If the
+        generic Summertime feature is supported, the entire
+        group should be implemented."
+    ::= { ciscoSystemMIBGroups 8 }
+
+END

@@ -1,0 +1,626 @@
+-- *****************************************************************
+-- CISCO-VOICE-DIAL-CONTROL-CAPABILITY.my: CISCO-VOICE-DIAL-CONTROL-MIB
+-- AGENT-CAPABILITIES
+--   
+-- June 1997  Hongchi Shih
+--   
+-- Copyright (c) 1997-2006, 2009 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VOICE-DIAL-CONTROL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVoiceDialControlCapability MODULE-IDENTITY
+    LAST-UPDATED    "200903310000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W. Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:    +1 800 553-NETS
+
+            E-mail: cs-voice@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-VOICE-DIAL-CONTROL-MIB."
+    REVISION        "200903310000Z"
+    DESCRIPTION
+        "Added ciscoVoiceDialControlCapV12R04Rev1 for IOS 12.4T"
+    REVISION        "200611160000Z"
+    DESCRIPTION
+        "Added ciscoVoiceDialControlCapV12R04 for IOS 12.4."
+    REVISION        "200507250000Z"
+    DESCRIPTION
+        "Add GSM AMR-NB bit rate mode supports."
+    REVISION        "9907120000Z"
+    DESCRIPTION
+        "Add new codec types supports."
+    REVISION        "9801090000Z"
+    DESCRIPTION
+        "Add DNIS, DID, Max connections supports."
+    REVISION        "9706150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 83 }
+
+
+
+ciscoVoiceDialControlCapabilityV11R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 11.3"
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco Voice Dial Control MIB capabilities."
+
+    SUPPORTS        CISCO-VOICE-DIAL-CONTROL-MIB
+    INCLUDES        {
+                        cvdcVoIPCfgGroup,
+                        cvVoIPCallGroup
+                    }
+    VARIATION       cvVoIPPeerCfgSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2),
+                        multicast(5)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallActiveSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2),
+                        multicast(5)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallActiveGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallActiveGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistorySessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2),
+                        multicast(5)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    ::= { ciscoVoiceDialControlCapability 1 }
+
+ciscoVoiceDialControlCapabilityV11R03Rev1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 11.3"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Voice Dial Control MIB capabilities."
+
+    SUPPORTS        CISCO-VOICE-DIAL-CONTROL-MIB
+    INCLUDES        {
+                        cvdcVoIPCfgGroupRev4,
+                        cvVoIPCallGroupRev6
+                    }
+    VARIATION       cvVoIPPeerCfgSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2),
+                        multicast(5)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvPeerCommonCfgApplicationName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallActiveSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2),
+                        multicast(5)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallActiveGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallActiveGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistorySessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2),
+                        multicast(5)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    ::= { ciscoVoiceDialControlCapability 2 }
+
+ciscoVoiceDialControlCapabilityV12R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.0(5)"
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco Voice Dial Control MIB capabilities."
+
+    SUPPORTS        CISCO-VOICE-DIAL-CONTROL-MIB
+    INCLUDES        {
+                        cvdcGeneralCfgGroupRev2,
+                        cvdcVoiceCfgGroupRev1,
+                        cvdcVoIPCfgGroupRev1,
+                        cvVoIPCallGroupRev6
+                    }
+    VARIATION       cvVoIPPeerCfgSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvPeerCommonCfgApplicationName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPPeerCfgCoderRate
+    SYNTAX          INTEGER  {
+                        g729r8000(1),
+                        g729Ar8000(2),
+                        g726r16000(3),
+                        g726r24000(4),
+                        g726r32000(5),
+                        g711ulawr64000(6),
+                        g711Alawr64000(7),
+                        g728r16000(8),
+                        g723r6300(9),
+                        g723r5300(10),
+                        g729Br8000(12),
+                        g729ABr8000(13),
+                        g723Ar6300(14),
+                        g723Ar5300(15),
+                        g729IETFr8000(16)
+                    }
+    DESCRIPTION
+        "Limited codec type-rates are supported."
+
+    VARIATION       cvVoIPCallActiveSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallActiveGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallActiveGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistorySessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    ::= { ciscoVoiceDialControlCapability 3 }
+
+ciscoVoiceDialControlCapabilityV12R00Rev1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.0(5)"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Voice Dial Control MIB capabilities."
+
+    SUPPORTS        CISCO-VOICE-DIAL-CONTROL-MIB
+    INCLUDES        {
+                        cvdcGeneralCfgGroupRev6,
+                        cvdcVoiceCfgGroupRev2,
+                        cvdcVoIPCfgGroupRev4,
+                        cvVoIPCallGroupRev6
+                    }
+    VARIATION       cvVoIPPeerCfgSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvPeerCommonCfgApplicationName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPPeerCfgCoderRate
+    SYNTAX          INTEGER  {
+                        g729r8000(1),
+                        g729Ar8000(2),
+                        g726r16000(3),
+                        g726r24000(4),
+                        g726r32000(5),
+                        g711ulawr64000(6),
+                        g711Alawr64000(7),
+                        g728r16000(8),
+                        g723r6300(9),
+                        g723r5300(10),
+                        g729Br8000(12),
+                        g729ABr8000(13),
+                        g723Ar6300(14),
+                        g723Ar5300(15),
+                        g729IETFr8000(16),
+                        gsmeEr12200(17),
+                        clearChannel(18),
+                        g726r40000(19),
+                        llcc(20),
+                        gsmAmrNb(21)
+                    }
+    DESCRIPTION
+        "Limited codec type-rates are supported."
+
+    VARIATION       cvVoIPCallActiveSessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallActiveGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallActiveGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistorySessionProtocol
+    SYNTAX          INTEGER  {
+                        cisco(2)
+                    }
+    DESCRIPTION
+        "Limited session protocols are supported."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithInterpolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cvVoIPCallHistoryGapFillWithRedundancy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    ::= { ciscoVoiceDialControlCapability 4 }
+
+ciscoVoiceDialControlCapabilityV124R03T5400 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(3)T on AS5400"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Voice Dial Control MIB capabilities
+        supporting GSM AMR-NB codec."
+
+    SUPPORTS        CISCO-VOICE-DIAL-CONTROL-MIB
+    INCLUDES        {
+                        cvdcVoIPCfgAmrNbGroup,
+                        cvVoIPCallAmrNbGroup
+                    }
+    VARIATION       cvVoIPPeerCfgBitRates
+    SYNTAX          BITS {
+                        amrBitRateMode3(3),
+                        amrBitRateMode4(4),
+                        amrBitRateMode6(6),
+                        amrBitRateMode7(7)
+                    }
+    DESCRIPTION
+        "Limited GSM AMR-NB codec bit rate modes are supported.
+        There are eight bit rate modes, out of which only four
+        are supported. Supported modes are mode7(12.2kbps),
+        mode6(10.2kbps), mode4(7.4kbps) and mode3(6.7kbps).
+        Unsupported modes are mode0(4.75kbps), mode1(5.15kbps),
+        mode2(5.90kbps) and mode5(7.95kbps)."
+
+    VARIATION       cvVoIPCallActiveBitRates
+    SYNTAX          BITS {
+                        amrBitRateMode3(3),
+                        amrBitRateMode4(4),
+                        amrBitRateMode6(6),
+                        amrBitRateMode7(7)
+                    }
+    DESCRIPTION
+        "Limited GSM AMR-NB codec bit rate modes are supported.
+        There are eight bit rate modes, out of which only four
+        are supported. Supported modes are mode7(12.2kbps),
+        mode6(10.2kbps), mode4(7.4kbps) and mode3(6.7kbps).
+        Unsupported modes are mode0(4.75kbps), mode1(5.15kbps),
+        mode2(5.90kbps) and mode5(7.95kbps)."
+
+    VARIATION       cvVoIPCallHistoryBitRates
+    SYNTAX          BITS {
+                        amrBitRateMode3(3),
+                        amrBitRateMode4(4),
+                        amrBitRateMode6(6),
+                        amrBitRateMode7(7)
+                    }
+    DESCRIPTION
+        "Limited GSM AMR-NB codec bit rate modes are supported.
+        There are eight bit rate modes, out of which only four
+        are supported. Supported modes are mode7(12.2kbps),
+        mode6(10.2kbps), mode4(7.4kbps) and mode3(6.7kbps).
+        Unsupported modes are mode0(4.75kbps), mode1(5.15kbps),
+        mode2(5.90kbps) and mode5(7.95kbps)."
+
+    ::= { ciscoVoiceDialControlCapability 5 }
+
+ciscoVoiceDialControlCapV12R04 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4 for all platforms except IAD2420"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Voice Dial Control MIB capabilities."
+
+    SUPPORTS        CISCO-VOICE-DIAL-CONTROL-MIB
+    INCLUDES        { cvdcGeneralCfgGroupRev4 }
+    VARIATION       cvVoIPPeerCfgInBandSignaling
+    SYNTAX          INTEGER  {
+                        cas(1),
+                        none(2),
+                        cept(3),
+                        transparent(4)
+                    }
+    DESCRIPTION
+        "gr303(5) is not supported in any of the platforms
+        except IAD2420."
+
+    ::= { ciscoVoiceDialControlCapability 6 }
+
+ciscoVoiceDialControlCapV12R04Rev1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Voice Dial Control MIB capabilities."
+
+    SUPPORTS        CISCO-VOICE-DIAL-CONTROL-MIB
+    INCLUDES        {
+                        cvdcVoIPCfgGroup,
+                        cvVoIPCallGroup
+                    }
+    VARIATION       cvVoIPCallActiveChannels
+    SYNTAX          Integer32 (1..6)
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveEncap
+    SYNTAX          INTEGER  {
+                        rfc3267(1)
+                    }
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveInterleaving
+    SYNTAX          Integer32 (1..50)
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveMaxPtime
+    SYNTAX          Integer32 (20..100)
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveModeChgNeighbor
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveModeChgPeriod
+    SYNTAX          Integer32 (1..100)
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveOctetAligned
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActivePtime
+    SYNTAX          Integer32 (20..100)
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveRobustSorting
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveBitRates
+    SYNTAX          BITS {
+                        amrBitRateMode0(0),
+                        amrBitRateMode1(1),
+                        amrBitRateMode2(2),
+                        amrBitRateMode3(3),
+                        amrBitRateMode4(4),
+                        amrBitRateMode5(5),
+                        amrBitRateMode6(6),
+                        amrBitRateMode7(7)
+                    }
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object is not populated"
+
+    VARIATION       cvVoIPCallHistoryBitRates
+    SYNTAX          BITS {
+                        amrBitRateMode0(0),
+                        amrBitRateMode1(1),
+                        amrBitRateMode2(2),
+                        amrBitRateMode3(3),
+                        amrBitRateMode4(4),
+                        amrBitRateMode5(5),
+                        amrBitRateMode6(6),
+                        amrBitRateMode7(7)
+                    }
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object is not populated"
+
+    VARIATION       cvVoIPCallHistoryChannels
+    SYNTAX          Integer32
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryInterleaving
+    SYNTAX          Integer32 (1..50)
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryMaxPtime
+    SYNTAX          Integer32 (20..100)
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryModeChgNeighbor
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryModeChgPeriod
+    SYNTAX          Integer32 (1..100)
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryOctetAligned
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryPtime
+    SYNTAX          Integer32 (20..100)
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryRobustSorting
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPPeerCfgBitRates
+    SYNTAX          BITS {
+                        amrBitRateMode0(0),
+                        amrBitRateMode1(1),
+                        amrBitRateMode2(2),
+                        amrBitRateMode3(3),
+                        amrBitRateMode4(4),
+                        amrBitRateMode5(5),
+                        amrBitRateMode6(6),
+                        amrBitRateMode7(7)
+                    }
+    DESCRIPTION
+        "If cvVoIPPeerCfgCoderRate is not equal to
+        gsmAmrNb enum, this object is not populated"
+
+    VARIATION       cvVoIPPeerCfgCRC
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPPeerCfgCoderRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPPeerCfgOctetAligned
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPPeerCfgCoderRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallActiveCRC
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallActiveCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0"
+
+    VARIATION       cvVoIPCallHistoryCRC
+    SYNTAX          TruthValue
+    DESCRIPTION
+        "If cvVoIPCallHistoryCoderTypeRate is not equal to
+        gsmAmrNb enum, this object gives 0."
+
+    ::= { ciscoVoiceDialControlCapability 7 }
+
+END
+
+
+
+
+
+
+
+

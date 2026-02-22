@@ -1,0 +1,601 @@
+-- *********************************************************************
+-- CISCO-FCPING-MIB.my: Fibre Channel Ping Mib
+--
+-- September 2002, H K Vivek
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FCPING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Gauge32,Unsigned32, Integer32      FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP,
+        NOTIFICATION-GROUP                 FROM    SNMPv2-CONF
+        RowStatus, TruthValue,
+        TEXTUAL-CONVENTION                 FROM    SNMPv2-TC
+        ciscoMgmt                          FROM    CISCO-SMI
+        VsanIndex, FcAddress,                          
+        FcAddressType                      FROM    CISCO-ST-TC;
+          
+
+ciscoFcPingMIB  MODULE-IDENTITY
+        LAST-UPDATED "200210070000Z"
+        ORGANIZATION "Cisco Systems Inc."
+        CONTACT-INFO 
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "The MIB module for the management of the
+                 Fibre Channel Ping functionality."
+        REVISION "200210070000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 295 }
+
+ciscoFcPingMIBObjects OBJECT IDENTIFIER ::= { ciscoFcPingMIB 1 }
+fcPingMIBConformance  OBJECT IDENTIFIER ::= { ciscoFcPingMIB 2 }
+fcPingConfiguration   OBJECT IDENTIFIER 
+                      ::= { ciscoFcPingMIBObjects 1 }
+fcPingStats           OBJECT IDENTIFIER 
+                      ::= { ciscoFcPingMIBObjects 2 }
+fcPingNotification    OBJECT IDENTIFIER 
+                      ::= { ciscoFcPingMIBObjects 3 }
+fcPingNotifications   OBJECT IDENTIFIER ::= { fcPingNotification 0 }
+
+-- Textual conventions
+
+FcStartOper ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "Enable/disable an operation.
+                 enable(1) - enable the operation.
+                 disable(2) - disable the operation."
+        SYNTAX  INTEGER {
+                   enable(1),
+                   disable(2)
+                }
+
+-- Ping Requests Table
+
+fcPingTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF FcPingEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A table of ping request entries.
+                 This table contains a set of ping requests
+                 which need to be executed at the agent."
+        ::= { fcPingConfiguration 1 }
+
+
+fcPingEntry OBJECT-TYPE
+        SYNTAX     FcPingEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A ping request entry.
+
+                 A management station wishing to create an entry
+                 should generate a pseudo-random number to be 
+                 used as an index into this table and create an 
+                 instance of the fcPingRowStatus object. After that, 
+                 the management station should set the corresponding 
+                 instance of fcPingAddress object with the address of 
+                 the destination that should be pinged and 
+                 fcPingVsanIndex with the desired VSAN number.
+
+                 Once the appropriate instance of all the configuration
+                 objects have been created, either by an explicit SNMP
+                 set request or by default, the row status should be 
+                 set to active to initiate the ping sequence. Note that
+                 this entire procedure may be initiated via a single
+                 set request which specifies a row status of 
+                 createAndGo as well as specifies valid values for the 
+                 non-defaulted configuration objects. 
+
+                 Once the ping sequence has been initiated it can
+                 be stopped by setting the corresponding instance
+                 of fcPingRowStatus to 'destroy'.
+
+                 The results of the ping operation are made available
+                 in the fcPingStats table. For a ping entry uniquely
+                 identified by fcPingIndex, an entry will be created 
+                 in the fcPingStats table automatically by the agent. 
+
+                 Once the ping sequence completes, the management 
+                 station should retrieve the statistics of interest 
+                 from the fcPingStats table and delete the entry from 
+                 the fcPingTable. The corresponding entry in the
+                 fcPingStats table shall be deleted automatically by 
+                 the agent.
+
+                 In order to prevent old entries from clogging the 
+                 table, entries will be aged out, but an entry will 
+                 never be deleted within fcPingAgeInterval 
+                 milliseconds of completing.
+
+                 If the management station wishes to repeat the ping
+                 sequence to a particular destination, then it will
+                 need to set the corresponding instance of 
+                 fcPingAdminStatus to 'enable' again."
+        INDEX { fcPingIndex }
+        ::= { fcPingTable 1 }
+
+FcPingEntry ::= SEQUENCE {
+        fcPingIndex               Integer32,
+        fcPingVsanIndex           VsanIndex,
+        fcPingAddressType         FcAddressType,
+        fcPingAddress             FcAddress,
+        fcPingPacketCount         Unsigned32,
+        fcPingPayloadSize         Unsigned32,
+        fcPingPacketTimeout       Unsigned32,
+        fcPingDelay               Unsigned32,
+        fcPingAgeInterval         Unsigned32,
+        fcPingUsrPriority         INTEGER,
+        fcPingAdminStatus         FcStartOper,
+        fcPingOperStatus          INTEGER,
+        fcPingTrapOnCompletion    TruthValue,
+        fcPingRowStatus           RowStatus
+}
+
+fcPingIndex OBJECT-TYPE
+        SYNTAX      Integer32 (1..2147483647)
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The index of a ping entry. This object uniquely
+                 identifies a ping request entry on a VSAN."
+        ::= { fcPingEntry 1 }
+
+fcPingVsanIndex OBJECT-TYPE
+        SYNTAX      VsanIndex
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "This object identifies the VSAN to which this ping
+                 request belongs. This object cannot be modified
+                 if the corresponding instance of fcPingOperStatus
+                 object has a value of 'inProgress'."
+        DEFVAL { 1 }
+        ::= { fcPingEntry 2 }
+
+fcPingAddressType OBJECT-TYPE
+        SYNTAX      FcAddressType
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The format of the corresponding instance of
+                 fcPingAddress object."
+        DEFVAL { wwn }
+        ::= { fcPingEntry 3 }
+
+fcPingAddress OBJECT-TYPE
+        SYNTAX      FcAddress
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The address of the device to be pinged.
+
+                 If the value of the corresponding instance of
+                 fcPingAddressType object is 'wwn', then this
+                 object will contain an 8 octet long WWN.
+
+                 If the value of the corresponding instance of
+                 fcPingAddressType object is 'fcid', then this
+                 object will contain a 3 octet long FCID.
+
+                 This object MUST be set to a valid value before
+                 or concurrently with setting the corresponding
+                 instance of fcPingRowStatus to 'active'."
+        ::= { fcPingEntry 4 }
+
+fcPingPacketCount OBJECT-TYPE
+        SYNTAX      Unsigned32 (1..2147483647)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The number of ping packets to be sent to the
+                 target in this sequence. This object cannot
+                 be modified if the corresponding instance
+                 of fcPingOperStatus object has a value of
+                 'inProgress'."
+        DEFVAL { 5 }
+        ::= { fcPingEntry 5 }
+
+fcPingPayloadSize OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..1884)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "This object specifies the size of the ping packet
+                 payload to be sent to the target in this sequence.
+                 This object cannot be modified if the
+                 corresponding instance of fcPingOperStatus object
+                 has a value of 'inProgress'."
+        DEFVAL { 0 }
+        ::= { fcPingEntry 6 }
+
+fcPingPacketTimeout OBJECT-TYPE
+        SYNTAX      Unsigned32 (1..10)
+        UNITS       "seconds"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The amount of time to wait for a response to a 
+                 transmitted packet before declaring the packet
+                 'dropped'. This object cannot be modified if
+                 the corresponding instance of fcPingOperStatus
+                 object has a value of 'inProgress'."
+        DEFVAL { 2 }
+        ::= { fcPingEntry 7 }
+
+fcPingDelay OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..3600000)
+        UNITS       "milliseconds"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The minimum amount of time to wait before sending 
+                 the next packet in a sequence, after receiving a 
+                 response or declaring a timeout for a previously
+                 transmitted packet. This object cannot be
+                 modified if the corresponding instance of
+                 fcPingOperStatus object has a value of
+                 'inProgress'."
+        DEFVAL { 0 }
+        ::= { fcPingEntry 8 }
+
+fcPingAgeInterval OBJECT-TYPE
+        SYNTAX      Unsigned32 (500000..900000)
+        UNITS       "milliseconds"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The amount of time to wait after the ping sequence
+                 completes before the ping entry is aged out.
+                 This object cannot be modified if the
+                 corresponding instance of fcPingOperStatus object
+                 has a value of 'inProgress'."
+        DEFVAL { 500000 }
+        ::= { fcPingEntry 9 }
+
+fcPingUsrPriority OBJECT-TYPE
+        SYNTAX      INTEGER {
+                       high(1), -- user priority is high
+                       low(2) -- user priority is low
+                    }
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "This object determines the queuing priority
+                 and drop probability this sequence of ping
+                 packets experience in the switches through
+                 which they pass through.
+
+                 If the value of this object is set to 'high',
+                 then the corresponding sequence of packets
+                 will experience high queueing priority and
+                 low drop probability in the switches through
+                 which they pass through.
+
+                 If the value of this object is set to 'low',
+                 then the corresponding sequence of packets
+                 will experience low queueing priority and
+                 higher drop probability in the switches 
+                 through which they pass through.
+                
+                 This object cannot be modified if the
+                 corresponding instance of fcPingOperStatus
+                 object has a value of 'inProgress'."
+        DEFVAL { low }
+        ::= { fcPingEntry 10 }
+
+fcPingAdminStatus OBJECT-TYPE
+        SYNTAX      FcStartOper
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "This object specifies the desired state that a 
+                 fcPingEntry should be in:
+
+                 enable(1)  -  Attempt to activate the ping as 
+                               defined by this entry.
+
+                 disable(2) -  Deactivate the ping as defined by
+                               this entry.
+
+                 The actual operational state of this test is 
+                 indicated by the corresponding instance of 
+                 fcPingOperStatus.
+
+                 When the ping sequence corresponding to this entry
+                 is executing, this object cannot be modified. If this
+                 object is read at such a time, a value of 'enable' 
+                 will be returned. When the ping sequence completes, 
+                 the value of this object will be made 'disable' 
+                 automatically by the agent."
+        DEFVAL { disable }
+        ::= { fcPingEntry 11 }
+
+fcPingOperStatus OBJECT-TYPE
+        SYNTAX      INTEGER {
+                       inProgress(1), -- ping is in progress
+                       complete(2), -- ping is complete
+                       disabled(3), -- ping is disabled
+                       failure(4) -- ping failure
+                    }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object indicates the operational status
+                 of this fcPingEntry.
+
+                 inProgress(1)  -  Indicates that the ping sequence
+                                   as defined by this instance of
+                                   fcPingEntry is currently running.
+
+                 complete(2)    -  Indicates that the ping sequence
+                                   as defined by this instance of
+                                   fcPingEntry is currently 
+                                   complete.
+
+                 disabled(3)    -  Indicates that the ping sequence
+                                   as defined by this instance of
+                                   fcPingEntry is currently disabled.
+ 
+                 failure(4)     -  Indicates that the ping sequence
+                                   as defined by this instance of
+                                   fcPingEntry has currently failed 
+                                   due to resource limitations.
+
+                 Initially the value of this object will be
+                 'inProgress' when the ping sequence is being
+                 executed. Once the ping sequence is completed,
+                 the value of this object will transition to
+                 'complete'.
+
+                 If the value of the corresponding instance of
+                 fcPingAdminStatus is 'disable', then this object
+                 will have a value of 'disabled'."
+        ::= { fcPingEntry 12 }
+
+fcPingTrapOnCompletion OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "This specifies if fcPingCompletionNotify notification
+                 should be generated or not when the corresponding
+                 ping sequence completes.
+
+                 If this object is set to 'true', then the 
+                 notification is generated.
+
+                 If this object is set to 'false', then the 
+                 notification is not generated.
+
+                 This object cannot be modified if the
+                 corresponding instance of fcPingOperStatus
+                 object has a value of 'inProgress'."
+        DEFVAL { false }
+        ::= { fcPingEntry 13 }
+
+
+fcPingRowStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The status of this conceptual row.
+
+                 When a ping sequence is being executed, if this
+                 object is set to 'destroy', then the
+                 corresponding ping sequence will be stopped."
+        ::= { fcPingEntry 14 }
+
+
+-- Ping Statistics
+
+fcPingStatsTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF FcPingStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A table of ping statistics.
+                 The statistics corresponding to the entries
+                 in the fcPingTable. When an entry is deleted
+                 in the fcPingTable, the corresponding entry
+                 in this table is deleted automatically by
+                 the agent."
+        ::= { fcPingStats 1 }
+
+fcPingStatsEntry OBJECT-TYPE
+        SYNTAX      FcPingStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A ping statistics entry.
+
+                 An entry shall be created automatically in this
+                 table whenever a ping request is activated in the
+                 fcPingTable by setting the fcPingRowStatus to
+                 'active'. This entry shall have the same indices
+                 as the entry that got activated in the fcPingTable.
+
+                 An entry in this table shall be deleted by the
+                 agent automatically either when the corresponding
+                 entry in the fcPingTable is deleted by the
+                 management station or is aged out by the agent.
+
+                 This table shall be empty if there is no 'active'
+                 entry in the fcPingTable."
+        INDEX { fcPingIndex }
+        ::= { fcPingStatsTable 1 }
+
+FcPingStatsEntry ::= SEQUENCE {
+        fcPingTxPackets       Gauge32,
+        fcPingRxPackets       Gauge32,
+        fcPingMinRtt          Integer32,
+        fcPingAvgRtt          Integer32,
+        fcPingMaxRtt          Integer32,
+        fcPingNumTimeouts     Gauge32
+}
+
+fcPingTxPackets OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of ping packets sent to the target in 
+                 this sequence."
+        ::= { fcPingStatsEntry 1 }
+
+fcPingRxPackets OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of ping packets received from the target
+                 in this sequence."
+        ::= { fcPingStatsEntry 2 }
+
+fcPingMinRtt OBJECT-TYPE
+        SYNTAX      Integer32 (0..10000000)
+        UNITS       "microseconds"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The minimum round trip time of all the packets that
+                 have been sent in this sequence."
+        ::= { fcPingStatsEntry 3 }
+
+fcPingAvgRtt OBJECT-TYPE
+        SYNTAX      Integer32 (0..10000000)
+        UNITS       "microseconds"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The average round trip time of all the packets that
+                 have been sent in this sequence."
+        ::= { fcPingStatsEntry 4 }
+
+fcPingMaxRtt OBJECT-TYPE
+        SYNTAX      Integer32 (0..10000000)
+        UNITS       "microseconds"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The maximum round trip time of all the packets that
+                 have been sent in this sequence."
+        ::= { fcPingStatsEntry 5 }
+
+fcPingNumTimeouts OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of timeouts encountered in this sequence."
+        ::= { fcPingStatsEntry 6 }
+
+
+        
+-- Notifications
+
+fcPingCompletionNotify NOTIFICATION-TYPE
+        OBJECTS  {fcPingAddress, fcPingTxPackets, fcPingRxPackets}
+        STATUS   current
+        DESCRIPTION
+                "This notification is generated whenever a sequence
+                 of pings is complete and the corresponding instance
+                 of fcPingTrapOnCompletion object has been set to 
+                 'true'."
+        ::= { fcPingNotifications 1 }
+
+
+
+		
+
+-- Conformance
+
+fcPingMIBCompliances OBJECT IDENTIFIER ::= { fcPingMIBConformance 1 }
+fcPingMIBGroups      OBJECT IDENTIFIER ::= { fcPingMIBConformance 2 }
+
+fcPingMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Fibre Channel Ping module."
+        MODULE MANDATORY-GROUPS {fcPingConfigGroup,
+                                 fcPingStatsGroup,
+                                 fcPingNotifyGroup}
+
+        OBJECT     fcPingRowStatus             
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+        ::= { fcPingMIBCompliances 1 }
+
+
+-- Units of conformance
+
+fcPingConfigGroup OBJECT-GROUP
+        OBJECTS {fcPingVsanIndex,
+                 fcPingAddressType,
+                 fcPingAddress,
+                 fcPingPacketCount,
+                 fcPingPayloadSize,
+                 fcPingPacketTimeout,
+                 fcPingDelay,
+                 fcPingAgeInterval,
+                 fcPingUsrPriority,
+                 fcPingAdminStatus,
+                 fcPingOperStatus,
+                 fcPingTrapOnCompletion,
+                 fcPingRowStatus}
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for configuring 
+                 Fibre Channel Ping."
+        ::= { fcPingMIBGroups 1 }
+
+
+fcPingStatsGroup OBJECT-GROUP
+        OBJECTS {fcPingTxPackets,
+                 fcPingRxPackets,
+                 fcPingMinRtt,
+                 fcPingAvgRtt,
+                 fcPingMaxRtt,
+                 fcPingNumTimeouts}
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for displaying 
+                 Fibre Channel Ping statistics."
+        ::= { fcPingMIBGroups 2 }
+
+
+fcPingNotifyGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {fcPingCompletionNotify}
+        STATUS  current
+        DESCRIPTION
+                "A collection of notification(s) for monitoring
+                 Fibre Channel Ping completion."
+        ::= { fcPingMIBGroups 3 }
+
+
+END

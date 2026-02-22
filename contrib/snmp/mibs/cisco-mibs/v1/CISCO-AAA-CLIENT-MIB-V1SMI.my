@@ -1,0 +1,415 @@
+-- MIB file created 12-Apr-2002 11:26:04, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-AAA-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-AAA-CLIENT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAAAClientMIB OBJECT IDENTIFIER ::= { ciscoMgmt 158 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200111190000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-aaa@cisco.com
+--  Descr
+--    This MIB module provides data for authentication method 
+--     priority based on Authentication, Authorization, 
+--     Accounting (AAA) protocols.
+--    
+--    
+--     References:
+--         The TACACS+ Protocol Version 1.78, Internet Draft
+--         RFC 1411 Telnet Authentication: Kerberos Version 4.
+--         RFC 1964 The Kerberos Version 5 GSS-API Mechanism.
+--  RevDate
+--    200111190000Z
+--  RevDescr
+--    Deprecate object cacLockoutPeriod and add a new object 
+--     cacLockoutPeriodExt.
+--  RevDate
+--    200105100000Z
+--  RevDescr
+--    Initial version
+
+cacMIBObjects   OBJECT IDENTIFIER ::= { ciscoAAAClientMIB 1 }
+cacPriority     OBJECT IDENTIFIER ::= { cacMIBObjects 1 }
+cacLoginConfig  OBJECT IDENTIFIER ::= { cacMIBObjects 2 }
+cacMIBNotifications OBJECT IDENTIFIER ::= { ciscoAAAClientMIB 2 }
+cacMIBConformance OBJECT IDENTIFIER ::= { ciscoAAAClientMIB 3 }
+cacMIBCompliances OBJECT IDENTIFIER ::= { cacMIBConformance 1 }
+cacMIBGroups    OBJECT IDENTIFIER ::= { cacMIBConformance 2 }
+
+SessionType ::= INTEGER {
+        telnet(1),
+        console(2),
+        http(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents a session type.
+--    
+--    telnet(1) indicates telnet session.
+--    
+--    console(2) indicates console session.
+--    
+--    http(3) indicates http session.
+--    
+
+AuthenMethod ::= INTEGER {
+        tacacs(1),
+        radius(2),
+        kerberos(3),
+        local(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents authentication method.
+--    
+--    tacacs(1) indicates that TACACS method is used for
+--    authentication.
+--    
+--    radius(2) indicates that RADIUS method is used for
+--    authentication.
+--    
+--    kerberos(3) indicates that KERBEROS method is used
+--    for authentication.
+--    
+--    local(4) indicates that local password is used
+--    for authentication. Which password is used depend
+--    on what login mode users specified. 
+
+LoginMode ::= INTEGER {
+        login(1),
+        enable(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents login mode.
+--    
+--    login(1) indicates the normal mode.
+--    
+--    enable(2) indicates the privileged mode.
+
+cacPriorityTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CacPriorityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains entries for AAA authentication 
+         methods configured in the system. At startup, agent 
+         set up all the entries of the table. All authentication
+         methods will be disabled except local authentication will 
+         be enabled for each session type and login mode. Users 
+         later can enable/disable a specific authentication method 
+         through cacEnable object. 
+        
+         The following table describes the startup state of each
+         authentication method and session type in normal login
+         mode and enable login mode.
+        
+         AuthenMethod Console Session   Telnet Session    Http Session
+         ------------ ----------------  ----------------  ------------
+         tacacs       disabled          disabled          disabled
+         radius       disabled          disabled          disabled
+         kerberos     disabled          disabled          disabled
+         local        enabled(*)        enabled(*)        enabled(*)
+        
+         (*) denotes primary method.
+         "
+    ::= { cacPriority 1 }
+
+cacPriorityEntry OBJECT-TYPE
+    SYNTAX CacPriorityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the priority number of an authentication
+        method used in a session. "
+    INDEX { cacSession, cacAuthen, cacLoginMode }
+    ::= { cacPriorityTable 1 }
+
+CacPriorityEntry ::= SEQUENCE {
+    cacSession SessionType,
+    cacAuthen AuthenMethod,
+    cacLoginMode LoginMode,
+    cacEnable TruthValue,
+    cacPriorityNumber INTEGER,
+    cacPrimaryMethod TruthValue
+    }
+
+cacSession OBJECT-TYPE
+    SYNTAX SessionType
+--    Rsyntax INTEGER {
+--        telnet(1),
+--        console(2),
+--        http(3)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This is the session type used to connect to the network
+        device."
+    ::= { cacPriorityEntry 1 }
+
+cacAuthen OBJECT-TYPE
+    SYNTAX AuthenMethod
+--    Rsyntax INTEGER {
+--        tacacs(1),
+--        radius(2),
+--        kerberos(3),
+--        local(4)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This is the authentication method used to authenticate 
+        users. "
+    ::= { cacPriorityEntry 2 }
+
+cacLoginMode OBJECT-TYPE
+    SYNTAX LoginMode
+--    Rsyntax INTEGER {
+--        login(1),
+--        enable(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This is the login mode user used to login to the network
+        device."
+    ::= { cacPriorityEntry 3 }
+
+cacEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "It indicates whether the authentication method denoted by
+        cacAuthen is enabled or not.
+        
+        When this object is true(1), the authentication method denoted
+        by cacAuthen is enabled.
+        
+        When this object is false(2), the authentication method denoted
+        by cacAuthen is disabled.
+        
+        If the value of cacAuthen is local, the value of this
+        object cannot be set to false(2). "
+    ::= { cacPriorityEntry 4 }
+
+cacPriorityNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..4)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the priority number of an authentication method to 
+        be used in user authentication for a session. This value is 
+        automatically assigned and reflects the relative priority 
+        of the authentication method denoted by cacAuthen with 
+        respected to already configured authentication methods. 
+        It is assigned in the order in which the authentication
+        method is enabled by the user through cacEnable.  
+        The higher value has the higher priority. This object
+        is used to determine the fallback order in case the
+        primary authentication method indicated by cacPrimaryMethod
+        failed.  
+        
+        If the authentication method denoted by cacAuthen is disabled 
+        for the type of session denoted by cacSession, the value
+        of this object is equal to 0."
+    ::= { cacPriorityEntry 5 }
+
+cacPrimaryMethod OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "It indicates whether the authentication method denoted by
+        cacAuthen is the primary (first one to be tried) method 
+        when there are multiple authentication method configured.
+        
+        Setting this object to true(1) will make the authentication 
+        method denoted by cacAuthen to be the primary authentication
+        method for the session denoted by cacSession. The previously
+        configured primary method will be changed to false(2).
+        
+        Setting this object to false(2) is not allowed. "
+    ::= { cacPriorityEntry 6 }
+
+cacLoginConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CacLoginConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that contains login configuration 
+         which is associated with this system."
+    ::= { cacLoginConfig 1 }
+
+cacLoginConfigEntry OBJECT-TYPE
+    SYNTAX CacLoginConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the configuration of the login."
+    INDEX { cacLoginMode, cacSession }
+    ::= { cacLoginConfigTable 1 }
+
+CacLoginConfigEntry ::= SEQUENCE {
+    cacMaxLoginAttempt INTEGER,
+    cacLockoutPeriod INTEGER,
+    cacLockoutPeriodExt INTEGER
+    }
+
+cacMaxLoginAttempt OBJECT-TYPE
+    SYNTAX INTEGER(0|3..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum number of login attempts allowed.
+         Setting this variable to 0 will disable the attempt
+         limit checking.
+        
+         If the login session type does not support this attempt 
+         limit checking, the value of this object can only be set 
+         to 0."
+    DEFVAL { 3 }
+    ::= { cacLoginConfigEntry 1 }
+
+cacLockoutPeriod OBJECT-TYPE
+    SYNTAX INTEGER(0|30..600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Indicates the lockout period after the maximum number
+         of login attempt is met. For console, the console input
+         will be frozen during this period. For remote logins, the
+         connection will be closed and any subsequent access
+         from that station will be closed during the lockout time.
+        
+         Setting this variable to 0 will disable the lockout.
+         If the login session type does not support this lockout 
+         period, the value of this object can only be set to 0.
+        
+        If the lockout period is greater than the maximum value
+        reportable by this object then this object should report 
+        its maximum value (600) and cacLockoutPeriodExt must be
+        used to report the lockout period."
+    DEFVAL { 30 }
+    ::= { cacLoginConfigEntry 2 }
+
+cacLockoutPeriodExt OBJECT-TYPE
+    SYNTAX INTEGER(0|30..43200)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the lockout period after the maximum number
+         of login attempt is met. For console, the console input
+         will be frozen during this period. For remote logins, the
+         connection will be closed and any subsequent access
+         from that station will be closed during the lockout time.
+        
+         Setting this variable to 0 will disable the lockout.
+         If the login session type does not support this lockout
+         period, the value of this object can only be set to 0."
+    DEFVAL { 30 }
+    ::= { cacLoginConfigEntry 3 }
+
+cacPriorityGroup OBJECT IDENTIFIER ::= { cacMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--     AAA client priority information.
+--  objects
+--    cacEnable, cacPriorityNumber, cacPrimaryMethod
+
+cacLoginConfigGroup OBJECT IDENTIFIER ::= { cacMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the
+--     AAA client login configuration.
+--  objects
+--    cacMaxLoginAttempt, cacLockoutPeriod
+
+cacLoginConfigGroupRev1 OBJECT IDENTIFIER ::= { cacMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--     AAA client login configuration. 
+--  objects
+--    cacMaxLoginAttempt, cacLockoutPeriodExt
+
+cacMIBCompliance OBJECT IDENTIFIER ::= { cacMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO AAA Client MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cacPriorityGroup
+--   MandGroup
+--    cacLoginConfigGroup
+
+cacMIBCompliance2 OBJECT IDENTIFIER ::= { cacMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO AAA Client MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cacPriorityGroup
+--   MandGroup
+--    cacLoginConfigGroupRev1
+
+
+END
+

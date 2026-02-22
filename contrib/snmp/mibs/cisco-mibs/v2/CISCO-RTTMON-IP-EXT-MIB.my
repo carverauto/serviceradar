@@ -1,0 +1,1021 @@
+-- ********************************************************************
+-- CISCO-RTTMON-IP-EXT-MIB.my:  IP SLA IP Extension MIB file
+--   
+-- July 2006, Vishnu Kant Varma
+--   
+-- Copyright (c) 2006, 2017 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ********************************************************************
+
+CISCO-RTTMON-IP-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    IPv6FlowLabelOrAny
+        FROM IPV6-FLOW-LABEL-MIB
+    DscpOrAny
+        FROM DIFFSERV-DSCP-TC
+    rttMonEchoAdminEntry,
+    rttMonEchoPathAdminEntry,
+    rttMonStatsCollectEntry,
+    rttMonLpdGrpStatsEntry,
+    rttMonCtrlAdminEntry,
+    rttMonHistoryCollectionEntry,
+    rttMonCtrlOperEntry,
+    rttMonCtrlAdminIndex
+        FROM CISCO-RTTMON-MIB
+    CipslaPercentileVar
+        FROM CISCO-RTTMON-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoRttMonIPExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201709060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc.
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel: +1 800 553 NETS
+            Email: cs-ipsla@cisco.com"
+    DESCRIPTION
+        "This MIB contains extensions to tables in CISCO-RTTMON-MIB
+        to support IP-layer extensions, specifically IPv6 addresses 
+        and other information related to IPv6 and other IP information"
+   REVISION        "201804090000Z"
+   DESCRIPTION
+       "Updated cipslaPercentileOWSD object.
+       -Changed the order of cipslaPercentileLatestMin and
+        cipslaPercentileLatestMax objects."
+    REVISION        "201709060000Z"
+    DESCRIPTION
+        "Added new tables: cipslaPercentileConfigTable and
+        cipslaPercentileLatestStatsTable.
+        -Added new objects to support percentile statistics:
+          cipslaPercentileRTT, cipslaPercentileOWSD,
+          cipslaPercentileOWDS, cipslaPercentileJitterSD,
+          cipslaPercentileJitterDS, cipslaPercentileJitterAvg,
+          cipslaPercentileTypeVar, cipslaPercentileLatestMin,
+          cipslaPercentileLatestMax, cipslaPercentileLatestAvg,
+          cipslaPercentileLatestNum, cipslaPercentileLatestSum,
+          cipslaPercentileLatestSum2"
+    REVISION        "200608020000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 572 }
+
+
+crttMonIPExtObjects  OBJECT IDENTIFIER
+    ::= { ciscoRttMonIPExtMIB 1 }
+
+ciscoRttMonIPExtMibConformance  OBJECT IDENTIFIER
+    ::= { ciscoRttMonIPExtMIB 2 }
+
+ciscoRttMonIPExtMibCompliances  OBJECT IDENTIFIER
+    ::= { ciscoRttMonIPExtMibConformance 1 }
+
+ciscoRttMonIPExtMibGroups  OBJECT IDENTIFIER
+    ::= { ciscoRttMonIPExtMibConformance 2 }
+
+
+crttMonIPEchoAdminTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrttMonIPEchoAdminEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An extension of the rttMonEchoAdminTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of recording the addresses as IPv6 addresses,
+        plus other IPv6 and IP layer extension information"
+    ::= { crttMonIPExtObjects 1 }
+
+crttMonIPEchoAdminEntry OBJECT-TYPE
+    SYNTAX          CrttMonIPEchoAdminEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    AUGMENTS           { rttMonEchoAdminEntry  } 
+    ::= { crttMonIPEchoAdminTable 1 }
+
+CrttMonIPEchoAdminEntry ::= SEQUENCE {
+        crttMonIPEchoAdminTargetAddrType     InetAddressType,
+        crttMonIPEchoAdminTargetAddress      InetAddress,
+        crttMonIPEchoAdminSourceAddrType     InetAddressType,
+        crttMonIPEchoAdminSourceAddress      InetAddress,
+        crttMonIPEchoAdminNameServerAddrType InetAddressType,
+        crttMonIPEchoAdminNameServerAddress  InetAddress,
+        crttMonIPEchoAdminLSPSelAddrType     InetAddressType,
+        crttMonIPEchoAdminLSPSelAddress      InetAddress,
+        crttMonIPEchoAdminDscp               DscpOrAny,
+        crttMonIPEchoAdminFlowLabel          IPv6FlowLabelOrAny
+}
+
+crttMonIPEchoAdminTargetAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the target. 
+        This object must be used along with the
+        crttMonIPEchoAdminTargetAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPEchoAdminTargetAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonEchoAdminTargetAddress), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPEchoAdminEntry 1 }
+
+crttMonIPEchoAdminTargetAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the target.
+        This object, in conjunction with the
+        crttMonIPEchoAdminTargetAddrType object, 
+        may be used to specify either an IPv6 or an IPv4 address and 
+        is an alternative to the rttMonEchoAdminTargetAddress object,
+        which may only specify an IPv4 address. In case the target is
+        a V4  IP address then both crttMonIPEchoAdminTargetAddrType/
+        crttMonIPEchoAdminTargetAddress AND 
+        rttMonEchoAdminTargetAddress may be used to specify it so long 
+        as both try to specify the
+        same V4 IP address. Alternatively only one of 
+        rttMonEchoAdminTargetAddress
+        OR crttMonIPEchoAdminTargetAddrType/
+        crttMonIPEchoAdminTargetAddress may be used to specify the 
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPEchoAdminTargetAddrType/
+        crttMonIPEchoAdminTargetAddress must be used and 
+        rttMonEchoAdminTargetAddress may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPEchoAdminEntry 2 }
+
+crttMonIPEchoAdminSourceAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the source.
+        This object must be used along with the
+        crttMonIPEchoAdminSourceAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPEchoAdminSourceAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonEchoAdminSourceAddress), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPEchoAdminEntry 3 }
+
+crttMonIPEchoAdminSourceAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the target.
+        This object, together with the 
+        crttMonIPEchoAdminSourceAddrType object,
+        may be used to specify either an IPv6 or an IPv4 address and 
+        is an alternative to the rttMonEchoAdminSourceAddress
+        object, which
+        may only specify an IPv4 address. In case the target is a V4
+        IP address then both crttMonIPEchoAdminSourceAddrType/
+        crttMonIPEchoAdminSourceAddress AND 
+        rttMonEchoAdminSourceAddress
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonEchoAdminSourceAddress
+        OR crttMonIPEchoAdminSourceAddrType/
+        crttMonIPEchoAdminSourceAddress may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPEchoAdminSourceAddrType/
+        crttMonIPEchoAdminSourceAddress must be used and
+        rttMonEchoAdminSourceAddress may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPEchoAdminEntry 4 }
+
+crttMonIPEchoAdminNameServerAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the target.
+        This object must be used along with the
+        crttMonIPEchoAdminNameServerAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPEchoAdminNameServerAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonEchoAdminNameServer), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPEchoAdminEntry 5 }
+
+crttMonIPEchoAdminNameServerAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the target. This object,
+        together with the crttMonIPEchoAdminNameServerAddrType object,
+        may be used to specify either an IPv6 or an IPv4 address and is
+        an alternative to the rttMonEchoAdminNameServer object, which
+        can only specify an IPv4. In case the target is a V4
+        IP address then both crttMonIPEchoAdminNameServerAddrType/
+        crttMonIPEchoAdminNameServerAddress AND 
+        rttMonEchoAdminNameServer
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonEchoAdminNameServer
+        OR crttMonIPEchoAdminNameServerAddrType/
+        crttMonIPEchoAdminNameServerAddress may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPEchoAdminNameServerAddrType/
+        crttMonIPEchoAdminNameServerAddress must be used and
+        rttMonEchoAdminNameServer may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPEchoAdminEntry 6 }
+
+crttMonIPEchoAdminLSPSelAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the target.
+        This object must be used along with the
+        crttMonIPEchoAdminLSPSelAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPEchoAdminLSPSelAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonEchoAdminLSPSelector), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPEchoAdminEntry 7 }
+
+crttMonIPEchoAdminLSPSelAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the LSP Selector.
+        This object, in conjunction with the 
+        crttMonIPEchoAdminLSPSelAddrType object,
+        may be used to specify either an IPv6 or an IPv4 address and is
+        an alternative to the rttMonEchoAdminLSPSelector object, which
+        can only specify an IPv4 address.In case the target is a V4
+        IP address then both crttMonIPEchoAdminLSPSelAddrType/
+        crttMonIPEchoAdminLSPSelAddress AND rttMonEchoAdminLSPSelector
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonEchoAdminLSPSelector
+        OR crttMonIPEchoAdminLSPSelAddrType/
+        crttMonIPEchoAdminLSPSelAddress may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPEchoAdminLSPSelAddrType/
+        crttMonIPEchoAdminLSPSelAddress must be used and
+        rttMonEchoAdminLSPSelector may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPEchoAdminEntry 8 }
+
+crttMonIPEchoAdminDscp OBJECT-TYPE
+    SYNTAX          DscpOrAny
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The DSCP value (either an IPv4 TOS octet or an IPv6 Traffic
+        Class octet) to be set in outgoing packets."
+    DEFVAL          { -1 } 
+    ::= { crttMonIPEchoAdminEntry 9 }
+
+crttMonIPEchoAdminFlowLabel OBJECT-TYPE
+    SYNTAX          IPv6FlowLabelOrAny
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The Flow Label in an IPv6 packet header."
+    REFERENCE       "Section 6 of RFC 2460" 
+    ::= { crttMonIPEchoAdminEntry 10 }
+ 
+
+
+crttMonIPLatestRttOperTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrttMonIPLatestRttOperEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An extension of the rttMonLatestRttOperTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying IPv6 addresses."
+    ::= { crttMonIPExtObjects 2 }
+
+crttMonIPLatestRttOperEntry OBJECT-TYPE
+    SYNTAX          CrttMonIPLatestRttOperEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of objects required to support IPv6 addresses."
+    INDEX           { rttMonCtrlAdminIndex } 
+    ::= { crttMonIPLatestRttOperTable 1 }
+
+CrttMonIPLatestRttOperEntry ::= SEQUENCE {
+        crttMonIPLatestRttOperAddressType InetAddressType,
+        crttMonIPLatestRttOperAddress     InetAddress
+}
+
+crttMonIPLatestRttOperAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the target.
+        This object must be used along with the
+        crttMonIPLatestRttOperAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPLatestRttOperAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonLatestRttOperAddress), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPLatestRttOperEntry 1 }
+
+crttMonIPLatestRttOperAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the target. This object,
+        together with the crttMonIPLatestRttOperAddressType object,
+        may be used to specify either an IPv6 or an IPv4 address and is
+        an alternative to the rttMonLatestRttOperAddress object, which
+        can only specify an IPv4 address. In case the target is a V4
+        IP address then both crttMonIPLatestRttOperAddressType/
+        crttMonIPLatestRttOperAddress AND rttMonLatestRttOperAddress
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonLatestRttOperAddress
+        OR crttMonIPLatestRttOperAddressType/
+        crttMonIPLatestRttOperAddress may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPLatestRttOperAddressType/
+        crttMonIPLatestRttOperAddress must be used and
+        rttMonLatestRttOperAddress may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPLatestRttOperEntry 2 }
+ 
+
+
+crttMonIPEchoPathAdminTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrttMonIPEchoPathAdminEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An extension of the rttMonEchoPathAdminTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of recording the hops as IPv6 addresses."
+    ::= { crttMonIPExtObjects 3 }
+
+crttMonIPEchoPathAdminEntry OBJECT-TYPE
+    SYNTAX          CrttMonIPEchoPathAdminEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    AUGMENTS           { rttMonEchoPathAdminEntry  } 
+    ::= { crttMonIPEchoPathAdminTable 1 }
+
+CrttMonIPEchoPathAdminEntry ::= SEQUENCE {
+        crttMonIPEchoPathAdminHopAddrType InetAddressType,
+        crttMonIPEchoPathAdminHopAddress  InetAddress
+}
+
+crttMonIPEchoPathAdminHopAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the hop.
+        This object must be used along with the
+        crttMonIPEchoPathAdminHopAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPEchoPathAdminHopAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonEchoPathAdminHopAddress), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPEchoPathAdminEntry 1 }
+
+crttMonIPEchoPathAdminHopAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the hop. This object,
+        together with the crttMonIPEchoPathAdminHopAddrType object, 
+        may be used to specify either an IPv6 or an IPv4 address and is 
+        an alternative to the 
+        rttMonEchoPathAdminHopAddress object, which
+        can only specify an IPv4 address. In case the target is a V4
+        IP address then both crttMonIPEchoPathAdminHopAddrType/
+        crttMonIPEchoPathAdminHopAddress AND 
+        rttMonEchoPathAdminHopAddress
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonEchoPathAdminHopAddress
+        OR crttMonIPEchoPathAdminHopAddrType/
+        crttMonIPEchoPathAdminHopAddress may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPEchoPathAdminHopAddrType/
+        crttMonIPEchoPathAdminHopAddress must be used and
+        rttMonEchoPathAdminHopAddress may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPEchoPathAdminEntry 2 }
+ 
+
+
+crttMonIPStatsCollectTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrttMonIPStatsCollectEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An extension of the rttMonStatsCollectTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying the collection address as an
+        IPv6 address."
+    ::= { crttMonIPExtObjects 4 }
+
+crttMonIPStatsCollectEntry OBJECT-TYPE
+    SYNTAX          CrttMonIPStatsCollectEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    AUGMENTS           { rttMonStatsCollectEntry  } 
+    ::= { crttMonIPStatsCollectTable 1 }
+
+CrttMonIPStatsCollectEntry ::= SEQUENCE {
+        crttMonIPStatsCollectAddressType InetAddressType,
+        crttMonIPStatsCollectAddress     InetAddress
+}
+
+crttMonIPStatsCollectAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the target.
+        This object must be used along with the
+        crttMonIPStatsCollectAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPStatsCollectAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonStatsCollectAddress), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPStatsCollectEntry 1 }
+
+crttMonIPStatsCollectAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the collection target.
+        This object, in conjunction with the 
+        crttMonIPStatsCollectAddressType object,
+        may be used to specify either an IPv6 or an IPv4 address and is
+        an alternative to the rttMonStatsCollectAddress object, which
+        can only specify an IPv4 address. In case the target is a V4
+        IP address then both crttMonIPStatsCollectAddressType/
+        crttMonIPStatsCollectAddress AND rttMonStatsCollectAddress
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonStatsCollectAddress
+        OR crttMonIPStatsCollectAddressType/
+        crttMonIPStatsCollectAddress may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPStatsCollectAddressType/
+        crttMonIPStatsCollectAddress must be used and
+        rttMonStatsCollectAddress may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPStatsCollectEntry 2 }
+ 
+
+
+crttMonIPLpdGrpStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrttMonIPLpdGrpStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An extension of the rttMonLpdGrpStatsTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying the target PE address as an
+        IPv6 address."
+    ::= { crttMonIPExtObjects 5 }
+
+crttMonIPLpdGrpStatsEntry OBJECT-TYPE
+    SYNTAX          CrttMonIPLpdGrpStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    AUGMENTS           { rttMonLpdGrpStatsEntry  } 
+    ::= { crttMonIPLpdGrpStatsTable 1 }
+
+CrttMonIPLpdGrpStatsEntry ::= SEQUENCE {
+        crttMonIPLpdGrpStatsTargetPEAddrType InetAddressType,
+        crttMonIPLpdGrpStatsTargetPEAddr     InetAddress
+}
+
+crttMonIPLpdGrpStatsTargetPEAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the target.
+        This object must be used along with the
+        crttMonIPLpdGrpStatsTargetPEAddr
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPLpdGrpStatsTargetPEAddr is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonLpdGrpStatsTargetPE), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPLpdGrpStatsEntry 1 }
+
+crttMonIPLpdGrpStatsTargetPEAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the target PE.
+        This object, in conjunction with the 
+        crttMonIPLpdGrpStatsTargetPEAddrType object,
+        may be used to specify either an IPv6 or an IPv4 address and is
+        an alternative to the rttMonLpdGrpStatsTargetPE object, which
+        can only specify an IPv4 address. In case the target is a V4
+        IP address then both crttMonIPLpdGrpStatsTargetPEAddrType/
+        crttMonIPLpdGrpStatsTargetPEAddr AND rttMonLpdGrpStatsTargetPE
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonLpdGrpStatsTargetPE
+        OR crttMonIPLpdGrpStatsTargetPEAddrType/
+        crttMonIPLpdGrpStatsTargetPEAddr may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPLpdGrpStatsTargetPEAddrType/
+        crttMonIPLpdGrpStatsTargetPEAddr must be used and
+        rttMonLpdGrpStatsTargetPE may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPLpdGrpStatsEntry 2 }
+ 
+
+
+crttMonIPHistoryCollectionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrttMonIPHistoryCollectionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An extension of the rttMonHistoryCollectionTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying the target address as an
+        IPv6 address."
+    ::= { crttMonIPExtObjects 6 }
+
+crttMonIPHistoryCollectionEntry OBJECT-TYPE
+    SYNTAX          CrttMonIPHistoryCollectionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    AUGMENTS           { rttMonHistoryCollectionEntry  } 
+    ::= { crttMonIPHistoryCollectionTable 1 }
+
+CrttMonIPHistoryCollectionEntry ::= SEQUENCE {
+        crttMonIPHistoryCollectionAddrType InetAddressType,
+        crttMonIPHistoryCollectionAddress  InetAddress
+}
+
+crttMonIPHistoryCollectionAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the address type
+        of the target.
+        This object must be used along with the
+        crttMonIPHistoryCollectionAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPHistoryCollectionAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonHistoryCollectionAddress), this object contains
+        the value 'unknown'."
+    DEFVAL          { unknown } 
+    ::= { crttMonIPHistoryCollectionEntry 1 }
+
+crttMonIPHistoryCollectionAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the address of the target.
+        This object, in conjunction with the 
+        crttMonIPHistoryCollectionAddrType object,
+        may be used to specify either an IPv6 or an IPv4 address and is
+        an alternative to the 
+        rttMonHistoryCollectionAddress object, which
+        can only specify an IPv4 address. In case the target is a V4
+        IP address then both crttMonIPHistoryCollectionAddrType/
+        crttMonIPHistoryCollectionAddress AND 
+        rttMonHistoryCollectionAddress
+        may be used to specify it so long as both try to specify the
+        same V4 IP address. Alternatively only one of
+        rttMonHistoryCollectionAddress
+        OR crttMonIPHistoryCollectionAddrType/
+        crttMonIPHistoryCollectionAddress may be used to specify the
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPHistoryCollectionAddrType/
+        crttMonIPHistoryCollectionAddress must be used and
+        rttMonHistoryCollectionAddress may not be instantiated or
+        may have a zero length string."
+    DEFVAL          { "" } 
+    ::= { crttMonIPHistoryCollectionEntry 2 }
+ 
+
+
+cipslaPercentileConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaPercentileConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table that contains percentile configurations. Each
+        conceptual row corresponds to the percentile
+        configuration for the probe defined in rttMonCtrlAdminTable."
+    ::= { crttMonIPExtObjects 7 }
+
+cipslaPercentileConfigEntry OBJECT-TYPE
+    SYNTAX          CipslaPercentileConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of objects that define a conceptual percentile
+        configuration control row." 
+    INDEX           {
+                        rttMonCtrlAdminIndex
+                    }
+    ::= { cipslaPercentileConfigTable 1 }
+
+CipslaPercentileConfigEntry ::= SEQUENCE {
+        cipslaPercentileRTT       Integer32,
+        cipslaPercentileOWSD      Integer32,
+        cipslaPercentileOWDS      Integer32,
+        cipslaPercentileJitterSD  Integer32,
+        cipslaPercentileJitterDS  Integer32,
+        cipslaPercentileJitterAvg Integer32
+}
+
+cipslaPercentileRTT OBJECT-TYPE
+    SYNTAX          Integer32 (90..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the percentile value to use in percentile
+        RTT calculations.
+        ex. A 90% level will discard the highest 10% of all RTT values
+            when calculating average RTT, max RTT, etc."
+    DEFVAL          { 100 } 
+    ::= { cipslaPercentileConfigEntry 1 }
+
+cipslaPercentileOWSD OBJECT-TYPE
+    SYNTAX          Integer32 (90..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the percentile value to use in percentile
+        one-way source to destination delay calculations.
+
+        ex. A 90% level will discard the highest 10% of all
+        one-way source to destination values when calculating
+        average, max, etc."
+    DEFVAL          { 100 } 
+    ::= { cipslaPercentileConfigEntry 2 }
+
+cipslaPercentileOWDS OBJECT-TYPE
+    SYNTAX          Integer32 (90..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the percentile value to use in percentile
+        one-way destination to source delay calculations.
+
+        ex. A 90% level will discard the highest 10% of all
+        one-way destination to source values when calculating
+        average, max, etc."
+    DEFVAL          { 100 } 
+    ::= { cipslaPercentileConfigEntry 3 }
+
+cipslaPercentileJitterSD OBJECT-TYPE
+    SYNTAX          Integer32 (90..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the percentile value to use in percentile
+        one-way source to destination jitter calculations.
+
+        ex. A 90% level will discard the highest 10% of all
+        one-way source to destination jitter values when calculating
+        average, max, etc."
+    DEFVAL          { 100 } 
+    ::= { cipslaPercentileConfigEntry 4 }
+
+cipslaPercentileJitterDS OBJECT-TYPE
+    SYNTAX          Integer32 (90..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the percentile value to use in percentile
+        one-way destination to source jitter calculations.
+
+        ex. A 90% level will discard the highest 10% of all
+        one-way destination to source jitter values when calculating
+        average, max, etc."
+    DEFVAL          { 100 } 
+    ::= { cipslaPercentileConfigEntry 5 }
+
+cipslaPercentileJitterAvg OBJECT-TYPE
+    SYNTAX          Integer32 (90..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the percentile value to use in percentile
+        average jitter calculations.
+
+        ex. A 90% level will discard the highest 10% of all
+        jitter values in both directions when calculating average,
+        max, etc."
+    DEFVAL          { 100 } 
+    ::= { cipslaPercentileConfigEntry 6 }
+ 
+
+
+cipslaPercentileLatestStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaPercentileLatestStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table that contains percentile statistics. Each
+        conceptual row corresponds to a percentile configuration
+        for the probe defined in cipslaPercentileConfigTable.
+
+        For each percentile configuration for a probe there is an entry
+        in
+        the table.
+        Each Probe can have multiple percentile configurations and
+        hence
+        there can be multiple rows for a particular probe."
+    ::= { crttMonIPExtObjects 8 }
+
+cipslaPercentileLatestStatsEntry OBJECT-TYPE
+    SYNTAX          CipslaPercentileLatestStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that record the latest jitter
+        operation.
+
+        An entry is created only when the following 
+        objects are valid and when the given percentile
+        type is configured to a non-default value.  
+           - rttMonCtrlAdminRttType
+           - rttMonEchoAdminProtocol
+
+        The entry will start to collect data when rttMonCtrlAdminStatus
+        is in 'active' state.  The entry will be removed when the 
+        rttMonCtrlAdminStatus is changed to 'destroy' state."
+    INDEX           {
+                        cipslaPercentileTypeVar,
+                        rttMonCtrlAdminIndex
+                    } 
+    ::= { cipslaPercentileLatestStatsTable 1 }
+
+CipslaPercentileLatestStatsEntry ::= SEQUENCE {
+        cipslaPercentileTypeVar    CipslaPercentileVar,
+        cipslaPercentileLatestMin  Gauge32,
+        cipslaPercentileLatestMax  Gauge32,
+        cipslaPercentileLatestAvg  Gauge32,
+        cipslaPercentileLatestNum  Gauge32,
+        cipslaPercentileLatestSum  Gauge32,
+        cipslaPercentileLatestSum2 Gauge32
+}
+
+cipslaPercentileTypeVar OBJECT-TYPE
+    SYNTAX          CipslaPercentileVar {
+                        rtt(1),
+                        owsd(2),
+                        owds(3),
+                        jittersd(4),
+                        jitterds(5),
+                        jitteravg(6)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of percentile statistic
+        configured for a probe.
+
+        The percentile stat types 'rtt', 'owsd', 'owds', 'jittersd',
+        'jitterds' and 'jitteravg' may be configured for UDP jitter,
+        ICMP jitter, and Ethernet jitter probe types." 
+    ::= { cipslaPercentileLatestStatsEntry 1 }
+
+cipslaPercentileLatestMin OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum time of all retained samples." 
+    ::= { cipslaPercentileLatestStatsEntry 2 }
+
+cipslaPercentileLatestMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum time of all retained samples." 
+    ::= { cipslaPercentileLatestStatsEntry 3 }
+
+cipslaPercentileLatestAvg OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average time of all retained samples." 
+    ::= { cipslaPercentileLatestStatsEntry 4 }
+
+cipslaPercentileLatestNum OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of retained samples." 
+    ::= { cipslaPercentileLatestStatsEntry 5 }
+
+cipslaPercentileLatestSum OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of times of retained samples." 
+    ::= { cipslaPercentileLatestStatsEntry 6 }
+
+cipslaPercentileLatestSum2 OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of squares of times of retained samples." 
+    ::= { cipslaPercentileLatestStatsEntry 7 }
+ 
+
+
+ciscoRttMonIPExtMibComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for new MIB extensions for
+        supporting IPv6 addresses and other IP-layer extensions"
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoIPExtCtrlGroupRev1 }
+    ::= { ciscoRttMonIPExtMibCompliances 1 }
+
+ciscoRttMonIPExtMibComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for
+        (1) new MIB extensions for supporting IPv6 addresses and
+        other IP-layer extensions
+         (2) Support for percentile statistics and configuration"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIPExtCtrlGroupRev1,
+                        ciscoIPExtCtrlGroupRev2
+                    }
+    ::= { ciscoRttMonIPExtMibCompliances 2 }
+
+ciscoIPExtCtrlGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        crttMonIPEchoAdminTargetAddrType,
+                        crttMonIPEchoAdminTargetAddress,
+                        crttMonIPEchoAdminSourceAddrType,
+                        crttMonIPEchoAdminSourceAddress,
+                        crttMonIPEchoAdminNameServerAddrType,
+                        crttMonIPEchoAdminNameServerAddress,
+                        crttMonIPEchoAdminLSPSelAddrType,
+                        crttMonIPEchoAdminLSPSelAddress,
+                        crttMonIPEchoAdminDscp,
+                        crttMonIPEchoAdminFlowLabel,
+                        crttMonIPLatestRttOperAddressType,
+                        crttMonIPLatestRttOperAddress,
+                        crttMonIPEchoPathAdminHopAddrType,
+                        crttMonIPEchoPathAdminHopAddress,
+                        crttMonIPStatsCollectAddressType,
+                        crttMonIPStatsCollectAddress,
+                        crttMonIPLpdGrpStatsTargetPEAddrType,
+                        crttMonIPLpdGrpStatsTargetPEAddr,
+                        crttMonIPHistoryCollectionAddrType,
+                        crttMonIPHistoryCollectionAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that were added to enhance the
+        functionality of the RTT application to support other
+        IP layer extensions like IPv6,
+        specifically IPv6 addresses and other information."
+    ::= { ciscoRttMonIPExtMibGroups 1 }
+
+ciscoIPExtCtrlGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cipslaPercentileRTT,
+                        cipslaPercentileOWSD,
+                        cipslaPercentileOWDS,
+                        cipslaPercentileJitterSD,
+                        cipslaPercentileJitterDS,
+                        cipslaPercentileJitterAvg,
+                        cipslaPercentileLatestMin,
+                        cipslaPercentileLatestMax,
+                        cipslaPercentileLatestAvg,
+                        cipslaPercentileLatestNum,
+                        cipslaPercentileLatestSum,
+                        cipslaPercentileLatestSum2
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that were added to support
+        percentile statistics and configuration."
+    ::= { ciscoRttMonIPExtMibGroups 2 }
+
+END
+

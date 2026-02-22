@@ -1,0 +1,752 @@
+-- MIB file created 18-Nov-2009 22:51:40, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CABLE-METERING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CABLE-METERING-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus, DateAndTime
+            FROM SNMPv2-TC-v1
+    InetAddress, InetAddressType, InetPortNumber
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndexOrZero
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoCableMeteringMIB OBJECT IDENTIFIER ::= { ciscoMgmt 424 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200910130000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: Cisco Systems
+--    170 West Tasman Drive
+--    San Jose, CA 95134
+--    U.S.A.
+--    Phone:  +1 800 553-NETS
+--    E-mail: cs-ubr@cisco.com
+--  Descr
+--    This is the MIB module for Usage Based Metering for the
+--    DOCSIS-compliant Cable Modem Termination Systems (CMTS).
+--    
+--    Usage Based Metering is a software feature provided in the
+--    CMTS so that cable operators can perform subscriber 
+--    account management and metering in a uniform and 
+--    consistent manner. 
+--    It involves the implementation of Subscriber Account 
+--    Management Interface Specification (SAMIS) as defined by 
+--    DOCSIS-OSSI specification. Usage-Based Metering is 
+--    essential in the processing of bills based on services 
+--    rendered to and consumed by paying subscribers. The SAMIS 
+--    specification focuses primarily on bandwidth centric 
+--    usage-based metering scenarios.
+--    The DOCSIS 1.1 RFI specification provides a mechanism for 
+--    a Cable Modem (CM) to register with its Cable Modem 
+--    Termination System (CMTS) and to configure itself based 
+--    on external Quality of Service (QoS) parameters when it 
+--    is powered up or reset. The principal mechanism for 
+--    providing enhanced QoS is to classify packets traversing 
+--    the RF MAC interface into a Service Flow. 
+--    A Service Flow is a unidirectional flow of packets that is
+--    provided a particular Quality of Service. 
+--    
+--    The mediation system can then rate the charges differently 
+--    for each of the Service Flow traffic counts based on 
+--    its Service Class. Thus, the mediation system obtains from 
+--    the CMTS the traffic counts for each named Service Flow 
+--    (identified by SFID) that a subscribers CM uses during 
+--    the metering data collection interval. The Usage Based 
+--    Metering requirement is that the CMTS must be able to 
+--    provide formatted Subscriber Usage 
+--    Metering Records for all subscribers attached to the CMTS,
+--    on demand to an external collection system. Optionally, 
+--    the metering records can be stored locally so that it is 
+--    available via ftp to the external collection server.
+--    
+--    The CMTS provides two configuration options to handle the
+--    export of metering data.
+--    Local :
+--    Store the record locally on the CMTS after collection. The
+--    metering system should then(operating at its own schedule)
+--    take the file out of the CMTS and is also responsible for
+--    deletion of the local file on the CMTS.  The deletion of 
+--    the file is an indication to the metering collector to 
+--    start construction of the new metering record which will 
+--    then be written to the local filesystem and the cycle 
+--    continues.
+--    
+--    Streaming: 
+--    Stream the records to an external collection system as
+--    they get generated.  The time interval in which the record
+--    will be generated is configurable at the CMTS. A secure 
+--    and reliable stream is used to transport the metering 
+--    record out of the CMTS. 
+--    In case the connection to external metering system is 
+--    not possible, CMTS will retry establishing channel for a 
+--    max specified times. 
+--    
+--    The MIB allows for configuration of the parameters that 
+--    control the metering record collection like interval, 
+--    amount of metering information required, location or IP 
+--    address of the collection server, and metering filename. 
+--    In addition it provides for some important notificatons to
+--    the NMS to indicate the success/failure of the 
+--    metering collection.
+--  RevDate
+--    200910130000Z
+--  RevDescr
+--    Added a new enum type ipdr to ccmtrCollectionType.
+--  RevDate
+--    200905180000Z
+--  RevDescr
+--    Deprecated ccmtrCollectionInterval.
+--    
+--    Deprecated ciscoCableMeteringCompliance and added
+--    ciscoCableMeteringComplianceRev1 to replace it.
+--    
+--    Deprecated ccmtrMeteringObjGroup.
+--    
+--    Added the following new objects:
+--    ccmtrCollectionSrcIfIndex
+--    ccmtrCollectionRevInterval
+--    ccmtrCollectionDataPerSession
+--    ccmtrCollectionDataTimer
+--    
+--    Added the following new OBJECT-GROUP:
+--    ccmtrMeteringObjGroupRev1
+--    ccmtrMeteringSrcIntfObjGroup
+--    ccmtrMeteringRateCtrlObjGroup
+--  RevDate
+--    200403300000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoCableMeteringMIBNotifs OBJECT IDENTIFIER ::= { ciscoCableMeteringMIB 0 }
+ciscoCableMeteringMIBObjects OBJECT IDENTIFIER ::= { ciscoCableMeteringMIB 1 }
+ccmtrMeteringConfig OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBObjects 1 }
+ccmtrMetering   OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBObjects 2 }
+ciscoCableMeteringMIBConformance OBJECT IDENTIFIER ::= { ciscoCableMeteringMIB 3 }
+ciscoCableMeteringMIBCompliances OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBConformance 1 }
+ciscoCableMeteringMIBGroups OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBConformance 2 }
+
+CcmtrStatus ::= INTEGER {
+        unknown(1),
+        success(2),
+        deviceFull(3),
+        writeError(4),
+        fileNotExist(5),
+        connectionTimeout(6),
+        dataIncomplete(7)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The CcmtrStatus is used to indicate success or failure status
+--    that occurred during the process of writing the metering 
+--    records to the non-volatile memory device or 
+--    during streaming them to an external mediation
+--    or collection server
+--    It has the following defined values:
+--    - 'unknown', indicates other reasons for failure of write/stream
+--       of the metering records . 
+--    - 'success', indicates that write of the metering file or 
+--       streaming to the collection server was successful.
+--    - 'deviceFull', indicates that there is not enough space on the 
+--       non-volatile memory device for writing the metering record
+--       file.
+--    - 'writeError', indicates that there was a write error when 
+--       trying to write the metering record file or stream to the 
+--       collection server.
+--    - 'fileNotExist', indicates that the metering file has not yet 
+--       been created for access by the collection server.   
+--    - 'connectionTimeout', indicates a failure to connect to the 
+--       collection server.
+--    - 'dataIncomplete', indicates that there was a failure during
+--       write or streaming and that the metering record might be 
+--       incomplete.
+
+CcmtrCollectionServer ::= INTEGER {
+        primary(1),
+        secondary(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The CcmtrCollectionServer is used to indicate the type of
+--    the collection server.
+--    It has the following defined values:
+--    - 'primary', indicates that the collection server is primary
+--       and will be the first server to which streaming will be
+--       attempted. 
+--    - 'secondary', indicates that the collection server is
+--       secondary and that it will be used only if streaming
+--       to the primary server failed.
+
+ccmtrCollectionType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        local(2),
+        stream(3),
+        ipdr(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Current method of export for metering data.
+        The enumerations are:
+        none(1)    : Metering collection has not been enabled.
+        local(2)   : Store the collected metering records locally 
+                     on the CMTS. 
+        stream(3)  : Stream the metering records to an external 
+                     collection or mediation server.
+        ipdr(4)    : Stream the metering records to an ipdr (Internet 
+                     Proticol Detail Record)collector."
+    ::= { ccmtrMeteringConfig 1 }
+
+ccmtrCollectionFilesystem OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..80))
+--    Rsyntax OCTET STRING(SIZE(0..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The filesystem where metering records are to be stored.
+        This object makes sense only if ccmtrCollectionType object 
+        is local which indicates that the metering records are 
+        to be stored in the local filesystem. 
+        When ccmtrCollectionType is 'stream' this object will
+        retain its set value though it will not be used."
+    ::= { ccmtrMeteringConfig 2 }
+
+ccmtrCollectionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcmtrCollectionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is used only if ccmtrCollectionType object is
+        stream which indicates that the metering records are to 
+        be streamed to an external collection server. 
+        It contains IP address information of the  collection 
+        server. In addition it contains other configurable 
+        parameters like interval, retries etc needed for 
+        streaming the metering records."
+    ::= { ccmtrMeteringConfig 3 }
+
+ccmtrCollectionEntry OBJECT-TYPE
+    SYNTAX CcmtrCollectionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of IP attributes of the mediation or
+        collection server and configuration parameters for 
+        streaming the metering records.
+        An entry in this table exists for each configured
+        mediation or collection server."
+    INDEX { ccmtrCollectionID }
+    ::= { ccmtrCollectionTable 1 }
+
+CcmtrCollectionEntry ::= SEQUENCE {
+    ccmtrCollectionID CcmtrCollectionServer,
+    ccmtrCollectionIpAddrType InetAddressType,
+    ccmtrCollectionIpAddress InetAddress,
+    ccmtrCollectionPort InetPortNumber,
+    ccmtrCollectionRowStatus RowStatus
+    }
+
+ccmtrCollectionID OBJECT-TYPE
+    SYNTAX CcmtrCollectionServer
+--    Rsyntax INTEGER {
+--        primary(1),
+--        secondary(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Identification of a IP address and port number
+        associated with the mediation or collection server. 
+        The ccmtrCollectionID is used in determining the order 
+        of the IP address, port number to which the streaming will
+        take place. The primary represents the first
+        collection server and secondary represents the
+        second collection server if streaming to the primary
+        failed for any reason. Thus primary entry 
+        must be created before the secondary."
+    ::= { ccmtrCollectionEntry 1 }
+
+ccmtrCollectionIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address of ccmtrCollectionIpAddress."
+    DEFVAL { ipv4 }
+    ::= { ccmtrCollectionEntry 2 }
+
+ccmtrCollectionIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the collection server. It will be of
+        type as referred by ccmtrCollectionIpAddrType.
+        The ccmtrCollectionPort should be also valid along with 
+        ccmtrCollectionIpAddress for a row to be created. The 
+        primary collection server IP address represented by
+        ccmtrCollectionID equal to 1 must be created before the
+        secondary collection server IP address."
+    ::= { ccmtrCollectionEntry 3 }
+
+ccmtrCollectionPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The port number of the collection server. This port number
+        chosen should not be any of the well defined ports.
+        The ccmtrCollectionIpAddress should be also valid along 
+        with ccmtrCollectionPort for a row to be created. The 
+        primary collection server port represented by
+        ccmtrCollectionID equal to 1 must be created before the
+        secondary collection server port."
+    ::= { ccmtrCollectionEntry 4 }
+
+ccmtrCollectionRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Controls and reflects the status of rows in this table.
+        It can use used for creation, modifying and deleting
+        entries in this table.
+        The ccmtrCollectionPort should also be valid along with 
+        ccmtrCollectionIpAddress for a row to be created.
+        The ccmtrCollectionID 1 represents the primary
+        collection server and ccmtrCollectionID 2 represents the
+        secondary collection server. Thus ccmtrCollectionID of 1
+        must be created before the ccmtrCollectionID of 2."
+    ::= { ccmtrCollectionEntry 8 }
+
+ccmtrCollectionInterval OBJECT-TYPE
+    SYNTAX Gauge(15..1440)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "The interval in which the metering information is
+        collected. 
+        This object makes sense only if ccmtrCollectionType object 
+        is stream which indicates that the metering records 
+        are to be streamed to an external collection server.
+        This object is deprecated and replaced by
+        ccmtrCollectionRevInterval. While retrieving the value of
+        ccmtrCollectionInterval, the minimum value of 15 will be
+        returned if the value of ccmtrCollectionRevInterval is lower
+        than 15."
+    DEFVAL { 30 }
+    ::= { ccmtrMeteringConfig 4 }
+
+ccmtrCollectionRetries OBJECT-TYPE
+    SYNTAX Gauge(0..5)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of retries to stream the metering records to
+        the external collection server before an error is flagged. 
+        This object makes sense only if ccmtrCollectionType object 
+        is stream which indicates that the metering records 
+        are to be streamed to an external collection server."
+    DEFVAL { 0 }
+    ::= { ccmtrMeteringConfig 5 }
+
+ccmtrCollectionSecure OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of whether the streaming to the collection
+        server should be secure or not. The value of true
+        indicates that the streaming will be secure and false
+        indicates non-secure. 
+        However the secure option is available only if the image 
+        on the CMTS allows for security.
+        This object makes sense only if ccmtrCollectionType object 
+        is stream which indicates that the metering records 
+        are to be streamed to an external collection server."
+    DEFVAL { false }
+    ::= { ccmtrMeteringConfig 6 }
+
+ccmtrCollectionCpeList OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication if one would like the metering records to
+        contain the CPE(Customer premises equipment) IP addresses. 
+        This option is provided to improve performance.
+        By default, this object is true which means the CPE 
+        information will always be present."
+    DEFVAL { true }
+    ::= { ccmtrMeteringConfig 7 }
+
+ccmtrCollectionAggregate OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication if one would like only aggregate Service Flow
+        information per Cable Modem to be recorded. In this case 
+        the record will have a SFID of 0 and a blank Service Class 
+        Name. The distinction between upstream and downstream will 
+        however be maintained. The counters present in the metering
+        records in this case will be the aggregate. i.e., sum of all
+        upstream/downstream service flows. By default, this object 
+        is false which means that the metering records will 
+        contain service flow counter information for all service 
+        flows per CM."
+    DEFVAL { false }
+    ::= { ccmtrMeteringConfig 8 }
+
+ccmtrCollectionSrcIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the interface which will be used as the source
+        interface for the billing packets.
+        When ccmtrCollectionType is 'local', the IP address of this
+        source interface will be used as the CMTS IP address in the
+        billing packets. When ccmtrCollectionType is 'stream', the
+        source IP address of the billing packets as well as the CMTS IP
+        address in billing packets will be changed to the IP address of
+        this interface. In both the cases, the mac address of the source
+        interface would be used in the billing packet headers.
+        A value of zero on this object indicates that the source
+        interface is not specifically configured and the system will
+        determine the source interface to use for billing packets
+        dynamically. This object can only be set when
+        ccmtrCollectionType is either 'local' or 'stream'."
+    DEFVAL { 0 }
+    ::= { ccmtrMeteringConfig 9 }
+
+ccmtrCollectionRevInterval OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval at which the metering information is
+        collected. 
+        This object is of significance only if ccmtrCollectionType
+        object is 'stream' which indicates that the metering records 
+        are to be streamed to an external collection server."
+    DEFVAL { 30 }
+    ::= { ccmtrMeteringConfig 10 }
+
+ccmtrCollectionDataPerSession OBJECT-TYPE
+    SYNTAX Gauge(3..30)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the number of service flow data
+        that would be collected at a Cable linecard in one session.
+        ccmtrCollectionDataPerSession together with
+        ccmtrCollectionDataTimer aims to control as well as
+        throttle the rate of export of the service flow data from the
+        Cable linecard to the Route Processor. This means that a Cable
+        linecard would collect ccmtrCollectionDataPerSession number of
+        service flow data and then pause for ccmtrCollectionDataTimer
+        before resuming collection. The cable linecard to route
+        processor throttling in turn affects the time to export all of
+        the service flow data from the CMTS to a collection server.
+        Time to export (minutes) = 
+        (total flows in system * ccmtrCollectionDataTimer) /
+        (ccmtrCollectionDataPerSession * 1000 * 60)
+        This object cannot be modified during data export from the CMTS
+        to a collection server."
+    DEFVAL { 5 }
+    ::= { ccmtrMeteringConfig 11 }
+
+ccmtrCollectionDataTimer OBJECT-TYPE
+    SYNTAX Gauge(8..500)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the time interval before the start of the
+        next session of service flow data collection at a Cable
+        linecard.
+        After collection of ccmtrCollectionDataPerSession service flow
+        data at a Cable linecard, the linecard would resume collection
+        only after an interval of ccmtrCollectionDataTimer milliseconds.
+        This object cannot be modified during data export from the CMTS
+        to a collection server."
+    DEFVAL { 100 }
+    ::= { ccmtrMeteringConfig 12 }
+
+ccmtrCollectionStatus OBJECT-TYPE
+    SYNTAX CcmtrStatus
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        success(2),
+--        deviceFull(3),
+--        writeError(4),
+--        fileNotExist(5),
+--        connectionTimeout(6),
+--        dataIncomplete(7)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the last metering data export. It indicates
+        the success or failure of writing the metering record file 
+        or streaming the record to the collection server."
+    ::= { ccmtrMetering 1 }
+
+ccmtrCollectionDestination OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..80))
+--    Rsyntax OCTET STRING(SIZE(1..80))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "It represents the name of the file that is created to
+        store the metering record or the IP address and port 
+        number to which the metering information was streamed in 
+        both the success and failure scenerios. 
+        In the case of local storage it is the filename generated 
+        as the CMTS host name followed by the timestamp when the 
+        file was created. 
+        The file will be stored in the filesystem as specified in 
+        ccmtrCollectionFilesystem.
+        In the case of streaming it is the IP address and port 
+        number in the format IPADDRESS:PORT# to which the last 
+        streaming took place."
+    ::= { ccmtrMetering 2 }
+
+ccmtrCollectionTimestamp OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the last metering record was exported
+        successfully or with some failure."
+    ::= { ccmtrMetering 3 }
+
+ccmtrMeteringNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of whether the notifications associated
+        with metering are enabled or disabled. 
+        true indicates the notification is enabled and 
+        false indicates the notification is disabled."
+    DEFVAL { false }
+    ::= { ccmtrMetering 4 }
+
+ccmtrCollectionNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCableMeteringMIB
+    VARIABLES {
+        ccmtrCollectionStatus, ccmtrCollectionDestination, 
+        ccmtrCollectionTimestamp }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification that is sent to indicate the success or
+        failure in creating the metering record file or streaming 
+        it to the collection server.
+        ccmtrCollectionStatus represents the success or 
+        failure of the export. 
+        ccmtrCollectionDestination and ccmtrCollectionTimestamp 
+        represent the destinaton and timestamp of the export in 
+        both the success and failure scenerios. 
+        The receipt of this notification is 
+        an indication to the collection server that the file can be
+        accessed via ftp or any file transfer protocol in the case
+        of local storage."
+    ::= 1
+
+ccmtrMeteringObjGroup OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Group of objects implemented in CMTS
+--    providing for usage based metering configuration
+--    and notification information.
+--    This group is deprecated by ccmtrMeteringObjGroupRev1.
+--  objects
+--    ccmtrCollectionType, ccmtrCollectionFilesystem, 
+--    ccmtrCollectionIpAddrType, ccmtrCollectionIpAddress, 
+--    ccmtrCollectionPort, ccmtrCollectionInterval, 
+--    ccmtrCollectionRetries, ccmtrCollectionSecure, 
+--    ccmtrCollectionRowStatus, ccmtrCollectionCpeList, 
+--    ccmtrCollectionAggregate, ccmtrCollectionStatus, 
+--    ccmtrCollectionDestination, ccmtrCollectionTimestamp
+
+ccmtrMeteringNotifCtrlGroup OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notification control which a
+--    CISCO-CABLE-METERING-MIB
+--    is required to implement.
+--  objects
+--    ccmtrMeteringNotifEnable
+
+ccmtrMeteringObjGroupRev1 OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects implemented in CMTS providing for usage based
+--    metering configuration and notification information.
+--  objects
+--    ccmtrCollectionType, ccmtrCollectionFilesystem, 
+--    ccmtrCollectionIpAddrType, ccmtrCollectionIpAddress, 
+--    ccmtrCollectionPort, ccmtrCollectionRowStatus, 
+--    ccmtrCollectionRetries, ccmtrCollectionSecure, 
+--    ccmtrCollectionCpeList, ccmtrCollectionAggregate, 
+--    ccmtrCollectionRevInterval, ccmtrCollectionStatus, 
+--    ccmtrCollectionDestination, ccmtrCollectionTimestamp
+
+ccmtrMeteringSrcIntfObjGroup OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects implemented in CMTS to define the source
+--    interface for the billing packets.
+--  objects
+--    ccmtrCollectionSrcIfIndex
+
+ccmtrMeteringRateCtrlObjGroup OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects implemented in CMTS to control as well as
+--    throttle the rate of export of the service flow data.
+--  objects
+--    ccmtrCollectionDataPerSession, ccmtrCollectionDataTimer
+
+ccmtrMeteringNotifGroup OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notification which a CISCO-CABLE-METERING-MIB
+--    is required to implement.
+--  notifications
+--    ccmtrCollectionNotification
+
+ciscoCableMeteringCompliance OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for CMTS devices that implement
+--    the Usage Based Metering feature.
+--    This compliance is deprecated by
+--    ciscoCableMeteringComplianceRev1.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccmtrMeteringObjGroup
+--   MandGroup
+--    ccmtrMeteringNotifCtrlGroup
+--   MandGroup
+--    ccmtrMeteringNotifGroup
+--   ObjVar
+--    ccmtrCollectionIpAddrType
+--   ObjVar
+--    ccmtrCollectionPort
+--   ObjVar
+--    ccmtrCollectionRowStatus
+
+ciscoCableMeteringComplianceRev1 OBJECT IDENTIFIER ::= { ciscoCableMeteringMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for CMTS devices that implement
+--    the Usage Based Metering feature.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccmtrMeteringNotifCtrlGroup
+--   MandGroup
+--    ccmtrMeteringNotifGroup
+--   MandGroup
+--    ccmtrMeteringObjGroupRev1
+--   MandGroup
+--    ccmtrMeteringSrcIntfObjGroup
+--   MandGroup
+--    ccmtrMeteringRateCtrlObjGroup
+--   ObjVar
+--    ccmtrCollectionIpAddrType
+--   ObjVar
+--    ccmtrCollectionPort
+--   ObjVar
+--    ccmtrCollectionRowStatus
+
+
+END
+

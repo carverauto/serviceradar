@@ -1,0 +1,191 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-ISCSI-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- ISCSI management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-ISCSI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsIscsiObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        ISCSI management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 60 }
+
+cucsIscsiAuthProfileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIscsiAuthProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile managed object table"
+    ::= { cucsIscsiObjects 1 }
+
+cucsIscsiAuthProfileEntry OBJECT-TYPE
+    SYNTAX           CucsIscsiAuthProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIscsiAuthProfileTable table."
+    INDEX { cucsIscsiAuthProfileInstanceId }
+    ::= { cucsIscsiAuthProfileTable 1 }
+
+CucsIscsiAuthProfileEntry ::= SEQUENCE {
+    cucsIscsiAuthProfileInstanceId                                   CucsManagedObjectId,
+    cucsIscsiAuthProfileDn                                           CucsManagedObjectDn,
+    cucsIscsiAuthProfileRn                                           SnmpAdminString,
+    cucsIscsiAuthProfileDescr                                        SnmpAdminString,
+    cucsIscsiAuthProfileIntId                                        SnmpAdminString,
+    cucsIscsiAuthProfileName                                         SnmpAdminString,
+    cucsIscsiAuthProfilePassword                                     SnmpAdminString,
+    cucsIscsiAuthProfileUserId                                       SnmpAdminString,
+    cucsIscsiAuthProfileCtpassword                                   SnmpAdminString,
+    cucsIscsiAuthProfilePolicyLevel                                  Gauge32,
+    cucsIscsiAuthProfilePolicyOwner                                  CucsPolicyPolicyOwner
+}
+
+cucsIscsiAuthProfileInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIscsiAuthProfileEntry 1 }
+
+cucsIscsiAuthProfileDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:dn managed object property"
+    ::= { cucsIscsiAuthProfileEntry 2 }
+
+cucsIscsiAuthProfileRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:rn managed object property"
+    ::= { cucsIscsiAuthProfileEntry 3 }
+
+cucsIscsiAuthProfileDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:descr managed object property"
+    ::= { cucsIscsiAuthProfileEntry 4 }
+
+cucsIscsiAuthProfileIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:intId managed object property"
+    ::= { cucsIscsiAuthProfileEntry 5 }
+
+cucsIscsiAuthProfileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:name managed object property"
+    ::= { cucsIscsiAuthProfileEntry 6 }
+
+cucsIscsiAuthProfilePassword OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:password managed object property"
+    ::= { cucsIscsiAuthProfileEntry 7 }
+
+cucsIscsiAuthProfileUserId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:userId managed object property"
+    ::= { cucsIscsiAuthProfileEntry 8 }
+
+cucsIscsiAuthProfileCtpassword OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:ctpassword managed object property"
+    ::= { cucsIscsiAuthProfileEntry 9 }
+
+cucsIscsiAuthProfilePolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:policyLevel managed object property"
+    ::= { cucsIscsiAuthProfileEntry 10 }
+
+cucsIscsiAuthProfilePolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS iscsi:AuthProfile:policyOwner managed object property"
+    ::= { cucsIscsiAuthProfileEntry 11 }
+
+END

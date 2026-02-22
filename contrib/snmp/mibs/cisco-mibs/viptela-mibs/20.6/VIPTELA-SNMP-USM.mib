@@ -1,0 +1,62 @@
+-- ***************************************************************** 
+
+-- Copyright (c) 2020 by Cisco Systems, Inc. 
+
+-- All rights reserved. 
+
+-- ******************************************** 
+
+-- Namespace: http://viptela.com/snmp-usm
+
+ 
+
+VIPTELA-SNMP-USM DEFINITIONS ::= BEGIN 
+
+ 
+
+IMPORTS 
+
+    MODULE-IDENTITY  
+
+        FROM SNMPv2-SMI 
+
+    viptela 
+
+        FROM VIPTELA-GLOBAL 
+
+; 
+
+ 
+
+viptela-snmp-usm MODULE-IDENTITY 
+    LAST-UPDATED "202107010000Z"
+    ORGANIZATION "Viptela, Inc." 
+    CONTACT-INFO "Viptela, Inc.  Email:support@viptela.com" 
+
+    DESCRIPTION 
+        "This MIB extends the OID's for SNMP-USM-MIB specified in RFC 3414. 
+
+        The privacy protocol OID's specified herein are intended to be used as values for usmUserPrivProtocol when managing SNMPv3 users via the snmpUsmMIB. 
+
+        This MIB defines the OID's for the following encryption options: 
+
+            * 256 bit key size AES 
+
+        OID for 128 bit key size AES encryption is defined in SNMP-USM-AES-MIB as per the RFC 3826."  
+
+    REVISION "202107010000Z"
+    DESCRIPTION "Viptela Revision 20.6"
+    REVISION "202103010000Z"
+    DESCRIPTION "Viptela Revision 20.5"
+    REVISION "202011010000Z" 
+    DESCRIPTION "Viptela Revision 20.4" 
+
+    ::= { viptela 101 } 
+
+viptelaSnmpPrivProtocols   
+        OBJECT IDENTIFIER ::= { viptela-snmp-usm 1 } 
+
+-- tagpath /snmp/user/priv 
+cusmAES256Cfb128PrivProtocol  
+        OBJECT IDENTIFIER ::= { viptelaSnmpPrivProtocols 1 }  
+END 

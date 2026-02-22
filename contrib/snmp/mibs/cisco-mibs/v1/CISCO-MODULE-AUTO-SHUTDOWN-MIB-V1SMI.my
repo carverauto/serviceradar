@@ -1,0 +1,382 @@
+-- MIB file created 13-Nov-2008 14:17:25, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MODULE-AUTO-SHUTDOWN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MODULE-AUTO-SHUTDOWN-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, DateAndTime
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    entPhysicalIndex, entPhysicalName, entPhysicalModelName
+            FROM ENTITY-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoModuleAutoShutdownMIB OBJECT IDENTIFIER ::= { ciscoMgmt 386 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200803120000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    The CISCO-MODULE-AUTO-SHUTDOWN-MIB is used to configure
+--    the module automatic shutdown feature. Modules will be
+--    reset by the system when they become faulty. The module
+--    auto shutdown feature will shutdown such faulty modules
+--    when the resets occur too often. Once the modules are
+--    shutdown by this feature, they will stay shutdown until
+--    the administrator manually brings them back up. This will
+--    prevent the system from constantly resetting the faulty
+--    modules.
+--    
+--    This MIB module also covers the system initiated action 
+--    occuring on a module.
+--  RevDate
+--    200803120000Z
+--  RevDescr
+--    Added the TC CiscoModuleAutoShutSysAction and the groups
+--    cmasModuleSysActionGroup and cmasNotificationsGroup2.
+--  RevDate
+--    200312290000Z
+--  RevDescr
+--    Initial revision of this MIB module.
+
+cmasMIBNotifs   OBJECT IDENTIFIER ::= { ciscoModuleAutoShutdownMIB 0 }
+cmasMIBObjects  OBJECT IDENTIFIER ::= { ciscoModuleAutoShutdownMIB 1 }
+cmasMIBConformance OBJECT IDENTIFIER ::= { ciscoModuleAutoShutdownMIB 2 }
+cmasGlobal      OBJECT IDENTIFIER ::= { cmasMIBObjects 1 }
+cmasNotifObjects OBJECT IDENTIFIER ::= { cmasMIBObjects 2 }
+cmasModule      OBJECT IDENTIFIER ::= { cmasMIBObjects 3 }
+cmasModuleSysActionObjects OBJECT IDENTIFIER ::= { cmasMIBObjects 4 }
+cmasMIBCompliances OBJECT IDENTIFIER ::= { cmasMIBConformance 1 }
+cmasMIBGroups   OBJECT IDENTIFIER ::= { cmasMIBConformance 2 }
+
+CiscoModuleAutoShutSysAction ::= INTEGER {
+        other(1),
+        reset(2),
+        powerCycle(3),
+        powerDown(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of system initiated action.
+--    Valid values are:
+--    
+--    other(1):       none of the below.
+--    
+--    reset(2):       reset the module.
+--    
+--    powerCycle(3):  power cycle the module.
+--    
+--    powerDown(4):   power down the module.
+
+cmasFrequency OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates the threshold of the number of times
+        the system can reset a faulty module, within the period
+        specified by 'cmasPeriod'. Once the number of these system
+        initiated resets exceeds this threshold, the module auto
+        shutdown feature will shut down the module."
+    ::= { cmasGlobal 1 }
+
+cmasPeriod OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates the period of time over which the number of
+        system initiated module resets is monitored. In order for
+        the module to be automatically shutdown, the number of times
+        the system must reset the module has to exceed cmasFreqency
+        times, in a span of cmasPeriod."
+    ::= { cmasGlobal 2 }
+
+cmasMIBEnableNotification OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the system produces the
+        cmasModuleAutoShutdown notification."
+    DEFVAL { false }
+    ::= { cmasNotifObjects 1 }
+
+cmasModuleSysActionNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the system produces the
+        cmasModuleSysActionNotif notification."
+    DEFVAL { false }
+    ::= { cmasNotifObjects 2 }
+
+cmasModuleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmasModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information regarding the module
+        auto shutdown feature."
+    ::= { cmasModule 1 }
+
+cmasModuleEntry OBJECT-TYPE
+    SYNTAX CmasModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains information about the module auto
+        shutdown feature. Each entry represents whether the
+        feature is enabled, the number of resets, the last
+        reset reason and the last reset time. Each entry is
+        applicable for the modules capable of this feature and
+        are identified by 'entPhysicalIndex' with entPhysicalClass
+        value 'module'."
+    INDEX { entPhysicalIndex }
+    ::= { cmasModuleTable 1 }
+
+CmasModuleEntry ::= SEQUENCE {
+    cmasModuleEnable TruthValue,
+    cmasModuleNumResets Gauge,
+    cmasModuleLastResetReason SnmpAdminString,
+    cmasModuleLastResetTime DateAndTime
+    }
+
+cmasModuleEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object enables or disables the auto shutdown feature
+        on a module.
+        
+        When the object is true(1), auto shutdown is enabled for
+        that module. The feature will start monitoring system
+        initiated module resets, and initiate a shutdown operation
+        on the module if the number of resets, cmasModuleNumResets,
+        exceeds the cmasFrequency within the previous cmasPeriod of
+        time.
+        
+        When the object is false(2), auto shutdown is disabled for
+        that module."
+    ::= { cmasModuleEntry 1 }
+
+cmasModuleNumResets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates the number of system initiated module resets
+        that have occurred. This does not include user initiated
+        module resets."
+    ::= { cmasModuleEntry 2 }
+
+cmasModuleLastResetReason OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the reason for the last module
+        reset initiated by the system. This object will contain
+        a zero-length string if no such resets have occurred."
+    ::= { cmasModuleEntry 3 }
+
+cmasModuleLastResetTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object corresponds to the date and time when the last
+        system initiated module reset occurred. This object will
+        contain 0-1-1,00:00:00:0 if no system initiated resets have
+        occurred."
+    ::= { cmasModuleEntry 4 }
+
+cmasModuleSysAction OBJECT-TYPE
+    SYNTAX CiscoModuleAutoShutSysAction
+--    Rsyntax INTEGER {
+--        other(1),
+--        reset(2),
+--        powerCycle(3),
+--        powerDown(4)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the system initiated action which
+        is applied to a module."
+    ::= { cmasModuleSysActionObjects 1 }
+
+cmasModuleSysActionReason OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the reason of system initiated
+        action which is applied to a module."
+    ::= { cmasModuleSysActionObjects 2 }
+
+cmasModuleAutoShutdown TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoModuleAutoShutdownMIB
+    VARIABLES {
+        entPhysicalName, entPhysicalModelName, cmasModuleNumResets, 
+        cmasModuleLastResetReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the module auto
+        shutdown feature shuts down a module."
+    ::= 1
+
+cmasModuleSysActionNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoModuleAutoShutdownMIB
+    VARIABLES {
+        entPhysicalName, entPhysicalModelName, cmasModuleSysAction, 
+        cmasModuleSysActionReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a system initiated
+        action occurs on a module."
+    ::= 2
+
+cmasModuleGroup OBJECT IDENTIFIER ::= { cmasMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which are used to configure as
+--    well as show information regarding the module auto
+--    shutdown feature.
+--  objects
+--    cmasFrequency, cmasPeriod, cmasModuleEnable, 
+--    cmasModuleNumResets, cmasModuleLastResetReason, 
+--    cmasModuleLastResetTime
+
+cmasNotificationEnableGroup OBJECT IDENTIFIER ::= { cmasMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which are used to enable
+--    notifications.
+--  objects
+--    cmasMIBEnableNotification
+
+cmasModuleSysActionGroup OBJECT IDENTIFIER ::= { cmasMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which are related with
+--    the notification cmasModuleSysActionNotif. They are
+--    either used to enable and disable this notification
+--    or included in this notification PDU.
+--  objects
+--    cmasModuleSysActionNotifEnable, cmasModuleSysAction, 
+--    cmasModuleSysActionReason
+
+cmasNotificationsGroup OBJECT IDENTIFIER ::= { cmasMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for the module auto
+--    shutdown feature.
+--  notifications
+--    cmasModuleAutoShutdown
+
+cmasNotificationsGroup2 OBJECT IDENTIFIER ::= { cmasMIBGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for the system initiated
+--    module action feature.
+--  notifications
+--    cmasModuleSysActionNotif
+
+cmasMIBCompliance OBJECT IDENTIFIER ::= { cmasMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the
+--    CISCO-MODULE-AUTO-SHUTDOWN-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmasModuleGroup
+--   MandGroup
+--    cmasNotificationEnableGroup
+--   MandGroup
+--    cmasNotificationsGroup
+
+cmasMIBCompliance2 OBJECT IDENTIFIER ::= { cmasMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the
+--    CISCO-MODULE-AUTO-SHUTDOWN-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmasModuleGroup
+--   MandGroup
+--    cmasNotificationEnableGroup
+--   MandGroup
+--    cmasNotificationsGroup
+--   OptGroup
+--    cmasModuleSysActionGroup
+--   OptGroup
+--    cmasNotificationsGroup2
+
+
+END
+

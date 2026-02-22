@@ -1,0 +1,765 @@
+-- ************************************************************
+-- CISCO-SLB-HEALTH-MON-CAPABILITY.my:
+-- CISCO-SLB-HEALTH-MON-MIB AGENT-CAPABILITIES
+--   
+-- May 2006, Saifullah M.A.
+--   
+-- Copyright (c) 2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ************************************************************
+
+CISCO-SLB-HEALTH-MON-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSlbHealthMonCapapbility MODULE-IDENTITY
+    LAST-UPDATED    "200807030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-slb@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-SLB-HEALTH-MON-MIB."
+    REVISION        "200807030000Z"
+    DESCRIPTION
+        "Added ciscoSlbHealthMonCapc4710aceVA3R100
+        agent capabilities for ACE 4710 Application 
+        Control Engine Appliance."
+    REVISION        "200802080000Z"
+    DESCRIPTION
+        "Added ciscoSlbHealthMonCapc4710aceVA1R700
+        agent capabilities for ACE 4710 Application 
+        Control Engine Appliance."
+    REVISION        "200606020000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 508 }
+
+
+
+ciscoSlbHealthMonCapabilityACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SLB-HEALTH-MON-MIB capabilities."
+
+    SUPPORTS        CISCO-SLB-HEALTH-MON-MIB
+    INCLUDES        {
+                        cslbHealthMonServerProbesGroup,
+                        cslbHealthMonProbeCfgExtGroup,
+                        cslbHealthMonFTPProbesGroup,
+                        cslbHealthMonHTTPProbesCommmonGroup,
+                        cslbHealthMonHTTPSProbesGroup,
+                        cslbHealthMonIMAPProbesGroup,
+                        cslbHealthMonProbeScriptGroup
+                    }
+    VARIATION       cslbxProbeType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRetries
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFailedInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeReceiveTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeTcpOpenTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeAlternateDestAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeAlternateDestAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeDnsDomainName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxDnsProbeIpRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeExpectStatusMaxValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeExpectStatusRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbePort
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeDescription
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeProtocolType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRouteMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbePriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeUserName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbePassword
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbePassCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeConnTermination
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeSocketReuse
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeSendDataType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeSendData
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestFileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestFileType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHttpRequestMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHttpRequestUrl
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHeaderFieldValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHeaderRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgVersion
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgPersistence
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgHashValid
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgHashName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgCipherSuite
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgSslTlsVersion
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgSslSessionReuse
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeIMAPMailBox
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeIMAPMethodName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeScriptName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeScriptArguments
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    ::= { ciscoSlbHealthMonCapapbility 1 }
+
+ciscoSlbHealthMonCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                for ACE 4710 Application Control Engine 
+                Appliance"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SLB-HEALTH-MON-MIB capabilities."
+
+    SUPPORTS        CISCO-SLB-HEALTH-MON-MIB
+    INCLUDES        {
+                        cslbHealthMonServerProbesGroup,
+                        cslbHealthMonProbeCfgExtGroup,
+                        cslbHealthMonFTPProbesGroup,
+                        cslbHealthMonHTTPProbesCommmonGroup,
+                        cslbHealthMonHTTPSProbesGroup,
+                        cslbHealthMonIMAPProbesGroup,
+                        cslbHealthMonProbeScriptGroup
+                    }
+    VARIATION       cslbxProbeType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRetries
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFailedInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeReceiveTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeTcpOpenTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeAlternateDestAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeAlternateDestAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeDnsDomainName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxDnsProbeIpRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeExpectStatusMaxValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeExpectStatusRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbePort
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeDescription
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeProtocolType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRouteMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbePriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeUserName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbePassword
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbePassCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeConnTermination
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeSocketReuse
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeSendDataType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeSendData
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestFileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestFileType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHttpRequestMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHttpRequestUrl
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHeaderFieldValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHeaderRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgVersion
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgPersistence
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgHashValid
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgHashName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgCipherSuite
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgSslTlsVersion
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgSslSessionReuse
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeIMAPMailBox
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeIMAPMethodName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeScriptName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeScriptArguments
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    ::= { ciscoSlbHealthMonCapapbility 2 }
+
+ciscoSlbHealthMonCapc4710aceVA3R100 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A3(1.0)
+                for ACE 4710 Application Control Engine 
+                Appliance"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SLB-HEALTH-MON-MIB capabilities."
+
+    SUPPORTS        CISCO-SLB-HEALTH-MON-MIB
+    INCLUDES        {
+                        cslbHealthMonProbeCfgExtGroup,
+                        cslbHealthMonFTPProbesGroup,
+                        cslbHealthMonHTTPProbesCommmonGroup,
+                        cslbHealthMonIMAPProbesGroup,
+                        cslbHealthMonProbeScriptGroup,
+                        cslbHealthMonHTTPSProbesGroupRev1,
+                        cslbHealthMonServerProbesGroupRev1,
+                        cshMonSfarmrealserverProbeStatsGroupRev1
+                    }
+    VARIATION       cslbxProbeType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRetries
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFailedInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeReceiveTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeTcpOpenTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeAlternateDestAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeAlternateDestAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeDnsDomainName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxDnsProbeIpRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeExpectStatusMaxValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeExpectStatusRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbePort
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeDescription
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeProtocolType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeRouteMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbePriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeUserName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbePassword
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbePassCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeConnTermination
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeSocketReuse
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeSendDataType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cslbxProbeSendData
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestFileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeFtpRequestFileType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHttpRequestMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHttpRequestUrl
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHeaderFieldValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHeaderRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgVersion
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgPersistence
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgHashValid
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgHashName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgCipherSuite
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgSslTlsVersion
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeHTTPCfgSslSessionReuse
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeIMAPMailBox
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeIMAPMethodName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeScriptName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cslbxProbeScriptArguments
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read operation is allowed on this object."
+
+    VARIATION       cshMonProbeInheritedPortType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoSlbHealthMonCapapbility 3 }
+
+END

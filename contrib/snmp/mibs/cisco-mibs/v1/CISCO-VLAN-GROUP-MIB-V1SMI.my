@@ -1,0 +1,224 @@
+-- MIB file created 25-Mar-2011 13:02:10, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VLAN-GROUP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VLAN-GROUP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    StorageType, RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    Cisco2KVlanList
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVlanGroupMIB OBJECT IDENTIFIER ::= { ciscoMgmt 709 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201103220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    MIB module for monitoring and configuring VLAN Group Mapping
+--    information.
+--  RevDate
+--    201103220000Z
+--  RevDescr
+--    Added cvgConfigTableSizeGroup.
+--  RevDate
+--    200911200000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoVlanGroupMIBNotifs OBJECT IDENTIFIER ::= { ciscoVlanGroupMIB 0 }
+ciscoVlanGroupMIBObjects OBJECT IDENTIFIER ::= { ciscoVlanGroupMIB 1 }
+ciscoVlanGroupMIBConform OBJECT IDENTIFIER ::= { ciscoVlanGroupMIB 2 }
+ciscoVlanGroupMIBCompliances OBJECT IDENTIFIER ::= { ciscoVlanGroupMIBConform 1 }
+ciscoVlanGroupMIBGroups OBJECT IDENTIFIER ::= { ciscoVlanGroupMIBConform 2 }
+
+cvgConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvgConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of VLAN groups configured in the system."
+    ::= { ciscoVlanGroupMIBObjects 1 }
+
+cvgConfigEntry OBJECT-TYPE
+    SYNTAX CvgConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing VLAN mapping configuration for a particular
+        VLAN group.  At least one VLAN must be associated with the group
+        specified by cvgConfigGroupName when the entry is created."
+    INDEX { cvgConfigGroupName }
+    ::= { cvgConfigTable 1 }
+
+CvgConfigEntry ::= SEQUENCE {
+    cvgConfigGroupName SnmpAdminString,
+    cvgConfigVlansFirst2K Cisco2KVlanList,
+    cvgConfigVlansSecond2K Cisco2KVlanList,
+    cvgConfigStorageType StorageType,
+    cvgConfigRowStatus RowStatus
+    }
+
+cvgConfigGroupName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the VLAN group."
+    ::= { cvgConfigEntry 1 }
+
+cvgConfigVlansFirst2K OBJECT-TYPE
+    SYNTAX Cisco2KVlanList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs 0 to
+        2047."
+    ::= { cvgConfigEntry 2 }
+
+cvgConfigVlansSecond2K OBJECT-TYPE
+    SYNTAX Cisco2KVlanList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs 2048
+        to 4095."
+    ::= { cvgConfigEntry 3 }
+
+cvgConfigStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row
+        in ciscoVlanGroupTable."
+    DEFVAL { volatile }
+    ::= { cvgConfigEntry 4 }
+
+cvgConfigRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        All writable objects in this row may be modified at any time."
+    ::= { cvgConfigEntry 5 }
+
+cvgConfigTableSize OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum number of entries that can
+        be created in cvgConfigTable. A value of zero indicates 
+        no limit to the number of entries that can be created
+        in cvgConfigTable."
+    ::= { ciscoVlanGroupMIBObjects 2 }
+
+ciscoVlanGroupConfigGroup OBJECT IDENTIFIER ::= { ciscoVlanGroupMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for VLAN Group configuration.
+--  objects
+--    cvgConfigVlansFirst2K, cvgConfigVlansSecond2K, 
+--    cvgConfigRowStatus, cvgConfigStorageType
+
+cvgConfigTableSizeGroup OBJECT IDENTIFIER ::= { ciscoVlanGroupMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which provides the limit information
+--    on the number of VLAN groups that can be created.
+--  objects
+--    cvgConfigTableSize
+
+ciscoVlanGroupMIBCompliance OBJECT IDENTIFIER ::= { ciscoVlanGroupMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    CISCO-VLAN-GROUP-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVlanGroupConfigGroup
+--   ObjVar
+--    cvgConfigVlansFirst2K
+--   ObjVar
+--    cvgConfigVlansSecond2K
+--   ObjVar
+--    cvgConfigStorageType
+--   ObjVar
+--    cvgConfigRowStatus
+
+ciscoVlanGroupMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoVlanGroupMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    CISCO-VLAN-GROUP-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVlanGroupConfigGroup
+--   OptGroup
+--    cvgConfigTableSizeGroup
+--   ObjVar
+--    cvgConfigVlansFirst2K
+--   ObjVar
+--    cvgConfigVlansSecond2K
+--   ObjVar
+--    cvgConfigStorageType
+--   ObjVar
+--    cvgConfigRowStatus
+
+
+END
+

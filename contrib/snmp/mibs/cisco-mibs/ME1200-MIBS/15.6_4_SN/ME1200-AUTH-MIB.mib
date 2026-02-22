@@ -1,0 +1,922 @@
+-- *****************************************************************
+-- AUTH-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-AUTH-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    InetAddressIPv6 FROM INET-ADDRESS-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200AuthMib MODULE-IDENTITY
+    LAST-UPDATED "201404070000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private MIB for authentication"
+    REVISION    "201404070000Z"
+    DESCRIPTION
+        "Added authorization and accounting"
+    REVISION    "201403070000Z"
+    DESCRIPTION
+        "Update AuthRADIUSglobalDeadtime description"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201402100000Z"
+    DESCRIPTION
+        "Removed empty capabilities OID"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401240000Z"
+    DESCRIPTION
+        "Fixed textual issues."
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Use ME1200DisplayString instead of DisplayString."
+    REVISION    "201311260000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 48 }
+
+
+ME1200AuthAcctMethod ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the available accounting methods."
+    SYNTAX      INTEGER { none(0), tacacs(3) }
+
+ME1200AuthAuthorMethod ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the available authorization methods."
+    SYNTAX      INTEGER { none(0), tacacs(3) }
+
+ME1200AuthMethod ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the available authentication methods."
+    SYNTAX      INTEGER { none(0), local(1), radius(2), tacacs(3) }
+
+me1200AuthObjects OBJECT IDENTIFIER
+    ::= { me1200AuthMib 1 }
+
+me1200AuthConfig OBJECT IDENTIFIER
+    ::= { me1200AuthObjects 2 }
+
+me1200AuthGlobals OBJECT IDENTIFIER
+    ::= { me1200AuthConfig 1 }
+
+me1200AuthAgents OBJECT IDENTIFIER
+    ::= { me1200AuthGlobals 1 }
+
+me1200AuthAgentConsole OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 1 }
+
+me1200AuthAgentConsoleMethodsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AuthAgentConsoleMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is an ordered table of methods used to authenticate console access"
+    ::= { me1200AuthAgentConsole 1 }
+
+me1200AuthAgentConsoleMethodsEntry OBJECT-TYPE
+    SYNTAX      ME1200AuthAgentConsoleMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry defines a method to be consulted with a priorty equal to the
+         index"
+    INDEX       { me1200AuthAgentConsoleMethodsMetodIndex }
+    ::= { me1200AuthAgentConsoleMethodsTable 1 }
+
+ME1200AuthAgentConsoleMethodsEntry ::= SEQUENCE {
+    me1200AuthAgentConsoleMethodsMetodIndex   Integer32,
+    me1200AuthAgentConsoleMethodsMethod   ME1200AuthMethod
+}
+
+me1200AuthAgentConsoleMethodsMetodIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Method priority index, from 0 to 3 where 0 is the highest priority
+         index"
+    ::= { me1200AuthAgentConsoleMethodsEntry 1 }
+
+me1200AuthAgentConsoleMethodsMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authentication method"
+    ::= { me1200AuthAgentConsoleMethodsEntry 2 }
+
+me1200AuthAgentTelnet OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 2 }
+
+me1200AuthAgentTelnetMethodsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AuthAgentTelnetMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is an ordered table of methods used to authenticate telnet access"
+    ::= { me1200AuthAgentTelnet 1 }
+
+me1200AuthAgentTelnetMethodsEntry OBJECT-TYPE
+    SYNTAX      ME1200AuthAgentTelnetMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry defines a method to be consulted with a priorty equal to the
+         index"
+    INDEX       { me1200AuthAgentTelnetMethodsMetodIndex }
+    ::= { me1200AuthAgentTelnetMethodsTable 1 }
+
+ME1200AuthAgentTelnetMethodsEntry ::= SEQUENCE {
+    me1200AuthAgentTelnetMethodsMetodIndex    Integer32,
+    me1200AuthAgentTelnetMethodsMethod    ME1200AuthMethod
+}
+
+me1200AuthAgentTelnetMethodsMetodIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Method priority index, from 0 to 3 where 0 is the highest priority
+         index"
+    ::= { me1200AuthAgentTelnetMethodsEntry 1 }
+
+me1200AuthAgentTelnetMethodsMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authentication method"
+    ::= { me1200AuthAgentTelnetMethodsEntry 2 }
+
+me1200AuthAgentSSH OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 3 }
+
+me1200AuthAgentSSHMethodsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AuthAgentSSHMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is an ordered table of methods used to authenticate ssh access"
+    ::= { me1200AuthAgentSSH 1 }
+
+me1200AuthAgentSSHMethodsEntry OBJECT-TYPE
+    SYNTAX      ME1200AuthAgentSSHMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry defines a method to be consulted with a priorty equal to the
+         index"
+    INDEX       { me1200AuthAgentSSHMethodsMetodIndex }
+    ::= { me1200AuthAgentSSHMethodsTable 1 }
+
+ME1200AuthAgentSSHMethodsEntry ::= SEQUENCE {
+    me1200AuthAgentSSHMethodsMetodIndex   Integer32,
+    me1200AuthAgentSSHMethodsMethod   ME1200AuthMethod
+}
+
+me1200AuthAgentSSHMethodsMetodIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Method priority index, from 0 to 3 where 0 is the highest priority
+         index"
+    ::= { me1200AuthAgentSSHMethodsEntry 1 }
+
+me1200AuthAgentSSHMethodsMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authentication method"
+    ::= { me1200AuthAgentSSHMethodsEntry 2 }
+
+me1200AuthAgentHTTP OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 4 }
+
+me1200AuthAgentHTTPMethodsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AuthAgentHTTPMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is an ordered table of methods used to authenticate HTTP access"
+    ::= { me1200AuthAgentHTTP 1 }
+
+me1200AuthAgentHTTPMethodsEntry OBJECT-TYPE
+    SYNTAX      ME1200AuthAgentHTTPMethodsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry defines a method to be consulted with a priorty equal to the
+         index"
+    INDEX       { me1200AuthAgentHTTPMethodsMetodIndex }
+    ::= { me1200AuthAgentHTTPMethodsTable 1 }
+
+ME1200AuthAgentHTTPMethodsEntry ::= SEQUENCE {
+    me1200AuthAgentHTTPMethodsMetodIndex      Integer32,
+    me1200AuthAgentHTTPMethodsMethod      ME1200AuthMethod
+}
+
+me1200AuthAgentHTTPMethodsMetodIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Method priority index, from 0 to 3 where 0 is the highest priority
+         index"
+    ::= { me1200AuthAgentHTTPMethodsEntry 1 }
+
+me1200AuthAgentHTTPMethodsMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authentication method"
+    ::= { me1200AuthAgentHTTPMethodsEntry 2 }
+
+me1200AuthAgentAuthorConsole OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 11 }
+
+me1200AuthAgentAuthorConsoleMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthAuthorMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authorization method"
+    ::= { me1200AuthAgentAuthorConsole 1 }
+
+me1200AuthAgentAuthorConsoleCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable authorization of commands"
+    ::= { me1200AuthAgentAuthorConsole 2 }
+
+me1200AuthAgentAuthorConsoleCmdPrivLvl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Command privilege level. Authorize all commands with a privilege level
+         higher than or equal to this level. Valid values are in the range 0 to
+         15"
+    ::= { me1200AuthAgentAuthorConsole 3 }
+
+me1200AuthAgentAuthorConsoleCfgCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Also authorize configuration commands"
+    ::= { me1200AuthAgentAuthorConsole 4 }
+
+me1200AuthAgentAuthorTelnet OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 12 }
+
+me1200AuthAgentAuthorTelnetMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthAuthorMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authorization method"
+    ::= { me1200AuthAgentAuthorTelnet 1 }
+
+me1200AuthAgentAuthorTelnetCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable authorization of commands"
+    ::= { me1200AuthAgentAuthorTelnet 2 }
+
+me1200AuthAgentAuthorTelnetCmdPrivLvl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Command privilege level. Authorize all commands with a privilege level
+         higher than or equal to this level. Valid values are in the range 0 to
+         15"
+    ::= { me1200AuthAgentAuthorTelnet 3 }
+
+me1200AuthAgentAuthorTelnetCfgCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Also authorize configuration commands"
+    ::= { me1200AuthAgentAuthorTelnet 4 }
+
+me1200AuthAgentAuthorSSH OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 13 }
+
+me1200AuthAgentAuthorSSHMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthAuthorMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authorization method"
+    ::= { me1200AuthAgentAuthorSSH 1 }
+
+me1200AuthAgentAuthorSSHCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable authorization of commands"
+    ::= { me1200AuthAgentAuthorSSH 2 }
+
+me1200AuthAgentAuthorSSHCmdPrivLvl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Command privilege level. Authorize all commands with a privilege level
+         higher than or equal to this level. Valid values are in the range 0 to
+         15"
+    ::= { me1200AuthAgentAuthorSSH 3 }
+
+me1200AuthAgentAuthorSSHCfgCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Also authorize configuration commands"
+    ::= { me1200AuthAgentAuthorSSH 4 }
+
+me1200AuthAgentAcctConsole OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 21 }
+
+me1200AuthAgentAcctConsoleMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthAcctMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Accounting method"
+    ::= { me1200AuthAgentAcctConsole 1 }
+
+me1200AuthAgentAcctConsoleCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable accounting of commands"
+    ::= { me1200AuthAgentAcctConsole 2 }
+
+me1200AuthAgentAcctConsoleCmdPrivLvl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Command privilege level. Log all commands with a privilege level higher
+         than or equal to this level. Valid values are in the range 0 to 15"
+    ::= { me1200AuthAgentAcctConsole 3 }
+
+me1200AuthAgentAcctConsoleExecEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable exec (login) accounting"
+    ::= { me1200AuthAgentAcctConsole 4 }
+
+me1200AuthAgentAcctTelnet OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 22 }
+
+me1200AuthAgentAcctTelnetMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthAcctMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Accounting method"
+    ::= { me1200AuthAgentAcctTelnet 1 }
+
+me1200AuthAgentAcctTelnetCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable accounting of commands"
+    ::= { me1200AuthAgentAcctTelnet 2 }
+
+me1200AuthAgentAcctTelnetCmdPrivLvl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Command privilege level. Log all commands with a privilege level higher
+         than or equal to this level. Valid values are in the range 0 to 15"
+    ::= { me1200AuthAgentAcctTelnet 3 }
+
+me1200AuthAgentAcctTelnetExecEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable exec (login) accounting"
+    ::= { me1200AuthAgentAcctTelnet 4 }
+
+me1200AuthAgentAcctSSH OBJECT IDENTIFIER
+    ::= { me1200AuthAgents 23 }
+
+me1200AuthAgentAcctSSHMethod OBJECT-TYPE
+    SYNTAX      ME1200AuthAcctMethod
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Accounting method"
+    ::= { me1200AuthAgentAcctSSH 1 }
+
+me1200AuthAgentAcctSSHCmdEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable accounting of commands"
+    ::= { me1200AuthAgentAcctSSH 2 }
+
+me1200AuthAgentAcctSSHCmdPrivLvl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Command privilege level. Log all commands with a privilege level higher
+         than or equal to this level. Valid values are in the range 0 to 15"
+    ::= { me1200AuthAgentAcctSSH 3 }
+
+me1200AuthAgentAcctSSHExecEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable exec (login) accounting"
+    ::= { me1200AuthAgentAcctSSH 4 }
+
+me1200AuthRADIUS OBJECT IDENTIFIER
+    ::= { me1200AuthGlobals 2 }
+
+me1200AuthRADIUSglobal OBJECT IDENTIFIER
+    ::= { me1200AuthRADIUS 1 }
+
+me1200AuthRADIUSglobalTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global timeout for for RADIUS servers. Can be overridden by individual
+         host entries. (1 to 1000 seconds)"
+    ::= { me1200AuthRADIUSglobal 1 }
+
+me1200AuthRADIUSglobalRetransmit OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global retransmit count for RADIUS servers. Can be overridden by
+         individual host entries. (1 to 1000 times)"
+    ::= { me1200AuthRADIUSglobal 2 }
+
+me1200AuthRADIUSglobalDeadtime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global deadtime for RADIUS servers. (0 to 1440 minutes)"
+    ::= { me1200AuthRADIUSglobal 3 }
+
+me1200AuthRADIUSglobalKey OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..63))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global secret key for RADIUS servers. Can be overridden by individual
+         host entries."
+    ::= { me1200AuthRADIUSglobal 4 }
+
+me1200AuthRADIUSconfig OBJECT IDENTIFIER
+    ::= { me1200AuthRADIUS 2 }
+
+me1200AuthRADIUSconfigNasIpv4Enable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable Global NAS IPv4 address"
+    ::= { me1200AuthRADIUSconfig 1 }
+
+me1200AuthRADIUSconfigNasIpv4Address OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global NAS IPv4 address"
+    ::= { me1200AuthRADIUSconfig 2 }
+
+me1200AuthRADIUSconfigNasIpv6Enable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable Global NAS IPv6 address"
+    ::= { me1200AuthRADIUSconfig 3 }
+
+me1200AuthRADIUSconfigNasIpv6Address OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global NAS IPv6 address"
+    ::= { me1200AuthRADIUSconfig 4 }
+
+me1200AuthRADIUSconfigNasIdentifier OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..255))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global NAS Identifier"
+    ::= { me1200AuthRADIUSconfig 5 }
+
+me1200AuthRADIUShostTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AuthRADIUShostEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Radius servers useed to query for RADIUS
+         authentication"
+    ::= { me1200AuthRADIUS 3 }
+
+me1200AuthRADIUShostEntry OBJECT-TYPE
+    SYNTAX      ME1200AuthRADIUShostEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry defines a RADIUS server, with attributes used for contacting
+         it. Host entries are consulted in numerical order of the entry index"
+    INDEX       { me1200AuthRADIUShostIndex }
+    ::= { me1200AuthRADIUShostTable 1 }
+
+ME1200AuthRADIUShostEntry ::= SEQUENCE {
+    me1200AuthRADIUShostIndex     Integer32,
+    me1200AuthRADIUShostAddress   ME1200DisplayString,
+    me1200AuthRADIUShostAuthPort      Unsigned32,
+    me1200AuthRADIUShostAcctPort      Unsigned32,
+    me1200AuthRADIUShostTimeout   Unsigned32,
+    me1200AuthRADIUShostRetransmit    Unsigned32,
+    me1200AuthRADIUShostKey   ME1200DisplayString
+}
+
+me1200AuthRADIUShostIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Host entry index"
+    ::= { me1200AuthRADIUShostEntry 1 }
+
+me1200AuthRADIUShostAddress OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..255))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "IPv4/IPv6 address or hostname of this server"
+    ::= { me1200AuthRADIUShostEntry 2 }
+
+me1200AuthRADIUShostAuthPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authentication port number (UDP) for use for this server"
+    ::= { me1200AuthRADIUShostEntry 3 }
+
+me1200AuthRADIUShostAcctPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Accounting port number (UDP) to use for this server"
+    ::= { me1200AuthRADIUShostEntry 4 }
+
+me1200AuthRADIUShostTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Seconds to wait for a response from this server. Use global timeout if
+         zero"
+    ::= { me1200AuthRADIUShostEntry 5 }
+
+me1200AuthRADIUShostRetransmit OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of times a request is resent to an unresponding server. Use
+         global retransmit if zero"
+    ::= { me1200AuthRADIUShostEntry 6 }
+
+me1200AuthRADIUShostKey OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..63))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The secret key to use for this server. Use global key if empty"
+    ::= { me1200AuthRADIUShostEntry 7 }
+
+me1200AuthTACACS OBJECT IDENTIFIER
+    ::= { me1200AuthGlobals 3 }
+
+me1200AuthTACACSglobal OBJECT IDENTIFIER
+    ::= { me1200AuthTACACS 1 }
+
+me1200AuthTACACSglobalTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global timeout for for TACACS servers. Can be overridden by individual
+         host entries. (1 to 1000 seconds)"
+    ::= { me1200AuthTACACSglobal 1 }
+
+me1200AuthTACACSglobalDeadtime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global deadtime for TACACS servers. (0 to 1440 minutes)"
+    ::= { me1200AuthTACACSglobal 2 }
+
+me1200AuthTACACSglobalKey OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..63))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global secret key for TACACS servers. Can be overridden by individual
+         host entries."
+    ::= { me1200AuthTACACSglobal 3 }
+
+me1200AuthTACACShostTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AuthTACACShostEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Tacacs servers useed to query for TACACS
+         authentication"
+    ::= { me1200AuthTACACS 2 }
+
+me1200AuthTACACShostEntry OBJECT-TYPE
+    SYNTAX      ME1200AuthTACACShostEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry defines a TACACS server, with attributes used for contacting
+         it. Host entries are consulted in numerical order of the entry index"
+    INDEX       { me1200AuthTACACShostIndex }
+    ::= { me1200AuthTACACShostTable 1 }
+
+ME1200AuthTACACShostEntry ::= SEQUENCE {
+    me1200AuthTACACShostIndex     Integer32,
+    me1200AuthTACACShostAddress   ME1200DisplayString,
+    me1200AuthTACACShostAuthPort      Unsigned32,
+    me1200AuthTACACShostTimeout   Unsigned32,
+    me1200AuthTACACShostKey   ME1200DisplayString
+}
+
+me1200AuthTACACShostIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Host entry index"
+    ::= { me1200AuthTACACShostEntry 1 }
+
+me1200AuthTACACShostAddress OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..255))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "IPv4/IPv6 address or hostname of this server"
+    ::= { me1200AuthTACACShostEntry 2 }
+
+me1200AuthTACACShostAuthPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Authentication port number (TCP) to use for this server"
+    ::= { me1200AuthTACACShostEntry 3 }
+
+me1200AuthTACACShostTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Seconds to wait for a response from this server. Use global timeout if
+         zero"
+    ::= { me1200AuthTACACShostEntry 4 }
+
+me1200AuthTACACShostKey OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..63))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The secret key to use for this server. Use global key if empty"
+    ::= { me1200AuthTACACShostEntry 5 }
+
+me1200AuthMibConformance OBJECT IDENTIFIER
+    ::= { me1200AuthMib 2 }
+
+me1200AuthMibCompliances OBJECT IDENTIFIER
+    ::= { me1200AuthMibConformance 1 }
+
+me1200AuthMibGroups OBJECT IDENTIFIER
+    ::= { me1200AuthMibConformance 2 }
+
+me1200AuthAgentConsoleMethodsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentConsoleMethodsMethod }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 1 }
+
+me1200AuthAgentTelnetMethodsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentTelnetMethodsMethod }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 2 }
+
+me1200AuthAgentSSHMethodsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentSSHMethodsMethod }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 3 }
+
+me1200AuthAgentHTTPMethodsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentHTTPMethodsMethod }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 4 }
+
+me1200AuthAgentAuthorConsoleInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentAuthorConsoleMethod, 
+                  me1200AuthAgentAuthorConsoleCmdEnable, 
+                  me1200AuthAgentAuthorConsoleCmdPrivLvl, 
+                  me1200AuthAgentAuthorConsoleCfgCmdEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 5 }
+
+me1200AuthAgentAuthorTelnetInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentAuthorTelnetMethod, 
+                  me1200AuthAgentAuthorTelnetCmdEnable, 
+                  me1200AuthAgentAuthorTelnetCmdPrivLvl, 
+                  me1200AuthAgentAuthorTelnetCfgCmdEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 6 }
+
+me1200AuthAgentAuthorSSHInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentAuthorSSHMethod, me1200AuthAgentAuthorSSHCmdEnable, 
+                  me1200AuthAgentAuthorSSHCmdPrivLvl, 
+                  me1200AuthAgentAuthorSSHCfgCmdEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 7 }
+
+me1200AuthAgentAcctConsoleInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentAcctConsoleMethod, 
+                  me1200AuthAgentAcctConsoleCmdEnable, 
+                  me1200AuthAgentAcctConsoleCmdPrivLvl, 
+                  me1200AuthAgentAcctConsoleExecEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 8 }
+
+me1200AuthAgentAcctTelnetInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentAcctTelnetMethod, 
+                  me1200AuthAgentAcctTelnetCmdEnable, 
+                  me1200AuthAgentAcctTelnetCmdPrivLvl, 
+                  me1200AuthAgentAcctTelnetExecEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 9 }
+
+me1200AuthAgentAcctSSHInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthAgentAcctSSHMethod, me1200AuthAgentAcctSSHCmdEnable, 
+                  me1200AuthAgentAcctSSHCmdPrivLvl, me1200AuthAgentAcctSSHExecEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 10 }
+
+me1200AuthRADIUSglobalInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthRADIUSglobalTimeout, me1200AuthRADIUSglobalRetransmit, 
+                  me1200AuthRADIUSglobalDeadtime, me1200AuthRADIUSglobalKey }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 11 }
+
+me1200AuthRADIUSconfigInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthRADIUSconfigNasIpv4Enable, 
+                  me1200AuthRADIUSconfigNasIpv4Address, 
+                  me1200AuthRADIUSconfigNasIpv6Enable, 
+                  me1200AuthRADIUSconfigNasIpv6Address, 
+                  me1200AuthRADIUSconfigNasIdentifier }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 12 }
+
+me1200AuthRADIUShostTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthRADIUShostAddress, me1200AuthRADIUShostAuthPort, 
+                  me1200AuthRADIUShostAcctPort, me1200AuthRADIUShostTimeout, 
+                  me1200AuthRADIUShostRetransmit, me1200AuthRADIUShostKey }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 13 }
+
+me1200AuthTACACSglobalInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthTACACSglobalTimeout, me1200AuthTACACSglobalDeadtime, 
+                  me1200AuthTACACSglobalKey }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 14 }
+
+me1200AuthTACACShostTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AuthTACACShostAddress, me1200AuthTACACShostAuthPort, 
+                  me1200AuthTACACShostTimeout, me1200AuthTACACShostKey }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AuthMibGroups 15 }
+
+me1200AuthMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200AuthAgentConsoleMethodsTableInfoGroup, 
+                  me1200AuthAgentTelnetMethodsTableInfoGroup, 
+                  me1200AuthAgentSSHMethodsTableInfoGroup, 
+                  me1200AuthAgentHTTPMethodsTableInfoGroup, 
+                  me1200AuthAgentAuthorConsoleInfoGroup, 
+                  me1200AuthAgentAuthorTelnetInfoGroup, 
+                  me1200AuthAgentAuthorSSHInfoGroup, 
+                  me1200AuthAgentAcctConsoleInfoGroup, 
+                  me1200AuthAgentAcctTelnetInfoGroup, 
+                  me1200AuthAgentAcctSSHInfoGroup, me1200AuthRADIUSglobalInfoGroup, 
+                  me1200AuthRADIUSconfigInfoGroup, 
+                  me1200AuthRADIUShostTableInfoGroup, 
+                  me1200AuthTACACSglobalInfoGroup, 
+                  me1200AuthTACACShostTableInfoGroup }
+
+    ::= { me1200AuthMibCompliances 1 }
+
+END

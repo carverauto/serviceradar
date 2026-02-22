@@ -1,0 +1,226 @@
+-- *********************************************************************
+-- CISCO-FC-MULTICAST-MIB.my: Fibre Channel Multicast Mib
+--
+-- July 2004, Vinay Gaonkar
+--
+-- Copyright (c) 2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FC-MULTICAST-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS        
+     MODULE-IDENTITY, OBJECT-TYPE        FROM SNMPv2-SMI
+     MODULE-COMPLIANCE, OBJECT-GROUP     FROM SNMPv2-CONF
+     TEXTUAL-CONVENTION,RowStatus        FROM SNMPv2-TC
+     ciscoMgmt                           FROM CISCO-SMI
+     vsanIndex                           FROM CISCO-VSAN-MIB
+     DomainIdOrZero                      FROM CISCO-ST-TC;
+
+
+ciscoFcMulticastMIB MODULE-IDENTITY
+
+        LAST-UPDATED "200410070000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "MIB module for monitoring and configuring 
+                Fibre Channel Multicast feature."
+
+        REVISION   "200410070000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+
+        ::= { ciscoMgmt 435 }
+
+ciscoFcMulticastNotifications OBJECT IDENTIFIER  
+                              ::= { ciscoFcMulticastMIB 0 }
+ciscoFcMulticastMIBObjects OBJECT IDENTIFIER     
+                              ::= { ciscoFcMulticastMIB 1 }
+ciscoFcMulticaseConformance OBJECT IDENTIFIER    
+                              ::= { ciscoFcMulticastMIB 2 }
+
+
+cfmConfiguration OBJECT IDENTIFIER     
+                              ::= {ciscoFcMulticastMIBObjects 1}
+
+--
+-- Textual Conventions
+--
+CfmMulticastRootMode   ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION
+               "The multicast Root Mode.
+                principalSwitch       - principal switch is used as the
+                                        root for multicast tree 
+                                        computation.
+                lowestDomainIdSwitch  - lowest domainId switch is used 
+                                        as the root for mulitcast tree 
+                                        computation."
+        REFERENCE
+              "Refer to FC-SW-2 REV 5.4 for information on principal 
+              switch and lowest domain id switch."
+        SYNTAX    INTEGER {
+                      principalSwitch (1),
+                      lowestDomainSwitch (2)
+                  }
+
+--
+-- Multicase root configuration
+--
+
+cfmMulticastRootTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CfmMulticastRootEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+           "This table allows the users to configure and monitor the
+           FC Multicast parameters on all the VSANs configured on the 
+           local switch.
+
+           An entry is automatically created in this table if there
+           is an entry in the fspfTable (defined in CISCO-FSPF-MIB) and
+           fspfOperStatus (defined in CISCO-FSPF-MIB) for that
+           entry is 'up'.
+ 
+           An entry is automatically deleted from this table if
+           either :
+            a) the fspfOperStatus in the fspfTable entry for the 
+               corresponding VSAN changes to 'down'.
+                                 or
+            b) the fspfTable entry for the corresponding VSAN is
+               deleted.
+
+           Entries in this table can be created via 
+           cfmMulticastRootRowStatus only as the means to specify 
+           non-default parameter values for a VSAN either because the
+           VSAN is suspended or fspfOperStatus (defined in 
+           CISCO-FSPF-MIB) for that VSAN is 'down' (VSAN state is 
+           indicated by object vsanOperState which is defined in 
+           CISCO-VSAN-MIB).
+
+           So an entry in this table exists when one or both of these
+           conditions holds:
+           - one or more configuration parameters have non-default
+             values for a VSAN which is either suspended or the 
+             fspfOperStatus for that VSAN is down.  
+           - the fspfOperStatus for VSAN is 'up'.
+
+           This has a number of consequences:
+           - an entry exists for a suspended VSAN whenever that VSAN 
+             has non-default parameters.
+           - an entry cannot be created (via cfmMulticastRootRowStatus) 
+             for a VSAN with default parameters; instead, the agent
+             creates/deletes an entry for a VSAN with default
+             parameters according to whether the fspfOperStatus is 'up' 
+             or 'down'.
+           - an entry can not be created via cfmMulticastRootRowStatus 
+             unless non-default parameter values are (simultaneously) 
+             configured for a VSAN whose fspfOperStatus is 'down'.
+           - deleting an entry via cfmMulticastRootRowStatus when either
+             the VSAN is suspended and configured with non-default 
+             values or the VSAN is active, is equivalent to resetting
+             its parameters to their default values.
+             If an entry is configured with default-values and the 
+             VSAN is in suspended state, then the entry would be 
+             deleted."
+        REFERENCE
+           "For information FC multicast/root, refer to Fibre Channel 
+           Switch Fabric-2  (FC-SW-2 REV 5.4) and Fibre Channel Switch 
+           Fabric-3  (FC-SW-3 REV 6.6)."
+    ::= { cfmConfiguration 1 }
+
+cfmMulticastRootEntry OBJECT-TYPE
+    SYNTAX      CfmMulticastRootEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+           "This entry contains the multicase parameters on this VSAN."
+    INDEX       { vsanIndex }
+    ::= { cfmMulticastRootTable 1 }
+
+CfmMulticastRootEntry ::= SEQUENCE  {
+    cfmMulticastRootConfigMode  CfmMulticastRootMode,
+    cfmMulticastRootOperMode    CfmMulticastRootMode,
+    cfmMulticastRootDomainId    DomainIdOrZero,
+    cfmMulticastRootRowStatus   RowStatus
+}
+
+cfmMulticastRootConfigMode OBJECT-TYPE
+    SYNTAX      CfmMulticastRootMode
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+           "The configured multicast root mode on this VSAN."
+    DEFVAL { principalSwitch }
+    ::= { cfmMulticastRootEntry 1 }
+
+cfmMulticastRootOperMode OBJECT-TYPE
+    SYNTAX      CfmMulticastRootMode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+           "The operational multicast root mode on this VSAN."
+    ::= { cfmMulticastRootEntry 2 }
+
+cfmMulticastRootDomainId OBJECT-TYPE
+    SYNTAX      DomainIdOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+           "The domainID of the multicast root on this VSAN."
+    ::= { cfmMulticastRootEntry 3 }
+
+cfmMulticastRootRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+           "The status of conceptual row on this VSAN.
+
+           This object can be used to create an entry only if
+           either the corresponding VSAN is suspended or the
+           fspfOperStatus is down. If the VSAN is either 
+           not-existent or fspfOperStatus is up, the create will fail."
+    ::= { cfmMulticastRootEntry 4 }
+--
+-- Conformance
+--
+ciscoFcMulticastMIBCompliances
+       OBJECT IDENTIFIER ::= { ciscoFcMulticaseConformance 1 }
+ciscoFcMulticastMIBGroups
+       OBJECT IDENTIFIER ::= { ciscoFcMulticaseConformance 2 }
+
+ciscoFcMulticastMIBCompliance MODULE-COMPLIANCE
+    STATUS   current
+    DESCRIPTION
+           "The compliance statement for entities which implement the 
+           CISCO-FC-MULTICAST-MIB."
+    MODULE 
+          MANDATORY-GROUPS { cfmConfigurationGroup}
+
+    ::= { ciscoFcMulticastMIBCompliances 1 }
+
+
+-- Units of Conformance
+
+cfmConfigurationGroup  OBJECT-GROUP
+    OBJECTS  { cfmMulticastRootConfigMode,
+               cfmMulticastRootOperMode,
+               cfmMulticastRootDomainId,
+               cfmMulticastRootRowStatus       
+             }
+    STATUS   current
+    DESCRIPTION
+           "A collection of objects for FC multicast 
+           configuration."
+    ::= { ciscoFcMulticastMIBGroups 1 }
+END

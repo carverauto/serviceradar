@@ -1,0 +1,231 @@
+-- *****************************************************************
+-- CISCO-TRUSTSEC-INTERFACE-CAPABILITY.my:
+-- Cisco CISCO-TRUSTSEC-INTERFACE-MIB AGENT-CAPABILITIES
+--   
+-- Jun 2009, Liwei Lue
+--   
+-- Copyright (c) 2009-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-TRUSTSEC-INTERFACE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoTrustSecInterfaceCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-TRUSTSEC-INTERFACE-MIB."
+    REVISION        "201209040000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoTrustSecInterfaceCapV15R0101SYPCat6k."
+    REVISION        "201010300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 597 }
+
+
+
+ciscoTrustSecInterfaceCapV12R0250SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-TRUSTSEC-INTERFACE-MIB capabilities."
+
+    SUPPORTS        CISCO-TRUSTSEC-INTERFACE-MIB
+    INCLUDES        {
+                        ciscoTrustSecIfMIBIfConfigGroup,
+                        ciscoTrustSecIfMIBDot1xGroup,
+                        ciscoTrustSecIfMIBManualGroup,
+                        ciscoTrustSecIfMIBL3ForwardGroup,
+                        ciscoTrustSecIfMIBStatusGroup,
+                        ciscoTrustSecIfMIBStatisticGroup,
+                        ciscoTrustSecIfMIBAuthorizationGroup,
+                        ciscoTrustSecIfMIBIfcStatisticGroup,
+                        ciscoTrustSecIfMIBEventStatisticGroup,
+                        ciscoTrustSecIfMIBIfModeStatisticGroup
+                    }
+    VARIATION       ctsiIfDot1xReauthInterval
+    SYNTAX          Integer32 (0..2147482)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsiIfDot1xSapModeList
+    SYNTAX          OCTET STRING (SIZE (1..4))
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsiIfDot1xStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsiIfDot1xRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       ctsiIfManualDynamicPeerId
+    SYNTAX          SnmpAdminString (SIZE (0..128))
+    DESCRIPTION
+        "Only a limited set of values are supported."
+
+    VARIATION       ctsiIfManualSapModeList
+    SYNTAX          OCTET STRING (SIZE (1..4))
+    DESCRIPTION
+        "Only a limited set of values are supported."
+
+    VARIATION       ctsiIfManualStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsiIfManualRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       ctsiIfL3ForwardStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsiIfL3ForwardRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoTrustSecInterfaceCapability 1 }
+
+ciscoTrustSecInterfaceCapV15R0101SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-TRUSTSEC-INTERFACE-MIB capabilities."
+
+    SUPPORTS        CISCO-TRUSTSEC-INTERFACE-MIB
+    INCLUDES        {
+                        ciscoTrustSecIfMIBIfConfigGroup,
+                        ciscoTrustSecIfMIBDot1xGroup,
+                        ciscoTrustSecIfMIBManualGroup,
+                        ciscoTrustSecIfMIBL3ForwardGroup,
+                        ciscoTrustSecIfMIBStatusGroup,
+                        ciscoTrustSecIfMIBStatisticGroup,
+                        ciscoTrustSecIfMIBAuthorizationGroup,
+                        ciscoTrustSecIfMIBIfcStatisticGroup,
+                        ciscoTrustSecIfMIBEventStatisticGroup,
+                        ciscoTrustSecIfMIBIfModeStatisticGroup,
+                        ciscoTrustSecIfMIBNotifsCtrlGrp,
+                        ciscoTrustSecIfMIBNotifsOnlyInfoGrp,
+                        ciscoTrustSecIfMIBNotifsGrp
+                    }
+    VARIATION       ctsiIfDot1xReauthInterval
+    SYNTAX          Integer32 (0..2147482)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsiIfDot1xSapModeList
+    SYNTAX          OCTET STRING (SIZE (1..4))
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsiIfDot1xStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsiIfDot1xRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       ctsiIfManualDynamicPeerId
+    SYNTAX          SnmpAdminString (SIZE (0..128))
+    DESCRIPTION
+        "Only a limited set of values are supported."
+
+    VARIATION       ctsiIfManualSapModeList
+    SYNTAX          OCTET STRING (SIZE (1..4))
+    DESCRIPTION
+        "Only a limited set of values are supported."
+
+    VARIATION       ctsiIfManualStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsiIfManualRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       ctsiIfL3ForwardStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsiIfL3ForwardRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoTrustSecInterfaceCapability 2 }
+
+END
+
+
+
+
+

@@ -1,0 +1,348 @@
+
+-- *****************************************************************
+-- CISCO-DIAMETER-BASE-PROTOCOL-CAPABILITY.my:  Cisco Diameter Base
+-- Protocol MIB AGENT-CAPABILITIES
+--   
+-- September 06, 2006 - Subash T.Comerica
+--   
+-- Copyright (c) 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-DIAMETER-BASE-PROTOCOL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoDiameterBasePCapability MODULE-IDENTITY
+    LAST-UPDATED    "200609061130Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-aaa@cisco.com"
+    DESCRIPTION
+            "The capabilities description of
+            CISCO-DIAMETER-BASE-PROTOCOL-MIB."
+    REVISION        "200609061130Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+          ::= { ciscoAgentCapability 517 }
+
+
+
+ciscoDiameterBasePCapabilityV12R0409XG AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(9)XG."
+    STATUS          current
+    DESCRIPTION     "Cisco Diameter Base Protocol MIB capabilities"
+
+    SUPPORTS        CISCO-DIAMETER-BASE-PROTOCOL-MIB
+    INCLUDES        {
+                        ciscoDiameterBasePMIBLocalCfgGroup,
+                        ciscoDiameterBasePMIBPeerCfgGroup,
+                        ciscoDiameterBasePMIBPeerStatsGroup,
+                        ciscoDiameterBasePMIBNotificationsGroup,
+                        ciscoDiameterBasePMIBTrapCfgGroup,
+                        ciscoDiameterBasePMIBLocalCfgSkippedGroup,
+                        ciscoDiameterBasePMIBLocalStatsSkippedGroup,
+                        ciscoDiameterBasePMIBPeerCfgSkippedGroup,
+                        ciscoDiameterBasePMIBPeerStatsSkippedGroup,
+                        ciscoDiameterBasePMIBRealmCfgSkippedGroup,
+                        ciscoDiameterBasePMIBRealmStatsSkippedGroup
+                    }
+    VARIATION       cdbpLocalId
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpLocalIpAddrType
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpLocalIpAddrEntry not supported."
+
+    VARIATION       cdbpLocalIpAddress
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpLocalIpAddrEntry not supported."
+
+    VARIATION       cdbpLocalOriginHost
+    ACCESS          read-only
+    DESCRIPTION     "Write is not implemented."
+
+    VARIATION       cdbpLocalApplStorageType
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpLocalApplEntry not supported."
+
+    VARIATION       cdbpLocalApplRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpLocalApplEntry not supported."
+
+    VARIATION       cdbpLocalVendorStorageType
+    ACCESS          read-only
+    DESCRIPTION     "Write operation not allowed by SNMP."
+
+    VARIATION       cdbpLocalVendorRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    ACCESS          read-create
+    DESCRIPTION
+            "Creation of new entries using createAndWait(5) and
+                                                suspension of entries using notInService(2) is not
+                                                supported."
+
+    VARIATION       cdbpAppAdvToPeerVendorId
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpAppAdvToPeerEntry not supported."
+
+    VARIATION       cdbpAppAdvToPeerServices
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpAppAdvToPeerEntry not supported."
+
+    VARIATION       cdbpAppAdvToPeerStorageType
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpAppAdvToPeerEntry not supported."
+
+    VARIATION       cdbpAppAdvToPeerRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpAppAdvToPeerEntry not supported."
+
+    VARIATION       cdbpLocalStatsTotalPacketsIn
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpLocalStatsTotalPacketsOut
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpLocalStatsTotalUpTime
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpLocalResetTime
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpLocalConfigReset
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStorageType
+    ACCESS          read-only
+    DESCRIPTION     "Write operation not allowed by SNMP."
+
+    VARIATION       cdbpPeerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    ACCESS          read-create
+    DESCRIPTION
+            "Creation of new entries using createAndWait(5) and
+                                                suspension of entries using notInService(2) is not
+                                                supported."
+
+    VARIATION       cdbpAppAdvFromPeerType
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpAppAdvFromPeerEntry not supported."
+
+    VARIATION       cdbpPeerVendorStorageType
+    ACCESS          read-only
+    DESCRIPTION     "Write operation not allowed by SNMP."
+
+    VARIATION       cdbpPeerVendorRowStatus
+    ACCESS          read-only
+    DESCRIPTION     "Create operation not allowed via SNMP."
+
+    VARIATION       cdbpPeerStatsTimeoutConnAtmpts
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsRedirectEvents
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsAccDupRequests
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsAccsNotRecorded
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsAccRetrans
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsTotalRetrans
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsAccPendReqstsOut
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsAccReqstsDropped
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsHByHDropMessages
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsEToEDupMessages
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpPeerStatsUnknownTypes
+    ACCESS          not-implemented
+    DESCRIPTION     "This object is not supported."
+
+    VARIATION       cdbpRealmKnownPeers
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpRealmKnownPeersEntry not supported."
+
+    VARIATION       cdbpRealmKnownPeersChosen
+    ACCESS          not-implemented
+    DESCRIPTION     "Table for cdbpRealmKnownPeersEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteRealm
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteApp
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteType
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteAction
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteACRsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteACRsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteACAsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteACAsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteRARsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteRARsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteRAAsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteRAAsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteSTRsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteSTRsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteSTAsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteSTAsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteASRsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteASRsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteASAsIn
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteASAsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteAccRetrans
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteAccDupReqsts
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRoutePendReqstsOut
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    VARIATION       cdbpRealmMessageRouteReqstsDrop
+    ACCESS          not-implemented
+    DESCRIPTION
+            "Table for cdbpRealmMessageRouteEntry not supported."
+
+    ::= { ciscoDiameterBasePCapability 1 }
+
+END
+
+
+

@@ -1,0 +1,783 @@
+-- *****************************************************************
+-- CISCO-CDSTV-SERVER-MIB: Cisco CDS-TV Server Setup Management
+-- Information Base
+--   
+-- June 2010, Rajat Ahuja
+--   
+-- Copyright (c) 2010, 2012 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CDSTV-SERVER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    TruthValue,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    Dscp
+        FROM DIFFSERV-DSCP-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCdstvServerMIB MODULE-IDENTITY
+    LAST-UPDATED    "201212120000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-cds@cisco.com"
+    DESCRIPTION
+        "This MIB module defines server configuration  that
+        faciliate the management of the Cisco Content Delivery System
+        for TV (CDS-TV) product family.
+
+        CDS-TV is a suite of products and software applications
+        providing ingest, storage, caching, streaming, playout and
+        on-demand delivery of video to television or set-top-box
+        clients.
+
+        Abbreviations:
+
+        CDS     Content Delivery System
+        CDSM    Content Delivery System Manager
+        ISA     Interactive Services Architecture
+        ISV     Integrated Streamer-Vault
+        FSI     File Service Interface
+        FTP     File Transfer Protocol
+        MPEG    Motion Picture Experts Group
+        MSA     Managed Services Architecture
+        NDVR    Network Digital Video Recorder
+        RTSP    Real-Time Streaming Protocol
+        STB     Set-Top Box
+        VVI      Virtual Video Infrastructure
+
+
+        Device Roles:
+
+        Vault: Content delivery application responsible for ingesting
+        and storing video content and making it available to streamers
+        and/or caching nodes.
+
+        Caching Nodes: Content delivery application responsible for
+        caching content from vault (using CCP) and then streaming
+        content out to streamers over HTTP or CCP.
+
+        Streamer: Content delivery application responsible for
+        streaming
+        video out to STB's.
+
+        ISV: Content delivery application capable of acting as both a
+        vault and as a streamer in a single device.
+
+        Controller (also called 'CDSM'): CDS application providing a
+        web-based interface for monitoring, control and configuration
+        of
+        CDS devices(streamers, vaults, caching nodes and ISV's), device
+        arrays/groups, and the complete CDS deployment. 
+
+        Recorder: Content delivery application responsible for recording
+        NDVR content and delivering it to streamers.
+
+        Role-specific objects:
+
+        cdstvServerCommonObjects apply to all roles
+        cdstvServerStreamingObjects apply to streamer and ISV role
+        specified by cdstvServerRole
+        cdstvServerStorageObjects apply to vault and ISV role specified
+        by cdstvServerRole
+        cdstvServerCachingObjects apply to cachingserver role specified
+        by cdstvServerRole"
+    REVISION        "201212120000Z"
+    DESCRIPTION
+        "Added support for recorder server role."
+    REVISION        "201007130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 754 }
+
+
+
+CiscoCdstvEcn ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The Explicit Congestion Notification (ECN) field consists of
+        two bits that denote the end points of a transfer protocol as
+        ECN-capable, or that ECN is not being used. The possible values
+        of the ECN Capable
+        Transport Codepoint (ECT) are: 
+
+        ect1(1)       - Use ECN with ECT(1) setting.
+        ect0(2)       - Use ECN with ECT(0) setting (recommended).
+        congestion(3) - Congestion is experienced by router.
+        disabled(4)   - Do not use ECN
+
+        Setting the ECN field to 3 is performed by the router to
+        indicate congestion is experienced. ECN is set separately for
+        cache and transport interfaces. ECN can also be set for HTTP
+        Streamers when HTTP is selected as the cache-fill protocol for
+        VVI."
+    SYNTAX          INTEGER  {
+                        ect1(1),
+                        ect0(2),
+                        congestion(3),
+                        disabled(4)
+                    }
+-- Textual Conventions definition will be defined before this line
+
+ciscoCdstvServerMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIB 0 }
+
+ciscoCdstvServerMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIB 1 }
+
+ciscoCdstvServerMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIB 2 }
+
+ciscoCdstvServerMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIBConform 1 }
+
+cdstvServerCommonObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIBObjects 1 }
+
+cdstvServerStreamingObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIBObjects 2 }
+
+cdstvServerStorageObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIBObjects 3 }
+
+cdstvServerCachingObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIBObjects 4 }
+
+
+-- Device Info
+
+cdstvServerRole OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        isv(1),
+                        vault(2),
+                        streamer(3),
+                        controller(4),
+                        cachingserver(5),
+                        recorder(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type/role of this server:
+        isv(1) - Cisco CDS Integrated Streamer Vault
+        vault(2) - Cisco CDS Vault
+        streamer(3) - Cisco CDS Streamer
+        controller(4) - Cisco CDS Manager (CDSM)
+        cachingserver(5) - Cisco CDS Caching Node/Server
+        recorder(6) - Cisco CDS Recorder" 
+    ::= { cdstvServerCommonObjects 1 }
+
+cdstvServerPartNo OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the part number of this device, which
+        uniquely identifies the type of hardware this CDS application is
+        running on, for example, CDE-420 2S3." 
+    ::= { cdstvServerCommonObjects 2 }
+
+cdstvServerID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the unique server ID assigned to this
+        device. Server ID's are auto-assigned by the CDS when servers
+        are configured and are used to uniquely identify,
+        optionally with the group ID, a device in the CDS." 
+    ::= { cdstvServerCommonObjects 3 }
+
+cdstvServerGroupID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the group ID of the group this server
+        belong to. Group ID's are auto-assigned when server groups are
+        configured in the CDS." 
+    ::= { cdstvServerCommonObjects 4 }
+
+cdstvServerHostname OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the optional fully qualified hostname for
+        this server, for example, vault.cisco.com." 
+    ::= { cdstvServerCommonObjects 5 }
+
+cdstvServerTTL OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    UNITS           "hops"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP time to live (TTL) for data
+        packets."
+    DEFVAL          { 16 } 
+    ::= { cdstvServerCommonObjects 6 }
+-- Default Stream/Cache Settings
+
+cdstvServerDefaultStreamCacheSettings  OBJECT IDENTIFIER
+    ::= { cdstvServerCommonObjects 7 }
+
+
+cdstvCacheJumboFramesEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of jumbo frames on cache
+        interfaces:
+        'true' - Jumbo frames are enabled
+        'false' - Jumbo frames are disabled" 
+    ::= { cdstvServerCommonObjects 8 }
+
+cdstvServerOffloadEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current offload status of the server.
+        When Server Offload is enabled, the server is configured not to
+        accept new provisioning.
+        'true'  - Server offload is enabled
+        'false' - Server offload is disabled" 
+    ::= { cdstvServerCommonObjects 9 }
+-- Transport/Cache IP Packets
+
+cdstvServerTransportCacheIPPkts  OBJECT IDENTIFIER
+    ::= { cdstvServerCommonObjects 10 }
+
+
+cdstvServerNullStreamingEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the streaming of null MPEG files
+        is allowed or not:
+        'true' - Null MPEG streaming is allowed.
+        'false' - NUll MPEG streaming is not allowed." 
+    ::= { cdstvServerCommonObjects 11 }
+
+cdstvServerStartingTransportPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the beginning default UDP port number
+        used for stream and stream/cache interfaces on this streamer or
+        ISV."
+    DEFVAL          { 48879 } 
+    ::= { cdstvServerStreamingObjects 1 }
+
+cdstvServerEndingTransportPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ending default UDP port number used
+        for stream and stream/cache interfaces on this streamer or 
+        ISV." 
+    ::= { cdstvServerStreamingObjects 2 }
+
+cdstvStreamJumboFramesEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of jumbo frames on stream
+        interfaces of this streamer or ISV:
+        'true'  - Jumbo frames are enabled.
+        'false' - Jumbo frames are disabled." 
+    ::= { cdstvServerStreamingObjects 3 }
+-- Stream Group Info
+
+cdstvServerStreamGroupInfo  OBJECT IDENTIFIER
+    ::= { cdstvServerStreamingObjects 4 }
+
+
+cdstvServerStreamGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the stream group this
+        streamer or ISV is a member of. Group name for a stream group is
+        configured in the CDSM." 
+    ::= { cdstvServerStreamGroupInfo 1 }
+
+cdstvServerStreamGroupID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ID of the stream group this streamer
+        or ISV is a member of. Stream group ID is auto-assigned by CDS
+        when the stream group is created." 
+    ::= { cdstvServerStreamGroupInfo 2 }
+
+cdstvServerStreamerIsCache OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether 'Streamer Is Cache' is enabled on
+        this streamer. If 'Streamer Is Cache' is enabled, the Streamer
+        can be used as a possible cache-fill source by a Streamer in a
+        different Stream Group. All Stream Groups that have at least one
+        Streamer with 'Streamer is Cache' enabled are displayed on the
+        'Stream to Cache Map' page, where the Stream Group can be
+        selected
+        as a possible cache-fill source and given a preference. Only the
+        Streamers with 'Streamer Is Cache' enabled are used as possible
+        cache-fill sources. The protocol used for cache-fill responses
+        from Streamers is always CCP. 
+        'true' - 'Streamer Is Cache' is enabled
+        'false' - 'Streamer Is Cache' is disabled" 
+    ::= { cdstvServerStreamGroupInfo 3 }
+
+cdstvVaultMirrorCopies OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..10)
+    UNITS           "copies"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of content copies on a Vault
+        or ISV that will ensure there is at least one copy at each
+        site." 
+    ::= { cdstvServerStorageObjects 1 }
+cdstvServerCacheGroupInformation  OBJECT IDENTIFIER
+    ::= { cdstvServerCachingObjects 1 }
+
+
+cdstvServerCacheGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the cache group this Caching
+        Node is a member of. Group name for a caching group is
+        configured in the CDSM." 
+    ::= { cdstvServerCacheGroupInformation 1 }
+
+cdstvServerCacheGroupID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ID of the caching group this Caching
+        Node is a member of. Caching Group ID is auto-assigned by the
+        CDS when a caching group is created." 
+    ::= { cdstvServerCacheGroupInformation 2 }
+
+cdstvVaultLocalCopies OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4)
+    UNITS           "copies"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of local copies on a Vaults or
+        ISV at a site." 
+    ::= { cdstvServerStorageObjects 2 }
+-- FTP Out Settings
+
+cdstvServerFTPOutSettings  OBJECT IDENTIFIER
+    ::= { cdstvServerStorageObjects 3 }
+
+cdstvServerVaultGroupInformation  OBJECT IDENTIFIER
+    ::= { cdstvServerStorageObjects 4 }
+
+
+cdstvServerFTPOutInterface OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        management(1),
+                        ingest(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the management
+        interface or the ingest interface is used for FTP pull and FTP
+        push on a Vault or ISV.
+        management(1) - Management interface is used for FTP pull and
+        FTP push
+        ingest(2) - Ingest interface is used for FTP pull and FTP push" 
+    ::= { cdstvServerFTPOutSettings 1 }
+
+cdstvServerFTPOutBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1000)
+    UNITS           "Mbps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum bandwidth allowed for FTP
+        functionality on a Vault or ISV." 
+    ::= { cdstvServerFTPOutSettings 2 }
+
+cdstvServerFTPOutSessions OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "sessions"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of FTP out sessions
+        allowed on a Vault or ISV." 
+    ::= { cdstvServerFTPOutSettings 3 }
+
+cdstvServerVaultGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the vault group this Vault is
+        a member of. Group name for a vault group is configured in the
+        CDSM." 
+    ::= { cdstvServerVaultGroupInformation 1 }
+
+cdstvServerVaultGroupID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ID of the vault group this Vault is a
+        member of. Vault Group ID is auto-assigned by the CDS when a
+        vault group is configured." 
+    ::= { cdstvServerVaultGroupInformation 2 }
+
+cdstvServerSourceAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the default source IP address
+        (specified by the cdstvServerSourceAddress) for all stream and
+        cache interfaces."
+    DEFVAL          { ipv4 } 
+    ::= { cdstvServerDefaultStreamCacheSettings 1 }
+
+cdstvServerSourceAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default source IP address for all
+        stream and cache interfaces. The type of this address is
+        specified by the cdstvServerSourceAddressType."
+    DEFVAL          { "192.168.207.65" } 
+    ::= { cdstvServerDefaultStreamCacheSettings 2 }
+
+cdstvServerCachePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default UDP port number used for
+        cache traffic between servers."
+    DEFVAL          { 48879 } 
+    ::= { cdstvServerDefaultStreamCacheSettings 3 }
+
+cdstvServerTransportDSCP OBJECT-TYPE
+    SYNTAX          Dscp
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Differentiated Services Code Point
+        (DSCP) for the Transport Interface on this server. DSCP uses six
+        bits of the DiffServ field, which was originally the ToS octet,
+        to mark all outgoing packets with a specific DSCP value. Cache
+        or transport traffic may require certain forwarding behavior,
+        known as the per-hop behavior (PHB), which is specified in the
+        DSCP. The network gives priority to marked traffic. Generally,
+        the lower number has lower priority and the higher number has
+        higher priority.
+
+        DSCP is set separately for cache and transport interfaces.
+
+        DSCP can also be set for HTTP Streamers when HTTP is selected as
+        the cache-fill protocol for VVI." 
+    ::= { cdstvServerTransportCacheIPPkts 1 }
+
+cdstvServerTransportECN OBJECT-TYPE
+    SYNTAX          CiscoCdstvEcn
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Explicit Congestion Notification
+        (ECN) for the Transport Interface on this server." 
+    ::= { cdstvServerTransportCacheIPPkts 2 }
+
+cdstvServerCacheDSCP OBJECT-TYPE
+    SYNTAX          Dscp
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "his object specifies the Differentiated Services Code Point
+        (DSCP) for the Cache Interface on this server. DSCP uses six
+        bits of the DiffServ field, which was originally the ToS octet,
+        to mark all outgoing packets with a specific DSCP value. Cache
+        or transport traffic may require certain forwarding behavior,
+        known as the per-hop behavior (PHB), which is specified in the
+        DSCP. The network gives priority to marked traffic. Generally,
+        the lower number has lower priority and the higher number has
+        higher priority.
+
+        DSCP is set separately for cache and transport interfaces.
+
+        DSCP can also be set for HTTP Streamers when HTTP is selected as
+        the cache-fill protocol for VVI." 
+    ::= { cdstvServerTransportCacheIPPkts 3 }
+
+cdstvServerCacheECN OBJECT-TYPE
+    SYNTAX          CiscoCdstvEcn
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Explicit Congestion Notification
+        (ECN) for the Cache Interface on this server." 
+    ::= { cdstvServerTransportCacheIPPkts 4 }
+ciscoCdstvServerMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCdstvServerMIBConform 2 }
+
+
+ciscoCdstvServerMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the Cisco CDS TV Server setup MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoCdstvServerMIBMainObjectGroup }
+
+    GROUP           ciscoCdstvServerMIBStreamingObjectGroup
+    DESCRIPTION
+        "This object group is required only for server role 'streamer'
+        and 'isv' as indicated by cdstvServerRole."
+
+    GROUP           ciscoCdstvServerMIBStorageObjectGroup
+    DESCRIPTION
+        "This object group is required only for server role 'vault' as
+        indicated by cdstvServerRole."
+
+    GROUP           ciscoCdstvServerMIBCachingObjectGroup
+    DESCRIPTION
+        "This object is required only for server role 'caching node' as
+        indicated by cdstvServerRole."
+
+    OBJECT          cdstvServerHostname
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerTTL
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerSourceAddressType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerSourceAddress
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerCachePort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvCacheJumboFramesEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerOffloadEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerTransportDSCP
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerTransportECN
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerID
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerCacheDSCP
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerCacheECN
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerNullStreamingEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerStartingTransportPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerEndingTransportPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerStreamerIsCache
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvVaultMirrorCopies
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvVaultLocalCopies
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerFTPOutInterface
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerFTPOutBandwidth
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerFTPOutSessions
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvStreamJumboFramesEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+    ::= { ciscoCdstvServerMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoCdstvServerMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvServerRole,
+                        cdstvServerPartNo,
+                        cdstvServerID,
+                        cdstvServerGroupID,
+                        cdstvServerHostname,
+                        cdstvServerTTL,
+                        cdstvServerSourceAddress,
+                        cdstvServerCachePort,
+                        cdstvCacheJumboFramesEnable,
+                        cdstvServerOffloadEnable,
+                        cdstvServerTransportDSCP,
+                        cdstvServerTransportECN,
+                        cdstvServerCacheDSCP,
+                        cdstvServerCacheECN,
+                        cdstvServerSourceAddressType,
+                        cdstvServerNullStreamingEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of common objects that provide CDS-TV server
+        configuration for all device roles."
+    ::= { ciscoCdstvServerMIBGroups 1 }
+
+ciscoCdstvServerMIBStreamingObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvServerStartingTransportPort,
+                        cdstvServerEndingTransportPort,
+                        cdstvStreamJumboFramesEnable,
+                        cdstvServerStreamGroupName,
+                        cdstvServerStreamGroupID,
+                        cdstvServerStreamerIsCache
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of streaming objects that provide CDS-TV server
+        configuration for all streamers and ISVs."
+    ::= { ciscoCdstvServerMIBGroups 2 }
+
+ciscoCdstvServerMIBStorageObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvVaultMirrorCopies,
+                        cdstvVaultLocalCopies,
+                        cdstvServerFTPOutInterface,
+                        cdstvServerFTPOutBandwidth,
+                        cdstvServerFTPOutSessions,
+                        cdstvServerVaultGroupName,
+                        cdstvServerVaultGroupID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of storage objects that provide CDS-TV server
+        configuration for vaults."
+    ::= { ciscoCdstvServerMIBGroups 3 }
+
+ciscoCdstvServerMIBCachingObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvServerCacheGroupName,
+                        cdstvServerCacheGroupID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of caching objects that provide CDS-TV server
+        configuration for Caching Nodes."
+    ::= { ciscoCdstvServerMIBGroups 4 }
+
+END
+
+
+
+
+
+
+

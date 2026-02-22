@@ -1,0 +1,2573 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-FC-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- FC management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-FC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionRemoteInvRslt,
+    CucsEquipmentXcvrType,
+    CucsFabricAdminState,
+    CucsFcErrStatsHistThresholded,
+    CucsFcErrStatsThresholded,
+    CucsFcPIoFsmCurrentFsm,
+    CucsFcPIoFsmStageName,
+    CucsFcStatsHistThresholded,
+    CucsFcStatsThresholded,
+    CucsFsmFsmStageStatus,
+    CucsFsmLifecycle,
+    CucsLicenseState,
+    CucsNetworkConnectionType,
+    CucsNetworkLocale,
+    CucsNetworkPhysEpIfType,
+    CucsNetworkPortOperState,
+    CucsNetworkPortRole,
+    CucsNetworkSwitchId,
+    CucsNetworkTransport,
+    CucsPortEncap,
+    CucsPortMode,
+    CucsPortSpeed,
+    CucsPortapiPeerCapability
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsFcObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        FC management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 20 }
+
+cucsFcErrStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcErrStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats managed object table"
+    ::= { cucsFcObjects 1 }
+
+cucsFcErrStatsEntry OBJECT-TYPE
+    SYNTAX           CucsFcErrStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcErrStatsTable table."
+    INDEX { cucsFcErrStatsInstanceId }
+    ::= { cucsFcErrStatsTable 1 }
+
+CucsFcErrStatsEntry ::= SEQUENCE {
+    cucsFcErrStatsInstanceId                                         CucsManagedObjectId,
+    cucsFcErrStatsDn                                                 CucsManagedObjectDn,
+    cucsFcErrStatsRn                                                 SnmpAdminString,
+    cucsFcErrStatsCrcRx                                              Unsigned64,
+    cucsFcErrStatsCrcRxDelta                                         Counter64,
+    cucsFcErrStatsCrcRxDeltaAvg                                      Unsigned64,
+    cucsFcErrStatsCrcRxDeltaMax                                      Unsigned64,
+    cucsFcErrStatsCrcRxDeltaMin                                      Unsigned64,
+    cucsFcErrStatsDiscardRx                                          Unsigned64,
+    cucsFcErrStatsDiscardRxDelta                                     Counter64,
+    cucsFcErrStatsDiscardRxDeltaAvg                                  Unsigned64,
+    cucsFcErrStatsDiscardRxDeltaMax                                  Unsigned64,
+    cucsFcErrStatsDiscardRxDeltaMin                                  Unsigned64,
+    cucsFcErrStatsDiscardTx                                          Unsigned64,
+    cucsFcErrStatsDiscardTxDelta                                     Counter64,
+    cucsFcErrStatsDiscardTxDeltaAvg                                  Unsigned64,
+    cucsFcErrStatsDiscardTxDeltaMax                                  Unsigned64,
+    cucsFcErrStatsDiscardTxDeltaMin                                  Unsigned64,
+    cucsFcErrStatsIntervals                                          Gauge32,
+    cucsFcErrStatsLinkFailures                                       Unsigned64,
+    cucsFcErrStatsLinkFailuresDelta                                  Counter64,
+    cucsFcErrStatsLinkFailuresDeltaAvg                               Unsigned64,
+    cucsFcErrStatsLinkFailuresDeltaMax                               Unsigned64,
+    cucsFcErrStatsLinkFailuresDeltaMin                               Unsigned64,
+    cucsFcErrStatsRx                                                 Unsigned64,
+    cucsFcErrStatsRxDelta                                            Counter64,
+    cucsFcErrStatsRxDeltaAvg                                         Unsigned64,
+    cucsFcErrStatsRxDeltaMax                                         Unsigned64,
+    cucsFcErrStatsRxDeltaMin                                         Unsigned64,
+    cucsFcErrStatsSignalLosses                                       Unsigned64,
+    cucsFcErrStatsSignalLossesDelta                                  Counter64,
+    cucsFcErrStatsSignalLossesDeltaAvg                               Unsigned64,
+    cucsFcErrStatsSignalLossesDeltaMax                               Unsigned64,
+    cucsFcErrStatsSignalLossesDeltaMin                               Unsigned64,
+    cucsFcErrStatsSuspect                                            TruthValue,
+    cucsFcErrStatsSyncLosses                                         Unsigned64,
+    cucsFcErrStatsSyncLossesDelta                                    Counter64,
+    cucsFcErrStatsSyncLossesDeltaAvg                                 Unsigned64,
+    cucsFcErrStatsSyncLossesDeltaMax                                 Unsigned64,
+    cucsFcErrStatsSyncLossesDeltaMin                                 Unsigned64,
+    cucsFcErrStatsThresholded                                        CucsFcErrStatsThresholded,
+    cucsFcErrStatsTimeCollected                                      DateAndTime,
+    cucsFcErrStatsTooLongRx                                          Unsigned64,
+    cucsFcErrStatsTooLongRxDelta                                     Counter64,
+    cucsFcErrStatsTooLongRxDeltaAvg                                  Unsigned64,
+    cucsFcErrStatsTooLongRxDeltaMax                                  Unsigned64,
+    cucsFcErrStatsTooLongRxDeltaMin                                  Unsigned64,
+    cucsFcErrStatsTooShortRx                                         Unsigned64,
+    cucsFcErrStatsTooShortRxDelta                                    Counter64,
+    cucsFcErrStatsTooShortRxDeltaAvg                                 Unsigned64,
+    cucsFcErrStatsTooShortRxDeltaMax                                 Unsigned64,
+    cucsFcErrStatsTooShortRxDeltaMin                                 Unsigned64,
+    cucsFcErrStatsTx                                                 Unsigned64,
+    cucsFcErrStatsTxDelta                                            Counter64,
+    cucsFcErrStatsTxDeltaAvg                                         Unsigned64,
+    cucsFcErrStatsTxDeltaMax                                         Unsigned64,
+    cucsFcErrStatsTxDeltaMin                                         Unsigned64,
+    cucsFcErrStatsUpdate                                             Gauge32
+}
+
+cucsFcErrStatsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcErrStatsEntry 1 }
+
+cucsFcErrStatsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:dn managed object property"
+    ::= { cucsFcErrStatsEntry 2 }
+
+cucsFcErrStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:rn managed object property"
+    ::= { cucsFcErrStatsEntry 3 }
+
+cucsFcErrStatsCrcRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:crcRx managed object property"
+    ::= { cucsFcErrStatsEntry 4 }
+
+cucsFcErrStatsCrcRxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:crcRxDelta managed object property"
+    ::= { cucsFcErrStatsEntry 5 }
+
+cucsFcErrStatsCrcRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:crcRxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 6 }
+
+cucsFcErrStatsCrcRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:crcRxDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 7 }
+
+cucsFcErrStatsCrcRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:crcRxDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 8 }
+
+cucsFcErrStatsDiscardRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardRx managed object property"
+    ::= { cucsFcErrStatsEntry 9 }
+
+cucsFcErrStatsDiscardRxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardRxDelta managed object property"
+    ::= { cucsFcErrStatsEntry 10 }
+
+cucsFcErrStatsDiscardRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardRxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 11 }
+
+cucsFcErrStatsDiscardRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardRxDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 12 }
+
+cucsFcErrStatsDiscardRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardRxDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 13 }
+
+cucsFcErrStatsDiscardTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardTx managed object property"
+    ::= { cucsFcErrStatsEntry 14 }
+
+cucsFcErrStatsDiscardTxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardTxDelta managed object property"
+    ::= { cucsFcErrStatsEntry 15 }
+
+cucsFcErrStatsDiscardTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardTxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 16 }
+
+cucsFcErrStatsDiscardTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardTxDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 17 }
+
+cucsFcErrStatsDiscardTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:discardTxDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 18 }
+
+cucsFcErrStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:intervals managed object property"
+    ::= { cucsFcErrStatsEntry 19 }
+
+cucsFcErrStatsLinkFailures OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:linkFailures managed object property"
+    ::= { cucsFcErrStatsEntry 20 }
+
+cucsFcErrStatsLinkFailuresDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:linkFailuresDelta managed object property"
+    ::= { cucsFcErrStatsEntry 21 }
+
+cucsFcErrStatsLinkFailuresDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:linkFailuresDeltaAvg managed
+        object property"
+    ::= { cucsFcErrStatsEntry 22 }
+
+cucsFcErrStatsLinkFailuresDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:linkFailuresDeltaMax managed
+        object property"
+    ::= { cucsFcErrStatsEntry 23 }
+
+cucsFcErrStatsLinkFailuresDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:linkFailuresDeltaMin managed
+        object property"
+    ::= { cucsFcErrStatsEntry 24 }
+
+cucsFcErrStatsRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:rx managed object property"
+    ::= { cucsFcErrStatsEntry 25 }
+
+cucsFcErrStatsRxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:rxDelta managed object property"
+    ::= { cucsFcErrStatsEntry 26 }
+
+cucsFcErrStatsRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:rxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 27 }
+
+cucsFcErrStatsRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:rxDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 28 }
+
+cucsFcErrStatsRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:rxDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 29 }
+
+cucsFcErrStatsSignalLosses OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:signalLosses managed object property"
+    ::= { cucsFcErrStatsEntry 30 }
+
+cucsFcErrStatsSignalLossesDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:signalLossesDelta managed object property"
+    ::= { cucsFcErrStatsEntry 31 }
+
+cucsFcErrStatsSignalLossesDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:signalLossesDeltaAvg managed
+        object property"
+    ::= { cucsFcErrStatsEntry 32 }
+
+cucsFcErrStatsSignalLossesDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:signalLossesDeltaMax managed
+        object property"
+    ::= { cucsFcErrStatsEntry 33 }
+
+cucsFcErrStatsSignalLossesDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:signalLossesDeltaMin managed
+        object property"
+    ::= { cucsFcErrStatsEntry 34 }
+
+cucsFcErrStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:suspect managed object property"
+    ::= { cucsFcErrStatsEntry 35 }
+
+cucsFcErrStatsSyncLosses OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:syncLosses managed object property"
+    ::= { cucsFcErrStatsEntry 36 }
+
+cucsFcErrStatsSyncLossesDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:syncLossesDelta managed object property"
+    ::= { cucsFcErrStatsEntry 37 }
+
+cucsFcErrStatsSyncLossesDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:syncLossesDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 38 }
+
+cucsFcErrStatsSyncLossesDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:syncLossesDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 39 }
+
+cucsFcErrStatsSyncLossesDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:syncLossesDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 40 }
+
+cucsFcErrStatsThresholded OBJECT-TYPE
+    SYNTAX       CucsFcErrStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:thresholded managed object property"
+    ::= { cucsFcErrStatsEntry 41 }
+
+cucsFcErrStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:timeCollected managed object property"
+    ::= { cucsFcErrStatsEntry 42 }
+
+cucsFcErrStatsTooLongRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooLongRx managed object property"
+    ::= { cucsFcErrStatsEntry 43 }
+
+cucsFcErrStatsTooLongRxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooLongRxDelta managed object property"
+    ::= { cucsFcErrStatsEntry 44 }
+
+cucsFcErrStatsTooLongRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooLongRxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 45 }
+
+cucsFcErrStatsTooLongRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooLongRxDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 46 }
+
+cucsFcErrStatsTooLongRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooLongRxDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 47 }
+
+cucsFcErrStatsTooShortRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooShortRx managed object property"
+    ::= { cucsFcErrStatsEntry 48 }
+
+cucsFcErrStatsTooShortRxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooShortRxDelta managed object property"
+    ::= { cucsFcErrStatsEntry 49 }
+
+cucsFcErrStatsTooShortRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooShortRxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 50 }
+
+cucsFcErrStatsTooShortRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooShortRxDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 51 }
+
+cucsFcErrStatsTooShortRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tooShortRxDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 52 }
+
+cucsFcErrStatsTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:tx managed object property"
+    ::= { cucsFcErrStatsEntry 53 }
+
+cucsFcErrStatsTxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:txDelta managed object property"
+    ::= { cucsFcErrStatsEntry 54 }
+
+cucsFcErrStatsTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:txDeltaAvg managed object property"
+    ::= { cucsFcErrStatsEntry 55 }
+
+cucsFcErrStatsTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:txDeltaMax managed object property"
+    ::= { cucsFcErrStatsEntry 56 }
+
+cucsFcErrStatsTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:txDeltaMin managed object property"
+    ::= { cucsFcErrStatsEntry 57 }
+
+cucsFcErrStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStats:update managed object property"
+    ::= { cucsFcErrStatsEntry 58 }
+
+cucsFcErrStatsHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcErrStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist managed object table"
+    ::= { cucsFcObjects 2 }
+
+cucsFcErrStatsHistEntry OBJECT-TYPE
+    SYNTAX           CucsFcErrStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcErrStatsHistTable table."
+    INDEX { cucsFcErrStatsHistInstanceId }
+    ::= { cucsFcErrStatsHistTable 1 }
+
+CucsFcErrStatsHistEntry ::= SEQUENCE {
+    cucsFcErrStatsHistInstanceId                                     CucsManagedObjectId,
+    cucsFcErrStatsHistDn                                             CucsManagedObjectDn,
+    cucsFcErrStatsHistRn                                             SnmpAdminString,
+    cucsFcErrStatsHistCrcRx                                          Unsigned64,
+    cucsFcErrStatsHistCrcRxDelta                                     Unsigned64,
+    cucsFcErrStatsHistCrcRxDeltaAvg                                  Unsigned64,
+    cucsFcErrStatsHistCrcRxDeltaMax                                  Unsigned64,
+    cucsFcErrStatsHistCrcRxDeltaMin                                  Unsigned64,
+    cucsFcErrStatsHistDiscardRx                                      Unsigned64,
+    cucsFcErrStatsHistDiscardRxDelta                                 Unsigned64,
+    cucsFcErrStatsHistDiscardRxDeltaAvg                              Unsigned64,
+    cucsFcErrStatsHistDiscardRxDeltaMax                              Unsigned64,
+    cucsFcErrStatsHistDiscardRxDeltaMin                              Unsigned64,
+    cucsFcErrStatsHistDiscardTx                                      Unsigned64,
+    cucsFcErrStatsHistDiscardTxDelta                                 Unsigned64,
+    cucsFcErrStatsHistDiscardTxDeltaAvg                              Unsigned64,
+    cucsFcErrStatsHistDiscardTxDeltaMax                              Unsigned64,
+    cucsFcErrStatsHistDiscardTxDeltaMin                              Unsigned64,
+    cucsFcErrStatsHistId                                             Unsigned64,
+    cucsFcErrStatsHistLinkFailures                                   Unsigned64,
+    cucsFcErrStatsHistLinkFailuresDelta                              Unsigned64,
+    cucsFcErrStatsHistLinkFailuresDeltaAvg                           Unsigned64,
+    cucsFcErrStatsHistLinkFailuresDeltaMax                           Unsigned64,
+    cucsFcErrStatsHistLinkFailuresDeltaMin                           Unsigned64,
+    cucsFcErrStatsHistMostRecent                                     TruthValue,
+    cucsFcErrStatsHistRx                                             Unsigned64,
+    cucsFcErrStatsHistRxDelta                                        Unsigned64,
+    cucsFcErrStatsHistRxDeltaAvg                                     Unsigned64,
+    cucsFcErrStatsHistRxDeltaMax                                     Unsigned64,
+    cucsFcErrStatsHistRxDeltaMin                                     Unsigned64,
+    cucsFcErrStatsHistSignalLosses                                   Unsigned64,
+    cucsFcErrStatsHistSignalLossesDelta                              Unsigned64,
+    cucsFcErrStatsHistSignalLossesDeltaAvg                           Unsigned64,
+    cucsFcErrStatsHistSignalLossesDeltaMax                           Unsigned64,
+    cucsFcErrStatsHistSignalLossesDeltaMin                           Unsigned64,
+    cucsFcErrStatsHistSuspect                                        TruthValue,
+    cucsFcErrStatsHistSyncLosses                                     Unsigned64,
+    cucsFcErrStatsHistSyncLossesDelta                                Unsigned64,
+    cucsFcErrStatsHistSyncLossesDeltaAvg                             Unsigned64,
+    cucsFcErrStatsHistSyncLossesDeltaMax                             Unsigned64,
+    cucsFcErrStatsHistSyncLossesDeltaMin                             Unsigned64,
+    cucsFcErrStatsHistThresholded                                    CucsFcErrStatsHistThresholded,
+    cucsFcErrStatsHistTimeCollected                                  DateAndTime,
+    cucsFcErrStatsHistTooLongRx                                      Unsigned64,
+    cucsFcErrStatsHistTooLongRxDelta                                 Unsigned64,
+    cucsFcErrStatsHistTooLongRxDeltaAvg                              Unsigned64,
+    cucsFcErrStatsHistTooLongRxDeltaMax                              Unsigned64,
+    cucsFcErrStatsHistTooLongRxDeltaMin                              Unsigned64,
+    cucsFcErrStatsHistTooShortRx                                     Unsigned64,
+    cucsFcErrStatsHistTooShortRxDelta                                Unsigned64,
+    cucsFcErrStatsHistTooShortRxDeltaAvg                             Unsigned64,
+    cucsFcErrStatsHistTooShortRxDeltaMax                             Unsigned64,
+    cucsFcErrStatsHistTooShortRxDeltaMin                             Unsigned64,
+    cucsFcErrStatsHistTx                                             Unsigned64,
+    cucsFcErrStatsHistTxDelta                                        Unsigned64,
+    cucsFcErrStatsHistTxDeltaAvg                                     Unsigned64,
+    cucsFcErrStatsHistTxDeltaMax                                     Unsigned64,
+    cucsFcErrStatsHistTxDeltaMin                                     Unsigned64
+}
+
+cucsFcErrStatsHistInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcErrStatsHistEntry 1 }
+
+cucsFcErrStatsHistDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:dn managed object property"
+    ::= { cucsFcErrStatsHistEntry 2 }
+
+cucsFcErrStatsHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:rn managed object property"
+    ::= { cucsFcErrStatsHistEntry 3 }
+
+cucsFcErrStatsHistCrcRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:crcRx managed object property"
+    ::= { cucsFcErrStatsHistEntry 4 }
+
+cucsFcErrStatsHistCrcRxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:crcRxDelta managed object property"
+    ::= { cucsFcErrStatsHistEntry 5 }
+
+cucsFcErrStatsHistCrcRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:crcRxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsHistEntry 6 }
+
+cucsFcErrStatsHistCrcRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:crcRxDeltaMax managed object property"
+    ::= { cucsFcErrStatsHistEntry 7 }
+
+cucsFcErrStatsHistCrcRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:crcRxDeltaMin managed object property"
+    ::= { cucsFcErrStatsHistEntry 8 }
+
+cucsFcErrStatsHistDiscardRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardRx managed object property"
+    ::= { cucsFcErrStatsHistEntry 9 }
+
+cucsFcErrStatsHistDiscardRxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardRxDelta managed object property"
+    ::= { cucsFcErrStatsHistEntry 10 }
+
+cucsFcErrStatsHistDiscardRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardRxDeltaAvg managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 11 }
+
+cucsFcErrStatsHistDiscardRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardRxDeltaMax managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 12 }
+
+cucsFcErrStatsHistDiscardRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardRxDeltaMin managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 13 }
+
+cucsFcErrStatsHistDiscardTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardTx managed object property"
+    ::= { cucsFcErrStatsHistEntry 14 }
+
+cucsFcErrStatsHistDiscardTxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardTxDelta managed object property"
+    ::= { cucsFcErrStatsHistEntry 15 }
+
+cucsFcErrStatsHistDiscardTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardTxDeltaAvg managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 16 }
+
+cucsFcErrStatsHistDiscardTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardTxDeltaMax managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 17 }
+
+cucsFcErrStatsHistDiscardTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:discardTxDeltaMin managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 18 }
+
+cucsFcErrStatsHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:id managed object property"
+    ::= { cucsFcErrStatsHistEntry 19 }
+
+cucsFcErrStatsHistLinkFailures OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:linkFailures managed object property"
+    ::= { cucsFcErrStatsHistEntry 20 }
+
+cucsFcErrStatsHistLinkFailuresDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:linkFailuresDelta managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 21 }
+
+cucsFcErrStatsHistLinkFailuresDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:linkFailuresDeltaAvg
+        managed object property"
+    ::= { cucsFcErrStatsHistEntry 22 }
+
+cucsFcErrStatsHistLinkFailuresDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:linkFailuresDeltaMax
+        managed object property"
+    ::= { cucsFcErrStatsHistEntry 23 }
+
+cucsFcErrStatsHistLinkFailuresDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:linkFailuresDeltaMin
+        managed object property"
+    ::= { cucsFcErrStatsHistEntry 24 }
+
+cucsFcErrStatsHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:mostRecent managed object property"
+    ::= { cucsFcErrStatsHistEntry 25 }
+
+cucsFcErrStatsHistRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:rx managed object property"
+    ::= { cucsFcErrStatsHistEntry 26 }
+
+cucsFcErrStatsHistRxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:rxDelta managed object property"
+    ::= { cucsFcErrStatsHistEntry 27 }
+
+cucsFcErrStatsHistRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:rxDeltaAvg managed object property"
+    ::= { cucsFcErrStatsHistEntry 28 }
+
+cucsFcErrStatsHistRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:rxDeltaMax managed object property"
+    ::= { cucsFcErrStatsHistEntry 29 }
+
+cucsFcErrStatsHistRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:rxDeltaMin managed object property"
+    ::= { cucsFcErrStatsHistEntry 30 }
+
+cucsFcErrStatsHistSignalLosses OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:signalLosses managed object property"
+    ::= { cucsFcErrStatsHistEntry 31 }
+
+cucsFcErrStatsHistSignalLossesDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:signalLossesDelta managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 32 }
+
+cucsFcErrStatsHistSignalLossesDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:signalLossesDeltaAvg
+        managed object property"
+    ::= { cucsFcErrStatsHistEntry 33 }
+
+cucsFcErrStatsHistSignalLossesDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:signalLossesDeltaMax
+        managed object property"
+    ::= { cucsFcErrStatsHistEntry 34 }
+
+cucsFcErrStatsHistSignalLossesDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:signalLossesDeltaMin
+        managed object property"
+    ::= { cucsFcErrStatsHistEntry 35 }
+
+cucsFcErrStatsHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:suspect managed object property"
+    ::= { cucsFcErrStatsHistEntry 36 }
+
+cucsFcErrStatsHistSyncLosses OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:syncLosses managed object property"
+    ::= { cucsFcErrStatsHistEntry 37 }
+
+cucsFcErrStatsHistSyncLossesDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:syncLossesDelta managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 38 }
+
+cucsFcErrStatsHistSyncLossesDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:syncLossesDeltaAvg managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 39 }
+
+cucsFcErrStatsHistSyncLossesDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:syncLossesDeltaMax managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 40 }
+
+cucsFcErrStatsHistSyncLossesDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:syncLossesDeltaMin managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 41 }
+
+cucsFcErrStatsHistThresholded OBJECT-TYPE
+    SYNTAX       CucsFcErrStatsHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:thresholded managed object property"
+    ::= { cucsFcErrStatsHistEntry 42 }
+
+cucsFcErrStatsHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:timeCollected managed object property"
+    ::= { cucsFcErrStatsHistEntry 43 }
+
+cucsFcErrStatsHistTooLongRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooLongRx managed object property"
+    ::= { cucsFcErrStatsHistEntry 44 }
+
+cucsFcErrStatsHistTooLongRxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooLongRxDelta managed object property"
+    ::= { cucsFcErrStatsHistEntry 45 }
+
+cucsFcErrStatsHistTooLongRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooLongRxDeltaAvg managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 46 }
+
+cucsFcErrStatsHistTooLongRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooLongRxDeltaMax managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 47 }
+
+cucsFcErrStatsHistTooLongRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooLongRxDeltaMin managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 48 }
+
+cucsFcErrStatsHistTooShortRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooShortRx managed object property"
+    ::= { cucsFcErrStatsHistEntry 49 }
+
+cucsFcErrStatsHistTooShortRxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooShortRxDelta managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 50 }
+
+cucsFcErrStatsHistTooShortRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooShortRxDeltaAvg managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 51 }
+
+cucsFcErrStatsHistTooShortRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooShortRxDeltaMax managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 52 }
+
+cucsFcErrStatsHistTooShortRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tooShortRxDeltaMin managed
+        object property"
+    ::= { cucsFcErrStatsHistEntry 53 }
+
+cucsFcErrStatsHistTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:tx managed object property"
+    ::= { cucsFcErrStatsHistEntry 54 }
+
+cucsFcErrStatsHistTxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:txDelta managed object property"
+    ::= { cucsFcErrStatsHistEntry 55 }
+
+cucsFcErrStatsHistTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:txDeltaAvg managed object property"
+    ::= { cucsFcErrStatsHistEntry 56 }
+
+cucsFcErrStatsHistTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:txDeltaMax managed object property"
+    ::= { cucsFcErrStatsHistEntry 57 }
+
+cucsFcErrStatsHistTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:ErrStatsHist:txDeltaMin managed object property"
+    ::= { cucsFcErrStatsHistEntry 58 }
+
+cucsFcNicIfConfigTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcNicIfConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:NicIfConfig managed object table"
+    ::= { cucsFcObjects 3 }
+
+cucsFcNicIfConfigEntry OBJECT-TYPE
+    SYNTAX           CucsFcNicIfConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcNicIfConfigTable table."
+    INDEX { cucsFcNicIfConfigInstanceId }
+    ::= { cucsFcNicIfConfigTable 1 }
+
+CucsFcNicIfConfigEntry ::= SEQUENCE {
+    cucsFcNicIfConfigInstanceId                                      CucsManagedObjectId,
+    cucsFcNicIfConfigDn                                              CucsManagedObjectDn,
+    cucsFcNicIfConfigRn                                              SnmpAdminString
+}
+
+cucsFcNicIfConfigInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcNicIfConfigEntry 1 }
+
+cucsFcNicIfConfigDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:NicIfConfig:dn managed object property"
+    ::= { cucsFcNicIfConfigEntry 2 }
+
+cucsFcNicIfConfigRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:NicIfConfig:rn managed object property"
+    ::= { cucsFcNicIfConfigEntry 3 }
+
+cucsFcPIoTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcPIoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:PIo managed object table"
+    ::= { cucsFcObjects 4 }
+
+cucsFcPIoEntry OBJECT-TYPE
+    SYNTAX           CucsFcPIoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcPIoTable table."
+    INDEX { cucsFcPIoInstanceId }
+    ::= { cucsFcPIoTable 1 }
+
+CucsFcPIoEntry ::= SEQUENCE {
+    cucsFcPIoInstanceId                                              CucsManagedObjectId,
+    cucsFcPIoDn                                                      CucsManagedObjectDn,
+    cucsFcPIoRn                                                      SnmpAdminString,
+    cucsFcPIoAdminState                                              CucsFabricAdminState,
+    cucsFcPIoChassisId                                               Gauge32,
+    cucsFcPIoEncap                                                   CucsPortEncap,
+    cucsFcPIoEpDn                                                    SnmpAdminString,
+    cucsFcPIoFltAggr                                                 Unsigned64,
+    cucsFcPIoIfRole                                                  CucsNetworkPortRole,
+    cucsFcPIoIfType                                                  CucsNetworkPhysEpIfType,
+    cucsFcPIoLocale                                                  CucsNetworkLocale,
+    cucsFcPIoMode                                                    CucsPortMode,
+    cucsFcPIoModel                                                   SnmpAdminString,
+    cucsFcPIoName                                                    SnmpAdminString,
+    cucsFcPIoOperSpeed                                               CucsPortSpeed,
+    cucsFcPIoOperState                                               CucsNetworkPortOperState,
+    cucsFcPIoPeerDn                                                  SnmpAdminString,
+    cucsFcPIoPeerPortId                                              Gauge32,
+    cucsFcPIoPeerSlotId                                              Gauge32,
+    cucsFcPIoPortId                                                  Gauge32,
+    cucsFcPIoRevision                                                SnmpAdminString,
+    cucsFcPIoSerial                                                  SnmpAdminString,
+    cucsFcPIoSlotId                                                  Gauge32,
+    cucsFcPIoStateQual                                               SnmpAdminString,
+    cucsFcPIoSwitchId                                                CucsNetworkSwitchId,
+    cucsFcPIoTransport                                               CucsNetworkTransport,
+    cucsFcPIoTs                                                      DateAndTime,
+    cucsFcPIoType                                                    CucsNetworkConnectionType,
+    cucsFcPIoUsrLbl                                                  SnmpAdminString,
+    cucsFcPIoVendor                                                  SnmpAdminString,
+    cucsFcPIoWwn                                                     Unsigned64,
+    cucsFcPIoFsmDescr                                                SnmpAdminString,
+    cucsFcPIoFsmPrev                                                 SnmpAdminString,
+    cucsFcPIoFsmProgr                                                Gauge32,
+    cucsFcPIoFsmRmtInvErrCode                                        Gauge32,
+    cucsFcPIoFsmRmtInvErrDescr                                       SnmpAdminString,
+    cucsFcPIoFsmRmtInvRslt                                           CucsConditionRemoteInvRslt,
+    cucsFcPIoFsmStageDescr                                           SnmpAdminString,
+    cucsFcPIoFsmStamp                                                DateAndTime,
+    cucsFcPIoFsmStatus                                               SnmpAdminString,
+    cucsFcPIoFsmTry                                                  Gauge32,
+    cucsFcPIoLicGP                                                   Unsigned64,
+    cucsFcPIoLicState                                                CucsLicenseState,
+    cucsFcPIoXcvrType                                                CucsEquipmentXcvrType,
+    cucsFcPIoPeerChassisId                                           Gauge32,
+    cucsFcPIoAdminTransport                                          CucsNetworkTransport,
+    cucsFcPIoLc                                                      CucsFsmLifecycle,
+    cucsFcPIoUnifiedPort                                             TruthValue,
+    cucsFcPIoMaxSpeed                                                CucsPortSpeed,
+    cucsFcPIoIsPortChannelMember                                     TruthValue,
+    cucsFcPIoAggrPortId                                              Gauge32,
+    cucsFcPIoPeerAggrPortId                                          Gauge32,
+    cucsFcPIoIsBreakoutXcvr                                          TruthValue,
+    cucsFcPIoPortCapability                                          CucsPortapiPeerCapability
+}
+
+cucsFcPIoInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcPIoEntry 1 }
+
+cucsFcPIoDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:dn managed object property"
+    ::= { cucsFcPIoEntry 2 }
+
+cucsFcPIoRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:rn managed object property"
+    ::= { cucsFcPIoEntry 3 }
+
+cucsFcPIoAdminState OBJECT-TYPE
+    SYNTAX       CucsFabricAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:adminState managed object property"
+    ::= { cucsFcPIoEntry 4 }
+
+cucsFcPIoChassisId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:chassisId managed object property"
+    ::= { cucsFcPIoEntry 5 }
+
+cucsFcPIoEncap OBJECT-TYPE
+    SYNTAX       CucsPortEncap
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:encap managed object property"
+    ::= { cucsFcPIoEntry 6 }
+
+cucsFcPIoEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:epDn managed object property"
+    ::= { cucsFcPIoEntry 7 }
+
+cucsFcPIoFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fltAggr managed object property"
+    ::= { cucsFcPIoEntry 8 }
+
+cucsFcPIoIfRole OBJECT-TYPE
+    SYNTAX       CucsNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:ifRole managed object property"
+    ::= { cucsFcPIoEntry 9 }
+
+cucsFcPIoIfType OBJECT-TYPE
+    SYNTAX       CucsNetworkPhysEpIfType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:ifType managed object property"
+    ::= { cucsFcPIoEntry 10 }
+
+cucsFcPIoLocale OBJECT-TYPE
+    SYNTAX       CucsNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:locale managed object property"
+    ::= { cucsFcPIoEntry 11 }
+
+cucsFcPIoMode OBJECT-TYPE
+    SYNTAX       CucsPortMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:mode managed object property"
+    ::= { cucsFcPIoEntry 12 }
+
+cucsFcPIoModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:model managed object property"
+    ::= { cucsFcPIoEntry 13 }
+
+cucsFcPIoName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:name managed object property"
+    ::= { cucsFcPIoEntry 14 }
+
+cucsFcPIoOperSpeed OBJECT-TYPE
+    SYNTAX       CucsPortSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:operSpeed managed object property"
+    ::= { cucsFcPIoEntry 15 }
+
+cucsFcPIoOperState OBJECT-TYPE
+    SYNTAX       CucsNetworkPortOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:operState managed object property"
+    ::= { cucsFcPIoEntry 16 }
+
+cucsFcPIoPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:peerDn managed object property"
+    ::= { cucsFcPIoEntry 17 }
+
+cucsFcPIoPeerPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:peerPortId managed object property"
+    ::= { cucsFcPIoEntry 18 }
+
+cucsFcPIoPeerSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:peerSlotId managed object property"
+    ::= { cucsFcPIoEntry 19 }
+
+cucsFcPIoPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:portId managed object property"
+    ::= { cucsFcPIoEntry 20 }
+
+cucsFcPIoRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:revision managed object property"
+    ::= { cucsFcPIoEntry 21 }
+
+cucsFcPIoSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:serial managed object property"
+    ::= { cucsFcPIoEntry 22 }
+
+cucsFcPIoSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:slotId managed object property"
+    ::= { cucsFcPIoEntry 23 }
+
+cucsFcPIoStateQual OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:stateQual managed object property"
+    ::= { cucsFcPIoEntry 24 }
+
+cucsFcPIoSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:switchId managed object property"
+    ::= { cucsFcPIoEntry 25 }
+
+cucsFcPIoTransport OBJECT-TYPE
+    SYNTAX       CucsNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:transport managed object property"
+    ::= { cucsFcPIoEntry 26 }
+
+cucsFcPIoTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:ts managed object property"
+    ::= { cucsFcPIoEntry 27 }
+
+cucsFcPIoType OBJECT-TYPE
+    SYNTAX       CucsNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:type managed object property"
+    ::= { cucsFcPIoEntry 28 }
+
+cucsFcPIoUsrLbl OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:usrLbl managed object property"
+    ::= { cucsFcPIoEntry 29 }
+
+cucsFcPIoVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:vendor managed object property"
+    ::= { cucsFcPIoEntry 30 }
+
+cucsFcPIoWwn OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:wwn managed object property"
+    ::= { cucsFcPIoEntry 31 }
+
+cucsFcPIoFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmDescr managed object property"
+    ::= { cucsFcPIoEntry 32 }
+
+cucsFcPIoFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmPrev managed object property"
+    ::= { cucsFcPIoEntry 33 }
+
+cucsFcPIoFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmProgr managed object property"
+    ::= { cucsFcPIoEntry 34 }
+
+cucsFcPIoFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmRmtInvErrCode managed object property"
+    ::= { cucsFcPIoEntry 35 }
+
+cucsFcPIoFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmRmtInvErrDescr managed object property"
+    ::= { cucsFcPIoEntry 36 }
+
+cucsFcPIoFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmRmtInvRslt managed object property"
+    ::= { cucsFcPIoEntry 37 }
+
+cucsFcPIoFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmStageDescr managed object property"
+    ::= { cucsFcPIoEntry 38 }
+
+cucsFcPIoFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmStamp managed object property"
+    ::= { cucsFcPIoEntry 39 }
+
+cucsFcPIoFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmStatus managed object property"
+    ::= { cucsFcPIoEntry 40 }
+
+cucsFcPIoFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:fsmTry managed object property"
+    ::= { cucsFcPIoEntry 41 }
+
+cucsFcPIoLicGP OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:licGP managed object property"
+    ::= { cucsFcPIoEntry 42 }
+
+cucsFcPIoLicState OBJECT-TYPE
+    SYNTAX       CucsLicenseState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:licState managed object property"
+    ::= { cucsFcPIoEntry 43 }
+
+cucsFcPIoXcvrType OBJECT-TYPE
+    SYNTAX       CucsEquipmentXcvrType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:xcvrType managed object property"
+    ::= { cucsFcPIoEntry 44 }
+
+cucsFcPIoPeerChassisId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:peerChassisId managed object property"
+    ::= { cucsFcPIoEntry 45 }
+
+cucsFcPIoAdminTransport OBJECT-TYPE
+    SYNTAX       CucsNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:adminTransport managed object property"
+    ::= { cucsFcPIoEntry 46 }
+
+cucsFcPIoLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:lc managed object property"
+    ::= { cucsFcPIoEntry 47 }
+
+cucsFcPIoUnifiedPort OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:unifiedPort managed object property"
+    ::= { cucsFcPIoEntry 48 }
+
+cucsFcPIoMaxSpeed OBJECT-TYPE
+    SYNTAX       CucsPortSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:maxSpeed managed object property"
+    ::= { cucsFcPIoEntry 49 }
+
+cucsFcPIoIsPortChannelMember OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:isPortChannelMember managed object property"
+    ::= { cucsFcPIoEntry 50 }
+
+cucsFcPIoAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:aggrPortId managed object property"
+    ::= { cucsFcPIoEntry 51 }
+
+cucsFcPIoPeerAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:peerAggrPortId managed object property"
+    ::= { cucsFcPIoEntry 52 }
+
+cucsFcPIoIsBreakoutXcvr OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:isBreakoutXcvr managed object property"
+    ::= { cucsFcPIoEntry 53 }
+
+cucsFcPIoPortCapability OBJECT-TYPE
+    SYNTAX       CucsPortapiPeerCapability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIo:portCapability managed object property"
+    ::= { cucsFcPIoEntry 54 }
+
+cucsFcPIoFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcPIoFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm managed object table"
+    ::= { cucsFcObjects 8 }
+
+cucsFcPIoFsmEntry OBJECT-TYPE
+    SYNTAX           CucsFcPIoFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcPIoFsmTable table."
+    INDEX { cucsFcPIoFsmInstanceId }
+    ::= { cucsFcPIoFsmTable 1 }
+
+CucsFcPIoFsmEntry ::= SEQUENCE {
+    cucsFcPIoFsmInstanceId                                           CucsManagedObjectId,
+    cucsFcPIoFsmDn                                                   CucsManagedObjectDn,
+    cucsFcPIoFsmRn                                                   SnmpAdminString,
+    cucsFcPIoFsmCompletionTime                                       DateAndTime,
+    cucsFcPIoFsmCurrentFsm                                           CucsFcPIoFsmCurrentFsm,
+    cucsFcPIoFsmDescrData                                            SnmpAdminString,
+    cucsFcPIoFsmFsmStatus                                            CucsFsmFsmStageStatus,
+    cucsFcPIoFsmProgress                                             Gauge32,
+    cucsFcPIoFsmRmtErrCode                                           Gauge32,
+    cucsFcPIoFsmRmtErrDescr                                          SnmpAdminString,
+    cucsFcPIoFsmRmtRslt                                              CucsConditionRemoteInvRslt
+}
+
+cucsFcPIoFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcPIoFsmEntry 1 }
+
+cucsFcPIoFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:dn managed object property"
+    ::= { cucsFcPIoFsmEntry 2 }
+
+cucsFcPIoFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:rn managed object property"
+    ::= { cucsFcPIoFsmEntry 3 }
+
+cucsFcPIoFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:completionTime managed object property"
+    ::= { cucsFcPIoFsmEntry 4 }
+
+cucsFcPIoFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsFcPIoFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:currentFsm managed object property"
+    ::= { cucsFcPIoFsmEntry 5 }
+
+cucsFcPIoFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:descr managed object property"
+    ::= { cucsFcPIoFsmEntry 6 }
+
+cucsFcPIoFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:fsmStatus managed object property"
+    ::= { cucsFcPIoFsmEntry 7 }
+
+cucsFcPIoFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:progress managed object property"
+    ::= { cucsFcPIoFsmEntry 8 }
+
+cucsFcPIoFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:rmtErrCode managed object property"
+    ::= { cucsFcPIoFsmEntry 9 }
+
+cucsFcPIoFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:rmtErrDescr managed object property"
+    ::= { cucsFcPIoFsmEntry 10 }
+
+cucsFcPIoFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsm:rmtRslt managed object property"
+    ::= { cucsFcPIoFsmEntry 11 }
+
+cucsFcPIoFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcPIoFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage managed object table"
+    ::= { cucsFcObjects 9 }
+
+cucsFcPIoFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsFcPIoFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcPIoFsmStageTable table."
+    INDEX { cucsFcPIoFsmStageInstanceId }
+    ::= { cucsFcPIoFsmStageTable 1 }
+
+CucsFcPIoFsmStageEntry ::= SEQUENCE {
+    cucsFcPIoFsmStageInstanceId                                      CucsManagedObjectId,
+    cucsFcPIoFsmStageDn                                              CucsManagedObjectDn,
+    cucsFcPIoFsmStageRn                                              SnmpAdminString,
+    cucsFcPIoFsmStageDescrData                                       SnmpAdminString,
+    cucsFcPIoFsmStageLastUpdateTime                                  DateAndTime,
+    cucsFcPIoFsmStageName                                            CucsFcPIoFsmStageName,
+    cucsFcPIoFsmStageOrder                                           Gauge32,
+    cucsFcPIoFsmStageRetry                                           Gauge32,
+    cucsFcPIoFsmStageStageStatus                                     CucsFsmFsmStageStatus
+}
+
+cucsFcPIoFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcPIoFsmStageEntry 1 }
+
+cucsFcPIoFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:dn managed object property"
+    ::= { cucsFcPIoFsmStageEntry 2 }
+
+cucsFcPIoFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:rn managed object property"
+    ::= { cucsFcPIoFsmStageEntry 3 }
+
+cucsFcPIoFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:descr managed object property"
+    ::= { cucsFcPIoFsmStageEntry 4 }
+
+cucsFcPIoFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:lastUpdateTime managed object property"
+    ::= { cucsFcPIoFsmStageEntry 5 }
+
+cucsFcPIoFsmStageName OBJECT-TYPE
+    SYNTAX       CucsFcPIoFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:name managed object property"
+    ::= { cucsFcPIoFsmStageEntry 6 }
+
+cucsFcPIoFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:order managed object property"
+    ::= { cucsFcPIoFsmStageEntry 7 }
+
+cucsFcPIoFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:retry managed object property"
+    ::= { cucsFcPIoFsmStageEntry 8 }
+
+cucsFcPIoFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:PIoFsmStage:stageStatus managed object property"
+    ::= { cucsFcPIoFsmStageEntry 9 }
+
+cucsFcStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:Stats managed object table"
+    ::= { cucsFcObjects 5 }
+
+cucsFcStatsEntry OBJECT-TYPE
+    SYNTAX           CucsFcStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcStatsTable table."
+    INDEX { cucsFcStatsInstanceId }
+    ::= { cucsFcStatsTable 1 }
+
+CucsFcStatsEntry ::= SEQUENCE {
+    cucsFcStatsInstanceId                                            CucsManagedObjectId,
+    cucsFcStatsDn                                                    CucsManagedObjectDn,
+    cucsFcStatsRn                                                    SnmpAdminString,
+    cucsFcStatsBytesRx                                               Unsigned64,
+    cucsFcStatsBytesRxDelta                                          Counter64,
+    cucsFcStatsBytesRxDeltaAvg                                       Unsigned64,
+    cucsFcStatsBytesRxDeltaMax                                       Unsigned64,
+    cucsFcStatsBytesRxDeltaMin                                       Unsigned64,
+    cucsFcStatsBytesTx                                               Unsigned64,
+    cucsFcStatsBytesTxDelta                                          Counter64,
+    cucsFcStatsBytesTxDeltaAvg                                       Unsigned64,
+    cucsFcStatsBytesTxDeltaMax                                       Unsigned64,
+    cucsFcStatsBytesTxDeltaMin                                       Unsigned64,
+    cucsFcStatsIntervals                                             Gauge32,
+    cucsFcStatsPacketsRx                                             Unsigned64,
+    cucsFcStatsPacketsRxDelta                                        Counter64,
+    cucsFcStatsPacketsRxDeltaAvg                                     Unsigned64,
+    cucsFcStatsPacketsRxDeltaMax                                     Unsigned64,
+    cucsFcStatsPacketsRxDeltaMin                                     Unsigned64,
+    cucsFcStatsPacketsTx                                             Unsigned64,
+    cucsFcStatsPacketsTxDelta                                        Counter64,
+    cucsFcStatsPacketsTxDeltaAvg                                     Unsigned64,
+    cucsFcStatsPacketsTxDeltaMax                                     Unsigned64,
+    cucsFcStatsPacketsTxDeltaMin                                     Unsigned64,
+    cucsFcStatsSuspect                                               TruthValue,
+    cucsFcStatsThresholded                                           CucsFcStatsThresholded,
+    cucsFcStatsTimeCollected                                         DateAndTime,
+    cucsFcStatsUpdate                                                Gauge32
+}
+
+cucsFcStatsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcStatsEntry 1 }
+
+cucsFcStatsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:dn managed object property"
+    ::= { cucsFcStatsEntry 2 }
+
+cucsFcStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:rn managed object property"
+    ::= { cucsFcStatsEntry 3 }
+
+cucsFcStatsBytesRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesRx managed object property"
+    ::= { cucsFcStatsEntry 4 }
+
+cucsFcStatsBytesRxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesRxDelta managed object property"
+    ::= { cucsFcStatsEntry 5 }
+
+cucsFcStatsBytesRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesRxDeltaAvg managed object property"
+    ::= { cucsFcStatsEntry 6 }
+
+cucsFcStatsBytesRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesRxDeltaMax managed object property"
+    ::= { cucsFcStatsEntry 7 }
+
+cucsFcStatsBytesRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesRxDeltaMin managed object property"
+    ::= { cucsFcStatsEntry 8 }
+
+cucsFcStatsBytesTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesTx managed object property"
+    ::= { cucsFcStatsEntry 9 }
+
+cucsFcStatsBytesTxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesTxDelta managed object property"
+    ::= { cucsFcStatsEntry 10 }
+
+cucsFcStatsBytesTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesTxDeltaAvg managed object property"
+    ::= { cucsFcStatsEntry 11 }
+
+cucsFcStatsBytesTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesTxDeltaMax managed object property"
+    ::= { cucsFcStatsEntry 12 }
+
+cucsFcStatsBytesTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:bytesTxDeltaMin managed object property"
+    ::= { cucsFcStatsEntry 13 }
+
+cucsFcStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:intervals managed object property"
+    ::= { cucsFcStatsEntry 14 }
+
+cucsFcStatsPacketsRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsRx managed object property"
+    ::= { cucsFcStatsEntry 15 }
+
+cucsFcStatsPacketsRxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsRxDelta managed object property"
+    ::= { cucsFcStatsEntry 16 }
+
+cucsFcStatsPacketsRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsRxDeltaAvg managed object property"
+    ::= { cucsFcStatsEntry 17 }
+
+cucsFcStatsPacketsRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsRxDeltaMax managed object property"
+    ::= { cucsFcStatsEntry 18 }
+
+cucsFcStatsPacketsRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsRxDeltaMin managed object property"
+    ::= { cucsFcStatsEntry 19 }
+
+cucsFcStatsPacketsTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsTx managed object property"
+    ::= { cucsFcStatsEntry 20 }
+
+cucsFcStatsPacketsTxDelta OBJECT-TYPE
+    SYNTAX       Counter64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsTxDelta managed object property"
+    ::= { cucsFcStatsEntry 21 }
+
+cucsFcStatsPacketsTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsTxDeltaAvg managed object property"
+    ::= { cucsFcStatsEntry 22 }
+
+cucsFcStatsPacketsTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsTxDeltaMax managed object property"
+    ::= { cucsFcStatsEntry 23 }
+
+cucsFcStatsPacketsTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:packetsTxDeltaMin managed object property"
+    ::= { cucsFcStatsEntry 24 }
+
+cucsFcStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:suspect managed object property"
+    ::= { cucsFcStatsEntry 25 }
+
+cucsFcStatsThresholded OBJECT-TYPE
+    SYNTAX       CucsFcStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:thresholded managed object property"
+    ::= { cucsFcStatsEntry 26 }
+
+cucsFcStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:timeCollected managed object property"
+    ::= { cucsFcStatsEntry 27 }
+
+cucsFcStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:Stats:update managed object property"
+    ::= { cucsFcStatsEntry 28 }
+
+cucsFcStatsHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist managed object table"
+    ::= { cucsFcObjects 6 }
+
+cucsFcStatsHistEntry OBJECT-TYPE
+    SYNTAX           CucsFcStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcStatsHistTable table."
+    INDEX { cucsFcStatsHistInstanceId }
+    ::= { cucsFcStatsHistTable 1 }
+
+CucsFcStatsHistEntry ::= SEQUENCE {
+    cucsFcStatsHistInstanceId                                        CucsManagedObjectId,
+    cucsFcStatsHistDn                                                CucsManagedObjectDn,
+    cucsFcStatsHistRn                                                SnmpAdminString,
+    cucsFcStatsHistBytesRx                                           Unsigned64,
+    cucsFcStatsHistBytesRxDelta                                      Unsigned64,
+    cucsFcStatsHistBytesRxDeltaAvg                                   Unsigned64,
+    cucsFcStatsHistBytesRxDeltaMax                                   Unsigned64,
+    cucsFcStatsHistBytesRxDeltaMin                                   Unsigned64,
+    cucsFcStatsHistBytesTx                                           Unsigned64,
+    cucsFcStatsHistBytesTxDelta                                      Unsigned64,
+    cucsFcStatsHistBytesTxDeltaAvg                                   Unsigned64,
+    cucsFcStatsHistBytesTxDeltaMax                                   Unsigned64,
+    cucsFcStatsHistBytesTxDeltaMin                                   Unsigned64,
+    cucsFcStatsHistId                                                Unsigned64,
+    cucsFcStatsHistMostRecent                                        TruthValue,
+    cucsFcStatsHistPacketsRx                                         Unsigned64,
+    cucsFcStatsHistPacketsRxDelta                                    Unsigned64,
+    cucsFcStatsHistPacketsRxDeltaAvg                                 Unsigned64,
+    cucsFcStatsHistPacketsRxDeltaMax                                 Unsigned64,
+    cucsFcStatsHistPacketsRxDeltaMin                                 Unsigned64,
+    cucsFcStatsHistPacketsTx                                         Unsigned64,
+    cucsFcStatsHistPacketsTxDelta                                    Unsigned64,
+    cucsFcStatsHistPacketsTxDeltaAvg                                 Unsigned64,
+    cucsFcStatsHistPacketsTxDeltaMax                                 Unsigned64,
+    cucsFcStatsHistPacketsTxDeltaMin                                 Unsigned64,
+    cucsFcStatsHistSuspect                                           TruthValue,
+    cucsFcStatsHistThresholded                                       CucsFcStatsHistThresholded,
+    cucsFcStatsHistTimeCollected                                     DateAndTime
+}
+
+cucsFcStatsHistInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcStatsHistEntry 1 }
+
+cucsFcStatsHistDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:dn managed object property"
+    ::= { cucsFcStatsHistEntry 2 }
+
+cucsFcStatsHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:rn managed object property"
+    ::= { cucsFcStatsHistEntry 3 }
+
+cucsFcStatsHistBytesRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesRx managed object property"
+    ::= { cucsFcStatsHistEntry 4 }
+
+cucsFcStatsHistBytesRxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesRxDelta managed object property"
+    ::= { cucsFcStatsHistEntry 5 }
+
+cucsFcStatsHistBytesRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesRxDeltaAvg managed object property"
+    ::= { cucsFcStatsHistEntry 6 }
+
+cucsFcStatsHistBytesRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesRxDeltaMax managed object property"
+    ::= { cucsFcStatsHistEntry 7 }
+
+cucsFcStatsHistBytesRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesRxDeltaMin managed object property"
+    ::= { cucsFcStatsHistEntry 8 }
+
+cucsFcStatsHistBytesTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesTx managed object property"
+    ::= { cucsFcStatsHistEntry 9 }
+
+cucsFcStatsHistBytesTxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesTxDelta managed object property"
+    ::= { cucsFcStatsHistEntry 10 }
+
+cucsFcStatsHistBytesTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesTxDeltaAvg managed object property"
+    ::= { cucsFcStatsHistEntry 11 }
+
+cucsFcStatsHistBytesTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesTxDeltaMax managed object property"
+    ::= { cucsFcStatsHistEntry 12 }
+
+cucsFcStatsHistBytesTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:bytesTxDeltaMin managed object property"
+    ::= { cucsFcStatsHistEntry 13 }
+
+cucsFcStatsHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:id managed object property"
+    ::= { cucsFcStatsHistEntry 14 }
+
+cucsFcStatsHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:mostRecent managed object property"
+    ::= { cucsFcStatsHistEntry 15 }
+
+cucsFcStatsHistPacketsRx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsRx managed object property"
+    ::= { cucsFcStatsHistEntry 16 }
+
+cucsFcStatsHistPacketsRxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsRxDelta managed object property"
+    ::= { cucsFcStatsHistEntry 17 }
+
+cucsFcStatsHistPacketsRxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsRxDeltaAvg managed object property"
+    ::= { cucsFcStatsHistEntry 18 }
+
+cucsFcStatsHistPacketsRxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsRxDeltaMax managed object property"
+    ::= { cucsFcStatsHistEntry 19 }
+
+cucsFcStatsHistPacketsRxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsRxDeltaMin managed object property"
+    ::= { cucsFcStatsHistEntry 20 }
+
+cucsFcStatsHistPacketsTx OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsTx managed object property"
+    ::= { cucsFcStatsHistEntry 21 }
+
+cucsFcStatsHistPacketsTxDelta OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsTxDelta managed object property"
+    ::= { cucsFcStatsHistEntry 22 }
+
+cucsFcStatsHistPacketsTxDeltaAvg OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsTxDeltaAvg managed object property"
+    ::= { cucsFcStatsHistEntry 23 }
+
+cucsFcStatsHistPacketsTxDeltaMax OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsTxDeltaMax managed object property"
+    ::= { cucsFcStatsHistEntry 24 }
+
+cucsFcStatsHistPacketsTxDeltaMin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:packetsTxDeltaMin managed object property"
+    ::= { cucsFcStatsHistEntry 25 }
+
+cucsFcStatsHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:suspect managed object property"
+    ::= { cucsFcStatsHistEntry 26 }
+
+cucsFcStatsHistThresholded OBJECT-TYPE
+    SYNTAX       CucsFcStatsHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:thresholded managed object property"
+    ::= { cucsFcStatsHistEntry 27 }
+
+cucsFcStatsHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:StatsHist:timeCollected managed object property"
+    ::= { cucsFcStatsHistEntry 28 }
+
+cucsFcSwIfConfigTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFcSwIfConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fc:SwIfConfig managed object table"
+    ::= { cucsFcObjects 7 }
+
+cucsFcSwIfConfigEntry OBJECT-TYPE
+    SYNTAX           CucsFcSwIfConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFcSwIfConfigTable table."
+    INDEX { cucsFcSwIfConfigInstanceId }
+    ::= { cucsFcSwIfConfigTable 1 }
+
+CucsFcSwIfConfigEntry ::= SEQUENCE {
+    cucsFcSwIfConfigInstanceId                                       CucsManagedObjectId,
+    cucsFcSwIfConfigDn                                               CucsManagedObjectDn,
+    cucsFcSwIfConfigRn                                               SnmpAdminString
+}
+
+cucsFcSwIfConfigInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFcSwIfConfigEntry 1 }
+
+cucsFcSwIfConfigDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:SwIfConfig:dn managed object property"
+    ::= { cucsFcSwIfConfigEntry 2 }
+
+cucsFcSwIfConfigRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fc:SwIfConfig:rn managed object property"
+    ::= { cucsFcSwIfConfigEntry 3 }
+
+END

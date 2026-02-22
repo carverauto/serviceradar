@@ -1,0 +1,1952 @@
+-- MIB file created 29-Aug-2013 04:46:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+IEEE8021-SECY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "IEEE8021-SECY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowPointer, TimeStamp, TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex
+            FROM IF-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ieee8021SecyMIB OBJECT IDENTIFIER ::= { iso(1) std(0) iso8802(8802) ieee802dot1(1) ieee802dot1mibs(1) 3 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200610020000Z
+--  OrgName
+--    IEEE 802.1 Working Group
+--  ContactInfo
+--    http:/grouper.ieee.org/groups/8021/index.html
+--  Descr
+--    The MAC security entity (SecY) module for managing IEEE
+--     802.1AE.  An SecY is the entity that operates the MAC Security
+--     protocol within the system.
+--    
+--     Each SecY transmits frames conveying secure MAC Service
+--     requests on a single Secure Channel (SC), and receives frames
+--     conveying secure service indications on separate SCs (one for
+--     each of the other SecYs participating in the Secure
+--     Connectivity Association (CA)).  A CA is a security
+--     relationship, established and maintained by key agreement
+--     protocols that comprise a fully connected subset of the
+--     service access points in stations attached to a single MACsec
+--     supported LAN.  An SC is a security relationship used to
+--     provide security guarantees for frames transmitted from one
+--     member of a CA to the others.  It is a unidirectional point to
+--     multipoint communication, and can be long lived, persisting
+--     through Secure Association Key (SAK) changes.  Each SC is
+--     supported by a sequence of Secure Associations (SAs) thus
+--     allowing the periodic use of fresh keys without terminating
+--     the relationship.  Each SA is supported by a single secret
+--     key, or a set of keys where the cryptographic operations used
+--     to protect one frame require more than one key.
+--    
+--     Two different interfaces 'Controlled Port' and
+--     'Uncontrolled Port', are associated with a SecY, and that for
+--     each instance of a SecY, two ifTable rows (one for each
+--     interface) run on top of an ifTable row representing the
+--     'Common Port' interface, such as a row with ifType =
+--     'ethernetCsmacd(6)'.
+--    
+--     For example :
+--    
+--     ===========================================================
+--     |                            |                            |
+--     |   Controlled Port          |   Uncontrolled Port        |
+--     |      Interface             |      Interface             |
+--     |    (ifEntry = j)           |     (ifEntry = k)          |
+--     | (ifType =                  | (ifType =                  |
+--     |  macSecControlledIF(231))  |  macSecUncontrolledIF(232))|
+--     |                            |                            |
+--     |=========================================================|
+--     |                                                         |
+--     |                    Physical Interface                   |
+--     |                      (ifEntry = i)                      |
+--     |                (ifType = ethernetCsmacd(6))             |
+--     |_________________________________________________________|
+--     i, j, k are ifIndex to indicate an interface row in the ifTable.
+--    
+--                     Figure : MACsec Interface Stack
+--    
+--     The 'Controlled Port' is the service point to provide one
+--     instance of the secure MAC service in a SecY.  The
+--     'Uncontrolled Port' is the service point to provide one instance
+--     of the insecure MAC service in a SecY.
+--  RevDate
+--    200610020000Z
+--  RevDescr
+--    Fixed a SYNTAX error in the SEQUENCE of SecyCipherSuiteEntry,
+--    the syntax for secyCipherSuiteProtectionOffset is Integer32
+--    instead of INTEGER.
+--    This error was uncovered after publication of 802.1AE.
+--  RevDate
+--    200601100000Z
+--  RevDescr
+--    Initial version of this MIB module.  Published as part of
+--     IEEE standard 802.1AE
+
+secyMIBNotifications OBJECT IDENTIFIER ::= { ieee8021SecyMIB 0 }
+secyMIBObjects  OBJECT IDENTIFIER ::= { ieee8021SecyMIB 1 }
+secyMIBConformance OBJECT IDENTIFIER ::= { ieee8021SecyMIB 2 }
+secyMgmtMIBObjects OBJECT IDENTIFIER ::= { secyMIBObjects 1 }
+secyStatsMIBObjects OBJECT IDENTIFIER ::= { secyMIBObjects 2 }
+secyMIBCompliances OBJECT IDENTIFIER ::= { secyMIBConformance 1 }
+secyMIBGroups   OBJECT IDENTIFIER ::= { secyMIBConformance 2 }
+
+SecySCI ::= OCTET STRING(SIZE(8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention indicates a Secure Channel
+--     Identifier (SCI).
+--     
+--     Each SC is identified by an SCI, comprised of a unique 48-bit
+--     Universally Administered MAC Address, identifying the system
+--     to which the transmitting SecY belongs, concatenated with a
+--     16-bit Port number, identifying the SecY within that system.
+--  Refer
+--    IEEE 802.1AE Clause 7.1.2, 10.7.1 and figure 7.7
+
+SecyAN ::= Gauge(0..3)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention indicates an Association Number (AN).
+--    
+--     Each SC is comprised of a succession of SAs, each with a
+--     different SAK.  Each SA is identified by the SC identifier
+--     concatenated with a two-bit AN.  The Secure Association
+--     Identifier (SAI) thus created allows the receiving SecY to
+--     identify the SA, and the SAK used to decrypt and authenticate
+--     the received frame. The AN, and the SAI, is only unique for
+--     the SAs that can be used or recorded by participating SecYs
+--     at any instant.
+--  Refer
+--    IEEE 802.1AE Clause 8.1.3 and figure 7.7
+
+secyIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of system level information for each interface
+        supported by the MAC security entity.  An entry appears in this
+        table for each interface with MAC security capability in this
+        system.
+        
+        For the writeable objects in this table, the configured value
+        shall be stored in persistent memory and remain unchanged across
+        a re-initialization of the management system of the entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7"
+    ::= { secyMgmtMIBObjects 1 }
+
+secyIfEntry OBJECT-TYPE
+    SYNTAX SecyIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing SecY management information applicable to
+         a particular interface."
+    INDEX { secyIfInterfaceIndex }
+    ::= { secyIfTable 1 }
+
+SecyIfEntry ::= SEQUENCE {
+    secyIfInterfaceIndex InterfaceIndex,
+    secyIfMaxPeerSCs Gauge,
+    secyIfRxMaxKeys Gauge,
+    secyIfTxMaxKeys Gauge,
+    secyIfProtectFramesEnable TruthValue,
+    secyIfValidateFrames INTEGER,
+    secyIfReplayProtectEnable TruthValue,
+    secyIfReplayProtectWindow Gauge,
+    secyIfCurrentCipherSuite Gauge,
+    secyIfAdminPt2PtMAC INTEGER,
+    secyIfOperPt2PtMAC TruthValue,
+    secyIfIncludeSCIEnable TruthValue,
+    secyIfUseESEnable TruthValue,
+    secyIfUseSCBEnable TruthValue
+    }
+
+secyIfInterfaceIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An interface index for a port with SecY management ability.
+        
+         This interface index should be aligned with ifIndex in the
+         ifTable to point to the SecY Controlled Port entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.1"
+    ::= { secyIfEntry 1 }
+
+secyIfMaxPeerSCs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    security connections
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of peer SCs that this SecY can support."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.7"
+    ::= { secyIfEntry 2 }
+
+secyIfRxMaxKeys OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    keys
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of keys in simultaneous use for reception
+         that this SecY can support."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.7"
+    ::= { secyIfEntry 3 }
+
+secyIfTxMaxKeys OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    keys
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of keys in simultaneous use for transmission
+         that this SecY can support."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.16"
+    ::= { secyIfEntry 4 }
+
+secyIfProtectFramesEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object to enable or disable the protection function for
+         egress frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.5"
+    DEFVAL { true }
+    ::= { secyIfEntry 5 }
+
+secyIfValidateFrames OBJECT-TYPE
+    SYNTAX INTEGER {
+        disabled(1),
+        check(2),
+        strict(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object to control the validation function for ingress
+         frames.
+        
+         disabled(1) : means to disable the validation function.
+        
+         check(2) : means to enable the validation function but only
+                    for checking without filtering out invalid frames.
+        
+         strict(3) : means to enable the validation function and also
+                     strictly filter out those invalid frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.8"
+    DEFVAL { strict }
+    ::= { secyIfEntry 6 }
+
+secyIfReplayProtectEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object to enable or disable the replay protection function."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.8, 10.7.17"
+    DEFVAL { true }
+    ::= { secyIfEntry 7 }
+
+secyIfReplayProtectWindow OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object to indicate the replay protection window size.  This
+         object only takes effect if the object secyReplayProtectEnable
+         is true."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.8"
+    DEFVAL { 0 }
+    ::= { secyIfEntry 8 }
+
+secyIfCurrentCipherSuite OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object that points to an entry of the secyCipherSuiteTable
+         with 'active' row status to indicate the cipher Suite which this
+         SecY is currently using.  By default, this object should point
+         to the default cipher suite which system provides."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.25"
+    ::= { secyIfEntry 9 }
+
+secyIfAdminPt2PtMAC OBJECT-TYPE
+    SYNTAX INTEGER {
+        forceTrue(1),
+        forceFalse(2),
+        auto(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object to control the service connectivity to at most one
+         other system.  The secyOperPt2PtMAC indicates operational
+         status of the service connectivity for this SecY. 
+        
+         forceTrue(1) : allows only one service connection to the
+                        other system.
+        
+         forceFalse(2) : no restriction on the number of service
+                         connections to the other systems.
+        
+         auto(3) : means the service connectivity is determined by the
+                   service providing entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 6.5"
+    DEFVAL { auto }
+    ::= { secyIfEntry 10 }
+
+secyIfOperPt2PtMAC OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An object to reflect the current service connectivity status.
+        
+         true(1) : means the service connectivity of this SecY provides
+                   at most one other system.
+        
+         false(2) : means the service connectivity of this SecY could
+                    provide more than one other system."
+    REFERENCE
+        "IEEE 802.1AE Clause 6.5"
+    ::= { secyIfEntry 11 }
+
+secyIfIncludeSCIEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object indicates to include the SCI information in
+         security TAG (SecTAG) field while transmitting MACsec
+         frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 9.3, 10.5.3, 10.7.17"
+    DEFVAL { false }
+    ::= { secyIfEntry 12 }
+
+secyIfUseESEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object indicates to enable the ES bit in
+         security TAG (SecTAG) field while transmitting MACsec
+         frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 9.3, 10.5.3, 10.7.17"
+    DEFVAL { false }
+    ::= { secyIfEntry 13 }
+
+secyIfUseSCBEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An object indicates to enable the SCB bit in
+         security TAG (SecTAG) field while transmitting MACsec
+         frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 9.3, 10.5.3, 10.7.17"
+    DEFVAL { false }
+    ::= { secyIfEntry 14 }
+
+secyTxSCTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyTxSCEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table for providing information about the status of each
+         transmitting SC supported by the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.17, 10.7.20"
+    ::= { secyMgmtMIBObjects 2 }
+
+secyTxSCEntry OBJECT-TYPE
+    SYNTAX SecyTxSCEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing transmitting SC management information
+         applicable to a particular SecY."
+    INDEX { secyIfInterfaceIndex }
+    ::= { secyTxSCTable 1 }
+
+SecyTxSCEntry ::= SEQUENCE {
+    secyTxSCI SecySCI,
+    secyTxSCState INTEGER,
+    secyTxSCEncodingSA RowPointer,
+    secyTxSCEncipheringSA RowPointer,
+    secyTxSCCreatedTime TimeStamp,
+    secyTxSCStartedTime TimeStamp,
+    secyTxSCStoppedTime TimeStamp
+    }
+
+secyTxSCI OBJECT-TYPE
+    SYNTAX SecySCI
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The SCI information for transmitting MACsec frames of the
+         transmitting SC in the SecY."
+    REFERENCE
+        "IEEE 802.1AE Clause 7.1.2, 8.2.1, 10.7.1"
+    ::= { secyTxSCEntry 1 }
+
+secyTxSCState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inUse(1),
+        notInUse(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the current transmitting SC in the SecY.
+        
+         inUse(1) : means any of SAs for this SC is in use.
+        
+         notInUse(2) : means no SAs for this SC is in use."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.20"
+    ::= { secyTxSCEntry 2 }
+
+secyTxSCEncodingSA OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current transmitting SA in use.  The row pointer will point
+         to an entry in the secyTxSATable.  If no such information is
+         available, the value shall be the OBJECT IDENTIFIER { 0 0 }."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.5.1, 10.7.20"
+    ::= { secyTxSCEntry 3 }
+
+secyTxSCEncipheringSA OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The previous transmitting SA in use.  The row pointer will point
+         to an entry in the secyTxSATable.  If no such information is
+         available, the value shall be the OBJECT IDENTIFIER { 0 0 }."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.5.4, 10.7.20"
+    ::= { secyTxSCEntry 4 }
+
+secyTxSCCreatedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this transmitting SC was created."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.20"
+    ::= { secyTxSCEntry 5 }
+
+secyTxSCStartedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this transmitting SC last started
+         transmitting MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.20"
+    ::= { secyTxSCEntry 6 }
+
+secyTxSCStoppedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this transmitting SC last stopped
+         transmitting MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.20"
+    ::= { secyTxSCEntry 7 }
+
+secyTxSATable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyTxSAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table for providing information about the status of each
+         transmitting SA supported by the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.21"
+    ::= { secyMgmtMIBObjects 3 }
+
+secyTxSAEntry OBJECT-TYPE
+    SYNTAX SecyTxSAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing transmitting SA management information
+         applicable to a particular SA."
+    INDEX { secyIfInterfaceIndex, secyTxSA }
+    ::= { secyTxSATable 1 }
+
+SecyTxSAEntry ::= SEQUENCE {
+    secyTxSA SecyAN,
+    secyTxSAState INTEGER,
+    secyTxSANextPN Gauge,
+    secyTxSAConfidentiality TruthValue,
+    secyTxSASAKUnchanged TruthValue,
+    secyTxSACreatedTime TimeStamp,
+    secyTxSAStartedTime TimeStamp,
+    secyTxSAStoppedTime TimeStamp
+    }
+
+secyTxSA OBJECT-TYPE
+    SYNTAX SecyAN
+--    Rsyntax Gauge(0..3)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The association number (AN) for identifying a transmitting
+         SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.21"
+    ::= { secyTxSAEntry 1 }
+
+secyTxSAState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inUse(1),
+        notInUse(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of the transmitting SA.
+        
+         inUse(1) : means this SA is in use.
+        
+         notInUse(2) : means this SA is not in use."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.22"
+    ::= { secyTxSAEntry 2 }
+
+secyTxSANextPN OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The next packet number (PN) that will be used in transmitting
+         MACsec frames in the SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.21"
+    ::= { secyTxSAEntry 3 }
+
+secyTxSAConfidentiality OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Whether this SA supports the confidentiality as well as
+         integrity function in transmitting frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.21"
+    ::= { secyTxSAEntry 4 }
+
+secyTxSASAKUnchanged OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A reference to an SAK that is unchanged for the life
+         of the transmitting SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.21"
+    ::= { secyTxSAEntry 5 }
+
+secyTxSACreatedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this transmitting SA was created."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.22"
+    ::= { secyTxSAEntry 6 }
+
+secyTxSAStartedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this transmitting SA last started
+         transmitting MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.22"
+    ::= { secyTxSAEntry 7 }
+
+secyTxSAStoppedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this transmitting SA last stopped
+         transmitting MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.22"
+    ::= { secyTxSAEntry 8 }
+
+secyRxSCTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyRxSCEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table for providing information about the status of each 
+         receiving SC supported by the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.11"
+    ::= { secyMgmtMIBObjects 4 }
+
+secyRxSCEntry OBJECT-TYPE
+    SYNTAX SecyRxSCEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing receiving SC management information
+         applicable to a particular SC."
+    INDEX { secyIfInterfaceIndex, secyRxSCI }
+    ::= { secyRxSCTable 1 }
+
+SecyRxSCEntry ::= SEQUENCE {
+    secyRxSCI SecySCI,
+    secyRxSCState INTEGER,
+    secyRxSCCurrentSA RowPointer,
+    secyRxSCCreatedTime TimeStamp,
+    secyRxSCStartedTime TimeStamp,
+    secyRxSCStoppedTime TimeStamp
+    }
+
+secyRxSCI OBJECT-TYPE
+    SYNTAX SecySCI
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The SCI for identifying the receiving SC in the SecY."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.11"
+    ::= { secyRxSCEntry 1 }
+
+secyRxSCState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inUse(1),
+        notInUse(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the receiving SC in the SecY.
+        
+         inUse(1) : means any of SAs for this SC is in use.
+        
+         notInUse(2) : means no SAs for this SC is in use."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.12"
+    ::= { secyRxSCEntry 2 }
+
+secyRxSCCurrentSA OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current receiving association number of the SC in use.
+         The row pointer will point to an entry in the
+         secyRxSATable.  If no such information can be identified,
+         the value of this object shall be set to the
+         OBJECT IDENTIFIER { 0 0 }."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.6.1, 10.7.13"
+    ::= { secyRxSCEntry 3 }
+
+secyRxSCCreatedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this receiving SC was created."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.12"
+    ::= { secyRxSCEntry 4 }
+
+secyRxSCStartedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this receiving SC last started
+         receiving MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.12"
+    ::= { secyRxSCEntry 5 }
+
+secyRxSCStoppedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this receiving SC last stopped
+         receiving MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.12"
+    ::= { secyRxSCEntry 6 }
+
+secyRxSATable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyRxSAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table for providing information about the status of each
+         receiving SA supported by the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.13"
+    ::= { secyMgmtMIBObjects 5 }
+
+secyRxSAEntry OBJECT-TYPE
+    SYNTAX SecyRxSAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing receiving SA management information
+         applicable to a particular SA."
+    INDEX { secyIfInterfaceIndex, secyRxSCI, secyRxSA }
+    ::= { secyRxSATable 1 }
+
+SecyRxSAEntry ::= SEQUENCE {
+    secyRxSA SecyAN,
+    secyRxSAState INTEGER,
+    secyRxSANextPN Gauge,
+    secyRxSASAKUnchanged TruthValue,
+    secyRxSACreatedTime TimeStamp,
+    secyRxSAStartedTime TimeStamp,
+    secyRxSAStoppedTime TimeStamp
+    }
+
+secyRxSA OBJECT-TYPE
+    SYNTAX SecyAN
+--    Rsyntax Gauge(0..3)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The association number (AN) for identifying a receiving
+         SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.13"
+    ::= { secyRxSAEntry 1 }
+
+secyRxSAState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inUse(1),
+        notInUse(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current state for the receiving SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.14"
+    ::= { secyRxSAEntry 2 }
+
+secyRxSANextPN OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The stored packet number (PN) for replay protection
+         in the SA.  If the PN of any receiving frames is less
+         than the value of this object minus the value of
+         secyReplayProtectWindow and secyReplayProtectEnable
+         is true, the receiving frames should be discarded."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.14, Clause 10.7.15"
+    ::= { secyRxSAEntry 3 }
+
+secyRxSASAKUnchanged OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A reference to an SAK that is unchanged for the life
+         of the receiving SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.13"
+    ::= { secyRxSAEntry 4 }
+
+secyRxSACreatedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this receiving SA was created."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.14"
+    ::= { secyRxSAEntry 5 }
+
+secyRxSAStartedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this receiving SA last started
+         receiving MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.14"
+    ::= { secyRxSAEntry 6 }
+
+secyRxSAStoppedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system time when this receiving SA last stopped
+         receiving MACsec frames."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.14"
+    ::= { secyRxSAEntry 7 }
+
+secyCipherSuiteTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyCipherSuiteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of selectable cipher suites for the MAC security
+         entity.
+        
+        For the writeable objects in this table, the configured value
+        shall be stored in persistent memory and remain unchanged across
+        a re-initialization of the management system of the entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24"
+    ::= { secyMgmtMIBObjects 6 }
+
+secyCipherSuiteEntry OBJECT-TYPE
+    SYNTAX SecyCipherSuiteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the management information for a cipher
+         suite."
+    INDEX { secyCipherSuiteIndex }
+    ::= { secyCipherSuiteTable 1 }
+
+SecyCipherSuiteEntry ::= SEQUENCE {
+    secyCipherSuiteIndex Gauge,
+    secyCipherSuiteId OCTET STRING,
+    secyCipherSuiteName SnmpAdminString,
+    secyCipherSuiteCapability OCTET STRING,
+    secyCipherSuiteProtection OCTET STRING,
+    secyCipherSuiteProtectionOffset INTEGER,
+    secyCipherSuiteDataLengthChange TruthValue,
+    secyCipherSuiteICVLength Gauge,
+    secyCipherSuiteRowStatus RowStatus
+    }
+
+secyCipherSuiteIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index to recognize a Cipher Suite in the system."
+    ::= { secyCipherSuiteEntry 1 }
+
+secyCipherSuiteId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The identifier for the cipher suite.  This is a global
+         unique 64-bit (EUI-64) identifier."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24"
+    ::= { secyCipherSuiteEntry 2 }
+
+secyCipherSuiteName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..128))
+--    Rsyntax OCTET STRING(SIZE(1..128))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the cipher suite.  If the name is composed of
+         multi-byte characters, the total length must fit within 128
+         octets."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24"
+    ::= { secyCipherSuiteEntry 3 }
+
+secyCipherSuiteCapability OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   integrity(0)
+        --   confidentiality(1)
+        --   offsetConfidentiality(2)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The capability of this cipher suite.
+        
+         integrity(0) : integrity protection capability for this
+             cipher suite..
+        
+         confidentiality(1) : confidentiality protection
+             capability for this cipher suite.
+        
+         offsetConfidentiality(2) : offset confidentiality protection
+             capability for this cipher suite."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24, 10.7.25"
+    ::= { secyCipherSuiteEntry 4 }
+
+secyCipherSuiteProtection OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   integrity(0)
+        --   confidentiality(1)
+        --   offsetConfidentiality(2)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The protection options of this cipher suite.  The options
+         should depend on the object secyCipherSuiteCapability.
+        
+         If the value of secyCipherSuiteCapability is only integerity
+         bit on, users can only choose to turn on integrity bit for
+         this object.
+        
+         If the value of secyCipherSuiteCapability is integrity and
+         confidentiality bits on, users can choose to turn on
+         integrity or confidentiality bits, but if confidentiality
+         bit is on, the integrity bit has to be on.
+        
+         If the value of secyCipherSuiteCapability is integrity and
+         offsetConfidentiality bits on, users can choose to turn on
+         integrity or offsetConfidentiality bits, but if
+         offsetConfidentiality bit is on, the integrity bit has to be
+         on.
+        
+         If the value of secyCipherSuiteCapability is integrity and
+         confidentiality and offsetConfidentiality bits on, users can
+         choose to turn on integrity or confidentiality or 
+         offsetConfidentiality bits, but if confidentiality or
+         offsetConfidentiality bits are on, the integrity bit has to
+         be on.
+        
+         integrity(0) : on or off the function of supporting integrity
+             protection for this cipher suite.
+        
+         confidentiality(1) : on or off the function of supporting
+             confidentiality for this cipher suite.
+        
+         offsetConfidentiality(2) : on or off the function of
+             supporting offset confidentiality for this cipher suite."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24, 10.7.25"
+    DEFVAL { '80'h }
+    ::= { secyCipherSuiteEntry 5 }
+
+secyCipherSuiteProtectionOffset OBJECT-TYPE
+    SYNTAX INTEGER(0|30|50)
+--  Units
+--    bytes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The confidentiality protection offset options of this
+         cipher suite.  The options should depend on the choice of
+         secyCipherSuiteProtection.
+        
+         If the value of secyCipherSuiteProtection only turns on
+         integrity bit, users can only choose 0 byte for this
+         object.
+        
+         If the value of secyCipherSuiteProtection only turns on
+         integrity and confidentiality bits, users can only choose
+         0 byte for this object.
+        
+         If the value of secyCipherSuiteProtection only turns on
+         integrity and offsetConfidentiality bits, users can choose
+         30 or 50 bytes for this object.
+        
+         If the value of secyCipherSuiteProtection turns on
+         integrity and confidentiality and offsetConfidentiality
+         bits, users can choose 0 or 30 or 50 bytes for this object."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24, 10.7.25"
+    DEFVAL { 0 }
+    ::= { secyCipherSuiteEntry 6 }
+
+secyCipherSuiteDataLengthChange OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates whether the data length will be
+         changed after encryption by the cipher suite."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24"
+    ::= { secyCipherSuiteEntry 7 }
+
+secyCipherSuiteICVLength OBJECT-TYPE
+    SYNTAX Gauge(8..16)
+--  Units
+--    octets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The length of integrity check value (ICV) field."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24"
+    ::= { secyCipherSuiteEntry 8 }
+
+secyCipherSuiteRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to create the paramaters for the supported
+         Cipher Suites in the system.  If the specified
+         secyCipherSuiteId object information is not supported
+         in the system or the secyCipherSuiteCapability object
+         is not matched the capability of the corresponding
+         specified Cipher Suite in the same entry, the corresponding
+         entry should not be active, i.e., this object should not be
+         'active' or 'notInService'."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.24"
+    ::= { secyCipherSuiteEntry 9 }
+
+secyTxSAStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyTxSAStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that contains the statistics objects for each
+         transmitting SA in the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, figure 10.4"
+    ::= { secyStatsMIBObjects 1 }
+
+secyTxSAStatsEntry OBJECT-TYPE
+    SYNTAX SecyTxSAStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry holds the statistics for a transmitting SA.  An SA
+         may be reused once a while.
+        
+         When starting using the SA, the counters of the SA should
+         start at 0.
+        
+         When stopping using the SA, the counters will be stopped
+         incrementing.
+        
+         The timestamps of starting and stopping time are recorded in
+         the secyTxSATable."
+    INDEX { secyIfInterfaceIndex, secyTxSA }
+-- Augments secyTxSAEntry
+    ::= { secyTxSAStatsTable 1 }
+
+SecyTxSAStatsEntry ::= SEQUENCE {
+    secyTxSAStatsProtectedPkts Counter,
+    secyTxSAStatsEncryptedPkts Counter
+    }
+
+secyTxSAStatsProtectedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of integrity protected but not encrypted packets
+         for this transmitting SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, figure 10.4"
+    ::= { secyTxSAStatsEntry 1 }
+
+secyTxSAStatsEncryptedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of integrity protected and encrypted packets for
+         this transmitting SA."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, figure 10.4"
+    ::= { secyTxSAStatsEntry 2 }
+
+secyTxSCStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyTxSCStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that contains statistics information for each
+         transmitting SC in the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, 10.7.19, figure 10.4"
+    ::= { secyStatsMIBObjects 2 }
+
+secyTxSCStatsEntry OBJECT-TYPE
+    SYNTAX SecyTxSCStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry contains the counters of a transmitting SC.  Since some
+         counters in the transmitting SA will be reset while the SA is
+         reused, in order to maintain complete statistics information
+         for the SC, the counters information on the SAs need to be kept
+         in the SC.
+        
+         Those counters that may be reset are :
+         secyTxSAStatsProtectedPkts,
+         secyTxSAStatsEncryptedPkts
+        
+         Each counter for a SC is in the summation of the corresponding
+         counter information for all the SAs, current and prior SAs,
+         belonging to this SC."
+    INDEX { secyIfInterfaceIndex }
+-- Augments secyTxSCEntry
+    ::= { secyTxSCStatsTable 1 }
+
+SecyTxSCStatsEntry ::= SEQUENCE {
+    secyTxSCStatsProtectedPkts Counter,
+    secyTxSCStatsEncryptedPkts Counter,
+    secyTxSCStatsOctetsProtected Counter,
+    secyTxSCStatsOctetsEncrypted Counter
+    }
+
+secyTxSCStatsProtectedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of integrity protected but not encrypted packets
+         for this transmitting SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, figure 10.4"
+    ::= { secyTxSCStatsEntry 1 }
+
+secyTxSCStatsEncryptedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of integrity protected and encrypted packets for
+         this transmitting SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, figure 10.4"
+    ::= { secyTxSCStatsEntry 4 }
+
+secyTxSCStatsOctetsProtected OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of plain text octets that are integrity protected
+         but not encrypted on the transmitting SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.19, figure 10.4"
+    ::= { secyTxSCStatsEntry 10 }
+
+secyTxSCStatsOctetsEncrypted OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of plain text octets that are integrity protected
+         and encrypted on the transmitting SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.19, figure 10.4"
+    ::= { secyTxSCStatsEntry 11 }
+
+secyRxSAStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyRxSAStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that contains the statistics objects for each
+         receiving SA in the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyStatsMIBObjects 3 }
+
+secyRxSAStatsEntry OBJECT-TYPE
+    SYNTAX SecyRxSAStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry holds the statistics for a receiving SA.  An SA
+         may be reused once a while.
+        
+         When starting using the SA, the counters of the SA should
+         start at 0.
+        
+         When stopping using the SA, the counters will be stopped
+         incrementing.
+        
+         The timestamps of starting and stopping time are recorded in
+         the secyRxSATable."
+    INDEX { secyIfInterfaceIndex, secyRxSCI, secyRxSA }
+-- Augments secyRxSAEntry
+    ::= { secyRxSAStatsTable 1 }
+
+SecyRxSAStatsEntry ::= SEQUENCE {
+    secyRxSAStatsUnusedSAPkts Counter,
+    secyRxSAStatsNoUsingSAPkts Counter,
+    secyRxSAStatsNotValidPkts Counter,
+    secyRxSAStatsInvalidPkts Counter,
+    secyRxSAStatsOKPkts Counter
+    }
+
+secyRxSAStatsUnusedSAPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SA which is not currently in use, the number of
+         received, unencrypted, packets with secyValidateFrames
+         not in the strict mode."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSAStatsEntry 1 }
+
+secyRxSAStatsNoUsingSAPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SA which is not currently in use, the number of
+         received packets that have been discarded, and have
+         either the packets encrypted or the secyValidateFrames set to
+         strict mode."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSAStatsEntry 4 }
+
+secyRxSAStatsNotValidPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SA, the number discarded packets with the
+         condition that the packets are not valid and one of the
+         following conditions are true: either secyValidateFrames in
+         strict mode or the packets encrypted."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSAStatsEntry 13 }
+
+secyRxSAStatsInvalidPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SA, the number of packets with the condition
+         that the packets are not valid and secyValidateFrames is in
+         check mode."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSAStatsEntry 16 }
+
+secyRxSAStatsOKPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SA, the number of validated packets."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSAStatsEntry 25 }
+
+secyRxSCStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyRxSCStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table for the statistics information of each receiving SC
+         supported by the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, 10.7.10, figure 10.5"
+    ::= { secyStatsMIBObjects 4 }
+
+secyRxSCStatsEntry OBJECT-TYPE
+    SYNTAX SecyRxSCStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry contains the counters of a receiving SC.  Since some
+         counters in the receiving SA will be reset while the SA is
+         reused, in order to maintain complete statistics information
+         for the SC, the counters information on the SAs need to be kept
+         in the SC.
+        
+         Those counters that may be reset are :
+         secyRxSAStatsUnusedSAPkts,
+         secyRxSAStatsNoUsingSAPkts,
+         secyRxSAStatsNotValidPkts,
+         secyRxSAStatsInvalidPkts,
+         secyRxSAStatsOKPkts
+        
+         Each counter for a SC is in the summation of the corresponding
+         counter information for all the SAs, current and prior SAs,
+         belonging to this SC."
+    INDEX { secyIfInterfaceIndex, secyRxSCI }
+-- Augments secyRxSCEntry
+    ::= { secyRxSCStatsTable 1 }
+
+SecyRxSCStatsEntry ::= SEQUENCE {
+    secyRxSCStatsUnusedSAPkts Counter,
+    secyRxSCStatsNoUsingSAPkts Counter,
+    secyRxSCStatsLatePkts Counter,
+    secyRxSCStatsNotValidPkts Counter,
+    secyRxSCStatsInvalidPkts Counter,
+    secyRxSCStatsDelayedPkts Counter,
+    secyRxSCStatsUncheckedPkts Counter,
+    secyRxSCStatsOKPkts Counter,
+    secyRxSCStatsOctetsValidated Counter,
+    secyRxSCStatsOctetsDecrypted Counter
+    }
+
+secyRxSCStatsUnusedSAPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The summation of counter secyRxSAStatsUnusedSAPkts
+         information for all the SAs which belong to this SC.
+        
+         Since the secyRxSAStatsUnusedSAPkts counters in the SAs
+         will be reset, in order to maintain complete statistics
+         information for the SC, the counter information on the SAs
+         need to be kept in the SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 1 }
+
+secyRxSCStatsNoUsingSAPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The summation of counter secyRxSAStatsNoUsingSAPkts 
+         information for all the SAs which belong to this SC.
+        
+         Since the secyRxSAStatsNoUsingSAPkts counters in the SAs
+         will be reset, in order to maintain complete statistics        
+         information for the SC, the counter information on the SAs     
+         need to be kept in the SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 2 }
+
+secyRxSCStatsLatePkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SC, the number of received packets that have
+         been discarded with the condition : secyReplayProtect is equal
+         to true and the PN of the packet is lower than the lower bound
+         replay check PN."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 3 }
+
+secyRxSCStatsNotValidPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The summation of counter secyRxSAStatsNotValidPkts
+         information for all the SAs which belong to this SC.
+        
+         Since the secyRxSAStatsNotValidPkts counters in the SAs
+         will be reset, in order to maintain complete statistics        
+         information for the SC, the counter information on the SAs     
+         need to be kept in the SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 4 }
+
+secyRxSCStatsInvalidPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The summation of counter secyRxSAStatsInvalidPkts
+         information for all the SAs which belong to this SC.
+        
+         Since the secyRxSAStatsInvalidPkts counters in the SAs
+         will be reset, in order to maintain complete statistics        
+         information for the SC, the counter information on the SAs     
+         need to be kept in the SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 5 }
+
+secyRxSCStatsDelayedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SC, the number of packets with the condition
+         that the PN of the packets is lower than the lower bound
+         replay protection PN."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 6 }
+
+secyRxSCStatsUncheckedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For this SC, the number of packets with the following
+         condition:
+         -secyValidateFrames is disabled or
+         -secyValidateFrames is not disabled and the packet is not
+         encrypted and the integrity check has failed or
+         -secyValidateFrames is not disable and the packet is
+         encrypted and integrity check has failed."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 7 }
+
+secyRxSCStatsOKPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The summation of counter secyRxSAStatsOKPkts
+         information for all the SAs which belong to this SC.
+        
+         Since the secyRxSAStatsOKPkts counters in the SAs
+         will be reset, in order to maintain complete statistics        
+         information for the SC, the counter information on the SAs     
+         need to be kept in the SC."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, figure 10.5"
+    ::= { secyRxSCStatsEntry 8 }
+
+secyRxSCStatsOctetsValidated OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets of plaintext recovered from received
+         packets that were integrity protected but not encrypted."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.10, figure 10.5"
+    ::= { secyRxSCStatsEntry 9 }
+
+secyRxSCStatsOctetsDecrypted OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets of plaintext recovered from received
+         packets that were integrity protected and encrypted."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.10, figure 10.5"
+    ::= { secyRxSCStatsEntry 10 }
+
+secyStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SecyStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table for the statistics information of each SecY supported by
+         the MAC security entity."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9, 10.7.18, figure 10.4, 10.5"
+    ::= { secyStatsMIBObjects 5 }
+
+secyStatsEntry OBJECT-TYPE
+    SYNTAX SecyStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing counters for statistics or diagnosis for
+         a SecY."
+    INDEX { secyIfInterfaceIndex }
+-- Augments secyIfEntry
+    ::= { secyStatsTable 1 }
+
+SecyStatsEntry ::= SEQUENCE {
+    secyStatsTxUntaggedPkts Counter,
+    secyStatsTxTooLongPkts Counter,
+    secyStatsRxUntaggedPkts Counter,
+    secyStatsRxNoTagPkts Counter,
+    secyStatsRxBadTagPkts Counter,
+    secyStatsRxUnknownSCIPkts Counter,
+    secyStatsRxNoSCIPkts Counter,
+    secyStatsRxOverrunPkts Counter
+    }
+
+secyStatsTxUntaggedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted packets without the MAC
+         security tag (SecTAG) because secyProtectFramesEnable is
+         configured as false."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, figure 10.4"
+    ::= { secyStatsEntry 1 }
+
+secyStatsTxTooLongPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted packets discarded because the packet
+         length is greater than the ifMtu of the Common Port interface."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.18, figure 10.4"
+    ::= { secyStatsEntry 2 }
+
+secyStatsRxUntaggedPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets without the MAC security tag
+         (SecTAG) with secyValidateFrames which is not in the 
+         strict mode."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9 , figure 10.5"
+    ::= { secyStatsEntry 3 }
+
+secyStatsRxNoTagPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets discarded without the
+         MAC security tag (SecTAG) with secyValidateFrames which is
+         in the strict mode."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9 , figure 10.5"
+    ::= { secyStatsEntry 4 }
+
+secyStatsRxBadTagPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets discarded with an invalid
+         SecTAG or a zero value PN or an invalid ICV."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9 , figure 10.5"
+    ::= { secyStatsEntry 5 }
+
+secyStatsRxUnknownSCIPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with unknown SCI with the
+         condition :
+         secyValidateFrames is not in the strict mode and the
+         C bit in the SecTAG is not set."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9 , figure 10.5"
+    ::= { secyStatsEntry 6 }
+
+secyStatsRxNoSCIPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets discarded with unknown SCI
+         information with the condition :
+         secyValidateFrames is in the strict mode or the C bit
+         in the SecTAG is set."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9 , figure 10.5"
+    ::= { secyStatsEntry 7 }
+
+secyStatsRxOverrunPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets discarded because the number of
+         received packets exceeded the cryptographic performance
+         capabilities."
+    REFERENCE
+        "IEEE 802.1AE Clause 10.7.9 , figure 10.5"
+    ::= { secyStatsEntry 8 }
+
+secyIfCtrlGroup OBJECT IDENTIFIER ::= { secyMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a SecY control management
+--     information.
+--  objects
+--    secyIfMaxPeerSCs, secyIfRxMaxKeys, secyIfTxMaxKeys, 
+--    secyIfProtectFramesEnable, secyIfValidateFrames, 
+--    secyIfReplayProtectEnable, secyIfReplayProtectWindow, 
+--    secyIfCurrentCipherSuite, secyIfAdminPt2PtMAC, 
+--    secyIfOperPt2PtMAC, secyIfIncludeSCIEnable, secyIfUseESEnable, 
+--    secyIfUseSCBEnable
+
+secyTxSCGroup OBJECT IDENTIFIER ::= { secyMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a transmitting SC control
+--     management information.
+--  objects
+--    secyTxSCI, secyTxSCState, secyTxSCEncodingSA, 
+--    secyTxSCEncipheringSA, secyTxSCCreatedTime, 
+--    secyTxSCStartedTime, secyTxSCStoppedTime
+
+secyTxSAGroup OBJECT IDENTIFIER ::= { secyMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a transmitting SA control
+--     management information.
+--  objects
+--    secyTxSAState, secyTxSANextPN, secyTxSAConfidentiality, 
+--    secyTxSASAKUnchanged, secyTxSACreatedTime, 
+--    secyTxSAStartedTime, secyTxSAStoppedTime
+
+secyRxSCGroup OBJECT IDENTIFIER ::= { secyMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a receiving SC control
+--     management information.
+--  objects
+--    secyRxSCState, secyRxSCCurrentSA, secyRxSCCreatedTime, 
+--    secyRxSCStartedTime, secyRxSCStoppedTime
+
+secyRxSAGroup OBJECT IDENTIFIER ::= { secyMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a receiving SA control
+--     management information.
+--  objects
+--    secyRxSAState, secyRxSANextPN, secyRxSASAKUnchanged, 
+--    secyRxSACreatedTime, secyRxSAStartedTime, secyRxSAStoppedTime
+
+secyCipherSuiteGroup OBJECT IDENTIFIER ::= { secyMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a cipher suite information.
+--  objects
+--    secyCipherSuiteId, secyCipherSuiteName, 
+--    secyCipherSuiteCapability, secyCipherSuiteProtection, 
+--    secyCipherSuiteProtectionOffset, 
+--    secyCipherSuiteDataLengthChange, secyCipherSuiteICVLength, 
+--    secyCipherSuiteRowStatus
+
+secyTxSAStatsGroup OBJECT IDENTIFIER ::= { secyMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a transmitting SA statistics
+--     information.
+--  objects
+--    secyTxSAStatsProtectedPkts, secyTxSAStatsEncryptedPkts
+
+secyRxSAStatsGroup OBJECT IDENTIFIER ::= { secyMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a receiving SA statistics
+--     information.
+--  objects
+--    secyRxSAStatsUnusedSAPkts, secyRxSAStatsNoUsingSAPkts, 
+--    secyRxSAStatsNotValidPkts, secyRxSAStatsInvalidPkts, 
+--    secyRxSAStatsOKPkts
+
+secyTxSCStatsGroup OBJECT IDENTIFIER ::= { secyMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a transmitting SC statistics
+--     information.
+--  objects
+--    secyTxSCStatsProtectedPkts, secyTxSCStatsEncryptedPkts, 
+--    secyTxSCStatsOctetsProtected, secyTxSCStatsOctetsEncrypted
+
+secyRxSCStatsGroup OBJECT IDENTIFIER ::= { secyMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a receiving SC statistics
+--     information.
+--  objects
+--    secyRxSCStatsUnusedSAPkts, secyRxSCStatsNoUsingSAPkts, 
+--    secyRxSCStatsLatePkts, secyRxSCStatsNotValidPkts, 
+--    secyRxSCStatsInvalidPkts, secyRxSCStatsDelayedPkts, 
+--    secyRxSCStatsUncheckedPkts, secyRxSCStatsOKPkts, 
+--    secyRxSCStatsOctetsValidated, secyRxSCStatsOctetsDecrypted
+
+secyStatsGroup OBJECT IDENTIFIER ::= { secyMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing a SecY statistics
+--     information.
+--  objects
+--    secyStatsTxUntaggedPkts, secyStatsTxTooLongPkts, 
+--    secyStatsRxUntaggedPkts, secyStatsRxNoTagPkts, 
+--    secyStatsRxBadTagPkts, secyStatsRxUnknownSCIPkts, 
+--    secyStatsRxNoSCIPkts, secyStatsRxOverrunPkts
+
+secyMIBCompliance OBJECT IDENTIFIER ::= { secyMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--     the IEEE8021-SECY-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    secyIfCtrlGroup
+--   MandGroup
+--    secyTxSCGroup
+--   MandGroup
+--    secyTxSAGroup
+--   MandGroup
+--    secyRxSCGroup
+--   MandGroup
+--    secyRxSAGroup
+--   MandGroup
+--    secyCipherSuiteGroup
+--   MandGroup
+--    secyTxSAStatsGroup
+--   MandGroup
+--    secyTxSCStatsGroup
+--   MandGroup
+--    secyRxSAStatsGroup
+--   MandGroup
+--    secyRxSCStatsGroup
+--   MandGroup
+--    secyStatsGroup
+--   ObjVar
+--    secyIfCurrentCipherSuite
+--   ObjVar
+--    secyCipherSuiteId
+--   ObjVar
+--    secyCipherSuiteName
+--   ObjVar
+--    secyCipherSuiteCapability
+--   ObjVar
+--    secyCipherSuiteProtection
+--   ObjVar
+--    secyCipherSuiteProtectionOffset
+--   ObjVar
+--    secyCipherSuiteDataLengthChange
+--   ObjVar
+--    secyCipherSuiteICVLength
+--   ObjVar
+--    secyCipherSuiteRowStatus
+
+
+END
+

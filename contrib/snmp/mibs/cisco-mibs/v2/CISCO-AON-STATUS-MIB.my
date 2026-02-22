@@ -1,0 +1,1008 @@
+-- *****************************************************************
+-- CISCO-AON-STATUS-MIB.my
+--   
+-- May 2007, AON Team
+--   
+-- Copyright (c) 2007-2008 by cisco Systems Inc.
+-- All rights reserved.
+--   
+
+-- *****************************************************************
+
+CISCO-AON-STATUS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE,
+    Gauge32,
+    TimeTicks,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp,
+    DateAndTime
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoPort,
+    CiscoURLString
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoAonStatusMIB MODULE-IDENTITY
+    LAST-UPDATED    "200803060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-aon@cisco.com"
+    DESCRIPTION
+        "This MIB module defines managed objects that facilitate the
+        management of AON node.
+
+        The information available through this MIB includes
+        o AON node state i.e., whether the AON node is 'unregistered',
+        'registered', 'active', 'inactive'.
+
+        o Node metrics information when a node is in the 'active'
+        state.
+
+        o The node metrics information includes the number of messages
+        received by the node, number of PEPs deployed and number of
+        messages received by a PEP as well as information about the end
+        points that the messages are delivered to.  The metrics are
+        reset when the AON data plane is restarted.
+
+        The following terms are used throughout this MIB:
+
+        AON : Application Oriented Networking.
+
+          _____________ 
+          | AON        |
+          | Management |
+          | Console    |
+          |____________|
+                |
+                |
+                |
+                | 
+           ____ |____________________________
+          |     |        AON Node           |
+          |   __V_________      _________   |
+          |   |           |     |        |  |
+          |   | AON       |     | AON    |  |
+          |   | Management|---->| Data   |  |
+          |   | Agent     |     | Plane  |  |
+          |   |___________      |________|  |
+          |                                 |
+          |_________________________________|
+                 Figure 1 : AON
+
+        AON data plane: This is the piece of software that runs on the
+        AON node and is responsible for processing application message
+        traffic.
+
+        AMC : AON Management Console.  A Web-based application used to
+        manage the AON installation, upgrade, and operation.  This is
+        also referred to as the AON Management Plane.
+
+        AMA : AON Management Agent.  An agent that runs on the AON node
+        and acts as intermediary between the AON data plane and the
+        AMC.
+
+        AON Node : An AON node is either a single device (blade or
+        appliance) or a virtual cluster of devices (blades or
+        appliances) that are running the AON software.
+
+        AON Cloud :  A group of AON nodes that are connected together
+        via NextHop configuration is referred to as an AON cloud.
+
+          _____________                      _____________
+         | Source      |                    | Destination |
+         | End point   |                    | End point   |
+         | Application |                    | Application |
+         | ____________|                    |_____________|
+           _____|________________________________^_____     
+          (     |        AON Cloud               |     )
+          (   __V______       ________       ____|___  )
+          (   |        |     |        |     |        | )
+          (   | AON    |     | AON    |     | AON    | )
+          (   | Entry  |     | Inter- |     | Exit   | )
+          (   | Node   |     | mediate|     | Node   | )
+          (   |        |---->| Node   |---->|        | )
+          (   |        |     |        |     |        | )
+          (   |        |     |        |     |        | )
+          (   |_______ |     |_______ |     |________| )
+          (                                            )
+          (                                            )
+          (___________________________________________ )
+                          Figure 2: AON Cloud
+
+        Entry Node : The first node in an AON cloud, generally the one
+        closest to the client, is known as the Entry Node.  This node 
+        is also sometimes referred to as the Client Proxy.
+
+        Exit Node : The ultimate node in an AON cloud, generally the
+        one closest to the server, is known as the Exit Node.  This 
+        node is also sometimes referred to as the Server Proxy.
+
+        Intermediate Node : Any AON node in an AON cloud that is
+        neither directly communicating with the client or the server
+        (i.e. neither an Entry Node nor an Exit Node) is known as an
+        Intermediate Node.
+
+        PEP : Policy Execution Plan.  A PEP is a sequence of bladelets
+        that determine how a message is processed in AON.
+
+        MEP : Message Exchange Pattern.  MEP describes the pattern of
+        messages required by a communications protocol to establish or
+        use a communication channel. There are two major message       
+        exchange patterns: a request response pattern, and a one way
+        pattern.
+
+        Bladelet : A bladelet is a piece of software that performs a
+        specific message handling function.  Bladelets are combined
+        together into PEPs.
+
+        Send Bladelet : Routing bladelet that sends a message to a
+        selected destination.
+
+        Notify Bladelet :  Bladelet for generating a custom
+        notification (either as SNMP trap or email) based on user
+        specified condition.
+
+        NamedException : A NamedException is exposed by a bladelet as
+        connection points to identify a recoverable exception.  The
+        action to handle a NamedException thrown by a bladelet can be
+        explicitly designed in the PEP by associating a execution path
+        which comprises of a series of bladelet.
+
+        Exception Block : It is the block in the PEP that is marked by
+        the exception marker and which is executed in case of a 
+        bladelet exception that is not a NamedException that has an
+        output path associated with it.
+
+        URI : Uniform Resource Identifier.  A URI (Uniform Resource
+        Identifier) is the way you identify any content in the Internet
+        space, whether it be a page of text, a video or sound clip, a
+        still or animated image, or a program.
+        The most common form of URI is the Web page address, which is a
+        particular form or subset of URI called a Uniform Resource
+        Locator (URL).  A URI typically describes:
+        * mechanism used to access the resource
+        * specific computer that the resource is housed in
+        * specific name of the resource (a file name) on the computer.
+
+        URL : Uniform Resource Locator.  A URL (Uniform Resource
+        Locator) is the unique Internet address for a file.  The URL
+        contains the name of the protocol to be used to access the file
+        resource, a domain name that identifies a specific computer on
+        the Internet, and a pathname, a hierarchical description that
+        specifies the location of a file in that computer.
+
+        End point: An end point is an application that is either a
+        sender (client) or a receiver (server) of messages that
+        communicates with AON."
+    REVISION        "200803060000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 646 }
+
+
+ciscoAonStatusMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoAonStatusMIB 0 }
+
+ciscoAonStatusMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoAonStatusMIB 1 }
+
+ciscoAonStatusMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoAonStatusMIB 2 }
+
+-- Conformance
+
+ciscoAonStatusMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoAonStatusMIBConform 1 }
+
+caonSystemInfo  OBJECT IDENTIFIER
+    ::= { ciscoAonStatusMIBObjects 1 }
+
+caonNotificationInfo  OBJECT IDENTIFIER
+    ::= { ciscoAonStatusMIBObjects 2 }
+
+
+caonNodeState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unregistered(1),
+                        registered(2),
+                        active(3),
+                        inactive(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the node state.
+
+        'unregistered': Node is not yet registered with AMC.
+        'registered'  : Node has registered with AMC but is not yet
+                        activated.
+        'active'      : Node has been activated from AMC and is ready
+                        to process messages.
+        'inactive'    : Node has been activated from AMC but AON
+                        process is down." 
+    ::= { caonSystemInfo 1 }
+
+caonBootTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime when the AON
+        data plane was bootstrapped successfully." 
+    ::= { caonSystemInfo 2 }
+
+caonLastActivateTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the local time at the node when the node
+        was last activated from AMC." 
+    ::= { caonSystemInfo 3 }
+
+caonReceivedMessages OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the aggregate count of messages received
+        by the node.  This includes all the messages for which a PEP 
+        was executed as well as the messages that were pass-through and 
+        did not involve any PEP invocation.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonSystemInfo 4 }
+
+caonAmcIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address by which the
+        AMC for the node is reachable." 
+    ::= { caonSystemInfo 5 }
+
+caonAmcIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP Address of the AMC managing this
+        node.  The type of this address is determined by the value of
+        caonAmcIpAddressType object" 
+    ::= { caonSystemInfo 6 }
+
+caonPepCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "PEPs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of PEPs that are
+        deployed on the node." 
+    ::= { caonSystemInfo 7 }
+
+caonPepTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CaonPepEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists descriptive and status information about the
+        PEPs contained by this AON node."
+    ::= { caonSystemInfo 8 }
+
+caonPepEntry OBJECT-TYPE
+    SYNTAX          CaonPepEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The entry in caonPepTable containing information about a
+        single PEP. 
+        When AON data plane bootstraps, an entry is 
+        created for each PEP that has been deployed on the AON node.
+        When PEPs are deployed from AMC to AON node after AON data 
+        plane bootstraps, an entry for each PEP is added to the 
+        table. An entry is deleted from the table when the PEP is
+        deleted from AMC."
+    INDEX           { caonPepIndex } 
+    ::= { caonPepTable 1 }
+
+CaonPepEntry ::= SEQUENCE {
+        caonPepIndex            Unsigned32,
+        caonPepName             SnmpAdminString,
+        caonPepStyle            INTEGER ,
+        caonPepReceivedMessages Counter32,
+        caonPepFailures         Counter32,
+        caonPepSecurityFailures Counter32
+}
+
+caonPepIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitary integer value that uniquely
+        identifies a PEP." 
+    ::= { caonPepEntry 1 }
+
+caonPepName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the PEP." 
+    ::= { caonPepEntry 2 }
+
+caonPepStyle OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        oneWay(1),
+                        requestResponse(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the PEP interaction style commonly known
+        as the MEP.  The possible values are:
+
+        'oneWay'          : Response is not expected from the receiving
+                            end point.  AON does not wait for response
+                            message in this case.
+        'requestResponse' : Response is expected from the receiving end
+                            point.  AON waits for the response from the 
+                            receiving end point.
+
+        However, the PEP interaction style can be overridden by the
+        Send Bladelet interaction style.  If the user specifies the 
+        interaction style to be 'oneWay' in the Send bladelet, it 
+        overrides the PEP level interaction style and AON does not 
+        wait for a response from the receiving end point." 
+    ::= { caonPepEntry 3 }
+
+caonPepReceivedMessages OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of messages that were
+        received and for which this PEP was executed.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEntry 4 }
+
+caonPepFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times the PEP execution
+        failed and PEP was forced to execute the exception path.  This
+        count is incremented whether an exception path is present or
+        not.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEntry 5 }
+
+caonPepSecurityFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times authentication
+        and certificate validation failures were encountered during
+        PEP execution.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEntry 6 }
+ 
+
+
+caonPepEndPointTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CaonPepEndPointEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the end points that the messages were
+        delivered to during PEP execution."
+    ::= { caonSystemInfo 10 }
+
+caonPepEndPointEntry OBJECT-TYPE
+    SYNTAX          CaonPepEndPointEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains information about an end point that the
+        messages were delivered to during PEP execution.
+        An entry is added to the table when a message is delivered
+        to the end point for the first time during PEP execution. An
+        entry is deleted from this table if the corresponding PEP is
+        deleted from AMC."
+    INDEX           {
+                        caonPepIndex,
+                        caonPepEndPointIndex
+                    } 
+    ::= { caonPepEndPointTable 1 }
+
+CaonPepEndPointEntry ::= SEQUENCE {
+        caonPepEndPointIndex             Unsigned32,
+        caonPepEndPointUrl               CiscoURLString,
+        caonEndPointAttemptedMessages    Counter32,
+        caonOneWayDeliveredMessages      Counter32,
+        caonOneWayFailedMessages         Counter32,
+        caonReqResponseDeliveredMessages Counter32,
+        caonReqResponseFailedMessages    Counter32,
+        caonEndPointMinResponseTime      TimeTicks,
+        caonEndPointMaxResponseTime      TimeTicks,
+        caonEndPointAvgResponseTime      TimeTicks
+}
+
+caonPepEndPointIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitary integer-value that uniquely
+        identifies the PEP end point." 
+    ::= { caonPepEndPointEntry 1 }
+
+caonPepEndPointUrl OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the URL of the end point.  This URL does
+        not include the query parameters." 
+    ::= { caonPepEndPointEntry 2 }
+
+caonEndPointAttemptedMessages OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of message delivery attempts
+        to the end point.  For example, if a message was delivered
+        successfully on the initial try this counter will be
+        incremented by 1; however, if that message was not successfully
+        delivered on the initial try and 3 retry attempts were made,
+        then the counter will be incremented by 4.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEndPointEntry 3 }
+
+caonOneWayDeliveredMessages OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of one-way messages
+        successfully delivered to the end point.  This count includes
+        only those messages that do not require a response from the end
+        point.  However in case the AON node is not the exit node but
+        rather an entry or intermediate node hop in the AON cloud then
+        this counter represents successful delivery to the next
+        hop.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEndPointEntry 4 }
+
+caonOneWayFailedMessages OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of one-way messages that
+        failed delivery to the end point.  This count includes only
+        those messages that do not require a response from the 
+        end point.  However in case the AON node is not the exit node
+        but rather an entry or intermediate node hop in the AON cloud
+        then this counter represents failed delivery to the next hop.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEndPointEntry 5 }
+
+caonReqResponseDeliveredMessages OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of response required messages
+        successfully delivered to the end point.  The count includes
+        only those messages for which a response was received
+        successfully from the end point.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEndPointEntry 6 }
+
+caonReqResponseFailedMessages OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of response required messages
+        that failed delivery to the end point.  This count includes only
+        those messages for which a response message was expected from
+        the end point.
+        Discontinuities in the value of this counter can occur at 
+        re-initialization of the management system, and at other times 
+        as indicated by the value of caonCounterDiscontinuityTime
+        object." 
+    ::= { caonPepEndPointEntry 7 }
+
+caonEndPointMinResponseTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the minimum response time experienced by
+        the PEP to receive a response from the end point." 
+    ::= { caonPepEndPointEntry 8 }
+
+caonEndPointMaxResponseTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum response time experienced by
+        the PEP to receive a response from the end point." 
+    ::= { caonPepEndPointEntry 9 }
+
+caonEndPointAvgResponseTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average response time experienced by
+        the PEP to receive a response from the end point." 
+    ::= { caonPepEndPointEntry 10 }
+ 
+
+
+caonCounterDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime at the most recent occasion at which one
+        or more of the counters suffered a discontinuity.  The relevant
+        counters are the specific instances associated with any
+        Counter32 or Counter64 object in the MIB.  If no such
+        discontinuities have occured since the last initialization of
+        the local management subsystem, then this object contains a 
+        zero value." 
+    ::= { caonSystemInfo 11 }
+
+-- Notification only objects
+
+caonMessageSrcUri OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the message source URI." 
+    ::= { caonNotificationInfo 1 }
+
+caonMessageSrcIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address of the
+        message source." 
+    ::= { caonNotificationInfo 2 }
+
+caonMessageSrcIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the message source IP Address.  The type
+        of this address is determined by the value of
+        caonMessageSrcIpAddressType." 
+    ::= { caonNotificationInfo 3 }
+
+caonMessageSrcPort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the message source port number." 
+    ::= { caonNotificationInfo 4 }
+
+caonNotificationName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the custom notification
+        type.  This notification type is defined by the customer to
+        identify the custom notification." 
+    ::= { caonNotificationInfo 5 }
+
+caonNotificationText OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates additional information regarding the
+        custom notification. This notification text is defined by the
+        customer to provide details related to the custom notification." 
+    ::= { caonNotificationInfo 6 }
+
+caonSendResponseThreshold OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the end point response time threshold
+        that is configured in the Send bladelet.  If the time to receive
+        a response from the end point exceeds this threshold, then a
+        caonSendResponseThresholdExceeded notification may be
+        generated." 
+    ::= { caonNotificationInfo 7 }
+
+caonNotifEnableIndicators OBJECT-TYPE
+    SYNTAX          BITS {
+                        caonUpNotifEnabled(0),
+                        caonDownNotifEnabled(1),
+                        caonNewPepDeployedNotifEnabled(2),
+                        caonMessageDeliveryFailedNotifEnabled(3),
+                        caonSendResponseThresholdExceededNotifEnabled(4),
+                        caonCustomNotifEnabled(5)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the SNMP notifications will or
+        will not be sent.
+
+        If the 'caonUpNotifEnabled' bit is set, then caonUp 
+        notification will be sent when AON data plane bootstraps
+        successfully.  If the 'caonUpNotifEnabled' bit is not set, 
+        caonUp notification will not be sent.
+
+        If the 'caonDownNotifEnabled' bit is set, then caonDown
+        notification will be sent when the AON data plane goes down.
+        If the 'caonDownNotifEnabled' bit is not set, caonDown
+        notification will not be sent.
+
+        If the 'caonNewPepDeployedNotifEnabled' bit is set, then
+        caonNewPepDeployed notification will be sent when a new PEP is
+        deployed successfully after AON bootstrap.  If the
+        'caonNewPepDeployedNotifEnabled' bit is not set, 
+        caonNewPepDeployed notification will not be sent.
+
+        If the 'caonMessageDeliveryFailedNotifEnabled' bit is set, then
+        caonMessageDeliveryFailed notification will be sent when a
+        message cannot be delivered to the end point.  If the 
+        'caonMessageDeliveryFailedNotifEnabled' bit is not set,
+        caonMessageDeliveredFailed notification will not be sent.
+
+        If the 'caonSendResponseThresholdExceededNotifEnabled' bit is
+        set, then caonSendResponseThresholdExceeded notification will 
+        be sent when the end point response time exceeds the threshold
+        value specified in Send Bladelet.  If the bit 
+        'caonSendResponseThresholdExceededNotifEnabled' is not set, 
+        caonSendResponseThresholdExceeded notification will not be
+        sent. 
+
+        If the 'caonCustomNotifEnabled' bit is set, 
+        caonCustomNotification will be sent.  If the
+        'caonCustomNotifEnabled' bit is not set,
+        caonCustomNotification will not be sent." 
+    ::= { caonNotificationInfo 8 }
+
+-- Notification Types
+
+caonUp NOTIFICATION-TYPE
+    STATUS          current
+    DESCRIPTION
+        "caonUp notification is sent when AON data plane is
+        bootstrapped successfully and AON is ready to process messages."
+   ::= { ciscoAonStatusMIBNotifs 1 }
+
+caonDown NOTIFICATION-TYPE
+    STATUS          current
+    DESCRIPTION
+        "caonDown notification is sent when AON data plane goes down.
+        AON data plane might be down as a result of an administrative
+        command i.e. stopping AON  via CLI command or deactivating the
+        node from AMC or due to abnormal termination of AON data plane.
+        If there is a hardware failure on the AON box then the
+        notification might not be triggered."
+   ::= { ciscoAonStatusMIBNotifs 2 }
+
+caonNewPepDeployed NOTIFICATION-TYPE
+    OBJECTS         { caonPepName }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent if a new PEP is deployed after AON
+        has bootstrapped successfully.
+        caonPepName identifies the name of the new PEP."
+   ::= { ciscoAonStatusMIBNotifs 3 }
+
+caonMessageDeliveryFailed NOTIFICATION-TYPE
+    OBJECTS         {
+                        caonPepEndPointUrl,
+                        caonMessageSrcUri,
+                        caonMessageSrcIpAddressType,
+                        caonMessageSrcIpAddress,
+                        caonMessageSrcPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent if a message cannot be delivered to
+        the end point.
+        caonMessageEndPointURL identifies the end point to which the
+        message was being delivered to.
+        The message source is either identified by caonMessageSrcUri  
+        or (caonMessageSrcIpAddr and caonMessageSrcPort)."
+   ::= { ciscoAonStatusMIBNotifs 4 }
+
+caonSendResponseThresholdExceeded NOTIFICATION-TYPE
+    OBJECTS         {
+                        caonPepEndPointUrl,
+                        caonSendResponseThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent if the destination end point
+        response time exceeds the threshold value specified in the 
+        Send Bladelet.
+        caonPepEndPointUrl identifies the URI of the end point the
+        message was being delivered to.
+        caonSendResponseThreshold identifies the end point response time
+        threshold value configured in the Send bladelet."
+   ::= { ciscoAonStatusMIBNotifs 5 }
+
+caonCustomNotification NOTIFICATION-TYPE
+    OBJECTS         {
+                        caonNotificationName,
+                        caonNotificationText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification could be triggered during PEP execution.
+        Currently this is triggered from the Notify Bladelet if
+        the customer specified condition evaluates to true and the
+        notification type selected is SNMP.  This provides a way to
+        extend the  AON platform to generate customer defined
+        notifications based on customer specified conditions. 
+        caonNotificationName identifies the name of the customer
+        defined notification type.
+        caonNotificationText identifies the notification text for the
+        custom notification."
+   ::= { ciscoAonStatusMIBNotifs 6 }
+ciscoAonStatusMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoAonStatusMIBConform 2 }
+
+
+ciscoAonStatusMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement the Cisco
+        AON Status MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        caonNodeObjectGroup,
+                        caonPepObjectGroup,
+                        caonPepEndPointObjectGroup,
+                        caonUpNotificationGroup,
+                        caonDownNotificationGroup,
+                        caonNewPepDeployedNotifGroup,
+                        caonSendThresholdExceededNotifGroup,
+                        caonMessageDeliveryFailedNotifGroup,
+                        caonCustomNotifGroup,
+                        caonNotificationObjectGroup,
+                        caonCustomNotifObjectsGroup,
+                        caonMessageDeliveryFailedNotifObjectsGroup,
+                        caonSendThresholdExceededNotifObjectsGroup
+                    }
+
+    GROUP           caonNotifEnableObjectsGroup
+    DESCRIPTION
+        "This group is optional."
+    ::= { ciscoAonStatusMIBCompliances 1 }
+
+-- Units of Conformance
+
+caonNodeObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        caonNodeState,
+                        caonBootTime,
+                        caonLastActivateTime,
+                        caonReceivedMessages,
+                        caonAmcIpAddressType,
+                        caonAmcIpAddress,
+                        caonPepCount,
+                        caonCounterDiscontinuityTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the AON node information."
+    ::= { ciscoAonStatusMIBGroups 1 }
+
+caonPepObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        caonPepName,
+                        caonPepStyle,
+                        caonPepReceivedMessages,
+                        caonPepFailures,
+                        caonPepSecurityFailures
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about a PEP."
+    ::= { ciscoAonStatusMIBGroups 2 }
+
+caonPepEndPointObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        caonPepEndPointUrl,
+                        caonEndPointAttemptedMessages,
+                        caonOneWayDeliveredMessages,
+                        caonOneWayFailedMessages,
+                        caonReqResponseDeliveredMessages,
+                        caonReqResponseFailedMessages,
+                        caonEndPointMinResponseTime,
+                        caonEndPointMaxResponseTime,
+                        caonEndPointAvgResponseTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about a PEP end
+        point."
+    ::= { ciscoAonStatusMIBGroups 3 }
+
+caonNotificationObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        caonMessageSrcIpAddressType,
+                        caonMessageSrcIpAddress,
+                        caonMessageSrcPort,
+                        caonNotificationName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Conformance group for objects contained in the notifications."
+    ::= { ciscoAonStatusMIBGroups 4 }
+
+caonUpNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { caonUp }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification for signaling that AON data plane
+        is ready to process messages."
+    ::= { ciscoAonStatusMIBGroups 5 }
+
+caonDownNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { caonDown }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification for signaling that AON data plane
+        is down."
+    ::= { ciscoAonStatusMIBGroups 6 }
+
+caonNewPepDeployedNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { caonNewPepDeployed }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification for signaling that a new PEP has
+        been deployed to the AON node."
+    ::= { ciscoAonStatusMIBGroups 7 }
+
+caonSendThresholdExceededNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { caonSendResponseThresholdExceeded }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification for signaling that a destination
+        end point response time exceeded the threshold value specified
+        in the Send Bladelet."
+    ::= { ciscoAonStatusMIBGroups 8 }
+
+caonMessageDeliveryFailedNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { caonMessageDeliveryFailed }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification for signaling that a message
+        could not be delivered to the end point."
+    ::= { ciscoAonStatusMIBGroups 9 }
+
+caonCustomNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { caonCustomNotification }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification for signaling that a custom
+        notification has been triggered from Notification bladelet
+        during PEP execution."
+    ::= { ciscoAonStatusMIBGroups 10 }
+
+caonCustomNotifObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        caonNotificationName,
+                        caonNotificationText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        caonCustomNotification."
+    ::= { ciscoAonStatusMIBGroups 11 }
+
+caonMessageDeliveryFailedNotifObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        caonMessageSrcUri,
+                        caonMessageSrcIpAddressType,
+                        caonMessageSrcIpAddress,
+                        caonMessageSrcPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        caonMessageDeliveryFailed notification"
+    ::= { ciscoAonStatusMIBGroups 12 }
+
+caonNotifEnableObjectsGroup OBJECT-GROUP
+    OBJECTS         { caonNotifEnableIndicators }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for enabling or disabling SNMP
+        notifications."
+    ::= { ciscoAonStatusMIBGroups 13 }
+
+caonSendThresholdExceededNotifObjectsGroup OBJECT-GROUP
+    OBJECTS         { caonSendResponseThreshold }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        caonSendResponseThresholdExceeded notification"
+    ::= { ciscoAonStatusMIBGroups 14 }
+
+END
+
+

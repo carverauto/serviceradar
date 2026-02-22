@@ -1,0 +1,20 @@
+The below MIBs are supported by the Catalyst 2600 Token Ring switch.  SNMP
+version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are in
+the v2 directory.  Note that for most every MIB <foo>.my in the v2
+directory, there exists a SNMP version 1 conversion of the MIB
+<foo>-V1SMI.my in the v1 directory.  The exception is SNMPv2-TC.my.
+Thanks go to David T. Perkins for his package smicng which was used to
+produce most of the v1 conversions.
+
+  Supported SNMP version 1 MIBs:
+
+    RFC1213-MIB.my
+    RFC1231-MIB.my
+    BRIDGE-MIB.my
+    ETHERLIKE-MIB.my
+    IF-MIB.my
+    CAT2600.my
+
+  Supported SNMP version 2 MIBs:
+
+    DTRCONCENTRATOR-MIB.my

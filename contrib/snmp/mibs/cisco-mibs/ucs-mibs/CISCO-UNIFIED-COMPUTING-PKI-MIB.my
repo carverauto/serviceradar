@@ -1,0 +1,1061 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-PKI-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- PKI management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-PKI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsAaaConfigState,
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsPkiCertStatus,
+    CucsPkiEpFsmCurrentFsm,
+    CucsPkiEpFsmStageName,
+    CucsPkiEpFsmTaskItem,
+    CucsPkiKeyringState,
+    CucsPkiModulus,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsPkiObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        PKI management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 37 }
+
+cucsPkiCertReqTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPkiCertReqEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq managed object table"
+    ::= { cucsPkiObjects 1 }
+
+cucsPkiCertReqEntry OBJECT-TYPE
+    SYNTAX           CucsPkiCertReqEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPkiCertReqTable table."
+    INDEX { cucsPkiCertReqInstanceId }
+    ::= { cucsPkiCertReqTable 1 }
+
+CucsPkiCertReqEntry ::= SEQUENCE {
+    cucsPkiCertReqInstanceId                                         CucsManagedObjectId,
+    cucsPkiCertReqDn                                                 CucsManagedObjectDn,
+    cucsPkiCertReqRn                                                 SnmpAdminString,
+    cucsPkiCertReqIp                                                 InetAddressIPv4,
+    cucsPkiCertReqPwd                                                SnmpAdminString,
+    cucsPkiCertReqReq                                                SnmpAdminString,
+    cucsPkiCertReqSubjName                                           SnmpAdminString,
+    cucsPkiCertReqCountry                                            SnmpAdminString,
+    cucsPkiCertReqDns                                                SnmpAdminString,
+    cucsPkiCertReqEmail                                              SnmpAdminString,
+    cucsPkiCertReqLocality                                           SnmpAdminString,
+    cucsPkiCertReqOrgName                                            SnmpAdminString,
+    cucsPkiCertReqOrgUnitName                                        SnmpAdminString,
+    cucsPkiCertReqState                                              SnmpAdminString,
+    cucsPkiCertReqIpA                                                InetAddressIPv4,
+    cucsPkiCertReqIpB                                                InetAddressIPv4,
+    cucsPkiCertReqIpv6                                               InetAddressIPv6,
+    cucsPkiCertReqIpv6A                                              InetAddressIPv6,
+    cucsPkiCertReqIpv6B                                              InetAddressIPv6
+}
+
+cucsPkiCertReqInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPkiCertReqEntry 1 }
+
+cucsPkiCertReqDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:dn managed object property"
+    ::= { cucsPkiCertReqEntry 2 }
+
+cucsPkiCertReqRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:rn managed object property"
+    ::= { cucsPkiCertReqEntry 3 }
+
+cucsPkiCertReqIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:ip managed object property"
+    ::= { cucsPkiCertReqEntry 4 }
+
+cucsPkiCertReqPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:pwd managed object property"
+    ::= { cucsPkiCertReqEntry 5 }
+
+cucsPkiCertReqReq OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:req managed object property"
+    ::= { cucsPkiCertReqEntry 6 }
+
+cucsPkiCertReqSubjName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:subjName managed object property"
+    ::= { cucsPkiCertReqEntry 7 }
+
+cucsPkiCertReqCountry OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:country managed object property"
+    ::= { cucsPkiCertReqEntry 8 }
+
+cucsPkiCertReqDns OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:dns managed object property"
+    ::= { cucsPkiCertReqEntry 9 }
+
+cucsPkiCertReqEmail OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:email managed object property"
+    ::= { cucsPkiCertReqEntry 10 }
+
+cucsPkiCertReqLocality OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:locality managed object property"
+    ::= { cucsPkiCertReqEntry 11 }
+
+cucsPkiCertReqOrgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:orgName managed object property"
+    ::= { cucsPkiCertReqEntry 12 }
+
+cucsPkiCertReqOrgUnitName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:orgUnitName managed object property"
+    ::= { cucsPkiCertReqEntry 13 }
+
+cucsPkiCertReqState OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:state managed object property"
+    ::= { cucsPkiCertReqEntry 14 }
+
+cucsPkiCertReqIpA OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:ipA managed object property"
+    ::= { cucsPkiCertReqEntry 15 }
+
+cucsPkiCertReqIpB OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:ipB managed object property"
+    ::= { cucsPkiCertReqEntry 16 }
+
+cucsPkiCertReqIpv6 OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:ipv6 managed object property"
+    ::= { cucsPkiCertReqEntry 17 }
+
+cucsPkiCertReqIpv6A OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:ipv6A managed object property"
+    ::= { cucsPkiCertReqEntry 18 }
+
+cucsPkiCertReqIpv6B OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:CertReq:ipv6B managed object property"
+    ::= { cucsPkiCertReqEntry 19 }
+
+cucsPkiEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPkiEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pki:Ep managed object table"
+    ::= { cucsPkiObjects 2 }
+
+cucsPkiEpEntry OBJECT-TYPE
+    SYNTAX           CucsPkiEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPkiEpTable table."
+    INDEX { cucsPkiEpInstanceId }
+    ::= { cucsPkiEpTable 1 }
+
+CucsPkiEpEntry ::= SEQUENCE {
+    cucsPkiEpInstanceId                                              CucsManagedObjectId,
+    cucsPkiEpDn                                                      CucsManagedObjectDn,
+    cucsPkiEpRn                                                      SnmpAdminString,
+    cucsPkiEpDescr                                                   SnmpAdminString,
+    cucsPkiEpFsmDescr                                                SnmpAdminString,
+    cucsPkiEpFsmPrev                                                 SnmpAdminString,
+    cucsPkiEpFsmProgr                                                Gauge32,
+    cucsPkiEpFsmRmtInvErrCode                                        Gauge32,
+    cucsPkiEpFsmRmtInvErrDescr                                       SnmpAdminString,
+    cucsPkiEpFsmRmtInvRslt                                           CucsConditionRemoteInvRslt,
+    cucsPkiEpFsmStageDescr                                           SnmpAdminString,
+    cucsPkiEpFsmStamp                                                DateAndTime,
+    cucsPkiEpFsmStatus                                               SnmpAdminString,
+    cucsPkiEpFsmTry                                                  Gauge32,
+    cucsPkiEpIntId                                                   SnmpAdminString,
+    cucsPkiEpName                                                    SnmpAdminString,
+    cucsPkiEpPolicyLevel                                             Gauge32,
+    cucsPkiEpPolicyOwner                                             CucsPolicyPolicyOwner
+}
+
+cucsPkiEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPkiEpEntry 1 }
+
+cucsPkiEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:dn managed object property"
+    ::= { cucsPkiEpEntry 2 }
+
+cucsPkiEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:rn managed object property"
+    ::= { cucsPkiEpEntry 3 }
+
+cucsPkiEpDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:descr managed object property"
+    ::= { cucsPkiEpEntry 4 }
+
+cucsPkiEpFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmDescr managed object property"
+    ::= { cucsPkiEpEntry 5 }
+
+cucsPkiEpFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmPrev managed object property"
+    ::= { cucsPkiEpEntry 6 }
+
+cucsPkiEpFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmProgr managed object property"
+    ::= { cucsPkiEpEntry 7 }
+
+cucsPkiEpFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmRmtInvErrCode managed object property"
+    ::= { cucsPkiEpEntry 8 }
+
+cucsPkiEpFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmRmtInvErrDescr managed object property"
+    ::= { cucsPkiEpEntry 9 }
+
+cucsPkiEpFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmRmtInvRslt managed object property"
+    ::= { cucsPkiEpEntry 10 }
+
+cucsPkiEpFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmStageDescr managed object property"
+    ::= { cucsPkiEpEntry 11 }
+
+cucsPkiEpFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmStamp managed object property"
+    ::= { cucsPkiEpEntry 12 }
+
+cucsPkiEpFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmStatus managed object property"
+    ::= { cucsPkiEpEntry 13 }
+
+cucsPkiEpFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:fsmTry managed object property"
+    ::= { cucsPkiEpEntry 14 }
+
+cucsPkiEpIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:intId managed object property"
+    ::= { cucsPkiEpEntry 15 }
+
+cucsPkiEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:name managed object property"
+    ::= { cucsPkiEpEntry 16 }
+
+cucsPkiEpPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:policyLevel managed object property"
+    ::= { cucsPkiEpEntry 17 }
+
+cucsPkiEpPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:Ep:policyOwner managed object property"
+    ::= { cucsPkiEpEntry 18 }
+
+cucsPkiEpFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPkiEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm managed object table"
+    ::= { cucsPkiObjects 6 }
+
+cucsPkiEpFsmEntry OBJECT-TYPE
+    SYNTAX           CucsPkiEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPkiEpFsmTable table."
+    INDEX { cucsPkiEpFsmInstanceId }
+    ::= { cucsPkiEpFsmTable 1 }
+
+CucsPkiEpFsmEntry ::= SEQUENCE {
+    cucsPkiEpFsmInstanceId                                           CucsManagedObjectId,
+    cucsPkiEpFsmDn                                                   CucsManagedObjectDn,
+    cucsPkiEpFsmRn                                                   SnmpAdminString,
+    cucsPkiEpFsmCompletionTime                                       DateAndTime,
+    cucsPkiEpFsmCurrentFsm                                           CucsPkiEpFsmCurrentFsm,
+    cucsPkiEpFsmDescrData                                            SnmpAdminString,
+    cucsPkiEpFsmFsmStatus                                            CucsFsmFsmStageStatus,
+    cucsPkiEpFsmProgress                                             Gauge32,
+    cucsPkiEpFsmRmtErrCode                                           Gauge32,
+    cucsPkiEpFsmRmtErrDescr                                          SnmpAdminString,
+    cucsPkiEpFsmRmtRslt                                              CucsConditionRemoteInvRslt
+}
+
+cucsPkiEpFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPkiEpFsmEntry 1 }
+
+cucsPkiEpFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:dn managed object property"
+    ::= { cucsPkiEpFsmEntry 2 }
+
+cucsPkiEpFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:rn managed object property"
+    ::= { cucsPkiEpFsmEntry 3 }
+
+cucsPkiEpFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:completionTime managed object property"
+    ::= { cucsPkiEpFsmEntry 4 }
+
+cucsPkiEpFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsPkiEpFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:currentFsm managed object property"
+    ::= { cucsPkiEpFsmEntry 5 }
+
+cucsPkiEpFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:descr managed object property"
+    ::= { cucsPkiEpFsmEntry 6 }
+
+cucsPkiEpFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:fsmStatus managed object property"
+    ::= { cucsPkiEpFsmEntry 7 }
+
+cucsPkiEpFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:progress managed object property"
+    ::= { cucsPkiEpFsmEntry 8 }
+
+cucsPkiEpFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:rmtErrCode managed object property"
+    ::= { cucsPkiEpFsmEntry 9 }
+
+cucsPkiEpFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:rmtErrDescr managed object property"
+    ::= { cucsPkiEpFsmEntry 10 }
+
+cucsPkiEpFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsm:rmtRslt managed object property"
+    ::= { cucsPkiEpFsmEntry 11 }
+
+cucsPkiEpFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPkiEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage managed object table"
+    ::= { cucsPkiObjects 7 }
+
+cucsPkiEpFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsPkiEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPkiEpFsmStageTable table."
+    INDEX { cucsPkiEpFsmStageInstanceId }
+    ::= { cucsPkiEpFsmStageTable 1 }
+
+CucsPkiEpFsmStageEntry ::= SEQUENCE {
+    cucsPkiEpFsmStageInstanceId                                      CucsManagedObjectId,
+    cucsPkiEpFsmStageDn                                              CucsManagedObjectDn,
+    cucsPkiEpFsmStageRn                                              SnmpAdminString,
+    cucsPkiEpFsmStageDescrData                                       SnmpAdminString,
+    cucsPkiEpFsmStageLastUpdateTime                                  DateAndTime,
+    cucsPkiEpFsmStageName                                            CucsPkiEpFsmStageName,
+    cucsPkiEpFsmStageOrder                                           Gauge32,
+    cucsPkiEpFsmStageRetry                                           Gauge32,
+    cucsPkiEpFsmStageStageStatus                                     CucsFsmFsmStageStatus
+}
+
+cucsPkiEpFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPkiEpFsmStageEntry 1 }
+
+cucsPkiEpFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:dn managed object property"
+    ::= { cucsPkiEpFsmStageEntry 2 }
+
+cucsPkiEpFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:rn managed object property"
+    ::= { cucsPkiEpFsmStageEntry 3 }
+
+cucsPkiEpFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:descr managed object property"
+    ::= { cucsPkiEpFsmStageEntry 4 }
+
+cucsPkiEpFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:lastUpdateTime managed object property"
+    ::= { cucsPkiEpFsmStageEntry 5 }
+
+cucsPkiEpFsmStageName OBJECT-TYPE
+    SYNTAX       CucsPkiEpFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:name managed object property"
+    ::= { cucsPkiEpFsmStageEntry 6 }
+
+cucsPkiEpFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:order managed object property"
+    ::= { cucsPkiEpFsmStageEntry 7 }
+
+cucsPkiEpFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:retry managed object property"
+    ::= { cucsPkiEpFsmStageEntry 8 }
+
+cucsPkiEpFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmStage:stageStatus managed object property"
+    ::= { cucsPkiEpFsmStageEntry 9 }
+
+cucsPkiEpFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPkiEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmTask managed object table"
+    ::= { cucsPkiObjects 3 }
+
+cucsPkiEpFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsPkiEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPkiEpFsmTaskTable table."
+    INDEX { cucsPkiEpFsmTaskInstanceId }
+    ::= { cucsPkiEpFsmTaskTable 1 }
+
+CucsPkiEpFsmTaskEntry ::= SEQUENCE {
+    cucsPkiEpFsmTaskInstanceId                                       CucsManagedObjectId,
+    cucsPkiEpFsmTaskDn                                               CucsManagedObjectDn,
+    cucsPkiEpFsmTaskRn                                               SnmpAdminString,
+    cucsPkiEpFsmTaskCompletion                                       CucsFsmCompletion,
+    cucsPkiEpFsmTaskFlags                                            CucsFsmFlags,
+    cucsPkiEpFsmTaskItem                                             CucsPkiEpFsmTaskItem,
+    cucsPkiEpFsmTaskSeqId                                            Gauge32
+}
+
+cucsPkiEpFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPkiEpFsmTaskEntry 1 }
+
+cucsPkiEpFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmTask:dn managed object property"
+    ::= { cucsPkiEpFsmTaskEntry 2 }
+
+cucsPkiEpFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmTask:rn managed object property"
+    ::= { cucsPkiEpFsmTaskEntry 3 }
+
+cucsPkiEpFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmTask:completion managed object property"
+    ::= { cucsPkiEpFsmTaskEntry 4 }
+
+cucsPkiEpFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmTask:flags managed object property"
+    ::= { cucsPkiEpFsmTaskEntry 5 }
+
+cucsPkiEpFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsPkiEpFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmTask:item managed object property"
+    ::= { cucsPkiEpFsmTaskEntry 6 }
+
+cucsPkiEpFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:EpFsmTask:seqId managed object property"
+    ::= { cucsPkiEpFsmTaskEntry 7 }
+
+cucsPkiKeyRingTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPkiKeyRingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing managed object table"
+    ::= { cucsPkiObjects 4 }
+
+cucsPkiKeyRingEntry OBJECT-TYPE
+    SYNTAX           CucsPkiKeyRingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPkiKeyRingTable table."
+    INDEX { cucsPkiKeyRingInstanceId }
+    ::= { cucsPkiKeyRingTable 1 }
+
+CucsPkiKeyRingEntry ::= SEQUENCE {
+    cucsPkiKeyRingInstanceId                                         CucsManagedObjectId,
+    cucsPkiKeyRingDn                                                 CucsManagedObjectDn,
+    cucsPkiKeyRingRn                                                 SnmpAdminString,
+    cucsPkiKeyRingAdminState                                         CucsPkiKeyringState,
+    cucsPkiKeyRingCert                                               SnmpAdminString,
+    cucsPkiKeyRingDescr                                              SnmpAdminString,
+    cucsPkiKeyRingIntId                                              SnmpAdminString,
+    cucsPkiKeyRingKey                                                SnmpAdminString,
+    cucsPkiKeyRingModulus                                            CucsPkiModulus,
+    cucsPkiKeyRingName                                               SnmpAdminString,
+    cucsPkiKeyRingRegen                                              TruthValue,
+    cucsPkiKeyRingTp                                                 SnmpAdminString,
+    cucsPkiKeyRingCertStatus                                         CucsPkiCertStatus,
+    cucsPkiKeyRingConfigState                                        CucsAaaConfigState,
+    cucsPkiKeyRingConfigStatusMessage                                SnmpAdminString,
+    cucsPkiKeyRingPolicyLevel                                        Gauge32,
+    cucsPkiKeyRingPolicyOwner                                        CucsPolicyPolicyOwner
+}
+
+cucsPkiKeyRingInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPkiKeyRingEntry 1 }
+
+cucsPkiKeyRingDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:dn managed object property"
+    ::= { cucsPkiKeyRingEntry 2 }
+
+cucsPkiKeyRingRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:rn managed object property"
+    ::= { cucsPkiKeyRingEntry 3 }
+
+cucsPkiKeyRingAdminState OBJECT-TYPE
+    SYNTAX       CucsPkiKeyringState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:adminState managed object property"
+    ::= { cucsPkiKeyRingEntry 4 }
+
+cucsPkiKeyRingCert OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:cert managed object property"
+    ::= { cucsPkiKeyRingEntry 5 }
+
+cucsPkiKeyRingDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:descr managed object property"
+    ::= { cucsPkiKeyRingEntry 6 }
+
+cucsPkiKeyRingIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:intId managed object property"
+    ::= { cucsPkiKeyRingEntry 7 }
+
+cucsPkiKeyRingKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:key managed object property"
+    ::= { cucsPkiKeyRingEntry 8 }
+
+cucsPkiKeyRingModulus OBJECT-TYPE
+    SYNTAX       CucsPkiModulus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:modulus managed object property"
+    ::= { cucsPkiKeyRingEntry 9 }
+
+cucsPkiKeyRingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:name managed object property"
+    ::= { cucsPkiKeyRingEntry 10 }
+
+cucsPkiKeyRingRegen OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:regen managed object property"
+    ::= { cucsPkiKeyRingEntry 11 }
+
+cucsPkiKeyRingTp OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:tp managed object property"
+    ::= { cucsPkiKeyRingEntry 12 }
+
+cucsPkiKeyRingCertStatus OBJECT-TYPE
+    SYNTAX       CucsPkiCertStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:certStatus managed object property"
+    ::= { cucsPkiKeyRingEntry 13 }
+
+cucsPkiKeyRingConfigState OBJECT-TYPE
+    SYNTAX       CucsAaaConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:configState managed object property"
+    ::= { cucsPkiKeyRingEntry 14 }
+
+cucsPkiKeyRingConfigStatusMessage OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:configStatusMessage managed
+        object property"
+    ::= { cucsPkiKeyRingEntry 15 }
+
+cucsPkiKeyRingPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:policyLevel managed object property"
+    ::= { cucsPkiKeyRingEntry 16 }
+
+cucsPkiKeyRingPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:KeyRing:policyOwner managed object property"
+    ::= { cucsPkiKeyRingEntry 17 }
+
+cucsPkiTPTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPkiTPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pki:TP managed object table"
+    ::= { cucsPkiObjects 5 }
+
+cucsPkiTPEntry OBJECT-TYPE
+    SYNTAX           CucsPkiTPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPkiTPTable table."
+    INDEX { cucsPkiTPInstanceId }
+    ::= { cucsPkiTPTable 1 }
+
+CucsPkiTPEntry ::= SEQUENCE {
+    cucsPkiTPInstanceId                                              CucsManagedObjectId,
+    cucsPkiTPDn                                                      CucsManagedObjectDn,
+    cucsPkiTPRn                                                      SnmpAdminString,
+    cucsPkiTPCertChain                                               SnmpAdminString,
+    cucsPkiTPDescr                                                   SnmpAdminString,
+    cucsPkiTPFp                                                      SnmpAdminString,
+    cucsPkiTPIntId                                                   SnmpAdminString,
+    cucsPkiTPName                                                    SnmpAdminString,
+    cucsPkiTPNumCerts                                                Gauge32,
+    cucsPkiTPCertStatus                                              CucsPkiCertStatus,
+    cucsPkiTPPolicyLevel                                             Gauge32,
+    cucsPkiTPPolicyOwner                                             CucsPolicyPolicyOwner
+}
+
+cucsPkiTPInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPkiTPEntry 1 }
+
+cucsPkiTPDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:dn managed object property"
+    ::= { cucsPkiTPEntry 2 }
+
+cucsPkiTPRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:rn managed object property"
+    ::= { cucsPkiTPEntry 3 }
+
+cucsPkiTPCertChain OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:certChain managed object property"
+    ::= { cucsPkiTPEntry 4 }
+
+cucsPkiTPDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:descr managed object property"
+    ::= { cucsPkiTPEntry 5 }
+
+cucsPkiTPFp OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:fp managed object property"
+    ::= { cucsPkiTPEntry 6 }
+
+cucsPkiTPIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:intId managed object property"
+    ::= { cucsPkiTPEntry 7 }
+
+cucsPkiTPName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:name managed object property"
+    ::= { cucsPkiTPEntry 8 }
+
+cucsPkiTPNumCerts OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:numCerts managed object property"
+    ::= { cucsPkiTPEntry 9 }
+
+cucsPkiTPCertStatus OBJECT-TYPE
+    SYNTAX       CucsPkiCertStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:certStatus managed object property"
+    ::= { cucsPkiTPEntry 10 }
+
+cucsPkiTPPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:policyLevel managed object property"
+    ::= { cucsPkiTPEntry 11 }
+
+cucsPkiTPPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pki:TP:policyOwner managed object property"
+    ::= { cucsPkiTPEntry 12 }
+
+END

@@ -1,0 +1,725 @@
+-- MIB file created 03-Sep-2009 14:24:10, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-DIAMETER-CC-APPL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DIAMETER-CC-APPL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    StorageType, RowStatus
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoDiameterCCAMIB OBJECT IDENTIFIER ::= { ciscoExperiment 575 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200608230001Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-aaa@cisco.com
+--  Descr
+--    The MIB module for entities implementing the
+--    Diameter Credit Control Application, RFC 4006.
+--    Initial Cisco'ized version of the IETF draft
+--    draft-zorn-dime-diameter-cc-app-mib-00.txt.
+--  RevDate
+--    200608230001Z
+--  RevDescr
+--    Initial version of this module.
+
+ciscoDiameterCCAMIBNotifs OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIB 0 }
+ciscoDiameterCCAMIBObjects OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIB 1 }
+ciscoDiameterCCAMIBConform OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIB 2 }
+cdccaHostCfgs   OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBObjects 1 }
+cdccaPeerCfgs   OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBObjects 2 }
+cdccaPeerStats  OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBObjects 3 }
+ciscoDiameterCCAMIBCompliances OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBConform 1 }
+ciscoDiameterCCAMIBGroups OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBConform 2 }
+
+cdccaHostId OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The implementation identification string for the
+        Diameter software in use on the system, for
+        example; 'diameterd'"
+    ::= { cdccaHostCfgs 1 }
+
+cdccaHostIpAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdccaHostIpAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table listing the Diameter
+        Credit Control host's IP Addresses."
+    ::= { cdccaHostCfgs 2 }
+
+cdccaHostIpAddrEntry OBJECT-TYPE
+    SYNTAX CdccaHostIpAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A row entry representing a Diameter
+        Credit Control host IP Address."
+    INDEX { cdccaHostIpAddrIndex }
+    ::= { cdccaHostIpAddrTable 1 }
+
+CdccaHostIpAddrEntry ::= SEQUENCE {
+    cdccaHostIpAddrIndex Gauge,
+    cdccaHostIpAddrType InetAddressType,
+    cdccaHostIpAddress InetAddress
+    }
+
+cdccaHostIpAddrIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A number uniquely identifying the number
+        of IP Addresses supported by this Diameter
+        Credit Control host."
+    ::= { cdccaHostIpAddrEntry 1 }
+
+cdccaHostIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address stored
+        in cdccaHostIpAddress."
+    ::= { cdccaHostIpAddrEntry 2 }
+
+cdccaHostIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP-Address of the host, which is of the type
+        specified in cdccaHostIpAddrType."
+    ::= { cdccaHostIpAddrEntry 3 }
+
+cdccaPeerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdccaPeerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table listing information regarding
+        the discovered or configured Diameter
+        Credit Control peers."
+    ::= { cdccaPeerCfgs 1 }
+
+cdccaPeerEntry OBJECT-TYPE
+    SYNTAX CdccaPeerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A row entry representing a discovered
+        or configured Diameter Credit Control
+        peer."
+    INDEX { cdccaPeerIndex }
+    ::= { cdccaPeerTable 1 }
+
+CdccaPeerEntry ::= SEQUENCE {
+    cdccaPeerIndex Gauge,
+    cdccaPeerId SnmpAdminString,
+    cdccaPeerFirmwareRevision Gauge,
+    cdccaPeerStorageType StorageType,
+    cdccaPeerRowStatus RowStatus
+    }
+
+cdccaPeerIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index that uniquely identifies a dcca peer.
+        This index is assigned arbitrarily by the SNMP
+        engine and is not saved over reloads."
+    ::= { cdccaPeerEntry 1 }
+
+cdccaPeerId OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The server identifier for the Diameter
+        Credit Control peer. It has to be unique
+        and not an empty string."
+    ::= { cdccaPeerEntry 2 }
+
+cdccaPeerFirmwareRevision OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Firmware revision of peer.  If no firmware
+        revision, the revision of the Diameter
+        Credit Control software
+        module may be reported instead."
+    DEFVAL { 1 }
+    ::= { cdccaPeerEntry 3 }
+
+cdccaPeerStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row. None of
+        the columnar objects is writable when the conceptual
+        row is permanent."
+    REFERENCE
+        "Textual Conventions for SMIv2, Section 2."
+    DEFVAL { nonVolatile }
+    ::= { cdccaPeerEntry 4 }
+
+cdccaPeerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        To create a row in this table, a manager must
+        set this object to either createAndGo(4) or
+        createAndWait(5).
+        
+        Until instances of all corresponding columns are
+        appropriately configured, the value of the
+        corresponding instance of the cdccaPeerRowStatus column is
+        'notReady'.
+        
+        In particular, a newly created row cannot be made
+        active until the corresponding cdccaPeerId has been set.
+        
+        cdccaPeerId may not be modified while the
+        value of this object is active(1):
+        An attempt to set these objects while the value of
+        cdccaPeerRowStatus is active(1) will result in
+        an inconsistentValue error.
+        
+        Entries in this table with cdccaPeerRowStatus equal to
+        active(1) remain in the table until destroyed.  
+        
+        Entries in this table with cdccaPeerRowStatus equal to 
+        values other than active(1) will be destroyed after timeout
+        (5 minutes).
+        
+        If a cdccaPeerId being created via SNMP already exists
+        in another active cdccaPeerEntry, then a newly created row
+        cannot be made active until the original row with the
+        with the cdccaPeerId value is destroyed.
+        
+        Upon reload, cdccaPeerIndex values may be changed."
+    ::= { cdccaPeerEntry 5 }
+
+cdccaPeerVendorTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdccaPeerVendorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table listing the Vendor IDs
+        supported by the peer."
+    ::= { cdccaPeerCfgs 2 }
+
+cdccaPeerVendorEntry OBJECT-TYPE
+    SYNTAX CdccaPeerVendorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A row entry representing a
+        Vendor ID supported by the peer."
+    INDEX { cdccaPeerIndex, cdccaPeerVendorIndex }
+    ::= { cdccaPeerVendorTable 1 }
+
+CdccaPeerVendorEntry ::= SEQUENCE {
+    cdccaPeerVendorIndex Gauge,
+    cdccaPeerVendorId Gauge,
+    cdccaPeerVendorStorageType StorageType,
+    cdccaPeerVendorRowStatus RowStatus
+    }
+
+cdccaPeerVendorIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A number uniquely identifying the Vendor
+        ID supported by the peer."
+    ::= { cdccaPeerVendorEntry 1 }
+
+cdccaPeerVendorId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The active Vendor IDs used for peer connections."
+    ::= { cdccaPeerVendorEntry 2 }
+
+cdccaPeerVendorStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row. An agent
+        implementing the table must allow adding cdccaPeerVendorId
+        into the table. None of the columnar objects is writable
+        when the conceptual row is permanent."
+    REFERENCE
+        "Textual Conventions for SMIv2, Section 2."
+    DEFVAL { nonVolatile }
+    ::= { cdccaPeerVendorEntry 3 }
+
+cdccaPeerVendorRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        To create a row in this table, a manager must
+        set this object to either createAndGo(4) or
+        createAndWait(5).
+        
+        Until instances of all corresponding columns are
+        appropriately configured, the value of the
+        corresponding instance of the cdccaPeerVendorRowStatus column
+        is 'notReady'.
+        
+        In particular, a newly created row cannot be made
+        active until the corresponding cdccaPeerVendorId has been set.
+        
+        cdccaPeerVendorId may not be modified while the
+        value of this object is active(1):
+        An attempt to set these objects while the value of
+        cdccaPeerVendorRowStatus is active(1) will result in
+        an inconsistentValue error.
+        
+        Entries in this table with cdccaPeerVendorRowStatus equal to
+        active(1) remain in the table until destroyed.  
+        
+        Entries in this table with cdccaPeerVendorRowStatus equal to 
+        values other than active(1) will be destroyed after timeout
+        (5 minutes).
+        
+        If the peer vendor id being created via SNMP already exists
+        in another active cdccaPeerVendorEntry, then a newly
+        created row cannot be made active until the original row
+        with the peer vendor id value is destroyed.
+        
+        Upon reload, cdccaPeerVendorIndex values may be changed."
+    ::= { cdccaPeerVendorEntry 4 }
+
+cdccaPeerStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdccaPeerStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table listing the Diameter
+        Credit Control Peer Statistics."
+    ::= { cdccaPeerStats 1 }
+
+cdccaPeerStatsEntry OBJECT-TYPE
+    SYNTAX CdccaPeerStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A row entry representing a Diameter
+        Credit Control Peer."
+    INDEX { cdccaPeerIndex }
+    ::= { cdccaPeerStatsTable 1 }
+
+CdccaPeerStatsEntry ::= SEQUENCE {
+    cdccaPeerStatsCCRIn Counter,
+    cdccaPeerStatsCCROut Counter,
+    cdccaPeerStatsCCRDropped Counter,
+    cdccaPeerStatsCCAIn Counter,
+    cdccaPeerStatsCCAOut Counter,
+    cdccaPeerStatsCCADropped Counter,
+    cdccaPeerStatsRARIn Counter,
+    cdccaPeerStatsRARDropped Counter,
+    cdccaPeerStatsRAAOut Counter,
+    cdccaPeerStatsRAADropped Counter,
+    cdccaPeerStatsSTROut Counter,
+    cdccaPeerStatsSTRDropped Counter,
+    cdccaPeerStatsSTAIn Counter,
+    cdccaPeerStatsSTADropped Counter,
+    cdccaPeerStatsAAROut Counter,
+    cdccaPeerStatsAARDropped Counter,
+    cdccaPeerStatsAAAIn Counter,
+    cdccaPeerStatsAAADropped Counter,
+    cdccaPeerStatsASRIn Counter,
+    cdccaPeerStatsASRDropped Counter,
+    cdccaPeerStatsASAOut Counter,
+    cdccaPeerStatsASADropped Counter
+    }
+
+cdccaPeerStatsCCRIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Credit-Control-Request (CCR)
+        messages received, per peer."
+    ::= { cdccaPeerStatsEntry 1 }
+
+cdccaPeerStatsCCROut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Credit-Control-Request (CCR)
+        messages sent, per peer."
+    ::= { cdccaPeerStatsEntry 2 }
+
+cdccaPeerStatsCCRDropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Credit-Control-Request (CCR)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 3 }
+
+cdccaPeerStatsCCAIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Credit-Control-Answer (CCA)
+        messages received, per peer."
+    ::= { cdccaPeerStatsEntry 4 }
+
+cdccaPeerStatsCCAOut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Credit-Control-Answer (CCA)
+        messages sent, per peer."
+    ::= { cdccaPeerStatsEntry 5 }
+
+cdccaPeerStatsCCADropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Credit-Control-Answer (CCA)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 6 }
+
+cdccaPeerStatsRARIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Re-Auth-Request (RAR)
+        messages received, per peer."
+    ::= { cdccaPeerStatsEntry 7 }
+
+cdccaPeerStatsRARDropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Re-Auth-Request (RAR)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 8 }
+
+cdccaPeerStatsRAAOut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Re-Auth-Answer (RAA)
+        messages transmitted, per peer."
+    ::= { cdccaPeerStatsEntry 9 }
+
+cdccaPeerStatsRAADropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Re-Auth-Answer (RAA)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 10 }
+
+cdccaPeerStatsSTROut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter
+        Session-Termination-Request (STR)
+        messages transmitted, per peer."
+    ::= { cdccaPeerStatsEntry 11 }
+
+cdccaPeerStatsSTRDropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter
+        Session-Termination-Request (STR)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 12 }
+
+cdccaPeerStatsSTAIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter
+        Session-Termination-Answer (STA)
+        messages received, per peer."
+    ::= { cdccaPeerStatsEntry 13 }
+
+cdccaPeerStatsSTADropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter
+        Session-Termination-Answer (STA)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 14 }
+
+cdccaPeerStatsAAROut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter AA-Request (AAR)
+        messages transmitted, per peer."
+    ::= { cdccaPeerStatsEntry 15 }
+
+cdccaPeerStatsAARDropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter AA-Request (AAR)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 16 }
+
+cdccaPeerStatsAAAIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter AA-Answer (AAA)
+        messages received, per peer."
+    ::= { cdccaPeerStatsEntry 17 }
+
+cdccaPeerStatsAAADropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter AA-Answer (AAA)
+        messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 18 }
+
+cdccaPeerStatsASRIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Abort-Session-Request
+        (ASR) messages received, per peer."
+    ::= { cdccaPeerStatsEntry 19 }
+
+cdccaPeerStatsASRDropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Abort-Session-Request
+        (ASR) messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 20 }
+
+cdccaPeerStatsASAOut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Abort-Session-Answer
+        (ASA) messages transmitted, per peer."
+    ::= { cdccaPeerStatsEntry 21 }
+
+cdccaPeerStatsASADropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Diameter Abort-Session-Answer
+        (ASA) messages dropped, per peer."
+    ::= { cdccaPeerStatsEntry 22 }
+
+ciscoDiameterCCAHostCfgGroup OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing host configuration common
+--    to the server.
+--  objects
+--    cdccaHostIpAddrType, cdccaHostIpAddress, cdccaHostId
+
+ciscoDiameterCCAPeerCfgGroup OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing peer configuration common
+--    to the server.
+--  objects
+--    cdccaPeerId, cdccaPeerVendorId, cdccaPeerStorageType, 
+--    cdccaPeerVendorStorageType, cdccaPeerFirmwareRevision, 
+--    cdccaPeerRowStatus, cdccaPeerVendorRowStatus
+
+ciscoDiameterCCAPeerStatsGroup OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing peer statistics common
+--    to the server.
+--  objects
+--    cdccaPeerStatsCCRIn, cdccaPeerStatsCCROut, 
+--    cdccaPeerStatsCCRDropped, cdccaPeerStatsCCAIn, 
+--    cdccaPeerStatsCCAOut, cdccaPeerStatsCCADropped, 
+--    cdccaPeerStatsRARIn, cdccaPeerStatsRARDropped, 
+--    cdccaPeerStatsRAAOut, cdccaPeerStatsRAADropped, 
+--    cdccaPeerStatsSTROut, cdccaPeerStatsSTRDropped, 
+--    cdccaPeerStatsSTAIn, cdccaPeerStatsSTADropped, 
+--    cdccaPeerStatsAAROut, cdccaPeerStatsAARDropped, 
+--    cdccaPeerStatsAAAIn, cdccaPeerStatsAAADropped, 
+--    cdccaPeerStatsASRIn, cdccaPeerStatsASRDropped, 
+--    cdccaPeerStatsASAOut, cdccaPeerStatsASADropped
+
+ciscoDiameterCCAMIBCompliance OBJECT IDENTIFIER ::= { ciscoDiameterCCAMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for Diameter Credit Control
+--    application entities.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDiameterCCAPeerStatsGroup
+--   OptGroup
+--    ciscoDiameterCCAHostCfgGroup
+--   OptGroup
+--    ciscoDiameterCCAPeerCfgGroup
+
+
+END
+

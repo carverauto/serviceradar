@@ -1,0 +1,99 @@
+-- *****************************************************************
+-- HTTPS-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-HTTPS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200HttpsMIB MODULE-IDENTITY
+    LAST-UPDATED "201401290000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of HTTPS"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310170000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 47 }
+
+
+me1200HttpsMIBObjects OBJECT IDENTIFIER
+    ::= { me1200HttpsMIB 1 }
+
+me1200HttpsConfig OBJECT IDENTIFIER
+    ::= { me1200HttpsMIBObjects 2 }
+
+me1200HttpsGlobals OBJECT IDENTIFIER
+    ::= { me1200HttpsConfig 1 }
+
+me1200HttpsGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global mode of HTTPS. true(1) is to enable the functions of HTTPS and
+         false(2) is to disable it."
+    ::= { me1200HttpsGlobals 1 }
+
+me1200HttpsGlobalsRedirectToHttps OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The flag is to enable/disable the automatic redirection from HTTP to
+         HTTPS. true(1) is to enable the redirection and false(2) is to disable
+         the redirection."
+    ::= { me1200HttpsGlobals 2 }
+
+me1200HttpsMIBConformance OBJECT IDENTIFIER
+    ::= { me1200HttpsMIB 2 }
+
+me1200HttpsMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200HttpsMIBConformance 1 }
+
+me1200HttpsMIBGroups OBJECT IDENTIFIER
+    ::= { me1200HttpsMIBConformance 2 }
+
+me1200HttpsGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200HttpsGlobalsMode, me1200HttpsGlobalsRedirectToHttps }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200HttpsMIBGroups 1 }
+
+me1200HttpsMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200HttpsGlobalsInfoGroup }
+
+    ::= { me1200HttpsMIBCompliances 1 }
+
+END

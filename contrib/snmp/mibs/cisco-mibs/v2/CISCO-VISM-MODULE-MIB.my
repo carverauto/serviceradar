@@ -1,0 +1,2691 @@
+-- *****************************************************************
+-- CISCO-VISM-MODULE-MIB 
+--   The MIB contains Card statistics and specific 
+--   information for VISM(Voice Interworking Service Module)
+--
+-- October 2005, Rashmi Purandare
+--
+-- Copyright (c) 2003, 2004, 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VISM-MODULE-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    IpAddress,
+    Unsigned32                 FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    SnmpAdminString            FROM SNMP-FRAMEWORK-MIB 
+    TruthValue,
+    TEXTUAL-CONVENTION         FROM SNMPv2-TC
+    cardSpecific,
+    voice                      FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoVismModuleMIB MODULE-IDENTITY
+    LAST-UPDATED    "200510170000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "This MIB module contains VISM Card specific attributes
+         and call statistics information for VISM service module.
+        "
+    REVISION    "200510170000Z"
+    DESCRIPTION
+        "Added objects
+         - vismOamLoopbackSetCLP
+         - vismFaxDeJitterMode
+         - vismFaxDeJitterInitialDelay
+         - vismPvcAlarmLogEnable
+         - vismPvcAlarmLogAdminTimer
+         - vismPvcAlarmLogOperTimer
+         - vismContinuityCheckCellEnable
+        "
+    REVISION    "200503010000Z"
+    DESCRIPTION
+        "Added objects
+         - vismSplModemToneBitMap
+         - vismSSRCEnable
+        "
+    REVISION    "200405240000Z"
+    DESCRIPTION
+        "Corrected description for vismConfigChangeTypeBitMap
+         Added new objects 
+         - vismBearerIpPingEnable
+         - vismTrapFilteringEnable
+         - vismTrapIntegerValue
+        "
+    REVISION    "200403090000Z"
+    DESCRIPTION
+        "Deprecated object:
+           -vismAisSuppression
+         Modified description for vismConfigChangeTypeBitMap
+        "
+    REVISION    "200310310000Z"
+    DESCRIPTION
+        "Update descriptions in MIB.
+         Add new object vismAisSuppression to vismSystemGrp.
+        "
+    REVISION    "200306180000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+    ::= { ciscoWan 82 }
+
+vismSystemPerfStats   OBJECT IDENTIFIER ::= { cardSpecific 25 }
+vismCallStats         OBJECT IDENTIFIER ::= { voice 13 }
+vismConfig            OBJECT IDENTIFIER ::= { cardSpecific 17 }
+
+
+--
+-- vismConfig group
+--
+--
+
+vismIpGrp        OBJECT IDENTIFIER ::= { vismConfig 1 }
+vismVoIpGrp      OBJECT IDENTIFIER ::= { vismConfig 2 }
+vismDspGrp       OBJECT IDENTIFIER ::= { vismConfig 3 }
+vismSystemGrp    OBJECT IDENTIFIER ::= { vismConfig 4 }
+vismTrapObjGrp   OBJECT IDENTIFIER ::= { vismConfig 5 }
+vismAal2Grp      OBJECT IDENTIFIER ::= { vismConfig 6 }
+vismInteropGrp   OBJECT IDENTIFIER ::= { vismConfig 7 }
+
+-- Textual Conventions
+VismFaxDeJitterMode::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This mode parameter selects the de-jitter mode to be 
+         used during fax calls.
+         'unSpecified': Unspecified mode of operation
+         'adaptive': In this mode of operation, the delay applied by 
+                     the de-jitter buffer is adapted based on 
+                     observations of the incoming packet jitter.
+         'fixedWithTS': Indicates use of a constant jitter buffer 
+                     size with a timestamp check on the incoming 
+                     packets, as defined by the object 
+                     vismFaxDeJitterInitialDelay.
+         'fixedWithoutTS': Indicates use of a constant jitter buffer 
+                     size, which is defined by the object 
+                     vismFaxDeJitterInitialDelay.
+         'passThrough': This mode is designed to support de-jittering 
+                     while in pass-through mode for the transport 
+                     of modem and fax signals.
+        "
+    SYNTAX    INTEGER {
+                unSpecified         (1),
+                adaptive            (2),
+                fixedWithTS         (3),
+                fixedWithoutTS      (4),
+                passThrough         (5)
+              }
+
+VismFaxDeJitterInitDelay::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "General category of fax initial delays in milliseconds
+         supported on the module."
+    SYNTAX  INTEGER {
+            unSpecified (0),
+            five        (5),
+            ten         (10),
+            fifteen     (15),
+            twenty      (20),
+            twentyfive  (25),
+            thirty      (30),
+            thirtyfive  (35),
+            forty       (40),
+            fortyfive   (45),
+            fifty       (50),
+            fiftyfive   (55),
+            sixty       (60),
+            sixtyfive   (65),
+            seventy     (70),
+            seventyfive (75),
+            eighty      (80),
+            eightyfive  (85),
+            ninety      (90),
+            ninetyfive  (95),
+            hundred     (100)
+            }
+
+--
+-- VISM Performance statistics 
+--
+
+vismCPUUtilization OBJECT-TYPE
+    SYNTAX     Integer32 (0..100)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "This is the percentage of time CPU is
+          in non-idle state.
+         "
+    DEFVAL { 0 }
+    ::= { vismSystemPerfStats 1 }
+
+vismMemoryUtilization OBJECT-TYPE
+    SYNTAX     Integer32 (0..100)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "This is the percentage of memory in use by VISM.
+         "
+    DEFVAL { 0 }
+    ::= { vismSystemPerfStats 2 }
+
+vismSysPerfClrButton OBJECT-TYPE
+   SYNTAX  INTEGER {
+                 noaction (1),
+                 clear    (2)
+                }
+   MAX-ACCESS read-write
+   STATUS     current
+   DESCRIPTION
+       "This variable is used to clear all the CPU
+        and Memory Utilization statistics.
+        'noaction(1)': The value return on a GET operation.
+        'clear(2)' : Clear alarm.
+       "
+   ::= { vismSystemPerfStats 3 }
+
+--
+-- VISM Call statistics
+--
+
+vismTotalCalls OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "Total number of calls made in VISM.
+         "
+    DEFVAL { 0 }
+    ::= { vismCallStats 1 }
+
+vismSuccessfulCalls OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "Total number successful calls made in VISM.
+         "
+    DEFVAL { 0 }
+    ::= { vismCallStats 2 }
+
+vismFailedCalls OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "Total number failed calls made in VISM.
+         "
+    DEFVAL { 0 }
+    ::= { vismCallStats 3 }
+
+vismCallStatsClrButton OBJECT-TYPE
+    SYNTAX     INTEGER {
+                  noaction (1),
+                  clear    (2)
+                 }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This variable is used to clear all the VISM call statistics.
+         'noaction': The value return on a GET operation 
+         'clear':  Clear all alarm
+        "
+    ::= { vismCallStats 4 }
+
+
+--
+-- vismIpGrp group
+--
+--
+
+vismIpAddress  OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the IP address of VISM card. 
+         Each VISM card has its own IP address. IP address for
+         each VISM card is required to communicate with the call
+         agent. This object is applicable if the object vismMode
+         is in VoIP(Voice Over IP) or Switched mode.
+        "
+    ::= { vismIpGrp 1 }
+
+vismSubNetMask OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "SUB-NETMASK of the VISM IP interface. This object 
+         is applicable if the object vismMode is in VoIP
+         or Switched mode.
+        "
+    ::= { vismIpGrp 2 }
+
+vismControlTos  OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object is used to provision the bitmask used for
+         the TOS (Type Of Service) octet for cells carrying the
+         control xGCP(Gateway Control Protocol) traffic. 
+         Default value 96 = 0x60 => Precedence = 3 and TOS
+         nibble = 0 The bitmask can be only a byte value.
+        "
+    DEFVAL { 96 }
+    ::= { vismIpGrp 3 }
+
+vismBearerIpAddress    OBJECT-TYPE
+     SYNTAX     IpAddress
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+         "The bearer IP address of VISM card. This is an
+          optional second IP address of the VISM card. If
+          this bearer IP address is defined, the vismIpAddress
+          automatically becomes the control IP address.
+         "
+     ::= { vismIpGrp 4 }
+
+vismBearerSubNetMask    OBJECT-TYPE
+     SYNTAX     IpAddress
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+         "Bearer SUB-NETMASK of the VISM IP interface.
+          This optional bearer subnet mask must be provided
+          when vismBearerIpAddress is provided.
+         "
+     ::= { vismIpGrp 5 }
+
+--
+-- vismVoIPGrp group
+--
+--
+
+vismBearerTos   OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object is used to provision the bitmask used for the
+         TOS octet for cells carrying VoIP bearer RTP(Real-time
+         Transport Protocol) traffic.
+         Default value 160 = 0xA0 => Precedence = 5 and TOS nibble = 0
+         The bitmask can be only a byte value.
+        "
+    DEFVAL { 160 }
+    ::= { vismVoIpGrp 1 }
+
+vismRtcpRepInterval OBJECT-TYPE
+    SYNTAX      Integer32 (500..15000)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the RTCP(Real-time Transport
+         Control Protocol) report interval (defined in RFC
+         1889). This indicates the interval at which the RTCP
+         reports should be sent to the participating members.
+         The RTCP reports are not sent at a fixed rate at this
+         interval. Rather, this value is used as a base value
+         to arrive at a random number between 0.5 and 1.5 times
+         this value.
+ 
+         This interval timer also serves the purpose of RTP
+         packets receive timer. At every vismRtcpRecvMultiplier
+         times this interval, where vismRtcpRecvMultiplier
+         is specified in the MIB object below, a check is made
+         on a VoIP connection (which is in SENDRECV or RECVONLY
+         xGCP modes) to see if any RTP packets have been
+         received. If not, gateway-initiated DLCX should be
+         sent to the Call Agent.
+ 
+         Currently, this interval timer is a card-specific 
+         value, which means the value is configurable on a per
+         card basis and not on a per call basis.
+	
+         This value is applicable for VoIP adaptation only.
+        "
+    DEFVAL { 5000 }
+    ::= { vismVoIpGrp 2 }
+
+vismRtpReceiveTimer OBJECT-TYPE
+    SYNTAX     INTEGER {
+                  disable (1),
+                  enable  (2)
+                 }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object defines whether the RTP packets receive timer on 
+        the VISM needs to be enabled or not. For some VoIP applications
+        if a connection is in send-recv mode or recv-only mode, after 
+        the bearer cut-through is done, the RTP stream should be
+        monitored for RTP packets. If there are no packets received
+        within a time interval specified by 5 seconds, then a
+        Gateway initiated DLCX (Delete connection) should be sent
+        on that connection.
+
+        If this object is set to enable, the RTP stream is monitored. 
+        Otherwise, it is not monitored.
+
+        This value is applicable for VoIP adaptation only.
+       "
+    DEFVAL { disable }
+    ::= { vismVoIpGrp 3 }
+
+-- This object is deprecated as we have a seperate per codec
+-- packetization period table
+
+vismPacketizationPeriod    OBJECT-TYPE
+    SYNTAX     INTEGER {
+                  tenms     (10),
+                  twentyms  (20),
+                  thirtyms  (30),
+                  fourtyms  (40)
+                 }
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+        " This object is used to provision the packetization period
+          to be applied and is applicable for VoIP only. For 
+          VoAAL2 adaptations, the packetization period is derived from
+          the profile table entry. For VoAAL1 adaptation, it is fixed
+          at 5.875 ms."
+    DEFVAL { tenms }
+    ::= { vismVoIpGrp 4 }
+
+vismVoIpDtmfRelay  OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This attribute defines whether the DTMF 
+         (Dual Tone Multi-Frequency) digits need to be 
+         transported to the other endpoint via
+         NSE(Named Signal Event) packets.
+        "
+        DEFVAL { true }
+      ::= { vismVoIpGrp 5 }
+
+vismVoIpCasTransport OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines whether the CAS(Channel
+         Associated Signaling) bits need to be transported
+         to the other endpoint via NSE packets.
+        "
+       DEFVAL { false }
+      ::= { vismVoIpGrp 6 }
+
+vismVoIpTripleRedundancy  OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines whether triple redundancy is enabled 
+         or not. With triple redundancy, NSEs are sent three times at
+         20 ms intervals. For reliable channels, triple redundancy 
+         can be disabled in order to save the bandwidth and the 
+         processing overheads.
+        "
+       DEFVAL { false }
+      ::= { vismVoIpGrp 7 }
+
+vismVoIpVADTimer OBJECT-TYPE
+    SYNTAX      Integer32(250..65535)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the hangover time for
+         VAD(Voice Activity Detection) in milliseconds. Once
+         the voice inactivity is detected, the gateway will wait for
+         this duration before activating silence suppression. 
+        "
+        DEFVAL { 250 }
+        ::= { vismVoIpGrp 8 }
+
+vismVoIpNTECapabilityNegotiate  OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This attribute defines whether the VISM has the
+         capability to negotiate the list of events
+         either NSE or NTE(Named Telephony Events), using
+         rtpmap and fmtpmap in the SDP. 
+          
+         If the value is 'true(1)', then VISM will accept
+         rtpmap and fmtpmap in the SDP. Any events NSE/NTE
+         not listed will be interpreted as not supported.
+
+         If the value is 'false(2)', then VISM will neither
+         include nor accept rtpmap for X-NSE & X-NTE, and
+         fmtpmap. For the backward compatibility sake VISM
+         will transmit DTMF digits using NSEs if the value
+         is 'false(2).'
+        "
+        DEFVAL { true }
+      ::= { vismVoIpGrp 9 }
+
+vismVoIpSIDPayloadType  OBJECT-TYPE
+    SYNTAX     Integer32(0..255)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute sets the payload type of a RTP packet
+         carrying SID(Silence Insertion Descriptor) which is
+         sent to the other end when silence is detected. The
+         default value is in accordance to RFC-3551.
+        "
+        DEFVAL { 13 }
+        ::= { vismVoIpGrp 10 }
+
+vismVoIpDPvcOamCellGap OBJECT-TYPE
+    SYNTAX     Integer32(10..5000)
+    UNITS      "milliseconds"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the inter cell gap for
+         dual PVC(Permanent Virtual Circuit) OAM
+         (Operational and management) cells.
+        "
+        DEFVAL { 500 }
+        ::= { vismVoIpGrp 11 }
+
+vismVoIpDPvcRetryCnt OBJECT-TYPE
+    SYNTAX     Integer32(1..20)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the threshold for failure of a PVC.
+         If the number of consecutive OAM cells sent for which no
+         ack was received equals this number then the connection
+         is considered failed.
+        "
+        DEFVAL { 3 }
+        ::= { vismVoIpGrp 12 }
+
+vismVoIpDPvcRecoverCnt OBJECT-TYPE
+    SYNTAX     Integer32(1..20)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the threshold for recovery of
+        a PVC. If the number of consecutive OAM cells sent
+        for which ack was received equals this number then
+        the connection is considered recovered from failure.
+        "
+        DEFVAL { 5 }
+        ::= { vismVoIpGrp 13 }
+
+vismRtcpRecvMultiplier OBJECT-TYPE
+    SYNTAX     Integer32 (1..10)
+    UNITS      "milliseconds"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "The object vismRtcpRepInterval specified above defines
+        an approximate RTCP report interval (defined in RFC 1889)
+        which indicates the interval in milliseconds at which
+        the RTCP reports should be sent to the participating members. 
+ 
+        The object vismRtcpRecvMultiplier defines how many 
+        times the RTCP reports may fail before exception condition 
+        activity may be done.
+
+        The number of times specified in this MIB object times
+        the RTCP Report Interval, a check is made on a VoIP
+        connection (which is in SENDRECV or RECVONLY xGCP
+        modes) to see if any RTP packets have been received. If
+        not, gateway-initiated DLCX should be sent to the
+        call agent.
+ 
+        Currently, this interval multiplier is a card-specific
+        value, which means the value is configurable on a per
+        card basis and not on a per call basis.
+	
+        This value is applicable for VoIP adaptation only."
+    DEFVAL { 3 }
+    ::= { vismVoIpGrp 14 }
+
+vismVoIpLapdTrunkPVC OBJECT-TYPE
+    SYNTAX      INTEGER {
+                   control (1),
+                   bearer  (2)
+                  }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object should be used for VoIP Trunking
+        applications and only if the signaling type is
+        configured to be CCS(Common Channel Signaling).
+        By default the PRI(Primary Rate Interface)
+        D-channel information will be sent on the control
+        channel. If the control network is totally 
+        separated from the bearer network then the user
+        needs to set this object to 'bearer' to send his
+        LAPD(Link Access Procedure on the D-channel)
+        Trunk messages to the remote VISM.
+        "
+        DEFVAL { control }
+        ::= { vismVoIpGrp 15 }
+
+vismVoIpEventNegotiationPolicy  OBJECT-TYPE
+    SYNTAX     INTEGER {
+                  none        (1),
+                  proprietary (2),
+                  all         (3)
+                 }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines whether or not the VISM should
+         advertise the event codecs, NSE, NTE, or Cisco-rtp,
+         in addition to the list of events specified by the
+         call agent.
+
+         If the value is 'none', then VISM will not include any
+         more event codecs than what has been specified by the
+         call agent.
+
+         If the value is 'proprietary', then VISM can advertise
+         proprietary event codecs in addition to the event codecs
+         specified by the call agent.
+
+         If the value is 'all', then VISM can advertise both
+         proprietary as well as standard event codecs in
+         addition to the event codecs specified by the call
+         agent.
+        "
+        DEFVAL { proprietary }
+      ::= { vismVoIpGrp 16 }
+
+--
+-- vismDspGrp group
+--
+-- Deprecated the following two objects as it was never used !!
+vismEcanCnfIdlePattern    OBJECT-TYPE
+    SYNTAX     INTEGER {
+                  pattern1 (1),
+                  pattern2 (2),
+                  pattern3 (3),
+                  pattern4 (4)
+                 }
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+        "Echo Canceller pattern for Idle code.
+         Mu-Law : 1 - 7f,   2 - ff, 3 - 7f or ff, 4 - f7
+         A-Law  : 1 - None, 2 - 54, 3 - 55, 4 - Programmable Idle code.
+         DEFVAL : 'pattern3' (7f or ff) for Mu-law and
+                  'pattern2' (54) for A-Law.
+        "
+    ::= { vismDspGrp 1 }
+ 
+vismEcanCnfIdleDirection    OBJECT-TYPE
+    SYNTAX     INTEGER {
+                  both    (1),
+                  either  (2),
+                  send    (3),
+                  receive (4)
+                 }
+    MAX-ACCESS read-only
+    STATUS     deprecated
+    DESCRIPTION
+        "Echo Canceller Idle Direction. This determines in 
+         which direction the Idle code must be present.
+        "
+    DEFVAL { both }
+    ::= { vismDspGrp 2 }
+
+vismCompCnfPacketSize    OBJECT-TYPE
+    SYNTAX      Integer32 (80|160)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Compressed output packet size - This value is used in the
+         DSP(Digital Signal Processing) interface API commands
+         to configure the DSPs for the maximum packet size.
+         The valid values are 80 and 160 only.
+        "
+    DEFVAL { 80 }
+    ::= { vismDspGrp 3 }
+
+vismERL    OBJECT-TYPE
+    SYNTAX      INTEGER {
+                   zerodb  (1),
+                   threedb (2),
+                   sixdb   (3),
+                   worstdb (4)
+                  }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object is used to provision the return echo lost, 
+         i.e the db loss of the echo that the DSPs are supposed 
+         to cancel.
+        "
+    DEFVAL { sixdb }
+    ::= { vismDspGrp 4 }
+
+--
+-- The following object is deprecated in RI release because per codec
+-- based vismCodecJitterDelayMode is introduced
+--
+vismJitterDelayMode    OBJECT-TYPE
+    SYNTAX      INTEGER {
+                     fixed     (1),
+                     adaptive  (2)
+                  }
+    MAX-ACCESS  read-write
+    STATUS      deprecated
+    DESCRIPTION
+         " This object is used to provision the jitter buffer mode
+           to be apply to a call connection. 
+           The possible values are:
+           'fixed'   : means use a constant jitter buffer size, which 
+                     is defined by the object vismJitterInitialDelay.
+           'adaptive': means let the DSP pick the optimal value for 
+                     the call connection.
+         "
+    DEFVAL { fixed }
+    ::= { vismDspGrp 5 }
+ 
+--
+-- The following object is deprecated in RI release because per codec
+-- based vismCodecJitterInitialdelay is introduced
+--
+vismJitterInitialDelay    OBJECT-TYPE
+    SYNTAX  INTEGER {
+            zero       (1),
+            five       (5),
+            ten        (10),
+            fifteen    (15),
+            twenty     (20),
+            twentyfive (25),
+            thirty     (30),
+            thirtyfive (35),
+            fourty     (40),
+            fortyfive (45),
+            fifty      (50),
+            fiftyfive  (55),
+            sixty      (60),
+            sixtyfive  (65),
+            seventy    (70),
+            seventyfive (75),
+            eighty     (80),
+            eightyfive (85),
+            ninty      (90),
+            ninetyfive  (95),
+            hundred    (100)
+            }
+    MAX-ACCESS  read-write
+    STATUS      deprecated
+    DESCRIPTION
+          "Defines the jitter buffer size. If the  vismJitterDelayMode 
+           is set to be fixed, the jitter buffer is fixed at this
+           value for the call. If vismJitterDelayMode is adaptive,
+           this is the initial jitter  buffer size, and the DSP will
+           adapt to an optimal size.
+
+           The valid range for template 1 : 1,10,20,30,40,50,60,70,
+                                            80,90,100
+           The valid range for template 2 : 1,5,10,15,20,25,30,35,
+                                            40,45,50,55,60,65,70,
+                                            75,80,85,90,95,100.
+
+           When the template of the card changes, either from
+           template 1 to 2 or vice versa the value of this 
+           object will be implicitly set to default value.
+          "
+    DEFVAL { fourty }
+    ::= { vismDspGrp 6 }
+
+vismAdaptiveGainControl    OBJECT-TYPE
+    SYNTAX      INTEGER {
+                   off    (1),
+                   on     (2)
+                  }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+         "If set to 'on', the DSP will adjust the gain of the
+          call connection to an optimal value.
+         "
+    DEFVAL { off }
+    ::= { vismDspGrp 7 }
+
+vismDspHealth   OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute indicates the health of the DSPs.
+         It is a percentage of the total number of DSPs
+         that are currently functional. 
+        "
+    ::= { vismDspGrp 8 }
+
+vismUpspeedCodec  OBJECT-TYPE
+      SYNTAX    INTEGER {
+                g-711u       (1),
+                g-711a       (2),
+                g-726-32     (3),
+                clearChannel (4),
+                g-723h       (5),
+                g-723l       (6),
+              	g-726-16     (7),
+                g-726-24     (8),
+                g-726-40     (9)
+              }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION 
+            "This object specifies the codec to be used when 
+             fax upspeed happens.
+            
+             The default value for this object is 'g711u' when
+             the line type is T1 and 'g711a' when the line
+             type is E1.
+
+             This object is applicable only in the case of 
+             VoIP applications, for AAL2 the upspeedCodec
+             is obtained from profile table and this object
+             will have no affect.
+            "
+        ::= { vismDspGrp 9 }
+
+vismPayloadType  OBJECT-TYPE
+       SYNTAX     Integer32 (0..256) 
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+            "This object specifies the payload type to be used when
+             fax upspeed happens.
+
+             IANA values (0..95) are static payload and (96..127) are
+             dynamic payload type.
+
+             This object is applicable only in the case of
+             VoIP applications, for AAL2 the upspeedCodec is
+             obtained from profile table and this object will
+             have no affect.
+            "
+        DEFVAL { 256 }
+        ::= { vismDspGrp 10 }
+ 
+vismDSPHeartbeat  OBJECT-TYPE
+       SYNTAX     Integer32 (0..65535)
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+            "This object will specify the timer interval, DSP send
+            a regular heartbeat messages from the DSP to the HOST
+            Application.
+
+            If the value is zero the Heartbeat message will be
+            disabled.
+            "
+        DEFVAL { 0 }
+        ::= { vismDspGrp 11 }
+
+vismFaxDeJitterMode  OBJECT-TYPE
+    SYNTAX      VismFaxDeJitterMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+            "This object specifies the de-jitter mode to 
+             be used for the fax upspeed.
+             This object is applicable only in the case of
+             VoIP applications.
+            "
+    DEFVAL { unSpecified }
+    ::= { vismDspGrp 12 }
+
+vismFaxDeJitterInitialDelay    OBJECT-TYPE
+    SYNTAX      VismFaxDeJitterInitDelay
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+          "This object defines the de-jitter buffer size 
+           for fax upspeed. If the vismFaxDeJitter Mode is 
+           set to be 'fixedWithTS' or 'fixedWithoutTS', the jitter
+           buffer size is set to this value for the call. 
+           If vismDeJitterMode is 'adaptive', this is the initial 
+           jitter buffer size, and the DSP will adapt to an optimal 
+           size. If the vismDeJitterMode is 'passThrough', this value 
+           is ignored.
+          "
+    DEFVAL { unSpecified }
+    ::= { vismDspGrp 13 }
+
+--
+-- vismSystemGrp group
+--
+--
+ 
+vismDaughterCardSerialNum    OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..6))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "A unique value for each VISM daughter card, entered
+         in nvram by manufacturing. The serial number is on
+         the non-volatile RAM on the VISM daughter card.
+        "
+    ::= { vismSystemGrp 1 }
+ 
+vismDaughterCardDescription    OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..20))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the VISM daughter card.
+        "
+    ::= { vismSystemGrp 2 }
+
+vismDaughterCardHWRev    OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE (0..2))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the hardware revision number
+         for the daughter card.
+        "
+    ::= { vismSystemGrp 3 }
+
+vismEcanEncoding    OBJECT-TYPE
+    SYNTAX  INTEGER {
+            mu-law (1),
+            a-law  (2)
+            }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The object identifies the voice encoding type,
+         mu-law or a-law. 'mu-law' is returned for T1 lines
+         and 'a-law' is returned for E1 lines.
+        "
+    ::= { vismSystemGrp 4 }
+
+vismMode OBJECT-TYPE
+    SYNTAX  INTEGER {
+                voipSwitching          (1),
+                aal2Trunking           (2),
+                aal1Svc                (3),
+-- <Ignored
+                switchedVoipCASBh      (4),
+                switchedVoipPRIBh      (5),
+                switchedAal2CASBh      (6),
+-- Ignored>
+                switchedAal2Svc        (7),
+                switchedAal2Pvc        (8),
+                voipAndAal1Svc         (9),
+                voipAndAal2Trunking    (10),
+-- <Ignored
+                superMode              (99),
+-- Ignored>
+                unknownMode            (100)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        " This attribute defines the connection model that
+          the VISM card is configured to operate with. This
+          object can be modified by CLI(Command Line Interface)
+          only. The CLI 'cnfvismmode' can be used to set this
+          object. VISM card will be reset after modifying
+          this parameter for the VISM card to come up in the
+          new mode.
+
+          Each mode enables a set of features on the VISM card.
+
+          The feature set for each of the above modes is :
+          'voipSwitching':VoIP mode. In this mode VISM interacts
+                          with the call agent using XGCP protocol,
+                          bearer path is VoIP. This mode is also 
+                          used for VoIP applications that dosen't use 
+                          call agent(VoIP Trunking).
+          'aal2Trunking': AAL2 Trunking mode. In this mode VISM does
+                          not interact with the call agent. Bearer
+                          Path is AAL2.
+          'aal1Svc'     : AAL1 SVC(Switched Virtual Circuit) mode.
+                          In this mode VISM interacts with call
+                          agent using XGCP protocol over AAL5
+                          control PVCs. In this mode, bearer
+                          path is VoAAL1 and the bearer
+                          connections are SVCs. i.e VISM dynamically
+                          sets-up and tears down bearer connections.
+          'switchedVoipCASBh', 'switchedVoipPRIBh',
+                          'switchedAal2CASBh',
+          'switchedAal2Svc' and  superMode are ignored.
+
+          'switchedAal2Pvc': Switched and trunked AAL2 PVC with CAS
+                             xGCP backhaul, CCS and CAS forwarding.
+
+          'switchedAal2Svc': Switched AAL2 SVC with PRI backhaul.
+
+          'voipAndAal1Svc': VoIP and ATM Groomer.
+
+	  'voipAndAal2Trunking': VoIP Trunking And AAL2 Trunking.
+
+          'unknowMode': Unknown mode, when user change
+                       vismFeatureBitMap to a combination of
+                       Features that are not in the above modes.
+
+          This object has to be synchronized with
+          vismFeatureBitMap.  When vismFeatureBitMap is 
+          changed this object will be implicitly set to
+          the mode that has the right combination of features.
+        "
+    DEFVAL { voipSwitching }
+    ::= { vismSystemGrp 5 }
+
+vismPrevMode OBJECT-TYPE
+    SYNTAX  INTEGER {
+                voipSwitching    (1),
+                aal2Trunking     (2),
+                aal1Svc          (3),
+                aal2PvcSwitching (4)
+                }
+    MAX-ACCESS  read-only
+    STATUS      deprecated
+    DESCRIPTION
+        "This attribute indicates the mode in which VISM was
+         operating before the object vismMode value was
+         changed. i.e It gives the value of vismMode before
+         it got changed to the current value.
+
+         When the card comes up in the default mode, the value
+         of vismPrevMode will be the same as vismMode. Hence
+         this object is no longer needed.
+        "
+    DEFVAL { voipSwitching }
+    ::= { vismSystemGrp 6 }
+
+vismCacEnable OBJECT-TYPE
+    SYNTAX      INTEGER {
+                        disable (1),
+                        enable  (2)
+                       }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute describes whether CAC (Connection
+         Admission Control) functionality needs to be
+         applied on the VISM card, on a per PVC basis.
+         For some applications, the CAC functionality may
+         not be required and in that case, it has to be
+         disabled on a card basis.
+        "
+    DEFVAL { enable }
+    ::= { vismSystemGrp 7 }
+
+vismAvailableDs0Count OBJECT-TYPE
+    SYNTAX      Integer32 (0..248)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute describes the number of DS0s available
+         for new connections on VISM. This is modified by the
+         VISM firmware after each connection is setup.
+        "
+    ::= { vismSystemGrp 8 }
+
+vismAppliedTemplate OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        " This attribute describes the Codec template
+          currently configured on the VISM card. The
+          value refers to an index to the 
+          vismCodecTemplateCnfGrpTable (defined in
+          CISCO-VISM-CODEC-MIB MIB).  This template is
+          applicable for all connections on the card.
+
+          When a switch is made to a new template, the
+          number of channels (endpoints) in use will be
+          checked to ensure the switch will not occur if
+          there are more endpoints active at the present
+          time than what the new template allow, the number
+          of channels per template are specify in
+          vismCodecTemplateMaxChanCount.
+
+          Also whenever an attempt is made to add a new
+          endpoint for any template, this template maximum
+          number will limit the number of endpoints that
+          may be added for this template.
+        "
+    ::= { vismSystemGrp 9 }
+
+vismTftpServerDn     OBJECT-TYPE
+    SYNTAX       SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+         "This object holds the domain name of the tftp server
+          from where the CAS module will download the CAS files. 
+ 
+          This domain name can be resolved internally or externally. 
+          Before configuring this object the domain name should be
+          added in the mgDomainNameTable(defined in
+          CISCO-WAN-MG-MIB MIB) and at least one IP address
+          (internal or external) should be associated with this
+          domain name in mgcResolutionTable (defined in the 
+          same MIB).
+
+          By default, the object is set to TFTPDOMAIN. 
+
+          Before the last entry corresponding to the tftp
+          domain is deleted from the mgDomainNameTable or
+          the last IP address associated with this object is
+          deleted from mgcResolutionTable, it should be set
+          to 'TFTPDOMAIN'.
+
+          If the user configures 'localhost' to be the tftp
+          server domain then the cas files will be
+          downloaded from PXM(Processor Switch Module).
+          
+          If the user configures the domain name to be TFTPDOMIAN or 
+          localhost then that entry need not be present in 
+          mgDomainNameTable or mgcResolutionTable.
+         "
+       ::= { vismSystemGrp 11 }
+
+vismXgcpBearerNetworkType    OBJECT-TYPE
+   SYNTAX      INTEGER {
+                   ip  (1),
+                   atm (2)
+                 }
+   MAX-ACCESS  read-write
+   STATUS      current
+   DESCRIPTION
+        "This object specifies the network type to use in
+         order to transport bearer traffic.
+         The user can configure this to IP or ATM based
+         on where the VISM will be located. 
+           
+         If the call agent specifies the network type in the
+         MGCP local connection options CRCX(Create Connection)
+         request, then the configuration of this object will
+         have no effect, else the value of this object will
+         be used when sending CRCX response. 
+        "
+   DEFVAL{ ip }
+    ::= { vismSystemGrp 12 }
+
+vismXgcpBearerVCType           OBJECT-TYPE
+    SYNTAX     INTEGER {
+                  pvc (1),
+                  svc (2)
+                 }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+      "This object specifies the VC(Virtual Channel) type 
+       to use in order to transport bearer traffic.
+
+       If the call agent specifies the VC type in the
+       MGCP local connection options (CRCX request), then
+       the configuration of this object will have no
+       effect, else the value of this object will be
+       used when sending CRCX response.
+      "
+    DEFVAL{ pvc }
+     ::= { vismSystemGrp 13 }
+
+vismXgcpBearerConnectionType   OBJECT-TYPE
+   SYNTAX      INTEGER {
+                 aal1Sdt       (1),
+                 aal2          (2),
+                 notApplicable (3)
+               }
+   MAX-ACCESS  read-write
+   STATUS      current
+   DESCRIPTION
+       "This object specifies the connection type used
+        to transport bearer traffic. If the
+        vismXgcpBearerNetworkType is chosen to be IP 
+        then the value of this object has to be/will
+        be set to 'notApplicable'.
+  
+        If the call agent specifies the connection
+        type in the MGCP local connection options
+        (CRCX request), then the configuration of this
+        object will have no effect, else the value of
+        this object will be used when sending CRCX response.
+       "
+   DEFVAL{ notApplicable }
+   ::= { vismSystemGrp 14 }
+
+vismBearerContinuityTimer    OBJECT-TYPE
+    SYNTAX       Integer32 (0 .. 10000)
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This object specifies the co4 (bearer continuity) timer in
+         millisecs.
+
+         The timer will be started in the terminating/originating
+         gateway for a duration as specified in this MIB object 
+         when a co3 message is sent from the terminating/originating
+         gateway to the originating/terminating gateway.
+
+         If the terminating/originating gateway does not receive
+         co4 as an acknowledgement from the originating/termintaing
+         gateway and the timer expires, gateway initiated DLCX is
+         sent to the call agent from the terminating/originating
+         gateway.
+
+         This object is applicable when the call agent feature is
+         available.
+        " 
+       DEFVAL{ 1000 }
+      ::={ vismSystemGrp 15 }
+
+vismCodecNegotiationOption  OBJECT-TYPE
+     SYNTAX INTEGER {
+            lcoRcdLcl   (1),
+            lcoLclRcd   (2),
+            rcdLcoLcl   (3),
+            rcdLclLco   (4),
+            lclLcoRcd   (5),
+            lclRcdLco   (6)
+          }
+     MAX-ACCESS  read-write
+     STATUS      current
+     DESCRIPTION
+            "This object helps in forming an ordered intersection
+             of lists and one of the lists must be used in determining
+             the resulting order of codecs.
+ 
+              Lco - local connection options
+              Rcd - remote connection description
+              Lcl - local codec list 
+
+             If the value of this object is 'lcoRcdLcl' then
+             effectively we are giving first priority to the
+             local connection options sent by the call agent,
+             followed by remote connection description sent by
+             the remote gateway (CA) and the last priority will
+             be to local codec list stored in VISM.
+
+             If the value of this object is 'lcoLclRcd' then
+             effectively we are giving first priority to local
+             connection options sent by the call agent, followed
+             by local codec list stored in VISM and the last
+             priority will be to remote connection description sent
+             by the remote gateway (or remote CA).
+             
+             If the value of this object is 'rcdLcoLcl' then
+             effectively we are giving first priority to remote
+             connection description sent by the remote gateway
+             /call agent, followed by local connection options
+             sent by the call agent and the last priority will be
+             to the local codec list stored on the local
+             gateway(VISM).
+
+             If the value of this object is 'rcdLclLco' then
+             effectively we are giving first priority to remote
+             connection description sent by the remote
+             gateway/CA followed by local codec list stored 
+             on the local gateway and the last priority will be
+             to the local connection options sent by the call agent.
+
+             If the value of this object is 'lclLcoRcd' then
+             effectively we are giving first priority to local
+             codec list stored on the local gateway (VISM) followed
+             by local connection options sent by the call agent
+             and the last priority will be to remote connection
+             description sent by the remote gateway (or remote CA). 
+
+             If the value of this object is 'lclRcdLco' then
+             effectively we are giving first priority to local
+             codec list stored on the VISM followed by remote
+             connection description sent by the remote gateway
+             (or remote CA) and the last priority will be to 
+             local connection options sent by the call agent.
+            "
+           DEFVAL { lcoRcdLcl }
+          ::= { vismSystemGrp 16 }
+
+vismProfileNegotiationOption  OBJECT-TYPE
+SYNTAX INTEGER { 
+            lcoRcdLcl   (1),
+            lcoLclRcd   (2),
+            rcdLcoLcl   (3),
+            rcdLclLco   (4),
+            lclLcoRcd   (5),
+            lclRcdLco   (6)
+          }
+     MAX-ACCESS  read-write
+     STATUS  current
+     DESCRIPTION
+            "This object helps in forming an ordered intersection 
+             of lists and one of the lists must be used in determining
+             the resulting order of profiles.
+
+              Lco - local connection options
+              Rcd - remote connection description
+              Lcl - local codec list
+
+             If the value of this object is 'lcoRcdLcl' then
+             effectively we are giving first priority to the
+             local connection options sent by the call agent,
+             followed by remote connection description sent by
+             the remote gateway (CA) and the last priority will
+             be to local codec list stored in VISM.
+
+             If the value of this object is 'lcoLclRcd' then
+             effectively we are giving first priority to local
+             connection options sent by the call agent, followed
+             by local codec list stored in VISM and the last
+             priority will be to remote connection description
+             sent by the remote gateway (or remote CA).
+            
+             If the value of this object is 'rcdLcoLcl' then 
+             effectively we are giving first priority to remote
+             connection description sent by the remote gateway
+             /call agent, followed by local connection options
+             sent by the call agent and the last priority will be
+             to the local codec list stored on the local
+             gateway(VISM).
+
+             If the value of this object is 'rcdLclLco' then
+             effectively we are giving first priority to remote
+             connection description sent by the remote gateway
+             followed by local codec list stored on the local
+             gateway and the last priority will be to the local
+             connection options sent by the CA.
+
+             If the value of this object is 'lclLcoRcd' then
+             effectively we are giving first priority to local
+             codec list stored on the local gateway (VISM) followed
+             by local connection options sent by the call agent
+             and the last priority will be to remote connection
+             description sent by the remote gateway (or remote CA).
+
+             If the value of this object is 'lclRcdLco' then
+             effectively we are giving first priority to local
+             codec list stored on the VISM followed by remote
+             connection description sent by the remote gateway
+             (or remote CA) and the last priority will be to
+             local connection options sent by the call agent.
+            "
+           DEFVAL { lcoRcdLcl }
+          ::= { vismSystemGrp 17 }
+
+vismCarrierLossPolicy    OBJECT-TYPE
+       SYNTAX      INTEGER {
+                              previousCodec (1),
+                              upspeedCodec  (2)
+                           }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+            "This object defines the policy that needs to be
+             applied when a carrier loss is detected.
+
+             This states whether to switch to the pre-upspeed codec
+             or to remain with the upspeed codec.
+
+             This object is applicable in case of SVCs. This
+             object will be applicable in case of PVC if the
+             per PVC object - vismChanCarrierLossPolicy 
+             (defined in vismChanCacTable) is set to
+             'unspecified'.
+
+             Configuring this object will not have any affect
+             when card level CAC is disabled (vismCacEnable).
+            "
+       DEFVAL { previousCodec }
+      ::= { vismSystemGrp 18 }
+
+vismCacRejectionPolicy   OBJECT-TYPE
+    SYNTAX     INTEGER {
+                        delete   (1),
+                        maintain (2)
+                       }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the policy that needs to be
+         applied once the CAC function rejects the upspeeding
+         of a connection, due to a fax/modem switch-over
+         request. The applicable options are:
+         'delete' : To delete the connection that got 
+                    rejected by CAC for upspeed.
+         'maintain' : To maintain the connection with
+                     the prior compression scheme.
+         This object is applicable in case of SVCs. This
+         object will be applicable in case of PVCs if the
+         per PVC object - vismChanCacRejectionPolicy
+         (defined in vismChanCacTable) is set to
+         'unspecified'.
+
+         Configuring this object will not have any affect
+         when card level CAC is disabled (vismCacEnable).
+        "
+    DEFVAL{ maintain }
+    ::= { vismSystemGrp  19 }
+
+vismExtDnsServerDn     OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+         "This object refers to the domain name of the external
+          DNS server which will be used to resolve other 
+          domain name.
+ 
+          Currently this domain name can only be resolved
+          internally. Therefore, before configuring this object
+          not only the domain name has to be added in the
+          mgDomainNameTable with resolution type 'internalOnly'
+          but also at least one IP address has been added with
+          this domain name in mgcResolutionTable.
+
+          Before deleting external DNS server from mgDomainNameTable
+          or deleting the last IP address associated with the
+          external DNS server this object should be set to 'NULL'.
+          After we change the value of this object to NULL, all the
+          externally resolved IP address in mgcResolutionTable
+          will be purged. 
+
+          By default this object will be set to 'NULL'.
+         "
+       ::= { vismSystemGrp 20 }
+
+vismFeatureBitMap OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647) 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object denotes the bit map for VISM features. It
+         indicates the current features that are enabled. It
+         should be consistent with vismMode. When user change
+         vismMode, this object is implicitly set to the feature
+         combination that indicate to that mode. The change of
+         vismFeatureBitMap will not cause VISM to reset and the
+         configuration will not be cleared.
+
+         For each bit, value 1 means the feature is enabled, 0 means
+         disabled.
+         Bit 0 - AAL1 adaptation         
+         Bit 1 - AAL2 adaptation
+         Bit 2 - AAL5 adaptation (Bearer network type is IP).
+         Bit 3 - Switching (with Call Agent)
+         Bit 4 - Trunking (without Call Agent)
+         Bit 5 - Bearer VC type is PVC.
+         Bit 6 - Bearer VC type is SVC.
+         Bit 7 - CAS signaling
+         Bit 8 - PRI backhaul
+         Bit 9 - CCS signaling
+         Bit 10 - Domain Name
+
+         For example, 0x5AC corresponds to vismMode 1
+         (VoipSwitching).
+
+         Currently this object is not settable, it can only be
+         set thru
+         some debug commands.
+        " 
+    ::= { vismSystemGrp 21 } 
+
+vismVADTolerance  OBJECT-TYPE
+       SYNTAX      Integer32(1..10000)
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+            "The value in this object refers to the customer
+             accepted drop rate for voice connections when the
+             bandwidth usage exceeds allowed value.
+
+             The actual range of this object is 0.0001% - 1.00 %
+
+             The unit is in percentage, since the default is 0.01 %,
+             and since we cannot express such fractions
+             in MIB , it is being multiplied by 10000 .
+
+             However, when the underlying CAC module is notified of
+             the change in this object,  then the value
+             has to be divided by a factor of 10000.
+
+             Multiplication factor 10000 is picked as someone might
+             be interested in a tolerance as low as 0.0001%.
+
+             This object will be applicable in case of AAL2 SVCs
+             where the user does not add a PVC and also this
+             object will be applicable if the per PVC level object 
+             vismChanVADTolerance(defined in CISCO-VISM-CAC-MIB MIB)
+             is configured to have a value of zero.
+
+             Configuring this object will not have any affect when
+             card level CAC is disabled (vismCacEnable).
+            "
+       DEFVAL { 100 }
+       ::= { vismSystemGrp 22 }
+
+vismVADDutyCycle   OBJECT-TYPE
+       SYNTAX      Integer32 (1..100)  
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+           " This object refers to the talk-spurts duty cycle.
+             The unit is in percentage.
+ 
+             When the value of this object is to be passed
+             to underlying CAC module in VISM this value has to
+             be divided by 100.
+
+             This causes the actual range of this object to be 
+             0.01 to 0.99 and not 0.01 to 1.00 as specified in 
+             the range of values above.  Since a value of 100 
+             will cause a floating point exception, this value 
+             is disallowed.
+
+             The default value is 0.61 and since we cannot
+             have fractions in a MIB variable the value
+             is being multiplied by 100 and is expressed as
+             61.
+
+             This object will be applicable in case of AAL2
+             SVCs where the user does not add a PVC and also
+             this object will be applicable if the per PVC
+             level object vismChanVADDutyCycle(defined in
+             CISCO-VISM-CAC-MIB MIB) is configured to have a
+             value of zero.
+
+             Configuring this object will not have any affect
+             when card level CAC is disabled (vismCacEnable).
+           "
+       DEFVAL { 61 }
+       ::= { vismSystemGrp 23 }
+
+vismAggregateTrafficClipping OBJECT-TYPE
+    SYNTAX      INTEGER {
+                   disable (1),
+                   enable  (2)
+                  }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the aggregate traffic clipping
+         policy which is applicable to all bearer traffic
+         generated at VISM card.  The applicable options are:
+         'disable' : aggregate traffic clipping is disabled,
+                     VISM card traffic management does not
+                     perform aggregate traffic clipping.
+         'enable' :  aggregate traffic clipping is enabled,
+                     VISM card traffic management performs
+                     aggregate traffic clipping.
+
+         This is applicable to only AAL2 SVC voice bearer traffic.
+
+         When aggregate traffic clipping is enabled, VISM card
+         can discard cells which are exceeding VISM card
+         aggregate SVC bandwidth which is specified as
+         vismAggregateSvcBandwidth value. 
+        "
+    DEFVAL { enable }
+    ::= { vismSystemGrp 24 }
+
+vismAggregateSvcBandwidth OBJECT-TYPE
+    SYNTAX       Integer32(0..100000)
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "The aggregate svc bandwidth is used for AAL2 SVC
+         aggregate SVC CAC and also used for aggregate
+         traffic clipping at VISM card when
+         vismAggregateTrafficClipping is enabled.
+
+         This is expressed in cells per second. This need
+         to be configured for AAL2 SVC aggregate bandwidth
+         call admission control to admit AAL2 SVC connections
+         at VISM card.
+        "
+        DEFVAL { 0 }
+    ::= { vismSystemGrp 25 }
+
+vismBearerContinuityTest  OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines whether the bearer continuity
+        test for a connection will be performed at the time of
+        call setup or not.
+
+        When the vismBearerContinuityTest is enabled, the 
+        terminating media Gateway initiates a NSE/Type 3 packet 
+        towards the originating gateway and starts a timer
+        defined by vismBearerContinuityTimer. 
+
+        The originating gateway, on receipt of co3, responds by 
+        sending a co4 to the terminating end.
+
+        If the terminating gateway doesn't receive co4 NSE/Type 3
+        packet with in the time defined by co4 timer, it
+        initiates a GW-initiated DLCX to the call agent which
+        in turn deletes the connection.
+         
+        The value in this object will be utilized when the call
+        agent does not specify this.
+       "
+        DEFVAL { false }
+    ::= { vismSystemGrp 26 }
+
+vismCaleaEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute describes whether CALEA (Communication
+         Assistance for Law Enforcement Agency) functionality
+         needs to be enabled on the VISM card. This attribute
+         enables/disables this feature at a card level.
+         This command is only applicable for CALEA enable image.
+        "
+    DEFVAL { false }
+    ::= { vismSystemGrp 27 }
+
+vismMaxConfNum OBJECT-TYPE
+    SYNTAX            Integer32(0..50)
+    MAX-ACCESS	      read-write
+    STATUS	      current
+    DESCRIPTION
+        "Identify how many conference will be supported on a VISM
+         card
+        "
+    DEFVAL { 0 }
+    ::= { vismSystemGrp 28 }
+
+vismLongDurationTimer OBJECT-TYPE
+    SYNTAX            Integer32(0..24)
+    MAX-ACCESS        read-write
+    STATUS            current
+    DESCRIPTION
+        "The long duration is the elapse time in hour to
+         indicate a connection has been established for a 
+         given period of time. The default time is one hour.
+        "
+    DEFVAL { 1 }
+    ::= { vismSystemGrp 29 }
+
+vismContinuityCo1Timer OBJECT-TYPE
+    SYNTAX             Integer32(0..60)
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "A 2010Hz tone is applied, if the co1(Continuity
+         Tone 1) is specify as a signal the range is
+         2010Hz +/- 8Hz and if it is specify as an event 
+         the range is 2010Hz +/- 30Hz. The continuity tone
+         is applied for the specified duration of time in
+         seconds. 
+        "
+    DEFVAL { 3 }
+    ::= { vismSystemGrp 30 }
+
+vismContinuityCo2Timer OBJECT-TYPE
+    SYNTAX             Integer32(0..60)
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        " A 1780Hz tone is applied, if the co2(Continuity 
+         Tone 2) is specify as a signal the range is
+         1780Hz +/- 20Hz and if it is specify as an event
+         the range is 1780Hz +/- 30Hz. The continuity tone
+         is applied for the specified duration of time in
+         seconds. 
+        "
+    DEFVAL { 3 }
+    ::= { vismSystemGrp 31 }
+
+vismReverseCotTone OBJECT-TYPE
+    SYNTAX  	TruthValue
+    MAX-ACCESS  read-write
+    STATUS  	current
+    DESCRIPTION
+        " This attribute defines the direction of COT Tone 
+	  that is sent in a 2w to 4w arrangement. The VISM
+	  responds to a request  from the call agent through
+	  the M:conttest mode, it returns a 1780 Hz tone in 
+	  response to a 2010 Hz go tone and vice versa.
+        "
+    DEFVAL { false }
+    ::= { vismSystemGrp 32 }
+
+vismSendDnEnable OBJECT-TYPE
+    SYNTAX  	TruthValue
+    MAX-ACCESS  read-write
+    STATUS  	current
+    DESCRIPTION
+        "This will allow VISM to send domain name as part
+         of Audit Enpoint response to the call agent
+         when it is configured as 'true(1)'.
+	"
+    DEFVAL { false }
+    ::= { vismSystemGrp 33 }
+
+vismSendDataGramSize OBJECT-TYPE
+    SYNTAX      Integer32(0..20000)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specify the size of datagram that should be sent 
+         when the vismSendDnEnable is set to 'true(1)'.
+         Any value greater than the specified size will
+         be rejected.
+        "
+    DEFVAL { 0 }
+    ::= { vismSystemGrp 34 }
+ 
+vismOamLoopThreshold OBJECT-TYPE
+    SYNTAX      Integer32(1..60)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specify OAM loopback cell loss count before
+         declaring a PVC alarm.
+        "
+    DEFVAL { 5 }
+    ::= { vismSystemGrp 35 }
+
+vismFreeDs0Threshold OBJECT-TYPE
+    SYNTAX      Integer32 (0..248)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute holds the threshold value of free
+         DS0 counts on the VISM card. A trap is sent out
+         if the number of free ds0s fall below this threshold.
+        "
+    DEFVAL { 0 }
+    ::= { vismSystemGrp 36 }
+
+vismCPUUtilizationThreshold OBJECT-TYPE
+    SYNTAX      Integer32 (1..100)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute holds the threshold value of CPU utilization 
+        on the VISM card. A trap is sent out if the CPU utilization 
+        equals or exceeds this threshold.  
+	"
+    DEFVAL { 100 }
+    ::= { vismSystemGrp 37 }
+
+vismMemoryUtilizationThreshold OBJECT-TYPE
+    SYNTAX      Integer32 (1..100)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute holds the threshold value of memory 
+        utilization on the VISM card. A trap is sent out if the 
+        memory utilization equals or exceeds this threshold.
+        "
+    DEFVAL { 100 }
+    ::= { vismSystemGrp 38 }
+
+vismDualToneDetect OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+        "This object is use to enable/disable dual tone
+         configuration. When the dual tone is enable and
+         detected, the Marconi Application will upspeed
+         to VBD(Voice Band Data) codec.
+        "
+    DEFVAL { false }
+    ::= { vismSystemGrp 39 }
+
+vismAisSuppression OBJECT-TYPE
+    SYNTAX         INTEGER
+                   {
+                     enable (1),
+                     disable (2)
+                   }
+    MAX-ACCESS     read-write
+    STATUS         deprecated
+    DESCRIPTION
+        "This object is used to enable/disable the
+         AIS(Alarm Indication Signal) suppression
+         functionality. When AIS suppression is enabled
+         AIS and RDI(Remote Defect Indication)/FERF(Far End
+         Receive Failure) alarm cells received from
+         the network will not propagate to the line and
+         cause an line alarm. 
+         NOTE: CID(Channel Identifier) alarms are not 
+         affected by this setting.
+        "
+    DEFVAL { disable }
+    ::= { vismSystemGrp 40 }
+
+vismBearerIpPingEnable OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+        "This object is used to enable/disable the bearer 
+         IP ping response configuration. 
+         When set to true, the bearer IP ping feature will
+         be enabled on the module and the bearer IP will 
+         respond to ping messages. 
+         When set to false, the bearer IP ping feature is 
+         disabled on the module.
+        "
+    DEFVAL { true }
+    ::= { vismSystemGrp 41 }
+
+vismTrapFilteringEnable OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object is used to enable/disable the trap 
+         filtering feature on the module.
+         When set to true, the trap filtering feature is 
+         enabled on the module.
+         When set to false, the trap filtering feature is 
+         disabled on the module."
+    DEFVAL { false }
+    ::= { vismSystemGrp 42 }
+
+vismSplModemToneBitMap OBJECT-TYPE
+    SYNTAX     BITS {
+               vism1560980Tone(0)
+                     }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This bit map is applicable for any special modem 
+         tones that need to be enabled or disabled on the module. 
+         If a bit is set to 1, the tone detection is enabled. 
+         If the bit is set to 0, the tone detection is disabled.
+         The values mean:
+         vism1560980Tone: 1560/ 980Hz tone in used in special modem 
+         calls to carry encrypted data."
+    ::= { vismSystemGrp 43 }
+
+vismSSRCEnable    OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object is used to enable/disable more than one
+         SSRC (Synchronization Source) per RTP session.
+         When set to true, the module will accept more than
+         one SSRC per RTP session.
+         When set to false, the module will not allow more
+         than one SSRC per RTP session."
+    DEFVAL { false }
+    ::= { vismSystemGrp 44 }
+
+vismOamLoopbackSetCLP  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object is used to set the cell loss priority 
+         of the oam loopback cell for all the PVCs. 
+         If set to true, all the CLP bits will be set to 1. 
+         If set to false, all the CLP bits will be set to 0.
+        "
+DEFVAL { true }
+    ::= {  vismSystemGrp 45 }
+
+vismPvcAlarmLogEnable  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether detailed alarm logging 
+         on all the PVC's on the module is enabled or disabled. 
+         If this object is true, detailed alarm logging for all
+         the PVC's on the module will be enabled.
+         If this object is false, detailed alarm logging for all 
+         the PVC's on the module will be disabled."
+    DEFVAL { false }
+    ::= {  vismSystemGrp 46 }
+
+vismPvcAlarmLogAdminTimer  OBJECT-TYPE
+    SYNTAX Unsigned32 (0..2147483647)
+    UNITS "minutes"
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "This object specifies the time for which the detailed 
+         alarm logging for all the PVCs on the module will 
+         remain active.
+         The value in this object can be set and is valid only 
+         if vismPvcAlarmLogEnable is set to true.
+         If this object is set to 0, it indicates that the alarm 
+         logging will remain active forever.
+         Once set, this object can be overwritten as long as 
+         vismPvcAlarmLogEnable is true. If this is done, the 
+         vismPvcAlarmLogAdminTimer will be refreshed to take the 
+         new value set in this object."
+    DEFVAL { 7200 }
+    ::= { vismSystemGrp 47 }
+
+vismPvcAlarmLogOperTimer  OBJECT-TYPE
+    SYNTAX Unsigned32 (0..2147483647)
+    UNITS "minutes"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object specifies the time remaining in minutes for 
+         which the detailed alarm logging will remain enabled on 
+         all the PVCs on the module.
+         When this value becomes 0, it indicates that all the PVCs 
+         on the module have run through the time specified in 
+         vismPvcAlarmLogOperTimer. This will cause the 
+         vismPvcAlarmLogEnable to be set to false.
+         If vismPvcAlarmLogAdminTimer is overwritten with a new 
+         value, this object will also be set to reflect the new value."
+    ::= { vismSystemGrp 48 }
+
+vismContinuityCheckCellEnable OBJECT-TYPE
+    SYNTAX       TruthValue 
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This object is used to enable/disable the continuity check 
+         cell for all the PVCs on the module. 
+         If set to true, the module will transmit continuity check 
+         cells. 
+         If set to false, the module will disable the cell transmission.
+        "
+    DEFVAL { true }
+    ::= {  vismSystemGrp 49 }
+
+--
+-- vismInteropGrp group
+--
+--
+
+vismXgcpSdpOst OBJECT-TYPE
+      SYNTAX     INTEGER 
+                   {
+                    enable  (1),
+                    disable (2)
+                   }
+      MAX-ACCESS read-write
+      STATUS     current
+      DESCRIPTION
+            "This object is used to enable/disable building of 
+            s=,t=,o= lines in SDP(Session Description
+            Protocol) message.
+
+            If this object is set to 'enable' then it indicates that 
+            the o=, s=, t= lines be built before sending 
+            SDP (Session Description Protocol).
+            If it set to 'disable' then it indicates that the o=,s=,t= 
+            parameters need not be built for SDP.
+
+            where  o  field indicates the owner/creator and
+                       session identifier
+                   s  field indicates the session name
+                   t  field indicates the duration while a
+                      session is valid.
+            "
+            DEFVAL { enable }
+        ::= { vismInteropGrp 1 }
+
+vismDynamicPT  OBJECT-TYPE
+      SYNTAX     INTEGER
+                   {
+                    enable  (1),
+                    disable (2)
+                   }
+      MAX-ACCESS read-write
+      STATUS     current
+      DESCRIPTION
+            "This object is used to enable/disable dynamic
+             payload type configuration on the VISM Card.
+            "
+            DEFVAL {disable}
+        ::= { vismInteropGrp 2 }
+
+--
+-- vismTrapObj group
+--
+--
+
+vismConfigChangeTypeBitMap OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647) 
+    MAX-ACCESS read-only 
+    STATUS     current
+    DESCRIPTION
+        "Configuration change Type BitMap used in vismTableChanged
+         trap and vismScalarChanged trap.
+ 
+         When used in vismTableChanged trap, the bits indicate
+         the following:
+
+        bit 0 set = mgcTable changed
+        bit 1 set = mgEndpointTable changed
+        bit 2 set = mgcResolutionTable changed 
+        bit 3 set = srcpPeerTable changed
+        bit 4 set = vismDsx1Table changed
+        bit 5 set = vismXgcpPeerTable changed
+        bit 6 set = xgcpPackageTable changed
+        bit 7 set = vismChanCacTable changed
+        bit 8 set = vismCasVariantTable changed
+        bit 9 set = vismCasXgcpVariantTable changed
+        bit 10 set = vismAal2CidCnfTable changed
+        bit 11 set = dsx0VismCnfTable changed
+        bit 12 set = vismHdlcChanCnfTable changed
+        bit 13 set = lineAssignmentTable changed
+        bit 14 set = vismCodecCnfTable changed
+        bit 15 set = vismLapdTable changed
+        bit 16 set = vismRudpSessionCnfTable changed
+        bit 17 set = aal2ProfilesGrpTable changed
+        bit 18 set = mgDomainNameTable changed
+        bit 19 set = vismPortCnfGrpTable changed
+        bit 20 set = mgcRedundancyGrpTable changed
+        bit 21 set = mgcRedundancyGrpParamTable changed
+        bit 22 set = srcpPeerGrpParamTable changed
+        bit 23 set = vismRtpConnGrpTable changed
+        bit 24 set = vismCodecGenParmTable changed
+        bit 25 set = t38FaxRelayGrpTable changed
+        bit 26 set = mgcRedundancyProtocolTable changed
+        bit 27 set = vismSessionSetTable changed
+        bit 28 set = vismSessionGrpTable changed
+        bit 29 set = cvcmABCDBitTemplateConfigTable changed
+        bit 30 set = vismConfigToneDetectTable changed
+
+        When used in vismScalarChanged trap, the bits indicate
+        the following:
+
+        bit 0 set =  mediaGateway group changed
+        bit 1 set =  mediaGatewayEndpoint group changed
+        bit 2 set =  mediaGatewayControllerResolution group changed
+        bit 3 set =  srcpAdminObjects group changed
+        bit 4 set =  vismConfig group changed
+        bit 5 set =  vismXgcpCoreObjects group  changed
+        bit 6 set =  xgcpCoreObjects group changed
+        bit 7 set =  xgcpExtensionObjects group changed
+        bit 8 set =  xgcpPackageObjects group changed
+
+        bit 9 set =  vismSvcAtmQosGrp Objects group changed
+        bit 10 set =  vismSvcTrfScalingGrp Objects group changed
+        bit 11 set =  vismSvcAal2CidGrp Objects group changed
+        bit 12 set =  srcpAdminRetryObjects Objects group changed
+
+        bit 13 set =  vismConfig IpGrp      group objects changed
+        bit 14 set =  vismConfig VoipGrp    group objects changed
+        bit 15 set =  vismConfig DspGrp     group objects changed
+        bit 16 set =  vismConfig SystemGrp  group objects changed
+        bit 17 set =  vismConfig Aal2Grp    group objects changed
+        bit 18 set =  vismConfig InteropGrp group objects changed
+
+        bit 19 set =  announceControlGrp Objects group changed
+        bit 20 set =  vismXgcpEnhancementsObjects group changed
+        bit 21 set = vismSequentialToneDetectGrp changed
+
+        default value is 0, no change
+ 
+        This MIB makes sense only in traps. A GET
+        on this may not return a Useful result.
+       "
+    DEFVAL { 0 }
+    ::= { vismTrapObjGrp 1 }
+
+vismTrapIntIndex1    OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is used only for the purpose of sending it in
+         the trap varbind. This object is used for two purposes:
+
+         1. When the integer index of a SMIv2 table has to be sent, 
+         this object will be used instead of the actual index object. 
+         The instance value of the object will be the instance value 
+         of the actual index.
+
+         2. In the config change trap trapVismTableChange, to send the
+         index value of the table entry which got changed. This object
+         will contain the value of the first integer index.
+
+         The NMS applications should not depend on the implementation 
+         of this object. The SNMP Requests(GET,GET-NEXT) may not be 
+         valid for this object.
+        "
+    ::= { vismTrapObjGrp 2 }
+
+vismTrapIntIndex2    OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is used only for the purpose of sending it in
+         the trap varbind. This object is used for two purposes:
+
+         1. This object will be used when the SMIv2 table has two 
+         index objects and the 2nd object is an integer. This object 
+         will be used instead of the actual second index object. The 
+         instance value of the object will be the instance value of 
+         the actual second index.
+
+         2. In the config change trap trapVismTableChange, to send the
+         index value of the table entry which got changed. This object
+         will contain the value of the second integer index.
+
+         The NMS applications should not depend on the implementation 
+         of this object. The SNMP Requests(GET,GET-NEXT) may not be 
+         valid for this object.
+        "
+    ::= { vismTrapObjGrp 3 }
+
+vismTrapStrIndex1    OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(0..66))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is used only for the purpose of sending it in
+         the trap varbind. This object is used for two purposes:
+
+         1. When the OctetString index of a SMIv2 table has to be
+         sent, this object will be used instead of the actual
+         index object. The instance value of the object will be
+         the instance value of the actual index.
+
+         2. In the config change trap trapVismTableChange, to send the
+         index value of the table entry which got changed. This object
+         will contain the value of the first OctetString index.
+
+         The NMS applications should not depend on the implementation 
+         of this object. The SNMP Requests(GET,GET-NEXT) may not be 
+         valid for this object.
+        "
+    ::= { vismTrapObjGrp 4 }
+
+vismTrapIntegerValue    OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647) 
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "This object is used only for the purpose of sending it in
+         the trap varbind. 
+
+         This object can be used when the instance value of an 
+         integer object has to be sent instead of the actual 
+         integer object.
+
+         The NMS applications should not depend on the implementation 
+         of this object. The SNMP Requests(GET,GET-NEXT) may not be 
+         valid for this object.
+        "
+    ::= { vismTrapObjGrp 5 }
+
+--
+-- vismAal2Group 
+--
+
+vismAal2SubcellMuxing    OBJECT-TYPE
+    SYNTAX      TruthValue 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+         "This object is a card level parameter for AAL2
+          adaptation and it identifies the mutiplexing
+          function of the AAL2 CPS(Common Part Sub-layer).
+          When it is disabled then each CPS-Packet would fill 
+          only one or two cells with padding (Partial fill
+          cells) Note that the length field for each CPS-Packet
+          can be up to 64bytes. When this option is enabled
+          then mutiple streams of CPS-Packets are mutiplexed
+          to a single ATM connection without partial fill 
+          unless there is time-out. Refer to ITU-T I.363.2 for more 
+          information. 
+ 
+          When the muxing type changes if CIDs are present, then
+          we need to check for CAC voilation for all CIDs, if
+          the CAC fails then the change request will be rejected
+          else the muxing status will be changed and the 
+          vismAal2MuxingTrap will be sent and the card will be
+          reset . All the existing connecitons will come up in
+          new muxing type.
+
+          when the muxing type changes while there are no CIDs
+          then the card will NOT be reset, but the
+          vismAal2MuxingTrap will be sent.
+         "
+    ::= { vismAal2Grp 1 }
+
+vismAal2DtmfRelay  OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This attribute defines whether the DTMF(Dual Tone
+         Multi Frequency) digits need to be transported
+         to the other end-point or not.
+     
+         The value in this object will be utilized when the call
+         agent does not specify this in CRCX.
+        "
+        DEFVAL { false }
+      ::= { vismAal2Grp 2 }
+
+vismAal2CasTransport OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines whether the CAS bits need
+        to be transported to the other endpoint. In the case
+        of switching application, the CAS bits are backhauled
+        to the Call Agent through xGCP-CAS protocol.
+        
+        The value in this object will be utilized when the call
+        agent does not specify this in CRCX.
+        "
+       DEFVAL { false }
+      ::= { vismAal2Grp 3 }
+
+vismAal2Type3Redundancy  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines whether the triple redundancy
+         is supported for Type 3 packets in AAL2 SVC/PVC. When
+         Triple redundancy is enabled, the Type 3 packets (CAS
+         bits, dialled digits and user state control packets)
+         are transmitted in triplicates with an interval defined
+         as per the standards I.366.2. For channels which are
+         quite reliable, triple redundancy can be disabled in
+         order to save the bandwidth and the processing overheads.
+
+         The value in this object will be utilized when the call
+         agent does not specify this in CRCX.
+        "
+       DEFVAL { true }
+      ::= { vismAal2Grp 4 }
+
+vismAal2VADTimer OBJECT-TYPE  
+    SYNTAX       Integer32(250..65535)
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This attribute defines the hangover time for VAD in
+         milliseconds.  Once the voice inactivity is detected,
+         the gateway will wait for this duration before
+         activating silence suppression on an AAL2 SVC/PVC.
+        
+         The value in this object will be utilized when the call
+         agent does not specify this in CRCX.
+        "
+        DEFVAL { 250 }
+      ::= {vismAal2Grp 5}
+
+vismAal2CidFillTimer  OBJECT-TYPE
+   SYNTAX      Integer32(5..100)
+   MAX-ACCESS  read-write
+   STATUS      current
+   DESCRIPTION
+      "This attribute defines the time (millisecs) to wait
+      for filling up the cell when the next packet is not ready.
+
+      After waiting for the time configured in this object, the
+      cell will be sent out. This timer has no effect when
+      vismAal2SubcellMuxing is disabled.
+
+      This object is applicable only for AAL2 adaptations.
+      "
+      DEFVAL { 30 }
+      ::= { vismAal2Grp 6 }
+
+-- conformance information
+
+ciscoVismModuleMIBConformance  OBJECT IDENTIFIER ::=
+                                 { ciscoVismModuleMIB 2 }
+
+ciscoVismModuleMIBGroups       OBJECT IDENTIFIER ::= 
+                              { ciscoVismModuleMIBConformance 1 }
+
+ciscoVismModuleMIBCompliances  OBJECT IDENTIFIER ::= 
+                              { ciscoVismModuleMIBConformance 2 }
+
+-- compliance statements
+
+ciscoVismModuleCompliance MODULE-COMPLIANCE
+    STATUS  deprecated
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            ciscoVismPerfStatsGroup,
+            ciscoVismCallStatsGroup,
+            ciscoVismIpGroup,
+            ciscoVismVoIpGroup,
+            ciscoVismDspGroup,
+            ciscoVismSystemGroup,
+            ciscoVismInteropGroup, 
+            ciscoVismTrapObjGroup,
+            ciscoVismAal2Group
+        }
+    ::= { ciscoVismModuleMIBCompliances 1 }
+
+ciscoVismModuleCompliance1 MODULE-COMPLIANCE
+    STATUS  deprecated --Replaced by ciscoVismModuleComplianceRev2
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            ciscoVismPerfStatsGroup,
+            ciscoVismCallStatsGroup,
+            ciscoVismIpGroup,
+            ciscoVismVoIpGroup,
+            ciscoVismDspGroup,
+            ciscoVismSystemGroup1,
+            ciscoVismInteropGroup, 
+            ciscoVismTrapObjGroup,
+            ciscoVismAal2Group
+        }
+    ::= { ciscoVismModuleMIBCompliances 2 }
+
+ciscoVismModuleComplianceRev2 MODULE-COMPLIANCE
+    STATUS  deprecated --Replaced by ciscoVismModuleComplianceRev3
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            ciscoVismPerfStatsGroup,
+            ciscoVismCallStatsGroup,
+            ciscoVismIpGroup,
+            ciscoVismVoIpGroup,
+            ciscoVismDspGroup,
+            ciscoVismSystemGroup1,
+            ciscoVismInteropGroup, 
+            ciscoVismTrapObjGroup,
+            ciscoVismAal2Group,
+            ciscoVismSystemFeatureGroup,
+            ciscoVismTrapVarbindGroup
+        }
+    ::= { ciscoVismModuleMIBCompliances 3 }
+
+ciscoVismModuleComplianceRev3 MODULE-COMPLIANCE
+    STATUS  deprecated --Replaced by ciscoVismModuleComplianceRev4
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            ciscoVismPerfStatsGroup,
+            ciscoVismCallStatsGroup,
+            ciscoVismIpGroup,
+            ciscoVismVoIpGroup,
+            ciscoVismDspGroup,
+            ciscoVismSystemGroup1,
+            ciscoVismInteropGroup, 
+            ciscoVismTrapObjGroup,
+            ciscoVismAal2Group,
+            ciscoVismSystemFeatureGroupRev1,
+            ciscoVismTrapVarbindGroup
+        }
+    ::= { ciscoVismModuleMIBCompliances 4 }
+
+ciscoVismModuleComplianceRev4 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            ciscoVismPerfStatsGroup,
+            ciscoVismCallStatsGroup,
+            ciscoVismIpGroup,
+            ciscoVismVoIpGroup,
+            ciscoVismDspGroup,
+            ciscoVismSystemGroup1,
+            ciscoVismInteropGroup, 
+            ciscoVismTrapObjGroup,
+            ciscoVismAal2Group,
+            ciscoVismSystemFeatureGroupRev1,
+            ciscoVismTrapVarbindGroup,
+            ciscoVismDspGroupSup1,
+            ciscoVismSystemGroupSup1
+        }
+    ::= { ciscoVismModuleMIBCompliances 5 }
+
+ciscoVismPerfStatsGroup OBJECT-GROUP
+     OBJECTS {
+        vismCPUUtilization,
+        vismMemoryUtilization,
+        vismSysPerfClrButton
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM performance statistics."
+      ::= { ciscoVismModuleMIBGroups 1 }
+
+ciscoVismCallStatsGroup OBJECT-GROUP
+    OBJECTS {
+        vismTotalCalls,
+        vismSuccessfulCalls,
+        vismFailedCalls,
+        vismCallStatsClrButton
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM Call Statistics."
+      ::= { ciscoVismModuleMIBGroups  2 }
+ 
+ciscoVismIpGroup OBJECT-GROUP
+    OBJECTS {
+         vismIpAddress,
+         vismSubNetMask,
+         vismControlTos,
+         vismBearerIpAddress,
+         vismBearerSubNetMask
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are specific to IP." 
+      ::= { ciscoVismModuleMIBGroups  3 }
+ 
+
+ciscoVismVoIpGroup OBJECT-GROUP
+    OBJECTS {
+         vismBearerTos,
+         vismRtcpRepInterval,
+         vismRtpReceiveTimer,
+         vismVoIpDtmfRelay,
+         vismVoIpCasTransport,
+         vismVoIpTripleRedundancy,
+         vismVoIpVADTimer,
+         vismVoIpNTECapabilityNegotiate,
+         vismVoIpSIDPayloadType,
+         vismVoIpDPvcOamCellGap,
+         vismVoIpDPvcRetryCnt,
+         vismVoIpDPvcRecoverCnt,
+         vismRtcpRecvMultiplier,
+         vismVoIpLapdTrunkPVC,
+         vismVoIpEventNegotiationPolicy  
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are specific to VoIP."
+      ::= { ciscoVismModuleMIBGroups  4 }
+
+
+ciscoVismDspGroup OBJECT-GROUP
+    OBJECTS {
+         vismCompCnfPacketSize,
+         vismERL,
+         vismAdaptiveGainControl,
+         vismDspHealth,
+         vismUpspeedCodec,
+         vismPayloadType,
+         vismDSPHeartbeat  
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are used to manage 
+          DSPs on the VISM card."
+      ::= { ciscoVismModuleMIBGroups  5 }
+
+ciscoVismSystemGroup OBJECT-GROUP
+    OBJECTS {
+         vismDaughterCardSerialNum,
+         vismDaughterCardDescription,
+         vismDaughterCardHWRev,
+         vismEcanEncoding,
+         vismMode,
+         vismCacEnable,
+         vismAvailableDs0Count,
+         vismAppliedTemplate,
+         vismTftpServerDn,
+         vismXgcpBearerNetworkType,
+         vismXgcpBearerVCType,
+         vismXgcpBearerConnectionType,
+         vismBearerContinuityTimer,
+         vismCodecNegotiationOption,
+         vismProfileNegotiationOption,
+         vismCarrierLossPolicy,
+         vismCacRejectionPolicy,
+         vismExtDnsServerDn,
+         vismFeatureBitMap,
+         vismVADTolerance,
+         vismVADDutyCycle,
+         vismAggregateTrafficClipping,
+         vismAggregateSvcBandwidth,
+         vismBearerContinuityTest,
+         vismCaleaEnable,
+         vismMaxConfNum,
+         vismLongDurationTimer,
+         vismContinuityCo1Timer,
+         vismContinuityCo2Timer,
+         vismReverseCotTone,
+         vismSendDnEnable,
+         vismSendDataGramSize,
+         vismOamLoopThreshold,
+         vismFreeDs0Threshold,
+         vismCPUUtilizationThreshold,
+         vismMemoryUtilizationThreshold,
+         vismDualToneDetect,
+         vismAisSuppression 
+      }
+      STATUS deprecated
+      DESCRIPTION
+          "This group contains objects that are specific to the card."
+      ::= { ciscoVismModuleMIBGroups  6 }
+
+ciscoVismInteropGroup OBJECT-GROUP
+    OBJECTS {
+         vismXgcpSdpOst,
+         vismDynamicPT
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects which will enhance the 
+          interoperability functionalities of VISM."
+      ::= { ciscoVismModuleMIBGroups  7 }
+ 
+
+ciscoVismTrapObjGroup OBJECT-GROUP
+    OBJECTS {
+          vismConfigChangeTypeBitMap,
+          vismTrapIntIndex1,
+          vismTrapIntIndex2,
+          vismTrapStrIndex1
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are defined for the 
+          purpose of sending in trap varbinds." 
+      ::= { ciscoVismModuleMIBGroups  8 }
+
+ciscoVismAal2Group OBJECT-GROUP
+    OBJECTS {
+          vismAal2SubcellMuxing,
+          vismAal2DtmfRelay,
+          vismAal2CasTransport,
+          vismAal2Type3Redundancy,
+          vismAal2VADTimer,
+          vismAal2CidFillTimer
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects which will enhance the 
+          interoperability functionalities of VISM."
+      ::= { ciscoVismModuleMIBGroups  9 }
+
+ciscoVismDspDeprecatedGroup OBJECT-GROUP
+    OBJECTS {
+         vismEcanCnfIdlePattern,
+         vismEcanCnfIdleDirection,
+         vismJitterDelayMode,
+         vismJitterInitialDelay
+      }
+      STATUS deprecated 
+      DESCRIPTION
+         "The collection of objects that were 
+          supported earlier but deprecated now."   
+      ::= { ciscoVismModuleMIBGroups  10 }
+
+ciscoVismSystemDeprecatedGroup OBJECT-GROUP
+    OBJECTS {
+        vismPrevMode  
+      }
+      STATUS deprecated 
+      DESCRIPTION
+         "The collection of objects that were
+          supported earlier but deprecated now."
+      ::= { ciscoVismModuleMIBGroups  11 }
+
+ciscoVismVoIpDeprecateGroup OBJECT-GROUP
+    OBJECTS {
+         vismPacketizationPeriod
+      }
+      STATUS deprecated
+      DESCRIPTION
+         "The collection of objects that were
+          supported earlier but deprecated now."
+      ::= { ciscoVismModuleMIBGroups  12 }
+
+ciscoVismSystemGroup1 OBJECT-GROUP
+    OBJECTS {
+         vismDaughterCardSerialNum,
+         vismDaughterCardDescription,
+         vismDaughterCardHWRev,
+         vismEcanEncoding,
+         vismMode,
+         vismCacEnable,
+         vismAvailableDs0Count,
+         vismAppliedTemplate,
+         vismTftpServerDn,
+         vismXgcpBearerNetworkType,
+         vismXgcpBearerVCType,
+         vismXgcpBearerConnectionType,
+         vismBearerContinuityTimer,
+         vismCodecNegotiationOption,
+         vismProfileNegotiationOption,
+         vismCarrierLossPolicy,
+         vismCacRejectionPolicy,
+         vismExtDnsServerDn,
+         vismFeatureBitMap,
+         vismVADTolerance,
+         vismVADDutyCycle,
+         vismAggregateTrafficClipping,
+         vismAggregateSvcBandwidth,
+         vismBearerContinuityTest,
+         vismCaleaEnable,
+         vismMaxConfNum,
+         vismLongDurationTimer,
+         vismContinuityCo1Timer,
+         vismContinuityCo2Timer,
+         vismReverseCotTone,
+         vismSendDnEnable,
+         vismSendDataGramSize,
+         vismOamLoopThreshold,
+         vismFreeDs0Threshold,
+         vismCPUUtilizationThreshold,
+         vismMemoryUtilizationThreshold,
+         vismDualToneDetect 
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are specific to the card."
+      ::= { ciscoVismModuleMIBGroups  13 }
+
+ciscoVismSystemFeatureGroup OBJECT-GROUP
+    OBJECTS {
+         vismBearerIpPingEnable,
+         vismTrapFilteringEnable
+      }
+      STATUS deprecated --Replaced by ciscoVismSystemFeatureGroupRev1
+      DESCRIPTION
+          "This group contains specific card level 
+           objects for feature support on the module."
+      ::= { ciscoVismModuleMIBGroups  14 }
+
+ciscoVismTrapVarbindGroup OBJECT-GROUP
+    OBJECTS {
+          vismTrapIntegerValue
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are defined for the 
+          purpose of sending in trap varbinds." 
+      ::= { ciscoVismModuleMIBGroups  15 }
+
+ciscoVismSystemFeatureGroupRev1 OBJECT-GROUP
+    OBJECTS {
+         vismBearerIpPingEnable,
+         vismTrapFilteringEnable,
+         vismSplModemToneBitMap,
+         vismSSRCEnable
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains specific card level 
+           objects for feature support on the module."
+      ::= { ciscoVismModuleMIBGroups  16 }
+
+ciscoVismSystemGroupSup1 OBJECT-GROUP
+    OBJECTS {
+         vismOamLoopbackSetCLP,
+         vismPvcAlarmLogEnable,
+         vismPvcAlarmLogAdminTimer,
+         vismPvcAlarmLogOperTimer,
+         vismContinuityCheckCellEnable
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are specific to the card."
+      ::= { ciscoVismModuleMIBGroups  17 }
+
+ciscoVismDspGroupSup1 OBJECT-GROUP
+    OBJECTS {
+         vismFaxDeJitterMode,
+         vismFaxDeJitterInitialDelay
+      }
+      STATUS current
+      DESCRIPTION
+          "This group contains objects that are used to manage 
+          DSPs on the VISM card."
+      ::= { ciscoVismModuleMIBGroups  18 }
+END
+

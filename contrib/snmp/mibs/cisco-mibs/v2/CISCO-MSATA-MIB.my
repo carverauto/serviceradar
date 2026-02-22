@@ -1,0 +1,73 @@
+-- *****************************************************************
+-- CISCO-MSATA-MIB.my: mSATA Wear-Ratio and Usage MIB
+--   
+-- Copyright (c) 2005-2006, 2019 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MSATA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMsataMIB MODULE-IDENTITY
+    LAST-UPDATED    "201901090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ir800@cisco.com"
+    DESCRIPTION
+        "As part of this enhancement, adding SNMP support for below 2
+        mSata parameters on the IR829M products:
+        1) Lifetime remaining (wear leveling)
+        2) Memory usage for the mSATA SSD
+
+        This feature is supported in IR829M only.
+
+        *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+
+        Wl      -   Wear Leveling of mSATA SSD"
+    REVISION        "201901090000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 860 }
+
+
+ciscoMsataMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMsataMIB 0 }
+
+
+ciscoMsata OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the management information for a mSata
+        parameters - Lifetime remaining and memory usage." 
+    ::= { ciscoMsataMIBObjects 1 }
+
+END
+
+

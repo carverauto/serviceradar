@@ -1,0 +1,1688 @@
+-- File:  CISCO-DM-MIB.txt
+-- Name:   Vinay Gaonakr
+--   
+-- Description:
+-- MIB file containing MIB objects for managing Domain Manager..
+--   
+-- Copyright (c) 2002, 2003, 2008-2009, 2014 by Cisco Systems Inc.
+--   
+-- ALL RIGHTS RESERVED. THESE SOURCE FILES ARE THE SOLE PROPERTY
+-- OF ANDIAMO SYTEMS, Inc. AND CONTAIN CONFIDENTIAL  AND PROPRIETARY
+-- INFORMATION.  REPRODUCTION OR DUPLICATION BY ANY MEANS OF ANY
+-- PORTION OF THIS SOFTWARE WITHOUT PRIOR WRITTEN CONSENT OF
+-- ANDIAMO SYSTEMS, Inc. IS STRICTLY PROHIBITED.
+--   
+-- $Id: CISCO-DM-MIB.txt,v 1.7 2004/02/05 19:55:55 vchalasa Exp $
+-- $Source: /auto/vwsvua/kirsten/sanos4/VegasSW__nms/mibs/CISCO-DM-MIB.txt,v $
+-- $Author: vchalasa $
+
+CISCO-DM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32,
+    Counter32,
+    Integer32,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ifIndex
+        FROM IF-MIB
+    DomainId,
+    DomainIdOrZero,
+    FcNameId,
+    FcNameIdOrZero,
+    FcAddressId
+        FROM CISCO-ST-TC
+    vsanIndex,
+    notifyVsanIndex
+        FROM CISCO-VSAN-MIB
+    cffFcFeElementName
+        FROM CISCO-FC-FE-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoDmMIB MODULE-IDENTITY
+    LAST-UPDATED    "201402250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "The MIB module for the domain management functionality
+        defined by the Fibre Channel standards (FC-SW2). For the
+        purposes of this MIB, 'Domain Manager' is the software
+        functionality which executes in both the principal switch
+        and other switches."
+    REVISION        "201402250000Z"
+    DESCRIPTION
+        "Updated with the latest DM MIB in NXOS
+        Also updated the description of dmOptimize object
+        to support the new scale-restart optimization mode"
+    REVISION        "200902060000Z"
+    DESCRIPTION
+        "Added a new object dmOptimize to dmTable.
+        Deprecated dmGroupRev1 and added new group dmGroupRev2.
+        Deprecated dmMIBCompliance2 and added dmMIBCompliance3
+        MODULE-COMPLIANCE."
+    REVISION        "200309220000Z"
+    DESCRIPTION
+        "Added a new table dmAllowedDomainIDListTable.
+        Added a new compliance statement dmMIBCompliance2 which
+        obseletes dmMIBCompliance1."
+    REVISION        "200306200000Z"
+    DESCRIPTION
+        "Changed the default values for dmEnable, dmFabricName
+        and dmFcIdPersistencyNum."
+    REVISION        "200302270000Z"
+    DESCRIPTION
+        "Updated the copyright"
+    REVISION        "200302210000Z"
+    DESCRIPTION
+        "Fixed a problem with dmFcIdPersistencyGroup being both
+        mandatory and conditional."
+    REVISION        "200301280000Z"
+    DESCRIPTION
+        "Changed the SYNTAX of dmFcIdPersistencyNum to INTEGER from
+        Unsigned32."
+    REVISION        "200301020000Z"
+    DESCRIPTION
+        "Added objects dmFcIdPersistency and dmFcIdPurge to dmTable.
+        Added a new table dmFcIdPersistencyTable.
+        Added objects dmLocalPrincipalSwitchSelctns."
+    REVISION        "200210040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 302 }
+
+
+ciscoDmMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDmMIB 1 }
+
+dmMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoDmMIB 2 }
+
+dmConfiguration  OBJECT IDENTIFIER
+    ::= { ciscoDmMIBObjects 1 }
+
+dmInfo  OBJECT IDENTIFIER
+    ::= { ciscoDmMIBObjects 2 }
+
+dmNotificationPrefix  OBJECT IDENTIFIER
+    ::= { ciscoDmMIBObjects 3 }
+
+
+-- Textual Conventions
+
+DomainPriority ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Priority of the switch.
+        The principal switch selection is influenced by the
+        priority of the switch.
+        Some values are of importance are:
+        1   : The highest priority in principal switch
+              selection and is used by the user to establish
+              which switch becomes the principal switch.
+        255 : Indicates that the switch is not capable of
+              acting as a principal switch."
+    SYNTAX          Unsigned32 (1..255)
+
+DomainPriorityOrZero ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This is an extension of the DomainPriority. In
+        addition to the DomainPriority range, this also
+        includes 0 in its range of values. The value '0' means
+        that the priority is not known. If the meaning is
+        different from this, then it should mentioned in the
+        description of the object using this textual
+        convention."
+    SYNTAX          Integer32 (0..255)
+
+DomainInterfaceRole ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Role of the Domain Manager interface.
+        nonPrincipal (1)       - non-principal interface
+        principalUpstream (2)  - upstream  principal interface
+        principalDownsteam (3) - downstream principal interface
+        isolated (4)           - isolated interface
+        down (5)               - down interface
+        unknown (6)            - unknown interface"
+    SYNTAX          INTEGER  {
+                        nonPrincipal(1),
+                        principalUpstream(2),
+                        principalDownsteam(3),
+                        isolated(4),
+                        down(5),
+                        unknown(6)
+                    }
+
+DmState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "State of the Domain Manager.
+        starting(1)-
+        unconfigured(2) -
+        principalSwitchSelection(3)   - principal switch
+                                      - selection in progress.
+        domainIdDistribution(4)       - domain ID distribution
+                                      - in progress.
+        buildFabricPhase(5)           - BuildFabric in
+                                      - progress.
+        reconfigureFabricPhase(6)     - ReconfigureFabric in
+                                      - progress.
+        stable(7)                     - stable.
+        stableWithNoEports(8)         - stable with No present.
+        stableWithDomainConfigured(9) - stable with domain
+                                      - configured.
+        noDomains(10)                 - no domain
+                                      - configured/assigned.
+        disabled(11)                  - domain manager disabled.
+        suspended(12)                 - corresponding VSAN is
+                                      - suspended.
+        unknown(13)                   - unknown."
+    SYNTAX          INTEGER  {
+                        starting(1),
+                        unconfigured(2),
+                        principalSwitchSelection(3),
+                        domainIdDistribution(4),
+                        buildFabricPhase(5),
+                        reconfigureFabricPhase(6),
+                        stable(7),
+                        stableWithNoEports(8),
+                        stableWithDomainConfigured(9),
+                        noDomains(10),
+                        disabled(11),
+                        suspended(12),
+                        unknown(13)
+                    }
+-- dmTable
+
+dmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains Domain Manager related parameters
+        which can be configured and monitored. There is one
+        entry for each of the VSANs configured on this switch.
+        An entry will be created whenever a VSAN is created on
+        the switch. The entry will be removed when the
+        corresponding VSAN is deleted."
+    ::= { dmConfiguration 1 }
+
+dmEntry OBJECT-TYPE
+    SYNTAX          DmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry provides information on the domain manager
+        for a VSAN."
+    INDEX           { vsanIndex } 
+    ::= { dmTable 1 }
+
+DmEntry ::= SEQUENCE {
+        dmConfigDomainId              DomainIdOrZero,
+        dmConfigDomainIdType          INTEGER,
+        dmEnable                      TruthValue,
+        dmAutoReconfigure             TruthValue,
+        dmContiguousAllocation        TruthValue,
+        dmPriority                    DomainPriority,
+        dmRestart                     INTEGER,
+        dmFabricName                  FcNameIdOrZero,
+        dmPrincipalSwitchWwn          FcNameIdOrZero,
+        dmLocalSwitchWwn              FcNameIdOrZero,
+        dmAssignedAreaIdList          OCTET STRING,
+        dmFcIdsGranted                Counter32,
+        dmFcIdsRecovered              Counter32,
+        dmFreeFcIds                   Gauge32,
+        dmAssignedFcIds               Gauge32,
+        dmReservedFcIds               Gauge32,
+        dmRunningPriority             DomainPriority,
+        dmPrincSwRunningPriority      DomainPriority,
+        dmState                       DmState,
+        dmPrincipalSwitchSelections   Counter32,
+        dmBuildFabrics                Counter32,
+        dmFabricReconfigures          Counter32,
+        dmDomainId                    DomainIdOrZero,
+        dmLocalPrincipalSwitchSelctns Counter32,
+        dmFcIdPersistency             TruthValue,
+        dmFcIdPurge                   INTEGER,
+        dmOptimize                    OCTET STRING
+}
+
+dmConfigDomainId OBJECT-TYPE
+    SYNTAX          DomainIdOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The configured Domain ID of the local switch on this
+        VSAN or zero if no Domain ID has been configured.
+        The meaning of this object depends on
+        dmConfigDomainIdType object.
+
+        If dmConfigDomainIdType is 'preferred', then domain ID
+        configured is called 'preferred Domain ID'. The valid
+        values are between 0 and 239. In a situation where
+        this domain could not be assigned, any other domain ID
+        would be acceptable. The value '0' means any domain ID.
+
+        If dmConfigDomainIdType is 'static', then domain ID is
+        called 'static Domain ID' and valid values are between
+        1 and 239. In a situation where this domain was
+        non-zero but could not be assigned, no other domain ID
+        would be acceptable.
+
+        If the Domain Manager is enabled on the VSAN, then a
+        RDI (Request Domain ID) will be sent requesting this
+        Domain ID. If no Domain ID can be granted in the case
+        of 'preferred' or if the configured 'static' domain ID
+        cannot be not granted then, it is an error condition.
+        When this error occurs, the E_ports on that VSAN will be
+        isolated and user will be informed via
+        'dmDomainIdNotAssigned' notification.
+
+        If the domain manager is not enabled, then the static
+        Domain ID is assumed to be granted, if it has been
+        configured (to a valid number).
+
+        If either of the domain IDs are not configured with a
+        non-zero value on this VSAN and if the domain manager is
+        not enabled, then
+
+        - switch will isolate all of its E_ports on this VSAN.
+        - The user will be informed via a notification
+          'dmDomainIdNotAssigned'."
+    DEFVAL          { 0 } 
+    ::= { dmEntry 1 }
+
+dmConfigDomainIdType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(1),
+                        preferred(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Type of configured Domain ID."
+    DEFVAL          { preferred } 
+    ::= { dmEntry 2 }
+
+dmEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Enables the Domain Manager on this VSAN.
+
+        If enabled on an active VSAN, the switch will
+        participate in principal switch selection.
+        If disabled, the switch will participate in neither
+        the principal switch selection nor domain allocation.
+        Thus, Domain ID needs to be configured statically."
+    DEFVAL          { true } 
+    ::= { dmEntry 3 }
+
+dmAutoReconfigure OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object determines how the switch responds to
+        certain error conditions.
+
+        The condition that can cause these errors is
+        merging of two disjoint fabrics that have
+        overlapping Domain ID list.
+
+        If value of this object is 'true', the switch will
+        send a RCF (ReConfigureFabric) to rebuild the
+        Fabric.
+
+        If 'false' the switch will isolate the E_ports on
+        which the errors happened."
+    DEFVAL          { false } 
+    ::= { dmEntry 4 }
+
+dmContiguousAllocation OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Determines how the switch behaves when elected
+        as the principal switch.
+        If true, switch won't accept non-contiguous domain
+        IDs in RDIs and will try to replace all the Domain IDs
+        in the list with contiguous domain IDs if a RDI for a
+        contiguous Domain ID can not be fulfilled.
+        If false, then the switch acts normally in granting
+        the Domain IDs even if they are not contiguous." 
+    ::= { dmEntry 5 }
+
+dmPriority OBJECT-TYPE
+    SYNTAX          DomainPriority
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Priority of the switch to be used in principal switch
+        selection process." 
+    ::= { dmEntry 6 }
+
+dmRestart OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        nonDisruptive(1),
+                        disruptive(2),
+                        noOp(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object tells the Domain Manager to rebuild the
+        Domain ID tree all over again.
+
+        If this object is set to 'disruptive', then a RCF
+        (ReConfigure Fabric) is generated in the VSAN in
+        order for the fabric to recover from the errors.
+
+        If this object is set to 'nonDisruptive', then a
+        BF (Build Fabric) is generated in the VSAN.
+
+        No action is taken if this object is set to 'noOp'.
+        The value of the object when read is always 'noOp'." 
+    ::= { dmEntry 7 }
+
+dmFabricName OBJECT-TYPE
+    SYNTAX          FcNameIdOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The WWN that is used for fabric logins on this VSAN.
+        This object is used only if the value of dmEnable is
+        false. If the value of dmEnable is true, then principal
+        switch WWN is used.
+        It is automatically set to the default value when set to
+        zero-length value."
+    DEFVAL          { '20010005300028DF'H } 
+    ::= { dmEntry 8 }
+
+dmPrincipalSwitchWwn OBJECT-TYPE
+    SYNTAX          FcNameIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The WWN of the Principal Switch on this VSAN, or
+        zero-length string if the identity of the principal
+        switch is unknown."
+    DEFVAL          { ''H } 
+    ::= { dmEntry 9 }
+
+dmLocalSwitchWwn OBJECT-TYPE
+    SYNTAX          FcNameIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The WWN of the local Switch on this VSAN." 
+    ::= { dmEntry 10 }
+
+dmAssignedAreaIdList OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The list of Area IDs which have been assigned in this
+        VSAN, formatted as an array of octets in ascending order.
+        There could zero or more Area IDs assigned on this VSAN.
+
+        Area ID is an 8-bit value. And therefore, each octet
+        represents one Area ID. So, the list containing the
+        area_IDs 23, 45, 235 and 56 would be formatted as the
+        4-octet string x'172d38eb'.
+
+        Each of these area_IDs can be used as an index to the
+        dmAreaTable to get the statistics on the area." 
+    ::= { dmEntry 11 }
+
+dmFcIdsGranted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of FC IDs that are granted (for local
+        use) by the Domain Manager on the local switch since the
+        switch has been initialized. Note that all such FC IDs
+        have the local  switch's Domain ID." 
+    ::= { dmEntry 12 }
+
+dmFcIdsRecovered OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of FC IDs that are recovered by the
+        Domain Manager on the local switch since the switch has
+        been initialized. A recovered FC ID is one that is
+        explicitly returned after previously being granted for
+        local use." 
+    ::= { dmEntry 13 }
+
+dmFreeFcIds OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of FC IDs that are unassigned on this VSAN." 
+    ::= { dmEntry 14 }
+
+dmAssignedFcIds OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of FC IDs that are assigned on this VSAN." 
+    ::= { dmEntry 15 }
+
+dmReservedFcIds OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of FC IDs that are reserved on this VSAN." 
+    ::= { dmEntry 16 }
+
+dmRunningPriority OBJECT-TYPE
+    SYNTAX          DomainPriority
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The running priority of the local switch on this VSAN." 
+    ::= { dmEntry 17 }
+
+dmPrincSwRunningPriority OBJECT-TYPE
+    SYNTAX          DomainPriority
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The running priority of the principal switch on this
+        VSAN." 
+    ::= { dmEntry 18 }
+
+dmState OBJECT-TYPE
+    SYNTAX          DmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The state of the Domain Manager on the local switch on
+        this VSAN." 
+    ::= { dmEntry 19 }
+
+dmPrincipalSwitchSelections OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of principal switch selections on this VSAN." 
+    ::= { dmEntry 20 }
+
+dmBuildFabrics OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of 'BuildFabrics' (BFs) that have occurred
+        on this VSAN." 
+    ::= { dmEntry 21 }
+
+dmFabricReconfigures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of 'ReconfigureFabrics' (RCFs) that have
+        occurred on this VSAN." 
+    ::= { dmEntry 22 }
+
+dmDomainId OBJECT-TYPE
+    SYNTAX          DomainIdOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Domain ID of the local switch on this VSAN or zero
+        if no Domain ID has been assigned." 
+    ::= { dmEntry 23 }
+
+dmLocalPrincipalSwitchSelctns OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the local switch became
+        the principal switch on this VSAN." 
+    ::= { dmEntry 24 }
+
+dmFcIdPersistency OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates if the FC IDs assigned on this VSAN are
+        persistent or not.
+        If this object is set to 'true', then all the FC ID
+        assigned on this VSAN are made persistent on this VSAN.
+
+        If this object is set to 'false', then all the entries on
+        VSAN in dmFcIdPersistencyTable are deleted.
+
+        An entry (or entries) is (or are) automatically created
+        in the dmFcIdPersistencyTable with dmFcIfPersistencyWwn
+        equal to either WWN of the FC device (if the local port
+        is a F_port) for which the FC ID was assigned or WWN of
+        local port (if the local port is a FL_port) and
+        dmFcIdPersistencyType equal to 'dynamic'.
+
+        The FC ID persistency can be enabled on this VSAN only
+        if all the following conditions are satisfied:
+        - the VSAN is active.
+        - if dmConfigDomainIdType is equal is 'static' and
+          dmConfigDomainId is not equal to zero on this VSAN.
+        - if the dmConfigDomainId is equal to dmDomainId  on
+          this VSAN."
+    DEFVAL          { false } 
+    ::= { dmEntry 25 }
+
+dmFcIdPurge OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noOp(1),
+                        enable(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object tells the Domain Manager to purge the FC IDs
+        on this VSAN in the  FC ID persistency database.
+
+        If the value of this object is 'enable', then
+        the FC IDs which are dynamic and not currently used are
+        purged from the persistency database." 
+    ::= { dmEntry 26 }
+
+dmOptimize OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..8))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Each 'bit' within the value of an object of this type,
+        specifies a configured optimization type.
+
+        The value of each 'bit' (set/reset) represents whether
+        an optimization type is configured or not.
+
+        Bit position 0, represents whether the fast-restart
+        optimization is enabled.
+
+        Bit position 1, represents whether the selective-restart
+        optimization is enabled.
+
+        Bit position 2, represents whether the scale-restart
+        optimization is enabled.
+
+        If the length of an object of this type is less
+        than 8 bytes, then the optimization types which are
+        not represented are not considered to be part of this
+        list, i.e., effectively, the string is extended to
+        be of length 8 bytes by appending bytes
+        containing x'00'. Note that this means that the
+        zero length string represents the 'list is empty'
+        value." 
+    ::= { dmEntry 27 }
+ 
+
+-- dmIfTable - Interface configuration
+
+dmIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DmIfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains interface configuration of the
+        domain manager per VSAN.
+
+        An entry in this table is automatically created when
+        an E_port becomes non-isolated and there is a
+        entry in dmTable for that VSAN.
+
+        An entry is deleted automatically from this table if :
+        a) the correponding interface becomes non-existent, or
+        b) the correponding interface becomes a non-E_port
+           and all the writable objects has default values.
+                          or
+        c) the dmTable entry for the corresponding VSAN is
+           deleted.
+
+        Entries in this table can be created via dmIfRowStatus
+        only as the means to specify non-default parameter values
+        for an interface at a time when that interface is either
+        down or is a non-E_port.
+
+        So an entry in this table exists when one or both of
+        these conditions holds:
+        - one or more configuration parameters have non-default
+          values for an interface which is either down or a
+          non-E_port and corresponding VSAN has an entry in the
+          dmTable, and/or
+        - the interface is an E_port and it is up.
+
+        This has a number of consequences:
+        - an entry exists for a non-E_port or an E_port which is
+          down whenever that interface has non-default parameters
+          and the corresponding VSAN has an entry in the dmTable;
+        - an entry cannot be created (via dmIfRowStatus) for an
+          interface with default parameters; instead, the agent
+          creates/deletes an entry for an interface with default
+          parameters according to whether the E_port is up or
+          down.
+        - an entry can not be created via dmIfRowStatus unless
+          non-default parameter values are (simultaneously)
+          configured for an interface which is a non-E_port or a
+          down interface, and the correspoding VSAN has an entry
+          in the dmTable.
+        - deleting an entry via RowStatus when either the
+          interface is down and configured with non-default
+          values or the interface is up, is equivalent to
+          resetting its parameters to their default values.
+          If the interface is down and was configured with
+          default- values, then the entry would be deleted."
+    ::= { dmConfiguration 2 }
+
+dmIfEntry OBJECT-TYPE
+    SYNTAX          DmIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry gives information on interface
+        configuration on a particular VSAN."
+    INDEX           {
+                        vsanIndex,
+                        ifIndex
+                    } 
+    ::= { dmIfTable 1 }
+
+DmIfEntry ::= SEQUENCE {
+        dmIfRcfReject TruthValue,
+        dmIfRole      DomainInterfaceRole,
+        dmIfRowStatus RowStatus
+}
+
+dmIfRcfReject OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines if the incoming ReConfigure
+        Fabric (RCF) messages on this interface on this vsan
+        is accepted or not. If this object is 'true', then the
+        incoming RCF is rejected. If 'false', incoming RCF
+        is accepted.
+
+        Note that this object does not apply to the outgoing
+        RCFs generated by this interface."
+    DEFVAL          { false } 
+    ::= { dmIfEntry 1 }
+
+dmIfRole OBJECT-TYPE
+    SYNTAX          DomainInterfaceRole
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The role of this interface." 
+    ::= { dmIfEntry 2 }
+
+dmIfRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this row.
+
+        This object can be used to create an entry only if the
+        corresponding interface exists. If the interface does
+        not exists, a create will fail." 
+    ::= { dmIfEntry 3 }
+ 
+
+-- dmAreaTable
+
+dmAreaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DmAreaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains area statistics on this domain
+        manager per VSAN. Each octet in the dmAssignedAreaList
+        can be used to index  this table to find information on
+        each area."
+    ::= { dmInfo 1 }
+
+dmAreaEntry OBJECT-TYPE
+    SYNTAX          DmAreaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry gives information on the Area ID and all
+        Port IDs that were assigned for within an area for
+        a particular VSAN."
+    INDEX           {
+                        vsanIndex,
+                        dmAreaAreaId
+                    } 
+    ::= { dmAreaTable 1 }
+
+DmAreaEntry ::= SEQUENCE {
+        dmAreaAreaId             Unsigned32,
+        dmAreaAssignedPortIdList OCTET STRING
+}
+
+dmAreaAreaId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Area ID of this area." 
+    ::= { dmAreaEntry 1 }
+
+dmAreaAssignedPortIdList OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The list of Port IDs which have been assigned in
+        this Area and VSAN, formatted as an array of octets
+        in ascending order. There could be zero or more Port
+        IDs assigned on this Area and VSAN.
+
+        Port ID is an 8-bit value. And therefore, each octet
+        represents one Port ID. So, the list containing the
+        Port IDs 23, 45, 235 and 56 would be formatted as the
+        4-octet string x'172d38eb'." 
+    ::= { dmAreaEntry 2 }
+ 
+
+-- dmDatabaseTable
+-- .
+
+dmDatabaseTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DmDatabaseEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains all information known by the
+        local switch about all the domains which have been
+        assigned in each of the VSANs."
+    ::= { dmInfo 2 }
+
+dmDatabaseEntry OBJECT-TYPE
+    SYNTAX          DmDatabaseEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the dmDatabaseTable
+        containing information about one Domain ID in one
+        VSAN."
+    INDEX           {
+                        vsanIndex,
+                        dmDatabaseDomainId
+                    } 
+    ::= { dmDatabaseTable 1 }
+
+DmDatabaseEntry ::= SEQUENCE {
+        dmDatabaseDomainId  DomainId,
+        dmDatabaseSwitchWwn FcNameId
+}
+
+dmDatabaseDomainId OBJECT-TYPE
+    SYNTAX          DomainId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Domain ID for which this row contains
+        information." 
+    ::= { dmDatabaseEntry 1 }
+
+dmDatabaseSwitchWwn OBJECT-TYPE
+    SYNTAX          FcNameId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The WWN of the switch to which the corresponding
+        value of dmDatabaseDomainId is currently assigned
+        for the particular VSAN." 
+    ::= { dmDatabaseEntry 2 }
+ 
+
+
+-- Domain Manager FC ID cache information
+
+dmMaxFcIdCacheSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of FC IDs that can be cached in the
+        dmFcIdCacheTable." 
+    ::= { dmInfo 3 }
+-- dmFcIdCacheTable
+
+dmFcIdCacheTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DmFcIdCacheEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains all the FC IDs that have recently
+        been released. So it lists all the FC IDs that have
+        valid WWN to FC ID  mappings and currently not assigned
+        to any ports. These FC ID were assigned to ports and now,
+        have been released. This cached FC ID contains only Area
+        ID and Port ID information. The FC ID cache is kept to
+        provide best effort re-assignment of same FC IDs. i.e,
+        an Nx_port would get the same FC ID when it asks for a FC
+        ID again, after releasing it."
+    ::= { dmInfo 4 }
+
+dmFcIdCacheEntry OBJECT-TYPE
+    SYNTAX          DmFcIdCacheEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the dmFcIdCacheTable
+        containing information about one FC ID that was
+        released from a WWN, corresponding to a range of one or
+        more ports. An entry is created when a FC ID is
+        released by the last port in the range. An entry is
+        deleted either when the number of rows in this table
+        reaches 'dmMaxFcIdCacheSize' if it is the oldest entry
+        (depending on the value of the object
+        'dmFcIdCacheReleasedTime') to make room for the a new
+        entry or when the this FC ID is assinged to a port."
+    INDEX           {
+                        vsanIndex,
+                        dmFcIdCacheWwn
+                    } 
+    ::= { dmFcIdCacheTable 1 }
+
+DmFcIdCacheEntry ::= SEQUENCE {
+        dmFcIdCacheWwn          FcNameId,
+        dmFcIdCacheAreaIdPortId OCTET STRING,
+        dmFcIdCachePortIds      Unsigned32
+}
+
+dmFcIdCacheWwn OBJECT-TYPE
+    SYNTAX          FcNameId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The WWN of the port associated this entry." 
+    ::= { dmFcIdCacheEntry 1 }
+
+dmFcIdCacheAreaIdPortId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (2))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Area ID and Port ID of FC ID that was assigned
+        and has since been released by this port on this
+        VSAN.
+        Note that this object is only 2 bytes and only
+        contains the Area ID and Port ID." 
+    ::= { dmFcIdCacheEntry 2 }
+
+dmFcIdCachePortIds OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of port IDs assigned and/or released starting
+        from Port ID contained in the second byte of
+        dmFcIdCacheAreaIdPortId for the Area ID contained in
+        the first byte of object dmFcIdCacheAreaIdPortId." 
+    ::= { dmFcIdCacheEntry 3 }
+ 
+
+
+-- Notification control object.
+
+dmReConfFabricChangeNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether or not the local switch should issue a
+        dmFabricChangeNotify notification on sending or receiving
+        ReConfigureFabric (RCF) on a VSAN.
+
+        If the value of the object is 'true, then the
+        notification is generated. If the value is 'false',
+        notification is not generated."
+    DEFVAL          { false } 
+    ::= { dmConfiguration 3 }
+-- FcID Persistency table
+
+dmFcIdPersistencyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DmFcIdPersistencyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the FC IDs which are in the FC ID
+        persistency database.
+
+        The FC ID persistency is a feature which enables FC
+        devices to get same FC IDs even if they disappear and
+        appear back, if enabled.
+
+        The FC ID persistency database contains information
+        about the FC IDs which are assigned to FC devices
+        either statically (configured) or dynamically.
+
+        Entries are automatically created when a FC ID is
+        assigned and dmFcIdPersistency is 'true' on this VSAN.
+
+        The entries can also be created and deleted via
+        the dmFcIdPersistencyRowStatus object.
+
+        Entries are deleted when corresponding
+        dmFcIdPersistencyType is 'dynamic' and
+        dmFcIdPersistencyUsed is 'false' if the object
+        dmFcIdPurge is set to 'enable'.
+
+        An entry cannot be created if the dmFcIdPersistency
+        is 'false'.
+
+        If the dmDomainId is changed on a VSAN, then all the
+        entries on that VSAN in this table are deleted. Also,
+        if the dmConfigDomainId is not equal to dmDomainId on
+        a VSAN, then all the entries in that VSAN are deleted."
+    ::= { dmConfiguration 4 }
+
+dmFcIdPersistencyEntry OBJECT-TYPE
+    SYNTAX          DmFcIdPersistencyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry provides information about a persistent FC ID."
+    INDEX           {
+                        vsanIndex,
+                        dmFcIdPersistencyWwn
+                    } 
+    ::= { dmFcIdPersistencyTable 1 }
+
+DmFcIdPersistencyEntry ::= SEQUENCE {
+        dmFcIdPersistencyWwn       FcNameId,
+        dmFcIdPersistencyFcId      FcAddressId,
+        dmFcIdPersistencyNum       INTEGER,
+        dmFcIdPersistencyUsed      TruthValue,
+        dmFcIdPersistencyType      INTEGER,
+        dmFcIdPersistencyRowStatus RowStatus
+}
+
+dmFcIdPersistencyWwn OBJECT-TYPE
+    SYNTAX          FcNameId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is either the port WWN of the FC device if the
+        local port is a F_port  or WWN of the local port if the
+        local port is a FL_port. The local port is the port on
+        the local device to which the FC device is attached." 
+    ::= { dmFcIdPersistencyEntry 1 }
+
+dmFcIdPersistencyFcId OBJECT-TYPE
+    SYNTAX          FcAddressId
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The FC ID assigned for this WWN on this VSAN.
+
+        The third octet of this object must be '0x00' if
+        value of dmFcIdPersistencyNum is 'area'.
+
+        This object cannot be changed if either the value of
+        dmFcIdPersistencyUsed is 'true' or if the
+        new value being set is already assigned on this VSAN." 
+    ::= { dmFcIdPersistencyEntry 2 }
+
+dmFcIdPersistencyNum OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        one(1),
+                        area(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The number of FC IDs starting from
+        'dmFcIdPersistencyFcId' which are  assigned either
+        statically or dynamically for this WWN on this VSAN.
+
+        The value 'one' means just one FC ID is assigned.
+        The value 'area' means all the FC IDs in the area
+        that is specified in the second octet of
+        dmFcIdPersistencyFcId are assigned. Typically, 256
+        FC IDs are assigned for an area.
+
+        This object cannot be changed if the value of
+        dmFcIdPersistencyUsed is 'true'."
+    REFERENCE
+        "Refer to FC-SW-2 REV 5.4 Section 4.8 for information on
+              FC addressing."
+    DEFVAL          { one } 
+    ::= { dmFcIdPersistencyEntry 3 }
+
+dmFcIdPersistencyUsed OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates if this FC ID is used or not." 
+    ::= { dmFcIdPersistencyEntry 4 }
+
+dmFcIdPersistencyType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(1),
+                        dynamic(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The type of persistency of this FC ID."
+    DEFVAL          { static } 
+    ::= { dmFcIdPersistencyEntry 5 }
+
+dmFcIdPersistencyRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Status of this row.
+        An entry cannot be created until following object is
+        instantiated :
+        - dmFcIdPersistencyFcId
+        - dmFcIdPersistencyNum
+
+        Note that an entry cannot be deleted if the corresponding
+        dmFcIdPersistencyUsed is 'true'." 
+    ::= { dmFcIdPersistencyEntry 6 }
+ 
+
+-- IVR Domain List
+
+dmAllowedDomainIDListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DmAllowedDomainIDListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains list of allowed domain IDs in the
+        local VSANs. So in a VSAN, domain IDs can be assigned
+        only from the allowed list. All the domain IDs which
+        are not allowed are reserved.
+        Note that this is possible in a VSAN only if the local
+        device is the principal switch in that VSAN."
+    REFERENCE
+        "For information on principal switch, refer to
+         Fibre Channel SW-2 Rev 5.4 section 7.3 Principal
+         switch selection."
+    ::= { dmConfiguration 5 }
+
+dmAllowedDomainIDListEntry OBJECT-TYPE
+    SYNTAX          DmAllowedDomainIDListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in this table. Each entry
+        represents an domain ID list allowed in a VSAN."
+    INDEX           {
+                        vsanIndex,
+                        dmAllowedDomainIDListId
+                    } 
+    ::= { dmAllowedDomainIDListTable 1 }
+
+DmAllowedDomainIDListEntry ::= SEQUENCE {
+        dmAllowedDomainIDListId   Unsigned32,
+        dmAllowedDomainIDList     OCTET STRING,
+        dmAllowedDomainIDListUser SnmpAdminString
+}
+
+dmAllowedDomainIDListId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The identifier of the domain ID list." 
+    ::= { dmAllowedDomainIDListEntry 1 }
+
+dmAllowedDomainIDList OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object provides the lists of domains that are
+        allowed. Each octet within the value of the object
+        specifies a set of domains. The first octet specifies
+        domains 0 through 7. Similarly, the second octet
+        specifies domain 8 through 15. Within each octet, the
+        most significant bit represents the lowest numbered
+        domain and least significant bit represents the highest
+        numbered domain. Thus each domain, is represented by a
+        single bit within the value of this object. A domain is
+        allowed in this VSAN if the corresponding bit has a
+        value of '1'.
+
+        If this object has a value which is less than 32 bytes
+        long, then the domains which are not represented are not
+        considered to be in the list.
+
+        If this object is a zero-length string, then no domains
+        are allowed in this VSAN." 
+    ::= { dmAllowedDomainIDListEntry 2 }
+
+dmAllowedDomainIDListUser OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of the entity using this domain ID list on
+        this vsan." 
+    ::= { dmAllowedDomainIDListEntry 3 }
+ 
+
+-- Notifications
+
+dmNotification  OBJECT IDENTIFIER
+    ::= { dmNotificationPrefix 0 }
+
+
+dmDomainIdNotAssignedNotify NOTIFICATION-TYPE
+    OBJECTS         {
+                        notifyVsanIndex,
+                        cffFcFeElementName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "If a Domain ID is not configured or assigned on a
+        VSAN, then the switch may isolate E_ports on that
+        VSAN. The conditions are :
+        - If the Domain Manager is enabled on the local
+          switch and its request for a configured static
+          Domain ID is rejected or no other Domain ID is
+          assigned, then the E_ports are isolated.
+        - If the domain manager is not enabled and if a
+          static Domain ID is not configured on the VSAN,
+          then the switch will isolate all of its E_ports
+          on the VSAN.
+
+        This notification contains the vsanIndex of the VSAN
+        on which the condition happened."
+   ::= { dmNotification 1 }
+
+dmNewPrincipalSwitchNotify NOTIFICATION-TYPE
+    OBJECTS         {
+                        notifyVsanIndex,
+                        cffFcFeElementName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that the sending switch
+        has become the new Principal Switch on a VSAN. This
+        notification is sent soon after its election as the
+        new Principal Switch, i.e., upon expiration of a
+        Principal Switch selection timer which is equal to
+        twice Fabric  Stability Timeout value (F_S_TOV).
+
+        This notification contains the vsanIndex of the VSAN
+        on which the switch became the Principal Switch and
+        the WWN of the switch which became the Principal
+        Switch."
+   ::= { dmNotification 2 }
+
+dmFabricChangeNotify NOTIFICATION-TYPE
+    OBJECTS         { notifyVsanIndex }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent whenever a switch sends or
+        receives a Build Fabric (BF) or a ReConfigure Fabric
+        (RCF) message on a VSAN.
+
+        A switch can receive or issue a BuildFabric (BF) or a
+        ReConfigureFabric (RCF) message under following
+        conditions:
+        - A new link causes two disjoint fabrics in a VSAN to
+          merge into one fabric. The sent/received message is
+          BF if the Domain ID lists on the disjoint fabric
+          does not overlap and it is RCF if they overlap.
+        - An upsteam principal ISL which connects to Principal
+          switch and other switches in a VSAN fails. BF is
+          issued to see if there is an alternative path to
+          the Principal Switch. If not paths exit, then an RCF
+          is issued.
+        - A switch asks for a different set of Domain IDs
+          than the currently assigned list, the Principal
+          switch would issue an RCF.
+
+        The notification is not sent if a
+        'dmNewPrincipalSwitchNotify' notification is sent
+        for the same transition.
+        This notification contains the vsanIndex of the VSAN
+        on which RCF was issued."
+   ::= { dmNotification 3 }
+-- Conformance
+
+dmMIBCompliances  OBJECT IDENTIFIER
+    ::= { dmMIBConformance 1 }
+
+dmMIBGroups  OBJECT IDENTIFIER
+    ::= { dmMIBConformance 2 }
+
+
+dmMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the Domain Manager."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        dmGroup,
+                        dmDatabaseGroup,
+                        dmAreaGroup,
+                        dmCacheGroup,
+                        dmNotificationGroup
+                    }
+
+    OBJECT          dmIfRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-create
+    DESCRIPTION
+        "Only values 'createAndGo' 'destroy' and 'active' need
+        to be supported."
+    ::= { dmMIBCompliances 1 }
+
+dmMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the Domain Manager."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        dmGroupRev1,
+                        dmDatabaseGroup,
+                        dmAreaGroup,
+                        dmCacheGroup,
+                        dmNotificationGroup
+                    }
+
+    GROUP           dmFcIdPersistencyGroup
+    DESCRIPTION
+        "This group is manadatory for systems which support
+        FC ID persistency."
+
+    OBJECT          dmIfRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-create
+    DESCRIPTION
+        "Only values 'createAndGo' 'destroy' and 'active' need
+        to be supported."
+
+    OBJECT          dmFcIdPersistencyRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-create
+    DESCRIPTION
+        "Only values 'createAndGo' 'destroy' and 'active' need
+        to be supported."
+
+    OBJECT          dmFcIdPersistency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only access is needed for systems which does
+        not support FC ID Persistency feature. If they do,
+        read-create access is mandatory."
+
+    OBJECT          dmFcIdPurge
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only access is needed for systems which does
+        not support FC ID Persistency feature. If they do,
+        read-create access is mandatory."
+    ::= { dmMIBCompliances 2 }
+
+dmMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the Domain Manager."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        dmGroupRev1,
+                        dmDatabaseGroup,
+                        dmAreaGroup,
+                        dmCacheGroup,
+                        dmNotificationGroup
+                    }
+
+    GROUP           dmFcIdPersistencyGroup
+    DESCRIPTION
+        "This group is manadatory for systems which support
+        FC ID persistency."
+
+    GROUP           dmDomainIDAllowedGroup
+    DESCRIPTION
+        "This group is manadatory for systems which support
+        domain ID list configuration."
+
+    OBJECT          dmIfRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-create
+    DESCRIPTION
+        "Only values 'createAndGo' 'destroy' and 'active' need
+        to be supported."
+
+    OBJECT          dmFcIdPersistencyRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-create
+    DESCRIPTION
+        "Only values 'createAndGo' 'destroy' and 'active' need
+        to be supported."
+
+    OBJECT          dmFcIdPersistency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only access is needed for systems which does
+        not support FC ID Persistency feature. If they do,
+        read-create access is mandatory."
+
+    OBJECT          dmFcIdPurge
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only access is needed for systems which does
+        not support FC ID Persistency feature. If they do,
+        read-create access is mandatory."
+    ::= { dmMIBCompliances 3 }
+
+dmMIBCompliance3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the Domain Manager."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        dmGroupRev2,
+                        dmDatabaseGroup,
+                        dmAreaGroup,
+                        dmCacheGroup,
+                        dmNotificationGroup
+                    }
+
+    GROUP           dmFcIdPersistencyGroup
+    DESCRIPTION
+        "This group is manadatory for systems which support
+        FC ID persistency."
+
+    GROUP           dmDomainIDAllowedGroup
+    DESCRIPTION
+        "This group is manadatory for systems which support
+        domain ID list configuration."
+
+    OBJECT          dmIfRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-create
+    DESCRIPTION
+        "Only values 'createAndGo' 'destroy' and 'active' need
+        to be supported."
+
+    OBJECT          dmFcIdPersistencyRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-create
+    DESCRIPTION
+        "Only values 'createAndGo' 'destroy' and 'active' need
+        to be supported."
+
+    OBJECT          dmFcIdPersistency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only access is needed for systems which does
+        not support FC ID Persistency feature. If they do,
+        read-create access is mandatory."
+
+    OBJECT          dmFcIdPurge
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only access is needed for systems which does
+        not support FC ID Persistency feature. If they do,
+        read-create access is mandatory."
+    ::= { dmMIBCompliances 4 }
+
+-- Units of Conformance
+
+dmGroup OBJECT-GROUP
+    OBJECTS         {
+                        dmConfigDomainId,
+                        dmConfigDomainIdType,
+                        dmEnable,
+                        dmAutoReconfigure,
+                        dmContiguousAllocation,
+                        dmPriority,
+                        dmRestart,
+                        dmFabricName,
+                        dmPrincipalSwitchWwn,
+                        dmLocalSwitchWwn,
+                        dmAssignedAreaIdList,
+                        dmFcIdsGranted,
+                        dmFcIdsRecovered,
+                        dmFreeFcIds,
+                        dmAssignedFcIds,
+                        dmReservedFcIds,
+                        dmRunningPriority,
+                        dmPrincSwRunningPriority,
+                        dmState,
+                        dmPrincipalSwitchSelections,
+                        dmBuildFabrics,
+                        dmFabricReconfigures,
+                        dmDomainId,
+                        dmReConfFabricChangeNotifyEnable,
+                        dmIfRcfReject,
+                        dmIfRole,
+                        dmIfRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects for displaying and
+        configuring Domain Manager membership.
+        dmGroup object is superseded by dmGroupRev2."
+    ::= { dmMIBGroups 1 }
+
+dmDatabaseGroup OBJECT-GROUP
+    OBJECTS         { dmDatabaseSwitchWwn }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for displaying the Domain
+        database information."
+    ::= { dmMIBGroups 2 }
+
+dmAreaGroup OBJECT-GROUP
+    OBJECTS         { dmAreaAssignedPortIdList }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for displaying the Domain
+        area information."
+    ::= { dmMIBGroups 3 }
+
+dmCacheGroup OBJECT-GROUP
+    OBJECTS         {
+                        dmMaxFcIdCacheSize,
+                        dmFcIdCacheAreaIdPortId,
+                        dmFcIdCachePortIds
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for displaying the Domain
+        area information."
+    ::= { dmMIBGroups 4 }
+
+dmNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        dmDomainIdNotAssignedNotify,
+                        dmNewPrincipalSwitchNotify,
+                        dmFabricChangeNotify
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications for status monitoring
+        and notification."
+    ::= { dmMIBGroups 5 }
+
+dmGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        dmConfigDomainId,
+                        dmConfigDomainIdType,
+                        dmEnable,
+                        dmAutoReconfigure,
+                        dmContiguousAllocation,
+                        dmPriority,
+                        dmRestart,
+                        dmFabricName,
+                        dmPrincipalSwitchWwn,
+                        dmLocalSwitchWwn,
+                        dmAssignedAreaIdList,
+                        dmFcIdsGranted,
+                        dmFcIdsRecovered,
+                        dmFreeFcIds,
+                        dmAssignedFcIds,
+                        dmReservedFcIds,
+                        dmRunningPriority,
+                        dmPrincSwRunningPriority,
+                        dmState,
+                        dmPrincipalSwitchSelections,
+                        dmBuildFabrics,
+                        dmFabricReconfigures,
+                        dmDomainId,
+                        dmLocalPrincipalSwitchSelctns,
+                        dmReConfFabricChangeNotifyEnable,
+                        dmIfRcfReject,
+                        dmIfRole,
+                        dmIfRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects for displaying and
+        configuring Domain Manager membership.
+        dmGroupRev1 object is superseded by dmGroupRev2."
+    ::= { dmMIBGroups 6 }
+
+dmFcIdPersistencyGroup OBJECT-GROUP
+    OBJECTS         {
+                        dmFcIdPersistency,
+                        dmFcIdPurge,
+                        dmFcIdPersistencyFcId,
+                        dmFcIdPersistencyNum,
+                        dmFcIdPersistencyUsed,
+                        dmFcIdPersistencyType,
+                        dmFcIdPersistencyRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support FC ID persistency."
+    ::= { dmMIBGroups 7 }
+
+dmDomainIDAllowedGroup OBJECT-GROUP
+    OBJECTS         {
+                        dmAllowedDomainIDList,
+                        dmAllowedDomainIDListUser
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support domain ID
+        list feature."
+    ::= { dmMIBGroups 8 }
+
+dmGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        dmConfigDomainId,
+                        dmConfigDomainIdType,
+                        dmEnable,
+                        dmAutoReconfigure,
+                        dmContiguousAllocation,
+                        dmPriority,
+                        dmRestart,
+                        dmFabricName,
+                        dmPrincipalSwitchWwn,
+                        dmLocalSwitchWwn,
+                        dmAssignedAreaIdList,
+                        dmFcIdsGranted,
+                        dmFcIdsRecovered,
+                        dmFreeFcIds,
+                        dmAssignedFcIds,
+                        dmReservedFcIds,
+                        dmRunningPriority,
+                        dmPrincSwRunningPriority,
+                        dmState,
+                        dmPrincipalSwitchSelections,
+                        dmBuildFabrics,
+                        dmFabricReconfigures,
+                        dmDomainId,
+                        dmLocalPrincipalSwitchSelctns,
+                        dmReConfFabricChangeNotifyEnable,
+                        dmIfRcfReject,
+                        dmIfRole,
+                        dmIfRowStatus,
+                        dmOptimize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for displaying and
+        configuring Domain Manager membership."
+    ::= { dmMIBGroups 9 }
+
+END
+
+

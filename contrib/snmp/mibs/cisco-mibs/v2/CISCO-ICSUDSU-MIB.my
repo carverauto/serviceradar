@@ -1,0 +1,1029 @@
+-- *****************************************************************
+-- CISCO-ICSUDSU-MIB.my: Integrated CSU/DSU MIB file
+--
+-- March 1996, David Williams
+--
+-- Copyright (c) 1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ICSUDSU-MIB
+DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Counter32,
+        Integer32,
+        TimeTicks
+                FROM SNMPv2-SMI
+        DisplayString,
+        TruthValue,
+        TimeStamp
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ifIndex
+                FROM RFC1213-MIB
+        dsx1ConfigEntry
+                FROM RFC1406-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+ciscoICsuDsuMIB MODULE-IDENTITY
+        LAST-UPDATED    "9601210000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "Integrated CSU/DSU MIB module.  For T1 and Switched 56 kbps
+                        interfaces."
+        ::= { ciscoMgmt 44 }
+
+ciscoICsuDsuObjects        OBJECT IDENTIFIER ::= { ciscoICsuDsuMIB 1 }
+
+ciscoICsuDsuGeneral        OBJECT IDENTIFIER ::= { ciscoICsuDsuObjects 1 }
+
+ciscoICsuDsuT1             OBJECT IDENTIFIER ::= { ciscoICsuDsuObjects 2 }
+
+ciscoICsuDsuSw56k          OBJECT IDENTIFIER ::= { ciscoICsuDsuObjects 3 }
+
+
+--****************************************************************************
+-- The CSU/DSU Static Configuration Group
+--****************************************************************************
+
+ciscoICsuDsuStaticConfigTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiscoICsuDsuStaticConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The CSU/DSU Static Configuration Table.  Contains items
+                that are statically configured and can not be changed by end
+                user without physically changing the CSU/DSU."
+        ::= { ciscoICsuDsuGeneral 1 }
+
+ciscoICsuDsuStaticConfigEntry OBJECT-TYPE
+        SYNTAX      CiscoICsuDsuStaticConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the static configuration table for each
+                integrated CSU/DSU."
+        INDEX   { ifIndex }
+        ::= { ciscoICsuDsuStaticConfigTable 1 }
+
+CiscoICsuDsuStaticConfigEntry ::=
+        SEQUENCE {
+                ciscoICsuDsuType                  INTEGER,
+                ciscoICsuDsuHwRevision            DisplayString (SIZE (1..16)),
+                ciscoICsuDsuSwRevision            DisplayString (SIZE (1..16)),
+                ciscoICsuDsuProtocolRevision      DisplayString (SIZE (1..16))
+         }
+
+ciscoICsuDsuType OBJECT-TYPE
+        SYNTAX INTEGER {
+                fractionalT1         (1),
+                twoWireSwitched56k   (2),
+                fourWireSwitched56k  (3),
+                unknown              (4)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Specifies the type of line interface or CSU/DSU."
+        ::= { ciscoICsuDsuStaticConfigEntry 1 }
+
+ciscoICsuDsuHwRevision OBJECT-TYPE
+        SYNTAX     DisplayString (SIZE (1..16))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The CSU/DSU hardware revision."
+        ::= { ciscoICsuDsuStaticConfigEntry 2 }
+
+ciscoICsuDsuSwRevision OBJECT-TYPE
+        SYNTAX     DisplayString (SIZE (1..16))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The CSU/DSU software revision."
+        ::= { ciscoICsuDsuStaticConfigEntry 3 }
+
+ciscoICsuDsuProtocolRevision OBJECT-TYPE
+        SYNTAX     DisplayString (SIZE (1..16))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Protocol Revision of the CSU/DSU."
+        ::= { ciscoICsuDsuStaticConfigEntry 4 }
+
+
+
+--****************************************************************************
+-- The CSU/DSU Test Report Group
+--****************************************************************************
+
+ciscoICsuDsuTestReportTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiscoICsuDsuTestReportEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The CSU/DSU test report Table.  Contains the results of user
+                initiated tests, including selftest, reset, and loopback."
+        ::= { ciscoICsuDsuGeneral 2 }
+
+ciscoICsuDsuTestReportEntry OBJECT-TYPE
+        SYNTAX      CiscoICsuDsuTestReportEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the test report table for each integrated 
+                CSU/DSU."
+        INDEX   { ifIndex }
+        ::= { ciscoICsuDsuTestReportTable 1 }
+
+CiscoICsuDsuTestReportEntry ::=
+        SEQUENCE {
+                ciscoICsuDsuLastSelfTestResult    Integer32,
+                ciscoICsuDsuTimeOfLastSelfTest    TimeStamp,
+                ciscoICsuDsuNumResets             Counter32,
+                ciscoICsuDsuTimeOfLastReset       TimeStamp,
+                ciscoICsuDsuLoopbackStatus        INTEGER,
+                ciscoICsuDsuLoopbackNumErrors     Integer32,
+                ciscoICsuDsuLoopbackDuration      TimeTicks,
+                ciscoICsuDsuLoopbackPoint         INTEGER,
+                ciscoICsuDsuLoopbackPattern       INTEGER,
+                ciscoICsuDsuUserDefinedPattern    DisplayString (SIZE (1..24)),
+                ciscoICsuDsuLoopbackCode          INTEGER,
+                ciscoICsuDsuEndTimeOfLastLoopback TimeStamp
+        }
+
+ciscoICsuDsuLastSelfTestResult OBJECT-TYPE
+        SYNTAX Integer32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The result of the last self test.  Represented as a sum of 
+                a bit map.  The variable bit positions are:
+                1 - Flash Checksum bad.  Catastrophic error.
+                2 - EPROM Checksum bad.  Catastrophic error.
+                4 - RAM Tests failed.  Catastrophic error.
+                8 - ROM Checksum bad.  Catastrophic error.
+                16 - DteLoss.  Could not put DTE into loopback.  
+                        NonCatastrophic error. 
+                32 - patternLossDuringTest.  Put DTE into loopback but found 
+                        BERT errors.  NonCatastrophic error."
+        ::= { ciscoICsuDsuTestReportEntry 1 }
+
+ciscoICsuDsuTimeOfLastSelfTest OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "SysUpTime of LastSelfTest execution."
+        ::= { ciscoICsuDsuTestReportEntry 2 }
+
+ciscoICsuDsuNumResets OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times CSU/DSU has been reset."
+        ::= { ciscoICsuDsuTestReportEntry 3 }
+
+ciscoICsuDsuTimeOfLastReset OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "SysUpTime of last CSU/DSU reset."
+        ::= { ciscoICsuDsuTestReportEntry 4 }
+
+ciscoICsuDsuLoopbackStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                completed      		(1),
+                inProgress     		(2),
+                neverPerformed 		(3),
+                failed         		(4),
+                noSyncWithTestPattern	(5)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Current Status of Loopback.  Remaining Loopback results
+                are valid only if status is 'completed' or 'failed' or
+                'noSyncWithTestPattern'."
+        ::= { ciscoICsuDsuTestReportEntry 5 }
+
+ciscoICsuDsuLoopbackNumErrors OBJECT-TYPE
+        SYNTAX     Integer32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Number of Bit errors that occurred in last successful loopback 
+                test.  Valid only if remote loopback with pattern was 
+                performed and a sync was achieved on the test pattern."
+        ::= { ciscoICsuDsuTestReportEntry 6 }
+
+ciscoICsuDsuLoopbackDuration OBJECT-TYPE
+        SYNTAX     TimeTicks
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Duration of last successful loopback test in hundredths of 
+                seconds.  Note that it is possible for the CSU/DSU to lose 
+                framing during the test.  If so, the duration represents the 
+                time between reframing and end of test.  This simply means 
+                that the start time of last loopback cannot be calculated by 
+                subtracting this duration from the end time of last loopback."
+        ::= { ciscoICsuDsuTestReportEntry 7 }
+
+ciscoICsuDsuLoopbackPoint OBJECT-TYPE
+        SYNTAX INTEGER {
+                dtePayload                (1),
+                dteFull                   (2),
+                lineFull                  (3),
+                linePayload               (4),
+                remoteSmartJack           (5),
+                remoteFull                (6),
+                remotePayload             (7)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Point in network where last loopback was performed.
+
+                 Meaning for t1 CSU/DSU:
+                 dtePayload - local DSU loopback.  The configured 'fractions'
+                        of the DS1 signal is looped back as the receive signal.
+                        Used to verify operation of DSU portion of local 
+                        CSU/DSU.
+                 dteFull - local CSU loopback.  DS1 transmit signal is looped
+                        back as the receive signal.  Runs at full bandwidth
+                        irrespective of fractions configured.  Used to verify 
+                        operation of local CSU/DSU.
+                 lineFull - DS1 signal received from the network is transmitted
+                        back to the network.  Signal is regenerated but not 
+                        reframed.  Loopback performed at the CSU.  Used to 
+                        verify operation of T1 network.
+                 linePayload - DS1 signal received from the network is
+                        transmitted back to the network.  Data is regenerated
+                        and reframed with any LCV or CRC errors corrected.
+                        Loopback performed at the DSU.  Used to verify 
+                        operation of local CSU/DSU and T1 network. 
+                 remoteSmartJack - the remote smart jack (telco installed wall
+                        socket device used to delineate network between CPE and
+                        telco equipment) is used to loopback the DS1 signal.  
+                        Similar to remoteFull loopback except that the signal 
+                        is looped at the smart jack before reaching remote 
+                        CSU/DSU.   Used to verify operation of local CSU/DSU 
+                        and T1 network.  
+                 remoteFull - remote unit placed in lineFull loopback.  
+                        Used to verify operation of local CSU/DSU and T1 
+                        network. 
+                 remotePayload - remote unit placed in linePayload loopback
+                        Used to verify operation of local CSU/DSU, T1 network, 
+                        and remote CSU/DSU.
+
+                 Meaning for switched 56k CSU/DSU:
+                 dteFull - local CSU loopback.  Transmit signal is looped back
+                        as the receive signal at a point close to the physical
+                        network interface.  Used to verify operation of local
+                        CSU/DSU.
+                 lineFull - CSU/DSU is split into separate DTE and loop 
+                        interface sections.  Signal received from the network 
+                        is transmitted back to the network.  Data received 
+                        from DTE is transmitted back to DTE.  Used to verify 
+                        operation of local CSU/DSU and network from remote site.
+                 linePayload - Signal received from the network is looped
+                        back at the DTE interface and transmitted back to the 
+                        network.  Data received from DTE is ignored.  Used to
+                        verify operation of local CSU/DSU and network from 
+                        remote site.  
+                 remotePayload - Similar to linePayload except that the
+                        remote unit is placed into loopback.  Used to verify
+                        operation of local CSU/DSU, T1 network, and remote
+                        CSU/DSU. 
+                 "
+        ::= { ciscoICsuDsuTestReportEntry 8 }
+
+ciscoICsuDsuLoopbackPattern OBJECT-TYPE
+        SYNTAX INTEGER {
+                noPattern            (1),
+                patternQRW           (2),
+                pattern0In1          (3),
+                pattern1In1          (4),
+                pattern1In2          (5),
+                pattern1In3          (6),
+                pattern1In5          (7),
+                pattern1In8          (8),
+                pattern3In24         (9),
+                patternUser          (10),
+                pattern2047          (11),
+                pattern511           (12),
+                patternStressDDS1    (13),
+                patternStressDDS2    (14),
+                patternStressDDS3    (15),
+                patternStressDDS4    (16)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Test pattern used for locally initiated remote loopback.
+                 Valid only if a remote loopback was last performed.
+
+                 Following patterns valid for T1 or Switched 56k CSU/DSU:
+                 noPattern - no specific pattern is used, data provided by
+                         the DTE.  Used to loopback transmit data.
+
+                 Following patterns only valid for T1 CSU/DSU:
+                 patternQRW - Quasi-Random Word pattern.  Specifically used to
+                         measure Bit Error Rates.
+                 pattern0In1 - repeated binary pattern of '0' or all zeros.
+                         Typically used for verification of B8ZS optioning
+                         of the T1 facility.
+                 pattern1In1 - repeated binary pattern of '1' or all ones.
+                         Typically used for signal power measurements.
+                 pattern1In2 - repeated binary pattern of '01'.  Typically
+                         used in testing for bridge taps.
+                 pattern1In3 - repeated binary pattern of '001'.  Typically
+                         used to terminate a remote loopback.
+                 pattern1In5 - repeated binary pattern of '00001'.  Typically
+                         used to put the remote unit in loopback.
+                 pattern1In8 - repeated binary pattern of '00000001'.
+                         Typically used to stress the timing recovery circuits
+                         of repeaters and other intermediate equipment.
+                 pattern3In24 - repeated binary pattern of
+                         '000000000000000000000111' or hex '000007'.
+                         Typically used to test for one's density
+                         (consecutive zeros) tolerance on AMI lines.
+                 patternUser - user defined pattern.
+
+                 Following patterns only valid for Switched 56k CSU/DSU:
+                 pattern2047 - 2047 bit long pseudorandom pattern containing a 
+                        maximum of 10 sequential zeros and 11 sequential ones.
+                 pattern511 - 511 bit long pseudorandom pattern containing a 
+                        maximum of 8 sequential zeros and 9 sequential ones.
+                 patternStressDDS1 - DDS Stress test pattern #1.
+                 patternStressDDS2 - DDS Stress test pattern #2.
+                 patternStressDDS3 - DDS Stress test pattern #3.
+                 patternStressDDS4 - DDS Stress test pattern #4."
+        ::= { ciscoICsuDsuTestReportEntry 9 }
+
+ciscoICsuDsuUserDefinedPattern OBJECT-TYPE
+        SYNTAX     DisplayString (SIZE (1..24))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "User Defined Loopback Pattern.  Valid only if 
+                ciscoICsuDsuLoopbackPattern is patternUser."
+        ::= { ciscoICsuDsuTestReportEntry 10 }
+
+ciscoICsuDsuLoopbackCode OBJECT-TYPE
+        SYNTAX INTEGER {
+                standard     (1),
+                alternate    (2),
+                v54          (3)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "LoopCode used to initiate last remote loopback.  Valid only 
+                if a only if a remote loopback was last performed.
+                standard - standard loopback code.  Usually consists of the 
+                       repeated binary pattern of '00001'
+                alternate - alternate loopback code.  Usually the inverse of 
+                       the standard pattern or '11110'.
+                v54 - V.54 pattern.  Used for fractional loopback."
+        ::= { ciscoICsuDsuTestReportEntry 11 }
+
+ciscoICsuDsuEndTimeOfLastLoopback OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "SysUpTime of completion of last loopback test execution."
+        ::= { ciscoICsuDsuTestReportEntry 12 }
+
+--****************************************************************************
+-- The T1 CSU/DSU Module Configuration Group
+--****************************************************************************
+
+ciscoICsuDsuT1ConfigTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiscoICsuDsuT1ConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The T1 CSU/DSU Unit Configuration Table.  Contains current
+                T1 CSU/DSU configuration parameters not covered by RFC1406."
+        ::= { ciscoICsuDsuT1 1 }
+
+ciscoICsuDsuT1ConfigEntry OBJECT-TYPE
+        SYNTAX      CiscoICsuDsuT1ConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the configuration table for each integrated 
+                T1 CSU/DSU."
+        AUGMENTS { dsx1ConfigEntry }
+        ::= { ciscoICsuDsuT1ConfigTable 1 }
+
+CiscoICsuDsuT1ConfigEntry ::=
+        SEQUENCE {
+                ciscoICsuDsuT1LineBuildOut                     INTEGER,
+                ciscoICsuDsuT1DteLineCode                      INTEGER,
+                ciscoICsuDsuT1SupportRemoteAlarmIndication     TruthValue,
+                ciscoICsuDsuT1FullBandwidthRemoteLoopcode      INTEGER,
+                ciscoICsuDsuT1PayloadRemoteLoopcode            INTEGER
+        }
+
+ciscoICsuDsuT1LineBuildOut OBJECT-TYPE
+        SYNTAX INTEGER {
+                buildOut0    (1),
+                buildOut7p5  (2),
+                buildOut15   (3)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Line build out (LBO) is loss inserted by the CSU
+                 in order to meet the 15 to 22.5 dB loss requirement
+                 of the premises remote-end section.   Selected so
+                 that (phone company loss) + (cable length loss) +
+                 (line build out) is greater that 15dB but less than
+                 22.5 dB.
+                 buildOut0 means insert 0 dB.
+                 buildOut7p5 means insert 7.5 dB.
+                 buildOut15 means insert 15 dB."
+        ::= { ciscoICsuDsuT1ConfigEntry 1 }
+
+ciscoICsuDsuT1DteLineCode OBJECT-TYPE
+        SYNTAX INTEGER {
+                normal   (1),
+                inverted (2)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Indicates whether the DTE line code is inverted or not.
+                When fractional timeslots are configured for 64kps and AMI 
+                linecode, a combination of inverting the DTE line code along 
+                with the proper line protocol (i.e. HDLC/SDLC) may be necessary
+                to meet the ones density constraint."
+        ::= { ciscoICsuDsuT1ConfigEntry 2 }
+
+ciscoICsuDsuT1SupportRemoteAlarmIndication OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Determines if unit will generate or detect a remote alarm
+                indication (RAI) signal which is also known as a yellow alarm.
+                In D4 framing format, DTE equipment (including Frame Relay 
+                equipment) that is using the HDLC or SDLC protocol may 
+                generate patterns as part of its normal traffic.   These 
+                patterns may be interpreted as yellow alarms and disrupt data
+                traffic."    
+        ::= { ciscoICsuDsuT1ConfigEntry 3 }
+
+ciscoICsuDsuT1FullBandwidthRemoteLoopcode OBJECT-TYPE
+        SYNTAX INTEGER {
+                standard     (1),
+                alternate    (2),
+                disabled     (3)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "LoopCode to be accepted from remote end to place unit in 
+                and out of full bandwidth loopback. 
+                standard - standard loopback code.  Usually consists of the 
+                       repeated binary pattern of '00001'
+                alternate - alternate loopback code.  Usually the inverse of 
+                       the standard pattern or '11110'.
+                disabled - No code is accepted, disabling an request for 
+                       remote loopback."
+        ::= { ciscoICsuDsuT1ConfigEntry 4 }
+
+ciscoICsuDsuT1PayloadRemoteLoopcode OBJECT-TYPE
+        SYNTAX INTEGER {
+                standard     (1),
+                alternate    (2),
+                disabled     (3),
+                v54          (4)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "LoopCode to be accepted from remote end to place unit in 
+                and out of payload or fractional loopback. 
+                standard - standard loopback code.  Usually consists of the 
+                       repeated binary pattern of '00001'
+                alternate - alternate loopback code.  Usually the inverse of 
+                       the standard pattern or '11110'.
+                disabled - No code is accepted, disabling an request for 
+                       remote loopback.
+                v54 - V.54 pattern.  Used for fractional loopback."
+        ::= { ciscoICsuDsuT1ConfigEntry 5 }
+
+--****************************************************************************
+-- The T1 CSU/DSU Status Group
+--****************************************************************************
+
+ciscoICsuDsuT1StatusTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiscoICsuDsuT1StatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The T1 CSU/DSU Unit Status Table.  Contains information about
+                the status of the CSU/DSU, including externally generated
+                alarm conditions."
+        ::= { ciscoICsuDsuT1 2 }
+
+ciscoICsuDsuT1StatusEntry OBJECT-TYPE
+        SYNTAX      CiscoICsuDsuT1StatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the status table for each integrated T1 CSU/DSU."
+        INDEX   { ifIndex }
+        ::= { ciscoICsuDsuT1StatusTable 1 }
+
+CiscoICsuDsuT1StatusEntry ::=
+        SEQUENCE {
+                ciscoICsuDsuT1LoopStatus              Integer32,
+                ciscoICsuDsuT1LossOfSignals           Counter32,
+                ciscoICsuDsuT1LossOfFrames            Counter32,
+                ciscoICsuDsuT1RemoteAlarmIndications  Counter32,
+                ciscoICsuDsuT1AlarmIndicationSignals  Counter32
+        }
+
+ciscoICsuDsuT1LoopStatus OBJECT-TYPE
+        SYNTAX      Integer32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Current Loop status of T1 CSU/DSU.  Represented as a sum of
+                a bit map.  The variable bit positions are:
+                1 - lossofSignal (LOS); unable to detect the DS1 signal.
+                2 - lossofFrame (LOF); unable to synchronize on the DS1
+                        signal.
+                4 - detectedRemoteAlarmIndication (RAI); indicates that the
+                        transmitting equipment has lost its incoming signal.
+                        RAI is commonly called yellow alarm.
+                8 - detectedAlarmIndicationSignal (AIS); indicates that there
+                        is a transmission interruption located either at the
+                        equipment originating the AIS signal or upstream of
+                        that equipment.  Indicated by an unframed, all-'ones'
+                        signal.  Also known as blue alarm.
+                16 - placedInLoopback;  Line placed in loopback from remote."
+        ::= { ciscoICsuDsuT1StatusEntry 1 }
+
+ciscoICsuDsuT1LossOfSignals OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times lossofSignal event detected."
+        ::= { ciscoICsuDsuT1StatusEntry 2 }
+
+ciscoICsuDsuT1LossOfFrames OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times lossofFrame event detected."
+        ::= { ciscoICsuDsuT1StatusEntry 3 }
+
+ciscoICsuDsuT1RemoteAlarmIndications OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times RemoteAlarmIndication signal or yellow alarm
+                received."
+        ::= { ciscoICsuDsuT1StatusEntry 4 }
+
+ciscoICsuDsuT1AlarmIndicationSignals OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times Alarm Indication Signal or blue alarm
+                received."
+        ::= { ciscoICsuDsuT1StatusEntry 5 }
+
+
+--****************************************************************************
+-- The Sw56k CSU/DSU Module Configuration Group
+--****************************************************************************
+
+ciscoICsuDsuSw56kConfigTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiscoICsuDsuSw56kConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The Switched 56k CSU/DSU Configuration Table.  Contains
+                current Sw56k CSU/DSU configuration parameters."
+        ::= { ciscoICsuDsuSw56k 1 }
+
+ciscoICsuDsuSw56kConfigEntry OBJECT-TYPE
+        SYNTAX      CiscoICsuDsuSw56kConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the sw56k configuration table for each integrated
+                switched 56 kbps CSU/DSU."
+        INDEX   { ifIndex }
+        ::= { ciscoICsuDsuSw56kConfigTable 1 }
+
+CiscoICsuDsuSw56kConfigEntry ::=
+        SEQUENCE {
+                ciscoICsuDsuSw56kNetworkType                INTEGER,
+                ciscoICsuDsuSw56kClockSource                INTEGER,
+                ciscoICsuDsuSw56kLoopRate                   INTEGER,
+                ciscoICsuDsuSw56kScramblerEnabled           TruthValue,
+                ciscoICsuDsuSw56kRemoteLoopbackEnabled      TruthValue
+        }
+
+ciscoICsuDsuSw56kNetworkType OBJECT-TYPE
+        SYNTAX INTEGER {
+                dds          (1),
+                att          (2),
+                sprint       (3),
+                otherCarrier (4)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Configures the DSU Module for the specific type of network
+                being used.
+                dds - AT&T's Dataphone Digital Service, generically known
+                        as Digital Data System.  Requires 4-Wire interface.
+                att - AT&T's Switched 56 Network.  Operates over 2-Wire or
+                        or 4-Wire interface.
+                sprint - Sprint Switched 56 Network.  Operates over 2-Wire or
+                        4-Wire interface.
+                otherCarrier - Other carrier being used."
+        ::= { ciscoICsuDsuSw56kConfigEntry 1 }
+
+ciscoICsuDsuSw56kClockSource OBJECT-TYPE
+        SYNTAX INTEGER {
+                internal (1),
+                line     (2)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Specifies the timing source for the DSU.  'internal' 
+                indicates timing provided by DSU.  'line' indicates timing 
+                provided by network receive signal."
+        ::= { ciscoICsuDsuSw56kConfigEntry 2 }
+
+ciscoICsuDsuSw56kLoopRate OBJECT-TYPE
+        SYNTAX INTEGER {
+                bps2400  (1),
+                bps4800  (2),
+                bps9600  (3),
+                bps19k   (4),
+                bps38k   (5),
+                bps56k   (6),
+                bps64k   (7)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Loop Rate option selects the network loop operating
+                speed.  Only 'ciscoICsuDsuSw56kNetworkType' of 'dds' supports 
+                all listed loop rates.  'att' and 'sprint' network types only
+                support 'bps56k' or 56 kilobits per second."
+        ::= { ciscoICsuDsuSw56kConfigEntry 3 }
+
+ciscoICsuDsuSw56kScramblerEnabled OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Indicates if line code scrambling is enabled.  Scrambling is
+                used to prevent DTE data sequences that minic network loop
+                maintenance functions from activating loopback.
+                Only supported when operating in DDS mode at 64kbps (also
+                known as clear channel mode)."
+        ::= { ciscoICsuDsuSw56kConfigEntry 4 }
+
+ciscoICsuDsuSw56kRemoteLoopbackEnabled OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Indicates if a request for Remote Digital Loopback is
+                will be accepted."
+        ::= { ciscoICsuDsuSw56kConfigEntry 5 }
+
+
+--****************************************************************************
+-- The Sw56k CSU/DSU Module Status Group
+--****************************************************************************
+
+ciscoICsuDsuSw56kLineStatusTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CiscoICsuDsuSw56kLineStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The Sw56k CSU/DSU Status Table.  Contains information about
+                the status of the CSU/DSU, including externally generated
+                alarm conditions."
+        ::= { ciscoICsuDsuSw56k 2 }
+
+ciscoICsuDsuSw56kLineStatusEntry OBJECT-TYPE
+        SYNTAX      CiscoICsuDsuSw56kLineStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the sw56k status table for each integrated 
+                switched 56 kbps CSU/DSU."
+        INDEX   { ifIndex }
+        ::= { ciscoICsuDsuSw56kLineStatusTable 1 }
+
+CiscoICsuDsuSw56kLineStatusEntry ::=
+        SEQUENCE {
+                ciscoICsuDsuSw56kDialingStatus        INTEGER,
+                ciscoICsuDsuSw56kLoopStatus           Integer32,
+                ciscoICsuDsuSw56kReceivedOosOofs      Counter32,
+                ciscoICsuDsuSw56kLostSealingCurrents  Counter32,
+                ciscoICsuDsuSw56kLostReceiveSignals   Counter32,
+                ciscoICsuDsuSw56kLostFrameSyncs       Counter32,
+                ciscoICsuDsuSw56kLoopRateSearches     Counter32
+        }
+
+ciscoICsuDsuSw56kDialingStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                idle             (1),
+                dialing          (2),
+                online           (3),
+                noWinkFromSwitch (4),
+                numberBusy       (5),
+                noAnswer         (6)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This variable indicates the dialing status of units using 
+                switched connections.
+                idle - on-hook and no call in progress.
+                dialing - dialing a number.
+                onLine - Online passing data.
+                noWinkFromSwitch - No wink from switch (cleared after 5 
+                     seconds).  Wink is a DC signalling method in which the 
+                     polarity of the line is temporarily reversed and then 
+                     returned to its original polarity as an acknowledgement. 
+                numberBusy - Number is busy (cleared after 5 seconds).
+                noAnswer - No answer. (cleared after 5 seconds)."
+        ::= { ciscoICsuDsuSw56kLineStatusEntry 1 }
+
+ciscoICsuDsuSw56kLoopStatus OBJECT-TYPE
+        SYNTAX      Integer32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Current loop status or alarm condition.  Represented as a sum 
+                of a bit map.  The variable bit positions are:
+
+                1   oosOofFromNetwork - The DSU is receiving Out of Service/
+                        Out of Frame code from network indicating network
+                        trouble.  This can be a problem with a device at the
+                        remote DSU.  The most common cause of the this error
+                        is either the remote DSU is powered off or the remote
+                        telco connection is open.
+                2   noReceiveSignal - The DSU has detected sealing current from
+                        the central office but the receive level is below
+                        -45db.
+                4   noSealingCurrent - the DSU does not detect sealing current
+                        on the loop interface.  This is normal for a private
+                        network.
+                8   noFrameSync - At 64k data rate the local loop operates at
+                        72k with a framing pattern added to maintain byte
+                        alignment with the network.  This condition is reported
+                        if the DSU cannot find the framing pattern.
+                16  attemptingToRateAdap - Set in 'autorate' mode when the DSU
+                        is searching for the loop rate.
+                32  rtTestFromTelco - Set when the DSU in telco initiated RT
+                        test.
+                64  llTestFromTelco - Set when the DSU in telco initiated LL
+                        test or when the transmit and receive pairs are
+                        reversed.
+                128 rdlFromRemoteDSU - Set when remote digital loopback
+                        initiated from remote DSU."
+        ::= { ciscoICsuDsuSw56kLineStatusEntry 2 }
+
+ciscoICsuDsuSw56kReceivedOosOofs OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times OOS/OOF (Out Of Sync / Out Of Frame) code
+                received."
+        ::= { ciscoICsuDsuSw56kLineStatusEntry 3 }
+
+ciscoICsuDsuSw56kLostSealingCurrents OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times Lost Sealing Current."
+        ::= { ciscoICsuDsuSw56kLineStatusEntry 4 }
+
+ciscoICsuDsuSw56kLostReceiveSignals OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times lost receive signal."
+        ::= { ciscoICsuDsuSw56kLineStatusEntry 5 }
+
+ciscoICsuDsuSw56kLostFrameSyncs OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times lost frame synchronization."
+        ::= { ciscoICsuDsuSw56kLineStatusEntry 6 }
+
+ciscoICsuDsuSw56kLoopRateSearches OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of times attempted Loop Rate Search."
+        ::= { ciscoICsuDsuSw56kLineStatusEntry 7 }
+
+
+--****************************************************************************
+-- Notification Enables
+--****************************************************************************
+
+ciscoICsuDsuMIBNotificationEnables  OBJECT IDENTIFIER ::= { ciscoICsuDsuMIB 2 }
+
+ciscoICsuDsuEnableT1LoopStatusNotification OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Indicates whether or not a T1 Alarm Notification will be
+                generated by this system."
+        DEFVAL { false }
+        ::= { ciscoICsuDsuMIBNotificationEnables 1 }
+
+ciscoICsuDsuEnableSw56kLoopStatusNotification OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Indicates whether or not a Sw56k Alarm Notification will be
+                generated by this system."
+        DEFVAL { false }
+        ::= { ciscoICsuDsuMIBNotificationEnables 2 }
+
+
+
+--****************************************************************************
+-- Notifications
+--****************************************************************************
+
+ciscoICsuDsuMIBNotificationPrefix
+        OBJECT IDENTIFIER ::= { ciscoICsuDsuMIB 3 }
+ciscoICsuDsuMIBNotifications
+        OBJECT IDENTIFIER ::= { ciscoICsuDsuMIBNotificationPrefix 0 }
+
+
+ciscoICsuDsuT1LoopStatusNotification NOTIFICATION-TYPE
+        OBJECTS { ciscoICsuDsuT1LoopStatus }
+        STATUS current
+        DESCRIPTION
+                "Indicates a change in T1 Loop Status."
+        ::= { ciscoICsuDsuMIBNotifications 1 }
+
+ciscoICsuDsuSw56kLoopStatusNotification NOTIFICATION-TYPE
+        OBJECTS { ciscoICsuDsuSw56kLoopStatus }
+        STATUS current
+        DESCRIPTION
+                "Indicates a change in Sw56k Loop Status."
+        ::= { ciscoICsuDsuMIBNotifications 2 }
+
+--****************************************************************************
+-- Conformance and compliance statements
+--****************************************************************************
+
+ciscoICsuDsuMIBConformance
+        OBJECT IDENTIFIER ::= { ciscoICsuDsuMIB 4 }
+ciscoICsuDsuMIBCompliances
+        OBJECT IDENTIFIER ::= { ciscoICsuDsuMIBConformance 1 }
+ciscoICsuDsuMIBGroups
+        OBJECT IDENTIFIER ::= { ciscoICsuDsuMIBConformance 2 }
+
+
+ciscoICsuDsuMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the Cisco Integrated CSU/DSU MIB"
+        MODULE  -- compliance to this module
+                MANDATORY-GROUPS {
+                        ciscoICsuDsuMIBGroup
+                }
+
+                GROUP ciscoICsuDsuMIBT1Group
+                DESCRIPTION
+                        "The T1 group is mandatory for devices that have a t1 
+                        interface."
+
+                GROUP ciscoICsuDsuMIBSw56kGroup
+                DESCRIPTION
+                        "The Sw56k group is mandatory for devices that have a 
+                        Sw56k interface."
+        ::= { ciscoICsuDsuMIBCompliances 1 }
+
+
+ciscoICsuDsuMIBGroup OBJECT-GROUP
+        OBJECTS {
+                ciscoICsuDsuType,
+                ciscoICsuDsuHwRevision,
+                ciscoICsuDsuSwRevision,
+                ciscoICsuDsuProtocolRevision,
+                ciscoICsuDsuLastSelfTestResult,
+                ciscoICsuDsuTimeOfLastSelfTest,
+                ciscoICsuDsuNumResets,
+                ciscoICsuDsuTimeOfLastReset,
+                ciscoICsuDsuLoopbackStatus,
+                ciscoICsuDsuLoopbackNumErrors,
+                ciscoICsuDsuLoopbackDuration,
+                ciscoICsuDsuLoopbackPoint,
+                ciscoICsuDsuLoopbackPattern,
+                ciscoICsuDsuUserDefinedPattern,
+                ciscoICsuDsuLoopbackCode,
+                ciscoICsuDsuEndTimeOfLastLoopback
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing general information
+                about the integrated CSU/DSU."
+        ::= { ciscoICsuDsuMIBGroups 1 }
+
+ciscoICsuDsuMIBT1Group OBJECT-GROUP
+        OBJECTS {
+                ciscoICsuDsuT1LineBuildOut,
+                ciscoICsuDsuT1DteLineCode,
+                ciscoICsuDsuT1SupportRemoteAlarmIndication,
+                ciscoICsuDsuT1FullBandwidthRemoteLoopcode,
+                ciscoICsuDsuT1PayloadRemoteLoopcode,
+                ciscoICsuDsuT1LoopStatus,
+                ciscoICsuDsuT1LossOfSignals,
+                ciscoICsuDsuT1LossOfFrames,
+                ciscoICsuDsuT1RemoteAlarmIndications,
+                ciscoICsuDsuT1AlarmIndicationSignals,
+                ciscoICsuDsuEnableT1LoopStatusNotification
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing information specific to
+                integrated T1 CSU/DSU."
+        ::= { ciscoICsuDsuMIBGroups 2 }
+
+ciscoICsuDsuMIBSw56kGroup OBJECT-GROUP
+        OBJECTS {
+                ciscoICsuDsuSw56kNetworkType,
+                ciscoICsuDsuSw56kClockSource,
+                ciscoICsuDsuSw56kLoopRate,
+                ciscoICsuDsuSw56kScramblerEnabled,
+                ciscoICsuDsuSw56kRemoteLoopbackEnabled,
+                ciscoICsuDsuSw56kDialingStatus,
+                ciscoICsuDsuSw56kLoopStatus,
+                ciscoICsuDsuSw56kReceivedOosOofs,
+                ciscoICsuDsuSw56kLostSealingCurrents,
+                ciscoICsuDsuSw56kLostReceiveSignals,
+                ciscoICsuDsuSw56kLostFrameSyncs,
+                ciscoICsuDsuSw56kLoopRateSearches,
+                ciscoICsuDsuEnableSw56kLoopStatusNotification
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing information specific to
+                integrated Switched 56k CSU/DSU."
+        ::= { ciscoICsuDsuMIBGroups 3 }
+
+END
+
+

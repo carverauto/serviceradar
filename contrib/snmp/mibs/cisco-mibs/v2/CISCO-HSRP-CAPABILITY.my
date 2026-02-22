@@ -1,0 +1,208 @@
+-- *****************************************************************
+-- CISCO-HSRP-CAPABILITY.my: CISCO-HSRP-MIB AGENT-CAPABILITIES
+--   
+-- November 2007, Ritesh Sharma
+--   
+-- Copyright (c) 1998, 2007-2008 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-HSRP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoHsrpCapability MODULE-IDENTITY
+    LAST-UPDATED    "200711270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-hsrp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-HSRP-MIB"
+    REVISION        "200711270000Z"
+    DESCRIPTION
+        "Added agent capability for IOS-XR 3.6"
+    REVISION        "9808250000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 10000 }
+
+
+
+ciscoHsrpCapabilityV12R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.0(3)T"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Hsrp MIB capabilities"
+
+    SUPPORTS        CISCO-HSRP-MIB
+    INCLUDES        {
+                        cHsrpGlobalConfig,
+                        cHsrpGroup
+                    }
+    VARIATION       cHsrpConfigTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpAuth
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpPreempt
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpPreemptDelay
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpConfiguredHelloTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpConfiguredHoldTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpVirtualIpAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpEntryRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    ::= { ciscoHsrpCapability 1 }
+
+ciscoHsrpCapabilityV3R6CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 3.6 on CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Hsrp MIB capabilities"
+
+    SUPPORTS        CISCO-HSRP-MIB
+    INCLUDES        {
+                        cHsrpGlobalConfig,
+                        cHsrpGroup
+                    }
+    VARIATION       cHsrpConfigTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpAuth
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpPreempt
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpPreemptDelay
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpUseConfiguredTimers
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpConfiguredHelloTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpConfiguredHoldTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpLearnedHelloTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpLearnedHoldTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpVirtualIpAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpUseConfigVirtualIpAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpActiveRouter
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpStandbyRouter
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpStandbyState
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpVirtualMacAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpGrpEntryRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    ::= { ciscoHsrpCapability 2 }
+
+END
+
+
+
+

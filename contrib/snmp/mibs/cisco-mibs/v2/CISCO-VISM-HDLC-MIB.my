@@ -1,0 +1,300 @@
+-- *****************************************************************
+-- CISCO-VISM-HDLC-MIB 
+--   The MIB contains the information for configuring
+--   and maintaining the counters for the 
+--   HDLC(High-level Data Link Control) channels on VISM.
+--
+-- October 2003, George Ogagan
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VISM-HDLC-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32
+                               FROM SNMPv2-SMI
+    RowStatus
+                               FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    voice                      FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoVismHdlcMIB MODULE-IDENTITY
+    LAST-UPDATED    "200310090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module containing table for configurating and maintaining 
+         counters for the HDLC channel on VISM service module."
+
+    REVISION    "200310090000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+    ::= { ciscoWan 91 }
+
+
+vismSigGrp          OBJECT IDENTIFIER ::= { voice 6 }
+
+
+vismHdlcChanTable    OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismHdlcChanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table is used for maintaining the statistics info
+	for the HDLC channels on VISM. It also keeps track of some
+	configurable parameters required for proper operation of
+	HDLC driver in VISM. 
+        "
+    ::= { vismSigGrp 1 }
+
+vismHdlcChanEntry    OBJECT-TYPE
+    SYNTAX      VismHdlcChanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry for each HDLC channel."
+    INDEX { vismHdlcChanNum }
+    ::= { vismHdlcChanTable 1 }
+
+VismHdlcChanEntry ::=
+    SEQUENCE {
+                vismHdlcChanNum         Integer32,
+                vismHdlcRowStatus       RowStatus,
+                vismHdlcMaxFrameSize    Integer32,
+                vismHdlcLcnNum          Integer32,
+                vismHdlcXmtFrames       Counter32,
+                vismHdlcRcvFrames       Counter32,
+                vismHdlcRcvCrcErrors    Counter32,
+                vismHdlcRcvBufOverflows Counter32,
+                vismHdlcTxUnderflows    Counter32,
+                vismHdlcTxAbortFrames   Counter32,
+                vismHdlcRxAbortFrames   Counter32
+}
+
+vismHdlcChanNum    OBJECT-TYPE
+    SYNTAX         Integer32(1..248) 
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This object is the index of this table. 
+         It refers to the ds0IfIndex in the dsx0VismCnfTable
+         (defined in CISCO-VISM-DSX0-MIB MIB).
+        "
+    ::= { vismHdlcChanEntry 1 }
+ 
+vismHdlcRowStatus  OBJECT-TYPE
+	SYNTAX     RowStatus 
+        MAX-ACCESS read-create 
+        STATUS     current
+        DESCRIPTION
+        "This variable allows to add, delete or modify the entry.
+         'createAndGo': Use this to add an entry in this table.
+         There are two case of creating a entry:
+         1) a CCS (Common Channel Signaling) channel is
+         explicitly created for AAL2 Trunking. In this case, if
+         the DS0 already created for PRI(Primary Rate Interface)
+         or GR-303 the request of creation should be rejected.
+         2) A HDLC entry will be implicitly created before creating
+         a LAPD(D channel Data Link) entry. In this case if the
+         DS0 is already used for AAL2 trunking the request
+         should be rejected. No entry in LAPD shall be created. 
+ 
+         'active': This values is returned, once the row is created
+         'destroy': Use this to delete an entry from this table. 
+         According to the creation, an entry can be explicitly 
+         destroyed or implicitly removed.
+        "
+    ::= { vismHdlcChanEntry 2 }
+ 
+vismHdlcMaxFrameSize    OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      deprecated
+    DESCRIPTION
+        "This object describes the maximum frame size that is 
+         allowed on this HDLC channel. This value is not configurable.
+         The value for this object is 264.
+        "
+    ::= { vismHdlcChanEntry 3 }
+
+vismHdlcLcnNum  OBJECT-TYPE
+    SYNTAX      Integer32(131..510) 
+    MAX-ACCESS  read-create 
+    STATUS      current
+    DESCRIPTION
+        "This object describes LCN(Logical Channel Number)
+         or the PVC(Permanent Virtual Circuit) channel
+         number with which the HDLC channel is associated
+         with. It is applicable only for trunking
+         applications where the CCS frames are transmitted
+         to the other end point over an AAL5 PVC. For
+	 PRI or GR-303 applications, this is not applicable
+         since the CCS frames in that case are backhauled
+         to the call agent.
+        "
+    ::= { vismHdlcChanEntry 4 }
+
+vismHdlcXmtFrames    OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object maintains the count of HDLC frames transmitted 
+	to the HDLC channel on VISM.
+        "
+    ::= { vismHdlcChanEntry 5 }
+
+vismHdlcRcvFrames    OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object maintains the count of HDLC frames received 
+	from the HDLC channel on VISM.
+        "
+    ::= { vismHdlcChanEntry 6 }
+
+vismHdlcRcvCrcErrors    OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object describes the count of HDLC frames dropped
+	due to CRC(Cyclic Redundancy Check) errors in the
+        frames received from the HDLC channel. 
+        "
+    ::= { vismHdlcChanEntry 7 }
+
+vismHdlcRcvBufOverflows    OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object describes the count of HDLC receiver 
+	 buffer overflow condition. This can occur if the rate
+	 of arrival of HDLC frames from the line is more than
+	 the processing rate by the CPU.
+        "
+    ::= { vismHdlcChanEntry 8 }
+
+vismHdlcTxUnderflows    OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object describes the count of HDLC Tx underflow
+	 condition. 
+        "
+    ::= { vismHdlcChanEntry 9 }
+
+vismHdlcTxAbortFrames	OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object describes the count of HDLC Abort frames
+        transmitted.
+        "
+    ::= { vismHdlcChanEntry 10 }
+
+vismHdlcRxAbortFrames	OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object describes the count of HDLC Abort frames
+	received.
+        "
+    ::= { vismHdlcChanEntry 11 }
+
+-- conformance information
+
+ciscoVismHdlcMIBConformance  OBJECT IDENTIFIER ::= { ciscoVismHdlcMIB 2 }
+
+ciscoVismHdlcMIBGroups       OBJECT IDENTIFIER ::=
+                              { ciscoVismHdlcMIBConformance 1 }
+
+ciscoVismHdlcMIBCompliances  OBJECT IDENTIFIER ::=
+                              { ciscoVismHdlcMIBConformance 2 }
+
+-- compliance statements
+
+ciscoVismHdlcCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM HDLC module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+          ciscoVismHdlcGroup
+        }
+
+    OBJECT     vismHdlcRowStatus
+    SYNTAX     INTEGER {
+                active(1),
+                createAndGo(4),
+                destroy(6)
+                }
+    MIN-ACCESS read-create
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+         'active' out of the six enumerated values need to
+         be supported.
+        "
+  
+    ::= { ciscoVismHdlcMIBCompliances 1 }
+
+ciscoVismHdlcGroup OBJECT-GROUP
+     OBJECTS {
+           vismHdlcChanNum,
+           vismHdlcRowStatus,
+           vismHdlcLcnNum,
+           vismHdlcXmtFrames,
+           vismHdlcRcvFrames,
+           vismHdlcRcvCrcErrors,
+           vismHdlcRcvBufOverflows,
+           vismHdlcTxUnderflows,
+           vismHdlcTxAbortFrames,
+           vismHdlcRxAbortFrames
+
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM HDLC module."
+      ::= { ciscoVismHdlcMIBGroups 1 }
+
+ciscoVismHdlcDeprecateGroup OBJECT-GROUP
+     OBJECTS {
+          vismHdlcMaxFrameSize
+        }
+      STATUS deprecated
+      DESCRIPTION
+         "The collection of objects that were
+          supported earlier but deprecated now."
+      ::= { ciscoVismHdlcMIBGroups 2 }
+
+
+END

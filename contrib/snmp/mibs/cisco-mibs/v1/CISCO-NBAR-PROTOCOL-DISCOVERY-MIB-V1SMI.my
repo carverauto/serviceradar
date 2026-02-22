@@ -1,0 +1,1334 @@
+-- MIB file created 19-Mar-2003 11:45:46, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-NBAR-PROTOCOL-DISCOVERY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-NBAR-PROTOCOL-DISCOVERY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    ifIndex, InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoNbarProtocolDiscoveryMIB OBJECT IDENTIFIER ::= { ciscoMgmt 244 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200208160000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--      Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134-1706
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cnpd-mib@cisco.com
+--  Descr
+--    Cisco NBAR Protocol Discovery MIB 
+--    
+--    NBAR - Network Based Application Recognition is
+--    an intelligent classification engine that recognizes 
+--    applications that are static (which use fixed TCP or
+--    UDP port numbers), and stateful (which dynamically 
+--    assign TCP or UDP port numbers). 
+--    
+--    Protocol Discovery - uses NBAR to show you the mix 
+--    of applications currently running on the network. 
+--    Key statistics are associated with each protocol. 
+--    These statistics can be used to define traffic 
+--    classes and QoS policies.
+--    
+--    Functionality:
+--    1. To enable/disable Protocol Discovery per interface.
+--    2. Display the protocols/applications which NBAR
+--       currently recognizes.
+--    3. To display various Protocol Discovery statistics.
+--    4. A configurable top N table which lists
+--       protocols using user defined criteria.
+--    5. To configure notifications (traps) based 
+--       on configurable statistic thresholds.
+--    6. To maintain a history table of all notification 
+--       events.
+--  RevDate
+--    200208160000Z
+--  RevDescr
+--    Added comment that cnpdStatusLastUpdateTime becomes 
+--    zero when PD disabled.
+--    
+--    Added comment that during overflow in cnpdAllStatsTable, 
+--    the 32 bit counter not valid. There is no overflow 
+--    support for it. One should only use the HC (64 bit) 
+--    counters to get the stats in cnpdAllStatsTable
+--       
+--           Default cnpdTopNConfigStatsSelect changed from 
+--    'bitRateSum' to 'byteCountSum'.
+--    
+--    Added better rowStatus descriptions to TopNConfig and 
+--    ThresholdConfig tables.
+--    
+--    Added comment to explain what TopNSampleTime really does - 
+--    i.e only changes sample time for bitrate on an interface.
+--    
+--    Changed sizes of TopN and Threshold tables according to 
+--    memory requirements and recommendations from various 
+--    platforms.
+--    
+--    Added following objects to cnpdThresholdHistoryTable:
+--      cnpdThresholdHistoryValue
+--      cnpdThresholdHistoryType
+--      cnpdThresholdHistoryProtocol
+--      cnpdThresholdHistoryStatsSelect
+--    
+--    Changed reported objects in Notification Table to reflect
+--    changes in cnpdThresholdHistoryTable.
+--  RevDate
+--    200112280000Z
+--  RevDescr
+--    Initial version of this MIB module
+
+cnpdMIBNotifications OBJECT IDENTIFIER ::= { ciscoNbarProtocolDiscoveryMIB 0 }
+cnpdMIBObjects  OBJECT IDENTIFIER ::= { ciscoNbarProtocolDiscoveryMIB 1 }
+cnpdMIBConformance OBJECT IDENTIFIER ::= { ciscoNbarProtocolDiscoveryMIB 2 }
+cnpdStatus      OBJECT IDENTIFIER ::= { cnpdMIBObjects 1 }
+cnpdAllStats    OBJECT IDENTIFIER ::= { cnpdMIBObjects 2 }
+cnpdTopNConfig  OBJECT IDENTIFIER ::= { cnpdMIBObjects 3 }
+cnpdTopNStats   OBJECT IDENTIFIER ::= { cnpdMIBObjects 4 }
+cnpdThresholdConfig OBJECT IDENTIFIER ::= { cnpdMIBObjects 5 }
+cnpdThresholdHistory OBJECT IDENTIFIER ::= { cnpdMIBObjects 6 }
+cnpdNotificationsConfig OBJECT IDENTIFIER ::= { cnpdMIBObjects 7 }
+cnpdSupportedProtocols OBJECT IDENTIFIER ::= { cnpdMIBObjects 8 }
+cnpdMIBCompliances OBJECT IDENTIFIER ::= { cnpdMIBConformance 1 }
+cnpdMIBGroups   OBJECT IDENTIFIER ::= { cnpdMIBConformance 2 }
+
+CiscoPdProtocolIndex ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An object which represents a unique 
+--    identifier for a protocol or application 
+--    which NBAR currently recognizes.
+--    
+--    The value of this object is defined in 
+--    the cnpdSupportedProtocolsTable.
+
+CiscoPdProtocolName ::= OCTET STRING(SIZE(1..255))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Name of an application or protocol, 
+--    which NBAR is capable of recognizing.
+--    
+--    For example: ftp, vdolive and citrix.
+
+CiscoPdDataType ::= INTEGER {
+        bitRateIn(1),
+        bitRateOut(2),
+        bitRateSum(3),
+        byteCountIn(4),
+        byteCountOut(5),
+        byteCountSum(6),
+        packetCountIn(7),
+        packetCountOut(8),
+        packetCountSum(9)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    These are the data types which NBAR
+--    can measure a particular protocol by.
+--    bitRateIn(1)      - incoming bitrate.
+--    bitRateOut(2)     - outgoing bitrate.
+--    bitRateSum(3)     - sum of incoming and 
+--                        outgoing bitrate.
+--    byteCountIn(4)    - incoming bytecount.
+--    byteCountOut(5)   - outgoing bytecount.
+--    byteCountSum(6)   - sum of incoming and 
+--                        outgoing bytecount.
+--    packetCountIn(7)  - incoming packetcount.
+--    packetCountOut(8) - outgoing packetcount.
+--    packetCountSum(9) - sum of incoming and 
+--                        outgoing packetcount.
+--    UNITS:
+--    bitrate     - unit is kilo bits per second
+--    bytecount   - unit is bytes
+--    packetcount - unit is packets
+
+cnpdSupportedProtocolsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnpdSupportedProtocolsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Supported Protocols table lists all the 
+        protocols and applications which NBAR is currently
+        capable of recognizing."
+    ::= { cnpdSupportedProtocols 1 }
+
+cnpdSupportedProtocolsEntry OBJECT-TYPE
+    SYNTAX CnpdSupportedProtocolsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A entry in the Supported Protocols table reflecting
+        key information about a protocol."
+    INDEX { cnpdSupportedProtocolsIndex }
+    ::= { cnpdSupportedProtocolsTable 1 }
+
+CnpdSupportedProtocolsEntry ::= SEQUENCE {
+    cnpdSupportedProtocolsIndex CiscoPdProtocolIndex,
+    cnpdSupportedProtocolsName CiscoPdProtocolName
+    }
+
+cnpdSupportedProtocolsIndex OBJECT-TYPE
+    SYNTAX CiscoPdProtocolIndex(1..1024)
+--    Rsyntax Gauge(1..1024)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique identifier of a row in this table.
+        
+        Thus it also represents a unique identifier for a
+        protocol or application which NBAR currently
+        recognizes."
+    ::= { cnpdSupportedProtocolsEntry 1 }
+
+cnpdSupportedProtocolsName OBJECT-TYPE
+    SYNTAX CiscoPdProtocolName
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object reflects the valid string of a
+        protocol or application which NBAR currently
+        recognizes."
+    ::= { cnpdSupportedProtocolsEntry 2 }
+
+cnpdStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnpdStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cnpdStatusTable is used to enable and
+        disable Protocol Discovery on an interface."
+    ::= { cnpdStatus 1 }
+
+cnpdStatusEntry OBJECT-TYPE
+    SYNTAX CnpdStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cnpdStatusTable contains objects
+        for enabling or disabling Protocol Discovery on a
+        per interface basis."
+    INDEX { ifIndex }
+    ::= { cnpdStatusTable 1 }
+
+CnpdStatusEntry ::= SEQUENCE {
+    cnpdStatusPdEnable TruthValue,
+    cnpdStatusLastUpdateTime TimeTicks
+    }
+
+cnpdStatusPdEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable 
+        Protocol Discovery on an interface. 
+        
+        If set to 'true' - Protocol Discovery is 
+        enabled on this Interface. 
+        If set to 'false' - Protocol Discovery is 
+        disabled on this Interface."
+    ::= { cnpdStatusEntry 1 }
+
+cnpdStatusLastUpdateTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time Protocol 
+        Discovery was last enabled  on an interface.
+        If the interface does not have Protocol
+        Discovery enabled this value is zero."
+    ::= { cnpdStatusEntry 2 }
+
+cnpdAllStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnpdAllStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cnpdAllStatsTable contains all the statistics
+        available for all the protocols/applications currently
+        recognized by NBAR Protocol Discovery for a particular 
+        interface.
+        
+        In the event of an overflow, the 32 bit counters are not 
+        valid. There is no overflow support."
+    ::= { cnpdAllStats 1 }
+
+cnpdAllStatsEntry OBJECT-TYPE
+    SYNTAX CnpdAllStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cnpdAllStatsTable table. This entry 
+        contains the statistics collected on all the protocols 
+        which NBAR classifies for a particular interface."
+    INDEX { ifIndex, cnpdAllStatsProtocolsIndex }
+    ::= { cnpdAllStatsTable 1 }
+
+CnpdAllStatsEntry ::= SEQUENCE {
+    cnpdAllStatsProtocolsIndex CiscoPdProtocolIndex,
+    cnpdAllStatsProtocolName CiscoPdProtocolName,
+    cnpdAllStatsInPkts Counter,
+    cnpdAllStatsOutPkts Counter,
+    cnpdAllStatsInBytes Counter,
+    cnpdAllStatsOutBytes Counter,
+    cnpdAllStatsHCInPkts Counter,
+    cnpdAllStatsHCOutPkts Counter,
+    cnpdAllStatsHCInBytes Counter,
+    cnpdAllStatsHCOutBytes Counter,
+    cnpdAllStatsInBitRate Gauge,
+    cnpdAllStatsOutBitRate Gauge
+    }
+
+cnpdAllStatsProtocolsIndex OBJECT-TYPE
+    SYNTAX CiscoPdProtocolIndex(1..1024)
+--    Rsyntax Gauge(1..1024)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An object which represents a unique 
+        identifier for a protocol or application 
+        which NBAR currently recognizes.
+        
+        This object is an index into the 
+        SupportedProtocolsTable where details
+        of the protocol can be found."
+    ::= { cnpdAllStatsEntry 1 }
+
+cnpdAllStatsProtocolName OBJECT-TYPE
+    SYNTAX CiscoPdProtocolName
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the application or protocol, a 
+        unique textual string, assigned in the
+        cnpdSupportedProtocolsTable."
+    ::= { cnpdAllStatsEntry 2 }
+
+cnpdAllStatsInPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The packet count of inbound packets as 
+        determined by Protocol Discovery."
+    ::= { cnpdAllStatsEntry 3 }
+
+cnpdAllStatsOutPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The packet count of outbound packets as 
+        determined by Protocol Discovery."
+    ::= { cnpdAllStatsEntry 4 }
+
+cnpdAllStatsInBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The byte count of inbound octets as 
+        determined by Protocol Discovery."
+    ::= { cnpdAllStatsEntry 5 }
+
+cnpdAllStatsOutBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The byte count of outbound octets as
+        determined by Protocol Discovery."
+    ::= { cnpdAllStatsEntry 6 }
+
+cnpdAllStatsHCInPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The packet count of inbound packets as 
+        determined by Protocol Discovery.
+        This is the 64-bit (High Capacity)
+        version of cnpdAllStatsInPkts."
+    ::= { cnpdAllStatsEntry 7 }
+
+cnpdAllStatsHCOutPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The packet count of outbound packets as 
+        determined by Protocol Discovery.
+        This is the 64-bit (High Capacity)
+        version of cnpdAllStatsOutPkts."
+    ::= { cnpdAllStatsEntry 8 }
+
+cnpdAllStatsHCInBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The byte count of inbound octets as 
+        determined by Protocol Discovery.
+        This is the 64-bit (High Capacity)
+        version of cnpdAllStatsInBytes."
+    ::= { cnpdAllStatsEntry 9 }
+
+cnpdAllStatsHCOutBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The byte count of outbound octets as 
+        determined by Protocol Discovery.
+        This is the 64-bit (High Capacity)
+        version of cnpdAllStatsOutBytes."
+    ::= { cnpdAllStatsEntry 10 }
+
+cnpdAllStatsInBitRate OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+--  Units
+--    kilo bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The inbound bit rate as determined 
+        by Protocol Discovery."
+    ::= { cnpdAllStatsEntry 11 }
+
+cnpdAllStatsOutBitRate OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+--  Units
+--    kilo bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The outbound bit rate as determined 
+        by Protocol Discovery."
+    ::= { cnpdAllStatsEntry 12 }
+
+cnpdTopNConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnpdTopNConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cnpdTopNConfigTable is used to configure
+        cnpdTopNStatsTable's."
+    ::= { cnpdTopNConfig 1 }
+
+cnpdTopNConfigEntry OBJECT-TYPE
+    SYNTAX CnpdTopNConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry provides the objects to configure and thus
+        initiate the generation of a cnpdTopNStatsTable.."
+    INDEX { cnpdTopNConfigIndex }
+    ::= { cnpdTopNConfigTable 1 }
+
+CnpdTopNConfigEntry ::= SEQUENCE {
+    cnpdTopNConfigIndex Gauge,
+    cnpdTopNConfigIfIndex InterfaceIndex,
+    cnpdTopNConfigStatsSelect CiscoPdDataType,
+    cnpdTopNConfigSampleTime Gauge,
+    cnpdTopNConfigRequestedSize Gauge,
+    cnpdTopNConfigGrantedSize Gauge,
+    cnpdTopNConfigTime TimeTicks,
+    cnpdTopNConfigStatus RowStatus
+    }
+
+cnpdTopNConfigIndex OBJECT-TYPE
+    SYNTAX Gauge(1..50)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A monotonically increasing integer which
+        uniquely identifies a cnpdTopNConfigEntry 
+        in the cnpdTopNConfigTable."
+    ::= { cnpdTopNConfigEntry 1 }
+
+cnpdTopNConfigIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the management station
+        to select the interface, which Protocol Discovery
+        is running on, to be used to create this 
+        cnpdTopNConfigEntry."
+    ::= { cnpdTopNConfigEntry 2 }
+
+cnpdTopNConfigStatsSelect OBJECT-TYPE
+    SYNTAX CiscoPdDataType
+--    Rsyntax INTEGER {
+--        bitRateIn(1),
+--        bitRateOut(2),
+--        bitRateSum(3),
+--        byteCountIn(4),
+--        byteCountOut(5),
+--        byteCountSum(6),
+--        packetCountIn(7),
+--        packetCountOut(8),
+--        packetCountSum(9)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the management station to
+        select the statistic used to base the order
+        of the top-n table on.
+        
+        For example: a cnpdTopNConfigStatsSelect of
+        bitRateSum means order this table based
+        on each applications/protocols combined
+        in and out bitrate."
+    DEFVAL { byteCountSum }
+    ::= { cnpdTopNConfigEntry 3 }
+
+cnpdTopNConfigSampleTime OBJECT-TYPE
+    SYNTAX Gauge(1..2048)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If the cnpdTopNConfigStatsSelect is
+        bitRateIn, bitRateOut or bitRateSum, then
+        this value is the interval in seconds that 
+        the bitrate is sampled.
+        
+        This has no effect if the cnpdTopNConfigStatsSelect
+        is byte or packet based.
+        
+        When this object is modified by the management 
+        station, a new sample period is started regardless
+        of whether the original cnpdTopNConfigSampleTime
+        was finished."
+    DEFVAL { 10 }
+    ::= { cnpdTopNConfigEntry 4 }
+
+cnpdTopNConfigRequestedSize OBJECT-TYPE
+    SYNTAX Gauge(1..500)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The requested size of the associated 
+        cnpdTopNStatsTable entry.
+        
+        For example a cnpdTopNConfigRequestedSize of
+        20 indicates the management station wants
+        to create an associated  cnpdTopNStatsTable 
+        entry of 20 protocol/application's"
+    DEFVAL { 10 }
+    ::= { cnpdTopNConfigEntry 5 }
+
+cnpdTopNConfigGrantedSize OBJECT-TYPE
+    SYNTAX Gauge(1..500)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual size of the associated  
+        cnpdTopNStatsTable entry.
+        
+        The reason this may differ from 
+        cnpdTopNConfigRequestedSize is because a 
+        management station may request a number of 
+        protocols that is greater than the number of 
+        protocols actually found by Protocol Discovery."
+    ::= { cnpdTopNConfigEntry 6 }
+
+cnpdTopNConfigTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the associated
+         cnpdTopNStatsTable entry was created."
+    ::= { cnpdTopNConfigEntry 7 }
+
+cnpdTopNConfigStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create or delete 
+        the row entry in cnpdTopNConfigTable.
+        
+        When creating a row entry the management
+        station is required to specify a value
+        for cnpdTopNConfigIfIndex only.
+        
+        'notReady' means that a row exists but 
+        either it has no valid IfIndex or it has 
+        not been set to createAndGo or active.
+        
+        'active' means that a createAndGo or active 
+        has been issued, AND a valid ifIndex exists. 
+        Therefore if a row is 'active' it means a 
+        TopNStats entry has been generated.
+        
+        If you set an 'active' row to createAndWait 
+        it will get the status 'notReady'. 
+        
+        If you set any row to 'notReady' - it will go 
+        to the 'notReadystate'.
+        
+        If you set any row to 'notInService' - it will 
+        go to the 'notInService' state and the corresponding 
+        TopNStatsEntry will be deleted.
+        
+        The same TopNConfig entry can be re-used without 
+        changes by setting it to 'active'. The corresponding 
+        TopStatsTable entry will be regenerated. This can 
+        be used by the NMS to poll a particular TopNConfig 
+        Entry.
+        
+        Changes to an existing TopNConfig entry can be made
+        by setting the status to 'createAndWait' and changing
+        the necessary objects. Setting it to 'createAndGo' or
+        'active' will cause the corresponding TopNStats entry
+        to be regenerated."
+    ::= { cnpdTopNConfigEntry 8 }
+
+cnpdTopNStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnpdTopNStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cnpdTopNStatsTable describes an ordered
+        list of protocols."
+    ::= { cnpdTopNStats 1 }
+
+cnpdTopNStatsEntry OBJECT-TYPE
+    SYNTAX CnpdTopNStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry is used to store a set of objects which 
+        describe a cnpdTopNStatsTable. A cnpdTopNStatsTable 
+        is a number of protocols and statistics sorted 
+        according to the criteria in the associated
+        cnpdTopNConfigEntry.
+        
+        Therefore a cnpdTopNStatsTable can differ in content 
+        and size according to what was configured in the associated
+        cnpdTopNConfigTableEntry."
+    INDEX { cnpdTopNConfigIndex, cnpdTopNStatsIndex }
+    ::= { cnpdTopNStatsTable 1 }
+
+CnpdTopNStatsEntry ::= SEQUENCE {
+    cnpdTopNStatsIndex Gauge,
+    cnpdTopNStatsProtocolName CiscoPdProtocolName,
+    cnpdTopNStatsRate Counter,
+    cnpdTopNStatsHCRate Counter
+    }
+
+cnpdTopNStatsIndex OBJECT-TYPE
+    SYNTAX Gauge(1..500)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A monotonically increasing integer which 
+        uniquely identifies a cnpdTopNStatsEntry 
+        in the cnpdTopNStatsTable."
+    ::= { cnpdTopNStatsEntry 1 }
+
+cnpdTopNStatsProtocolName OBJECT-TYPE
+    SYNTAX CiscoPdProtocolName
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the application or protocol, 
+        a unique textual string, assigned in the
+        cnpdSupportedProtocolsTable."
+    ::= { cnpdTopNStatsEntry 2 }
+
+cnpdTopNStatsRate OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of change in the selected statistic
+        during this sampling interval. The selected
+        statistic is the cnpdTopNConfigStatsSelect
+        from the associated cnpdTopNConfigStatsEntry."
+    ::= { cnpdTopNStatsEntry 3 }
+
+cnpdTopNStatsHCRate OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of change in the selected statistic
+        during this sampling interval. The selected
+        statistic is the cnpdTopNConfigStatsSelect
+        from the associated cnpdTopNConfigStatsEntry. 
+        
+        This is the 64-bit (High Capacity) version of 
+        cnpdTopNStatsRate."
+    ::= { cnpdTopNStatsEntry 4 }
+
+cnpdThresholdConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnpdThresholdConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cnpdThresholdConfigTable allows the management
+        station to create thresholds for the purpose of
+        sending notifications if breached, and creating a
+        history of breached thresholds."
+    ::= { cnpdThresholdConfig 1 }
+
+cnpdThresholdConfigEntry OBJECT-TYPE
+    SYNTAX CnpdThresholdConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains configuration information to 
+        set thresholds for the purpose of notifications.
+        
+        The management station is allowed to set thresholds
+        on individual statistics for individual protocols
+        on an interface. If the threshold is breached by
+        the protocol statistic, a new event is written to
+        the cnpdThresholdHistoryTable, which in turn will 
+        generate a Notification Event.
+        
+        This function has a hysteresis mechanism to limit
+        the generation of events. This mechanism generates
+        one event as a threshold is crossed in the
+        appropriate direction. No more events are generated
+        for that threshold until the opposite threshold is
+        crossed. This stops repeated Notification events
+        being generated each time the value is sampled,
+        when the value is above the threshold. Instead one
+        notification is sent when the threshold is breached
+        and one notification when the statistic drops below
+        the threshold value again."
+    INDEX { cnpdThresholdConfigIndex }
+    ::= { cnpdThresholdConfigTable 1 }
+
+CnpdThresholdConfigEntry ::= SEQUENCE {
+    cnpdThresholdConfigIndex Gauge,
+    cnpdThresholdConfigIfIndex InterfaceIndex,
+    cnpdThresholdConfigInterval Gauge,
+    cnpdThresholdConfigSampleType INTEGER,
+    cnpdThresholdConfigProtocol CiscoPdProtocolIndex,
+    cnpdThresholdConfigProtocolAny TruthValue,
+    cnpdThresholdConfigStatsSelect CiscoPdDataType,
+    cnpdThresholdConfigStartup INTEGER,
+    cnpdThresholdConfigRising Gauge,
+    cnpdThresholdConfigFalling Gauge,
+    cnpdThresholdConfigStatus RowStatus
+    }
+
+cnpdThresholdConfigIndex OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A monotonically increasing integer which 
+        uniquely identifies an entry in the 
+        cnpdThresholdConfigTable."
+    ::= { cnpdThresholdConfigEntry 1 }
+
+cnpdThresholdConfigIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the management station to 
+        select the interface, which Protocol Discovery is 
+        running on, to be used to create this 
+        cnpdThresholdConfigTable entry."
+    ::= { cnpdThresholdConfigEntry 2 }
+
+cnpdThresholdConfigInterval OBJECT-TYPE
+    SYNTAX Gauge(1..2048)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval in seconds over which the data is
+        sampled and compared with cnpdThresholdConfigRising
+        and cnpdThresholdConfigFalling thresholds."
+    DEFVAL { 10 }
+    ::= { cnpdThresholdConfigEntry 3 }
+
+cnpdThresholdConfigSampleType OBJECT-TYPE
+    SYNTAX INTEGER {
+        absoluteValue(1),
+        deltaValue(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The method of sampling the selected statistic and
+        calculating the value to be compared against 
+        cnpdThresholdConfigRising or 
+        cnpdThresholdConfigFalling thresholds. 
+        
+        If the value of this object is absoluteValue(1), 
+        the value at the end of the sampling interval 
+        cnpdThresholdConfigInterval, will be compared 
+        with the cnpdThresholdConfigRising and 
+        cnpdThresholdConfigFalling thresholds. 
+        
+        In this mode, when cnpdThresholdConfigStatsSelect is
+        byte or packet based, a maximum of two 
+        cnpdThresholdHistory entries will be created per
+        application, as these byte and packet counts 
+        monotonically increase from zero.
+        
+        If the value of this object is deltaValue(2), 
+        the difference between the samples at the 
+        beginning and end of the cnpdThresholdConfigInterval 
+        will be compared with the cnpdThresholdConfigRising 
+        and cnpdThresholdConfigFalling thresholds.
+        
+        Because the difference in the previous and current
+        samples are compared over the sample period
+        cnpdThresholdConfigInterval, this mode provides 
+        more granularity to the thresholds because the NMS 
+        is now provided with the gradient or change in the 
+        cnpdThresholdConfigStatsSelect.
+        
+        Note that even though the sample value is monotonically
+        increasing for byte and packet counts, 
+        cnpdThresholdConfigSampleType set to deltaValue, can 
+        generate falling cnpdThresholdHistory entries, because
+        the gradient can be lower than the 
+        cnpdThresholdConfigFalling value."
+    DEFVAL { absoluteValue }
+    ::= { cnpdThresholdConfigEntry 4 }
+
+cnpdThresholdConfigProtocol OBJECT-TYPE
+    SYNTAX CiscoPdProtocolIndex(1..1024)
+--    Rsyntax Gauge(1..1024)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The application or protocol which the
+        management station wishes to configure a
+        threshold on.
+        
+        This object is an index into the 
+        SupportedProtocolsTable where details
+        of the protocol can be found.
+        
+        If cnpdThresholdConfigProtocolAny is set
+        to TRUE this value will be ignored. If it
+        is set to FALSE, then cnpdThresholdConfigProtocol
+        will be the only protocol that is checked
+        to see if it has breached the threshold."
+    ::= { cnpdThresholdConfigEntry 5 }
+
+cnpdThresholdConfigProtocolAny OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If set to 'true' - this threshold is configured
+        to check for any protocol which meets the threshold
+        criteria. This means that multiple protocols can
+        generate ThresholdHistoryTable entries. Each
+        protocol is subject to the hysterisis mechanism.
+        
+        If set to 'false' - this threshold is configured
+        to check for the protocol which meets the threshold
+        criteria referred to by cnpdThresholdConfigProtocol."
+    DEFVAL { true }
+    ::= { cnpdThresholdConfigEntry 6 }
+
+cnpdThresholdConfigStatsSelect OBJECT-TYPE
+    SYNTAX CiscoPdDataType
+--    Rsyntax INTEGER {
+--        bitRateIn(1),
+--        bitRateOut(2),
+--        bitRateSum(3),
+--        byteCountIn(4),
+--        byteCountOut(5),
+--        byteCountSum(6),
+--        packetCountIn(7),
+--        packetCountOut(8),
+--        packetCountSum(9)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the management station to
+        select the statistic used to base the threshold
+        on.
+        
+        For example a cnpdThresholdConfigStatsSelect of
+        bitRateSum means cnpdThresholdConfigRising and
+        cnpdThresholdConfigFalling are values based on
+        the combined value of in and out bitrates."
+    DEFVAL { bitRateSum }
+    ::= { cnpdThresholdConfigEntry 7 }
+
+cnpdThresholdConfigStartup OBJECT-TYPE
+    SYNTAX INTEGER {
+        rising(1),
+        falling(2),
+        risingOrFalling(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This controls the type of notification that is 
+        sent when this threshold entry is first enabled. 
+        
+        Because there is no previous sampling history,
+        choosing one of these options determines the type
+        of notification generated - Rising or Falling.
+        
+        If the first sample after this entry is enabled 
+        is greater than or equal to cnpdThresholdConfigRising and
+        this object is equal to rising(1) or risingOrFalling(3), 
+        then a single rising notification will be generated. 
+        
+        If the first sample after this entry is enabled
+        is less than or equal to cnpdThresholdConfigFalling
+        and this object is equal to falling(2) or 
+        risingOrFalling(3), then a single falling notification 
+        will be generated."
+    DEFVAL { risingOrFalling }
+    ::= { cnpdThresholdConfigEntry 8 }
+
+cnpdThresholdConfigRising OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the threshold object which the managment
+        station sets to determine if it gets breached. It 
+        indicates the statistic being sampled was
+        rising.
+        
+        When the current sample is greater than or 
+        equal to this object, and the value at the last 
+        sampling interval was less than this object (in 
+        other words the value is rising), an entry in the 
+        cnpdThresholdHistoryTable will be created.
+        
+        After a rising event is generated, another such 
+        event will not be generated until the sampled value
+        falls below this threshold and reaches the
+        cnpdThresholdConfigFalling value.
+        
+        This ensures that samples which are taken
+        after a cnpdThresholdConfigRising threshold event
+        has been created, do not create further thresholds
+        and therefore notifications, until the 
+        cnpdThresholdConfigFalling threshold has been met.
+        
+        Thus a very short cnpdThresholdConfigInterval can be
+        chosen without risk of multiple notifications for
+        the same threshold breach condition."
+    ::= { cnpdThresholdConfigEntry 9 }
+
+cnpdThresholdConfigFalling OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the threshold object which the management 
+        station sets to determine if it gets breached. It 
+        indicates the statistic being sampled was
+        falling. 
+        
+        When current sample is less than or equal 
+        to this object, and the value at the last sampling
+        interval was greater than this object (in other 
+        words the value is falling), an entry in the 
+        cnpdThresholdHistoryTable will be created. 
+        
+        After a falling event is generated, another 
+        such event will not be generated until the sampled 
+        value rises above this object and reaches the
+        cnpdThresholdConfigRising value."
+    ::= { cnpdThresholdConfigEntry 10 }
+
+cnpdThresholdConfigStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create or delete 
+        the row entry in cnpdThresholdConfigTable.
+         
+        When creating a row entry the management station 
+        is required to specify a value for 
+        cnpdThresholdConfigIfIndex, cnpdThresholdConfigRising 
+        and cnpdThresholdConfigFalling.
+        
+        'active' means that a createAndGo or active has 
+        been issued, AND a valid ifIndex exists. And therefore 
+        if a row is 'active' it means a ThresholdHistory entry 
+        may have been generated if the value was breached.
+        
+        If you set an 'active' row to 'createAndWait' - it will 
+        in fact get the status 'notReady'. 
+        
+        Likewise if you set any row to 'notInService' or 'notReady' 
+        it will go to the 'notReady' state."
+    ::= { cnpdThresholdConfigEntry 12 }
+
+cnpdThresholdHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnpdThresholdHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Threshold History table. Notifications
+        are unreliable so this table provides a
+        history of the last 5000 threshold breached
+        events. A notification can be traced back to
+        its cnpdThresholdHistoryEntry."
+    ::= { cnpdThresholdHistory 1 }
+
+cnpdThresholdHistoryEntry OBJECT-TYPE
+    SYNTAX CnpdThresholdHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry is created each time a threshold 
+        is breached. 
+        
+        Thus there is not necessarily a one to one 
+        relationship to cnpdThresholdConfigTable 
+        as not every Threshold configured will 
+        be breached."
+    INDEX { cnpdThresholdHistoryIndex }
+    ::= { cnpdThresholdHistoryTable 1 }
+
+CnpdThresholdHistoryEntry ::= SEQUENCE {
+    cnpdThresholdHistoryIndex Gauge,
+    cnpdThresholdHistoryConfigIndex Gauge,
+    cnpdThresholdHistoryValue Gauge,
+    cnpdThresholdHistoryType INTEGER,
+    cnpdThresholdHistoryTime TimeTicks,
+    cnpdThresholdHistoryProtocol CiscoPdProtocolIndex,
+    cnpdThresholdHistoryStatsSelect CiscoPdDataType
+    }
+
+cnpdThresholdHistoryIndex OBJECT-TYPE
+    SYNTAX Gauge(1..1000)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A monotonically increasing integer
+        which uniquely identifies this 
+        cnpdThresholdHistoryEntry in the 
+        cnpdThresholdHistory table."
+    ::= { cnpdThresholdHistoryEntry 1 }
+
+cnpdThresholdHistoryConfigIndex OBJECT-TYPE
+    SYNTAX Gauge(1..1000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cnpdThresholdConfigTable entry 
+        which generated this entry. Using this 
+        object the management station can backtrack 
+        to the appropriate cnpdThresholdConfigEntry."
+    ::= { cnpdThresholdHistoryEntry 2 }
+
+cnpdThresholdHistoryValue OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual value of the statistic when 
+        the sampling was made."
+    ::= { cnpdThresholdHistoryEntry 3 }
+
+cnpdThresholdHistoryType OBJECT-TYPE
+    SYNTAX INTEGER {
+        risingBreach(1),
+        fallingBreach(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Describes whether this is an
+        event caused by a rising
+        or falling threshold breach."
+    ::= { cnpdThresholdHistoryEntry 4 }
+
+cnpdThresholdHistoryTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime of the running 
+        configuration when the event occurred."
+    ::= { cnpdThresholdHistoryEntry 5 }
+
+cnpdThresholdHistoryProtocol OBJECT-TYPE
+    SYNTAX CiscoPdProtocolIndex(1..1024)
+--    Rsyntax Gauge(1..1024)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The application or protocol which the
+        management station configured a
+        threshold on.
+        
+        This object is an index into the 
+        SupportedProtocolsTable where details
+        of the protocol can be found."
+    ::= { cnpdThresholdHistoryEntry 6 }
+
+cnpdThresholdHistoryStatsSelect OBJECT-TYPE
+    SYNTAX CiscoPdDataType
+--    Rsyntax INTEGER {
+--        bitRateIn(1),
+--        bitRateOut(2),
+--        bitRateSum(3),
+--        byteCountIn(4),
+--        byteCountOut(5),
+--        byteCountSum(6),
+--        packetCountIn(7),
+--        packetCountOut(8),
+--        packetCountSum(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the statistic used to base the threshold
+        on."
+    ::= { cnpdThresholdHistoryEntry 7 }
+
+cnpdNotificationsEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable 
+        Notifications on a global basis. 
+        
+        If set to 'true' - Notifications are
+        enabled.
+        If set to 'false' - Notifications are
+        disabled."
+    DEFVAL { false }
+    ::= { cnpdNotificationsConfig 1 }
+
+cnpdThresholdRisingEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNbarProtocolDiscoveryMIB
+    VARIABLES {
+        cnpdThresholdConfigIfIndex, cnpdThresholdConfigStatsSelect, 
+        cnpdThresholdHistoryValue, cnpdThresholdConfigRising, 
+        cnpdThresholdConfigProtocol, cnpdThresholdHistoryTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cnpdThresholdRisingEvent is sent whenever 
+        a notification entry crosses its rising threshold 
+        and generates an event that is added to the
+        cnpdThresholdHistoryTable."
+    ::= 1
+
+cnpdThresholdFallingEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNbarProtocolDiscoveryMIB
+    VARIABLES {
+        cnpdThresholdConfigIfIndex, cnpdThresholdConfigStatsSelect, 
+        cnpdThresholdHistoryValue, cnpdThresholdConfigFalling, 
+        cnpdThresholdConfigProtocol, cnpdThresholdHistoryTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cnpdThresholdConfigFallingEvent is sent 
+        whenever a notification entry crosses its 
+        falling threshold and generates an event 
+        that is added to the cnpdThresholdHistoryTable."
+    ::= 2
+
+cnpdStatsGroup OBJECT IDENTIFIER ::= { cnpdMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Required objects to provide protocol 
+--    application discovery info.
+--  objects
+--    cnpdStatusPdEnable, cnpdStatusLastUpdateTime, 
+--    cnpdAllStatsProtocolName, cnpdAllStatsInPkts, 
+--    cnpdAllStatsOutPkts, cnpdAllStatsInBytes, 
+--    cnpdAllStatsOutBytes, cnpdAllStatsHCInPkts, 
+--    cnpdAllStatsHCOutPkts, cnpdAllStatsHCInBytes, 
+--    cnpdAllStatsHCOutBytes, cnpdAllStatsInBitRate, 
+--    cnpdAllStatsOutBitRate
+
+cnpdTopNGroup OBJECT IDENTIFIER ::= { cnpdMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The set of objects supported to record
+--           notification events.
+--  objects
+--    cnpdTopNConfigIfIndex, cnpdTopNConfigStatsSelect, 
+--    cnpdTopNConfigRequestedSize, cnpdTopNConfigSampleTime, 
+--    cnpdTopNConfigGrantedSize, cnpdTopNConfigTime, 
+--    cnpdTopNConfigStatus, cnpdTopNStatsProtocolName, 
+--    cnpdTopNStatsRate, cnpdTopNStatsHCRate
+
+cnpdThresholdGroup OBJECT IDENTIFIER ::= { cnpdMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The set of objects supported to record
+--           notification events.
+--  objects
+--    cnpdThresholdConfigIfIndex, cnpdThresholdConfigInterval, 
+--    cnpdThresholdConfigSampleType, cnpdThresholdConfigProtocol, 
+--    cnpdThresholdConfigStatsSelect, 
+--    cnpdThresholdConfigProtocolAny, cnpdThresholdConfigStartup, 
+--    cnpdThresholdConfigRising, cnpdThresholdConfigFalling, 
+--    cnpdThresholdConfigStatus, cnpdThresholdHistoryConfigIndex, 
+--    cnpdThresholdHistoryValue, cnpdThresholdHistoryType, 
+--    cnpdThresholdHistoryTime, cnpdThresholdHistoryProtocol, 
+--    cnpdThresholdHistoryStatsSelect
+
+cnpdMIBNotificationsConfigGroup OBJECT IDENTIFIER ::= { cnpdMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The set of notification configuration events.
+--  objects
+--    cnpdNotificationsEnable
+
+cnpdSupportedProtocolsGroup OBJECT IDENTIFIER ::= { cnpdMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The set of objects describing a protocol 
+--    or application.
+--  objects
+--    cnpdSupportedProtocolsName
+
+cnpdMIBNotificationsGroup OBJECT IDENTIFIER ::= { cnpdMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The set of notification events supported.
+--  notifications
+--    cnpdThresholdRisingEvent, cnpdThresholdFallingEvent
+
+cnpdMIBCompliance OBJECT IDENTIFIER ::= { cnpdMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities that 
+--    implement NBAR Protocol Discovery on a Cisco 
+--    router.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cnpdStatsGroup
+--   MandGroup
+--    cnpdTopNGroup
+--   MandGroup
+--    cnpdThresholdGroup
+--   MandGroup
+--    cnpdMIBNotificationsGroup
+--   MandGroup
+--    cnpdMIBNotificationsConfigGroup
+--   MandGroup
+--    cnpdSupportedProtocolsGroup
+
+
+END
+

@@ -1,0 +1,1431 @@
+-- *****************************************************************
+-- CISCO-DLEP-MIB.my:  DLEP MIB file
+--
+-- Jun 2023, SivaKumar PINJALA
+-- Copyright (c) 2023 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+CISCO-DLEP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Integer32
+                FROM SNMPv2-SMI
+        DisplayString, TimeTicks
+                FROM SNMPv2-TC
+        ciscoMgmt
+                FROM CISCO-SMI
+        CiscoNetworkProtocol, CiscoNetworkAddress
+                FROM CISCO-TC
+        InterfaceIndex
+                FROM IF-MIB
+        ;
+
+ciscoDlepMIB   MODULE-IDENTITY
+        LAST-UPDATED    "202310300000Z"
+        ORGANIZATION    "Cisco System Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive,
+                        San Jose CA 95134-1706.
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                " The MIB module for management of the Dynamic Link Exchange
+                Protocol in Cisco devices."
+        REVISION        "202310300000Z"
+        DESCRIPTION
+                " Initial version of this MIB module."
+        ::= { ciscoMgmt 1060 }
+
+   ciscoDlepMIBNotifs   OBJECT IDENTIFIER ::= { ciscoDlepMIB 0 }
+   ciscoDlepMIBObjects  OBJECT IDENTIFIER ::= { ciscoDlepMIB 1 }
+   dlepGlobals          OBJECT IDENTIFIER ::= { ciscoDlepMIBObjects 1 }
+   dlepInterface        OBJECT IDENTIFIER ::= { ciscoDlepMIBObjects 2 }
+   dlepNeighbor         OBJECT IDENTIFIER ::= { ciscoDlepMIBObjects 3 }
+   dlepClient           OBJECT IDENTIFIER ::= { ciscoDlepMIBObjects 4 }
+   dlepConfig           OBJECT IDENTIFIER ::= { ciscoDlepMIBObjects 5 }
+   dlepCounters         OBJECT IDENTIFIER ::= { ciscoDlepMIBObjects 6 }
+
+dlepEnableIndividualNotifications OBJECT-TYPE
+     SYNTAX          BITS {
+                         neighborSessionChange(0),
+                         clientSessionChange(1)
+                     }
+     MAX-ACCESS      read-write
+     STATUS          current
+     DESCRIPTION
+         " This object is used to enable/disable individual notifications
+          defined in this MIB module. Turning on a particular bit would
+          enable the corresponding trap and, similarly, turning off a
+          particular bit would disable the corresponding trap. The
+          following notifications are controlled by this object:
+
+          neighborSessionChange(0): enables/disables dlepNeighborSessionChange
+                              notification.
+
+          clientSessionChange(1): enables/disables dlepClientSessionChange
+                             notification."
+     ::= { dlepGlobals 1 }
+
+-- Notifications
+
+dlepMIBNotifications  OBJECT IDENTIFIER
+     ::= { ciscoDlepMIBNotifs 0 }
+
+dlepNeighborSessionChange NOTIFICATION-TYPE
+     OBJECTS         {
+                         dlepNeighborInterfaceIndex,
+                         dlepNeighborSessionOperStatus
+                     }
+     STATUS          current
+     DESCRIPTION
+         " This notification is generated when the state
+        of a Neighbor Session has changed."
+    ::= { dlepMIBNotifications 0 }
+
+dlepClientSessionChange NOTIFICATION-TYPE
+     OBJECTS         {
+                         dlepClientInterfaceIndex,
+                         dlepClientSessionOperStatus
+                     }
+     STATUS          current
+     DESCRIPTION
+         " This notification is generated when the state
+        of a Client Session has changed."
+    ::= { dlepMIBNotifications 1 }
+
+--
+-- The DLEP Interface Group
+--
+dlepInterfaceTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF DlepInterfaceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            " The (conceptual) table containing DLEP Interface Info."
+    ::= { dlepInterface 1 }
+
+dlepInterfaceEntry OBJECT-TYPE
+    SYNTAX     DlepInterfaceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            " An entry (conceptual row) in the dlepInterfaceTable,
+              containing the details of DLEP interface.The dlepInterfaceTable
+              is double-indexed by dlepInterfaceIndex and dlepInterfaceNbrSessionId.
+              Each entry (conceptual row) in the dlepInterfaceTable will be populated
+              after adding the neighbor."
+    INDEX      { dlepInterfaceIndex, dlepInterfaceNbrSessionId }
+    ::= { dlepInterfaceTable 1 }
+
+DlepInterfaceEntry ::= SEQUENCE {
+    dlepInterfaceIndex                  InterfaceIndex,
+    dlepInterfaceNbrSessionId           Integer32,
+    dlepInterfaceName                   DisplayString
+}
+
+dlepInterfaceIndex OBJECT-TYPE
+    SYNTAX     InterfaceIndex
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepInterfaceIndex, this data item contains Interface Snmp
+            Index."
+    ::= { dlepInterfaceEntry 1 }
+
+dlepInterfaceNbrSessionId OBJECT-TYPE
+    SYNTAX     Integer32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepInterfaceNbrSessionId, this data item contains the
+            interface neighbor session ids on interface where dlep
+            session established."
+    ::= { dlepInterfaceEntry 2 }
+
+dlepInterfaceName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..1000))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepInterfaceName, this data item contains interface name."
+    ::= { dlepInterfaceEntry 3 }
+
+--
+-- The DLEP Neighbor Group
+--
+dlepNeighborTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF DlepNeighborEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            " The (conceptual) table containing DLEP Neighbor Info."
+    ::= { dlepNeighbor 1 }
+
+dlepNeighborEntry OBJECT-TYPE
+    SYNTAX     DlepNeighborEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            " An entry (conceptual row) in the dlepNeighborTable,
+            containing the details of DLEP neighbor."
+    INDEX      { dlepNeighborSessionId }
+    ::= { dlepNeighborTable 1 }
+
+
+DlepNeighborEntry ::= SEQUENCE {
+    dlepNeighborSessionId               Integer32,
+    dlepNeighborInterfaceIndex          InterfaceIndex,
+    dlepNeighborInterfaceName           DisplayString,
+    dlepNeighborAddress                 CiscoNetworkAddress,
+    dlepNeighborAddressV6LL             CiscoNetworkAddress,
+    dlepNeighborAddressV6GBL            CiscoNetworkAddress,
+    dlepNeighborIpUpTime                TimeTicks,
+    dlepNeighborMetricsMTU              Integer32,
+    dlepNeighborMetricsCdrRx            Integer32,
+    dlepNeighborMetricsCdrTx            Integer32,
+    dlepNeighborMetricsMdrRx            Integer32,
+    dlepNeighborMetricsMdrTx            Integer32,
+    dlepNeighborMetricsRlqRx            Integer32,
+    dlepNeighborMetricsRlqTx            Integer32,
+    dlepNeighborMetricsLatency          Integer32,
+    dlepNeighborMetricsResources        Integer32,
+    dlepNeighborMetricsVac              DisplayString,
+    dlepNeighborMetricsMacAddress       CiscoNetworkAddress,
+    dlepNeighborSessionOperStatus       Integer32
+}
+
+dlepNeighborSessionId OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighborSessionId, this data iteam contains
+            neighbor session id."
+    ::= { dlepNeighborEntry 1 }
+
+dlepNeighborInterfaceIndex OBJECT-TYPE
+    SYNTAX     InterfaceIndex
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepneighborInterfaceIndex, this data item contains
+            Neighbor Interface Snmp Index."
+    ::= { dlepNeighborEntry 2 }
+
+dlepNeighborInterfaceName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..100))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighborInterfacename is the name of the interface
+            on which the DLEP session is established."
+    ::= { dlepNeighborEntry 3 }
+
+dlepNeighborAddress OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepNeighborAddress, This data item contains
+          the IPv4 address of the destination."
+    ::= { dlepNeighborEntry 4 }
+
+dlepNeighborAddressV6LL OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepNeighborAddressV6LL, This data item contains
+          the IPv6 Link Local address of the destination."
+    ::= { dlepNeighborEntry 5 }
+
+dlepNeighborAddressV6GBL OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepNeighborAddressV6GBL, This data item contains
+          the IPv6 Global address of the destination."
+    ::= { dlepNeighborEntry 6 }
+
+dlepNeighborIpUpTime  OBJECT-TYPE
+    SYNTAX     TimeTicks
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        " The dlepNeighbor, this data item contains the UpTime
+        of destination."
+    ::= { dlepNeighborEntry 7 }
+
+dlepNeighborMetricsMTU OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor Maximum Transmission Unit (MTU), this
+            data item is used to indicate the maximum size, in octets,
+            of an IP packet that can be transmitted without fragmentation,
+            including headers, but excluding any lower-layer headers."
+    ::= { dlepNeighborEntry 8 }
+
+dlepNeighborMetricsCdrRx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor radio Current Data Rate (Receive) (CDRR),
+            this data item is used to indicate the rate at which the link
+            is currently operating for receiving traffic."
+    ::= { dlepNeighborEntry 9 }
+
+dlepNeighborMetricsCdrTx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor radio Current Data Rate (Transmit) (CDRT),
+            thisi data item is used to indicate the rate at which the link
+            is currently operating for transmitting traffic."
+    ::= { dlepNeighborEntry 10 }
+
+dlepNeighborMetricsMdrRx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor radio Maximum Data Rate (Receive) (MDRR),
+            this data item is used to indicate the maximum theoretical
+            data rate, in bits per second (bps), that can be achieved
+            while receiving data on the link."
+    ::= { dlepNeighborEntry 11 }
+
+dlepNeighborMetricsMdrTx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor radio Maximum Data Rate (Transmit) (MDRT),
+            this data item is used to indicate the maximum theoretical
+            data rate, in bits per second, that can be achieved
+            while transmitting data on the link."
+    ::= { dlepNeighborEntry 12 }
+
+dlepNeighborMetricsRlqRx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor Relative Link Quality (Receive) (RLQR),
+            This data item is used to indicate the quality of the link
+            to a destination for receiving traffic, with 0 meaning 
+            ’worst quality’ and 100 meaning ’best quality’."
+    ::= { dlepNeighborEntry 13 }
+
+dlepNeighborMetricsRlqTx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor Relative Link Quality (Transmit) (RLQT),
+            This data item is used to indicate the quality of the link
+            to a destination for transmitting traffic, with 0 meaning
+            ’worst quality’ and 100 meaning ’best quality’."
+    ::= { dlepNeighborEntry 14 }
+
+dlepNeighborMetricsLatency OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor radio Latency to indicate the amount of
+            latency, in microseconds, on the link. The Latency value is 
+            reported as transmission delay."
+    ::= { dlepNeighborEntry 15 }
+
+dlepNeighborMetricsResources OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor Resources (RES), this data item is used
+            to indicate the amount of finite resources available for data
+            transmission and reception at the destination as a percentage,
+            with 0 meaning ’no resources remaining’ and 100 meaning
+            ’a full supply’."
+    ::= { dlepNeighborEntry 16 }
+
+dlepNeighborMetricsVac OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..100))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighborMetricsVac, this data item contains radio
+            Virtual-Access Number information."
+    ::= { dlepNeighborEntry 17 }
+
+dlepNeighborMetricsMacAddress OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighbor MAC Address data item contains the address
+            of the destination on the remote node."
+    ::= { dlepNeighborEntry 18 }
+
+dlepNeighborSessionOperStatus OBJECT-TYPE
+     SYNTAX          INTEGER  {
+                         up(1),
+                         down(2),
+                         forcedDown(3)
+                     }
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The state of the dlep neighbor.
+         up         - Connected and operational.
+         down       - Not connected to a neighboring router or
+                      administrative down.
+         forcedDown - Shut down by dlep manager due to mismatch or
+                      dlep neighbor errors."
+     ::= { dlepNeighborEntry 19 }
+
+--
+-- The DLEP Client Group
+--
+dlepClientTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF DlepClientEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing DLEP Client Info."
+    ::= { dlepClient 1 }
+
+dlepClientEntry OBJECT-TYPE
+    SYNTAX     DlepClientEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the dlepClientTable,
+            containing the information of DLEP client."
+    INDEX      { dlepClientInterfaceIndex }
+    ::= { dlepClientTable 1 }
+
+DlepClientEntry ::= SEQUENCE {
+    dlepClientInterfaceIndex               InterfaceIndex,
+    dlepClientInterfaceName                DisplayString,
+    dlepClientPeerId                       Integer32,
+    dlepNeighborCount                      Integer32,
+    dlepClientDescription                  DisplayString,
+    dlepClientAddressType                  CiscoNetworkProtocol,
+    dlepClientLocalAddress                 CiscoNetworkAddress,
+    dlepClientLocalRadioAddress            CiscoNetworkAddress,
+    dlepClientUpTime                       TimeTicks,
+    dlepClientMetricsCdrRx                 Integer32,
+    dlepClientMetricsCdrTx                 Integer32,
+    dlepClientMetricsMdrRx                 Integer32,
+    dlepClientMetricsMdrTx                 Integer32,
+    dlepClientMetricsRlqRx                 Integer32,
+    dlepClientMetricsRlqTx                 Integer32,
+    dlepClientMetricsLatency               Integer32,
+    dlepClientMetricsResources             Integer32,
+    dlepClientMetricsMTU                   Integer32,
+    dlepClientPort                         Integer32,
+    dlepClientConfigVT                     Integer32,
+    dlepClientConfigHeartBeat              Integer32,
+    dlepClientConfigDeadInterval           Integer32,
+    dlepClientConfigTerminate              Integer32,
+    dlepConfigNeighborDown                 Integer32,
+    dlepClientSessionOperStatus            Integer32,
+    dlepClientMetricsSummary               DisplayString,
+    dlepClientConfigSummary                DisplayString
+}
+
+dlepClientInterfaceIndex OBJECT-TYPE
+    SYNTAX     InterfaceIndex
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientInterfaceIndex, this data item contains
+            client interface snmp index."
+    ::= { dlepClientEntry 1 }
+
+dlepClientInterfaceName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientInterfaceName, this data item contains
+            Interface Name on which dlep client session is established."
+    ::= { dlepClientEntry 2 }
+
+dlepClientPeerId OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientPeerId, this data item contains Client Peer Id."
+    ::= { dlepClientEntry 3 }
+
+dlepNeighborCount OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepNeighborCount, this data item contains the number
+            of neighbors connected to client."
+    ::= { dlepClientEntry 4 }
+
+dlepClientDescription OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientDescription, this data item contains
+            the description of client"
+    ::= { dlepClientEntry 5 }
+
+dlepClientAddressType OBJECT-TYPE
+    SYNTAX     CiscoNetworkProtocol
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " An indication of the type of address contained in the
+            corresponding instance of dlepClientAddress."
+    ::= { dlepClientEntry 6 }
+
+dlepClientLocalAddress OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepClientLocalAddress, this data item contains the
+          Local Client Address."
+    ::= { dlepClientEntry 7 }
+
+dlepClientLocalRadioAddress OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepClientLocalRadioAddress, this data item contains
+          the local client radio address."
+    ::= { dlepClientEntry 8 }
+
+dlepClientUpTime  OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        " The dlepClient UpTime, this data item contains client up time."
+    ::= { dlepClientEntry 9 }
+
+dlepClientMetricsCdrRx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The client radio Current Data Rate (Receive) (CDRR),
+            this data item is used to indicate the rate at which the link
+            is currently operating for receiving traffic."
+    ::= { dlepClientEntry 10 }
+
+dlepClientMetricsCdrTx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The client radio Current Data Rate (Transmit) (CDRT),
+            this data item is used to indicate the rate at which the link
+            is currently operation for tansmiting traffic"
+    ::= { dlepClientEntry 11 }
+
+dlepClientMetricsMdrRx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClient radio Maximum Data Rate (Receive) (MDRR),
+            this data item is used to indicate the maximum theoretical
+            data rate, in bits per second (bps), that can be achieved
+            while receiving data on the link."
+    ::= { dlepClientEntry 12 }
+
+dlepClientMetricsMdrTx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClient radio Maximum Data Rate (Transmit) (MDRT),
+            this data item is used to indicate the maximum theoretical
+            data rate, in bits per second, that can be achieved
+            while transmitting data on the link."
+    ::= { dlepClientEntry 13 }
+
+dlepClientMetricsRlqRx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClient Relative Link Quality (Receive) (RLQR),
+            This data item is used to indicate the quality of the link
+            to a destination for receiving traffic, with 0 meaning
+            ’worst quality’ and 100 meaning ’best quality’."
+    ::= { dlepClientEntry 14 }
+
+dlepClientMetricsRlqTx OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClient Relative Link Quality (Transmit) (RLQT),
+            This data item is used to indicate the quality of the link
+            to a destination for transmitting traffic, with 0 meaning
+            ’worst quality’ and 100 meaning ’best quality’."
+    ::= { dlepClientEntry 15 }
+
+dlepClientMetricsLatency OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClient radio Latency to indicate the amount of
+            latency, in microseconds, on the link. The Latency value is
+            reported as transmission delay."
+    ::= { dlepClientEntry 16 }
+
+dlepClientMetricsResources OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClient Resources (RES), this data item is used
+            to indicate the amount of finite resources available for data
+            transmission and reception at the destination as a percentage,
+            with 0 meaning ’no resources remaining’ and 100 meaning
+            ’a full supply’."
+    ::= { dlepClientEntry 17 }
+
+dlepClientMetricsMTU OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClient Maximum Transmission Unit (MTU), this
+            data item is used to indicate the maximum size, in octets,
+            of an IP packet that can be transmitted without fragmentation,
+            including headers, but excluding any lower-layer headers."
+    ::= { dlepClientEntry 18 }
+
+dlepClientPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientPort, this data item contains the TCP port
+            number on the modem available for connections."
+    ::= { dlepClientEntry 19 }
+
+dlepClientConfigVT OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientConfigVT, this data item contains number of
+            Virtual Template."
+    ::= { dlepClientEntry 20 }
+
+dlepClientConfigHeartBeat OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientConfigHeartBeat, this data item is used to
+            specify a period in milliseconds for radio client heartbeat
+            configuration."
+    ::= { dlepClientEntry 21 }
+
+dlepClientConfigDeadInterval OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientConfigDeadInterval, this data item is used to
+            specify a period in milliseconds for radio client dead interval
+            configuration."
+    ::= { dlepClientEntry 22 }
+
+dlepClientConfigTerminate OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientConfigTerminate, this data item contains
+            radio client Teminate ack configuration inerval."
+    ::= { dlepClientEntry 23 }
+
+dlepConfigNeighborDown OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepConfigNeighborDown, this data item contains
+          radio neighbor down ack configuartion."
+    ::= { dlepClientEntry 24 }
+
+dlepClientSessionOperStatus OBJECT-TYPE
+     SYNTAX          INTEGER  {
+                         up(1),
+                         down(2),
+                         forcedDown(3)
+                     }
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The state of the dlep client session.
+         up         - Connected and operational.
+         down       - Not connected to a neighboring router or
+                      administrative down.
+         forcedDown - Shut down by dlep manager due to mismatch or
+                      dlep client session errors."
+     ::= { dlepClientEntry 25 }
+
+dlepClientMetricsSummary OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientMetricsSummary, this data item contains summary
+            of client information. That is ClientIpaddress,RLQR,RLQT,
+            CDRR,CDRT,MDRR,MDRT,Latency,Resource."
+    ::= { dlepClientEntry 26 }
+
+dlepClientConfigSummary OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepClientConfigSummary , this data item contails
+            the information about client configuration that is
+            Ipaddress,port,VirtualTemplate,HeartbeatTimer,DeadInterval,
+            TerminateACK,NeighborDownTimer."
+    ::= { dlepClientEntry 27 }
+
+--
+-- The DLEP Configuration Group
+--
+dlepConfigTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF DlepConfigEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            " The (conceptual) table containing DLEP Config Info."
+    ::= { dlepConfig 1 }
+
+dlepConfigEntry OBJECT-TYPE
+    SYNTAX     DlepConfigEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            " An entry (conceptual row) in the dlepConfigTable,
+            containing the information of DLEP config."
+    INDEX      { dlepConfigInterfaceIndex }
+    ::= { dlepConfigTable 1 }
+
+
+DlepConfigEntry ::= SEQUENCE {
+    dlepConfigInterfaceIndex            InterfaceIndex,
+    dlepConfigInterfaceName             DisplayString,
+    dlepConfigPeerInterfaceDescription  DisplayString,
+    dlepConfigLocalAddressType          CiscoNetworkProtocol,
+    dlepConfigLocalAddress              CiscoNetworkAddress,
+    dlepConfigLocalTCPPort              Integer32,
+    dlepConfigLocalUDPPort              Integer32,
+    dlepConfigRemoteAddressType         CiscoNetworkProtocol,
+    dlepConfigRemoteAddress             CiscoNetworkAddress,
+    dlepConfigRemoteTCPPort             Integer32,
+    dlepConfigRemoteUDPPort             Integer32,
+    dlepConfigSessionMode               DisplayString,
+    dlepConfigVirtualTemplate           Integer32,
+    dlepConfigMissedHeartbeatThreshold  Integer32,
+    dlepConfigHeartbeatInterval         Integer32,
+    dlepConfigDiscoveryInterval         Integer32,
+    dlepConfigSessionAckTimeout         Integer32,
+    dlepConfigPeerTerminateAckTimeout   Integer32,
+    dlepConfigNeighborDownAckTimeout    Integer32,
+    dlepConfigSummary                   DisplayString
+}
+
+dlepConfigInterfaceIndex OBJECT-TYPE
+    SYNTAX     InterfaceIndex
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigInterfaceIndex, this data item contains
+            config interface snmp index."
+    ::= { dlepConfigEntry 1 }
+
+dlepConfigInterfaceName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigInterfaceName, this data item contains dlep
+            enabled interface name."
+    ::= { dlepConfigEntry 2 }
+
+dlepConfigPeerInterfaceDescription OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigPeerInterfaceDescription, this data item contains the dlep
+              peer interface description."
+    ::= { dlepConfigEntry 3 }
+
+dlepConfigLocalAddressType OBJECT-TYPE
+    SYNTAX     CiscoNetworkProtocol
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " An indication of the type of address contained in the
+            corresponding instance of dlepConfigLocalAddress."
+    ::= { dlepConfigEntry 4 }
+
+dlepConfigLocalAddress OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepConfigLocalAddress, this data item contains
+          configuration of Local Address."
+    ::= { dlepConfigEntry 5 }
+
+dlepConfigLocalTCPPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigLocalTCPPort, this data item contains
+            Local TCP port number."
+    ::= { dlepConfigEntry 6 }
+
+dlepConfigLocalUDPPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigiLocalUDPPort, this data item contains
+            Local UDP port number."
+    ::= { dlepConfigEntry 7 }
+
+dlepConfigRemoteAddressType OBJECT-TYPE
+    SYNTAX     CiscoNetworkProtocol
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " An indication of the type of address contained in the
+            corresponding instance of dlepConfigRemoteAddress."
+    ::= { dlepConfigEntry 8 }
+
+dlepConfigRemoteAddress OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepConfigRemoteAddress, this data item contains
+          configuration of Remote Address."
+    ::= { dlepConfigEntry 9 }
+
+dlepConfigRemoteTCPPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigRemoteTCPPort, this data iteam contains
+            configuration of Remote TCP port."
+    ::= { dlepConfigEntry 10 }
+
+dlepConfigRemoteUDPPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigRemoteUDPPort, this data iteam contains
+            configuration of Remote UDP port number."
+    ::= { dlepConfigEntry 11 }
+
+dlepConfigSessionMode OBJECT-TYPE
+    SYNTAX     INTEGER  {
+                    manual-v4(1),
+                    manual-v6(2),
+                    auto-v4(3),
+                    auto-v6(4)
+                }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigSessionMode, this data iteam contains
+            the IP configuration mode which can be either of this values:
+            manual-v4/manual-v6/auto-v4/auto-v6."
+    ::= { dlepConfigEntry 12 }
+
+dlepConfigVirtualTemplate OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigVirtualTemplace, this data item contains
+            Virtual Template Number."
+    ::= { dlepConfigEntry 13 }
+
+dlepConfigMissedHeartbeatThreshold OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigMissedHeartbeatThreshold, this data item
+            contains configuration of Missed heartbeat threshold."
+    ::= { dlepConfigEntry 14 }
+
+dlepConfigHeartbeatInterval OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigHeartbeatInterval, this data item contains
+            configuration of heart beat interval."
+    ::= { dlepConfigEntry 15 }
+
+dlepConfigDiscoveryInterval OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigDiscoveryInterval, this data item contains
+            configuration of discovery interval."
+    ::= { dlepConfigEntry 16 }
+
+dlepConfigSessionAckTimeout OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigSessionAckTimeout, this data item contains
+            configuration of Session ack timeout."
+    ::= { dlepConfigEntry 17 }
+
+dlepConfigPeerTerminateAckTimeout OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigPeerTerminateAckTimeout, this data item contains
+            configuration of peer terminate ack timeout."
+    ::= { dlepConfigEntry 18 }
+
+dlepConfigNeighborDownAckTimeout OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigNeighborDownAckTimeout, this data item contains
+            configuration of neighbor down ack timeout."
+    ::= { dlepConfigEntry 19 }
+
+dlepConfigSummary OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepConfigSummary, this data item contains configuration
+            summary that is Localserver,configversion,tcpport,udpport,
+            virtualtemplate,heartthreshold,heartinterval,discoveryinterval,
+            sessionack,peerterminateack,neighbordownack."
+    ::= { dlepConfigEntry 20 }
+
+--
+-- The DLEP Counters Group
+--
+dlepCountersTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF DlepCountersEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing DLEP Counters Info."
+    ::= { dlepCounters 1 }
+
+dlepCountersEntry OBJECT-TYPE
+    SYNTAX     DlepCountersEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the dlepCountersTable,
+            containing the details of DLEP counters."
+    INDEX      { dlepCounterInterfaceIndex }
+    ::= { dlepCountersTable 1 }
+
+DlepCountersEntry ::= SEQUENCE {
+    dlepCounterInterfaceIndex             InterfaceIndex,
+    dlepCounterInterfaceName              DisplayString,
+    dlepCounterLastClearTime              DisplayString,
+    dlepCounterLocalIpType                CiscoNetworkProtocol,
+    dlepCounterLocalIp                    CiscoNetworkAddress,
+    dlepCounterLocalUDPPort               Integer32,
+    dlepCounterLocalTCPPort               Integer32,
+    dlepCounterRXPeerDiscovery            Integer32,
+    dlepCounterRXPeerOffer                Integer32,
+    dlepCounterRXPeerInit                 Integer32,
+    dlepCounterRXPeerInitAck              Integer32,
+    dlepCounterRXHeartbeat                Integer32,
+    dlepCounterRXPeerTerminate            Integer32,
+    dlepCounterRXPeerTerminateAck         Integer32,
+    dlepCounterTXPeerOffer                Integer32,
+    dlepCounterTXPeerDiscovery            Integer32,
+    dlepCounterTXPeerInitAck              Integer32,
+    dlepCounterTXPeerInit                 Integer32,
+    dlepCounterTXHeartbeat                Integer32,
+    dlepCounterTXPeerTerminateAck         Integer32,
+    dlepCounterTXPeerTerminate            Integer32,
+    dlepCounterRXNeighborUp               Integer32,
+    dlepCounterRXMetric                   Integer32,
+    dlepCounterRXNeighborDown             Integer32,
+    dlepCounterRXNeighborDownAck          Integer32,
+    dlepCounterTXNeighborUpAck            Integer32,
+    dlepCounterTXNeighborDownAck          Integer32,
+    dlepCounterTXNeighborDown             Integer32,
+    dlepCounterRXInvalidMessage           Integer32,
+    dlepCounterPreExistingNeighbor        Integer32,
+    dlepCounterNeighborNotFound           Integer32,
+    dlepCounterRXUnknownMessage           Integer32,
+    dlepCounterNeighborResourceError      Integer32,
+    dlepCounterNeighborMsgPeerNotUp       Integer32,
+    dlepCounterPeerHeartbeatTimer         Integer32,
+    dlepCounterPeerTerminateAckTimer      Integer32,
+    dlepCounterNeighborTerminateAckTimer  Integer32,
+    dlepCounterRadioConnectTimer          Integer32,
+    dlepCountersPeersSummary              DisplayString,
+    dlepCountersNeighborsSummary          DisplayString,
+    dlepCountersExceptionsSummary         DisplayString,
+    dlepCountersTimersSummary             DisplayString,
+    dlepLocalCountersSummary              DisplayString
+}
+
+dlepCounterInterfaceIndex OBJECT-TYPE
+    SYNTAX     InterfaceIndex
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterInterfaceIndex, this data item contains
+            counter interface snmp index."
+    ::= { dlepCountersEntry 1 }
+
+dlepCounterInterfaceName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterInterfaceName, this data item contains dlep
+            enabled interface name."
+    ::= { dlepCountersEntry 2 }
+
+dlepCounterLastClearTime OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterLastClearTime, this data item contains dlep
+            last clear time."
+    ::= { dlepCountersEntry 3 }
+
+dlepCounterLocalIpType OBJECT-TYPE
+    SYNTAX     CiscoNetworkProtocol
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " An indication of the type of address contained in th
+            corresponding instance of dlepCounterLocalIp."
+    ::= { dlepCountersEntry 4 }
+
+dlepCounterLocalIp OBJECT-TYPE
+    SYNTAX     CiscoNetworkAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepCounterLocalIp, this data item contains
+          configuration of Local Ip."
+    ::= { dlepCountersEntry 5 }
+
+dlepCounterLocalTCPPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterLocalTCPPort, this data item contains
+            Local TCP port number."
+    ::= { dlepCountersEntry 6 }
+
+dlepCounterLocalUDPPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterLocalUDPPort, this data item contains
+            Local UDP port number."
+    ::= { dlepCountersEntry 7 }
+
+dlepCounterRXPeerDiscovery OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXPeerDiscovery, this data item contains
+            RX Peer Discovery counter."
+    ::= { dlepCountersEntry 8 }
+
+dlepCounterRXPeerOffer OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXPeerOffer, this data item contains
+            RX Peer Offer counter."
+    ::= { dlepCountersEntry 9 }
+
+dlepCounterRXPeerInit OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXPeerInit, this data item contains
+            RX Peer Init counter."
+    ::= { dlepCountersEntry 10 }
+
+dlepCounterRXPeerInitAck OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXPeerInitAck, this data item contains
+            RX Peer Init Ack counter."
+    ::= { dlepCountersEntry 11 }
+
+dlepCounterRXHeartbeat OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXHeartbeat, this data item contains
+            RX Heartbeat counter."
+    ::= { dlepCountersEntry 12 }
+
+dlepCounterRXPeerTerminate OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXPeerTerminate, this data item contains
+            RX Peer Terminate counter."
+    ::= { dlepCountersEntry 13 }
+
+dlepCounterRXPeerTerminateAck OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXPeerTerminateAck, this data item contains
+            RX Peer Terminate Ack counter."
+    ::= { dlepCountersEntry 14 }
+
+dlepCounterTXPeerOffer OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXPeerOffer, this data item contains
+            TX Peer Offer counter."
+    ::= { dlepCountersEntry 15 }
+
+dlepCounterTXPeerDiscovery OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXPeerDiscovery, this data item contains
+            TX Peer Discovery counter."
+    ::= { dlepCountersEntry 16 }
+
+dlepCounterTXPeerInitAck OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXPeerInitAck, this data item contains
+            TX Peer Init Ack counter."
+    ::= { dlepCountersEntry 17 }
+
+dlepCounterTXPeerInit OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXPeerInit, this data item contains
+            TX Peer Init counter."
+    ::= { dlepCountersEntry 18 }
+
+dlepCounterTXHeartbeat OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXHeartbeat, this data item contains
+            TX Heartbeat counter."
+    ::= { dlepCountersEntry 19 }
+
+dlepCounterTXPeerTerminateAck OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXPeerTerminateAck, this data item contains
+            TX Peer Terminate Ack counter."
+    ::= { dlepCountersEntry 20 }
+
+dlepCounterTXPeerTerminate OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXPeerTerminate, this data item contains
+            TX Peer Terminate counter."
+    ::= { dlepCountersEntry 21 }
+
+dlepCounterRXNeighborUp OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXNeighborUp, this data item contains
+            RX Neighbor Up counter."
+    ::= { dlepCountersEntry 22 }
+
+dlepCounterRXMetric OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXMetric, this data item contains
+            RX Metric counter."
+    ::= { dlepCountersEntry 23 }
+
+dlepCounterRXNeighborDown OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXNeighborDown, this data item contains
+            RX Neighbor Down counter."
+    ::= { dlepCountersEntry 24 }
+
+dlepCounterRXNeighborDownAck OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXNeighborDownAck, this data item contains
+            RX Neighbor Down Ack counter."
+    ::= { dlepCountersEntry 25 }
+
+dlepCounterTXNeighborUpAck OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXNeighborUpAck, this data item contains
+            TX Neighbor Up Ack counter."
+    ::= { dlepCountersEntry 26 }
+
+dlepCounterTXNeighborDownAck OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXNeighborDownAck, this data item contains
+            TX Neighbor Down Ack counter."
+    ::= { dlepCountersEntry 27 }
+
+dlepCounterTXNeighborDown OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterTXNeighborDown, this data item contains
+            TX Neighbor Down counter."
+    ::= { dlepCountersEntry 28 }
+
+dlepCounterRXInvalidMessage OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXInvalidMessage, this data item contains
+            RX Invalid Message counter."
+    ::= { dlepCountersEntry 29 }
+
+dlepCounterPreExistingNeighbor OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterPreExistingNeighbor, this data item contains
+            PreExisting Neighbor counter."
+    ::= { dlepCountersEntry 30 }
+
+dlepCounterNeighborNotFound OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterNeighborNotFound, this data item contains
+            Neighbor Not Found counter."
+    ::= { dlepCountersEntry 31 }
+
+dlepCounterRXUnknownMessage OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRXUnknownMessage, this data item contains
+            RX Unknown Message counter."
+    ::= { dlepCountersEntry 32 }
+
+dlepCounterNeighborResourceError OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterNeighborResourceError, this data item contains
+            Neighbor Resource Error counter."
+    ::= { dlepCountersEntry 33 }
+
+dlepCounterNeighborMsgPeerNotUp OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterNeighborMsgPeerNotUp, this data item contains
+            Neighbor Msg Peer Not Up counter."
+    ::= { dlepCountersEntry 34 }
+
+dlepCounterPeerHeartbeatTimer OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterPeerHeartbeatTimer, this data item contains
+            Peer Heartbeat Timer counter."
+    ::= { dlepCountersEntry 35 }
+
+dlepCounterPeerTerminateAckTimer OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterPeerTerminateAckTimer, this data item contains
+            Peer Terminate Ack Timer counter."
+    ::= { dlepCountersEntry 36 }
+
+dlepCounterNeighborTerminateAckTimer OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterNeighborTerminateAckTimer, this data item
+            contains Neighbor Terminate Ack Timer counter."
+    ::= { dlepCountersEntry 37 }
+
+dlepCounterRadioConnectTimer OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepCounterRadioConnectTimer, this data item contains
+            Radio Connect Timer counter."
+    ::= { dlepCountersEntry 38 }
+
+dlepCountersPeersSummary OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepCountersPeersSummary, this data item contains
+          peer counters information on local Servers running DLEP
+          on an interface, that is RXPeerDiscovery,RXPeerOffer,RXPeerInit,
+          RXPeerInitAck,RXHeartbeat,RXPeerTerminate,RXPeerTerminateAck,
+          TXPeerOffer,TXPeerDiscovery,TXPeerInitAck,TXPeerInit,
+          TXHeartbeat,TXPeerTerminateAck,TXPeerTermiante."
+    ::= { dlepCountersEntry 39 }
+
+dlepCountersNeighborsSummary OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepCountersNeighborsSummary, this data iteam contains
+          neighbor counters information on local servers running DLEP
+          on an inerface, that is Localserver,UDPport,interface,
+          RXNeighborUp,RxMetric,RXNeighborDown,RxNeighborDownAck,
+          TXNeighborUPAck,TXNeighborDownAck,TXNeighborDown."
+    ::= { dlepCountersEntry 40 }
+
+dlepCountersExceptionsSummary OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepCountersExceptionsSummary, this data iteam contains
+          exceptions counters information on local servers running DLEP
+          on an inerface, that is Localserver,UDPport,interface,
+          RxInvalidMessage,Pre-ExistingNeighbor,NeighborNotFound,
+          RxUnknownMessage,NeighborResourceError,NeighborMsgPeerNotUp."
+    ::= { dlepCountersEntry 41 }
+
+dlepCountersTimersSummary  OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+          " The dlepCountersTimersSummary, this data iteam contains
+          Timers summary information on local servers running DLEP
+          on an inerface, that is Localserver,UDPport,interface,
+          PeerHeartbeatTimer,PeerTerminateAckTimer,NeighborTerminateAckTimer,
+          RadioConnectTimer."
+    ::= { dlepCountersEntry 42 }
+
+dlepLocalCountersSummary OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..512))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            " The dlepLocalCountersSummary, this data iteam contains
+            peer counters summary on local server. that is
+            Localserver,udpPort,interface,RxPeerDiscovery,RxPeerOffer,
+            RXPeerInit,RXPeerInitAck,RXHeartbeat,RXPeerTerminate,
+            RXPeerTerminateAck,TXPeerOffer,TXPeerDiscovery,TXPeerInitAck,
+            TXPeerInit,TXHeartbeat,TXPeerTerminateAck,TXPeerTermiante,
+            RXNeighborUp,RxMetric,RXNeighborDown,RXNeighborDownAck,
+            TXNeighborUPack,TXNeighborDownAck,TXNeighborDown,
+            RXInvalidMessage,Pre-ExistingNeighbor,NeighborNotFound,
+            RXUknownMessage,NeighborREsourceError,NeighborMesgPeerNotup,
+            PeerHeartbeatTimer,PeerTerminateAckTimer,
+            NeighborTerminateAckTimer,RadioConnectTimer."
+    ::= { dlepCountersEntry 43 }
+
+END

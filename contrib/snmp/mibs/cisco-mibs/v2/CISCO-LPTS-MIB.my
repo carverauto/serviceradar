@@ -1,0 +1,423 @@
+-- *****************************************************************
+-- CISCO-LPTS-MIB.my
+-- Local Packet Transport Service(LPTS) MIB file
+-- March 2013, <Harish Gumaste>
+-- Copyright (c) 2013 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-LPTS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Unsigned32
+       FROM SNMPv2-SMI  
+    MODULE-COMPLIANCE, 
+    OBJECT-GROUP
+       FROM SNMPv2-CONF     
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI
+    SnmpAdminString           
+        FROM SNMP-FRAMEWORK-MIB;
+
+ciscoLptsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201309030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-q-lpts-dev@cisco.com"
+    DESCRIPTION
+        "The MIB module for Local Packet Transport Services(LPTS)
+        related information like the flows and the policer 
+        values related to various flows present in the system.
+        
+        The number of packets coming into the system is controlled
+        by the policer values associated with the protocol. Each
+        protocol is classified into different flows and a rate 
+        limit is associated with the flows. Policer is a numerical 
+        value controlling the number of packets entering the box.
+        
+        The flows represent individual, specific protocols.
+        Flow types also represent the degree of trust for a given 
+        packet. Ex: BGP packets coming from established session is 
+        assigned one flow, packets from configured BGP peer are
+        assigned different flow . Other BGP packets are assigned 
+        a third flow.
+        
+        Definitions:
+        LPTS		- Local Packet Transport Services.
+        			  It is a  network infrastructure
+        			  subsystem that provides a common
+        			  facility for transport of packets 
+        			  which are destined towards the router
+        			  (for-us packets), to the exact 
+        			  applications. In addtion 
+        			  to that, it also 
+        			  provides policing of for-us packets  
+        FlowType	- Represents individual, specific protocols.
+        			  Flow also represents the degree of trust
+        			  for a given packet.
+        LC			- Line Cards.
+        Policer     - Index to FlowType.
+        CurrentRate	- Number of packets allowed
+        			  into the box in PPS (Packets Per Second).
+        Type 		- Defines the scope of the flow applicable at
+        			  a specific node or Line card.
+        Precedence  - Precedence is the selection mechanism for 
+        			  a specific Type if more than one Type is 
+        			  configured for the same flow. 'local'
+        			  FlowType has higher precedence over 'global'
+        			  and 'static' FlowTypes. 'global' FlowType has
+        			  higher precedence over 'static' FlowType.
+        nodeID		- The line card for which the flow configuration 
+        			  is made."
+        			  			  
+    REVISION        "201309030000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 812 }
+
+
+
+ClFlowType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumeration unsigned integer which indicates the scope of
+        flow applicable at a specific node or Line Card (LC).
+        Precedence is the selection mechanism for a specific Type
+        if more than one Type is configured for the same flow.
+        When Type 'local' and 'global' are configured for the
+        same flow, then 'local' Type takes precedence. If 
+        'local' Type is not configured, then 'global' Type would
+        be applied if it is present. If neither the 'local' nor
+        the 'global' Type is configured, then the ClFlowType is
+        derived from the static configuration file which is of
+        Type 'static'."
+
+    SYNTAX          INTEGER  {
+                        static(1), -- the flow derived from a
+                        		  -- static config file.  
+                        		  -- When ClFlowType is "Static", implies 
+                                  -- neither local nor 
+                                  -- global configuration is present.
+                        global(2), -- ClFlowType is "Global" when
+                                   -- flow is
+                                   -- configured across all the 
+                                   --Linecards.
+                        local(3) -- ClFlowType is "Local" when
+                                   -- flow is
+                                   -- configured specific to Linecard.  
+                    }
+-- Textual Conventions definition will be defined before this line
+
+ciscoLptsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLptsMIB 0 }
+
+ciscoLptsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLptsMIB 1 }
+
+ciscoLptsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLptsMIB 2 }
+
+
+clGlobalFlowTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClGlobalFlowEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table respresents the flows configured globally and 
+        the configuration will be reflected across all the linecards"
+    ::= { ciscoLptsMIBObjects 1 }
+
+clGlobalFlowEntry OBJECT-TYPE
+    SYNTAX          ClGlobalFlowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry will be added into clGlobalFlowTable
+        when LPTS flows configured without any
+        location specific details.  Similarly when the global
+        LPTS flow config is removed, then type and rate  
+        retained as per Static config file. The entries in this 
+        table can be of Type either 'global' or 'static'."
+    INDEX           { clGlobalFlowIndex } 
+    ::= { clGlobalFlowTable 1 }
+
+ClGlobalFlowEntry ::= SEQUENCE {
+        clGlobalFlowIndex    Unsigned32,
+        clGlobalFlowType     SnmpAdminString,
+        clGlobalType         ClFlowType,
+        clGlobalCurrentRate  Unsigned32
+}
+
+clGlobalFlowIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255) 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An unique value used to represent a
+        row in the clGlobalFlowTable" 
+    ::= { clGlobalFlowEntry 1 }
+
+clGlobalFlowType OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the flow type name 
+        associated with every flow.
+        Eg. FlowType could be BGP-Known, BGP-configured
+        BGP-default." 
+    ::= { clGlobalFlowEntry 2 }
+
+clGlobalType OBJECT-TYPE
+    SYNTAX          ClFlowType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an enumeration 
+        which indicates whether LPTS flow
+        configured across all the linecards are 'global' or
+        'static' depending on the predecedence" 
+    ::= { clGlobalFlowEntry 3 }
+
+clGlobalCurrentRate OBJECT-TYPE
+    SYNTAX          Unsigned32 
+    UNITS			"PPS"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rate associated 
+        with the flow type which is configured
+        globally." 
+    ::= { clGlobalFlowEntry 4 }
+ 
+
+-- There is not relationship between global flow table and local flow
+-- table. All the configurations made based on a location are present in
+-- the local flow table and any configurations made without any location
+-- specific details are present in the global flow table.
+
+clLocalFlowTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClLocalFlowEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the configurations for the local 
+         flow types & affects a 
+         particular nodeID for which config is applied. 
+         When local flow type is not configured & we have a global 
+         configuration then the clLocalFlowTable has global flow value. 
+         If neither local flow nor the global flows are 
+         configured, then clLocalFlowTable will have static 
+         values derived from the config file. If both the local 
+         flow and global flow is configured, then the local flow 
+         information takes precedence over the global flow 
+         information."
+    ::= { ciscoLptsMIBObjects 2 }
+
+clLocalFlowEntry OBJECT-TYPE
+    SYNTAX          ClLocalFlowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in clLocalFlowTable will be added when LPTS flows 
+        are configured specific to a location. This table is indexed
+        based on nodeID and clGlobalFlowIndex. When NMS polls for flow 
+        in clLocalFlowTable, the flow name is retrieved from the 
+        clGlobalFlowTable. When a local configuration is removed for 
+        a flow, then clGlobalCurrentRate will be applied if it  
+        is present, else static rate will be applied."
+    INDEX           {
+                        clGlobalFlowIndex,
+                        clLocalNodeID
+                    } 
+    ::= { clLocalFlowTable 1 }
+
+ClLocalFlowEntry ::= SEQUENCE {
+        clLocalNodeID              Unsigned32,
+        clLocalType                ClFlowType,
+        clLocalCurrentRate         Unsigned32,
+        clLocalAccepted 		   Counter64,
+        clLocalDropped   		   Counter64,
+        clLocalTosValue			   Unsigned32	
+}
+    
+clLocalNodeID OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The linecard for which the flow configuration is made." 
+    ::= { clLocalFlowEntry 1 }
+
+clLocalType OBJECT-TYPE
+    SYNTAX          ClFlowType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an enumeration 
+        which indicates LPTS flows 
+        configured specific to a linecard" 
+    ::= { clLocalFlowEntry 2 }
+
+clLocalCurrentRate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS			"PPS"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the packet rate associated 
+        with the flow type with which packets 
+        are accepted or dropped specific to a linecard." 
+    ::= { clLocalFlowEntry 3 }
+
+-- localFlowStats is used to find the statistics associated with that
+-- flow. We want to keep track of both the accept count as well as drop
+-- count. Hence we have used two objects as localFlowTotalAcceptCount
+-- and localFlowTotalDropCount
+
+clLocalAccepted OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets accepted
+        on a linecard for a specific flow."  
+    ::= { clLocalFlowEntry 4 }
+
+clLocalDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets dropped on 
+        a linecard for a specific flow." 
+    ::= { clLocalFlowEntry 5 }
+
+clLocalTosValue OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of service." 
+    ::= { clLocalFlowEntry 6 }
+
+ciscoLptsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLptsMIBConform 1 }
+
+ciscoLptsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLptsMIBConform 2 }
+
+
+ciscoLptsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the Cisco LPTS MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clLocalFlowGroup,
+                        clGlobalFlowGroup
+                    }
+    ::= { ciscoLptsMIBCompliances 1 }
+
+-- Units of Conformance
+
+clGlobalFlowGroup OBJECT-GROUP
+    OBJECTS         {
+                        clGlobalFlowType,
+                        clGlobalCurrentRate,
+                        clGlobalType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides information 
+        about flow type and current rate configured across all
+        Linecards."
+    ::= { ciscoLptsMIBGroups 1 }
+
+clLocalFlowGroup OBJECT-GROUP
+    OBJECTS         {
+                        clLocalCurrentRate,
+                        clLocalAccepted,
+                        clLocalDropped,
+                        clLocalType,
+                        clLocalTosValue
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides information 
+        about current rate and accept/drop statistics for a specific
+        linecard."
+    ::= { ciscoLptsMIBGroups 2 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

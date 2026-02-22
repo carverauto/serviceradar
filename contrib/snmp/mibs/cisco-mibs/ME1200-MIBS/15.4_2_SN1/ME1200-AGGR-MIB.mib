@@ -1,0 +1,216 @@
+-- *****************************************************************
+-- AGGR-MIB:  Vitesse private MIB
+--
+-- Copyright (c) 2002-2013 Vitesse Semiconductor Corporation "Vitesse".
+-- All Rights Reserved.
+--
+-- ****************************************************************
+
+ME1200-AGGR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    TruthValue FROM SNMPv2-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ;
+
+me1200AggrMib MODULE-IDENTITY
+    LAST-UPDATED "201402180000Z"
+    ORGANIZATION
+        "Vitesse Semiconductor Corporation"
+    CONTACT-INFO
+        "Dinesh Kumar <dkumar@vitesse.com>"
+    DESCRIPTION
+        "This is a private mib of static aggregation"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Changed size of me1200AggrGroupConfigPortMembers and
+         me1200AggrGroupConfigTableRowEditorPortMembers."
+    REVISION    "201310080000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 19 }
+
+
+me1200AggrMibObjects OBJECT IDENTIFIER
+    ::= { me1200AggrMib 1 }
+
+me1200AggrConfig OBJECT IDENTIFIER
+    ::= { me1200AggrMibObjects 2 }
+
+me1200AggrModeGlobals OBJECT IDENTIFIER
+    ::= { me1200AggrConfig 1 }
+
+me1200AggrModeGlobalsSmacAddr OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to true to enable the use of the Source MAC address, or false to
+         disable. By default, Source MAC Address is enabled."
+    ::= { me1200AggrModeGlobals 1 }
+
+me1200AggrModeGlobalsDmacAddr OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to true to enable the use of the Destination MAC address, or false
+         to disable. By default, Destination MAC Address is disabled."
+    ::= { me1200AggrModeGlobals 2 }
+
+me1200AggrModeGlobalsSourceAndDestinationIpAddr OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to true to enable the use of the IP address, or false to disable.
+         By default, Destination MAC Address is enabled."
+    ::= { me1200AggrModeGlobals 3 }
+
+me1200AggrModeGlobalsTcpOrUdpSportAndDportNo OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to true to enable the use of the TCP/UDP Port Number, or false to
+         disable. By default, TCP/UDP Port Number is enabled."
+    ::= { me1200AggrModeGlobals 4 }
+
+me1200AggrGroupConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AggrGroupConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The table is IP source guard static onfiguration tableThe indexes are
+         ifindex, VLAN ID, ip and netmask."
+    ::= { me1200AggrConfig 2 }
+
+me1200AggrGroupConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200AggrGroupConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200AggrGroupConfigAggrIndexNo }
+    ::= { me1200AggrGroupConfigTable 1 }
+
+ME1200AggrGroupConfigEntry ::= SEQUENCE {
+    me1200AggrGroupConfigAggrIndexNo      ME1200InterfaceIndex,
+    me1200AggrGroupConfigPortMembers      OCTET STRING,
+    me1200AggrGroupConfigAction   ME1200RowEditorState
+}
+
+me1200AggrGroupConfigAggrIndexNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Aggregation index number."
+    ::= { me1200AggrGroupConfigEntry 1 }
+
+me1200AggrGroupConfigPortMembers OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(0..1))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The bitmap type containing the port members' list for this aggregation"
+    ::= { me1200AggrGroupConfigEntry 2 }
+
+me1200AggrGroupConfigAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AggrGroupConfigEntry 100 }
+
+me1200AggrGroupConfigTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200AggrConfig 3 }
+
+me1200AggrGroupConfigTableRowEditorAggrIndexNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Aggregation index number."
+    ::= { me1200AggrGroupConfigTableRowEditor 1 }
+
+me1200AggrGroupConfigTableRowEditorPortMembers OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(0..1))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The bitmap type containing the port members' list for this aggregation"
+    ::= { me1200AggrGroupConfigTableRowEditor 2 }
+
+me1200AggrGroupConfigTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AggrGroupConfigTableRowEditor 100 }
+
+me1200AggrMibConformance OBJECT IDENTIFIER
+    ::= { me1200AggrMib 2 }
+
+me1200AggrMibCompliances OBJECT IDENTIFIER
+    ::= { me1200AggrMibConformance 1 }
+
+me1200AggrMibGroups OBJECT IDENTIFIER
+    ::= { me1200AggrMibConformance 2 }
+
+me1200AggrModeGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AggrModeGlobalsSmacAddr, me1200AggrModeGlobalsDmacAddr, 
+                  me1200AggrModeGlobalsSourceAndDestinationIpAddr, 
+                  me1200AggrModeGlobalsTcpOrUdpSportAndDportNo }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AggrMibGroups 1 }
+
+me1200AggrGroupConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AggrGroupConfigPortMembers, me1200AggrGroupConfigAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AggrMibGroups 2 }
+
+me1200AggrGroupConfigTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AggrGroupConfigTableRowEditorAggrIndexNo, 
+                  me1200AggrGroupConfigTableRowEditorPortMembers, 
+                  me1200AggrGroupConfigTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AggrMibGroups 3 }
+
+me1200AggrMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200AggrModeGlobalsInfoGroup, 
+                  me1200AggrGroupConfigTableInfoGroup, 
+                  me1200AggrGroupConfigTableRowEditorInfoGroup }
+
+    ::= { me1200AggrMibCompliances 1 }
+
+END

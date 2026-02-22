@@ -1,0 +1,150 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOWNLOAD MIB CAPABILITY
+--
+-- November 18, 2020
+--
+-- Copyright (c) 2020, 2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DOWNLOAD-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+       MODULE-IDENTITY
+           FROM SNMPv2-SMI
+       AGENT-CAPABILITIES
+           FROM SNMPv2-CONF
+       ciscoAgentCapability
+           FROM CISCO-SMI;
+
+
+ciscoLwappDownloadCapability  MODULE-IDENTITY
+
+       LAST-UPDATED         "202011180000Z"
+       ORGANIZATION         "Cisco Systems, Inc."
+       CONTACT-INFO
+               "Cisco Systems
+               Customer Service
+
+               Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-wnbu-snmp@cisco.com"
+
+       DESCRIPTION
+               "Agent capabilities for
+               CISCO-LWAPP-DOWNLOAD-MIB "
+       REVISION      "202011180000Z"
+       DESCRIPTION
+               "Initial version of this MIB module. "
+
+   ::= { ciscoAgentCapability 1171 }
+
+ciscoLwappDownloadCapabilityCEV1R0 AGENT-CAPABILITIES
+
+       PRODUCT-RELEASE "Cisco EWLC 1.0"
+       STATUS          current
+       DESCRIPTION     "CISCO-LWAPP-DOWNLOAD--MIB capabilities."
+
+       SUPPORTS        CISCO-LWAPP-DOWNLOAD-MIB
+       INCLUDES        {
+                           clDLResetTable,
+                           clDLApBootTable,
+                           clDLRestartTable
+                       }
+
+       VARIATION       cldlResetEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetDateAndTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetSwapImage
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetAP
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetSaveConfig
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetAlertTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlResetBootImage
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlPreDownloadVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlPreDownloadStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlPreDownloadNextRetryTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlPreDownloadRetryCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlPredownloadImageUpgradeRole
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlAPSoftwareName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlRestartEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlRestartIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlRestartDateAndTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlRestartAP
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlRestartRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlRestartSaveConfig
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldlRestartAlertTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+   ::= { ciscoLwappDownloadCapability 1 }
+
+END

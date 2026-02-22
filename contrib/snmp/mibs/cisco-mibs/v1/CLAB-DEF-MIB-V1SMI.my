@@ -1,0 +1,169 @@
+-- MIB file created 26-Mar-2009 12:11:36, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CLAB-DEF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CLAB-DEF-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    enterprises
+            FROM SNMPv2-SMI-v1
+    DocsX509ASN1DEREncodedCertificate
+            FROM DOCS-IETF-BPI2-MIB
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+cableLabs OBJECT IDENTIFIER ::= { enterprises 4491 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200701191700Z
+--  OrgName
+--    Cable Television Laboratories, Inc.
+--  ContactInfo
+--    Postal: Cable Television Laboratories
+--             858 Coal Creek Circle
+--             Louisville, Colorado 80027-9750
+--             U.S.A.
+--     Phone:  +1 303-661-9100
+--     Fax:    +1 303-661-9199
+--     E-mail: mibs@cablelabs.com
+--  Descr
+--    This MIB module defines the namespace organization for the
+--    CableLabs enterprise OID registry.
+--    
+--    Copyright 1999-2007 Cable Television Laboratories, Inc.
+--    All rights reserved.
+--  RevDate
+--    200701191700Z
+--  RevDescr
+--    This revision published as CL-SP-MIB-CLABDEF-I06.
+--  RevDate
+--    200504081700Z
+--  RevDescr
+--    This revision published as CL-SP-MIB-CLABDEF-I05.
+
+clabFunction    OBJECT IDENTIFIER ::= { cableLabs 1 }
+clabFuncMib2    OBJECT IDENTIFIER ::= { clabFunction 1 }
+clabFuncProprietary OBJECT IDENTIFIER ::= { clabFunction 2 }
+clabProject     OBJECT IDENTIFIER ::= { cableLabs 2 }
+clabProjDocsis  OBJECT IDENTIFIER ::= { clabProject 1 }
+clabProjPacketCable OBJECT IDENTIFIER ::= { clabProject 2 }
+clabProjOpenCable OBJECT IDENTIFIER ::= { clabProject 3 }
+clabProjCableHome OBJECT IDENTIFIER ::= { clabProject 4 }
+clabSecurity    OBJECT IDENTIFIER ::= { cableLabs 3 }
+clabSecCertObject OBJECT IDENTIFIER ::= { clabSecurity 1 }
+clabCommonMibs  OBJECT IDENTIFIER ::= { cableLabs 4 }
+dsgMIB          OBJECT IDENTIFIER ::= { clabProjDocsis 1 }
+docsLoadBalanceMib OBJECT IDENTIFIER ::= { clabProjDocsis 2 }
+dsgIfMIB        OBJECT IDENTIFIER ::= { clabProjDocsis 3 }
+dsgIfStdMib     OBJECT IDENTIFIER ::= { clabProjDocsis 4 }
+docsIfExt2Mib   OBJECT IDENTIFIER ::= { clabProjDocsis 5 }
+docsIfMCmtsMib  OBJECT IDENTIFIER ::= { clabProjDocsis 6 }
+dtiMib          OBJECT IDENTIFIER ::= { clabProjDocsis 7 }
+docsL2vpnMIB    OBJECT IDENTIFIER ::= { clabProjDocsis 8 }
+docsDiagMib     OBJECT IDENTIFIER ::= { clabProjDocsis 9 }
+docsSubmgt3Mib  OBJECT IDENTIFIER ::= { clabProjDocsis 10 }
+docsSecMib      OBJECT IDENTIFIER ::= { clabProjDocsis 11 }
+docsTestMIB     OBJECT IDENTIFIER ::= { clabProjDocsis 12 }
+sledMib         OBJECT IDENTIFIER ::= { clabProjDocsis 13 }
+esafeMib        OBJECT IDENTIFIER ::= { clabProjDocsis 14 }
+teaPwMIB        OBJECT IDENTIFIER ::= { clabProjDocsis 15 }
+teaPwTDMMIB     OBJECT IDENTIFIER ::= { clabProjDocsis 16 }
+teaPwTcMIB      OBJECT IDENTIFIER ::= { clabProjDocsis 17 }
+docsMcastMib    OBJECT IDENTIFIER ::= { clabProjDocsis 18 }
+docsMcastAuthMib OBJECT IDENTIFIER ::= { clabProjDocsis 19 }
+docsIf3Mib      OBJECT IDENTIFIER ::= { clabProjDocsis 20 }
+docsQos3Mib     OBJECT IDENTIFIER ::= { clabProjDocsis 21 }
+cabhPsDevMib    OBJECT IDENTIFIER ::= { clabProjCableHome 1 }
+cabhSecMib      OBJECT IDENTIFIER ::= { clabProjCableHome 2 }
+cabhCapMib      OBJECT IDENTIFIER ::= { clabProjCableHome 3 }
+cabhCdpMib      OBJECT IDENTIFIER ::= { clabProjCableHome 4 }
+cabhCtpMib      OBJECT IDENTIFIER ::= { clabProjCableHome 5 }
+cabhQosMib      OBJECT IDENTIFIER ::= { clabProjCableHome 6 }
+cabhCsaMib      OBJECT IDENTIFIER ::= { clabProjCableHome 7 }
+cabhQos2Mib     OBJECT IDENTIFIER ::= { clabProjCableHome 8 }
+pktcMtaMib      OBJECT IDENTIFIER ::= { clabProjPacketCable 1 }
+pktcSigMib      OBJECT IDENTIFIER ::= { clabProjPacketCable 2 }
+pktcEventMib    OBJECT IDENTIFIER ::= { clabProjPacketCable 3 }
+pktcSecurity    OBJECT IDENTIFIER ::= { clabProjPacketCable 4 }
+pktcLawfulIntercept OBJECT IDENTIFIER ::= { clabProjPacketCable 5 }
+pktcEnhancements OBJECT IDENTIFIER ::= { clabProjPacketCable 6 }
+pktcEnMtaMib    OBJECT IDENTIFIER ::= { pktcEnhancements 1 }
+pktcEnSigMib    OBJECT IDENTIFIER ::= { pktcEnhancements 2 }
+pktcEnEventMib  OBJECT IDENTIFIER ::= { pktcEnhancements 3 }
+pktcEnSecurityMib OBJECT IDENTIFIER ::= { pktcEnhancements 4 }
+pktcPACMMibs    OBJECT IDENTIFIER ::= { clabProjPacketCable 7 }
+pktcServiceMibs OBJECT IDENTIFIER ::= { clabProjPacketCable 8 }
+pktcSupportMibs OBJECT IDENTIFIER ::= { clabProjPacketCable 9 }
+pktcPACMTC      OBJECT IDENTIFIER ::= { pktcPACMMibs 1 }
+pktcPACMUEMib   OBJECT IDENTIFIER ::= { pktcPACMMibs 2 }
+pktcPACMUserMib OBJECT IDENTIFIER ::= { pktcPACMMibs 3 }
+pktcESSupportMibs OBJECT IDENTIFIER ::= { pktcSupportMibs 1 }
+clabUpsMib      OBJECT IDENTIFIER ::= { clabCommonMibs 1 }
+clabTopoMib     OBJECT IDENTIFIER ::= { clabCommonMibs 2 }
+
+clabSrvcPrvdrRootCACert OBJECT-TYPE
+    SYNTAX DocsX509ASN1DEREncodedCertificate
+--    Rsyntax OCTET STRING(SIZE(0..4096))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The X509 DER-encoded CableLabs Service Provider Root CA
+        Certificate."
+    REFERENCE
+        "CableLabs CableHome Specification;
+        CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 1 }
+
+clabCVCRootCACert OBJECT-TYPE
+    SYNTAX DocsX509ASN1DEREncodedCertificate
+--    Rsyntax OCTET STRING(SIZE(0..4096))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The X509 DER-encoded CableLabs CVC Root CA Certificate."
+    REFERENCE
+        "CableLabs CableHome Specification;
+        CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 2 }
+
+clabCVCCACert OBJECT-TYPE
+    SYNTAX DocsX509ASN1DEREncodedCertificate
+--    Rsyntax OCTET STRING(SIZE(0..4096))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The X509 DER-encoded CableLabs CVC CA Certificate."
+    REFERENCE
+        "CableLabs CableHome Specification;
+        CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 3 }
+
+clabMfgCVCCert OBJECT-TYPE
+    SYNTAX DocsX509ASN1DEREncodedCertificate
+--    Rsyntax OCTET STRING(SIZE(0..4096))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The X509 DER-encoded Manufacturer CVC Certificate."
+    REFERENCE
+        "CableLabs CableHome Specification;
+        CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 4 }
+
+clabMfgCACert OBJECT-TYPE
+    SYNTAX DocsX509ASN1DEREncodedCertificate
+--    Rsyntax OCTET STRING(SIZE(0..4096))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The X509 DER-encoded Manufacturer CA Certificate."
+    REFERENCE
+        "CableLabs CableHome Specification;
+        CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 5 }
+
+
+END
+

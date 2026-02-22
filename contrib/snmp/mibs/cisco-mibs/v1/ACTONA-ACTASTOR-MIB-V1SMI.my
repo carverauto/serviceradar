@@ -1,0 +1,1327 @@
+-- MIB file created 11-Aug-2010 18:24:06, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ACTONA-ACTASTOR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ACTONA-ACTASTOR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    enterprises
+            FROM SNMPv2-SMI-v1
+    DisplayString
+            FROM SNMPv2-TC-v1
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+actona OBJECT IDENTIFIER ::= { enterprises 17471 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201007300000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    E-mail: cs-webcache@cisco.com
+--  Descr
+--    Actona ActaStor MIB file
+--  RevDate
+--    201007300000Z
+--  RevDescr
+--    Added cifs AO related objects
+--  RevDate
+--    200412230000Z
+--  RevDescr
+--    (1) Added aclogSeverity and aclogMsgText objects.
+--    (2) deprecated csLogsTrap, esLogsTrap, mgrLogsTrap objects
+--        and replaced it with acCsLOgsTrap, acEsLogsTrap, 
+--        and acMgrLogsTrap objects.
+--    (2) deprecated logNotificationsGroup and replaced it with
+--        logNotificationsGroupRev1.
+--  RevDate
+--    200311241610Z
+--  RevDescr
+--    Actona Technologies
+
+acNotifications OBJECT IDENTIFIER ::= { actona 0 }
+
+actastor OBJECT IDENTIFIER ::= { actona 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    Actona ActaStor product
+
+generalInformation OBJECT IDENTIFIER ::= { actastor 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ActaStor general information
+
+support OBJECT IDENTIFIER ::= { generalInformation 3 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    Actona Support contact information
+
+license OBJECT IDENTIFIER ::= { generalInformation 4 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ActaStor license infromation
+
+manager OBJECT IDENTIFIER ::= { actastor 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ActaStor manager-related information
+
+coreServer OBJECT IDENTIFIER ::= { actastor 3 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ActaStor CoreServer-related information
+
+csGeneral OBJECT IDENTIFIER ::= { coreServer 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    CoreServer general infromation
+
+csState OBJECT IDENTIFIER ::= { coreServer 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The current run-time state of the CoreServer
+
+edgeServer OBJECT IDENTIFIER ::= { actastor 4 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ActaStor EdgeServer-related information
+
+esGeneral OBJECT IDENTIFIER ::= { edgeServer 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    EdgeServer general information
+
+esState OBJECT IDENTIFIER ::= { edgeServer 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The current run-time state of the EdgeServer
+
+esCIFSInfo OBJECT IDENTIFIER ::= { esState 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    EdgeServer CIFS (Windows) protocol information
+
+esCacheInfo OBJECT IDENTIFIER ::= { esState 4 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    EdgeServer cache state information
+
+cifsAO OBJECT IDENTIFIER ::= { actastor 6 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    CIFS AO-related information
+
+cfGeneral OBJECT IDENTIFIER ::= { cifsAO 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    CIFS AO general information
+
+cfState OBJECT IDENTIFIER ::= { cifsAO 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    Current run-time state of CIFS AO
+
+cfCIFSInfo OBJECT IDENTIFIER ::= { cfState 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    CIFS AO - CIFS (Windows) protocol information
+
+cfCacheInfo OBJECT IDENTIFIER ::= { cfState 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    CIFS AO cache state information
+
+notificationsInfo OBJECT IDENTIFIER ::= { actastor 5 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ActaStor notification related information
+
+actastorGroups OBJECT IDENTIFIER ::= { actona 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ActaStor object groups
+
+actastorVersion OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "ActaStor installed version number"
+    ::= { generalInformation 1 }
+
+buildString OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "ActaStor installed build label"
+    ::= { generalInformation 2 }
+
+email OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Actona Support email address"
+    ::= { support 1 }
+
+isValid OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the installed license is valid"
+    ::= { license 1 }
+
+daysLeft OBJECT-TYPE
+    SYNTAX INTEGER(0..99999)
+--  Units
+--    days (99999 is unlimited license)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of days remaining until the installed license expires"
+    ::= { license 2 }
+
+mgrCentralServerHost OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name/IP address of the host acting as the Central Manager
+        of this gateway, in the ActaStor network"
+    ::= { manager 1 }
+
+csIsConfigured OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the CoreServer component has been configured
+        to run on this gateway"
+    ::= { csGeneral 1 }
+
+csIsAlive OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the CoreServer component is currently
+        running on this gateway"
+    ::= { csGeneral 2 }
+
+csUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The elapsed time since the CoreServer was started"
+    ::= { csGeneral 3 }
+
+csConnectivityTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsConnectivityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table describing the current state of EdgeServer
+        connections to this CoreServer"
+    ::= { csState 1 }
+
+csConnectivityEntry OBJECT-TYPE
+    SYNTAX CsConnectivityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A single entry in the connection table - denoting a
+        specific EdgeServer"
+    INDEX { csConTabIndex }
+    ::= { csConnectivityTable 1 }
+
+CsConnectivityEntry ::= SEQUENCE {
+    csConTabIndex INTEGER,
+    csConTabClusterID INTEGER,
+    csConTabClusterName OCTET STRING,
+    csConTabIsConnected INTEGER,
+    csConTabTotalSentMessages Counter,
+    csConTabSentCompressionRatio INTEGER,
+    csConTabTotalReceivedMessages Counter,
+    csConTabReceivedCompressionRatio INTEGER,
+    csConTabTotalSentKBytes Gauge,
+    csConTabTotalReceivedKBytes Gauge
+    }
+
+csConTabIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..1000)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index column - sequential line number in the table"
+    ::= { csConnectivityEntry 1 }
+
+csConTabClusterID OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "ID of the CoreServer cluster to which this CoreServer belongs"
+    ::= { csConnectivityEntry 2 }
+
+csConTabClusterName OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the CoreServer cluster to which this CoreServer belongs"
+    ::= { csConnectivityEntry 3 }
+
+csConTabIsConnected OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the EdgeServer is currently connected to
+        this CoreServer"
+    ::= { csConnectivityEntry 4 }
+
+csConTabTotalSentMessages OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of messages sent from the CoreServer
+        to this EdgeServer"
+    ::= { csConnectivityEntry 5 }
+
+csConTabSentCompressionRatio OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The compression ratio (in %) of the messages sent from
+        the CoreServer to this EdgeServer"
+    ::= { csConnectivityEntry 6 }
+
+csConTabTotalReceivedMessages OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of messages received by the CoreServer
+        from this EdgeServer"
+    ::= { csConnectivityEntry 7 }
+
+csConTabReceivedCompressionRatio OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The compression ratio (in %) of the messages received by
+        the CoreServer from this EdgeServer"
+    ::= { csConnectivityEntry 8 }
+
+csConTabTotalSentKBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of kilobytes sent from the CoreServer to
+        this EdgeServer"
+    ::= { csConnectivityEntry 9 }
+
+csConTabTotalReceivedKBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of kilobytes received by the CoreServer from
+        this EdgeServer"
+    ::= { csConnectivityEntry 10 }
+
+csDeviceName OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The network interface card inside the appliance used by
+        the CoreServer (ETH0 or ETH1)"
+    ::= { csState 2 }
+
+csWINS OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The WINS server defined for this CoreServer (if any)"
+    ::= { csState 3 }
+
+csCIFSServersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsCIFSServersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table listing all the CIFS file servers exported by this CoreServer"
+    ::= { csState 4 }
+
+csCIFSServersEntry OBJECT-TYPE
+    SYNTAX CsCIFSServersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A single entry in the CIFS server table"
+    INDEX { csCIFSServersTabIndex }
+    ::= { csCIFSServersTable 1 }
+
+CsCIFSServersEntry ::= SEQUENCE {
+    csCIFSServersTabIndex INTEGER,
+    csCIFSServersTabServerName OCTET STRING
+    }
+
+csCIFSServersTabIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..1000)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index column - sequential line number in the table"
+    ::= { csCIFSServersEntry 1 }
+
+csCIFSServersTabServerName OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the CIFS server exported by this CoreServer"
+    ::= { csCIFSServersEntry 2 }
+
+csNFSServersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsNFSServersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table listing all the NFS servers exported by this CoreServer"
+    ::= { csState 5 }
+
+csNFSServersEntry OBJECT-TYPE
+    SYNTAX CsNFSServersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A single entry in the NFS server table"
+    INDEX { csNFSServersTabIndex }
+    ::= { csNFSServersTable 1 }
+
+CsNFSServersEntry ::= SEQUENCE {
+    csNFSServersTabIndex INTEGER,
+    csNFSServersTabServerName OCTET STRING,
+    csNFSServersTabUseTCP INTEGER,
+    csNFSServersTabUseUDP INTEGER
+    }
+
+csNFSServersTabIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..1000)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index column - sequential line number in the table"
+    ::= { csNFSServersEntry 1 }
+
+csNFSServersTabServerName OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the NFS server exported by this CoreServer"
+    ::= { csNFSServersEntry 2 }
+
+csNFSServersTabUseTCP OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this NFS server supports
+        the TCP transport layer protocol"
+    ::= { csNFSServersEntry 3 }
+
+csNFSServersTabUseUDP OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether this NFS server supports
+        the UDP transport layer protocol"
+    ::= { csNFSServersEntry 4 }
+
+esIsConfigured OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the EdgeServer component has been configured
+        to run on this gateway"
+    ::= { esGeneral 1 }
+
+esIsAlive OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the EdgeServer component is currently
+        running on this gateway"
+    ::= { esGeneral 2 }
+
+esUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The elapsed time since the EdgeServer was started"
+    ::= { esGeneral 3 }
+
+esConnectivityTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF EsConnectivityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table describing the current state of CoreServer
+        connections to this EdgeServer"
+    ::= { esState 1 }
+
+esConnectivityEntry OBJECT-TYPE
+    SYNTAX EsConnectivityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A single entry in the connection table - denoting
+        a specific CoreServer"
+    INDEX { esConTabIndex }
+    ::= { esConnectivityTable 1 }
+
+EsConnectivityEntry ::= SEQUENCE {
+    esConTabIndex INTEGER,
+    esConTabClusterID INTEGER,
+    esConTabClusterName OCTET STRING,
+    esConTabIsConnected INTEGER,
+    esConTabTotalSentMessages Counter,
+    esConTabSentCompressionRatio INTEGER,
+    esConTabTotalReceivedMessages Counter,
+    esConTabReceivedCompressionRatio INTEGER,
+    esConTabTotalSentKBytes Gauge,
+    esConTabTotalReceivedKBytes Gauge
+    }
+
+esConTabIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..1000)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index column - sequential line number in the table"
+    ::= { esConnectivityEntry 1 }
+
+esConTabClusterID OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "ID of the CoreServer cluster to which this CoreServer belongs"
+    ::= { esConnectivityEntry 2 }
+
+esConTabClusterName OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the CoreServer cluster to which this CoreServer belongs"
+    ::= { esConnectivityEntry 3 }
+
+esConTabIsConnected OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the CoreServer is currently connected
+        to this EdgeServer"
+    ::= { esConnectivityEntry 4 }
+
+esConTabTotalSentMessages OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of messasges sent from the EdgeServer to
+        this CoreServer"
+    ::= { esConnectivityEntry 5 }
+
+esConTabSentCompressionRatio OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The compression ratio (in %) of the messages sent from the
+        EdgeServer to this CoreServer"
+    ::= { esConnectivityEntry 6 }
+
+esConTabTotalReceivedMessages OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of messages received by the EdgeServer
+        from this CoreServer"
+    ::= { esConnectivityEntry 7 }
+
+esConTabReceivedCompressionRatio OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The compression ratio (in %) of the messages received by
+        the EdgeServer from this CoreServer"
+    ::= { esConnectivityEntry 8 }
+
+esConTabTotalSentKBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of kilobytes sent from the EdgeServer
+        to this CoreServer"
+    ::= { esConnectivityEntry 9 }
+
+esConTabTotalReceivedKBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of kilobytes received by
+        the EdgeServer from this CoreServer"
+    ::= { esConnectivityEntry 10 }
+
+esTotalBytesRead OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of kilobytes read by clients from
+        the EdgeServer (via cache or remotely) using the CIFS protocol"
+    ::= { esCIFSInfo 1 }
+
+esTotalWrittenBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of kilobytes written to
+        the EdgeServer using the CIFS protocol"
+    ::= { esCIFSInfo 2 }
+
+esRemoteRequestCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of remote synchronous CIFS requests
+        sent to the CoreServer"
+    ::= { esCIFSInfo 3 }
+
+esLocalRequestCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of CIFS requests the EdgeServer handled locally
+        or sent asynchronously to the CoreServer"
+    ::= { esCIFSInfo 4 }
+
+esTotalRemoteTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total duration of all remote synchronous CIFS requests
+        sent to the CoreServer"
+    ::= { esCIFSInfo 5 }
+
+esTotalLocalTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total duration of all CIFS requests to
+        the EdgeServer (handled either locally or asynchronously)"
+    ::= { esCIFSInfo 6 }
+
+esConnectedSessionCount OBJECT-TYPE
+    SYNTAX INTEGER(0..1000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of currently connected CIFS sessions"
+    ::= { esCIFSInfo 7 }
+
+esCifsOpenFiles OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of currently open CIFS files"
+    ::= { esCIFSInfo 8 }
+
+esMaxCacheVolume OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum disk space (in KB) allocated for data in
+        the EdgeServer cache"
+    ::= { esCacheInfo 1 }
+
+esCurrentCacheVolume OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of disk space currently being used for data
+        in the EdgeServer cache"
+    ::= { esCacheInfo 2 }
+
+esMaxCacheResources OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of cache resources (files and directories)
+        supported by the EdgeServer cache, regardless of the size of 
+        these resources"
+    ::= { esCacheInfo 3 }
+
+esCurrentCacheResources OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of cache resources (files and directories)
+        held in the EdgeServer cache"
+    ::= { esCacheInfo 4 }
+
+esResourceEvictedNum OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of cache resources (files and directories) that have been
+        evicted from the cache since the EdgeServer started"
+    ::= { esCacheInfo 5 }
+
+esLastEvictedTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time cache resources (files and directories) were last evicted
+        from the EdgeServer cache. 00:00 is displayed if no cache resources
+        have been evicted since the EdgeServer started."
+    ::= { esCacheInfo 6 }
+
+esVolHiWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The disk-usage percentage that triggers the eviction of
+        resources from the EdgeServer cache"
+    ::= { esCacheInfo 7 }
+
+esVolLoWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The target disk-usage percentage to be reached via cache eviction
+        when triggered by esVolHiWatermark. When this low watermark 
+        is reached, cache eviction stops."
+    ::= { esCacheInfo 8 }
+
+esAmntHiWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of maximum cache resources
+        (defined by esMaxCacheResources) that triggers the eviction
+        of resources from the EdgeServer cache"
+    ::= { esCacheInfo 9 }
+
+esAmntLoWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The target percetage of total cache resources
+        (defined by esMaxCacheResources) to be reached 
+        via cache eviction when triggered by esAmntHiWatermark. 
+        When this low watermark is reached, cache eviction stops."
+    ::= { esCacheInfo 10 }
+
+esEvictedAge OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time spent in the EdgeServer cache by the resource
+        that was last evicted. If this amount is too short or too long,
+        it is recommended to modify the size of the cache."
+    ::= { esCacheInfo 11 }
+
+esEvictedLastAccess OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the resource last evicted from the EdgeServer
+        cache was last accessed"
+    ::= { esCacheInfo 12 }
+
+cfIsConfigured OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether CIFS AO has been configured to run
+        on this WAE"
+    ::= { cfGeneral 1 }
+
+cfIsAlive OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+--        no(0),
+        yes(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether CIFS AO is currently running on this WAE"
+    ::= { cfGeneral 2 }
+
+cfUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Elapsed time since the CIFS AO was started"
+    ::= { cfGeneral 3 }
+
+cfTotalBytesRead OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of kilobytes read by clients from the
+        Client-side (via cache or remotely) using CIFS AO"
+    ::= { cfCIFSInfo 1 }
+
+cfTotalWrittenBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of kilobytes written to the Client-side using the
+        CIFS AO"
+    ::= { cfCIFSInfo 2 }
+
+cfRemoteRequestCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of remote requests processed by CIFS AO"
+    ::= { cfCIFSInfo 3 }
+
+cfLocalRequestCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of local requests processed by CIFS AO"
+    ::= { cfCIFSInfo 4 }
+
+cfTotalRemoteTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total duration of time taken by CIFS AO to process all remote
+        requests"
+    ::= { cfCIFSInfo 5 }
+
+cfTotalLocalTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total duration of time taken by CIFS AO to process all local
+        requests"
+    ::= { cfCIFSInfo 6 }
+
+cfConnectedSessionCount OBJECT-TYPE
+    SYNTAX INTEGER(0..100000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of currently connected CIFS sessions"
+    ::= { cfCIFSInfo 7 }
+
+cfCifsOpenFiles OBJECT-TYPE
+    SYNTAX INTEGER(0..100000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of currently open CIFS files"
+    ::= { cfCIFSInfo 8 }
+
+cfMaxCacheVolume OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum disk space (in KB) allocated for data in the CIFS AO
+        cache"
+    ::= { cfCacheInfo 1 }
+
+cfCurrentCacheVolume OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    KB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of disk space currently being used for data in the CIFS
+        AO cache"
+    ::= { cfCacheInfo 2 }
+
+cfMaxCacheResources OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of cache resources (files and directories)
+        supported by the CIFS AO cache, regardless of the size of these
+        resources"
+    ::= { cfCacheInfo 3 }
+
+cfCurrentCacheResources OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of cache resources (files and directories) held
+        in the CIFS AO cache"
+    ::= { cfCacheInfo 4 }
+
+cfResourceEvictedNum OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of cache resources (files and directories) that have
+        been evicted from the cache since CIFS AO started"
+    ::= { cfCacheInfo 5 }
+
+cfLastEvictedTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Time when cache resources (files and directories)
+        were last evicted from the CIFS AO cache. N/A is 
+        displayed if no cache resources have been evicted 
+        since CIFS AO started"
+    ::= { cfCacheInfo 6 }
+
+cfVolHiWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Disk-usage percentage that triggers the eviction of resources
+        from the CIFS AO cache"
+    ::= { cfCacheInfo 7 }
+
+cfVolLoWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Target disk-usage percentage to be reached via cache eviction
+        when triggered by cfVolHiWatermark. When this low watermark is
+        reached, cache eviction stops"
+    ::= { cfCacheInfo 8 }
+
+cfAmntHiWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Percentage of maximum cache resources (defined by
+        cfMaxCacheResources) that triggers the eviction of resources
+        from the CIFS AO cache"
+    ::= { cfCacheInfo 9 }
+
+cfAmntLoWatermark OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Target percetage of maximum cache resources (defined by
+        cfMaxCacheResources) to be reached via cache eviction when
+        triggered by cfAmntHiWatermark. When this low watermark is
+        reached, cache eviction stops"
+    ::= { cfCacheInfo 10 }
+
+cfEvictedAge OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of time spent in the CIFS AO cache by the resource that
+        was last evicted. If this amount is too short or too long, it is
+        recommended to modify the size of the cache"
+    ::= { cfCacheInfo 11 }
+
+cfEvictedLastAccess OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Time when the resource last evicted from the CIFS AO cache was
+        last accessed"
+    ::= { cfCacheInfo 12 }
+
+acLogSeverity OBJECT-TYPE
+    SYNTAX INTEGER {
+        fatal(1),
+        error(2),
+        warning(3),
+        info(4),
+        debug(5)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The severity level of the actastor log message"
+    ::= { notificationsInfo 1 }
+
+acLogMsgText OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The actastor log message text"
+    ::= { notificationsInfo 2 }
+
+mgrLogsTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE manager
+--  Status
+--    deprecated
+    DESCRIPTION
+        "The OID of trap messages related to ActaStor management.
+        This object is deprecated in the favor of acMgrLogsTrap."
+    ::= 2
+
+csLogsTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE coreServer
+--  Status
+--    deprecated
+    DESCRIPTION
+        "The OID of trap messages related to the CoreServer.
+        This object is deprecated in favor of acCsLogsTrap."
+    ::= 3
+
+esLogsTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE edgeServer
+--  Status
+--    deprecated
+    DESCRIPTION
+        "The OID of trap messages related to the EdgeServer.
+        This object is deprecated in favor of acEsLogsTrap."
+    ::= 3
+
+acCsLogsTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE actona
+    VARIABLES {
+        acLogSeverity, acLogMsgText }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap indicates that the CoreServer has generated a
+        log message.  This object supersedes mgrLogsTrap"
+    ::= 0
+
+acMgrLogsTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE actona
+    VARIABLES {
+        acLogSeverity, acLogMsgText }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap indicates that the ManagerServer has generated a
+        log message. This object supersedes mgrLogsTrap"
+    ::= 1
+
+acEsLogsTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE actona
+    VARIABLES {
+        acLogSeverity, acLogMsgText }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap indicates that the EdgeServer has generated a
+        log message. This object supersedes esLogsTrap"
+    ::= 2
+
+generalGroup OBJECT IDENTIFIER ::= { actastorGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    General information group
+--  objects
+--    actastorVersion, buildString, email, isValid, daysLeft
+
+managerGroup OBJECT IDENTIFIER ::= { actastorGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Manager group
+--  objects
+--    mgrCentralServerHost
+
+coreServerGroup OBJECT IDENTIFIER ::= { actastorGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CoreServer group
+--  objects
+--    csDeviceName, csIsConfigured, csIsAlive, csUpTime, csWINS, 
+--    csConTabClusterID, csConTabClusterName, csConTabIsConnected, 
+--    csConTabTotalSentMessages, csConTabSentCompressionRatio, 
+--    csConTabTotalReceivedMessages, 
+--    csConTabReceivedCompressionRatio, csConTabTotalSentKBytes, 
+--    csConTabTotalReceivedKBytes, csCIFSServersTabServerName, 
+--    csNFSServersTabServerName, csNFSServersTabUseTCP, 
+--    csNFSServersTabUseUDP
+
+edgeServerGroup OBJECT IDENTIFIER ::= { actastorGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    EdgeServer group
+--  objects
+--    esIsConfigured, esIsAlive, esUpTime, esTotalBytesRead, 
+--    esTotalWrittenBytes, esRemoteRequestCount, 
+--    esLocalRequestCount, esConnectedSessionCount, esCifsOpenFiles, 
+--    esMaxCacheVolume, esCurrentCacheVolume, esMaxCacheResources, 
+--    esCurrentCacheResources, esTotalRemoteTime, esTotalLocalTime, 
+--    esConTabClusterID, esConTabClusterName, esConTabIsConnected, 
+--    esConTabTotalSentMessages, esConTabSentCompressionRatio, 
+--    esConTabTotalReceivedMessages, 
+--    esConTabReceivedCompressionRatio, esConTabTotalSentKBytes, 
+--    esConTabTotalReceivedKBytes, esResourceEvictedNum, 
+--    esLastEvictedTime, esVolHiWatermark, esVolLoWatermark, 
+--    esAmntHiWatermark, esAmntLoWatermark, esEvictedAge, 
+--    esEvictedLastAccess
+
+acNotificationInfoGroup OBJECT IDENTIFIER ::= { actastorGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which provides info
+--    about notifications.
+--  objects
+--    acLogSeverity, acLogMsgText
+
+cifsAOGroup OBJECT IDENTIFIER ::= { actastorGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CifsAO group
+--  objects
+--    cfIsConfigured, cfIsAlive, cfUpTime, cfTotalBytesRead, 
+--    cfTotalWrittenBytes, cfRemoteRequestCount, 
+--    cfLocalRequestCount, cfTotalRemoteTime, cfTotalLocalTime, 
+--    cfConnectedSessionCount, cfCifsOpenFiles, cfMaxCacheVolume, 
+--    cfCurrentCacheVolume, cfMaxCacheResources, 
+--    cfCurrentCacheResources, cfResourceEvictedNum, 
+--    cfLastEvictedTime, cfVolHiWatermark, cfVolLoWatermark, 
+--    cfAmntHiWatermark, cfAmntLoWatermark, cfEvictedAge, 
+--    cfEvictedLastAccess
+
+logNotificationsGroup OBJECT IDENTIFIER ::= { actastorGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Log message traps group
+--  notifications
+--    csLogsTrap, esLogsTrap, mgrLogsTrap
+
+logNotificationsGroupRev1 OBJECT IDENTIFIER ::= { actastorGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Log message traps group
+--  notifications
+--    acCsLogsTrap, acEsLogsTrap, acMgrLogsTrap
+
+
+END
+

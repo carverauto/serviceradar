@@ -1,0 +1,595 @@
+-- MIB file created 12-Mar-2007 18:08:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ATM-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ATM-EXT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+--?? may need import of ifIndex from RFC1213-MIB
+    ifIndex
+            FROM RFC1213-MIB
+    aal5VccVpi, aal5VccVci
+--?? may need import of ifIndex from RFC1213-MIB
+                          , atmVclVpi, atmVclVci
+            FROM ATM-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAtmExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 88 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200301060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    An extension to the Cisco ATM MIB module for managing
+--     ATM implementations.
+--    
+--     Acronyms and terms used in the MIB module:
+--    
+--     AAL5        == ATM adaptation layer 5.
+--     AIS         == Alarm Indication Signal.
+--     CC          == Continuity Check.
+--     End-to-end  == End-to-end continuity checking.
+--                    Monitoring occurs on the entire VC
+--                    between two ATM end stations.
+--     F5 OAM      == OAM information flow between 
+--                    network elements (NEs) used within 
+--                    virtual connections to report degraded 
+--                    virtual channel performance.
+--     OAM         == Operations, Administration 
+--                    and Maintenance.
+--     RDI         == Remote Detection Indication.
+--     Segment     == Segment continuity checking. 
+--                    Monitoring occurs on a VC segment
+--                    between a router and a first-hop 
+--                    ATM switch.
+--     VC          == Virtual Channel.
+--     VCC         == Virtual Channel Connection.
+--     VCL         == Virtual Channel Link.
+--  RevDate
+--    200301060000Z
+--  RevDescr
+--    Added ciscoAtmVclExtOamTable for OAM configuration
+--    and state information.
+--  RevDate
+--    9706200000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoAtmExtMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmExtMIB 1 }
+cAal5VccExtMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmExtMIBObjects 1 }
+catmxVcl        OBJECT IDENTIFIER ::= { ciscoAtmExtMIBObjects 2 }
+ciscoAal5ExtMIBConformance OBJECT IDENTIFIER ::= { ciscoAtmExtMIB 2 }
+ciscoAal5ExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoAal5ExtMIBConformance 1 }
+ciscoAal5ExtMIBGroups OBJECT IDENTIFIER ::= { ciscoAal5ExtMIBConformance 2 }
+
+OamCCStatus ::= INTEGER {
+        ready(1),
+        waitActiveResponse(2),
+        waitActiveConfirm(3),
+        active(4),
+        waitDeactiveConfirm(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    OAM Continuity check (CC) status.
+--    ready(1)               == CC is not activated on VC.
+--    waitActiveResponse(2)  == Waiting for active-response.
+--    waitActiveConfirm(3)   == Waiting for active-confirm.
+--    active(4)              == CC is activated on VC.
+--    waitDeactiveConfirm(5) == Waiting for deactivate 
+--                              confirm.
+
+OamCCVcState ::= INTEGER {
+        verified(1),
+        aisrdi(2),
+        notManaged(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    OAM Continuity check (CC) VC state.
+--    verified(1)            == CC is successful. VC is up.
+--    aisrdi(2)              == CC failed. VC is down.
+--    notManaged(3)          == VC is not managed by CC.
+
+cAal5VccExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CAal5VccExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains AAL5 VCC performance 
+        parameters beyond that provided by cAal5VccEntry."
+    ::= { cAal5VccExtMIBObjects 1 }
+
+cAal5VccExtEntry OBJECT-TYPE
+    SYNTAX CAal5VccExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This list contains the additinal AAL5 VCC performance
+        parameters beyond that provided by cAal5VccEntry."
+    INDEX { ifIndex, aal5VccVpi, aal5VccVci }
+-- Augments aal5VccEntry FROM ATM-MIB
+    ::= { cAal5VccExtTable 1 }
+
+CAal5VccExtEntry ::= SEQUENCE {
+    cAal5VccExtCompEnabled TruthValue,
+    cAal5VccExtVoice TruthValue,
+    cAal5VccExtInF5OamCells Counter,
+    cAal5VccExtOutF5OamCells Counter
+    }
+
+cAal5VccExtCompEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, if compression enabled for VCC."
+    ::= { cAal5VccExtEntry 1 }
+
+cAal5VccExtVoice OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, TRUE if VCC is used to carry voice."
+    ::= { cAal5VccExtEntry 2 }
+
+cAal5VccExtInF5OamCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of OAM F5 end to end loopback cells 
+        received through the VCC."
+    ::= { cAal5VccExtEntry 3 }
+
+cAal5VccExtOutF5OamCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of OAM F5 end to end loopback cells sent 
+        through the VCC."
+    ::= { cAal5VccExtEntry 4 }
+
+catmxVclOamTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmxVclOamEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains Virtual Channel Link (VCL) 
+        Oam configuration and state information. 
+        This table augments the atmVclTable."
+    ::= { catmxVcl 1 }
+
+catmxVclOamEntry OBJECT-TYPE
+    SYNTAX CatmxVclOamEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This list contains Virtual Channel Link (VCL) 
+        configuration and state information beyond that 
+        provided by atmVclEntry."
+    INDEX { ifIndex, atmVclVpi, atmVclVci }
+-- Augments atmVclEntry FROM ATM-MIB
+    ::= { catmxVclOamTable 1 }
+
+CatmxVclOamEntry ::= SEQUENCE {
+    catmxVclOamLoopbackFreq Gauge,
+    catmxVclOamRetryFreq Gauge,
+    catmxVclOamUpRetryCount Gauge,
+    catmxVclOamDownRetryCount Gauge,
+    catmxVclOamEndCCActCount Gauge,
+    catmxVclOamEndCCDeActCount Gauge,
+    catmxVclOamEndCCRetryFreq Gauge,
+    catmxVclOamSegCCActCount Gauge,
+    catmxVclOamSegCCDeActCount Gauge,
+    catmxVclOamSegCCRetryFreq Gauge,
+    catmxVclOamManage TruthValue,
+    catmxVclOamLoopBkStatus INTEGER,
+    catmxVclOamVcState INTEGER,
+    catmxVclOamEndCCStatus OamCCStatus,
+    catmxVclOamSegCCStatus OamCCStatus,
+    catmxVclOamEndCCVcState OamCCVcState,
+    catmxVclOamSegCCVcState OamCCVcState,
+    catmxVclOamCellsReceived Counter,
+    catmxVclOamCellsSent Counter,
+    catmxVclOamCellsDropped Counter,
+    catmxVclOamInF5ais Counter,
+    catmxVclOamOutF5ais Counter,
+    catmxVclOamInF5rdi Counter,
+    catmxVclOamOutF5rdi Counter
+    }
+
+catmxVclOamLoopbackFreq OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM loopback frequency."
+    ::= { catmxVclOamEntry 1 }
+
+catmxVclOamRetryFreq OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM retry polling frequency."
+    ::= { catmxVclOamEntry 2 }
+
+catmxVclOamUpRetryCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM retry count before declaring a VC 
+        is up."
+    ::= { catmxVclOamEntry 3 }
+
+catmxVclOamDownRetryCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM retry count before declaring a VC 
+        is down."
+    ::= { catmxVclOamEntry 4 }
+
+catmxVclOamEndCCActCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM End-to-end Continuity check (CC) 
+        Activation retry count."
+    ::= { catmxVclOamEntry 5 }
+
+catmxVclOamEndCCDeActCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM End-to-end Continuity check (CC) 
+        Deactivation retry count."
+    ::= { catmxVclOamEntry 6 }
+
+catmxVclOamEndCCRetryFreq OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM End-to-end Continuity check (CC) 
+        Activation/Deactivation retry frequency."
+    ::= { catmxVclOamEntry 7 }
+
+catmxVclOamSegCCActCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM Segment Continuity check (CC) 
+        Activation retry count."
+    ::= { catmxVclOamEntry 8 }
+
+catmxVclOamSegCCDeActCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM Segment Continuity check (CC) 
+        Deactivation retry count."
+    ::= { catmxVclOamEntry 9 }
+
+catmxVclOamSegCCRetryFreq OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM Segment Continuity check (CC) 
+        Activation/Deactivation retry frequency."
+    ::= { catmxVclOamEntry 10 }
+
+catmxVclOamManage OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies OAM Enable/Disable on the VC.
+        true(1) indicates that OAM is enabled on the VC.
+        false(2) indicates that OAM is disabled on the VC."
+    DEFVAL { false }
+    ::= { catmxVclOamEntry 11 }
+
+catmxVclOamLoopBkStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        disabled(1),
+        sent(2),
+        received(3),
+        failed(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates OAM loopback status of the VC.
+        disabled(1)  --   No OAMs on this VC.
+        sent(2)      --   OAM sent, waiting for echo.
+        received(3)  --   OAM received from target.
+        failed(4)    --   Last OAM did not return."
+    ::= { catmxVclOamEntry 12 }
+
+catmxVclOamVcState OBJECT-TYPE
+    SYNTAX INTEGER {
+        downRetry(1),
+        verified(2),
+        notVerified(3),
+        upRetry(4),
+        aisRDI(5),
+        aisOut(6),
+        notManaged(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the state of VC OAM.
+        downRetry(1)   --  Loopback failed. Retry sending 
+                           loopbacks with retry frequency. 
+                           VC is up.
+        verified(2)    --  Loopback is successful.
+        notVerified(3) --  Not verified by loopback, 
+                           AIS/RDI conditions are cleared.
+        upRetry(4)     --  Retry successive loopbacks. 
+                           VC is down.
+        aisRDI(5)      --  Received AIS/RDI. Loopback are 
+                           not sent in this state.
+        aisOut(6)      --  Sending AIS. Loopback and reply are 
+                           not sent in this state.
+        notManaged(7)  --  VC is not managed by OAM."
+    ::= { catmxVclOamEntry 13 }
+
+catmxVclOamEndCCStatus OBJECT-TYPE
+    SYNTAX OamCCStatus
+--    Rsyntax INTEGER {
+--        ready(1),
+--        waitActiveResponse(2),
+--        waitActiveConfirm(3),
+--        active(4),
+--        waitDeactiveConfirm(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates OAM End-to-end Continuity check (CC) 
+        status."
+    ::= { catmxVclOamEntry 14 }
+
+catmxVclOamSegCCStatus OBJECT-TYPE
+    SYNTAX OamCCStatus
+--    Rsyntax INTEGER {
+--        ready(1),
+--        waitActiveResponse(2),
+--        waitActiveConfirm(3),
+--        active(4),
+--        waitDeactiveConfirm(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates OAM Segment Continuity check (CC) status."
+    ::= { catmxVclOamEntry 15 }
+
+catmxVclOamEndCCVcState OBJECT-TYPE
+    SYNTAX OamCCVcState
+--    Rsyntax INTEGER {
+--        verified(1),
+--        aisrdi(2),
+--        notManaged(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates OAM End-to-end Continuity check (CC) 
+        VC state."
+    ::= { catmxVclOamEntry 16 }
+
+catmxVclOamSegCCVcState OBJECT-TYPE
+    SYNTAX OamCCVcState
+--    Rsyntax INTEGER {
+--        verified(1),
+--        aisrdi(2),
+--        notManaged(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates OAM Segment Continuity check (CC) VC 
+        state."
+    ::= { catmxVclOamEntry 17 }
+
+catmxVclOamCellsReceived OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of OAM cells received on 
+        this VC."
+    ::= { catmxVclOamEntry 18 }
+
+catmxVclOamCellsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of OAM cells sent on 
+        this VC."
+    ::= { catmxVclOamEntry 19 }
+
+catmxVclOamCellsDropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of OAM cells dropped on 
+        this VC."
+    ::= { catmxVclOamEntry 20 }
+
+catmxVclOamInF5ais OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of received OAM 
+        F5 Alarm Indication Signal (AIS) cells from the VC."
+    ::= { catmxVclOamEntry 21 }
+
+catmxVclOamOutF5ais OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of transmitted OAM 
+        F5 Alarm Indication Signal (AIS) cells to the VC."
+    ::= { catmxVclOamEntry 22 }
+
+catmxVclOamInF5rdi OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of received OAM 
+        F5 Remote Detection Indication (RDI) cells from 
+        the VC."
+    ::= { catmxVclOamEntry 23 }
+
+catmxVclOamOutF5rdi OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of transmitted OAM 
+        F5 Remote Detection Indication (RDI) cells to the VC."
+    ::= { catmxVclOamEntry 24 }
+
+ciscoAal5ExtMIBGroup OBJECT IDENTIFIER ::= { ciscoAal5ExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing AAL5 related 
+--    parameters.
+--  objects
+--    cAal5VccExtCompEnabled, cAal5VccExtVoice, 
+--    cAal5VccExtInF5OamCells, cAal5VccExtOutF5OamCells
+
+ciscoAtmExtVclOamGroup OBJECT IDENTIFIER ::= { ciscoAal5ExtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing 
+--    Virtual Channel Link (VCL) OAM configuration and state
+--    information.
+--  objects
+--    catmxVclOamLoopbackFreq, catmxVclOamRetryFreq, 
+--    catmxVclOamUpRetryCount, catmxVclOamDownRetryCount, 
+--    catmxVclOamEndCCActCount, catmxVclOamEndCCDeActCount, 
+--    catmxVclOamEndCCRetryFreq, catmxVclOamSegCCActCount, 
+--    catmxVclOamSegCCDeActCount, catmxVclOamSegCCRetryFreq, 
+--    catmxVclOamManage, catmxVclOamLoopBkStatus, 
+--    catmxVclOamVcState, catmxVclOamEndCCStatus, 
+--    catmxVclOamSegCCStatus, catmxVclOamEndCCVcState, 
+--    catmxVclOamSegCCVcState, catmxVclOamCellsReceived, 
+--    catmxVclOamCellsSent, catmxVclOamCellsDropped, 
+--    catmxVclOamInF5ais, catmxVclOamOutF5ais, catmxVclOamInF5rdi, 
+--    catmxVclOamOutF5rdi
+
+ciscoAal5ExtMIBCompliance OBJECT IDENTIFIER ::= { ciscoAal5ExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    This compliance is deprecated in favour of 
+--    ciscoAal5ExtMIBComplianceRev1.
+--    The compliance statement for entities which implement
+--    this Cisco AAL5 Extention MIB and support data
+--    compression or voice features.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAal5ExtMIBGroup
+
+ciscoAal5ExtMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoAal5ExtMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    CISCO-ATM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAal5ExtMIBGroup
+--   OptGroup
+--    ciscoAtmExtVclOamGroup
+
+
+END
+

@@ -1,0 +1,583 @@
+-- *****************************************************************
+-- CISCO-TRUSTSEC-POLICY-CAPABILITY.my:
+-- Cisco CISCO-TRUSTSEC-POLICY-MIB AGENT-CAPABILITIES
+--   
+-- Nov. 2010, Edward Pham
+--   
+-- Copyright (c) 2010-2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-TRUSTSEC-POLICY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoTrustSecPolicyCapability MODULE-IDENTITY
+    LAST-UPDATED    "201305010000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-TRUSTSEC-POLICY-MIB."
+    REVISION        "201305010000Z"
+    DESCRIPTION
+        "Added the following VARIATION clauses in capability
+        statement ciscoTrustSecPolicyCapV15R0101SYPCat6kSup720:
+        - ctspPeerPolicyUpdatedNotifEnable
+        - ctspOldPeerSgt
+        - ctspPeerPolicyUpdatedNotif"
+    REVISION        "201301090000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoTrustSecPolicyCapV15R0101SYPCat6kSup2T and 
+        ciscoTrustSecPolicyCapV15R0101SYPCat6kSup720."
+    REVISION        "201011160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 601 }
+
+
+
+ciscoTrustSecPolicyCapV12R0250SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-TRUSTSEC-POLICY-MIB capabilities."
+
+    SUPPORTS        CISCO-TRUSTSEC-POLICY-MIB
+    INCLUDES        {
+                        ctspGlobalSgaclEnforcementGroup,
+                        ctspVlanConfigGroup,
+                        ctspConfigSgaclMappingGroup,
+                        ctspOperSgaclMappingGroup,
+                        ctspIpSwStatisticsGroup,
+                        ctspIpHwStatisticsGroup,
+                        ctspDefSwStatisticsGroup,
+                        ctspDefHwStatisticsGroup,
+                        ctspSgaclIpv4DropNetflowMonitorGroup,
+                        ctspSgaclIpv6DropNetflowMonitorGroup,
+                        ctspPeerPolicyGroup,
+                        ctspDownloadedSgaclMappingGroup,
+                        ctspLayer3TransportGroup,
+                        ctspIpSgtMappingGroup,
+                        ctspIfL3PolicyConfigGroup,
+                        ctspSgtPolicyGroup,
+                        ctspPeerPolicyActionGroup
+                    }
+    VARIATION       ctspVlanConfigSgaclEnforcement
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanConfigVrfName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanConfigRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMappingSgaclName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMappingStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMappingRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgaclIpv4DropNetflowMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgaclIpv6DropNetflowMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv4Sgacls
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv6Sgacls
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtSource
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspLayer3PolicyDownloaded
+    SYNTAX          SnmpAdminString (SIZE (0))
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctspIpSgtAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1),
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoTrustSecPolicyCapability 1 }
+
+ciscoTrustSecPolicyCapV15R0101SYPCat6kSup2T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with Supervisor 2T present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-TRUSTSEC-POLICY-MIB capabilities."
+
+    SUPPORTS        CISCO-TRUSTSEC-POLICY-MIB
+    INCLUDES        {
+                        ctspGlobalSgaclEnforcementGroup,
+                        ctspVlanConfigGroup,
+                        ctspConfigSgaclMappingGroup,
+                        ctspOperSgaclMappingGroup,
+                        ctspIpSwStatisticsGroup,
+                        ctspIpHwStatisticsGroup,
+                        ctspDefSwStatisticsGroup,
+                        ctspDefHwStatisticsGroup,
+                        ctspSgaclIpv4DropNetflowMonitorGroup,
+                        ctspSgaclIpv6DropNetflowMonitorGroup,
+                        ctspPeerPolicyGroup,
+                        ctspDownloadedSgaclMappingGroup,
+                        ctspLayer3TransportGroup,
+                        ctspIpSgtMappingGroup,
+                        ctspIfL3PolicyConfigGroup,
+                        ctspSgtPolicyGroup,
+                        ctspPeerPolicyActionGroup,
+                        ctspIfSgtMappingGroup,
+                        ctspVlanSgtMappingGroup,
+                        ctspSgtCachingGroup,
+                        ctspSgaclMonitorGroup,
+                        ctspSgaclMonitorStatisticGroup,
+                        ctspNotifCtrlGroup,
+                        ctspNotifGroup,
+                        ctspNotifInfoGroup
+                    }
+    VARIATION       ctspVlanConfigSgaclEnforcement
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanConfigVrfName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanConfigRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMappingSgaclName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMappingStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMappingRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgaclIpv4DropNetflowMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgaclIpv6DropNetflowMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv4Sgacls
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv6Sgacls
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtSource
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspLayer3PolicyDownloaded
+    SYNTAX          SnmpAdminString (SIZE (0))
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctspIpSgtAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1),
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       ctspIfSgtValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIfSgName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIfSgtStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIfSgtRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanSgtMapValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanSgtStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanSgtRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgtCachingMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgtCachingVlansFirst2K
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgtCachingVlansSecond2K
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv4SgaclsMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv6SgaclsMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoTrustSecPolicyCapability 2 }
+
+ciscoTrustSecPolicyCapV15R0101SYPCat6kSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-TRUSTSEC-POLICY-MIB capabilities."
+
+    SUPPORTS        CISCO-TRUSTSEC-POLICY-MIB
+    INCLUDES        {
+                        ctspConfigSgaclMappingGroup,
+                        ctspGlobalSgaclEnforcementGroup,
+                        ctspSgaclIpv4DropNetflowMonitorGroup,
+                        ctspSgaclIpv6DropNetflowMonitorGroup,
+                        ctspPeerPolicyGroup,
+                        ctspLayer3TransportGroup,
+                        ctspIpSgtMappingGroup,
+                        ctspIfL3PolicyConfigGroup,
+                        ctspSgtPolicyGroup,
+                        ctspPeerPolicyActionGroup,
+                        ctspIfSgtMappingGroup,
+                        ctspVlanSgtMappingGroup,
+                        ctspSgaclMonitorGroup,
+                        ctspNotifCtrlGroup,
+                        ctspNotifGroup,
+                        ctspNotifInfoGroup
+                    }
+    VARIATION       ctspSgaclEnforcementEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMappingSgaclName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspConfigSgaclMappingStorageType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspConfigSgaclMappingRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspSgaclIpv4DropNetflowMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgaclIpv6DropNetflowMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv4Sgacls
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv6Sgacls
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtSource
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIpSgtRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspLayer3PolicyDownloaded
+    SYNTAX          SnmpAdminString (SIZE (0))
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctspIpSgtAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1),
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       ctspIfSgtValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIfSgName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIfSgtStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspIfSgtRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanSgtMapValue
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanSgtStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspVlanSgtRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspSgaclMonitorEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspConfigSgaclMonitor
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspDefConfigIpv4SgaclsMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDefConfigIpv6SgaclsMonitor
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspDownloadedSgaclMonitor
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspDefDownloadedSgaclMonitor
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspOperSgaclMonitor
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspDefOperSgaclMonitor
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspPeerPolicyUpdatedNotifEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspAuthorizationSgaclFailNotifEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctspOldPeerSgt
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspAuthorizationSgaclFailReason
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspAuthorizationSgaclFailInfo
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspPeerPolicyUpdatedNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctspAuthorizationSgaclFailNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoTrustSecPolicyCapability 3 }
+
+END
+
+
+
+
+

@@ -1,0 +1,813 @@
+-- *****************************************************************
+-- MSDP-MIB.my:  MSDP MIB file
+--
+-- April 2000, Rajiv Raghunarayan
+--
+-- Copyright (c) 1999-2000 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+-- This mib was extracted from draft-ietf-msdp-mib-03.txt
+
+DRAFT-MSDP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    experimental, Counter32, Gauge32, IpAddress, TimeTicks
+        FROM SNMPv2-SMI
+    RowStatus, TruthValue
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF;
+
+msdpMIB MODULE-IDENTITY
+    LAST-UPDATED "9912160000Z"
+    ORGANIZATION "IETF MSDP Working Group"
+    CONTACT-INFO
+            " Bill Fenner
+              75 Willow Road
+              Menlo Park, CA  94025
+              Phone: +1 650 867 6073
+              E-mail: fenner@research.att.com
+
+              Dave Thaler
+              One Microsoft Way
+              Redmond, WA  98052
+              Phone: +1 425 703 8835
+              Email: dthaler@microsoft.com"
+    DESCRIPTION
+            "An experimental MIB module for MSDP Management."
+    ::= { experimental 92 }
+
+msdpMIBobjects OBJECT IDENTIFIER ::= { msdpMIB 1 }
+
+msdp           OBJECT IDENTIFIER ::= { msdpMIBobjects 1 }
+
+msdpEnabled OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The state of MSDP on this MSDP speaker - globally
+            enabled or disabled."
+    ::= { msdp 1 }
+
+msdpCacheLifetime OBJECT-TYPE
+    SYNTAX     TimeTicks
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The lifetime given to SA cache entries when created
+            or refreshed.  A value of 0 means no SA caching is
+            done by this MSDP speaker."
+    ::= { msdp 2 }
+
+msdpNumSACacheEntries OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The total number of entries in the SA Cache table."
+    ::= { msdp 3 }
+
+msdpSAHoldDownPeriod OBJECT-TYPE
+    SYNTAX     INTEGER(1..2147483647)
+    UNITS      "seconds"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of seconds in the MSDP SA Hold-down
+            period"
+    DEFVAL  { 90 }
+    ::= { msdp 9 } -- XXX todo: create group for scalars
+
+---
+--- The MSDP Requests table
+---
+
+msdpRequestsTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MsdpRequestsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table listing group ranges and MSDP
+            peers used when deciding where to send an SA Request
+            message when required.  If SA Caching is enabled, this
+            table may be empty."
+    ::= { msdp 4 }
+
+msdpRequestsEntry OBJECT-TYPE
+    SYNTAX     MsdpRequestsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) representing a group range
+            used when deciding where to send an SA Request
+            message."
+    INDEX { msdpRequestsGroupAddress, msdpRequestsGroupMask }
+    ::= { msdpRequestsTable 1 }
+
+MsdpRequestsEntry ::= SEQUENCE {
+    msdpRequestsGroupAddress            IpAddress,
+    msdpRequestsGroupMask               IpAddress,
+    msdpRequestsPeer                    IpAddress,
+    msdpRequestsStatus                  RowStatus
+}
+
+msdpRequestsGroupAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The group address that, when combined with the mask
+            in this entry, represents the group range for which
+            this peer will service MSDP SA Requests."
+    ::= { msdpRequestsEntry 1 }
+
+msdpRequestsGroupMask OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The mask that, when combined with the group address
+            in this entry, represents the group range for which
+            this peer will service MSDP SA Requests."
+    ::= { msdpRequestsEntry 2 }
+
+msdpRequestsPeer OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "The peer to which MSDP SA Requests for groups
+            matching this entry's group range will be sent.  Must
+            match the INDEX of a row in the msdpPeerTable."
+    ::= { msdpRequestsEntry 3 }
+
+msdpRequestsStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "The status of this row, by which new rows may be
+            added to the table."
+    ::= { msdpRequestsEntry 4 }
+
+---
+--- The MSDP Peer table
+---
+
+msdpPeerTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MsdpPeerEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table listing the MSDP speaker's
+            peers."
+    ::= { msdp 5 }
+
+msdpPeerEntry OBJECT-TYPE
+    SYNTAX     MsdpPeerEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) representing an MSDP peer."
+    INDEX      { msdpPeerRemoteAddress }
+    ::= { msdpPeerTable 1 }
+
+MsdpPeerEntry ::= SEQUENCE {
+    msdpPeerRemoteAddress             IpAddress,  -- index
+    msdpPeerState                     INTEGER,    -- read-only objects:
+    msdpPeerRPFFailures               Counter32,
+    msdpPeerInSAs                     Counter32,
+    msdpPeerOutSAs                    Counter32,
+    msdpPeerInSARequests              Counter32,
+    msdpPeerOutSARequests             Counter32,
+    msdpPeerInSAResponses             Counter32,
+    msdpPeerOutSAResponses            Counter32,
+    msdpPeerInControlMessages         Counter32,
+    msdpPeerOutControlMessages        Counter32,
+    msdpPeerInDataPackets             Counter32,
+    msdpPeerOutDataPackets            Counter32,
+    msdpPeerFsmEstablishedTransitions Counter32,
+    msdpPeerFsmEstablishedTime        Gauge32,
+    msdpPeerInMessageElapsedTime      Gauge32,
+    msdpPeerLocalAddress              IpAddress,  -- configuration objects:
+    msdpPeerSAAdvPeriod               INTEGER,
+    msdpPeerConnectRetryInterval      INTEGER,
+    msdpPeerHoldTimeConfigured        INTEGER,
+    msdpPeerKeepAliveConfigured       INTEGER,
+    msdpPeerDataTtl                   INTEGER,
+    msdpPeerProcessRequestsFrom       TruthValue,
+    msdpPeerStatus                    RowStatus,
+    msdpPeerRemotePort                INTEGER,   -- back to read-only:
+    msdpPeerLocalPort                 INTEGER,
+    msdpPeerEncapsulationState        INTEGER,
+    msdpPeerEncapsulationType         INTEGER,
+    msdpPeerConnectionAttempts        Counter32,
+    msdpPeerInNotifications           Counter32,
+    msdpPeerOutNotifications          Counter32,
+    msdpPeerLastError                 OCTET STRING
+}
+
+msdpPeerRemoteAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The address of the remote MSDP peer."
+    ::= { msdpPeerEntry 1 }
+
+msdpPeerState OBJECT-TYPE
+    SYNTAX     INTEGER { inactive(1),
+                         listen(2),
+                         connecting(3),
+                         established(4),
+                         disabled(5)
+                       }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The state of the MSDP TCP connection with this peer."
+    ::= { msdpPeerEntry 3 }
+
+msdpPeerRPFFailures OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of RPF failures on SA messages received
+            from this peer."
+    ::= { msdpPeerEntry 4 }
+
+msdpPeerInSAs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP SA messages received on this
+            connection.  This object should be initialized to zero
+            when the connection is established."
+    ::= { msdpPeerEntry 5 }
+
+msdpPeerOutSAs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP SA messages transmitted on this
+            connection.  This object should be initialized to zero
+            when the connection is established."
+    ::= { msdpPeerEntry 6 }
+
+msdpPeerInSARequests OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP SA-Request messages received on
+            this connection.  This object should be initialized to
+            zero when the connection is established."
+    ::= { msdpPeerEntry 7 }
+
+msdpPeerOutSARequests OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP SA-Request messages transmitted on
+            this connection.  This object should be initialized to
+            zero when the connection is established."
+    ::= { msdpPeerEntry 8 }
+
+msdpPeerInSAResponses OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP SA-Response messages received on
+            this connection.  This object should be initialized to
+            zero when the connection is established."
+    ::= { msdpPeerEntry 9 }
+
+msdpPeerOutSAResponses OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP SA Response messages transmitted
+            on this TCP connection.  This object should be
+            initialized to zero when the connection is
+            established."
+    ::= { msdpPeerEntry 10 }
+
+msdpPeerInControlMessages OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The total number of MSDP messages received on this
+            TCP connection.  This object should be initialized to
+            zero when the connection is established."
+    ::= { msdpPeerEntry 11 }
+
+msdpPeerOutControlMessages OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The total number of MSDP messages transmitted on this
+            TCP connection.  This object should be initialized to
+            zero when the connection is established."
+    ::= { msdpPeerEntry 12 }
+
+msdpPeerInDataPackets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The total number of encapsulated data packets
+            received from this peer.  This object should be
+            initialized to zero when the connection is
+            established."
+    ::= { msdpPeerEntry 13 }
+
+msdpPeerOutDataPackets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The total number of encapsulated data packets sent to
+            this peer.  This object should be initialized to zero
+            when the connection is established."
+    ::= { msdpPeerEntry 14 }
+
+msdpPeerFsmEstablishedTransitions OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The total number of times the MSDP FSM transitioned
+            into the established state."
+    ::= { msdpPeerEntry 15 }
+
+msdpPeerFsmEstablishedTime OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "seconds"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This timer indicates how long (in seconds) this peer
+            has been in the Established state or how long since
+            this peer was last in the Established state.  It is
+            set to zero when a new peer is configured or the MSDP
+            speaker is booted."
+    ::= { msdpPeerEntry 16 }
+
+msdpPeerInMessageElapsedTime OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "seconds"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "Elapsed time in seconds since the last MSDP message
+            was received from the peer.  Each time
+            msdpPeerInControlMessages is incremented, the value of
+            this object is set to zero (0)."
+    ::= { msdpPeerEntry 17 }
+
+msdpPeerLocalAddress OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "The local IP address of this entry's MSDP
+            connection."
+    ::= { msdpPeerEntry 18 }
+
+msdpPeerSAAdvPeriod OBJECT-TYPE
+    SYNTAX     INTEGER(1..2147483647)
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "Time interval in seconds for the
+            MinSAAdvertisementInterval MSDP timer."
+    DEFVAL  { 60 }
+    ::= { msdpPeerEntry 19 }
+
+msdpPeerConnectRetryInterval OBJECT-TYPE
+    SYNTAX     INTEGER (1..65535)
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "Time interval in seconds for the ConnectRetry timer."
+    DEFVAL { 120 }
+    ::= { msdpPeerEntry 20 }
+
+msdpPeerHoldTimeConfigured OBJECT-TYPE
+    SYNTAX     INTEGER  ( 0 | 3..65535 )
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "Time interval in seconds for the Hold Timer
+            configured for this MSDP speaker with this peer."
+    DEFVAL { 90 }
+    ::= { msdpPeerEntry 21 }
+
+msdpPeerKeepAliveConfigured OBJECT-TYPE
+    SYNTAX     INTEGER ( 0 | 1..21845 )
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "Time interval in seconds for the KeepAlive timer
+            configured for this MSDP speaker with this peer.  A
+            reasonable maximum value for this timer would be
+            configured to be one third of that of
+            msdpPeerHoldTimeConfigured.  If the value of this
+            object is zero (0), no periodic KEEPALIVE messages are
+            sent to the peer after the MSDP connection has been
+            established."
+    DEFVAL { 30 }
+    ::= { msdpPeerEntry 22 }
+
+msdpPeerDataTtl OBJECT-TYPE
+    SYNTAX     INTEGER (0..255)
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "The minimum TTL a packet is required to have before
+            it may be forwarded using SA encapsulation to this
+            peer."
+    ::= { msdpPeerEntry 23 }
+
+msdpPeerProcessRequestsFrom OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+            "This object indicates whether or not to process MSDP
+            SA Request messages from this peer.  If True(1), MSDP
+            SA Request messages from this peer are processed and
+            replied to (if appropriate) with SA Response messages.
+            If False(2), MSDP SA Request messages from this peer
+            are silently ignored.  It defaults to False when
+            msdpCacheLifetime is 0 and True when msdpCacheLifetime
+            is non-0."
+    ::= { msdpPeerEntry 24 }
+
+msdpPeerStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+            "The RowStatus object by which peers can be added and
+            deleted.  A transition to 'active' will cause the MSDP
+            Start Event to be generated.  A transition out of the
+            'active' state will cause the MSDP Stop Event to be
+            generated.  Care should be used in providing write
+            access to this object without adequate
+            authentication."
+    ::= { msdpPeerEntry 25 }
+
+msdpPeerRemotePort OBJECT-TYPE
+    SYNTAX     INTEGER (0..65535)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The remote port for the TCP connection between the
+            MSDP peers."
+    ::= { msdpPeerEntry 26 }
+
+msdpPeerLocalPort OBJECT-TYPE
+    SYNTAX     INTEGER (0..65535)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The local port for the TCP connection between the
+            MSDP peers."
+    ::= { msdpPeerEntry 27 }
+
+msdpPeerEncapsulationState OBJECT-TYPE
+    SYNTAX     INTEGER { default(1),
+                         received(2),
+                         advertising(3),
+                         sent(4),
+                         agreed(5),
+                         failed(6)
+                       }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The status of the encapsulation negotiation state
+            machine."
+    ::= { msdpPeerEntry 28 }
+
+msdpPeerEncapsulationType OBJECT-TYPE
+    SYNTAX     INTEGER { tcp(1),
+                         udp(2),
+                         gre(3)
+                       }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The encapsulation in use when encapsulating data in
+            SA messages to this peer."
+    ::= { msdpPeerEntry 29 }
+
+msdpPeerConnectionAttempts OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times the state machine has
+            transitioned from inactive to connecting."
+    ::= { msdpPeerEntry 30 }
+
+msdpPeerInNotifications OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP Notification messages received on
+            this connection.  This object should be initialized to
+            zero when the connection is established."
+    ::= { msdpPeerEntry 31 }
+
+msdpPeerOutNotifications OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP Notification messages transmitted
+            on this connection.  This object should be initialized
+            to zero when the connection is established."
+    ::= { msdpPeerEntry 32 }
+
+msdpPeerLastError OBJECT-TYPE
+    SYNTAX     OCTET STRING (SIZE (2))
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The last error code and subcode seen by this peer on
+            this connection.  If no error has occurred, this field
+            is zero.  Otherwise, the first byte of this two byte
+            OCTET STRING contains the error code, and the second
+            byte contains the subcode."
+    DEFVAL   { '0000'h }
+    ::= { msdpPeerEntry 33 }
+
+---
+--- The MSDP Source-Active Cache table
+---
+
+msdpSACacheTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF MsdpSACacheEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table listing the MSDP SA
+            advertisements currently in the MSDP speaker's cache."
+    ::= { msdp 6 }
+
+msdpSACacheEntry OBJECT-TYPE
+    SYNTAX     MsdpSACacheEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) representing an MSDP SA
+            advert."
+    INDEX      { msdpSACacheGroupAddr, msdpSACacheSourceAddr,
+                 msdpSACacheOriginRP }
+    ::= { msdpSACacheTable 1 }
+
+MsdpSACacheEntry ::= SEQUENCE {
+    msdpSACacheGroupAddr       IpAddress,
+    msdpSACacheSourceAddr      IpAddress,
+    msdpSACacheOriginRP        IpAddress,
+    msdpSACachePeerLearnedFrom IpAddress,
+    msdpSACacheRPFPeer         IpAddress,
+    msdpSACacheInSAs           Counter32,
+    msdpSACacheInDataPackets   Counter32,
+    msdpSACacheUpTime          TimeTicks,
+    msdpSACacheExpiryTime      TimeTicks,
+    msdpSACacheStatus          RowStatus
+}
+
+msdpSACacheGroupAddr OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The group address of the SA Cache entry."
+    ::= { msdpSACacheEntry 1 }
+
+msdpSACacheSourceAddr OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The source address of the SA Cache entry."
+    ::= { msdpSACacheEntry 2 }
+
+msdpSACacheOriginRP OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The address of the RP which originated the last SA
+            message accepted for this entry."
+    ::= { msdpSACacheEntry 3 }
+
+msdpSACachePeerLearnedFrom OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The peer from which this SA Cache entry was last
+            accepted.  This address must correspond to the
+            msdpPeerRemoteAddress value for a row in the MSDP Peer
+            Table."
+    ::= { msdpSACacheEntry 4 }
+
+msdpSACacheRPFPeer OBJECT-TYPE
+    SYNTAX     IpAddress
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The peer from which an SA message corresponding to
+            this cache entry would be accepted (i.e. the RPF peer
+            for msdpSACacheOriginRP).  This may be different than
+            msdpSACachePeerLearnedFrom if this entry was created
+            by an MSDP SA-Response.  This address must correspond
+            to the msdpPeerRemoteAddress value for a row in the
+            MSDP Peer Table."
+    ::= { msdpSACacheEntry 5 }
+
+msdpSACacheInSAs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP SA messages received relevant to
+            this cache entry.  This object must be initialized to
+            zero when creating a cache entry."
+    ::= { msdpSACacheEntry 6 }
+
+msdpSACacheInDataPackets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of MSDP encapsulated data packets received
+            relevant to this cache entry.  This object must be
+            initialized to zero when creating a cache entry."
+    ::= { msdpSACacheEntry 7 }
+
+msdpSACacheUpTime OBJECT-TYPE
+    SYNTAX     TimeTicks
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The time since this entry was placed in the SA
+            cache."
+    ::= { msdpSACacheEntry 8 }
+
+msdpSACacheExpiryTime OBJECT-TYPE
+    SYNTAX     TimeTicks
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The time remaining before this entry will expire from
+            the SA cache."
+    ::= { msdpSACacheEntry 9 }
+
+msdpSACacheStatus OBJECT-TYPE
+    SYNTAX     RowStatus
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The status of this row in the table.  The only
+            allowable actions are to retreive the status, which
+            will be `active', or to set the status to `destroy' in
+            order to remove this entry from the cache."
+    ::= { msdpSACacheEntry 10 }
+
+-- Traps
+
+msdpTraps   OBJECT IDENTIFIER ::= { msdp 7 }
+
+msdpEstablished NOTIFICATION-TYPE
+    OBJECTS { msdpPeerFsmEstablishedTransitions }
+    STATUS  current
+    DESCRIPTION
+            "The MSDP Established event is generated when the MSDP
+            FSM enters the ESTABLISHED state."
+    ::= { msdpTraps 1 }
+
+msdpBackwardTransition NOTIFICATION-TYPE
+    OBJECTS { msdpPeerState }
+    STATUS  current
+    DESCRIPTION
+            "The MSDPBackwardTransition Event is generated when
+            the MSDP FSM moves from a higher numbered state to a
+            lower numbered state."
+    ::= { msdpTraps 2 }
+
+-- conformance information
+
+msdpMIBConformance OBJECT IDENTIFIER ::= { msdp 8 }
+msdpMIBCompliances OBJECT IDENTIFIER ::= { msdpMIBConformance 1 }
+msdpMIBGroups      OBJECT IDENTIFIER ::= { msdpMIBConformance 2 }
+
+-- compliance statements
+
+msdpMIBCompliance MODULE-COMPLIANCE
+   STATUS current
+   DESCRIPTION
+            "The compliance statement for entities which implement
+            the MSDP MIB."
+   MODULE  -- this module
+   MANDATORY-GROUPS { msdpMIBGlobalsGroup }
+
+       GROUP  msdpSACacheGroup
+        DESCRIPTION
+                "This group is mandatory if the MSDP speaker has
+                the ability to cache SA messages."
+
+   ::= { msdpMIBCompliances 1 }
+
+-- units of conformance
+
+msdpMIBGlobalsGroup OBJECT-GROUP
+   OBJECTS { msdpEnabled }
+   STATUS  current
+    DESCRIPTION
+            "A collection of objects providing information on
+            global MSDP state."
+   ::= { msdpMIBGroups 1 }
+
+msdpMIBPeerGroup OBJECT-GROUP
+   OBJECTS { msdpPeerRPFFailures,
+             msdpPeerState, msdpPeerInSAs, msdpPeerOutSAs,
+             msdpPeerInSARequests, msdpPeerOutSARequests,
+             msdpPeerInSAResponses, msdpPeerOutSAResponses,
+             msdpPeerInNotifications, msdpPeerOutNotifications,
+             msdpPeerInControlMessages, msdpPeerOutControlMessages,
+             msdpPeerInDataPackets, msdpPeerOutDataPackets,
+             msdpPeerFsmEstablishedTransitions,
+             msdpPeerFsmEstablishedTime,
+             msdpPeerLocalAddress,
+             msdpPeerRemotePort, msdpPeerLocalPort,
+             msdpPeerSAAdvPeriod,
+             msdpPeerConnectRetryInterval,
+             msdpPeerHoldTimeConfigured,
+             msdpPeerKeepAliveConfigured,
+             msdpPeerInMessageElapsedTime,
+             msdpPeerDataTtl,
+             msdpPeerProcessRequestsFrom,
+             msdpPeerEncapsulationState, msdpPeerEncapsulationType,
+             msdpPeerConnectionAttempts,
+             msdpPeerLastError,
+             msdpPeerStatus
+           }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects for managing MSDP peers."
+    ::= { msdpMIBGroups 2 }
+
+msdpSACacheGroup OBJECT-GROUP
+    OBJECTS { msdpCacheLifetime, msdpNumSACacheEntries,
+              msdpSAHoldDownPeriod,
+              msdpSACachePeerLearnedFrom,
+              msdpSACacheRPFPeer, msdpSACacheInSAs,
+              msdpSACacheInDataPackets,
+              msdpSACacheUpTime, msdpSACacheExpiryTime,
+              msdpSACacheStatus }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects for managing MSDP SA cache
+            entries."
+    ::= { msdpMIBGroups 3 }
+
+--msdpNotificationGroup NOTIFICATION-GROUP
+--    NOTIFICATIONS { msdpEstablished,
+--                    msdpBackwardTransition }
+--    STATUS  current
+--    DESCRIPTION
+--            "A collection of notifications for signaling changes
+--            in MSDP peer relationships."
+--    ::= { msdpMIBGroups 4 }
+
+--msdpRequestsGroup OBJECT-GROUP
+--    OBJECTS { msdpRequestsPeer, msdpRequestsStatus }
+--    STATUS  current
+--    DESCRIPTION
+--            "A collection of objects for managing MSDP Request
+--            transmission."
+--    ::= { msdpMIBGroups 5 }
+END

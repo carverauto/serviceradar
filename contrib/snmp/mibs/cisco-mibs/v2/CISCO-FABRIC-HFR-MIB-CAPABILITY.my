@@ -1,0 +1,59 @@
+-- *****************************************************************
+-- CISCO-FABRIC-HFR-MIB-CAPABILITY.my:
+-- Cisco CISCO-FABRIC-HFR-MIB AGENT-CAPABILITIES
+--
+-- April 2006, Hongchi Shih
+--
+-- Copyright (c) 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-FABRIC-HFR-MIB-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoFabricHfrCapability MODULE-IDENTITY
+        LAST-UPDATED    "200606120000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-fabric@cisco.com"
+        DESCRIPTION
+                "The capabilities description of
+                 CISCO-FABRIC-HFR-MIB."
+
+        REVISION        "200606120000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 511 }
+
+cfhCapabilityIOSXRV3R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS XR 3.3 on CRS-1 "
+    STATUS              current
+    DESCRIPTION         "CISCO-FABRIC-HFR-MIB
+                        capabilities for IOS XR release 3.3"
+
+    SUPPORTS            CISCO-FABRIC-HFR-MIB
+        INCLUDES        { cfhGenInfoGroup,
+                          cfhPlaneGroup,
+                          cfhBundleGroup,
+                          cfhBundlePortGroup,
+                          cfhCardGroup }
+
+    ::= { ciscoFabricHfrCapability 1 }
+
+END

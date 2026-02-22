@@ -1,0 +1,668 @@
+-- ****************************************************************
+-- DOCS-IFEXT2-MIB.my: Docsis IF Extensions MIB file
+--
+-- April 2007, Senthil Nathan K Muthu Karuppan 
+--
+-- Copyright (c) 2007-2008 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+DOCS-IFEXT2-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+	OBJECT-TYPE,
+	Unsigned32,
+	Gauge32
+		FROM SNMPv2-SMI
+	TruthValue
+		FROM SNMPv2-TC
+	OBJECT-GROUP,
+	MODULE-COMPLIANCE
+		FROM SNMPv2-CONF
+	ifIndex
+		FROM IF-MIB
+	docsIfCmtsCmStatusIndex,
+	TenthdBmV,
+	TenthdB
+		FROM DOCS-IF-MIB 
+	clabProjDocsis
+		FROM CLAB-DEF-MIB;
+
+
+docsIfExt2Mib MODULE-IDENTITY
+	LAST-UPDATED "200411101700Z" -- November 10, 2004
+	ORGANIZATION "Cable Television Laboratories, Inc"
+	CONTACT-INFO
+		"
+		Postal: Cable Television Laboratories, Inc.
+		400 Centennial Parkway
+		Louisville, Colorado 80027-1266
+		U.S.A.
+		Phone: +1 303-661-9100
+		Fax: +1 303-661-9199
+		E-mail: mibs@cablelabs.com"
+	DESCRIPTION
+		"This MIB module contains the management objects that enhance
+		DOCSIS 2.0 feature set.
+		It includes SCDMA capability of limiting the number of codes
+		assigned to a CM over the total active codes, referred as
+		Maximum Scheduled Codes (MSC)."
+	REVISION "200406231700Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+	REVISION "200411101700Z"
+	DESCRIPTION
+		"Re-rooted to clabProjDocsis.5"
+::= { clabProjDocsis 5 }
+
+-- ---------------------------------------------------------
+-- Textual Conventions
+-- ---------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------
+-- Main Groups
+-- ---------------------------------------------------------------------
+
+
+docsIfExt2Notifications OBJECT IDENTIFIER ::= { docsIfExt2Mib 0}
+docsIfExt2MibObjects OBJECT IDENTIFIER ::= { docsIfExt2Mib 1}
+docsIfExt2BaseObjects OBJECT IDENTIFIER ::= { docsIfExt2MibObjects 1 }
+docsIfExt2CmObjects OBJECT IDENTIFIER ::= { docsIfExt2MibObjects 2 }
+docsIfExt2CmtsObjects OBJECT IDENTIFIER ::= { docsIfExt2MibObjects 3 }
+
+
+-- ---------------------------------------------------------------------
+-- Base Group Objects
+-- Applicable to both CM and CMTS
+-- ---------------------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------
+-- CM Group Objects
+-- ---------------------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------
+-- CM Maximum Scheduled Codes
+-- docsIfExt2CmMscStatusTable extends docsIfCmStatusTable
+-- ---------------------------------------------------------------------
+
+
+docsIfExt2CmMscStatusTable OBJECT-TYPE
+	SYNTAX SEQUENCE OF DocsIfExt2CmMscStatusEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"This table extends the docsIfCmStatusTable to report
+		the CM MSC status."
+		::= { docsIfExt2CmObjects 1 }
+
+docsIfExt2CmMscStatusEntry OBJECT-TYPE
+	SYNTAX DocsIfExt2CmMscStatusEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"As an extension of docsIdCmStatusTable this table has
+		entries for each ifEntry with an ifType of
+		docsCableMaclayer(127)
+		This entry is instantiated by the CM only if the
+		CM is currently in SCDMA mode."
+	INDEX { ifIndex }
+	::= { docsIfExt2CmMscStatusTable 1 }
+
+
+DocsIfExt2CmMscStatusEntry ::= SEQUENCE
+	{
+	docsIfExt2CmMscStatusState INTEGER,
+	docsIfExt2CmMscStatusPowerShortfall TenthdB,
+	docsIfExt2CmMscStatusCodeRatio Unsigned32,
+	docsIfExt2CmMscStatusMaximumScheduledCodes Unsigned32,
+	docsIfExt2CmMscStatusPowerHeadroom TenthdB,
+	docsIfExt2CmMscStatusEffectivePower TenthdBmV,
+	docsIfExt2CmMscStatusIUC2Control INTEGER
+	}
+
+
+docsIfExt2CmMscStatusState OBJECT-TYPE
+	SYNTAX INTEGER {
+		channelEnabled(1),
+		channelDisabled(2),
+		active(3),
+		inactive(4),
+		unknown(5)
+		}
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the current state of the Maximum Scheduled Codes
+		feature on the CM.
+
+		channelEnabled(1) S-CDMA Maximum Scheduled Codes
+		is enabled in the UCD TLV-17.
+
+		channelDisabled(2) S-CDMA Maximum Scheduled Codes
+		is disabled in the UCD TLV-17 or a UCD has been
+		received that does not contain that TLV.
+
+		Active(3) The CM has received a Ranging Response that
+		contains a non-zero TLV-10
+		and therefore has MSC activated. This state
+		overrides the channelEnabled(1) state.
+
+		Inactive(4) The CM has received a Ranging Response that
+		does not contain TLV-10 or has it
+		set to 0. This state overrides the
+		channelEnabled(1) state.
+
+		Unknown(5) CM has not yet received a UCD to determine
+		if MSC is enabled or disabled on that channel."
+	DEFVAL { unknown }
+	::= { docsIfExt2CmMscStatusEntry 1 }
+
+
+docsIfExt2CmMscStatusPowerShortfall OBJECT-TYPE
+	SYNTAX TenthdB
+	UNITS "TenthdB"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the Power Shortfall at the CM, in units of
+		tenth dB.
+		The value is provided by the CM and is sent in the RNG-REQ
+		message. It is internally calculated in units of quarter
+		dB and is rounded upward for this MIB object to the nearest
+		tenth dB. A value of zero indicates that the CM has no power
+		shortfall."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.5"
+	DEFVAL { 0 }
+	::= { docsIfExt2CmMscStatusEntry 2 }
+
+
+docsIfExt2CmMscStatusCodeRatio OBJECT-TYPE
+	SYNTAX Unsigned32 ( 2 | 8 | 16 | 32)
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the maximum ratio of number of active codes to
+		Maximum Scheduled Codes that the CM can support, as
+		reported in the Ranging Request."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.5"
+	::= { docsIfExt2CmMscStatusEntry 3 }
+
+
+docsIfExt2CmMscStatusMaximumScheduledCodes OBJECT-TYPE
+	SYNTAX Unsigned32 (0 | 4..128)
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the Maximum Scheduled Codes in use by the CM.
+		The value is provided by the CMTS through a TLV value in
+		the RNG-RSP message. Note that not all values from 4..128
+		are valid.
+		A value of zero when docsIfExt2CmMscStatusSate is active(3)
+		indicates there is no maximum scheduled codes value. This
+		object should remain at zero when
+		docsIfExt2CmMscStatusState is not active(3)."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.6"
+	DEFVAL { 0 }
+	::= { docsIfExt2CmMscStatusEntry 4 }
+
+
+docsIfExt2CmMscStatusPowerHeadroom OBJECT-TYPE
+	SYNTAX TenthdB
+	UNITS "TenthdB"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the Maximum Scheduled Codes Power Headroom in
+		use by the CM, in units of tenth dB. The value is
+		provided by the CMTS in units of quarter dB through
+		TLV-11 in the RNG-RSP message and is rounded upward for
+		this MIB object to the nearest tenth dB. A value of zero
+		indicates the CMTS provided no Power Headroom. This
+		object should remain at zero when
+		docsIfExt2CmMscStatusState is not active(3)."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.6"
+	DEFVAL { 0 }
+	::= { docsIfExt2CmMscStatusEntry 5 }
+
+
+docsIfExt2CmMscStatusEffectivePower OBJECT-TYPE
+	SYNTAX TenthdBmV
+	UNITS "TenthdBmV"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the Effective Transmit Power of the CM. This is
+		the power that would result hypothetically if, in a
+		spreader-on frame, the CM were to transmit on all active
+		codes with 64QAM modulation. This object should be equal
+		to docsIfCmStatusTxPower when docsIfExt2CmMscStatusState
+		is not active(3)."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 6.2.18.2.2"
+	::= { docsIfExt2CmMscStatusEntry 6 }
+
+
+docsIfExt2CmMscStatusIUC2Control OBJECT-TYPE
+	SYNTAX INTEGER {
+			noIUC2(1),
+			limitedIUC2(2),
+			freeIUC2(3)
+		   }
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+		"The CM usage of IUC2 when MSC is enabled:
+		noIUC2(1): CM usage of IUC2 is prohibited
+
+		limitedIUC2(2): CM is allowed to use IUC2 as long as
+		                the CM does not exceed MSC
+
+		freeIUC2(3): CM is allowed to use IUC2 without regard
+		             for MSC.
+
+		With limitedIUC2(2), there may be cases where a CM cannot
+		ensure that the use of IUC2 would not exceed MSC. In these
+		cases, the CM MUST NOT use IUC2."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 6.2.11.6"
+	DEFVAL { noIUC2 }
+	::= { docsIfExt2CmMscStatusEntry 7 }
+
+
+-- ---------------------------------------------------------------------
+-- CMTS Group Objects
+-- ---------------------------------------------------------------------
+
+docsIfExt2CmtsMscGlobalEnable OBJECT-TYPE
+	SYNTAX TruthValue
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+		"Indicates the global state of the Maximum Scheduled Code
+		feature on the CMTS. The value true(1) indicates that this
+		feature can be enabled on individual logical channels on
+		the CMTS. The value false(2) indicates that the feature is
+		not in operations on the CMTS. Note that the MIB object
+		docsIfExt2CmtsUpChannelMscState exists to enable or disable
+		Maximum Scheduled Codes on a per logical channel basis."
+	DEFVAL { false }
+	::= { docsIfExt2CmtsObjects 1 }
+
+
+-- ---------------------------------------------------------------------
+-- CMTS reported Cm's Maximum Scheduled Codes
+-- docsIfExt2CmtsCmMscStatusTable extends docsIfCmtsCmStatusTable
+-- ---------------------------------------------------------------------
+
+
+docsIfExt2CmtsCmMscStatusTable OBJECT-TYPE
+	SYNTAX SEQUENCE OF DocsIfExt2CmtsCmMscStatusEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"This table extends the docsIfCmtsCmStatusTable to report
+		CM MSC status."
+	::= { docsIfExt2CmtsObjects 2 }
+
+
+docsIfExt2CmtsCmMscStatusEntry OBJECT-TYPE
+	SYNTAX DocsIfExt2CmtsCmMscStatusEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"An entry for MSC CM status report. Only CMs allocated
+		to SCDMA upstream channels are included in this table."
+	INDEX { docsIfCmtsCmStatusIndex }
+	::= { docsIfExt2CmtsCmMscStatusTable 1 }
+
+
+DocsIfExt2CmtsCmMscStatusEntry ::= SEQUENCE
+		{
+		docsIfExt2CmtsCmMscStatusPowerShortfall TenthdB,
+		docsIfExt2CmtsCmMscStatusCodeRatio Unsigned32,
+		docsIfExt2CmtsCmMscStatusMaximumScheduledCodes Unsigned32,
+		docsIfExt2CmtsCmMscStatusPowerHeadroom TenthdB,
+		docsIfExt2CmtsCmMscStatusMeasuredSNR TenthdB,
+		docsIfExt2CmtsCmMscStatusEffectiveSNR TenthdB
+		}
+
+
+docsIfExt2CmtsCmMscStatusPowerShortfall OBJECT-TYPE
+	SYNTAX TenthdB
+	UNITS "TenthdB"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the Power Shortfall at the CM, in units of
+		tenth dB.
+		The value is provided by the CM and is sent in the
+		RNG-REQ message. It is internally calculated in units
+		of quarter dB and is rounded upward for this MIB object
+		to the nearest tenth dB.
+		A value of zero indicates that the CM has no power
+		shortfall."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.5"
+	DEFVAL { 0 }
+	::= { docsIfExt2CmtsCmMscStatusEntry 1 }
+
+
+docsIfExt2CmtsCmMscStatusCodeRatio OBJECT-TYPE
+	SYNTAX Unsigned32 (2 | 8 | 16 | 32)
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the maximum ratio of number of active codes to
+		Maximum Scheduled Codes that the CM reported in the
+		Ranging Request."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.5"
+	::= { docsIfExt2CmtsCmMscStatusEntry 2 }
+
+
+docsIfExt2CmtsCmMscStatusMaximumScheduledCodes OBJECT-TYPE
+	SYNTAX Unsigned32 (0 | 4..128)
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the Maximum Scheduled Codes value in use by
+		the CM. The value is provided by the CMTS through a TLV
+		in the RNG-RSP message. Note that not all values from
+		4..128 are valid.
+		A value of zero indicates there is no Maximum Scheduled
+		Codes, or that the CM does not support the Maximum
+		Scheduled Codes feature."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.6"
+	DEFVAL { 0 }
+	::= { docsIfExt2CmtsCmMscStatusEntry 3 }
+
+docsIfExt2CmtsCmMscStatusPowerHeadroom OBJECT-TYPE
+	SYNTAX TenthdB
+	UNITS "TenthdB"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates the Maximum Scheduled Codes Power Headroom
+		in use by the CM, in units of tenth dB. The value is
+		provided by the CMTS in units of quarter dB through a
+		TLV value in the RNG-RSP message and is rounded upward
+		for this MIB object to the nearest tenth dB. A value of zero
+		indicates the CMTS provided no Power Headroom."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 8.3.6"
+	DEFVAL { 0 }
+	::= { docsIfExt2CmtsCmMscStatusEntry 4 }
+
+
+docsIfExt2CmtsCmMscStatusMeasuredSNR OBJECT-TYPE
+	SYNTAX TenthdB
+	UNITS "TenthdB"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"The signal to noise ratio perceived for this cable modem
+		on the upstream logical channel as of the last station
+		maintenance."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 6.2.18.2.2"
+	::= { docsIfExt2CmtsCmMscStatusEntry 5 }
+
+
+docsIfExt2CmtsCmMscStatusEffectiveSNR OBJECT-TYPE
+	SYNTAX TenthdB
+	UNITS "TenthdB"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"The signal to noise ratio estimated for this cable modem
+		on the upstream logical channel, referenced to 64QAM
+		modulation. It is defined as the measured SNR at the
+		last station maintenance, minus the CM power shortfall,
+		plus the Power Headroom, minus the constellation gain of
+		the station maintenance burst.
+		Note that the value of the object
+		docsIfCmtsCmStatusSignalNoise will be identical to the
+		value of this object when Maximum Scheduled Codes
+		is enabled."
+	REFERENCE
+		"Data-Over-Cable Service Interface Specifications: Radio
+		Frequency Interface Specification Section 6.2.18.2.2"
+	::= { docsIfExt2CmtsCmMscStatusEntry 6 }
+
+
+-- ---------------------------------------------------------------------
+-- CMTS MSC Upstream Logical Channel State
+-- docsIfExt2CmtsUpChannelMscTable extends docsIfUpstreamChannelTable
+-- ---------------------------------------------------------------------
+
+
+docsIfExt2CmtsUpChannelMscTable OBJECT-TYPE
+	SYNTAX SEQUENCE OF DocsIfExt2CmtsUpChannelMscEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"This table extends the docsIfUpstreamChannelTable to report
+		CM MSC status."
+	::= { docsIfExt2CmtsObjects 3 }
+
+
+docsIfExt2CmtsUpChannelMscEntry OBJECT-TYPE
+	SYNTAX DocsIfExt2CmtsUpChannelMscEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"An entry for MSC upstream status report. Only SCDMA logical
+		upstream channels (i.e., ifType=docsCableUpstreamChannel(205)
+		and docsIfUpChannelType=scdma(3)) are included in this table."
+	INDEX { ifIndex }
+	::= { docsIfExt2CmtsUpChannelMscTable 1 }
+
+
+DocsIfExt2CmtsUpChannelMscEntry ::= SEQUENCE
+		{
+		docsIfExt2CmtsUpChannelMscState INTEGER,
+		docsIfExt2CmtsUpChannelMSCTotalCMs Gauge32,
+		docsIfExt2CmtsUpChannelMSCLimitIUC1 Unsigned32,
+		docsIfExt2CmtsUpChannelMSCMinimumValue Unsigned32
+		}
+
+
+docsIfExt2CmtsUpChannelMscState OBJECT-TYPE
+	SYNTAX INTEGER {
+		channelEnabled(1),
+		channelDisabled(2),
+		dormant(3)
+		}
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+		"Indicates the state of the Maximum Scheduled Codes feature
+		for an individual logical channel on the CMTS.
+		The state will transition automatically from dormant(5) to
+		ChannelEnabled(1) and vice-versa when the feature is
+		globally enabled by the object
+		docsIfExt2CmtsMscGlobalEnable.
+		channelEnabled(1) S-CDMA Maximum Scheduled Codes
+		is enabled in the UCD TLV-17.
+		channelDisabled(2) S-CDMA Maximum Scheduled Codes
+		is disabled in the UCD TLV-17 or a UCD has been
+		sent that does not contain that TLV.
+		Dormant(3) The CMTS channel is being set to
+		channelEnabled(2) but MSC is globally disabled
+		(docsIfExt2CmtsMscGlobalEnable is false(2) ).
+		This value is explicitly read-only."
+	DEFVAL { channelDisabled }
+	::= { docsIfExt2CmtsUpChannelMscEntry 1 }
+
+
+docsIfExt2CmtsUpChannelMSCTotalCMs OBJECT-TYPE
+	SYNTAX Gauge32
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Total number of CMs with docsIfCmtsCmStatusValue of
+		registrationComplete with MSC active."
+	::= { docsIfExt2CmtsUpChannelMscEntry 2 }
+
+
+docsIfExt2CmtsUpChannelMSCLimitIUC1 OBJECT-TYPE
+	SYNTAX Unsigned32 (0..128)
+	UNITS "codes"
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Indicates that, in order to prevent
+		CMs from exceeding MSC, the CMTS will limit the scheduling of
+		broadcast IUC1 to at most this many SCDMA codes per SCMDA
+		frame."
+	::= { docsIfExt2CmtsUpChannelMscEntry 3 }
+
+
+docsIfExt2CmtsUpChannelMSCMinimumValue OBJECT-TYPE
+	SYNTAX Unsigned32 (4..128)
+	UNITS "codes"
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+		"When Maximum Scheduled Codes is enabled, instructs the
+		CMTS to assign cable modems MSC values no less than this value."
+	DEFVAL { 4 }
+		::= { docsIfExt2CmtsUpChannelMscEntry 4 }
+
+
+-- ---------------------------------------------------------------------
+-- CMTS Upstream Logical Channel Extension
+-- docsIfExt2CmtsUpChannelTable extends docsIfUpstreamChannelTable
+-- ---------------------------------------------------------------------
+
+
+docsIfExt2CmtsUpChannelTable OBJECT-TYPE
+	SYNTAX SEQUENCE OF DocsIfExt2CmtsUpChannelEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"This table extends the docsIfUpstreamChannelTable to report
+		additional upstream status information."
+	::= { docsIfExt2CmtsObjects 4 }
+
+
+docsIfExt2CmtsUpChannelEntry OBJECT-TYPE
+	SYNTAX DocsIfExt2CmtsUpChannelEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"An entry for upstream status information."
+	INDEX { ifIndex }
+	::= { docsIfExt2CmtsUpChannelTable 1 }
+
+
+DocsIfExt2CmtsUpChannelEntry ::= SEQUENCE
+		{
+		docsIfExt2CmtsUpChannelTotalCMs Gauge32
+		}
+
+
+docsIfExt2CmtsUpChannelTotalCMs OBJECT-TYPE
+	SYNTAX Gauge32
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Total number of CMs with docsIfCmtsCmStatusValue of
+		registrationComplete."
+	::= { docsIfExt2CmtsUpChannelEntry 1 }
+
+
+-- ---------------------------------------------------------
+-- Conformance definitions
+-- ---------------------------------------------------------
+
+
+docsIfExt2Conformance OBJECT IDENTIFIER ::= { docsIfExt2Mib 2 }
+docsIfExt2Compliances OBJECT IDENTIFIER ::= { docsIfExt2Conformance 1 }
+docsIfExt2Groups OBJECT IDENTIFIER ::= { docsIfExt2Conformance 2 }
+
+docsIfExt2Compliance MODULE-COMPLIANCE
+	STATUS current
+	DESCRIPTION
+		"The compliance statement for DOCSIS 20 enhanced features."
+
+
+
+MODULE -- docsIfExt2Mib
+
+-- conditionally mandatory groups
+
+GROUP docsIfExt2CmGroup
+	DESCRIPTION
+		"Group of objects of enhanced DOCSIS 2.0 features
+		applicable to CMs only."
+
+
+-- conditionally optional groups
+
+
+
+GROUP docsIfExt2CmtsGroup
+	DESCRIPTION
+		"Group of objects of enhanced DOCSIS 2.0 features
+		applicable to CMTSes only. It is optional for a
+		CMTS to implement the MIB objects in this group."
+	::= { docsIfExt2Compliances 1}
+
+docsIfExt2CmGroup OBJECT-GROUP
+	OBJECTS {
+		docsIfExt2CmMscStatusState,
+		docsIfExt2CmMscStatusPowerShortfall,
+		docsIfExt2CmMscStatusCodeRatio,
+		docsIfExt2CmMscStatusMaximumScheduledCodes,
+		docsIfExt2CmMscStatusPowerHeadroom,
+		docsIfExt2CmMscStatusEffectivePower,
+		docsIfExt2CmMscStatusIUC2Control
+		}
+	STATUS current
+	DESCRIPTION
+		"Group of objects implemented in Cable Modems."
+	::= { docsIfExt2Groups 1 }
+
+
+docsIfExt2CmtsGroup OBJECT-GROUP
+	OBJECTS {
+		docsIfExt2CmtsMscGlobalEnable,
+		docsIfExt2CmtsCmMscStatusPowerShortfall,
+		docsIfExt2CmtsCmMscStatusCodeRatio,
+		docsIfExt2CmtsCmMscStatusMaximumScheduledCodes,
+		docsIfExt2CmtsCmMscStatusPowerHeadroom,
+		docsIfExt2CmtsCmMscStatusMeasuredSNR,
+		docsIfExt2CmtsCmMscStatusEffectiveSNR,
+		docsIfExt2CmtsUpChannelMscState,
+		docsIfExt2CmtsUpChannelMSCTotalCMs,
+		docsIfExt2CmtsUpChannelMSCLimitIUC1,
+		docsIfExt2CmtsUpChannelMSCMinimumValue,
+		docsIfExt2CmtsUpChannelTotalCMs
+		}
+	STATUS current
+	DESCRIPTION
+		"Group of objects implemented in Cable Modem Termination
+		Systems."
+	::= { docsIfExt2Groups 2 }
+END

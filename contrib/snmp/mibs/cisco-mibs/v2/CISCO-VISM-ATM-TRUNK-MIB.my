@@ -1,0 +1,1074 @@
+-- *****************************************************************
+-- CISCO-VISM-ATM-TRUNK-MIB 
+--   The MIB contains AAL2 CID (Channel Identifier)
+--   and also Bearer Connection information 
+--   for VISM (Voice Interworking Service Module). 
+--
+-- December 2003, George Ogagan
+-- April 2004, Rashmi Purandare 
+--
+-- Copyright (c) 2003, 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VISM-ATM-TRUNK-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Unsigned32                 FROM SNMPv2-SMI
+    TruthValue                 FROM SNMPv2-TC
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    voice,
+    vismChanGrp                FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoVismAtmTrunkMIB MODULE-IDENTITY
+    LAST-UPDATED    "200404140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module contain the Bearer and 
+         CID (Channel Identifier) connection information."
+
+    REVISION    "200404140000Z"
+    DESCRIPTION
+        "Added 
+            - bearerPeakXmtCellRate
+            - bearerCurrentXmtCellRate
+            - bearerPeakRcvCellRate
+            - bearerCurrentRcvCellRate
+            - bearerCurrentExtAISRcvCnts
+            - bearerCurrentExtRAIRcvCnts
+            - bearerCurrentConnAISCnts
+            - bearerCurrentConnRDICnts
+            - bearerCurrentExtAISXmtCnts
+            - bearerCurrentExtRAIXmtCnts
+         Statistics for bearer cell rates 
+         and alarm counts.
+        "
+    REVISION    "200402050000Z"
+    DESCRIPTION
+        "Added 
+            - vismAal2CidAdminState
+        "
+    REVISION    "200312090000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+    ::= { ciscoWan 87 }
+
+
+bearerConnGrp   OBJECT IDENTIFIER ::= { voice 9 }
+vismAal2CidGrp  OBJECT IDENTIFIER ::= { vismChanGrp 4 }
+ 
+bearerConnTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF BearerConnEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+         "This table describes the statistical information
+          available on a per-bearer connection basis.
+          These values are applicable equally to an endpoint.
+         "
+    ::= { bearerConnGrp 1 }
+ 
+bearerConnEntry OBJECT-TYPE
+    SYNTAX      BearerConnEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        " Each entry in this table corresponds to a bearer 
+          connection, that was setup by binding an endpoint with a 
+          VC(Virtual channel)/CID pair, either through CLI or SNMP.
+          The statistical counters in this table are generic voice 
+          quality parameters that are equally applicable in all 
+          types of Voice Over Packet adapations (VoIP, VoAAL1 and 
+          VoAAL2). However, they are maintained only in the 
+          PVC(Permanent virtual circuit) trunking model because, 
+          these counters get reset in the switching model on a 
+          per call basis.
+          The entries in this table are implicitly created/deleted 
+          at the time of creation/deletion of entries in the 
+          vismAal2CidCnfTable.
+	"
+    INDEX { bearerEndptNum }
+    ::= { bearerConnTable 1 }
+
+BearerConnEntry ::=
+    SEQUENCE {
+                bearerEndptNum          Integer32,
+                bearerCid               Integer32,
+                bearerLcn               Integer32,
+                bearerSentPkts          Counter32,
+                bearerRcvdPkts          Counter32,
+                bearerSentOctets        Counter32,
+                bearerRcvdOctets        Counter32,
+                bearerLostPkts          Counter32,
+                bearerJitter            Integer32,
+                bearerLatency           Integer32,
+                bearerAal2ExtAISCnts    Counter32,
+                bearerAal2ExtRAICnts    Counter32,
+                bearerAal2ConnAISCnts   Counter32,
+                bearerAal2ConnRDICnts   Counter32,
+                bearerCntClrButton      INTEGER,
+                bearerPeakXmtCellRate   Unsigned32,
+                bearerCurrentXmtCellRate Unsigned32,
+                bearerPeakRcvCellRate   Unsigned32,
+                bearerCurrentRcvCellRate Unsigned32,
+                bearerCurrentExtAISRcvCnts Counter32,
+                bearerCurrentExtRAIRcvCnts Counter32,
+                bearerCurrentConnAISCnts   Counter32,
+                bearerCurrentConnRDICnts   Counter32,
+                bearerCurrentExtAISXmtCnts Counter32,
+                bearerCurrentExtRAIXmtCnts Counter32
+}
+
+bearerEndptNum 	OBJECT-TYPE
+    SYNTAX      Integer32(1..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the index for the Bearer 
+         Connection Table. This refers to the same value 
+         as the index to the mgEndpointTable ie. mgEndpointNumber.
+         This is define in CISCO-WAN-MG-MIB MIB.
+        "
+    ::= { bearerConnEntry  1 }
+
+bearerCid       OBJECT-TYPE
+    SYNTAX      Integer32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the CID associated with this 
+         bearer connection. This refers to the same value as 
+         vismAal2CidNum in the vismAal2CidCnfTable.
+        "
+    ::= { bearerConnEntry  2 }
+
+bearerLcn       OBJECT-TYPE
+    SYNTAX      Integer32(131..510)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the PVC or LCN(Logical Channel Number)
+         number to which this bearer connection is associated with.
+         This refers to the same value as in vismCnfChanNum in 
+         vismChanCnfGrp table. This is define in CISCO-VISM-CONN-MIB 
+         MIB.
+        "
+    ::= { bearerConnEntry 3 }
+
+bearerSentPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the count of packets sent towards the
+         network since this connection setup. 
+        "
+    ::= { bearerConnEntry 4 }
+
+bearerRcvdPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the count of packets received from the
+         network since this connection setup.
+        "
+    ::= { bearerConnEntry  5 }
+
+bearerSentOctets    OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the count of bytes sent towards the
+         network since this connection setup.
+        "
+    ::= { bearerConnEntry  6 }
+
+bearerRcvdOctets    OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the count of bytes received from the
+         network since this connection setup.
+        "
+    ::= { bearerConnEntry  7 }
+
+bearerLostPkts   OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the count of packets lost in the
+         egress direction (from the network). This is a computed
+         number based on the expected number of packets and the
+         actual number of packets arrived from the network.
+        "
+    ::= { bearerConnEntry  8 }
+
+bearerJitter    OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the jitter (a.k.a interarrival jitter) 
+     	 This value is determined by the DSP(Digital Signal
+         Processing) and obtained by the HOST processor
+	 upon querying the DSP on a periodic basis. 
+        "
+    ::= { bearerConnEntry 9 }
+
+bearerLatency   OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines the latency (a.k.a end-to-end average
+	 transmission delay for a voice packet).
+        "
+    ::= { bearerConnEntry  10 }
+
+bearerAal2ExtAISCnts OBJECT-TYPE
+        SYNTAX       Counter32
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+           " This object contains the number of external AIS
+             (Alarm Indication Signal) AAL2 Type3 packets received. 
+
+             External AIS - is associated with a maintenance alarm 
+             detected on a defective maintenance span, that is 
+             transmitted in the direction of the defect as a substitute
+             for normal signal. The purpose is to show the downstream 
+             entities that a defect has been identified and to prevent
+             other maintenance alrams consequent to this first defect.
+
+             External AIS bit stream is represented by an all 1's 
+             signal.
+           " 
+        REFERENCE
+           "ITU-T Rec. M.20 sec. 5.4.2 a"
+ 
+        ::= { bearerConnEntry 11 }
+
+bearerAal2ExtRAICnts OBJECT-TYPE
+        SYNTAX       Counter32
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+           "This object contains the number of external RAI
+            (Remote Alarm Indication) AAL2 Type3 packets received. 
+
+            External RAI - is a signal that is transmitted
+            upstream from an entity that has detected defects 
+            persisting long enough to constitute a received 
+            signal failure. Its purpose is to report in the backward
+            direction that there is an interruption of service in the
+            forward direction.
+           "
+        REFERENCE
+           "ITU-T Rec. G.704 section 2.1.3.1.3"
+
+        ::= { bearerConnEntry 12 }
+
+bearerAal2ConnAISCnts OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+           "This object contains the number of external Conn 
+            AIS AAL2 Type2 packets received. 
+
+            External Conn AIS - is transmitted in the downstream 
+            direction from the AAL Type 2 connecting point that first 
+            detects a defect affecting the AAL Type 2 connection; 
+            this includes defects indicated by lower layers.
+           "
+        REFERENCE
+           "ITU-T Rec. I.610 sec 6.2.2.1.1.1"
+
+        ::= { bearerConnEntry 13 }
+
+bearerAal2ConnRDICnts  OBJECT-TYPE
+        SYNTAX         Counter32 
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+           " This object contains the number of external Conn 
+             RDI(Remote Defect Indication) AAL2 Type2 packets
+             received. 
+
+             External Conn RDI -  is a signal transmitted upstream 
+             by an AAL Type 2 endpoint that is in an alarm state as
+             the result of having received an AAL Type2 connection 
+             AIS or having detected a defect that affects
+             the AAL Type2 connection.
+           "
+        ::= { bearerConnEntry 14 }
+
+bearerCntClrButton   OBJECT-TYPE
+        SYNTAX       INTEGER {
+                        noaction(1),
+                        clear (2)
+                        }
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+        " This object is used to clear bearerSentPkts, bearerRcvdPkts,
+          bearerSentOctets, and bearerRcvdOctets.
+        "
+        ::= { bearerConnEntry 15 }
+
+bearerPeakXmtCellRate  OBJECT-TYPE
+        SYNTAX       Unsigned32 (1..2147483647)
+        UNITS        "cells-per-second"
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+           "Peak transmit ATM cell rate is the ATM cells 
+            required to transmit peak AAL2 packets on a 
+            CID per second since midnight as per system time; 
+            the peak cell rate gets cleared every 24 hours 
+            at midnight as per system time.
+           "
+        ::= { bearerConnEntry 16 }
+
+bearerCurrentXmtCellRate  OBJECT-TYPE
+        SYNTAX       Unsigned32 (1..2147483647)
+        UNITS        "cells-per-second"
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+           "Current transmit ATM cell rate is the ATM cells 
+            required to transmit current AAL2 packets on a 
+            CID per second.
+           "
+        ::= { bearerConnEntry 17 }
+
+bearerPeakRcvCellRate  OBJECT-TYPE
+        SYNTAX       Unsigned32 (1..2147483647)
+        UNITS        "cells-per-second"
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+           "Peak receive ATM cell rate is the ATM cells 
+            required to receive peak AAL2 packets on a 
+            CID per second since midnight as per system time; 
+            the peak cell rate gets cleared every 24 hours 
+            at midnight as per system time.
+           "
+        ::= { bearerConnEntry 18 }
+
+bearerCurrentRcvCellRate  OBJECT-TYPE
+        SYNTAX       Unsigned32 (1..2147483647)
+        UNITS        "cells-per-second"
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+           "Current receive ATM cell rate is the ATM cells 
+            required to receive current AAL2 packets on a 
+            CID per second.
+           "
+        ::= { bearerConnEntry 19 }
+
+bearerCurrentExtAISRcvCnts OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+          "This object contains the count of external
+           AIS AAL2 (Type 2) received on this
+           bearerEndptNum since its creation.
+          "
+       ::= { bearerConnEntry 20  }
+
+bearerCurrentExtRAIRcvCnts OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+          "This object contains the number of external
+           RAI AAL2 (Type 2) received in this bearerEndptNum
+           since its creation.
+          "
+       ::= { bearerConnEntry 21}
+
+bearerCurrentConnAISCnts OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+          "This object contains count of external Connection
+           AIS AAL2 (Type 2) received in this bearerEndptNum
+           since its creation.
+          "
+       ::= { bearerConnEntry 22  }
+
+bearerCurrentConnRDICnts OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+          "This object contains the count of external Connection
+           RDI (Remote Defect Indication) AAL2 (Type 2) received 
+           in this bearerEndptNum since its creation.
+          "
+       ::= { bearerConnEntry 23  }
+
+bearerCurrentExtAISXmtCnts OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+          "This object contains the count of external AIS
+           AAL2 (Type 2) transmitted in this bearerEndptNum
+           since its creation.
+          "
+       ::= { bearerConnEntry 24 }
+
+bearerCurrentExtRAIXmtCnts OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+          "This object contains the count of external
+           RAI AAL2 (Type 2) transmitted in this bearerEndptNum
+           since its creation.
+          "
+       ::= { bearerConnEntry 25 }
+
+vismAal2CidCnfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismAal2CidEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This table is defined to establish the binding between an
+        endpoint and a PVC/CID pair in the case of AAL2 adaptation.
+        This table is created and used in trunking mode VISM
+        application only. 
+
+        The maximum number of CIDs that can be configured depends
+        on the current codec template being used as represented by
+        vismAppliedTemplate object. The signaling type of the
+        line has to be configured before adding any CID on that
+        line.
+       "
+    ::= { vismAal2CidGrp 1 }
+ 
+vismAal2CidEntry    OBJECT-TYPE
+    SYNTAX      VismAal2CidEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Identifies an entry for vismAal2CidCnfTable.
+	"
+    INDEX { vismAal2CidLcn, vismAal2CidNum }
+    ::= { vismAal2CidCnfTable 1 }
+ 
+VismAal2CidEntry ::=
+    SEQUENCE {
+                vismAal2CidNum                  Integer32,
+                vismAal2CidLcn                  Integer32,
+                vismAal2EndptNum                Integer32,
+                vismAal2CidRowStatus            INTEGER,
+                vismAal2CidType3Redundancy      TruthValue,
+                vismAal2CidVad                  TruthValue,
+                vismAal2CidProfileType          INTEGER,
+                vismAal2CidProfileNum           Integer32,
+                vismAal2CidCodecType            INTEGER,
+                vismAal2CidDtmfTransport        TruthValue,
+                vismAal2CidCasTransport         TruthValue,
+                vismAal2CidEcanEnable           TruthValue,
+                vismAal2InitVadTimer            Integer32,
+                vismAal2CnfPktPeriod            INTEGER,
+                vismAal2CidICSEnable            TruthValue,
+                vismAal2CidState                INTEGER,
+                vismAal2CidFailReason           INTEGER,
+                vismAal2CidAdminState           INTEGER
+}
+
+vismAal2CidNum 	OBJECT-TYPE
+    SYNTAX      Integer32 (8..255)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines part of the index for this table. 
+         vismAal2CidNum is the CID of a voice channel. CID has to be
+         the same at both endpoints for a connection. CID is 
+         unique only within the context of a Virtual 
+         Circuit (PVC or SVC).
+        "
+    ::= { vismAal2CidEntry  1 }
+
+vismAal2CidLcn 	OBJECT-TYPE
+    SYNTAX      Integer32 (131..510)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines part of the index for the 
+         vismAal2CidCnfTable. Since CID is unique to a PVC, 
+         a combination of LCN and CID uniquely identifies 
+         a voice connection. This field refers to 
+         vismCnfChanNum defined in vismChanCnfGrp of
+         CISCO-VISM-CONN-MIB MIB.
+        "
+    ::= { vismAal2CidEntry  2 }
+
+vismAal2EndptNum OBJECT-TYPE
+    SYNTAX       Integer32(1..65535)
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+          "This attribute defines the endpoint number to which this
+           CID is associated. It is the same as mgEndpointNumber 
+           defined in mgEndpointTable of CISCO-WAN-MG-MIB MIB. 
+          "
+     ::= { vismAal2CidEntry 3 }
+
+vismAal2CidRowStatus 	OBJECT-TYPE
+    SYNTAX     INTEGER {
+                          active (1),
+                          createAndGo (4),
+                          destroy (6)
+			  }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This variable allows to add or delete a CID.  A CID can
+         only be added or deleted. Once added, modifying an
+         entry is not allowed.
+         'createAndGo': Use this to add an entry in this table.
+         'active': This values is returned, once the row is created.
+         'destroy': Use this to delete an entry from this table.
+        "
+    ::= { vismAal2CidEntry  4 }
+
+vismAal2CidType3Redundancy 	OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines whether the triple redundancy is
+         supported for type 3 packets in AAL2 for this channel.
+         When Triple redundancy is enabled for a channel, the
+         Type 3 packets (CAS bits, dialled digits and user state
+         control packets) are transmitted in triplicates with an
+         interval defined as per the standards I.366.2. For
+         channels which are quite reliable, triple redundancy
+         can be disabled in order to save the bandwidth and the
+         processing overheads. 
+
+         The default value of this object is 'true(1)' if either
+         vismAal2CidCasTransport or vismAal2CidDtmfTransport is
+         'true(1)', otherwise the default value is 'false(2)'.
+        "
+    ::= { vismAal2CidEntry  5 }
+
+vismAal2CidVad 	OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines whether the VAD (Voice Activity 
+         Detection) has to be applied on this channel, upon
+         detection of silence. For algorithms that do not
+         have VAD standards, Cisco-proprietary VAD can be 
+         applied and the generic SID(Silence Information
+         Descriptor) packet as specified in I.366.2 standards
+         can be sent to the other end. 
+ 
+         When the codec specify in vismAal2CidCodecType is
+         'clearChannel' VAD has to be off.
+        "
+	DEFVAL { false }
+    ::= { vismAal2CidEntry  6 }
+
+vismAal2CidProfileType 	OBJECT-TYPE
+    SYNTAX     INTEGER {
+                                itu    (1),
+                                atm    (2),
+                                custom (3),
+                                none   (4)
+			  }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the profile type. The profile
+         type defines which group of the profile tables the
+         profile number should correspond to. There are three
+         possible groups:
+         'itu' - corresponding to the tables in ITU 
+         format in the profile is being used.
+         'atm' - This is not supported
+         'custom' - VISM specific custom profiles.
+        "
+	DEFVAL { custom }
+    ::= { vismAal2CidEntry 7 }
+
+vismAal2CidProfileNum 	OBJECT-TYPE
+    SYNTAX     Integer32(0..2147483647) 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the profile number. A profile
+         is a set of entries, where each entry specifies an
+         encoding format with a UUI(User-to-User Indication)
+         range and length. This set defines a mapping that
+         informs the receiver of a Type 1 packet how to
+         interpret the packet contents, i.e. which encoding
+         format in the profile is being used.
+        "
+	DEFVAL { 100 }
+    ::= { vismAal2CidEntry  8 }
+
+vismAal2CidCodecType 	OBJECT-TYPE
+    SYNTAX    INTEGER {
+                g711u        (1),
+                g711a        (2),
+                g726r32000   (3),
+                g729a        (4),
+                g729ab       (5),
+                clearChannel (6),
+                g726r16000   (7),
+                g726r24000   (8),
+                g726r40000   (9),
+                g723h        (11),
+                g723ah       (12),
+                g723l        (13),
+                g723al       (14),
+                lossless     (15)
+				}
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This attribute defines the codec Type used for the
+         connection. 
+
+        'g711u'        represents PCMU with 64 kbps.
+        'g711a'        represents PCMA with 64 kbps.
+        'g726r32000'   represents G.726 at rate 32 kbps
+        'g726r16000'   represents G.726 at rate 16 kbps
+        'g726r24000'   represents G.726 at rate 24 kbps
+        'g726r40000'   represents G.726 at rate 40 kbps
+        'g729a'        represents G.729 Annex A algorithm.
+        'g729ab'       represents G.729 Annex A and Annex B algorithm.
+        'clearChannel' represents CCD with 64 kbps.
+        'g723h'        represents G.723.1-H at rate 6.3kbps.
+        'g723ah'       represents G.723.1-H at rate 6.3kbps
+                       with Silence Supression ON.
+        'g723l'        represents G.723.1-L at rate 5.3kbps.
+        'g723al'       represents G.723.1-L at rate 5.3kbps
+                       with Silence Supression ON.
+        'lossless'     represents Lossless
+
+        Note : 
+          1. When codec type is 'clearChannel', vismAal2CidProfileType
+               and vismAal2CidProfileNum are not applicable and
+               will be ignored.
+
+          2. Value 10 is RESERVED. 
+        "
+    ::= { vismAal2CidEntry 9 }
+
+vismAal2CidDtmfTransport	 	OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines whether the DTMF (Dual Tone Multi
+         Frequency) digits need to be transported to the other
+         end-point. 
+        "
+	DEFVAL { true }
+    ::= { vismAal2CidEntry 10 }
+
+vismAal2CidCasTransport		OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines whether the CAS(Channel 
+        Associated Signaling) bits need to be transported 
+        to the other endpoint. In the case of switching 
+        application, the CAS bits are backhauled to the call agent 
+        through xGCP(Gateway Control Protocol)-CAS protocol.
+
+        Note that if the line signaling type is CAS the 
+        default value is 'true(1)', else the default value
+        is 'false(2)'.
+        "
+    ::= { vismAal2CidEntry  11 }
+
+vismAal2CidEcanEnable		OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This attribute defines whether Echo Cancellation has to
+         be enabled on this connection. If it is set to 'true(1)',
+         echo cancellation is enabled. If it is set to 'false(2)',
+         echo cancellation is disabled.
+        "
+	DEFVAL { true }
+    ::= { vismAal2CidEntry  12 }
+
+vismAal2InitVadTimer		OBJECT-TYPE
+    SYNTAX       Integer32(250..65535)
+    UNITS        "milliseconds"
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This attribute defines the hangover time for VAD.
+         Once the voice inactivity is detected, the gateway
+         will wait for this duration before activating 
+         silence suppression.
+        "
+	DEFVAL { 250 }
+    ::= { vismAal2CidEntry  13 }
+
+vismAal2CnfPktPeriod         OBJECT-TYPE
+   SYNTAX    INTEGER 
+              {
+                five (5),
+                ten (10),
+                twenty (20),
+                thirty(30),
+                fourty (40)
+              }
+   MAX-ACCESS  read-write
+   STATUS      current
+   DESCRIPTION
+       " This object is used to configure the packetization
+        period for a given codec. This packetization  period 
+        has to be a valid entry in the profile table. Profile 
+        type and number identify a unique profile table and one codec
+        type in this table might have one or more packetization 
+        period. This is applicable only if the vismAal2CidCodecType
+        is 'g729a'. 
+
+        The configurable values for 'g729a' are 10,20,30 & 40. 
+        If a CID entry is configured with a codec other than 
+        'g729a' then the user cannot configure the pkt period 
+        for that codec and the pkt period is picked from the 
+        profile table. 
+  
+        Hence when we do get/walk on this entry/table any one of
+        the above values could be returned.
+       "
+   REFERENCE
+       "ITU specification I.366.2 annex P."
+
+     DEFVAL{ ten }
+     ::= { vismAal2CidEntry 14 }
+
+vismAal2CidICSEnable     OBJECT-TYPE
+     SYNTAX     TruthValue
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+        " This object is used to enable or disable the ICS(Idle 
+          Channel Suppression) for a CID. This can be specified 
+          while adding the CID and cannot be modified.
+
+          When the Idle Channel Suppression is enabled the DSP
+          will look for the idle CAS (ABCD bits) pattern specified 
+          in ds0IdleCode in CISCO-VISM-DSX0-MIB MIB. If the 
+          idle pattern is present the DSP stops generating voice 
+          packets towards ATM side. By default the ds0IdleCode
+          will be zero unless the user has configured it before 
+          adding the CID. If the ds0IdleCode is changed after the
+          CID is added it will have no affect unless the card is reset.
+
+          ICS is applicable only for trunking application, in
+          case of switching there is no need for ICS as the
+          calls are teared down and set up dynamically.
+        "
+        DEFVAL { false }
+        ::= { vismAal2CidEntry 15 }
+
+vismAal2CidState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                cidStateActive        (1),
+                cidStateFailed        (2)
+                }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "Indicates the state of the CID.
+             'cidStateActive' : The CID is in service and operational.
+             'cidStateFailed' : The CID is in service but not
+                                operational, e.g. because the PVC
+                                that the CID belongs to is receiving
+                                F5(Operation, Administration and
+                                Maintenance Flow) level alarm.
+   
+             When VISM sees alarm on a CID (network side) sets
+             this object to 'cidStateFailed', and an AIS will
+             be sent on the ds0(Time Division Multiplexed
+             voice channel) that this CID corresponds to. 
+
+             If the whole PVC is in alarm then all the CIDs 
+             on that PVC will be set to 'cidStateFailed', 
+             trapVismChanFailed trap will be sent and all 
+             the ds0's that corresponds to each of the CIDs
+             on this PVC will be in alarm. 
+
+             If VISM sees an alarm on a ds0 in a line then 
+             an RAI(Remote Alarm Indication) will be sent
+             on the CID that corresponds to this ds0, however
+             the CID will not be put in failed state.
+            "
+    ::= { vismAal2CidEntry 16 }
+
+vismAal2CidFailReason OBJECT-TYPE
+    SYNTAX      INTEGER {
+                self        (1),
+                highLevel   (2),
+                both        (3),
+                notFail     (4)
+                }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This object is used to indicate the CID failure
+             reason.
+             'self': fail because of non-PVC alarm
+             'highLevel': fail because of PVC alarm
+             'both': fail because of both PVC and non-PVC alarm
+             'notFail': not fail
+            "
+    DEFVAL { notFail }
+    ::= { vismAal2CidEntry 17 }
+
+vismAal2CidAdminState OBJECT-TYPE
+    SYNTAX     INTEGER {
+                         cidPendingInService      (1),
+                         cidInService             (2),
+                         cidCommandedOutOfService (3),
+                         cidPendingOutOfService   (4),
+                         cidUnknownState          (5)
+               }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION  
+        "This attribute defines the operational administrative 
+         state of the bearer connection. 
+
+         cidInService: This is an operational state of the bearer 
+                       connection where it is ready to 
+                       transmit/receive data/voice packets. 
+                       The user can take the bearer connection 
+                       into cidInService.
+         cidCommandedOutOfService: This is an operational state of 
+                       the bearer connection where it is not ready 
+                       to transmit/receive data/voice packets.
+                       The user can take the bearer connection 
+                       into cidPendingOutOfService.
+         cidPendingInService: It is a transient state. In this state 
+                       the bearer connection is waiting for the user
+                       to transition it to the cidInService state.
+                       This value cannot be specified in a management
+                       protocol set operation.
+         cidPendingOutOfService: It is a transient state. In this 
+                       state the bearer connection is waiting for the 
+                       user to transition it to the cidOutOfService 
+                       state. This value cannot be specified in a 
+                       management protocol set operation.
+         cidUnknownState: This is an abnormal state of the bearer 
+                       connection. This state would indicate to the 
+                       user that there is some data integrity issue
+                       on the bearer administrative state.
+         "
+    DEFVAL { cidPendingInService }
+    ::= { vismAal2CidEntry 18 }
+
+-- conformance information
+  
+cvismAtmTrunkMIBConformance  OBJECT IDENTIFIER ::= 
+                                 { ciscoVismAtmTrunkMIB 2 }
+   
+cvismAtmTrunkMIBGroups       OBJECT IDENTIFIER ::=
+                                 { cvismAtmTrunkMIBConformance 1 }
+   
+cvismAtmTrunkMIBCompliances  OBJECT IDENTIFIER ::=
+                                 { cvismAtmTrunkMIBConformance 2 }
+  
+-- compliance statements
+   
+cvismAtmTrunkCompliance MODULE-COMPLIANCE
+         STATUS deprecated
+         DESCRIPTION
+             "The compliance statement for objects related
+             to VISM Bearer and CID  Connection."
+         MODULE  -- this module
+             MANDATORY-GROUPS {
+                 ciscoVismBearerConnGroup,
+                 ciscoVismAAl2CidGroup
+             }
+         ::= { cvismAtmTrunkMIBCompliances 1 }
+
+cvismAtmTrunkComplianceRev1 MODULE-COMPLIANCE
+         STATUS  deprecated --Replaced by cvismAtmTrunkComplianceRev2
+         DESCRIPTION
+             "The compliance statement for objects related
+             to VISM Bearer and CID  Connection."
+         MODULE  -- this module
+             MANDATORY-GROUPS {
+                 ciscoVismBearerConnGroup,
+                 ciscoVismAAl2CidGroupRev1
+             }
+         ::= { cvismAtmTrunkMIBCompliances 2 }
+
+cvismAtmTrunkComplianceRev2 MODULE-COMPLIANCE
+         STATUS  current
+         DESCRIPTION
+             "The compliance statement for objects related
+             to VISM Bearer and CID  Connection."
+         MODULE  -- this module
+             MANDATORY-GROUPS {
+                 ciscoVismBearerConnGroupRev1,
+                 ciscoVismAAl2CidGroupRev1
+             }
+         ::= { cvismAtmTrunkMIBCompliances 3 }
+
+ciscoVismBearerConnGroup OBJECT-GROUP
+          OBJECTS {
+            
+                bearerEndptNum,
+                bearerCid,
+                bearerLcn,
+                bearerSentPkts,
+                bearerRcvdPkts,
+                bearerSentOctets,
+                bearerRcvdOctets,
+                bearerLostPkts,
+                bearerJitter,
+                bearerLatency,
+                bearerAal2ExtAISCnts,
+                bearerAal2ExtRAICnts,
+                bearerAal2ConnAISCnts,
+                bearerAal2ConnRDICnts,
+                bearerCntClrButton
+          }
+          STATUS deprecated --Replaced by ciscoVismBearerConnGroupRev1
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM Bearer connection."
+           ::= { cvismAtmTrunkMIBGroups 1 }
+
+ciscoVismAAl2CidGroup OBJECT-GROUP
+          OBJECTS {
+                vismAal2CidNum,
+                vismAal2CidLcn,
+                vismAal2EndptNum,
+                vismAal2CidRowStatus,
+                vismAal2CidType3Redundancy,
+                vismAal2CidVad,
+                vismAal2CidProfileType,
+                vismAal2CidProfileNum,
+                vismAal2CidCodecType,
+                vismAal2CidDtmfTransport,
+                vismAal2CidCasTransport,
+                vismAal2CidEcanEnable,
+                vismAal2InitVadTimer,
+                vismAal2CnfPktPeriod,
+                vismAal2CidICSEnable,
+                vismAal2CidState,
+                vismAal2CidFailReason
+          }
+          STATUS deprecated --replaced by ciscoVismAAl2CidGroupRev1
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM AAL2 CID connection."
+           ::= { cvismAtmTrunkMIBGroups 2 }
+
+ciscoVismAAl2CidGroupRev1 OBJECT-GROUP
+          OBJECTS {
+                vismAal2CidNum,
+                vismAal2CidLcn,
+                vismAal2EndptNum,
+                vismAal2CidRowStatus,
+                vismAal2CidType3Redundancy,
+                vismAal2CidVad,
+                vismAal2CidProfileType,
+                vismAal2CidProfileNum,
+                vismAal2CidCodecType,
+                vismAal2CidDtmfTransport,
+                vismAal2CidCasTransport,
+                vismAal2CidEcanEnable,
+                vismAal2InitVadTimer,
+                vismAal2CnfPktPeriod,
+                vismAal2CidICSEnable,
+                vismAal2CidState,
+                vismAal2CidFailReason,
+                vismAal2CidAdminState
+          }
+          STATUS current
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM AAL2 CID connection."
+           ::= { cvismAtmTrunkMIBGroups 3 }
+
+ciscoVismBearerConnGroupRev1 OBJECT-GROUP
+          OBJECTS {
+            
+                bearerEndptNum,
+                bearerCid,
+                bearerLcn,
+                bearerSentPkts,
+                bearerRcvdPkts,
+                bearerSentOctets,
+                bearerRcvdOctets,
+                bearerLostPkts,
+                bearerJitter,
+                bearerLatency,
+                bearerAal2ExtAISCnts,
+                bearerAal2ExtRAICnts,
+                bearerAal2ConnAISCnts,
+                bearerAal2ConnRDICnts,
+                bearerCntClrButton,
+                bearerPeakXmtCellRate,
+                bearerCurrentXmtCellRate,
+                bearerPeakRcvCellRate,
+                bearerCurrentRcvCellRate,
+                bearerCurrentExtAISRcvCnts,
+                bearerCurrentExtRAIRcvCnts,
+                bearerCurrentConnAISCnts,
+                bearerCurrentConnRDICnts,
+                bearerCurrentExtAISXmtCnts,
+                bearerCurrentExtRAIXmtCnts
+          }
+          STATUS current
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM Bearer connection."
+           ::= { cvismAtmTrunkMIBGroups 4 }
+
+END
+
+

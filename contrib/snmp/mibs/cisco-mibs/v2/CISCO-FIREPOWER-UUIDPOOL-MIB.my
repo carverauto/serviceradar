@@ -1,0 +1,647 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-UUIDPOOL-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- UUIDPOOL management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-UUIDPOOL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprAddressUIDSuffxMask,
+    CfprPolicyPolicyOwner,
+    CfprPoolElementOwner,
+    CfprUuidpoolPoolAssignmentOrder
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprUuidpoolObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        UUIDPOOL management information model package"
+    ::= { ciscoFirepowerMIBObjects 80 }
+
+cfprUuidpoolAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprUuidpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr managed object table"
+    ::= { cfprUuidpoolObjects 1 }
+
+cfprUuidpoolAddrEntry OBJECT-TYPE
+    SYNTAX           CfprUuidpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprUuidpoolAddrTable table."
+    INDEX { cfprUuidpoolAddrInstanceId }
+    ::= { cfprUuidpoolAddrTable 1 }
+
+CfprUuidpoolAddrEntry ::= SEQUENCE {
+    cfprUuidpoolAddrInstanceId                                       CfprManagedObjectId,
+    cfprUuidpoolAddrDn                                               CfprManagedObjectDn,
+    cfprUuidpoolAddrRn                                               SnmpAdminString,
+    cfprUuidpoolAddrAssigned                                         TruthValue,
+    cfprUuidpoolAddrAssignedToDn                                     SnmpAdminString,
+    cfprUuidpoolAddrGlobalAssignedCnt                                Gauge32,
+    cfprUuidpoolAddrGlobalDefinedCnt                                 Gauge32,
+    cfprUuidpoolAddrId                                               SnmpAdminString,
+    cfprUuidpoolAddrOwner                                            CfprPoolElementOwner
+}
+
+cfprUuidpoolAddrInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprUuidpoolAddrEntry 1 }
+
+cfprUuidpoolAddrDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:dn managed object property"
+    ::= { cfprUuidpoolAddrEntry 2 }
+
+cfprUuidpoolAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:rn managed object property"
+    ::= { cfprUuidpoolAddrEntry 3 }
+
+cfprUuidpoolAddrAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:assigned managed object property"
+    ::= { cfprUuidpoolAddrEntry 4 }
+
+cfprUuidpoolAddrAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:assignedToDn managed
+        object property"
+    ::= { cfprUuidpoolAddrEntry 5 }
+
+cfprUuidpoolAddrGlobalAssignedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:globalAssignedCnt
+        managed object property"
+    ::= { cfprUuidpoolAddrEntry 6 }
+
+cfprUuidpoolAddrGlobalDefinedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:globalDefinedCnt
+        managed object property"
+    ::= { cfprUuidpoolAddrEntry 7 }
+
+cfprUuidpoolAddrId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:id managed object property"
+    ::= { cfprUuidpoolAddrEntry 8 }
+
+cfprUuidpoolAddrOwner OBJECT-TYPE
+    SYNTAX       CfprPoolElementOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Addr:owner managed object property"
+    ::= { cfprUuidpoolAddrEntry 9 }
+
+cfprUuidpoolBlockTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprUuidpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Block managed object table"
+    ::= { cfprUuidpoolObjects 2 }
+
+cfprUuidpoolBlockEntry OBJECT-TYPE
+    SYNTAX           CfprUuidpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprUuidpoolBlockTable table."
+    INDEX { cfprUuidpoolBlockInstanceId }
+    ::= { cfprUuidpoolBlockTable 1 }
+
+CfprUuidpoolBlockEntry ::= SEQUENCE {
+    cfprUuidpoolBlockInstanceId                                      CfprManagedObjectId,
+    cfprUuidpoolBlockDn                                              CfprManagedObjectDn,
+    cfprUuidpoolBlockRn                                              SnmpAdminString,
+    cfprUuidpoolBlockFrom                                            Unsigned64,
+    cfprUuidpoolBlockTo                                              Unsigned64
+}
+
+cfprUuidpoolBlockInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprUuidpoolBlockEntry 1 }
+
+cfprUuidpoolBlockDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Block:dn managed object property"
+    ::= { cfprUuidpoolBlockEntry 2 }
+
+cfprUuidpoolBlockRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Block:rn managed object property"
+    ::= { cfprUuidpoolBlockEntry 3 }
+
+cfprUuidpoolBlockFrom OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Block:from managed object property"
+    ::= { cfprUuidpoolBlockEntry 4 }
+
+cfprUuidpoolBlockTo OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Block:to managed object property"
+    ::= { cfprUuidpoolBlockEntry 5 }
+
+cfprUuidpoolFormatTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprUuidpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Format managed object table"
+    ::= { cfprUuidpoolObjects 3 }
+
+cfprUuidpoolFormatEntry OBJECT-TYPE
+    SYNTAX           CfprUuidpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprUuidpoolFormatTable table."
+    INDEX { cfprUuidpoolFormatInstanceId }
+    ::= { cfprUuidpoolFormatTable 1 }
+
+CfprUuidpoolFormatEntry ::= SEQUENCE {
+    cfprUuidpoolFormatInstanceId                                     CfprManagedObjectId,
+    cfprUuidpoolFormatDn                                             CfprManagedObjectDn,
+    cfprUuidpoolFormatRn                                             SnmpAdminString,
+    cfprUuidpoolFormatFormat                                         Unsigned64,
+    cfprUuidpoolFormatMask                                           CfprAddressUIDSuffxMask
+}
+
+cfprUuidpoolFormatInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprUuidpoolFormatEntry 1 }
+
+cfprUuidpoolFormatDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Format:dn managed object property"
+    ::= { cfprUuidpoolFormatEntry 2 }
+
+cfprUuidpoolFormatRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Format:rn managed object property"
+    ::= { cfprUuidpoolFormatEntry 3 }
+
+cfprUuidpoolFormatFormat OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Format:format managed object property"
+    ::= { cfprUuidpoolFormatEntry 4 }
+
+cfprUuidpoolFormatMask OBJECT-TYPE
+    SYNTAX       CfprAddressUIDSuffxMask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Format:mask managed object property"
+    ::= { cfprUuidpoolFormatEntry 5 }
+
+cfprUuidpoolPoolTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprUuidpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool managed object table"
+    ::= { cfprUuidpoolObjects 4 }
+
+cfprUuidpoolPoolEntry OBJECT-TYPE
+    SYNTAX           CfprUuidpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprUuidpoolPoolTable table."
+    INDEX { cfprUuidpoolPoolInstanceId }
+    ::= { cfprUuidpoolPoolTable 1 }
+
+CfprUuidpoolPoolEntry ::= SEQUENCE {
+    cfprUuidpoolPoolInstanceId                                       CfprManagedObjectId,
+    cfprUuidpoolPoolDn                                               CfprManagedObjectDn,
+    cfprUuidpoolPoolRn                                               SnmpAdminString,
+    cfprUuidpoolPoolAssigned                                         Gauge32,
+    cfprUuidpoolPoolAssignmentOrder                                  CfprUuidpoolPoolAssignmentOrder,
+    cfprUuidpoolPoolDescr                                            SnmpAdminString,
+    cfprUuidpoolPoolIntId                                            SnmpAdminString,
+    cfprUuidpoolPoolName                                             SnmpAdminString,
+    cfprUuidpoolPoolPolicyLevel                                      Gauge32,
+    cfprUuidpoolPoolPolicyOwner                                      CfprPolicyPolicyOwner,
+    cfprUuidpoolPoolPrefix                                           Unsigned64,
+    cfprUuidpoolPoolSize                                             Gauge32
+}
+
+cfprUuidpoolPoolInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprUuidpoolPoolEntry 1 }
+
+cfprUuidpoolPoolDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:dn managed object property"
+    ::= { cfprUuidpoolPoolEntry 2 }
+
+cfprUuidpoolPoolRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:rn managed object property"
+    ::= { cfprUuidpoolPoolEntry 3 }
+
+cfprUuidpoolPoolAssigned OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:assigned managed object property"
+    ::= { cfprUuidpoolPoolEntry 4 }
+
+cfprUuidpoolPoolAssignmentOrder OBJECT-TYPE
+    SYNTAX       CfprUuidpoolPoolAssignmentOrder
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:assignmentOrder
+        managed object property"
+    ::= { cfprUuidpoolPoolEntry 5 }
+
+cfprUuidpoolPoolDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:descr managed object property"
+    ::= { cfprUuidpoolPoolEntry 6 }
+
+cfprUuidpoolPoolIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:intId managed object property"
+    ::= { cfprUuidpoolPoolEntry 7 }
+
+cfprUuidpoolPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:name managed object property"
+    ::= { cfprUuidpoolPoolEntry 8 }
+
+cfprUuidpoolPoolPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:policyLevel managed
+        object property"
+    ::= { cfprUuidpoolPoolEntry 9 }
+
+cfprUuidpoolPoolPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:policyOwner managed
+        object property"
+    ::= { cfprUuidpoolPoolEntry 10 }
+
+cfprUuidpoolPoolPrefix OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:prefix managed object property"
+    ::= { cfprUuidpoolPoolEntry 11 }
+
+cfprUuidpoolPoolSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pool:size managed object property"
+    ::= { cfprUuidpoolPoolEntry 12 }
+
+cfprUuidpoolPoolableTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprUuidpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Poolable managed object table"
+    ::= { cfprUuidpoolObjects 5 }
+
+cfprUuidpoolPoolableEntry OBJECT-TYPE
+    SYNTAX           CfprUuidpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprUuidpoolPoolableTable table."
+    INDEX { cfprUuidpoolPoolableInstanceId }
+    ::= { cfprUuidpoolPoolableTable 1 }
+
+CfprUuidpoolPoolableEntry ::= SEQUENCE {
+    cfprUuidpoolPoolableInstanceId                                   CfprManagedObjectId,
+    cfprUuidpoolPoolableDn                                           CfprManagedObjectDn,
+    cfprUuidpoolPoolableRn                                           SnmpAdminString,
+    cfprUuidpoolPoolableId                                           Unsigned64,
+    cfprUuidpoolPoolablePoolDn                                       SnmpAdminString
+}
+
+cfprUuidpoolPoolableInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprUuidpoolPoolableEntry 1 }
+
+cfprUuidpoolPoolableDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Poolable:dn managed object property"
+    ::= { cfprUuidpoolPoolableEntry 2 }
+
+cfprUuidpoolPoolableRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Poolable:rn managed object property"
+    ::= { cfprUuidpoolPoolableEntry 3 }
+
+cfprUuidpoolPoolableId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Poolable:id managed object property"
+    ::= { cfprUuidpoolPoolableEntry 4 }
+
+cfprUuidpoolPoolablePoolDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Poolable:poolDn managed object property"
+    ::= { cfprUuidpoolPoolableEntry 5 }
+
+cfprUuidpoolPooledTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprUuidpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled managed object table"
+    ::= { cfprUuidpoolObjects 6 }
+
+cfprUuidpoolPooledEntry OBJECT-TYPE
+    SYNTAX           CfprUuidpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprUuidpoolPooledTable table."
+    INDEX { cfprUuidpoolPooledInstanceId }
+    ::= { cfprUuidpoolPooledTable 1 }
+
+CfprUuidpoolPooledEntry ::= SEQUENCE {
+    cfprUuidpoolPooledInstanceId                                     CfprManagedObjectId,
+    cfprUuidpoolPooledDn                                             CfprManagedObjectDn,
+    cfprUuidpoolPooledRn                                             SnmpAdminString,
+    cfprUuidpoolPooledAssigned                                       TruthValue,
+    cfprUuidpoolPooledAssignedToDn                                   SnmpAdminString,
+    cfprUuidpoolPooledId                                             Unsigned64,
+    cfprUuidpoolPooledPoolableDn                                     SnmpAdminString,
+    cfprUuidpoolPooledPrevAssignedToDn                               SnmpAdminString
+}
+
+cfprUuidpoolPooledInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprUuidpoolPooledEntry 1 }
+
+cfprUuidpoolPooledDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled:dn managed object property"
+    ::= { cfprUuidpoolPooledEntry 2 }
+
+cfprUuidpoolPooledRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled:rn managed object property"
+    ::= { cfprUuidpoolPooledEntry 3 }
+
+cfprUuidpoolPooledAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled:assigned managed object property"
+    ::= { cfprUuidpoolPooledEntry 4 }
+
+cfprUuidpoolPooledAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled:assignedToDn managed
+        object property"
+    ::= { cfprUuidpoolPooledEntry 5 }
+
+cfprUuidpoolPooledId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled:id managed object property"
+    ::= { cfprUuidpoolPooledEntry 6 }
+
+cfprUuidpoolPooledPoolableDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled:poolableDn managed
+        object property"
+    ::= { cfprUuidpoolPooledEntry 7 }
+
+cfprUuidpoolPooledPrevAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Pooled:prevAssignedToDn
+        managed object property"
+    ::= { cfprUuidpoolPooledEntry 8 }
+
+cfprUuidpoolUniverseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprUuidpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Universe managed object table"
+    ::= { cfprUuidpoolObjects 7 }
+
+cfprUuidpoolUniverseEntry OBJECT-TYPE
+    SYNTAX           CfprUuidpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprUuidpoolUniverseTable table."
+    INDEX { cfprUuidpoolUniverseInstanceId }
+    ::= { cfprUuidpoolUniverseTable 1 }
+
+CfprUuidpoolUniverseEntry ::= SEQUENCE {
+    cfprUuidpoolUniverseInstanceId                                   CfprManagedObjectId,
+    cfprUuidpoolUniverseDn                                           CfprManagedObjectDn,
+    cfprUuidpoolUniverseRn                                           SnmpAdminString
+}
+
+cfprUuidpoolUniverseInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprUuidpoolUniverseEntry 1 }
+
+cfprUuidpoolUniverseDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Universe:dn managed object property"
+    ::= { cfprUuidpoolUniverseEntry 2 }
+
+cfprUuidpoolUniverseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower uuidpool:Universe:rn managed object property"
+    ::= { cfprUuidpoolUniverseEntry 3 }
+
+END

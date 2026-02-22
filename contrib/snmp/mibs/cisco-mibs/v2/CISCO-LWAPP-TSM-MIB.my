@@ -1,0 +1,1021 @@
+-- *******************************************************************
+-- CISCO-LWAPP-TSM-MIB.my
+-- December 2005, Bharat Biswal, Devesh Pujari, Prasanna Viswakumar
+--   
+-- Copyright (c) 2005, 2006, 2011-2012 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-TSM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    cLApSysMacAddress,
+    cLApDot11IfSlotId
+        FROM CISCO-LWAPP-AP-MIB
+    CLTsmDot11CurrentPackets
+        FROM CISCO-LWAPP-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappTsmMIB MODULE-IDENTITY
+    LAST-UPDATED    "201201310000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        Network management stations learn the audio/video
+        traffic quality observed on WLANs through this MIB.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+              +......+     +......+     +......+
+              +      +     +      +     +      +
+              +  CC  +     +  CC  +     +  CC  +
+              +      +     +      +     +      +
+              +......+     +......+     +......+
+                ..            .             .
+                ..            .             .
+               .  .            .             .
+              .    .            .             .
+             .      .            .             .
+            .        .            .             .
+        +......+ +......+     +......+      +......+
+        +      + +      +     +      +      +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +
+        +      + +      +     +      +      +      +
+        +......+ +......+     +......+      +......+
+                   .              .             .
+                 .  .              .             .
+                .    .              .             .
+               .      .              .             .
+              .        .              .             .
+           +......+ +......+     +......+      +......+
+           +      + +      +     +      +      +      +
+           +  MN  + +  MN  +     +  MN  +      +  MN  +
+           +      + +      +     +      +      +      +
+           +......+ +......+     +......+      +......+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+        This MIB provides the information about the per-client
+        /per-AP packet latency, packet jitter, packet loss and
+        roaming time in the network which does affect quality 
+        of audio/video traffic. These parameters are called 
+        Traffic Stream Metrics. When TSM collection is enabled 
+        on all 802.11a/802.11b interfaces, the metrics are 
+        collected by controller from AP in every 90 seconds 
+        window.
+
+        Information provided by this MIB can be used by the
+        NMS applications to present measurements of audio and 
+        video traffic quality. 
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends it to the controller to which
+        it is logically connected.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity is also referred to as 'controller'.
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point.
+
+        Traffic Stream Metrics (TSM)
+
+        These  are parameters like the per-client / per-AP
+        packet latency, packet jitter, packet loss and roaming
+        time in the network, which does affect quality of
+        audio/video traffic.  These statistics are collected
+        to study and characterize the pattern of data
+        traffic and perform appropriate management tasks to
+        regulate the same for the smooth functioning of the
+        network. 
+
+                Channel Utilization (CU)
+                The Channel Utilization is defined as the percentage of time,
+                the QAP sensed the medium was busy, as indicated by
+                either the physical or virtual carrier sense (CS) mechanism.
+
+                Picc
+                Picc is the time consumed by AP for receiving frames
+                not destined to itself on a particular Radio interface
+                from co-channel APs and Clients.
+
+                Pib
+                Pib is the time consumed by AP for receiving frames on 
+                a particular Radio interface which are not correctly de-modulated.
+
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol"
+    REVISION        "201201310000Z"
+    DESCRIPTION
+        "Added a new table cLTsmDot11CUTable for channel utilization.
+
+        Added a new group ciscoLwappTsmDot11StatsGroupSupR01 which 
+        supplements to ciscoLwappTsmDot11StatsGroup. 
+
+        Added a new compliance ciscoLwappTsmMIBComplianceRev01 that deprecates 
+        ciscoLwappTsmMIBCompliance."
+    REVISION        "200604170000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 525 }
+
+
+ciscoLwappTsmMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappTsmMIB 0 }
+
+ciscoLwappTsmMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappTsmMIB 1 }
+
+ciscoLwappTsmMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappTsmMIB 2 }
+
+-- **********************************************************************
+-- * ciscoLwappTsmDot11Config encapsulates all configuration settings
+-- * related to Traffic Stream Metrics applicable to the 802.11
+-- * interfaces of the associated APs.
+-- **********************************************************************
+
+ciscoLwappTsmDot11Config  OBJECT IDENTIFIER
+    ::= { ciscoLwappTsmMIBObjects 1 }
+
+-- **********************************************************************
+-- * ciscoLwappTsmDot11Stats encapsulates all the TSM statistics
+-- * collected on the associated clients, the respective dot11 interfaces
+-- * of the APs etc.
+-- **********************************************************************
+
+ciscoLwappTsmDot11Stats  OBJECT IDENTIFIER
+    ::= { ciscoLwappTsmMIBObjects 2 }
+
+
+-- **********************************************************************
+-- * TSM configuration for 802.11 interfaces
+-- **********************************************************************
+
+cLTsmDot11aConfig OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "When this object is set to 'true', the associated
+        APs send the controller, every 90 seconds,  
+        statistical data on traffic observed on their 802.11a 
+        interfaces.
+
+        When this object is set to 'false', the APs stop
+        sending statistical data on the 802.11a interfaces
+        to the controller."
+    DEFVAL          { false } 
+    ::= { ciscoLwappTsmDot11Config 1 }
+
+cLTsmDot11bgConfig OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "When this object is set to 'true', the associated
+        APs send the controller, every 90 seconds,  
+        statistical data on traffic observed on their 802.11b
+        interfaces.
+
+        When this object is set to 'false', the APs stop
+        sending statistical data on the 802.11b interfaces
+        to the controller."
+    DEFVAL          { false } 
+    ::= { ciscoLwappTsmDot11Config 2 }
+
+cLTsmDot11MaxClientsPerDot11Intf OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of clients per dot11 interface
+        for which TSM statistics are collected."
+    DEFVAL          { 50 } 
+    ::= { ciscoLwappTsmDot11Config 3 }
+
+cLTsmDot11MaxTsmStatsEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..300)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of entries that can be accommodated in the
+        database to collect the traffic stream metrics received by the
+        controller from the associated APs on uplink and downlink
+        traffic."
+    DEFVAL          { 7 } 
+    ::= { ciscoLwappTsmDot11Config 4 }
+-- **********************************************************************
+-- * cLTsmDot11ClientTable lists those clients for which TSM statistics
+-- * are being collected
+-- **********************************************************************
+
+cLTsmDot11ClientTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLTsmDot11ClientEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists those clients for which TSM statistics
+        are collected by the controller from the respective
+        APs associated with the controller.
+
+        A row is added to this table when an AP sends TSM
+        statistics corresponding to a wireless client
+        associated to it through one of its dot11 interfaces
+        identified by cLApSysMacAddress and cLApDot11IfSlotId.
+
+        The maximum number of entries per radio interface is
+        given by cLTsmDot11MaxClientsPerDot11Intf.  The
+        oldest entry is deleted when the number of entries
+        is to exceed the limit indicated by
+        cLTsmDot11MaxClientsPerDot11Intf."
+    ::= { ciscoLwappTsmDot11Stats 1 }
+
+cLTsmDot11ClientEntry OBJECT-TYPE
+    SYNTAX          CLTsmDot11ClientEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLTsmDot11ClientTable and uniquely identified by
+        cLApSysMacAddress, cLApDot11IfSlotId and 
+        cLTsmDot11ClientIndex."
+    INDEX           {
+                        cLApSysMacAddress,
+                        cLApDot11IfSlotId,
+                        cLTsmDot11ClientIndex
+                    } 
+    ::= { cLTsmDot11ClientTable 1 }
+
+CLTsmDot11ClientEntry ::= SEQUENCE {
+        cLTsmDot11ClientIndex      Unsigned32,
+        cLTsmDot11ClientMacAddress MacAddress
+}
+
+cLTsmDot11ClientIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies one client associated
+        to the AP through the dot11 interface identified by
+        cLApSysMacAddress and cLApDot11IfSlotId." 
+    ::= { cLTsmDot11ClientEntry 1 }
+
+cLTsmDot11ClientMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MAC address of the
+        wireless client for which TSM statistics are 
+        collected." 
+    ::= { cLTsmDot11ClientEntry 2 }
+ 
+
+-- **********************************************************************
+-- * cLTsmDot11UplinkTable represents per-client per-ap-interface
+-- * per-interval uplink TSM statistics for 802.11 interfaces.
+-- **********************************************************************
+
+cLTsmDot11UplinkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLTsmDot11UplinkEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the statistics received by the
+        controller from the associated APs, on the uplink 
+        traffic ( traffic from the 802.11 wireless client to 
+        the AP ) observed on the dot11 interfaces of the 
+        respective APs.
+
+        For example, suppose a client with address 
+        12:3f:73:99:de:5b connects to the 802.11 radio 
+        interface, 13:13:43:de:bb:ff of an AP at 18:30:00 hours.
+
+        Assuming that cLTsmDot11aConfig (or cLTsmDot11bConfig) 
+        is set to 'true' for the respective type of interface, 
+        every 90 seconds, AP sends the controller statistical
+        data for the client 12:3f:73:99:de:5b associated at the
+        interface 13:13:43:de:bb:ff.
+
+        So, after 3 minutes, i.e., 180 seconds, controller would 
+        have received statistics for the particular client and 
+        AP combination twice leading to two rows in this table
+        as follows.
+
+        1> Client: 12:3f:73:99:de:5b  
+                     Interface:13:13:43:de:bb:ff  Time: 18:33:00 
+
+        2> Client: 12:3f:73:99:de:5b  
+                     Interface:13:13:43:de:bb:ff  Time: 18:31:30 
+
+        Now assume that, at 18:33:00, the client moves and 
+        associates with another AP associated to the same
+        controller, at the AP's 802.11 interface 
+        14:14:43:de:dd:ee.
+
+        After 3 minutes, i.e., 180 seconds (say), controller 
+        would have again received statistics from the AP, for
+        the particular client and new AP combination twice
+        leading to two new rows in this table.
+
+        At this point, this table will have entries with 
+        following references :
+
+        1> Client: 12:3f:73:99:de:5b  
+                   Interface:14:14:43:de:dd:ee  Time: 18:36:00 
+
+        2> Client: 12:3f:73:99:de:5b  
+                   Interface:14:14:43:de:dd:ee  Time: 18:34:30
+
+        3> Client: 12:3f:73:99:de:5b  
+                   Interface:13:13:43:de:bb:ff  Time: 18:33:00 
+
+        4> Client: 12:3f:73:99:de:5b  
+                   Interface:13:13:43:de:bb:ff  Time: 18:31:30
+
+        The maximum number of entries in this table is
+        indicated by cLTsmDot11MaxTsmStatsEntries.  When
+        the specified limit of entries is reached the oldest
+        entries will be removed to make room for new entries.
+        However, the controller may remove the entries if it
+        encounters memory shortage."
+    ::= { ciscoLwappTsmDot11Stats 2 }
+
+cLTsmDot11UplinkEntry OBJECT-TYPE
+    SYNTAX          CLTsmDot11UplinkEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table
+        and corresponds to the uplink TSM statistics received
+        from an AP, in a 90 second window
+        (cLTsmDot11UplinkTimeStamp), for a mobile-station
+        /client (cLClientMacAddress) associated with the AP at
+        its 802.11 interface."
+    INDEX           {
+                        cLTsmDot11ClientMacAddress,
+                        cLTsmDot11UplinkApMacAddress,
+                        cLTsmDot11UplinkApIfSlotId,
+                        cLTsmDot11UplinkTimeStamp
+                    } 
+    ::= { cLTsmDot11UplinkTable 1 }
+
+CLTsmDot11UplinkEntry ::= SEQUENCE {
+        cLTsmDot11UplinkApMacAddress       MacAddress,
+        cLTsmDot11UplinkApIfSlotId         Unsigned32,
+        cLTsmDot11UplinkTimeStamp          TimeStamp,
+        cLTsmDot11UplinkAvgPktQDelay       TimeInterval,
+        cLTsmDot11UplinkLt10Packets        CLTsmDot11CurrentPackets,
+        cLTsmDot11UplinkPktGt10Lt20Packets CLTsmDot11CurrentPackets,
+        cLTsmDot11UplinkPktGt20Lt40Packets CLTsmDot11CurrentPackets,
+        cLTsmDot11UplinkPktGt40Packets     CLTsmDot11CurrentPackets,
+        cLTsmDot11UplinkLostPackets        CLTsmDot11CurrentPackets,
+        cLTsmDot11UplinkTotalPackets       CLTsmDot11CurrentPackets,
+        cLTsmDot11UplinkRoamingPackets     CLTsmDot11CurrentPackets,
+        cLTsmDot11UplinkRoamingDelay       TimeInterval
+}
+
+cLTsmDot11UplinkApMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the radio MAC address of the AP
+        with which this client was associated when these
+        statistics were observed." 
+    ::= { cLTsmDot11UplinkEntry 1 }
+
+cLTsmDot11UplinkApIfSlotId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a slot number and uniquely
+        identifies the dot11 interface of the AP along with
+        cLTsmDot11UplinkApMacAddress with which the
+        client indicated by cLTsmDot11ClientMacAddress
+        was associated when these statistics were observed." 
+    ::= { cLTsmDot11UplinkEntry 2 }
+
+cLTsmDot11UplinkTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime at which
+        these statistics were received from the AP.  This 
+        represents number of seconds elapsed since 00:00:00 on 
+        January 1, 1970, Coordinated Universal Time (UTC).  So 
+        a value of '1131362704' means 'Mon Nov  7 16:55:04 
+        2005'." 
+    ::= { cLTsmDot11UplinkEntry 3 }
+
+cLTsmDot11UplinkAvgPktQDelay OBJECT-TYPE
+    SYNTAX          TimeInterval
+    UNITS           "hundredths-seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average packet queue delay in the upstream
+        direction." 
+    ::= { cLTsmDot11UplinkEntry 4 }
+
+cLTsmDot11UplinkLt10Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the client and
+        received by the AP that experienced a delay of less
+        than 10 ms." 
+    ::= { cLTsmDot11UplinkEntry 5 }
+
+cLTsmDot11UplinkPktGt10Lt20Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the client and
+        received by the AP that experienced a delay greater
+        than or equal to 10 ms and less than 20 ms." 
+    ::= { cLTsmDot11UplinkEntry 6 }
+
+cLTsmDot11UplinkPktGt20Lt40Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the client and
+        received by the AP that experienced a delay greater
+        than or equal to 20 ms and less than 40 ms." 
+    ::= { cLTsmDot11UplinkEntry 7 }
+
+cLTsmDot11UplinkPktGt40Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the client and
+        received by the AP that experienced a delay greater
+        than 40 ms." 
+    ::= { cLTsmDot11UplinkEntry 8 }
+
+cLTsmDot11UplinkLostPackets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of lost upstream
+        packets in the specified interval." 
+    ::= { cLTsmDot11UplinkEntry 9 }
+
+cLTsmDot11UplinkTotalPackets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of upstream packets received in the
+        specified interval." 
+    ::= { cLTsmDot11UplinkEntry 10 }
+
+cLTsmDot11UplinkRoamingPackets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets exchanged for roaming
+        negotiations in the specified interval." 
+    ::= { cLTsmDot11UplinkEntry 11 }
+
+cLTsmDot11UplinkRoamingDelay OBJECT-TYPE
+    SYNTAX          TimeInterval
+    UNITS           "hundredths-seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average roaming delay observed in the
+        specified interval." 
+    ::= { cLTsmDot11UplinkEntry 12 }
+ 
+
+-- **********************************************************************
+-- * cLTsmDot11DnlinkTable represents per-client per-ap-interface
+-- * per-interval Dnlink TSM statistics for 802.11 interfaces.
+-- **********************************************************************
+
+cLTsmDot11DnlinkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLTsmDot11DnlinkEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the statistics received by the
+        controller from the associated APs, on the downlink
+        traffic ( traffic from the AP to the 802.11 wireless
+        client ) observed on the dot11 interfaces of the 
+        respective APs.
+
+        For example, suppose a client with address 
+        12:3f:73:99:de:5b connects to the 802.11 radio 
+        interface, 13:13:43:de:bb:ff of an AP at 18:30:00 hours.
+
+        Assuming that cLTsmDot11aConfig (or cLTsmDot11bConfig) 
+        is set to 'true' for the respective type of interface, 
+        every 90 seconds, the AP sends the controller
+        statistical data about the 12:3f:73:99:de:5b associated
+        at the interface 13:13:43:de:bb:ff.
+
+        So, after 3 minutes, i.e., 180 seconds, controller would 
+        have received statistics from the AP for the particular
+        client and AP combination twice leading to two rows in
+        this table as follows.
+
+        1> Client: 12:3f:73:99:de:5b  
+                     Interface:13:13:43:de:bb:ff  Time: 18:33:00 
+
+        2> Client: 12:3f:73:99:de:5b  
+                     Interface:13:13:43:de:bb:ff  Time: 18:31:30 
+
+        Now assume that, at 18:33:00, the client moves and 
+        associates with another AP associated to the same
+        controller, at the AP's 802.11 interface 
+        14:14:43:de:dd:ee.
+
+        After 3 minutes, i.e., 180 seconds (say), controller 
+        would have again collected statistics for the particular 
+        client and new AP combination twice leading to two new 
+        rows in this table.
+
+        At this point, this table will have entries as
+        follows.
+
+        1> Client: 12:3f:73:99:de:5b  
+                   Interface:14:14:43:de:dd:ee  Time: 18:36:00 
+
+        2> Client: 12:3f:73:99:de:5b  
+                   Interface:14:14:43:de:dd:ee  Time: 18:34:30
+
+        3> Client: 12:3f:73:99:de:5b  
+                   Interface:13:13:43:de:bb:ff  Time: 18:33:00 
+
+        4> Client: 12:3f:73:99:de:5b  
+                   Interface:13:13:43:de:bb:ff  Time: 18:31:30
+
+        The maximum number of entries in this table is
+        indicated by cLTsmDot11MaxTsmStatsEntries.  When
+        the specified limit of entries is reached the oldest
+        entries will be removed to make room for new entries.
+        However, the controller may remove the entries if it
+        encounters memory shortage."
+    ::= { ciscoLwappTsmDot11Stats 3 }
+
+cLTsmDot11DnlinkEntry OBJECT-TYPE
+    SYNTAX          CLTsmDot11DnlinkEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table
+        and corresponds to the downlink TSM statistics received
+        by the controller from an AP in a 90 second
+        window (cLTsmDot11DnlinkTimeStamp), for a 
+        mobile-station/client associated with the AP at its
+        802.11 interface."
+    INDEX           {
+                        cLTsmDot11ClientMacAddress,
+                        cLTsmDot11DnlinkApMacAddress,
+                        cLTsmDot11DnlinkApIfSlotId,
+                        cLTsmDot11DnlinkTimeStamp
+                    } 
+    ::= { cLTsmDot11DnlinkTable 1 }
+
+CLTsmDot11DnlinkEntry ::= SEQUENCE {
+        cLTsmDot11DnlinkApMacAddress       MacAddress,
+        cLTsmDot11DnlinkApIfSlotId         Unsigned32,
+        cLTsmDot11DnlinkTimeStamp          TimeStamp,
+        cLTsmDot11DnlinkAvgPktQDelay       TimeInterval,
+        cLTsmDot11DnlinkLt10Packets        CLTsmDot11CurrentPackets,
+        cLTsmDot11DnlinkPktGt10Lt20Packets CLTsmDot11CurrentPackets,
+        cLTsmDot11DnlinkPktGt20Lt40Packets CLTsmDot11CurrentPackets,
+        cLTsmDot11DnlinkPktGt40Packets     CLTsmDot11CurrentPackets,
+        cLTsmDot11DnlinkLostPackets        CLTsmDot11CurrentPackets,
+        cLTsmDot11DnlinkTotalPackets       CLTsmDot11CurrentPackets
+}
+
+cLTsmDot11DnlinkApMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the radio MAC address of the AP
+        with which this client was associated when these
+        statistics were observed." 
+    ::= { cLTsmDot11DnlinkEntry 1 }
+
+cLTsmDot11DnlinkApIfSlotId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a slot number and uniquely
+        identifies the dot11 interface of the AP along with
+        cLTsmDot11DnlinkApMacAddress with which the
+        client indicated by cLTsmDot11ClientMacAddress
+        was associated when these statistics were observed." 
+    ::= { cLTsmDot11DnlinkEntry 2 }
+
+cLTsmDot11DnlinkTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime at which
+        these statistics were received from the AP.  This 
+        represents number of seconds elapsed since 00:00:00 on 
+        January 1, 1970, Coordinated Universal Time (UTC).  So 
+        a value of '1131362704' means 'Mon Nov  7 16:55:04 
+        2005'." 
+    ::= { cLTsmDot11DnlinkEntry 3 }
+
+cLTsmDot11DnlinkAvgPktQDelay OBJECT-TYPE
+    SYNTAX          TimeInterval
+    UNITS           "hundredths-seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average packet queue delay in the downstream
+        direction." 
+    ::= { cLTsmDot11DnlinkEntry 4 }
+
+cLTsmDot11DnlinkLt10Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the AP and
+        received by the client that experienced a delay of
+        less than 10 ms." 
+    ::= { cLTsmDot11DnlinkEntry 5 }
+
+cLTsmDot11DnlinkPktGt10Lt20Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the AP and
+        received by the client that experienced a delay greater
+        than or equal to 10 ms and less than 20 ms." 
+    ::= { cLTsmDot11DnlinkEntry 6 }
+
+cLTsmDot11DnlinkPktGt20Lt40Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the AP and
+        received by the client that experienced a delay greater
+        than or equal to 20 ms and less than 40 ms." 
+    ::= { cLTsmDot11DnlinkEntry 7 }
+
+cLTsmDot11DnlinkPktGt40Packets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets transmitted by the AP and
+        received by the client that experienced a delay greater
+        than 40 ms." 
+    ::= { cLTsmDot11DnlinkEntry 8 }
+
+cLTsmDot11DnlinkLostPackets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of lost downstream
+        packets in the specified interval." 
+    ::= { cLTsmDot11DnlinkEntry 9 }
+
+cLTsmDot11DnlinkTotalPackets OBJECT-TYPE
+    SYNTAX          CLTsmDot11CurrentPackets
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of downstream packets received in the
+        specified interval." 
+    ::= { cLTsmDot11DnlinkEntry 10 }
+ 
+
+-- **********************************************************************
+-- * cLTsmDot11CUTable lists those APs for which Channel Utilization
+-- * metrics are being collected
+-- **********************************************************************
+
+cLTsmDot11CUTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLTsmDot11CUEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents Channel Utilization statistics
+        received by the Controller from associated APs observed
+        on the dot11 radio interfaces of the respective APs.
+        A row is added to this table when an AP sends Channel
+        Utilization metrics corresponding to its dot11
+        radio interfaces.
+        The maximum number of entries per radio interface is
+        represented by cLTsmDot11MaxTsmStatsEntries.
+        The oldest entry is deleted when the number of entries
+        exceeds the limit indicated by cLTsmDot11MaxTsmStatsEntries."
+    ::= { ciscoLwappTsmDot11Stats 4 }
+
+cLTsmDot11CUEntry OBJECT-TYPE
+    SYNTAX          CLTsmDot11CUEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLTsmDot11CUTable and uniquely identified by
+        cLApSysMacAddress, cLApDot11IfSlotId and
+        cLTsmDot11CUTimeStamp."
+    INDEX           {
+                        cLApSysMacAddress,
+                        cLApDot11IfSlotId,
+                        cLTsmDot11CUTimeStamp
+                    } 
+    ::= { cLTsmDot11CUTable 1 }
+
+CLTsmDot11CUEntry ::= SEQUENCE {
+        cLTsmDot11CUTimeStamp            TimeStamp,
+        cLTsmDot11CUFiftyPercentilePicc  Unsigned32,
+        cLTsmDot11CUNinetyPercentilePicc Unsigned32,
+        cLTsmDot11CUFiftyPercentilePib   Unsigned32,
+        cLTsmDot11CUNinetyPercentilePib  Unsigned32
+}
+
+cLTsmDot11CUTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime at which
+        these statistics were received from the AP.  This
+        represents number of seconds elapsed since 00:00:00 on
+        January 1, 1970, Coordinated Universal Time (UTC).  So
+        a value of '1131362704' means 'Mon Nov  7 16:55:04
+        2005'." 
+    ::= { cLTsmDot11CUEntry 1 }
+
+cLTsmDot11CUFiftyPercentilePicc OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 50th percentile of Picc.
+        Picc represents the percentage of time consumed by
+        the AP for receiving frames on a particular radio
+        interface from co-channel APs & clients." 
+    ::= { cLTsmDot11CUEntry 2 }
+
+cLTsmDot11CUNinetyPercentilePicc OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 90th percentile of Picc.
+        Picc represents the percentage of time consumed by
+        the AP for receiving frames on a particular radio
+        interface from co-channel APs & clients." 
+    ::= { cLTsmDot11CUEntry 3 }
+
+cLTsmDot11CUFiftyPercentilePib OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 50th percentile of Pib.
+        Pib represents the percentage of time consumed by
+        the AP for receiving frames on a particular radio
+        interface which cannot be correctly de-modulated." 
+    ::= { cLTsmDot11CUEntry 4 }
+
+cLTsmDot11CUNinetyPercentilePib OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 90th percentile of Pib.
+        Pib represents the percentage of time consumed by
+        the AP for receiving frames on a particular radio
+        interface which cannot be correctly de-modulated." 
+    ::= { cLTsmDot11CUEntry 5 }
+ 
+
+-- **********************************************************************
+-- *    Compliance statements
+-- **********************************************************************
+
+ciscoLwappTsmMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappTsmMIBConform 1 }
+
+ciscoLwappTsmMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappTsmMIBConform 2 }
+
+
+ciscoLwappTsmMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTsmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappTsmDot11ConfigGroup,
+                        ciscoLwappTsmDot11StatsGroup
+                    }
+    ::= { ciscoLwappTsmMIBCompliances 1 }
+
+ciscoLwappTsmMIBComplianceRev01 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTsmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappTsmDot11ConfigGroup,
+                        ciscoLwappTsmDot11StatsGroup,
+                        ciscoLwappTsmDot11StatsGroupSupR01
+                    }
+    ::= { ciscoLwappTsmMIBCompliances 2 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappTsmDot11ConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLTsmDot11aConfig,
+                        cLTsmDot11bgConfig,
+                        cLTsmDot11MaxClientsPerDot11Intf,
+                        cLTsmDot11MaxTsmStatsEntries
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the status of
+        traffic metrics collection on 802.11 networks."
+    ::= { ciscoLwappTsmMIBGroups 1 }
+
+ciscoLwappTsmDot11StatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLTsmDot11ClientMacAddress,
+                        cLTsmDot11UplinkAvgPktQDelay,
+                        cLTsmDot11UplinkLt10Packets,
+                        cLTsmDot11UplinkPktGt10Lt20Packets,
+                        cLTsmDot11UplinkPktGt20Lt40Packets,
+                        cLTsmDot11UplinkPktGt40Packets,
+                        cLTsmDot11UplinkLostPackets,
+                        cLTsmDot11UplinkTotalPackets,
+                        cLTsmDot11UplinkRoamingPackets,
+                        cLTsmDot11UplinkRoamingDelay,
+                        cLTsmDot11DnlinkAvgPktQDelay,
+                        cLTsmDot11DnlinkLt10Packets,
+                        cLTsmDot11DnlinkPktGt10Lt20Packets,
+                        cLTsmDot11DnlinkPktGt20Lt40Packets,
+                        cLTsmDot11DnlinkPktGt40Packets,
+                        cLTsmDot11DnlinkLostPackets,
+                        cLTsmDot11DnlinkTotalPackets
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the TSM
+        statistics collected by the controller from the APs
+        on the traffic observed on the 802.11 interfaces of
+        the APs."
+    ::= { ciscoLwappTsmMIBGroups 2 }
+
+ciscoLwappTsmDot11StatsGroupSupR01 OBJECT-GROUP
+    OBJECTS         {
+                        cLTsmDot11CUFiftyPercentilePicc,
+                        cLTsmDot11CUNinetyPercentilePicc,
+                        cLTsmDot11CUFiftyPercentilePib,
+                        cLTsmDot11CUNinetyPercentilePib
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the TSM
+        statistics collected by the controller from the APs
+        on the traffic observed on the 802.11 interfaces of
+        the APs. This table is a supplement to ciscoLwappTsmDot11StatsGroup"
+    ::= { ciscoLwappTsmMIBGroups 3 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

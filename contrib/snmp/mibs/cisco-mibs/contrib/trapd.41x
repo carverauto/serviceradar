@@ -1,0 +1,3253 @@
+#Version 4.1x
+#Updated 02/02/98 by bansell, using trapd.conf received from HP
+#This configuration file is used by pmd, xnmevents, and ovactiond.
+#
+# The Hewlett-Packard shipped version of this file can be found in
+# /opt/OV/newconfig/OVEVENT-MIN/conf/$LANG/trapd.conf, where $LANG is
+# your native language (by default, "C").  This file documents the HP
+# internal events, as well as setting a template for other events
+# (sometimes called traps).  HP does not support users sending any of the
+# HP OpenView events, unless otherwise documented.  See the trapd.conf(4)
+# man page for more information on the format of events in this file.
+#
+# The HP internal event names all start with the characters:
+# "OV", and can be listed using the command:
+#           grep '^EVENT OV' /opt/OV/newconfig/OVEVENT-MIN/conf/$LANG/trapd.conf
+#
+#
+# WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING
+#   Do not modify this file directly, use xnmtrap via the
+#   OVW menu item 'Options:Event Configuration', or
+#   merge in your changes via 'xnmevents -load FILE'.
+#   See trapd.conf(4), xnmtrap(1), and xnmevents(1) man pages for details.
+#
+# To combine this file with the existing trapd.conf file on your system,
+# you will need to apply the latest HPOV consolidated patch available from
+# http://ovweb.external.hp.com/cpe/patches.
+#
+# Then back up your 'current' trapd.conf file (generally found in
+# /etc/opt/OV/share/conf/C/trapd.conf).
+#
+# Place this trapd.41x file on your system, then as root, execute 'xnmevents
+# -load trapd.41x'.
+# If you encounter errors such as 'No such enterprise to parent
+# event', you need the HP consolidated patch.  If you encounter problems 
+# in obtaining or applying the HPOV consolidated patch, please contact HP
+# support.
+#
+# If you encounter errors during xnmevents other than the above-cited, try
+# backing up the 'current' trapd.conf file on your system 
+# (/etc/opt/OV/share/conf/C/trapd.conf) & copying the
+# 'as-shipped' trapd.conf file to the 'current' trapd.conf file:
+# 'cp /opt/OV/newconfig/OVEVENT-MIN/conf/C/trapd.conf 
+# /etc/opt/OV/share/conf/C/trapd.conf'
+#
+# then executing 'xnmevents -load trapd.41x'.  If this does *not* fail,
+# syntax problems in the *current* trapd.conf file are causing the failure,
+# i.e. errors were introduced some time between installation of HPOV & now.
+# Problems in the 'current' trapd.conf file are typically caused by manual
+# editting, extra characters, etc.
+#
+# xnmtrap via the OVW menu item 'Options->Event Configuration:SNMP'
+# can also be used to add traps manually
+# See trapd.conf(4) for details.
+# WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING
+############################################################################
+#
+# Display Categories:
+#
+# Categories 0 and 1 are required, and cannot be modified by the user,
+# however, their category names never show up.  These can be used
+# as categories in the trap formats below to "IGNORE" (don't log or
+# display) or to "LOGONLY" (don't display) events.
+# Category 2 is required but it's title may be changed via this file.
+#
+#
+CATEGORY 0 "IGNORE"
+CATEGORY 1 "LOGONLY"
+CATEGORY 2 "Error Events"
+CATEGORY 3 "Threshold Events"
+CATEGORY 4 "Status Events"
+CATEGORY 5 "Configuration Events"
+CATEGORY 6 "Application Alert Events"
+CATEGORY 7 "Cisco Events"
+CATEGORY 9 "CiscoWorks Events"
+############################################################################
+#
+# Enterprises:
+#
+OID_ALIAS x25-packet-layer .1.3.6.1.2.1.10.5
+OID_ALIAS dial-control .1.3.6.1.2.1.10.21.2
+OID_ALIAS frame-relay .1.3.6.1.2.1.10.32
+OID_ALIAS ospfTrap .1.3.6.1.2.1.14.16
+OID_ALIAS bgp4 .1.3.6.1.2.1.15.7
+OID_ALIAS rmon .1.3.6.1.2.1.16
+OID_ALIAS dot1dBridge .1.3.6.1.2.1.17
+OID_ALIAS RepeaterMgmt .1.3.6.1.2.1.22
+OID_ALIAS snaLU .1.3.6.1.2.1.34.1.1.5
+OID_ALIAS snaNode .1.3.6.1.2.1.34.1.1.10
+OID_ALIAS sna-sdlc .1.3.6.1.2.1.41.1.3
+OID_ALIAS dlsw-MIB .1.3.6.1.2.1.46.1
+OID_ALIAS rsvpNotifications .1.3.6.1.3.71.2
+OID_ALIAS ENTERPRISES .1.3.6.1.4.1
+OID_ALIAS ibm8272TsSys .1.3.6.1.4.1.2.6.66.2.1.2
+OID_ALIAS ibm8272TsPort .1.3.6.1.4.1.2.6.66.1.2.2
+OID_ALIAS imb8272TsDmns .1.3.6.1.4.1.2.6.66.1.2.3
+OID_ALIAS cisco .1.3.6.1.4.1.9
+OID_ALIAS cat2600 .1.3.6.1.4.1.9.1.111.1.2.1.2
+OID_ALIAS cat2600-port .1.3.6.1.4.1.9.1.111.1.2.2
+OID_ALIAS cat2600-span .1.3.6.1.4.1.9.1.111.1.2.2.3
+OID_ALIAS CiscoPro316T .1.3.6.1.4.1.9.1.147
+OID_ALIAS CiscoPro316C .1.3.6.1.4.1.9.1.148
+OID_ALIAS CiscoPro3116 .1.3.6.1.4.1.9.1.149
+OID_ALIAS Catalyst116T .1.3.6.1.4.1.9.1.150
+OID_ALIAS Catalyst116C .1.3.6.1.4.1.9.1.151
+OID_ALIAS Catalyst1116 .1.3.6.1.4.1.9.1.152
+OID_ALIAS Cisco-FastHubMibObj .1.3.6.1.4.1.9.2.11.1
+OID_ALIAS ciscoStack .1.3.6.1.4.1.9.5
+OID_ALIAS Ent-.1.3.6.1.4.1.9.5.7 .1.3.6.1.4.1.9.5.7
+OID_ALIAS LS1010sysID .1.3.6.1.4.1.9.5.11.2
+OID_ALIAS ciscoEsConfig .1.3.6.1.4.1.9.5.14.1.1
+OID_ALIAS ciscoEsStack .1.3.6.1.4.1.9.5.14.2
+OID_ALIAS ciscoEsPort .1.3.6.1.4.1.9.5.14.4
+OID_ALIAS ciscoEsEChannel .1.3.6.1.4.1.9.5.14.6
+OID_ALIAS ciscoEsVLANs .1.3.6.1.4.1.9.5.14.8
+OID_ALIAS ciscoFlashMIBTrapPrefix .1.3.6.1.4.1.9.9.10.1.3
+OID_ALIAS ciscoEnvMonMIBNotificationPrefix .1.3.6.1.4.1.9.9.13.3
+OID_ALIAS ciscoPingMIBTrapPrefix .1.3.6.1.4.1.9.9.16.2
+OID_ALIAS cisco-isdnu-ifMIB .1.3.6.1.4.1.9.9.18.2
+OID_ALIAS cipCardTraps .1.3.6.1.4.1.9.9.20.1.5
+OID_ALIAS ciscoRptrMIBTrapPrefix .1.3.6.1.4.1.9.9.22.3
+OID_ALIAS dspuPuTraps .1.3.6.1.4.1.9.9.24.1.4.4
+OID_ALIAS dspuLuTraps .1.3.6.1.4.1.9.9.24.1.5.3
+OID_ALIAS dspuSapTraps .1.3.6.1.4.1.9.9.24.1.6.2
+OID_ALIAS ciscoIsdnMibTrapPrefix .1.3.6.1.4.1.9.9.26.2
+OID_ALIAS cisco-sdllc .1.3.6.1.4.1.9.9.28.2
+OID_ALIAS rsrbNotificationPrefix .1.3.6.1.4.1.9.9.29.2
+OID_ALIAS cisco-stun .1.3.6.1.4.1.9.9.30.2
+OID_ALIAS cipCsnaNotificationPrefix .1.3.6.1.4.1.9.9.33.2
+OID_ALIAS cisco-bstun .1.3.6.1.4.1.9.9.35.2
+OID_ALIAS ciscoSyslogMIBNotificationPrefix .1.3.6.1.4.1.9.9.41.2
+OID_ALIAS rttMonNotificationsPrefix .1.3.6.1.4.1.9.9.42.2
+OID_ALIAS ciscoConfigManMIBNotificationPrefix .1.3.6.1.4.1.9.9.43.2
+OID_ALIAS ciscoICsuDsuMIBNotificationPrefix .1.3.6.1.4.1.9.9.44.3
+OID_ALIAS vtpNotificationsPrefix .1.3.6.1.4.1.9.9.46.2.0
+OID_ALIAS cieMIBTrapPrefix .1.3.6.1.4.1.9.9.52.2
+OID_ALIAS cisco-channel .1.3.6.1.4.1.9.9.61.2
+OID_ALIAS voice-dial-ctrl .1.3.6.1.4.1.9.9.63.2
+OID_ALIAS vlan-membership .1.3.6.1.4.1.9.9.68.2
+OID_ALIAS cisco-dlsw-ext .1.3.6.1.4.1.9.9.74.2
+OID_ALIAS cisco-sna-llc .1.3.6.1.4.1.9.10.8.2
+OID_ALIAS ciscoDlswTraps .1.3.6.1.4.1.9.10.9.1.7
+OID_ALIAS cisco-oamping .1.3.6.1.4.9.10.15.2
+OID_ALIAS cisco-accounting .1.3.6.1.4.1.9.10.17.3
+OID_ALIAS ciscoworks .1.3.6.1.4.1.9.14
+OID_ALIAS ipxTraps .1.3.6.1.4.1.23.2.5.5
+OID_ALIAS Ent-.1.3.6.1.4.1.141.1.1.3 .1.3.6.1.4.1.141.1.1.3
+OID_ALIAS kalpana-eps3config .1.3.6.1.4.1.197.3.1.1
+OID_ALIAS kalpana-eps3stack .1.3.6.1.4.1.197.3.2
+OID_ALIAS kalpana-eps3port .1.3.6.1.4.1.197.3.4
+OID_ALIAS kalpana-eps3dmns .1.3.6.1.4.1.197.3.5
+OID_ALIAS kalpana-eps3channel .1.3.6.1.4.1.197.3.6
+OID_ALIAS atm-forum .1.3.6.1.4.1.353
+OID_ALIAS Grand-Junction-Networks-1 .1.3.6.1.4.1.437.1.1.1.1
+OID_ALIAS Grand-Junction-Networks-2 .1.3.6.1.4.1.437.1.1.3
+OID_ALIAS madgersw .1.3.6.1.4.1.494.4
+OID_ALIAS if-mib .1.3.6.1.6.3.1.1.5
+############################################################################
+#
+# Event formats and actions:
+#
+#
+#
+EVENT x25Restart .1.3.6.1.2.1.10.5.0.1 "Status Events" Warning
+FORMAT X.25 Restart: $# args $*
+SDESC
+"This trap means the X.25 PLE sent or received a restart 
+packet.  The restart that brings up the link should not 
+send a x25Restart trap so the interface should send a 
+linkUp trap.  Sending this trap means the agent does not 
+send a linkDown and linkUp trap."
+EDESC
+#
+#
+#
+EVENT x25Reset .1.3.6.1.2.1.10.5.0.2 "Status Events" Warning
+FORMAT X.25 Reset: $# args $*
+SDESC
+"If the PLE sends or receives a reset, the agent should send 
+an x25Reset trap."
+EDESC
+#
+#
+#
+EVENT dialCtlPeerCallInfo .1.3.6.1.2.1.10.21.2.0.1 "Status Events" Normal
+FORMAT dialCtlPeerCallInfo trap received from enterprise $E with $# arguments:  callHistoryPeerId=$1; callHistoryPeerIfIndex=$2;callHistoryLogicalIfIndex=$3; ifOperStatus=$4; callHistoryPeerAddress=$5; callHistoryPeerSubAddress=$6; callHistoryDisconnectCause=$7; callHistoryConnectTime=$8;callHistoryDisconnectTime=$9; callHistoryInfoType=$10;callHistoryCallOrigin=$11
+SDESC
+"This dialCtlPeerCallInformation trap/inform is sent to the manager whenever
+ a successful call clears, or a failed call attemp is determined to have
+ ultimately failed.  In the event that the call retry is active, then this is
+ after all retry attempts have failed.  However, only one such trap is sent 
+ between successful call attempts; subsequent call attemts result in no
+ trap.  ifOperStatus will return the operational status of the virtual
+ interface associated with the peer to whom this call was made to."
+EDESC
+#
+#
+#
+EVENT dialCtlPeerCallSetup .1.3.6.1.2.1.10.21.2.0.2 "Status Events" Normal
+FORMAT dialCtlPeerCallSetup trap received from enterprise $E with $# arguments: callActivePeerId=$1; callActivePeerIfIndex=$2;callActiveLogicalIfIndex=$3;ifOperStatus=$4;callActivePeerAddress=$5;callActivePeerSubAddress=$6;callActiveInfoType=$7;callActiveCallOrigin=$8
+SDESC
+"This dialCtlPeerCallSetup trap/inform is sent to the manager whenever a 
+ call setup message is received or sent.  ifOperStatus will return the
+ operational status of the virtual interface associated with the peer to
+ whom this call was made to." 
+EDESC
+#
+#
+#
+EVENT frDLCIStatusChange .1.3.6.1.2.1.10.32.0.1 "Status Events" Warning
+FORMAT Frame Relay PVC state change: frCircuitIfIndex=$1; frCircuitDlci=$2; frCircuitState=$3
+SDESC
+"This trap indicates that the indicated Virtual Circuit  
+has changed state.  It has either been created or invalidated, 
+or has toggled  between the active and inactive states."
+EDESC
+#
+#
+#
+EVENT ospfVirtIfStateChang .1.3.6.1.2.1.14.16.2.1 "LOGONLY" Normal
+FORMAT ospfVirtIfStateChang trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfIfStateChange trap signifies that there
+has  been a change in the state of an OSPF vir-
+tual interface.
+This trap should be generated when  the  inter-
+face  state  regresses  (e.g., goes from Point-
+to-Point to Down) or progresses to  a  terminal
+state (i.e., Point-to-Point)."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfVirtIfAreaId
+     Syntax="AreaID  (IP Address) "
+     Descr="The  Transit  Area  that  the   Virtual   Link
+traverses.  By definition, this is not 0.0.0.0"
+  3: ospfVirtIfNeighbor
+     Syntax="RouterID  (IP Address) "
+     Descr="The Router ID of the Virtual Neighbor."
+  4: ospfVirtIfState
+     Syntax="Integer"
+     Descr="OSPF virtual interface states."
+EDESC
+#
+#
+#
+EVENT ospfNbrStateChange .1.3.6.1.2.1.14.16.2.2 "LOGONLY" Normal
+FORMAT ospfNbrStateChange trap received from enterprise $E
+SDESC
+Long Descr.:
+"An  ospfNbrStateChange  trap  signifies   that
+there  has been a change in the state of a non-
+virtual OSPF neighbor.   This  trap  should  be
+generated  when  the  neighbor  state regresses
+(e.g., goes from Attempt or Full  to  1-Way  or
+Down)  or progresses to a terminal state (e.g.,
+2-Way or Full).  When an  neighbor  transitions
+from  or  to Full on non-broadcast multi-access
+and broadcast networks, the trap should be gen-
+erated  by the designated router.  A designated
+router transitioning to Down will be  noted  by
+ospfIfStateChange."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfNbrIpAddr
+     Syntax="IP Address"
+     Descr="The IP address this neighbor is using  in  its
+IP  Source  Address.  Note that, on addressless
+links, this will not be 0.0.0.0,  but  the  ad-
+dress of another of the neighbor's interfaces."
+  3: ospfNbrAddressLessIndex
+     Syntax="InterfaceIndex  (Integer) "
+     Descr="On an interface having an  IP  Address,  zero.
+On  addressless  interfaces,  the corresponding
+value of ifIndex in the Internet Standard  MIB.
+On  row  creation, this can be derived from the
+instance."
+  4: ospfNbrRtrId
+     Syntax="RouterID  (IP Address) "
+     Descr="A 32-bit integer (represented as a type  IpAd-
+dress)  uniquely  identifying  the  neighboring
+router in the Autonomous System."
+  5: ospfNbrState
+     Syntax="Integer"
+     Descr="The State of the relationship with this Neigh-
+bor."
+EDESC
+#
+#
+#
+EVENT ospfVirtNbrStateChan .1.3.6.1.2.1.14.16.2.3 "LOGONLY" Normal
+FORMAT ospfVirtNbrStateChange trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfIfStateChange trap signifies that there
+has  been a change in the state of an OSPF vir-
+tual neighbor.  This trap should  be  generated
+when  the  neighbor state regresses (e.g., goes
+from Attempt or  Full  to  1-Way  or  Down)  or
+progresses to a terminal state (e.g., Full)."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfVirtNbrArea
+     Syntax="AreaID  (IP Address) "
+     Descr="The Transit Area Identifier."
+  3: ospfVirtNbrRtrId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+neighboring router in the Autonomous System."
+  4: ospfVirtNbrState
+     Syntax="Integer"
+     Descr="The state of the  Virtual  Neighbor  Relation-
+ship."
+EDESC
+#
+#
+#
+EVENT ospfIfConfigError .1.3.6.1.2.1.14.16.2.4 "LOGONLY" Normal
+FORMAT ospfIfConfigError trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfIfConfigError  trap  signifies  that  a
+packet  has  been received on a non-virtual in-
+terface  from  a  router  whose   configuration
+parameters  conflict  with this router's confi-
+guration parameters.  Note that the  event  op-
+tionMismatch  should  cause  a  trap only if it
+prevents an adjacency from forming."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfIfIpAddress
+     Syntax="IP Address"
+     Descr="The IP address of this OSPF interface."
+  3: ospfAddressLessIf
+     Syntax="Integer"
+     Descr="For the purpose of easing  the  instancing  of
+addressed   and  addressless  interfaces;  This
+variable takes the value 0 on  interfaces  with
+IP  Addresses,  and  the corresponding value of
+ifIndex for interfaces having no IP Address."
+  4: ospfPacketSrc
+     Syntax="IP Address"
+     Descr="The IP address of an inbound packet that  can-
+not be identified by a neighbor instance."
+  5: ospfConfigErrorType
+     Syntax="Integer"
+     Descr="Potential types  of  configuration  conflicts.
+Used  by the ospfConfigError and ospfConfigVir-
+tError traps."
+  6: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+EDESC
+#
+#
+#
+EVENT ospfVirtIfConfigErro .1.3.6.1.2.1.14.16.2.5 "LOGONLY" Normal
+FORMAT ospfVirtIfConfigError trap received from enterprise $E 
+SDESC
+Long Descr.:
+"An ospfConfigError trap signifies that a pack-
+et  has  been  received  on a virtual interface
+from a router  whose  configuration  parameters
+conflict   with   this  router's  configuration
+parameters.  Note that the event optionMismatch
+should  cause a trap only if it prevents an ad-
+jacency from forming."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfVirtIfAreaId
+     Syntax="AreaID  (IP Address) "
+     Descr="The  Transit  Area  that  the   Virtual   Link
+traverses.  By definition, this is not 0.0.0.0"
+  3: ospfVirtIfNeighbor
+     Syntax="RouterID  (IP Address) "
+     Descr="The Router ID of the Virtual Neighbor."
+  4: ospfConfigErrorType
+     Syntax="Integer"
+     Descr="Potential types  of  configuration  conflicts.
+Used  by the ospfConfigError and ospfConfigVir-
+tError traps."
+  5: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+EDESC
+#
+#
+#
+EVENT ospfIfAuthFailure .1.3.6.1.2.1.14.16.2.6 "LOGONLY" Normal
+FORMAT ospfIfAuthFailure trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfIfAuthFailure  trap  signifies  that  a
+packet  has  been received on a non-virtual in-
+terface from a router whose authentication  key
+or  authentication  type  conflicts  with  this
+router's authentication key  or  authentication
+type."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfIfIpAddress
+     Syntax="IP Address"
+     Descr="The IP address of this OSPF interface."
+  3: ospfAddressLessIf
+     Syntax="Integer"
+     Descr="For the purpose of easing  the  instancing  of
+addressed   and  addressless  interfaces;  This
+variable takes the value 0 on  interfaces  with
+IP  Addresses,  and  the corresponding value of
+ifIndex for interfaces having no IP Address."
+  4: ospfPacketSrc
+     Syntax="IP Address"
+     Descr="The IP address of an inbound packet that  can-
+not be identified by a neighbor instance."
+  5: ospfConfigErrorType
+     Syntax="Integer"
+     Descr="Potential types  of  configuration  conflicts.
+Used  by the ospfConfigError and ospfConfigVir-
+tError traps."
+  6: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+EDESC
+#
+#
+#
+EVENT ospfVirtIfAuthFailur .1.3.6.1.2.1.14.16.2.7 "LOGONLY" Normal
+FORMAT ospfVirtIfAuthFailure trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfVirtIfAuthFailure trap signifies that a
+packet has been received on a virtual interface
+from a router whose authentication key  or  au-
+thentication  type conflicts with this router's
+authentication key or authentication type."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfVirtIfAreaId
+     Syntax="AreaID  (IP Address) "
+     Descr="The  Transit  Area  that  the   Virtual   Link
+traverses.  By definition, this is not 0.0.0.0"
+  3: ospfVirtIfNeighbor
+     Syntax="RouterID  (IP Address) "
+     Descr="The Router ID of the Virtual Neighbor."
+  4: ospfConfigErrorType
+     Syntax="Integer"
+     Descr="Potential types  of  configuration  conflicts.
+Used  by the ospfConfigError and ospfConfigVir-
+tError traps."
+  5: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+EDESC
+#
+#
+#
+EVENT ospfIfRxBadPacket .1.3.6.1.2.1.14.16.2.8 "LOGONLY" Normal
+FORMAT ospfIfRxBadPacket trap received from enterprise $E 
+SDESC
+Long Descr.:
+"An ospfIfRxBadPacket trap  signifies  that  an
+OSPF  packet has been received on a non-virtual
+interface that cannot be parsed."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfIfIpAddress
+     Syntax="IP Address"
+     Descr="The IP address of this OSPF interface."
+  3: ospfAddressLessIf
+     Syntax="Integer"
+     Descr="For the purpose of easing  the  instancing  of
+addressed   and  addressless  interfaces;  This
+variable takes the value 0 on  interfaces  with
+IP  Addresses,  and  the corresponding value of
+ifIndex for interfaces having no IP Address."
+  4: ospfPacketSrc
+     Syntax="IP Address"
+     Descr="The IP address of an inbound packet that  can-
+not be identified by a neighbor instance."
+  5: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+EDESC
+#
+#
+#
+EVENT ospfVirtIfRxBadPacke .1.3.6.1.2.1.14.16.2.9 "LOGONLY" Normal
+FORMAT ospfVirtIfRxBadPacket trap from enterprise $E
+SDESC
+Long Descr.:
+"An ospfRxBadPacket trap signifies that an OSPF
+packet has been received on a virtual interface
+that cannot be parsed."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfVirtIfAreaId
+     Syntax="AreaID  (IP Address) "
+     Descr="The  Transit  Area  that  the   Virtual   Link
+traverses.  By definition, this is not 0.0.0.0"
+  3: ospfVirtIfNeighbor
+     Syntax="RouterID  (IP Address) "
+     Descr="The Router ID of the Virtual Neighbor."
+  4: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+EDESC
+#
+#
+#
+EVENT ospfTxRetransmit .1.3.6.1.2.1.14.16.2.10 "LOGONLY" Normal
+FORMAT ospfTxRetransmit trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfTxRetransmit  trap  signifies  than  an
+OSPF  packet  has  been retransmitted on a non-
+virtual interface.  All packets that may be re-
+transmitted  are associated with an LSDB entry.
+The LS type, LS ID, and Router ID are  used  to
+identify the LSDB entry."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfIfIpAddress
+     Syntax="IP Address"
+     Descr="The IP address of this OSPF interface."
+  3: ospfAddressLessIf
+     Syntax="Integer"
+     Descr="For the purpose of easing  the  instancing  of
+addressed   and  addressless  interfaces;  This
+variable takes the value 0 on  interfaces  with
+IP  Addresses,  and  the corresponding value of
+ifIndex for interfaces having no IP Address."
+  4: ospfNbrRtrId
+     Syntax="RouterID  (IP Address) "
+     Descr="A 32-bit integer (represented as a type  IpAd-
+dress)  uniquely  identifying  the  neighboring
+router in the Autonomous System."
+  5: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+  6: ospfLsdbType
+     Syntax="Integer"
+     Descr="The type  of  the  link  state  advertisement.
+Each  link state type has a separate advertise-
+ment format."
+  7: ospfLsdbLsid
+     Syntax="IP Address"
+     Descr="The Link State ID is an LS Type Specific field
+containing either a Router ID or an IP Address;
+it identifies the piece of the  routing  domain
+that is being described by the advertisement."
+  8: ospfLsdbRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="The 32 bit number that uniquely identifies the
+originating router in the Autonomous System."
+EDESC
+#
+#
+#
+EVENT ospfVirtIfTxRetransm .1.3.6.1.2.1.14.16.2.11 "LOGONLY" Normal
+FORMAT ospfVirtIfTxRetransmit trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfTxRetransmit  trap  signifies  than  an
+OSPF packet has been retransmitted on a virtual
+interface.  All packets that may be retransmit-
+ted  are  associated with an LSDB entry. The LS
+type, LS ID, and Router ID are used to identify
+the LSDB entry."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfVirtIfAreaId
+     Syntax="AreaID  (IP Address) "
+     Descr="The  Transit  Area  that  the   Virtual   Link
+traverses.  By definition, this is not 0.0.0.0"
+  3: ospfVirtIfNeighbor
+     Syntax="RouterID  (IP Address) "
+     Descr="The Router ID of the Virtual Neighbor."
+  4: ospfPacketType
+     Syntax="Integer"
+     Descr="OSPF packet types."
+  5: ospfLsdbType
+     Syntax="Integer"
+     Descr="The type  of  the  link  state  advertisement.
+Each  link state type has a separate advertise-
+ment format."
+  6: ospfLsdbLsid
+     Syntax="IP Address"
+     Descr="The Link State ID is an LS Type Specific field
+containing either a Router ID or an IP Address;
+it identifies the piece of the  routing  domain
+that is being described by the advertisement."
+  7: ospfLsdbRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="The 32 bit number that uniquely identifies the
+originating router in the Autonomous System."
+EDESC
+#
+#
+#
+EVENT ospfOriginateLsa .1.3.6.1.2.1.14.16.2.12 "LOGONLY" Normal
+FORMAT ospfOriginateLsa trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfOriginateLsa trap signifies that a  new
+LSA  has  been originated by this router.  This
+trap should not be invoked for simple refreshes
+of  LSAs  (which happesn every 30 minutes), but
+instead will only be invoked  when  an  LSA  is
+(re)originated due to a topology change.  Addi-
+tionally, this trap does not include LSAs  that
+are  being  flushed  because  they have reached
+MaxAge."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfLsdbAreaId
+     Syntax="AreaID  (IP Address) "
+     Descr="The 32 bit identifier of the Area  from  which
+the LSA was received."
+  3: ospfLsdbType
+     Syntax="Integer"
+     Descr="The type  of  the  link  state  advertisement.
+Each  link state type has a separate advertise-
+ment format."
+  4: ospfLsdbLsid
+     Syntax="IP Address"
+     Descr="The Link State ID is an LS Type Specific field
+containing either a Router ID or an IP Address;
+it identifies the piece of the  routing  domain
+that is being described by the advertisement."
+  5: ospfLsdbRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="The 32 bit number that uniquely identifies the
+originating router in the Autonomous System."
+EDESC
+#
+#
+#
+EVENT ospfMaxAgeLsa .1.3.6.1.2.1.14.16.2.13 "LOGONLY" Normal
+FORMAT ospfMaxAgeLsa trap received from enterprise $E 
+SDESC
+Long Descr.:
+"An ospfMaxAgeLsa trap signifies  that  one  of
+the LSA in the router's link-state database has
+aged to MaxAge."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfLsdbAreaId
+     Syntax="AreaID  (IP Address) "
+     Descr="The 32 bit identifier of the Area  from  which
+the LSA was received."
+  3: ospfLsdbType
+     Syntax="Integer"
+     Descr="The type  of  the  link  state  advertisement.
+Each  link state type has a separate advertise-
+ment format."
+  4: ospfLsdbLsid
+     Syntax="IP Address"
+     Descr="The Link State ID is an LS Type Specific field
+containing either a Router ID or an IP Address;
+it identifies the piece of the  routing  domain
+that is being described by the advertisement."
+  5: ospfLsdbRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="The 32 bit number that uniquely identifies the
+originating router in the Autonomous System."
+EDESC
+#
+#
+#
+EVENT ospfLsdbOverflow .1.3.6.1.2.1.14.16.2.14 "LOGONLY" Normal
+FORMAT ospfLsdbOverflow trap received from enterprise $E 
+SDESC
+Long Descr.:
+"An ospfLsdbOverflow trap  signifies  that  the
+number of LSAs in the router's link-state data-
+base has exceeded ospfExtLsdbLimit."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfExtLsdbLimit
+     Syntax="Integer (-1..'7FFFFFFF'h)"
+     Descr="The  maximum   number   of   non-default   AS-
+external-LSAs entries that can be stored in the
+link-state database.  If the value is -1,  then
+there is no limit.
+
+When the number of non-default AS-external-LSAs
+in   a  router's  link-state  database  reaches
+ospfExtLsdbLimit, the router  enters  Overflow-
+State.   The   router  never  holds  more  than
+ospfExtLsdbLimit  non-default  AS-external-LSAs
+in  its  database. OspfExtLsdbLimit MUST be set
+identically in all routers attached to the OSPF
+backbone  and/or  any regular OSPF area. (i.e.,
+OSPF stub areas and NSSAs are excluded)."
+EDESC
+#
+#
+#
+EVENT ospfLsdbApproachingO .1.3.6.1.2.1.14.16.2.15 "LOGONLY" Normal
+FORMAT ospfLsdbApproachingOverflow trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfLsdbApproachingOverflow trap  signifies
+that  the  number of LSAs in the router's link-
+state database has exceeded ninety  percent  of
+ospfExtLsdbLimit."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfExtLsdbLimit
+     Syntax="Integer (-1..'7FFFFFFF'h)"
+     Descr="The  maximum   number   of   non-default   AS-
+external-LSAs entries that can be stored in the
+link-state database.  If the value is -1,  then
+there is no limit.
+
+When the number of non-default AS-external-LSAs
+in   a  router's  link-state  database  reaches
+ospfExtLsdbLimit, the router  enters  Overflow-
+State.   The   router  never  holds  more  than
+ospfExtLsdbLimit  non-default  AS-external-LSAs
+in  its  database. OspfExtLsdbLimit MUST be set
+identically in all routers attached to the OSPF
+backbone  and/or  any regular OSPF area. (i.e.,
+OSPF stub areas and NSSAs are excluded)."
+EDESC
+#
+#
+#
+EVENT ospfIfStateChange .1.3.6.1.2.1.14.16.2.16 "LOGONLY" Normal
+FORMAT ospfIfStateChange trap received from enterprise $E
+SDESC
+Long Descr.:
+"An ospfIfStateChange trap signifies that there
+has been a change in the state of a non-virtual
+OSPF interface. This trap should  be  generated
+when  the interface state regresses (e.g., goes
+from Dr to Down) or progresses  to  a  terminal
+state  (i.e.,  Point-to-Point, DR Other, Dr, or
+Backup)."
+Variables:
+  1: ospfRouterId
+     Syntax="RouterID  (IP Address) "
+     Descr="A  32-bit  integer  uniquely  identifying  the
+router in the Autonomous System.
+
+By  convention,  to  ensure  uniqueness,   this
+should  default  to  the  value  of  one of the
+router's IP interface addresses."
+  2: ospfIfIpAddress
+     Syntax="IP Address"
+     Descr="The IP address of this OSPF interface."
+  3: ospfAddressLessIf
+     Syntax="Integer"
+     Descr="For the purpose of easing  the  instancing  of
+addressed   and  addressless  interfaces;  This
+variable takes the value 0 on  interfaces  with
+IP  Addresses,  and  the corresponding value of
+ifIndex for interfaces having no IP Address."
+  4: ospfIfState
+     Syntax="Integer"
+     Descr="The OSPF Interface State."
+EDESC
+#
+#
+#
+EVENT bgpEstablished .1.3.6.1.2.1.15.7.0.1 "Status Events" Normal
+FORMAT bgpEstablished trap received from enterprise $E with $# args: bgpPeerLastError=$1; bgpPeerState=$2
+SDESC
+"The BGP Established event is generated when the BGP FSM enters 
+the ESTABLISHED state."
+EDESC
+#
+#
+#
+EVENT bgpBackwardTranstion .1.3.6.1.2.1.15.7.0.2 "Status Events" Normal
+FORMAT bgpBackwardTranstion trap received from enterprise $E with $# args:bgpPeerLastError=$1; bgpPeerState=$2
+SDESC
+"The BGPBackwardTransition Event is generated when the BGP FSM 
+moves from a higher numbered state to a lower numbered state."
+EDESC
+#
+#
+#
+EVENT RMON_Rise_Alarm .1.3.6.1.2.1.16.0.1 "Threshold Events" Warning
+FORMAT RMON Rising Alarm from enterprise $E with args:alarmIndex=$1; alarmVariable=$2; alarmSampleType=$3; alarmValue=$4; alarmRisingThreshold=$5
+SDESC
+This event is sent when an RMON device exceeds a
+preconfigured threshold.
+EDESC
+#
+#
+#
+EVENT RMON_Falling_Alarm .1.3.6.1.2.1.16.0.2 "Threshold Events" Warning
+FORMAT RMON Falling Alarm from enterprise $E with $# args: alarmIndex=$1; alarmVariable=$2; alarmSampleType=$3; alarmValue=$4; alarmFallingThreshold=$5
+SDESC
+This event is sent when an RMON device falls below
+a preconfigured threshold.
+EDESC
+#
+#
+#
+EVENT RMON_Packet_Match .1.3.6.1.2.1.16.0.3 "Status Events" Normal
+FORMAT RMON Packet Match trap: Matched channel index #$1 ($3); match count at $2
+SDESC
+This event is sent when an RMON device matches a
+channel index.
+EDESC
+#
+#
+#
+EVENT newRoot .1.3.6.1.2.1.17.0.1 "Status Events" Warning
+FORMAT Spanning tree root change from enterprise $E
+SDESC
+"The newRoot trap indicates that the sending agent has become 
+the new root of the Spanning Tree; the trap is sent by a bridge 
+soon after its election as the new root, e.g., upon expiration
+of the Topology Change Timer immediately subsequent to its election.
+EDESC
+#
+#
+#
+EVENT topologyChange .1.3.6.1.2.1.17.0.2 "Status Events" Warning
+FORMAT Spanning tree topology change from enterprise $E
+SDESC
+"A topologyChange trap is sent by a bridge when any of its configured 
+ports transitions from the Learning state to the Forwarding state, or 
+from the Forwarding state to the Blocking state.  The trap is not sent 
+if a newRoot trap is sent for the same transition.
+EDESC
+#
+#
+#
+EVENT rptrHealth .1.3.6.1.2.1.22.0.1 "Status Events" Warning
+FORMAT Repeater health status change from enterprise $E with args: rptrOperStatus=$1
+SDESC
+"The rptrHealth trap conveys information related to the operational 
+status of the repeater.  This trap is sent either when the value of
+rptrOperStatus changes, or upon completion of a non-disruptive test.
+ 
+The rptrHealth trap must contain the rptrOperStatus object.  
+The agent may optionally include the rptrHealthText object in the 
+varBind list.  See the rptrOperStatus and rptrHealthText objects 
+for descriptions of the information that is sent.
+EDESC
+#
+#
+#
+EVENT rptrGroupChange .1.3.6.1.2.1.22.0.2 "Status Events" Normal
+FORMAT rptrGroupChange trap received from enterprise $E with $# args: rptrGroupIndex=$1
+SDESC
+"This trap is sent when a change occurs in the group structure of a 
+repeater.  This occurs only when a group is logically or physically 
+removed from or added to a repeater.  The varBind list contains the 
+identifier of the group that was removed or added.
+EDESC
+#
+#
+#
+EVENT rptrResetEvent .1.3.6.1.2.1.22.0.3 "Status Events" Warning
+FORMAT rptrResetEvent trap received from enterprise $E with $# args:rptrOperStatus=$1
+SDESC
+"The rptrResetEvent trap conveys information related to the 
+operational status of the repeater.  This trap is sent on 
+completion of a repeater reset action.  A repeater reset action is 
+defined as an a transition to the START state of Fig 9-2 in section 
+9 [IEEE 802.3 Std], when triggered by a management command 
+(e.g., an SNMP Set on the rptrReset object).
+ 
+The rptrResetEvent trap is not sent when the agent restarts and 
+sends an SNMP coldStart or warmStart trap.  However, it is 
+recommended that a repeater agent send the rptrOperStatus object as 
+an optional object with its coldStart and warmStart trap PDUs.
+EDESC
+#
+#
+#
+EVENT snaLuSessnBindFail .1.3.6.1.2.1.34.1.1.5.0.2  "Status Events" Normal
+FORMAT snaLuSessnBindFailure trap received from enterprise $E with $# arguments: snaLuSessnLocalApplName=$1; snaLuSessnRemoteLuName=$2; snaLuSessnOperState=$3; snaLuSessnSenseData=$4
+SDESC
+"This trap indicates the failure of a BIND. The value of 
+ snaLuSessnLocalApplName indicates the local application name. The value
+ of snaLuSessnPartnerName indicates the partner name. The value of 
+ snaLuSessnOperState indicates the current state after change. The value
+ of snaLuSessnBindFailureReason indicates the failure reason. The Agent
+ should not generate more than 1 trap of this type per minute to minimize
+ the level of management traffic on the network."
+EDESC
+#
+#
+#
+EVENT snaLuStateChangeTrap .1.3.6.1.2.1.34.1.1.5.0.1  "Status Events" Normal
+FORMAT snaLuStateChangeTrap received from enterprise $E with $# arguments: snaLuOperName=$1; snaLuOperSnaName=$2; snaLuOperState=$3
+SDESC
+"This trap indicates that the operational state (i.e., snaLuOperState value)
+ of the LU has changed. The value of snaLuOperName indicates the name of the LU. The value of snaLuOperSnaName indicates the SNA name of LU. The value of 
+ snaLuOperState indicates the current state after change."
+EDESC
+#
+#
+#
+EVENT snaNodeActFailTrap .1.3.6.1.2.1.34.1.1.10.0.2  "Status Events" Normal
+FORMAT snaNodeActFailTrap received from enterprise $E with $# arguments: snaNodeOperName=$1; snaNodeOperState=$2
+SDESC
+"This trap indicates a Node activation failure. The value of snaNodeOperState
+ indicates the current state after the activation attempt. The value of
+ snaNodeOperActFailureReason indicates the failure reason."
+EDESC
+#
+#
+#
+EVENT snaNodeStateChange .1.3.6.1.2.1.34.1.1.10.0.1  "Status Events" Normal
+FORMAT snaNodeStateChange trap received from enterprise $E with $# arguments: snaNodeOperName=$1; snaNodeOperState=$2
+SDESC
+"This trap indicates that the operational state (i.e., value of the
+ snaNodeOperState object) of a Node has changed. The following variables 
+ are returned: snaNodeOperName - current name of the Node, with the instance
+ identifying the Node; and, snaNodeOperState - current state after the change."
+EDESC
+#
+#
+#
+EVENT sdlcPortStatusChange .1.3.6.1.2.1.41.1.3.0.1 "Status Events" Warning
+FORMAT sdlcPortStatusChange trap received from enterprise $E with $# args:ifIndex=$1; ifAdminStatus=$2; ifOperStatus=$3; sdlcPortOperLastFailTime=$4; sdlcPortOperLastFailCause=$5
+SDESC
+"This trap indicates that the state of an SDLC port has transitioned 
+to active or inactive."
+EDESC
+#
+#
+#
+EVENT sdlcLSStatusChange .1.3.6.1.2.1.41.1.3.0.2 "Status Events" Warning
+FORMAT sdlcLSStatusChange trap received from enterprise $E with $# args:ifIndex=$1; sdlcLSAddress=$2; sdlcLSOperState=$3; sdlcLSAdminState=$4; sdlcLSOperLastFailTime=$5; sdlcLSOperLastFailCause=$6; sdlcLSOperLastFailFRMRInfo=$7; sdlcLSOperLastFailCtrlIn=$8; sdlcLSOperLastFailCtrlOut=$9; sdlcLSOperLastFailREPLYTOs=$10
+SDESC
+"This trap indicates that the state of an SDLC link station has 
+transitioned to contacted or discontacted."
+EDESC
+#
+#
+#
+EVENT dlswTrapCntlTConnPartnerReject .1.3.6.1.2.1.46.1.0.1 "Status Events" Warning
+FORMAT dlswTrapCntlTConnPartnerReject trap received from enterprise $E with $# args: dlswTConnOperTDomain=$1;dlswTConnOperRemoteTAddr=$2
+SDESC
+"The dlswTrapCntlTConnPartnerReject trap is sent each time a transport
+ connection is rejected by a partner DLSw during Capabilities Exchanges. 
+ The emission of this trap is controlled by dlswTrapCntlTConnPartnerReject."
+EDESC
+#
+#
+#
+EVENT dlswTrapTConnProtViolation .1.3.6.1.2.1.46.1.0.2 "Status Events" Warning
+FORMAT dlswTrapTConnProtViolation trap received from enterprise $E with $# args: dlswTConnOperTDomain=$1;dlswTConnOperRemoteTAddr=$2
+SDESC
+"The dlswTrapTConnProtViolation trap is sent each time a protocol violation is
+detected for a transport connection.  The emission of this trap is controlled 
+by dlswTrapCntlTConnProtViolation."
+EDESC
+#
+#
+#
+EVENT dlswTrapTConnUp .1.3.6.1.2.1.46.1.0.3 "Status Events" Warning
+FORMAT dlswTrapTConnUp trap received from enterprise $E with $# args: dlswTConnOperTDomain=$1;dlswTConnOperRemoteTAddr=$2
+SDESC
+"The dlswTrapTConnUp trap is sent each time a transport connection enters
+ `connected' state.  The emission of this trap is controlled by
+  dlswTrapCntlTConn."
+EDESC
+#
+#
+#
+EVENT dlswTrapTConnDown .1.3.6.1.2.1.46.1.0.4 "Status Events" Warning
+FORMAT dlswTrapTConnDown trap received from enterprise $E with $# args: dlswTConnOperTDomain=$1; dlswTConnOperRemoteTAddr=$2
+SDESC
+"The dlswTrapTConnDown trap is sent each time a transport connection enters 
+`disconnected' state.  The emission of this trap is controlled by
+ dlswTrapCntlTConn."
+EDESC
+#
+#
+#
+EVENT dlswTrapCircuitUp .1.3.6.1.2.1.46.1.0.5 "Status Events" Warning
+FORMAT dlswTrapCircuitUp trap received from enterprise $E with $# args: dlswCircuitS1Mac=$1;dlswCircuitS1Sap=$2;dlswCircuitS2Mac=$3;dlswCircuitS2Sap=$4
+SDESC
+"The dlswTrapCircuitUp trap is sent each time a circuit enters `connected'
+ state. The emission of this trap is controlled by dlswTrapCntlCircuit."  
+EDESC
+#
+#
+#
+EVENT dlswTrapCircuitDown .1.3.6.1.2.1.46.1.0.6 "Status Events" Warning
+FORMAT dlswTrapCircuitDown trap received from enterprise $E with $# args: dlswCircuitS1Mac=$1;dlswCircuitS1Sap=$2;dlswCircuitS2Mac=$3;dlswCircuitS2Sap=$4
+SDESC
+"The dlswTrapCircuitDown trap is sent each time a circuit enters `disconnected'
+ state.  The emission of this trap is controlled by dlswTrapCntlCircuit."
+EDESC
+#
+#
+#
+EVENT newFlow .1.3.6.1.3.71.2.0.1  "Status Events" Normal
+FORMAT newFlow trap received from enterprise $E with $# arguments: rsvpFlowIndex=$1; ifIndex=$2
+SDESC
+"The newFlow trap indicates that the originating system has installed a new
+flow in its classifier, or (when reservation authorization is in view) is
+prepared to install such a flow in the classifier and is requesting
+authorization. The objects included with the Notification may be used to
+read further information using the RSVP MIB. Authorization or non-authorization
+may be enacted by a write to the variable rsvpFlowStatus."
+EDESC
+#
+#
+#
+EVENT lostFlow .1.3.6.1.3.71.2.0.2  "Status Events" Normal
+FORMAT lostFlow trap received from enterprise $E with $# arguments: rsvpFlowIndex=$1; ifIndex=$2
+SDESC
+"The lostFlow trap indicates that the originating system has removed a flow in
+its classifier."
+EDESC
+#
+#
+#
+EVENT EnterpriseDefault .1.3.6.1.4.1.* "Error Events" Normal
+FORMAT Received event $o (enterprise:$e generic:$G specific:$S), no format in trapd.conf. $# args: $*
+SDESC
+This is the default event format used when an enterprise
+specific event (trap) is received for which no format has
+been configured (i.e. no event definition exists).
+
+To configure the event (trap), select HP OpenView Network
+Node Manager's "Options:Event Configuration" menu item, then
+"Edit:Add->Event..." and create a definition.
+
+This default definition is used if no definition has been
+configured for a given event.  If this default event
+definition is missing (i.e., removed from this file), a
+hard-coded absolute default will be used.
+
+See trapd.conf(4) for more details.
+EDESC
+#
+#
+#
+EVENT 8272TsTempThreshold .1.3.6.1.4.1.2.6.66.1.2.1.2.0.1 "Status Events" Warning
+FORMAT ibm8272TsTempThreshold trap received from enterprise $E with $# args: sysName=$1; sysLocation=$2; ibm8272TsSysTemperature=$3
+SDESC
+            "This trap is generated when the system temperature
+             either exceeds 50 C or when it returns to normal(45 C)
+             after exceeding the temperature. The variable
+             ibm8272Ts2SysTemperature indicates the temperature
+             condition at the time of the event."
+EDESC
+#
+#
+#
+EVENT 8272TsPwrSupChange .1.3.6.1.4.1.2.6.66.1.2.1.2.0.2 "Status Events" Warning
+FORMAT ibm8272TsPwrSupChange trap received from enterprise $E with $# args:sysName=$1; sysLocation=$2; ibm8272TsSysPwrStatus=$3
+SDESC
+           "This trap is generated when the power supply status of
+             the switch is inError or returns to normal.  This trap
+             is only generated if the switch has more than one
+             power supply and at least one of the other power
+             supplies is operational."
+ 
+EDESC
+#
+#
+#
+EVENT 8272TsFanChange .1.3.6.1.4.1.2.6.66.1.2.1.2.0.3 "Status Events" Warning
+FORMAT ibm8272TsFanChange trap received from enterprise $E with $# args:sysName=$1; sysLocation=$2; ibm8272TsSysFanStatus=$3
+SDESC
+            "This trap is generated when the fan status of
+             the switch is inError or returns to normal."
+EDESC
+#
+#
+#
+EVENT 8272TsVoltageChange .1.3.6.1.4.1.2.6.66.1.2.1.2.0.4  "Status Events" Warning
+FORMAT ibm8272TsVoltageChange trap received from enterprise $E with $# args:sysName=$1; sysLocation=$2; ibm8272TsSysVoltageStatus=$3
+SDESC
+           "This trap is generated when the voltage status of
+             the switch is low or returns to normal."
+EDESC
+#
+#
+#
+EVENT 827TsPortCfgLossTrap .1.3.6.1.4.1.2.6.66.1.2.2.0.1 "Status Events" Warning
+FORMAT ibm8272TsPortCfgLossTrap received from enterprise $E with $# args:ibm8272TsPortIndex=$1;ibm8272TsPortCfgLoss=$2
+SDESC
+             "This trap occurs when a port is disabled because
+              it has exceeded its Configuration Loss Threshold
+              within the configured Sampling Period."
+EDESC
+#
+#
+#
+EVENT 8272TsBeaconStart .1.3.6.1.4.1.2.6.66.1.2.2.0.2 "Status Events" Warning
+FORMAT ibm8272TsBeaconStart trap received from enterprise $E with $# args: ibm8272TsPortIndex=$1
+SDESC
+           "This trap is generated when a port or a station local to a
+            port begins to beacon. It is sent out only when a ring status
+            change indicates that a station is beaconing."
+EDESC
+#
+#
+#
+EVENT 8272TsBeaconEnd .1.3.6.1.4.1.2.6.66.1.2.2.0.3 "Status Events" Normal
+FORMAT ibm8272TsBeaconEnd trap received from enterprise $E with $# args: ibm8272TsPortIndex=$1
+SDESC
+           "This trap is generated when the ring status change indicates
+            that a ring is no longer beaconing. This trap only occurs only
+            once when the status actually changes."
+EDESC
+#
+#
+#
+EVENT 8272TsMaxFrmSzExceed .1.3.6.1.4.1.2.6.66.1.2.2.0.4 "Status Events" Warning
+FORMAT ibm8272TsMaxFrameSizeExceeded trap received from enterprise $E with $# args: ibm8272TsPortIndex=$1
+SDESC
+           "This trap is generated when there has been a change in the
+            number of oversized frames received (>4540 bytes) on the port.
+            This trap is only sent once every ten minutes for any given port."
+EDESC
+#
+#
+#
+EVENT 8272TsPtSwtMdChgTrap .1.3.6.1.4.1.2.6.66.1.2.2.0.5 "Status Events" Normal
+FORMAT ibm8272TsPortSwitchModeChangeTrap received from enterprise $E with $# args: ibm8272TsPortIndex=$1; ibm8272TsPortSwitchMode=$2
+SDESC
+            "This trap is generated only when the port changes
+             from cut-through mode to store-and-forward mode based
+             on the error trend calculations."
+EDESC
+#
+#
+#
+EVENT 8272TsDmnNewRoot .1.3.6.1.4.1.2.6.66.1.2.3.0.1 "Status Events" Normal
+FORMAT ibm8272TsDmnNewRoot trap received from enterprise $E with $# args: ibm8272TsDmnIndex=$1
+SDESC
+            "This trap is a domain specific version of the
+            newRoot trap as described in RFC1493.
+
+            The newRoot trap indicates that the sending agent
+            has become the new root of the Spanning Tree; the
+            trap is sent by a bridge soon after its election
+            as the new root, e.g., upon expiration of the
+            Topology Change Timer immediately subsequent to
+            its election.  Implementation of this trap is
+            optional."
+EDESC
+#
+#
+#
+EVENT 8272TsDmnTopoChg .1.3.6.1.4.1.2.6.66.1.2.3.0.2 "Status Events" Normal
+FORMAT ibm8272TsDmnTopologyChange trap received from enterprise $E with $# args: ibm8272TsDmnIndex=$1
+SDESC
+            "This trap is a domain specific version of the
+            topologyChange trap as described in RFC1493.
+
+            A topologyChange trap is sent by a bridge when
+            any of its configured ports transitions from the
+            Learning state to the Forwarding state, or from
+            the Forwarding state to the Blocking state.  The
+            trap is not sent if a newRoot trap is sent for the
+            same transition.  Implementation of this trap is
+            optional."
+EDESC
+#
+#
+#
+EVENT Cisco_Default_Trap .1.3.6.1.4.1.9.* "Cisco Events" Warning
+FORMAT Cisco default trap: generic: $G specific: $S args($#): $*
+SDESC
+This is the trap used when no other Cisco trap is configured. 
+generic:$G specific:$S args($#):$*
+EDESC
+#
+#
+#
+EVENT Cisco_Cold_Start .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9 "Cisco Events" Warning
+FORMAT Cold start: Trap received from enterprise $E with $# arguments: sysUpTime=$1; whyReload=$2
+SDESC
+This event occurs when an Cisco is
+powered up.
+
+A coldStart trap signifies that the sending
+protocol entity is reinitializing itself such
+that the agent's configuration or the protocol
+entity implementation may be altered.
+EDESC
+#
+#
+#
+EVENT Cisco_Warm_Start .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9 "Cisco Events" Normal
+FORMAT Cisco Agent Up with No Changes (warmStart Trap)
+SDESC
+This event occurs when an Cisco agent is re-configured.
+
+A warmStart trap signifies that the sending
+protocol entity is reinitializing itself such
+that neither the agent configuration nor the
+protocol entity implementation is altered.
+EDESC
+#
+#
+#
+EVENT Cisco_Link_Down .1.3.6.1.6.3.1.1.5.3.1.3.6.1.4.1.9 "Cisco Events" Minor
+FORMAT linkDown trap received from enterprise $E with $# arguments: ifIndex=$1; ifDescr=$2; ifType=$3; locIfReason=$4
+SDESC
+This event occurs when the Cisco agent
+detects an interface has gone down.
+
+A linkDown trap signifies that the sending
+protocol entity recognizes a failure in one of
+the communication links represented in the
+agent's configuration.
+EDESC
+#
+#
+#
+EVENT Cisco_Link_Up .1.3.6.1.6.3.1.1.5.4.1.3.6.1.4.1.9 "Cisco Events" Normal
+FORMAT linkUp trap received from enterprise $E with $# arguments: ifIndex=$1; ifDescr=$2; ifType=$3; locIfReason=$4
+SDESC
+This event occurs when the Cisco agent
+detects an interface has come back up.
+
+A linkUp trap signifies that the sending
+protocol entity recognizes that one of the
+communication links represented in the agent's
+configuration has come up.
+EDESC
+#
+#
+#
+EVENT Cisco_Auth_Failure .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9 "IGNORE" Warning
+FORMAT Authentication Failure trap received from enterprise $E with $# arguments: authAddr=$1
+SDESC
+This event occurs when the Cisco agent
+detects an authentication failure
+has occurred.
+
+An authentication failure trap signifies that
+the sending protocol entity is the addressee
+of a protocol message that is not properly
+authenticated.  While implementations of the
+SNMP must be capable of generating this trap,
+they must also be capable of suppressing the
+emission of such traps via an implementation-
+specific mechanism.
+EDESC
+#
+#
+#
+EVENT Cisco_EGP_Down .1.3.6.1.6.3.1.1.5.6.1.3.6.1.4.1.9 "Cisco Events" Warning
+FORMAT Cisco EGP Neighbor Down (egpNeighborLoss Trap) egpNeighAddr: $1
+SDESC
+An egpNeighborLoss trap signifies that an EGP
+neighbor for whom the sending protocol entity
+was an EGP peer has been marked down and the
+peer relationship no longer obtains.
+EDESC
+#
+#
+#
+EVENT Cisco_reload .1.3.6.1.4.1.9.0.0 "Cisco Events" Warning
+FORMAT Cisco_reload trap received from enterprise $E with $# arguments: sysUpTime=$1; whyReload=$2
+SDESC
+This event occurs when an Cisco entity is reinitializing.
+
+A reload trap signifies that the sending
+protocol entity is reinitializing itself such
+that the agents configuration or the
+protocol entity implementation may be altered.
+EDESC
+#
+#
+#
+EVENT Cisco_tcpConnectClos .1.3.6.1.4.1.9.0.1 "LOGONLY" Normal
+FORMAT TCP connection terminated. Trap received from enterprise $E with $# arguments: tslineSesType=$1; tcpConnState=$2; loctcpConnElapsed=$3; loctcpConnInBytes=$4; loctcpConnOutBytes=$5; tsLineUser=$6
+SDESC
+This event occurs when a tty connection is closed.
+
+This trap signifies that a TCP conneciton
+previously established with the sending
+protocol entity for the purposes of tty
+session, has been terminated.
+EDESC
+#
+#
+#
+EVENT TsTempThreshold .1.3.6.1.4.1.9.1.111.1.2.1.2.0.1 "Status Events" Warning
+FORMAT TsTempThreshold trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT TsPortCfgLossTrap .1.3.6.1.4.1.9.1.111.1.2.2.0.1 "Status Events" Warning
+FORMAT TsPortCfgLossTrap trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT TsBeaconStart .1.3.6.1.4.1.9.1.111.1.2.2.0.2 "Status Events" Warning
+FORMAT TsBeaconStart trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT TsBeaconEnd .1.3.6.1.4.1.9.1.111.1.2.2.0.3 "Status Events" Normal
+FORMAT TsBeaconEnd trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT TSMaxFrameSizeExceed .1.3.6.1.4.1.9.1.111.1.2.2.0.4 "Status Events" Warning
+FORMAT TSMaxFrameSizeExceed trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT TsPortSwitchModeChge .1.3.6.1.4.1.9.1.111.1.2.2.0.5 "Status Events" Warning
+FORMAT TsPortSwitchModeChge trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT 2600TsDmnNewRoot .1.3.6.1.4.1.9.1.111.1.2.3.0.1 "Status Events" Warning
+FORMAT 2600TsDmnNewRoot trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT 2600TsDmnTopoChge .1.3.6.1.4.1.9.1.111.1.2.3.0.2 "Status Events" Warning
+FORMAT 2600TsDmnTopoChge trap received from enterprise $E with $# arguments:
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro316T_Cold_St .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9.1.147 "Cisco Events" Normal
+FORMAT CiscoPro316T on a power-on reset
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro316T_Warm_St .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9.1.147 "Cisco Events" Normal
+FORMAT CiscoPro316T is reset (warmStart Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro316T_Auth_Fa .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.1.147 "Cisco Events" Warning
+FORMAT CiscoPro316T Incorrect Community Name (authenticationFailure Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro316C_Cold_St .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9.1.148 "Cisco Events" Normal
+FORMAT CiscoPro316C on a power-on reset
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro316C_Warm_St .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9.1.148 "Cisco Events" Normal
+FORMAT CiscoPro316C is reset (warmStart Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro316C_Auth_Fa .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.1.148 "Cisco Events" Warning
+FORMAT CiscoPro316C Incorrect Community Name (authenticationFailure Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro3116_Cold_St .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9.1.149 "Cisco Events" Normal
+FORMAT CiscoPro3116 on a power-on reset
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro3116_Warm_St .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9.1.149 "Cisco Events" Normal
+FORMAT CiscoPro3116 is reset (warmStart Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT CiscoPro3116_Auth_Fa .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.1.149 "Cisco Events" Warning
+FORMAT CiscoPro3116 Incorrect Community Name (authenticationFailure Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst116T_Cold_St .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9.1.150 "Cisco Events" Normal
+FORMAT Catalyst116T on a power-on reset
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst116T_Warm_St .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9.1.150 "Cisco Events" Normal
+FORMAT Catalyst116T is reset (warmStart Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst116T_Auth_Fa .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.1.150 "Cisco Events" Warning
+FORMAT Catalyst116T Incorrect Community Name (authenticationFailure Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst116C_Cold_St .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9.1.151 "Cisco Events" Normal
+FORMAT Catalyst116C on a power-on reset
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst116C_Warm_St .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9.1.151 "Cisco Events" Normal
+FORMAT Catalyst116C is reset (warmStart Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst116C_Auth_Fa .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.1.151 "Cisco Events" Warning
+FORMAT Catalyst116C Incorrect Community Name (authenticationFailure Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst1116_Cold_St .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9.1.152 "Cisco Events" Normal
+FORMAT Catalyst1116 on a power-on reset
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst1116_Warm_St .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9.1.152 "Cisco Events" Normal
+FORMAT Catalyst1116 is reset (warmStart Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT Catalyst1116_Auth_Fa .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.1.152 "Cisco Events" Warning
+FORMAT Catalyst1116 Incorrect Community Name (authenticationFailure Trap)
+SDESC
+EDESC
+#
+#
+#
+EVENT mrLogon_Intruder .1.3.6.1.4.1.9.2.11.1.0.0 "Status Events" Major
+FORMAT Possible logon intrusion
+SDESC
+EDESC
+#
+#
+#
+EVENT mrDiagnostic_Failure .1.3.6.1.4.1.9.2.11.1.0.1 "Error Events" Critical
+FORMAT Diagnostic failure
+SDESC
+EDESC
+#
+#
+#
+EVENT mrRPS_Failure .1.3.6.1.4.1.9.2.11.1.0.2 "Status Events" Critical
+FORMAT Redundant power supply failed
+SDESC
+EDESC
+#
+#
+#
+EVENT mrIp_Address_Change .1.3.6.1.4.1.9.2.11.1.0.3 "Error Events" Major
+FORMAT Ip address change
+SDESC
+EDESC
+#
+#
+#
+EVENT Stack_Cold_Start .1.3.6.1.6.3.1.1.5.1.1.3.6.1.4.1.9.5 "Cisco Events" Normal
+FORMAT Cold Start trap received from enterprise $E with $# arguments: sysUpTime=$1; whyReload=$2
+SDESC
+This event occurs when a Cisco device is
+powered up.
+
+A coldStart trap signifies that the sending
+protocol entity is reinitializing itself such
+that the agent's configuration or the protocol
+entity implementation may be altered.
+EDESC
+#
+#
+#
+EVENT Stack_Warm_Start .1.3.6.1.6.3.1.1.5.2.1.3.6.1.4.1.9.5 "Cisco Events" Normal
+FORMAT Cisco Agent Up with No Changes (warmStart Trap)
+SDESC
+This event occurs when a Cisco agent is re-configured.
+
+A warmStart trap signifies that the sending
+protocol entity is reinitializing itself such
+that neither the agent configuration nor the
+protocol entity implementation is altered.
+EDESC
+#
+#
+#
+EVENT Stack_Link_Down .1.3.6.1.6.3.1.1.5.3.1.3.6.1.4.1.9.5 "Cisco Events" Minor
+#FORMAT linkDown trap received from enterprise $E with $# arguments: ifIndex=$1; ifAdminStatus=$2; ifOperStatus=$3
+FORMAT  linkDown trap received from enterprise $E with ifIndex=$1
+SDESC
+This event occurs when the Cisco agent
+detects an interface has gone down.
+
+A linkDown trap signifies that the sending
+protocol entity recognizes a failure in one of
+the communication links represented in the
+agent's configuration.
+EDESC
+#
+#
+#
+EVENT Stack_Link_Up .1.3.6.1.6.3.1.1.5.4.1.3.6.1.4.1.9.5 "Cisco Events" Normal
+#FORMAT linkUp trap received from enterprise $E with $# arguments: ifIndex=$1; ifAdminStatus=$2; ifOperStatus=$3
+FORMAT linkUp trap received from enterprise $E with ifIndex=$1
+SDESC
+This event occurs when the Cisco agent
+detects an interface has come back up.
+
+A linkUp trap signifies that the sending
+protocol entity recognizes that one of the
+communication links represented in the agent's
+configuration has come up.
+EDESC
+#
+#
+#
+EVENT Stack_Auth_Failu .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.5 "Cisco Events" Warning
+FORMAT Authentication Failure trap received from enterprise $E with $# arguments: authAddr=$1
+SDESC
+This event occurs when the Cisco agent
+detects an authentication failure
+has occurred.
+
+An authentication failure trap signifies that
+the sending protocol entity is the addressee
+of a protocol message that is not properly
+authenticated.  While implementations of the
+SNMP must be capable of generating this trap,
+they must also be capable of suppressing the
+emission of such traps via an implementation-
+specific mechanism.
+EDESC
+#
+#
+#
+EVENT lerAlarmOn .1.3.6.1.4.1.9.5.0.1 "Cisco Events" Warning
+FORMAT FDDI Link Error Rate Alarm: Trap received from enterprise $E with $# arguments: fddimibPORTSMTIndex=$1; fddimibPORTIndex=$2
+SDESC
+"A lerAlarmOn trap signifies that the agent entity has detected 
+that the fddimibPORTLerFlag object in the FDDI-SMT73-MIB 
+(RFC 1512) has transitioned to the true(1) state for one of its ports.
+The generation of this trap can be controlled by the 
+fddimibPORTLerAlarm object in the FDDI-SMT73-MIB for each port."
+EDESC
+#
+#
+#
+EVENT lerAlarmOff .1.3.6.1.4.1.9.5.0.2 "Cisco Events" Normal
+FORMAT FDDI Link Error Rate Alarm reset: Trap received from enterprise $E with $# arguments: fddimibPORTSMTIndex=$1; fddimibPORTIndex=$2
+SDESC
+"A lerAlarmOff trap signifies that the agent entity has detected 
+that the fddimibPORTLerFlag object in the FDDI-SMT73-MIB 
+(RFC 1512) has transitioned to the false(2) state for one of its ports.
+The generation of this trap can be controlled by the 
+fddimibPORTLerAlarm object in the FDDI-SMT73-MIB for each port."
+EDESC
+#
+#
+#
+EVENT moduleUp .1.3.6.1.4.1.9.5.0.3 "Status Events" Normal
+FORMAT moduleUp trap received from enterprise $E with $# arguments: moduleIndex=$1
+SDESC
+"A moduleUp trap signifies that the agent entity has detected that 
+the moduleStatus object in this MIB has transitioned to the ok(2) 
+state for one of its modules.
+The generation of this trap can be controlled by the 
+sysEnableModuleTraps object."
+EDESC
+#
+#
+#
+EVENT moduleDown .1.3.6.1.4.1.9.5.0.4 "Status Events" Major
+FORMAT moduleDown trap received from enterprise $E with $# arguments: moduleIndex=$1
+SDESC
+"A moduleDown trap signifies that the agent entity has detected 
+that the moduleStatus object in this MIB has transitioned out of 
+the ok(2) state for one of its modules.
+The generation of this trap can be controlled by the 
+sysEnableModuleTraps object."
+EDESC
+#
+#
+#
+EVENT chassisAlarmOn .1.3.6.1.4.1.9.5.0.5 "Cisco Events" Warning
+FORMAT chassisAlarmOn trap received from enterprise $E with $# arguments: chassisTempAlarm=$1; chassisMinorAlarm=$2; chassisMajorAlarm=$3
+SDESC
+"A chassisAlarmOn trap signifies that the agent entity has 
+detected the chassisTempAlarm, chassisMinorAlarm, or 
+chassisMajorAlarm object in this MIB has transitioned to 
+the on(2) state.  The generation of this trap can be controlled 
+by the sysEnableChassisTraps object."
+EDESC
+#
+#
+#
+EVENT chassisAlarmOff .1.3.6.1.4.1.9.5.0.6 "Cisco Events" Normal
+FORMAT chassisAlarmOff trap received from enterprise $E with $# arguments: chassisTempAlarm=$1; chassisMinorAlarm=$2; chassisMajorAlarm=$3
+SDESC
+"A chassisAlarmOff trap signifies that the agent entity has 
+detected the chassisTempAlarm, chassisMinorAlarm, or 
+chassisMajorAlarm object in this MIB has transitioned to the 
+off(1) state.  The generation of this trap can be controlled by the
+sysEnableChassisTraps object."
+EDESC
+#
+#
+#
+EVENT ipPermitDeniedTrap .1.3.6.1.4.1.9.5.0.7 "Cisco Events" Normal
+FORMAT ipPermitDeniedTrap received from enterprise $E with $# arguments:  ipPermitDeniedAddress=$1; ipPermitDeniedAccess=$2
+SDESC
+"ipPermitDeniedTrap indicates that IP permit denied access happens. The
+ generation of this trap can be controlled by the sysEnableIpPermitTraps
+ object in this MIB."
+EDESC
+#
+#
+#
+EVENT Auth_Failure .1.3.6.1.6.3.1.1.5.5.1.3.6.1.4.1.9.5.7 "IGNORE" Normal
+FORMAT Authentication Failure - Received event $E. $# args: $*
+SDESC
+EDESC
+#
+#
+#
+EVENT LS1010ChassisFail .1.3.6.1.4.1.9.5.11.2.0.1  "Status Events" Warning
+FORMAT LS1010ChassisFail trap received from enterprise $E with $# arguments: ciscoLS1010ChassisPs0Status=$1; ciscoLS1010ChassisPs1Status=$2; ciscoLS1010ChassisFanStatus=$3; ciscoLS1010Chassis12VoltStatus=$4; ciscoLS1010ChassisTempStatus=$5
+SDESC
+"Agent detects any chassis failure of ps0, ps1, fan, 12 volt and/or over
+ temperature. The trap will be sent out every 1 minute."
+EDESC
+#
+#
+#
+EVENT LS1010ChassisChg .1.3.6.1.4.1.9.5.11.2.0.2  "Status Events" Warning
+FORMAT LS1010ChassisChg trap received from enterprise $E with $# arguments:
+SDESC
+"Agent detects any hot-swappable component change or changes in the chassis."
+EDESC
+#
+#
+#
+EVENT ciscoEsStackCfgChang .1.3.6.1.4.1.9.5.14.1.1.0.1 "LOGONLY" Normal
+FORMAT ciscoEsStackCfgChang trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; ciscoEsNumSwitches=$3
+SDESC
+Long Descr.:
+"This trap is generated when there is a change in the 
+stack configuration i.e. when either a new switch is 
+added to the stack or a switch leaves a stack.
+ciscoEsNumSwitches indicates the current number of switches
+which are part of the stack. The management station has to 
+update its stack information according to the
+stack table."
+Variables:
+  1: sysName
+     Syntax="Display String (SIZE(0..255))"
+     Descr="An administratively-assigned name for this
+managed node.  By convention, this is the node's
+fully-qualified domain name."
+  2: sysLocation
+     Syntax="Display String (SIZE(0..255))"
+     Descr="The physical location of this node (e.g.,
+`telephone closet, 3rd floor')."
+  3: ciscoEsNumSwitches
+     Syntax="Integer"
+     Descr="Total number of switches in the stack."
+EDESC
+#
+#
+#
+EVENT ciscoEsStackProStack .1.3.6.1.4.1.9.5.14.1.1.0.2 "LOGONLY" Normal
+FORMAT ciscoEsStackProStack trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; ciscoEsProStackMatrixStatus=$3
+SDESC
+Long Descr.:
+"This trap is generated when the stack switches over
+from primary to secondary Matrix or from 
+secondary back to primary Matrix."
+Variables:
+  1: sysName
+     Syntax="Display String (SIZE(0..255))"
+     Descr="An administratively-assigned name for this
+managed node.  By convention, this is the node's
+fully-qualified domain name."
+  2: sysLocation
+     Syntax="Display String (SIZE(0..255))"
+     Descr="The physical location of this node (e.g.,
+`telephone closet, 3rd floor')."
+  3: ciscoEsProStackMatrixStatus
+     Syntax="Integer"
+     Descr="Active Matrix module in the stack. This object 
+is set to none if the switch is not connected to a
+Matrix."
+EDESC
+#
+#
+#
+EVENT ciscoEsStackTempChan .1.3.6.1.4.1.9.5.14.2.0.1 "LOGONLY" Normal
+FORMAT ciscoEsStackTempChange trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; ciscoEsStackSwitchTemperature=$3
+SDESC
+Long Descr.:
+"This trap is generated when the temperature in a 
+switch exceeds normal or returns to normal."
+Variables:
+  1: sysName
+     Syntax="Display String (SIZE(0..255))"
+     Descr="An administratively-assigned name for this
+managed node.  By convention, this is the node's
+fully-qualified domain name."
+  2: sysLocation
+     Syntax="Display String (SIZE(0..255))"
+     Descr="The physical location of this node (e.g.,
+`telephone closet, 3rd floor')."
+  3: ciscoEsStackSwitchTemperature
+     Syntax="Integer"
+     Descr="Temperature status of each switch."
+EDESC
+#
+#
+#
+EVENT c3kTempurature_Chang .1.3.6.1.4.1.9.5.14.2.0.3 "Status Events" Critical
+FORMAT Temperature state changed
+SDESC
+EDESC
+#
+#
+#
+EVENT ciscoEsPortStrNFwdEn .1.3.6.1.4.1.9.5.14.4.0.1 "LOGONLY" Normal
+FORMAT ciscoEsPortStrNFwdEn trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; ciscoEsPortActiveMode=$3
+SDESC
+Long Descr.:
+"This trap is generated when a port automatically
+enters store and forward mode when the error rate 
+exceeds the threshold."
+Variables:
+  1: sysName
+     Syntax="Display String (SIZE(0..255))"
+     Descr="An administratively-assigned name for this
+managed node.  By convention, this is the node's
+fully-qualified domain name."
+  2: sysLocation
+     Syntax="Display String (SIZE(0..255))"
+     Descr="The physical location of this node (e.g.,
+`telephone closet, 3rd floor')."
+  3: ciscoEsPortActiveMode
+     Syntax="Integer"
+     Descr="Operational bridging mode for the port."
+EDESC
+#
+#
+#
+EVENT c3kSwitchingMode_Cha .1.3.6.1.4.1.9.5.14.4.0.4 "Status Events" Normal
+FORMAT Switching mode changed
+SDESC
+EDESC
+#
+#
+#
+EVENT ciscoEsEtherChannelF .1.3.6.1.4.1.9.5.14.6.0.1 "LOGONLY" Normal
+FORMAT ciscoEsEtherChannelFail trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; ciscoEsECPorts=$3
+SDESC
+Long Descr.:
+"This trap is sent when one of the links in an
+EtherChannel fail. The variable ciscoEsECPorts
+contains the ports which are operational in the
+EtherChannel."
+Variables:
+  1: sysName
+     Syntax="Display String (SIZE(0..255))"
+     Descr="An administratively-assigned name for this
+managed node.  By convention, this is the node's
+fully-qualified domain name."
+  2: sysLocation
+     Syntax="Display String (SIZE(0..255))"
+     Descr="The physical location of this node (e.g.,
+`telephone closet, 3rd floor')."
+  3: ciscoEsECPorts
+     Syntax="Octet String (SIZE(4))"
+     Descr="The set of ports in this switch which are active in this 
+EtherChannel. Each octet within the value of this object 
+specifies a set of eight ports, with the first octet 
+specifying ports 1 through 8, the second octet specifying 
+ports 9 through 16, etc.  Within each octet, the most
+significant bit represents the lowest numbered
+port, and the least significant bit represents the
+highest numbered port.  Thus, each port of the
+EtherSwitch is represented by a single bit within the
+value of this object.  If that bit has a value of
+'1' then that port is included in the set of
+ports; the port is not included if its bit has a
+value of '0'."
+EDESC
+#
+#
+#
+EVENT c3kEtherChannelFailu .1.3.6.1.4.1.9.5.14.6.0.7 "Status Events" Major
+FORMAT EtherChannel Failure
+SDESC
+EDESC
+#
+#
+#
+EVENT ciscoEsVLANNewRoot .1.3.6.1.4.1.9.5.14.8.0.1 "LOGONLY" Normal
+FORMAT ciscoEsVLANNewRoot trap received from enterprise $E with $# arguments: ciscoEsVLANInfoVLANNumber=$1
+SDESC
+Long Descr.:
+"This trap is a vlan specific version of the
+newRoot trap as described in RFC1493.
+
+The newRoot trap indicates that the sending agent
+has become the new root of the Spanning Tree; the
+trap is sent by a bridge soon after its election
+as the new root, e.g., upon expiration of the
+Topology Change Timer immediately subsequent to
+its election.  Implementation of this trap is
+optional."
+Variables:
+  1: ciscoEsVLANInfoVLANNumber
+     Syntax="Integer (0..63)"
+     Descr="VLAN identifier for this row."
+EDESC
+#
+#
+#
+EVENT ciscoEsVLANTopologyC .1.3.6.1.4.1.9.5.14.8.0.2 "LOGONLY" Normal
+FORMAT ciscoEsVLANTopologyChange trap received from enterprise $E with $# arguments: ciscoEsVLANInfoVLANNumber=$1
+SDESC
+Long Descr.:
+"This trap is a vlan specific version of the
+topologyChange trap as described in RFC1493.
+
+A topologyChange trap is sent by a bridge when
+any of its configured ports transitions from the
+Learning state to the Forwarding state, or from
+the Forwarding state to the Blocking state.  The
+trap is not sent if a newRoot trap is sent for the
+same transition.  Implementation of this trap is
+optional."
+Variables:
+  1: ciscoEsVLANInfoVLANNumber
+     Syntax="Integer (0..63)"
+     Descr="VLAN identifier for this row."
+EDESC
+#
+#
+#
+EVENT c3kVlanNewRoot .1.3.6.1.4.1.9.5.14.8.0.5 "Status Events" Normal
+FORMAT Spanning Tree new root
+SDESC
+EDESC
+#
+#
+#
+EVENT c3kTopology_Change .1.3.6.1.4.1.9.5.14.8.0.6 "Status Events" Normal
+FORMAT Spanning Tree topology change
+SDESC
+EDESC
+#
+#
+#
+EVENT CopyCompletionTrap .1.3.6.1.4.1.9.9.10.1.3.0.1 "Status Events" Normal
+FORMAT CopyCompletionTrap received from enterprise $E with $# arguments: ciscoFlashCopyStatus=$1
+SDESC
+"A ciscoFlashCopyCompletionTrap is sent at the completion of a 
+flash copy operation if such a trap was requested when the 
+operation was initiated."
+EDESC
+#
+#
+#
+EVENT PartitioningComplete .1.3.6.1.4.1.9.9.10.1.3.0.2 "Status Events" Normal
+FORMAT PartitioningComplete trap received from enterprise $E with $# arguments: ciscoFlashPartitioningStatus=$1
+SDESC
+"A ciscoFlashPartitioningCompletionTrap is sent at the completion 
+of a partitioning operation if such a trap was requested when the 
+operation was initiated."
+EDESC
+#
+#
+#
+EVENT MiscOpCompletionTrap .1.3.6.1.4.1.9.9.10.1.3.0.3 "Status Events" Normal
+FORMAT ciscoFlashMiscOpCompletionTrap received from enterprise $E with $# arguments: ciscoFlashMiscOpStatus=$1
+SDESC
+"A ciscoFlashMiscOpCompletionTrap is sent at the completion of a 
+miscellaneous flash operation (enumerated in 
+ciscoFlashMiscOpCommand) if such a trap was requested when the 
+operation was initiated."
+EDESC
+#
+#
+#
+EVENT DeviceChangeTrap .1.3.6.1.4.1.9.9.10.1.3.0.4 "Status Events" Normal
+FORMAT ciscoFlashDeviceChangeTrap received from enterprise $E with $# arguments: ciscoFlashDeviceIndex=$1
+SDESC
+"A ciscoFlashDeviceChangeTrap is sent whenever a removable Flash 
+device is inserted or removed."
+EDESC
+#
+#
+#
+EVENT ShutdownNotification .1.3.6.1.4.1.9.9.13.3.0.1 "Cisco Events" Critical
+FORMAT Cisco Shutdown Notification from enterprise $E with  $# args $*
+SDESC
+"A ciscoEnvMonShutdownNotification is sent if the environmental 
+monitor detects a testpoint reaching a critical state and is 
+about to initiate a shutdown.  This notification contains no 
+objects so that it may be encoded and sent in the shortest amount 
+of time possible.  Even so, management applications should not rely 
+on receiving such a notification as it may not be sent before the 
+shutdown completes."
+EDESC
+#
+#
+#
+EVENT VoltageNotification .1.3.6.1.4.1.9.9.13.3.0.2 "Cisco Events" Critical
+FORMAT ciscoEnvMonVoltageNotification trap received from enterprise $E with $# arguments: ciscoEnvMonVoltageStatusDescr=$1; ciscoEnvMonVoltageStatusValue=$2; ciscoEnvMonVoltageState=$3
+SDESC
+"A ciscoEnvMonVoltageNotification is sent if the voltage measured 
+at a given testpoint is outside the normal range for the testpoint 
+(i.e. is at the warning, critical, or shutdown stage).  Since such 
+a notification is usually generated before the shutdown state is 
+reached, it can convey more data and has a better chance of being 
+sent than does the ciscoEnvMonShutdownNotification."
+EDESC
+#
+#
+#
+EVENT TemperatureNotificat .1.3.6.1.4.1.9.9.13.3.0.3 "Cisco Events" Major
+FORMAT ciscoEnvMonTemperatureNotification received from enterprise $E with $# arguments: ciscoEnvMonTemperatureStatusDescr=$1; ciscoEnvMonTemperatureStatusValue=$2; ciscoEnvMonTemperatureState=$3
+SDESC
+"A ciscoEnvMonTemperatureNotification is sent if the temperature 
+measured at a given testpoint is outside the normal range for the 
+testpoint (i.e. is at the warning, critical, or shutdown stage).  
+Since such a Notification is usually generated before the shutdown 
+state is reached, it can convey more data and has a better chance 
+of being sent than does the ciscoEnvMonShutdownNotification."
+EDESC
+#
+#
+#
+EVENT FanNotification .1.3.6.1.4.1.9.9.13.3.0.4 "Cisco Events" Major
+FORMAT ciscoEnvMonFanNotification received from enterprise $E with $# arguments: ciscoEnvMonFanStatusDescr=$1; ciscoEnvMonFanState=$2
+SDESC
+"A ciscoEnvMonFanNotification is sent if any one of the fans in 
+the fan array (where extant) fails.  Since such a notification 
+is usually generated before the shutdown state is reached, it can 
+convey more data and has a better chance of being sent than does 
+the ciscoEnvMonShutdownNotification."
+EDESC
+#
+#
+#
+EVENT RedundantSupplyNotif .1.3.6.1.4.1.9.9.13.3.0.5 "Cisco Events" Warning
+FORMAT ciscoEnvMonRedundantSupplyNotification received from enterprise $E with $# arguments: ciscoEnvMonSupplyStatusDescr=$1; ciscoEnvMonSupplyState=$2
+SDESC
+"A ciscoEnvMonRedundantSupplyNotification is sent if the redundant 
+power supply (where extant) fails.  Since such a notification is 
+usually generated before the shutdown state is reached, it can 
+convey more data and has a better chance of being sent than does 
+the ciscoEnvMonShutdownNotification."
+EDESC
+#
+#
+#
+EVENT ciscoPingCompletion .1.3.6.1.4.1.9.9.16.2.0.1 "Status Events" Normal
+FORMAT ciscoPingCompleted trap received from enterprise $E with $# arguments: ciscoPingCompleted=$1; ciscoPingSentPackets=$2; ciscoPingReceivedPackets=$3
+SDESC
+"A ciscoPingCompleted trap is sent at the completion of a sequence 
+of pings if such a trap was requested when the sequence was initiated.  
+In addition to the above listed objects (which are always present),
+the message will also contain the following objects if any responses 
+were received:
+         ciscoPingMinRtt
+         ciscoPingAvgRtt
+         ciscoPingMaxRtt"
+EDESC
+#
+#
+#
+EVENT ciuIfLoopStatusNot .1.3.6.1.4.1.9.9.18.2.0.1 "Status Events" Warning
+FORMAT ciuIfLoopStatusNotification received from enterprise $E with $# arguments: ciuIfLoopStatus=$1
+SDESC
+" A ciuIfLoopStatusNotification is sent when there is a change in
+ ciscoIsdnuIfLoopStatus object. The status change occurs when the ISDN BRI
+ integrated U interface enters into or exits from Loopback or Maintenance
+ modes."
+EDESC
+#
+#
+# 
+EVENT cipCardLinkFailure .1.3.6.1.4.1.9.9.20.1.5.0.1 "Status Events" Critical
+FORMAT cipCardLinkFailure trap received from enterprise $E with $# arguments: cipCardDtrBrdIndex=$1; cipCardDtrBrdStatus=$2; cipCardDtrBrdSignal=$3; linkIncidentTrapCause=$4; implicitIncidents=$5; codeViolationErrors=$6; linkFailureSignalOrSyncLoss=$7; linkFailureNOSs=$8; linkFailureSequenceTimeouts=$9; linkFailureInvalidSequences=$10
+SDESC
+"This trap indicates that a significant link event has been recognized 
+resulting in the degradation of the interface line quality."
+EDESC
+#
+#
+#
+EVENT cipCardDtrBrdLink .1.3.6.1.4.1.9.9.20.1.5.0.2 "Status Events" Warning
+FORMAT cipCardDtrBrdLinkFailure trap received from enterprise $E with $# arguments: cipCardDtrBrdStatus=$1; cipCardDtrBrdSignal=$2; linkIncidentTrapCause=$3
+SDESC
+"The cipCardDtrBrdLinkFailure trap indicates that a significant link event has
+ been recognized resulting in the degradation of the interface line quality." 
+EDESC
+#
+#
+#
+EVENT IllegalSrcAddrTrap .1.3.6.1.4.1.9.9.22.3.0.1 "Status Events" Warning
+FORMAT IllegalSrcAddrTrap received from enterprise $E with $# arguments: ciscoRptrPortLastIllegalSrcAddr=$1
+SDESC
+"When the illegal MAC source address violation is detected, the port 
+is partitioned for one minute.  In addition, this trap notification 
+is generated.
+
+Note: rptrPortGroupIndex, and rptrPortIndex are
+      the instances of ciscoRptrPortLastIllegalSrcAddr."
+EDESC
+#
+#
+#
+EVENT newdspuPuStateChange .1.3.6.1.4.1.9.9.24.1.4.4.0.1 "Status Events" Warning
+FORMAT newdspuPuStateChange trap received from enterprise $E with $# arguments: dspuPuOperName=$1; dspuPuOperState=$2
+SDESC
+"Generated when the operational stateof the PU changes
+ between active<-->inactive.
+ 
+The following information is returned:
+    dspuPuOperName  -> PU name
+    dspuPuOperState -> Current operational state of the PU"
+EDESC
+#
+#
+#
+EVENT newdspuPuActivatFail .1.3.6.1.4.1.9.9.24.1.4.4.0.2 "Status Events" Warning
+FORMAT newdspuPuActivatFail trap received from enterprise $E with $# arguments: dspuPuOperName=$1; dspuPuOperState=$2; dspuPuStatsLastActivationFailureReason=$3
+SDESC
+"Generated whenever a PU activation failure is detected.
+ 
+The following information is returned:
+    dspuPuOperName -> PU name
+    dspuPuOperStat -> Current operational state of the PU
+    dspuPuStatsLastActivationFailureReason
+                   -> Reason for PU activation failure"
+EDESC
+#
+#
+#
+EVENT newdspuLuStateChange .1.3.6.1.4.1.9.9.24.1.5.3.0.1 "Status Events" Warning
+FORMAT newdspuLuStateChange trap received from enterprise $E with $# arguments: dspuPuOperName=$1; dspuLuOperState=$2
+SDESC
+"Generated when the operational state of the LU changes 
+between active<-->inactive.
+ 
+The following information is returned:
+    dspuPuOperName -> PU name
+    dspuLuOperState -> Current operational state of the LU"
+EDESC
+#
+#
+#
+EVENT dspuLuActivationFail .1.3.6.1.4.1.9.9.24.1.5.3.0.2 "Status Events" Warning
+FORMAT dspuLuActivationFail trap received from enterprise $E with $# arguments: dspuPuOperName=$1; dspuLuOperState=$2; dspuLuOperLastActivationFailureReason=$3
+SDESC
+"Generated whenever an LU activation failure is detected.
+ 
+The following information is returned:
+    dspuPuOperName -> PU name
+    dspuLuOperState -> Current operational state of the LU
+    dspuLuOperLastActivationFailureReason
+                    ->  Reason for LU activation failure"
+EDESC
+#
+#
+#
+EVENT dspuSapStateChange .1.3.6.1.4.1.9.9.24.1.6.2.0.1 "Status Events" Warning
+FORMAT dspuSapStateChange trap received from enterprise $E with $# arguments: dspuSapDlcType=$1; dspuSapDlcUnit=$2; dspuSapDlcPort=$3; dspuSapAddress=$4; dspuSapOperState=$5
+SDESC
+"Generated when the operational state of the SAP changes 
+between 'open' or 'closed'.
+ 
+The following information is returned:
+    dspuSapOperDlcType
+        -> DLC type of the adapter on which SAP is located
+    dspuSapOperDlcUnit
+        -> Unit ID of the adapter on which SAP is located
+    dspuSapOperDlcPort
+        -> Port ID of the adapter on which SAP is located
+    dspuSapOperAddress
+        -> SAP address
+    dspuSapOperState
+        -> Current operational state of the SAP"
+EDESC
+#
+#
+#
+EVENT demandNbrCallInfo .1.3.6.1.4.1.9.9.26.2.0.1 "Status Events" Normal
+FORMAT demandNbrCallInfo trap received from enterprise $E with $# args:\n$*
+SDESC
+"This trap/inform is sent to the manager whenever a successful 
+call clears, or a failed call attempt is determined to have 
+ultimately failed. In the event that call retry is active, 
+then this is after all retry attempts have failed. However,
+only one such trap is sent in between successful call attempts; 
+subsequent call attempts result in no trap."
+EDESC
+#
+#
+#
+EVENT demandNbrCallDetails .1.3.6.1.4.1.9.9.26.2.0.2 "Status Events" Normal
+FORMAT demandNbrCallDetails trap received from enterprise $E with $# arguments: demandNbrLogIf=$1; demandNbrName=$2; demandNbrAddress=$3; demandNbrLastDuration=$4; demandNbrClearReason=$5; demandNbrClearCode=$6; demandNbrCallOrigin=$7
+SDESC
+"This trap/inform is sent to the manager whenever a call connects, 
+or  clears, or a failed call attempt is determined to have ultimately 
+failed. In the event that call retry is active, then this is after 
+all retry attempts have failed. However, only one such trap is sent 
+in between successful call attempts; subsequent call attempts result 
+in no trap."
+EDESC
+#
+#
+#
+EVENT SdllcPeerStateChange .1.3.6.1.4.1.9.9.28.2.0.1 "Status Events" Warning
+FORMAT SdllcPeerStateChange trap received from enterprise $E with $# arguments: convSdllcAddrState=$1
+SDESC
+"This Notification indicates that the state of an SDLLC connection 
+has transitioned to connected or disconnected."
+EDESC
+#
+#
+#
+EVENT PeerStateChangeNotif .1.3.6.1.4.1.9.9.29.2.0.1 "Status Events" Warning
+FORMAT PeerStateChangeNotification received from enterprise $E with $# arguments: rsrbRemotePeerState=$1
+SDESC
+"This trap indicates that the state of an RSRB remote peer has 
+transitioned to active (psConnected) or inactive (psDead or psClosed)."
+EDESC
+#
+#
+#
+EVENT stunPeerStateChange .1.3.6.1.4.1.9.9.30.2.0.1 "Status Events" Warning
+FORMAT stunPeerStateChange trap received from enterprise $E with $# arguments: stunRoutePeerState=$1
+SDESC
+"This notification indicates that the state of a STUN route has 
+transitioned to active (connected or direct) or inactive (dead or 
+closed)."
+EDESC
+#
+#
+#
+EVENT snaOpenDuplctSapFail .1.3.6.1.4.1.9.9.33.2.0.1 "Status Events" Warning
+FORMAT snaOpenDuplctSapFail trap received from enterprise $E with $# arguments: cipCardCsnaSlot=$1; cipCardCsnaPort=$2; cipCardCsnaConnPath=$3; cipCardCsnaConnDevice=$4
+SDESC
+"This trap indicates that VTAM attempted to open a SAP that was 
+already open via another Path/Device on this CIP card."
+EDESC
+#
+#
+#
+EVENT Llc2ConnctLimitXceed .1.3.6.1.4.1.9.9.33.2.0.2 "Status Events" Warning
+FORMAT Llc2ConnctLimitXceed trap received from enterprise $E with $# arguments: cipCardAdminMaxLlc2Sessions=$1; cipCardOperMaxLlc2Sessions=$2; cipCardStatsHiWaterLlc2Sessions=$3; cipCardStatsLlc2SessionAllocationErrs=$4
+SDESC
+"This trap indicates that a connection attempt was rejected due to 
+a connection resource limitation"
+EDESC
+#
+#
+#
+EVENT bstunPeerStateChg .1.3.6.1.4.1.9.9.35.2.0.1 "Status Events" Warning
+FORMAT bstunPeerStateChg trap received from enterprise $E with $# arguments: bstunRoutePeerState=$1
+SDESC
+"This notification indicates that the state of a BSTUN route has 
+transitioned to active (connected) or inactive (dead or closed)."
+EDESC
+#
+#
+#
+EVENT clogMessageGenerated .1.3.6.1.4.1.9.9.41.2.0.1 "LOGONLY" Normal
+FORMAT clogMessageGenerated trap received from enterprise $E with $# arguments: clogHistFacility=$1; clogHistSeverity=$2; clogHistMsgName=$3; clogHistMsgText=$4; clogHistTimestamp=$5
+SDESC
+Long Descr.:
+"When a syslog message is generated by the device a
+clogMessageGenerated notification is sent.  The
+sending of these notifications can be enabled/disabled
+via the clogNotificationsEnabled object."
+Variables:
+  1: clogHistFacility
+     Syntax="Display String (SIZE(1..20))"
+     Descr="Name of the facility that generated this message.
+For example: 'SYS'."
+  2: clogHistSeverity
+     Syntax="SyslogSeverity  (Integer) "
+     Descr="The severity of the message."
+  3: clogHistMsgName
+     Syntax="Display String (SIZE(1..30))"
+     Descr="A textual identification for the message type.  A 
+facility name in conjunction with a message name 
+uniquely identifies a message type."
+  4: clogHistMsgText
+     Syntax="Display String (SIZE(1..255))"
+     Descr="The text of the message.  If the text of the message
+exceeds 255 bytes, the message will be truncated to
+254 bytes and a '*' character will be appended -
+indicating that the message has been truncated."
+  5: clogHistTimestamp
+     Syntax="TimeStamp  (Timeticks) "
+     Descr="The value of sysUpTime when this message was generated."
+EDESC
+#
+#
+#
+EVENT rttMonConnectionChan .1.3.6.1.4.1.9.9.42.2.0.1 "LOGONLY" Normal
+FORMAT rttMonConnectionChange trap received from enterprise $E with $# arguments: rttMonCtrlAdminTag=$1; rttMonHistoryCollectionAddress=$2; rttMonCtrlOperConnectionLostOccurred=$3
+SDESC
+Long Descr.:
+"This notification is only valid when the RttMonRttType
+is 'echo' or 'pathEcho'.
+
+A rttMonConnectionChangeNotification indicates that a
+connection to a target (not to a hop along the path
+to a target) has either failed on establishment or 
+been lost and when reestablished.  Precisely, this
+has resulted in rttMonCtrlOperConnectionLostOccurred
+changing value.
+
+If History is not being collected, the instance values 
+for the rttMonHistoryCollectionAddress object will not 
+be valid.  When RttMonRttType is not 'echo' or 'pathEcho'
+the rttMonHistoryCollectionAddress object will be null."
+Variables:
+  1: rttMonCtrlAdminTag
+     Syntax="Display String (SIZE(0..16))"
+     Descr="A string which is used by a managing application to 
+identify the RTT target.  This string is inserted into 
+notifications, but has no other significance to the 
+agent."
+  2: rttMonHistoryCollectionAddress
+     Syntax="RttMonTargetAddress  (Octet String) "
+     Descr="When the RttMonRttType is 'echo' or 'pathEcho' this
+is a string which specifies the address of the target for
+the this RTT operation.  For all other values of
+RttMonRttType this string will be null.
+
+This address will be the address of the hop along the
+path to the rttMonEchoAdminTargetAddress address,
+including rttMonEchoAdminTargetAddress address, or just
+the rttMonEchoAdminTargetAddress address, when the
+path information is not collected.  This behavior is
+defined by the rttMonCtrlAdminRttType object.
+
+The interpretation of this string depends on the type
+of RTT operation selected, as specified by the
+rttMonEchoAdminProtocol object.
+
+See rttMonEchoAdminTargetAddress for a complete
+description."
+  3: rttMonCtrlOperConnectionLostOccurred
+     Syntax="TruthValue  (Integer) "
+     Descr="This object will only change its value when the
+RttMonRttType is 'echo' or 'pathEcho'.
+
+This object is set to true when the RTT connection fails 
+to be established or is lost, and set to false when a 
+connection is reestablished.  When the RttMonRttType
+is 'pathEcho', connection loss applies only to the
+rttMonEchoAdminTargetAddress and not to intermediate
+hops to the Target.
+
+When this value changes and 
+rttMonReactAdminConnectionEnable is true, a reaction 
+will occur. 
+
+If a trap is sent it is a 
+rttMonConnectionChangeNotification."
+EDESC
+#
+#
+#
+EVENT rttMonTimeoutNotific .1.3.6.1.4.1.9.9.42.2.0.2 "LOGONLY" Normal
+FORMAT rttMonTimeoutNotification received from enterprise $E with $# arguments: rttMonCtrlAdminTag=$1; rttMonHistoryCollectionAddress=$2; rttMonCtrlOperTimeoutOccurred=$3
+SDESC
+Long Descr.:
+"A rttMonTimeoutNotification indicates the occurrence of 
+a timeout for a RTT operation, and it indicates the 
+clearing of such a condition by a subsequent RTT 
+operation. Precisely, this has resulted in 
+rttMonCtrlOperTimeoutOccurred changing value. 
+
+When the RttMonRttType is 'pathEcho', this 
+notification will only be sent when the timeout 
+occurs during an operation to the target and not to
+a hop along the path to the target.  This also 
+applies to the clearing of the timeout. 
+
+If History is not being collected, the instance values 
+for the rttMonHistoryCollectionAddress object will not 
+be valid.  When RttMonRttType is not 'echo' or 'pathEcho'
+the rttMonHistoryCollectionAddress object will be null."
+Variables:
+  1: rttMonCtrlAdminTag
+     Syntax="Display String (SIZE(0..16))"
+     Descr="A string which is used by a managing application to 
+identify the RTT target.  This string is inserted into 
+notifications, but has no other significance to the 
+agent."
+  2: rttMonHistoryCollectionAddress
+     Syntax="RttMonTargetAddress  (Octet String) "
+     Descr="When the RttMonRttType is 'echo' or 'pathEcho' this
+is a string which specifies the address of the target for
+the this RTT operation.  For all other values of
+RttMonRttType this string will be null.
+
+This address will be the address of the hop along the
+path to the rttMonEchoAdminTargetAddress address,
+including rttMonEchoAdminTargetAddress address, or just
+the rttMonEchoAdminTargetAddress address, when the
+path information is not collected.  This behavior is
+defined by the rttMonCtrlAdminRttType object.
+
+The interpretation of this string depends on the type
+of RTT operation selected, as specified by the
+rttMonEchoAdminProtocol object.
+
+See rttMonEchoAdminTargetAddress for a complete
+description."
+  3: rttMonCtrlOperTimeoutOccurred
+     Syntax="TruthValue  (Integer) "
+     Descr="This object will change its value for all
+RttMonRttTypes.
+
+This object is set to true when an operation times out, 
+and set to false when an operation completes under 
+rttMonCtrlAdminTimeout.  When this value changes, a 
+reaction may occur, as defined by 
+rttMonReactAdminTimeoutEnable. 
+
+When the RttMonRttType is 'pathEcho', this timeout
+applies only to the rttMonEchoAdminTargetAddress and
+not to intermediate hops to the Target.
+
+If a trap is sent it is a rttMonTimeoutNotification."
+EDESC
+#
+#
+#
+EVENT rttMonThresholdNotif .1.3.6.1.4.1.9.9.42.2.0.3 "LOGONLY" Normal
+FORMAT rttMonThresholdNotification received from enterprise $E with $# arguments: rttMonCtrlAdminTag=$1; rttMonHistoryCollectionAddress=$2; rttMonCtrlOperOverThresholdOccurred=$3
+SDESC
+Long Descr.:
+"A rttMonThresholdNotification indicates the 
+occurrence of a threshold violation for a RTT operation,
+and it indicates the previous violation has subsided for
+a subsequent RTT operation.  Precisely, this has resulted
+in rttMonCtrlOperOverThresholdOccurred changing value.  
+
+When the RttMonRttType is 'pathEcho', this 
+notification will only be sent when the threshold
+violation occurs during an operation to the target and
+not to a hop along the path to the target.  This also
+applies to the subsiding of a threshold condition.
+
+If History is not being collected, the instance values 
+for the rttMonHistoryCollectionAddress object will not 
+be valid.  When RttMonRttType is not 'echo' or 'pathEcho'
+the rttMonHistoryCollectionAddress object will be null."
+Variables:
+  1: rttMonCtrlAdminTag
+     Syntax="Display String (SIZE(0..16))"
+     Descr="A string which is used by a managing application to 
+identify the RTT target.  This string is inserted into 
+notifications, but has no other significance to the 
+agent."
+  2: rttMonHistoryCollectionAddress
+     Syntax="RttMonTargetAddress  (Octet String) "
+     Descr="When the RttMonRttType is 'echo' or 'pathEcho' this
+is a string which specifies the address of the target for
+the this RTT operation.  For all other values of
+RttMonRttType this string will be null.
+
+This address will be the address of the hop along the
+path to the rttMonEchoAdminTargetAddress address,
+including rttMonEchoAdminTargetAddress address, or just
+the rttMonEchoAdminTargetAddress address, when the
+path information is not collected.  This behavior is
+defined by the rttMonCtrlAdminRttType object.
+
+The interpretation of this string depends on the type
+of RTT operation selected, as specified by the
+rttMonEchoAdminProtocol object.
+
+See rttMonEchoAdminTargetAddress for a complete
+description."
+  3: rttMonCtrlOperOverThresholdOccurred
+     Syntax="TruthValue  (Integer) "
+     Descr="This object will change its value for all 
+RttMonRttTypes.
+
+This object is changed by operation completion times over
+threshold, as defined by rttMonReactAdminThresholdType.  
+When this value changes, a reaction may occur, as defined 
+by rttMonReactAdminThresholdType. 
+
+If a trap is sent it is a rttMonThresholdNotification."
+EDESC
+#
+#
+#
+EVENT ciscoConfigManEvent .1.3.6.1.4.1.9.9.43.2.0.1 "IGNORE" Normal
+FORMAT ciscoConfigManEvent received from enterprise $E with $# arguments: ccmHistoryEventCommandSource=$1; ccmHistoryEventConfigSource=$2; ccmHistoryEventConfigDestination=$3
+SDESC
+"Notification of a configuration management event as recorded in 
+ccmHistoryEventTable."
+EDESC
+#
+#
+#
+EVENT T1LoopStatusNotifica .1.3.6.1.4.1.9.9.44.3.0.1 "Status Events" Minor
+FORMAT T1LoopStatusNotification received from enterprise $E with $# arguments: ciscoICsuDsuT1LoopStatus=$1
+SDESC
+"Indicates a change in T1 Loop Status."
+EDESC
+#
+#
+#
+EVENT Sw56kLoopStatusNotif .1.3.6.1.4.1.9.9.44.3.0.2 "Status Events" Minor
+FORMAT Sw56kLoopStatusNotification received from enterprise $E with $# arguments: ciscoICsuDsuSw56kLoopStatus=$1
+SDESC
+"Indicates a change in Sw56k Loop Status."
+EDESC
+#
+#
+#
+EVENT vtpConfigRevNumberEr .1.3.6.1.4.1.9.9.46.2.0.0.1 "LOGONLY" Normal
+FORMAT vtpConfigRevNumberError received from enterprise $E with $# arguments: managementDomainConfigRevNumber=$1
+SDESC
+Long Descr.:
+"A configuration revision number error notification
+signifies that a device has incremented its
+vtpConfigRevNumberErrors counter.
+
+Generation of this notification is suppressed if the
+vtpNotificationsEnabled has the value 'false'.
+
+The device must throttle the generation of consecutive
+vtpConfigRevNumberError notifications so that there is at
+least a five-second gap between notification of this type.
+When notification are throttled, they are dropped, not
+queued for sending at a future time.  (Note that
+'generating' a notification means sending to all configured
+recipients.)"
+Variables:
+  1: managementDomainConfigRevNumber
+     Syntax="Gauge"
+     Descr="The current Configuration Revision Number as known by the
+local device for this management domain.  This value is
+updated (if necessary) whenever a VTP advertisement is
+received or generated.  When in the 'no management-domain'
+state, this value is 0."
+EDESC
+#
+#
+#
+EVENT vtpConfigDigestError .1.3.6.1.4.1.9.9.46.2.0.0.2 "LOGONLY" Normal
+FORMAT vtpConfigDigestError received from enterprise $E with $# arguments: managementDomainConfigRevNumber=$1
+SDESC
+Long Descr.:
+"A configuration digest error notification signifies that a
+device has incremented its vtpConfigDigestErrors counter.
+
+Generation of this notification is suppressed if the
+vtpNotificationsEnabled has the value 'false'.
+
+The device must throttle the generation of consecutive
+vtpConfigDigestError notifications so that there is at least
+a five-second gap between notification of this type.  When
+notification are throttled, they are dropped, not queued for
+sending at a future time.  (Note that 'generating' a
+notification means sending to all configured recipients.)"
+Variables:
+  1: managementDomainConfigRevNumber
+     Syntax="Gauge"
+     Descr="The current Configuration Revision Number as known by the
+local device for this management domain.  This value is
+updated (if necessary) whenever a VTP advertisement is
+received or generated.  When in the 'no management-domain'
+state, this value is 0."
+EDESC
+#
+#
+#
+EVENT vtpServerDisabled .1.3.6.1.4.1.9.9.46.2.0.0.3 "LOGONLY" Normal
+FORMAT vtpServerDisabled trap received from enterprise $E with $# arguments: managementDomainConfigRevNumber=$1; vtpMaxVlanStorage=$2
+SDESC
+Long Descr.:
+"A VTP Server disabled notification is generated when the
+local system is no longer able to function as a VTP Server
+because the number of defined VLANs is greater than
+vtpMaxVlanStorage.
+
+Generation of this notification is suppressed if the
+vtpNotificationsEnabled has the value 'false'."
+Variables:
+  1: managementDomainConfigRevNumber
+     Syntax="Gauge"
+     Descr="The current Configuration Revision Number as known by the
+local device for this management domain.  This value is
+updated (if necessary) whenever a VTP advertisement is
+received or generated.  When in the 'no management-domain'
+state, this value is 0."
+  2: vtpMaxVlanStorage
+     Syntax="Integer"
+     Descr="An estimate of the maximum number of VLANs about which the
+local system can recover complete VTP information after a
+reboot.  If the number of defined VLANs is greater than this
+value, then the system can not act as a VTP Server. For a
+device which has no means to calculate the estimated number,
+this value is -1."
+EDESC
+#
+#
+#
+EVENT vtpMtuTooBig .1.3.6.1.4.1.9.9.46.2.0.0.4 "LOGONLY" Normal
+FORMAT vtpMtuTooBig trap received from enterprise $E with $# arguments: vlanTrunkPortManagementDomain=$1; vtpVlanState=$2
+SDESC
+Long Descr.:
+"A VTP MTU tooBig notification is generated when a VLAN's
+MTU size is larger than can be supported either:
+
+- by one or more of its trunk ports:
+the included vtpVlanState has the value
+'mtuTooBigForTrunk' and the included
+vlanTrunkPortManagementDomain is for the first (or only)
+trunk port,
+or
+
+- by the device itself:
+vtpVlanState has the value 'mtuTooBigForDevice' and any
+instance of vlanTrunkPortManagementDomain is included.
+
+Generation of this notification is suppressed if the
+vtpNotificationsEnabled has the value 'false'."
+Variables:
+  1: vlanTrunkPortManagementDomain
+     Syntax="ManagementDomainIndex  (Integer) "
+     Descr="The value of managementDomainIndex for the management
+domain on this trunk port.  Devices which support only one
+management domain will support this object read-only."
+  2: vtpVlanState
+     Syntax="Integer"
+     Descr="The state of this VLAN.
+
+The state 'mtuTooBigForDevice' indicates that this device
+cannot participate in this VLAN because the VLAN's MTU is
+larger than the device can support.
+
+The state 'mtuTooBigForTrunk' indicates that while this
+VLAN's MTU is supported by this device, it is too large for
+one or more of the device's trunk ports."
+EDESC
+#
+#
+#
+EVENT vtpVlanRingNumberConfigConflict .1.3.6.1.4.1.9.9.46.2.0.0.5 "Status Events" Normal
+FORMAT vtpVlanRingNumberConfigConflict received from enterprise $E with $# arguments:  vtpVlanIndex=$1; vtpVlanRingNumber=$2; ifIndex=$3; vtpVlanPortLocalSegment=$4
+SDESC
+       "A VTP ring number configuration conflict notification is
+        generated if, and only at the time when, a device learns of
+        a conflict between:
+        
+        a) the ring number (vtpVlanPortLocalSegment) being used on a
+           token ring segment attached to the port identified by
+           ifIndex, and
+        
+        b) the VTP-obtained ring number (vtpVlanRingNumber) for the
+           VLAN identified by vtpVlanIndex.
+        
+        When such a conflict occurs, the bridge port is put into an
+        administrative down position until the conflict is resolved
+        through local/network management intervention.
+        
+        This notification is only applicable to VLANs of type
+        'tokenRing'."
+EDESC
+#
+#
+#
+EVENT vtpVersionOneDeviceDetected .1.3.6.1.4.1.9.9.46.2.0.0.6 "Status Events" Normal
+FORMAT vtpVersionOneDeviceDetected trap received from enterprise $E with $# arguments: vlanTrunkPortManagementDomain=$1
+SDESC
+       "A VTP version one device detected notification is
+        generated by a device when:
+        
+        a) a management domain has been put into version 2 mode
+           (as accessed by managementDomainVersionInUse).
+        b) 15 minutes has passed since a).
+        c) a version 1 PDU is detected on a trunk on the device
+           that is in that management domain which has a lower
+           revision number than the current configuration."
+EDESC
+#
+#
+#
+EVENT cieTestComplet .1.3.6.1.4.1.9.9.52.2.0.1  "Status Events" Normal
+FORMAT cieTestCompletion trap received from enterprise $E with $# arguments: cieTestConnSessionStatus=$1; cieTestConnProtectedAddr=$2; cieTestConnUnprotectedAddr=$3
+SDESC
+"A cieTestCompletion trap is sent at the completion of a crypto session
+ establishment if such a trap was requested when the sequence was initiated."
+EDESC
+#
+#
+#
+EVENT caemTermperatureNot .1.3.6.1.4.1.9.9.61.2.0.1 "Status Events" Warning
+FORMAT caemTemperatureNotification received from enterprise $E with $# arguments:ciscoEnvMonTemperatureStatusDescr=$1; ciscoEnvMonTemperatureState=$2
+SDESC
+"A caemTemperatureNotification is sent if the over temperature condition is
+ detected in the managed system.   This is a replacement for the
+ ciscoEnvMonTemperatureNotification trap because the information
+ 'ciscoEnvMonTemperatureStatusValue' required by the trap is not available
+ in the managed system."
+EDESC
+#
+#
+#
+EVENT cvdcPoorQoVNotification .1.3.6.1.4.1.9.9.63.2 "Status Events" Warning
+FORMAT cvdcPoorQoVNotification received from enterprise $E with $# arguments: cvVoIPCallHistoryConnectionId=$1; cvVoIPCallHistoryIcpif=$2
+SDESC
+"Poor quality of voice notification. A cvdcPoorQoVNotification is sent at the
+ call disconnection time if the value of cvVoIPCallHistoryIcpif exceeds the
+ value of cvVoIPPeerCfgIcpif in the call associated peer."
+EDESC
+#
+#
+#
+EVENT vmVmpsChange .1.3.6.1.4.1.9.9.68.2.0.1 "Status Events" Warning
+FORMAT vmVmpsChange trap received from enterprise $E with $# arguments: vmVmpsIpAddress=$1
+SDESC
+" A VMPS change notification is generated whenever vmVmpsChanges is
+ incremented. The IP address of the new VMPS is sent."
+EDESC
+#
+#
+#
+EVENT cdeTrapTConnUpDown .1.3.6.1.4.1.9.9.74.2.0.1 "Status Events" Warning
+FORMAT cdeTrapTConnUpDown trap received from enterprise $E with $# arguements: dlswTConnOperState=$1
+SDESC
+"This cdeTrapTConnUpDown trap is sent each time a transport connection changes
+ state to `connected' or `disconnected'.  The emission of this trap is
+ controlled by cdeTrapCntlTConn."
+EDESC
+#
+#
+#
+EVENT cdeTrapCircuitUpDown .1.3.6.1.4.1.9.9.74.2.0.2 "Status Events" Warning
+FORMAT cdeTrapCircuitUpDown trap received from enterprise $E with $# arguments: dlswCircuitState =$1
+SDESC
+"This cdeTrapCircuitUpDown trap is sent each time a circuit changes state to
+ `connected' or `disconnected'.  The emission of this trap is controlled by
+ cdeTrapCntlCircuit." 
+EDESC
+#
+#
+#
+EVENT llcCcStatusChange .1.3.6.1.4.1.9.10.8.2.0.1 "Status Events" Warning
+FORMAT llcCcStatusChange trap received from enterprise $E with $# arguments: llcCcOperState=$1; llcCcOperLastFailTime=$2; llcCcOperLastFailCause=$3; llcCcOperLastFailFRMRInfo=$4
+SDESC
+"This trap indicates that the state of an LLC connection component 
+has transitioned to normal(3) or aDM(1)."
+EDESC
+#
+#
+#
+EVENT TConnPartnerReject .1.3.6.1.4.1.9.10.9.1.7.0.1 "Status Events" Warning
+FORMAT TConnPartnerReject trap received from enterprise $E with $# arguments: ciscoDlswTConnOperTDomain=$1; ciscoDlswTConnOperRemoteTAddr=$2
+SDESC
+"This trap is sent each time a transport connection is rejected by 
+a partner DLSw during Capabilities Exchanges."
+EDESC
+#
+#
+#
+EVENT TConnProtViolation .1.3.6.1.4.1.9.10.9.1.7.0.2 "Status Events" Minor
+FORMAT TConnProtViolation trap received from enterprise $E with $# arguments: ciscoDlswTConnOperTDomain=$1; ciscoDlswTConnOperRemoteTAddr=$2
+SDESC
+"This trap is sent each time a protocol violation is detected for a 
+transport connection."
+EDESC
+#
+#
+#
+EVENT TConnUp .1.3.6.1.4.1.9.10.9.1.7.0.3 "Status Events" Minor
+FORMAT TConnUp trap received from enterprise $E with $# arguments: ciscoDlswTConnOperTDomain=$1; ciscoDlswTConnOperRemoteTAddr=$2
+SDESC
+"This trap is sent each time a transport connection enters `connected' 
+state."
+EDESC
+#
+#
+#
+EVENT TconnDown .1.3.6.1.4.1.9.10.9.1.7.0.4 "Status Events" Warning
+FORMAT TconnDown trap received from enterprise $E with $# arguments: ciscoDlswTConnOperTDomain=$1; ciscoDlswTConnOperRemoteTAddr=$2
+SDESC
+"This trap is sent each time a transport connection enters 
+`disconnected' state."
+EDESC
+#
+#
+#
+EVENT DlswTrapCircuitUp .1.3.6.1.4.1.9.10.9.1.7.0.5 "Status Events" Normal
+FORMAT DlswTrapCircuitUp trap received from enterprise $E with $# arguments: ciscoDlswCircuitS1Mac=$1; ciscoDlswCircuitS1Sap=$2; ciscoDlswCircuitS2Mac=$3; ciscoDlswCircuitS2Sap=$4
+SDESC
+"This trap is sent each time a circuit enters `connected' state."
+EDESC        
+#
+#
+#
+EVENT DlswtrapCircuitDown .1.3.6.1.4.1.9.10.9.1.7.0.6 "LOGONLY" Normal
+FORMAT DlswtrapCircuitDown trap received from enterprise $E with $# arguments: ciscoDlswCircuitS1Mac=$1; ciscoDlswCircuitS1Sap=$2; ciscoDlswCircuitS2Mac=$3; ciscoDlswCircuitS2Sap=$4
+SDESC
+Long Descr.:
+"This trap is sent each time a circuit enters
+`disconnected' state."
+Variables:
+  1: ciscoDlswCircuitS1Mac
+     Syntax="MacAddress  (Octet String) (SIZE(6))"
+     Descr="The MAC Address of End Station 1 (S1) used for this circuit."
+  2: ciscoDlswCircuitS1Sap
+     Syntax="Octet String (SIZE(1))"
+     Descr="The SAP at End Station 1 (S1) used for this circuit."
+  3: ciscoDlswCircuitS2Mac
+     Syntax="MacAddress  (Octet String) (SIZE(6))"
+     Descr="The MAC Address of End Station 2 (S2) used for this circuit."
+  4: ciscoDlswCircuitS2Sap
+     Syntax="Octet String (SIZE(1))"
+     Descr="The SAP at End Station 2 (S2) used for this circuit."
+EDESC
+#
+#
+#
+EVENT oamPingCompTrap .1.3.6.1.4.1.9.10.15.2.0.1  "Status Events" Normal
+FORMAT oamLoopbackPingCompleted received from enterprise $E with $# arguments: oamLoopbackPingCompleted=$1
+SDESC
+"A oamLoopbackPingCompleted trap is sent at the completion of a sequence of OAM 
+loopback cells if such a trap was requested when the sequence was initiated."
+EDESC
+#
+#
+#
+EVENT acctngFileNearlyFull .1.3.6.1.4.1.9.10.17.3.0.1 "Status Events" Warning
+FORMAT acctngFileNearlyFull trap received from enterprise $E with $# arguments: acctngFileName=$1; acctngFileMaximumSize=$2; acctngControlTrapThreshold=$3
+SDESC
+"An acctngFileNearlyFull trap is an indication that the size of the file into
+ which accounting information is currently being collected has exceeded the
+ threshold percentage of its maximum file size. This notification is generated
+ only at the time of the transition from not-exceeding to exceeding."
+EDESC
+#
+#
+#
+EVENT acctngFileFull .1.3.6.1.4.1.9.10.17.3.0.2 "Status Events" Critical
+FORMAT acctngFileFull trap received from enterprise $E with $# arguments: acctngFileName=$1; acctngFileMaximumSize=$2
+SDESC
+"An acctngFileFull trap is an indication that the size of the file into which
+ accounting information is currently being collected has transistioned to its
+ maximum file size.  This notification is generated at the time of the
+ transition from not-full to full, and periodically thereafter until such
+ time as collection of data is no longer inhibited by the file full condition."
+EDESC
+#
+#
+#
+EVENT CW_App_Log .1.3.6.1.4.1.9.14.0.1 "CiscoWorks Events" Normal
+FORMAT $1: $2
+SDESC
+Events that are generated by CiscoWorks applications
+(including nmlogd, nmpolld, nmeventd, nmdevmond and 
+logpurg) and are logged in syslogd facility LOCAL6 
+and LOCAL7.
+EDESC
+#
+#
+#
+EVENT CW_Device_Log .1.3.6.1.4.1.9.14.0.2 "CiscoWorks Events" Normal
+FORMAT $1: $2
+SDESC
+Events that are generated by cisco devices and are 
+logged in syslogd facility LOCAL6 and LOCAL7.
+EDESC
+#
+#
+#
+EVENT ipxTrapCircuitDown .1.3.6.1.4.1.23.2.5.5.0.1 "Status Events" Minor
+FORMAT ipxTrapCircuitDown trap received from enterprise $E with $# arguments: ipxCircSysInstance=$1; ipxCircIndex=$2
+SDESC
+"This trap signifies that the specified circuit has gone down."
+EDESC
+#
+#
+#
+EVENT ipxTrapCircuitUp .1.3.6.1.4.1.23.2.5.5.0.2 "Status Events" Minor
+FORMAT ipxTrapCircuitUp trap received from enterprise $E with $# arguments: ipxCircSysInstance=$1; ipxCircIndex=$2
+SDESC
+"This trap signifies that the specified circuit has come up."
+EDESC
+#
+#
+#
+EVENT RMON_Hi_Thresh .1.3.6.1.4.1.141.1.1.3.0.1 "Threshold Events" Warning
+FORMAT RMON: Rising (high) threshold exceeded
+SDESC
+RMON has detected a rising (high) threshold crossover.
+EDESC
+#
+#
+#
+EVENT RMON_Low_Thresh .1.3.6.1.4.1.141.1.1.3.0.2 "Status Events" Warning
+FORMAT RMON: Falling (low) threshold crossed
+SDESC
+RMON has detected a falling (low) threshold crossover.
+EDESC
+#
+#
+#
+EVENT kalEps3StackProStackMatrixChange .1.3.6.1.4.1.197.3.1.1.0.2 "Status Events" Warning
+FORMAT kalEps3StackProStackMatrixChange trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; kalEps3ProStackMatrixStatus=$3
+SDESC
+"This trap is generated when the stack switches over from primary to
+ secondary ProStack Matrix or from secondary back to primary ProStack Matrix."
+EDESC
+#
+#
+#
+EVENT kalEps3StackTempChange .1.3.6.1.4.1.197.3.2.0.1  "Status Events" Warning
+FORMAT kalEps3StackTempChange trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; kalEps3StackSwitchTemperature=$3
+SDESC
+"This trap is generated when the temperature in a switch exceeds normal or
+ returns to normal."
+EDESC
+#
+#
+#
+EVENT kalEps3PortStrNFwdEntry .1.3.6.1.4.1.197.3.4.0.1  "Status Events" Warning
+FORMAT kalEps3PortStrNFwdEntry trap received from enterprise $E with $# arguments: sysName=$1; sysLocation=$2; kalEps3PortActiveMode=$3
+SDESC
+"This trap is generated when a port automatically enters store and forward
+ mode when the error rate exceeds the threshold."
+EDESC
+#
+#
+#
+EVENT kalEps3DmnNewRoot .1.3.6.1.4.1.197.3.5.0.1  "Status Events" Normal
+FORMAT kalEps3DmnNewRoot trap received from enterprise $E with $# arguments: kalEps3DmnInfoDmnNumber=$1
+SDESC
+"This trap is a domain specific version of the newRoot trap as described in
+ RFC1493. The newRoot trap indicates that the sending agent has become the
+ new root of the Spanning Tree; the trap is sent by a bridge soon after its
+ election as the new root, e.g., upon expiration of the Topology Change Timer
+ immediately subsequent to its election. Implementation of this trap is
+ optional."
+EDESC
+#
+#
+#
+EVENT kalEps3DmnTopologyChange .1.3.6.1.4.1.197.3.5.0.2  "Status Events" Normal
+FORMAT kalEps3DmnTopologyChange trap received from enterprise $E with $# arguments: kalEps3DmnInfoDmnNumber=$1
+SDESC
+"This trap is a domain specific version of the topologyChange trap as
+ described in RFC1493. A topologyChange trap is sent by a bridge when any of
+ its configured ports transitions from the Learning state to the Forwarding
+ state, or from the Forwarding state to the Blocking state. The trap is not
+ sent if a newRoot trap is sent for the same transition. Implementation of
+ this trap is optional."
+EDESC
+#
+#
+#
+EVENT kalEps3EtherChannelFailed .1.3.6.1.4.1.197.3.6.0.2 "Status Events" Normal 
+FORMAT kalEps3EtherChannelFailed trap received from enterprise $E with $# arguments: sysName=$1
+SDESC
+"This trap is sent when one of the links in an EtherChannel fail. The variable 
+kalEps3ECPorts contains the ports which are operational in the EtherChannel."
+EDESC
+#
+#
+#
+EVENT atmfVpcChange .1.3.6.1.4.1.353.0.1 "Status Events" Normal
+FORMAT atmfVpcChange received from enterprise $E with $# arguments: atmfVpcPortIndex=$1; atmfVpcVpi=$2; atmfVpcOperStatus=$3
+SDESC
+"An atmfVpcChange trap indicates that a VPC is added or deleted 
+at this UNI.  The variables included in the trap identify the 
+VPI value of the new or deleted configured VPC at this UNI."
+EDESC
+#
+#
+#
+EVENT atmfVccChange .1.3.6.1.4.1.353.0.2 "Status Events" Normal
+FORMAT atmfVccChange received from enterprise $E with $# arguments: atmfVccPortIndex=$1; atmfVccVci=$2; atmfVccVpi=$3; atmfVccOperStatus=$4
+SDESC
+"An atmfVccChange trap indicates that a VCC is added or 
+deleted at this UNI.  The variables included in the trap 
+identify the VCI and VPI values of the new or deleted configured 
+VCC at this UNI."
+EDESC
+#
+#
+#
+EVENT Logon_Intruder_2 .1.3.6.1.4.1.437.1.1.1.1.0.0 "Status Events" Major
+FORMAT Possible logon intrusion. 
+SDESC
+EDESC
+#
+#
+#
+EVENT Diagnostic_Failure_2 .1.3.6.1.4.1.437.1.1.1.1.0.1 "Error Events" Critical
+FORMAT Diagnostic failure
+SDESC
+EDESC
+#
+#
+#
+EVENT Logon_Intruder_1 .1.3.6.1.4.1.437.1.1.3.0.0 "Status Events" Major
+FORMAT Possible logon intrusion. Trap received from enterprise $E with $# arguments: sysName=$1 
+SDESC
+"A user is repeatedly trying to logon using an invalid password. The number of
+ attempts exceeds the preset limit given in netMgmtConsolePasswordThresh.
+ Depending on how the object netMgmtConsoleSilentTime is configured, the
+ switch may shut down the Management Console following the generation of this
+ trap."
+EDESC
+#
+#
+#
+EVENT Diagnostic_Failure_1 .1.3.6.1.4.1.437.1.1.3.0.1 "Error Events" Critical
+FORMAT Diagnostic failure. Trap received from enterprise $E with $# arguments: sysName=$1
+SDESC
+"The switch issues this trap when its Power On Self Test (POST) code does not
+ pass all tests. Some failures are catastrophic and may prevent the generation
+ of this trap, as well as the system's operations."
+EDESC
+#
+#
+#
+EVENT Address_Violation .1.3.6.1.4.1.437.1.1.3.0.3 "Error Events" Major
+FORMAT addressViolation trap received from enterprise $E with $# arguments: ifIndex=$1
+SDESC
+"The addressViolation trap is issued when an address violation is detected on a 
+secured port. The generation of the addressViolation trap can be enabled or
+suppressed using the object sysConfigAddressViolationAlert."
+EDESC
+#
+#
+#
+EVENT Broadcast_Storm .1.3.6.1.4.1.437.1.1.3.0.4 "Status Events" Major
+FORMAT Broadcast threshold exceeded.  Trap received from enterprise $E with $# arguments: ifIndex=$1
+SDESC
+"The broadcastStorm trap is issued when broadcast storm control is enabled and
+ the number of broadcast packets received in a second from a port is higher
+ than the broadcast threshold. The generation of this trap can be enabled or
+ suppressed using the object sysConfigBroadcastStormAlert."
+EDESC
+#
+#
+#
+EVENT RPS_Failure .1.3.6.1.4.1.437.1.1.3.0.5 "Status Events" Critical
+FORMAT Redundant power supply failed.  Trap received from enterprise $E with $# arguments: sysName=$1
+SDESC
+"A redundant power source is connected to the switch but a failure exists in
+ the power system."
+EDESC
+#
+#
+#
+EVENT fanPSSpeedFailed .1.3.6.1.4.1.494.4.0.1 "Status Events" Critical
+FORMAT fanPSSpeedFailed trap received from enterprise $E with $# arguments: ringswitchBasePSFanSpeed=$1
+SDESC
+"This trap is sent when the Power Supply fan has failed."
+EDESC
+#
+#
+#
+EVENT fanExtSpeedFailed .1.3.6.1.4.1.494.4.0.2 "Status Events" Critical
+FORMAT fanExtSpeedFailed trap received from enterprise $E with $# arguments: ringswitchBaseExtFanSpeed=$1
+SDESC
+"This trap is sent when the external fan has failed."
+EDESC
+#
+#
+#
+EVENT portFailed .1.3.6.1.4.1.494.4.0.3 "Status Events" Minor
+FORMAT portFailed trap received from enterprise $E with $# arguments: ringswitchPortAdapterStatus=$1
+SDESC
+"This trap is sent when a port has auto-closed or failed to open."
+EDESC
+#
+#
+#
+EVENT brTestFailed .1.3.6.1.4.1.494.4.0.4 "Status Events" Minor
+FORMAT brTestFailed trap received from enterprise $E with $# arguments: ringswitchPortTestError=$1
+SDESC
+"This trap is sent when the bridge test on a port fails."
+EDESC
+#
+#
+#
+EVENT SNMP_Cold_Start .1.3.6.1.6.3.1.1.5.1 "LOGONLY" Normal
+FORMAT Agent Up with Possible Changes (coldStart Trap) enterprise:$E ($e) args($#):$*
+SDESC
+A coldStart trap signifies that the sending
+protocol entity is reinitializing itself such
+that the agent's configuration or the protocol
+entity implementation may be altered.
+EDESC
+#
+#
+#
+EVENT SNMP_Warm_Start .1.3.6.1.6.3.1.1.5.2 "LOGONLY" Normal
+FORMAT Agent Up with No Changes (warmStart Trap) enterprise:$E ($e) args($#):$*
+SDESC
+A warmStart trap signifies that the sending
+protocol entity is reinitializing itself such
+that neither the agent configuration nor the
+protocol entity implementation is altered.
+EDESC
+#
+#
+#
+EVENT SNMP_Link_Down .1.3.6.1.6.3.1.1.5.3 "LOGONLY" Minor
+FORMAT Agent Interface Down (linkDown Trap) enterprise:$E ($e) on interface $1
+SDESC
+A linkDown trap signifies that the sending
+protocol entity recognizes a failure in one of
+the communication links represented in the
+agent's configuration.
+
+The data passed with the event are
+    1) The name and value of the ifIndex instance
+       for the affected interface.  The name of
+       the interface can be retrieved via an snmpget
+       of .1.3.6.1.2.1.2.2.1.2.INST, where INST is
+       the instance returned with the trap
+EDESC
+#
+#
+#
+EVENT SNMP_Link_Up .1.3.6.1.6.3.1.1.5.4 "LOGONLY" Normal
+FORMAT Agent Interface Up (linkUp Trap) enterprise:$E ($e) on interface $1
+SDESC
+A linkUp trap signifies that the sending
+protocol entity recognizes that one of the
+communication links represented in the agent's
+configuration has come up.
+
+The data passed with the event are
+    1) The name and value of the ifIndex instance
+       for the affected interface.  The name of
+       the interface can be retrieved via an snmpget
+       of .1.3.6.1.2.1.2.2.1.2.INST, where INST is
+       the instance returned with the trap
+EDESC
+#
+#
+#
+EVENT SNMP_Authen_Failure .1.3.6.1.6.3.1.1.5.5 "LOGONLY" Warning
+FORMAT Incorrect Community Name (authenticationFailure Trap) enterprise:$E ($e) args($#):$*
+SDESC
+An authentication failure trap signifies that
+the sending protocol entity is the addressee
+of a protocol message that is not properly
+authenticated.  While implementations of the
+SNMP must be capable of generating this trap,
+they must also be capable of suppressing the
+emission of such traps via an implementation-
+specific mechanism.
+
+HP-UX only:
+On HP-UX agents, the valid community names can
+be found in the /etc/snmpd.conf file.  The
+IP address which caused the authentication
+failure can be determined by either looking
+in the log file (snmpd.log), or by
+doing an snmpwalk on the SNMP variable
+    .iso.org.dod.internet.private.enterprises.hp.nm.snmp.
+    authfail.authFailTable.authFailEntry
+This event is sent when an entity does an SNMPGET
+with a community name which does not match
+the get-community name in /etc/snmpd.conf.
+It also is sent when an entity does an SNMPSET
+with a community name which does not match
+the set-community name AND does not match
+the get-community name.  If no get-community
+name is configured, authentication failure
+traps will never be sent, because the get
+community name matches all.  On HP-UX machines,
+see snmpd(1M).
+EDESC
+#
+#
+#
+EVENT SNMP_EGP_Down .1.3.6.1.6.3.1.1.5.6 "LOGONLY" Warning
+FORMAT EGP Neighbor Down (egpNeighborLoss Trap) enterprise:$E ($e) neighbor $1
+SDESC
+An egpNeighborLoss trap signifies that an EGP
+neighbor for whom the sending protocol entity
+was an EGP peer has been marked down and the
+peer relationship no longer obtains.
+
+The data passed with the event are
+    1) The name and value of the ifIndex egpNeighAddr
+       for the affected neighbor
+EDESC
+#
+# End of configuration for event formats and actions
+#
+

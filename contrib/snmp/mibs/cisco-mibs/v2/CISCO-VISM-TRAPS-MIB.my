@@ -1,0 +1,2815 @@
+-- *****************************************************************
+-- CISCO VISM TRAPS MIB - MIB file containing traps supported in
+-- VISM (Voice Interworking Service Module)
+--
+-- February 2004, Rashmi Purandare
+--
+-- Copyright (c) 2003, 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-VISM-TRAPS-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        TRAP-TYPE                    FROM RFC-1215
+        lastSequenceNumber           FROM RTM-MIB
+        basis                        FROM BASIS-MIB
+        shelfNodeName,
+        shelfNum                     FROM BASIS-SHELF-MIB
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType           FROM BASIS-GENERIC-MIB
+        genericTimeStamp,
+        genericLineNum,
+        genericLineType              FROM GENERICOBJECT-MIB
+        vismPortNum,
+        vismPortDs0ConfigBitMap,
+        vismPortType,
+        vismPortState                FROM CISCO-VISM-PORT-MIB
+        vismCasVariantName,
+        vismCasFileName,
+        vismCasVariantState          FROM CISCO-VISM-CAS-MIB
+        vismAal2CidState,
+        vismAal2CidFailReason,
+        vismAal2CidNum,
+        vismAal2CidLcn,
+        vismAal2CidAdminState        FROM CISCO-VISM-ATM-TRUNK-MIB
+        vismHdlcChanNum              FROM CISCO-VISM-HDLC-MIB
+        vismFreeDs0Count             FROM CISCO-VISM-DSX0-MIB
+        vismCPUUtilization,
+        vismMemoryUtilization,
+        vismIpAddress,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2,
+        vismTrapStrIndex1,
+        vismAppliedTemplate,
+        vismAal2SubcellMuxing,
+        vismFreeDs0Threshold,
+        vismCPUUtilizationThreshold,
+        vismMemoryUtilizationThreshold,
+        vismMode,
+        vismFeatureBitMap,
+        vismConfigChangeTypeBitMap   FROM CISCO-VISM-MODULE-MIB
+        vismCnfChanNum,
+        vismChanPortNum,
+        vismChanActivityState,
+        vismChanLockingState,
+        vismChanRowStatus,
+        vismChanReroute,
+        vismChanStatusBitMap         FROM CISCO-VISM-CONN-MIB
+        vismChanNum,
+        networkCacConfigState        FROM CISCO-VISM-CAC-MIB
+        vismSessionSetNum,
+        vismSessionSetState,
+        vismSessionGrpNum,
+        vismRudpSessionNum,
+        vismRudpSessionState,
+        vismSessionGrpState          FROM CISCO-VISM-SESSION-MIB
+        mgAdministrativeState,
+        mgcName,
+        mgcAssociationState,
+        mgcResolutionCommState,
+        mgEndpointLineNumber,
+        mgEndpointChannelMap,
+        mgEndpointState,
+        mgDomainName,
+        mgDnsResolutionType,
+        mgcResolutionName,
+        mgcResolutionIpAddress       FROM CISCO-WAN-MG-MIB
+        mgcRedundancyGrpActState     FROM CISCO-WAN-MGC-REDUN-MIB    
+        srcpPeerGrpTimeSinceHeartbeat,
+        srcpPeerTimeSinceHeartbeat   FROM CISCO-WAN-SRCP-MIB
+        persistentXgcpEventName      
+                           FROM CISCO-WAN-PERSISTENT-XGCP-EVENTS-MIB
+        tonePlanRegionName,
+        tonePlanVersionNumber,
+        tonePlanFileName,
+        vismFrequency1,
+        vismFrequency2,
+        vismEventCode                FROM CISCO-WAN-VISM-TONE-PLAN-MIB
+        vismLapdIndex,
+        vismLapdDlcIndex,
+        vismLapdDlcSapi,
+        vismLapdDlcTei,
+        vismLapdDlcLinkState,
+        vismLapdTrunkState           FROM CISCO-WAN-LAPD-TRUNK-MIB
+        vismRtpConnAlarmState,        
+        vismRtpLcn,
+        vismRtpFailReason            FROM CISCO-WAN-RTP-CONN-MIB
+        cwAnnFileName,
+        cwAnnFileCodec,
+        cwAnnFileStatus              FROM CISCO-WAN-ANNOUNCEMENT-MIB
+        intSrvFlowStatus             FROM INT-SERV-MIB
+        rsvpSessionDestAddr,
+        rsvpResvFwdStatus,
+        rsvpResvStatus,
+        rsvpSenderStatus             FROM RSVP-MIB
+        cvcmCasTemplateName          FROM CISCO-VOICE-CAS-MODULE-MIB;
+
+
+-- LAST-UPDATED "200402040000Z"
+-- ORGANIZATION    "Cisco Systems, Inc."
+-- CONTACT-INFO
+--          "       Cisco Systems
+--                  Customer Service
+--
+--              Postal: 170 W Tasman Drive
+--                      San Jose, CA  95134
+--                      USA
+--
+--                      Tel: +1 800 553-NETS
+
+--              E-mail: cs-wanatm@cisco.com"
+
+-- DESCRIPTION
+--     "This MIB contains traps that are applicable
+--      only for VISM (Voice Internetworking Service Module)
+--      and not supported for any other module.
+--
+--      The common set of traps supported for VISM and
+--      Other Modules are found in CISCO-MGX82XX-TRAPS-MIB.my
+--
+--      Following types of traps are defined here:
+--
+--      VISM IP Address change
+--      VISM Connections/Channels (Add, Delete, Active etc)
+--      VISM Protected Channel Related
+--      VISM Ports related (Add, Active etc)
+--      CAS Backhaul feature
+--      Config Change traps.
+--      CODEC Template related
+--      AAL2 CID (Channel ID) related
+--      HDLC Channel related
+--      Media Gateway related (Protocol, EndPoint, Admin)
+--      LAPD, RUDP Session Related
+--
+--      Following terms are used in this MIB:
+--
+--      CAS: Channel Associated Signaling
+--      CAC: Connection Admission Control
+--      LCN: Logical Channel Number
+--      CID: Channel Identifier
+--      PVC: Permanent Virtual Circuit
+--      MGC: Media Gateway Controller
+--      LAPD: Link Access Procedure on a D-channel
+--      RUDP: Reliable UDP
+--      TDM: Time Division Multiplexing
+--      DLC: Delete Connection
+--      HDLC: High Level Data Link Control
+--      VoIP: Voice over IP
+--      "
+-- REFERENCE
+--     "vismAal2CidCnfTable FROM CISCO-VISM-ATM-TRUNK-MIB
+--      vismHdlcChanTable   FROM CISCO-VISM-HDLC-MIB
+--      vismSessionSetTable,
+--      vismRudpSessionCnfTable FROM CISCO-VISM-SESSION-MIB
+--      mgcNumber,
+--      mgcResolutionIndex,
+--      mgEndpointNumber,
+--      mgcTable,
+--      mgProtocolNumber,
+--      mgcResolutionTable,
+--      mgDomainNameTable,
+--      mgDomainNameIndex       FROM CISCO-WAN-MG-MIB
+--      mgcRedundancyGrpTable,
+--      mgcRedundancyGrpNum,
+--      mgcRedundancyGrpParamTable FROM CISCO-WAN-MGC-REDUN-MIB
+--      srcpPeerHeartbeatInterval,
+--      srcpPeerId,
+--      srcpPeerGrpHeartbeatInterval,
+--      srcpPeerGrpParamTable   FROM CISCO-WAN-SRCP-MIB
+--      persistentXgcpEventNum
+--                          FROM CISCO-WAN-PERSISTENT-XGCP-EVENTS-MIB
+--      vismTonePlanTable,
+--      tonePlanIndex,
+--      vismConfigToneDetectTable,
+--      vismConfigToneDetectNum FROM CISCO-WAN-VISM-TONE-PLAN-MIB
+--      vismLapdTable,
+--      vismLapdDlcTable,
+--      vismLapdTrunkGrpTable,
+--      vismLapdTrunkNum    FROM CISCO-WAN-LAPD-TRUNK-MIB
+--      vismRtpConnGrpTable,
+--      vismRtpConnNum      FROM CISCO-WAN-RTP-CONN-MIB
+--      cwAnnounceTable,
+--      cwAnnounceIndex     FROM CISCO-WAN-ANNOUNCEMENT-MIB
+--      cvcmABCDBitTemplateConfigTable,
+--      cvcmCasTemplateIndex,
+--      cvcmABCDPatternIndex,
+--      cvcmCasTemplateName FROM CISCO-VOICE-CAS-MODULE-MIB
+--     "
+-- REVISION     "200402040000Z"
+-- DESCRIPTION
+--     "Added new traps
+--        - trapCidAdministrativeStateChange
+--        - vismCasTransTblAdded
+--        - vismCasTranTblDeleted"
+--
+-- REVISION     "200402030000Z"
+-- DESCRIPTION
+--     "Initial Release.
+--      The traps defined in this release are moved from
+--      CISCO-MGX82XX-TRAPS-MIB.my, vismNonAxipopTraps.my
+--      for better maintainability and support.
+--     "
+
+
+trapVismIpAddressChanged  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismIpAddress
+        }
+    DESCRIPTION
+        "Sent when the card's IP address is changed.
+         vismIpAddress contains the new IP address."
+    ::= 50700
+
+
+trapVismChanActive  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        vismCnfChanNum,
+        vismChanPortNum
+        }
+    DESCRIPTION
+        "Sent when a channel becomes active.
+         genericLineNum is always set to 0 on the VISM card 
+         since it is not applicable to VISM.
+         vismCnfChanNum specifies the channel number and 
+         vismChanPortNum specifies the port number where the channel 
+         is configured."
+    ::= 50709
+
+trapVismChanDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        vismCnfChanNum,
+        vismChanPortNum
+        }
+    DESCRIPTION
+        "Sent when a channel is deleted.
+         genericLineNum is always set to 0 on the VISM card
+         since it is not applicable to VISM.
+         vismCnfChanNum specifies the channel number and 
+         vismChanPortNum specifies the port number where the channel 
+         is configured."
+    ::= 50710
+
+trapVismPortAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        genericLineType,
+        vismPortNum,
+        vismPortDs0ConfigBitMap,
+        vismPortType
+        }
+    DESCRIPTION
+        "Indicates that a port with port number vismPortNum 
+         was added with type vismPortType."
+    ::= 50711
+ 
+trapVismPortActive  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        genericLineType,
+        vismPortNum,
+        vismPortDs0ConfigBitMap,
+        vismPortType
+        }
+    DESCRIPTION
+        "Indicates port with port number vismPortNum went active.
+         The type of port is specified in vismPortType."
+    ::= 50712
+ 
+trapVismPortFailed  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        genericLineType,
+        vismPortNum,
+        vismPortDs0ConfigBitMap,
+        vismPortType,
+        vismPortState
+        }
+-- status
+-- obsolete
+-- port is a virtual concept that does not fail. 
+    DESCRIPTION
+        "Indicates port with port number vismPortNum failed.
+         The new state of the port is specified in vismPortState."
+    ::= 50713
+ 
+-- 
+-- VISM MIB extensions for Channel Protection
+--  
+
+trapProtectedChanActive  TRAP-TYPE
+        ENTERPRISE  basis
+        VARIABLES   { 
+            lastSequenceNumber,
+            shelfNodeName,
+            shelfNum,
+            moduleSlotNumber,
+            moduleTrapAlarmSeverity,
+            functionModuleType,
+            genericTimeStamp,
+            genericLineNum,
+            vismCnfChanNum,
+            vismChanPortNum,
+            vismChanActivityState
+            }
+        DESCRIPTION
+            "Sent when the channel on port number 
+             vismChanPortNum with a channel number 
+             vismCnfChanNum transitions to active as 
+             specified by vismChanActivityState ."
+        ::= 50714
+
+trapProtectedChanStandby  TRAP-TYPE
+        ENTERPRISE  basis
+        VARIABLES   { 
+            lastSequenceNumber,
+            shelfNodeName,
+            shelfNum,
+            moduleSlotNumber,
+            moduleTrapAlarmSeverity,
+            functionModuleType,
+            genericTimeStamp,
+            genericLineNum,
+            vismCnfChanNum,
+            vismChanPortNum,
+            vismChanActivityState
+            }
+        DESCRIPTION
+            "Sent when the channel on port number 
+             vismChanPortNum with a channel number 
+             vismCnfChanNum transitions to standby as 
+             specified by vismChanActivityState."
+        ::= 50715
+
+trapProtectedChanFailed  TRAP-TYPE
+        ENTERPRISE  basis
+        VARIABLES   { 
+            lastSequenceNumber,
+            shelfNodeName,
+            shelfNum,
+            moduleSlotNumber,
+            moduleTrapAlarmSeverity,
+            functionModuleType,
+            genericTimeStamp,
+            genericLineNum,
+            vismCnfChanNum,
+            vismChanPortNum,
+            vismChanActivityState
+            }
+        DESCRIPTION
+            "Sent when the channel on port number 
+             vismChanPortNum with a channel number 
+             vismCnfChanNum transitions to failed as 
+             specified by vismChanActivityState."
+        ::= 50716
+
+trapProtectedChanLocked  TRAP-TYPE
+        ENTERPRISE  basis
+        VARIABLES   { 
+            lastSequenceNumber,
+            shelfNodeName,
+            shelfNum,
+            moduleSlotNumber,
+            moduleTrapAlarmSeverity,
+            functionModuleType,
+            genericTimeStamp,
+            genericLineNum,
+            vismCnfChanNum,
+            vismChanPortNum,
+            vismChanLockingState
+            }
+        DESCRIPTION
+            "Sent when the channel on port number 
+             vismChanPortNum with a channel number 
+             vismCnfChanNum transitions to locked as 
+             specified by vismChanLockingState."
+        ::= 50717
+
+trapProtectedChanUnlocked  TRAP-TYPE
+        ENTERPRISE  basis
+        VARIABLES   { 
+            lastSequenceNumber,
+            shelfNodeName,
+            shelfNum,
+            moduleSlotNumber,
+            moduleTrapAlarmSeverity,
+            functionModuleType,
+            genericTimeStamp,
+            genericLineNum,
+            vismCnfChanNum,
+            vismChanPortNum,
+            vismChanLockingState
+            }
+        DESCRIPTION
+            "Sent when the channel on port number 
+             vismChanPortNum with a channel number 
+             vismCnfChanNum transitions to unlocked as 
+             specified by vismChanLockingState."
+        ::= 50718
+
+
+-- -----------------------------------------------------------------
+--
+-- START: TRAPS specific to CAS Backhaul feature 
+--
+-- -----------------------------------------------------------------
+trapVismCasVariantAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismCasVariantName,
+        vismCasFileName,
+        vismCasVariantState
+        }
+    DESCRIPTION
+        "Indicates that an entry has been added to vismCasVariantTable.
+         vismCasVariantName is user defined and associated with 
+         vismCasFileName. vismCasFileName can be chosen from  
+         predefined filenames describing a CAS protocol. 
+         vismCasVariantState specifies whether the CAS variant is 
+         configured or not configured.
+         "
+    ::= 50739
+ 
+trapVismCasVariantDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismCasVariantName
+        }
+    DESCRIPTION
+        "Indicates that an entry with a name vismCasVariantName
+         has been deleted from vismCasVariantTable."
+    ::= 50740
+
+trapVismCasVariantConfigured  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismCasVariantName 
+        }
+    DESCRIPTION
+        "Indicates that vismCasVariantState transitioned 
+         to configured."
+    ::= 50741
+
+
+trapVismCasVariantNotConfigured  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismCasVariantName
+        }
+    DESCRIPTION
+        "Indicates that vismCasVariantState transitioned 
+         to not configured."
+    ::= 50742
+
+-- -----------------------------------------------------------------
+--
+-- END: TRAPS specific to CAS Backhaul feature
+--
+-- -----------------------------------------------------------------
+
+-- -----------------------------------------------------------------
+--
+-- START: Config Change Traps
+--
+-- -----------------------------------------------------------------
+
+trapVismScalarChange  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismConfigChangeTypeBitMap
+        }
+    DESCRIPTION
+        "Sent when a scalar object/objects changes.
+         The bit map indicates the group to which the 
+         changed object/objects belong. For a single set
+         operation, a single trap will be sent per group,
+         regardless of how many objects got changed in 
+         in that group."
+     ::= 50745
+
+
+trapVismTableChange  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismConfigChangeTypeBitMap,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2,
+        vismTrapStrIndex1
+        }
+    DESCRIPTION
+        "Sent when a table config has changed.
+         The bit map tells which table got changed.
+         and vismTrapIntIndex1 shows the index of the
+         table entry which got changed. If there are
+         2 index values, the 2nd index will be contained
+         in vismTrapIntIndex2. If the table has a string
+         index, the index value will be contained in
+         vismTrapStrIndex1."
+     ::= 50746
+
+
+-- -----------------------------------------------------------------
+--
+-- END: Config Change Traps
+--
+-- -----------------------------------------------------------------
+
+
+-- -----------------------------------------------------------------
+-- Card Specific modification traps
+-- ------------------------------------------------------------------
+trapVismCodecTemplateChanged  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismAppliedTemplate
+        }
+    DESCRIPTION
+        "Indicates that the VISM Codec template has been changed.
+         vismAppliedTemplate is the new template number."
+    ::= 50743
+
+
+trapVismModeChanged  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismMode
+        }
+    DESCRIPTION
+        "Indicates that the mode has been changed on the card.
+         vismMode specifies the new mode of the card."
+    ::= 50744
+
+--
+-- AAL2 CID table related traps
+--
+
+trapVismAal2CidAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismAal2CidNum,
+        vismAal2CidLcn
+        }
+    DESCRIPTION
+        "Indicates that a CID vismAal2CidNum
+         has been added to an LCN vismAal2CidLcn 
+         thereby creating an entry in the
+         vismAal2CidCnfTable."
+    ::= 50747
+
+trapVismAal2CidDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismAal2CidNum,
+        vismAal2CidLcn
+        }
+    DESCRIPTION
+        "Indicates that a CID vismAal2CidNum has been deleted
+         from an LCN vismAal2CidLcn thereby deleting the 
+         corresponding entry from the table vismAal2CidCnfTable."
+    ::= 50748
+
+-- -------------------------------------------------------------
+--
+-- HDLC Channel related traps
+--
+-- -------------------------------------------------------------
+
+trapVismHdlcChanAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismHdlcChanNum
+        }
+    DESCRIPTION
+        "Indicates that an entry with HDLC channel number 
+         vismHdlcChanNum has been added to the table 
+         vismHdlcChanTable."
+    ::= 50752
+
+trapVismHdlcChanDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismHdlcChanNum
+        }
+    DESCRIPTION
+        "Indicates that an entry with HDLC channel number
+         vismHdlcChanNum has been deleted from the table
+         vismHdlcChanTable."
+    ::= 50753
+
+-- ---------------------------------------------------------
+--
+-- Additional PVC and port related traps
+--
+-- ---------------------------------------------------------
+
+trapVismPortDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        genericLineType,
+        vismPortNum,
+        vismPortDs0ConfigBitMap,
+        vismPortType
+        }
+    DESCRIPTION
+        "Indicates port with port number vismPortNum 
+         has been deleted."
+    ::= 50754
+
+trapVismChanAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        vismCnfChanNum,
+        vismChanPortNum
+        }
+    DESCRIPTION
+        "Sent when a VISM Channel is added, genericLineNum
+         is always set to 0 since it is not applicable 
+         to VISM."
+    ::= 50755
+
+trapVismChanFailed  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        vismCnfChanNum,
+        vismChanPortNum,
+        vismChanStatusBitMap
+        }
+    DESCRIPTION
+        "Sent when a VISM Channel fails, genericLineNum
+         is always set to 0 since it is not applicable 
+         to VISM."
+    ::= 50756
+--
+-- Traps for vism 2.0
+--
+trapVismConDown  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        vismCnfChanNum,
+        vismChanRowStatus,
+        vismChanStatusBitMap
+        }
+    DESCRIPTION
+        "Sent when a PVC is brought down."
+    ::= 50757
+
+trapVismConUp   TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        genericLineNum,
+        vismCnfChanNum,
+        vismChanRowStatus,
+        vismChanStatusBitMap
+        }
+    DESCRIPTION
+        "Sent when a PVC is brought up from down.
+         The previous vismChanRowStatus of this 
+         channel must be outOfService."
+        ::= 50758
+
+trapVismChanReroute  TRAP-TYPE
+        ENTERPRISE   basis
+        VARIABLES    {
+            lastSequenceNumber,
+            shelfNodeName,
+            shelfNum,
+            moduleSlotNumber,
+            moduleTrapAlarmSeverity,
+            functionModuleType,
+            genericTimeStamp,
+            genericLineNum,
+            vismCnfChanNum,
+            vismChanReroute
+            }
+        DESCRIPTION
+            "Sent when a VISM Channel is rerouted."
+        ::= 50759
+
+-- VISM1.53
+
+trapVismAal2Muxing  TRAP-TYPE
+       ENTERPRISE  basis
+       VARIABLES   {
+           lastSequenceNumber,
+           shelfNodeName,
+           shelfNum,
+           moduleSlotNumber,
+           moduleTrapAlarmSeverity,
+           functionModuleType,
+           genericTimeStamp,
+           vismAal2SubcellMuxing
+           }
+       DESCRIPTION
+           "Sent when aal2 muxing type is changed.
+            vismAal2SubcellMuxing will represent whether subcell 
+            muxing is enabled or disabled."
+       ::= 50760
+
+-- VISM1.53
+
+trapVismCidState  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismAal2CidNum,
+        vismAal2CidLcn,
+        vismAal2CidState,
+        vismAal2CidFailReason
+        }
+    DESCRIPTION
+        "Sent when there is a state change on vismAal2CidNum 
+         in the LCN specified by vismAal2CidLcn to a new state
+         specified in vismAal2CidState with the reason 
+         vismAal2CidFailReason. For example, if a PVC alarm is 
+         generated on the remote end for vismAal2CidLcn, all 
+         vismAal2CidNum within this LCN with transition to a 
+         failed state as specified in vismAal2CidState."
+    ::= 50785
+
+trapNetworkCacConfigState TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismChanNum,
+        networkCacConfigState
+        }
+    DESCRIPTION
+        "This trap is sent when networkCacConfigState changes."
+    ::= 50788
+
+-- Trap for Mode 2
+--
+
+trapVismFeatureChanged  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismFeatureBitMap
+        }
+    DESCRIPTION
+        "By changing the mode of the card you can change the 
+         usable feature set on the card. 
+         This trap is sent when the vismFeatureBitMap has been 
+         changed on the card."
+    ::= 50790
+
+trapAvailFreeDs0Low  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismFreeDs0Threshold,
+        vismFreeDs0Count
+        }
+    DESCRIPTION
+        "Indicates available free DS0 on the card are low."
+    ::= 50680
+
+trapCpuUtilExceeded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismCPUUtilizationThreshold,
+        vismCPUUtilization
+        }
+    DESCRIPTION
+        "Indicates CPU utilization exceeded threshold."
+    ::= 50681
+
+trapMemoryUtilExceeded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismMemoryUtilizationThreshold,
+        vismMemoryUtilization
+        }
+    DESCRIPTION
+        "Indicates memory utilization exceeded threshold."
+    ::= 50682
+
+mgAdministrativeStateLocked  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        mgAdministrativeState
+        }
+    DESCRIPTION
+        "Triggered when mgAdministrativeState transitions to locked.
+         The transition may be from unlocked to locked or from 
+         'gracefulOutOfService' to locked."
+    ::= 50719
+
+mgAdministrativeStateUnlocked  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        mgAdministrativeState
+        }
+    DESCRIPTION
+        "Triggered when mgAdministrativeState transitions from locked
+         to unlocked."
+    ::= 50720
+
+mgAdministrativeStateShuttingDown  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        mgAdministrativeState
+        }
+    DESCRIPTION
+        "Triggered when mgAdministrativeState transitions from unlocked
+         to 'gracefulOutOfService'."
+    ::= 50721
+
+--
+-- STATUS of following trap: Obsoleted
+--
+-- This object has been deprecated in the MIB table.
+--
+
+mgcAssociated   TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcName,
+        mgcAssociationState
+        }
+    DESCRIPTION
+        "Triggered when mgAssociationState transitions to associated.
+         The transition may be from unassociated to associated or from
+         associatedCommLoss to associated.
+         The value of vismTrapIntIndex1 gives the value of mgcNumber."
+    ::= 50722
+
+--
+-- STATUS of following trap: Obsoleted
+--
+-- This object has been deprecated in the MIB table.
+--
+
+mgcUnassociated  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcName,
+        mgcAssociationState
+        }
+    DESCRIPTION
+        "Triggered when mgAssociationState transitions to Unassociated.
+         The transition may be from associated to Unassociated or from
+         associatedCommLoss to Unassociated.
+         The value of vismTrapIntIndex1 gives the value of mgcNumber."
+    ::= 50723
+
+--
+-- STATUS of following trap: Obsoleted
+--
+-- This object has been deprecated in the MIB table.
+--
+
+mgcAssociatedCommLoss  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcName,
+        mgcAssociationState
+        }
+    DESCRIPTION
+        "Triggered when mgAssociationState transitions from 
+         associated to associatedCommLoss.
+         The value of vismTrapIntIndex1 gives the value of 
+         mgcNumber."
+    ::= 50724
+
+mgcCommStateActive  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcResolutionIpAddress,
+        mgcResolutionCommState
+        }
+    DESCRIPTION
+        "Triggered when mgcResolutionCommState transitions 
+         from inactive to active. Indicates that an IP 
+         address of an MGC has become active.
+         The value of vismTrapIntIndex1 gives the value of 
+         mgcResolutionIndex."
+    ::= 50725
+
+mgcCommStateInactive  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcResolutionIpAddress,
+        mgcResolutionCommState
+        }
+    DESCRIPTION
+        "Triggered when mgcResolutionCommState transitions from active
+         to inactive. Indicates that an IP address of an MGC has
+         become inactive. The value of vismTrapIntIndex1 gives
+         the value of mgcResolutionIndex."
+     ::= 50726
+
+mgEndpointCreated  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgEndpointLineNumber,
+        mgEndpointChannelMap
+        }
+    DESCRIPTION
+        "Triggered by creation of an endpoint.  
+         The value of vismTrapIntIndex1 gives the value of 
+         mgEndpointNumber."
+    ::= 50727
+
+
+mgEndpointDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgEndpointLineNumber,
+        mgEndpointChannelMap
+        }
+    DESCRIPTION
+        "Triggered by deletion of an endpoint.  
+         The value of vismTrapIntIndex1 gives the value of 
+         mgEndpointNumber."
+    ::= 50728
+
+
+mgEndpointActive  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgEndpointLineNumber,
+        mgEndpointChannelMap,
+        mgEndpointState
+        }
+    DESCRIPTION
+        "Triggered when mgEndpointState transitions from 
+         failed/degraded to active. 
+         The value of vismTrapIntIndex1 gives the value of 
+         mgEndpointNumber."
+    ::= 50729
+
+mgEndpointFailed  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgEndpointLineNumber,
+        mgEndpointChannelMap,
+        mgEndpointState
+        }
+    DESCRIPTION
+        "Triggered when mgEndpointState transitions from 
+         active to failed/degraded.
+         The value of vismTrapIntIndex1 gives the value of 
+         mgEndpointNumber."
+    ::= 50730
+
+mgcAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcName
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to mgcTable.
+         The value of vismTrapIntIndex1 gives the 
+         value of mgcNumber."
+    ::= 50731
+
+mgcDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcName
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from mgcTable.
+         The value of vismTrapIntIndex1 gives the value
+         of mgcNumber."
+    ::= 50732
+
+--
+-- STATUS of following trap: Obsoleted
+--
+-- This object has been deprecated in the MIB table.
+--
+
+mgcProtocolAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to mgcProtocolTable.
+         The value of vismTrapIntIndex1 gives the value of mgcNumber.
+         The value of vismTrapIntIndex2 gives the value of 
+         mgProtocolNumber."
+    ::= 50733
+
+--
+-- STATUS of following trap: Obsoleted
+--
+-- This object has been deprecated in the MIB table.
+--
+
+mgcProtocolDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from mgcProtocolTable.
+         The value of vismTrapIntIndex1 gives the value of mgcNumber.
+         The value of vismTrapIntIndex2 gives the value of 
+         mgProtocolNumber."
+    ::= 50734
+
+mgcResolutionAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcResolutionName,
+        mgcResolutionIpAddress
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to mgcResolutionTable.
+         The value of vismTrapIntIndex1 gives the value of 
+         mgcResolutionIndex."
+    ::= 50735
+
+mgcResolutionDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgcResolutionName,
+        mgcResolutionIpAddress
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from mgcResolutionTable.
+         The value of vismTrapIntIndex1 gives the value of 
+         mgcResolutionIndex."
+    ::= 50736
+
+
+-- The following traps have been taken from SRCP MIB. 
+-- The additional varbinds to address RTM compliance 
+-- have been added. 
+--
+-- Each state change trap has been split into multiple 
+-- traps each representing a specific state.
+-- For example: peerHeartbeatStateChange in SRCP MIB has 
+-- been changed to peerHeartbeatLost, peerHeartbeatDetected.
+-- 
+-- The trap numbers are yet to be registered.
+--
+-- STATUS - Obsoleted
+--
+-- This trap has been obsoleted since that object has been 
+-- deprecated from the MIB.
+
+peerHeartbeatLost  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        srcpPeerTimeSinceHeartbeat
+        }
+    DESCRIPTION
+        "This notification indicates that the system failed to receive 
+         a heartbeat from a specific peer. The notification is sent 
+         when srcpPeerTimeSinceHeartbeat crosses the 
+         srcpPeerHeartbeatInterval threshold.
+         The value of vismTrapIntIndex1 gives the value of srcpPeerId."
+    ::= 50737
+
+--
+-- STATUS - Obsoleted.
+--
+-- This trap has been obsoleted since the object has been 
+-- deprecated from the MIB.
+--
+peerHeartbeatDetected  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        srcpPeerTimeSinceHeartbeat
+        }
+    DESCRIPTION
+        "This notification indicates that the system detected 
+         a heartbeat from a specific peer after it had been lost. 
+         The notification is sent when srcpPeerTimeSinceHeartbeat 
+         which had exceeded the threshold, resets to 0 due to 
+         receipt of a heartbeat.
+         The value of vismTrapIntIndex1 gives the value of srcpPeerId."
+    ::= 50738
+
+
+-- The following traps are defined for PRI Backhaul on VISM card.
+-- There is a trap for each table entry creation or deletion.
+-- There is also traps for the state change in each table.
+
+--
+-- LAPD related traps
+--
+
+trapLapdAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismLapdIndex
+        }
+    DESCRIPTION
+        "Indicates that an entry has been added to 
+         vismLapdTable with an index vismLapdIndex."
+    ::= 50761
+
+trapLapdDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismLapdIndex
+        }
+    DESCRIPTION
+        "Indicates that the entry with index vismLapdIndex
+         has been deleted from vismLapdTable."
+    ::= 50762
+
+-- Any change to the following object in vismLapdTable, 
+-- trapVismTableChange (50746) will be sent out with a bit map 
+-- 0x8000 (TRAP_LAPD_TBL_CHG) indicating that vismLapdEntry table 
+-- has changed.
+-- vismLapdWinSize
+-- vismLapdRetransCount
+-- vismLapdCongestionTimer
+-- vismLapdT200Timer
+-- vismLapdT203Timer
+-- vismLapdType
+
+-- -------------------------------------------------------------
+-- RUDP session related traps
+-- -------------------------------------------------------------
+
+  trapSessionSetAdded  TRAP-TYPE
+      ENTERPRISE  basis
+      VARIABLES   {
+          lastSequenceNumber,
+          shelfNodeName,
+          shelfNum,
+          moduleSlotNumber,
+          moduleTrapAlarmSeverity,
+          functionModuleType,
+          genericTimeStamp,
+          vismSessionSetNum
+          }
+      DESCRIPTION
+          "Indicates that an entry has been added to 
+           vismSessionSetTable."
+      ::= 50763
+
+  trapSessionSetDeleted  TRAP-TYPE
+      ENTERPRISE  basis
+      VARIABLES   {
+          lastSequenceNumber,
+          shelfNodeName,
+          shelfNum,
+          moduleSlotNumber,
+          moduleTrapAlarmSeverity,
+          functionModuleType,
+          genericTimeStamp,
+          vismSessionSetNum
+          }
+      DESCRIPTION
+          "Indicates that an entry has been deleted from
+           vismSessionSetTable."
+      ::= 50764
+
+trapSessionGrpAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionGrpNum
+        }
+    DESCRIPTION
+        "Indicates that an entry has been added to 
+         vismSessionGrpTable."
+    ::= 50765
+
+trapSessionGrpDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionGrpNum
+        }
+    DESCRIPTION
+        "Indicates that an entry has been deleted from 
+         vismSessionGrpTable."
+    ::= 50766
+
+trapRudpSessionAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismRudpSessionNum
+        }
+    DESCRIPTION
+        "Indicates that an entry has been added to 
+         vismRudpSessionCnfTable."
+    ::= 50767
+
+trapRudpSessionDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismRudpSessionNum
+        }
+    DESCRIPTION
+        "Indicates that an entry has been deleted from 
+         vismRudpSessionCnfTable."
+    ::= 50768
+
+-- Any change to the following object in vismRudpSessionCnfEntry
+-- table, trapVismTableChange (50746) will be sent out with a
+-- bit map 0x10000 (TRAP_RUDPSESSION_TBL_CHG) indicates
+-- vismRudpSessionCnfEntry table has changed.
+-- vismRudpSessionLocalPort
+-- vismRudpSessionRmtPort
+-- vismRudpSessionMaxWindow
+-- vismRudpSessionSyncAttempts
+-- vismRudpSessionMaxSegSize
+-- vismRudpSessionMaxSegSize
+-- vismRudpSessionMaxAutoReset
+-- vismRudpSessionRetransTmout
+-- vismRudpSessionMaxRetrans
+-- vismRudpSessionMaxCumAck
+-- vismRudpSessionCumAckTmout
+-- vismRudpSessionMaxOutOfSeq
+-- vismRudpSessionNullSegTmout
+-- vismRudpSessionTransStateTmout
+--
+
+trapRudpSessionOos  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismRudpSessionNum,
+        vismRudpSessionState
+        }
+    DESCRIPTION
+        "When a session loses communication with the MGC 
+         the state changes to 'Out Of Service' and sends 
+         out this trap. The severity of this trap should 
+         be minor severity."
+    ::= 50769
+
+trapRudpSessionIs  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismRudpSessionNum,
+        vismRudpSessionState
+        }
+    DESCRIPTION
+        "When a session state changes to 'In Service' 
+         this trap is sent out.
+         The severity should be informational."
+    ::= 50770
+
+trapRudpSessionPrimaryIs  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismRudpSessionNum,
+        vismRudpSessionState
+        }
+    DESCRIPTION
+        "This trap is sent out when the session state 
+         is changed to 'Primary In Service'. 
+         The severity should be informational."
+    ::= 50771
+
+trapRudpSessionActive  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismRudpSessionNum,
+        vismRudpSessionState
+        }
+    DESCRIPTION
+        "When a 'Primary In Service' session in a group 
+         receives active message from the MGC this trap
+         will be sent out.
+         The severity should be informational."
+    ::= 50772
+
+trapSessionGrpOos  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionGrpNum,
+        vismSessionGrpState
+        }
+    DESCRIPTION
+        "When all the sessions in the group have changed to 
+         'Out Of Service' state, the state of this group is
+         changed to 'Out Of Service' and this trap will be 
+         sent out.
+         The severity should be 'minor', no alarm."
+    ::= 50773
+
+trapSessionGrpIs  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionGrpNum,
+        vismSessionGrpState
+        }
+    DESCRIPTION
+        "When the state of this group is changed to 'In Service'  
+         this trap will be sent out.
+         The severity should be informational."
+    ::= 50774
+
+trapSessionSetOos  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionSetNum,
+        vismSessionSetState
+        }
+    DESCRIPTION
+        "When the session set state is changed to
+         'Out Of Service' this trap will be sent out.
+         The severity should be 'minor', no alarm."
+    ::= 50775
+
+trapSessionSetActiveIs  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionSetNum,
+        vismSessionSetState
+        }
+    DESCRIPTION
+        "When the session set state is changed to 
+         'Active In Service' state this trap will be 
+         sent out.
+         The severity should be informational."
+    ::= 50776
+
+trapSessionSetStandbyIs  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionSetNum,
+        vismSessionSetState
+        }
+    DESCRIPTION
+        "When the session set state is changed to 
+         'Standby In Service' state this trap will 
+         be sent out.
+         The severity should be informational."
+    ::= 50777
+
+trapSessionSetFullIs  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismSessionSetNum,
+        vismSessionSetState
+        }
+    DESCRIPTION
+        "When the session set state is changed from 
+         other state to 'Full In Service' state this 
+         trap will be sent out.
+         The severity should be informational."
+    ::= 50778
+
+--
+-- LAPD DLC related traps
+--
+
+trapLapdDlcAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismLapdDlcIndex,
+        vismLapdDlcSapi,
+        vismLapdDlcTei
+        }
+    DESCRIPTION
+        "Indicates that an entry has been added to 
+         vismLapdDlcTable."
+    ::= 50779
+
+trapLapdDlcDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismLapdDlcIndex,
+        vismLapdDlcSapi,
+        vismLapdDlcTei
+        }
+    DESCRIPTION
+        "Indicates that an entry has been deleted from 
+         vismLapdDlcTable."
+    ::= 50780
+
+trapLapdDlcUp   TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismLapdDlcIndex,
+        vismLapdDlcSapi,
+        vismLapdDlcTei,
+        vismLapdDlcLinkState
+        }
+    DESCRIPTION
+        "Indicates that the linking state between TDM and DLC on a 
+         specific D-channel changes to up."
+    ::= 50781
+
+trapLapdDlcDown  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismLapdDlcIndex,
+        vismLapdDlcSapi,
+        vismLapdDlcTei,
+        vismLapdDlcLinkState
+        }
+    DESCRIPTION
+        "Indicates that the linking state between TDM and DLC on a 
+         specific D-channel changes to down."
+    ::= 50782
+
+persistentXgcpEventCreated  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        persistentXgcpEventName
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to persistantXgcpEvents 
+         table. The value of vismTrapIntIndex1 gives the value of 
+         persistentXgcpEventNum. persistentXgcpEventName gives the 
+         name associated with that event num."
+    ::= 50786
+
+persistentXgcpEventDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        persistentXgcpEventName
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from persistantXgcpEvents
+         table. The value of vismTrapIntIndex1 gives the value of
+         persistantXgcpEventNum. 
+         The varbind persistantXgcpEventName gives the name associated 
+         with that event num."
+    ::= 50787
+
+------------------------------
+-- Traps for mgDomainNameTable
+------------------------------
+
+mgDomainNameAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgDomainName,
+        mgDnsResolutionType
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to mgDomainNameTable."
+    ::= 50791
+
+mgDomainNameDeleted  TRAP-TYPE
+    ENTERPRISE   basis
+    VARIABLES    { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from mgDomainNameTable.
+         vismTrapIntIndex1 specifies the mgDomainNameIndex."
+    ::= 50789
+
+------------------------------
+-- Traps for vismTonePlanTable
+------------------------------
+
+vismTonePlanAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        tonePlanRegionName,
+        tonePlanVersionNumber,
+        tonePlanFileName
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to vismTonePlanTable.
+         The value of vismTrapIntIndex1 gives the value of 
+         tonePlanIndex."
+    ::= 50798
+
+vismTonePlanDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        tonePlanRegionName,
+        tonePlanVersionNumber,
+        tonePlanFileName
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from vismTonePlanTable.
+         The value of vismTrapIntIndex1 gives the value of
+         tonePlanIndex."
+    ::= 50799
+
+--
+-- VoIP trunking related traps
+--
+
+vismRtpConnAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES  {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismRtpLcn
+        }
+    DESCRIPTION
+        " Indicates that an entry has been added to vismRtpConnGrpTable
+          with vismRtpLcn.
+          The value of vismTrapIntIndex1 gives the vismRtpConnNum."
+    ::= 50650
+
+vismRtpConnDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismRtpLcn
+        }
+    DESCRIPTION
+        "Indicates that an entry with Lcn vismRtpLcn has been 
+         deleted from vismRtpConnGrpTable. The value of 
+         vismTrapIntIndex1 gives the vismRtpConnNum."
+    ::= 50651
+
+vismRtpConnStateChg  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismRtpConnAlarmState,
+        vismRtpLcn,
+        vismRtpFailReason
+        }
+    DESCRIPTION
+        "Indicates that the alarm state of the entry in 
+         vismRtpConnGrpTable with LCN vismRtpLcn changed.
+         The value of vismTrapIntIndex1 gives the vismRtpConnNum."
+    ::= 50652
+
+vismLapdTrStateIs  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismLapdTrunkState
+        }
+    DESCRIPTION
+        "Indicates that the LAPD Trunk state has changed to 
+         'In Service'. The value of vismTrapIntIndex1 gives the
+         value of vismLapdTrunkNum."
+    ::= 50653
+
+vismLapdTrStateOos  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismLapdTrunkState
+        }
+    DESCRIPTION
+        "Indicates that the LAPD Trunk state has changed to 
+         'Out Of Service'. The value of vismTrapIntIndex1 gives
+         the value of vismLapdTrunkNum."
+    ::= 50654
+ 
+vismLapdTrunkAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that a new entry has been added to the 
+         vismLapdTrunkGrpTable. The value of vismTrapIntIndex1
+         gives the value of vismLapdTrunkNum."
+    ::= 50655
+
+vismLapdTrunkDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that an existing entry has been deleted from
+        the vismLapdTrunkGrpTable. The value of vismTrapIntIndex1 
+        gives the value of vismLapdTrunkNum."
+    ::= 50656
+
+-- --------------------------------------------------------------
+-- Traps for the MGC redundancy group objects
+-- --------------------------------------------------------------
+-- Traps for mgcRedundancyGrpEntry_t
+
+
+mgcRedundancyGrpAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES    {
+         lastSequenceNumber,
+         shelfNodeName,
+         shelfNum,
+         moduleSlotNumber,
+         moduleTrapAlarmSeverity,
+         functionModuleType,
+         genericTimeStamp,
+         vismTrapIntIndex1,
+         vismTrapIntIndex2
+         }
+     DESCRIPTION
+         "Indicates that an entry has been added in the 
+          mgcRedundancyGrptable. 
+          The value of vismTrapIntIndex1 gives the value of
+          mgcRedundancyGrpNum and vismTrapIntIndex2 gives the
+          value of mgcNumber."
+     ::= 50657
+
+
+mgcRedundancyGrpDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2
+        }
+    DESCRIPTION
+        "Indicates that an entry has been deleted from the
+         mgcRedudancyGrpTable.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum and vismTrapIntIndex2 gives the
+         value of mgcNumber."
+   ::= 50658
+
+
+-- Traps related to mgcRedundancyGrpParamTable
+
+mgcRedundancyGrpCommOk  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Triggered when the communication state of the 
+         MGC redundancy group transitions to 'commOk' state. 
+         The transition will be from 'commLoss' to 'commOk'
+         when communication between the gateway and the 
+         call agent is established.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum."
+    ::= 50659
+
+mgcRedundancyGrpCommLoss  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Triggered when the communication state of the 
+         MGC redundancy group transitions to 'commLoss'. 
+         The transition will be from 'commOk' to 'commLoss'
+         when the callagent does not respond to gateway 
+         initiated messages.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum."
+    ::= 50660
+
+-- Traps related to MgcRedundancyGrpTable
+
+mgcActiveInGrp  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2,
+        mgcRedundancyGrpActState          
+        }
+    DESCRIPTION
+        "Triggered when the MGC in an MGC Redundancy Group transitions
+         from inactive to active state. Indicates the active MGC in an
+         MGC Redundancy group.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum. The value of vismTrapIntIndex2 gives the
+         value of mgcNumber."
+    ::= 50665
+
+mgcInactiveInGrp  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2,
+        mgcRedundancyGrpActState
+        }
+    DESCRIPTION
+        "Triggered when the MGC in an MGC Redundancy Group transitions
+         from active to inactive state.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum. The value of vismTrapIntIndex2 gives the 
+         value of mgcNumber."
+    ::= 50666
+
+-- Traps related to mgcRedundancyGrpProtocolTable
+mgcRedundancyGrpProtocolAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to the 
+         mgcRedundancyGrpProtocolTable.
+         The value of vismTrapIntIndex1 gives the
+         value of mgcRedundancyGrpNum.
+         The value of vismTrapIntIndex2 gives the
+         value of mgProtocolNumber."
+    ::= 50661
+
+mgcRedundancyGrpProtocolDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismTrapIntIndex2
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from the
+         mgcRedundancyGrpProtocolTable.
+         The value of vismTrapIntIndex1 gives the
+         value of mgcRedundancyGrpNum.
+         The value of vismTrapIntIndex2 gives the
+         value of mgProtocolNumber."
+    ::= 50662
+
+peerGrpHeartbeatLost  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        srcpPeerGrpTimeSinceHeartbeat
+        }
+    DESCRIPTION
+        "This notification indicates that the system failed to receive
+         a heartbeat from a specific peer group. 
+         The notification is sent when srcpPeerGrpTimeSinceHeartbeat 
+         crosses the srcpPeerGrpHeartbeatInterval threshold.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum."
+    ::= 50663
+
+peerGrpHeartbeatDetected  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        srcpPeerGrpTimeSinceHeartbeat
+        }
+    DESCRIPTION
+        "This notification indicates that the system detected a 
+         heartbeat from a specific peer group after it had been lost.
+         The notification is sent when srcpPeerGrpTimeSinceHeartbeat 
+         which had exceeded the threshold, resets to 0 due to 
+         receipt of a heartbeat. The value of vismTrapIntIndex1
+         gives the value of mgcRedundancyGrpNum."
+    ::= 50664
+
+
+-- 
+-- Traps definition for mgcRedundancyGrpParamTable
+--
+mgcRedundancyGrpParamEntryAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that an entry has been added in the
+         mgcRedundancyGrpParamTable.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum. 
+         The entries in the mgcRedundancyGrpParamTable are
+         implicitly added when the first entry for that 
+         mgcRedundancyGrpNum is added into the
+         mgcRedundancyGrpTable by the user."
+    ::= 50668
+
+mgcRedundancyGrpParamEntryDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that an entry has been deleted from the
+         mgcRedundancyGrpParamTable.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum.
+         The entries in the mgcRedundancyGrpParamTable are
+         implicitly deleted when the last entry for that
+         mgcRedundancyGrpNum is removed from the
+         mgcRedundancyGrpTable by the user."
+    ::= 50669
+
+--
+-- Traps for srcpPeerGrpParamTable (entry added or removed)
+--
+srcpPeerGrpParamEntryAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that an entry has been added to the
+         srcpPeerGrpParamTable.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum.
+         The entries in the srcpPeerGrpParamTable are
+         implicitly created when SRCP protocol is added for
+         the MGC Redundancy Group."
+    ::= 50670
+
+srcpPeerGrpParamEntryDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that an entry has been deleted from the
+         srcpPeerGrpParamTable.
+         The value of vismTrapIntIndex1 gives the value of
+         mgcRedundancyGrpNum.
+         The entries in the srcpPeerGrpParamTable are 
+         implicitly deleted when the SRCP protocol configured
+         for the Mgc Redundancy Group is deleted."
+    ::= 50671
+
+------------------------------
+-- Traps for Announcement File Table
+------------------------------
+
+cwAnnFileAddStarted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        cwAnnFileName,
+        cwAnnFileCodec,
+        cwAnnFileStatus
+        }
+    DESCRIPTION
+        "Indicates that an attempt was made to add an 
+         entry to the cwAnnounceTable.
+         This trap will not be generated at card reset 
+         time when all of previously configured permanent
+         files are downloaded to bring the card up to date.
+         The value of vismTrapIntIndex1 gives the value 
+         of cwAnnounceIndex."
+    ::= 50674
+
+cwAnnFileLoadComplete  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        cwAnnFileName,
+        cwAnnFileCodec,
+        cwAnnFileStatus
+        }
+    DESCRIPTION
+        "Indicates that an attempt to add an entry to the 
+         cwAnnounceTable has been successfully completed.
+         The value of vismTrapIntIndex1 gives the value of 
+         cwAnnounceIndex."
+    ::= 50675
+
+cwAnnFileLoadFailed  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        cwAnnFileName,
+        cwAnnFileCodec,
+        cwAnnFileStatus
+        }
+    DESCRIPTION
+        "Indicates that an attempt to add an entry to the 
+         cwAnnounceTable has failed.
+         The value of vismTrapIntIndex1 gives the value of 
+         cwAnnounceIndex."
+    ::= 50676
+
+cwAnnFileDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   { 
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from 
+         cwAnnounceTable.
+         The value of vismTrapIntIndex1 gives the value 
+         of cwAnnounceIndex."
+    ::= 50677
+
+
+newFlow  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        intSrvFlowStatus, 
+        rsvpSessionDestAddr,
+        rsvpResvFwdStatus, 
+        rsvpResvStatus, 
+        rsvpSenderStatus
+        }
+    DESCRIPTION
+        "The newFlow trap indicates that the
+         originating system has installed a new flow in
+         its classifier, or (when reservation
+         authorization is in view) is prepared to
+         install such a flow in the classifier and is
+         requesting authorization. The objects included
+         with the notification may be used to read
+         further information using the Integrated
+         Services and RSVP MIBs. Authorization or non-
+         authorization may be enacted by a write to the
+         variable intSrvFlowStatus."
+    ::= 50672
+
+lostFlow  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        intSrvFlowStatus, 
+        rsvpSessionDestAddr,
+        rsvpResvFwdStatus, 
+        rsvpResvStatus, 
+        rsvpSenderStatus
+        }
+    DESCRIPTION
+        "The lostFlow trap indicates that the
+         originating system has removed a flow from its
+         classifier."
+    ::= 50673
+
+dspRASEndpointFailed  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgEndpointLineNumber,
+        mgEndpointChannelMap
+        }
+    DESCRIPTION
+        "Triggered by DSP channel failure associated 
+         with an endpoint.
+         The value of vismTrapIntIndex1 gives the value 
+         of mgEndpointNumber."
+    ::= 50678
+
+dspRASEndpointActive  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        mgEndpointLineNumber,
+        mgEndpointChannelMap
+        }
+    DESCRIPTION
+        "Triggered by DSP channel associated with an endpoint
+         after a channel failure corrected by the DSP.
+         The value of vismTrapIntIndex1 gives the value of
+         mgEndpointNumber."
+    ::= 50679
+
+vismConfigToneDetectAdded  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismEventCode,
+        vismFrequency1,
+        vismFrequency2
+        }
+    DESCRIPTION
+        "Indicates that an entry is added to 
+         vismConfigToneDetectTable. The value of 
+         vismTrapIntIndex1 gives the value of 
+         vismConfigToneDetectNum."
+    ::= 50683
+
+vismConfigToneDetectDeleted  TRAP-TYPE
+    ENTERPRISE  basis
+    VARIABLES   {
+        lastSequenceNumber,
+        shelfNodeName,
+        shelfNum,
+        moduleSlotNumber,
+        moduleTrapAlarmSeverity,
+        functionModuleType,
+        genericTimeStamp,
+        vismTrapIntIndex1,
+        vismEventCode,
+        vismFrequency1,
+        vismFrequency2
+        }
+    DESCRIPTION
+        "Indicates that an entry is deleted from 
+         vismConfigToneDetectTable. The value of 
+         vismTrapIntIndex1 gives the value of 
+         vismConfigToneDetectNum."
+    ::= 50684
+
+--VISM 3.2.1
+
+trapCidAdministrativeStateChange TRAP-TYPE
+    ENTERPRISE basis
+    VARIABLES {
+               lastSequenceNumber,
+               shelfNodeName,
+               shelfNum,
+               moduleSlotNumber,
+               moduleTrapAlarmSeverity,
+               functionModuleType,
+               genericTimeStamp,
+               vismAal2CidAdminState,
+               vismAal2CidNum,
+               vismAal2CidLcn
+              }
+    DESCRIPTION
+        "Indicates that the CID or bearer connection has
+         either changed state from CidInService to
+         CidCommandedOutOfService or vice versa. "
+    ::=50784
+
+vismCasTransTblAdded  TRAP-TYPE
+    ENTERPRISE basis
+    VARIABLES  {
+                lastSequenceNumber,
+                shelfNodeName,
+                shelfNum,
+                moduleSlotNumber,
+                moduleTrapAlarmSeverity,
+                functionModuleType,
+                genericTimeStamp,
+                vismTrapIntIndex1,
+                vismTrapIntIndex2,
+                cvcmCasTemplateName
+               }
+    DESCRIPTION
+        "Indicates that an entry is added to the
+         cvcmABCDBitTemplateConfigTable.
+         vismTrapIntIndex1 will contain the
+         cvcmCasTemplateIndex and vismTrapIntIndex2
+         will contain the cvcmABCDPatternIndex.
+         cvcmCasTemplateName will indicate
+         the name of the CAS template added.
+        "
+    ::= 50685
+
+vismCasTranTblDeleted  TRAP-TYPE
+    ENTERPRISE basis
+    VARIABLES  {
+                lastSequenceNumber,
+                shelfNodeName,
+                shelfNum,
+                moduleSlotNumber,
+                moduleTrapAlarmSeverity,
+                functionModuleType,
+                genericTimeStamp,
+                vismTrapIntIndex1,
+                vismTrapIntIndex2,
+                cvcmCasTemplateName
+               }
+    DESCRIPTION
+        "Indicates that an entry is deleted from the
+         cvcmABCDBitTemplateConfigTable.
+         vismTrapIntIndex1 will contain the
+         cvcmCasTemplateIndex and vismTrapIntIndex2
+         will contain the cvcmABCDPatternIndex.
+         cvcmCasTemplateName will indicate
+         the name of the CAS template deleted.
+        "
+    ::= 50686
+
+END
+

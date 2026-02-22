@@ -1,0 +1,366 @@
+-- *****************************************************************
+-- OLD-CISCO-ENV-MIB.my:  Cisco Environmental Monitor MIB file
+--
+-- May 1994, Jeffrey T. Johnson
+--
+-- Copyright (c) 1994 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+               OLD-CISCO-ENV-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+			OBJECT-TYPE
+				FROM RFC-1212
+			DisplayString
+				FROM RFC1213-MIB
+			local
+				FROM CISCO-SMI;
+          
+               lenv OBJECT IDENTIFIER ::= { local 1 }
+-- lenv is the same as lsystem
+-- we're just placing the envmon stuff under a new name for mibcomp
+
+
+
+               envPresent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Is there an environmental monitor card in
+                           this box?, 0 - No, 1-AGS card present, wrong
+                           firmware, 2-AGS CARD present, firmware ok,
+                           3-7000 support"
+                   ::= { lenv 77 }
+
+               envTestPt1Descr OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Description of the test point 1. Typically
+                           ambient air or the temperature of air
+                           entering the router"
+                   ::= { lenv 78 }
+
+               envTestPt1Measure OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Current value of test point 1. Typically a
+                           temperature in centigrade."
+                   ::= { lenv 79 }
+
+               envTestPt2Descr OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Description of the test point 2. Typically
+                           airflow or the temperature of air leaving the
+                           router"
+                   ::= { lenv 80 }
+
+               envTestPt2Measure OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Current value of test point 2. Typically a
+                           temperature in centigrade."
+                   ::= { lenv 81 }
+
+               envTestPt3Descr OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Description of the test point 3. Typically
+                           +5 volt"
+                   ::= { lenv 82 }
+
+               envTestPt3Measure OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Current value of test point 3. Typically the
+                           value in millivolts of the +5v supply"
+                   ::= { lenv 83 }
+
+               envTestPt4Descr OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Description of the test point 4. Typically
+                           +12 volt"
+                   ::= { lenv 84 }
+
+               envTestPt4Measure OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Current value of test point 4. Typically the
+                           value in millivolts of the +12v supply"
+                   ::= { lenv 85 }
+
+               envTestPt5Descr OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Description of the test point 5. Typically
+                           -12 volt"
+                   ::= { lenv 86 }
+
+               envTestPt5Measure OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Current value of test point 5. Typically the
+                           value in millivolts of the -12v supply"
+                   ::= { lenv 87 }
+
+               envTestPt6Descr OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Description of the test point 6. Typically
+                           -5 volt"
+                   ::= { lenv 88 }
+
+               envTestPt6Measure OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Current value of test point 6. Typically the
+                           value in millivolts of the -5v supply"
+                   ::= { lenv 89 }
+
+               envTestPt1MarginVal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value at which the router will shutdown.
+                           Typically the ambient air temperature that
+                           will shut the router down. (e.g. 43)"
+                   ::= { lenv 90 }
+
+               envTestPt2MarginVal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value at which the router will shutdown.
+                           Typically the airflow air temperature that
+                           will shut the router down. (e.g. 58)"
+                   ::= { lenv 91 }
+
+               envTestPt3MarginPercent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "+/- Percentage that will shut the router
+                           down, (e.g. 10%) typically +5 volt"
+                   ::= { lenv 92 }
+
+               envTestPt4MarginPercent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "+/- Percentage that will shut the router
+                           down, (e.g. 15%) typically +12 volt"
+                   ::= { lenv 93 }
+
+               envTestPt5MarginPercent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "+/- Percentage that will shut the router
+                           down, (e.g. 15%) typically -12 volt"
+                   ::= { lenv 94 }
+
+               envTestPt6MarginPercent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "+/- Percentage that will shut the router
+                           down, (e.g. 10%) typically -5 volt"
+                   ::= { lenv 95 }
+
+               envTestPt1last OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value of TestPt1 when last shutdown
+                           occurred."
+                   ::= { lenv 96 }
+
+               envTestPt2last OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value of TestPt2 when last shutdown
+                           occurred."
+                   ::= { lenv 97 }
+
+               envTestPt3last OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value of TestPt3 when last shutdown
+                           occurred."
+                   ::= { lenv 98 }
+
+               envTestPt4last OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value of TestPt4 when last shutdown
+                           occurred."
+                   ::= { lenv 99 }
+
+               envTestPt5last OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value of TestPt5 when last shutdown
+                           occurred."
+                   ::= { lenv 100 }
+
+               envTestPt6last OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Value of TestPt6 when last shutdown
+                           occurred."
+                   ::= { lenv 101 }
+
+               envTestPt1warn OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        warning(1),
+                        noWarning(2)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Is this test point at a warning level?"
+                   ::= { lenv 102 }
+
+               envTestPt2warn OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        warning(1),
+                        noWarning(2)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Is this test point at a warning level?"
+                   ::= { lenv 103 }
+
+               envTestPt3warn OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        warning(1),
+                        noWarning(2)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Is this test point at a warning level?"
+                   ::= { lenv 104 }
+
+               envTestPt4warn OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        warning(1),
+                        noWarning(2)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Is this test point at a warning level?"
+                   ::= { lenv 105 }
+
+               envTestPt5warn OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        warning(1),
+                        noWarning(2)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Is this test point at a warning level?"
+                   ::= { lenv 106 }
+
+               envTestPt6warn OBJECT-TYPE
+                   SYNTAX  INTEGER {
+                        warning(1),
+                        noWarning(2)
+                   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Is this test point at a warning level?"
+                   ::= { lenv 107 }
+
+               envFirmVersion OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Description of Environmental Card firmware"
+                   ::= { lenv 108 }
+
+               envTechnicianID OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Technician ID"
+                   ::= { lenv 109 }
+
+               envType OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The type of environmental card"
+                   ::= { lenv 110 }
+
+               envBurnDate OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The calibration / burn in date"
+                   ::= { lenv 111 }
+
+               envSerialNumber OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Serial Number of environmental monitor card"
+                   ::= { lenv 112 }
+
+END
+

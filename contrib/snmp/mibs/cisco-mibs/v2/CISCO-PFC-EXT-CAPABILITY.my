@@ -1,0 +1,63 @@
+-- *****************************************************************
+-- CISCO-PFC-EXT-CAPABILITY.my
+-- CISCO-PFC-EXT-MIB agent capabilities
+--   
+-- August 2014, Yan Gao
+--   
+-- Copyright (c) 2014 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-PFC-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoPfcExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "201408110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-PFC-EXT-MIB."
+    REVISION        "201408110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 626 }
+
+
+
+cpeCapNxOSV06R0002U0201PN3k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.0(2)U2(1) on Nexus 
+                        3000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PFC-EXT-MIB agent capabilities."
+
+    SUPPORTS        CISCO-PFC-EXT-MIB
+    INCLUDES        {
+                        ciscoPfcExtIfGroup,
+                        ciscoPfcExtIfPriorityGroup
+                    }
+    ::= { ciscoPfcExtCapability 1 }
+
+END
+
+
+
+

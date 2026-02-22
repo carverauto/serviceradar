@@ -1,0 +1,563 @@
+-- MIB file created 07-Sep-2001 14:53:41, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-XDSL-LINE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-XDSL-LINE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    adslLineConfProfileName
+            FROM ADSL-LINE-MIB
+    ifIndex
+            FROM IF-MIB
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoXdslLineMIB OBJECT IDENTIFIER ::= { ciscoMgmt 204 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200102100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA 95134
+--    
+--     Tel: +1 800 553-NETS
+--    
+--     E-mail: cs-dslam@cisco.com
+--  Descr
+--    The tables defined by this MIB module contain a collection
+--    of managed objects that are general in nature and apply to
+--    different types of modems. The structure of this module
+--    resembles the  ADSL-LINE-MIB, CISCO-SDSL-LINE-MIB, 
+--    ADSL-DMT-LINE-MIB, CISCO-ADSL-DMT-LINE-MIB, etc. 
+--    Observe that the tables in this module do not necessarily
+--    extend the tables defined by the these mibs. Currently,
+--    only the table that contains the configuration information 
+--    extends the profile tables defined by the above modules. 
+--    
+--    Mib objects must fulfill the following criteria to be
+--    contained in this mib module:
+--    
+--    1)  The ADSL-LINE-MIB or the modem specific mibs such as
+--        CISCO-SDSL-LINE-MIB, CISCO-ADSL-DMT-LINE-MIB, etc.
+--        does not already contain a managed object
+--        representing the same information.
+--    
+--    2) The mibs object must NOT be technology dependent, they 
+--       must apply to various types of DSL modems,
+--       e.g. IDSL, SDSL, ADSL, etc.  
+--    
+--    *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+--    
+--    ADSL - Asymmetric Digital Subscriber Line.
+--    
+--    ATM - Asynchronous Transfer Mode.
+--    
+--    XTU-C - xDSL Transceiver Unit, Central Office end.
+--    
+--    XTU-R - xDSL Transceiver Unit, Remote terminal end.
+--    
+--    BER - Bit Error Ratio.
+--    
+--    BERT - Bit Error Ratio Test.
+--    
+--    DSP - Digital Signal Processor.
+--    
+--    DSL - Digital Subscriber Line.
+--    
+--    IDSL - IDSN Digital Subscriber Line.
+--    
+--    SDSL - Symetric Digital Subscriber Line.
+--    
+--    xDSL - Group term used to refer to ADSL, HDSL, SDSL, VDSL,
+--           IDSL, etc. All are digital technologies using existing
+--           copper lines provided by the thelephone companies.
+--  RevDate
+--    200102100000Z
+--  RevDescr
+--    Initial version of this MIB module
+
+ciscoXdslLineMIBObjects OBJECT IDENTIFIER ::= { ciscoXdslLineMIB 1 }
+ciscoXdslLineMIBConformance OBJECT IDENTIFIER ::= { ciscoXdslLineMIB 3 }
+ciscoXdslLineMIBCompliances OBJECT IDENTIFIER ::= { ciscoXdslLineMIBConformance 1 }
+ciscoXdslLineMIBGroups OBJECT IDENTIFIER ::= { ciscoXdslLineMIBConformance 2 }
+
+cXdslLineTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CXdslLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains enterprise-specific line parameters
+        for XTU-C class xDSL devices supported by the system."
+    ::= { ciscoXdslLineMIBObjects 1 }
+
+cXdslLineEntry OBJECT-TYPE
+    SYNTAX CXdslLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of enterprise-specific xDSL line parameters for an
+        XTU-C class device.  
+        There exists an entry for each ifEntry with an ifType of
+        xDSL such as adsl, sdsl, idsl, etc. that are supported by
+        the system."
+    INDEX { ifIndex }
+    ::= { cXdslLineTable 1 }
+
+CXdslLineEntry ::= SEQUENCE {
+    cXdslLineTimeSinceLastChange TimeTicks,
+    cXdslLineNoOfChanges Counter
+    }
+
+cXdslLineTimeSinceLastChange OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the time elapsed since the status of this 
+        interface was last changed."
+    ::= { cXdslLineEntry 1 }
+
+cXdslLineNoOfChanges OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the number of changes of the interface status 
+        since last reset of the agent or since a XTU-C modem was
+        installed."
+    ::= { cXdslLineEntry 2 }
+
+cXdslTestTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CXdslTestEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains enterprise-specific test
+        parameters initiated by the XTU-C class devices
+        supported by the system."
+    ::= { ciscoXdslLineMIBObjects 2 }
+
+cXdslTestEntry OBJECT-TYPE
+    SYNTAX CXdslTestEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of enterprise-specific test parameters for an
+        XTU-C class xDSL device.
+        There exists an entry for each ifEntry with an ifType of
+        xDSL such as adsl, sdsl, idsl, etc. that are supported by
+        the system."
+    INDEX { ifIndex }
+    ::= { cXdslTestTable 1 }
+
+CXdslTestEntry ::= SEQUENCE {
+    cXdslTestStatus INTEGER,
+    cXdslTestType INTEGER,
+    cXdslTestTrigger INTEGER,
+    cXdslTestTime INTEGER,
+    cXdslTestBertErrors OCTET STRING,
+    cXdslTestBertBitErrors Gauge,
+    cXdslTestBertRunTime INTEGER,
+    cXdslTestBertBitRate INTEGER
+    }
+
+cXdslTestStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        inactive(1),
+        active(2),
+        passed(3),
+        failed(4),
+        aborted(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Represents status of the test per port. Once a test is
+        completed or aborted, the status remains at passed, failed, 
+        or aborted until user clears it by setting cXdslTestTrigger
+        to clear or starts a new test.
+        This object will return 'passed' if there are no
+        cXdslTestBertErrors and no cXdslTestBertBitErrors"
+    ::= { cXdslTestEntry 1 }
+
+cXdslTestType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        bertDigitalLocal(2),
+        bertAnalogLocal(3),
+        bertDigitalRemote(4),
+        bertAnalogRemote(5),
+        other(6)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of test to be performed. The test duration is
+        determined by cXdslTestTime.
+        All the test types inhibit the service on that line.
+        The agent will only change cXdslTestType, if no test is
+        active on the targeted port. 
+        The XTU-C may support other test types that are not defined
+        in this mib, if such test is running this object will have
+        a value of 'other'. 
+        cXdslTestTrigger will start the test when set to start."
+    ::= { cXdslTestEntry 2 }
+
+cXdslTestTrigger OBJECT-TYPE
+    SYNTAX INTEGER {
+        stop(1),
+        start(2),
+        clear(3),
+        ready(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Starts, stops (aborts) a test in progress or clears the 
+        test results. The agent will only start a new test, if no
+        test is active on the targeted port. The value of this
+        object returns 'ready' when read, the value cannot be set
+        to 'ready'.
+        The cXdslTestTrigger value affects cXdslTestStatus as 
+        following:
+        
+             value   current TestStatus -->  new TestStatus
+             -----   ------------------      --------------
+             start   inactive/pass/fail/     active
+                     aborted
+             stop    active                  aborted
+             clear   pass/fail/aborted       inactive
+        
+        All other combinations will result in error, for instance,
+        starting a test may fail due to a test already in progress.
+        Likewise, stopping a test NOT in progress will result in an
+        error.
+        
+        The value of cXdslTestType, cXdslTestStatus and cXdslTestTime
+        will remain in the system until cleared or until the the agent
+        is reset.
+        When this object is set to 'clear' the test results are cleared,
+        cXdslTestType is set to none and cXdslTestStatus is set to
+        inactive. The 'old' test results will remain until completion
+        of a 'new' test if test results are not cleared "
+    ::= { cXdslTestEntry 3 }
+
+cXdslTestTime OBJECT-TYPE
+    SYNTAX INTEGER(1..30)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Test duration. Time interval between 1 - 30 minutes. "
+    DEFVAL { 1 }
+    ::= { cXdslTestEntry 4 }
+
+cXdslTestBertErrors OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   noError(0)
+        --   cpeBertAborted(1)
+        --   lostCpeSync(2)
+        --   noCpeSync(3)
+        --   noCpeResults(4)
+        --   coBertAborted(5)
+        --   lostCoSync(6)
+        --   noCoSync(7)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Errors during BERT test. 
+         The test will abort if any BERT errors occur. 
+         
+         Note: that even if there are no BERT errors the test can
+         still fail due to BertBitErrors.
+        
+         Bit   Description 
+         ---   ----------- 
+          0    No BERT errors              
+          1    XTU-R BERT aborted 
+          2    XTU-R lost sync during BERT
+          3    XTU-R never got in sync 
+          4    No XTU-R BERT results
+          5    XTU-C BERT aborted
+          6    XTU-C lost sync during BERT
+          7    XTU-C never got in sync"
+    ::= { cXdslTestEntry 5 }
+
+cXdslTestBertBitErrors OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This value represents the number of BERT bit errors accumulated
+        during the test duration, the value may not be available
+        until completion of the test. The test will fail if this value
+        is greater than 0."
+    ::= { cXdslTestEntry 6 }
+
+cXdslTestBertRunTime OBJECT-TYPE
+    SYNTAX INTEGER(0..1800)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This value represents the BERT run time in seconds, the
+        value may not be available until completion of the test."
+    ::= { cXdslTestEntry 7 }
+
+cXdslTestBertBitRate OBJECT-TYPE
+    SYNTAX INTEGER(0..20000000)
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This value represents the BERT bitrate in bps that was
+        detected during the BERT test, the value may not be
+        available until completion of the test."
+    ::= { cXdslTestEntry 8 }
+
+cXdslModeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CXdslModeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains enterprise-specific mode 
+        parameters initiated by the XTU-C class devices
+        supported by the system."
+    ::= { ciscoXdslLineMIBObjects 3 }
+
+cXdslModeEntry OBJECT-TYPE
+    SYNTAX CXdslModeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of enterprise-specific mode parameters for an
+        XTU-C class xDSL device.
+        There exists an entry for each ifEntry with an ifType of
+        xDSL such as adsl, sdsl, idsl, etc. that are supported by
+        the system."
+    INDEX { ifIndex }
+    ::= { cXdslModeTable 1 }
+
+CXdslModeEntry ::= SEQUENCE {
+    cXdslModeLoopback INTEGER,
+    cXdslModeSpectrum INTEGER
+    }
+
+cXdslModeLoopback OBJECT-TYPE
+    SYNTAX INTEGER {
+        disabled(1),
+        loopbackAnalogLocal(2),
+        loopbackDigitalLocal(3),
+        loopbackAnalogRemote(4),
+        loopbackDigitalRemote(5),
+        other(6)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object specifies the loopback mode of
+        this interface. The interface will stay in loopback mode
+        until this object is set to disabled.
+        The XTU-C may support other mode types that are not defined
+        in this mib, if such mode is running, this object will have
+        a value of 'other'. 
+        The loopback modes will inhibit the service on that line."
+    ::= { cXdslModeEntry 1 }
+
+cXdslModeSpectrum OBJECT-TYPE
+    SYNTAX INTEGER {
+        disabled(1),
+        spectrum1(2),
+        spectrum2(3),
+        spectrum3(4),
+        spectrum4(5),
+        spectrum5(6),
+        spectrum6(7)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object specifies the spectrum mode of
+        this interface. The interface will stay in spectrum mode
+        until this object is set to disabled.
+        The modes will inhibit the service on that line.
+        Not all spectrum modes are avaiable for all types of modems.
+        The modes translate as follows:
+        
+        sdsl & shdsl
+        ------------
+        spectrum1 = tx-1           spectrum2 = tx-3
+        spectrum3 = tx+1           spectrum4 = tx+3
+        spectrum5 = spec2PT        spectrum6 = spec4PT
+        
+        dmt
+        ---
+        spectrum1 = reverb         spectrum2 = medley
+        spectrum3 = pilot          spectrum4 = not supported 
+        spectrum5 = not supported  spectrum6 =  not supported
+        
+        cap
+        ---
+        spectrum1 = 136k           spectrum2 = 340k 
+        spectrum3 = 680k           spectrum4 = 952k
+        spectrum5 = not supported  spectrum6 = not supported
+        "
+    ::= { cXdslModeEntry 2 }
+
+cXdslLineConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CXdslLineConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table extends the adslLineConfProfileTable and contains
+        enterprise-specific xDSL configuration information. Entries in
+        this table apply to more than one type of DSL modems"
+    ::= { ciscoXdslLineMIBObjects 4 }
+
+cXdslLineConfProfileEntry OBJECT-TYPE
+    SYNTAX CXdslLineConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A configuration profile containing enterprise-specific xDSL 
+        line configuration information. 
+        An entry exist in this table for every profile created by 
+        adslLineConfProfileRowStatus which will also modify or 
+        delete an existing row in this table."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED adslLineConfProfileName }
+-- Augments adslLineConfProfileEntry FROM ADSL-LINE-MIB
+    ::= { cXdslLineConfProfileTable 1 }
+
+CXdslLineConfProfileEntry ::= SEQUENCE {
+    cXdslLineConfPayloadScrambled TruthValue,
+    cXdslLineConfAlarmsEnabled TruthValue,
+    cXdslLineConfLinkUpDownTrap TruthValue
+    }
+
+cXdslLineConfPayloadScrambled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether ATM Payload Scrambling
+        is enabled for this profile."
+    DEFVAL { true }
+    ::= { cXdslLineConfProfileEntry 1 }
+
+cXdslLineConfAlarmsEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether Alarms are enabled for 
+        this profile."
+    DEFVAL { false }
+    ::= { cXdslLineConfProfileEntry 2 }
+
+cXdslLineConfLinkUpDownTrap OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether Link Up/Down traps 
+         are enabled for this profile."
+    DEFVAL { false }
+    ::= { cXdslLineConfProfileEntry 3 }
+
+cXdslLineGroup OBJECT IDENTIFIER ::= { ciscoXdslLineMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the enterprise-
+--    specific attributes of a xDSL line.
+--  objects
+--    cXdslLineTimeSinceLastChange, cXdslLineNoOfChanges
+
+cXdslLineConfProfileGroup OBJECT IDENTIFIER ::= { ciscoXdslLineMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the 
+--    enterprise-specific line configuration information 
+--    associated with one or more xDSL XTU-C class devices.
+--  objects
+--    cXdslLineConfPayloadScrambled, cXdslLineConfAlarmsEnabled, 
+--    cXdslLineConfLinkUpDownTrap
+
+cXdslTestGroup OBJECT IDENTIFIER ::= { ciscoXdslLineMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the
+--    enterprise-specific test options associated
+--    with one or more xDSL XTU-C class devices.
+--    Implemention of this group is optional.
+--  objects
+--    cXdslTestStatus, cXdslTestType, cXdslTestTrigger, 
+--    cXdslTestTime, cXdslTestBertErrors, cXdslTestBertBitErrors, 
+--    cXdslTestBertRunTime, cXdslTestBertBitRate
+
+cXdslModeGroup OBJECT IDENTIFIER ::= { ciscoXdslLineMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the
+--    enterprise-specific line mode options associated
+--    with one or more xDSL XTU-C class devices.
+--    Implemention of this group is optional.
+--  objects
+--    cXdslModeLoopback, cXdslModeSpectrum
+
+ciscoXdslLineMIBCompliance OBJECT IDENTIFIER ::= { ciscoXdslLineMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities that implement the
+--    CISCO-XDSL-LINE-MIB.  Implementation of this MIB is
+--    mandatory for any platform that supports one or more xDSL
+--    type interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cXdslLineGroup
+--   MandGroup
+--    cXdslLineConfProfileGroup
+
+
+END
+

@@ -1,0 +1,223 @@
+-- *****************************************************************
+-- CISCO-CONTENT-SERVICES-CAPABILITY.my:
+-- CISCO-CONTENT-SERVICES-MIB AGENT-CAPABILITIES
+--   
+-- May, 2009 Hsien-Ling Meng
+--   
+-- Copyright (c) 2009-2010 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-CONTENT-SERVICES-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoContentServicesCapability MODULE-IDENTITY
+    LAST-UPDATED    "201012230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-csg@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-CONTENT-SERVICES-MIB"
+    REVISION        "201012230000Z"
+    DESCRIPTION
+        "Added following object groups:
+        ciscoContentServicesLoadStatRadiusGroupSup1
+        ciscoContentServicesLoadStatUserDBGroupSup1
+        ciscoContentServicesLoadStatSessionGroupSup1
+        ciscoContentServicesLoadStatBMAGroupSup1
+        ciscoContentServicesLoadStatQuotaMgrGroupSup1
+        ciscoContentServicesLoadStatGxEventGroupSup1"
+    REVISION        "201002110000Z"
+    DESCRIPTION
+        "Added following object group:
+        ciscoContentServicesBillingPlanStatsGroup"
+    REVISION        "200908210000Z"
+    DESCRIPTION
+        "Added following object groups:
+        ciscoContentServiceProtocolStatsGroup
+        ciscoContentServicesLoadStatGxEventGroup"
+    REVISION        "200905090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 581 }
+
+
+
+ciscoContentServicesCapabilityAdcV01R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4MF"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Content Services MIB for AdControl capabilities"
+
+    SUPPORTS        CISCO-CONTENT-SERVICES-MIB
+    INCLUDES        {
+                        ciscoContentServicesNotifInfoGroup,
+                        ciscoContentServicesLoadStatRadiusGroup,
+                        ciscoContentServicesGlobalStatsGroup,
+                        ciscoContentServicesGlobalCfgGroupSup1,
+                        ciscoContentServicesNotifEnableGroupSup1,
+                        ciscoContentServicesNotifGroupSup1,
+                        ciscoContentServicesLoadStatSessionGroup,
+                        ciscoContentServicesGlobalCfgGroupSup2,
+                        ciscoContentServicesNotifEnableGroupSup2,
+                        ciscoContentServicesNotifGroupSup2
+                    }
+    ::= { ciscoContentServicesCapability 1 }
+
+ciscoContentServicesCapabilityCSG2R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(22)MD"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Content Services MIB for CSG2 R3 capabilities"
+
+    SUPPORTS        CISCO-CONTENT-SERVICES-MIB
+    INCLUDES        {
+                        ciscoContentServicesGlobalCfgGroup,
+                        ciscoContentServicesGlobalStatsGroup,
+                        ciscoContentServicesBMAGroup,
+                        ciscoContentServicesQuotaMgrGroup,
+                        ciscoContentServicesUserDbGroup,
+                        ciscoContentServicesNotifEnableGroup,
+                        ciscoContentServicesNotifGroup,
+                        ciscoContentServicesLoadStatRadiusGroup,
+                        ciscoContentServicesLoadStatUserDBGroup,
+                        ciscoContentServicesLoadStatSessionGroup,
+                        ciscoContentServicesLoadStatBMAGroup,
+                        ciscoContentServicesLoadStatQuotaMgrGroup,
+                        ciscoContentServicesGlobalStatsGroupSup1,
+                        ciscoContentServicesBMAGroupSup1,
+                        ciscoContentServicesQuotaMgrGroupSup1,
+                        ciscoContentServicesGlobalCfgGroupSup1,
+                        ciscoContentServicesNotifEnableGroupSup1,
+                        ciscoContentServicesNotifGroupSup1
+                    }
+    ::= { ciscoContentServicesCapability 2 }
+
+ciscoContentServicesCapabilityCSG2R0305 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(22)MDA"
+    STATUS          current
+    DESCRIPTION
+        "Added ciscoContentServicesCapabilityCSG2R0305 agent capabilities 
+        for Content Service Gateway version 3.5. This verion contains 
+        the statistics for Layer 7 protocols including Nbar protocol. 
+        Also added load statistical information related to Gx Events."
+
+    SUPPORTS        CISCO-CONTENT-SERVICES-MIB
+    INCLUDES        {
+                        ciscoContentServicesGlobalCfgGroup,
+                        ciscoContentServicesGlobalStatsGroup,
+                        ciscoContentServicesBMAGroup,
+                        ciscoContentServicesQuotaMgrGroup,
+                        ciscoContentServicesUserDbGroup,
+                        ciscoContentServicesNotifEnableGroup,
+                        ciscoContentServicesNotifGroup,
+                        ciscoContentServicesLoadStatRadiusGroup,
+                        ciscoContentServicesLoadStatUserDBGroup,
+                        ciscoContentServicesLoadStatSessionGroup,
+                        ciscoContentServicesLoadStatBMAGroup,
+                        ciscoContentServicesLoadStatQuotaMgrGroup,
+                        ciscoContentServicesGlobalStatsGroupSup1,
+                        ciscoContentServicesBMAGroupSup1,
+                        ciscoContentServicesQuotaMgrGroupSup1,
+                        ciscoContentServicesGlobalCfgGroupSup1,
+                        ciscoContentServicesNotifEnableGroupSup1,
+                        ciscoContentServicesNotifGroupSup1,
+                        ciscoContentServiceProtocolStatsGroup,
+                        ciscoContentServicesLoadStatGxEventGroup
+                    }
+    ::= { ciscoContentServicesCapability 3 }
+
+ciscoContentServicesCapabilityCSG2R04 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(24)MD"
+    STATUS          current
+    DESCRIPTION
+        "Added ciscoContentServicesCapabilityCSG2R04 agent capabilities
+        for Content Service Gateway 2 release 4. In addition to existing 
+        features, the release also provides the statistics of associated
+        subscribers per billing plan."
+
+    SUPPORTS        CISCO-CONTENT-SERVICES-MIB
+    INCLUDES        {
+                        ciscoContentServicesGlobalCfgGroup,
+                        ciscoContentServicesGlobalStatsGroup,
+                        ciscoContentServicesBMAGroup,
+                        ciscoContentServicesQuotaMgrGroup,
+                        ciscoContentServicesUserDbGroup,
+                        ciscoContentServicesNotifEnableGroup,
+                        ciscoContentServicesNotifGroup,
+                        ciscoContentServicesLoadStatRadiusGroup,
+                        ciscoContentServicesLoadStatUserDBGroup,
+                        ciscoContentServicesLoadStatSessionGroup,
+                        ciscoContentServicesLoadStatBMAGroup,
+                        ciscoContentServicesLoadStatQuotaMgrGroup,
+                        ciscoContentServicesGlobalStatsGroupSup1,
+                        ciscoContentServicesBMAGroupSup1,
+                        ciscoContentServicesQuotaMgrGroupSup1,
+                        ciscoContentServicesGlobalCfgGroupSup1,
+                        ciscoContentServicesNotifEnableGroupSup1,
+                        ciscoContentServicesNotifGroupSup1,
+                        ciscoContentServiceProtocolStatsGroup,
+                        ciscoContentServicesLoadStatGxEventGroup,
+                        ciscoContentServicesBillingPlanStatsGroup
+                    }
+    ::= { ciscoContentServicesCapability 4 }
+
+ciscoContentServicesCapabilityCSG2R06 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS R6"
+    STATUS          current
+    DESCRIPTION
+        "Added ciscoContentServicesCapabilityCSG2R06 agent capabilities
+        for Content Service Gateway 2 release 6. In addition to existing 
+        features, the release also provides 64 bit version of allowed
+        and denial rate for load statistics."
+
+    SUPPORTS        CISCO-CONTENT-SERVICES-MIB
+    INCLUDES        {
+                        ciscoContentServicesGlobalCfgGroup,
+                        ciscoContentServicesGlobalStatsGroup,
+                        ciscoContentServicesBMAGroup,
+                        ciscoContentServicesQuotaMgrGroup,
+                        ciscoContentServicesUserDbGroup,
+                        ciscoContentServicesNotifEnableGroup,
+                        ciscoContentServicesNotifGroup,
+                        ciscoContentServicesLoadStatRadiusGroup,
+                        ciscoContentServicesLoadStatUserDBGroup,
+                        ciscoContentServicesLoadStatSessionGroup,
+                        ciscoContentServicesLoadStatBMAGroup,
+                        ciscoContentServicesLoadStatQuotaMgrGroup,
+                        ciscoContentServicesGlobalStatsGroupSup1,
+                        ciscoContentServicesBMAGroupSup1,
+                        ciscoContentServicesQuotaMgrGroupSup1,
+                        ciscoContentServicesGlobalCfgGroupSup1,
+                        ciscoContentServicesNotifEnableGroupSup1,
+                        ciscoContentServicesNotifGroupSup1,
+                        ciscoContentServiceProtocolStatsGroup,
+                        ciscoContentServicesLoadStatGxEventGroup,
+                        ciscoContentServicesBillingPlanStatsGroup,
+                        ciscoContentServicesLoadStatRadiusGroupSup1,
+                        ciscoContentServicesLoadStatUserDBGroupSup1,
+                        ciscoContentServicesLoadStatSessionGroupSup1,
+                        ciscoContentServicesLoadStatBMAGroupSup1,
+                        ciscoContentServicesLoadStatQuotaMgrGroupSup1,
+                        ciscoContentServicesLoadStatGxEventGroupSup1
+                    }
+    ::= { ciscoContentServicesCapability 5 }
+END

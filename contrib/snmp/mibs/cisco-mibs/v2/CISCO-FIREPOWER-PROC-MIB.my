@@ -1,0 +1,636 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-PROC-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- PROC management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-PROC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprProcStatAdminState
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprProcObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        PROC management information model package"
+    ::= { ciscoFirepowerMIBObjects 65 }
+
+cfprProcDoerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprProcDoerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower proc:Doer managed object table"
+    ::= { cfprProcObjects 1 }
+
+cfprProcDoerEntry OBJECT-TYPE
+    SYNTAX           CfprProcDoerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprProcDoerTable table."
+    INDEX { cfprProcDoerInstanceId }
+    ::= { cfprProcDoerTable 1 }
+
+CfprProcDoerEntry ::= SEQUENCE {
+    cfprProcDoerInstanceId                                           CfprManagedObjectId,
+    cfprProcDoerDn                                                   CfprManagedObjectDn,
+    cfprProcDoerRn                                                   SnmpAdminString,
+    cfprProcDoerId                                                   Gauge32,
+    cfprProcDoerName                                                 SnmpAdminString
+}
+
+cfprProcDoerInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprProcDoerEntry 1 }
+
+cfprProcDoerDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Doer:dn managed object property"
+    ::= { cfprProcDoerEntry 2 }
+
+cfprProcDoerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Doer:rn managed object property"
+    ::= { cfprProcDoerEntry 3 }
+
+cfprProcDoerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Doer:id managed object property"
+    ::= { cfprProcDoerEntry 4 }
+
+cfprProcDoerName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Doer:name managed object property"
+    ::= { cfprProcDoerEntry 5 }
+
+cfprProcManagerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprProcManagerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower proc:Manager managed object table"
+    ::= { cfprProcObjects 2 }
+
+cfprProcManagerEntry OBJECT-TYPE
+    SYNTAX           CfprProcManagerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprProcManagerTable table."
+    INDEX { cfprProcManagerInstanceId }
+    ::= { cfprProcManagerTable 1 }
+
+CfprProcManagerEntry ::= SEQUENCE {
+    cfprProcManagerInstanceId                                        CfprManagedObjectId,
+    cfprProcManagerDn                                                CfprManagedObjectDn,
+    cfprProcManagerRn                                                SnmpAdminString
+}
+
+cfprProcManagerInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprProcManagerEntry 1 }
+
+cfprProcManagerDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Manager:dn managed object property"
+    ::= { cfprProcManagerEntry 2 }
+
+cfprProcManagerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Manager:rn managed object property"
+    ::= { cfprProcManagerEntry 3 }
+
+cfprProcPrtTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprProcPrtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower proc:Prt managed object table"
+    ::= { cfprProcObjects 3 }
+
+cfprProcPrtEntry OBJECT-TYPE
+    SYNTAX           CfprProcPrtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprProcPrtTable table."
+    INDEX { cfprProcPrtInstanceId }
+    ::= { cfprProcPrtTable 1 }
+
+CfprProcPrtEntry ::= SEQUENCE {
+    cfprProcPrtInstanceId                                            CfprManagedObjectId,
+    cfprProcPrtDn                                                    CfprManagedObjectDn,
+    cfprProcPrtRn                                                    SnmpAdminString,
+    cfprProcPrtId                                                    Gauge32,
+    cfprProcPrtName                                                  SnmpAdminString
+}
+
+cfprProcPrtInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprProcPrtEntry 1 }
+
+cfprProcPrtDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Prt:dn managed object property"
+    ::= { cfprProcPrtEntry 2 }
+
+cfprProcPrtRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Prt:rn managed object property"
+    ::= { cfprProcPrtEntry 3 }
+
+cfprProcPrtId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Prt:id managed object property"
+    ::= { cfprProcPrtEntry 4 }
+
+cfprProcPrtName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Prt:name managed object property"
+    ::= { cfprProcPrtEntry 5 }
+
+cfprProcPrtCountsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprProcPrtCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts managed object table"
+    ::= { cfprProcObjects 4 }
+
+cfprProcPrtCountsEntry OBJECT-TYPE
+    SYNTAX           CfprProcPrtCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprProcPrtCountsTable table."
+    INDEX { cfprProcPrtCountsInstanceId }
+    ::= { cfprProcPrtCountsTable 1 }
+
+CfprProcPrtCountsEntry ::= SEQUENCE {
+    cfprProcPrtCountsInstanceId                                      CfprManagedObjectId,
+    cfprProcPrtCountsDn                                              CfprManagedObjectDn,
+    cfprProcPrtCountsRn                                              SnmpAdminString,
+    cfprProcPrtCountsCachenospc                                      Gauge32,
+    cfprProcPrtCountsDbtxs                                           Gauge32,
+    cfprProcPrtCountsLargetxs                                        Gauge32,
+    cfprProcPrtCountsPersistTime                                     Unsigned64,
+    cfprProcPrtCountsTotal                                           Gauge32
+}
+
+cfprProcPrtCountsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprProcPrtCountsEntry 1 }
+
+cfprProcPrtCountsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts:dn managed object property"
+    ::= { cfprProcPrtCountsEntry 2 }
+
+cfprProcPrtCountsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts:rn managed object property"
+    ::= { cfprProcPrtCountsEntry 3 }
+
+cfprProcPrtCountsCachenospc OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts:cachenospc managed
+        object property"
+    ::= { cfprProcPrtCountsEntry 4 }
+
+cfprProcPrtCountsDbtxs OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts:dbtxs managed object property"
+    ::= { cfprProcPrtCountsEntry 5 }
+
+cfprProcPrtCountsLargetxs OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts:largetxs managed object property"
+    ::= { cfprProcPrtCountsEntry 6 }
+
+cfprProcPrtCountsPersistTime OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts:persistTime managed
+        object property"
+    ::= { cfprProcPrtCountsEntry 7 }
+
+cfprProcPrtCountsTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:PrtCounts:total managed object property"
+    ::= { cfprProcPrtCountsEntry 8 }
+
+cfprProcStimulusCountsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprProcStimulusCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts managed object table"
+    ::= { cfprProcObjects 5 }
+
+cfprProcStimulusCountsEntry OBJECT-TYPE
+    SYNTAX           CfprProcStimulusCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprProcStimulusCountsTable table."
+    INDEX { cfprProcStimulusCountsInstanceId }
+    ::= { cfprProcStimulusCountsTable 1 }
+
+CfprProcStimulusCountsEntry ::= SEQUENCE {
+    cfprProcStimulusCountsInstanceId                                 CfprManagedObjectId,
+    cfprProcStimulusCountsDn                                         CfprManagedObjectDn,
+    cfprProcStimulusCountsRn                                         SnmpAdminString,
+    cfprProcStimulusCountsAdminState                                 CfprProcStatAdminState,
+    cfprProcStimulusCountsBulked                                     Gauge32,
+    cfprProcStimulusCountsFailed                                     Gauge32,
+    cfprProcStimulusCountsRetried                                    Gauge32,
+    cfprProcStimulusCountsSingleton                                  Gauge32,
+    cfprProcStimulusCountsSuccessfull                                Gauge32,
+    cfprProcStimulusCountsTotal                                      Gauge32
+}
+
+cfprProcStimulusCountsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprProcStimulusCountsEntry 1 }
+
+cfprProcStimulusCountsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:dn managed object property"
+    ::= { cfprProcStimulusCountsEntry 2 }
+
+cfprProcStimulusCountsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:rn managed object property"
+    ::= { cfprProcStimulusCountsEntry 3 }
+
+cfprProcStimulusCountsAdminState OBJECT-TYPE
+    SYNTAX       CfprProcStatAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:adminState
+        managed object property"
+    ::= { cfprProcStimulusCountsEntry 4 }
+
+cfprProcStimulusCountsBulked OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:bulked managed
+        object property"
+    ::= { cfprProcStimulusCountsEntry 5 }
+
+cfprProcStimulusCountsFailed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:failed managed
+        object property"
+    ::= { cfprProcStimulusCountsEntry 6 }
+
+cfprProcStimulusCountsRetried OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:retried managed
+        object property"
+    ::= { cfprProcStimulusCountsEntry 7 }
+
+cfprProcStimulusCountsSingleton OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:singleton
+        managed object property"
+    ::= { cfprProcStimulusCountsEntry 8 }
+
+cfprProcStimulusCountsSuccessfull OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:successfull
+        managed object property"
+    ::= { cfprProcStimulusCountsEntry 9 }
+
+cfprProcStimulusCountsTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:StimulusCounts:total managed
+        object property"
+    ::= { cfprProcStimulusCountsEntry 10 }
+
+cfprProcSvcTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprProcSvcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower proc:Svc managed object table"
+    ::= { cfprProcObjects 6 }
+
+cfprProcSvcEntry OBJECT-TYPE
+    SYNTAX           CfprProcSvcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprProcSvcTable table."
+    INDEX { cfprProcSvcInstanceId }
+    ::= { cfprProcSvcTable 1 }
+
+CfprProcSvcEntry ::= SEQUENCE {
+    cfprProcSvcInstanceId                                            CfprManagedObjectId,
+    cfprProcSvcDn                                                    CfprManagedObjectDn,
+    cfprProcSvcRn                                                    SnmpAdminString,
+    cfprProcSvcId                                                    Gauge32,
+    cfprProcSvcName                                                  SnmpAdminString
+}
+
+cfprProcSvcInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprProcSvcEntry 1 }
+
+cfprProcSvcDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Svc:dn managed object property"
+    ::= { cfprProcSvcEntry 2 }
+
+cfprProcSvcRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Svc:rn managed object property"
+    ::= { cfprProcSvcEntry 3 }
+
+cfprProcSvcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Svc:id managed object property"
+    ::= { cfprProcSvcEntry 4 }
+
+cfprProcSvcName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:Svc:name managed object property"
+    ::= { cfprProcSvcEntry 5 }
+
+cfprProcTxCountsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprProcTxCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts managed object table"
+    ::= { cfprProcObjects 7 }
+
+cfprProcTxCountsEntry OBJECT-TYPE
+    SYNTAX           CfprProcTxCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprProcTxCountsTable table."
+    INDEX { cfprProcTxCountsInstanceId }
+    ::= { cfprProcTxCountsTable 1 }
+
+CfprProcTxCountsEntry ::= SEQUENCE {
+    cfprProcTxCountsInstanceId                                       CfprManagedObjectId,
+    cfprProcTxCountsDn                                               CfprManagedObjectDn,
+    cfprProcTxCountsRn                                               SnmpAdminString,
+    cfprProcTxCountsAdminState                                       CfprProcStatAdminState,
+    cfprProcTxCountsBulked                                           Gauge32,
+    cfprProcTxCountsFailed                                           Gauge32,
+    cfprProcTxCountsRetried                                          Gauge32,
+    cfprProcTxCountsSingleton                                        Gauge32,
+    cfprProcTxCountsSuccessfull                                      Gauge32,
+    cfprProcTxCountsTotal                                            Gauge32
+}
+
+cfprProcTxCountsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprProcTxCountsEntry 1 }
+
+cfprProcTxCountsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:dn managed object property"
+    ::= { cfprProcTxCountsEntry 2 }
+
+cfprProcTxCountsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:rn managed object property"
+    ::= { cfprProcTxCountsEntry 3 }
+
+cfprProcTxCountsAdminState OBJECT-TYPE
+    SYNTAX       CfprProcStatAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:adminState managed object property"
+    ::= { cfprProcTxCountsEntry 4 }
+
+cfprProcTxCountsBulked OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:bulked managed object property"
+    ::= { cfprProcTxCountsEntry 5 }
+
+cfprProcTxCountsFailed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:failed managed object property"
+    ::= { cfprProcTxCountsEntry 6 }
+
+cfprProcTxCountsRetried OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:retried managed object property"
+    ::= { cfprProcTxCountsEntry 7 }
+
+cfprProcTxCountsSingleton OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:singleton managed object property"
+    ::= { cfprProcTxCountsEntry 8 }
+
+cfprProcTxCountsSuccessfull OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:successfull managed
+        object property"
+    ::= { cfprProcTxCountsEntry 9 }
+
+cfprProcTxCountsTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower proc:TxCounts:total managed object property"
+    ::= { cfprProcTxCountsEntry 10 }
+
+END

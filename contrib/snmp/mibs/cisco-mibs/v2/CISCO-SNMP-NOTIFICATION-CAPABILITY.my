@@ -1,0 +1,314 @@
+-- *****************************************************************
+-- CISCO-SNMP-NOTIFICATION-CAPABILITY.my:
+-- Cisco SNMP-NOTIFICATION-MIB AGENT-CAPABILITIES
+--   
+-- July 2004, Rashmi Purandare
+--   
+-- Copyright (c) 2003-2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SNMP-NOTIFICATION-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSnmpNotificationCapability MODULE-IDENTITY
+    LAST-UPDATED    "200806250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com, cs-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of SNMP-NOTIFICATION-MIB."
+    REVISION        "200806250000Z"
+    DESCRIPTION
+        "Added capability statement
+        cSnmpNotifCapc4710aceVA1R700 for ACE 4710 
+        Application Control Engine Appliance."
+    REVISION        "200603290000Z"
+    DESCRIPTION
+        "Added capability statement cSnmpNotifCapACSWV03R000
+        for Application Control Engine (ACE)."
+    REVISION        "200407280000Z"
+    DESCRIPTION
+        "Added capability for VISM Release 3.3."
+    REVISION        "200308280000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 330 }
+
+
+
+cSnmpNotifCapCatOSV05R0501 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 5.5(1)."
+    STATUS          current
+    DESCRIPTION
+        "SNMP-NOTIFICATION-MIB capabilities."
+
+    SUPPORTS        SNMP-NOTIFICATION-MIB
+    INCLUDES        {
+                        snmpNotifyGroup,
+                        snmpNotifyFilterGroup
+                    }
+    VARIATION       snmpNotifyTag
+    SYNTAX          OCTET STRING (SIZE (0..32))
+    DESCRIPTION
+        "Maximum tag size supported is 32 characters."
+
+    VARIATION       snmpNotifyStorageType
+    SYNTAX          INTEGER  {
+                        volatile(2),
+                        nonVolatile(3),
+                        readOnly(5)
+                    }
+    DESCRIPTION
+        "Only support volatile(2), nonVolatile(3) and
+        readOnly(5)."
+
+    VARIATION       snmpNotifyFilterProfileStorType
+    SYNTAX          INTEGER  {
+                        volatile(2)
+                    }
+    DESCRIPTION
+        "Only support volatile(2)."
+
+    VARIATION       snmpNotifyFilterStorageType
+    SYNTAX          INTEGER  {
+                        volatile(2)
+                    }
+    DESCRIPTION
+        "Only support volatile(2)."
+
+    ::= { ciscoSnmpNotificationCapability 1 }
+
+cSnmpNotifCapVISM33 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco VISM Release 3.3."
+    STATUS          current
+    DESCRIPTION
+        "SNMP-NOTIFICATION-MIB capabilities."
+
+    SUPPORTS        SNMP-NOTIFICATION-MIB
+    INCLUDES        { snmpNotifyFilterGroup }
+    VARIATION       snmpNotifyFilterProfileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterProfileStorType
+    SYNTAX          INTEGER  {
+                        nonVolatile(3)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported.
+        All rows will have
+        snmpNotifyFilterProfileStorType of
+        nonVolatile (3) since it is stored on
+        the processor card hard disk."
+
+    VARIATION       snmpNotifyFilterProfileRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        notReady(3)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported.
+        The rowStatus will be active if the
+        snmpNotifyFilterProfileName has
+        corresponding active entries in
+        snmpNotifyFilterTable. It will be
+        notReady (3) if the
+        snmpNotifyFilterProfileName has no
+        corresponding active entries in the
+        snmpNotifyFilterTable."
+
+    VARIATION       snmpNotifyFilterMask
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterType
+    SYNTAX          INTEGER  {
+                        included(1)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access.
+        Only included (1) is supported."
+
+    VARIATION       snmpNotifyFilterStorageType
+    SYNTAX          INTEGER  {
+                        nonVolatile(3)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access and nonVolatile(3)
+        is supported."
+
+    VARIATION       snmpNotifyFilterRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only active(1), createAndGo(4), destroy(6)
+        are supported."
+
+    ::= { ciscoSnmpNotificationCapability 2 }
+
+cSnmpNotifCapACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "SNMP-NOTIFICATION-MIB capabilities."
+
+    SUPPORTS        SNMP-NOTIFICATION-MIB
+    INCLUDES        {
+                        snmpNotifyGroup,
+                        snmpNotifyFilterGroup
+                    }
+    VARIATION       snmpNotifyTag
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterProfileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterProfileStorType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterProfileRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterMask
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    ::= { ciscoSnmpNotificationCapability 3 }
+
+cSnmpNotifCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                         for ACE 4710 Application Control Engine 
+                         Appliance."
+    STATUS          current
+    DESCRIPTION
+        "SNMP-NOTIFICATION-MIB capabilities."
+
+    SUPPORTS        SNMP-NOTIFICATION-MIB
+    INCLUDES        {
+                        snmpNotifyGroup,
+                        snmpNotifyFilterGroup
+                    }
+    VARIATION       snmpNotifyTag
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterProfileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterProfileStorType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterProfileRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterMask
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    VARIATION       snmpNotifyFilterRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Read only access is supported."
+
+    ::= { ciscoSnmpNotificationCapability 4 }
+
+END

@@ -1,0 +1,1104 @@
+DOCS-MCAST-MIB DEFINITIONS ::= BEGIN 
+  IMPORTS 
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    Unsigned32 
+             FROM SNMPv2-SMI          -- RFC 2578 
+    RowStatus, 
+    TruthValue 
+             FROM SNMPv2-TC           -- RFC 2579 
+    OBJECT-GROUP, 
+    MODULE-COMPLIANCE 
+             FROM SNMPv2-CONF         -- RFC 2580 
+    SnmpAdminString 
+             FROM SNMP-FRAMEWORK-MIB  -- RFC 3411 
+    InetAddressType, 
+    InetAddress, 
+    InetAddressPrefixLength 
+             FROM INET-ADDRESS-MIB    -- RFC 4001 
+    InterfaceIndex, 
+    ifIndex 
+             FROM IF-MIB              -- RFC 2863 
+    DocsBpkmDataEncryptAlg, 
+    DocsSAId 
+             FROM DOCS-IETF-BPI2-MIB  -- RFC 4131 
+    ChSetId, 
+    Dsid 
+             FROM DOCS-IF3-MIB 
+    clabProjDocsis 
+             FROM CLAB-DEF-MIB; 
+ 
+docsMcastMib MODULE-IDENTITY 
+     LAST-UPDATED    "200708030000Z" -- August 3, 2007
+     ORGANIZATION    "Cable Television Laboratories, Inc." 
+     CONTACT-INFO 
+         " 
+         Postal: Cable Television Laboratories, Inc. 
+         858 Coal Creek Circle 
+         Louisville, Colorado 80027-9750 
+         U.S.A. 
+         Phone: +1 303-661-9100 
+         Fax:   +1 303-661-9199 
+         E-mail: mibs@cablelabs.com" 
+     DESCRIPTION 
+        "This MIB module contains the management objects for the 
+        management of Multicast over DOCSIS to support Multicast 
+        DSID forwarding and or bonded multicast." 
+     REVISION        "200708030000Z" -- August 3, 2007
+    DESCRIPTION 
+            "Revised Version includes ECNs 
+             OSSIv3.0-N-07.0499-1 
+             OSSIv3.0-N-07.0473-3 
+             and is published as I04" 
+     REVISION        "200612071700Z" -- Dec 7, 2006 
+     DESCRIPTION 
+        "Initial version, published as part of the CableLabs 
+        OSSIv3.0 specification CM-SP-OSSIv3.0-I01-061207 
+        Copyright 1999-2006 Cable Television Laboratories, Inc. 
+        All rights reserved." 
+     ::= {  clabProjDocsis 18} 
+ 
+-- Textual Conventions 
+ 
+-- Object Definitions 
+docsMcastMibObjects  OBJECT IDENTIFIER ::= { docsMcastMib 1 } 
+ 
+docsMcastCmtsGrpCfgTable OBJECT-TYPE 
+     SYNTAX      SEQUENCE OF DocsMcastCmtsGrpCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This object controls the QoS, PHS and encryption settings 
+        for downstream forwarding of IP multicast sessions. 
+        An IP multicast session is replicated to one 
+        or more Downstream Channel Sets (DCSs), where each 
+        DCS is either a single downstream channel or a downstream 
+        bonding group of multiple channels. The CMTS determines 
+        on which DCSs to replicate a multicast session 
+        based on IP multicast membership reports ('joins') 
+        or other vendor-specific static configuration. 
+ 
+        The CmtsGrpCfg object allows for the configuration 
+        of a range of sessions through the SrcPrefixAddr and 
+        GrpPrefixAddr and SrcPrefixLen and GrpPrefixLen attributes. 
+ 
+        The CmtsGrpCfg object allows for the configuration 
+        of QoS, Encryption and PHS for multicast sessions. Cable 
+        operators can specify configuration rules for 
+        a range of multicast sessions through the tuple of 
+        (SrcPrefixAddr,SrcPrefixLen, GrpPrefixAddr, GrpPrefixLen) 
+        attributes in an entry. The QosConfigId attribute 
+        identifies the QoS rule, the EncryptionConfigId 
+        identifies the encryption rule and the PhsConfigId 
+        identifies the PHS rule for a particular entry. 
+        Even if an entry indicates a range of multicast sessions 
+        the Encryption and PHS rules are applied on a per-session 
+        basis. That is, a separate DSID is assigned 
+        to an individual multicast session from a range of multicast 
+        sessions identified by an entry in the CmtsGrpCfg 
+        object and a PHS rule (indicated by the PhsCfgId) 
+        is applied individually to each session which is 
+        identified by the DSID assigned for that session. Similarly, 
+        a separate SAID is assigned to individual multicast 
+        session from range identified by the CmtsGrpCfg 
+        object. 
+        The CmtsGrpQosConfigQosCtrl attribute from the CmtsGrpQosCfg 
+        object is used to determine if the traffic 
+        for a range of multicast sessions identified by an 
+        entry in the CmtsGrpCfg object will be transmitted in 
+        an 'Aggregate-Session' Group Service Flow or will 
+        be transmitted separately for each session using 
+        'Single-Session' Group Service Flows.  Even if the range 
+        of multicast sessions are transmitted on an 'Aggregate-Session' 
+        Group Service Flow, the PHS and Encryption 
+        rules are always applied individually to a multicast 
+        session on a per-session DSID basis prior to 
+        being transmitted on an 'Aggregate-Session' Group 
+        Service Flow (GSF). 
+ 
+        This object supports the creation and deletion of multiple 
+        instances. 
+        Creation of a new instance of this object requires the 
+        following attributes to be set 
+        RulePriority 
+        PrefixAddrType 
+        SrcPrefixAddr 
+        SrcPrefixLen 
+        GrpPrefixAddr 
+        GrpPrefixLen 
+        IpDsLow 
+        IpDsHigh 
+        IpDsMask" 
+     ::= { docsMcastMibObjects 1} 
+ 
+docsMcastCmtsGrpCfgEntry OBJECT-TYPE 
+     SYNTAX      DocsMcastCmtsGrpCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+         "The conceptual row of docsMcastCmtsGrpCfg. 
+          The CMTS persists all instances of the CmtsGrpConfig object 
+          across system reinitializations." 
+     INDEX { 
+             docsMcastCmtsGrpCfgId 
+             } 
+     ::= { docsMcastCmtsGrpCfgTable 1 } 
+ 
+DocsMcastCmtsGrpCfgEntry ::= SEQUENCE { 
+     docsMcastCmtsGrpCfgId 
+                  Unsigned32, 
+     docsMcastCmtsGrpCfgRulePriority 
+                  Unsigned32, 
+     docsMcastCmtsGrpCfgPrefixAddrType 
+                  InetAddressType, 
+     docsMcastCmtsGrpCfgSrcPrefixAddr 
+                  InetAddress, 
+     docsMcastCmtsGrpCfgSrcPrefixLen 
+                  InetAddressPrefixLength, 
+     docsMcastCmtsGrpCfgGrpPrefixAddr 
+                  InetAddress, 
+     docsMcastCmtsGrpCfgGrpPrefixLen 
+                  InetAddressPrefixLength, 
+     docsMcastCmtsGrpCfgTosLow 
+                  OCTET STRING, 
+     docsMcastCmtsGrpCfgTosHigh 
+                  OCTET STRING, 
+     docsMcastCmtsGrpCfgTosMask 
+                  OCTET STRING, 
+     docsMcastCmtsGrpCfgQosConfigId 
+                  Unsigned32, 
+     docsMcastCmtsGrpCfgEncryptConfigId 
+                  Unsigned32, 
+     docsMcastCmtsGrpCfgPhsConfigId 
+                  Unsigned32, 
+     docsMcastCmtsGrpCfgRowStatus 
+                  RowStatus 
+     } 
+ 
+docsMcastCmtsGrpCfgId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (1..4294967295) 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute represents the unique identifier 
+        of instances of this object. This attribute is 
+        the key that identifies unique instances of the CmtsGrpConfig 
+        object." 
+     ::= { docsMcastCmtsGrpCfgEntry 1 } 
+ 
+docsMcastCmtsGrpCfgRulePriority OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..255) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute indicates the priority of this entry 
+        used to resolve which instance of this object apply 
+        when a newly replicated multicast session matches 
+        multiple entries. Higher values indicate a higher 
+        priority. Valid values for this attribute are 0..63 
+        and 192..255 in order to not conflict with CMTS 
+        internally-created instances that use the range 
+        64..191." 
+     ::= { docsMcastCmtsGrpCfgEntry 2 } 
+ 
+docsMcastCmtsGrpCfgPrefixAddrType OBJECT-TYPE 
+     SYNTAX      InetAddressType 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the address family for 
+        the multicast session (S,G) of the GC which corresponds 
+        to the SrcPrefixAddr and GrpPrefixAddr attributes 
+        respectively." 
+     ::= { docsMcastCmtsGrpCfgEntry 3 } 
+ 
+docsMcastCmtsGrpCfgSrcPrefixAddr OBJECT-TYPE 
+     SYNTAX      InetAddress 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the IP source address prefix 
+        of the IP multicast session. 
+         Source prefix addresses are unicast host addresses." 
+     REFERENCE 
+        "RFC 3569. 
+         RFC 3306." 
+     ::= { docsMcastCmtsGrpCfgEntry 4 } 
+ 
+docsMcastCmtsGrpCfgSrcPrefixLen OBJECT-TYPE 
+     SYNTAX      InetAddressPrefixLength 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the prefix of a range of 
+        Source (S) IP multicast group addresses. For Group or 
+        ASM based sessions this attribute is set to 0." 
+     DEFVAL { 0 } 
+     ::= { docsMcastCmtsGrpCfgEntry 5 } 
+ 
+docsMcastCmtsGrpCfgGrpPrefixAddr OBJECT-TYPE 
+     SYNTAX      InetAddress 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the prefix of a range of 
+        destination IP multicast group addresses." 
+     ::= { docsMcastCmtsGrpCfgEntry 6 } 
+ 
+docsMcastCmtsGrpCfgGrpPrefixLen OBJECT-TYPE 
+     SYNTAX      InetAddressPrefixLength 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the prefix of a range of 
+        IP multicast group addresses." 
+     REFERENCE 
+          "DOCSIS 3.0 Operation and Support System Interface 
+           Specification CM-SP-OSSIv3.0-I01-061207, Multicast QoS 
+           Configuration Object Model section." 
+ 
+     DEFVAL { 0 } 
+     ::= { docsMcastCmtsGrpCfgEntry 7 } 
+ 
+docsMcastCmtsGrpCfgTosLow OBJECT-TYPE 
+     SYNTAX      OCTET STRING (SIZE (1)) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the low value of a range 
+        of  the TOS byte value to be defined in a packet classifier 
+        this GC instantiates in the GCR in order to limit the 
+        GCR-matched traffic to a particular set of DSCPs. 
+         This applies to the IPv4 TOS byte and the IPv6 Traffic 
+        Class byte. 
+        The IP TOS octet, as originally defined in RFC 791, has 
+        been superseded by the 6-bit Differentiated Services 
+        Field and the 2-bit Explicit Congestion Notification 
+        Field." 
+     REFERENCE 
+        "RFC 791. 
+         RFC 3260. 
+         RFC3168." 
+     ::= { docsMcastCmtsGrpCfgEntry 8 } 
+ 
+docsMcastCmtsGrpCfgTosHigh OBJECT-TYPE 
+     SYNTAX      OCTET STRING (SIZE(1)) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the high value of a range 
+        of  the TOS byte value to be defined in a packet classifier 
+        this GC instantiates in the GCR in order to limit 
+        the GCR-matched traffic to a particular set of DSCPs. 
+        This applies to the IPv4 TOS byte and the IPv6 Traffic 
+        Class byte. 
+        The IP TOS octet, as originally defined in RFC 791, has 
+        been superseded by the 6-bit Differentiated Services 
+        Field (DSField, RFC 3260) and the 2-bit Explicit 
+        Congestion Notification Field (ECN field, RFC 3168)." 
+     REFERENCE 
+        "RFC 791. 
+         RFC 3260. 
+         RFC 3168." 
+     ::= { docsMcastCmtsGrpCfgEntry 9 } 
+ 
+docsMcastCmtsGrpCfgTosMask OBJECT-TYPE 
+     SYNTAX      OCTET STRING (SIZE(1)) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the mask value bitwise 
+        ANDed with a TOS byte value to be defined in a packet classifier 
+        this GC instantiates in the GCR in order to limit 
+        the GCR-matched traffic to a particular set of DSCPs. 
+         This applies to the IPv4 TOS byte and the IPv6 Traffic 
+        Class byte. 
+        The IP TOS octet, as originally defined in RFC 791, has 
+        been superseded by the 6-bit Differentiated Services 
+        Field (DSField, RFC 3260) and the 2-bit Explicit 
+        Congestion Notification Field (ECN field, RFC 3168)." 
+     REFERENCE 
+        "RFC 791. 
+         RFC 3260. 
+         RFC 3168." 
+     ::= { docsMcastCmtsGrpCfgEntry 10 } 
+ 
+docsMcastCmtsGrpCfgQosConfigId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..65535) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies an instance in CmtsGrpQosCfg 
+        for configuring the QoS for the replication 
+        of the sessions matching this CmtsGrpCfg instance. 
+        The value 0 indicates that all replications referenced 
+        by this CmtsGrpCfg instance will be forwarded to the 
+        default GSF." 
+     REFERENCE 
+                 "DOCSIS 3.0 Operation and Support System Interface 
+                 Specification CM-SP-OSSIv3.0-I04-070803, Multicast QoS 
+                 Configuration Object Model section." 
+ 
+     DEFVAL { 0 } 
+     ::= { docsMcastCmtsGrpCfgEntry 11 } 
+
+docsMcastCmtsGrpCfgEncryptConfigId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..65535) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies an instance in CmtsGrpEncryptionCfg 
+        for configuring the encryption of replicationsderived 
+        from this GC. 
+        The value 0 indicates no encryption for all replications 
+        derived from this GC." 
+     REFERENCE 
+                 "DOCSIS 3.0 Operation and Support System Interface 
+                 Specification CM-SP-OSSIv3.0-I01-061207, Multicast QoS 
+                 Configuration Object Model section." 
+ 
+     DEFVAL { 0 } 
+     ::= { docsMcastCmtsGrpCfgEntry 12 } 
+ 
+docsMcastCmtsGrpCfgPhsConfigId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..65535) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies an instance in CmtsGrpPhsCfg 
+        that configures DSID-indexed PHS compression 
+        for all replications derived from this GC. 
+        The value 0 indicates no PHS compression for all replications 
+        derived from this GC." 
+     REFERENCE 
+                 "DOCSIS 3.0 Operation and Support System Interface 
+                  Specification CM-SP-OSSIv3.0-I01-061207, Multicast QoS 
+                  Configuration Object Model section." 
+ 
+     DEFVAL { 0 } 
+     ::= { docsMcastCmtsGrpCfgEntry 13 } 
+ 
+docsMcastCmtsGrpCfgRowStatus OBJECT-TYPE 
+     SYNTAX      RowStatus 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "The status of this instance." 
+     ::= { docsMcastCmtsGrpCfgEntry 14 } 
+ 
+docsMcastCmtsGrpEncryptCfgTable OBJECT-TYPE 
+     SYNTAX      SEQUENCE OF DocsMcastCmtsGrpEncryptCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This object controls the configuration of the Security 
+        Association (SA) and the encryption algorithm 
+        used for multicast sessions. 
+        This object supports the creation and deletion of instances." 
+     ::= { docsMcastMibObjects 2} 
+ 
+docsMcastCmtsGrpEncryptCfgEntry OBJECT-TYPE 
+     SYNTAX      DocsMcastCmtsGrpEncryptCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+         "The conceptual row of docsMcastCmtsGrpEncryptCfg. 
+         The CMTS persists all instances of the CmtsGrpEncryptionConfig 
+         object across system reinitializations." 
+     INDEX { 
+             docsMcastCmtsGrpEncryptCfgId 
+           } 
+     ::= { docsMcastCmtsGrpEncryptCfgTable 1 } 
+
+DocsMcastCmtsGrpEncryptCfgEntry ::= SEQUENCE { 
+     docsMcastCmtsGrpEncryptCfgId 
+                  Unsigned32, 
+     docsMcastCmtsGrpEncryptCfgCtrl 
+                  INTEGER, 
+     docsMcastCmtsGrpEncryptCfgAlg 
+                  DocsBpkmDataEncryptAlg, 
+     docsMcastCmtsGrpEncryptCfgRowStatus 
+                  RowStatus 
+     } 
+ 
+docsMcastCmtsGrpEncryptCfgId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..65535) 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute specifies the unique identifier of 
+        instances of this object" 
+     ::= { docsMcastCmtsGrpEncryptCfgEntry 1 } 
+ 
+docsMcastCmtsGrpEncryptCfgCtrl OBJECT-TYPE 
+     SYNTAX      INTEGER { 
+                           cmts(1), 
+                           mgmt(2) 
+                         } 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute controls whether the CMTS can select 
+        the encryption algorithm or if this can be set manually 
+        using the Alg attribute.  If this attribute is set 
+        to 'cmts', the CMTS can select the encryption algorithm 
+        for the Security Association (SA).  If this attribute 
+        is set to 'mgmt', the Alg attribute is used to define 
+        the encryption algorithm for this SA." 
+     DEFVAL { mgmt } 
+     ::= { docsMcastCmtsGrpEncryptCfgEntry 2 } 
+ 
+docsMcastCmtsGrpEncryptCfgAlg OBJECT-TYPE 
+     SYNTAX      DocsBpkmDataEncryptAlg 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines which encryption algorithm 
+        will be used for an SA referenced by this object when 
+        the Ctrl is set to 'mgmt'." 
+     REFERENCE 
+        "DOCSIS 3.0 Security Specification 
+         CM-SP-SECv3.0-I01-060804,Security-Capabilities 
+         section." 
+     DEFVAL { des56CbcMode } 
+     ::= { docsMcastCmtsGrpEncryptCfgEntry 3 } 
+ 
+docsMcastCmtsGrpEncryptCfgRowStatus OBJECT-TYPE 
+     SYNTAX      RowStatus 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "The status of this instance." 
+     ::= { docsMcastCmtsGrpEncryptCfgEntry 4 } 
+ 
+docsMcastCmtsGrpPhsCfgTable OBJECT-TYPE 
+     SYNTAX      SEQUENCE OF DocsMcastCmtsGrpPhsCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This object controls the configuration of DSID-indexed 
+        PHS for multicast sessions. Configuration of 
+        PHS Rules via this table must not be based on the configuration 
+        of a range of sessions, but must be configured 
+        on a single multicast session. 
+        Creation of multple instances of this object require 
+        the following attributes to be set: 
+        PhsField 
+        PhsMask 
+        PhsSize" 
+     ::= { docsMcastMibObjects 3} 
+ 
+docsMcastCmtsGrpPhsCfgEntry OBJECT-TYPE 
+     SYNTAX      DocsMcastCmtsGrpPhsCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+         "The conceptual row of docsMcastCmtsGrpPhsCfg. 
+         The CMTS persists all instances of the CmtsGrpPhsConfig 
+         object across system reinitializations." 
+     INDEX { 
+             docsMcastCmtsGrpPhsCfgId 
+           } 
+     ::= { docsMcastCmtsGrpPhsCfgTable 1 } 
+ 
+DocsMcastCmtsGrpPhsCfgEntry ::= SEQUENCE { 
+     docsMcastCmtsGrpPhsCfgId 
+                  Unsigned32, 
+     docsMcastCmtsGrpPhsCfgPhsField 
+                  OCTET STRING, 
+     docsMcastCmtsGrpPhsCfgPhsMask 
+                  OCTET STRING, 
+     docsMcastCmtsGrpPhsCfgPhsSize 
+                  Unsigned32, 
+     docsMcastCmtsGrpPhsCfgPhsVerify 
+                  TruthValue, 
+     docsMcastCmtsGrpPhsCfgRowStatus 
+                  RowStatus 
+     } 
+ 
+docsMcastCmtsGrpPhsCfgId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..65535) 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the unique identifier 
+        of a PHS rule that is referenced by the GrpConfig object." 
+     ::= { docsMcastCmtsGrpPhsCfgEntry 1 } 
+ 
+docsMcastCmtsGrpPhsCfgPhsField OBJECT-TYPE 
+     SYNTAX      OCTET STRING (SIZE (0..255)) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the bytes of the DOCSIS header 
+        which must be suppressed/restored by the sending/receiving 
+        device." 
+     ::= { docsMcastCmtsGrpPhsCfgEntry 2 } 
+ 
+docsMcastCmtsGrpPhsCfgPhsMask OBJECT-TYPE 
+     SYNTAX      OCTET STRING (SIZE (0..32)) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the bit mask which is used in 
+        combination with the PhsField  to define which bytes 
+        in header must be suppressed/restored by the sending 
+        or receiving device. 
+        Each bit of this bit mask corresponds to a byte in the 
+        PhsField, with the least significant bit corresponding 
+        to the first byte of the PhsField. 
+        Each bit of the bit mask specifies whether or not the 
+        corresponding byte should be suppressed in the packet. 
+        A bit value of '1' indicates that the byte should be 
+        suppressed by the sending device and restored by the 
+        receiving device. 
+        A bit value of '0' indicates that the byte should not be 
+        suppressed by the sending device or restored by the 
+        receiving device. 
+        If the bit mask does not contain a bit for each byte in the 
+        PhsField then the bit mask is extended with bit values 
+        of '1' to be the  necessary length." 
+     REFERENCE 
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface 
+         Specification CM-SP-MULPIv3.0-I01-060804, 
+         Payload Header Suppression Encodings section and  
+         Payload Header Suppression Mask (PHSM) in the Common 
+         Radio Frequency Interface Encodings Annex." 
+     ::= { docsMcastCmtsGrpPhsCfgEntry 3 } 
+ 
+docsMcastCmtsGrpPhsCfgPhsSize OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..255) 
+     UNITS       "Bytes" 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute specifies the number of bytes in the 
+        header to be suppressed and restored. 
+        The value of this object matches the number of bytes the 
+        bits indicated in the PhsField attribute." 
+     REFERENCE 
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface 
+         Specification CM-SP-MULPIv3.0-I01-060804, Payload Header 
+         Suppression Encodings section and Payload Header Suppression 
+         Size (PHSS) section in the Common Radio Frequency Interface 
+         Encodings Annex." 
+     ::= { docsMcastCmtsGrpPhsCfgEntry 4 } 
+ 
+docsMcastCmtsGrpPhsCfgPhsVerify OBJECT-TYPE 
+     SYNTAX      TruthValue 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute specifies the Payload Header Suppression 
+        verification value of 'true' the sender must 
+        verify PhsField is the same as what is contained in the 
+        packet to be suppressed." 
+     REFERENCE 
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface 
+         Specification CM-SP-MULPIv3.0-I01-060804, Payload Header 
+         Suppression Encodings section and Payload Header Suppression 
+         Size (PHSS) section in the Common Radio Frequency Interface 
+         Encodings Annex." 
+     DEFVAL { false } 
+     ::= { docsMcastCmtsGrpPhsCfgEntry 5 } 
+ 
+docsMcastCmtsGrpPhsCfgRowStatus OBJECT-TYPE 
+     SYNTAX      RowStatus 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "The status of this instance." 
+     ::= { docsMcastCmtsGrpPhsCfgEntry 6 } 
+
+docsMcastCmtsGrpQosCfgTable OBJECT-TYPE 
+     SYNTAX      SEQUENCE OF DocsMcastCmtsGrpQosCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This object configures the QoS configured for Multicast 
+        sessions replicated to any Downstream Channel 
+        Set. It does not control which particular DCSs to which 
+        the CMTS replicates a multicast session. 
+        An instance in this object is called a GQC entry. A GQC 
+        entry controls how the CMTS instantiates a Group Classifier 
+        Rule (GCR) on the DCS to match packets of the multicast 
+        session.  A Group Classifier Rule (GCR) uses 
+        source and destination IP address and ToS criteria. 
+ 
+        A GQC entry controls how and with what QoS parameters 
+        a Group Service Flow (GSF) is created on a DCS. All downstream 
+        multicast packets are scheduled on a GSF. The 
+        QoS Type attribute of the GQC entry controls whether 
+        the CMTS creates one GSF for each single IP multicast 
+        session or whether the CMTS creates one GSF for the aggregate 
+        of all sessions that match the GQC criteria. 
+         The GQC instance contains a reference to a Service Class 
+        from docsIetfQosServiceClassTable. The Service 
+        Class defines the list of QoS parameters for the GSF(s) 
+        instantiated for the GQC entry. 
+        A CMTS identifies one Service Class as the Default Group 
+        QoS Service Class.  The CMTS instantiates a Default 
+        Group Service Flow on each single-channel DCS based 
+        on the parameters of the Default Group QoS Service 
+        Class. 
+        The set of GCRs and GSFs instantiated on a DCS control 
+        how QoS is provided to multicast packets replicated 
+        to the DCS.   For each multicast packet, the CMTS classifies 
+        the packet to the highest priority matching GCR 
+        on that DCS. The GCR refers to a single GSF, which controls 
+        the scheduling of the packets on the DCS.   If the 
+        multicast packet does not match any GCR on the DCS, the 
+        packet is scheduled on the Default Group Service Flow 
+        of the DCS. The CMTS replicates unclassified multicast 
+        traffic to only DCSs consisting of a single downstream 
+        channel.  Thus, the Maximum Sustained Traffic 
+        Rate QoS parameter of the Default Group Service Class 
+        limits the aggregate rate of unclassified multicast 
+        traffic on each downstream channel. 
+        The CMTS is expected to instantiate GCRs and GSFs controlled 
+        by the entries in this table only for the duration 
+        of replication of the multicast sessions matching 
+        the entry. 
+        This object supports the creation of multiple instances. 
+ 
+        Creation of new instances of this object require the 
+        following objects to be set: 
+        ServiceClassName 
+        QosCtrl 
+        AggSessLimit" 
+     ::= { docsMcastMibObjects 4} 
+ 
+docsMcastCmtsGrpQosCfgEntry OBJECT-TYPE 
+     SYNTAX      DocsMcastCmtsGrpQosCfgEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+         "The conceptual row of docsMcastCmtsGrpQosCfg. 
+         The CMTS persists all instances of the CmtsGrpQosConfig 
+         object across system reinitialization." 
+     INDEX { 
+        docsMcastCmtsGrpQosCfgId 
+           } 
+     ::= { docsMcastCmtsGrpQosCfgTable 1 } 
+ 
+DocsMcastCmtsGrpQosCfgEntry ::= SEQUENCE { 
+     docsMcastCmtsGrpQosCfgId 
+                  Unsigned32, 
+     docsMcastCmtsGrpQosCfgServiceClassName 
+                  SnmpAdminString, 
+     docsMcastCmtsGrpQosCfgQosCtrl 
+                  INTEGER, 
+     docsMcastCmtsGrpQosCfgAggSessLimit 
+                  Unsigned32, 
+     docsMcastCmtsGrpQosCfgAppId 
+                  Unsigned32, 
+     docsMcastCmtsGrpQosCfgRowStatus 
+                  RowStatus 
+     } 
+ 
+docsMcastCmtsGrpQosCfgId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..65535) 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies a unique Group QoS Configuration 
+        object instance." 
+     ::= { docsMcastCmtsGrpQosCfgEntry 1 } 
+ 
+docsMcastCmtsGrpQosCfgServiceClassName OBJECT-TYPE 
+     SYNTAX      SnmpAdminString (SIZE (1..15)) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the Service Class Name 
+        reference for the set of QoS parameters for this GQC." 
+     REFERENCE 
+                 "DOCSIS 3.0 Operation and Support System Interface 
+                  Specification CM-SP-OSSIv3.0-I01-061207, Multicast QoS 
+                 Configuration Object Model section." 
+ 
+     DEFVAL { ''H } 
+     ::= { docsMcastCmtsGrpQosCfgEntry 2 } 
+ 
+docsMcastCmtsGrpQosCfgQosCtrl OBJECT-TYPE 
+     SYNTAX      INTEGER { 
+                           singleSession(1), 
+                           aggregateSession(2) 
+                         } 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies how Group Classifier Rules 
+        (GCRs) and Group Service Flows (GSFs) are instantiated 
+        when multiple sessions match the (S,G) criteria 
+        of this entry. If 'singleSession', the CMTS creates 
+        a unique GCR and a unique GSF for the session. If this 
+        object's value is 'aggregateSession', all sessions 
+        matching this criterion are aggregated into the 
+        same GSF." 
+     REFERENCE 
+                 "DOCSIS 3.0 Operation and Support System Interface 
+                  Specification CM-SP-OSSIv3.0-I01-061207, Multicast QoS 
+        Configuration Object Model section." 
+     ::= { docsMcastCmtsGrpQosCfgEntry 3 } 
+ 
+docsMcastCmtsGrpQosCfgAggSessLimit OBJECT-TYPE 
+     SYNTAX      Unsigned32 (1..65535) 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies the maximum number of sessions 
+        that may be aggregated in an aggregated Service 
+        Flow. This value is ignored in case of a GQC entry with QosCtrl 
+        set to 'singleSession'." 
+     REFERENCE 
+                 "DOCSIS 3.0 Operation and Support System Interface 
+                  Specification CM-SP-OSSIv3.0-I01-061207, Multicast QoS 
+        Configuration Object Model section." 
+     ::= { docsMcastCmtsGrpQosCfgEntry 4 } 
+ 
+docsMcastCmtsGrpQosCfgAppId OBJECT-TYPE 
+     SYNTAX      Unsigned32 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute configures an application identifier 
+        that an operator configures to enable special features 
+        for QoS admission control or other policies. 
+        The behavior and usage of the Application dentifier 
+        is vendor specific. 
+        This attribute allows the operator to configure a Cable 
+        Operator defined Application Identifier for multicast 
+        sessions, e.g., an Application Manager ID and 
+        Application Type. 
+        This Application Identifier can be used to influence 
+        admission control or other policies in the CMTS that 
+        outside of the scope of this specification. 
+        This parameter is optional in defining QoS for 
+        multicast sessions. 
+        If the value of this attribute is different from the 
+        value of the AppId in the referenced SCN for this GQC 
+        instance, the value of this attribute is used." 
+     REFERENCE 
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface 
+        Specification CM-SP-MULPIv3.0-I04-070518, Application 
+        Idenfifier section in the Common TLV Encodings Annex; 
+        PacketCable Multimedia Specification PKT-SP-MM-I03-051221, 
+        Policy Server and CMTS Interface section." 
+     DEFVAL { 0 } 
+     ::= { docsMcastCmtsGrpQosCfgEntry 5 } 
+ 
+docsMcastCmtsGrpQosCfgRowStatus OBJECT-TYPE 
+     SYNTAX      RowStatus 
+     MAX-ACCESS  read-create 
+     STATUS      current 
+     DESCRIPTION 
+        "The status of this instance." 
+     ::= { docsMcastCmtsGrpQosCfgEntry 6 } 
+ 
+docsMcastCmtsReplSessTable OBJECT-TYPE 
+     SYNTAX      SEQUENCE OF DocsMcastCmtsReplSessEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This object describes the replication of IP Multicast 
+        sessions onto the different Downstream Channel 
+        Sets of a CMTS.  Each DCS may be either a single downstream 
+        channel or a bonding group of multiple downstream 
+        channels. Each IP Multicast session is identified 
+        by a combination of IP source and IP Destination group 
+        address '(S,G).  The CMTS replicates each IP packet 
+        in an (S,G) session onto one or more Downstream Channel 
+        Sets (DCSs), each of which is implemented in a MAC 
+        Domain.  The CMTS assigns each replication a Downstream 
+        Service ID (DSID) that is unique per MAC Domain." 
+     ::= { docsMcastMibObjects 5} 
+ 
+docsMcastCmtsReplSessEntry OBJECT-TYPE 
+     SYNTAX      DocsMcastCmtsReplSessEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+         "The conceptual row of docsMcastCmtsReplSess." 
+     INDEX { 
+             docsMcastCmtsReplSessPrefixAddrType, 
+             docsMcastCmtsReplSessGrpPrefix, 
+             docsMcastCmtsReplSessSrcPrefix, 
+             docsMcastCmtsReplSessMdIfIndex, 
+             docsMcastCmtsReplSessDcsId, 
+             docsMcastCmtsReplSessServiceFlowId 
+           } 
+     ::= { docsMcastCmtsReplSessTable 1 } 
+ 
+DocsMcastCmtsReplSessEntry ::= SEQUENCE { 
+     docsMcastCmtsReplSessPrefixAddrType 
+                  InetAddressType, 
+     docsMcastCmtsReplSessGrpPrefix 
+                  InetAddress, 
+     docsMcastCmtsReplSessSrcPrefix 
+                  InetAddress, 
+     docsMcastCmtsReplSessMdIfIndex 
+                  InterfaceIndex, 
+     docsMcastCmtsReplSessDcsId 
+                  ChSetId, 
+     docsMcastCmtsReplSessServiceFlowId 
+                  Unsigned32, 
+     docsMcastCmtsReplSessDsid 
+                  Dsid, 
+     docsMcastCmtsReplSessSaid 
+                  DocsSAId 
+     } 
+ 
+docsMcastCmtsReplSessPrefixAddrType OBJECT-TYPE 
+     SYNTAX      InetAddressType 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This atrribute defines the address type for the GrpPrefix 
+        and SrcPrefix addresses." 
+     ::= { docsMcastCmtsReplSessEntry 1 } 
+ 
+docsMcastCmtsReplSessGrpPrefix OBJECT-TYPE 
+     SYNTAX      InetAddress 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the group G of a particular 
+        (S,G) IP multicast session." 
+     ::= { docsMcastCmtsReplSessEntry 2 } 
+ 
+docsMcastCmtsReplSessSrcPrefix OBJECT-TYPE 
+     SYNTAX      InetAddress 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute identifies a specific Multicast Source 
+        Address.  A Source Address that is all zeros is defined 
+        as 'all source addresses  (*, G)'." 
+     REFERENCE 
+        "RFC 3569. 
+         RFC 3306." 
+     ::= { docsMcastCmtsReplSessEntry 3 } 
+ 
+docsMcastCmtsReplSessMdIfIndex OBJECT-TYPE 
+     SYNTAX      InterfaceIndex 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the MAC Domain Interface index 
+        of the channel to which the (S,G) session is replicated." 
+     ::= { docsMcastCmtsReplSessEntry 4 } 
+ 
+docsMcastCmtsReplSessDcsId OBJECT-TYPE 
+     SYNTAX      ChSetId 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute provides the reference for the Downstream 
+        Channel Set within a MAC Domain that the multicast 
+        session (S,G) is replicated to." 
+     ::= { docsMcastCmtsReplSessEntry 5 } 
+ 
+docsMcastCmtsReplSessServiceFlowId OBJECT-TYPE 
+     SYNTAX      Unsigned32 (1..4294967295) 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute indicates the service flow into which 
+        packets are classified for this replication of the 
+        multicast session (S,G)." 
+     ::= { docsMcastCmtsReplSessEntry 6 } 
+ 
+docsMcastCmtsReplSessDsid OBJECT-TYPE 
+     SYNTAX      Dsid 
+     MAX-ACCESS  read-only 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the Downstream Service ID 
+        (DSID) label with which the CMTS labels all packets of 
+        the (S,G) session on the DCS of a MAC Domain.   The DSID 
+        value is unique per MAC domain." 
+     ::= { docsMcastCmtsReplSessEntry 7 } 
+ 
+docsMcastCmtsReplSessSaid OBJECT-TYPE 
+     SYNTAX      DocsSAId 
+     MAX-ACCESS  read-only 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the Security Association 
+        ID (SAID) of this multicast replication session. The 
+        value 0 indicates no SAID assocated with this session." 
+     ::= { docsMcastCmtsReplSessEntry 8 } 
+ 
+docsMcastDefGrpSvcClass OBJECT IDENTIFIER ::= { docsMcastMibObjects 6 } 
+ 
+docsMcastDefGrpSvcClassDef OBJECT-TYPE 
+     SYNTAX      SnmpAdminString (SIZE (0..15)) 
+     MAX-ACCESS  read-write 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute references an instance of the SNMP 
+        table docsIetfQosServiceClassName object. This attribute 
+        is used to expand the QoS parameter Set of QoS 
+        for multicast sessions that uses a default QoS policy. 
+        The CMTS persists all instances of this attribute across 
+        reinitializations." 
+     REFERENCE 
+        "RFC 4323." 
+     DEFVAL { ''H } 
+     ::= { docsMcastDefGrpSvcClass 1 } 
+ 
+docsMcastDsidPhsTable OBJECT-TYPE 
+     SYNTAX      SEQUENCE OF DocsMcastDsidPhsEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This object reports the set of DSID-Indexed PHS rules 
+        that are signaled between the CMTS and CMs as part 
+        of the  Multicast Sessions setup. The attributes PhsMask, 
+        PhsSize and PhsVerify comes from the configuration 
+        object CmtsGrpPhsCfg. The value of the PhsField 
+        attribute is derived by the CMTS from the CmtsGrpCfg 
+        object parameters, and possibly other IP header informaton 
+        of the multicast session that the CMTS is capable 
+        of knowning prior to the multicast session setup. 
+        In cases where the PhsSize is longer than the CMTS 
+        knowledge of IP/TCP header fields, the CMTS extends 
+        the PhsMask with bits set to  0  until reaching the equivalent 
+        PhsSize value." 
+     ::= { docsMcastMibObjects 7} 
+ 
+docsMcastDsidPhsEntry OBJECT-TYPE 
+     SYNTAX      DocsMcastDsidPhsEntry 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+         "The conceptual row of docsMcastDsidPhs. 
+         The ifIndex key corresponds to the MAC Domain interface 
+         where the PHSI-Indexed DSID is configured." 
+     INDEX { 
+             ifIndex, 
+             docsMcastDsidPhsDsid 
+           } 
+     ::= { docsMcastDsidPhsTable 1 } 
+ 
+DocsMcastDsidPhsEntry ::= SEQUENCE { 
+     docsMcastDsidPhsDsid 
+                  Dsid, 
+     docsMcastDsidPhsPhsField 
+                  OCTET STRING, 
+     docsMcastDsidPhsPhsMask 
+                  OCTET STRING, 
+     docsMcastDsidPhsPhsSize 
+                  Unsigned32, 
+     docsMcastDsidPhsPhsVerify 
+                  TruthValue 
+     } 
+ 
+docsMcastDsidPhsDsid OBJECT-TYPE 
+     SYNTAX      Dsid 
+     MAX-ACCESS  not-accessible 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute represents the 20-bit DSID associated 
+        with this PHS rule." 
+     ::= { docsMcastDsidPhsEntry 1 } 
+ 
+docsMcastDsidPhsPhsField OBJECT-TYPE 
+     SYNTAX      OCTET STRING (SIZE (0..255)) 
+     MAX-ACCESS  read-only 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the bytes of the header which 
+        must be suppressed/restored by the sending/receiving 
+        device." 
+     ::= { docsMcastDsidPhsEntry 2 } 
+ 
+docsMcastDsidPhsPhsMask OBJECT-TYPE 
+     SYNTAX      OCTET STRING (SIZE (0..32)) 
+     MAX-ACCESS  read-only 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defnes the Payload Header Suppression 
+        mask in the header to be suppressed and restored." 
+     ::= { docsMcastDsidPhsEntry 3 } 
+ 
+docsMcastDsidPhsPhsSize OBJECT-TYPE 
+     SYNTAX      Unsigned32 (0..255) 
+     MAX-ACCESS  read-only 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute defines the the number of bytes in the 
+        header to be suppressed and restored." 
+     ::= { docsMcastDsidPhsEntry 4 } 
+ 
+docsMcastDsidPhsPhsVerify OBJECT-TYPE 
+     SYNTAX      TruthValue 
+     MAX-ACCESS  read-only 
+     STATUS      current 
+     DESCRIPTION 
+        "This attribute, when set to  'true', indicates that 
+        the sender must verify that the PHS Field attribute 
+        value is the same is the same as what is contained in the 
+        packet to be suppressed." 
+     ::= { docsMcastDsidPhsEntry 5 } 
+ 
+-- Conformance Definitions 
+docsMcastMibConformance OBJECT IDENTIFIER ::= { docsMcastMib 2 } 
+docsMcastMibCompliances OBJECT IDENTIFIER 
+                               ::= { docsMcastMibConformance 1 } 
+docsMcastMibGroups      OBJECT IDENTIFIER 
+                               ::= { docsMcastMibConformance 2 } 
+ 
+docsMcastCompliance MODULE-COMPLIANCE 
+STATUS      current 
+DESCRIPTION 
+        "The compliance statement for devices that implement the DOCSIS 
+         Multicast MIB." 
+ 
+    MODULE -- this MODULE 
+MANDATORY-GROUPS { 
+     docsMcastGroup 
+     } 
+::= { docsMcastMibCompliances 1 } 
+docsMcastGroup OBJECT-GROUP 
+    OBJECTS { 
+     docsMcastCmtsReplSessDsid, 
+     docsMcastCmtsReplSessSaid, 
+     docsMcastDefGrpSvcClassDef, 
+     docsMcastDsidPhsPhsField, 
+     docsMcastDsidPhsPhsMask, 
+     docsMcastDsidPhsPhsSize, 
+     docsMcastDsidPhsPhsVerify, 
+     docsMcastCmtsGrpCfgRulePriority, 
+     docsMcastCmtsGrpCfgPrefixAddrType, 
+     docsMcastCmtsGrpCfgSrcPrefixAddr, 
+     docsMcastCmtsGrpCfgSrcPrefixLen, 
+     docsMcastCmtsGrpCfgGrpPrefixAddr, 
+     docsMcastCmtsGrpCfgGrpPrefixLen, 
+     docsMcastCmtsGrpCfgTosLow, 
+     docsMcastCmtsGrpCfgTosHigh, 
+     docsMcastCmtsGrpCfgTosMask, 
+     docsMcastCmtsGrpCfgQosConfigId, 
+     docsMcastCmtsGrpCfgEncryptConfigId, 
+     docsMcastCmtsGrpCfgPhsConfigId, 
+     docsMcastCmtsGrpCfgRowStatus, 
+     docsMcastCmtsGrpQosCfgServiceClassName, 
+     docsMcastCmtsGrpQosCfgQosCtrl, 
+     docsMcastCmtsGrpQosCfgAggSessLimit, 
+     docsMcastCmtsGrpQosCfgAppId, 
+     docsMcastCmtsGrpQosCfgRowStatus, 
+     docsMcastCmtsGrpEncryptCfgCtrl, 
+     docsMcastCmtsGrpEncryptCfgAlg, 
+     docsMcastCmtsGrpEncryptCfgRowStatus, 
+     docsMcastCmtsGrpPhsCfgPhsField, 
+     docsMcastCmtsGrpPhsCfgPhsMask, 
+     docsMcastCmtsGrpPhsCfgPhsSize, 
+     docsMcastCmtsGrpPhsCfgPhsVerify, 
+     docsMcastCmtsGrpPhsCfgRowStatus 
+     } 
+    STATUS      current 
+    DESCRIPTION 
+         "Group of objects implemented in the CMTS." 
+    ::= { docsMcastMibGroups 1 } 
+END 

@@ -1,0 +1,2373 @@
+-- *****************************************************************
+-- ciscoSONET MIB
+--
+-- July 2000, Shilpa Kale
+--
+-- Copyright (c) 1999-2000, 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-SONET-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Integer32,
+    Gauge32,
+    Unsigned32                  FROM SNMPv2-SMI
+    TruthValue,
+    TEXTUAL-CONVENTION          FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP          FROM SNMPv2-CONF
+    InterfaceIndex,
+    ifIndex,
+    ifDescr                     FROM IF-MIB 
+    ciscoMgmt                   FROM CISCO-SMI
+    sonetPathCurrentEntry,
+    sonetSectionCurrentStatus,
+    sonetLineCurrentStatus,
+    sonetPathCurrentStatus,
+    sonetVTCurrentStatus        FROM SONET-MIB;
+
+ciscoSonetMIB MODULE-IDENTITY
+        LAST-UPDATED    "200303070000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The MIB module to describe SONET/SDH interfaces
+                 objects. This is an extension to the standard SONET 
+                 MIB(RFC 2558)."
+        REVISION        "200303070000Z"
+        DESCRIPTION
+                "(1) Added enumerations e3(8) and vtStructured(9) 
+                     in object cspSonetPathPayload.
+                 (2) Added table csAu4Tug3Config to configure the  
+                     VC(Virtual Container) related properties of a 
+                     TUG-3 within a AU-4 paths." 
+        REVISION        "200206140000Z"
+        DESCRIPTION
+                "(1)Added following objects to cspConfigTable:
+                      cspTributaryMappingType
+                      cspSignallingTransportMode
+                      cspTributaryGroupingType
+                 (2)Added an optional ciscoSonetPathConfMIBGroup1 
+                    for the above objects."
+        REVISION        "200205220000Z"
+        DESCRIPTION
+                "(1) Added cspConfigTable which augments 
+                     sonetPathCurrentTable.
+                 (2) Added the Notifications - 
+                           ciscoSonetSectionStatusChange,
+                           ciscoSonetLineStatusChange,
+                           ciscoSonetPathStatusChange,
+                           ciscoSonetVTStatusChange
+                     and the object - 
+                           csNotificationsEnabled.
+                 (3) Changed the Module-Compliance and made 
+                     ciscoSonetStatsMIBGroup and
+                     ciscoSonetApsMIBGroup1 groups as optional"
+        REVISION        "200110170000Z"
+        DESCRIPTION
+                "(1) Added CsApsLineFailureCode,
+                     CsApsLineFailureStatus, and
+                     CsApsLineSwitchReason TEXTUAL-CONVENTION.
+                 (2) Added csApsSwitchReason, csApsFailureStatus,
+                     and csApsPrimarySection columnar objects to
+                     CsApsConfigEntry.
+                 (3) Added csApsModeMismatch enumeration to
+                     CsApsLineFailureCode.
+                 (4) Added csApsNoSwitch enumeration to
+                     CsApsLineSwitchReason.
+                 (5) Changed descriptions for csApsWorkingIndex,
+                     and csApsProtectionIndex specifically related
+                     to ITU G.783 AnnexB protocol support.
+                 (6) Add objects csConfigRDIVType and csConfigRDIPType in table
+                     csConfigTable.
+                 (7) Add enum sonetSts3(9) for obj csConfigType.
+                 (8) Add table csVTConfigTable augmenting the table csConfigTable.
+                     The table csVTVonfigTable contains the following objects:
+                               csTributaryType
+                               csTributaryMappingType
+                               csTributaryFramingType
+                               csSignallingTransportMode
+                               csTributaryGroupingType"
+        REVISION        "200007120000Z"
+        DESCRIPTION
+                "Made following changes
+
+                 (1) Added enumeration csApsNone(3) to 
+                     csApsActiveLine object and updated the 
+                     description.
+                 (2) Added enumerations sonetSts192c(7) and 
+                     sonetStm64(8) to csConfigType object and 
+                     updated the descripton.
+                 (3) Fixed description of csConfigType object."
+        REVISION        "9903080000Z"
+        DESCRIPTION
+                "Initial version of the MIB."
+        ::= { ciscoMgmt 126 }
+
+ciscoSonetMIBNotifs     OBJECT IDENTIFIER ::= {ciscoSonetMIB 0}
+ciscoSonetMIBObjects    OBJECT IDENTIFIER ::= {ciscoSonetMIB 1}
+
+-- Sonet Config 
+csConfig                OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 1} 
+-- Sonet APS ( Automatic Protection Switching )
+csApsConfig             OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 2} 
+-- sonet section 
+csSection               OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 3}
+-- sonet line 
+csLine                  OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 4}
+-- sonet path
+csPath                  OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 5}
+-- sonet statistics
+csStats                 OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 6}
+-- Sonet Path Configuration
+cspConfig                OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 7}
+-- Sonet Notifications Enable
+csNotifications          OBJECT IDENTIFIER ::=
+                                        {ciscoSonetMIBObjects 8}
+-- TUG-3 within AU-4 Configuration
+csAu4Tug3Config          OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBObjects 9}
+
+-- Textual conventions
+
+CsApsLineFailureCode::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+       "The Sonet APS line failure code - this is the failure
+        encountered by the APS line.
+
+            csApsChannelMismatch:     Transmitted K1 byte and
+                                      received K2 byte do not match.
+            csApsProtectionByteFail:  It could mean either K1 byte
+                                      with invalid type of switch
+                                      request bits was received, or,
+                                      priority of received K1 byte
+                                      is lower than the transmitted
+                                      K1 byte.
+            csApsFEProtectionFailure: Remote end error detected.
+            csApsModeMismatch:        APS architecture mode mismatch."
+    SYNTAX INTEGER {
+            csApsChannelMismatch(1),
+            csApsProtectionByteFail(2),
+            csApsFEProtectionFailure(3),
+            csApsModeMismatch(4)
+    }
+
+CsApsLineFailureStatus::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+       "The indication of the APS line failure status with a bit
+        map representing multiple failures. 
+
+           noApsLineFailure bit indicates current failure status.
+             This bit should be set ONLY if no other bit is set.
+
+           csApsChannelMismatchBit is set when the APS line is in
+             csApsChannelMismatch.
+
+           csApsProtectionByteFailBit is set when the APS line is
+             in csApsProtectionByteFail failure code.
+
+           csApsFEProtectionFailureBit is set when the APS line is
+             in csApsFEProtectionFailure.
+
+           csApsModeMismatchBit is set when the APS line is in 
+             csApsModeMismatch."
+     SYNTAX BITS{
+         noApsLineFailure(0),
+         csApsChannelMismatchBit(1),
+         csApsProtectionByteFailBit(2),
+         csApsFEProtectionFailureBit(3),
+         csApsModeMismatchBit(4)
+      } 
+    
+CsApsLineSwitchReason::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+       "The reason why APS switch happened. When the working
+        line on one end fails, its other end is told to do
+        an APS switch. The following options in the increasing
+        order of priority indicate what type of switch request
+        it is.
+
+          csApsRevertive : Switch back to working line after the
+            Wait-to-Restore interval is over, and failures are
+            cleared. It is the lowest priority.
+          csApsManual : Manual switch causes APS switch unless a
+            request of equal or higher priority is in effect.
+          csApsSignalDefectLow : Switch happened because threshold
+            for 'csApsSigFaultBER' was exceeded.
+          csApsSignalDefectHigh : Same as above, but higher priority.
+          csApsSignalFailureLow : Switch happened because threshold
+            for 'csApsSigDegradeBER' was exceeded.
+          csApsSignalFailureHigh : Same as above, but higher
+            priority.
+          csApsForceSwitch : Forced switch forces hardware to switch
+            the active line even if the other line (could be
+            working line or protection line) is in alarm.
+          csApsLockOut : This is the highest priority switch. This
+            will override all other requests.
+          csApsNoSwitch : This is a state when no switch happens."
+    SYNTAX INTEGER {
+            csApsOther(1),
+            csApsRevertive(2),
+            csApsManual(3),
+            csApsSignalDefectLow(4),
+            csApsSignalDefectHigh(5),
+            csApsSignalFailureLow(6),
+            csApsSignalFailureHigh(7),
+            csApsForceSwitch(8),
+            csApsLockOut(9),
+            csApsNoSwitch(10)
+    }
+
+-- Sonet Config table
+
+csConfigTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CsConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "The SONET/SDH configuration table. This table has objects 
+        for configuring sonet lines."
+     ::= { csConfig 1 }
+
+csConfigEntry OBJECT-TYPE
+    SYNTAX CsConfigEntry 
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "An entry in the table. There is an entry for each SONET line 
+        in the table. Entries are automatically created for an 
+        ifType value of sonet(39). 'ifAdminStatus' from the ifTable 
+        must be used to enable or disable a line. A line is in 
+        disabled(down) state unless provisioned 'up' using 
+        'ifAdminStatus'."
+    INDEX   { ifIndex }
+     ::= { csConfigTable 1 }
+
+CsConfigEntry ::=
+    SEQUENCE {
+         csConfigLoopbackType         INTEGER,
+         csConfigXmtClockSource       INTEGER,
+         csConfigFrameScramble        INTEGER,
+         csConfigType                 INTEGER,
+         csConfigRDIVType             INTEGER,
+         csConfigRDIPType             INTEGER
+        }
+
+csConfigLoopbackType OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        noLoopback (1),
+                        lineLocal (2),
+                        lineRemote (3)
+                        }
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION
+               "This object specifies the desired loopback mode
+                configuration of the SONET line.
+                The possible values of this objects are follows:
+        
+                noLoopback :  
+                        Not in the loopback state.  
+                lineLocal : 
+                        The signal transmitted from this interface
+                        is connected to the associated incoming
+                        receiver. This ensures that the SONET frame
+                        transmitted from the interface is received back
+                        at the interface.
+                lineRemote :
+                        The signal received at the interface is looped
+                        back out to the associated transmitter.
+                        This ensures that the remote equipment that
+                        originated the signal receives it back. The 
+                        signal may undergo degradation as a result of
+                        the characteristics of the transmission 
+                        medium."
+        DEFVAL { noLoopback }
+        ::= {csConfigEntry 1}
+
+csConfigXmtClockSource OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        loopTiming (1),
+                        localTiming (2)
+                        }
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION
+               "Specifies the source of the transmit clock.
+                
+                loopTiming: indicates that the recovered receive 
+                            clock is used as the transmit clock.
+
+                localTiming: indicates that a local clock source is
+                             used or that an external clock is 
+                             attached to the box containing the 
+                             interface. "
+        DEFVAL { localTiming }
+        ::= {csConfigEntry 2}
+
+csConfigFrameScramble OBJECT-TYPE
+        SYNTAX INTEGER {
+                disabled(1),
+                enabled(2)
+                }
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION
+            "This object is used to disable or enable the Scrambling
+             option in SONET line."
+        REFERENCE
+            "GR-253-CORE Issue 3, September 2000: Section 5.1.3."
+        DEFVAL { enabled }
+        ::= {csConfigEntry 3}
+
+csConfigType OBJECT-TYPE
+        SYNTAX INTEGER {
+                sonetSts3c(1),
+                sonetStm1(2),
+                sonetSts12c(3),
+                sonetStm4(4),
+                sonetSts48c(5),
+                sonetStm16(6),
+                sonetSts192c(7),
+                sonetStm64(8),
+                sonetSts3(9)
+                }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+           "This object represents the configured line type.
+            Sts is SONET format. Stm is SDH format. 
+                sonetSts3c   : OC3 concatenated
+                sonetStm1    : European standard OC3
+                sonetSts12c  : OC12 concatenated
+                sonetStm4    : European standard OC12
+                sonetSts48c  : OC48 concatenated
+                sonetStm16   : European standard OC48 
+                sonetSts192c : OC-192 concatenated
+                sonetStm64   : European standard OC-192
+                sonetSts3    : OC3 (unconcatenated)
+                "
+        ::= {csConfigEntry 4}
+
+csConfigRDIVType OBJECT-TYPE
+        SYNTAX INTEGER {
+               onebit(1),
+               threebit(3)
+               }
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION
+           "This object specifies the type of RDI-V (Remote Defect
+            Indication - Virtual Tributary/Container) sent by this 
+            Network Element (NE) to the remote Network Element.
+
+                  onebit     : use 1 bit RDI-V
+                  threebit   : use 3 bit enhanced RDI-V.
+
+            Default is onebit."
+        DEFVAL {onebit}
+
+        ::= {csConfigEntry 5}
+
+csConfigRDIPType OBJECT-TYPE
+        SYNTAX INTEGER {
+               onebit(1),
+               threebit(3)
+               }
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION
+           "This object represents the type of RDI-P (Remote Defect
+            Indication - Path) sent by this Network Element (NE)
+            to remote Network Element.
+
+                  onebit     : use 1 bit RDI-P
+                  threebit   : use 3 bit enhanced RDI-P.
+
+            Default is onebit."
+        DEFVAL {onebit}
+
+        ::= {csConfigEntry 6}
+
+-- VT config table
+csVTConfigTable OBJECT-TYPE
+         SYNTAX  SEQUENCE OF CsVTConfigEntry
+         MAX-ACCESS  not-accessible
+         STATUS  current
+         DESCRIPTION
+             "This table contains objects to configure the VT/VC (Virtual
+              Tributary / Virtual Container) related properties of 
+              SONET/SDH lines."
+         ::= {csConfig 2}
+
+csVTConfigEntry OBJECT-TYPE
+        SYNTAX  CsVTConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+            "There is an entry in this table for each SONET line that 
+             supports SONET virtual tributaries or SDH virtual containers.
+             Each entry in this table will have a corresponding entry 
+             in csConfigTable."
+        AUGMENTS { csConfigEntry }
+
+        ::= {csVTConfigTable 1}
+ 
+CsVTConfigEntry ::=
+            SEQUENCE {
+                csTributaryType               INTEGER,
+                csTributaryMappingType        INTEGER,
+                csTributaryFramingType        INTEGER,
+                csSignallingTransportMode     INTEGER,
+                csTributaryGroupingType       INTEGER
+                }
+            
+csTributaryType OBJECT-TYPE
+         SYNTAX INTEGER {
+                        vt15vc11(1),
+                        vt2vc12(2)
+                        }
+         MAX-ACCESS read-write 
+         STATUS  current
+         DESCRIPTION
+             "Type of the tributary carried within the SONET/SDH signal.
+
+                    vt15vc11    : carries T1 signal
+                    vt2vc12     : carries E1 signal
+             "
+         ::= {csVTConfigEntry 1}
+
+csTributaryMappingType OBJECT-TYPE
+         SYNTAX INTEGER {
+                        asynchronous(1),
+                        byteSynchronous(2)
+                        }
+         MAX-ACCESS read-write
+         STATUS  current
+         DESCRIPTION
+             "This object represents the VT/VC mapping type.
+
+                    asynchronous:    In this mode, the channel structure of 
+                                     DS1/E1 is neither visible nor preserved.
+
+                    byteSynchronous: In this mode, the DS0 signals inside the
+                                     VT/VC can be found and extracted from the
+                                     frame.
+
+              Default is asynchronous(1)."
+         ::= {csVTConfigEntry 2}
+
+csTributaryFramingType OBJECT-TYPE
+         SYNTAX INTEGER {
+                        notApplicable(1),
+                        dsx1D4(2),
+                        dsx1ESF(3)
+                        }
+         MAX-ACCESS read-write
+         STATUS  current
+         DESCRIPTION
+             "This object represents the framing type to be assigned to the
+              virtual tributaries in byte sync mapping mode.
+
+                    notApplicable  :  If VT mapping is not byteSynchronous(2).
+                    dsx1ESF        :  Extended Superframe Format
+                    dsx1D4         :  Superframe Format
+
+              Default is dsx1ESF(3) if csTributaryMappingType is 
+              byteSynchronous(2). For asynchronous(1) mapping, the default is 
+              notApplicable(1).
+
+              The value notApplicable(1) can not be set."
+
+         ::= {csVTConfigEntry 3}
+
+csSignallingTransportMode OBJECT-TYPE
+         SYNTAX INTEGER {
+                        notApplicable(1),
+                        signallingTransferMode(2),
+                        clearMode(3)
+                        }
+         MAX-ACCESS read-write
+         STATUS  current
+         DESCRIPTION
+             "This object represents the mode used to transport DS0 
+              signalling information for T1 byteSynchronous mapping (GR253).
+              In signallingTransferMode(2), the robbed-bit signalling is 
+              transferred to the VT header. In clearMode(3), only the 
+              framing bit is transferred to the VT header.
+                   
+              Default is signallingTransferMode(2) if csTributaryMappingType 
+              is byteSynchronous. For asynchronous mapping, it is 
+              notApplicable(1).
+
+              The value notApplicable(1) can not be set."
+         ::= {csVTConfigEntry 4}
+
+csTributaryGroupingType OBJECT-TYPE
+         SYNTAX INTEGER {
+                        notApplicable(1),
+                        au3Grouping(2),
+                        au4Grouping(3)
+                        }
+         MAX-ACCESS read-write
+         STATUS  current
+         DESCRIPTION
+             "This object represents the method used to group VCs into an
+              STM-1 signal. Applicable only to SDH.
+
+                au3Grouping: STM1<-AU-3<-TUG-2<-TU-12<-VC12 or
+                             STM1<-AU-3<-TUG-2<-TU-11<-VC11.
+
+                au4Grouping: STM1<-AU-4<-TUG-3<-TUG-2<-TU-12<-VC12 or
+                             STM1<-AU-4<-TUG-3<-TUG-2<-TU-11<-VC11.
+
+              Default is au3Grouping(2) for SDH and notApplicable(1) for SONET."
+
+         ::= {csVTConfigEntry 5}
+
+-- Sonet APS config Table
+csApsConfigTable OBJECT-TYPE
+         SYNTAX  SEQUENCE OF CsApsConfigEntry
+         MAX-ACCESS  not-accessible
+         STATUS  current
+         DESCRIPTION
+             "This table contains objects to configure APS 
+              (Automatic Protection Switching) feature in a SONET 
+              Line. APS is the ability to configure a pair of SONET 
+              lines for redundancy so that the hardware will 
+              automatically switch the active line from working line
+              to the protection line or vice versa, within 60ms, 
+              when the active line fails."
+         ::= { csApsConfig 1 }
+ 
+csApsConfigEntry OBJECT-TYPE
+        SYNTAX  CsApsConfigEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+            "An entry is created when an APS pair is configured.
+             To create an entry, the following objects must be 
+             specified:
+             csApsWorkingIndex, csApsProtectionIndex, csApsEnable,  
+             csApsArchMode. The protection line must not be active,
+             i.e, ifAdminStatus must be 'down',  while configuring 
+             APS. An entry is created by setting the value of 
+             'csApsEnable' to csApsEnabled (2) and deleted by 
+             setting it to csApsDisabled (1). Once a line is 
+             configured as working line or protection line, it 
+             remains in that role until APS is disabled on that 
+             sonet line pair. It remains in the  working/protection 
+             role even after the card is reset."
+         INDEX   {csApsWorkingIndex}
+         ::= { csApsConfigTable 1 }
+
+CsApsConfigEntry ::=
+              SEQUENCE {
+               csApsWorkingIndex          InterfaceIndex,
+               csApsProtectionIndex       InterfaceIndex,
+               csApsEnable                INTEGER,
+               csApsArchMode              INTEGER,
+               csApsActiveLine            INTEGER,
+               csApsSigFaultBER           Unsigned32,
+               csApsSigDegradeBER         Unsigned32,
+               csApsWaitToRestore         Unsigned32,
+               csApsDirection             INTEGER,
+               csApsRevertive             INTEGER,
+               csApsDirectionOperational  INTEGER,
+               csApsArchModeOperational   INTEGER,
+               csApsChannelProtocol       INTEGER,
+               csApsFailureStatus         CsApsLineFailureStatus,
+               csApsSwitchReason          CsApsLineSwitchReason,
+               csApsPrimarySection        INTEGER
+              }
+ 
+csApsWorkingIndex OBJECT-TYPE
+     SYNTAX    InterfaceIndex 
+     MAX-ACCESS    not-accessible
+     STATUS    current
+     DESCRIPTION
+         "When a pair of APS lines is configured, one line has
+          to be the working line, which is the primary line,
+          and the other has to be the protection line, which
+          is the backup line. This object refers to the working line
+          in the APS pair. For G.783 AnnexB, this index refers to
+          Working Section 1."
+     REFERENCE
+            "GR-253-CORE, G.783 AnnexB"
+     ::= { csApsConfigEntry 1 }
+ 
+csApsProtectionIndex OBJECT-TYPE
+       SYNTAX    InterfaceIndex 
+       MAX-ACCESS    read-write
+       STATUS    current
+       DESCRIPTION
+          "The protection line indicates that it will become
+           the active line when an APS switch occurs (APS switch
+           could occur because of a failure on the working line).
+           For G.783 AnnexB, This index refers to Working Section
+           2."
+     REFERENCE
+            "GR-253-CORE, G.783 AnnexB"
+        ::= { csApsConfigEntry 2 }
+ 
+csApsEnable  OBJECT-TYPE
+     SYNTAX    INTEGER {
+               csApsDisabled (1),
+               csApsEnabled  (2)
+               }
+     MAX-ACCESS    read-write
+     STATUS    current
+     DESCRIPTION
+          "This object is used to enable or disable the APS feature
+           on the working/protection line pairs. When enabled,
+           the hardware will automatically switch the active line 
+           from the working line to the protection line within 60ms,
+           or vice versa."
+     ::= { csApsConfigEntry 3 }
+ 
+csApsArchMode OBJECT-TYPE
+     SYNTAX    INTEGER {
+               onePlusOne(1),
+               oneToOne(2),
+               anexBOnePlusOne(3),
+               ycableOnePlusOneNok1k2(4),
+               straightOnePlusOneNok1k2(5)
+               }
+     MAX-ACCESS read-write
+     STATUS    current
+     DESCRIPTION
+        "This object is used to configure APS architecture mode
+         on the working/protection line pairs.
+       
+          All of the following are supported on single slot.
+          oneToOne(2) is not  supported across 2 slots,i.e. the 
+          working and protection slot numbers must be the same in 
+          oneToOne(2).
+       
+          onePlusOne : This can be supported on the same card
+          and across 2 cards.
+          This mode means that the transmit and receive signals
+          go only over the active line(which could be working or 
+          protection line). (straight cable implied)
+       
+          oneToOne : This is supported only on the same card
+          This mode means that the transmit and receive signals
+          go over the working and protection lines.
+          (straight cable implied)
+       
+          anexBOnePlusOne : This can be supported on the same card
+          and across 2 cards.
+          This mode is like the onePlusOne mode, except that the
+          'csApsDirection' can only be bi-directional.
+          (straight cable implied)
+       
+          ycableOnePlusOneNok1k2: With Y-cable ignore K1K2 bytes.
+          This mode is the Y-cable redundancy mode.
+       
+          straightOnePlusOneNok1k2 : With straight cable, ignore 
+                                     K1K2 bytes. This mode is like
+                                     onePlusOne, but with K1, K2 
+                                     bytes ignored."
+   ::= { csApsConfigEntry 4 }
+ 
+csApsActiveLine OBJECT-TYPE
+         SYNTAX    INTEGER {
+                   csApsWorkingLine(1),
+                   csApsProtectionLine(2),
+                   csApsNone(3)
+                   }
+         MAX-ACCESS    read-only
+         STATUS    current
+         DESCRIPTION
+           "This object indicates which line is currently active. 
+            It could be the working line(Section 1 for Annex B),
+            the protection line(Section 2 for Annex B) or none
+            if neither working nor protection line is active. 
+            This object reflects the status of receive direction."
+         REFERENCE
+            "GR-253-CORE, G.783 AnnexB"
+   ::= { csApsConfigEntry 5 }
+ 
+csApsSigFaultBER OBJECT-TYPE
+     SYNTAX    Unsigned32 (3..5)
+     MAX-ACCESS read-write
+     STATUS    current
+     DESCRIPTION
+       "This object contains the Bit Error Rate threshold for
+        Signal Fault detection on the working line. Once this
+        threshold is exceeded, an APS switch will occur.
+        This value is 10 to the -n, where n is between 3 and 5."
+    DEFVAL {3}
+    ::= { csApsConfigEntry 6 }
+ 
+csApsSigDegradeBER OBJECT-TYPE
+        SYNTAX    Unsigned32 (5..9)
+        MAX-ACCESS    read-write
+        STATUS    current
+        DESCRIPTION
+           "This object contains the Bit Error Rate threshold for
+            Signal Degrade detection on the working line. Once this
+            threshold is exceeded, an APS switch will occur.
+            This value is 10 to -n where n is between 5 and 9."
+        DEFVAL {5}
+        ::= { csApsConfigEntry 7 }
+ 
+csApsWaitToRestore OBJECT-TYPE
+        SYNTAX Unsigned32 (1..12)
+        UNITS "minutes"
+        MAX-ACCESS read-write
+        STATUS    current
+        DESCRIPTION
+                "This object contains interval in minutes to wait 
+                 before attempting to switch back to working line. 
+                 Not applicable if the line is configured in 
+                 non-revertive mode, i.e. protection line will 
+                 continue to be active, even if failures on the 
+                 working line are cleared. The framer clears the 
+                 signal-fault and signal-degrade when APS switch 
+                 occurs. Please refer to 'csApsRevertive' for 
+                 description of non-revertive."
+        ::= { csApsConfigEntry 8 }
+ 
+csApsDirection OBJECT-TYPE
+           SYNTAX    INTEGER {
+                     uniDirectional(1),
+                     biDirectional(2)
+                     }
+           MAX-ACCESS    read-write
+           STATUS    current
+           DESCRIPTION
+              "This object is used to configure the switching 
+               direction which this APS line supports. 
+
+               Unidirectional : APS switch only in one direction.
+               Bidirectional  : APS switch in both ends of the line."
+        ::= { csApsConfigEntry 9 }
+ 
+csApsRevertive OBJECT-TYPE
+       SYNTAX    INTEGER {
+                 nonrevertive(1),
+                 revertive(2)
+                }
+       MAX-ACCESS    read-write
+       STATUS    current
+       DESCRIPTION
+           "This object is used to configure the APS revertive or
+            nonrevertive option. 
+    
+            revertive : 
+              Will switch the working line back to active state after
+              the Wait-To-restore interval has expired and the 
+              working line Signal-Fault/Signal-Degrade has been 
+              cleared. Please refer to 'csApsWaitToRestore' for 
+              description of Wait-To-Restore interval.
+            nonrevertive : 
+              The  protection line continues to be the active line,
+              The active line does not switch to the working line."
+     ::= { csApsConfigEntry 10 }
+
+ 
+csApsDirectionOperational OBJECT-TYPE
+           SYNTAX INTEGER {
+                     uniDirectional(1),
+                     biDirectional(2)
+                     }
+           MAX-ACCESS    read-only
+           STATUS    current
+           DESCRIPTION
+              "This object shows the actual APS direction that is 
+               implemented on the Near End terminal. APS direction 
+               configured through csApsDirection is negotiated with
+               the Far End and APS direction setting acceptable to 
+               both ends is operational at the Near End."
+        ::= { csApsConfigEntry 11 }
+
+csApsArchModeOperational OBJECT-TYPE
+     SYNTAX    INTEGER {
+               onePlusOne(1),
+               oneToOne(2),
+               anexBOnePlusOne(3),
+               ycableOnePlusOneNok1k2(4),
+               straightOnePlusOneNok1k2(5)
+               }
+     MAX-ACCESS read-only
+     STATUS    current
+     DESCRIPTION
+           "This object shows the actual APS architecture mode that
+            is implemented on the Near End terminal. APS architecture
+            mode configured through csApsArchMode object is 
+            negotiated with the Far End through APS channel. 
+            Architecture mode acceptable to both the Near End and 
+            the Far End terminals is then operational at the Near 
+            End. This value can be different than the APS 
+            Architecture mode configured."
+     ::= { csApsConfigEntry 12 }
+
+csApsChannelProtocol OBJECT-TYPE
+     SYNTAX INTEGER {
+            bellcore(1),
+            itu(2)
+            }
+     MAX-ACCESS read-write
+     STATUS current
+     DESCRIPTION
+           "This object allows to configure APS channel protocol to 
+            be implemented at Near End terminal.
+
+            K1 and K2 overhead bytes in a SONET signal are used as
+            an APS channel.
+            This channel is used to carry APS protocol.
+
+            Possible values:
+            bellcore(1) : Implements APS channel protocol as defined
+                          in bellcore document GR-253-CORE.
+            itu(2) : Implements APS channel protocol as defined in 
+                     ITU document G.783."
+     REFERENCE
+            "GR-253-CORE, G.783"
+     ::= { csApsConfigEntry 13 }
+
+csApsFailureStatus OBJECT-TYPE
+     SYNTAX CsApsLineFailureStatus
+     MAX-ACCESS read-only
+     STATUS current
+     DESCRIPTION
+            "This object indicates APS line failure status."
+     REFERENCE
+            "GR-253-CORE, G.783"
+     ::= { csApsConfigEntry 14 }
+
+csApsSwitchReason OBJECT-TYPE
+     SYNTAX CsApsLineSwitchReason
+     MAX-ACCESS read-only
+     STATUS current
+     DESCRIPTION
+           "This object indicates APS line switch reason."
+     REFERENCE
+            "GR-253-CORE, G.783"
+     ::= { csApsConfigEntry 15 }
+
+csApsPrimarySection OBJECT-TYPE
+     SYNTAX INTEGER {
+            workingSection1(1),
+            workingSection2(2),
+            none(3)
+            }
+     MAX-ACCESS read-only
+     STATUS current
+     DESCRIPTION
+           "This object indicates which working section is the APS
+            primary section. In G.783 AnnexB, the K1/K2 Bytes are
+            received on the secondary Section. All the Switch
+            Requests are for a switch from the primary section to
+            the secondary section. The object csApsActiveline will
+            indicate which section is currently carrying the
+            traffic.  Once the switch request clears normally,
+            traffic is maintained on the section to which it was
+            switched by making that section the primary section. 
+ 
+            Possible values: 
+            workingSection1(1): Working Section 1 is Primary Section
+            workingSection2(2): Working Section 2 is Primary Section
+            none(3)           : none."
+
+     REFERENCE
+            "G.783 AnnexB"
+     ::= { csApsConfigEntry 16 }
+
+
+csApsLineFailureCode OBJECT-TYPE
+      SYNTAX CsApsLineFailureCode
+      MAX-ACCESS read-only
+      STATUS  current
+      DESCRIPTION
+           "The object indicates the APS line failure code. This is the
+            failure encountered by the APS line.
+            Refer to CsApsLineFailureCode TC for failure code definitions.
+            The object is used for notifications."
+      REFERENCE
+          "GR-253-CORE, G.783"
+      ::= { csApsConfig 2 }
+ 
+csApsLineSwitchReason OBJECT-TYPE
+    SYNTAX CsApsLineSwitchReason
+    MAX-ACCESS read-only
+    STATUS  current
+    DESCRIPTION
+          "This object indicates the APS line switch reason.
+           When the working line on one end fails, its other end
+           is told to do an APS switch. 
+           Refer to CsApsLineSwitchReason TC for more information.
+           The object is used for notifications."
+      ::= { csApsConfig 3 }
+
+-- ----------------------------------------------------------------
+--
+-- Sonet Section Total table
+--
+-- ----------------------------------------------------------------
+cssTotalTable  OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CssTotalEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "The SONET/SDH Section Total table. It contains the 
+            cumulative sum of the various statistics for the 24 hour
+            period preceding the current interval. The object 
+            'sonetMediumValidIntervals' from RFC2558 contains the
+            number of 15 minute intervals that have elapsed since
+            the line is enabled. " 
+        ::= { csSection 1 }
+ 
+cssTotalEntry OBJECT-TYPE
+        SYNTAX  CssTotalEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "An entry in the SONET/SDH Section Total table. Entries
+            are created automatically for sonet lines."
+        INDEX    { ifIndex }
+        ::= { cssTotalTable 1 }
+ 
+CssTotalEntry ::=
+       SEQUENCE {
+                  cssTotalESs      Gauge32,
+                  cssTotalSESs     Gauge32,
+                  cssTotalSEFSs    Gauge32,
+                  cssTotalCVs      Gauge32
+                }
+
+cssTotalESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Errored Seconds encountered by a SONET/SDH
+            Section in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cssTotalEntry 1 }
+ 
+cssTotalSESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Severely Errored Seconds encountered by a 
+            SONET/SDH Section in the last 24 hours."
+        REFERENCE
+
+           " RFC2558 "
+        ::= { cssTotalEntry 2 }
+
+cssTotalSEFSs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "severely errored framing seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Severely Errored Framing Seconds 
+            encountered by a SONET/SDH Section in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cssTotalEntry 3 }
+
+cssTotalCVs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Coding Violations encountered by a 
+            SONET/SDH Section in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cssTotalEntry 4 }
+
+
+-- ----------------------------------------------------------------
+--
+-- Sonet Section Trace table
+--
+-- ----------------------------------------------------------------
+ 
+
+cssTraceTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CssTraceEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "The SONET/SDH Section Trace table. This table contains 
+            objects for tracing the sonet section." 
+        ::= { csSection 2 }
+
+cssTraceEntry OBJECT-TYPE
+    SYNTAX  CssTraceEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the trace table. Entries exist for active sonet
+         lines. The objects in this table are used to verify 
+         continued connection between the two ends of the line."
+    INDEX   { ifIndex }
+    ::=     { cssTraceTable 1 }
+
+
+CssTraceEntry ::=
+        SEQUENCE {
+                cssTraceToTransmit              OCTET STRING,
+                cssTraceToExpect                OCTET STRING,
+                cssTraceFailure                 TruthValue,
+                cssTraceReceived                OCTET STRING
+                }
+
+cssTraceToTransmit OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(0|16|64))
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+            "Sonet Section Trace To Transmit. This is string that
+             is transmitted to perform Sonet section trace 
+             diagnostics. The trace string is  repetitively 
+             transmited so that a trace receiving terminal can 
+             verify its continued connection to the intended 
+             transmitter. The default value is a zero-length string.
+             Unless this object is set to a non-zero length string, 
+             tracing will not be performed."
+         REFERENCE 
+            "GR-253-CORE"
+         ::= { cssTraceEntry 1 }
+ 
+cssTraceToExpect OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(0|16|64))
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+            "Sonet Section Trace To Expect. The receiving terminal 
+             verifies if the incoming string matches this string. 
+             The value of 'cssTraceFailure' indicates whether a 
+             trace mismatch occurred. The default value is a 
+             zero-length string."
+        REFERENCE
+              "GR-253-CORE"
+        ::= { cssTraceEntry 2 }
+
+cssTraceFailure OBJECT-TYPE
+     SYNTAX  TruthValue
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+        "The value of this object is set to 'true' when Sonet 
+         Section received trace does not match the 
+         'cssTraceToExpect'."
+     REFERENCE
+         "GR-253-CORE"
+     ::= { cssTraceEntry 3 }
+
+cssTraceReceived OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(0|16|64))
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+         "This object is used to view the Sonet Section Trace that 
+          is received by the receiving terminal."
+        REFERENCE
+         "GR-253-CORE"
+        ::= { cssTraceEntry 4 }
+
+-- ----------------------------------------------------------------
+--
+-- Sonet Line Total table
+--
+-- ----------------------------------------------------------------
+
+cslTotalTable  OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CslTotalEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "The SONET/SDH Line Total table. It contains the 
+            cumulative sum of the various statistics for the 24 
+            hour period preceding the current interval. The object 
+            'sonetMediumValidIntervals' from RFC2558 contains the 
+            number of 15 minute intervals that have elapsed since
+            the line is enabled."
+        ::= { csLine 1 }
+ 
+cslTotalEntry OBJECT-TYPE
+        SYNTAX  CslTotalEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "An entry in the SONET/SDH Line Total table. Entries
+            are created automatically for sonet lines."
+        INDEX    { ifIndex }
+        ::= { cslTotalTable 1 }
+ 
+CslTotalEntry ::=
+       SEQUENCE {
+                  cslTotalESs      Gauge32,
+                  cslTotalSESs     Gauge32,
+                  cslTotalCVs      Gauge32,
+                  cslTotalUASs     Gauge32
+                }
+
+cslTotalESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Errored Seconds encountered by a SONET/SDH
+            Line in the last 24 hours."
+        ::= { cslTotalEntry 1 }
+ 
+cslTotalSESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Severely Errored Seconds encountered by a 
+            SONET/SDH Line in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cslTotalEntry 2 }
+
+cslTotalCVs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Coding Violations encountered by a 
+            SONET/SDH Line in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cslTotalEntry 3 }
+
+cslTotalUASs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Unavailable Seconds encountered by a 
+            SONET/SDH Line in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cslTotalEntry 4 }
+
+-- ----------------------------------------------------------------
+--
+-- Sonet Far End Line Total table
+--
+-- ----------------------------------------------------------------
+
+cslFarEndTotalTable  OBJECT-TYPE
+     SYNTAX  SEQUENCE OF CslFarEndTotalEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "The SONET/SDH Far End Line Total table. It contains the 
+        cumulative sum of the various statistics for the 24 hour 
+        period preceding the current interval. The object 
+        'sonetMediumValidIntervals' from RFC2558 contains the 
+        number of 15 minute intervals that have elapsed since the 
+        line is enabled."
+     ::= { csLine 2 }
+ 
+cslFarEndTotalEntry OBJECT-TYPE
+     SYNTAX  CslFarEndTotalEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+        "An entry in the SONET/SDH Far End Line Total table. Entries
+         are created automatically for sonet lines."
+     INDEX    { ifIndex }
+     ::= { cslFarEndTotalTable 1 }
+ 
+CslFarEndTotalEntry ::=
+    SEQUENCE {
+               cslFarEndTotalESs      Gauge32,
+               cslFarEndTotalSESs     Gauge32,
+               cslFarEndTotalCVs      Gauge32,
+               cslFarEndTotalUASs     Gauge32
+             }
+
+cslFarEndTotalESs OBJECT-TYPE
+    SYNTAX  Gauge32
+    UNITS "errored seconds"
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "The number of Errored Seconds encountered by a SONET/SDH Far
+        End Line in the last 24 hours."
+    REFERENCE
+       " RFC2558 "
+    ::= { cslFarEndTotalEntry 1 }
+ 
+cslFarEndTotalSESs OBJECT-TYPE
+     SYNTAX  Gauge32
+    UNITS "severely errored seconds"
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+        "The number of Severely Errored Seconds encountered by a 
+         SONET/SDH Far End Line in the last 24 hours."
+     REFERENCE
+        " RFC2558 "
+     ::= { cslFarEndTotalEntry 2 }
+
+cslFarEndTotalCVs OBJECT-TYPE
+     SYNTAX  Gauge32
+     UNITS "coding violations"
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+        "The number of Coding Violations encountered by a SONET/SDH 
+         Far End Line in the last 24 hours."
+     REFERENCE
+        " RFC2558 "
+     ::= { cslFarEndTotalEntry 3 }
+
+cslFarEndTotalUASs OBJECT-TYPE
+     SYNTAX  Gauge32
+     UNITS "unavailable seconds"
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+        "The number of Unavailable Seconds encountered by a 
+         SONET/SDH Far End Line in the last 24 hours."
+     REFERENCE
+        " RFC2558 "
+     ::= { cslFarEndTotalEntry 4 }
+
+-- ----------------------------------------------------------------
+--
+-- Sonet Path Total table
+--
+-- ----------------------------------------------------------------
+
+cspTotalTable  OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CspTotalEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "The SONET/SDH Path Total table. It contains the cumulative 
+        sum of the various statistics for the 24 hour period 
+        preceding the current interval.The object 
+        'sonetMediumValidIntervals' from RFC2558 contains the number
+        of 15 minute intervals that have elapsed since the line is 
+        enabled."
+    ::= { csPath 1 }
+ 
+cspTotalEntry OBJECT-TYPE
+        SYNTAX  CspTotalEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "An entry in the SONET/SDH Path Total table. Entries
+            are created automatically for sonet lines."
+        INDEX    { ifIndex }
+        ::= { cspTotalTable 1 }
+ 
+CspTotalEntry ::=
+       SEQUENCE {
+                  cspTotalESs      Gauge32,
+                  cspTotalSESs     Gauge32,
+                  cspTotalCVs      Gauge32,
+                  cspTotalUASs     Gauge32
+                }
+
+cspTotalESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Errored Seconds encountered by a SONET/SDH
+            Path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspTotalEntry 1 }
+ 
+cspTotalSESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Severely Errored Seconds encountered by a 
+            SONET/SDH Path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspTotalEntry 2 }
+
+cspTotalCVs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Coding Violations encountered by a 
+            SONET/SDH Path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspTotalEntry 3 }
+
+cspTotalUASs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Unavailable Seconds encountered by a 
+            SONET/SDH Path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspTotalEntry 4 }
+
+-- ----------------------------------------------------------------
+--
+-- Sonet Far End Path Total table
+--
+-- ----------------------------------------------------------------
+
+cspFarEndTotalTable  OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CspFarEndTotalEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "The SONET/SDH Far End Path Total table. Far End is the 
+            remote end of the line. The table contains the cumulative
+            sum of the various statistics for the 24 hour period 
+            preceding the current interval. The object 
+            'sonetMediumValidIntervals' from RFC2558 contains the
+            number of 15 minute intervals that have elapsed since
+            the line is enabled. "
+        ::= { csPath 2 }
+ 
+cspFarEndTotalEntry OBJECT-TYPE
+        SYNTAX  CspFarEndTotalEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "An entry in the SONET/SDH Far End Path Total table. 
+            Entries are created automatically for sonet lines."
+        INDEX    { ifIndex }
+        ::= { cspFarEndTotalTable 1 }
+ 
+CspFarEndTotalEntry ::=
+       SEQUENCE {
+                  cspFarEndTotalESs      Gauge32,
+                  cspFarEndTotalSESs     Gauge32,
+                  cspFarEndTotalCVs      Gauge32,
+                  cspFarEndTotalUASs     Gauge32
+                }
+
+cspFarEndTotalESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Errored Seconds encountered by a SONET/SDH
+            far end path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspFarEndTotalEntry 1 }
+ 
+cspFarEndTotalSESs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Severely Errored Seconds encountered by a 
+            SONET/SDH far end path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspFarEndTotalEntry 2 }
+
+cspFarEndTotalCVs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Coding Violations encountered by a 
+            SONET/SDH far end path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspFarEndTotalEntry 3 }
+
+cspFarEndTotalUASs OBJECT-TYPE
+        SYNTAX  Gauge32
+        UNITS "unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Unavailable Seconds encountered by a 
+            SONET/SDH far end path in the last 24 hours."
+        REFERENCE
+           " RFC2558 "
+        ::= { cspFarEndTotalEntry 4 }
+
+-- ----------------------------------------------------------------
+--
+-- Path Trace Table
+--
+-- ----------------------------------------------------------------
+ 
+cspTraceTable OBJECT-TYPE
+     SYNTAX  SEQUENCE OF CspTraceEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "The SONET/SDH Path Trace table. This table contains objects 
+        for tracing the sonet path."
+     ::= { csPath 3 }
+     
+cspTraceEntry OBJECT-TYPE
+     SYNTAX  CspTraceEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "An entry in the SONET/SDH Path Trace table. The entries 
+        exist for active sonet lines. The objects in this table are 
+        used to verify continued connection between the two ends of
+        the line."
+     INDEX   { ifIndex }
+     ::= { cspTraceTable 1 }
+
+
+CspTraceEntry ::=
+     SEQUENCE {
+         cspTraceToTransmit              OCTET STRING,
+         cspTraceToExpect                OCTET STRING,
+         cspTraceFailure                 TruthValue,
+         cspTraceReceived                OCTET STRING
+         }
+
+cspTraceToTransmit OBJECT-TYPE
+     SYNTAX  OCTET STRING (SIZE(0|16|64))
+     MAX-ACCESS  read-write
+     STATUS  current
+     DESCRIPTION
+        "Sonet Path Trace To Transmit. The trace string is 
+         repetitively transmited so that a trace receiving terminal 
+         can verify its continued receiving terminal can verify its 
+         continued connection to the intended transmitter. The 
+         default value is a zero-length string. Unless this object 
+         is set to a non-zero length string, tracing will not be 
+         performed."
+     REFERENCE
+         "GR-253-CORE"
+     ::= { cspTraceEntry 1 }
+ 
+cspTraceToExpect OBJECT-TYPE
+     SYNTAX  OCTET STRING (SIZE(0|16|64))
+     MAX-ACCESS  read-write
+     STATUS  current
+     DESCRIPTION
+        "Sonet Path Trace To Expect.  The receiving terminal verifies
+         if the incoming string matches this string. The value of 
+         'cspTraceFailure' indicates whether a trace mismatch 
+         occured. The default value is a zero-length string."
+     REFERENCE
+         "GR-253-CORE"
+     ::= { cspTraceEntry 2 }
+
+cspTraceFailure OBJECT-TYPE
+     SYNTAX TruthValue
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+        "The value of this object is set to 'true' when Sonet Path 
+         received trace does not match the 'cspTraceToExpect'."     
+     REFERENCE
+         "GR-253-CORE"
+     ::= { cspTraceEntry 3 }
+ 
+cspTraceReceived OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(0|16|64))
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+         "This object is used to view the Sonet Path Trace that is
+          received by the receiving terminal."
+        REFERENCE
+              "GR-253-CORE"
+        ::= { cspTraceEntry 4 }
+
+-- ------------------------------------------------------------
+--
+-- Sonet Stats Tables
+--
+-- ------------------------------------------------------------
+
+csStatsTable OBJECT-TYPE
+     SYNTAX  SEQUENCE OF CsStatsEntry
+     MAX-ACCESS  not-accessible
+     STATUS current
+     DESCRIPTION
+        "The SONET/SDH Section statistics table. This table 
+         maintains the number of times the line encountered Loss of
+         Signal(LOS), Loss of frame(LOF), Alarm Indication 
+         signals(AISs), Remote failure indications(RFIs)." 
+    ::= { csStats 1 }
+
+csStatsEntry OBJECT-TYPE
+    SYNTAX  CsStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the SONET/SDH statistics table. These are 
+         realtime statistics for the Sonet section, line and path
+         layers. The statistics are gathered for each sonet line. 
+         An entry is created automatically and is indexed by 
+         ifIndex."
+     INDEX   { ifIndex }
+     ::= { csStatsTable 1 }
+
+CsStatsEntry ::=
+      SEQUENCE {
+                cssLOSs          Counter32,
+                cssLOFs          Counter32,
+                cslAISs          Counter32,
+                cslRFIs          Counter32,
+                cspAISs          Counter32,
+                cspRFIs          Counter32
+                }
+
+cssLOSs OBJECT-TYPE
+        SYNTAX  Counter32
+        UNITS "loss of signals"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Loss of signals(LOS) encountered by a 
+            SONET/SDH Section. A high value for this object may 
+            indicate a problem with the Sonet Section layer."
+        REFERENCE
+           " RFC2558 "
+        ::= { csStatsEntry 1 }
+
+cssLOFs OBJECT-TYPE
+        SYNTAX  Counter32
+        UNITS "loss of frames"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Loss of Frames (LOF) encountered by a 
+            SONET/SDH Section. A high value for this object may 
+            indicate a problem with the Sonet Section layer."
+        REFERENCE
+           " RFC2558 "
+        ::= { csStatsEntry 2 }
+
+cslAISs OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "alarm indication signals"
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "The number of alarm indication signals(AIS)  encountered by 
+        a SONET/SDH Line. A high value for this object may indicate a
+        problem with the Sonet Line layer."
+    REFERENCE
+        " RFC2558 "
+    ::= { csStatsEntry 3 }
+ 
+ 
+cslRFIs OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS "remote failure indications"
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "The number of remote failure indications (RFI) encountered 
+        by a SONET/SDH Line. A high value for this object may 
+        indicate a problem with the Sonet Line layer."
+    REFERENCE
+        " RFC2558 "
+    ::= { csStatsEntry 4 }
+
+cspAISs OBJECT-TYPE
+     SYNTAX  Counter32
+     UNITS "alarm indication signals"
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+        "The  number of alarm indication signals (AIS) encountered
+         by a SONET/SDH Path. A high value for this object may 
+         indicate a problem with the Sonet Path layer."
+     REFERENCE
+         " RFC2558 "
+     ::= { csStatsEntry 5 }
+ 
+ 
+cspRFIs OBJECT-TYPE
+     SYNTAX  Counter32
+     UNITS "remote failure indications"
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+         "The number of  remote failure indications (RFI) 
+          encountered by a SONET/SDH Path. A high value for this 
+          object may indicate a problem with the Sonet Path layer."
+     REFERENCE
+         " RFC2558 "
+     ::= { csStatsEntry 6 }
+
+
+
+-- ------------------------------------------------------------
+--
+-- Sonet path Config  Tables
+--
+-- ------------------------------------------------------------
+
+cspConfigTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CspConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS current
+    DESCRIPTION
+        "Cisco extension to SONET Path current table."
+    ::= { cspConfig 1 }
+
+cspConfigEntry OBJECT-TYPE
+    SYNTAX  CspConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in Cisco extension to the SONET path current table."
+    AUGMENTS { sonetPathCurrentEntry }
+    ::= { cspConfigTable 1 }
+
+CspConfigEntry ::=
+    SEQUENCE {
+        cspSonetPathPayload        INTEGER,
+        cspTributaryMappingType    INTEGER,
+        cspSignallingTransportMode INTEGER,
+        cspTributaryGroupingType   INTEGER
+    }
+
+cspSonetPathPayload OBJECT-TYPE
+    SYNTAX  INTEGER {
+        unequipped(1),
+        unspecified(2),
+        ds3(3), 
+        vt15vc11(4),
+        vt2vc12(5),
+        atmCell(6),
+        hdlcFr(7),
+        e3(8),
+        vtStructured(9)
+    }
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "Specifies the payload carried by the SONET/SDH Path.
+        The payload specification corresponds to C2 (Signal Label)
+        overhead byte in SONET/SDH Path Overhead:
+        unequipped(1)    : Path is not provisioned to carry any payload.
+        unspecified(2)   : Path is carrying an unspecifed payload.
+        ds3(3)           : Path is carrying a DS3 path as payload.
+        vt15vc11(4)      : Path is carrying SONET-VT1.5/SDH-VC11 payload.
+        vt2vc12(5)       : Path is carrying SONET-VT2/SDH-VC12 as payload.
+        atmCell(6)       : Path is carrying ATM Cells as payload.
+        hdlcFr(7)        : Path is carrying Frame Relay (HDLC) payload.
+        e3(8)            : Path is carrying an E3 path as payload.
+        vtStructured(9)  : Path is carrying VTGs/TUG3s/TUG2s which may
+                           each carry a different payload. 
+        A write operation on this object will result in update to
+        C2 overhead byte in the Path Overhead."
+    REFERENCE
+        "Telcordia GR-253, ITU G.707"
+    ::= { cspConfigEntry 1 }
+
+cspTributaryMappingType OBJECT-TYPE
+    SYNTAX INTEGER {
+                    asynchronous   (1),
+                    byteSynchronous(2)
+                   }
+    MAX-ACCESS read-write
+    STATUS  current
+    DESCRIPTION
+         "This object represents the VT/VC mapping type.
+          asynchronous: In this mode, the channel structure of 
+                        DS1/E1 is neither visible nor preserved.
+
+          byteSynchronous: In this mode, the DS0 signals inside 
+                           the VT/VC can be found and extracted 
+                           from the frame.
+          The initial value is asynchronous(1)."
+    ::= { cspConfigEntry 2 }
+
+cspSignallingTransportMode OBJECT-TYPE
+    SYNTAX INTEGER {
+                    notApplicable(1),
+                    signallingTransferMode(2),
+                    clearMode(3)
+                   }
+     MAX-ACCESS read-write
+     STATUS  current
+     DESCRIPTION
+         "This object represents the mode used to transport DS0 
+          Signalling information for T1 byteSynchronous mapping
+          (GR253).
+          In signallingTransferMode(2), the robbed-bit signalling 
+          is transferred to the VT header. In clearMode(3), only 
+          the framing bit is transferred to the VT header.
+                   
+          The initial value is signallingTransferMode(2) 
+          if csTributaryMappingType is byteSynchronous. 
+          For asynchronous mapping, it is 
+          notApplicable(1).
+
+          The value notApplicable(1) can not be set.
+         "
+     ::= { cspConfigEntry 3 }
+
+cspTributaryGroupingType OBJECT-TYPE
+     SYNTAX INTEGER {
+                     notApplicable(1),
+                     au3Grouping(2),
+                     au4Grouping(3)
+                    }
+     MAX-ACCESS read-write
+     STATUS  current
+     DESCRIPTION
+         "This object represents the method used to group VCs into
+          an STM-1 signal. Applicable only to SDH.
+
+          au3Grouping: STM1<-AU-3<-TUG-2<-TU-12<-VC12 or
+                       STM1<-AU-3<-TUG-2<-TU-11<-VC11.
+
+          au4Grouping: STM1<-AU-4<-TUG-3<-TUG-2<-TU-12<-VC12 or
+                       STM1<-AU-4<-TUG-3<-TUG-2<-TU-11<-VC11.
+
+          The initial value is au3Grouping(2) for SDH and 
+          notApplicable(1) for SONET.
+         "
+     REFERENCE
+         "ITU-T,G707, Section 6 Basic Multiplexing Priciples
+         "
+     ::= {cspConfigEntry 4}
+
+
+--
+-- csAu4Tug3ConfigTable : AU-4 Tributary Unit Configuration Table.
+--
+-- SONET Tributaries
+-- STS-1 contains 7 VT Groups.
+-- VTG contains 4 VT15s or 3 VT2s or 2 VT3s or 1 VT6
+--
+-- SDH Tributaries
+-- AUG - Administrative Unit Group
+-- TUG - Tributary Unit Group (contains multiple tributary units)
+-- AU  - TUGs are collated into Administrative Units
+-- Tributary Unit contains Virtual Containers(VC)
+-- STM-1 contains 3 AU-3 OR 1 AU-4
+-- AUG-1 contains 3 AU-3 or 1 AU-4
+-- AU-3 contains VC-3 or 7 TUG-2s
+-- AU-4 contains 1 VC-4 
+-- VC-4 contains 1 C-4 or 3 TUG-3s
+-- TUG-3 contains TU-3 Or 7 TUG-2s
+-- TUG-2 contains 4 TU-11s OR 3 TU-12s OR 1 TU-2
+
+csAu4Tug3ConfigTable OBJECT-TYPE
+         SYNTAX     SEQUENCE OF CsAu4Tug3ConfigEntry
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+             "This table contains objects to configure the VC( Virtual
+              Container) related properties of a TUG-3 within a AU-4 
+              paths.
+
+              This table allows creation of
+              following multiplexing structure:
+              STM-1/AU-4/TUG-3/TU-3/DS3
+              STM-1/AU-4/TUG-3/TU-3/E3
+              STM-1/AU-4/TUG-3/TUG-2/TU-11/DS1
+              STM-1/AU-4/TUG-3/TUG-2/TU-12/E1
+
+             Three entries are created in this table for a given AU-4 
+             path when cspSonetPathPayload object is set to one of the 
+             following:
+                  vt15vc11(4),
+                  vt2vc12(5),
+                  ds3(3),
+                  e3(8),
+                  vtStructured(9)
+
+             "
+     REFERENCE
+         "ITU-T, G.707"
+         ::= { csAu4Tug3Config 1 }
+
+csAu4Tug3ConfigEntry OBJECT-TYPE
+        SYNTAX     CsAu4Tug3ConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "There is an entry in this table for each TUG-3 within a 
+             AU-4 SDH path that supports SDH virtual container VC-4.
+             The ifIndex value represents an entry in ifTable with
+             ifType = sonetPath(50).The ifTable entry applicable for
+             this entry belongs to AU-4 path."
+        INDEX { ifIndex, csAu4Tug3 }
+        ::= { csAu4Tug3ConfigTable 1 }
+ 
+CsAu4Tug3ConfigEntry ::=
+            SEQUENCE {
+                csAu4Tug3         Integer32,
+                csAu4Tug3Payload  INTEGER
+            }
+
+csAu4Tug3 OBJECT-TYPE
+         SYNTAX     Integer32(1..3)
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+             "This object represents the TUG-3 number."
+         REFERENCE
+             "ITU-T G.707 for SDH Multiplexing hierarchy."
+         ::= { csAu4Tug3ConfigEntry 1 }
+
+csAu4Tug3Payload OBJECT-TYPE
+         SYNTAX    INTEGER {
+                        other    (1),
+                        vc11     (2),
+                        vc12     (3),
+                        tu3ds3   (4),
+                        tu3e3    (5)
+                    }
+         MAX-ACCESS read-write 
+         STATUS     current
+         DESCRIPTION
+             "This object is used for configuring the payload
+              for the tributary group.
+
+              The possible values are :
+
+              vc11   : When set to 'vc11' following things are done:
+                     - 28 entries created in ifTable for TU-11 with 
+                       ifType = sonetVT(51)
+                     - 28 entries created in ifTable for DS1 with 
+                       ifType = ds1(18)
+
+                       STM1<-AU-4<-TUG-3<-TUG-2<-TU-11<-VC11
+
+              vc12   : When set to 'vc12' following things are done:
+                     - 21 entries created in ifTable for TU-12 with 
+                       ifType = sonetVT(51)
+                     - 21 entries created in ifTable for E1 with 
+                       ifType = ds1(18)
+
+                       STM1<-AU-4<-TUG-3<-TUG-2<-TU-12<-VC12
+
+              tu3ds3 : When set to 'tu3ds3' following things are done:
+                     - 1 entry created in ifTable for TU-3 with 
+                       ifType = sonetVT(51)
+                     - 1 entry created in ifTable for DS3 with 
+                       ifType = ds3(30)
+
+                       STM1<-AU-4<-TUG-3<-TU-3<-VC3
+
+              tu3e3  : When set to 'tu3e3' following things are done:
+                     - 1 entry created in ifTable for TU-3 with 
+                       ifType = sonetVT(51)
+                     - 1 entry created in ifTable for E3 with 
+                       ifType = ds3(30)
+
+                       STM1<-AU-4<-TUG-3<-TU-3<-VC3
+  
+              The value 'other' can not be set.
+             "
+         DEFVAL { vc11 }
+         ::= { csAu4Tug3ConfigEntry 2 }
+
+
+-- Notifications Enable/Disable 
+
+csNotificationsEnabled OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object controls if the generation of 
+         ciscoSonetSectionStatusChange, ciscoSonetLineStatusChange, 
+         ciscoSonetPathStatusChange and ciscoSonetVTStatusChange
+         notifications is enabled. If the value of this object
+         is 'true(1)', then all notifications in this MIB are
+         enabled; otherwise they are disabled."
+    DEFVAL     { false }      
+    ::= { csNotifications 1 }
+
+-- Notifications
+
+ciscoSonetSectionStatusChange NOTIFICATION-TYPE
+    OBJECTS { sonetSectionCurrentStatus, ifDescr }
+    STATUS  current
+    DESCRIPTION
+        "This notification is generated whenever the value of
+         sonetSectionCurrentStatus changes."
+    ::= { ciscoSonetMIBNotifs 1 }
+
+ciscoSonetLineStatusChange    NOTIFICATION-TYPE
+    OBJECTS { sonetLineCurrentStatus, ifDescr }
+    STATUS  current
+    DESCRIPTION
+        "This notification is generated whenever the value of
+         sonetLineCurrentStatus changes."
+    ::= { ciscoSonetMIBNotifs 2 }
+
+ciscoSonetPathStatusChange    NOTIFICATION-TYPE
+    OBJECTS { sonetPathCurrentStatus, ifDescr }
+    STATUS  current
+    DESCRIPTION
+        "This notification is generated whenever the value of
+         sonetPathCurrentStatus changes."
+    ::= { ciscoSonetMIBNotifs 3 }
+
+ciscoSonetVTStatusChange      NOTIFICATION-TYPE
+    OBJECTS { sonetVTCurrentStatus, ifDescr }
+    STATUS  current
+    DESCRIPTION
+        "This notification is generated whenever the value of
+         sonetVTCurrentStatus changes."
+    ::= { ciscoSonetMIBNotifs 4 }
+
+-- conformance information
+
+ciscoSonetMIBConformance OBJECT IDENTIFIER ::= { ciscoSonetMIB 3 }
+ciscoSonetMIBCompliances OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBConformance 1}
+ciscoSonetMIBGroups      OBJECT IDENTIFIER ::= 
+                                        {ciscoSonetMIBConformance 2}
+
+ciscoSonetMIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+        "The Compliance statement for ciscoSonet management group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoSonetConfMIBGroup, 
+                           ciscoSonetStatsMIBGroup, 
+                           ciscoSonetTraceMIBGroup }
+        GROUP ciscoSonetApsMIBGroup
+        DESCRIPTION 
+          "Required if Sonet APS is supported."
+
+        OBJECT cssTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+
+        OBJECT cspTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+        ::= {ciscoSonetMIBCompliances 1}
+ 
+ciscoSonetMIBCompliance1 MODULE-COMPLIANCE
+        STATUS deprecated -- superceded by ciscoSonetMIBCompliance2
+        DESCRIPTION
+        "The Compliance statement for ciscoSonet management group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoSonetConfMIBGroup1,
+                           ciscoSonetStatsMIBGroup,
+                           ciscoSonetTraceMIBGroup }
+        GROUP ciscoSonetApsMIBGroup1
+        DESCRIPTION
+          "Required if Sonet APS is supported."
+ 
+        OBJECT cssTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+ 
+        OBJECT cspTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+ 
+        GROUP ciscoSonetVTConfMIBGroup
+        DESCRIPTION
+            "Required if Sonet Virtual tributaries are supported"
+        ::= {ciscoSonetMIBCompliances 2}
+ 
+ciscoSonetMIBCompliance2 MODULE-COMPLIANCE
+        STATUS deprecated -- superseded by ciscoSonetMIBCompliance3 
+        DESCRIPTION
+        "The Compliance statement for ciscoSonet management group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoSonetConfMIBGroup1, 
+                           ciscoSonetTraceMIBGroup,
+                           ciscoSonetNotifEnableGroup,
+                           ciscoSonetSectionNotifGroup }
+
+        OBJECT cssTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+
+        OBJECT cspTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+
+        GROUP ciscoSonetVTConfMIBGroup
+        DESCRIPTION
+            "Required if Sonet Virtual tributaries are supported"
+
+        GROUP ciscoSonetPathConfMIBGroup
+        DESCRIPTION
+            "Required if SONET Paths can be provisioned to carry 
+             different types of payload."
+
+        GROUP ciscoSonetPathConfMIBGroup1
+        DESCRIPTION
+            "Required if 
+                cspTributaryMappingType
+                cspSignallingTransportMode
+                cspTributaryGroupingType
+             need to be configured on sonet path level.
+            "
+
+        GROUP ciscoSonetStatsMIBGroup
+        DESCRIPTION
+            "Required if SONET line statistics are supported"
+
+        GROUP ciscoSonetApsMIBGroup1
+        DESCRIPTION
+          "Required if Sonet APS is supported."
+ 
+        GROUP ciscoSonetLineNotifGroup
+        DESCRIPTION
+            "Implementation of this group is mandatory for all
+             SONET/SDH systems that terminate SONET/SDH Lines,
+             Paths or Virtual Tributaries."
+
+        GROUP ciscoSonetPathNotifGroup
+        DESCRIPTION
+            "Implementation of this group is mandatory for all
+             SONET/SDH systems that terminate SONET/SDH
+             Paths or Virtual Tributaries."
+
+        GROUP ciscoSonetVTNotifGroup
+        DESCRIPTION
+            "Implementation of this group is mandatory for all
+             SONET/SDH systems that terminate SONET/SDH Virtual
+             Tributaries."
+        ::= {ciscoSonetMIBCompliances 3}
+
+ciscoSonetMIBCompliance3 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+        "The Compliance statement for ciscoSonet management group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoSonetConfMIBGroup1, 
+                           ciscoSonetTraceMIBGroup,
+                           ciscoSonetNotifEnableGroup,
+                           ciscoSonetSectionNotifGroup }
+
+        OBJECT cssTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+
+        OBJECT cspTraceReceived
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+
+        GROUP ciscoSonetVTConfMIBGroup
+        DESCRIPTION
+            "Required if Sonet Virtual tributaries are supported"
+
+        GROUP ciscoSonetPathConfMIBGroup
+        DESCRIPTION
+            "Required if SONET Paths can be provisioned to carry 
+             different types of payload."
+
+        GROUP ciscoSonetPathConfMIBGroup1
+        DESCRIPTION
+            "Required if 
+                cspTributaryMappingType
+                cspSignallingTransportMode
+                cspTributaryGroupingType
+             need to be configured on sonet path level.
+            "
+
+        GROUP ciscoSonetStatsMIBGroup
+        DESCRIPTION
+            "Required if SONET line statistics are supported"
+
+        GROUP ciscoSonetApsMIBGroup1
+        DESCRIPTION
+          "Required if Sonet APS is supported."
+ 
+        GROUP ciscoSonetLineNotifGroup
+        DESCRIPTION
+            "Implementation of this group is mandatory for all
+             SONET/SDH systems that terminate SONET/SDH Lines,
+             Paths or Virtual Tributaries."
+
+        GROUP ciscoSonetPathNotifGroup
+        DESCRIPTION
+            "Implementation of this group is mandatory for all
+             SONET/SDH systems that terminate SONET/SDH
+             Paths or Virtual Tributaries."
+
+        GROUP ciscoSonetVTNotifGroup
+        DESCRIPTION
+            "Implementation of this group is mandatory for all
+             SONET/SDH systems that terminate SONET/SDH Virtual
+             Tributaries."
+
+        GROUP ciscoSonetAu4Tug3Group
+        DESCRIPTION
+            "Required if SDH AU-4:TUG-3 paths are supported" 
+        ::= {ciscoSonetMIBCompliances 4}
+
+-- units of conformance
+ciscoSonetConfMIBGroup  OBJECT-GROUP
+        OBJECTS {
+         csConfigLoopbackType,
+         csConfigXmtClockSource,
+         csConfigFrameScramble,
+         csConfigType
+        }
+       STATUS deprecated
+       DESCRIPTION
+         "Objects used for configuring Sonet lines."
+       ::= { ciscoSonetMIBGroups 1}
+ 
+ciscoSonetStatsMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cssTotalESs,
+        cssTotalSESs,
+        cssTotalSEFSs,
+        cssTotalCVs,
+        cssLOSs,
+        cssLOFs,
+        cslAISs,
+        cslRFIs,
+        cspAISs,
+        cspRFIs,
+        cslTotalESs,
+        cslTotalSESs,
+        cslTotalCVs,
+        cslTotalUASs,
+        cslFarEndTotalESs,
+        cslFarEndTotalSESs,
+        cslFarEndTotalCVs,
+        cslFarEndTotalUASs,
+        cspTotalESs,
+        cspTotalSESs,
+        cspTotalCVs,
+        cspTotalUASs,
+        cspFarEndTotalESs,
+        cspFarEndTotalSESs,
+        cspFarEndTotalCVs,
+        cspFarEndTotalUASs
+        }
+       STATUS current
+       DESCRIPTION
+         "These are objects related to Sonet line statistics."
+       ::= { ciscoSonetMIBGroups 2}
+
+ciscoSonetTraceMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cssTraceToTransmit,        
+        cssTraceToExpect,         
+        cssTraceFailure,
+        cssTraceReceived,
+        cspTraceToTransmit,    
+        cspTraceToExpect,
+        cspTraceFailure,
+        cspTraceReceived
+        }
+       STATUS current
+       DESCRIPTION
+         "Objects related to Sonet line connectivity."
+       ::= { ciscoSonetMIBGroups 3}
+
+ciscoSonetApsMIBGroup OBJECT-GROUP
+        OBJECTS {
+         csApsProtectionIndex, 
+         csApsEnable,         
+         csApsArchMode,      
+         csApsActiveLine,   
+         csApsSigFaultBER,       
+         csApsSigDegradeBER,      
+         csApsWaitToRestore,       
+         csApsDirection,
+         csApsRevertive,
+         csApsLineFailureCode,
+         csApsLineSwitchReason,
+         csApsDirectionOperational,     
+         csApsArchModeOperational,
+         csApsChannelProtocol
+       }
+       STATUS deprecated
+       DESCRIPTION
+         "Objects used for configuring APS over Sonet lines."
+       ::= { ciscoSonetMIBGroups 4 }
+
+ciscoSonetApsMIBGroup1 OBJECT-GROUP
+        OBJECTS {
+         csApsProtectionIndex, 
+         csApsEnable,         
+         csApsArchMode,      
+         csApsActiveLine,   
+         csApsSigFaultBER,       
+         csApsSigDegradeBER,      
+         csApsWaitToRestore,       
+         csApsDirection,
+         csApsRevertive,
+         csApsLineFailureCode,
+         csApsLineSwitchReason,
+         csApsDirectionOperational,     
+         csApsArchModeOperational,
+         csApsChannelProtocol,
+         csApsFailureStatus,
+         csApsSwitchReason,
+         csApsPrimarySection
+       }
+       STATUS current
+       DESCRIPTION
+         "Objects used for configuring APS over Sonet lines.
+          This group includes 3 new objects in addition to
+          those in the deprecated group ciscoSonetApsMIBGroup."
+       ::= { ciscoSonetMIBGroups 5 }
+ciscoSonetConfMIBGroup1  OBJECT-GROUP
+        OBJECTS {
+         csConfigLoopbackType,
+         csConfigXmtClockSource,
+         csConfigFrameScramble,
+         csConfigType,
+         csConfigRDIPType,
+         csConfigRDIVType
+        }
+       STATUS current
+       DESCRIPTION
+         "Objects used for configuring Sonet lines."
+       ::= { ciscoSonetMIBGroups 6 }
+
+ciscoSonetVTConfMIBGroup OBJECT-GROUP
+        OBJECTS {
+         csTributaryType,
+         csTributaryMappingType,
+         csTributaryFramingType,
+         csSignallingTransportMode,
+         csTributaryGroupingType
+        }
+       STATUS current
+       DESCRIPTION
+         "Objects used for configuring Sonet Virtual tributaries."
+       ::= { ciscoSonetMIBGroups 7 }
+
+ciscoSonetPathConfMIBGroup OBJECT-GROUP
+        OBJECTS {
+         cspSonetPathPayload
+        }
+       STATUS current
+       DESCRIPTION
+         "Objects used for configuring Sonet Paths."
+       ::= { ciscoSonetMIBGroups 8 }
+
+ciscoSonetNotifEnableGroup OBJECT-GROUP
+        OBJECTS {
+         csNotificationsEnabled 
+        }
+        STATUS  current
+        DESCRIPTION
+          "The collection of objects which enable notifications."
+        ::= { ciscoSonetMIBGroups 9 }
+ 
+ciscoSonetSectionNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS { ciscoSonetSectionStatusChange }
+        STATUS current
+        DESCRIPTION
+          "The collection of Section notifications which are 
+           required to be implemented."
+        ::= { ciscoSonetMIBGroups 10 }
+
+ciscoSonetLineNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS { ciscoSonetLineStatusChange }
+        STATUS current
+        DESCRIPTION
+          "The collection of Line notifications which are 
+           required to be implemented."
+        ::= { ciscoSonetMIBGroups 11 }
+
+ciscoSonetPathNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS { ciscoSonetPathStatusChange }
+        STATUS current
+        DESCRIPTION
+          "The collection of Path notifications which are 
+           required to be implemented."
+        ::= { ciscoSonetMIBGroups 12 }
+
+ciscoSonetVTNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS { ciscoSonetVTStatusChange }
+        STATUS current
+        DESCRIPTION
+          "The collection of VT notifications which are 
+           required to be implemented."
+        ::= { ciscoSonetMIBGroups 13 }
+
+ciscoSonetPathConfMIBGroup1 OBJECT-GROUP
+        OBJECTS {
+         cspTributaryMappingType,
+         cspSignallingTransportMode,
+         cspTributaryGroupingType
+        }
+       STATUS current
+       DESCRIPTION
+         "Objects used for configuring Sonet Paths."
+       ::= { ciscoSonetMIBGroups 14 }
+
+ciscoSonetAu4Tug3Group OBJECT-GROUP
+       OBJECTS {
+            csAu4Tug3Payload
+       }
+       STATUS current
+       DESCRIPTION
+         "Objects used for configuring AU-4:TUG-3 paths."
+       ::= { ciscoSonetMIBGroups 15 }
+
+END
+

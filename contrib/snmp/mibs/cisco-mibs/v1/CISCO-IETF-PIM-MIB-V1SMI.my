@@ -1,0 +1,928 @@
+-- MIB file created 21-Jul-2005 16:10:59, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-PIM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-PIM-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddressPrefixLength, InetAddress, 
+    InetVersion
+            FROM INET-ADDRESS-MIB
+    cIpMRouteAddrType, cIpMRouteGroup, cIpMRouteSource, 
+    cIpMRouteSourceMask, cIpMRouteNextHopAddrType, 
+    cIpMRouteNextHopGroup, cIpMRouteNextHopSource, 
+    cIpMRouteNextHopSourceMask, cIpMRouteNextHopIfIndex, 
+    cIpMRouteNextHopAddress
+            FROM CISCO-IETF-IPMROUTE-MIB
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoIetfPimMIB OBJECT IDENTIFIER ::= { ciscoExperiment 119 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200502220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ipmulticast@cisco.com 
+--  Descr
+--    Address family independent MIB module for 
+--     management of PIM routers. 
+--    
+--     This MIB module is based on RFC 2934 with additional
+--     MIB objects added to make it address family independent
+--     MIB. This Cisco MIB was created due to non availability 
+--     of RFC or an Internet Draft, which can provide address 
+--     family independent MIB for management of PIM routers. 
+--     This MIB may later be deprecated with a stable RFC or an 
+--     Internet Draft.             
+--  RevDate
+--    200502220000Z
+--  RevDescr
+--    Initial version of this MIB module
+
+cPimNotifs      OBJECT IDENTIFIER ::= { ciscoIetfPimMIB 0 }
+cPimMIBObjects  OBJECT IDENTIFIER ::= { ciscoIetfPimMIB 1 }
+cPim            OBJECT IDENTIFIER ::= { cPimMIBObjects 1 }
+cPimMIBConformance OBJECT IDENTIFIER ::= { ciscoIetfPimMIB 2 }
+cPimMIBCompliances OBJECT IDENTIFIER ::= { cPimMIBConformance 1 }
+cPimMIBGroups   OBJECT IDENTIFIER ::= { cPimMIBConformance 2 }
+
+cPimJoinPruneInterval OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default interval at which periodic PIM-SM Join/Prune
+        messages are to be sent."
+    ::= { cPim 1 }
+
+cPimIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPimIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the router's PIM interfaces.
+        Along with PIM IGMP or MLD is enabled on all interfaces 
+        listed in this table."
+    ::= { cPim 2 }
+
+cPimIfEntry OBJECT-TYPE
+    SYNTAX CPimIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the pimIfTable."
+    INDEX { cPimIfIndex, cPimIfInetVersion }
+    ::= { cPimIfTable 1 }
+
+CPimIfEntry ::= SEQUENCE {
+    cPimIfIndex InterfaceIndex,
+    cPimIfInetVersion InetVersion,
+    cPimIfAddressType InetAddressType,
+    cPimIfAddress InetAddress,
+    cPimIfNetMask InetAddressPrefixLength,
+    cPimIfMode INTEGER,
+    cPimIfDR InetAddress,
+    cPimIfHelloInterval Gauge,
+    cPimIfJoinPruneInterval Gauge,
+    cPimIfCBSRPreference INTEGER,
+    cPimIfStatus RowStatus
+    }
+
+cPimIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex value of this PIM interface."
+    ::= { cPimIfEntry 1 }
+
+cPimIfInetVersion OBJECT-TYPE
+    SYNTAX InetVersion
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Inet version of this row."
+    ::= { cPimIfEntry 2 }
+
+cPimIfAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects identifies type of InetAddress presented
+         in cPimIfAddress and cPimIfDR "
+    ::= { cPimIfEntry 3 }
+
+cPimIfAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Inet address of the PIM interface."
+    ::= { cPimIfEntry 4 }
+
+cPimIfNetMask OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The network mask for the IP address of the PIM interface."
+    ::= { cPimIfEntry 5 }
+
+cPimIfMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        dense(1),
+        sparse(2),
+        sparseDense(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The configured mode of this PIM interface.  A value of
+         sparseDense is only valid for PIMv1.
+         
+         dense (1): indicates interface is running PIM 
+                    dense mode
+        
+         sparse (2): indicates interface is running PIM 
+                     sparse mode.
+        
+         sparseDense (3): indicates interface is running both 
+                          dense and sparse mode."
+    DEFVAL { dense }
+    ::= { cPimIfEntry 6 }
+
+cPimIfDR OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Designated Router on this PIM interface.  For point-to-
+        point interfaces, this object has the value 0.0.0.0 or 0::0"
+    ::= { cPimIfEntry 7 }
+
+cPimIfHelloInterval OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The frequency at which PIM Hello messages are transmitted
+        on this interface."
+    DEFVAL { 30 }
+    ::= { cPimIfEntry 8 }
+
+cPimIfJoinPruneInterval OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The frequency at which PIM Join/Prune messages are
+        transmitted on this PIM interface.  The default value of
+        this object is the pimJoinPruneInterval."
+    ::= { cPimIfEntry 9 }
+
+cPimIfCBSRPreference OBJECT-TYPE
+    SYNTAX INTEGER(-1..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The preference value for the local interface as a candidate
+        bootstrap router.  The value of -1 is used to indicate that
+        the local interface is not a candidate BSR interface."
+    DEFVAL { 0 }
+    ::= { cPimIfEntry 10 }
+
+cPimIfStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this entry.  Creating the entry enables PIM
+        on the interface; destroying the entry disables PIM on the
+        interface."
+    ::= { cPimIfEntry 11 }
+
+cPimNbrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPimNbrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the router's PIM neighbors."
+    ::= { cPim 3 }
+
+cPimNbrEntry OBJECT-TYPE
+    SYNTAX CPimNbrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the pimNbrTable."
+    INDEX { cPimNbrIfIndex, cPimNbrAddressType, cPimNbrAddress }
+    ::= { cPimNbrTable 1 }
+
+CPimNbrEntry ::= SEQUENCE {
+    cPimNbrIfIndex InterfaceIndex,
+    cPimNbrAddressType InetAddressType,
+    cPimNbrAddress InetAddress,
+    cPimNbrUpTime TimeTicks,
+    cPimNbrExpiryTime TimeTicks
+    }
+
+cPimNbrIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of ifIndex for the interface used to reach this
+        PIM neighbor."
+    ::= { cPimNbrEntry 1 }
+
+cPimNbrAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This objects identifies type of InetAddress presented
+         in cPimNbrAddress."
+    ::= { cPimNbrEntry 2 }
+
+cPimNbrAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the PIM neighbor for which this entry
+        contains information."
+    ::= { cPimNbrEntry 3 }
+
+cPimNbrUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time since this PIM neighbor (last) became a neighbor
+        of the local router."
+    ::= { cPimNbrEntry 4 }
+
+cPimNbrExpiryTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum time remaining before this PIM neighbor will be
+        aged out."
+    ::= { cPimNbrEntry 5 }
+
+cPimInetMRouteTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPimInetMRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing PIM-specific information on
+        a subset of the rows of the cIpMRouteTable defined in the IP
+        Multicast MIB."
+    ::= { cPim 4 }
+
+cPimInetMRouteEntry OBJECT-TYPE
+    SYNTAX CPimInetMRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cPimInetMRouteTable. There
+        is one entry per entry in the cIpMRouteTable whose incoming
+        interface is running PIM."
+    INDEX { cIpMRouteAddrType, cIpMRouteGroup, cIpMRouteSource, cIpMRouteSourceMask }
+    ::= { cPimInetMRouteTable 1 }
+
+CPimInetMRouteEntry ::= SEQUENCE {
+    cPimInetMRouteUpstreamAssertTime TimeTicks,
+    cPimInetMRouteAssertMetric Gauge,
+    cPimInetMRouteAssertMetricPref Gauge,
+    cPimInetMRouteAssertRPTBit TruthValue,
+    cPimInetMRouteFlags OCTET STRING
+    }
+
+cPimInetMRouteUpstreamAssertTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time remaining before the router changes its upstream
+        neighbor back to its RPF neighbor.  This timer is called the
+        Assert timer in the PIM Sparse and Dense mode specification.
+        
+        A value of 0 indicates that no Assert has changed the
+        upstream neighbor away from the RPF neighbor."
+    ::= { cPimInetMRouteEntry 1 }
+
+cPimInetMRouteAssertMetric OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The metric advertised by the assert winner on the upstream
+        interface, or 0 if no such assert is in received."
+    ::= { cPimInetMRouteEntry 2 }
+
+cPimInetMRouteAssertMetricPref OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The preference advertised by the assert winner on the
+        upstream interface, or 0 if no such assert is in effect."
+    ::= { cPimInetMRouteEntry 3 }
+
+cPimInetMRouteAssertRPTBit OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the RPT-bit advertised by the assert winner on
+        the upstream interface, or false if no such assert is in
+        effect."
+    ::= { cPimInetMRouteEntry 4 }
+
+cPimInetMRouteFlags OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   rpt(0)
+        --   spt(1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes PIM-specific flags related to a
+        multicast state entry. 
+        
+        rpt (0): indicates the route is a shared-tree or RP-tree
+                 route.
+        
+        spt (1): indicates the route is a shortest-path-tree 
+                 route."
+    ::= { cPimInetMRouteEntry 5 }
+
+cPimInetMRouteNextHopTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPimInetMRouteNextHopEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing PIM-specific information on
+        a subset of the rows of the cIpMRouteNextHopTable defined in
+        the IP Multicast MIB."
+    ::= { cPim 5 }
+
+cPimInetMRouteNextHopEntry OBJECT-TYPE
+    SYNTAX CPimInetMRouteNextHopEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cPimInetMRouteNextHopTable.
+         There is one entry per entry in the cIpMRouteNextHopTable
+         whose interface is running PIM and whose
+         cIpMRouteNextHopState is pruned(1)."
+    INDEX { cIpMRouteNextHopAddrType, cIpMRouteNextHopGroup, cIpMRouteNextHopSource, cIpMRouteNextHopSourceMask, cIpMRouteNextHopIfIndex, cIpMRouteNextHopAddress }
+    ::= { cPimInetMRouteNextHopTable 1 }
+
+CPimInetMRouteNextHopEntry ::= SEQUENCE {
+    cPimInetMRouteNextHopPruneReason INTEGER
+    }
+
+cPimInetMRouteNextHopPruneReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        prune(2),
+        assert(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the reason why downstream interface 
+         was pruned,
+        
+         prune (1): indicates downstream interface was pruned in 
+                    response to a PIM prune message.
+        
+         assert (3): indicates downstream interface was pruned due 
+                     to PIM assert processing."
+    ::= { cPimInetMRouteNextHopEntry 2 }
+
+cPimRPMapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPimRPMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing PIM information for
+        candidate Rendezvous Points (RPs) for IP multicast groups.
+        When the local router is the BSR, this information is
+        obtained from received Candidate-RP-Advertisements.  When
+        the local router is not the BSR, this information is
+        obtained from received RP-Set messages."
+    ::= { cPim 6 }
+
+cPimRPMapEntry OBJECT-TYPE
+    SYNTAX CPimRPMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the pimRPsTable."
+    INDEX { cPimRPMapComponent, cPimRPMapAddrType, cPimRPMapGroupAddress, cPimRPMapGroupMask, cPimRPMapAddress }
+    ::= { cPimRPMapTable 1 }
+
+CPimRPMapEntry ::= SEQUENCE {
+    cPimRPMapComponent Gauge,
+    cPimRPMapAddrType InetAddressType,
+    cPimRPMapGroupAddress InetAddress,
+    cPimRPMapGroupMask InetAddressPrefixLength,
+    cPimRPMapAddress InetAddress,
+    cPimRPMapHoldTime Gauge,
+    cPimRPMapExpiryTime TimeTicks
+    }
+
+cPimRPMapComponent OBJECT-TYPE
+    SYNTAX Gauge(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " A number uniquely identifying the component.  Each
+        protocol instance connected to a separate domain should have
+        a different index value."
+    ::= { cPimRPMapEntry 1 }
+
+cPimRPMapAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Type of Inet address presented in this row. This 
+         includes cPimRPMapGroupAddress and cPimRPMapAddress"
+    ::= { cPimRPMapEntry 2 }
+
+cPimRPMapGroupAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP multicast group address which, when combined with
+        pimRPsGroupMask, gives the group prefix for which this
+        entry contains information about the Candidate-RP."
+    ::= { cPimRPMapEntry 3 }
+
+cPimRPMapGroupMask OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The multicast group address mask which, when combined with
+        pimRPsGroupAddress, gives the group prefix for which this
+        entry contains information about the Candidate-RP."
+    ::= { cPimRPMapEntry 4 }
+
+cPimRPMapAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the Candidate-RP."
+    ::= { cPimRPMapEntry 5 }
+
+cPimRPMapHoldTime OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The holdtime of a Candidate-RP.  If the local router is not
+        the BSR, this value is 0."
+    ::= { cPimRPMapEntry 6 }
+
+cPimRPMapExpiryTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum time remaining before the Candidate-RP will be
+        declared down.  If the local router is not the BSR, this
+        value is 0."
+    ::= { cPimRPMapEntry 7 }
+
+cPimCRPTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPimCRPEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the IP multicast groups for
+        which the local router is to advertise itself as a
+        Candidate-RP when the value of cPimComponentCRPHoldTime is
+        non-zero.  If this table is empty, then the local router
+        will advertise itself as a Candidate-RP for all groups
+        (providing the value of cPimComponentCRPHoldTime is non-
+        zero)."
+    ::= { cPim 7 }
+
+cPimCRPEntry OBJECT-TYPE
+    SYNTAX CPimCRPEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cPimCRPTable."
+    INDEX { cPimCRPAddrType, cPimCRPGroupAddress, cPimCRPGroupMask }
+    ::= { cPimCRPTable 1 }
+
+CPimCRPEntry ::= SEQUENCE {
+    cPimCRPAddrType InetAddressType,
+    cPimCRPGroupAddress InetAddress,
+    cPimCRPGroupMask InetAddressPrefixLength,
+    cPimCRPAddress InetAddress,
+    cPimCRPRowStatus RowStatus
+    }
+
+cPimCRPAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Type of Inet address presented in this row. This 
+         includes cPimCRPGroupAddress and cPimCRPAddress"
+    ::= { cPimCRPEntry 1 }
+
+cPimCRPGroupAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP multicast group address which, when combined with
+        cPimCRPGroupMask, identifies a group prefix for which
+        the local router will advertise itself as a Candidate-RP."
+    ::= { cPimCRPEntry 2 }
+
+cPimCRPGroupMask OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The multicast group address mask which, when combined with
+        cPimCRPGroupMask, identifies a group prefix for which
+        the local router will advertise itself as a Candidate-RP."
+    ::= { cPimCRPEntry 3 }
+
+cPimCRPAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The (unicast) address of the interface which will be
+        advertised as a Candidate-RP."
+    ::= { cPimCRPEntry 4 }
+
+cPimCRPRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row, by which new entries may be
+        created, or old entries deleted from this table."
+    ::= { cPimCRPEntry 5 }
+
+cPimComponentTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPimComponentEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table containing objects specific to a PIM
+        domain.  One row exists for each domain to which the router
+        is connected.  A PIM-SM domain is defined as an area of the
+        network over which Bootstrap messages are forwarded.
+        Typically, a PIM-SM router will be a member of exactly one
+        domain.  This table also supports, however, routers which
+        may form a border between two PIM-SM domains and do not
+        forward Bootstrap messages between them."
+    ::= { cPim 8 }
+
+cPimComponentEntry OBJECT-TYPE
+    SYNTAX CPimComponentEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cPimComponentTable."
+    INDEX { cPimComponentIndex }
+    ::= { cPimComponentTable 1 }
+
+CPimComponentEntry ::= SEQUENCE {
+    cPimComponentIndex Gauge,
+    cPimComponentBSRAddrType InetAddressType,
+    cPimComponentBSRAddress InetAddress,
+    cPimComponentBSRExpiryTime TimeTicks,
+    cPimComponentCRPHoldTime Gauge,
+    cPimComponentStatus RowStatus
+    }
+
+cPimComponentIndex OBJECT-TYPE
+    SYNTAX Gauge(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A number uniquely identifying the component.  Each protocol
+        instance connected to a separate domain should have a
+        different index value.  Routers that only support membership
+        in a single PIM-SM domain should use a cPimComponentIndex
+        value of 1."
+    ::= { cPimComponentEntry 1 }
+
+cPimComponentBSRAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Type of Inet address presented in cPimComponentBSRAddress."
+    ::= { cPimComponentEntry 2 }
+
+cPimComponentBSRAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the bootstrap router (BSR) for the local
+        PIM region."
+    ::= { cPimComponentEntry 3 }
+
+cPimComponentBSRExpiryTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum time remaining before the bootstrap router in
+        the local domain will be declared down.  For candidate BSRs,
+        this is the time until the component sends an RP-Set
+        message.  For other routers, this is the time until it may
+        accept an RP-Set message from a lower candidate BSR."
+    ::= { cPimComponentEntry 4 }
+
+cPimComponentCRPHoldTime OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The holdtime of the component when it is a candidate RP in
+        the local domain.  The value of 0 is used to indicate that
+        the local system is not a Candidate-RP."
+    DEFVAL { 0 }
+    ::= { cPimComponentEntry 5 }
+
+cPimComponentStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this entry.  Creating the entry creates
+         another protocol instance; destroying the entry disables a
+         protocol instance."
+    ::= { cPimComponentEntry 6 }
+
+cPimNbrLoss TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIetfPimMIB
+    VARIABLES {
+        cPimNbrUpTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cPimNbrLoss trap signifies the loss of an adjacency
+        with a neighbor.  This trap should be generated when the
+        neighbor timer expires, and the router has no other
+        neighbors on the same interface with a lower IP address than
+        itself."
+    ::= 2
+
+cPimV2MIBGroup OBJECT IDENTIFIER ::= { cPimMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support management of PIM Sparse
+--    Mode (version 2) routers.
+--  objects
+--    cPimJoinPruneInterval, cPimNbrUpTime, cPimNbrExpiryTime, 
+--    cPimIfAddressType, cPimIfAddress, cPimIfNetMask, cPimIfDR, 
+--    cPimIfHelloInterval, cPimIfStatus, cPimIfJoinPruneInterval, 
+--    cPimIfCBSRPreference, cPimIfMode, cPimRPMapHoldTime, 
+--    cPimRPMapExpiryTime, cPimComponentBSRAddrType, 
+--    cPimComponentBSRAddress, cPimComponentBSRExpiryTime, 
+--    cPimComponentCRPHoldTime, cPimComponentStatus, 
+--    cPimInetMRouteFlags, cPimInetMRouteUpstreamAssertTime
+
+cPimDenseV2MIBGroup OBJECT IDENTIFIER ::= { cPimMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support management of PIM Dense
+--    Mode (version 2) routers.
+--  objects
+--    cPimNbrUpTime, cPimNbrExpiryTime, cPimIfAddress, 
+--    cPimIfNetMask, cPimIfDR, cPimIfHelloInterval, cPimIfStatus, 
+--    cPimIfMode
+
+cPimV2CRPMIBGroup OBJECT IDENTIFIER ::= { cPimMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support configuration of which
+--    groups a router is to advertise itself as a Candidate-RP.
+--  objects
+--    cPimCRPAddress, cPimCRPRowStatus
+
+cPimNextHopGroup OBJECT IDENTIFIER ::= { cPimMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of optional objects to provide per-next hop
+--    information for diagnostic purposes.  Supporting this group
+--    may add a large number of instances to a tree walk, but the
+--    information in this group can be extremely useful in
+--    tracking down multicast connectivity problems.
+--  objects
+--    cPimInetMRouteNextHopPruneReason
+
+cPimAssertGroup OBJECT IDENTIFIER ::= { cPimMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of optional objects to provide extra
+--    information about the assert election process.  There is no
+--    protocol reason to keep such information, but some
+--    implementations may already keep this information and make
+--    it available.  These objects can also be very useful in
+--    debugging connectivity or duplicate packet problems,
+--    especially if the assert winner does not support the PIM and
+--    IP Multicast MIBs.
+--  objects
+--    cPimInetMRouteAssertMetric, cPimInetMRouteAssertMetricPref, 
+--    cPimInetMRouteAssertRPTBit
+
+cPimNotificationGroup OBJECT IDENTIFIER ::= { cPimMIBGroups 1 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for signaling important PIM
+--    events.
+--  notifications
+--    cPimNbrLoss
+
+cPimSparseV2MIBCompliance OBJECT IDENTIFIER ::= { cPimMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for routers running PIM Sparse
+--    Mode and implementing the PIM MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cPimV2MIBGroup
+--   OptGroup
+--    cPimV2CRPMIBGroup
+--   ObjVar
+--    cPimIfStatus
+
+cPimDenseV2MIBCompliance OBJECT IDENTIFIER ::= { cPimMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for routers running PIM Dense Mode
+--    and implementing the PIM MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cPimDenseV2MIBGroup
+--   ObjVar
+--    cPimIfStatus
+
+
+END
+

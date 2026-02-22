@@ -1,0 +1,1773 @@
+-- *****************************************************************
+-- CISCO-ENVMON-CAPABILITY.my:
+-- CISCO-ENVMON-MIB AGENT-CAPABILITIES
+--   
+-- October 2009, Sandra Durham
+--   
+-- Copyright (c) 1995, 1997, 2003, 2004, 2006-2009 by Cisco Systems Inc.
+-- All rights reserved.
+-- ***************************************************************
+
+CISCO-ENVMON-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEnvMonCapability MODULE-IDENTITY
+    LAST-UPDATED    "200912160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-ENVMON-MIB."
+    REVISION        "200912160000Z"
+    DESCRIPTION
+        "Added agent capabilities for Wireless LAN Controllers."
+    REVISION        "200901050000Z"
+    DESCRIPTION
+        "Added agent capabilities for TelePresence platforms."
+    REVISION        "200705180000Z"
+    DESCRIPTION
+        "The following capability statements have been added:
+        1. ciscoEnvMonCapV12R05TP28xx
+        2. ciscoEnvMonCapV12R05TP3825
+        3. ciscoEnvMonCapV12R05TP3845
+        4. ciscoEnvMonCapV12R05TP1841Rev1
+
+        ciscoEnvMonCapV12R05TP1841 has been made obsolete
+        by ciscoEnvMonCapV12R05TP1841Rev1.
+
+        ciscoEnvMonCapV12R05TPMARS has been updated to
+        indicate the platforms this capability statement is 
+        applicable to."
+    REVISION        "200612120000Z"
+    DESCRIPTION
+        "Added VARIATION for ciscoEnvMonMIBGroupRev,
+        ciscoEnvMonMIBMiscNotifGroup and ciscoEnvMonStatChangeNotifGroup
+        with PCBU platform routers (180x, 181x, 1841 & 2801)."
+    REVISION        "200607190000Z"
+    DESCRIPTION
+        "Added VARIATION for ciscoEnvMonStatChangeNotifGroup to
+        MARs platform routers
+        (26xx, 28xx, 37xx, 38xx, IAD243x and VG224)."
+    REVISION        "200604190000Z"
+    DESCRIPTION
+        "Added VARIATION for ciscoEnvMonTemperatureLastShutdown
+        to agent capability statement
+        ciscoEnvMonCapV12R0119ECat6K."
+    REVISION        "200412160100Z"
+    DESCRIPTION
+        "Added agent capabilities for 38xx, 37xx,
+        26xx, 28xx, VG224 and IAD243x platforms."
+    REVISION        "200403260000Z"
+    DESCRIPTION
+        "Added agent capability statements
+        ciscoEnvMonCapCatOSV08R0101Cat6k,
+        ciscoEnvMonCapCatOSV08R0101Cat4k,
+        ciscoEnvMonCapV12R0119ECat6K."
+    REVISION        "9611120000Z"
+    DESCRIPTION
+        "Added agent capabilities for platform c3600."
+    REVISION        "9501230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 33 }
+
+
+
+ciscoEnvMonCapabilityV10R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 10.3"
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities"
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        { ciscoEnvMonMIBGroup }
+    ::= { ciscoEnvMonCapability 1 }
+
+ciscoEnvMonCapabilityV11R02 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 11.2 on mid-range platforms C3600."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        { ciscoEnvMonMIBGroup }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        warning(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       ciscoEnvMonSupplyState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        warning(2),
+                        critical(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    ::= { ciscoEnvMonCapability 2 }
+
+ciscoEnvMonCapCatOSV08R0101Cat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENVMON-MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup,
+                        ciscoEnvMonEnableStatChangeGroup,
+                        ciscoEnvMonStatChangeNotifGroup
+                    }
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonEnableVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 3 }
+
+ciscoEnvMonCapCatOSV08R0101Cat4k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 4000/4500
+                          series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENVMON-MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup,
+                        ciscoEnvMonEnableStatChangeGroup,
+                        ciscoEnvMonStatChangeNotifGroup
+                    }
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonEnableShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonEnableVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonEnableTemperatureNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTempStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 4 }
+
+ciscoEnvMonCapV12R0119ECat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500
+                       and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENVMON-MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup,
+                        ciscoEnvMonEnableStatChangeGroup,
+                        ciscoEnvMonStatChangeNotifGroup
+                    }
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonEnableVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 5 }
+
+ciscoEnvMonCapV12R04TP37xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on c37xx devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 6 }
+
+ciscoEnvMonCapV12R04TP28xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on c28xx devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 7 }
+
+ciscoEnvMonCapV12R04TP26xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on c26xx devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonFanNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 8 }
+
+ciscoEnvMonCapV12R04TPIAD243x AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on IAD243x devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 9 }
+
+ciscoEnvMonCapV12R04TPVG224 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on VG224 devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 10 }
+
+ciscoEnvMonCapV12R04TP3825 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on c3825 devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 11 }
+
+ciscoEnvMonCapV12R04TP3845 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on c3845 devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 12 }
+
+ciscoEnvMonCapV12R04TP2691 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T on c2691 devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 13 }
+
+ciscoEnvMonCapV12R05TPMARS AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on MARS devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities for
+        26xx, 28xx, 37xx, 38xx, IAD243x and VG224 platforms."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        { ciscoEnvMonStatChangeNotifGroup }
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonTempStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    ::= { ciscoEnvMonCapability 14 }
+
+ciscoEnvMonCapV12R05TP180x AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on 180x PCBU devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBMiscNotifGroup,
+                        ciscoEnvMonStatChangeNotifGroup
+                    }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSupplyStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSupplyState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSupplySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTempStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSuppStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 15 }
+
+ciscoEnvMonCapV12R05TP181x AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on 181x PCBU devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBMiscNotifGroup,
+                        ciscoEnvMonStatChangeNotifGroup
+                    }
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSupplyStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSupplyState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSupplySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTempStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSuppStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 16 }
+
+ciscoEnvMonCapV12R05TP1841 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on 1841 & 2801 PCBU devices."
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBMiscNotifGroup,
+                        ciscoEnvMonStatChangeNotifGroup
+                    }
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTemperatureNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonTempStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    VARIATION       ciscoEnvMonSuppStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+
+    ::= { ciscoEnvMonCapability 17 }
+
+ciscoEnvMonCapV12R05TP28xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on c28xx devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonEnableRedundantSupplyNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonEnableVoltageNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonEnableTemperatureNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonTemperatureNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonEnableStatChangeNotif
+    DESCRIPTION
+        "This object is used to enable or disable the
+        generation of only the ciscoEnvMonFanStatusChangeNotif
+        notification."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonTempStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    VARIATION       ciscoEnvMonSuppStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on these platforms."
+
+    ::= { ciscoEnvMonCapability 18 }
+
+ciscoEnvMonCapV12R05TP3825 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on c3825 devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonEnableShutdownNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonEnableRedundantSupplyNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    ::= { ciscoEnvMonCapability 19 }
+
+ciscoEnvMonCapV12R05TP3845 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on c3845 devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup,
+                        ciscoEnvMonMIBMiscNotifGroup
+                    }
+    VARIATION       ciscoEnvMonEnableShutdownNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    ::= { ciscoEnvMonCapability 20 }
+
+ciscoEnvMonCapV12R05TP1841Rev1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T on 1841 and 2801 PCBU devices."
+    STATUS          current
+    DESCRIPTION
+        "Cisco Environmental Monitor MIB capabilities."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBMiscNotifGroup,
+                        ciscoEnvMonStatChangeNotifGroup
+                    }
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonEnableVoltageNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonVoltageNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonEnableTemperatureNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonTemperatureNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonEnableRedundantSupplyNotification
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    VARIATION       ciscoEnvMonRedundantSupplyNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonEnableStatChangeNotif
+    DESCRIPTION
+        "This object is used to enable or disable the
+        generation of only the ciscoEnvMonFanStatusChangeNotif
+        notification."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTempStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSuppStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    ::= { ciscoEnvMonCapability 21 }
+
+ciscoEnvMonCapabilityCTSV140 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco TelePresence System (CTS) 1.4.0."
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for CISCO-ENVMON-MIB."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup
+                    }
+    VARIATION       ciscoEnvMonPresent
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureState
+    DESCRIPTION
+        "Only has states normal(1),warning (2),critical(3),
+        notPresent(5), notFunctioning(6).
+        shutdown(4) not implemented"
+
+    VARIATION       ciscoEnvMonFanStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonFanState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSupplyStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSupplyState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSupplySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonEnableShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonFanStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSuppStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    ::= { ciscoEnvMonCapability 22 }
+
+ciscoEnvMonCapabilityWLCV70 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Wireless LAN Controller version 7.0."
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for CISCO-ENVMON-MIB."
+
+    SUPPORTS        CISCO-ENVMON-MIB
+    INCLUDES        {
+                        ciscoEnvMonMIBGroupRev,
+                        ciscoEnvMonMIBNotifGroup
+                    }
+    VARIATION       ciscoEnvMonPresent
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageStatusValue
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageThresholdHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltageState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported on the platform."
+        
+    VARIATION       ciscoEnvMonTemperatureLastShutdown
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonTemperatureState
+    DESCRIPTION
+        "Only has states normal(1),warning (2),critical(3),
+        notPresent(5), notFunctioning(6).
+        shutdown(4) not implemented"
+
+    VARIATION       ciscoEnvMonFanStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonFanState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSupplyStatusDescr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSupplyState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSupplySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonAlarmContacts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonEnableShutdownNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonVoltStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonFanStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    VARIATION       ciscoEnvMonSuppStatusChangeNotif
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported on this platform."
+
+    ::= { ciscoEnvMonCapability 23 }
+
+END
+
+
+

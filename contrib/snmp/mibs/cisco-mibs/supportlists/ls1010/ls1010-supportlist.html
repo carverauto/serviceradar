@@ -1,0 +1,238 @@
+<html>
+<head>
+<title>LightStream 1010 Support List</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+</head>
+
+<body bgcolor="#FFFFFF" text="#000000">
+
+<H1>LightStream 1010 Network Management MIB Support Lists</H1>
+
+<BR>
+The following MIBs are supported by the LightStream 1010 in release 11.1 and later.SNMP version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are in the v2 directory.  Note that for most every MIB <foo>.my in the v2 directory, there exists a SNMP version 1 conversion of the MIB <foo>-V1SMI.my in the v1 directory.  The exception is
+<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPV2-TC.my">SNMPv2-TC.my</a>. Thanks go to David T. Perkins for his package smicng which was used to produce most of the v1 conversions.
+<BR>
+<BR>
+<BR>
+<hr WIDTH="100%">
+The following support was available in Release 11.1 of the LightStream 1010 software:
+<hr WIDTH="100%">
+<BR>
+
+<H2>LightStream 1010 Network Management MIBs:</H2>
+
+<H3>1. The LightStream 1010 inherits many non-ATM-specific MIBs (both standard MIBs and Cisco enterprise MIBs) as part of the Cisco IOS code base.</H3>
+
+<!-- Start Dialog-->
+<DL>
+<DT>1.1 Standard MIBs:
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/IANAifType-MIB.my">IANAifType-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/IF-MIB.my">IF-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/RFC1213-MIB.my">RFC1213-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/RMON-MIB.my">RMON-MIB.my</a> (only alarm and event groups are supported)
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPV2-MIB.my">SNMPv2-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPV2-SMI.my">SNMPv2-SMI.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPV2-TC.my">SNMPv2-TC.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/TCP-MIB.my">TCP-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/UDP-MIB.my">UDP-MIB.my</a>
+<BR>
+<DT> 1.2 Cisco enterprise MIBs:
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-CPU-MIB.my">OLD-CISCO-CPU-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-INTERFACES-MIB.my">OLD-CISCO-INTERFACES-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-IP-MIB.my">OLD-CISCO-IP-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-MEMORY-MIB.my">OLD-CISCO-MEMORY-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-SYS-MIB.my">OLD-CISCO-SYS-MIB.my</a>
+</DL>
+
+<P><B>Note:</B> Objects in this documnet are also contained in the separate documents.
+<DL>
+<DD><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-CPU-MIB.my">OLD-CISCO-CPU-MIB.my</a>,
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-SYSTEM-MIB.my">OLD-CISCO-SYSTEM-MIB.my</a> <DD>and
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-MEMORY-MIB.my">OLD-CISCO-MEMORY-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-SYS-MIB.my">OLD-CISCO-SYSTEM-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/OLD-CISCO-TS-MIB.my">OLD-CISCO-TS-MIB.my</a>
+
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-CDP-%20MIB.my">CISCO-CDP-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-CONFIG-MAN-MIB.my">CISCO-CONFIG-MAN-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/CISCO-GENERAL-TRAPS.my">CISCO-GENERAL-TRAPS.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-PING-%20MIB.my">CISCO-PING-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-PRODUCTS-%20MIB.my">CISCO-PRODUCTS-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SMI.my">CISCO-SMI.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TC.my">CISCO-TC.my</a>
+
+<!-- End Dialog-->
+</DL>
+
+
+<H3>2. The LightStream 1010 implements the following  standardized ATM-specific MIBs:</H3>
+<DL>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-MIB.my">ATM-MIB.my</a> (from RFC1695)
+<DD>    <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/PNNI-MIB.my">PNNI-MIB.my</a> (from ATM Forum PNNI MIB)
+</DL>
+<P><B>Note:</B> Only pnniRouteAddrTable is supported in this release.</P>
+
+<H3>3. A number of LightStream 1010-specific or ATM-specific Cisco proprietary MIBs.</H3>
+
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-ADDR-MIB.my">CISCO-ATM-ADDR-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-CONN-MIB.my">CISCO-ATM-CONN-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-IF-MIB.my">CISCO-ATM-IF-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-IF-PHYS-MIB.my">CISCO-ATM-IF-PHYS-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-RM-MIB.my">CISCO-ATM-RM-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SERVICE-REGISTRY-MIB.my">CISCO-ATM-SERVICE-REGISTRY-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SWITCH-ADDR-MIB.my">CISCO-ATM-SWITCH-ADDR-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-TRAFFIC-MIB.my">CISCO-ATM-TRAFFIC-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-RHINO-MIB.my">CISCO-RHINO-MIB.my</a>
+
+
+<!-- End Dialog-->
+</DL>
+<BR>
+
+<hr WIDTH="100%">
+The following additional support is available from Release 11.2:
+<hr WIDTH="100%">
+
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ACCOUNTING-CONTROL-MIB.my">ACCOUNTING-CONTROL-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-ACCOUNTING-INFORMATION-MIB.my">ATM-ACCOUNTING-INFORMATION-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-FORUM-TC-MIB.my">ATM-FORUM-TC-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-RMON-MIB.my">ATM-RMON-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-ACCESS-LIST-MIB.my">CISCO-ATM-ACCESS-LIST-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-OAM-MIB.my">CISCO-OAM-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-PNNI-MIB.my">CISCO-PNNI-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/PNNI-MIB.my">PNNI-MIB.my</a>
+<P>Support for the PNNI-MIB:
+<UL>
+	<LI>pnniBaseGroup,
+	<LI>pnniNodeTable,
+	<LI>pnniNodeTimerTable,
+	<LI>pnniScopeMappingTable,
+	<LI>pnniSummaryTable,
+	<LI>pnniIfTable,
+	<LI>pnniLinkTable,
+	<LI>pnniNbrPeerTable,
+	<LI>pnniNbrPeerPortTable,
+	<LI>pnniRouteAddrTable.
+</UL>
+
+<H3>LAN Emulation MIBs:</H3>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/LAN-EMULATION-CLIENT-MIB.my">LAN-EMULATION-CLIENT-MIB.my</a> (from ATM Forum spec)
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-LEC-EXT-MIB.my">CISCO-LEC-EXT-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-LEC-DATA-VCC-MIB.my">CISCO-LEC-DATA-VCC-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-LES-MIB.my">CISCO-LES-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-LECS-MIB.my">CISCO-LECS-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-BUS-MIB.my">CISCO-BUS-MIB.my</a>
+
+<P>The ATM Forum's ILMI MIBs, supporting the UNI 4.0 specification:</P>
+
+<P><B>Note:</B> These are NOT network management MIBs. Objects in these MIBs cannot be accessed by an NMS via SNMP. These MIBs are used by the ILMI protocol for link management between adjacent ATM switches/end-stations.</P>
+
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-FORUM-ADDR-REG.my">ATM-FORUM-ADDR-REG.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-FORUM-MIB.my">ATM-FORUM-MIB.my</a>
+<DD>	ATM-FORUM-SRVC-REG.my
+
+<BR>
+
+<BR>
+
+<hr WIDTH="100%">
+The following additional support is available from Release 11.2(8.01)FWA4(1):
+<hr WIDTH="100%">
+
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SWITCH-CUG-MIB.my">CISCO-ATM-SWITCH-CUG-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SIG-DIAG-MIB.my">CISCO-ATM-SIG-DIAG-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM2-MIB.my">CISCO-ATM2-MIB.my</a>
+<P>	  Only these tables are supported:</P>
+<UL>
+<LI>ciscoatmSigStatTable,
+<LI>ciscoatmSigSupportTable
+</UL>
+
+
+
+<BR>
+
+<hr WIDTH="100%">
+The following additional support is available from Release 11.3(0.8)TWA4(2):
+<hr WIDTH="100%">
+
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-CONFIG-COPY-MIB.my">CISCO-CONFIG-COPY-MIB.my</a>
+<DD>	<a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</a>
+<P>	For the PNNI-MIB, additional tables and objects supported:
+<UL>
+	<LI>	pnniNodePglTable,
+	<LI>	pnniSummaryAddressTable,
+	<LI>	pnniNodePeerGroupId,
+	<LI>	pnniLinkDerivedAggrToken,
+	<LI>    pnniLinkUpnodeId,
+	<LI>	pnniLinkUpnodeAtmAddress,
+	<LI>    pnniLinkCommonPeerGroupId,
+	<LI>	pnniLinkSvccRccIndex
+</UL>
+<BR>
+
+<hr WIDTH="100%">
+Release 12.0(1)W5-5 adds support for the following MIBs:
+<hr WIDTH="100%">
+
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-DS0BUNDLE-MIB.my">CISCO-DS0BUNDLE-MIB</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-DS0BUNDLE-EXT-MIB.my">CISCO-DS0BUNDLE-EXT-MIB</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SWITCH-FR-IWF-MIB.my">CISCO-ATM-SWITCH-FR-IWF-MIB</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SWITCH-FR-RM-MIB.my">CISCO-ATM-SWITCH-FR-RM-MIB</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/RFC1406-MIB.my">RFC1406-MIB</a> (supported for the CT3 Frame Card)
+
+<P>Also, the following MIBs have been updated:</P>
+
+<DD>  <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-RM-MIB.my">CISCO-ATM-RM-MIB</a>
+<DD>  <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-RHINO-MIB.my">CISCO-RHINO-MIB</a>
+<DD>  <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-CONN-MIB.my">CISCO-ATM-CONN-MIB</a>
+<BR>
+<BR>
+<hr WIDTH="100%">
+Release 12.0(3c)W5-9 adds support for the following MIB:
+<hr WIDTH="100%">
+
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-SOFT-PVC-MIB.my">ATM-SOFT-PVC-MIB</a>
+
+<BR>
+<BR>
+
+<hr WIDTH="100%">
+The following is a list of MIBs supported by the LightStream 1010 ATM switch, for 12.1(7a)EY, 12.1(7a)EY1 and 12.0(18)W5(22):
+<hr WIDTH="100%">
+
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ATM-SOFT-PVC-MIB.my">ATM-SOFT-PVC-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/BGP4-MIB.my">BGP4-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SWITCH-FR-IWF-MIB.my">CISCO-ATM-SWITCH-FR-IWF-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ATM-SWITCH-FR-RM-MIB.my">CISCO-ATM-SWITCH-FR-RM-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-ENTITY-EXT-MIB.my">CISCO-ENTITY-EXT-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TCP-MIB.my">CISCO-TCP-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ENTITY-MIB.my">ENTITY-MIB.my</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/RFC1253-MIB.my">RFC1253-MIB.my</a> (OSPF)
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/RFC1406-MIB.my">RFC1406-MIB.my</a> (DS1 mib)
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/RFC1407-MIB.my">RFC1407-MIB.my</a> (DS3 mib)
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/RFC1595-MIB.my">RFC1595-MIB.my</a> (SONET)
+<BR>
+<BR>
+
+<hr WIDTH="100%">
+The following is a list of MIBs supported by the LightStream 1010 ATM switch, for 12.1(12c)EY, 12.1(14)E1, and later:
+<hr WIDTH="100%">
+
+
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB</a>
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB</a>
+<DD> ATM-TRACE-MIB
+<DD> <a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/ATM-TC-MIB-V1SMI.my">ATM-TC-MIB</a>
+
+<BR>
+<BR>
+
+<hr WIDTH="100%">
+</body>
+</html>
+

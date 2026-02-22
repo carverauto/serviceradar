@@ -1,0 +1,988 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-DCX-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- DCX management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-DCX-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsAdaptorLinkState,
+    CucsDcxAdminState,
+    CucsDcxNsAllocStatus,
+    CucsDcxOperState,
+    CucsDcxProtState,
+    CucsDcxState,
+    CucsDcxVIfProtRole,
+    CucsDpsecForgedTransmit,
+    CucsFabricTrafficDirection,
+    CucsFsmLifecycle,
+    CucsNetworkConnectionType,
+    CucsNetworkLocale,
+    CucsNetworkPortRole,
+    CucsNetworkPortType,
+    CucsNetworkSide,
+    CucsNetworkSwitchId,
+    CucsNetworkTransport,
+    CucsNwctrlAdminState,
+    CucsNwctrlLinkFailAction,
+    CucsNwctrlLldpAdminStateBitmask,
+    CucsNwctrlRegistrationMode,
+    CucsQosHostControl,
+    CucsVnicInstantiation
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsDcxObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        DCX management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 10 }
+
+cucsDcxFcoeVifEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDcxFcoeVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dcx:FcoeVifEp managed object table"
+    ::= { cucsDcxObjects 6 }
+
+cucsDcxFcoeVifEpEntry OBJECT-TYPE
+    SYNTAX           CucsDcxFcoeVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDcxFcoeVifEpTable table."
+    INDEX { cucsDcxFcoeVifEpInstanceId }
+    ::= { cucsDcxFcoeVifEpTable 1 }
+
+CucsDcxFcoeVifEpEntry ::= SEQUENCE {
+    cucsDcxFcoeVifEpInstanceId                                       CucsManagedObjectId,
+    cucsDcxFcoeVifEpDn                                               CucsManagedObjectDn,
+    cucsDcxFcoeVifEpRn                                               SnmpAdminString,
+    cucsDcxFcoeVifEpId                                               Gauge32
+}
+
+cucsDcxFcoeVifEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDcxFcoeVifEpEntry 1 }
+
+cucsDcxFcoeVifEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:FcoeVifEp:dn managed object property"
+    ::= { cucsDcxFcoeVifEpEntry 2 }
+
+cucsDcxFcoeVifEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:FcoeVifEp:rn managed object property"
+    ::= { cucsDcxFcoeVifEpEntry 3 }
+
+cucsDcxFcoeVifEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:FcoeVifEp:id managed object property"
+    ::= { cucsDcxFcoeVifEpEntry 4 }
+
+cucsDcxNsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDcxNsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns managed object table"
+    ::= { cucsDcxObjects 1 }
+
+cucsDcxNsEntry OBJECT-TYPE
+    SYNTAX           CucsDcxNsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDcxNsTable table."
+    INDEX { cucsDcxNsInstanceId }
+    ::= { cucsDcxNsTable 1 }
+
+CucsDcxNsEntry ::= SEQUENCE {
+    cucsDcxNsInstanceId                                              CucsManagedObjectId,
+    cucsDcxNsDn                                                      CucsManagedObjectDn,
+    cucsDcxNsRn                                                      SnmpAdminString,
+    cucsDcxNsAllocStatus                                             CucsDcxNsAllocStatus,
+    cucsDcxNsSide                                                    CucsNetworkSide,
+    cucsDcxNsSize                                                    Gauge32,
+    cucsDcxNsSwitchId                                                CucsNetworkSwitchId,
+    cucsDcxNsUsed                                                    Gauge32
+}
+
+cucsDcxNsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDcxNsEntry 1 }
+
+cucsDcxNsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns:dn managed object property"
+    ::= { cucsDcxNsEntry 2 }
+
+cucsDcxNsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns:rn managed object property"
+    ::= { cucsDcxNsEntry 3 }
+
+cucsDcxNsAllocStatus OBJECT-TYPE
+    SYNTAX       CucsDcxNsAllocStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns:allocStatus managed object property"
+    ::= { cucsDcxNsEntry 4 }
+
+cucsDcxNsSide OBJECT-TYPE
+    SYNTAX       CucsNetworkSide
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns:side managed object property"
+    ::= { cucsDcxNsEntry 5 }
+
+cucsDcxNsSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns:size managed object property"
+    ::= { cucsDcxNsEntry 6 }
+
+cucsDcxNsSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns:switchId managed object property"
+    ::= { cucsDcxNsEntry 7 }
+
+cucsDcxNsUsed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Ns:used managed object property"
+    ::= { cucsDcxNsEntry 8 }
+
+cucsDcxUniverseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDcxUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dcx:Universe managed object table"
+    ::= { cucsDcxObjects 2 }
+
+cucsDcxUniverseEntry OBJECT-TYPE
+    SYNTAX           CucsDcxUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDcxUniverseTable table."
+    INDEX { cucsDcxUniverseInstanceId }
+    ::= { cucsDcxUniverseTable 1 }
+
+CucsDcxUniverseEntry ::= SEQUENCE {
+    cucsDcxUniverseInstanceId                                        CucsManagedObjectId,
+    cucsDcxUniverseDn                                                CucsManagedObjectDn,
+    cucsDcxUniverseRn                                                SnmpAdminString
+}
+
+cucsDcxUniverseInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDcxUniverseEntry 1 }
+
+cucsDcxUniverseDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Universe:dn managed object property"
+    ::= { cucsDcxUniverseEntry 2 }
+
+cucsDcxUniverseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Universe:rn managed object property"
+    ::= { cucsDcxUniverseEntry 3 }
+
+cucsDcxVIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDcxVIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf managed object table"
+    ::= { cucsDcxObjects 3 }
+
+cucsDcxVIfEntry OBJECT-TYPE
+    SYNTAX           CucsDcxVIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDcxVIfTable table."
+    INDEX { cucsDcxVIfInstanceId }
+    ::= { cucsDcxVIfTable 1 }
+
+CucsDcxVIfEntry ::= SEQUENCE {
+    cucsDcxVIfInstanceId                                             CucsManagedObjectId,
+    cucsDcxVIfDn                                                     CucsManagedObjectDn,
+    cucsDcxVIfRn                                                     SnmpAdminString,
+    cucsDcxVIfAdminState                                             CucsDcxAdminState,
+    cucsDcxVIfCookie                                                 Unsigned64,
+    cucsDcxVIfEpDn                                                   SnmpAdminString,
+    cucsDcxVIfId                                                     Gauge32,
+    cucsDcxVIfIfRole                                                 CucsNetworkPortRole,
+    cucsDcxVIfIfType                                                 CucsNetworkPortType,
+    cucsDcxVIfInstType                                               CucsVnicInstantiation,
+    cucsDcxVIfLc                                                     CucsFsmLifecycle,
+    cucsDcxVIfLinkState                                              CucsAdaptorLinkState,
+    cucsDcxVIfLocale                                                 CucsNetworkLocale,
+    cucsDcxVIfName                                                   SnmpAdminString,
+    cucsDcxVIfOperState                                              CucsDcxOperState,
+    cucsDcxVIfPeerDn                                                 SnmpAdminString,
+    cucsDcxVIfProtPeerId                                             Gauge32,
+    cucsDcxVIfProtRole                                               CucsDcxVIfProtRole,
+    cucsDcxVIfProtState                                              CucsDcxProtState,
+    cucsDcxVIfQosControl                                             CucsQosHostControl,
+    cucsDcxVIfState                                                  CucsDcxState,
+    cucsDcxVIfSwitchId                                               CucsNetworkSwitchId,
+    cucsDcxVIfTag                                                    Gauge32,
+    cucsDcxVIfTransport                                              CucsNetworkTransport,
+    cucsDcxVIfType                                                   CucsNetworkConnectionType
+}
+
+cucsDcxVIfInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDcxVIfEntry 1 }
+
+cucsDcxVIfDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:dn managed object property"
+    ::= { cucsDcxVIfEntry 2 }
+
+cucsDcxVIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:rn managed object property"
+    ::= { cucsDcxVIfEntry 3 }
+
+cucsDcxVIfAdminState OBJECT-TYPE
+    SYNTAX       CucsDcxAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:adminState managed object property"
+    ::= { cucsDcxVIfEntry 4 }
+
+cucsDcxVIfCookie OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:cookie managed object property"
+    ::= { cucsDcxVIfEntry 5 }
+
+cucsDcxVIfEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:epDn managed object property"
+    ::= { cucsDcxVIfEntry 6 }
+
+cucsDcxVIfId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:id managed object property"
+    ::= { cucsDcxVIfEntry 7 }
+
+cucsDcxVIfIfRole OBJECT-TYPE
+    SYNTAX       CucsNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:ifRole managed object property"
+    ::= { cucsDcxVIfEntry 8 }
+
+cucsDcxVIfIfType OBJECT-TYPE
+    SYNTAX       CucsNetworkPortType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:ifType managed object property"
+    ::= { cucsDcxVIfEntry 9 }
+
+cucsDcxVIfInstType OBJECT-TYPE
+    SYNTAX       CucsVnicInstantiation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:instType managed object property"
+    ::= { cucsDcxVIfEntry 10 }
+
+cucsDcxVIfLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:lc managed object property"
+    ::= { cucsDcxVIfEntry 11 }
+
+cucsDcxVIfLinkState OBJECT-TYPE
+    SYNTAX       CucsAdaptorLinkState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:linkState managed object property"
+    ::= { cucsDcxVIfEntry 12 }
+
+cucsDcxVIfLocale OBJECT-TYPE
+    SYNTAX       CucsNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:locale managed object property"
+    ::= { cucsDcxVIfEntry 13 }
+
+cucsDcxVIfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:name managed object property"
+    ::= { cucsDcxVIfEntry 14 }
+
+cucsDcxVIfOperState OBJECT-TYPE
+    SYNTAX       CucsDcxOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:operState managed object property"
+    ::= { cucsDcxVIfEntry 15 }
+
+cucsDcxVIfPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:peerDn managed object property"
+    ::= { cucsDcxVIfEntry 16 }
+
+cucsDcxVIfProtPeerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:protPeerId managed object property"
+    ::= { cucsDcxVIfEntry 17 }
+
+cucsDcxVIfProtRole OBJECT-TYPE
+    SYNTAX       CucsDcxVIfProtRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:protRole managed object property"
+    ::= { cucsDcxVIfEntry 18 }
+
+cucsDcxVIfProtState OBJECT-TYPE
+    SYNTAX       CucsDcxProtState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:protState managed object property"
+    ::= { cucsDcxVIfEntry 19 }
+
+cucsDcxVIfQosControl OBJECT-TYPE
+    SYNTAX       CucsQosHostControl
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:qosControl managed object property"
+    ::= { cucsDcxVIfEntry 20 }
+
+cucsDcxVIfState OBJECT-TYPE
+    SYNTAX       CucsDcxState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:state managed object property"
+    ::= { cucsDcxVIfEntry 21 }
+
+cucsDcxVIfSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:switchId managed object property"
+    ::= { cucsDcxVIfEntry 22 }
+
+cucsDcxVIfTag OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:tag managed object property"
+    ::= { cucsDcxVIfEntry 23 }
+
+cucsDcxVIfTransport OBJECT-TYPE
+    SYNTAX       CucsNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:transport managed object property"
+    ::= { cucsDcxVIfEntry 24 }
+
+cucsDcxVIfType OBJECT-TYPE
+    SYNTAX       CucsNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VIf:type managed object property"
+    ::= { cucsDcxVIfEntry 25 }
+
+cucsDcxVcTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDcxVcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc managed object table"
+    ::= { cucsDcxObjects 4 }
+
+cucsDcxVcEntry OBJECT-TYPE
+    SYNTAX           CucsDcxVcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDcxVcTable table."
+    INDEX { cucsDcxVcInstanceId }
+    ::= { cucsDcxVcTable 1 }
+
+CucsDcxVcEntry ::= SEQUENCE {
+    cucsDcxVcInstanceId                                              CucsManagedObjectId,
+    cucsDcxVcDn                                                      CucsManagedObjectDn,
+    cucsDcxVcRn                                                      SnmpAdminString,
+    cucsDcxVcAdminState                                              CucsDcxAdminState,
+    cucsDcxVcBorderPortId                                            Gauge32,
+    cucsDcxVcBorderSlotId                                            Gauge32,
+    cucsDcxVcCdp                                                     CucsNwctrlAdminState,
+    cucsDcxVcCookie                                                  Unsigned64,
+    cucsDcxVcCos                                                     Gauge32,
+    cucsDcxVcDerivedFromId                                           Gauge32,
+    cucsDcxVcEncap                                                   Gauge32,
+    cucsDcxVcFcoeId                                                  Gauge32,
+    cucsDcxVcFltAggr                                                 Unsigned64,
+    cucsDcxVcForgeMac                                                CucsDpsecForgedTransmit,
+    cucsDcxVcId                                                      Gauge32,
+    cucsDcxVcInstType                                                CucsVnicInstantiation,
+    cucsDcxVcLc                                                      CucsFsmLifecycle,
+    cucsDcxVcLinkState                                               CucsAdaptorLinkState,
+    cucsDcxVcLocale                                                  CucsNetworkLocale,
+    cucsDcxVcMonTrafDir                                              CucsFabricTrafficDirection,
+    cucsDcxVcName                                                    SnmpAdminString,
+    cucsDcxVcOperBorderPortId                                        Gauge32,
+    cucsDcxVcOperBorderSlotId                                        Gauge32,
+    cucsDcxVcOperState                                               CucsDcxOperState,
+    cucsDcxVcProtState                                               CucsDcxProtState,
+    cucsDcxVcQosPolicyId                                             SnmpAdminString,
+    cucsDcxVcRole                                                    CucsNetworkPortRole,
+    cucsDcxVcState                                                   CucsDcxState,
+    cucsDcxVcStateQual                                               SnmpAdminString,
+    cucsDcxVcSwitchId                                                CucsNetworkSwitchId,
+    cucsDcxVcTag                                                     Gauge32,
+    cucsDcxVcTransport                                               CucsNetworkTransport,
+    cucsDcxVcType                                                    CucsNetworkConnectionType,
+    cucsDcxVcUplinkFailAction                                        CucsNwctrlLinkFailAction,
+    cucsDcxVcVnic                                                    SnmpAdminString,
+    cucsDcxVcPeerId                                                  Gauge32,
+    cucsDcxVcQosPolicyDn                                             SnmpAdminString,
+    cucsDcxVcMacRegisterMode                                         CucsNwctrlRegistrationMode,
+    cucsDcxVcBorderVfcId                                             Gauge32,
+    cucsDcxVcLldp                                                    CucsNwctrlLldpAdminStateBitmask,
+    cucsDcxVcBorderAggrPortId                                        Gauge32,
+    cucsDcxVcOperBorderAggrPortId                                    Gauge32
+}
+
+cucsDcxVcInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDcxVcEntry 1 }
+
+cucsDcxVcDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:dn managed object property"
+    ::= { cucsDcxVcEntry 2 }
+
+cucsDcxVcRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:rn managed object property"
+    ::= { cucsDcxVcEntry 3 }
+
+cucsDcxVcAdminState OBJECT-TYPE
+    SYNTAX       CucsDcxAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:adminState managed object property"
+    ::= { cucsDcxVcEntry 4 }
+
+cucsDcxVcBorderPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:borderPortId managed object property"
+    ::= { cucsDcxVcEntry 5 }
+
+cucsDcxVcBorderSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:borderSlotId managed object property"
+    ::= { cucsDcxVcEntry 6 }
+
+cucsDcxVcCdp OBJECT-TYPE
+    SYNTAX       CucsNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:cdp managed object property"
+    ::= { cucsDcxVcEntry 8 }
+
+cucsDcxVcCookie OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:cookie managed object property"
+    ::= { cucsDcxVcEntry 9 }
+
+cucsDcxVcCos OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:cos managed object property"
+    ::= { cucsDcxVcEntry 10 }
+
+cucsDcxVcDerivedFromId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:derivedFromId managed object property"
+    ::= { cucsDcxVcEntry 11 }
+
+cucsDcxVcEncap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:encap managed object property"
+    ::= { cucsDcxVcEntry 12 }
+
+cucsDcxVcFcoeId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:fcoeId managed object property"
+    ::= { cucsDcxVcEntry 13 }
+
+cucsDcxVcFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:fltAggr managed object property"
+    ::= { cucsDcxVcEntry 14 }
+
+cucsDcxVcForgeMac OBJECT-TYPE
+    SYNTAX       CucsDpsecForgedTransmit
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:forgeMac managed object property"
+    ::= { cucsDcxVcEntry 15 }
+
+cucsDcxVcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:id managed object property"
+    ::= { cucsDcxVcEntry 16 }
+
+cucsDcxVcInstType OBJECT-TYPE
+    SYNTAX       CucsVnicInstantiation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:instType managed object property"
+    ::= { cucsDcxVcEntry 17 }
+
+cucsDcxVcLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:lc managed object property"
+    ::= { cucsDcxVcEntry 18 }
+
+cucsDcxVcLinkState OBJECT-TYPE
+    SYNTAX       CucsAdaptorLinkState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:linkState managed object property"
+    ::= { cucsDcxVcEntry 19 }
+
+cucsDcxVcLocale OBJECT-TYPE
+    SYNTAX       CucsNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:locale managed object property"
+    ::= { cucsDcxVcEntry 20 }
+
+cucsDcxVcMonTrafDir OBJECT-TYPE
+    SYNTAX       CucsFabricTrafficDirection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:monTrafDir managed object property"
+    ::= { cucsDcxVcEntry 21 }
+
+cucsDcxVcName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:name managed object property"
+    ::= { cucsDcxVcEntry 22 }
+
+cucsDcxVcOperBorderPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:operBorderPortId managed object property"
+    ::= { cucsDcxVcEntry 23 }
+
+cucsDcxVcOperBorderSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:operBorderSlotId managed object property"
+    ::= { cucsDcxVcEntry 24 }
+
+cucsDcxVcOperState OBJECT-TYPE
+    SYNTAX       CucsDcxOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:operState managed object property"
+    ::= { cucsDcxVcEntry 25 }
+
+cucsDcxVcProtState OBJECT-TYPE
+    SYNTAX       CucsDcxProtState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:protState managed object property"
+    ::= { cucsDcxVcEntry 26 }
+
+cucsDcxVcQosPolicyId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:qosPolicyId managed object property"
+    ::= { cucsDcxVcEntry 27 }
+
+cucsDcxVcRole OBJECT-TYPE
+    SYNTAX       CucsNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:role managed object property"
+    ::= { cucsDcxVcEntry 29 }
+
+cucsDcxVcState OBJECT-TYPE
+    SYNTAX       CucsDcxState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:state managed object property"
+    ::= { cucsDcxVcEntry 30 }
+
+cucsDcxVcStateQual OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:stateQual managed object property"
+    ::= { cucsDcxVcEntry 31 }
+
+cucsDcxVcSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:switchId managed object property"
+    ::= { cucsDcxVcEntry 32 }
+
+cucsDcxVcTag OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:tag managed object property"
+    ::= { cucsDcxVcEntry 33 }
+
+cucsDcxVcTransport OBJECT-TYPE
+    SYNTAX       CucsNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:transport managed object property"
+    ::= { cucsDcxVcEntry 34 }
+
+cucsDcxVcType OBJECT-TYPE
+    SYNTAX       CucsNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:type managed object property"
+    ::= { cucsDcxVcEntry 35 }
+
+cucsDcxVcUplinkFailAction OBJECT-TYPE
+    SYNTAX       CucsNwctrlLinkFailAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:uplinkFailAction managed object property"
+    ::= { cucsDcxVcEntry 36 }
+
+cucsDcxVcVnic OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:vnic managed object property"
+    ::= { cucsDcxVcEntry 37 }
+
+cucsDcxVcPeerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:peerId managed object property"
+    ::= { cucsDcxVcEntry 38 }
+
+cucsDcxVcQosPolicyDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:qosPolicyDn managed object property"
+    ::= { cucsDcxVcEntry 39 }
+
+cucsDcxVcMacRegisterMode OBJECT-TYPE
+    SYNTAX       CucsNwctrlRegistrationMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:macRegisterMode managed object property"
+    ::= { cucsDcxVcEntry 40 }
+
+cucsDcxVcBorderVfcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:borderVfcId managed object property"
+    ::= { cucsDcxVcEntry 41 }
+
+cucsDcxVcLldp OBJECT-TYPE
+    SYNTAX       CucsNwctrlLldpAdminStateBitmask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:lldp managed object property"
+    ::= { cucsDcxVcEntry 42 }
+
+cucsDcxVcBorderAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:borderAggrPortId managed object property"
+    ::= { cucsDcxVcEntry 43 }
+
+cucsDcxVcOperBorderAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:Vc:operBorderAggrPortId managed object property"
+    ::= { cucsDcxVcEntry 44 }
+
+cucsDcxVifEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDcxVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dcx:VifEp managed object table"
+    ::= { cucsDcxObjects 5 }
+
+cucsDcxVifEpEntry OBJECT-TYPE
+    SYNTAX           CucsDcxVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDcxVifEpTable table."
+    INDEX { cucsDcxVifEpInstanceId }
+    ::= { cucsDcxVifEpTable 1 }
+
+CucsDcxVifEpEntry ::= SEQUENCE {
+    cucsDcxVifEpInstanceId                                           CucsManagedObjectId,
+    cucsDcxVifEpDn                                                   CucsManagedObjectDn,
+    cucsDcxVifEpRn                                                   SnmpAdminString,
+    cucsDcxVifEpId                                                   Gauge32
+}
+
+cucsDcxVifEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDcxVifEpEntry 1 }
+
+cucsDcxVifEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VifEp:dn managed object property"
+    ::= { cucsDcxVifEpEntry 2 }
+
+cucsDcxVifEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VifEp:rn managed object property"
+    ::= { cucsDcxVifEpEntry 3 }
+
+cucsDcxVifEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dcx:VifEp:id managed object property"
+    ::= { cucsDcxVifEpEntry 4 }
+
+END

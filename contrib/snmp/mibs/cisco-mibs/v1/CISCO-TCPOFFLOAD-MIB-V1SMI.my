@@ -1,0 +1,268 @@
+-- MIB created 6/25/99 12:57:42, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-TCPOFFLOAD-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-TCPOFFLOAD-MIB.my"
+
+IMPORTS
+    IpAddress
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    DisplayString, RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    cipCardEntryIndex, cipCardDtrBrdIndex, cipCardSubChannelIndex
+            FROM CISCO-CHANNEL-MIB;
+
+ciscoTcpOffloadMIB OBJECT IDENTIFIER ::= { ciscoMgmt 31 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9503300000Z
+--  OrgName
+--    cisco IBM engineering Working Group
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This is the MIB module for objects used to manage
+--    the cisco tcp offload feature.
+--        
+--    The IBM mainframe (host) supports TCP/IP. As a way to
+--    save cycles on the host, the TCP/IP stack can be run 
+--    on the 3172. This offloads the host from the protocol 
+--    processing and is known as TCP-OFFLOAD. This mib 
+--    identifies the manageable objects for the TCP-OFFLOAD
+--    feature in the Cisco router.
+--  RevDate
+--    9801060000Z
+--  RevDescr
+--    With the addition of Cisco's new Channel Port
+--                   Adapter cards, all the references to CIP in the
+--                   MIB description and object descriptions are changed
+--                   to CMCC (Cisco Mainframe Channel Connection). The
+--                   object names in the form of cip... or cipCard...
+--                   will remain the same, but will be valid objects
+--                   for the Channel Port Adapter cards.
+--  RevDate
+--    9504270000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+tcpOffloadObjects OBJECT IDENTIFIER ::= { ciscoTcpOffloadMIB 1 }
+cipCardOffloadConfig OBJECT IDENTIFIER ::= { tcpOffloadObjects 1 }
+ciscoTcpOffloadMibConformance OBJECT IDENTIFIER ::= { ciscoTcpOffloadMIB 2 }
+ciscoTcpOffloadMibCompliances OBJECT IDENTIFIER ::= { ciscoTcpOffloadMibConformance 1 }
+ciscoTcpOffloadMibGroups OBJECT IDENTIFIER ::= { ciscoTcpOffloadMibConformance 2 }
+
+cipCardOffloadConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipCardOffloadConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains configuration information for
+         the TCP offload feature on the CMCC card.
+         Changing these parameters will take effect immediately.
+        
+         The management station can create an entry in this table
+         by setting the appropriate value in cipCardOffloadConfigRowStatus.
+         All the objects in this table must be supplied for a successful
+         create/set."
+    ::= { cipCardOffloadConfig 1 }
+
+cipCardOffloadConfigEntry OBJECT-TYPE
+    SYNTAX CipCardOffloadConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of OFFLOAD configuration values."
+    INDEX { cipCardEntryIndex, cipCardDtrBrdIndex, cipCardSubChannelIndex }
+    ::= { cipCardOffloadConfigTable 1 }
+
+CipCardOffloadConfigEntry ::= SEQUENCE {
+    cipCardOffloadConfigPath OCTET STRING(SIZE(2)),
+    cipCardOffloadConfigDevice OCTET STRING(SIZE(2)),
+    cipCardOffloadConfigIpAddr IpAddress,
+    cipCardOffloadConfigHostName DisplayString(SIZE(1..10)),
+    cipCardOffloadConfigRouterName DisplayString(SIZE(1..10)),
+    cipCardOffloadConfigLinkHostAppl DisplayString(SIZE(1..10)),
+    cipCardOffloadConfigLinkRouterAppl DisplayString(SIZE(1..10)),
+    cipCardOffloadConfigAPIHostAppl DisplayString(SIZE(1..10)),
+    cipCardOffloadConfigAPIRouterAppl DisplayString(SIZE(1..10)),
+    cipCardOffloadConfigBroadcastEnable TruthValue,
+    cipCardOffloadConfigRowStatus RowStatus
+    }
+
+cipCardOffloadConfigPath OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(2))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Hex path identifier for the escon director switch port
+         containing the fiber from the channel on the host to 
+         which this CMCC CLAW task connects. 
+                           
+         This is a concatenation of the switch port number, the 
+         channel logical address (used by the host to associate 
+         an logical partition (LPAR) with the control unit), and 
+         the control unit logical address (address of a logical 
+         control unit used by the host to associate a group of 
+         physical devices). 
+                           
+         For a directly connected channel, the switch port number 
+         is usually 01."
+    ::= { cipCardOffloadConfigEntry 1 }
+
+cipCardOffloadConfigDevice OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(2))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Two digit hex device address for the device the SNA host will
+         use to communicate with the offload task on the CMCC. The address
+         must be even."
+    ::= { cipCardOffloadConfigEntry 2 }
+
+cipCardOffloadConfigIpAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP address of the host application for the offload task as
+         specified in the HOME statement of the PROFILE TCPIP."
+    ::= { cipCardOffloadConfigEntry 3 }
+
+cipCardOffloadConfigHostName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Host name parameter as specified in the DEVICE statement
+         of the PROFILE TCPIP."
+    ::= { cipCardOffloadConfigEntry 4 }
+
+cipCardOffloadConfigRouterName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Workstation name parameter as specified in the DEVICE 
+         statement of the mainframe PROFILE TCPIP."
+    ::= { cipCardOffloadConfigEntry 5 }
+
+cipCardOffloadConfigLinkHostAppl OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the application providing the IP link services, 
+         as specified in the mainframe configuration."
+    ::= { cipCardOffloadConfigEntry 6 }
+
+cipCardOffloadConfigLinkRouterAppl OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the router application providing the IP link
+         services, as specified in the mainframe configuration."
+    ::= { cipCardOffloadConfigEntry 7 }
+
+cipCardOffloadConfigAPIHostAppl OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the mainframe application providing the API
+         services, as specified in the mainframe configuration."
+    ::= { cipCardOffloadConfigEntry 8 }
+
+cipCardOffloadConfigAPIRouterAppl OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..10))
+--    Rsyntax OCTET STRING(SIZE(1..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the router application providing the API services,
+         as specified in the mainframe configuration."
+    ::= { cipCardOffloadConfigEntry 9 }
+
+cipCardOffloadConfigBroadcastEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Control processing of broadcast frames for the 
+        path/device this instance of OFFLOAD is configured
+        on. Enable turns broadcast processing on."
+    ::= { cipCardOffloadConfigEntry 10 }
+
+cipCardOffloadConfigRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by a management station to
+         create or delete the row entry in
+         cipCardOffloadConfigTable following the RowStatus
+         textual convention."
+    ::= { cipCardOffloadConfigEntry 11 }
+
+ciscoTcpOffloadGroup OBJECT IDENTIFIER ::= { ciscoTcpOffloadMibGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration capability.
+--  objects
+--    cipCardOffloadConfigPath, cipCardOffloadConfigDevice, 
+--    cipCardOffloadConfigIpAddr, cipCardOffloadConfigHostName, 
+--    cipCardOffloadConfigRouterName, 
+--    cipCardOffloadConfigLinkHostAppl, 
+--    cipCardOffloadConfigLinkRouterAppl, 
+--    cipCardOffloadConfigAPIHostAppl, 
+--    cipCardOffloadConfigAPIRouterAppl, 
+--    cipCardOffloadConfigBroadcastEnable, 
+--    cipCardOffloadConfigRowStatus
+
+ciscoTcpOffloadMibCompliance OBJECT IDENTIFIER ::= { ciscoTcpOffloadMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the TcpIP Offload feature.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTcpOffloadGroup
+
+
+END
+

@@ -1,0 +1,454 @@
+SCTE-HMS-HEADENDIDENT-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY, enterprises, Integer32, Unsigned32
+		FROM SNMPv2-SMI
+	TEXTUAL-CONVENTION
+		FROM SNMPv2-TC;
+
+hmsTextualConventionMIB MODULE-IDENTITY
+    LAST-UPDATED    "200807231300Z"
+    ORGANIZATION    "SCTE HMS Working Group"
+    CONTACT-INFO    "SCTE HMS Subcommittee, Chairman 
+                     mail to:  standards@scte.org "
+
+    DESCRIPTION
+            "The MIB module is for representing general information
+            about HeadEnd Digital equipment present(or indoor)
+            and is supported by an SNMP agent."
+
+	REVISION "200807231300Z"
+	DESCRIPTION "Changed enumeration for QAMChannelInterleaveMode."
+
+	REVISION "200807121300Z"
+	DESCRIPTION 
+         "Modifications due to Comment Resolution Phase 2
+		1. Un-Commented out HeAlarmControl, HeTrapRegenerate to add Alarm Processing
+		back into the HMS-154 mib files. 
+		2. Added support for Alarm Processing.
+		3. Removed enumerations that were not used under the heDigital tree (heLaserType).
+		4. Modified QAMChannelModulationFormat.
+ 		5. Removed Display String from IMPORTS
+		6. Removed HeLaserType
+		7. Added enumeration QAMChannelInterleaveMode"
+
+
+	REVISION "200801161300Z"
+	DESCRIPTION 
+         "Modifications due to Comment Resolution Meeting
+		1. Commented out HeAlarmControl, HeTrapRegenerate, HeDigitalRedundancyStatus
+		per Comment Resolution meeting for formal release of the Mib File. 
+		2. Added comments to HeDigitalAlarmSeverity and HeDigitalAlarmType that they 
+		are not used per Comment Resolution meeting for formal release of the Mib File, 
+		and commented out the enumerations so no-one uses them until they are needed in
+		case they will have to change.
+		3. Added the enumeration other to HeDigitalAlarmType so it would be universal."
+
+	REVISION "200712170000Z"
+	DESCRIPTION 
+         "Modifications due to voting comments
+		1. Changed syntax errors for capitalized words.
+		2. Changed mib to have the -MIB extention"
+
+    ::= { enterprises scteRoot(5591) scteHmsTree (1) insidePlantIdent (11) 
+		heDigital (5) 1 }
+
+VideoInputFrameRateType  ::= TEXTUAL-CONVENTION
+	STATUS     current
+	DESCRIPTION 
+      " This value defines the types of MPEG Video Input Frame Rate that is
+      supported by QAM devices."
+	SYNTAX     INTEGER {
+		other (1),
+		autoSelect (2),
+		f24Hz (3),
+		f25Hz (4),
+		f29Hz97 (5),
+		f30Hz (6),
+		f29or30Hz (7),
+		f48Hz (8),
+		f50Hz (9),
+		f59Hz94 (10),
+		f60Hz (11),
+		f59or60Hz (12)	}
+
+QAMChannelModulationFormat  ::= TEXTUAL-CONVENTION
+	STATUS     current
+	DESCRIPTION 
+      " This value defines the types of QAM Channel Modulation that is
+      supported by QAM devices."
+	SYNTAX     INTEGER {
+		unknown(1),
+		other(2),
+		qam64(3),
+		qam256(4),
+		qam128(5),
+		qam512 (6),
+		qam1024 (7)
+	}
+
+QAMChannelInterleaveMode  ::= TEXTUAL-CONVENTION
+	STATUS     current
+	DESCRIPTION 
+      " This value defines the types of QAM Interleave Mode 
+	which follows the value of docsIfDownChannelInterleave. This
+	value is supported by HMS QAM devices."
+	SYNTAX     INTEGER {
+		unknown(1),
+		other(2),
+		fecI8J16(3),
+		fecI16J8(4),
+		fecI32J4(5),
+		fecI64J2(6),
+		fecI128J1(7),
+		fecI12J17(8),
+		fecI128J2(9),
+		fecI128J3(10),
+		fecI128J4(11),
+		fecI128J5(12),
+		fecI128J6(13),
+		fecI128J7(14),
+		fecI128J8(15)
+	}
+
+
+ProgDataType  ::= TEXTUAL-CONVENTION
+	STATUS     current
+	DESCRIPTION 
+	"This value defines the types of data that can be contained in 
+      Programs and program streams."
+	SYNTAX     INTEGER {
+		video (1),
+		audio (2),
+		data (3),
+		other(4)
+	}
+
+DeviceEnableDisableValues ::= TEXTUAL-CONVENTION
+	STATUS     current
+	DESCRIPTION 
+		"This data type represents whether the object is disabled(1) or 
+		enabled(2), or the object is not supported (3) by the current
+         configuration or this device's hardware."
+	SYNTAX  INTEGER {
+		disabled (1),
+		enabled (2),
+		notSupported(3)
+	}
+
+
+MpegErrorStatus ::= TEXTUAL-CONVENTION
+	STATUS     current
+	DESCRIPTION 
+		"This data type represents whether the object is good(1) or has 
+		errors(2), or the object is not supported (3) by the current
+         configuration or this device's hardware."
+	SYNTAX  INTEGER {
+		good (1),
+		errors (2),
+		notSupported(3)
+	}
+
+HePIDValue ::= TEXTUAL-CONVENTION
+	DISPLAY-HINT "d"
+	STATUS current
+	DESCRIPTION 
+		"This data type represents a packet identifier (PID)
+         value which ranges from 0 to (2^13 - 1). The value of
+         65535 indicates that either the PID is invalid or does
+         not exist."
+	SYNTAX Unsigned32 (0..8191 | 65535)
+
+HeClockSource ::= TEXTUAL-CONVENTION
+    STATUS        current
+    DESCRIPTION
+            "An enumerated value that provides the location where the
+            value for the clock on the module is coming from.
+            internal - this value is being derived internally from the local 
+            module timing source.
+            external - an source that is external to the module, such as a 
+            controller card is providing a signal to calculate the real time clock.
+            ntp - this module is running the ntp protocol and can sync up to a 
+            master ntp clock source.
+            other - the real time clock source does not fit into the existing values. "
+    SYNTAX      INTEGER {
+	unknown(1),
+	other(2),
+      internal(3),
+      external(4),
+      ntp(5),
+      none(6)
+    }
+
+HeResetValue ::= TEXTUAL-CONVENTION
+	STATUS current
+	DESCRIPTION
+	     "Configured reset value for a specific device. 
+            reset - the value of reset is SET at the device and the device
+            will reset.
+            running - the normal value of the device is running when an SNMP
+            GET of the reset value is sent.
+            resetting - The value resetting shall be returned if an SNMP GET of 
+            the device is performed after a reset SET command is sent and before
+            the device can actually perform the reset. A second reset SET command
+            should not interrupt the reset sequence. If a second SET is sent, it 
+            will be ignored.
+            "
+      SYNTAX	INTEGER {
+		reset(1),
+           running(2),
+           resetting(3)
+      }
+  
+HeTenthVolt ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-1"
+    STATUS       current
+    DESCRIPTION
+        "This data type represents voltage levels that are normally
+         expressed in volts. Units are in tenths of a volt;
+         for example, -48.1 volts will be represented as -481."
+    SYNTAX       Integer32
+
+HeTenthdBm ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-1"
+    STATUS       current
+    DESCRIPTION
+        "This data type represents power levels 
+         that are normally expressed in dBm. Units 
+         are in tenths of a dBm;
+         for example, -5.1 dBm will be represented as -51."
+    SYNTAX       Integer32
+
+HeTenthdBmV ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-1"
+    STATUS       current
+    DESCRIPTION
+        "This data type represents power levels 
+         that are normally expressed in dBmV. Units 
+         are in tenths of a dBmV;
+         for example, -5.1 dBmV will be represented as -51."
+    SYNTAX       Integer32
+
+HeTenthCentigrade ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-1"
+    STATUS       current
+    DESCRIPTION
+        "This data type represents temperature values that
+         are normally expressed in Centigrade. Units are in
+         tenths of a Centigrade;
+         for example, -5.1 Centigrade will be represented as -51."
+    SYNTAX       Integer32
+
+HeHundredthNanoMeter ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-2"
+    STATUS       current
+    DESCRIPTION
+        "This data type represents wavelength values that
+         are normally expressed in nano meters. Units are in
+         hundredths of a NanoMeter;
+         for example, 1550.56 nm will be represented as 155056."
+    SYNTAX       Unsigned32
+
+HeTenthdB ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-1"
+    STATUS       current
+    DESCRIPTION
+            "This data type represents power levels 
+            that are normally expressed in dB. Units 
+            are in tenths of a dB;
+            for example, -5.1 dB will be represented as -51."
+    SYNTAX       Integer32
+
+HeOnOffControl ::= TEXTUAL-CONVENTION
+    STATUS        current
+    DESCRIPTION
+            "An enumerated value that provides a control of a particular
+            hardware or software parameter that usually represent
+            some sort of switch.
+
+            A SET request with a value off(1) will cause the switch
+            to be shut off. 
+
+            A SET request with a value on(2) will cause the switch
+            to be turned on.
+
+            A value meaningless(3) will be implemented by the
+            variables that represent a switch with write-only access.
+            A GET request for the value of the write-only variable
+            shall return a value meaningless(3). 
+
+            A SET request with a value meaningless(3) for the variable
+            with write access shall have no effect and no exception is
+            generated.
+
+            A value may be used by the variables with both read-write
+            and write-only access.
+
+            The variables with read-only access shall be defined with 
+            the textual convention HeOnOffStatus."
+    SYNTAX      INTEGER {
+        off(1),
+        on(2),
+        meaningless(3)
+    }
+
+HeOnOffStatus ::= TEXTUAL-CONVENTION
+    STATUS        current
+    DESCRIPTION
+            "An enumerated value that provides a status of a particular
+            hardware or software parameter that usually represent
+            some sort of switch.
+
+            A value off(1) indicates the switch is off. 
+
+            A value on(2) indicates the switch is on."
+    SYNTAX      INTEGER {
+        off(1),
+        on(2)
+    }
+
+
+--
+-- Values to support Alarmable parameters
+--
+
+
+HeAlarmControl ::= TEXTUAL-CONVENTION
+	STATUS current
+	DESCRIPTION
+	     "Alarm Control value for a specific device. This object is used to control sending
+            traps related to this headend entity or enabling disabling of raising an alarm
+            condition for a specific entity."
+    SYNTAX      INTEGER {
+        alarmEnabled(1),
+        alarmDisabled(2)
+        }
+
+
+HeTrapRegenerate ::= TEXTUAL-CONVENTION
+ 	STATUS current
+ 	DESCRIPTION
+          " This value tells the SNMP Agent to send the Trap Regenerate Trap for
+           all values of Current alarms for this entity. The device can provide
+           for a means to send ALL current alarms, not just one specific entity."
+     SYNTAX      INTEGER {
+         trapRegenerate(1),
+         trapNormal(2)
+         }
+
+HeDigitalAlarmSeverity ::= TEXTUAL-CONVENTION
+      STATUS        current
+     DESCRIPTION
+     " The alarm severity that is determined by the device and sent over in the trap message."
+     SYNTAX      INTEGER {
+ 	critical(1),
+ 	major(2),
+ 	minor(3),
+ 	warning(4),
+ 	status(5),
+ 	clear(6),
+ 	information(7)
+  }
+
+HeDigitalAlarmType ::= TEXTUAL-CONVENTION
+     STATUS        current
+     DESCRIPTION
+     " The alarm type that describes the Event that caused the alarm."
+ 	SYNTAX INTEGER
+ 		{
+ 		communication(1),
+ 		process(2),
+ 		session(3),
+ 		capacity(4),
+ 		maintenance(5),
+ 		provisioning(6),
+ 		programMgmt(7),
+ 		redundancy(8),
+ 		other(9)
+ 		}
+
+HeFaultStatus ::= TEXTUAL-CONVENTION
+    STATUS        current
+    DESCRIPTION
+            "An enumerated value that provides a fault status of
+            a particular hardware or software parameter that
+            usually represent some sort of condition.
+
+            A value normal(1) indicates the normal condition. 
+
+            A value fault(2) indicates the fault condition."
+    SYNTAX      INTEGER {
+        normal(1),
+        fault(2)
+    }
+
+
+HeMilliAmp ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-3"
+    STATUS       current
+    DESCRIPTION
+        "This data type represents current levels that are normally
+         expressed in amperes. Units are in milliamperes;
+         for example, 2.1 Amperes would be expressed as 2100."
+    SYNTAX       Unsigned32
+
+HeHundredthWatts ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d-2"
+    STATUS       current
+    DESCRIPTION
+        "This data type represents power values that
+         are normally expressed in watts. Units are in
+         hundredths of a watt;
+         for example, 420 watts will be represented as 42000."
+    SYNTAX       Unsigned32
+
+
+--
+-- Redundancy Status was removed from heDigitalCommon and is Commented out per comment 
+-- resolution meeting until such time as heDigitalCommon redundancy values are implemented.
+--
+
+-- HeDigitalRedundancyStatus ::= TEXTUAL-CONVENTION
+--    STATUS        current
+--    DESCRIPTION
+--            "This value will indicate the supported level of redundancy for this 
+--             entity.
+--             notAvailable, this interface does not support any type of redundancy, 
+--             no Mib objects are supported.
+--
+--	 off - some type of redundancy is available and is defined in configuration,
+--             but redundancy for this entity is turned off.
+--
+--             automatic - there is redundancy and the function is not defined in
+--            configuration, the redundant switch is automatic and always on.
+--
+--	LoadBalanced, this interface is paired with a specific interface and shares 
+--             the load. Any redundant switch will send as many streams to the other 
+--             interface as possible. In this condition there isn't a 100% backup unless 
+--             both links are only operating at 50% of the maximum capacity.
+--
+--             hotStandby - redundancy is a one to one relationship with one entity 
+--             configured to take over in the event of failure with minimal to no disruption 
+--             in service.
+--
+--             backup - would be for any interface that isn't one to one. You could have 
+--             1 backup  to 2 active,  1 to 3, 1 to 4 or any combination of backup scenarios. 
+--             The exact combinations would be part of Redundancy configuration, not this 
+--             configured status parameter. The backup redundant configuration could cause
+--             minimal disruption of service.
+--
+--             other - this would cover any type of redundancy that is not described by the
+--             other definitions. This would mean that the entity does support redundancy of
+--             some type. "
+--    SYNTAX      INTEGER {
+--        notAvailable(1),
+--        off(2),
+--        automatic(3),
+--        loadBalanced(4),
+--        hotStandby(5),
+--        backup(6),
+--        other(7)
+--    }
+--
+
+END

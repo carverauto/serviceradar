@@ -1,0 +1,394 @@
+-- MIB file created 09-Dec-2005 10:15:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-DOT11-LBS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DOT11-LBS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress, RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    InetPortNumber, InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoDot11LbsMIB OBJECT IDENTIFIER ::= { ciscoMgmt 454 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200411170000Z
+--  OrgName
+--    Cisco System Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 West Tasman Drive,
+--            San Jose CA 95134-1706.
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-dot11@cisco.com
+--  Descr
+--    This MIB module supports network management 
+--    for Location Based Services on IEEE 802.11 wireless
+--    LAN devices.  Location Based Services allows third
+--    party applications and positioning servers to work 
+--    with Access Points to track positions of wireless 
+--    clients in the network.  
+--    
+--              GLOSSARY and ACRONYMS
+--    
+--    AP
+--        Access point, a transmitter/receiver device
+--        that commonly connects and transports data
+--        between a wireless network and a wired network.
+--    
+--    LBS 
+--        Location Based Services
+--    
+--    MAC
+--        Medium Access Control.  Layer 2 in the network 
+--        model. 
+--    
+--    PS
+--        Positioning Server.  An application server
+--        provides IEEE 802.11 wireless client location
+--        information and services.
+--    
+--    RSSI 
+--        Received Signal Strength Indication.
+--  RevDate
+--    200411170000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoDot11LbsMIBNotifs OBJECT IDENTIFIER ::= { ciscoDot11LbsMIB 0 }
+ciscoDot11LbsMIBObjects OBJECT IDENTIFIER ::= { ciscoDot11LbsMIB 1 }
+ciscoDot11LbsMIBConformance OBJECT IDENTIFIER ::= { ciscoDot11LbsMIB 2 }
+ciscoDot11LbsConfigInfo OBJECT IDENTIFIER ::= { ciscoDot11LbsMIBObjects 1 }
+ciscoDot11LbsStatistics OBJECT IDENTIFIER ::= { ciscoDot11LbsMIBObjects 2 }
+ciscoDot11LbsMIBCompliances OBJECT IDENTIFIER ::= { ciscoDot11LbsMIBConformance 1 }
+ciscoDot11LbsMIBGroups OBJECT IDENTIFIER ::= { ciscoDot11LbsMIBConformance 2 }
+
+Cdot11LbsTrackMethodType ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   rssi(0)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    These are the supported methods for wireless
+--    client location tracking:
+--        rssi(0)    - RSSI detection.
+
+Cdot11LbsPsPacketType ::= INTEGER {
+        extended(1),
+        short(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    These are the types of packets sending to the
+--    positioning server.  There are two packet types:
+--        extended(1) -  all data field from LBS message
+--                       Tag and header are included,
+--        short(2)    -  only the LBS message header will
+--                       be included in the PS packets.
+
+cdot11LbsProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cdot11LbsProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the set of attributes for 
+        configuration of connection to remote LBS positioning
+        servers and tracking methods supported on the servers.
+        A positioning server may support LBS application at 
+        multiple UDP ports.  This wireless station serves as
+        a LBS agent to track the wireless client device.  It
+        receives multicast wireless packet sending by the 
+        client devices on specific multicast addresses and 
+        forward the information to the positioning server."
+    ::= { ciscoDot11LbsConfigInfo 1 }
+
+cdot11LbsProfileEntry OBJECT-TYPE
+    SYNTAX Cdot11LbsProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains parameters to configure
+        a LBS positioning server profile for this wireless
+        station."
+    INDEX { cdot11LbsProfileName }
+    ::= { cdot11LbsProfileTable 1 }
+
+Cdot11LbsProfileEntry ::= SEQUENCE {
+    cdot11LbsProfileName SnmpAdminString,
+    cdot11LbsServerAddressType InetAddressType,
+    cdot11LbsServerAddress InetAddress,
+    cdot11LbsServerUdpPort InetPortNumber,
+    cdot11LbsTrackMethod Cdot11LbsTrackMethodType,
+    cdot11LbsPsPacketType Cdot11LbsPsPacketType,
+    cdot11LbsTrackMulticast MacAddress,
+    cdot11LbsMatchChannel TruthValue,
+    cdot11LbsProfileRowStatus RowStatus
+    }
+
+cdot11LbsProfileName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..16))
+--    Rsyntax OCTET STRING(SIZE(1..16))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This is the name of LBS profile for configuration of
+        a connection to a LBS positioning server at a specific
+        address and UDP port."
+    ::= { cdot11LbsProfileEntry 1 }
+
+cdot11LbsServerAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the address type of the 
+        cdot11LbsServerAddress."
+    DEFVAL { ipv4 }
+    ::= { cdot11LbsProfileEntry 2 }
+
+cdot11LbsServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the address of the LBS positioning server.
+        The cdot11LbsServerAddressType specifies the 
+        type of this address."
+    ::= { cdot11LbsProfileEntry 3 }
+
+cdot11LbsServerUdpPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the UDP port of the LBS positioning server
+        used to receive LBS packets from this wireless
+        station."
+    ::= { cdot11LbsProfileEntry 4 }
+
+cdot11LbsTrackMethod OBJECT-TYPE
+    SYNTAX Cdot11LbsTrackMethodType
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           rssi(0)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This specifies the method used to detect the
+        location of the wireless client relative to the
+        position of this wireless station.  RSSI method
+        uses the strength of the received signals from
+        the wireless client devices to determine their 
+        positions."
+    DEFVAL { '80'h }
+    ::= { cdot11LbsProfileEntry 5 }
+
+cdot11LbsPsPacketType OBJECT-TYPE
+    SYNTAX Cdot11LbsPsPacketType
+--    Rsyntax INTEGER {
+--        extended(1),
+--        short(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This specifies the type of LBS packets sent to 
+        the LBS position server from this wireless station."
+    DEFVAL { extended }
+    ::= { cdot11LbsProfileEntry 6 }
+
+cdot11LbsTrackMulticast OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the multicast MAC destination address
+        of the LBS frames sending from the wireless 
+        clients to this wireless station."
+    DEFVAL { '014096000010'H }
+    ::= { cdot11LbsProfileEntry 7 }
+
+cdot11LbsMatchChannel OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object determines if this wireless station will
+        include LBS frames received in channels other than
+        the sender's channel in the RSSI measurement.  If the
+        value is 'true', this station will include only LBS 
+        frames matching the sender's channel in the RSSI
+        measurement.  If the value is 'false', all received
+        LBS frames will be included in the measurement."
+    DEFVAL { true }
+    ::= { cdot11LbsProfileEntry 8 }
+
+cdot11LbsProfileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This configures a new LBS positioning server for this
+        wireless station and modifies or deletes an existing 
+        positioning server configuration.
+        
+        Creation of rows must be done via 'createAndGo' and
+        with the cdot11LbsServerAddress and
+        cdot11LbsServerUdpPort set to the address and UDP
+        of the LBS positioning server.
+        
+        This object will become 'notInService' if the NMS 
+        successfully performs a multivarbind set for all 
+        required objects including this object while this
+        profile is not attached to any wireless interface
+        or a connection cannot be established to the LBS
+        positioning server.
+        
+        This object will become 'active' when this profile
+        is attached to at least one wireless interface via 
+        cdot11LbsProfInterfaceTable and a connection to the
+        LBS positioning server is successfully established. 
+        
+        Modification and deletion (via 'destroy') of rows can
+        be done when this object is 'active', or 
+        'notInService'.  Deletion of a row will remove the
+        corresponding entries for the same profile from the
+        cdot11LbsProfInterfaceTable."
+    ::= { cdot11LbsProfileEntry 9 }
+
+cdot11LbsProfInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cdot11LbsProfileInterfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table configures the Location Based Services
+        settings on the IEEE 802.11 radio interfaces of 
+        this device.                  
+        
+        This table has an expansion dependent relationship
+        on the cdot11LbsProfileTable.  This table uses the
+        ifIndex of interfaces of ifType ieee80211(71) as 
+        the expansion index."
+    ::= { ciscoDot11LbsConfigInfo 2 }
+
+cdot11LbsProfInterfaceEntry OBJECT-TYPE
+    SYNTAX Cdot11LbsProfileInterfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry indicates if the LBS client location 
+        tracking by a particular location positioning server
+        profile is enabled on an IEEE 802.11 interface."
+    INDEX { cdot11LbsProfileName, ifIndex }
+    ::= { cdot11LbsProfInterfaceTable 1 }
+
+Cdot11LbsProfileInterfEntry ::= SEQUENCE {
+    cdot11LbsProfInterfaceRowStatus RowStatus
+    }
+
+cdot11LbsProfInterfaceRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This configures and attaches a LBS profile to an 
+        IEEE 802.11 wireless LAN network interface or remove
+        a configured interface from the profile.
+        
+        Creation of rows must be done via 'createAndGo' and
+        specifying the cdot11LbsProfileName of an existing
+        profile and the ifIndex of an IEEE 802.11 interface. 
+        
+        This object will become 'active' when the profile is
+        attached to a network interface and a connection to the
+        LBS positioning server is successfully established. 
+        Otherwise, if this object will become 'notInService'.
+        
+        Modification and deletion (via 'destroy') of rows can
+        be done when this object is 'active' or 'notInService'.
+        
+        If all interfaces are removed from an 'active' profile,
+        the profile cdot11LbsProfileRowStatus will become
+        'notInService'."
+    ::= { cdot11LbsProfInterfaceEntry 1 }
+
+ciscoDot11LbsConfigGroup OBJECT IDENTIFIER ::= { ciscoDot11LbsMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Configurations for IEEE 802.11 Location Based
+--    Services.
+--  objects
+--    cdot11LbsServerAddressType, cdot11LbsServerAddress, 
+--    cdot11LbsServerUdpPort, cdot11LbsTrackMethod, 
+--    cdot11LbsPsPacketType, cdot11LbsTrackMulticast, 
+--    cdot11LbsMatchChannel, cdot11LbsProfileRowStatus, 
+--    cdot11LbsProfInterfaceRowStatus
+
+ciscoDot11LbsMIBCompliance OBJECT IDENTIFIER ::= { ciscoDot11LbsMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the 
+--    ciscoDot11LbsMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDot11LbsConfigGroup
+
+
+END
+

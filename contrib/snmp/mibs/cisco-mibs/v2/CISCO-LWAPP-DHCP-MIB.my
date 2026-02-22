@@ -1,0 +1,812 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DHCP-MIB.my :
+-- Light Weight Access Point Dynamic Host Configuration Protocol MIB
+-- June 2007, Gayathri Velayutham
+--   
+-- Copyright (c) 2012, 2013, 2017 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DHCP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    IpAddress,
+    Unsigned32,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoURLString
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappDhcpMIB MODULE-IDENTITY
+    LAST-UPDATED    "201704270000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+             Customer Service
+             Postal: 170 West Tasman Drive
+             San Jose, CA  95134
+             USA
+             Tel: +1 800 553-NETS
+
+             Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is used to manage Dynamic Host Configuration
+         Protocol (DHCP) related information on the devices 
+         operating as Central controllers, that terminate the 
+         Light Weight Access Point Protocol tunnel from Cisco 
+         Light-weight LWAPP Access Points.
+
+         The relationship between CC and the LWAPP APs
+         can be depicted as follows:
+ 
+         +......+     +......+     +......+           +......+
+         +      +     +      +     +      +           +      +
+         +  CC  +     +  CC  +     +  CC  +           +  CC  +
+         +      +     +      +     +      +           +      +
+         +......+     +......+     +......+           +......+
+         ..            .             .                 .
+         ..            .             .                 .
+         .  .            .             .                 .
+         .    .            .             .                 .
+         .      .            .             .                 .
+         .        .            .             .                 .
+         +......+ +......+     +......+      +......+          +......+
+         +      + +      +     +      +      +      +          +      +
+         +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+         +      + +      +     +      +      +      +          +      +
+         +......+ +......+     +......+      +......+          +......+
+         .              .             .                 .
+         .  .              .             .                 .
+         .    .              .             .                 .
+         .      .              .             .                 .
+         .        .              .             .                 .
+         +......+ +......+     +......+      +......+          +......+
+         +      + +      +     +      +      +      +          +      +
+         +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+         +      + +      +     +      +      +      +          +      +
+         +......+ +......+     +......+      +......+          +......+
+
+ 
+         The LWAPP tunnel exists between the controller and
+         the APs.  The MNs communicate with the APs through
+         the protocol defined by the 802.11 standard.
+
+         LWAPP APs, upon bootup, discover and join one of the
+         controllers and the controller pushes the configuration,
+         that includes the WLAN parameters, to the LWAPP APs.
+         The APs then encapsulate all the 802.11 frames from
+         wireless clients inside LWAPP frames and forward
+         the LWAPP frames to the controller.
+
+                            GLOSSARY
+
+         Access Point ( AP )
+
+         An entity that contains an 802.11 medium access
+         control ( MAC ) and physical layer ( PHY ) interface
+         and provides access to the distribution services via
+         the wireless medium for associated clients.  
+
+         LWAPP APs encapsulate all the 802.11 frames in
+         LWAPP frames and sends them to the controller to which
+         it is logically connected.
+
+         Central Controller ( CC )
+
+         The central entity that terminates the LWAPP protocol
+         tunnel from the LWAPP APs.  Throughout this MIB,
+         this entity also referred to as 'controller'. 
+
+         Light Weight Access Point Protocol ( LWAPP ) 
+
+         This is a generic protocol that defines the 
+         communication between the Access Points and the
+         Central Controller.
+
+         Mobile Node ( MN )
+
+         A roaming 802.11 wireless device in a wireless
+         network associated with an access point. Mobile Node,
+         Mobile Station(MS) and client are used interchangeably. 
+
+         REFERENCE
+
+         [1] Wireless LAN Medium Access Control ( MAC ) and
+         Physical Layer ( PHY ) Specifications.
+
+         [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+         Weight Access Point Protocol"
+    REVISION        "201704270000Z"
+    DESCRIPTION
+            "Updated the description of various objects."
+    REVISION        "201201310000Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+    ::= { ciscoMgmt 792 }
+
+
+ciscoLwappDhcpMIBNotif  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIB 0 }
+
+ciscoLwappDhcpMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIB 1 }
+
+ciscoLwappDhcpMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIB 2 }
+
+ciscoLwappDhcpGlobalConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIBObjects 1 }
+
+ciscoLwappDhcpStatsConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIBObjects 2 }
+
+ciscoLwappDhcpStats  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIBObjects 3 }
+
+ciscoLwappDhcpScopeStats OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIBObjects 4 }
+
+ciscoLwappDhcpMIBNotifObjects OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIBObjects 5 }
+
+
+-- *************************************************
+-- DHCP Global Config
+-- *************************************************
+
+cLDhcpClearAllStats OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies if the statistics of the DHCP servers
+             is cleared or not.
+             A 'true' value clears all the statistics of all the DHCP 
+             servers.
+             A 'false' value specifies that statistics of all the DHCP 
+             servers has not been cleared."
+    DEFVAL          { false } 
+    ::= { ciscoLwappDhcpGlobalConfig 1 }
+
+cLDhcpOpt82RemoteIdFormat OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        apMac(1),
+                        apMacSsid(2),
+                        apEthMac (3),
+	          	apNameSsid (4),
+     	           	apGroupName (5),
+     	                flexGroupName (6),
+     	                apLocation (7),
+     	                apMacVlanId (8),
+     	                apNameVlanId (9),
+     	                apEthMacSsid (10)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the format for RemoteId field
+             in DHCP option 82 of the controller.  
+             apMac (1) - The DHCP Option 82 RemoteID format is set to
+             ap-mac.  
+             apMacSsid(2) - The DHCP Option 82 RemoteID format is set
+             to apmac::SSID. 
+             apEthMac(3) - The DHCP Option 82 RemoteId format is set to
+             AP ethernet Mac address.  
+             apNameSsid(4) - The DHCP Option 82 RemoteID format is set 
+             to AP name - SSID. 
+             apGroupName(5) - The DHCP Option 82 RemoteID format is set
+             to AP group Name. 
+             flexGroupName(6) - The DHCP Option 82 RemoteID format is 
+             set to flex group Name.
+             apLocation(7) - The DHCP Option 82 RemoteID format is set
+             to AP location. 
+             apMacVlanId(8) - The DHCP Option 82 RemoteID format is set
+             to AP Mac vlan id. 
+             apNameVlanId(9) - The DHCP  Option 82 RemoteID format is 
+             set to AP Name vlan id. 
+             apEthMacSsid(10) - The DHCP  Option 82 RemoteID format is 
+             set to AP ethernet MAC SSID. "
+    DEFVAL          { apMac } 
+    ::= { ciscoLwappDhcpGlobalConfig 2 }
+
+cLDhcpClearAllDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the value of sysUpTime on the most
+             recent occasion at which any one or more of this DHCP 
+             server counters suffered a discontinuity. If no such 
+             discontinuities have occurred since the last 
+             re-initialization of the local management subsystem, 
+             then this object contains a zero value." 
+    ::= { ciscoLwappDhcpGlobalConfig 3 }
+    
+cLDhcpTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the time to wait for 
+             DHCP address assignment once the user associates."
+    ::= { ciscoLwappDhcpGlobalConfig  4 }
+
+cLDhcpOpt37RemoteIdFormat OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        apMac (1),
+                        apMacSsid (2),
+                        apEthMac (3),
+                        apNameSsid (4),
+                        apGroupName (5),
+                        flexGroupName (6),
+                        apLocation (7),
+                        apMacVlanId (8),
+                        apNameVlanId (9),
+                        apEthMacSsid (10)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object is specific to DHCP IPV6 and it 
+             specifies the format for RemoteId field
+             in DHCP option 37 of the controller.
+             apMac (1) - The DHCP Option 37 RemoteID format
+             is set to ap-mac. 
+             apMacSsid(2) - The DHCP Option 37 RemoteID format is set
+             to apmac::SSID.
+             apEthMac(3) - The DHCP Option 37 RemoteId format is set to
+             AP ethernet MAC address.
+             apNameSsid(4) - The DHCP Option 37 RemoteID format is set 
+             to AP name - SSID. 
+             apGroupName(5) - The DHCP Option 37 RemoteID format is set
+             to AP group Name. 
+             flexGroupName(6) - The DHCP Option 37 RemoteID format is 
+             set to flex group name.
+             apLocation(7) - The DHCP Option 37 RemoteID format is set 
+             to AP location.
+             apMacVlanId(8) - The DHCP Option 37 RemoteID format is set
+             to AP MAC vlan id.
+             apNameVlanId(9) - The DHCP Option 37 RemoteID format is 
+             set to AP Name vlan id.
+             apEthMacSsid(10) - The DHCP Option 37 RemoteID format is
+             set to AP ethernet MAC SSID."
+    DEFVAL         {apMac}
+    ::= { ciscoLwappDhcpGlobalConfig  5 }
+
+cLDhcpStatsConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLDhcpStatsConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains the configurable attributes for 
+             statistics of the DHCP servers, uniquely identified by IP
+             address.When DHCP server is configured for an interface or 
+             WLAN, the stats table will automatically get populated."
+    ::= { ciscoLwappDhcpStatsConfig 1 }
+
+cLDhcpStatsConfigEntry OBJECT-TYPE
+    SYNTAX          CLDhcpStatsConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry represents a DHCP server uniquely
+             identified by the IP address. An entry gets added to 
+             the table on configuring a DHCP server IP address and
+             deleted from the table when the address is deleted."
+    INDEX           {
+                        cLDhcpServerInetAddressType,
+                        cLDhcpServerInetAddress
+                    } 
+    ::= { cLDhcpStatsConfigTable 1 }
+
+CLDhcpStatsConfigEntry ::= SEQUENCE {
+        cLDhcpServerInetAddressType         InetAddressType,
+        cLDhcpServerInetAddress             InetAddress,
+        cLDhcpClearStats                    TruthValue,
+        cLDhcpClearDiscontinuityTime        TimeStamp
+}
+
+cLDhcpServerInetAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object represents the type of IP address of the
+             DHCP server." 
+    ::= { cLDhcpStatsConfigEntry 1 }
+
+cLDhcpServerInetAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object represents the IP address of the
+             DHCP server." 
+    ::= { cLDhcpStatsConfigEntry 2 }
+
+cLDhcpClearStats OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies if the statistics of the DHCP server
+             represented by the unique IP address is cleared or not. 
+             A 'true' value clears the statistics of the DHCP server
+             represented by the unique IP address. 
+             A 'false' value specifies that statistics of the DHCP 
+             server represented by the unique IP address is not 
+             cleared."
+    DEFVAL          {false}
+    ::= { cLDhcpStatsConfigEntry 3 }
+
+cLDhcpClearDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the value of sysUpTime on the most 
+             recent occasion at which this particular DHCP server
+             counter suffered a discontinuity. If no such 
+             discontinuities have occurred since the last 
+             re-initialization of the local management subsystem, then
+             this object contains a zero value." 
+    ::= { cLDhcpStatsConfigEntry 4 }
+ 
+
+
+cLDhcpStatsShowTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLDhcpStatsShowEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains various statistics of the DHCP servers, 
+             uniquely identified by IP address.When DHCP server is 
+             configured for an interface or WLAN, the stats table will
+             automatically get populated."
+    ::= { ciscoLwappDhcpStats 1 }
+
+cLDhcpStatsShowEntry OBJECT-TYPE
+    SYNTAX          CLDhcpStatsShowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry represents a DHCP server uniquely identified 
+             by the IP address."
+    INDEX           {
+                        cLDhcpServerInetAddressType,
+                        cLDhcpServerInetAddress
+                    } 
+    ::= { cLDhcpStatsShowTable 1 }
+
+CLDhcpStatsShowEntry ::= SEQUENCE {
+        cLDhcpProxy                     TruthValue,
+        cLDhcpDiscoverPackets           Counter32,
+        cLDhcpRequestPackets            Counter32,
+        cLDhcpDeclinePackets            Counter32,
+        cLDhcpInformPackets             Counter32,
+        cLDhcpReleasePackets            Counter32,
+        cLDhcpReplyPackets              Counter32,
+        cLDhcpOfferPackets              Counter32,
+        cLDhcpAckPackets                Counter32,
+        cLDhcpNakPackets                Counter32,
+        cLDhcpTxFailures                Counter32,
+        cLDhcpLastResponseTime          TimeStamp,
+        cLDhcpLastRequestTime           TimeStamp,
+        cLDhcpRxDiscoverPackets         Counter32
+}
+
+cLDhcpProxy OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies whether the proxy cLDhcpProxy is
+             enabled or disabled.
+             A 'true' value indicates that the cLDhcpProxy is enabled.
+             A 'false' value indicates that the cLDhcpProxy is disabled
+             ." 
+    ::= { cLDhcpStatsShowEntry 1 }
+
+cLDhcpDiscoverPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP discover
+             packets sent by the controller." 
+    ::= { cLDhcpStatsShowEntry 2 }
+
+cLDhcpRequestPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP request packets
+             sent by the controller." 
+    ::= { cLDhcpStatsShowEntry 3 }
+
+cLDhcpDeclinePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP decline packets
+             received by the controller." 
+    ::= { cLDhcpStatsShowEntry 4 }
+
+cLDhcpInformPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP inform packets
+             sent by the controller." 
+    ::= { cLDhcpStatsShowEntry 5 }
+
+cLDhcpReleasePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP release packets
+             sent by the controller." 
+    ::= { cLDhcpStatsShowEntry 6 }
+
+cLDhcpReplyPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP reply packets
+             received by the controller." 
+    ::= { cLDhcpStatsShowEntry 7 }
+
+cLDhcpOfferPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP offer packets 
+             received by the controller." 
+    ::= { cLDhcpStatsShowEntry 8 }
+
+cLDhcpAckPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of Ack packets
+             sent by the controller." 
+    ::= { cLDhcpStatsShowEntry 9 }
+
+cLDhcpNakPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of Nak packets
+             sent by the controller." 
+    ::= { cLDhcpStatsShowEntry 10 }
+
+cLDhcpTxFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of transmission
+             failures received by the controller." 
+    ::= { cLDhcpStatsShowEntry 11 }
+
+cLDhcpLastResponseTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the time at which the last
+             DHCP response was received by the controller." 
+    ::= { cLDhcpStatsShowEntry 12 }
+
+cLDhcpLastRequestTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the time at which the last
+             DHCP request was sent by the controller." 
+    ::= { cLDhcpStatsShowEntry 13 }
+ 
+cLDhcpRxDiscoverPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the number of DHCP discover packets
+             received by the controller."
+    ::= { cLDhcpStatsShowEntry  14 }
+
+--********************************************************************
+-- cLDhcpScopeStatsTable - scope statistics
+--********************************************************************
+cLDhcpScopeStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLDhcpScopeStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains various statistics of each scope
+             for the DHCP Server."
+    ::= { ciscoLwappDhcpScopeStats 1 }
+
+cLDhcpScopeStatsEntry OBJECT-TYPE
+    SYNTAX          CLDhcpScopeStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry represents the statistics of DHCP scope."
+    INDEX           { cLDhcpScopeIndex }
+    ::= { cLDhcpScopeStatsTable 1 }
+
+CLDhcpScopeStatsEntry ::=
+    SEQUENCE {
+        cLDhcpScopeIndex            Unsigned32,
+        cLDhcpScopeAddressPoolUsage Unsigned32,
+        cLDhcpScopeName             SnmpAdminString,
+        cLDhcpScopeAllocatedIP      Counter32,
+        cLDhcpScopeAvailableIP      Counter32,
+        cLDhcpScopeDiscoverPkts     Counter32,
+        cLDhcpScopeAckPkts          Counter32,
+        cLDhcpScopeOfferPkts        Counter32,
+        cLDhcpScopeTotalAckPkts     Counter32,
+        cLDhcpScopeRequestPkts      Counter32,
+        cLDhcpScopeRequestGoodPkts  Counter32
+    }
+
+cLDhcpScopeIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object represents the DHCP scope identifier."
+    ::= { cLDhcpScopeStatsEntry 1 }
+
+
+cLDhcpScopeAddressPoolUsage OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the address pool usage percentage
+             of DHCP scope."
+    ::= { cLDhcpScopeStatsEntry 2 }
+
+cLDhcpScopeName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the name of DHCP scope."
+    ::= { cLDhcpScopeStatsEntry 3 }
+
+cLDhcpScopeAllocatedIP   OBJECT-TYPE
+  	SYNTAX          Counter32
+  	MAX-ACCESS      read-only
+  	STATUS          current   
+  	DESCRIPTION
+            "This object represents the number of IP address allocated
+             per DHCP pool."
+	::= { cLDhcpScopeStatsEntry  4 }
+	
+cLDhcpScopeAvailableIP   OBJECT-TYPE
+  	SYNTAX          Counter32
+  	MAX-ACCESS      read-only
+  	STATUS          current   
+  	DESCRIPTION
+           "This object represents the number of IP address available
+            per DHCP pool."
+	::= { cLDhcpScopeStatsEntry  5 }
+	
+cLDhcpScopeDiscoverPkts     OBJECT-TYPE
+	SYNTAX          Counter32
+	UNITS           "packets"
+	MAX-ACCESS      read-only
+	STATUS          current   
+	DESCRIPTION
+            "This object represents the number of DHCP discover
+             packets received per DHCP pool."
+	::= { cLDhcpScopeStatsEntry  6 }
+
+cLDhcpScopeAckPkts    OBJECT-TYPE
+    SYNTAX          Counter32
+  	UNITS           "packets"
+  	MAX-ACCESS      read-only
+  	STATUS          current   
+  	DESCRIPTION
+            "This object represents the number of Ack packets received.
+             This excludes renewing and rebinding packets per DHCP 
+             pool."
+	::= { cLDhcpScopeStatsEntry  7 }
+
+cLDhcpScopeOfferPkts    OBJECT-TYPE
+	SYNTAX          Counter32
+	UNITS           "packets"
+	MAX-ACCESS      read-only
+	STATUS          current   
+	DESCRIPTION
+            "This object represents the number of DHCP offer packets 
+             received per DHCP pool."
+       ::= { cLDhcpScopeStatsEntry  8 }
+
+cLDhcpScopeTotalAckPkts    OBJECT-TYPE
+    SYNTAX          Counter32
+  	UNITS           "packets"
+  	MAX-ACCESS      read-only
+  	STATUS          current   
+  	DESCRIPTION
+            "This object represents the total number of Ack packets
+             received per DHCP pool."
+       ::= { cLDhcpScopeStatsEntry  9 }
+
+cLDhcpScopeRequestPkts    OBJECT-TYPE
+	SYNTAX          Counter32
+	UNITS           "packets"
+	MAX-ACCESS      read-only
+	STATUS          current   
+	DESCRIPTION
+            "This object represents the number of DHCP request
+             packets received per DHCP pool."
+	::= { cLDhcpScopeStatsEntry  10 }
+
+cLDhcpScopeRequestGoodPkts    OBJECT-TYPE
+	SYNTAX          Counter32
+	UNITS           "packets"
+	MAX-ACCESS      read-only
+	STATUS          current   
+	DESCRIPTION
+            "This object represents the number of DHCP request
+             packets which have been handled successfully per DHCP
+             pool."
+	::= { cLDhcpScopeStatsEntry  11 }
+
+--********************************************************************
+-- *  Notifications
+--********************************************************************
+cLDhcpTrapSet OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents whether this trap is enabled or
+             disabled.
+             A value of 'true' indicates that DHCP trap is enabled
+             A value of 'false' indicates that DHCP trap is disabled."
+    ::= { ciscoLwappDhcpMIBNotifObjects 1 }
+
+--********************************************************************
+-- *  Notifications
+--********************************************************************
+ciscoLwappDhcpScopeAddressExhaust NOTIFICATION-TYPE
+    OBJECTS {
+                cLDhcpScopeName,
+                cLDhcpTrapSet
+            }
+    STATUS      current
+    DESCRIPTION
+            "This notification will be sent whenever the DHCP Scope
+             has no IP address available, with cLDhcpTrapSet set to 
+             true. When the clients released an IP address lately, this
+             notification is sent with cLDhcpTrapSet set to false."
+    ::= { ciscoLwappDhcpMIBNotif 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappDhcpMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIBConform 1 }
+
+ciscoLwappDhcpMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappDhcpMIBConform 2 }
+
+
+ciscoLwappDhcpMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+            "The compliance statement for the SNMP entities that
+             implement the ciscoLwappDhcpMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappDhcpMIBConfigGroup }
+
+    OBJECT          cLDhcpClearAllStats
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Create/delete/modify access is not required."
+
+    OBJECT          cLDhcpOpt82RemoteIdFormat
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Create/delete/modify access is not required."
+
+    OBJECT          cLDhcpClearStats
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Create/delete/modify access is not required."
+
+    OBJECT          cLDhcpProxy
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Create/delete/modify access is not required."
+
+    OBJECT          cLDhcpOpt37RemoteIdFormat
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Create/delete/modify access is not required."
+    ::= { ciscoLwappDhcpMIBCompliances 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappDhcpMIBConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLDhcpClearAllStats,
+                        cLDhcpOpt82RemoteIdFormat,
+                        cLDhcpClearAllDiscontinuityTime,
+			cLDhcpTimeout,
+                        cLDhcpOpt37RemoteIdFormat,
+                        cLDhcpClearStats,
+                        cLDhcpClearDiscontinuityTime,
+                        cLDhcpProxy,
+                        cLDhcpDiscoverPackets,
+                        cLDhcpRequestPackets,
+                        cLDhcpDeclinePackets,
+                        cLDhcpInformPackets,
+                        cLDhcpReleasePackets,
+                        cLDhcpReplyPackets,
+                        cLDhcpOfferPackets,
+                        cLDhcpAckPackets,
+                        cLDhcpNakPackets,
+                        cLDhcpTxFailures,
+                        cLDhcpLastResponseTime,
+                        cLDhcpLastRequestTime
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This collection of objects specifies the
+             parameters for DHCP."
+    ::= { ciscoLwappDhcpMIBGroups 1 }
+
+END

@@ -1,0 +1,51 @@
+Examples of how to limit snmp access.
+
+Access lists and snmp
+ 
+Let anyone read with any community string:
+ 
+  snmp-server community
+ 
+Let a restricted list read with any community string:
+ 
+  snmp-server community
+  snmp-server access-list <N>
+  access-list <N> permit <ip address> <mask>
+  access-list <N> permit <ip address> <mask>
+ 
+  N is from 1 to 99
+ 
+Let a restricted list read with any community string
+Let anyone read with a good community string
+ 
+  snmp-server community
+  snmp-server access-list <N>
+  snmp-server community <community-string> RO
+  access-list <N> permit <ip address> <mask>
+  access-list <N> permit <ip address> <mask>
+ 
+  N is from 1 to 99
+ 
+Let a restricted list read with any community string
+Let a restricted list read with a good community string
+ 
+  snmp-server community
+  snmp-server access-list <N>
+  snmp-server community <community-string> RO <X>
+  access-list <N> permit <ip address> <mask>
+  access-list <N> permit <ip address> <mask>
+  access-list <X> permit <ip address> <mask>
+  access-list <X> permit <ip address> <mask>
+ 
+  N and X are from 1 to 99
+ 
+Let anyone read or write with a good community string
+ 
+  snmp-server community <community-string> RW 
+ 
+Let a restricted list read or write with a good community string
+ 
+  snmp-server community <community-string> RW <Y>
+  access-list <Y> permit <ip address> <mask>
+  access-list <Y> permit <ip address> <mask>
+

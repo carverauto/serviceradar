@@ -1,0 +1,338 @@
+-- MIB file created 24-Jul-2007 09:42:38, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-HTTP-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-HTTP-STATS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString
+            FROM SNMPv2-TC-v1
+    EncryptionAlgorithm
+            FROM ALTIGA-SESSION-STATS-MIB
+    alStatsHttp, alHttpGroup
+            FROM ALTIGA-MIB
+    alHttpMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge, IpAddress, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaHttpStatsMibModule OBJECT IDENTIFIER ::= { alHttpMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga HTTP Statistics MIB models counters and objects that are 
+--     of management interest for HTTP. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       HTTP:       HyperText Transfer Protocol 
+--    
+--       MIB:        Management Information Base 
+--    
+--       TCP:        Transmission Control Protocol 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsHttpGlobal OBJECT IDENTIFIER ::= { alStatsHttp 1 }
+altigaHttpStatsMibConformance OBJECT IDENTIFIER ::= { altigaHttpStatsMibModule 1 }
+altigaHttpStatsMibCompliances OBJECT IDENTIFIER ::= { altigaHttpStatsMibConformance 1 }
+
+alHttpStatsOctetsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets sent."
+    ::= { alStatsHttpGlobal 1 }
+
+alHttpStatsOctetsRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received."
+    ::= { alStatsHttpGlobal 2 }
+
+alHttpStatsPacketsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets."
+    ::= { alStatsHttpGlobal 3 }
+
+alHttpStatsPacketsRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets received."
+    ::= { alStatsHttpGlobal 4 }
+
+alHttpStatsActiveConnections OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of active TCP connections."
+    ::= { alStatsHttpGlobal 5 }
+
+alHttpStatsMaxConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active TCP connections that existed at one any time."
+    ::= { alStatsHttpGlobal 6 }
+
+alHttpStatsActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of active sessions."
+    ::= { alStatsHttpGlobal 7 }
+
+alHttpStatsMaxSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active sessions that existed at one any time."
+    ::= { alStatsHttpGlobal 8 }
+
+alHttpStatsTotalConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of TCP connections established."
+    ::= { alStatsHttpGlobal 9 }
+
+alHttpStatsTotalSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of sessions established."
+    ::= { alStatsHttpGlobal 10 }
+
+alHttpStatsSessionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlHttpStatsSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active HTTP sessions."
+    ::= { alStatsHttp 2 }
+
+alHttpStatsSessionEntry OBJECT-TYPE
+    SYNTAX AlHttpStatsSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alHttpStatsSessionTable."
+    INDEX { alHttpStatsSessionIndex }
+    ::= { alHttpStatsSessionTable 1 }
+
+AlHttpStatsSessionEntry ::= SEQUENCE {
+    alHttpStatsSessionIndex INTEGER,
+    alHttpStatsSessionName DisplayString,
+    alHttpStatsSessionIpAddr IpAddress,
+    alHttpStatsSessionStartTime TimeTicks,
+    alHttpStatsSessionLoginTime Gauge,
+    alHttpStatsSessionEncr EncryptionAlgorithm,
+    alHttpStatsSessionOctetsSent Counter,
+    alHttpStatsSessionOctetsRcvd Counter,
+    alHttpStatsSessionPacketsSent Counter,
+    alHttpStatsSessionPacketsRcvd Counter,
+    alHttpStatsSessionActiveConnections Gauge,
+    alHttpStatsSessionMaxConnections Counter,
+    alHttpStatsSessionTotalConnections Counter
+    }
+
+alHttpStatsSessionIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Index of this session."
+    ::= { alHttpStatsSessionEntry 1 }
+
+alHttpStatsSessionName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the administrator using this session."
+    ::= { alHttpStatsSessionEntry 2 }
+
+alHttpStatsSessionIpAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote IP address of this session.."
+    ::= { alHttpStatsSessionEntry 3 }
+
+alHttpStatsSessionStartTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Login time of this session."
+    ::= { alHttpStatsSessionEntry 4 }
+
+alHttpStatsSessionLoginTime OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "time_t value of the concentrator at the start of this session."
+    ::= { alHttpStatsSessionEntry 5 }
+
+alHttpStatsSessionEncr OBJECT-TYPE
+    SYNTAX EncryptionAlgorithm
+--    Rsyntax INTEGER {
+--        none(1),
+--        des56(2),
+--        des40(3),
+--        des168(4),
+--        rc4Stateless40(5),
+--        rc4Statefull40(6),
+--        rc4Stateless128(7),
+--        rc4Statefull128(8),
+--        aes128(9),
+--        aes192(10),
+--        aes256(11),
+--        sslv3(64),
+--        sslv3des56(66),
+--        sslv3des168(68),
+--        sslv3rc4Statefull128(72),
+--        tlsv1(128),
+--        tlsv1des56(130),
+--        tlsv1des168(132),
+--        tlsv1rc4Statefull128(136)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of encryption algorithm used for this session."
+    ::= { alHttpStatsSessionEntry 6 }
+
+alHttpStatsSessionOctetsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of octets sent during this session."
+    ::= { alHttpStatsSessionEntry 7 }
+
+alHttpStatsSessionOctetsRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of octets received during this session."
+    ::= { alHttpStatsSessionEntry 8 }
+
+alHttpStatsSessionPacketsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets sent during this session."
+    ::= { alHttpStatsSessionEntry 9 }
+
+alHttpStatsSessionPacketsRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets received during this session."
+    ::= { alHttpStatsSessionEntry 10 }
+
+alHttpStatsSessionActiveConnections OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of active TCP connections for this session."
+    ::= { alHttpStatsSessionEntry 11 }
+
+alHttpStatsSessionMaxConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of active TCP connections for this  
+                session at any one time."
+    ::= { alHttpStatsSessionEntry 12 }
+
+alHttpStatsSessionTotalConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of TCP connections for this session."
+    ::= { alHttpStatsSessionEntry 13 }
+
+altigaHttpStatsGroup OBJECT IDENTIFIER ::= { alHttpGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for HTTP statistics.
+--  objects
+--    alHttpStatsOctetsSent, alHttpStatsOctetsRcvd, 
+--    alHttpStatsPacketsSent, alHttpStatsPacketsRcvd, 
+--    alHttpStatsActiveConnections, alHttpStatsMaxConnections, 
+--    alHttpStatsActiveSessions, alHttpStatsMaxSessions, 
+--    alHttpStatsTotalConnections, alHttpStatsTotalSessions, 
+--    alHttpStatsSessionIndex, alHttpStatsSessionName, 
+--    alHttpStatsSessionIpAddr, alHttpStatsSessionStartTime, 
+--    alHttpStatsSessionLoginTime, alHttpStatsSessionEncr, 
+--    alHttpStatsSessionOctetsSent, alHttpStatsSessionOctetsRcvd, 
+--    alHttpStatsSessionPacketsSent, alHttpStatsSessionPacketsRcvd, 
+--    alHttpStatsSessionActiveConnections, 
+--    alHttpStatsSessionMaxConnections, 
+--    alHttpStatsSessionTotalConnections
+
+altigaHttpStatsMibCompliance OBJECT IDENTIFIER ::= { altigaHttpStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga HTTP Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaHttpStatsGroup
+
+
+END
+

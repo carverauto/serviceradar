@@ -1,0 +1,162 @@
+-- MIB file created 25-Mar-2004 13:44:20, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-PERSISTENT-XGCP-EVENTS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-PERSISTENT-XGCP-EVENTS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanPersistentXgcpEventsMIB OBJECT IDENTIFIER ::= { ciscoWan 18 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200310200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--        Postal: 170 W Tasman Drive 
+--                San Jose, CA 95134 
+--                USA 
+--    
+--                Tel: +1 800 553-NETS 
+--    
+--        E-mail: cs-voice@cisco.com
+--  Descr
+--    The MIB module for managing CA(Call Agent) events. 
+--  RevDate
+--    200310200000Z
+--  RevDescr
+--    Update descriptions in the MIB. 
+
+ciscoWanPersistentXgcpEventsMIBObjects OBJECT IDENTIFIER ::= { ciscoWanPersistentXgcpEventsMIB 1 }
+persistentXgcpEvents OBJECT IDENTIFIER ::= { ciscoWanPersistentXgcpEventsMIBObjects 1 }
+persistentXgcpEventsMIBConformance OBJECT IDENTIFIER ::= { ciscoWanPersistentXgcpEventsMIB 2 }
+persistentXgcpEventsMIBCompliances OBJECT IDENTIFIER ::= { persistentXgcpEventsMIBConformance 1 }
+persistentXgcpEventsMIBGroups OBJECT IDENTIFIER ::= { persistentXgcpEventsMIBConformance 2 }
+
+persistentXgcpEventsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF PersistentXgcpEventsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The persistentXgcpEventsTable contains 
+         configuration information about xGCP events 
+         which involve a persistent notification request. "
+    ::= { persistentXgcpEvents 1 }
+
+persistentXgcpEventsEntry OBJECT-TYPE
+    SYNTAX PersistentXgcpEventsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the persistentXgcpEventsTable. Each 
+         entry consists of persistentXgcpEventNum - Index 
+         to the persistentXgcpEventsTable.  
+        
+         persistentXgcpEventName - Name of the xGCP 
+         event that needs persistent notification 
+         to the call agent for example 't/hd'. 
+        
+         persistentXgcpEventRowStatus -This indicates 
+         whether an xGCP event is added in this entry 
+         or not. 
+        
+         This table is not created implicitly. The user 
+         can add xGCP event or delete an xGCP event. "
+    INDEX { persistentXgcpEventNum }
+    ::= { persistentXgcpEventsTable 1 }
+
+PersistentXgcpEventsEntry ::= SEQUENCE {
+    persistentXgcpEventNum INTEGER,
+    persistentXgcpEventName SnmpAdminString,
+    persistentXgcpEventRowStatus RowStatus
+    }
+
+persistentXgcpEventNum OBJECT-TYPE
+    SYNTAX INTEGER(1..16)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is a index to persistentXgcpEventsTable. "
+    ::= { persistentXgcpEventsEntry 1 }
+
+persistentXgcpEventName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object holds the name of the event 
+         for example 't/hd' or 't/hu'. "
+    ::= { persistentXgcpEventsEntry 2 }
+
+persistentXgcpEventRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows to add or delete an entry.  
+         Modifying an entry is not allowed. 
+        
+         An entry may be created using the 'createAndGo' option. 
+         When the row is successfully created, the RowStatus would 
+         be set to 'active' by the agent. An entry may be deleted 
+         by setting the RowStatus to 'destroy'. Other options 
+         such as `CreateAndWait', 'notInService', 'notReady' will 
+         not be used. 
+        
+         For creating an entry the persistentXgcpEventNum and  
+         persistentXgcpEventName must be provided. 
+        
+         This object tells call control whether or not a particular  
+         xGCP event is added or not, based on this the call control  
+         module will decide  whether or not to notify (NTFY) call  
+         agent when a particular xGCP event is received, 
+         without waiting for CA to request for that event. "
+    ::= { persistentXgcpEventsEntry 3 }
+
+persistentXgcpEventsMIBGroup OBJECT IDENTIFIER ::= { persistentXgcpEventsMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains objects related to 
+--     configuration of persistent xGCP events. 
+--  objects
+--    persistentXgcpEventName, persistentXgcpEventRowStatus
+
+persistentXgcpEventsMIBCompliance OBJECT IDENTIFIER ::= { persistentXgcpEventsMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--     The complaince statement for persistent Xgcp events 
+--      which implement persistentXgcpEvents MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    persistentXgcpEventsMIBGroup
+
+
+END
+

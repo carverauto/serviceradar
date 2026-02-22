@@ -1,0 +1,137 @@
+-- MIB created 9/10/96 15:50:37, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-ATM-SWITCH-ADDR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ATM-SWITCH-ADDR-MIB.my"
+
+IMPORTS
+    Integer32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    RowStatus
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoAtmSwAddrMIB OBJECT IDENTIFIER ::= { ciscoMgmt 51 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9601100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    ATM Switch address MIB
+--  RevDate
+--    9601100000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoAtmSwAddrMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmSwAddrMIB 1 }
+ciscoAtmSwAddrMIBConformance OBJECT IDENTIFIER ::= { ciscoAtmSwAddrMIB 3 }
+ciscoAtmSwAddrMIBCompliances OBJECT IDENTIFIER ::= { ciscoAtmSwAddrMIBConformance 1 }
+ciscoAtmSwAddrMIBGroups OBJECT IDENTIFIER ::= { ciscoAtmSwAddrMIBConformance 2 }
+
+AtmAddr ::= OCTET STRING(SIZE(13 | 20))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The ATM address used by the network entity.  The
+--    address types are: network prefix (13 octets), and NSAP (20
+--    octets).
+
+ciscoAtmSwAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoAtmSwAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains an address list on a per switch
+        basis."
+    ::= { ciscoAtmSwAddrMIBObjects 1 }
+
+ciscoAtmSwAddrEntry OBJECT-TYPE
+    SYNTAX CiscoAtmSwAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the ciscoAtmSwAddrTable."
+    INDEX { ciscoAtmSwAddrIndex }
+    ::= { ciscoAtmSwAddrTable 1 }
+
+CiscoAtmSwAddrEntry ::= SEQUENCE {
+    ciscoAtmSwAddrIndex Integer32,
+    ciscoAtmSwAddrAddress AtmAddr,
+    ciscoAtmSwAddrRowStatus RowStatus
+    }
+
+ciscoAtmSwAddrIndex OBJECT-TYPE
+    SYNTAX Integer32(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A sequence number when address gets created.
+        1 is the primary address. This is dense table and
+        this index will be re-sequenced when a entry get
+        deleted and it can only create new entry when append
+        in the end of table."
+    ::= { ciscoAtmSwAddrEntry 1 }
+
+ciscoAtmSwAddrAddress OBJECT-TYPE
+    SYNTAX AtmAddr
+--    Rsyntax OCTET STRING(SIZE(13 | 20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A valid address for a given switch."
+    ::= { ciscoAtmSwAddrEntry 2 }
+
+ciscoAtmSwAddrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create and delete rows in the
+        ciscoAtmSwAddrTable."
+    ::= { ciscoAtmSwAddrEntry 3 }
+
+ciscoAtmSwAddrMIBGroup OBJECT IDENTIFIER ::= { ciscoAtmSwAddrMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  objects
+--    ciscoAtmSwAddrAddress, ciscoAtmSwAddrRowStatus
+
+ciscoAtmSwAddrMIBCompliance OBJECT IDENTIFIER ::= { ciscoAtmSwAddrMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Cisco ATM switch address
+--     group.
+--  Module
+--    >>current<<
+
+
+END
+

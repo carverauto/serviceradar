@@ -1,0 +1,110 @@
+-- *****************************************************************
+-- ciscoWanModuleCapabilities MIB
+--
+-- AGENT-CAPABILITIES mib for CISCO-WAN-MODULE-MIB 
+--
+-- March 2002, Subra Hegde
+--
+-- Copyright(c) 2002 by Cisco Systems,Inc.
+--
+-- *****************************************************************
+
+CISCO-WAN-MODULE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+            FROM SNMPv2-SMI
+        AGENT-CAPABILITIES 
+            FROM SNMPv2-CONF
+        ciscoAgentCapability
+            FROM CISCOWAN-SMI;
+
+ciscoWanModuleCapability MODULE-IDENTITY
+    LAST-UPDATED "200203060000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "    Cisco Systems
+             Customer Service
+
+        Postal: 170 W Tasman Drive
+             San Jose, CA  95134
+             USA
+
+             Tel: +1 800 553-NETS
+
+        E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The Agent Capabilities for CISCO-WAN-MODULE-MIB.
+
+        - The ciscoWanModuleCapabilityV2R00 is for
+          ATM Switch Service Module(AXSM).
+
+        - The ciscoWanModuleCapabilityV21R60 is for
+          Enhanced ATM Switch Service Module(AXSM-E)."
+
+    REVISION "200203060000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 99999 }
+
+ciscoWanModuleCapabilityV2R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "MGX8850 Release 2.0.00"
+    STATUS           current
+    DESCRIPTION      "CISCO-WAN-MODULE-MIB Capabilities
+                     for ATM Switch Service Module(AXSM)."
+
+    SUPPORTS CISCO-WAN-MODULE-MIB
+    INCLUDES { cwmConfigGroup, cwmStatConfigGroup }
+
+     VARIATION  cwmIngressSCTFileName
+     ACCESS     not-implemented
+     DESCRIPTION "Not Supported."
+
+     VARIATION   cwmAutoLineDiagEnable
+     ACCESS      not-implemented
+     DESCRIPTION "Not supported."
+
+     VARIATION   cwmStatBucketInterval
+     DESCRIPTION "Always defaults to value fifteen(15)."
+
+     VARIATION   cwmStatCollectionInterval
+     ACCESS      not-implemented
+     DESCRIPTION "Not supported."
+
+     VARIATION   cwmStatCollectionStatus
+     ACCESS      not-implemented
+     DESCRIPTION "Not supported."
+
+     VARIATION   cwmStatCurrentLevel
+     ACCESS      not-implemented
+     DESCRIPTION "Not supported."
+
+     VARIATION   cwmStatLevelConfigured
+     ACCESS      not-implemented
+     DESCRIPTION "Not supported."
+
+     VARIATION   cwmStatMaximumConnections
+     ACCESS      not-implemented
+     DESCRIPTION "Not supported."
+
+    ::= { ciscoWanModuleCapability 1 }
+
+ciscoWanModuleCapabilityV21R60 AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "MGX8850 Release 2.1.60"
+    STATUS            current
+    DESCRIPTION      "CISCO-WAN-MODULE-MIB Capabilities
+                     for Enhanced AXSM(AXSM-E) module."
+
+    SUPPORTS CISCO-WAN-MODULE-MIB
+    INCLUDES { cwmConfigGroup, cwmStatConfigGroup }
+
+     VARIATION  cwmIngressSCTFileName
+     ACCESS     not-implemented
+     DESCRIPTION "Not Supported."
+
+     VARIATION  cwmStatCollectionStatus
+     ACCESS     not-implemented
+     DESCRIPTION "Not Supported."
+
+    ::= { ciscoWanModuleCapability 2 }
+END

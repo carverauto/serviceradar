@@ -1,0 +1,218 @@
+-- *****************************************************************
+-- CISCO-SNMP-COMMUNITY-CAPABILITY.my:
+-- Cisco SNMP-COMMUNITY-MIB AGENT-CAPABILITIES
+--   
+-- July 2003, Binh Le
+--   
+-- Copyright (c) 2003-2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SNMP-COMMUNITY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSnmpCommunityCapability MODULE-IDENTITY
+    LAST-UPDATED    "200808040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com, cs-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        SNMP-COMMUNITY-MIB."
+    REVISION        "200808040000Z"
+    DESCRIPTION
+        "Added capability statement
+        cSnmpCommunityCapc4710aceVA1R700 for ACE 4710 
+        Application Control Engine Appliance."
+    REVISION        "200603290000Z"
+    DESCRIPTION
+        "Added capability statement
+        cSnmpCommunityCapACSWV03R000 
+        for Application Control Engine (ACE).
+
+        Updated the conformance group name for 
+        cSnmpCommunityCapCatOSV06R0301 from 
+        snmpCommunityGroup to snmpCommunityTableGroup
+        since the new version of SNMP-COMMUNITY-MIB 
+        (RFC3584) has changed the name to avoid conflicts 
+        with SNMPv2-MIB."
+    REVISION        "200401300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 318 }
+
+
+
+cSnmpCommunityCapCatOSV06R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 6.3(1)."
+    STATUS          current
+    DESCRIPTION
+        "SNMP-COMMUNITY-MIB capabilities."
+
+    SUPPORTS        SNMP-COMMUNITY-MIB
+    INCLUDES        { snmpCommunityTableGroup }
+    VARIATION       snmpCommunityContextEngineID
+    ACCESS          read-only
+    DESCRIPTION
+        "Default engineID is used, users are not
+        allowed to change the value."
+
+    VARIATION       snmpCommunityName
+    SYNTAX          OCTET STRING (SIZE (0..20))
+    DESCRIPTION
+        "Maximum length allowed is 20 characters."
+
+    VARIATION       snmpCommunityStorageType
+    SYNTAX          INTEGER  {
+                        volatile(2),
+                        nonVolatile(3),
+                        readOnly(5)
+                    }
+    DESCRIPTION
+        "Only support volatile(2), nonVolatile(3)
+        and readOnly(5)."
+
+    VARIATION       snmpTargetAddrMMS
+    SYNTAX          Integer32 (0 ..0 |  484..1300)
+    DESCRIPTION
+        "Maximum message size allowed is 1300."
+
+    VARIATION       snmpTargetAddrTMask
+    SYNTAX          OCTET STRING (SIZE (0 ..0 |  6..6))
+    DESCRIPTION
+        "Length 0 or same length as the corresponding
+        instance of snmpTargetAddrTAddress."
+
+    ::= { ciscoSnmpCommunityCapability 1 }
+
+cSnmpCommunityCapACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "SNMP-COMMUNITY-MIB capabilities."
+
+    SUPPORTS        SNMP-COMMUNITY-MIB
+    INCLUDES        { snmpCommunityTableGroup }
+    VARIATION       snmpCommunityName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunitySecurityName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityContextEngineID
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityContextName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityTransportTag
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpTargetAddrTMask
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpTargetAddrMMS
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    ::= { ciscoSnmpCommunityCapability 2 }
+
+cSnmpCommunityCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                    for ACE 4710 Application Control Engine 
+                    Appliance"
+    STATUS          current
+    DESCRIPTION
+        "SNMP-COMMUNITY-MIB capabilities."
+
+    SUPPORTS        SNMP-COMMUNITY-MIB
+    INCLUDES        { snmpCommunityTableGroup }
+    VARIATION       snmpCommunityName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunitySecurityName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityContextEngineID
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityContextName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityTransportTag
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpCommunityStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpTargetAddrTMask
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       snmpTargetAddrMMS
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    ::= { ciscoSnmpCommunityCapability 3 }
+
+END

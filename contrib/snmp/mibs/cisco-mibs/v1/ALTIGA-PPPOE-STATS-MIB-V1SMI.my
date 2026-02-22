@@ -1,0 +1,337 @@
+-- MIB file created 24-Jul-2007 09:42:38, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-PPPOE-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-PPPOE-STATS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, MacAddress
+            FROM SNMPv2-TC-v1
+    alStatsPPPoE, alPPPoEGroup
+            FROM ALTIGA-MIB
+    alPPPoEMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaPPPoEStatsMibModule OBJECT IDENTIFIER ::= { alPPPoEMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200707110000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga PPPoE Statistics MIB models counters and objects that are
+--     of management interest for PPPoE.
+--    
+--     Acronyms
+--     The following acronyms are used in this document:
+--    
+--       MIB:        Management Information Base
+--    
+--       PADI:       PPPoE Active Discovery Initiation
+--    
+--       PADO:       PPPoE Active Discovery Offer
+--    
+--       PADS:       PPPoE Active Discovery Session-confirmation
+--    
+--       PADT:       PPPoE Active Discovery Terminate
+--    
+--       PPPoE:      Point-to-Point Protocol over Ethernet
+--    
+--  RevDate
+--    200707110000Z
+--  RevDescr
+--    Added range for Index Object alPPPoEStatsIfIndex object 
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsPPPoEGlobal OBJECT IDENTIFIER ::= { alStatsPPPoE 1 }
+altigaPPPoEStatsMibConformance OBJECT IDENTIFIER ::= { altigaPPPoEStatsMibModule 1 }
+altigaPPPoEStatsMibCompliances OBJECT IDENTIFIER ::= { altigaPPPoEStatsMibConformance 1 }
+
+alPPPoEStatsActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of active sessions on the interface
+         (currently should max at 1)."
+    ::= { alStatsPPPoEGlobal 1 }
+
+alPPPoEStatsTotalSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total Sessions since last reset."
+    ::= { alStatsPPPoEGlobal 2 }
+
+alPPPoEStatsMaxSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Peak number of sessions since last reset."
+    ::= { alStatsPPPoEGlobal 3 }
+
+alPPPoEStatsIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlPPPoEStatsIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Contains the PPPoE binding entries for stats."
+    ::= { alStatsPPPoE 2 }
+
+alPPPoEStatsIfEntry OBJECT-TYPE
+    SYNTAX AlPPPoEStatsIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Contains the PPPoE entries for the status 
+         binding table."
+    INDEX { alPPPoEStatsIfIndex }
+    ::= { alPPPoEStatsIfTable 1 }
+
+AlPPPoEStatsIfEntry ::= SEQUENCE {
+    alPPPoEStatsIfIndex INTEGER,
+    alPPPoEStatsIfPADTRx Counter,
+    alPPPoEStatsIfPADTTx Counter,
+    alPPPoEStatsIfGenericErrorsRx Counter,
+    alPPPoEStatsIfMalformedPacketsRx Counter,
+    alPPPoEStatsIfPADITimeouts Counter,
+    alPPPoEStatsIfPADRTimeouts Counter,
+    alPPPoEStatsIfMultPADORx Counter,
+    alPPPoEStatsIfSessionID INTEGER,
+    alPPPoEStatsIfPeerAddr MacAddress,
+    alPPPoEStatsIfSessionState INTEGER,
+    alPPPoEStatsIfVersion INTEGER,
+    alPPPoEStatsIfType INTEGER,
+    alPPPoEStatsIfConnectTime Gauge,
+    alPPPoEStatsIfDuration Gauge,
+    alPPPoEStatsIfPeerName DisplayString,
+    alPPPoEStatsIfACCookie OCTET STRING,
+    alPPPoEStatsIfHostUnique OCTET STRING,
+    alPPPoEStatsIfRelaySessID OCTET STRING
+    }
+
+alPPPoEStatsIfIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interface index for PPPoE status binding table."
+    ::= { alPPPoEStatsIfEntry 1 }
+
+alPPPoEStatsIfPADTRx OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of PADT received."
+    ::= { alPPPoEStatsIfEntry 2 }
+
+alPPPoEStatsIfPADTTx OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of PADT transmitted."
+    ::= { alPPPoEStatsIfEntry 3 }
+
+alPPPoEStatsIfGenericErrorsRx OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Generic Errors Received."
+    ::= { alPPPoEStatsIfEntry 4 }
+
+alPPPoEStatsIfMalformedPacketsRx OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of back packets received."
+    ::= { alPPPoEStatsIfEntry 5 }
+
+alPPPoEStatsIfPADITimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times timedout waiting for a PADO."
+    ::= { alPPPoEStatsIfEntry 6 }
+
+alPPPoEStatsIfPADRTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times timed out waiting for a PADS."
+    ::= { alPPPoEStatsIfEntry 7 }
+
+alPPPoEStatsIfMultPADORx OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times we received more than 1 PADO."
+    ::= { alPPPoEStatsIfEntry 8 }
+
+alPPPoEStatsIfSessionID OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Session ID given by the AC."
+    ::= { alPPPoEStatsIfEntry 9 }
+
+alPPPoEStatsIfPeerAddr OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MAC address of the remote AC."
+    ::= { alPPPoEStatsIfEntry 10 }
+
+alPPPoEStatsIfSessionState OBJECT-TYPE
+    SYNTAX INTEGER {
+        noState(1),
+        pADISent(2),
+        pADIRcvd(3),
+        pADOSent(4),
+        pADORcvd(5),
+        pADRSent(6),
+        pADRRcvd(7),
+        pADSSent(8),
+        pADSRcvd(9),
+        sessionStage(10)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "State that the session is in."
+    ::= { alPPPoEStatsIfEntry 11 }
+
+alPPPoEStatsIfVersion OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Version as given in the PPPoE RFC."
+    ::= { alPPPoEStatsIfEntry 12 }
+
+alPPPoEStatsIfType OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type as given in the PPPoE RFC."
+    ::= { alPPPoEStatsIfEntry 13 }
+
+alPPPoEStatsIfConnectTime OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Time_t of when the session was established."
+    ::= { alPPPoEStatsIfEntry 14 }
+
+alPPPoEStatsIfDuration OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of seconds since the session was 
+         established."
+    ::= { alPPPoEStatsIfEntry 15 }
+
+alPPPoEStatsIfPeerName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "UTF-8 string of the AC name."
+    ::= { alPPPoEStatsIfEntry 16 }
+
+alPPPoEStatsIfACCookie OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Binary sequence representing the AC cookie given in 
+         negotiations."
+    ::= { alPPPoEStatsIfEntry 17 }
+
+alPPPoEStatsIfHostUnique OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Binary sequence representing the value we assigned the PADI."
+    ::= { alPPPoEStatsIfEntry 18 }
+
+alPPPoEStatsIfRelaySessID OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "12 octets representing the Relay session if one exists."
+    ::= { alPPPoEStatsIfEntry 19 }
+
+altigaPPPoEStatsGroup OBJECT IDENTIFIER ::= { alPPPoEGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for PPPoE Statistics.
+--  objects
+--    alPPPoEStatsActiveSessions, alPPPoEStatsTotalSessions, 
+--    alPPPoEStatsMaxSessions, alPPPoEStatsIfIndex, 
+--    alPPPoEStatsIfPADTRx, alPPPoEStatsIfPADTTx, 
+--    alPPPoEStatsIfGenericErrorsRx, 
+--    alPPPoEStatsIfMalformedPacketsRx, alPPPoEStatsIfPADITimeouts, 
+--    alPPPoEStatsIfPADRTimeouts, alPPPoEStatsIfMultPADORx, 
+--    alPPPoEStatsIfSessionID, alPPPoEStatsIfPeerAddr, 
+--    alPPPoEStatsIfSessionState, alPPPoEStatsIfVersion, 
+--    alPPPoEStatsIfType, alPPPoEStatsIfConnectTime, 
+--    alPPPoEStatsIfDuration, alPPPoEStatsIfPeerName, 
+--    alPPPoEStatsIfACCookie, alPPPoEStatsIfHostUnique, 
+--    alPPPoEStatsIfRelaySessID
+
+altigaPPPoEStatsMibCompliance OBJECT IDENTIFIER ::= { altigaPPPoEStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which 
+--     implement the Altiga PPPoE Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaPPPoEStatsGroup
+
+
+END
+

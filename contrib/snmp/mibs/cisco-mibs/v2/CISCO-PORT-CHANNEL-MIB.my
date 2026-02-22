@@ -1,0 +1,762 @@
+-- *********************************************************************
+-- CISCO-PORT-CHANNEL-MIB.my: Port Channel mib
+--   
+-- September 2002, Srini Kode
+-- February 2004, Vinay Gaonkar
+--   
+-- Copyright (c) 2002-2017 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *********************************************************************
+
+CISCO-PORT-CHANNEL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    RowStatus,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex,
+    ifIndex
+        FROM IF-MIB
+    PortMemberList
+        FROM CISCO-ST-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoPortChannelMIB MODULE-IDENTITY
+    LAST-UPDATED    "201702280000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "The MIB module for management of Port Channel ports.
+        In addition to this MIB, CISCO-FC-FE-MIB and interface
+        mib (rfc2863) will also contain entries for Port Channel
+        ports."
+    REVISION        "201702280000Z"
+    DESCRIPTION
+        "Added new object portChannelExtFcipEnhanced to
+        portChannelExtTable.
+        Added a new group portChannelFcipGroup.
+        Superceeded portChannelMIBCompliance3 with
+        portChannelMIBCompliance4."
+    REVISION        "200409130000Z"
+    DESCRIPTION
+        "Added new object portChannelExtOperChannelGrpMode to
+        portChannelExtTable. Changed the SYNTAX of 
+        portChannelExtPersistent to INTEGER from TruthValue."
+    REVISION        "200406080000Z"
+    DESCRIPTION
+        "Added new tables portChannelGrpIfExtTable and
+        portChannelExtTable. Also, added new object
+        portChannelProtocolEnable."
+    REVISION        "200403110000Z"
+    DESCRIPTION
+        "Added portChannelMemberOperStatus to portChannelTable."
+    REVISION        "200305280000Z"
+    DESCRIPTION
+        "Superceeded portChannelMIBCompliances with
+        portChannelMIBCompliances1. Added 
+        portChannelAdminChannelMode object to 
+        portChannelMIBCompliances1."
+    REVISION        "200210020000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 285 }
+
+
+ciscoPortChannelObjects  OBJECT IDENTIFIER
+    ::= { ciscoPortChannelMIB 1 }
+
+portChannelMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoPortChannelMIB 2 }
+
+portChannelConfig  OBJECT IDENTIFIER
+    ::= { ciscoPortChannelObjects 1 }
+
+portChannelStatistics  OBJECT IDENTIFIER
+    ::= { ciscoPortChannelObjects 2 }
+
+portChannelNotification  OBJECT IDENTIFIER
+    ::= { ciscoPortChannelObjects 3 }
+
+portChannelNotifications  OBJECT IDENTIFIER
+    ::= { portChannelNotification 0 }
+
+
+-- Textual Conventions
+
+PortChannelMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines how a Port Channel does channeling.
+        auto(1)      - place the port into passive 
+                       negotiation state, in which the
+                       port waits for its peer to 
+                       initiate negotiation.
+        on(2)        - force the port to enable 
+                       channeling.
+        off(3)       - channeling is disabled.
+        desirable(4) - place the port into active
+                       negotiating state, in which the
+                       port initiates negotiations with
+                       its peer and if the peer end 
+                       agrees, channeling is enabled 
+                       between them."
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        on(2),
+                        off(3),
+                        desirable(4)
+                    }
+
+PortChannelGroupMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines how a Port Channel does channeling.
+        on(1) -       the port shall operate as part of a 
+                      port channel or remain inactive. The port
+                      channel protocol is turned off and peer 
+                      port is assumed to be configured in 'on' 
+                      mode.
+        active(2)-    indicates that port shall initiate port 
+                      channel negotiation with peer port 
+                      according to the port channel protocol 
+                      regardless of the channel mode of the 
+                      peer port."
+    SYNTAX          INTEGER  {
+                        on(1),
+                        active(2)
+                    }
+-- Port Channel Table
+
+portChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PortChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table facilitates the creation and deletion of a
+        Port Channel interface to achieve higher bandwidths
+        than just one E_port. More than one E_port can be a 
+        member of an Port Channel port.
+        NOTE:Only E_ports can be members of an Port Channel
+        port.
+
+        A port is added to a Port Channel port by setting 
+        portChannelMemberList,and the 'manner' in which the 
+        agent performs the type of addition is determined 
+        by the value of portChannelAddType.
+
+        During the period when port(s) is being added to the
+        Port Channel, the agent will not allow to change any 
+        parameters of the port(s) being added. Also if the 
+        operation is successful (i.e. port(s) is added to the 
+        Port Channel) then also the agent will not allow to 
+        change any parameters of the individual port(s) that is
+        added. But any change done to the Port Channel port
+        will also be applied to the port(s) which are member(s)
+        of this Port channel port. Once a port(s) is removed
+        from a Port Channel Port it will retain the values that
+        it had when it was a member of the Port Channel port.
+        It will not have the old values it had before joining
+        the Port Channel port. 
+
+        The port(s) that are added/removed to/from a 
+        Port Channel port will be put into administratively
+        down (ifAdminStatus='down') which results into
+        operationally down(ifOperStatus='down'). To bring the 
+        port up again, the user has to set the port to be
+        administratively up(ifAdminStatus='up'). Then the port
+        goes through its initialization cycle to become 
+        active(ifOperStatus='up')."
+    ::= { portChannelConfig 1 }
+
+portChannelEntry OBJECT-TYPE
+    SYNTAX          PortChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is one entry in this table for each created
+        Port Channel port."
+    INDEX           { portChannelIndex } 
+    ::= { portChannelTable 1 }
+
+PortChannelEntry ::= SEQUENCE {
+        portChannelIndex                 Unsigned32,
+        portChannelIfIndex               InterfaceIndex,
+        portChannelAdminChannelMode      PortChannelMode,
+        portChannelOperChannelMode       PortChannelMode,
+        portChannelAddType               INTEGER,
+        portChannelLastActionStatus      INTEGER,
+        portChannelLastActionStatusCause SnmpAdminString,
+        portChannelLastActionTime        TimeStamp,
+        portChannelMemberList            PortMemberList,
+        portChannelCreationTime          TimeStamp,
+        portChannelRowStatus             RowStatus,
+        portChannelMemberOperStatus      PortMemberList
+}
+
+portChannelIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2048)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely identifies an entry in the
+        portChannelTable table." 
+    ::= { portChannelEntry 1 }
+
+portChannelIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of this interface." 
+    ::= { portChannelEntry 2 }
+
+portChannelAdminChannelMode OBJECT-TYPE
+    SYNTAX          PortChannelMode
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The channel mode desired by the network manager.
+        If this object is configured to be auto(1), then the 
+        'portChannelOperChannelMode' will show the current
+         operating channel mode of port."
+    DEFVAL          { on } 
+    ::= { portChannelEntry 3 }
+
+portChannelOperChannelMode OBJECT-TYPE
+    SYNTAX          PortChannelMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current operating channel mode of the port." 
+    ::= { portChannelEntry 4 }
+
+portChannelAddType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        force(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The method to be adopted by the agent to add
+        port(s) to a Port Channel port.
+        If normal(1), then a compatibility check is done on the
+        parameters of the port(s) being added to this Port
+        Channel. The port(s) being added must have the same
+        physical and configured parameters as the Port
+        Channel port.
+        If force(2), a compatibility check is done on only
+        physical parameters. The port(s) being added to this
+        Port Channel port must have same physical parameters.
+        The operation will fail only if the physical parameters
+        are not same. The configured parameters of the 
+        port(s) being added are overwritten by 
+        configured parameters of this Port Channel port."
+    DEFVAL          { normal } 
+    ::= { portChannelEntry 5 }
+
+portChannelLastActionStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        successful(1),
+                        failed(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The status of the last operation (add or remove a
+        member) done to change the member list of a Port 
+        Channel Port.
+        When no ports are added or the last operation is
+        successful then this object will be successful(1).
+        If this value is failed(2) then the user can look
+        at portChannelLastAddStatusCause to find the reason
+        of failure." 
+    ::= { portChannelEntry 6 }
+
+portChannelLastActionStatusCause OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cause of failure to last operation (add or remove
+        a member) done to change the member list of a Port
+        Channel port. This object will be zero length string
+        if 'portChannelLastActionStatus' is successful(1)." 
+    ::= { portChannelEntry 7 }
+
+portChannelLastActionTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp indicating the time of last action
+        performed on this entry." 
+    ::= { portChannelEntry 8 }
+
+portChannelMemberList OBJECT-TYPE
+    SYNTAX          PortMemberList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The list of ifIndex's of the E_ports that are members
+        of this Port Channel port."
+    DEFVAL          { ''H } 
+    ::= { portChannelEntry 9 }
+
+portChannelCreationTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of this entry's creation time.
+        Note that at this creation time, a discontinuity occurs
+        in the statistic/error counters which are defined in
+        CISCO-FC-FE-MIB, and which are associated with this
+        Port Channel." 
+    ::= { portChannelEntry 10 }
+
+portChannelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row." 
+    ::= { portChannelEntry 11 }
+
+portChannelMemberOperStatus OBJECT-TYPE
+    SYNTAX          PortMemberList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The list of port channel forwarding status of the
+        E_ports that are members of this Port Channel port.
+        Every four-byte is a status of the corresponding 
+        member port represented by ifIndex in 
+        portChannelMemberList.
+        The portChannelMemberOperStatus may not be the same as 
+        ifOperStatus.
+        A value of '00 00 00 01' means the corresponding member
+        port is participating in the load balancing of the 
+        port channel.
+        A value of '00 00 00 02' means the corresponding member
+        port is not participating in the load balancing of the 
+        port channel."
+    DEFVAL          { ''H } 
+    ::= { portChannelEntry 12 }
+ 
+
+
+-- Port Channel Protocol related objects
+
+portChannelProtocolEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Enables/disables Port Channel Protocol. If enabled, Port
+        Channel Protocol provides following features:
+         - detection and correction of mis-configurations of 
+           interfaces involved with a Port Channel.
+         - automatic creation of Channel Groups (and therefore
+           Port Channels) if both ends of the links are compatible
+           with each other." 
+    ::= { portChannelConfig 2 }
+
+portChannelGrpIfExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PortChannelGrpIfExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table facilitates Channel Group specific
+        interface configurations."
+    ::= { portChannelConfig 3 }
+
+portChannelGrpIfExtEntry OBJECT-TYPE
+    SYNTAX          PortChannelGrpIfExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is one entry in this table for each created
+        Port Channel port."
+    INDEX           { ifIndex } 
+    ::= { portChannelGrpIfExtTable 1 }
+
+PortChannelGrpIfExtEntry ::= SEQUENCE {
+        portChannelGrpIfAutoCreation TruthValue
+}
+
+portChannelGrpIfAutoCreation OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates if this interface may be part of
+        automatically created Channel Groups (and therefore 
+        Port Channels)." 
+    ::= { portChannelGrpIfExtEntry 1 }
+ 
+
+-- Port Channel extension Table
+
+portChannelExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PortChannelExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table extends the portChannelTable to support Port
+        Channel Protocol."
+    ::= { portChannelConfig 4 }
+
+portChannelExtEntry OBJECT-TYPE
+    SYNTAX          PortChannelExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is one entry in this table for each created
+        Port Channel port. It contains an entry for every
+        Port Channel that is either automatically created or
+        manually configured."
+    AUGMENTS           { portChannelEntry  } 
+    ::= { portChannelExtTable 1 }
+
+PortChannelExtEntry ::= SEQUENCE {
+        portChannelExtChannelGrpMode     PortChannelGroupMode,
+        portChannelExtAutoCreated        TruthValue,
+        portChannelExtPersistent         INTEGER,
+        portChannelExtOperChannelGrpMode PortChannelGroupMode,
+        portChannelExtFcipEnhanced       INTEGER
+}
+
+portChannelExtChannelGrpMode OBJECT-TYPE
+    SYNTAX          PortChannelGroupMode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The admin channel group mode of this port channel." 
+    ::= { portChannelExtEntry 1 }
+
+portChannelExtAutoCreated OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates of this port channel was automatically
+        created.
+        Note that this object is valid only for Fibre Channel
+        port channels." 
+    ::= { portChannelExtEntry 2 }
+
+portChannelExtPersistent OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noOp(1),
+                        enable(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object converts an auto-created port channel
+        to a persistent port channel when it is set to 'enable'.
+
+        No action is taken if this object is set to 'noOp'.
+        The value of the object when read is always 'noOp'." 
+    ::= { portChannelExtEntry 3 }
+
+portChannelExtOperChannelGrpMode OBJECT-TYPE
+    SYNTAX          PortChannelGroupMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The operational channel group mode of this port channel." 
+    ::= { portChannelExtEntry 4 }
+
+portChannelExtFcipEnhanced OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        enable(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object will enable or disable the FCIP (Fibre Channel
+        over Internet Protocol) enhanced capability for the port-channel."
+    ::= { portChannelExtEntry 5 }
+
+-- Conformance
+
+portChannelMIBCompliances  OBJECT IDENTIFIER
+    ::= { portChannelMIBConformance 1 }
+
+portChannelMIBGroups  OBJECT IDENTIFIER
+    ::= { portChannelMIBConformance 2 }
+
+
+portChannelMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-PORT-CHANNEL-MIB mib."
+    MODULE          -- this module
+    MANDATORY-GROUPS { portChannelGroup }
+
+--  OBJECT  portChannelIndex
+--  SYNTAX     Unsigned32 (1..128)
+--  DESCRIPTION 
+--      "It is compliant to support a maximum value for 
+--      this object which is smaller than the defined 
+--      maximum value."
+                                            
+    OBJECT          portChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' out of the six enumerated values need to
+         be supported."
+    ::= { portChannelMIBCompliances 1 }
+
+portChannelMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-PORT-CHANNEL-MIB mib."
+    MODULE          -- this module
+    MANDATORY-GROUPS { portChannelGroup }
+
+--  OBJECT  portChannelIndex
+--  SYNTAX     Unsigned32 (1..128)
+--  DESCRIPTION 
+--      "It is compliant to support a maximum value for 
+--      this object which is smaller than the defined 
+--      maximum value."
+
+    OBJECT          portChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' out of the six enumerated values need to
+         be supported."
+
+    OBJECT          portChannelAdminChannelMode
+    DESCRIPTION
+        "It is compliant to support only a subset of
+        all the values defined."
+    ::= { portChannelMIBCompliances 2 }
+
+portChannelMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-PORT-CHANNEL-MIB mib."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        portChannelGroup,
+                        portChannelGroupRev1
+                    }
+
+--  OBJECT  portChannelIndex
+--  SYNTAX     Unsigned32 (1..128)
+--  DESCRIPTION 
+--      "It is compliant to support a maximum value for 
+--      this object which is smaller than the defined 
+--      maximum value."
+
+    OBJECT          portChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' out of the six enumerated values need to
+         be supported."
+
+    OBJECT          portChannelAdminChannelMode
+    DESCRIPTION
+        "It is compliant to support only a subset of
+        all the values defined."
+    ::= { portChannelMIBCompliances 3 }
+
+portChannelMIBCompliance3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-PORT-CHANNEL-MIB mib."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        portChannelGroup,
+                        portChannelGroupRev1
+                    }
+
+    GROUP           portChannelProtocolGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for all
+        systems that support Port Channel Protocol."
+
+--  OBJECT  portChannelIndex
+--  SYNTAX     Unsigned32 (1..128)
+--  DESCRIPTION 
+--      "It is compliant to support a maximum value for 
+--      this object which is smaller than the defined 
+--      maximum value."
+
+    OBJECT          portChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' out of the six enumerated values need to
+         be supported."
+
+    OBJECT          portChannelAdminChannelMode
+    DESCRIPTION
+        "It is compliant to support only a subset of
+        all the values defined."
+
+    OBJECT          portChannelProtocolEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only need to supported."
+    ::= { portChannelMIBCompliances 4 }
+    
+
+portChannelMIBCompliance4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-PORT-CHANNEL-MIB mib."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        portChannelGroup,
+                        portChannelGroupRev1
+                    }
+
+    GROUP           portChannelProtocolGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for all
+        systems that support Port Channel Protocol."
+        
+    GROUP           portChannelFcipGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for all
+        devices that support FCIP enhanced capability."
+
+--  OBJECT  portChannelIndex
+--  SYNTAX     Unsigned32 (1..128)
+--  DESCRIPTION 
+--      "It is compliant to support a maximum value for 
+--      this object which is smaller than the defined 
+--      maximum value."
+
+    OBJECT          portChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' out of the six enumerated values need to
+         be supported."
+
+    OBJECT          portChannelAdminChannelMode
+    DESCRIPTION
+        "It is compliant to support only a subset of
+        all the values defined."
+
+    OBJECT          portChannelProtocolEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only read-only need to supported."
+
+    OBJECT          portChannelExtFcipEnhanced
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { portChannelMIBCompliances 5 }
+
+-- Units of Conformance
+
+portChannelGroup OBJECT-GROUP
+    OBJECTS         {
+                        portChannelIfIndex,
+                        portChannelAdminChannelMode,
+                        portChannelOperChannelMode,
+                        portChannelAddType,
+                        portChannelLastActionStatus,
+                        portChannelLastActionStatusCause,
+                        portChannelLastActionTime,
+                        portChannelMemberList,
+                        portChannelCreationTime,
+                        portChannelRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to Port Channel Interface
+        parameters."
+    ::= { portChannelMIBGroups 1 }
+
+portChannelGroupRev1 OBJECT-GROUP
+    OBJECTS         { portChannelMemberOperStatus }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to Port Channel Interface
+        parameters."
+    ::= { portChannelMIBGroups 2 }
+
+portChannelProtocolGroup OBJECT-GROUP
+    OBJECTS         {
+                        portChannelProtocolEnable,
+                        portChannelGrpIfAutoCreation,
+                        portChannelExtChannelGrpMode,
+                        portChannelExtAutoCreated,
+                        portChannelExtPersistent,
+                        portChannelExtOperChannelGrpMode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to Port Channel Protocol
+        mamagement."
+    ::= { portChannelMIBGroups 3 }
+
+portChannelFcipGroup OBJECT-GROUP
+    OBJECTS         { portChannelExtFcipEnhanced }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to FCIP enhanced capability."
+    ::= { portChannelMIBGroups 4 }
+
+END
+
+

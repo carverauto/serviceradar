@@ -1,0 +1,45 @@
+-- MIB created 6/25/99 12:58:01, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+LANOPTICS-BRIDGE-OPTION-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "LANOPTICS-BRIDGE-OPTION-MIB.my"
+
+IMPORTS
+    OBJECT-TYPE
+            FROM RFC-1212
+    enterprises
+            FROM RFC1155-SMI;
+
+lanOptics       OBJECT IDENTIFIER ::= { enterprises 224 }
+lanOpticsBridgeProxyAgent OBJECT IDENTIFIER ::= { lanOptics 6 }
+lanOpticsLMGRAgent OBJECT IDENTIFIER ::= { lanOpticsBridgeProxyAgent 8 }
+
+lanOpticsLMGRLinkID OBJECT-TYPE
+    SYNTAX INTEGER(0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "When LMGR session is active with PCRouter card through PCBus -
+         this variable gives the LRM Session Link Number (0-3) between
+         the Host (SNMP agent) and the PCRouter LAN Reporting Mechanism."
+    ::= { lanOpticsLMGRAgent 1 }
+
+lanOpticsLMGRCaptCntrlLink OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When LMGR session is active with PCRouter card through PCBus -
+         this variable is by default enabled (1). It means that the Host 
+         (SNMP Agent) tries to link to the LRM with the Control Link
+         (id = 0). If this MIB variable is disabled the Host tries 
+         to establish a session with the LRM through other links,
+         and if succeeds, it doesn't try to capture link 0."
+    ::= { lanOpticsLMGRAgent 2 }
+
+
+END
+

@@ -1,0 +1,78 @@
+The Twister c827 and c827-4v routers support the following MIBs: 
+
+    1. Standard MIBs:
+
+          ADSL-DMT-LINE-MIB
+          ADSL-LINE-MIB
+          ATM-MIB
+          ENTITY-MIB
+          IF-MIB
+          IGMP-MIB
+          INT-SERV-GUARANTEED-MIB
+          INT-SERV-MIB
+          IPMROUTE-MIB
+          NOVELL-IPX-MIB
+          NOVELL-RIPSAP-MIB
+          PIM-MIB
+          RFC1213-MIB
+          RFC1381-MIB
+          RFC1398-MIB (ETHERMIB)
+          RSVP-MIB
+          SNMPv2-MIB
+          TCP-MIB 
+          UDP-MIB	
+
+          The following MIBs are ILMI MIBs and cannot be accessed by an 
+          NMS via SNMP; these MIBs are accessed via the ILMI protocol:          
+
+          ATM-FORUM-ADDR-REG
+          ATM-FORUM-MIB
+       
+          The following voice-related MIB is supported by c827-4v only:
+
+	  DIAL-CONTROL-MIB
+
+    2. Cisco MIBs:
+
+          CISCO-AAL5-MIB
+          CISCO-ADSL-DMT-LINE-MIB
+          CISCO-ATM-EXT-MIB
+          CISCO-BULK-FILE-MIB
+          CISCO-CAR-MIB
+          CISCO-FLASH-MIB
+          CISCO-IETF-ATM2-PVCTRAP-MIB
+          CISCO-IMAGE-MIB
+          CISCO-IP-STAT-MIB
+          CISCO-IPMROUTE-MIB
+          CISCO-MEMORY-POOL-MIB
+          CISCO-PING-MIB
+          CISCO-QUEUE-MIB
+          CISCO-SNAPSHOT-MIB
+          CISCO-STACKMAKER-MIB
+          CISCO-SYSLOG-MIB
+          CISCO-TCP-MIB
+          OLD-CISCO-CHASSIS-MIB
+          OLD-CISCO-CPU-MIB
+          OLD-CISCO-INTERFACES-MIB 
+          OLD-CISCO-IP-MIB
+          OLD-CISCO-MEMORY-MIB
+          OLD-CISCO-NOVELL-MIB
+          OLD-CISCO-SYSTEM-MIB
+          OLD-CISCO-TCP-MIB
+          
+          The following voice-related MIBs are supported by c827-4v only:
+
+          CISCO-DIAL-CONTROL-MIB
+          CISCO-VOICE-ANALOG-IF-MIB 
+          CISCO-VOICE-DIAL-CONTROL-MIB
+          CISCO-VOICE-IF-MIB
+         
+
+================================================================
+
+
+
+
+
+
+

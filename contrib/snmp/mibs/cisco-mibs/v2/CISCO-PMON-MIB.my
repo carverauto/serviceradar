@@ -1,0 +1,181 @@
+-- *****************************************************************
+-- CISCO-PMON-MIB.my
+--   
+-- Jan 2011, Rajeeva Narayanaswamy, Jianliang He
+--   
+-- Copyright (c) 2009-2012 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-PMON-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    CiscoInterfaceIndexList
+        FROM CISCO-TC    
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoPmonMIB MODULE-IDENTITY
+    LAST-UPDATED    "201201030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "This MIB module is for providing the port monitoring
+         information."
+    REVISION        "201201030000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 779 }
+
+
+ciscoPmonMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoPmonMIB 0 }
+
+ciscoPmonMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoPmonMIB 1 }
+
+ciscoPmonMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoPmonMIB 2 }
+
+ciscoPmonStatsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoPmonMIBObjects 1 }
+
+-- Port Group Statistics Information
+ciscoPmonPortGroupStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoPmonPortGroupStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains statistics information for the physical modules
+         and port groups." 
+    ::= { ciscoPmonStatsMIBObjects 1 }
+
+ciscoPmonPortGroupStatsEntry OBJECT-TYPE
+    SYNTAX          CiscoPmonPortGroupStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the statistics information for a
+         a specific physical module as indicated by the value of
+         entPhysicalIndex, statistics type, and a port group."
+    INDEX           {
+                        entPhysicalIndex,
+                        ciscoPmonPortGroupStatsType,
+                        ciscoPmonPortGroupIndex
+                    }
+    ::= { ciscoPmonPortGroupStatsTable 1 }
+
+CiscoPmonPortGroupStatsEntry ::= SEQUENCE {
+        ciscoPmonPortGroupStatsType      INTEGER,
+        ciscoPmonPortGroupIndex          Unsigned32,
+        ciscoPmonPortGroupIfIndexList    CiscoInterfaceIndexList,
+        ciscoPmonPortGroupStatsValue     Counter64
+}
+
+ciscoPmonPortGroupStatsType OBJECT-TYPE
+    SYNTAX          INTEGER { 
+                        errPktsFromPort(1), 
+                        errPktsToXbar(2),
+                        errPktsFromXbar(3)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicates the type of statistics. This object has three
+         defined values:
+         
+
+         - 'errPktsFromPort', which indicates a counter of error packets
+         received from a port;
+
+         - 'errPktsToXbar', which indicates a counter of error packets
+         sent to XBAR;
+
+         - 'errPktsFromXbar', which indicates a counter of error packets
+         received from XBAR."
+
+    ::= { ciscoPmonPortGroupStatsEntry 1 }
+
+ciscoPmonPortGroupIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique value assigned to a specific port group for a
+        given module and statistics type."
+    ::= { ciscoPmonPortGroupStatsEntry 2 }
+
+ciscoPmonPortGroupIfIndexList OBJECT-TYPE
+    SYNTAX          CiscoInterfaceIndexList 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Contains ifIndex values for the list of the ports in
+        the port group."
+    ::= { ciscoPmonPortGroupStatsEntry 3 }
+
+ciscoPmonPortGroupStatsValue OBJECT-TYPE
+    SYNTAX          Counter64 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The statistics value counted on this module, statistics type,
+        port group."
+    ::= { ciscoPmonPortGroupStatsEntry 4 }
+
+-- Conformance information
+
+ciscoPmonMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoPmonMIBConformance 1 }
+
+ciscoPmonMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoPmonMIBConformance 2 }
+
+ciscoPmonMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities implementing the
+         Port Monitor MIB."
+    MODULE          -- this module
+    GROUP           ciscoPmonPortGroupStatsGroup
+    DESCRIPTION
+        "This group is mandatory for devices that provide
+        this statistics information."
+    ::= { ciscoPmonMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoPmonPortGroupStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoPmonPortGroupIfIndexList,
+                        ciscoPmonPortGroupStatsValue
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides port group statistics
+        information."
+    ::= { ciscoPmonMIBGroups 1 }
+
+END
+
+
+
+

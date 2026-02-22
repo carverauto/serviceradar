@@ -1,0 +1,301 @@
+-- *****************************************************************
+-- CISCO-DOT11-RADAR-MIB.my:  Cisco DOT11 RADAR MIB file
+--   
+-- March 2007, Henry Tseng
+--   
+-- Copyright (c) 2007 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-DOT11-RADAR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    TimeTicks,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoDot11RadarMIB MODULE-IDENTITY
+    LAST-UPDATED    "200705070000Z"
+    ORGANIZATION    "Cisco System Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive,
+            San Jose CA 95134-1706.
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-dot11@cisco.com"
+    DESCRIPTION
+        "This MIB module is for IEEE 802.11a/h Root device,
+        i.e. Access Point (AP) or Root Bridge. This MIB 
+        allows dynamic frequency selection features related
+        to DOT11 device.
+
+                  ACRONYMS
+        AP
+            Access point
+
+        RADAR
+            RAdio Detection And Range
+
+                  GLOSSARY
+
+        Access point
+            Transmitter/receiver (transceiver) device
+            that commonly connects and transports data
+            between a wireless network and a wired network.
+
+        Non-Root Bridge
+            This wireless bridge does not connect to the main
+            wired LAN segment.  It connects to a remote wired
+            LAN segment and can associate with root bridges and
+            other non-root bridges that accept client
+            associations.  It also can accept associations from
+            other non-root bridges, repeater access points,
+            and client devices.
+
+        Radar
+            Radar is a system that uses electromagnetic waves
+            to identify the range, altitude, direction, or
+            speed of both moving and fixed objects such as
+            aircraft, ships, motor vehicles, weather
+            formations, and terrain. 
+
+        Repeater or Non-root Access Point
+            The repeater access point is not connected
+            to the wired LAN.  The Repeater is a wireless
+            LAN transceiver that transfers data between
+            a client and another access point, another
+            repeater, or between two bridges.  The repeater
+            is placed within radio range of an access point
+            connected to the wired LAN, another repeater, or
+            an non-root bridge to extend the range of the
+            infrastructure.
+
+        Root (Wireless) Bridge
+            This wireless bridge connects to the main wired
+            LAN.  It can communicate with non-root wireless
+            bridges, repeater access points, and client
+            devices but not with another wireless root
+            bridge.  Only one wireless bridge in a wireless
+            LAN can be set as the wireless root bridge.
+
+        Work-group Bridge
+            It is a client to APs or wireless root bridges.
+            The radio port of a WGB serves as the uplink to
+            the main network and the Ethernet port provides
+            network access for devices like PC or IP phone."
+    REVISION        "200705070000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 627 }
+
+
+ciscoDot11RadarMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoDot11RadarMIB 0 }
+
+ciscoDot11RadarMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDot11RadarMIB 1 }
+
+ciscoDot11RadarMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoDot11RadarMIB 2 }
+
+cdrDot11RadarNotifConfig  OBJECT IDENTIFIER
+    ::= { ciscoDot11RadarMIBObjects 1 }
+
+cdrDot11RadarDetectInfo  OBJECT IDENTIFIER
+    ::= { ciscoDot11RadarMIBObjects 2 }
+
+
+cdrDot11NewFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "MHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This is the IEEE 802.11a/h channel frequency that
+        specify the new channel that the AP has switched to after 
+        (1) it has detected radar, or (2) received report from a
+        client indicating that it has detected radar. The value
+        of zero indicates that dynamic frequency selection has
+        not completed after reset."
+    DEFVAL          { '00000000'H } 
+    ::= { cdrDot11RadarDetectInfo 1 }
+
+cdrDot11PreferFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "MHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This is the IEEE 802.11a/h channel frequency that
+        specify the prefer channel that the AP has moved
+        back to. The value of zero indicates that prefer
+        frequency is not selected."
+    DEFVAL          { '00000000'H } 
+    ::= { cdrDot11RadarDetectInfo 2 }
+
+cdrChannelSwitchLastTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when cdrDot11NewFrequency
+        was last changed." 
+    ::= { cdrDot11RadarDetectInfo 3 }
+
+cdrChannelReturnLastTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when cdrDot11PreferFrequency
+        was last changed." 
+    ::= { cdrDot11RadarDetectInfo 4 }
+
+cdrChannelSwitchNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the ciscoDot11RadarChannelSwitch
+        notification will or will not be sent by the agent
+        when a radar is detected.  If it is 'true',
+        the notification will be sent.  If it is 'false',
+        the notification will not be sent."
+    DEFVAL          { false } 
+    ::= { cdrDot11RadarNotifConfig 1 }
+
+cdrChannelReturnNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the ciscoDot11RadarChannelReturn
+        notification will or will not be sent by the agent
+        when AP moves back to the prefer channel. If it is
+        'true', the notification will be sent.  If it is
+        'false', the notification will not be sent."
+    DEFVAL          { false } 
+    ::= { cdrDot11RadarNotifConfig 2 }
+
+-- *****************************************************************
+-- Notifications
+-- *****************************************************************
+
+ciscoDot11RadarChannelSwitch NOTIFICATION-TYPE
+    OBJECTS         {
+                        cdrDot11NewFrequency,
+                        cdrChannelSwitchLastTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when a radar
+        is detected either by AP itself or by a report
+        from a client indicating that it has detected radar. 
+        The cdrDot11NewFrequency specify the channel that
+        AP has switched to. This notification can be
+        enabled or disabled via the 
+        cdrChannelSwitchNotifEnabled object."
+   ::= { ciscoDot11RadarMIBNotifs 1 }
+
+ciscoDot11RadarChannelReturn NOTIFICATION-TYPE
+    OBJECTS         {
+                        cdrDot11PreferFrequency,
+                        cdrChannelReturnLastTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when a AP
+        has returned to the prefer channel. The
+        cdrDot11PreferFrequency specify the channel that
+        AP returns to. This notification can be enabled
+        disabled via the cdrChannelReturnNotifEnabled
+        object."
+   ::= { ciscoDot11RadarMIBNotifs 2 }
+-- *****************************************************************
+-- Conformance information
+-- *****************************************************************
+
+ciscoDot11RadarMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoDot11RadarMIBConform 1 }
+
+ciscoDot11RadarMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoDot11RadarMIBConform 2 }
+
+
+-- *****************************************************************
+-- Compliance statements
+-- *****************************************************************
+
+ciscoDot11RadarCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities implementing
+        the CISCO-DOT11-RADAR-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cdrDot11RadarNotifObjectGroup,
+                        ciscoDot11RadarDetectInfoGroup,
+                        ciscoDot11RadarNotificationGroup
+                    }
+    ::= { ciscoDot11RadarMIBCompliances 1 }
+
+-- *****************************************************************
+-- Units of conformance
+-- *****************************************************************
+
+cdrDot11RadarNotifObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdrChannelSwitchNotifEnabled,
+                        cdrChannelReturnNotifEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group is for enabling/disabling notifications
+        of changing frequency."
+    ::= { ciscoDot11RadarMIBGroups 1 }
+
+ciscoDot11RadarDetectInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdrDot11NewFrequency,
+                        cdrDot11PreferFrequency,
+                        cdrChannelSwitchLastTime,
+                        cdrChannelReturnLastTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group provides frequency-change information
+        from the operation of the Radar detection."
+    ::= { ciscoDot11RadarMIBGroups 2 }
+
+ciscoDot11RadarNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoDot11RadarChannelSwitch,
+                        ciscoDot11RadarChannelReturn
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group provides notifications related to Radar
+        Channel."
+    ::= { ciscoDot11RadarMIBGroups 3 }
+
+END
+
+
+

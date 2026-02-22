@@ -1,0 +1,685 @@
+-- MIB file created 20-Jan-2006 15:41:00, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VOICE-COMMON-DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VOICE-COMMON-DIAL-CONTROL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    callActiveSetupTime, callActiveIndex
+            FROM DIAL-CONTROL-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    cCallHistoryIndex
+            FROM CISCO-DIAL-CONTROL-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoVoiceCommonDialControlMIB OBJECT IDENTIFIER ::= { ciscoExperiment 55 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200508160000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-voice@cisco.com
+--  Descr
+--    This MIB module contains voice related objects that
+--     are common across more than one network
+--     encapsulation i.e VoIP, VoATM and VoFR.
+--  RevDate
+--    200508160000Z
+--  RevDescr
+--    Added CvcH320CallType and CvcVideoCoderRate objects.
+--     Added g722 enum to CvcCoderTypeRate textual conventions.
+--  RevDate
+--    200503060000Z
+--  RevDescr
+--    Added gsmAmrNb enum to CvcSpeechCoderRate and CvcCoderTypeRate
+--     textual conventions.
+--  RevDate
+--    200303110000Z
+--  RevDescr
+--    Added new enum value 'llcc', to CvcSpeechCoderRate
+--     and CvcCoderTypeRate textual-conventions.
+--  RevDate
+--    200110060000Z
+--  RevDescr
+--    [1] Added new enum value 'g726r40000',to CvcSpeechCoderRate's
+--         and CvcCoderTypeRate's textual-conventions.
+--     [2] Replaced 'clearch' enum with 'clearChannel' enum.
+--     [3] Replaced 'codec is disabled' comment for clearChannel enum
+--         with 'CLEAR channel codec'.
+--  RevDate
+--    200109050000Z
+--  RevDescr
+--    [1] Added new enum value, 'clearch,' to CvcSpeechCoderRate's
+--         and CvcCoderTypeRate's textual-conventions. 
+--     [2] Added new enum value, 'gr303,' to CvcInBandSignaling's
+--         textual-conventions
+--     [3] Modified cvCommonDcCallActiveInBandSignaling's and
+--         cvCommonDcCallHistoryInBandSignaling's description
+--         to indicate value is valid only for Connection Trunk calls.
+--  RevDate
+--    200007220000Z
+--  RevDescr
+--    Add new objects for handling the following features:
+--     [1] Calling Name display for call active and history table.
+--     [2] Caller ID Block, which indicates whether the Caller ID
+--         feature is in using,  for call active and history table.
+
+cvCommonDcMIBObjects OBJECT IDENTIFIER ::= { ciscoVoiceCommonDialControlMIB 1 }
+cvCommonDcCallActive OBJECT IDENTIFIER ::= { cvCommonDcMIBObjects 1 }
+cvCommonDcCallHistory OBJECT IDENTIFIER ::= { cvCommonDcMIBObjects 2 }
+cvCommonDcMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoVoiceCommonDialControlMIB 2 }
+cvCommonDcMIBNotifications OBJECT IDENTIFIER ::= { cvCommonDcMIBNotificationPrefix 0 }
+cvCommonDcMIBConformance OBJECT IDENTIFIER ::= { ciscoVoiceCommonDialControlMIB 3 }
+cvCommonDcMIBCompliances OBJECT IDENTIFIER ::= { cvCommonDcMIBConformance 1 }
+cvCommonDcMIBGroups OBJECT IDENTIFIER ::= { cvCommonDcMIBConformance 2 }
+
+CvcSpeechCoderRate ::= INTEGER {
+        g729r8000(1),
+        g729Ar8000(2),
+        g726r16000(3),
+        g726r24000(4),
+        g726r32000(5),
+        g711ulawr64000(6),
+        g711Alawr64000(7),
+        g728r16000(8),
+        g723r6300(9),
+        g723r5300(10),
+        gsmr13200(11),
+        g729Br8000(12),
+        g729ABr8000(13),
+        g723Ar6300(14),
+        g723Ar5300(15),
+        g729IETFr8000(16),
+        gsmeEr12200(17),
+        clearChannel(18),
+        g726r40000(19),
+        llcc(20),
+        gsmAmrNb(21)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This object specifies the most desirable codec of 
+--     speech for the VoIP, VoATM or VoFR peer.
+--     g729r8000      - pre-IETF G.729 8000  bps
+--     g729Ar8000     - G.729 ANNEX-A 8000  bps
+--     g726r16000     - G.726 16000 bps
+--     g726r24000     - G.726 24000 bps
+--     g726r32000     - G.726 32000 bps
+--     g711ulawr64000 - G.711 u-Law 64000 bps
+--     g711Alawr64000 - G.711 A-Law 64000 bps
+--     g728r16000     - G.728 16000 bps
+--     g723r6300      - G.723.1 6300 bps
+--     g723r5300      - G.723.1 5300 bps
+--     gsmr13200      - GSM Full rate 13200 bps
+--     g729Br8000     - G.729 ANNEX-B 8000  bps
+--     g729ABr8000    - G.729 ANNEX-A & B 8000 bps
+--     g723Ar6300     - G723.1 Annex A 6300 bps              
+--     g723Ar5300     - G723.1 Annex A 5300 bps               
+--     g729IETFr8000  - IETF G.729 8000  bps
+--     gsmeEr12200    - GSM Enhanced Full Rate 12200 bps
+--     clearChannel   - CLEAR Channel codec
+--     g726r40000     - G.726 40000 bps
+--     llcc           - Lossless compression codec
+--     gsmAmrNb       - GSM AMR-NB 4750 - 12200 bps
+
+CvcFaxTransmitRate ::= INTEGER {
+        none(1),
+        voiceRate(2),
+        fax2400(3),
+        fax4800(4),
+        fax7200(5),
+        fax9600(6),
+        fax14400(7),
+        fax12000(8)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--     This object specifies the default transmit rate of FAX
+--      for the VoIP, VoATM or VOFR peer. If the value of this
+--      object is 'none', then the Fax relay feature is disabled         
+--      ; otherwise the Fax relay feature is enabled.
+--    
+--      none      - Fax relay is disabled.
+--      voiceRate - the fastest possible fax rate not exceed
+--                  the configured voice rate.
+--      fax2400   - 2400  bps FAX transmit rate.
+--      fax4800   - 4800  bps FAX transmit rate.
+--      fax7200   - 7200  bps FAX transmit rate.
+--      fax9600   - 9600  bps FAX transmit rate.
+--      fax14400  - 14400 bps FAX transmit rate.
+--      fax12000  - 12000 bps FAX transmit rate.
+
+CvcCoderTypeRate ::= INTEGER {
+        other(1),
+        fax2400(2),
+        fax4800(3),
+        fax7200(4),
+        fax9600(5),
+        fax14400(6),
+        fax12000(7),
+        g729r8000(10),
+        g729Ar8000(11),
+        g726r16000(12),
+        g726r24000(13),
+        g726r32000(14),
+        g711ulawr64000(15),
+        g711Alawr64000(16),
+        g728r16000(17),
+        g723r6300(18),
+        g723r5300(19),
+        gsmr13200(20),
+        g729Br8000(21),
+        g729ABr8000(22),
+        g723Ar6300(23),
+        g723Ar5300(24),
+        ietfg729r8000(25),
+        gsmeEr12200(26),
+        clearChannel(27),
+        g726r40000(28),
+        llcc(29),
+        gsmAmrNb(30),
+        g722(31)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents the coder type-rate for voice/fax compression
+--     used during a call.
+--    
+--     other          - none of the following.
+--     fax2400        - FAX   2400  bps 
+--     fax4800        - FAX   4800  bps 
+--     fax7200        - FAX   7200  bps 
+--     fax9600        - FAX   9600  bps
+--     fax14400       - FAX   14400 bps  
+--     fax12000       - FAX   12000 bps  
+--     g729r8000      - G.729 8000  bps (pre-IETF bit ordering)
+--     g729Ar8000     - G.729 ANNEX-A 8000  bps
+--     g726r16000     - G.726 16000 bps
+--     g726r24000     - G.726 24000 bps
+--     g726r32000     - G.726 32000 bps
+--     g711ulawr64000 - G.711 u-Law 64000 bps
+--     g711Alawr64000 - G.711 A-Law 64000 bps
+--     g728r16000     - G.728 16000 bps
+--     g723r6300      - G.723.1 6300 bps
+--     g723r5300      - G.723.1 5300 bps
+--     gsmr13200      - GSM full rate 13200 bps
+--     g729Br8000     - G.729 ANNEX-B 8000  bps
+--     g729ABr8000    - G.729 ANNEX-A & B 8000 bps
+--     g723Ar6300     - G723.1 Annex A 6300 bps              
+--     g723Ar5300     - G723.1 Annex A 5300 bps               
+--     ietfg729r8000  - G.729 8000 bps (IETF bit ordering)
+--     gsmeEr12200    - GSM Enhanced Full Rate 12200 bps
+--     clearChannel   - CLEAR channel codec
+--     g726r40000     - G.726 40000 bps
+--     llcc           - Lossless compression codec
+--     gsmAmrNb       - GSM AMR-NB 4750 - 12200 bps
+--     g722           - G.722 2400 - 6400 bps
+
+CvcGUid ::= OCTET STRING(SIZE(0..16))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents a Global Call Identifier.
+--     The global call identifier is used as an unique identifier
+--     for an end-to-end call.
+--     A zero length CvcGUid indicates no value for the global call
+--     identifier.
+
+CvcInBandSignaling ::= INTEGER {
+        cas(1),
+        none(2),
+        cept(3),
+        transparent(4),
+        gr303(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents the type of in-band signaling used between 
+--     the two end points of the call and is used to inform the
+--     router how interpret the ABCD signaling data bits passed
+--     as part of the voice payload data.
+--    
+--     cas         - specifies interpret the signaling bits as
+--                   North American Channel Associated signaling.        
+--     none        - specifies no in-band signaling or signaling
+--                   is being done via an external method (e.g
+--                   CCS).
+--     cept        - specifies interpret the signaling bits as
+--                   MELCAS
+--     transparent - specifies do not interpret or translate the
+--                   signaling bits.
+--    gr303       - specifies interpret the signaling bits as
+--    GR303
+
+CvcH320CallType ::= INTEGER {
+        --?? enum value of zero may cause problems
+        none(0),
+        primary(1),
+        secondary(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This object specifies the H320 call type of a voice call.
+
+CvcVideoCoderRate ::= INTEGER {
+        --?? enum value of zero may cause problems
+        none(0),
+        h261(1),
+        h263(2),
+        h263plus(3),
+        h264(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This object specifies the encoding type used to compress
+--     the video data of the voice call.
+
+cvCommonDcCallActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvCommonDcCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is a common extension to the call active 
+         table of IETF Dial Control MIB. It contains common call 
+         leg information about a network call leg."
+    ::= { cvCommonDcCallActive 1 }
+
+cvCommonDcCallActiveEntry OBJECT-TYPE
+    SYNTAX CvCommonDcCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The common information regarding a single network call 
+         leg. The call leg entry is identified by using the same 
+         index objects that are used by Call Active table of IETF 
+         Dial Control MIB to identify the call.
+         An entry of this table is created when its associated 
+         call active entry in the IETF Dial Control MIB is created
+         and the call active entry contains information for the 
+         call establishment to a network dialpeer.             
+         The entry is deleted when its associated call active entry 
+         in the IETF Dial Control MIB is deleted."
+    INDEX { callActiveSetupTime, callActiveIndex }
+    ::= { cvCommonDcCallActiveTable 1 }
+
+CvCommonDcCallActiveEntry ::= SEQUENCE {
+    cvCommonDcCallActiveConnectionId CvcGUid,
+    cvCommonDcCallActiveVADEnable TruthValue,
+    cvCommonDcCallActiveCoderTypeRate CvcCoderTypeRate,
+    cvCommonDcCallActiveCodecBytes INTEGER,
+    cvCommonDcCallActiveInBandSignaling CvcInBandSignaling,
+    cvCommonDcCallActiveCallingName SnmpAdminString,
+    cvCommonDcCallActiveCallerIDBlock TruthValue
+    }
+
+cvCommonDcCallActiveConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the network call."
+    ::= { cvCommonDcCallActiveEntry 1 }
+
+cvCommonDcCallActiveVADEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates whether or not the VAD (Voice 
+         Activity Detection) is enabled for the voice call."
+    ::= { cvCommonDcCallActiveEntry 2 }
+
+cvCommonDcCallActiveCoderTypeRate OBJECT-TYPE
+    SYNTAX CvcCoderTypeRate
+--    Rsyntax INTEGER {
+--        other(1),
+--        fax2400(2),
+--        fax4800(3),
+--        fax7200(4),
+--        fax9600(5),
+--        fax14400(6),
+--        fax12000(7),
+--        g729r8000(10),
+--        g729Ar8000(11),
+--        g726r16000(12),
+--        g726r24000(13),
+--        g726r32000(14),
+--        g711ulawr64000(15),
+--        g711Alawr64000(16),
+--        g728r16000(17),
+--        g723r6300(18),
+--        g723r5300(19),
+--        gsmr13200(20),
+--        g729Br8000(21),
+--        g729ABr8000(22),
+--        g723Ar6300(23),
+--        g723Ar5300(24),
+--        ietfg729r8000(25),
+--        gsmeEr12200(26),
+--        clearChannel(27),
+--        g726r40000(28),
+--        llcc(29),
+--        gsmAmrNb(30),
+--        g722(31)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The negotiated coder rate. It specifies the transmit 
+         rate of voice/fax compression to its associated call leg 
+         for the call.
+         This rate is different from the configuration rate 
+         because of rate negotiation during the call."
+    ::= { cvCommonDcCallActiveEntry 3 }
+
+cvCommonDcCallActiveCodecBytes OBJECT-TYPE
+    SYNTAX INTEGER(10..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the payload size of the voice packet."
+    ::= { cvCommonDcCallActiveEntry 4 }
+
+cvCommonDcCallActiveInBandSignaling OBJECT-TYPE
+    SYNTAX CvcInBandSignaling
+--    Rsyntax INTEGER {
+--        cas(1),
+--        none(2),
+--        cept(3),
+--        transparent(4),
+--        gr303(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the type of in-band signaling being used on 
+         the call.  This object is instantiated only for 
+         Connection Trunk calls."
+    ::= { cvCommonDcCallActiveEntry 5 }
+
+cvCommonDcCallActiveCallingName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The calling party name this call is connected to. If the 
+         name is not available, then it will have a length of zero."
+    ::= { cvCommonDcCallActiveEntry 6 }
+
+cvCommonDcCallActiveCallerIDBlock OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates whether or not the caller ID feature
+         is blocked for this voice call."
+    ::= { cvCommonDcCallActiveEntry 7 }
+
+cvCommonDcCallHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvCommonDcCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the Common extension to the call history 
+         table of IETF Dial Control MIB. It contains Common call 
+         leg information about a network call leg."
+    ::= { cvCommonDcCallHistory 1 }
+
+cvCommonDcCallHistoryEntry OBJECT-TYPE
+    SYNTAX CvCommonDcCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The common information regarding a single network call 
+         leg. The call leg entry is identified by using the same 
+         index objects that are used by Call Active table of IETF 
+         Dial Control MIB to identify the call.
+         An entry of this table is created when its associated 
+         call history entry in the IETF Dial Control MIB is 
+         created and the call history entry contains information 
+         for the call establishment to a network dialpeer.
+         The entry is deleted when its associated call history 
+         entry in the IETF Dial Control MIB is deleted."
+    INDEX { cCallHistoryIndex }
+    ::= { cvCommonDcCallHistoryTable 1 }
+
+CvCommonDcCallHistoryEntry ::= SEQUENCE {
+    cvCommonDcCallHistoryConnectionId CvcGUid,
+    cvCommonDcCallHistoryVADEnable TruthValue,
+    cvCommonDcCallHistoryCoderTypeRate CvcCoderTypeRate,
+    cvCommonDcCallHistoryCodecBytes INTEGER,
+    cvCommonDcCallHistoryInBandSignaling CvcInBandSignaling,
+    cvCommonDcCallHistoryCallingName SnmpAdminString,
+    cvCommonDcCallHistoryCallerIDBlock TruthValue
+    }
+
+cvCommonDcCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the gateway call."
+    ::= { cvCommonDcCallHistoryEntry 1 }
+
+cvCommonDcCallHistoryVADEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates whether or not the VAD (Voice 
+         Activity Detection) was enabled for the voice call."
+    ::= { cvCommonDcCallHistoryEntry 2 }
+
+cvCommonDcCallHistoryCoderTypeRate OBJECT-TYPE
+    SYNTAX CvcCoderTypeRate
+--    Rsyntax INTEGER {
+--        other(1),
+--        fax2400(2),
+--        fax4800(3),
+--        fax7200(4),
+--        fax9600(5),
+--        fax14400(6),
+--        fax12000(7),
+--        g729r8000(10),
+--        g729Ar8000(11),
+--        g726r16000(12),
+--        g726r24000(13),
+--        g726r32000(14),
+--        g711ulawr64000(15),
+--        g711Alawr64000(16),
+--        g728r16000(17),
+--        g723r6300(18),
+--        g723r5300(19),
+--        gsmr13200(20),
+--        g729Br8000(21),
+--        g729ABr8000(22),
+--        g723Ar6300(23),
+--        g723Ar5300(24),
+--        ietfg729r8000(25),
+--        gsmeEr12200(26),
+--        clearChannel(27),
+--        g726r40000(28),
+--        llcc(29),
+--        gsmAmrNb(30),
+--        g722(31)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The negotiated coder rate. It specifies the transmit rate 
+         of voice/fax compression to its associated call leg for 
+         the call.
+         This rate is different from the configuration rate 
+         because of rate negotiation during the call."
+    ::= { cvCommonDcCallHistoryEntry 3 }
+
+cvCommonDcCallHistoryCodecBytes OBJECT-TYPE
+    SYNTAX INTEGER(10..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the payload size of the voice packet."
+    ::= { cvCommonDcCallHistoryEntry 4 }
+
+cvCommonDcCallHistoryInBandSignaling OBJECT-TYPE
+    SYNTAX CvcInBandSignaling
+--    Rsyntax INTEGER {
+--        cas(1),
+--        none(2),
+--        cept(3),
+--        transparent(4),
+--        gr303(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the type of in-band signaling used on the 
+         call.  This object is instantiated only for 
+         Connection Trunk calls."
+    ::= { cvCommonDcCallHistoryEntry 5 }
+
+cvCommonDcCallHistoryCallingName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The calling party name this call is connected to. If 
+         the name is not available, then it will have a length 
+         of zero."
+    ::= { cvCommonDcCallHistoryEntry 6 }
+
+cvCommonDcCallHistoryCallerIDBlock OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates whether or not the caller ID 
+         feature is blocked for this voice call."
+    ::= { cvCommonDcCallHistoryEntry 7 }
+
+cvCommonDcCallGroup OBJECT IDENTIFIER ::= { cvCommonDcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the common network 
+--     call leg information.
+--  objects
+--    cvCommonDcCallActiveConnectionId, 
+--    cvCommonDcCallActiveVADEnable, 
+--    cvCommonDcCallActiveCoderTypeRate, 
+--    cvCommonDcCallActiveCodecBytes, 
+--    cvCommonDcCallActiveInBandSignaling, 
+--    cvCommonDcCallHistoryConnectionId, 
+--    cvCommonDcCallHistoryVADEnable, 
+--    cvCommonDcCallHistoryCoderTypeRate, 
+--    cvCommonDcCallHistoryCodecBytes, 
+--    cvCommonDcCallHistoryInBandSignaling
+
+cvCommonDcCallGroup1 OBJECT IDENTIFIER ::= { cvCommonDcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the common network
+--     call leg information.
+--  objects
+--    cvCommonDcCallActiveConnectionId, 
+--    cvCommonDcCallActiveVADEnable, 
+--    cvCommonDcCallActiveCoderTypeRate, 
+--    cvCommonDcCallActiveCodecBytes, 
+--    cvCommonDcCallActiveInBandSignaling, 
+--    cvCommonDcCallActiveCallingName, 
+--    cvCommonDcCallActiveCallerIDBlock, 
+--    cvCommonDcCallHistoryConnectionId, 
+--    cvCommonDcCallHistoryVADEnable, 
+--    cvCommonDcCallHistoryCoderTypeRate, 
+--    cvCommonDcCallHistoryCodecBytes, 
+--    cvCommonDcCallHistoryInBandSignaling, 
+--    cvCommonDcCallHistoryCallingName, 
+--    cvCommonDcCallHistoryCallerIDBlock
+
+cvCommonDcMIBCompliance OBJECT IDENTIFIER ::= { cvCommonDcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO VOICE COMMON MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvCommonDcCallGroup
+
+cvCommonDcMIBComplianceRev1 OBJECT IDENTIFIER ::= { cvCommonDcMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO VOICE COMMON MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvCommonDcCallGroup1
+--   ObjVar
+--    cvCommonDcCallActiveCallingName
+--   ObjVar
+--    cvCommonDcCallHistoryCallingName
+
+
+END
+

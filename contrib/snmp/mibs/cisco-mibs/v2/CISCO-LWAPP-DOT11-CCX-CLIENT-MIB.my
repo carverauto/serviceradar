@@ -1,0 +1,1486 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOT11-CCXV5-CLIENT-MIB.my
+-- July 2006, Ambika Mohanty
+--
+-- Copyright (c) 2017 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DOT11-CCX-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        MacAddress,
+        TruthValue,
+        RowStatus,
+        TimeStamp,
+	    TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+	    CiscoMilliSeconds
+	            FROM CISCO-TC
+        cldcClientMacAddress,
+        ciscoLwappDot11ClientCcxMIBObjects,
+        ciscoLwappDot11CCXClientMIBConform
+                FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoLwappDot11CcxClientMIB      MODULE-IDENTITY
+        LAST-UPDATED   "201704180000Z"
+        ORGANIZATION   "Cisco Systems Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                   Tel: +1 800 553-NETS
+
+                 Email: cs-wnbu-snmp@cisco.com"
+
+        DESCRIPTION             
+                "This MIB is intended to be implemented on all those
+                devices operating as Central Controllers (CC) that
+                terminate the Light Weight Access Point Protocol
+                (LWAPP) tunnel from Light-weight  Access Points.
+
+                Link Test is performed to learn the backhaul link 
+                quality between two mesh neighboring mesh nodes.
+
+                The arrangement of the controller 
+                (referred to as CC in the diagram) and mesh nodes
+                (RAP and MAP) LWAPP APs ,client(MN) and NMS appear 
+                as follows.
+
+                 +.......+                 +.......+
+                 +       +                 +       +
+                 +  NMS  +                 +  NMS  +
+                 +       +                 +       +
+                 +.......+                 +.......+
+                    .                         .
+                 .    .                     .   .
+              .         .                .        .
+            .            .             .            .
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+          ..            .             .                 .
+          ..            .             .                 .
+         .  .            .             .                 .
+        .    .            .             .                 .
+       .      .            .             .                 .
+      .        .            .             .                 .
+   +......+ +......+     +......+      +......+          +......+
+   +      + +      +     +      +      +      +          +      +
+   +  RAP + +  RAP +     +  RAP  +     +  RAP +          +  RAP +
+   +      + +      +     +      +      +      +          +      +
+   +......+ +......+     +......+      +......+          +......+
+      .        .              .             .                 .
+       .        .              .             .                 .
+        .        .              .             .                 .
+        .          .              .             .                 .
+        .           .              .             .                 .
+      +......+ +......+     +......+      +......+          +......+
+      +      + +      +     +      +      +      +          +      +
+      +  MAP + +  MN  +     +  MAP +      +  MAP +          +  MAP +
+      +      + +      +     +      +      +      +          +      +
+      +......+ +......+     +......+      +......+          +......+
+          .                    .                          ..    . 
+          . .                  .                     ..        .
+          .   .                .                  ..            .
+          .     .              .              .                .
+      +......+ +......+     +......+      +......+.         +......+
+      +      + +      +     +      +      +      +          +      +
+      +  MAP + +  MAP +     +  MAP +      +  MAP +          +  MN  +
+      +      + +      +     +      +      +      +          +      +
+      +......+ +......+     +......+      +......+          +......+
+
+
+
+
+                The LWAPP tunnel exists between the controller and
+                the APs.  The MNs communicate with the APs through
+                the protocol defined by the 802.11 standard.  The
+                controllers and the IDS systems exchange information
+                through Cisco proprietary event exchange mechanisms.
+                
+                LWAPP APs, upon bootup, discover and join one of the
+                controllers and the controller pushes the 
+                configuration, that includes the WLAN parameters, to 
+                the LWAPP APs. The APs then encapsulate all the 802.11 
+                frames from wireless clients inside LWAPP frames and 
+                forward the LWAPP frames to the controller.
+              
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.  
+
+                LWAPP APs encapsulate all the 802.11 frames in
+                LWAPP frames and sends them to the controller to which
+                it is logically connected.
+
+                Central Controller ( CC )
+
+                The central entity that terminates the LWAPP protocol
+                tunnel from the LWAPP APs.  Throughout this MIB,
+                this entity is also referred to as 'controller'.
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point. Mobile Node 
+                and client are used interchangeably. 
+
+                Network Management System ( NMS )
+
+                The station from which the administrator manages the
+                wired and wireless networks.
+                
+                Mesh Node
+                                
+                A mesh node is defined as a physical or logical entity
+                in the mesh network participating in forming the mesh 
+                backhaul. There are two types of mesh nodes supported 
+                in Cisco mesh network:RAP and MAP.
+                
+                Root AP (RAP)
+                
+                The AP forming the bridge between a wired and a mesh
+                network with an Ethernet interface to the wired 
+                network and a 802.11 radio interface to the mesh 
+                network
+                
+                Mesh AP (MAP).
+                
+                The AP extending wireless coverage similar to a 
+                repeater in a mesh network and consists of a 802.11 
+                uplink and a 802.11 downlink. On a single-radio 
+                backhaul, both uplink and downlink exist on the same 
+                radio and are logical links only. On a multi-radio 
+                backhaul, they may exist on different radios.MAP APs 
+                associates directly with RAP APs or with another MAP 
+                AP. Each association of AP (MAP-MAP or RAP-MAP) with 
+                another AP forms parent-child relationship. 
+                
+                Mesh Network
+                
+                Network starting with the wireless backhaul downlink
+                of the RAP and all the entities below except any 
+                attached network to the Ethernet link of MAPs. A mesh 
+                network below a single RAP is also referred to as a 
+                'Mesh Sector'.A mesh network consists of mesh nodes. 
+                A single mesh network is always augmented to a single 
+                wired network.
+                
+                Mesh Link
+                
+                A logical 802.11 link between two mesh nodes. A single 
+                link is point-to-point. All point-to-multipoint links 
+                are considered as multiple mesh links. Often referred 
+                to as mesh backhaul link.
+                
+                Mesh Backhaul
+                
+                A Mesh backhaul consists of mesh nodes and mesh links 
+                terminating at a RAP. This necessarily creates a one-
+                to-one relationship between a 'mesh network', 'mesh
+                sector' and a 'mesh backhaul' where these terms can be 
+                used interchangeably.
+                
+                SNR
+                Signal to Noise ratio on the 802.11 radio.
+                
+                Bridged network 
+                The bridged network is defined as the network(s)
+                attached to the Ethernet port of any MAP. There can be
+                multiple such networks attached to a single mesh 
+                network.
+
+                TKIP
+
+                TKIP (Temporal Key Integrity Protocol) is an encryption
+                protocol included as part of the IEEE 802.11i
+                standard for wireless LANs (WLANs). It was designed to
+                provide more secure encryption than the notoriously weak
+                Wired Equivalent Privacy (WEP), the original WLAN security protocol.
+
+                RSNA
+
+                The Robust Security Network Association (RSNA) authentication
+                algorithm is defined in Clause 8.4 of the IEEE 802.11i-2004 standard.
+                If the 802.11 station supports RSNA, it must support the AES-CCMP cipher
+                algorithm. Support for the WEP and TKIP cipher algorithms are optional
+                for RSNA.
+
+                CCMP
+
+                Counter Mode with Cipher Block Chaining Message Authentication Code
+                Protocol (CCMP) is an encryption protocol that forms part of the 802.11i 
+                standard for wireless local area networks (WLANs), particularly those using
+                WiMax technology.
+
+                
+                OUI
+                
+                Short for Organizational Unique Identifier, the first 24 bits of a MAC address
+                for a network-connected device, which indicate the specific vendor for that
+                device. The IEEE assigns OUIs to vendors. (The last 24 bits of the MAC address
+                are the device??s unique serial number, assigned to the device by the manufacturer.)
+                The OUI sometimes is referred to as the Vendor ID.
+
+                REFERENCE
+ 
+                [1] Wireless LAN Medium Access Control ( MAC ) and
+                Physical Layer ( PHY ) Specifications.
+  
+                [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+                Weight Access Point Protocol "
+        
+        REVISION      "201704180000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoLwappDot11ClientCcxMIBObjects 3 }
+
+ciscoLwappDot11CcxClientMIBObjects  OBJECT IDENTIFIER
+        ::={ ciscoLwappDot11CcxClientMIB 0 }
+
+ciscoClientCcxEventLogRequest OBJECT IDENTIFIER
+	::={ ciscoLwappDot11CcxClientMIBObjects 1 }
+
+ciscoClientCcxEventLogResponse OBJECT IDENTIFIER
+	::={ ciscoLwappDot11CcxClientMIBObjects 2 }
+
+ciscoClientCcxEventLogStatus OBJECT IDENTIFIER
+	::={ ciscoLwappDot11CcxClientMIBObjects 3 }
+
+ciscoClientCcxStatsRequest OBJECT IDENTIFIER
+	::={ ciscoLwappDot11CcxClientMIBObjects 4 }
+
+ciscoClientCcxStatsResponse OBJECT IDENTIFIER
+	::={ ciscoLwappDot11CcxClientMIBObjects 5 }
+
+
+CcxEventLogResponseStatus ::= TEXTUAL-CONVENTION
+
+	STATUS    current
+	DESCRIPTION
+		"This attribute represents the response of the ccx
+	     event log request.
+        ccx-event-log-successful (1) - indicates that the response to 
+                                       event log is successful.
+        ccx-event-log-refused (2) - indicates ccx request is
+                                    refused.
+        ccx-event-log-incapable (3) - indicates ccx capablity is not available." 
+	SYNTAX INTEGER {
+		ccx-event-log-successful (1),
+		ccx-event-log-refused (2),
+		ccx-event-log-incapable (3)
+	}
+CcxEventLogDialogToken ::= TEXTUAL-CONVENTION
+
+	STATUS    current
+	DESCRIPTION
+		"This attribute represents the token generated for the
+	    request sent to a client."
+	SYNTAX Unsigned32
+
+
+cldccEventLogsRequestTable OBJECT-TYPE
+
+       SYNTAX     SEQUENCE OF CldccEventLogsRequestEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+		  "This table represents the list of clients to which the event log
+          request has been sent for fetching the logs. The table 
+          has a column corresponding to the type of logs to be fetched  
+		  for each client.The current logs supported are Roaming,
+		  RSNA and Syslog."
+
+::= { ciscoClientCcxEventLogRequest 1 }
+
+cldccEventLogsRequestEntry OBJECT-TYPE
+
+        SYNTAX        CldccEventLogsRequestEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION	
+                      "Each entry in this table is represented
+                       by the client mac address."
+        INDEX
+	{
+         cldcClientMacAddress
+	}
+
+::= { cldccEventLogsRequestTable 1 }
+
+CldccEventLogsRequestEntry::=
+
+         SEQUENCE 
+         {
+              cldccEventLogsRequestLogType      BITS,
+              cldccEventLogsRequestRowStatus	RowStatus
+         }
+
+cldccEventLogsRequestLogType    OBJECT-TYPE
+
+         SYNTAX  BITS {
+                      roaming(0),
+                      rsna(1),
+                      syslog(2)
+                    }
+         MAX-ACCESS read-create
+	     STATUS     current
+         DESCRIPTION
+		   "This object specifies the event logs request type which are 
+            required from the client. This can be roaming, RSNA or syslog.
+			roaming(0) - event log request type is roaming.
+            rsna(1) - event log request type is RSNA.
+            syslog(2) - event log request type is syslog."
+		          	
+::= { cldccEventLogsRequestEntry 1 }
+
+
+cldccEventLogsRequestRowStatus OBJECT-TYPE
+
+         SYNTAX     RowStatus
+         MAX-ACCESS read-create
+         STATUS     current
+         DESCRIPTION
+                "This is the status column for this row and
+                is used to create and delete specific instances
+                of rows in this table."
+
+::= { cldccEventLogsRequestEntry 2}
+
+
+cldccSysLogsTable OBJECT-TYPE
+
+        SYNTAX      SEQUENCE OF CldccSysLogsEntry
+        MAX-ACCESS  not-accessible
+        STATUS       current
+        DESCRIPTION
+		   "This table represents syslogs of the various
+		   ccxv5 clients."
+			  		
+::= { ciscoClientCcxEventLogResponse 1 }
+
+cldccSysLogsEntry OBJECT-TYPE
+
+        SYNTAX      CldccSysLogsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+		"Each entry in this table is  represented by the
+	    client mac address and syslog index."
+        INDEX
+     	{
+        cldcClientMacAddress,
+	    cldccSysLogsIndex
+        }
+
+::= { cldccSysLogsTable 1 }
+
+CldccSysLogsEntry ::=
+
+        SEQUENCE  {
+              cldccSysLogsIndex  Unsigned32,
+              cldccSysLogsTimeStamp  TimeStamp,
+              cldccSysLogsBuffer     OCTET STRING
+        }
+
+cldccSysLogsIndex OBJECT-TYPE
+
+       SYNTAX        Unsigned32
+       MAX-ACCESS    not-accessible
+       STATUS        current
+       DESCRIPTION
+                    "This object represents  the unique index of the 
+                    syslog entry exchanged between the client and controller."
+
+::= { cldccSysLogsEntry 1 }
+
+
+cldccSysLogsTimeStamp OBJECT-TYPE
+
+       SYNTAX        TimeStamp
+       MAX-ACCESS    read-only
+       STATUS        current
+       DESCRIPTION
+                    "This object indicates the time stamp when the 
+		             syslog messages were generated."
+
+::= { cldccSysLogsEntry 2 }
+
+cldccSysLogsBuffer OBJECT-TYPE
+
+       SYNTAX        OCTET STRING ( SIZE(256) ) 
+       MAX-ACCESS    read-only
+       STATUS        current
+       DESCRIPTION	
+                    "This object indicates the syslog messages generated on
+		            the client side."
+
+::= { cldccSysLogsEntry 3 }
+
+
+cldccRoamingLogsTable OBJECT-TYPE
+
+  SYNTAX        SEQUENCE OF CldccRoamingLogsEntry
+  MAX-ACCESS 	not-accessible
+  STATUS     	current
+  DESCRIPTION	
+		"This table represents roaming logs of the clients."
+			  		
+  ::= { ciscoClientCcxEventLogResponse 2}
+
+cldccRoamingLogsEntry OBJECT-TYPE
+    SYNTAX      CldccRoamingLogsEntry
+    MAX-ACCESS 	not-accessible
+    STATUS     	current
+    DESCRIPTION	
+		"Each entry in this table is represented by the
+        client mac address and roaming logs index."
+    INDEX {	
+	       cldcClientMacAddress,
+           cldccRoamingLogsIndex
+	  }
+	
+::= { cldccRoamingLogsTable 1 }
+
+CldccRoamingLogsEntry ::= 
+	SEQUENCE  {
+        cldccRoamingLogsIndex		      Unsigned32,
+        cldccRoamingLogsTimeStamp         TimeStamp, 
+        cldccRoamingLogsTargetSSID   	  MacAddress,
+        cldccRoamingLogsSourceSSID	      MacAddress,
+        cldccRoamingLogsTransitionTime    CiscoMilliSeconds,
+        cldccRoamingLogsTransitionReason  INTEGER,
+        cldccRoamingLogsTransitionResult  INTEGER
+	} 
+
+cldccRoamingLogsIndex OBJECT-TYPE
+
+  SYNTAX        Unsigned32 
+  MAX-ACCESS 	read-only
+  STATUS     	current
+  DESCRIPTION	
+		"This object indicates the index of roaming logs."
+
+::= { cldccRoamingLogsEntry 1 }
+
+cldccRoamingLogsTimeStamp   OBJECT-TYPE
+
+  SYNTAX        TimeStamp
+  MAX-ACCESS 	read-only
+  STATUS     	current
+  DESCRIPTION	
+		"This object indicates the time stamp at which
+        client roaming  logs were generated."
+
+::= { cldccRoamingLogsEntry 2 }
+
+
+cldccRoamingLogsTargetSSID  OBJECT-TYPE
+
+    SYNTAX        MacAddress
+    MAX-ACCESS 	  read-only
+    STATUS     	  current
+    DESCRIPTION	
+		"This object indicates the BSSID of the AP to which transition 
+		is attempted."
+
+    ::= { cldccRoamingLogsEntry 3 }
+
+cldccRoamingLogsSourceSSID   OBJECT-TYPE
+
+    SYNTAX       MacAddress
+    MAX-ACCESS 	 read-only
+    STATUS       current
+    DESCRIPTION	
+	      "This object indicates the BSSID of the associated AP prior to
+	      transition."
+
+::= { cldccRoamingLogsEntry  4 }
+
+
+cldccRoamingLogsTransitionTime OBJECT-TYPE
+		    	
+    SYNTAX     CiscoMilliSeconds
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION	
+	       "This object indicates the difference from last time a frame could have 
+	       been transmitted on the source BSS to the time when a 
+	       non-802.1x data frame can be attempted on the target BSS."
+
+::= { cldccRoamingLogsEntry  5 }
+
+
+cldccRoamingLogsTransitionReason  OBJECT-TYPE
+
+    SYNTAX    INTEGER 
+    {
+     normal-roam-poor-link(1),
+     normal-roam-load-bal(2),
+     insufficient-capacity(3),
+     inf-directed-roam(4),
+     first-association-to-wlan(5),
+     roaming-from-cellular(6),
+     roaming-to-cellular(7),
+     normal-roam-better-ap(8),
+     disassociated-or-deauthenticated(9),
+     failed-8021x-eap-auth(10),
+     failed-8021x-4way-handshake(11),
+     many-replay-counters(12),
+     many-data-mic-failures(13),
+     many-mgt-mic-failures(14),
+     max-retransmissions-exceeded(15),
+     excessive-interference(16),
+     many-broadcast-disassociations(17),
+     many-broadcast-deauth(18)
+    }
+ MAX-ACCESS 	read-only
+ STATUS     	current
+ DESCRIPTION	
+    "This object indicates the reason why a transition attempt occurred.
+    normal-roam-poor-link(1) - represents normal roam poor link.
+    normal-roam-load-bal(2) - represents normal roam load balance.
+    insufficient-capacity(3) - represents insufficient capacity of roaming.
+    inf-directed-roam(4) - represents ccx directed roam.
+    first-association-to-wlan(5) - represents first association to wlan.
+    roaming-from-cellular(6) - represents roaming from cellular.
+    roaming-to-cellular(7) - represents roaming to cellular.
+    normal-roam-better-ap(8) - represents normal roaming to better ap.
+    disassociated-or-deauthenticated(9) - represents disassociated or deauthenticated.
+    failed-8021x-eap-auth(10) - represents failed 8021x eap authentication.
+    failed-8021x-4way-handshake(11) - represents failed 8021x 4 way handshake.
+    many-replay-counters(12) - represents too many replay counter errors.
+    many-data-mic-failures(13) - represents many data mic failures.
+    many-mgt-mic-failures(14) - represents many management mic failures.
+    max-retransmissions-exceeded(15) - represents maximum retransmissions exceeded.
+    excessive-interference(16) - represents excessive interference.
+    many-broadcast-disassociations(17) - represents many broadcast disassociations.
+    many-broadcast-deauth(18) - represents many broadcast deauthentication."
+::= { cldccRoamingLogsEntry  6 }
+
+
+cldccRoamingLogsTransitionResult  OBJECT-TYPE
+
+  SYNTAX       INTEGER (0..51)
+  MAX-ACCESS   read-only
+  STATUS       current
+  DESCRIPTION	
+	    "This object indicates the results of the attempted transition."
+
+  ::= { cldccRoamingLogsEntry   7 }
+
+
+cldccRsnaDataTable OBJECT-TYPE
+
+  SYNTAX        SEQUENCE OF CldccRsnaDataEntry
+  MAX-ACCESS 	not-accessible
+  STATUS     	current
+  DESCRIPTION	
+		"This table represents RSNA data logs of the clients."
+			  		
+  ::= { ciscoClientCcxEventLogResponse 3 }
+
+
+cldccRsnaDataEntry OBJECT-TYPE
+
+    SYNTAX    CldccRsnaDataEntry
+    MAX-ACCESS 	not-accessible
+    STATUS     	current
+    DESCRIPTION	
+		"Each entry in the table is represented by the
+        client mac address and RSNA data index."
+    INDEX {						
+	   cldcClientMacAddress,
+           cldccRsnaDataIndex	
+	  }
+	
+::= { cldccRsnaDataTable 1 }
+
+CldccRsnaDataEntry ::= 
+	SEQUENCE  {
+          cldccRsnaDataIndex 	 Unsigned32,
+          cldccRsnaDataTimeStamp  TimeStamp, 
+          cldccRsnaDataVersion    Unsigned32,
+          cldccRsnaDataTargetSSID    MacAddress,
+          cldccRsnaDataAuthType	  INTEGER,
+          cldccRsnaDataResult    INTEGER,
+          cldccRsnaDataElemMultiCastOuis OCTET STRING,
+          cldccRsnaDataElemUnicastCastOuis OCTET STRING,
+          cldccRsnaDataElemAuthOuis OCTET STRING,
+          cldccRsnaDataElemCapabilities Unsigned32
+	}
+
+cldccRsnaDataIndex OBJECT-TYPE
+
+    SYNTAX       Unsigned32 
+    MAX-ACCESS 	 not-accessible
+    STATUS     	 current
+    DESCRIPTION	
+		"This object represents  the index of the RSNA data."
+
+    ::= { cldccRsnaDataEntry 1 }
+
+cldccRsnaDataTimeStamp OBJECT-TYPE
+
+       SYNTAX        TimeStamp
+       MAX-ACCESS    read-only
+       STATUS        current
+       DESCRIPTION
+            "This object indicates the time stamp when the
+		    RSNA data were generated."
+
+::= { cldccRsnaDataEntry 2 }
+
+cldccRsnaDataVersion OBJECT-TYPE
+
+    SYNTAX        Unsigned32
+    MAX-ACCESS 	  read-only
+    STATUS     	  current
+    DESCRIPTION	
+		"This object indicates the RSNA data version."
+
+    ::= { cldccRsnaDataEntry 3 }
+
+cldccRsnaDataTargetSSID OBJECT-TYPE		
+
+    SYNTAX        MacAddress
+    MAX-ACCESS 	  read-only
+    STATUS     	  current
+    DESCRIPTION	
+		"This object indicates the BSSID of the AP that is targeted for roaming."
+
+    ::= { cldccRsnaDataEntry 4 }
+
+
+cldccRsnaDataAuthType OBJECT-TYPE
+
+  SYNTAX  INTEGER
+  {
+        ccx-dot1x-leap (0),
+        ccx-dot1x-eap-fast (1),
+        ccx-dot1x-eap-tls (2),
+        ccx-dot1x-eap-ttls (3),
+        ccx-dot1x-peap-v0 (4),
+        ccx-dot1x-peap-v1 (5),
+        ccx-dot1x-eap-md5 (6),
+        ccx-dot1x-eap-sim (7),
+        ccx-dot1x-psk (8),
+        ccx-dot1x-unknown (255)
+  }
+  MAX-ACCESS   read-only
+  STATUS       current
+  DESCRIPTION	
+	     "This object indicates the authentication type 
+	     used.
+         ccx-dot1x-leap (0) - the authentication type used is leap.
+         ccx-dot1x-eap-fast (1) - the authentication type used is eap-fast.
+         ccx-dot1x-eap-tls (2) - the authentication type used is eap-tls.
+         ccx-dot1x-eap-ttls (3) - the authentication type used is eap-ttls.
+         ccx-dot1x-peap-v0 (4) - the authentication type used is peap-v0.
+         ccx-dot1x-peap-v1 (5) - the authentication type used is peap-v1.
+         ccx-dot1x-eap-md5 (6) - the authentication type used is eap-md5.
+         ccx-dot1x-eap-sim (7) - the authentication type used is eap-sim.
+         ccx-dot1x-psk (8) - the authentication type used is psk.
+         ccx-dot1x-unknown (255) - the authentication type used is unknown."
+
+  ::= { cldccRsnaDataEntry 5 }
+
+cldccRsnaDataResult OBJECT-TYPE
+
+  SYNTAX       INTEGER (0..255)
+  MAX-ACCESS   read-only
+  STATUS       current
+  DESCRIPTION
+	     "This object indicates the result of the RSNA Data."
+
+  ::= { cldccRsnaDataEntry 6 }
+
+
+cldccRsnaDataElemMultiCastOuis OBJECT-TYPE
+
+  SYNTAX       OCTET STRING ( SIZE(0..256) )
+  MAX-ACCESS   read-only
+  STATUS       current
+  DESCRIPTION
+	     "This object indicates the multicast ouis
+	     of a RSNA element."
+
+  ::= { cldccRsnaDataEntry 7 }
+
+cldccRsnaDataElemUnicastCastOuis OBJECT-TYPE
+
+  SYNTAX       OCTET STRING ( SIZE(0..256) )
+  MAX-ACCESS   read-only
+  STATUS       current
+  DESCRIPTION	
+	     "This object indicates the unicast ouis
+	     of a RSNA element."
+
+  ::= { cldccRsnaDataEntry 8 }
+
+cldccRsnaDataElemAuthOuis OBJECT-TYPE
+
+  SYNTAX       OCTET STRING ( SIZE(0..256) )
+  MAX-ACCESS   read-only
+  STATUS       current
+  DESCRIPTION
+	     "This object indicates the authentication ouis
+	     of a RSNA element."
+
+  ::= { cldccRsnaDataEntry 9 }
+
+cldccRsnaDataElemCapabilities OBJECT-TYPE
+
+  SYNTAX       Unsigned32
+  MAX-ACCESS   read-only
+  STATUS       current
+  DESCRIPTION	
+	     "This object indicates the 
+	     capabilities of the RSNA element ."
+
+  ::= { cldccRsnaDataEntry 10 }
+
+
+cldccStatsReqTable OBJECT-TYPE
+
+  SYNTAX        SEQUENCE OF CldccStatsReqEntry
+  MAX-ACCESS 	not-accessible
+  STATUS     	current
+  DESCRIPTION	
+               "This table represents the stats request for the 
+               ccx clients."
+			  		
+  ::= {ciscoClientCcxStatsRequest 1 }
+
+cldccStatsReqEntry OBJECT-TYPE
+
+        SYNTAX        CldccStatsReqEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION	
+                      "Each entry in this table 
+		              is represented by the client mac address."
+        INDEX
+	{
+         cldcClientMacAddress
+	}
+
+::= { cldccStatsReqTable 1 }
+
+CldccStatsReqEntry::=
+
+         SEQUENCE
+         {
+              cldccStatsReqStatus  INTEGER,
+              cldccStatsReqGroupId INTEGER,
+              cldccStatsReqDuration CiscoMilliSeconds,
+              cldccStatsReqRowStatus RowStatus
+         }
+
+cldccStatsReqStatus OBJECT-TYPE
+
+        SYNTAX        INTEGER
+			{
+                         incapable(0),
+                         refused(1),
+                         invalid-state(2),
+                         failure(3),
+                         success(4),
+                         inprogress(5)
+			}
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+              "This object specifies stats request status.
+              incapable(0) - specifies stats request status is incapable.
+              refused(1) - specifies stats request status is refused.
+              invalid-state(2) - specifies stats request status is in invalid state.
+              failure(3) - specifies stats request status is failure.
+              success(4) - specifies stats request status is success.
+              inprogress(5) - specifies stats request status is in progress."
+
+::= { cldccStatsReqEntry 1 }
+
+cldccStatsReqGroupId OBJECT-TYPE
+
+        SYNTAX        INTEGER
+			{
+                         dot11-meas(0),
+                         security-meas(1)
+			}
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+              "This object specifies  the stats request group id.
+              dot11-meas(0) - indicates that the stats request group id
+                              is dot11 measurement. 
+              security-meas(1) - indicates that the stats request group id 
+                              is security measurement."
+
+::= { cldccStatsReqEntry 2 }
+
+
+cldccStatsReqDuration OBJECT-TYPE
+
+         SYNTAX     CiscoMilliSeconds
+         MAX-ACCESS read-create
+         STATUS     current
+         DESCRIPTION
+                "This object specifies the duration of the
+	       	     measurement of stats request."
+
+::= { cldccStatsReqEntry 3 }
+
+cldccStatsReqRowStatus OBJECT-TYPE
+
+         SYNTAX     RowStatus
+         MAX-ACCESS read-create
+         STATUS     current
+         DESCRIPTION
+                "This is the status column for this row 
+                and is used to create and delete specific
+                instances of rows in this table."
+
+::= { cldccStatsReqEntry 4 }
+
+
+cldccStatsDot11RespTable OBJECT-TYPE
+
+  SYNTAX        SEQUENCE OF CldccStatsDot11RespEntry
+  MAX-ACCESS 	not-accessible
+  STATUS     	current
+  DESCRIPTION	
+               "This table represents the stats response for the 
+               ccx clients."
+			  		
+  ::= {ciscoClientCcxStatsResponse 1 }
+
+cldccStatsDot11RespEntry OBJECT-TYPE
+
+        SYNTAX        CldccStatsDot11RespEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION	
+                      "Each entry in this table is represented by
+                      the client Mac address."
+        INDEX
+	{
+	  cldcClientMacAddress
+	}
+
+::= { cldccStatsDot11RespTable 1 }
+
+
+CldccStatsDot11RespEntry::=
+
+         SEQUENCE
+         {
+           cldccStatsRespTransmittedFragmentCount Counter32,
+           cldccStatsRespMulticastTransmittedFrameCount Counter32,
+           cldccStatsRespFailedCount Counter32,
+           cldccStatsRespRetryCount Counter32,
+           cldccStatsRespMultipleRetryCount Counter32,
+           cldccStatsRespFrameDuplicateCount Counter32,
+           cldccStatsRespRtsSuccessCount Counter32,
+           cldccStatsRespRtsFailureCount Counter32,
+           cldccStatsRespAckFailureCount Counter32,
+           cldccStatsRespReceivedFragmentCount Counter32,
+           cldccStatsRespMulticastReceivedFrameCount Counter32,
+           cldccStatsRespFcsErrorCount Counter32,
+           cldccStatsRespTransmittedFrameCount Counter32
+         }
+
+cldccStatsRespTransmittedFragmentCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+            "This object indicates the transmitted fragment
+	       	count."
+
+::= { cldccStatsDot11RespEntry  1 }
+
+cldccStatsRespMulticastTransmittedFrameCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+            "This object indicates the multicast 
+	       	transmitted frame count."
+
+::= { cldccStatsDot11RespEntry  2 }
+
+cldccStatsRespFailedCount OBJECT-TYPE
+
+         SYNTAX     Counter32 
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the failed count of stats response."
+
+::= { cldccStatsDot11RespEntry  3 }
+
+
+cldccStatsRespRetryCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the response retry count of stats response."
+
+::= { cldccStatsDot11RespEntry  4 }
+
+cldccStatsRespMultipleRetryCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the retry
+	       	count of stats response."
+
+::= { cldccStatsDot11RespEntry  5 }
+
+
+cldccStatsRespFrameDuplicateCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the duplicate frame 
+	       	count of stats response."
+
+::= { cldccStatsDot11RespEntry  6 }
+
+cldccStatsRespRtsSuccessCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the RTS success
+	       	count."
+
+::= { cldccStatsDot11RespEntry  7 }
+
+
+cldccStatsRespRtsFailureCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the RTS failure
+	       	count of stats response."
+
+::= { cldccStatsDot11RespEntry  8 }
+
+cldccStatsRespAckFailureCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the acknowledge failure
+	       	count of stats response."
+
+::= { cldccStatsDot11RespEntry  9 }
+
+cldccStatsRespReceivedFragmentCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the received fragment
+	       	count of stats response."
+
+::= { cldccStatsDot11RespEntry  10 }
+
+cldccStatsRespMulticastReceivedFrameCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the multicast received
+	       	frame count of stats response."
+
+::= { cldccStatsDot11RespEntry  11 }
+
+cldccStatsRespFcsErrorCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the fcs error
+	       	count of stats response."
+
+::= { cldccStatsDot11RespEntry  12 }
+
+cldccStatsRespTransmittedFrameCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the transmitted frame
+	       	count of stats response."
+
+::= { cldccStatsDot11RespEntry  13 }
+
+
+cldccStatsSecurityRespTable OBJECT-TYPE
+
+  SYNTAX        SEQUENCE OF CldccStatsSecurityRespEntry
+  MAX-ACCESS 	not-accessible
+  STATUS     	current
+  DESCRIPTION	
+               "This table represents the stats security response for the 
+               ccx clients."
+			  		
+  ::= {ciscoClientCcxStatsResponse 2 }
+
+cldccStatsSecurityRespEntry OBJECT-TYPE
+
+        SYNTAX        CldccStatsSecurityRespEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION	
+                      "Each entry in this table is represented
+                       by the client Mac address."
+        INDEX
+	{
+		cldcClientMacAddress
+	}
+
+::= { cldccStatsSecurityRespTable 1 }
+
+
+CldccStatsSecurityRespEntry::=
+
+         SEQUENCE
+         {
+           cldccStatsRespSelectedPairwiseCipher Counter32,
+           cldccStatsRespTkipIcvErrors Counter32,
+           cldccStatsRespTkipLocalMicFailures Counter32,
+           cldccStatsRespCcmpReplays Counter32,
+           cldccStatsRespCcmpDecrypErrors Counter32,
+           cldccStatsRespTkipReplays Counter32,
+           cldccStatsRespMgmtStatsTkipIcvErrors Counter32,
+           cldccStatsRespMgmtStatsTkipLocalMicFailures Counter32,
+           cldccStatsRespMgmtStatsCcmpReplays Counter32,
+           cldccStatsRespMgmtStatsCcmpDecryptErrors Counter32,
+           cldccStatsRespMgmtStatsTkipReplays Counter32,
+           cldccStatsRespMgmtStatsTkipMhdrErrors Counter32,
+           cldccStatsRespMgmtStatsCcmpMhdrErrors Counter32,
+           cldccStatsRespMgmtStatsBroadcastDisassociateCount Counter32,
+           cldccStatsRespMgmtStatsBroadcastDeauthenticateCount Counter32,
+           cldccStatsRespMgmtStatsBroadcastActionFrameCount Counter32
+           
+         }
+
+cldccStatsRespSelectedPairwiseCipher OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the pairwise
+	       	cipher of stats response."
+
+::= { cldccStatsSecurityRespEntry 1 }
+
+cldccStatsRespTkipIcvErrors OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the TKIP ICV error
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 2 }
+
+
+cldccStatsRespTkipLocalMicFailures OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the local TKIP MIC
+	       	    failure count of stats response."
+
+::= { cldccStatsSecurityRespEntry 3 }
+
+cldccStatsRespCcmpReplays OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the CCMP replay
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 4 }
+
+cldccStatsRespCcmpDecrypErrors OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the CCMP decrypt error
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 5 }
+
+cldccStatsRespTkipReplays OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the TKIP replay
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry  6}
+
+cldccStatsRespMgmtStatsTkipIcvErrors OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the TKIP ICV error
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 7 }
+
+cldccStatsRespMgmtStatsTkipLocalMicFailures OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the TKIP local MIC failure
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 8}
+
+
+cldccStatsRespMgmtStatsCcmpReplays OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the CCMP replay
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 9}
+
+cldccStatsRespMgmtStatsCcmpDecryptErrors OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the Ccmp decrypt error
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 10}
+
+
+cldccStatsRespMgmtStatsTkipReplays OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the tkip replay
+	       	count of stats management response."
+
+::= { cldccStatsSecurityRespEntry 11}
+
+cldccStatsRespMgmtStatsTkipMhdrErrors OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the TKIP mhdr error
+	       	count of stats response."
+
+::= { cldccStatsSecurityRespEntry 12}
+
+cldccStatsRespMgmtStatsCcmpMhdrErrors OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the CCMP mhdr error
+                count of stats response."
+
+::= { cldccStatsSecurityRespEntry 13 }
+
+cldccStatsRespMgmtStatsBroadcastDisassociateCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the broadcast disassociate
+	       	count of management stats response."
+
+::= { cldccStatsSecurityRespEntry 14 }
+
+
+cldccStatsRespMgmtStatsBroadcastDeauthenticateCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the broadcast deauthenticate
+	       	count of management stats response."
+
+::= { cldccStatsSecurityRespEntry 15 }
+
+cldccStatsRespMgmtStatsBroadcastActionFrameCount OBJECT-TYPE
+
+         SYNTAX     Counter32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object indicates the broadcast action frame
+	       	count of management stats response`."
+
+::= { cldccStatsSecurityRespEntry 16 }
+
+cldccEventLogStatusTable OBJECT-TYPE
+
+        SYNTAX      SEQUENCE OF CldccEventLogStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS       current
+        DESCRIPTION
+		   "This table represents response status of the various 
+		   event log requests sent from the controller."
+			  		
+::= { ciscoClientCcxEventLogStatus 1 }
+
+
+cldccEventLogStatusEntry OBJECT-TYPE
+
+        SYNTAX      CldccEventLogStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+		   "Each entry in the table is represented 
+	       by the client mac address."
+        INDEX
+	{
+        cldcClientMacAddress
+        }
+
+::= { cldccEventLogStatusTable 1 }
+
+CldccEventLogStatusEntry ::=
+
+        SEQUENCE  {
+              cldccRoamingLogsResponseStatus  CcxEventLogResponseStatus,
+              cldccRsnaLogsResponseStatus   CcxEventLogResponseStatus,
+              cldccSysLogsResponseStatus   CcxEventLogResponseStatus
+        }
+
+cldccRoamingLogsResponseStatus OBJECT-TYPE
+
+        SYNTAX     CcxEventLogResponseStatus
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+		   "This object indicates the status of roaming log request."
+
+::= { cldccEventLogStatusEntry 1 }
+
+cldccRsnaLogsResponseStatus OBJECT-TYPE
+
+        SYNTAX     CcxEventLogResponseStatus
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+		   "This object indicates the status of RSNA log request."
+
+::= { cldccEventLogStatusEntry 2 }
+
+cldccSysLogsResponseStatus   OBJECT-TYPE
+
+        SYNTAX     CcxEventLogResponseStatus
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                  "This object indicates the status of syslog request."
+
+::= { cldccEventLogStatusEntry 3 }
+
+--*******************************************************************
+--*    Compliance statements
+--********************************************************************
+
+ciscoLwappDot11CCXClientMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoLwappDot11CCXClientMIBConform 1 }
+
+ciscoLwappDot11CCXClientMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoLwappDot11CCXClientMIBConform 2 }
+		
+		
+ciscoLwappDot11CCXClientMIBCompliance MODULE-COMPLIANCE
+        STATUS          current
+        DESCRIPTION
+          "The compliance statement for the SNMP entities that
+          implement this MIB."
+        MODULE          -- this module
+        MANDATORY-GROUPS {
+                          ciscoLwappDot11CCXClientMIBEventGroup,
+						  ciscoLwappDot11CCXClientMIBRsnaGroup,
+                          ciscoLwappDot11CCXClientMIBStatsGroup,
+                          ciscoLwappDot11CCXClientMIBRoamingGroup
+                      }
+        ::= { ciscoLwappDot11CCXClientMIBCompliances 1 }
+
+--********************************************************************
+--*    Units of conformance
+--********************************************************************
+
+ciscoLwappDot11CCXClientMIBEventGroup OBJECT-GROUP
+        OBJECTS {
+                cldccEventLogsRequestLogType,
+                cldccEventLogsRequestRowStatus,
+                cldcClientMacAddress,
+                cldccSysLogsIndex,
+                cldccSysLogsTimeStamp,
+                cldccSysLogsBuffer,
+                cldccRoamingLogsResponseStatus,
+                cldccRsnaLogsResponseStatus,
+                cldccSysLogsResponseStatus
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                event groups for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11CCXClientMIBGroups 1 }
+
+ciscoLwappDot11CCXClientMIBRsnaGroup OBJECT-GROUP
+        OBJECTS {
+				cldccRsnaDataIndex,
+				cldccRsnaDataTimeStamp,
+				cldccRsnaDataVersion,
+				cldccRsnaDataTargetSSID,
+				cldccRsnaDataAuthType,
+				cldccRsnaDataResult,
+				cldccRsnaDataElemMultiCastOuis,
+				cldccRsnaDataElemUnicastCastOuis,
+				cldccRsnaDataElemAuthOuis,
+				cldccRsnaDataElemCapabilities
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                Rsna groups for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11CCXClientMIBGroups 2 }
+		
+ciscoLwappDot11CCXClientMIBRoamingGroup OBJECT-GROUP
+        OBJECTS {
+				cldccRoamingLogsIndex,
+				cldccRoamingLogsTimeStamp,
+				cldccRoamingLogsTargetSSID,
+				cldccRoamingLogsSourceSSID,
+				cldccRoamingLogsTransitionTime,
+				cldccRoamingLogsTransitionReason,
+				cldccRoamingLogsTransitionResult
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                roaming groups for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11CCXClientMIBGroups 3 }
+
+ciscoLwappDot11CCXClientMIBStatsGroup OBJECT-GROUP
+        OBJECTS {
+				cldccStatsReqStatus,
+				cldccStatsReqGroupId,
+				cldccStatsReqDuration,
+				cldccStatsReqRowStatus,
+				cldccStatsRespTransmittedFragmentCount,
+				cldccStatsRespMulticastTransmittedFrameCount,
+				cldccStatsRespFailedCount,
+				cldccStatsRespRetryCount,
+				cldccStatsRespMultipleRetryCount,
+				cldccStatsRespFrameDuplicateCount,
+				cldccStatsRespRtsSuccessCount,
+				cldccStatsRespRtsFailureCount,
+				cldccStatsRespAckFailureCount,
+				cldccStatsRespReceivedFragmentCount,
+				cldccStatsRespMulticastReceivedFrameCount,
+				cldccStatsRespFcsErrorCount,
+				cldccStatsRespTransmittedFrameCount,
+				cldccStatsRespSelectedPairwiseCipher,
+				cldccStatsRespTkipIcvErrors,
+				cldccStatsRespTkipLocalMicFailures,
+				cldccStatsRespCcmpReplays,
+				cldccStatsRespCcmpDecrypErrors,
+				cldccStatsRespTkipReplays,
+				cldccStatsRespMgmtStatsTkipIcvErrors,
+				cldccStatsRespMgmtStatsTkipLocalMicFailures,
+				cldccStatsRespMgmtStatsCcmpReplays,
+				cldccStatsRespMgmtStatsCcmpDecryptErrors,
+				cldccStatsRespMgmtStatsTkipReplays,
+				cldccStatsRespMgmtStatsTkipMhdrErrors,
+				cldccStatsRespMgmtStatsCcmpMhdrErrors,
+				cldccStatsRespMgmtStatsBroadcastDisassociateCount,
+				cldccStatsRespMgmtStatsBroadcastDeauthenticateCount,
+				cldccStatsRespMgmtStatsBroadcastActionFrameCount
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                stats groups for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11CCXClientMIBGroups 4 }
+END
+
+
+

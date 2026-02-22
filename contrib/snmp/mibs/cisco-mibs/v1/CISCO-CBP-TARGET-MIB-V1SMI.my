@@ -1,0 +1,343 @@
+-- MIB file created 06-Mar-2007 11:22:58, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CBP-TARGET-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CBP-TARGET-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, StorageType, TimeStamp, RowPointer
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    CcbptTargetType, CcbptTargetId, CcbptTargetDirection, 
+    CcbptPolicySourceType, CcbptPolicyIdentifier, 
+    CcbptPolicyIdentifierOrZero
+            FROM CISCO-CBP-TARGET-TC-MIB
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCbpTargetMIB OBJECT IDENTIFIER ::= { ciscoMgmt 533 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200605240000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--              Cisco Systems
+--               Customer Service
+--    
+--       Postal: 170 W. Tasman Drive
+--               San Jose, CA 95134-1706
+--               USA
+--    
+--          Tel: +1 800 553-NETS
+--    
+--       E-mail: cs-c3pl@cisco.com, cs-qos@cisco.com
+--  Descr
+--    This MIB module defines the managed objects for
+--     representing targets which have class-based policy  
+--     mappings.  A target can be any logical interface 
+--     to which a class-based policy is able to be associated.
+--  RevDate
+--    200605240000Z
+--  RevDescr
+--    Initial version.
+
+ciscoCbpTargetMIBNotifs OBJECT IDENTIFIER ::= { ciscoCbpTargetMIB 0 }
+ciscoCbpTargetMIBObjects OBJECT IDENTIFIER ::= { ciscoCbpTargetMIB 1 }
+ciscoCbpTargetMIBConform OBJECT IDENTIFIER ::= { ciscoCbpTargetMIB 2 }
+ccbptTargetAttachCfg OBJECT IDENTIFIER ::= { ciscoCbpTargetMIBObjects 1 }
+ciscoCbpTargetMIBCompliances OBJECT IDENTIFIER ::= { ciscoCbpTargetMIBConform 1 }
+ciscoCbpTargetMIBMIBGroups OBJECT IDENTIFIER ::= { ciscoCbpTargetMIBConform 2 }
+
+ccbptPolicyIdNext OBJECT-TYPE
+    SYNTAX CcbptPolicyIdentifierOrZero
+--    Rsyntax Gauge(0..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the next available value of 
+         ccbptPolicyId that can be used to create a new conceptual
+         row in the ccbptTargetTable.  If no available identifier
+         exists, then this object will have the value '0'."
+    ::= { ccbptTargetAttachCfg 1 }
+
+ccbptTargetTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcbptTargetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table describes the class-based policy attachments to
+         to specific targets."
+    ::= { ccbptTargetAttachCfg 2 }
+
+ccbptTargetEntry OBJECT-TYPE
+    SYNTAX CcbptTargetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry describes a class-based policy attachment to a 
+         particular target. 
+          
+         The ccbptTargetType uniquely identifies the type of target
+         in the attachment.  Additionally, the ccbptTargetId uniquely
+         identifies the target in attachment and is of the format
+         indicated by the ccbptTargetType.  The ccbptTargetDir 
+         identifies the direction, relative to the ccbptTargetId, 
+         to which the policy is attached.  The ccbptPolicySourceType
+         identifies the source-type of the policy attached.  The 
+         ccbptPolicyId uniquely identifies the policy within the scope
+         of ccbptTargetType, ccbptTargetId, ccbptTargetDir, and 
+         ccbptPolicySourceType.
+         
+         A class-based policy attachment to a target can be created 
+         through other network management interfaces (e.g., the local
+         console), in which case the SNMP entity will automatically 
+         create an entry in this table.
+        
+         A class-based policy attachment to a target can be destroyed
+         through other network management interfaces, in which case
+         the SNMP entity will automatically destroy the corresponding
+         entry in this table.
+        
+         A class-based policy attachment to a target can be created,
+         destroyed, and modified through the SNMP using 
+         ccbptTargetStatus using the semantics described by the 
+         RowStatus Textual Convention.  However, when creating a new
+         class-based policy attachment to a target, the value of
+         ccbptPolicyIdNext should be used to identify the new policy
+         within the scope of the target type, identifier, direction,
+         and policy-source type."
+    INDEX { ccbptTargetType, ccbptTargetId, ccbptTargetDir, ccbptPolicySourceType, ccbptPolicyId }
+    ::= { ccbptTargetTable 1 }
+
+CcbptTargetEntry ::= SEQUENCE {
+    ccbptTargetType CcbptTargetType,
+    ccbptTargetId CcbptTargetId,
+    ccbptTargetDir CcbptTargetDirection,
+    ccbptPolicySourceType CcbptPolicySourceType,
+    ccbptPolicyId CcbptPolicyIdentifier,
+    ccbptTargetStatus RowStatus,
+    ccbptTargetStorageType StorageType,
+    ccbptPolicyMap RowPointer,
+    ccbptPolicyInstance RowPointer,
+    ccbptPolicyAttachTime TimeStamp
+    }
+
+ccbptTargetType OBJECT-TYPE
+    SYNTAX CcbptTargetType
+--    Rsyntax INTEGER {
+--        genIf(1),
+--        atmPvc(2),
+--        frDlci(3),
+--        entity(4),
+--        fwZone(5),
+--        fwZonePair(6),
+--        aaaSession(7)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of target for this class-based policy attachment.
+         This object identifies the format of the ccbptTargetId for
+         this entry."
+    ::= { ccbptTargetEntry 1 }
+
+ccbptTargetId OBJECT-TYPE
+    SYNTAX CcbptTargetId
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The target identifier for this class-based policy attachment.
+         For decoding the ccbptTargetId refer to the ccbptTargetType
+         object and the CcbptTargetType description."
+    ::= { ccbptTargetEntry 2 }
+
+ccbptTargetDir OBJECT-TYPE
+    SYNTAX CcbptTargetDirection
+--    Rsyntax INTEGER {
+--        undirected(1),
+--        input(2),
+--        output(3),
+--        inOut(4)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The direction relative to the ccbptTargetId for this class
+         based policy attachment.  "
+    ::= { ccbptTargetEntry 3 }
+
+ccbptPolicySourceType OBJECT-TYPE
+    SYNTAX CcbptPolicySourceType
+--    Rsyntax INTEGER {
+--        ciscoCbQos(1),
+--        ciscoCbpBase(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The source-type of the class-based policy for this target.
+         The source-type refers to the source of the class-based
+         policy definition.  The intent of this object is to allow
+         implementations to distinguish between different MIBs
+         defining policy-maps. "
+    ::= { ccbptTargetEntry 4 }
+
+ccbptPolicyId OBJECT-TYPE
+    SYNTAX CcbptPolicyIdentifier
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Unique identifier of this class-based policy instance."
+    ::= { ccbptTargetEntry 5 }
+
+ccbptTargetStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the policy attachment to this target.  The
+         value for the corresponding instance of each of the 
+         following objects must be valid before the attachment 
+         can be activated:
+             -ccbptTargetStorageType
+             -ccbptPolicyMap
+        
+         Observe that no corresponding instance of any object in 
+         this table can be modified when the value of this object is
+         'active'."
+    ::= { ccbptTargetEntry 6 }
+
+ccbptTargetStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates how the device stores the data 
+         contained by the conceptual row.
+        
+         If an instance of this object has the value 'permanent',
+         then this MIB definition does not require the SNMP entity
+         to allow the instance of any object in the corresponding
+         conceptual row to be writable through the SNMP."
+    ::= { ccbptTargetEntry 7 }
+
+ccbptPolicyMap OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Refers to the first accessible object in the policy-map
+         definition table used to manage policy-map information
+         for policy-maps for the corresponding ccbptPolicySourceType.
+        
+         Specific MIB tables are not mentioned here as the intent of
+         this mapping is to allow for different implementations to 
+         refer to their supported class-based policy definition table
+         without requiring support of a specific MIB module."
+    ::= { ccbptTargetEntry 8 }
+
+ccbptPolicyInstance OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Refers to the first accessible object in the policy 
+         instance table used to manage policy instance information 
+         for policy-maps of this ccbptPolicySourceType.
+        
+         Specific MIB tables are not mentioned here as the intent of
+         this mapping is to allow for different implementations to 
+         refer to their supported class-based policy definition table
+         without requiring support of a specific MIB module."
+    ::= { ccbptTargetEntry 9 }
+
+ccbptPolicyAttachTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime for the last time that the corresponding
+         ccbptTargetStatus instance transitioned to the 'active' state.  "
+    ::= { ccbptTargetEntry 10 }
+
+ccbptTargetTableLastChange OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last
+         change to an entry in the ccbptTargetTable."
+    ::= { ccbptTargetAttachCfg 3 }
+
+ccbptTargetProvisioningGroup OBJECT IDENTIFIER ::= { ciscoCbpTargetMIBMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects describing the target and 
+--     class-based policy attachment configuration data.
+--  objects
+--    ccbptPolicyIdNext, ccbptTargetStatus, ccbptTargetStorageType, 
+--    ccbptPolicyMap, ccbptPolicyInstance
+
+ccbptTargetTimeGroup OBJECT IDENTIFIER ::= { ciscoCbpTargetMIBMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects describing the target and 
+--     class-based policy attachment timestamp data.
+--  objects
+--    ccbptTargetTableLastChange, ccbptPolicyAttachTime
+
+ciscoCbpTargetMIBCompliance OBJECT IDENTIFIER ::= { ciscoCbpTargetMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities that implement the
+--     CISCO-CBP-TARGET-MIB.  Implementation of this MIB module is
+--     strongly recommended for any devices implementing features
+--     using class-based policies, such as QoS, NAT, firewall, and
+--     MTR (Multi-Topology Routing).
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccbptTargetProvisioningGroup
+--   ObjVar
+--    ccbptTargetStatus
+--   ObjVar
+--    ccbptTargetStorageType
+--   ObjVar
+--    ccbptPolicyMap
+--   OptGroup
+--    ccbptTargetTimeGroup
+
+
+END
+

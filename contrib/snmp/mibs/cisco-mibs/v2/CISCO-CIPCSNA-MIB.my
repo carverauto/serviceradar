@@ -1,0 +1,1421 @@
+-- *****************************************************************
+-- CISCO-CIPCSNA-MIB - CIP Channel SNA MIB.
+--
+-- April 1995, Mike Otto
+--
+-- Copyright (c) 1995-1996, 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-CIPCSNA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY, OBJECT-TYPE,
+	NOTIFICATION-TYPE, 
+	Counter32, Counter64, Integer32, Gauge32
+		FROM SNMPv2-SMI
+
+	MODULE-COMPLIANCE, OBJECT-GROUP
+		FROM SNMPv2-CONF
+
+	RowStatus, TEXTUAL-CONVENTION
+		FROM SNMPv2-TC
+
+	ifIndex
+		FROM RFC1213-MIB
+
+	ciscoMgmt
+		FROM CISCO-SMI
+
+	cipCardEntryIndex, cipCardDtrBrdIndex, cipCardSubChannelIndex
+		FROM CISCO-CHANNEL-MIB
+
+	llcPortVirtualIndex, llcSapNumber
+		FROM CISCO-SNA-LLC-MIB;
+
+ciscoCipCsnaMIB MODULE-IDENTITY
+	LAST-UPDATED	"9508210000Z"
+	ORGANIZATION	"cisco IBM engineering Working Group"
+	CONTACT-INFO
+		"	Cisco Systems
+			Customer Service
+
+		Postal: 170 W Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		   Tel: +1 800 553-NETS
+
+		E-mail: cs-snmp@cisco.com"
+	DESCRIPTION
+	      "This is the Management Information Base (MIB) 
+       module for objects used to manage the cisco Systems 
+       Network Architecture (SNA) support on Cisco Mainframe
+       Channel Connection (CMCC) cards, also called the 
+       CIP-SNA feature.
+
+       ---------------------------------------------------
+       | Acronym Definitions:                            |
+       | CMCC      =  Cisco Mainframe Channel Connection |
+       | CIP      =   Channel Interface Processor        |
+       | CTA      =   Channel Transport Architecture     |
+       | SNA      =   Systems Network Architecture       |
+       | CIP-SNA  =   CNA  =  CSNA  =  SNA Support on    |
+       |                               a CMCC card       |
+       ---------------------------------------------------
+
+
+       This mib consists of the following tables:
+       1) CSNA Administration 
+       2) CSNA Operational
+       3) CSNA Statistics
+       4) Max Sessions Administration
+       5) Max Sessions Operational
+       8) LLC2/CSNA Connection mapping
+
+The following is a set of IBM channel terminology:
+  1) The Channel Subsystem is the way a host performs
+      I/O.
+  2) A Channel Path is the path to the Channel Control
+      Unit.  In the Cisco CMCC environment, this is the 
+      path of the channel to the physical router, itself.  
+      This path is needed because the physical channel may 
+      be directed (switched) through a device called 
+      an ESCON director.  The path defined from the 
+      host to the Control Unit can be different than 
+      the path from the Control Unit to the host.  
+      For an in-depth definition of how this number 
+      is derived, see the cipCardCsnaAdminPath object.
+  3) A Sub-Channel and Device are exactly the same
+      thing.  The term Sub-Channel was introduced
+      for ESCON (IBM's serial fiber optic) channel
+      interface.  Previously the term Device was used,
+      and it mapped directly to hardware (in most
+      situations) via a Parallel Channel Adapter
+      (PCA). Another name for PCA is Bus & Tag.  In
+      the Cisco CMCC environment, the Sub-Channel is
+      controlled by the Channel Systems Network
+      Architecture (CSNA) feature. For an
+      in-depth definition of how this number is
+      derived, see the cipCardCsnaAdminDevice object.
+      NOTE:  The terminology of Sub-Channel and
+      Sub-Channel Index are two completely different
+      entities!  See below for Sub-Channel Index.
+  4) An I/O Device is the entity that is addressed by
+      the combination of Sub-Channel and Device.  This
+      directly maps to the cipCardCsnaAdminTable.
+      NOTE:  The Channel Systems Network Architecture 
+      (CSNA) feature may have multiple  
+      sub-channels/devices defined for its control.
+      Also NOTE:  That we have defined an object with
+      the name cipCardSubChannelIndex and this object
+      is the two hex octet Channel Path values concatenated
+      with the second hex (the first octet is not used)
+      octet Device value and then converted to an
+      INTEGER (Unsigned).
+      The exact description is taken from the
+      CISCO-CHANNEL-MIB
+      cipCardSubChannelIndex     OBJECT-TYPE
+           SYNTAX      INTEGER
+           MAX-ACCESS  read-only
+           STATUS      current
+           DESCRIPTION
+            This indicates which subchannel is being referenced
+             for a particular daughter board on a CMCC card.
+             This value is constructed as follows:
+               path * 256 + device
+             Path and device are the values in
+             CipCardClawConfigTable.
+           ::= { cipCardSubChannelEntry 1 }
+       In this mib, the last two lines change to
+        Path and device are the values in the
+         cipCardCsnaAdminTable.
+  5) XCA Major Nodes.  The XCA major node binds the
+      Channel Path (from the hosts perspective)/Sub-
+      Channel number (i.e. I/O Device), to a CIP internal
+      LAN Adapter of a specific type with a unique SAP
+      Number.  That same I/O Device can also be
+      bound to the same LAN Adapter of the same
+      type with a different SAP, and/or the same I/O
+      Device can be bound to any other Adapter and
+      any unique SAP on that Adapter.  The binding
+      allows the I/O Device to talk to the Adapter.
+      The SAP allows multiple connections to the
+      same Adapter.
+
+The following is an example of the hardware with
+the above names showing there locations.
+
+             |----- Channel Path ------|
+               Eg. 150F and 190A       =================
+    ==========                         | Router A with |
+    | HOST 1 |---     ============     | Control Unit  |
+    ==========   |__15| ESCON    |_____| & Virtual     |
+                  ____| Director |     | I/O Devices   |
+    ==========   |  19============     | via the CSNA  |
+    | HOST 2 |---                 -----| feature.      |
+    ==========                    |    =================
+                                  |
+               Eg. 0100,          |
+    ==========  Direct Connection |
+    | HOST 3 |---------------------
+    ==========
+
+
+The following example configuration of a router that
+shows the entities managed by the CIPCSNA MIB.
+
+      ------------     ------------
+      | HOST 1   |     | HOST 3   |
+      | & HOST 2 |     |          |
+      ------------     ------------
+           ||               ||     Router A
+   -----------------------------------------
+   | ------------------------------------- |
+   | | -----------       ---------       | |
+   | | | ESCON 0 |       | PCA 1 |       | |
+   | | -----------       ---------       | |
+   | |                                   | |
+   | | ----------------------            | |
+   | | | CSNA Feature       |            | |
+   | | | Control Unit F & A |            | |
+   | | |   for ESCON 0      |            | |
+   | | ----------------------            | |
+   | |                                   | |
+   | |     CMCC CARD 6                   | |
+   | ------------------------------------- |
+   |                                       |
+   -----------------------------------------
+
+The first table is the Cisco Mainframe Channel Connection
+  (CMCC) Channel Systems Network Architecture support (CSNA) 
+  Administration table.  Each entry created in this table 
+  will create an I/O Device that can be attached to the 
+  host (via a host VTAM XCA Major Node command).
+  The indices of the table are:
+   * The CMCC Card Slot Index
+   * The Daughter Board Index
+   * The Sub-Channel Index
+     NOTE:  In the above discussion, this value is defined
+            to be a combination of the Channel Path and
+            Device (really the address of an I/O Device).
+  The fields included in this table represent:
+   * Channel Path
+   * Device
+     NOTE:  The two fields above are the same values as
+            the above Sub-Channel Index.
+   * The configured maximum block delay time
+   * The configured suggested block delay length
+   * The configured maximum block length
+     NOTE:  The channel uses data blocks that accumulate
+            data before it sends it to the host.
+   * The row control variable
+  In the example above, three entries would be
+  defined.
+  The first entry would be:
+    - CMCC Card Slot 0
+    - CMCC Daughter Board 0
+    - Sub-Channel Index of 0x150F00 or 1380096
+    - Channel Path of 0x150F or 5391
+    - Device of 00
+    - rest can be defaulted
+  The second entry would be:
+    - CMCC Card Slot 0
+    - CMCC Daughter Board 0
+    - Sub-Channel Index of 0x190A00 or 1640960
+    - Channel Path of 0x190A or 6410
+    - Device of 00
+    - rest can be defaulted
+  The third entry would be:
+    - CMCC Card Slot 0
+    - CMCC Daughter Board 1
+    - Sub-Channel Index of 0x010000 or 65536
+    - Channel Path of 0x0100 or 256
+    - Device of 00
+    - rest can be defaulted
+
+The next table is an augmented table to the first table.
+  It keeps the operational status of the first table.
+  The indices are the same as the first table.
+  The fields included in this table represent:
+    * The current operational state of a this table entry
+    * The current operational maximum block delay time
+    * The current operational suggested block delay length
+    * The current operational maximum block length
+  In the example above, three entries would be
+  defined.
+  The first entry would be:
+    - CMCCC Card Slot 0
+    - CMCC Daughter Board 0
+    - Sub-Channel Index of 0x150F00 or 1380096
+    - rest will be determined by the agent
+  The second entry would be:
+    - CMCC Card Slot 0
+    - CIP Daughter Board 0
+    - Sub-Channel Index of 0x190A00 or 1640960
+    - rest will be determined by the agent
+  The second entry would be:
+    - CMCC Card Slot 0
+    - CMCC Daughter Board 1
+    - Sub-Channel Index of 0x010000 or 65536
+    - rest will be determined by the agent
+
+The next table is an augmented table to the first table.
+  It keeps the statistics for the Channel Systems Network
+  Architecture (CSNA) counters.
+  The indices are the same as the first table.
+  The fields included in this table represent:
+    * Blocks transmitted
+    * Blocks received
+    * Bytes transmitted
+    * Bytes received
+    * Blocks transmitted by maximum block delay time
+    * Blocks transmitted by the suggested block delay length
+    * Blocks transmitted by maximum block length
+  In the example above, three entries would be
+  defined.
+  The first entry would be:
+    - CMCC Card Slot 0
+    - CMCC Daughter Board 0
+    - Sub-Channel Index of 0x150F00 or 1380096
+    - rest will be determined by the agent
+  The second entry would be:
+    - CMCC Card Slot 0
+    - CMCC Daughter Board 0
+    - Sub-Channel Index of 0x190A00 or 1640960
+    - rest will be determined by the agent
+  The second entry would be:
+    - CMCC Card Slot 0
+    - CMCC Daughter Board 1
+    - Sub-Channel Index of 0x010000 or 65536
+    - rest will be determined by the agent
+
+The next table is maximum sessions Admin table.
+  The one entry in this table defines the configured
+  maximum sessions supported on the whole CMCC card.
+  The one index is:
+    * The ifIndex addresses the virtual CMCC interface
+  The one field in this table represents:
+    * The maximum sessions for this card
+  In the example above, the one entry would be defined.
+    - ifIndex is created by the agent
+    - the maximum sessions would be within the
+      range
+
+The next table is the operational maximum sessions table.
+  This table is an augmented table to the maximum sessions
+  Admin table.  The entries in this table display the 
+  current maximum sessions supported on the whole CMCC card. 
+  The indices are the same as the maximum sessions Admin
+  table.
+  The one field in this table represents:
+    * The current operational maximum sessions for
+      this card
+  In the example above, the one entry would be defined.
+    - ifIndex is created by the agent
+    - the maximum sessions would be within the
+      range
+
+The next table is the statistical maximum sessions table.
+  This table is an augmented table to the maximum sessions
+  Admin table.  The entries in this table displays the 
+  current high water maximum sessions supported on the 
+  whole CMCC card and the number of allocation errors that 
+  have occurred when attempting to increase the number of 
+  sessions. The indices are the same as the maximum sessions
+  Admin table.
+  The one field in this table represents:
+    * The current operational maximum sessions for
+      this card
+  In the example above, the one entry would be defined.
+    - ifIndex is created by the agent
+    - the highest maximum sessions that has occurred since
+      the last re-boot.
+    - the number of allocation errors when extending the
+      number of sessions.
+
+The last table is the SNA Connection table.  Each entry
+  in this table represents a connection from an I/O Device
+  (Channel Path/Device) address to a CMCC internal LAN Adapter
+  for a single SAP address. Multiple entries in this table
+  can represent the same LAN Adapter with the use
+  of a different SAP.  The entries in this table are
+  created when VTAM on a host creates an XCA Major
+  Node definition.  That definition will tell the router
+  what I/O Device address are to be bound to which
+  CMCC internal LAN Adapter (of a type) and which SAP will be
+  used to carry traffic.
+  The indices of the table are:
+    * The ifIndex that addresses the virtual
+      CMCC interface
+    * The virtual interface identifying a unique
+      CMCC internal MAC Adapter. This definition used is defined
+      in the CISCO-SNA-LLC-MIB as llcPortVirtualIndex.
+    * The SAP used by this connection.
+      NOTE:  The SAP definition used is defined in
+             the CISCO-SNA-LLC-MIB.
+  The fields included in this table represent:
+    * The number of currently active sessions 
+      over this connection
+    * The slot of the CMCC card.
+    * The port on the CMCC card that the Path/Device
+      (subchannel is configured.
+    * The Channel Path used by this connection
+    * The Device used by this connection
+  In the example above, the number entries would
+  depend upon the VTAM configuration.
+  Each entry would be:
+    - ifIndex is created by the agent
+    - one of the LAN identifiers from one of the entries
+      in the CMCC internal LAN table. 
+    - one of the adapter identifiers from one the
+      entries in the CMCC internal LAN Adapter table.
+    - the SAP provided by the XCA Major Node command
+    - the number of currently active sessions
+    - the slot of the CMCC card.
+    - the port on the CMCC card.
+    - the Channel Path from one entry in the first table
+    - the Device from same entry as the Channel Path
+      in the first table
+  "
+	REVISION        "9801060000Z"
+	DESCRIPTION
+		"With the addition of Cisco's new Channel Port
+                 Adapter cards, all the references to CIP in the
+                 MIB description and object descriptions are changed
+                 to CMCC (Cisco Mainframe Channel Connection). The
+                 object names in the form of cip... or cipCard...
+                 will remain the same, but will be valid objects
+                 for the Channel Port Adapter cards.
+                 
+                 Change the maximum number of llc2 sessions
+                 supported from 4000 to 6000."
+
+	REVISION        "9508210000Z"
+	DESCRIPTION
+		"Minor cleanups to pacify mib compiler."
+	REVISION	"9504280000Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+  ::= { ciscoMgmt 33 }
+
+ChannelPath ::= TEXTUAL-CONVENTION
+  DISPLAY-HINT  "1x:"
+  STATUS        current
+  DESCRIPTION
+      "This channel path is a two octet value made up of the
+       following values:
+       ------------------------------------------------------
+       Path  01-FF
+                    For a directly attached ESCON channel or
+                    any parallel channel, this value is 01
+                    unless the system administrator has
+                    configured another value.
+                    For a channel attached through an ESCON
+                    director switch, this value will be the
+                    path that, from the router point of view,
+                    exits the switch and attaches to the
+                    host.
+       ------------------------------------------------------
+       Channel logical address  0-F
+                    For a directly attached ESCON channel or
+                    any parallel channel, this value is 0.
+                    If the host is running in Logical
+                    Partition (LPAR) mode, this is the
+                    channel logical address associated with
+                    the channel and defined in the IOCP
+                    configuration file used by VTAM.
+                    The default for this part of the path
+                    argument is 0.
+                    Otherwise, the channel logical address
+                    associated with the channel is defined
+                    in the IOCP configuration file used by
+                    VTAM.
+       ------------------------------------------------------
+       Control unit logical address    0-F
+                    For a directly attached ESCON channel or
+                    any parallel channel, this value
+                    defaults to 0. If this value is
+                    specified in the IOCP file, used by
+                    VTAM, then match that value here.
+                    Otherwise, the control unit logical
+                    address is specified in the IOCP
+                    configuration file's CNTLUNIT statement
+                    for the host channel in the CUADD parameter.
+       ------------------------------------------------------
+       For example, for path C7, channel logical address 9, control
+       unit logical address 4, the 2 octet value is C7:94.
+
+       NOTE:  Knowledge of creating and using IOCP configuration
+              files for VTAM is a prerequisite."
+  SYNTAX        OCTET STRING(SIZE (0..2))
+
+ChannelDevice ::= TEXTUAL-CONVENTION
+  DISPLAY-HINT  "1x:"
+  STATUS        current
+  DESCRIPTION
+      "Two octet hex device address for the device the
+       Systems Network Architecture (SNA) host will use 
+       to communicate with the Channel Systems Network
+       Architecture (CSNA) feature on the CMCC card.
+    
+       The first octet will always be zero for
+       consistency with other CMCC MIBs.
+
+       For example, for device address 1C (decimal 28) the
+       2 octet value is 00:1C."
+  SYNTAX        OCTET STRING(SIZE (0..2))
+
+cipCsnaObjects            OBJECT IDENTIFIER ::= { ciscoCipCsnaMIB 1 }
+
+cipCsnaChannel           OBJECT IDENTIFIER ::= { cipCsnaObjects 1 }
+cipSession               OBJECT IDENTIFIER ::= { cipCsnaObjects 2 }
+cipCsnaConnection        OBJECT IDENTIFIER ::= { cipCsnaObjects 3 }
+
+-- ;;;;;;;;;;;;;;;;;;;;; cipCardCsnaAdminTable ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+-- Variables stored in this table are:
+--          <path> <device> <Block Delay Time> <Block Delay Length>
+--          <Maximum Block Length> 
+
+cipCardCsnaAdminTable OBJECT-TYPE 
+  SYNTAX      SEQUENCE OF CipCardCsnaAdminEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "This table contains configuration information for
+       the Channel Systems Network Architecture (CSNA) 
+       feature on the CMCC card."
+  ::= { cipCsnaChannel 1 }
+
+cipCardCsnaAdminEntry OBJECT-TYPE
+  SYNTAX      CipCardCsnaAdminEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "A list of CSNA configuration values."
+  INDEX   { cipCardEntryIndex,
+            cipCardDtrBrdIndex,
+            cipCardSubChannelIndex
+          }
+  ::= { cipCardCsnaAdminTable 1 }
+
+CipCardCsnaAdminEntry ::= SEQUENCE
+{
+  cipCardCsnaAdminPath                 ChannelPath,
+  cipCardCsnaAdminDevice               ChannelDevice,
+  cipCardCsnaAdminBlockDelayTime       INTEGER (0..100),
+  cipCardCsnaAdminBlockDelayLength     INTEGER (0..65535),
+  cipCardCsnaAdminMaxBlockLength       INTEGER (4096..65535),
+  cipCardCsnaAdminRowStatus            RowStatus
+}
+
+cipCardCsnaAdminPath OBJECT-TYPE
+  SYNTAX      ChannelPath
+  MAX-ACCESS  read-create
+  STATUS      current
+  DESCRIPTION
+      "The Channel Path for this Channel Systems 
+       Network Architecture table entry.
+    
+       For more information see the 
+       textual convention ChannelPath."
+  ::= { cipCardCsnaAdminEntry 1 }
+
+cipCardCsnaAdminDevice OBJECT-TYPE
+  SYNTAX      ChannelDevice
+  MAX-ACCESS  read-create
+  STATUS      current
+  DESCRIPTION
+      "Two octet hex device address for the device the 
+       SNA host will use to communicate with the CSNA 
+       feature on the CMCC card. 
+     
+       For more information see the 
+       textual convention ChannelDevice."
+  ::= { cipCardCsnaAdminEntry 2 }
+
+cipCardCsnaAdminBlockDelayTime OBJECT-TYPE
+  SYNTAX      INTEGER (0..100)
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-create
+  STATUS      current
+  DESCRIPTION
+      "The Block Delay Time is the maximum amount of time
+       the CSNA feature can hold a set of requests
+       before it must transmit the block to the host.
+
+       The Block must be sent when this time has expired,
+       even if the block has not reached the suggested
+       Block Delay Length."
+  DEFVAL { 10 }
+  ::= { cipCardCsnaAdminEntry 3 }
+
+cipCardCsnaAdminBlockDelayLength OBJECT-TYPE
+  SYNTAX      INTEGER (0..65535)
+  UNITS       "octets"
+  MAX-ACCESS  read-create
+  STATUS      current
+  DESCRIPTION
+      "The Block Delay Length is the suggested size of 
+       a block before it is transmitted to the host.
+
+       The Block Delay Length is used to force a transmit of 
+       a block when all information currently being processed 
+       has been placed in the block and the real block size 
+       exceeds this Block Delay Length size.  The size of the 
+       block can grow larger than the Block Delay Length size, 
+       but must never exceed the Maximum Block Length before 
+       being transmitted."
+  DEFVAL { 20470 } 
+  ::= { cipCardCsnaAdminEntry 4 }
+
+cipCardCsnaAdminMaxBlockLength OBJECT-TYPE
+  SYNTAX      INTEGER (4096..65535)
+  UNITS       "octets"
+  MAX-ACCESS  read-create
+  STATUS      current
+  DESCRIPTION
+      "The Maximum block length is the maximum size 
+       that an inbound channel I/O block my attain 
+       before being  sent to the host. The block must 
+       be smaller or equal to this value."
+  DEFVAL { 20470 } 
+  ::= { cipCardCsnaAdminEntry 5 }
+
+cipCardCsnaAdminRowStatus OBJECT-TYPE
+  SYNTAX      RowStatus
+  MAX-ACCESS  read-create
+  STATUS      current
+  DESCRIPTION
+      "This object is used by a Management Station to create
+       or delete the row entry in the cipCardCsnaAdminTable 
+       following the the RowStatus textual convention.
+
+       Upon successful creation of the row, an Agent
+       automatically creates a corresponding entry in
+       the cipCardCsnaOperTable with the cipCardCsnaOperState
+       equal to 'inactive (1)'.
+
+       The Management Station can initiate row deletion, by
+       setting this value to 'destroy (6)'.  The Agent will
+       then delete the rows corresponding to this CSNA 
+       instance from both the cipCardCsnaAdminTable and
+       cipCardCsnaOperTable."
+  ::= { cipCardCsnaAdminEntry 6 }
+
+-- ;;;;;;;;;;;;;;;;;;;;; cipCardCsnaOperTable ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+-- Variables stored in this table are:
+--           <status> <Block Delay Time> <Block Delay Length> 
+--           <Maximum Block Delay Length>
+
+cipCardCsnaOperTable OBJECT-TYPE 
+  SYNTAX      SEQUENCE OF CipCardCsnaOperEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "This table contains operation values and status information for
+       the Channel Systems Network Architecture (CSNA) feature on the 
+       CMCC card."
+  ::= { cipCsnaChannel 2 }
+
+cipCardCsnaOperEntry OBJECT-TYPE
+  SYNTAX      CipCardCsnaOperEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "A list of CSNA operational and status values. The entries are
+       created by the Agent.  They have read-only access."
+  INDEX   { cipCardEntryIndex,
+            cipCardDtrBrdIndex,
+            cipCardSubChannelIndex
+          }
+--  AUGMENTS    { cipCardCsnaAdminEntry }
+  ::= { cipCardCsnaOperTable 1 }
+
+CipCardCsnaOperEntry ::= SEQUENCE
+{
+  cipCardCsnaOperState                 INTEGER,
+  cipCardCsnaOperSlowDownState         INTEGER,
+  cipCardCsnaOperBlockDelayTime        INTEGER (0..100),
+  cipCardCsnaOperBlockDelayLength      INTEGER (0..65535),
+  cipCardCsnaOperMaxBlockLength        INTEGER (4096..65535)
+}
+
+cipCardCsnaOperState OBJECT-TYPE
+  SYNTAX      INTEGER {
+              closed (0),
+              pendingOpen (1),
+              open (2),
+              pendingSetup (3),
+              setupComplete (4),
+              pendingClose (5)
+              }
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The current state of the CSNA entry.
+       The values have the following meanings:
+         closed          - Link is closed.
+         pendingOpen     - An Open Subchannel command has
+                           been received from the host.
+         open            - Subchannel is open.
+         pendingSetup    - Host has queried for LAN info.
+         setupComplete   - LAN info has been sent to the host.
+         pendingClose    - A Close Subchannel command has
+                           been received from the host.
+       "
+  ::= { cipCardCsnaOperEntry 1 }
+
+cipCardCsnaOperSlowDownState OBJECT-TYPE
+  SYNTAX      INTEGER {
+              normal (0),
+              slowDownSent (1),
+              slowDownReceived (2),
+              slowDownSentAndReceived (3)
+              }
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The current state of the CSNA slow down
+       condition. A channel device will turn on
+       the slow down bit whenever insufficient 
+       buffering is available to receive data
+       from the adjacent channel device.
+       
+       The values have the following meanings:
+         normal              - Link is normal.
+         slowDownSent        - The router has put VTAM into
+                               a slow down state.
+         slowDownReceived    - VTAM has put the router into 
+                               a slow down state.
+         slowDownSentReceived - Both VTAM and the router
+                                are in a slow down state.
+       "
+  ::= { cipCardCsnaOperEntry 2 }
+
+cipCardCsnaOperBlockDelayTime OBJECT-TYPE
+  SYNTAX      INTEGER (0..100)
+  UNITS       "milliseconds"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The current Block Delay Time value being
+       used by this instance of CSNA path/device 
+       (subchannel)."
+  ::= { cipCardCsnaOperEntry 3 }
+
+cipCardCsnaOperBlockDelayLength OBJECT-TYPE
+  SYNTAX      INTEGER (0..65535)
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The current Block Delay Length being
+       used by this instance of CSNA path/device
+       (subchannel)."
+  ::= { cipCardCsnaOperEntry 4 }
+
+cipCardCsnaOperMaxBlockLength OBJECT-TYPE
+  SYNTAX      INTEGER (4096..65535)
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The current Maximum block length 
+       being used by this instance of CSNA 
+       path/device (subchannel)."
+  ::= { cipCardCsnaOperEntry 5 }
+
+-- ;;;;;;;;;;;;;;;;;;;;; cipCardCsnaStatsTable ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+-- Variables stored in this table are:
+--     <Blocks Transmitted> <Blocks Received>
+--     <Bytes Transmitted> <Bytes Received> 
+--     <Blocks Transmitted by Block Delay Time expiration> 	
+--     <Bytes Transmitted by Block Delay Time expiration> 	
+--     <Blocks Transmitted by Block Delay Length exceeded>
+--     <Bytes Transmitted by Block Delay Length exceeded>
+--     <Blocks Transmitted by Maximum Block Length>
+--     <Bytes Transmitted by Maximum Block Length>
+--     <slow downs received>
+--     <slow downs transmitted>
+
+cipCardCsnaStatsTable OBJECT-TYPE 
+  SYNTAX      SEQUENCE OF CipCardCsnaStatsEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "This table contains statistics information for
+       the Channel Systems Network Architectures (CSNA) 
+       feature on the CMCC card."
+  ::= { cipCsnaChannel 3 }
+
+cipCardCsnaStatsEntry OBJECT-TYPE
+  SYNTAX      CipCardCsnaStatsEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "A list of CSNA statistics. The entries are
+       created by the Agent.  They have read-only access."
+  INDEX   { cipCardEntryIndex,
+            cipCardDtrBrdIndex,
+            cipCardSubChannelIndex
+          }
+--  AUGMENTS    { cipCardCsnaAdminEntry }
+  ::= { cipCardCsnaStatsTable 1 }
+
+CipCardCsnaStatsEntry ::= SEQUENCE
+{
+  cipCardCsnaStatsBlocksTxd                     Counter32,
+  cipCardCsnaStatsBlocksRxd                     Counter32,
+  cipCardCsnaStatsBytesTxd                      Counter32,
+  cipCardCsnaStatsHCBytesTxd                    Counter64,
+  cipCardCsnaStatsBytesRxd                      Counter32,
+  cipCardCsnaStatsHCBytesRxd                    Counter64,
+  cipCardCsnaStatsBlocksTxByBlockDelayTime      Counter32,
+  cipCardCsnaStatsBytesTxByBlockDelayTime       Counter32,
+  cipCardCsnaStatsHCBytesTxByBlockDelayTime     Counter64,
+  cipCardCsnaStatsBlocksTxByBlockDelayLength    Counter32,
+  cipCardCsnaStatsBytesTxByBlockDelayLength     Counter32,
+  cipCardCsnaStatsHCBytesTxByBlockDelayLength   Counter64,
+  cipCardCsnaStatsBlocksTxByMaxBlockLength      Counter32,
+  cipCardCsnaStatsBytesTxByMaxBlockLength       Counter32,
+  cipCardCsnaStatsHCBytesTxByMaxBlockLength     Counter64,
+  cipCardCsnaStatsSlowDownsReceived             Counter32,
+  cipCardCsnaStatsSlowDownsSent                 Counter32                   
+}
+
+cipCardCsnaStatsBlocksTxd OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Blocks Transmitted."
+  ::= { cipCardCsnaStatsEntry 1 }
+
+cipCardCsnaStatsBlocksRxd OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Blocks Received."
+  ::= { cipCardCsnaStatsEntry 2 }
+
+cipCardCsnaStatsBytesTxd OBJECT-TYPE
+  SYNTAX      Counter32
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted.
+  
+       NOTE:  To support SNMP Version 1 
+              Managers, this variable is
+              supplied as a 32 bit value
+              which can wrap very 
+              frequently."
+  ::= { cipCardCsnaStatsEntry 3 }
+
+cipCardCsnaStatsHCBytesTxd OBJECT-TYPE
+  SYNTAX      Counter64
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted.
+  
+       NOTE:  This is a 64 bit (High Capacity)
+              version of the cipCardCsnaStatsBytesTxd
+              counter for use with SNMP Version 2 
+              Managers"
+  ::= { cipCardCsnaStatsEntry 4 }
+
+cipCardCsnaStatsBytesRxd OBJECT-TYPE
+  SYNTAX      Counter32
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Received.
+  
+       NOTE:  To support SNMP Version 1 
+              Managers, this variable is
+              supplied as a 32 bit value
+              which can wrap very
+              frequently."
+  ::= { cipCardCsnaStatsEntry 5 }
+
+cipCardCsnaStatsHCBytesRxd OBJECT-TYPE
+  SYNTAX      Counter64
+  UNITS       "octets"
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Received.
+  
+       NOTE:  This is a 64 bit (High Capacity)
+              version of the cipCardCsnaStatsBytesRxd
+              counter for use with SNMP Version 2 
+              Managers"
+  ::= { cipCardCsnaStatsEntry 6 }
+
+cipCardCsnaStatsBlocksTxByBlockDelayTime OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Blocks Transmitted when the
+       Block Delay Time has been exceeded."
+  ::= { cipCardCsnaStatsEntry 7 }
+
+cipCardCsnaStatsBytesTxByBlockDelayTime OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted when the
+       Block Delay Time has been exceeded."
+  ::= { cipCardCsnaStatsEntry 8 }
+
+cipCardCsnaStatsHCBytesTxByBlockDelayTime OBJECT-TYPE
+  SYNTAX      Counter64
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted when the
+       Block Delay Time has been exceeded.
+
+       NOTE:  This is a 64 bit (High Capacity)
+              version of the cipCardCsnaStatsBytesTxByBlockDelayTime
+              counter for use with SNMP Version 2 
+              Managers"
+  ::= { cipCardCsnaStatsEntry 9 }
+
+cipCardCsnaStatsBlocksTxByBlockDelayLength OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Blocks Transmitted when the
+       suggested Block Delay Length has been
+       exceeded."
+  ::= { cipCardCsnaStatsEntry 10 }
+
+cipCardCsnaStatsBytesTxByBlockDelayLength OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted when the
+       suggested Block Delay Length has been
+       exceeded."
+  ::= { cipCardCsnaStatsEntry 11 }
+
+cipCardCsnaStatsHCBytesTxByBlockDelayLength OBJECT-TYPE
+  SYNTAX      Counter64
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted when the
+       suggested Block Delay Length has been
+       exceeded.
+
+       NOTE:  This is a 64 bit (High Capacity)
+              version of the cipCardCsnaStatsBytesTxByBlockDelayLength
+              counter for use with SNMP Version 2 
+              Managers"
+  ::= { cipCardCsnaStatsEntry 12 }
+
+cipCardCsnaStatsBlocksTxByMaxBlockLength OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Blocks Transmitted when the
+       Maximum block length has been exceeded."
+  ::= { cipCardCsnaStatsEntry 13 }
+
+cipCardCsnaStatsBytesTxByMaxBlockLength OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted when the
+       Maximum block length has been exceeded."
+  ::= { cipCardCsnaStatsEntry 14 }
+
+cipCardCsnaStatsHCBytesTxByMaxBlockLength OBJECT-TYPE
+  SYNTAX      Counter64
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of Bytes Transmitted when the
+       Maximum block length has been exceeded.
+
+       NOTE:  This is a 64 bit (High Capacity)
+              version of the cipCardCsnaStatsBytesTxByBlockDelayLength
+              counter for use with SNMP Version 2 
+              Managers"
+  ::= { cipCardCsnaStatsEntry 15 }
+
+cipCardCsnaStatsSlowDownsReceived OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of times the slow down bit was
+      detected in a channel I/O block received from
+      VTAM. This condition causes the router to stop
+      transmitting data to VTAM over the channel until
+      the slow down condition has been cleared."
+  ::= { cipCardCsnaStatsEntry 16 }
+
+cipCardCsnaStatsSlowDownsSent OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The number of times the slow down bit was
+      set by the router to stop VTAM from sending any
+      more channel I/O blocks. This condition stays in
+      effect until the router clears the slow down 
+      condition."
+  ::= { cipCardCsnaStatsEntry 17 }
+
+-- ;;;;;;;;;;;;;;; cipCardSessionsAdminTable ;;;;;;;;;;;;;;;;;;;;;
+-- Variables stored in this table are:
+--     <Maximum Number of Sessions> 
+
+cipCardSessionsAdminTable OBJECT-TYPE 
+  SYNTAX      SEQUENCE OF CipCardSessionsAdminEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "This table contains configured values for
+       CSNA sessions supported on the CMCC card."
+  ::= { cipSession 1 }
+
+cipCardSessionsAdminEntry OBJECT-TYPE
+  SYNTAX      CipCardSessionsAdminEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "A list of CMCC specific Session configuration values."
+  INDEX   {  cipCardEntryIndex }
+  ::= { cipCardSessionsAdminTable 1 }
+
+CipCardSessionsAdminEntry ::= SEQUENCE
+{
+  cipCardAdminMaxLlc2Sessions        INTEGER (0..6000)
+}
+
+cipCardAdminMaxLlc2Sessions OBJECT-TYPE
+  SYNTAX      INTEGER (0..6000)
+  MAX-ACCESS  read-write
+  STATUS      current
+  DESCRIPTION
+      "The configured maximum number of LLC2 sessions 
+       allowed on a CMCC card. A value of zero indicates 
+       that the maximum should only be limited by the 
+       amount of available memory on the CMCC. A value 
+       greater than zero indicates the maximum number
+       of sessions the CMCC will support given
+       there is enough memory available on the CMCC card.
+
+       This value can be set at any time, however
+       it will only affect the Maximum number of LLC2
+       sessions supported on a CIP the first time it
+       is set and only if the value it is being set to
+       is greater than the current value for 
+       cipCardStatsHiWaterLlc2Sessions."
+  ::= { cipCardSessionsAdminEntry 1 }
+
+-- ;;;;;;;;;;;;;;; cipCardSessionsOperTable ;;;;;;;;;;;;;;;;;;;;;
+-- Variables stored in this table are:
+--     <Maximum Number of Active Sessions> 
+
+cipCardSessionsOperTable OBJECT-TYPE 
+  SYNTAX      SEQUENCE OF CipCardSessionsOperEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "This table contains the current value for
+       the maximum number of sessions that can be
+       supported on the CMCC card."
+  ::= { cipSession 2 }
+
+cipCardSessionsOperEntry OBJECT-TYPE
+  SYNTAX      CipCardSessionsOperEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "A list of CMCC specific Session values."
+  INDEX   {  cipCardEntryIndex }
+--  AUGMENTS  { cipCardSessionsAdminEntry }
+  ::= { cipCardSessionsOperTable 1 }
+
+CipCardSessionsOperEntry ::= SEQUENCE
+{
+  cipCardOperMaxLlc2Sessions        INTEGER (0..6000)
+}
+
+cipCardOperMaxLlc2Sessions OBJECT-TYPE
+  SYNTAX      INTEGER (0..6000)
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "This value indicates the current number 
+       of LLC2 sessions that can be supported 
+       on this CMCC card. If this value is
+       zero, then the limit of LLC2 sessions on 
+       the CMCC card is only limited by the amount of
+       memory available."
+  ::= { cipCardSessionsOperEntry 1 }
+
+-- ;;;;;;;;;;;;;;; cipCardSessionsStatsTable ;;;;;;;;;;;;;;;;;;;;;
+-- Variables stored in this table are:
+--     <High Water Mark of Active Sessions> 
+--     <Number of Allocation Errors>
+
+cipCardSessionsStatsTable OBJECT-TYPE 
+  SYNTAX      SEQUENCE OF CipCardSessionsStatsEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "This table contains the statistic value(s) for
+       the maximum number of sessions that can be
+       supported on the CMCC card."
+  ::= { cipSession 3 }
+
+cipCardSessionsStatsEntry OBJECT-TYPE
+  SYNTAX      CipCardSessionsStatsEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "A list of CMCC specific Session values."
+  INDEX   {  cipCardEntryIndex }
+--  AUGMENTS  { cipCardSessionsAdminEntry }
+  ::= { cipCardSessionsStatsTable 1 }
+
+CipCardSessionsStatsEntry ::= SEQUENCE
+{
+  cipCardStatsHiWaterLlc2Sessions         Gauge32,
+  cipCardStatsLlc2SessionAllocationErrs   Counter32
+}
+
+cipCardStatsHiWaterLlc2Sessions OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "High water LLC2 sessions count per CMCC card.
+
+       If cipCardOperMaxLlc2Sessions is zero (0),
+       then this value starts at 256 Llc2 sessions
+       and will be incremented in values of 64 as
+       more active concurrent LLC2 sessions are 
+       established.
+
+       If cipCardOperMaxLlc2Sessions is greater
+       then zero (0), then this value will either
+       be equal to the cipCardOperMaxLlc2Sessions
+       given enough memory is available on the CMCC card
+       to support that many LLC2 sessions or
+       the the value will be less than 
+       cipCardOperMaxLlc2Sessions, reflecting the maximum 
+       number of LLC2 sessions the CMCC card can support."
+  ::= { cipCardSessionsStatsEntry 1 }
+
+cipCardStatsLlc2SessionAllocationErrs OBJECT-TYPE
+  SYNTAX      Counter32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "This value represents the number of 
+       memory allocation errors that have 
+       occurred when attempting to create a 
+       new block of memory for the LLC2 session
+       buffer pool."
+  ::= { cipCardSessionsStatsEntry 2 }
+
+-- ;;;;;;;;;;;;;;;;;;;;; cipCardCsnaConnTable ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+-- Variables indexing and stored in this table are:
+--            <interface index> <Virtual Index> <SAP number> 
+--            <Active Sessions> <slot> <port> <path> <device>
+
+cipCardCsnaConnTable OBJECT-TYPE 
+  SYNTAX      SEQUENCE OF CipCardCsnaConnEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "This table contains the map between 
+       VTAM (the I/O Device Address) and the 
+       CMCC LAN Adapter/Mac
+       Address/SAP.
+
+       For example:
+       
+       Channel Path           Channel Path
+       & Device               & Device
+          | \      \        /     / |
+          |  \      \      /     /  |
+   SAPS  04  04     04   04    04   04
+         08    \      \  /     /    08
+          |     \      \/     /     |
+          |      \     /\    /      |
+          |       \   /  \  /       |
+          |        \ /    \/        |
+          |         v     /\        |
+          |  ______/ \   /  \_____  |
+        Adpt         Adpt         Adpt"
+  ::= { cipCsnaConnection 1 }
+
+cipCardCsnaConnEntry OBJECT-TYPE
+  SYNTAX      CipCardCsnaConnEntry
+  MAX-ACCESS  not-accessible
+  STATUS      current
+  DESCRIPTION
+      "A list of CSNA internal LAN Adapter connection values.
+       The first three indices allow the mapping to the 
+       LAN and Adapter.  To obtain the 
+       mapping to the llc SAP table, use the ifIndex,
+       llcSapNumber, and the MAC Address (from the
+       CMCC internal LAN Adapter table)."
+  INDEX   { ifIndex, 
+            llcPortVirtualIndex,
+            llcSapNumber 
+          }
+  ::= { cipCardCsnaConnTable 1 }
+
+CipCardCsnaConnEntry ::= SEQUENCE
+{
+  cipCardCsnaConnActiveSessions     Gauge32,
+  cipCardCsnaSlot                   Integer32,
+  cipCardCsnaPort                   Integer32,
+  cipCardCsnaConnPath               ChannelPath,
+  cipCardCsnaConnDevice             ChannelDevice
+}
+
+cipCardCsnaConnActiveSessions OBJECT-TYPE
+  SYNTAX      Gauge32
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "The Active Sessions in this VTAM to CMCC 
+       LAN Adapter/Mac Address mapping."
+  ::= { cipCardCsnaConnEntry 1 }
+
+cipCardCsnaSlot OBJECT-TYPE
+  SYNTAX      Integer32 
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "Slot number of the CMCC card that the
+      Path and Device are configured."
+  ::= { cipCardCsnaConnEntry 2 }
+
+cipCardCsnaPort OBJECT-TYPE
+  SYNTAX      Integer32 
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "Port number on the CMCC card that the
+      Path and Device are configured."
+  ::= { cipCardCsnaConnEntry 3 }
+
+cipCardCsnaConnPath OBJECT-TYPE
+  SYNTAX      ChannelPath 
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "Hex path identifier used by this instance
+       of CMCC LAN adapter/SAP to connect 
+       SNA sessions to VTAM.  
+    
+       For more information see the 
+       textual convention ChannelPath."
+  ::= { cipCardCsnaConnEntry 4 }
+
+cipCardCsnaConnDevice OBJECT-TYPE
+  SYNTAX      ChannelDevice
+  MAX-ACCESS  read-only
+  STATUS      current
+  DESCRIPTION
+      "Two digit hex device address used by this
+       CMCC LAN adapter/SAP instance to connect
+       SNA sessions to VTAM.
+
+       For more information see the
+       textual convention ChannelDevice."
+  ::= { cipCardCsnaConnEntry 5 }
+
+-- ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--
+-- Notifications
+--
+
+cipCsnaNotificationPrefix OBJECT IDENTIFIER ::= { ciscoCipCsnaMIB 2 }
+cipCsnaNotifications OBJECT IDENTIFIER ::= { cipCsnaNotificationPrefix 0 }
+
+cipCsnaOpenDuplicateSapFailure NOTIFICATION-TYPE
+              OBJECTS
+              {
+                cipCardCsnaSlot,
+                cipCardCsnaPort,
+                cipCardCsnaConnPath,
+                cipCardCsnaConnDevice
+              }
+              STATUS current
+              DESCRIPTION
+                  "This trap indicates that VTAM attempted
+                  to open a SAP that was already open via 
+                  another Path/Device on this CMCC card."
+              ::= { cipCsnaNotifications 1 }
+
+cipCsnaLlc2ConnectionLimitExceeded NOTIFICATION-TYPE
+              OBJECTS
+              {
+                cipCardAdminMaxLlc2Sessions,
+                cipCardOperMaxLlc2Sessions,
+                cipCardStatsHiWaterLlc2Sessions,
+                cipCardStatsLlc2SessionAllocationErrs
+              }
+              STATUS current
+              DESCRIPTION
+                  "This trap indicates that a connection
+                  attempt was rejected due to a connection
+                  resource limitation"
+              ::= { cipCsnaNotifications 2 }
+
+-- ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--
+-- Conformance Information
+--
+
+ciscoCipCsnaMibConformance OBJECT IDENTIFIER ::= { ciscoCipCsnaMIB 3 }
+ciscoCipCsnaMibCompliances OBJECT IDENTIFIER 
+                                  ::= { ciscoCipCsnaMibConformance 1 }
+ciscoCipCsnaMibGroups      OBJECT IDENTIFIER 
+                                  ::= { ciscoCipCsnaMibConformance 2 }
+
+--
+-- Compliance Statements
+--
+
+ciscoCipCsnaMibCompliance MODULE-COMPLIANCE
+  STATUS current
+  DESCRIPTION
+    "The compliance statement for the Channel Systems Network 
+     Architecture (CSNA) feature."
+  MODULE
+    MANDATORY-GROUPS {
+      ciscoCsnaGroup,
+      ciscoMaxSessionsGroup,
+      ciscoCsnaConnGroup
+    }
+  ::= { ciscoCipCsnaMibCompliances 1 }
+
+ciscoCsnaGroup OBJECT-GROUP
+  OBJECTS {
+    -- Table Header
+    --  cipCardCsnaAdminTable
+    --  cipCardCsnaAdminEntry
+    -- Table Header
+    --  cipCardCsnaOperTable
+    --  cipCardCsnaOperEntry
+    -- Table Header
+    --  cipCardCsnaStatsTable
+    --  cipCardCsnaStatsEntry
+    -- Table Indicies
+    --  cipCardEntryIndex
+    --  cipCardDtrBrdIndex
+    --  cipCardSubChannelIndex
+
+    cipCardCsnaAdminPath,
+    cipCardCsnaAdminDevice,
+    cipCardCsnaAdminBlockDelayTime,
+    cipCardCsnaAdminBlockDelayLength,
+    cipCardCsnaAdminMaxBlockLength,
+    cipCardCsnaAdminRowStatus,
+    cipCardCsnaOperState,
+    cipCardCsnaOperSlowDownState,
+    cipCardCsnaOperBlockDelayTime,
+    cipCardCsnaOperBlockDelayLength,
+    cipCardCsnaOperMaxBlockLength,
+    cipCardCsnaStatsBlocksTxd,
+    cipCardCsnaStatsBlocksRxd,
+    cipCardCsnaStatsBytesTxd,
+    cipCardCsnaStatsHCBytesTxd,
+    cipCardCsnaStatsBytesRxd,
+    cipCardCsnaStatsHCBytesRxd,
+    cipCardCsnaStatsBlocksTxByBlockDelayTime,
+    cipCardCsnaStatsBytesTxByBlockDelayTime,
+    cipCardCsnaStatsHCBytesTxByBlockDelayTime,
+    cipCardCsnaStatsBlocksTxByBlockDelayLength,
+    cipCardCsnaStatsBytesTxByBlockDelayLength,
+    cipCardCsnaStatsHCBytesTxByBlockDelayLength,
+    cipCardCsnaStatsBlocksTxByMaxBlockLength,
+    cipCardCsnaStatsBytesTxByMaxBlockLength,
+    cipCardCsnaStatsHCBytesTxByMaxBlockLength,
+    cipCardCsnaStatsSlowDownsSent,
+    cipCardCsnaStatsSlowDownsReceived
+  }
+  STATUS current
+  DESCRIPTION
+    "A collection of objects providing (Channel Systems Network 
+     Architecture (CSNA) Administration, Operational
+     status and Statistics."
+  ::= { ciscoCipCsnaMibGroups 1 }
+
+ciscoMaxSessionsGroup OBJECT-GROUP
+  OBJECTS {
+    -- Table Header
+    --  cipCardSessionsAdminTable
+    --  cipCardSessionsAdminEntry
+    -- Table Header
+    --  cipCardSessionsOperTable
+    --  cipCardSessionsOperEntry
+    -- Table Header
+    --  cipCardSessionsStatsTable
+    --  cipCardSessionsStatsEntry
+    -- Table Indicies
+    --  cipCardEntryIndex
+  
+    cipCardAdminMaxLlc2Sessions,
+    cipCardOperMaxLlc2Sessions,
+    cipCardStatsHiWaterLlc2Sessions,
+    cipCardStatsLlc2SessionAllocationErrs
+  }
+  STATUS current
+  DESCRIPTION
+    "A collection of objects providing the information
+    on the maximum number of sessions supported
+    on a CMCC card."
+  ::= { ciscoCipCsnaMibGroups 2 }
+  
+ciscoCsnaConnGroup OBJECT-GROUP
+  OBJECTS {
+    -- Table Header
+    --  cipCardCsnaConnTable
+    --  cipCardCsnaConnEntry
+    -- Table Indicies
+    --  ifIndex
+    --  llcPortVirtualIndex
+    --  llcSapNumber
+
+    cipCardCsnaConnActiveSessions,
+    cipCardCsnaSlot,
+    cipCardCsnaPort,
+    cipCardCsnaConnPath,
+    cipCardCsnaConnDevice
+  }
+  STATUS current
+  DESCRIPTION
+    "A collection of objects providing CMCC
+     LAN adapter/SAP connection mapping to the 
+     Path/Device (subchannel)."
+  ::= { ciscoCipCsnaMibGroups 3 }
+
+END
+
+

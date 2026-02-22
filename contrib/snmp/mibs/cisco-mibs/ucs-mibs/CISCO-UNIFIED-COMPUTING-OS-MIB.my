@@ -1,0 +1,1334 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-OS-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- OS management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-OS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsHostagAction,
+    CucsHostagAgentType,
+    CucsHostagEvent,
+    CucsNetworkConnectionType,
+    CucsNetworkTransport,
+    CucsOsCarrierQueryMethod,
+    CucsOsEthBondModeActiveBackupType,
+    CucsOsEthBondModeBalancedRRType,
+    CucsOsEthBondModeBroadcastType,
+    CucsOsEthBondModeLBType,
+    CucsOsEthBondModeLBXmitHashType,
+    CucsOsLBType,
+    CucsOsMacFailOverPolicy,
+    CucsOsOsType,
+    CucsOsPrimaryReselection,
+    CucsVnicIfOperState
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsOsObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        OS management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 35 }
+
+cucsOsARPLinkMonitoringPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsARPLinkMonitoringPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:ARPLinkMonitoringPolicy managed object table"
+    ::= { cucsOsObjects 3 }
+
+cucsOsARPLinkMonitoringPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsOsARPLinkMonitoringPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsARPLinkMonitoringPolicyTable table."
+    INDEX { cucsOsARPLinkMonitoringPolicyInstanceId }
+    ::= { cucsOsARPLinkMonitoringPolicyTable 1 }
+
+CucsOsARPLinkMonitoringPolicyEntry ::= SEQUENCE {
+    cucsOsARPLinkMonitoringPolicyInstanceId                          CucsManagedObjectId,
+    cucsOsARPLinkMonitoringPolicyDn                                  CucsManagedObjectDn,
+    cucsOsARPLinkMonitoringPolicyRn                                  SnmpAdminString,
+    cucsOsARPLinkMonitoringPolicyFrequency                           Gauge32,
+    cucsOsARPLinkMonitoringPolicyName                                SnmpAdminString,
+    cucsOsARPLinkMonitoringPolicyUseAllARPTargets                    TruthValue
+}
+
+cucsOsARPLinkMonitoringPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsARPLinkMonitoringPolicyEntry 1 }
+
+cucsOsARPLinkMonitoringPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPLinkMonitoringPolicy:dn managed object property"
+    ::= { cucsOsARPLinkMonitoringPolicyEntry 2 }
+
+cucsOsARPLinkMonitoringPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPLinkMonitoringPolicy:rn managed object property"
+    ::= { cucsOsARPLinkMonitoringPolicyEntry 3 }
+
+cucsOsARPLinkMonitoringPolicyFrequency OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPLinkMonitoringPolicy:frequency
+        managed object property"
+    ::= { cucsOsARPLinkMonitoringPolicyEntry 4 }
+
+cucsOsARPLinkMonitoringPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPLinkMonitoringPolicy:name managed
+        object property"
+    ::= { cucsOsARPLinkMonitoringPolicyEntry 5 }
+
+cucsOsARPLinkMonitoringPolicyUseAllARPTargets OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPLinkMonitoringPolicy:useAllARPTargets
+        managed object property"
+    ::= { cucsOsARPLinkMonitoringPolicyEntry 6 }
+
+cucsOsARPTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsARPTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:ARPTarget managed object table"
+    ::= { cucsOsObjects 4 }
+
+cucsOsARPTargetEntry OBJECT-TYPE
+    SYNTAX           CucsOsARPTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsARPTargetTable table."
+    INDEX { cucsOsARPTargetInstanceId }
+    ::= { cucsOsARPTargetTable 1 }
+
+CucsOsARPTargetEntry ::= SEQUENCE {
+    cucsOsARPTargetInstanceId                                        CucsManagedObjectId,
+    cucsOsARPTargetDn                                                CucsManagedObjectDn,
+    cucsOsARPTargetRn                                                SnmpAdminString,
+    cucsOsARPTargetHostName                                          SnmpAdminString,
+    cucsOsARPTargetName                                              SnmpAdminString
+}
+
+cucsOsARPTargetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsARPTargetEntry 1 }
+
+cucsOsARPTargetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPTarget:dn managed object property"
+    ::= { cucsOsARPTargetEntry 2 }
+
+cucsOsARPTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPTarget:rn managed object property"
+    ::= { cucsOsARPTargetEntry 3 }
+
+cucsOsARPTargetHostName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPTarget:hostName managed object property"
+    ::= { cucsOsARPTargetEntry 4 }
+
+cucsOsARPTargetName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:ARPTarget:name managed object property"
+    ::= { cucsOsARPTargetEntry 5 }
+
+cucsOsAgentTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsAgentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:Agent managed object table"
+    ::= { cucsOsObjects 1 }
+
+cucsOsAgentEntry OBJECT-TYPE
+    SYNTAX           CucsOsAgentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsAgentTable table."
+    INDEX { cucsOsAgentInstanceId }
+    ::= { cucsOsAgentTable 1 }
+
+CucsOsAgentEntry ::= SEQUENCE {
+    cucsOsAgentInstanceId                                            CucsManagedObjectId,
+    cucsOsAgentDn                                                    CucsManagedObjectDn,
+    cucsOsAgentRn                                                    SnmpAdminString,
+    cucsOsAgentLastCmd                                               CucsHostagAction,
+    cucsOsAgentLastEvt                                               CucsHostagEvent,
+    cucsOsAgentLastEvtTs                                             DateAndTime,
+    cucsOsAgentPrevCmd                                               CucsHostagAction,
+    cucsOsAgentPrevEvt                                               CucsHostagEvent,
+    cucsOsAgentType                                                  CucsHostagAgentType,
+    cucsOsAgentVendor                                                SnmpAdminString,
+    cucsOsAgentVersion                                               SnmpAdminString
+}
+
+cucsOsAgentInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsAgentEntry 1 }
+
+cucsOsAgentDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:dn managed object property"
+    ::= { cucsOsAgentEntry 2 }
+
+cucsOsAgentRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:rn managed object property"
+    ::= { cucsOsAgentEntry 3 }
+
+cucsOsAgentLastCmd OBJECT-TYPE
+    SYNTAX       CucsHostagAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:lastCmd managed object property"
+    ::= { cucsOsAgentEntry 4 }
+
+cucsOsAgentLastEvt OBJECT-TYPE
+    SYNTAX       CucsHostagEvent
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:lastEvt managed object property"
+    ::= { cucsOsAgentEntry 5 }
+
+cucsOsAgentLastEvtTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:lastEvtTs managed object property"
+    ::= { cucsOsAgentEntry 6 }
+
+cucsOsAgentPrevCmd OBJECT-TYPE
+    SYNTAX       CucsHostagAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:prevCmd managed object property"
+    ::= { cucsOsAgentEntry 7 }
+
+cucsOsAgentPrevEvt OBJECT-TYPE
+    SYNTAX       CucsHostagEvent
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:prevEvt managed object property"
+    ::= { cucsOsAgentEntry 8 }
+
+cucsOsAgentType OBJECT-TYPE
+    SYNTAX       CucsHostagAgentType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:type managed object property"
+    ::= { cucsOsAgentEntry 9 }
+
+cucsOsAgentVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:vendor managed object property"
+    ::= { cucsOsAgentEntry 10 }
+
+cucsOsAgentVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Agent:version managed object property"
+    ::= { cucsOsAgentEntry 11 }
+
+cucsOsEthBondIntfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthBondIntfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf managed object table"
+    ::= { cucsOsObjects 9 }
+
+cucsOsEthBondIntfEntry OBJECT-TYPE
+    SYNTAX           CucsOsEthBondIntfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthBondIntfTable table."
+    INDEX { cucsOsEthBondIntfInstanceId }
+    ::= { cucsOsEthBondIntfTable 1 }
+
+CucsOsEthBondIntfEntry ::= SEQUENCE {
+    cucsOsEthBondIntfInstanceId                                      CucsManagedObjectId,
+    cucsOsEthBondIntfDn                                              CucsManagedObjectDn,
+    cucsOsEthBondIntfRn                                              SnmpAdminString,
+    cucsOsEthBondIntfAddr                                            MacAddress,
+    cucsOsEthBondIntfMaxBonds                                        Gauge32,
+    cucsOsEthBondIntfMtu                                             Gauge32,
+    cucsOsEthBondIntfName                                            SnmpAdminString,
+    cucsOsEthBondIntfOperState                                       CucsVnicIfOperState,
+    cucsOsEthBondIntfTransport                                       CucsNetworkTransport,
+    cucsOsEthBondIntfType                                            CucsNetworkConnectionType
+}
+
+cucsOsEthBondIntfInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthBondIntfEntry 1 }
+
+cucsOsEthBondIntfDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:dn managed object property"
+    ::= { cucsOsEthBondIntfEntry 2 }
+
+cucsOsEthBondIntfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:rn managed object property"
+    ::= { cucsOsEthBondIntfEntry 3 }
+
+cucsOsEthBondIntfAddr OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:addr managed object property"
+    ::= { cucsOsEthBondIntfEntry 4 }
+
+cucsOsEthBondIntfMaxBonds OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:maxBonds managed object property"
+    ::= { cucsOsEthBondIntfEntry 5 }
+
+cucsOsEthBondIntfMtu OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:mtu managed object property"
+    ::= { cucsOsEthBondIntfEntry 6 }
+
+cucsOsEthBondIntfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:name managed object property"
+    ::= { cucsOsEthBondIntfEntry 7 }
+
+cucsOsEthBondIntfOperState OBJECT-TYPE
+    SYNTAX       CucsVnicIfOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:operState managed object property"
+    ::= { cucsOsEthBondIntfEntry 8 }
+
+cucsOsEthBondIntfTransport OBJECT-TYPE
+    SYNTAX       CucsNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:transport managed object property"
+    ::= { cucsOsEthBondIntfEntry 9 }
+
+cucsOsEthBondIntfType OBJECT-TYPE
+    SYNTAX       CucsNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondIntf:type managed object property"
+    ::= { cucsOsEthBondIntfEntry 10 }
+
+cucsOsEthBondModeActiveBackupTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthBondModeActiveBackupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeActiveBackup managed object table"
+    ::= { cucsOsObjects 10 }
+
+cucsOsEthBondModeActiveBackupEntry OBJECT-TYPE
+    SYNTAX           CucsOsEthBondModeActiveBackupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthBondModeActiveBackupTable table."
+    INDEX { cucsOsEthBondModeActiveBackupInstanceId }
+    ::= { cucsOsEthBondModeActiveBackupTable 1 }
+
+CucsOsEthBondModeActiveBackupEntry ::= SEQUENCE {
+    cucsOsEthBondModeActiveBackupInstanceId                          CucsManagedObjectId,
+    cucsOsEthBondModeActiveBackupDn                                  CucsManagedObjectDn,
+    cucsOsEthBondModeActiveBackupRn                                  SnmpAdminString,
+    cucsOsEthBondModeActiveBackupMacAddressPolicy                    CucsOsMacFailOverPolicy,
+    cucsOsEthBondModeActiveBackupName                                SnmpAdminString,
+    cucsOsEthBondModeActiveBackupNumPeerNotifications                Gauge32,
+    cucsOsEthBondModeActiveBackupType                                CucsOsEthBondModeActiveBackupType
+}
+
+cucsOsEthBondModeActiveBackupInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthBondModeActiveBackupEntry 1 }
+
+cucsOsEthBondModeActiveBackupDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeActiveBackup:dn managed object property"
+    ::= { cucsOsEthBondModeActiveBackupEntry 2 }
+
+cucsOsEthBondModeActiveBackupRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeActiveBackup:rn managed object property"
+    ::= { cucsOsEthBondModeActiveBackupEntry 3 }
+
+cucsOsEthBondModeActiveBackupMacAddressPolicy OBJECT-TYPE
+    SYNTAX       CucsOsMacFailOverPolicy
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeActiveBackup:macAddressPolicy
+        managed object property"
+    ::= { cucsOsEthBondModeActiveBackupEntry 4 }
+
+cucsOsEthBondModeActiveBackupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeActiveBackup:name managed
+        object property"
+    ::= { cucsOsEthBondModeActiveBackupEntry 5 }
+
+cucsOsEthBondModeActiveBackupNumPeerNotifications OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeActiveBackup:numPeerNotifications
+        managed object property"
+    ::= { cucsOsEthBondModeActiveBackupEntry 6 }
+
+cucsOsEthBondModeActiveBackupType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeActiveBackupType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeActiveBackup:type managed
+        object property"
+    ::= { cucsOsEthBondModeActiveBackupEntry 7 }
+
+cucsOsEthBondModeBalancedALBTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthBondModeBalancedALBEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedALB managed object table"
+    ::= { cucsOsObjects 11 }
+
+cucsOsEthBondModeBalancedALBEntry OBJECT-TYPE
+    SYNTAX           CucsOsEthBondModeBalancedALBEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthBondModeBalancedALBTable table."
+    INDEX { cucsOsEthBondModeBalancedALBInstanceId }
+    ::= { cucsOsEthBondModeBalancedALBTable 1 }
+
+CucsOsEthBondModeBalancedALBEntry ::= SEQUENCE {
+    cucsOsEthBondModeBalancedALBInstanceId                           CucsManagedObjectId,
+    cucsOsEthBondModeBalancedALBDn                                   CucsManagedObjectDn,
+    cucsOsEthBondModeBalancedALBRn                                   SnmpAdminString,
+    cucsOsEthBondModeBalancedALBLbType                               CucsOsLBType,
+    cucsOsEthBondModeBalancedALBName                                 SnmpAdminString,
+    cucsOsEthBondModeBalancedALBType                                 CucsOsEthBondModeLBType,
+    cucsOsEthBondModeBalancedALBXmitHashType                         CucsOsEthBondModeLBXmitHashType
+}
+
+cucsOsEthBondModeBalancedALBInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthBondModeBalancedALBEntry 1 }
+
+cucsOsEthBondModeBalancedALBDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedALB:dn managed object property"
+    ::= { cucsOsEthBondModeBalancedALBEntry 2 }
+
+cucsOsEthBondModeBalancedALBRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedALB:rn managed object property"
+    ::= { cucsOsEthBondModeBalancedALBEntry 3 }
+
+cucsOsEthBondModeBalancedALBLbType OBJECT-TYPE
+    SYNTAX       CucsOsLBType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedALB:lbType managed
+        object property"
+    ::= { cucsOsEthBondModeBalancedALBEntry 4 }
+
+cucsOsEthBondModeBalancedALBName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedALB:name managed object property"
+    ::= { cucsOsEthBondModeBalancedALBEntry 5 }
+
+cucsOsEthBondModeBalancedALBType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeLBType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedALB:type managed object property"
+    ::= { cucsOsEthBondModeBalancedALBEntry 6 }
+
+cucsOsEthBondModeBalancedALBXmitHashType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeLBXmitHashType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedALB:xmitHashType
+        managed object property"
+    ::= { cucsOsEthBondModeBalancedALBEntry 7 }
+
+cucsOsEthBondModeBalancedRRTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthBondModeBalancedRREntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedRR managed object table"
+    ::= { cucsOsObjects 12 }
+
+cucsOsEthBondModeBalancedRREntry OBJECT-TYPE
+    SYNTAX           CucsOsEthBondModeBalancedRREntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthBondModeBalancedRRTable table."
+    INDEX { cucsOsEthBondModeBalancedRRInstanceId }
+    ::= { cucsOsEthBondModeBalancedRRTable 1 }
+
+CucsOsEthBondModeBalancedRREntry ::= SEQUENCE {
+    cucsOsEthBondModeBalancedRRInstanceId                            CucsManagedObjectId,
+    cucsOsEthBondModeBalancedRRDn                                    CucsManagedObjectDn,
+    cucsOsEthBondModeBalancedRRRn                                    SnmpAdminString,
+    cucsOsEthBondModeBalancedRRIgmpResendCount                       Gauge32,
+    cucsOsEthBondModeBalancedRRName                                  SnmpAdminString,
+    cucsOsEthBondModeBalancedRRPktsPerSlave                          Gauge32,
+    cucsOsEthBondModeBalancedRRType                                  CucsOsEthBondModeBalancedRRType
+}
+
+cucsOsEthBondModeBalancedRRInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthBondModeBalancedRREntry 1 }
+
+cucsOsEthBondModeBalancedRRDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedRR:dn managed object property"
+    ::= { cucsOsEthBondModeBalancedRREntry 2 }
+
+cucsOsEthBondModeBalancedRRRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedRR:rn managed object property"
+    ::= { cucsOsEthBondModeBalancedRREntry 3 }
+
+cucsOsEthBondModeBalancedRRIgmpResendCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedRR:igmpResendCount
+        managed object property"
+    ::= { cucsOsEthBondModeBalancedRREntry 4 }
+
+cucsOsEthBondModeBalancedRRName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedRR:name managed object property"
+    ::= { cucsOsEthBondModeBalancedRREntry 5 }
+
+cucsOsEthBondModeBalancedRRPktsPerSlave OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedRR:pktsPerSlave
+        managed object property"
+    ::= { cucsOsEthBondModeBalancedRREntry 6 }
+
+cucsOsEthBondModeBalancedRRType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeBalancedRRType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedRR:type managed object property"
+    ::= { cucsOsEthBondModeBalancedRREntry 7 }
+
+cucsOsEthBondModeBalancedTLBTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthBondModeBalancedTLBEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB managed object table"
+    ::= { cucsOsObjects 13 }
+
+cucsOsEthBondModeBalancedTLBEntry OBJECT-TYPE
+    SYNTAX           CucsOsEthBondModeBalancedTLBEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthBondModeBalancedTLBTable table."
+    INDEX { cucsOsEthBondModeBalancedTLBInstanceId }
+    ::= { cucsOsEthBondModeBalancedTLBTable 1 }
+
+CucsOsEthBondModeBalancedTLBEntry ::= SEQUENCE {
+    cucsOsEthBondModeBalancedTLBInstanceId                           CucsManagedObjectId,
+    cucsOsEthBondModeBalancedTLBDn                                   CucsManagedObjectDn,
+    cucsOsEthBondModeBalancedTLBRn                                   SnmpAdminString,
+    cucsOsEthBondModeBalancedTLBIgmpResendCount                      Gauge32,
+    cucsOsEthBondModeBalancedTLBLbType                               CucsOsLBType,
+    cucsOsEthBondModeBalancedTLBLpInterval                           Gauge32,
+    cucsOsEthBondModeBalancedTLBName                                 SnmpAdminString,
+    cucsOsEthBondModeBalancedTLBType                                 CucsOsEthBondModeLBType,
+    cucsOsEthBondModeBalancedTLBXmitHashType                         CucsOsEthBondModeLBXmitHashType
+}
+
+cucsOsEthBondModeBalancedTLBInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthBondModeBalancedTLBEntry 1 }
+
+cucsOsEthBondModeBalancedTLBDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:dn managed object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 2 }
+
+cucsOsEthBondModeBalancedTLBRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:rn managed object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 3 }
+
+cucsOsEthBondModeBalancedTLBIgmpResendCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:igmpResendCount
+        managed object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 4 }
+
+cucsOsEthBondModeBalancedTLBLbType OBJECT-TYPE
+    SYNTAX       CucsOsLBType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:lbType managed
+        object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 5 }
+
+cucsOsEthBondModeBalancedTLBLpInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:lpInterval
+        managed object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 6 }
+
+cucsOsEthBondModeBalancedTLBName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:name managed object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 7 }
+
+cucsOsEthBondModeBalancedTLBType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeLBType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:type managed object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 8 }
+
+cucsOsEthBondModeBalancedTLBXmitHashType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeLBXmitHashType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedTLB:xmitHashType
+        managed object property"
+    ::= { cucsOsEthBondModeBalancedTLBEntry 9 }
+
+cucsOsEthBondModeBalancedXORTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthBondModeBalancedXOREntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedXOR managed object table"
+    ::= { cucsOsObjects 14 }
+
+cucsOsEthBondModeBalancedXOREntry OBJECT-TYPE
+    SYNTAX           CucsOsEthBondModeBalancedXOREntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthBondModeBalancedXORTable table."
+    INDEX { cucsOsEthBondModeBalancedXORInstanceId }
+    ::= { cucsOsEthBondModeBalancedXORTable 1 }
+
+CucsOsEthBondModeBalancedXOREntry ::= SEQUENCE {
+    cucsOsEthBondModeBalancedXORInstanceId                           CucsManagedObjectId,
+    cucsOsEthBondModeBalancedXORDn                                   CucsManagedObjectDn,
+    cucsOsEthBondModeBalancedXORRn                                   SnmpAdminString,
+    cucsOsEthBondModeBalancedXORLbType                               CucsOsLBType,
+    cucsOsEthBondModeBalancedXORName                                 SnmpAdminString,
+    cucsOsEthBondModeBalancedXORType                                 CucsOsEthBondModeLBType,
+    cucsOsEthBondModeBalancedXORXmitHashType                         CucsOsEthBondModeLBXmitHashType
+}
+
+cucsOsEthBondModeBalancedXORInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthBondModeBalancedXOREntry 1 }
+
+cucsOsEthBondModeBalancedXORDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedXOR:dn managed object property"
+    ::= { cucsOsEthBondModeBalancedXOREntry 2 }
+
+cucsOsEthBondModeBalancedXORRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedXOR:rn managed object property"
+    ::= { cucsOsEthBondModeBalancedXOREntry 3 }
+
+cucsOsEthBondModeBalancedXORLbType OBJECT-TYPE
+    SYNTAX       CucsOsLBType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedXOR:lbType managed
+        object property"
+    ::= { cucsOsEthBondModeBalancedXOREntry 4 }
+
+cucsOsEthBondModeBalancedXORName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedXOR:name managed object property"
+    ::= { cucsOsEthBondModeBalancedXOREntry 5 }
+
+cucsOsEthBondModeBalancedXORType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeLBType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedXOR:type managed object property"
+    ::= { cucsOsEthBondModeBalancedXOREntry 6 }
+
+cucsOsEthBondModeBalancedXORXmitHashType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeLBXmitHashType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBalancedXOR:xmitHashType
+        managed object property"
+    ::= { cucsOsEthBondModeBalancedXOREntry 7 }
+
+cucsOsEthBondModeBroadcastTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthBondModeBroadcastEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBroadcast managed object table"
+    ::= { cucsOsObjects 15 }
+
+cucsOsEthBondModeBroadcastEntry OBJECT-TYPE
+    SYNTAX           CucsOsEthBondModeBroadcastEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthBondModeBroadcastTable table."
+    INDEX { cucsOsEthBondModeBroadcastInstanceId }
+    ::= { cucsOsEthBondModeBroadcastTable 1 }
+
+CucsOsEthBondModeBroadcastEntry ::= SEQUENCE {
+    cucsOsEthBondModeBroadcastInstanceId                             CucsManagedObjectId,
+    cucsOsEthBondModeBroadcastDn                                     CucsManagedObjectDn,
+    cucsOsEthBondModeBroadcastRn                                     SnmpAdminString,
+    cucsOsEthBondModeBroadcastName                                   SnmpAdminString,
+    cucsOsEthBondModeBroadcastType                                   CucsOsEthBondModeBroadcastType
+}
+
+cucsOsEthBondModeBroadcastInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthBondModeBroadcastEntry 1 }
+
+cucsOsEthBondModeBroadcastDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBroadcast:dn managed object property"
+    ::= { cucsOsEthBondModeBroadcastEntry 2 }
+
+cucsOsEthBondModeBroadcastRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBroadcast:rn managed object property"
+    ::= { cucsOsEthBondModeBroadcastEntry 3 }
+
+cucsOsEthBondModeBroadcastName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBroadcast:name managed object property"
+    ::= { cucsOsEthBondModeBroadcastEntry 4 }
+
+cucsOsEthBondModeBroadcastType OBJECT-TYPE
+    SYNTAX       CucsOsEthBondModeBroadcastType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthBondModeBroadcast:type managed object property"
+    ::= { cucsOsEthBondModeBroadcastEntry 5 }
+
+cucsOsEthIntfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsEthIntfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf managed object table"
+    ::= { cucsOsObjects 16 }
+
+cucsOsEthIntfEntry OBJECT-TYPE
+    SYNTAX           CucsOsEthIntfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsEthIntfTable table."
+    INDEX { cucsOsEthIntfInstanceId }
+    ::= { cucsOsEthIntfTable 1 }
+
+CucsOsEthIntfEntry ::= SEQUENCE {
+    cucsOsEthIntfInstanceId                                          CucsManagedObjectId,
+    cucsOsEthIntfDn                                                  CucsManagedObjectDn,
+    cucsOsEthIntfRn                                                  SnmpAdminString,
+    cucsOsEthIntfAddr                                                MacAddress,
+    cucsOsEthIntfMtu                                                 Gauge32,
+    cucsOsEthIntfName                                                SnmpAdminString,
+    cucsOsEthIntfOperState                                           CucsVnicIfOperState,
+    cucsOsEthIntfTransport                                           CucsNetworkTransport,
+    cucsOsEthIntfType                                                CucsNetworkConnectionType
+}
+
+cucsOsEthIntfInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsEthIntfEntry 1 }
+
+cucsOsEthIntfDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:dn managed object property"
+    ::= { cucsOsEthIntfEntry 2 }
+
+cucsOsEthIntfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:rn managed object property"
+    ::= { cucsOsEthIntfEntry 3 }
+
+cucsOsEthIntfAddr OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:addr managed object property"
+    ::= { cucsOsEthIntfEntry 4 }
+
+cucsOsEthIntfMtu OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:mtu managed object property"
+    ::= { cucsOsEthIntfEntry 5 }
+
+cucsOsEthIntfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:name managed object property"
+    ::= { cucsOsEthIntfEntry 6 }
+
+cucsOsEthIntfOperState OBJECT-TYPE
+    SYNTAX       CucsVnicIfOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:operState managed object property"
+    ::= { cucsOsEthIntfEntry 7 }
+
+cucsOsEthIntfTransport OBJECT-TYPE
+    SYNTAX       CucsNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:transport managed object property"
+    ::= { cucsOsEthIntfEntry 8 }
+
+cucsOsEthIntfType OBJECT-TYPE
+    SYNTAX       CucsNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:EthIntf:type managed object property"
+    ::= { cucsOsEthIntfEntry 9 }
+
+cucsOsInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:Instance managed object table"
+    ::= { cucsOsObjects 2 }
+
+cucsOsInstanceEntry OBJECT-TYPE
+    SYNTAX           CucsOsInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsInstanceTable table."
+    INDEX { cucsOsInstanceInstanceId }
+    ::= { cucsOsInstanceTable 1 }
+
+CucsOsInstanceEntry ::= SEQUENCE {
+    cucsOsInstanceInstanceId                                         CucsManagedObjectId,
+    cucsOsInstanceDn                                                 CucsManagedObjectDn,
+    cucsOsInstanceRn                                                 SnmpAdminString,
+    cucsOsInstanceHostname                                           SnmpAdminString,
+    cucsOsInstanceKernelName                                         SnmpAdminString,
+    cucsOsInstanceKernelRelease                                      SnmpAdminString,
+    cucsOsInstanceKernelVersion                                      SnmpAdminString,
+    cucsOsInstanceName                                               SnmpAdminString,
+    cucsOsInstanceType                                               CucsOsOsType
+}
+
+cucsOsInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsInstanceEntry 1 }
+
+cucsOsInstanceDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:dn managed object property"
+    ::= { cucsOsInstanceEntry 2 }
+
+cucsOsInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:rn managed object property"
+    ::= { cucsOsInstanceEntry 3 }
+
+cucsOsInstanceHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:hostname managed object property"
+    ::= { cucsOsInstanceEntry 4 }
+
+cucsOsInstanceKernelName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:kernelName managed object property"
+    ::= { cucsOsInstanceEntry 5 }
+
+cucsOsInstanceKernelRelease OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:kernelRelease managed object property"
+    ::= { cucsOsInstanceEntry 6 }
+
+cucsOsInstanceKernelVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:kernelVersion managed object property"
+    ::= { cucsOsInstanceEntry 7 }
+
+cucsOsInstanceName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:name managed object property"
+    ::= { cucsOsInstanceEntry 8 }
+
+cucsOsInstanceType OBJECT-TYPE
+    SYNTAX       CucsOsOsType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:Instance:type managed object property"
+    ::= { cucsOsInstanceEntry 9 }
+
+cucsOsMiiLinkMonitoringPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsMiiLinkMonitoringPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy managed object table"
+    ::= { cucsOsObjects 18 }
+
+cucsOsMiiLinkMonitoringPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsOsMiiLinkMonitoringPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsMiiLinkMonitoringPolicyTable table."
+    INDEX { cucsOsMiiLinkMonitoringPolicyInstanceId }
+    ::= { cucsOsMiiLinkMonitoringPolicyTable 1 }
+
+CucsOsMiiLinkMonitoringPolicyEntry ::= SEQUENCE {
+    cucsOsMiiLinkMonitoringPolicyInstanceId                          CucsManagedObjectId,
+    cucsOsMiiLinkMonitoringPolicyDn                                  CucsManagedObjectDn,
+    cucsOsMiiLinkMonitoringPolicyRn                                  SnmpAdminString,
+    cucsOsMiiLinkMonitoringPolicyFrequency                           Gauge32,
+    cucsOsMiiLinkMonitoringPolicyLinkDownDelay                       Gauge32,
+    cucsOsMiiLinkMonitoringPolicyLinkStatusQueryType                 CucsOsCarrierQueryMethod,
+    cucsOsMiiLinkMonitoringPolicyLinkUpDelay                         Gauge32,
+    cucsOsMiiLinkMonitoringPolicyName                                SnmpAdminString
+}
+
+cucsOsMiiLinkMonitoringPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 1 }
+
+cucsOsMiiLinkMonitoringPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy:dn managed object property"
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 2 }
+
+cucsOsMiiLinkMonitoringPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy:rn managed object property"
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 3 }
+
+cucsOsMiiLinkMonitoringPolicyFrequency OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy:frequency
+        managed object property"
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 4 }
+
+cucsOsMiiLinkMonitoringPolicyLinkDownDelay OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy:linkDownDelay
+        managed object property"
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 5 }
+
+cucsOsMiiLinkMonitoringPolicyLinkStatusQueryType OBJECT-TYPE
+    SYNTAX       CucsOsCarrierQueryMethod
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy:linkStatusQueryType
+        managed object property"
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 6 }
+
+cucsOsMiiLinkMonitoringPolicyLinkUpDelay OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy:linkUpDelay
+        managed object property"
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 7 }
+
+cucsOsMiiLinkMonitoringPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:MiiLinkMonitoringPolicy:name managed
+        object property"
+    ::= { cucsOsMiiLinkMonitoringPolicyEntry 8 }
+
+cucsOsPrimarySlaveTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOsPrimarySlaveEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS os:PrimarySlave managed object table"
+    ::= { cucsOsObjects 19 }
+
+cucsOsPrimarySlaveEntry OBJECT-TYPE
+    SYNTAX           CucsOsPrimarySlaveEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOsPrimarySlaveTable table."
+    INDEX { cucsOsPrimarySlaveInstanceId }
+    ::= { cucsOsPrimarySlaveTable 1 }
+
+CucsOsPrimarySlaveEntry ::= SEQUENCE {
+    cucsOsPrimarySlaveInstanceId                                     CucsManagedObjectId,
+    cucsOsPrimarySlaveDn                                             CucsManagedObjectDn,
+    cucsOsPrimarySlaveRn                                             SnmpAdminString,
+    cucsOsPrimarySlaveName                                           SnmpAdminString,
+    cucsOsPrimarySlaveReselectPolicy                                 CucsOsPrimaryReselection
+}
+
+cucsOsPrimarySlaveInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOsPrimarySlaveEntry 1 }
+
+cucsOsPrimarySlaveDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:PrimarySlave:dn managed object property"
+    ::= { cucsOsPrimarySlaveEntry 2 }
+
+cucsOsPrimarySlaveRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:PrimarySlave:rn managed object property"
+    ::= { cucsOsPrimarySlaveEntry 3 }
+
+cucsOsPrimarySlaveName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:PrimarySlave:name managed object property"
+    ::= { cucsOsPrimarySlaveEntry 4 }
+
+cucsOsPrimarySlaveReselectPolicy OBJECT-TYPE
+    SYNTAX       CucsOsPrimaryReselection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS os:PrimarySlave:reselectPolicy managed object property"
+    ::= { cucsOsPrimarySlaveEntry 5 }
+
+END

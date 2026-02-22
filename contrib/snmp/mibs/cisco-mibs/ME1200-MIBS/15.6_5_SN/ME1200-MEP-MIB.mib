@@ -1,0 +1,5663 @@
+-- *****************************************************************
+-- MEP-MIB:  ME1200 Private MIB
+--
+-- 
+-- 
+--
+-- *****************************************************************
+
+ME1200-MEP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200MepDmTimeUnit FROM ME1200-TC
+    ME1200MepInstanceDirection FROM ME1200-TC
+    ME1200MepTxRate FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Counter64 FROM SNMPv2-SMI
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200MepMib MODULE-IDENTITY
+    LAST-UPDATED "201708150000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private service OAM (Y.1731/G802.1ag) MIB"
+    REVISION    "201711220000Z"
+    DESCRIPTION
+        "Reverted the me1200MepNotification table"
+    REVISION    "201708150000Z"
+    DESCRIPTION
+        "Added BIN range configuration individually per BIN."
+    REVISION    "201707250000Z"
+    DESCRIPTION
+        "Expanded Domain Name and MEG ID to 40 characters."
+    REVISION    "201707110000Z"
+    DESCRIPTION
+        "Added support for AIS, LCK notifications."
+    REVISION    "201703290000Z"
+    DESCRIPTION
+        "Added support for specifying SLM Test ID."
+    REVISION    "201612130000Z"
+    DESCRIPTION
+        "Added support for Loss Measurement Availability. Added option to view
+         DM FD and IFDV bin values in me1200StatusDmFdBinsTable and
+         me1200StatusDmIfdvBinsTable."
+    REVISION    "201611230000Z"
+    DESCRIPTION
+        "Fixed description of default value for me1200ConfigDmNumOfBinIFDV.
+         Fixed spelling mistake: 'Dealy' changed to 'Delay' in OID names."
+    REVISION    "201611030000Z"
+    DESCRIPTION
+        "Added me1200ConfigDmNumOfBinFD, me1200ConfigDmNumOfBinIFDV and
+         me1200ConfigDmMThreshold objects."
+    REVISION    "201610120000Z"
+    DESCRIPTION
+        "Added support for LM IntervalElapsed object"
+    REVISION    "201607220000Z"
+    DESCRIPTION
+        "Added support for SLM multiple peers and capabilities update"
+    REVISION    "201605160000Z"
+    DESCRIPTION
+        "Adding notification of frame delay"
+    REVISION    "201605110000Z"
+    DESCRIPTION
+        "Adding notification of frame loss raito"
+    REVISION    "201412030000Z"
+    DESCRIPTION
+        "Adding of Link State Tracking functionality"
+    REVISION    "201406300000Z"
+    DESCRIPTION
+        "Definition of lbToSendInfinite is added to vtss_appl_mep_capabilities_t
+         and numerics are removed from descriptions and replaced with Capability
+         reference"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401300000Z"
+    DESCRIPTION
+        "MIB has been added to support Dynamic CCM TLV in the MEP module"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310240000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 46 }
+
+
+ME1200Action ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Action when internal total delay counter overflow."
+    SYNTAX      INTEGER { disableDm(0), continueDm(1) }
+
+ME1200ApsType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Type of APS."
+    SYNTAX      INTEGER { invalidAps(0), linearAps(1), ringAps(2) }
+
+ME1200AvailState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Availability State."
+    SYNTAX      INTEGER { available(0), unavailable(1) }
+
+ME1200CalcWay ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Round trip or flow calculation way selection."
+    SYNTAX      INTEGER { roundTrip(0), flow(1) }
+
+ME1200Cast ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Unicast or Multicast selection."
+    SYNTAX      INTEGER { uniCast(0), multiCast(1) }
+
+ME1200Ended ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Dual/single ended selection."
+    SYNTAX      INTEGER { singleEnded(0), dualEnded(1) }
+
+ME1200InstanceDomain ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance domain."
+    SYNTAX      INTEGER { port(0), evc(1), vlan(2) }
+
+ME1200InstanceMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance mode."
+    SYNTAX      INTEGER { mep(0), mip(1) }
+
+ME1200MegIdFormat ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The MEG-ID format."
+    SYNTAX      INTEGER { ituIcc(0), ieeeString(1), ituCcIcc(2) }
+
+ME1200RelayAction ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The Link Trace relay action."
+    SYNTAX      INTEGER { relayUnknown(0), relayHit(1), relayFdb(2), relayMpdb(3) }
+
+ME1200TstPattern ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Pattern in TST frame Data TLV."
+    SYNTAX      INTEGER { allZero(0), allOne(1), hexAA(2) }
+
+me1200MepMibObjects OBJECT IDENTIFIER
+    ::= { me1200MepMib 1 }
+
+me1200MepCapabilities OBJECT IDENTIFIER
+    ::= { me1200MepMibObjects 1 }
+
+me1200MepCapabilitiesInstanceMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max number of MEP instance"
+    ::= { me1200MepCapabilities 1 }
+
+me1200MepCapabilitiesPeerMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max number of peer MEP"
+    ::= { me1200MepCapabilities 2 }
+
+me1200MepCapabilitiesTransactionMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max number of Link Trace transaction"
+    ::= { me1200MepCapabilities 3 }
+
+me1200MepCapabilitiesReplyMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max number of reply in a transaction"
+    ::= { me1200MepCapabilities 4 }
+
+me1200MepCapabilitiesClientFlowsMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max number of client flows"
+    ::= { me1200MepCapabilities 5 }
+
+me1200MepCapabilitiesMacMength OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC length"
+    ::= { me1200MepCapabilities 6 }
+
+me1200MepCapabilitiesMegCodeLength OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAX length of Both Maintenance Domain Name and MEG-ID include a NULL
+         termination"
+    ::= { me1200MepCapabilities 7 }
+
+me1200MepCapabilitiesDmIntervalMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MIN DM transmission interval "
+    ::= { me1200MepCapabilities 8 }
+
+me1200MepCapabilitiesDmIntervalMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAX DM transmission interval"
+    ::= { me1200MepCapabilities 9 }
+
+me1200MepCapabilitiesDmLastnMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MIN number of DM LastN for average calculation"
+    ::= { me1200MepCapabilities 10 }
+
+me1200MepCapabilitiesDmLastnMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAX number of DM LastN for average calculation"
+    ::= { me1200MepCapabilities 11 }
+
+me1200MepCapabilitiesLbmSizeMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum LBM frame size"
+    ::= { me1200MepCapabilities 12 }
+
+me1200MepCapabilitiesLbmSizeMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum LBM frame size"
+    ::= { me1200MepCapabilities 13 }
+
+me1200MepCapabilitiesTstSizeMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum TST frame size"
+    ::= { me1200MepCapabilities 14 }
+
+me1200MepCapabilitiesTstSizeMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum TST frame size"
+    ::= { me1200MepCapabilities 15 }
+
+me1200MepCapabilitiesTstRateMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum TST bit rate"
+    ::= { me1200MepCapabilities 16 }
+
+me1200MepCapabilitiesClientPrioHighest OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The highest possible client priority is requested"
+    ::= { me1200MepCapabilities 17 }
+
+me1200MepCapabilitiesLbToSendInfinite OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Send LBM infinite - test behaviour"
+    ::= { me1200MepCapabilities 18 }
+
+me1200MepCapabilitiesLmLossRatioThresholdMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum value of LM loss ratio"
+    ::= { me1200MepCapabilities 19 }
+
+me1200MepCapabilitiesLmLossRatioThresholdMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum value of LM loss ratio"
+    ::= { me1200MepCapabilities 20 }
+
+me1200MepCapabilitiesDmAverageDelayThresholdMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum threshold of DM one-way average delay"
+    ::= { me1200MepCapabilities 21 }
+
+me1200MepCapabilitiesDmAverageDelayThresholdMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum threshold of DM one-way average delay"
+    ::= { me1200MepCapabilities 22 }
+
+me1200MepCapabilitiesSlmSizeMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum SLM frame size"
+    ::= { me1200MepCapabilities 23 }
+
+me1200MepCapabilitiesSlmSizeMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum SLM frame size"
+    ::= { me1200MepCapabilities 24 }
+
+me1200MepConfig OBJECT IDENTIFIER
+    ::= { me1200MepMibObjects 2 }
+
+me1200ConfigInstance OBJECT IDENTIFIER
+    ::= { me1200MepConfig 1 }
+
+me1200ConfigInstanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance configuration parameters"
+    ::= { me1200ConfigInstance 1 }
+
+me1200ConfigInstanceEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance configuration parameters. Not all parameters
+         can be changed"
+    INDEX       { me1200ConfigInstanceId }
+    ::= { me1200ConfigInstanceTable 1 }
+
+ME1200ConfigInstanceEntry ::= SEQUENCE {
+    me1200ConfigInstanceId    Integer32,
+    me1200ConfigInstanceMode      ME1200InstanceMode,
+    me1200ConfigInstanceDirection     ME1200MepInstanceDirection,
+    me1200ConfigInstanceDomain    ME1200InstanceDomain,
+    me1200ConfigInstanceFlow      Unsigned32,
+    me1200ConfigInstancePort      ME1200InterfaceIndex,
+    me1200ConfigInstanceLevel     Unsigned32,
+    me1200ConfigInstanceVid   ME1200Unsigned16,
+    me1200ConfigInstanceVoe   TruthValue,
+    me1200ConfigInstanceMac   MacAddress,
+    me1200ConfigInstanceFormat    ME1200MegIdFormat,
+    me1200ConfigInstanceName      ME1200DisplayString,
+    me1200ConfigInstanceMeg   ME1200DisplayString,
+    me1200ConfigInstanceMep   Unsigned32,
+    me1200ConfigInstanceAction    ME1200RowEditorState
+}
+
+me1200ConfigInstanceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigInstanceEntry 1 }
+
+me1200ConfigInstanceMode OBJECT-TYPE
+    SYNTAX      ME1200InstanceMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance mode. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceEntry 2 }
+
+me1200ConfigInstanceDirection OBJECT-TYPE
+    SYNTAX      ME1200MepInstanceDirection
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance direction. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceEntry 3 }
+
+me1200ConfigInstanceDomain OBJECT-TYPE
+    SYNTAX      ME1200InstanceDomain
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance domain. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceEntry 4 }
+
+me1200ConfigInstanceFlow OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The flow instance (VLAN - EVC). Cannot be changed after creation."
+    ::= { me1200ConfigInstanceEntry 5 }
+
+me1200ConfigInstancePort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance residence port. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceEntry 6 }
+
+me1200ConfigInstanceLevel OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance level"
+    ::= { me1200ConfigInstanceEntry 7 }
+
+me1200ConfigInstanceVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Value that is not zero will add a tag with this value as VID.
+         
+         This is the case in Port domain and EVC domain. In the EVC domain this
+         is considered as Subscriber OAM"
+    ::= { me1200ConfigInstanceEntry 8 }
+
+me1200ConfigInstanceVoe OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Make the instance VOE based - if possible"
+    ::= { me1200ConfigInstanceEntry 9 }
+
+me1200ConfigInstanceMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance unicast MAC. If 'all zero' the residence port MAC is used"
+    ::= { me1200ConfigInstanceEntry 10 }
+
+me1200ConfigInstanceFormat OBJECT-TYPE
+    SYNTAX      ME1200MegIdFormat
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEG-ID format"
+    ::= { me1200ConfigInstanceEntry 11 }
+
+me1200ConfigInstanceName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..40))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "IEEE Maintenance Domain Name (string)"
+    ::= { me1200ConfigInstanceEntry 12 }
+
+me1200ConfigInstanceMeg OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..40))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Unique MEG ID (string)"
+    ::= { me1200ConfigInstanceEntry 13 }
+
+me1200ConfigInstanceMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "MEP id of this instance"
+    ::= { me1200ConfigInstanceEntry 14 }
+
+me1200ConfigInstanceAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigInstanceEntry 100 }
+
+me1200ConfigInstanceRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigInstance 2 }
+
+me1200ConfigInstanceRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigInstanceRowEditor 1 }
+
+me1200ConfigInstanceRowEditorMode OBJECT-TYPE
+    SYNTAX      ME1200InstanceMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance mode. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceRowEditor 2 }
+
+me1200ConfigInstanceRowEditorDirection OBJECT-TYPE
+    SYNTAX      ME1200MepInstanceDirection
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance direction. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceRowEditor 3 }
+
+me1200ConfigInstanceRowEditorDomain OBJECT-TYPE
+    SYNTAX      ME1200InstanceDomain
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance domain. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceRowEditor 4 }
+
+me1200ConfigInstanceRowEditorFlow OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The flow instance (VLAN - EVC). Cannot be changed after creation."
+    ::= { me1200ConfigInstanceRowEditor 5 }
+
+me1200ConfigInstanceRowEditorPort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance residence port. Cannot be changed after creation."
+    ::= { me1200ConfigInstanceRowEditor 6 }
+
+me1200ConfigInstanceRowEditorLevel OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance level"
+    ::= { me1200ConfigInstanceRowEditor 7 }
+
+me1200ConfigInstanceRowEditorVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Value that is not zero will add a tag with this value as VID.
+         
+         This is the case in Port domain and EVC domain. In the EVC domain this
+         is considered as Subscriber OAM"
+    ::= { me1200ConfigInstanceRowEditor 8 }
+
+me1200ConfigInstanceRowEditorVoe OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Make the instance VOE based - if possible"
+    ::= { me1200ConfigInstanceRowEditor 9 }
+
+me1200ConfigInstanceRowEditorMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance unicast MAC. If 'all zero' the residence port MAC is used"
+    ::= { me1200ConfigInstanceRowEditor 10 }
+
+me1200ConfigInstanceRowEditorFormat OBJECT-TYPE
+    SYNTAX      ME1200MegIdFormat
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEG-ID format"
+    ::= { me1200ConfigInstanceRowEditor 11 }
+
+me1200ConfigInstanceRowEditorName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..40))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "IEEE Maintenance Domain Name (string)"
+    ::= { me1200ConfigInstanceRowEditor 12 }
+
+me1200ConfigInstanceRowEditorMeg OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..40))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Unique MEG ID (string)"
+    ::= { me1200ConfigInstanceRowEditor 13 }
+
+me1200ConfigInstanceRowEditorMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "MEP id of this instance"
+    ::= { me1200ConfigInstanceRowEditor 14 }
+
+me1200ConfigInstanceRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigInstanceRowEditor 100 }
+
+me1200ConfigInstancePeerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigInstancePeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of peer MEP configuration parameters"
+    ::= { me1200ConfigInstance 3 }
+
+me1200ConfigInstancePeerEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigInstancePeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a peer MEP configuration parameters"
+    INDEX       { me1200ConfigInstancePeerId, me1200ConfigInstancePeerPeerId }
+    ::= { me1200ConfigInstancePeerTable 1 }
+
+ME1200ConfigInstancePeerEntry ::= SEQUENCE {
+    me1200ConfigInstancePeerId    Integer32,
+    me1200ConfigInstancePeerPeerId    Integer32,
+    me1200ConfigInstancePeerMac   MacAddress,
+    me1200ConfigInstancePeerAction    ME1200RowEditorState
+}
+
+me1200ConfigInstancePeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigInstancePeerEntry 1 }
+
+me1200ConfigInstancePeerPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The Peer MEP ID"
+    ::= { me1200ConfigInstancePeerEntry 2 }
+
+me1200ConfigInstancePeerMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The peer unicast MAC"
+    ::= { me1200ConfigInstancePeerEntry 3 }
+
+me1200ConfigInstancePeerAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigInstancePeerEntry 100 }
+
+me1200ConfigInstancePeerRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigInstance 4 }
+
+me1200ConfigInstancePeerRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigInstancePeerRowEditor 1 }
+
+me1200ConfigInstancePeerRowEditorPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Peer MEP ID"
+    ::= { me1200ConfigInstancePeerRowEditor 2 }
+
+me1200ConfigInstancePeerRowEditorMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The peer unicast MAC"
+    ::= { me1200ConfigInstancePeerRowEditor 3 }
+
+me1200ConfigInstancePeerRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigInstancePeerRowEditor 100 }
+
+me1200ConfigPerfMon OBJECT IDENTIFIER
+    ::= { me1200MepConfig 2 }
+
+me1200ConfigPmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigPmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Performance Monitoring
+         configuration parameters"
+    ::= { me1200ConfigPerfMon 1 }
+
+me1200ConfigPmEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigPmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Performance Monitoring configuration
+         parameters"
+    INDEX       { me1200ConfigPmId }
+    ::= { me1200ConfigPmTable 1 }
+
+ME1200ConfigPmEntry ::= SEQUENCE {
+    me1200ConfigPmId      Integer32,
+    me1200ConfigPmEnable      TruthValue
+}
+
+me1200ConfigPmId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigPmEntry 1 }
+
+me1200ConfigPmEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance can enable contribution of LM and DM results to the
+         Performance Monitoring "
+    ::= { me1200ConfigPmEntry 2 }
+
+me1200ConfigContinuityCheck OBJECT IDENTIFIER
+    ::= { me1200MepConfig 3 }
+
+me1200ConfigCcTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigCcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Continuity Check configuration
+         parameters"
+    ::= { me1200ConfigContinuityCheck 1 }
+
+me1200ConfigCcEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigCcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Continuity Check configuration parameters."
+    INDEX       { me1200ConfigCcId }
+    ::= { me1200ConfigCcTable 1 }
+
+ME1200ConfigCcEntry ::= SEQUENCE {
+    me1200ConfigCcId      Integer32,
+    me1200ConfigCcDei     ME1200Unsigned8,
+    me1200ConfigCcPrio    Unsigned32,
+    me1200ConfigCcRate    ME1200MepTxRate,
+    me1200ConfigCcTlv     TruthValue,
+    me1200ConfigCcAction      ME1200RowEditorState
+}
+
+me1200ConfigCcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigCcEntry 1 }
+
+me1200ConfigCcDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted CCM"
+    ::= { me1200ConfigCcEntry 2 }
+
+me1200ConfigCcPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted CCM. Range 0 to 7"
+    ::= { me1200ConfigCcEntry 3 }
+
+me1200ConfigCcRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "CCM transmission and expected reception rate"
+    ::= { me1200ConfigCcEntry 4 }
+
+me1200ConfigCcTlv OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/disable insertion of TLV in CCM PDU. OS, PS and IS TLV are
+         inserted"
+    ::= { me1200ConfigCcEntry 5 }
+
+me1200ConfigCcAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigCcEntry 100 }
+
+me1200ConfigCcRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigContinuityCheck 2 }
+
+me1200ConfigCcRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigCcRowEditor 1 }
+
+me1200ConfigCcRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted CCM"
+    ::= { me1200ConfigCcRowEditor 2 }
+
+me1200ConfigCcRowEditorPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted CCM. Range 0 to 7"
+    ::= { me1200ConfigCcRowEditor 3 }
+
+me1200ConfigCcRowEditorRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "CCM transmission and expected reception rate"
+    ::= { me1200ConfigCcRowEditor 4 }
+
+me1200ConfigCcRowEditorTlv OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/disable insertion of TLV in CCM PDU. OS, PS and IS TLV are
+         inserted"
+    ::= { me1200ConfigCcRowEditor 5 }
+
+me1200ConfigCcRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigCcRowEditor 100 }
+
+me1200ConfigLossMeasurement OBJECT IDENTIFIER
+    ::= { me1200MepConfig 4 }
+
+me1200ConfigLmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Loss Measurement configuration
+         parameters"
+    ::= { me1200ConfigLossMeasurement 1 }
+
+me1200ConfigLmEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Loss Measurement parameters."
+    INDEX       { me1200ConfigLmId }
+    ::= { me1200ConfigLmTable 1 }
+
+ME1200ConfigLmEntry ::= SEQUENCE {
+    me1200ConfigLmId      Integer32,
+    me1200ConfigLmEnded   ME1200Ended,
+    me1200ConfigLmDei     ME1200Unsigned8,
+    me1200ConfigLmPrio    Unsigned32,
+    me1200ConfigLmRate    ME1200MepTxRate,
+    me1200ConfigLmCast    ME1200Cast,
+    me1200ConfigLmFlrInterval     Unsigned32,
+    me1200ConfigLmLossRatioThreshold      Unsigned32,
+    me1200ConfigLmRxEnable    TruthValue,
+    me1200ConfigLmSynthetic   TruthValue,
+    me1200ConfigLmMep     Unsigned32,
+    me1200ConfigLmFrameSize   Unsigned32,
+    me1200ConfigLmMeasInterval    Unsigned32,
+    me1200ConfigLmSlmTestId   Unsigned32,
+    me1200ConfigLmAction      ME1200RowEditorState
+}
+
+me1200ConfigLmId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLmEntry 1 }
+
+me1200ConfigLmEnded OBJECT-TYPE
+    SYNTAX      ME1200Ended
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Dual/single ended selection. CCM or LMM/LMR based. Cannot be changed
+         after creation."
+    ::= { me1200ConfigLmEntry 2 }
+
+me1200ConfigLmDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted LM PDU"
+    ::= { me1200ConfigLmEntry 3 }
+
+me1200ConfigLmPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted LM PDU. Range 0 to 7"
+    ::= { me1200ConfigLmEntry 4 }
+
+me1200ConfigLmRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LM PDU transmission rate"
+    ::= { me1200ConfigLmEntry 5 }
+
+me1200ConfigLmCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/Multicast selection - on CCM based LM only multicast is possible"
+    ::= { me1200ConfigLmEntry 6 }
+
+me1200ConfigLmFlrInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Frame loss ratio time interval in sec."
+    ::= { me1200ConfigLmEntry 7 }
+
+me1200ConfigLmLossRatioThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Frame loss ratio threshold."
+    ::= { me1200ConfigLmEntry 8 }
+
+me1200ConfigLmRxEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "This enables calculation of far-to-near loss when CCM/LMM/SLM/1SL is
+         received. Can only be set TRUE when 'enable' is FALSE"
+    ::= { me1200ConfigLmEntry 9 }
+
+me1200ConfigLmSynthetic OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "TRUE => LM based on synthetic frames (SLM/1SL). FALSE => LM based on
+         service frames (LMM/CCM)."
+    ::= { me1200ConfigLmEntry 10 }
+
+me1200ConfigLmMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer Mep to receive LM - only used if unicast. Value >
+         VTSS_APPL_MEP_ID_MAX can be used when only one peer-mep (default)."
+    ::= { me1200ConfigLmEntry 11 }
+
+me1200ConfigLmFrameSize OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Size of SLM/1SL frame to send."
+    ::= { me1200ConfigLmEntry 12 }
+
+me1200ConfigLmMeasInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Synthetic LM measurement interval."
+    ::= { me1200ConfigLmEntry 13 }
+
+me1200ConfigLmSlmTestId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Test ID value to use in SLM PDUs."
+    ::= { me1200ConfigLmEntry 14 }
+
+me1200ConfigLmAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLmEntry 101 }
+
+me1200ConfigLmRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigLossMeasurement 2 }
+
+me1200ConfigLmRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLmRowEditor 1 }
+
+me1200ConfigLmRowEditorEnded OBJECT-TYPE
+    SYNTAX      ME1200Ended
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Dual/single ended selection. CCM or LMM/LMR based. Cannot be changed
+         after creation."
+    ::= { me1200ConfigLmRowEditor 2 }
+
+me1200ConfigLmRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted LM PDU"
+    ::= { me1200ConfigLmRowEditor 3 }
+
+me1200ConfigLmRowEditorPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted LM PDU. Range 0 to 7"
+    ::= { me1200ConfigLmRowEditor 4 }
+
+me1200ConfigLmRowEditorRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LM PDU transmission rate"
+    ::= { me1200ConfigLmRowEditor 5 }
+
+me1200ConfigLmRowEditorCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/Multicast selection - on CCM based LM only multicast is possible"
+    ::= { me1200ConfigLmRowEditor 6 }
+
+me1200ConfigLmRowEditorFlrInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Frame loss ratio time interval in sec."
+    ::= { me1200ConfigLmRowEditor 7 }
+
+me1200ConfigLmRowEditorLossRatioThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Frame loss ratio threshold."
+    ::= { me1200ConfigLmRowEditor 8 }
+
+me1200ConfigLmRowEditorRxEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "This enables calculation of far-to-near loss when CCM/LMM/SLM/1SL is
+         received. Can only be set TRUE when 'enable' is FALSE"
+    ::= { me1200ConfigLmRowEditor 9 }
+
+me1200ConfigLmRowEditorSynthetic OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "TRUE => LM based on synthetic frames (SLM/1SL). FALSE => LM based on
+         service frames (LMM/CCM)."
+    ::= { me1200ConfigLmRowEditor 10 }
+
+me1200ConfigLmRowEditorMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer Mep to receive LM - only used if unicast. Value >
+         VTSS_APPL_MEP_ID_MAX can be used when only one peer-mep (default)."
+    ::= { me1200ConfigLmRowEditor 11 }
+
+me1200ConfigLmRowEditorFrameSize OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Size of SLM/1SL frame to send."
+    ::= { me1200ConfigLmRowEditor 12 }
+
+me1200ConfigLmRowEditorMeasInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Synthetic LM measurement interval."
+    ::= { me1200ConfigLmRowEditor 13 }
+
+me1200ConfigLmRowEditorSlmTestId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Test ID value to use in SLM PDUs."
+    ::= { me1200ConfigLmRowEditor 14 }
+
+me1200ConfigLmRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLmRowEditor 101 }
+
+me1200ConfigDelayMeasurement OBJECT IDENTIFIER
+    ::= { me1200MepConfig 5 }
+
+me1200ConfigDmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigDmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Delay Measurement configuration
+         parameters"
+    ::= { me1200ConfigDelayMeasurement 1 }
+
+me1200ConfigDmEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigDmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Delay Measurement parameters."
+    INDEX       { me1200ConfigDmId }
+    ::= { me1200ConfigDmTable 1 }
+
+ME1200ConfigDmEntry ::= SEQUENCE {
+    me1200ConfigDmId      Integer32,
+    me1200ConfigDmEnded   ME1200Ended,
+    me1200ConfigDmDei     ME1200Unsigned8,
+    me1200ConfigDmPrio    Unsigned32,
+    me1200ConfigDmCast    ME1200Cast,
+    me1200ConfigDmMep     Unsigned32,
+    me1200ConfigDmCalcWay     ME1200CalcWay,
+    me1200ConfigDmInterval    Unsigned32,
+    me1200ConfigDmLastN   Unsigned32,
+    me1200ConfigDmTimeUnit    ME1200MepDmTimeUnit,
+    me1200ConfigDmOverflowAct     ME1200Action,
+    me1200ConfigDmSynchronized    TruthValue,
+    me1200ConfigDmOneWayAverageLastnDelayThreshold    Unsigned32,
+    me1200ConfigDmOneWayAverageLastnDelayVariationThreshold   Unsigned32,
+    me1200ConfigDmTwoWayAverageLastnDelayThreshold    Unsigned32,
+    me1200ConfigDmTwoWayAverageLastnDelayVariationThreshold   Unsigned32,
+    me1200ConfigDmNumOfBinFD      ME1200Unsigned16,
+    me1200ConfigDmNumOfBinIFDV    ME1200Unsigned16,
+    me1200ConfigDmAction      ME1200RowEditorState
+}
+
+me1200ConfigDmId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigDmEntry 1 }
+
+me1200ConfigDmEnded OBJECT-TYPE
+    SYNTAX      ME1200Ended
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Dual/single ended selection. CCM or LMM/LMR based. Cannot be changed
+         after creation."
+    ::= { me1200ConfigDmEntry 2 }
+
+me1200ConfigDmDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted DM PDU"
+    ::= { me1200ConfigDmEntry 3 }
+
+me1200ConfigDmPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted DM PDU. Range 0 to 7"
+    ::= { me1200ConfigDmEntry 4 }
+
+me1200ConfigDmCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/Multicast selection"
+    ::= { me1200ConfigDmEntry 5 }
+
+me1200ConfigDmMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer MEP to receive DMM/1DM - only used if unicast"
+    ::= { me1200ConfigDmEntry 6 }
+
+me1200ConfigDmCalcWay OBJECT-TYPE
+    SYNTAX      ME1200CalcWay
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Round trip or flow calculation way selection."
+    ::= { me1200ConfigDmEntry 7 }
+
+me1200ConfigDmInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Interval between 1DM/DMM in 10 ms. Range Capability dm_interval_min to
+         dm_interval_max."
+    ::= { me1200ConfigDmEntry 8 }
+
+me1200ConfigDmLastN OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The number of last N measurements used to calculate average delay and
+         variation. Range Capability dm_lastn_min to dm_lastn_max."
+    ::= { me1200ConfigDmEntry 9 }
+
+me1200ConfigDmTimeUnit OBJECT-TYPE
+    SYNTAX      ME1200MepDmTimeUnit
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Calculation time unit."
+    ::= { me1200ConfigDmEntry 10 }
+
+me1200ConfigDmOverflowAct OBJECT-TYPE
+    SYNTAX      ME1200Action
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action when internal total delay counter overflow."
+    ::= { me1200ConfigDmEntry 11 }
+
+me1200ConfigDmSynchronized OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Near-end and far-end is real-time synchronized. One-way DM calculation
+         on receiving DMR."
+    ::= { me1200ConfigDmEntry 12 }
+
+me1200ConfigDmOneWayAverageLastnDelayThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the one-way delay average in the
+         last N packets. A SNMP notification is sent when the average of delay
+         in the last N packets is exceeded this threshold value."
+    ::= { me1200ConfigDmEntry 13 }
+
+me1200ConfigDmOneWayAverageLastnDelayVariationThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the one-way delay variation
+         average in the last N packets. A SNMP notification is sent when the
+         average of delay variation in the last N packets is exceeded this
+         threshold value."
+    ::= { me1200ConfigDmEntry 14 }
+
+me1200ConfigDmTwoWayAverageLastnDelayThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the two-way delay average in the
+         last N packets. A SNMP notification is sent when the average of delay
+         in the last N packets is exceeded this threshold value."
+    ::= { me1200ConfigDmEntry 15 }
+
+me1200ConfigDmTwoWayAverageLastnDelayVariationThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the two-way delay variation
+         average in the last N packets. A SNMP notification is sent when the
+         average of delay variation in the last N packets is exceeded this
+         threshold value."
+    ::= { me1200ConfigDmEntry 16 }
+
+me1200ConfigDmNumOfBinFD OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configurable number of FD Measurement Bins / per Measurement Interval.
+         default:3, min:2, max:10"
+    ::= { me1200ConfigDmEntry 17 }
+
+me1200ConfigDmNumOfBinIFDV OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configurable number of IFDV Measurement Bins / per Measurement
+         Interval. default:3, min:2, max:10"
+    ::= { me1200ConfigDmEntry 18 }
+
+me1200ConfigDmAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigDmEntry 101 }
+
+me1200ConfigDmRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigDelayMeasurement 2 }
+
+me1200ConfigDmRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigDmRowEditor 1 }
+
+me1200ConfigDmRowEditorEnded OBJECT-TYPE
+    SYNTAX      ME1200Ended
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Dual/single ended selection. CCM or LMM/LMR based. Cannot be changed
+         after creation."
+    ::= { me1200ConfigDmRowEditor 2 }
+
+me1200ConfigDmRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted DM PDU"
+    ::= { me1200ConfigDmRowEditor 3 }
+
+me1200ConfigDmRowEditorPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted DM PDU. Range 0 to 7"
+    ::= { me1200ConfigDmRowEditor 4 }
+
+me1200ConfigDmRowEditorCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/Multicast selection"
+    ::= { me1200ConfigDmRowEditor 5 }
+
+me1200ConfigDmRowEditorMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer MEP to receive DMM/1DM - only used if unicast"
+    ::= { me1200ConfigDmRowEditor 6 }
+
+me1200ConfigDmRowEditorCalcWay OBJECT-TYPE
+    SYNTAX      ME1200CalcWay
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Round trip or flow calculation way selection."
+    ::= { me1200ConfigDmRowEditor 7 }
+
+me1200ConfigDmRowEditorInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Interval between 1DM/DMM in 10 ms. Range Capability dm_interval_min to
+         dm_interval_max."
+    ::= { me1200ConfigDmRowEditor 8 }
+
+me1200ConfigDmRowEditorLastN OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The number of last N measurements used to calculate average delay and
+         variation. Range Capability dm_lastn_min to dm_lastn_max."
+    ::= { me1200ConfigDmRowEditor 9 }
+
+me1200ConfigDmRowEditorTimeUnit OBJECT-TYPE
+    SYNTAX      ME1200MepDmTimeUnit
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Calculation time unit."
+    ::= { me1200ConfigDmRowEditor 10 }
+
+me1200ConfigDmRowEditorOverflowAct OBJECT-TYPE
+    SYNTAX      ME1200Action
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action when internal total delay counter overflow."
+    ::= { me1200ConfigDmRowEditor 11 }
+
+me1200ConfigDmRowEditorSynchronized OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Near-end and far-end is real-time synchronized. One-way DM calculation
+         on receiving DMR."
+    ::= { me1200ConfigDmRowEditor 12 }
+
+me1200ConfigDmRowEditorOneWayAverageLastnDelayThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the one-way delay average in the
+         last N packets. A SNMP notification is sent when the average of delay
+         in the last N packets is exceeded this threshold value."
+    ::= { me1200ConfigDmRowEditor 13 }
+
+me1200ConfigDmRowEditorOneWayAverageLastnDelayVariationThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the one-way delay variation
+         average in the last N packets. A SNMP notification is sent when the
+         average of delay variation in the last N packets is exceeded this
+         threshold value."
+    ::= { me1200ConfigDmRowEditor 14 }
+
+me1200ConfigDmRowEditorTwoWayAverageLastnDelayThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the two-way delay average in the
+         last N packets. A SNMP notification is sent when the average of delay
+         in the last N packets is exceeded this threshold value."
+    ::= { me1200ConfigDmRowEditor 15 }
+
+me1200ConfigDmRowEditorTwoWayAverageLastnDelayVariationThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in nanoseconds of the two-way delay variation
+         average in the last N packets. A SNMP notification is sent when the
+         average of delay variation in the last N packets is exceeded this
+         threshold value."
+    ::= { me1200ConfigDmRowEditor 16 }
+
+me1200ConfigDmRowEditorNumOfBinFD OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configurable number of FD Measurement Bins / per Measurement Interval.
+         default:3, min:2, max:10"
+    ::= { me1200ConfigDmRowEditor 17 }
+
+me1200ConfigDmRowEditorNumOfBinIFDV OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configurable number of IFDV Measurement Bins / per Measurement
+         Interval. default:3, min:2, max:10"
+    ::= { me1200ConfigDmRowEditor 18 }
+
+me1200ConfigDmRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigDmRowEditor 101 }
+
+me1200ConfigDmFdBinTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigDmFdBinEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Frame Delay Measurement Bin
+         configuration parameters"
+    ::= { me1200ConfigDelayMeasurement 3 }
+
+me1200ConfigDmFdBinEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigDmFdBinEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Frame Delay Measurement Bin parameters."
+    INDEX       { me1200ConfigDmFdBinId, me1200ConfigDmFdBinBinNumber }
+    ::= { me1200ConfigDmFdBinTable 1 }
+
+ME1200ConfigDmFdBinEntry ::= SEQUENCE {
+    me1200ConfigDmFdBinId     Integer32,
+    me1200ConfigDmFdBinBinNumber      Integer32,
+    me1200ConfigDmFdBinBinRange   Unsigned32
+}
+
+me1200ConfigDmFdBinId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigDmFdBinEntry 1 }
+
+me1200ConfigDmFdBinBinNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..10)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The DM bin number"
+    ::= { me1200ConfigDmFdBinEntry 2 }
+
+me1200ConfigDmFdBinBinRange OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configurable range of each Measurement Bin in us. default: 5000 us"
+    ::= { me1200ConfigDmFdBinEntry 3 }
+
+me1200ConfigDmIfdvBinTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigDmIfdvBinEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Inter Frame Delay Variation
+         Measurement Bin configuration parameters"
+    ::= { me1200ConfigDelayMeasurement 4 }
+
+me1200ConfigDmIfdvBinEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigDmIfdvBinEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Inter Frame Delay Variation Measurement Bin
+         parameters."
+    INDEX       { me1200ConfigDmIfdvBinId, me1200ConfigDmIfdvBinBinNumber }
+    ::= { me1200ConfigDmIfdvBinTable 1 }
+
+ME1200ConfigDmIfdvBinEntry ::= SEQUENCE {
+    me1200ConfigDmIfdvBinId   Integer32,
+    me1200ConfigDmIfdvBinBinNumber    Integer32,
+    me1200ConfigDmIfdvBinBinRange     Unsigned32
+}
+
+me1200ConfigDmIfdvBinId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigDmIfdvBinEntry 1 }
+
+me1200ConfigDmIfdvBinBinNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..10)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The DM bin number"
+    ::= { me1200ConfigDmIfdvBinEntry 2 }
+
+me1200ConfigDmIfdvBinBinRange OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configurable range of each Measurement Bin in us. default: 5000 us"
+    ::= { me1200ConfigDmIfdvBinEntry 3 }
+
+me1200ConfigLoopBack OBJECT IDENTIFIER
+    ::= { me1200MepConfig 6 }
+
+me1200ConfigLbTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigLbEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Loop Back configuration parameters"
+    ::= { me1200ConfigLoopBack 1 }
+
+me1200ConfigLbEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigLbEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Loop Back parameters. This cannot be changed"
+    INDEX       { me1200ConfigLbId }
+    ::= { me1200ConfigLbTable 1 }
+
+ME1200ConfigLbEntry ::= SEQUENCE {
+    me1200ConfigLbId      Integer32,
+    me1200ConfigLbDei     ME1200Unsigned8,
+    me1200ConfigLbPrio    Unsigned32,
+    me1200ConfigLbCast    ME1200Cast,
+    me1200ConfigLbMep     Unsigned32,
+    me1200ConfigLbMac     MacAddress,
+    me1200ConfigLbToSend      Unsigned32,
+    me1200ConfigLbSize    Unsigned32,
+    me1200ConfigLbInterval    Unsigned32,
+    me1200ConfigLbAction      ME1200RowEditorState
+}
+
+me1200ConfigLbId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLbEntry 1 }
+
+me1200ConfigLbDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted LBM PDU"
+    ::= { me1200ConfigLbEntry 2 }
+
+me1200ConfigLbPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted LBM PDU. Range 0 to 7"
+    ::= { me1200ConfigLbEntry 3 }
+
+me1200ConfigLbCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/Multicast selection"
+    ::= { me1200ConfigLbEntry 4 }
+
+me1200ConfigLbMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer MEP to receive LBM - only used if unicast and 'mac' is 'all zero'."
+    ::= { me1200ConfigLbEntry 5 }
+
+me1200ConfigLbMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Unicast MAC address to receive LBM - has to be used to send LBM to MIP."
+    ::= { me1200ConfigLbEntry 6 }
+
+me1200ConfigLbToSend OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of LBM to send. Capability lb_to_send_infinite => test
+         behaviour. Requires VOE."
+    ::= { me1200ConfigLbEntry 7 }
+
+me1200ConfigLbSize OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Size of LBM frame to send - Range Capability lbm_size_min to
+         lbm_size_max"
+    ::= { me1200ConfigLbEntry 8 }
+
+me1200ConfigLbInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Frame interval.
+         
+         If 'ToSend' != Capability lb_to_send_infinite then the 'Interval' is in
+         10 ms. Max 1 s.
+         
+         If 'ToSend' == Capability lb_to_send_infinite then the 'Interval' is in
+         1 us. Max 10 ms."
+    ::= { me1200ConfigLbEntry 9 }
+
+me1200ConfigLbAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLbEntry 101 }
+
+me1200ConfigLbRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigLoopBack 2 }
+
+me1200ConfigLbRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLbRowEditor 1 }
+
+me1200ConfigLbRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted LBM PDU"
+    ::= { me1200ConfigLbRowEditor 2 }
+
+me1200ConfigLbRowEditorPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted LBM PDU. Range 0 to 7"
+    ::= { me1200ConfigLbRowEditor 3 }
+
+me1200ConfigLbRowEditorCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/Multicast selection"
+    ::= { me1200ConfigLbRowEditor 4 }
+
+me1200ConfigLbRowEditorMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer MEP to receive LBM - only used if unicast and 'mac' is 'all zero'."
+    ::= { me1200ConfigLbRowEditor 5 }
+
+me1200ConfigLbRowEditorMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Unicast MAC address to receive LBM - has to be used to send LBM to MIP."
+    ::= { me1200ConfigLbRowEditor 6 }
+
+me1200ConfigLbRowEditorToSend OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of LBM to send. Capability lb_to_send_infinite => test
+         behaviour. Requires VOE."
+    ::= { me1200ConfigLbRowEditor 7 }
+
+me1200ConfigLbRowEditorSize OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Size of LBM frame to send - Range Capability lbm_size_min to
+         lbm_size_max"
+    ::= { me1200ConfigLbRowEditor 8 }
+
+me1200ConfigLbRowEditorInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Frame interval.
+         
+         If 'ToSend' != Capability lb_to_send_infinite then the 'Interval' is in
+         10 ms. Max 1 s.
+         
+         If 'ToSend' == Capability lb_to_send_infinite then the 'Interval' is in
+         1 us. Max 10 ms."
+    ::= { me1200ConfigLbRowEditor 9 }
+
+me1200ConfigLbRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLbRowEditor 101 }
+
+me1200ConfigTestSignal OBJECT IDENTIFIER
+    ::= { me1200MepConfig 7 }
+
+me1200ConfigTstTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigTstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Test Signal configuration
+         parameters"
+    ::= { me1200ConfigTestSignal 1 }
+
+me1200ConfigTstEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigTstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Test Signal parameters."
+    INDEX       { me1200ConfigTstId }
+    ::= { me1200ConfigTstTable 1 }
+
+ME1200ConfigTstEntry ::= SEQUENCE {
+    me1200ConfigTstId     Integer32,
+    me1200ConfigTstTxEnable   TruthValue,
+    me1200ConfigTstRxEnable   TruthValue,
+    me1200ConfigTstDei    ME1200Unsigned8,
+    me1200ConfigTstPrio   Unsigned32,
+    me1200ConfigTstMep    Unsigned32,
+    me1200ConfigTstRate   Unsigned32,
+    me1200ConfigTstSize   Unsigned32,
+    me1200ConfigTstPattern    ME1200TstPattern,
+    me1200ConfigTstSequence   TruthValue,
+    me1200ConfigTstAction     ME1200RowEditorState
+}
+
+me1200ConfigTstId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigTstEntry 1 }
+
+me1200ConfigTstTxEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/disable transmission of TST PDU."
+    ::= { me1200ConfigTstEntry 2 }
+
+me1200ConfigTstRxEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/disable reception and analyse of TST PDU."
+    ::= { me1200ConfigTstEntry 3 }
+
+me1200ConfigTstDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted TST PDU"
+    ::= { me1200ConfigTstEntry 4 }
+
+me1200ConfigTstPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted TST PDU. Range 0 to 7"
+    ::= { me1200ConfigTstEntry 5 }
+
+me1200ConfigTstMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer MEP to receive TST"
+    ::= { me1200ConfigTstEntry 6 }
+
+me1200ConfigTstRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The transmission rate in Kbps - Range 1 to Capability tst_rate_max."
+    ::= { me1200ConfigTstEntry 7 }
+
+me1200ConfigTstSize OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Size of TST frame to send - Range Capability tst_size_min to
+         tst_size_max."
+    ::= { me1200ConfigTstEntry 8 }
+
+me1200ConfigTstPattern OBJECT-TYPE
+    SYNTAX      ME1200TstPattern
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Pattern in TST frame Data TLV."
+    ::= { me1200ConfigTstEntry 9 }
+
+me1200ConfigTstSequence OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Sequence number will be inserted - not checked in receiver on Caracal
+         and Jaguar."
+    ::= { me1200ConfigTstEntry 10 }
+
+me1200ConfigTstAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigTstEntry 101 }
+
+me1200ConfigTstRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigTestSignal 2 }
+
+me1200ConfigTstRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigTstRowEditor 1 }
+
+me1200ConfigTstRowEditorTxEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/disable transmission of TST PDU."
+    ::= { me1200ConfigTstRowEditor 2 }
+
+me1200ConfigTstRowEditorRxEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/disable reception and analyse of TST PDU."
+    ::= { me1200ConfigTstRowEditor 3 }
+
+me1200ConfigTstRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted TST PDU"
+    ::= { me1200ConfigTstRowEditor 4 }
+
+me1200ConfigTstRowEditorPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted TST PDU. Range 0 to 7"
+    ::= { me1200ConfigTstRowEditor 5 }
+
+me1200ConfigTstRowEditorMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Peer MEP to receive TST"
+    ::= { me1200ConfigTstRowEditor 6 }
+
+me1200ConfigTstRowEditorRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The transmission rate in Kbps - Range 1 to Capability tst_rate_max."
+    ::= { me1200ConfigTstRowEditor 7 }
+
+me1200ConfigTstRowEditorSize OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Size of TST frame to send - Range Capability tst_size_min to
+         tst_size_max."
+    ::= { me1200ConfigTstRowEditor 8 }
+
+me1200ConfigTstRowEditorPattern OBJECT-TYPE
+    SYNTAX      ME1200TstPattern
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Pattern in TST frame Data TLV."
+    ::= { me1200ConfigTstRowEditor 9 }
+
+me1200ConfigTstRowEditorSequence OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Sequence number will be inserted - not checked in receiver on Caracal
+         and Jaguar."
+    ::= { me1200ConfigTstRowEditor 10 }
+
+me1200ConfigTstRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigTstRowEditor 101 }
+
+me1200ConfigLinkTrace OBJECT IDENTIFIER
+    ::= { me1200MepConfig 8 }
+
+me1200ConfigLtTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigLtEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Link Trace configuration parameters"
+    ::= { me1200ConfigLinkTrace 1 }
+
+me1200ConfigLtEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigLtEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Link Trace parameters. This cannot be
+         changed"
+    INDEX       { me1200ConfigLtId }
+    ::= { me1200ConfigLtTable 1 }
+
+ME1200ConfigLtEntry ::= SEQUENCE {
+    me1200ConfigLtId      Integer32,
+    me1200ConfigLtDei     ME1200Unsigned8,
+    me1200ConfigLtPrio    Unsigned32,
+    me1200ConfigLtMep     Unsigned32,
+    me1200ConfigLtMac     MacAddress,
+    me1200ConfigLtTimeToLive      Unsigned32,
+    me1200ConfigLtAction      ME1200RowEditorState
+}
+
+me1200ConfigLtId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLtEntry 1 }
+
+me1200ConfigLtDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted LTM PDU"
+    ::= { me1200ConfigLtEntry 2 }
+
+me1200ConfigLtPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted LTM PDU. Range 0 to 7"
+    ::= { me1200ConfigLtEntry 3 }
+
+me1200ConfigLtMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Target Peer Mep to receive LTM - only used if 'mac' is 'all zero'"
+    ::= { me1200ConfigLtEntry 4 }
+
+me1200ConfigLtMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Unicast MAC address to receive LTM - has to be used to send LTM to MIP."
+    ::= { me1200ConfigLtEntry 5 }
+
+me1200ConfigLtTimeToLive OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Time To Live."
+    ::= { me1200ConfigLtEntry 6 }
+
+me1200ConfigLtAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLtEntry 101 }
+
+me1200ConfigLtRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigLinkTrace 2 }
+
+me1200ConfigLtRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLtRowEditor 1 }
+
+me1200ConfigLtRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted LTM PDU"
+    ::= { me1200ConfigLtRowEditor 2 }
+
+me1200ConfigLtRowEditorPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted LTM PDU. Range 0 to 7"
+    ::= { me1200ConfigLtRowEditor 3 }
+
+me1200ConfigLtRowEditorMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Target Peer Mep to receive LTM - only used if 'mac' is 'all zero'"
+    ::= { me1200ConfigLtRowEditor 4 }
+
+me1200ConfigLtRowEditorMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Unicast MAC address to receive LTM - has to be used to send LTM to MIP."
+    ::= { me1200ConfigLtRowEditor 5 }
+
+me1200ConfigLtRowEditorTimeToLive OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Time To Live."
+    ::= { me1200ConfigLtRowEditor 6 }
+
+me1200ConfigLtRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLtRowEditor 101 }
+
+me1200ConfigAutomaticProtectionSwitching OBJECT IDENTIFIER
+    ::= { me1200MepConfig 9 }
+
+me1200ConfigApsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigApsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Automatic Protection Switching
+         configuration parameters"
+    ::= { me1200ConfigAutomaticProtectionSwitching 1 }
+
+me1200ConfigApsEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigApsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Automatic Protection Switching parameters."
+    INDEX       { me1200ConfigApsId }
+    ::= { me1200ConfigApsTable 1 }
+
+ME1200ConfigApsEntry ::= SEQUENCE {
+    me1200ConfigApsId     Integer32,
+    me1200ConfigApsDei    ME1200Unsigned8,
+    me1200ConfigApsPrio   Unsigned32,
+    me1200ConfigApsApsType    ME1200ApsType,
+    me1200ConfigApsCast   ME1200Cast,
+    me1200ConfigApsRapsOctet      Unsigned32,
+    me1200ConfigApsAction     ME1200RowEditorState
+}
+
+me1200ConfigApsId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigApsEntry 1 }
+
+me1200ConfigApsDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted APS PDU"
+    ::= { me1200ConfigApsEntry 2 }
+
+me1200ConfigApsPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted APS PDU. Range 0 to 7"
+    ::= { me1200ConfigApsEntry 3 }
+
+me1200ConfigApsApsType OBJECT-TYPE
+    SYNTAX      ME1200ApsType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of APS"
+    ::= { me1200ConfigApsEntry 4 }
+
+me1200ConfigApsCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/multicast selection"
+    ::= { me1200ConfigApsEntry 5 }
+
+me1200ConfigApsRapsOctet OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Last octet in the R-APS multicast DA"
+    ::= { me1200ConfigApsEntry 6 }
+
+me1200ConfigApsAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigApsEntry 101 }
+
+me1200ConfigApsRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigAutomaticProtectionSwitching 2 }
+
+me1200ConfigApsRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigApsRowEditor 1 }
+
+me1200ConfigApsRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Drop Eligibility Indicator of transmitted APS PDU"
+    ::= { me1200ConfigApsRowEditor 2 }
+
+me1200ConfigApsRowEditorPrio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Priority of the transmitted APS PDU. Range 0 to 7"
+    ::= { me1200ConfigApsRowEditor 3 }
+
+me1200ConfigApsRowEditorApsType OBJECT-TYPE
+    SYNTAX      ME1200ApsType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of APS"
+    ::= { me1200ConfigApsRowEditor 4 }
+
+me1200ConfigApsRowEditorCast OBJECT-TYPE
+    SYNTAX      ME1200Cast
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Uni/multicast selection"
+    ::= { me1200ConfigApsRowEditor 5 }
+
+me1200ConfigApsRowEditorRapsOctet OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Last octet in the R-APS multicast DA"
+    ::= { me1200ConfigApsRowEditor 6 }
+
+me1200ConfigApsRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigApsRowEditor 101 }
+
+me1200ConfigAlarmIndicationSignal OBJECT IDENTIFIER
+    ::= { me1200MepConfig 10 }
+
+me1200ConfigAisTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigAisEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Alarm Indication Signal
+         configuration parameters"
+    ::= { me1200ConfigAlarmIndicationSignal 1 }
+
+me1200ConfigAisEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigAisEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Alarm Indication Signal parameters."
+    INDEX       { me1200ConfigAisId }
+    ::= { me1200ConfigAisTable 1 }
+
+ME1200ConfigAisEntry ::= SEQUENCE {
+    me1200ConfigAisId     Integer32,
+    me1200ConfigAisProtection     TruthValue,
+    me1200ConfigAisRate   ME1200MepTxRate,
+    me1200ConfigAisAction     ME1200RowEditorState
+}
+
+me1200ConfigAisId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigAisEntry 1 }
+
+me1200ConfigAisProtection OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The first three AIS frames are transmitted as fast as possible."
+    ::= { me1200ConfigAisEntry 2 }
+
+me1200ConfigAisRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "AIS transmission rate"
+    ::= { me1200ConfigAisEntry 3 }
+
+me1200ConfigAisAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigAisEntry 101 }
+
+me1200ConfigAisRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigAlarmIndicationSignal 2 }
+
+me1200ConfigAisRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigAisRowEditor 1 }
+
+me1200ConfigAisRowEditorProtection OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The first three AIS frames are transmitted as fast as possible."
+    ::= { me1200ConfigAisRowEditor 2 }
+
+me1200ConfigAisRowEditorRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "AIS transmission rate"
+    ::= { me1200ConfigAisRowEditor 3 }
+
+me1200ConfigAisRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigAisRowEditor 101 }
+
+me1200ConfigLockedSignal OBJECT IDENTIFIER
+    ::= { me1200MepConfig 11 }
+
+me1200ConfigLckTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigLckEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Locked Signal configuration
+         parameters"
+    ::= { me1200ConfigLockedSignal 1 }
+
+me1200ConfigLckEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigLckEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Locked Signal parameters."
+    INDEX       { me1200ConfigLckId }
+    ::= { me1200ConfigLckTable 1 }
+
+ME1200ConfigLckEntry ::= SEQUENCE {
+    me1200ConfigLckId     Integer32,
+    me1200ConfigLckRate   ME1200MepTxRate,
+    me1200ConfigLckAction     ME1200RowEditorState
+}
+
+me1200ConfigLckId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLckEntry 1 }
+
+me1200ConfigLckRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LCK transmission rate"
+    ::= { me1200ConfigLckEntry 2 }
+
+me1200ConfigLckAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLckEntry 101 }
+
+me1200ConfigLckRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigLockedSignal 2 }
+
+me1200ConfigLckRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLckRowEditor 1 }
+
+me1200ConfigLckRowEditorRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LCK transmission rate"
+    ::= { me1200ConfigLckRowEditor 2 }
+
+me1200ConfigLckRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLckRowEditor 101 }
+
+me1200ConfigClient OBJECT IDENTIFIER
+    ::= { me1200MepConfig 12 }
+
+me1200ConfigClientTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigClientEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Client configuration parameters"
+    ::= { me1200ConfigClient 1 }
+
+me1200ConfigClientEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigClientEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Client parameters."
+    INDEX       { me1200ConfigClientId }
+    ::= { me1200ConfigClientTable 1 }
+
+ME1200ConfigClientEntry ::= SEQUENCE {
+    me1200ConfigClientId      Integer32,
+    me1200ConfigClientDomain      ME1200InstanceDomain
+}
+
+me1200ConfigClientId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigClientEntry 1 }
+
+me1200ConfigClientDomain OBJECT-TYPE
+    SYNTAX      ME1200InstanceDomain
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client layer domain. Can only be VLAN or EVC."
+    ::= { me1200ConfigClientEntry 2 }
+
+me1200ConfigClientFlowTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigClientFlowEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of client flow configuration parameters"
+    ::= { me1200ConfigClient 2 }
+
+me1200ConfigClientFlowEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigClientFlowEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a client flow configuration parameters"
+    INDEX       { me1200ConfigClientFlowId, me1200ConfigClientFlowFlowId }
+    ::= { me1200ConfigClientFlowTable 1 }
+
+ME1200ConfigClientFlowEntry ::= SEQUENCE {
+    me1200ConfigClientFlowId      Integer32,
+    me1200ConfigClientFlowFlowId      Integer32,
+    me1200ConfigClientFlowAisPrio     ME1200Unsigned8,
+    me1200ConfigClientFlowLckPrio     ME1200Unsigned8,
+    me1200ConfigClientFlowLevel   ME1200Unsigned8,
+    me1200ConfigClientFlowAction      ME1200RowEditorState
+}
+
+me1200ConfigClientFlowId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigClientFlowEntry 1 }
+
+me1200ConfigClientFlowFlowId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The Client Flow id"
+    ::= { me1200ConfigClientFlowEntry 2 }
+
+me1200ConfigClientFlowAisPrio OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "AIS Priority (EVC COS-ID) 0-7. Capability client_prio_highest indicate
+         highest possible is requested"
+    ::= { me1200ConfigClientFlowEntry 3 }
+
+me1200ConfigClientFlowLckPrio OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LCK Priority (EVC COS-ID) 0-7. Capability client_prio_highest indicate
+         highest possible is requested"
+    ::= { me1200ConfigClientFlowEntry 4 }
+
+me1200ConfigClientFlowLevel OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client flow level"
+    ::= { me1200ConfigClientFlowEntry 5 }
+
+me1200ConfigClientFlowAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigClientFlowEntry 100 }
+
+me1200ConfigClientFlowRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigClient 3 }
+
+me1200ConfigClientFlowRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigClientFlowRowEditor 1 }
+
+me1200ConfigClientFlowRowEditorFlowId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Client Flow id"
+    ::= { me1200ConfigClientFlowRowEditor 2 }
+
+me1200ConfigClientFlowRowEditorAisPrio OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "AIS Priority (EVC COS-ID) 0-7. Capability client_prio_highest indicate
+         highest possible is requested"
+    ::= { me1200ConfigClientFlowRowEditor 3 }
+
+me1200ConfigClientFlowRowEditorLckPrio OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LCK Priority (EVC COS-ID) 0-7. Capability client_prio_highest indicate
+         highest possible is requested"
+    ::= { me1200ConfigClientFlowRowEditor 4 }
+
+me1200ConfigClientFlowRowEditorLevel OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client flow level"
+    ::= { me1200ConfigClientFlowRowEditor 5 }
+
+me1200ConfigClientFlowRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigClientFlowRowEditor 100 }
+
+me1200ConfigSyslog OBJECT IDENTIFIER
+    ::= { me1200MepConfig 13 }
+
+me1200ConfigSyslogTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigSyslogEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Syslog configuration parameters"
+    ::= { me1200ConfigSyslog 1 }
+
+me1200ConfigSyslogEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigSyslogEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Syslog configuration parameters"
+    INDEX       { me1200ConfigSyslogId }
+    ::= { me1200ConfigSyslogTable 1 }
+
+ME1200ConfigSyslogEntry ::= SEQUENCE {
+    me1200ConfigSyslogId      Integer32,
+    me1200ConfigSyslogEnable      TruthValue
+}
+
+me1200ConfigSyslogId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigSyslogEntry 1 }
+
+me1200ConfigSyslogEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance can enable generation of syslog entries "
+    ::= { me1200ConfigSyslogEntry 2 }
+
+me1200ConfigTlv OBJECT IDENTIFIER
+    ::= { me1200MepConfig 14 }
+
+me1200ConfigTlvLeaf OBJECT IDENTIFIER
+    ::= { me1200ConfigTlv 1 }
+
+me1200ConfigTlvLeafOsTlvOuiFirst OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted OS TLV - The OUI content first nibble"
+    ::= { me1200ConfigTlvLeaf 2 }
+
+me1200ConfigTlvLeafOsTlvOuiSecond OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted OS TLV - The OUI content second nibble"
+    ::= { me1200ConfigTlvLeaf 3 }
+
+me1200ConfigTlvLeafOsTlvOuiThird OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted OS TLV - The OUI content third nibble"
+    ::= { me1200ConfigTlvLeaf 4 }
+
+me1200ConfigTlvLeafOsTlvSubType OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted OS TLV - The Sub-Type content"
+    ::= { me1200ConfigTlvLeaf 5 }
+
+me1200ConfigTlvLeafOsTlvValue OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted OS TLV - The Value content"
+    ::= { me1200ConfigTlvLeaf 6 }
+
+me1200ConfigLinkStateTracking OBJECT IDENTIFIER
+    ::= { me1200MepConfig 15 }
+
+me1200ConfigLstTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigLstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Link State Tracking configuration
+         parameters"
+    ::= { me1200ConfigLinkStateTracking 1 }
+
+me1200ConfigLstEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigLstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Link State Tracking configuration parameters"
+    INDEX       { me1200ConfigLstId }
+    ::= { me1200ConfigLstTable 1 }
+
+ME1200ConfigLstEntry ::= SEQUENCE {
+    me1200ConfigLstId     Integer32,
+    me1200ConfigLstEnable     TruthValue
+}
+
+me1200ConfigLstId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLstEntry 1 }
+
+me1200ConfigLstEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance can enable Link State Tracking. When LST is enabled, Local
+         SF or received 'isDown' in CCM Interface Status TLV, will bring down
+         the residence port. Only valid in Up-MEP."
+    ::= { me1200ConfigLstEntry 2 }
+
+me1200ConfigLmAvailability OBJECT IDENTIFIER
+    ::= { me1200MepConfig 16 }
+
+me1200ConfigLmAvailTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigLmAvailEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Loss Measurement Availability
+         configuration parameters"
+    ::= { me1200ConfigLmAvailability 1 }
+
+me1200ConfigLmAvailEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigLmAvailEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Loss Measurement Availability parameters."
+    INDEX       { me1200ConfigLmAvailId }
+    ::= { me1200ConfigLmAvailTable 1 }
+
+ME1200ConfigLmAvailEntry ::= SEQUENCE {
+    me1200ConfigLmAvailId     Integer32,
+    me1200ConfigLmAvailEnable     TruthValue,
+    me1200ConfigLmAvailLosRatioThr    Unsigned32,
+    me1200ConfigLmAvailInterval   Unsigned32,
+    me1200ConfigLmAvailMaintenance    TruthValue,
+    me1200ConfigLmAvailAction     ME1200RowEditorState
+}
+
+me1200ConfigLmAvailId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLmAvailEntry 1 }
+
+me1200ConfigLmAvailEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Loss Measurement Availability is enabled"
+    ::= { me1200ConfigLmAvailEntry 2 }
+
+me1200ConfigLmAvailLosRatioThr OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Availability frame loss ratio threshold in per mille."
+    ::= { me1200ConfigLmAvailEntry 3 }
+
+me1200ConfigLmAvailInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Availability interval - number of measurements with same availability
+         in order to change Availability state. The valid range is 1 to 1000."
+    ::= { me1200ConfigLmAvailEntry 4 }
+
+me1200ConfigLmAvailMaintenance OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Loss Measurement Availability Maintenance enable/disable"
+    ::= { me1200ConfigLmAvailEntry 5 }
+
+me1200ConfigLmAvailAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLmAvailEntry 101 }
+
+me1200ConfigLmAvailRowEditor OBJECT IDENTIFIER
+    ::= { me1200ConfigLmAvailability 2 }
+
+me1200ConfigLmAvailRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ConfigLmAvailRowEditor 1 }
+
+me1200ConfigLmAvailRowEditorEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Loss Measurement Availability is enabled"
+    ::= { me1200ConfigLmAvailRowEditor 2 }
+
+me1200ConfigLmAvailRowEditorLosRatioThr OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Availability frame loss ratio threshold in per mille."
+    ::= { me1200ConfigLmAvailRowEditor 3 }
+
+me1200ConfigLmAvailRowEditorInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Availability interval - number of measurements with same availability
+         in order to change Availability state. The valid range is 1 to 1000."
+    ::= { me1200ConfigLmAvailRowEditor 4 }
+
+me1200ConfigLmAvailRowEditorMaintenance OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Loss Measurement Availability Maintenance enable/disable"
+    ::= { me1200ConfigLmAvailRowEditor 5 }
+
+me1200ConfigLmAvailRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200ConfigLmAvailRowEditor 101 }
+
+me1200MepStatus OBJECT IDENTIFIER
+    ::= { me1200MepMibObjects 3 }
+
+me1200StatusInstance OBJECT IDENTIFIER
+    ::= { me1200MepStatus 1 }
+
+me1200StatusInstanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance status"
+    ::= { me1200StatusInstance 1 }
+
+me1200StatusInstanceEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance status"
+    INDEX       { me1200StatusInstanceId }
+    ::= { me1200StatusInstanceTable 1 }
+
+ME1200StatusInstanceEntry ::= SEQUENCE {
+    me1200StatusInstanceId    Integer32,
+    me1200StatusInstanceClevel    TruthValue,
+    me1200StatusInstanceCmeg      TruthValue,
+    me1200StatusInstanceCmep      TruthValue,
+    me1200StatusInstanceCssf      TruthValue,
+    me1200StatusInstanceCais      TruthValue,
+    me1200StatusInstanceClck      TruthValue,
+    me1200StatusInstanceAtsf      TruthValue,
+    me1200StatusInstanceAtsd      TruthValue,
+    me1200StatusInstanceAblk      TruthValue,
+    me1200StatusInstanceCloop     TruthValue,
+    me1200StatusInstanceCconfig   TruthValue
+}
+
+me1200StatusInstanceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusInstanceEntry 1 }
+
+me1200StatusInstanceClevel OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Incorrect CCM level received"
+    ::= { me1200StatusInstanceEntry 2 }
+
+me1200StatusInstanceCmeg OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Incorrect CCM MEG id received"
+    ::= { me1200StatusInstanceEntry 3 }
+
+me1200StatusInstanceCmep OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Incorrect CCM MEP id received"
+    ::= { me1200StatusInstanceEntry 4 }
+
+me1200StatusInstanceCssf OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "SSF state"
+    ::= { me1200StatusInstanceEntry 5 }
+
+me1200StatusInstanceCais OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "AIS state. AIS is received."
+    ::= { me1200StatusInstanceEntry 6 }
+
+me1200StatusInstanceClck OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Locked State. LCK is received."
+    ::= { me1200StatusInstanceEntry 7 }
+
+me1200StatusInstanceAtsf OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Trail Signal fail consequent action is calculated"
+    ::= { me1200StatusInstanceEntry 8 }
+
+me1200StatusInstanceAtsd OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Trail Signal degrade consequent action is calculated"
+    ::= { me1200StatusInstanceEntry 9 }
+
+me1200StatusInstanceAblk OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Block consequent action is calculated"
+    ::= { me1200StatusInstanceEntry 10 }
+
+me1200StatusInstanceCloop OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Loop is detected. CCM is received with own MEP ID and SMAC."
+    ::= { me1200StatusInstanceEntry 11 }
+
+me1200StatusInstanceCconfig OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Configuration error detected. CCM is received with own MEP ID."
+    ::= { me1200StatusInstanceEntry 12 }
+
+me1200StatusInstancePeerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusInstancePeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of peer MEP status"
+    ::= { me1200StatusInstance 2 }
+
+me1200StatusInstancePeerEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusInstancePeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a peer MEP status"
+    INDEX       { me1200StatusInstancePeerId, me1200StatusInstancePeerPeerId }
+    ::= { me1200StatusInstancePeerTable 1 }
+
+ME1200StatusInstancePeerEntry ::= SEQUENCE {
+    me1200StatusInstancePeerId    Integer32,
+    me1200StatusInstancePeerPeerId    Integer32,
+    me1200StatusInstancePeerCloc      TruthValue,
+    me1200StatusInstancePeerCrdi      TruthValue,
+    me1200StatusInstancePeerCperiod   TruthValue,
+    me1200StatusInstancePeerCprio     TruthValue
+}
+
+me1200StatusInstancePeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusInstancePeerEntry 1 }
+
+me1200StatusInstancePeerPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The Peer MEP ID"
+    ::= { me1200StatusInstancePeerEntry 2 }
+
+me1200StatusInstancePeerCloc OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "CCM LOC state from peer MEP"
+    ::= { me1200StatusInstancePeerEntry 3 }
+
+me1200StatusInstancePeerCrdi OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "CCM RDI state from peer MEP"
+    ::= { me1200StatusInstancePeerEntry 4 }
+
+me1200StatusInstancePeerCperiod OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "CCM Period state from peer MEP"
+    ::= { me1200StatusInstancePeerEntry 5 }
+
+me1200StatusInstancePeerCprio OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "CCM Priority state from peer MEP"
+    ::= { me1200StatusInstancePeerEntry 6 }
+
+me1200StatusLossMeasurement OBJECT IDENTIFIER
+    ::= { me1200MepStatus 2 }
+
+me1200StatusLmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Loss Measurement status"
+    ::= { me1200StatusLossMeasurement 1 }
+
+me1200StatusLmEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Loss Measurement status"
+    INDEX       { me1200StatusLmId }
+    ::= { me1200StatusLmTable 1 }
+
+ME1200StatusLmEntry ::= SEQUENCE {
+    me1200StatusLmId      Integer32,
+    me1200StatusLmTxCounter   Unsigned32,
+    me1200StatusLmRxCounter   Unsigned32,
+    me1200StatusLmNearEndLosCounter   Integer32,
+    me1200StatusLmFarEndLosCounter    Integer32,
+    me1200StatusLmNearEndLosRatio     Unsigned32,
+    me1200StatusLmFarEndLosRatio      Unsigned32,
+    me1200StatusLmNearEndTotalLosRatio    Unsigned32,
+    me1200StatusLmFarEndtotalLosRatio     Unsigned32,
+    me1200StatusLmIntervalElapsed     Unsigned32
+}
+
+me1200StatusLmId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusLmEntry 1 }
+
+me1200StatusLmTxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted PDU (LMM - CCM) containing counters."
+    ::= { me1200StatusLmEntry 2 }
+
+me1200StatusLmRxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received PDU (LMM - CCM) containing counters."
+    ::= { me1200StatusLmEntry 3 }
+
+me1200StatusLmNearEndLosCounter OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end frame loss counter."
+    ::= { me1200StatusLmEntry 4 }
+
+me1200StatusLmFarEndLosCounter OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end frame loss counter."
+    ::= { me1200StatusLmEntry 5 }
+
+me1200StatusLmNearEndLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end frame loss ratio."
+    ::= { me1200StatusLmEntry 6 }
+
+me1200StatusLmFarEndLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end frame loss ratio."
+    ::= { me1200StatusLmEntry 7 }
+
+me1200StatusLmNearEndTotalLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Total Near end frame loss ratio since last clear."
+    ::= { me1200StatusLmEntry 8 }
+
+me1200StatusLmFarEndtotalLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Total Far end frame loss ratio since last clear."
+    ::= { me1200StatusLmEntry 9 }
+
+me1200StatusLmIntervalElapsed OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Elapsed intervals since last clear."
+    ::= { me1200StatusLmEntry 10 }
+
+me1200StatusLmPeerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusLmPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Loss Measurement status"
+    ::= { me1200StatusLossMeasurement 2 }
+
+me1200StatusLmPeerEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusLmPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Loss Measurement status"
+    INDEX       { me1200StatusLmPeerId, me1200StatusLmPeerPeerId }
+    ::= { me1200StatusLmPeerTable 1 }
+
+ME1200StatusLmPeerEntry ::= SEQUENCE {
+    me1200StatusLmPeerId      Integer32,
+    me1200StatusLmPeerPeerId      Integer32,
+    me1200StatusLmPeerTxCounter   Unsigned32,
+    me1200StatusLmPeerRxCounter   Unsigned32,
+    me1200StatusLmPeerNearEndLosCounter   Integer32,
+    me1200StatusLmPeerFarEndLosCounter    Integer32,
+    me1200StatusLmPeerNearEndLosRatio     Unsigned32,
+    me1200StatusLmPeerFarEndLosRatio      Unsigned32,
+    me1200StatusLmPeerNearEndTotalLosRatio    Unsigned32,
+    me1200StatusLmPeerFarEndtotalLosRatio     Unsigned32,
+    me1200StatusLmPeerIntervalElapsed     Unsigned32
+}
+
+me1200StatusLmPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusLmPeerEntry 1 }
+
+me1200StatusLmPeerPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The Peer MEP ID"
+    ::= { me1200StatusLmPeerEntry 2 }
+
+me1200StatusLmPeerTxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted PDU (LMM - CCM) containing counters."
+    ::= { me1200StatusLmPeerEntry 3 }
+
+me1200StatusLmPeerRxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received PDU (LMM - CCM) containing counters."
+    ::= { me1200StatusLmPeerEntry 4 }
+
+me1200StatusLmPeerNearEndLosCounter OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end frame loss counter."
+    ::= { me1200StatusLmPeerEntry 5 }
+
+me1200StatusLmPeerFarEndLosCounter OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end frame loss counter."
+    ::= { me1200StatusLmPeerEntry 6 }
+
+me1200StatusLmPeerNearEndLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end frame loss ratio."
+    ::= { me1200StatusLmPeerEntry 7 }
+
+me1200StatusLmPeerFarEndLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end frame loss ratio."
+    ::= { me1200StatusLmPeerEntry 8 }
+
+me1200StatusLmPeerNearEndTotalLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Total Near end frame loss ratio since last clear."
+    ::= { me1200StatusLmPeerEntry 9 }
+
+me1200StatusLmPeerFarEndtotalLosRatio OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Total Far end frame loss ratio since last clear."
+    ::= { me1200StatusLmPeerEntry 10 }
+
+me1200StatusLmPeerIntervalElapsed OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Elapsed intervals since last clear."
+    ::= { me1200StatusLmPeerEntry 11 }
+
+me1200StatusDelayMeasurement OBJECT IDENTIFIER
+    ::= { me1200MepStatus 3 }
+
+me1200StatusDmTwoWayTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusDmTwoWayEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Delay Measurement Two Way status"
+    ::= { me1200StatusDelayMeasurement 1 }
+
+me1200StatusDmTwoWayEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusDmTwoWayEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Delay Measurement Two Way status"
+    INDEX       { me1200StatusDmTwoWayId }
+    ::= { me1200StatusDmTwoWayTable 1 }
+
+ME1200StatusDmTwoWayEntry ::= SEQUENCE {
+    me1200StatusDmTwoWayId    Integer32,
+    me1200StatusDmTwoWayTxCounter     Unsigned32,
+    me1200StatusDmTwoWayRxCounter     Unsigned32,
+    me1200StatusDmTwoWayRxTimeOutCounter      Unsigned32,
+    me1200StatusDmTwoWayRxErrorCounter    Unsigned32,
+    me1200StatusDmTwoWayInternalOverflowCounter   Unsigned32,
+    me1200StatusDmTwoWayAverageDelay      Unsigned32,
+    me1200StatusDmTwoWayAverageLastnDelay     Unsigned32,
+    me1200StatusDmTwoWayAverageDelayVariation     Unsigned32,
+    me1200StatusDmTwoWayAverageLastnDelayVariation    Unsigned32,
+    me1200StatusDmTwoWayMinimumDelay      Unsigned32,
+    me1200StatusDmTwoWayMaximumDelay      Unsigned32,
+    me1200StatusDmTwoWayMinimumDelayVariation     Unsigned32,
+    me1200StatusDmTwoWayMaximumDelayVariation     Unsigned32,
+    me1200StatusDmTwoWayTimeUnit      ME1200MepDmTimeUnit
+}
+
+me1200StatusDmTwoWayId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusDmTwoWayEntry 1 }
+
+me1200StatusDmTwoWayTxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted DMM/1DM frames."
+    ::= { me1200StatusDmTwoWayEntry 2 }
+
+me1200StatusDmTwoWayRxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received DMM/1DM frames."
+    ::= { me1200StatusDmTwoWayEntry 3 }
+
+me1200StatusDmTwoWayRxTimeOutCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received DMR time-out. After transmission of DMM, the DMR is expected
+         to be received within 1 sec."
+    ::= { me1200StatusDmTwoWayEntry 4 }
+
+me1200StatusDmTwoWayRxErrorCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received error counter. It is considered an error if a delay is
+         negative or above 1 sec."
+    ::= { me1200StatusDmTwoWayEntry 5 }
+
+me1200StatusDmTwoWayInternalOverflowCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The internal total delay counter overflow counter."
+    ::= { me1200StatusDmTwoWayEntry 6 }
+
+me1200StatusDmTwoWayAverageDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The total average delay."
+    ::= { me1200StatusDmTwoWayEntry 7 }
+
+me1200StatusDmTwoWayAverageLastnDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The last N average delay."
+    ::= { me1200StatusDmTwoWayEntry 8 }
+
+me1200StatusDmTwoWayAverageDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The total average delay variation."
+    ::= { me1200StatusDmTwoWayEntry 9 }
+
+me1200StatusDmTwoWayAverageLastnDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The last N average delay variation."
+    ::= { me1200StatusDmTwoWayEntry 10 }
+
+me1200StatusDmTwoWayMinimumDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum delay measured."
+    ::= { me1200StatusDmTwoWayEntry 11 }
+
+me1200StatusDmTwoWayMaximumDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum delay measured."
+    ::= { me1200StatusDmTwoWayEntry 12 }
+
+me1200StatusDmTwoWayMinimumDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum delay variation measured."
+    ::= { me1200StatusDmTwoWayEntry 13 }
+
+me1200StatusDmTwoWayMaximumDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum delay variation measured."
+    ::= { me1200StatusDmTwoWayEntry 14 }
+
+me1200StatusDmTwoWayTimeUnit OBJECT-TYPE
+    SYNTAX      ME1200MepDmTimeUnit
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Calculation time unit."
+    ::= { me1200StatusDmTwoWayEntry 15 }
+
+me1200StatusDmOneWayFarNearTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusDmOneWayFarNearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Delay Measurement One Way Far to Near status"
+    ::= { me1200StatusDelayMeasurement 2 }
+
+me1200StatusDmOneWayFarNearEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusDmOneWayFarNearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Delay Measurement One Way Far to Near status"
+    INDEX       { me1200StatusDmOneWayFarNearId }
+    ::= { me1200StatusDmOneWayFarNearTable 1 }
+
+ME1200StatusDmOneWayFarNearEntry ::= SEQUENCE {
+    me1200StatusDmOneWayFarNearId     Integer32,
+    me1200StatusDmOneWayFarNearTxCounter      Unsigned32,
+    me1200StatusDmOneWayFarNearRxCounter      Unsigned32,
+    me1200StatusDmOneWayFarNearRxTimeOutCounter   Unsigned32,
+    me1200StatusDmOneWayFarNearRxErrorCounter     Unsigned32,
+    me1200StatusDmOneWayFarNearInternalOverflowCounter    Unsigned32,
+    me1200StatusDmOneWayFarNearAverageDelay   Unsigned32,
+    me1200StatusDmOneWayFarNearAverageLastnDelay      Unsigned32,
+    me1200StatusDmOneWayFarNearAverageDelayVariation      Unsigned32,
+    me1200StatusDmOneWayFarNearAverageLastnDelayVariation     Unsigned32,
+    me1200StatusDmOneWayFarNearMinimumDelay   Unsigned32,
+    me1200StatusDmOneWayFarNearMaximumDelay   Unsigned32,
+    me1200StatusDmOneWayFarNearMinimumDelayVariation      Unsigned32,
+    me1200StatusDmOneWayFarNearMaximumDelayVariation      Unsigned32,
+    me1200StatusDmOneWayFarNearTimeUnit   ME1200MepDmTimeUnit
+}
+
+me1200StatusDmOneWayFarNearId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusDmOneWayFarNearEntry 1 }
+
+me1200StatusDmOneWayFarNearTxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted DMM/1DM frames."
+    ::= { me1200StatusDmOneWayFarNearEntry 2 }
+
+me1200StatusDmOneWayFarNearRxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received DMM/1DM frames."
+    ::= { me1200StatusDmOneWayFarNearEntry 3 }
+
+me1200StatusDmOneWayFarNearRxTimeOutCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received DMR time-out. After transmission of DMM, the DMR is expected
+         to be received within 1 sec."
+    ::= { me1200StatusDmOneWayFarNearEntry 4 }
+
+me1200StatusDmOneWayFarNearRxErrorCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received error counter. It is considered an error if a delay is
+         negative or above 1 sec."
+    ::= { me1200StatusDmOneWayFarNearEntry 5 }
+
+me1200StatusDmOneWayFarNearInternalOverflowCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The internal total delay counter overflow counter."
+    ::= { me1200StatusDmOneWayFarNearEntry 6 }
+
+me1200StatusDmOneWayFarNearAverageDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The total average delay."
+    ::= { me1200StatusDmOneWayFarNearEntry 7 }
+
+me1200StatusDmOneWayFarNearAverageLastnDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The last N average delay."
+    ::= { me1200StatusDmOneWayFarNearEntry 8 }
+
+me1200StatusDmOneWayFarNearAverageDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The total average delay variation."
+    ::= { me1200StatusDmOneWayFarNearEntry 9 }
+
+me1200StatusDmOneWayFarNearAverageLastnDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The last N average delay variation."
+    ::= { me1200StatusDmOneWayFarNearEntry 10 }
+
+me1200StatusDmOneWayFarNearMinimumDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum delay measured."
+    ::= { me1200StatusDmOneWayFarNearEntry 11 }
+
+me1200StatusDmOneWayFarNearMaximumDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum delay measured."
+    ::= { me1200StatusDmOneWayFarNearEntry 12 }
+
+me1200StatusDmOneWayFarNearMinimumDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum delay variation measured."
+    ::= { me1200StatusDmOneWayFarNearEntry 13 }
+
+me1200StatusDmOneWayFarNearMaximumDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum delay variation measured."
+    ::= { me1200StatusDmOneWayFarNearEntry 14 }
+
+me1200StatusDmOneWayFarNearTimeUnit OBJECT-TYPE
+    SYNTAX      ME1200MepDmTimeUnit
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Calculation time unit."
+    ::= { me1200StatusDmOneWayFarNearEntry 15 }
+
+me1200StatusDmOneWayNearFarTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusDmOneWayNearFarEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Delay Measurement One Way Near to Far status"
+    ::= { me1200StatusDelayMeasurement 3 }
+
+me1200StatusDmOneWayNearFarEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusDmOneWayNearFarEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Delay Measurement One Way Near to Far status"
+    INDEX       { me1200StatusDmOneWayNearFarId }
+    ::= { me1200StatusDmOneWayNearFarTable 1 }
+
+ME1200StatusDmOneWayNearFarEntry ::= SEQUENCE {
+    me1200StatusDmOneWayNearFarId     Integer32,
+    me1200StatusDmOneWayNearFarTxCounter      Unsigned32,
+    me1200StatusDmOneWayNearFarRxCounter      Unsigned32,
+    me1200StatusDmOneWayNearFarRxTimeOutCounter   Unsigned32,
+    me1200StatusDmOneWayNearFarRxErrorCounter     Unsigned32,
+    me1200StatusDmOneWayNearFarInternalOverflowCounter    Unsigned32,
+    me1200StatusDmOneWayNearFarAverageDelay   Unsigned32,
+    me1200StatusDmOneWayNearFarAverageLastnDelay      Unsigned32,
+    me1200StatusDmOneWayNearFarAverageDelayVariation      Unsigned32,
+    me1200StatusDmOneWayNearFarAverageLastnDelayVariation     Unsigned32,
+    me1200StatusDmOneWayNearFarMinimumDelay   Unsigned32,
+    me1200StatusDmOneWayNearFarMaximumDelay   Unsigned32,
+    me1200StatusDmOneWayNearFarMinimumDelayVariation      Unsigned32,
+    me1200StatusDmOneWayNearFarMaximumDelayVariation      Unsigned32,
+    me1200StatusDmOneWayNearFarTimeUnit   ME1200MepDmTimeUnit
+}
+
+me1200StatusDmOneWayNearFarId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusDmOneWayNearFarEntry 1 }
+
+me1200StatusDmOneWayNearFarTxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted DMM/1DM frames."
+    ::= { me1200StatusDmOneWayNearFarEntry 2 }
+
+me1200StatusDmOneWayNearFarRxCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received DMM/1DM frames."
+    ::= { me1200StatusDmOneWayNearFarEntry 3 }
+
+me1200StatusDmOneWayNearFarRxTimeOutCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received DMR time-out. After transmission of DMM, the DMR is expected
+         to be received within 1 sec."
+    ::= { me1200StatusDmOneWayNearFarEntry 4 }
+
+me1200StatusDmOneWayNearFarRxErrorCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received error counter. It is considered an error if a delay is
+         negative or above 1 sec."
+    ::= { me1200StatusDmOneWayNearFarEntry 5 }
+
+me1200StatusDmOneWayNearFarInternalOverflowCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The internal total delay counter overflow counter."
+    ::= { me1200StatusDmOneWayNearFarEntry 6 }
+
+me1200StatusDmOneWayNearFarAverageDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The total average delay."
+    ::= { me1200StatusDmOneWayNearFarEntry 7 }
+
+me1200StatusDmOneWayNearFarAverageLastnDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The last N average delay."
+    ::= { me1200StatusDmOneWayNearFarEntry 8 }
+
+me1200StatusDmOneWayNearFarAverageDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The total average delay variation."
+    ::= { me1200StatusDmOneWayNearFarEntry 9 }
+
+me1200StatusDmOneWayNearFarAverageLastnDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The last N average delay variation."
+    ::= { me1200StatusDmOneWayNearFarEntry 10 }
+
+me1200StatusDmOneWayNearFarMinimumDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum delay measured."
+    ::= { me1200StatusDmOneWayNearFarEntry 11 }
+
+me1200StatusDmOneWayNearFarMaximumDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum delay measured."
+    ::= { me1200StatusDmOneWayNearFarEntry 12 }
+
+me1200StatusDmOneWayNearFarMinimumDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum delay variation measured."
+    ::= { me1200StatusDmOneWayNearFarEntry 13 }
+
+me1200StatusDmOneWayNearFarMaximumDelayVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum delay variation measured."
+    ::= { me1200StatusDmOneWayNearFarEntry 14 }
+
+me1200StatusDmOneWayNearFarTimeUnit OBJECT-TYPE
+    SYNTAX      ME1200MepDmTimeUnit
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Calculation time unit."
+    ::= { me1200StatusDmOneWayNearFarEntry 15 }
+
+me1200StatusDmFdBinsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusDmFdBinsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Delay Measurement Frame Delay bins"
+    ::= { me1200StatusDelayMeasurement 4 }
+
+me1200StatusDmFdBinsEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusDmFdBinsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Delay Measurement Frame Delay bin entry"
+    INDEX       { me1200StatusDmFdBinsId, me1200StatusDmFdBinsBinNumber }
+    ::= { me1200StatusDmFdBinsTable 1 }
+
+ME1200StatusDmFdBinsEntry ::= SEQUENCE {
+    me1200StatusDmFdBinsId    Integer32,
+    me1200StatusDmFdBinsBinNumber     Integer32,
+    me1200StatusDmFdBinsTwValue   Unsigned32,
+    me1200StatusDmFdBinsOwFtNValue    Unsigned32,
+    me1200StatusDmFdBinsOwNtFValue    Unsigned32
+}
+
+me1200StatusDmFdBinsId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusDmFdBinsEntry 1 }
+
+me1200StatusDmFdBinsBinNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..10)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The DM bin number"
+    ::= { me1200StatusDmFdBinsEntry 2 }
+
+me1200StatusDmFdBinsTwValue OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Value for two-way bin."
+    ::= { me1200StatusDmFdBinsEntry 3 }
+
+me1200StatusDmFdBinsOwFtNValue OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Value for one-way far-to-near bin."
+    ::= { me1200StatusDmFdBinsEntry 4 }
+
+me1200StatusDmFdBinsOwNtFValue OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Value for one-way near-to-far bin."
+    ::= { me1200StatusDmFdBinsEntry 5 }
+
+me1200StatusDmIfdvBinsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusDmIfdvBinsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Delay Measurement Inter Frame Delay Variation bins"
+    ::= { me1200StatusDelayMeasurement 5 }
+
+me1200StatusDmIfdvBinsEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusDmIfdvBinsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Delay Measurement Inter Frame Delay Variation bin entry"
+    INDEX       { me1200StatusDmIfdvBinsId, me1200StatusDmIfdvBinsBinNumber }
+    ::= { me1200StatusDmIfdvBinsTable 1 }
+
+ME1200StatusDmIfdvBinsEntry ::= SEQUENCE {
+    me1200StatusDmIfdvBinsId      Integer32,
+    me1200StatusDmIfdvBinsBinNumber   Integer32,
+    me1200StatusDmIfdvBinsTwValue     Unsigned32,
+    me1200StatusDmIfdvBinsOwFtNValue      Unsigned32,
+    me1200StatusDmIfdvBinsOwNtFValue      Unsigned32
+}
+
+me1200StatusDmIfdvBinsId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusDmIfdvBinsEntry 1 }
+
+me1200StatusDmIfdvBinsBinNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..10)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The DM bin number"
+    ::= { me1200StatusDmIfdvBinsEntry 2 }
+
+me1200StatusDmIfdvBinsTwValue OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Value for two-way bin."
+    ::= { me1200StatusDmIfdvBinsEntry 3 }
+
+me1200StatusDmIfdvBinsOwFtNValue OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Value for one-way far-to-near bin."
+    ::= { me1200StatusDmIfdvBinsEntry 4 }
+
+me1200StatusDmIfdvBinsOwNtFValue OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Value for one-way near-to-far bin."
+    ::= { me1200StatusDmIfdvBinsEntry 5 }
+
+me1200StatusLoopBack OBJECT IDENTIFIER
+    ::= { me1200MepStatus 4 }
+
+me1200StatusLbTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusLbEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Loop Back status"
+    ::= { me1200StatusLoopBack 1 }
+
+me1200StatusLbEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusLbEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Loop Back status"
+    INDEX       { me1200StatusLbId }
+    ::= { me1200StatusLbTable 1 }
+
+ME1200StatusLbEntry ::= SEQUENCE {
+    me1200StatusLbId      Integer32,
+    me1200StatusLbTransactionId   Unsigned32,
+    me1200StatusLbReplyCounter    Unsigned32,
+    me1200StatusLbLbmTransmitted      Counter64
+}
+
+me1200StatusLbId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusLbEntry 1 }
+
+me1200StatusLbTransactionId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the transaction id that is used to send the next LBM."
+    ::= { me1200StatusLbEntry 2 }
+
+me1200StatusLbReplyCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of replying MAC. In case of 'infinite' LBM there is only one
+         reply."
+    ::= { me1200StatusLbEntry 3 }
+
+me1200StatusLbLbmTransmitted OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of transmitted LBM."
+    ::= { me1200StatusLbEntry 4 }
+
+me1200StatusLbReplyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusLbReplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Loop Back reply status"
+    ::= { me1200StatusLoopBack 2 }
+
+me1200StatusLbReplyEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusLbReplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Loop Back reply status"
+    INDEX       { me1200StatusLbReplyId, me1200StatusLbReplyReplyId }
+    ::= { me1200StatusLbReplyTable 1 }
+
+ME1200StatusLbReplyEntry ::= SEQUENCE {
+    me1200StatusLbReplyId     Integer32,
+    me1200StatusLbReplyReplyId    Integer32,
+    me1200StatusLbReplyMac    MacAddress,
+    me1200StatusLbReplyLbrReceived    Counter64,
+    me1200StatusLbReplyOutOfOrder     Counter64
+}
+
+me1200StatusLbReplyId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusLbReplyEntry 1 }
+
+me1200StatusLbReplyReplyId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The LB or LT Reply id"
+    ::= { me1200StatusLbReplyEntry 2 }
+
+me1200StatusLbReplyMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "LBR source MAC - this is only relevant if not 'infinite' LBM."
+    ::= { me1200StatusLbReplyEntry 3 }
+
+me1200StatusLbReplyLbrReceived OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number LBR received from MAC."
+    ::= { me1200StatusLbReplyEntry 4 }
+
+me1200StatusLbReplyOutOfOrder OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The OOO counter."
+    ::= { me1200StatusLbReplyEntry 5 }
+
+me1200StatusTestSignal OBJECT IDENTIFIER
+    ::= { me1200MepStatus 5 }
+
+me1200StatusTstTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusTstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Test Signal status"
+    ::= { me1200StatusTestSignal 1 }
+
+me1200StatusTstEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusTstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Test Signal status"
+    INDEX       { me1200StatusTstId }
+    ::= { me1200StatusTstTable 1 }
+
+ME1200StatusTstEntry ::= SEQUENCE {
+    me1200StatusTstId     Integer32,
+    me1200StatusTstTxCounter      Counter64,
+    me1200StatusTstRxCounter      Counter64,
+    me1200StatusTstOutOfOrderCounter      Counter64,
+    me1200StatusTstRxRate     Unsigned32,
+    me1200StatusTstTestTime   Unsigned32
+}
+
+me1200StatusTstId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusTstEntry 1 }
+
+me1200StatusTstTxCounter OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted TST frames counter."
+    ::= { me1200StatusTstEntry 2 }
+
+me1200StatusTstRxCounter OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "REceived TST frames counter."
+    ::= { me1200StatusTstEntry 3 }
+
+me1200StatusTstOutOfOrderCounter OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Out of Order counter."
+    ::= { me1200StatusTstEntry 4 }
+
+me1200StatusTstRxRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Receive bit rate in Kbit/s."
+    ::= { me1200StatusTstEntry 5 }
+
+me1200StatusTstTestTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Test time in seconds. The elapsed time since last clear."
+    ::= { me1200StatusTstEntry 6 }
+
+me1200StatusLinkTrace OBJECT IDENTIFIER
+    ::= { me1200MepStatus 6 }
+
+me1200StatusLtTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusLtEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Link Trace status"
+    ::= { me1200StatusLinkTrace 1 }
+
+me1200StatusLtEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusLtEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Link Trace status"
+    INDEX       { me1200StatusLtId }
+    ::= { me1200StatusLtTable 1 }
+
+ME1200StatusLtEntry ::= SEQUENCE {
+    me1200StatusLtId      Integer32,
+    me1200StatusLtTransactionId   Unsigned32,
+    me1200StatusLtReplyCount      Unsigned32
+}
+
+me1200StatusLtId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusLtEntry 1 }
+
+me1200StatusLtTransactionId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The transaction id of the latest Link Trace."
+    ::= { me1200StatusLtEntry 2 }
+
+me1200StatusLtReplyCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of replies for this Link Trace transaction."
+    ::= { me1200StatusLtEntry 3 }
+
+me1200StatusLtReplyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusLtReplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of Link Trace reply status"
+    ::= { me1200StatusLinkTrace 2 }
+
+me1200StatusLtReplyEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusLtReplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a Link Trace reply status"
+    INDEX       { me1200StatusLtReplyId, me1200StatusLtReplyReplyId }
+    ::= { me1200StatusLtReplyTable 1 }
+
+ME1200StatusLtReplyEntry ::= SEQUENCE {
+    me1200StatusLtReplyId     Integer32,
+    me1200StatusLtReplyReplyId    Integer32,
+    me1200StatusLtReplyMode   ME1200InstanceMode,
+    me1200StatusLtReplyDirection      ME1200MepInstanceDirection,
+    me1200StatusLtReplyTtl    ME1200Unsigned8,
+    me1200StatusLtReplyForwarded      TruthValue,
+    me1200StatusLtReplyRelayAction    ME1200RelayAction,
+    me1200StatusLtReplyLastEgressMac      MacAddress,
+    me1200StatusLtReplyNextEgressMac      MacAddress
+}
+
+me1200StatusLtReplyId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusLtReplyEntry 1 }
+
+me1200StatusLtReplyReplyId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The LB or LT Reply id"
+    ::= { me1200StatusLtReplyEntry 2 }
+
+me1200StatusLtReplyMode OBJECT-TYPE
+    SYNTAX      ME1200InstanceMode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The reply is done by a MEP or a MIP."
+    ::= { me1200StatusLtReplyEntry 3 }
+
+me1200StatusLtReplyDirection OBJECT-TYPE
+    SYNTAX      ME1200MepInstanceDirection
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The reply is done by a UP or a Down instance."
+    ::= { me1200StatusLtReplyEntry 4 }
+
+me1200StatusLtReplyTtl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The reply TTL value."
+    ::= { me1200StatusLtReplyEntry 5 }
+
+me1200StatusLtReplyForwarded OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The LTM was forwarded."
+    ::= { me1200StatusLtReplyEntry 6 }
+
+me1200StatusLtReplyRelayAction OBJECT-TYPE
+    SYNTAX      ME1200RelayAction
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The relay action."
+    ::= { me1200StatusLtReplyEntry 7 }
+
+me1200StatusLtReplyLastEgressMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The Last Egress MAC for this reply."
+    ::= { me1200StatusLtReplyEntry 8 }
+
+me1200StatusLtReplyNextEgressMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The Next Egress MAC of this reply."
+    ::= { me1200StatusLtReplyEntry 9 }
+
+me1200StatusContinuityCheck OBJECT IDENTIFIER
+    ::= { me1200MepStatus 7 }
+
+me1200StatusCCPeerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusCCPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of peer MEP CC status"
+    ::= { me1200StatusContinuityCheck 2 }
+
+me1200StatusCCPeerEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusCCPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a peer MEP CC status"
+    INDEX       { me1200StatusCCPeerId, me1200StatusCCPeerPeerId }
+    ::= { me1200StatusCCPeerTable 1 }
+
+ME1200StatusCCPeerEntry ::= SEQUENCE {
+    me1200StatusCCPeerId      Integer32,
+    me1200StatusCCPeerPeerId      Integer32,
+    me1200StatusCCPeerOsTlvOuiFirst   ME1200Unsigned8,
+    me1200StatusCCPeerOsTlvOuiSecond      ME1200Unsigned8,
+    me1200StatusCCPeerOsTlvOuiThird   ME1200Unsigned8,
+    me1200StatusCCPeerOsTlvSubType    ME1200Unsigned8,
+    me1200StatusCCPeerOsTlvValue      ME1200Unsigned8,
+    me1200StatusCCPeerIsTlvValue      ME1200Unsigned8,
+    me1200StatusCCPeerPsTlvValue      ME1200Unsigned8,
+    me1200StatusCCPeerOsTlvReceived   TruthValue,
+    me1200StatusCCPeerIsTlvReceived   TruthValue,
+    me1200StatusCCPeerPsTlvReceived   TruthValue
+}
+
+me1200StatusCCPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusCCPeerEntry 1 }
+
+me1200StatusCCPeerPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The Peer MEP ID"
+    ::= { me1200StatusCCPeerEntry 2 }
+
+me1200StatusCCPeerOsTlvOuiFirst OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received OS TLV - The OUI content first nibble"
+    ::= { me1200StatusCCPeerEntry 3 }
+
+me1200StatusCCPeerOsTlvOuiSecond OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received OS TLV - The OUI content second nibble"
+    ::= { me1200StatusCCPeerEntry 4 }
+
+me1200StatusCCPeerOsTlvOuiThird OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received OS TLV - The OUI content third nibble"
+    ::= { me1200StatusCCPeerEntry 5 }
+
+me1200StatusCCPeerOsTlvSubType OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received OS TLV - The Sub-Type content"
+    ::= { me1200StatusCCPeerEntry 6 }
+
+me1200StatusCCPeerOsTlvValue OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received OS TLV - The Value content"
+    ::= { me1200StatusCCPeerEntry 7 }
+
+me1200StatusCCPeerIsTlvValue OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received IS TLV - The Value content"
+    ::= { me1200StatusCCPeerEntry 8 }
+
+me1200StatusCCPeerPsTlvValue OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received PS TLV - The Value content"
+    ::= { me1200StatusCCPeerEntry 9 }
+
+me1200StatusCCPeerOsTlvReceived OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received CCM PDU contained OS TLV"
+    ::= { me1200StatusCCPeerEntry 10 }
+
+me1200StatusCCPeerIsTlvReceived OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received CCM PDU contained IS TLV"
+    ::= { me1200StatusCCPeerEntry 11 }
+
+me1200StatusCCPeerPsTlvReceived OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last received CCM PDU contained PS TLV"
+    ::= { me1200StatusCCPeerEntry 12 }
+
+me1200StatusLmAvailability OBJECT IDENTIFIER
+    ::= { me1200MepStatus 8 }
+
+me1200StatusLmAvailTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusLmAvailEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of LM Availability status"
+    ::= { me1200StatusLmAvailability 2 }
+
+me1200StatusLmAvailEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusLmAvailEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a MEP LM Availability status"
+    INDEX       { me1200StatusLmAvailId, me1200StatusLmAvailPeerId }
+    ::= { me1200StatusLmAvailTable 1 }
+
+ME1200StatusLmAvailEntry ::= SEQUENCE {
+    me1200StatusLmAvailId     Integer32,
+    me1200StatusLmAvailPeerId     Integer32,
+    me1200StatusLmAvailNearEndAvailState      ME1200AvailState,
+    me1200StatusLmAvailFarEndAvailState   ME1200AvailState,
+    me1200StatusLmAvailNearEndAvailCnt    Unsigned32,
+    me1200StatusLmAvailFarEndAvailCnt     Unsigned32,
+    me1200StatusLmAvailNearEndUnAvailCnt      Unsigned32,
+    me1200StatusLmAvailFarEndUnAvailCnt   Unsigned32,
+    me1200StatusLmAvailNearEndWindowCnt   Unsigned32,
+    me1200StatusLmAvailFarEndWindowCnt    Unsigned32
+}
+
+me1200StatusLmAvailId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200StatusLmAvailEntry 1 }
+
+me1200StatusLmAvailPeerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The Peer MEP ID"
+    ::= { me1200StatusLmAvailEntry 2 }
+
+me1200StatusLmAvailNearEndAvailState OBJECT-TYPE
+    SYNTAX      ME1200AvailState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end Availability State."
+    ::= { me1200StatusLmAvailEntry 3 }
+
+me1200StatusLmAvailFarEndAvailState OBJECT-TYPE
+    SYNTAX      ME1200AvailState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end Availability State."
+    ::= { me1200StatusLmAvailEntry 4 }
+
+me1200StatusLmAvailNearEndAvailCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end Availability Count."
+    ::= { me1200StatusLmAvailEntry 5 }
+
+me1200StatusLmAvailFarEndAvailCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end Availability Count."
+    ::= { me1200StatusLmAvailEntry 6 }
+
+me1200StatusLmAvailNearEndUnAvailCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end Unavailability Count."
+    ::= { me1200StatusLmAvailEntry 7 }
+
+me1200StatusLmAvailFarEndUnAvailCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end Unavailability Count."
+    ::= { me1200StatusLmAvailEntry 8 }
+
+me1200StatusLmAvailNearEndWindowCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Near end Window Count."
+    ::= { me1200StatusLmAvailEntry 9 }
+
+me1200StatusLmAvailFarEndWindowCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Far end Window Count."
+    ::= { me1200StatusLmAvailEntry 10 }
+
+me1200MepControl OBJECT IDENTIFIER
+    ::= { me1200MepMibObjects 4 }
+
+me1200ControlLossMeasurement OBJECT IDENTIFIER
+    ::= { me1200MepControl 1 }
+
+me1200ControlLmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ControlLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Loss Measurement control parameters"
+    ::= { me1200ControlLossMeasurement 1 }
+
+me1200ControlLmEntry OBJECT-TYPE
+    SYNTAX      ME1200ControlLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Loss Measurement control parameters"
+    INDEX       { me1200ControlLmId }
+    ::= { me1200ControlLmTable 1 }
+
+ME1200ControlLmEntry ::= SEQUENCE {
+    me1200ControlLmId     Integer32,
+    me1200ControlLmClear      TruthValue
+}
+
+me1200ControlLmId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ControlLmEntry 1 }
+
+me1200ControlLmClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear the LM results"
+    ::= { me1200ControlLmEntry 2 }
+
+me1200ControlDelayMeasurement OBJECT IDENTIFIER
+    ::= { me1200MepControl 2 }
+
+me1200ControlDmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ControlDmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Delay Measurement control
+         parameters"
+    ::= { me1200ControlDelayMeasurement 1 }
+
+me1200ControlDmEntry OBJECT-TYPE
+    SYNTAX      ME1200ControlDmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Delay Measurement control parameters"
+    INDEX       { me1200ControlDmId }
+    ::= { me1200ControlDmTable 1 }
+
+ME1200ControlDmEntry ::= SEQUENCE {
+    me1200ControlDmId     Integer32,
+    me1200ControlDmClear      TruthValue
+}
+
+me1200ControlDmId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ControlDmEntry 1 }
+
+me1200ControlDmClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear the DM results"
+    ::= { me1200ControlDmEntry 2 }
+
+me1200ControlTestSignal OBJECT IDENTIFIER
+    ::= { me1200MepControl 3 }
+
+me1200ControlTstTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ControlTstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance Test Signal control parameters"
+    ::= { me1200ControlTestSignal 1 }
+
+me1200ControlTstEntry OBJECT-TYPE
+    SYNTAX      ME1200ControlTstEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance Test Signal control parameters"
+    INDEX       { me1200ControlTstId }
+    ::= { me1200ControlTstTable 1 }
+
+ME1200ControlTstEntry ::= SEQUENCE {
+    me1200ControlTstId    Integer32,
+    me1200ControlTstClear     TruthValue
+}
+
+me1200ControlTstId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance ID"
+    ::= { me1200ControlTstEntry 1 }
+
+me1200ControlTstClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear the TST results"
+    ::= { me1200ControlTstEntry 2 }
+
+me1200MepNotificationPrefix OBJECT IDENTIFIER
+    ::= { me1200MepMibObjects 5 }
+
+me1200MeptNotification OBJECT IDENTIFIER
+    ::= { me1200MepNotificationPrefix 0 }
+
+me1200MepNotificationLmNearEndLossRatioThresholdExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigLmEnded,
+                  me1200ConfigLmRate,
+                  me1200ConfigLmCast,
+                  me1200ConfigLmFlrInterval,
+                  me1200ConfigLmLossRatioThreshold,
+                  me1200StatusLmNearEndLosRatio }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the near end loss ratio is exceeded the configured threshold."
+   ::= { me1200MeptNotification 1 }
+
+me1200MepNotificationLmFarEndLossRatioThresholdExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigLmEnded,
+                  me1200ConfigLmRate,
+                  me1200ConfigLmCast,
+                  me1200ConfigLmFlrInterval,
+                  me1200ConfigLmLossRatioThreshold,
+                  me1200StatusLmFarEndLosRatio }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the far end loss ratio is exceeded the configured threshold."
+   ::= { me1200MeptNotification 2 }
+
+me1200MepNotificationDmTwoWayAvgLastnDelayExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmTwoWayAverageLastnDelayThreshold,
+                  me1200StatusDmTwoWayAverageLastnDelay }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the two-way average of delay in the last N packets is exceeded the configured threshold."
+   ::= { me1200MeptNotification 3 }
+
+me1200MepNotificationDmTwoWayAvgLastnDelayExceedRecovery NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmTwoWayAverageLastnDelayThreshold,
+                  me1200StatusDmTwoWayAverageLastnDelay }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the two-way average of delay in the last N packets is recovery below the configured threshold after the threshold exceeded event occurred."
+   ::= { me1200MeptNotification 4 }
+
+me1200MepNotificationDmTwoWayAvgLastnDelayVarExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmTwoWayAverageLastnDelayVariationThreshold,
+                  me1200StatusDmTwoWayAverageLastnDelayVariation }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the two-way average of delay variation in the last N packets is exceeded the configured threshold."
+   ::= { me1200MeptNotification 5 }
+
+me1200MepNotificationDmTwoWayAvgLastnDelayVarExceedRecovery NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmTwoWayAverageLastnDelayVariationThreshold,
+                  me1200StatusDmTwoWayAverageLastnDelayVariation }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the two-way average of delay variation in the last N packets is recovery below the configured threshold after the threshold exceeded event occurred."
+   ::= { me1200MeptNotification 6 }
+
+me1200MepNotificationDmOneWayF2NAvgLastnDelayExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayThreshold,
+                  me1200StatusDmOneWayFarNearAverageLastnDelay }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way far end to near end average of delay in the last N packets is exceeded the configured threshold."
+   ::= { me1200MeptNotification 7 }
+
+me1200MepNotificationDmOneWayF2NAvgLastnDelayExceedRecovery NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayThreshold,
+                  me1200StatusDmOneWayFarNearAverageLastnDelay }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way far end to near end average of delay in the last N packets is recovery below the configured threshold after the threshold exceeded event occurred."
+   ::= { me1200MeptNotification 8 }
+
+me1200MepNotificationDmOneWayF2NAvgLastnDelayVarExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayVariationThreshold,
+                  me1200StatusDmOneWayFarNearAverageLastnDelayVariation }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way far end to near end average of delay variation in the last N packets is exceeded the configured threshold."
+   ::= { me1200MeptNotification 9 }
+
+me1200MepNotificationDmOneWayF2NAvgLastnDelayVarExceedRecovery NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayVariationThreshold,
+                  me1200StatusDmOneWayFarNearAverageLastnDelayVariation }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way far end to near end average of delay variation in the last N packets is recovery below the configured threshold after the threshold exceeded event occurred."
+   ::= { me1200MeptNotification 10 }
+
+me1200MepNotificationDmOneWayN2FAvgLastnDelayExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayThreshold,
+                  me1200StatusDmOneWayNearFarAverageLastnDelay }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way near end to far near end average of delay in the last N packets is exceeded the configured threshold."
+   ::= { me1200MeptNotification 11 }
+
+me1200MepNotificationDmOneWayN2FAvgLastnDelayExceedRecovery NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayThreshold,
+                  me1200StatusDmOneWayNearFarAverageLastnDelay }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way near end to far near end average of delay in the last N packets is recovery below the configured threshold after the threshold exceeded event occurred."
+   ::= { me1200MeptNotification 12 }
+
+me1200MepNotificationDmOneWayN2FAvgLastnDelayVarExceed NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayVariationThreshold,
+                  me1200StatusDmOneWayNearFarAverageLastnDelayVariation }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way near end to far near end average of delay variation in the last N packets is exceeded the configured threshold."
+   ::= { me1200MeptNotification 13 }
+
+me1200MepNotificationDmOneWayN2FAvgLastnDelayVarExceedRecovery NOTIFICATION-TYPE
+    OBJECTS     { me1200ConfigDmCast,
+                  me1200ConfigDmMep,
+                  me1200ConfigDmCalcWay,
+                  me1200ConfigDmInterval,
+                  me1200ConfigDmLastN,
+                  me1200ConfigDmTimeUnit,
+                  me1200ConfigDmOverflowAct,
+                  me1200ConfigDmSynchronized,
+                  me1200ConfigDmOneWayAverageLastnDelayVariationThreshold,
+                  me1200StatusDmOneWayNearFarAverageLastnDelayVariation }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the on-way near end to far end average of delay variation in the last N packets is recovery below the configured threshold after the threshold exceeded event occurred."
+   ::= { me1200MeptNotification 14 }
+
+me1200MepNotificationInstanceDefectAIS NOTIFICATION-TYPE
+    OBJECTS     { me1200StatusInstanceCais }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the alarm indication signal defect is received by the Client."
+   ::= { me1200MeptNotification 15 }
+
+me1200MepNotificationInstanceDefectLCK NOTIFICATION-TYPE
+    OBJECTS     { me1200StatusInstanceClck }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when locked signal defect is received by the Client."
+   ::= { me1200MeptNotification 16 }
+
+
+me1200MepMibConformance OBJECT IDENTIFIER
+    ::= { me1200MepMib 3 }
+
+me1200MepMibCompliances OBJECT IDENTIFIER
+    ::= { me1200MepMibConformance 1 }
+
+me1200MepMibGroups OBJECT IDENTIFIER
+    ::= { me1200MepMibConformance 2 }
+
+me1200MepCapabilitiesInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MepCapabilitiesInstanceMax, me1200MepCapabilitiesPeerMax, 
+                  me1200MepCapabilitiesTransactionMax, me1200MepCapabilitiesReplyMax, 
+                  me1200MepCapabilitiesClientFlowsMax, 
+                  me1200MepCapabilitiesMacMength, me1200MepCapabilitiesMegCodeLength, 
+                  me1200MepCapabilitiesDmIntervalMin, 
+                  me1200MepCapabilitiesDmIntervalMax, 
+                  me1200MepCapabilitiesDmLastnMin, me1200MepCapabilitiesDmLastnMax, 
+                  me1200MepCapabilitiesLbmSizeMax, me1200MepCapabilitiesLbmSizeMin, 
+                  me1200MepCapabilitiesTstSizeMax, me1200MepCapabilitiesTstSizeMin, 
+                  me1200MepCapabilitiesTstRateMax, 
+                  me1200MepCapabilitiesClientPrioHighest, 
+                  me1200MepCapabilitiesLbToSendInfinite, 
+                  me1200MepCapabilitiesLmLossRatioThresholdMin, 
+                  me1200MepCapabilitiesLmLossRatioThresholdMax, 
+                  me1200MepCapabilitiesDmAverageDelayThresholdMin, 
+                  me1200MepCapabilitiesDmAverageDelayThresholdMax, 
+                  me1200MepCapabilitiesSlmSizeMax, me1200MepCapabilitiesSlmSizeMin }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 1 }
+
+me1200ConfigInstanceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigInstanceMode, me1200ConfigInstanceDirection, 
+                  me1200ConfigInstanceDomain, me1200ConfigInstanceFlow, 
+                  me1200ConfigInstancePort, me1200ConfigInstanceLevel, 
+                  me1200ConfigInstanceVid, me1200ConfigInstanceVoe, 
+                  me1200ConfigInstanceMac, me1200ConfigInstanceFormat, 
+                  me1200ConfigInstanceName, me1200ConfigInstanceMeg, 
+                  me1200ConfigInstanceMep, me1200ConfigInstanceAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 2 }
+
+me1200ConfigInstanceRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigInstanceRowEditorId, me1200ConfigInstanceRowEditorMode, 
+                  me1200ConfigInstanceRowEditorDirection, 
+                  me1200ConfigInstanceRowEditorDomain, 
+                  me1200ConfigInstanceRowEditorFlow, 
+                  me1200ConfigInstanceRowEditorPort, 
+                  me1200ConfigInstanceRowEditorLevel, 
+                  me1200ConfigInstanceRowEditorVid, me1200ConfigInstanceRowEditorVoe, 
+                  me1200ConfigInstanceRowEditorMac, 
+                  me1200ConfigInstanceRowEditorFormat, 
+                  me1200ConfigInstanceRowEditorName, 
+                  me1200ConfigInstanceRowEditorMeg, me1200ConfigInstanceRowEditorMep, 
+                  me1200ConfigInstanceRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 3 }
+
+me1200ConfigInstancePeerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigInstancePeerMac, me1200ConfigInstancePeerAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 4 }
+
+me1200ConfigInstancePeerRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigInstancePeerRowEditorId, 
+                  me1200ConfigInstancePeerRowEditorPeerId, 
+                  me1200ConfigInstancePeerRowEditorMac, 
+                  me1200ConfigInstancePeerRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 5 }
+
+me1200ConfigPmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigPmEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 6 }
+
+me1200ConfigCcTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigCcDei, me1200ConfigCcPrio, me1200ConfigCcRate, me1200ConfigCcTlv, 
+                  me1200ConfigCcAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 7 }
+
+me1200ConfigCcRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigCcRowEditorId, me1200ConfigCcRowEditorDei, 
+                  me1200ConfigCcRowEditorPrio, me1200ConfigCcRowEditorRate, 
+                  me1200ConfigCcRowEditorTlv, me1200ConfigCcRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 8 }
+
+me1200ConfigLmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLmEnded, me1200ConfigLmDei, me1200ConfigLmPrio, me1200ConfigLmRate, 
+                  me1200ConfigLmCast, me1200ConfigLmFlrInterval, 
+                  me1200ConfigLmLossRatioThreshold, me1200ConfigLmRxEnable, 
+                  me1200ConfigLmSynthetic, me1200ConfigLmMep, me1200ConfigLmFrameSize, 
+                  me1200ConfigLmMeasInterval, me1200ConfigLmSlmTestId, 
+                  me1200ConfigLmAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 9 }
+
+me1200ConfigLmRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLmRowEditorId, me1200ConfigLmRowEditorEnded, 
+                  me1200ConfigLmRowEditorDei, me1200ConfigLmRowEditorPrio, 
+                  me1200ConfigLmRowEditorRate, me1200ConfigLmRowEditorCast, 
+                  me1200ConfigLmRowEditorFlrInterval, 
+                  me1200ConfigLmRowEditorLossRatioThreshold, 
+                  me1200ConfigLmRowEditorRxEnable, me1200ConfigLmRowEditorSynthetic, 
+                  me1200ConfigLmRowEditorMep, me1200ConfigLmRowEditorFrameSize, 
+                  me1200ConfigLmRowEditorMeasInterval, 
+                  me1200ConfigLmRowEditorSlmTestId, me1200ConfigLmRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 10 }
+
+me1200ConfigDmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigDmEnded, me1200ConfigDmDei, me1200ConfigDmPrio, me1200ConfigDmCast, 
+                  me1200ConfigDmMep, me1200ConfigDmCalcWay, me1200ConfigDmInterval, 
+                  me1200ConfigDmLastN, me1200ConfigDmTimeUnit, me1200ConfigDmOverflowAct, 
+                  me1200ConfigDmSynchronized, 
+                  me1200ConfigDmOneWayAverageLastnDelayThreshold, 
+                  me1200ConfigDmOneWayAverageLastnDelayVariationThreshold, 
+                  me1200ConfigDmTwoWayAverageLastnDelayThreshold, 
+                  me1200ConfigDmTwoWayAverageLastnDelayVariationThreshold, 
+                  me1200ConfigDmNumOfBinFD, me1200ConfigDmNumOfBinIFDV, 
+                  me1200ConfigDmAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 11 }
+
+me1200ConfigDmRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigDmRowEditorId, me1200ConfigDmRowEditorEnded, 
+                  me1200ConfigDmRowEditorDei, me1200ConfigDmRowEditorPrio, 
+                  me1200ConfigDmRowEditorCast, me1200ConfigDmRowEditorMep, 
+                  me1200ConfigDmRowEditorCalcWay, me1200ConfigDmRowEditorInterval, 
+                  me1200ConfigDmRowEditorLastN, me1200ConfigDmRowEditorTimeUnit, 
+                  me1200ConfigDmRowEditorOverflowAct, 
+                  me1200ConfigDmRowEditorSynchronized, 
+                  me1200ConfigDmRowEditorOneWayAverageLastnDelayThreshold, 
+                  me1200ConfigDmRowEditorOneWayAverageLastnDelayVariationThreshold, 
+                  me1200ConfigDmRowEditorTwoWayAverageLastnDelayThreshold, 
+                  me1200ConfigDmRowEditorTwoWayAverageLastnDelayVariationThreshold, 
+                  me1200ConfigDmRowEditorNumOfBinFD, 
+                  me1200ConfigDmRowEditorNumOfBinIFDV, me1200ConfigDmRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 12 }
+
+me1200ConfigDmFdBinTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigDmFdBinBinRange }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 13 }
+
+me1200ConfigDmIfdvBinTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigDmIfdvBinBinRange }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 14 }
+
+me1200ConfigLbTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLbDei, me1200ConfigLbPrio, me1200ConfigLbCast, me1200ConfigLbMep, 
+                  me1200ConfigLbMac, me1200ConfigLbToSend, me1200ConfigLbSize, 
+                  me1200ConfigLbInterval, me1200ConfigLbAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 15 }
+
+me1200ConfigLbRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLbRowEditorId, me1200ConfigLbRowEditorDei, 
+                  me1200ConfigLbRowEditorPrio, me1200ConfigLbRowEditorCast, 
+                  me1200ConfigLbRowEditorMep, me1200ConfigLbRowEditorMac, 
+                  me1200ConfigLbRowEditorToSend, me1200ConfigLbRowEditorSize, 
+                  me1200ConfigLbRowEditorInterval, me1200ConfigLbRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 16 }
+
+me1200ConfigTstTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigTstTxEnable, me1200ConfigTstRxEnable, me1200ConfigTstDei, 
+                  me1200ConfigTstPrio, me1200ConfigTstMep, me1200ConfigTstRate, 
+                  me1200ConfigTstSize, me1200ConfigTstPattern, me1200ConfigTstSequence, 
+                  me1200ConfigTstAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 17 }
+
+me1200ConfigTstRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigTstRowEditorId, me1200ConfigTstRowEditorTxEnable, 
+                  me1200ConfigTstRowEditorRxEnable, me1200ConfigTstRowEditorDei, 
+                  me1200ConfigTstRowEditorPrio, me1200ConfigTstRowEditorMep, 
+                  me1200ConfigTstRowEditorRate, me1200ConfigTstRowEditorSize, 
+                  me1200ConfigTstRowEditorPattern, me1200ConfigTstRowEditorSequence, 
+                  me1200ConfigTstRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 18 }
+
+me1200ConfigLtTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLtDei, me1200ConfigLtPrio, me1200ConfigLtMep, me1200ConfigLtMac, 
+                  me1200ConfigLtTimeToLive, me1200ConfigLtAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 19 }
+
+me1200ConfigLtRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLtRowEditorId, me1200ConfigLtRowEditorDei, 
+                  me1200ConfigLtRowEditorPrio, me1200ConfigLtRowEditorMep, 
+                  me1200ConfigLtRowEditorMac, me1200ConfigLtRowEditorTimeToLive, 
+                  me1200ConfigLtRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 20 }
+
+me1200ConfigApsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigApsDei, me1200ConfigApsPrio, me1200ConfigApsApsType, 
+                  me1200ConfigApsCast, me1200ConfigApsRapsOctet, me1200ConfigApsAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 21 }
+
+me1200ConfigApsRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigApsRowEditorId, me1200ConfigApsRowEditorDei, 
+                  me1200ConfigApsRowEditorPrio, me1200ConfigApsRowEditorApsType, 
+                  me1200ConfigApsRowEditorCast, me1200ConfigApsRowEditorRapsOctet, 
+                  me1200ConfigApsRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 22 }
+
+me1200ConfigAisTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigAisProtection, me1200ConfigAisRate, me1200ConfigAisAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 23 }
+
+me1200ConfigAisRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigAisRowEditorId, me1200ConfigAisRowEditorProtection, 
+                  me1200ConfigAisRowEditorRate, me1200ConfigAisRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 24 }
+
+me1200ConfigLckTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLckRate, me1200ConfigLckAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 25 }
+
+me1200ConfigLckRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLckRowEditorId, me1200ConfigLckRowEditorRate, 
+                  me1200ConfigLckRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 26 }
+
+me1200ConfigClientTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigClientDomain }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 27 }
+
+me1200ConfigClientFlowTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigClientFlowAisPrio, me1200ConfigClientFlowLckPrio, 
+                  me1200ConfigClientFlowLevel, me1200ConfigClientFlowAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 28 }
+
+me1200ConfigClientFlowRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigClientFlowRowEditorId, 
+                  me1200ConfigClientFlowRowEditorFlowId, 
+                  me1200ConfigClientFlowRowEditorAisPrio, 
+                  me1200ConfigClientFlowRowEditorLckPrio, 
+                  me1200ConfigClientFlowRowEditorLevel, 
+                  me1200ConfigClientFlowRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 29 }
+
+me1200ConfigSyslogTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigSyslogEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 30 }
+
+me1200ConfigTlvLeafInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigTlvLeafOsTlvOuiFirst, 
+                  me1200ConfigTlvLeafOsTlvOuiSecond, 
+                  me1200ConfigTlvLeafOsTlvOuiThird, me1200ConfigTlvLeafOsTlvSubType, 
+                  me1200ConfigTlvLeafOsTlvValue }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 31 }
+
+me1200ConfigLstTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLstEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 32 }
+
+me1200ConfigLmAvailTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLmAvailEnable, me1200ConfigLmAvailLosRatioThr, 
+                  me1200ConfigLmAvailInterval, me1200ConfigLmAvailMaintenance, 
+                  me1200ConfigLmAvailAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 33 }
+
+me1200ConfigLmAvailRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigLmAvailRowEditorId, me1200ConfigLmAvailRowEditorEnable, 
+                  me1200ConfigLmAvailRowEditorLosRatioThr, 
+                  me1200ConfigLmAvailRowEditorInterval, 
+                  me1200ConfigLmAvailRowEditorMaintenance, 
+                  me1200ConfigLmAvailRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 34 }
+
+me1200StatusInstanceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusInstanceClevel, me1200StatusInstanceCmeg, 
+                  me1200StatusInstanceCmep, me1200StatusInstanceCssf, 
+                  me1200StatusInstanceCais, me1200StatusInstanceClck, 
+                  me1200StatusInstanceAtsf, me1200StatusInstanceAtsd, 
+                  me1200StatusInstanceAblk, me1200StatusInstanceCloop, 
+                  me1200StatusInstanceCconfig }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 35 }
+
+me1200StatusInstancePeerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusInstancePeerCloc, me1200StatusInstancePeerCrdi, 
+                  me1200StatusInstancePeerCperiod, me1200StatusInstancePeerCprio }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 36 }
+
+me1200StatusLmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusLmTxCounter, me1200StatusLmRxCounter, 
+                  me1200StatusLmNearEndLosCounter, me1200StatusLmFarEndLosCounter, 
+                  me1200StatusLmNearEndLosRatio, me1200StatusLmFarEndLosRatio, 
+                  me1200StatusLmNearEndTotalLosRatio, 
+                  me1200StatusLmFarEndtotalLosRatio, me1200StatusLmIntervalElapsed }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 37 }
+
+me1200StatusLmPeerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusLmPeerTxCounter, me1200StatusLmPeerRxCounter, 
+                  me1200StatusLmPeerNearEndLosCounter, 
+                  me1200StatusLmPeerFarEndLosCounter, 
+                  me1200StatusLmPeerNearEndLosRatio, 
+                  me1200StatusLmPeerFarEndLosRatio, 
+                  me1200StatusLmPeerNearEndTotalLosRatio, 
+                  me1200StatusLmPeerFarEndtotalLosRatio, 
+                  me1200StatusLmPeerIntervalElapsed }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 38 }
+
+me1200StatusDmTwoWayTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusDmTwoWayTxCounter, me1200StatusDmTwoWayRxCounter, 
+                  me1200StatusDmTwoWayRxTimeOutCounter, 
+                  me1200StatusDmTwoWayRxErrorCounter, 
+                  me1200StatusDmTwoWayInternalOverflowCounter, 
+                  me1200StatusDmTwoWayAverageDelay, 
+                  me1200StatusDmTwoWayAverageLastnDelay, 
+                  me1200StatusDmTwoWayAverageDelayVariation, 
+                  me1200StatusDmTwoWayAverageLastnDelayVariation, 
+                  me1200StatusDmTwoWayMinimumDelay, me1200StatusDmTwoWayMaximumDelay, 
+                  me1200StatusDmTwoWayMinimumDelayVariation, 
+                  me1200StatusDmTwoWayMaximumDelayVariation, 
+                  me1200StatusDmTwoWayTimeUnit }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 39 }
+
+me1200StatusDmOneWayFarNearTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusDmOneWayFarNearTxCounter, 
+                  me1200StatusDmOneWayFarNearRxCounter, 
+                  me1200StatusDmOneWayFarNearRxTimeOutCounter, 
+                  me1200StatusDmOneWayFarNearRxErrorCounter, 
+                  me1200StatusDmOneWayFarNearInternalOverflowCounter, 
+                  me1200StatusDmOneWayFarNearAverageDelay, 
+                  me1200StatusDmOneWayFarNearAverageLastnDelay, 
+                  me1200StatusDmOneWayFarNearAverageDelayVariation, 
+                  me1200StatusDmOneWayFarNearAverageLastnDelayVariation, 
+                  me1200StatusDmOneWayFarNearMinimumDelay, 
+                  me1200StatusDmOneWayFarNearMaximumDelay, 
+                  me1200StatusDmOneWayFarNearMinimumDelayVariation, 
+                  me1200StatusDmOneWayFarNearMaximumDelayVariation, 
+                  me1200StatusDmOneWayFarNearTimeUnit }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 40 }
+
+me1200StatusDmOneWayNearFarTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusDmOneWayNearFarTxCounter, 
+                  me1200StatusDmOneWayNearFarRxCounter, 
+                  me1200StatusDmOneWayNearFarRxTimeOutCounter, 
+                  me1200StatusDmOneWayNearFarRxErrorCounter, 
+                  me1200StatusDmOneWayNearFarInternalOverflowCounter, 
+                  me1200StatusDmOneWayNearFarAverageDelay, 
+                  me1200StatusDmOneWayNearFarAverageLastnDelay, 
+                  me1200StatusDmOneWayNearFarAverageDelayVariation, 
+                  me1200StatusDmOneWayNearFarAverageLastnDelayVariation, 
+                  me1200StatusDmOneWayNearFarMinimumDelay, 
+                  me1200StatusDmOneWayNearFarMaximumDelay, 
+                  me1200StatusDmOneWayNearFarMinimumDelayVariation, 
+                  me1200StatusDmOneWayNearFarMaximumDelayVariation, 
+                  me1200StatusDmOneWayNearFarTimeUnit }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 41 }
+
+me1200StatusDmFdBinsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusDmFdBinsTwValue, me1200StatusDmFdBinsOwFtNValue, 
+                  me1200StatusDmFdBinsOwNtFValue }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 42 }
+
+me1200StatusDmIfdvBinsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusDmIfdvBinsTwValue, me1200StatusDmIfdvBinsOwFtNValue, 
+                  me1200StatusDmIfdvBinsOwNtFValue }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 43 }
+
+me1200StatusLbTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusLbTransactionId, me1200StatusLbReplyCounter, 
+                  me1200StatusLbLbmTransmitted }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 44 }
+
+me1200StatusLbReplyTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusLbReplyMac, me1200StatusLbReplyLbrReceived, 
+                  me1200StatusLbReplyOutOfOrder }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 45 }
+
+me1200StatusTstTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusTstTxCounter, me1200StatusTstRxCounter, 
+                  me1200StatusTstOutOfOrderCounter, me1200StatusTstRxRate, 
+                  me1200StatusTstTestTime }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 46 }
+
+me1200StatusLtTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusLtTransactionId, me1200StatusLtReplyCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 47 }
+
+me1200StatusLtReplyTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusLtReplyMode, me1200StatusLtReplyDirection, 
+                  me1200StatusLtReplyTtl, me1200StatusLtReplyForwarded, 
+                  me1200StatusLtReplyRelayAction, me1200StatusLtReplyLastEgressMac, 
+                  me1200StatusLtReplyNextEgressMac }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 48 }
+
+me1200StatusCCPeerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusCCPeerOsTlvOuiFirst, me1200StatusCCPeerOsTlvOuiSecond, 
+                  me1200StatusCCPeerOsTlvOuiThird, me1200StatusCCPeerOsTlvSubType, 
+                  me1200StatusCCPeerOsTlvValue, me1200StatusCCPeerIsTlvValue, 
+                  me1200StatusCCPeerPsTlvValue, me1200StatusCCPeerOsTlvReceived, 
+                  me1200StatusCCPeerIsTlvReceived, me1200StatusCCPeerPsTlvReceived }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 49 }
+
+me1200StatusLmAvailTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusLmAvailNearEndAvailState, 
+                  me1200StatusLmAvailFarEndAvailState, 
+                  me1200StatusLmAvailNearEndAvailCnt, 
+                  me1200StatusLmAvailFarEndAvailCnt, 
+                  me1200StatusLmAvailNearEndUnAvailCnt, 
+                  me1200StatusLmAvailFarEndUnAvailCnt, 
+                  me1200StatusLmAvailNearEndWindowCnt, 
+                  me1200StatusLmAvailFarEndWindowCnt }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 50 }
+
+me1200ControlLmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ControlLmClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 51 }
+
+me1200ControlDmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ControlDmClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 52 }
+
+me1200ControlTstTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ControlTstClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 53 }
+
+me1200MepNotificationInfoGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { me1200MepNotificationLmNearEndLossRatioThresholdExceed,
+                    me1200MepNotificationLmFarEndLossRatioThresholdExceed,
+                    me1200MepNotificationDmTwoWayAvgLastnDelayExceed,
+                    me1200MepNotificationDmTwoWayAvgLastnDelayExceedRecovery,
+                    me1200MepNotificationDmTwoWayAvgLastnDelayVarExceed,
+                    me1200MepNotificationDmTwoWayAvgLastnDelayVarExceedRecovery,
+                    me1200MepNotificationDmOneWayF2NAvgLastnDelayExceed,
+                    me1200MepNotificationDmOneWayF2NAvgLastnDelayExceedRecovery,
+                    me1200MepNotificationDmOneWayF2NAvgLastnDelayVarExceed,
+                    me1200MepNotificationDmOneWayF2NAvgLastnDelayVarExceedRecovery,
+                    me1200MepNotificationDmOneWayN2FAvgLastnDelayExceed,
+                    me1200MepNotificationDmOneWayN2FAvgLastnDelayExceedRecovery,
+                    me1200MepNotificationDmOneWayN2FAvgLastnDelayVarExceed,
+                    me1200MepNotificationDmOneWayN2FAvgLastnDelayVarExceedRecovery }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MepMibGroups 54 }
+
+me1200MepMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200MepCapabilitiesInfoGroup, 
+                  me1200ConfigInstanceTableInfoGroup, 
+                  me1200ConfigInstanceRowEditorInfoGroup, 
+                  me1200ConfigInstancePeerTableInfoGroup, 
+                  me1200ConfigInstancePeerRowEditorInfoGroup, 
+                  me1200ConfigPmTableInfoGroup, me1200ConfigCcTableInfoGroup, 
+                  me1200ConfigCcRowEditorInfoGroup, me1200ConfigLmTableInfoGroup, 
+                  me1200ConfigLmRowEditorInfoGroup, me1200ConfigDmTableInfoGroup, 
+                  me1200ConfigDmRowEditorInfoGroup, 
+                  me1200ConfigDmFdBinTableInfoGroup, 
+                  me1200ConfigDmIfdvBinTableInfoGroup, me1200ConfigLbTableInfoGroup, 
+                  me1200ConfigLbRowEditorInfoGroup, me1200ConfigTstTableInfoGroup, 
+                  me1200ConfigTstRowEditorInfoGroup, me1200ConfigLtTableInfoGroup, 
+                  me1200ConfigLtRowEditorInfoGroup, me1200ConfigApsTableInfoGroup, 
+                  me1200ConfigApsRowEditorInfoGroup, me1200ConfigAisTableInfoGroup, 
+                  me1200ConfigAisRowEditorInfoGroup, me1200ConfigLckTableInfoGroup, 
+                  me1200ConfigLckRowEditorInfoGroup, 
+                  me1200ConfigClientTableInfoGroup, 
+                  me1200ConfigClientFlowTableInfoGroup, 
+                  me1200ConfigClientFlowRowEditorInfoGroup, 
+                  me1200ConfigSyslogTableInfoGroup, me1200ConfigTlvLeafInfoGroup, 
+                  me1200ConfigLstTableInfoGroup, me1200ConfigLmAvailTableInfoGroup, 
+                  me1200ConfigLmAvailRowEditorInfoGroup, 
+                  me1200StatusInstanceTableInfoGroup, 
+                  me1200StatusInstancePeerTableInfoGroup, 
+                  me1200StatusLmTableInfoGroup, me1200StatusLmPeerTableInfoGroup, 
+                  me1200StatusDmTwoWayTableInfoGroup, 
+                  me1200StatusDmOneWayFarNearTableInfoGroup, 
+                  me1200StatusDmOneWayNearFarTableInfoGroup, 
+                  me1200StatusDmFdBinsTableInfoGroup, 
+                  me1200StatusDmIfdvBinsTableInfoGroup, me1200StatusLbTableInfoGroup, 
+                  me1200StatusLbReplyTableInfoGroup, me1200StatusTstTableInfoGroup, 
+                  me1200StatusLtTableInfoGroup, me1200StatusLtReplyTableInfoGroup, 
+                  me1200StatusCCPeerTableInfoGroup, 
+                  me1200StatusLmAvailTableInfoGroup, me1200ControlLmTableInfoGroup, 
+                  me1200ControlDmTableInfoGroup, me1200ControlTstTableInfoGroup }
+
+    ::= { me1200MepMibCompliances 1 }
+
+END

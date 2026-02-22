@@ -1,0 +1,3922 @@
+-- *******************************************************************
+-- CISCO-IETF-ISNS-MGMT-MIB.my: Internet Storage Name Service Mib
+--
+-- August 2004, Arul Mozhi
+--
+-- Copyright (c) 2004 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *******************************************************************
+-- This MIB module is based on the Internet Draft
+-- <draft-ietf-ips-isns-mib-06.txt>. In terms of object syntax
+-- and semantics, the content of this Cisco MIB is the same as
+-- the corresponding Internet Draft revision. This Cisco MIB was
+-- created due to the "subject to change" nature of Internet Drafts.
+-- This Cisco MIB may later be deprecated, and the stable RFC, which
+-- may replace the Internet Draft, may be implemented in its place.
+   
+CISCO-IETF-ISNS-MGMT-MIB DEFINITIONS ::= BEGIN 
+   IMPORTS 
+       Unsigned32, Integer32, 
+       MODULE-IDENTITY, OBJECT-TYPE, 
+       NOTIFICATION-TYPE, TimeTicks    FROM SNMPv2-SMI 
+   
+       OBJECT-GROUP, 
+       NOTIFICATION-GROUP, 
+       MODULE-COMPLIANCE               FROM SNMPv2-CONF 
+   
+       TEXTUAL-CONVENTION, 
+       DateAndTime, 
+       TruthValue, RowStatus           FROM SNMPv2-TC 
+   
+       SnmpAdminString                 FROM SNMP-FRAMEWORK-MIB 
+    
+       InetAddressType, 
+       InetAddress                     FROM INET-ADDRESS-MIB 
+    
+       FcNameIdOrZero, 
+       FcAddressId                     FROM CISCO-ST-TC  
+       ciscoExperiment                 FROM CISCO-SMI;     
+ciscoIetfIsnsMgmtMIB  MODULE-IDENTITY 
+   LAST-UPDATED       "200408130000Z"
+   ORGANIZATION       "Cisco Systems Inc. "
+   CONTACT-INFO
+               "     Cisco Systems
+                     Customer Service
+                 Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+                 Tel: +1 800 553 -NETS
+                 E-mail: cs-san@cisco.com"
+   DESCRIPTION
+           "The Cisco version of the ISNS Management MIB draft
+            draft-ietf-ips-isns-mib-06.txt from the IETF."
+   REVISION    "200408130000Z"
+   DESCRIPTION
+           "The MIB for internet Storage Name Service 
+            (iSNS) Management." 
+   ::= { ciscoExperiment 116 }
+
+
+--
+-- Textual Conventions
+--
+
+CIsnsDiscoveryDomainSetId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The unique Discovery Domain Set Identifier associated with a 
+        Discovery Domain Set (DDS)." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Unsigned32 ( 1 .. 4294967295 ) 
+    
+CIsnsDdsStatusId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The bitmap indicating the status of a Discovery Domain 
+        Set (DDS) registered in the iSNS. 
+                 Bit           Status 
+              ---------       --------- 
+                  0            enabled 
+    
+        If bit(0) is set to true then the DDS is Enabled.  Otherwise 
+        the DDS is disabled." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX      BITS {  
+                    enabled(0) 
+                    } 
+    
+CIsnsDiscoveryDomainId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The unique Discovery Domain Identifier (DD_ID) associated 
+        with each Discovery Domain (DD).  This can be used to 
+        uniquely index and reference a DD.  New storage nodes  
+        are automatically added to the default DD if 
+        cIsnsSrvrInstDfltDdDdsStatus is set to inDefaultDdAndDds." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Unsigned32 ( 1 .. 4294967295 ) 
+    
+CIsnsDdFeatureBitmapId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The bitmap indicating the types of features 
+        each Discovery Domain (DD) has. 
+                 Bit           Status 
+              ---------       --------- 
+                  0            Boot List 
+     
+        Boot List: this feature indicates that the targets 
+        in this DD provide boot capabilities for the member 
+        initiators.  Setting the bit to true (1) indicates 
+        the feature is enabled.  Otherwise it is disabled." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         BITS {  
+                       bootlist(0) 
+                       } 
+    
+CIsnsDdDdsModificationBitmap ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The methods that can be used to modify the Discovery 
+        Domain and Discovery Domain Sets in the iSNS Server 
+        instance. 
+        Bit Field            Flag Description 
+        ---------   ------------------------------------ 
+            0       SNMP protocol is allowed to modify DD's/DDS's 
+            1       Control Nodes are allowed 
+            2       Target iSCSI Nodes are allowed 
+            3       Initiator iSCSI Nodes are allowed 
+            4       Target iFCP Ports are allowed 
+            5       Initiator iFCP Ports are allowed 
+    
+        Setting a bit to true (1) indicates the feature is 
+        enabled.  Otherwise it is disabled." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 3" 
+   SYNTAX         BITS {  
+                       snmpEnabled(0), 
+                       controlNode(1), 
+                       targetIscsiNode(2), 
+                       initiatorIscsiNode(3), 
+                       targetIfcpNode(4), 
+                       initiatorIfcpNode(5) 
+                       } 
+    
+CIsnsEntityIndexId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "This textual convention is used as an identifier for 
+        the unique integer Entity Index associated with a storage 
+        entity that is registered in an iSNS Server.  The index 
+        is unique within an iSNS Server instance." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Unsigned32 ( 1 .. 4294967295 ) 
+    
+CIsnsEntityProtocolId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The type of protocol that is supported by this entity. 
+    
+              Type Value       Entity Type 
+              ----------       ----------- 
+                 1             No Protocol 
+                 2             iSCSI 
+                 3             iFCP 
+               All Others      As in the iSNS Specification 
+       " 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         INTEGER { noProtocol(1), 
+                            iSCSI(2), 
+                            iFCP(3) 
+                          } 
+    
+CIsnsPortalGroupIndexId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The identifier for the unique integer Portal Group Index 
+        associated with a iSNS registered Portal Group object." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Unsigned32 ( 1 .. 4294967295 ) 
+    
+CIsnsPortalIndexId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The identifier for the unique integer Portal Index 
+        associated with a storage portal." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Unsigned32 ( 1 .. 4294967295 ) 
+   
+CIsnsPortalPortId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The UDP or TCP port number being used by a Portal for an 
+        Entity." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX             Integer32 ( 0 .. 65535 ) 
+    
+CIsnsPortalPortTypeId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The UDP or TCP port type being used by a Portal for an 
+        Entity." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         INTEGER { udp(1), tcp(2) } 
+    
+CIsnsPortalGroupTagIdOrZero ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The Portal Group Tag (PGT) TC for iSCSI Portal Group 
+        objects registered in the iSNS.  The value of zero 
+        indicates a NULL value, or no association, between the 
+        associated Portal and iSCSI Node." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Integer32 ( 0 .. 65535 ) 
+    
+CIsnsPortalSecurityBitmapId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "Indicates security attribute settings for the Portal as 
+        registered in the Portal Security Bitmap attribute.  The 
+        valid bit must be set in order for this attribute to contain 
+        valid information.  The definition of the bitmap is based on 
+        the iSNS Specification [iSNS].  The representation of each 
+        bit setting (0 or 1) is indicated below. 
+    
+        Bit Field            Flag Description 
+        ---------   ------------------------------------ 
+           0        1 = Tunnel Mode Preferred; 0 = No Preference 
+           1        1 = Transport Mode Preferred; 0 = No Preference 
+           2        1 = PFS Enabled; 0 = PFS Disabled 
+           3        1 = Aggressive Mode Enabled; 0 = Disabled 
+           4        1 = Main Mode Enabled; 0 = MM Disabled 
+           5        1 = IKE/IPSec Enabled; 0 = IKE/IPSec Disabled 
+           6        1 = Bitmap VALID; 0 = INVALID 
+    
+       " 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX        BITS {  
+                      tunnelModePreferred(0), 
+                      transportModePreferred(1), 
+                      pfsEnabled(2), 
+                      agressiveModeEnabled(3), 
+                      mainModeEnabled(4), 
+                      ikeIpsecEnabled(5), 
+                      bitmapVALID(6) 
+                      } 
+    
+CIsnsNodeIndexId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The identifier for the unique integer Node Index associated 
+        with a storage node." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Unsigned32 ( 1 .. 4294967295 ) 
+    
+CIsnsNodeIndexIdOrZero ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The identifier for the unique integer Node Index associated 
+        with a storage node, or the value zero. The additional value 
+        of zero is specific to each managed object, and must be 
+        defined as part of the description of any managed object 
+        which uses this syntax" 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         Unsigned32 ( 0 .. 4294967295 ) 
+    
+    
+CIsnsNodeTypeId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The Node Type bit-map defines the functions of this node.  
+        The definitions of each setting are defined in the iSNS 
+        Specification [iSNS]. 
+                 Bit          Node Type 
+              ---------       --------- 
+                 0            Control 
+                 1            Initiator 
+                 2            Target 
+       " 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         BITS {  
+                       control(0), 
+                       initiator(1), 
+                       target(2) 
+                       } 
+    
+CIsnsCosBitmapId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "This bit-map indicates the Fibre Channel Class of Service 
+        types that are supported by the registered port. 
+    
+        Bit Field          Flag Description 
+        ---------          ---------------- 
+           0             Fibre Channel Class 3 Supported   
+           1             Fibre Channel Class 2 Supported 
+    
+        Setting a bit to true (1) indicates the class of service is 
+        supported." 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         BITS {  
+                       class3(0), 
+                       class2(1) 
+                       } 
+    
+CIsnsScnBitmapId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "The State Change Notification (SCN) bitmap for a node as 
+        defined in the iSNS Specification [iSNS].  A set bit (1) 
+        indicates the type of SCN for the bitmap as follows: 
+    
+        Bit Field          Flag Description 
+        ---------          ---------------- 
+           0               INITIATOR AND SELF INFORMATION ONLY 
+           1               TARGET AND SELF INFORMATION ONLY  
+           2               MANAGEMENT REGISTRATION/SCN 
+           3               REGISTERED OBJECT REMOVED 
+           4               REGISTERED OBJECT ADDED 
+           5               REGISTERED OBJECT UPDATED 
+           6               DD/DDS MEMBER REMOVED (MGT REG/SCN 
+                             ONLY) 
+           7               DD/DDS MEMBER ADDED (MGT REG/SCN 
+                             ONLY) 
+       " 
+   REFERENCE      "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   SYNTAX         BITS {  
+                       initiatorAndSelfOnly(0), 
+                       targetAndSelfOnly(1), 
+                       managementRegistrationScn(2), 
+                       registeredObjectRemoved(3), 
+                       registeredObjectAdded(4), 
+                       registeredObjectUpdated(5), 
+                       ddOrDdsMemberRemoved(6), 
+                       ddOrDdsMemberAdded(7) 
+                       } 
+    
+CIsnsSrvrDscvryMthdId ::= TEXTUAL-CONVENTION 
+   STATUS         current 
+   DESCRIPTION 
+       "This bitamp is used to indicate the iSNS Server discovery 
+        methods that are supported and enabled on an iSNS Server.  
+        The options are DHCP, SLP, multicast group iSNS heartbeat, 
+        broadcast group iSNS heartbeat, configured server list, and 
+        other.  The iSNS Server may also support additional discovery 
+        methods not indicated.  The bitmap also is used to indicate 
+        the type of discovery being used by an iSNS Client instance.  
+        If being used, the configured server list for a specific iSNS 
+        client is specified in cIsnsClntCfgSrvrTable table.  If used, 
+        the multicast group is specified in cIsnsClntInstDiscMcGrp." 
+   SYNTAX      BITS { 
+                    dhcp(0), 
+                    slp(1), 
+                    multicastGroupHb(2), 
+                    broadcastHb(3), 
+                    cfgdServerList(4), 
+                    other(5) 
+                    } 
+    
+-- 
+-- Internet Storage Name Service Management 
+-- 
+    
+cIsnsObj                     OBJECT IDENTIFIER ::= 
+                                   { ciscoIetfIsnsMgmtMIB 1 } 
+cIsnsConformance             OBJECT IDENTIFIER ::= 
+                                   { ciscoIetfIsnsMgmtMIB 2 } 
+    
+-- 
+-- iSNS Server instance managed objects -------------------- 
+-- 
+    
+cIsnsSrvrInfo OBJECT IDENTIFIER ::= { cIsnsObj 1 } 
+    
+cIsnsSrvrInstTable           OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsSrvrInstEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "This table provides a list of the iSNS Server instances 
+        that are managed through the same SNMP context." 
+   ::= { cIsnsSrvrInfo 1 } 
+    
+cIsnsSrvrInstEntry           OBJECT-TYPE 
+   SYNTAX                  CIsnsSrvrInstEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "This is a row in the iSNS Server instance table.  The number 
+        of rows is dependent on the number of iSNS Server instances 
+        that are being managed through same SNMP context." 
+   INDEX   { cIsnsSrvrInstIndex } 
+   ::= { cIsnsSrvrInstTable 1 } 
+    
+CIsnsSrvrInstEntry ::= 
+   SEQUENCE {  
+       cIsnsSrvrInstIndex              Unsigned32, 
+       cIsnsSrvrInstName               SnmpAdminString, 
+       cIsnsSrvrInstIsnsVersion        Integer32, 
+       cIsnsSrvrInstDescription        SnmpAdminString, 
+       cIsnsSrvrInstAddressType        InetAddressType, 
+       cIsnsSrvrInstAddress            InetAddress, 
+       cIsnsSrvrInstTcpPort            Integer32, 
+       cIsnsSrvrInstUdpPort            Integer32, 
+       cIsnsSrvrInstUptime             TimeTicks, 
+       cIsnsSrvrInstRole               INTEGER, 
+       cIsnsSrvrInstDiscMthdsEnbld     CIsnsSrvrDscvryMthdId, 
+       cIsnsSrvrInstDiscMcGrpType      InetAddressType, 
+       cIsnsSrvrInstDiscMcGrp          InetAddress, 
+       cIsnsSrvrInstEsiNonRespThrshld  Integer32, 
+       cIsnsSrvrInstCntrlNodeAuth      INTEGER, 
+       cIsnsSrvrInstEnblCntrlNdeMgtScn TruthValue, 
+       cIsnsSrvrInstDfltDdDdsStatus    INTEGER,  
+       cIsnsSrvrInstUpdateDdDdsSpprtd  CIsnsDdDdsModificationBitmap, 
+       cIsnsSrvrInstUpdateDdDdsEnbld   CIsnsDdDdsModificationBitmap 
+       } 
+    
+cIsnsSrvrInstIndex           OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 1 .. 4294967295 ) 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object uniquely identifies the iSNS Server being 
+        managed by the SNMP context, and is the key for this table.  
+        This is an instance index for each iSNS Server being managed.  
+        The value of this managed object is used elsewhere in the MIB 
+        to reference specific iSNS Servers." 
+   ::= { cIsnsSrvrInstEntry 1 } 
+    
+cIsnsSrvrInstName            OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "A name that can be assigned to the iSNS Server instance.  
+        If not configured, the value is an empty string." 
+   ::= { cIsnsSrvrInstEntry 2 } 
+    
+cIsnsSrvrInstIsnsVersion     OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "The iSNS version value as contained in messages received 
+        from the current primary server.  The header of each iSNSP 
+        message contains the iSNS version of the sender.  If 
+        unknown the reported value is 0." 
+   REFERENCE               "draft-ietf-ips-iSNS-22.txt" 
+   DEFVAL                  { 1 } 
+   ::= { cIsnsSrvrInstEntry 3 } 
+    
+cIsnsSrvrInstDescription     OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "This provides a description and detail information 
+        about this server.  If this server instance is utilizing 
+        the product of a particular 'vendor' or 'open source', then 
+        this managed object contains that vendor's name and version, 
+        or open source name and version.  Otherwise, it contains 
+        the empty string.  The format of the string 
+        is as follows: 'Vendor/Open Source Name, Vendor/Open Source 
+        Version, Vendor/Open Source Defined Information'. 
+    
+          Field            Description 
+        ---------        ---------------- 
+       Vendor/OS Name    The name of the vendor or open 
+                         source (if one exists) 
+       Vendor/OS Version The version of the vendor or 
+                         open source product 
+       Vendor/OS Defined This follows the second comma in the 
+                         string, if one exists, and is vendor 
+                         or open source developer defined 
+       " 
+   ::= { cIsnsSrvrInstEntry 4 } 
+    
+cIsnsSrvrInstAddressType     OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsSrvrInstAddress. If not 
+        set, then the value is unknown(0)." 
+   ::= { cIsnsSrvrInstEntry 5 } 
+    
+cIsnsSrvrInstAddress         OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "The address that this iSNS server instance is receiving 
+        iSNSP registrations and queries on.  If currently not 
+        configured, then the value is an empty string." 
+   ::= { cIsnsSrvrInstEntry 6 } 
+    
+cIsnsSrvrInstTcpPort         OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the TCP port this iSNS instance is accepting 
+        iSNSP messages on, generally the iSNS well known port.  
+        The well known TCP port for iSNSP is 3205.  If TCP is 
+        not supported by this server instance, then the value 
+        is 0." 
+   ::= { cIsnsSrvrInstEntry 7 } 
+    
+cIsnsSrvrInstUdpPort         OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the UDP port this iSNS instance is accepting 
+        iSNSP messages on, generally the iSNS well known port.  
+        The well known UDP port for iSNSP is 3205.  If UDP is 
+        not supported by this server instance, then the value 
+        is 0." 
+   ::= { cIsnsSrvrInstEntry 8 } 
+    
+cIsnsSrvrInstUptime          OBJECT-TYPE 
+   SYNTAX                  TimeTicks 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "The time that this iSNS Server instance has been active.  In 
+        other words, the time since last reinitialization." 
+    
+   ::= { cIsnsSrvrInstEntry 9 } 
+    
+cIsnsSrvrInstRole            OBJECT-TYPE 
+   SYNTAX                  INTEGER { notSet(0), 
+                                     server(1),  
+                                     serverNotPrimary(2) } 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "Indicates the current operational role of this iSNS Server 
+        instance.  If an iSNS implementation has the ability to have 
+        a server instance take on different roles, then this managed 
+        object indicates the current role. 
+          Value             Description 
+        ---------         ---------------- 
+         notSet           The iSNS Server role is not configured. 
+         server           The iSNS Server instance is operating 
+                          as a primary iSNS Server. 
+         serverNotPrimary The iSNS Server instance can be a 
+                          primary iSNS Server, but is not 
+                          currently acting as a primary." 
+   DEFVAL                  { server } 
+   ::= { cIsnsSrvrInstEntry 10 } 
+    
+cIsnsSrvrInstDiscMthdsEnbld  OBJECT-TYPE 
+   SYNTAX                  CIsnsSrvrDscvryMthdId 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION  
+       "Indicates the discovery methods currently supported and 
+        enabled on this iSNS Server instance.  This bitmap can be 
+        used by a client to determine what discovery methods should 
+        be used for this iSNS Server.  Additional methods of 
+        discovery may also be supported." 
+   ::= { cIsnsSrvrInstEntry 11 } 
+    
+cIsnsSrvrInstDiscMcGrpType   OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsSrvrInstDiscMcGrp. If not 
+        set, then the value is unknown(0)." 
+   ::= { cIsnsSrvrInstEntry 12 } 
+    
+cIsnsSrvrInstDiscMcGrp       OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "The multicast group that iSNS Heartbeat messages are 
+        sent to if multicast based discovery has been enabled 
+        for this server instance.  If not configured, then 
+        the value is an empty string." 
+   ::= { cIsnsSrvrInstEntry 13 } 
+    
+cIsnsSrvrInstEsiNonRespThrshld OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION  
+       "ESI Non-Response Threshold - determines the number of ESI 
+        messages that will be sent without receiving a response 
+        before an entity is deregistered from the iSNS database.  
+        If set to 0 then Entities will never be deregistered due to 
+        non-receipt of ESI messages." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 3.4" 
+   DEFVAL                  { 3 } 
+   ::= { cIsnsSrvrInstEntry 14 } 
+    
+cIsnsSrvrInstCntrlNodeAuth   OBJECT-TYPE 
+   SYNTAX                  INTEGER { anyNode(1),  
+                                     viewNodes(2), 
+                                     modifyNodes(3), 
+                                     noSnmpAccess(4) } 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "Control Nodes can be configured to receive management SCNs 
+        indicating network updates, including information on 
+        modification to DDs and DDSs.  This managed object indicates 
+        if SNMP has access to control node information and, if it 
+        does, which type of storage nodes can register with the 
+        server instance as a control node.  Possible values for this 
+        managed object are: 
+          Value              Description 
+        ---------          ---------------- 
+        anyNode      Any storage node MAY register as a control 
+                     node 
+        viewNodes    Specified nodes MAY register as control 
+                     nodes, SNMP view only 
+        modifyNodes  Specified nodes MAY register as control 
+                     nodes, SNMP CAN modify list of nodes 
+        noSnmpAccess Control node information is not accessible 
+                     via SNMP 
+        If only specified nodes are allowed to register as control 
+        nodes, and SNMP is allowed to modify the list of control 
+        nodes, then they SHALL be listed in the 
+        cIsnsCntlNodeIscsiTable and cIsnsCntlNodeFcPortTable. 
+        If SNMP is not allowed to view or modify the list of control 
+        nodes, then this managed object SHALL be set to 
+        noSnmpAccess." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 3.4" 
+   ::= { cIsnsSrvrInstEntry 15 } 
+    
+cIsnsSrvrInstEnblCntrlNdeMgtScn OBJECT-TYPE 
+   SYNTAX                  TruthValue 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION  
+       "Enable Management SCN for Control Node - enable the option 
+        for a control node to register for and receive Management 
+        SCNs sent by this server." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 3.4" 
+   DEFVAL                  { true } 
+   ::= { cIsnsSrvrInstEntry 16 } 
+    
+cIsnsSrvrInstDfltDdDdsStatus OBJECT-TYPE 
+   SYNTAX                  INTEGER { inNoDomain(1),  
+                                     inDefaultDdAndDds(2) } 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "Default DD/DDS Status - This indicates the Discovery Domain 
+        (DD) and Discovery Domain Set (DDS) membership status for a 
+        new device when registered in the iSNS Server instance. 
+        Either the new device will not be in a DD/DDS, or will be 
+        placed into a default DD and default DDS.  The default 
+        setting is inNoDomain." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 3.4" 
+   DEFVAL                  { inNoDomain } 
+   ::= { cIsnsSrvrInstEntry 17 } 
+    
+cIsnsSrvrInstUpdateDdDdsSpprtd OBJECT-TYPE 
+   SYNTAX                  CIsnsDdDdsModificationBitmap 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "The methods that this iSNS Server instance supports 
+        to modify Discovery Domains and Discovery Domain Sets. 
+        Bit Field            Flag Description 
+        ---------   ------------------------------------ 
+            0       SNMP protocol is allowed to modify 
+                    DD's/DDS's 
+            1       Control Nodes are allowed 
+            2       Target iSCSI Nodes are allowed 
+            3       Initiator iSCSI Nodes are allowed 
+            4       Target iFCP Ports are allowed 
+            5       Initiator iFCP Ports are allowed 
+    
+        If a bit is true (1) then the flag is enabled.  If no 
+        method to change a DD is supported, then the bitmap 
+        is set to 0.  Two methods generally supported are SNMP 
+        and Control Nodes." 
+   REFERENCE  "draft-ietf-ips-iSNS-22.txt, Section 3.4" 
+   ::= { cIsnsSrvrInstEntry 18 } 
+    
+cIsnsSrvrInstUpdateDdDdsEnbld OBJECT-TYPE 
+   SYNTAX                  CIsnsDdDdsModificationBitmap 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION  
+       "This indicates the methods this server instance allows 
+        for modifying Discovery Domains and Discovery Domain Sets. 
+        Bit Field            Flag Description 
+        ---------   ------------------------------------ 
+            0       SNMP protocol is allowed to modify DD's/DDS's 
+            1       Control Nodes are allowed 
+            2       Target iSCSI Nodes are allowed 
+            3       Initiator iSCSI Nodes are allowed 
+            4       Target iFCP Ports are allowed 
+            5       Initiator iFCP Ports are allowed 
+    
+        If a bit is true (1) then the mode is enabled.  If no 
+        methods to change a DD are enabled, then the bitmap 
+        is set to 0." 
+   REFERENCE  "draft-ietf-ips-iSNS-22.txt, Sec 2.2.2 and 3.4" 
+   ::= { cIsnsSrvrInstEntry 19 } 
+    
+-- 
+-- Count of objects currently registered in a server instance 
+-- 
+    
+cIsnsNumObjTable    OBJECT-TYPE 
+   SYNTAX          SEQUENCE OF 
+                       CIsnsNumObjEntry 
+   MAX-ACCESS      not-accessible 
+   STATUS          current 
+   DESCRIPTION      
+       "Table providing the number of registered objects of each 
+        type in the iSNS Server instance.  This table is optional 
+        to implement.  The number of entries is dependent upon the 
+        number of iSNS Server instances being managed." 
+   ::= { cIsnsSrvrInfo 2 } 
+    
+cIsnsNumObjEntry             OBJECT-TYPE 
+   SYNTAX                  CIsnsNumObjEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "Entry of an iSNS Server instance." 
+   AUGMENTS { cIsnsSrvrInstEntry } 
+   ::= { cIsnsNumObjTable 1 } 
+    
+CIsnsNumObjEntry ::= SEQUENCE      {  
+       cIsnsNumDds             Unsigned32, 
+       cIsnsNumDd              Unsigned32, 
+       cIsnsNumEntities        Unsigned32, 
+       cIsnsNumPortals         Unsigned32, 
+       cIsnsNumPortalGroups    Unsigned32, 
+       cIsnsNumIscsiNodes      Unsigned32, 
+       cIsnsNumFcPorts         Unsigned32, 
+       cIsnsNumFcNodes         Unsigned32 
+                                      } 
+    
+cIsnsNumDds                  OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current total number of Discovery Domain Sets 
+        in this iSNS instance.  This is the number of rows 
+        in the cIsnsSrvrDdsTable." 
+   ::= { cIsnsNumObjEntry 1 } 
+    
+cIsnsNumDd                   OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current total number of Discovery Domains  
+        in this iSNS instance.  This is the number of rows in the 
+        cIsnsSrvrDdTable." 
+   ::= { cIsnsNumObjEntry 2 } 
+    
+cIsnsNumEntities             OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current number of Entities registered in this 
+        iSNS Server instance.  This is the number of rows in 
+        the cIsnsRegEntityTable for this instance." 
+   ::= { cIsnsNumObjEntry 3 } 
+    
+cIsnsNumPortals              OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current total number of Portals registered in iSNS. 
+        This is the number of rows in cIsnsRegPortalTable." 
+   ::= { cIsnsNumObjEntry 4 } 
+    
+cIsnsNumPortalGroups         OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current total number of Portal Groups registered in 
+        iSNS.  This is the number of rows in 
+        cIsnsRegPortalGroupTable." 
+   ::= { cIsnsNumObjEntry 5 } 
+    
+cIsnsNumIscsiNodes           OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current total number of iSCSI node entries registered in 
+        the iSNS.  This is the number rows in cIsnsRegIscsiNodeTable." 
+   ::= { cIsnsNumObjEntry 6 } 
+    
+cIsnsNumFcPorts              OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current total number of FC Port entries registered in the 
+        iSNS.  This is the number of rows in cIsnsRegFcPortTable." 
+   ::= { cIsnsNumObjEntry 7 } 
+    
+cIsnsNumFcNodes              OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The current total number of FC node entries registered in the 
+        iSNS. This is the number of rows in cIsnsRegFcNodeTable." 
+   ::= { cIsnsNumObjEntry 8 } 
+    
+-- 
+-- Next available registered object index in each iSNS Server 
+-- instance 
+-- 
+    
+cIsnsNextIdxTable            OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF 
+                               CIsnsNextIdxEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "The next available Discovery Domain Set Identifier, 
+        Discovery Domain Identifier, iSCSI Index, Portal Group Index,  
+        and Portal Index for the specified iSNS Server instance.  
+        This is used for registered object creation through SNMP 
+        for the respective registered object types that support 
+        this.  Indexes are used for registered objects that have 
+        unique names that are too long or unwieldy for use as 
+        an SNMP index.  The number of entries is dependent upon 
+        the number of iSNS Server instances being managed." 
+   ::= { cIsnsSrvrInfo 3 } 
+    
+cIsnsNextIdxEntry            OBJECT-TYPE 
+   SYNTAX                  CIsnsNextIdxEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "Entry of an iSNS Server instance." 
+   AUGMENTS { cIsnsSrvrInstEntry } 
+   ::= { cIsnsNextIdxTable 1 } 
+    
+CIsnsNextIdxEntry ::= SEQUENCE   {  
+   cIsnsNextIdxDds                CIsnsDiscoveryDomainSetId, 
+   cIsnsNextIdxDd                 CIsnsDiscoveryDomainId, 
+   cIsnsNextIdxUnregIscsiNodeInDd CIsnsNodeIndexIdOrZero, 
+   cIsnsNextIdxUnregPortalInDd    CIsnsPortalIndexId 
+                                } 
+    
+cIsnsNextIdxDds              OBJECT-TYPE 
+   SYNTAX                  CIsnsDiscoveryDomainSetId  
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object returns the next available DDS ID that 
+        MAY be used for DDS creation for this iSNS Server instance. 
+        The user should read and use the value of cIsnsNextIdxDds 
+        before performing a cIsnsDdsTable row creation.  The 
+        cIsnsNextIdxDds value returned MAY be used as the index 
+        value when creating a new row in the cIsnsDdsTable.  Use 
+        of this managed object reduces the chance for an index 
+        conflict." 
+   ::= { cIsnsNextIdxEntry 1 } 
+    
+cIsnsNextIdxDd               OBJECT-TYPE 
+   SYNTAX                  CIsnsDiscoveryDomainId  
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object returns the next available DD ID that 
+        MAY be used for DD creation for this iSNS Server instance. 
+        The user should read and use the value of cIsnsNextIdxDd 
+        before performing a cIsnsDdTable row creation.  The 
+        cIsnsNextIdxDd value returned MAY be used as the index 
+        value when creating a new row in the cIsnsDdTable.  Use 
+        of this managed object reduces the chance for an index 
+        conflict." 
+   ::= { cIsnsNextIdxEntry 2 } 
+    
+cIsnsNextIdxUnregIscsiNodeInDd OBJECT-TYPE 
+   SYNTAX                  CIsnsNodeIndexIdOrZero 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The next available iSCSI node index for adding an 
+        unregistered iSCSI node to a Discovery Domain or as a 
+        control node. The iSCSI node index is associated to a 
+        specific iSCSI node name.  The association is persistent 
+        across server reinitializations when the iSCSI node is a 
+        member of a Discovery Domain (DD) or is a control node. 
+        This managed object is used when an unregistered iSCSI 
+        node is to be added to a Discovery Domain or as a control 
+        node prior to it being registered in the server using 
+        the iSNS protocol.  Registered iSCSI nodes have an entry 
+        in the cIsnsRegIscsiNodeTable.  If an iSCSI node is 
+        already registered in the server or is already a member 
+        of a Discovery Domain, then it already has an associated 
+        iSCSI node index.  The associated index MUST be used for 
+        any additional DD membership or control node 
+        registrations.  If iSCSI is not supported by this iSNS 
+        Server instance, and this managed object is implemented, 
+        then this managed object SHALL return zero." 
+   ::= { cIsnsNextIdxEntry 3 } 
+    
+cIsnsNextIdxUnregPortalInDd OBJECT-TYPE 
+   SYNTAX                 CIsnsPortalIndexId 
+   MAX-ACCESS             read-only 
+   STATUS                 current 
+   DESCRIPTION 
+       "The next available portal index for adding an unregistered 
+        portal to a discovery domain. The portal index used for a 
+        specific portal is persistent across server reinitializations 
+        only when the portal is an explicit member of a Discovery 
+        Domain (DD). This managed object is used when an unregistered 
+        portal is to be explicitly added to a Discovery Domain prior 
+        to it being registered in the server using the iSNS protocol.  
+        Registered portals have an entry in the cIsnsRegPortalTable.  
+        If a portal is already registered in the server, or is 
+        already a member of a Discovery Domain, then it will already 
+        have a portal index, and the use of this managed object is not 
+        required.  The same portal index MUST be used for any 
+        additional DD membership registrations for the same portal." 
+   ::= { cIsnsNextIdxEntry 4 } 
+    
+-- 
+-- Control node information 
+-- 
+    
+cIsnsCntlNodeInfo     OBJECT IDENTIFIER ::= { cIsnsSrvrInfo 4 } 
+    
+-- 
+-- Specific iSCSI Nodes authorized to register as Control Nodes 
+-- 
+    
+cIsnsCntlNodeIscsiTable      OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF 
+                               CIsnsCntlNodeIscsiEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "Specified iSCSI Nodes that can register as control nodes.  
+        The number of rows is dependent on the number of possible 
+        iSCSI Control Nodes, and if SNMP is enabled to view control 
+        node information, as indicated by cIsnsSrvrInstCntrlNodeAuth. 
+        This table is accessible and usable to view and/or modify the 
+        set of control nodes if cIsnsSrvrInstCntrlNodeAuth is set to 
+        the viewNodes or modifyNodes value." 
+   ::= { cIsnsCntlNodeInfo 1 } 
+    
+cIsnsCntlNodeIscsiEntry      OBJECT-TYPE 
+   SYNTAX                  CIsnsCntlNodeIscsiEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "This is an iSCSI Control Node entry for a specific iSNS 
+        server instance." 
+   INDEX          { cIsnsSrvrInstIndex, 
+                    cIsnsCntlNodeIscsiNodeIdx } 
+   ::= { cIsnsCntlNodeIscsiTable 1 } 
+    
+CIsnsCntlNodeIscsiEntry ::= SEQUENCE {  
+       cIsnsCntlNodeIscsiNodeIdx       CIsnsNodeIndexId, 
+       cIsnsCntlNodeIscsiNodeName      SnmpAdminString, 
+       cIsnsCntlNodeIscsiRowStatus     RowStatus 
+                                    } 
+    
+cIsnsCntlNodeIscsiNodeIdx    OBJECT-TYPE 
+   SYNTAX                  CIsnsNodeIndexId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSCSI Index for the storage node authorized to act 
+        as a control node.  This managed object is part of the 
+        key to this table.  This index provides a 1 to 1 mapping 
+        to the node name in cIsnsCntlNodeIscsiNodeName. The 
+        iSCSI node name is too long to be used for an index 
+        directly. The iSCSI node index used for a specific 
+        iSCSI node name MUST be identical in all DDs and 
+        control node registrations.  The mapping is persistent 
+        across server reinitializations when the iSCSI node is 
+        a member of a Discovery Domain (DD) or is a control 
+        node. The managed object cIsnsNextIdxUnregIscsiNodeInDd 
+        is used to determine an available index when an 
+        unregistered iSCSI node is to be registered as a control 
+        node prior to it being registered in the server using 
+        the iSNS protocol." 
+   ::= { cIsnsCntlNodeIscsiEntry 1 } 
+    
+    
+cIsnsCntlNodeIscsiNodeName   OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..223)) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION      
+       "The iSCSI Name of the initiator or target associated with 
+        the storage node.  The iSCSI Name can not be longer then 
+        223 bytes.  The iSNS Server internal maximum size is 224 
+        bytes to provide NULL termination.  This is the iSCSI Node 
+        Name for the storage node authorized to act as a control 
+        node." 
+   ::= { cIsnsCntlNodeIscsiEntry 2 } 
+    
+cIsnsCntlNodeIscsiRowStatus  OBJECT-TYPE 
+   SYNTAX                 RowStatus 
+   MAX-ACCESS             read-create 
+   STATUS                 current 
+   DESCRIPTION 
+       "This indicates the status of this entry in the 
+        table." 
+   ::= { cIsnsCntlNodeIscsiEntry 3 } 
+    
+-- 
+-- Specific FC Ports authorized to register as Control Nodes 
+-- 
+    
+cIsnsCntlNodeFcPortTable     OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF 
+                             CIsnsCntlNodeFcPortEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "Specified FC Ports that can register as control nodes.  The 
+        number of rows is dependent on the number of possible FC 
+        Port Control Nodes, and if SNMP is enabled to view control 
+        node information, as indicated by cIsnsSrvrInstCntrlNodeAuth. 
+        This table is accessible and usable to view and/or modify the 
+        set of control nodes if cIsnsSrvrInstCntrlNodeAuth is set to 
+        the viewNodes or modifyNodes value." 
+   ::= { cIsnsCntlNodeInfo 2 } 
+    
+cIsnsCntlNodeFcPortEntry     OBJECT-TYPE 
+   SYNTAX                  CIsnsCntlNodeFcPortEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "FC Port control node entry." 
+   INDEX          { cIsnsSrvrInstIndex, 
+                    cIsnsCntlNodeFcPortName } 
+   ::= { cIsnsCntlNodeFcPortTable 1 } 
+    
+CIsnsCntlNodeFcPortEntry ::= SEQUENCE     {  
+       cIsnsCntlNodeFcPortName          FcNameIdOrZero, 
+       cIsnsCntlNodeFcPortRowStatus     RowStatus 
+                                         } 
+    
+cIsnsCntlNodeFcPortName      OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "The FC Port WWN that can be a control node for the specified 
+        iSNS Server.  Zero is not a valid value for this managed 
+        object.  This managed object, combined with the 
+        cIsnsSrvrInstIndex, is the key for this table." 
+   ::= { cIsnsCntlNodeFcPortEntry 1 } 
+    
+cIsnsCntlNodeFcPortRowStatus OBJECT-TYPE 
+   SYNTAX                  RowStatus 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This indicates the status of this entry in the 
+        table." 
+   ::= { cIsnsCntlNodeFcPortEntry 2 } 
+    
+-- 
+-- Discovery Domain Set information 
+-- 
+    
+cIsnsDdsInfo     OBJECT IDENTIFIER ::= { cIsnsSrvrInfo 5 } 
+    
+-- 
+-- Discovery Domain Set Registrations -------------------- 
+-- 
+    
+cIsnsDdsTable                OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsDdsEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing configuration information for each 
+        Discovery Domain Set (DDS) registered in the iSNS Server 
+        instance. The number of rows in the table is dependent 
+        on the number of DDSs registered in the specified iSNS 
+        server instance.  A DDS can be created in the iSNS Server 
+        by creating a row in this table.  The index value should 
+        be determined by using cIsnsNextIdxDds managed object to 
+        determine the next available index." 
+   ::= { cIsnsDdsInfo 1 } 
+    
+cIsnsDdsEntry                OBJECT-TYPE 
+   SYNTAX                  CIsnsDdsEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one Discovery Domain Set (DDS) registered 
+        in the iSNS Server instance.  The cIsnsNextIdxDds managed 
+        object is used to determine an available cIsnsDdsId that 
+        should be used for row creation.  During creation of a 
+        row, if a symbolic name is not provided in 
+        cIsnsDdsSymbolicName, then a unique symbolic name will be 
+        provided by the iSNS Server.  If a DDS is deleted, then 
+        each entry associating the DDS with a DD in the table 
+        cIsnsDdsMemberTable is removed.  The creation and deletion 
+        of DDS's should be carefully handled so as to not disrupt 
+        a DDS created by a storage entity through the iSNS 
+        protocol directly." 
+   INDEX   { cIsnsSrvrInstIndex, cIsnsDdsId} 
+   ::= { cIsnsDdsTable 1 } 
+    
+CIsnsDdsEntry ::= 
+   SEQUENCE {  
+           cIsnsDdsId             CIsnsDiscoveryDomainSetId, 
+           cIsnsDdsSymbolicName   SnmpAdminString, 
+           cIsnsDdsStatus         CIsnsDdsStatusId, 
+           cIsnsDdsRowStatus      RowStatus 
+                } 
+    
+cIsnsDdsId                   OBJECT-TYPE 
+   SYNTAX                  CIsnsDiscoveryDomainSetId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The ID that refers to this Discovery Domain Set and 
+        index to the table." 
+   ::= { cIsnsDdsEntry 1 } 
+    
+cIsnsDdsSymbolicName         OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Discovery Domain Set Symbolic Name field contains 
+        a unique variable-length description (up to 255 bytes) 
+        that is associated with the DDS.  If a Symbolic Name is 
+        not provided, then one will be generated by the iSNS 
+        server." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdsEntry 2 } 
+    
+cIsnsDdsStatus               OBJECT-TYPE 
+   SYNTAX                  CIsnsDdsStatusId 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The bitmap indicating the status of a Discovery Domain 
+        Set (DDS) registered in the iSNS. 
+                 Bit           Status 
+              ---------       --------- 
+                  0            enabled 
+    
+        If bit(0) is set to true then the DDS is Enabled.  If set 
+        to false then the DDS is disabled." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   DEFVAL                  { { enabled } } 
+   ::= { cIsnsDdsEntry 3 } 
+    
+cIsnsDdsRowStatus            OBJECT-TYPE 
+   SYNTAX                  RowStatus 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object indicates the status of this Discovery 
+        Domain Set row.  The normal state for a DDS is active." 
+   ::= { cIsnsDdsEntry 4 } 
+    
+-- 
+-- Discovery Domain Set Members -------------------- 
+-- 
+    
+-- 
+-- DDS Membership Assignment 
+-- 
+    
+cIsnsDdsMemberTable          OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsDdsMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing Discovery Domains (DDs) that have 
+        been assigned to specific Discovery Domain Sets (DDSs). 
+        The number of rows in the table is dependent on the 
+        number of DD to DDS relationships in the iSNS instance." 
+   ::= { cIsnsDdsInfo 2 } 
+    
+cIsnsDdsMemberEntry          OBJECT-TYPE 
+   SYNTAX                  CIsnsDdsMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The mapping of one Discovery Domain (DD) to a Discovery 
+        Domain Set (DDS).  This indicates the DD is a member of 
+        the DDS.  To create a row, cIsnsDdsId contains the 
+        DDS ID of the DDS, and cIsnsDdId contains the DD ID 
+        of the DD which will be a member of the DDS.  If a DDS is 
+        deleted, then each entry associating the DDS with a DD is 
+        removed.  The addition/deletion of DD's in a DDS should be 
+        carefully handled so as to not disrupt a DDS created by a 
+        storage entity through the iSNS protocol directly." 
+   INDEX   { cIsnsSrvrInstIndex, 
+             cIsnsDdsId, 
+             cIsnsDdId } 
+   ::= { cIsnsDdsMemberTable 1 } 
+    
+CIsnsDdsMemberEntry ::= 
+   SEQUENCE {  
+           cIsnsDdsMemberRowStatus  RowStatus 
+            } 
+   
+cIsnsDdsMemberRowStatus      OBJECT-TYPE 
+   SYNTAX                  RowStatus 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object indicates the status of this entry." 
+   ::= { cIsnsDdsMemberEntry 1 } 
+    
+-- 
+-- Discovery Domain information 
+-- 
+    
+cIsnsDdInfo     OBJECT IDENTIFIER ::= { cIsnsSrvrInfo 6 } 
+    
+-- 
+-- Discovery Domain Registrations ---------------------------- 
+-- 
+    
+cIsnsDdTable                 OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsDdEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing configuration information for each 
+        Discovery Domain (DD) registered in the iSNS.  The number 
+        of rows in the table is dependent on the number of DDs 
+        registered in the iSNS instance.  A DD can be created 
+        in the iSNS Server by creating a row in this table.  
+        The index value should be determined by using 
+        cIsnsNextIdxDd managed object to determine the next available 
+        index." 
+   ::= { cIsnsDdInfo 1 } 
+    
+cIsnsDdEntry                 OBJECT-TYPE 
+   SYNTAX                  CIsnsDdEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on a Discovery Domain (DD) registered in 
+        the iSNS Server instance.  The cIsnsNextIdxDd managed object 
+        is used to determine an available cIsnsDdId value that can be 
+        used for row creation.  During creation of a row, if a 
+        symbolic name is not provided in cIsnsDdSymbolicName, then 
+        a unique symbolic name will be provided by the iSNS Server. 
+        If a DD is deleted, then all entries associating the DD with 
+        nodes and portals in the tables cIsnsDdIscsiMemberTable, 
+        cIsnsDdPortalMemberTable, and cIsnsDdFcPortMemberTable are 
+        removed.  The creation and deletion of DD's should be 
+        carefully handled so as to not disrupt a DD created by a 
+        storage entity through the iSNS protocol directly." 
+   INDEX   { cIsnsSrvrInstIndex, cIsnsDdId } 
+   ::= { cIsnsDdTable 1 } 
+    
+CIsnsDdEntry::= 
+   SEQUENCE {  
+           cIsnsDdId             CIsnsDiscoveryDomainId, 
+           cIsnsDdSymbolicName   SnmpAdminString, 
+           cIsnsDdFeatures       CIsnsDdFeatureBitmapId, 
+           cIsnsDdRowStatus      RowStatus 
+                } 
+    
+cIsnsDdId                    OBJECT-TYPE 
+   SYNTAX                  CIsnsDiscoveryDomainId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The ID that refers to this Discovery Domain, and the 
+        index to the table." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdEntry 1 } 
+    
+cIsnsDdSymbolicName          OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Discovery Domain Symbolic Name field contains a 
+        unique variable-length description (up to 255 bytes)  
+        that is associated with the DD." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdEntry 2 } 
+    
+cIsnsDdFeatures              OBJECT-TYPE 
+   SYNTAX                  CIsnsDdFeatureBitmapId 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Discovery Domain Features field contains a bitmap 
+        indicating the features of this DD.   
+        Bit            DD Feature 
+       ---------       --------- 
+         0             Boot List 
+    
+       Boot List: this feature indicates that the targets 
+       in this DD provide boot capabilities for the member 
+       initiators. 
+    
+        Setting the bit to true (1) indicates the feature is 
+        enabled.  By default no DD features are enabled." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdEntry 3 } 
+    
+cIsnsDdRowStatus             OBJECT-TYPE 
+   SYNTAX                  RowStatus 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object indicates the status of this entry." 
+   ::= { cIsnsDdEntry 4 } 
+    
+-- 
+-- Discovery Domain Members -------------------- 
+--  
+    
+-- 
+-- DD iSCSI Node Membership Assignment 
+-- 
+    
+cIsnsDdIscsiMemberTable      OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsDdIscsiMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing iSCSI node indexes that have been 
+        assigned to specific DDs in this iSNS Server instance.  The 
+        number of rows in the table is dependent on the number of 
+        relationships between iSCSI Nodes and DDs registered in the 
+        iSNS instance." 
+   ::= { cIsnsDdInfo 2 } 
+    
+cIsnsDdIscsiMemberEntry      OBJECT-TYPE 
+   SYNTAX                  CIsnsDdIscsiMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The mapping of one iSCSI Node to a Discovery Domain to 
+        indicate membership in the DD.  The indexes of the table 
+        are the iSNS server instance, the DD ID of the Discovery 
+        Domain, and the iSCSI Node Index of the  iSCSI Node. 
+    
+        For iSCSI nodes already registered in the server, the 
+        cIsnsDdMemberIscsiIdx for a specific cIsnsDdIscsiNodeName is 
+        obtained from the cIsnsRegIscsiNodeTable. 
+    
+        For unregistered iSCSI nodes, if they are already a member of 
+        other Discovery Domains, then the same cIsnsDdMemberIscsiIdx 
+        value MUST be used in this DD.  If the unregistered iSCSI 
+        node is not already a member of another Discovery Domain, 
+        then the managed object cIsnsNextIdxUnregIscsiNodeInDd is used 
+        to obtain a valid cIsnsDdMemberIscsiIdx value. 
+    
+        If a DD is removed from the iSNS, then all entries associating 
+        nodes with the DD are removed." 
+   INDEX   { cIsnsSrvrInstIndex, 
+             cIsnsDdId,  
+             cIsnsDdMemberIscsiIdx } 
+   ::= { cIsnsDdIscsiMemberTable 1 } 
+    
+CIsnsDdIscsiMemberEntry::= 
+   SEQUENCE {  
+           cIsnsDdMemberIscsiIdx     CIsnsNodeIndexId, 
+           cIsnsDdMemberIscsiName    SnmpAdminString, 
+           cIsnsDdMemberIsRegistered TruthValue, 
+           cIsnsDdMemberRowStatus    RowStatus 
+             } 
+    
+cIsnsDdMemberIscsiIdx        OBJECT-TYPE 
+   SYNTAX                  CIsnsNodeIndexId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSCSI node index for this member node entry.  This 
+        index is used to uniquely indicate this table entry, 
+        and provides a 1 to 1 mapping to the node name in 
+        cIsnsDdMemberIscsiName.  The iSCSI node name is too long 
+        to be used for an index directly.  The iSCSI node index 
+        used for a specific iSCSI node name MUST be identical 
+        in all DDs and control node registrations, and is 
+        persistent across server reinitializations when the 
+        iSCSI node is a member of a Discovery Domain (DD) or is 
+        registered as a control node. The managed object 
+        cIsnsNextIdxUnregIscsiNodeInDd is used to determine an 
+        available index when an unregistered iSCSI node is to be 
+        added to a Discovery Domain prior to it being registered 
+        in the server using the iSNS protocol." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdIscsiMemberEntry 1 } 
+    
+cIsnsDdMemberIscsiName       OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..223)) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSCSI Name associated with the storage node.  The 
+        iSCSI Name can not be longer then 223 bytes.  The iSNS 
+        server internal maximum size is 224 bytes to provide 
+        NULL termination.  This is the iSCSI Name for the storage 
+        node that is a member of the DD.  This value maps 1 to 1 
+        to the cIsnsDdMemberIscsiIdx node index.  The iSCSI Name 
+        field is too long to be easily used for an index directly.  
+        The node index used for a specific node name is only 
+        persistent across iSNS Server reinitializations for nodes 
+        that are in a Discovery Domain (DD) or are registered 
+        control nodes.  This value is only required during row 
+        creation if the storage node is not yet registered in the 
+        iSNS Server instance.  If the storage node is not yet 
+        registered, then the iSCSI Name MUST be provided with the 
+        iSCSI node index during row creation in order to create the 
+        1 to 1 mapping." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdIscsiMemberEntry 2 } 
+    
+cIsnsDdMemberIsRegistered    OBJECT-TYPE 
+   SYNTAX                  TruthValue 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "This indicates whether this member of the DD is currently 
+        registered in the iSNS Server instance.  iSCSI Storage 
+        Node members do not need to be currently registered in 
+        order for their iSCSI Name and Index to be added to 
+        a DD." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6.11" 
+   ::= { cIsnsDdIscsiMemberEntry 3 } 
+    
+cIsnsDdMemberRowStatus       OBJECT-TYPE 
+   SYNTAX                  RowStatus 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object indicates the status of this entry." 
+   ::= { cIsnsDdIscsiMemberEntry 4 } 
+    
+-- 
+-- DD Portal Membership Assignment 
+-- 
+    
+cIsnsDdPortalMemberTable     OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsDdPortalMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing currently registered and unregistered 
+        portal objects that have been explicitly assigned to specific 
+        DDs.  Explicit assignment of a portal to a DD is only done 
+        when a specific set of portals are preferred for use within a 
+        DD.  Otherwise, for iSCSI, the Portal Group Object should be 
+        used for identifying which portals provide access to which 
+        storage nodes. The number of rows in the table is dependent 
+        on the number of explicit relationships between portals and 
+        DDs registered in the iSNS." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdInfo 3 } 
+    
+cIsnsDdPortalMemberEntry     OBJECT-TYPE 
+   SYNTAX                  CIsnsDdPortalMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Each entry indicates an explicit addition of a portal to a 
+        discovery domain.  The explicit addition of an entity portal 
+        to a discovery domain indicates the portal is preferred for 
+        access to nodes of the entity for this discovery domain.  
+        Registered Portal Group objects are used in iSCSI to indicate 
+        mapping of portals to nodes across all discovery domains. 
+        Portals that have been explicitly mapped a discovery domain 
+        will be returned as part of a query that is scoped to that 
+        discovery domain.  If no portal of an entity has been 
+        explicitly mapped to a discovery domain, then all portals of 
+        the entity that provide access to a storage node are returned 
+        as part of a query.  The table indexes are the server 
+        instance, the DD ID of the Discovery Domain, and the Portal 
+        Index of the portal. 
+    
+        For registered portals, the cIsnsDdMemberPortalIdx for a 
+        specific cIsnsDdMemberPortalAddr and cIsnsDdMemberPortalPort 
+        pair is obtained from the cIsnsRegPortalTable table. 
+    
+        For unregistered portals, if they are already a member of 
+        other Discovery Domains, the same cIsnsDdMemberPortalIdx MUST 
+        be used.  For unregistered portals, if they are not already 
+        a member of other Discovery Domains, then the managed object 
+        cIsnsNextIdxUnregPortalInDd is used to obtain a valid 
+        cIsnsDdMemberPortalIdx. 
+    
+        If a DD is removed from the iSNS, then all entries 
+        associating portals with the DD are removed." 
+   INDEX   { cIsnsSrvrInstIndex, 
+             cIsnsDdId, 
+             cIsnsDdMemberPortalIdx } 
+   ::= { cIsnsDdPortalMemberTable 1 } 
+    
+CIsnsDdPortalMemberEntry ::= 
+   SEQUENCE {  
+           cIsnsDdMemberPortalIdx          CIsnsPortalIndexId, 
+           cIsnsDdMemberPortalAddrType     InetAddressType, 
+           cIsnsDdMemberPortalAddr         InetAddress, 
+           cIsnsDdMemberPortalPortType     CIsnsPortalPortTypeId, 
+           cIsnsDdMemberPortalPort         CIsnsPortalPortId, 
+           cIsnsDdMemberPortalIsRegistered TruthValue, 
+           cIsnsDdMemberPortalRowStatus    RowStatus 
+             } 
+  
+cIsnsDdMemberPortalIdx       OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalIndexId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The index for a portal explicitly contained in the discovery 
+        domain.  The Portal Index used for a specific portal 
+        IP-address and port number pair is only persistent across 
+        reboots for portals that have been explicitly added to a 
+        Discovery Domain (DD).  If a portal is not explicitly 
+        registered in any DD, then the index used for a portal can 
+        change after a server reinitialization." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdPortalMemberEntry 1 } 
+    
+cIsnsDdMemberPortalAddrType  OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsDdMemberPortalAddr." 
+   ::= { cIsnsDdPortalMemberEntry 2 } 
+    
+cIsnsDdMemberPortalAddr      OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Internet Address for the portal as defined in 
+        the iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdPortalMemberEntry 3 } 
+    
+cIsnsDdMemberPortalPortType  OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortTypeId 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port type for the portal, either UDP or TCP, as 
+        defined in the iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdPortalMemberEntry 4 } 
+    
+cIsnsDdMemberPortalPort      OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortId 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port number for the portal as defined in the 
+        iSNS Specification [iSNS].  Whether the portal type is TCP 
+        or UDP is indicated by cIsnsDdMemberPortalPortType." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdPortalMemberEntry 5 } 
+    
+cIsnsDdMemberPortalIsRegistered OBJECT-TYPE 
+   SYNTAX                  TruthValue 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "This indicates whether this member of the DD is currently 
+        registered in the iSNS Server instance.  Portals that are 
+        DD members do not need to be currently registered in 
+        order for them to be added to a DD." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6.11" 
+   ::= { cIsnsDdPortalMemberEntry 6 } 
+    
+cIsnsDdMemberPortalRowStatus OBJECT-TYPE 
+   SYNTAX                  RowStatus 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object indicates the status of this entry." 
+   ::= { cIsnsDdPortalMemberEntry 7 } 
+    
+-- 
+-- DD FC Port Membership Assignment 
+-- 
+    
+cIsnsDdFcPortMemberTable     OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsDdFcPortMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing FC Port World Wide Names (WWN) that 
+        have been assigned to specific DDs.  The number of rows 
+        in the table is dependent on the number of relationships 
+        between FC Ports and DDs registered in the iSNS." 
+   ::= { cIsnsDdInfo 4 } 
+    
+cIsnsDdFcPortMemberEntry     OBJECT-TYPE 
+   SYNTAX                  CIsnsDdFcPortMemberEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The association of one FC Port with a Discovery Domain. 
+        Membership of an FC Port in a Discovery Domain is 
+        indicated by creating a row for the appropriate DD ID 
+        and FC Port WWN.  If a DD is removed from the iSNS, then 
+        entries associating nodes with the DD are removed." 
+   INDEX   { cIsnsSrvrInstIndex, 
+             cIsnsDdId, 
+             cIsnsDdMemberFcPortName } 
+   ::= { cIsnsDdFcPortMemberTable 1 } 
+    
+CIsnsDdFcPortMemberEntry ::= 
+   SEQUENCE {  
+           cIsnsDdMemberFcPortName     FcNameIdOrZero, 
+           cIsnsDdMemberFcIsRegistered TruthValue, 
+           cIsnsDdMemberFcRowStatus    RowStatus 
+            } 
+    
+cIsnsDdMemberFcPortName      OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Port WWN the FC Port that is a member of the DD. The 
+        value MUST be a valid FC WWN, as per the FC-GS standard.  
+        This managed object, combined with the cIsnsSrvrInstIndex 
+        and cIsnsDdId are the key for this table.  Zero is not a 
+        valid value for this managed object." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsDdFcPortMemberEntry 1 } 
+    
+cIsnsDdMemberFcIsRegistered  OBJECT-TYPE 
+   SYNTAX                  TruthValue 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "This indicates whether this member of the DD is currently 
+        registered in the iSNS Server instance.  FC Ports that are 
+        DD members do not need to be currently registered in 
+        order for them to be added to a DD." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6.11" 
+   ::= { cIsnsDdFcPortMemberEntry 2 } 
+    
+cIsnsDdMemberFcRowStatus     OBJECT-TYPE 
+   SYNTAX                  RowStatus 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object indicates the status of this entry." 
+   ::= { cIsnsDdFcPortMemberEntry 3 } 
+    
+-- 
+--  Registered Device Information 
+-- 
+    
+cIsnsReg    OBJECT IDENTIFIER ::= { cIsnsSrvrInfo 7 } 
+    
+cIsnsRegEntityInfo           OBJECT IDENTIFIER 
+                              ::= { cIsnsReg    1 } 
+    
+    
+-- 
+-- iSNS Registered Entities Table 
+-- 
+    
+cIsnsRegEntityTable          OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegEntityEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing registered Entity objects in each iSNS 
+        server instance.  The number of entries in the table is 
+        dependent on the number of Entity objects registered in the 
+        iSNS Server instances.  All Entity objects are registered in 
+        the iSNS using the iSNS protocol." 
+   ::= { cIsnsRegEntityInfo 1 } 
+    
+cIsnsRegEntityEntry          OBJECT-TYPE 
+   SYNTAX                  CIsnsRegEntityEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one registered Entity object in an iSNS 
+        server instance." 
+   INDEX   { cIsnsSrvrInstIndex, 
+             cIsnsRegEntityIdx } 
+   ::= { cIsnsRegEntityTable 1 } 
+    
+CIsnsRegEntityEntry ::= 
+   SEQUENCE {  
+           cIsnsRegEntityIdx            CIsnsEntityIndexId, 
+           cIsnsRegEntityEID            SnmpAdminString, 
+           cIsnsRegEntityProtocol       CIsnsEntityProtocolId, 
+           cIsnsRegEntityMgtAddrType    InetAddressType, 
+           cIsnsRegEntityMgtAddr        InetAddress, 
+           cIsnsRegEntityTimestamp      DateAndTime, 
+           cIsnsRegEntityVersionMin     Integer32, 
+           cIsnsRegEntityVersionMax     Integer32, 
+           cIsnsRegEntityRegPeriod      Unsigned32 
+           } 
+    
+cIsnsRegEntityIdx            OBJECT-TYPE 
+   SYNTAX                  CIsnsEntityIndexId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Entity Index for this entity.  This integer based index 
+        is assigned by the iSNS Server when an Entity is initially 
+        registered. The Entity Index can be used to represent a 
+        registered Entity object in situations where the Entity EID 
+        would be too long/unwieldy." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 1 } 
+    
+cIsnsRegEntityEID            OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The EID is a unique registered Entity object identifier, as 
+        specified in the iSNS Specification.  This is the iSNS 
+        Entity Identifier for the registered Entity object." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 2 } 
+    
+cIsnsRegEntityProtocol       OBJECT-TYPE 
+   SYNTAX                  CIsnsEntityProtocolId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSNS Entity Protocol is an enumerated value which 
+        indicates the type of nodes that are contained within it. 
+    
+              Type Value       Entity Type 
+              ----------       ----------- 
+                 1             No Protocol 
+                 2             iSCSI 
+                 3             iFCP 
+               All Others      As in the iSNS Specification 
+    
+        The No Protocol value is used to indicate that the Network 
+        Entity does not support an IP block storage protocol." 
+   REFERENCE  "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 3 } 
+    
+cIsnsRegEntityMgtAddrType    OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsRegEntityMgtAddr." 
+   ::= { cIsnsRegEntityEntry 4 } 
+    
+cIsnsRegEntityMgtAddr        OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSNS Management IP Address for the registered Entity 
+        object." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 5 } 
+    
+cIsnsRegEntityTimestamp      OBJECT-TYPE 
+   SYNTAX                  DateAndTime 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSNS Entity Registration Timestamp for the registered 
+        Entity object.  This is the most recent date and time that 
+        the registered Entity object, and associated registered 
+        objects contained in the Entity, were registered or 
+        updated." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 6 } 
+    
+cIsnsRegEntityVersionMin     OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSNS Entity Protocol Version Range minimum value.  A 
+        value of x'FF' is a wildcard value indicating no minimum to 
+        the protocol versions supported by this Entity.  Entity 
+        registrations with cIsnsRegEntityProtocol set to No Protocol 
+        always have a minimum version of 0." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 7 } 
+    
+cIsnsRegEntityVersionMax     OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSNS Entity Protocol Version Range maximum value.  A 
+        value of x'FF' is a wildcard value indicating no maximum to 
+        the protocol versions supported by this Entity.  Entity 
+        registrations with cIsnsRegEntityProtocol set to No Protocol 
+        always have a maximum version of 0." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 8 } 
+    
+cIsnsRegEntityRegPeriod      OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSNS Entity Status Inquiry (ESI) registration period 
+        which indicates the maximum time, in seconds, that the 
+        registration will be maintained without receipt of an iSNSP 
+        message from the entity.  If the Registration Period is set 
+        to 0, then the Entity SHALL NOT be deregistered due to no 
+        contact with the entity." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegEntityEntry 9 } 
+    
+-- 
+-- Registered Objects Associated With an Entity Information 
+-- 
+    
+cIsnsRegEntityNumObjTable   OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF  
+                               CIsnsRegEntityNumObjEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing information on the number of registered 
+        objects associated with a registered Entity in the iSNS 
+        server instance.  This table is optional to implement.  The 
+        number of entries in the table is dependent on the number 
+        of registered Entity objects in the iSNS." 
+   ::= { cIsnsRegEntityInfo 2 } 
+    
+cIsnsRegEntityNumObjEntry    OBJECT-TYPE 
+   SYNTAX                  CIsnsRegEntityNumObjEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on the number of registered objects associated 
+        with a registered Entity object in an iSNS Server instance." 
+   AUGMENTS { cIsnsRegEntityEntry } 
+   ::= { cIsnsRegEntityNumObjTable 1 } 
+    
+CIsnsRegEntityNumObjEntry ::= 
+   SEQUENCE {  
+           cIsnsRegEntityInfoNumPortals      Unsigned32, 
+           cIsnsRegEntityInfoNumPortalGroup  Unsigned32, 
+           cIsnsRegEntityInfoNumIscsiNodes   Unsigned32, 
+           cIsnsRegEntityInfoNumFcPorts      Unsigned32, 
+           cIsnsRegEntityInfoNumFcNodes      Unsigned32 
+           } 
+    
+cIsnsRegEntityInfoNumPortals OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The number of Portals associated with this Entity." 
+   ::= { cIsnsRegEntityNumObjEntry 1 } 
+    
+cIsnsRegEntityInfoNumPortalGroup OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The number of Portal Groups associated with this Entity." 
+   ::= { cIsnsRegEntityNumObjEntry 2 } 
+    
+cIsnsRegEntityInfoNumIscsiNodes OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The number of iSCSI Storage Nodes associated with this 
+        Entity." 
+   ::= { cIsnsRegEntityNumObjEntry 3 } 
+    
+cIsnsRegEntityInfoNumFcPorts OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The number of FC Ports associated with this Entity." 
+   ::= { cIsnsRegEntityNumObjEntry 4 } 
+    
+cIsnsRegEntityInfoNumFcNodes OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The number of FC Nodes associated with this Entity." 
+   ::= { cIsnsRegEntityNumObjEntry 5 } 
+    
+-- 
+-- iSNS Registered Portal Information 
+-- 
+    
+cIsnsRegPortalInfo           OBJECT IDENTIFIER 
+                              ::= { cIsnsReg  2 } 
+    
+-- 
+-- iSNS Registered Portal Table 
+-- 
+    
+cIsnsRegPortalTable          OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegPortalEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing the registered Portals in the iSNS. 
+        The number of entries is dependent on the number of 
+        Portals registered in the iSNS." 
+   ::= { cIsnsRegPortalInfo 1 } 
+    
+cIsnsRegPortalEntry          OBJECT-TYPE 
+   SYNTAX                  CIsnsRegPortalEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one registered Entity Portal in the iSNS.  
+        The Entity Index is part of the table index to quickly 
+        find Portals that support a specific Entity." 
+   INDEX   { cIsnsSrvrInstIndex, 
+             cIsnsRegEntityIdx, 
+             cIsnsRegPortalPrtlIdx } 
+   ::= { cIsnsRegPortalTable 1 } 
+    
+CIsnsRegPortalEntry ::= 
+   SEQUENCE {  
+           cIsnsRegPortalPrtlIdx        CIsnsPortalIndexId, 
+           cIsnsRegPortalAddrType       InetAddressType, 
+           cIsnsRegPortalAddr           InetAddress, 
+           cIsnsRegPortalPortType       CIsnsPortalPortTypeId, 
+           cIsnsRegPortalPort           CIsnsPortalPortId, 
+           cIsnsRegPortalSymName        SnmpAdminString, 
+           cIsnsRegPortalEsiInterval    Unsigned32, 
+           cIsnsRegPortalEsiPortType    CIsnsPortalPortTypeId, 
+           cIsnsRegPortalEsiPort        CIsnsPortalPortId, 
+           cIsnsRegPortalScnPortType    CIsnsPortalPortTypeId, 
+           cIsnsRegPortalScnPort        CIsnsPortalPortId, 
+           cIsnsRegPortalSecurityInfo   CIsnsPortalSecurityBitmapId 
+           } 
+    
+cIsnsRegPortalPrtlIdx        OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalIndexId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Portal Index for this node.  The index is created by the 
+        iSNS Server for mapping between registered objects.  The 
+        Portal Index used for a specific portal IP-address and port 
+        number pair is only persistent across reboots for portals 
+        that have been explicitly added to a Discovery Domain (DD).  
+        If a portal is not explicitly registered in any DD, then the 
+        index used for a portal can change after a server 
+        reinitialization." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 1 } 
+    
+cIsnsRegPortalAddrType       OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsRegPortalAddr." 
+   ::= { cIsnsRegPortalEntry 2 } 
+    
+cIsnsRegPortalAddr           OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Internet Address for this Portal as defined in 
+        the iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 3 } 
+    
+cIsnsRegPortalPortType       OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortTypeId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port type for this Portal, either UDP or TCP, as 
+        defined in the iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 4 } 
+    
+cIsnsRegPortalPort           OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port number for this Portal as defined in the 
+        iSNS Specification [iSNS].  Whether the Portal type is TCP 
+        or UDP is indicated by cIsnsRegPortalPortType." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 5 } 
+    
+cIsnsRegPortalSymName        OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The optional Symbolic Name for this Portal as defined in 
+        the iSNS Specification [iSNS].  If not provided then the 
+        string SHALL be zero length." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 6 } 
+    
+cIsnsRegPortalEsiInterval    OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Entity Status Inquiry (ESI) Interval for this Portal 
+        as defined in the iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 7 } 
+    
+cIsnsRegPortalEsiPortType    OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortTypeId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port type for the ESI Port, either UDP or TCP, as 
+        defined in the iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 8 } 
+    
+cIsnsRegPortalEsiPort        OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The TCP or UDP port number used for ESI monitoring.  Whether 
+        the port type is TCP or UDP is indicated by 
+        cIsnsRegPortalEsiPortType." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 9 } 
+    
+cIsnsRegPortalScnPortType    OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortTypeId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port type for the SCN Port, either UDP or TCP, as 
+        defined in the iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 10 } 
+    
+cIsnsRegPortalScnPort        OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The TCP or UDP port used to receive SCN messages from the 
+        iSNS Server.  Whether the port type is TCP or UDP is 
+        indicated by cIsnsRegPortalScnPortType." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 11 } 
+    
+cIsnsRegPortalSecurityInfo   OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalSecurityBitmapId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates security attribute settings for the Portal as 
+        registered in the Portal Security Bitmap attribute.  The bit 
+        for bitmapVALID must be set in order for this attribute to 
+        contain valid information. 
+    
+        Setting a bit to true (1) indicates the feature is 
+        enabled." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPortalEntry 12 } 
+    
+-- 
+-- iSNS Registered Portal Group Information 
+-- 
+    
+cIsnsRegPortalGroupInfo      OBJECT IDENTIFIER 
+                                  ::= { cIsnsReg  3 } 
+    
+-- 
+-- iSNS Registered Portal Group (PG) Table 
+-- 
+    
+cIsnsRegPgTable              OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegPgEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing the registered Portal Groups (PGs) in 
+        the iSNS Server instance.  The number of entries is 
+        dependent on the number of Portal Groups registered in 
+        the iSNS." 
+   ::= { cIsnsRegPortalGroupInfo 1 } 
+    
+cIsnsRegPgEntry              OBJECT-TYPE 
+   SYNTAX                  CIsnsRegPgEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one registered Portal Group in the iSNS 
+        server instance.  The Entity Index is part of the table 
+        index to quickly find Portal Groups that support Portals 
+        and iSCSI Storage Nodes in a specific Entity." 
+   INDEX   { cIsnsSrvrInstIndex, 
+             cIsnsRegEntityIdx, 
+             cIsnsRegPgIdx } 
+   ::= { cIsnsRegPgTable 1 } 
+    
+CIsnsRegPgEntry ::= 
+   SEQUENCE {  
+           cIsnsRegPgIdx                CIsnsPortalGroupIndexId, 
+           cIsnsRegPgIscsiNodeIdx       CIsnsNodeIndexId, 
+           cIsnsRegPgIscsiName          SnmpAdminString, 
+           cIsnsRegPgPortalPrtlIdx      CIsnsPortalIndexId, 
+           cIsnsRegPgPortalAddrType     InetAddressType, 
+           cIsnsRegPgPortalAddr         InetAddress, 
+           cIsnsRegPgPortalPortType     CIsnsPortalPortTypeId, 
+           cIsnsRegPgPortalPort         CIsnsPortalPortId, 
+           cIsnsRegPgPGT                CIsnsPortalGroupTagIdOrZero 
+           } 
+    
+cIsnsRegPgIdx                OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalGroupIndexId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The PG Index for this node.  The index is created by the 
+        iSNS Server instance for uniquely identifying registered 
+        objects.  The PG object is registered at the same time a 
+        Portal or Storage Node is registered using the iSNS 
+        protocol." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPgEntry 1 } 
+    
+cIsnsRegPgIscsiNodeIdx       OBJECT-TYPE 
+   SYNTAX                  CIsnsNodeIndexId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSCSI Node Index for the node associated with this PG.  
+        This index can be used to reference the 
+        cIsnsRegIscsiNodeTable." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPgEntry 2 } 
+    
+cIsnsRegPgIscsiName          OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..223)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSCSI Name of the initiator or target associated with 
+        the storage node.  The iSCSI Name can not be longer then 
+        223 bytes.  The iSNS Server internal maximum size is 224 
+        bytes to provide NULL termination.  This is the PG iSCSI Name 
+        that uniquely identifies the iSCSI Storage Node that is 
+        associated with this PG." 
+   ::= { cIsnsRegPgEntry 3 } 
+    
+cIsnsRegPgPortalPrtlIdx      OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalIndexId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Portal Index for the Portal associated with this PG.  
+        This index can be used to reference the cIsnsRegPortalTable." 
+   ::= { cIsnsRegPgEntry 4 } 
+    
+cIsnsRegPgPortalAddrType     OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsRegPgPortalAddr." 
+   ::= { cIsnsRegPgEntry 5 } 
+    
+cIsnsRegPgPortalAddr         OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Internet Address for the Portal that is associated with  
+        the PG." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPgEntry 6 } 
+    
+cIsnsRegPgPortalPortType     OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortTypeId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port type, either UDP or TCP, for the Portal that 
+        is associated with this registered PG object." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPgEntry 7 } 
+    
+cIsnsRegPgPortalPort         OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalPortId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The port number for the Portal that is associated with 
+        this registered PG object.  Whether the Portal type is 
+        TCP or UDP is indicated by cIsnsRegPgPortalPortType." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPgEntry 8 } 
+    
+cIsnsRegPgPGT                OBJECT-TYPE 
+   SYNTAX                  CIsnsPortalGroupTagIdOrZero 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Portal Group Tag (PGT) for the registered iSCSI Portal 
+        Group object in an iSNS Server instance.  This indicates 
+        the tag value that the Portal uses for access to the iSCSI 
+        Storage Node.  The PGT is used for coordinated access between 
+        multiple Portals, as described in the iSCSI Specification 
+        [iSCSI].  The value of zero indicates a NULL value, or no 
+        association." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegPgEntry 9 } 
+    
+-- 
+-- iSNS Registered iSCSI Node Information 
+-- 
+    
+cIsnsRegIscsiNodeInfo  OBJECT IDENTIFIER ::= { cIsnsReg  4 } 
+    
+-- 
+-- iSNS Registered iSCSI Node Table 
+-- 
+    
+cIsnsRegIscsiNodeTable       OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegIscsiNodeEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing the registered iSCSI Nodes in the iSNS 
+        server instance.  Storage devices register using the iSNS 
+        protocol.  While a device cannot be registered in an iSNS 
+        server using SNMP, an entry can be deleted in order to 
+        remove 'stale' entries. The number of entries is related 
+        to the number of iSCSI nodes registered in the iSNS." 
+   ::= { cIsnsRegIscsiNodeInfo 1 } 
+    
+cIsnsRegIscsiNodeEntry       OBJECT-TYPE 
+   SYNTAX                  CIsnsRegIscsiNodeEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one iSCSI node that has been registered in 
+        the iSNS Server instance.  The RowStatus managed object 
+        provides a method to delete registered nodes that were not 
+        properly deregistered / removed through iSNSP.  New rows 
+        cannot be added using SNMP." 
+   INDEX { cIsnsSrvrInstIndex, 
+           cIsnsRegEntityIdx, 
+           cIsnsRegIscsiNodeIdx } 
+   ::= { cIsnsRegIscsiNodeTable 1 } 
+    
+CIsnsRegIscsiNodeEntry ::= SEQUENCE {  
+       cIsnsRegIscsiNodeIdx            CIsnsNodeIndexId, 
+       cIsnsRegIscsiNodeName           SnmpAdminString, 
+       cIsnsRegIscsiNodeType           CIsnsNodeTypeId, 
+       cIsnsRegIscsiNodeAlias          SnmpAdminString, 
+       cIsnsRegIscsiNodeScnBitmap      CIsnsScnBitmapId, 
+       cIsnsRegIscsiNodeWwnToken       FcNameIdOrZero, 
+       cIsnsRegIscsiNodeAuthMethod     SnmpAdminString 
+                                    } 
+    
+cIsnsRegIscsiNodeIdx         OBJECT-TYPE 
+   SYNTAX                  CIsnsNodeIndexId 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Node Index for this node.  The index is created by the 
+        iSNS Server for mapping between registered objects.  The 
+        index used for a specific node name is only persistent 
+        across reboots for nodes that have been registered in a 
+        Discovery Domain (DD) or as a control node.  If a node is 
+        not registered in any DD or as a control node, then the 
+        index used for a node can change after a server 
+        reinitialization." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegIscsiNodeEntry 1 } 
+    
+cIsnsRegIscsiNodeName        OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..223)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSCSI Name of the initiator or target associated with 
+        the storage node.  The iSCSI Name can not be longer then 
+        223 bytes.  The iSNS Server internal maximum size is 224 
+        bytes to provide NULL termination.  This is the iSCSI Name 
+        that uniquely identifies the initiator, initiator/target, 
+        target, or control node in the network." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegIscsiNodeEntry 2 } 
+    
+cIsnsRegIscsiNodeType        OBJECT-TYPE 
+   SYNTAX                  CIsnsNodeTypeId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Node Type bit-map defining the functions of this 
+        iSCSI node. 
+                  Bit         Node Type 
+              ---------       --------- 
+              All Others       RESERVED 
+                 29            Control 
+                 30            Initiator 
+                 31            Target 
+       " 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegIscsiNodeEntry 3 } 
+    
+cIsnsRegIscsiNodeAlias       OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Alias name of the iSCSI node.  This is a variable-length 
+        text-based description of up to 255 bytes." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegIscsiNodeEntry 4 } 
+    
+cIsnsRegIscsiNodeScnBitmap   OBJECT-TYPE 
+   SYNTAX                  CIsnsScnBitmapId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The State Change Notification (SCN) bitmap for a node. 
+        Bit Field          Flag Description 
+        ---------          ---------------- 
+           0               INITIATOR AND SELF INFORMATION ONLY 
+           1               TARGET AND SELF INFORMATION ONLY  
+           2               MANAGEMENT REGISTRATION/SCN 
+           3               REGISTERED OBJECT REMOVED 
+           4               REGISTERED OBJECT ADDED 
+           5               REGISTERED OBJECT UPDATED 
+           6               DD/DDS MEMBER REMOVED (MGT REG/SCN 
+                             ONLY) 
+           7               DD/DDS MEMBER ADDED (MGT REG/SCN 
+                             ONLY) 
+    
+        Setting a bit to true (1) indicates the flag is 
+        enabled." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegIscsiNodeEntry 5 } 
+    
+cIsnsRegIscsiNodeWwnToken    OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "This contains an optional globally unique 64-bit integer 
+        value that can be used to represent the World Wide Node 
+        Name of the iSCSI device in a Fibre Channel fabric. This 
+        identifier is used during the device registration process, 
+        and MUST conform to the requirements in [FC-FS].  The 
+        value of zero for this managed object indicates that a 
+        Node WWN token has not been assigned." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegIscsiNodeEntry 6 } 
+    
+cIsnsRegIscsiNodeAuthMethod  OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "This attribute contains a null-terminated string containing 
+        UTF-8 text listing the iSCSI authentication methods enabled 
+        for this iSCSI Node, in order of preference.  The text values 
+        used to identify iSCSI authentication methods are embedded in 
+        this string attribute and delineated by a comma.  The text 
+        values are identical to those found in the main iSCSI draft; 
+        additional vendor-specific text values are also possible." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegIscsiNodeEntry 7 } 
+    
+-- 
+-- iSNS Registered FC Port Information 
+-- 
+    
+cIsnsRegFcPortInfo           OBJECT IDENTIFIER 
+                                      ::= { cIsnsReg  5 } 
+    
+-- 
+-- iSNS Registered FC Port Table 
+-- 
+    
+cIsnsRegFcPortTable          OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegFcPortEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on registered FC Ports in the iSNS." 
+   ::= { cIsnsRegFcPortInfo 1 } 
+    
+cIsnsRegFcPortEntry          OBJECT-TYPE 
+   SYNTAX                   CIsnsRegFcPortEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one FC Port that has been registered in 
+        iSNS." 
+   INDEX { cIsnsSrvrInstIndex, 
+           cIsnsRegEntityIdx, 
+           cIsnsRegFcPortWwpn } 
+   ::= { cIsnsRegFcPortTable 1 } 
+    
+CIsnsRegFcPortEntry ::= SEQUENCE {  
+       cIsnsRegFcPortWwpn              FcNameIdOrZero, 
+       cIsnsRegFcPortID                FcAddressId, 
+       cIsnsRegFcPortType              Integer32, 
+       cIsnsRegFcPortSymName           SnmpAdminString, 
+       cIsnsRegFcPortFabricPortWwn     FcNameIdOrZero, 
+       cIsnsRegFcPortHA                FcAddressId, 
+       cIsnsRegFcPortAddrType          InetAddressType, 
+       cIsnsRegFcPortAddr              InetAddress, 
+       cIsnsRegFcPortFcCos             CIsnsCosBitmapId, 
+       cIsnsRegFcPortFc4Types          OCTET STRING, 
+       cIsnsRegFcPortFc4Descr          OCTET STRING, 
+       cIsnsRegFcPortFc4Features       OCTET STRING, 
+       cIsnsRegFcPortScnBitmap         CIsnsScnBitmapId, 
+       cIsnsRegFcPortRole              CIsnsNodeTypeId, 
+       cIsnsRegFcPortFcNodeWwn         FcNameIdOrZero, 
+       cIsnsRegFcPortPpnWwn            FcNameIdOrZero 
+                                   } 
+    
+cIsnsRegFcPortWwpn           OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Port's World Wide Port Name as defined in the iSNS 
+        Specification [iSNS].  The value of zero is not valid for 
+        this managed object." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 1 } 
+    
+cIsnsRegFcPortID             OBJECT-TYPE 
+   SYNTAX                  FcAddressId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION       
+       "The FC Port's Port ID as defined in the iSNS Specification 
+        [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 2 } 
+    
+cIsnsRegFcPortType           OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Port Port Type as defined in the iSNS Specification 
+        [iSNS] and the Fibre Channel Generic Services [FC-GS] 
+        Specification. Current values are as shown below: 
+           unknown      (0), 
+           nPort        (1), 
+           nlPort       (2), 
+           fNlPort      (3), 
+           fPort        (129),     -- x'81' 
+           flPort       (130),     -- x'82' 
+           ePort        (132),     -- x'84' 
+           bPort        (133),     -- x'85' 
+           mFcpPort     (65297),   -- x'FF11' 
+           iFcpPort     (65298),   -- x'FF12' 
+           unknownEnd   (65535) 
+       ." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 3 } 
+    
+cIsnsRegFcPortSymName      OBJECT-TYPE 
+   SYNTAX                SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS            read-only 
+   STATUS                current 
+   DESCRIPTION 
+       "The optional FC Port Port Symbolic Name as defined in the 
+        iSNS Specification [iSNS].  If not provided then the string 
+        SHALL be zero length." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 4 } 
+    
+cIsnsRegFcPortFabricPortWwn  OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Fabric Port WWN for this entry as defined in the iSNS 
+        Specification [iSNS].  The value of zero for this managed 
+        object indicates that the Fabric Port WWN is not known, 
+        or has not yet been registered with the iSNS Server." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 5 } 
+    
+cIsnsRegFcPortHA             OBJECT-TYPE 
+   SYNTAX                  FcAddressId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION       
+       "The FC Port Hard Address as defined in the iSNS 
+        Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 6 } 
+    
+cIsnsRegFcPortAddrType       OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in the cIsnsRegFcPortAddr." 
+   ::= { cIsnsRegFcPortEntry 7 } 
+    
+cIsnsRegFcPortAddr           OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Port Internet Address as defined in the iSNS 
+        Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 8 } 
+    
+cIsnsRegFcPortFcCos          OBJECT-TYPE 
+   SYNTAX                  CIsnsCosBitmapId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Port Class of Service as defined in the iSNS 
+        Specification [iSNS]." 
+   REFERENCE  "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 9 } 
+    
+cIsnsRegFcPortFc4Types       OBJECT-TYPE 
+   SYNTAX                  OCTET STRING (SIZE (32)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Port FC-4 Types as defined in the iSNS 
+        Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 10 } 
+    
+cIsnsRegFcPortFc4Descr       OBJECT-TYPE 
+   SYNTAX                  OCTET STRING(SIZE(0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Port FC-4 Descriptors as defined in the iSNS 
+        Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 11 } 
+    
+cIsnsRegFcPortFc4Features    OBJECT-TYPE 
+   SYNTAX                  OCTET STRING (SIZE (128)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Port FC-4 Features as defined in the iSNS 
+        Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 12 } 
+    
+cIsnsRegFcPortScnBitmap      OBJECT-TYPE 
+   SYNTAX                  CIsnsScnBitmapId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The State Change Notification (SCN) bitmap for a FC Port. 
+        Bit Field          Flag Description 
+        ---------          ---------------- 
+           0               INITIATOR AND SELF INFORMATION ONLY 
+           1               TARGET AND SELF INFORMATION ONLY  
+           2               MANAGEMENT REGISTRATION/SCN 
+           3               REGISTERED OBJECT REMOVED 
+           4               REGISTERED OBJECT ADDED 
+           5               REGISTERED OBJECT UPDATED 
+           6               DD/DDS MEMBER REMOVED (MGT REG/SCN 
+                             ONLY) 
+           7               DD/DDS MEMBER ADDED (MGT REG/SCN 
+                             ONLY) 
+    
+        Setting a bit to true (1) indicates the flag is 
+        enabled." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 13 } 
+    
+cIsnsRegFcPortRole           OBJECT-TYPE 
+   SYNTAX                  CIsnsNodeTypeId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Node Type bit-map defining the functions of this FC Port. 
+                  Bit         Node Type 
+              ---------       --------- 
+              All Others       RESERVED 
+                 29            Control 
+                 30            Initiator 
+                 31            Target 
+       " 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 14 } 
+    
+cIsnsRegFcPortFcNodeWwn      OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Node WWN of the FC Node that has been associated with 
+        this FC Port as defined in the iSNS Specification [iSNS].  
+        This managed object may contain the value of zero prior to 
+        a device registering this value with the iSNS Server." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 15 } 
+    
+cIsnsRegFcPortPpnWwn         OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Permanent Port Name attribute is the FC Port Name WWPN of 
+        the first Storage Node registered in the iSNS Database that is 
+        associated with a particular FC Device (FC Node).  The PPN of 
+        all subsequent Storage Node registrations that are associated 
+        with that FC Device (FC Node) SHALL be set to the FC Port Name 
+        WWPN of the first Storage Node, as defined in the iSNS 
+        Specification [iSNS].  This managed object may contain the 
+        value of zero prior to a device registering this value with 
+        the iSNS Server" 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcPortEntry 16 } 
+    
+-- 
+-- iSNS Registered FC Node Information 
+-- 
+    
+cIsnsRegFcNodeInfo     OBJECT IDENTIFIER ::= { cIsnsReg  6 } 
+    
+-- 
+-- iSNS Registered FC Node Table 
+-- 
+    
+cIsnsRegFcNodeTable          OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegFcNodeEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing the registered FC Nodes in the iSNS." 
+   ::= { cIsnsRegFcNodeInfo 1 } 
+    
+cIsnsRegFcNodeEntry          OBJECT-TYPE 
+   SYNTAX                  CIsnsRegFcNodeEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one registered FC node that has been registered 
+        in the iSNS." 
+   INDEX { cIsnsSrvrInstIndex, 
+           cIsnsRegFcNodeWwn } 
+   ::= { cIsnsRegFcNodeTable 1 } 
+    
+CIsnsRegFcNodeEntry ::= SEQUENCE {  
+       cIsnsRegFcNodeWwn            FcNameIdOrZero, 
+       cIsnsRegFcNodeSymName        SnmpAdminString, 
+       cIsnsRegFcNodeAddrType       InetAddressType, 
+       cIsnsRegFcNodeAddr           InetAddress, 
+       cIsnsRegFcNodeIPA            OCTET STRING, 
+       cIsnsRegFcNodeProxyIscsiName SnmpAdminString 
+                                   } 
+    
+cIsnsRegFcNodeWwn            OBJECT-TYPE 
+   SYNTAX                  FcNameIdOrZero 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Node World Wide Node Name as defined in the iSNS 
+        Specification [iSNS].  The value of zero is not valid for 
+        this managed object." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcNodeEntry 1 } 
+    
+cIsnsRegFcNodeSymName        OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The optional FC Node Symbolic Name of the node as 
+        defined in the iSNS Specification [iSNS].  This is a 
+        variable-length text-based description.  If not 
+        provided then the string SHALL be zero length." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcNodeEntry 2 } 
+    
+cIsnsRegFcNodeAddrType       OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsRegFcNodeAddr." 
+   ::= { cIsnsRegFcNodeEntry 3 } 
+    
+cIsnsRegFcNodeAddr           OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The FC Node Internet address of the node as defined in the 
+        iSNS Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcNodeEntry 4 } 
+     
+cIsnsRegFcNodeIPA            OBJECT-TYPE 
+   SYNTAX                  OCTET STRING (SIZE(8)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "This managed object identifies the FC Initial Process 
+        Associator of the node as defined in the iSNS 
+        Specification [iSNS]." 
+   REFERENCE "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcNodeEntry 5 } 
+    
+cIsnsRegFcNodeProxyIscsiName OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..223)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSCSI Name used to represent the FC Node in the IP 
+        network. It is used as a pointer to the matching iSCSI Name 
+        entry in the iSNS Server.  Its value is usually registered 
+        by an FC-iSCSI gateway connecting the IP network to the 
+        fabric containing the FC device." 
+   REFERENCE  "draft-ietf-ips-iSNS-22.txt, Section 6" 
+   ::= { cIsnsRegFcNodeEntry 6 } 
+    
+-- 
+-- Basic information for the registered FC Node object 
+-- 
+    
+cIsnsRegFcNodeInfoTable      OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegFcNodeInfoEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing basic information on registered FC Nodes 
+        in the iSNS.  The number of entries in the table is dependent 
+        on the number of FC Nodes registered in the iSNS." 
+   ::= { cIsnsRegFcNodeInfo 2 } 
+    
+cIsnsRegFcNodeInfoEntry      OBJECT-TYPE 
+   SYNTAX                  CIsnsRegFcNodeInfoEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one FC Node that has been registered in the 
+        iSNS." 
+   AUGMENTS { cIsnsRegFcNodeEntry } 
+   ::= { cIsnsRegFcNodeInfoTable 1 } 
+    
+CIsnsRegFcNodeInfoEntry ::= 
+   SEQUENCE {  
+           cIsnsRegFcNodeInfoNumFcPorts   Unsigned32 
+            } 
+    
+cIsnsRegFcNodeInfoNumFcPorts OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 0 .. 4294967295 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The number of FC Ports associated with this FC Node." 
+   ::= { cIsnsRegFcNodeInfoEntry 1 } 
+    
+-- 
+--  Mapping from FC Node to Entity - FC Port 
+-- 
+    
+cIsnsRegFcNodeFcPortTable    OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsRegFcNodeFcPortEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "A table containing the mapping of registered FC Nodes to 
+        associated registered iFCP/FC Ports and registered Entity 
+        objects in the iSNS Server instance." 
+   ::= { cIsnsRegFcNodeInfo 3 } 
+    
+cIsnsRegFcNodeFcPortEntry    OBJECT-TYPE 
+   SYNTAX                  CIsnsRegFcNodeFcPortEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "Information on one mapping from an FC Port and Entity to an 
+        FC node registered in the iSNS." 
+   INDEX { cIsnsSrvrInstIndex, 
+           cIsnsRegFcNodeWwn, 
+           cIsnsRegFcPortWwpn } 
+   ::= { cIsnsRegFcNodeFcPortTable 1 } 
+    
+CIsnsRegFcNodeFcPortEntry ::= SEQUENCE {  
+           cIsnsRegFcNodeFcPortEntityEIdx CIsnsEntityIndexId 
+                                       } 
+    
+cIsnsRegFcNodeFcPortEntityEIdx OBJECT-TYPE 
+   SYNTAX                  CIsnsEntityIndexId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The Entity Index for the registered Entity object associated 
+        with the FC Port and FC Node." 
+   ::= { cIsnsRegFcNodeFcPortEntry 1 } 
+    
+-- 
+-- iSNS Client instance managed objects -------------------- 
+-- 
+    
+cIsnsClntInfo OBJECT IDENTIFIER ::= { cIsnsObj 2 } 
+    
+cIsnsClntInstTable           OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsClntInstEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "This table lists the iSNS Client instances managed through 
+        the same SNMP context." 
+   ::= { cIsnsClntInfo 1 } 
+    
+cIsnsClntInstEntry           OBJECT-TYPE 
+   SYNTAX                  CIsnsClntInstEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "An entry in the iSNS Client table.  The number or rows in 
+        the table is dependent on the number of iSNS Client instances 
+        managed through the same SNMP context." 
+   INDEX   { cIsnsClntInstIndex } 
+   ::= { cIsnsClntInstTable 1 } 
+    
+CIsnsClntInstEntry ::= 
+   SEQUENCE {  
+           cIsnsClntInstIndex           Unsigned32, 
+           cIsnsClntInstName            SnmpAdminString, 
+           cIsnsClntInstIsnspVersion    Integer32, 
+           cIsnsClntInstDescription     SnmpAdminString, 
+           cIsnsClntInstAddressType     InetAddressType, 
+           cIsnsClntInstAddress         InetAddress, 
+           cIsnsClntInstTcpPort         Integer32, 
+           cIsnsClntInstUdpPort         Integer32, 
+           cIsnsClntInstUptime          TimeTicks, 
+           cIsnsClntInstAvailDiscMthd   CIsnsSrvrDscvryMthdId, 
+           cIsnsClntInstPrmryDiscMthd   CIsnsSrvrDscvryMthdId, 
+           cIsnsClntInstScndryDiscMthd  CIsnsSrvrDscvryMthdId, 
+           cIsnsClntInstDiscMcGrpType   InetAddressType, 
+           cIsnsClntInstDiscMcGrp       InetAddress 
+                } 
+    
+cIsnsClntInstIndex           OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 1 .. 4294967295 ) 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "The instance of this iSNS Client being managed.  Each 
+        managed client is uniquely identified by the instance index 
+        in the MIB." 
+   ::= { cIsnsClntInstEntry 1 } 
+    
+cIsnsClntInstName            OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "A name that can be assigned to the iSNS client instance.  
+        If not configured, the value is an empty string." 
+   ::= { cIsnsClntInstEntry 2 } 
+    
+cIsnsClntInstIsnspVersion    OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "The iSNSP version that this client will support.  If all 
+        versions of iSNSP are supported, then the returned 
+        value can be 0." 
+   REFERENCE               "draft-ietf-ips-iSNS-22.txt" 
+   ::= { cIsnsClntInstEntry 3 } 
+    
+cIsnsClntInstDescription     OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "This provides a description and detail information 
+        about this client.  If this client instance is utilizing 
+        the product of a particular 'vendor' or 'open source', then 
+        this managed object contains that vendor's name and version, 
+        or open source name and version.  Otherwise, it contains 
+        the empty string.  The format of the string 
+        is as follows: 'Vendor/Open Source Name, Vendor/Open Source 
+        Version, Vendor/Open Source Defined Information'. 
+    
+          Field            Description 
+         ---------        ---------------- 
+         Vendor/OS Name    The name of the vendor or open 
+                         source (if one exists) 
+         Vendor/OS Version The version of the vendor or 
+                         open source product 
+         Vendor/OS Defined This follows the second comma in the 
+                         string, if one exists, and is vendor 
+                         or open source developer defined 
+       " 
+   ::= { cIsnsClntInstEntry 4 } 
+    
+cIsnsClntInstAddressType     OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsClntInstAddress. If not 
+        set, then the value is unknown(0)." 
+   ::= { cIsnsClntInstEntry 5 } 
+    
+cIsnsClntInstAddress         OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the address this iSNS client is accepting 
+        iSNSP messages on.  If not set, then the value is an 
+        empty string." 
+   ::= { cIsnsClntInstEntry 6 } 
+    
+cIsnsClntInstTcpPort         OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the TCP port this iSNS client is accepting 
+        iSNSP messages on, generally the iSNS well known port. 
+        Other TCP ports may be used by the iSNS client as well.  
+        The well known TCP port for iSNSP is 3205.  If this 
+        client cannot currently receive iSNSP messages, then 
+        the value is 0." 
+    ::= { cIsnsClntInstEntry 7 } 
+    
+cIsnsClntInstUdpPort         OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the UDP port this iSNS instance is accepting 
+        iSNSP messages on, generally the iSNS well known port. 
+        Other UDP ports may be used by the iSNS client as well. 
+        The well known UDP port for iSNSP is 3205.  If this 
+        client cannot currently receive iSNSP messages, or UDP 
+        is not supported by this client, then the value is 0." 
+   ::= { cIsnsClntInstEntry 8 } 
+    
+cIsnsClntInstUptime          OBJECT-TYPE 
+   SYNTAX                 TimeTicks 
+   MAX-ACCESS             read-only 
+   STATUS                 current 
+   DESCRIPTION  
+       "The time that this iSNS client instance has been active.  In 
+        other words, the time since last reinitialization." 
+   ::= { cIsnsClntInstEntry 9 } 
+    
+cIsnsClntInstAvailDiscMthd   OBJECT-TYPE 
+   SYNTAX                  CIsnsSrvrDscvryMthdId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION  
+       "Indicates the available discovery methods for this client 
+        These are the discovery methods that can be configured in 
+        cIsnsClntInstPrmryDiscMthd and cIsnsClntInstScndryDiscMthd." 
+   ::= { cIsnsClntInstEntry 10 } 
+    
+cIsnsClntInstPrmryDiscMthd   OBJECT-TYPE 
+   SYNTAX                  CIsnsSrvrDscvryMthdId 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION  
+       "Indicates the primary discovery process currently enabled 
+        on this iSNS Client instance.  This allows the discovery 
+        process used by a client to be configured.  Only one 
+        discovery method in the bitmap is allowed to be designated 
+        as the primary discovery method at any given time.  If the 
+        primary discovery process is successful, then secondary 
+        discovery methods are not used." 
+   ::= { cIsnsClntInstEntry 11 } 
+    
+cIsnsClntInstScndryDiscMthd  OBJECT-TYPE 
+   SYNTAX                  CIsnsSrvrDscvryMthdId 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION  
+       "Indicates the secondary discovery methods enabled on this 
+        iSNS Client instance.  This allows secondary discovery 
+        methods, which are used by a client only if the primary method 
+        does not locate an iSNS Server, to be configured.  For 
+        example, DHCP may be the primary discovery method, and 
+        configured-server-list may be a secondary discovery method. 
+        Multiple discovery methods in the bitmap may be designated 
+        as secondary discovery methods.  If this is the case, then 
+        the order they are used is determined by the client.  The 
+        primary discovery method should not be listed as a secondary 
+        discovery method.  If no secondary discovery methods have 
+        been configured, then no bits are enabled.  All secondary 
+        server methods will be attempted." 
+   ::= { cIsnsClntInstEntry 12 } 
+    
+cIsnsClntInstDiscMcGrpType   OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsClntInstDiscMcGrp. If not 
+        set, then the value is unknown(0)." 
+   ::= { cIsnsClntInstEntry 13 } 
+    
+cIsnsClntInstDiscMcGrp       OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-write 
+   STATUS                  current 
+   DESCRIPTION 
+       "The multicast group that iSNS Heartbeat messages are 
+        listened for, if multicast based discovery has been enabled 
+        for this client instance.  If not configured, then 
+        the value is an empty string." 
+   ::= { cIsnsClntInstEntry 14 } 
+    
+-- 
+-- iSNS primary address table for user configured 
+-- addresses 
+-- 
+    
+cIsnsClntCfgSrvrTable        OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsClntCfgSrvrEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "iSNS Address table for direct user configuration.  If 
+        configured address server discovery is being used, defined 
+        as cIsnsClntInstPrmryDiscMthd or cIsnsClntInstScndryDiscMthd 
+        being set to 'cfgdServerList', this table provides the 
+        list of addresses to check for an iSNS Server. The number 
+        of rows is dependent on the number of addresses that the user 
+        configures." 
+   ::= { cIsnsClntInfo 2 } 
+    
+cIsnsClntCfgSrvrEntry        OBJECT-TYPE 
+   SYNTAX                  CIsnsClntCfgSrvrEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "An entry in the the configured server table.  Entries can be 
+        added by specifying a configuration address, address 
+        type, and row status." 
+   INDEX          { cIsnsClntInstIndex, 
+                    cIsnsClntCfgSrvrIndex } 
+   ::= { cIsnsClntCfgSrvrTable 1 } 
+    
+    
+CIsnsClntCfgSrvrEntry ::= SEQUENCE   {  
+           cIsnsClntCfgSrvrIndex          Unsigned32, 
+           cIsnsClntCfgSrvrAddrType       InetAddressType, 
+           cIsnsClntCfgSrvrAddr           InetAddress, 
+           cIsnsClntCfgSrvrTcpPort        Integer32, 
+           cIsnsClntCfgSrvrUdpPort        Integer32, 
+           cIsnsClntCfgSrvrPriority       Integer32, 
+           cIsnsClntCfgSrvrTimeout        Integer32, 
+           cIsnsClntCfgSrvrRetries        Integer32, 
+           cIsnsClntCfgSrvrRowStatus      RowStatus 
+                                       } 
+    
+cIsnsClntCfgSrvrIndex        OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 1 .. 255 ) 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "This managed object identifies an iSNS server that 
+        has been configured for possible use by an iSNS client in 
+        the network.  When the option for configured address server 
+        discovery is being used, each iSNS server for the configured 
+        network is placed in this table.  The number of configured 
+        servers is limited to a maximum of 255.  This managed object 
+        is not directly related to the managed object 
+        cIsnsSrvrInstIndex, which is the index for the table 
+        cIsnsSrvrInstTable." 
+   ::= { cIsnsClntCfgSrvrEntry 1 } 
+    
+cIsnsClntCfgSrvrAddrType     OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsClntCfgSrvrAddr." 
+   ::= { cIsnsClntCfgSrvrEntry 2 } 
+    
+cIsnsClntCfgSrvrAddr         OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "Identifies the IP address of the configured iSNS server." 
+   ::= { cIsnsClntCfgSrvrEntry 3 } 
+    
+cIsnsClntCfgSrvrTcpPort      OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the TCP port the configured iSNS server uses. 
+        The well known TCP port for iSNSP is 3205.  If the 
+        value is 0 then TCP is not supported by the server." 
+   DEFVAL                  { 3205 } 
+   ::= { cIsnsClntCfgSrvrEntry 4 } 
+    
+cIsnsClntCfgSrvrUdpPort      OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the UDP port the configured iSNS server uses. 
+        The well known UDP port for iSNSP is 3205.  If the 
+        value is 0 then UDP is not supported by the server." 
+   DEFVAL                  { 3205 } 
+   ::= { cIsnsClntCfgSrvrEntry 5 } 
+    
+cIsnsClntCfgSrvrPriority     OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 100 ) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The priority of this entry in the table.  The client should 
+        attempt to locate/register the highest priority entry first." 
+   DEFVAL                  { 50 } 
+   ::= { cIsnsClntCfgSrvrEntry 6 } 
+    
+cIsnsClntCfgSrvrTimeout      OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 1 .. 300 ) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The timeout value, in seconds, for attempting to register 
+        with this entry in the table.  After a timeout, another 
+        retry is attempted until the number of retries as listed 
+        in the managed object cIsnsClntCfgSrvrRetries have been 
+        attempted." 
+   DEFVAL                  { 5 } 
+   ::= { cIsnsClntCfgSrvrEntry 7 } 
+    
+cIsnsClntCfgSrvrRetries      OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 10 ) 
+   MAX-ACCESS              read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "The number of retries that should be used for attempting 
+        to register with this entry in the table." 
+   DEFVAL                  { 3 } 
+   ::= { cIsnsClntCfgSrvrEntry 8 } 
+    
+cIsnsClntCfgSrvrRowStatus    OBJECT-TYPE 
+   SYNTAX                 RowStatus 
+   MAX-ACCESS             read-create 
+   STATUS                  current 
+   DESCRIPTION 
+       "This indicates the status of this entry in the 
+        table. This item can be used to determine if the 
+        entry is a valid value." 
+   ::= { cIsnsClntCfgSrvrEntry 9 } 
+    
+-- 
+-- iSNS primary address table listing discovered 
+-- servers for each instance. 
+-- 
+   
+cIsnsClntDscvrdSrvrTable     OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsClntDscvrdSrvrEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION 
+       "This table lists the iSNS servers which have been discovered 
+        for a client instance.  The discovery methods used for a 
+        client are specified using cIsnsClntInstPrmryDiscMthd and 
+        cIsnsClntInstScndryDiscMthd. If the primary discovery method is 
+        successful, then the secondary methods are not used.  The 
+        discovery method used to find a specific entry is indicated in 
+        the cIsnsClntDscvrdSrvrDiscMthd managed object.  Normally an 
+        iSNS Client will register storage nodes in one discovered iSNS 
+        server.  However, it may sometimes be desired to register 
+        storage nodes in multiple iSNS servers.  This table is 
+        read-only.  The number of rows is dependent on the number of 
+        iSNS servers that are discovered for the managed iSNS clients. 
+        The entries in this table are updated after a discovery 
+        process is completed." 
+   ::= { cIsnsClntInfo 3 } 
+    
+cIsnsClntDscvrdSrvrEntry     OBJECT-TYPE 
+   SYNTAX                  CIsnsClntDscvrdSrvrEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "An entry in the cIsnsClntDscvrdSrvrTable table providing 
+        information on a discovered iSNS server for a specified 
+        client." 
+   INDEX          { cIsnsClntInstIndex, 
+                    cIsnsClntDscvrdSrvrIndex } 
+   ::= { cIsnsClntDscvrdSrvrTable 1 } 
+    
+CIsnsClntDscvrdSrvrEntry ::= SEQUENCE   {  
+           cIsnsClntDscvrdSrvrIndex         Unsigned32, 
+           cIsnsClntDscvrdSrvrAddrType      InetAddressType, 
+           cIsnsClntDscvrdSrvrAddr          InetAddress, 
+           cIsnsClntDscvrdSrvrTcpPort       Integer32, 
+           cIsnsClntDscvrdSrvrUdpPort       Integer32, 
+           cIsnsClntDscvrdSrvrIsnsVersion   Integer32, 
+           cIsnsClntDscvrdSrvrDiscMthd      CIsnsSrvrDscvryMthdId 
+                                          } 
+    
+cIsnsClntDscvrdSrvrIndex     OBJECT-TYPE 
+   SYNTAX                  Unsigned32 ( 1 .. 4294967295 ) 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "This managed object, in conjunction with cIsnsClntInstIndex, 
+        is the key that uniquely identifies each entry in this 
+        table." 
+   ::= { cIsnsClntDscvrdSrvrEntry 1 } 
+    
+cIsnsClntDscvrdSrvrAddrType  OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsClntDscvrdSrvrAddr." 
+   ::= { cIsnsClntDscvrdSrvrEntry 2 } 
+    
+cIsnsClntDscvrdSrvrAddr      OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The address of the discovered iSNS server." 
+   ::= { cIsnsClntDscvrdSrvrEntry 3 } 
+    
+cIsnsClntDscvrdSrvrTcpPort   OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The TCP port of the discovered iSNS server.  The well known 
+        TCP port for iSNSP is 3205." 
+   DEFVAL                  { 3205 } 
+   ::= { cIsnsClntDscvrdSrvrEntry 4 } 
+    
+cIsnsClntDscvrdSrvrUdpPort   OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The UDP port of the discovered iSNS server.  The well known 
+        UDP port for iSNSP is 3205." 
+   DEFVAL                  { 3205 } 
+   ::= { cIsnsClntDscvrdSrvrEntry 5 } 
+    
+cIsnsClntDscvrdSrvrIsnsVersion OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 100 ) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The iSNS version of the discovered version." 
+   ::= { cIsnsClntDscvrdSrvrEntry 6 } 
+    
+cIsnsClntDscvrdSrvrDiscMthd  OBJECT-TYPE 
+   SYNTAX                  CIsnsSrvrDscvryMthdId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The discovery method used to find this iSNS server." 
+   ::= { cIsnsClntDscvrdSrvrEntry 7 } 
+    
+-- 
+-- iSNS Client registered Entity information 
+-- 
+    
+cIsnsClntRegEntityTable      OBJECT-TYPE 
+   SYNTAX                  SEQUENCE OF CIsnsClntRegEntityEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "This table contains an entry for each Entity that has been 
+        registered by an iSNS Client instance managed by this SNMP 
+        agent.  This provides a method to map between the iSNS 
+        Client and iSNS Server registration information." 
+   ::= { cIsnsClntInfo 4 } 
+    
+cIsnsClntRegEntityEntry      OBJECT-TYPE 
+   SYNTAX                  CIsnsClntRegEntityEntry 
+   MAX-ACCESS              not-accessible 
+   STATUS                  current 
+   DESCRIPTION      
+       "This represents an Entity supported by an iSNS Client 
+        instance managed by this SNMP agent.  The number of rows 
+        in the table is dependent on the number of Entities 
+        supported by managed iSNS Client instances." 
+   INDEX          { cIsnsClntInstIndex, 
+                    cIsnsClntDscvrdSrvrIndex, 
+                    cIsnsClntRegEntityIdx } 
+   ::= { cIsnsClntRegEntityTable 1 } 
+    
+CIsnsClntRegEntityEntry ::= SEQUENCE   {  
+           cIsnsClntRegEntityIdx            CIsnsEntityIndexId, 
+           cIsnsClntRegEntityEID            SnmpAdminString, 
+           cIsnsClntRegEntityProtocol       CIsnsEntityProtocolId 
+                                       } 
+  
+cIsnsClntRegEntityIdx        OBJECT-TYPE 
+    SYNTAX                  CIsnsEntityIndexId 
+    MAX-ACCESS              not-accessible 
+    STATUS                  current 
+    DESCRIPTION      
+       "This is a unique identifier to represent an Entity 
+        registered in an iSNS server.  This is part of the index for 
+        the table." 
+   ::= { cIsnsClntRegEntityEntry 1 } 
+    
+cIsnsClntRegEntityEID        OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..255)) 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION 
+       "The EID is a unique registered Entity object identifier, as 
+        specified in the iSNS Specification.  This is the iSNS 
+        Entity Identifier for the Entity." 
+   ::= { cIsnsClntRegEntityEntry 2 } 
+    
+cIsnsClntRegEntityProtocol   OBJECT-TYPE 
+   SYNTAX                  CIsnsEntityProtocolId 
+   MAX-ACCESS              read-only 
+   STATUS                  current 
+   DESCRIPTION      
+       "The type of protocol that is supported by the Entity." 
+   ::= { cIsnsClntRegEntityEntry 3 } 
+    
+-- 
+-- iSNS Notification Block -------------------------------- 
+-- 
+    
+cIsnsNotification            OBJECT IDENTIFIER 
+                                     ::= { cIsnsObj 3 } 
+    
+cIsnsNotificationInfo        OBJECT IDENTIFIER 
+                                     ::= { cIsnsNotification 1 } 
+    
+cIsnsInstInfo                OBJECT-TYPE 
+   SYNTAX                  SnmpAdminString (SIZE (0..80)) 
+   MAX-ACCESS              accessible-for-notify 
+   STATUS                  current 
+   DESCRIPTION 
+       "Textual information about the iSNS server or client 
+        notification.  An example is: iSNS client started, or iSNS 
+        server started.  This is information that would be included 
+        in the appropriate notification." 
+   ::= { cIsnsNotificationInfo 1 } 
+    
+cIsnsAddrTypeNotifctn        OBJECT-TYPE 
+   SYNTAX                  InetAddressType 
+   MAX-ACCESS              accessible-for-notify 
+   STATUS                  current 
+   DESCRIPTION 
+       "The type of Internet address in cIsnsSrvrAddrNotifctn." 
+   ::= { cIsnsNotificationInfo 2 } 
+    
+    
+cIsnsAddrNotifctn            OBJECT-TYPE 
+   SYNTAX                  InetAddress 
+   MAX-ACCESS              accessible-for-notify 
+   STATUS                  current 
+   DESCRIPTION 
+       "Identifies the address of the iSNS server." 
+   ::= { cIsnsNotificationInfo 3 } 
+    
+cIsnsTcpPortNotifctn         OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              accessible-for-notify 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the TCP port the iSNS server is using, 
+        or 0 if TCP based registrations are not supported." 
+   ::= { cIsnsNotificationInfo 4 } 
+    
+cIsnsUdpPortNotifctn         OBJECT-TYPE 
+   SYNTAX                  Integer32 ( 0 .. 65535 ) 
+   MAX-ACCESS              accessible-for-notify 
+   STATUS                  current 
+   DESCRIPTION 
+       "Indicates the UDP port the iSNS server is using, 
+        or 0 if UDP based registrations are not supported." 
+   ::= { cIsnsNotificationInfo 5 } 
+    
+cIsnsNotificationPrefix OBJECT IDENTIFIER 
+                              ::= { cIsnsNotification 0 } 
+    
+cIsnsServerStart             NOTIFICATION-TYPE 
+   OBJECTS {  
+           cIsnsInstInfo, 
+           cIsnsAddrTypeNotifctn, 
+           cIsnsAddrNotifctn, 
+           cIsnsTcpPortNotifctn, 
+           cIsnsUdpPortNotifctn 
+           } 
+   STATUS                  current 
+   DESCRIPTION 
+       "This notification is sent when an iSNS Server begins 
+        operation.  The notification provides the following: 
+           cIsnsInstInfo         : iSNS Server textual information 
+           cIsnsAddrTypeNotifctn : iSNS Server address type 
+           cIsnsAddrNotifctn     : iSNS Server address 
+           cIsnsTcpPortNotifctn  : iSNS Server TCP Port 
+           cIsnsUdpPortNotifctn  : iSNS Server UDP Port 
+       " 
+   ::= { cIsnsNotificationPrefix 1 } 
+    
+cIsnsServerShutdown          NOTIFICATION-TYPE 
+   OBJECTS {  
+           cIsnsInstInfo, 
+           cIsnsAddrTypeNotifctn, 
+           cIsnsAddrNotifctn, 
+           cIsnsTcpPortNotifctn, 
+           cIsnsUdpPortNotifctn 
+           } 
+   STATUS                  current 
+   DESCRIPTION 
+       "This notification is sent when an iSNS Server is 
+        shutdown.  The notification provides the following: 
+           cIsnsInstInfo         : iSNS Server textual information 
+           cIsnsAddrTypeNotifctn : iSNS Server address type 
+           cIsnsAddrNotifctn     : iSNS Server address 
+           cIsnsTcpPortNotifctn  : iSNS Server TCP Port 
+           cIsnsUdpPortNotifctn  : iSNS Server UDP Port 
+       " 
+   ::= { cIsnsNotificationPrefix 2 } 
+    
+cIsnsClientStart             NOTIFICATION-TYPE 
+   OBJECTS {  
+           cIsnsInstInfo, 
+           cIsnsAddrTypeNotifctn, 
+           cIsnsAddrNotifctn, 
+           cIsnsTcpPortNotifctn, 
+           cIsnsUdpPortNotifctn 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "This notification is sent when an iSNS Client begins 
+        operation.  The notification provides the following: 
+           cIsnsInstInfo         : iSNS Client textual information 
+           cIsnsAddrTypeNotifctn : iSNS Client address type 
+           cIsnsAddrNotifctn     : iSNS Client address 
+           cIsnsTcpPortNotifctn  : iSNS Client TCP Port 
+           cIsnsUdpPortNotifctn  : iSNS Client UDP Port 
+       " 
+   ::= { cIsnsNotificationPrefix 3 } 
+    
+cIsnsClientInitalRegistration  NOTIFICATION-TYPE 
+   OBJECTS {  
+           cIsnsInstInfo, 
+           cIsnsAddrTypeNotifctn, 
+           cIsnsAddrNotifctn, 
+           cIsnsTcpPortNotifctn, 
+           cIsnsUdpPortNotifctn 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "This notification is sent when an iSNS Client initially 
+        registers with a server.  The notification provides the 
+        following: 
+           cIsnsInstInfo         : iSNS Client textual information 
+           cIsnsAddrTypeNotifctn : iSNS Server address type 
+           cIsnsAddrNotifctn     : iSNS Server address 
+           cIsnsTcpPortNotifctn  : iSNS Server TCP Port (if used) 
+           cIsnsUdpPortNotifctn  : iSNS Server UDP Port (if used) 
+       " 
+   ::= { cIsnsNotificationPrefix 4 } 
+    
+cIsnsClientLostConnection    NOTIFICATION-TYPE 
+   OBJECTS {  
+           cIsnsInstInfo, 
+           cIsnsAddrTypeNotifctn, 
+           cIsnsAddrNotifctn, 
+           cIsnsTcpPortNotifctn, 
+           cIsnsUdpPortNotifctn 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "This notification is sent when an iSNS Client loses 
+        connection with an iSNS Server.  The notification provides 
+        the following: 
+           cIsnsInstInfo         : iSNS Client textual information 
+           cIsnsAddrTypeNotifctn : iSNS Server address type 
+           cIsnsAddrNotifctn     : iSNS Server address 
+           cIsnsTcpPortNotifctn  : iSNS Server TCP Port (if used) 
+           cIsnsUdpPortNotifctn  : iSNS Server UDP Port (if used) 
+       " 
+   ::= { cIsnsNotificationPrefix 5 } 
+    
+cIsnsClientNoServerDiscovered NOTIFICATION-TYPE 
+   OBJECTS {  
+           cIsnsInstInfo 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "This notification is sent when a server discovery process 
+        completes and no iSNS servers were found.  The notification 
+        provides the following: 
+           cIsnsInstInfo         : iSNS Client textual information 
+       " 
+   ::= { cIsnsNotificationPrefix 6 } 
+    
+   ------------------------------------------------------------ 
+    
+cIsnsGroups OBJECT IDENTIFIER ::= { cIsnsConformance 1 } 
+    
+cIsnsServerAttributesGroup      OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsSrvrInstName, 
+           cIsnsSrvrInstIsnsVersion, 
+           cIsnsSrvrInstDescription, 
+           cIsnsSrvrInstAddressType, 
+           cIsnsSrvrInstAddress, 
+           cIsnsSrvrInstTcpPort, 
+           cIsnsSrvrInstUdpPort, 
+           cIsnsSrvrInstUptime, 
+           cIsnsSrvrInstRole, 
+           cIsnsSrvrInstDiscMthdsEnbld, 
+           cIsnsSrvrInstDiscMcGrpType, 
+           cIsnsSrvrInstDiscMcGrp, 
+           cIsnsSrvrInstCntrlNodeAuth, 
+           cIsnsSrvrInstEsiNonRespThrshld, 
+           cIsnsSrvrInstEnblCntrlNdeMgtScn, 
+           cIsnsSrvrInstDfltDdDdsStatus,  
+           cIsnsSrvrInstUpdateDdDdsSpprtd, 
+           cIsnsSrvrInstUpdateDdDdsEnbld 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server attributes." 
+   ::= { cIsnsGroups 1 } 
+    
+cIsnsServerNumObjGroup      OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsNumDds, 
+           cIsnsNumDd, 
+           cIsnsNumEntities, 
+           cIsnsNumPortals, 
+           cIsnsNumPortalGroups, 
+           cIsnsNumIscsiNodes, 
+           cIsnsNumFcPorts, 
+           cIsnsNumFcNodes, 
+           cIsnsRegEntityInfoNumPortals, 
+           cIsnsRegEntityInfoNumPortalGroup, 
+           cIsnsRegEntityInfoNumIscsiNodes, 
+           cIsnsRegEntityInfoNumFcPorts, 
+           cIsnsRegEntityInfoNumFcNodes, 
+           cIsnsRegFcNodeInfoNumFcPorts 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "Managed objects indicating the number of registered objects 
+        in an iSNS Server or the number of registered objects 
+        associated with a registered Entity.  These managed objects 
+        are optional to implement." 
+   ::= { cIsnsGroups 2 } 
+    
+cIsnsServerNextIdxGroup      OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsNextIdxDds, 
+           cIsnsNextIdxDd, 
+           cIsnsNextIdxUnregIscsiNodeInDd, 
+           cIsnsNextIdxUnregPortalInDd 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "Managed objects indicating the next available index for object 
+        types using indexes in iSNS Server instances." 
+   ::= { cIsnsGroups 3 } 
+    
+cIsnsServerIscsiCntlNodeGroup    OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsCntlNodeIscsiNodeName, 
+           cIsnsCntlNodeIscsiRowStatus 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server iSCSI control node managed objects." 
+   ::= { cIsnsGroups 4 } 
+    
+cIsnsServerIfcpCntlNodeGroup    OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsCntlNodeFcPortRowStatus 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server iFCP control node managed objects." 
+   ::= { cIsnsGroups 5 } 
+    
+cIsnsServerIscsiDdsDdObjGroup   OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsDdsSymbolicName, 
+           cIsnsDdsStatus, 
+           cIsnsDdsRowStatus, 
+           cIsnsDdsMemberRowStatus, 
+           cIsnsDdSymbolicName, 
+           cIsnsDdFeatures, 
+           cIsnsDdRowStatus, 
+           cIsnsDdMemberIscsiName, 
+           cIsnsDdMemberIsRegistered, 
+           cIsnsDdMemberRowStatus, 
+           cIsnsDdMemberPortalAddrType, 
+           cIsnsDdMemberPortalAddr, 
+           cIsnsDdMemberPortalPortType, 
+           cIsnsDdMemberPortalPort, 
+           cIsnsDdMemberPortalRowStatus, 
+           cIsnsDdMemberPortalIsRegistered 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server DDS and DD managed objects for iSCSI." 
+   ::= { cIsnsGroups 6 } 
+    
+cIsnsServerIfcpDdsDdObjGroup    OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsDdsSymbolicName, 
+           cIsnsDdsStatus, 
+           cIsnsDdsRowStatus, 
+           cIsnsDdsMemberRowStatus, 
+           cIsnsDdSymbolicName, 
+           cIsnsDdFeatures, 
+           cIsnsDdRowStatus, 
+           cIsnsDdMemberPortalAddrType, 
+           cIsnsDdMemberPortalAddr, 
+           cIsnsDdMemberPortalPortType, 
+           cIsnsDdMemberPortalPort, 
+           cIsnsDdMemberPortalRowStatus, 
+           cIsnsDdMemberPortalIsRegistered, 
+           cIsnsDdMemberFcIsRegistered, 
+           cIsnsDdMemberFcRowStatus 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server DDS and DD managed objects for iFCP." 
+   ::= { cIsnsGroups 7 } 
+    
+cIsnsServerRegIscsiObjGroup   OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsRegEntityEID, 
+           cIsnsRegEntityProtocol, 
+           cIsnsRegEntityMgtAddrType, 
+           cIsnsRegEntityMgtAddr, 
+           cIsnsRegEntityTimestamp, 
+           cIsnsRegEntityVersionMin, 
+           cIsnsRegEntityVersionMax, 
+           cIsnsRegEntityRegPeriod, 
+           cIsnsRegEntityInfoNumPortals, 
+           cIsnsRegEntityInfoNumPortalGroup, 
+           cIsnsRegEntityInfoNumIscsiNodes, 
+           cIsnsRegEntityInfoNumFcPorts, 
+           cIsnsRegEntityInfoNumFcNodes, 
+           cIsnsRegPortalAddrType, 
+           cIsnsRegPortalAddr, 
+           cIsnsRegPortalPortType, 
+           cIsnsRegPortalPort, 
+           cIsnsRegPortalSymName, 
+           cIsnsRegPortalEsiInterval, 
+           cIsnsRegPortalEsiPortType, 
+           cIsnsRegPortalEsiPort, 
+           cIsnsRegPortalScnPortType, 
+           cIsnsRegPortalScnPort, 
+           cIsnsRegPortalSecurityInfo, 
+           cIsnsRegPgIscsiNodeIdx, 
+           cIsnsRegPgIscsiName, 
+           cIsnsRegPgPortalPrtlIdx, 
+           cIsnsRegPgPortalAddrType, 
+           cIsnsRegPgPortalAddr, 
+           cIsnsRegPgPortalPortType, 
+           cIsnsRegPgPortalPort, 
+           cIsnsRegPgPGT, 
+           cIsnsRegIscsiNodeName, 
+           cIsnsRegIscsiNodeType, 
+           cIsnsRegIscsiNodeAlias, 
+           cIsnsRegIscsiNodeScnBitmap, 
+           cIsnsRegIscsiNodeWwnToken, 
+           cIsnsRegIscsiNodeAuthMethod 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server registered iSCSI managed objects." 
+   ::= { cIsnsGroups 8 } 
+    
+cIsnsServerRegIfcpObjGroup    OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsRegEntityEID, 
+           cIsnsRegEntityProtocol, 
+           cIsnsRegEntityMgtAddrType, 
+           cIsnsRegEntityMgtAddr, 
+           cIsnsRegEntityTimestamp, 
+           cIsnsRegEntityVersionMin, 
+           cIsnsRegEntityVersionMax, 
+           cIsnsRegEntityRegPeriod, 
+           cIsnsRegEntityInfoNumPortals, 
+           cIsnsRegEntityInfoNumPortalGroup, 
+           cIsnsRegEntityInfoNumIscsiNodes, 
+           cIsnsRegEntityInfoNumFcPorts, 
+           cIsnsRegEntityInfoNumFcNodes, 
+           cIsnsRegPortalAddrType, 
+           cIsnsRegPortalAddr, 
+           cIsnsRegPortalPortType, 
+           cIsnsRegPortalPort, 
+           cIsnsRegPortalSymName, 
+           cIsnsRegPortalEsiInterval, 
+           cIsnsRegPortalEsiPortType, 
+           cIsnsRegPortalEsiPort, 
+           cIsnsRegPortalScnPortType, 
+           cIsnsRegPortalScnPort, 
+           cIsnsRegPortalSecurityInfo, 
+           cIsnsRegFcPortID, 
+           cIsnsRegFcPortType, 
+           cIsnsRegFcPortSymName, 
+           cIsnsRegFcPortFabricPortWwn, 
+           cIsnsRegFcPortHA, 
+           cIsnsRegFcPortAddrType, 
+           cIsnsRegFcPortAddr, 
+           cIsnsRegFcPortFcCos, 
+           cIsnsRegFcPortFc4Types, 
+           cIsnsRegFcPortFc4Descr, 
+           cIsnsRegFcPortFc4Features, 
+           cIsnsRegFcPortScnBitmap, 
+           cIsnsRegFcPortRole, 
+           cIsnsRegFcPortFcNodeWwn, 
+           cIsnsRegFcPortPpnWwn, 
+           cIsnsRegFcNodeSymName, 
+           cIsnsRegFcNodeAddrType, 
+           cIsnsRegFcNodeAddr, 
+           cIsnsRegFcNodeIPA, 
+           cIsnsRegFcNodeProxyIscsiName, 
+           cIsnsRegFcNodeFcPortEntityEIdx 
+              } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server registered iFCP managed objects." 
+   ::= { cIsnsGroups 9 } 
+    
+cIsnsClientAttributesGroup      OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsClntInstName, 
+           cIsnsClntInstIsnspVersion, 
+           cIsnsClntInstDescription, 
+           cIsnsClntInstAddressType, 
+           cIsnsClntInstAddress, 
+           cIsnsClntInstTcpPort, 
+           cIsnsClntInstUdpPort, 
+           cIsnsClntInstUptime, 
+           cIsnsClntInstAvailDiscMthd, 
+           cIsnsClntInstPrmryDiscMthd, 
+           cIsnsClntInstScndryDiscMthd, 
+           cIsnsClntInstDiscMcGrpType, 
+           cIsnsClntInstDiscMcGrp, 
+           cIsnsClntCfgSrvrAddrType, 
+           cIsnsClntCfgSrvrAddr, 
+           cIsnsClntCfgSrvrTcpPort, 
+           cIsnsClntCfgSrvrUdpPort, 
+           cIsnsClntCfgSrvrPriority, 
+           cIsnsClntCfgSrvrTimeout, 
+           cIsnsClntCfgSrvrRetries, 
+           cIsnsClntCfgSrvrRowStatus, 
+           cIsnsClntDscvrdSrvrAddrType, 
+           cIsnsClntDscvrdSrvrAddr, 
+           cIsnsClntDscvrdSrvrTcpPort, 
+           cIsnsClntDscvrdSrvrUdpPort, 
+           cIsnsClntDscvrdSrvrIsnsVersion, 
+           cIsnsClntDscvrdSrvrDiscMthd, 
+           cIsnsClntRegEntityEID, 
+           cIsnsClntRegEntityProtocol 
+              } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Client attributes." 
+   ::= { cIsnsGroups 10 } 
+    
+cIsnsNotificationObjGroup    OBJECT-GROUP 
+   OBJECTS { 
+           cIsnsInstInfo, 
+           cIsnsAddrTypeNotifctn, 
+           cIsnsAddrNotifctn, 
+           cIsnsTcpPortNotifctn, 
+           cIsnsUdpPortNotifctn 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Notification managed objects." 
+   ::= { cIsnsGroups 11 } 
+    
+cIsnsServerNotificationGroup  NOTIFICATION-GROUP 
+   NOTIFICATIONS { 
+           cIsnsServerStart, 
+           cIsnsServerShutdown 
+                     } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Server Notification managed objects." 
+   ::= { cIsnsGroups 12 } 
+    
+cIsnsClientNotificationGroup  NOTIFICATION-GROUP 
+   NOTIFICATIONS { 
+           cIsnsClientStart, 
+           cIsnsClientInitalRegistration, 
+           cIsnsClientLostConnection, 
+           cIsnsClientNoServerDiscovered 
+               } 
+   STATUS                  current 
+   DESCRIPTION 
+       "iSNS Client Notification managed objects." 
+   ::= { cIsnsGroups 13 } 
+    
+-- 
+-- Compliance Information 
+-- 
+    
+cIsnsCompliances OBJECT IDENTIFIER ::= { cIsnsConformance 2 } 
+    
+cIsnsIscsiServerComplianceV1 MODULE-COMPLIANCE 
+   STATUS                  current 
+   DESCRIPTION 
+       "Initial compliance statement for an iSNS Server 
+        providing support to iSCSI clients." 
+   MODULE       -- this module 
+   MANDATORY-GROUPS { 
+           cIsnsServerAttributesGroup, 
+           cIsnsServerNextIdxGroup, 
+           cIsnsServerIscsiCntlNodeGroup, 
+           cIsnsServerIscsiDdsDdObjGroup, 
+           cIsnsServerRegIscsiObjGroup, 
+           cIsnsNotificationObjGroup, 
+           cIsnsServerNotificationGroup 
+                        } 
+   ::= { cIsnsCompliances 1 } 
+    
+cIsnsIscsiClientComplianceV1 MODULE-COMPLIANCE 
+   STATUS                  current 
+   DESCRIPTION 
+       "Initial compliance statement for an iSNS Client 
+        supporting iSCSI devices." 
+   MODULE       -- this module 
+   MANDATORY-GROUPS { 
+           cIsnsClientAttributesGroup, 
+           cIsnsNotificationObjGroup, 
+           cIsnsClientNotificationGroup 
+                        } 
+   ::= { cIsnsCompliances 2 } 
+    
+cIsnsIfcpServerComplianceV1 MODULE-COMPLIANCE 
+   STATUS                  current 
+   DESCRIPTION 
+       "Initial compliance statement for an iSNS Server 
+        providing support to iFCP Clients." 
+   MODULE       -- this module 
+   MANDATORY-GROUPS { 
+           cIsnsServerAttributesGroup, 
+           cIsnsServerNextIdxGroup, 
+           cIsnsServerIfcpCntlNodeGroup, 
+           cIsnsServerIfcpDdsDdObjGroup, 
+           cIsnsServerRegIfcpObjGroup, 
+           cIsnsNotificationObjGroup, 
+           cIsnsServerNotificationGroup 
+                        } 
+   ::= { cIsnsCompliances 3 } 
+    
+cIsnsIfcpClientComplianceV1 MODULE-COMPLIANCE 
+   STATUS                  current 
+   DESCRIPTION 
+       "Initial compliance statement for an iSNS Client 
+        supporting iFCP gateways." 
+   MODULE       -- this module 
+   MANDATORY-GROUPS { 
+           cIsnsClientAttributesGroup, 
+           cIsnsNotificationObjGroup, 
+           cIsnsClientNotificationGroup 
+                        } 
+   ::= { cIsnsCompliances 4 }
+ 
+cIsnsServerCountStatsCompliance MODULE-COMPLIANCE
+   STATUS                  current
+   DESCRIPTION
+       "This set of groups is required for an implementation
+        if it is desired to indicate that it keeps track of
+        the number of registered objects in the iSNS Server
+        instances over time."
+   MODULE       -- this module
+   MANDATORY-GROUPS {
+           cIsnsServerNumObjGroup
+                        }
+   ::= { cIsnsCompliances 5 }   
+ 
+END 
+    
+

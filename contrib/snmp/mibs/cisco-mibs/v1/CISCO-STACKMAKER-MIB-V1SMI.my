@@ -1,0 +1,157 @@
+-- MIB file created 19-Sep-2001 15:24:52, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-STACKMAKER-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-STACKMAKER-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    DisplayString
+            FROM SNMPv2-TC-v1
+    IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoStackMakerMIB OBJECT IDENTIFIER ::= { ciscoMgmt 59 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9610311200Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Postal: Cisco Systems, Inc.
+--     170 West Tasman Drive
+--     San Jose, CA 95134-1706
+--     USA
+--    
+--     Tel: +1 408 526 4000
+--    
+--     E-mail: cs-stacks@cisco.com
+--  Descr
+--    The MIB module for Cisco Systems' StackMaker.
+
+ciscoStackMakerMIBObjects OBJECT IDENTIFIER ::= { ciscoStackMakerMIB 1 }
+ciscoStackMakerConf OBJECT IDENTIFIER ::= { ciscoStackMakerMIBObjects 1 }
+ciscoStackMakerMIBConformance OBJECT IDENTIFIER ::= { ciscoStackMakerMIB 3 }
+ciscoStackMakerMIBCompliances OBJECT IDENTIFIER ::= { ciscoStackMakerMIBConformance 1 }
+ciscoStackMakerMIBGroups OBJECT IDENTIFIER ::= { ciscoStackMakerMIBConformance 2 }
+
+csmStackName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " A descriptive string used by the network administrator
+        one stack at any given time. If this entry is empty,
+        the device is not a member of a stack.
+        
+        Changing the value of this object will move the device
+        to a different stack. If the value is cleared, the device
+        is no longer a member of any stack."
+    ::= { ciscoStackMakerConf 1 }
+
+csmClearStackTable OBJECT-TYPE
+    SYNTAX INTEGER {
+        clearTable(1),
+        noClearTable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to clear the csmStackTable
+        with a single SNMP operation. The application will clear
+        the table and re-write the table to accommodate new
+        or modified table entries.
+        Setting this object to noClearTable has no effect.
+        The agent will always return the value of noClearTable
+        when this object is read."
+    ::= { ciscoStackMakerConf 2 }
+
+csmStackTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsmStackEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of IP addresses for the devices which are
+        members of the stack. Individual entries can be added
+        to the table to add devices in the stack either through
+        SNMP Set operations or through the device's command line
+        interface. However, the agent need not support deletion
+        of individual entries, since the table is first cleared
+        before any modifications are made, using the
+        csmClearStackTable object. The agent will return
+        the error badValue if an SNMP Set operation is
+        attempted on an existing row.
+        
+        It is the responsibility of the network administrator to
+        ensure that a device does not belong to more than one stack
+        and to maintain referential integrity across devices. A
+        device will take no action upon the information stored in
+        this table other than to guarantee its persistence over
+        device reboots."
+    ::= { ciscoStackMakerConf 3 }
+
+csmStackEntry OBJECT-TYPE
+    SYNTAX CsmStackEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for each device which is member of the stack."
+    INDEX { csmStackIndex }
+    ::= { csmStackTable 1 }
+
+CsmStackEntry ::= SEQUENCE {
+    csmStackIndex INTEGER,
+    csmStackIpAddress IpAddress
+    }
+
+csmStackIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index in the StackMaker table. Entries should be
+        consecutive since updating this table is made by
+        first clearing the table and reconfiguring it."
+    ::= { csmStackEntry 1 }
+
+csmStackIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of a stack member."
+    ::= { csmStackEntry 2 }
+
+ciscoStackMakerBasicGroup OBJECT IDENTIFIER ::= { ciscoStackMakerMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing identification for
+--    a Cisco Systems' entity which implements the
+--    StackMaker MIB.
+--  objects
+--    csmStackName, csmClearStackTable, csmStackIpAddress
+
+ciscoStackMakerMIBCompliance OBJECT IDENTIFIER ::= { ciscoStackMakerMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for Cisco Systems entities which
+--    implement the StackMaker model. Every Cisco stackable
+--    device must implement the StackMaker MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoStackMakerBasicGroup
+
+
+END
+

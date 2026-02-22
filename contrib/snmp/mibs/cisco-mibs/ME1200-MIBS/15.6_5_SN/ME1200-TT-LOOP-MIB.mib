@@ -1,0 +1,565 @@
+-- *****************************************************************
+-- TT-LOOP-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-TT-LOOP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200TtLoopMib MODULE-IDENTITY
+    LAST-UPDATED "201405190000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private Traffic Test Loop MIB that can be used for RFC2544
+         and Y.1564 (remote end) testing"
+    REVISION    "201612070000Z"
+    DESCRIPTION
+        "Support for Latching Loopback function: Added
+         me1200TtLoopLlConfigInstanceTable."
+    REVISION    "201405190000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 128 }
+
+
+ME1200TtLoopInstanceAdminState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance Administrative State."
+    SYNTAX      INTEGER { adminDisabled(0), adminEnabled(1) }
+
+ME1200TtLoopInstanceDirection ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance direction."
+    SYNTAX      INTEGER { facility(0), terminal(1) }
+
+ME1200TtLoopInstanceDomain ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance domain."
+    SYNTAX      INTEGER { port(0), evc(1), vlan(2) }
+
+ME1200TtLoopInstanceOperState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance Operational State."
+    SYNTAX      INTEGER { operDown(0), operUp(1), operInact(2) }
+
+ME1200TtLoopInstanceSubscriber ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance subscriber mode."
+    SYNTAX      INTEGER { none(0), all(1), test(2) }
+
+ME1200TtLoopInstanceType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The instance type."
+    SYNTAX      INTEGER { macLoop(0), oamLoop(1) }
+
+me1200TtLoopMibObjects OBJECT IDENTIFIER
+    ::= { me1200TtLoopMib 1 }
+
+me1200TtLoopCapabilities OBJECT IDENTIFIER
+    ::= { me1200TtLoopMibObjects 1 }
+
+me1200TtLoopCapabilitiesInstanceMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max number of TT_LOOP instance"
+    ::= { me1200TtLoopCapabilities 1 }
+
+me1200TtLoopCapabilitiesNameMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max length of instance name"
+    ::= { me1200TtLoopCapabilities 2 }
+
+me1200TtLoopConfig OBJECT IDENTIFIER
+    ::= { me1200TtLoopMibObjects 2 }
+
+me1200TtLoopConfigInstanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200TtLoopConfigInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance configuration parameters"
+    ::= { me1200TtLoopConfig 1 }
+
+me1200TtLoopConfigInstanceEntry OBJECT-TYPE
+    SYNTAX      ME1200TtLoopConfigInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance configuration parameters. Not all parameters
+         can be changed"
+    INDEX       { me1200TtLoopConfigInstanceId }
+    ::= { me1200TtLoopConfigInstanceTable 1 }
+
+ME1200TtLoopConfigInstanceEntry ::= SEQUENCE {
+    me1200TtLoopConfigInstanceId      Integer32,
+    me1200TtLoopConfigInstanceName    ME1200DisplayString,
+    me1200TtLoopConfigInstanceType    ME1200TtLoopInstanceType,
+    me1200TtLoopConfigInstanceDirection   ME1200TtLoopInstanceDirection,
+    me1200TtLoopConfigInstanceDomain      ME1200TtLoopInstanceDomain,
+    me1200TtLoopConfigInstanceFlow    Unsigned32,
+    me1200TtLoopConfigInstancePort    ME1200InterfaceIndex,
+    me1200TtLoopConfigInstanceLevel   Unsigned32,
+    me1200TtLoopConfigInstanceSubscriber      ME1200TtLoopInstanceSubscriber,
+    me1200TtLoopConfigInstanceAdminState      ME1200TtLoopInstanceAdminState,
+    me1200TtLoopConfigInstanceAction      ME1200RowEditorState
+}
+
+me1200TtLoopConfigInstanceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The TT_LOOP instance ID"
+    ::= { me1200TtLoopConfigInstanceEntry 1 }
+
+me1200TtLoopConfigInstanceName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Instance name"
+    ::= { me1200TtLoopConfigInstanceEntry 2 }
+
+me1200TtLoopConfigInstanceType OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Traffic Test loop type. Currently only MAC Loop is supported"
+    ::= { me1200TtLoopConfigInstanceEntry 3 }
+
+me1200TtLoopConfigInstanceDirection OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceDirection
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance direction. Currently only Facility Loop is supported"
+    ::= { me1200TtLoopConfigInstanceEntry 4 }
+
+me1200TtLoopConfigInstanceDomain OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceDomain
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance domain. Currently only Port domain is supported"
+    ::= { me1200TtLoopConfigInstanceEntry 5 }
+
+me1200TtLoopConfigInstanceFlow OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The flow instance (VLAN - EVC)."
+    ::= { me1200TtLoopConfigInstanceEntry 6 }
+
+me1200TtLoopConfigInstancePort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance residence port."
+    ::= { me1200TtLoopConfigInstanceEntry 7 }
+
+me1200TtLoopConfigInstanceLevel OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance MEG level"
+    ::= { me1200TtLoopConfigInstanceEntry 8 }
+
+me1200TtLoopConfigInstanceSubscriber OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceSubscriber
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC OAM loop subscriber mode"
+    ::= { me1200TtLoopConfigInstanceEntry 9 }
+
+me1200TtLoopConfigInstanceAdminState OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceAdminState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance Administrative state."
+    ::= { me1200TtLoopConfigInstanceEntry 10 }
+
+me1200TtLoopConfigInstanceAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200TtLoopConfigInstanceEntry 100 }
+
+me1200TtLoopConfigInstanceRowEditor OBJECT IDENTIFIER
+    ::= { me1200TtLoopConfig 2 }
+
+me1200TtLoopConfigInstanceRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The TT_LOOP instance ID"
+    ::= { me1200TtLoopConfigInstanceRowEditor 1 }
+
+me1200TtLoopConfigInstanceRowEditorName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Instance name"
+    ::= { me1200TtLoopConfigInstanceRowEditor 2 }
+
+me1200TtLoopConfigInstanceRowEditorType OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Traffic Test loop type. Currently only MAC Loop is supported"
+    ::= { me1200TtLoopConfigInstanceRowEditor 3 }
+
+me1200TtLoopConfigInstanceRowEditorDirection OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceDirection
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance direction. Currently only Facility Loop is supported"
+    ::= { me1200TtLoopConfigInstanceRowEditor 4 }
+
+me1200TtLoopConfigInstanceRowEditorDomain OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceDomain
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance domain. Currently only Port domain is supported"
+    ::= { me1200TtLoopConfigInstanceRowEditor 5 }
+
+me1200TtLoopConfigInstanceRowEditorFlow OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The flow instance (VLAN - EVC)."
+    ::= { me1200TtLoopConfigInstanceRowEditor 6 }
+
+me1200TtLoopConfigInstanceRowEditorPort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance residence port."
+    ::= { me1200TtLoopConfigInstanceRowEditor 7 }
+
+me1200TtLoopConfigInstanceRowEditorLevel OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance MEG level"
+    ::= { me1200TtLoopConfigInstanceRowEditor 8 }
+
+me1200TtLoopConfigInstanceRowEditorSubscriber OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceSubscriber
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC OAM loop subscriber mode"
+    ::= { me1200TtLoopConfigInstanceRowEditor 9 }
+
+me1200TtLoopConfigInstanceRowEditorAdminState OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceAdminState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The instance Administrative state."
+    ::= { me1200TtLoopConfigInstanceRowEditor 10 }
+
+me1200TtLoopConfigInstanceRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200TtLoopConfigInstanceRowEditor 100 }
+
+me1200TtLoopLlConfigInstanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200TtLoopLlConfigInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table enables the user to configure the MEF 46 Latching Loopback
+         parameters for the created TT-LOOP instances. Entries in the table will
+         be automatically created or deleted when the corresponding entry in the
+         ttLoopConfigInstanceTable is created or deleted, but the content will
+         only be valid if the Latching Loopback function has been enabled for
+         the TT-LOOP instance."
+    ::= { me1200TtLoopConfig 3 }
+
+me1200TtLoopLlConfigInstanceEntry OBJECT-TYPE
+    SYNTAX      ME1200TtLoopLlConfigInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This entry contains all configurable Latching Loopback parameters for a
+         TT-LOOP instance."
+    INDEX       { me1200TtLoopLlConfigInstanceId }
+    ::= { me1200TtLoopLlConfigInstanceTable 1 }
+
+ME1200TtLoopLlConfigInstanceEntry ::= SEQUENCE {
+    me1200TtLoopLlConfigInstanceId    Integer32,
+    me1200TtLoopLlConfigInstanceEnable    TruthValue,
+    me1200TtLoopLlConfigInstanceMepId     Unsigned32,
+    me1200TtLoopLlConfigInstanceSourceMac     MacAddress
+}
+
+me1200TtLoopLlConfigInstanceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The TT_LOOP instance ID"
+    ::= { me1200TtLoopLlConfigInstanceEntry 1 }
+
+me1200TtLoopLlConfigInstanceEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Setting this object to 'true' enables the use of Latching Loopback
+         functionality for an existing TT-LOOP instance. If the value is 'false'
+         the instance works as a static TT-LOOP instance."
+    ::= { me1200TtLoopLlConfigInstanceEntry 2 }
+
+me1200TtLoopLlConfigInstanceMepId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MEP ID associated with the TT-LOOP instance. If the Latching
+         Loopback function is enabled using the 'Enable' object above then this
+         value must be a valid MEP ID value. The MEP may however not be created
+         yet."
+    ::= { me1200TtLoopLlConfigInstanceEntry 3 }
+
+me1200TtLoopLlConfigInstanceSourceMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source MAC address from which to accept Latching Loopback Message
+         (LLM) PDUs for this instance."
+    ::= { me1200TtLoopLlConfigInstanceEntry 4 }
+
+me1200TtLoopStatus OBJECT IDENTIFIER
+    ::= { me1200TtLoopMibObjects 3 }
+
+me1200TtLoopStatusInstanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200TtLoopStatusInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created instance status"
+    ::= { me1200TtLoopStatus 1 }
+
+me1200TtLoopStatusInstanceEntry OBJECT-TYPE
+    SYNTAX      ME1200TtLoopStatusInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created instance status"
+    INDEX       { me1200TtLoopStatusInstanceId }
+    ::= { me1200TtLoopStatusInstanceTable 1 }
+
+ME1200TtLoopStatusInstanceEntry ::= SEQUENCE {
+    me1200TtLoopStatusInstanceId      Integer32,
+    me1200TtLoopStatusInstanceOperState   ME1200TtLoopInstanceOperState
+}
+
+me1200TtLoopStatusInstanceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The TT_LOOP instance ID"
+    ::= { me1200TtLoopStatusInstanceEntry 1 }
+
+me1200TtLoopStatusInstanceOperState OBJECT-TYPE
+    SYNTAX      ME1200TtLoopInstanceOperState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The instance Operational state."
+    ::= { me1200TtLoopStatusInstanceEntry 2 }
+
+me1200TtLoopLlStatusInstanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200TtLoopLlStatusInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table enables the user to view the MEF 46 Latching Loopback status
+         for the created TT-LOOP instances. Entries in the table will be
+         automatically created or deleted when the corresponding entry in the
+         ttLoopConfigInstanceTable is created or deleted."
+    ::= { me1200TtLoopStatus 2 }
+
+me1200TtLoopLlStatusInstanceEntry OBJECT-TYPE
+    SYNTAX      ME1200TtLoopLlStatusInstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This entry contains all status Latching Loopback parameters for a
+         TT-LOOP instance."
+    INDEX       { me1200TtLoopLlStatusInstanceId }
+    ::= { me1200TtLoopLlStatusInstanceTable 1 }
+
+ME1200TtLoopLlStatusInstanceEntry ::= SEQUENCE {
+    me1200TtLoopLlStatusInstanceId    Integer32,
+    me1200TtLoopLlStatusInstanceRemainExpTimer    Unsigned32
+}
+
+me1200TtLoopLlStatusInstanceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The TT_LOOP instance ID"
+    ::= { me1200TtLoopLlStatusInstanceEntry 1 }
+
+me1200TtLoopLlStatusInstanceRemainExpTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The remaining expiry timer in seconds. This value is non-zero if the
+         operational state of the Latching Loopback instance is 'up' (aka.
+         'Active' in MEF 46 terms). It will be zero if the operational state is
+         not 'up' or if Latching Loopback has not been enabled for the TT-LOOP
+         instance."
+    ::= { me1200TtLoopLlStatusInstanceEntry 2 }
+
+me1200TtLoopMibConformance OBJECT IDENTIFIER
+    ::= { me1200TtLoopMib 3 }
+
+me1200TtLoopMibCompliances OBJECT IDENTIFIER
+    ::= { me1200TtLoopMibConformance 1 }
+
+me1200TtLoopMibGroups OBJECT IDENTIFIER
+    ::= { me1200TtLoopMibConformance 2 }
+
+me1200TtLoopCapabilitiesInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200TtLoopCapabilitiesInstanceMax, 
+                  me1200TtLoopCapabilitiesNameMax }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200TtLoopMibGroups 1 }
+
+me1200TtLoopConfigInstanceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200TtLoopConfigInstanceName, me1200TtLoopConfigInstanceType, 
+                  me1200TtLoopConfigInstanceDirection, 
+                  me1200TtLoopConfigInstanceDomain, me1200TtLoopConfigInstanceFlow, 
+                  me1200TtLoopConfigInstancePort, me1200TtLoopConfigInstanceLevel, 
+                  me1200TtLoopConfigInstanceSubscriber, 
+                  me1200TtLoopConfigInstanceAdminState, 
+                  me1200TtLoopConfigInstanceAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200TtLoopMibGroups 2 }
+
+me1200TtLoopConfigInstanceRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200TtLoopConfigInstanceRowEditorId, 
+                  me1200TtLoopConfigInstanceRowEditorName, 
+                  me1200TtLoopConfigInstanceRowEditorType, 
+                  me1200TtLoopConfigInstanceRowEditorDirection, 
+                  me1200TtLoopConfigInstanceRowEditorDomain, 
+                  me1200TtLoopConfigInstanceRowEditorFlow, 
+                  me1200TtLoopConfigInstanceRowEditorPort, 
+                  me1200TtLoopConfigInstanceRowEditorLevel, 
+                  me1200TtLoopConfigInstanceRowEditorSubscriber, 
+                  me1200TtLoopConfigInstanceRowEditorAdminState, 
+                  me1200TtLoopConfigInstanceRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200TtLoopMibGroups 3 }
+
+me1200TtLoopLlConfigInstanceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200TtLoopLlConfigInstanceEnable, 
+                  me1200TtLoopLlConfigInstanceMepId, 
+                  me1200TtLoopLlConfigInstanceSourceMac }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200TtLoopMibGroups 4 }
+
+me1200TtLoopStatusInstanceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200TtLoopStatusInstanceOperState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200TtLoopMibGroups 5 }
+
+me1200TtLoopLlStatusInstanceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200TtLoopLlStatusInstanceRemainExpTimer }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200TtLoopMibGroups 6 }
+
+me1200TtLoopMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200TtLoopCapabilitiesInfoGroup, 
+                  me1200TtLoopConfigInstanceTableInfoGroup, 
+                  me1200TtLoopConfigInstanceRowEditorInfoGroup, 
+                  me1200TtLoopLlConfigInstanceTableInfoGroup, 
+                  me1200TtLoopStatusInstanceTableInfoGroup, 
+                  me1200TtLoopLlStatusInstanceTableInfoGroup }
+
+    ::= { me1200TtLoopMibCompliances 1 }
+
+END

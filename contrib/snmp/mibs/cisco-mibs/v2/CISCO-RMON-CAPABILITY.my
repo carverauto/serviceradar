@@ -1,0 +1,129 @@
+-- *****************************************************************
+-- CISCO-RMON-CAPABILITY.my:
+-- Cisco RMON-MIB AGENT-CAPABILITIES
+--   
+-- April 2004, Padma Pullela
+--   
+-- Copyright (c) 2004, 2006, 2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-RMON-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoRmonCapability MODULE-IDENTITY
+    LAST-UPDATED    "200808040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com
+            cs-rmon@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        RMON-MIB."
+    REVISION        "200808040000Z"
+    DESCRIPTION
+        "Added capability statement ciscoRmonCapNXOSV04R0101PMDS9000."
+    REVISION        "200603090000Z"
+    DESCRIPTION
+        "Add VARIATIONs for notifications
+        fallingAlarm and risingAlarm in 
+        ciscoRmonCapCatOSV08R0101."
+    REVISION        "200404020000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 357 }
+
+ciscoRmonCapCatOSV08R0101  AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco CatOS 8.1(1)." 
+    STATUS              current
+    DESCRIPTION         "RMON-MIB capabilities."
+
+    SUPPORTS            RMON-MIB
+       INCLUDES         { rmonEtherStatsGroup,
+                          rmonHistoryControlGroup,
+                          rmonEthernetHistoryGroup,
+                          rmonAlarmGroup,
+                          rmonEventGroup,
+                          rmonNotificationGroup
+                        }
+
+        VARIATION        fallingAlarm -- NOTIFICATION-TYPE
+--          OBJECTS      { alarmIndex, alarmVariable, 
+--                         alarmSampleType, alarmValue, 
+--                         alarmFallingThreshold, ifName
+--                       }
+            DESCRIPTION
+                    "In addition to the regular varbinds, the
+                     instance values of ifName is appended 
+                     to this notification."
+
+        VARIATION        risingAlarm -- NOTIFICATION-TYPE
+--          OBJECTS      { alarmIndex, alarmVariable, 
+--                         alarmSampleType, alarmValue, 
+--                         alarmRisingThreshold, ifName
+--                       }
+            DESCRIPTION
+                    "In addition to the regular varbinds, the
+                     instance values of ifName is appended
+                     to this notification."
+
+    ::= { ciscoRmonCapability 1 }
+
+
+ciscoRmonCapNXOSV04R0101PMDS9000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 4.1(1) on MDS9000 Storage Switches."
+    STATUS          current
+    DESCRIPTION
+        "RMON-MIB capabilities."
+
+    SUPPORTS        RMON-MIB
+    INCLUDES        {
+                        rmonAlarmGroup,
+                        rmonEventGroup,
+                        rmonNotificationGroup
+                    }
+    VARIATION       fallingAlarm -- NOTIFICATION-TYPE
+--     OBJECTS      { alarmIndex, alarmVariable, 
+--                    alarmSampleType, alarmValue, 
+--                    alarmFallingThreshold, ifDescr
+--                  }
+    DESCRIPTION
+        "In addition to the regular varbinds, the
+        instance values of ifDescr is appended
+        to this notification."
+
+    VARIATION        risingAlarm -- NOTIFICATION-TYPE
+--      OBJECTS      { alarmIndex, alarmVariable, 
+--                     alarmSampleType, alarmValue, 
+--                     alarmRisingThreshold, ifDescr
+--                   }
+    DESCRIPTION
+        "In addition to the regular varbinds, the
+        instance values of ifDescr is appended
+        to this notification."
+
+    ::= { ciscoRmonCapability 2 }
+
+END
+
+
+
+
+

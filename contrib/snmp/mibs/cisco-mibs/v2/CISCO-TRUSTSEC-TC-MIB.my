@@ -1,0 +1,278 @@
+-- *********************************************************************
+-- CISCO-TRUSTSEC-TC-MIB.my
+-- List of Textual Conventions used by Cisco Trusted Security Framework
+--   
+-- February 2008, Edward Pham, Liwei Lue, Dipesh Gorashia
+--   
+-- Copyright (c) 2008-2013 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *********************************************************************
+
+CISCO-TRUSTSEC-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCtsTcMIB MODULE-IDENTITY
+    LAST-UPDATED    "201306060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This module defines the textual conventions used within
+        Cisco Trusted Security framework."
+    REVISION        "201306060000Z"
+    DESCRIPTION
+        "Added CtsSxpConnectionStatus."
+    REVISION        "201201300000Z"
+    DESCRIPTION
+        "Added CtsSgaclMonitorMode."
+    REVISION        "200905140000Z"
+    DESCRIPTION
+        "The initial version of this MIB module."
+    ::= { ciscoMgmt 694 }
+
+
+
+-- Definitions of textual convention
+
+CtsSecurityGroupTag ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Indicates the SGT (Security Group Tag) value.
+
+        Semantics of a value zero CtsSecurityGroupTag are object-specific
+        and must be defined as part of the description of any object
+        which uses this syntax."
+    SYNTAX          Unsigned32 (0..65535)
+
+CtsAclName ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "An octet string, preferably in human-readable form,
+        describes the name of one ACL (Access Control List)
+        or a list of ACLs using a single whitespace as the
+        delimiter."
+    SYNTAX          OCTET STRING (SIZE (1..255))
+
+CtsAclNameOrEmpty ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is an extension of the
+        CtsAclName convention. The latter defines a
+        non-empty ACL name(s). This extension permits
+        the additional value of empty string."
+    SYNTAX          OCTET STRING (SIZE (0..255))
+
+CtsAclList ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "An octet string, preferably in human-readable form,
+        describes the name of one or more ACLs. If there is multiple
+        ACLs, each ACL name is separated by a single whitespace."
+    SYNTAX          OCTET STRING (SIZE (1..255))
+
+CtsAclListOrEmpty ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is an extension of the
+        CtsAclList convention. The latter defines a
+        non-empty ACL name(s). This extension permits
+        the additional value of empty string."
+    SYNTAX          OCTET STRING (SIZE (0..255))
+
+CtsPolicyName ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "An octet string, preferably in human-readable form,
+        describes the name of policy.
+
+        A zero length string indicates no policy."
+    SYNTAX          OCTET STRING (SIZE (0..255))
+
+CtsPasswordEncryptionType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The type of encryption used for TrustSec passwords.
+
+        'other'     - The read-only value 'other' indicates that
+                      the type of password encryption is not in one
+                      of the types defined below.
+
+        'none'      - Indicates that the corresponding CtsPassword 
+                      object is a zero-length string.
+
+        'clearText' - Indicates that the password is not encrypted
+
+        'typeSix'   - Indicates that type-6 algorithm is used to
+                      encrypt the password
+
+        'typeSeven' - Indicates that type-7 algorithm is used to
+                      encrypt the password.
+
+         Each definition of a concrete CtsPasswordEncryptionType value
+         must be accompanied by a definition of a textual convention for 
+         use with that CtsPasswordEncryptionType.
+
+         To support future extensions, the CtsPasswordEncryptionType
+         textual convention SHOULD NOT be sub-typed in object type
+         definitions. It MAY be sub-typed in compliance statements in order
+         to require only a subset of these address types for a compliant
+         implementation.
+
+         Implementations must ensure that CtsPasswordEncryptionType
+         object and any dependent objects (e.g. CtsPassword objects) are
+         consistent.  An inconsistentValue error must be generated
+         if an attempt to change an CtsPasswordEncryptionType object
+         would, for example, lead to an undefined CtsPassword value. 
+         In particular, CtsPasswordEncryptionType/CtsPassword pairs
+         must be changed together if the encryption type changes.
+         (e.g. from clearText(2) to typeSix(1))."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        none(2),
+                        clearText(3),
+                        typeSix(4),
+                        typeSeven(5)
+                    }
+
+CtsPassword ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A password for TrustSec functionality.
+
+        A CtsPassword value is always interpreted within the context
+        of an CtsPasswordEncryptionType value. Every usage of the
+        CtsPassword textual convention is required to specify the
+        CtsPasswordEncryptionType object which provides the context.
+        It is suggested that the CtsPasswordEncryptionType is logically
+        registered before the object(s) which use the CtsPassword textual
+        convention if they appear in the same logical row.
+
+        The value of an CtsPassword object must always be consistent with
+        the value of the associated CtsPasswordEncryptionType object.
+        Attempts to set an CtsPassword object to a value which is 
+        inconsistent with the associated CtsPasswordEncryptionType
+        must fail with an inconsistentValue error.
+
+        When this textual convention is used as the syntax of an
+        index object, there may be issues with the limit of 128
+        sub-identifiers specified in SMIv2, STD 58. In this case,
+        the object definition MUST include a 'SIZE' clause to
+        limit the number of potential instance sub-identifiers."
+    SYNTAX          OCTET STRING (SIZE (0..256))
+
+CtsGenerationId ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "128a"
+    STATUS          current
+    DESCRIPTION
+        "An octet string, preferably in human-readable form,
+        describes the generation identification associated
+        with a TrustSec attribute such as downloaded SGACL,
+        downloaded server list .etc... 
+
+        A zero length string indicates no generation identification."
+    SYNTAX          OCTET STRING (SIZE (0..128))
+
+CtsAcsAuthorityIdentity ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "1x"
+    STATUS          current
+    DESCRIPTION
+        "The authority identity of an Access Control Server.
+
+        A zero length of CtsAcsAuthorityIdentity indicates
+        that the authority identity is not available."
+    SYNTAX          OCTET STRING (SIZE (0..64))
+
+CtsCredentialRecordType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The secret type of TrustSec credential record.
+
+        'simpleSecret' - Simple Secret credential.
+                         This type of credential record is constructed
+                         with symmetric key with associated meta-data.
+                         For example, credential password.
+        'pac'          - Protected Access Credentials(PAC).
+                         A PAC record contains three components:
+                         PAC-key, PAC-opaque and PAC-info."
+    SYNTAX          INTEGER  {
+                        simpleSecret(1),
+                        pac(2)
+                    }
+
+CtsSgaclMonitorMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The SGACL monitor mode for the SGACL enforced traffic.
+
+        'on'   - indicates that SGACL monitor is turned on.
+
+        'off'  - indicates that SGACL monitor mode is turned off."
+    SYNTAX          INTEGER  {
+                        on(1),
+                        off(2)
+                    }
+
+CtsSxpConnectionStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The status of SXP connection.
+
+        'other'      - Any other state not covered by below
+                       enumerations.
+
+        'off'        - The SXP connection has been disconnected.
+                       SGT mappings are no longer learnt through SXP
+                       connection in this state. SGT mappings
+                       already learnt through this connection will be
+                       deleted.
+
+        'on'         - The SXP connection has been successfully
+                       established. SGT mappings are learnt
+                       through this SXP connection.
+
+        'pendingOn'  - A request to establish SXP connection has been
+                       sent to the peer and is pending.
+
+        'deleteHoldDown' - The SXP connection is not operational and
+                       delete hold-down timer has been started. If the
+                       SXP connection does not recover before the
+                       expiration of the hold-down timer, the SGT
+                       mappings learnt on this connection will be
+                       deleted. If the SXP connection recovers
+                       before the expiration of the hold-down timer,
+                       the SGT mappings learnt on this connection
+                       will not be deleted."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        off(2),
+                        on(3),
+                        pendingOn(4),
+                        deleteHoldDown(5)
+                    }
+
+END
+
+
+

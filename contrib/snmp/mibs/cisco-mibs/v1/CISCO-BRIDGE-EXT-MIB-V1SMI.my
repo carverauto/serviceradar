@@ -1,0 +1,487 @@
+-- MIB file created 08-Jun-2011 14:11:35, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-BRIDGE-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-BRIDGE-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    dot1dBasePort
+            FROM BRIDGE-MIB
+    VlanIndex, VlanId
+            FROM Q-BRIDGE-MIB
+    RowStatus, TruthValue, MacAddress
+            FROM SNMPv2-TC-v1
+    CiscoPortList, CiscoPortListRange
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoBridgeExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 401 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200805220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    A MIB module for extending BRIDGE-MIB specified in RFC 1493.
+--  RevDate
+--    200805220000Z
+--  RevDescr
+--    Added cbeDot1dOperVlanGroup.
+--  RevDate
+--    200504070000Z
+--  RevDescr
+--    Fixed a typo in cbeDot1dTpVlanAgingFromGlobal object
+--    description.
+--  RevDate
+--    200412030000Z
+--  RevDescr
+--    Added cbeDot1dStaticGroup.
+--  RevDate
+--    200408230000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cbExtMIBNotifications OBJECT IDENTIFIER ::= { ciscoBridgeExtMIB 0 }
+cbExtMIBObjects OBJECT IDENTIFIER ::= { ciscoBridgeExtMIB 1 }
+cbExtMIBConformance OBJECT IDENTIFIER ::= { ciscoBridgeExtMIB 2 }
+cbeDot1dTp      OBJECT IDENTIFIER ::= { cbExtMIBObjects 1 }
+cbeDot1dStatic  OBJECT IDENTIFIER ::= { cbExtMIBObjects 2 }
+cbeDot1dVlan    OBJECT IDENTIFIER ::= { cbExtMIBObjects 3 }
+cbExtMIBCompliances OBJECT IDENTIFIER ::= { cbExtMIBConformance 1 }
+cbExtMIBGroups  OBJECT IDENTIFIER ::= { cbExtMIBConformance 2 }
+
+cbeDot1dTpGlobalAgingTime OBJECT-TYPE
+    SYNTAX Gauge(0..1000000)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The timeout period in seconds for aging out
+        dynamically learned forwarding information at
+        the device level. Setting this object value to
+        zero will disable the aging out action globally
+        except at the VLANs where cbeDot1dTpVlanAgingTime
+        is configured. 
+        802.1D-1990 recommends a default of 300 seconds."
+    ::= { cbeDot1dTp 1 }
+
+cbeDot1dTpVlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CbeDot1dTpVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides the configuration for aging out
+        dynamically learned forwarding information at each VLAN.
+        This table is populated for each existing VLAN in the
+        device as well as non-existing VLANs which have the
+        aging out value configured."
+    ::= { cbeDot1dTp 2 }
+
+cbeDot1dTpVlanEntry OBJECT-TYPE
+    SYNTAX CbeDot1dTpVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the aging out configuration
+        and the configuration source of the aging out value
+        applied at each VLAN."
+    INDEX { cbeDot1dTpVlanIndex }
+    ::= { cbeDot1dTpVlanTable 1 }
+
+CbeDot1dTpVlanEntry ::= SEQUENCE {
+    cbeDot1dTpVlanIndex VlanIndex,
+    cbeDot1dTpVlanAgingTime Gauge,
+    cbeDot1dTpVlanAgingFromGlobal TruthValue,
+    cbeDot1dTpVlanRowStatus RowStatus
+    }
+
+cbeDot1dTpVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the VLAN number."
+    ::= { cbeDot1dTpVlanEntry 1 }
+
+cbeDot1dTpVlanAgingTime OBJECT-TYPE
+    SYNTAX Gauge(0..1000000)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The timeout period in seconds for aging out
+        dynamically learned forwarding information at
+        this VLAN. Setting this object value to zero
+        will disable the aging out action for this VLAN.
+        802.1D-1990 recommends a default of 300 seconds.
+        
+        This object provides the same functionality as
+        dot1dTpAgingTime object in BRIDGE-MIB with one
+        exception that setting this object value to zero
+        will disable the aging out action for this VLAN."
+    DEFVAL { 300 }
+    ::= { cbeDot1dTpVlanEntry 2 }
+
+cbeDot1dTpVlanAgingFromGlobal OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the aging time applied at
+        this VLAN is from cbeDot1dTpGlobalAgingTime object
+        or not.
+        
+        true(1) indicates the aging time applied at this VLAN is
+        from cbeDot1dTpGlobalAgingTime object. When true(1) is
+        configured, value of cbeDot1dTpVlanAgingTime object
+        in the same row will have the same value as
+        cbeDot1dTpGlobalAgingTime object.
+        
+        false(2) indicates the aging time applied at this VLAN is
+        from cbeDot1dTpVlanAgingTime object.
+        
+        If users configure cbeDot1dTpVlanAgingTime object in
+        the same row while this object value is true(1), 
+        this object value will be changed to false(2) to reflect
+        that the aging time applied at this VLAN is not from
+        cbeDot1dTpGlobalAgingTime object."
+    DEFVAL { false }
+    ::= { cbeDot1dTpVlanEntry 3 }
+
+cbeDot1dTpVlanRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row entry. This object
+        is used to manage creation and deletion of rows in this
+        table.
+        
+        To create an entry, users set the value of this object to
+        createAndGo(4). To delete an entry, users set the value
+        of this object to destroy(6).
+        
+        Deletion of an entry in this table is only allowed
+        if the VLAN indicated by its row index object does not
+        exist in the device. cbeDot1dTpVlanAgingTime and 
+        cbeDot1dTpVlanAgingFromGlobal can be modified at any time
+        (even while the row is active). If users set the value of
+        cbeDot1dTpVlanAgingFromGlobal object to true(1) and 
+        the VLAN indicated by cbeDot1dTpVlanIndex object in the
+        same row does not exist, the entry will be removed from
+        this table."
+    ::= { cbeDot1dTpVlanEntry 4 }
+
+cbeDot1dStaticTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CbeDot1dStaticEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing filtering information configured into
+        the device by (local or network) management to specify 
+        the set of bridge ports within a specific range of bridge
+        port number for a specific VLAN, to which frames received 
+        from specific ports and containing specific destination 
+        addresses are allowed to be forwarded. The value of zero 
+        in this table as the port number from which frames with a 
+        specific destination address are received, is used to 
+        specify all ports for which there is no specific entry 
+        in this table for that particular destination address. 
+        Entries are valid for unicast and for group/broadcast 
+        addresses."
+    REFERENCE
+        "IEEE 802.1D-1990: Section 6.7.2.
+         RFC 1493: dot1dStaticTable."
+    ::= { cbeDot1dStatic 1 }
+
+cbeDot1dStaticEntry OBJECT-TYPE
+    SYNTAX CbeDot1dStaticEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents filtering information configured into
+        the device by (local or network) management specifying the 
+        set of bridge ports within a specific range of bridge port 
+        number for a specific VLAN, to which frames received from a 
+        specific port and containing a specific destination address 
+        are allowed to be forwarded."
+    REFERENCE
+        "IEEE 802.1D-1990: Section 6.7.2."
+    INDEX { cbeDot1dVlanIndex, cbeDot1dStaticAddress, cbeDot1dStaticReceivePort, cbeDot1dStaticPortRangeIndex }
+    ::= { cbeDot1dStaticTable 1 }
+
+CbeDot1dStaticEntry ::= SEQUENCE {
+    cbeDot1dVlanIndex VlanIndex,
+    cbeDot1dStaticAddress MacAddress,
+    cbeDot1dStaticReceivePort INTEGER,
+    cbeDot1dStaticPortRangeIndex CiscoPortListRange,
+    cbeDot1dStaticAllowedToGoTo CiscoPortList,
+    cbeDot1dStaticStatus INTEGER
+    }
+
+cbeDot1dVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VLAN ID of a specific VLAN."
+    ::= { cbeDot1dStaticEntry 1 }
+
+cbeDot1dStaticAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The destination MAC address in a frame to which
+        this entry's filtering information applies.  This
+        object can take the value of a unicast address, a
+        group address or the broadcast address."
+    REFERENCE
+        "IEEE 802.1D-1990: Section 3.9.1, 3.9.2."
+    ::= { cbeDot1dStaticEntry 2 }
+
+cbeDot1dStaticReceivePort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Either the value '0', or the port number of the
+        port from which a frame must be received in order
+        for this entry's filtering information to apply.
+        A value of zero indicates that this entry applies
+        on all ports of the bridge for which there is no
+        other applicable entry."
+    ::= { cbeDot1dStaticEntry 3 }
+
+cbeDot1dStaticPortRangeIndex OBJECT-TYPE
+    SYNTAX CiscoPortListRange
+--    Rsyntax INTEGER {
+--        oneto2k(1),
+--        twoKto4K(2),
+--        fourKto6K(3),
+--        sixKto8K(4),
+--        eightKto10K(5),
+--        tenKto12K(6),
+--        twelveKto14K(7),
+--        fourteenKto16K(8)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index that uniquely identifies a particular
+        range of bridge port number."
+    ::= { cbeDot1dStaticEntry 4 }
+
+cbeDot1dStaticAllowedToGoTo OBJECT-TYPE
+    SYNTAX CiscoPortList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A set of ports in a specific VLAN, in a specific range of
+        bridge port number, to which frames received from a specific
+        port, destined for a specific MAC address are allowed to be 
+        forwarded.
+        
+        An entry in this table with the index value of
+        cbeDot1dStaticPortRangeIndex being 'oneto2K' and instance 
+        value of the corresponding cbeDot1dStaticAllowedToGoTo being 
+        zero-length octet string indicates that frames received in 
+        the VLAN as specified by this entry's cbeDot1dVlanIndex, from
+        a port as specified by this entry's cbeDot1dStaticReceivePort,
+        and destined to the MAC address as specified by this entry's
+        cbeDot1dStaticAddress, are not allowed to be forwarded to any 
+        of the ports in this VLAN."
+    ::= { cbeDot1dStaticEntry 5 }
+
+cbeDot1dStaticStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        invalid(2),
+        permanent(3),
+        deleteOnReset(4),
+        deleteOnTimeout(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of this entry.
+        other(1) - this entry is currently in use but
+            the conditions under which it will remain
+            so differ from the following values.
+        invalid(2) - writing this value to the object
+            removes the corresponding entry.
+        permanent(3) - this entry is currently in use
+            and will remain so after the next reset of
+            the bridge.
+        deleteOnReset(4) - this entry is currently in
+            use and will remain so until the next
+            reset of the bridge.
+        deleteOnTimeout(5) - this entry is currently in
+            use and will remain so until it is aged out."
+    DEFVAL { permanent }
+    ::= { cbeDot1dStaticEntry 6 }
+
+cbeDot1dVlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CbeDot1dVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of 802.1D access ports. Every access port
+        that is currently associated with a bridge has a 
+        corresponding entry in this table."
+    ::= { cbeDot1dVlan 1 }
+
+cbeDot1dVlanEntry OBJECT-TYPE
+    SYNTAX CbeDot1dVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing VLAN information for a
+        particular 802.1D access port."
+    INDEX { dot1dBasePort }
+    ::= { cbeDot1dVlanTable 1 }
+
+CbeDot1dVlanEntry ::= SEQUENCE {
+    cbeDot1dVlanOperVlan VlanId
+    }
+
+cbeDot1dVlanOperVlan OBJECT-TYPE
+    SYNTAX VlanId
+--    Rsyntax INTEGER(1..4094)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VLAN-ID of the VLAN with which the access
+        port is currently associated."
+    ::= { cbeDot1dVlanEntry 1 }
+
+cbeDot1dTpGroup OBJECT IDENTIFIER ::= { cbExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing timeout period
+--    for aging out of dynamically learned forwarding
+--    information at the device level.
+--  objects
+--    cbeDot1dTpGlobalAgingTime, cbeDot1dTpVlanAgingFromGlobal
+
+cbeDot1dTpVlanGroup OBJECT IDENTIFIER ::= { cbExtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing timeout period
+--    for aging out of dynamically learned forwarding
+--    information at each VLAN.
+--  objects
+--    cbeDot1dTpVlanAgingTime, cbeDot1dTpVlanRowStatus
+
+cbeDot1dStaticGroup OBJECT IDENTIFIER ::= { cbExtMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for configuration of static
+--    filtering information.
+--  objects
+--    cbeDot1dStaticAllowedToGoTo, cbeDot1dStaticStatus
+
+cbeDot1dOperVlanGroup OBJECT IDENTIFIER ::= { cbExtMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to show the operational VLAN
+--    information on bridge ports.
+--  objects
+--    cbeDot1dVlanOperVlan
+
+cbExtMIBCompliance OBJECT IDENTIFIER ::= { cbExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for CISCO-BRIDGE-EXT-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cbeDot1dTpGroup
+--   OptGroup
+--    cbeDot1dTpVlanGroup
+
+cbExtMIBCompliance2 OBJECT IDENTIFIER ::= { cbExtMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for CISCO-BRIDGE-EXT-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cbeDot1dTpGroup
+--   OptGroup
+--    cbeDot1dTpVlanGroup
+--   OptGroup
+--    cbeDot1dStaticGroup
+--   ObjVar
+--    cbeDot1dTpVlanRowStatus
+
+cbExtMIBCompliance3 OBJECT IDENTIFIER ::= { cbExtMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for CISCO-BRIDGE-EXT-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cbeDot1dTpGroup
+--   OptGroup
+--    cbeDot1dTpVlanGroup
+--   OptGroup
+--    cbeDot1dStaticGroup
+--   OptGroup
+--    cbeDot1dOperVlanGroup
+--   ObjVar
+--    cbeDot1dTpVlanRowStatus
+
+
+END
+

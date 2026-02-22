@@ -1,0 +1,62 @@
+-- *****************************************************************
+-- CISCO-CONFIG-MAN-CAPABILITY.my: 
+--	CISCO-CONFIG-MAN-MIB AGENT-CAPABILITIES
+--
+--  December 2005, Sreenivasulu Chalamcharla
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-CONFIG-MAN-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+cconfigManCapability MODULE-IDENTITY
+	LAST-UPDATED    "200512290000Z"
+	ORGANIZATION    "Cisco Systems, Inc."
+	CONTACT-INFO  
+		"       Cisco Systems
+			Customer Service
+		Postal: 170 West Tasman Drive
+			San Jose, CA  95134
+			USA
+        
+			Tel: +1 800 553-NETS
+        
+		E-mail: cs-snmp@cisco.com
+			cs-lan-switch-snmp@cisco.com"
+	DESCRIPTION
+	        "Agent capabilities for 
+                 CISCO-CONFIG-MAN-MIB"
+	
+	REVISION        "200512290000Z"
+	DESCRIPTION
+	        "Initial version of this MIB module."
+        
+	::= { ciscoAgentCapability 469 }
+
+cconfigManCapabilityIOSXRV2R0CRS1 AGENT-CAPABILITIES
+	PRODUCT-RELEASE "Cisco IOS XR 2.0 for CRS-1"
+	STATUS          current
+	DESCRIPTION     "CISCO-CONFIG-MAN-MIB capabilities
+			 for IOS XR release 2.0"
+
+	SUPPORTS        CISCO-CONFIG-MAN-MIB
+	INCLUDES	{ ciscoConfigManHistoryGroup }  
+
+        VARIATION       ccmHistoryMaxEventEntries
+        DESCRIPTION     "The database size is hardcoded.
+                        The mib does not require a configurable
+                        database size, so at this time there is 
+                        no support for it."
+
+        ::= { cconfigManCapability 1 }
+END

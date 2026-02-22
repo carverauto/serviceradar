@@ -1,0 +1,187 @@
+-- *****************************************************************
+-- CISCO-MEGACO-EXT-CAPABILITY
+--
+-- AGENT-CAPABILITIES MIB for CISCO-MEGACO-EXT-MIB
+-- 
+-- January 2004,  Margaret Hsieh
+--
+-- Copyright(c) 2004 by Cisco Systems, Inc.
+--
+-- *****************************************************************
+
+CISCO-MEGACO-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, Unsigned32, Integer32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+
+ciscoMegacoExtCapability MODULE-IDENTITY
+    LAST-UPDATED "200401190000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "        Cisco Systems
+                 Customer Service
+        Postal: 170 W Tasman Drive
+                San Jose, CA 95134
+                USA
+           Tel: +1 800 553-NETS
+        E-mail: cs-voice-gateway@cisco.com"
+    DESCRIPTION "The agent capabilities for CISCO-MEGACO-EXT-MIB." 
+ 
+        REVISION "200401190000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 376 }
+
+
+ciscoMegacoExtCapabilityV5R00 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "MGX8850 Release 5.0.0"
+STATUS          current
+DESCRIPTION     "Megaco extension MIB capabilities for VXSM 
+                 in release 5.0.0." 
+
+    SUPPORTS        CISCO-MEGACO-EXT-MIB
+    INCLUDES        { 
+                      cmedxConfigGroup, 
+                      cmedxStatsGroup, 
+                      cmedxCallReduceRateGroup 
+                    }
+
+    VARIATION       cmedxGatewayIpAddressIndex
+    SYNTAX          Unsigned32 (1..16)
+    DESCRIPTION     "Only 16 gateway IP addresses are supported."
+
+    VARIATION       cmedxGatewayMaxContexts
+    SYNTAX          Unsigned32 (1..8064)
+    DEFVAL          { 8064 }
+    DESCRIPTION     "For OC3 card, the data range is (1..8064) and 
+                     this object is default to 8064.
+                     For T1/E1 card, the data range is (1..1536) and
+                     this object is default to 1536."
+
+    VARIATION       cmedxGatewayMaxTermsInContext
+    SYNTAX          Unsigned32 (1..10)
+    DEFVAL          { 10 }
+    DESCRIPTION     "Support only up to 10 maximum terminations 
+                     per context. Default is 10."
+
+    VARIATION       cmedxGatewayDownServiceDelay
+    SYNTAX          Integer32 (-1..0) 
+    DESCRIPTION     "Support either 0 (forced out-of-service 
+                     without delay) or -1 (graceful out-os-service 
+                     after there is no active call)."
+
+    VARIATION       cmedxGatewayActiveMgcDomain
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       cmedxTermType
+    SYNTAX          INTEGER {
+                      pdnRtp      (3)
+                    }
+    DESCRIPTION     "Supports only pdnRtp(3) as termination type.
+                     unknown(1), scn(2), pdnAtmAal1(4), and
+                     pdnAtmAal2(5) are not supported."
+
+    VARIATION       cmedxTermTypeProfileId
+    SYNTAX          Unsigned32 (0..25)
+    DESCRIPTION     "Only 25 H248 profiles can be supported."
+
+    VARIATION       cmedxTermTypePkgIds
+    SYNTAX          BITS {
+                        pkgG   (0),
+                        pkgDG  (4),
+                        pkgCG  (6),
+                        pkgNT  (9),
+                        pkgRTP (10),
+                        pkgAN  (12),
+                        pkgSrvTn (15)
+                    }
+    DESCRIPTION     "Limited H248 packages are supported."
+
+    VARIATION       cmedxProfileDtmfDigitOnDur
+    SYNTAX          Unsigned32 (40..60000)
+    DESCRIPTION     "Limited range values are supported ."
+
+    VARIATION       cmedxProfileDtmfPauseDur
+    SYNTAX          Unsigned32 (40..500)
+    DESCRIPTION     "Supports limited data range."
+
+    VARIATION       cmedxProfileCot1Frequency
+    SYNTAX          Unsigned32 (1780 | 2010)
+    DESCRIPTION     "Supports either 1780 or 2010."
+
+    VARIATION       cmedxProfileCot2Frequency
+    SYNTAX          Unsigned32 (1780 | 2010)
+    DEFVAL          { 2010 }
+    DESCRIPTION     "Supports either 1780 or 2010.
+                     Default is 2010 since cmedxProfileRespCotMethod
+                     is default to loopback."
+
+    VARIATION       cmedxProfileInitiateCotDur
+    SYNTAX          Unsigned32 (1..60000)
+    DESCRIPTION     "Supports limited data range."
+
+    VARIATION       cmedxProfileDetectLongDigitDur
+    SYNTAX          Unsigned32 (40..60000)
+    DEFVAL          { 1000 }
+    DESCRIPTION     "Supports limited data range."
+
+    VARIATION       cmedxProfileDetectLongCpToneDur
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION     "Supports limited data range."
+
+    VARIATION       cmedxProfilePlayCpToneInterDur
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION     "Supports limited data range."
+
+    VARIATION       cmedxProfileInGainControl
+    SYNTAX          Integer32 (-4..14) 
+    DESCRIPTION     "Supports limited data range."
+
+    VARIATION       cmedxProfileVoIpVadTimer
+    SYNTAX          Unsigned32 (250..500)
+    DEFVAL          { 250 }
+    DESCRIPTION     "250 milliseconds is the default value."
+
+    VARIATION       cmedxProfileVoAal2VadTimer
+    SYNTAX          Unsigned32 (250..500)
+    DEFVAL          { 250 }
+    DESCRIPTION     "250 milliseconds is the default value."
+
+    VARIATION       cmedxProfileAtmAalPartialFill
+    DESCRIPTION     "This object is applicable only when 
+                     cmedxProfileAtmAalType is aal1(2)."
+
+    VARIATION       cmedxProfileAtmAalType
+    SYNTAX          INTEGER {
+                         aal1Sdt (3),
+                         aal2    (5)
+                    } 
+    DESCRIPTION     "Supports aal1Sdt(3) and aal2(5) only.
+                     other(1), aal1(2), and aal1Udt (4) are
+                     not supported."
+
+    VARIATION       cmedxEphTermStatsType
+    SYNTAX          INTEGER { all(1) }
+    DESCRIPTION     "Supports all(1) only.
+                     scn(2), pdnRtp(3), pdnAtmAal1(4), and pdnAtmAal2(5)
+                     are not supported. "
+
+    VARIATION       cmedxCRRNumOfLevel
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       cmedxCallReduceRate
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    ::= { ciscoMegacoExtCapability 1 }
+
+END
+

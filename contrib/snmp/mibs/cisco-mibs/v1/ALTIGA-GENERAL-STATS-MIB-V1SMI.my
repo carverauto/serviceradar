@@ -1,0 +1,144 @@
+-- MIB file created 03-Dec-2002 15:24:34, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-GENERAL-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-GENERAL-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alStatsGeneral, alGeneralGroup
+            FROM ALTIGA-MIB
+    alGeneralMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+altigaGeneralStatsMibModule OBJECT IDENTIFIER ::= { alGeneralMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209111300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga General Statistics MIB models counters and  
+--     objects that are of management interest. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       AVP:        Attribute/Value Pair 
+--    
+--       CLID:       Calling Line ID 
+--    
+--       DNIS:       Dialed Number Identification Service 
+--    
+--       L2TP:       Layer 2 Tunnel Protocol 
+--    
+--       LAC:        L2TP Access Concentrator 
+--    
+--       LNS:        L2TP Network Server 
+--    
+--       RWS:        Receive Window Size 
+--     
+--  RevDate
+--    200209111300Z
+--  RevDescr
+--    Added module compliance and fix comments.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsGeneralGlobal OBJECT IDENTIFIER ::= { alStatsGeneral 1 }
+altigaGeneralStatsMibConformance OBJECT IDENTIFIER ::= { altigaGeneralStatsMibModule 1 }
+altigaGeneralStatsMibCompliances OBJECT IDENTIFIER ::= { altigaGeneralStatsMibConformance 1 }
+
+alGeneralTime OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current time on the box, represented as a time_t. 
+        
+         In 1.2, this was the box's local time. 
+          
+         After 1.2, it was corrected to represent UTC (which is what it 
+         is supposed to be). So all boxes should have this be the same  
+         value +/- a few seconds."
+    ::= { alStatsGeneralGlobal 1 }
+
+alGeneralGaugeCpuUtil OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the CPU Utilization gauge which indicates  
+         percentage of CPU utilized."
+    ::= { alStatsGeneralGlobal 2 }
+
+alGeneralGaugeActiveSessions OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the Active Sessions gauge which indicates the 
+         percentage of total permitted session that are active."
+    ::= { alStatsGeneralGlobal 3 }
+
+alGeneralGaugeThroughput OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the Throughput gauge which indicates the 
+         percentage of total available throughput in-use."
+    ::= { alStatsGeneralGlobal 4 }
+
+alGeneralTimeZone OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time zone configured on the box. Measured in minutes from 
+         UTC. e.g. EST = -300."
+    ::= { alStatsGeneralGlobal 5 }
+
+altigaGeneralStatsGroup OBJECT IDENTIFIER ::= { alGeneralGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for general information.
+--  objects
+--    alGeneralTime, alGeneralGaugeCpuUtil, 
+--    alGeneralGaugeActiveSessions, alGeneralGaugeThroughput, 
+--    alGeneralTimeZone
+
+altigaGeneralStatsMibCompliance OBJECT IDENTIFIER ::= { altigaGeneralStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which implement the 
+--     Altiga General Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaGeneralStatsGroup
+
+
+END
+

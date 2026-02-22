@@ -1,0 +1,3884 @@
+module viptela-vpn {
+  namespace "http://viptela.com/vpn";
+  prefix viptela-vpn;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import ietf-yang-types {
+    prefix yang;
+  }
+    prefix tailf;
+  }
+  import tailf-xsd-types {
+    prefix xs;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+  import viptela-policy {
+    prefix viptela-policy;
+  }
+  import viptela-snmp {
+    prefix viptela-snmp;
+  }
+  import viptela-bridge {
+    prefix viptela-bridge;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines the data model for VPN management";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  typedef afi-type {
+    type enumeration {
+      enum "ipv4-unicast";
+    }
+  }
+
+  typedef keepalive-type {
+    description "<0..65535>";
+    type uint32 {
+      description "<0..65535>";
+      range "0..65535";
+    }
+  }
+
+  typedef holdtime-type {
+    description "<0..65535>";
+    type uint32 {
+      description "<0..65535>";
+      range "0..65535";
+    }
+  }
+
+  typedef maxpaths-type {
+    description "<0..32>";
+    type uint8 {
+      description "<0..32>";
+      range "0..32";
+    }
+  }
+
+  typedef nhop-track-proto {
+    type enumeration {
+      enum "arping" {
+        value 1;
+      }
+      enum "ping" {
+        value 2;
+      }
+    }
+  }
+
+  container vpn {
+    description "VPN instance information";
+    must "((count(/viptela-bridge:bridge/viptela-bridge:bridge-instance/viptela-bridge:interface) + count(vpn-instance/interface)) < 350)" {
+      error-message "Total number of interfaces should be less than 350";
+    }
+    must "(count(vpn-instance) <= 64)" {
+      error-message "Maximum limit for configured VPN's is 64";
+    }
+    must "count(vpn-instance[vpn-id = 65530]) = 0" {
+      error-message "Cannot configure vpn 65530";
+    }
+    list vpn-instance {
+      description "List of VPN instances";
+      key "vpn-id";
+      must
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (count(interface/tunnel-interface) <= 1)" {
+        error-message "Maximum one tunnel interface allowed on vsmart";
+      }
+      must "count(interface/tunnel-interface[color='default']) < 2" {
+        error-message "Only one tunnel-interface with color \"default\" allowed.";
+      }
+      must "(count(dns) = 0) or(count(dns[role = 'primary']) = 1) or(count(dns[role = 'primaryv6']) = 1)" {
+        error-message "One primary DNS address allowed";
+      }
+      leaf vpn-id {
+        description
+          "Allowed values on vedge: <0..65528>
+             Allowed values on vsmart/vmanage/vcontainer: <0 and 512>";
+        type viptela:vpn-id-old;
+      }
+      leaf name {
+        description "VPN description";
+        type viptela:named-type;
+      }
+      list dns {
+        description "Configure DNS server";
+        key "dns-addr";
+        max-elements "4";
+        leaf dns-addr {
+          type inet:ip-address;
+        }
+        leaf role {
+          description "Primary or secondary";
+          default "primary";
+          type enumeration {
+            enum "primary";
+            enum "secondary";
+            enum "primaryv6";
+            enum "secondaryv6";
+          }
+        }
+      }
+      container dns-redirect {
+        description "Configure DNS redirect service attributes";
+        when "(../vpn-id != 0) and (../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+        choice redirect-address {
+          case address {
+            leaf address {
+              description "Non Umbrella IP address for DNS redirect service";
+              type inet:ipv4-address;
+            }
+          }
+          case umbrella {
+            leaf umbrella {
+              description "Use Umbrella as DNS redirect service";
+              type boolean;
+            }
+          }
+        }
+        leaf match-local-domain-to-bypass {
+          description "Bypass the dns redirect for entries in the local domain list";
+          type boolean;
+          default "true";
+        }
+      }
+      container nat64 {
+        description "NAT64 configuration commands";
+        presence "nat64 enable";
+        leaf udp-timeout {
+          description "Set NAT UDP session timeout, in minutes";
+          type int32 {
+            description "<1..65536> minutes";
+            range "1..65536";
+          }
+          default "1";
+        }
+        leaf tcp-timeout {
+          description "Set NAT TCP session timeout, in minutes";
+          type int32 {
+            description "<1..65536> minutes";
+            range "1..65536";
+          }
+          default "60";
+        }
+        container v4 {
+          description "IPv4 pool configuration and other commands";
+          description
+            "IPv4 configuration";
+          list pool {
+            description
+              "Named pool of global addresses";
+            key "name";
+            leaf name {
+              description
+                "NAT64 pool name";
+              type string;
+            }
+            leaf start-address {
+              description
+                "Starting address of pool address range";
+              type inet:ipv4-address;
+            }
+            leaf end-address {
+              description
+                "Ending address of pool address range";
+              when "../start-address";
+              type inet:ipv4-address;
+            }
+            leaf overload {
+              description
+                "NAT64 Overload";
+              type empty;
+            }
+          }
+        }
+        container prefix {
+          container stateful {
+            description "NAT64 stateful prefix configuration";
+            description
+              "NAT64 stateful prefix";
+            leaf ipv6-prefix {
+              description
+                "IPv6 prefix";
+              description "IPv6 prefix";
+              type viptela:ipv6-ucast-addr-prefix;
+            }
+          }
+        }
+      }
+      container ecmp-hash-key {
+        description "Optional packet fields for ECMP keying";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        leaf layer4 {
+          description "Include Layer 4 source-port and dest-port in ECMP keying";
+          type boolean;
+          default "false";
+        }
+      }
+      list host {
+        description "Configure static DNS mapping";
+        key "hostname";
+        leaf hostname {
+          description "Static hostname";
+          type string {
+            length "1..64";
+          }
+        }
+        leaf-list ip {
+          description "IP address";
+          min-elements 1;
+          max-elements "8";
+          type inet:ip-address;
+        }
+      }
+      list service {
+        description "Configure services";
+        when "(../vpn-id != 0) and (../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+        must "(address and not(interface)) or (interface and not(address)) or (svc-type = 'TE')" {
+          error-message "Either interface or address needs to be assigned";
+        }
+        key "svc-type";
+        leaf svc-type {
+          description "Service type";
+          type viptela:service-type-enum;
+        }
+        leaf-list address {
+          description "IPv4 address";
+          when "(../svc-type != 'TE')";
+          max-elements "4";
+          type inet:ipv4-address;
+        }
+        leaf-list interface {
+          description "Interface";
+          ordered-by user;
+          when "(../svc-type != 'TE')";
+          max-elements "2";
+          must "starts-with(. , 'gre') or starts-with(. , 'ipsec')" {
+            error-message "Only a gre/ipsec interface can be assigned";
+          }
+          type viptela:named-type;
+        }
+        leaf-list tracker {
+          description "Enable tracker for this Service";
+          when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+          type leafref {
+            path "/viptela-system:system/viptela-system:tracker/viptela-system:name";
+          }
+          max-elements "1";
+        }
+      }
+      container router {
+        description "Set routing parameters";
+        when "(../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+        container ospf {
+          presence "Enable OSPF";
+          description "OSPF";
+          must "((/viptela-system:system/viptela-system:system-ip) or (router-id))" {
+            error-message "system-ip or router-id must be configured";
+          }
+          leaf router-id {
+            description "Override router identifier";
+            type inet:ipv4-address;
+          }
+          container auto-cost {
+            description "Calculate OSPF interface cost based on bandwidth";
+            leaf reference-bandwidth {
+              description "Use reference bandwidth method to assign OSPF cost";
+              default "100";
+              type uint32 {
+                description "<1..4294967> Mbits per second";
+                range "1..4294967";
+              }
+            }
+          }
+          container compatible {
+            description "OSPF compatibility list";
+            leaf rfc1583 {
+              description "Compatible with RFC 1583";
+              type boolean;
+              default "true";
+            }
+          }
+          leaf ignore-bad-lsreq {
+            description "(HIDDEN) Do not generate bad ls-req event";
+            type boolean;
+            default "false";
+          }
+          container default-information {
+            description "Control distribution of default information";
+            container originate {
+              description "Distribute a default route";
+              presence "originate";
+              leaf always {
+                description "Always advertise default route";
+                type empty;
+              }
+              leaf metric {
+                description "OSPF default metric";
+                type uint32 {
+                  description "<0..16777214>";
+                  range "0..16777214";
+                }
+              }
+              leaf metric-type {
+                description "OSPF metric type for default routes";
+                type viptela:metric-enum;
+              }
+            }
+          }
+          container distance {
+            description "Define an administrative distance";
+            leaf external {
+              description "External routes";
+              default "110";
+              type uint8 {
+                description "<1..255>";
+                range "0..255";
+              }
+            }
+            leaf inter-area {
+              description "Interarea routes";
+              default "110";
+              type uint8 {
+                description "<1..255>";
+                range "0..255";
+              }
+            }
+            leaf intra-area {
+              description "Intra-area routes";
+              default "110";
+              type uint8 {
+                description "<1..255>";
+                range "0..255";
+              }
+            }
+          }
+          container timers {
+            description "Set routing timers";
+            container spf {
+              description "Set SPF timers";
+              leaf delay {
+                description "Delay from first change received until SPF calculation";
+                default "200";
+                type uint32 {
+                  description "<0-600000>  Delay from first change received until SPF calculation, in milliseconds";
+                }
+              }
+              leaf initial-hold {
+                description "Initial hold time between consecutive SPF calculations, in milliseconds";
+                default "1000";
+                type uint32 {
+                  description "<0-600000>  Initial hold time between consecutive SPF calculations, in milliseconds";
+                }
+              }
+              leaf max-hold {
+                description "Maximum hold time, in milliseconds";
+                default "10000";
+                type uint32 {
+                  description "<0-600000>  Maximum hold time, in milliseconds";
+                }
+              }
+            }
+          }
+          list redistribute {
+            description "Redistribute routes";
+            key "protocol";
+            must
+              "((../../../vpn-id != 0) or
+                 (protocol != 'omp'))" {
+              error-message "Configuring redistribute omp not allowed in VPN 0";
+            }
+            leaf protocol {
+              type enumeration {
+                enum "static";
+                enum "connected";
+                enum "bgp";
+                enum "omp";
+                enum "nat";
+                enum "natpool-outside";
+                enum "eigrp";
+              }
+            }
+            leaf route-policy {
+              description "Route policy to apply";
+              type leafref {
+                path "/viptela-policy:policy/viptela-policy:route-policy/viptela-policy:name";
+              }
+            }
+          }
+          container max-metric {
+            description "Maximum metric";
+            list router-lsa {
+              description "Advertise own router LSA with infinite distance";
+              key "ad-type";
+              leaf ad-type {
+                type enumeration {
+                  enum "administrative";
+                  enum "on-startup";
+                }
+              }
+              leaf time {
+                when "../ad-type != 'administrative'";
+                default "0";
+                type uint32 {
+                  description "<5..86400> seconds";
+                  range "0 | 5..86400";
+                }
+              }
+            }
+          }
+          list route-policy {
+            description "Route policy to apply";
+            key "direction";
+            leaf direction {
+              description "Direction";
+              type enumeration {
+                enum "in";
+              }
+            }
+            leaf pol-name {
+              description "Name of route policy";
+              mandatory true;
+              type leafref {
+                path "/viptela-policy:policy/viptela-policy:route-policy/viptela-policy:name";
+              }
+            }
+          }
+          list area {
+            description "OSPF area configuration";
+            key "a-num";
+            leaf a-num {
+              description "<0..4294967295>";
+              type uint32;
+            }
+            choice area-type-choice {
+              case stub-case {
+                container stub {
+                  description "Configure area as stub";
+                  presence "stub";
+                  leaf no-summary {
+                    description "Do not inject interarea routes into stub";
+                    type empty;
+                  }
+                }
+              }
+              case nssa-case {
+                container nssa {
+                  description "Configure area as NSSA";
+                  presence "nssa";
+                  leaf translate {
+                    type viptela:translate-enum;
+                    default "candidate";
+                  }
+                  leaf no-summary {
+                    description "Do not inject interarea routes into NSSA";
+                    type empty;
+                  }
+                }
+              }
+            }
+            list interface {
+              description "Set interface parameters";
+              key "name";
+              must "(/vpn/vpn-instance/interface[if-name=current()/name]/ip/address)" {
+                error-message "Interface referenced by OSPF; Configure an address or remove the reference";
+              }
+              must "(dead-interval >= (hello-interval * 3))" {
+                error-message "Dead interval should be at least 3 times greater than hello interval";
+              }
+              leaf name {
+                type leafref {
+                  path "../../../../../interface/if-name";
+                }
+              }
+              leaf hello-interval {
+                description "Interval between hello packets";
+                default "10";
+                type uint16 {
+                  description "<1..65535> seconds";
+                  range "1..65535";
+                }
+              }
+              leaf dead-interval {
+                description "Interval after which a neighbor is declared dead";
+                default "40";
+                type uint16 {
+                  description "<1..65535> seconds";
+                  range "1..65535";
+                }
+              }
+              leaf retransmit-interval {
+                description "Time between retransmitting lost link-state advertisements";
+                default "5";
+                type uint16 {
+                  description "<1..65535> seconds";
+                  range "1..65535";
+                }
+              }
+              leaf cost {
+                description "Interface cost";
+                type uint16 {
+                  description "<1..65535>";
+                  range "1..65535";
+                }
+              }
+              leaf priority {
+                description "Router priority";
+                default "1";
+                type uint8 {
+                  description "<0..255>";
+                  range "0..255";
+                }
+              }
+              leaf network {
+                description "Network type";
+                default "broadcast";
+                type enumeration {
+                  enum "broadcast";
+                  enum "point-to-point";
+                }
+              }
+              leaf passive-interface {
+                description "Suppress routing updates";
+                type empty;
+              }
+              container authentication {
+                description "Enable authentication";
+                leaf type {
+                  type enumeration {
+                    enum "simple";
+                    enum "message-digest";
+                  }
+                }
+                leaf authentication-key {
+                  description "Authentication key";
+                  type viptela:named-type;
+                }
+                container message-digest {
+                  description "Message digest authentication";
+                  leaf message-digest-key {
+                    description "Key ID";
+                    type uint8 {
+                      description "<1.255>";
+                      range "1..255";
+                    }
+                  }
+                  leaf md5 {
+                    description "Authentication key";
+                    type aes-cfb-128-encrypted-string {
+                      description "Cleartext or AES encrypted key";
+                    }
+                  }
+                }
+              }
+            }
+            list range {
+              key "address";
+              description "Summarize routes matching address/mask";
+              leaf address {
+                type viptela:ipv4-ucast-addr-prefix;
+              }
+              leaf cost {
+                description "Cost for this range";
+                type uint32 {
+                  description "<0..16777215>";
+                  range "0..16777215";
+                }
+              }
+              leaf no-advertise {
+                description "Do not advertise this range";
+                type empty;
+              }
+            }
+          }
+        }
+        container multicast-replicator {
+          description "Configure multicast replicator for replication";
+          presence "multicast-replicator";
+          when "(../../vpn-id != 0) and (../../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+          must "(local)" {
+            error-message "Location (local) should be set";
+          }
+          choice location {
+            case local {
+              leaf local {
+                description "Replicator is local to this device";
+                type boolean;
+                default "false";
+              }
+            }
+          }
+          leaf threshold {
+            description "Threshold at which no more nodes can join for replication";
+            type uint32 {
+              description "<0..1000> streams";
+              range "0..1000";
+            }
+            default "0";
+          }
+        }
+        container pim {
+          presence "Enable PIM";
+          when "(../../vpn-id != 0) and (../../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+          description "PIM";
+          must "/viptela-system:system/viptela-system:system-ip" {
+            error-message "system ip must be configured";
+          }
+          leaf rp-address {
+            description "(HIDDEN) IP address of router to be a PIM rendezvous point";
+            type inet:ip-address;
+          }
+          leaf shutdown {
+            description "Enable/disable PIM";
+            type boolean;
+            default "false";
+          }
+          leaf auto-rp {
+            description "Enable/disable auto-RP";
+            type boolean;
+            default "false";
+          }
+          leaf spt-threshold {
+            description "Enable/Disable SPT threshold value. 'no spt-threshold' means no switchover";
+            type uint16 {
+              description "<0..100>, in kbps";
+              range "0..100";
+            }
+          }
+          leaf replicator-selection {
+            description "Replicator selection logic";
+            default "sticky";
+            type enumeration {
+              enum "random";
+              enum "sticky";
+            }
+          }
+          list interface {
+            description "Set interface parameters";
+            key "name";
+            must "(/vpn/vpn-instance/interface[if-name=current()/name]/ip/address)" {
+              error-message "Interface referenced by PIM; Configure an address or remove the reference";
+            }
+            must "(not(starts-with(name, 'loopback')))" {
+              error-message "PIM cannot be enabled on loopback interface";
+            }
+            must "(not(starts-with(name, 'irb')))" {
+              error-message "PIM cannot be enabled on IRB interface";
+            }
+            leaf name {
+              type leafref {
+                path "../../../../interface/if-name";
+              }
+            }
+            leaf hello-interval {
+              description "Interval between hello packets";
+              default "30";
+              type uint16 {
+                description "<1..3600> seconds";
+                range "1..3600";
+              }
+            }
+            leaf join-prune-interval {
+              description "Interval at which PIM multicast traffic can join or be removed from RPT or SPT";
+              default "60";
+              type uint16 {
+                description "<10..600> seconds";
+                range "10..600";
+              }
+            }
+          }
+        }
+        container igmp {
+          presence "Enable IGMP";
+          when "(../../vpn-id != 0) and (../../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+          description "IGMP";
+          must "/viptela-system:system/viptela-system:system-ip" {
+            error-message "system ip must be configured";
+          }
+          leaf shutdown {
+            description "Enable/disable IGMP";
+            type boolean;
+            default "false";
+          }
+          list interface {
+            description "Set interface parameters";
+            key "name";
+            must "(/vpn/vpn-instance/interface[if-name=current()/name]/ip/address)" {
+              error-message "Interface referenced by IGMP; Configure an address or remove the reference";
+            }
+            must "(not(starts-with(name, 'loopback')))" {
+              error-message "IGMP cannot be enabled on loopback interface";
+            }
+            must "(not(starts-with(name, 'irb')))" {
+              error-message "IGMP cannot be enabled on IRB interface";
+            }
+            leaf name {
+              type leafref {
+                path "../../../../interface/if-name";
+              }
+            }
+            list join-group {
+              description "Static Joins";
+              key "group-address";
+              leaf group-address {
+                type inet:ipv4-address;
+              }
+            }
+          }
+        }
+        list bgp {
+          description "Border Gateway Protocol (BGP)";
+          key "as-num";
+          max-elements "1";
+          must "((/viptela-system:system/viptela-system:system-ip) or (router-id))" {
+            error-message "system-ip or router-id must be configured";
+          }
+          leaf as-num {
+            description "<1..4294967295> or <XX.YY>";
+            type viptela:asnum-type;
+          }
+          leaf shutdown {
+            description "Enable/disable BGP";
+            type boolean;
+            default "false";
+          }
+          leaf router-id {
+            description "Override router identifier";
+            type inet:ipv4-address;
+          }
+          leaf propagate-aspath {
+            description "Propagate AS path";
+            when "../../../vpn-id != 0";
+            type boolean;
+            default "false";
+          }
+          container distance {
+            description "Define an administrative distance";
+            leaf external {
+              description "External BGP routes";
+              default "20";
+              type uint8 {
+                description "<1..255>";
+                range "0..255";
+              }
+            }
+            leaf internal {
+              description "Internal BGP routes";
+              default "200";
+              type uint8 {
+                description "<1..255>";
+                range "0..255";
+              }
+            }
+            leaf local {
+              description "Local BGP routes";
+              default "20";
+              type uint8 {
+                description "<1..255>";
+                range "0..255";
+              }
+            }
+          }
+          container timers {
+            description "Set timers";
+            must "(keepalive and holdtime) or ((not(keepalive)) and (not(holdtime)))" {
+              error-message "Both keepalive and holdtime need to be configured or removed";
+            }
+            leaf keepalive {
+              description "Keepalive";
+              type keepalive-type;
+              default "60";
+            }
+            leaf holdtime {
+              description "Hold time";
+              type holdtime-type;
+              must "((../holdtime >= 3) or (../holdtime = 0))" {
+                error-message "Holdtime valid values are 0 or 3 - 65535";
+              }
+              default "180";
+            }
+          }
+          container best-path {
+            description "Set best-path parameters";
+            container med {
+              description "MED parameters";
+              leaf always-compare {
+                description "Compare MED from neighbors in different ASs";
+                type boolean;
+                default "false";
+              }
+              leaf deterministic {
+                description "Pick the best MED path among paths advertised by neighboring AS";
+                type boolean;
+                default "false";
+              }
+              leaf missing-as-worst {
+                description "Have the path without a MED value be the least desirable";
+                type boolean;
+                default "false";
+              }
+            }
+            leaf compare-router-id {
+              description "Compare router ID for identical routes";
+              type boolean;
+              default "false";
+            }
+            container as-path {
+              description "AS path";
+              leaf multipath-relax {
+                description "Ignore AS for multipath selection";
+                type boolean;
+                default "false";
+              }
+            }
+          }
+          list address-family {
+            description "Set the BGP address family";
+            key "family-type";
+            leaf family-type {
+              type afi-type;
+            }
+            list aggregate-address {
+              description "Aggregate entries";
+              key "prefix";
+              leaf prefix {
+                type inet:ipv4-prefix;
+              }
+              leaf as-set {
+                description "Generate AS set path information";
+                type empty;
+              }
+              leaf summary-only {
+                description "Filter more specific routes from updates";
+                type empty;
+              }
+            }
+            list network {
+              description "Set a network to announce through BGP";
+              key "prefix";
+              leaf prefix {
+                type inet:ipv4-prefix;
+              }
+            }
+            container maximum-paths {
+              description "Configure multipath";
+              leaf paths {
+                description "Maximum BGP paths";
+                type maxpaths-type;
+              }
+            }
+            list redistribute {
+              description "Redistribute routes";
+              key "protocol";
+              must
+                "((../../../../vpn-id != 0) or
+                 (protocol != 'omp'))" {
+                error-message "configuring redistribute omp is not allowed in vpn 0";
+              }
+              leaf protocol {
+                type enumeration {
+                  enum "static";
+                  enum "connected";
+                  enum "ospf";
+                  enum "omp";
+                  enum "nat";
+                  enum "natpool-outside";
+                  enum "eigrp";
+                }
+              }
+              leaf route-policy {
+                description "Route policy to apply";
+                type leafref {
+                  path "/viptela-policy:policy/viptela-policy:route-policy/viptela-policy:name";
+                }
+              }
+            }
+          }
+          list neighbor {
+            description "Specify neighbor parameters";
+            key "address";
+            leaf address {
+              type inet:ipv4-address;
+            }
+            leaf description {
+              description "Description for this peer";
+              type viptela:named-type;
+            }
+            leaf shutdown {
+              description "Administrative state";
+              type boolean;
+              default "false";
+            }
+            leaf remote-as {
+              description "Remote AS number";
+              type viptela:asnum-type;
+              mandatory true;
+            }
+            container timers {
+              description "Set timers";
+              must "(keepalive and holdtime) or ((not(keepalive)) and (not(holdtime)))" {
+                error-message "Both keepalive and hold time must be configured";
+              }
+              leaf keepalive {
+                description "Keepalive";
+                type keepalive-type;
+              }
+              leaf holdtime {
+                description "Hold time";
+                type holdtime-type;
+                must "((../holdtime >= 3) or (../holdtime = 0))" {
+                  error-message "Holdtime valid values are 0 or 3 - 65535";
+                }
+              }
+              leaf connect-retry {
+                description "Connect retry";
+                type uint32 {
+                  description "<0..65535>";
+                  range "0..65535";
+                }
+              }
+              leaf advertisement-interval {
+                description "MRAI interval";
+                type uint32 {
+                  description "<0..600>";
+                  range "0..600";
+                }
+              }
+            }
+            container update-source {
+              description "Source of routing updates";
+              choice interface {
+                case address {
+                  leaf if-address {
+                    type inet:ipv4-address;
+                  }
+                }
+                case name {
+                  leaf if-name {
+                    type leafref {
+                      path "../../../../../interface/if-name";
+                    }
+                  }
+                }
+              }
+            }
+            leaf next-hop-self {
+              description "Enable/disable setting of next hop to self for advertised routes";
+              type boolean;
+              default "false";
+            }
+            leaf send-community {
+              description "Send community attribute";
+              type boolean;
+              default "true";
+            }
+            leaf send-ext-community {
+              description "Send extended community attribute";
+              type boolean;
+              default "true";
+            }
+            leaf ebgp-multihop {
+              description "TTL value for peers that are not directly connected";
+              default "1";
+              type uint8 {
+                description "<1..255>";
+                range "1..255";
+              }
+            }
+            leaf capability-negotiate {
+              description "Negotiate capability";
+              type boolean;
+              default "true";
+            }
+            leaf password {
+              description "Specify password";
+              type aes-cfb-128-encrypted-string {
+                description "Clear text or AES-encrypted password";
+              }
+            }
+            list address-family {
+              description "Configure address family";
+              key "family-type";
+              leaf family-type {
+                type afi-type;
+              }
+              container maximum-prefixes {
+                description "Maximum number of prefixes accepted from this peer";
+                leaf prefix-num {
+                  default "0";
+                  type uint32 {
+                    description "<1-4294967295>  Maximum number of prefixes";
+                  }
+                }
+                leaf threshold {
+                  default "0";
+                  type uint8 {
+                    range "0..100";
+                    description "<1-100>     Threshold value (%) at which to generate a warning message";
+                  }
+                }
+                choice action {
+                  case interval {
+                    leaf restart {
+                      description "Restart BGP connection after limit is exceeded";
+                      default "0";
+                      type uint16 {
+                        range "0..65535";
+                        description "<1-65535>  Restart interval, in minutes";
+                      }
+                    }
+                  }
+                  case log {
+                    leaf warning-only {
+                      type boolean;
+                      default "false";
+                      description "Display warning message only when limit is exceeded";
+                    }
+                  }
+                }
+              }
+              list route-policy {
+                description "Route policy to apply";
+                key "direction";
+                leaf direction {
+                  description "Direction";
+                  type enumeration {
+                    enum "in";
+                    enum "out";
+                  }
+                }
+                leaf pol-name {
+                  description "Name of route policy";
+                  mandatory true;
+                  type leafref {
+                    path "/viptela-policy:policy/viptela-policy:route-policy/viptela-policy:name";
+                  }
+                }
+              }
+            }
+          }
+        }
+        list eigrp {
+          description "Enhanced Interior Gateway Routing Protocol (EIGRP)";
+          key "as-num";
+          max-elements "1";
+          leaf as-num {
+            description "Autonomous System ID";
+            type uint16 {
+              range "1..65535";
+            }
+          }
+          leaf hello-interval {
+            description "Configures hello interval";
+            type uint16;
+            default "60";
+          }
+          leaf hold-time {
+            description "Configures hold time";
+            type uint16;
+            default "180";
+          }
+          container table-map {
+            description "Define Table-Map for setting OMP-TAG into routing table";
+            leaf name {
+              description "WORD;;route-map name";
+              type string;
+            }
+            leaf filter {
+              description "Selective route download";
+              type empty;
+            }
+          }
+          container authentication {
+            description "Enable authentication";
+            leaf type {
+              type enumeration {
+                enum "md5";
+                enum "hmac-sha-256";
+              }
+            }
+            leaf auth-key {
+              description "Authentication key";
+              type viptela:named-type;
+            }
+            container keychain {
+              description "keychain";
+              list key {
+                description "Key";
+                key "key_id";
+                leaf key_id {
+                  description "Key ID";
+                  type uint8 {
+                    description "<1.255>";
+                    range "1..255";
+                  }
+                }
+                leaf keystring {
+                  description "Authentication key";
+                  type aes-cfb-128-encrypted-string {
+                    description "keystring";
+                    length "0..80";
+                  }
+                }
+              }
+            }
+          }
+          list af-interface {
+            description "Enter Address Family interface configuration";
+            key "name";
+            leaf name {
+              type string;
+            }
+            leaf shutdown {
+              description "Enable/disable EIGRP";
+              type empty;
+            }
+            leaf bfd {
+              description "set peer monitoring method to bfd";
+              type empty;
+            }
+            leaf passive-interface {
+              description "Suppress address updates on an interface";
+              type boolean;
+            }
+            leaf split-horizon {
+              description "Perform split horizon";
+              type boolean;
+              default "true";
+            }
+            list summary-address {
+              key "prefix";
+              leaf prefix {
+                type union {
+                  type inet:ipv4-prefix;
+                  type viptela:ipv6-ucast-addr-prefix;
+                }
+              }
+            }
+          }
+          list address-family {
+            description "Enter Address Family command mode";
+            key "type";
+            leaf type {
+              type enumeration {
+                enum "ipv4";
+                enum "ipv6";
+              }
+              default "ipv4";
+            }
+            container eigrp {
+              description "EIGRP Address Family specific commands";
+              leaf router-id {
+                description "router id for this EIGRP process";
+                type inet:ipv4-address;
+              }
+            }
+            leaf shutdown {
+              description "Shutdown this instance of EIGRP";
+              type empty;
+            }
+            list network {
+              description "Enable routing on an IP network";
+              key "prefix";
+              leaf prefix {
+                description "Network IP prefix";
+                type inet:ipv4-prefix;
+              }
+            }
+            container topology {
+              description "Topology configuration mode";
+              container base {
+                description "Base Topology";
+                presence "true";
+                list redistribute {
+                  description "Redistribute routes from another routing protocol";
+                  key "protocol";
+                  leaf protocol {
+                    type enumeration {
+                      enum "bgp";
+                      enum "connected";
+                      enum "nat-route";
+                      enum "omp";
+                      enum "ospf";
+                      enum "ospfv3";
+                      enum "static";
+                    }
+                  }
+                  leaf route-map {
+                    description "Route policy to apply";
+                    type leafref {
+                      path "/viptela-policy:policy/viptela-policy:route-policy/viptela-policy:name";
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      container cloudexpress {
+        presence "Enable cloudexpress";
+        description "Set cloudExpress parameters";
+        when "(../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+        must
+          "(((allow-local-exit = 'false') and (not(node-type) or (node-type = 'gateway') or (node-type = 'client'))) or
+            ((allow-local-exit = 'true') and (node-type = 'client')))" {
+          error-message "allow-local-exit is allowed for node-type client";
+        }
+        must "((count(applications) = 0) or ((count(applications) > 0) and (((allow-local-exit = 'true') and (node-type = 'client')) or (node-type = 'gateway'))))" {
+          error-message "applications can only be configured on clients with local exit or on gateways";
+        }
+        leaf node-type {
+          description "cloudExpress node type";
+          type viptela:cloudexpress-node-type;
+        }
+        leaf allow-local-exit {
+          description "Allow cloud applications to exit locally";
+          type boolean;
+          default "false";
+        }
+        leaf-list local-interface-list {
+          description "Optional list of interfaces for local exit";
+          ordered-by user;
+          max-elements "4";
+          type viptela:named-type;
+          must "(starts-with(. , 'gre') or starts-with(. , 'ipsec') or starts-with(. , '10g') or starts-with(. , 'ge'))" {
+            error-message "Only a gre/ipsec/ge/10g interface can be assigned";
+          }
+          must "(((../node-type = 'client') and (../allow-local-exit = 'true')) or (../node-type = 'gateway'))" {
+            error-message "local-interface-list can be configured on gateway or client with allow-local-exit configured";
+          }
+        }
+        leaf-list applications {
+          description "List of cloudExpress applications";
+          type viptela:cloudexpress-app-type;
+        }
+        leaf desired-latency {
+          description "Desired latecy to calculate scores";
+          type xs:float;
+        }
+        leaf desired-loss {
+          description "Desired loss to calculate scores";
+          type xs:float;
+        }
+      }
+      list vip-internal-track-prefix-list {
+        description "Prefix list tracking status";
+        config false;
+        key "name";
+        leaf name {
+          description "Name of prefix list";
+          type viptela:named-type;
+        }
+        leaf resolved {
+          type boolean;
+          default "false";
+        }
+      }
+      list interface {
+        description "Interface";
+        key "if-name";
+        unique "tunnel-interface/color/value";
+        unique "pppoe-client/ppp-interface";
+        must
+          "(pppoe-client/ppp-interface and not(tunnel-interface or nat)) or
+           (not(pppoe-client/ppp-interface))" {
+          error-message "PPPoE cannot be enabled while tunnel interface or NAT is enabled";
+        }
+        leaf if-name {
+          description
+            "<1..32 characters>
+               Interface name: ge0/<0-..> or ge0/<0-..>.vlanid or irb<bridgeid:1-63>
+               or loopback<string> or natpool<1..31> or gre<1..255> or ipsec<1..255>
+               or ppp<1..31> when present
+               Interface name on vSmart: eth<0-..> or eth<0-..>.vlanid or loopback<string
+               when present";
+          type string {
+            length "1..32";
+            description
+              "<1..32 characters>
+                 Interface name: ge0/<0-..> or ge0/<0-..>.vlanid or irb<bridgeid:1-63>
+                 or loopback<string> or natpool<1..31> or gre<1..255> or ipsec<1..255> when present
+                 Interface name on vSmart: eth<0-..> or eth<0-..>.vlanid or loopback<string>
+                 when present";
+          }
+        }
+        must
+          "(((starts-with(if-name, 'cellular')) and shutdown='false' and profile)
+           or (not(starts-with(if-name, 'cellular'))) or (shutdown='true'))" {
+          error-message "profile must be configured for cellular interface";
+        }
+        must
+          "(((starts-with(if-name, 'cellular')) and shutdown='false' and mtu<=1428)
+           or (not(starts-with(if-name, 'cellular'))) or (shutdown='true'))" {
+          error-message "mtu must be configured with value less than or equal to 1428";
+        }
+        must
+          "(((starts-with(if-name, 'cellular')) and shutdown='false' and ip/dhcp-client='true')
+           or ((starts-with(if-name, 'cellular')) and shutdown='false' and ip/address)
+           or (not(starts-with(if-name, 'cellular'))) or (shutdown='true'))" {
+          error-message "ip dhcp-client or address must be configured for the cellular interface";
+        }
+        must
+          "((((starts-with(if-name, 'gre')) or (starts-with(if-name, 'ipsec')))
+           and (((tunnel-source) and (not(tunnel-source-interface)))
+           or ((not(tunnel-source)) and (tunnel-source-interface))))
+           or (not(starts-with(if-name, 'gre')) and not(starts-with(if-name, 'ipsec'))))" {
+          error-message "Either tunnel-source OR tunnel-source-interface can be configured for gre/ipsec interface";
+        }
+        must
+          "((((starts-with(if-name, 'gre')) or (starts-with(if-name, 'ipsec'))) and
+           ((tunnel-source) or (tunnel-source-interface)) and (tunnel-destination))
+           or (not(starts-with(if-name, 'gre')) and not(starts-with(if-name, 'ipsec'))))" {
+          error-message "tunnel-source/tunnel-source-interface and tunnel-destination must be configured for gre/ipsec interface";
+        }
+        must
+          "((((starts-with(if-name, 'gre')) or (starts-with(if-name, 'ipsec')))
+           and ((not(tunnel-source)) or (tunnel-source!=tunnel-destination)))
+           or (not(starts-with(if-name, 'gre')) and not(starts-with(if-name, 'ipsec'))))" {
+          error-message "tunnel-source and tunnel-destination must be different for gre/ipsec interface";
+        }
+        must "not((starts-with(if-name, 'irb') and (../vpn-id=512)))" {
+          error-message "IRB interface is not allowed in VPN 512";
+        }
+        must "not((starts-with(if-name, 'irb') and shutdown='false' and mtu>2000))" {
+          error-message "IRB interface MTU cannot exceed 2000";
+        }
+        leaf description {
+          description "Description";
+          type string {
+            length "1..128";
+            pattern "[^<>]*";
+          }
+        }
+        container ip {
+          description "Set IPv4 parameters";
+          must "(count(secondary-address) = 0) or (address and (count(secondary-address) != 0))" {
+            error-message "Primary address needs to be configured";
+          }
+          choice ip-choice {
+            when "(not(starts-with(../if-name, 'ppp')))";
+            case addr-case {
+              leaf address {
+                description "Assign IP address";
+                type viptela:ipv4-ucast-addr-prefix;
+              }
+            }
+            case dhcp-case {
+              leaf dhcp-client {
+                description "Enable DHCP";
+                when
+                  "((not(starts-with(../../if-name, 'loopback'))) and (not(starts-with(../../if-name, 'gre'))) and
+                   ((../../../vpn-id = 0) or (../../../vpn-id = 512)))";
+                type boolean;
+                default "false";
+              }
+              leaf dhcp-distance {
+                description "Set administrative distance for DHCP default route";
+                when "../dhcp-client = 'true'";
+                type uint8 {
+                  description "<1..255>";
+                  range "1..255";
+                }
+                default "1";
+              }
+            }
+            case addr-list-case {
+              list address-list {
+                when
+                  "(/viptela-system:system/viptela-system:personality = 'vcontainer') and
+                   (../../../vpn-id = 0)";
+                description "Assign list of IP addresses";
+                key "address";
+                leaf address {
+                  description "IPv4 address/prefix length";
+                  type viptela:ipv4-ucast-addr-prefix;
+                }
+              }
+              list static-route {
+                description "Configure static routes";
+                when
+                  "(/viptela-system:system/viptela-system:personality = 'vcontainer') and
+                   (../../../vpn-id = 0)";
+                key "prefix";
+                leaf prefix {
+                  type inet:ipv4-prefix;
+                }
+                list next-hop {
+                  description "IP gateway address";
+                  min-elements 1;
+                  max-elements "1";
+                  key "address";
+                  leaf address {
+                    type inet:ipv4-address;
+                  }
+                  leaf track-via {
+                    description "Protocol to be used for tracking next-hop";
+                    type nhop-track-proto;
+                    default "arping";
+                  }
+                }
+              }
+            }
+          }
+          list secondary-address {
+            description "Assign secondary IP addresses";
+            max-elements "4";
+            key "address";
+            when
+              "(/viptela-system:system/viptela-system:personality = 'vedge') and
+               (../../../vpn-id != 512) and (../../../vpn-id != 0) and
+               ((starts-with(../../if-name, 'ge')) or (starts-with(../../if-name, 'irb')) or
+                (starts-with(../../if-name, '10ge')))";
+            leaf address {
+              type viptela:ipv4-ucast-addr-prefix;
+            }
+          }
+        }
+        container ipv6 {
+          description "Set IPv6 parameters";
+          choice ip-choice {
+            case addr-case {
+              leaf address {
+                description "Assign IPv6 address";
+                type viptela:ipv6-ucast-addr-prefix;
+              }
+            }
+            case dhcp-case {
+              leaf dhcp-client {
+                description "Enable DHCPv6";
+                when
+                  "((not(starts-with(../../if-name, 'loopback'))) and (not(starts-with(../../if-name, 'gre'))) and
+                   ((../../../vpn-id = 0) or (../../../vpn-id = 512)))";
+                type boolean;
+                default "false";
+              }
+              leaf dhcp-distance {
+                description "Set administrative distance for DHCP default route";
+                when "../dhcp-client = 'true'";
+                type uint8 {
+                  description "<1..255>";
+                  range "1..255";
+                }
+                default "1";
+              }
+              leaf dhcp-rapid-commit {
+                description "Enable DHCPv6 rapid commit";
+                when
+                  "((not(starts-with(../../if-name, 'loopback'))) and (not(starts-with(../../if-name, 'gre'))) and
+                   ((../../../vpn-id = 0) or (../../../vpn-id = 512)) and (../dhcp-client = 'true'))";
+                type boolean;
+                default "false";
+              }
+            }
+          }
+          list access-list {
+            description "Apply IPv6 access list";
+            key "direction";
+            when "/viptela-system:system/viptela-system:personality = 'vedge' and (../../../vpn-id != 512)";
+            leaf direction {
+              description "Direction";
+              type enumeration {
+                enum "in";
+                enum "out";
+              }
+            }
+            leaf acl-name {
+              description "Name of access list";
+              mandatory true;
+              type leafref {
+                path "/viptela-policy:policy/viptela-policy:ipv6/viptela-policy:access-list/viptela-policy:name";
+              }
+            }
+          }
+          list dhcp-helper-v6 {
+            description "List of IPv6 DHCP server addresses";
+            key "address";
+            when
+              "(../../../vpn-id !=0) and (../../../vpn-id != 512) and
+               (not(starts-with(../../if-name, 'gre'))) and
+               (not(starts-with(../../if-name, 'ipsec')))";
+            leaf address {
+              description "IPv6 DHCP server address";
+              type inet:ipv6-address;
+            }
+            leaf vpn {
+              description "VPN name for helper-address";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        leaf-list dhcp-helper {
+          description "List of DHCP server addresses";
+          max-elements "8";
+          type inet:ip-address;
+          when
+            "(../../vpn-id !=0) and (../../vpn-id != 512) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec')))";
+        }
+        container keepalive {
+          when "(starts-with(../if-name, 'gre'))";
+          description "Set GRE keepalive interval and retries";
+          leaf interval {
+            description "GRE keepalive interval";
+            default "10";
+            type uint16 {
+              description "<0..65535> seconds";
+              range "0..65535";
+            }
+          }
+          leaf retries {
+            description "GRE keepalive retries";
+            default "3";
+            type uint8 {
+              description "<0..255>";
+              range "0..255";
+            }
+          }
+        }
+        leaf tunnel-source {
+          when "(starts-with(../if-name, 'gre') or starts-with(../if-name, 'ipsec'))";
+          description "Tunnel source IP address";
+          type inet:ip-address {
+            description "IP address";
+          }
+        }
+        leaf tunnel-source-interface {
+          when "(starts-with(../if-name, 'gre') or starts-with(../if-name, 'ipsec'))";
+          description "Tunnel source interface";
+          type string {
+            length "1..32";
+            description "<1..32 characters> Interface name: ge0/<0-..> or ge0/<0-..>.vlanid";
+          }
+        }
+        leaf tunnel-destination {
+          when "(starts-with(../if-name, 'gre') or starts-with(../if-name, 'ipsec'))";
+          description "Tunnel destination IP address";
+          type union {
+            type inet:ipv4-address {
+              description "IP address";
+            }
+            type inet:domain-name {
+              description "DNS name";
+            }
+          }
+        }
+        container dead-peer-detection {
+          when "(starts-with(../if-name, 'ipsec'))";
+          description "Set IKE dead peer detection interval and retries";
+          leaf dpd-interval {
+            description "IKE keepalive interval, in seconds";
+            default "10";
+            type uint16 {
+              description "<0..65535> seconds";
+              range "0..65535";
+            }
+          }
+          leaf dpd-retries {
+            description "IKE keepalive retries";
+            default "3";
+            type uint8 {
+              description "<0..255>";
+              range "0..255";
+            }
+          }
+        }
+        container ike {
+          when "(starts-with(../if-name, 'ipsec'))";
+          description "Configure IKE properties";
+          leaf ike-version {
+            description "IKE version";
+            default "1";
+            type uint8 {
+              description "<1..2>";
+              range "1..2";
+            }
+          }
+          leaf ike-mode {
+            description "IKEv1 mode";
+            when "../ike-version = 1";
+            type enumeration {
+              enum "main" {
+                description "Enable IKE phase 1 main mode negotiation";
+              }
+              enum "aggressive" {
+                description "Enable IKE phase 1 aggressive mode negotiation";
+              }
+            }
+            default "main";
+          }
+          leaf ike-rekey-interval {
+            description "IKE rekey interval, in seconds";
+            default "14400";
+            type uint32 {
+              description "300..1209600 seconds";
+              range "300..1209600";
+            }
+          }
+          leaf ike-ciphersuite {
+            description "IKE encryption and integrity protocols";
+            type enumeration {
+              enum "aes256-cbc-sha1" {
+                description "Use 256 bit AES-CBC encryption with HMAC-SHA1 integrity";
+              }
+              enum "aes128-cbc-sha1" {
+                description "Use 128 bit AES-CBC encryption with HMAC-SHA1 integrity";
+              }
+              enum "aes256-cbc-sha2" {
+                description "Use 256 bit AES-CBC encryption with HMAC-SHA256 integrity";
+              }
+              enum "aes128-cbc-sha2" {
+                description "Use 128 bit AES-CBC encryption with HMAC-SHA256 integrity";
+              }
+            }
+            default "aes256-cbc-sha1";
+          }
+          leaf ike-group {
+            description "IKE Diffie-Hellman Groups";
+            type enumeration {
+              enum "2" {
+                description "1024-bit modulus";
+              }
+              enum "14" {
+                description "2048-bit modulus";
+              }
+              enum "15" {
+                description "3072-bit modulus";
+              }
+              enum "16" {
+                description "4096-bit modulus";
+              }
+            }
+            default "16";
+          }
+          leaf ike-responder {
+            description "Setup the vEdge as an IKE responder only";
+            type empty;
+          }
+          container authentication-type {
+            description "Set IKE authentication method and parameters";
+            container pre-shared-key {
+              presence "Use presharedkey to authenticate IKE peer";
+              description "pre-shared-key";
+              leaf pre-shared-secret {
+                description "IKE preshared secret";
+                type aes-cfb-128-encrypted-string {
+                  description "Cleartext or AES encrypted key";
+                }
+              }
+              leaf ike-local-id {
+                description "IKE ID for the local endpoint";
+                type string {
+                  length "1..63";
+                }
+              }
+              leaf ike-remote-id {
+                description "IKE ID for the remote endpoint";
+                type string {
+                  length "1..63";
+                }
+              }
+            }
+          }
+        }
+        container ipsec {
+          when "(starts-with(../if-name, 'ipsec'))";
+          description "Configure IPsec properties";
+          must
+            "(ipsec-replay-window = 64)   or (ipsec-replay-window = 128)  or (ipsec-replay-window = 256)  or
+             (ipsec-replay-window = 512)  or (ipsec-replay-window = 1024) or (ipsec-replay-window = 2048) or
+             (ipsec-replay-window = 4096)" {
+            error-message "Invalid replay-window (Should be power of 2 Range 64..4096)";
+          }
+          leaf ipsec-rekey-interval {
+            description "IPsec rekey interval, in seconds";
+            default "3600";
+            type uint32 {
+              description "300..1209600 seconds";
+              range "300..1209600";
+            }
+          }
+          leaf ipsec-replay-window {
+            description "Replay window size";
+            type uint16 {
+              description "64..4096 (must be a power of 2)";
+            }
+            default "512";
+          }
+          leaf ipsec-ciphersuite {
+            description "IPsec (ESP) encryption and integrity protocols";
+            type enumeration {
+              enum "aes256-cbc-sha1" {
+                description "Use 256 bit AES-CBC with HMAC-SHA1-96 integrity";
+              }
+              enum "aes256-gcm" {
+                description "Use 256 bit AES-GCM";
+              }
+              enum "null-sha1" {
+                description "Use null encryption with HMAC-SHA1-96 integrity";
+              }
+            }
+            default "aes256-gcm";
+          }
+          leaf perfect-forward-secrecy {
+            description "IPsec perfect forward secrecy settings";
+            type enumeration {
+              enum "group-2" {
+                description "1024-bit modulus";
+              }
+              enum "group-14" {
+                description "2048-bit modulus";
+              }
+              enum "group-15" {
+                description "3072-bit modulus";
+              }
+              enum "group-16" {
+                description "4096-bit modulus";
+              }
+              enum "none" {
+                description "No perfect forward secrecy";
+              }
+            }
+            default "group-16";
+          }
+          leaf ipsec-extended-sequence-number {
+            description "Use extended sequence number for IPsec (ESP)";
+            when "../../ike/ike-version = 2";
+            type boolean;
+            default "false";
+          }
+          leaf ipsec-local-traffic-selectors {
+            description "Local traffic selector prefix";
+            type viptela:ipv4-ucast-addr-prefix;
+          }
+          leaf ipsec-remote-traffic-selectors {
+            description "Remote traffic selector prefix";
+            type viptela:ipv4-ucast-addr-prefix;
+          }
+        }
+        container pppoe-client {
+          description "Enable PPPoE";
+          when "(starts-with(../if-name, 'ge') or starts-with(../if-name, '10ge')) and not(contains(../if-name, '.'))";
+          leaf ppp-interface {
+            description "PPPoE client interface";
+            must "starts-with(. , 'ppp')" {
+              error-message "Only a ppp interface can be assigned";
+            }
+            must "count(../../../interface[if-name=current()]) = 1" {
+              error-message "Can not bind PPPoE client to a non existant interface";
+            }
+            type leafref {
+              path "/vpn/vpn-instance/interface/if-name";
+            }
+          }
+        }
+        container ppp {
+          when "starts-with(../if-name, 'ppp')";
+          description "Set PPP parameters";
+          list authentication {
+            description "Set authentication parameters";
+            key "auth-choice";
+            max-elements "2";
+            must "(hostname or sent-username) and password" {
+              error-message "Must specify both authentication credentials";
+            }
+            leaf auth-choice {
+              description "Protocol for the authentication of the remote PPP peer";
+              type viptela:ppp-auth;
+            }
+            leaf hostname {
+              description "Specify hostname";
+              when "../auth-choice = 'chap'";
+              type string {
+                length "1..255";
+              }
+            }
+            leaf sent-username {
+              description "Specify sent-username";
+              when "../auth-choice = 'pap'";
+              type string {
+                length "1..255";
+              }
+            }
+            leaf password {
+              description "Specify password";
+              type aes-cfb-128-encrypted-string {
+                description "Cleartext or AES encrypted key";
+              }
+            }
+          }
+          leaf ac-name {
+            description "ac-name";
+            type string;
+          }
+          leaf pppoe-oper-session-id {
+            config false;
+            type int32;
+            description "PPPoE session id";
+          }
+          leaf pppoe-oper-dest-mac {
+            config false;
+            type viptela:mac-address;
+            description "PPPoE dest mac";
+          }
+          leaf pppoe-oper-mtu {
+            config false;
+            type int32;
+            description "PPP MTU";
+          }
+        }
+        container dot1x {
+          description "Enable 802.1x authentication on this interface";
+          when
+            "(/viptela-system:system/viptela-system:personality = 'vedge' and
+              (../../vpn-id = 0) and
+              ((starts-with(../if-name, 'ge')) or
+               (starts-with(../if-name, '10ge'))))";
+          presence "Is 802.1x enabled";
+          leaf control-direction {
+            description "Set direction for 802.1x port access control";
+            type enumeration {
+              enum "in-and-out" {
+                description "Deny traffic in both directions when the port is unauthorized";
+              }
+              enum "in-only" {
+                description "Deny incoming traffic only when the port is unauthorized";
+              }
+            }
+            default "in-and-out";
+          }
+          leaf wake-on-lan {
+            description "Allow Wake-On-Lan packets to egress the port even when port is unauthorized";
+            type empty;
+          }
+          leaf reauthentication {
+            description "Specify timeout for reauthentication, in minutes";
+            type uint16 {
+              description "<0..1440> minutes";
+              range "0..1440";
+            }
+            default "0";
+          }
+          leaf auth-reject-vlan {
+            description "Set VLAN to drop 802.1x enabled clients into if authentication is rejected";
+            type uint32 {
+              description "VLAN Id";
+              range "1..4095";
+            }
+          }
+          leaf auth-fail-vlan {
+            description "Set VLAN to drop 802.1x enabled clients into if authentication server is unreachable";
+            type uint32 {
+              description "VLAN Id";
+              range "1..4095";
+            }
+          }
+          leaf guest-vlan {
+            description "Set VLAN to drop non-802.1x enabled clients into if client is not in MAB list";
+            type uint32 {
+              description "VLAN Id";
+              range "1..4095";
+            }
+          }
+          leaf default-vlan {
+            description "Set VLAN to drop clients into if none specified by the RADIUS server";
+            type uint32 {
+              description "VLAN Id";
+              range "1..4095";
+            }
+          }
+          leaf host-mode {
+            description "Set host mode";
+            type enumeration {
+              enum "single-host" {
+                description "Allow only one authenticated client on the port";
+              }
+              enum "multi-auth" {
+                description "Allow multiple clients on the port each with their own authentication";
+              }
+              enum "multi-host" {
+                description "Allow multiple clients on the port if one client is authenticated";
+              }
+            }
+            default "single-host";
+          }
+          container timeout {
+            description "Configure timeouts for authentication";
+            leaf inactivity {
+              description "Interval for timing out inactive clients, in minutes";
+              type uint16 {
+                description "<1..1440> minutes";
+                range "1..1440";
+              }
+              default "60";
+            }
+          }
+          leaf-list radius-servers {
+            description "Designate RADIUS servers for authentication and accounting in the order of preference";
+            ordered-by user;
+            type leafref {
+              description "Specify RADIUS server using its tag";
+              path "/viptela-system:system/viptela-system:radius/viptela-system:server/viptela-system:tag";
+            }
+            min-elements 1;
+            max-elements "2";
+          }
+          list auth-req-attr {
+            description "Configure additional RADIUS attributes to send in access-request message";
+            key "id";
+            leaf id {
+              description "RADIUS attribute ID (1..64)";
+              type uint8 {
+                description "<1..255>";
+                range "1..255";
+              }
+            }
+            choice syntax-choice {
+              mandatory true;
+              case string-case {
+                leaf string {
+                  description "Attribute type string";
+                  type string;
+                }
+              }
+              case integer-case {
+                leaf integer {
+                  description "Attribute type integer";
+                  type uint32;
+                }
+              }
+              case octet-case {
+                leaf octet {
+                  description "Attribute type octet";
+                  type string {
+                    description "Hexadecimal string. e.g. '7eab876'";
+                    pattern "[0-9a-fA-F]*";
+                  }
+                }
+              }
+            }
+          }
+          list acct-req-attr {
+            description "Configure additional RADIUS attributes to send in accounting-request message";
+            key "id";
+            leaf id {
+              description "RADIUS attribute ID (1..64)";
+              type uint8 {
+                description "<1..255>";
+                range "1..255";
+              }
+            }
+            choice syntax-choice {
+              mandatory true;
+              case string-case {
+                leaf string {
+                  description "Attribute type string";
+                  type string;
+                }
+              }
+              case integer-case {
+                leaf integer {
+                  description "Attribute type integer";
+                  type uint32;
+                }
+              }
+              case octet-case {
+                leaf octet {
+                  description "Attribute type octet";
+                  type string {
+                    description "Hexadecimal string. e.g. '7eab876'";
+                    pattern "[0-9a-fA-F]*";
+                  }
+                }
+              }
+            }
+          }
+          leaf nas-identifier {
+            description "NAS identifier sent in RADIUS requests";
+            type string {
+              length "1..255";
+            }
+          }
+          leaf nas-ip-address {
+            description "NAS IP address sent in RADIUS requests";
+            type inet:ip-address;
+          }
+          container das {
+            description "Configure dynamic authorization service (DAS) parameters";
+            leaf port {
+              description "DAS UDP port number";
+              type inet:port-number {
+                description "<1..65535>";
+              }
+              default "3799";
+            }
+            leaf time-window {
+              description "DAS event timestamp window, in seconds";
+              type uint16 {
+                description "<10..1000>";
+                range "10..1000";
+              }
+              default "300";
+            }
+            leaf require-timestamp {
+              description "Require event timestamp from DAS client";
+              type empty;
+            }
+            leaf client {
+              description "DAS client IPv4 address";
+              type inet:ip-address;
+            }
+            leaf vpn {
+              description "VPN of the DAS client";
+              type viptela:vpn-id;
+              default "0";
+            }
+            leaf secret-key {
+              description "DAS shared secret key";
+              type aes-cfb-128-encrypted-string {
+                description "Cleartext or AES encrypted key";
+              }
+            }
+          }
+          leaf accounting-interval {
+            description "Interval for interim RADIUS accounting, in minutes";
+            type uint16 {
+              description "<1..1440> minutes";
+              range "1..1440";
+            }
+          }
+          container mac-authentication-bypass {
+            description "Enable MAC authentication bypass";
+            leaf server {
+              description "Use RADIUS server for authentication based on mac-address";
+              type boolean;
+              default "false";
+            }
+            leaf-list allow {
+              description "Specify list of MAC addresses to allow locally without RADIUS authentication";
+              max-elements "8";
+              type viptela:mac-address;
+            }
+          }
+          leaf-list auth-order {
+            description "Specify authentication methods in the order of preference";
+            ordered-by user;
+            type enumeration {
+              enum "radius";
+              enum "mab";
+            }
+            max-elements "2";
+          }
+        }
+        container nat {
+          description "Enable/Disable Network Address Translation on this interface";
+          presence "Is nat enabled";
+          leaf map-type {
+            description "Set NAT mapping type";
+            type viptela:nat-map-type-enum;
+            default "endpoint-independent";
+          }
+          leaf refresh {
+            description "Set NAT refresh mode";
+            type enumeration {
+              enum "outbound";
+              enum "bi-directional";
+            }
+            default "outbound";
+          }
+          leaf udp-timeout {
+            description "Set NAT UDP session timeout, in minutes";
+            type int32 {
+              description "<1..65536> minutes";
+              range "1..65536";
+            }
+            default "1";
+          }
+          leaf tcp-timeout {
+            description "Set NAT TCP session timeout, in minutes";
+            type int32 {
+              description "<1..65536> minutes";
+              range "1..65536";
+            }
+            default "60";
+          }
+          leaf block-icmp-error {
+            description "Block inbound ICMP error messages";
+            type boolean;
+            default "true";
+          }
+          leaf respond-to-ping {
+            description "Respond to ping requests to NAT interface IP address from the public side";
+            type boolean;
+            default "false";
+          }
+          leaf test-timeout {
+            description "For test purposes: configure timeout of all sessions to specified time, in seconds";
+            type int32 {
+              range "0..65536";
+            }
+            default "0";
+          }
+          list port-forward {
+            description "Set port-forwarding rules for NAT on this interface";
+            key "port-start port-end proto";
+            must "port-start <= port-end" {
+              error-message "port-start should be less than or equal to port-end";
+            }
+            leaf port-start {
+              description "Starting port of port range";
+              type uint16;
+            }
+            leaf port-end {
+              description "Ending port of port range";
+              type uint16;
+            }
+            leaf proto {
+              description "Layer 4 protocol to apply port forwarding to";
+              type enumeration {
+                enum "tcp";
+                enum "udp";
+              }
+            }
+            leaf private-vpn {
+              description "VPN in which private IP address resides";
+              type uint16;
+            }
+            leaf private-ip-address {
+              description "Private IP address to translate to";
+              type inet:ipv4-address;
+            }
+          }
+          list tracker {
+            description "Track interface state";
+            when "(../../../vpn-id != 0)";
+            key "interface";
+            leaf interface {
+              description "Interface to track";
+              type leafref {
+                path "../../../../interface/if-name";
+              }
+            }
+          }
+          container natpool {
+            description "Configure NAT pool range entries";
+            when "(../../../vpn-id = 0)";
+            leaf range-start {
+              description "Starting IP address of NAT pool range";
+              type inet:ipv4-address;
+            }
+            leaf range-end {
+              description "Ending IP address of NAT pool range";
+              type inet:ipv4-address;
+            }
+          }
+          list static {
+            description "Configure static NAT entries";
+            when "((../../../vpn-id = 0) and (/viptela-vpn:vpn/viptela-vpn:vpn-instance/viptela-vpn:interface/viptela-vpn:nat/viptela-vpn:natpool)) or (../../../vpn-id != 0)";
+            key "source-ip translate-ip";
+            leaf source-ip {
+              description "Source IP address to be translated";
+              type inet:ip-address;
+            }
+            leaf translate-ip {
+              description "Statically translated source IP address";
+              type inet:ip-address;
+            }
+            leaf source-vpn {
+              description "Configure VPN ID";
+              when "(../../../../vpn-id = 0)";
+              type leafref {
+                path "/vpn/vpn-instance/vpn-id";
+              }
+            }
+            leaf static-nat-direction {
+              description "Direction of static NAT translation";
+              type viptela:nat-direction-enum;
+              when "(../../../../vpn-id != 0)";
+            }
+            leaf proto {
+              description "Layer 4 protocol to apply port forwarding to";
+              when "(../../../../vpn-id = 0)";
+              type enumeration {
+                enum "tcp";
+                enum "udp";
+              }
+            }
+            leaf source-port {
+              description "Source port";
+              type uint16;
+              when "(../../../../vpn-id = 0)";
+            }
+            leaf translate-port {
+              description "Translate port";
+              type uint16;
+              when "(../../../../vpn-id = 0)";
+            }
+          }
+          leaf direction {
+            description "Direction of NAT translation";
+            type viptela:nat-direction-enum;
+            default "inside";
+          }
+          leaf overload {
+            description "Enable port translation(PAT)";
+            type boolean;
+            default "true";
+          }
+          leaf log-translations {
+            description "Log NAT flow creations or deletions";
+            type boolean;
+            default "false";
+          }
+        }
+        leaf-list tracker {
+          description "Enable tracker for this interface";
+          when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+          must "(../../vpn-id != 0) or ((../../vpn-id = 0) and (../nat))" {
+            error-message "NAT is not configured on the inteface. Either remove tracker or configure NAT.";
+          }
+          type leafref {
+            path "/viptela-system:system/viptela-system:tracker/viptela-system:name";
+          }
+        }
+        leaf poe {
+          description "Configure interface as Power-over-Ethernet source";
+          when
+            "/viptela-system:system/viptela-system:personality = 'vedge' and
+             starts-with(../if-name, 'ge0/0') and
+             (/viptela-system:system/viptela-system:device-model = 'vedge-100' or
+               /viptela-system:system/viptela-system:device-model = 'vedge-100-W2' or
+               /viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or
+               /viptela-system:system/viptela-system:device-model = 'vedge-100-M2' or
+               /viptela-system:system/viptela-system:device-model = 'vedge-100-M')";
+          type boolean;
+          default "false";
+        }
+        container tunnel-interface {
+          description "Enable/disable tunnel";
+          presence "Is tunnel enabled";
+          when
+            "(../../vpn-id = 0) and
+             (not(starts-with(../if-name, 'gre')) and
+             (not(starts-with(../if-name, 'ipsec')))) and
+             ((/viptela-system:system/viptela-system:personality = 'vedge') or
+             (/viptela-system:system/viptela-system:personality = 'vsmart') or
+             (/viptela-system:system/viptela-system:personality = 'vmanage'))";
+          list encapsulation {
+            description "Encapsulation for TLOC";
+            min-elements 1;
+            key "encap";
+            when "/viptela-system:system/viptela-system:personality = 'vedge'";
+            leaf encap {
+              description "Encap";
+              type viptela:encap-enum;
+            }
+            leaf preference {
+              description "Set preference for TLOC";
+              type viptela:route-preference;
+            }
+            leaf weight {
+              description "Set weight for TLOC";
+              type viptela:route-weight;
+              default "1";
+            }
+          }
+          leaf-list group {
+            description "Group identifier";
+            type uint32 {
+              description "Group ID <1..4294967295>";
+              range "1..4294967295";
+            }
+            max-elements "1";
+          }
+          leaf border {
+            description "Set TLOC as border TLOC";
+            type boolean;
+            default "false";
+          }
+          container color {
+            description "Set color for TLOC";
+            leaf value {
+              description "Set color for TLOC";
+              type viptela:color-enum;
+              default "default";
+            }
+            leaf restrict {
+              when
+                "(../value != 'default') and
+                 (/viptela-system:system/viptela-system:personality = 'vedge')";
+              type empty;
+            }
+          }
+          container tloc-extension-gre-to {
+            description "Extend the TLOC to a remote node over GRE tunnel";
+            leaf dst-ip {
+              description "GRE tunnel destination IP address";
+              type inet:ip-address;
+            }
+          }
+          leaf last-resort-circuit {
+            description "Set TLOC as last resort";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type boolean;
+            default "false";
+          }
+          leaf low-bandwidth-link {
+            description "Set the interface as a low-bandwidth circuit";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type boolean;
+            default "false";
+          }
+          leaf hold-time {
+            description "Set last resort hold DOWN time in milliseconds for TLOC";
+            when
+              "(../last-resort-circuit) and
+               (/viptela-system:system/viptela-system:personality = 'vedge')";
+            type uint32 {
+              description "<100..300000> milliseconds";
+              range "100..300000";
+            }
+            default "7000";
+          }
+          leaf max-control-connections {
+            description "Maximum control connections for this TLOC (default is same as maximum OMP sessions)";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type uint8 {
+              description "<0..100>";
+              range "0..100";
+            }
+          }
+          leaf control-connections {
+            description "(DEPRECATED) Allow control connections - Deprecated in 15.4";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type boolean;
+            status deprecated;
+            default "true";
+          }
+          leaf control-plane-dscp {
+            description "DSCP value for control plane traffic";
+            when
+              "(/viptela-system:system/viptela-system:personality = 'vsmart') or
+               (/viptela-system:system/viptela-system:personality = 'vmanage')";
+            type viptela:dscp-value;
+            default "48";
+          }
+          leaf vbond-as-stun-server {
+            description "Put this WAN interface in STUN mode only";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type boolean;
+            default "false";
+          }
+          leaf-list exclude-controller-group-list {
+            ordered-by user;
+            description "Exclude the following controller groups defined in this list";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type uint16 {
+              description "<0..100>";
+              range "0..100";
+            }
+          }
+          leaf vmanage-connections {
+            description "(HIDDEN) Allow control connections to vManage";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type boolean;
+            default "true";
+          }
+          leaf vmanage-connection-preference {
+            description "Set interface preference for control connection to vManage";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type uint8 {
+              description "<0..8>";
+              range "0..8";
+            }
+            default "5";
+          }
+          leaf port-hop {
+            description "Disallow port hopping on the tunnel interface";
+            when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+            type boolean;
+            default "true";
+          }
+          leaf limit-rate {
+            description "(HIDDEN) Set rate limiting on the tunnel interface";
+            when
+              "(/viptela-system:system/viptela-system:personality = 'vsmart') or
+               (/viptela-system:system/viptela-system:personality = 'vmanage')";
+            type uint32 {
+              description "<1..10000>/s";
+              range "1..10000";
+            }
+            default "10000";
+          }
+          leaf connections-limit {
+            description "Limit the number of HTTPS connections";
+            when "(/viptela-system:system/viptela-system:personality = 'vmanage')";
+            type uint16 {
+              description "<1..512> connections";
+              range "1..512";
+            }
+            default "50";
+          }
+          leaf carrier {
+            description "Set carrier for TLOC";
+            type viptela:carrier-enum;
+            default "default";
+          }
+          leaf nat-refresh-interval {
+            description "Set NAT refresh interval, in seconds";
+            type uint16 {
+              description "<1..60> seconds";
+              range "1..60";
+            }
+            default "5";
+          }
+          leaf hello-interval {
+            description "Control hello packet interval, in seconds";
+            type uint32 {
+              description "<100..600000> milliseconds";
+              range "100..600000";
+            }
+            default "1000";
+          }
+          leaf hello-tolerance {
+            description "Set tolerance of control hello packets";
+            type uint32 {
+              description "<12..6000> seconds";
+              range "12..6000";
+            }
+            must "((2000 * .) >= (../hello-interval))" {
+              error-message "hello-tolerance should be at least twice the hello-interval";
+            }
+            default "12";
+          }
+          leaf bind {
+            description "Bind loopback tunnel interface to a physical interface";
+            type viptela:bind-interface-type;
+            when "/viptela-system:system/viptela-system:personality = 'vedge' and not(starts-with(../../if-name, 'ppp'))";
+          }
+          leaf fec {
+            description "(HIDDEN) FEC enable/disable on tunnel interface";
+            when "/viptela-system:system/viptela-system:personality = 'vedge'";
+            type enumeration {
+              enum "fec-enabled" {
+                description "FEC always turned on for relevant traffic from this tunnel-interface";
+              }
+              enum "fec-disabled" {
+                description "FEC always disabled from tunnel-interface";
+              }
+            }
+            default "fec-enabled";
+          }
+          container allow-service {
+            description "Set services allowed on the WAN interface";
+            leaf all {
+              description "Allow all traffic. Overrides all other allow-service options if allow-service all is set";
+              type boolean;
+              default "false";
+            }
+            leaf bgp {
+              when "/viptela-system:system/viptela-system:personality = 'vedge'";
+              description "Allow/deny BGP";
+              type boolean;
+              default "false";
+            }
+            leaf dhcp {
+              description "Allow/deny DHCP";
+              type boolean;
+              default "true";
+            }
+            leaf dns {
+              description "Allow/deny DNS";
+              type boolean;
+              default "true";
+            }
+            leaf icmp {
+              description "Allow/deny ICMP";
+              type boolean;
+              default "true";
+            }
+            leaf sshd {
+              description "Allow/deny SSH";
+              type boolean;
+              default "false";
+            }
+            leaf netconf {
+              description "Allow/deny NETCONF";
+              type boolean;
+              default "false";
+            }
+            leaf ntp {
+              description "Allow/deny NTP";
+              type boolean;
+              default "false";
+            }
+            leaf ospf {
+              when "/viptela-system:system/viptela-system:personality = 'vedge'";
+              description "Allow/deny OSPF";
+              type boolean;
+              default "false";
+            }
+            leaf stun {
+              description "Allow/deny STUN";
+              type boolean;
+              default "false";
+            }
+            leaf https {
+              description "Allow/deny HTTPS";
+              when
+                "(/viptela-system:system/viptela-system:personality = 'vedge') or
+                 (/viptela-system:system/viptela-system:personality = 'vmanage')";
+              type boolean;
+              default "true";
+            }
+          }
+        }
+        leaf flow-control {
+          description "Enable flow control";
+          default "autoneg";
+          when
+            "(../../vpn-id != 512) and (not(contains(../if-name, '.'))) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'cellular'))) and
+             (not(starts-with(../if-name, 'ppp')))";
+          type enumeration {
+            enum "ingress";
+            enum "egress";
+            enum "autoneg";
+            enum "both";
+            enum "none";
+          }
+        }
+        leaf clear-dont-fragment {
+          description "Clear don't fragment bit";
+          when
+            "(/viptela-system:system/viptela-system:personality = 'vedge') or
+             (/viptela-system:system/viptela-system:personality = 'vsmart') or
+             (/viptela-system:system/viptela-system:personality = 'vmanage')";
+          type boolean;
+          default "false";
+        }
+        leaf pmtu {
+          description "Path MTU discovery";
+          when
+            "(not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'ppp'))) and
+             ((/viptela-system:system/viptela-system:personality = 'vedge') or
+             (/viptela-system:system/viptela-system:personality = 'vsmart') or
+             (/viptela-system:system/viptela-system:personality = 'vmanage'))";
+          type boolean;
+          default "false";
+        }
+        leaf mtu {
+          description "IP MTU, in bytes";
+          type uint16 {
+            description "Interface MTU <576..2000, PPP: 576..1492>";
+            range "576..2000";
+          }
+          default "1500";
+        }
+        leaf static-ingress-qos {
+          description "Static ingress QoS for the port";
+          when
+            "(/viptela-system:system/viptela-system:personality = 'vedge') and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'ppp')))";
+          type uint16 {
+            description "<0..7>";
+            range "0..7";
+          }
+        }
+        leaf tcp-mss-adjust {
+          description "TCP MSS on SYN packets, in bytes";
+          when
+            "(../../vpn-id != 512) and
+             ((/viptela-system:system/viptela-system:personality = 'vedge') or
+              (/viptela-system:system/viptela-system:personality = 'vsmart') or
+              (/viptela-system:system/viptela-system:personality = 'vmanage'))";
+          type uint16 {
+            description "service <552..1960> transport <552..1920> ppp <552..1452>";
+            range "552..1960";
+          }
+        }
+        leaf tloc-extension {
+          description "Extends a local TLOC to a remote node";
+          type viptela:bind-interface-type;
+          when
+            "/viptela-system:system/viptela-system:personality = 'vedge' and
+             (../../vpn-id = 0) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'gre')))";
+        }
+        container tloc-extension-gre-from {
+          description "Extend remote TLOC over a GRE tunnel to a local WAN interface";
+          leaf src-ip {
+            description "GRE tunnel source IP address";
+            type inet:ip-address;
+          }
+          leaf xconnect {
+            type viptela:bind-interface-type;
+            when
+              "/viptela-system:system/viptela-system:personality = 'vedge' and
+               (../../../vpn-id = 0) and
+               (not(starts-with(../../if-name, 'irb'))) and
+               (not(starts-with(../../if-name, 'ipsec'))) and
+               (not(starts-with(../../if-name, 'gre')))";
+          }
+        }
+        leaf mac-address {
+          description "Set MAC-layer address";
+          when
+            "(not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(contains(../if-name, '.'))) and
+             (not(starts-with(../if-name, 'cellular'))) and
+             (not(starts-with(../if-name, 'ppp')))";
+          type viptela:mac-address;
+        }
+        leaf speed {
+          description "Force interface speed";
+          when
+            "(not(starts-with(../if-name, '10ge'))) and
+             (not(contains(../if-name, '.'))) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'cellular'))) and
+             (not(starts-with(../if-name, 'ppp')))";
+          type int32 {
+            description "10|100";
+            range "10|100";
+          }
+        }
+        leaf duplex {
+          description "Force duplex mode";
+          when
+            "(not(starts-with(../if-name, '10ge'))) and
+             (not(contains(../if-name, '.'))) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'cellular'))) and
+             (not(starts-with(../if-name, 'ppp')))";
+          type enumeration {
+            enum "full";
+            enum "half";
+          }
+          must
+            "not(((/viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4G') or
+                  (/viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4GLTE') or
+                  (/viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-6G')) and
+                  (current() = 'half') and
+                  ((../if-name = 'ge0/0')or(../if-name = 'ge0/1')or(../if-name = 'ge0/2')or(../if-name = 'ge0/3')))" {
+            error-message "Half duplex is not supported on this port";
+          }
+        }
+        leaf profile {
+          description "Profile ID for cellular";
+          when
+            "(not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (starts-with(../if-name, 'cellular'))";
+          type uint8 {
+            description "<0..16>";
+            range "0..16";
+          }
+        }
+        leaf technology {
+          description "Technology used for cellular";
+          when "(starts-with(../if-name, 'cellular'))";
+          type enumeration {
+            enum "lte" {
+              value 1;
+            }
+            enum "cdma" {
+              value 2;
+            }
+            enum "auto" {
+              value 3;
+            }
+          }
+          default "lte";
+        }
+        leaf preference {
+          description "IP preference used for cellular interface";
+          when "(starts-with(../if-name, 'cellular'))";
+          type enumeration {
+            enum "ipv4" {
+              value 4;
+            }
+            enum "ipv6" {
+              value 6;
+            }
+            enum "ipv46" {
+              value 7;
+            }
+          }
+          default "ipv4";
+        }
+        leaf autonegotiate {
+          description "Link Autonegotiation";
+          when
+            "(not(starts-with(../if-name, '10ge'))) and
+             (not(contains(../if-name, '.'))) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'cellular'))) and
+             (not(starts-with(../if-name, 'ppp')))";
+          type boolean;
+          default "true";
+        }
+        leaf icmp-redirect-disable {
+          description "Set this option to disable the icmp redirect packets";
+          type boolean;
+          default "false";
+        }
+        leaf ip-directed-broadcast {
+          description "ip directed broadcast";
+          when "(/viptela-system:system/viptela-system:personality = 'vedge') and (../../vpn-id != 0)";
+          type boolean;
+          default "false";
+        }
+        leaf shutdown {
+          description "Administrative state";
+          type boolean;
+          default "true";
+        }
+        leaf arp-timeout {
+          description "Timeout value for dynamically learned ARP entries, in seconds";
+          when
+            "(/viptela-system:system/viptela-system:personality = 'vedge') and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'ppp')))";
+          type uint32 {
+            description "<0..2678400> seconds";
+            range "0..2678400";
+          }
+          default "1200";
+        }
+        leaf shaping-rate {
+          description "Shaping rate, in kbps";
+          when
+            "(/viptela-system:system/viptela-system:personality = 'vedge') and (../../vpn-id != 512) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'ppp'))) and
+             (not(contains(../if-name, '.')))";
+          type yang:gauge64 {
+            description "1ge  interfaces: [0..1000000]kbps; 10ge interfaces: [0..10000000]kbps";
+          }
+        }
+        leaf qos-map {
+          description "Name of QoS map";
+          when
+            "(/viptela-system:system/viptela-system:personality = 'vedge') and (../../vpn-id != 512) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (not(starts-with(../if-name, 'irb'))) and
+             (not(starts-with(../if-name, 'ppp'))) and
+             (not(starts-with(../if-name, 'loopback'))) and
+             (not(contains(../if-name, '.')))";
+          type leafref {
+            path "/viptela-policy:policy/viptela-policy:qos-map/viptela-policy:name";
+          }
+        }
+        container rewrite-rule {
+          when "/viptela-system:system/viptela-system:personality = 'vedge' and (../../vpn-id != 512) and (not(starts-with(../if-name, 'irb')))";
+          description "Enable rewrite rule";
+          leaf rule-name {
+            description "Name of rewrite rule";
+            type leafref {
+              path "/viptela-policy:policy/viptela-policy:rewrite-rule/viptela-policy:name";
+            }
+          }
+        }
+        list access-list {
+          description "Apply ACL";
+          key "direction";
+          when "/viptela-system:system/viptela-system:personality = 'vedge' and (../../vpn-id != 512)";
+          leaf direction {
+            description "Direction";
+            type enumeration {
+              enum "in";
+              enum "out";
+            }
+          }
+          leaf acl-name {
+            description "Name of access list";
+            mandatory true;
+            type leafref {
+              path "/viptela-policy:policy/viptela-policy:access-list/viptela-policy:name";
+            }
+          }
+        }
+        list policer {
+          description "Enable policer";
+          when "/viptela-system:system/viptela-system:personality = 'vedge' and (../../vpn-id != 512) and (not(starts-with(../if-name, 'irb')))";
+          key "policer-name direction";
+          unique "direction";
+          leaf policer-name {
+            description "Name of policer";
+            type leafref {
+              path "/viptela-policy:policy/viptela-policy:policer/viptela-policy:name";
+            }
+          }
+          leaf direction {
+            description "Direction";
+            type enumeration {
+              enum "in";
+              enum "out";
+            }
+          }
+        }
+        container arp {
+          description "Configure static ARP entries";
+          when "(not(starts-with(../if-name, 'gre'))) and (not(starts-with(../if-name, 'ipsec'))) and (not(starts-with(../if-name, 'ppp')))";
+          list ip {
+            description "IP address";
+            key "addr";
+            leaf addr {
+              description "IP address";
+              type inet:ip-address;
+            }
+            leaf mac {
+              description "MAC address";
+              mandatory true;
+              type viptela:mac-address;
+            }
+          }
+        }
+        list vrrp {
+          description "Enable VRRP";
+          key "grp-id";
+          max-elements "1";
+          when
+            "(../../vpn-id != 0) and
+             (not(starts-with(../if-name, 'loopback'))) and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))) and
+             (/viptela-system:system/viptela-system:personality = 'vedge') and
+             (../../vpn-id != 512)";
+          leaf grp-id {
+            type uint8 {
+              description "<1..255>";
+              range "1..255";
+            }
+          }
+          leaf priority {
+            description "Set priority";
+            type uint8 {
+              description "<1..254>";
+              range "1..254";
+            }
+            default "100";
+          }
+          leaf timer {
+            description "Timer interval for successive advertisements, in seconds";
+            default "1";
+            type uint16 {
+              description "<1..3600>";
+              range "1..3600";
+            }
+          }
+          choice track-choice {
+            case omp-case {
+              leaf track-omp {
+                description "Track OMP status";
+                type empty;
+              }
+            }
+            case prefix-list-case {
+              leaf track-prefix-list {
+                description "Track Prefix list";
+                type leafref {
+                  path "/viptela-policy:policy/viptela-policy:lists/viptela-policy:prefix-list/viptela-policy:name";
+                }
+              }
+            }
+          }
+          list ipv4 {
+            description "Assign IP address";
+            key "address";
+            max-elements "1";
+            leaf address {
+              type inet:ipv4-address;
+            }
+          }
+        }
+        container dhcp-server {
+          description "Configure DHCP server";
+          presence "Is dhcp server enabled";
+          when
+            "((../../vpn-id != 0) and
+             (../../vpn-id != 512) and
+             (/viptela-system:system/viptela-system:personality = 'vedge') and
+             (not(starts-with(../if-name, 'gre'))) and
+             (not(starts-with(../if-name, 'ipsec'))))";
+          leaf address-pool {
+            description "Address pool IPv4 prefix range";
+            type inet:ipv4-prefix {
+              description "<IPv4 Prefix (IP/length) where length <= 30>";
+            }
+            mandatory true;
+          }
+          leaf-list exclude {
+            description "Addresses excluded from pool by DHCP server";
+            type viptela:ipv4-addr-range-type;
+          }
+          leaf max-leases {
+            description "Maximum dynamic leases DHCP server can offer";
+            type uint32;
+          }
+          leaf offer-time {
+            description "How long a DHCP server address is reserved, in seconds";
+            type uint32 {
+              description "<10..4294967295> secs";
+              range "10..4294967295";
+            }
+            default "600";
+          }
+          leaf lease-time {
+            description "Lease time for IP address allocated by DHCP server, in seconds";
+            type uint32 {
+              description "<60..4294967295> secs";
+              range "60..4294967295";
+            }
+            default "86400";
+          }
+          leaf admin-state {
+            description "Administrative state of DHCP server";
+            type enumeration {
+              enum "up";
+              enum "down";
+            }
+            default "up";
+          }
+          container options {
+            description "Configure DHCP server options";
+            leaf netmask {
+              description "Send prefix length";
+              type boolean;
+              default "true";
+            }
+            leaf default-gateway {
+              description "Default gateway/router (option 3)";
+              type inet:ipv4-address;
+            }
+            leaf-list dns-servers {
+              description "List of DNS servers (option 6)";
+              ordered-by user;
+              type inet:ipv4-address;
+              max-elements "8";
+            }
+            leaf domain-name {
+              description "Domain name used by client to resolve hostnames (option 15)";
+              type viptela:named-type;
+            }
+            leaf interface-mtu {
+              description "Interface MTU (option 26)";
+              type uint16 {
+                description "<68..65535>";
+                range "68..65535";
+              }
+            }
+            leaf-list tftp-servers {
+              description "List of TFTP servers (option 150)";
+              ordered-by user;
+              type inet:ipv4-address;
+              max-elements "2";
+            }
+            list option-code {
+              description
+                "DHCP server option configuration";
+              description "DHCP server option configuration";
+              key "code";
+              leaf code {
+                description
+                  "DHCP option code (1-254)";
+                description "DHCP option code (1-254)";
+                type uint8 {
+                  range "1..254";
+                }
+              }
+              choice data-type {
+                mandatory true;
+                leaf ascii {
+                  description
+                    "Data is an NVT ASCII string";
+                  description "Data is an NVT ASCII string";
+                  type string {
+                    length "1..255";
+                  }
+                }
+                leaf hex {
+                  description
+                    "Data is a hexadecimal string";
+                  description "Data is a hexadecimal string";
+                  type string {
+                    length "2..254";
+                  }
+                }
+                leaf-list ip {
+                  description
+                    "Data is one or more IP addresses (max 8)";
+                  description "Data is one or more IP addresses (max 8)";
+                  max-elements "8";
+                  type union {
+                    type inet:ipv4-address {
+                      description "IPv4 address";
+                    }
+                    type inet:domain-name {
+                      description "DNS name (1 to 253 chars)";
+                    }
+                  }
+                }
+              }
+            }
+          }
+          list static-lease {
+            description "List of static leases";
+            unique "ip";
+            key "mac-address";
+            leaf mac-address {
+              description "Client's MAC address";
+              type viptela:mac-address;
+            }
+            leaf ip {
+              description "Static IP address for client";
+              type inet:ipv4-address;
+              mandatory true;
+            }
+            leaf host-name {
+              description "Hostname for client";
+              type viptela:named-type;
+            }
+          }
+        }
+        leaf bandwidth-upstream {
+          when
+            "((not(starts-with(../if-name, 'loopback'))) and
+              (not(starts-with(../if-name, 'gre'))) and
+              (not(starts-with(../if-name, 'ipsec'))) and
+              (/viptela-system:system/viptela-system:personality = 'vedge') and
+              (../../vpn-id = 0))";
+          description "Interface upstream bandwidth capacity, in kbps";
+          type uint32 {
+            description "Bandwidth capacity, in kbps <1..2147483647>";
+            range "1..2147483647";
+          }
+        }
+        leaf bandwidth-downstream {
+          when
+            "((not(starts-with(../if-name, 'loopback'))) and
+              (not(starts-with(../if-name, 'gre'))) and
+              (not(starts-with(../if-name, 'ipsec'))) and
+              (/viptela-system:system/viptela-system:personality = 'vedge') and
+              (../../vpn-id = 0))";
+          description "Interface downstream bandwidth capacity, in kbps";
+          type uint32 {
+            description "Bandwidth capacity, in kbps <1..2147483647>";
+            range "1..2147483647";
+          }
+        }
+        leaf block-non-source-ip {
+          description "Block packets originating from IP address that is not from this source";
+          type boolean;
+          default "false";
+        }
+      }
+      container ip {
+        description "IP information";
+        list route {
+          description "Configure static routes";
+          key "prefix";
+          leaf prefix {
+            type inet:ipv4-prefix;
+          }
+          choice gateway {
+            mandatory true;
+            case next-hop-case {
+              list next-hop {
+                description "IP gateway address";
+                key "address";
+                leaf address {
+                  type inet:ipv4-address;
+                }
+                leaf distance {
+                  description "Administrative distance";
+                  default "1";
+                  type uint8 {
+                    description "Administrative distance <1..255>";
+                    range "1..255";
+                  }
+                }
+                leaf track-via {
+                  description "Protocol to be used for tracking next-hop";
+                  type nhop-track-proto;
+                  default "arping";
+                }
+              }
+            }
+            case null-case {
+              leaf null0 {
+                description "Null interface";
+                type empty;
+              }
+              leaf distance {
+                description "Administrative distance";
+                default "1";
+                type uint8 {
+                  description "Administrative distance <1..255>";
+                  range "1..255";
+                }
+              }
+            }
+            case vpn-case {
+              leaf vpn {
+                description "Destination VPN to resolve the prefix";
+                when "(../../../vpn-id !=0) and (../../../vpn-id != 512)";
+                type viptela:vpn-id {
+                  description "0";
+                  range "0";
+                }
+              }
+            }
+          }
+        }
+        list gre-route {
+          description "Configure routes pointing to a GRE tunnel";
+          when "(../../vpn-id !=0) and (../../vpn-id != 512)";
+          key "prefix";
+          leaf prefix {
+            type inet:ipv4-prefix;
+          }
+          leaf vpn {
+            description "Destination VPN to resolve the prefix";
+            type viptela:vpn-id {
+              description "0";
+              range "0";
+            }
+          }
+          leaf-list interface {
+            description "Interface";
+            ordered-by user;
+            max-elements "2";
+            type viptela:named-type;
+            must "starts-with(. , 'gre')" {
+              error-message "Only a GRE interface can be assigned";
+            }
+          }
+        }
+        list ipsec-route {
+          description "Configure routes pointing to an IPsec tunnel";
+          when "(../../vpn-id !=0) and (../../vpn-id != 512)";
+          key "prefix";
+          leaf prefix {
+            type inet:ipv4-prefix;
+          }
+          leaf vpn {
+            description "Destination VPN to resolve the prefix";
+            type viptela:vpn-id {
+              description "0";
+              range "0";
+            }
+          }
+          leaf-list interface {
+            description "Interface";
+            ordered-by user;
+            max-elements "2";
+            type viptela:named-type;
+            must "starts-with(. , 'ipsec')" {
+              error-message "Only a IPsec interface can be assigned";
+            }
+          }
+        }
+      }
+      container ipv6 {
+        description "IPv6 information";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') or
+           (/viptela-system:system/viptela-system:personality = 'vsmart') or
+           (/viptela-system:system/viptela-system:personality = 'vmanage')";
+        list route {
+          description "Configure static routes";
+          key "prefix";
+          leaf prefix {
+            type inet:ipv6-prefix;
+          }
+          choice gateway {
+            mandatory true;
+            case next-hop-case {
+              list next-hop {
+                description "IP gateway address";
+                key "address";
+                leaf address {
+                  type inet:ipv6-address;
+                }
+                leaf distance {
+                  description "Administrative distance";
+                  default "1";
+                  type uint8 {
+                    description "Administrative distance <1..255>";
+                    range "1..255";
+                  }
+                }
+                leaf track-via {
+                  description "Protocol to be used for tracking next-hop";
+                  type nhop-track-proto;
+                  default "arping";
+                }
+              }
+            }
+            case null-case {
+              leaf null0 {
+                description "Null interface";
+                type empty;
+              }
+              leaf distance {
+                description "Administrative distance";
+                default "1";
+                type uint8 {
+                  description "Administrative distance <1..255>";
+                  range "1..255";
+                }
+              }
+            }
+            case vpn-case {
+              leaf vpn {
+                description "Destination VPN to resolve the prefix";
+                when "(../../../vpn-id !=0) and (../../../vpn-id != 512)";
+                type viptela:vpn-id {
+                  description "0";
+                  range "0";
+                }
+              }
+            }
+          }
+        }
+      }
+      container omp {
+        description "OMP information";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') and
+           (../vpn-id != 0) and (../vpn-id != 512)";
+        list advertise {
+          description "Advertise routes to OMP";
+          key "protocol";
+          leaf protocol {
+            type enumeration {
+              enum "bgp";
+              enum "ospf";
+              enum "connected";
+              enum "static";
+              enum "network";
+              enum "aggregate";
+              enum "eigrp";
+              enum "lisp";
+              enum "isis";
+            }
+          }
+          leaf-list protocol-sub-type {
+            when "../protocol = 'ospf'";
+            min-elements 1;
+            type enumeration {
+              enum "external";
+            }
+          }
+          list prefix-list {
+            when "../protocol = 'network' or ../protocol = 'aggregate'";
+            key "prefix-entry";
+            leaf prefix-entry {
+              type inet:ip-prefix;
+            }
+            leaf aggregate-only {
+              when "../../protocol = 'aggregate'";
+              type boolean;
+              default "false";
+            }
+          }
+        }
+        list ipv6-advertise {
+          description "Advertise ipv6 routes to OMP";
+          key "protocol";
+          leaf protocol {
+            type enumeration {
+              enum "bgp";
+              enum "ospf";
+              enum "connected";
+              enum "static";
+              enum "network";
+              enum "aggregate";
+              enum "eigrp";
+              enum "lisp";
+              enum "isis";
+            }
+          }
+          leaf-list protocol-sub-type {
+            when "../protocol = 'ospf'";
+            min-elements 1;
+            type enumeration {
+              enum "external";
+            }
+          }
+          list prefix-list {
+            when "../protocol = 'network' or ../protocol = 'aggregate'";
+            key "prefix-entry";
+            leaf prefix-entry {
+              type inet:ip-prefix;
+            }
+            leaf aggregate-only {
+              when "../../protocol = 'aggregate'";
+              type boolean;
+              default "false";
+            }
+          }
+        }
+      }
+      leaf tcp-optimization {
+        description "Enable TCP optimization on vpn";
+        when "(../vpn-id != 0) and (../vpn-id != 512) and (/viptela-system:system/viptela-system:personality = 'vedge')";
+        type empty;
+      }
+    }
+  }
+  notification interface-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf new-state {
+      type viptela:oper-state;
+    }
+  }
+  notification last-resort-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf new-state {
+      type viptela:oper-state;
+    }
+  }
+  notification interface-admin-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf new-admin-state {
+      type viptela:admin-state;
+    }
+  }
+  notification interface-pcs-fault-detected {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf new-state {
+      type viptela:oper-state;
+    }
+  }
+  notification vrrp-group-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf grp-id {
+      type uint8 {
+        description "<1..255>";
+        range "1..255";
+      }
+    }
+    leaf vrrp-group-state {
+      type enumeration {
+        enum "init" {
+          value 1;
+        }
+        enum "backup";
+        enum "master";
+      }
+    }
+  }
+  notification route-install-fail {
+    uses viptela:common-notification-header;
+    leaf ip-prefix {
+      type inet:ipv4-prefix;
+    }
+    leaf failure-reason {
+      type string;
+    }
+  }
+  notification tunnel-install-fail {
+    uses viptela:common-notification-header;
+    leaf far-end-system-ip {
+      type inet:ip-address;
+    }
+    leaf far-end-color {
+      type viptela:color-enum;
+    }
+    leaf failure-reason {
+      type string;
+    }
+  }
+  notification dhcp-address-assigned {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf client-mac {
+      type string;
+    }
+    leaf ip {
+      type inet:ip-address;
+    }
+  }
+  notification dhcp-address-renewed {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf client-mac {
+      type string;
+    }
+    leaf ip {
+      type inet:ip-address;
+    }
+  }
+  notification dhcp-address-released {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf client-mac {
+      type string;
+    }
+    leaf ip {
+      type inet:ip-address;
+    }
+    leaf reason {
+      type string;
+    }
+  }
+  notification dhcp-request-rejected {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf client-mac {
+      type string;
+    }
+    leaf ip {
+      type inet:ip-address;
+    }
+    leaf reason {
+      type string;
+    }
+  }
+  notification dhcp-server-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf state {
+      type enumeration {
+        enum "up";
+        enum "down";
+      }
+    }
+  }
+  notification fib-update {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf address-family-type {
+      type viptela:afi-enum;
+    }
+    leaf fib-last-update-time {
+      type yang:date-and-time;
+    }
+  }
+  notification interface-bw {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf if-name {
+      type string;
+    }
+    leaf if-cfg-bw-kbps {
+      type uint32;
+    }
+    leaf traffic-direction {
+      type enumeration {
+        enum "downstream";
+        enum "upstream";
+      }
+    }
+    leaf duration {
+      type uint32;
+    }
+  }
+  notification cloudexpress-application-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf application {
+      type viptela:cloudexpress-app-type;
+    }
+    leaf exit-type {
+      type viptela:cloudexpress-exit-type;
+    }
+    leaf gateway-system-ip {
+      type inet:ip-address;
+    }
+    leaf interface {
+      type viptela:named-type;
+    }
+    leaf latency {
+      type uint32;
+    }
+    leaf loss {
+      type uint32;
+    }
+    leaf local-color {
+      type string;
+    }
+    leaf remote-color {
+      type string;
+    }
+  }
+  notification cloudexpress-score-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf application {
+      type viptela:cloudexpress-app-type;
+    }
+    leaf exit-type {
+      type viptela:cloudexpress-exit-type;
+    }
+    leaf gateway-system-ip {
+      type inet:ip-address;
+    }
+    leaf interface {
+      type viptela:named-type;
+    }
+    leaf latency {
+      type uint32;
+    }
+    leaf loss {
+      type uint32;
+    }
+    leaf local-color {
+      type string;
+    }
+    leaf remote-color {
+      type string;
+    }
+  }
+  notification cloudexpress-max-local-exit-exceeded {
+    uses viptela:common-notification-header;
+  }
+  notification ospf-neighbor-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf neighbor {
+      type inet:ip-address;
+    }
+    leaf router-id {
+      type inet:ip-address;
+    }
+    leaf if-addr {
+      type viptela:ipv4-ucast-addr-prefix;
+    }
+    leaf ospf-new-state {
+      type viptela:ospf-state-enum;
+    }
+  }
+  notification ospf-interface-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf interface {
+      type string {
+        length "1..32";
+      }
+    }
+    leaf ospf-interface-new-state {
+      type viptela:ospf-if-state-enum;
+    }
+  }
+  notification pim-neighbor-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf neighbor {
+      type inet:ip-address;
+    }
+    leaf pim-new-state {
+      type viptela:state-enum;
+    }
+  }
+  notification pim-interface-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf interface {
+      type string {
+        length "1..32";
+      }
+    }
+    leaf oper-state {
+      type viptela:state-enum;
+    }
+    leaf admin-state {
+      type viptela:admin-state-enum;
+    }
+    leaf pim-enabled {
+      type boolean;
+    }
+  }
+  notification pim-tunnel-state-change {
+    uses viptela:common-notification-header;
+    leaf tunnel-address {
+      type inet:ip-address;
+    }
+    leaf pim-new-state {
+      type viptela:state-enum;
+    }
+  }
+  notification pim-tunnel-change {
+    uses viptela:common-notification-header;
+    leaf tunnel-address {
+      type inet:ip-address;
+    }
+    leaf tunnel-state {
+      type viptela:tunnel-enum;
+    }
+  }
+  notification bgp-peer-state-change {
+    uses viptela:common-notification-header;
+    leaf vpn-id {
+      type viptela:vpn-id;
+    }
+    leaf peer {
+      type inet:ip-address;
+    }
+    leaf bgp-new-state {
+      type viptela:bgp-state;
+    }
+    leaf local-address {
+      type inet:ip-address;
+    }
+    leaf local-routerid {
+      type inet:ip-address;
+    }
+    leaf peer-routerid {
+      type inet:ip-address;
+    }
+  }
+
+  typedef aes-cfb-128-encrypted-string {
+    type string;
+    description
+      "The aes-cfb-128-encrypted-string works exactly like
+       des3-cbc-encrypted-string but AES/128bits in CFB mode is used to
+       encrypt the string.  The prefix for encrypted values is '$8$'.";
+  }
+}

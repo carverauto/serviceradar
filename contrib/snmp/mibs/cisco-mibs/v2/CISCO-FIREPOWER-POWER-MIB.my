@@ -1,0 +1,1809 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-POWER-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- POWER management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-POWER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprPolicyPolicyOwner,
+    CfprPowerCapAction,
+    CfprPowerChThrAction,
+    CfprPowerGroupState,
+    CfprPowerGroupStatsHistThresholded,
+    CfprPowerGroupStatsThresholded,
+    CfprPowerLockState,
+    CfprPowerMemberState,
+    CfprPowerMgmtStyle,
+    CfprPowerOperState,
+    CfprPowerPrioritySharing,
+    CfprPowerProfilingMethod,
+    CfprPowerPsuLineMode,
+    CfprPowerPsuState,
+    CfprPowerReallocation,
+    CfprPowerReqConflict
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprPowerObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        POWER management information model package"
+    ::= { ciscoFirepowerMIBObjects 64 }
+
+cfprPowerBudgetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerBudgetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:Budget managed object table"
+    ::= { cfprPowerObjects 1 }
+
+cfprPowerBudgetEntry OBJECT-TYPE
+    SYNTAX           CfprPowerBudgetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerBudgetTable table."
+    INDEX { cfprPowerBudgetInstanceId }
+    ::= { cfprPowerBudgetTable 1 }
+
+CfprPowerBudgetEntry ::= SEQUENCE {
+    cfprPowerBudgetInstanceId                                        CfprManagedObjectId,
+    cfprPowerBudgetDn                                                CfprManagedObjectDn,
+    cfprPowerBudgetRn                                                SnmpAdminString,
+    cfprPowerBudgetAdminCommitted                                    Gauge32,
+    cfprPowerBudgetAdminFPLockState                                  CfprPowerLockState,
+    cfprPowerBudgetAdminPeak                                         Gauge32,
+    cfprPowerBudgetAdminPeakNew                                      Gauge32,
+    cfprPowerBudgetBootPower                                         Gauge32,
+    cfprPowerBudgetCapAction                                         CfprPowerCapAction,
+    cfprPowerBudgetCatalogPower                                      Gauge32,
+    cfprPowerBudgetChRsrvdPower                                      Gauge32,
+    cfprPowerBudgetCurrentPower                                      Gauge32,
+    cfprPowerBudgetDynRealloc                                        CfprPowerReallocation,
+    cfprPowerBudgetGroupName                                         SnmpAdminString,
+    cfprPowerBudgetIdlePower                                         Gauge32,
+    cfprPowerBudgetMaxPower                                          Gauge32,
+    cfprPowerBudgetMinPower                                          Gauge32,
+    cfprPowerBudgetOperCommitted                                     Gauge32,
+    cfprPowerBudgetOperFPLockState                                   CfprPowerLockState,
+    cfprPowerBudgetOperMin                                           Gauge32,
+    cfprPowerBudgetOperPeak                                          Gauge32,
+    cfprPowerBudgetOperProfMethod                                    CfprPowerProfilingMethod,
+    cfprPowerBudgetOperState                                         CfprPowerOperState,
+    cfprPowerBudgetPrio                                              Gauge32,
+    cfprPowerBudgetProfMethod                                        CfprPowerProfilingMethod,
+    cfprPowerBudgetProfiling                                         TruthValue,
+    cfprPowerBudgetPsuCapacity                                       Gauge32,
+    cfprPowerBudgetPsuLineMode                                       CfprPowerPsuLineMode,
+    cfprPowerBudgetPsuState                                          CfprPowerPsuState,
+    cfprPowerBudgetScaledWt                                          Gauge32,
+    cfprPowerBudgetStyle                                             CfprPowerMgmtStyle,
+    cfprPowerBudgetUpdateTime                                        DateAndTime,
+    cfprPowerBudgetWeight                                            Gauge32
+}
+
+cfprPowerBudgetInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerBudgetEntry 1 }
+
+cfprPowerBudgetDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:dn managed object property"
+    ::= { cfprPowerBudgetEntry 2 }
+
+cfprPowerBudgetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:rn managed object property"
+    ::= { cfprPowerBudgetEntry 3 }
+
+cfprPowerBudgetAdminCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:adminCommitted managed
+        object property"
+    ::= { cfprPowerBudgetEntry 4 }
+
+cfprPowerBudgetAdminFPLockState OBJECT-TYPE
+    SYNTAX       CfprPowerLockState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:adminFPLockState
+        managed object property"
+    ::= { cfprPowerBudgetEntry 5 }
+
+cfprPowerBudgetAdminPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:adminPeak managed object property"
+    ::= { cfprPowerBudgetEntry 6 }
+
+cfprPowerBudgetAdminPeakNew OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:adminPeakNew managed
+        object property"
+    ::= { cfprPowerBudgetEntry 7 }
+
+cfprPowerBudgetBootPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:bootPower managed object property"
+    ::= { cfprPowerBudgetEntry 8 }
+
+cfprPowerBudgetCapAction OBJECT-TYPE
+    SYNTAX       CfprPowerCapAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:capAction managed object property"
+    ::= { cfprPowerBudgetEntry 9 }
+
+cfprPowerBudgetCatalogPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:catalogPower managed
+        object property"
+    ::= { cfprPowerBudgetEntry 10 }
+
+cfprPowerBudgetChRsrvdPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:chRsrvdPower managed
+        object property"
+    ::= { cfprPowerBudgetEntry 11 }
+
+cfprPowerBudgetCurrentPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:currentPower managed
+        object property"
+    ::= { cfprPowerBudgetEntry 12 }
+
+cfprPowerBudgetDynRealloc OBJECT-TYPE
+    SYNTAX       CfprPowerReallocation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:dynRealloc managed object property"
+    ::= { cfprPowerBudgetEntry 13 }
+
+cfprPowerBudgetGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:groupName managed object property"
+    ::= { cfprPowerBudgetEntry 14 }
+
+cfprPowerBudgetIdlePower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:idlePower managed object property"
+    ::= { cfprPowerBudgetEntry 15 }
+
+cfprPowerBudgetMaxPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:maxPower managed object property"
+    ::= { cfprPowerBudgetEntry 16 }
+
+cfprPowerBudgetMinPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:minPower managed object property"
+    ::= { cfprPowerBudgetEntry 17 }
+
+cfprPowerBudgetOperCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:operCommitted managed
+        object property"
+    ::= { cfprPowerBudgetEntry 18 }
+
+cfprPowerBudgetOperFPLockState OBJECT-TYPE
+    SYNTAX       CfprPowerLockState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:operFPLockState managed
+        object property"
+    ::= { cfprPowerBudgetEntry 19 }
+
+cfprPowerBudgetOperMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:operMin managed object property"
+    ::= { cfprPowerBudgetEntry 20 }
+
+cfprPowerBudgetOperPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:operPeak managed object property"
+    ::= { cfprPowerBudgetEntry 21 }
+
+cfprPowerBudgetOperProfMethod OBJECT-TYPE
+    SYNTAX       CfprPowerProfilingMethod
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:operProfMethod managed
+        object property"
+    ::= { cfprPowerBudgetEntry 22 }
+
+cfprPowerBudgetOperState OBJECT-TYPE
+    SYNTAX       CfprPowerOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:operState managed object property"
+    ::= { cfprPowerBudgetEntry 23 }
+
+cfprPowerBudgetPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:prio managed object property"
+    ::= { cfprPowerBudgetEntry 24 }
+
+cfprPowerBudgetProfMethod OBJECT-TYPE
+    SYNTAX       CfprPowerProfilingMethod
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:profMethod managed object property"
+    ::= { cfprPowerBudgetEntry 25 }
+
+cfprPowerBudgetProfiling OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:profiling managed object property"
+    ::= { cfprPowerBudgetEntry 26 }
+
+cfprPowerBudgetPsuCapacity OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:psuCapacity managed object property"
+    ::= { cfprPowerBudgetEntry 27 }
+
+cfprPowerBudgetPsuLineMode OBJECT-TYPE
+    SYNTAX       CfprPowerPsuLineMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:psuLineMode managed object property"
+    ::= { cfprPowerBudgetEntry 28 }
+
+cfprPowerBudgetPsuState OBJECT-TYPE
+    SYNTAX       CfprPowerPsuState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:psuState managed object property"
+    ::= { cfprPowerBudgetEntry 29 }
+
+cfprPowerBudgetScaledWt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:scaledWt managed object property"
+    ::= { cfprPowerBudgetEntry 30 }
+
+cfprPowerBudgetStyle OBJECT-TYPE
+    SYNTAX       CfprPowerMgmtStyle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:style managed object property"
+    ::= { cfprPowerBudgetEntry 31 }
+
+cfprPowerBudgetUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:updateTime managed object property"
+    ::= { cfprPowerBudgetEntry 32 }
+
+cfprPowerBudgetWeight OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Budget:weight managed object property"
+    ::= { cfprPowerBudgetEntry 33 }
+
+cfprPowerChassisMemberTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerChassisMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:ChassisMember managed object table"
+    ::= { cfprPowerObjects 2 }
+
+cfprPowerChassisMemberEntry OBJECT-TYPE
+    SYNTAX           CfprPowerChassisMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerChassisMemberTable table."
+    INDEX { cfprPowerChassisMemberInstanceId }
+    ::= { cfprPowerChassisMemberTable 1 }
+
+CfprPowerChassisMemberEntry ::= SEQUENCE {
+    cfprPowerChassisMemberInstanceId                                 CfprManagedObjectId,
+    cfprPowerChassisMemberDn                                         CfprManagedObjectDn,
+    cfprPowerChassisMemberRn                                         SnmpAdminString,
+    cfprPowerChassisMemberId                                         Gauge32,
+    cfprPowerChassisMemberOperState                                  CfprPowerMemberState
+}
+
+cfprPowerChassisMemberInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerChassisMemberEntry 1 }
+
+cfprPowerChassisMemberDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ChassisMember:dn managed object property"
+    ::= { cfprPowerChassisMemberEntry 2 }
+
+cfprPowerChassisMemberRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ChassisMember:rn managed object property"
+    ::= { cfprPowerChassisMemberEntry 3 }
+
+cfprPowerChassisMemberId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ChassisMember:id managed object property"
+    ::= { cfprPowerChassisMemberEntry 4 }
+
+cfprPowerChassisMemberOperState OBJECT-TYPE
+    SYNTAX       CfprPowerMemberState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ChassisMember:operState
+        managed object property"
+    ::= { cfprPowerChassisMemberEntry 5 }
+
+cfprPowerEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:Ep managed object table"
+    ::= { cfprPowerObjects 3 }
+
+cfprPowerEpEntry OBJECT-TYPE
+    SYNTAX           CfprPowerEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerEpTable table."
+    INDEX { cfprPowerEpInstanceId }
+    ::= { cfprPowerEpTable 1 }
+
+CfprPowerEpEntry ::= SEQUENCE {
+    cfprPowerEpInstanceId                                            CfprManagedObjectId,
+    cfprPowerEpDn                                                    CfprManagedObjectDn,
+    cfprPowerEpRn                                                    SnmpAdminString
+}
+
+cfprPowerEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerEpEntry 1 }
+
+cfprPowerEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Ep:dn managed object property"
+    ::= { cfprPowerEpEntry 2 }
+
+cfprPowerEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Ep:rn managed object property"
+    ::= { cfprPowerEpEntry 3 }
+
+cfprPowerGroupTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:Group managed object table"
+    ::= { cfprPowerObjects 4 }
+
+cfprPowerGroupEntry OBJECT-TYPE
+    SYNTAX           CfprPowerGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerGroupTable table."
+    INDEX { cfprPowerGroupInstanceId }
+    ::= { cfprPowerGroupTable 1 }
+
+CfprPowerGroupEntry ::= SEQUENCE {
+    cfprPowerGroupInstanceId                                         CfprManagedObjectId,
+    cfprPowerGroupDn                                                 CfprManagedObjectDn,
+    cfprPowerGroupRn                                                 SnmpAdminString,
+    cfprPowerGroupAdminCommitted                                     Gauge32,
+    cfprPowerGroupAdminPeak                                          Gauge32,
+    cfprPowerGroupCurReqPower                                        Gauge32,
+    cfprPowerGroupCurrentPower                                       Gauge32,
+    cfprPowerGroupDescr                                              SnmpAdminString,
+    cfprPowerGroupFltAggr                                            Unsigned64,
+    cfprPowerGroupIntId                                              SnmpAdminString,
+    cfprPowerGroupMinReqPower                                        Gauge32,
+    cfprPowerGroupName                                               SnmpAdminString,
+    cfprPowerGroupOperCommitted                                      Gauge32,
+    cfprPowerGroupOperPeak                                           Gauge32,
+    cfprPowerGroupOperState                                          CfprPowerGroupState,
+    cfprPowerGroupPolicyLevel                                        Gauge32,
+    cfprPowerGroupPolicyOwner                                        CfprPolicyPolicyOwner,
+    cfprPowerGroupQualifier                                          SnmpAdminString,
+    cfprPowerGroupRealloc                                            CfprPowerReallocation
+}
+
+cfprPowerGroupInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerGroupEntry 1 }
+
+cfprPowerGroupDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:dn managed object property"
+    ::= { cfprPowerGroupEntry 2 }
+
+cfprPowerGroupRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:rn managed object property"
+    ::= { cfprPowerGroupEntry 3 }
+
+cfprPowerGroupAdminCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:adminCommitted managed
+        object property"
+    ::= { cfprPowerGroupEntry 4 }
+
+cfprPowerGroupAdminPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:adminPeak managed object property"
+    ::= { cfprPowerGroupEntry 5 }
+
+cfprPowerGroupCurReqPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:curReqPower managed object property"
+    ::= { cfprPowerGroupEntry 6 }
+
+cfprPowerGroupCurrentPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:currentPower managed object property"
+    ::= { cfprPowerGroupEntry 7 }
+
+cfprPowerGroupDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:descr managed object property"
+    ::= { cfprPowerGroupEntry 8 }
+
+cfprPowerGroupFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:fltAggr managed object property"
+    ::= { cfprPowerGroupEntry 9 }
+
+cfprPowerGroupIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:intId managed object property"
+    ::= { cfprPowerGroupEntry 10 }
+
+cfprPowerGroupMinReqPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:minReqPower managed object property"
+    ::= { cfprPowerGroupEntry 11 }
+
+cfprPowerGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:name managed object property"
+    ::= { cfprPowerGroupEntry 12 }
+
+cfprPowerGroupOperCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:operCommitted managed
+        object property"
+    ::= { cfprPowerGroupEntry 13 }
+
+cfprPowerGroupOperPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:operPeak managed object property"
+    ::= { cfprPowerGroupEntry 14 }
+
+cfprPowerGroupOperState OBJECT-TYPE
+    SYNTAX       CfprPowerGroupState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:operState managed object property"
+    ::= { cfprPowerGroupEntry 15 }
+
+cfprPowerGroupPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:policyLevel managed object property"
+    ::= { cfprPowerGroupEntry 16 }
+
+cfprPowerGroupPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:policyOwner managed object property"
+    ::= { cfprPowerGroupEntry 17 }
+
+cfprPowerGroupQualifier OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:qualifier managed object property"
+    ::= { cfprPowerGroupEntry 18 }
+
+cfprPowerGroupRealloc OBJECT-TYPE
+    SYNTAX       CfprPowerReallocation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Group:realloc managed object property"
+    ::= { cfprPowerGroupEntry 19 }
+
+cfprPowerGroupAdditionPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerGroupAdditionPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy managed object table"
+    ::= { cfprPowerObjects 5 }
+
+cfprPowerGroupAdditionPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprPowerGroupAdditionPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerGroupAdditionPolicyTable table."
+    INDEX { cfprPowerGroupAdditionPolicyInstanceId }
+    ::= { cfprPowerGroupAdditionPolicyTable 1 }
+
+CfprPowerGroupAdditionPolicyEntry ::= SEQUENCE {
+    cfprPowerGroupAdditionPolicyInstanceId                           CfprManagedObjectId,
+    cfprPowerGroupAdditionPolicyDn                                   CfprManagedObjectDn,
+    cfprPowerGroupAdditionPolicyRn                                   SnmpAdminString,
+    cfprPowerGroupAdditionPolicyAction                               CfprPowerChThrAction,
+    cfprPowerGroupAdditionPolicyDescr                                SnmpAdminString,
+    cfprPowerGroupAdditionPolicyIntId                                SnmpAdminString,
+    cfprPowerGroupAdditionPolicyName                                 SnmpAdminString,
+    cfprPowerGroupAdditionPolicyPolicyLevel                          Gauge32,
+    cfprPowerGroupAdditionPolicyPolicyOwner                          CfprPolicyPolicyOwner
+}
+
+cfprPowerGroupAdditionPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerGroupAdditionPolicyEntry 1 }
+
+cfprPowerGroupAdditionPolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:dn managed
+        object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 2 }
+
+cfprPowerGroupAdditionPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:rn managed
+        object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 3 }
+
+cfprPowerGroupAdditionPolicyAction OBJECT-TYPE
+    SYNTAX       CfprPowerChThrAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:action
+        managed object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 4 }
+
+cfprPowerGroupAdditionPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:descr
+        managed object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 5 }
+
+cfprPowerGroupAdditionPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:intId
+        managed object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 6 }
+
+cfprPowerGroupAdditionPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:name
+        managed object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 7 }
+
+cfprPowerGroupAdditionPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:policyLevel
+        managed object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 8 }
+
+cfprPowerGroupAdditionPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupAdditionPolicy:policyOwner
+        managed object property"
+    ::= { cfprPowerGroupAdditionPolicyEntry 9 }
+
+cfprPowerGroupQualTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerGroupQualEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:GroupQual managed object table"
+    ::= { cfprPowerObjects 6 }
+
+cfprPowerGroupQualEntry OBJECT-TYPE
+    SYNTAX           CfprPowerGroupQualEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerGroupQualTable table."
+    INDEX { cfprPowerGroupQualInstanceId }
+    ::= { cfprPowerGroupQualTable 1 }
+
+CfprPowerGroupQualEntry ::= SEQUENCE {
+    cfprPowerGroupQualInstanceId                                     CfprManagedObjectId,
+    cfprPowerGroupQualDn                                             CfprManagedObjectDn,
+    cfprPowerGroupQualRn                                             SnmpAdminString,
+    cfprPowerGroupQualGroupName                                      SnmpAdminString
+}
+
+cfprPowerGroupQualInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerGroupQualEntry 1 }
+
+cfprPowerGroupQualDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupQual:dn managed object property"
+    ::= { cfprPowerGroupQualEntry 2 }
+
+cfprPowerGroupQualRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupQual:rn managed object property"
+    ::= { cfprPowerGroupQualEntry 3 }
+
+cfprPowerGroupQualGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupQual:groupName managed
+        object property"
+    ::= { cfprPowerGroupQualEntry 4 }
+
+cfprPowerGroupStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerGroupStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats managed object table"
+    ::= { cfprPowerObjects 7 }
+
+cfprPowerGroupStatsEntry OBJECT-TYPE
+    SYNTAX           CfprPowerGroupStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerGroupStatsTable table."
+    INDEX { cfprPowerGroupStatsInstanceId }
+    ::= { cfprPowerGroupStatsTable 1 }
+
+CfprPowerGroupStatsEntry ::= SEQUENCE {
+    cfprPowerGroupStatsInstanceId                                    CfprManagedObjectId,
+    cfprPowerGroupStatsDn                                            CfprManagedObjectDn,
+    cfprPowerGroupStatsRn                                            SnmpAdminString,
+    cfprPowerGroupStatsIntervals                                     Gauge32,
+    cfprPowerGroupStatsPower                                         INTEGER,
+    cfprPowerGroupStatsPowerAvg                                      INTEGER,
+    cfprPowerGroupStatsPowerMax                                      INTEGER,
+    cfprPowerGroupStatsPowerMin                                      INTEGER,
+    cfprPowerGroupStatsSuspect                                       TruthValue,
+    cfprPowerGroupStatsThresholded                                   CfprPowerGroupStatsThresholded,
+    cfprPowerGroupStatsTimeCollected                                 DateAndTime,
+    cfprPowerGroupStatsUpdate                                        Gauge32
+}
+
+cfprPowerGroupStatsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerGroupStatsEntry 1 }
+
+cfprPowerGroupStatsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:dn managed object property"
+    ::= { cfprPowerGroupStatsEntry 2 }
+
+cfprPowerGroupStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:rn managed object property"
+    ::= { cfprPowerGroupStatsEntry 3 }
+
+cfprPowerGroupStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:intervals managed
+        object property"
+    ::= { cfprPowerGroupStatsEntry 4 }
+
+cfprPowerGroupStatsPower OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:power managed object property"
+    ::= { cfprPowerGroupStatsEntry 5 }
+
+cfprPowerGroupStatsPowerAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:powerAvg managed
+        object property"
+    ::= { cfprPowerGroupStatsEntry 6 }
+
+cfprPowerGroupStatsPowerMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:powerMax managed
+        object property"
+    ::= { cfprPowerGroupStatsEntry 7 }
+
+cfprPowerGroupStatsPowerMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:powerMin managed
+        object property"
+    ::= { cfprPowerGroupStatsEntry 8 }
+
+cfprPowerGroupStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:suspect managed object property"
+    ::= { cfprPowerGroupStatsEntry 9 }
+
+cfprPowerGroupStatsThresholded OBJECT-TYPE
+    SYNTAX       CfprPowerGroupStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:thresholded managed
+        object property"
+    ::= { cfprPowerGroupStatsEntry 10 }
+
+cfprPowerGroupStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:timeCollected
+        managed object property"
+    ::= { cfprPowerGroupStatsEntry 11 }
+
+cfprPowerGroupStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStats:update managed object property"
+    ::= { cfprPowerGroupStatsEntry 12 }
+
+cfprPowerGroupStatsHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerGroupStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist managed object table"
+    ::= { cfprPowerObjects 8 }
+
+cfprPowerGroupStatsHistEntry OBJECT-TYPE
+    SYNTAX           CfprPowerGroupStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerGroupStatsHistTable table."
+    INDEX { cfprPowerGroupStatsHistInstanceId }
+    ::= { cfprPowerGroupStatsHistTable 1 }
+
+CfprPowerGroupStatsHistEntry ::= SEQUENCE {
+    cfprPowerGroupStatsHistInstanceId                                CfprManagedObjectId,
+    cfprPowerGroupStatsHistDn                                        CfprManagedObjectDn,
+    cfprPowerGroupStatsHistRn                                        SnmpAdminString,
+    cfprPowerGroupStatsHistId                                        Unsigned64,
+    cfprPowerGroupStatsHistMostRecent                                TruthValue,
+    cfprPowerGroupStatsHistPower                                     INTEGER,
+    cfprPowerGroupStatsHistPowerAvg                                  INTEGER,
+    cfprPowerGroupStatsHistPowerMax                                  INTEGER,
+    cfprPowerGroupStatsHistPowerMin                                  INTEGER,
+    cfprPowerGroupStatsHistSuspect                                   TruthValue,
+    cfprPowerGroupStatsHistThresholded                               CfprPowerGroupStatsHistThresholded,
+    cfprPowerGroupStatsHistTimeCollected                             DateAndTime
+}
+
+cfprPowerGroupStatsHistInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerGroupStatsHistEntry 1 }
+
+cfprPowerGroupStatsHistDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:dn managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 2 }
+
+cfprPowerGroupStatsHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:rn managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 3 }
+
+cfprPowerGroupStatsHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:id managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 4 }
+
+cfprPowerGroupStatsHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:mostRecent
+        managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 5 }
+
+cfprPowerGroupStatsHistPower OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:power managed
+        object property"
+    ::= { cfprPowerGroupStatsHistEntry 6 }
+
+cfprPowerGroupStatsHistPowerAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:powerAvg
+        managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 7 }
+
+cfprPowerGroupStatsHistPowerMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:powerMax
+        managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 8 }
+
+cfprPowerGroupStatsHistPowerMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:powerMin
+        managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 9 }
+
+cfprPowerGroupStatsHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:suspect managed
+        object property"
+    ::= { cfprPowerGroupStatsHistEntry 10 }
+
+cfprPowerGroupStatsHistThresholded OBJECT-TYPE
+    SYNTAX       CfprPowerGroupStatsHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:thresholded
+        managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 11 }
+
+cfprPowerGroupStatsHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:GroupStatsHist:timeCollected
+        managed object property"
+    ::= { cfprPowerGroupStatsHistEntry 12 }
+
+cfprPowerMgmtPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerMgmtPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy managed object table"
+    ::= { cfprPowerObjects 9 }
+
+cfprPowerMgmtPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprPowerMgmtPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerMgmtPolicyTable table."
+    INDEX { cfprPowerMgmtPolicyInstanceId }
+    ::= { cfprPowerMgmtPolicyTable 1 }
+
+CfprPowerMgmtPolicyEntry ::= SEQUENCE {
+    cfprPowerMgmtPolicyInstanceId                                    CfprManagedObjectId,
+    cfprPowerMgmtPolicyDn                                            CfprManagedObjectDn,
+    cfprPowerMgmtPolicyRn                                            SnmpAdminString,
+    cfprPowerMgmtPolicyDescr                                         SnmpAdminString,
+    cfprPowerMgmtPolicyIntId                                         SnmpAdminString,
+    cfprPowerMgmtPolicyName                                          SnmpAdminString,
+    cfprPowerMgmtPolicyPolicyLevel                                   Gauge32,
+    cfprPowerMgmtPolicyPolicyOwner                                   CfprPolicyPolicyOwner,
+    cfprPowerMgmtPolicyProfiling                                     TruthValue,
+    cfprPowerMgmtPolicyStyle                                         CfprPowerMgmtStyle
+}
+
+cfprPowerMgmtPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerMgmtPolicyEntry 1 }
+
+cfprPowerMgmtPolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:dn managed object property"
+    ::= { cfprPowerMgmtPolicyEntry 2 }
+
+cfprPowerMgmtPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:rn managed object property"
+    ::= { cfprPowerMgmtPolicyEntry 3 }
+
+cfprPowerMgmtPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:descr managed object property"
+    ::= { cfprPowerMgmtPolicyEntry 4 }
+
+cfprPowerMgmtPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:intId managed object property"
+    ::= { cfprPowerMgmtPolicyEntry 5 }
+
+cfprPowerMgmtPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:name managed object property"
+    ::= { cfprPowerMgmtPolicyEntry 6 }
+
+cfprPowerMgmtPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:policyLevel managed
+        object property"
+    ::= { cfprPowerMgmtPolicyEntry 7 }
+
+cfprPowerMgmtPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:policyOwner managed
+        object property"
+    ::= { cfprPowerMgmtPolicyEntry 8 }
+
+cfprPowerMgmtPolicyProfiling OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:profiling managed
+        object property"
+    ::= { cfprPowerMgmtPolicyEntry 9 }
+
+cfprPowerMgmtPolicyStyle OBJECT-TYPE
+    SYNTAX       CfprPowerMgmtStyle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:MgmtPolicy:style managed object property"
+    ::= { cfprPowerMgmtPolicyEntry 10 }
+
+cfprPowerPlacementTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerPlacementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:Placement managed object table"
+    ::= { cfprPowerObjects 10 }
+
+cfprPowerPlacementEntry OBJECT-TYPE
+    SYNTAX           CfprPowerPlacementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerPlacementTable table."
+    INDEX { cfprPowerPlacementInstanceId }
+    ::= { cfprPowerPlacementTable 1 }
+
+CfprPowerPlacementEntry ::= SEQUENCE {
+    cfprPowerPlacementInstanceId                                     CfprManagedObjectId,
+    cfprPowerPlacementDn                                             CfprManagedObjectDn,
+    cfprPowerPlacementRn                                             SnmpAdminString,
+    cfprPowerPlacementDescr                                          SnmpAdminString,
+    cfprPowerPlacementIntId                                          SnmpAdminString,
+    cfprPowerPlacementName                                           SnmpAdminString,
+    cfprPowerPlacementPeerReqConflict                                CfprPowerReqConflict,
+    cfprPowerPlacementPgName                                         SnmpAdminString,
+    cfprPowerPlacementPolicyLevel                                    Gauge32,
+    cfprPowerPlacementPolicyOwner                                    CfprPolicyPolicyOwner,
+    cfprPowerPlacementPrioShare                                      CfprPowerPrioritySharing,
+    cfprPowerPlacementSelfReqConflict                                CfprPowerReqConflict
+}
+
+cfprPowerPlacementInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerPlacementEntry 1 }
+
+cfprPowerPlacementDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:dn managed object property"
+    ::= { cfprPowerPlacementEntry 2 }
+
+cfprPowerPlacementRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:rn managed object property"
+    ::= { cfprPowerPlacementEntry 3 }
+
+cfprPowerPlacementDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:descr managed object property"
+    ::= { cfprPowerPlacementEntry 4 }
+
+cfprPowerPlacementIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:intId managed object property"
+    ::= { cfprPowerPlacementEntry 5 }
+
+cfprPowerPlacementName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:name managed object property"
+    ::= { cfprPowerPlacementEntry 6 }
+
+cfprPowerPlacementPeerReqConflict OBJECT-TYPE
+    SYNTAX       CfprPowerReqConflict
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:peerReqConflict
+        managed object property"
+    ::= { cfprPowerPlacementEntry 7 }
+
+cfprPowerPlacementPgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:pgName managed object property"
+    ::= { cfprPowerPlacementEntry 8 }
+
+cfprPowerPlacementPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:policyLevel managed
+        object property"
+    ::= { cfprPowerPlacementEntry 9 }
+
+cfprPowerPlacementPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:policyOwner managed
+        object property"
+    ::= { cfprPowerPlacementEntry 10 }
+
+cfprPowerPlacementPrioShare OBJECT-TYPE
+    SYNTAX       CfprPowerPrioritySharing
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:prioShare managed
+        object property"
+    ::= { cfprPowerPlacementEntry 11 }
+
+cfprPowerPlacementSelfReqConflict OBJECT-TYPE
+    SYNTAX       CfprPowerReqConflict
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Placement:selfReqConflict
+        managed object property"
+    ::= { cfprPowerPlacementEntry 12 }
+
+cfprPowerPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:Policy managed object table"
+    ::= { cfprPowerObjects 11 }
+
+cfprPowerPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprPowerPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerPolicyTable table."
+    INDEX { cfprPowerPolicyInstanceId }
+    ::= { cfprPowerPolicyTable 1 }
+
+CfprPowerPolicyEntry ::= SEQUENCE {
+    cfprPowerPolicyInstanceId                                        CfprManagedObjectId,
+    cfprPowerPolicyDn                                                CfprManagedObjectDn,
+    cfprPowerPolicyRn                                                SnmpAdminString,
+    cfprPowerPolicyDescr                                             SnmpAdminString,
+    cfprPowerPolicyIntId                                             SnmpAdminString,
+    cfprPowerPolicyName                                              SnmpAdminString,
+    cfprPowerPolicyOperPrio                                          Gauge32,
+    cfprPowerPolicyPolicyLevel                                       Gauge32,
+    cfprPowerPolicyPolicyOwner                                       CfprPolicyPolicyOwner,
+    cfprPowerPolicyPrio                                              Gauge32
+}
+
+cfprPowerPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerPolicyEntry 1 }
+
+cfprPowerPolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:dn managed object property"
+    ::= { cfprPowerPolicyEntry 2 }
+
+cfprPowerPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:rn managed object property"
+    ::= { cfprPowerPolicyEntry 3 }
+
+cfprPowerPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:descr managed object property"
+    ::= { cfprPowerPolicyEntry 4 }
+
+cfprPowerPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:intId managed object property"
+    ::= { cfprPowerPolicyEntry 5 }
+
+cfprPowerPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:name managed object property"
+    ::= { cfprPowerPolicyEntry 6 }
+
+cfprPowerPolicyOperPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:operPrio managed object property"
+    ::= { cfprPowerPolicyEntry 7 }
+
+cfprPowerPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:policyLevel managed object property"
+    ::= { cfprPowerPolicyEntry 8 }
+
+cfprPowerPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:policyOwner managed object property"
+    ::= { cfprPowerPolicyEntry 9 }
+
+cfprPowerPolicyPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:Policy:prio managed object property"
+    ::= { cfprPowerPolicyEntry 10 }
+
+cfprPowerPrioWghtTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerPrioWghtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:PrioWght managed object table"
+    ::= { cfprPowerObjects 12 }
+
+cfprPowerPrioWghtEntry OBJECT-TYPE
+    SYNTAX           CfprPowerPrioWghtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerPrioWghtTable table."
+    INDEX { cfprPowerPrioWghtInstanceId }
+    ::= { cfprPowerPrioWghtTable 1 }
+
+CfprPowerPrioWghtEntry ::= SEQUENCE {
+    cfprPowerPrioWghtInstanceId                                      CfprManagedObjectId,
+    cfprPowerPrioWghtDn                                              CfprManagedObjectDn,
+    cfprPowerPrioWghtRn                                              SnmpAdminString,
+    cfprPowerPrioWghtPrio                                            Gauge32,
+    cfprPowerPrioWghtWeight                                          Gauge32
+}
+
+cfprPowerPrioWghtInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerPrioWghtEntry 1 }
+
+cfprPowerPrioWghtDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:PrioWght:dn managed object property"
+    ::= { cfprPowerPrioWghtEntry 2 }
+
+cfprPowerPrioWghtRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:PrioWght:rn managed object property"
+    ::= { cfprPowerPrioWghtEntry 3 }
+
+cfprPowerPrioWghtPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:PrioWght:prio managed object property"
+    ::= { cfprPowerPrioWghtEntry 4 }
+
+cfprPowerPrioWghtWeight OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:PrioWght:weight managed object property"
+    ::= { cfprPowerPrioWghtEntry 5 }
+
+cfprPowerProfiledPowerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerProfiledPowerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower managed object table"
+    ::= { cfprPowerObjects 13 }
+
+cfprPowerProfiledPowerEntry OBJECT-TYPE
+    SYNTAX           CfprPowerProfiledPowerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerProfiledPowerTable table."
+    INDEX { cfprPowerProfiledPowerInstanceId }
+    ::= { cfprPowerProfiledPowerTable 1 }
+
+CfprPowerProfiledPowerEntry ::= SEQUENCE {
+    cfprPowerProfiledPowerInstanceId                                 CfprManagedObjectId,
+    cfprPowerProfiledPowerDn                                         CfprManagedObjectDn,
+    cfprPowerProfiledPowerRn                                         SnmpAdminString,
+    cfprPowerProfiledPowerAbsMinPostPower                            Gauge32,
+    cfprPowerProfiledPowerMaxAppPower                                Gauge32,
+    cfprPowerProfiledPowerMaxPostPower                               Gauge32,
+    cfprPowerProfiledPowerMinAppPower                                Gauge32,
+    cfprPowerProfiledPowerMinNormPostPower                           Gauge32,
+    cfprPowerProfiledPowerMinPostPower                               Gauge32,
+    cfprPowerProfiledPowerPreDiscoveryPower                          Gauge32,
+    cfprPowerProfiledPowerProfileRunTime                             Gauge32,
+    cfprPowerProfiledPowerProfiledBoot                               Gauge32,
+    cfprPowerProfiledPowerProfiledMax                                Gauge32,
+    cfprPowerProfiledPowerProfiledMin                                Gauge32,
+    cfprPowerProfiledPowerSkipProfiling                              TruthValue
+}
+
+cfprPowerProfiledPowerInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerProfiledPowerEntry 1 }
+
+cfprPowerProfiledPowerDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:dn managed object property"
+    ::= { cfprPowerProfiledPowerEntry 2 }
+
+cfprPowerProfiledPowerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:rn managed object property"
+    ::= { cfprPowerProfiledPowerEntry 3 }
+
+cfprPowerProfiledPowerAbsMinPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:absMinPostPower
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 4 }
+
+cfprPowerProfiledPowerMaxAppPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:maxAppPower
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 5 }
+
+cfprPowerProfiledPowerMaxPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:maxPostPower
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 6 }
+
+cfprPowerProfiledPowerMinAppPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:minAppPower
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 7 }
+
+cfprPowerProfiledPowerMinNormPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:minNormPostPower
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 8 }
+
+cfprPowerProfiledPowerMinPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:minPostPower
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 9 }
+
+cfprPowerProfiledPowerPreDiscoveryPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:preDiscoveryPower
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 10 }
+
+cfprPowerProfiledPowerProfileRunTime OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:profileRunTime
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 11 }
+
+cfprPowerProfiledPowerProfiledBoot OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:profiledBoot
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 12 }
+
+cfprPowerProfiledPowerProfiledMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:profiledMax
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 13 }
+
+cfprPowerProfiledPowerProfiledMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:profiledMin
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 14 }
+
+cfprPowerProfiledPowerSkipProfiling OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:ProfiledPower:skipProfiling
+        managed object property"
+    ::= { cfprPowerProfiledPowerEntry 15 }
+
+cfprPowerRackUnitMemberTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPowerRackUnitMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower power:RackUnitMember managed object table"
+    ::= { cfprPowerObjects 14 }
+
+cfprPowerRackUnitMemberEntry OBJECT-TYPE
+    SYNTAX           CfprPowerRackUnitMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPowerRackUnitMemberTable table."
+    INDEX { cfprPowerRackUnitMemberInstanceId }
+    ::= { cfprPowerRackUnitMemberTable 1 }
+
+CfprPowerRackUnitMemberEntry ::= SEQUENCE {
+    cfprPowerRackUnitMemberInstanceId                                CfprManagedObjectId,
+    cfprPowerRackUnitMemberDn                                        CfprManagedObjectDn,
+    cfprPowerRackUnitMemberRn                                        SnmpAdminString,
+    cfprPowerRackUnitMemberId                                        Gauge32,
+    cfprPowerRackUnitMemberOperState                                 CfprPowerMemberState
+}
+
+cfprPowerRackUnitMemberInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPowerRackUnitMemberEntry 1 }
+
+cfprPowerRackUnitMemberDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:RackUnitMember:dn managed object property"
+    ::= { cfprPowerRackUnitMemberEntry 2 }
+
+cfprPowerRackUnitMemberRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:RackUnitMember:rn managed object property"
+    ::= { cfprPowerRackUnitMemberEntry 3 }
+
+cfprPowerRackUnitMemberId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:RackUnitMember:id managed object property"
+    ::= { cfprPowerRackUnitMemberEntry 4 }
+
+cfprPowerRackUnitMemberOperState OBJECT-TYPE
+    SYNTAX       CfprPowerMemberState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower power:RackUnitMember:operState
+        managed object property"
+    ::= { cfprPowerRackUnitMemberEntry 5 }
+
+END

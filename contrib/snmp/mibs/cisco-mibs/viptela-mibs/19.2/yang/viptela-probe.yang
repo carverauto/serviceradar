@@ -1,0 +1,221 @@
+module viptela-probe {
+  namespace "http://viptela.com/probe";
+  prefix viptela-probe;
+
+    prefix tailf;
+  }
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import ietf-yang-types {
+    prefix yang;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+  import viptela-vpn {
+    prefix viptela-vpn;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines data model for Probes";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Initial revision";
+  }
+
+  container probe {
+    description "Probe information";
+    when
+      "((/viptela-system:system/viptela-system:personality != 'vbond' and 
+        /viptela-system:system/viptela-system:personality != 'vsmart' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-M' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-WM' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-M2' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-2000' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-W2' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-B' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-cloud' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-sim'
+       ))";
+    leaf latency {
+      description "Probe latency in seconds: <0..65530>";
+      type uint16;
+      default "30";
+    }
+    leaf pmtu-discovery {
+      description "PMTU discovery";
+      type boolean;
+      default "false";
+    }
+    container saas {
+      description "SaaS";
+      when "((count(/viptela-probe:probe-path/gateway/local-interface-list) > 0) or (/viptela-probe:probe-path/branch/color-all-dia) or (count(/viptela-probe:probe-path/branch/color-list) > 0))";
+      container salesforce_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container office365_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container amazon_aws_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container oracle_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container box_net_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container dropbox_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container intuit_apps {
+        presence "true";
+        leaf dscp {
+          description "DCSP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container concur_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container sugar_crm_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container zoho_crm_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container zendesk_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container gotomeeting_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+      container google_apps {
+        presence "true";
+        leaf dscp {
+          description "DSCP value used for Saas Probe";
+          type viptela:dscp-value;
+        }
+      }
+    }
+  }
+  container probe-path {
+    description "Probe-Path information";
+    when
+      "((/viptela-system:system/viptela-system:personality != 'vbond' and
+        /viptela-system:system/viptela-system:personality != 'vsmart' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-M' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-WM' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-M2' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-2000' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-W2' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-100-B' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-cloud' and
+       /viptela-system:system/viptela-system:device-model != 'vedge-sim'
+       ))";
+    leaf trigger {
+      description "trigger";
+      type viptela:cloudexpress-probe-trigger;
+    }
+    leaf latency {
+      description "latenty";
+      type uint16;
+      default "30";
+      when "../trigger = 'periodic'";
+    }
+    choice path-type-choice {
+      case branch-case {
+        container branch {
+          presence "true";
+          choice all-or-specific-tlocs {
+            case all {
+              leaf color-all-dia {
+                description "Start probes all DIA Interfaces";
+                type empty;
+              }
+            }
+            case tloc-list {
+              leaf-list color-list {
+                description "Local color list";
+                type viptela:color-enum;
+              }
+            }
+          }
+        }
+      }
+      case gateway-case {
+        container gateway {
+          leaf-list local-interface-list {
+            description "Gateway Internet Exit interfaces";
+            ordered-by user;
+            max-elements "8";
+            type viptela:named-type;
+          }
+        }
+      }
+    }
+  }
+}

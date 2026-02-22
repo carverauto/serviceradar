@@ -1,0 +1,2082 @@
+-- *****************************************************************
+-- Descriptions of managed objects for ADSL DMT line interfaces.
+--
+-- September 1999, Patrick Gili
+--
+-- Copyright (c) 1999,2000 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IDSL-LINE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Integer32,
+    Counter32,
+    Gauge32,
+    MODULE-IDENTITY,
+    OBJECT-TYPE                         FROM SNMPv2-SMI
+    TruthValue,
+    VariablePointer,
+    TEXTUAL-CONVENTION                  FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                        FROM SNMPv2-CONF
+    ciscoMgmt                           FROM CISCO-SMI
+    ifIndex,
+    InterfaceIndex                      FROM IF-MIB
+    PerfCurrentCount,
+    PerfIntervalCount                   FROM PerfHist-TC-MIB
+    SnmpAdminString                     FROM SNMP-FRAMEWORK-MIB
+    AdslLineProfileName,
+    adslLineConfProfileName             FROM ADSL-LINE-MIB
+    ;
+
+ciscoIdslLineMIB MODULE-IDENTITY
+   LAST-UPDATED   "200001200036Z" -- January 20, 2000 12:36 AM
+   ORGANIZATION   "Cisco Systems, Inc."
+   CONTACT-INFO   "Cisco System
+                   Customer Service
+
+                   Postal: 170 W Tasman Drive
+                   San Jose, CA 95134
+
+                   Tel: +1 800 555-NETS
+
+                   E-mail: cs-dslam@cisco.com"
+    DESCRIPTION
+        "This MIB module describes IDSL (ISDN Digital Line Subscriber)
+        line interfaces.  The structure of this module resembles that
+        of the ADSL-LINE-MIB (RFC-2662).  Observe that the tables in
+        this module do not necessarily extend the tables defined by the
+        ADSL-LINE-MIB.  Currently, only those tables that contain
+        configuration information extend the profile tables defined by
+        the ADSL-LINE-MIB.  This allows the management client to define
+        xDSL configuration profiles that apply across all xDSL modems,
+        independent of the technology being utilized by the modem.
+
+        *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+
+        ADSL - Asymmetric Digital Subscriber Line.
+
+        ATM - Asynchronous Transfer Mode.
+        
+        BRITE - Basic Rate Interface Terminal Extender.
+
+        CV - Coding Violation.
+
+        DLC - Data Link Connection.
+
+        DSL - Digital Subscriber Line.
+
+        ES - Error Second.
+
+        IDSL - IDSN Digital Subscriber Loop.
+
+        ITU-C - IDSL Transceiver Unit, Central Office end.
+
+        ITU-R - IDSL Transceiver Unit, Remote terminal end.
+
+        LMI - Link Management Interface.
+
+        LOF - Loss Of Frame.
+
+        LOS - Loss Of Signal.
+        
+        NT - Network Terminator.
+
+        PPP - Point-to-Point Protocol.
+        
+        PPPoA - PPP over ATM.
+
+        SES - Severely Errored Second.
+
+        *** DEFINITIONS ***
+
+        CODING VIOLATION
+            A coding violation occurs when the incoming signal exhibits
+            a CRC anomaly.
+
+        DOWNSTREAM
+            The flow of data in the direction from the ITU-C to ITU-R.
+                      
+        ERRORED SECOND
+            A second with one or more coding violations.
+
+        LINE RATE
+            The total data rate supported by a line.  Observe that the
+            payload rate is equal the line rate for the earliest
+            implementations of IDSL.  However, the payload rate maybe
+            less than the line rate for future implementations.
+
+        SEVERELY ERRORED SECOND
+            A second with 3 or more coding violations.
+                          
+        UPSTREAM
+            The flow of data in the direction from the ATU-R to ATU-C."
+    REVISION      "200001200036Z" -- January 20, 2000 12:36 AM
+    DESCRIPTION
+        "Initial revision of this MIB module."
+    ::= { ciscoMgmt 154 }
+
+-- Textual Conventions
+
+IdslPerfTimeElapsed ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return the
+        maximum value."
+    SYNTAX Gauge32
+
+IdslPerfCurrDayCount ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A counter associated with interval performance measurements in
+        a current 1-day (24 hour) measurement interval.
+
+        The value of this counter starts at zero at the beginning of an
+        interval and increases when associated events occur, until the
+        end of the 1-day interval.  At that time, the agent stores the
+        value of the counter in the previous 1-day history interval,
+        if available, and resets the value of the counter to zero.
+
+        In the case where the agent has no valid data available for this
+        interval, the corresponding object instance is not available.
+        In this case, the agent will respond with the appropriate error
+        indicating that the instance does not exist; that is,
+        'noSuchName' in response to a SNMPv1 get request, and
+        'noSuchInstance' in response to a SNMPv2 get request."
+    SYNTAX Gauge32
+
+IdslPerfPrevDayCount ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A counter associated with interval performance measurements
+        during the most previous 1-day (24 hour) measurement interval.
+        The value of this counter is equal to the current day counter
+        at the end of its most recent interval.
+
+        In the case where the agent has no valid data available for this
+        interval, the corresponding object instance is not available.
+        In this case, the agent will respond with the appropriate error
+        indicating that the instance does not exist; that is,
+        'noSuchName' in response to a SNMPv1 get request, and
+        'noSuchInstance' in response to a SNMPv2 get request."
+    SYNTAX Gauge32
+
+-- MIB Object Definitions
+
+ciscoIdslLineMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoIdslLineMIB 1 }
+
+-- IDSL Line Table
+
+cIdslLineTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslLineEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains the common attributes describing both ends
+        of IDSL lines supported by the system."
+    ::= { ciscoIdslLineMIBObjects 1 }
+
+cIdslLineEntry OBJECT-TYPE
+    SYNTAX      CIdslLineEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of common attributes describing both ends of an IDSL line
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of idsl(154)."
+    INDEX       { ifIndex }
+    ::= { cIdslLineTable 1 }
+
+CIdslLineEntry ::= SEQUENCE {
+    cIdslLineSpecific         VariablePointer,
+    cIdslLineConfProfile      AdslLineProfileName,
+    cIdslLineAlarmConfProfile AdslLineProfileName
+}
+
+cIdslLineSpecific OBJECT-TYPE
+    SYNTAX      VariablePointer
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies an object identifier of an instance of
+        an object in the MIB.  The implementation determines the
+        application of this object.   For example, an implementation
+        may use this object to provide a reference to the port-class
+        physical entity (see the ENTITY-MIB for further details)
+        corresponding to the IDSL line."
+    ::= { cIdslLineEntry 1 }
+
+cIdslLineConfProfile OBJECT-TYPE
+    SYNTAX      AdslLineProfileName
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the row in the adslLineConfProfileTable
+        (see the ADSL-LINE-MIB for further details), which applies for
+        this IDSL line interface.
+
+        In the case the implementation utilizes 'dynamic mode' (see
+        the ADSL-LINE-MIB for further details), then the value of this
+        object defaults to the name of a configuration profile
+        designated by the implementation as the default configuration
+        profile.
+
+        In the case the implementation utilizes 'static mode', then the
+        the value of this object is read-only."
+    ::= { cIdslLineEntry 2 }
+
+cIdslLineAlarmConfProfile OBJECT-TYPE
+    SYNTAX      AdslLineProfileName
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the row in the
+        adslLineAlarmConfProfileTable (see the ADSL-LINE-MIB for further
+        details), which applies for this IDSL line interface.
+
+        In the case the implementation utilizes 'dynamic mode' (see
+        the ADSL-LINE-MIB for further details), then the value of this
+        object defaults to the name of an alarm configuration profile
+        designated by the implementation as the default alarm
+        configuration profile.
+
+        In the case the implementation utilizes 'static mode', then the
+        the value of this object is read-only."
+    ::= { cIdslLineEntry 3 }
+
+-- IDSL ITU-C Physical Parameters Table
+
+cIdslItucPhysTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslItucPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer parameters for ITU-C class
+        devices supported by the system."
+    ::= { ciscoIdslLineMIBObjects 2 }
+
+cIdslItucPhysEntry OBJECT-TYPE
+    SYNTAX      CIdslItucPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of physical-layer parameters for an ITU-C class device
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of idsl(154)."
+    INDEX       { ifIndex }
+    ::= { cIdslItucPhysTable 1 }
+
+CIdslItucPhysEntry ::= SEQUENCE {
+    cIdslItucInvSerialNumber    SnmpAdminString,
+    cIdslItucInvVendorId        SnmpAdminString,
+    cIdslItucInvVersionNumber   SnmpAdminString,
+    cIdslItucStatus             INTEGER
+}
+
+cIdslItucInvSerialNumber OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor specific string that
+        identifies the vendor ITU-C."
+    ::= { cIdslItucPhysEntry 1 }
+
+cIdslItucInvVendorId OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor identifier assigned according
+        to ANSI T1.220."
+    REFERENCE
+        "ANSI T1.220-1991, Coded Representation of the North American
+        Telecommunication Industry Manufacturers, Suppliers, and Related
+        Service Companies."
+    ::= { cIdslItucPhysEntry 2 }
+
+cIdslItucInvVersionNumber OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor specific version number of
+        the ITU-C."
+    ::= { cIdslItucPhysEntry 3 }
+
+cIdslItucStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+        loopDown(1),
+        dslSync(2),
+        loopUp(3),
+        loopUpLmiActive(4)
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the state of the ITU-C transceiver:
+        
+        - loopDown
+            The IDSL link is down, as a result of a near-end has
+            detected a LOS, a LOF, has not exchanged an ACT bit
+            with the downstream BRITE/NT1, or similar fault/condition.
+            
+        - dslSync
+            The IDSL link has achieved physical layer activation with
+            the first downstream entity (iether a BRITE or the NT1).
+        
+        - loopUp
+            The IDSL link has exchanged the ACT bit with the NT1, but
+            LMI signalling is not yet active.  This is the normal 
+            operating state for PPP operation.
+        
+        - loopUpLmiActive
+            The IDSL link has exchnaged the ACT bit with the NT1
+            and the LMI signalling is active.  This is the normal
+            operating state for frame relay operation."
+    ::= { cIdslItucPhysEntry 4 }
+
+-- IDSL ITU-R Physical Parameters Table
+--    A future revision may use ciscoIdslLineMIBObjects.3 for the
+--    purpose of defining the cIdslIturPhysTable, which will contain
+--    physical-layer parameters for ITU-R class devices.
+
+-- IDSL ITU-C Channel Parameters Table
+--    A future revision may use ciscoIdslLineMIBObjects.4 for the
+--    purpose of defining the cIdslItucChanTable, which will contain
+--    channel parameters for ITU-C class devices.
+
+-- IDSL ITU-R Channel Parameters Table
+--    A future revision may use ciscoIdslLineMIBObjects.5 for the
+--    purpose of defining the cIdslIturChanTable, which will contain
+--    channel parameters for ITU-R class devices.
+
+-- IDSL ITU-C Performance Data Table
+
+cIdslItucPerfDataTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslItucPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics for ITU-C class
+        devices supported by the system."
+    ::= { ciscoIdslLineMIBObjects 6 }
+
+cIdslItucPerfDataEntry OBJECT-TYPE
+    SYNTAX      CIdslItucPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of physical-layer statistics for an ITU-C class device
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of idsl(154)."
+    INDEX       { ifIndex }
+    ::= { cIdslItucPerfDataTable 1 }
+
+CIdslItucPerfDataEntry ::= SEQUENCE {
+    cIdslItucPerfCVs                    Counter32,
+    cIdslItucPerfESs                    Counter32,
+    cIdslItucPerfSESs                   Counter32,
+    cIdslItucPerfHdlcCVs                Counter32,
+    cIdslItucPerfHdlcAborts             Counter32,
+    cIdslItucPerfHdlcAligns             Counter32,
+    cIdslItucPerfHdlcShorts             Counter32,
+    cIdslItucPerfHdlcLongs              Counter32,
+    cIdslItucPerfValidIntervals         INTEGER,
+    cIdslItucPerfInvalidIntervals       INTEGER,
+    cIdslItucPerfCurr15MinElapsed       IdslPerfTimeElapsed,
+    cIdslItucPerfCurr15MinCVs           PerfCurrentCount,
+    cIdslItucPerfCurr15MinESs           PerfCurrentCount,
+    cIdslItucPerfCurr15MinSESs          PerfCurrentCount,
+    cIdslItucPerfCurr15MinHdlcCVs       PerfCurrentCount,
+    cIdslItucPerfCurr15MinHdlcAborts    PerfCurrentCount,
+    cIdslItucPerfCurr15MinHdlcAligns    PerfCurrentCount,
+    cIdslItucPerfCurr15MinHdlcShorts    PerfCurrentCount,
+    cIdslItucPerfCurr15MinHdlcLongs     PerfCurrentCount,
+    cIdslItucPerfCurr1DayElapsed        IdslPerfTimeElapsed,
+    cIdslItucPerfCurr1DayCVs            IdslPerfCurrDayCount,
+    cIdslItucPerfCurr1DayESs            IdslPerfCurrDayCount,
+    cIdslItucPerfCurr1DaySESs           IdslPerfCurrDayCount,
+    cIdslItucPerfCurr1DayHdlcCVs        IdslPerfCurrDayCount,
+    cIdslItucPerfCurr1DayHdlcAborts     IdslPerfCurrDayCount,
+    cIdslItucPerfCurr1DayHdlcAligns     IdslPerfCurrDayCount,
+    cIdslItucPerfCurr1DayHdlcShorts     IdslPerfCurrDayCount,
+    cIdslItucPerfCurr1DayHdlcLongs      IdslPerfCurrDayCount,
+    cIdslItucPerfPrev1DayMoniSecs       INTEGER,
+    cIdslItucPerfPrev1DayCVs            IdslPerfPrevDayCount,
+    cIdslItucPerfPrev1DayESs            IdslPerfPrevDayCount,
+    cIdslItucPerfPrev1DaySESs           IdslPerfPrevDayCount,
+    cIdslItucPerfPrev1DayHdlcCVs        IdslPerfPrevDayCount,
+    cIdslItucPerfPrev1DayHdlcAborts     IdslPerfPrevDayCount,
+    cIdslItucPerfPrev1DayHdlcAligns     IdslPerfPrevDayCount,
+    cIdslItucPerfPrev1DayHdlcShorts     IdslPerfPrevDayCount,
+    cIdslItucPerfPrev1DayHdlcLongs      IdslPerfPrevDayCount
+}
+
+cIdslItucPerfCVs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the ITU-C since agent reset."
+    ::= { cIdslItucPerfDataEntry 1 }
+
+cIdslItucPerfESs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-C since agent reset."
+    ::= { cIdslItucPerfDataEntry 2 }
+
+cIdslItucPerfSESs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored
+        seconds experienced by the ITU-C since agent reset."
+    ::= { cIdslItucPerfDataEntry 3 }
+
+cIdslItucPerfHdlcCVs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC coding violations
+        experienced by the ITU-C since agent reset."
+    ::= { cIdslItucPerfDataEntry 4 }
+
+cIdslItucPerfHdlcAborts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC aborts experienced
+        by the ITU-C since agent reset."
+    ::= { cIdslItucPerfDataEntry 5 }
+
+cIdslItucPerfHdlcAligns OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC frames received by the
+        ITU-C with a non-integral number of octets since agent reset."
+    ::= { cIdslItucPerfDataEntry 6 }
+
+cIdslItucPerfHdlcShorts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of short HDLC frames received
+        by the ITU-C since agent reset.  A short HDLC frame contains
+        less than 5 octets."
+    ::= { cIdslItucPerfDataEntry 7 }
+
+cIdslItucPerfHdlcLongs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of long HDLC frames received
+        by the ITU-C since agent reset.  A long HDLC frame contains
+        more than 1500 octets."
+    ::= { cIdslItucPerfDataEntry 8 }
+
+cIdslItucPerfValidIntervals OBJECT-TYPE
+    SYNTAX      INTEGER (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of previous near-end performance data 15-minute
+        intervals for which data was collected.  The value will be <n>
+        unless the measurement was (re-)started within the last (<n>*15)
+        minutes, in which case the value will be the number of complete
+        15-minute intervals for which the agent has at least some data.
+        In certain cases (e.g., in the case where the agent is a proxy)
+        it is possible that some intervals are unavailable.  In this
+        case, this interval is the maximum interval number for which
+        data is available."
+    ::= { cIdslItucPerfDataEntry 9 }
+
+cIdslItucPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX      INTEGER (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of near-end performance data 15-minute intervals in
+        the range from 0 to cSdslStucPerfValidIntervals for which no
+        data is available. This object will typically be zero except in
+        cases where the data for some intervals are not available (e.g.,
+        in proxy situations)."
+    ::= { cIdslItucPerfDataEntry 10 }
+
+cIdslItucPerfCurr15MinElapsed OBJECT-TYPE
+    SYNTAX      IdslPerfTimeElapsed
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cIdslItucPerfDataEntry 11 }
+
+cIdslItucPerfCurr15MinCVs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the ITU-C in the current 15-minute interval."
+    ::= { cIdslItucPerfDataEntry 12 }
+
+cIdslItucPerfCurr15MinESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-C in the current 15-minute interval."
+    ::= { cIdslItucPerfDataEntry 13 }
+
+cIdslItucPerfCurr15MinSESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-C in the current 15-minute interval."
+    ::= { cIdslItucPerfDataEntry 14 }
+
+cIdslItucPerfCurr15MinHdlcCVs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC coding violations 
+        experienced by the ITU-C in the current 15-minute interval."
+    ::= { cIdslItucPerfDataEntry 15 }
+
+cIdslItucPerfCurr15MinHdlcAborts OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC aborts experienced
+        by the ITU-C in the current 15-minute interval."
+    ::= { cIdslItucPerfDataEntry 16 }
+
+cIdslItucPerfCurr15MinHdlcAligns OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC frames received by
+        the ITU-C with a non-integral number of octets in the current
+        15-minute interval."
+    ::= { cIdslItucPerfDataEntry 17 }
+
+cIdslItucPerfCurr15MinHdlcShorts OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of short HDLC frames received
+        by the ITU-C since agent in the current 15-minute interval.  A
+        short HDLC frame contains less than 5 octets."
+    ::= { cIdslItucPerfDataEntry 18 }
+
+cIdslItucPerfCurr15MinHdlcLongs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of long HDLC frames received
+        by the ITU-C since agent in the current 15-minute interval.  A
+        long HDLC frame contains more than 1500 octets."
+    ::= { cIdslItucPerfDataEntry 19 }
+
+cIdslItucPerfCurr1DayElapsed OBJECT-TYPE
+    SYNTAX      IdslPerfTimeElapsed
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cIdslItucPerfDataEntry 20 }
+
+cIdslItucPerfCurr1DayCVs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the ITU-C in the current 1-day interval."
+    ::= { cIdslItucPerfDataEntry 21 }
+
+cIdslItucPerfCurr1DayESs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-C in the current 1-day interval."
+    ::= { cIdslItucPerfDataEntry 22 }
+
+cIdslItucPerfCurr1DaySESs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-C in the current 1-day interval."
+    ::= { cIdslItucPerfDataEntry 23 }
+
+cIdslItucPerfCurr1DayHdlcCVs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC coding violations 
+        experienced by the ITU-C in the current 1-day interval."
+    ::= { cIdslItucPerfDataEntry 24 }
+
+cIdslItucPerfCurr1DayHdlcAborts OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC aborts experienced
+        by the ITU-C in the current 1-day interval."
+    ::= { cIdslItucPerfDataEntry 25 }
+
+cIdslItucPerfCurr1DayHdlcAligns OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC frames received by
+        the ITU-C with a non-integral number of octets in the current
+        1-day interval."
+    ::= { cIdslItucPerfDataEntry 26 }
+
+cIdslItucPerfCurr1DayHdlcShorts OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of short HDLC frames received
+        by the ITU-C since agent in the current 1-day interval.  A
+        short HDLC frame contains less than 5 octets."
+    ::= { cIdslItucPerfDataEntry 27 }
+
+cIdslItucPerfCurr1DayHdlcLongs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of long HDLC frames received
+        by the ITU-C since agent in the current 1-day interval.  A
+        long HDLC frame contains more than 1500 octets."
+    ::= { cIdslItucPerfDataEntry 28 }
+
+cIdslItucPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX      INTEGER (0..86400)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The amount of time in the previous 1-day interval over which
+        the performance monitoring information is actually counted.
+        This value will be the same as the interval duration except
+        in a situation where performance monitoring data could not be
+        collected for any reason."
+    ::= { cIdslItucPerfDataEntry 29 }
+
+cIdslItucPerfPrev1DayCVs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the ITU-C in the previous 1-day interval."
+    ::= { cIdslItucPerfDataEntry 30 }
+
+cIdslItucPerfPrev1DayESs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-C in the previous 1-day interval."
+    ::= { cIdslItucPerfDataEntry 31 }
+
+cIdslItucPerfPrev1DaySESs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-C in the previous 1-day interval."
+    ::= { cIdslItucPerfDataEntry 32 }
+
+cIdslItucPerfPrev1DayHdlcCVs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC coding violations 
+        experienced by the ITU-C in the previous 1-day interval."
+    ::= { cIdslItucPerfDataEntry 33 }
+
+cIdslItucPerfPrev1DayHdlcAborts OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC aborts experienced
+        by the ITU-C in the previous 1-day interval."
+    ::= { cIdslItucPerfDataEntry 34 }
+
+cIdslItucPerfPrev1DayHdlcAligns OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC frames received by
+        the ITU-C with a non-integral number of octets in the previous
+        1-day interval."
+    ::= { cIdslItucPerfDataEntry 35 }
+
+cIdslItucPerfPrev1DayHdlcShorts OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of long HDLC frames received
+        by the ITU-C since agent in the previous 1-day interval.  A
+        long HDLC frame contains more than 1500 octets."
+    ::= { cIdslItucPerfDataEntry 36 }
+
+cIdslItucPerfPrev1DayHdlcLongs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of long HDLC frames received
+        by the ITU-C since agent in the previous 1-day interval.  A
+        long HDLC frame contains more than 1500 octets."
+    ::= { cIdslItucPerfDataEntry 37 }
+
+-- IDSL ITU-R Performance Data Table
+
+cIdslIturPerfDataTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslIturPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics for ITU-R class
+        devices supported by the system."
+    ::= { ciscoIdslLineMIBObjects 7 }
+
+cIdslIturPerfDataEntry OBJECT-TYPE
+    SYNTAX      CIdslIturPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of physical-layer statistics for an ITU-R class device
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of idsl(154)."
+    INDEX       { ifIndex }
+    ::= { cIdslIturPerfDataTable 1 }
+
+CIdslIturPerfDataEntry ::= SEQUENCE {
+    cIdslIturPerfCVs                Counter32,
+    cIdslIturPerfESs                Counter32,
+    cIdslIturPerfSESs               Counter32,
+    cIdslIturPerfValidIntervals     INTEGER,
+    cIdslIturPerfInvalidIntervals   INTEGER,
+    cIdslIturPerfCurr15MinElapsed   IdslPerfTimeElapsed,
+    cIdslIturPerfCurr15MinCVs       PerfCurrentCount,
+    cIdslIturPerfCurr15MinESs       PerfCurrentCount,
+    cIdslIturPerfCurr15MinSESs      PerfCurrentCount,
+    cIdslIturPerfCurr1DayElapsed    IdslPerfTimeElapsed,
+    cIdslIturPerfCurr1DayCVs        IdslPerfCurrDayCount,
+    cIdslIturPerfCurr1DayESs        IdslPerfCurrDayCount,
+    cIdslIturPerfCurr1DaySESs       IdslPerfCurrDayCount,
+    cIdslIturPerfPrev1DayMoniSecs   INTEGER,
+    cIdslIturPerfPrev1DayCVs        IdslPerfPrevDayCount,
+    cIdslIturPerfPrev1DayESs        IdslPerfPrevDayCount,
+    cIdslIturPerfPrev1DaySESs       IdslPerfPrevDayCount
+}
+
+cIdslIturPerfCVs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the ITU-R since agent reset."
+    ::= { cIdslIturPerfDataEntry 1 }
+
+cIdslIturPerfESs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-R since agent reset."
+    ::= { cIdslIturPerfDataEntry 2 }
+
+cIdslIturPerfSESs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored
+        seconds experienced by the ITU-R since agent reset."
+    ::= { cIdslIturPerfDataEntry 3 }
+
+cIdslIturPerfValidIntervals OBJECT-TYPE
+    SYNTAX      INTEGER (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of previous near-end performance data 15-minute
+        intervals for which data was collected.  The value will be <n>
+        unless the measurement was (re-)started within the last (<n>*15)
+        minutes, in which case the value will be the number of complete
+        15-minute intervals for which the agent has at least some data.
+        In certain cases (e.g., in the case where the agent is a proxy)
+        it is possible that some intervals are unavailable.  In this
+        case, this interval is the maximum interval number for which
+        data is available."
+    ::= { cIdslIturPerfDataEntry 4 }
+
+cIdslIturPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX      INTEGER (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of near-end performance data 15-minute intervals in
+        the range from 0 to cSdslStucPerfValidIntervals for which no
+        data is available. This object will typically be zero except in
+        cases where the data for some intervals are not available (e.g.,
+        in proxy situations)."
+    ::= { cIdslIturPerfDataEntry 5 }
+
+cIdslIturPerfCurr15MinElapsed OBJECT-TYPE
+    SYNTAX      IdslPerfTimeElapsed
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cIdslIturPerfDataEntry 6 }
+
+cIdslIturPerfCurr15MinCVs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the ITU-R in the current 15-minute interval."
+    ::= { cIdslIturPerfDataEntry 7 }
+
+cIdslIturPerfCurr15MinESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-R in the current 15-minute interval."
+    ::= { cIdslIturPerfDataEntry 8 }
+
+cIdslIturPerfCurr15MinSESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-R in the current 15-minute interval."
+    ::= { cIdslIturPerfDataEntry 9 }
+
+cIdslIturPerfCurr1DayElapsed OBJECT-TYPE
+    SYNTAX      IdslPerfTimeElapsed
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cIdslIturPerfDataEntry 10 }
+
+cIdslIturPerfCurr1DayCVs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the ITU-R in the current 1-day interval."
+    ::= { cIdslIturPerfDataEntry 11 }
+
+cIdslIturPerfCurr1DayESs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-R in the current 1-day interval."
+    ::= { cIdslIturPerfDataEntry 12 }
+
+cIdslIturPerfCurr1DaySESs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-R in the current 1-day interval."
+    ::= { cIdslIturPerfDataEntry 13 }
+
+cIdslIturPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX      INTEGER (0..86400)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The amount of time in the previous 1-day interval over which
+        the performance monitoring information is actually counted.
+        This value will be the same as the interval duration except
+        in a situation where performance monitoring data could not be
+        collected for any reason."
+    ::= { cIdslIturPerfDataEntry 14 }
+
+cIdslIturPerfPrev1DayCVs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the ITU-R in the previous 1-day interval."
+    ::= { cIdslIturPerfDataEntry 15 }
+
+cIdslIturPerfPrev1DayESs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-R in the previous 1-day interval."
+    ::= { cIdslIturPerfDataEntry 16 }
+
+cIdslIturPerfPrev1DaySESs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-R in the previous 1-day interval."
+    ::= { cIdslIturPerfDataEntry 17 }
+
+-- IDSL ITU-C Performance Interval Table
+
+cIdslItucIntervalTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslItucIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics intervals for
+        ITU-C class devices supported by the system."
+    ::= { ciscoIdslLineMIBObjects 8 }
+
+cIdslItucIntervalEntry OBJECT-TYPE
+    SYNTAX      CIdslItucIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A 15-miute interval of physical-layer statistics for a ITU-C
+        class device supported by the system.  There exists up to 96
+        entries for each ifEntry with an ifType of idsl(154)."
+    INDEX       { ifIndex, cIdslItucIntervalNumber }
+    ::= { cIdslItucIntervalTable 1 }
+
+CIdslItucIntervalEntry ::= SEQUENCE {
+    cIdslItucIntervalNumber     INTEGER,
+    cIdslItucIntervalValidData  TruthValue,
+    cIdslItucIntervalCVs        PerfIntervalCount,
+    cIdslItucIntervalESs        PerfIntervalCount,
+    cIdslItucIntervalSESs       PerfIntervalCount,
+    cIdslItucIntervalHdlcCVs    PerfIntervalCount,
+    cIdslItucIntervalHdlcAborts PerfIntervalCount,
+    cIdslItucIntervalHdlcAligns PerfIntervalCount,
+    cIdslItucIntervalHdlcShorts PerfIntervalCount,
+    cIdslItucIntervalHdlcLongs  PerfIntervalCount
+}
+
+cIdslItucIntervalNumber OBJECT-TYPE
+    SYNTAX      INTEGER (1..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The interval in which the statistics were collected, where the
+        value of 1 represents the most recent interval, and the value of
+        96 represents the interval collected 24 hours ago.  Intervals
+        2..96 are optional."
+    ::= { cIdslItucIntervalEntry 1 }
+
+cIdslItucIntervalValidData OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the data for this interval
+        is valid."
+    ::= { cIdslItucIntervalEntry 2 }
+
+cIdslItucIntervalCVs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the ITU-C in the interval."
+    ::= { cIdslItucIntervalEntry 3 }
+
+cIdslItucIntervalESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-C in the interval."
+    ::= { cIdslItucIntervalEntry 4 }
+
+cIdslItucIntervalSESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-C in the interval."
+    ::= { cIdslItucIntervalEntry 5 }
+
+cIdslItucIntervalHdlcCVs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC coding violations 
+        experienced by the ITU-C in the interval."
+    ::= { cIdslItucIntervalEntry 6 }
+
+cIdslItucIntervalHdlcAborts OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC aborts experienced
+        by the ITU-C in the interval."
+    ::= { cIdslItucIntervalEntry 7 }
+
+cIdslItucIntervalHdlcAligns OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of HDLC frames received by
+        the ITU-C with a non-integral number of octets in the interval."
+    ::= { cIdslItucIntervalEntry 8 }
+
+cIdslItucIntervalHdlcShorts OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of short HDLC frames received
+        by the ITU-C since agent in the interval.  A short HDLC frame
+        contains less than 5 octets."
+    ::= { cIdslItucIntervalEntry 9 }
+
+cIdslItucIntervalHdlcLongs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of long HDLC frames received
+        by the ITU-C since agent in the interval.  A long HDLC frame
+        contains more than 1500 octets."
+    ::= { cIdslItucIntervalEntry 10 }
+
+-- IDSL ITU-R Performance Interval Table
+
+cIdslIturIntervalTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslIturIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics intervals for
+        ITU-R class devices supported by the system."
+    ::= { ciscoIdslLineMIBObjects 9 }
+
+cIdslIturIntervalEntry OBJECT-TYPE
+    SYNTAX      CIdslIturIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A 15-miute interval of physical-layer statistics for a ITU-R
+        class device supported by the system.  There exists up to 96
+        entries for each ifEntry with an ifType of idsl(154)."
+    INDEX       { ifIndex, cIdslIturIntervalNumber }
+    ::= { cIdslIturIntervalTable 1 }
+
+CIdslIturIntervalEntry ::= SEQUENCE {
+    cIdslIturIntervalNumber     INTEGER,
+    cIdslIturIntervalValidData  TruthValue,
+    cIdslIturIntervalCVs        PerfIntervalCount,
+    cIdslIturIntervalESs        PerfIntervalCount,
+    cIdslIturIntervalSESs       PerfIntervalCount
+}
+
+cIdslIturIntervalNumber OBJECT-TYPE
+    SYNTAX      INTEGER (1..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The interval in which the statistics were collected, where the
+        value of 1 represents the most recent interval, and the value of
+        96 represents the interval collected 24 hours ago.  Intervals
+        2..96 are optional."
+    ::= { cIdslIturIntervalEntry 1 }
+
+cIdslIturIntervalValidData OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the data for this interval
+        is valid."
+    ::= { cIdslIturIntervalEntry 2 }
+
+cIdslIturIntervalCVs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the ITU-R in the interval."
+    ::= { cIdslIturIntervalEntry 3 }
+
+cIdslIturIntervalESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the ITU-R in the interval."
+    ::= { cIdslIturIntervalEntry 4 }
+
+cIdslIturIntervalSESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the ITU-R in the interval."
+    ::= { cIdslIturIntervalEntry 5 }
+
+-- IDSL ITU-C Channel Performance Data Table
+--    A future revision may use ciscoIdslLineMIBObjects.10 for the
+--    purpose of defining the cIdslItucChanPerfDataTable, which will
+--    contain channel related performance data maintained by ITU-C
+--    class devices.
+
+-- IDSL ITU-R Channel Performance Data Table
+--    A future revision may use ciscoIdslLineMIBObjects.11 for the
+--    purpose of defining the cIdslIturChanPerfDataTable, which will
+--    contain channel related performance data maintained by ITU-R
+--    class device.
+
+-- IDSL ITU-C Channel Performance Interval Table
+--    A future revision may use ciscoIdslLineMIBObjects.12 for the
+--    purpose of defining the cIdslItucChanIntervalTable, which will
+--    contain channel related interval data maintained by ITU-C class
+--    device.
+
+-- IDSL ITU-R Channel Performance Interval Table
+--    A future revision may use ciscoIdslLineMIBObjects.13 for the
+--    purpose of defining the cIdslIturChanIntervalTable, which will
+--    contain channel related interval data maintained by ITU-R class
+--    device.
+
+-- IDSL Line Configuration Profile Table
+
+cIdslLineConfProfileTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslLineConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslLineConfProfileTable and contains
+        IDSL line configuration information."
+    ::= { ciscoIdslLineMIBObjects 14 }
+
+cIdslLineConfProfileEntry OBJECT-TYPE
+    SYNTAX      CIdslLineConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A configuration profile containing enterprise-specific IDSL
+        line configuration information."
+    INDEX       { IMPLIED adslLineConfProfileName }
+    ::= { cIdslLineConfProfileTable 1 }
+
+CIdslLineConfProfileEntry ::= SEQUENCE {
+    cIdslLineConfRate           INTEGER,
+    cIdslLineConfProtocol       INTEGER,
+    cIdslLineConfLmiProtocol    INTEGER,
+    cIdslLineConfLmiNetN392     INTEGER,
+    cIdslLineConfLmiNetN393     INTEGER,
+    cIdslLineConfLmiNetT392     INTEGER,
+    cIdslLineConfUpcIntent      INTEGER,
+    cIdslLineConfBcDefault      Integer32
+}
+
+cIdslLineConfRate OBJECT-TYPE
+    SYNTAX      INTEGER {
+       rate144k(1),     -- 144 Kbps
+       rate144kIdl(2),  -- 144 Kbps, IDL format
+       rate128k(3),     -- 128 Kbps
+       rate64k(4),      --  64 Kbps
+       rate56k(5)       --  56 Kbps
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the desired line rate."
+    ::= { cIdslLineConfProfileEntry 1 }
+
+cIdslLineConfProtocol OBJECT-TYPE
+    SYNTAX      INTEGER {
+        frf(1),
+        pppMuxCisco(2),
+        pppMuxIetf(3),
+        pppLlcIetf(4)
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the layer 2 protocol to be employed
+        by the line, and more specifically the encapsulation type:
+        
+        - frf
+            Specifies the frame relay layer 2 protocol defined by
+            FRF.8.  Observe that the encapsulation can be selected
+            per virtual circuit.
+        
+        - pppMuxCisco
+            Specifies the PPP using Cisco proprietary virtual circuit
+            multiplexed encapsulation.
+
+        - pppMuxIetf
+            Specifies the PPP using virtual circuit multiplexed
+            encapsulation defined by RFC-2364.
+
+        - pppLlcIetf
+            Specifies the PPP using the LLC (Link Layer Control)
+            encapsulation defined by RFC-2364."
+    REFERENCE
+        "The Frame Relay Forum, Document FRF.8. Frame Relay/ATM PVC
+        Service Internetworking Implementation Agreement, April 14,
+        1995.
+        
+        IETF RFC-2364. PPP Over AAL5."
+    DEFVAL      { frf }
+    ::= { cIdslLineConfProfileEntry 2 }
+
+cIdslLineConfLmiProtocol OBJECT-TYPE
+    SYNTAX      INTEGER {
+        noLmiConfigured(1),
+        lmiRev1(2),
+        ansiT1617D(3),      -- ANSI T1.617 Annex D
+        ansiT1617B(4),      -- ANSI T1.617 Annex B
+        itut933A(5),        -- CCITT Q933 Annex A
+        ansiT1617D1994(6)   -- ANSI T1.617a-1994 Annex D
+        }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the local inband signaling protocol."
+    REFERENCE
+        "ANSI T1.617-1991.  Integrated Services Digital Network (ISDN) -
+        Signaling Specification for Frame Relay Bearer Service for
+        Digital Subscriber Signaling System Number 1 (DSS1).
+        
+        ANSI T1.617-1994.  Integrated Services Digital Network (ISDN) -
+        Signaling Specification for Frame Relay Bearer Service for
+        Digital Subscriber Signaling System Number 1 (DSS1).
+        
+        ITU-T Q.933 10/95.  Integrated Services Digital Network (ISDN)
+        Digital Subscriber Signaling System No. 1 (DSS 1) - Signaling
+        Specifications for Frame Mode Switched and Permanent Virtual
+        Connection Control and Status Monitoring."
+    DEFVAL      { noLmiConfigured }
+    ::= { cIdslLineConfProfileEntry 3 }
+
+cIdslLineConfLmiNetN392 OBJECT-TYPE
+    SYNTAX      INTEGER (1..10)
+    UNITS       "seconds"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the interval between successive status
+        enquiry messages."
+    REFERENCE
+        "ANSI T1.617-1991.  Integrated Services Digital Network (ISDN) -
+        Signaling Specification for Frame Relay Bearer Service for
+        Digital Subscriber Signaling System Number 1 (DSS1)."
+    DEFVAL      { 2 }
+    ::= { cIdslLineConfProfileEntry 4 }
+
+cIdslLineConfLmiNetN393 OBJECT-TYPE
+    SYNTAX      INTEGER (1..10)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the value of the network-side error
+        threshold."
+    REFERENCE
+        "ANSI T1.617-1991.  Integrated Services Digital Network (ISDN) -
+        Signaling Specification for Frame Relay Bearer Service for
+        Digital Subscriber Signaling System Number 1 (DSS1)."
+    DEFVAL      { 2 }
+    ::= { cIdslLineConfProfileEntry 5 }
+
+cIdslLineConfLmiNetT392 OBJECT-TYPE
+    SYNTAX      INTEGER (5..30)
+    UNITS       "seconds"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the value of the network-side polling
+        verification timer."
+    ::= { cIdslLineConfProfileEntry 6 }
+
+cIdslLineConfUpcIntent OBJECT-TYPE
+    SYNTAX      INTEGER {
+        pass(1),
+        tagDrop(2),
+        tag(3),
+        drop(4)
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the default UPC (Usage Parameter Control)
+        action for connections that do not explicitly specify a UPC
+        action."
+    DEFVAL      { pass }
+    ::= { cIdslLineConfProfileEntry 7 }
+
+cIdslLineConfBcDefault OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the default BC (Committed Burst Size)
+        for connections that do not explicitly specify a BC."
+    REFERENCE
+        "Section 6.5.19, 'Link Layer Parameters', ANSI T1.617-1991.
+        Integrated Services Digital Network (ISDN) - Signaling
+        Specification for Frame Relay Bearer Service for Digital
+        Subscriber Signaling System Number 1 (DSS1)."
+    DEFVAL      { 0 }
+    ::= { cIdslLineConfProfileEntry 8 }
+
+-- IDSL Line Alarm Configuration Profile Table
+--    A future revision may use ciscoIdslLineMIBObjects.15 for the
+--    purpose of defining the cIdslLineAlarmConfProfileTable, which
+--    will contain IDSL line alarm configuration information.
+
+-- IDSL PPPoA Performance Data Table
+
+cIdslPppoaPerfDataTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslPppoaPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains PPPoA statistics for those ITU-C class
+        devices configured for PPP operation."
+    ::= { ciscoIdslLineMIBObjects 16 }
+
+cIdslPppoaPerfDataEntry OBJECT-TYPE
+    SYNTAX      CIdslPppoaPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of PPPoA statistics for an ITU-C class device configured
+        for PPP operation.  There exists an entry for each ifEntry that
+        meet the following criteria:
+        
+        1)  The ifEntry has an ifType of idsl(154);
+        
+        2)  The profile associated with the ITU-C class device specifies
+            a value of 'ppp' for the cIdslLineProtocol object."
+    INDEX       { ifIndex }
+    ::= { cIdslPppoaPerfDataTable 1 }
+
+CIdslPppoaPerfDataEntry ::= SEQUENCE {
+    cIdslPppoaPerfRTOs                  Counter32,
+    cIdslPppoaPerfCVs                   Counter32,
+    cIdslPppoaPerfShorts                Counter32,
+    cIdslPppoaPerfLongs                 Counter32,
+    cIdslPppoaPerfDiscards              Counter32,
+    cIdslPppoaPerfValidIntervals        INTEGER,
+    cIdslPppoaPerfInvalidIntervals      INTEGER,
+    cIdslPppoaPerfCurr15MinElapsed      IdslPerfTimeElapsed,
+    cIdslPppoaPerfCurr15MinRTOs         PerfCurrentCount,
+    cIdslPppoaPerfCurr15MinCVs          PerfCurrentCount,
+    cIdslPppoaPerfCurr15MinShorts       PerfCurrentCount,
+    cIdslPppoaPerfCurr15MinLongs        PerfCurrentCount,
+    cIdslPppoaPerfCurr15MinDiscards     PerfCurrentCount,
+    cIdslPppoaPerfCurr1DayElapsed       IdslPerfTimeElapsed,
+    cIdslPppoaPerfCurr1DayRTOs          IdslPerfCurrDayCount,
+    cIdslPppoaPerfCurr1DayCVs           IdslPerfCurrDayCount,
+    cIdslPppoaPerfCurr1DayShorts        IdslPerfCurrDayCount,
+    cIdslPppoaPerfCurr1DayLongs         IdslPerfCurrDayCount,
+    cIdslPppoaPerfCurr1DayDiscards      IdslPerfCurrDayCount,
+    cIdslPppoaPerfPrev1DayMoniSecs      INTEGER,
+    cIdslPppoaPerfPrev1DayRTOs          IdslPerfPrevDayCount,
+    cIdslPppoaPerfPrev1DayCVs           IdslPerfPrevDayCount,
+    cIdslPppoaPerfPrev1DayShorts        IdslPerfPrevDayCount,
+    cIdslPppoaPerfPrev1DayLongs         IdslPerfPrevDayCount,
+    cIdslPppoaPerfPrev1DayDiscards      IdslPerfPrevDayCount
+}
+
+cIdslPppoaPerfRTOs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of frames that could not be
+        completely reassembled due to a reassembly timeout before being
+        transmitted over this PPP session since agent reset."
+    ::= { cIdslPppoaPerfDataEntry 1 }
+
+cIdslPppoaPerfCVs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session exhibiting a coding
+        violation since agent reset."
+    ::= { cIdslPppoaPerfDataEntry 2 }
+
+cIdslPppoaPerfShorts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing less than
+        5 octets since agent reset."
+    ::= { cIdslPppoaPerfDataEntry 3 }
+
+cIdslPppoaPerfLongs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing more than
+        1500 octets since agent reset."
+    ::= { cIdslPppoaPerfDataEntry 4 }
+
+cIdslPppoaPerfDiscards OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the total number of frames intended for
+        transmission over this PPP session that were discarded for any
+        reason since agent reset."
+    ::= { cIdslPppoaPerfDataEntry 5 }
+
+cIdslPppoaPerfValidIntervals OBJECT-TYPE
+    SYNTAX      INTEGER (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of previous near-end performance data 15-minute
+        intervals for which data was collected.  The value will be <n>
+        unless the measurement was (re-)started within the last (<n>*15)
+        minutes, in which case the value will be the number of complete
+        15-minute intervals for which the agent has at least some data.
+        In certain cases (e.g., in the case where the agent is a proxy)
+        it is possible that some intervals are unavailable.  In this
+        case, this interval is the maximum interval number for which
+        data is available."
+    ::= { cIdslPppoaPerfDataEntry 6 }
+
+cIdslPppoaPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX      INTEGER (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of near-end performance data 15-minute intervals in
+        the range from 0 to cSdslStucPerfValidIntervals for which no
+        data is available. This object will typically be zero except in
+        cases where the data for some intervals are not available (e.g.,
+        in proxy situations)."
+    ::= { cIdslPppoaPerfDataEntry 7 }
+
+cIdslPppoaPerfCurr15MinElapsed OBJECT-TYPE
+    SYNTAX      IdslPerfTimeElapsed
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cIdslPppoaPerfDataEntry 8 }
+
+cIdslPppoaPerfCurr15MinRTOs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of frames that could not be
+        completely reassembled due to a reassembly timeout before being
+        transmitted over this PPP session in the current 15-minute
+        interval."
+    ::= { cIdslPppoaPerfDataEntry 9 }
+
+cIdslPppoaPerfCurr15MinCVs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session exhibiting a coding
+        violation in the current 15-minute interval."
+    ::= { cIdslPppoaPerfDataEntry 10 }
+
+cIdslPppoaPerfCurr15MinShorts OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing less than
+        5 octets in the current 15-minute interval."
+    ::= { cIdslPppoaPerfDataEntry 11 }
+
+cIdslPppoaPerfCurr15MinLongs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing more than
+        1500 octets in the current 15-minute interval."
+    ::= { cIdslPppoaPerfDataEntry 12 }
+
+cIdslPppoaPerfCurr15MinDiscards OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the total number of frames intended for
+        transmission over this PPP session that were discarded for any
+        reason in the current 15-minute interval."
+    ::= { cIdslPppoaPerfDataEntry 13 }
+
+cIdslPppoaPerfCurr1DayElapsed OBJECT-TYPE
+    SYNTAX      IdslPerfTimeElapsed
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cIdslPppoaPerfDataEntry 14 }
+
+cIdslPppoaPerfCurr1DayRTOs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of frames that could not be
+        completely reassembled due to a reassembly timeout before being
+        transmitted over this PPP session in the current 1-day
+        interval."
+    ::= { cIdslPppoaPerfDataEntry 15 }
+
+cIdslPppoaPerfCurr1DayCVs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session exhibiting a coding
+        violation in the current 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 16 }
+
+cIdslPppoaPerfCurr1DayShorts OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing less than
+        5 octets in the current 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 17 }
+
+cIdslPppoaPerfCurr1DayLongs OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing more than
+        1500 octets in the current 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 18 }
+
+cIdslPppoaPerfCurr1DayDiscards OBJECT-TYPE
+    SYNTAX      IdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the total number of frames intended for
+        transmission over this PPP session that were discarded for any
+        reason in the current 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 19 }
+
+cIdslPppoaPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX      INTEGER  (0..86400)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The amount of time in the previous 1-day interval over which
+        the performance monitoring information is actually counted.
+        This value will be the same as the interval duration except
+        in a situation where performance monitoring data could not be
+        collected for any reason."
+    ::= { cIdslPppoaPerfDataEntry 20 }
+
+cIdslPppoaPerfPrev1DayRTOs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of frames that could not be
+        completely reassembled due to a reassembly timeout before being
+        transmitted over this PPP session in the previous 1-day
+        interval."
+    ::= { cIdslPppoaPerfDataEntry 21 }
+
+cIdslPppoaPerfPrev1DayCVs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session exhibiting a coding
+        violation in the previous 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 22 }
+
+cIdslPppoaPerfPrev1DayShorts OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing less than
+        5 octets in the previous 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 23 }
+
+cIdslPppoaPerfPrev1DayLongs OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing more than
+        1500 octets in the previous 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 24 }
+
+cIdslPppoaPerfPrev1DayDiscards OBJECT-TYPE
+    SYNTAX      IdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the total number of frames intended for
+        transmission over this PPP session that were discarded for any
+        reason in the previous 1-day interval."
+    ::= { cIdslPppoaPerfDataEntry 25 }
+
+-- IDSL PPPoA Performance Interval Table
+
+cIdslPppoaIntervalTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslPppoaIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains PPPoA statistics intervals for those ITU-C
+        class devices configured for PPP operation."
+    ::= { ciscoIdslLineMIBObjects 17 }
+
+cIdslPppoaIntervalEntry OBJECT-TYPE
+    SYNTAX      CIdslPppoaIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A 15-minute interval of PPPoA statistics intervals for a ITU-C
+        class device configured for PPP operation.  There exists up to
+        96 entries for each ifEntry that meets the following criteria:
+        
+        1)  The ifEntry has an ifType of idsl(154);
+        
+        2)  The profile associated with the ITU-C class device specifies
+            a value of 'ppp' for the cIdslLineProtocol object."
+    INDEX       { ifIndex, cIdslPppoaIntervalNumber }
+    ::= { cIdslPppoaIntervalTable 1 }
+
+CIdslPppoaIntervalEntry ::= SEQUENCE {
+    cIdslPppoaIntervalNumber             INTEGER,
+    cIdslPppoaIntervalValidData          TruthValue,
+    cIdslPppoaIntervalRTOs              PerfIntervalCount,
+    cIdslPppoaIntervalCVs               PerfIntervalCount,
+    cIdslPppoaIntervalShorts            PerfIntervalCount,
+    cIdslPppoaIntervalLongs             PerfIntervalCount,
+    cIdslPppoaIntervalDiscards          PerfIntervalCount
+}
+
+cIdslPppoaIntervalNumber OBJECT-TYPE
+    SYNTAX      INTEGER (1..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The interval in which the statistics were collected, where the
+        value of 1 represents the most recent interval, and the value of
+        96 represents the interval collected 24 hours ago.  Intervals
+        2..96 are optional."
+    ::= { cIdslPppoaIntervalEntry 1 }
+
+cIdslPppoaIntervalValidData OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the data for this interval
+        is valid."
+    ::= { cIdslPppoaIntervalEntry 2 }
+
+cIdslPppoaIntervalRTOs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of frames that could not be
+        completely reassembled due to a reassembly timeout before being
+        transmitted over this PPP session in the interval."
+    ::= { cIdslPppoaIntervalEntry 3 }
+
+cIdslPppoaIntervalCVs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session exhibiting a coding
+        violation in the interval."
+    ::= { cIdslPppoaIntervalEntry 4 }
+
+cIdslPppoaIntervalShorts OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing less than
+        5 octets in the interval."
+    ::= { cIdslPppoaIntervalEntry 5 }
+
+cIdslPppoaIntervalLongs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of reassembled frames intended
+        for transmission over this PPP session containing more than
+        1500 octets in the interval."
+    ::= { cIdslPppoaIntervalEntry 6 }
+
+cIdslPppoaIntervalDiscards OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the total number of frames intended for
+        transmission over this PPP session that were discarded for any
+        reason in the interval."
+    ::= { cIdslPppoaIntervalEntry 7 }
+
+-- IDSL PPPoA VC Mapping Table
+
+cIdslPppoaMapTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIdslPppoaMapEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table defines the mapping between PPP sessions and
+        ATM VC."
+    ::= { ciscoIdslLineMIBObjects 18 }
+
+cIdslPppoaMapEntry OBJECT-TYPE
+    SYNTAX      CIdslPppoaMapEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A mapping between a PPP session and an ATM VC.  There exists an
+        entry for each ifEntry that meet the following criteria:
+        
+        1)  The ifEntry has an ifType of idsl(154);
+        
+        2)  The profile associated with the ITU-C class device specifies
+            a value of 'ppp' for the cIdslLineProtocol object."
+    INDEX       { ifIndex }
+    ::= { cIdslPppoaMapTable 1 }
+
+CIdslPppoaMapEntry ::= SEQUENCE {
+    cIdslPppoaMapIfIndex    InterfaceIndex,
+    cIdslPppoaMapVpi        INTEGER,
+    cIdslPppoaMapVci        INTEGER
+}
+
+cIdslPppoaMapIfIndex OBJECT-TYPE
+    SYNTAX      InterfaceIndex
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The ifIndex associated with the pseudo-ATM interface 
+        onto which the IDSL interface is being mapped."
+    ::= { cIdslPppoaMapEntry 1 }
+
+cIdslPppoaMapVpi OBJECT-TYPE
+    SYNTAX      INTEGER (0..4095)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The VPI (Virtual Path Identifier) associated with the ATM
+        VCL onto which the PPP session is being mapped."
+    ::= { cIdslPppoaMapEntry 2 }
+
+cIdslPppoaMapVci OBJECT-TYPE
+    SYNTAX      INTEGER (0..65535)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The VCI (Virtual Circuit Identifier) associated with the
+        ATM VCL onto which the PPP session is being mapped."
+    ::= { cIdslPppoaMapEntry 3 }
+
+-- MIB Notification Definitions
+
+ciscoIdslLineMIBNotificationsPrefix OBJECT IDENTIFIER
+    ::= { ciscoIdslLineMIB 2 }
+
+ciscoIdslLineMIBNotifications OBJECT IDENTIFIER
+    ::= { ciscoIdslLineMIBNotificationsPrefix 0 }
+
+-- MIB Conformance Statements
+
+ciscoIdslLineMIBConformance OBJECT IDENTIFIER
+    ::= { ciscoIdslLineMIB 3 }
+
+ciscoIdslLineMIBCompliances OBJECT IDENTIFIER
+    ::= { ciscoIdslLineMIBConformance 1 }
+
+ciscoIdslLineMIBGroups OBJECT IDENTIFIER
+    ::= { ciscoIdslLineMIBConformance 2 }
+
+-- Compliance
+
+ciscoIdslLineMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for entities that implement the
+        CISCO-IDSL-LINE-MIB.  Implementation of this MIB is mandatory
+        for any platform that supports one or more IDSL line
+        interfaces."
+
+    MODULE -- this module
+        MANDATORY-GROUPS {
+            cIdslBasicGroup
+        }
+
+    GROUP       cIdslPM15MinIntervalGroup
+    DESCRIPTION
+        "The implementation of this group is optional."
+    ::= { ciscoIdslLineMIBCompliances 1 }
+
+-- Units of Conformance
+
+cIdslBasicGroup OBJECT-GROUP
+    OBJECTS {
+        cIdslLineSpecific,
+        cIdslLineConfProfile,
+        cIdslLineAlarmConfProfile,
+        cIdslItucInvSerialNumber,
+        cIdslItucInvVendorId,
+        cIdslItucInvVersionNumber,
+        cIdslItucStatus,
+        cIdslItucPerfCVs,
+        cIdslItucPerfESs,
+        cIdslItucPerfSESs,
+        cIdslItucPerfHdlcCVs,
+        cIdslItucPerfHdlcAborts,
+        cIdslItucPerfHdlcAligns,
+        cIdslItucPerfHdlcShorts,
+        cIdslItucPerfHdlcLongs,
+        cIdslIturPerfCVs,
+        cIdslIturPerfESs,
+        cIdslIturPerfSESs,
+        cIdslLineConfRate,
+        cIdslLineConfProtocol,
+        cIdslLineConfLmiProtocol,
+        cIdslLineConfLmiNetN392,
+        cIdslLineConfLmiNetN393,
+        cIdslLineConfLmiNetT392,
+        cIdslLineConfUpcIntent,
+        cIdslLineConfBcDefault,
+        cIdslPppoaPerfRTOs,
+        cIdslPppoaPerfCVs,
+        cIdslPppoaPerfShorts,
+        cIdslPppoaPerfLongs,
+        cIdslPppoaPerfDiscards,
+        cIdslPppoaMapIfIndex,
+        cIdslPppoaMapVpi,
+        cIdslPppoaMapVci
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the basic operation
+        of an IDSL line."
+    ::= { ciscoIdslLineMIBGroups 1 }
+
+cIdslPM15MinIntervalGroup OBJECT-GROUP
+    OBJECTS {
+        cIdslItucPerfValidIntervals,
+        cIdslItucPerfInvalidIntervals,
+        cIdslItucPerfCurr15MinElapsed,
+        cIdslItucPerfCurr15MinCVs,
+        cIdslItucPerfCurr15MinESs,
+        cIdslItucPerfCurr15MinSESs,
+        cIdslItucPerfCurr15MinHdlcCVs,
+        cIdslItucPerfCurr15MinHdlcAborts,
+        cIdslItucPerfCurr15MinHdlcAligns,
+        cIdslItucPerfCurr15MinHdlcShorts,
+        cIdslItucPerfCurr15MinHdlcLongs,
+        cIdslItucPerfCurr1DayElapsed,
+        cIdslItucPerfCurr1DayCVs,
+        cIdslItucPerfCurr1DayESs,
+        cIdslItucPerfCurr1DaySESs,
+        cIdslItucPerfCurr1DayHdlcCVs,
+        cIdslItucPerfCurr1DayHdlcAborts,
+        cIdslItucPerfCurr1DayHdlcAligns,
+        cIdslItucPerfCurr1DayHdlcShorts,
+        cIdslItucPerfCurr1DayHdlcLongs,
+        cIdslItucPerfPrev1DayMoniSecs,
+        cIdslItucPerfPrev1DayCVs,
+        cIdslItucPerfPrev1DayESs,
+        cIdslItucPerfPrev1DaySESs,
+        cIdslItucPerfPrev1DayHdlcCVs,
+        cIdslItucPerfPrev1DayHdlcAborts,
+        cIdslItucPerfPrev1DayHdlcAligns,
+        cIdslItucPerfPrev1DayHdlcShorts,
+        cIdslItucPerfPrev1DayHdlcLongs,
+        cIdslIturPerfValidIntervals,
+        cIdslIturPerfInvalidIntervals,
+        cIdslIturPerfCurr15MinElapsed,
+        cIdslIturPerfCurr15MinCVs,
+        cIdslIturPerfCurr15MinESs,
+        cIdslIturPerfCurr15MinSESs,
+        cIdslIturPerfCurr1DayElapsed,
+        cIdslIturPerfCurr1DayCVs,
+        cIdslIturPerfCurr1DayESs,
+        cIdslIturPerfCurr1DaySESs,
+        cIdslIturPerfPrev1DayMoniSecs,
+        cIdslIturPerfPrev1DayCVs,
+        cIdslIturPerfPrev1DayESs,
+        cIdslIturPerfPrev1DaySESs,
+        cIdslItucIntervalNumber,
+        cIdslItucIntervalValidData,
+        cIdslItucIntervalCVs,
+        cIdslItucIntervalESs,
+        cIdslItucIntervalSESs,
+        cIdslItucIntervalHdlcCVs,
+        cIdslItucIntervalHdlcAborts,
+        cIdslItucIntervalHdlcAligns,
+        cIdslItucIntervalHdlcShorts,
+        cIdslItucIntervalHdlcLongs,
+        cIdslIturIntervalNumber,
+        cIdslIturIntervalValidData,
+        cIdslIturIntervalCVs,
+        cIdslIturIntervalESs,
+        cIdslIturIntervalSESs,
+        cIdslPppoaPerfValidIntervals,
+        cIdslPppoaPerfInvalidIntervals,
+        cIdslPppoaPerfCurr15MinElapsed,
+        cIdslPppoaPerfCurr15MinRTOs,
+        cIdslPppoaPerfCurr15MinCVs,
+        cIdslPppoaPerfCurr15MinShorts,
+        cIdslPppoaPerfCurr15MinLongs,
+        cIdslPppoaPerfCurr15MinDiscards,
+        cIdslPppoaPerfCurr1DayElapsed,
+        cIdslPppoaPerfCurr1DayRTOs,
+        cIdslPppoaPerfCurr1DayCVs,
+        cIdslPppoaPerfCurr1DayShorts,
+        cIdslPppoaPerfCurr1DayLongs,
+        cIdslPppoaPerfCurr1DayDiscards,
+        cIdslPppoaPerfPrev1DayMoniSecs,
+        cIdslPppoaPerfPrev1DayRTOs,
+        cIdslPppoaPerfPrev1DayCVs,
+        cIdslPppoaPerfPrev1DayShorts,
+        cIdslPppoaPerfPrev1DayLongs,
+        cIdslPppoaPerfPrev1DayDiscards,
+        cIdslPppoaIntervalNumber,
+        cIdslPppoaIntervalValidData,
+        cIdslPppoaIntervalRTOs,
+        cIdslPppoaIntervalCVs,
+        cIdslPppoaIntervalShorts,
+        cIdslPppoaIntervalLongs,
+        cIdslPppoaIntervalDiscards
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining performance data
+        collection capability using 15-minute intervals."
+    ::= { ciscoIdslLineMIBGroups 2 }
+
+END

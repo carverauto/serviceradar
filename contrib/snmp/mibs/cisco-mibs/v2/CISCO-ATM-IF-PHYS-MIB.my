@@ -1,0 +1,640 @@
+-- Subset of SONET and DS3/E3 and DS1/E1 MIBs for Rhino project
+--
+-- December 1995, C. Yadavalli
+--
+-- Copyright (c) 1996-1997 by cisco Systems, Inc.
+-- All rights reserved.
+-- --------------------------------------------------------------------
+--
+CISCO-ATM-IF-PHYS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Counter32,
+    OBJECT-TYPE                      FROM SNMPv2-SMI
+    ifIndex                          FROM RFC1213-MIB
+    ciscoMgmt                        FROM CISCO-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP  FROM SNMPv2-CONF;
+
+
+ciscoAtmIfPhysMIB MODULE-IDENTITY
+    LAST-UPDATED    "9609190000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-atm@cisco.com"
+    DESCRIPTION
+            "A minimal set of managed objects for tracking
+            the status of DS3/E3/DS1/E1 and SONET interfaces."
+    REVISION        "9609190000Z"
+    DESCRIPTION
+            "Added DS1/E1 stuff."
+    REVISION        "9608080000Z"
+    DESCRIPTION
+            "Added network clock source configuration and
+             other physical layer configuration."
+    REVISION        "9512020000Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+    ::= { ciscoMgmt 45 }
+
+ciscoAtmIfPhysMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmIfPhysMIB 1 }
+
+ciscoAtmIfPhysTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CiscoAtmIfPhysEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "A table containing basic status and statistics for
+            the physical layer of ATM interfaces."
+    ::= { ciscoAtmIfPhysMIBObjects 1 }
+
+ciscoAtmIfPhysEntry OBJECT-TYPE
+    SYNTAX     CiscoAtmIfPhysEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Basic status and statistics for the physical layer of
+            an ATM interface."
+    INDEX { ifIndex }
+    ::= { ciscoAtmIfPhysTable 1 }
+
+CiscoAtmIfPhysEntry ::=
+    SEQUENCE {
+            ciscoAtmIfPhysStatus               INTEGER,
+            ciscoAtmIfPhysSectionParityErrors  Counter32,
+            ciscoAtmIfPhysLineParityErrors     Counter32,
+            ciscoAtmIfPhysPathParityErrors     Counter32,
+            ciscoAtmIfPhysLcvErrors            Counter32,
+            ciscoAtmIfPhysCBitParityErrors     Counter32,
+            ciscoAtmIfPhysPBitParityErrors     Counter32,
+            ciscoAtmIfPhysPlcpBipViolations    Counter32,
+            ciscoAtmIfPhysLineFebeErrors       Counter32,
+            ciscoAtmIfPhysPathFebeErrors       Counter32,
+            ciscoAtmIfPhysCellPayloadScrambling INTEGER,
+            ciscoAtmIfPhysStsStreamScrambling  INTEGER,
+            ciscoAtmIfPhysFramingMode          INTEGER,
+            ciscoAtmIfPhysLoopbackConfig       INTEGER,
+            ciscoAtmIfPhysLineBuildOut         INTEGER,
+            ciscoAtmIfPhysTransmitClockSource  INTEGER,
+            ciscoAtmIfPhysClockSourcePriority  INTEGER,
+            ciscoAtmIfPhysClockSourceStatus    INTEGER,
+            ciscoAtmIfPhysDS1BitErrors         Counter32,
+            ciscoAtmIfPhysE1CrcErrors          Counter32,
+            ciscoAtmIfPhysLineCode             INTEGER
+    }
+
+ciscoAtmIfPhysStatus OBJECT-TYPE
+    SYNTAX        INTEGER {
+                      normal(1),
+                      los(2),
+                      lof(3),
+                      loc(4),
+                      ais(5),
+                      yellowLine(6),
+                      yellowPath(7),
+                      lop(8),
+                      idle(9),
+                      yellowAlarm(10),
+                      plcpLOF(11),
+                      plcpYellow(12),
+                      maFERF(13),
+                      pathAis(14),
+                      ocd(15)
+                  }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The status of the physical interface.  The value of this
+              object is only valid when the interface's ifAdminStatus
+              has the value 'up'.  Note that some of the enumerated
+              values are specific to a particular physical layer."
+    ::= { ciscoAtmIfPhysEntry 1 }
+
+ciscoAtmIfPhysSectionParityErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of B1 (BIP) errors on the physical interface.
+              This object is only present for SONET interfaces."
+    ::= { ciscoAtmIfPhysEntry 2 }
+
+ciscoAtmIfPhysLineParityErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of B2 (BIP) errors on the physical interface.
+              This object is only present for SONET interfaces."
+    ::= { ciscoAtmIfPhysEntry 3 }
+
+ciscoAtmIfPhysPathParityErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of B3 (BIP) errors on the physical interface.
+              This object is only present for SONET interfaces."
+    ::= { ciscoAtmIfPhysEntry 4 }
+
+ciscoAtmIfPhysLcvErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of Line Code Violation errors on the physical
+              interface. This object is only present for DS3/E3/DS1/E1
+              interfaces."
+    ::= { ciscoAtmIfPhysEntry 5 }
+
+ciscoAtmIfPhysCBitParityErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of C-bit parity violations on the physical
+              interface.  This object is only present for DS3
+              interfaces."
+    ::= { ciscoAtmIfPhysEntry 6 }
+
+ciscoAtmIfPhysPBitParityErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of P-bit parity violations or E3 G.832 BIP-8
+               errors on the physical
+              interface.  This object is present only for DS3/E3
+              interfaces."
+    ::= { ciscoAtmIfPhysEntry 7 }
+
+ciscoAtmIfPhysPlcpBipViolations OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of PLCP BIP violations on the physical
+              interface.  This object is only present for DS3/E3/DS1/E1
+              interfaces."
+    ::= { ciscoAtmIfPhysEntry 8 }
+
+ciscoAtmIfPhysLineFebeErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of Z2 (Line FEBE) errors on the physical interface.
+              This object is only present for SONET interfaces."
+    ::= { ciscoAtmIfPhysEntry 9 }
+
+ciscoAtmIfPhysPathFebeErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of G1 (Path FEBE) errors on the physical interface.
+              This object is only present for SONET interfaces."
+    ::= { ciscoAtmIfPhysEntry 10 }
+
+ciscoAtmIfPhysCellPayloadScrambling OBJECT-TYPE
+    SYNTAX        INTEGER { off(1),
+                            on(2) }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The status of whether cell payload scrambling is
+              enabled or disabled on the physical interface."
+    ::= { ciscoAtmIfPhysEntry 11 }
+
+ciscoAtmIfPhysStsStreamScrambling OBJECT-TYPE
+    SYNTAX        INTEGER { off(1),
+                            on(2) }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The status of whether STS-stream scrambling is
+              enabled or disabled on the physical interface."
+    ::= { ciscoAtmIfPhysEntry 12 }
+
+ciscoAtmIfPhysFramingMode OBJECT-TYPE
+    SYNTAX        INTEGER { sonet(1),
+                            sdh(2),
+                            ds3m23adm(3),
+                            ds3m23plcp(4),
+                            ds3cbitadm(5),
+                            ds3cbitplcp(6),
+                            e3g832adm(7), 
+                            e3g751adm(8), 
+                            e3g751plcp(9),
+                            ds1sfadm(10),
+                            ds1esfadm(11),
+                            ds1sfplcp(12),
+                            ds1esfplcp(13),
+                            e1adm(14),
+                            e1plcp(15),
+                            e1crcadm(16),
+                            e1crcplcp(17)}
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The framing format present on the physical interface.
+
+               'sonet' indicates sts-3c or sts-12c format and applies only
+              to OC-3 and OC-12 type interfaces, respectively.
+
+               'sdh' indicates stm1 or stm4 format and applies only to
+              OC-3 and OC-12 type interfaces, respectively.
+ 
+               'ds3m23adm' indicates M23 ADM mode and applies only to DS3
+              type interfaces.
+
+               'ds3m23plcp' indicates M23 PLCP mode and applies only to DS3
+              type interfaces.
+
+               'ds3cbitadm' indicates C-BIT ADM mode and applies only to DS3
+              type interfaces.
+
+               'ds3cbitplcp' indicates C-BIT PLCP mode and applies only to DS3
+              type interfaces.
+
+               'e3g832adm' indicates G.832 ADM mode and applies only to E3
+              type interfaces.
+
+               'e3g751adm' indicates G.751 ADM mode and applies only to E3
+              type interfaces.
+
+               'e3g751plcp' indicates G.751 PLCP mode and applies only to E3
+              type interfaces.
+
+               'ds1sfadm' indicates DS1 SF ADM mode and applies only to DS1
+              type interfaces.
+
+               'ds1esfadm' indicates DS1 ESF ADM mode and applies only to DS1
+              type interfaces.
+
+               'ds1sfplcp' indicates DS1 SF PLCP mode and applies only to DS1
+              type interfaces.
+
+               'ds1esfplcp' indicates DS1 ESF PLCP mode and applies only to DS1
+              type interfaces.
+
+               'e1adm' indicates E1 ADM mode and applies only to E1
+              type interfaces.
+
+               'e1plcp' indicates E1 PLCP mode and applies only to E1
+              type interfaces.
+
+               'e1crcadm' indicates E1 CRC-4 ADM mode and applies only to E1
+              type interfaces.
+
+               'e1crcplcp' indicates E1 CRC-4 PLCP mode and applies only to E1
+              type interfaces."
+    ::= { ciscoAtmIfPhysEntry 13 }
+
+ciscoAtmIfPhysLoopbackConfig OBJECT-TYPE
+    SYNTAX        INTEGER { noLoop(1),
+                            diagnosticLoop(2),
+                            lineLoop(3),
+                            otherLoop(4) }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The loopback configured on the physical interface:
+
+               'noLoop' indicates no loopback is present.
+
+               'diagnosticLoop' indicates transmit data stream is
+              looped to the receive direction.
+
+               'lineLoop' indicates receive data stream is
+              looped to the transmit direction.
+
+               'otherLoop' indicates loopbacks that are not defined here.  "
+    ::= { ciscoAtmIfPhysEntry 14 }
+
+ciscoAtmIfPhysLineBuildOut OBJECT-TYPE
+    SYNTAX        INTEGER { e3AllCables(1),
+                            ds3CablesUnder225(2),
+                            ds3CablesOver225(3),
+                            ds1Cables0To110(4),
+                            ds1Cables110To220(5),
+                            ds1Cables220To330(6),
+                            ds1Cables330To440(7),
+                            ds1Cables440To550(8),
+                            ds1Cables550To660(9),
+                            ds1CablesOver600(10),
+                            e1AllCables(11) }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The line buildout configured on the transmit signal:
+
+               'e3AllCables' applies to all cables of E3 physical
+              interfaces.
+
+               'ds3CablesUnder225' applies to cables under 225 feet of
+              DS3 physical interfaces.
+
+               'ds3CablesOver225' applies to cables over 225 feet of
+              DS3 physical interfaces.
+
+               'ds1Cables0To110' applies to cables 0 to 110 feet of
+              DS1 physical interfaces.
+
+               'ds1Cables110To220' applies to cables 110 to 220 feet of
+              DS1 physical interfaces.
+
+               'ds1Cables220To330' applies to cables 220 to 330 feet of
+              DS1 physical interfaces.
+
+               'ds1Cables330To440' applies to cables 330 to 440 feet of
+              DS1 physical interfaces.
+
+               'ds1Cables440To550' applies to cables 440 to 550 feet of
+              DS1 physical interfaces.
+
+               'ds1Cables550To660' applies to cables 550 to 660 feet of
+              DS1 physical interfaces.
+
+               'ds1CablesOver600' applies to cables over 600 feet of
+              DS1 physical interfaces.
+
+               'e1AllCables' applies to all cables of
+              E1 physical interfaces.  "
+    ::= { ciscoAtmIfPhysEntry 15 }
+
+ciscoAtmIfPhysTransmitClockSource OBJECT-TYPE
+    SYNTAX        INTEGER { loopTiming(1),
+                            freeRunning(2),
+                            networkDerived(3) }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The source of the tranmit clock:
+
+               'loopTiming' indicates that the recovered receive
+              clock is used as the transmit clock.
+
+               'freeRunning' indicates that a local clock source is
+              used.
+
+               'networkDerived' indicates that recovered receive
+              clock from another interface is used as the transmit
+              clock source.  "
+    ::= { ciscoAtmIfPhysEntry 16 }
+
+ciscoAtmIfPhysClockSourcePriority OBJECT-TYPE
+    SYNTAX        INTEGER { notConfigured(1),
+                            priority1(2),
+                            priority2(3),
+                            priority3(4),
+                            priority4(5) }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The priority of this interface if configured as
+              a network clock source.
+
+               'notConfigured' indicates this is not configured as
+              a network clock source.  "
+    ::= { ciscoAtmIfPhysEntry 17 }
+
+ciscoAtmIfPhysClockSourceStatus OBJECT-TYPE
+    SYNTAX        INTEGER { notSelected(1),
+                            selected(2) }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The network clock source status of this interface:
+
+               'notSelected' indicates this is not selected as the
+              network clock source.
+
+               'selected' indicates this is selected as the
+              network clock source.  "
+    ::= { ciscoAtmIfPhysEntry 18 }
+
+ciscoAtmIfPhysDS1BitErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of bit errors (CRC-6 error in ESF mode and
+               framing bit error in SF mode) on the physical
+              interface.  This object is only present for DS1
+              interfaces."
+    ::= { ciscoAtmIfPhysEntry 19 }
+
+ciscoAtmIfPhysE1CrcErrors OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+              "The number of CRC errors (in CRC-4 mode) on the physical
+              interface.  This object is only present for E1
+              interfaces."
+    ::= { ciscoAtmIfPhysEntry 20 }
+
+ciscoAtmIfPhysLineCode OBJECT-TYPE
+    SYNTAX        INTEGER { ami(1),
+                            b8zs(2),
+                            hdb3(3) }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+              "The line coding present on the physical interface  This object
+              is only present for DS1/E1 interfaces.
+
+               'ami' indicates alternate mark inversion (AMI) line code
+              on the DS1/E1 interface.
+
+               'b8zs' indicates B8ZS line code on the physical interface and
+              applies only to DS1 interfaces.
+ 
+               'hdb3' indicates HDB3 line code on the physical interface and
+              applies only to E1 interfaces. "
+
+    ::= { ciscoAtmIfPhysEntry 21 }
+
+-- conformance information
+
+ciscoAtmIfPhysMIBConformance
+               OBJECT IDENTIFIER ::= { ciscoAtmIfPhysMIB 3 }
+ciscoAtmIfPhysMIBCompliances 
+               OBJECT IDENTIFIER ::= { ciscoAtmIfPhysMIBConformance 1 }
+ciscoAtmIfPhysMIBGroups
+               OBJECT IDENTIFIER ::= { ciscoAtmIfPhysMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoAtmIfPhysMIBCompliance MODULE-COMPLIANCE
+    STATUS  obsolete -- susperseded by ciscoAtmIfPhysMIBCompliance2
+    DESCRIPTION
+            "The compliance statement for entities which implement
+            the Cisco ATM Interface Physical MIB."
+    MODULE  -- this module
+            MANDATORY-GROUPS { ciscoAtmIfPhysMIBCommonGroup }
+    ::= { ciscoAtmIfPhysMIBCompliances 1 }
+
+
+ciscoAtmIfPhysMIBCompliance2 MODULE-COMPLIANCE
+    STATUS  obsolete -- susperseded by ciscoAtmIfPhysMIBCompliance3
+    DESCRIPTION
+            "The compliance statement for entities which implement
+            the Cisco ATM Interface Physical MIB."
+    MODULE  -- this module
+            MANDATORY-GROUPS { ciscoAtmIfPhysMIBCommonGroup,
+                               ciscoAtmIfPhysMIBCommonGroup2
+                             }
+
+           GROUP       ciscoAtmIfPhysMIBSonetGroup
+           DESCRIPTION
+               "This group is required for all SONET interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBSonetGroup2
+           DESCRIPTION
+               "This group is required for all SONET interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBDs3E3Group
+           DESCRIPTION
+               "This group is required for all DS3/E3 interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBDs3Group
+           DESCRIPTION
+               "This group is required for all DS3 interfaces."
+
+    ::= { ciscoAtmIfPhysMIBCompliances 2 }
+
+ciscoAtmIfPhysMIBCompliance3 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for entities which implement
+            the Cisco ATM Interface Physical MIB."
+    MODULE  -- this module
+            MANDATORY-GROUPS { ciscoAtmIfPhysMIBCommonGroup,
+                               ciscoAtmIfPhysMIBCommonGroup2
+                             }
+
+           GROUP       ciscoAtmIfPhysMIBSonetGroup
+           DESCRIPTION
+               "This group is required for all SONET interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBSonetGroup2
+           DESCRIPTION
+               "This group is required for all SONET interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBDs3E3Group
+           DESCRIPTION
+               "This group is required for all DS3/E3 interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBDs3Group
+           DESCRIPTION
+               "This group is required for all DS3 interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBDs1E1Group
+           DESCRIPTION
+               "This group is required for all DS1/E1 interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBDs1Group
+           DESCRIPTION
+               "This group is required for all DS1 interfaces."
+
+           GROUP       ciscoAtmIfPhysMIBE1Group
+           DESCRIPTION
+               "This group is required for all E1 interfaces."
+
+    ::= { ciscoAtmIfPhysMIBCompliances 3 }
+
+-- units of conformance
+
+ciscoAtmIfPhysMIBCommonGroup OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysStatus }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects common to all ATM physical
+            layer interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 1 }
+
+ciscoAtmIfPhysMIBSonetGroup OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysSectionParityErrors,
+              ciscoAtmIfPhysLineParityErrors,
+              ciscoAtmIfPhysPathParityErrors }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects for ATM SONET interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 2 }
+
+ciscoAtmIfPhysMIBDs3E3Group OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysLcvErrors,
+              ciscoAtmIfPhysCBitParityErrors,
+              ciscoAtmIfPhysPBitParityErrors,
+              ciscoAtmIfPhysPlcpBipViolations }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects for ATM DS3/E3 interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 3 }
+
+ciscoAtmIfPhysMIBCommonGroup2 OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysCellPayloadScrambling,
+              ciscoAtmIfPhysFramingMode,
+              ciscoAtmIfPhysLoopbackConfig,
+              ciscoAtmIfPhysTransmitClockSource,
+              ciscoAtmIfPhysClockSourcePriority,
+              ciscoAtmIfPhysClockSourceStatus }
+    STATUS  current
+    DESCRIPTION
+            "Additional collection of objects common to all ATM physical
+            layer interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 4 }
+
+ciscoAtmIfPhysMIBSonetGroup2 OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysLineFebeErrors,
+              ciscoAtmIfPhysPathFebeErrors,
+              ciscoAtmIfPhysStsStreamScrambling }
+    STATUS  current
+    DESCRIPTION
+            "Additional collection of objects for ATM SONET interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 5 }
+
+ciscoAtmIfPhysMIBDs3Group OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysLineBuildOut }
+    STATUS  current
+    DESCRIPTION
+            "Collection of objects for ATM DS3 interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 6 }
+
+ciscoAtmIfPhysMIBDs1E1Group OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysLcvErrors,
+              ciscoAtmIfPhysPlcpBipViolations,
+              ciscoAtmIfPhysLineCode }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects for ATM DS1/E1 interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 7 }
+
+ciscoAtmIfPhysMIBDs1Group OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysDS1BitErrors }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects for ATM DS1 interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 8 }
+
+ciscoAtmIfPhysMIBE1Group OBJECT-GROUP
+    OBJECTS { ciscoAtmIfPhysE1CrcErrors }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects for ATM E1 interfaces."
+    ::= { ciscoAtmIfPhysMIBGroups 9 }
+
+END
+

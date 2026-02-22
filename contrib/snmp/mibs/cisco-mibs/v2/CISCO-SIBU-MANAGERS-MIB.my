@@ -1,0 +1,462 @@
+--
+-- Caution.  This MIB is temporary and experimental.
+-- In the future it will be removed from products, perhaps
+-- with short notice, in favor of more standard or generic MIBs.
+-- Application developers should not depend on long-term access
+-- to this MIB.
+
+CISCO-SIBU-MANAGERS-MIB
+
+DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Integer32, IpAddress,
+        NOTIFICATION-TYPE
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP
+                FROM SNMPv2-CONF
+        RowStatus, DisplayString
+                FROM SNMPv2-TC
+        ciscoExperiment
+                FROM CISCO-SMI;
+
+ciscoSibuManagersMIB MODULE-IDENTITY
+        LAST-UPDATED "9810230000Z"
+        ORGANIZATION "Cisco Systems Inc."
+        CONTACT-INFO
+                "Cisco Systems
+                 Customer Service
+
+                 Postal: 170 W Tasman Drive
+                 San Jose, CA  95134
+                 USA
+
+                 Tel: +1 800 553-NETS
+                 E-mail: cs-sibu@cisco.com"
+        DESCRIPTION
+               "The MIB module that provides a simple configuration
+                of management interfaces on managed devices."
+
+        REVISION "9810230000Z"
+        DESCRIPTION
+               "Initial version of this MIB module."
+        ::= { ciscoExperiment 46 }
+
+ciscoSibuManagersMIBObjects  OBJECT IDENTIFIER ::= { ciscoSibuManagersMIB 1 }
+cmIpConfig            OBJECT IDENTIFIER
+                ::= { ciscoSibuManagersMIBObjects 1 }
+cmConsoleConfig        OBJECT IDENTIFIER
+                ::= { ciscoSibuManagersMIBObjects 2 }
+cmSnmpSetManager       OBJECT IDENTIFIER
+                ::= { ciscoSibuManagersMIBObjects 3 }
+cmSnmpTrapManager       OBJECT IDENTIFIER
+                ::= { ciscoSibuManagersMIBObjects 4 }
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                    |
+--                   The IP Configuration Group                       |
+--                                                                    |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+cmIpConfigMethod OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    manual(1),
+                    bootp(2)
+                    }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Indicates the management IP address is got from user
+                 configuration or from Bootp.  The default value is 1.
+
+                This value of this object determines how the device
+                obtains its IP address. If set to manual(1), the ip
+                address is the value configured by the user by setting
+                the value of ipConfigIpAddress.
+
+                If set to bootp(2), the IP address is obtained
+                via the BootStrap Protocol (BOOTP)."
+        DEFVAL  { manual }
+        ::= { cmIpConfig 1 }
+
+cmIpConfigAddress OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The device's administrative IP address.  The device may
+                automatically discover a value for this object using the
+                BootStrap protocol (BOOTP).  The object value is also
+                duplicated in the MIB-II ipAddrTable.
+
+                This object is writable only if the value of
+                ipConfigMethod is set to manual(1).
+
+                A write to this object will take effect immediately,
+                replacing the previous address, if any.  The default is
+                0.0.0.0, or no address."
+        DEFVAL { '00000000'H }
+        ::= { cmIpConfig 2 }
+
+cmIpConfigSubnetMask OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The device's administrative IP subnet mask.  The device
+                may automatically discover a value for this object using
+                the BootStrap protocol (BOOTP).  The object value is also
+                duplicated in the MIB-II ipAddrTable.
+
+                This object is writable only if the value of
+                ipConfigMethod is set to manual(1).
+
+                A write to this value will take effect immediately.
+                The default value is 0.0.0.0, or no subnet mask."
+        DEFVAL { '00000000'H }
+        ::= { cmIpConfig 3 }
+
+cmIpConfigDefaultGateway OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The default gateway IP address is the address of the
+                 next hop router the switch uses to reach a non-local IP
+                 host when the switch does not know the return route.
+                 During a normal management protocol exchange with an IP
+                 client host, the switch simply sends its response onto
+                 the same route from which the request was received. The
+                 default gateway route is only used when the switch itself
+                 initiates an exchange, e.g., a TFTP upgrade, with the
+                 client.
+
+                 This object is writable only if the value of
+                 ipConfigMethod is set to manual(1).
+
+                 A write to this object will take effect immediately,
+                 replacing the previous address, if any.  The default is
+                 0.0.0.0, or no address."
+        DEFVAL { '00000000'H }
+        ::= { cmIpConfig 4 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                     |
+--                    The Console Group                                |
+--                                                                     |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+cmConsoleCLIInactiveTimeout OBJECT-TYPE
+        SYNTAX      Integer32 (0 | 30..65500)
+        UNITS       "seconds"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The number of seconds of command line console session
+                 inactivity to wait before ending the session.  Once a
+                 session has ended, the user must resupply the cli
+                 console password to regain access.  A value of 0
+                 indicates no timeout, and is the default value."
+        DEFVAL { 0 }
+        ::= { cmConsoleConfig 1 }
+
+cmConsoleCLIPasswordMaxAttempts OBJECT-TYPE
+        SYNTAX      Integer32 (0..65500)
+		UNITS       "attempts"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The number of consecutive invalid password attempts
+                 allowed before the command line console is shut down
+                 (kept silent) for a configured duration.  A zero value
+                 permits unlimited attempts.  The default value is 3."
+        DEFVAL { 3 }
+        ::= { cmConsoleConfig 2 }
+
+cmConsoleCLISilentTime OBJECT-TYPE
+        SYNTAX      Integer32 (0..65500)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The number of minutes during which the command line
+                 console will be unavailable after repeated failed
+                 attempts to logon.  A zero value specifies no silent
+                 time, and is the default value."
+        DEFVAL { 0 }
+        ::= { cmConsoleConfig 3 }
+
+
+cmConsoleWebAdminState OBJECT-TYPE
+        SYNTAX      INTEGER { enabled(1), disabled(2) }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "This variable enables or disables the Web console
+                 interface. The default value is enabled(1). Enabling
+                 the console provides access to management via the
+                 web console."
+        DEFVAL { enabled }
+        ::= { cmConsoleConfig 4 }
+
+cmConsoleWebHttpPort OBJECT-TYPE
+        SYNTAX      INTEGER (0..65535)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "This variable allows the user to configure a specific
+                 port on which the HTTP server for the web console
+                 will listen for TCP connections. Port number 23 is
+                 prohibitted for preventing from disturbing telnet port."
+        DEFVAL { 80 }
+        ::= { cmConsoleConfig 5 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                     |
+--                  The Set Managers Group                             |
+--                                                                     |
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+cmSnmpSetManagerTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CmSnmpSetManagerEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+               "Table containing a list of IP addresses of workstations
+                permitted to issue SNMP SET requests.  Such a
+                workstation is called a Set Manager.  If this table is
+                empty then any SET request with a matching SET community
+                string is allowed.  If at least one Set manager is
+                specified, then an incoming SET request must have its
+                source IP address matched against an entry in this table
+                before the SET is allowed. An entry can be created and
+                deleted via SNMP, command line interface, or web console."
+        ::= { cmSnmpSetManager 1 }
+
+cmSnmpSetManagerEntry OBJECT-TYPE
+        SYNTAX      CmSnmpSetManagerEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An IP address of a manager station allowed to issue
+                 SET requests to this management agent."
+        INDEX   { cmSnmpSetManagerAddr}
+        ::= { cmSnmpSetManagerTable 1 }
+
+CmSnmpSetManagerEntry ::= SEQUENCE {
+            cmSnmpSetManagerAddr
+                IpAddress,
+            cmSnmpSetManagerRowStatus
+                RowStatus
+        }
+
+cmSnmpSetManagerAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+               "The SET Manager is assumed to be Internet UDP/IP based.
+                And this is the manager's IP address."
+        ::= { cmSnmpSetManagerEntry 1 }
+
+cmSnmpSetManagerRowStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The status of this conceptual row. The row can be set
+                 to active, createAndGo, and destroy. On creation,
+                 all objects in an entry must be created in the
+                 same request."
+        ::= { cmSnmpSetManagerEntry 2 }
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                      |
+--                    The Trap Manager Group                            |
+--                                                                      |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+cmSnmpTrapManagerTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CmSnmpTrapManagerEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "Table containing a list of Network Management
+                 Stations that are to receive traps generated by this
+                 Network Management Agent.  Such an NMS is called a
+                 Trap Manager. An entry can be created and deleted via
+                 SNMP, command line interface or web console."
+        ::= { cmSnmpTrapManager 1 }
+
+cmSnmpTrapManagerEntry OBJECT-TYPE
+        SYNTAX      CmSnmpTrapManagerEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A destination address and community string to a
+                 particular trap manager."
+        INDEX   { cmSnmpTrapManagerAddr }
+        ::= { cmSnmpTrapManagerTable 1 }
+
+CmSnmpTrapManagerEntry ::= SEQUENCE {
+            cmSnmpTrapManagerAddr
+                IpAddress,
+            cmSnmpTrapManagerCommunity
+                DisplayString,
+            cmSnmpTrapManagerRowStatus
+                RowStatus
+        }
+
+cmSnmpTrapManagerAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The trap manager is assumed to be Internet UDP/IP based.
+                 And this is the manager's IP address."
+        ::= { cmSnmpTrapManagerEntry 1 }
+
+cmSnmpTrapManagerCommunity OBJECT-TYPE
+        SYNTAX      DisplayString (SIZE(0..32))
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "Community string used for traps sent to this trap
+                 manager."
+        ::= { cmSnmpTrapManagerEntry 2 }
+
+cmSnmpTrapManagerRowStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+                "The status of this conceptual row. The row can be set
+                 to active, createAndGo, and destroy. On creation,
+                 all objects in an entry must be created in the
+                 same request."
+        ::= { cmSnmpTrapManagerEntry 3 }
+
+-- Notifications
+
+ciscoSibuManagersNotifications OBJECT IDENTIFIER
+        ::= { ciscoSibuManagersMIB 2 }
+
+ciscoSibuManagersNotificationsPrefix OBJECT IDENTIFIER
+        ::= { ciscoSibuManagersNotifications 0 }
+
+ciscoSibuManagersConsoleLogonIntruder NOTIFICATION-TYPE
+        STATUS     current
+        DESCRIPTION
+               "A user is repeatedly trying to logon using an invalid
+                password.  The number of attempts exceeds the preset
+                limit given in consolePasswordMaxAttempts.
+                Depending on how the object cmConsoleSilentTime is
+                configured, the switch may shut down the command line
+                interface console following the generation of this trap."
+        ::= { ciscoSibuManagersNotificationsPrefix 1 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                     |
+--   The Managers MIB comformance                                      |
+--                                                                     |
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoSibuManagersMIBComformance     OBJECT IDENTIFIER
+                ::= { ciscoSibuManagersMIB 3 }
+ciscoSibuManagersMIBCompliances     OBJECT IDENTIFIER
+                ::= { ciscoSibuManagersMIBComformance 1 }
+ciscoSibuManagersMIBGroups     OBJECT IDENTIFIER
+                ::= { ciscoSibuManagersMIBComformance 2 }
+
+-- compliance statements
+
+ciscoSibuManagersCompliance     MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+                "The compliance statement for the Cisco Managers MIB."
+        MODULE -- this module
+
+        MANDATORY-GROUPS {
+                            ciscoSibuManagersIpConfigGroup
+                         }
+
+        GROUP ciscoSibuManagersCLIConsoleGroup
+        DESCRIPTION
+            "Devices that provide management control of command
+             line interface console should implement this group."
+
+        GROUP ciscoSibuManagersWebConsoleGroup
+        DESCRIPTION
+            "Devices that provide a management via an HTTP
+             server should implement this group."
+
+        GROUP ciscoSibuManagersSnmpSetManagerGroup
+        DESCRIPTION
+            "Devices that implement set managers should implement
+             this group."
+
+        GROUP ciscoSibuManagersSnmpTrapManagerGroup
+        DESCRIPTION
+            "Devices that implement trap managers configuration
+             should implement this group."
+        ::= { ciscoSibuManagersMIBCompliances 1 }
+
+-- Units of conformance
+
+ciscoSibuManagersIpConfigGroup    OBJECT-GROUP
+        OBJECTS {
+                    cmIpConfigMethod,
+                    cmIpConfigAddress,
+                    cmIpConfigSubnetMask,
+                    cmIpConfigDefaultGateway
+                }
+        STATUS      current
+        DESCRIPTION
+                "A collection of objects to configure IP address
+                 for remote management."
+        ::= { ciscoSibuManagersMIBGroups 1 }
+
+ciscoSibuManagersCLIConsoleGroup    OBJECT-GROUP
+        OBJECTS {
+                    cmConsoleCLIInactiveTimeout,
+                    cmConsoleCLIPasswordMaxAttempts,
+                    cmConsoleCLISilentTime
+                }
+        STATUS      current
+        DESCRIPTION
+                "A collection of objects to configure command line
+                 interface console access."
+        ::= { ciscoSibuManagersMIBGroups 2 }
+
+ciscoSibuManagersWebConsoleGroup    OBJECT-GROUP
+        OBJECTS {
+                    cmConsoleWebAdminState,
+                    cmConsoleWebHttpPort
+                }
+        STATUS      current
+        DESCRIPTION
+                "A collection of objects to configure web console
+                 access."
+        ::= { ciscoSibuManagersMIBGroups 3 }
+
+ciscoSibuManagersSnmpSetManagerGroup    OBJECT-GROUP
+        OBJECTS {
+                    cmSnmpSetManagerRowStatus
+                }
+        STATUS      current
+        DESCRIPTION
+                "A collection of objects to configure SNMP set
+                 manager restrictions."
+        ::= { ciscoSibuManagersMIBGroups 4 }
+
+ciscoSibuManagersSnmpTrapManagerGroup    OBJECT-GROUP
+        OBJECTS {
+                    cmSnmpTrapManagerCommunity,
+                    cmSnmpTrapManagerRowStatus
+                }
+        STATUS      current
+        DESCRIPTION
+                "A collection of objects to configure trap managers."
+        ::= { ciscoSibuManagersMIBGroups 5 }
+
+END

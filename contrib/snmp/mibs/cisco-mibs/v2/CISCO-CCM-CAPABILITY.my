@@ -1,0 +1,717 @@
+-- *****************************************************************
+-- CISCO-CCM-CAPABILITY.my: Cisco Unified Communications Manager
+-- (formerly Cisco CallManager) AGENT-CAPABILITIES
+--   
+-- December 15, 2009 ?Suresh Soudherpally
+--   
+-- Copyright (c) 1999-2009, 2011 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CCM-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoCCMCapability MODULE-IDENTITY
+    LAST-UPDATED    "201106140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:        170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:           +1 800 553-NETS
+
+            E-mail:        cs-selsius@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-CCM-MIB"
+    REVISION        "201106140000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Unified Call Manager
+        version 8.5"
+    REVISION        "200912150000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Unified Communications
+        Manager (CUCM) 8.0 release.  
+        The SYNTAX classes for the objects(ccmPhFailedTblLastAddedIndex,
+        ccmPhStatUpdtTblLastAddedIndex and ccmPhonePhysicalAddress)
+        are removed as they don't give any additional info."
+    REVISION        "200808210000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Unified Communications
+        Manager (CUCM) 7.1 release"
+    REVISION        "200802200000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Unified Communications
+        Manager (CUCM) 7.0 release"
+    REVISION        "200511210000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Call Manager
+        5.0 release."
+    REVISION        "200310030000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Call Manager
+        4.0 release."
+    REVISION        "200203210000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Call Manager
+        3.3 release."
+    REVISION        "200107020000Z"
+    DESCRIPTION
+        "Added the agent capabilities for Cisco Call Manager
+        3.0 release."
+    REVISION        "200106190000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 211 }
+
+
+
+ciscoCCMCapabilityV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Call Manager 3.0"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Call Manager Agent capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroup,
+                        ccmPhoneInfoGroup,
+                        ccmGatewayInfoGroup
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneLastError
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneLastError is not supported"
+
+    VARIATION       ccmPhoneTimeLastError
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneTimeLastError is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayTrunkType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayTrunkType is not supported"
+
+    VARIATION       ccmGatewayTrunkName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayTrunkName is not supported"
+
+    VARIATION       ccmTrunkGatewayIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmTrunkGatewayIndex is not supported"
+
+    VARIATION       ccmGatewayTrunkStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayTrunkStatus is not supported"
+
+    ::= { ciscoCCMCapability 1 }
+
+ciscoCCMCapabilityV3R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Call Manager 3.1"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Call Manager Agent capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev1,
+                        ccmPhoneInfoGroupRev1,
+                        ccmGatewayInfoGroupRev1,
+                        ccmMediaDeviceInfoGroup,
+                        ccmGatekeeperInfoGroup,
+                        ccmCTIDeviceInfoGroup,
+                        ccmNotificationsInfoGroup,
+                        ccmNotificationsGroup
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneLastError
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneLastError is not supported"
+
+    VARIATION       ccmPhoneTimeLastError
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneTimeLastError is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatekeeperDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatekeeperDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDeviceAppInfo
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDeviceAppInfo is not supported"
+
+    VARIATION       ccmPhonePhysicalAddress
+    DESCRIPTION
+        "Represents the MAC address of the phone"
+
+    ::= { ciscoCCMCapability 2 }
+
+ciscoCCMCapabilityV3R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Call Manager 3.3"
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco Call Manager Agent capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev2,
+                        ccmPhoneInfoGroupRev2,
+                        ccmGatewayInfoGroupRev2,
+                        ccmMediaDeviceInfoGroupRev1,
+                        ccmCTIDeviceInfoGroupRev1,
+                        ccmNotificationsInfoGroupRev1,
+                        ccmNotificationsGroup,
+                        ccmH323DeviceInfoGroup,
+                        ccmVoiceMailDeviceInfoGroup
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    VARIATION       ccmPhoneFailedTable
+    DESCRIPTION
+        "The table containing the list of all phones which attempted
+        to register with the local call manager and failed. The entries
+        which have not been updated and kept at least for the duration
+        specified in the ccmPhoneFailedStorePeriod will be deleted.
+        Reasons for these failures could be due to configuration error,
+        maximum number of phones has been reached, lost contact, etc."
+
+    VARIATION       ccmPhoneStatusUpdateTableStateId
+    DESCRIPTION
+        "The current state of ccmPhoneStatusUpdateTable. The initial
+        value of this object is 0 and it will be incremented everytime
+        when there is a change (addition/deletion/modification) to the
+        ccmPhoneStatusUpdateTable. This value and sysUpTime should be
+        used together to find if the table has changed or not. When
+        the SNMP service is restarted this value will be reset to 0."
+
+    VARIATION       ccmPhStatUpdtTblLastAddedIndex
+    DESCRIPTION
+        "The ccmPhoneStatusUpdateIndex value of the last entry that
+        was added to the ccmPhoneStatusUpdateTable. This value
+        together with sysUpTime can be used by the manager
+        applications to identify the new entries in the
+        ccmPhoneStatusUpdateTable since their last poll. This
+        value need not be the same as the highest index in the
+        ccmPhoneStatusUpdateTable as the index could have wrapped
+        around. The initial value of this object is 0 which
+        indicates that there has been no entries added to this
+        table. When the SNMP service is restarted this value will
+        be reset to 0."
+
+    VARIATION       ccmPhFailedTblLastAddedIndex
+    DESCRIPTION
+        "The ccmPhoneFailedIndex value of the last entry that
+        was added to the ccmPhoneFailedTable. This value
+        together with sysUpTime can be used by the manager
+        applications to identify the new entries in the
+        ccmPhoneFailedTable since their last poll. This
+        value need not be the same as the highest index in the
+        ccmPhoneFailedTable as the index could have wrapped
+        around. The initial value of this object is 0 which
+        indicates that there has been no entries added to this
+        table. When the SNMP service is restarted this value will
+        be reset to 0."
+
+    VARIATION       ccmPhoneFailedStorePeriod
+    DESCRIPTION
+        "The time duration for storing each entry in the
+        ccmPhoneFailedTable. The entries which have not been
+        updated and kept at least this period will be deleted.
+        This value should ideally be set to a higher value than
+        the ccmPhoneFailedAlarmInterval object. The default value
+        is 1800 seconds."
+
+    ::= { ciscoCCMCapability 3 }
+
+ciscoCCMCapabilityV3R03Rev1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Call Manager 3.3"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Call Manager Agent capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev2,
+                        ccmPhoneInfoGroupRev2,
+                        ccmGatewayInfoGroupRev2,
+                        ccmMediaDeviceInfoGroupRev1,
+                        ccmCTIDeviceInfoGroupRev1,
+                        ccmNotificationsInfoGroupRev1,
+                        ccmNotificationsGroup,
+                        ccmH323DeviceInfoGroup,
+                        ccmVoiceMailDeviceInfoGroup
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    ::= { ciscoCCMCapability 4 }
+
+ciscoCCMCapabilityV4R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Call Manager 4.0"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Call Manager Agent capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev3,
+                        ccmPhoneInfoGroupRev3,
+                        ccmGatewayInfoGroupRev3,
+                        ccmMediaDeviceInfoGroupRev2,
+                        ccmCTIDeviceInfoGroupRev2,
+                        ccmNotificationsInfoGroupRev2,
+                        ccmNotificationsGroupRev1,
+                        ccmH323DeviceInfoGroupRev1,
+                        ccmVoiceMailDeviceInfoGroupRev1,
+                        ccmSIPDeviceInfoGroup
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    ::= { ciscoCCMCapability 5 }
+
+ciscoCCMCapabilityV5R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Call Manager 5.0"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Call Manager Agent capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev3,
+                        ccmPhoneInfoGroupRev4,
+                        ccmGatewayInfoGroupRev3,
+                        ccmMediaDeviceInfoGroupRev2,
+                        ccmCTIDeviceInfoGroupRev2,
+                        ccmNotificationsInfoGroupRev3,
+                        ccmNotificationsGroupRev2,
+                        ccmH323DeviceInfoGroupRev1,
+                        ccmVoiceMailDeviceInfoGroupRev1,
+                        ccmSIPDeviceInfoGroupRev1
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    ::= { ciscoCCMCapability 6 }
+
+ciscoCCMCapabilityV7R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Unified Communications Manager 7.0"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Unified Communications Manager Agent
+        capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev4,
+                        ccmPhoneInfoGroupRev5,
+                        ccmGatewayInfoGroupRev3,
+                        ccmMediaDeviceInfoGroupRev3,
+                        ccmCTIDeviceInfoGroupRev2,
+                        ccmNotificationsInfoGroupRev4,
+                        ccmNotificationsGroupRev2,
+                        ccmH323DeviceInfoGroupRev2,
+                        ccmVoiceMailDeviceInfoGroupRev1,
+                        ccmSIPDeviceInfoGroupRev2
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    VARIATION       ccmInetAddress2Type
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmInetAddress2Type is defined for future use
+        and it is not used in Cisco Unified
+        Communications Manager 7.0"
+
+    VARIATION       ccmInetAddress2
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmInetAddress2 is defined for future use and it
+        is not used in Cisco Unified Communications
+        Manager 7.0"
+
+    VARIATION       ccmPhoneInetAddressIPv6
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneInetAddressIPv6 is defined for future
+        use and it is not used in Cisco Unified
+        Communications Manager 7.0"
+
+    VARIATION       ccmPhoneIPv6Attribute
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneIPv6Attribute is defined for future use
+        and it is not used in Cisco Unified
+        Communications Manager 7.0"
+
+    VARIATION       ccmPhoneFailedInetAddressIPv6
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneFailedInetAddressIPv6 is defined for
+        future use and it is not used in Cisco Unified
+        Communications Manager 7.0"
+
+    VARIATION       ccmPhoneFailedIPv6Attribute
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneFailedIPv6Attribute is defined for
+        future use and it is not used in Cisco Unified
+        Communications Manager 7.0"
+
+    VARIATION       ccmSIPDevInetAddressIPv6
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmSIPDevInetAddressIPv6 is defined for future
+        use and it is not used in Cisco Unified
+        Communications Manager 7.0"
+
+    VARIATION       ccmMediaDeviceInetAddressIPv6
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceInetAddressIPv6 is defined for
+        future use and it is not used in Cisco Unified
+        Communications Manager 7.0"
+
+    ::= { ciscoCCMCapability 7 }
+
+ciscoCCMCapabilityV7R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Unified Communications Manager 7.1"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Unified Communications Manager Agent
+        capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev4,
+                        ccmPhoneInfoGroupRev5,
+                        ccmGatewayInfoGroupRev3,
+                        ccmMediaDeviceInfoGroupRev3,
+                        ccmCTIDeviceInfoGroupRev3,
+                        ccmNotificationsInfoGroupRev4,
+                        ccmNotificationsGroupRev2,
+                        ccmH323DeviceInfoGroupRev2,
+                        ccmVoiceMailDeviceInfoGroupRev1,
+                        ccmSIPDeviceInfoGroupRev2
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    ::= { ciscoCCMCapability 8 }
+
+ciscoCCMCapabilityV8R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Unified Communications Manager 8.0"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Unified Communications Manager Agent
+        capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev4,
+                        ccmPhoneInfoGroupRev6,
+                        ccmGatewayInfoGroupRev4,
+                        ccmMediaDeviceInfoGroupRev4,
+                        ccmCTIDeviceInfoGroupRev4,
+                        ccmNotificationsInfoGroupRev5,
+                        ccmNotificationsGroupRev3,
+                        ccmH323DeviceInfoGroupRev3,
+                        ccmVoiceMailDeviceInfoGroupRev2,
+                        ccmSIPDeviceInfoGroupRev2
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    ::= { ciscoCCMCapability 9 }
+
+ciscoCCMCapabilityV8R05 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Unified Communications Manager 8.5"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Unified Communications Manager Agent
+        capabilities"
+
+    SUPPORTS        CISCO-CCM-MIB
+    INCLUDES        {
+                        ccmInfoGroupRev4,
+                        ccmPhoneInfoGroupRev6,
+                        ccmGatewayInfoGroupRev4,
+                        ccmMediaDeviceInfoGroupRev4,
+                        ccmCTIDeviceInfoGroupRev4,
+                        ccmNotificationsInfoGroupRev5,
+                        ccmNotificationsGroupRev3,
+                        ccmH323DeviceInfoGroupRev3,
+                        ccmVoiceMailDeviceInfoGroupRev2,
+                        ccmSIPDeviceInfoGroupRev2
+                    }
+    VARIATION       ccmPhoneE911Location
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneE911Location is not supported"
+
+    VARIATION       ccmPhoneDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmPhoneDevicePoolIndex is not supported"
+
+    VARIATION       ccmGatewayDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmGatewayDevicePoolIndex is not supported"
+
+    VARIATION       ccmMediaDeviceDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmMediaDeviceDevicePoolIndex is not supported"
+
+    VARIATION       ccmCTIDevicePoolIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "ccmCTIDevicePoolIndex is not supported"
+
+    ::= { ciscoCCMCapability 10 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

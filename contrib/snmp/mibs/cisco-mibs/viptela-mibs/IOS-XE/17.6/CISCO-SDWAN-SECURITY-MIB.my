@@ -1,0 +1,1237 @@
+
+-- *****************************************************************
+-- CISCO-SDWAN-SECURITY-MIB.my:
+-- OID assignments for Cisco SDWAN security
+
+
+-- Feburary 2021, Anjali Shirva
+
+-- Copyright (c) 2020-2021 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SDWAN-SECURITY-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32 
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION 
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoSdwanSecurityMIB MODULE-IDENTITY
+    LAST-UPDATED "202102260000Z"
+    ORGANIZATION    "Cisco Systems, Inc. "
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION "This module defines data model 
+                 for Cisco SDWAN security management"
+    REVISION "202102260000Z"
+    DESCRIPTION "Cisco SDWAN Revision 0.0"
+    ::= { ciscoMgmt 1006 }
+
+UnsignedByte ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS      current
+    DESCRIPTION "xs:unsignedByte"
+    SYNTAX      Unsigned32 (0 .. 255)
+
+UnsignedShort ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS      current
+    DESCRIPTION "xs:unsignedShort"
+    SYNTAX      Unsigned32 (0 .. 65535)
+
+InetAddressIP ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "1t"
+    STATUS      current
+    DESCRIPTION "inetAddressIP"
+    SYNTAX      OCTET STRING (SIZE (4|16))
+
+String ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "1t"
+    STATUS      current
+    DESCRIPTION "xs:string"
+    SYNTAX      OCTET STRING
+
+-- Notification type definitions
+NotificationSeverity ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Netconf notification severity level"
+    SYNTAX      INTEGER {critical(1),
+                         major(2),
+                         minor(3)}
+
+PersonalityEnumOper ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Device type"
+    SYNTAX      INTEGER {unknown(0),
+                         vedge(1),
+			 vhub(2),
+			 vsmart(3),
+                         vbond(4),
+			 vmanage(5),
+			 ztp(6),
+			 vcontainer(7)}
+
+ColorEnum ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "3g  biz-internet  blue  bronze  custom1  custom2
+                 custom3  default  gold  green  lte  metro-ethernet
+		 mpls public-internet  red  silver private1 private2
+		 private3 private4 private5 private6"
+    SYNTAX      INTEGER {default(1),
+                         mpls(2),
+			 metro-ethernet(3),
+                         biz-internet(4),
+			 public-internet(5),
+			 lte(6),
+			 threeG(7),
+			 red(8),
+			 green(9),
+			 blue(10),
+			 gold(11),
+			 silver(12),
+			 bronze(13),
+			 custom1(14),
+			 custom2(15),
+			 custom3(16),
+			 private1(17),
+			 private2(18),
+			 private3(19),
+			 private4(20),
+			 private5(21),
+			 private6(22)}
+
+OperState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Operational state"
+    SYNTAX      INTEGER {up(0),
+                         down(1)}
+
+CertificateTypeEnum ::= TEXTUAL-CONVENTION
+     STATUS      current
+     DESCRIPTION "Certificate Type"
+     SYNTAX      INTEGER {web-server(1),
+                          enterprise(2),
+			  vmanage(3)}    
+
+-- MIB Objects, Notification Objects, Notification and Conform
+ciscoSdwanSecurityMIBNotifs OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIB 0 }
+
+ciscoSdwanSecurityMIBObjects OBJECT IDENTIFIER
+   ::= { ciscoSdwanSecurityMIB 1 }
+
+ciscoSdwanSecurityMIBNotifObjects OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIB 2 }
+
+ciscoSdwanSecurityMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIB 3 }
+
+-- Display control information
+-- tagpath /control
+control OBJECT IDENTIFIER ::= { ciscoSdwanSecurityMIBObjects 2 }
+
+-- Display local control properties
+-- tagpath /control/local-properties
+controlLocalProperties OBJECT IDENTIFIER ::= { control 5 }
+
+-- tagpath /control/local-properties/device-type
+controlLocalPropertiesDeviceType OBJECT-TYPE
+    SYNTAX      INTEGER {unknown(0),
+                         vedge(1),
+			 vhub(2),
+			 vsmart(3),
+                         vbond(4),
+			 vmanage(5),
+			 ztp(6),
+			 vcontainer(7)}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Personality"
+    ::= { controlLocalProperties 1 }
+
+-- tagpath /control/local-properties/organization-name
+controlLocalPropertiesOrganizationName OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Organization name"
+    ::= { controlLocalProperties 2 }
+
+-- tagpath /control/local-properties/certificate-status
+controlLocalPropertiesCertificateStatus OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate status"
+    ::= { controlLocalProperties 3 }
+
+-- tagpath /control/local-properties/root-ca-chain-status
+controlLocalPropertiesRootCaChainStatus OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Root CA chain status"
+    ::= { controlLocalProperties 4 }
+
+-- tagpath /control/local-properties/certificate-validity
+controlLocalPropertiesCertificateValidity OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate validity"
+    ::= { controlLocalProperties 5 }
+
+-- tagpath /control/local-properties/certificate-not-valid-before
+controlLocalPropertiesCertificateNotValidBefore OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate not valid before"
+    ::= { controlLocalProperties 6 }
+
+-- tagpath /control/local-properties/certificate-not-valid-after
+controlLocalPropertiesCertificateNotValidAfter OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate not valid after"
+    ::= { controlLocalProperties 7 }
+
+-- tagpath /control/local-properties/dns-name
+controlLocalPropertiesDnsName OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "DNS name"
+    ::= { controlLocalProperties 8 }
+
+-- tagpath /control/local-properties/site-id
+controlLocalPropertiesSiteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Site ID"
+    ::= { controlLocalProperties 9 }
+
+-- tagpath /control/local-properties/domain-id
+controlLocalPropertiesDomainId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Domain ID"
+    ::= { controlLocalProperties 10 }
+
+-- tagpath /control/local-properties/tls-port
+controlLocalPropertiesTlsPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "TLS port"
+    ::= { controlLocalProperties 12 }
+
+-- tagpath /control/local-properties/system-ip
+controlLocalPropertiesSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "System IP address"
+    ::= { controlLocalProperties 13 }
+
+-- tagpath /control/local-properties/uuid
+controlLocalPropertiesUuid OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Unique device identifier"
+    ::= { controlLocalProperties 14 }
+
+-- tagpath /control/local-properties/board-serial
+controlLocalPropertiesBoardSerial OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 40))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Board ID serial number"
+    ::= { controlLocalProperties 15 }
+
+-- tagpath /control/local-properties/register-interval
+controlLocalPropertiesRegisterInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+--    STATUS      deprecated
+    STATUS      current
+    DESCRIPTION "Register interval - Deprecated in 15.4"
+    ::= { controlLocalProperties 16 }
+
+-- tagpath /control/local-properties/retry-interval
+controlLocalPropertiesRetryInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Retry interval"
+    ::= { controlLocalProperties 17 }
+
+-- tagpath /control/local-properties/no-activity
+controlLocalPropertiesNoActivity OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "No activity expiry interval"
+    ::= { controlLocalProperties 18 }
+
+-- tagpath /control/local-properties/dns-cache-flush-interval
+controlLocalPropertiesDnsCacheFlushInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "DNS cache time to live"
+    ::= { controlLocalProperties 19 }
+
+-- tagpath /control/local-properties/port-hopped
+controlLocalPropertiesPortHopped OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Device changed port"
+    ::= { controlLocalProperties 20 }
+
+-- tagpath /control/local-properties/time-since-port-hop
+controlLocalPropertiesTimeSincePortHop OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Time since last port hop"
+    ::= { controlLocalProperties 21 }
+
+-- tagpath /control/local-properties/max-controllers
+controlLocalPropertiesMaxControllers OBJECT-TYPE
+    SYNTAX      UnsignedByte
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Maximum number of controllers"
+    ::= { controlLocalProperties 22 }
+
+-- tagpath /control/local-properties/keygen-interval
+controlLocalPropertiesKeygenInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Key generation interval"
+    ::= { controlLocalProperties 23 }
+
+-- tagpath /control/local-properties/number-vbond-peers
+controlLocalPropertiesNumberVbondPeers OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of vBond peers"
+    ::= { controlLocalProperties 25 }
+
+-- tagpath /control/local-properties/number-active-wan-interfaces
+controlLocalPropertiesNumberActiveWanInterfaces OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of WAN interfaces"
+    ::= { controlLocalProperties 27 }
+
+-- tagpath /control/local-properties/enterprise-certificate-status
+controlLocalPropertiesEnterpriseCertificateStatus OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate status"
+    ::= { controlLocalProperties 36 }
+
+-- tagpath /control/local-properties/enterprise-certificate-validity
+controlLocalPropertiesEnterpriseCertificateValidity OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate validity"
+    ::= { controlLocalProperties 37 }
+
+-- tagpath /control/local-properties
+--                 /enterprise-certificate-not-valid-before
+controlLocalPropertiesEnterpriseCertificateNotValidBefore OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate not valid before"
+    ::= { controlLocalProperties 38 }
+
+-- tagpath /control/local-properties
+--                 /enterprise-certificate-not-valid-after
+controlLocalPropertiesEnterpriseCertificateNotValidAfter OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate not valid after"
+    ::= { controlLocalProperties 39 }
+
+-- Display control summary
+-- tagpath /control/summary
+controlSummaryTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF ControlSummaryEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Table for Summary Config"
+     ::= { control 8 }
+
+ -- tagpath /control/summary
+controlSummaryEntry OBJECT-TYPE
+     SYNTAX      ControlSummaryEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Entry for Summary Config"
+     INDEX { controlSummaryInstance }
+         ::= { controlSummaryTable 1 }
+
+-- tagpath /control/summary
+ControlSummaryEntry ::=
+    SEQUENCE {
+        controlSummaryInstance  Unsigned32,
+        controlSummaryVbondCounts UnsignedShort,
+        controlSummaryVmanageCounts UnsignedShort,
+        controlSummaryVsmartCounts UnsignedShort
+    }
+
+-- tagpath /control/summary/instance
+controlSummaryInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "vdaemon instance ID"
+    ::= { controlSummaryEntry 1 }
+
+-- tagpath /control/summary/vbond-counts
+controlSummaryVbondCounts OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of Vbond"
+    ::= { controlSummaryEntry 2 }
+
+
+-- tagpath /control/summary/vmanage-counts
+controlSummaryVmanageCounts OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of Vmanages"
+    ::= { controlSummaryEntry 3 }
+
+-- tagpath /control/summary/vsmart-counts
+controlSummaryVsmartCounts OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of Vsmarts"
+    ::= { controlSummaryEntry 4 }
+
+-- Display control affinity
+-- Display control information
+-- tagpath /control
+controlAffinity OBJECT IDENTIFIER ::= { control 9 }
+
+-- tagpath /control/affinity
+controlAffinityConfigTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF ControlAffinityConfigEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Table for Affinity Config"
+     ::= { controlAffinity 1 }
+
+ -- tagpath /control/affinity
+ controlAffinityConfigEntry OBJECT-TYPE
+     SYNTAX      ControlAffinityConfigEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Entry for Affinity Config"
+     INDEX { controlAffinityConfigAffcIndex }
+         ::= { controlAffinityConfigTable 1 }
+
+-- tagpath /control/affinity/affc-index
+controlAffinityConfigAffcIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "WAN index"
+    ::= { controlAffinityConfigEntry 1 }
+
+-- tagpath /control/affinity/affc-interface
+controlAffinityConfigAffcInterface OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Interface name"
+    ::= { controlAffinityConfigEntry 2 }
+
+-- tagpath /control/affinity/affc-ervc
+controlAffinityConfigAffcErvc OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Effective required vSmart count"
+    ::= { controlAffinityConfigEntry 3 }
+
+-- tagpath /control/affinity/affc-ecl
+controlAffinityConfigAffcEcl OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Effective controller group id list"
+    ::= { controlAffinityConfigEntry 4 }
+
+-- tagpath /control/affinity/affc-ccl
+controlAffinityConfigAffcCcl OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Current controller group ID list"
+    ::= { controlAffinityConfigEntry 5 }
+
+-- tagpath /control/affinity/affc-equil
+controlAffinityConfigAffcEquil OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Equilibrium"
+    ::= { controlAffinityConfigEntry 6 }
+
+-- tagpath /control/affinity/affc-last-resort
+controlAffinityConfigAffcLastResort OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Last-resort Interface"
+    ::= { controlAffinityConfigEntry 7 }
+
+ -- tagpath /control/affinity
+ ControlAffinityConfigEntry ::=
+     SEQUENCE {
+       controlAffinityConfigAffcIndex      Unsigned32,
+       controlAffinityConfigAffcInterface  String,
+       controlAffinityConfigAffcErvc       Unsigned32,
+       controlAffinityConfigAffcEcl        String,
+       controlAffinityConfigAffcCcl        String,
+       controlAffinityConfigAffcEquil      String,
+       controlAffinityConfigAffcLastResort String
+     }
+
+-- tagpath /control/affinity
+controlAffinityStatusTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF ControlAffinityStatusEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Table for Affinity Config"
+     ::= { controlAffinity 2 }
+
+-- tagpath /control/affinity
+controlAffinityStatusEntry OBJECT-TYPE
+     SYNTAX      ControlAffinityStatusEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Entry for Affinity Config"
+     INDEX { controlAffinityStatusAffsIndex }
+         ::= { controlAffinityStatusTable 1 }
+
+-- tagpath /control/affinity
+ControlAffinityStatusEntry ::=
+     SEQUENCE {
+        controlAffinityStatusAffsIndex      Unsigned32,
+        controlAffinityStatusAffsAcc        String,
+        controlAffinityStatusAffsInterface  String,
+        controlAffinityStatusAffsUcc        String,
+        controlAffinityStatusAffsAc         String
+     }
+
+-- tagpath /control/affinity/affs-index
+controlAffinityStatusAffsIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "WAN index"
+    ::= { controlAffinityStatusEntry 1 }
+
+-- tagpath /control/affinity/affs-acc
+controlAffinityStatusAffsAcc OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Assigned Connected Controllers"
+    ::= { controlAffinityStatusEntry 2 }
+
+-- tagpath /control/affinity/affs-interface
+controlAffinityStatusAffsInterface OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Interface name"
+    ::= { controlAffinityStatusEntry 3 }
+
+-- tagpath /control/affinity/affs-ucc
+controlAffinityStatusAffsUcc OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Unassigned Connected Controllers"
+    ::= { controlAffinityStatusEntry 4 }
+
+-- tagpath /control/affinity/affs-ac
+controlAffinityStatusAffsAc OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Assigned Controller"
+    ::= { controlAffinityStatusEntry 5 }
+
+-- ********************************************************************
+-- *  Notification Objects
+-- ********************************************************************
+
+netconfNotificationSeverity OBJECT-TYPE
+    SYNTAX      NotificationSeverity
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Netconf notification severity level"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 2 }
+
+ciscoSdwanSecurityPersonality OBJECT-TYPE
+     SYNTAX      PersonalityEnumOper
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Device type"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 3 }
+
+ciscoSdwanSecurityPeerType OBJECT-TYPE
+    SYNTAX      PersonalityEnumOper
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer device type"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 4 }
+
+ciscoSdwanSecurityPeerSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer system ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 5 }
+
+ciscoSdwanSecurityPeerVmanageSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer vmanage system ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 6 }
+
+ciscoSdwanSecurityPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Public ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 7 }
+
+ciscoSdwanSecurityPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Public port"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 8 }
+
+ciscoSdwanSecuritySrcColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Source color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 9 }
+
+ciscoSdwanSecurityRemoteColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 10 }
+
+ciscoSdwanSecurityUptime OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Up time"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 11 }
+
+ciscoSdwanSecurityNewState OBJECT-TYPE
+    SYNTAX      OperState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "New state"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 12 }
+
+ciscoSdwanSecurityLocalSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local system ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 13 }
+
+ciscoSdwanSecurityLocalColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 14 }
+
+ciscoSdwanSecurityReason OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Reason"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 15 }
+
+ciscoSdwanSecurityOldPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Old public ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 16 }
+
+ciscoSdwanSecurityOldPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Old public port"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 17 }
+
+ciscoSdwanSecurityNewPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "New public ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 18 }
+
+ciscoSdwanSecurityNewPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "New public port"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 19 }
+
+ciscoSdwanSecurityColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 20 }
+
+ciscoSdwanSecurityUuid OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Uuid"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 21 }
+
+ciscoSdwanSecuritySerial OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Serial"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 22 }
+
+ciscoSdwanSecurityVmanageConnectionPreference OBJECT-TYPE
+    SYNTAX      UnsignedByte
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Vmanage connection preference"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 23 }
+
+ciscoSdwanSecurityOrganizationName OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Organization name"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 24 }
+
+ciscoSdwanSecuritySpOrganizationName OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Sp organization name"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 25 }
+
+ciscoSdwanSecurityCertificateType OBJECT-TYPE
+     SYNTAX      CertificateTypeEnum
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate type"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 26 }
+
+ciscoSdwanSecurityCertificateSerialNumber OBJECT-TYPE
+     SYNTAX      OCTET STRING
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate serial number"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 27 }
+
+ciscoSdwanSecurityIssuer OBJECT-TYPE
+     SYNTAX      OCTET STRING
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate issuer"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 28 }
+
+ ciscoSdwanSecurityDaysToExpiry OBJECT-TYPE
+     SYNTAX      Integer32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate days to expiry"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 29 }
+
+-- ********************************************************************
+-- *  Notifications
+-- ********************************************************************
+
+ciscoSdwanSecurityControlConnectionStateChange NOTIFICATION-TYPE
+        OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityPeerType,
+ 		ciscoSdwanSecurityPeerSystemIp,
+ 		ciscoSdwanSecurityPeerVmanageSystemIp,
+ 		ciscoSdwanSecurityPublicIp,
+ 		ciscoSdwanSecurityPublicPort,
+ 		ciscoSdwanSecuritySrcColor,
+ 		ciscoSdwanSecurityRemoteColor,
+ 		ciscoSdwanSecurityUptime,
+ 		ciscoSdwanSecurityNewState
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 1 }
+ 
+ciscoSdwanSecurityControlConnectionAuthFail NOTIFICATION-TYPE
+ 	OBJECTS {
+		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityPeerType,
+ 		ciscoSdwanSecurityPeerSystemIp,
+ 		ciscoSdwanSecurityLocalSystemIp,
+ 		ciscoSdwanSecurityLocalColor,
+ 		ciscoSdwanSecurityReason
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 2 }
+ 
+ciscoSdwanSecurityControlConnectionTlocIpChange NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityOldPublicIp,
+ 		ciscoSdwanSecurityOldPublicPort,
+ 		ciscoSdwanSecurityNewPublicIp,
+ 		ciscoSdwanSecurityNewPublicPort
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 3 }
+
+ciscoSdwanSecurityControlVbondStateChange NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityNewState
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "ciscoSdwan trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 4 }
+
+ciscoSdwanSecurityControlNoActiveVsmart NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 5 }
+ 
+ciscoSdwanSecurityControlNoActiveVbond NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality
+	}
+	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 6 }
+
+ciscoSdwanSecurityTunnelIpsecRekey NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityColor
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 7 }
+
+ciscoSdwanSecurityTunnelIpsecManualRekey NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityColor
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 8 }
+
+ciscoSdwanSecuritySecurityRootCertChainInstalled NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 9 }
+
+ciscoSdwanSecuritySecurityCertificateExpiring NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+	     ciscoSdwanSecurityCertificateType,
+             ciscoSdwanSecurityCertificateSerialNumber,
+             ciscoSdwanSecurityIssuer,
+             ciscoSdwanSecurityDaysToExpiry
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 10 }
+
+ciscoSdwanSecuritySecurityCertificateExpired NOTIFICATION-TYPE
+	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 11 }
+
+ciscoSdwanSecuritySecurityCertificateInstalled NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 12 }
+
+ciscoSdwanSecuritySecurityNewCsrGenerated NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 13 }
+
+ciscoSdwanSecuritySecurityRootCertChainUninstalled NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+	}
+ 	STATUS current
+	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 14 }
+
+ciscoSdwanSecuritySecurityClearInstalledCertificate NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 15 }
+
+ciscoSdwanSecuritySecurityVedgeSerialFileUploaded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 16 }
+
+ciscoSdwanSecuritySecurityVsmartSerialFileUploaded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 17 }
+
+ciscoSdwanSecuritySecurityVedgeEntryAdded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityUuid,
+ 		ciscoSdwanSecuritySerial
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 18 }
+
+ciscoSdwanSecuritySecurityVedgeEntryRemoved NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityUuid
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+	::= { ciscoSdwanSecurityMIBNotifs 19 }
+
+ciscoSdwanSecuritySecurityVsmartEntryAdded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecuritySerial
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 20 }
+
+ciscoSdwanSecuritySecurityVsmartEntryRemoved NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecuritySerial
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 21 }
+
+ciscoSdwanSecurityVmanageConnectionPreferenceChanged NOTIFICATION-TYPE
+        OBJECTS {
+                netconfNotificationSeverity,
+                ciscoSdwanSecurityColor,
+                ciscoSdwanSecurityVmanageConnectionPreference
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 23 }
+
+ciscoSdwanSecurityVbondRejectVedgeConnection NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+             ciscoSdwanSecurityUuid,
+             ciscoSdwanSecurityOrganizationName,
+             ciscoSdwanSecuritySpOrganizationName,
+             ciscoSdwanSecurityReason
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 24 }
+
+ciscoSdwanSecurityDeviceTemplateMissing NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+             ciscoSdwanSecurityUuid,
+             ciscoSdwanSecurityPeerType
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 25 }
+
+ciscoSdwanSecurityDeviceTemplateAttachedDuringZtp NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+             ciscoSdwanSecurityUuid,
+             ciscoSdwanSecurityPeerType
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 26 }
+
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoSdwanSecurityMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIBConform 1 }
+
+ciscoSdwanSecurityMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIBConform 2 }
+
+ciscoSdwanSecurityMIBCompliance MODULE-COMPLIANCE
+    STATUS         current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         that implement the ciscoSdwanAppRouteMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cSdwanSecurityControlLocalPropertiesGroup,
+            cSdwanSecurityNotifObjsGroup,
+            cSdwanSecurityNotifsGroup,
+            cSdwanSecurityControlSummaryGroup,
+            cSdwanSecurityControlAffinityStatusGroup,
+            cSdwanSecurityControlAffinityConfigGroup
+                    }
+    ::= { ciscoSdwanSecurityMIBCompliances 1 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+cSdwanSecurityControlLocalPropertiesGroup OBJECT-GROUP
+    OBJECTS {
+             controlLocalPropertiesDeviceType,
+	     controlLocalPropertiesOrganizationName,
+	     controlLocalPropertiesCertificateStatus,
+	     controlLocalPropertiesRootCaChainStatus,
+	     controlLocalPropertiesCertificateValidity,
+	     controlLocalPropertiesCertificateNotValidBefore,
+	     controlLocalPropertiesCertificateNotValidAfter,
+	     controlLocalPropertiesDnsName,
+	     controlLocalPropertiesSiteId,
+	     controlLocalPropertiesDomainId,
+	     controlLocalPropertiesTlsPort,
+	     controlLocalPropertiesSystemIp,
+	     controlLocalPropertiesUuid,
+	     controlLocalPropertiesBoardSerial,
+             controlLocalPropertiesRegisterInterval,
+	     controlLocalPropertiesRetryInterval,
+	     controlLocalPropertiesNoActivity,
+	     controlLocalPropertiesDnsCacheFlushInterval,
+	     controlLocalPropertiesPortHopped,
+	     controlLocalPropertiesTimeSincePortHop,
+	     controlLocalPropertiesMaxControllers,
+	     controlLocalPropertiesKeygenInterval,
+	     controlLocalPropertiesNumberVbondPeers,
+	     controlLocalPropertiesNumberActiveWanInterfaces,
+	     controlLocalPropertiesEnterpriseCertificateStatus,
+	     controlLocalPropertiesEnterpriseCertificateValidity,
+	     controlLocalPropertiesEnterpriseCertificateNotValidBefore,
+	     controlLocalPropertiesEnterpriseCertificateNotValidAfter
+            }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of 
+	                         security control local properties."
+    ::= { ciscoSdwanSecurityMIBGroups 1 }
+
+cSdwanSecurityNotifObjsGroup OBJECT-GROUP
+    OBJECTS {
+                netconfNotificationSeverity,
+		ciscoSdwanSecurityPersonality,
+		ciscoSdwanSecurityPeerType,
+		ciscoSdwanSecurityPeerSystemIp,
+		ciscoSdwanSecurityPeerVmanageSystemIp,
+		ciscoSdwanSecurityPublicIp,
+		ciscoSdwanSecurityPublicPort,
+		ciscoSdwanSecuritySrcColor,
+		ciscoSdwanSecurityRemoteColor,
+		ciscoSdwanSecurityUptime,
+		ciscoSdwanSecurityNewState,
+		ciscoSdwanSecurityLocalSystemIp,
+		ciscoSdwanSecurityLocalColor,
+		ciscoSdwanSecurityReason,
+		ciscoSdwanSecurityOldPublicIp,
+		ciscoSdwanSecurityOldPublicPort,
+		ciscoSdwanSecurityNewPublicIp,
+		ciscoSdwanSecurityNewPublicPort,
+		ciscoSdwanSecurityColor,
+		ciscoSdwanSecurityUuid,
+		ciscoSdwanSecuritySerial,
+		ciscoSdwanSecurityVmanageConnectionPreference,
+		ciscoSdwanSecurityOrganizationName,
+		ciscoSdwanSecuritySpOrganizationName,
+		ciscoSdwanSecurityCertificateType,
+		ciscoSdwanSecurityCertificateSerialNumber,
+		ciscoSdwanSecurityIssuer,
+		ciscoSdwanSecurityDaysToExpiry
+	    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of 
+	                         security notification objects."
+    ::= { ciscoSdwanSecurityMIBGroups 2 }
+
+cSdwanSecurityNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS {
+                  ciscoSdwanSecurityControlConnectionStateChange,
+		  ciscoSdwanSecurityControlConnectionAuthFail,
+		  ciscoSdwanSecurityControlConnectionTlocIpChange,
+		  ciscoSdwanSecurityControlVbondStateChange,
+		  ciscoSdwanSecurityControlNoActiveVsmart,
+		  ciscoSdwanSecurityControlNoActiveVbond,
+		  ciscoSdwanSecurityTunnelIpsecRekey,
+		  ciscoSdwanSecurityTunnelIpsecManualRekey,
+		  ciscoSdwanSecuritySecurityRootCertChainInstalled,
+		  ciscoSdwanSecuritySecurityCertificateExpiring,
+		  ciscoSdwanSecuritySecurityCertificateExpired,
+		  ciscoSdwanSecuritySecurityCertificateInstalled,
+		  ciscoSdwanSecuritySecurityNewCsrGenerated,
+		  ciscoSdwanSecuritySecurityRootCertChainUninstalled,
+		  ciscoSdwanSecuritySecurityClearInstalledCertificate,
+		  ciscoSdwanSecuritySecurityVedgeSerialFileUploaded,
+		  ciscoSdwanSecuritySecurityVsmartSerialFileUploaded,
+		  ciscoSdwanSecuritySecurityVedgeEntryAdded,
+		  ciscoSdwanSecuritySecurityVedgeEntryRemoved,
+		  ciscoSdwanSecuritySecurityVsmartEntryAdded,
+		  ciscoSdwanSecuritySecurityVsmartEntryRemoved,
+		  ciscoSdwanSecurityVmanageConnectionPreferenceChanged,
+		  ciscoSdwanSecurityVbondRejectVedgeConnection,
+		  ciscoSdwanSecurityDeviceTemplateMissing,
+		  ciscoSdwanSecurityDeviceTemplateAttachedDuringZtp
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of security notifications."  
+    ::= { ciscoSdwanSecurityMIBGroups 3 }
+
+cSdwanSecurityControlSummaryGroup OBJECT-GROUP
+    OBJECTS {
+         controlSummaryVbondCounts,
+         controlSummaryVmanageCounts,
+         controlSummaryVsmartCounts
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of
+                             security control summary."
+    ::= { ciscoSdwanSecurityMIBGroups 4 }
+
+cSdwanSecurityControlAffinityConfigGroup OBJECT-GROUP
+    OBJECTS {
+         controlAffinityConfigAffcInterface,
+         controlAffinityConfigAffcErvc,
+         controlAffinityConfigAffcEcl,
+         controlAffinityConfigAffcCcl,
+         controlAffinityConfigAffcEquil,
+         controlAffinityConfigAffcLastResort
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of
+                             security affinity config."
+    ::= { ciscoSdwanSecurityMIBGroups 5 }
+
+cSdwanSecurityControlAffinityStatusGroup OBJECT-GROUP
+    OBJECTS {
+         controlAffinityStatusAffsInterface,
+         controlAffinityStatusAffsAcc,
+         controlAffinityStatusAffsUcc,
+         controlAffinityStatusAffsAc
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of
+                             security affinity status."
+    ::= { ciscoSdwanSecurityMIBGroups 8 }
+
+END

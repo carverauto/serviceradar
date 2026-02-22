@@ -1,0 +1,666 @@
+-- *****************************************************************
+-- CISCO-SECY-EXT-MIB.my
+--   
+-- Abhinand Chidu Velekkat
+--   
+-- Copyright (c) 2016-2017 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SECY-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    secyIfInterfaceIndex
+        FROM IEEE8021-SECY-MIB
+    CounterBasedGauge64
+        FROM HCNUM-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSecyExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201612150000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "A MIB module for extending IEEE8021-SECY-MIB."
+    REVISION        "201612150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 835 }
+
+
+ciscoSecyExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSecyExtMIB 0 }
+
+ciscoSecyExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSecyExtMIB 1 }
+
+ciscoSecyExtMIBStatsObjects  OBJECT IDENTIFIER
+    ::= { ciscoSecyExtMIBObjects 1 }
+
+ciscoSecyExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSecyExtMIB 2 }
+
+
+cseSecyStatsExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CseSecyStatsExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the additional statistics information
+        of each SecY supported by the MAC security entity."
+    ::= { ciscoSecyExtMIBStatsObjects 1 }
+
+cseSecyStatsExtEntry OBJECT-TYPE
+    SYNTAX          CseSecyStatsExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing counters for statistics or diagnosis for
+        a SecY."
+    INDEX           { secyIfInterfaceIndex } 
+    ::= { cseSecyStatsExtTable 1 }
+
+CseSecyStatsExtEntry ::= SEQUENCE {
+        cseSecyStatsRxTransformErrPkts Counter64,
+        cseSecyStatsRxControlPkts      Counter64,
+        cseSecyStatsRxTaggedCtrlPkts   Counter64,
+        cseSecyStatsTxTransformErrPkts Counter64,
+        cseSecyStatsTxControlPkts      Counter64
+}
+
+cseSecyStatsRxTransformErrPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of transform error packets received on this
+        interface." 
+    ::= { cseSecyStatsExtEntry 1 }
+
+cseSecyStatsRxControlPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of control packets received on this interface." 
+    ::= { cseSecyStatsExtEntry 2 }
+
+cseSecyStatsRxTaggedCtrlPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of tagged control packets received on this
+        interface." 
+    ::= { cseSecyStatsExtEntry 3 }
+
+cseSecyStatsTxTransformErrPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of tranform error packets transmitted via this
+        interface." 
+    ::= { cseSecyStatsExtEntry 4 }
+
+cseSecyStatsTxControlPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of control packets transmitted via this interface." 
+    ::= { cseSecyStatsExtEntry 5 }
+ 
+
+
+cseSecyTxSCStatsExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CseSecyTxSCStatsExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table contains additional statistics information for each
+        transmitting SC in the MAC security entity."
+    ::= { ciscoSecyExtMIBStatsObjects 2 }
+
+cseSecyTxSCStatsExtEntry OBJECT-TYPE
+    SYNTAX          CseSecyTxSCStatsExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing statistics information of a
+        transmitting SC."
+    INDEX           { secyIfInterfaceIndex } 
+    ::= { cseSecyTxSCStatsExtTable 1 }
+
+CseSecyTxSCStatsExtEntry ::= SEQUENCE {
+        cseSecyTxSCStatsSANotInUse Counter64
+}
+
+cseSecyTxSCStatsSANotInUse OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of SA not in use for this transmitting SC." 
+    ::= { cseSecyTxSCStatsExtEntry 1 }
+ 
+
+
+cseSecyIfRxStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CseSecyIfRxStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table contains the RX statistics information for each
+        MAC security capable interface."
+    ::= { ciscoSecyExtMIBStatsObjects 3 }
+
+cseSecyIfRxStatsEntry OBJECT-TYPE
+    SYNTAX          CseSecyIfRxStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the RX statistics information of a
+        MAC Security capable interface."
+    INDEX           { secyIfInterfaceIndex } 
+    ::= { cseSecyIfRxStatsTable 1 }
+
+CseSecyIfRxStatsEntry ::= SEQUENCE {
+        cseSecyIfRxUnicastUncontrolledPkts   Counter64,
+        cseSecyIfRxMulticastUncontrolledPkts Counter64,
+        cseSecyIfRxBroadcastUncontrolledPkts Counter64,
+        cseSecyIfRxUncontrolledPktsDrop      Counter64,
+        cseSecyIfRxUncontrolledPktsError     Counter64,
+        cseSecyIfRxUnicastControlledPkts     Counter64,
+        cseSecyIfRxMulticastControlledPkts   Counter64,
+        cseSecyIfRxBroadcastControlledPkts   Counter64,
+        cseSecyIfRxControlledPktsDrop        Counter64,
+        cseSecyIfRxControlledPktsError       Counter64,
+        cseSecyIfRxUncontrolledOctets        Counter64,
+        cseSecyIfRxControlledOctets          Counter64,
+        cseSecyIfRxUncontrolledPktRate       CounterBasedGauge64,
+        cseSecyIfRxUncontrolledOctetRate     CounterBasedGauge64,
+        cseSecyIfRxControlledPktRate         CounterBasedGauge64,
+        cseSecyIfRxControlledOctetRate       CounterBasedGauge64
+}
+
+cseSecyIfRxUnicastUncontrolledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of unicast uncontrolled packets received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 1 }
+
+cseSecyIfRxMulticastUncontrolledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of multicast uncontrolled packets received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 2 }
+
+cseSecyIfRxBroadcastUncontrolledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of broadcast uncontrolled packets received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 3 }
+
+cseSecyIfRxUncontrolledPktsDrop OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled packets drop received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 4 }
+
+cseSecyIfRxUncontrolledPktsError OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled packets error received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 5 }
+
+cseSecyIfRxUnicastControlledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of unicast controlled packets received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 6 }
+
+cseSecyIfRxMulticastControlledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of multicast controlled packets received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 7 }
+
+cseSecyIfRxBroadcastControlledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of broadcast controlled packets received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 8 }
+
+cseSecyIfRxControlledPktsDrop OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled packets drop received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 9 }
+
+cseSecyIfRxControlledPktsError OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled packets error received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 10 }
+
+cseSecyIfRxUncontrolledOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled octets received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 11 }
+
+cseSecyIfRxControlledOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled octets received via this interface." 
+    ::= { cseSecyIfRxStatsEntry 12 }
+
+cseSecyIfRxUncontrolledPktRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled packets per second received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 13 }
+
+cseSecyIfRxUncontrolledOctetRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Bytes per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled byte per second received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 14 }
+
+cseSecyIfRxControlledPktRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled packets per second received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 15 }
+
+cseSecyIfRxControlledOctetRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Bytes per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled byte per second received via this
+        interface." 
+    ::= { cseSecyIfRxStatsEntry 16 }
+ 
+
+
+cseSecyIfTxStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CseSecyIfTxStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table contains the TX statistics information for each
+        MAC security capable interface."
+    ::= { ciscoSecyExtMIBStatsObjects 4 }
+
+cseSecyIfTxStatsEntry OBJECT-TYPE
+    SYNTAX          CseSecyIfTxStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the TX statistics information of a
+        MAC Security capable interface."
+    INDEX           { secyIfInterfaceIndex } 
+    ::= { cseSecyIfTxStatsTable 1 }
+
+CseSecyIfTxStatsEntry ::= SEQUENCE {
+        cseSecyIfTxUnicastUncontrolledPkts   Counter64,
+        cseSecyIfTxMulticastUncontrolledPkts Counter64,
+        cseSecyIfTxBroadcastUncontrolledPkts Counter64,
+        cseSecyIfTxUncontrolledPktsDrop      Counter64,
+        cseSecyIfTxUncontrolledPktsError     Counter64,
+        cseSecyIfTxUnicastControlledPkts     Counter64,
+        cseSecyIfTxMulticastControlledPkts   Counter64,
+        cseSecyIfTxBroadcastControlledPkts   Counter64,
+        cseSecyIfTxControlledPktsDrop        Counter64,
+        cseSecyIfTxControlledPktsError       Counter64,
+        cseSecyIfTxUncontrolledOctets        Counter64,
+        cseSecyIfTxControlledOctets          Counter64,
+        cseSecyIfTxCommonOctets              Counter64,
+        cseSecyIfTxUncontrolledPktRate       CounterBasedGauge64,
+        cseSecyIfTxUncontrolledOctetRate     CounterBasedGauge64,
+        cseSecyIfTxControlledPktRate         CounterBasedGauge64,
+        cseSecyIfTxControlledOctetRate       CounterBasedGauge64
+}
+
+cseSecyIfTxUnicastUncontrolledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of unicast uncontrolled packets transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 1 }
+
+cseSecyIfTxMulticastUncontrolledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of multicast uncontrolled packets transmitted via
+        this interface." 
+    ::= { cseSecyIfTxStatsEntry 2 }
+
+cseSecyIfTxBroadcastUncontrolledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of broadcast uncontrolled packets transmitted via
+        this interface." 
+    ::= { cseSecyIfTxStatsEntry 3 }
+
+cseSecyIfTxUncontrolledPktsDrop OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled packets drop transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 4 }
+
+cseSecyIfTxUncontrolledPktsError OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled packets error transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 5 }
+
+cseSecyIfTxUnicastControlledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of unicast controlled packets transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 6 }
+
+cseSecyIfTxMulticastControlledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of multicast controlled packets transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 7 }
+
+cseSecyIfTxBroadcastControlledPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of broadcast controlled packets transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 8 }
+
+cseSecyIfTxControlledPktsDrop OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled packets drop transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 9 }
+
+cseSecyIfTxControlledPktsError OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled packets error transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 10 }
+
+cseSecyIfTxUncontrolledOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled octets transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 11 }
+
+cseSecyIfTxControlledOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled octets transmitted via
+        this interface." 
+    ::= { cseSecyIfTxStatsEntry 12 }
+
+cseSecyIfTxCommonOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of common octets transmitted via this interface." 
+    ::= { cseSecyIfTxStatsEntry 13 }
+
+cseSecyIfTxUncontrolledPktRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled packets per second transmitted via
+        this interface." 
+    ::= { cseSecyIfTxStatsEntry 14 }
+
+cseSecyIfTxUncontrolledOctetRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Bytes per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of uncontrolled byte per second transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 15 }
+
+cseSecyIfTxControlledPktRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled packets per second transmitted via
+        this interface." 
+    ::= { cseSecyIfTxStatsEntry 16 }
+
+cseSecyIfTxControlledOctetRate OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "Bytes per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of controlled byte per second transmitted via this
+        interface." 
+    ::= { cseSecyIfTxStatsEntry 17 }
+ 
+
+ciscoSecyExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSecyExtMIBConform 1 }
+
+ciscoSecyExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSecyExtMIBConform 2 }
+
+
+cseSecyExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for CISCO-SECY-EXT-MIB.
+        containing default object groups."
+    MODULE          -- this module
+    GROUP           cseSecyStatsExtGroup
+    DESCRIPTION
+        "This group is mandatory for devices which
+        support the additional SecY statistics information defined
+        in this group."
+
+    GROUP           cseSecyTxSCStatsExtGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        the addtional transmitting SC Statistics information defined
+        in this group."
+
+    GROUP           cseSecyIfRxStatsGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        the interface RX Statistics information defined
+        in this group."
+
+    GROUP           cseSecyIfTxStatsGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        the interface TX Statistics information defined
+        in this group."
+    ::= { ciscoSecyExtMIBCompliances 1 }
+
+-- Units of Conformance
+
+cseSecyStatsExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cseSecyStatsRxTransformErrPkts,
+                        cseSecyStatsRxControlPkts,
+                        cseSecyStatsRxTaggedCtrlPkts,
+                        cseSecyStatsTxTransformErrPkts,
+                        cseSecyStatsTxControlPkts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional SecY
+        statistics information."
+    ::= { ciscoSecyExtMIBGroups 1 }
+
+cseSecyTxSCStatsExtGroup OBJECT-GROUP
+    OBJECTS         { cseSecyTxSCStatsSANotInUse }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the addtional transmitting
+        SC Statistics information."
+    ::= { ciscoSecyExtMIBGroups 2 }
+
+cseSecyIfRxStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cseSecyIfRxUnicastUncontrolledPkts,
+                        cseSecyIfRxMulticastUncontrolledPkts,
+                        cseSecyIfRxBroadcastUncontrolledPkts,
+                        cseSecyIfRxUncontrolledPktsDrop,
+                        cseSecyIfRxUncontrolledPktsError,
+                        cseSecyIfRxUnicastControlledPkts,
+                        cseSecyIfRxMulticastControlledPkts,
+                        cseSecyIfRxBroadcastControlledPkts,
+                        cseSecyIfRxControlledPktsDrop,
+                        cseSecyIfRxControlledPktsError,
+                        cseSecyIfRxUncontrolledOctets,
+                        cseSecyIfRxControlledOctets,
+                        cseSecyIfRxUncontrolledPktRate,
+                        cseSecyIfRxUncontrolledOctetRate,
+                        cseSecyIfRxControlledPktRate,
+                        cseSecyIfRxControlledOctetRate
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the Rx statistics for
+        the MAC security capable interface."
+    ::= { ciscoSecyExtMIBGroups 3 }
+
+cseSecyIfTxStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cseSecyIfTxUnicastUncontrolledPkts,
+                        cseSecyIfTxMulticastUncontrolledPkts,
+                        cseSecyIfTxBroadcastUncontrolledPkts,
+                        cseSecyIfTxUncontrolledPktsDrop,
+                        cseSecyIfTxUncontrolledPktsError,
+                        cseSecyIfTxUnicastControlledPkts,
+                        cseSecyIfTxMulticastControlledPkts,
+                        cseSecyIfTxBroadcastControlledPkts,
+                        cseSecyIfTxControlledPktsDrop,
+                        cseSecyIfTxControlledPktsError,
+                        cseSecyIfTxUncontrolledOctets,
+                        cseSecyIfTxControlledOctets,
+                        cseSecyIfTxCommonOctets,
+                        cseSecyIfTxUncontrolledPktRate,
+                        cseSecyIfTxUncontrolledOctetRate,
+                        cseSecyIfTxControlledPktRate,
+                        cseSecyIfTxControlledOctetRate
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the Tx statistics for
+        the MAC security capable interface."
+    ::= { ciscoSecyExtMIBGroups 4 }
+
+END
+
+

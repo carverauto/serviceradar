@@ -1,0 +1,914 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-INITIATOR-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- INITIATOR management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-INITIATOR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsFsmLifecycle,
+    CucsInitiatorFcInitiatorEpProt,
+    CucsInitiatorGroupType,
+    CucsInitiatorIScsiInitiatorEpProt,
+    CucsInitiatorInitiatorEpPref,
+    CucsStorageAllocState,
+    CucsStoragePathHA,
+    CucsStorageProtocol
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsInitiatorObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        INITIATOR management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 65 }
+
+cucsInitiatorFcInitiatorEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorFcInitiatorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp managed object table"
+    ::= { cucsInitiatorObjects 1 }
+
+cucsInitiatorFcInitiatorEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorFcInitiatorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorFcInitiatorEpTable table."
+    INDEX { cucsInitiatorFcInitiatorEpInstanceId }
+    ::= { cucsInitiatorFcInitiatorEpTable 1 }
+
+CucsInitiatorFcInitiatorEpEntry ::= SEQUENCE {
+    cucsInitiatorFcInitiatorEpInstanceId                             CucsManagedObjectId,
+    cucsInitiatorFcInitiatorEpDn                                     CucsManagedObjectDn,
+    cucsInitiatorFcInitiatorEpRn                                     SnmpAdminString,
+    cucsInitiatorFcInitiatorEpEpDn                                   SnmpAdminString,
+    cucsInitiatorFcInitiatorEpId                                     Unsigned64,
+    cucsInitiatorFcInitiatorEpName                                   SnmpAdminString,
+    cucsInitiatorFcInitiatorEpPref                                   CucsInitiatorInitiatorEpPref,
+    cucsInitiatorFcInitiatorEpProt                                   CucsInitiatorFcInitiatorEpProt,
+    cucsInitiatorFcInitiatorEpWwpn                                   Unsigned64
+}
+
+cucsInitiatorFcInitiatorEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorFcInitiatorEpEntry 1 }
+
+cucsInitiatorFcInitiatorEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:dn managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 2 }
+
+cucsInitiatorFcInitiatorEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:rn managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 3 }
+
+cucsInitiatorFcInitiatorEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:epDn managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 4 }
+
+cucsInitiatorFcInitiatorEpId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:id managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 5 }
+
+cucsInitiatorFcInitiatorEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:name managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 6 }
+
+cucsInitiatorFcInitiatorEpPref OBJECT-TYPE
+    SYNTAX       CucsInitiatorInitiatorEpPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:pref managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 7 }
+
+cucsInitiatorFcInitiatorEpProt OBJECT-TYPE
+    SYNTAX       CucsInitiatorFcInitiatorEpProt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:prot managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 8 }
+
+cucsInitiatorFcInitiatorEpWwpn OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:FcInitiatorEp:wwpn managed object property"
+    ::= { cucsInitiatorFcInitiatorEpEntry 9 }
+
+cucsInitiatorGroupEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorGroupEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp managed object table"
+    ::= { cucsInitiatorObjects 2 }
+
+cucsInitiatorGroupEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorGroupEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorGroupEpTable table."
+    INDEX { cucsInitiatorGroupEpInstanceId }
+    ::= { cucsInitiatorGroupEpTable 1 }
+
+CucsInitiatorGroupEpEntry ::= SEQUENCE {
+    cucsInitiatorGroupEpInstanceId                                   CucsManagedObjectId,
+    cucsInitiatorGroupEpDn                                           CucsManagedObjectDn,
+    cucsInitiatorGroupEpRn                                           SnmpAdminString,
+    cucsInitiatorGroupEpEpDn                                         SnmpAdminString,
+    cucsInitiatorGroupEpId                                           Gauge32,
+    cucsInitiatorGroupEpLc                                           CucsFsmLifecycle,
+    cucsInitiatorGroupEpName                                         SnmpAdminString,
+    cucsInitiatorGroupEpPolName                                      SnmpAdminString,
+    cucsInitiatorGroupEpRmtDiskCfgName                               SnmpAdminString
+}
+
+cucsInitiatorGroupEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorGroupEpEntry 1 }
+
+cucsInitiatorGroupEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:dn managed object property"
+    ::= { cucsInitiatorGroupEpEntry 2 }
+
+cucsInitiatorGroupEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:rn managed object property"
+    ::= { cucsInitiatorGroupEpEntry 3 }
+
+cucsInitiatorGroupEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:epDn managed object property"
+    ::= { cucsInitiatorGroupEpEntry 4 }
+
+cucsInitiatorGroupEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:id managed object property"
+    ::= { cucsInitiatorGroupEpEntry 5 }
+
+cucsInitiatorGroupEpLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:lc managed object property"
+    ::= { cucsInitiatorGroupEpEntry 6 }
+
+cucsInitiatorGroupEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:name managed object property"
+    ::= { cucsInitiatorGroupEpEntry 7 }
+
+cucsInitiatorGroupEpPolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:polName managed object property"
+    ::= { cucsInitiatorGroupEpEntry 8 }
+
+cucsInitiatorGroupEpRmtDiskCfgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:GroupEp:rmtDiskCfgName managed
+        object property"
+    ::= { cucsInitiatorGroupEpEntry 9 }
+
+cucsInitiatorIScsiInitiatorEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorIScsiInitiatorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp managed object table"
+    ::= { cucsInitiatorObjects 3 }
+
+cucsInitiatorIScsiInitiatorEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorIScsiInitiatorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorIScsiInitiatorEpTable table."
+    INDEX { cucsInitiatorIScsiInitiatorEpInstanceId }
+    ::= { cucsInitiatorIScsiInitiatorEpTable 1 }
+
+CucsInitiatorIScsiInitiatorEpEntry ::= SEQUENCE {
+    cucsInitiatorIScsiInitiatorEpInstanceId                          CucsManagedObjectId,
+    cucsInitiatorIScsiInitiatorEpDn                                  CucsManagedObjectDn,
+    cucsInitiatorIScsiInitiatorEpRn                                  SnmpAdminString,
+    cucsInitiatorIScsiInitiatorEpEpDn                                SnmpAdminString,
+    cucsInitiatorIScsiInitiatorEpId                                  Unsigned64,
+    cucsInitiatorIScsiInitiatorEpIqn                                 SnmpAdminString,
+    cucsInitiatorIScsiInitiatorEpName                                SnmpAdminString,
+    cucsInitiatorIScsiInitiatorEpPref                                CucsInitiatorInitiatorEpPref,
+    cucsInitiatorIScsiInitiatorEpProt                                CucsInitiatorIScsiInitiatorEpProt
+}
+
+cucsInitiatorIScsiInitiatorEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 1 }
+
+cucsInitiatorIScsiInitiatorEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:dn managed object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 2 }
+
+cucsInitiatorIScsiInitiatorEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:rn managed object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 3 }
+
+cucsInitiatorIScsiInitiatorEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:epDn managed
+        object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 4 }
+
+cucsInitiatorIScsiInitiatorEpId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:id managed object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 5 }
+
+cucsInitiatorIScsiInitiatorEpIqn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:iqn managed object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 6 }
+
+cucsInitiatorIScsiInitiatorEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:name managed
+        object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 7 }
+
+cucsInitiatorIScsiInitiatorEpPref OBJECT-TYPE
+    SYNTAX       CucsInitiatorInitiatorEpPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:pref managed
+        object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 8 }
+
+cucsInitiatorIScsiInitiatorEpProt OBJECT-TYPE
+    SYNTAX       CucsInitiatorIScsiInitiatorEpProt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:IScsiInitiatorEp:prot managed
+        object property"
+    ::= { cucsInitiatorIScsiInitiatorEpEntry 9 }
+
+cucsInitiatorLunEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorLunEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:LunEp managed object table"
+    ::= { cucsInitiatorObjects 4 }
+
+cucsInitiatorLunEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorLunEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorLunEpTable table."
+    INDEX { cucsInitiatorLunEpInstanceId }
+    ::= { cucsInitiatorLunEpTable 1 }
+
+CucsInitiatorLunEpEntry ::= SEQUENCE {
+    cucsInitiatorLunEpInstanceId                                     CucsManagedObjectId,
+    cucsInitiatorLunEpDn                                             CucsManagedObjectDn,
+    cucsInitiatorLunEpRn                                             SnmpAdminString,
+    cucsInitiatorLunEpBootable                                       TruthValue,
+    cucsInitiatorLunEpEpDn                                           SnmpAdminString,
+    cucsInitiatorLunEpId                                             Gauge32
+}
+
+cucsInitiatorLunEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorLunEpEntry 1 }
+
+cucsInitiatorLunEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:LunEp:dn managed object property"
+    ::= { cucsInitiatorLunEpEntry 2 }
+
+cucsInitiatorLunEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:LunEp:rn managed object property"
+    ::= { cucsInitiatorLunEpEntry 3 }
+
+cucsInitiatorLunEpBootable OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:LunEp:bootable managed object property"
+    ::= { cucsInitiatorLunEpEntry 4 }
+
+cucsInitiatorLunEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:LunEp:epDn managed object property"
+    ::= { cucsInitiatorLunEpEntry 5 }
+
+cucsInitiatorLunEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:LunEp:id managed object property"
+    ::= { cucsInitiatorLunEpEntry 6 }
+
+cucsInitiatorMemberEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorMemberEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:MemberEp managed object table"
+    ::= { cucsInitiatorObjects 5 }
+
+cucsInitiatorMemberEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorMemberEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorMemberEpTable table."
+    INDEX { cucsInitiatorMemberEpInstanceId }
+    ::= { cucsInitiatorMemberEpTable 1 }
+
+CucsInitiatorMemberEpEntry ::= SEQUENCE {
+    cucsInitiatorMemberEpInstanceId                                  CucsManagedObjectId,
+    cucsInitiatorMemberEpDn                                          CucsManagedObjectDn,
+    cucsInitiatorMemberEpRn                                          SnmpAdminString,
+    cucsInitiatorMemberEpEpDn                                        SnmpAdminString,
+    cucsInitiatorMemberEpId                                          Gauge32
+}
+
+cucsInitiatorMemberEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorMemberEpEntry 1 }
+
+cucsInitiatorMemberEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:MemberEp:dn managed object property"
+    ::= { cucsInitiatorMemberEpEntry 2 }
+
+cucsInitiatorMemberEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:MemberEp:rn managed object property"
+    ::= { cucsInitiatorMemberEpEntry 3 }
+
+cucsInitiatorMemberEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:MemberEp:epDn managed object property"
+    ::= { cucsInitiatorMemberEpEntry 4 }
+
+cucsInitiatorMemberEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:MemberEp:id managed object property"
+    ::= { cucsInitiatorMemberEpEntry 5 }
+
+cucsInitiatorRequestorEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorRequestorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp managed object table"
+    ::= { cucsInitiatorObjects 6 }
+
+cucsInitiatorRequestorEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorRequestorEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorRequestorEpTable table."
+    INDEX { cucsInitiatorRequestorEpInstanceId }
+    ::= { cucsInitiatorRequestorEpTable 1 }
+
+CucsInitiatorRequestorEpEntry ::= SEQUENCE {
+    cucsInitiatorRequestorEpInstanceId                               CucsManagedObjectId,
+    cucsInitiatorRequestorEpDn                                       CucsManagedObjectDn,
+    cucsInitiatorRequestorEpRn                                       SnmpAdminString,
+    cucsInitiatorRequestorEpAllocState                               CucsStorageAllocState,
+    cucsInitiatorRequestorEpEpDn                                     SnmpAdminString,
+    cucsInitiatorRequestorEpId                                       Gauge32,
+    cucsInitiatorRequestorEpSysId                                    Gauge32,
+    cucsInitiatorRequestorEpSysName                                  SnmpAdminString
+}
+
+cucsInitiatorRequestorEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorRequestorEpEntry 1 }
+
+cucsInitiatorRequestorEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp:dn managed object property"
+    ::= { cucsInitiatorRequestorEpEntry 2 }
+
+cucsInitiatorRequestorEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp:rn managed object property"
+    ::= { cucsInitiatorRequestorEpEntry 3 }
+
+cucsInitiatorRequestorEpAllocState OBJECT-TYPE
+    SYNTAX       CucsStorageAllocState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp:allocState managed
+        object property"
+    ::= { cucsInitiatorRequestorEpEntry 4 }
+
+cucsInitiatorRequestorEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp:epDn managed object property"
+    ::= { cucsInitiatorRequestorEpEntry 5 }
+
+cucsInitiatorRequestorEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp:id managed object property"
+    ::= { cucsInitiatorRequestorEpEntry 6 }
+
+cucsInitiatorRequestorEpSysId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp:sysId managed object property"
+    ::= { cucsInitiatorRequestorEpEntry 7 }
+
+cucsInitiatorRequestorEpSysName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorEp:sysName managed object property"
+    ::= { cucsInitiatorRequestorEpEntry 8 }
+
+cucsInitiatorRequestorGrpEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorRequestorGrpEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp managed object table"
+    ::= { cucsInitiatorObjects 7 }
+
+cucsInitiatorRequestorGrpEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorRequestorGrpEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorRequestorGrpEpTable table."
+    INDEX { cucsInitiatorRequestorGrpEpInstanceId }
+    ::= { cucsInitiatorRequestorGrpEpTable 1 }
+
+CucsInitiatorRequestorGrpEpEntry ::= SEQUENCE {
+    cucsInitiatorRequestorGrpEpInstanceId                            CucsManagedObjectId,
+    cucsInitiatorRequestorGrpEpDn                                    CucsManagedObjectDn,
+    cucsInitiatorRequestorGrpEpRn                                    SnmpAdminString,
+    cucsInitiatorRequestorGrpEpAllocState                            CucsStorageAllocState,
+    cucsInitiatorRequestorGrpEpEpDn                                  SnmpAdminString,
+    cucsInitiatorRequestorGrpEpId                                    Gauge32,
+    cucsInitiatorRequestorGrpEpLc                                    CucsFsmLifecycle,
+    cucsInitiatorRequestorGrpEpPolDn                                 SnmpAdminString,
+    cucsInitiatorRequestorGrpEpType                                  CucsInitiatorGroupType
+}
+
+cucsInitiatorRequestorGrpEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorRequestorGrpEpEntry 1 }
+
+cucsInitiatorRequestorGrpEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:dn managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 2 }
+
+cucsInitiatorRequestorGrpEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:rn managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 3 }
+
+cucsInitiatorRequestorGrpEpAllocState OBJECT-TYPE
+    SYNTAX       CucsStorageAllocState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:allocState
+        managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 4 }
+
+cucsInitiatorRequestorGrpEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:epDn managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 5 }
+
+cucsInitiatorRequestorGrpEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:id managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 6 }
+
+cucsInitiatorRequestorGrpEpLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:lc managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 7 }
+
+cucsInitiatorRequestorGrpEpPolDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:polDn managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 8 }
+
+cucsInitiatorRequestorGrpEpType OBJECT-TYPE
+    SYNTAX       CucsInitiatorGroupType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:RequestorGrpEp:type managed object property"
+    ::= { cucsInitiatorRequestorGrpEpEntry 9 }
+
+cucsInitiatorStoreEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorStoreEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:StoreEp managed object table"
+    ::= { cucsInitiatorObjects 8 }
+
+cucsInitiatorStoreEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorStoreEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorStoreEpTable table."
+    INDEX { cucsInitiatorStoreEpInstanceId }
+    ::= { cucsInitiatorStoreEpTable 1 }
+
+CucsInitiatorStoreEpEntry ::= SEQUENCE {
+    cucsInitiatorStoreEpInstanceId                                   CucsManagedObjectId,
+    cucsInitiatorStoreEpDn                                           CucsManagedObjectDn,
+    cucsInitiatorStoreEpRn                                           SnmpAdminString,
+    cucsInitiatorStoreEpEpDn                                         SnmpAdminString,
+    cucsInitiatorStoreEpId                                           Gauge32,
+    cucsInitiatorStoreEpType                                         CucsInitiatorGroupType
+}
+
+cucsInitiatorStoreEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorStoreEpEntry 1 }
+
+cucsInitiatorStoreEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:StoreEp:dn managed object property"
+    ::= { cucsInitiatorStoreEpEntry 2 }
+
+cucsInitiatorStoreEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:StoreEp:rn managed object property"
+    ::= { cucsInitiatorStoreEpEntry 3 }
+
+cucsInitiatorStoreEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:StoreEp:epDn managed object property"
+    ::= { cucsInitiatorStoreEpEntry 4 }
+
+cucsInitiatorStoreEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:StoreEp:id managed object property"
+    ::= { cucsInitiatorStoreEpEntry 5 }
+
+cucsInitiatorStoreEpType OBJECT-TYPE
+    SYNTAX       CucsInitiatorGroupType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:StoreEp:type managed object property"
+    ::= { cucsInitiatorStoreEpEntry 6 }
+
+cucsInitiatorUnitEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsInitiatorUnitEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp managed object table"
+    ::= { cucsInitiatorObjects 9 }
+
+cucsInitiatorUnitEpEntry OBJECT-TYPE
+    SYNTAX           CucsInitiatorUnitEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsInitiatorUnitEpTable table."
+    INDEX { cucsInitiatorUnitEpInstanceId }
+    ::= { cucsInitiatorUnitEpTable 1 }
+
+CucsInitiatorUnitEpEntry ::= SEQUENCE {
+    cucsInitiatorUnitEpInstanceId                                    CucsManagedObjectId,
+    cucsInitiatorUnitEpDn                                            CucsManagedObjectDn,
+    cucsInitiatorUnitEpRn                                            SnmpAdminString,
+    cucsInitiatorUnitEpBoot                                          TruthValue,
+    cucsInitiatorUnitEpEpDn                                          SnmpAdminString,
+    cucsInitiatorUnitEpHa                                            CucsStoragePathHA,
+    cucsInitiatorUnitEpId                                            Gauge32,
+    cucsInitiatorUnitEpItemDn                                        SnmpAdminString,
+    cucsInitiatorUnitEpLc                                            CucsFsmLifecycle,
+    cucsInitiatorUnitEpPhyId                                         Gauge32,
+    cucsInitiatorUnitEpProt                                          CucsStorageProtocol
+}
+
+cucsInitiatorUnitEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsInitiatorUnitEpEntry 1 }
+
+cucsInitiatorUnitEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:dn managed object property"
+    ::= { cucsInitiatorUnitEpEntry 2 }
+
+cucsInitiatorUnitEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:rn managed object property"
+    ::= { cucsInitiatorUnitEpEntry 3 }
+
+cucsInitiatorUnitEpBoot OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:boot managed object property"
+    ::= { cucsInitiatorUnitEpEntry 4 }
+
+cucsInitiatorUnitEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:epDn managed object property"
+    ::= { cucsInitiatorUnitEpEntry 5 }
+
+cucsInitiatorUnitEpHa OBJECT-TYPE
+    SYNTAX       CucsStoragePathHA
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:ha managed object property"
+    ::= { cucsInitiatorUnitEpEntry 6 }
+
+cucsInitiatorUnitEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:id managed object property"
+    ::= { cucsInitiatorUnitEpEntry 7 }
+
+cucsInitiatorUnitEpItemDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:itemDn managed object property"
+    ::= { cucsInitiatorUnitEpEntry 8 }
+
+cucsInitiatorUnitEpLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:lc managed object property"
+    ::= { cucsInitiatorUnitEpEntry 9 }
+
+cucsInitiatorUnitEpPhyId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:phyId managed object property"
+    ::= { cucsInitiatorUnitEpEntry 10 }
+
+cucsInitiatorUnitEpProt OBJECT-TYPE
+    SYNTAX       CucsStorageProtocol
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS initiator:UnitEp:prot managed object property"
+    ::= { cucsInitiatorUnitEpEntry 11 }
+
+END

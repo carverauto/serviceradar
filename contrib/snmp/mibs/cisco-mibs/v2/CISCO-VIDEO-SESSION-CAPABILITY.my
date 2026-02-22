@@ -1,0 +1,196 @@
+-- *****************************************************************
+-- CISCO-VIDEO-SESSION-CAPABILITY.my
+--   
+-- Copyright (c) 2010-2011 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-VIDEO-SESSION-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVideoSessionCapability MODULE-IDENTITY
+    LAST-UPDATED    "201105240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-video@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-VIDEO-SESSION-MIB."
+    REVISION        "201105240000Z"
+    DESCRIPTION
+        "Added ciscoVideoSessionCapabilityV152T02."
+    REVISION        "201011110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 599 }
+
+
+
+ciscoVideoSessionCapabilityV15R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=IOS
+                     OSVERSION=15.1
+                     PLATFORM=c29xx,c3925,c3945,c3925E,c3945E
+                     INTERFACE=None"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Video Session MIB capabilities."
+
+    SUPPORTS        CISCO-VIDEO-SESSION-MIB
+    INCLUDES        {
+                        cVideoSessionHistoryGroup,
+                        cVideoSessionActiveGroup
+                    }
+    ::= { ciscoVideoSessionCapability 1 }
+
+ciscoVideoSessionCapabilityV152T02 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=IOS
+                     OSVERSION=15.2(2)T
+                     PLATFORM=c29xx,c3925,c3945,c3925E,c3945E
+                     INTERFACE=None"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Video Session MIB capabilities.
+        Some objects are not implemented due to DSP statistics reporting
+        capabilities."
+
+    SUPPORTS        CISCO-VIDEO-SESSION-MIB
+    INCLUDES        {
+                        cVideoSessionCommonStatusGroup,
+                        cVideoSessionCommonStatisticsGroup,
+                        cVideoSessionCallStatisticsGroup,
+                        cVideoSessionConfereeStatisticsGroup
+                    }
+    VARIATION       cVideoCommonStatsHistoryTxMaxJitter
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsHistoryTxMaxDelay
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsHistoryTxPercentLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsHistoryTxAvgJitter
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsHistoryTxAvgDelay
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsHistoryRxTotalLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsHistoryRxPercentLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsActiveTxActualBitrate
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsActiveTxCurrentLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsActiveTxCurrentOutOfOrderPackets
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsActiveTxMaxJitter
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsActiveTxCurrentJitter
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsActiveTxMaxDelay
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsActiveTxCurrentDelay
+    DESCRIPTION
+        "This object is only supported for video conference call."
+
+    VARIATION       cVideoCommonStatsActiveTxPercentLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsActiveTxAvgJitter
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsActiveTxAvgDelay
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsActiveRxCurrentLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsActiveRxActualBitrate
+    DESCRIPTION
+        "This object is only supported for point-to-point video
+        transcoding call."
+
+    VARIATION       cVideoCommonStatsActiveRxTotalLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cVideoCommonStatsActiveRxPercentLostPackets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    ::= { ciscoVideoSessionCapability 2 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

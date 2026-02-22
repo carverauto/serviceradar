@@ -1,0 +1,1755 @@
+-- *******************************************************************
+-- CISCO-WDS-INFO-MIB.my
+-- September 2005, Young Il Choi
+--
+-- Copyright (c) 2005-2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-WDS-INFO-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Unsigned32,
+        Counter32,
+        Gauge32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        MacAddress,
+        TimeStamp,
+        DateAndTime,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        InetAddressType,
+        InetAddress
+                FROM INET-ADDRESS-MIB
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        CDot11SsidString,
+        CDot11SecAuthKeyMgmtType
+                FROM CISCO-DOT11-SSID-SECURITY-MIB
+        CDot11IfVlanIdOrZero
+                FROM CISCO-DOT11-IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoWdsInfoMIB MODULE-IDENTITY
+        LAST-UPDATED   "200509150000Z"
+        ORGANIZATION   "Cisco Systems Inc."
+        CONTACT-INFO
+               "        Cisco Systems,
+                        Customer Service
+                        Postal: 170 West Tasman Drive
+               San Jose, CA  95134
+               USA
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-dot11@cisco.com"
+
+        DESCRIPTION
+                "This MIB is intended to be implemented on all Cisco
+                network entities that provide Wireless Domain Services
+                (WDS). The WDS provides a control mechanism for
+                wireless devices that roam between Access Points
+                residing on different layer 3 subnets. When WDS is in
+                the Wireless LAN Services Module(WLSM), the access
+                points providing Layer 3 mobility must register with
+                the WDS before wireless devices are given access to the
+                mobility network. The location of the WDS is specified
+                in each Access Point along with LEAP device credentials
+                that are required for authentication with the WDS. Once
+                the Access Point and the Mobile Node are authenticated
+                with the WDS, those are considered registered.
+
+                This MIB reports the information about the Wireless
+                Domain Servers, Access Points, Mobile Nodes, and their
+                roaming patterns.
+
+
+                                   GLOSSARY
+                AAA
+
+                Authentication, Authorization, Accounting
+
+
+                Access Point (AP)
+
+                An entity that contains an 802.11 medium access
+                control (MAC) and physical layer (PHY) interface
+                and provides access to the distribution services via
+                the wireless medium for associated devices.
+
+
+                BSSID
+
+                Basic Service Set Identification, where the basic
+                service set is defined as the set of data transfer
+                rates that all the stations in a BSS will be capable
+                of using to receive frames from the wireless medium.
+
+
+                CCKM
+
+                Cisco Central Key Management.
+
+
+                Context
+
+                The mobility context for a Mobile Node includes its
+                current mobility bindings with the Access Points,
+                IP/802 address bindings, cached configuration
+                parameters, QoS state, IP group membership,
+                authentication state, accounting  statistics, and
+                other dynamically derived protocol state information.
+
+
+                EAP
+
+                Extensible Authentication Protocol.
+
+
+                Hot Standby Router Protocol (HSRP)
+
+                Cisco Hot Standby Router Protocol as defined in RFC2281
+
+
+                L3MM
+
+                Layer-3 Mobility Manager (L3MM) is a new software
+                entity residing on Central Switch (CS). L3MM maintains
+                the mobility database and manages mGRE tunnels and
+                tunnel paths to provide L3 Mobility for wireless
+                clients.
+
+
+                Layer 3 Mobility Control Protocol (LCP)
+
+                A simple protocol to exchange control message between
+                WDS and L3MM to achieve layer 3 seamless mobility for
+                wireless devices.
+
+
+                mGRE Tunnels
+
+                Multipoint Generic Routing Encapsulation tunnels. This
+                tunnel is used to tunnel wireless traffic and used to
+                transfer wireless traffic between AP and CS.
+
+
+                MIC
+
+                Message Integrity Check.  A MIC can, optionally,
+                be added to WEP-encrypted 802.11 frames.
+
+
+                Mobile Node (MN)
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an Access Point.
+
+
+                SSID
+
+                Service Set Identification, where the station service
+                is defined as the set of services that support
+                transport of medium access control (MAC) service data
+                units (MSDUs) between stations within a basic service
+                set.
+
+
+                TKIP
+
+                WPA Temporal Key encryption.
+
+
+                Wireless Domain Services (WDS)
+
+                The set of services being offered at a particular
+                broadcast domain that may be an IP subnet or a
+                particular VLAN, or across the L3 cloud.  The services
+                include the following.
+                1. Fast Secure Roaming with CCKM.
+                2. Layer 3 seamless mobility.
+                3. Radio Management aggregation for 802.11 wireless
+                   clients .
+
+                WDS Entity
+
+                The logical entity that resides in an infrastructure
+                node and offers WDS to the descendants of that
+                infrastructure node in the wireless services
+                hierarchy.
+
+
+                WEP
+
+                Wired Equivalent Privacy. This is generally used
+                to refer to 802.11 legacy encryption.
+
+
+                WLSM
+
+                Wireless LAN Services Module
+
+
+                Wireless Network Manager (WNM)
+
+                The network management system that manages the
+                entire hierarchy of devices providing WDS.
+
+
+                WPA
+
+                WiFi Protected Access."
+
+        REVISION      "200509150000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 509 }
+
+
+ciscoWdsInfoMIBNotifs    OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIB 0 }
+
+ciscoWdsInfoMIBObjects OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIB 1 }
+
+ciscoWdsInfoMIBConform   OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIB 2 }
+
+ciscoWdsInfoMacAuthCache OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBObjects 1 }
+
+ciscoWdsInfoAccessPoint OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBObjects 2 }
+
+ciscoWdsInfoMobileNode OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBObjects 3 }
+
+ciscoWdsInfoNetworkManager OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBObjects 4 }
+
+ciscoWdsInfoStatistics OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBObjects 5 }
+
+ciscoWdsInfoMobility OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBObjects 6 }
+
+ciscoWdsInfoRoamStatistics OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBObjects 7 }
+
+-- Textual Conventions
+
+CWdsClientTrackingStatus ::= TEXTUAL-CONVENTION
+
+        STATUS     current
+        DESCRIPTION
+                "These are the Client Tracking statuses on WDS. The
+                Client Tracking feature expands the radio management
+                information gathered from Access Points to include
+                information on Mobile Node authentication and roaming
+                events. The WDS collects those data and sends to
+                Network Manager. This feature provides near-real-time
+                tracking of Mobile Node associations via the Network
+                Manger.
+                    active    -  Enabled and collecting the data,
+                    inactive  -  Enabled but not collection the data,
+                    disabled  -  The Client Tracking is disabled."
+        SYNTAX     INTEGER {
+                       active(1),
+                       inactive(2),
+                       disabled(3)
+        }
+
+CWdsDeviceAuthType ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "These are the IEEE 802.11 supported authentication
+                methods for WDS devices such as Access Points, Mobile
+                Nodes and Wireless Network Managers:
+                    open           - Open System authentication,
+                    shared         - Shared authentication,
+                    leap           - Cisco Light-weight EAP,
+                    eap            - EAP authentication,
+                    mac            - MAC authentication,
+                    macOrEap       - MAC or EAP authentication,
+                    macOrLeap      - MAC or LEAP authentication,
+                    eapOptional    - Eap Optional."
+        SYNTAX     BITS {
+                       open(0),
+                       shared(1),
+                       leap(2),
+                       eap(3),
+                       mac(4),
+                       macOrEap(5),
+                       macOrLeap(6),
+                       eapOptional(7)
+        }
+
+CWdsDeviceState ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "The registration state of the network entities
+                requiring the WDS services.
+                     unknown           - Unknown state,
+                     initial           - Initial state,
+                     authInProgress    - Authentication is in progress,
+                     authFailed        - Authentication is failed,
+                     authenticated     - Authentication is successful,
+                     securityKeysSetup - Security keys are set,
+                     registered        - Registration is completed,
+                     detached          - The device is detached."
+        SYNTAX     INTEGER {
+                       unknown(1),
+                       initial(2),
+                       authInProgress(3),
+                       authFailed(4),
+                       authenticated(5),
+                       securityKeysSetup(6),
+                       registered(7),
+                       detached(8)
+        }
+
+--********************************************************************
+--*  WDS AAA Mac Cache identification parameters
+--********************************************************************
+
+cwdsiMacAuthCacheTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwdsiMacAuthCacheEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table provides the information about the MAC
+                addresses cached in the WDS for MAC authentication.
+                MAC authentication caching reduces overhead because
+                the WDS authenticates devices in its MAC-address
+                cache without sending the request to the
+                authentication server.
+
+                An entry is added to this table when a Mobile Node
+                completes MAC authentication to the authentication
+                server. An entry is removed if the MAC address is not
+                flushed before timeout."
+        ::= { ciscoWdsInfoMacAuthCache 1 }
+
+cwdsiMacAuthCacheEntry OBJECT-TYPE
+        SYNTAX     CwdsiMacAuthCacheEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry is a set of a MAC address and age for
+                fast MAC authentication."
+        INDEX   { cwdsiMacAuthCacheMacAddr }
+        ::=     { cwdsiMacAuthCacheTable 1 }
+
+CwdsiMacAuthCacheEntry ::=
+        SEQUENCE  {
+                cwdsiMacAuthCacheMacAddr MacAddress,
+                cwdsiMacAuthCacheAge     Unsigned32
+        }
+
+cwdsiMacAuthCacheMacAddr OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the MAC address of the device
+                which is cached in the WDS for MAC authentication."
+        ::= { cwdsiMacAuthCacheEntry 1 }
+
+cwdsiMacAuthCacheAge OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "minutes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the elapsed time since the MAC
+                address has been cached. If the MAC address is not 
+                flushed within the specific time(default 30 minutes),
+                the entry with cwdsiMacAuthCacheMacAddr is removed."
+        ::= { cwdsiMacAuthCacheEntry 2 }
+
+--********************************************************************
+--*  WDS Access Point identification parameters
+--********************************************************************
+
+cwdsiApTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwdsiApEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table provides the information about the Access
+                Points registered with WDS.
+
+                An entry is added to this table when a Access Point
+                register with WDS and the entry is removed after the
+                lifetime of the Access Point expires."
+        ::= { ciscoWdsInfoAccessPoint 1 }
+
+cwdsiApEntry OBJECT-TYPE
+        SYNTAX     CwdsiApEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry is a set of attributes of an Access Point
+                currently registered with WDS."
+        INDEX   { cwdsiApMacAddr }
+        ::=     { cwdsiApTable 1 }
+
+CwdsiApEntry ::=
+        SEQUENCE  {
+                cwdsiApMacAddr             MacAddress,
+                cwdsiApAddrType            InetAddressType,
+                cwdsiApAddr                InetAddress,
+                cwdsiApName                SnmpAdminString,
+                cwdsiApState               CWdsDeviceState,
+                cwdsiApLifeTime            Unsigned32,
+                cwdsiApNeighborAddrType    InetAddressType,
+                cwdsiApNeighborAddr        InetAddress,
+                cwdsiApNeighborName        SnmpAdminString,
+                cwdsiApNeighborPortName    SnmpAdminString
+        }
+
+cwdsiApMacAddr OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The MAC address of the Access Point."
+        ::= { cwdsiApEntry 1 }
+
+cwdsiApAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of  the cwdsiApAddr."
+        ::= { cwdsiApEntry 2 }
+
+cwdsiApAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Internet address of the Access Point."
+        ::= { cwdsiApEntry 3 }
+
+cwdsiApName OBJECT-TYPE
+        SYNTAX     SnmpAdminString
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the hostname of the Access 
+                Point."
+        ::= { cwdsiApEntry 4 }
+        
+cwdsiApState OBJECT-TYPE
+        SYNTAX     CWdsDeviceState
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the registration state of the
+                Access Point with the WDS."
+        ::= { cwdsiApEntry 5 }
+
+cwdsiApLifeTime OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "seconds"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the maximum time after which
+                the registration of the Access Point with WDS expires.
+                The Access Point must re-register before the lifetime
+                is exhausted, otherwise it will be deleted from the
+                table."
+        ::= { cwdsiApEntry 6 }
+
+cwdsiApNeighborAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of  the cwdsiApNeighborAddr."
+        ::= { cwdsiApEntry 7 }
+
+cwdsiApNeighborAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Internet address of the network entity with which
+                the Ethernet port of the Access Point is directly
+                connected."
+        ::= { cwdsiApEntry 8 }
+
+cwdsiApNeighborName OBJECT-TYPE
+        SYNTAX     SnmpAdminString
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the hostname of the network
+                entity with which the Ethernet port of the Access Point
+                is directly connected."
+        ::= { cwdsiApEntry 9 }
+
+cwdsiApNeighborPortName OBJECT-TYPE
+        SYNTAX     SnmpAdminString
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the port name of the network
+                entity with which the Ethernet port of the Access Point
+                is directly connected. This will typically be the value
+                of the ifName object (e.g., 'Ethernet0')."
+        ::= { cwdsiApEntry 10 }
+
+--********************************************************************
+--*  WDS Mobile Node identification parameters
+--********************************************************************
+
+cwdsiMnTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwdsiMnEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table provides the information about the Mobile
+                Nodes registered with WDS.
+
+                An entry is added to this table when a Mobile Node
+                registers with WDS and the entry is removed after the
+                lifetime of the Mobile Node expires."
+        ::= { ciscoWdsInfoMobileNode 1 }
+
+cwdsiMnEntry OBJECT-TYPE
+        SYNTAX     CwdsiMnEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry is a set of attributes of a Mobile Node
+                currently registered with WDS."
+        INDEX   { cwdsiMnMacAddr }
+        ::=     { cwdsiMnTable 1 }
+
+CwdsiMnEntry ::=
+        SEQUENCE  {
+                cwdsiMnMacAddr             MacAddress,
+                cwdsiMnAddrType            InetAddressType,
+                cwdsiMnAddr                InetAddress,
+                cwdsiMnApMacAddr           MacAddress,
+                cwdsiMnApAddrType          InetAddressType,
+                cwdsiMnApAddr              InetAddress,
+                cwdsiMnMobilityNetworkId   Unsigned32,
+                cwdsiMnState               CWdsDeviceState,
+                cwdsiMnSsid                CDot11SsidString,
+                cwdsiMnBssid               MacAddress,
+                cwdsiMnVlan                CDot11IfVlanIdOrZero,
+                cwdsiMnKeyMgmt             CDot11SecAuthKeyMgmtType,
+                cwdsiMnAuthType            CWdsDeviceAuthType,
+                cwdsiMnUptime              TimeStamp,
+                cwdsiMnLifetime            Unsigned32
+        }
+
+cwdsiMnMacAddr OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The MAC address of the Mobile Node."
+        ::= { cwdsiMnEntry 1 }
+
+cwdsiMnAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of  the cwdsiMnAddr."
+        ::= { cwdsiMnEntry 2 }
+
+cwdsiMnAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Internet address of the Mobile Node."
+        ::= { cwdsiMnEntry 3 }
+
+cwdsiMnApMacAddr OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The MAC address of the Access Point with which the
+                Mobile Node is associated."
+        ::= { cwdsiMnEntry 4 }
+
+cwdsiMnApAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of  the cwdsiMnApAddr."
+        ::= { cwdsiMnEntry 5 }
+
+cwdsiMnApAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Internet address of the Access Point with which
+                the Mobile Node has associated."
+        ::= { cwdsiMnEntry 6 }
+
+cwdsiMnMobilityNetworkId OBJECT-TYPE
+        SYNTAX     Unsigned32 (1..4096)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the mobility network-id of the
+                Mobile Node."
+        ::= { cwdsiMnEntry 7 }
+
+cwdsiMnState OBJECT-TYPE
+        SYNTAX     CWdsDeviceState
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the registration state of the
+                Mobile Node with WDS."
+        ::= { cwdsiMnEntry 8 }
+
+cwdsiMnSsid OBJECT-TYPE
+        SYNTAX     CDot11SsidString
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the SSID with which the Mobile
+                Node has associated with the Access Point."
+        ::= { cwdsiMnEntry 9 }
+
+cwdsiMnBssid OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the BSSID used by the Mobile
+                Node to communicate with the Access Point."
+
+        ::= { cwdsiMnEntry 10 }
+
+cwdsiMnVlan OBJECT-TYPE
+        SYNTAX     CDot11IfVlanIdOrZero
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the VLAN ID used by Access Point
+                to bridge trunk that carries the traffic, when the
+                Mobile Node associates with Access Point specified by
+                cwdsiMnApAddr, using SSID specified by cwdsiMnSsid."
+        ::= { cwdsiMnEntry 11 }
+
+cwdsiMnKeyMgmt OBJECT-TYPE
+        SYNTAX     CDot11SecAuthKeyMgmtType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the type of authenticated key
+                management. If none of the bit is set, no key
+                management is used."
+        ::= { cwdsiMnEntry 12 }
+
+cwdsiMnAuthType OBJECT-TYPE
+        SYNTAX     CWdsDeviceAuthType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies one of the pre-defined
+                authentication algorithms and additional
+                authentication procedures for the Mobile Node.
+
+                When the cwdsiMnState is 'registered', the valid
+                combination of the authentications are:
+                    - open(0),
+                    - shared(1),
+                    - leap(2),
+                    - eap(3),
+                    - mac(4),
+                    - open(0) and eap(3),
+                    - open(0) and mac(4),
+                    - open(0), eap(3) and mac(4),
+                    - open(0) and macOrEap(5),
+                    - shared(1) and eap(3),
+                    - shared(1) and mac(4),
+                    - shared(1), eap(3) and mac(4),
+                    - mac(4) and leap(2).
+
+                Otherwise, the valid combination of the
+                authentications are:
+                    - eap(3),
+                    - mac(4),
+                    - eap(3) and mac(4),
+                    - macOrEap(5),
+                    - leap(2),
+                    - mac(4) and leap(2),
+                    - macOrLeap(6),
+                    - eapOptional(7).
+
+                If none of the bits are set, there is no run-time
+                authentication."
+        ::= { cwdsiMnEntry 13 }
+
+cwdsiMnUptime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the value of sysUpTime at the
+                time this Mobile Node registered with WDS."
+        ::= { cwdsiMnEntry 14 }
+
+cwdsiMnLifetime OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "seconds"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the maximum time after which the
+                registration of the Mobile Node with its WDS expires.
+                The Mobile Node must re-register before the time
+                expires, otherwise it will be deleted from the table."
+        ::= { cwdsiMnEntry 15 }
+
+--********************************************************************
+--*  WDS Wireless Network Manager identification parameters
+--********************************************************************
+
+cwdsiWnmTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwdsiWnmEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table provides the information about the Wireless
+                Network Managers configured on WDS. WDS provides an
+                aggregation point of all radio management traffic from
+                participating Access Points to the registered Wireless
+                Network Manager. The entry also provides the statistics
+                between WDS and Wireless Network Manager.
+
+                An entry is added to this table when a Wireless Network
+                Manager is configured on WDS. Currently WDS supports
+                just one Wireless Network Manger."
+        ::= { ciscoWdsInfoNetworkManager 1 }
+
+cwdsiWnmEntry OBJECT-TYPE
+        SYNTAX     CwdsiWnmEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry is a set of attributes of a Wireless
+                Network Manger and statistics.
+
+                The statistics is gathered since the Wireless
+                Network Manager has been registered with WDS."
+        INDEX   { cwdsiWnmAddrType,
+                  cwdsiWnmAddr }
+        ::=     { cwdsiWnmTable 1 }
+
+CwdsiWnmEntry ::=
+        SEQUENCE  {
+                cwdsiWnmAddrType              InetAddressType,
+                cwdsiWnmAddr                  InetAddress,
+                cwdsiWnmState                 CWdsDeviceState,
+                cwdsiWnmLinkStatus            INTEGER,
+                cwdsiWnmClientTracking        CWdsClientTrackingStatus,
+                cwdsiWnmReqMsgCount           Counter32,
+                cwdsiWnmSentMsgCount          Counter32,
+                cwdsiWnmRetryTxMsgCount       Counter32,
+                cwdsiWnmWaitingAckMsgCount    Counter32,
+                cwdsiWnmDropMicTxMsgCount     Counter32,
+                cwdsiWnmDropUmdTxMsgCount     Counter32,
+                cwdsiWnmIndicatedMsgCount     Counter32,
+                cwdsiWnmRxMsgCount            Counter32,
+                cwdsiWnmDropRxMsgCount        Counter32,
+                cwdsiWnmDiscontinuityTime     TimeStamp
+        }
+
+cwdsiWnmAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of the cwdsiWnmAddr."
+        ::= { cwdsiWnmEntry 1 }
+
+cwdsiWnmAddr OBJECT-TYPE
+        SYNTAX     InetAddress (SIZE(0..36))
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The Internet address of the Wireless Network Manager."
+        ::= { cwdsiWnmEntry 2 }
+
+cwdsiWnmState OBJECT-TYPE
+        SYNTAX     CWdsDeviceState
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the registration state of the
+                Wireless Network Manger with WDS."
+        ::= { cwdsiWnmEntry 3 }
+
+cwdsiWnmLinkStatus OBJECT-TYPE
+        SYNTAX     INTEGER {
+                       up(1),
+                       down(2)
+                           }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the link status between WDS and
+                Wireless Network Manager."
+        ::= { cwdsiWnmEntry 4 }
+
+cwdsiWnmClientTracking OBJECT-TYPE
+        SYNTAX     CWdsClientTrackingStatus
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the status of Client Tracking on
+                WDS."
+        ::= { cwdsiWnmEntry 5 }
+
+cwdsiWnmReqMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of messages that are
+                supposed to be sent to Wireless Network Manger.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 6 }
+
+cwdsiWnmSentMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of sent messages by
+                WDS to Network Manger.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 7 }
+
+cwdsiWnmRetryTxMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of transmitted
+                messages by WDS to Network Manger after more than one
+                retransmission.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 8 }
+
+cwdsiWnmWaitingAckMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of sent messages by
+                WDS and waiting for acknowledge response from Wireless
+                Network Manger.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 9 }
+
+cwdsiWnmDropMicTxMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of dropped messages
+                by WDS because of Message Integrity Check (MIC) failure
+                before sending the messages to Wireless Network
+                Manger.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 10 }
+
+cwdsiWnmDropUmdTxMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of dropped messages
+                by WDS because of  the Unacknowledged Message
+                Descriptor (UMD) allocation problem before sending the
+                messages to Wireless Network Manger.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 11 }
+
+cwdsiWnmIndicatedMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of indicated messages
+                to WDS before receiving the messages from Wireless
+                Network Manager.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 12 }
+
+cwdsiWnmRxMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of received messages
+                by WDS after receiving the messages from Wireless
+                Network Manager.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 13 }
+
+cwdsiWnmDropRxMsgCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of messages dropped
+                by WDS received from Wireless Network Manager.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiWnmDiscontinuityTime."
+        ::= { cwdsiWnmEntry 14 }
+
+cwdsiWnmDiscontinuityTime  OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the vaule of sysUpTime on the 
+                 most recent occassion when the WNM is registered with
+                 WDS."
+        ::= { cwdsiWnmEntry 15 }
+
+--********************************************************************
+--*  WDS Statistics identification parameters
+--********************************************************************
+cwdsiApNum OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "access-points"
+        MAX-ACCESS read-only
+        STATUS     current
+       DESCRIPTION
+                "This object specifies the number of Access Points
+                currently registered with this WDS."
+        ::= { ciscoWdsInfoStatistics 1 }
+
+cwdsiMnNum OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "mobile-nodes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of Mobile Nodes
+                currently registered with this WDS."
+        ::= { ciscoWdsInfoStatistics 2 }
+
+cwdsiAaaAuthAttemptCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of AAA authentication
+                attempts (such as LEAP) made by WDS to authenticate
+                Access Points and Mobile Nodes.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+
+        ::= { ciscoWdsInfoStatistics 3 }
+
+cwdsiAaaAuthSuccessCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of successful AAA
+                authentication successes made by WDS to authenticate
+                Access Points and Mobile Nodes.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 4 }
+
+cwdsiAaaAuthFailureCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of failed AAA
+                authentication attempts made by WDS to authenticate
+                Access Points and Mobile Nodes.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 5 }
+
+cwdsiMacSpoofingBlockCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of MAC Spoofing
+                attempts detected and blocked by WDS.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 6 }
+
+cwdsiRoamsWithoutAaaAuthCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of roams not
+                involving AAA authentication.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 7 }
+
+cwdsiRoamsWithFullAaaAuthCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of roams involving
+                full AAA authentication.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 8 }
+
+cwdsiRoamsFastSecuredCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of fast and secured
+                roams with CCKM.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 9 }
+
+cwdsiMscMismatchCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of Message Sequence
+                Counter (MSC) mismatches.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 10 }
+
+cwdsiKscFailureCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of failures for Key
+                Sequence (KSC) with which WDS authenticates the Mobile
+                Node for Fast Secure Roaming.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 11 }
+
+cwdsiMicFailureCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of Message Integrity
+                Check (MIC) failures detected by WDS.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 12 }
+
+cwdsiRnMismatchCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of mismatches for
+                ReKey  Number (RN) with which WDS authenticates the
+                Mobile Node for Fast Secure Roaming.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS."
+        ::= { ciscoWdsInfoStatistics 13 }
+
+--********************************************************************
+--*  WDS Mobility identification parameters
+--********************************************************************
+
+cwdsiLcpStatus OBJECT-TYPE
+        SYNTAX     INTEGER {
+                       down(1),
+                       up(2),
+                       inTransition(3)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the LCP link status. LCP is a
+                communication protocol between WDS residing on WLSM and
+                L3MM on RP to provide L3MM with up-to-date information
+                about current location of Mobile Node and also to
+                propagate tunnel end point and other configuration
+                information from RP to WDS/AP.
+                   down(1)         - The LCP link status is down,
+                   up(2)           - The LCP link status is up,
+                   inTransition(3) - The LCP link status is in
+                                     transition from up(2) to down(1)
+                                     or from down(1) to up(2)."
+
+        ::= { ciscoWdsInfoMobility 1 }
+
+cwdsiCsMgmtAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of the cwdsiCsMgmtAddr."
+        ::= { ciscoWdsInfoMobility 2 }
+
+cwdsiCsMgmtAddr OBJECT-TYPE
+        SYNTAX     InetAddress (SIZE(0..36))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Internet address of the Central Switch 
+                Management."
+        ::= { ciscoWdsInfoMobility 3 }
+
+cwdsiWdsAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of the cwdsiWdsAddr."
+        ::= { ciscoWdsInfoMobility 4 }
+
+cwdsiWdsAddr OBJECT-TYPE
+        SYNTAX     InetAddress (SIZE(0..36))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Internet address of the network device in which
+                WDS resides."
+        ::= { ciscoWdsInfoMobility 5 }
+
+cwdsiWdsHsrpVirtualAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of the cwdsiWdsHsrpVirtualAddr."
+        ::= { ciscoWdsInfoMobility 6 }
+
+cwdsiWdsHsrpVirtualAddr OBJECT-TYPE
+        SYNTAX     InetAddress (SIZE(0..36))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The vitrual Internet address of the WLSM when the HSRP 
+                is enabled."
+        ::= { ciscoWdsInfoMobility 7 }
+         
+cwdsiHsrpState OBJECT-TYPE
+        SYNTAX     INTEGER {
+                       unknown(1),
+                       disabled(2),
+                       initial(3),
+                       learn(4),
+                       backup(5),
+                       speak(6),
+                       standby(7),
+                       active(8)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the state of HSRP.
+                   unknown(1)  - The state is unknown.
+                   disabled(2) - The HSRP is disabled.
+                   initial(3)  - This is the starting state and
+                                 indicates that HSRP is not running.
+                   learn(4)    - The router is still waiting to hear
+                                 from the active router.
+                   backup(5)   - The router monitors the availability
+                                 and state of the Master Router.
+                   speak(6)    - The router sends periodic Hello
+                                 messages and is actively participating
+                                 in the election of the active and/or
+                                 standby router.
+                   standby(7)  - The router is a candidate to become
+                                 the next active router and sends
+                                 periodic Hello messages.
+                   active(8)   - The router is currently forwarding
+                                 packets that are sent to the group's
+                                 virtual MAC address.  The router sends
+                                 periodic Hello messages."
+        ::= { ciscoWdsInfoMobility 8 }
+
+cwdsiMobilityGroupTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwdsiMobilityGroupEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table provides the information about mobility
+                network-id. When a Mobile Node associates with a
+                mobility enabled SSID, the Mobile Node registers with
+                the network and is assigned to a particular mobility
+                group. At the system level, a mobility network-id
+                internally defines this mobility group. The mobility
+                network-id is the mechanism the system uses to
+                associate the user with a particular Fast Secure
+                Roaming Tunnel. As the Mobile Node roams, the system
+                tracks user movement, making sure that the user
+                maintains association with the same mobility group."
+        ::= { ciscoWdsInfoMobility 9 }
+
+cwdsiMobilityGroupEntry OBJECT-TYPE
+        SYNTAX     CwdsiMobilityGroupEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry is a set of attributes of a Mobility
+                network-id currently configured in WDS."
+        INDEX   { cwdsiMobilityGrpNetworkId }
+        ::=     { cwdsiMobilityGroupTable 1 }
+
+CwdsiMobilityGroupEntry ::=
+        SEQUENCE  {
+                cwdsiMobilityGrpNetworkId        Unsigned32,
+                cwdsiMobilityGrpTunnelAddrType   InetAddressType,
+                cwdsiMobilityGrpTunnelAddr       InetAddress,
+                cwdsiMobilityGrpTunnelMtu        Unsigned32,
+                cwdsiMobilityGrpFlags            BITS,
+                cwdsiMobilityGrpMnNum            Gauge32
+        }
+
+cwdsiMobilityGrpNetworkId OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This objects specifies the mobility network-id which
+                uniquely defines a mobility group."
+        ::= { cwdsiMobilityGroupEntry 1 }
+
+cwdsiMobilityGrpTunnelAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in the
+                corresponding instance of the
+                cwdsiMobilityGrpTunnelAddr."
+        ::= { cwdsiMobilityGroupEntry 2 }
+
+cwdsiMobilityGrpTunnelAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the Internet address of the
+                Mobility tunnel, which is the tunnel source address of
+                the mGRE tunnel on RP. Access Point uses this address
+                to tunnel Mobile Node traffic."
+        ::= { cwdsiMobilityGroupEntry 3 }
+
+cwdsiMobilityGrpTunnelMtu OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the maximum transmission unit
+                of IP packet for the Mobility tunnel."
+        ::= { cwdsiMobilityGroupEntry 4 }
+
+cwdsiMobilityGrpFlags OBJECT-TYPE
+        SYNTAX     BITS {
+                       none(0),
+                       trusted(1),
+                       broadcast(2),
+                       tcpMssAdjust(3),
+                       dynamic(4),
+                       multicast(5),
+                       ipDiscovery(6)
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the attributes of the mobility
+                tunnel. 
+                 none(0)        - The mobility network-id is not 
+                                  supported on L3MM.
+                 trusted(1)     - By default, a mobility network is 
+                                  considered 'untrusted'. In an 
+                                  untrusted network, Mobile Nodes are
+                                  required to use a DHCP-obtained IP 
+                                  address.  In a 'trusted' network, 
+                                  Mobile Nodes are allowed to use 
+                                  static IP addresses. On an untrusted
+                                  network, data forwarding path for a 
+                                  Mobile Node is established and 
+                                  updated by snooping DHCP packets 
+                                  between the Mobile Node and the DHCP 
+                                  server. On the other hand, a trusted
+                                  network data path establishment and 
+                                  update is achieved by snooping IP 
+                                  packets generated by the Mobile Node.
+                 broadcast(2)   - IP broadcast is allowed on the 
+                                  mobility network-id corresponding to
+                                  this tunnel.
+                 tcpMssAdjust(3)- The Access Point should do a TCP 
+                                  Maximum Segment Size (MSS) adjustment
+                                  for the tunnel corresponding to the 
+                                  mobility network-id.
+                 dynamic(4)     - Wireless broadcast domain 
+                                  corresponding to mobility network-id 
+                                  is dynamically created on an Access 
+                                  Point.
+                 multicast(5)   - IP multicast is allowed on the 
+                                  mobility network-id corresponding to
+                                  this tunnel.
+                 ipDiscovery(6) - IP broadcast pings will be generated 
+                                  to discover the IP address of 
+                                  the wireless client."
+
+        ::= { cwdsiMobilityGroupEntry 5 }
+
+cwdsiMobilityGrpMnNum OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "mobile-nodes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the number of Mobile Nodes
+                of which the mobility network-id is
+                cwdsiMobilityGrpNetworkId."
+        ::= { cwdsiMobilityGroupEntry 6 }
+
+--********************************************************************
+--*  WDS Roaming Statistics
+--********************************************************************
+
+cwdsiRoamStatsStartTime OBJECT-TYPE
+        SYNTAX     DateAndTime
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the start time and date since
+                the statistics has been gathered."
+        ::= { ciscoWdsInfoRoamStatistics 1 }
+
+cwdsiRoamStatsAvgFiveSeconds OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "roams-per-second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the system-wide average number
+                of roams per second for the previous 5 seconds
+                interval."
+        ::= { ciscoWdsInfoRoamStatistics 2 }
+
+cwdsiRoamStatsAvgOneMinute OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "roams-per-second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the system-wide average number
+                of roams per second for the previous 1 minute
+                interval."
+        ::= { ciscoWdsInfoRoamStatistics 3 }
+
+cwdsiRoamStatsAvgFiveMinutes OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "roams-per-second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the system-wide average number
+                of roams per second for the previous 5 minutes
+                interval."
+        ::= { ciscoWdsInfoRoamStatistics 4 }
+
+cwdsiRoamMblGrpStatsTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwdsiRoamMblGrpStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table provides the information about the roaming
+                statistics per the mobility network-id. Roams per
+                second statistics will have averages for 5 seconds,
+                one minute and five minutes. These data will be
+                separated by the mobility network-id and differentiated
+                by roams with 'no AAA authentications',
+                'AAA authentications', and 'Fast Secured
+                Authentications'."
+        ::= { ciscoWdsInfoRoamStatistics 5 }
+
+cwdsiRoamMblGrpStatsEntry OBJECT-TYPE
+        SYNTAX     CwdsiRoamMblGrpStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry is a set of roaming statistics."
+        INDEX   { cwdsiRoamMblGrpStatsNetworkId }
+        ::=     { cwdsiRoamMblGrpStatsTable 1 }
+
+CwdsiRoamMblGrpStatsEntry ::=
+        SEQUENCE  {
+                cwdsiRoamMblGrpStatsNetworkId    Unsigned32,
+                cwdsiRoamMblGrpStatsTotal        Counter32,
+                cwdsiRoamMblGrpStatsNoAuthAaa    Counter32,
+                cwdsiRoamMblGrpStatsAuthAaa      Counter32,
+                cwdsiRoamMblGrpStatsFastSecured  Counter32,
+                cwdsiRoamMblGrpStatsFiveSeconds  Gauge32,
+                cwdsiRoamMblGrpStatsOneMinute    Gauge32,
+                cwdsiRoamMblGrpStatsFiveMinutes  Gauge32
+        }
+
+cwdsiRoamMblGrpStatsNetworkId OBJECT-TYPE
+        SYNTAX     Unsigned32 (1..4096)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the mobility network-id of the
+                roaming Mobile Nodes."
+        ::= { cwdsiRoamMblGrpStatsEntry 1 }
+
+cwdsiRoamMblGrpStatsTotal OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the count of total roams within
+                the mobility network-id.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiRoamStatsStartTime."
+        ::= { cwdsiRoamMblGrpStatsEntry 2 }
+
+cwdsiRoamMblGrpStatsNoAuthAaa OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the count of roams without AAA
+                authentications within the mobility network-id.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiRoamStatsStartTime."
+        ::= { cwdsiRoamMblGrpStatsEntry 3 }
+
+cwdsiRoamMblGrpStatsAuthAaa OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the count of roams with AAA
+                authentications within the mobility network-id.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiRoamStatsStartTime."
+        ::= { cwdsiRoamMblGrpStatsEntry 4 }
+
+cwdsiRoamMblGrpStatsFastSecured OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the count of roams with Fast
+                Secured authentications within the mobility
+                network-id.
+                Discontinuities in the value of this counter can occur
+                at re-initialization of the WDS, and at other times as
+                indicated by the value of cwdsiRoamStatsStartTime."
+        ::= { cwdsiRoamMblGrpStatsEntry 5 }
+
+cwdsiRoamMblGrpStatsFiveSeconds OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "roams-per-second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the average number of roams per
+                second for the previous 5 seconds interval within the
+                mobility network-id."
+        ::= { cwdsiRoamMblGrpStatsEntry 6 }
+
+cwdsiRoamMblGrpStatsOneMinute OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "roams-per-second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the average number of roams per
+                second for the previous 1 minute interval within the
+                mobility network-id."
+        ::= { cwdsiRoamMblGrpStatsEntry 7 }
+
+cwdsiRoamMblGrpStatsFiveMinutes OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "roams-per-second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the average number of roams per
+                second for the previous 5 minutes interval within the
+                mobility network-id."
+        ::= { cwdsiRoamMblGrpStatsEntry 8 }
+        
+-- ********************************************************************
+-- *    Notifications  
+-- ********************************************************************
+
+cwdsiLcpStatusChange NOTIFICATION-TYPE
+        OBJECTS {
+                cwdsiLcpStatus
+        }
+        STATUS current
+        DESCRIPTION
+                "This notification will be sent when a LCP status
+                changes from 'down' to 'up' or from 'up' to 'down'."
+        ::= { ciscoWdsInfoMIBNotifs 1 }
+
+cwdsiHsrpStateChange NOTIFICATION-TYPE 
+        OBJECTS {
+                cwdsiHsrpState    
+        }
+        STATUS current
+        DESCRIPTION
+                "This notification will be sent when HSRP state
+                changes from 'standby' to 'active' or from 'active' to
+                'standby'."
+        ::= { ciscoWdsInfoMIBNotifs 2 } 
+        
+--********************************************************************
+--   Conformance information
+--********************************************************************
+
+ciscoWdsInfoMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBConform 1 }
+
+ciscoWdsInfoMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoWdsInfoMIBConform 2 }
+
+--********************************************************************
+--*    Compliance statements
+--********************************************************************
+
+ciscoWdsInfoMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                implement the cwdsiInformationMIB module."
+        MODULE MANDATORY-GROUPS {
+                ciscoWdsInfoMacAuthCacheGroup,
+                ciscoWdsInfoAccessPointGroup,
+                ciscoWdsInfoMobileNodeGroup,
+                ciscoWdsInfoNetworkManagerGroup,
+                ciscoWdsInfoStatisticsGroup,
+                ciscoWdsInfoMobilityGroup,
+                ciscoWdsInfoRoamStatisticsGroup,
+                ciscoWdsInfoNotifGroup
+        }
+        ::= { ciscoWdsInfoMIBCompliances 1 }
+
+
+--********************************************************************
+--*    Units of conformance
+--********************************************************************
+
+ciscoWdsInfoMacAuthCacheGroup OBJECT-GROUP
+        OBJECTS {
+                cwdsiMacAuthCacheAge
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about MAC addresses and ages for MAC authentication
+                of the device station."
+        ::= { ciscoWdsInfoMIBGroups 1 }
+
+ciscoWdsInfoAccessPointGroup OBJECT-GROUP
+        OBJECTS {
+                cwdsiApAddr,
+                cwdsiApAddrType,
+                cwdsiApName,
+                cwdsiApState,
+                cwdsiApLifeTime,
+                cwdsiApNeighborAddrType,
+                cwdsiApNeighborAddr,
+                cwdsiApNeighborName,
+                cwdsiApNeighborPortName
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about entities of a Access Point registered with WDS."
+        ::= { ciscoWdsInfoMIBGroups 2 }
+
+ciscoWdsInfoMobileNodeGroup OBJECT-GROUP
+        OBJECTS {
+                cwdsiMnAddr,
+                cwdsiMnAddrType,
+                cwdsiMnApMacAddr,
+                cwdsiMnApAddr,
+                cwdsiMnApAddrType,
+                cwdsiMnMobilityNetworkId,
+                cwdsiMnState,
+                cwdsiMnBssid,
+                cwdsiMnVlan,
+                cwdsiMnSsid,
+                cwdsiMnKeyMgmt,
+                cwdsiMnAuthType,
+                cwdsiMnUptime,
+                cwdsiMnLifetime
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about entities of Mobile Node registered with WDS."
+        ::= { ciscoWdsInfoMIBGroups 3 }
+
+ciscoWdsInfoNetworkManagerGroup OBJECT-GROUP
+        OBJECTS {
+                cwdsiWnmState,
+                cwdsiWnmLinkStatus,
+                cwdsiWnmClientTracking,
+                cwdsiWnmReqMsgCount,
+                cwdsiWnmSentMsgCount,
+                cwdsiWnmRetryTxMsgCount,
+                cwdsiWnmWaitingAckMsgCount,
+                cwdsiWnmDropMicTxMsgCount,
+                cwdsiWnmDropUmdTxMsgCount,
+                cwdsiWnmIndicatedMsgCount,
+                cwdsiWnmRxMsgCount,
+                cwdsiWnmDropRxMsgCount,
+                cwdsiWnmDiscontinuityTime
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about the configuration status and statistics data
+                between WDS and Network Manager. "
+        ::= { ciscoWdsInfoMIBGroups 4 }
+
+ciscoWdsInfoStatisticsGroup OBJECT-GROUP
+        OBJECTS {
+                cwdsiApNum,
+                cwdsiMnNum,
+                cwdsiAaaAuthAttemptCount,
+                cwdsiAaaAuthSuccessCount,
+                cwdsiAaaAuthFailureCount,
+                cwdsiMacSpoofingBlockCount,
+                cwdsiRoamsWithoutAaaAuthCount,
+                cwdsiRoamsWithFullAaaAuthCount,
+                cwdsiRoamsFastSecuredCount,
+                cwdsiMscMismatchCount,
+                cwdsiKscFailureCount,
+                cwdsiMicFailureCount,
+                cwdsiRnMismatchCount
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about the statistics of Access Points and Mobile
+                Nodes registered with WDS."
+        ::= { ciscoWdsInfoMIBGroups 5 }
+
+ciscoWdsInfoMobilityGroup OBJECT-GROUP
+        OBJECTS {
+                cwdsiLcpStatus,
+                cwdsiCsMgmtAddrType,
+                cwdsiCsMgmtAddr,
+                cwdsiWdsAddrType,
+                cwdsiWdsAddr,
+                cwdsiWdsHsrpVirtualAddrType,
+                cwdsiWdsHsrpVirtualAddr,
+                cwdsiHsrpState,
+                cwdsiMobilityGrpTunnelAddrType,
+                cwdsiMobilityGrpTunnelAddr,
+                cwdsiMobilityGrpTunnelMtu,
+                cwdsiMobilityGrpFlags,
+                cwdsiMobilityGrpMnNum
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about entities of the Mobility Network."
+        ::= { ciscoWdsInfoMIBGroups 6 }
+
+ciscoWdsInfoRoamStatisticsGroup OBJECT-GROUP
+        OBJECTS {
+                cwdsiRoamStatsStartTime,
+                cwdsiRoamStatsAvgFiveSeconds,
+                cwdsiRoamStatsAvgOneMinute,
+                cwdsiRoamStatsAvgFiveMinutes,
+                cwdsiRoamMblGrpStatsTotal,
+                cwdsiRoamMblGrpStatsNoAuthAaa,
+                cwdsiRoamMblGrpStatsAuthAaa,
+                cwdsiRoamMblGrpStatsFastSecured,
+                cwdsiRoamMblGrpStatsFiveSeconds,
+                cwdsiRoamMblGrpStatsOneMinute,
+                cwdsiRoamMblGrpStatsFiveMinutes
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about the Roaming statistics."
+        ::= { ciscoWdsInfoMIBGroups 7 }
+
+ciscoWdsInfoNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+                      cwdsiLcpStatusChange,
+                      cwdsiHsrpStateChange 
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the notifications
+                about the LCP status and HSRP state."
+        ::= { ciscoWdsInfoMIBGroups 8 }
+
+END

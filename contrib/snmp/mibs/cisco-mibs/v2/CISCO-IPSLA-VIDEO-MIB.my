@@ -1,0 +1,1112 @@
+-- *****************************************************************
+-- CISCO-IPSLA-VIDEO-MIB.my:  IP SLA Video MIB file
+--   
+-- March 2010, Sohayb Aiyub
+--   
+-- Copyright (c) 2006-2007, 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-IPSLA-VIDEO-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    rttMonCtrlAdminIndex
+        FROM CISCO-RTTMON-MIB
+    RttResponseSense
+        FROM CISCO-RTTMON-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpslaVideoMIB MODULE-IDENTITY
+    LAST-UPDATED    "201006110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-ipsla@cisco.com"
+    DESCRIPTION
+        "IP SLA is a capability which utilizes active monitoring for
+        network performance.  It can be used for network 
+        troubleshooting, network assessment and health
+        monitoring.
+
+        This MIB defines a collection of statistics resulting 
+        from the 'video' IP SLA operation.
+
+        The Video Statistics table names are:
+          cipslaLatestVideoStatsTable 
+           --- Contains only the latest statistics
+          cipslaVideoAggStatsTable
+           --- Contains aggregated statistics
+
+        To create the Video operation, set rttMonEchoAdminProtocol 
+        (defined in CISCO-RTTMON-MIB) object to 'videoAppl'. Once the
+        operation has been scheduled, both cipslaLatestVideoStatsTable
+        and  cipslaVideoAggStatsTable will be populated.
+
+        Glossary:
+          IP SLA - Cisco IOS IP Service Level Agreements
+          IP SLA operation - Refers to the 'video'
+               operation supported by IP SLA.  
+          RTT - Round Trip Time"
+    REVISION        "201006110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 744 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoIpslaVideoMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoMIB 0 }
+
+ciscoIpslaVideoMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoMIB 1 }
+
+ciscoIpslaVideoMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoMIB 2 }
+
+cipslaVideoLatestOper  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoMIBObjects 1 }
+
+cipslaVideoStats  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoMIBObjects 2 }
+
+-- LatestVideoJitterOper Table
+
+cipslaLatestVideoStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF IpslaVideoJitterLatestStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The 'video' operation sends out video streams at the
+        frequency specified by rttMonCtrlAdminFrequency.  
+        This table contains the statistics calculated for the 
+        latest video packets.
+
+        Each conceptual row in this table corresponds to an 
+        'video' operation defined in rttMonCtrlAdminTable 
+        and has same index as rttMonCtrlAdminTable."
+    ::= { cipslaVideoLatestOper 1 }
+
+cipslaLatestVideoStatsEntry OBJECT-TYPE
+    SYNTAX          IpslaVideoJitterLatestStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that record the latest Video jitter
+        operation.
+
+        An entry is created only when the following 
+        objects are valid.  
+        - rttMonCtrlAdminRttType
+        - rttMonEchoAdminProtocol
+
+        The entry will start to collect data when rttMonCtrlAdminStatus 
+        is in 'active' state.  The entry will be removed when the 
+        rttMonCtrlAdminStatus is changed to 'destroy' state."
+    INDEX           { rttMonCtrlAdminIndex } 
+    ::= { cipslaLatestVideoStatsTable 1 }
+
+IpslaVideoJitterLatestStatsEntry ::= SEQUENCE {
+        cipslaLatestVideoMinPosSD       Gauge32,
+        cipslaLatestVideoMaxPosSD       Gauge32,
+        cipslaLatestVideoNumPosSD       Gauge32,
+        cipslaLatestVideoSumPosSD       Gauge32,
+        cipslaLatestVideoSum2PosSD      Gauge32,
+        cipslaLatestVideoMinNegSD       Gauge32,
+        cipslaLatestVideoMaxNegSD       Gauge32,
+        cipslaLatestVideoNumNegSD       Gauge32,
+        cipslaLatestVideoSumNegSD       Gauge32,
+        cipslaLatestVideoSum2NegSD      Gauge32,
+        cipslaLatestVideoPktLossSD      Gauge32,
+        cipslaLatestVideoPktOutSeq      Gauge32,
+        cipslaLatestVideoSense          RttResponseSense,
+        cipslaLatestVideoOWSumSD        Gauge32,
+        cipslaLatestVideoOWSum2SD       Gauge32,
+        cipslaLatestVideoOWMinSD        Gauge32,
+        cipslaLatestVideoOWMaxSD        Gauge32,
+        cipslaLatestVideoNumOWSD        Gauge32,
+        cipslaLatestVideoAvgJitterSD    Gauge32,
+        cipslaLatestVideoIAJOut         Gauge32,
+        cipslaLatestVideoErrSenseDescr  SnmpAdminString,
+        cipslaLatestVideoUnSyncRTs      Counter32,
+        cipslaLatestVideoOWSumSDHigh    Gauge32,
+        cipslaLatestVideoOWSum2SDHigh   Gauge32,
+        cipslaLatestVideoNTPState       INTEGER,
+        cipslaLatestVideoIPDVAvgSDJ     Gauge32,
+        cipslaLatestVideoOWAvgSD        Gauge32,
+        cipslaLatestVideoPktLateArrival Gauge32
+}
+
+cipslaLatestVideoMinPosSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum of all positive jitter values for packets sent
+        from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 1 }
+
+cipslaLatestVideoMaxPosSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum of all positive jitter values for packets sent
+        from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 2 }
+
+cipslaLatestVideoNumPosSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of all positive jitter values for packets
+        sent from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 3 }
+
+cipslaLatestVideoSumPosSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of all positive jitter values for packets sent
+        source to destination.  The number of such values
+        is stored in cipslaLatestVideoNumPosSD." 
+    ::= { cipslaLatestVideoStatsEntry 4 }
+
+cipslaLatestVideoSum2PosSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of square of all positive jitter values for
+        packets sent from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 5 }
+
+cipslaLatestVideoMinNegSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum of absolute values of all negative jitter values
+        for packets sent from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 6 }
+
+cipslaLatestVideoMaxNegSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum of absolute values of all negative jitter values
+        for packets sent from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 7 }
+
+cipslaLatestVideoNumNegSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of all negative jitter values for packets
+        sent from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 8 }
+
+cipslaLatestVideoSumNegSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of all negative jitter values for packets sent
+        from source to destination.  The number of such values
+        is stored in cipslaLatestVideoNumNegSD." 
+    ::= { cipslaLatestVideoStatsEntry 9 }
+
+cipslaLatestVideoSum2NegSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of square of all negative jitter values for
+        packets sent from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 10 }
+
+cipslaLatestVideoPktLossSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets lost when sent from source to
+        destination." 
+    ::= { cipslaLatestVideoStatsEntry 11 }
+
+cipslaLatestVideoPktOutSeq OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets arrived out of sequence." 
+    ::= { cipslaLatestVideoStatsEntry 12 }
+
+cipslaLatestVideoSense OBJECT-TYPE
+    SYNTAX          RttResponseSense
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An application specific sense code for the completion status." 
+    ::= { cipslaLatestVideoStatsEntry 13 }
+
+cipslaLatestVideoOWSumSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of one way trip time from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 14 }
+
+cipslaLatestVideoOWSum2SD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of squares of one way trip time from source to
+        destination." 
+    ::= { cipslaLatestVideoStatsEntry 15 }
+
+cipslaLatestVideoOWMinSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum of all one way trip time from
+        source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 16 }
+
+cipslaLatestVideoOWMaxSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum of all one way trip time from
+        source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 17 }
+
+cipslaLatestVideoNumOWSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of successful one way trip time measurements from
+        source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 18 }
+
+cipslaLatestVideoAvgJitterSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average of positive and negative jitter values
+        in Source-to-Destination direction." 
+    ::= { cipslaLatestVideoStatsEntry 19 }
+
+cipslaLatestVideoIAJOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Inter-arrival jitter (RFC 1889) at responder."
+    REFERENCE
+        "Refer to the following documents for the definition: 
+               RFC 1889, Section 6.3.1" 
+    ::= { cipslaLatestVideoStatsEntry 20 }
+
+cipslaLatestVideoErrSenseDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An sense description for the completion status
+        of the latest video operation." 
+    ::= { cipslaLatestVideoStatsEntry 21 }
+
+cipslaLatestVideoUnSyncRTs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of RTT operations that have completed with
+        sender and responder out of sync with NTP. The NTP sync means
+        the total of NTP offset on sender and responder is within
+        configured tolerance level" 
+    ::= { cipslaLatestVideoStatsEntry 22 }
+
+cipslaLatestVideoOWSumSDHigh OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of one way latency from source to destination
+        (high order 32 bits). The low order 32 bits are stored in
+        cipslaLatestVideoOWSumSD." 
+    ::= { cipslaLatestVideoStatsEntry 23 }
+
+cipslaLatestVideoOWSum2SDHigh OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of squares of one way latency from source to
+        destination (high order 32 bits). The low order 32 bits
+        are stored in cipslaLatestVideoOWSum2SD." 
+    ::= { cipslaLatestVideoStatsEntry 24 }
+
+cipslaLatestVideoNTPState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        sync(1),
+                        outOfSync(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A value of sync(1) means sender and responder was in sync
+        with NTP. The NTP sync means the total of NTP offset 
+        on sender and responder is within configured tolerance level." 
+    ::= { cipslaLatestVideoStatsEntry 25 }
+
+cipslaLatestVideoIPDVAvgSDJ OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Source to Destination IPDV average jitter according to RFC
+        5481."
+    REFERENCE
+        "Refer to the following documents for the definition: 
+            Inter Packet Delay Variation, RFC 5481 (IPDV)" 
+    ::= { cipslaLatestVideoStatsEntry 26 }
+
+cipslaLatestVideoOWAvgSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average latency value from source to destination." 
+    ::= { cipslaLatestVideoStatsEntry 27 }
+
+cipslaLatestVideoPktLateArrival OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets that arrived after the timeout." 
+    ::= { cipslaLatestVideoStatsEntry 28 }
+ 
+
+
+cipslaVideoAggStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaVideoAggStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The 'video' statistics table contains summarized
+        information of the results for a conceptual control
+        row.  A rolling accumulated history of this information
+        is maintained in a series of hourly 'group(s)'.
+
+        When ipslaVideoAggStartTimeId groups exceeds 
+        the rttMonStatisticsAdminNumHourGroups value, the 
+        oldest corresponding hourly group will be deleted and will 
+        be replaced with the new ipslaVideoAggStatsStartTimeId 
+        hourly group."
+    ::= { cipslaVideoStats 1 }
+
+cipslaVideoAggStatsEntry OBJECT-TYPE
+    SYNTAX          CipslaVideoAggStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains the objects which accumulate the
+        results of a series of 'video' operations
+        over a 60 minute time period or a time period stored
+        in rttMonScheduleAdminRttLife, whichever is smaller.
+
+        An entry is created only if when the following
+        objects are valid.
+        - rttMonCtrlAdminRttType
+        - rttMonEchoAdminProtocol
+
+        The entry will start to collect data when rttMonCtrlAdminStatus
+        is in 'active' state.  The entry will be removed when the
+        rttMonCtrlAdminStatus is changed to 'destroy' state.
+
+        cipslaVideoAggStartTimeId will be created at the beginning of
+        the
+        hour and will keep aggregating statistics until the end of the
+        hour."
+    INDEX           {
+                        rttMonCtrlAdminIndex,
+                        cipslaVideoAggStartTimeId
+                    } 
+    ::= { cipslaVideoAggStatsTable 1 }
+
+CipslaVideoAggStatsEntry ::= SEQUENCE {
+        cipslaVideoAggStartTimeId    TimeStamp,
+        cipslaVideoAggCompletions    Counter32,
+        cipslaVideoAggOverThresholds Counter32,
+        cipslaVideoAggMinPosSD       Gauge32,
+        cipslaVideoAggMaxPosSD       Gauge32,
+        cipslaVideoAggNumPosSD       Counter32,
+        cipslaVideoAggSumPosSD       Counter32,
+        cipslaVideoAggSum2PosSDLow   Counter32,
+        cipslaVideoAggSum2PosSDHigh  Counter32,
+        cipslaVideoAggMinNegSD       Gauge32,
+        cipslaVideoAggMaxNegSD       Gauge32,
+        cipslaVideoAggNumNegSD       Counter32,
+        cipslaVideoAggSumNegSD       Counter32,
+        cipslaVideoAggSum2NegSDLow   Counter32,
+        cipslaVideoAggSum2NegSDHigh  Counter32,
+        cipslaVideoAggPktLossSD      Counter32,
+        cipslaVideoAggPktOutSeq      Counter32,
+        cipslaVideoAggPktSkipped     Counter32,
+        cipslaVideoAggErrors         Counter32,
+        cipslaVideoAggBusies         Counter32,
+        cipslaVideoAggOWSumSD        Counter32,
+        cipslaVideoAggOWSum2SDLow    Counter32,
+        cipslaVideoAggOWSum2SDHigh   Counter32,
+        cipslaVideoAggOWMinSD        Gauge32,
+        cipslaVideoAggOWMaxSD        Gauge32,
+        cipslaVideoAggNumOWSD        Counter32,
+        cipslaVideoAggAvgJSD         Gauge32,
+        cipslaVideoAggIAJOut         Gauge32,
+        cipslaVideoAggIAJIn          Gauge32,
+        cipslaVideoAggPktLateArrival Counter32,
+        cipslaVideoAggUnSyncRTs      Counter32,
+        cipslaVideoAggOWSumSDHigh    Counter32
+}
+
+cipslaVideoAggStartTimeId OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime at the time when this
+        row was created." 
+    ::= { cipslaVideoAggStatsEntry 1 }
+
+cipslaVideoAggCompletions OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "completions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of video operations that have completed
+        successfully." 
+    ::= { cipslaVideoAggStatsEntry 2 }
+
+cipslaVideoAggOverThresholds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "operations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of video operations that violate
+        jitterAvg threshold which is defined in RttMonReactVar." 
+    ::= { cipslaVideoAggStatsEntry 3 }
+
+cipslaVideoAggMinPosSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum of absolute values of all positive jitter values
+        for packets sent from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 4 }
+
+cipslaVideoAggMaxPosSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum of absolute values of all positive jitter values
+        for packets sent from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 5 }
+
+cipslaVideoAggNumPosSD OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of all positive jitter values for packets
+        sent from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 6 }
+
+cipslaVideoAggSumPosSD OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of all positive jitter values for packets sent
+        from source to destination.  The number of such values
+        is stored in ipslaVideoAggNumPosSDs." 
+    ::= { cipslaVideoAggStatsEntry 7 }
+
+cipslaVideoAggSum2PosSDLow OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of square of all positive jitter values for packets
+        sent from source to destination (low order 32 bits)." 
+    ::= { cipslaVideoAggStatsEntry 8 }
+
+cipslaVideoAggSum2PosSDHigh OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of square of all positive jitter values for packets
+        sent from source to destination (high order 32 bits)." 
+    ::= { cipslaVideoAggStatsEntry 9 }
+
+cipslaVideoAggMinNegSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum of all negative jitter values for packets sent
+        from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 10 }
+
+cipslaVideoAggMaxNegSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum of all negative jitter values for packets sent
+        from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 11 }
+
+cipslaVideoAggNumNegSD OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of all negative jitter values for packets
+        sent from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 12 }
+
+cipslaVideoAggSumNegSD OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of all negative jitter values for packets sent
+        from source to destination.  The number of such values
+        is stored in ipslaVideoAggNumNegSDs." 
+    ::= { cipslaVideoAggStatsEntry 13 }
+
+cipslaVideoAggSum2NegSDLow OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of square of all negative jitter values for
+        packets sent from source to destination (low order 32 bits)." 
+    ::= { cipslaVideoAggStatsEntry 14 }
+
+cipslaVideoAggSum2NegSDHigh OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of square of all negative jitter values for
+        packets sent from source to destination (high order 32 bits)." 
+    ::= { cipslaVideoAggStatsEntry 15 }
+
+cipslaVideoAggPktLossSD OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of lost packets when sent from source to
+        destination." 
+    ::= { cipslaVideoAggStatsEntry 16 }
+
+cipslaVideoAggPktOutSeq OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets arrived out of sequence." 
+    ::= { cipslaVideoAggStatsEntry 17 }
+
+cipslaVideoAggPktSkipped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets that are skipped per operation because
+        the router could not send the packet out." 
+    ::= { cipslaVideoAggStatsEntry 18 }
+
+cipslaVideoAggErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "errors"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of occasions when a video operation could
+        not be initiated because of an internal error." 
+    ::= { cipslaVideoAggStatsEntry 19 }
+
+cipslaVideoAggBusies OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "busies"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of occasions when a video operation could
+        not be initiated because a previous video operation 
+        has not been completed." 
+    ::= { cipslaVideoAggStatsEntry 20 }
+
+cipslaVideoAggOWSumSD OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of one way trip time from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 21 }
+
+cipslaVideoAggOWSum2SDLow OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of squares of one way trip time from source to
+        destination (low order 32 bits)." 
+    ::= { cipslaVideoAggStatsEntry 22 }
+
+cipslaVideoAggOWSum2SDHigh OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of squares of one way trip time from source to
+        destination (high order 32 bits)." 
+    ::= { cipslaVideoAggStatsEntry 23 }
+
+cipslaVideoAggOWMinSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum of all one way trip time from source to
+        destination." 
+    ::= { cipslaVideoAggStatsEntry 24 }
+
+cipslaVideoAggOWMaxSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum of all one way trip time from source to
+        destination." 
+    ::= { cipslaVideoAggStatsEntry 25 }
+
+cipslaVideoAggNumOWSD OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of one way trip time that are successfully
+        measured from source to destination." 
+    ::= { cipslaVideoAggStatsEntry 26 }
+
+cipslaVideoAggAvgJSD OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average of positive and negative jitter
+        values in source-to-destination direction." 
+    ::= { cipslaVideoAggStatsEntry 27 }
+
+cipslaVideoAggIAJOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Inter-arrival jitter (RFC 1889) at responder"
+    REFERENCE
+        "Refer to the following documents for the definition: 
+               RFC 1889, Section 6.3.1" 
+    ::= { cipslaVideoAggStatsEntry 28 }
+
+cipslaVideoAggIAJIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Inter-arrival jitter (RFC 1889) at sender"
+    REFERENCE
+        "Refer to the following documents for the definition: 
+               RFC 1889, Section 6.3.1" 
+    ::= { cipslaVideoAggStatsEntry 29 }
+
+cipslaVideoAggPktLateArrival OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets that arrived after the timeout." 
+    ::= { cipslaVideoAggStatsEntry 30 }
+
+cipslaVideoAggUnSyncRTs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of RTT operations that have completed with
+        sender and responder out of sync with NTP. The NTP sync means
+        the total of NTP offset on sender and responder is within
+        configured tolerance level" 
+    ::= { cipslaVideoAggStatsEntry 31 }
+
+cipslaVideoAggOWSumSDHigh OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sum of one way times from source to destination
+        (high order 32 bits). The low order 32 bits are
+        stored in cipslaVideoAggOWSumSD." 
+    ::= { cipslaVideoAggStatsEntry 32 }
+ 
+
+ciscoIpslaVideoMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoMIBConform 1 }
+
+ciscoIpslaVideoMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoMIBConform 2 }
+
+
+ciscoIpslaVideoMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoIpslaVideoStatsGroup }
+    ::= { ciscoIpslaVideoMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoIpslaVideoStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cipslaLatestVideoMinPosSD,
+                        cipslaLatestVideoMaxPosSD,
+                        cipslaLatestVideoNumPosSD,
+                        cipslaLatestVideoSumPosSD,
+                        cipslaLatestVideoSum2PosSD,
+                        cipslaLatestVideoMinNegSD,
+                        cipslaLatestVideoMaxNegSD,
+                        cipslaLatestVideoNumNegSD,
+                        cipslaLatestVideoSumNegSD,
+                        cipslaLatestVideoSum2NegSD,
+                        cipslaLatestVideoPktLossSD,
+                        cipslaLatestVideoPktOutSeq,
+                        cipslaLatestVideoSense,
+                        cipslaLatestVideoOWSumSD,
+                        cipslaLatestVideoOWSum2SD,
+                        cipslaLatestVideoOWMinSD,
+                        cipslaLatestVideoOWMaxSD,
+                        cipslaLatestVideoNumOWSD,
+                        cipslaLatestVideoAvgJitterSD,
+                        cipslaLatestVideoIAJOut,
+                        cipslaLatestVideoErrSenseDescr,
+                        cipslaLatestVideoUnSyncRTs,
+                        cipslaLatestVideoOWSumSDHigh,
+                        cipslaLatestVideoOWSum2SDHigh,
+                        cipslaLatestVideoNTPState,
+                        cipslaLatestVideoIPDVAvgSDJ,
+                        cipslaLatestVideoOWAvgSD,
+                        cipslaLatestVideoPktLateArrival,
+                        cipslaVideoAggCompletions,
+                        cipslaVideoAggOverThresholds,
+                        cipslaVideoAggMinPosSD,
+                        cipslaVideoAggMaxPosSD,
+                        cipslaVideoAggNumPosSD,
+                        cipslaVideoAggSumPosSD,
+                        cipslaVideoAggSum2PosSDLow,
+                        cipslaVideoAggSum2PosSDHigh,
+                        cipslaVideoAggMinNegSD,
+                        cipslaVideoAggMaxNegSD,
+                        cipslaVideoAggNumNegSD,
+                        cipslaVideoAggSumNegSD,
+                        cipslaVideoAggSum2NegSDLow,
+                        cipslaVideoAggSum2NegSDHigh,
+                        cipslaVideoAggPktLossSD,
+                        cipslaVideoAggPktOutSeq,
+                        cipslaVideoAggPktSkipped,
+                        cipslaVideoAggErrors,
+                        cipslaVideoAggBusies,
+                        cipslaVideoAggOWSumSD,
+                        cipslaVideoAggOWSum2SDLow,
+                        cipslaVideoAggOWSum2SDHigh,
+                        cipslaVideoAggOWMinSD,
+                        cipslaVideoAggOWMaxSD,
+                        cipslaVideoAggNumOWSD,
+                        cipslaVideoAggAvgJSD,
+                        cipslaVideoAggIAJOut,
+                        cipslaVideoAggIAJIn,
+                        cipslaVideoAggPktLateArrival,
+                        cipslaVideoAggUnSyncRTs,
+                        cipslaVideoAggOWSumSDHigh
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of statistics objects related to
+        Video Probe."
+    ::= { ciscoIpslaVideoMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

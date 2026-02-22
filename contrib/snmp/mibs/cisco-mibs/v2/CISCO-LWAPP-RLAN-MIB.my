@@ -1,0 +1,1348 @@
+-- *******************************************************************
+-- CISCO-LWAPP-RLAN-MIB.my
+-- This MIB helps to manage the RLANs on the controller
+-- January 2018, Meghana R Deshmukh
+--   
+-- Copyright (c) 2018-2019 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-RLAN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoLwappRlanMIB MODULE-IDENTITY
+    LAST-UPDATED    "201910170000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central Controllers (CC)  that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        This MIB helps to manage the RLANs on the controller.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the RLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends it to the controller to which
+        it is logically connected to.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'.
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        controllers.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. 
+
+        Access Control List ( ACL )
+
+        A list of rules used to restrict the traffic reaching 
+        an interface or the CPU or RLAN.  Each ACL is an ordered
+        set of rules and actions.  If a rule matches then the 
+        action for that rule is applied to the packet.
+
+        802.1x
+
+        The IEEE ratified standard for enforcing port based
+        access control.  This was originally intended for
+        use on wired LANs and later extended for use in
+        802.11 RLAN environments.  This defines an
+        architecture with three main parts - a supplicant
+        (Ex. an 802.11 wireless client), an authenticator
+        (the AP) and an authentication server(a Radius
+        server).  The authenticator passes messages back
+        and forth between the supplicant and the
+        authentication server to enable the supplicant
+        get authenticated to the network.
+
+        Temporal Key Integrity Protocol ( TKIP )
+
+        A security protocol defined to enhance the limitations
+        of WEP.  Message Integrity Check and per-packet keying
+        on all WEP-encrypted frames are two significant
+        enhancements provided by TKIP to WEP.
+
+        Cisco Key Integrity Protocol ( CKIP )
+
+        A proprietary implementation similar to TKIP.  CKIP
+        implements key permutation for protecting the CKIP
+        key against attacks.  Other features of CKIP include
+        expansion of encryption key to 16 bytes of length for
+        key protection and MIC to ensure data integrity.
+
+        Wired Equivalent Privacy ( WEP )
+
+        A security method defined by 802.11. WEP uses a
+        symmetric key stream cipher called RC4 to encrypt the
+        data packets.
+
+        Wi-Fi Protected Access ( WPA )
+
+        Wi-Fi Protected Access (WPA and WPA2) are security
+        systems created in response to several serious
+        weaknesses found in Wired Equivalent Privacy (WEP).
+        WPA implements the majority of the IEEE 802.11i
+        standard, and was intended as an intermediate
+        measure to take the place of WEP while 802.11i was
+        prepared. WPA is designed to work with all wireless
+        network interface cards, but not necessarily with
+        first generation wireless access points.
+
+        RLAN Layer 2 Security
+
+        RLAN layer 2 (MAC) security defines the encryption and 
+        authentication approaches such as 802.1x, WPA, 
+        WPA2, CKIP and WEP.                
+
+        POE (Power Over Ethernet)
+
+        Power over Ethernet or PoE describes any of 
+        several standardized or ad-hoc systems which 
+        pass electrical power along with data on 
+        Ethernet cabling. This allows a single cable 
+        to provide both data connection and electrical 
+        power to devices such as wireless
+        access points or IP cameras.
+
+        Multicast Domain Name System (mDNS)
+
+        This is the underlying protocol that is used for Service advertisement  
+        and discovery in technologies like Bonjour, Zero Touch Configuration 
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol 
+
+        [3] IEEE 802.11 - The original 1 Mbit/s and 2 Mbit/s, 
+        2.4 GHz RF and IR standard."
+    REVISION        "201906210000Z"
+    DESCRIPTION
+        "Added below entry to cLRlanTable
+        - cLRlanMdnsMode
+        Added below entry to cLRlanPolicyEntry table
+        - cLRlanMdnsPolicy
+        Rearranged value for cLRlanHostMode
+        Deprecated the following compliance group
+        - ciscoLwappRlanComplianceRev1                                       
+        Added following compliance group
+        - ciscoLwappRlanComplianceRev2"
+    REVISION        "201904230000Z"
+    DESCRIPTION
+        "Deprecated following objects
+        - cLRlanRadiusHttpProfiling
+        - cLRlanRadiusDhcpProfiling
+        - cLRlanLocalHttpProfiling
+        - cLRlanLocalDhcpProfiling"
+    REVISION        "201807200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 856 }
+
+
+ciscoLwappRlanMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappRlanMIB 0 }
+
+ciscoLwappRlanMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappRlanMIB 1 }
+
+ciscoLwappRlanConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappRlanMIB 2 }
+
+ciscoLwappRlanConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappRlanMIBObjects 1 }
+
+-- ********************************************************************
+-- RLAN configuration
+-- ********************************************************************
+
+cLRlanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLRlanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the RLAN configuration sent by
+        the controller to the APs for their operation.
+
+        LWAPP APs exchange configuration messages with the
+        controller and get the required configuration for
+        their 802.11 related operations.  As part of these
+        messages, the RLAN configuration is pushed by the
+        controller to the LWAPP APs.  
+
+        This table doesn't have any dependencies on other
+        existing tables.  By defining cLRlanIndex, the
+        unique identifier for a RLAN, this table provides
+        a common index structure for use in several other
+        new tables that populate information on security
+        related attributes like authentication, encryption,
+        802.11 parameters, Quality-of-Service attributes
+        etc., that would relate to a particular RLAN.
+
+        Rows are added or deleted by explicit 
+        management actions initiated by the user from a
+        network management station through the 
+        cLRlanRowStatus object."
+    ::= { ciscoLwappRlanConfig 1 }
+
+cLRlanEntry OBJECT-TYPE
+    SYNTAX          CLRlanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the RLAN
+        configuration sent by the controller to APs
+        for use during their operations. entries can be 
+        added/deleted by explicit management actions by Prime
+        or by user console."
+    INDEX           { cLRlanIndex } 
+    ::= { cLRlanTable 1 }
+
+CLRlanEntry ::= SEQUENCE {
+        cLRlanIndex                 Unsigned32,
+        cLRlanRowStatus             RowStatus,
+        cLRlanProfileName           SnmpAdminString,
+        cLRlanMacFiltering          SnmpAdminString,
+        cLRlanAuthList              SnmpAdminString,
+        cLRlanSecurity8021X         TruthValue,
+        cLRlanSecurityWebAuth       TruthValue,
+        cLRlanEapAuthProfileName    SnmpAdminString,
+        cLRlanEapAuthStatus         TruthValue,
+        cLRlanWebAuthParameter      SnmpAdminString,
+        cLRlanClientLimit           Unsigned32,
+        cLRlanStatus                TruthValue,
+        cLRlanWebAuthIpv4Acl        SnmpAdminString,
+        cLRlanWebAuthIpv6Acl        SnmpAdminString,
+        cLRlanSecurity8021XAuthList SnmpAdminString,
+        cLRlanMdnsMode              INTEGER
+}
+
+cLRlanIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..128)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies one instance of
+        a RLAN on the controller." 
+    ::= { cLRlanEntry 1 }
+
+cLRlanRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and used
+        to create, modify and delete specific instances of rows
+        in this table.
+        This table supports modification of writable objects when the
+        RowStatus is 'active'.
+        The following objects are mandatory for successful
+        creation of an entry: 
+            cLRlanIndex 
+            cLRlanProfileName." 
+    ::= { cLRlanEntry 2 }
+
+cLRlanProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the profile name assigned
+        to this RLAN. The name assigned to a RLAN has to be 
+        unique across all the RLANs on the controller.
+        An administrator can assign a meaningful
+        name that could later be used to refer a particular 
+        RLAN on the controller.  This object cannot be 
+        modified when cLRlanRowStatus is 'active'." 
+    ::= { cLRlanEntry 3 }
+
+cLRlanMacFiltering OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A type of security policy for Mobile Stations
+        (Clients). This enables filtering of clients by MAC address." 
+    ::= { cLRlanEntry 4 }
+
+cLRlanAuthList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure AAA
+        Authentication list for RLAN" 
+    ::= { cLRlanEntry 5 }
+
+cLRlanSecurity8021X OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the dot1x authentication
+        is enabled or not for the RLAN.
+        A value of 'true' indicates that 
+        dot1x security is enabled.
+        A value of 'false' indicates that 
+        dot1x security is disabled." 
+    ::= { cLRlanEntry 6 }
+
+cLRlanSecurityWebAuth OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the web authentication
+        is enabled or not for the RLAN.
+        A value of 'true' indicates that 
+        web authentication is enabled.
+        A value of 'false' indicates that 
+        web authentication is disabled." 
+    ::= { cLRlanEntry 7 }
+
+cLRlanEapAuthProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the profile name
+        using which EAP authentication is done for this RLAN" 
+    ::= { cLRlanEntry 8 }
+
+cLRlanEapAuthStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the EAP authentication
+        is enabled or not for the RLAN.
+        A value of 'true' indicates that 
+        EAP authentication is enabled.
+        A value of 'false' indicates that 
+        EAP authentication is disabled."
+    DEFVAL          { false } 
+    ::= { cLRlanEntry 9 }
+
+cLRlanWebAuthParameter OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Parameter for
+        web authentication for the given RLAN" 
+    ::= { cLRlanEntry 10 }
+
+cLRlanClientLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..10000)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of
+        allowed clients for the given RLAN. Default value 
+        0 indicates no restriction on the client number."
+    DEFVAL          { 0 } 
+    ::= { cLRlanEntry 11 }
+
+cLRlanStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the status of the RLAN.
+        A value of 'true' indicates that 
+        RLAN profile is enabled.
+        A value of 'false' indicates that 
+        RLAN profile is disabled."
+    DEFVAL          { false } 
+    ::= { cLRlanEntry 12 }
+
+cLRlanWebAuthIpv4Acl OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the pre web Auth
+        IPv4 ACL for the given RLAN." 
+    ::= { cLRlanEntry 13 }
+
+cLRlanWebAuthIpv6Acl OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the pre web Auth
+        IPv4 ACL for the given RLAN." 
+    ::= { cLRlanEntry 14 }
+
+cLRlanSecurity8021XAuthList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the dot1x authentication
+        list for the given RLAN." 
+    ::= { cLRlanEntry 15 }
+
+cLRlanMdnsMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        bridge(0),
+                        drop(1),
+                        gateway(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the mdns mode of the Remote Lan
+        0 indicates  RLAN is in Bridge mode for mDNS packets
+        1 indicates  RLAN is is Drop mode for mDNS packets
+        2 indicates  RLAN is in Gateway mode for mDNS packets"
+    DEFVAL          { 0 } 
+    ::= { cLRlanEntry 16 }
+ 
+
+-- ********************************************************************
+-- RLAN configuration
+-- ********************************************************************
+
+cLRlanPolicyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLRlanPolicyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table holds the RLAN policies
+        configured on the controller. 
+        Each entry is represented by the object 
+        cLRlanPolicyEntry."
+    ::= { ciscoLwappRlanConfig 2 }
+
+cLRlanPolicyEntry OBJECT-TYPE
+    SYNTAX          CLRlanPolicyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the RLAN policy
+        configuration sent by the controller to APs
+        for use during their operations. entries can be 
+        added/deleted by explicit management actions by 
+        NMS or by user console"
+    INDEX           { cLRlanPolicyProfileName } 
+    ::= { cLRlanPolicyTable 1 }
+
+CLRlanPolicyEntry ::= SEQUENCE {
+        cLRlanPolicyProfileName      SnmpAdminString,
+        cLRlanPolicyRowStatus        RowStatus,
+        cLRlanPolicyStatus           TruthValue,
+        cLRlanPolicyDesc             SnmpAdminString,
+        cLRlanPolicyIpv4Acl          SnmpAdminString,
+        cLRlanPolicyIpv6Acl          SnmpAdminString,
+        cLRlanAAAOverride            TruthValue,
+        cLRlanCentralSwitching       TruthValue,
+        cLRlanInterface              SnmpAdminString,
+        cLRlanPoeEnabled             TruthValue,
+        cLRlanHostMode               INTEGER,
+        cLRlanViolationMode          INTEGER,
+        cLRlanVoiceVlanId            Unsigned32,
+        cLRlanDataVlanId             Unsigned32,
+        cLRlanBlacklistEnabled       TruthValue,
+        cLRlanBlacklistTimeout       Unsigned32,
+        cLRlanAAAPolicyName          SnmpAdminString,
+        cLRlanSessionTimeout         Unsigned32,
+        cLRlanPreAuthEnabled         TruthValue,
+        cLRlanDhcpServerType         InetAddressType,
+        cLRlanDhcpServer             InetAddress,
+        cLRlanRadiusHttpProfiling    TruthValue,
+        cLRlanRadiusDhcpProfiling    TruthValue,
+        cLRlanLocalHttpProfiling     TruthValue,
+        cLRlanLocalDhcpProfiling     TruthValue,
+        cLRlanIpv6IngressStatus      TruthValue,
+        cLRlanIpv6EgressStatus       TruthValue,
+        cLRlanIpv4IngressStatus      TruthValue,
+        cLRlanIpv4EgressStatus       TruthValue,
+        cLRlanIpv6IngressName        SnmpAdminString,
+        cLRlanIpv6EgressName         SnmpAdminString,
+        cLRlanIpv4IngressName        SnmpAdminString,
+        cLRlanIpv4EgressName         SnmpAdminString,
+        cLRlanSplitTunnelGatewayType InetAddressType,
+        cLRlanSplitTunnelGateway     InetAddress,
+        cLRlanSplitTunnelNetmaskType InetAddressType,
+        cLRlanSplitTunnelNetmask     InetAddress,
+        cLRlanSplitTunnel            TruthValue,
+        cLRlanAclName                SnmpAdminString,
+        cLRlanSplitTunnelOverride    TruthValue,
+        cLRlanAccountingList         SnmpAdminString,
+        cLRlanDhcpEnabled            TruthValue,
+        cLRlanCentralDhcp            TruthValue,
+        cLRlanMdnsPolicy             SnmpAdminString,
+        cLRlanPowerLevelId           Unsigned32
+}
+
+cLRlanPolicyProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies one instance of
+        a RLAN policy on the controller." 
+    ::= { cLRlanPolicyEntry 1 }
+
+cLRlanPolicyRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and used
+        to create, modify and delete specific instances of rows
+        in this table.
+        This table supports modification of writable objects when the
+        RowStatus is 'active'.
+        The following objects are mandatory for successful
+        creation of an entry: 
+            cLRlanPolicyProfileName." 
+    ::= { cLRlanPolicyEntry 2 }
+
+cLRlanPolicyStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the RLAN policy
+        is enabled or not. 
+        A value of 'true' indicates that 
+        RLAN policy profile is enabled.
+        A value of 'false' indicates that 
+        RLAN policy profile is disabled."
+    DEFVAL          { false } 
+    ::= { cLRlanPolicyEntry 3 }
+
+cLRlanPolicyDesc OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object describes the policy of RLAN." 
+    ::= { cLRlanPolicyEntry 4 }
+
+cLRlanPolicyIpv4Acl OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the
+        name of ipv4 ACL for given RLAN." 
+    ::= { cLRlanPolicyEntry 5 }
+
+cLRlanPolicyIpv6Acl OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the
+        name of ipv6 ACL for given RLAN." 
+    ::= { cLRlanPolicyEntry 6 }
+
+cLRlanAAAOverride OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the AAA override for
+        global parameters is enabled or disabled.
+        A value of 'true' indicates that 
+        AAA Override is enabled.
+        A value of 'false' indicates that 
+        AAA Override is disabled."
+    DEFVAL          { false } 
+    ::= { cLRlanPolicyEntry 7 }
+
+cLRlanCentralSwitching OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the central switching
+        for RLAN is enabled or disabled.
+        A value of 'true' indicates that 
+        Central Switching is enabled.
+        A value of 'false' indicates that 
+        Central Switching is disabled."
+    DEFVAL          { true } 
+    ::= { cLRlanPolicyEntry 8 }
+
+cLRlanInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the
+        RLAN interface name."
+    DEFVAL          { "1" } 
+    ::= { cLRlanPolicyEntry 9 }
+
+cLRlanPoeEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies
+        RLAN Power Over Ethernet status.
+        A value of 'true' indicates 
+        that RLAN POE is enabled.
+        A value of 'false' indicates 
+        that RLAN POE is disabled." 
+    ::= { cLRlanPolicyEntry 10 }
+
+cLRlanHostMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        sinlgeHostMode(0),
+                        multiHostMode(1),
+                        multiDomainMode(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object configures the host mode
+        for the RLAN.
+        0 - SINGLE_HOST_MODE,
+        1 - MULTI_HOST_MODE,
+        2 - MULTI_DOMAIN_MODE."
+    DEFVAL          { 0 } 
+    ::= { cLRlanPolicyEntry 11 }
+
+cLRlanViolationMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        protect(0),
+                        replace(1),
+                        shutdown(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This objecti configures the voilation
+        mode for the RLAN. 
+        0 - REPLACE,
+        1 - SHUTDOWN,
+        2 - PROTECT" 
+    ::= { cLRlanPolicyEntry 12 }
+
+cLRlanVoiceVlanId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies VLAN ID for the voice
+        during the multi domain mode for RLAN on the controller. 
+        The host mode (cLRlanHostMode) should be set to 
+        multi-domain mode(value: 3)." 
+    ::= { cLRlanPolicyEntry 13 }
+
+cLRlanDataVlanId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies VLAN ID for the data
+        during the multi domain mode for RLAN on the controller. 
+        The host mode (cLRlanHostMode) should be set to 
+        multi-domain mode(value: 3)." 
+    ::= { cLRlanPolicyEntry 14 }
+
+cLRlanBlacklistEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies is the blacklisting
+        is enabled or not for the given RLAN.
+        A value of 'true' indicates 
+        that RLAN Blacklisting is enabled.
+        A value of 'false' indicates 
+        that RLAN Blacklisting is disabled."
+    DEFVAL          { true } 
+    ::= { cLRlanPolicyEntry 15 }
+
+cLRlanBlacklistTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the timeout
+        duration in seconds for the blacklist in RLAN."
+    DEFVAL          { 60 } 
+    ::= { cLRlanPolicyEntry 16 }
+
+cLRlanAAAPolicyName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the AAA policy name
+        for the given RLAN."
+    DEFVAL          { "default-aaa-policy" } 
+    ::= { cLRlanPolicyEntry 17 }
+
+cLRlanSessionTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (20..86400)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the session
+        timeout duration in seconds for RLAN."
+    DEFVAL          { 1800 } 
+    ::= { cLRlanPolicyEntry 18 }
+
+cLRlanPreAuthEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the preAuth is
+        enabled or not for the RLAN on the controller. 
+        A value of 'true' indicates that 
+        RLAN Pre-Authentication is enabled.
+        A value of 'false' indicates that 
+        RLAN Pre-Authentication is disabled." 
+    ::= { cLRlanPolicyEntry 19 }
+
+cLRlanDhcpServerType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the address type
+        DHCP parameters IP for Remote-LAN." 
+    ::= { cLRlanPolicyEntry 20 }
+
+cLRlanDhcpServer OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object configures the
+        DHCP parameters for Remote-LAN" 
+    ::= { cLRlanPolicyEntry 21 }
+
+cLRlanRadiusHttpProfiling OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object uniquely identifies Client profiling
+        on RLAN in Radius mode based on HTTP attribute. 
+        A value of 'true' indicates that 
+        Radius HTTP profiling is enabled.
+        A value of 'false' indicates that 
+        Radius HTTP profiling is disabled." 
+    ::= { cLRlanPolicyEntry 22 }
+
+cLRlanRadiusDhcpProfiling OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object uniquely identifies Client profiling
+        on RLAN in Radius mode based on DHCP attribute. 
+        A value of 'true' indicates that 
+        Radius DHCP profiling is enabled.
+        A value of 'false' indicates that 
+        Radius DHCP profiling is disabled." 
+    ::= { cLRlanPolicyEntry 23 }
+
+cLRlanLocalHttpProfiling OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object uniquely identifies Client profiling
+        on RLAN in local mode based on HTTP attribute. 
+        A value of 'true' indicates that 
+        Local HTTP profiling is enabled.
+        A value of 'false' indicates that 
+        Local HTTP profiling is disabled." 
+    ::= { cLRlanPolicyEntry 24 }
+
+cLRlanLocalDhcpProfiling OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object uniquely identifies Client profiling
+        on RLAN in local mode based on DHCP attribute. 
+        A value of 'true' indicates that 
+        Local DHCP profiling is enabled.
+        A value of 'false' indicates that 
+        Local DHCP profiling is disabled." 
+    ::= { cLRlanPolicyEntry 25 }
+
+cLRlanIpv6IngressStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the flow monitor
+        on ingress traffic, for IPv6, is enabled or disabled.
+        A value of 'true' indicates that 
+        IPv6 Ingress traffic is enabled.
+        A value of 'false' indicates that 
+        IPv6 Ingress traffic is disabled." 
+    ::= { cLRlanPolicyEntry 26 }
+
+cLRlanIpv6EgressStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the flow monitor
+        on egress traffic, for IPv6, is enabled or disabled.
+        A value of 'true' indicates that 
+        IPv6 Engress traffic is enabled.
+        A value of 'false' indicates that 
+        IPv6 Engress traffic is disabled." 
+    ::= { cLRlanPolicyEntry 27 }
+
+cLRlanIpv4IngressStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the flow monitor
+        on ingress traffic, for IPv4, is enabled or disabled.
+        A value of 'true' indicates that 
+        IPv4 Ingress traffic is enabled.
+        A value of 'false' indicates that 
+        IPv4 Ingress traffic is disabled." 
+    ::= { cLRlanPolicyEntry 28 }
+
+cLRlanIpv4EgressStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the flow monitor
+        on egress traffic, for IPv4, is enabled or disabled.
+        A value of 'true' indicates that 
+        IPv4 Engress traffic is enabled.
+        A value of 'false' indicates that 
+        IPv4 Engress traffic is disabled." 
+    ::= { cLRlanPolicyEntry 29 }
+
+cLRlanIpv6IngressName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Qos profile name for
+        flow monitor on ingress traffic, for IPv6." 
+    ::= { cLRlanPolicyEntry 30 }
+
+cLRlanIpv6EgressName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Qos profile name for
+        flow monitor on egress traffic, for IPv6." 
+    ::= { cLRlanPolicyEntry 31 }
+
+cLRlanIpv4IngressName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Qos profile name for
+        flow monitor on ingress traffic, for IPv4." 
+    ::= { cLRlanPolicyEntry 32 }
+
+cLRlanIpv4EgressName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Qos profile name for
+        flow monitor on egress traffic, for IPv4." 
+    ::= { cLRlanPolicyEntry 33 }
+
+cLRlanSplitTunnelGatewayType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the IP address type
+        of gateway address for the split tunnel 
+        trafficking of the data on RLAN." 
+    ::= { cLRlanPolicyEntry 34 }
+
+cLRlanSplitTunnelGateway OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the gateway address
+        for the split tunnel trafficking of the data on RLAN." 
+    ::= { cLRlanPolicyEntry 35 }
+
+cLRlanSplitTunnelNetmaskType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the netmask for the
+        split tunnel trafficking of the data on RLAN." 
+    ::= { cLRlanPolicyEntry 36 }
+
+cLRlanSplitTunnelNetmask OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the netmask for the
+        split tunnel trafficking of the data on RLAN." 
+    ::= { cLRlanPolicyEntry 37 }
+
+cLRlanSplitTunnel OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies whether the split tunnel
+        traffic movement of the data is enabled. 
+        A value of 'true' indicates that 
+        split tunnelling is enabled.
+        A value of 'false' indicates that 
+        split tunnelling is disabled." 
+    ::= { cLRlanPolicyEntry 38 }
+
+cLRlanAclName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the ACL name
+        for the split tunnel data trafficking." 
+    ::= { cLRlanPolicyEntry 39 }
+
+cLRlanSplitTunnelOverride OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies whether the split tunnel
+        traffic movement of the data is overriden. 
+        A value of 'true' indicates that 
+        split tunnel override is enabled.
+        A value of 'false' indicates that 
+        split tunnel override is disabled." 
+    ::= { cLRlanPolicyEntry 40 }
+
+cLRlanAccountingList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the AAA Accounting list
+        associated to the given RLAN" 
+    ::= { cLRlanPolicyEntry 41 }
+
+cLRlanDhcpEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the DHCP is
+        required for the IPv4 of the given RLAN. 
+        A value of 'true' indicates 
+        that RLAN DHCP is enabled.
+        A value of 'false' indicates that 
+        RLAN DHCP is disabled."
+    DEFVAL          { false } 
+    ::= { cLRlanPolicyEntry 42 }
+
+cLRlanCentralDhcp OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the central dhcp
+        for RLAN is enabled or disabled.
+        A value of 'true' indicates that 
+        Central DHCP is enabled.
+        A value of 'false' indicates that 
+        Central DHCP is disabled."
+    DEFVAL          { true } 
+    ::= { cLRlanPolicyEntry 43 }
+
+cLRlanMdnsPolicy OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mDNS service policy
+        configured under RLAN" 
+    ::= { cLRlanPolicyEntry 44 }
+
+cLRlanPowerLevelId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the power level for
+        port" 
+    ::= { cLRlanPolicyEntry 45 }
+ 
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappRlanCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappRlanConform 1 }
+
+ciscoLwappRlanGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappRlanConform 2 }
+
+
+ciscoLwappRlanCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRlanMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRlanConfigGroup1,
+                        ciscoLwappRlanConfigGroup2
+                    }
+    ::= { ciscoLwappRlanCompliances 1 }
+
+ciscoLwappRlanComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRlanMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRlanConfigGroup1,
+                        ciscoLwappRlanConfigGroup2Sup1
+                    }
+    ::= { ciscoLwappRlanCompliances 2 }
+
+ciscoLwappRlanComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRlanMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRlanConfigGroup1Sup1,
+                        ciscoLwappRlanConfigGroup2Sup2
+                    }
+    ::= { ciscoLwappRlanCompliances 3 }
+
+ciscoLwappRlanComplianceRev3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRlanMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRlanConfigGroup1Sup1,
+                        ciscoLwappRlanConfigGroup2Sup2,
+                        ciscoLwappRlanConfigGroup2Sup3
+                    }
+    ::= { ciscoLwappRlanCompliances 4 }
+
+ciscoLwappRlanConfigGroup1 OBJECT-GROUP
+    OBJECTS         {
+                        cLRlanRowStatus,
+                        cLRlanProfileName,
+                        cLRlanMacFiltering,
+                        cLRlanAuthList,
+                        cLRlanSecurity8021X,
+                        cLRlanSecurityWebAuth,
+                        cLRlanEapAuthProfileName,
+                        cLRlanEapAuthStatus,
+                        cLRlanWebAuthParameter,
+                        cLRlanClientLimit,
+                        cLRlanStatus,
+                        cLRlanWebAuthIpv4Acl,
+                        cLRlanWebAuthIpv6Acl,
+                        cLRlanSecurity8021XAuthList
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the
+        RLAN policy attributes."
+    ::= { ciscoLwappRlanGroups 1 }
+
+ciscoLwappRlanConfigGroup2 OBJECT-GROUP
+    OBJECTS         {
+                        cLRlanPolicyRowStatus,
+                        cLRlanPolicyStatus,
+                        cLRlanPolicyDesc,
+                        cLRlanPolicyIpv4Acl,
+                        cLRlanPolicyIpv6Acl,
+                        cLRlanAAAOverride,
+                        cLRlanCentralSwitching,
+                        cLRlanInterface,
+                        cLRlanPoeEnabled,
+                        cLRlanHostMode,
+                        cLRlanViolationMode,
+                        cLRlanVoiceVlanId,
+                        cLRlanDataVlanId,
+                        cLRlanBlacklistEnabled,
+                        cLRlanBlacklistTimeout,
+                        cLRlanAAAPolicyName,
+                        cLRlanSessionTimeout,
+                        cLRlanPreAuthEnabled,
+                        cLRlanDhcpServerType,
+                        cLRlanDhcpServer,
+                        cLRlanRadiusHttpProfiling,
+                        cLRlanRadiusDhcpProfiling,
+                        cLRlanLocalHttpProfiling,
+                        cLRlanLocalDhcpProfiling,
+                        cLRlanIpv6IngressStatus,
+                        cLRlanIpv6EgressStatus,
+                        cLRlanIpv4IngressStatus,
+                        cLRlanIpv4EgressStatus,
+                        cLRlanIpv6IngressName,
+                        cLRlanIpv6EgressName,
+                        cLRlanIpv4IngressName,
+                        cLRlanIpv4EgressName,
+                        cLRlanSplitTunnelGatewayType,
+                        cLRlanSplitTunnelGateway,
+                        cLRlanSplitTunnelNetmaskType,
+                        cLRlanSplitTunnelNetmask,
+                        cLRlanSplitTunnel,
+                        cLRlanAclName,
+                        cLRlanSplitTunnelOverride,
+                        cLRlanAccountingList,
+                        cLRlanDhcpEnabled,
+                        cLRlanCentralDhcp
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represents the
+        RLAN profile policy attributes."
+    ::= { ciscoLwappRlanGroups 2 }
+
+ciscoLwappRlanConfigGroup2Sup1 OBJECT-GROUP
+    OBJECTS         {
+                        cLRlanPolicyRowStatus,
+                        cLRlanPolicyStatus,
+                        cLRlanPolicyDesc,
+                        cLRlanPolicyIpv4Acl,
+                        cLRlanPolicyIpv6Acl,
+                        cLRlanAAAOverride,
+                        cLRlanCentralSwitching,
+                        cLRlanInterface,
+                        cLRlanPoeEnabled,
+                        cLRlanHostMode,
+                        cLRlanViolationMode,
+                        cLRlanVoiceVlanId,
+                        cLRlanDataVlanId,
+                        cLRlanBlacklistEnabled,
+                        cLRlanBlacklistTimeout,
+                        cLRlanAAAPolicyName,
+                        cLRlanSessionTimeout,
+                        cLRlanPreAuthEnabled,
+                        cLRlanDhcpServerType,
+                        cLRlanDhcpServer,
+                        cLRlanIpv6IngressStatus,
+                        cLRlanIpv6EgressStatus,
+                        cLRlanIpv4IngressStatus,
+                        cLRlanIpv4EgressStatus,
+                        cLRlanIpv6IngressName,
+                        cLRlanIpv6EgressName,
+                        cLRlanIpv4IngressName,
+                        cLRlanIpv4EgressName,
+                        cLRlanSplitTunnelGatewayType,
+                        cLRlanSplitTunnelGateway,
+                        cLRlanSplitTunnelNetmaskType,
+                        cLRlanSplitTunnelNetmask,
+                        cLRlanSplitTunnel,
+                        cLRlanAclName,
+                        cLRlanSplitTunnelOverride,
+                        cLRlanAccountingList,
+                        cLRlanDhcpEnabled,
+                        cLRlanCentralDhcp
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represents the
+        RLAN profile policy attributes."
+    ::= { ciscoLwappRlanGroups 3 }
+
+ciscoLwappRlanConfigGroup2Sup2 OBJECT-GROUP
+    OBJECTS         {
+                        cLRlanPolicyRowStatus,
+                        cLRlanPolicyStatus,
+                        cLRlanPolicyDesc,
+                        cLRlanPolicyIpv4Acl,
+                        cLRlanPolicyIpv6Acl,
+                        cLRlanAAAOverride,
+                        cLRlanCentralSwitching,
+                        cLRlanInterface,
+                        cLRlanPoeEnabled,
+                        cLRlanHostMode,
+                        cLRlanViolationMode,
+                        cLRlanVoiceVlanId,
+                        cLRlanDataVlanId,
+                        cLRlanBlacklistEnabled,
+                        cLRlanBlacklistTimeout,
+                        cLRlanAAAPolicyName,
+                        cLRlanSessionTimeout,
+                        cLRlanPreAuthEnabled,
+                        cLRlanDhcpServerType,
+                        cLRlanDhcpServer,
+                        cLRlanIpv6IngressStatus,
+                        cLRlanIpv6EgressStatus,
+                        cLRlanIpv4IngressStatus,
+                        cLRlanIpv4EgressStatus,
+                        cLRlanIpv6IngressName,
+                        cLRlanIpv6EgressName,
+                        cLRlanIpv4IngressName,
+                        cLRlanIpv4EgressName,
+                        cLRlanSplitTunnelGatewayType,
+                        cLRlanSplitTunnelGateway,
+                        cLRlanSplitTunnelNetmaskType,
+                        cLRlanSplitTunnelNetmask,
+                        cLRlanSplitTunnel,
+                        cLRlanAclName,
+                        cLRlanSplitTunnelOverride,
+                        cLRlanAccountingList,
+                        cLRlanDhcpEnabled,
+                        cLRlanCentralDhcp,
+                        cLRlanMdnsPolicy
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the
+        RLAN profile policy attributes."
+    ::= { ciscoLwappRlanGroups 4 }
+
+ciscoLwappRlanConfigGroup1Sup1 OBJECT-GROUP
+    OBJECTS         {
+                        cLRlanRowStatus,
+                        cLRlanProfileName,
+                        cLRlanMacFiltering,
+                        cLRlanAuthList,
+                        cLRlanSecurity8021X,
+                        cLRlanSecurityWebAuth,
+                        cLRlanEapAuthProfileName,
+                        cLRlanEapAuthStatus,
+                        cLRlanWebAuthParameter,
+                        cLRlanClientLimit,
+                        cLRlanStatus,
+                        cLRlanWebAuthIpv4Acl,
+                        cLRlanWebAuthIpv6Acl,
+                        cLRlanSecurity8021XAuthList,
+                        cLRlanMdnsMode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the
+        RLAN policy attributes."
+    ::= { ciscoLwappRlanGroups 5 }
+
+ciscoLwappRlanConfigGroup2Sup3 OBJECT-GROUP
+    OBJECTS         { cLRlanPowerLevelId }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the
+        RLAN profile policy attributes."
+    ::= { ciscoLwappRlanGroups 6 }
+
+END
+
+

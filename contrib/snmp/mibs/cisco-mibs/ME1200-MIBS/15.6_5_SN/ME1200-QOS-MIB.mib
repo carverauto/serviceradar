@@ -1,0 +1,3158 @@
+-- *****************************************************************
+-- QOS-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-QOS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    Dscp FROM DIFFSERV-DSCP-TC
+    InetAddressIPv6 FROM INET-ADDRESS-MIB
+    ME1200EtherType FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200Percent FROM ME1200-TC
+    ME1200PortList FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200QosMIB MODULE-IDENTITY
+    LAST-UPDATED "201408140000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private MIB for QoS"
+    REVISION    "201408140000Z"
+    DESCRIPTION
+        "Updated various range specifications"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310080000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 14 }
+
+
+ME1200ASRType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents an Any/Specific/Range selector."
+    SYNTAX      INTEGER { any(0), specific(1), range(2) }
+
+ME1200BitType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a bit selector."
+    SYNTAX      INTEGER { any(0), zero(1), one(2) }
+
+ME1200DestMacType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a destination MAC type selector."
+    SYNTAX      INTEGER { any(0), unicast(1), multicast(2), broadcast(3) }
+
+ME1200DscpClassify ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates the DSCP classify mode."
+    SYNTAX      INTEGER { none(0), zero(1), selected(2), all(3) }
+
+ME1200DscpRemark ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates the DSCP remark mode."
+    SYNTAX      INTEGER { disabled(0), rewrite(1), remap(2), remapDp(3) }
+
+ME1200MaxSelector ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that selects between 'Maximum Drop Probability' or 'Maximum
+         Fill Level'."
+    SYNTAX      INTEGER { maximumDropProbability(0), maximumFillLevel(1) }
+
+ME1200QceFrameType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates the QCE frame type key."
+    SYNTAX      INTEGER { any(0), etype(1), llc(2), snap(3), ipv4(4), ipv6(5) }
+
+ME1200QceUserType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates the QCE user type. If the value is zero it
+         indicates a static configuration. If the value is non-zero it indicates
+         a dynamic configuration made by another subsystem."
+    SYNTAX      INTEGER { admin(0), voiceVlan(1) }
+
+ME1200TagRemarkingMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates the tag remarking mode."
+    SYNTAX      INTEGER { classified(0), default(2), mapped(3) }
+
+ME1200VcapKeyType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a VCAP key type selector."
+    SYNTAX      INTEGER { normal(0), doubleTag(1), ipAddr(2), macIpAddr(3) }
+
+ME1200VlanTagPriority ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "VLAN priority."
+    SYNTAX      INTEGER { any(0), value0(1), value1(2), value2(3), value3(4), value4(5), value5(6), value6(7), value7(8), range0to1(9), range2to3(10), range4to5(11), range6to7(12), range0to3(13), range4to7(14) }
+
+ME1200VlanTagType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a VLAN tag type selector."
+    SYNTAX      INTEGER { any(0), untagged(1), tagged(2), cTagged(3), sTagged(4) }
+
+me1200QosMIBObjects OBJECT IDENTIFIER
+    ::= { me1200QosMIB 1 }
+
+me1200QosConfig OBJECT IDENTIFIER
+    ::= { me1200QosMIBObjects 2 }
+
+me1200QosGlobals OBJECT IDENTIFIER
+    ::= { me1200QosConfig 1 }
+
+me1200QosStormPolicers OBJECT IDENTIFIER
+    ::= { me1200QosGlobals 1 }
+
+me1200QosStormPolicerUnicast OBJECT IDENTIFIER
+    ::= { me1200QosStormPolicers 1 }
+
+me1200QosStormPolicerUnicastEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the storm policer is enabled."
+    ::= { me1200QosStormPolicerUnicast 1 }
+
+me1200QosStormPolicerUnicastRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configure the storm policer rate in frames/second. Valid values are: 1,
+         2, 4, 8, 16, 32, 64, 128, 256, 512, 1000, 2000, 4000, 8000, 16000,
+         32000, 64000, 128000, 256000, 512000, 1024000"
+    ::= { me1200QosStormPolicerUnicast 2 }
+
+me1200QosStormPolicerMulticast OBJECT IDENTIFIER
+    ::= { me1200QosStormPolicers 2 }
+
+me1200QosStormPolicerMulticastEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the storm policer is enabled."
+    ::= { me1200QosStormPolicerMulticast 1 }
+
+me1200QosStormPolicerMulticastRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configure the storm policer rate in frames/second. Valid values are: 1,
+         2, 4, 8, 16, 32, 64, 128, 256, 512, 1000, 2000, 4000, 8000, 16000,
+         32000, 64000, 128000, 256000, 512000, 1024000"
+    ::= { me1200QosStormPolicerMulticast 2 }
+
+me1200QosStormPolicerBroadcast OBJECT IDENTIFIER
+    ::= { me1200QosStormPolicers 3 }
+
+me1200QosStormPolicerBroadcastEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the storm policer is enabled."
+    ::= { me1200QosStormPolicerBroadcast 1 }
+
+me1200QosStormPolicerBroadcastRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configure the storm policer rate in frames/second. Valid values are: 1,
+         2, 4, 8, 16, 32, 64, 128, 256, 512, 1000, 2000, 4000, 8000, 16000,
+         32000, 64000, 128000, 256000, 512000, 1024000"
+    ::= { me1200QosStormPolicerBroadcast 2 }
+
+me1200QosWredTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosWredEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the configuration of WRED for queue 0 through 5"
+    ::= { me1200QosGlobals 2 }
+
+me1200QosWredEntry OBJECT-TYPE
+    SYNTAX      ME1200QosWredEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific queue"
+    INDEX       { me1200QosWredQueue }
+    ::= { me1200QosWredTable 1 }
+
+ME1200QosWredEntry ::= SEQUENCE {
+    me1200QosWredQueue    Integer32,
+    me1200QosWredEnable   TruthValue,
+    me1200QosWredMinimumFillLevel     ME1200Percent,
+    me1200QosWredMaximum      ME1200Percent,
+    me1200QosWredMaxSelector      ME1200MaxSelector
+}
+
+me1200QosWredQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue index."
+    ::= { me1200QosWredEntry 1 }
+
+me1200QosWredEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, RED is enabled for this queue"
+    ::= { me1200QosWredEntry 2 }
+
+me1200QosWredMinimumFillLevel OBJECT-TYPE
+    SYNTAX      ME1200Percent
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls the lower RED fill level threshold in percent of the whole
+         queue. If the queue filling level is below this threshold, the drop
+         probability is zero. Valid range is 0-100"
+    ::= { me1200QosWredEntry 3 }
+
+me1200QosWredMaximum OBJECT-TYPE
+    SYNTAX      ME1200Percent
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls the upper RED drop probability or fill level threshold for
+         frames marked with Drop Precedence Level 1 (yellow frames). Valid range
+         is 1-100"
+    ::= { me1200QosWredEntry 4 }
+
+me1200QosWredMaxSelector OBJECT-TYPE
+    SYNTAX      ME1200MaxSelector
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Selects whether 'Maximum' controls 'Maximum Drop Probability' or
+         'Maximum Fill Level'."
+    ::= { me1200QosWredEntry 5 }
+
+me1200QosDscpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosDscpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table has 64 entries, one for each DSCP value"
+    ::= { me1200QosGlobals 3 }
+
+me1200QosDscpEntry OBJECT-TYPE
+    SYNTAX      ME1200QosDscpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific DSCP"
+    INDEX       { me1200QosDscpDscp }
+    ::= { me1200QosDscpTable 1 }
+
+ME1200QosDscpEntry ::= SEQUENCE {
+    me1200QosDscpDscp     Dscp,
+    me1200QosDscpTrust    TruthValue,
+    me1200QosDscpCos      Unsigned32,
+    me1200QosDscpDpl      ME1200Unsigned8,
+    me1200QosDscpIngressTranslation   Dscp,
+    me1200QosDscpClassify     TruthValue,
+    me1200QosDscpEgressTranslation    Dscp,
+    me1200QosDscpEgressTranslationDp1     Dscp
+}
+
+me1200QosDscpDscp OBJECT-TYPE
+    SYNTAX      Dscp
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "DSCP index."
+    ::= { me1200QosDscpEntry 1 }
+
+me1200QosDscpTrust OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, this DSCP value is trusted. Packets arriving on interfaces
+         where 'TrustDscp' is enabled will be classified to the corresponding
+         CoS and DPL in this table."
+    ::= { me1200QosDscpEntry 2 }
+
+me1200QosDscpCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The CoS value which the DSCP value maps to. Valid range is 0-7."
+    ::= { me1200QosDscpEntry 3 }
+
+me1200QosDscpDpl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DPL (Drop Precedence Level) which the DSCP value maps to. Valid
+         range is 0-1."
+    ::= { me1200QosDscpEntry 4 }
+
+me1200QosDscpIngressTranslation OBJECT-TYPE
+    SYNTAX      Dscp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The new classified DSCP value which the original DSCP value is replaced
+         with if 'DscpTranslate' is enabled on the interface"
+    ::= { me1200QosDscpEntry 5 }
+
+me1200QosDscpClassify OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, then packets received on interfaces where 'DscpClassify' is
+         set to 'selected' will be classified to a new DSCP value based on the
+         classified CoS and DPL value configured in the qosCosDscpTable."
+    ::= { me1200QosDscpEntry 6 }
+
+me1200QosDscpEgressTranslation OBJECT-TYPE
+    SYNTAX      Dscp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The new DSCP value that will be written into the packet at egress if
+         'DscpRemark' on the interface is set to 'remap' or 'remap-dp'. If
+         'remap-dp' is set then only packets classified to Dpl 0 will use this
+         table."
+    ::= { me1200QosDscpEntry 7 }
+
+me1200QosDscpEgressTranslationDp1 OBJECT-TYPE
+    SYNTAX      Dscp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The new DSCP value that will be written into the packet at egress if
+         'DscpRemark' on the interface is set to 'remap-dp'. Only packets
+         classified to Dpl 1 will use this table."
+    ::= { me1200QosDscpEntry 8 }
+
+me1200QosCosToDscpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosCosToDscpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table has QOS_CLASS_CNT entries, one for each Cos value"
+    ::= { me1200QosGlobals 4 }
+
+me1200QosCosToDscpEntry OBJECT-TYPE
+    SYNTAX      ME1200QosCosToDscpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific Cos"
+    INDEX       { me1200QosCosToDscpCos }
+    ::= { me1200QosCosToDscpTable 1 }
+
+ME1200QosCosToDscpEntry ::= SEQUENCE {
+    me1200QosCosToDscpCos     Integer32,
+    me1200QosCosToDscpDscp    Dscp,
+    me1200QosCosToDscpDscpDp1     Dscp
+}
+
+me1200QosCosToDscpCos OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "CoS index."
+    ::= { me1200QosCosToDscpEntry 1 }
+
+me1200QosCosToDscpDscp OBJECT-TYPE
+    SYNTAX      Dscp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value which the classified CoS value maps to when the
+         classified DPL is 0."
+    ::= { me1200QosCosToDscpEntry 2 }
+
+me1200QosCosToDscpDscpDp1 OBJECT-TYPE
+    SYNTAX      Dscp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value which the classified CoS value maps to when the
+         classified DPL is 1."
+    ::= { me1200QosCosToDscpEntry 3 }
+
+me1200QosQce OBJECT IDENTIFIER
+    ::= { me1200QosGlobals 10 }
+
+me1200QosQceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosQceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the configuration of QCEs. The index is QceId."
+    ::= { me1200QosQce 1 }
+
+me1200QosQceEntry OBJECT-TYPE
+    SYNTAX      ME1200QosQceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration of a single QCE."
+    INDEX       { me1200QosQceQceId }
+    ::= { me1200QosQceTable 1 }
+
+ME1200QosQceEntry ::= SEQUENCE {
+    me1200QosQceQceId     Integer32,
+    me1200QosQceNextQceId     Unsigned32,
+    me1200QosQcePortList      ME1200PortList,
+    me1200QosQceDestMacType   ME1200DestMacType,
+    me1200QosQceDestMac   MacAddress,
+    me1200QosQceDestMacMask   MacAddress,
+    me1200QosQceSrcMac    MacAddress,
+    me1200QosQceSrcMacMask    MacAddress,
+    me1200QosQceVlanTagType   ME1200VlanTagType,
+    me1200QosQceVlanIdOp      ME1200ASRType,
+    me1200QosQceVlanId    ME1200Unsigned16,
+    me1200QosQceVlanIdRange   ME1200Unsigned16,
+    me1200QosQcePcp   ME1200VlanTagPriority,
+    me1200QosQceDei   ME1200BitType,
+    me1200QosQceInnerVlanTagType      ME1200VlanTagType,
+    me1200QosQceInnerVlanIdOp     ME1200ASRType,
+    me1200QosQceInnerVlanId   ME1200Unsigned16,
+    me1200QosQceInnerVlanIdRange      ME1200Unsigned16,
+    me1200QosQceInnerPcp      ME1200VlanTagPriority,
+    me1200QosQceInnerDei      ME1200BitType,
+    me1200QosQceFrameType     ME1200QceFrameType,
+    me1200QosQceEtype     ME1200EtherType,
+    me1200QosQceLlcDsap   ME1200Unsigned8,
+    me1200QosQceLlcDsapMask   ME1200Unsigned8,
+    me1200QosQceLlcSsap   ME1200Unsigned8,
+    me1200QosQceLlcSsapMask   ME1200Unsigned8,
+    me1200QosQceLlcControl    ME1200Unsigned8,
+    me1200QosQceLlcControlMask    ME1200Unsigned8,
+    me1200QosQceSnapPid   ME1200Unsigned16,
+    me1200QosQceSnapPidMask   ME1200Unsigned16,
+    me1200QosQceIpv4Fragment      ME1200BitType,
+    me1200QosQceIpv4DscpOp    ME1200ASRType,
+    me1200QosQceIpv4Dscp      ME1200Unsigned16,
+    me1200QosQceIpv4DscpRange     ME1200Unsigned16,
+    me1200QosQceIpv4Protocol      ME1200Unsigned8,
+    me1200QosQceIpv4ProtocolMask      ME1200Unsigned8,
+    me1200QosQceIpv4SrcIp     IpAddress,
+    me1200QosQceIpv4SrcIpMask     IpAddress,
+    me1200QosQceIpv4DestIp    IpAddress,
+    me1200QosQceIpv4DestIpMask    IpAddress,
+    me1200QosQceIpv4SrcPortOp     ME1200ASRType,
+    me1200QosQceIpv4SrcPort   ME1200Unsigned16,
+    me1200QosQceIpv4SrcPortRange      ME1200Unsigned16,
+    me1200QosQceIpv4DestPortOp    ME1200ASRType,
+    me1200QosQceIpv4DestPort      ME1200Unsigned16,
+    me1200QosQceIpv4DestPortRange     ME1200Unsigned16,
+    me1200QosQceIpv6DscpOp    ME1200ASRType,
+    me1200QosQceIpv6Dscp      ME1200Unsigned16,
+    me1200QosQceIpv6DscpRange     ME1200Unsigned16,
+    me1200QosQceIpv6Protocol      ME1200Unsigned8,
+    me1200QosQceIpv6ProtocolMask      ME1200Unsigned8,
+    me1200QosQceIpv6SrcIp     InetAddressIPv6,
+    me1200QosQceIpv6SrcIpMask     InetAddressIPv6,
+    me1200QosQceIpv6DestIp    InetAddressIPv6,
+    me1200QosQceIpv6DestIpMask    InetAddressIPv6,
+    me1200QosQceIpv6SrcPortOp     ME1200ASRType,
+    me1200QosQceIpv6SrcPort   ME1200Unsigned16,
+    me1200QosQceIpv6SrcPortRange      ME1200Unsigned16,
+    me1200QosQceIpv6DestPortOp    ME1200ASRType,
+    me1200QosQceIpv6DestPort      ME1200Unsigned16,
+    me1200QosQceIpv6DestPortRange     ME1200Unsigned16,
+    me1200QosQceActionCosEnable   TruthValue,
+    me1200QosQceActionCos     Unsigned32,
+    me1200QosQceActionDplEnable   TruthValue,
+    me1200QosQceActionDpl     ME1200Unsigned8,
+    me1200QosQceActionDscpEnable      TruthValue,
+    me1200QosQceActionDscp    ME1200Unsigned8,
+    me1200QosQceActionPcpDeiEnable    TruthValue,
+    me1200QosQceActionPcp     Unsigned32,
+    me1200QosQceActionDei     ME1200Unsigned8,
+    me1200QosQceActionPolicyEnable    TruthValue,
+    me1200QosQceActionPolicy      Unsigned32,
+    me1200QosQceAction    ME1200RowEditorState
+}
+
+me1200QosQceQceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "QCE Id index."
+    ::= { me1200QosQceEntry 1 }
+
+me1200QosQceNextQceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "QCE Id of the next QCE."
+    ::= { me1200QosQceEntry 2 }
+
+me1200QosQcePortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "List of ports that are member of this QCE."
+    ::= { me1200QosQceEntry 4 }
+
+me1200QosQceDestMacType OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the destination MAC type to match."
+    ::= { me1200QosQceEntry 5 }
+
+me1200QosQceDestMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits destination MAC address. The packets destination
+         address is AND-ed with the value of DestMacMask and then compared
+         against the value of this object. If this object value and the value of
+         DestMacMask is 00-00-00-00-00-00, this entry matches any destination
+         MAC address. This object can only be configured if DestMacType is
+         any(0) and DestMacMask is ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceEntry 6 }
+
+me1200QosQceDestMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits destination MAC address mask.Valid values are
+         00-00-00-00-00-00 or ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceEntry 7 }
+
+me1200QosQceSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address. The packets source address is
+         AND-ed with the value of SrcMacMask and then compared against the value
+         of this object. If this object value and the value of SrcMacMask is
+         00-00-00-00-00-00, this entry matches any source MAC address. This
+         object can only be configured if SrcMacMask is ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceEntry 8 }
+
+me1200QosQceSrcMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address mask. Valid values are
+         00-00-00-00-00-00 or ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceEntry 9 }
+
+me1200QosQceVlanTagType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the VLAN tag type to match."
+    ::= { me1200QosQceEntry 10 }
+
+me1200QosQceVlanIdOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packets's VLAN ID is to be compared."
+    ::= { me1200QosQceEntry 11 }
+
+me1200QosQceVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID to be compared. If the VlanIdOp object in the same row is
+         range(2), this object will be the starting VLAN ID of the range. Valid
+         range is 1-4095. This object can only be configured if VlanIdOp is not
+         any(0)."
+    ::= { me1200QosQceEntry 12 }
+
+me1200QosQceVlanIdRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID to be compared. If the VlanIdOp object in the same row is
+         range(2), this object will be the ending VLAN ID of the range. Valid
+         range is 1-4095. This object can only be configured if VlanIdOp is
+         range(2)."
+    ::= { me1200QosQceEntry 13 }
+
+me1200QosQcePcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value(s) to be compared."
+    ::= { me1200QosQceEntry 14 }
+
+me1200QosQceDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value to be compared. Valid range is 0-1."
+    ::= { me1200QosQceEntry 15 }
+
+me1200QosQceInnerVlanTagType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the inner VLAN tag type to match."
+    ::= { me1200QosQceEntry 16 }
+
+me1200QosQceInnerVlanIdOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packets's inner VLAN ID is to be compared."
+    ::= { me1200QosQceEntry 17 }
+
+me1200QosQceInnerVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner VLAN ID to be compared. If the InnerVlanIdOp object in the
+         same row is range(2), this object will be the starting VLAN ID of the
+         range. Valid range is 1-4095. This object can only be configured if
+         InnerVlanIdOp is not any(0)."
+    ::= { me1200QosQceEntry 18 }
+
+me1200QosQceInnerVlanIdRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner VLAN ID to be compared. If the InnerVlanIdOp object in the
+         same row is range(2), this object will be the ending VLAN ID of the
+         range. Valid range is 1-4095. This object can only be configured if
+         InnerVlanIdOp is range(2)."
+    ::= { me1200QosQceEntry 19 }
+
+me1200QosQceInnerPcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner PCP value(s) to be compared."
+    ::= { me1200QosQceEntry 20 }
+
+me1200QosQceInnerDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner DEI value to be compared. Valid range is 0-1."
+    ::= { me1200QosQceEntry 21 }
+
+me1200QosQceFrameType OBJECT-TYPE
+    SYNTAX      ME1200QceFrameType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's frame type. Modifying the frame type on an
+         existing QCE will restore the content of all frame type dependent
+         configuration to default."
+    ::= { me1200QosQceEntry 100 }
+
+me1200QosQceEtype OBJECT-TYPE
+    SYNTAX      ME1200EtherType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's 16 bit Ethernet type field. Valid values are:
+         0(match any), 0x600-0xFFFF but excluding 0x800(IPv4) and
+         0x86DD(IPv6).This object can only be configured if FrameType is
+         etype(1)."
+    ::= { me1200QosQceEntry 101 }
+
+me1200QosQceLlcDsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packets's 8 bit LLC DSAP field. The packets LLC DSAP
+         field is AND-ed with the value of LlcDsapMask and then compared against
+         the value of this object. If this object value and the value of
+         LlcDsapMask is 0x00, this entry matches any LLC DSAP. Valid range is
+         0x00-0xFF. This object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceEntry 200 }
+
+me1200QosQceLlcDsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 8 bit LLC DSAP mask. Valid values are 0x00 or 0xFF. This
+         object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceEntry 201 }
+
+me1200QosQceLlcSsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packets's 8 bit LLC SSAP field. The packets LLC SSAP
+         field is AND-ed with the value of LlcSsapMask and then compared against
+         the value of this object. If this object value and the value of
+         LlcSsapMask is 0x00, this entry matches any LLC SSAP. Valid range is
+         0x00-0xFF. This object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceEntry 202 }
+
+me1200QosQceLlcSsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 8 bit LLC SSAP mask. Valid values are 0x00 or 0xFF. This
+         object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceEntry 203 }
+
+me1200QosQceLlcControl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packets's 8 bit LLC Control field. The packets LLC
+         Control field is AND-ed with the value of LlcControlMask and then
+         compared against the value of this object. If this object value and the
+         value of LlcControlMask is 0x00, this entry matches any LLC Control.
+         Valid range is 0x00-0xFF. This object can only be configured if
+         FrameType is llc(2)."
+    ::= { me1200QosQceEntry 204 }
+
+me1200QosQceLlcControlMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 8 bit LLC Control mask. Valid values are 0x00 or 0xFF.
+         This object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceEntry 205 }
+
+me1200QosQceSnapPid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's 16 bit SNAP PID field. The packets SNAP PID
+         field is AND-ed with the value of SnapPidMask and then compared against
+         the value of this object. If this object value and the value of
+         SnapPidMask is 0x0000, this entry matches any ethertype. This object
+         can only be configured if FrameType is snap(3)."
+    ::= { me1200QosQceEntry 302 }
+
+me1200QosQceSnapPidMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 16 bit SNAP PID mask. Valid values are 0x0000 or 0xFFFF.
+         This object can only be configured if FrameType is snap(3)."
+    ::= { me1200QosQceEntry 303 }
+
+me1200QosQceIpv4Fragment OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how an IPv4 fragment bit is to be compared. This object can
+         only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 400 }
+
+me1200QosQceIpv4DscpOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how an IPv4 DSCP field is to be compared. This object can
+         only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 401 }
+
+me1200QosQceIpv4Dscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv4DscpOp object in the same row
+         is range(2), this object will be the starting DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv4(4) and Ipv4DscpOp is not any(0)."
+    ::= { me1200QosQceEntry 402 }
+
+me1200QosQceIpv4DscpRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv4DscpOp object in the same row
+         is range(2), this object will be the ending DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv4(4) and Ipv4DscpOp is range(2)."
+    ::= { me1200QosQceEntry 403 }
+
+me1200QosQceIpv4Protocol OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol number field in the IPv4 header used to indicate a higher
+         layer protocol. The packets protocol number field is AND-ed with the
+         value of Ipv4ProtocolMask and then compared with the value of this
+         object. If Ipv4Protocol and Ipv4protocolMask are 0, this entry matches
+         any IPv4 protocol. Valid range is 0-255. This object can only be
+         configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 404 }
+
+me1200QosQceIpv4ProtocolMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 protocol number mask. Valid values are 0 or 255.
+         This object can only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 405 }
+
+me1200QosQceIpv4SrcIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 source address. The packets source address is AND-ed
+         with the value of Ipv4SrcIpMask and then compared with the value of
+         this object. If Ipv4SrcIP and Ipv4SrcIpMask are 0.0.0.0, this entry
+         matches any IPv4 source address. This object can only be configured if
+         FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 406 }
+
+me1200QosQceIpv4SrcIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 source address mask. This object can only be
+         configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 407 }
+
+me1200QosQceIpv4DestIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 destination address. The packets destination address
+         is AND-ed with the value of Ipv4DestIpMask and then compared with the
+         value of this object. If Ipv4DestIP and Ipv4DestIpMask are 0.0.0.0,
+         this entry matches any IPv4 destination address. This object can only
+         be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 408 }
+
+me1200QosQceIpv4DestIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 destination address mask. This object can only be
+         configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 409 }
+
+me1200QosQceIpv4SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 410 }
+
+me1200QosQceIpv4SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv4(4) and Ipv4SrcPortOp is not
+         any(0)."
+    ::= { me1200QosQceEntry 411 }
+
+me1200QosQceIpv4SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv4(4) and Ipv4SrcPortOp is range(2)."
+    ::= { me1200QosQceEntry 412 }
+
+me1200QosQceIpv4DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceEntry 413 }
+
+me1200QosQceIpv4DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv4(4) and
+         Ipv4DestPortOp is not any(0)."
+    ::= { me1200QosQceEntry 414 }
+
+me1200QosQceIpv4DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv4(4) and
+         Ipv4DestPortOp is range(2)."
+    ::= { me1200QosQceEntry 415 }
+
+me1200QosQceIpv6DscpOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how an IPv6 DSCP field is to be compared. This object can
+         only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 500 }
+
+me1200QosQceIpv6Dscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv6DscpOp object in the same row
+         is range(2), this object will be the starting DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv6(5) and Ipv6DscpOp is not any(0)."
+    ::= { me1200QosQceEntry 501 }
+
+me1200QosQceIpv6DscpRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv6DscpOp object in the same row
+         is range(2), this object will be the ending DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv6(5) and Ipv6DscpOp is range(2)."
+    ::= { me1200QosQceEntry 502 }
+
+me1200QosQceIpv6Protocol OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol number field in the IPv6 header used to indicate a higher
+         layer protocol. The packets protocol number field is AND-ed with the
+         value of Ipv6ProtocolMask and then compared with the value of this
+         object. If Ipv46rotocol and Ipv6protocolMask are 0, this entry matches
+         any IPv6 protocol. Valid range is 0-255. This object can only be
+         configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 503 }
+
+me1200QosQceIpv6ProtocolMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 protocol number mask. Valid values are 0 or 255.
+         This object can only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 504 }
+
+me1200QosQceIpv6SrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address. The packets source address is AND-ed
+         with the value of Ipv6SrcIpMask and then compared with the value of
+         this object. If Ipv6SrcIP and Ipv6SrcIpMask are all zeros, this entry
+         matches any IPv6 source address. Only the least significant 32 bits of
+         this object are used. This object can only be configured if FrameType
+         is ipv6(5)."
+    ::= { me1200QosQceEntry 506 }
+
+me1200QosQceIpv6SrcIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address mask. Only the least significant 32
+         bits of this object are used. This object can only be configured if
+         FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 508 }
+
+me1200QosQceIpv6DestIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 destination address. The packets destination address
+         is AND-ed with the value of Ipv6DestIpMask and then compared with the
+         value of this object. If Ipv6DestIP and Ipv6DestIpMask are all zeros,
+         this entry matches any IPv6 destination address. Only the least
+         significant 32 bits of this object are used. This object can only be
+         configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 510 }
+
+me1200QosQceIpv6DestIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 destination address mask. Only the least significant
+         32 bits of this object are used. This object can only be configured if
+         FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 512 }
+
+me1200QosQceIpv6SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 513 }
+
+me1200QosQceIpv6SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv6(5) and Ipv6SrcPortOp is not
+         any(0)."
+    ::= { me1200QosQceEntry 514 }
+
+me1200QosQceIpv6SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv6(5) and Ipv6SrcPortOp is range(2)."
+    ::= { me1200QosQceEntry 515 }
+
+me1200QosQceIpv6DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceEntry 516 }
+
+me1200QosQceIpv6DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv6(5) and
+         Ipv6DestPortOp is not any(0)."
+    ::= { me1200QosQceEntry 517 }
+
+me1200QosQceIpv6DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv6(5) and
+         Ipv6DestPortOp is range(2)."
+    ::= { me1200QosQceEntry 518 }
+
+me1200QosQceActionCosEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the CoS value in ActionCos."
+    ::= { me1200QosQceEntry 1000 }
+
+me1200QosQceActionCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The CoS value used for classification. Valid range is 0-7."
+    ::= { me1200QosQceEntry 1001 }
+
+me1200QosQceActionDplEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the DPL value in ActionDpl."
+    ::= { me1200QosQceEntry 1002 }
+
+me1200QosQceActionDpl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DPL value used for classification. Valid range is 0-1."
+    ::= { me1200QosQceEntry 1003 }
+
+me1200QosQceActionDscpEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the DSCP value in ActionDscp."
+    ::= { me1200QosQceEntry 1004 }
+
+me1200QosQceActionDscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value used for classification. Valid range is 0-1."
+    ::= { me1200QosQceEntry 1005 }
+
+me1200QosQceActionPcpDeiEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the PCP value in ActionPcp and the
+         DEI value in ActionDei."
+    ::= { me1200QosQceEntry 1006 }
+
+me1200QosQceActionPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value used for classification. Valid range is 0-7."
+    ::= { me1200QosQceEntry 1007 }
+
+me1200QosQceActionDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value used for classification. Valid range is 0-1."
+    ::= { me1200QosQceEntry 1008 }
+
+me1200QosQceActionPolicyEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the policy number in ActionPolicy."
+    ::= { me1200QosQceEntry 1009 }
+
+me1200QosQceActionPolicy OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy number used for classification. Valid range is 0-63."
+    ::= { me1200QosQceEntry 1010 }
+
+me1200QosQceAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200QosQceEntry 10000 }
+
+me1200QosQceTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200QosQce 2 }
+
+me1200QosQceTableRowEditorQceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "QCE Id index."
+    ::= { me1200QosQceTableRowEditor 1 }
+
+me1200QosQceTableRowEditorNextQceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "QCE Id of the next QCE."
+    ::= { me1200QosQceTableRowEditor 2 }
+
+me1200QosQceTableRowEditorPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "List of ports that are member of this QCE."
+    ::= { me1200QosQceTableRowEditor 4 }
+
+me1200QosQceTableRowEditorDestMacType OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the destination MAC type to match."
+    ::= { me1200QosQceTableRowEditor 5 }
+
+me1200QosQceTableRowEditorDestMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits destination MAC address. The packets destination
+         address is AND-ed with the value of DestMacMask and then compared
+         against the value of this object. If this object value and the value of
+         DestMacMask is 00-00-00-00-00-00, this entry matches any destination
+         MAC address. This object can only be configured if DestMacType is
+         any(0) and DestMacMask is ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceTableRowEditor 6 }
+
+me1200QosQceTableRowEditorDestMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits destination MAC address mask.Valid values are
+         00-00-00-00-00-00 or ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceTableRowEditor 7 }
+
+me1200QosQceTableRowEditorSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address. The packets source address is
+         AND-ed with the value of SrcMacMask and then compared against the value
+         of this object. If this object value and the value of SrcMacMask is
+         00-00-00-00-00-00, this entry matches any source MAC address. This
+         object can only be configured if SrcMacMask is ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceTableRowEditor 8 }
+
+me1200QosQceTableRowEditorSrcMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address mask. Valid values are
+         00-00-00-00-00-00 or ff-ff-ff-ff-ff-ff."
+    ::= { me1200QosQceTableRowEditor 9 }
+
+me1200QosQceTableRowEditorVlanTagType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the VLAN tag type to match."
+    ::= { me1200QosQceTableRowEditor 10 }
+
+me1200QosQceTableRowEditorVlanIdOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packets's VLAN ID is to be compared."
+    ::= { me1200QosQceTableRowEditor 11 }
+
+me1200QosQceTableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID to be compared. If the VlanIdOp object in the same row is
+         range(2), this object will be the starting VLAN ID of the range. Valid
+         range is 1-4095. This object can only be configured if VlanIdOp is not
+         any(0)."
+    ::= { me1200QosQceTableRowEditor 12 }
+
+me1200QosQceTableRowEditorVlanIdRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID to be compared. If the VlanIdOp object in the same row is
+         range(2), this object will be the ending VLAN ID of the range. Valid
+         range is 1-4095. This object can only be configured if VlanIdOp is
+         range(2)."
+    ::= { me1200QosQceTableRowEditor 13 }
+
+me1200QosQceTableRowEditorPcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value(s) to be compared."
+    ::= { me1200QosQceTableRowEditor 14 }
+
+me1200QosQceTableRowEditorDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value to be compared. Valid range is 0-1."
+    ::= { me1200QosQceTableRowEditor 15 }
+
+me1200QosQceTableRowEditorInnerVlanTagType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the inner VLAN tag type to match."
+    ::= { me1200QosQceTableRowEditor 16 }
+
+me1200QosQceTableRowEditorInnerVlanIdOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packets's inner VLAN ID is to be compared."
+    ::= { me1200QosQceTableRowEditor 17 }
+
+me1200QosQceTableRowEditorInnerVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner VLAN ID to be compared. If the InnerVlanIdOp object in the
+         same row is range(2), this object will be the starting VLAN ID of the
+         range. Valid range is 1-4095. This object can only be configured if
+         InnerVlanIdOp is not any(0)."
+    ::= { me1200QosQceTableRowEditor 18 }
+
+me1200QosQceTableRowEditorInnerVlanIdRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner VLAN ID to be compared. If the InnerVlanIdOp object in the
+         same row is range(2), this object will be the ending VLAN ID of the
+         range. Valid range is 1-4095. This object can only be configured if
+         InnerVlanIdOp is range(2)."
+    ::= { me1200QosQceTableRowEditor 19 }
+
+me1200QosQceTableRowEditorInnerPcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner PCP value(s) to be compared."
+    ::= { me1200QosQceTableRowEditor 20 }
+
+me1200QosQceTableRowEditorInnerDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner DEI value to be compared. Valid range is 0-1."
+    ::= { me1200QosQceTableRowEditor 21 }
+
+me1200QosQceTableRowEditorFrameType OBJECT-TYPE
+    SYNTAX      ME1200QceFrameType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's frame type. Modifying the frame type on an
+         existing QCE will restore the content of all frame type dependent
+         configuration to default."
+    ::= { me1200QosQceTableRowEditor 100 }
+
+me1200QosQceTableRowEditorEtype OBJECT-TYPE
+    SYNTAX      ME1200EtherType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's 16 bit Ethernet type field. Valid values are:
+         0(match any), 0x600-0xFFFF but excluding 0x800(IPv4) and
+         0x86DD(IPv6).This object can only be configured if FrameType is
+         etype(1)."
+    ::= { me1200QosQceTableRowEditor 101 }
+
+me1200QosQceTableRowEditorLlcDsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packets's 8 bit LLC DSAP field. The packets LLC DSAP
+         field is AND-ed with the value of LlcDsapMask and then compared against
+         the value of this object. If this object value and the value of
+         LlcDsapMask is 0x00, this entry matches any LLC DSAP. Valid range is
+         0x00-0xFF. This object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceTableRowEditor 200 }
+
+me1200QosQceTableRowEditorLlcDsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 8 bit LLC DSAP mask. Valid values are 0x00 or 0xFF. This
+         object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceTableRowEditor 201 }
+
+me1200QosQceTableRowEditorLlcSsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packets's 8 bit LLC SSAP field. The packets LLC SSAP
+         field is AND-ed with the value of LlcSsapMask and then compared against
+         the value of this object. If this object value and the value of
+         LlcSsapMask is 0x00, this entry matches any LLC SSAP. Valid range is
+         0x00-0xFF. This object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceTableRowEditor 202 }
+
+me1200QosQceTableRowEditorLlcSsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 8 bit LLC SSAP mask. Valid values are 0x00 or 0xFF. This
+         object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceTableRowEditor 203 }
+
+me1200QosQceTableRowEditorLlcControl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packets's 8 bit LLC Control field. The packets LLC
+         Control field is AND-ed with the value of LlcControlMask and then
+         compared against the value of this object. If this object value and the
+         value of LlcControlMask is 0x00, this entry matches any LLC Control.
+         Valid range is 0x00-0xFF. This object can only be configured if
+         FrameType is llc(2)."
+    ::= { me1200QosQceTableRowEditor 204 }
+
+me1200QosQceTableRowEditorLlcControlMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 8 bit LLC Control mask. Valid values are 0x00 or 0xFF.
+         This object can only be configured if FrameType is llc(2)."
+    ::= { me1200QosQceTableRowEditor 205 }
+
+me1200QosQceTableRowEditorSnapPid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's 16 bit SNAP PID field. The packets SNAP PID
+         field is AND-ed with the value of SnapPidMask and then compared against
+         the value of this object. If this object value and the value of
+         SnapPidMask is 0x0000, this entry matches any ethertype. This object
+         can only be configured if FrameType is snap(3)."
+    ::= { me1200QosQceTableRowEditor 302 }
+
+me1200QosQceTableRowEditorSnapPidMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 16 bit SNAP PID mask. Valid values are 0x0000 or 0xFFFF.
+         This object can only be configured if FrameType is snap(3)."
+    ::= { me1200QosQceTableRowEditor 303 }
+
+me1200QosQceTableRowEditorIpv4Fragment OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how an IPv4 fragment bit is to be compared. This object can
+         only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 400 }
+
+me1200QosQceTableRowEditorIpv4DscpOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how an IPv4 DSCP field is to be compared. This object can
+         only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 401 }
+
+me1200QosQceTableRowEditorIpv4Dscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv4DscpOp object in the same row
+         is range(2), this object will be the starting DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv4(4) and Ipv4DscpOp is not any(0)."
+    ::= { me1200QosQceTableRowEditor 402 }
+
+me1200QosQceTableRowEditorIpv4DscpRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv4DscpOp object in the same row
+         is range(2), this object will be the ending DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv4(4) and Ipv4DscpOp is range(2)."
+    ::= { me1200QosQceTableRowEditor 403 }
+
+me1200QosQceTableRowEditorIpv4Protocol OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol number field in the IPv4 header used to indicate a higher
+         layer protocol. The packets protocol number field is AND-ed with the
+         value of Ipv4ProtocolMask and then compared with the value of this
+         object. If Ipv4Protocol and Ipv4protocolMask are 0, this entry matches
+         any IPv4 protocol. Valid range is 0-255. This object can only be
+         configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 404 }
+
+me1200QosQceTableRowEditorIpv4ProtocolMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 protocol number mask. Valid values are 0 or 255.
+         This object can only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 405 }
+
+me1200QosQceTableRowEditorIpv4SrcIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 source address. The packets source address is AND-ed
+         with the value of Ipv4SrcIpMask and then compared with the value of
+         this object. If Ipv4SrcIP and Ipv4SrcIpMask are 0.0.0.0, this entry
+         matches any IPv4 source address. This object can only be configured if
+         FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 406 }
+
+me1200QosQceTableRowEditorIpv4SrcIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 source address mask. This object can only be
+         configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 407 }
+
+me1200QosQceTableRowEditorIpv4DestIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 destination address. The packets destination address
+         is AND-ed with the value of Ipv4DestIpMask and then compared with the
+         value of this object. If Ipv4DestIP and Ipv4DestIpMask are 0.0.0.0,
+         this entry matches any IPv4 destination address. This object can only
+         be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 408 }
+
+me1200QosQceTableRowEditorIpv4DestIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv4 destination address mask. This object can only be
+         configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 409 }
+
+me1200QosQceTableRowEditorIpv4SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 410 }
+
+me1200QosQceTableRowEditorIpv4SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv4(4) and Ipv4SrcPortOp is not
+         any(0)."
+    ::= { me1200QosQceTableRowEditor 411 }
+
+me1200QosQceTableRowEditorIpv4SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv4(4) and Ipv4SrcPortOp is range(2)."
+    ::= { me1200QosQceTableRowEditor 412 }
+
+me1200QosQceTableRowEditorIpv4DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv4(4)."
+    ::= { me1200QosQceTableRowEditor 413 }
+
+me1200QosQceTableRowEditorIpv4DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv4(4) and
+         Ipv4DestPortOp is not any(0)."
+    ::= { me1200QosQceTableRowEditor 414 }
+
+me1200QosQceTableRowEditorIpv4DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv4(4) and
+         Ipv4DestPortOp is range(2)."
+    ::= { me1200QosQceTableRowEditor 415 }
+
+me1200QosQceTableRowEditorIpv6DscpOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how an IPv6 DSCP field is to be compared. This object can
+         only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 500 }
+
+me1200QosQceTableRowEditorIpv6Dscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv6DscpOp object in the same row
+         is range(2), this object will be the starting DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv6(5) and Ipv6DscpOp is not any(0)."
+    ::= { me1200QosQceTableRowEditor 501 }
+
+me1200QosQceTableRowEditorIpv6DscpRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value to be compared. If the Ipv6DscpOp object in the same row
+         is range(2), this object will be the ending DSCP value of the range.
+         Valid range is 0-63. This object can only be configured if FrameType is
+         ipv6(5) and Ipv6DscpOp is range(2)."
+    ::= { me1200QosQceTableRowEditor 502 }
+
+me1200QosQceTableRowEditorIpv6Protocol OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol number field in the IPv6 header used to indicate a higher
+         layer protocol. The packets protocol number field is AND-ed with the
+         value of Ipv6ProtocolMask and then compared with the value of this
+         object. If Ipv46rotocol and Ipv6protocolMask are 0, this entry matches
+         any IPv6 protocol. Valid range is 0-255. This object can only be
+         configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 503 }
+
+me1200QosQceTableRowEditorIpv6ProtocolMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 protocol number mask. Valid values are 0 or 255.
+         This object can only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 504 }
+
+me1200QosQceTableRowEditorIpv6SrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address. The packets source address is AND-ed
+         with the value of Ipv6SrcIpMask and then compared with the value of
+         this object. If Ipv6SrcIP and Ipv6SrcIpMask are all zeros, this entry
+         matches any IPv6 source address. Only the least significant 32 bits of
+         this object are used. This object can only be configured if FrameType
+         is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 506 }
+
+me1200QosQceTableRowEditorIpv6SrcIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address mask. Only the least significant 32
+         bits of this object are used. This object can only be configured if
+         FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 508 }
+
+me1200QosQceTableRowEditorIpv6DestIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 destination address. The packets destination address
+         is AND-ed with the value of Ipv6DestIpMask and then compared with the
+         value of this object. If Ipv6DestIP and Ipv6DestIpMask are all zeros,
+         this entry matches any IPv6 destination address. Only the least
+         significant 32 bits of this object are used. This object can only be
+         configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 510 }
+
+me1200QosQceTableRowEditorIpv6DestIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 destination address mask. Only the least significant
+         32 bits of this object are used. This object can only be configured if
+         FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 512 }
+
+me1200QosQceTableRowEditorIpv6SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 513 }
+
+me1200QosQceTableRowEditorIpv6SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv6(5) and Ipv6SrcPortOp is not
+         any(0)."
+    ::= { me1200QosQceTableRowEditor 514 }
+
+me1200QosQceTableRowEditorIpv6SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv6(5) and Ipv6SrcPortOp is range(2)."
+    ::= { me1200QosQceTableRowEditor 515 }
+
+me1200QosQceTableRowEditorIpv6DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv6(5)."
+    ::= { me1200QosQceTableRowEditor 516 }
+
+me1200QosQceTableRowEditorIpv6DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv6(5) and
+         Ipv6DestPortOp is not any(0)."
+    ::= { me1200QosQceTableRowEditor 517 }
+
+me1200QosQceTableRowEditorIpv6DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv6(5) and
+         Ipv6DestPortOp is range(2)."
+    ::= { me1200QosQceTableRowEditor 518 }
+
+me1200QosQceTableRowEditorActionCosEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the CoS value in ActionCos."
+    ::= { me1200QosQceTableRowEditor 1000 }
+
+me1200QosQceTableRowEditorActionCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The CoS value used for classification. Valid range is 0-7."
+    ::= { me1200QosQceTableRowEditor 1001 }
+
+me1200QosQceTableRowEditorActionDplEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the DPL value in ActionDpl."
+    ::= { me1200QosQceTableRowEditor 1002 }
+
+me1200QosQceTableRowEditorActionDpl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DPL value used for classification. Valid range is 0-1."
+    ::= { me1200QosQceTableRowEditor 1003 }
+
+me1200QosQceTableRowEditorActionDscpEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the DSCP value in ActionDscp."
+    ::= { me1200QosQceTableRowEditor 1004 }
+
+me1200QosQceTableRowEditorActionDscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP value used for classification. Valid range is 0-1."
+    ::= { me1200QosQceTableRowEditor 1005 }
+
+me1200QosQceTableRowEditorActionPcpDeiEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the PCP value in ActionPcp and the
+         DEI value in ActionDei."
+    ::= { me1200QosQceTableRowEditor 1006 }
+
+me1200QosQceTableRowEditorActionPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value used for classification. Valid range is 0-7."
+    ::= { me1200QosQceTableRowEditor 1007 }
+
+me1200QosQceTableRowEditorActionDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value used for classification. Valid range is 0-1."
+    ::= { me1200QosQceTableRowEditor 1008 }
+
+me1200QosQceTableRowEditorActionPolicyEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the packet is classified to the policy number in ActionPolicy."
+    ::= { me1200QosQceTableRowEditor 1009 }
+
+me1200QosQceTableRowEditorActionPolicy OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy number used for classification. Valid range is 0-63."
+    ::= { me1200QosQceTableRowEditor 1010 }
+
+me1200QosQceTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200QosQceTableRowEditor 10000 }
+
+me1200QosQcePrecedenceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosQcePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the precedence of QCEs ordered by their position in
+         the QCL."
+    ::= { me1200QosQce 3 }
+
+me1200QosQcePrecedenceEntry OBJECT-TYPE
+    SYNTAX      ME1200QosQcePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the precedence of a single QCE."
+    INDEX       { me1200QosQcePrecedenceIndex }
+    ::= { me1200QosQcePrecedenceTable 1 }
+
+ME1200QosQcePrecedenceEntry ::= SEQUENCE {
+    me1200QosQcePrecedenceIndex   Integer32,
+    me1200QosQcePrecedenceQceId   Unsigned32
+}
+
+me1200QosQcePrecedenceIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "QCE precedence index. Indicates the position in QCL."
+    ::= { me1200QosQcePrecedenceEntry 1 }
+
+me1200QosQcePrecedenceQceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "QCE Id."
+    ::= { me1200QosQcePrecedenceEntry 2 }
+
+me1200QosInterface OBJECT IDENTIFIER
+    ::= { me1200QosConfig 2 }
+
+me1200QosIfConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides QoS configuration for QoS manageable interfaces"
+    ::= { me1200QosInterface 1 }
+
+me1200QosIfConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific interface"
+    INDEX       { me1200QosIfConfigIfIndex }
+    ::= { me1200QosIfConfigTable 1 }
+
+ME1200QosIfConfigEntry ::= SEQUENCE {
+    me1200QosIfConfigIfIndex      ME1200InterfaceIndex,
+    me1200QosIfConfigCos      Unsigned32,
+    me1200QosIfConfigDpl      ME1200Unsigned8,
+    me1200QosIfConfigPcp      Unsigned32,
+    me1200QosIfConfigDei      ME1200Unsigned8,
+    me1200QosIfConfigTrustTag     TruthValue,
+    me1200QosIfConfigTrustDscp    TruthValue,
+    me1200QosIfConfigDwrrCount    ME1200Unsigned8,
+    me1200QosIfConfigTagRemarkingMode     ME1200TagRemarkingMode,
+    me1200QosIfConfigTagPcp   Unsigned32,
+    me1200QosIfConfigTagDei   ME1200Unsigned8,
+    me1200QosIfConfigDscpTranslate    TruthValue,
+    me1200QosIfConfigDscpClassify     ME1200DscpClassify,
+    me1200QosIfConfigDscpRemark   ME1200DscpRemark,
+    me1200QosIfConfigQceAddressMode   TruthValue,
+    me1200QosIfConfigQceKeyType   ME1200VcapKeyType
+}
+
+me1200QosIfConfigIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfConfigEntry 1 }
+
+me1200QosIfConfigCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The default CoS value a packet is classified to. Valid range is 0-7."
+    ::= { me1200QosIfConfigEntry 2 }
+
+me1200QosIfConfigDpl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The default DPL (Drop Precedence Level) a packet is classified to.
+         Valid range is 0-1."
+    ::= { me1200QosIfConfigEntry 3 }
+
+me1200QosIfConfigPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The default PCP value a packet is classified to. Valid range is 0-7."
+    ::= { me1200QosIfConfigEntry 4 }
+
+me1200QosIfConfigDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The default DEI value a packet is classified to. Valid range is 0-1."
+    ::= { me1200QosIfConfigEntry 5 }
+
+me1200QosIfConfigTrustTag OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true and the packet is VLAN tagged, then the CoS and DPL assigned to
+         the packet is the PCP and DEI value in the packet mapped to a CoS and
+         DPL value defined in the qosTagToCosTable."
+    ::= { me1200QosIfConfigEntry 6 }
+
+me1200QosIfConfigTrustDscp OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true and the packet type is IPv4 or IPv6 and the packet DSCP value
+         is trusted in qosDscpTable, then the CoS and DPL assigned to the packet
+         is the DSCP value in the packet mapped to a CoS and DPL value defined
+         in the qosDscpTable."
+    ::= { me1200QosIfConfigEntry 7 }
+
+me1200QosIfConfigDwrrCount OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The number of queues that are running Deficit Weighted Round Robin
+         scheduling. This value is restricted to 0 or 6."
+    ::= { me1200QosIfConfigEntry 8 }
+
+me1200QosIfConfigTagRemarkingMode OBJECT-TYPE
+    SYNTAX      ME1200TagRemarkingMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Selects the tag remarking mode for egress. Valid values are:
+         
+         'classified' : Remark the tag with the classified values of PCP and
+         DEI.
+         
+         'default' : Remark the tag with the configured TagPcp and TagDei.
+         
+         'mapped' : Remark the tag with the values from the classified CoS and
+         DPL mapped through the qosCosToTagTable"
+    ::= { me1200QosIfConfigEntry 9 }
+
+me1200QosIfConfigTagPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value to put in the packet if TagRemarkingMode is set to
+         'default'. Valid range is 0-7."
+    ::= { me1200QosIfConfigEntry 10 }
+
+me1200QosIfConfigTagDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value to put in the packet if TagRemarkingMode is set to
+         'default'. Valid range is 0-1."
+    ::= { me1200QosIfConfigEntry 11 }
+
+me1200QosIfConfigDscpTranslate OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true then the classified DSCP value is the DSCP value in the packed
+         mapped to a new DSCP value defined in qosDscpTable.IngressTranslation."
+    ::= { me1200QosIfConfigEntry 12 }
+
+me1200QosIfConfigDscpClassify OBJECT-TYPE
+    SYNTAX      ME1200DscpClassify
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Selects if and how the classified DSCP is based on the classified CoS
+         and DPL for IPv4 and IPv6 packets on ingress.
+         
+         If a packet is selected for being classified to a new DSCP, the
+         classification in based on the classified CoS mapped to a new DSCP
+         value through the qosCosToDscpTable. If the classified DPL is 1, the
+         new DSCP value is taken from the DscpDp1 entry, otherwise it is taken
+         from the Dscp entry. Valid values are:
+         
+         'none' : Always classify to the DSCP value in the received packet and
+         ignore the classified CoS and DPL.
+         
+         'zero' : If the DSCP value in the received packet is 0, then classify
+         to a new DSCP value based on the classified CoS and DPL.
+         
+         'selected' : If the DSCP value in the received packet is enabled in
+         qosDscpTable.Classify, then classify to a new DSCP value based on the
+         classified CoS and DPL.
+         
+         'all' : Always classify to a new DSCP value based on the classified CoS
+         and DPL.
+         
+         "
+    ::= { me1200QosIfConfigEntry 13 }
+
+me1200QosIfConfigDscpRemark OBJECT-TYPE
+    SYNTAX      ME1200DscpRemark
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Selects if and how the classified DSCP is written into the packet at
+         egress. Valid values are:
+         
+         'disabled' : Do not write the classified DSCP into the packet.
+         
+         'rewrite' : Write the classified DSCP into the packet.
+         
+         'remap' : Remap the classified DSCP through qosDscpTable, and write the
+         value from EgressTranslation into the packet.
+         
+         'remap-dp' : Remap the classified DSCP through qosDscpTable. If the
+         classified DPL is 0 then write the value from EgressTranslation into
+         the packet, otherwise write the value from EgressTranslationDp1 into
+         the packet.
+         
+         "
+    ::= { me1200QosIfConfigEntry 14 }
+
+me1200QosIfConfigQceAddressMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If false, the QCE classification for this interface is based on source
+         (SMAC/SIP) addresses. If true, the QCE classification for this
+         interface is based on destination (DMAC/DIP) addresses. This parameter
+         is only used when the QceKeyType is Normal."
+    ::= { me1200QosIfConfigEntry 15 }
+
+me1200QosIfConfigQceKeyType OBJECT-TYPE
+    SYNTAX      ME1200VcapKeyType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The key type specifying the key generated for packets received on the
+         interface. Valid values are:
+         
+         'normal' : Half key, match outer tag, SIP and SMAC.
+         
+         'double-tag' : Quarter key, match inner and outer tag.
+         
+         'ip-addr' : Half key, match inner and outer tag, SIP and DIP. For
+         non-IP frames, match outer tag only.
+         
+         'mac-ip-addr' : Full key, match inner and outer tag, SMAC, DMAC, SIP
+         and DIP.
+         
+         Filtering on DMAC type (unicast/multicast/broadcast) is supported for
+         any key type."
+    ::= { me1200QosIfConfigEntry 16 }
+
+me1200QosIfTagToCosTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfTagToCosEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the mapping of (interface, PCP, DEI) to (CoS, DPL)
+         values.The mappings given by this table is used for all tagged packets
+         received on an interface if and only if that interface has the value of
+         TrustTag set to 'true'"
+    ::= { me1200QosInterface 2 }
+
+me1200QosIfTagToCosEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfTagToCosEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the mapping from (interface, PCP, DEI) to (CoS, DPL)
+         values."
+    INDEX       { me1200QosIfTagToCosIfIndex, me1200QosIfTagToCosPcp, me1200QosIfTagToCosDei }
+    ::= { me1200QosIfTagToCosTable 1 }
+
+ME1200QosIfTagToCosEntry ::= SEQUENCE {
+    me1200QosIfTagToCosIfIndex    ME1200InterfaceIndex,
+    me1200QosIfTagToCosPcp    Integer32,
+    me1200QosIfTagToCosDei    Integer32,
+    me1200QosIfTagToCosCos    Unsigned32,
+    me1200QosIfTagToCosDpl    ME1200Unsigned8
+}
+
+me1200QosIfTagToCosIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfTagToCosEntry 1 }
+
+me1200QosIfTagToCosPcp OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "PCP index."
+    ::= { me1200QosIfTagToCosEntry 2 }
+
+me1200QosIfTagToCosDei OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "DEI index."
+    ::= { me1200QosIfTagToCosEntry 3 }
+
+me1200QosIfTagToCosCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The CoS value which this entry maps to. Valid range is 0-7."
+    ::= { me1200QosIfTagToCosEntry 4 }
+
+me1200QosIfTagToCosDpl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DPL (Drop Precedence Level) value which this entry maps to. Valid
+         range is 0-1."
+    ::= { me1200QosIfTagToCosEntry 5 }
+
+me1200QosIfCosToTagTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfCosToTagEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the mapping of (interface, CoS, DPL) to (PCP, DEI)
+         values.The mappings given by this table is used for packets transmitted
+         on an interface if and only if that interface has the value of
+         TagRemarkingMode set to 'mapped'"
+    ::= { me1200QosInterface 3 }
+
+me1200QosIfCosToTagEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfCosToTagEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the mapping from (interface, CoS, DPL) to (PCP, DEI)
+         values."
+    INDEX       { me1200QosIfCosToTagIfIndex, me1200QosIfCosToTagCos, me1200QosIfCosToTagDpl }
+    ::= { me1200QosIfCosToTagTable 1 }
+
+ME1200QosIfCosToTagEntry ::= SEQUENCE {
+    me1200QosIfCosToTagIfIndex    ME1200InterfaceIndex,
+    me1200QosIfCosToTagCos    Integer32,
+    me1200QosIfCosToTagDpl    Integer32,
+    me1200QosIfCosToTagPcp    Unsigned32,
+    me1200QosIfCosToTagDei    ME1200Unsigned8
+}
+
+me1200QosIfCosToTagIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfCosToTagEntry 1 }
+
+me1200QosIfCosToTagCos OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "CoS index."
+    ::= { me1200QosIfCosToTagEntry 2 }
+
+me1200QosIfCosToTagDpl OBJECT-TYPE
+    SYNTAX      Integer32 (0..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "DPL index."
+    ::= { me1200QosIfCosToTagEntry 3 }
+
+me1200QosIfCosToTagPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value which this entry maps to. Valid range is 0-7."
+    ::= { me1200QosIfCosToTagEntry 4 }
+
+me1200QosIfCosToTagDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value which this entry maps to. Valid range is 0-1."
+    ::= { me1200QosIfCosToTagEntry 5 }
+
+me1200QosIfPolicerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfPolicerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides policer configuration for an interface"
+    ::= { me1200QosInterface 4 }
+
+me1200QosIfPolicerEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfPolicerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific policer"
+    INDEX       { me1200QosIfPolicerIfIndex }
+    ::= { me1200QosIfPolicerTable 1 }
+
+ME1200QosIfPolicerEntry ::= SEQUENCE {
+    me1200QosIfPolicerIfIndex     ME1200InterfaceIndex,
+    me1200QosIfPolicerEnable      TruthValue,
+    me1200QosIfPolicerFrameRate   TruthValue,
+    me1200QosIfPolicerFlowControl     TruthValue,
+    me1200QosIfPolicerCir     Unsigned32
+}
+
+me1200QosIfPolicerIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfPolicerEntry 1 }
+
+me1200QosIfPolicerEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the port policer is enabled."
+    ::= { me1200QosIfPolicerEntry 2 }
+
+me1200QosIfPolicerFrameRate OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the rate is measured in fps instead of kbps."
+    ::= { me1200QosIfPolicerEntry 3 }
+
+me1200QosIfPolicerFlowControl OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, and flow control is enabled on the interface, then issue flow
+         control pause frames instead of discarding frames."
+    ::= { me1200QosIfPolicerEntry 4 }
+
+me1200QosIfPolicerCir OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Committed Information Rate. Measured in kbps if FrameRate is false and
+         fps if FrameRate is true. Valid range is 100-3300000."
+    ::= { me1200QosIfPolicerEntry 5 }
+
+me1200QosIfQueuePolicerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfQueuePolicerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides queue policer configuration for interfaces"
+    ::= { me1200QosInterface 5 }
+
+me1200QosIfQueuePolicerEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfQueuePolicerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific queue policer"
+    INDEX       { me1200QosIfQueuePolicerIfIndex, me1200QosIfQueuePolicerQueue }
+    ::= { me1200QosIfQueuePolicerTable 1 }
+
+ME1200QosIfQueuePolicerEntry ::= SEQUENCE {
+    me1200QosIfQueuePolicerIfIndex    ME1200InterfaceIndex,
+    me1200QosIfQueuePolicerQueue      Integer32,
+    me1200QosIfQueuePolicerEnable     TruthValue,
+    me1200QosIfQueuePolicerCir    Unsigned32
+}
+
+me1200QosIfQueuePolicerIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfQueuePolicerEntry 1 }
+
+me1200QosIfQueuePolicerQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue index."
+    ::= { me1200QosIfQueuePolicerEntry 2 }
+
+me1200QosIfQueuePolicerEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the queue policer is enabled."
+    ::= { me1200QosIfQueuePolicerEntry 3 }
+
+me1200QosIfQueuePolicerCir OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Committed Information Rate. Measured in kbps. Valid range is
+         100-3300000."
+    ::= { me1200QosIfQueuePolicerEntry 6 }
+
+me1200QosIfShaperTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfShaperEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides shaper configuration for an interface"
+    ::= { me1200QosInterface 6 }
+
+me1200QosIfShaperEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfShaperEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific shaper"
+    INDEX       { me1200QosIfShaperIfIndex }
+    ::= { me1200QosIfShaperTable 1 }
+
+ME1200QosIfShaperEntry ::= SEQUENCE {
+    me1200QosIfShaperIfIndex      ME1200InterfaceIndex,
+    me1200QosIfShaperEnable   TruthValue,
+    me1200QosIfShaperCir      Unsigned32
+}
+
+me1200QosIfShaperIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfShaperEntry 1 }
+
+me1200QosIfShaperEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the port shaper is enabled."
+    ::= { me1200QosIfShaperEntry 2 }
+
+me1200QosIfShaperCir OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Committed Information Rate. Measured in kbps. Valid range is
+         100-3300000."
+    ::= { me1200QosIfShaperEntry 3 }
+
+me1200QosIfQueueShaperTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfQueueShaperEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides queue shaper configuration for interfaces"
+    ::= { me1200QosInterface 7 }
+
+me1200QosIfQueueShaperEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfQueueShaperEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a specific queue shaper"
+    INDEX       { me1200QosIfQueueShaperIfIndex, me1200QosIfQueueShaperQueue }
+    ::= { me1200QosIfQueueShaperTable 1 }
+
+ME1200QosIfQueueShaperEntry ::= SEQUENCE {
+    me1200QosIfQueueShaperIfIndex     ME1200InterfaceIndex,
+    me1200QosIfQueueShaperQueue   Integer32,
+    me1200QosIfQueueShaperEnable      TruthValue,
+    me1200QosIfQueueShaperExcess      TruthValue,
+    me1200QosIfQueueShaperCir     Unsigned32
+}
+
+me1200QosIfQueueShaperIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfQueueShaperEntry 1 }
+
+me1200QosIfQueueShaperQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue index."
+    ::= { me1200QosIfQueueShaperEntry 2 }
+
+me1200QosIfQueueShaperEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, the queue shaper is enabled."
+    ::= { me1200QosIfQueueShaperEntry 3 }
+
+me1200QosIfQueueShaperExcess OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If true, then allow this queue to get a share of the excess bandwidth.
+         Excess bandwidth is allowed if this shaper is closed and no other
+         queues with open shapers have frames for transmission."
+    ::= { me1200QosIfQueueShaperEntry 4 }
+
+me1200QosIfQueueShaperCir OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Committed Information Rate. Measured in kbps. Valid range is
+         100-3300000."
+    ::= { me1200QosIfQueueShaperEntry 5 }
+
+me1200QosIfSchedulerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosIfSchedulerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the mapping of (interface, queue) to weight
+         values.The mappings given by this table is used when an interface has
+         the value of DwrrCount greater than 0. Read the qosSchedulerStatusTable
+         in order to get the 'real' weights in percent as used by the hardware"
+    ::= { me1200QosInterface 8 }
+
+me1200QosIfSchedulerEntry OBJECT-TYPE
+    SYNTAX      ME1200QosIfSchedulerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the scheduler configuration for a specific queue."
+    INDEX       { me1200QosIfSchedulerIfIndex, me1200QosIfSchedulerQueue }
+    ::= { me1200QosIfSchedulerTable 1 }
+
+ME1200QosIfSchedulerEntry ::= SEQUENCE {
+    me1200QosIfSchedulerIfIndex   ME1200InterfaceIndex,
+    me1200QosIfSchedulerQueue     Integer32,
+    me1200QosIfSchedulerWeight    ME1200Percent
+}
+
+me1200QosIfSchedulerIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosIfSchedulerEntry 1 }
+
+me1200QosIfSchedulerQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue index."
+    ::= { me1200QosIfSchedulerEntry 2 }
+
+me1200QosIfSchedulerWeight OBJECT-TYPE
+    SYNTAX      ME1200Percent
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The weight for this queue. Valid range is 1-100."
+    ::= { me1200QosIfSchedulerEntry 3 }
+
+me1200QosStatus OBJECT IDENTIFIER
+    ::= { me1200QosMIBObjects 3 }
+
+me1200QosStatusGlobals OBJECT IDENTIFIER
+    ::= { me1200QosStatus 1 }
+
+me1200QosStatusQceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosStatusQceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the QCE status in the hardware table."
+    ::= { me1200QosStatusGlobals 1 }
+
+me1200QosStatusQceEntry OBJECT-TYPE
+    SYNTAX      ME1200QosStatusQceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the status of a single QCE."
+    INDEX       { me1200QosStatusQceIndex }
+    ::= { me1200QosStatusQceTable 1 }
+
+ME1200QosStatusQceEntry ::= SEQUENCE {
+    me1200QosStatusQceIndex   Integer32,
+    me1200QosStatusQceUserId      ME1200QceUserType,
+    me1200QosStatusQceQceId   Unsigned32,
+    me1200QosStatusQceConflict    TruthValue
+}
+
+me1200QosStatusQceIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "QCE precedence index. Indicates the position in QCL."
+    ::= { me1200QosStatusQceEntry 2 }
+
+me1200QosStatusQceUserId OBJECT-TYPE
+    SYNTAX      ME1200QceUserType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "User Id."
+    ::= { me1200QosStatusQceEntry 3 }
+
+me1200QosStatusQceQceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "QCE Id."
+    ::= { me1200QosStatusQceEntry 4 }
+
+me1200QosStatusQceConflict OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "If true, a resource conflict is detected."
+    ::= { me1200QosStatusQceEntry 100 }
+
+me1200QosStatusInterface OBJECT IDENTIFIER
+    ::= { me1200QosStatus 2 }
+
+me1200QosStatusIfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosStatusIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides QoS status for QoS manageable interfaces"
+    ::= { me1200QosStatusInterface 1 }
+
+me1200QosStatusIfEntry OBJECT-TYPE
+    SYNTAX      ME1200QosStatusIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the status for a specific interface"
+    INDEX       { me1200QosStatusIfIfIndex }
+    ::= { me1200QosStatusIfTable 1 }
+
+ME1200QosStatusIfEntry ::= SEQUENCE {
+    me1200QosStatusIfIfIndex      ME1200InterfaceIndex,
+    me1200QosStatusIfCos      Unsigned32
+}
+
+me1200QosStatusIfIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosStatusIfEntry 1 }
+
+me1200QosStatusIfCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Some subsystems are allowed to modify the default CoS value for an
+         interface. This object shows the actual default CoS value a packet is
+         classified to."
+    ::= { me1200QosStatusIfEntry 2 }
+
+me1200QosStatusIfSchedulerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200QosStatusIfSchedulerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the mapping of (interface, queue) to weight
+         values.The mappings given by this table are the 'real' weights in
+         percent as used by the hardware"
+    ::= { me1200QosStatusInterface 2 }
+
+me1200QosStatusIfSchedulerEntry OBJECT-TYPE
+    SYNTAX      ME1200QosStatusIfSchedulerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the scheduler status for a specific queue."
+    INDEX       { me1200QosStatusIfSchedulerIfIndex, me1200QosStatusIfSchedulerQueue }
+    ::= { me1200QosStatusIfSchedulerTable 1 }
+
+ME1200QosStatusIfSchedulerEntry ::= SEQUENCE {
+    me1200QosStatusIfSchedulerIfIndex     ME1200InterfaceIndex,
+    me1200QosStatusIfSchedulerQueue   Integer32,
+    me1200QosStatusIfSchedulerWeight      ME1200Percent
+}
+
+me1200QosStatusIfSchedulerIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200QosStatusIfSchedulerEntry 1 }
+
+me1200QosStatusIfSchedulerQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue index."
+    ::= { me1200QosStatusIfSchedulerEntry 2 }
+
+me1200QosStatusIfSchedulerWeight OBJECT-TYPE
+    SYNTAX      ME1200Percent
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The weight for this queue. Valid range is 1-100."
+    ::= { me1200QosStatusIfSchedulerEntry 3 }
+
+me1200QosControl OBJECT IDENTIFIER
+    ::= { me1200QosMIBObjects 4 }
+
+me1200QosControlGlobals OBJECT IDENTIFIER
+    ::= { me1200QosControl 1 }
+
+me1200QosControlGlobalsConflictResolve OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to true to resolve resource conflicts.
+         
+         If different components, such as ACEs, ECEs, VCEs, QCEs, competes for
+         the same resources in the switch, it is possible that some of resources
+         needed by one or more QCE are not available. These conflicts, if any,
+         are shown in the qosQceStatusTable.
+         
+         To solve these conflicts, you must delete one or more of the competing
+         settings and set ConflictResolve to true. The switch will then reapply
+         the current QCE configuration."
+    ::= { me1200QosControlGlobals 1 }
+
+me1200QosMIBConformance OBJECT IDENTIFIER
+    ::= { me1200QosMIB 3 }
+
+me1200QosMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200QosMIBConformance 1 }
+
+me1200QosMIBGroups OBJECT IDENTIFIER
+    ::= { me1200QosMIBConformance 2 }
+
+me1200QosStormPolicerUnicastInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosStormPolicerUnicastEnable, 
+                  me1200QosStormPolicerUnicastRate }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 1 }
+
+me1200QosStormPolicerMulticastInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosStormPolicerMulticastEnable, 
+                  me1200QosStormPolicerMulticastRate }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 2 }
+
+me1200QosStormPolicerBroadcastInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosStormPolicerBroadcastEnable, 
+                  me1200QosStormPolicerBroadcastRate }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 3 }
+
+me1200QosWredTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosWredEnable, me1200QosWredMinimumFillLevel, me1200QosWredMaximum, 
+                  me1200QosWredMaxSelector }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 4 }
+
+me1200QosDscpTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosDscpTrust, me1200QosDscpCos, me1200QosDscpDpl, 
+                  me1200QosDscpIngressTranslation, me1200QosDscpClassify, 
+                  me1200QosDscpEgressTranslation, me1200QosDscpEgressTranslationDp1 }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 5 }
+
+me1200QosCosToDscpTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosCosToDscpDscp, me1200QosCosToDscpDscpDp1 }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 6 }
+
+me1200QosQceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosQceNextQceId, me1200QosQcePortList, me1200QosQceDestMacType, 
+                  me1200QosQceDestMac, me1200QosQceDestMacMask, me1200QosQceSrcMac, 
+                  me1200QosQceSrcMacMask, me1200QosQceVlanTagType, me1200QosQceVlanIdOp, 
+                  me1200QosQceVlanId, me1200QosQceVlanIdRange, me1200QosQcePcp, me1200QosQceDei, 
+                  me1200QosQceInnerVlanTagType, me1200QosQceInnerVlanIdOp, 
+                  me1200QosQceInnerVlanId, me1200QosQceInnerVlanIdRange, 
+                  me1200QosQceInnerPcp, me1200QosQceInnerDei, me1200QosQceFrameType, 
+                  me1200QosQceEtype, me1200QosQceLlcDsap, me1200QosQceLlcDsapMask, 
+                  me1200QosQceLlcSsap, me1200QosQceLlcSsapMask, me1200QosQceLlcControl, 
+                  me1200QosQceLlcControlMask, me1200QosQceSnapPid, me1200QosQceSnapPidMask, 
+                  me1200QosQceIpv4Fragment, me1200QosQceIpv4DscpOp, me1200QosQceIpv4Dscp, 
+                  me1200QosQceIpv4DscpRange, me1200QosQceIpv4Protocol, 
+                  me1200QosQceIpv4ProtocolMask, me1200QosQceIpv4SrcIp, 
+                  me1200QosQceIpv4SrcIpMask, me1200QosQceIpv4DestIp, 
+                  me1200QosQceIpv4DestIpMask, me1200QosQceIpv4SrcPortOp, 
+                  me1200QosQceIpv4SrcPort, me1200QosQceIpv4SrcPortRange, 
+                  me1200QosQceIpv4DestPortOp, me1200QosQceIpv4DestPort, 
+                  me1200QosQceIpv4DestPortRange, me1200QosQceIpv6DscpOp, 
+                  me1200QosQceIpv6Dscp, me1200QosQceIpv6DscpRange, 
+                  me1200QosQceIpv6Protocol, me1200QosQceIpv6ProtocolMask, 
+                  me1200QosQceIpv6SrcIp, me1200QosQceIpv6SrcIpMask, me1200QosQceIpv6DestIp, 
+                  me1200QosQceIpv6DestIpMask, me1200QosQceIpv6SrcPortOp, 
+                  me1200QosQceIpv6SrcPort, me1200QosQceIpv6SrcPortRange, 
+                  me1200QosQceIpv6DestPortOp, me1200QosQceIpv6DestPort, 
+                  me1200QosQceIpv6DestPortRange, me1200QosQceActionCosEnable, 
+                  me1200QosQceActionCos, me1200QosQceActionDplEnable, 
+                  me1200QosQceActionDpl, me1200QosQceActionDscpEnable, 
+                  me1200QosQceActionDscp, me1200QosQceActionPcpDeiEnable, 
+                  me1200QosQceActionPcp, me1200QosQceActionDei, 
+                  me1200QosQceActionPolicyEnable, me1200QosQceActionPolicy, 
+                  me1200QosQceAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 7 }
+
+me1200QosQceTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosQceTableRowEditorQceId, 
+                  me1200QosQceTableRowEditorNextQceId, 
+                  me1200QosQceTableRowEditorPortList, 
+                  me1200QosQceTableRowEditorDestMacType, 
+                  me1200QosQceTableRowEditorDestMac, 
+                  me1200QosQceTableRowEditorDestMacMask, 
+                  me1200QosQceTableRowEditorSrcMac, 
+                  me1200QosQceTableRowEditorSrcMacMask, 
+                  me1200QosQceTableRowEditorVlanTagType, 
+                  me1200QosQceTableRowEditorVlanIdOp, 
+                  me1200QosQceTableRowEditorVlanId, 
+                  me1200QosQceTableRowEditorVlanIdRange, 
+                  me1200QosQceTableRowEditorPcp, me1200QosQceTableRowEditorDei, 
+                  me1200QosQceTableRowEditorInnerVlanTagType, 
+                  me1200QosQceTableRowEditorInnerVlanIdOp, 
+                  me1200QosQceTableRowEditorInnerVlanId, 
+                  me1200QosQceTableRowEditorInnerVlanIdRange, 
+                  me1200QosQceTableRowEditorInnerPcp, 
+                  me1200QosQceTableRowEditorInnerDei, 
+                  me1200QosQceTableRowEditorFrameType, 
+                  me1200QosQceTableRowEditorEtype, me1200QosQceTableRowEditorLlcDsap, 
+                  me1200QosQceTableRowEditorLlcDsapMask, 
+                  me1200QosQceTableRowEditorLlcSsap, 
+                  me1200QosQceTableRowEditorLlcSsapMask, 
+                  me1200QosQceTableRowEditorLlcControl, 
+                  me1200QosQceTableRowEditorLlcControlMask, 
+                  me1200QosQceTableRowEditorSnapPid, 
+                  me1200QosQceTableRowEditorSnapPidMask, 
+                  me1200QosQceTableRowEditorIpv4Fragment, 
+                  me1200QosQceTableRowEditorIpv4DscpOp, 
+                  me1200QosQceTableRowEditorIpv4Dscp, 
+                  me1200QosQceTableRowEditorIpv4DscpRange, 
+                  me1200QosQceTableRowEditorIpv4Protocol, 
+                  me1200QosQceTableRowEditorIpv4ProtocolMask, 
+                  me1200QosQceTableRowEditorIpv4SrcIp, 
+                  me1200QosQceTableRowEditorIpv4SrcIpMask, 
+                  me1200QosQceTableRowEditorIpv4DestIp, 
+                  me1200QosQceTableRowEditorIpv4DestIpMask, 
+                  me1200QosQceTableRowEditorIpv4SrcPortOp, 
+                  me1200QosQceTableRowEditorIpv4SrcPort, 
+                  me1200QosQceTableRowEditorIpv4SrcPortRange, 
+                  me1200QosQceTableRowEditorIpv4DestPortOp, 
+                  me1200QosQceTableRowEditorIpv4DestPort, 
+                  me1200QosQceTableRowEditorIpv4DestPortRange, 
+                  me1200QosQceTableRowEditorIpv6DscpOp, 
+                  me1200QosQceTableRowEditorIpv6Dscp, 
+                  me1200QosQceTableRowEditorIpv6DscpRange, 
+                  me1200QosQceTableRowEditorIpv6Protocol, 
+                  me1200QosQceTableRowEditorIpv6ProtocolMask, 
+                  me1200QosQceTableRowEditorIpv6SrcIp, 
+                  me1200QosQceTableRowEditorIpv6SrcIpMask, 
+                  me1200QosQceTableRowEditorIpv6DestIp, 
+                  me1200QosQceTableRowEditorIpv6DestIpMask, 
+                  me1200QosQceTableRowEditorIpv6SrcPortOp, 
+                  me1200QosQceTableRowEditorIpv6SrcPort, 
+                  me1200QosQceTableRowEditorIpv6SrcPortRange, 
+                  me1200QosQceTableRowEditorIpv6DestPortOp, 
+                  me1200QosQceTableRowEditorIpv6DestPort, 
+                  me1200QosQceTableRowEditorIpv6DestPortRange, 
+                  me1200QosQceTableRowEditorActionCosEnable, 
+                  me1200QosQceTableRowEditorActionCos, 
+                  me1200QosQceTableRowEditorActionDplEnable, 
+                  me1200QosQceTableRowEditorActionDpl, 
+                  me1200QosQceTableRowEditorActionDscpEnable, 
+                  me1200QosQceTableRowEditorActionDscp, 
+                  me1200QosQceTableRowEditorActionPcpDeiEnable, 
+                  me1200QosQceTableRowEditorActionPcp, 
+                  me1200QosQceTableRowEditorActionDei, 
+                  me1200QosQceTableRowEditorActionPolicyEnable, 
+                  me1200QosQceTableRowEditorActionPolicy, 
+                  me1200QosQceTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 8 }
+
+me1200QosQcePrecedenceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosQcePrecedenceQceId }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 9 }
+
+me1200QosIfConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfConfigCos, me1200QosIfConfigDpl, me1200QosIfConfigPcp, 
+                  me1200QosIfConfigDei, me1200QosIfConfigTrustTag, 
+                  me1200QosIfConfigTrustDscp, me1200QosIfConfigDwrrCount, 
+                  me1200QosIfConfigTagRemarkingMode, me1200QosIfConfigTagPcp, 
+                  me1200QosIfConfigTagDei, me1200QosIfConfigDscpTranslate, 
+                  me1200QosIfConfigDscpClassify, me1200QosIfConfigDscpRemark, 
+                  me1200QosIfConfigQceAddressMode, me1200QosIfConfigQceKeyType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 10 }
+
+me1200QosIfTagToCosTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfTagToCosCos, me1200QosIfTagToCosDpl }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 11 }
+
+me1200QosIfCosToTagTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfCosToTagPcp, me1200QosIfCosToTagDei }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 12 }
+
+me1200QosIfPolicerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfPolicerEnable, me1200QosIfPolicerFrameRate, 
+                  me1200QosIfPolicerFlowControl, me1200QosIfPolicerCir }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 13 }
+
+me1200QosIfQueuePolicerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfQueuePolicerEnable, me1200QosIfQueuePolicerCir }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 14 }
+
+me1200QosIfShaperTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfShaperEnable, me1200QosIfShaperCir }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 15 }
+
+me1200QosIfQueueShaperTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfQueueShaperEnable, me1200QosIfQueueShaperExcess, 
+                  me1200QosIfQueueShaperCir }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 16 }
+
+me1200QosIfSchedulerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosIfSchedulerWeight }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 17 }
+
+me1200QosStatusQceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosStatusQceUserId, me1200QosStatusQceQceId, 
+                  me1200QosStatusQceConflict }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 18 }
+
+me1200QosStatusIfTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosStatusIfCos }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 19 }
+
+me1200QosStatusIfSchedulerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosStatusIfSchedulerWeight }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 20 }
+
+me1200QosControlGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200QosControlGlobalsConflictResolve }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200QosMIBGroups 21 }
+
+me1200QosMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200QosStormPolicerUnicastInfoGroup, 
+                  me1200QosStormPolicerMulticastInfoGroup, 
+                  me1200QosStormPolicerBroadcastInfoGroup, 
+                  me1200QosWredTableInfoGroup, me1200QosDscpTableInfoGroup, 
+                  me1200QosCosToDscpTableInfoGroup, me1200QosQceTableInfoGroup, 
+                  me1200QosQceTableRowEditorInfoGroup, 
+                  me1200QosQcePrecedenceTableInfoGroup, 
+                  me1200QosIfConfigTableInfoGroup, me1200QosIfTagToCosTableInfoGroup, 
+                  me1200QosIfCosToTagTableInfoGroup, 
+                  me1200QosIfPolicerTableInfoGroup, 
+                  me1200QosIfQueuePolicerTableInfoGroup, 
+                  me1200QosIfShaperTableInfoGroup, 
+                  me1200QosIfQueueShaperTableInfoGroup, 
+                  me1200QosIfSchedulerTableInfoGroup, 
+                  me1200QosStatusQceTableInfoGroup, me1200QosStatusIfTableInfoGroup, 
+                  me1200QosStatusIfSchedulerTableInfoGroup, 
+                  me1200QosControlGlobalsInfoGroup }
+
+    ::= { me1200QosMIBCompliances 1 }
+
+END

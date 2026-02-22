@@ -1,0 +1,586 @@
+-- MIB file created 19-Nov-2004 13:26:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VOICE-TONE-CADENCE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VOICE-TONE-CADENCE-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    cmgwIndex, CVoiceTonePlanIndex
+            FROM CISCO-MEDIA-GATEWAY-MIB
+    CountryCode
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVoiceToneCadenceMIB OBJECT IDENTIFIER ::= { ciscoMgmt 356 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200305280000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    Tel: +1 800 553-NETS
+--    E-mail: cs-voice-gateway@cisco.com
+--  Descr
+--    The MIB defines the attributes of the programmable
+--     tones specified in ITU-T E.180 Supplement 2. 
+--    
+--     Each country has its own regulation to the generation
+--     and detection of the call progressing
+--     tones such as dial tone, busy tone, ring back tone.
+--     The tone attributes are programmable, for example
+--     frequency, amplitude, cadence and duration of the
+--     tone.
+--  RevDate
+--    200305280000Z
+--  RevDescr
+--    Initial version of the MIB.
+
+ciscoVoiceToneCadenceMIBNotifs OBJECT IDENTIFIER ::= { ciscoVoiceToneCadenceMIB 0 }
+ciscoVoiceToneCadenceMIBObjects OBJECT IDENTIFIER ::= { ciscoVoiceToneCadenceMIB 1 }
+cVoiceToneCadenceConfig OBJECT IDENTIFIER ::= { ciscoVoiceToneCadenceMIBObjects 1 }
+ciscoVoiceToneCadenceMIBConform OBJECT IDENTIFIER ::= { ciscoVoiceToneCadenceMIB 3 }
+cVoiceToneCadenceCompliances OBJECT IDENTIFIER ::= { ciscoVoiceToneCadenceMIBConform 1 }
+cVoiceToneCadenceGroups OBJECT IDENTIFIER ::= { ciscoVoiceToneCadenceMIBConform 2 }
+
+CToneFrequency ::= OCTET STRING(SIZE(1..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention defines frequency of the
+--     programmable tone to be played or detected.
+--    
+--     The format of frequency of the programmable tone is
+--     based on ITU E.180 Supplement 2. The frequency octet string
+--     is a combination of Frequency Expression, frequency 
+--     conjuncture and frequency delimiter.
+--    
+--     Frequency Expression - The frequency expression is a single
+--           numeric value or a string of numeric values with the 
+--           notation '+' or '/'. The numeric values are the
+--           frequency's decimal values in Hz.
+--    
+--     '+' - frequency conjuncture. The Frequency Expression to the
+--           left and to the right of this notation are emitted
+--           simultaneously.
+--    
+--     '/' - frequency delimiter. The Frequency Expression to the
+--           left of this notation is emitted before the Frequency
+--           Expression to the right.
+--    
+--     For example, the Payphone Recognition Tone of Australia is
+--     '1100+1750/750+1450', which means frequency 1100Hz and 1750Hz
+--     are emitted simultaneously, stopped for a period of time,
+--     followed by the simultaneously emission of 750Hz and 1450Hz.
+--  Refer
+--    ITU E.180 Supplement 2 - Various Tones Used In National
+--     Network.
+
+CToneAmplitude ::= OCTET STRING(SIZE(2..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention defines amplitude expression of the
+--     programmable tone to be played or detected.
+--    
+--     This textual convention is a combination of Amplitude 
+--     Expression, Amplitude conjuncture and Amplitude delimiter.
+--    
+--     Amplitude Expression - The amplitude expression is a single
+--           numeric value or a string of numeric values with the 
+--           notation '+' or '/'. The numeric values are the
+--           amplitude's decimal values in dBm. The numeric values
+--           are usually negative.
+--    
+--     '+' - Amplitude conjuncture. The Amplitude Expression to the
+--           left and to the right of this notation are emitted 
+--           simultaneously.
+--           The Amplitude Expression preceded this notation
+--           is the amplitude expression of the Frequency Expression 
+--           preceded '+'.
+--           The Amplitude Expression followed this notation
+--           is the amplitude expression of the Frequency Expression
+--           followed '+'.
+--    
+--     '/' - Amplitude delimiter. The Amplitude Expression to the
+--           left of this notation is emitted before the Amplitude
+--           Expression to the right.
+--           The Amplitude Expression preceded this notation
+--           is the amplitude expression of the Frequency Expression 
+--           preceded '/'.
+--           The Amplitude Expression followed this notation
+--           is the amplitude expression of the Frequency Expression 
+--           followed '/'.
+--    
+--     For example, the amplitude of USA Recall Dial Tone is
+--     '-10+-10' and the frequency is '350+440'. 
+--     It means amplitude of the both frequencies 350Hz and 440Hz
+--     are emitted simultaneously, each with amplitude expression
+--     -10 dBm.
+--  Refer
+--    ITU E.180/Q.35 - Technical Characteristic of Tones for the 
+--     Telephone Service.
+
+CToneCadence ::= OCTET STRING(SIZE(3..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This Textual Convention defines cadence of the programmable
+--     tone to be played or detected.
+--    
+--     The format of cadence of the programmable tone is
+--     based on ITU E.180 Supplement 2.
+--    
+--     Cadence string consists of cadence units, digits, keywords 
+--     and special characters. Cadence Units are digits where each
+--     unit is one second.
+--     No space is allowed in the cadence string. 
+--     The keywords are 'on', 'off', 'CYCLES' and 'CONTINUOUS'.
+--     The special characters are '-', '*', '(', ')' and ','.
+--    
+--     'on' -  The number preceded this keyword is the duration of
+--             emission in second.
+--     'off' - The number preceded this keyword is the duration of
+--             absence in second.
+--     'CONTINUOUS' - The frequencies are sent out and stayed on
+--             indefinitely.
+--     An on-off Period is either the keyword 'CONTINUOUS' or a
+--     Cadence Unit followed by the keyword 'ON' or 'OFF'.
+--    
+--     '-' - Separator. It separates multiple on-off Periods.
+--    
+--     A Cadence List is a sequence of  on-off Periods separated by
+--     the special character '-'. 
+--    
+--     'CYCLES' - When preceded by special character ',' and a
+--             number X, the Cadence List before the special
+--             character ',' is repeated X times. 
+--    
+--     Cadence List - The parentheses are delimiters. It is used
+--             for the repetition. The entire Cadence List in the
+--             parentheses is to be repeated. Without the delimiter,
+--             only the first On-off Period is repeated.
+--    
+--     '*' - Repetition. When preceded by a number X, the On-off
+--           Period or the parenthesized Cadence List is to be
+--           repeated X times.
+--    
+--     ',' - Terminator.  It terminates a Cadence List and announces
+--           the presence of the keyword, 'CYCLES'. When followed by
+--           a number X and then the keyword 'CYCLES', the preceded
+--           Cadence List is repeated X times
+--    
+--     For example, in United States, the cadence of confirmation
+--     tone is '3*100on-2*100off', the cadence of dial tone is
+--     '3*(100on-100off)-CONTINUOUS'.
+--     In United Kingdom, the cadence of payphone tone is
+--     '200on-200off-200on-200off'.
+--     Any thing other then the above notation is not supported.
+--  Refer
+--    ITU E.180 Supplement 2 - Various Tones Used In National
+--     Network.
+
+cvtcTonePlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvtcTonePlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the configuration of tone plans 
+         for the programmable tones in different countries."
+    REFERENCE
+        "ITU E.180 Supplement 2 - Various Tones Used In National
+         Network."
+    ::= { cVoiceToneCadenceConfig 1 }
+
+cvtcTonePlanEntry OBJECT-TYPE
+    SYNTAX CvtcTonePlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry represents one tone plan which defines attributes
+         of the programmable tones for a country.
+         Each country can have more than one tone plans with 
+         different version.  Each entry should have the unique
+         combination of cvtcTonePlanCountry and cvtcTonePlanVersion.
+        
+         There are some system built-in tone plans. The built-in 
+         tone plans will be populated by the system automatically 
+         at the system start-up. They can not be created, deleted or 
+         modified by user.
+        
+         When an entry is created, the following objects must be
+         provided:
+                  cvtcTonePlanCountry, 
+                  cvtcTonePlanVersion, 
+                  cvtcTonePlanFileName 
+        
+         When an entry is active, it can not be modified.
+         A system built-in tone plan can not be deleted. Only the
+         entries added by user can be deleted."
+    INDEX { cmgwIndex, cvtcTonePlanId }
+    ::= { cvtcTonePlanTable 1 }
+
+CvtcTonePlanEntry ::= SEQUENCE {
+    cvtcTonePlanId CVoiceTonePlanIndex,
+    cvtcTonePlanVifCount Gauge,
+    cvtcTonePlanCountry CountryCode,
+    cvtcTonePlanVersion Gauge,
+    cvtcTonePlanFileName SnmpAdminString,
+    cvtcTonePlanStorageType StorageType,
+    cvtcTonePlanRowStatus RowStatus
+    }
+
+cvtcTonePlanId OBJECT-TYPE
+    SYNTAX CVoiceTonePlanIndex
+--    Rsyntax Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies the tone plan in the table."
+    ::= { cvtcTonePlanEntry 1 }
+
+cvtcTonePlanVifCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of voice interfaces are 
+         using the tone plan."
+    ::= { cvtcTonePlanEntry 2 }
+
+cvtcTonePlanCountry OBJECT-TYPE
+    SYNTAX CountryCode
+--    Rsyntax OCTET STRING(SIZE(0|2))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the country code (defined in ISO-3166)
+         of the country that the tone plan is used for.
+        
+         The country specified by the country code should be registered
+         in ITU E.180 Supplement 2. 
+        
+         Any other entry in this table may have the identical 
+         country code, but the combination of cvtcTonePlanCountry and 
+         cvtcTonePlanVersion must be unique."
+    REFERENCE
+        "ITU E.180 Supplement 2.
+         ISO-3166 Country Code. "
+    ::= { cvtcTonePlanEntry 3 }
+
+cvtcTonePlanVersion OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the version of the tone plan for
+         a country. One country may have many tone plans,
+         therefore they may have the same country name, but the 
+         combination of cvtcTonePlanCountry and cvtcTonePlanVersion 
+         must be unique."
+    ::= { cvtcTonePlanEntry 4 }
+
+cvtcTonePlanFileName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the valid file name stored on
+         the media gateway's harddisk.
+         The tone plan file can be transferred to the media gateway
+         via FTP text file transfer mechanism.
+         When creating a conceptual row, the tone plan file must
+         be transferred to the media gateway already.
+        
+         If the entry is a built-in tone plan predefined in system,
+         then this object will have the value of 'BUILT-IN'.
+         Other provision-able tone plan files are not allowed to have
+         the string 'BUILT-IN' as their names."
+    ::= { cvtcTonePlanEntry 5 }
+
+cvtcTonePlanStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+         row. If this conceptual row represents a system built-in
+         tone plan, the value of this object is readOnly (5).
+         If this conceptual row represents an user defined tone 
+         plan, the value of this object is nonVolatile (3). 
+        
+         The built-in tone plans will be added by the system
+         automatically at the system start-up. They can not be
+         added, deleted or modified by user."
+    ::= { cvtcTonePlanEntry 6 }
+
+cvtcTonePlanRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The entries for The system built-in tone plans will be
+         added by the system at start-up, they can not be added,
+         modified or deleted by user."
+    ::= { cvtcTonePlanEntry 7 }
+
+cvtcToneIdTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvtcToneIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the identification of the 
+         programmable tones."
+    ::= { cVoiceToneCadenceConfig 2 }
+
+cvtcToneIdEntry OBJECT-TYPE
+    SYNTAX CvtcToneIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry represents the identification for  
+         one programmable tone in a tone plan."
+    INDEX { cmgwIndex, cvtcToneId }
+    ::= { cvtcToneIdTable 1 }
+
+CvtcToneIdEntry ::= SEQUENCE {
+    cvtcToneId Gauge,
+    cvtcToneName SnmpAdminString,
+    cvtcToneIdRowStatus RowStatus
+    }
+
+cvtcToneId OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies the programmable tone in
+         a tone plan."
+    ::= { cvtcToneIdEntry 1 }
+
+cvtcToneName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specified the name of the programmable tone."
+    ::= { cvtcToneIdEntry 2 }
+
+cvtcToneIdRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The entries for ITU defined tones will be added by the 
+         system at start-up."
+    ::= { cvtcToneIdEntry 3 }
+
+cvtcProgrammableToneTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvtcProgrammableToneEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the configurable attributes 
+         of the programmable tones for tone plan."
+    ::= { cVoiceToneCadenceConfig 3 }
+
+cvtcProgrammableToneEntry OBJECT-TYPE
+    SYNTAX CvtcProgrammableToneEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry represents the configurable attributes for 
+         one programmable tone in a tone plan.
+         The tone attributes are specified in ITU E.180
+         Supplement 2."
+    REFERENCE
+        "ITU E.180 Supplement 2 - Various Tones Used In National
+         Network."
+    INDEX { cmgwIndex, cvtcTonePlanId, cvtcToneId }
+    ::= { cvtcProgrammableToneTable 1 }
+
+CvtcProgrammableToneEntry ::= SEQUENCE {
+    cvtcProgrammableToneFrequency CToneFrequency,
+    cvtcProgrammableToneAmplitude CToneAmplitude,
+    cvtcProgrammableToneCadence CToneCadence,
+    cvtcProgrammableToneDuration Gauge,
+    cvtcProgrammableToneStorageType StorageType,
+    cvtcProgrammableToneRowStatus RowStatus
+    }
+
+cvtcProgrammableToneFrequency OBJECT-TYPE
+    SYNTAX CToneFrequency
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specified the frequency of the tone 
+         to be played or detected."
+    REFERENCE
+        "ITU E.180 Supplement 2 - Various Tones Used In National
+          Network."
+    ::= { cvtcProgrammableToneEntry 1 }
+
+cvtcProgrammableToneAmplitude OBJECT-TYPE
+    SYNTAX CToneAmplitude
+--    Rsyntax OCTET STRING(SIZE(2..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specified the amplitude expression of the tone 
+         to be played or detected."
+    REFERENCE
+        "ITU E.180/Q.35 - Technical Characteristic of Tones for the 
+         Telephone Service."
+    ::= { cvtcProgrammableToneEntry 2 }
+
+cvtcProgrammableToneCadence OBJECT-TYPE
+    SYNTAX CToneCadence
+--    Rsyntax OCTET STRING(SIZE(3..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specified the cadence of the tone 
+         to be played or detected."
+    REFERENCE
+        "ITU E.180 Supplement 2 - Various Tones Used In National
+          Network."
+    ::= { cvtcProgrammableToneEntry 3 }
+
+cvtcProgrammableToneDuration OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specified the duration of the tone 
+         will be played.
+         The value of 0 indicates that the tone will be played
+         infinitely unless interrupted."
+    REFERENCE
+        "ITU E.180/Q.35 - Technical Characteristic of Tones for the 
+         Telephone Service."
+    ::= { cvtcProgrammableToneEntry 4 }
+
+cvtcProgrammableToneStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this 
+         conceptual row. If this conceptual row represents 
+         a programmable tone in a system built-in tone plan,
+         the value of this object is permanent (4). 
+         If this conceptual row represents a programmable tone
+         in an user defined tone plan, the value of this object
+         is nonVolatile (3). 
+        
+         If the value of this object is permanent (4), 
+         cvtcProgrammableToneDuration is the only object can be
+         modified by the user."
+    ::= { cvtcProgrammableToneEntry 5 }
+
+cvtcProgrammableToneRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to add, delete or modify the entry
+         of the table.
+         When an entry is created, the following objects have to
+         be provided:
+             cvtcProgrammableToneFrequency,
+             cvtcProgrammableToneAmplitude,
+             cvtcProgrammableToneCadence."
+    ::= { cvtcProgrammableToneEntry 6 }
+
+cvtcToneConfigGroup OBJECT IDENTIFIER ::= { cVoiceToneCadenceGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects providing programmable tones
+--     and tone plans. 
+--  objects
+--    cvtcTonePlanVifCount, cvtcTonePlanCountry, 
+--    cvtcTonePlanVersion, cvtcTonePlanFileName, 
+--    cvtcTonePlanStorageType, cvtcTonePlanRowStatus, cvtcToneName, 
+--    cvtcToneIdRowStatus, cvtcProgrammableToneFrequency, 
+--    cvtcProgrammableToneAmplitude, cvtcProgrammableToneCadence, 
+--    cvtcProgrammableToneDuration, cvtcProgrammableToneStorageType, 
+--    cvtcProgrammableToneRowStatus
+
+cVoiceToneCadenceCompliance OBJECT IDENTIFIER ::= { cVoiceToneCadenceCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--     the CISCO-VOICE-TONE-CADENCE-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvtcToneConfigGroup
+
+
+END
+

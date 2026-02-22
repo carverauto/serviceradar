@@ -1,0 +1,10 @@
+MIBs supported by the WS-C1600 (Catalyst 1600 Token Ring Switch)
+---------------------------------------------------------------
+
+
+        MADGEBOX-MIB         (Madge Box MIB)
+        MADGERSW-MIB         (Madge Smart Ringswitch MIB)
+        RFC1213-MIB          (MIB-II)
+        RFC1231-MIB          (Token Ring MIB)
+        BRIDGE-MIB           (RFC 1493)
+        SOURCE-ROUTING-MIB   (RFC 1525)

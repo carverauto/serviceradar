@@ -1,0 +1,482 @@
+-- ------------------------------------------------------------------
+-- CISCO-VQES-MIB.my
+--   
+-- October 2009, Xuan Zhong.
+--   
+-- Copyright (c) 2009-2010 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- ------------------------------------------------------------------
+
+CISCO-VQES-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32,
+    Gauge32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    DateAndTime,
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoVqeSMIB MODULE-IDENTITY
+    LAST-UPDATED    "201002050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: bxb-iptv-team@cisco.com"
+    DESCRIPTION
+        "This MIB module defines a set of objects for monitoring the
+        Visual Quality Experience Server (VQE-S) operational status. 
+
+        VQE-S receives the channel lineups from the VQE Channel 
+        Provisioning Tool. Each channel is uniquely identified with 
+        a Service Delivery Protocol (SDP) description, including:
+         - IP multicast address 
+         - Real-Time Protocol (RTP) port number 
+         - Real-Time Control Protocol (RTCP) port number
+         - Unicast feedback target address
+         - RTP and RTCP port numbers 
+
+        VQE-S supports Error Repair (ER) and Rapid Channel Change (RCC) 
+        technologies to improve the delivery of IPTV video services. 
+        When a VQE client (VQE-C) notices a missing packet or a group 
+        of missing packets, it sends an RTCP Feedback Generic NACK 
+        to the VQE-S. The VQE-S looks into its cache, and if it has any 
+        of the requested packets, it sends them immediately to the VQE-C
+        as RTP retransmission repair packets. When the VQE-C detects a 
+        channel change, it immediately sends an RTCP Picture Loss 
+        Indication (PLI) NACK to the VQE-S to request the information 
+        for the VQE-C to recover its picture. Both ER and RCC are 
+        unicast retransmissions. "
+    REVISION        "201001141110Z"
+    DESCRIPTION
+        "Initial version of the MIB"
+    ::= { ciscoMgmt 942 }
+
+
+ciscoVqeSMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIB 0 }
+
+ciscoVqeSMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIB 1 }
+
+ciscoVqeSMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIB 2 }
+
+-- Objects
+
+cvqsControlInfo  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIBObjects 1 }
+
+cvqsChannelInfo  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIBObjects 2 }
+
+cvqsErrorRepair  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIBObjects 3 }
+
+cvqsRCC  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIBObjects 4 }
+
+cvqsCapacity  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIBObjects 5 }
+
+
+-- VQE-S Control Info
+
+cvqsNotificationsEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether cvqsChannelUp and 
+        cvqsChannelDown notifications will be generated or not. A false 
+        value will prevent these notifications from being generated." 
+    DEFVAL { false }
+    ::= { cvqsControlInfo 1 }
+
+-- VQE-S Channel Info
+
+cvqsNumberofChannels OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total number of channels in the channel
+        lineup configuration." 
+    ::= { cvqsChannelInfo 1 }
+
+cvqsActiveChannels OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total number of channels successfully
+        parsed from the channel lineup." 
+    ::= { cvqsChannelInfo 2 }
+
+cvqsLastUpdatedTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time when the channel lineup was
+        last updated." 
+    ::= { cvqsChannelInfo 3 }
+
+cvqsChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CvqsChannelTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of channels
+        (i.e., the channel lineup) this VQE-S is servicing."
+    ::= { cvqsChannelInfo 4 }
+
+cvqsChannelTableEntry OBJECT-TYPE
+    SYNTAX          CvqsChannelTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains information about one channel seviced by 
+        the VQE-S system. The entry is created and removed via the 
+        Net-SNMP cache helper."
+    INDEX           { cvqsChannelIndex } 
+    ::= { cvqsChannelTable 1 }
+
+CvqsChannelTableEntry ::= SEQUENCE {
+        cvqsChannelIndex            Unsigned32,
+        cvqsChannelMulticastIPType  InetAddressType,
+        cvqsChannelMulticastIPAddr  InetAddress,
+        cvqsChannelMulticastPort    InetPortNumber,
+        cvqsChannelStatus           INTEGER,
+        cvqsChannelMemberPopulation Gauge32
+}
+
+cvqsChannelIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer-value that uniquely identifies this 
+        channel." 
+    ::= { cvqsChannelTableEntry 1 }
+
+cvqsChannelMulticastIPType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of channel multicast
+        IP address." 
+    ::= { cvqsChannelTableEntry 2 }
+
+cvqsChannelMulticastIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the channel's multicast IP address." 
+    ::= { cvqsChannelTableEntry 3 }
+
+cvqsChannelMulticastPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the channel's multicast port number." 
+    ::= { cvqsChannelTableEntry 4 }
+
+cvqsChannelStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        active(1),
+                        inactive(2),
+                        inoperative(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current status of this channel." 
+    ::= { cvqsChannelTableEntry 5 }
+
+cvqsChannelMemberPopulation OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of VQE clients listening to
+        this channel." 
+    ::= { cvqsChannelTableEntry 6 }
+ 
+
+
+-- VQE-S Error Repair Info
+
+cvqsTotalReceivedERMsgs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ER requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of requests for ER
+        (Generic NACK RTCP) messages received." 
+    ::= { cvqsErrorRepair 1 }
+
+cvqsTotalReceivedInvalidERMsgs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ER requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of requests for ER 
+        (Generic NACK RTCP messages) received that were invalid." 
+    ::= { cvqsErrorRepair 2 }
+
+cvqsTotalReceivedERPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ER packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of RTP packets requested
+        for retransmission." 
+    ::= { cvqsErrorRepair 3 }
+
+cvqsTotalSentERPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ER packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of retransmitted RTP 
+        packets." 
+    ::= { cvqsErrorRepair 4 }
+
+-- VQE-S Rapid Channel Change Info
+
+cvqsTotalReceivedRCCs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "RCC requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of RCC requests
+        received by the VQE-S." 
+    ::= { cvqsRCC 1 }
+
+cvqsTotalAcceptedRCCs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "RCC requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of RCC requests
+        accepted by the VQE-S." 
+    ::= { cvqsRCC 2 }
+
+cvqsTotalRefusedRCCs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "RCC requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of RCC requests
+        not accepted by the VQE-S."
+    ::= { cvqsRCC 3 }
+
+-- VQE-S capacity info
+
+cvqsTotalRTCPReceivers OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "RTCP receivers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of currently active RTCP
+        receivers." 
+    ::= { cvqsCapacity 1 }
+
+cvqsRejectedRTCPs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "RTCP packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received RTCP packets
+        (ER requests, RCC requests or Receiver Reports) rejected 
+        by the VQE-S due to active RTCP receivers in VQE-S reaching 
+        their limit of accepting RTCP requests."
+    ::= { cvqsCapacity 2 }
+
+cvqsRejectedERs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ER requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received ER requests
+        rejected by the VQE-S due to VQE-S reaching its limit of 
+        accepting ER requests." 
+    ::= { cvqsCapacity 3 }
+
+cvqsRejectedRCCs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "RCC requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received RCC requests
+        rejected by the VQE-S due to VQE-S reaching its limit of 
+        accepting RCC requests."
+    ::= { cvqsCapacity 4 }
+
+-- Notifications
+
+cvqsChannelUp NOTIFICATION-TYPE
+    OBJECTS         {
+                        cvqsChannelMulticastIPType,
+                        cvqsChannelMulticastIPAddr,
+                        cvqsChannelMulticastPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that a VQE-S channel status is 
+        changed to ACTIVE."
+   ::= { ciscoVqeSMIBNotifs 1 }
+
+cvqsChannelDown NOTIFICATION-TYPE
+    OBJECTS         {
+                        cvqsChannelMulticastIPType,
+                        cvqsChannelMulticastIPAddr,
+                        cvqsChannelMulticastPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that a VQE-S channel status is 
+        changed to INACTIVE or INOPERATIVE."
+   ::= { ciscoVqeSMIBNotifs 2 }
+-- Conformance
+
+cvqsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIBConform 1 }
+
+cvqsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoVqeSMIBConform 2 }
+
+
+cvqsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoVqeSControlGroup,
+                        ciscoVqeSChannelGroup,
+                        ciscoVqeSERGroup,
+                        ciscoVqeSRCCGroup,
+                        ciscoVqeSCapacityGroup,
+                        ciscoVqeSNotifGroup
+                    }
+    ::= { cvqsMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoVqeSControlGroup OBJECT-GROUP
+    OBJECTS         { cvqsNotificationsEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the VQE-S control
+        information."
+    ::= { cvqsMIBGroups 1 }
+
+ciscoVqeSChannelGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvqsNumberofChannels,
+                        cvqsActiveChannels,
+                        cvqsLastUpdatedTime,
+                        cvqsChannelMulticastIPType,
+                        cvqsChannelMulticastIPAddr,
+                        cvqsChannelMulticastPort,
+                        cvqsChannelStatus,
+                        cvqsChannelMemberPopulation
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the VQE-S channel
+        information."
+    ::= { cvqsMIBGroups 2 }
+
+ciscoVqeSERGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvqsTotalReceivedERMsgs,
+                        cvqsTotalReceivedInvalidERMsgs,
+                        cvqsTotalReceivedERPkts,
+                        cvqsTotalSentERPkts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the VQE-S Error
+        Repair information."
+    ::= { cvqsMIBGroups 3 }
+
+ciscoVqeSRCCGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvqsTotalReceivedRCCs,
+                        cvqsTotalAcceptedRCCs,
+                        cvqsTotalRefusedRCCs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the VQE-S Rapid
+        Channel Change information."
+    ::= { cvqsMIBGroups 4 }
+
+ciscoVqeSCapacityGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvqsTotalRTCPReceivers,
+                        cvqsRejectedRTCPs,
+                        cvqsRejectedERs,
+                        cvqsRejectedRCCs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the VQE-S Capacity
+        information."
+    ::= { cvqsMIBGroups 5 }
+
+ciscoVqeSNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cvqsChannelUp,
+                        cvqsChannelDown
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the collection of all the
+        notifications for a Cisco VQE-S Entity."
+    ::= { cvqsMIBGroups 6 }
+
+END
+

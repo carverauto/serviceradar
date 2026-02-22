@@ -1,0 +1,508 @@
+-- MIB file created 27-Jul-2011 15:59:58, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ITP-GACT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ITP-GACT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    cgspInstNetwork
+            FROM CISCO-ITP-GSP-MIB
+    CItpTcGlobalTitleSelectorName, CItpTcGtaLongAddr, 
+    CItpTcInstanceNumber, CItpTcLinksetId, CItpTcPointCode, 
+    CItpTcServiceIndicator
+            FROM CISCO-ITP-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoGactMIB OBJECT IDENTIFIER ::= { ciscoMgmt 333 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200310010000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems, Inc
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ss7@cisco.com
+--  Descr
+--    The MIB for providing information specified
+--     in ITU Q752 Monitoring and Measurements for
+--     Signalling System No. 7(SS7) Network. 
+--     This information can be used to manage messages
+--     transported over SS7 Network via Cisco IP 
+--     Transfer Point.  
+--     
+--     The Cisco IP Transfer Point (ITP) is a hardware 
+--     and software solution that transports SS7 traffic 
+--     using IP. Each ITP node provides function similar
+--     to SS7 signalling point.   
+--     
+--     The relevant ITU documents describing this technology
+--     is the ITU Q series, including ITU Q.700: Introduction
+--     to CCITT Signalling System No. 7 and ITU Q.701 
+--     Functional description of the message transfer part
+--     (MTP) of Signalling System No. 7.
+--  RevDate
+--    200310010000Z
+--  RevDescr
+--    Support the ability to translate to different
+--     instances using application groups.
+--     
+--     Deprecate all object in cgactGttTable table.
+--     Create new cgactGtt2Table table to support
+--     new index structure.
+--  RevDate
+--    200303030000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cgactMIBNotifs  OBJECT IDENTIFIER ::= { ciscoGactMIB 0 }
+cgactMIBObjects OBJECT IDENTIFIER ::= { ciscoGactMIB 1 }
+cgactMIBConform OBJECT IDENTIFIER ::= { ciscoGactMIB 2 }
+cgactMtp3       OBJECT IDENTIFIER ::= { cgactMIBObjects 1 }
+cgactGtt        OBJECT IDENTIFIER ::= { cgactMIBObjects 2 }
+ciscoGactMIBCompliances OBJECT IDENTIFIER ::= { cgactMIBConform 1 }
+ciscoGactMIBGroups OBJECT IDENTIFIER ::= { cgactMIBConform 2 }
+
+cgactMtp3Table OBJECT-TYPE
+    SYNTAX SEQUENCE OF CgactMtp3TableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the number
+         of packets and bytes at the MTP3 transport layer.  
+         The information collected from both directions(send
+         and receive). The information is broken down 
+         by linkset, Destination Point Code (DPC),
+         Originating Point Code (OPC) and Signalling 
+         Indicator (SI). This provides the lowest granularity 
+         required by Q752 and allows network management 
+         stations to calculate the required fields in Q752."
+    REFERENCE
+        " GR-82-CORE 6.4.7 Special Study Measurements"
+    ::= { cgactMtp3 1 }
+
+cgactMtp3TableEntry OBJECT-TYPE
+    SYNTAX CgactMtp3TableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of MTP3 accounting objects.  Objects are
+         created in this table as traffic is received
+         and processed. "
+    INDEX { cgspInstNetwork, cgactMtp3TableId, cgactMtp3LinksetName, cgactMtp3Dpc, cgactMtp3Opc, cgactMtp3SI }
+    ::= { cgactMtp3Table 1 }
+
+CgactMtp3TableEntry ::= SEQUENCE {
+    cgactMtp3TableId INTEGER,
+    cgactMtp3LinksetName CItpTcLinksetId,
+    cgactMtp3Dpc CItpTcPointCode,
+    cgactMtp3Opc CItpTcPointCode,
+    cgactMtp3SI CItpTcServiceIndicator,
+    cgactMtp3InPackets Counter,
+    cgactMtp3OutPackets Counter,
+    cgactMtp3InOctets Counter,
+    cgactMtp3OutOctets Counter
+    }
+
+cgactMtp3TableId OBJECT-TYPE
+    SYNTAX INTEGER {
+        passed(1),
+        violation(2),
+        unroutable(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The accounting table identifier.
+        'passed'    : signifies that this table instance
+                      represents statistics for packets that
+                      matched an Access Control List (ACL) in
+                      the linkset's inbound ACL and in the 
+                      outbound ACL.
+                      
+        'violation' : signifies that this table instance
+                      represents statistics for packets that
+                      did not match an ACL in the linkset's
+                      inbound ACL and in the outbound ACL.
+                      
+        'unroutable' : packets that pass access list verification
+                       but can not be sent to destination point
+                       code.  This could be caused by incorrect
+                       or missing route statements or inaccessible
+                       destination."
+    ::= { cgactMtp3TableEntry 1 }
+
+cgactMtp3LinksetName OBJECT-TYPE
+    SYNTAX CItpTcLinksetId
+--    Rsyntax OCTET STRING(SIZE(1..19))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the linkset."
+    ::= { cgactMtp3TableEntry 2 }
+
+cgactMtp3Dpc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The destination point code."
+    ::= { cgactMtp3TableEntry 3 }
+
+cgactMtp3Opc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The origin point code."
+    ::= { cgactMtp3TableEntry 4 }
+
+cgactMtp3SI OBJECT-TYPE
+    SYNTAX CItpTcServiceIndicator
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        snmm(0),
+--        sntm(1),
+--        spare2sntm(2),
+--        sccp(3),
+--        tup(4),
+--        isup(5),
+--        dupc(6),
+--        dupf(7),
+--        mtup(8),
+--        bisup(9),
+--        sisup(10),
+--        spare11(11),
+--        spare12(12),
+--        spare13(13),
+--        spare14(14),
+--        spare15(15)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The service indicator."
+    ::= { cgactMtp3TableEntry 5 }
+
+cgactMtp3InPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of packets that have been received 
+         by this linkset, DPC and OPC combination since system
+         startup."
+    ::= { cgactMtp3TableEntry 6 }
+
+cgactMtp3OutPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of packets that have been sent 
+         using this linkset, DPC and OPC combination since system
+         startup."
+    ::= { cgactMtp3TableEntry 7 }
+
+cgactMtp3InOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of bytes that have been received 
+         using this linkset, DPC and OPC combination since system
+         startup."
+    ::= { cgactMtp3TableEntry 8 }
+
+cgactMtp3OutOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of bytes that have been sent 
+         using this linkset, DPC and OPC combination since 
+         system startup."
+    ::= { cgactMtp3TableEntry 9 }
+
+cgactGttTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CgactGttTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This table has been deprecated and replaced with
+         cgactGtt2Table table.
+         
+         This table contains information about the number
+         of packets and octets required for global title 
+         translation."
+    ::= { cgactGtt 1 }
+
+cgactGttTableEntry OBJECT-TYPE
+    SYNTAX CgactGttTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This table has been deprecated and replaced with
+         cgactGtt2Table table.
+         
+         A list of Global Title Translation accounting objects.
+         Objects are created in this table when MTP3 packets are 
+         received requiring global title translation. "
+    INDEX { cgspInstNetwork, cgactGttLinksetName, cgactGttSelectorName, cgactGttGta, cgactGttTranslatedPc }
+    ::= { cgactGttTable 1 }
+
+CgactGttTableEntry ::= SEQUENCE {
+    cgactGttLinksetName CItpTcLinksetId,
+    cgactGttSelectorName CItpTcGlobalTitleSelectorName,
+    cgactGttGta CItpTcGtaLongAddr,
+    cgactGttTranslatedPc CItpTcPointCode,
+    cgactGttPackets Counter,
+    cgactGttOctets Counter
+    }
+
+cgactGttLinksetName OBJECT-TYPE
+    SYNTAX CItpTcLinksetId
+--    Rsyntax OCTET STRING(SIZE(1..19))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The name of the linkset."
+    ::= { cgactGttTableEntry 1 }
+
+cgactGttSelectorName OBJECT-TYPE
+    SYNTAX CItpTcGlobalTitleSelectorName
+--    Rsyntax OCTET STRING(SIZE(1..9))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The Global Title Selector Name."
+    ::= { cgactGttTableEntry 2 }
+
+cgactGttGta OBJECT-TYPE
+    SYNTAX CItpTcGtaLongAddr
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The Global Title Address."
+    ::= { cgactGttTableEntry 3 }
+
+cgactGttTranslatedPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The translated point code."
+    ::= { cgactGttTableEntry 4 }
+
+cgactGttPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The accumulated number of packets received by this 
+         signalling point requiring global title translation
+         since system startup."
+    ::= { cgactGttTableEntry 5 }
+
+cgactGttOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The accumulated number of bytes received by this 
+         signalling point requiring global title translation
+         since system startup."
+    ::= { cgactGttTableEntry 6 }
+
+cgactGtt2Table OBJECT-TYPE
+    SYNTAX SEQUENCE OF CgactGtt2TableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the number
+         of packets and octets required for global title 
+         translation."
+    ::= { cgactGtt 2 }
+
+cgactGtt2TableEntry OBJECT-TYPE
+    SYNTAX CgactGtt2TableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of Global Title Translation accounting objects.
+         Objects are created in this table when MTP3 packets are 
+         received requiring global title translation. "
+    INDEX { cgspInstNetwork, cgactGtt2LinksetName, cgactGtt2SelectorName, cgactGtt2Gta, cgactGtt2TranslatedInstNumber, cgactGtt2TranslatedPc }
+    ::= { cgactGtt2Table 1 }
+
+CgactGtt2TableEntry ::= SEQUENCE {
+    cgactGtt2LinksetName CItpTcLinksetId,
+    cgactGtt2SelectorName CItpTcGlobalTitleSelectorName,
+    cgactGtt2Gta CItpTcGtaLongAddr,
+    cgactGtt2TranslatedInstNumber CItpTcInstanceNumber,
+    cgactGtt2TranslatedPc CItpTcPointCode,
+    cgactGtt2Packets Counter,
+    cgactGtt2Octets Counter
+    }
+
+cgactGtt2LinksetName OBJECT-TYPE
+    SYNTAX CItpTcLinksetId
+--    Rsyntax OCTET STRING(SIZE(1..19))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the linkset."
+    ::= { cgactGtt2TableEntry 1 }
+
+cgactGtt2SelectorName OBJECT-TYPE
+    SYNTAX CItpTcGlobalTitleSelectorName
+--    Rsyntax OCTET STRING(SIZE(1..9))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Global Title Selector Name."
+    ::= { cgactGtt2TableEntry 2 }
+
+cgactGtt2Gta OBJECT-TYPE
+    SYNTAX CItpTcGtaLongAddr
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Global Title Address."
+    ::= { cgactGtt2TableEntry 3 }
+
+cgactGtt2TranslatedInstNumber OBJECT-TYPE
+    SYNTAX CItpTcInstanceNumber
+--    Rsyntax Gauge(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The instance number used to define in which
+         network the translated point-code resides."
+    ::= { cgactGtt2TableEntry 4 }
+
+cgactGtt2TranslatedPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The translated point code."
+    ::= { cgactGtt2TableEntry 5 }
+
+cgactGtt2Packets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of packets received by this 
+         signalling point requiring global title translation
+         since system startup."
+    ::= { cgactGtt2TableEntry 6 }
+
+cgactGtt2Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of bytes received by this 
+         signalling point requiring global title translation
+         since system startup."
+    ::= { cgactGtt2TableEntry 7 }
+
+ciscoGactMtp3Group OBJECT IDENTIFIER ::= { ciscoGactMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing MTP3 accounting feature.
+--  objects
+--    cgactMtp3InPackets, cgactMtp3OutPackets, cgactMtp3InOctets, 
+--    cgactMtp3OutOctets
+
+ciscoGactGttGroup OBJECT IDENTIFIER ::= { ciscoGactMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing Global Title Translation 
+--     accounting feature.
+--  objects
+--    cgactGttPackets, cgactGttOctets
+
+ciscoGactGttGroupRev1 OBJECT IDENTIFIER ::= { ciscoGactMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Global Title Translation 
+--     accounting feature.
+--  objects
+--    cgactGtt2Packets, cgactGtt2Octets
+
+ciscoGactMIBCompliance OBJECT IDENTIFIER ::= { ciscoGactMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--     the Cisco SP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoGactMtp3Group
+--   MandGroup
+--    ciscoGactGttGroup
+
+ciscoGactMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoGactMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco SP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoGactMtp3Group
+--   MandGroup
+--    ciscoGactGttGroupRev1
+
+
+END
+

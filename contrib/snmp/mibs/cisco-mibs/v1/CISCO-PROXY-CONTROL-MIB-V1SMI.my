@@ -1,0 +1,942 @@
+-- MIB file created 22-Jan-2006 21:00:53, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-PROXY-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PROXY-CONTROL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    CvcGUid
+            FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+    callActiveSetupTime, callActiveIndex, AbsoluteCounter32
+            FROM DIAL-CONTROL-MIB
+    cCallHistoryIndex
+            FROM CISCO-DIAL-CONTROL-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoProxyControlMIB OBJECT IDENTIFIER ::= { ciscoExperiment 57 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200503060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems, Inc. 
+--            Customer Service 
+--    
+--    Postal: 170 W. Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    
+--    Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-voice@cisco.com
+--  Descr
+--    This MIB module enhances the IETF Dial Control MIB 
+--     (RFC2128) by providing Proxy management information.
+--  RevDate
+--    200503060000Z
+--  RevDescr
+--    Added gsmAmrNb enum to CProxyAudioCodec textual 
+--     convention.
+--  RevDate
+--    200002040000Z
+--  RevDescr
+--    First release of this MIB.
+
+ciscoProxyControlMIBObjects OBJECT IDENTIFIER ::= { ciscoProxyControlMIB 1 }
+cProxyCallActive OBJECT IDENTIFIER ::= { ciscoProxyControlMIBObjects 1 }
+cProxyCallHistory OBJECT IDENTIFIER ::= { ciscoProxyControlMIBObjects 2 }
+ciscoProxyControlMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoProxyControlMIB 2 }
+ciscoProxyControlMIBNotifications OBJECT IDENTIFIER ::= { ciscoProxyControlMIBNotificationPrefix 0 }
+ciscoProxyControlMIBConformance OBJECT IDENTIFIER ::= { ciscoProxyControlMIB 3 }
+ciscoProxyControlMIBCompliances OBJECT IDENTIFIER ::= { ciscoProxyControlMIBConformance 1 }
+ciscoProxyControlMIBGroups OBJECT IDENTIFIER ::= { ciscoProxyControlMIBConformance 2 }
+
+CProxyEndptType ::= INTEGER {
+        --?? enum value of zero may cause problems
+        other(0),
+        proxy(1),
+        gateway(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A tag to identify the type of end point that the Proxy 
+--     is connected to.
+
+CProxyAudioCodec ::= INTEGER {
+        --?? enum value of zero may cause problems
+        other(0),
+        nonStandard(1),
+        g711Alawr64k(2),
+        g711Alawr56k(3),
+        g711Ulawr64k(4),
+        g711Ulawr56k(5),
+        g722r64k(6),
+        g722r56k(7),
+        g722r48k(8),
+        g7231(9),
+        g728(10),
+        g729(11),
+        g729AnnexA(12),
+        is11172(13),
+        is13818(14),
+        g729AnnexB(15),
+        g729AnnexAB(16),
+        g729AnnexC(17),
+        gsmFullRate(18),
+        gsmHalfRate(19),
+        gsmEnhancedFullRate(20),
+        gsmAmrNb(21)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A tag to identify the type of encoding used to compress 
+--     the voice data of the call.
+
+CProxyVideoCodec ::= INTEGER {
+        --?? enum value of zero may cause problems
+        other(0),
+        nonStandard(1),
+        h261(2),
+        h262(3),
+        h263(4),
+        is11172(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A tag to identify the type of encoding used to compress 
+--     the video data of the call.
+
+cProxyCallActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CProxyCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the Proxy extension to the call Active 
+         table of IETF Dial Control MIB. It contains Proxy call 
+         leg information about specific proxied calls."
+    REFERENCE
+        "IETF Dial Control MIB (RFC2128)"
+    ::= { cProxyCallActive 1 }
+
+cProxyCallActiveEntry OBJECT-TYPE
+    SYNTAX CProxyCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single proxied call leg. 
+         An entry of this table is created when its associated call 
+         Active entry in the IETF Dial Control MIB is created and 
+         the call Active entry contains information for the call 
+         establishment to the peer on the data network. 
+         This entry is deleted when its associated Call Active 
+         entry in the IETF Dial Control MIB is deleted."
+    INDEX { callActiveSetupTime, callActiveIndex }
+    ::= { cProxyCallActiveTable 1 }
+
+CProxyCallActiveEntry ::= SEQUENCE {
+    cProxyCallActiveConnectionId CvcGUid,
+    cProxyCallActiveRemoteIPAddress IpAddress,
+    cProxyCallActiveAudioUDPPort INTEGER,
+    cProxyCallActiveVideoUDPPort INTEGER,
+    cProxyCallActiveT120TCPPort1 INTEGER,
+    cProxyCallActiveT120TCPPort2 INTEGER,
+    cProxyCallActiveT120TCPPort3 INTEGER,
+    cProxyCallActiveT120TCPPort4 INTEGER,
+    cProxyCallActiveEndpointType CProxyEndptType,
+    cProxyCallActiveEndpointVendor INTEGER,
+    cProxyCallActiveRequestBandwidth INTEGER,
+    cProxyCallActiveActualBandwidth INTEGER,
+    cProxyCallActiveAudioCoderRate CProxyAudioCodec,
+    cProxyCallActiveVideoCoderRate CProxyVideoCodec,
+    cProxyCallActiveRxAudioPackets AbsoluteCounter32,
+    cProxyCallActiveRxAudioBytes AbsoluteCounter32,
+    cProxyCallActiveTxAudioPackets AbsoluteCounter32,
+    cProxyCallActiveTxAudioBytes AbsoluteCounter32,
+    cProxyCallActiveRxVideoPackets AbsoluteCounter32,
+    cProxyCallActiveRxVideoBytes AbsoluteCounter32,
+    cProxyCallActiveTxVideoPackets AbsoluteCounter32,
+    cProxyCallActiveTxVideoBytes AbsoluteCounter32,
+    cProxyCallActiveRxT120Packets AbsoluteCounter32,
+    cProxyCallActiveRxT120Bytes AbsoluteCounter32,
+    cProxyCallActiveTxT120Packets AbsoluteCounter32,
+    cProxyCallActiveTxT120Bytes AbsoluteCounter32
+    }
+
+cProxyCallActiveConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the Proxy call."
+    ::= { cProxyCallActiveEntry 1 }
+
+cProxyCallActiveRemoteIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote system IP address for the call."
+    ::= { cProxyCallActiveEntry 2 }
+
+cProxyCallActiveAudioUDPPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote system UDP listener port to which to transmit 
+         voice packets for the call. A value of zero indicates 
+         that no port was used."
+    ::= { cProxyCallActiveEntry 3 }
+
+cProxyCallActiveVideoUDPPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote system UDP listener port to which to transmit  
+         video packets for the call. A value of zero indicates 
+         that no port was used."
+    ::= { cProxyCallActiveEntry 4 }
+
+cProxyCallActiveT120TCPPort1 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "First remote system UDP listener port to which to transmit 
+         T120 packets for the call.  A value of zero indicates that 
+         no port was used."
+    ::= { cProxyCallActiveEntry 5 }
+
+cProxyCallActiveT120TCPPort2 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Second remote system UDP listener port to which to 
+         transmit T120 packets for the call.  A value of zero 
+         indicates that no port was used."
+    ::= { cProxyCallActiveEntry 6 }
+
+cProxyCallActiveT120TCPPort3 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Third remote system UDP listener port to which to transmit 
+         T120 packets for the call.  A value of zero indicates that 
+         no port was used."
+    ::= { cProxyCallActiveEntry 7 }
+
+cProxyCallActiveT120TCPPort4 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Fourth remote system UDP listener port to which to transmit 
+         T120 packets for the call.  A value of zero indicates that 
+         no port was used."
+    ::= { cProxyCallActiveEntry 8 }
+
+cProxyCallActiveEndpointType OBJECT-TYPE
+    SYNTAX CProxyEndptType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        other(0),
+--        proxy(1),
+--        gateway(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of end point this proxy call leg is connected to."
+    ::= { cProxyCallActiveEntry 9 }
+
+cProxyCallActiveEndpointVendor OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The H225 Manufacturers code for this endpoint. 
+         Zero indicates unknown vendor."
+    ::= { cProxyCallActiveEntry 10 }
+
+cProxyCallActiveRequestBandwidth OBJECT-TYPE
+    SYNTAX INTEGER(0..10000000)
+--  Units
+--    kilobits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The requested bandwidth for this proxied call leg."
+    ::= { cProxyCallActiveEntry 11 }
+
+cProxyCallActiveActualBandwidth OBJECT-TYPE
+    SYNTAX INTEGER(0..10000000)
+--  Units
+--    kilobits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual bandwidth used by the proxied call."
+    ::= { cProxyCallActiveEntry 12 }
+
+cProxyCallActiveAudioCoderRate OBJECT-TYPE
+    SYNTAX CProxyAudioCodec
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        other(0),
+--        nonStandard(1),
+--        g711Alawr64k(2),
+--        g711Alawr56k(3),
+--        g711Ulawr64k(4),
+--        g711Ulawr56k(5),
+--        g722r64k(6),
+--        g722r56k(7),
+--        g722r48k(8),
+--        g7231(9),
+--        g728(10),
+--        g729(11),
+--        g729AnnexA(12),
+--        is11172(13),
+--        is13818(14),
+--        g729AnnexB(15),
+--        g729AnnexAB(16),
+--        g729AnnexC(17),
+--        gsmFullRate(18),
+--        gsmHalfRate(19),
+--        gsmEnhancedFullRate(20),
+--        gsmAmrNb(21)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The negotiated coder rate. It specifies the transmit 
+         rate of audio compression to its associated call leg 
+         for the call."
+    ::= { cProxyCallActiveEntry 13 }
+
+cProxyCallActiveVideoCoderRate OBJECT-TYPE
+    SYNTAX CProxyVideoCodec
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        other(0),
+--        nonStandard(1),
+--        h261(2),
+--        h262(3),
+--        h263(4),
+--        is11172(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The negotiated coder rate. It specifies the transmit 
+         rate of video compression to its associated call leg 
+         for the call."
+    ::= { cProxyCallActiveEntry 14 }
+
+cProxyCallActiveRxAudioPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio packets received from the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 15 }
+
+cProxyCallActiveRxAudioBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio bytes received from the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 16 }
+
+cProxyCallActiveTxAudioPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio packets transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 17 }
+
+cProxyCallActiveTxAudioBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio bytes transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 18 }
+
+cProxyCallActiveRxVideoPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video packets received from the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 19 }
+
+cProxyCallActiveRxVideoBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video bytes received from the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 20 }
+
+cProxyCallActiveTxVideoPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video packets transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 21 }
+
+cProxyCallActiveTxVideoBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video bytes transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 22 }
+
+cProxyCallActiveRxT120Packets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data packets received from the 
+         remote end for this call."
+    ::= { cProxyCallActiveEntry 23 }
+
+cProxyCallActiveRxT120Bytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data bytes received from the remote 
+         end of this call."
+    ::= { cProxyCallActiveEntry 24 }
+
+cProxyCallActiveTxT120Packets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data packets transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallActiveEntry 25 }
+
+cProxyCallActiveTxT120Bytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data bytes transmitted to the remote 
+         end of this call."
+    ::= { cProxyCallActiveEntry 26 }
+
+cProxyCallHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CProxyCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the Proxy extension to the History call table 
+         of IETF Dial Control MIB. It contains PROXY call leg 
+         information about proxied call."
+    REFERENCE
+        "IETF Dial Control MIB (RFC2128)"
+    ::= { cProxyCallHistory 1 }
+
+cProxyCallHistoryEntry OBJECT-TYPE
+    SYNTAX CProxyCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single proxied call leg. 
+         An entry of this table is created when its associated call 
+         History entry in the IETF Dial Control MIB is created. The 
+         call History entry contains information for the call 
+         establishment to the peer on the data network backbone via 
+         a voice over PROXY peer. 
+         The entry is deleted when its associated call History entry 
+         in the IETF Dial Control MIB is deleted."
+    INDEX { cCallHistoryIndex }
+    ::= { cProxyCallHistoryTable 1 }
+
+CProxyCallHistoryEntry ::= SEQUENCE {
+    cProxyCallHistoryConnectionId CvcGUid,
+    cProxyCallHistoryRemoteIPAddress IpAddress,
+    cProxyCallHistoryAudioUDPPort INTEGER,
+    cProxyCallHistoryVideoUDPPort INTEGER,
+    cProxyCallHistoryT120TCPPort1 INTEGER,
+    cProxyCallHistoryT120TCPPort2 INTEGER,
+    cProxyCallHistoryT120TCPPort3 INTEGER,
+    cProxyCallHistoryT120TCPPort4 INTEGER,
+    cProxyCallHistoryEndpointType CProxyEndptType,
+    cProxyCallHistoryEndpointVendor INTEGER,
+    cProxyCallHistoryRequestBandwidth INTEGER,
+    cProxyCallHistoryActualBandwidth INTEGER,
+    cProxyCallHistoryAudioCoderRate CProxyAudioCodec,
+    cProxyCallHistoryVideoCoderRate CProxyVideoCodec,
+    cProxyCallHistoryRxAudioPackets AbsoluteCounter32,
+    cProxyCallHistoryRxAudioBytes AbsoluteCounter32,
+    cProxyCallHistoryTxAudioPackets AbsoluteCounter32,
+    cProxyCallHistoryTxAudioBytes AbsoluteCounter32,
+    cProxyCallHistoryRxVideoPackets AbsoluteCounter32,
+    cProxyCallHistoryRxVideoBytes AbsoluteCounter32,
+    cProxyCallHistoryTxVideoPackets AbsoluteCounter32,
+    cProxyCallHistoryTxVideoBytes AbsoluteCounter32,
+    cProxyCallHistoryRxT120Packets AbsoluteCounter32,
+    cProxyCallHistoryRxT120Bytes AbsoluteCounter32,
+    cProxyCallHistoryTxT120Packets AbsoluteCounter32,
+    cProxyCallHistoryTxT120Bytes AbsoluteCounter32
+    }
+
+cProxyCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the Proxy call."
+    ::= { cProxyCallHistoryEntry 1 }
+
+cProxyCallHistoryRemoteIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote system IP address for the call."
+    ::= { cProxyCallHistoryEntry 2 }
+
+cProxyCallHistoryAudioUDPPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote system UDP listener port to which to transmit  
+         voice packets for the call. A value of zero indicates 
+         that no port was used."
+    ::= { cProxyCallHistoryEntry 3 }
+
+cProxyCallHistoryVideoUDPPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote system UDP listener port to which to transmit  
+         video packets for the call. A value of zero indicates 
+         that no port was used."
+    ::= { cProxyCallHistoryEntry 4 }
+
+cProxyCallHistoryT120TCPPort1 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "First remote system UDP listener port to which to  
+         transmit T120 packets for the call.  A value of zero 
+         indicates that no port was used."
+    ::= { cProxyCallHistoryEntry 5 }
+
+cProxyCallHistoryT120TCPPort2 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Second remote system UDP listener port to which to 
+         transmit T120 packets for the call.  A value of zero 
+         indicates that no port was used."
+    ::= { cProxyCallHistoryEntry 6 }
+
+cProxyCallHistoryT120TCPPort3 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Third remote system UDP listener port to which to 
+         transmit T120 packets for the call.  A value of zero 
+         indicates that no port was used."
+    ::= { cProxyCallHistoryEntry 7 }
+
+cProxyCallHistoryT120TCPPort4 OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Fourth remote system UDP listener port to which to 
+         transmit T120 packets for the call.  A value of zero 
+         indicates that no port was used."
+    ::= { cProxyCallHistoryEntry 8 }
+
+cProxyCallHistoryEndpointType OBJECT-TYPE
+    SYNTAX CProxyEndptType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        other(0),
+--        proxy(1),
+--        gateway(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of end point this proxy call leg is connected to."
+    ::= { cProxyCallHistoryEntry 9 }
+
+cProxyCallHistoryEndpointVendor OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The H225 Manufacturers code for this endpoint. 
+         Zero indicates unknown vendor."
+    ::= { cProxyCallHistoryEntry 10 }
+
+cProxyCallHistoryRequestBandwidth OBJECT-TYPE
+    SYNTAX INTEGER(0..10000000)
+--  Units
+--    kilobits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The requested bandwidth for this proxied call leg."
+    ::= { cProxyCallHistoryEntry 11 }
+
+cProxyCallHistoryActualBandwidth OBJECT-TYPE
+    SYNTAX INTEGER(0..10000000)
+--  Units
+--    kilobits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual bandwidth used by the proxied call."
+    ::= { cProxyCallHistoryEntry 12 }
+
+cProxyCallHistoryAudioCoderRate OBJECT-TYPE
+    SYNTAX CProxyAudioCodec
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        other(0),
+--        nonStandard(1),
+--        g711Alawr64k(2),
+--        g711Alawr56k(3),
+--        g711Ulawr64k(4),
+--        g711Ulawr56k(5),
+--        g722r64k(6),
+--        g722r56k(7),
+--        g722r48k(8),
+--        g7231(9),
+--        g728(10),
+--        g729(11),
+--        g729AnnexA(12),
+--        is11172(13),
+--        is13818(14),
+--        g729AnnexB(15),
+--        g729AnnexAB(16),
+--        g729AnnexC(17),
+--        gsmFullRate(18),
+--        gsmHalfRate(19),
+--        gsmEnhancedFullRate(20),
+--        gsmAmrNb(21)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The negotiated coder rate. It specifies the transmit 
+         rate of audio compression to its associated call leg 
+         for the call."
+    ::= { cProxyCallHistoryEntry 13 }
+
+cProxyCallHistoryVideoCoderRate OBJECT-TYPE
+    SYNTAX CProxyVideoCodec
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        other(0),
+--        nonStandard(1),
+--        h261(2),
+--        h262(3),
+--        h263(4),
+--        is11172(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The negotiated coder rate. It specifies the transmit 
+         rate of video compression to its associated call leg 
+         for the call."
+    ::= { cProxyCallHistoryEntry 14 }
+
+cProxyCallHistoryRxAudioPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio packets received from the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 15 }
+
+cProxyCallHistoryRxAudioBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio bytes received from the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 16 }
+
+cProxyCallHistoryTxAudioPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio packets transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 17 }
+
+cProxyCallHistoryTxAudioBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of audio bytes transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 18 }
+
+cProxyCallHistoryRxVideoPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video packets received from the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 19 }
+
+cProxyCallHistoryRxVideoBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video bytes received from the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 20 }
+
+cProxyCallHistoryTxVideoPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video packets transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 21 }
+
+cProxyCallHistoryTxVideoBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video bytes transmitted to the remote end for 
+         this call."
+    ::= { cProxyCallHistoryEntry 22 }
+
+cProxyCallHistoryRxT120Packets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data packets received from the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 23 }
+
+cProxyCallHistoryRxT120Bytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data bytes received from the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 24 }
+
+cProxyCallHistoryTxT120Packets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data packets transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 25 }
+
+cProxyCallHistoryTxT120Bytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of T120 data bytes transmitted to the remote 
+         end for this call."
+    ::= { cProxyCallHistoryEntry 26 }
+
+cProxyCallActiveGroup OBJECT IDENTIFIER ::= { ciscoProxyControlMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the PROXY Call Active 
+--     entry capability.
+--  objects
+--    cProxyCallActiveConnectionId, cProxyCallActiveRemoteIPAddress, 
+--    cProxyCallActiveAudioUDPPort, cProxyCallActiveVideoUDPPort, 
+--    cProxyCallActiveT120TCPPort1, cProxyCallActiveT120TCPPort2, 
+--    cProxyCallActiveT120TCPPort3, cProxyCallActiveT120TCPPort4, 
+--    cProxyCallActiveEndpointType, cProxyCallActiveEndpointVendor, 
+--    cProxyCallActiveRequestBandwidth, 
+--    cProxyCallActiveActualBandwidth, 
+--    cProxyCallActiveAudioCoderRate, 
+--    cProxyCallActiveVideoCoderRate, 
+--    cProxyCallActiveRxAudioPackets, cProxyCallActiveRxAudioBytes, 
+--    cProxyCallActiveTxAudioPackets, cProxyCallActiveTxAudioBytes, 
+--    cProxyCallActiveRxVideoPackets, cProxyCallActiveRxVideoBytes, 
+--    cProxyCallActiveTxVideoPackets, cProxyCallActiveTxVideoBytes, 
+--    cProxyCallActiveRxT120Packets, cProxyCallActiveRxT120Bytes, 
+--    cProxyCallActiveTxT120Packets, cProxyCallActiveTxT120Bytes
+
+cProxyCallHistoryGroup OBJECT IDENTIFIER ::= { ciscoProxyControlMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the PROXY Call Active 
+--     entry capability.
+--  objects
+--    cProxyCallHistoryConnectionId, 
+--    cProxyCallHistoryRemoteIPAddress, 
+--    cProxyCallHistoryAudioUDPPort, cProxyCallHistoryVideoUDPPort, 
+--    cProxyCallHistoryT120TCPPort1, cProxyCallHistoryT120TCPPort2, 
+--    cProxyCallHistoryT120TCPPort3, cProxyCallHistoryT120TCPPort4, 
+--    cProxyCallHistoryEndpointType, 
+--    cProxyCallHistoryEndpointVendor, 
+--    cProxyCallHistoryRequestBandwidth, 
+--    cProxyCallHistoryActualBandwidth, 
+--    cProxyCallHistoryAudioCoderRate, 
+--    cProxyCallHistoryVideoCoderRate, 
+--    cProxyCallHistoryRxAudioPackets, 
+--    cProxyCallHistoryRxAudioBytes, 
+--    cProxyCallHistoryTxAudioPackets, 
+--    cProxyCallHistoryTxAudioBytes, 
+--    cProxyCallHistoryRxVideoPackets, 
+--    cProxyCallHistoryRxVideoBytes, 
+--    cProxyCallHistoryTxVideoPackets, 
+--    cProxyCallHistoryTxVideoBytes, cProxyCallHistoryRxT120Packets, 
+--    cProxyCallHistoryRxT120Bytes, cProxyCallHistoryTxT120Packets, 
+--    cProxyCallHistoryTxT120Bytes
+
+ciscoProxyControlMIBCompliance OBJECT IDENTIFIER ::= { ciscoProxyControlMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which 
+--     implement the CISCO PROXY CONTROL MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cProxyCallActiveGroup
+--   MandGroup
+--    cProxyCallHistoryGroup
+
+
+END
+

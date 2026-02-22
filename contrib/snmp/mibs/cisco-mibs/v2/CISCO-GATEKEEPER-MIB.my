@@ -1,0 +1,1896 @@
+-- *****************************************************************
+-- CISCO-GATEKEEPER-MIB.my:  H.323 Gatekeeper MIB file
+--   
+-- Copyright (c) 1998-1999, 2000-2002, 2007 by cisco Systems Inc.
+-- 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+--   
+
+CISCO-GATEKEEPER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Gauge32,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    RowStatus,
+    TAddress,
+    TruthValue,
+    TimeStamp,
+    DisplayString
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ciscoExperiment
+        FROM CISCO-SMI
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CgkGatekeeperID,
+    CgkTAddressTag,
+    CgkNAddressTag,
+    CgkNAddress
+        FROM CISCO-H323-TC-MIB;
+
+
+ciscoGatekeeperMIB MODULE-IDENTITY
+    LAST-UPDATED    "200708290000Z"
+    ORGANIZATION    "Cisco Systems, Inc"
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:    +1 800 553-NETS
+
+            E-mail: cs-h323@cisco.com"
+    DESCRIPTION
+        "The MIB Module supports the functions of a gatekeeper.  The
+        gatekeeper is a function of the H.323 Packet Based Multimedia
+        Communications Systems, a standard of TU. The gatekeeper
+        provides address translation and controls access to the network
+        for H.323 terminals."
+    REVISION        "200708290000Z"
+    DESCRIPTION
+        "Corrected the DESCRIPTION for cgkRZoneAllocTotalBandwidth,
+        added few information specific to its value."
+    REVISION        "200708280000Z"
+    DESCRIPTION
+        "Added object identifier cgkRemoteZone to cgkZone, and
+        included the following objects which contains information 
+        specific to remote zone. These objects manage remote zone 
+        bandwidth.
+              cgkRZoneTotalBandwidth,
+              cgkRZoneAllocTotalBandwidth
+
+        cgkGatekeeperComplianceRev3 is deprecated and superseded by
+        cgkGatekeeperComplianceRev4.
+
+        Added cgkRemoteZoneGroup to define the objects that the remote
+        gatekeeper must support for its supported zone."
+    REVISION        "200303130000Z"
+    DESCRIPTION
+        "Corrected the DESCRIPTION for cgkZoneLRQs, which described
+        the meaning of a boolean value incorrectly.  Modified
+        Unsigned32 import to SNMPv2-SMI."
+    REVISION        "200203120000Z"
+    DESCRIPTION
+        "Added the support for Gatekeeper & Zone level management
+        statistics. The Gatkeeper level statistics support is followed
+        from RAS statistics table namely rasStatsTable, from ANNEX 1.2
+        in h341, ITU-T specification. We are also proposing to
+        implement per zone level statistics support.
+        The following objects are added for Gatekeeper level stats:
+              cgkStatsAdmissionRequests,
+              cgkStatsOriginAdmissionRequests,
+              cgkStatsAdmissionConfirms,
+              cgkStatsOriginAdmissionConfirms,
+              cgkStatsAdmissionRejects,
+              cgkStatsOriginAdmissionRejects,
+              cgkStatsTotalConcurrentCalls,
+              cgkStatsOriginTotalConcurrentCalls,
+              cgkStatsRcvdLocationRequests,
+              cgkStatsSentLocationRequests,
+              cgkStatsRcvdLocationConfirms,
+              cgkStatsSentLocationConfirms,
+              cgkStatsRcvdLocationRejects,
+              cgkStatsSentLocationRejects,
+              cgkStatsRegisteredEndpoints,
+              cgkStatsRcvdDisengageRequests,
+              cgkStatsSentDisengageRequests,
+              cgkStatsRcvdDisengageConfirms,
+              cgkStatsSentDisengageConfirms,
+              cgkStatsRcvdDisengageRejects,
+              cgkStatsSentDisengageRejects.
+
+        The following new tables and objects are added for Zone level
+        stats:
+        cgkLocalZoneStatsAdmissionTable->
+                        cgkLZoneStatsAdmissionRequests,
+                        cgkLZoneStatsOriginAdmissionRequests,
+                        cgkLZoneStatsOriginAdmissionConfirms,
+                        cgkLZoneStatsOriginAdmissionRejects,
+                        cgkLZoneStatsOriginTotalConcurrentCalls
+
+        cgkLocalZoneStatsLocationTable->
+                        cgkLZoneStatsSentLocationRequests,
+                        cgkLZoneStatsRcvdLocationConfirms,
+                        cgkLZoneStatsSentLocationConfirms,
+                        cgkLZoneStatsRcvdLocationRejects,
+                        cgkLZoneStatsSentLocationRejects
+
+        cgkLocalZoneStatsRegistrationTable->
+                        cgkLZoneStatsFullRegistrationRequests,
+                        cgkLZoneStatsLightRegistrationRequests,
+                        cgkLZoneStatsRegistrationConfirms,
+                        cgkLZoneStatsRegistrationRejects,
+                        cgkLZoneStatsRegisteredEndpoints
+
+        cgkLocalZoneStatsUnRegistrationTable->
+                        cgkLZoneStatsRcvdUnregistrationRequests,
+                        cgkLZoneStatsSentUnregistrationRequests,
+                        cgkLZoneStatsTimeoutSentUnregistrationRequests,
+                        cgkLZoneStatsRcvdUnregistrationConfirms,
+                        cgkLZoneStatsSentUnregistrationConfirms,
+                        cgkLZoneStatsRcvdUnregistrationRejects,
+                        cgkLZoneStatsSentUnregistrationRejects
+
+        cgkLocalZoneStatsDisengageTable->
+                        cgkLZoneStatsRcvdDisengageRequests,
+                        cgkLZoneStatsSentDisengageRequests,
+                        cgkLZoneStatsRcvdDisengageConfirms,
+                        cgkLZoneStatsSentDisengageConfirms,
+                        cgkLZoneStatsRcvdDisengageRejects,
+                        cgkLZoneStatsSentDisengageRejects."
+    REVISION        "200109200000Z"
+    DESCRIPTION
+        "Add a new object cgkLZoneTotalConcurrentCalls to report the
+        total concurrent calls on a zone basis."
+    REVISION        "200104090000Z"
+    DESCRIPTION
+        "Add a new object cgkLZoneProxiedCallBits to replace the
+        existing object cgkLZoneProxiedCall.
+
+        cgkLZoneProxiedCall is defined as INTEGER(0..15), and
+        is being used as a bit mask.  The range 0..15 only allows
+        for 4 bits to be defined.
+
+        In order to add two new bits for MCU devices (inboundToMcu
+        and outboundFromMcu) the new object cgkLZoneProxiedCallBits
+        will be used to contain all of the old bit definitions
+        plus the new ones.
+
+        The existing object, cgkLZoneProxiedCall is deprecated."
+    REVISION        "200006260000Z"
+    DESCRIPTION
+        "Changed IntrazoneBandwidth to TotalBandwidth in all tables, to
+        clarify meaning of table entries.
+
+        Correct the range and default values for total bandwidth,
+        interzone bandwidth and session bandwidth in the
+        LocalZoneTable.
+
+        Change syntax for allocated total and interzone bandwidth
+        gauges in LocalZoneTable.
+
+        Updated cgkZoneEntry and cgkZoneRowStatus to indicate that
+        items in the table may not be modified when the row is
+        'active'.
+
+        Moved cgkZoneProxiedCall entry to LocalZone Table. In
+        conformance section added entry to specify MIN-ACCESS for
+        cgkZoneIrrFrequency to be read-only, as the agent code
+        currently does not allow this item to be set.
+
+        Changed the maximum range value for cgkHistoryMaxEventEntries
+        to 1000.
+
+        Added definitions for
+            cgkMIBDefaultTotalBandwidth
+            cgkMIBDefaultInterzoneBandwidth
+            cgkMIBDefaultSessionBandwidth."
+    REVISION        "200003100000Z"
+    DESCRIPTION
+        "Add support for interzone bandwidth, session bandwidth,
+        and LRQ counters to zone table.  Add support for notification
+        of events.  Add registration, unregistration and overload
+        events."
+    REVISION        "9810091200Z"
+    DESCRIPTION
+        "The initial version of the mib."
+    ::= { ciscoExperiment 40 }
+
+
+ciscoGatekeeperMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIB 1 }
+
+cgkZone  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIBObjects 1 }
+
+cgkHistory  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIBObjects 2 }
+
+cgkGeneralConfig  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIBObjects 3 }
+
+cgkGeneralStats  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIBObjects 4 }
+
+cgkZoneStats  OBJECT IDENTIFIER
+    ::= { cgkZone 4 }
+
+cgkRemoteZone  OBJECT IDENTIFIER
+    ::= { cgkZone 5 }
+
+-- Zone Information.
+
+cgkZoneTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkZoneEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the local zones supported by the Gatekeeper
+        and the remote zones which the Gatekeeper may or has interacted
+        with."
+    ::= { cgkZone 1 }
+
+cgkZoneEntry OBJECT-TYPE
+    SYNTAX          CgkZoneEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cgkZoneTable. An entry may be
+        created administratively or by the gatekeeper during normal
+        gatekeeper operations.
+
+        No writable objects may be changed while cgkZoneRowStatus is
+        'active'.
+
+        When removing an entry from the table, corresponding entries in
+        the cgkZoneSubnetTable and cgkLocalZoneTable may be removed."
+    INDEX           { cgkZoneIndex } 
+    ::= { cgkZoneTable 1 }
+
+CgkZoneEntry ::= SEQUENCE {
+        cgkZoneIndex                 Unsigned32,
+        cgkZoneZoneName              CgkGatekeeperID,
+        cgkZoneDomain                SnmpAdminString,
+        cgkZoneRasAddressTag         CgkTAddressTag,
+        cgkZoneRasAddress            TAddress,
+        cgkZoneIrrFrequency          INTEGER,
+        cgkZoneLocalZone             TruthValue,
+        cgkZoneDefaultSubnetFlags    INTEGER ,
+        cgkZoneAddressLookupFailures Counter32,
+        cgkZoneEndpointTimeouts      Counter32,
+        cgkZoneOtherFailures         Counter32,
+        cgkZoneLRQs                  Counter32,
+        cgkZoneRowStatus             RowStatus
+}
+
+cgkZoneIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An  unsigned integer value whose only significance is to
+        uniquely identify the conceptual row.  The value has no
+        significance." 
+    ::= { cgkZoneEntry 1 }
+
+cgkZoneZoneName OBJECT-TYPE
+    SYNTAX          CgkGatekeeperID
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The name of the zone .
+        e.g.  zone1.company.com
+
+        This object is required for zone creation." 
+    ::= { cgkZoneEntry 2 }
+
+cgkZoneDomain OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The domain name.
+        e.g.  company.com
+
+        This object is required for zone creation." 
+    ::= { cgkZoneEntry 3 }
+
+cgkZoneRasAddressTag OBJECT-TYPE
+    SYNTAX          CgkTAddressTag
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The tag identifying the underlying type of cgkZoneRasAddress."
+    DEFVAL          { ipv4 } 
+    ::= { cgkZoneEntry 4 }
+
+cgkZoneRasAddress OBJECT-TYPE
+    SYNTAX          TAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The RAS Signal transport address of the gatekeeper supporting
+        the zone."
+    DEFVAL          { '00'H } 
+    ::= { cgkZoneEntry 5 }
+
+cgkZoneIrrFrequency OBJECT-TYPE
+    SYNTAX          INTEGER (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The IRR time a gatekeeper returns in an ACF."
+    DEFVAL          { 240 } 
+    ::= { cgkZoneEntry 6 }
+
+cgkZoneLocalZone OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If this gatekeeper manages the zone, then this value is 'true'
+        otherwise it is false."
+    DEFVAL          { true } 
+    ::= { cgkZoneEntry 7 }
+
+cgkZoneDefaultSubnetFlags OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enable(1),
+                        disable(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If there is no entry in the cgkZoneSubnetTable matching the
+        subnet of the GRQ originator, then the gatekeeper uses the
+        value of this object for determining the response.
+
+        The description of the value is:
+
+            enable    Gatekeeper response to a GRQ/LRQ is GCF/LCF if
+                      the GRQ/LRQ has a matching or NULL
+                      gatekeeperIdentifier.
+
+            disable   Gatekeeper does not respond if the gatekeeper
+                      identifier in the GRQ/LRQ doesn't match."
+    DEFVAL          { enable } 
+    ::= { cgkZoneEntry 8 }
+
+cgkZoneAddressLookupFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the gatekeeper is unable to resolve an
+        address." 
+    ::= { cgkZoneEntry 9 }
+
+cgkZoneEndpointTimeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the cgkEpTimeToLive has expired for
+        an endpoint in this zone." 
+    ::= { cgkZoneEntry 10 }
+
+cgkZoneOtherFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of call attempts which have failed for reasons
+        other than cgkZoneEndpointTimeouts or
+        cgkZoneAddressLookupFailures." 
+    ::= { cgkZoneEntry 11 }
+
+cgkZoneLRQs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of LRQs received by the gatekeeper for a
+        particular local zone. If cgkZoneLocalZone is
+        'false' then the value of this object has no meaning." 
+    ::= { cgkZoneEntry 12 }
+
+cgkZoneRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The row status of the entry. This object is required to create
+        or delete rows administratively. The transition from 'active' to
+        'notInService' may not be supported.
+
+        No objects in the row may be modified when the row is 'active'." 
+    ::= { cgkZoneEntry 13 }
+ 
+
+-- zone subnet table
+
+cgkZoneSubnetTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkZoneSubnetEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table identifies communication characteristics between a
+        gatekeeper and endpoints whose RAS address is on specified IP
+        subnets. This table is appropriate for a zone whose
+        znRasAddressTag is 'ipv4' or 'ipv6'."
+    ::= { cgkZone 2 }
+
+cgkZoneSubnetEntry OBJECT-TYPE
+    SYNTAX          CgkZoneSubnetEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cgkZoneSubnetTable is a configured item giving
+        gatekeeper protocol behavior with endpoints whose RAS address
+        is in the specified subnet.
+
+        An entry may be created only administratively. Writable objects
+        may be changed while a conceptual row is 'active'."
+    INDEX           {
+                        cgkZoneIndex,
+                        cgkZoneSubnetTag,
+                        IMPLIED cgkZoneSubnetAddress
+                    } 
+    ::= { cgkZoneSubnetTable 1 }
+
+CgkZoneSubnetEntry ::= SEQUENCE {
+        cgkZoneSubnetTag       CgkNAddressTag,
+        cgkZoneSubnetAddress   CgkNAddress,
+        cgkZoneSubnetMask      CgkNAddress,
+        cgkZoneSubnetFlags     INTEGER ,
+        cgkZoneSubnetRowStatus RowStatus
+}
+
+cgkZoneSubnetTag OBJECT-TYPE
+    SYNTAX          CgkNAddressTag
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The tag identifying the underlying type of cgkZoneSubnetAddress
+        and cgkZoneSubnetMask." 
+    ::= { cgkZoneSubnetEntry 1 }
+
+cgkZoneSubnetAddress OBJECT-TYPE
+    SYNTAX          CgkNAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The subnet address of the zone." 
+    ::= { cgkZoneSubnetEntry 2 }
+
+cgkZoneSubnetMask OBJECT-TYPE
+    SYNTAX          CgkNAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The subnet mask and cgkZoneSubnetAddress must have the
+        relationship
+
+            (cgkZoneSubnetAddress & cgkZoneSubnetMask) ==
+                 cgkZoneSubnetAddress
+
+        that is the bitwise AND of cgkZoneSubnetAddress with
+        cgkZoneSubnetAddress must equal cgkZoneSubnetAddress otherwise
+        the set request shall fail with a 'inconsistentValue' error.
+        This object is required for row creation." 
+    ::= { cgkZoneSubnetEntry 3 }
+
+cgkZoneSubnetFlags OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enable(1),
+                        disable(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If there is an entry in the cgkZoneSubnetTable matching the
+        subnet of the GRQ/LRQ originator, then the gatekeeper uses the
+        value of this attribute to determine the response.
+
+        The description of the value follows:
+
+            enable    Gatekeeper response to a GRQ/LRQ is GCF/LCF if
+                      the GRQ/LRQ has a matching or NULL
+                      gatekeeperIdentifier.
+
+            disable   Gatekeeper does not respond if the gatekeeper
+                      identifier in the GRQ/LRQ doesn't match."
+    DEFVAL          { enable } 
+    ::= { cgkZoneSubnetEntry 4 }
+
+cgkZoneSubnetRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The row status of the entry. New rows are created using
+        'createAndGo' and deleted using 'destroy'.
+
+        Once 'active' this object may be set to only 'destroy' and
+        only cgkZoneSubnetFlags may be modified." 
+    ::= { cgkZoneSubnetEntry 5 }
+ 
+
+-- Local Zone Information.
+
+cgkLocalZoneTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkLocalZoneEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains information specific to the local zones
+        supported by the Gatekeeper."
+    ::= { cgkZone 3 }
+
+cgkLocalZoneEntry OBJECT-TYPE
+    SYNTAX          CgkLocalZoneEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A single gatekeeper locally managed zone.
+
+        An entry is created in this table when an entry in the
+        cgkZoneTable is created with cgkZoneLocalZone set to a value of
+        true. The entry is removed when its associated entry in the
+        cgkZoneTable is deleted or when cgkZoneLocalZone is set false."
+    INDEX           { cgkZoneIndex } 
+    ::= { cgkLocalZoneTable 1 }
+
+CgkLocalZoneEntry ::= SEQUENCE {
+        cgkLZoneACFs                    Counter32,
+        cgkLZoneARJs                    Counter32,
+        cgkLZoneTotalBandwidth          Integer32,
+        cgkLZoneAllocTotalBandwidth     Gauge32,
+        cgkLZoneInterzoneBandwidth      Integer32,
+        cgkLZoneAllocInterzoneBandwidth Gauge32,
+        cgkLZoneSessionBandwidth        Integer32,
+        cgkLZoneProxiedCall             INTEGER,
+        cgkLZoneProxiedCallBits         BITS,
+        cgkLZoneTotalConcurrentCalls    Gauge32
+}
+
+cgkLZoneACFs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ACFs sent by the gatekeeper for the local zone." 
+    ::= { cgkLocalZoneEntry 1 }
+
+cgkLZoneARJs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ARJs sent by the gatekeeper for the local zone." 
+    ::= { cgkLocalZoneEntry 2 }
+
+cgkLZoneTotalBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum bidirectional bandwidth which a gatekeeper can
+        allocate to all calls in the zone.
+
+        Value must be greater than or equal to the value specified in
+        cgkLZoneInterZoneBandwith.
+
+        A value of -1 indicates no bandwidth limitation has been set,
+        and the value defined by cgkMIBDefaultTotalBandwidth is
+        used."
+    DEFVAL          { -1 } 
+    ::= { cgkLocalZoneEntry 3 }
+
+cgkLZoneAllocTotalBandwidth OBJECT-TYPE
+    SYNTAX          Gauge32 (0..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total bidirectional bandwidth allocated by the gatekeeper
+        to the active calls.
+
+        This value will not exceed the value of cgkLZoneTotalBandwidth." 
+    ::= { cgkLocalZoneEntry 4 }
+
+cgkLZoneInterzoneBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum bidirectional bandwidth which a gatekeeper can
+        allocate to all calls between this zone and all other zones.
+
+        Value must be less than or equal to the value specified in
+        cgkLZoneTotalBandwith.
+
+        A value of -1 indicates no bandwidth limitation has been set,
+        and the value defined by cgkMIBDefaultInterzoneBandwidth is
+        used."
+    DEFVAL          { -1 } 
+    ::= { cgkLocalZoneEntry 5 }
+
+cgkLZoneAllocInterzoneBandwidth OBJECT-TYPE
+    SYNTAX          Gauge32 (0..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total bidirectional bandwidth allocated by the gatekeeper
+        to the active calls between this zone and all other zones.
+
+        This value will not exceed the value of
+        cgkLZoneInterzoneBandwidth." 
+    ::= { cgkLocalZoneEntry 6 }
+
+cgkLZoneSessionBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (-1..50000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum bidirectional bandwidth which a gatekeeper can
+        allocate to  a call in this zone.
+
+        A value of -1 indicates no bandwidth limitation has been set,
+        and the value defined by cgkMIBDefaultSessionBandwidth is
+        used."
+    DEFVAL          { -1 } 
+    ::= { cgkLocalZoneEntry 7 }
+
+cgkLZoneProxiedCall OBJECT-TYPE
+    SYNTAX          INTEGER (0..15)
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a bit mask value that specifies what type of calls into
+        or out of the zone are handled by the proxy. It consists of the
+        following bits ORed together
+
+               none                  (0),
+               inboundToTerminal     (1),
+               inboundToGateway      (2),
+               outboundFromTerminal  (4),
+               outboundFromGateway   (8)
+
+        When a cisco gatekeeper receives an LRQ and the call type
+        matches that specified by a bit set in this bit mask, then the
+        gatekeeper returns the call signal address of the proxy end
+        point otherwise it returns the call signal address of the
+        destination endpoint."
+    DEFVAL          { 0 } 
+    ::= { cgkLocalZoneEntry 8 }
+
+cgkLZoneProxiedCallBits OBJECT-TYPE
+    SYNTAX          BITS {
+                        inboundToTerminal(0),
+                        inboundToGateway(1),
+                        outboundFromTerminal(2),
+                        outboundFromGateway(3),
+                        inboundToMcu(4),
+                        outboundFromMcu(5)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "These bits specify what type of calls into or out of
+        the zone are handled by the proxy.
+
+        When a cisco gatekeeper receives an LRQ and the call type
+        matches that specified by a bit set in this bit mask, then the
+        gatekeeper returns the call signal address of the proxy end
+        point otherwise it returns the call signal address of the
+        destination endpoint."
+    DEFVAL          { {  } } 
+    ::= { cgkLocalZoneEntry 9 }
+
+cgkLZoneTotalConcurrentCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of concurrent calls on a zone basis." 
+    ::= { cgkLocalZoneEntry 10 }
+ 
+
+-- Zone Level Management statistics Information.
+
+cgkLocalZoneStatsAdmissionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkLocalZoneStatsAdmissionTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about Admission statistics
+        data for a local zone managed by this Gatekeeper. If
+        cgkZoneLocalZone is 'false' for a particular zone, there will
+        be no entry in this table for that cgkZoneIndex."
+    ::= { cgkZoneStats 1 }
+
+cgkLocalZoneStatsAdmissionTableEntry OBJECT-TYPE
+    SYNTAX          CgkLocalZoneStatsAdmissionTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cgkLocalZoneStatsAdmissionTable."
+    INDEX           { cgkZoneIndex } 
+    ::= { cgkLocalZoneStatsAdmissionTable 1 }
+
+CgkLocalZoneStatsAdmissionTableEntry ::= SEQUENCE {
+        cgkLZoneStatsAdmissionRequests          Counter32,
+        cgkLZoneStatsOriginAdmissionRequests    Counter32,
+        cgkLZoneStatsOriginAdmissionConfirms    Counter32,
+        cgkLZoneStatsOriginAdmissionRejects     Counter32,
+        cgkLZoneStatsOriginTotalConcurrentCalls Gauge32
+}
+
+cgkLZoneStatsAdmissionRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Requests received for the local zone.
+        Represents the sum of ARQ's received from both the originating
+        and terminating endpoints for the local zone." 
+    ::= { cgkLocalZoneStatsAdmissionTableEntry 1 }
+
+cgkLZoneStatsOriginAdmissionRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Requests received from the
+        Originating endpoint for the local zone." 
+    ::= { cgkLocalZoneStatsAdmissionTableEntry 2 }
+
+cgkLZoneStatsOriginAdmissionConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Confirms sent to the Originating
+        endpoint for the local zone." 
+    ::= { cgkLocalZoneStatsAdmissionTableEntry 3 }
+
+cgkLZoneStatsOriginAdmissionRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Rejects sent to the Originating
+        endpoint for the local zone." 
+    ::= { cgkLocalZoneStatsAdmissionTableEntry 4 }
+
+cgkLZoneStatsOriginTotalConcurrentCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of concurrent originating calls on a zone basis.
+        When this Gatekeeper is under cluster then this parameter
+        represents the total originating calls in the cluster." 
+    ::= { cgkLocalZoneStatsAdmissionTableEntry 5 }
+ 
+
+
+cgkLocalZoneStatsLocationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkLocalZoneStatsLocationTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about Location statistics
+        data for a local zone managed by this Gatekeeper. If
+        cgkZoneLocalZone is 'false' for a particular zone, there will
+        be no entry in this table for that cgkZoneIndex."
+    ::= { cgkZoneStats 2 }
+
+cgkLocalZoneStatsLocationTableEntry OBJECT-TYPE
+    SYNTAX          CgkLocalZoneStatsLocationTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cgkLocalZoneStatsLocationTable."
+    INDEX           { cgkZoneIndex } 
+    ::= { cgkLocalZoneStatsLocationTable 1 }
+
+CgkLocalZoneStatsLocationTableEntry ::= SEQUENCE {
+        cgkLZoneStatsSentLocationRequests Counter32,
+        cgkLZoneStatsRcvdLocationConfirms Counter32,
+        cgkLZoneStatsSentLocationConfirms Counter32,
+        cgkLZoneStatsRcvdLocationRejects  Counter32,
+        cgkLZoneStatsSentLocationRejects  Counter32
+}
+
+cgkLZoneStatsSentLocationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Requests sent for the local zone." 
+    ::= { cgkLocalZoneStatsLocationTableEntry 1 }
+
+cgkLZoneStatsRcvdLocationConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Confirms received for the local zone." 
+    ::= { cgkLocalZoneStatsLocationTableEntry 2 }
+
+cgkLZoneStatsSentLocationConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Confirms sent for the local zone." 
+    ::= { cgkLocalZoneStatsLocationTableEntry 3 }
+
+cgkLZoneStatsRcvdLocationRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Rejects received for the local zone." 
+    ::= { cgkLocalZoneStatsLocationTableEntry 4 }
+
+cgkLZoneStatsSentLocationRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Rejects sent for the local zone." 
+    ::= { cgkLocalZoneStatsLocationTableEntry 5 }
+ 
+
+
+cgkLocalZoneStatsRegistrationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkLocalZoneStatsRegistrationTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about Registration
+        statistics data for a local zone managed by this Gatekeeper.
+        If cgkZoneLocalZone is 'false' for a particular zone, there
+        will be no entry in this table for that cgkZoneIndex."
+    ::= { cgkZoneStats 3 }
+
+cgkLocalZoneStatsRegistrationTableEntry OBJECT-TYPE
+    SYNTAX          CgkLocalZoneStatsRegistrationTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cgkLocalZoneStatsRegistrationTable."
+    INDEX           { cgkZoneIndex } 
+    ::= { cgkLocalZoneStatsRegistrationTable 1 }
+
+CgkLocalZoneStatsRegistrationTableEntry ::= SEQUENCE {
+        cgkLZoneStatsFullRegistrationRequests  Counter32,
+        cgkLZoneStatsLightRegistrationRequests Counter32,
+        cgkLZoneStatsRegistrationConfirms      Counter32,
+        cgkLZoneStatsRegistrationRejects       Counter32,
+        cgkLZoneStatsRegisteredEndpoints       Counter32
+}
+
+cgkLZoneStatsFullRegistrationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Full Registration Requests received for the
+        local zone." 
+    ::= { cgkLocalZoneStatsRegistrationTableEntry 1 }
+
+cgkLZoneStatsLightRegistrationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Lightweight Registration Requests received for
+        the local zone." 
+    ::= { cgkLocalZoneStatsRegistrationTableEntry 2 }
+
+cgkLZoneStatsRegistrationConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Registration Confirms sent for the local zone." 
+    ::= { cgkLocalZoneStatsRegistrationTableEntry 3 }
+
+cgkLZoneStatsRegistrationRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Registration Rejects sent for the local zone." 
+    ::= { cgkLocalZoneStatsRegistrationTableEntry 4 }
+
+cgkLZoneStatsRegisteredEndpoints OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of currently active real registered endpoints for
+        the local zone." 
+    ::= { cgkLocalZoneStatsRegistrationTableEntry 5 }
+ 
+
+
+cgkLocalZoneStatsUnRegistrationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkLocalZoneStatsUnRegistrationTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about UnRegistration
+        statistics data for a local zone managed by this Gatekeeper.
+        If cgkZoneLocalZone is 'false' for a particular zone, there
+        will be no entry in this table for that cgkZoneIndex."
+    ::= { cgkZoneStats 4 }
+
+cgkLocalZoneStatsUnRegistrationTableEntry OBJECT-TYPE
+    SYNTAX          CgkLocalZoneStatsUnRegistrationTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cgkLocalZoneStatsUnRegistrationTable."
+    INDEX           { cgkZoneIndex } 
+    ::= { cgkLocalZoneStatsUnRegistrationTable 1 }
+
+CgkLocalZoneStatsUnRegistrationTableEntry ::= SEQUENCE {
+        cgkLZoneStatsRcvdUnregistrationRequests        Counter32,
+        cgkLZoneStatsSentUnregistrationRequests        Counter32,
+        cgkLZoneStatsTimeoutSentUnregistrationRequests Counter32,
+        cgkLZoneStatsRcvdUnregistrationConfirms        Counter32,
+        cgkLZoneStatsSentUnregistrationConfirms        Counter32,
+        cgkLZoneStatsRcvdUnregistrationRejects         Counter32,
+        cgkLZoneStatsSentUnregistrationRejects         Counter32
+}
+
+cgkLZoneStatsRcvdUnregistrationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Unregistration Requests received for the local
+        zone." 
+    ::= { cgkLocalZoneStatsUnRegistrationTableEntry 1 }
+
+cgkLZoneStatsSentUnregistrationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Unregistration Requests sent for the local
+        zone." 
+    ::= { cgkLocalZoneStatsUnRegistrationTableEntry 2 }
+
+cgkLZoneStatsTimeoutSentUnregistrationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of forced Unregistration Requests sent for the
+        local zone due to Timeout." 
+    ::= { cgkLocalZoneStatsUnRegistrationTableEntry 3 }
+
+cgkLZoneStatsRcvdUnregistrationConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Unregistration Confirms received for the local
+        zone." 
+    ::= { cgkLocalZoneStatsUnRegistrationTableEntry 4 }
+
+cgkLZoneStatsSentUnregistrationConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Unregistration Confirms sent for the local
+        zone." 
+    ::= { cgkLocalZoneStatsUnRegistrationTableEntry 5 }
+
+cgkLZoneStatsRcvdUnregistrationRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Unregistration Rejects received for the local
+        zone." 
+    ::= { cgkLocalZoneStatsUnRegistrationTableEntry 6 }
+
+cgkLZoneStatsSentUnregistrationRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Unregistration Rejects sent for the local
+        zone." 
+    ::= { cgkLocalZoneStatsUnRegistrationTableEntry 7 }
+ 
+
+
+cgkLocalZoneStatsDisengageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkLocalZoneStatsDisengageTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about Disengage statistics
+        data for a local zone managed by this Gatekeeper. If
+        cgkZoneLocalZone is 'false' for a particular zone, there will
+        be no entry in this table for that cgkZoneIndex."
+    ::= { cgkZoneStats 5 }
+
+cgkLocalZoneStatsDisengageTableEntry OBJECT-TYPE
+    SYNTAX          CgkLocalZoneStatsDisengageTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cgkLocalZoneStatsDisengageTable."
+    INDEX           { cgkZoneIndex } 
+    ::= { cgkLocalZoneStatsDisengageTable 1 }
+
+CgkLocalZoneStatsDisengageTableEntry ::= SEQUENCE {
+        cgkLZoneStatsRcvdDisengageRequests Counter32,
+        cgkLZoneStatsSentDisengageRequests Counter32,
+        cgkLZoneStatsRcvdDisengageConfirms Counter32,
+        cgkLZoneStatsSentDisengageConfirms Counter32,
+        cgkLZoneStatsRcvdDisengageRejects  Counter32,
+        cgkLZoneStatsSentDisengageRejects  Counter32
+}
+
+cgkLZoneStatsRcvdDisengageRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Requests received for the local zone." 
+    ::= { cgkLocalZoneStatsDisengageTableEntry 1 }
+
+cgkLZoneStatsSentDisengageRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Requests sent for the local zone." 
+    ::= { cgkLocalZoneStatsDisengageTableEntry 2 }
+
+cgkLZoneStatsRcvdDisengageConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Confirms received for the local zone." 
+    ::= { cgkLocalZoneStatsDisengageTableEntry 3 }
+
+cgkLZoneStatsSentDisengageConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Confirms sent for the local zone." 
+    ::= { cgkLocalZoneStatsDisengageTableEntry 4 }
+
+cgkLZoneStatsRcvdDisengageRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Rejects received for the local zone." 
+    ::= { cgkLocalZoneStatsDisengageTableEntry 5 }
+
+cgkLZoneStatsSentDisengageRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Rejects sent for the local zone." 
+    ::= { cgkLocalZoneStatsDisengageTableEntry 6 }
+ 
+
+
+-- Remote Zone Information.
+
+cgkRZoneTotalBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum bidirectional bandwidth which a remote gatekeeper
+        can allocate to all calls to the zone, supported by it.
+
+        A value of -1 indicates no bandwidth limitation has been set,
+        and the value defined by cgkMIBDefaultTotalBandwidth is
+        used."
+    DEFVAL          { -1 } 
+    ::= { cgkRemoteZone 1 }
+
+cgkRZoneAllocTotalBandwidth OBJECT-TYPE
+    SYNTAX          Gauge32 (0..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total bidirectional bandwidth allocated by the
+        gatekeeper to the active calls.
+
+        If cgkRZoneTotalBandwidth is configured and not equal
+        to -1, then this value will not exceed the value of
+        cgkRZoneTotalBandwidth. The value 0 indicates that
+        currently there are no remote zone bandwidth allocated." 
+    ::= { cgkRemoteZone 2 }
+
+-- Event History Table
+
+cgkHistoryMaxEventEntries OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of entries that can be held in
+        cgkHistoryEventTable.
+        The default value for this object is 20." 
+    ::= { cgkHistory 1 }
+
+cgkHistoryEventTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgkHistoryEventEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains a history of notification events which
+        occurred during Gatekeeper operation."
+    ::= { cgkHistory 2 }
+
+cgkHistoryEventEntry OBJECT-TYPE
+    SYNTAX          CgkHistoryEventEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a notification event on this Gatekeeper."
+    INDEX           { cgkHistoryEventIndex } 
+    ::= { cgkHistoryEventTable 1 }
+
+CgkHistoryEventEntry ::= SEQUENCE {
+        cgkHistoryEventIndex           Integer32,
+        cgkHistoryEventType            INTEGER ,
+        cgkHistoryEventTime            TimeStamp,
+        cgkHistoryEventText            DisplayString,
+        cgkHistoryEventEndpointType    INTEGER ,
+        cgkHistoryEventEndpointAddrTag CgkNAddressTag,
+        cgkHistoryEventEndpointAddress CgkNAddress,
+        cgkHistoryEventEndpointH323id  SnmpAdminString
+}
+
+cgkHistoryEventIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A monotonically increasing integer for the sole purpose of
+        indexing events.  When it reaches the maximum value, an
+        extremely unlikely event, the agent wraps the value back
+        to 1 and may flush existing entries." 
+    ::= { cgkHistoryEventEntry 1 }
+
+cgkHistoryEventType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        register(2),
+                        unregister(3),
+                        unregisterForced(4),
+                        overload(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object indicates the event that occurred.
+        other            - An event other than the ones listed below.
+        register         - A full RRQ was received by the gatekeeper to
+                           register a previously unregistered endpoint.
+        unregister       - An endpoint was unregistered because it sent
+                           a URQ to the gatekeeper.
+        unregisterForced - The gatekeeper sent a URQ to the endpoint.
+        overload         - The gatekeeper has detected sustained
+                           overload. A sustained overload condition
+                           will cause the gatekeeper to reject calls." 
+    ::= { cgkHistoryEventEntry 2 }
+
+cgkHistoryEventTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when the running configuration
+        when the event occurred." 
+    ::= { cgkHistoryEventEntry 3 }
+
+cgkHistoryEventText OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object indicates the event reason for the current
+        or last event.  It should be used only for direct,
+        human-readable display and only if a management station
+        is unable to decode the value of cgkHistoryEventType." 
+    ::= { cgkHistoryEventEntry 4 }
+
+cgkHistoryEventEndpointType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        other(2),
+                        gatekeeper(3),
+                        gateway(4),
+                        mcu(5),
+                        terminal(6),
+                        proxy(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the endpoint that triggered the register or
+        unregister event.
+        none       - No endpoint is associated with this event.
+        other      - An endpoint type other than the ones listed below.
+        gatekeeper - The endpoint is a Gatekeeper.
+        gateway    - The endpoint is a Gateway (and not a proxy).
+        mcu        - The endpoint is a Multipoint Control Unit.
+        terminal   - The endpoint is an H.323 terminal.
+        proxy      - The endpoint is a Proxy." 
+    ::= { cgkHistoryEventEntry 5 }
+
+cgkHistoryEventEndpointAddrTag OBJECT-TYPE
+    SYNTAX          CgkNAddressTag
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of network address associated with the endpoint
+        that triggered the register or unregister event.
+        This field is not valid for other event types." 
+    ::= { cgkHistoryEventEntry 6 }
+
+cgkHistoryEventEndpointAddress OBJECT-TYPE
+    SYNTAX          CgkNAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The network address associated with the endpoint
+        that triggered the register or unregister event.
+        This field is not valid for other event types." 
+    ::= { cgkHistoryEventEntry 7 }
+
+cgkHistoryEventEndpointH323id OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The H323 ID of the endpoint associated with the register or
+        unregister event. This field is not valid for other event
+        types." 
+    ::= { cgkHistoryEventEntry 8 }
+ 
+
+
+-- General Configuration Data
+
+cgkMIBEnableEventNotification OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether or not an Event Alarm Notification
+        will be generated by the Gatekeeper.  A false value
+        will prevent the Gatekeeper from generating the
+        notification."
+    DEFVAL          { false } 
+    ::= { cgkGeneralConfig 1 }
+
+cgkMIBDefaultTotalBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The value of this object represents the maximum bi-directional
+        bandwidth which can be allocated by a gatekeeper for call
+        connections in a zone.
+
+        When no value has been assigned to a particular
+        cgkLZoneTotalBandwidth entry i.e. its value is -1, the value
+        of this object is used for the maximum bi-directional bandwidth
+        of the call connections in that zone.
+
+        Value must be greater than or equal to the value specified in
+        cgkMIBDefaultInterZoneBandwith.
+
+        A value of -1 indicates no bandwidth limitation has been set."
+    DEFVAL          { -1 } 
+    ::= { cgkGeneralConfig 2 }
+
+cgkMIBDefaultInterzoneBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1000000000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The value of this object represents the maximum bi-directional
+        bandwidth which can be allocated by a gatekeeper for call
+        connections from one zone to other zones.
+
+        When no value has been assigned to a particular
+        cgkLZoneInterzoneBandwidth entry i.e. its value is -1, the value
+        of this object is used for the maximum bi-directional bandwidth
+        of the call connections between that zone and other zones.
+
+        Value must be less than or equal to the value specified in
+        cgkMIBDefaultTotalBandwith.
+
+        A value of -1 indicates no bandwidth limitation has been set."
+    DEFVAL          { -1 } 
+    ::= { cgkGeneralConfig 3 }
+
+cgkMIBDefaultSessionBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (-1..50000 )
+    UNITS           "100 bps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "When no value has been assigned to a particular
+        cgkLZoneSessionBandwidth entry i.e. its value is -1, then
+        this value defines the maximum bidirectional bandwidth which
+        a gatekeeper can allocate to a call in that zone.
+
+        This value represents the total bidirectional data flow
+        in units of hundreds bits per second (bps).  A value of 10 is
+        1000bps.
+
+        A value of -1 indicates no bandwidth limitation has been set."
+    DEFVAL          { -1 } 
+    ::= { cgkGeneralConfig 4 }
+
+-- Gatekeeper Level Management statistics Information.
+
+cgkStatsAdmissionRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Admission Requests received by the
+        Gatekeeper. Represents the sum of ARQ's received from both
+        the originating and terminating endpoint." 
+    ::= { cgkGeneralStats 1 }
+
+cgkStatsOriginAdmissionRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Requests received from the
+        Originating endpoint for the Gatekeeper." 
+    ::= { cgkGeneralStats 2 }
+
+cgkStatsAdmissionConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Confirms sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 3 }
+
+cgkStatsOriginAdmissionConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Confirms sent to the Originating
+        endpoint by the Gatekeeper." 
+    ::= { cgkGeneralStats 4 }
+
+cgkStatsAdmissionRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Rejects sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 5 }
+
+cgkStatsOriginAdmissionRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Admission Rejects sent to the Originating
+        endpoint by the Gatekeeper." 
+    ::= { cgkGeneralStats 6 }
+
+cgkStatsTotalConcurrentCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of concurrent calls on the Gatekeeper. This counter
+        is incremented when ACF is sent for a particular Admission
+        Request and decremented when DRQ is sent or received by the
+        Gatekeeper." 
+    ::= { cgkGeneralStats 7 }
+
+cgkStatsOriginTotalConcurrentCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of concurrent originating calls on the Gatekeeper." 
+    ::= { cgkGeneralStats 8 }
+
+cgkStatsRcvdLocationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Requests received by the Gatekeeper." 
+    ::= { cgkGeneralStats 9 }
+
+cgkStatsSentLocationRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Requests sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 10 }
+
+cgkStatsRcvdLocationConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Confirms received by the Gatekeeper." 
+    ::= { cgkGeneralStats 11 }
+
+cgkStatsSentLocationConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Confirms sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 12 }
+
+cgkStatsRcvdLocationRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Rejects received by the Gatekeeper." 
+    ::= { cgkGeneralStats 13 }
+
+cgkStatsSentLocationRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Location Rejects sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 14 }
+
+cgkStatsRegisteredEndpoints OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The per Gatekeeper level Registered endpoints." 
+    ::= { cgkGeneralStats 15 }
+
+cgkStatsRcvdDisengageRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Requests received by the Gatekeeper." 
+    ::= { cgkGeneralStats 16 }
+
+cgkStatsSentDisengageRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Requests sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 17 }
+
+cgkStatsRcvdDisengageConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Confirms received by the Gatekeeper." 
+    ::= { cgkGeneralStats 18 }
+
+cgkStatsSentDisengageConfirms OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Confirms sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 19 }
+
+cgkStatsRcvdDisengageRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Rejects received by the Gatekeeper." 
+    ::= { cgkGeneralStats 20 }
+
+cgkStatsSentDisengageRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Disengage Rejects sent by the Gatekeeper." 
+    ::= { cgkGeneralStats 21 }
+-- NOTIFICATIONS
+
+ciscoGatekeeperMIBNotificationPrefix  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIB 2 }
+
+ciscoGatekeeperMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIBNotificationPrefix 0 }
+
+
+ciscoGatekeeperEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        cgkHistoryEventType,
+                        cgkHistoryEventEndpointType,
+                        cgkHistoryEventEndpointAddrTag,
+                        cgkHistoryEventEndpointAddress,
+                        cgkHistoryEventEndpointH323id
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ciscoGatekeeperEvent is sent whenever a new event is added
+        to the cgkHistoryEventTable."
+   ::= { ciscoGatekeeperMIBNotifications 1 }
+-- CONFORMANCE
+
+ciscoGatekeeperMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIB 3 }
+
+ciscoGatekeeperMIBCompliance  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIBConformance 1 }
+
+ciscoGatekeeperMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoGatekeeperMIBConformance 2 }
+
+
+cgkGatekeeperCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The set of objects required for compliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cgkZoneGroup,
+                        cgkZoneSubnetGroup,
+                        cgkLocalZoneGroup,
+                        cgkHistoryEventGroup,
+                        cgkGeneralGroup,
+                        cgkNotificationsGroup
+                    }
+
+    OBJECT          cgkZoneIrrFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Create/Write access is not required."
+    ::= { ciscoGatekeeperMIBCompliance 1 }
+
+cgkGatekeeperComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The set of objects required for compliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cgkZoneGroup,
+                        cgkZoneSubnetGroup,
+                        cgkLocalZoneGroupRev1,
+                        cgkHistoryEventGroup,
+                        cgkGeneralGroup,
+                        cgkNotificationsGroup
+                    }
+
+    OBJECT          cgkZoneIrrFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Create/Write access is not required."
+    ::= { ciscoGatekeeperMIBCompliance 2 }
+
+cgkGatekeeperComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The set of objects required for compliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cgkZoneGroup,
+                        cgkZoneSubnetGroup,
+                        cgkLocalZoneGroupRev2,
+                        cgkHistoryEventGroup,
+                        cgkGeneralGroup,
+                        cgkNotificationsGroup
+                    }
+
+    OBJECT          cgkZoneIrrFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Create/Write access is not required."
+    ::= { ciscoGatekeeperMIBCompliance 3 }
+
+cgkGatekeeperComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The set of objects required for compliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cgkZoneGroup,
+                        cgkZoneSubnetGroup,
+                        cgkLocalZoneGroupRev2,
+                        cgkHistoryEventGroup,
+                        cgkGeneralGroup,
+                        cgkZoneMgmtStatsGroup,
+                        cgkGeneralMgmtStatsGroup,
+                        cgkNotificationsGroup
+                    }
+
+    OBJECT          cgkZoneIrrFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Create/Write access is not required."
+    ::= { ciscoGatekeeperMIBCompliance 4 }
+
+cgkGatekeeperComplianceRev4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The set of objects required for compliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cgkZoneGroup,
+                        cgkZoneSubnetGroup,
+                        cgkLocalZoneGroupRev2,
+                        cgkHistoryEventGroup,
+                        cgkGeneralGroup,
+                        cgkZoneMgmtStatsGroup,
+                        cgkGeneralMgmtStatsGroup,
+                        cgkNotificationsGroup,
+                        cgkRemoteZoneGroup
+                    }
+
+    OBJECT          cgkZoneIrrFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Create/Write access is not required."
+    ::= { ciscoGatekeeperMIBCompliance 5 }
+
+-- Groups for Conformance
+
+cgkZoneGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkZoneZoneName,
+                        cgkZoneDomain,
+                        cgkZoneRasAddressTag,
+                        cgkZoneRasAddress,
+                        cgkZoneIrrFrequency,
+                        cgkZoneLocalZone,
+                        cgkZoneDefaultSubnetFlags,
+                        cgkZoneAddressLookupFailures,
+                        cgkZoneEndpointTimeouts,
+                        cgkZoneOtherFailures,
+                        cgkZoneLRQs,
+                        cgkZoneRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for local and
+        remote zones."
+    ::= { ciscoGatekeeperMIBGroups 1 }
+
+cgkZoneSubnetGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkZoneSubnetMask,
+                        cgkZoneSubnetFlags,
+                        cgkZoneSubnetRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper supports for identifying
+        access between zones based on IP subnet."
+    ::= { ciscoGatekeeperMIBGroups 2 }
+
+cgkLocalZoneGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkLZoneACFs,
+                        cgkLZoneARJs,
+                        cgkLZoneTotalBandwidth,
+                        cgkLZoneAllocTotalBandwidth,
+                        cgkLZoneInterzoneBandwidth,
+                        cgkLZoneAllocInterzoneBandwidth,
+                        cgkLZoneSessionBandwidth,
+                        cgkLZoneProxiedCall
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for a local
+        zone."
+    ::= { ciscoGatekeeperMIBGroups 3 }
+
+cgkHistoryEventGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkHistoryMaxEventEntries,
+                        cgkHistoryEventType,
+                        cgkHistoryEventTime,
+                        cgkHistoryEventText,
+                        cgkHistoryEventEndpointType,
+                        cgkHistoryEventEndpointAddress,
+                        cgkHistoryEventEndpointAddrTag,
+                        cgkHistoryEventEndpointH323id,
+                        cgkMIBEnableEventNotification
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper supports to record
+        notification events."
+    ::= { ciscoGatekeeperMIBGroups 4 }
+
+cgkGeneralGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkMIBDefaultTotalBandwidth,
+                        cgkMIBDefaultInterzoneBandwidth,
+                        cgkMIBDefaultSessionBandwidth
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for general
+        configuration."
+    ::= { ciscoGatekeeperMIBGroups 5 }
+
+cgkNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoGatekeeperEvent }
+    STATUS          current
+    DESCRIPTION
+        "The set of notification events a gatekeeper supports."
+    ::= { ciscoGatekeeperMIBGroups 6 }
+
+cgkLocalZoneGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cgkLZoneACFs,
+                        cgkLZoneARJs,
+                        cgkLZoneTotalBandwidth,
+                        cgkLZoneAllocTotalBandwidth,
+                        cgkLZoneInterzoneBandwidth,
+                        cgkLZoneAllocInterzoneBandwidth,
+                        cgkLZoneSessionBandwidth,
+                        cgkLZoneProxiedCall,
+                        cgkLZoneProxiedCallBits
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for a local
+        zone."
+    ::= { ciscoGatekeeperMIBGroups 7 }
+
+cgkLocalZoneGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cgkLZoneACFs,
+                        cgkLZoneARJs,
+                        cgkLZoneTotalBandwidth,
+                        cgkLZoneAllocTotalBandwidth,
+                        cgkLZoneInterzoneBandwidth,
+                        cgkLZoneAllocInterzoneBandwidth,
+                        cgkLZoneSessionBandwidth,
+                        cgkLZoneProxiedCallBits,
+                        cgkLZoneTotalConcurrentCalls
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for a local
+        zone."
+    ::= { ciscoGatekeeperMIBGroups 8 }
+
+cgkZoneMgmtStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkLZoneStatsAdmissionRequests,
+                        cgkLZoneStatsOriginAdmissionRequests,
+                        cgkLZoneStatsOriginAdmissionConfirms,
+                        cgkLZoneStatsOriginAdmissionRejects,
+                        cgkLZoneStatsOriginTotalConcurrentCalls,
+                        cgkLZoneStatsSentLocationRequests,
+                        cgkLZoneStatsRcvdLocationConfirms,
+                        cgkLZoneStatsSentLocationConfirms,
+                        cgkLZoneStatsRcvdLocationRejects,
+                        cgkLZoneStatsSentLocationRejects,
+                        cgkLZoneStatsFullRegistrationRequests,
+                        cgkLZoneStatsLightRegistrationRequests,
+                        cgkLZoneStatsRegistrationConfirms,
+                        cgkLZoneStatsRegistrationRejects,
+                        cgkLZoneStatsRegisteredEndpoints,
+                        cgkLZoneStatsRcvdUnregistrationRequests,
+                        cgkLZoneStatsSentUnregistrationRequests,
+                        cgkLZoneStatsTimeoutSentUnregistrationRequests,
+                        cgkLZoneStatsRcvdUnregistrationConfirms,
+                        cgkLZoneStatsSentUnregistrationConfirms,
+                        cgkLZoneStatsRcvdUnregistrationRejects,
+                        cgkLZoneStatsSentUnregistrationRejects,
+                        cgkLZoneStatsRcvdDisengageRequests,
+                        cgkLZoneStatsSentDisengageRequests,
+                        cgkLZoneStatsRcvdDisengageConfirms,
+                        cgkLZoneStatsSentDisengageConfirms,
+                        cgkLZoneStatsRcvdDisengageRejects,
+                        cgkLZoneStatsSentDisengageRejects
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for zone
+        management statistics."
+    ::= { ciscoGatekeeperMIBGroups 9 }
+
+cgkGeneralMgmtStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkStatsAdmissionRequests,
+                        cgkStatsOriginAdmissionRequests,
+                        cgkStatsAdmissionConfirms,
+                        cgkStatsOriginAdmissionConfirms,
+                        cgkStatsAdmissionRejects,
+                        cgkStatsOriginAdmissionRejects,
+                        cgkStatsTotalConcurrentCalls,
+                        cgkStatsOriginTotalConcurrentCalls,
+                        cgkStatsRcvdLocationRequests,
+                        cgkStatsSentLocationRequests,
+                        cgkStatsRcvdLocationConfirms,
+                        cgkStatsSentLocationConfirms,
+                        cgkStatsRcvdLocationRejects,
+                        cgkStatsSentLocationRejects,
+                        cgkStatsRegisteredEndpoints,
+                        cgkStatsRcvdDisengageRequests,
+                        cgkStatsSentDisengageRequests,
+                        cgkStatsRcvdDisengageConfirms,
+                        cgkStatsSentDisengageConfirms,
+                        cgkStatsRcvdDisengageRejects,
+                        cgkStatsSentDisengageRejects
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for GK
+        level management statistics."
+    ::= { ciscoGatekeeperMIBGroups 10 }
+
+cgkRemoteZoneGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgkRZoneTotalBandwidth,
+                        cgkRZoneAllocTotalBandwidth
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of objects a gatekeeper must support for a remote
+        zone."
+    ::= { ciscoGatekeeperMIBGroups 11 }
+
+END
+
+
+

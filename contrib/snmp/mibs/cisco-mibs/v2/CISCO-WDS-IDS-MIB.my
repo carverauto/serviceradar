@@ -1,0 +1,353 @@
+-- *******************************************************************
+-- CISCO-WDS-IDS-MIB.my 
+-- October 2004, Prasanna Viswakumar
+--
+-- Copyright (c) 2004-2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-WDS-IDS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Unsigned32,
+        Integer32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        MacAddress,
+        TimeStamp
+                FROM SNMPv2-TC 
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoWdsIdsMIB MODULE-IDENTITY
+        LAST-UPDATED   "200410170000Z"
+        ORGANIZATION   "Cisco Systems Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                        Postal: 170 West Tasman Drive
+			            San Jose, CA  95134
+			            USA
+                        Tel: +1 800 553-NETS                 
+            
+                E-mail: cs-dot11@cisco.com"
+
+        DESCRIPTION
+                "This MIB is intended to be implemented on all
+                IOS based network entities that provide Wireless
+                Domain Services, for the purpose of providing network
+                management stations information about the various
+                attempts to compromise the security in the 
+                802.11-based wireless networks.  Entities that can be
+                configured to provide Wireless Domain Services 
+                could be an 802.11 Access Point, a Switch or any
+                other IOS network device, that allows the WDS
+                configuration.
+
+                The MIB reports the information about the MAC
+                spoofing attempts made by wireless clients to
+                compromise the security of the network.
+ 
+                MAC Spoofing is detected by the WDS when clients
+                attempt to authenticate with the WDS using the MAC
+                address of another client while roaming from one
+                AP to another.  Upon detecting this, the WDS
+                provides the information about the client and the
+                username to the NMS as MIB objects.
+
+                The hierarchy of the WDS, AP and MNs is as follows.
+
+               +=====+       +=====+          +=====+
+               |     |       |     |          |     |
+               | WDS |       | WDS |          | WDS |
+               |     |       |     |          |     |  
+               +=====+       +=====+          +=====+  
+                /  \             \                 \   
+               /    \             \                 \  
+              /      \             \                 \
+             /        \             \                 \
+            /          \             \                 \
+           \/          \/            \/                \/
+        +~-~-~+      +~-~-~+       +~-~-~+           +~-~-~+
+        +     +      +     +       +     +           +     +
+        + AP  +      + AP  +       + AP  +           + AP  +
+        +     +      +     +       +     +           +     +
+        +~-~-~+      +~-~-~+       +~-~-~+           +~-~-~+
+          ..            .             .                 .
+          ..            .             .                 .
+         .  .            .             .                 .
+        .    .            .             .                 .
+       .      .            .             .                 .
+      .        .            .             .                 .
+     \/        \/           \/            \/                \/
+   +.....+  +.....+      +-.-.-.+       +~-~-~+          +......+
+   +     +  +     +      +      +       +     +          +      +
+   + MN  +  + MN  +      + MN   +       + MN  +          +  MN  +
+   +     +  +     +      +      +       +     +          +      +
+   +.....+  +.....+      +-.-.-.+       +~-~-~+          +......+
+
+
+                The WDS include authentication and registration
+                services for the APs.  An AP provides Proxy
+                Authentication and registration services for the
+                MNs.
+
+                The wireless connections are represented as dotted
+                lines in the above diagram.
+
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point.
+ 
+
+                Wireless Domain Services (WDS)
+
+                The set of services being offered at a particular
+                broadcast domain that may be an IP subnet or a
+                particular VLAN, or across the L3 cloud.  The
+                services include the following.
+
+                1. MN security credential caching to provide
+                seamless, secure intra-subnet roaming.
+
+                2. Authenticated context transfer for roaming
+                client within the subnet.
+
+                Context
+
+                The mobility context for an MN includes its current
+                mobility bindings with the APs, IP/802 address
+                bindings, cached configuration parameters, QoS state,
+                IP group membership, authentication state, accounting
+                statistics, and other dynamically derived protocol
+                state information. "
+
+--              REFERENCE
+ 
+--              [1] CISCO-DOT11-CONTEXT-SERVICES-MIB
+
+        REVISION      "200410170000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 457 }
+
+ciscoWdsIdsMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoWdsIdsMIB 1 }
+
+ciscoWdsIdsMacSpoofing OBJECT IDENTIFIER 
+        ::= { ciscoWdsIdsMIBObjects 1 }
+
+
+
+--********************************************************************
+--*  MAC spoofing identification parameters
+--********************************************************************
+
+ciscoWdsIdsMaxMacAddresses OBJECT-TYPE
+        SYNTAX     Integer32 (1..2147483647)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the maximum number of 
+                different MAC addresses for which spoofing events 
+                are held in this table. "
+        ::= { ciscoWdsIdsMacSpoofing 1 }
+
+ciscoWdsIdsMaxEntriesPerMac OBJECT-TYPE
+        SYNTAX     Integer32 (1..2147483647)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the maximum number of entries
+                that can be held for a particular MAC address
+                indicated by the object 
+                ciscoWdsIdsMacSpoofStaMacAddress. "
+        ::= { ciscoWdsIdsMacSpoofing 2 }
+
+ciscoWdsIdsMacSpoofTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoWdsIdsMacSpoofEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table gives the information about the MAC 
+                spoofing attacks detected by the network entity
+                offering WDS.
+
+                An entry in this table is created by the agent when
+                the WDS detects a MAC spoofing attack.  
+
+                The agent at anytime will retain only the most
+                recent and maximum number of entries possible
+                for a particular MAC.  The older entries are
+                purged automatically when the number of entries
+                for a particular MAC reaches its maximum.
+                Thus, there can be a maximum of those many
+                different MAC addresses indicated by 
+                ciscoWdsIdsMaxMacAddresses and for each MAC
+                address, the maximum number of entries is
+                indicated by the value of the MIB object
+                ciscoWdsIdsMaxEntriesPerMac. 
+
+                MAC spoofing is detected only by the network entity
+                serving as the active WDS and hence this table
+                is populated only by the active WDS as indicated
+                by the values 'wds' and 'active' for the MIB objects
+                cDot11csServiceType and cDot11csWdsInstanceState
+                respectively.  If cDot11csServiceType equals 'none'
+                indicating that WDS is not configured in this
+                station, or cDot11csWdsInstanceState not equals
+                'active' indicating that this entity is not the
+                currently active WDS, a 'noSuchInstance' error
+                is returned for the queries to the objects of this
+                table. "
+        ::= { ciscoWdsIdsMacSpoofing 3 }
+
+ciscoWdsIdsMacSpoofEntry OBJECT-TYPE
+        SYNTAX     CiscoWdsIdsMacSpoofEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry holds the information about one instance of
+                MAC spoofing attack detected on the radio interface
+                of the AP identified by
+                ciscoWdsIdsMacSpoofStaMacAddress. "
+        INDEX   { ciscoWdsIdsMacSpoofStaMacAddress,
+                          ciscoWdsIdsMacSpoofIndex }
+        ::=     { ciscoWdsIdsMacSpoofTable 1 }
+
+
+CiscoWdsIdsMacSpoofEntry ::=
+        SEQUENCE  {
+                ciscoWdsIdsMacSpoofStaMacAddress MacAddress,
+                ciscoWdsIdsMacSpoofIndex         Unsigned32,
+                ciscoWdsIdsMacSpoofClient        MacAddress,
+                ciscoWdsIdsMacSpoofUserId        SnmpAdminString,
+                ciscoWdsIdsMacSpoofDetectTime    TimeStamp
+        }
+
+ciscoWdsIdsMacSpoofStaMacAddress OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object identifies the radio interface of the
+                802.11 station, that has forwarded the
+                authentication request of the client with the
+                spoofed MAC address indicated by 
+                ciscoWdsIdsMacSpoofClient, to the WDS. "
+        ::= { ciscoWdsIdsMacSpoofEntry 1 }
+
+ciscoWdsIdsMacSpoofIndex OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object identifies the set of information about
+                one instance of a MAC spoofing attack detected by
+                the WDS.  The radio interface of the 802.11 station
+                that has forwarded the authentication request is
+                identified by ciscoWdsIdsMacSpoofStaMacAddress. "
+        ::= { ciscoWdsIdsMacSpoofEntry 2 }
+
+ciscoWdsIdsMacSpoofClient OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the MAC address that
+                has been spoofed. "
+        ::= { ciscoWdsIdsMacSpoofEntry 3 }
+
+ciscoWdsIdsMacSpoofUserId OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE(1..253))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the userId used by the
+                wireless client when attempting the MAC spoofing
+                attack. "
+        ::= { ciscoWdsIdsMacSpoofEntry 4 }
+
+ciscoWdsIdsMacSpoofDetectTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the time at which this MAC
+                spoofing attempt is detected by the WDS. "
+        ::= { ciscoWdsIdsMacSpoofEntry 5 }
+
+--********************************************************************
+--   Conformance information
+--********************************************************************
+
+ciscoWdsIdsMIBConform OBJECT IDENTIFIER 
+        ::= { ciscoWdsIdsMIB 2 } 
+ciscoWdsIdsMIBCompliances OBJECT IDENTIFIER 
+        ::= { ciscoWdsIdsMIBConform 1 }
+ciscoWdsIdsMIBGroups OBJECT IDENTIFIER 
+        ::= { ciscoWdsIdsMIBConform 2 }
+
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+ciscoWdsIdsMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                 implement the ciscoWdsIdsMIB module."
+        MODULE MANDATORY-GROUPS {                
+                ciscoWdsIdsMacSpoofingGroup
+             }
+        ::= { ciscoWdsIdsMIBCompliances 1 }
+
+
+--********************************************************************
+--*    Units of conformance  
+--********************************************************************
+   
+ciscoWdsIdsMacSpoofingGroup OBJECT-GROUP
+        OBJECTS {
+                ciscoWdsIdsMaxMacAddresses,
+                ciscoWdsIdsMaxEntriesPerMac,
+                ciscoWdsIdsMacSpoofClient,
+                ciscoWdsIdsMacSpoofUserId,
+                ciscoWdsIdsMacSpoofDetectTime
+              }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide the information
+                about the various attempts to spoof the MAC addresses
+                of valid wireless clients in the network. "
+        ::= { ciscoWdsIdsMIBGroups 1 }
+
+                
+--********************************************************************
+--*   End of units of conformance  
+--********************************************************************
+
+END

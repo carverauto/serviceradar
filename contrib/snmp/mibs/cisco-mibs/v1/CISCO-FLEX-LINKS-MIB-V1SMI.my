@@ -1,0 +1,347 @@
+-- MIB file created 26-Oct-2005 19:35:59, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FLEX-LINKS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FLEX-LINKS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoFlexLinksMIB OBJECT IDENTIFIER ::= { ciscoMgmt 471 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200504250000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    This MIB module is for configuration and status query
+--    of Flex Links feature on the Cisco device.
+--    
+--    Flex Links are a pair of a Layer 2 interfaces, where one
+--    interface is configured to act as a backup to the other.
+--    The feature provides an alternative solution to the
+--    Spanning Tree Protocol (STP), allowing users to turn
+--    off STP and still provide basic link redundancy.
+--    
+--    Flex Links are typically configured in service provider
+--    or enterprise networks where users do not want to run
+--    STP on the device.
+--  RevDate
+--    200504250000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoFlexLinksMIBNotifs OBJECT IDENTIFIER ::= { ciscoFlexLinksMIB 0 }
+ciscoFlexLinksMIBObjects OBJECT IDENTIFIER ::= { ciscoFlexLinksMIB 1 }
+ciscoFlexLinksMIBConformance OBJECT IDENTIFIER ::= { ciscoFlexLinksMIB 2 }
+cflConfig       OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBObjects 1 }
+cflStatus       OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBObjects 2 }
+ciscoFlexLinksMIBCompliances OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBConformance 1 }
+ciscoFlexLinksMIBGroups OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBConformance 2 }
+
+cflIfConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CflIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table allows user to configure Flex Links.
+        
+        The Flex Links feature requires interface pairs to be
+        setup. This table allows user to specify such 
+        interface pairs.
+        
+        An interface can become part of only one such interface
+        pair at any given time."
+    ::= { cflConfig 1 }
+
+cflIfConfigEntry OBJECT-TYPE
+    SYNTAX CflIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about Flex Links
+        configuration. Each entry configures a pair of
+        interfaces for a Flex Links.
+        
+        Only those Layer 2 interfaces which are capable of
+        performing Flex Links operation may be configured
+        in this table.
+        
+        Once an interface is configured as part of a Flex Links
+        pair, such an interface, can not be configured as a
+        part of other Flex Links pairs."
+    INDEX { cflIfConfigPrimary }
+    ::= { cflIfConfigTable 1 }
+
+CflIfConfigEntry ::= SEQUENCE {
+    cflIfConfigPrimary InterfaceIndex,
+    cflIfConfigBackUp InterfaceIndexOrZero,
+    cflIfConfigStorageType StorageType,
+    cflIfConfigStatus RowStatus
+    }
+
+cflIfConfigPrimary OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the primary interface in this 
+        Flex Links pair."
+    ::= { cflIfConfigEntry 1 }
+
+cflIfConfigBackUp OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the back up interface in this 
+        Flex Links pair.
+        
+        The value of this object is changed to 0 (zero) if this 
+        interface is removed from the ifTable. The SNMP agent
+        is responsible for updating this object's value once
+        the interface is added to the ifTable. The value of
+        0 (zero) cannot be set."
+    ::= { cflIfConfigEntry 2 }
+
+cflIfConfigStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { cflIfConfigEntry 3 }
+
+cflIfConfigStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to manage this RowStatus entry.
+         
+        This object must be set to 'creatAndGo' to  
+        create an entry and set to 'destroy' to delete an 
+        entry.
+        
+        The other objects in this conceptual row can be 
+        modified any time, even when the value of this entry 
+        RowStatus object is 'active'."
+    ::= { cflIfConfigEntry 4 }
+
+cflEnableStatusChangeNotif OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates whether the system
+        produces the cflIfStatusChangeNotif.
+        
+        A value of 'false' will prevent
+        cflIfStatusChangeNotif."
+    ::= { cflConfig 2 }
+
+cflIfStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CflIfStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of interfaces which are members of Flex Links."
+    ::= { cflStatus 1 }
+
+cflIfStatusEntry OBJECT-TYPE
+    SYNTAX CflIfStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry, containing status information about a 
+        Flex Links interface.
+        
+        Entry is created when an interface is configured as
+        a member of a Flex Links. When an entry is created
+        in the cflIfConfigTable, entries corresponding to
+        cflIfConfigPrimary and cflIfConfigBackUp are created
+        in this table.
+        
+        Entry is deleted when an interface is removed from
+        a Flex Links. When an entry is removed from the
+        cflIfConfigTable, entries corresponding to
+        cflIfConfigPrimary and cflIfConfigBackUp are deleted
+        from this table."
+    INDEX { cflIfIndex }
+    ::= { cflIfStatusTable 1 }
+
+CflIfStatusEntry ::= SEQUENCE {
+    cflIfIndex InterfaceIndex,
+    cflIfStatus INTEGER
+    }
+
+cflIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index value which uniquely identifies the
+        interface to which this entry is applicable.
+        cflIfIndex is the same as the ifIndex of the
+        interface associated with a Flex Links."
+    ::= { cflIfStatusEntry 1 }
+
+cflIfStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        forwarding(1),
+        blocking(2),
+        down(3),
+        waitingToSync(4),
+        waitingForPeerStrate(5),
+        unknown(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of an interface which is participating in
+        Flex Links operation.
+        
+        A value of 'forwarding' indicates that, the interface is
+        participating in Flex Links operation and is
+        actively forwarding traffic.
+        
+        A value of 'blocking' indicates that, interface is
+        participating in Flex Links operation and is ready
+        to forward traffic if the interface it backs up in
+        Flex Links operation goes down.
+        
+        A value of 'down' indicates that, the interface
+        participating in Flex Links operation has gone down.
+        
+        A value of 'waitingToSync' indicates that, the interface
+        is participating in Flex Links operation and is waiting
+        to sync with its peer interface.
+        
+        A value of 'waitingForPeerState' indicates that, the
+        interface is participating in Flex Links operation and
+        is waiting for its peer's state.
+        
+        A value of 'unknown' indicates that, the interface
+        is participating Flex Links operation and has entered  
+        an unknown state."
+    ::= { cflIfStatusEntry 2 }
+
+cflIfStatusChangeNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoFlexLinksMIB
+    VARIABLES {
+        cflIfStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cflIfStatusChangeNotif is generated when the 
+        value of cflIfStatus changes."
+    ::= 1
+
+ciscoFlexLinksIfConfigGroup OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing interface 
+--    configuration information for Flex Links.
+--  objects
+--    cflIfConfigBackUp, cflIfConfigStorageType, cflIfConfigStatus
+
+ciscoFlexLinksIfStatusGroup OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing interface 
+--    status information for Flex Links.
+--  objects
+--    cflIfStatus
+
+ciscoFlexLinksEnableNotifGroup OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing enabling/disabling
+--     of the status change notifications for Flex
+--     Links.
+--  objects
+--    cflEnableStatusChangeNotif
+
+ciscoFlexLinksNotifGroup OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications providing the status
+--     change for Flex Links.
+--  notifications
+--    cflIfStatusChangeNotif
+
+ciscoFlexLinksMIBCompliance OBJECT IDENTIFIER ::= { ciscoFlexLinksMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Flex Links MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoFlexLinksIfConfigGroup
+--   MandGroup
+--    ciscoFlexLinksIfStatusGroup
+--   MandGroup
+--    ciscoFlexLinksEnableNotifGroup
+--   MandGroup
+--    ciscoFlexLinksNotifGroup
+
+
+END
+

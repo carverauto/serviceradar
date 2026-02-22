@@ -1,0 +1,411 @@
+-- MIB file created 03-Dec-2002 13:08:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-NAT-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-NAT-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alStatsNat, alNatGroup
+            FROM ALTIGA-MIB
+    alNatMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaNatStatsMibModule OBJECT IDENTIFIER ::= { alNatMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga NAT Statistics MIB models counters and objects that are 
+--     of management interest for NAT. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--       NAT:        Network Address Translation 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsNatGlobal OBJECT IDENTIFIER ::= { alStatsNat 1 }
+altigaNatStatsMibConformance OBJECT IDENTIFIER ::= { altigaNatStatsMibModule 1 }
+altigaNatStatsMibCompliances OBJECT IDENTIFIER ::= { altigaNatStatsMibConformance 1 }
+
+alNatStatsPacketsIn OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of inbound packets that have been translated."
+    ::= { alStatsNatGlobal 1 }
+
+alNatStatsPacketsOut OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of outbound packets that have been translated."
+    ::= { alStatsNatGlobal 2 }
+
+alNatStatsTotalTranslations OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of sessions that have been established."
+    ::= { alStatsNatGlobal 3 }
+
+alNatStatsActiveTranslations OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The active number of sessions that are established."
+    ::= { alStatsNatGlobal 4 }
+
+alNatStatsMaxTranslations OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of sessions that have been established at any one time."
+    ::= { alStatsNatGlobal 5 }
+
+alNatTranslationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlNatTranslationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active NAT sessions."
+    ::= { alStatsNat 2 }
+
+alNatTranslationEntry OBJECT-TYPE
+    SYNTAX AlNatTranslationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alNatTranslationTable."
+    INDEX { alNatTranslationSrcAddress, alNatTranslationSrcPort, alNatTranslationDestAddress, alNatTranslationDestPort }
+    ::= { alNatTranslationTable 1 }
+
+AlNatTranslationEntry ::= SEQUENCE {
+    alNatTranslationSrcAddress IpAddress,
+    alNatTranslationSrcPort INTEGER,
+    alNatTranslationDestAddress IpAddress,
+    alNatTranslationDestPort INTEGER,
+    alNatTranslationAddress IpAddress,
+    alNatTranslationPort INTEGER,
+    alNatTranslationAge Gauge,
+    alNatTranslationType INTEGER,
+    alNatTranslationDirection INTEGER,
+    alNatTranslationBytes Counter,
+    alNatTranslationPackets Counter
+    }
+
+alNatTranslationSrcAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The internal source address to be translated."
+    ::= { alNatTranslationEntry 1 }
+
+alNatTranslationSrcPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The internal source port to be translated."
+    ::= { alNatTranslationEntry 2 }
+
+alNatTranslationDestAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The external destination address."
+    ::= { alNatTranslationEntry 3 }
+
+alNatTranslationDestPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The external destinatin port."
+    ::= { alNatTranslationEntry 4 }
+
+alNatTranslationAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The translated internal source address."
+    ::= { alNatTranslationEntry 5 }
+
+alNatTranslationPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The translated internal source port."
+    ::= { alNatTranslationEntry 6 }
+
+alNatTranslationAge OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The age of this entry in seconds."
+    ::= { alNatTranslationEntry 7 }
+
+alNatTranslationType OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        unknown(0),
+        portMapTcp(1),
+        portMapUdp(2),
+        portMapTcpUdp(3),
+        noPortMap(4),
+        ftpProxy(8),
+        tftpProxy(16),
+        nbnsTcpProxy(32),
+        nbnsUdpProxy(64),
+        nbdgsvcProxy(128),
+        h225TcpProxy(256),
+        h245Proxy(512),
+        rasProxy(1024),
+        ilsProxy(2048),
+        all(4095)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of this entry."
+    ::= { alNatTranslationEntry 8 }
+
+alNatTranslationDirection OBJECT-TYPE
+    SYNTAX INTEGER {
+        inbound(1),
+        outbound(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The direction that this rule acts upon."
+    ::= { alNatTranslationEntry 9 }
+
+alNatTranslationBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of bytes that have been translated."
+    ::= { alNatTranslationEntry 10 }
+
+alNatTranslationPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets that have been translated."
+    ::= { alNatTranslationEntry 11 }
+
+alNatAllTranslationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlNatAllTranslationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active NAT sessions."
+    ::= { alStatsNat 3 }
+
+alNatAllTranslationEntry OBJECT-TYPE
+    SYNTAX AlNatAllTranslationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alNatAllTranslationTable."
+    INDEX { alNatAllTranslationSrcAddress, alNatAllTranslationSrcPort, alNatAllTranslationDestAddress, alNatAllTranslationDestPort, alNatAllTranslationType }
+    ::= { alNatAllTranslationTable 1 }
+
+AlNatAllTranslationEntry ::= SEQUENCE {
+    alNatAllTranslationSrcAddress IpAddress,
+    alNatAllTranslationSrcPort INTEGER,
+    alNatAllTranslationDestAddress IpAddress,
+    alNatAllTranslationDestPort INTEGER,
+    alNatAllTranslationAddress IpAddress,
+    alNatAllTranslationPort INTEGER,
+    alNatAllTranslationAge Gauge,
+    alNatAllTranslationType INTEGER,
+    alNatAllTranslationDirection INTEGER,
+    alNatAllTranslationBytes Counter,
+    alNatAllTranslationPackets Counter
+    }
+
+alNatAllTranslationSrcAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The internal source address to be translated."
+    ::= { alNatAllTranslationEntry 1 }
+
+alNatAllTranslationSrcPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The internal source port to be translated."
+    ::= { alNatAllTranslationEntry 2 }
+
+alNatAllTranslationDestAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The external destination address."
+    ::= { alNatAllTranslationEntry 3 }
+
+alNatAllTranslationDestPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The external destinatin port."
+    ::= { alNatAllTranslationEntry 4 }
+
+alNatAllTranslationAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The translated internal source address."
+    ::= { alNatAllTranslationEntry 5 }
+
+alNatAllTranslationPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The translated internal source port."
+    ::= { alNatAllTranslationEntry 6 }
+
+alNatAllTranslationAge OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The age of this entry in seconds."
+    ::= { alNatAllTranslationEntry 7 }
+
+alNatAllTranslationType OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        unknown(0),
+        portMapTcp(1),
+        portMapUdp(2),
+        portMapTcpUdp(3),
+        noPortMap(4),
+        ftpProxy(8),
+        tftpProxy(16),
+        nbnsTcpProxy(32),
+        nbnsUdpProxy(64),
+        nbdgsvcProxy(128),
+        h225TcpProxy(256),
+        h245Proxy(512),
+        rasProxy(1024),
+        ilsProxy(2048),
+        all(4095)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of this entry."
+    ::= { alNatAllTranslationEntry 8 }
+
+alNatAllTranslationDirection OBJECT-TYPE
+    SYNTAX INTEGER {
+        inbound(1),
+        outbound(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The direction that this rule acts upon."
+    ::= { alNatAllTranslationEntry 9 }
+
+alNatAllTranslationBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of bytes that have been translated."
+    ::= { alNatAllTranslationEntry 10 }
+
+alNatAllTranslationPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets that have been translated."
+    ::= { alNatAllTranslationEntry 11 }
+
+altigaNatStatsGroup OBJECT IDENTIFIER ::= { alNatGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for NAT statistics
+--  objects
+--    alNatStatsPacketsIn, alNatStatsPacketsOut, 
+--    alNatStatsTotalTranslations, alNatStatsActiveTranslations, 
+--    alNatStatsMaxTranslations, alNatTranslationSrcAddress, 
+--    alNatTranslationSrcPort, alNatTranslationDestAddress, 
+--    alNatTranslationDestPort, alNatTranslationAddress, 
+--    alNatTranslationPort, alNatTranslationAge, 
+--    alNatTranslationType, alNatTranslationDirection, 
+--    alNatTranslationBytes, alNatTranslationPackets, 
+--    alNatAllTranslationSrcAddress, alNatAllTranslationSrcPort, 
+--    alNatAllTranslationDestAddress, alNatAllTranslationDestPort, 
+--    alNatAllTranslationAddress, alNatAllTranslationPort, 
+--    alNatAllTranslationAge, alNatAllTranslationType, 
+--    alNatAllTranslationDirection, alNatAllTranslationBytes, 
+--    alNatAllTranslationPackets
+
+altigaNatStatsMibCompliance OBJECT IDENTIFIER ::= { altigaNatStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga NAT Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaNatStatsGroup
+
+
+END
+

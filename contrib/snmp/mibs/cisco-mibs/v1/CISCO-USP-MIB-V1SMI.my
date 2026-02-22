@@ -1,0 +1,953 @@
+-- MIB file created 20-Jul-2015 09:05:28, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-USP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-USP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, TimeStamp, DateAndTime
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoUspMIB OBJECT IDENTIFIER ::= { ciscoMgmt 827 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201507200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cusp@cisco.com
+--  Descr
+--    The MIB Module for the management of the Cisco Unified
+--    SIP Proxy (CUSP) service. CUSP is a Session Initiation Protocol
+--    (SIP) proxy server that helps enterprises aggregate their SIP
+--    elements into a centralized architecture in order to simplify
+--    and improve the flexibility of their network.
+--    
+--    MIB has OID's to monitor CUSP specific info like Server
+--    Group, Calls Per Second (CPS), Total Calls, Failed Calls,
+--    Dropped Calls, License, Up time CPU and Memory info and also
+--    traps on Server group elements, CPU and Memory threshold exceed,
+--    License exceed, Back up , process going down, Extensive logging
+--    and connection.
+--  RevDate
+--    201507200000Z
+--  RevDescr
+--    First version of this MIB module.
+
+ciscoUspMIBNotifs OBJECT IDENTIFIER ::= { ciscoUspMIB 0 }
+ciscoUspMIBObjects OBJECT IDENTIFIER ::= { ciscoUspMIB 1 }
+ciscoUspMIBConform OBJECT IDENTIFIER ::= { ciscoUspMIB 2 }
+cuspScalar      OBJECT IDENTIFIER ::= { ciscoUspMIBObjects 1 }
+cuspTable       OBJECT IDENTIFIER ::= { ciscoUspMIBObjects 2 }
+ciscoUspMIBCompliances OBJECT IDENTIFIER ::= { ciscoUspMIBConform 1 }
+ciscoUspMIBGroups OBJECT IDENTIFIER ::= { ciscoUspMIBConform 2 }
+cuspNotifControlInfo OBJECT IDENTIFIER ::= { ciscoUspMIBObjects 3 }
+cuspCallStats   OBJECT IDENTIFIER ::= { cuspScalar 10 }
+cuspMessageStats OBJECT IDENTIFIER ::= { cuspScalar 11 }
+cuspThresholdValues OBJECT IDENTIFIER ::= { cuspScalar 12 }
+
+cuspLastCounterResetTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the time stamp in date and time when the call
+        counter was last reset. All counters related to calls, CPS and
+        messages would be reset when counter is reset."
+    ::= { cuspScalar 1 }
+
+cuspSystemState OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the CUSP system state.
+        'up'   -  System is up.
+        'down' -  System is either offline or going down."
+    ::= { cuspScalar 2 }
+
+cuspSystemUpTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the CUSP system up time information."
+    ::= { cuspScalar 3 }
+
+cuspLicenseLimit OBJECT-TYPE
+    SYNTAX Gauge(0..10000)
+--  Units
+--    CPS
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the maximum licensed CPS limit value.
+        Calls will be rejected if the license limit is exceeded."
+    ::= { cuspScalar 4 }
+
+cuspLicenseState OBJECT-TYPE
+    SYNTAX INTEGER {
+        waiting(1),
+        overage(2),
+        outofcompliance(3),
+        notapplicable(4),
+        invalidtag(5),
+        invalid(6),
+        init(7),
+        incompliance(8),
+        evalexpired(9),
+        eval(10),
+        disabled(11),
+        authorizedperiodexpired(12)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the current license state of the CUSP.
+        'waiting' - The initial state after an entitlement request
+        while waiting for the authorization request response.
+        'overage' - The entitlement is in overage.
+        'outofcompliance' - Requested entitlement is more than the
+        available count. All calls will be rejected.
+        'notapplicable' - Enforcement mode is not applicable.
+        'invalidtag' - The entitlement tag is invalid.
+        'invalid' - Error condition state.
+        'init' - The initial state after the instance is created but
+        before the entitlement is requested with.
+        'incompliance' - License registration and entitlement
+        succeeded.
+        'evalexpired' - Evaluation period has expired.
+        'eval' -  CUSP is using the evaluation period for this
+        entitlement.
+        'disabled' - Smart Licensing has been deactivated or disabled.
+        'authorizedperiodexpired' - The authorized period has expired."
+    ::= { cuspScalar 5 }
+
+cuspSmartAgentState OBJECT-TYPE
+    SYNTAX INTEGER {
+        unconfigured(1),
+        unidentified(2),
+        evalexpired(3),
+        registered(4),
+        outofcomplaince(5),
+        authorized(6),
+        authorizationexpiry(7),
+        transient(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the current license state of the Smart
+        License Agent.
+        'unconfigured'    - Smart licensing agent is not enabled and
+        and all calls will be rejected in this state.
+        'unidentified' - Smart licensing is enabled and entitlement
+        information is sent to the agent. Calls will be allowed in this
+        state.
+        'evalexpired' - Smart agent will move to this state when
+        evaluation period expires. All calls will be rejected in this
+        state.
+        'transient'  - Smart agent is in transient state.
+        'registered' - CUSP registered with the cloud server but
+        license not yet authorized.
+        'outofcompliance' - Requested entitlement is more than the
+        available count. All calls will be rejected.
+        'authorized' - License registration and entitlement succeeded.
+        'authorizationexpiry' - Renew request failed for more than 90
+        days. All calls will be rejected."
+    ::= { cuspScalar 6 }
+
+cuspConfiguredMemory OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    MegaByte
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the total memory (RAM) in MB(MegaByte)
+        configured on CUSP."
+    ::= { cuspScalar 7 }
+
+cuspMemoryUsed OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    MegaByte
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the CUSP current memory (RAM) usage
+        information in MB (MegaByte)."
+    ::= { cuspScalar 8 }
+
+cuspDiskSpaceUsed OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the current disk utilization of CUSP in MB
+        (Mega Byte)."
+    ::= { cuspScalar 9 }
+
+cuspTotalCalls OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the total number of calls since the last
+        counter reset."
+    ::= { cuspCallStats 1 }
+
+cuspTotalFailedCalls OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the total number of failed calls since last
+        counter reset."
+    ::= { cuspCallStats 2 }
+
+cuspCPS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    CPS
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the current running Calls Per Second (CPS)
+        information."
+    ::= { cuspCallStats 3 }
+
+cuspAvgCPSOneMin OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    CPS
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the average CPS (Calls Per Second) in the
+        last one minute."
+    ::= { cuspCallStats 4 }
+
+cuspMaxCPSOneMin OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    CPS
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the Maximum value of CPS (Calls Per Second)
+        in the last one minute."
+    ::= { cuspCallStats 5 }
+
+cuspDroppedCallsOneSec OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the count on number of calls dropped in the
+        last one second."
+    ::= { cuspCallStats 6 }
+
+cuspAvgDroppedCPSOneMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the average of 'dropped calls per second' in
+        the last one minute."
+    ::= { cuspCallStats 7 }
+
+cuspMaxDroppedCPSOneMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the Maximum of 'dropped calls per second' in
+        the last one minute."
+    ::= { cuspCallStats 8 }
+
+cuspCallsRoutedOneSec OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the number of calls routed through CUSP in
+        last one second."
+    ::= { cuspCallStats 9 }
+
+cuspAvgCallsRoutedOneMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the average of 'calls routed per second' in
+        last one minute."
+    ::= { cuspCallStats 10 }
+
+cuspMaxCallsRoutedOneMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the maximum of 'calls routed per second' in
+        the last one minute."
+    ::= { cuspCallStats 11 }
+
+cuspCallsDroppedExceedingLicense OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    CPS
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the total calls dropped due to exceeding
+        license limit."
+    ::= { cuspCallStats 12 }
+
+cuspStrayMessageCount OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the number of stray messages information.
+        Stray messages are messages for which CUSP doesn't have a
+        transaction."
+    ::= { cuspMessageStats 1 }
+
+cuspNoOfMessagesRecieved OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the total number of messages received."
+    ::= { cuspMessageStats 2 }
+
+cuspDiskSpaceThresholdValue OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage threshold value configured by the user. If the
+        percentage disk space utilization exceeds this limit then
+        cuspDiskSpaceThresholdAlert notification is sent."
+    ::= { cuspThresholdValues 1 }
+
+cuspMemoryThresholdValue OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage threshold value configured by the user. If the
+        percentage memory utilization exceeds this limit then
+        cuspMemoryThresholdAlert notification is sent."
+    ::= { cuspThresholdValues 2 }
+
+cuspServerGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CuspServerGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of Server Groups. Server groups define the elements with
+        which the Cisco Unified SIP Proxy system interacts for each
+        network."
+    ::= { cuspTable 1 }
+
+cuspServerGroupEntry OBJECT-TYPE
+    SYNTAX CuspServerGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the ServerGroup Table."
+    INDEX { cuspServerGroupIndex }
+    ::= { cuspServerGroupTable 1 }
+
+CuspServerGroupEntry ::= SEQUENCE {
+    cuspServerGroupIndex Gauge,
+    cuspServerGroupName OCTET STRING,
+    cuspServerGroupNetwork OCTET STRING,
+    cuspServerGroupStatus INTEGER,
+    cuspServerGroupPingStatus TruthValue,
+    cuspServerGroupLBType INTEGER
+    }
+
+cuspServerGroupIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, for each server group."
+    ::= { cuspServerGroupEntry 1 }
+
+cuspServerGroupName OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the name of the server group."
+    ::= { cuspServerGroupEntry 2 }
+
+cuspServerGroupNetwork OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the network name to which the server group
+        belongs."
+    ::= { cuspServerGroupEntry 3 }
+
+cuspServerGroupStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        partialdown(2),
+        down(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the Server group status as
+        up/partialdown/down.
+        up - All the elements in the server group are up.
+        partialdown - At least one element in the server group is down.
+        down - All the elements in the server group are down."
+    ::= { cuspServerGroupEntry 4 }
+
+cuspServerGroupPingStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives server group ping status.
+        true - Ping is enabled.
+        false - Ping is disabled."
+    ::= { cuspServerGroupEntry 5 }
+
+cuspServerGroupLBType OBJECT-TYPE
+    SYNTAX INTEGER {
+        global(1),
+        highestq(2),
+        requesturi(3),
+        callid(4),
+        touri(5),
+        weight(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the load balancing algorithm for the server
+        group.
+        global      - Uses global load balance algorithm.
+        highestq    - Uses highestq algorithm where in CUSP picks the
+        first available element with the higest q-value.
+        requesturi  - Hash algorithm is on Request-URI.
+        callid      - Hash algorithm is on Call-ID.
+        touri       - Hash algorithm is on To URI.
+        weight      - Uses weight-based scheme."
+    ::= { cuspServerGroupEntry 6 }
+
+cuspElementTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CuspElementEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of elements in a server group table. Also gives
+        information on status(up/down) of the element, its Q value,
+        weight and transport type."
+    ::= { cuspTable 2 }
+
+cuspElementEntry OBJECT-TYPE
+    SYNTAX CuspElementEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cuspElementTable."
+    INDEX { cuspServerGroupIndex, cuspElementIndex }
+    ::= { cuspElementTable 1 }
+
+CuspElementEntry ::= SEQUENCE {
+    cuspElementIndex Gauge,
+    cuspElementName OCTET STRING,
+    cuspElementStatus INTEGER,
+    cuspElementQValue OCTET STRING,
+    cuspElementWeight INTEGER,
+    cuspElementPort INTEGER,
+    cuspElementTransport INTEGER,
+    cuspElementTotalCalls Gauge,
+    cuspElementFailedCalls Gauge
+    }
+
+cuspElementIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, for each element."
+    ::= { cuspElementEntry 1 }
+
+cuspElementName OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the Server group element ID."
+    ::= { cuspElementEntry 2 }
+
+cuspElementStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the server group element status.
+        'up'   -  Server group element is up.
+        'down' -  Server group element is down."
+    ::= { cuspElementEntry 3 }
+
+cuspElementQValue OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the Q value of the server group element. Q
+        value is a real number that specifies the priority of the server
+        group element with respect to others in the server group. Q
+        value range is 0.0 to 1.0."
+    ::= { cuspElementEntry 4 }
+
+cuspElementWeight OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the weight of the server group element.
+        Weight is used for load balancing between server group
+        elements."
+    ::= { cuspElementEntry 5 }
+
+cuspElementPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the port number of the server group
+        element."
+    ::= { cuspElementEntry 6 }
+
+cuspElementTransport OBJECT-TYPE
+    SYNTAX INTEGER {
+        udp(1),
+        tcp(2),
+        tls(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the transport type of the server group
+        element. Transport type can be udp,tcp or tls."
+    ::= { cuspElementEntry 7 }
+
+cuspElementTotalCalls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the total routed calls to the server group
+        element."
+    ::= { cuspElementEntry 8 }
+
+cuspElementFailedCalls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the total failed calls on the server group
+        element."
+    ::= { cuspElementEntry 9 }
+
+cuspNotifSeverity OBJECT-TYPE
+    SYNTAX INTEGER {
+        error(1),
+        warning(2),
+        informational(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The classification on the event severity.
+        'error'          - Significant problem.
+        'warning'        - Not immediately significant.
+        'informational'  - Information only."
+    ::= { cuspNotifControlInfo 1 }
+
+cuspNotifDetail OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object gives the detailed information on error
+        encountered."
+    ::= { cuspNotifControlInfo 2 }
+
+cuspSystemStateAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls generation of cuspSystemStateAlert.
+        When this is 'true', generation of Notification is enabled and
+        when this variable is 'false', generation of Notification is
+        disabled."
+    ::= { cuspNotifControlInfo 3 }
+
+cuspServerGroupAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspServerGroupAlert."
+    ::= { cuspNotifControlInfo 4 }
+
+cuspServerGroupElementAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspServerGroupElementAlert"
+    ::= { cuspNotifControlInfo 5 }
+
+cuspLicenseExceededAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspLicenseExceededAlert."
+    ::= { cuspNotifControlInfo 6 }
+
+cuspLicenseStateAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspLicenseStateAlert."
+    ::= { cuspNotifControlInfo 7 }
+
+cuspExtensiveLoggingAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspExtensiveLoggingAlert."
+    ::= { cuspNotifControlInfo 8 }
+
+cuspDiskSpaceThresholdAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspDiskSpaceThresholdAlert."
+    ::= { cuspNotifControlInfo 9 }
+
+cuspMemoryThresholdAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspMemoryThresholdAlert."
+    ::= { cuspNotifControlInfo 10 }
+
+cuspBackupProcessFailAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspBackupProcessFailAlert notification."
+    ::= { cuspNotifControlInfo 11 }
+
+cuspConnectionExceptionAlertEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+        cuspConnectionExceptionAlert."
+    ::= { cuspNotifControlInfo 12 }
+
+cuspSystemStateAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspNotifDetail, cuspSystemState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the CUSP system goes
+        up/down. This notification can be enabled/disabled by setting
+        cuspSystemStateAlertEnable."
+    ::= 1
+
+cuspServerGroupElementAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspElementName, cuspElementStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when server group element status
+        changes. This notification can be enabled/disabled by setting
+        cuspServerGroupElementAlertEnable."
+    ::= 2
+
+cuspServerGroupAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspServerGroupName, 
+        cuspServerGroupStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when all the elements in the
+        server group goes down or when any one element in the server
+        group comes up after all the elements in the group were down.
+        This notification can be enabled/disabled by setting
+        cuspServerGroupAlertEnable."
+    ::= 3
+
+cuspMemoryThresholdAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspMemoryThresholdValue, 
+        cuspConfiguredMemory, cuspMemoryUsed }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when CUSP memory usage
+        exceeds the cuspMemoryThresholdValue. This notification can be
+        enabled/disabled by setting cuspMemoryThresholdAlertEnable."
+    ::= 4
+
+cuspLicenseExceededAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspCPS, cuspLicenseLimit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when average CPS exceeds
+        cuspLicenseLimit. This notification can be enabled/disabled by
+        setting cuspLicenseExceededAlertEnable."
+    ::= 5
+
+cuspLicenseStateAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspLicenseState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when CUSP license state changes.
+        This notification can be enabled/disabled by setting
+        cuspLicenseStateAlertEnable."
+    ::= 6
+
+cuspExtensiveLoggingAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspNotifDetail }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when extensive debug level
+        logging is enabled in CUSP. Extensive logging might impact the
+        performance and system stability. This notification can be
+        enabled/disabled by setting cuspExtensiveLoggingAlertEnable."
+    ::= 7
+
+cuspDiskSpaceThresholdAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspDiskSpaceThresholdValue, 
+        cuspDiskSpaceUsed }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the CUSP Disk usage exceeds
+        the cuspDiskSpaceThresholdValue. This notification can be
+        enabled/disabled by setting cuspDiskSpaceThresholdAlertEnable."
+    ::= 8
+
+cuspBackupProcessFailAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspNotifDetail }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when back up process fails. This
+        notification can be enabled/disabled by setting
+        cuspBackupProcessFailAlertEnable."
+    ::= 9
+
+cuspConnectionExceptionAlert TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUspMIB
+    VARIABLES {
+        cuspNotifSeverity, cuspNotifDetail }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a connection exception
+        occurs. This notification can be enabled/disabled by setting
+        cuspConnectionExceptionAlertEnable."
+    ::= 10
+
+ciscoUspMIBMainObjectGroup OBJECT IDENTIFIER ::= { ciscoUspMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information on CUSP system
+--    parameters.
+--  objects
+--    cuspLicenseLimit, cuspLastCounterResetTime, cuspTotalCalls, 
+--    cuspTotalFailedCalls, cuspCPS, cuspAvgCPSOneMin, 
+--    cuspMaxCPSOneMin, cuspDroppedCallsOneSec, 
+--    cuspAvgDroppedCPSOneMin, cuspMaxDroppedCPSOneMin, 
+--    cuspCallsRoutedOneSec, cuspAvgCallsRoutedOneMin, 
+--    cuspMaxCallsRoutedOneMin, cuspCallsDroppedExceedingLicense, 
+--    cuspSystemState, cuspSystemUpTime, cuspNoOfMessagesRecieved, 
+--    cuspSmartAgentState, cuspStrayMessageCount, 
+--    cuspConfiguredMemory, cuspMemoryUsed, 
+--    cuspSystemStateAlertEnable, cuspServerGroupAlertEnable, 
+--    cuspDiskSpaceThresholdAlertEnable, 
+--    cuspBackupProcessFailAlertEnable, 
+--    cuspExtensiveLoggingAlertEnable, cuspMemoryThresholdValue, 
+--    cuspDiskSpaceThresholdValue, cuspServerGroupName, 
+--    cuspServerGroupNetwork, cuspServerGroupStatus, 
+--    cuspElementName, cuspElementStatus, cuspElementQValue, 
+--    cuspElementWeight, cuspElementTransport, 
+--    cuspElementTotalCalls, cuspElementFailedCalls, 
+--    cuspNotifSeverity, cuspNotifDetail, 
+--    cuspLicenseExceededAlertEnable, cuspServerGroupPingStatus, 
+--    cuspServerGroupLBType, cuspDiskSpaceUsed, cuspElementPort, 
+--    cuspServerGroupElementAlertEnable, 
+--    cuspLicenseStateAlertEnable, cuspMemoryThresholdAlertEnable, 
+--    cuspConnectionExceptionAlertEnable, cuspLicenseState
+
+ciscoUspMIBNotifyGroup OBJECT IDENTIFIER ::= { ciscoUspMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications that are generated by
+--    the CUSP.
+--  notifications
+--    cuspSystemStateAlert, cuspBackupProcessFailAlert, 
+--    cuspDiskSpaceThresholdAlert, cuspConnectionExceptionAlert, 
+--    cuspServerGroupElementAlert, cuspServerGroupAlert, 
+--    cuspMemoryThresholdAlert, cuspLicenseExceededAlert, 
+--    cuspExtensiveLoggingAlert, cuspLicenseStateAlert
+
+ciscoUspMIBModuleCompliance OBJECT IDENTIFIER ::= { ciscoUspMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco USP MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUspMIBMainObjectGroup
+--   MandGroup
+--    ciscoUspMIBNotifyGroup
+
+
+END
+

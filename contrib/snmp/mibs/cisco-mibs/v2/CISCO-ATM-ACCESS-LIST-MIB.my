@@ -1,0 +1,709 @@
+-- *****************************************************************
+-- ATM Access MIB file.
+--
+-- January 1997, Chandrasekaran, Ravikumar
+--
+-- Copyright (c) 1997 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-ATM-ACCESS-LIST-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE                        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION, DisplayString, RowStatus        FROM SNMPv2-TC
+    ifIndex                                             FROM IF-MIB
+    ciscoMgmt			                        FROM CISCO-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP                     FROM SNMPv2-CONF;
+
+ciscoAtmAccessListMIB   MODULE-IDENTITY
+     LAST-UPDATED	"9611100000Z"
+     ORGANIZATION	"Cisco Systems, Inc."
+     CONTACT-INFO
+		"       Cisco Systems
+			Customer Service
+
+		Postal: 170 W Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		   Tel: +1 800 553-NETS
+
+		E-mail: cs-atm@cisco.com"
+    DESCRIPTION
+            "A cisco ATM access list mib module."
+    REVISION        "9611180000Z"
+    DESCRIPTION
+            "Initial Version of this MIB module."
+
+    ::= { ciscoMgmt 67 }    
+
+ciscoAtmAccessListMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmAccessListMIB 1 }
+
+ciscoAtmAddressTemplate OBJECT IDENTIFIER ::= { ciscoAtmAccessListMIBObjects 1 }
+
+ciscoAtmAddressFilter OBJECT IDENTIFIER ::= { ciscoAtmAccessListMIBObjects 2 }
+
+ciscoAtmAccessGroup OBJECT IDENTIFIER ::= { ciscoAtmAccessListMIBObjects 3 }
+
+-- Textual Conventions:
+
+        CiscoAtmAddressTemplate ::= TEXTUAL-CONVENTION
+            STATUS       current
+            DESCRIPTION
+                "A NSAP address or address template string. If it only contains
+                 hexadecimal digits, 20-octet long, it represents a single 
+                 NSAP address.
+                 For example,
+                 47.0091.8100.0000.0060.3e5b.7201.4000.0c    is an NSAP address
+                 with no wild cards.
+
+                 If it contains one or more wild-card characters, it then 
+                 represents multiple NSAP addresses as follows. An 
+                 ellipsis ... matches any number of leading or trailing
+                 hexadecimal digits.  
+                 For example,
+                 12.8344... will match any address that starts with 12.8344 and
+                 ...0201.01 will match any address that ends with 0201.01.
+
+                 An asterisk * can be used to match any single 4-bit nibble 
+                 in an address string.  
+                 For example, in
+                 47.8*9*1200000000603E5B7201.00603E5B7201.00 the 2nd nibble of
+                 the 2nd most significant byte and 2nd nibble of 3rd most 
+                 significant byte will match any 4bit nibble value. 
+                 
+                 An asterisk (*) enclosed by a pair of parentheses, can also 
+                 be used to match any binary bit (0 or 1) in a 4-bit nibble.
+                 For example, in
+                 ...92(1*0*)8.01  the asterisk within parentheses will match
+                 either binary values 0 and 1."
+            SYNTAX       DisplayString (SIZE(1..70))
+
+-- This MIB defines the following four tables :
+--
+-- ciscoAtmAddressTemplateTable
+-- 
+-- 
+-- This table is used to alias the address-templates.  The aliases created
+-- in this table may be refered to from ciscoAtmAddressFilterSetTable.
+--
+-- ciscoAtmAddressFilterSetTable
+--
+--
+-- Each row in this table is either an addressFilter or a timeOfDayFilter.
+-- An addressFilter specifies an address-template which can be an actual
+-- address-template or an aliasname defined in the ciscoAtmAddressTemplateTable.
+-- For example, 
+-- Consider the following row as existing already in the 
+-- ciscoAtmAddressTemplateTable. 
+-- atmAddressAliasName = "aaa" , 
+-- atmAddressTemplate."aaa" = "47.8191..." and
+-- atmAddressTemplateRowStatus."aaa" = active 
+-- 
+-- For example, when an object atmAddressFilterSetTemplate."abc" in the 
+-- ciscoAtmAddressFilterSetTable is set to a value of "aaa", the value that 
+-- gets stored into the object is "47.8191..." which is obtained from the 
+-- alias mapping defined by the ciscoAtmAddressTemplateTable.   
+-- 
+-- If no such alias exists in the ciscoAtmAddressTemplateTable whose row is
+-- active, an attempt shall be made to interpret the value as an 
+-- address-template itself.  In the above example, if the object 
+-- atmAddressTemplateRowStatus."aaa" is not 'active' then this set operation
+-- will fail because 'aaa' is not a valid atm address-template. 
+--
+-- After the creation of the above filter row, any change to the value of 
+-- atmAddressTemplate."aaa" will not affect the value of the object
+-- atmAddressFilterSetTemplate."abc". 
+-- For example, if the value of atmAddressTemplate."aaa" is changed to
+-- "...9002.01",  the value of atmAddressFilterSetTemplate."abc" in the above
+-- example will still remain "47.8191..." 
+-- 
+-- Those rows(filters) which have the same atmAddressFilterSetName form a 
+-- FilterSet.  These FilterSets can be combined to Form a Filter Expression.
+-- These FilterSets can also be associated with an interface as an incoming
+-- or an outgoing access-group.
+--
+-- During call filtering, those filters in the filter-set that specify a 
+-- complete 20-byte address with no wild cards are first considered for 
+-- matching against the address to be filtered.
+-- Only if none of the filters with in a filter-set that specify complete 
+-- 20-byte address without wild cards match, other filters are matched
+-- against the address to be filtered in the increasing order of their 
+-- atmAddressFilterSetIndex values.
+--
+-- For example, consider the following filter-set "abc"
+--
+-- atmAddressFilterSetType."abc".1 = addressFilter
+-- atmAddressFilterSetTemplate."abc".1 = "47.8191..."
+-- atmAddressFilterSetPermission."abc".1 = deny 
+-- 
+-- the second filter is a complete 20-byte address with no wild cards :
+--
+-- atmAddressFilterSetType."abc".2 = addressFilter
+-- atmAddressFilterSetTemplate."abc".2 = 
+--    "47.00918100000000603E5B7201.00603E5B7201.01" 
+-- atmAddressFilterSetPermission."abc".2 = deny 
+-- 
+-- the third filter is  
+--
+-- atmAddressFilterSetType."abc".5 = addressFilter
+-- atmAddressFilterSetTemplate."abc".5 = "...9876.01"
+-- atmAddressFilterSetPermission."abc".5 = deny 
+--
+-- In the above example, the filter with index 2 will be matched first with the
+-- address to be filtered.  Only if this filter fails to match,  the filters
+-- with atmAddressFilterSetIndex values 1 and 5 will be considered in that
+-- order respectively.  If none of the filters match in a filter-set then
+-- the default action would be to deny the call.  If this is not desired for a
+-- filter-set then a filter with a permission of "permit" and an 
+-- address-template value of "..." has to be added to that filter-set as the 
+-- last filter i.e., with the highest atmAddressFilterSetIndex value. So those 
+-- addresses that dont match any other filter will certainly match the last 
+-- default filter and will be permitted to go through.
+-- 
+-- In the case of the time-of-day filters, if the start-time and the end-time
+-- are the same, it represents a 24-hour interval. 
+--
+-- ciscoAtmAddressFilterExpressionTable
+-- 
+-- 
+-- This Table is used to define filter expressions out of Filter Sets defined
+-- in the ciscoAtmAddressFilterSetTable and already existing Filter expressions
+-- defined in this table itself.
+-- 
+-- atmAddressFilterExpressionOperator object in this table supports AND, OR, 
+-- XOR, NOT  operators.  The objects atmAddressFilterExpressionTerm1 and 
+-- atmAddressFilterExpressionTerm2 represent the operands.  The object
+-- atmAddressFilterExpressionTerm2 should not be used for expressions with
+-- unary operator or no operator(none(5) operator). 
+--
+-- atmAddressFilterExpressionTerm1 and atmAddressFilterExpressionTerm2 can 
+-- only point to already active Filter Sets/Filter Expressions.  Because of
+-- this, atmAddressFilterSetName and atmAddressFilterExpressionName objects
+-- shall have values that are unique across both ciscoAtmAddressFilterSetTable 
+-- and ciscoAtmAddressFilterExpressionTable.
+--
+-- Consider a FilterExpressionEntry for example,
+-- 
+-- atmAddressFilterExpressionOperator."xyz" = NOT
+-- atmAddressFilterExpressionTerm1."xyz" = "abc"
+--
+-- and the filter-set "abc" has three filters defined in it as follows : 
+--
+-- atmAddressFilterSetType."abc".1 = addressFilter
+-- atmAddressFilterSetTemplate."abc".1 = "47.8191..."
+-- atmAddressFilterSetPermission."abc".1 = deny 
+-- 
+-- the second filter is a complete 20-byte address with no wild cards :
+--
+-- atmAddressFilterSetType."abc".2 = addressFilter
+-- atmAddressFilterSetTemplate."abc".2 = 
+--    "47.00918100000000603E5B7201.00603E5B7201.01" 
+-- atmAddressFilterSetPermission."abc".2 = deny 
+-- 
+-- the third filter is  
+--
+-- atmAddressFilterSetType."abc".5 = addressFilter
+-- atmAddressFilterSetTemplate."abc".5 = "...9876.01"
+-- atmAddressFilterSetPermission."abc".5 = deny 
+--
+-- If the value of atmAddressFilterSetTemplate."abc".5 is changed to "..."
+-- after the filter-expression "xyz" was created,  the change will affect 
+-- the filter-expression "xyz" too.   The same would be true if the objects
+-- atmAddressFilterExpressionTerm1 and atmAddressFilterExpressionTerm2 refer
+-- to already active filter-expressions.
+--
+--
+-- ciscoAtmAccessGroupTable
+--
+--
+-- This table defines the out-going accessGroup and the incoming accessGroup
+-- for an interface.  An AccessGroup can be a Filter Set or a Filter Expression.
+--
+
+
+-- ciscoAtmAddressTemplateTable
+-- 
+-- This is the ATM address template alias table
+
+ciscoAtmAddressTemplateTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CiscoAtmAddressTemplateEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "The ATM address template alias Table.  Entries in this table can be
+        created and deleted by setting the atmAddressTemplateRowStatus object
+        to appropriate values.  Existing rows can be modified when the row is
+        active.  Entries in this table can be created/modified/ deleted through 
+        the commands provided by CLI also."
+    ::= { ciscoAtmAddressTemplate 1 }
+
+ciscoAtmAddressTemplateEntry OBJECT-TYPE
+    SYNTAX     CiscoAtmAddressTemplateEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        " An entry in the address template table."
+    INDEX { atmAddressAliasName }
+    ::= { ciscoAtmAddressTemplateTable 1 }
+
+CiscoAtmAddressTemplateEntry ::=
+    SEQUENCE {
+	atmAddressAliasName		DisplayString,
+        atmAddressTemplate 		CiscoAtmAddressTemplate,
+	atmAddressTemplateRowStatus	RowStatus
+	}
+
+atmAddressAliasName    OBJECT-TYPE
+    SYNTAX    DisplayString    (SIZE(1..30))
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+       "The alias name for an ATM address template."
+    ::= { ciscoAtmAddressTemplateEntry 1}
+
+atmAddressTemplate    OBJECT-TYPE
+    SYNTAX   CiscoAtmAddressTemplate 
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+      "The Address Template to be aliased."
+    ::= { ciscoAtmAddressTemplateEntry 2}
+
+atmAddressTemplateRowStatus    OBJECT-TYPE
+    SYNTAX    RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+      "To create, delete, read and write a row. Entries in this table can be
+       modified on the fly.  For example, value of atmAddressTemplateObject 
+       can be changed even when the corresponding atmAddressTemplateRowStatus 
+       object indicates that the row is active."
+    ::= { ciscoAtmAddressTemplateEntry 3}
+
+-- This group is the ATM address filter set table
+
+ciscoAtmAddressFilterSetTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CiscoAtmAddressFilterSetEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "The ATM address filter set Table.  Entries in this table can be 
+        created/deleted by setting the atmAddressFilterSetRowStatus object
+        to appropriate values.  Existing entries in this table can be modified
+        on the fly.  Entries in this table can be created/modified/deleted
+        through the commands provided by the CLI also."
+    ::= { ciscoAtmAddressFilter 1 }
+
+ciscoAtmAddressFilterSetEntry OBJECT-TYPE
+    SYNTAX     CiscoAtmAddressFilterSetEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        " An entry in the address filter set table."
+    INDEX { atmAddressFilterSetName,
+            atmAddressFilterSetIndex }
+    ::= { ciscoAtmAddressFilterSetTable 1 }
+
+CiscoAtmAddressFilterSetEntry ::=
+    SEQUENCE {
+	atmAddressFilterSetName		DisplayString,
+	atmAddressFilterSetIndex     	INTEGER,
+        atmAddressFilterSetType		INTEGER,     
+        atmAddressFilterSetTemplate	DisplayString,
+        atmAddressFilterSetStartHour	INTEGER,
+        atmAddressFilterSetStartMinute	INTEGER,
+        atmAddressFilterSetEndHour	INTEGER,
+        atmAddressFilterSetEndMinute	INTEGER,
+        atmAddressFilterSetPermission	INTEGER,     
+	atmAddressFilterSetRowStatus	RowStatus
+	}
+
+atmAddressFilterSetName    OBJECT-TYPE
+    SYNTAX    DisplayString    (SIZE(1..30))
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+       "The name for an ATM address filter set."
+    ::= { ciscoAtmAddressFilterSetEntry 1}
+
+atmAddressFilterSetIndex    OBJECT-TYPE
+    SYNTAX    INTEGER (1..65535)
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+       "The Index for a Filter in an ATM address filter set. The filters are 
+	matched in the ascending order of atmAddressFilterSetIndex.  A filter
+	with a lower atmAddressFilterSetIndex value is matched prior to a 
+	filter with a higher atmAddressFilterSetIndex value.  The only 
+	exception to this rule are those address filters that specify all 
+ 	20-bytes without using wildcards.  These filters are matched before 
+        any other wildcard filter in a filter-set irrespective of the 
+        atmAddressFilterSetIndex value." 
+    ::= { ciscoAtmAddressFilterSetEntry 2}
+
+atmAddressFilterSetType    OBJECT-TYPE
+    SYNTAX    INTEGER {
+              addressFilter(1),
+              timeOfDayFilter(2)
+    }
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "Indicates the type of a filter whether atm Address filter or a 
+        Time-of-day filter. If the value of this object is addressFilter(1) 
+        then the objects atmAddressFilterSetStartHour,
+        atmAddressFilterSetStartMinute, atmAddressFilterSetEndHour and 
+        atmAddressFilterSetEndMinute shall contain only the default values and 
+        cannot be set to any other value. If the value of this object is 
+        timeOfDayFilter(2) then the object atmAddressFilterSetTemplate shall 
+        contain only the default value and cannot be set to any other value.  
+        If the value of this object is modified to timeOfDayFilter(2),
+        for an existing addressFilter row, the corresponding 
+        atmAddressFilterSetTemplate object will be set to its default value 
+        automatically.  If the value of this object is modified to 
+        addressFilter(1) for an existing timeOfDayFilter row, the corresponding 
+        objects atmAddressFilterSetStartHour, atmAddressFilterSetStartMinute,
+        atmAddressFilterSetEndHour and atmAddressFilterSetEndMinute
+        will be set to their default values automatically."
+    DEFVAL { addressFilter } 
+    ::= { ciscoAtmAddressFilterSetEntry 3}
+
+atmAddressFilterSetTemplate    OBJECT-TYPE
+    SYNTAX    DisplayString    (SIZE(1..70))
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+      "This is either an existing atmAddressAliasName, or an ATM address 
+       template, as described in the CiscoAtmAddressTemplate.  If the value 
+       of this object matches an atmAddressAliasName in the
+       ciscoAtmAddressTemplateTable, then the value of the corresponding 
+       atmAddressTemplate object will be used.  And subsequent attempts to 
+       read this object will return the address-template instead of the alias 
+       name. Only if a such a match is not found in ciscoAtmAddressTemplateTable,
+       an attempt can be made to interpret this object as a 
+       CiscoAtmAddressTemplate. The value of this object shall be '...' and 
+       cannot be set to any other value if a filter is of the type 
+       timeOfDayFilter"
+    DEFVAL { "..." } 
+    ::= { ciscoAtmAddressFilterSetEntry 4}
+
+atmAddressFilterSetStartHour    OBJECT-TYPE
+    SYNTAX    INTEGER (0..23)
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "Indicates the Hours portion of the Start time of a Time-of-day
+        filter.  If the value of atmAddressFilterSetType object is 
+        addressFilter, then this object cannot be set and shall only 
+        contain the default value" 
+    DEFVAL { 0 } 
+    ::= { ciscoAtmAddressFilterSetEntry 5}
+
+atmAddressFilterSetStartMinute    OBJECT-TYPE
+    SYNTAX    INTEGER (0..59)
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "Indicates the Minutes portion of the Start time of a Time-of-day
+        filter. If the value of atmAddressFilterSetType object is 
+        addressFilter, then this object cannot be set and shall only 
+        contain the default value"
+    DEFVAL { 0 } 
+    ::= { ciscoAtmAddressFilterSetEntry 6}
+
+atmAddressFilterSetEndHour    OBJECT-TYPE
+    SYNTAX    INTEGER (0..23)
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "Indicates the Hours portion of the End time of a Time-of-day
+        filter.  If the value of atmAddressFilterSetType object is 
+        addressFilter, then this object cannot be set and shall only 
+        contain the default value"
+    DEFVAL { 0 } 
+    ::= { ciscoAtmAddressFilterSetEntry 7}
+
+atmAddressFilterSetEndMinute    OBJECT-TYPE
+    SYNTAX    INTEGER (0..59)
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "Indicates the Minutes portion of the End time of a Time-of-day
+        filter. If the value of atmAddressFilterSetType object is 
+        addressFilter, then this object cannot be set and shall only 
+        contain the default value"
+    DEFVAL { 0 } 
+    ::= { ciscoAtmAddressFilterSetEntry 8}
+
+atmAddressFilterSetPermission    OBJECT-TYPE
+    SYNTAX    INTEGER { permit(1), deny(2) }    
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "Indicates the action of a filter set (either permit or deny), when
+        a specific ATM address matches with the atmAddressFilterSetTemplate
+        defined in this address filter set in case of an addressFilter or 
+        when the current time falls in the interval specified by the  
+        atmAddressFilterSetStartHour, atmAddressFiltersetStartMinute,
+        atmAddressFilterSetEndHour and atmAddressFiltersetEndMinute objects
+        in case of a timeOfDayFilter."
+    DEFVAL { permit } 
+    ::= { ciscoAtmAddressFilterSetEntry 9}
+
+atmAddressFilterSetRowStatus    OBJECT-TYPE
+    SYNTAX    RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+      "To create, delete, read and write a row. Entries in this table can be
+       modified on the fly.  For exmaple, atmAddressFilterSetTemplate object 
+       of an existing addressFilter can be modified even if the value of the
+       corresponding atmAddressFilterSetRowStatus object indicates that the
+       row is active."
+    ::= { ciscoAtmAddressFilterSetEntry 10}
+
+-- This group is the ATM address filter expression table
+
+ciscoAtmAddressFilterExpressionTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CiscoAtmAddressFilterExpressionEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "The ATM address filter expression table. Entries in this table can be
+        created/deleted by setting the atmAddressFilterExpressionRowStatus
+        object to appropriate values. Existing entries in this table cannot be
+        modified on the fly.  Before an existing active entry can be modified, 
+        it has to be brought to notInService by setting the corresponding 
+        atmAddressFilterExpressionRowStatus object to notInService.  Entries
+        in this table can also be created/modified/deleted through the commands
+        provided by the CLI." 
+    ::= { ciscoAtmAddressFilter 2 }
+
+ciscoAtmAddressFilterExpressionEntry OBJECT-TYPE
+    SYNTAX     CiscoAtmAddressFilterExpressionEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        " An entry in the address filter expression table."
+    INDEX { atmAddressFilterExpressionName }
+    ::= { ciscoAtmAddressFilterExpressionTable 1 }
+
+CiscoAtmAddressFilterExpressionEntry ::=
+    SEQUENCE {
+	atmAddressFilterExpressionName		DisplayString,
+        atmAddressFilterExpressionQualifier1	INTEGER,      
+        atmAddressFilterExpressionTerm1		DisplayString,
+        atmAddressFilterExpressionQualifier2	INTEGER,      
+        atmAddressFilterExpressionTerm2		DisplayString,
+        atmAddressFilterExpressionOperator	INTEGER,     
+	atmAddressFilterExpressionRowStatus	RowStatus
+	}
+
+atmAddressFilterExpressionName    OBJECT-TYPE
+    SYNTAX    	DisplayString    (SIZE(1..30))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "The name for an ATM address filter expression."
+    ::= { ciscoAtmAddressFilterExpressionEntry 1}
+
+atmAddressFilterExpressionQualifier1   OBJECT-TYPE
+    SYNTAX    INTEGER { source(1), destination(2), none(3) }    
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "This object indicates the ATM filter set specified by the 
+        atmAddressFilterExpressionTerm1 should be  applied to either the
+        source (calling party) or destination (called party) ATM address.
+        atmAddressFilterExpressionQualifier1 shall be none(3) if 
+        atmAddressFilterExpressionTerm1 is a Filter Expression or a
+        timeOfDayFilter.  The value of this object can be modified for 
+        an existing row only after placing that row notInService by setting
+        the corresponding atmAddressFilterExpressionRowStatus object to
+        notInService(2)."
+    DEFVAL { destination } 
+    ::= { ciscoAtmAddressFilterExpressionEntry 2}
+
+atmAddressFilterExpressionTerm1    OBJECT-TYPE
+    SYNTAX    	DisplayString    (SIZE(1..30))
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+      "This object is the name of the first ATM address filter set or ATM 
+       address filter expression used in the logical expression. The 
+       value of this object can only be either an already existing 
+       atmAddressFilterSetName whose row is already active in the 
+       ciscoAtmAddressFilterSetTable or an atmAddressFilterExpressionName 
+       whose row is already active in the ciscoAtmAddressFilterExpressionTable. 
+       When the reference that this object is pointing to gets deleted out from 
+       under it, this object may have a value that does not exist in both
+       ciscoAtmAddressFilterSetTable and ciscoAtmAddressFilterExpressionTable 
+       and the expression will be evaluated as if the deleted filter resulted 
+       in a match with a permission of 'permit'. The value of this object can 
+       be modified for an existing row only after placing that row notInService
+       by setting the corresponding atmAddressFilterExpressionRowStatus object 
+       to notInService." 
+    ::= { ciscoAtmAddressFilterExpressionEntry 3}
+
+atmAddressFilterExpressionQualifier2    OBJECT-TYPE
+    SYNTAX    INTEGER { source(1), destination(2), none(3) }    
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "Indicates the ATM filter set or filter expression specified by the
+        atmAddressFilterExpressionTerm2 should be applied to either the
+        source (calling party) or destination (called party) ATM address.
+        It is not used if the logical operator is NOT. 
+        atmAddressFilterExpressionQualifier2 shall be none(3) if 
+        atmAddressFilterExpressionTerm2 is a Filter Expression or 
+        timeOfDayFilter.  The value of this object can be modified for an
+        existing row only after placing the row notInService by setting
+        the corresponding atmAddressFilterExpressionRowStatus object to
+        notInService(2)."
+    DEFVAL { destination } 
+    ::= { ciscoAtmAddressFilterExpressionEntry 4}
+
+atmAddressFilterExpressionTerm2    OBJECT-TYPE
+    SYNTAX    	DisplayString    (SIZE(0..30))
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+      "The name of the second ATM address filter set or ATM address filter 
+       expression used in the logical expression. The value of this object 
+       can only be either an existing atmAddressFilterSetName whose row is 
+       already active in the ciscoAtmAddressFilterSetTable or an existing 
+       atmAddressFilterExpressionName whose row is already active in the 
+       ciscoAtmAddressFilterExpressionTable.  The value of this object shall 
+       be null if the value of corresponding atmAddressFilterExpressionOperator
+       object is not(4) or none(5).  When the reference that this object is 
+       pointing to gets deleted out from under it, this object may have a value 
+       that does not exist in both ciscoAtmAddressFilterExpressionTable and 
+       ciscoAtmAddressFilterSetTable and the expression will be evaluated 
+       as if the deleted filter resulted in a match with a permission of 
+       'permit'.  The value of this object can be modified for an existing 
+       row only after placing that row notInService by setting the respective 
+       atmAddressFilterExpressionRowStatus object to the value notInService." 
+    ::= { ciscoAtmAddressFilterExpressionEntry 5}
+
+atmAddressFilterExpressionOperator    OBJECT-TYPE
+    SYNTAX    INTEGER { and(1), or(2), xor(3), not(4), none(5) }    
+    MAX-ACCESS     read-create    
+    STATUS         current
+    DESCRIPTION
+       "The logical operator to be applied to the associated ATM address
+        filter logical expression.  The value of this object can be modified
+        for an existing row only after placing that row notInService by setting 
+        the corresponding atmAddressFilterExpressionRowStatus object to the 
+        value notInService." 
+    ::= { ciscoAtmAddressFilterExpressionEntry 6}
+
+atmAddressFilterExpressionRowStatus    OBJECT-TYPE
+    SYNTAX    	RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+      "To create, delete, read and write a row.  Existing entries in this table
+       that are active cannot be modified on the fly. Before an existing entry 
+       in this table that is active can be modified, the corresponding 
+       atmAddressFilterExpressionRowStatus object has to be set to notInService."
+    ::= { ciscoAtmAddressFilterExpressionEntry 7}
+
+-- This group is the ATM access group table
+
+ciscoAtmAccessGroupTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CiscoAtmAccessGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "The ATM access group Table.  This table shall only include interfaces 
+        whose ifType is atm(37) or logicalAtm(80).  Entries in this table can 
+        be modified through the commands provided by the CLI also."
+    ::= { ciscoAtmAccessGroup 1 }
+
+ciscoAtmAccessGroupEntry OBJECT-TYPE
+    SYNTAX     CiscoAtmAccessGroupEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the ATM access group table.  This table shall only 
+         include interfaces whose ifType is atm(37) or logicalAtm(80)"
+    INDEX { ifIndex }
+    ::= { ciscoAtmAccessGroupTable 1 }
+
+CiscoAtmAccessGroupEntry ::=
+    SEQUENCE {
+        atmInboundAccessGroupName    	DisplayString,
+        atmOutboundAccessGroupName	DisplayString 
+	}
+
+atmInboundAccessGroupName    OBJECT-TYPE
+    SYNTAX    DisplayString    (SIZE(0..30))
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+      "The name of an ATM address filter set or expression used for access
+       control for inbound call on the associated interface."
+    ::= { ciscoAtmAccessGroupEntry 1}
+
+atmOutboundAccessGroupName    OBJECT-TYPE
+    SYNTAX    DisplayString    (SIZE(0..30))
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+      "The name of an ATM address filter set or expression used for access
+       control for outbound call on the associated interface."
+    ::= { ciscoAtmAccessGroupEntry 2}
+
+
+-- conformance information
+
+ciscoAtmAccessListMIBConformance
+              OBJECT IDENTIFIER ::= { ciscoAtmAccessListMIB 3 }
+ciscoAtmAccessListMIBCompliances
+              OBJECT IDENTIFIER ::= { ciscoAtmAccessListMIBConformance 1 }
+ciscoAtmAccessListMIBGroups
+              OBJECT IDENTIFIER ::= { ciscoAtmAccessListMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoAtmAccessListMIBCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM access list group."
+    MODULE  -- this module
+            MANDATORY-GROUPS { ciscoAtmAccessListMIBGroup }
+
+    ::= { ciscoAtmAccessListMIBCompliances 1 }
+
+-- units of conformance
+
+ciscoAtmAccessListMIBGroup  OBJECT-GROUP
+    OBJECTS { 
+        atmAddressTemplate,
+	atmAddressTemplateRowStatus,
+        atmAddressFilterSetType,
+        atmAddressFilterSetTemplate,
+        atmAddressFilterSetStartHour,
+        atmAddressFilterSetStartMinute,
+        atmAddressFilterSetEndHour,
+        atmAddressFilterSetEndMinute,
+        atmAddressFilterSetPermission,
+	atmAddressFilterSetRowStatus,
+        atmAddressFilterExpressionQualifier1,
+        atmAddressFilterExpressionTerm1,
+        atmAddressFilterExpressionQualifier2,
+        atmAddressFilterExpressionTerm2,
+        atmAddressFilterExpressionOperator,
+	atmAddressFilterExpressionRowStatus,
+        atmInboundAccessGroupName,
+        atmOutboundAccessGroupName
+    }
+    STATUS    current
+    DESCRIPTION
+      ""
+    ::= { ciscoAtmAccessListMIBGroups 1 }
+END

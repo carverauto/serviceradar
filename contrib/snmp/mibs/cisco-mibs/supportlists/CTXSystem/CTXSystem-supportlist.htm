@@ -1,0 +1,311 @@
+<html>
+    <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="Title" content="Cisco TelePresence System Supported MIBs">
+<title>Cisco TelePresence System Supported MIBs</title>
+
+    <style>
+        body {
+            font-family: arial;
+            font-size: 14px;
+        }
+        div.main {
+            margin: 8px 24px 24px 16px;
+        }
+
+        div.mibtbl {
+            margin: 24px 24px 16px 24px;
+            width: 80%;
+        }
+
+        th {
+            padding: 6px 6px 6px 6px;
+            background-color: #E6E6E6;
+        }
+
+        td {
+            padding: 4px 8px 4px 8px;
+        }
+
+        td.mibfld {
+            width: 320px;
+        }
+
+        table {
+            font-family: arial;
+            font-size: 12px;
+            border-collapse: collapse;
+            border:none;
+            border-color: #8e8e8e;
+        }
+    </style>
+</head>
+
+<body bgcolor="white" lang="EN-US" link="blue" vlink="blue">
+
+<div class="main">
+
+<h1>MIBs supported by Cisco TelePresence Exchange System </h1>
+
+<hr size="3" width="100%" align="center">
+
+<p/>
+The lists below indicate which MIBs and SNMP traps are supported by Cisco
+TelePresence Exchange System. </p>
+
+
+SNMP version 1 MIB files are in the v1 directory and SNMP version 2 MIB files are in
+the v2 directory. Note that for every MIB.my in the v2 directory, there exists
+a SNMP version 1 MIB-V1SMI.my&nbsp;in the v1 directory as well.
+</p>
+
+<hr size="3" width="100%" align="center">
+
+</div>
+
+    <h2><strong>CTX System Software through Release 1.3.x</strong></h2>
+
+    <div class="mibtbl">
+
+        <h2><strong>Supported MIBs - All Platforms</strong></h2>
+
+        <table  border="1" cellspacing="0" cellpadding="0">
+            <tr>
+                <th>MIB Name</th>
+                <th>1.0.x</th>
+                <th>1.1.x</th>
+                <th>1.2.x</th>
+                <th>1.3.x</th>
+                <th>Revision ID</th>
+                <th>Notes</th>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TELEPRESENCE-EXCHANGE-SYSTEM-MIB.my">CISCO-TELEPRESENCE-EXCHANGE-SYSTEM-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>201101130000Z</td>
+                <td>Release 1.2 - Notes:<br>
+                    <ul>
+                        <li>Large Meetings for Resources has been deprecated.  <b>ctxMediaCapacityLargeMeeting</b> will always be FALSE</li>
+                        <li>All key objects have been updated to match the SOAP API business keys</li>
+                    </ul>
+                </td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TELEPRESENCE-EXCHANGE-SYSTEM-CAPABILITY.my">CISCO-TELEPRESENCE-EXCHANGE-SYSTEM-CAPABILITY.my</a></td>
+                <td>-</td>
+                <td>-</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>201304110000Z</td>
+                <td>New in Release 1.2 <br>
+                	Updated in Release 1.3.
+                </td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200111230000Z</td>
+                <td></td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200512030000Z</td>
+                <td></td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/HOST-RESOURCES-MIB.my">HOST-RESOURCES-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200003060000Z</td>
+                <td>RFC 2790</td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/IF-MIB.my">IF-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200006140000Z</td>
+                <td></td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200210140000Z</td>
+                <td>RFC 2571</td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200210140000Z</td>
+                <td>RFC 2572</td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200210140000Z</td>
+                <td>RFC 2573</td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200210140000Z</td>
+                <td>RFC 2573</td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>9901200000Z</td>
+                <td>RFC 2574</td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>9901200000Z</td>
+                <td>RFC 2575</td>
+            </tr>
+            <tr>
+                <td><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-MIB.my">SNMPv2-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200210160000Z</td>
+                <td></td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v1/RFC1213-MIB.my">RFC1213-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>n/a</td>
+                <td></td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/TCP-MIB.my">TCP-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200502180000Z</td>
+                <td></td>
+            </tr>
+            <tr>
+                <td class="mibfld"><a href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/UDP-MIB.my">UDP-MIB.my</a></td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>YES</td>
+                <td>200505200000Z</td>
+                <td></td>
+            </tr>
+
+        </table>
+
+    </div>
+
+
+<div class="mibtbl">
+    <h2><strong>Additional MIBs Supported – MCS7845-I3 Servers</strong></h2>
+
+    <table  border="1" cellspacing="0" cellpadding="0">
+        <tr>
+            <th>MIB Name</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-ASSETID-MIB</td>
+            <td>IBM director agent 5.20.02</td>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-HEALTH-MIB</td>
+            <td>IBM director agent 5.20.02</td>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-MEMORY-MIB</td>
+            <td>IBM director agent 5.20.02</td>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-LMSENSOR-MIB</td>
+            <td>IBM director agent 5.20.02</td>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-NETWORK-MIB</td>
+            <td>IBM director agent 5.20.02</td>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-POWER-MIB</td>
+            <td>IBM director agent 5.20.02</td>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-PROCESSOR-MIB</td>
+            <td>IBM director agent 5.20.02</td>
+        </tr>
+        <tr>
+            <td class="mibfld">IBM-SYSTEM-STORAGE-MIB</td>
+            <td>IBM director agent 5.20.02
+                <pre>
+                See <a href="http://www-01.ibm.com/support/docview.wss?uid=isg1IC73225">http://www-01.ibm.com/support/docview.wss?uid=isg1IC73225</a>
+                for details on how to monitor
+                the operational status.
+
+                For ibmStorageDiskDriveOperationalStatus use:
+                0  =  Unknown, State of drive is unknown
+                2  =  OK, drive is online and functional
+                3  =  Degraded, drive function is degraded
+                5  =  Predictive Failure, drive is predicting a failure
+                6  =  Error, drive is not functional or defunct
+                8  =  Starting, drive is starting
+                9  =  Stopping, drive is stopping
+                10 =  Stopped, drive is in stopped state
+                15 =  Dormant, drive is not in use or part of volume
+
+
+                For ibmStorageStorageVolumeOperationalStatus use:
+                0  =  Unknown, state of volume is unknown
+                2  =  OK, volume is online and functional
+                3  =  Degraded, a drive has failed, a rebuild is in process, or
+                a spare drive is in use for  the volume
+                6  =  Error, volume is not functional
+                </pre>
+            </td>
+        </tr>
+
+    </table>
+
+</div>
+
+
+
+</body></html>

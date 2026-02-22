@@ -1,0 +1,1618 @@
+-- MIB file created 07-Aug-2002 10:53:25, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ATM-SWITCH-FR-IWF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ATM-SWITCH-FR-IWF-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+--    Unsigned32
+--            FROM CISCO-TC
+    AtmTrafficDescrParamIndex
+            FROM ATM-MIB
+    ifIndex, InterfaceIndex
+            FROM IF-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAtmSwitchFrIwfMIB OBJECT IDENTIFIER ::= { ciscoMgmt 112 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200105200000Z
+--  OrgName
+--    Cisco Systems
+--  ContactInfo
+--    
+--     Cisco Systems, Inc.
+--     170 West Tasman Drive,
+--     San Jose CA 95134-1706.
+--     Phone: +1 408 526 5260
+--     Email: cs-atm@cisco.com
+--  Descr
+--    A MIB module for managing Frame Relay to ATM interworking
+--    connections, and Frame Relay to Frame Relay switched
+--    connections via an ATM switching fabric, on a Cisco ATM 
+--    switch.
+--  RevDate
+--    200105200000Z
+--  RevDescr
+--    Added objects casfVcSignalStandardCalledIe,
+--    casfConfIfCledSpvcDeModeDef, 
+--    casfConfIfCledSpvcClpModeDef.
+--  RevDate
+--    200002290000Z
+--  RevDescr
+--    New UPC values of 'tag' and 'drop' were added for IDSL 
+--    support.
+--  RevDate
+--    9807090000Z
+--  RevDescr
+--    Initial version.
+
+ciscoAtmSwitchFrIwfMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrIwfMIB 1 }
+casfFrTraffic   OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrIwfMIBObjects 1 }
+casfFrVC        OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrIwfMIBObjects 2 }
+casfFrInterface OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrIwfMIBObjects 3 }
+casfFrCounts    OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrIwfMIBObjects 4 }
+casfMapping     OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrIwfMIBObjects 5 }
+ciscoAtmSFrIwfMIBConformance OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrIwfMIB 3 }
+ciscoAtmSFrIwfMIBCompliances OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBConformance 1 }
+ciscoAtmSFrIwfMIBGroups OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBConformance 2 }
+
+CasfTrafficDescrRow ::= Gauge(1..2147483647)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Identifies an index into the casfTrafficDescrTable. The
+--     value 0 signifies that no row has been identified.
+
+DlciValue ::= INTEGER(0..4194303)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A numerical value identifying a Data Link Connection
+--    Identifier (DLCI) for a Frame Relay connection. The valid
+--    range of values depends on the format of the address field
+--    used, as described in ITU Recommendation Q.922. When a
+--    2-octet address field is used, the value ranges from 0 to
+--    1023.
+--  Refer
+--    ITU Recommendation Q.922, ISDN Data Link Layer
+--           Specification For Frame Mode Bearer Services.
+
+ConnectionKind ::= INTEGER {
+        pvc(1),
+        svcIncoming(2),
+        svcOutgoing(3),
+        spvcInitiator(4),
+        spvcTarget(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The kind of connection, distinguished by the use of call
+--     control.
+
+AtmAddr ::= OCTET STRING(SIZE(0..40))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    1x
+--  Status
+--    mandatory
+--  Descr
+--    An ATM address. The semantics are implied by the
+--    length. The address types are: - no address (0 octets)
+--    - E.164 (8 octets) - NSAP (20 octets) In addition,
+--    when subaddresses are used the AtmAddr may represent
+--    the concatenation of address and subaddress. The
+--    associated address types are: - E.164, E.164 (16
+--    octets) - E.164, NSAP (28 octets) - NSAP, NSAP (40
+--    octets) Address lengths other than defined in this
+--    definition imply address types defined elsewhere.
+--    Note: The E.164 address is encoded in BCD format.
+
+casfTrafficDescrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfTrafficDescrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a set of self-consistent Frame
+         Relay traffic parameters. It is intended to be used to
+         create Frame Relay to ATM interworking connections,
+         hence a ATM traffic service category is also included.
+        
+        An entry in this table is associated with an
+         equivalent entry in the ATM traffic descriptor table
+         (atmTrafficDescrParamTable); the mapping is given by
+         the object casfTrafficDescrAtmIndex. The agent will
+         not permit deletion of the associated
+         atmTrafficDescrEntry while the Frame Relay Traffic 
+         Descriptor entry exists.
+        
+        When creating an entry in this table, if the value of
+        casfTrafficDescrAtmIndex is specified, the following
+        cases are possible:
+        (a) if no corresponding row exists in
+        atmTrafficDescrParamTable, the agent will create such
+        a row with the given index value.
+        (b) if a corresponding row does exist in
+        atmTrafficDescrParamTable, the agent compares the
+        parameter values in casfTrafficDescrEntry and the
+        corresponding atmTrafficDescrParamEntry. If the two
+        entries are not equivalent, an error is returned, and
+        row creation fails.
+        
+        When creating an entry in this table, if the value of
+        casfTrafficDescrAtmIndex is not specified, the agent
+        will assign a value to this object so that it refers
+        to an equivalent entry in the
+        atmTrafficDescrParamTable. If such an equivalent
+        entry does not already exist, the agent will create
+        one.
+        
+        The agent creates rows in this table for use with
+        signaled connections. These are called 'transient'
+        rows - they disappear when the connection is torn
+        down, and are not saved in non-volatile memory. By
+        convention, transient rows usually use high-numbered
+        index values.
+        
+        Entries can be deleted by setting the row status to
+        destroy(6). The agent denies the request if the row
+        is in use by existing connections."
+    ::= { casfFrTraffic 1 }
+
+casfTrafficDescrEntry OBJECT-TYPE
+    SYNTAX CasfTrafficDescrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Describes a traffic descriptor that is used by Frame
+        Relay connections."
+    INDEX { casfTrafficDescrIndex }
+    ::= { casfTrafficDescrTable 1 }
+
+CasfTrafficDescrEntry ::= SEQUENCE {
+    casfTrafficDescrIndex CasfTrafficDescrRow,
+    casfTrafficDescrCIR Gauge,
+    casfTrafficDescrBc Gauge,
+    casfTrafficDescrBe Gauge,
+    casfTrafficDescrPIR Gauge,
+    casfTrafficDescrServCategory INTEGER,
+    casfTrafficDescrAtmIndex AtmTrafficDescrParamIndex,
+    casfTrafficDescrRowStatus RowStatus
+    }
+
+casfTrafficDescrIndex OBJECT-TYPE
+    SYNTAX CasfTrafficDescrRow
+--    Rsyntax Gauge(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Uniquely identifies a row in this table."
+    ::= { casfTrafficDescrEntry 1 }
+
+casfTrafficDescrCIR OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits/sec
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the Committed Information Rate (CIR) parameter."
+    ::= { casfTrafficDescrEntry 2 }
+
+casfTrafficDescrBc OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the Committed Burst Size (Bc) parameter."
+    ::= { casfTrafficDescrEntry 3 }
+
+casfTrafficDescrBe OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the Excess Burst Size (Be) parameter."
+    ::= { casfTrafficDescrEntry 4 }
+
+casfTrafficDescrPIR OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits/sec
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the Peak Information Rate (PIR) parameter."
+    ::= { casfTrafficDescrEntry 5 }
+
+casfTrafficDescrServCategory OBJECT-TYPE
+    SYNTAX INTEGER {
+        vbrNrt(1),
+        abr(2),
+        ubr(3),
+        vbrRt(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The service category, as defined for ATM."
+    REFERENCE
+        "ATM Forum Traffic Management Specification,
+                Version 4.0, af-tm-0056.000, June 1996."
+    ::= { casfTrafficDescrEntry 6 }
+
+casfTrafficDescrAtmIndex OBJECT-TYPE
+    SYNTAX AtmTrafficDescrParamIndex
+--    Rsyntax INTEGER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The index of the equivalent entry in the
+         atmTrafficDescrParamTable."
+    ::= { casfTrafficDescrEntry 7 }
+
+casfTrafficDescrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used to create, delete and modify this row.
+        None of the columnar values (other than this one) can be 
+        modified while the row is active."
+    ::= { casfTrafficDescrEntry 8 }
+
+casfVcEndptTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfVcEndptEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about Frame Relay
+         end-points of FR-ATM interworking connections on the
+         switch. When an entry is created in this table, the
+         agent creates a corresponding entry in the
+         atmVclTable of ATM-MIB, to represent the
+         configuration on the internal ATM port. The mapping
+         between an entry in this table, and the corresponding
+         entry in the atmVclTable is shown in the
+         casfFAMapTable and the casfAFMapTable.
+        
+        Entries can be created or deleted in this table by an
+        NMS using the casfVcEndptRowStatus object. 
+        
+        To create a PVC connection end-point, the value of
+        casfVcEndptConnKind must be 'pvc'.
+        
+        To create a soft VC initiator end-point, set the value of
+        casfVcEndptConnKind to 'spvcInitiator', and specify
+        the value of casfVcEndptSpvcRemoteAddr and
+        casfVcEndptSpvcRemoteType. 
+        
+        If the value of casfVcEndptSpvcRemoteType is
+        'frameRelay', you must also specify the value of
+        casfVcEndptSpvcRemoteDlci. Activating the conceptual
+        row will then cause the agent to attempt to establish
+        a connection to the remote frame relay interface.
+        
+         If the value of casfVcEndptSpvcRemoteType is 'atm',
+        you must specify the values of
+        casfVcEndptSpvcRemoteVpi and
+        casfVcEndptSpvcRemoteVci. Activating the conceptual row
+        will then cause the agent to attempt to establish a
+        connection to the remote ATM interface.
+        
+        The agent creates an entry in this table when an
+        incoming signaling request causes a soft VC
+        connection to be established with a local frame relay
+        interface as the destination. The value of
+        casfVcEndptConnKind in this case will be
+        'spvcTarget'.  Such entries cannot be modified or
+        deleted by network management. They will be deleted
+        when the connection is removed by signaling."
+    ::= { casfFrVC 1 }
+
+casfVcEndptEntry OBJECT-TYPE
+    SYNTAX CasfVcEndptEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Models a bidirectional Frame Relay VC end-point. The
+              ifIndex identifies an ifTable entry for a Frame Relay 
+        interface on this device."
+    INDEX { ifIndex, casfVcEndptDlci }
+    ::= { casfVcEndptTable 1 }
+
+CasfVcEndptEntry ::= SEQUENCE {
+    casfVcEndptDlci DlciValue,
+    casfVcEndptRxTrafficDescrRow CasfTrafficDescrRow,
+    casfVcEndptTxTrafficDescrRow CasfTrafficDescrRow,
+    casfVcEndptRxNegTrafficDescrRow CasfTrafficDescrRow,
+    casfVcEndptTxNegTrafficDescrRow CasfTrafficDescrRow,
+    casfVcEndptConnKind ConnectionKind,
+    casfVcEndptIwfType INTEGER,
+    casfVcEndptClpMode INTEGER,
+    casfVcEndptDeMode INTEGER,
+    casfVcEndptEfciMode INTEGER,
+    casfVcEndptUpcMode INTEGER,
+    casfVcEndptSpvcRemoteAddr AtmAddr,
+    casfVcEndptSpvcRemoteType INTEGER,
+    casfVcEndptSpvcRemoteDlci DlciValue,
+    casfVcEndptSpvcRemoteVpi INTEGER,
+    casfVcEndptSpvcRemoteVci INTEGER,
+    casfVcEndptCreationTime TimeStamp,
+    casfVcEndptRcvdSigStatus INTEGER,
+    casfVcEndptRowStatus RowStatus,
+    casfVcSignalStandardCalledIe TruthValue
+    }
+
+casfVcEndptDlci OBJECT-TYPE
+    SYNTAX DlciValue
+--    Rsyntax INTEGER(0..4194303)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the Data Link Connection Identifier (DLCI)
+          which identifies this connection end-point."
+    ::= { casfVcEndptEntry 1 }
+
+casfVcEndptRxTrafficDescrRow OBJECT-TYPE
+    SYNTAX CasfTrafficDescrRow
+--    Rsyntax Gauge(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the entry in the casfTrafficDescrTable
+        which applies to the receive direction at this
+        connection end-point.
+        
+        For connections that negotiate traffic parameters
+        through signaling (e.g. ABR connections), this object
+        points to the desired traffic parameters, while the
+        object casfVcEndptRxNegTrafficDescrRow points to the
+        negotiated traffic parameters, for the receive direction."
+    ::= { casfVcEndptEntry 2 }
+
+casfVcEndptTxTrafficDescrRow OBJECT-TYPE
+    SYNTAX CasfTrafficDescrRow
+--    Rsyntax Gauge(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the entry in the casfTrafficDescrTable
+        which applies to the transmit direction at this
+        connection end-point.
+        
+        For connections that negotiate traffic parameters
+        through signaling (e.g. ABR connections), this object
+        points to the desired traffic parameters, while the
+        object casfVcEndptTxNegTrafficDescrRow points to the
+        negotiated traffic parameter, for the transmit direction."
+    ::= { casfVcEndptEntry 3 }
+
+casfVcEndptRxNegTrafficDescrRow OBJECT-TYPE
+    SYNTAX CasfTrafficDescrRow
+--    Rsyntax Gauge(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the entry in the casfTrafficDescrTable
+        which contains negotiated traffic parameters applied
+        to the receive direction of this connection
+        end-point.  
+        
+        This object is not instantiated if this
+        is not the calling side of a soft VC, or if there is
+        no traffic negotiation."
+    ::= { casfVcEndptEntry 4 }
+
+casfVcEndptTxNegTrafficDescrRow OBJECT-TYPE
+    SYNTAX CasfTrafficDescrRow
+--    Rsyntax Gauge(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the entry in the casfTrafficDescrTable
+        which contains negotiated traffic parameters applied
+        to the transmit direction of this connection
+        endpoint.
+        
+        This object is not instantiated if this is not the
+        calling side of a soft VC, or if there is no traffic
+        negotiation."
+    ::= { casfVcEndptEntry 5 }
+
+casfVcEndptConnKind OBJECT-TYPE
+    SYNTAX ConnectionKind
+--    Rsyntax INTEGER {
+--        pvc(1),
+--        svcIncoming(2),
+--        svcOutgoing(3),
+--        spvcInitiator(4),
+--        spvcTarget(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The connection kind. The value can be set prior to
+        the row becoming 'active'.
+        
+        To create a pvc connection endpoint, set this value to
+        pvc(1).
+        
+        To create a soft VC connection endpoint, set this
+        value to spvcInitiator(4), and specify the value of
+        casfVcEndptSpvcRemoteAddr.
+        
+        The values svcIncoming(2), svcOutgoing(3), and
+        spvcTarget(5) can not be written."
+    DEFVAL { pvc }
+    ::= { casfVcEndptEntry 6 }
+
+casfVcEndptIwfType OBJECT-TYPE
+    SYNTAX INTEGER {
+        network(1),
+        serviceTransparent(2),
+        serviceTranslation(3),
+        rfc1973(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the interworking function. The value can
+        be set prior to the row becoming 'active'."
+    ::= { casfVcEndptEntry 7 }
+
+casfVcEndptClpMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        clpIfDe(1),
+        clpIsZero(2),
+        clpIsOne(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies how to map from Discard Eligibility (DE)
+        bit on the Frame Relay side to Congestion Loss
+        Priority (CLP) bit on the ATM side.
+        
+        For network interworking, clpIfDe(1) corresponds to
+        Mode 1 as defined in FRF.5, section
+        4.4.1. clpIsZero(2) and clpIsOne(3) correspond to
+        Mode 2 as defined in FRF.5, section 4.4.1.
+        
+        For service interworking, clpIfDe(1) corresponds to
+        Mode 1 as defined in FRF.8, section
+        4.2.1. clpIsZero(2) and clpIsOne(3) correspond to
+        Mode 2 as defined in FRF.8, section 4.2.1."
+    ::= { casfVcEndptEntry 8 }
+
+casfVcEndptDeMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        deIfClpOrFrsscsDe(1),
+        deIfFrsscsDe(2),
+        deIfClp(3),
+        deIsZero(4),
+        deIsOne(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies how to map from Congestion Loss Priority
+        (CLP) bit on the ATM side to Discard Eligibility (DE)
+        bit on the Frame Relay side.
+        
+        See the Frame Relay Forum specifications FRF.5 and
+        FRF.8 for definitions of Mode 1 and Mode 2.
+        
+        For network interworking, the valid values are:
+        deIfClpOrFrsscsDe(1) -- Mode 1 of FRF.5 section 4.4.2
+        deIfFrsscsDe(2) -- Mode 2 of FRF.5 section 4.4.2
+        
+        For service interworking, the valid values are:
+        deIfClp(3) -- Mode 1 of FRF.8 section 4.2.2
+        deIsZero(4) and deIsOne(5) -- Mode 2 of FRF.8 section 4.2.2"
+    ::= { casfVcEndptEntry 9 }
+
+casfVcEndptEfciMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        efciIfFecn(1),
+        efciIsZero(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies how to map from FECN field in the Frame
+        Relay PDU to the EFCI field in ATM cells, in case of
+        service interworking. This object does not apply to
+        network interworking.
+        
+        efciIfFecn(1) and efciIsZero(2) correspond to Mode 1
+        and Mode 2 (as defined in FRF.8, section 4.3.1.1),
+        respectively."
+    ::= { casfVcEndptEntry 10 }
+
+casfVcEndptUpcMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        pass(1),
+        tagDrop(2),
+        tag(3),
+        drop(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the action taken by Usage Parameter Control
+        (UPC) at the ingress port."
+    ::= { casfVcEndptEntry 11 }
+
+casfVcEndptSpvcRemoteAddr OBJECT-TYPE
+    SYNTAX AtmAddr
+--    Rsyntax OCTET STRING(SIZE(0..40))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ATM address of the remote end of the soft VC.
+        The value can be set prior to the row becoming
+        'active', and if the value of casfVcEndptConnKind is
+        spvcInitiator(4). The agent will return an
+        inconsistentValue error on sets if the value of
+        casfVcEndptConnKind is other than spvcInitiator(4).
+        
+        If the value of casfVcEndptConnKind spvcTarget(5), this
+        object is initialized by the agent.
+        
+        This object is instantiated only if the value of
+        casfVcEndptConnKind is spvcInitiator(4) or
+        spvcTarget(5)."
+    ::= { casfVcEndptEntry 12 }
+
+casfVcEndptSpvcRemoteType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        frameRelay(2),
+        atm(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the remote end of the soft VC. 
+        
+         This object is instantiated only if the value of
+              casfVcEndptConnKind is spvcInitiator(4) or
+              spvcTarget(5). The agent will return an
+              inconsistentValue error on sets if the value of
+              casfVcEndptConnKind is other than spvcInitiator(4) or
+              spvcTarget(5)."
+    ::= { casfVcEndptEntry 13 }
+
+casfVcEndptSpvcRemoteDlci OBJECT-TYPE
+    SYNTAX DlciValue
+--    Rsyntax INTEGER(0..4194303)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DLCI value to be used at the remote end of the
+        soft VC.  The value can be set prior to the row
+        becoming 'active', and if the value of
+        casfVcEndptConnKind is spvcInitiator(4), and the value
+        of casfVcEndptSpvcRemoteType is frameRelay(2).
+        
+        The object is instantiated only if the value of
+        casfVcEndptSpvcRemoteType is frameRelay(2). The agent
+        will return an inconsistentValue error on sets if the
+        value of casfVcEndptSpvcRemoteType is other than 
+              frameRelay(2)."
+    ::= { casfVcEndptEntry 14 }
+
+casfVcEndptSpvcRemoteVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value to be used at the remote end of the
+        soft VC.  The value can be set prior to the row
+        becoming 'active', and if the value of
+        casfVcEndptConnKind is spvcInitiator(4), and the value
+        of casfVcEndptSpvcRemoteType is atm(3).
+        
+        The object is instantiated only if the value of
+        casfVcEndptSpvcRemoteType is atm(3). The agent will
+        return an inconsistentValue error on sets if the value
+        of casfVcEndptSpvcRemoteType is other than atm(3)."
+    ::= { casfVcEndptEntry 15 }
+
+casfVcEndptSpvcRemoteVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value to be used at the remote end of the
+        soft VC.  The value can be set prior to the row
+        becoming 'active', and if the value of
+        casfVcEndptConnKind is spvcInitiator(4), and the value
+        of casfVcEndptSpvcRemoteType is atm(3).
+        
+        The object is instantiated only if the value of
+        casfVcEndptSpvcRemoteType is atm(3). The agent will
+        return an inconsistentValue error on sets if the value
+        of casfVcEndptSpvcRemoteType is other than atm(3)."
+    ::= { casfVcEndptEntry 16 }
+
+casfVcEndptCreationTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when this row was created."
+    ::= { casfVcEndptEntry 17 }
+
+casfVcEndptRcvdSigStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        deleted(1),
+        active(2),
+        inactive(3),
+        none(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the PVC status
+        received via the local in-channel signaling
+        procedures for this PVC end-point. This object is
+        only pertinent for interfaces that perform the
+        bidirectional procedures. For user-to-network network
+        side procedures, the value of this object should be
+        none(4)."
+    REFERENCE
+        " Q.933 Annex A.
+        This object is a copy of frPVCEndptRcvdSigStatus from RFC1604."
+    ::= { casfVcEndptEntry 18 }
+
+casfVcEndptRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used to create, modify or delete this row."
+    ::= { casfVcEndptEntry 19 }
+
+casfVcSignalStandardCalledIe OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether or not to signal the standard (from 
+        the ATM-Forum PNNI Soft PVC Addendum) format of the 
+        Called Soft PVC IE, as opposed to the proprietary 
+        encoding we have used for the network-interworking 
+        case to a frame-relay destination."
+    REFERENCE
+        " ATM Forum specification AF-CS-0127.000 for
+        standard encoding of Soft PVC IE."
+    DEFVAL { false }
+    ::= { casfVcEndptEntry 20 }
+
+casfFrLmiTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfFrLmiEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains frame relay Local Management
+        Interface (LMI) parameters and counters.
+        
+        There is one entry for each frame relay
+        interface. Entries come and go in this table as frame
+        relay interfaces are created and deleted in the device."
+    ::= { casfFrInterface 1 }
+
+casfFrLmiEntry OBJECT-TYPE
+    SYNTAX CasfFrLmiEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Frame relay LMI objects for a particular frame relay
+        interface, which is identified by the ifIndex value in
+        the INDEX clause."
+    INDEX { ifIndex }
+    ::= { casfFrLmiTable 1 }
+
+CasfFrLmiEntry ::= SEQUENCE {
+    casfFrLmiProtocol INTEGER,
+    casfFrLmiType INTEGER,
+    casfFrLmiUserN391 INTEGER,
+    casfFrLmiUserN392 INTEGER,
+    casfFrLmiUserN393 INTEGER,
+    casfFrLmiUserT391 INTEGER,
+    casfFrLmiNetN392 INTEGER,
+    casfFrLmiNetN393 INTEGER,
+    casfFrLmiNetT392 INTEGER,
+    casfFrLmiEnquiryIns Counter,
+    casfFrLmiEnquiryOuts Counter,
+    casfFrLmiStatusIns Counter,
+    casfFrLmiStatusOuts Counter,
+    casfFrLmiStatusTimeouts Counter,
+    casfFrLmiStatusEnqTimeouts Counter
+    }
+
+casfFrLmiProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        lmi(2),
+        ansiT1617D(3),
+        ansiT1617B(4),
+        ccittQ933A(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the Local In-Channel Signaling Protocol
+             that is used for this frame relay port."
+    ::= { casfFrLmiEntry 1 }
+
+casfFrLmiType OBJECT-TYPE
+    SYNTAX INTEGER {
+        dte(1),
+        dce(2),
+        nni(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the Local In-Channel Signaling Procedure
+        that is used for this frame relay port. A dte performs
+        only user-side procedures. A dce performs only
+        network-side procedures. An nni performs bidirectional
+        procedures."
+    ::= { casfFrLmiEntry 2 }
+
+casfFrLmiUserN391 OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Number of status enquiry intervals  that  pass
+        before  issuance  of a full status enquiry mes-
+        sage."
+    REFERENCE
+        "Draft American National  Standard  T1.617-1991,
+        Section D.7 Counter N391."
+    DEFVAL { 6 }
+    ::= { casfFrLmiEntry 3 }
+
+casfFrLmiUserN392 OBJECT-TYPE
+    SYNTAX INTEGER(1..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of unanswered Status Enquiries the
+        device shall accept before declaring the interface
+        down."
+    REFERENCE
+        "Draft American National  Standard  T1.617-1991,
+        Section D.5.1 Counter N392."
+    DEFVAL { 3 }
+    ::= { casfFrLmiEntry 4 }
+
+casfFrLmiUserN393 OBJECT-TYPE
+    SYNTAX INTEGER(1..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of status polling intervals over which the
+        error threshold is counted.  For example, if within
+        N393 number of events the device receives N392 number
+        of errors, the interface is marked as down."
+    REFERENCE
+        "Draft American National  Standard  T1.617-1991,
+        Section D.5.2 Counter N393."
+    DEFVAL { 4 }
+    ::= { casfFrLmiEntry 5 }
+
+casfFrLmiUserT391 OBJECT-TYPE
+    SYNTAX INTEGER(5..30)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds between successive status
+        enquiry messages."
+    REFERENCE
+        "Draft American National  Standard  T1.617-1991,
+        Section D.7 Timer T391."
+    DEFVAL { 10 }
+    ::= { casfFrLmiEntry 6 }
+
+casfFrLmiNetN392 OBJECT-TYPE
+    SYNTAX INTEGER(1..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the network-side  error threshold
+        for this frame relay port."
+    REFERENCE
+        "Draft American National  Standard  T1.617-1991,
+        Section D.7 Timer N392."
+    DEFVAL { 3 }
+    ::= { casfFrLmiEntry 7 }
+
+casfFrLmiNetN393 OBJECT-TYPE
+    SYNTAX INTEGER(0..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the network-side monitored events count
+        for this frame relay port. If, within N393 number of
+        events, the network-side receives N392 number of
+        errors, the interface is marked as down."
+    REFERENCE
+        "Draft American National  Standard  T1.617-1991,
+        Section D.7 Timer N393."
+    DEFVAL { 3 }
+    ::= { casfFrLmiEntry 8 }
+
+casfFrLmiNetT392 OBJECT-TYPE
+    SYNTAX INTEGER(5..30)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the network-side  polling verification
+        timer for this frame relay port."
+    REFERENCE
+        "Draft American National  Standard  T1.617-1991,
+        Section D.7 Timer T392."
+    DEFVAL { 15 }
+    ::= { casfFrLmiEntry 9 }
+
+casfFrLmiEnquiryIns OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Status Enquiry messages received."
+    ::= { casfFrLmiEntry 10 }
+
+casfFrLmiEnquiryOuts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Status Enquiry messages sent."
+    ::= { casfFrLmiEntry 11 }
+
+casfFrLmiStatusIns OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Status messages received."
+    ::= { casfFrLmiEntry 12 }
+
+casfFrLmiStatusOuts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Status messages sent."
+    ::= { casfFrLmiEntry 13 }
+
+casfFrLmiStatusTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times when timeout occurred on waiting
+        for Status message"
+    ::= { casfFrLmiEntry 14 }
+
+casfFrLmiStatusEnqTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times when timeout occurred on waiting
+        for Status Enquiry message"
+    ::= { casfFrLmiEntry 15 }
+
+casfConfIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfConfIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Contains an entry for each Frame Relay interface that
+         supports FR-ATM interworking connections. An entry
+         contains interworking related parameters for the interface."
+    ::= { casfFrInterface 2 }
+
+casfConfIfEntry OBJECT-TYPE
+    SYNTAX CasfConfIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration parameters for interworking at a 
+        Frame Relay interface."
+    INDEX { ifIndex }
+    ::= { casfConfIfTable 1 }
+
+CasfConfIfEntry ::= SEQUENCE {
+    casfConfIfAtmAddress AtmAddr,
+    casfConfIfUpcIntent INTEGER,
+    casfConfIfBcDefault INTEGER,
+    casfConfIfCledSpvcDeModeDef INTEGER,
+    casfConfIfCledSpvcClpModeDef INTEGER
+    }
+
+casfConfIfAtmAddress OBJECT-TYPE
+    SYNTAX AtmAddr
+--    Rsyntax OCTET STRING(SIZE(0..40))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ATM Address that identifies this interface. This
+        address can be used to setup soft VC's to this
+        interface over an ATM network."
+    ::= { casfConfIfEntry 1 }
+
+casfConfIfUpcIntent OBJECT-TYPE
+    SYNTAX INTEGER {
+        pass(1),
+        tagDrop(2),
+        tag(3),
+        drop(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the default Usage Parameter Control (UPC)
+        action to use at this interface for connections that
+        do not explicitly specify a UPC action."
+    ::= { casfConfIfEntry 2 }
+
+casfConfIfBcDefault OBJECT-TYPE
+    SYNTAX INTEGER(0..32768)
+--  Units
+--    bits
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the default Committed Burst Size (Bc) value
+        to use at this interface for connections that do not
+        explicitly specify the value of Bc."
+    ::= { casfConfIfEntry 3 }
+
+casfConfIfCledSpvcDeModeDef OBJECT-TYPE
+    SYNTAX INTEGER {
+        deIfClpOrFrsscsDe(1),
+        deIfFrsscsDe(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the default mapping from Congestion Loss 
+        Priority (CLP) bit on the ATM side to Discard 
+        Eligibility (DE) bit on the Frame Relay side. This 
+        is used when receiving a soft PVC Setup using the 
+        standard encoding of the called Soft PVC IE. 
+        Otherwise a proprietary encoding provides this 
+        information."
+    REFERENCE
+        " ATM Forum specification AF-CS-0127.000 for
+        standard encoding of Soft PVC IE."
+    DEFVAL { deIfClpOrFrsscsDe }
+    ::= { casfConfIfEntry 4 }
+
+casfConfIfCledSpvcClpModeDef OBJECT-TYPE
+    SYNTAX INTEGER {
+        clpIfDe(1),
+        clpIfIsZero(2),
+        clpIfIsOne(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the default mapping from Discard Eligibility 
+        (DE) bit on the Frame Relay side to Congestion Loss 
+        Priority (CLP) bit on the ATM side.This is used when 
+        receiving a soft PVC Setup using the standard encoding 
+        of the called Soft PVC IE. Otherwise a proprietary 
+        encoding provides this information."
+    REFERENCE
+        " ATM Forum specification AF-CS-0127.000 for
+        standard encoding of Soft PVC IE."
+    DEFVAL { clpIfDe }
+    ::= { casfConfIfEntry 5 }
+
+casfVcCountTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfVcCountEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing counters at Frame Relay connection
+        end-points. Entries in this table are created and
+        deleted whenever corresponding entries in the
+        casfVcEndptTable are created and deleted."
+    ::= { casfFrCounts 1 }
+
+casfVcCountEntry OBJECT-TYPE
+    SYNTAX CasfVcCountEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Counters at a Frame Relay connection end-point, which
+                is identified by the ifIndex of the Frame Relay
+                interface and the DLCI number."
+    INDEX { ifIndex, casfVcEndptDlci }
+    ::= { casfVcCountTable 1 }
+
+CasfVcCountEntry ::= SEQUENCE {
+    casfVcCountReceivedFrames Counter,
+    casfVcCountReceivedOctets Counter,
+    casfVcCountReceivedFECNs Counter,
+    casfVcCountReceivedBECNs Counter,
+    casfVcCountReceivedDEs Counter,
+    casfVcCountInDiscards Counter,
+    casfVcCountOutDiscards Counter,
+    casfVcCountSentFrames Counter,
+    casfVcCountSentOctets Counter,
+    casfVcCountSentFECNs Counter,
+    casfVcCountSentBECNs Counter,
+    casfVcCountSentDEs Counter,
+    casfVcCountTaggedFECNs Counter,
+    casfVcCountTaggedBECNs Counter,
+    casfVcCountTaggedDEs Counter
+    }
+
+casfVcCountReceivedFrames OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames received."
+    ::= { casfVcCountEntry 1 }
+
+casfVcCountReceivedOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of octets received. This counter counts octets from
+             the beginning of the frame relay header field to the
+             end of user data."
+    ::= { casfVcCountEntry 2 }
+
+casfVcCountReceivedFECNs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames received from the network
+                       with the FECN (Forward Explicit Congestion
+        Notification) bit set."
+    ::= { casfVcCountEntry 3 }
+
+casfVcCountReceivedBECNs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames received from the network
+                       with the BECN (Backward Explicit Network Congestion)
+        bit set."
+    ::= { casfVcCountEntry 4 }
+
+casfVcCountReceivedDEs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames received with the Discard
+        Eligibility (DE) bit set."
+    ::= { casfVcCountEntry 5 }
+
+casfVcCountInDiscards OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames received that were discarded at
+                       ingress. Possible reasons are policing, congestion."
+    ::= { casfVcCountEntry 6 }
+
+casfVcCountOutDiscards OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames that were to be transmitted but were
+        discarded. Possible reasons are policing, lack of buffers."
+    ::= { casfVcCountEntry 7 }
+
+casfVcCountSentFrames OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames sent."
+    ::= { casfVcCountEntry 8 }
+
+casfVcCountSentOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of octets sent. This counter counts octets from
+             the beginning of the frame relay header field to the
+             end of user data."
+    ::= { casfVcCountEntry 9 }
+
+casfVcCountSentFECNs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames that were sent with the FECN bit set."
+    ::= { casfVcCountEntry 10 }
+
+casfVcCountSentBECNs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames sent with the BECN bit set."
+    ::= { casfVcCountEntry 11 }
+
+casfVcCountSentDEs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames sent with the DE bit set."
+    ::= { casfVcCountEntry 12 }
+
+casfVcCountTaggedFECNs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames for which the switch set the FECN bit."
+    ::= { casfVcCountEntry 13 }
+
+casfVcCountTaggedBECNs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames for which the switch set the BECN bit."
+    ::= { casfVcCountEntry 14 }
+
+casfVcCountTaggedDEs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames for which the switch set the DE bit."
+    ::= { casfVcCountEntry 15 }
+
+casfVcIwfCountTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfVcIwfCountEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains counters at the Frame Relay
+        endpoint of FR-ATM interworking connections. There is
+        an entry in this table corresponding to each entry in
+        casfVcEndptTable."
+    ::= { casfFrCounts 2 }
+
+casfVcIwfCountEntry OBJECT-TYPE
+    SYNTAX CasfVcIwfCountEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of counters at the Frame Relay endpoint of a
+         FR-ATM interworking connection."
+    INDEX { ifIndex, casfVcEndptDlci }
+    ::= { casfVcIwfCountTable 1 }
+
+CasfVcIwfCountEntry ::= SEQUENCE {
+    casfVcIwfCountInUnknownProts Counter,
+    casfVcIwfCountOutUnknownProts Counter,
+    casfVcIwfCountReassemblyTimeouts Counter,
+    casfVcIwfCountLengthErrors Counter,
+    casfVcIwfCountCrcErrors Counter,
+    casfVcIwfCountTotalDiscardFrames Counter
+    }
+
+casfVcIwfCountInUnknownProts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Frames received with unknown protocol.  This event is
+        counted only for connections with service
+        interworking in translation mode. For other types of
+        connections, this count will remain at zero."
+    ::= { casfVcIwfCountEntry 1 }
+
+casfVcIwfCountOutUnknownProts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Outbound frames that were not transmitted because
+        they contained an unknown protocol.  This event is
+        counted only for connections with service
+        interworking in translation mode. For other types of
+        connections, this count will remain at zero."
+    ::= { casfVcIwfCountEntry 2 }
+
+casfVcIwfCountReassemblyTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames which could not be completely
+        reassembled due to a reassembly timeout, and were
+        thus discarded before being transmitted on this
+        connection."
+    ::= { casfVcIwfCountEntry 3 }
+
+casfVcIwfCountLengthErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of reassembled frames intended to be
+        transmitted on this connection for which the AAL5 PDU
+        trailer length fields did not match the actual PDU
+        length, and were thus discarded."
+    ::= { casfVcIwfCountEntry 4 }
+
+casfVcIwfCountCrcErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of reassembled frames intended to be
+        transmitted on this connection for which the AAL5 PDU
+        had CRC errors, and were thus discarded."
+    ::= { casfVcIwfCountEntry 5 }
+
+casfVcIwfCountTotalDiscardFrames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames intended to be transmitted on
+        this connection that were discarded due to any reason
+        including those described in other objects in this
+        table (e.g., frames that were discarded because
+        insufficient buffer space was available for
+        reassembling the frame)."
+    ::= { casfVcIwfCountEntry 6 }
+
+casfFAMapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfFAMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides mapping from a DLCI on a Frame
+         Relay interface to a VPI/VCI on an internal ATM
+         interface."
+    ::= { casfMapping 1 }
+
+casfFAMapEntry OBJECT-TYPE
+    SYNTAX CasfFAMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Given the ifIndex of a frame relay interface, and a DLCI on
+        that interface, this entry provides the ifIndex and
+         VPI/VCI on the corresponding internal atm interface."
+    INDEX { ifIndex, casfFAMapDlci }
+    ::= { casfFAMapTable 1 }
+
+CasfFAMapEntry ::= SEQUENCE {
+    casfFAMapDlci DlciValue,
+    casfFAMapInternalAtmInterface InterfaceIndex,
+    casfFAMapInternalAtmVpi INTEGER,
+    casfFAMapInternalAtmVci INTEGER
+    }
+
+casfFAMapDlci OBJECT-TYPE
+    SYNTAX DlciValue
+--    Rsyntax INTEGER(0..4194303)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DLCI value."
+    ::= { casfFAMapEntry 1 }
+
+casfFAMapInternalAtmInterface OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the internal ATM interface to which
+        this DLCI is mapped."
+    ::= { casfFAMapEntry 2 }
+
+casfFAMapInternalAtmVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value to which this DLCI is mapped."
+    ::= { casfFAMapEntry 3 }
+
+casfFAMapInternalAtmVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value to which this DLCI is mapped."
+    ::= { casfFAMapEntry 4 }
+
+casfAFMapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CasfAFMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides mapping from an atmVclEntry on an
+        internal ATM internal to a casfVcEndptEntry on a  
+        Frame Relay interface."
+    ::= { casfMapping 2 }
+
+casfAFMapEntry OBJECT-TYPE
+    SYNTAX CasfAFMapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Given the ifIndex of an internal ATM interface, and
+        VPI/VCI, provides the ifIndex of a Frame Relay
+        interface and DLCI, if such mapping exists.
+        
+              The value of ifType for an internal ATM interface is
+        propVirtual(53). For every such interface on the
+        switch, this table contains an entry for each virtual
+        channel link (VCL) that maps to a frame relay
+        connection. Entries in this table come and go as the
+        corresponding frame relay connections come and go."
+    INDEX { ifIndex, casfAFMapAtmVpi, casfAFMapAtmVci }
+    ::= { casfAFMapTable 1 }
+
+CasfAFMapEntry ::= SEQUENCE {
+    casfAFMapAtmVpi INTEGER,
+    casfAFMapAtmVci INTEGER,
+    casfAFMapFrIndex InterfaceIndex,
+    casfAFMapFrDlci DlciValue
+    }
+
+casfAFMapAtmVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value of the Virtual Channel Link (VCL) on
+        the ATM interface."
+    ::= { casfAFMapEntry 1 }
+
+casfAFMapAtmVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value of the Virtual Channel Link (VCL) on
+        the ATM interface."
+    ::= { casfAFMapEntry 2 }
+
+casfAFMapFrIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the frame relay interface that this
+        VCL maps to."
+    ::= { casfAFMapEntry 3 }
+
+casfAFMapFrDlci OBJECT-TYPE
+    SYNTAX DlciValue
+--    Rsyntax INTEGER(0..4194303)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The DLCI on the frame relay interface that this VCL maps to."
+    ::= { casfAFMapEntry 4 }
+
+ciscoAtmSFrIwfConfConnGroup OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which allow configuration of
+--    FR-ATM connections on an ATM switch.
+--  objects
+--    casfTrafficDescrCIR, casfTrafficDescrBc, casfTrafficDescrBe, 
+--    casfTrafficDescrPIR, casfTrafficDescrServCategory, 
+--    casfTrafficDescrAtmIndex, casfTrafficDescrRowStatus, 
+--    casfVcEndptRxTrafficDescrRow, casfVcEndptTxTrafficDescrRow, 
+--    casfVcEndptRxNegTrafficDescrRow, 
+--    casfVcEndptTxNegTrafficDescrRow, casfVcEndptConnKind, 
+--    casfVcEndptIwfType, casfVcEndptClpMode, casfVcEndptDeMode, 
+--    casfVcEndptEfciMode, casfVcEndptUpcMode, 
+--    casfVcEndptCreationTime, casfVcEndptRcvdSigStatus, 
+--    casfVcEndptSpvcRemoteAddr, casfVcEndptSpvcRemoteType, 
+--    casfVcEndptSpvcRemoteDlci, casfVcEndptSpvcRemoteVpi, 
+--    casfVcEndptSpvcRemoteVci, casfVcEndptRowStatus, 
+--    casfVcSignalStandardCalledIe
+
+ciscoAtmSFrIwfLmiGroup OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for configuring and monitoring LMI
+--     on an FR interface.
+--  objects
+--    casfFrLmiProtocol, casfFrLmiType, casfFrLmiUserN391, 
+--    casfFrLmiUserN392, casfFrLmiUserN393, casfFrLmiUserT391, 
+--    casfFrLmiNetN392, casfFrLmiNetN393, casfFrLmiNetT392, 
+--    casfFrLmiEnquiryIns, casfFrLmiEnquiryOuts, casfFrLmiStatusIns, 
+--    casfFrLmiStatusOuts, casfFrLmiStatusTimeouts, 
+--    casfFrLmiStatusEnqTimeouts
+
+ciscoAtmSFrIwfConfIfGroup OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which allow configuration of
+--    interworking related parameters on an FR interface.
+--  objects
+--    casfConfIfAtmAddress, casfConfIfUpcIntent, 
+--    casfConfIfBcDefault, casfConfIfCledSpvcDeModeDef, 
+--    casfConfIfCledSpvcClpModeDef
+
+ciscoAtmSFrIwfVcStatsGroup OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of counters at FR VC end-points.
+--  objects
+--    casfVcCountReceivedFrames, casfVcCountReceivedOctets, 
+--    casfVcCountReceivedFECNs, casfVcCountReceivedBECNs, 
+--    casfVcCountReceivedDEs, casfVcCountInDiscards, 
+--    casfVcCountOutDiscards, casfVcCountSentFrames, 
+--    casfVcCountSentOctets, casfVcCountSentFECNs, 
+--    casfVcCountSentBECNs, casfVcCountSentDEs, 
+--    casfVcCountTaggedFECNs, casfVcCountTaggedBECNs, 
+--    casfVcCountTaggedDEs
+
+ciscoAtmSFrIwfVcIwStatsGroup OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of counters related to FR-ATM interworking
+--     at FR VC end-points.
+--  objects
+--    casfVcIwfCountInUnknownProts, casfVcIwfCountOutUnknownProts, 
+--    casfVcIwfCountReassemblyTimeouts, casfVcIwfCountLengthErrors, 
+--    casfVcIwfCountCrcErrors, casfVcIwfCountTotalDiscardFrames
+
+ciscoAtmSFrIwfMappingGroup OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that describe the mapping from a
+--     FR connection end-point to an ATM VCL, and vice versa.
+--  objects
+--    casfFAMapInternalAtmInterface, casfFAMapInternalAtmVpi, 
+--    casfFAMapInternalAtmVci, casfAFMapFrIndex, casfAFMapFrDlci
+
+ciscoAtmSFrIwfMIBCompliance OBJECT IDENTIFIER ::= { ciscoAtmSFrIwfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Atm Switch FR IWF MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAtmSFrIwfConfConnGroup
+--   MandGroup
+--    ciscoAtmSFrIwfLmiGroup
+--   MandGroup
+--    ciscoAtmSFrIwfConfIfGroup
+--   MandGroup
+--    ciscoAtmSFrIwfVcStatsGroup
+--   MandGroup
+--    ciscoAtmSFrIwfVcIwStatsGroup
+--   MandGroup
+--    ciscoAtmSFrIwfMappingGroup
+
+
+END
+

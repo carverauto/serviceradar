@@ -1,0 +1,291 @@
+-- *****************************************************************
+-- CISCO-WAN-ATM-PREF-ROUTE-MIB
+--
+-- June 2002, Sheldon Chan 
+--
+-- Copyright (c) 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WAN-ATM-PREF-ROUTE-MIB DEFINITIONS ::= BEGIN       
+
+IMPORTS
+       MODULE-IDENTITY, 
+       OBJECT-TYPE,
+       Unsigned32          FROM SNMPv2-SMI
+
+       TEXTUAL-CONVENTION,
+       RowStatus          FROM SNMPv2-TC
+
+       ciscoMgmt          FROM CISCO-SMI
+
+       MODULE-COMPLIANCE, 
+       OBJECT-GROUP       FROM SNMPv2-CONF
+       PnniNodeId, PnniPortId
+                          FROM PNNI-MIB;
+
+
+ciscoWanATMPrefRouteMIB   MODULE-IDENTITY
+       LAST-UPDATED       "200206250000Z" 
+       ORGANIZATION       "Cisco System Inc."
+       CONTACT-INFO
+               "
+                           Cisco Systems
+                           Customer Service
+
+            Postal:        170 West Tasman Drive,
+                           San Jose CA 95134-1706.
+                           USA
+
+               Tel:        +1 800 553-NETS
+
+            E-mail:        cs-wanatm@cisco.com"
+       DESCRIPTION
+           "This MIB facilitates the maintenance of preferred routes
+            configuration."  
+
+       REVISION            "200206250000Z"
+       DESCRIPTION 
+           "Initial version of the preferred routes MIB. 
+
+           Preferred Route allows the user an improved control over
+           the Soft Permanent Virtual Circuit (SPVC) or Soft Permanent
+           Virtual Path (SPVP) connections. The use of network
+           resources by these connections can be explicitly specified
+           through the exact lowest-level nodes and the associated
+           links the connection has to traverse.
+
+           In subsequent discussion, the term SPVC implicitly applies
+           also to SPVP.
+
+           Preferred route is specified only at originating node.
+
+           When an originating node selects a connection to be
+           rerouted, the node searches for a route. If a preferred
+           route is configured for the connection, the originating
+           node uses the configured route as the basis of routing.
+
+           Terminologies used:
+           Network Element (NE):
+                  The pair of a node identifier and the egress port
+                  Identifier associated to the node.
+
+           Master node of a connection: 
+                  It is the node which owns the connection and is
+                  responsible to establish a data path from its end to
+                  the remote end.
+
+           Route Identifier:
+                  It is a number uniquely identifying a preferred
+                  route within the master node.
+
+           A preferred route consists of up to 20 network elements.
+           The number of network elements valid within the route is
+           specified by the user.
+
+           Contextually, the node at the first network element is the
+           originating node; the node at the last network element (as
+           specified by the user in the number of valid network
+           elements) is the destination node."
+       ::= { ciscoMgmt 99996 }
+
+-- CISCO-WAN-ATM-PREF-ROUTE-MIB MIB groups
+
+ciscoWanATMPrefRouteMIBNotifs OBJECT IDENTIFIER
+       ::= { ciscoWanATMPrefRouteMIB 0 }
+
+ciscoWanATMPrefRouteMIBObjects OBJECT IDENTIFIER
+       ::= { ciscoWanATMPrefRouteMIB 1 }
+
+cwaPrefRouteConformance OBJECT IDENTIFIER
+       ::= { ciscoWanATMPrefRouteMIB 2 }
+
+RouteId ::= TEXTUAL-CONVENTION
+       STATUS      current
+       DESCRIPTION
+           "A value that uniquely identifies a preferred route for an
+            SPVC connection." 
+       SYNTAX Unsigned32 ( 0..65535 ) 
+
+cwaPrefRouteConfTable OBJECT-TYPE
+       SYNTAX SEQUENCE OF CwaPrefRouteConfEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+          "This table contains a list of preferred routes configured
+           at the master node."
+       ::= { ciscoWanATMPrefRouteMIBObjects 1 }
+
+cwaPrefRouteConfEntry OBJECT-TYPE
+       SYNTAX      CwaPrefRouteConfEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+          "An entry in the preferred routes table. Each entry is keyed
+           by a route identifier. The number of leading network
+           elements to be used are specified by the object
+           cwaPrefRouteNetwElemCount."
+       INDEX { cwaPrefRouteId }
+       ::= { cwaPrefRouteConfTable 1 }
+
+CwaPrefRouteConfEntry ::=
+       SEQUENCE {
+          cwaPrefRouteId             RouteId,
+          cwaPrefRouteNwElemCount    Unsigned32,
+          cwaPrefRouteRowStatus      RowStatus 
+       }
+
+cwaPrefRouteId OBJECT-TYPE
+       SYNTAX      RouteId
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+          "A unique identifier to an entry of the preferred routes
+           table. The identifier cannot be zero."
+       ::= { cwaPrefRouteConfEntry 1 }
+
+cwaPrefRouteNwElemCount OBJECT-TYPE
+       SYNTAX      Unsigned32 ( 1..20 )
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+          "A value that indicates in the preferred route entry the
+           number of leading network elements which are integral to the
+           preferred route."
+       ::= { cwaPrefRouteConfEntry 2 }
+
+cwaPrefRouteRowStatus OBJECT-TYPE
+       SYNTAX      RowStatus 
+       MAX-ACCESS  read-create 
+       STATUS      current
+       DESCRIPTION
+          "To create, modify and delete a preferred route entry. Only
+           the value 'active', 'createAndGo', and 'destroy' are
+           supported.
+
+           The value of this variable is set to 'active' by the
+           managed system for each valid entry. If a management
+           station wants to delete an entry from the database, this
+           value is set to 'destroy'. If a management station wants to
+           create a new entry, this value is set to 'createAndGo'. The
+           modification of an 'active' row is permitted."
+       ::= { cwaPrefRouteConfEntry 3 }
+
+cwaPrefRouteNwElemTable OBJECT-TYPE
+       SYNTAX SEQUENCE OF CwaPrefRouteNwElemEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+          "The table contains a list of network elements, each of
+           which is indexed by the route identifier and the position of
+           the network element within the preferred route. Position 1
+           refers to the first network element, while position 20
+           refers to the last network element."
+       ::= { ciscoWanATMPrefRouteMIBObjects 2 }
+
+cwaPrefRouteNwElemEntry OBJECT-TYPE
+       SYNTAX      CwaPrefRouteNwElemEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+            "An entry in the preferred route network element
+             table. The entry can be modified on the fly. The entry
+             will not be used in the preferred route if its position
+             specified by cwaPrefRouteNwElemPos is greater than
+             cwaPrefRouteNwElemCount."
+       INDEX { cwaPrefRouteId, cwaPrefRouteNwElemPos }
+       ::= { cwaPrefRouteNwElemTable 1}
+
+CwaPrefRouteNwElemEntry ::=
+       SEQUENCE {
+          cwaPrefRouteNwElemPos       Unsigned32,
+          cwaPrefRouteNwElemNodeId    PnniNodeId,
+          cwaPrefRouteNwElemPortId    PnniPortId,
+          cwaPrefRouteNwElemRowStatus RowStatus
+       }
+
+cwaPrefRouteNwElemPos OBJECT-TYPE
+       SYNTAX      Unsigned32 ( 1..20 ) 
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+          "The network element position identifies the position of the
+           network element within the preferred route."
+       REFERENCE
+          "ATM Forum PNNI 1.1 Section 6.4.6.4"
+       ::= { cwaPrefRouteNwElemEntry 1 }
+
+cwaPrefRouteNwElemNodeId OBJECT-TYPE
+       SYNTAX      PnniNodeId      
+       MAX-ACCESS  read-create  
+       STATUS      current
+       DESCRIPTION
+          "The 22-octet logical node identifier of a PNNI node."
+       ::= { cwaPrefRouteNwElemEntry 2 }
+
+cwaPrefRouteNwElemPortId OBJECT-TYPE
+       SYNTAX      PnniPortId
+       MAX-ACCESS  read-create  
+       STATUS      current
+       DESCRIPTION
+          "The 32-bit logical port identifier of an egress port on the
+           associated PNNI node for the network element."
+       ::= { cwaPrefRouteNwElemEntry 3 }
+
+cwaPrefRouteNwElemRowStatus OBJECT-TYPE
+       SYNTAX      RowStatus 
+       MAX-ACCESS  read-create 
+       STATUS      current
+       DESCRIPTION
+          "To create, modify and delete a network element (node
+           identifier and port identifier).
+
+           Only the value 'active', 'createAndGo', and 'destroy' are
+           supported.
+
+           The value of this variable is set to 'active' by the
+           managed system for each valid entry. If a management
+           station wants to delete an entry from the database, this
+           value is set to 'destroy'. If a management station wants to
+           create a new entry, this value is set to 'createAndGo'. The 
+           modification of an 'active' row is permitted."
+       ::= { cwaPrefRouteNwElemEntry 4 }
+
+-- conformance information
+
+cwaPrefRouteCompliances OBJECT IDENTIFIER
+       ::= { cwaPrefRouteConformance 1 }
+
+cwaPrefMIBGroups OBJECT IDENTIFIER
+       ::= { cwaPrefRouteConformance 2 }
+
+-- compliance statements
+cwaPrefMIBCompliance MODULE-COMPLIANCE
+       STATUS current
+       DESCRIPTION 
+          "The compliance statement for SNMPv2 entities which
+           implement the preferred route."
+       MODULE  -- this module 
+       MANDATORY-GROUPS {
+          cwaPrefRouteMIBGroups
+       }
+       ::= { cwaPrefRouteCompliances 1 }
+
+-- units of conformance
+cwaPrefRouteMIBGroups OBJECT-GROUP
+       OBJECTS {
+          cwaPrefRouteNwElemCount,
+          cwaPrefRouteRowStatus,
+          cwaPrefRouteNwElemNodeId,
+          cwaPrefRouteNwElemPortId,
+          cwaPrefRouteNwElemRowStatus
+       }
+       STATUS current
+       DESCRIPTION
+          "This group contains a list of objects which identify a
+           preferred route." 
+       ::= { cwaPrefMIBGroups 1 }
+
+END
+
+

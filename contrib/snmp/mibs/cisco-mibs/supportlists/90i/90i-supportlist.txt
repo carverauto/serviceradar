@@ -1,0 +1,17 @@
+Cisco 90i Support Lists
+
+
+SNMP version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are in the v2 directory. Note that for most every 
+MIB .my in the v2 directory, there exists a SNMP version 1 conversion of the MIB -V1SMI.my in the v1 directory. The 
+exception is SNMPv2-TC.my. Thanks go to David T. Perkins for his package smicng which was used to produce most of the v1 
+conversions. 
+
+At a minimum, you will want to download all of the OLD-CISCO- and CISCO- mibs (including -TC and -SMI) for your network 
+management workstation. 
+
+
+Cisco 90i MIB Support
+
+Supported SNMP version 1 MIBs:
+
+

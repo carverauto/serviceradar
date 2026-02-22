@@ -1,0 +1,1041 @@
+-- *****************************************************************
+-- CISCO-THREAT-MITIGATION-SERVICE-MIB.my MIB for TMS(Threat
+-- Mitigation Service).
+--   
+-- January 2007, Alok K Sinha
+--   
+-- Copyright (c) 2007 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-THREAT-MITIGATION-SERVICE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Unsigned32,
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ifIndex
+        FROM IF-MIB
+    StorageType,
+    RowStatus,
+    DateAndTime,
+    TruthValue,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoThreatMitigationServiceMIB MODULE-IDENTITY
+    LAST-UPDATED    "200701090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:170 W. Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:+1 800 553-NETS
+
+            E-mail:cs-tms@cisco.com"
+    DESCRIPTION
+        "
+        This MIB provides management information about the Threat 
+        Mitigation Service(TMS) entity named 'Consumer'. TMS is part
+        of Cisco's Network Infection Containment (NIC) security 
+        framework. The MIB is expected to be implemented on all 
+        entities that act as TMS consumers.
+
+        The NIC framework deals with threat mitigation. The NIC
+        architecture consists of controllers and one or more consumers
+        registered with these controllers. The controller is 
+        responsible for detecting threats  and conveying the 
+        information about the same to one or more consumers that
+        could be the potential targets of the detected threat.  
+        Upon receiving the  information about the threat from 
+        the controller, the consumer responds with appropriate 
+        mitigation  actions according to the policies configured 
+        on it and as indicated in the threat notification message.
+
+        TMS protocol is used for distribution and management of threat
+        related information from the controller to consumers. 
+        TMS runs over TIDP layer which is used as distribution layer.
+        TIDP layer provides a secured connection between  the 
+        controller and the consumers. TIDP also  provides group
+        management services.
+
+        Each consumer needs to participate in a TIDP group in order
+        to receive threat notification message from controller 
+        in that TIDP group. To participate in a TIDP group consumer
+        needs to register with the controller of that group,
+        from which it intends to receive threat messages. 
+
+        When the controller needs to distribute the information   
+        about a threat to one or more target TIDP groups or to   
+        one particular consumer in a TIDP group, it delivers   
+        the information to the respective entities through   
+        TMS protocol messages.  Upon receiving the threat   
+        notification message, consumer determines the appropriate
+        mitigation action to  be executed, with the corresponding
+        action parameters, based on the configuration and information
+        available in threat message. The respective action is then 
+        executed. 
+
+        The state of threat is set according to the result of 
+        enforcement action, e.g., upon successful application of 
+        enforcement action it is marked as Active. The consumer then 
+        responds to the controller with the results of the 
+        mitigation action carried out for the threat.
+
+                             GLOSSARY
+                             --------
+
+        Active Threat : A threat is active on a consumer if mitigation 
+        action corresponding to the threat has been enforced 
+        successfully.
+
+        Inactive Threat : A threat is inactive on a consumer if
+        mitigation action corresponding to the threat has been 
+        undone successfully.
+
+        ACL : Access Control List is the list of rules which are 
+        used to filter or classify packets based on protocol
+        parameters.
+
+        ACL drop : ACL drop action refers to the drop action taken 
+        on packets matching any of the filters in the access list.
+
+        DSCP :  Differentiated Service Code Point is same as 'Type of 
+        Service' field in IP header, used in reference to quality 
+        of service.
+
+        FPM : Flexible Packet Matching is a framework which provides 
+        packet filtering based on pattern at any offset in the packet.
+
+        FPM drop : FPM drop action refers to the drop action taken on
+        packet filtered by FPM.
+
+        TCDF : Traffic Classification Definition File gives 
+        the XML description of traffic class.
+
+        TIDP : Threat Information Distribution Protocol is a 
+        distribution protocol, which provides a secured connectivity 
+        between network devices. It also provides a group management
+        function.
+
+        TIDP group : A closed group of network devices which share  
+        authentication and encryption keys for message exchange.
+
+        TMS  : TMS protocol provides information about threats and the
+        mitigation action required for the threats in a TIDP network.
+
+        TIDP network : TIDP network comprises of one or more 
+        TIDP groups."
+    REVISION        "200701090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+          ::= { ciscoMgmt 603 }
+
+
+ciscoTmsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoThreatMitigationServiceMIB 0 }
+
+ciscoTmsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoThreatMitigationServiceMIB 1 }
+
+ciscoTmsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoThreatMitigationServiceMIB 2 }
+
+ciTmsConsumerGlobals  OBJECT IDENTIFIER
+    ::= { ciscoTmsMIBObjects 1 }
+
+ciTmsConsumerGroup  OBJECT IDENTIFIER
+    ::= { ciscoTmsMIBObjects 2 }
+
+ciTmsConsumerThreat  OBJECT IDENTIFIER
+    ::= { ciscoTmsMIBObjects 3 }
+
+ciTiTmsConsumerNotifs  OBJECT IDENTIFIER
+    ::= { ciscoTmsMIBObjects 4 }
+
+-- Textual Conventions
+
+CTmsConsumerState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual description represents  the state
+        of the consumer. The semantics are as follows.
+
+        disabled(1)
+           Consumer is disabled.
+
+        enabled(2)
+           Consumer is enabled.
+
+        "
+    SYNTAX          INTEGER  {
+                        disabled(1),
+                        enabled(2)
+                    }
+
+CTmsConsumerRegistrationStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual description represents  the status of
+        registration of consumer with the controller. The 
+        semantics are as follows.
+
+        notRegistered(1)
+           Consumer is not registered to the controller.
+
+        registrationRequestSent(2)
+           A registration request has been sent to the controller
+           and consumer is waiting for the response.
+
+        registered(3)  
+           Consumer is registered with the controller. 
+
+        registrationFailed(4)
+           The most recent registration attempt has failed.
+        "
+    SYNTAX          INTEGER  {
+                        notRegistered(1),
+                        registrationRequestSent(2),
+                        registered(3),
+                        registrationFailed(4)
+                    }
+
+CTmsThreatStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the status of the threat
+        received from a controller in a TIDP group on the consumer. 
+
+        unknown(1)
+           Unknown state.
+
+        active(2)
+           Threat is successfully activated, i.e. mitigation action 
+           has been successfully enforced.
+
+        inactive(3)
+           Threat is inactivated by controller, i.e. mitigation 
+           action is not enforced.
+
+        created(4)
+           Consumer has recorded the information about the threat
+           mitigation action enforcement and other processing 
+           pending for successful activation.
+
+        pending(5)
+           Mitigation action initiated and waiting for the result.
+
+        activationFailed(6)
+           Threat activation failed.
+
+        inactivationFailed(7)
+           Inactivation of threat failed.
+
+        deleted(8)
+           Threat mitigation is removed from the consumer.
+
+        "
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        active(2),
+                        inactive(3),
+                        created(4),
+                        pending(5),
+                        activationFailed(6),
+                        inactivationFailed(7),
+                        deleted(8)
+                    }
+
+CTmsActionType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the types of actions
+        that can be applied to mitigate a threat.
+
+        ignore(1)
+           No action, threat ignored.
+
+        aclDrop(2)
+           ACL drop action.
+
+        fpmDrop(3)
+           FPM drop.
+
+        redirect(4)
+          Redirect traffic to a particular host.
+
+        police(5)
+          Police the traffic.
+
+        setIPDscp(6)
+          Set the DSCP in IP header of packet to a specific value.
+
+        localException(7) 
+          Local exception enforced for the threat.
+
+        quarantine(8) 
+          Quarantine the infected host.
+        "
+    SYNTAX          INTEGER  {
+                        ignore(1),
+                        aclDrop(2),
+                        fpmDrop(3),
+                        redirect(4),
+                        police(5),
+                        setIPDscp(6),
+                        localException(7),
+                        quarantine(8)
+                    }
+
+CTmsActionParamIdType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the type of action
+        parameters.  The semantics are as follows.  
+
+        noParams(1),
+           No parameters required for the action.
+
+        cir(2),
+           police : Committed information rate.
+
+        bir(3),
+           police : Peak information rate.
+
+        be(4),
+           police : Excess burst.
+
+        nexthop(5),
+           redirect : Address of host to redirect the traffic to.
+
+        dscpVal(6),
+           setIpDscp : DSCP value in IP header to be set to.
+
+        vlanId(7)
+           Quarantine : Quarantine the host to this vlan.
+        "
+    SYNTAX          INTEGER  {
+                        noParams(1),
+                        cir(2),
+                        bir(3),
+                        be(4),
+                        nexthop(5),
+                        dscpVal(6),
+                        vlanId(7)
+                    }
+
+CTmsActionParamType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the type of the action
+        parameter. The semantics as follows.
+
+        unsigned(1),
+           Unsigned integer.
+
+        networkAddress(2),
+           represents a network address e,g, IPv4 and IPv6 address.
+
+        string(3)
+           A sequence of octets.   
+        "
+    SYNTAX          INTEGER  {
+                        unsigned(1),
+                        networkAddress(2),
+                        string(3)
+                    }
+
+-- Scalar objects
+ciTmsActiveThreats OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of active threats in
+        the consumer." 
+    ::= { ciTmsConsumerGlobals 1 }
+
+ciTmsInActiveThreats OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of inactive threats
+        in the consumer." 
+    ::= { ciTmsConsumerGlobals 2 }
+
+ciTmsConsumerDeviceId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used for configuring the name of
+        the consumer. This could be any generic string, 
+        e.g.  'Consumer-1'."
+    DEFVAL          { "" } 
+    ::= { ciTmsConsumerGlobals 3 }
+
+ciTmsGroupsMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum number of rows
+        in ciTmsGroupTable."
+    DEFVAL          { 32767 } 
+    ::= { ciTmsConsumerGlobals 4 }
+
+ciTmsThreatsMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum number of rows in
+        ciTmsThreatTable."
+    DEFVAL          { 65535 } 
+    ::= { ciTmsConsumerGlobals 5 }
+
+ciTmsThreatActionMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum number of rows in
+        ciTmsThreatActionTable."
+    DEFVAL          { 65535 } 
+    ::= { ciTmsConsumerGlobals 6 }
+
+ciTmsInterfaceMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum number of rows in
+        ciTmsThreatInterfaceTable."
+    DEFVAL          { 65535 } 
+    ::= { ciTmsConsumerGlobals 7 }
+
+ciTmsConsumerState OBJECT-TYPE
+    SYNTAX          CTmsConsumerState
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current state of the consumer." 
+    ::= { ciTmsConsumerGlobals 8 }
+-- Table for group controller to status mapping
+
+ciTmsGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiTmsGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Consumer can participate in one of more TIDP groups, each
+        group having one or more controllers. The table represents 
+        the list of controllers in a particular group.    
+
+        A row is added to the table when a controller's IP address 
+        is added to the list of known controllers.
+        A row is deleted from the table when a controller's 
+        IP address is removed from the list of known controllers."
+    ::= { ciTmsConsumerGroup 1 }
+
+ciTmsGroupEntry OBJECT-TYPE
+    SYNTAX          CiTmsGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in  ciTmsGroupTable
+        and corresponds to the information about the  controller 
+        and TIDP group a consumer is registered with."
+    INDEX           {
+                        ciTmsGroupId,
+                        ciTmsControllerIpType,
+                        ciTmsControllerIp
+                    } 
+    ::= { ciTmsGroupTable 1 }
+
+CiTmsGroupEntry ::= SEQUENCE {
+        ciTmsGroupId                Unsigned32,
+        ciTmsControllerIpType       InetAddressType,
+        ciTmsControllerIp           InetAddress,
+        ciTmsGroupConsumerRegStatus CTmsConsumerRegistrationStatus,
+        ciTmsGroupNotifEnable       TruthValue,
+        ciTmsGroupStorageType       StorageType,
+        ciTmsGroupRowStatus         RowStatus
+}
+
+ciTmsGroupId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "This object represents the TIDP group Id." 
+    ::= { ciTmsGroupEntry 1 }
+
+ciTmsControllerIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of the network address
+        available through ciTmsControllerIp." 
+    ::= { ciTmsGroupEntry 2 }
+
+ciTmsControllerIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the network address of the controller.
+        The type of the address is represented by 
+        ciTmsControllerIpType." 
+    ::= { ciTmsGroupEntry 3 }
+
+ciTmsGroupConsumerRegStatus OBJECT-TYPE
+    SYNTAX          CTmsConsumerRegistrationStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the status of consumer's registration
+        with the controller in a TIDP group." 
+    ::= { ciTmsGroupEntry 4 }
+
+ciTmsGroupNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether following notifications should
+        be generated for a group :
+            1. ciscoTmsControllerUnreachable
+            2. ciscoTmsThreatStatusChange
+            3. ciscoTmsMitigationActionFailed
+
+        Setting this object to 'true' enables the group level
+        notifications, while setting it to 'false' disables 
+        the group level notifications."
+    DEFVAL          { false } 
+    ::= { ciTmsGroupEntry 5 }
+
+ciTmsGroupStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION     "The storage type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { ciTmsGroupEntry 6 }
+
+ciTmsGroupRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+        An entry can be created/deleted using this object.
+        A row may be deleted by setting the RowStatus to 'destroy'." 
+    ::= { ciTmsGroupEntry 7 }
+ 
+
+-- Table for threat information
+
+ciTmsThreatTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiTmsThreatEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about the
+        threats the consumer has received from various   
+        controllers belonging to different TIDP groups it is   
+        registered with.  A threat received from one controller   
+        in a TIDP group is uniquely identified by the threat id   
+        and owner id.
+
+        A row is added to the  table when a threat notification  
+        message is received by the consumer from the controller in  
+        a TIDP group. 
+        A row is deleted from the table when the consumer deletes  
+        the information about a threat received from a controller 
+        in a TIDP group."
+    ::= { ciTmsConsumerThreat 1 }
+
+ciTmsThreatEntry OBJECT-TYPE
+    SYNTAX          CiTmsThreatEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in  ciTmsThreatTable
+        and corresponds to the information about a threat and it's 
+        various attributes, received from a  controller in a given
+        TIDP group."
+    INDEX           {
+                        ciTmsThreatOwner,
+                        ciTmsThreatId,
+                        ciTmsGroupId,
+                        ciTmsControllerIpType,
+                        ciTmsControllerIp
+                    } 
+    ::= { ciTmsThreatTable 1 }
+
+CiTmsThreatEntry ::= SEQUENCE {
+        ciTmsThreatOwner              Unsigned32,
+        ciTmsThreatId                 Unsigned32,
+        ciTmsThreatVer                Unsigned32,
+        ciTmsThreatStatus             CTmsThreatStatus,
+        ciTmsThreatClass              SnmpAdminString,
+        ciTmsThreatName               SnmpAdminString,
+        ciTmsThreatActiveTimeDuration DateAndTime,
+        ciTmsThreatPriority           Unsigned32,
+        ciTmsThreatTcdf               SnmpAdminString
+}
+
+ciTmsThreatOwner OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the controller that has notified the
+        consumer about the threat." 
+    ::= { ciTmsThreatEntry 1 }
+
+ciTmsThreatId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the identifier for the particular
+        threat." 
+    ::= { ciTmsThreatEntry 2 }
+
+ciTmsThreatVer OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the version of the
+        threat." 
+    ::= { ciTmsThreatEntry 3 }
+
+ciTmsThreatStatus OBJECT-TYPE
+    SYNTAX          CTmsThreatStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current status of the threat on
+        the consumer. This is evaluated locally on consumer." 
+    ::= { ciTmsThreatEntry 4 }
+
+ciTmsThreatClass OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the class of threat. An example of
+        class is 'Worm'." 
+    ::= { ciTmsThreatEntry 5 }
+
+ciTmsThreatName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents name of the threat. An example of
+        threat name is 'WittyWorm'." 
+    ::= { ciTmsThreatEntry 6 }
+
+ciTmsThreatActiveTimeDuration OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the duration the threat has been
+        active for." 
+    ::= { ciTmsThreatEntry 7 }
+
+ciTmsThreatPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..32 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the priority at which the consumer
+        responds to this threat. A higher value indicates a lower
+        priority for the threat and vice versa." 
+    ::= { ciTmsThreatEntry 8 }
+
+ciTmsThreatTcdf OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the TCDF related information received
+        in the threat. For example,
+        <tcdf> <match> <eq field='ip.dst_addr' value='10.10.10.1'> 
+        </eq> </match> </tcdf>." 
+    ::= { ciTmsThreatEntry 9 }
+ 
+
+-- Threat Action table
+
+ciTmsThreatActionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiTmsThreatActionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents mitigation action for the respective
+        threat. A threat is uniquely represented by the threat id,
+        owner id, controller IP and TIDP group ID and hence 
+        corresponding objects are used as indices.
+        A row is added to the table  when the consumer enforces a
+        mitigation action as a result of receiving a threat message
+        from a controller in a TIDP group.
+        A row is deleted from the table when the consumer removes
+        the mitigation action taken for the threat received from a 
+        controller in a TIDP group."
+    ::= { ciTmsConsumerThreat 2 }
+
+ciTmsThreatActionEntry OBJECT-TYPE
+    SYNTAX          CiTmsThreatActionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        ciTmsThreatActionTable and corresponds to the
+        information about the mitigation action
+        applied for a particular threat."
+    INDEX           {
+                        ciTmsThreatOwner,
+                        ciTmsThreatId,
+                        ciTmsGroupId,
+                        ciTmsControllerIpType,
+                        ciTmsControllerIp,
+                        ciTmsThreatAction,
+                        ciTmsThreatActionParamId
+                    } 
+    ::= { ciTmsThreatActionTable 1 }
+
+CiTmsThreatActionEntry ::= SEQUENCE {
+        ciTmsThreatAction            CTmsActionType,
+        ciTmsThreatActionParamId     CTmsActionParamIdType,
+        ciTmsThreatActionParamType   CTmsActionParamType,
+        ciTmsThreatActionParamLength Unsigned32,
+        ciTmsThreatActionParamValue  SnmpAdminString,
+        ciTmsThreatActionFailReason  SnmpAdminString
+}
+
+ciTmsThreatAction OBJECT-TYPE
+    SYNTAX          CTmsActionType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the mitigation action taken by
+        the consumer for a threat." 
+    ::= { ciTmsThreatActionEntry 1 }
+
+ciTmsThreatActionParamId OBJECT-TYPE
+    SYNTAX          CTmsActionParamIdType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "This object identifies an action parameter." 
+    ::= { ciTmsThreatActionEntry 2 }
+
+ciTmsThreatActionParamType OBJECT-TYPE
+    SYNTAX          CTmsActionParamType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of an action parameter." 
+    ::= { ciTmsThreatActionEntry 3 }
+
+ciTmsThreatActionParamLength OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the length of the action parameter
+        identified by ciTmsThreatActionParamId." 
+    ::= { ciTmsThreatActionEntry 4 }
+
+ciTmsThreatActionParamValue OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the value of the parameter identified
+        by ciTmsThreatActionParamId. This value should be interpreted 
+        using type and length of the parameter value represented by 
+        ciTmsThreatActionParamType and ciTmsThreatActionParamLength
+        respectively.
+        In case of ciTmsThreatActionParamType being 'networkAddress', 
+        the first octet of this object will indicate the type of 
+        network address, i.e. it will be set to one of 
+        InetAddressType values as appropriate. The subsequent 
+        octets will carry the network address. For example, 
+        the first octet of ciTmsThreatActionParamValue will carry 
+        the value ipv4(1) and the next four octets will carry the 
+        respective octets of the IP address." 
+    ::= { ciTmsThreatActionEntry 5 }
+
+ciTmsThreatActionFailReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the reason for the failure of
+        a particular threat mitigation action. 'OER mitigation not 
+        supported' is an example of the value populated for this
+        object. For successfully mitigated threats, this will be 
+        a zero-length string." 
+    ::= { ciTmsThreatActionEntry 6 }
+ 
+
+-- Threat Interface table
+
+ciTmsThreatInterfaceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiTmsThreatInterfaceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The application of threat mitigation is typically done on one
+        or more interfaces. This table represents the status of 
+        mitigation action applied on the respective interfaces.
+
+        A row is added to the table when the consumer enforces a 
+        mitigation action on a interface as a result of receiving 
+        a threat message from a controller in a TIDP group.
+        A row is deleted from the table when the consumer removes a
+        mitigation action taken on a interface as a result of threat
+        received from a controller in a TIDP group."
+    ::= { ciTmsConsumerThreat 3 }
+
+ciTmsThreatInterfaceEntry OBJECT-TYPE
+    SYNTAX          CiTmsThreatInterfaceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a row in  ciTmsThreatInterfaceTable
+        and corresponds to the information about the interface on
+        which the threat mitigation action is applied."
+    INDEX           {
+                        ciTmsThreatId,
+                        ciTmsThreatOwner,
+                        ciTmsGroupId,
+                        ciTmsControllerIpType,
+                        ciTmsControllerIp,
+                        ifIndex
+                    } 
+    ::= { ciTmsThreatInterfaceTable 1 }
+
+CiTmsThreatInterfaceEntry ::= SEQUENCE {
+        ciThreatInterfaceMitigationApplied TruthValue
+}
+
+ciThreatInterfaceMitigationApplied OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the mitigation action
+        for a particular threat has been successfully applied  
+        on an interface or not.  A value of 'true' indicates   
+        the successful application of mitigation action, while a  
+        value of 'false' indicates that the mitigation  
+        action couldn't be successfully applied on the interface. " 
+    ::= { ciTmsThreatInterfaceEntry 1 }
+ 
+
+
+-- notifications
+ciTmsConsStateChangeNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to control the generation of the
+        ciscoTmsConsStateChange notifications. A value of
+        'true' indicates that the agent is enabled to generate this 
+        notification.   A value of 'false' indicates the generation 
+        of this notification is currently disabled."
+    DEFVAL          { false } 
+    ::= { ciTiTmsConsumerNotifs 1 }
+
+
+ciscoTmsConsStateChange NOTIFICATION-TYPE
+    OBJECTS         { ciTmsConsumerState }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated to indicate the current
+        operational state of the consumer, when the consumer
+        undergoes a state change."
+   ::= { ciscoTmsMIBNotifs 1 }
+
+
+ciscoTmsControllerUnreachable NOTIFICATION-TYPE
+    OBJECTS         { ciTmsGroupConsumerRegStatus }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by the consumer when the
+        controller it has registered with becomes unreachable.
+        This notification will be generated only when notification
+        generation is enabled for the corresponding TIDP group
+        through ciTmsGroupNotifEnable."
+   ::= { ciscoTmsMIBNotifs 2 }
+
+
+ciscoTmsThreatStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciTmsThreatVer,
+                        ciTmsThreatStatus,
+                        ciTmsThreatPriority
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by the consumer when
+        consumer acts upon a particular threat and changes the state
+        of the threat. 
+        This notification will be generated only when notification
+        generation is enabled for the corresponding TIDP group
+        through ciTmsGroupNotifEnable."
+   ::= { ciscoTmsMIBNotifs 3 }
+
+
+ciscoTmsMitigationActionFailed NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciTmsThreatActionParamType,
+                        ciTmsThreatActionParamLength,
+                        ciTmsThreatActionParamValue,
+                        ciTmsThreatActionFailReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by the consumer when the
+        mitigation action enforced for a particular threat fails.
+        The notification  contains the information about the failed
+        mitigation action and the reason for the failure indicated
+        by ciTmsThreatActionFailReason.
+        This notification will be generated only when notification
+        generation is enabled for the corresponding TIDP group
+        through ciTmsGroupNotifEnable."
+   ::= { ciscoTmsMIBNotifs 4 }
+-- conformance information
+ciscoTmsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoTmsMIBConform 1 }
+
+ciscoTmsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoTmsMIBConform 2 }
+
+
+-- compliance statement
+ciscoTmsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoThreatMitigationServiceMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoTmsConsumerGroup,
+                        ciscoTmsThreatGroup,
+                        ciscoTmsThreatActionGroup,
+                        ciscoTmsThreatInterfaceGroup,
+                        ciscoTmsNotificationGroup
+                    }
+    ::= { ciscoTmsMIBCompliances 1 }
+
+-- units of conformance
+ciscoTmsConsumerGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciTmsConsumerDeviceId,
+                        ciTmsGroupsMaxEntries,
+                        ciTmsThreatsMaxEntries,
+                        ciTmsThreatActionMaxEntries,
+                        ciTmsInterfaceMaxEntries,
+                        ciTmsConsumerState,
+                        ciTmsConsStateChangeNotifEnable,
+                        ciTmsGroupConsumerRegStatus,
+                        ciTmsGroupNotifEnable,
+                        ciTmsGroupStorageType,
+                        ciTmsGroupRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the information about
+        the TIDP groups, the controller(s) in a TIDP group and the 
+        status of a consumer's registration with the controller
+        in the TIDP group."
+    ::= { ciscoTmsMIBGroups 1 }
+
+ciscoTmsThreatGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciTmsActiveThreats,
+                        ciTmsInActiveThreats,
+                        ciTmsThreatVer,
+                        ciTmsThreatStatus,
+                        ciTmsThreatClass,
+                        ciTmsThreatName,
+                        ciTmsThreatActiveTimeDuration,
+                        ciTmsThreatPriority,
+                        ciTmsThreatTcdf
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about the threats detected, as being targeted towards a
+        consumer, by a controller in a TIDP group."
+    ::= { ciscoTmsMIBGroups 2 }
+
+ciscoTmsThreatActionGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciTmsThreatActionParamType,
+                        ciTmsThreatActionParamLength,
+                        ciTmsThreatActionParamValue,
+                        ciTmsThreatActionFailReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the information about
+        the mitigation actions taken for the respective threats by 
+        the consumer."
+    ::= { ciscoTmsMIBGroups 3 }
+
+ciscoTmsThreatInterfaceGroup OBJECT-GROUP
+    OBJECTS         { ciThreatInterfaceMitigationApplied }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the information about
+        the interfaces on which the mitigation action for a
+        particular threat is applied."
+    ::= { ciscoTmsMIBGroups 4 }
+
+ciscoTmsNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoTmsConsStateChange,
+                        ciscoTmsControllerUnreachable,
+                        ciscoTmsThreatStatusChange,
+                        ciscoTmsMitigationActionFailed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the notifications
+        generated by the consumer."
+    ::= { ciscoTmsMIBGroups 5 }
+
+END
+
+
+

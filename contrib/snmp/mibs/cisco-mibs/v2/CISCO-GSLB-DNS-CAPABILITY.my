@@ -1,0 +1,144 @@
+-- *****************************************************************
+-- CISCO-GSLB-DNS-CAPABILITY.my:
+-- CISCO-GSLB-DNS-MIB AGENT-CAPABILITIES
+--   
+-- Feb 2007, Pawan N
+-- Mar 2009, Narendra B
+--   
+-- Copyright (c) 2006-2007, 2009 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-GSLB-DNS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoGslbDnsCapability MODULE-IDENTITY
+    LAST-UPDATED    "200903180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-slb@cisco.com"
+    DESCRIPTION
+        "The capabilities description
+        of CISCO-GSLB-DNS-MIB."
+    REVISION        "200903180000Z"
+    DESCRIPTION
+        "Added ciscoGslbDnsCapabilityV03R01 agent
+        capabilities for Global Site Selector(GSS)
+        release 3.1(0)."
+    REVISION        "200702230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 535 }
+
+
+
+ciscoGslbDnsCapabilityV02R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "GSS 2.0"
+    STATUS          current
+    DESCRIPTION
+        "GSS 2.0 Cisco GSLB DNS MIB capabilities"
+
+    SUPPORTS        CISCO-GSLB-DNS-MIB
+    INCLUDES        {
+                        ciscoGslbDnsNotifObjectsGroup,
+                        ciscoGslbDnsNotifGroup
+                    }
+    ::= { ciscoGslbDnsCapability 1 }
+
+ciscoGslbDnsCapabilityV03R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "GSS 3.1(0)"
+    STATUS          current
+    DESCRIPTION
+        "GSS 3.1(0) Cisco GSLB DNS MIB capabilities"
+
+    SUPPORTS        CISCO-GSLB-DNS-MIB
+    INCLUDES        {
+                        ciscoGslbDnsNotifObjectsGroup,
+                        ciscoGslbDnsNotifGroup,
+                        ciscoGslbDnsGlobalStatsGroup,
+                        ciscoGslbDnsAnswerGroup,
+                        ciscoGslbDnsDomainGroup,
+                        ciscoGslbDnsGlobalNotifStatsGroup
+                    }
+    VARIATION       cgdAnswerGroupType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdAnswerGroupHits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdAnswerGroupStorageType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdAnswerGroupRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdAnswerGrpName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdAnswerStatus
+    DESCRIPTION
+        "Value 'other(1)' is used to represet
+        'operational suspend' state of the answer"
+
+    VARIATION       cgdDomainListHits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdDomainListStorageType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdDomainListRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       cgdDomainList
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    ::= { ciscoGslbDnsCapability 2 }
+
+END
+
+
+

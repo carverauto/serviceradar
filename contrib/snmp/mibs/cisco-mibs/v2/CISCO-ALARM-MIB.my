@@ -1,0 +1,345 @@
+-- *****************************************************************
+-- CISCO-ALARM-MIB.my
+-- Alarm Mgr MIB
+--   
+-- Aug 2019 Vickey Kumar (vickkuma), Karthik R (krajanga)
+--   
+-- Copyright (c) 2019-2021 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ALARM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    DisplayString,
+    TimeStamp
+        FROM SNMPv2-TC
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    EntPhysicalIndexOrZero
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoAlarmMIB MODULE-IDENTITY
+    LAST-UPDATED    "202008310000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "Added hwCem(68) to existing CoiAlarmObjectTypeClass object."
+    REVISION        "202105170000Z"
+    DESCRIPTION
+        "The MIB module describes a generic solution to model alarms
+        and to store the current list of active alarms."
+    REVISION        "201908280000Z"
+    DESCRIPTION
+        "MIB changes for trap"
+    REVISION        "201908280000Z"
+    DESCRIPTION
+        "Initial version of the MIB module."
+    ::= { ciscoMgmt 869 }
+
+
+
+-- **************************************************************
+-- Cisco Alarm-mib generic textual conventions
+-- **************************************************************
+
+CoiAlarmObjectTypeClass ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This is the TC used to find out to which coiObjectTypeClass
+        an alarm belongs to"
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        hwMemorySbe(2),
+                        hwMemoryMbe(3),
+                        hwMemoryParity(4),
+                        hwFreeze(5),
+                        hwFlopError(6),
+                        hwInternal(7),
+                        hwTimeout(8),
+                        hwHang(9),
+                        hwError(10),
+                        hwLinkCrc(11),
+                        hwCodeViolation(12),
+                        hwLinkDisparity(13),
+                        hwEnvmonSensorAlarm(14),
+                        hwEnvmonPemAlarm(15),
+                        hwEnvmonFanAlarm(16),
+                        swMemoryFault(17),
+                        swBusError(18),
+                        swProcessCrash(19),
+                        swMallocError(20),
+                        swFoobar(21),
+                        swConnectFail(22),
+                        swProcessRestart(23),
+                        swProcessFailure(24),
+                        swMandatoryProcessFailure(25),
+                        swServiceRestart(26),
+                        swServiceFailure(27),
+                        swPmHeartbeat(28),
+                        swHostosHeartbeat(29),
+                        swCccWdog(30),
+                        hwConfigErr(31),
+                        hwGenericErr(32),
+                        hwIndirectErr(33),
+                        hwOorThreshErr(34),
+                        hwUnexpectedErr(35),
+                        hwBoardReload(36),
+                        hwSliceReload(37),
+                        hwMiscErr(38),
+                        hwRxResourceErr(39),
+                        hwTxResourceErr(40),
+                        hwLinkStatChange(41),
+                        hwEtherBridge(42),
+                        swInitErr(43),
+                        swMiscErr(44),
+                        hwEnvmonEcuAlarm(45),
+                        hwEnvmonPwrFilterAlarm(46),
+                        hwSonet(47),
+                        hwG709(48),
+                        hwEthernet(49),
+                        hwOptics(50),
+                        hwGfp(51),
+                        hwSdhController(52),
+                        swFsdbaggPlane(53),
+                        hwOts(54),
+                        swMacsecMka(55),
+                        swSmartLicErr(56),
+                        swProvisionErr(57),
+                        hwSyncec(58),
+                        hwPci(59),
+                        swWdDiskUsage(60),
+                        swCfgmgr(61),
+                        swG709Otnsec(62),
+                        hwCpri(63),
+                        hwImfpga(64),
+                        swFsdbaggConnMismatch(65),
+                        hwFibreChannel(66),
+                        hwE1(67),
+                        hwCem(68)
+                    }
+-- **************************************************************
+-- Textual Conventions definition will be defined before this line
+
+ciscoAlarmMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoAlarmMIB 0 }
+
+ciscoAlarmMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoAlarmMIB 1 }
+
+coiAlarmActive  OBJECT IDENTIFIER
+    ::= { ciscoAlarmMIBObjects 1 }
+
+
+coiAlarmActiveTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiAlarmActiveEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of Active Alarms entries."
+    ::= { coiAlarmActive 1 }
+
+coiAlarmActiveEntry OBJECT-TYPE
+    SYNTAX          CoiAlarmActiveEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An Entry containing active alarm attributes.Entries appear
+        in the alarm table when alarms are raised. They are removed 
+        when the alarm is cleared."
+    INDEX           {
+                        coiAlarmIndex,
+                        coiAlarmObjectIfIndex,
+                        coiAlarmObjectEntPhyIndex,
+                        coiAlarmType
+                    } 
+    ::= { coiAlarmActiveTable 1 }
+
+CoiAlarmActiveEntry ::= SEQUENCE {
+        coiAlarmIndex             Integer32,
+        coiAlarmObjectIfIndex     InterfaceIndexOrZero,
+        coiAlarmObjectEntPhyIndex EntPhysicalIndexOrZero,
+        coiAlarmObjectName        DisplayString,
+        coiAlarmObjectType        CoiAlarmObjectTypeClass,
+        coiAlarmType              DisplayString,
+        coiAlarmTimeStamp         Counter64,
+        coiAlarmSeverity          INTEGER,
+        coiAlarmStatus            INTEGER,
+        coiAlarmServiceAffecting  INTEGER,
+        coiAlarmDescription       DisplayString
+}
+
+coiAlarmIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "AlarmIndex is hashIndex generated from combination of AID and
+        EID. AlarmIndex will be set only when AlarmObjectIfIndex and 
+        AlarmObjectEntPhyIndex is not available, else default value 
+        is set to 0" 
+    ::= { coiAlarmActiveEntry 1 }
+
+coiAlarmObjectIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "if the alarm is interface related, this is the index of the
+        interface in the interface table, else default 0 will be set." 
+    ::= { coiAlarmActiveEntry 2 }
+
+coiAlarmObjectEntPhyIndex OBJECT-TYPE
+    SYNTAX          EntPhysicalIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "if the alarm is raised from Physical Entity like LC, this
+        field will be set to Physical Index of that Physical Entity, 
+        else default 0 will be set." 
+    ::= { coiAlarmActiveEntry 3 }
+
+coiAlarmObjectName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "User-visible name which uniquely identifies an object in
+        the system." 
+    ::= { coiAlarmActiveEntry 4 }
+
+coiAlarmObjectType OBJECT-TYPE
+    SYNTAX          CoiAlarmObjectTypeClass
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "indicates the type of the entity which raised this alarm.
+        (refer coiAlarmObjectTypeClass)" 
+    ::= { coiAlarmActiveEntry 5 }
+
+coiAlarmType OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Unique ID to identify an Alarm type in the system.
+        Also, referred to in different systems as condition type, 
+        alarm identifier, or alarm mnemonic." 
+    ::= { coiAlarmActiveEntry 6 }
+
+coiAlarmTimeStamp OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time at which the alarm was raised by the system.
+         This value is expressed in seconds since
+         00:00:00 UTC, January 1, 1970 (see time(2))." 
+    ::= { coiAlarmActiveEntry 7 }
+
+coiAlarmSeverity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        notReported(1),
+                        notAlarmed(2),
+                        minor(3),
+                        major(4),
+                        critical(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The severity level indicating the criticality and impact
+        of the alarm." 
+    ::= { coiAlarmActiveEntry 8 }
+
+coiAlarmStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        set(1),
+                        clear(2),
+                        suppress(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Alarm status represents if an alarm is currently raised or
+        cleared." 
+    ::= { coiAlarmActiveEntry 9 }
+
+coiAlarmServiceAffecting OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        notServiceAffecting(1),
+                        serviceAffecting(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Alarm service affecting flag specifies if an alarm is Service
+        Affecting (SA) or Non-Service Affecting (NSA)" 
+    ::= { coiAlarmActiveEntry 10 }
+
+coiAlarmDescription OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Alarm Description used to inform operators about the alarm.
+        This contains enough information for an operator to be able 
+        to understand the problem." 
+    ::= { coiAlarmActiveEntry 11 }
+ 
+--definitions realted to alarm traps
+coiAlarmStatusChange NOTIFICATION-TYPE
+    OBJECTS  { coiAlarmIndex,
+               coiAlarmObjectIfIndex,
+               coiAlarmObjectEntPhyIndex,
+               coiAlarmObjectName,
+               coiAlarmType,
+               coiAlarmSeverity,
+               coiAlarmStatus,
+               coiAlarmDescription
+            }
+    STATUS  current
+    DESCRIPTION 
+        "This Notification is generated when ever an alarm is updated
+         in the alarm mib.
+         varbind coiAlarmIndex,coiAlarmObjectIFINdex and 
+         coiAlarmObjectEntPhyIndex indicates the index of the alarm 
+         i.e fow sw, interface and hw alarms will have the respective index
+         varbind coiObjectName indicates the alarms name.
+         varbind coiAlarmSeverity indicates the severity of the alarm.
+         varbind coiAlarmStatus indicates the status of the alarm"
+    ::= { ciscoAlarmMIBNotifs 1}
+
+--trap realted definations end here
+
+END
+
+
+-- %DNP%  MLC -Compiled MLC
+

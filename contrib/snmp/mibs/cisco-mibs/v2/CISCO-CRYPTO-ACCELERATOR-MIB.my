@@ -1,0 +1,1335 @@
+-- *****************************************************************
+-- CISCO-CRYPTO-ACCELERATOR-MIB.my: A MIB to instrument status and 
+--                                  performance of crypto accelerator
+--                                  modules.
+-- 
+-- Jan 2005, S Ramakrishnan
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CRYPTO-ACCELERATOR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32,
+    Counter64, 
+    TimeTicks
+                            FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP, 
+    NOTIFICATION-GROUP
+                            FROM SNMPv2-CONF
+    TruthValue, 
+    TEXTUAL-CONVENTION
+                            FROM SNMPv2-TC
+    SnmpAdminString
+                            FROM SNMP-FRAMEWORK-MIB
+    EntPhysicalIndexOrZero
+                            FROM CISCO-TC
+    ciscoMgmt 
+                            FROM CISCO-SMI
+    ModuleOperType
+                            FROM CISCO-ENTITY-FRU-CONTROL-MIB;
+
+ciscoCryptoAcceleratorMIB MODULE-IDENTITY
+    LAST-UPDATED    "200503080000Z"
+    ORGANIZATION    "Cisco Systems,    Inc."
+    CONTACT-INFO
+        "    Cisco Systems
+            Customer Service
+
+        Postal:    170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+           Tel:    +1 800 553-NETS
+
+        E-mail:    cs-ipsecurity@cisco.com
+        "
+    DESCRIPTION
+        "The MIB module for monitoring the identity, status,
+     activity and faults of crypto accelerator (CA) modules
+     used in devices implementing security services.
+
+       The purpose of this MIB is to facilitate the following:
+         1) facilitate the discovery of hardware crypto 
+          accelerator modules installed in a security device
+         2) monitor the activity, faults and performance of 
+          hardware crypto accelerators and help the Network 
+          Management Station (NMS) correlate the performance 
+          of the CA modules with that of the security services 
+          (IPsec, SSL, SSH, PKI etc) using the modules.
+     "
+
+     REVISION    "200503080000Z"
+     DESCRIPTION
+         "Initial version of this module."
+
+    ::= { ciscoMgmt 467 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Local Textual Conventions
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++
+CAModuleType ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION
+            "
+            This type yields the marketing label of the module 
+            type and supplements the corresponding 
+            entPhysicalVendorType MIB variable, if the crypto 
+            accelerator has an entry in entPhysicalTable.
+
+            The value 'other' has been provided to keep the MIB
+            still applicable while new crypto accelerators 
+            emerge.
+
+            'software' denotes the software implementation of
+            crypto functions.
+
+            'integrated' denotes crypto accelerator modules which
+            are integrated into the managed entity and are hence 
+            not modular.
+
+            'sep' and 'sepe' are scalable encryption processors 
+            used in VPN3000 series concentrators.
+    
+            'a1700VpnModule' identifies the crypto accelerator 
+            used in in 1700 series routers.
+    
+            'aimVpn' series of crypto accelerators are designed
+            specifically for 2600 and 3700 platforms. Further,
+            the aimVpnII series also function on 2800 series 
+            routers.
+    
+            'aimVpn' series of crypto accelerators are designed
+            specifically for 2600 and 2700 platforms.
+    
+            'isa' is designed for 7200 series routers.
+    
+            'vam' series of crypto accelerators are to be used
+            on 7200 and 7300 series routers.
+    
+            'vpnsm' denotes the Catalyst 6500 VPN service module, 
+            which is deemed a sophisticated 'crypto accelerator'. 
+    
+            The 'caviumNitrox' series of crypto accelerators 
+            represent the crypto accelerator chipsets used in 
+            ASA devices.
+            "
+        SYNTAX INTEGER {
+                 other(1),
+                 software(2),
+                 integrated(3),
+                 sep(4),
+                 sepe(5),
+                 a1700VpnModule(6), 
+                 aimVpnIBp(7), 
+                 aimVpnIEp(8), 
+                 aimVpnIIBp(9), 
+                 aimVpnIIEp(10), 
+                 aimVpnIIHp(11), 
+                 isa(12), 
+                 vam(13), 
+                 vam2(14), 
+                 vam2plus(15),
+                 vpnsm(16),
+                 caviumNitrox(17),
+                 caviumNitroxII(18),
+                 caviumNitroxLite(19)
+        }
+
+
+CAModuleCount ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION
+            "This type denotes the count of crypto accelerators."
+        SYNTAX     Unsigned32
+
+
+CAProtocolType ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION
+            "The security protocol using the services of the 
+            crypto accelerator module. The list of protocols 
+            supported commonly by crypto accelerators include 
+            Internet Key Exchange (ike), IP Security Phase-2 
+            protocols (ipsec), Secure Shell (ssh), Secure Socket 
+            Layer (ssl) and Secure Real-time Transport Protocol 
+            (srtp).
+
+           The value 'other' has been provided so that the MIB
+           may still be valid while new protocols emerge and 
+           the MIB has not been updated to enumerate them."
+        SYNTAX INTEGER {
+                        other(1),
+                        ikev1(2),
+                        ikev2(3),
+                        ipsec(4),
+                        ssl(5),
+                        ssh(6),
+                        srtp(7)
+                    }
+
+
+-- Crypto Accelerator MIB object definitions
+
+ciscoCryAcceleratorMIBNotifs  OBJECT IDENTIFIER
+              ::= { ciscoCryptoAcceleratorMIB 0}
+
+ciscoCryAcceleratorMIBObjects OBJECT    IDENTIFIER
+          ::= { ciscoCryptoAcceleratorMIB 1 }
+
+ciscoCryAccleratorMIBConform OBJECT IDENTIFIER
+              ::= { ciscoCryptoAcceleratorMIB 2 }
+
+-- Capability objects
+ccaCapability OBJECT IDENTIFIER 
+          ::= { ciscoCryAcceleratorMIBObjects 1 }
+
+-- Activity/Statstics objects
+ccaActivity OBJECT IDENTIFIER 
+          ::= { ciscoCryAcceleratorMIBObjects 2 }
+
+ccaGlobalStats OBJECT IDENTIFIER 
+          ::= { ccaActivity 1 }
+
+-- Protocol-specific Activity/Statstics objects
+ccaProtocolActivity OBJECT IDENTIFIER 
+          ::= { ccaActivity 3 }
+
+-- Control of Notifications
+ccaAcNotifCntl OBJECT IDENTIFIER 
+          ::= { ciscoCryAcceleratorMIBObjects 3 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--  Objects to instrument the capabilities of the feature.
+--
+-- This group defines the capacity of the managed device
+-- in terms of the crypto accelerators
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   ccaSupportsHwCrypto OBJECT-TYPE
+      SYNTAX TruthValue
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "This MIB object assumes the value of True if the
+       managed device is capable of including hardware crypto 
+       accelerator.
+       "
+      ::= { ccaCapability 1 }
+
+   ccaSupportsModularHwCrypto OBJECT-TYPE
+      SYNTAX TruthValue
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "This MIB object assumes the value of True if the
+       managed device supports field removable hardware
+       crypto accelerators.
+       "
+      ::= { ccaCapability 2 }
+
+
+   ccaMaxAccelerators OBJECT-TYPE
+      SYNTAX Integer32 (-1..50)
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The maximum number of hardware crypto accelerators
+       which may be simultaneously operational in this device.
+       If the managed device can support only software 
+       encryption, the value of this MIB object should be set 
+       to zero.
+
+       If there is not set limit on the maximum number of
+       crypto accelerator modules which the managed device 
+       can support, the agent should return a value of '-1' 
+       for this MIB variable.
+       "
+      ::= { ccaCapability 3 }
+
+   ccaMaxCryptoThroughput OBJECT-TYPE
+      SYNTAX Unsigned32
+      UNITS "megabits per second"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The maximum crypto throughput that may be supported 
+       by the managed device with the current number of active
+       crypto accelerators.
+
+       If this value cannot be determined, the agent should
+       return a value of 0.
+       "
+      ::= { ccaCapability 4 }
+
+   ccaMaxCryptoConnections OBJECT-TYPE
+      SYNTAX Unsigned32
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The maximum number of VPN flows (connections) the managed
+       device can support with the current number of active
+       crypto accelerators.
+  
+       If this value cannot be determined, the agent should
+       return a value of 0.
+       "
+      ::= { ccaCapability 5 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--  Activity objects
+--
+-- This group defines the current activity and performance of
+-- of the crypto accelerators on the managed device.
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   ccaGlobalNumActiveAccelerators OBJECT-TYPE
+      SYNTAX CAModuleCount
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of crypto accelerators which are in state
+           'active'."
+      ::= { ccaGlobalStats 1 }
+
+   ccaGlobalNumNonOperAccelerators OBJECT-TYPE
+      SYNTAX CAModuleCount
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of crypto accelerators which are in a state
+       other than 'active'.
+       "
+      ::= { ccaGlobalStats 2 }
+
+   ccaGlobalInOctets OBJECT-TYPE
+      SYNTAX Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The total number of octets input to all the crypto
+           accelerators installed in the device. 
+
+           The value is cumulative from last reboot of the 
+           managed entity.
+           "
+      ::= { ccaGlobalStats 3 }
+
+   ccaGlobalOutOctets OBJECT-TYPE
+      SYNTAX Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The total number of octets output by all the crypto
+           accelerators installed in the device.
+    
+           The value is cumulative from last reboot of the 
+           managed entity.
+           "
+      ::= { ccaGlobalStats 4 }
+
+   ccaGlobalInPkts OBJECT-TYPE
+      SYNTAX Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The total number of packets input to all the crypto
+          accelerators installed in the device.
+
+          The value is cumulative from last reboot of the 
+          managed entity.
+          "
+      ::= { ccaGlobalStats 5 }
+
+   ccaGlobalOutPkts OBJECT-TYPE
+      SYNTAX Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The total number of packets output by all the crypto
+          accelerators installed in the device.
+   
+          The value is cumulative from last reboot of the 
+          managed entity.
+          "
+      ::= { ccaGlobalStats 6 }
+
+   ccaGlobalOutErrPkts OBJECT-TYPE
+      SYNTAX Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The total number of packets output by all the crypto
+          accelerators installed in the device which were found 
+          to be generated with errors (checksum errors, other 
+          errors).
+   
+          The value is cumulative from last reboot of the 
+          managed entity.
+          "
+      ::= { ccaGlobalStats 7 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Crypto Accelerator table: yields the status, type and activity
+-- per card
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   ccaAcceleratorTable OBJECT-TYPE
+      SYNTAX SEQUENCE OF CcaAcceleratorEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+          "The crypto accelerator table. There is one entry
+          in this table for each crypto accelerator installed
+          in the managed device."
+      ::= { ccaActivity 2 }
+
+   ccaAcceleratorEntry OBJECT-TYPE
+      SYNTAX CcaAcceleratorEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+          "Each entry contains the attributes  and statistics
+          of a crypto accelerator module installed on the managed
+          device."
+      INDEX { ccaAcclIndex }
+      ::= { ccaAcceleratorTable 1 }
+
+   CcaAcceleratorEntry ::= SEQUENCE {
+      ccaAcclIndex                  Unsigned32,
+      ccaAcclEntPhysicalIndex       EntPhysicalIndexOrZero,
+      ccaAcclStatus                 ModuleOperType,
+      ccaAcclType                   CAModuleType,
+      ccaAcclVersion                SnmpAdminString,
+      ccaAcclSlot                   Unsigned32,
+      ccaAcclActiveTime             TimeTicks,
+      ccaAcclInPkts                 Counter64,
+      ccaAcclOutPkts                Counter64,
+      ccaAcclOutBadPkts             Counter64,
+      ccaAcclInOctets               Counter64,
+      ccaAcclOutOctets              Counter64,
+      ccaAcclHashOutboundPkts       Counter64,
+      ccaAcclHashOutboundOctets     Counter64,
+      ccaAcclHashInboundPkts        Counter64,
+      ccaAcclHashInboundOctets      Counter64,
+      ccaAcclEncryptPkts            Counter64,
+      ccaAcclEncryptOctets          Counter64,
+      ccaAcclDecryptPkts            Counter64,
+      ccaAcclDecryptOctets          Counter64,
+      ccaAcclTransformsTotal        Counter64,
+      ccaAcclDropsPkts              Counter64,
+      ccaAcclRandRequests           Counter64,
+      ccaAcclRandReqFails           Counter64,
+      ccaAcclDHKeysGenerated        Counter64,
+      ccaAcclDHDerivedSecretKeys    Counter64,
+      ccaAcclRSAKeysGenerated       Counter64,
+      ccaAcclRSASignings            Counter64,
+      ccaAcclRSAVerifications       Counter64,
+      ccaAcclRSAEncryptPkts         Counter64,
+      ccaAcclRSAEncryptOctets       Counter64,
+      ccaAcclRSADecryptPkts         Counter64,
+      ccaAcclRSADecryptOctets       Counter64,
+      ccaAcclDSAKeysGenerated       Counter64,
+      ccaAcclDSASignings            Counter64,
+      ccaAcclDSAVerifications       Counter64,
+      ccaAcclOutboundSSLRecords     Counter64,
+      ccaAcclInboundSSLRecords      Counter64
+   }
+
+   ccaAcclIndex OBJECT-TYPE
+      SYNTAX     Unsigned32 (1..50)
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+          "The index uniquely identifying a specific crypto
+     accelerator."
+      ::= { ccaAcceleratorEntry 1 }
+
+    ccaAcclEntPhysicalIndex   OBJECT-TYPE
+      SYNTAX     EntPhysicalIndexOrZero
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The value of entPhysicalIndex of the module
+          corresponding to this conceptual row or zero,
+          if the module is not an entity listed in
+          'entPhysicalTable' of rfc2737."
+      ::= { ccaAcceleratorEntry 2 }
+
+   ccaAcclStatus OBJECT-TYPE
+      SYNTAX     ModuleOperType
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The state of the crypto accelerator corresponding
+           to this row."
+      ::= { ccaAcceleratorEntry 3 }
+
+   ccaAcclType OBJECT-TYPE
+      SYNTAX     CAModuleType
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The type of the crypto accelerator corresponding to
+          this row."
+      ::= { ccaAcceleratorEntry 4 }
+
+   ccaAcclVersion OBJECT-TYPE
+      SYNTAX     SnmpAdminString
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The version string of the firmware of the crypto 
+           accelerator corresponding to this row."
+      ::= { ccaAcceleratorEntry 5 }
+
+   ccaAcclSlot OBJECT-TYPE
+      SYNTAX     Unsigned32
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The slot number of the crypto accelerator 
+           corresponding to this row."
+      ::= { ccaAcceleratorEntry 6 }
+
+
+   ccaAcclActiveTime  OBJECT-TYPE
+      SYNTAX TimeTicks
+      UNITS "seconds"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of seconds elapsed since the crypto
+          accelerator corresponding to this row transitioned
+          into the 'active' state."
+      ::= { ccaAcceleratorEntry 7 }
+
+
+   ccaAcclInPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets input to this module for 
+           processing since the last reboot of the device."
+      ::= { ccaAcceleratorEntry 8 }
+
+   ccaAcclOutPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets output by this module after 
+          processing, since last reboot of the device."
+      ::= { ccaAcceleratorEntry 9 }
+
+   ccaAcclOutBadPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets output by this module after 
+           processing which had crypto errors, since last reboot 
+           of the device."
+      ::= { ccaAcceleratorEntry 10 }
+
+   ccaAcclInOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets input to this module for 
+          processing since last reboot of the device."
+      ::= { ccaAcceleratorEntry 11 }
+
+   ccaAcclOutOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets output by this module after 
+          processing since last reboot of the device."
+      ::= { ccaAcceleratorEntry 12 }
+
+
+   ccaAcclHashOutboundPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets output by this module which 
+           were prepared for hash validation since the last 
+           reboot of the device.
+
+           Hash validation is a cryptographic operation used 
+           to verify the integrity of a block of data received 
+           from a trusted source.
+           "
+      ::= { ccaAcceleratorEntry 13 }
+
+   ccaAcclHashOutboundOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets output by this module which were
+          prepared for hash validation since the last reboot of
+          the device."
+      ::= { ccaAcceleratorEntry 14 }
+
+   ccaAcclHashInboundPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets input to this module which 
+          required hash validation since the last reboot of 
+          the device."
+      ::= { ccaAcceleratorEntry 15 }
+
+   ccaAcclHashInboundOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets input to this module which were
+          authenticated using hash validation since the last 
+          reboot of the device."
+      ::= { ccaAcceleratorEntry 16 }
+
+   ccaAcclEncryptPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets input to this module which 
+          required encryption since the last reboot of the 
+          device."
+      ::= { ccaAcceleratorEntry 17 }
+
+   ccaAcclEncryptOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets input to this module which 
+          required encryption since the last reboot of the 
+          device."
+      ::= { ccaAcceleratorEntry 18 }
+
+   ccaAcclDecryptPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets input to this module which 
+          required decryption since the last reboot of the 
+          device."
+      ::= { ccaAcceleratorEntry 19 }
+
+   ccaAcclDecryptOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets input to this module which 
+          required decryption since the last reboot of the 
+          device."
+      ::= { ccaAcceleratorEntry 20 }
+
+   ccaAcclTransformsTotal OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of cryptographic transformations performed 
+          by this crypto accelerator since the last reboot of the 
+          device."
+      ::= { ccaAcceleratorEntry 21 }
+
+   ccaAcclDropsPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets input to this module which were
+          dropped prior to processing since the last reboot of
+          the device."
+      ::= { ccaAcceleratorEntry 22 }
+
+   ccaAcclRandRequests OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of requests received by this crypto 
+          accelerator to generate random numbers since the last 
+          reboot of the device."
+      ::= { ccaAcceleratorEntry 23 }
+
+   ccaAcclRandReqFails OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of random number requests received by this
+          module which were not fulfilled, counted since the last 
+          reboot of the device."
+      ::= { ccaAcceleratorEntry 24 }
+
+   ccaAcclDHKeysGenerated OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of Diffie Hellman key pairs generated by 
+           this module since the last reboot."
+       ::= { ccaAcceleratorEntry 25 }
+
+   ccaAcclDHDerivedSecretKeys OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times this module has derived Diffie Hellman
+          secret keys since the last reboot of the device."
+      ::= { ccaAcceleratorEntry 26 }
+
+   ccaAcclRSAKeysGenerated OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times a new RSA key pair was generated
+          by this module, counted since the last time this module
+          assumed 'active' status."
+      ::= { ccaAcceleratorEntry 27 }
+
+   ccaAcclRSASignings OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times an RSA Digital Signature has been
+          generated by this module, counted since the last time 
+          this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 28 }
+
+   ccaAcclRSAVerifications OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times an RSA Digital Signature has 
+          been verified by this module, counted since the last 
+          time this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 29 }
+
+   ccaAcclRSAEncryptPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets input to this module which 
+          required RSA encryption, counted since the last time 
+          this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 30 }
+
+   ccaAcclRSAEncryptOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets input to this module which 
+          required RSA encryption, counted since the last time 
+          this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 31 }
+
+   ccaAcclRSADecryptPkts OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of packets input to this module which 
+          required RSA decryption, counted since the last time 
+          this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 32 }
+
+   ccaAcclRSADecryptOctets OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of octets input to this module which 
+          required RSA decryption, counted since the last time 
+          this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 33 }
+
+   ccaAcclDSAKeysGenerated OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times DSA key pair has been generated by 
+          this module, counted since the last time this module
+          assumed 'active' status."
+      ::= { ccaAcceleratorEntry 34 }
+
+   ccaAcclDSASignings OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times DSA signature has been generated 
+          by this module, counted since the last time this module
+          assumed 'active' status."
+      ::= { ccaAcceleratorEntry 35 }
+
+   ccaAcclDSAVerifications OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times DSA signature has been verified 
+          by this module, counted since the last time this module
+          assumed 'active' status."
+      ::= { ccaAcceleratorEntry 36 }
+
+   ccaAcclOutboundSSLRecords OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of combined outbound hash/encrypt SSL 
+          records processed by this module, counted since the
+          last time this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 37 }
+
+   ccaAcclInboundSSLRecords OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of combined inbound hash/encrypt SSL 
+          records processed by this module, counted since the
+          last time this module assumed 'active' status."
+      ::= { ccaAcceleratorEntry 38 }
+
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Protocol-specific crypto accelerator stats: only IKE, IPsec
+-- SSL, SSH and sRTP are supported at this time.
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   ccaProtocolStatsTable OBJECT-TYPE
+      SYNTAX SEQUENCE OF CcaProtocolStatsEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+          "The crypto accelerator statistics catalogued by 
+          security protocol causing the activity. There is only 
+          entry in this table for each security protocol listed 
+          in the textual convention 'CAProtocolType'."
+      ::= { ccaProtocolActivity 1 }
+
+   ccaProtocolStatsEntry OBJECT-TYPE
+      SYNTAX CcaProtocolStatsEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+          "Each entry contains the statistics corresponding to
+          a specific security protocol."
+      INDEX { ccaProtId }
+      ::= { ccaProtocolStatsTable 1 }
+
+   CcaProtocolStatsEntry ::= SEQUENCE {
+      ccaProtId                     CAProtocolType,
+      ccaProtPktEncryptsReqs        Counter64,
+      ccaProtPktDecryptsReqs        Counter64,
+      ccaProtHmacCalcReqs           Counter64,
+      ccaProtSaCreateReqs           Counter64,
+      ccaProtSaRekeyReqs            Counter64,
+      ccaProtSaDeleteReqs           Counter64,
+      ccaProtPktEncapReqs           Counter64,
+      ccaProtPktDecapReqs           Counter64,
+      ccaProtNextPhaseKeyAllocReqs  Counter64,
+      ccaProtRndGenReqs             Counter64,
+      ccaProtFailedReqs             Counter64
+   }
+
+   ccaProtId OBJECT-TYPE
+      SYNTAX     CAProtocolType
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+          "The index uniquely identifies the security protocol
+          for which this row summarizes the statistics."
+      ::= { ccaProtocolStatsEntry 1 }
+
+   ccaProtPktEncryptsReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of payload encrypt requests received by
+          the crypto accelerators from this security protocol,
+          counted since the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 2 }
+
+   ccaProtPktDecryptsReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of payload decrypt requests received by
+          the crypto accelerators from this security protocol,
+          counted since the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 3 }
+
+   ccaProtHmacCalcReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times keyed HMAC calculation requests 
+          were received by the crypto accelerators due to the
+          operation of this security protocol, counted since
+          the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 4 }
+
+
+   ccaProtSaCreateReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests for creation of
+          security associations were received by the crypto 
+          accelerators from this security protocol, counted 
+          since the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 5 }
+
+   ccaProtSaRekeyReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests for rekeying of 
+          existing security associations were received by 
+          the crypto accelerators from this security protocol,
+          counted since the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 6 }
+
+   ccaProtSaDeleteReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests for deletion of
+          security associations were received by the crypto 
+          accelerators from this security protocol, counted 
+          since the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 7 }
+
+
+   ccaProtPktEncapReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests for payload 
+          encapsulation were received by the crypto accelerators 
+          from this security protocol, counted since the last 
+          reboot of the device."
+      ::= { ccaProtocolStatsEntry 8 }
+
+
+   ccaProtPktDecapReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests for payload decapsulation 
+           were received by the crypto accelerators from this 
+           security protocol, counted since the last reboot of 
+           the device."
+      ::= { ccaProtocolStatsEntry 9 }
+
+   ccaProtNextPhaseKeyAllocReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests for allocation of
+          keys for the next phase of the protocol operation
+          which were received by the crypto accelerators from 
+          this security protocol, counted since the last reboot 
+          of the device.
+
+          As an example, for IKE, this would identify the number
+          of times key allocation requests for Quick Mode were
+          received by the crypto accelerator from the IKE protocol
+          engine."
+      ::= { ccaProtocolStatsEntry 10 }
+
+   ccaProtRndGenReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests for generation of
+          random number(s) were received by the crypto 
+          accelerators from this security protocol, counted 
+          since the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 11 }
+
+
+   ccaProtFailedReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of times requests received from this
+          security protocol could not be fulfilled, counted 
+          since the last reboot of the device."
+      ::= { ccaProtocolStatsEntry 12 }
+
+--
+-- Notification    Configuration
+--
+ccaNotifCntlAcclInserted OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS  read-write
+    STATUS        current
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelInserted' notification.
+
+         When this variable is set to 'true', generation 
+         of the notification is enabled. When this variable 
+         is set to 'false', generation of the notification 
+         is disabled.
+ 
+        "
+    ::= { ccaAcNotifCntl 1 }
+
+ccaNotifCntlAcclRemoved OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS  read-write
+    STATUS        current
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelRemoved' notification.
+
+         When this variable is set to 'true', generation of 
+         the notification is enabled. When this variable is 
+         set to 'false', generation of the notification is 
+         disabled.
+        "
+    ::= { ccaAcNotifCntl 2 }
+
+ccaNotifCntlAcclOperational OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS  read-write
+    STATUS        current
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelOperational' notification.
+
+         When this variable is set to 'true', generation 
+         of the notification is enabled. When this variable 
+         is set to 'false', generation of the notification 
+         is disabled.
+        "
+    ::= { ccaAcNotifCntl 3 }
+
+
+ccaNotifCntlAcclDisabled OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS  read-write
+    STATUS        current
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelDisabled' notification.
+
+         When this variable is set to 'true', generation of 
+         the notification is enabled. When this variable is 
+         set to 'false', generation of the notification is 
+         disabled.
+        "
+    DEFVAL { false }
+    ::= { ccaAcNotifCntl 4 }
+
+-- ******************************************************************
+-- Notifications
+-- ******************************************************************
+ciscoCryAccelInserted NOTIFICATION-TYPE
+    OBJECTS    { ccaAcclSlot }
+    STATUS    current
+    DESCRIPTION
+        "A crypto accelerator module has been inserted into the
+         managed device.
+        "
+    ::=    { ciscoCryAcceleratorMIBNotifs 1 }
+
+ciscoCryAccelRemoved NOTIFICATION-TYPE
+    OBJECTS    { ccaAcclSlot }
+    STATUS    current
+    DESCRIPTION
+        "A crypto accelerator module has been removed from the
+         managed device.
+        "
+    ::=    { ciscoCryAcceleratorMIBNotifs 2 }
+
+
+ciscoCryAccelOperational NOTIFICATION-TYPE
+    OBJECTS    { ccaAcclSlot }
+    STATUS    current
+    DESCRIPTION
+        "A crypto accelerator module has become operational."
+    ::=    { ciscoCryAcceleratorMIBNotifs 3 }
+
+
+ciscoCryAccelDisabled NOTIFICATION-TYPE
+    OBJECTS { 
+          ccaAcclSlot, 
+          ccaAcclStatus, 
+          ccaAcclActiveTime
+        }
+    STATUS    current
+    DESCRIPTION
+        "A crypto accelerator module has become non-operational."
+    ::=    { ciscoCryAcceleratorMIBNotifs 4 }
+
+-- ******************************************************************
+-- Conformance and Compliance
+-- ******************************************************************
+ciscoCryAccelMIBCompliances  OBJECT IDENTIFIER ::= 
+     { ciscoCryAccleratorMIBConform 1 }
+
+ciscoCryAccelMIBGroups       OBJECT IDENTIFIER ::= 
+     { ciscoCryAccleratorMIBConform 2 }
+
+-- compliance statements
+
+ciscoCryAccelMIBCompliance MODULE-COMPLIANCE
+    STATUS        current
+    DESCRIPTION
+        "The compliance statement for entities which
+         implement the CISCO Crypto Accelerator MIB."
+    MODULE        -- this module
+    MANDATORY-GROUPS
+        {
+           ciscoCryAccCapacityGroup,
+           ciscoCryAccSummaryActivityGroup
+        }
+
+       GROUP ciscoCryAccModuleActivityGroup
+       DESCRIPTION
+           "This group is optional."
+
+       GROUP ciscoCryAccProtocolActivityGroup
+       DESCRIPTION
+           "This group is optional."
+
+       GROUP ciscoCryAccNotifsGroup
+       DESCRIPTION
+           "This group is optional."
+
+       GROUP ciscoCryAccNotifsCntlGroup
+       DESCRIPTION
+           "This group is mandatory if and only if
+           the SNMP agent on the managed entity
+           implements the group 'ciscoCryAccNotifsGroup'."
+
+    ::= { ciscoCryAccelMIBCompliances 1 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Units of Conformance
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   ciscoCryAccCapacityGroup OBJECT-GROUP
+      OBJECTS {
+               ccaSupportsHwCrypto,
+               ccaSupportsModularHwCrypto,
+               ccaMaxAccelerators,
+               ccaMaxCryptoThroughput,
+               ccaMaxCryptoConnections
+              }
+      STATUS current
+      DESCRIPTION
+          "This group consists of all the MIB variables
+          defined under crAcCapacity using which the management 
+          station may determine the limits of capacity of the
+          managed device with regards to the support of
+          crypto accelerators."
+      ::= { ciscoCryAccelMIBGroups 1 }
+
+   ciscoCryAccSummaryActivityGroup OBJECT-GROUP
+      OBJECTS {
+             ccaGlobalNumActiveAccelerators,
+             ccaGlobalNumNonOperAccelerators,
+             ccaGlobalInOctets,
+             ccaGlobalOutOctets,
+             ccaGlobalInPkts,
+             ccaGlobalOutPkts,
+             ccaGlobalOutErrPkts
+             }
+      STATUS current
+      DESCRIPTION
+          "This group consists of the counters which model the
+          summary activity of the crypto accelerators in the
+          managed entity."
+      ::= { ciscoCryAccelMIBGroups 2 }
+
+   ciscoCryAccModuleActivityGroup OBJECT-GROUP
+      OBJECTS {
+             ccaAcclEntPhysicalIndex,
+             ccaAcclStatus,
+             ccaAcclType  ,
+             ccaAcclVersion,
+             ccaAcclSlot   ,
+             ccaAcclActiveTime,
+             ccaAcclInPkts    ,
+             ccaAcclOutPkts   ,
+             ccaAcclOutBadPkts,
+             ccaAcclInOctets  ,
+             ccaAcclOutOctets ,
+             ccaAcclHashOutboundPkts,
+             ccaAcclHashOutboundOctets,
+             ccaAcclHashInboundPkts   ,
+             ccaAcclHashInboundOctets ,
+             ccaAcclEncryptPkts,
+             ccaAcclEncryptOctets,
+             ccaAcclDecryptPkts  ,
+             ccaAcclDecryptOctets,
+             ccaAcclTransformsTotal,
+             ccaAcclDropsPkts,
+             ccaAcclRandRequests   ,
+             ccaAcclRandReqFails   ,
+             ccaAcclDHKeysGenerated,
+             ccaAcclDHDerivedSecretKeys,
+             ccaAcclRSAKeysGenerated   ,
+             ccaAcclRSASignings        ,
+             ccaAcclRSAVerifications   ,
+             ccaAcclRSAEncryptPkts         ,
+             ccaAcclRSAEncryptOctets       ,
+             ccaAcclRSADecryptPkts         ,
+             ccaAcclRSADecryptOctets       ,
+             ccaAcclDSAKeysGenerated   ,
+             ccaAcclDSASignings        ,
+             ccaAcclDSAVerifications   ,
+             ccaAcclOutboundSSLRecords ,
+             ccaAcclInboundSSLRecords      
+             }
+      STATUS current
+      DESCRIPTION
+          "This group consists of the counters which model the
+          summary activity of the crypto accelerators in the
+          managed entity.
+
+          Following are definitions of some terms used in
+          this compliance group:
+
+           Crypto Accelerator
+             'Crypto Accelerator' denotes a hardware or software 
+             device which the managed entity uses to offload some
+             or all computations pertaining to cryptographic
+             operations. A crypto accelerator module may be
+             implemented as a Field Removable Unit or an 
+             integrated hardware element such an Application
+             Specific Integrated Chip (ASIC).
+
+           Module
+             The term 'Module' has been used in this MIB to 
+             denote a hardware crypto accelerator.
+
+           Diffie-Hellman
+             The Diffie-Hellman key agreement protocol (also called 
+             exponential key agreement) was developed by Diffie and 
+             Hellman in 1976. The protocol allows two users to 
+             exchange a secret key over an insecure medium without 
+             any prior secrets. 
+
+           RSA
+             An Internet encryption and authentication system that
+             uses an algorithm developed in 1977 by Ron Rivest, 
+             Adi Shamir, and Leonard Adleman. 
+
+           DSS
+             Digital Signature Standard (DSS) is the digital 
+             signature algorithm (DSA) developed by the U.S.
+             National Security Agency (NSA) to generate a digital 
+             signature for the authentication of electronic 
+             documents. 
+
+           IPsec
+             IP security protocol.
+
+           SSL
+             Secure Socket Layer Protocol.
+
+           SSH
+             Secure Shell Protocol.
+
+           PKI
+             Public Key Infrastructure
+        "
+      ::= { ciscoCryAccelMIBGroups 3 }
+
+   ciscoCryAccProtocolActivityGroup OBJECT-GROUP
+      OBJECTS {
+             ccaProtPktEncryptsReqs      ,
+             ccaProtPktDecryptsReqs      ,
+             ccaProtHmacCalcReqs         ,
+             ccaProtSaCreateReqs         ,
+             ccaProtSaRekeyReqs          ,
+             ccaProtSaDeleteReqs         ,
+             ccaProtPktEncapReqs         ,
+             ccaProtPktDecapReqs         ,
+             ccaProtNextPhaseKeyAllocReqs,
+             ccaProtRndGenReqs           ,
+             ccaProtFailedReqs            
+             }
+      STATUS current
+      DESCRIPTION
+          "This group consists of the counters which model 
+          the protocol-specific activity of the crypto 
+          accelerators in the managed entity."
+      ::= { ciscoCryAccelMIBGroups 4 }
+
+   ciscoCryAccNotifsCntlGroup OBJECT-GROUP
+      OBJECTS {
+             ccaNotifCntlAcclInserted,
+             ccaNotifCntlAcclRemoved,
+             ccaNotifCntlAcclOperational,
+             ccaNotifCntlAcclDisabled
+             }
+      STATUS current
+      DESCRIPTION
+          "This group consists of all the MIB variables which
+          allow the network management station to control the
+          emission of the notifications defined in this MIB.
+
+          Per a different compliance clause dfined in this 
+          module, the agent is not required to provide write
+          access to these MIB variables."
+      ::= { ciscoCryAccelMIBGroups 5 }
+
+   ciscoCryAccNotifsGroup NOTIFICATION-GROUP
+      NOTIFICATIONS {
+                ciscoCryAccelInserted,
+                ciscoCryAccelRemoved,
+                ciscoCryAccelOperational,
+                ciscoCryAccelDisabled
+              }
+      STATUS current
+      DESCRIPTION
+          "This group consists of all the notifications defined
+          to signal the change in status and operation of crypto
+          accelerator modules."
+      ::= { ciscoCryAccelMIBGroups 6 }
+
+END

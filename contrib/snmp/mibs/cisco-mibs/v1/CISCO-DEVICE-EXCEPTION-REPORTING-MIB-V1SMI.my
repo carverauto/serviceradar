@@ -1,0 +1,321 @@
+-- MIB file created 19-Dec-2001 11:47:48, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-DEVICE-EXCEPTION-REPORTING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DEVICE-EXCEPTION-REPORTING-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    TruthValue, TimeStamp
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoDevExcepReportMIB OBJECT IDENTIFIER ::= { ciscoMgmt 224 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200108140000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--     San Jose, CA 95134
+--     USA
+--    
+--    Tel:    +1 800 553-NETS
+--    
+--    E-mail: cs-crm@cisco.com
+--  Descr
+--    This mib defines the SNMP objects to report
+--     exceptions to north-bound NMS.
+--    
+--     The devices implementing this MIB monitor 
+--     the status of hardware and software services, and
+--     report any exceptions regarding these components.
+--     These hardware and software services could 
+--     belong to the monitoring devices or other managed
+--     devices. 
+--    
+--     An exception is something abnormal that the system 
+--     administrators should pay attention to. The criteria
+--     for what is an exception could vary by system
+--     and should be defined by the system administrators.
+--     Certain NM devices or applications may have 
+--     pre-defined exceptions. 
+--    
+--     This MIB does not try to define exceptions. But 
+--     rather it defines SNMP objects for devices to 
+--     use SNMP notification as an exception reporting 
+--     mechanism. Exceptions may be pre-defined or defined 
+--     through other device management interface such as 
+--     CLI, GUI, or HTTP.
+
+ciscoDevExcepReportMIBObjects OBJECT IDENTIFIER ::= { ciscoDevExcepReportMIB 1 }
+cderExceptionData OBJECT IDENTIFIER ::= { ciscoDevExcepReportMIBObjects 1 }
+cderMIBNotifPrefix OBJECT IDENTIFIER ::= { ciscoDevExcepReportMIB 2 }
+cderMIBNotifications OBJECT IDENTIFIER ::= { cderMIBNotifPrefix 0 }
+ciscoDEReportMIBConformance OBJECT IDENTIFIER ::= { ciscoDevExcepReportMIB 3 }
+ciscoDEReportMIBCompliances OBJECT IDENTIFIER ::= { ciscoDEReportMIBConformance 1 }
+ciscoDEReportMIBGroups OBJECT IDENTIFIER ::= { ciscoDEReportMIBConformance 2 }
+
+cderMaxExceptionRecords OBJECT-TYPE
+    SYNTAX Gauge(0..1024)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximun number of records to keep in 
+         cderExceptionTable. New records will replace 
+         the old records on a first-in-first-out
+         basis.
+         A value of 0 indicates no history will be
+         retained."
+    DEFVAL { 100 }
+    ::= { cderExceptionData 1 }
+
+cderNotificationEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enable or disable exception notification
+         via SNMP."
+    DEFVAL { false }
+    ::= { cderExceptionData 2 }
+
+cderNotificationsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of cderMonitoredExceptionEvent 
+         events.
+        
+         If a NMS is receiving notifications, 
+         it can periodically poll this object 
+         to find out if any notifications were 
+         missed. In that case it could poll
+         cderExceptionTable to find out missing 
+         exceptions."
+    ::= { cderExceptionData 3 }
+
+cderNotificationsDropped OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of notifications dropped from the 
+         cderExceptionTable table.
+         If the difference between two consecutive 
+         polls of this object is greater than 
+         cderMaxExceptionRecords, then it indicates
+         the NMS will not be able to find missing 
+         exceptions. The solution is to either poll 
+         the cderExceptionTable more frequently 
+         or increase the size of the cderExceptionTable 
+         by setting cderMaxExceptionRecords."
+    ::= { cderExceptionData 4 }
+
+cderExceptionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CderExceptionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table keeps an history of exceptions
+         found."
+    ::= { cderExceptionData 5 }
+
+cderExceptionEntry OBJECT-TYPE
+    SYNTAX CderExceptionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about an
+         exception."
+    INDEX { cderExcepTableIndex }
+    ::= { cderExceptionTable 1 }
+
+CderExceptionEntry ::= SEQUENCE {
+    cderExcepTableIndex Gauge,
+    cderExcepId SnmpAdminString,
+    cderExcepHostAddressType InetAddressType,
+    cderExcepHostAddress InetAddress,
+    cderExcepPriorityDescription SnmpAdminString,
+    cderExcepTime TimeStamp,
+    cderExcepData OCTET STRING,
+    cderExcepReportedBy SnmpAdminString
+    }
+
+cderExcepTableIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An monotonically increasing number for 
+         the sole purpose of indexing entries. When
+         it reaches maximum value, the agent sets 
+         it back to 1."
+    ::= { cderExceptionEntry 1 }
+
+cderExcepId OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identification for this exception. This 
+         object should uniquely identify the
+         exception."
+    ::= { cderExceptionEntry 2 }
+
+cderExcepHostAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the type of address stored in
+         cderExcepHostAddress."
+    ::= { cderExceptionEntry 3 }
+
+cderExcepHostAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Host device address where the exception
+         happened."
+    ::= { cderExceptionEntry 4 }
+
+cderExcepPriorityDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string that tells the system administrator
+         about the priority of this exception. 
+         This string is provided to the snmp agent 
+         by the reporting service(s) which could be
+         any services or applications on the device. 
+         The receiving NMS of this object should 
+         understand the string in order to utilize this 
+         object."
+    ::= { cderExceptionEntry 5 }
+
+cderExcepTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Timestamp when the exception happened."
+    ::= { cderExceptionEntry 6 }
+
+cderExcepData OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..1024))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "More information about the exception that
+         the reporting service(s) want to convey to
+         the NMS.
+         The receiving NMS should understand the
+         meaning of this object value in order to 
+         use it."
+    ::= { cderExceptionEntry 7 }
+
+cderExcepReportedBy OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the reporting service, or process,
+         or other component of the device that 
+         reports this exception."
+    ::= { cderExceptionEntry 8 }
+
+cderMonitoredExceptionEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cderMIBNotifPrefix
+    VARIABLES {
+        cderExcepId, cderExcepHostAddressType, cderExcepHostAddress, 
+        cderExcepPriorityDescription, cderExcepTime, cderExcepData, 
+        cderExcepReportedBy }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent when an exception
+         is detected on the managed device. This 
+         notification can be enabled or disabled via
+         cderNotificationEnable."
+    ::= 1
+
+ciscoDERExceptionDataGroup OBJECT IDENTIFIER ::= { ciscoDEReportMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that enable the 
+--     exception notification for monitored
+--     exceptions of network elements.
+--  objects
+--    cderMaxExceptionRecords, cderNotificationEnabled, 
+--    cderNotificationsSent, cderNotificationsDropped, cderExcepId, 
+--    cderExcepHostAddressType, cderExcepHostAddress, 
+--    cderExcepPriorityDescription, cderExcepTime, cderExcepData, 
+--    cderExcepReportedBy
+
+ciscoDERExceptionGroup OBJECT IDENTIFIER ::= { ciscoDEReportMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of the monitored 
+--     exception events.
+--  notifications
+--    cderMonitoredExceptionEvent
+
+ciscoDEReportMIBCompliance OBJECT IDENTIFIER ::= { ciscoDEReportMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities 
+--     which implement the 
+--     CISCO-DEVICE-EXCEPTION-REPORTING-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDERExceptionDataGroup
+--   MandGroup
+--    ciscoDERExceptionGroup
+
+
+END
+

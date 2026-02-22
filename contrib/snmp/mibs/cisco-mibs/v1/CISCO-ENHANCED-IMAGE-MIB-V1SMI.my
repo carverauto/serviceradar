@@ -1,0 +1,662 @@
+-- MIB file created 13-Apr-2006 13:57:39, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ENHANCED-IMAGE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ENHANCED-IMAGE-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    DateAndTime, TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    PhysicalIndex, entPhysicalIndex
+            FROM ENTITY-MIB
+    CeImageInstallableStatus, CeImageInstallableType
+            FROM CISCO-IMAGE-TC
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoEnhancedImageMIB OBJECT IDENTIFIER ::= { ciscoMgmt 249 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200501060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-core-mibs@cisco.com
+--  Descr
+--    This MIB provides information about images running
+--     on the system.  It has been extended to be useful 
+--     for modular operating systems.
+--    
+--     The image table provides information about currently 
+--     running image on the system.  A modular operating 
+--     system image consists of base image and all the 
+--     installables loaded on the base image.  A base image
+--     can be obtained from ceImageTable and all the 
+--     installables installed on this image can be obtained 
+--     using ceImageInstallableTable.
+--    
+--     Glossary:
+--    
+--     Base Image 
+--          Essential part of the operating system,
+--          which forms base functionality on top of 
+--          which patches can be added. 
+--    
+--     MBI (Minimum bootable image) 
+--          A small image which contains the smallest 
+--          possible amount of functionality required to 
+--          bootstrap and load a full image.  This image 
+--          typically contains the kernel, the file system 
+--          drivers, and some hardware initialization code.  
+--          It is executed at boot-up, and initializes just 
+--          enough to access the rest of the code, and 
+--          run it.
+--    
+--     Modular operating system 
+--          An operating system that exhibits runtime 
+--          modularity characteristics, such as multiple 
+--          address spaces, fault isolation between 
+--          processes, and modularity delivery and 
+--          replacement of image components.
+--    
+--     Patch/Package/SMU (software maintenance upgrade)
+--          A modular replacement for some piece of on-box 
+--          content, such as a binary shared object, or a text
+--          file.  This entity is meant to replace or augment 
+--          something that is already part of the base image.
+--    
+--     Composite package 
+--          Group of packages delivered as a bundle. It is 
+--          meant to be loaded on MBI.
+--    
+--     Script
+--          A non-binary piece of on-box content, typically a 
+--          TCL script for use by the TCL interpreter, or 
+--          some other form of interpreted router content.
+--    
+--     Installable 
+--          An installable can be a patch, package, composite 
+--          package, SMU or script.  It is a piece of 
+--          software which can be loaded on to the base 
+--          image on a system.
+--    
+--     Location 
+--          This term is used in this MIB to represent path 
+--          where operating system image is located.  It is 
+--          the way of describing where on the file system
+--          the installed software is located.  Modular 
+--          operating system image consists of base image
+--          and installables loaded on this base image.
+--    
+--     Tag 
+--          Tag is a virtual label placed by user that 
+--          indicates a point deemed to be stable.  It can be
+--          used to rollback to a system after an install 
+--          that negatively impacted the functionality of the
+--          system.  It gives points in system where user can
+--          go back to, to remove installables installed 
+--          after that point of time.
+--  RevDate
+--    200501060000Z
+--  RevDescr
+--    This MIB has been extended to be useful for modular 
+--     operating systems.
+--    
+--     Added tables ceImageLocationTable, ceImageTagTable,
+--     ceImageInstallableTable. They are applicable to modular
+--     operating systems and provide information about the 
+--     operating system software installed on the system.
+--  RevDate
+--    200202280000Z
+--  RevDescr
+--    Initial version of the MIB.  This MIB has Image table
+--     containing the following information related to the 
+--     running OS image
+--     1. Entity Index
+--     2. The image name
+--     3. Family
+--     4. Feature set
+--     5. Version
+--     6. Media and
+--     7. Description
+--     This MIB deprecates the objects in the CISCO-IMAGE-MIB.
+--     
+
+ciscoEnhancedImageMIBObjects OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIB 1 }
+ceImage         OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBObjects 1 }
+ceImageInstallable OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBObjects 2 }
+ceImageTags     OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBObjects 3 }
+ciscoEnhancedImageMIBConformance OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIB 3 }
+ciscoEnhancedImageMIBCompliances OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBConformance 1 }
+ciscoEnhancedImageMIBGroups OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBConformance 2 }
+
+MediaType ::= INTEGER {
+        ram(1),
+        rom(2),
+        other(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This TC describes the media type on which the
+--    image is loaded and is running from.
+--    
+--    This is not the secondary storage device from
+--    which the image is loaded.  The storage device
+--    from which the image is loaded is part of the
+--    image name (ceImageName).
+
+ceImageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeImageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information describing the 
+        executing image.
+        
+        For modular operating systems this table provides
+        base image or MBI."
+    ::= { ceImage 1 }
+
+ceImageEntry OBJECT-TYPE
+    SYNTAX CeImageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An image characteristic entry."
+    INDEX { ceImageIndex }
+    ::= { ceImageTable 1 }
+
+CeImageEntry ::= SEQUENCE {
+    ceImageIndex PhysicalIndex,
+    ceImageName SnmpAdminString,
+    ceImageFamily SnmpAdminString,
+    ceImageFeature SnmpAdminString,
+    ceImageVersion SnmpAdminString,
+    ceImageMedia MediaType,
+    ceImageDescription SnmpAdminString
+    }
+
+ceImageIndex OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entPhysicalIndex from the ENTITY-MIB of 
+        the physical entity that runs this OS image."
+    ::= { ceImageEntry 1 }
+
+ceImageName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the running OS image.  This will also
+        include the path from where the image is loaded.
+        For example, flash:c3640-is-mz."
+    ::= { ceImageEntry 2 }
+
+ceImageFamily OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Family of the running OS image.  The image family 
+        indicates the platform for which the image is built.
+        Examples of image families - 
+        are C3640, C7200 etc."
+    ::= { ceImageEntry 3 }
+
+ceImageFeature OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Feature set supported on this image.  Examples of 
+        feature set are - 
+        ENTERPRISE, PROVIDER etc."
+    ::= { ceImageEntry 4 }
+
+ceImageVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Version of the running OS image."
+    ::= { ceImageEntry 5 }
+
+ceImageMedia OBJECT-TYPE
+    SYNTAX MediaType
+--    Rsyntax INTEGER {
+--        ram(1),
+--        rom(2),
+--        other(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Media on which the image represented by this
+        entry is running."
+    ::= { ceImageEntry 6 }
+
+ceImageDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Description of running OS image."
+    ::= { ceImageEntry 7 }
+
+ceImageLocationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeImageLocationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is applicable to modular operating systems.  
+        A location describes where on the file system the installed
+        software is placed.  This table consists of list of all 
+        locations along with status of image at that location.  
+        ceImageLocationRunningStatus will be true only for the
+        location from where system is currently operational. 
+        
+        The agent may add entries to this table when a new image is 
+        installed on the system.  The agent may delete entries from 
+        this table when an image has been removed from the system."
+    ::= { ceImageInstallable 1 }
+
+ceImageLocationEntry OBJECT-TYPE
+    SYNTAX CeImageLocationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry provides location of an image,
+        status of the image."
+    INDEX { entPhysicalIndex, ceImageLocationIndex }
+    ::= { ceImageLocationTable 1 }
+
+CeImageLocationEntry ::= SEQUENCE {
+    ceImageLocationIndex Gauge,
+    ceImageLocation SnmpAdminString,
+    ceImageLocationRunningStatus TruthValue
+    }
+
+ceImageLocationIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An integer that uniquely identifies a location.
+        It is allocated by the system and is unique per location."
+    ::= { ceImageLocationEntry 1 }
+
+ceImageLocation OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Location where the operating system is installed on the 
+         system.  This is path specifying the directory where
+         installables can be found."
+    ::= { ceImageLocationEntry 2 }
+
+ceImageLocationRunningStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object will have value of true if the image from this
+        location is currently running on the system.  For example
+        status will be 'true' for the location disk0:/sys, if the 
+        system currently has image installed from this location."
+    ::= { ceImageLocationEntry 3 }
+
+ceImageInstallableTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeImageInstallableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table specifies a list of software installables
+        installed on the system.
+        
+        This table will be applicable to operating systems which 
+        support installables.  A modular operating system can 
+        consist of base image or MBI and installables.
+        
+        The value of ceImageLocationIndex can be used as index to 
+        retrieve installables installed at a particular location.
+        
+        Every image will have a table of installables.  Entries are
+        added in this table when an installable is installed on the 
+        image.  Entries are deleted from this table when installables
+        are removed or rolled back from the image."
+    ::= { ceImageInstallable 2 }
+
+ceImageInstallableEntry OBJECT-TYPE
+    SYNTAX CeImageInstallableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry provides information about the installed
+        software."
+    INDEX { entPhysicalIndex, ceImageLocationIndex, ceImageInstallableIndex }
+    ::= { ceImageInstallableTable 1 }
+
+CeImageInstallableEntry ::= SEQUENCE {
+    ceImageInstallableIndex Gauge,
+    ceImageInstallableType CeImageInstallableType,
+    ceImageInstallableName SnmpAdminString,
+    ceImageInstallableStatus CeImageInstallableStatus,
+    ceImageInstallableMajorVerNumber Gauge,
+    ceImageInstallableMinorVerNumber Gauge,
+    ceImageInstallableRevisionVerNum SnmpAdminString,
+    ceImageInstallableDate DateAndTime,
+    ceImageInstallableRowStatus RowStatus
+    }
+
+ceImageInstallableIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An integer that uniquely identifies an installable.
+        It is allocated by the system and is unique per an
+        installable entry."
+    ::= { ceImageInstallableEntry 1 }
+
+ceImageInstallableType OBJECT-TYPE
+    SYNTAX CeImageInstallableType
+--    Rsyntax INTEGER {
+--        base(1),
+--        patch(2),
+--        script(3),
+--        package(4),
+--        compositePackage(5),
+--        softwareMaintenanceUpgrade(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the software package."
+    ::= { ceImageInstallableEntry 2 }
+
+ceImageInstallableName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the installable."
+    ::= { ceImageInstallableEntry 3 }
+
+ceImageInstallableStatus OBJECT-TYPE
+    SYNTAX CeImageInstallableStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        pendingInstall(2),
+--        pendingRemoval(3),
+--        installPendingReload(4),
+--        removedPendingReload(5),
+--        installPendingReloadPendingRemoval(6),
+--        removedPendingReloadPendingInstall(7),
+--        pruned(8),
+--        inactive(9)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the software installable."
+    ::= { ceImageInstallableEntry 4 }
+
+ceImageInstallableMajorVerNumber OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Major version number of the software installable.
+         Version is represented as major.minor.maintaince
+         For example, 12 will be major number for version
+         12.3(18.1)S"
+    ::= { ceImageInstallableEntry 5 }
+
+ceImageInstallableMinorVerNumber OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minor version number of the software installable.
+         For example, minor number for the version 12.3(18.1)S
+         is 3."
+    ::= { ceImageInstallableEntry 6 }
+
+ceImageInstallableRevisionVerNum OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maintenance version string of the software installable.
+         This string represents incremental change in the image
+         over the minor release number. For example, revision
+         number for the version 12.3(18.1)S is (18.1)S."
+    ::= { ceImageInstallableEntry 7 }
+
+ceImageInstallableDate OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Date and time software was installed
+        on the system."
+    ::= { ceImageInstallableEntry 8 }
+
+ceImageInstallableRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. This object is used to
+         manage creation, and deletion of rows in this table.
+        
+         When the row is active, installablestatus object may be 
+         modified to activate the installable."
+    ::= { ceImageInstallableEntry 9 }
+
+ceImageTagTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeImageTagEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A tag is a virtual label placed by user that indicates a
+        point deemed to be stable.  It can be used to rollback to
+        a system after an install that negatively impacts the 
+        functionality of the system.  It gives point in system 
+        where user can go back to, to remove installables
+        installed after that point of time.
+        
+        When a tag is placed on an image an entry appears in 
+        this table.  An entry is removed from this table when 
+        tag is removed from the system.  The value of 
+        ceImageLocationIndex is used as index to get all the tags 
+        that are placed on the image at this location."
+    ::= { ceImageTags 1 }
+
+ceImageTagEntry OBJECT-TYPE
+    SYNTAX CeImageTagEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of information about a committed tag."
+    INDEX { entPhysicalIndex, ceImageLocationIndex, ceImageTagName }
+    ::= { ceImageTagTable 1 }
+
+CeImageTagEntry ::= SEQUENCE {
+    ceImageTagName SnmpAdminString,
+    ceImageTagListofInstIndex SnmpAdminString,
+    ceImageTagDate DateAndTime,
+    ceImageTagRowStatus RowStatus
+    }
+
+ceImageTagName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the tag."
+    ::= { ceImageTagEntry 1 }
+
+ceImageTagListofInstIndex OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "List of all the installables which are committed 
+         using this tag.  Installables are represented
+         using installable index and each index is saperated
+         by a space."
+    ::= { ceImageTagEntry 2 }
+
+ceImageTagDate OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Date and time this tag was committed."
+    ::= { ceImageTagEntry 3 }
+
+ceImageTagRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. This object is used to
+         manage creation, and deletion of rows in this table."
+    ::= { ceImageTagEntry 4 }
+
+ciscoEnhancedImageMIBGroup OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing OS image 
+--    characteristics.
+--  objects
+--    ceImageName, ceImageFamily, ceImageFeature, ceImageVersion, 
+--    ceImageMedia, ceImageDescription
+
+ceImageLocationMIBGroup OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--     location of Installable Images on the system.
+--  objects
+--    ceImageLocation, ceImageLocationRunningStatus
+
+ceImageInstallableMIBGroup OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing 
+--    Operating system image and installables.
+--  objects
+--    ceImageInstallableType, ceImageInstallableName, 
+--    ceImageInstallableStatus, ceImageInstallableMajorVerNumber, 
+--    ceImageInstallableMinorVerNumber, 
+--    ceImageInstallableRevisionVerNum, ceImageInstallableDate, 
+--    ceImageInstallableRowStatus
+
+ceImageTagMIBGroup OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--     tags committed to the operating system image
+--  objects
+--    ceImageTagListofInstIndex, ceImageTagDate, 
+--    ceImageTagRowStatus
+
+ciscoEnhancedImageMIBCompliance OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-ENHANCED-IMAGE-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoEnhancedImageMIBGroup
+
+ceImageMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoEnhancedImageMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-ENHANCED-IMAGE-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoEnhancedImageMIBGroup
+--   OptGroup
+--    ceImageLocationMIBGroup
+--   OptGroup
+--    ceImageInstallableMIBGroup
+--   OptGroup
+--    ceImageTagMIBGroup
+
+
+END
+

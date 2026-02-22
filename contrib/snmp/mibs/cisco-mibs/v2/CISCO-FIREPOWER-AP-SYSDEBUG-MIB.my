@@ -1,0 +1,4619 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-SYSDEBUG-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- SYSDEBUG management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-SYSDEBUG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApCommClientAdminState,
+    CfprApConditionRemoteInvRslt,
+    CfprApFsmCompletion,
+    CfprApFsmFlags,
+    CfprApFsmFsmStageStatus,
+    CfprApNetworkSwitchId,
+    CfprApPolicyPolicyOwner,
+    CfprApSysdebugAutoCoreFileExportTargetFsmCurrentFsm,
+    CfprApSysdebugAutoCoreFileExportTargetFsmStageName,
+    CfprApSysdebugAutoCoreFileExportTargetFsmTaskItem,
+    CfprApSysdebugAutoCoreFileExportTargetProto,
+    CfprApSysdebugBackupBehaviorInterval,
+    CfprApSysdebugBackupBehaviorProto,
+    CfprApSysdebugBackupFormat,
+    CfprApSysdebugCoreExportStatus,
+    CfprApSysdebugCoreFileAdminState,
+    CfprApSysdebugCoreFileOperState,
+    CfprApSysdebugCoreFsmCurrentFsm,
+    CfprApSysdebugCoreFsmStageName,
+    CfprApSysdebugCoreFsmTaskItem,
+    CfprApSysdebugEpLogAdminState,
+    CfprApSysdebugEpLogBackupAction,
+    CfprApSysdebugEpLogCapacity,
+    CfprApSysdebugEpLogType,
+    CfprApSysdebugExportStatus,
+    CfprApSysdebugLogControlDomainEnum,
+    CfprApSysdebugLogControlEpFsmCurrentFsm,
+    CfprApSysdebugLogControlEpFsmStageName,
+    CfprApSysdebugLogControlEpFsmTaskItem,
+    CfprApSysdebugLogControlLevel,
+    CfprApSysdebugLogExportPolicyFsmCurrentFsm,
+    CfprApSysdebugLogExportPolicyFsmStageName,
+    CfprApSysdebugLogExportPolicyFsmTaskItem,
+    CfprApSysdebugLogExportPolicyProto,
+    CfprApSysdebugMEpLogOperState,
+    CfprApSysdebugManualCoreFileExportTargetAdminState,
+    CfprApSysdebugManualCoreFileExportTargetFsmCurrentFsm,
+    CfprApSysdebugManualCoreFileExportTargetFsmStageName,
+    CfprApSysdebugManualCoreFileExportTargetFsmTaskItem,
+    CfprApSysdebugManualCoreFileExportTargetProto,
+    CfprApSysdebugTSCmdOptMajorType,
+    CfprApSysdebugTechSupportAdminState,
+    CfprApSysdebugTechSupportFsmCurrentFsm,
+    CfprApSysdebugTechSupportFsmStageName,
+    CfprApSysdebugTechSupportFsmTaskItem,
+    CfprApSysdebugTechSupportOperState,
+    CfprApSysfileExporterPostAction
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApSysdebugObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        SYSDEBUG management information model package"
+    ::= { ciscoFirepowerApMIBObjects 76 }
+
+cfprApSysdebugAutoCoreFileExportTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugAutoCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget
+        managed object table"
+    ::= { cfprApSysdebugObjects 1 }
+
+cfprApSysdebugAutoCoreFileExportTargetEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugAutoCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugAutoCoreFileExportTargetTable table."
+    INDEX { cfprApSysdebugAutoCoreFileExportTargetInstanceId }
+    ::= { cfprApSysdebugAutoCoreFileExportTargetTable 1 }
+
+CfprApSysdebugAutoCoreFileExportTargetEntry ::= SEQUENCE {
+    cfprApSysdebugAutoCoreFileExportTargetInstanceId                 CfprApManagedObjectId,
+    cfprApSysdebugAutoCoreFileExportTargetDn                         CfprApManagedObjectDn,
+    cfprApSysdebugAutoCoreFileExportTargetRn                         SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetAdminState                 CfprApCommClientAdminState,
+    cfprApSysdebugAutoCoreFileExportTargetDescr                      SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetExportFailureReason        SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetExportStatus               CfprApSysdebugCoreExportStatus,
+    cfprApSysdebugAutoCoreFileExportTargetFsmDescr                   SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmPrev                    SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmProgr                   Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetFsmRmtInvErrCode           Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetFsmRmtInvErrDescr          SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmRmtInvRslt              CfprApConditionRemoteInvRslt,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageDescr              SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStamp                   DateAndTime,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStatus                  SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmTry                     Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetHostname                   SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetIntId                      SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetName                       SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetPath                       SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetPolicyLevel                Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetPolicyOwner                CfprApPolicyPolicyOwner,
+    cfprApSysdebugAutoCoreFileExportTargetPort                       Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetPostAction                 CfprApSysfileExporterPostAction,
+    cfprApSysdebugAutoCoreFileExportTargetProto                      CfprApSysdebugAutoCoreFileExportTargetProto
+}
+
+cfprApSysdebugAutoCoreFileExportTargetInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 1 }
+
+cfprApSysdebugAutoCoreFileExportTargetDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:dn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 2 }
+
+cfprApSysdebugAutoCoreFileExportTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:rn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 3 }
+
+cfprApSysdebugAutoCoreFileExportTargetAdminState OBJECT-TYPE
+    SYNTAX       CfprApCommClientAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:adminState
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 4 }
+
+cfprApSysdebugAutoCoreFileExportTargetDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:descr
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 5 }
+
+cfprApSysdebugAutoCoreFileExportTargetExportFailureReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:exportFailureRe
+        ason managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 6 }
+
+cfprApSysdebugAutoCoreFileExportTargetExportStatus OBJECT-TYPE
+    SYNTAX       CfprApSysdebugCoreExportStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:exportStatus
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 7 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmDescr
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 8 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmPrev
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 9 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmProgr
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 10 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmRmtInvErrCod
+        e managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 11 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmRmtInvErrDes
+        cr managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 12 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 13 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmStageDescr
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 14 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmStamp
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 15 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 16 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:fsmTry
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 17 }
+
+cfprApSysdebugAutoCoreFileExportTargetHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:hostname
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 18 }
+
+cfprApSysdebugAutoCoreFileExportTargetIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:intId
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 19 }
+
+cfprApSysdebugAutoCoreFileExportTargetName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:name
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 20 }
+
+cfprApSysdebugAutoCoreFileExportTargetPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:path
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 21 }
+
+cfprApSysdebugAutoCoreFileExportTargetPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:policyLevel
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 22 }
+
+cfprApSysdebugAutoCoreFileExportTargetPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:policyOwner
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 23 }
+
+cfprApSysdebugAutoCoreFileExportTargetPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:port
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 24 }
+
+cfprApSysdebugAutoCoreFileExportTargetPostAction OBJECT-TYPE
+    SYNTAX       CfprApSysfileExporterPostAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:postAction
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 25 }
+
+cfprApSysdebugAutoCoreFileExportTargetProto OBJECT-TYPE
+    SYNTAX       CfprApSysdebugAutoCoreFileExportTargetProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTarget:proto
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetEntry 26 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugAutoCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm
+        managed object table"
+    ::= { cfprApSysdebugObjects 2 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugAutoCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugAutoCoreFileExportTargetFsmTable table."
+    INDEX { cfprApSysdebugAutoCoreFileExportTargetFsmInstanceId }
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTable 1 }
+
+CfprApSysdebugAutoCoreFileExportTargetFsmEntry ::= SEQUENCE {
+    cfprApSysdebugAutoCoreFileExportTargetFsmInstanceId              CfprApManagedObjectId,
+    cfprApSysdebugAutoCoreFileExportTargetFsmDn                      CfprApManagedObjectDn,
+    cfprApSysdebugAutoCoreFileExportTargetFsmRn                      SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmCompletionTime          DateAndTime,
+    cfprApSysdebugAutoCoreFileExportTargetFsmCurrentFsm              CfprApSysdebugAutoCoreFileExportTargetFsmCurrentFsm,
+    cfprApSysdebugAutoCoreFileExportTargetFsmDescrData               SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmFsmStatus               CfprApFsmFsmStageStatus,
+    cfprApSysdebugAutoCoreFileExportTargetFsmProgress                Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetFsmRmtErrCode              Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetFsmRmtErrDescr             SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmRmtRslt                 CfprApConditionRemoteInvRslt
+}
+
+cfprApSysdebugAutoCoreFileExportTargetFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 1 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:dn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 2 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:rn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 3 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:completionTi
+        me managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 4 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApSysdebugAutoCoreFileExportTargetFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:currentFsm
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 5 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:descr
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 6 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 7 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:progress
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 8 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:rmtErrCode
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 9 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 10 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsm:rmtRslt
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmEntry 11 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugAutoCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage
+        managed object table"
+    ::= { cfprApSysdebugObjects 3 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugAutoCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugAutoCoreFileExportTargetFsmStageTable table."
+    INDEX { cfprApSysdebugAutoCoreFileExportTargetFsmStageInstanceId }
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageTable 1 }
+
+CfprApSysdebugAutoCoreFileExportTargetFsmStageEntry ::= SEQUENCE {
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageInstanceId         CfprApManagedObjectId,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageDn                 CfprApManagedObjectDn,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageRn                 SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageDescrData          SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageLastUpdateTime     DateAndTime,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageName               CfprApSysdebugAutoCoreFileExportTargetFsmStageName,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageOrder              Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageRetry              Gauge32,
+    cfprApSysdebugAutoCoreFileExportTargetFsmStageStageStatus        CfprApFsmFsmStageStatus
+}
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 1 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:dn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 2 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:rn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 3 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:descr
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 4 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:lastUpd
+        ateTime managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 5 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApSysdebugAutoCoreFileExportTargetFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:name
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 6 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:order
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 7 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:retry
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 8 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmStage:stageSt
+        atus managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmStageEntry 9 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmTask
+        managed object table"
+    ::= { cfprApSysdebugObjects 4 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugAutoCoreFileExportTargetFsmTaskTable table."
+    INDEX { cfprApSysdebugAutoCoreFileExportTargetFsmTaskInstanceId }
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskTable 1 }
+
+CfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry ::= SEQUENCE {
+    cfprApSysdebugAutoCoreFileExportTargetFsmTaskInstanceId          CfprApManagedObjectId,
+    cfprApSysdebugAutoCoreFileExportTargetFsmTaskDn                  CfprApManagedObjectDn,
+    cfprApSysdebugAutoCoreFileExportTargetFsmTaskRn                  SnmpAdminString,
+    cfprApSysdebugAutoCoreFileExportTargetFsmTaskCompletion          CfprApFsmCompletion,
+    cfprApSysdebugAutoCoreFileExportTargetFsmTaskFlags               CfprApFsmFlags,
+    cfprApSysdebugAutoCoreFileExportTargetFsmTaskItem                CfprApSysdebugAutoCoreFileExportTargetFsmTaskItem,
+    cfprApSysdebugAutoCoreFileExportTargetFsmTaskSeqId               Gauge32
+}
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry 1 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmTask:dn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry 2 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmTask:rn
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry 3 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmTask:completi
+        on managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry 4 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmTask:flags
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry 5 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApSysdebugAutoCoreFileExportTargetFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmTask:item
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry 6 }
+
+cfprApSysdebugAutoCoreFileExportTargetFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:AutoCoreFileExportTargetFsmTask:seqId
+        managed object property"
+    ::= { cfprApSysdebugAutoCoreFileExportTargetFsmTaskEntry 7 }
+
+cfprApSysdebugBackupBehaviorTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugBackupBehaviorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior managed object table"
+    ::= { cfprApSysdebugObjects 5 }
+
+cfprApSysdebugBackupBehaviorEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugBackupBehaviorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugBackupBehaviorTable table."
+    INDEX { cfprApSysdebugBackupBehaviorInstanceId }
+    ::= { cfprApSysdebugBackupBehaviorTable 1 }
+
+CfprApSysdebugBackupBehaviorEntry ::= SEQUENCE {
+    cfprApSysdebugBackupBehaviorInstanceId                           CfprApManagedObjectId,
+    cfprApSysdebugBackupBehaviorDn                                   CfprApManagedObjectDn,
+    cfprApSysdebugBackupBehaviorRn                                   SnmpAdminString,
+    cfprApSysdebugBackupBehaviorAction                               CfprApSysdebugEpLogBackupAction,
+    cfprApSysdebugBackupBehaviorClearOnBackup                        TruthValue,
+    cfprApSysdebugBackupBehaviorFormat                               CfprApSysdebugBackupFormat,
+    cfprApSysdebugBackupBehaviorHostname                             SnmpAdminString,
+    cfprApSysdebugBackupBehaviorInterval                             CfprApSysdebugBackupBehaviorInterval,
+    cfprApSysdebugBackupBehaviorProto                                CfprApSysdebugBackupBehaviorProto,
+    cfprApSysdebugBackupBehaviorPwd                                  SnmpAdminString,
+    cfprApSysdebugBackupBehaviorRemotePath                           SnmpAdminString,
+    cfprApSysdebugBackupBehaviorUser                                 SnmpAdminString
+}
+
+cfprApSysdebugBackupBehaviorInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugBackupBehaviorEntry 1 }
+
+cfprApSysdebugBackupBehaviorDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:dn managed
+        object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 2 }
+
+cfprApSysdebugBackupBehaviorRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:rn managed
+        object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 3 }
+
+cfprApSysdebugBackupBehaviorAction OBJECT-TYPE
+    SYNTAX       CfprApSysdebugEpLogBackupAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:action
+        managed object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 4 }
+
+cfprApSysdebugBackupBehaviorClearOnBackup OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:clearOnBackup
+        managed object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 5 }
+
+cfprApSysdebugBackupBehaviorFormat OBJECT-TYPE
+    SYNTAX       CfprApSysdebugBackupFormat
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:format
+        managed object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 6 }
+
+cfprApSysdebugBackupBehaviorHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:hostname
+        managed object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 7 }
+
+cfprApSysdebugBackupBehaviorInterval OBJECT-TYPE
+    SYNTAX       CfprApSysdebugBackupBehaviorInterval
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:interval
+        managed object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 8 }
+
+cfprApSysdebugBackupBehaviorProto OBJECT-TYPE
+    SYNTAX       CfprApSysdebugBackupBehaviorProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:proto
+        managed object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 9 }
+
+cfprApSysdebugBackupBehaviorPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:pwd managed
+        object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 10 }
+
+cfprApSysdebugBackupBehaviorRemotePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:remotePath
+        managed object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 11 }
+
+cfprApSysdebugBackupBehaviorUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:BackupBehavior:user managed
+        object property"
+    ::= { cfprApSysdebugBackupBehaviorEntry 12 }
+
+cfprApSysdebugCoreTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugCoreEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core managed object table"
+    ::= { cfprApSysdebugObjects 6 }
+
+cfprApSysdebugCoreEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugCoreEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugCoreTable table."
+    INDEX { cfprApSysdebugCoreInstanceId }
+    ::= { cfprApSysdebugCoreTable 1 }
+
+CfprApSysdebugCoreEntry ::= SEQUENCE {
+    cfprApSysdebugCoreInstanceId                                     CfprApManagedObjectId,
+    cfprApSysdebugCoreDn                                             CfprApManagedObjectDn,
+    cfprApSysdebugCoreRn                                             SnmpAdminString,
+    cfprApSysdebugCoreAdminState                                     CfprApSysdebugCoreFileAdminState,
+    cfprApSysdebugCoreDescr                                          SnmpAdminString,
+    cfprApSysdebugCoreFsmDescr                                       SnmpAdminString,
+    cfprApSysdebugCoreFsmPrev                                        SnmpAdminString,
+    cfprApSysdebugCoreFsmProgr                                       Gauge32,
+    cfprApSysdebugCoreFsmRmtInvErrCode                               Gauge32,
+    cfprApSysdebugCoreFsmRmtInvErrDescr                              SnmpAdminString,
+    cfprApSysdebugCoreFsmRmtInvRslt                                  CfprApConditionRemoteInvRslt,
+    cfprApSysdebugCoreFsmStageDescr                                  SnmpAdminString,
+    cfprApSysdebugCoreFsmStamp                                       DateAndTime,
+    cfprApSysdebugCoreFsmStatus                                      SnmpAdminString,
+    cfprApSysdebugCoreFsmTry                                         Gauge32,
+    cfprApSysdebugCoreName                                           SnmpAdminString,
+    cfprApSysdebugCoreOperState                                      CfprApSysdebugCoreFileOperState,
+    cfprApSysdebugCoreSize                                           Gauge32,
+    cfprApSysdebugCoreSwitchId                                       CfprApNetworkSwitchId,
+    cfprApSysdebugCoreTs                                             DateAndTime,
+    cfprApSysdebugCoreUri                                            SnmpAdminString
+}
+
+cfprApSysdebugCoreInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugCoreEntry 1 }
+
+cfprApSysdebugCoreDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:dn managed object property"
+    ::= { cfprApSysdebugCoreEntry 2 }
+
+cfprApSysdebugCoreRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:rn managed object property"
+    ::= { cfprApSysdebugCoreEntry 3 }
+
+cfprApSysdebugCoreAdminState OBJECT-TYPE
+    SYNTAX       CfprApSysdebugCoreFileAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:adminState managed object property"
+    ::= { cfprApSysdebugCoreEntry 4 }
+
+cfprApSysdebugCoreDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:descr managed object property"
+    ::= { cfprApSysdebugCoreEntry 5 }
+
+cfprApSysdebugCoreFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmDescr managed object property"
+    ::= { cfprApSysdebugCoreEntry 6 }
+
+cfprApSysdebugCoreFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmPrev managed object property"
+    ::= { cfprApSysdebugCoreEntry 7 }
+
+cfprApSysdebugCoreFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmProgr managed object property"
+    ::= { cfprApSysdebugCoreEntry 8 }
+
+cfprApSysdebugCoreFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApSysdebugCoreEntry 9 }
+
+cfprApSysdebugCoreFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApSysdebugCoreEntry 10 }
+
+cfprApSysdebugCoreFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmRmtInvRslt managed
+        object property"
+    ::= { cfprApSysdebugCoreEntry 11 }
+
+cfprApSysdebugCoreFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmStageDescr managed
+        object property"
+    ::= { cfprApSysdebugCoreEntry 12 }
+
+cfprApSysdebugCoreFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmStamp managed object property"
+    ::= { cfprApSysdebugCoreEntry 13 }
+
+cfprApSysdebugCoreFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmStatus managed object property"
+    ::= { cfprApSysdebugCoreEntry 14 }
+
+cfprApSysdebugCoreFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:fsmTry managed object property"
+    ::= { cfprApSysdebugCoreEntry 15 }
+
+cfprApSysdebugCoreName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:name managed object property"
+    ::= { cfprApSysdebugCoreEntry 16 }
+
+cfprApSysdebugCoreOperState OBJECT-TYPE
+    SYNTAX       CfprApSysdebugCoreFileOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:operState managed object property"
+    ::= { cfprApSysdebugCoreEntry 17 }
+
+cfprApSysdebugCoreSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:size managed object property"
+    ::= { cfprApSysdebugCoreEntry 18 }
+
+cfprApSysdebugCoreSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:switchId managed object property"
+    ::= { cfprApSysdebugCoreEntry 19 }
+
+cfprApSysdebugCoreTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:ts managed object property"
+    ::= { cfprApSysdebugCoreEntry 20 }
+
+cfprApSysdebugCoreUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Core:uri managed object property"
+    ::= { cfprApSysdebugCoreEntry 21 }
+
+cfprApSysdebugCoreFileRepositoryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugCoreFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFileRepository managed object table"
+    ::= { cfprApSysdebugObjects 7 }
+
+cfprApSysdebugCoreFileRepositoryEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugCoreFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugCoreFileRepositoryTable table."
+    INDEX { cfprApSysdebugCoreFileRepositoryInstanceId }
+    ::= { cfprApSysdebugCoreFileRepositoryTable 1 }
+
+CfprApSysdebugCoreFileRepositoryEntry ::= SEQUENCE {
+    cfprApSysdebugCoreFileRepositoryInstanceId                       CfprApManagedObjectId,
+    cfprApSysdebugCoreFileRepositoryDn                               CfprApManagedObjectDn,
+    cfprApSysdebugCoreFileRepositoryRn                               SnmpAdminString
+}
+
+cfprApSysdebugCoreFileRepositoryInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugCoreFileRepositoryEntry 1 }
+
+cfprApSysdebugCoreFileRepositoryDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFileRepository:dn
+        managed object property"
+    ::= { cfprApSysdebugCoreFileRepositoryEntry 2 }
+
+cfprApSysdebugCoreFileRepositoryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFileRepository:rn
+        managed object property"
+    ::= { cfprApSysdebugCoreFileRepositoryEntry 3 }
+
+cfprApSysdebugCoreFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugCoreFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm managed object table"
+    ::= { cfprApSysdebugObjects 8 }
+
+cfprApSysdebugCoreFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugCoreFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugCoreFsmTable table."
+    INDEX { cfprApSysdebugCoreFsmInstanceId }
+    ::= { cfprApSysdebugCoreFsmTable 1 }
+
+CfprApSysdebugCoreFsmEntry ::= SEQUENCE {
+    cfprApSysdebugCoreFsmInstanceId                                  CfprApManagedObjectId,
+    cfprApSysdebugCoreFsmDn                                          CfprApManagedObjectDn,
+    cfprApSysdebugCoreFsmRn                                          SnmpAdminString,
+    cfprApSysdebugCoreFsmCompletionTime                              DateAndTime,
+    cfprApSysdebugCoreFsmCurrentFsm                                  CfprApSysdebugCoreFsmCurrentFsm,
+    cfprApSysdebugCoreFsmDescrData                                   SnmpAdminString,
+    cfprApSysdebugCoreFsmFsmStatus                                   CfprApFsmFsmStageStatus,
+    cfprApSysdebugCoreFsmProgress                                    Gauge32,
+    cfprApSysdebugCoreFsmRmtErrCode                                  Gauge32,
+    cfprApSysdebugCoreFsmRmtErrDescr                                 SnmpAdminString,
+    cfprApSysdebugCoreFsmRmtRslt                                     CfprApConditionRemoteInvRslt
+}
+
+cfprApSysdebugCoreFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugCoreFsmEntry 1 }
+
+cfprApSysdebugCoreFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:dn managed object property"
+    ::= { cfprApSysdebugCoreFsmEntry 2 }
+
+cfprApSysdebugCoreFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:rn managed object property"
+    ::= { cfprApSysdebugCoreFsmEntry 3 }
+
+cfprApSysdebugCoreFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:completionTime
+        managed object property"
+    ::= { cfprApSysdebugCoreFsmEntry 4 }
+
+cfprApSysdebugCoreFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApSysdebugCoreFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:currentFsm managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmEntry 5 }
+
+cfprApSysdebugCoreFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:descr managed object property"
+    ::= { cfprApSysdebugCoreFsmEntry 6 }
+
+cfprApSysdebugCoreFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:fsmStatus managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmEntry 7 }
+
+cfprApSysdebugCoreFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:progress managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmEntry 8 }
+
+cfprApSysdebugCoreFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:rmtErrCode managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmEntry 9 }
+
+cfprApSysdebugCoreFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:rmtErrDescr managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmEntry 10 }
+
+cfprApSysdebugCoreFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsm:rmtRslt managed object property"
+    ::= { cfprApSysdebugCoreFsmEntry 11 }
+
+cfprApSysdebugCoreFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugCoreFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage managed object table"
+    ::= { cfprApSysdebugObjects 9 }
+
+cfprApSysdebugCoreFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugCoreFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugCoreFsmStageTable table."
+    INDEX { cfprApSysdebugCoreFsmStageInstanceId }
+    ::= { cfprApSysdebugCoreFsmStageTable 1 }
+
+CfprApSysdebugCoreFsmStageEntry ::= SEQUENCE {
+    cfprApSysdebugCoreFsmStageInstanceId                             CfprApManagedObjectId,
+    cfprApSysdebugCoreFsmStageDn                                     CfprApManagedObjectDn,
+    cfprApSysdebugCoreFsmStageRn                                     SnmpAdminString,
+    cfprApSysdebugCoreFsmStageDescrData                              SnmpAdminString,
+    cfprApSysdebugCoreFsmStageLastUpdateTime                         DateAndTime,
+    cfprApSysdebugCoreFsmStageName                                   CfprApSysdebugCoreFsmStageName,
+    cfprApSysdebugCoreFsmStageOrder                                  Gauge32,
+    cfprApSysdebugCoreFsmStageRetry                                  Gauge32,
+    cfprApSysdebugCoreFsmStageStageStatus                            CfprApFsmFsmStageStatus
+}
+
+cfprApSysdebugCoreFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugCoreFsmStageEntry 1 }
+
+cfprApSysdebugCoreFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:dn managed object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 2 }
+
+cfprApSysdebugCoreFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:rn managed object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 3 }
+
+cfprApSysdebugCoreFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:descr managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 4 }
+
+cfprApSysdebugCoreFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 5 }
+
+cfprApSysdebugCoreFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApSysdebugCoreFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:name managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 6 }
+
+cfprApSysdebugCoreFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:order managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 7 }
+
+cfprApSysdebugCoreFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:retry managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 8 }
+
+cfprApSysdebugCoreFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApSysdebugCoreFsmStageEntry 9 }
+
+cfprApSysdebugCoreFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugCoreFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmTask managed object table"
+    ::= { cfprApSysdebugObjects 10 }
+
+cfprApSysdebugCoreFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugCoreFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugCoreFsmTaskTable table."
+    INDEX { cfprApSysdebugCoreFsmTaskInstanceId }
+    ::= { cfprApSysdebugCoreFsmTaskTable 1 }
+
+CfprApSysdebugCoreFsmTaskEntry ::= SEQUENCE {
+    cfprApSysdebugCoreFsmTaskInstanceId                              CfprApManagedObjectId,
+    cfprApSysdebugCoreFsmTaskDn                                      CfprApManagedObjectDn,
+    cfprApSysdebugCoreFsmTaskRn                                      SnmpAdminString,
+    cfprApSysdebugCoreFsmTaskCompletion                              CfprApFsmCompletion,
+    cfprApSysdebugCoreFsmTaskFlags                                   CfprApFsmFlags,
+    cfprApSysdebugCoreFsmTaskItem                                    CfprApSysdebugCoreFsmTaskItem,
+    cfprApSysdebugCoreFsmTaskSeqId                                   Gauge32
+}
+
+cfprApSysdebugCoreFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugCoreFsmTaskEntry 1 }
+
+cfprApSysdebugCoreFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmTask:dn managed object property"
+    ::= { cfprApSysdebugCoreFsmTaskEntry 2 }
+
+cfprApSysdebugCoreFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmTask:rn managed object property"
+    ::= { cfprApSysdebugCoreFsmTaskEntry 3 }
+
+cfprApSysdebugCoreFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmTask:completion
+        managed object property"
+    ::= { cfprApSysdebugCoreFsmTaskEntry 4 }
+
+cfprApSysdebugCoreFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmTask:flags managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmTaskEntry 5 }
+
+cfprApSysdebugCoreFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApSysdebugCoreFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmTask:item managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmTaskEntry 6 }
+
+cfprApSysdebugCoreFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:CoreFsmTask:seqId managed
+        object property"
+    ::= { cfprApSysdebugCoreFsmTaskEntry 7 }
+
+cfprApSysdebugEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Ep managed object table"
+    ::= { cfprApSysdebugObjects 11 }
+
+cfprApSysdebugEpEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugEpTable table."
+    INDEX { cfprApSysdebugEpInstanceId }
+    ::= { cfprApSysdebugEpTable 1 }
+
+CfprApSysdebugEpEntry ::= SEQUENCE {
+    cfprApSysdebugEpInstanceId                                       CfprApManagedObjectId,
+    cfprApSysdebugEpDn                                               CfprApManagedObjectDn,
+    cfprApSysdebugEpRn                                               SnmpAdminString
+}
+
+cfprApSysdebugEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugEpEntry 1 }
+
+cfprApSysdebugEpDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Ep:dn managed object property"
+    ::= { cfprApSysdebugEpEntry 2 }
+
+cfprApSysdebugEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:Ep:rn managed object property"
+    ::= { cfprApSysdebugEpEntry 3 }
+
+cfprApSysdebugLogControlDestinationFileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlDestinationFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile
+        managed object table"
+    ::= { cfprApSysdebugObjects 12 }
+
+cfprApSysdebugLogControlDestinationFileEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlDestinationFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlDestinationFileTable table."
+    INDEX { cfprApSysdebugLogControlDestinationFileInstanceId }
+    ::= { cfprApSysdebugLogControlDestinationFileTable 1 }
+
+CfprApSysdebugLogControlDestinationFileEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlDestinationFileInstanceId                CfprApManagedObjectId,
+    cfprApSysdebugLogControlDestinationFileDn                        CfprApManagedObjectDn,
+    cfprApSysdebugLogControlDestinationFileRn                        SnmpAdminString,
+    cfprApSysdebugLogControlDestinationFileBackupCount               Gauge32,
+    cfprApSysdebugLogControlDestinationFileDefaultLevel              CfprApSysdebugLogControlLevel,
+    cfprApSysdebugLogControlDestinationFileDefaultSize               Gauge32,
+    cfprApSysdebugLogControlDestinationFileLevel                     CfprApSysdebugLogControlLevel,
+    cfprApSysdebugLogControlDestinationFileSize                      Gauge32
+}
+
+cfprApSysdebugLogControlDestinationFileInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 1 }
+
+cfprApSysdebugLogControlDestinationFileDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile:dn
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 2 }
+
+cfprApSysdebugLogControlDestinationFileRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile:rn
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 3 }
+
+cfprApSysdebugLogControlDestinationFileBackupCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile:backupCount
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 4 }
+
+cfprApSysdebugLogControlDestinationFileDefaultLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile:defaultLevel
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 5 }
+
+cfprApSysdebugLogControlDestinationFileDefaultSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile:defaultSize
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 6 }
+
+cfprApSysdebugLogControlDestinationFileLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile:level
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 7 }
+
+cfprApSysdebugLogControlDestinationFileSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationFile:size
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationFileEntry 8 }
+
+cfprApSysdebugLogControlDestinationSyslogTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlDestinationSyslogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationSyslog
+        managed object table"
+    ::= { cfprApSysdebugObjects 13 }
+
+cfprApSysdebugLogControlDestinationSyslogEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlDestinationSyslogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlDestinationSyslogTable table."
+    INDEX { cfprApSysdebugLogControlDestinationSyslogInstanceId }
+    ::= { cfprApSysdebugLogControlDestinationSyslogTable 1 }
+
+CfprApSysdebugLogControlDestinationSyslogEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlDestinationSyslogInstanceId              CfprApManagedObjectId,
+    cfprApSysdebugLogControlDestinationSyslogDn                      CfprApManagedObjectDn,
+    cfprApSysdebugLogControlDestinationSyslogRn                      SnmpAdminString,
+    cfprApSysdebugLogControlDestinationSyslogDefaultLevel            CfprApSysdebugLogControlLevel,
+    cfprApSysdebugLogControlDestinationSyslogLevel                   CfprApSysdebugLogControlLevel
+}
+
+cfprApSysdebugLogControlDestinationSyslogInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlDestinationSyslogEntry 1 }
+
+cfprApSysdebugLogControlDestinationSyslogDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationSyslog:dn
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationSyslogEntry 2 }
+
+cfprApSysdebugLogControlDestinationSyslogRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationSyslog:rn
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationSyslogEntry 3 }
+
+cfprApSysdebugLogControlDestinationSyslogDefaultLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationSyslog:defaultLevel
+         managed object property"
+    ::= { cfprApSysdebugLogControlDestinationSyslogEntry 4 }
+
+cfprApSysdebugLogControlDestinationSyslogLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDestinationSyslog:level
+        managed object property"
+    ::= { cfprApSysdebugLogControlDestinationSyslogEntry 5 }
+
+cfprApSysdebugLogControlDomainTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlDomainEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain managed object table"
+    ::= { cfprApSysdebugObjects 14 }
+
+cfprApSysdebugLogControlDomainEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlDomainEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlDomainTable table."
+    INDEX { cfprApSysdebugLogControlDomainInstanceId }
+    ::= { cfprApSysdebugLogControlDomainTable 1 }
+
+CfprApSysdebugLogControlDomainEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlDomainInstanceId                         CfprApManagedObjectId,
+    cfprApSysdebugLogControlDomainDn                                 CfprApManagedObjectDn,
+    cfprApSysdebugLogControlDomainRn                                 SnmpAdminString,
+    cfprApSysdebugLogControlDomainLevel                              CfprApSysdebugLogControlLevel,
+    cfprApSysdebugLogControlDomainLevelFlag                          TruthValue,
+    cfprApSysdebugLogControlDomainName                               CfprApSysdebugLogControlDomainEnum,
+    cfprApSysdebugLogControlDomainPersist                            TruthValue,
+    cfprApSysdebugLogControlDomainReset                              TruthValue
+}
+
+cfprApSysdebugLogControlDomainInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlDomainEntry 1 }
+
+cfprApSysdebugLogControlDomainDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain:dn managed
+        object property"
+    ::= { cfprApSysdebugLogControlDomainEntry 2 }
+
+cfprApSysdebugLogControlDomainRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain:rn managed
+        object property"
+    ::= { cfprApSysdebugLogControlDomainEntry 3 }
+
+cfprApSysdebugLogControlDomainLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain:level
+        managed object property"
+    ::= { cfprApSysdebugLogControlDomainEntry 4 }
+
+cfprApSysdebugLogControlDomainLevelFlag OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain:levelFlag
+        managed object property"
+    ::= { cfprApSysdebugLogControlDomainEntry 5 }
+
+cfprApSysdebugLogControlDomainName OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlDomainEnum
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain:name
+        managed object property"
+    ::= { cfprApSysdebugLogControlDomainEntry 6 }
+
+cfprApSysdebugLogControlDomainPersist OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain:persist
+        managed object property"
+    ::= { cfprApSysdebugLogControlDomainEntry 7 }
+
+cfprApSysdebugLogControlDomainReset OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlDomain:reset
+        managed object property"
+    ::= { cfprApSysdebugLogControlDomainEntry 8 }
+
+cfprApSysdebugLogControlEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp managed object table"
+    ::= { cfprApSysdebugObjects 15 }
+
+cfprApSysdebugLogControlEpEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlEpTable table."
+    INDEX { cfprApSysdebugLogControlEpInstanceId }
+    ::= { cfprApSysdebugLogControlEpTable 1 }
+
+CfprApSysdebugLogControlEpEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlEpInstanceId                             CfprApManagedObjectId,
+    cfprApSysdebugLogControlEpDn                                     CfprApManagedObjectDn,
+    cfprApSysdebugLogControlEpRn                                     SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmDescr                               SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmPrev                                SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmProgr                               Gauge32,
+    cfprApSysdebugLogControlEpFsmRmtInvErrCode                       Gauge32,
+    cfprApSysdebugLogControlEpFsmRmtInvErrDescr                      SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmRmtInvRslt                          CfprApConditionRemoteInvRslt,
+    cfprApSysdebugLogControlEpFsmStageDescr                          SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmStamp                               DateAndTime,
+    cfprApSysdebugLogControlEpFsmStatus                              SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmTry                                 Gauge32,
+    cfprApSysdebugLogControlEpLevel                                  CfprApSysdebugLogControlLevel,
+    cfprApSysdebugLogControlEpLevelFlag                              TruthValue,
+    cfprApSysdebugLogControlEpPersist                                TruthValue,
+    cfprApSysdebugLogControlEpReset                                  TruthValue
+}
+
+cfprApSysdebugLogControlEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlEpEntry 1 }
+
+cfprApSysdebugLogControlEpDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:dn managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 2 }
+
+cfprApSysdebugLogControlEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:rn managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 3 }
+
+cfprApSysdebugLogControlEpFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmDescr
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 4 }
+
+cfprApSysdebugLogControlEpFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmPrev
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 5 }
+
+cfprApSysdebugLogControlEpFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmProgr
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 6 }
+
+cfprApSysdebugLogControlEpFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 7 }
+
+cfprApSysdebugLogControlEpFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 8 }
+
+cfprApSysdebugLogControlEpFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 9 }
+
+cfprApSysdebugLogControlEpFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmStageDescr
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 10 }
+
+cfprApSysdebugLogControlEpFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmStamp
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 11 }
+
+cfprApSysdebugLogControlEpFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 12 }
+
+cfprApSysdebugLogControlEpFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:fsmTry managed
+        object property"
+    ::= { cfprApSysdebugLogControlEpEntry 13 }
+
+cfprApSysdebugLogControlEpLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:level managed
+        object property"
+    ::= { cfprApSysdebugLogControlEpEntry 14 }
+
+cfprApSysdebugLogControlEpLevelFlag OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:levelFlag
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 15 }
+
+cfprApSysdebugLogControlEpPersist OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:persist
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpEntry 16 }
+
+cfprApSysdebugLogControlEpReset OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEp:reset managed
+        object property"
+    ::= { cfprApSysdebugLogControlEpEntry 17 }
+
+cfprApSysdebugLogControlEpFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm managed object table"
+    ::= { cfprApSysdebugObjects 16 }
+
+cfprApSysdebugLogControlEpFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlEpFsmTable table."
+    INDEX { cfprApSysdebugLogControlEpFsmInstanceId }
+    ::= { cfprApSysdebugLogControlEpFsmTable 1 }
+
+CfprApSysdebugLogControlEpFsmEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlEpFsmInstanceId                          CfprApManagedObjectId,
+    cfprApSysdebugLogControlEpFsmDn                                  CfprApManagedObjectDn,
+    cfprApSysdebugLogControlEpFsmRn                                  SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmCompletionTime                      DateAndTime,
+    cfprApSysdebugLogControlEpFsmCurrentFsm                          CfprApSysdebugLogControlEpFsmCurrentFsm,
+    cfprApSysdebugLogControlEpFsmDescrData                           SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmFsmStatus                           CfprApFsmFsmStageStatus,
+    cfprApSysdebugLogControlEpFsmProgress                            Gauge32,
+    cfprApSysdebugLogControlEpFsmRmtErrCode                          Gauge32,
+    cfprApSysdebugLogControlEpFsmRmtErrDescr                         SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmRmtRslt                             CfprApConditionRemoteInvRslt
+}
+
+cfprApSysdebugLogControlEpFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlEpFsmEntry 1 }
+
+cfprApSysdebugLogControlEpFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:dn managed
+        object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 2 }
+
+cfprApSysdebugLogControlEpFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:rn managed
+        object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 3 }
+
+cfprApSysdebugLogControlEpFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:completionTime
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 4 }
+
+cfprApSysdebugLogControlEpFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlEpFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:currentFsm
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 5 }
+
+cfprApSysdebugLogControlEpFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:descr
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 6 }
+
+cfprApSysdebugLogControlEpFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 7 }
+
+cfprApSysdebugLogControlEpFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:progress
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 8 }
+
+cfprApSysdebugLogControlEpFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:rmtErrCode
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 9 }
+
+cfprApSysdebugLogControlEpFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 10 }
+
+cfprApSysdebugLogControlEpFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsm:rmtRslt
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmEntry 11 }
+
+cfprApSysdebugLogControlEpFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage
+        managed object table"
+    ::= { cfprApSysdebugObjects 17 }
+
+cfprApSysdebugLogControlEpFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlEpFsmStageTable table."
+    INDEX { cfprApSysdebugLogControlEpFsmStageInstanceId }
+    ::= { cfprApSysdebugLogControlEpFsmStageTable 1 }
+
+CfprApSysdebugLogControlEpFsmStageEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlEpFsmStageInstanceId                     CfprApManagedObjectId,
+    cfprApSysdebugLogControlEpFsmStageDn                             CfprApManagedObjectDn,
+    cfprApSysdebugLogControlEpFsmStageRn                             SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmStageDescrData                      SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmStageLastUpdateTime                 DateAndTime,
+    cfprApSysdebugLogControlEpFsmStageName                           CfprApSysdebugLogControlEpFsmStageName,
+    cfprApSysdebugLogControlEpFsmStageOrder                          Gauge32,
+    cfprApSysdebugLogControlEpFsmStageRetry                          Gauge32,
+    cfprApSysdebugLogControlEpFsmStageStageStatus                    CfprApFsmFsmStageStatus
+}
+
+cfprApSysdebugLogControlEpFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 1 }
+
+cfprApSysdebugLogControlEpFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:dn
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 2 }
+
+cfprApSysdebugLogControlEpFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:rn
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 3 }
+
+cfprApSysdebugLogControlEpFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:descr
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 4 }
+
+cfprApSysdebugLogControlEpFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 5 }
+
+cfprApSysdebugLogControlEpFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlEpFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:name
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 6 }
+
+cfprApSysdebugLogControlEpFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:order
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 7 }
+
+cfprApSysdebugLogControlEpFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:retry
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 8 }
+
+cfprApSysdebugLogControlEpFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmStageEntry 9 }
+
+cfprApSysdebugLogControlEpFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmTask managed
+        object table"
+    ::= { cfprApSysdebugObjects 18 }
+
+cfprApSysdebugLogControlEpFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlEpFsmTaskTable table."
+    INDEX { cfprApSysdebugLogControlEpFsmTaskInstanceId }
+    ::= { cfprApSysdebugLogControlEpFsmTaskTable 1 }
+
+CfprApSysdebugLogControlEpFsmTaskEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlEpFsmTaskInstanceId                      CfprApManagedObjectId,
+    cfprApSysdebugLogControlEpFsmTaskDn                              CfprApManagedObjectDn,
+    cfprApSysdebugLogControlEpFsmTaskRn                              SnmpAdminString,
+    cfprApSysdebugLogControlEpFsmTaskCompletion                      CfprApFsmCompletion,
+    cfprApSysdebugLogControlEpFsmTaskFlags                           CfprApFsmFlags,
+    cfprApSysdebugLogControlEpFsmTaskItem                            CfprApSysdebugLogControlEpFsmTaskItem,
+    cfprApSysdebugLogControlEpFsmTaskSeqId                           Gauge32
+}
+
+cfprApSysdebugLogControlEpFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlEpFsmTaskEntry 1 }
+
+cfprApSysdebugLogControlEpFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmTask:dn
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmTaskEntry 2 }
+
+cfprApSysdebugLogControlEpFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmTask:rn
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmTaskEntry 3 }
+
+cfprApSysdebugLogControlEpFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmTask:completion
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmTaskEntry 4 }
+
+cfprApSysdebugLogControlEpFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmTask:flags
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmTaskEntry 5 }
+
+cfprApSysdebugLogControlEpFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlEpFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmTask:item
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmTaskEntry 6 }
+
+cfprApSysdebugLogControlEpFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlEpFsmTask:seqId
+        managed object property"
+    ::= { cfprApSysdebugLogControlEpFsmTaskEntry 7 }
+
+cfprApSysdebugLogControlModuleTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogControlModuleEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlModule managed object table"
+    ::= { cfprApSysdebugObjects 19 }
+
+cfprApSysdebugLogControlModuleEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogControlModuleEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogControlModuleTable table."
+    INDEX { cfprApSysdebugLogControlModuleInstanceId }
+    ::= { cfprApSysdebugLogControlModuleTable 1 }
+
+CfprApSysdebugLogControlModuleEntry ::= SEQUENCE {
+    cfprApSysdebugLogControlModuleInstanceId                         CfprApManagedObjectId,
+    cfprApSysdebugLogControlModuleDn                                 CfprApManagedObjectDn,
+    cfprApSysdebugLogControlModuleRn                                 SnmpAdminString,
+    cfprApSysdebugLogControlModuleDefaultLevel                       CfprApSysdebugLogControlLevel,
+    cfprApSysdebugLogControlModuleLevel                              CfprApSysdebugLogControlLevel,
+    cfprApSysdebugLogControlModuleName                               SnmpAdminString,
+    cfprApSysdebugLogControlModuleReset                              TruthValue
+}
+
+cfprApSysdebugLogControlModuleInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogControlModuleEntry 1 }
+
+cfprApSysdebugLogControlModuleDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlModule:dn managed
+        object property"
+    ::= { cfprApSysdebugLogControlModuleEntry 2 }
+
+cfprApSysdebugLogControlModuleRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlModule:rn managed
+        object property"
+    ::= { cfprApSysdebugLogControlModuleEntry 3 }
+
+cfprApSysdebugLogControlModuleDefaultLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlModule:defaultLevel
+        managed object property"
+    ::= { cfprApSysdebugLogControlModuleEntry 4 }
+
+cfprApSysdebugLogControlModuleLevel OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlModule:level
+        managed object property"
+    ::= { cfprApSysdebugLogControlModuleEntry 5 }
+
+cfprApSysdebugLogControlModuleName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlModule:name
+        managed object property"
+    ::= { cfprApSysdebugLogControlModuleEntry 6 }
+
+cfprApSysdebugLogControlModuleReset OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogControlModule:reset
+        managed object property"
+    ::= { cfprApSysdebugLogControlModuleEntry 7 }
+
+cfprApSysdebugLogExportPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogExportPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy managed object table"
+    ::= { cfprApSysdebugObjects 20 }
+
+cfprApSysdebugLogExportPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogExportPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogExportPolicyTable table."
+    INDEX { cfprApSysdebugLogExportPolicyInstanceId }
+    ::= { cfprApSysdebugLogExportPolicyTable 1 }
+
+CfprApSysdebugLogExportPolicyEntry ::= SEQUENCE {
+    cfprApSysdebugLogExportPolicyInstanceId                          CfprApManagedObjectId,
+    cfprApSysdebugLogExportPolicyDn                                  CfprApManagedObjectDn,
+    cfprApSysdebugLogExportPolicyRn                                  SnmpAdminString,
+    cfprApSysdebugLogExportPolicyAdminState                          CfprApCommClientAdminState,
+    cfprApSysdebugLogExportPolicyDescr                               SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmDescr                            SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmPrev                             SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmProgr                            Gauge32,
+    cfprApSysdebugLogExportPolicyFsmRmtInvErrCode                    Gauge32,
+    cfprApSysdebugLogExportPolicyFsmRmtInvErrDescr                   SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmRmtInvRslt                       CfprApConditionRemoteInvRslt,
+    cfprApSysdebugLogExportPolicyFsmStageDescr                       SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmStamp                            DateAndTime,
+    cfprApSysdebugLogExportPolicyFsmStatus                           SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmTry                              Gauge32,
+    cfprApSysdebugLogExportPolicyHostname                            SnmpAdminString,
+    cfprApSysdebugLogExportPolicyIntId                               SnmpAdminString,
+    cfprApSysdebugLogExportPolicyName                                SnmpAdminString,
+    cfprApSysdebugLogExportPolicyPasswordlessSsh                     TruthValue,
+    cfprApSysdebugLogExportPolicyPath                                SnmpAdminString,
+    cfprApSysdebugLogExportPolicyPolicyLevel                         Gauge32,
+    cfprApSysdebugLogExportPolicyPolicyOwner                         CfprApPolicyPolicyOwner,
+    cfprApSysdebugLogExportPolicyPostAction                          CfprApSysfileExporterPostAction,
+    cfprApSysdebugLogExportPolicyProto                               CfprApSysdebugLogExportPolicyProto,
+    cfprApSysdebugLogExportPolicyPwd                                 SnmpAdminString,
+    cfprApSysdebugLogExportPolicyUser                                SnmpAdminString
+}
+
+cfprApSysdebugLogExportPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogExportPolicyEntry 1 }
+
+cfprApSysdebugLogExportPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:dn managed
+        object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 2 }
+
+cfprApSysdebugLogExportPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:rn managed
+        object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 3 }
+
+cfprApSysdebugLogExportPolicyAdminState OBJECT-TYPE
+    SYNTAX       CfprApCommClientAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:adminState
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 4 }
+
+cfprApSysdebugLogExportPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:descr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 5 }
+
+cfprApSysdebugLogExportPolicyFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmDescr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 6 }
+
+cfprApSysdebugLogExportPolicyFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmPrev
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 7 }
+
+cfprApSysdebugLogExportPolicyFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmProgr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 8 }
+
+cfprApSysdebugLogExportPolicyFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 9 }
+
+cfprApSysdebugLogExportPolicyFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 10 }
+
+cfprApSysdebugLogExportPolicyFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 11 }
+
+cfprApSysdebugLogExportPolicyFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmStageDescr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 12 }
+
+cfprApSysdebugLogExportPolicyFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmStamp
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 13 }
+
+cfprApSysdebugLogExportPolicyFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 14 }
+
+cfprApSysdebugLogExportPolicyFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:fsmTry
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 15 }
+
+cfprApSysdebugLogExportPolicyHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:hostname
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 16 }
+
+cfprApSysdebugLogExportPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:intId
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 17 }
+
+cfprApSysdebugLogExportPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:name
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 18 }
+
+cfprApSysdebugLogExportPolicyPasswordlessSsh OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:passwordlessSsh
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 19 }
+
+cfprApSysdebugLogExportPolicyPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:path
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 20 }
+
+cfprApSysdebugLogExportPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:policyLevel
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 21 }
+
+cfprApSysdebugLogExportPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:policyOwner
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 22 }
+
+cfprApSysdebugLogExportPolicyPostAction OBJECT-TYPE
+    SYNTAX       CfprApSysfileExporterPostAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:postAction
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 23 }
+
+cfprApSysdebugLogExportPolicyProto OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogExportPolicyProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:proto
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 24 }
+
+cfprApSysdebugLogExportPolicyPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:pwd managed
+        object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 25 }
+
+cfprApSysdebugLogExportPolicyUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicy:user
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyEntry 26 }
+
+cfprApSysdebugLogExportPolicyFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogExportPolicyFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm managed object table"
+    ::= { cfprApSysdebugObjects 21 }
+
+cfprApSysdebugLogExportPolicyFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogExportPolicyFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogExportPolicyFsmTable table."
+    INDEX { cfprApSysdebugLogExportPolicyFsmInstanceId }
+    ::= { cfprApSysdebugLogExportPolicyFsmTable 1 }
+
+CfprApSysdebugLogExportPolicyFsmEntry ::= SEQUENCE {
+    cfprApSysdebugLogExportPolicyFsmInstanceId                       CfprApManagedObjectId,
+    cfprApSysdebugLogExportPolicyFsmDn                               CfprApManagedObjectDn,
+    cfprApSysdebugLogExportPolicyFsmRn                               SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmCompletionTime                   DateAndTime,
+    cfprApSysdebugLogExportPolicyFsmCurrentFsm                       CfprApSysdebugLogExportPolicyFsmCurrentFsm,
+    cfprApSysdebugLogExportPolicyFsmDescrData                        SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmFsmStatus                        CfprApFsmFsmStageStatus,
+    cfprApSysdebugLogExportPolicyFsmProgress                         Gauge32,
+    cfprApSysdebugLogExportPolicyFsmRmtErrCode                       Gauge32,
+    cfprApSysdebugLogExportPolicyFsmRmtErrDescr                      SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmRmtRslt                          CfprApConditionRemoteInvRslt
+}
+
+cfprApSysdebugLogExportPolicyFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 1 }
+
+cfprApSysdebugLogExportPolicyFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:dn
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 2 }
+
+cfprApSysdebugLogExportPolicyFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:rn
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 3 }
+
+cfprApSysdebugLogExportPolicyFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:completionTime
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 4 }
+
+cfprApSysdebugLogExportPolicyFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogExportPolicyFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:currentFsm
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 5 }
+
+cfprApSysdebugLogExportPolicyFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:descr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 6 }
+
+cfprApSysdebugLogExportPolicyFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 7 }
+
+cfprApSysdebugLogExportPolicyFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:progress
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 8 }
+
+cfprApSysdebugLogExportPolicyFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:rmtErrCode
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 9 }
+
+cfprApSysdebugLogExportPolicyFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 10 }
+
+cfprApSysdebugLogExportPolicyFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsm:rmtRslt
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmEntry 11 }
+
+cfprApSysdebugLogExportPolicyFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogExportPolicyFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage
+        managed object table"
+    ::= { cfprApSysdebugObjects 22 }
+
+cfprApSysdebugLogExportPolicyFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogExportPolicyFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogExportPolicyFsmStageTable table."
+    INDEX { cfprApSysdebugLogExportPolicyFsmStageInstanceId }
+    ::= { cfprApSysdebugLogExportPolicyFsmStageTable 1 }
+
+CfprApSysdebugLogExportPolicyFsmStageEntry ::= SEQUENCE {
+    cfprApSysdebugLogExportPolicyFsmStageInstanceId                  CfprApManagedObjectId,
+    cfprApSysdebugLogExportPolicyFsmStageDn                          CfprApManagedObjectDn,
+    cfprApSysdebugLogExportPolicyFsmStageRn                          SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmStageDescrData                   SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmStageLastUpdateTime              DateAndTime,
+    cfprApSysdebugLogExportPolicyFsmStageName                        CfprApSysdebugLogExportPolicyFsmStageName,
+    cfprApSysdebugLogExportPolicyFsmStageOrder                       Gauge32,
+    cfprApSysdebugLogExportPolicyFsmStageRetry                       Gauge32,
+    cfprApSysdebugLogExportPolicyFsmStageStageStatus                 CfprApFsmFsmStageStatus
+}
+
+cfprApSysdebugLogExportPolicyFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 1 }
+
+cfprApSysdebugLogExportPolicyFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:dn
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 2 }
+
+cfprApSysdebugLogExportPolicyFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:rn
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 3 }
+
+cfprApSysdebugLogExportPolicyFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:descr
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 4 }
+
+cfprApSysdebugLogExportPolicyFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 5 }
+
+cfprApSysdebugLogExportPolicyFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogExportPolicyFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:name
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 6 }
+
+cfprApSysdebugLogExportPolicyFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:order
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 7 }
+
+cfprApSysdebugLogExportPolicyFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:retry
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 8 }
+
+cfprApSysdebugLogExportPolicyFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmStageEntry 9 }
+
+cfprApSysdebugLogExportPolicyFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogExportPolicyFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmTask
+        managed object table"
+    ::= { cfprApSysdebugObjects 23 }
+
+cfprApSysdebugLogExportPolicyFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogExportPolicyFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogExportPolicyFsmTaskTable table."
+    INDEX { cfprApSysdebugLogExportPolicyFsmTaskInstanceId }
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskTable 1 }
+
+CfprApSysdebugLogExportPolicyFsmTaskEntry ::= SEQUENCE {
+    cfprApSysdebugLogExportPolicyFsmTaskInstanceId                   CfprApManagedObjectId,
+    cfprApSysdebugLogExportPolicyFsmTaskDn                           CfprApManagedObjectDn,
+    cfprApSysdebugLogExportPolicyFsmTaskRn                           SnmpAdminString,
+    cfprApSysdebugLogExportPolicyFsmTaskCompletion                   CfprApFsmCompletion,
+    cfprApSysdebugLogExportPolicyFsmTaskFlags                        CfprApFsmFlags,
+    cfprApSysdebugLogExportPolicyFsmTaskItem                         CfprApSysdebugLogExportPolicyFsmTaskItem,
+    cfprApSysdebugLogExportPolicyFsmTaskSeqId                        Gauge32
+}
+
+cfprApSysdebugLogExportPolicyFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskEntry 1 }
+
+cfprApSysdebugLogExportPolicyFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmTask:dn
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskEntry 2 }
+
+cfprApSysdebugLogExportPolicyFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmTask:rn
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskEntry 3 }
+
+cfprApSysdebugLogExportPolicyFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmTask:completion
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskEntry 4 }
+
+cfprApSysdebugLogExportPolicyFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmTask:flags
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskEntry 5 }
+
+cfprApSysdebugLogExportPolicyFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApSysdebugLogExportPolicyFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmTask:item
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskEntry 6 }
+
+cfprApSysdebugLogExportPolicyFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportPolicyFsmTask:seqId
+        managed object property"
+    ::= { cfprApSysdebugLogExportPolicyFsmTaskEntry 7 }
+
+cfprApSysdebugLogExportStatusTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugLogExportStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportStatus managed object table"
+    ::= { cfprApSysdebugObjects 24 }
+
+cfprApSysdebugLogExportStatusEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugLogExportStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugLogExportStatusTable table."
+    INDEX { cfprApSysdebugLogExportStatusInstanceId }
+    ::= { cfprApSysdebugLogExportStatusTable 1 }
+
+CfprApSysdebugLogExportStatusEntry ::= SEQUENCE {
+    cfprApSysdebugLogExportStatusInstanceId                          CfprApManagedObjectId,
+    cfprApSysdebugLogExportStatusDn                                  CfprApManagedObjectDn,
+    cfprApSysdebugLogExportStatusRn                                  SnmpAdminString,
+    cfprApSysdebugLogExportStatusExportFailureReason                 SnmpAdminString,
+    cfprApSysdebugLogExportStatusExportStatus                        CfprApSysdebugExportStatus,
+    cfprApSysdebugLogExportStatusSwitchId                            CfprApNetworkSwitchId
+}
+
+cfprApSysdebugLogExportStatusInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugLogExportStatusEntry 1 }
+
+cfprApSysdebugLogExportStatusDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportStatus:dn managed
+        object property"
+    ::= { cfprApSysdebugLogExportStatusEntry 2 }
+
+cfprApSysdebugLogExportStatusRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportStatus:rn managed
+        object property"
+    ::= { cfprApSysdebugLogExportStatusEntry 3 }
+
+cfprApSysdebugLogExportStatusExportFailureReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportStatus:exportFailureReason
+        managed object property"
+    ::= { cfprApSysdebugLogExportStatusEntry 4 }
+
+cfprApSysdebugLogExportStatusExportStatus OBJECT-TYPE
+    SYNTAX       CfprApSysdebugExportStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportStatus:exportStatus
+        managed object property"
+    ::= { cfprApSysdebugLogExportStatusEntry 5 }
+
+cfprApSysdebugLogExportStatusSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:LogExportStatus:switchId
+        managed object property"
+    ::= { cfprApSysdebugLogExportStatusEntry 6 }
+
+cfprApSysdebugMEpLogTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugMEpLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog managed object table"
+    ::= { cfprApSysdebugObjects 25 }
+
+cfprApSysdebugMEpLogEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugMEpLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugMEpLogTable table."
+    INDEX { cfprApSysdebugMEpLogInstanceId }
+    ::= { cfprApSysdebugMEpLogTable 1 }
+
+CfprApSysdebugMEpLogEntry ::= SEQUENCE {
+    cfprApSysdebugMEpLogInstanceId                                   CfprApManagedObjectId,
+    cfprApSysdebugMEpLogDn                                           CfprApManagedObjectDn,
+    cfprApSysdebugMEpLogRn                                           SnmpAdminString,
+    cfprApSysdebugMEpLogAdminState                                   CfprApSysdebugEpLogAdminState,
+    cfprApSysdebugMEpLogCapacity                                     CfprApSysdebugEpLogCapacity,
+    cfprApSysdebugMEpLogId                                           Gauge32,
+    cfprApSysdebugMEpLogLastUpdate                                   DateAndTime,
+    cfprApSysdebugMEpLogOperState                                    CfprApSysdebugMEpLogOperState,
+    cfprApSysdebugMEpLogType                                         CfprApSysdebugEpLogType
+}
+
+cfprApSysdebugMEpLogInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugMEpLogEntry 1 }
+
+cfprApSysdebugMEpLogDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:dn managed object property"
+    ::= { cfprApSysdebugMEpLogEntry 2 }
+
+cfprApSysdebugMEpLogRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:rn managed object property"
+    ::= { cfprApSysdebugMEpLogEntry 3 }
+
+cfprApSysdebugMEpLogAdminState OBJECT-TYPE
+    SYNTAX       CfprApSysdebugEpLogAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:adminState managed
+        object property"
+    ::= { cfprApSysdebugMEpLogEntry 4 }
+
+cfprApSysdebugMEpLogCapacity OBJECT-TYPE
+    SYNTAX       CfprApSysdebugEpLogCapacity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:capacity managed object property"
+    ::= { cfprApSysdebugMEpLogEntry 5 }
+
+cfprApSysdebugMEpLogId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:id managed object property"
+    ::= { cfprApSysdebugMEpLogEntry 6 }
+
+cfprApSysdebugMEpLogLastUpdate OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:lastUpdate managed
+        object property"
+    ::= { cfprApSysdebugMEpLogEntry 7 }
+
+cfprApSysdebugMEpLogOperState OBJECT-TYPE
+    SYNTAX       CfprApSysdebugMEpLogOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:operState managed
+        object property"
+    ::= { cfprApSysdebugMEpLogEntry 8 }
+
+cfprApSysdebugMEpLogType OBJECT-TYPE
+    SYNTAX       CfprApSysdebugEpLogType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLog:type managed object property"
+    ::= { cfprApSysdebugMEpLogEntry 9 }
+
+cfprApSysdebugMEpLogPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugMEpLogPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy managed object table"
+    ::= { cfprApSysdebugObjects 26 }
+
+cfprApSysdebugMEpLogPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugMEpLogPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugMEpLogPolicyTable table."
+    INDEX { cfprApSysdebugMEpLogPolicyInstanceId }
+    ::= { cfprApSysdebugMEpLogPolicyTable 1 }
+
+CfprApSysdebugMEpLogPolicyEntry ::= SEQUENCE {
+    cfprApSysdebugMEpLogPolicyInstanceId                             CfprApManagedObjectId,
+    cfprApSysdebugMEpLogPolicyDn                                     CfprApManagedObjectDn,
+    cfprApSysdebugMEpLogPolicyRn                                     SnmpAdminString,
+    cfprApSysdebugMEpLogPolicyDescr                                  SnmpAdminString,
+    cfprApSysdebugMEpLogPolicyIntId                                  SnmpAdminString,
+    cfprApSysdebugMEpLogPolicyName                                   SnmpAdminString,
+    cfprApSysdebugMEpLogPolicyPolicyLevel                            Gauge32,
+    cfprApSysdebugMEpLogPolicyPolicyOwner                            CfprApPolicyPolicyOwner,
+    cfprApSysdebugMEpLogPolicyType                                   CfprApSysdebugEpLogType
+}
+
+cfprApSysdebugMEpLogPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugMEpLogPolicyEntry 1 }
+
+cfprApSysdebugMEpLogPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:dn managed object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 2 }
+
+cfprApSysdebugMEpLogPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:rn managed object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 3 }
+
+cfprApSysdebugMEpLogPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:descr managed
+        object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 4 }
+
+cfprApSysdebugMEpLogPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:intId managed
+        object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 5 }
+
+cfprApSysdebugMEpLogPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:name managed
+        object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 6 }
+
+cfprApSysdebugMEpLogPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:policyLevel
+        managed object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 7 }
+
+cfprApSysdebugMEpLogPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:policyOwner
+        managed object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 8 }
+
+cfprApSysdebugMEpLogPolicyType OBJECT-TYPE
+    SYNTAX       CfprApSysdebugEpLogType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:MEpLogPolicy:type managed
+        object property"
+    ::= { cfprApSysdebugMEpLogPolicyEntry 9 }
+
+cfprApSysdebugManualCoreFileExportTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugManualCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget
+        managed object table"
+    ::= { cfprApSysdebugObjects 27 }
+
+cfprApSysdebugManualCoreFileExportTargetEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugManualCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugManualCoreFileExportTargetTable table."
+    INDEX { cfprApSysdebugManualCoreFileExportTargetInstanceId }
+    ::= { cfprApSysdebugManualCoreFileExportTargetTable 1 }
+
+CfprApSysdebugManualCoreFileExportTargetEntry ::= SEQUENCE {
+    cfprApSysdebugManualCoreFileExportTargetInstanceId               CfprApManagedObjectId,
+    cfprApSysdebugManualCoreFileExportTargetDn                       CfprApManagedObjectDn,
+    cfprApSysdebugManualCoreFileExportTargetRn                       SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetAdminState               CfprApSysdebugManualCoreFileExportTargetAdminState,
+    cfprApSysdebugManualCoreFileExportTargetDescr                    SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetExportFailureReason      SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetExportStatus             CfprApSysdebugCoreExportStatus,
+    cfprApSysdebugManualCoreFileExportTargetFsmDescr                 SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmPrev                  SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmProgr                 Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetFsmRmtInvErrCode         Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetFsmRmtInvErrDescr        SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmRmtInvRslt            CfprApConditionRemoteInvRslt,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageDescr            SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmStamp                 DateAndTime,
+    cfprApSysdebugManualCoreFileExportTargetFsmStatus                SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmTry                   Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetHostname                 SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetIntId                    SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetName                     SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetPath                     SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetPolicyLevel              Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetPolicyOwner              CfprApPolicyPolicyOwner,
+    cfprApSysdebugManualCoreFileExportTargetPort                     Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetPostAction               CfprApSysfileExporterPostAction,
+    cfprApSysdebugManualCoreFileExportTargetProto                    CfprApSysdebugManualCoreFileExportTargetProto
+}
+
+cfprApSysdebugManualCoreFileExportTargetInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 1 }
+
+cfprApSysdebugManualCoreFileExportTargetDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:dn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 2 }
+
+cfprApSysdebugManualCoreFileExportTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:rn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 3 }
+
+cfprApSysdebugManualCoreFileExportTargetAdminState OBJECT-TYPE
+    SYNTAX       CfprApSysdebugManualCoreFileExportTargetAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:adminState
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 4 }
+
+cfprApSysdebugManualCoreFileExportTargetDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:descr
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 5 }
+
+cfprApSysdebugManualCoreFileExportTargetExportFailureReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:exportFailure
+        Reason managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 6 }
+
+cfprApSysdebugManualCoreFileExportTargetExportStatus OBJECT-TYPE
+    SYNTAX       CfprApSysdebugCoreExportStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:exportStatus
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 7 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmDescr
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 8 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmPrev
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 9 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmProgr
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 10 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmRmtInvErrC
+        ode managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 11 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmRmtInvErrD
+        escr managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 12 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmRmtInvRslt
+         managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 13 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmStageDescr
+         managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 14 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmStamp
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 15 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 16 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:fsmTry
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 17 }
+
+cfprApSysdebugManualCoreFileExportTargetHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:hostname
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 18 }
+
+cfprApSysdebugManualCoreFileExportTargetIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:intId
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 19 }
+
+cfprApSysdebugManualCoreFileExportTargetName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:name
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 20 }
+
+cfprApSysdebugManualCoreFileExportTargetPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:path
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 21 }
+
+cfprApSysdebugManualCoreFileExportTargetPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:policyLevel
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 22 }
+
+cfprApSysdebugManualCoreFileExportTargetPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:policyOwner
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 23 }
+
+cfprApSysdebugManualCoreFileExportTargetPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:port
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 24 }
+
+cfprApSysdebugManualCoreFileExportTargetPostAction OBJECT-TYPE
+    SYNTAX       CfprApSysfileExporterPostAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:postAction
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 25 }
+
+cfprApSysdebugManualCoreFileExportTargetProto OBJECT-TYPE
+    SYNTAX       CfprApSysdebugManualCoreFileExportTargetProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTarget:proto
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetEntry 26 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugManualCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm
+        managed object table"
+    ::= { cfprApSysdebugObjects 28 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugManualCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugManualCoreFileExportTargetFsmTable table."
+    INDEX { cfprApSysdebugManualCoreFileExportTargetFsmInstanceId }
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTable 1 }
+
+CfprApSysdebugManualCoreFileExportTargetFsmEntry ::= SEQUENCE {
+    cfprApSysdebugManualCoreFileExportTargetFsmInstanceId            CfprApManagedObjectId,
+    cfprApSysdebugManualCoreFileExportTargetFsmDn                    CfprApManagedObjectDn,
+    cfprApSysdebugManualCoreFileExportTargetFsmRn                    SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmCompletionTime        DateAndTime,
+    cfprApSysdebugManualCoreFileExportTargetFsmCurrentFsm            CfprApSysdebugManualCoreFileExportTargetFsmCurrentFsm,
+    cfprApSysdebugManualCoreFileExportTargetFsmDescrData             SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmFsmStatus             CfprApFsmFsmStageStatus,
+    cfprApSysdebugManualCoreFileExportTargetFsmProgress              Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetFsmRmtErrCode            Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetFsmRmtErrDescr           SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmRmtRslt               CfprApConditionRemoteInvRslt
+}
+
+cfprApSysdebugManualCoreFileExportTargetFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 1 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:dn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 2 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:rn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 3 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:completion
+        Time managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 4 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApSysdebugManualCoreFileExportTargetFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:currentFsm
+         managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 5 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:descr
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 6 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 7 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:progress
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 8 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:rmtErrCode
+         managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 9 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:rmtErrDesc
+        r managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 10 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsm:rmtRslt
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmEntry 11 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugManualCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage
+        managed object table"
+    ::= { cfprApSysdebugObjects 29 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugManualCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugManualCoreFileExportTargetFsmStageTable table."
+    INDEX { cfprApSysdebugManualCoreFileExportTargetFsmStageInstanceId }
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageTable 1 }
+
+CfprApSysdebugManualCoreFileExportTargetFsmStageEntry ::= SEQUENCE {
+    cfprApSysdebugManualCoreFileExportTargetFsmStageInstanceId       CfprApManagedObjectId,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageDn               CfprApManagedObjectDn,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageRn               SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageDescrData        SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageLastUpdateTime   DateAndTime,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageName             CfprApSysdebugManualCoreFileExportTargetFsmStageName,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageOrder            Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageRetry            Gauge32,
+    cfprApSysdebugManualCoreFileExportTargetFsmStageStageStatus      CfprApFsmFsmStageStatus
+}
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 1 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:dn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 2 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:rn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 3 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:descr
+         managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 4 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:lastU
+        pdateTime managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 5 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApSysdebugManualCoreFileExportTargetFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:name
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 6 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:order
+         managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 7 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:retry
+         managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 8 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmStage:stage
+        Status managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmStageEntry 9 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugManualCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmTask
+        managed object table"
+    ::= { cfprApSysdebugObjects 30 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugManualCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugManualCoreFileExportTargetFsmTaskTable table."
+    INDEX { cfprApSysdebugManualCoreFileExportTargetFsmTaskInstanceId }
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskTable 1 }
+
+CfprApSysdebugManualCoreFileExportTargetFsmTaskEntry ::= SEQUENCE {
+    cfprApSysdebugManualCoreFileExportTargetFsmTaskInstanceId        CfprApManagedObjectId,
+    cfprApSysdebugManualCoreFileExportTargetFsmTaskDn                CfprApManagedObjectDn,
+    cfprApSysdebugManualCoreFileExportTargetFsmTaskRn                SnmpAdminString,
+    cfprApSysdebugManualCoreFileExportTargetFsmTaskCompletion        CfprApFsmCompletion,
+    cfprApSysdebugManualCoreFileExportTargetFsmTaskFlags             CfprApFsmFlags,
+    cfprApSysdebugManualCoreFileExportTargetFsmTaskItem              CfprApSysdebugManualCoreFileExportTargetFsmTaskItem,
+    cfprApSysdebugManualCoreFileExportTargetFsmTaskSeqId             Gauge32
+}
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry 1 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmTask:dn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry 2 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmTask:rn
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry 3 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmTask:comple
+        tion managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry 4 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmTask:flags
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry 5 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApSysdebugManualCoreFileExportTargetFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmTask:item
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry 6 }
+
+cfprApSysdebugManualCoreFileExportTargetFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:ManualCoreFileExportTargetFsmTask:seqId
+        managed object property"
+    ::= { cfprApSysdebugManualCoreFileExportTargetFsmTaskEntry 7 }
+
+cfprApSysdebugTechSupFileRepositoryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugTechSupFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupFileRepository
+        managed object table"
+    ::= { cfprApSysdebugObjects 31 }
+
+cfprApSysdebugTechSupFileRepositoryEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugTechSupFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugTechSupFileRepositoryTable table."
+    INDEX { cfprApSysdebugTechSupFileRepositoryInstanceId }
+    ::= { cfprApSysdebugTechSupFileRepositoryTable 1 }
+
+CfprApSysdebugTechSupFileRepositoryEntry ::= SEQUENCE {
+    cfprApSysdebugTechSupFileRepositoryInstanceId                    CfprApManagedObjectId,
+    cfprApSysdebugTechSupFileRepositoryDn                            CfprApManagedObjectDn,
+    cfprApSysdebugTechSupFileRepositoryRn                            SnmpAdminString
+}
+
+cfprApSysdebugTechSupFileRepositoryInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugTechSupFileRepositoryEntry 1 }
+
+cfprApSysdebugTechSupFileRepositoryDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupFileRepository:dn
+        managed object property"
+    ::= { cfprApSysdebugTechSupFileRepositoryEntry 2 }
+
+cfprApSysdebugTechSupFileRepositoryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupFileRepository:rn
+        managed object property"
+    ::= { cfprApSysdebugTechSupFileRepositoryEntry 3 }
+
+cfprApSysdebugTechSupportTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugTechSupportEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport managed object table"
+    ::= { cfprApSysdebugObjects 32 }
+
+cfprApSysdebugTechSupportEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugTechSupportEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugTechSupportTable table."
+    INDEX { cfprApSysdebugTechSupportInstanceId }
+    ::= { cfprApSysdebugTechSupportTable 1 }
+
+CfprApSysdebugTechSupportEntry ::= SEQUENCE {
+    cfprApSysdebugTechSupportInstanceId                              CfprApManagedObjectId,
+    cfprApSysdebugTechSupportDn                                      CfprApManagedObjectDn,
+    cfprApSysdebugTechSupportRn                                      SnmpAdminString,
+    cfprApSysdebugTechSupportAdminState                              CfprApSysdebugTechSupportAdminState,
+    cfprApSysdebugTechSupportCreationTS                              Unsigned64,
+    cfprApSysdebugTechSupportDescr                                   SnmpAdminString,
+    cfprApSysdebugTechSupportFsmDescr                                SnmpAdminString,
+    cfprApSysdebugTechSupportFsmPrev                                 SnmpAdminString,
+    cfprApSysdebugTechSupportFsmProgr                                Gauge32,
+    cfprApSysdebugTechSupportFsmRmtInvErrCode                        Gauge32,
+    cfprApSysdebugTechSupportFsmRmtInvErrDescr                       SnmpAdminString,
+    cfprApSysdebugTechSupportFsmRmtInvRslt                           CfprApConditionRemoteInvRslt,
+    cfprApSysdebugTechSupportFsmStageDescr                           SnmpAdminString,
+    cfprApSysdebugTechSupportFsmStamp                                DateAndTime,
+    cfprApSysdebugTechSupportFsmStatus                               SnmpAdminString,
+    cfprApSysdebugTechSupportFsmTry                                  Gauge32,
+    cfprApSysdebugTechSupportName                                    SnmpAdminString,
+    cfprApSysdebugTechSupportOperState                               CfprApSysdebugTechSupportOperState,
+    cfprApSysdebugTechSupportSize                                    Gauge32,
+    cfprApSysdebugTechSupportSwitchId                                CfprApNetworkSwitchId,
+    cfprApSysdebugTechSupportTs                                      DateAndTime,
+    cfprApSysdebugTechSupportUri                                     SnmpAdminString
+}
+
+cfprApSysdebugTechSupportInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugTechSupportEntry 1 }
+
+cfprApSysdebugTechSupportDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:dn managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 2 }
+
+cfprApSysdebugTechSupportRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:rn managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 3 }
+
+cfprApSysdebugTechSupportAdminState OBJECT-TYPE
+    SYNTAX       CfprApSysdebugTechSupportAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:adminState
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 4 }
+
+cfprApSysdebugTechSupportCreationTS OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:creationTS
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 5 }
+
+cfprApSysdebugTechSupportDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:descr managed
+        object property"
+    ::= { cfprApSysdebugTechSupportEntry 6 }
+
+cfprApSysdebugTechSupportFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmDescr
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 7 }
+
+cfprApSysdebugTechSupportFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmPrev managed
+        object property"
+    ::= { cfprApSysdebugTechSupportEntry 8 }
+
+cfprApSysdebugTechSupportFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmProgr
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 9 }
+
+cfprApSysdebugTechSupportFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 10 }
+
+cfprApSysdebugTechSupportFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 11 }
+
+cfprApSysdebugTechSupportFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 12 }
+
+cfprApSysdebugTechSupportFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmStageDescr
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 13 }
+
+cfprApSysdebugTechSupportFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmStamp
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 14 }
+
+cfprApSysdebugTechSupportFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 15 }
+
+cfprApSysdebugTechSupportFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:fsmTry managed
+        object property"
+    ::= { cfprApSysdebugTechSupportEntry 16 }
+
+cfprApSysdebugTechSupportName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:name managed
+        object property"
+    ::= { cfprApSysdebugTechSupportEntry 17 }
+
+cfprApSysdebugTechSupportOperState OBJECT-TYPE
+    SYNTAX       CfprApSysdebugTechSupportOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:operState
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 18 }
+
+cfprApSysdebugTechSupportSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:size managed
+        object property"
+    ::= { cfprApSysdebugTechSupportEntry 19 }
+
+cfprApSysdebugTechSupportSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:switchId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 20 }
+
+cfprApSysdebugTechSupportTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:ts managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 21 }
+
+cfprApSysdebugTechSupportUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupport:uri managed object property"
+    ::= { cfprApSysdebugTechSupportEntry 22 }
+
+cfprApSysdebugTechSupportCmdOptTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugTechSupportCmdOptEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt managed object table"
+    ::= { cfprApSysdebugObjects 33 }
+
+cfprApSysdebugTechSupportCmdOptEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugTechSupportCmdOptEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugTechSupportCmdOptTable table."
+    INDEX { cfprApSysdebugTechSupportCmdOptInstanceId }
+    ::= { cfprApSysdebugTechSupportCmdOptTable 1 }
+
+CfprApSysdebugTechSupportCmdOptEntry ::= SEQUENCE {
+    cfprApSysdebugTechSupportCmdOptInstanceId                        CfprApManagedObjectId,
+    cfprApSysdebugTechSupportCmdOptDn                                CfprApManagedObjectDn,
+    cfprApSysdebugTechSupportCmdOptRn                                SnmpAdminString,
+    cfprApSysdebugTechSupportCmdOptChassisCimcId                     Gauge32,
+    cfprApSysdebugTechSupportCmdOptChassisId                         Gauge32,
+    cfprApSysdebugTechSupportCmdOptChassisIomId                      Gauge32,
+    cfprApSysdebugTechSupportCmdOptCimcAdapterId                     Gauge32,
+    cfprApSysdebugTechSupportCmdOptFabExtId                          Gauge32,
+    cfprApSysdebugTechSupportCmdOptMajorOptType                      CfprApSysdebugTSCmdOptMajorType,
+    cfprApSysdebugTechSupportCmdOptRackServerAdapterId               Gauge32,
+    cfprApSysdebugTechSupportCmdOptRackServerId                      Gauge32
+}
+
+cfprApSysdebugTechSupportCmdOptInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 1 }
+
+cfprApSysdebugTechSupportCmdOptDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:dn
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 2 }
+
+cfprApSysdebugTechSupportCmdOptRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:rn
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 3 }
+
+cfprApSysdebugTechSupportCmdOptChassisCimcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:chassisCimcId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 4 }
+
+cfprApSysdebugTechSupportCmdOptChassisId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:chassisId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 5 }
+
+cfprApSysdebugTechSupportCmdOptChassisIomId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:chassisIomId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 6 }
+
+cfprApSysdebugTechSupportCmdOptCimcAdapterId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:cimcAdapterId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 7 }
+
+cfprApSysdebugTechSupportCmdOptFabExtId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:fabExtId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 8 }
+
+cfprApSysdebugTechSupportCmdOptMajorOptType OBJECT-TYPE
+    SYNTAX       CfprApSysdebugTSCmdOptMajorType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:majorOptType
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 9 }
+
+cfprApSysdebugTechSupportCmdOptRackServerAdapterId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:rackServerAdapterId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 10 }
+
+cfprApSysdebugTechSupportCmdOptRackServerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportCmdOpt:rackServerId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportCmdOptEntry 11 }
+
+cfprApSysdebugTechSupportFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugTechSupportFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm managed object table"
+    ::= { cfprApSysdebugObjects 34 }
+
+cfprApSysdebugTechSupportFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugTechSupportFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugTechSupportFsmTable table."
+    INDEX { cfprApSysdebugTechSupportFsmInstanceId }
+    ::= { cfprApSysdebugTechSupportFsmTable 1 }
+
+CfprApSysdebugTechSupportFsmEntry ::= SEQUENCE {
+    cfprApSysdebugTechSupportFsmInstanceId                           CfprApManagedObjectId,
+    cfprApSysdebugTechSupportFsmDn                                   CfprApManagedObjectDn,
+    cfprApSysdebugTechSupportFsmRn                                   SnmpAdminString,
+    cfprApSysdebugTechSupportFsmCompletionTime                       DateAndTime,
+    cfprApSysdebugTechSupportFsmCurrentFsm                           CfprApSysdebugTechSupportFsmCurrentFsm,
+    cfprApSysdebugTechSupportFsmDescrData                            SnmpAdminString,
+    cfprApSysdebugTechSupportFsmFsmStatus                            CfprApFsmFsmStageStatus,
+    cfprApSysdebugTechSupportFsmProgress                             Gauge32,
+    cfprApSysdebugTechSupportFsmRmtErrCode                           Gauge32,
+    cfprApSysdebugTechSupportFsmRmtErrDescr                          SnmpAdminString,
+    cfprApSysdebugTechSupportFsmRmtRslt                              CfprApConditionRemoteInvRslt
+}
+
+cfprApSysdebugTechSupportFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugTechSupportFsmEntry 1 }
+
+cfprApSysdebugTechSupportFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:dn managed
+        object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 2 }
+
+cfprApSysdebugTechSupportFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:rn managed
+        object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 3 }
+
+cfprApSysdebugTechSupportFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:completionTime
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 4 }
+
+cfprApSysdebugTechSupportFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApSysdebugTechSupportFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:currentFsm
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 5 }
+
+cfprApSysdebugTechSupportFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:descr
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 6 }
+
+cfprApSysdebugTechSupportFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:fsmStatus
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 7 }
+
+cfprApSysdebugTechSupportFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:progress
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 8 }
+
+cfprApSysdebugTechSupportFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:rmtErrCode
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 9 }
+
+cfprApSysdebugTechSupportFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 10 }
+
+cfprApSysdebugTechSupportFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsm:rmtRslt
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmEntry 11 }
+
+cfprApSysdebugTechSupportFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugTechSupportFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage managed
+        object table"
+    ::= { cfprApSysdebugObjects 35 }
+
+cfprApSysdebugTechSupportFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugTechSupportFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugTechSupportFsmStageTable table."
+    INDEX { cfprApSysdebugTechSupportFsmStageInstanceId }
+    ::= { cfprApSysdebugTechSupportFsmStageTable 1 }
+
+CfprApSysdebugTechSupportFsmStageEntry ::= SEQUENCE {
+    cfprApSysdebugTechSupportFsmStageInstanceId                      CfprApManagedObjectId,
+    cfprApSysdebugTechSupportFsmStageDn                              CfprApManagedObjectDn,
+    cfprApSysdebugTechSupportFsmStageRn                              SnmpAdminString,
+    cfprApSysdebugTechSupportFsmStageDescrData                       SnmpAdminString,
+    cfprApSysdebugTechSupportFsmStageLastUpdateTime                  DateAndTime,
+    cfprApSysdebugTechSupportFsmStageName                            CfprApSysdebugTechSupportFsmStageName,
+    cfprApSysdebugTechSupportFsmStageOrder                           Gauge32,
+    cfprApSysdebugTechSupportFsmStageRetry                           Gauge32,
+    cfprApSysdebugTechSupportFsmStageStageStatus                     CfprApFsmFsmStageStatus
+}
+
+cfprApSysdebugTechSupportFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 1 }
+
+cfprApSysdebugTechSupportFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:dn
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 2 }
+
+cfprApSysdebugTechSupportFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:rn
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 3 }
+
+cfprApSysdebugTechSupportFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:descr
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 4 }
+
+cfprApSysdebugTechSupportFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 5 }
+
+cfprApSysdebugTechSupportFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApSysdebugTechSupportFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:name
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 6 }
+
+cfprApSysdebugTechSupportFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:order
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 7 }
+
+cfprApSysdebugTechSupportFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:retry
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 8 }
+
+cfprApSysdebugTechSupportFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmStageEntry 9 }
+
+cfprApSysdebugTechSupportFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApSysdebugTechSupportFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmTask managed object table"
+    ::= { cfprApSysdebugObjects 36 }
+
+cfprApSysdebugTechSupportFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApSysdebugTechSupportFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApSysdebugTechSupportFsmTaskTable table."
+    INDEX { cfprApSysdebugTechSupportFsmTaskInstanceId }
+    ::= { cfprApSysdebugTechSupportFsmTaskTable 1 }
+
+CfprApSysdebugTechSupportFsmTaskEntry ::= SEQUENCE {
+    cfprApSysdebugTechSupportFsmTaskInstanceId                       CfprApManagedObjectId,
+    cfprApSysdebugTechSupportFsmTaskDn                               CfprApManagedObjectDn,
+    cfprApSysdebugTechSupportFsmTaskRn                               SnmpAdminString,
+    cfprApSysdebugTechSupportFsmTaskCompletion                       CfprApFsmCompletion,
+    cfprApSysdebugTechSupportFsmTaskFlags                            CfprApFsmFlags,
+    cfprApSysdebugTechSupportFsmTaskItem                             CfprApSysdebugTechSupportFsmTaskItem,
+    cfprApSysdebugTechSupportFsmTaskSeqId                            Gauge32
+}
+
+cfprApSysdebugTechSupportFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApSysdebugTechSupportFsmTaskEntry 1 }
+
+cfprApSysdebugTechSupportFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmTask:dn
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmTaskEntry 2 }
+
+cfprApSysdebugTechSupportFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmTask:rn
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmTaskEntry 3 }
+
+cfprApSysdebugTechSupportFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmTask:completion
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmTaskEntry 4 }
+
+cfprApSysdebugTechSupportFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmTask:flags
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmTaskEntry 5 }
+
+cfprApSysdebugTechSupportFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApSysdebugTechSupportFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmTask:item
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmTaskEntry 6 }
+
+cfprApSysdebugTechSupportFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysdebug:TechSupportFsmTask:seqId
+        managed object property"
+    ::= { cfprApSysdebugTechSupportFsmTaskEntry 7 }
+
+END

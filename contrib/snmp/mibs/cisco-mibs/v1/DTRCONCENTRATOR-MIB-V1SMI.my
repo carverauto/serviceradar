@@ -1,0 +1,1460 @@
+DTRConcentratorMIB DEFINITIONS ::= BEGIN
+
+-- From file: "dtrc.mib"
+-- Compile options "T M"
+
+-- IMPORTS (for SNMPv2)
+--   enterprises, Counter32, Integer32, TimeTicks
+--            FROM SNMPv2-SMI-v1
+--   OBJECT-TYPE
+--            FROM RFC-1212
+--   DisplayString, RowStatus, MacAddress
+--            FROM SNMPv2-TC-v1
+--   InterfaceIndex
+--            FROM IF-MIB
+--   IANAifType
+--            FROM IANAifType-MIB;
+
+IMPORTS
+      enterprises, Counter, TimeTicks
+               FROM RFC1155-SMI
+      OBJECT-TYPE
+              FROM RFC-1212
+      DisplayString
+                FROM RFC1213-MIB;
+--      OBJECT-TYPE
+--              FROM RFC-1212;
+
+-- SNMPv1 Textual Conventions
+Counter32 ::= Counter
+Integer32 ::= INTEGER
+RowStatus ::= INTEGER {
+                        active(1),
+                        notInService(2),
+                        notReady(3),
+                        createAndGo(4),
+                        createAndWait(5),
+                        destroy(6)
+                      }
+MacAddress ::= OCTET STRING (SIZE(6))
+InterfaceIndex ::= Integer32
+IANAifType ::= INTEGER {
+        other(1),
+        regular1822(2),
+        hdh1822(3),
+        ddnX25(4),
+        rfc877x25(5),
+        ethernetCsmacd(6),
+        iso88023Csmacd(7),
+        iso88024TokenBus(8),
+        iso88025TokenRing(9),
+        iso88026Man(10),
+        starLan(11),
+        proteon10Mbit(12),
+        proteon80Mbit(13),
+        hyperchannel(14),
+        fddi(15),
+        lapb(16),
+        sdlc(17),
+        ds1(18),
+        e1(19),
+        basicISDN(20),
+        primaryISDN(21),
+        propPointToPointSerial(22),
+        ppp(23),
+        softwareLoopback(24),
+        eon(25),
+        ethernet3Mbit(26),
+        nsip(27),
+        slip(28),
+        ultra(29),
+        ds3(30),
+        sip(31),
+        frameRelay(32),
+        rs232(33),
+        para(34),
+        arcnet(35),
+        arcnetPlus(36),
+        atm(37),
+        miox25(38),
+        sonet(39),
+        x25ple(40),
+        iso88022llc(41),
+        localTalk(42),
+        smdsDxi(43),
+        frameRelayService(44),
+        v35(45),
+        hssi(46),
+        hippi(47),
+        modem(48),
+        aal5(49),
+        sonetPath(50),
+        sonetVT(51),
+        smdsIcip(52),
+        propVirtual(53),
+        propMultiplexor(54)
+        }
+
+cisco                OBJECT IDENTIFIER ::= { enterprises 9 }
+catProd              OBJECT IDENTIFIER ::= { cisco 1 }
+cat2600              OBJECT IDENTIFIER ::= { catProd 111 }
+cat2600Ts            OBJECT IDENTIFIER ::= { cat2600 1 }
+dtrMIBs              OBJECT IDENTIFIER ::= { cat2600Ts 3 }
+dtrConcMIB           OBJECT IDENTIFIER ::= { dtrMIBs 1 }
+dtrConcMIBObjects    OBJECT IDENTIFIER ::= { dtrConcMIB 1 }
+dtrConcMIBBase       OBJECT IDENTIFIER ::= { dtrConcMIBObjects 1 }
+dtrConcMIBSpTree     OBJECT IDENTIFIER ::= { dtrConcMIBObjects 2 }
+dtrConcMIBForwarding OBJECT IDENTIFIER ::= { dtrConcMIBObjects 3 }
+dtrConcMIBMRI        OBJECT IDENTIFIER ::= { dtrConcMIBObjects 4 }
+dtrConcMIBStats      OBJECT IDENTIFIER ::= { dtrConcMIBObjects 5 }
+
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9602131200Z
+--  OrgName
+--    Cisco
+--  Descr
+--     The MIB Module for DTR Concentrators.
+
+BridgeId ::= OCTET STRING (SIZE(8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The bridge identifier used in the spanning tree and defined in
+--     ISO/IEC 10038:1993, clause 4.
+
+DynamicFdbStatus ::= INTEGER {
+        other(1),
+        invalid(2),
+        learned(3),
+        self(4),
+        mgmt(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Status of an entry in the CRF Filtering Database.  Other (1)
+--     indicates that some other MIB object is being used to determine
+--     how/if the frame is forwarded.  Invalid(2) indicates this entry
+--     is no longer valid, but has not been flushed from the table.
+--     Learned(3) indicates that dtrFdbDynamicAddrPortNumber for this
+--     entry was learned.  Self(4) indicates dtrFdbDynamicAddrStnAddress
+--     represents one of the CRF Port Addresses.  Mgmt(5) indicates
+--     dtrFdbDynamicAddrStnAddress is also a value of an existing
+--     DtrFdbStaticAddrStnAddress
+
+StaticFdbStatus ::= INTEGER {
+        other(1),
+        invalid(2),
+        permanent(3),
+        deleteOnReset(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Status of an entry in the CRF Filtering Database.  Other(1) indicates
+--     this entry is currently in use under conditions different from the
+--     available status definitions that follow. Invalid(2) indicates this
+--     entry is no longer valid, but has not been flushed from the table.
+--     Writing this value to the object removes the entry.  Permanent(3)
+--     indicates that the entry is currently in use and will remain so after
+--     the next reset.  DeleteOnReset(4) indicates the entry is currently in
+--     use and will remain so until the next reset.
+
+PortId ::= OCTET STRING(SIZE(2))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The port identifier used in the spanning tree protocol.
+
+RouteDescriptor ::= OCTET STRING(SIZE(3))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--     The Route Descriptor (RD) consists of 2 parts; a 4 bit Bridge Number
+--      and a 12 bit LAN ID.  This identifies a bridge (BN) that has a port
+--      on the local LAN and a port connected to the indicated LAN ID. This
+--      object consists of 3 octets. The first octet contains the BN in the 4
+--      least significant bits.  The second octet contains the most significant
+--      octet of the LAN ID. and the final octet contains the least significant
+--      4 bits of the LAN ID in the 4 most significant bits of the octet.
+
+Timeout ::= INTEGER (0..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    timer in 1/100 of sec
+
+dtrConcentratorAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " MAC address used by DTR Concentrator for uniqueness. It must
+          be unique "
+    ::= { dtrConcMIBBase 1 }
+
+dtrOperNumberOfCrfs OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " Number of Concentrator Relay Functions within the DTR
+          Concentrator. Min value is 1.  Writing this object sets the number
+          of CRFs within the DTR Concentrator.     "
+    ::= { dtrConcMIBBase 2 }
+
+dtrOperNumberOfBridgeRelays OBJECT-TYPE
+    SYNTAX INTEGER(0 | 1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " Number of bridge relay functions within the DTR Concentrator.
+          Value of 0 or 1 is permitted.  Writing this object sets the number of bridge
+           relay functions within the DTR Concentrator. "
+    ::= { dtrConcMIBBase 3 }
+
+dtrCRFTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrCRFEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " This table contains information for each concentrator relay
+          function in the DTR Concentrator."
+    ::= { dtrConcMIBBase 6 }
+
+dtrCRFEntry OBJECT-TYPE
+    SYNTAX DtrCRFEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "  "
+    INDEX { dtrCRFIndex }
+    ::= { dtrCRFTable 1 }
+
+DtrCRFEntry ::= SEQUENCE {
+    dtrCRFIndex INTEGER,
+    dtrCRFNumberOfPorts INTEGER,
+    dtrCRFPortMask OCTET STRING,
+    dtrCRFName DisplayString,
+    dtrCRFMaxInfo INTEGER,
+    dtrCRFMacAddress MacAddress,
+    dtrCRFLocalLanId INTEGER,
+    dtrCRFFdbAgingTime INTEGER,
+    dtrCRFMRIEnable INTEGER,
+    dtrCRFLearnedEntryDiscards Counter32
+    }
+
+dtrCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrCRFEntry 1 }
+
+dtrCRFNumberOfPorts OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of CRF Ports controlled by this CRF "
+    ::= { dtrCRFEntry 2 }
+
+dtrCRFPortMask OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The set of interfaces (ifIndex) that are associated
+           with this instance of a CRF.
+           Each Octet within the value of this object specifies a set
+           of eight interfaces, with the first octet specifying
+           interfaces (ifIndex) 1 through 8, the second octet specifying
+           interfaces 9 through 16 and so on.  Within each octet, the
+           most significant bit represents the lowest numbered interface,
+           and the least significant bit represents the highest numbered
+           interface.
+           Writing this variable will modify the CRF configuration and update
+           the value contained in dtrCRFNumberOfPorts."
+    ::= { dtrCRFEntry 3 }
+
+dtrCRFName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The textual name of the CRF.  The value of this obje should be the
+           name of the CRF as assigned by the DTR Concentrator and should
+           be suitable for use in commands entered at the DTR Concentrator 'console'"
+    ::= { dtrCRFEntry 4 }
+
+dtrCRFMaxInfo OBJECT-TYPE
+    SYNTAX INTEGER(1500..18200)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The maximum size of the INFO field that the CRF can
+          transmit/receive "
+    ::= { dtrCRFEntry 5 }
+
+dtrCRFMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The MAC address ised with the dtrCRFSpTreePriority to form
+          the CRF Identifier used in the spanning tree protocol.  This
+          address must be unique and it is recommended that this
+          address be the specific MAC address of the lowest numbered
+          C-Port.  "
+    ::= { dtrCRFEntry 6 }
+
+dtrCRFLocalLanId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " This is the value of the local lan id used by the CRF. This value
+          may be assigned or may be learned by the CRF learning process.
+          Valid values range from 0 to 4095. Values outside this range
+          indicate that the lan id value has not been assigned or learned."
+    ::= { dtrCRFEntry 7 }
+
+dtrCRFFdbAgingTime OBJECT-TYPE
+    SYNTAX INTEGER(10..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The timeout period in seconds for aging out dynamic entries from
+          the Filtering Database.  Recommended default is 300 seconds.    "
+    DEFVAL { 300 }
+    ::= { dtrCRFEntry 8 }
+
+dtrCRFMRIEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " This object enables/disables the MRI function in the CRF "
+    ::= { dtrCRFEntry 9 }
+
+dtrCRFLearnedEntryDiscards OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The total number of CRF Filtering Database entries, which
+          have been or would have been learned, but have been discarded
+          due to a lack of space to store them in the Filtering
+          Database "
+    ::= { dtrCRFEntry 10 }
+
+dtrCRFPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrCRFPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " This table contains information for each CRF Port in a Concentrator
+          Relay Function      "
+    ::= { dtrConcMIBBase 7 }
+
+dtrCRFPortEntry OBJECT-TYPE
+    SYNTAX DtrCRFPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "     "
+    INDEX { dtrCRFPortCRFIndex, dtrCRFPortNumber }
+    ::= { dtrCRFPortTable 1 }
+
+DtrCRFPortEntry ::= SEQUENCE {
+    dtrCRFPortCRFIndex INTEGER,
+    dtrCRFPortNumber INTEGER,
+    dtrCRFPortEnable INTEGER,
+    dtrCRFPortifIndex InterfaceIndex,
+    dtrCRFOperPortType IANAifType,
+    dtrCRFPortMtuExceededDiscards Counter32,
+    dtrCRFPortDelayExceededDiscards Counter32
+    }
+
+dtrCRFPortCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying an instance of CRF "
+    ::= { dtrCRFPortEntry 1 }
+
+dtrCRFPortNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF Port number for which this entry contains CRF
+          management information."
+    ::= { dtrCRFPortEntry 2 }
+
+dtrCRFPortifIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax Integer32
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " A unique value, greater than zero that corresponds to the
+           interface this CRF Port is assigned (corresponds to ifIndex).
+          Writing this object defines the correspondence between the
+          CRF Port and the interface (C-Port or bridge relay function
+          interface as determined by dtrCRFOperPortType.)"
+    ::= { dtrCRFPortEntry 3 }
+
+dtrCRFPortEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The enable/disable status of the CRF Port.  This control can be
+          used to disable a port."
+    ::= { dtrCRFPortEntry 4 }
+
+dtrCRFOperPortType OBJECT-TYPE
+    SYNTAX IANAifType
+--    Rsyntax INTEGER {
+--        other(1),
+--        regular1822(2),
+--        hdh1822(3),
+--        ddnX25(4),
+--        rfc877x25(5),
+--        ethernetCsmacd(6),
+--        iso88023Csmacd(7),
+--        iso88024TokenBus(8),
+--        iso88025TokenRing(9),
+--        iso88026Man(10),
+--        starLan(11),
+--        proteon10Mbit(12),
+--        proteon80Mbit(13),
+--        hyperchannel(14),
+--        fddi(15),
+--        lapb(16),
+--        sdlc(17),
+--        ds1(18),
+--        e1(19),
+--        basicISDN(20),
+--        primaryISDN(21),
+--        propPointToPointSerial(22),
+--        ppp(23),
+--        softwareLoopback(24),
+--        eon(25),
+--        ethernet3Mbit(26),
+--        nsip(27),
+--        slip(28),
+--        ultra(29),
+--        ds3(30),
+--        sip(31),
+--        frameRelay(32),
+--        rs232(33),
+--        para(34),
+--        arcnet(35),
+--        arcnetPlus(36),
+--        atm(37),
+--        miox25(38),
+--        sonet(39),
+--        x25ple(40),
+--        iso88022llc(41),
+--        localTalk(42),
+--        smdsDxi(43),
+--        frameRelayService(44),
+--        v35(45),
+--        hssi(46),
+--        hippi(47),
+--        modem(48),
+--        aal5(49),
+--        sonetPath(50),
+--        sonetVT(51),
+--        smdsIcip(52),
+--        propVirtual(53),
+--        propMultiplexor(54)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Indicates the type of interface that this CRF Port  is assigned to.
+           Only two types are permitted, a C-Port and an interal bridge
+           relay function.
+           Write this object to set the type of interface."
+    ::= { dtrCRFPortEntry 5 }
+
+dtrCRFPortMtuExceededDiscards OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of frames discarded by the CRF Port due to excessive
+          size (exceeds CrfMaxInfo)     "
+    ::= { dtrCRFPortEntry 6 }
+
+dtrCRFPortDelayExceededDiscards OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of frames discarded by the CRF Port due to excessive
+           delay through the CRF "
+    ::= { dtrCRFPortEntry 7 }
+
+dtrSpanningTreeHoldTime OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum time period, in seconds, elapsing between the
+         transmission of Configuration PDUs through a given port (CRFP
+         or internal bridge).  This is a fixed parameter of the DTR
+         Concentrator used by all member CRF and bridge entities. Value
+         specified by 802.1d is 1 second      "
+    ::= { dtrConcMIBSpTree 1 }
+
+dtrSpanningTreeProtocolSpecification OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        ieee8021d(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " An indication of what version of the Spanning Tree Protocol is
+          being run on the DTR Concentrator "
+    ::= { dtrConcMIBSpTree 2 }
+
+dtrSpanningTreeTimeSinceTopoChange OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The time (in 1/100ths of a second) since the last topology
+          change was detected by the CRF or bridge entities within the
+          DTR Concentrator.     "
+    ::= { dtrConcMIBSpTree 3 }
+
+dtrSpanningTreeTopologyChanges OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The total number of topology changes detected by this
+          concentrator since the management entity was last reset or
+          initialized "
+    ::= { dtrConcMIBSpTree 4 }
+
+dtrSpanningTreeBridgeForwardDelay OBJECT-TYPE
+    SYNTAX Timeout(400..3000)
+--    Rsyntax INTEGER(400..3000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The value of the Forward Delay parameter when the entity (CRF or
+          bridge) is the Root or is attempting to become the Root.  The
+          granularity of this timer is 1 second. "
+    ::= { dtrConcMIBSpTree 5 }
+
+dtrSpanningTreeBridgeHelloTime OBJECT-TYPE
+    SYNTAX Timeout(100..1000)
+--    Rsyntax INTEGER(100..1000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The value of the Hello Time parameter when the entity (CRF or
+          Bridge) is the Root or attempting to become the Root.  The time
+          interval between transmissions of Topology Change Notification
+          PDUs.  The granularity of this timer is 1 second. "
+    ::= { dtrConcMIBSpTree 6 }
+
+dtrSpanningTreeTreeBridgeMaxAge OBJECT-TYPE
+    SYNTAX INTEGER(600..4000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The value of the Max Age parameter when the entity (CRF or
+          bridge) is the Root or is attempting to become the Root.
+          The granularity of this timer is 1 second. "
+    ::= { dtrConcMIBSpTree 7 }
+
+dtrCRFSpTreeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrCRFSpTreeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the spanning tree information for each CRF."
+    ::= { dtrConcMIBSpTree 9 }
+
+dtrCRFSpTreeEntry OBJECT-TYPE
+    SYNTAX DtrCRFSpTreeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "  "
+    INDEX { dtrCRFSpTreeCRFIndex }
+    ::= { dtrCRFSpTreeTable 1 }
+
+DtrCRFSpTreeEntry ::= SEQUENCE {
+    dtrCRFSpTreeCRFIndex INTEGER,
+    dtrCRFSpTreePriority INTEGER,
+    dtrCRFSpTreeDesignatedRoot BridgeId,
+    dtrCRFSpTreeRootCost Integer32,
+    dtrCRFSpTreeRootPort Integer32,
+    dtrCRFSpTreeMaxAge Timeout,
+    dtrCRFSpTreeHelloTime Timeout,
+    dtrCRFSpTreeForwardDelay Timeout
+    }
+
+dtrCRFSpTreeCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrCRFSpTreeEntry 1 }
+
+dtrCRFSpTreePriority OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The value of the write-able portion of the CRF Identifier and the
+          first two octets of the CRF Identifier.  The last 6 octets of the
+          CRF ID are given by the value of dtrCRFMacAddress.     "
+    ::= { dtrCRFSpTreeEntry 2 }
+
+dtrCRFSpTreeDesignatedRoot OBJECT-TYPE
+    SYNTAX BridgeId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The bridge identifier of the root of the spanning tree as
+          determined by the spanning tree protocol executed at this node "
+    ::= { dtrCRFSpTreeEntry 3 }
+
+dtrCRFSpTreeRootCost OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cost of the path to the root as seen from this CRF "
+    ::= { dtrCRFSpTreeEntry 4 }
+
+dtrCRFSpTreeRootPort OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF Port number of the CRF Port which offers the lowest cost
+          path from this CRF to the root "
+    ::= { dtrCRFSpTreeEntry 5 }
+
+dtrCRFSpTreeMaxAge OBJECT-TYPE
+    SYNTAX Timeout
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The maximum age of Spanning Tree Protocol information learned
+          from the network on any port (CRF or bridge within the DTR
+          Concentrator) before it is discarded. Units are in 1/100th of
+          a second.  This is the actual value currently in use"
+    ::= { dtrCRFSpTreeEntry 6 }
+
+dtrCRFSpTreeHelloTime OBJECT-TYPE
+    SYNTAX Timeout
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The amount of time between transmission of Configuration bridge
+          PDUs used by a CRF that is attempting to become the Root or is
+          the Root.  This is the value currently in use "
+    ::= { dtrCRFSpTreeEntry 7 }
+
+dtrCRFSpTreeForwardDelay OBJECT-TYPE
+    SYNTAX Timeout
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This time value, measured in 1/100th of a second, is used to
+          control the amount of time spent in the Listening state when
+          moving from the Blocking state to the Listening state and the
+          amount of time in the Learning state when moving from the
+          Learning state to the Forwarding state.  This time value is used
+          for ageing dynamic entries in the Filtering Database while the
+          Topology Change flag is set in protocol messages received from
+          the root. This is the value the CRF is currently using     "
+    ::= { dtrCRFSpTreeEntry 8 }
+
+dtrCRFPortSpTreeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrCRFPortSpTreeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains spanning tree information for each CRF Port."
+    ::= { dtrConcMIBSpTree 10 }
+
+dtrCRFPortSpTreeEntry OBJECT-TYPE
+    SYNTAX DtrCRFPortSpTreeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "      "
+    INDEX { dtrCRFPortSpTreeCRFIndex, dtrCRFPortSpTreeNumber }
+    ::= { dtrCRFPortSpTreeTable 1 }
+
+DtrCRFPortSpTreeEntry ::= SEQUENCE {
+    dtrCRFPortSpTreeCRFIndex INTEGER,
+    dtrCRFPortSpTreeNumber INTEGER,
+    dtrCRFPortSpTreePriority INTEGER,
+    dtrCRFPortSpTreeState INTEGER,
+    dtrCRFPortSpTreePathCost INTEGER,
+    dtrCRFPortSpTreeDesignatedRoot BridgeId,
+    dtrCRFPortSpTreeDesignatedCost Integer32,
+    dtrCRFPortSpTreeDesignatedBridge BridgeId,
+    dtrCRFPortSpTreeDesignatedPort PortId,
+    dtrCRFPortSpTreeForwardTransitions Counter32
+    }
+
+dtrCRFPortSpTreeCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrCRFPortSpTreeEntry 1 }
+
+dtrCRFPortSpTreeNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The CRF Port number for which this entry contains CRF
+         management information."
+    ::= { dtrCRFPortSpTreeEntry 2 }
+
+dtrCRFPortSpTreePriority OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The value of the priority field which is contained in the
+          first byte of the CRF Port Identifier.  The second byte of
+          the CRF Port Identifier is given by the value of CRF Port as
+          identified by dtrCRFPortSpTreeNumber"
+    ::= { dtrCRFPortSpTreeEntry 3 }
+
+dtrCRFPortSpTreeState OBJECT-TYPE
+    SYNTAX INTEGER {
+        disabled(1),
+        blocking(2),
+        listening(3),
+        learning(4),
+        forwarding(5),
+        broken(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF Port state as defined by the Spanning Tree.  If the DTR
+          concentrator detects that a port is malfunctioning, it will place
+          that port into the broken(6) state. the states are defined as:
+          disabled(1), blocking(2), listening(3), learning(4), forwarding(5),
+          and broken(6).     "
+    ::= { dtrCRFPortSpTreeEntry 4 }
+
+dtrCRFPortSpTreePathCost OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The contribution of the path through this CRF Port,
+          identified by dtrCRFPortSpTreeNumber when the CRF Port is the
+          Root Port, to the total cost of the path to the Root for this
+          CRF "
+    ::= { dtrCRFPortSpTreeEntry 5 }
+
+dtrCRFPortSpTreeDesignatedRoot OBJECT-TYPE
+    SYNTAX BridgeId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The unique bridge identifier of the bridge recorded as the Root
+          in the root identifier parameter of the Configuration PDUs
+          transmitted by the designated bridge for the LAN to which the
+          CRF Port is attached.     "
+    ::= { dtrCRFPortSpTreeEntry 6 }
+
+dtrCRFPortSpTreeDesignatedCost OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cost of the path to the Root offered by the Designated Port
+          on the LAN to which this CRF Port is attached "
+    ::= { dtrCRFPortSpTreeEntry 7 }
+
+dtrCRFPortSpTreeDesignatedBridge OBJECT-TYPE
+    SYNTAX BridgeId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The unique Bridge or CRF Identifier of the Bridge or CRF believed to be the
+          Designated Bridge for the LAN associated with the CRF Port "
+    ::= { dtrCRFPortSpTreeEntry 8 }
+
+dtrCRFPortSpTreeDesignatedPort OBJECT-TYPE
+    SYNTAX PortId
+--    Rsyntax OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The Port Identifier of the Bridge or CRF port believed to be the
+          Designated Port for the LAN associated with the CRF Port "
+    ::= { dtrCRFPortSpTreeEntry 9 }
+
+dtrCRFPortSpTreeForwardTransitions OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of times this CRF Port, as identified by
+          dtrCRFPortSpTreeNumber, has transitioned from the Learning
+          state to the Forwarding State "
+    ::= { dtrCRFPortSpTreeEntry 10 }
+
+dtrFdbDynamicAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrFdbDynamicAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about specific dynamic MAC address
+         entries in the CRF Filtering Database."
+    ::= { dtrConcMIBForwarding 1 }
+
+dtrFdbDynamicAddrEntry OBJECT-TYPE
+    SYNTAX DtrFdbDynamicAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " CRF Filtering Database Dynamic MAC address entry"
+    INDEX { dtrFdbDynamicAddrCRFIndex, dtrFdbDynamicAddrStnAddress }
+    ::= { dtrFdbDynamicAddrTable 1 }
+
+DtrFdbDynamicAddrEntry ::= SEQUENCE {
+    dtrFdbDynamicAddrCRFIndex INTEGER,
+    dtrFdbDynamicAddrStnAddress MacAddress,
+    dtrFdbDynamicAddrPortNumber INTEGER,
+    dtrFdbDynamicAddrStatus DynamicFdbStatus
+    }
+
+dtrFdbDynamicAddrCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrFdbDynamicAddrEntry 1 }
+
+dtrFdbDynamicAddrStnAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " A unicast MAC address for which the CRF has forwarding
+          information. This object is updated by the Learning Process in
+          the CRF."
+    ::= { dtrFdbDynamicAddrEntry 2 }
+
+dtrFdbDynamicAddrPortNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF Port number of the CRF Port that a frame with an
+          address matching dtrFdbDynamicAddrStnAddress in this
+          dtrFdbDynamicAddrTable Entry has been seen.  A value of zero
+          is assigned when dtrFdbDynamicAddrStnAddress is known, but
+          the CRF Port number (dtrFdbDynamicAddrPortNumber) has not
+          been learned."
+    ::= { dtrFdbDynamicAddrEntry 3 }
+
+dtrFdbDynamicAddrStatus OBJECT-TYPE
+    SYNTAX DynamicFdbStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        invalid(2),
+--        learned(3),
+--        self(4),
+--        mgmt(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Status of this entry.  Other (1) indicates that some other
+          MIB object is being used to determine how/if the frame is
+          forwarded.  Invalid(2) indicates this entry is no longer
+          valid, but has not been flushed from the table.  Learned(3)
+          indicates that dtrFdbDynamicAddrPortNumber for this entry was
+          learned.  Self(4) indicates dtrFdbDynamicAddrStnAddress
+          represents one of the CRF Port Addresses.  Mgmt(5) indicates
+          dtrFdbDynamicAddrStnAddress is also a value of an existing
+          dtrFdbStaticAddrStnAddress"
+    ::= { dtrFdbDynamicAddrEntry 4 }
+
+dtrFdbStaticAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrFdbStaticAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about specific static MAC address
+         entries in the CRF Filtering Database.       "
+    ::= { dtrConcMIBForwarding 2 }
+
+dtrFdbStaticAddrEntry OBJECT-TYPE
+    SYNTAX DtrFdbStaticAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " CRF Filtering Database Static MAC Address Entry "
+    INDEX { dtrFdbStaticAddrCRFIndex, dtrFdbStaticAddrStnAddress }
+    ::= { dtrFdbStaticAddrTable 1 }
+
+DtrFdbStaticAddrEntry ::= SEQUENCE {
+    dtrFdbStaticAddrCRFIndex INTEGER,
+    dtrFdbStaticAddrStnAddress MacAddress,
+    dtrFdbStaticAddrRowStatus RowStatus,
+    dtrFdbStaticAddrInMask OCTET STRING,
+    dtrFdbStaticAddrOutMask OCTET STRING,
+    dtrFdbStaticAddrStatus StaticFdbStatus
+    }
+
+dtrFdbStaticAddrCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrFdbStaticAddrEntry 1 }
+
+dtrFdbStaticAddrStnAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The MAC address for this entry. It may include group or broadcast
+          addresses."
+    ::= { dtrFdbStaticAddrEntry 2 }
+
+dtrFdbStaticAddrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " Allows creation and deletion of static entries. "
+    ::= { dtrFdbStaticAddrEntry 3 }
+
+dtrFdbStaticAddrInMask OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The set of CRF Ports which receive frames with a
+        destination address matching the address specified by the
+        DtrFdbStaticAddrStnAddress in this entry that may forward
+        this frame to any output CRF Port indicated by
+        DtrFdbStaticAddrOutMask.  Each octet within the value of this
+        object specifies a set of eight ports, with the first octet
+        specifying CRF Ports 1 through 8, the second octet specifying
+        CRF Ports 9 through 16 and so on.  Within each octet, the
+        most significant bit represents the lowest numbered port,
+        and the least significant bit represents the highest numbered
+        port.  "
+    ::= { dtrFdbStaticAddrEntry 4 }
+
+dtrFdbStaticAddrOutMask OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The set of CRF Ports to which frames with a destination
+          address matching the address specified by the
+          DtrFdbStaticAddrStnAddress in this entry may be forwarded to.
+          Each octet within the value of this object specifies a set of
+          eight ports, with the first octet specifying CRF Ports 1
+          through 8, the second octet specifying CRF Ports 9 through 16
+          and so on.  Within each octet, the most significant bit
+          represents the lowest numbered port, and the least
+          significant bit represents the highest numbered port."
+    ::= { dtrFdbStaticAddrEntry 5 }
+
+dtrFdbStaticAddrStatus OBJECT-TYPE
+    SYNTAX StaticFdbStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        invalid(2),
+--        permanent(3),
+--        deleteOnReset(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Status of this entry. Other(1) indicates this entry is currently
+          in use under conditions different from the available status
+          definitions that follow. Invalid(2) indicates this entry is no
+          longer valid, but has not been flushed from the table.  Writing
+          this value to the object removes the entry.  Permanent(3) indicates
+          that the entry is currently in use and will remain so after the
+          next reset.  DeleteOnReset(4) indicates the entry is currently in
+          use and will remain so until the next reset. "
+    ::= { dtrFdbStaticAddrEntry 6 }
+
+dtrFdbDynamicRDTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrFdbDynamicRDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about a specific dynamic route
+         descriptor entry in the CRF Filtering Database.    "
+    ::= { dtrConcMIBForwarding 3 }
+
+dtrFdbDynamicRDEntry OBJECT-TYPE
+    SYNTAX DtrFdbDynamicRDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "      "
+    INDEX { dtrFdbDynamicRDCRFIndex, dtrFdbDynamicRDRouteDesc }
+    ::= { dtrFdbDynamicRDTable 1 }
+
+DtrFdbDynamicRDEntry ::= SEQUENCE {
+    dtrFdbDynamicRDCRFIndex INTEGER,
+    dtrFdbDynamicRDRouteDesc RouteDescriptor,
+    dtrFdbDynamicRDPortNumber INTEGER,
+    dtrFdbDynamicRDStatus DynamicFdbStatus
+    }
+
+dtrFdbDynamicRDCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrFdbDynamicRDEntry 1 }
+
+dtrFdbDynamicRDRouteDesc OBJECT-TYPE
+    SYNTAX RouteDescriptor
+--    Rsyntax OCTET STRING(SIZE(3))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " A Route Descriptor for which the CRF has forwarding
+          information.  The Route Descriptor (RD) consists of 2 parts; a 4
+          bit Bridge Number and a 12 bit LAN ID.  This identifies a bridge
+          (BN) that has a port on the local LAN and a port connected to the
+          indicated LAN ID.  This object consists of 3 octets.  The first
+          octet contains the BN in the 4 least significant bits.  The
+          second octet contains the most significant octet of the LAN ID
+          and the final octet contains the least significant 4 bits of the
+          LAN ID in the 4 most significant bits of the octet.  "
+    ::= { dtrFdbDynamicRDEntry 2 }
+
+dtrFdbDynamicRDPortNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF Port number of the CRF Port that a frame with a
+          Route Descriptor matching dtrFdbDynamicRDRouteDesc in this
+          DtrFdbDynamicRDEntry has been seen.  A value of zero is
+          assigned when dtrFdbDynamicRDRouteDesc is known, but the CRF
+          Port number has not been learned "
+    ::= { dtrFdbDynamicRDEntry 3 }
+
+dtrFdbDynamicRDStatus OBJECT-TYPE
+    SYNTAX DynamicFdbStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        invalid(2),
+--        learned(3),
+--        self(4),
+--        mgmt(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this entry.  Other (1) indicates that some other
+         MIB object is being used to determine how/if the frame is
+         forwarded.  Invalid (2) indicates this entry is no longer
+         valid, but has not been flushed from the table.  Learned (3)
+         indicates that dtrFdbDynamicRDPortNumber for this entry was
+         learned.  Self(4) indicates dtrFdbDynamicRDRouteDesc
+         represents a relay across the Bridge relay function of this
+         DTR Concentrator.  Mgmt(5) indicates dtrFdbDynamicRDRouteDesc
+         is also a value of an existing dtrFdbStaticRDRouteDesc in the
+         dtrFdbStaticRDTable."
+    ::= { dtrFdbDynamicRDEntry 4 }
+
+dtrFdbStaticRDTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrFdbStaticRDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing information about specific static route
+         descriptor entries in the CRF Filtering Database."
+    ::= { dtrConcMIBForwarding 5 }
+
+dtrFdbStaticRDEntry OBJECT-TYPE
+    SYNTAX DtrFdbStaticRDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "      "
+    INDEX { dtrFdbStaticRDCRFIndex, dtrFdbStaticRDRouteDesc }
+    ::= { dtrFdbStaticRDTable 1 }
+
+DtrFdbStaticRDEntry ::= SEQUENCE {
+    dtrFdbStaticRDCRFIndex INTEGER,
+    dtrFdbStaticRDRouteDesc RouteDescriptor,
+    dtrFdbStaticRDRowStatus RowStatus,
+    dtrFdbStaticRDPortNumber INTEGER,
+    dtrFdbStaticRDStatus StaticFdbStatus
+    }
+
+dtrFdbStaticRDCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrFdbStaticRDEntry 1 }
+
+dtrFdbStaticRDRouteDesc OBJECT-TYPE
+    SYNTAX RouteDescriptor
+--    Rsyntax OCTET STRING(SIZE(3))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " Static Entries contain route descriptor information for
+        internal Bridge Ports.  These entries are added as part of the
+        initialization of the DTR Concentrator when an internal bridge
+        relay function is enabled (dtrOperNumberOfBridgeRelays=1)
+        The Route Descriptor (RD) consists of 2 parts; a
+                   4 bit Bridge Number and a 12 bit LAN ID.  This identifies a
+                   bridge (BN) that has a port on the local LAN and a port
+                   connected to the indicated LAN ID.  This object consists of 3
+                   octets.  The first octet contains the BN in the 4 least
+                   significant bits.  The second octet contains the most
+                   significant octet of the LAN ID and the final octet contains
+                   the least significant 4 bits of the LAN ID in the 4 most
+                   significant bits of the octet.  "
+    ::= { dtrFdbStaticRDEntry 2 }
+
+dtrFdbStaticRDRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Allows creation and deletion of static entries"
+    ::= { dtrFdbStaticRDEntry 3 }
+
+dtrFdbStaticRDPortNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF Port number of the CRF Port that a frame with a
+          Route Descriptor matching dtrFdbStaticRDRouteDesc in this
+          DtrFdbStaticRDEntry is forwarded to."
+    ::= { dtrFdbStaticRDEntry 4 }
+
+dtrFdbStaticRDStatus OBJECT-TYPE
+    SYNTAX StaticFdbStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        invalid(2),
+--        permanent(3),
+--        deleteOnReset(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this entry. Other (1) indicates this entry is currently
+         in use under conditions different from the available status
+         definitions that follow.  Invalid(2) indicates this entry is no
+         longer valid, but has not been flushed from the table.  Writing
+         this value to the object removes the entry. Permanent (3) indicates
+         that the entry is currently in use and will remain so after the next
+         reset. DeleteOnReset(4) indicates the entry is currently in use and
+         will remain so until the next reset."
+    ::= { dtrFdbStaticRDEntry 5 }
+
+dtrMRITable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrMRIEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the CRF port out
+         mask for specific management functions.  "
+    ::= { dtrConcMIBMRI 1 }
+
+dtrMRIEntry OBJECT-TYPE
+    SYNTAX DtrMRIEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "  "
+    INDEX { dtrMRICRFIndex, dtrMRIMgmtType }
+    ::= { dtrMRITable 1 }
+
+DtrMRIEntry ::= SEQUENCE {
+    dtrMRICRFIndex INTEGER,
+    dtrMRIMgmtType INTEGER,
+    dtrMRIOutMask OCTET STRING
+    }
+
+dtrMRICRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrMRIEntry 1 }
+
+dtrMRIMgmtType OBJECT-TYPE
+    SYNTAX INTEGER(0..15)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " Identifies the function class for this entry.  The MRI
+          forwards frames with a destination class equal to
+          dtrMRIMgmtType using the corresponding mask entry
+          (dtrMRIOutMask).  When the destination class is 0 and the
+          source class is not 0, the destination address in the MAC
+          frame is used to forward the frame.  MAC frames with a
+          destination class not found in this table are not forwarded
+          by the MRI."
+    ::= { dtrMRIEntry 2 }
+
+dtrMRIOutMask OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " The set of CRF Ports to which frames with a destination
+        class matching the function class specified by the
+        dtrMRIMgmtType in this entry may be forwarded to.  Each octet
+        within the value of this object specifies a set of eight
+        ports, with the first octet specifying CRF Ports 1 through 8,
+        the second octet specifying CRF Ports 9 through 16 and so on.
+        Within each octet, the most significant bit represents the
+        lowest numbered port, and the least significant bit
+        represents the highest numbered port.  "
+    ::= { dtrMRIEntry 3 }
+
+dtrCRFPortStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DtrCRFPortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " This table contains the counters for each CRF Port."
+    ::= { dtrConcMIBStats 1 }
+
+dtrCRFPortStatsEntry OBJECT-TYPE
+    SYNTAX DtrCRFPortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "      "
+    INDEX { dtrCRFPortStatsCRFIndex, dtrCRFPortStatsPortNumber }
+    ::= { dtrCRFPortStatsTable 1 }
+
+DtrCRFPortStatsEntry ::= SEQUENCE {
+    dtrCRFPortStatsCRFIndex INTEGER,
+    dtrCRFPortStatsPortNumber INTEGER,
+    dtrCRFPortStatsAreInFrames Counter32,
+    dtrCRFPortStatsAreOutFrames Counter32,
+    dtrCRFPortStatsInFrames Counter32,
+    dtrCRFPortStatsOutFrames Counter32,
+    dtrCRFPortStatsSrfInFrames Counter32,
+    dtrCRFPortStatsSrfOutFrames Counter32,
+    dtrCRFPortStatsSteInFrames Counter32,
+    dtrCRFPortStatsSteOutFrames Counter32,
+    dtrCRFPortStatsInvalidRI Counter32,
+    dtrCRFPortStatsInMisdirected Counter32,
+    dtrCRFPortStatsInDiscards Counter32
+    }
+
+dtrCRFPortStatsCRFIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF number identifying this instance of CRF "
+    ::= { dtrCRFPortStatsEntry 1 }
+
+dtrCRFPortStatsPortNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " The CRF Port number for which this entry contains CRF
+          management information.  When the dtrCrfOperPortType
+          indicates a C-Port, the C-Port number is found in
+          dtrCRFPortConfigCPort."
+    ::= { dtrCRFPortStatsEntry 2 }
+
+dtrCRFPortStatsAreInFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of ARE frames received at this CRF Port.  This
+          count does not include ARE frames that have been misdirected
+          (final Lan Id does not match the local Lan Id maintained by
+          the CRF (dtrCRFLocalLanId))"
+    ::= { dtrCRFPortStatsEntry 3 }
+
+dtrCRFPortStatsAreOutFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of ARE frames transmitted by this CRF Port.
+          This count does not include ARE frames that have been
+          misdirected (final Lan Id does not match the Local Lan Id
+          maintained by the CRF (dtrCRFLocalLanId)) "
+    ::= { dtrCRFPortStatsEntry 4 }
+
+dtrCRFPortStatsInFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of valid frames received by this CRF Port "
+    ::= { dtrCRFPortStatsEntry 5 }
+
+dtrCRFPortStatsOutFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of frames that have been transmitted by this
+          CRF Port.  "
+    ::= { dtrCRFPortStatsEntry 6 }
+
+dtrCRFPortStatsSrfInFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of SRF frames that have been received by this
+          CRF Port and forwarded to another port on the CRF."
+    ::= { dtrCRFPortStatsEntry 7 }
+
+dtrCRFPortStatsSrfOutFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of SRF frames that have been transmitted by this
+          CRF Port."
+    ::= { dtrCRFPortStatsEntry 8 }
+
+dtrCRFPortStatsSteInFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of STE frames received at this CRF Port.  This
+          count does not include STE frames that have been misdirected
+          (final Lan Id does not match the local Lan Id maintained by
+          the CRF (dtrCRFLocalLanId)).  "
+    ::= { dtrCRFPortStatsEntry 9 }
+
+dtrCRFPortStatsSteOutFrames OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of STE frames transmitted by this CRF Port.
+          This count does not include STE frames that have been
+          misdirected (final Lan Id does not match the local Lan Id
+          maintained by the CRF (dtrCRFLocalLanId)).  "
+    ::= { dtrCRFPortStatsEntry 10 }
+
+dtrCRFPortStatsInvalidRI OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Count of frames that were discarded due to a formatting error (i.e.
+          an odd RI length, or 0 RI length) (Reference 802.1d C4.2.1.1.3)     "
+    ::= { dtrCRFPortStatsEntry 11 }
+
+dtrCRFPortStatsInMisdirected OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " This is a count of source routed frames that have been
+          received at this CRF Port where the local Lan Id
+          (dtrCRFLocalLanId) is not present or is not last (explorer
+          frame).  Explorer frames (ARE and STE) are broadcast to all
+          Forwarding CRF Ports.  SRF frames are discarded if the DA is
+          specific and they are broadcast if the DA is multicast.  "
+    ::= { dtrCRFPortStatsEntry 12 }
+
+dtrCRFPortStatsInDiscards OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of frames that have been discarded by the Forwarding
+          Process.  This count may include frames that are discarded by the
+          Frame Reception process "
+    ::= { dtrCRFPortStatsEntry 13 }
+
+
+END
+

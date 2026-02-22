@@ -1,0 +1,358 @@
+-- *****************************************************************
+-- CISCO-INTERFACETOPN-EXT-MIB
+--   
+-- July 2005, Lilian Jiang
+--   
+-- Copyright (c) 2005, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-INTERFACETOPN-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI
+    interfaceTopNControlEntry
+        FROM INTERFACETOPN-MIB
+    VlanIndex
+        FROM Q-BRIDGE-MIB;
+
+
+ciscoInterfaceTopNExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201010190000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module is an extension to INTERFACETOPN-MIB.
+        It provides additional management information for
+        sorting device interfaces."
+    REVISION        "201010190000Z"
+    DESCRIPTION
+        "Add fortyGigaEthernet
+        in citneInterfaceTopNInterfaceType"
+    REVISION        "200801150000Z"
+    DESCRIPTION
+        "Modified the object descriptions of
+        citneInterfaceTopNCounterType,
+        citneInterfaceTopNInterfaceType 
+        and citneInterfaceTopNVlanNumber."
+    REVISION        "200603150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 482 }
+
+
+ciscoInterfaceTopNExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoInterfaceTopNExtMIB 0 }
+
+ciscoInterfaceTopNExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoInterfaceTopNExtMIB 1 }
+
+ciscoInterfaceTopNExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoInterfaceTopNExtMIB 2 }
+
+
+-- Interface Top N capability
+
+citneInterfaceTopNCaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        utilization(0),
+                        bytes(1),
+                        packets(2),
+                        broadcast(3),
+                        multicast(4),
+                        overflow(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of interface counters the system is capable to
+        do sorting on, as an extension to the interfaceTopNCaps 
+        defined in INTERFACETOPN-MIB. 
+
+        utilization --  The interface bandwidth utilization in 
+                        32-bit version. The utilization on 
+                        ethernet interface is computed in the 
+                        following methods:
+
+          Ethernet utilization: (for full duplex interface, 
+                                 divide by 2)
+
+          10 Mbps         I/O-pkts * (9.6 + 6.4) + (0.8 * I/O-Bytes)
+          Ethernet Util = -----------------------------------------
+                          Interval * 10,000
+
+                          where 9.6 is interframe gap of Ethernet
+                          6.4 is preamble of Ethernet
+                          10,000 is 10Mbps
+
+          100 Mbps        I/O-pkts * (96 + 64) + (8 * I/O-Bytes)
+          Ethernet Util = --------------------------------------
+                          Interval * 1,000,000
+
+          1000 Mbps       I/O-pkts * (96 + 64) + (8 * I/O-Bytes)
+          Ethernet Util = --------------------------------------
+                          Interval * 10,000,000
+
+          10000Mbps       I/O-pkts * (96 + 64) + (8 * I/O-Bytes)
+          Ethernet Util = --------------------------------------
+                          Interval * 100,000,000
+
+          All other       I/O-pkts * (9.6 + 6.4) + (0.8 * I/O-Bytes)
+          Ethernet Util = ------------------------------------------
+                          Interval * N * 1,000
+                          (where N is N Mbps)
+
+        bytes -- the total number of bytes received and transmitted 
+                 on the interface in 64-bit version.  
+
+        packets -- the total number of packets received and 
+                 transmitted on  the interface in 64-bit version.
+
+        broadcast -- the total number of broadcast packets received 
+                 and transmitted on the interface in 64-bit version.
+
+        multicast -- the total number of multicast packets received 
+                 and transmitted on the interface in 64-bit version.
+
+        overflow -- the total number of transmitted buffer overflow 
+                 errors on the interface in 32-bit version." 
+    ::= { ciscoInterfaceTopNExtMIBObjects 1 }
+-- Interface Top N Control Table
+
+citneInterfaceTopNControlTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CitneInterfaceTopNControlEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table providing supplemental parameter information
+        for interfaceTopNControlTable as defined in 
+        INTERFACETOPN-MIB."
+    ::= { ciscoInterfaceTopNExtMIBObjects 2 }
+
+citneInterfaceTopNControlEntry OBJECT-TYPE
+    SYNTAX          CitneInterfaceTopNControlEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry providing supplemental parameter information
+        that control the creation of a report of the top 
+        N ports according to several metrics."
+    AUGMENTS           { interfaceTopNControlEntry  } 
+    ::= { citneInterfaceTopNControlTable 1 }
+
+CitneInterfaceTopNControlEntry ::= SEQUENCE {
+        citneInterfaceTopNCounterType   INTEGER,
+        citneInterfaceTopNInterfaceType INTEGER,
+        citneInterfaceTopNVlanNumber    VlanIndex
+}
+
+citneInterfaceTopNCounterType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        utilization(2),
+                        bytes(3),
+                        packets(4),
+                        broadcast(5),
+                        multicast(6),
+                        overflow(7)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The particular counter type to be sampled, as
+        an extension to the interfaceTopNObjectVariable
+        defined in INTERFACETOPN-MIB.
+
+        Setting this object to the value of 'none' indicates
+        that the TopN sampling is based on the counter type 
+        as specified by the corresponding 
+        interfaceTopNObjectVariable for the same entry
+        in interfaceTopNControlTable; Setting this object 
+        to a value other than 'none' indicates that the 
+        TopN sampling is based on the counter type as 
+        specified by this object instead of the 
+        counter type as specified by the 
+        corresponding interfaceTopNObjectVariable for 
+        the same entry in interfaceTopNControlTable.    
+
+        For entries in the interfaceTopNTable in the 
+        INTERFACETOPN-MIB reported for counter type as specified 
+        by this citneInterfaceTopNCounterType: 
+        (1) The corresponding interfaceTopNDataSourceIndex will 
+            point to the ifIndex of the sorted interfaces; 
+        (2) If the sampled counter type is one of the following
+            32 bit counters: 
+                   'utilization',
+                   'overflow', 
+            the interfaceTopNValue object is used in 
+            the corresponding entries in interfaceTopNTable.
+
+            If the sampled counter type is one of the following
+            64 bit counters: 
+                   'bytes', 
+                   'packets',
+                   'broadcast',
+                   'multicast',
+            the interfaceTopNValue64 object is used 
+            in the corresponding entries in interfaceTopNTable. 
+
+        This object may not be modified if the associated
+        interfaceTopNRowStatus object is equal to 'active'."
+    DEFVAL          { none } 
+    ::= { citneInterfaceTopNControlEntry 1 }
+
+citneInterfaceTopNInterfaceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        all(1),
+                        ethernet(2),
+                        fastEthernet(3),
+                        gigaEthernet(4),
+                        tenGigaEthernet(5),
+                        portChannel(6),
+                        layer2(7),
+                        layer3(8),
+                        fortyGigaEthernet(9)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the interface type for the TopN sampling.
+
+        all -- all applicable interfaces in the system.
+
+        ethernet -- all Ethernet interfaces in the system.        
+
+        fastEthernet -- all FastEthernet interfaces in the system.
+
+        gigaEthernet -- all GigabitEthernet interfaces in the 
+                        system. 
+
+        tenGigaEthernet -- all TenGigabitEthernet interfaces 
+                           in the system.
+
+        portChannel -- all Port-channel interfaces in the system. 
+
+        layer2 -- all layer-2 interfaces in the system. 
+
+        layer3 -- all layer-3 interfaces in the system.  
+
+        fortyGigaEthernet -- all FortyGigabitEthernet interfaces 
+                           in the system.
+
+        This object may not be modified if the associated
+        interfaceTopNRowStatus object is equal to 'active'."
+    DEFVAL          { all } 
+    ::= { citneInterfaceTopNControlEntry 2 }
+
+citneInterfaceTopNVlanNumber OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Vlan number for the layer-2 interfaces when
+        the object value of citneInterfaceTopNInterfaceType 
+        for the same entry is 'layer2'. If the object value
+        of citneInterfaceTopNVlanNumber is other than zero and 
+        the corresponding citneInterfaceTopNInterfaceType is 
+        'layer2' for the same entry, then it indicates all 
+        layer-2 interfaces in that VLAN is sampled.  If the 
+        object value of citneInterfaceTopNVlanNumber is zero 
+        and the corresponding citneInterfaceTopNInterfaceType 
+        is 'layer2' for the same entry, then it indicates all 
+        layer-2 interfaces in the system regardless of their 
+        Vlan number is sampled. If the object value of 
+        citneInterfaceTopNInterfaceType is other than 
+        'layer2', then citneInterfaceTopNVlanNumber has to take
+        the value of 0.
+
+        This object may not be modified if the associated
+        interfaceTopNRowStatus object is equal to 'active'."
+    DEFVAL          { 0 } 
+    ::= { citneInterfaceTopNControlEntry 3 }
+ 
+
+-- Notifications
+-- (none defined)
+--   
+-- Conformance
+
+ciscoIfTopNExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoInterfaceTopNExtMIBConform 1 }
+
+ciscoIfTopNExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoInterfaceTopNExtMIBConform 2 }
+
+
+ciscoIfTopNExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Describes the requirements for conformance to the
+        Cisco InterfaceTopN Extention MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoIfTopNExtCapsGroup }
+
+    GROUP           ciscoIfTopNExtControlGroup
+    DESCRIPTION
+        "This group is mandatory for systems which support
+        the supplemental parameters for the 
+        interfaceTopNControlTable."
+
+    GROUP           ciscoIfTopNExtCtrlVlanGroup
+    DESCRIPTION
+        "This group is mandatory for systems which support
+        the supplemental vlan parameters for the 
+        interfaceTopNControlTable."
+    ::= { ciscoIfTopNExtMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoIfTopNExtCapsGroup OBJECT-GROUP
+    OBJECTS         { citneInterfaceTopNCaps }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing capability information
+        about supplemental counter type supported by the system."
+    ::= { ciscoIfTopNExtMIBGroups 1 }
+
+ciscoIfTopNExtControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        citneInterfaceTopNCounterType,
+                        citneInterfaceTopNInterfaceType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        supplemental parameters for the 
+        interfaceTopNControlTable."
+    ::= { ciscoIfTopNExtMIBGroups 2 }
+
+ciscoIfTopNExtCtrlVlanGroup OBJECT-GROUP
+    OBJECTS         { citneInterfaceTopNVlanNumber }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        supplemental vlan parameters for the
+        interfaceTopNControlTable."
+    ::= { ciscoIfTopNExtMIBGroups 3 }
+
+END
+
+
+

@@ -4,6 +4,10 @@ import simd
 /// Represents a single cyber-physical RF sample.
 /// In production, this would be mapped directly to an Apache Arrow columnar layout.
 public struct SurveySample: Identifiable, Codable, Equatable {
+    public static let rfVectorDimensions = 64
+    public static let bleVectorDimensions = 64
+    public static let missingSignalValue = -100.0
+
     public let id: UUID
     public let timestamp: TimeInterval
     
@@ -49,8 +53,8 @@ public struct SurveySample: Identifiable, Codable, Equatable {
         self.frequency = frequency
         self.securityType = securityType
         self.isSecure = isSecure
-        self.rfVector = rfVector
-        self.bleVector = bleVector
+        self.rfVector = SurveySample.normalizeRFVector(rfVector)
+        self.bleVector = SurveySample.normalizeBLEVector(bleVector)
         self.x = position.x
         self.y = position.y
         self.z = position.z
@@ -59,5 +63,25 @@ public struct SurveySample: Identifiable, Codable, Equatable {
         self.uncertainty = uncertainty
         self.ipAddress = ipAddress
         self.hostname = hostname
+    }
+
+    public static func normalizeRFVector(_ input: [Double]) -> [Double] {
+        normalize(input, to: rfVectorDimensions)
+    }
+
+    public static func normalizeBLEVector(_ input: [Double]) -> [Double] {
+        normalize(input, to: bleVectorDimensions)
+    }
+
+    private static func normalize(_ input: [Double], to dimensions: Int) -> [Double] {
+        let sanitized = input
+            .filter { $0.isFinite }
+            .map { max(-100.0, min(0.0, $0)) }
+
+        if sanitized.count >= dimensions {
+            return Array(sanitized.prefix(dimensions))
+        }
+
+        return sanitized + Array(repeating: missingSignalValue, count: dimensions - sanitized.count)
     }
 }

@@ -1,0 +1,1617 @@
+-- MIB file created 14-May-2015 07:58:30, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VIRTUAL-SWITCH-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VIRTUAL-SWITCH-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TimeStamp, DateAndTime, TruthValue
+            FROM SNMPv2-TC-v1
+    entPhysicalIndex
+            FROM ENTITY-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoVirtualSwitchMIB OBJECT IDENTIFIER ::= { ciscoMgmt 388 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201503040000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    cs-lan-switch-snmp@cisco.com
+--  Descr
+--    This MIB module defines the managed objects that support the
+--    virtual switch architecture.
+--    
+--    The virtual switch concept combines several individual
+--    distributed physical switches together to build a single
+--    logical management point.  The core switches are the control
+--    point for a virtual switch, all the traffic is forwarded and
+--    distributed in the core switches, including control and data
+--    traffic.
+--    
+--    The core switches are connected through a dedicated ether
+--    channel called Virtual Switch Link (VSL) that is used for
+--    both control traffic as well as some data traffic to provide
+--    the traffic load sharing and switch redundancy between the
+--    physical chassis.
+--    
+--    One or multiple core switches can be supported in the virtual
+--    switch architecture, but only one core called 'active core'
+--    switch can be active to manage the traffic.  The other is
+--    called 'standby core' switch as redundancy if there is.
+--    
+--    The concept of virtual switch is to collect many physical
+--    switches chassis together to form a single management unit to
+--    simplify the whole network architecture.
+--  RevDate
+--    201503040000Z
+--  RevDescr
+--    Added new OBJECT-GROUP
+--      - cvsVSLLinkPortGroup
+--    Added new compliance 
+--      - cvsMIBComplianceV04
+--  RevDate
+--    201204100000Z
+--  RevDescr
+--    Added cSSO(3) enum value to cvsModuleRprWarm object
+--    Added following OBJECT-GROUP  
+--     - cvsCoreSwitchLocationGroup 
+--     - cvsDualActiveDetectionNotifsControlGroup
+--     - cvsDualActiveDetectionNotifsInfoGroup
+--     - cvsDualActiveDetectionNotifsGroup 
+--    Added new compliance  
+--     - cvsMIBComplianceV03
+--  RevDate
+--    201001210000Z
+--  RevDescr
+--    New group cvsVSLStatisticsExtGroup and
+--    cvsVssModuleStandbyGroup are added.
+--  RevDate
+--    200709250000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoVirtualSwitchMIBNotifs OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIB 0 }
+ciscoVirtualSwitchMIBObjects OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIB 1 }
+ciscoVirtualSwitchMIBConform OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIB 2 }
+cvsGlobalObjects OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIBObjects 1 }
+cvsChassisObjects OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIBObjects 2 }
+cvsVSLObjects   OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIBObjects 3 }
+cvsModuleObjects OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIBObjects 4 }
+cvsDualActiveDetection OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIBObjects 5 }
+cvsMIBCompliances OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIBConform 1 }
+cvsMIBGroups    OBJECT IDENTIFIER ::= { ciscoVirtualSwitchMIBConform 2 }
+
+VSSwitchID ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An integer value that uniquely identifies a physical chassis
+--    in the virtual switch architecture.
+--    
+--    0 means no switch ID configured for this switch.  It implies
+--    the switch is in the standalone mode and not part of the
+--    virtual switch architecture.
+
+VSSwitchCapability ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   standalone(0)
+        --   core(1)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indication of the switch roles that can be supported on the
+--    chassis device.
+--    
+--    standalone : it means this chassis device can be a regular
+--    switch which is not a part of virtual switch architecture.
+--    
+--    core : it means this chassis device can be a core switch,
+--    active or standby, in the virtual switch architecture.
+
+VSSwitchMode ::= INTEGER {
+        standalone(1),
+        multiNode(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The switch mode of the chassis device in the virtual
+--    switch environment or a chassis can also be a standalone
+--    device.
+--    
+--    standalone : it means this chassis device is not in a part
+--    of the virtual switch environment, it is a standalone
+--    switch.
+--    
+--    multiNode: it means this chassis device is in a part of
+--    the virtual switch environment.  Only a switch with the
+--    capability to be a 'core' switch could be configured to
+--    multiNode(2).
+
+VSSwitchRole ::= INTEGER {
+        standalone(1),
+        active(2),
+        standby(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The role of the chassis device.
+--    
+--    standalone : it means this chassis device is not a part of
+--    the virtual switch, it is a standalone switch.
+--    
+--    active : it means this chassis device is an active core switch
+--    in the virtual switch architecture.
+--    
+--    standby : it means this chassis device is a standby core
+--    switch in the virtual switch architecture.
+
+VSConnectStatus ::= INTEGER {
+        up(1),
+        down(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A textual convention to indicate the connection status of a
+--    link.
+
+cvsDomain OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The virtual switch domain identifier to recognize a
+        virtual switch domain.  Only Switches with the same
+        domain number can be in the same virtual switch.
+        
+        0 means no switch domain configured."
+    ::= { cvsGlobalObjects 1 }
+
+cvsSwitchID OBJECT-TYPE
+    SYNTAX VSSwitchID
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The unique ID which is assigned to the current switch
+        for identifying this physical chassis as a core switch
+        in the virtual switch architecture.
+        
+        0 means no switch ID configured."
+    ::= { cvsGlobalObjects 2 }
+
+cvsSwitchCapability OBJECT-TYPE
+    SYNTAX VSSwitchCapability
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           standalone(0)
+--           core(1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The capability of the switch can be.  A physical chassis can
+        be a standalone switch in the normal environment or a switch
+        which is part of the virtual switch architecture."
+    ::= { cvsGlobalObjects 3 }
+
+cvsSwitchMode OBJECT-TYPE
+    SYNTAX VSSwitchMode
+--    Rsyntax INTEGER {
+--        standalone(1),
+--        multiNode(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Converting a standalone switch in the regular switch
+        architecture to a switch in the virtual switch
+        architecture. Or converting a switch in the virtual
+        switch architecture to a standalone switch in the regular
+        switch architecture.  And the value of this object can
+        only be set to one of mode where the corresponding bits in
+        cvsSwitchCapability is set.
+        
+        To prevent vague switch status, this action will not only
+        change the switch mode, but also reload the device 
+        automatically to activate to the new switch mode."
+    ::= { cvsGlobalObjects 4 }
+
+cvsSwitchConvertingStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicating whether the switch is in the process of
+        converting the mode of switch which is specified in
+        the object cvsSwitchMode.
+        
+        true(1) : the switch is in converting the switch mode.
+        false(2) : the switch is not in converting the switch
+        mode."
+    ::= { cvsGlobalObjects 5 }
+
+cvsVSLChangeNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enable or disable the generation of cvsVSLConnectionChangeNotif
+        notification."
+    ::= { cvsGlobalObjects 6 }
+
+cvsCoreSwitchConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvsCoreSwitchConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table describes the configuration information for
+        the core switches to select the active or standby
+        core switches in the virtual switch architecture.
+        
+        If cvsDomain or cvsSwitchID objects are configured to
+        0, this table is not instantiated."
+    ::= { cvsChassisObjects 1 }
+
+cvsCoreSwitchConfigEntry OBJECT-TYPE
+    SYNTAX CvsCoreSwitchConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes the configuration for a core switch
+        information in the virtual switch architecture."
+    INDEX { cvsCoreSwitchID }
+    ::= { cvsCoreSwitchConfigTable 1 }
+
+CvsCoreSwitchConfigEntry ::= SEQUENCE {
+    cvsCoreSwitchID VSSwitchID,
+    cvsCoreSwitchPriority Gauge,
+    cvsCoreSwitchPreempt TruthValue,
+    cvsCoreSwitchLocation SnmpAdminString
+    }
+
+cvsCoreSwitchID OBJECT-TYPE
+    SYNTAX VSSwitchID
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The switch number as an identifier for a core switch.  If the
+        priority value is the same, the higher switch number has the
+        precedence to be the active core switch."
+    ::= { cvsCoreSwitchConfigEntry 1 }
+
+cvsCoreSwitchPriority OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The configured priority information for this core switch.
+        This priority value will be used to choose active or standby 
+        core switch. The core switch with the higher numerical value
+        will be more desirable to be chosen as an active core switch."
+    ::= { cvsCoreSwitchConfigEntry 2 }
+
+cvsCoreSwitchPreempt OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The configured preemption information for this core switch.
+        This configuration will enable or disable the preemption of
+        choosing the active core with higher priority."
+    ::= { cvsCoreSwitchConfigEntry 3 }
+
+cvsCoreSwitchLocation OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The configured location for this core switch."
+    ::= { cvsCoreSwitchConfigEntry 4 }
+
+cvsChassisTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvsChassisEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table describes the information of the devices listed
+        in the ENTITY-MIB entPhysicalTable in the virtual switch
+        architecture, whose entPhysicalClass is chassis(3).
+        
+        This table will only be instantiated when the value of 
+        cvsSwitchMode is 'multiNode' in the virtual switch
+        architecture."
+    ::= { cvsChassisObjects 2 }
+
+cvsChassisEntry OBJECT-TYPE
+    SYNTAX CvsChassisEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes the present chassis information in
+        the virtual switch architecture."
+    INDEX { entPhysicalIndex }
+    ::= { cvsChassisTable 1 }
+
+CvsChassisEntry ::= SEQUENCE {
+    cvsChassisSwitchID VSSwitchID,
+    cvsChassisRole VSSwitchRole,
+    cvsChassisUpTime TimeStamp
+    }
+
+cvsChassisSwitchID OBJECT-TYPE
+    SYNTAX VSSwitchID
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unique switch ID which is assigned for identifying a
+        chassis in the virtual switch architecture."
+    ::= { cvsChassisEntry 1 }
+
+cvsChassisRole OBJECT-TYPE
+    SYNTAX VSSwitchRole
+--    Rsyntax INTEGER {
+--        standalone(1),
+--        active(2),
+--        standby(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the role of this chassis in the
+        virtual switch architecture."
+    ::= { cvsChassisEntry 2 }
+
+cvsChassisUpTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time (in hundredths of a second) since the chassis
+        device was last re-initialized."
+    ::= { cvsChassisEntry 3 }
+
+cvsVSLConnectionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvsVSLConnectionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the VSLs (Virtual Switch Link)
+        connection information of the core switches.
+        
+        A bundle link is a collection of two or more physical
+        point-to-point links which are combined to form one
+        logical link.  A VSL is a bundle link which spans the core
+        switch to connect to another core switch in the virtual
+        switch."
+    ::= { cvsVSLObjects 1 }
+
+cvsVSLConnectionEntry OBJECT-TYPE
+    SYNTAX CvsVSLConnectionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry contains connections information of the VSL
+        channel interfaces between the core switches."
+    INDEX { cvsVSLChannelIfindex }
+    ::= { cvsVSLConnectionTable 1 }
+
+CvsVSLConnectionEntry ::= SEQUENCE {
+    cvsVSLChannelIfindex InterfaceIndex,
+    cvsVSLCoreSwitchID VSSwitchID,
+    cvsVSLConnectOperStatus VSConnectStatus,
+    cvsVSLLastConnectionStateChange DateAndTime,
+    cvsVSLConfiguredPortCount Gauge,
+    cvsVSLOperationalPortCount Gauge,
+    cvsVSLConnectionRowStatus RowStatus
+    }
+
+cvsVSLChannelIfindex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The interface index of the VSL channel interface in the
+        core switch to be used for the VSL."
+    ::= { cvsVSLConnectionEntry 1 }
+
+cvsVSLCoreSwitchID OBJECT-TYPE
+    SYNTAX VSSwitchID
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch ID will be used to form the VSL."
+    ::= { cvsVSLConnectionEntry 2 }
+
+cvsVSLConnectOperStatus OBJECT-TYPE
+    SYNTAX VSConnectStatus
+--    Rsyntax INTEGER {
+--        up(1),
+--        down(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational status of the VSL
+        connection."
+    ::= { cvsVSLConnectionEntry 3 }
+
+cvsVSLLastConnectionStateChange OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last time when the VSL connection was changed from
+        up to down or down to up."
+    ::= { cvsVSLConnectionEntry 4 }
+
+cvsVSLConfiguredPortCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of configured ports for this VSL."
+    ::= { cvsVSLConnectionEntry 5 }
+
+cvsVSLOperationalPortCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of operational ports for this VSL."
+    ::= { cvsVSLConnectionEntry 6 }
+
+cvsVSLConnectionRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is a conceptual row entry that allows creating
+        or removing entries in or from the cvsVSLConnectionTable.
+        
+        Creating an entry in this table means building the VSL
+        connection and removing an entry means to remove the VSL
+        connection."
+    ::= { cvsVSLConnectionEntry 7 }
+
+cvsVSLStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvsVSLStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the VSL (Virtual Switch Link)
+        connection statistics information between the core switches
+        in the virtual switch architecture.
+        
+        This table will only show the statistics information for the
+        channel interface in the active core switch."
+    ::= { cvsVSLObjects 2 }
+
+cvsVSLStatsEntry OBJECT-TYPE
+    SYNTAX CvsVSLStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry contains transmitting and receiving statistics
+        information of the VSL channel interface in the active
+        core switch."
+    INDEX { cvsVSLChannelIfindex }
+    ::= { cvsVSLStatsTable 1 }
+
+CvsVSLStatsEntry ::= SEQUENCE {
+    cvsVSLTxTotalPkts Counter,
+    cvsVSLTxErrorPkts Counter,
+    cvsVSLTxChksumErrPkts Counter,
+    cvsVSLRxTotalPkts Counter,
+    cvsVSLRxErrorPkts Counter,
+    cvsVSLRxChksumErrPkts Counter,
+    cvsVSLTxLmpPkts Counter,
+    cvsVSLTxRrpPkts Counter,
+    cvsVSLTxPingPkts Counter,
+    cvsVSLTxProtoPkts Counter,
+    cvsVSLTxDataPkts Counter,
+    cvsVSLTxAckPkts Counter,
+    cvsVSLRxLmpPkts Counter,
+    cvsVSLRxRrpPkts Counter,
+    cvsVSLRxPingPkts Counter,
+    cvsVSLRxProtoPkts Counter,
+    cvsVSLRxDataPkts Counter,
+    cvsVSLRxAckPkts Counter,
+    cvsVSLTxTotalEobcPkts Counter,
+    cvsVSLTxLmpEobcPkts Counter,
+    cvsVSLTxRrpEobcPkts Counter,
+    cvsVSLTxPingEobcPkts Counter,
+    cvsVSLTxProtoEobcPkts Counter,
+    cvsVSLTxDataEobcPkts Counter,
+    cvsVSLTxAckEobcPkts Counter,
+    cvsVSLRxTotalEobcPkts Counter,
+    cvsVSLRxLmpEobcPkts Counter,
+    cvsVSLRxRrpEobcPkts Counter,
+    cvsVSLRxPingEobcPkts Counter,
+    cvsVSLRxProtoEobcPkts Counter,
+    cvsVSLRxDataEobcPkts Counter,
+    cvsVSLRxAckEobcPkts Counter,
+    cvsVSLTxTotalHCPkts Counter,
+    cvsVSLTxErrorHCPkts Counter,
+    cvsVSLTxChksumErrHCPkts Counter,
+    cvsVSLRxTotalHCPkts Counter,
+    cvsVSLRxErrorHCPkts Counter,
+    cvsVSLRxChksumErrHCPkts Counter
+    }
+
+cvsVSLTxTotalPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of transmitted packets."
+    ::= { cvsVSLStatsEntry 1 }
+
+cvsVSLTxErrorPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted error packets."
+    ::= { cvsVSLStatsEntry 2 }
+
+cvsVSLTxChksumErrPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted packets with checksum error."
+    ::= { cvsVSLStatsEntry 3 }
+
+cvsVSLRxTotalPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of received packets."
+    ::= { cvsVSLStatsEntry 4 }
+
+cvsVSLRxErrorPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received error packets."
+    ::= { cvsVSLStatsEntry 5 }
+
+cvsVSLRxChksumErrPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with checksum error."
+    ::= { cvsVSLStatsEntry 6 }
+
+cvsVSLTxLmpPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted LMP (Link Maintenance Protocol)
+        packets."
+    ::= { cvsVSLStatsEntry 7 }
+
+cvsVSLTxRrpPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted RRP (Role Resolution Protocol)
+        packets."
+    ::= { cvsVSLStatsEntry 8 }
+
+cvsVSLTxPingPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted VSL PING packets."
+    ::= { cvsVSLStatsEntry 9 }
+
+cvsVSLTxProtoPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted protocol packets, such as
+        ISSU's (In Service software Upgrade) protocol."
+    ::= { cvsVSLStatsEntry 10 }
+
+cvsVSLTxDataPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted data packets, such as
+        ISSU's ."
+    ::= { cvsVSLStatsEntry 11 }
+
+cvsVSLTxAckPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted ACK (Acknowledge) packets."
+    ::= { cvsVSLStatsEntry 12 }
+
+cvsVSLRxLmpPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received LMP packets."
+    ::= { cvsVSLStatsEntry 13 }
+
+cvsVSLRxRrpPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received RRP packets."
+    ::= { cvsVSLStatsEntry 14 }
+
+cvsVSLRxPingPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received VSL PING packets."
+    ::= { cvsVSLStatsEntry 15 }
+
+cvsVSLRxProtoPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received ISSU's protocol packets."
+    ::= { cvsVSLStatsEntry 16 }
+
+cvsVSLRxDataPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received ISSU's data packets."
+    ::= { cvsVSLStatsEntry 17 }
+
+cvsVSLRxAckPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received ACK packets."
+    ::= { cvsVSLStatsEntry 18 }
+
+cvsVSLTxTotalEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of transmitted EOBC (Ethernet
+        Out-of-Band Channel) packets."
+    ::= { cvsVSLStatsEntry 19 }
+
+cvsVSLTxLmpEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted LMP EOBC packets."
+    ::= { cvsVSLStatsEntry 20 }
+
+cvsVSLTxRrpEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted RRP EOBC packets."
+    ::= { cvsVSLStatsEntry 21 }
+
+cvsVSLTxPingEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted VSL PING EOBC packets."
+    ::= { cvsVSLStatsEntry 22 }
+
+cvsVSLTxProtoEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted ISSU's protocol EOBC packets."
+    ::= { cvsVSLStatsEntry 23 }
+
+cvsVSLTxDataEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted ISSU's data EOBC packets."
+    ::= { cvsVSLStatsEntry 24 }
+
+cvsVSLTxAckEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted ACK EOBC packets."
+    ::= { cvsVSLStatsEntry 25 }
+
+cvsVSLRxTotalEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of received EOBC packets."
+    ::= { cvsVSLStatsEntry 26 }
+
+cvsVSLRxLmpEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received LMP EOBC packets."
+    ::= { cvsVSLStatsEntry 27 }
+
+cvsVSLRxRrpEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received RRP EOBC packets."
+    ::= { cvsVSLStatsEntry 28 }
+
+cvsVSLRxPingEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received VSL PING EOBC packets."
+    ::= { cvsVSLStatsEntry 29 }
+
+cvsVSLRxProtoEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received ISSU's protocol EOBC packets."
+    ::= { cvsVSLStatsEntry 30 }
+
+cvsVSLRxDataEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received ISSU's data EOBC packets."
+    ::= { cvsVSLStatsEntry 31 }
+
+cvsVSLRxAckEobcPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received ACK EOBC packets."
+    ::= { cvsVSLStatsEntry 32 }
+
+cvsVSLTxTotalHCPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high capacity counter for the total number of
+        transmitted packets."
+    ::= { cvsVSLStatsEntry 33 }
+
+cvsVSLTxErrorHCPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high capacity counter for the total number of
+        transmitted error packets."
+    ::= { cvsVSLStatsEntry 34 }
+
+cvsVSLTxChksumErrHCPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high capacity counter for the number of
+        transmitted packets with checksum error."
+    ::= { cvsVSLStatsEntry 35 }
+
+cvsVSLRxTotalHCPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high capacity counter for the total number of
+        received packets."
+    ::= { cvsVSLStatsEntry 36 }
+
+cvsVSLRxErrorHCPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high capacity counter for the number of received
+        error packets."
+    ::= { cvsVSLStatsEntry 37 }
+
+cvsVSLRxChksumErrHCPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The high capacity counter for the number of received
+        received packets with checksum error."
+    ::= { cvsVSLStatsEntry 38 }
+
+cvsVSLPortStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvsVSLPortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the statistics information for the
+        configured physical ports of the VSL (Virtual Switch Link)
+        connection in the active core switch."
+    ::= { cvsVSLObjects 3 }
+
+cvsVSLPortStatsEntry OBJECT-TYPE
+    SYNTAX CvsVSLPortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry contains transmitting and receiving statistics
+        information for a configured physical port of the VSL
+        channel interface in the active core switch."
+    INDEX { cvsVSLChannelIfindex, cvsVSLPortStatsIfindex }
+    ::= { cvsVSLPortStatsTable 1 }
+
+CvsVSLPortStatsEntry ::= SEQUENCE {
+    cvsVSLPortStatsIfindex InterfaceIndex,
+    cvsVSLPortTxOkPkts Counter,
+    cvsVSLPortTxFailPkts Counter,
+    cvsVSLPortRxBidirPkts Counter,
+    cvsVSLPortRxUnidirPkts Counter,
+    cvsVSLPortRxFailPkts Counter,
+    cvsVSLPortRxBadPkts Counter,
+    cvsVSLPortRxMyInfoMismatchPkts Counter,
+    cvsVSLPortRxMyInfoAbsentPkts Counter,
+    cvsVSLPortRxBadMacAddressPkts Counter,
+    cvsVSLPortRxBadSwitchIdPkts Counter,
+    cvsVSLPortRxDomainIdMismatchPkts Counter,
+    cvsVSLPortRxPeerInfoMismatchPkts Counter
+    }
+
+cvsVSLPortStatsIfindex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The interface index for the configured physical port in the
+        VSL."
+    ::= { cvsVSLPortStatsEntry 1 }
+
+cvsVSLPortTxOkPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted packets without errors for the
+        port."
+    ::= { cvsVSLPortStatsEntry 2 }
+
+cvsVSLPortTxFailPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted packets that had local sending
+        failures, such as out of buffers and other internal errors
+        for the port."
+    ::= { cvsVSLPortStatsEntry 3 }
+
+cvsVSLPortRxBidirPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets indicating a bidirectional link
+        for the port."
+    ::= { cvsVSLPortStatsEntry 4 }
+
+cvsVSLPortRxUnidirPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets that do not indicate a
+        bidirectional link for the port."
+    ::= { cvsVSLPortStatsEntry 5 }
+
+cvsVSLPortRxFailPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with incorrect data for
+        the port."
+    ::= { cvsVSLPortStatsEntry 6 }
+
+cvsVSLPortRxBadPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with in invalid states for the
+        port."
+    ::= { cvsVSLPortStatsEntry 7 }
+
+cvsVSLPortRxMyInfoMismatchPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with mismatched local switch
+        information for the port."
+    ::= { cvsVSLPortStatsEntry 8 }
+
+cvsVSLPortRxMyInfoAbsentPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets without local switch information
+        for the port."
+    ::= { cvsVSLPortStatsEntry 9 }
+
+cvsVSLPortRxBadMacAddressPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with bad MAC addresses
+        information for the port."
+    ::= { cvsVSLPortStatsEntry 10 }
+
+cvsVSLPortRxBadSwitchIdPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with bad switch IDs information
+        for the port."
+    ::= { cvsVSLPortStatsEntry 11 }
+
+cvsVSLPortRxDomainIdMismatchPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with mismatched domain IDs
+        information for the port."
+    ::= { cvsVSLPortStatsEntry 12 }
+
+cvsVSLPortRxPeerInfoMismatchPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets with mismatched peer information
+        for the port."
+    ::= { cvsVSLPortStatsEntry 13 }
+
+cvsVSLLinkPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvsVSLLinkPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the information for the
+        configured physical ports of the VSL (Virtual Switch Link)
+        connections in the active core switch and standby switch."
+    ::= { cvsVSLObjects 4 }
+
+cvsVSLLinkPortEntry OBJECT-TYPE
+    SYNTAX CvsVSLLinkPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry contains the information for the
+        configured physical ports of the VSL (Virtual Switch Link)
+        connections in the active core switch and standby switch."
+    INDEX { cvsVSLChannelIfindex, cvsVSLPortStatsIfindex }
+    ::= { cvsVSLLinkPortTable 1 }
+
+CvsVSLLinkPortEntry ::= SEQUENCE {
+    cvsVSLLinkPeerInterface SnmpAdminString
+    }
+
+cvsVSLLinkPeerInterface OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object displays the interface name of the
+        peer interface."
+    ::= { cvsVSLLinkPortEntry 1 }
+
+cvsModuleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvsModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table describes the information of the physical modules
+        listed in the ENTITY-MIB entPhysicalTable, whose
+        entPhysicalClass is module(9).  This table only contains
+        physical linecards, no sub-linecards or port level module
+        entities."
+    ::= { cvsModuleObjects 1 }
+
+cvsModuleEntry OBJECT-TYPE
+    SYNTAX CvsModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes the present physical module information."
+    INDEX { entPhysicalIndex }
+    ::= { cvsModuleTable 1 }
+
+CvsModuleEntry ::= SEQUENCE {
+    cvsModuleVSSupported TruthValue,
+    cvsModuleVSLCapable TruthValue,
+    cvsModuleSlotNumber Gauge,
+    cvsModuleRprWarm INTEGER
+    }
+
+cvsModuleVSSupported OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The physical module is supported in the virtual switch
+        architecture or not."
+    ::= { cvsModuleEntry 1 }
+
+cvsModuleVSLCapable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The physical module has the capability to build the VSL
+        connection between 2 core switches in the virtual switch
+        architecture or not.
+        
+        If any physical port in this physical module is with the
+        capability to build the VSL connection, it means this module
+        is VSL capable."
+    ::= { cvsModuleEntry 2 }
+
+cvsModuleSlotNumber OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The module slot number for this physical module.  If it is
+        in the virtual switch environment, this object returns virtual
+        slot number.  If it is in the standalone environment, this
+        object returns physical slot number."
+    ::= { cvsModuleEntry 3 }
+
+cvsModuleRprWarm OBJECT-TYPE
+    SYNTAX INTEGER {
+        notApplicable(1),
+        rprWarm(2),
+        cSSO(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates in-chassis standby supervisor module's
+        redundancy state in a VS environment. 
+        
+        'notApplicable' : the module is not applicable for the rest
+                          of states.
+        
+        'rprWarm' : the module is the in-chassis standby supervisor in
+                    rpr warm state running as a DFC (Distributed
+                    Forwarding Card).
+        
+        'cSSO'    : the module is the in-chassis hot standby 
+                    supervisor"
+    ::= { cvsModuleEntry 4 }
+
+cvsDualActiveDetectionNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enable or disable the generation of cvsDualActiveDetectionNotif
+        notification."
+    ::= { cvsDualActiveDetection 1 }
+
+cvsDualActiveDetectionInformation OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides information about the dual active
+        notification cvsDualActiveDetectionNotif, i.e., the cause
+        of dual-active, the detection method."
+    ::= { cvsDualActiveDetection 2 }
+
+cvsVSLConnectionChangeNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoVirtualSwitchMIB
+    VARIABLES {
+        cvsVSLConnectOperStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The notification will be generated when the state of the VSL
+        connection is changed."
+    ::= 1
+
+cvsDualActiveDetectionNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoVirtualSwitchMIB
+    VARIABLES {
+        cvsSwitchID, cvsDualActiveDetectionInformation }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The notification will be generated when dual-active
+        is detected."
+    ::= 2
+
+cvsGlobalGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used in the
+--    virtual switch or standalone environment.
+--  objects
+--    cvsDomain, cvsSwitchID, cvsSwitchCapability, cvsSwitchMode, 
+--    cvsSwitchConvertingStatus, cvsVSLChangeNotifEnable
+
+cvsCoreSwitchGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to configure
+--    the selection information of the active or standby
+--    core switches in the virtual switch environment.
+--  objects
+--    cvsCoreSwitchPriority, cvsCoreSwitchPreempt
+
+cvsChassisGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to monitor the
+--    chassis information in virtual switch architecture.
+--  objects
+--    cvsChassisSwitchID, cvsChassisRole, cvsChassisUpTime
+
+cvsVSLConnectionGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to configure
+--    the VSL connection information in standalone or virtual
+--    switch environment.
+--  objects
+--    cvsVSLCoreSwitchID, cvsVSLConnectOperStatus, 
+--    cvsVSLLastConnectionStateChange, cvsVSLConfiguredPortCount, 
+--    cvsVSLOperationalPortCount, cvsVSLConnectionRowStatus
+
+cvsVSLStatisticsGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to monitor
+--    the VSL statistics information in virtual switch
+--    architecture.
+--  objects
+--    cvsVSLTxTotalPkts, cvsVSLTxErrorPkts, cvsVSLTxChksumErrPkts, 
+--    cvsVSLRxTotalPkts, cvsVSLRxErrorPkts, cvsVSLRxChksumErrPkts, 
+--    cvsVSLPortTxOkPkts, cvsVSLPortTxFailPkts, 
+--    cvsVSLPortRxBidirPkts, cvsVSLPortRxUnidirPkts, 
+--    cvsVSLPortRxFailPkts, cvsVSLPortRxBadPkts
+
+cvsModuleGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to monitor the
+--    physical module information.
+--  objects
+--    cvsModuleVSSupported, cvsModuleVSLCapable, 
+--    cvsModuleSlotNumber
+
+cvsVSLStatisticsExtGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to monitor
+--    the  more detail VSL statistics information in
+--    virtual switch architecture.
+--  objects
+--    cvsVSLTxLmpPkts, cvsVSLTxRrpPkts, cvsVSLTxPingPkts, 
+--    cvsVSLTxProtoPkts, cvsVSLTxDataPkts, cvsVSLTxAckPkts, 
+--    cvsVSLRxLmpPkts, cvsVSLRxRrpPkts, cvsVSLRxPingPkts, 
+--    cvsVSLRxProtoPkts, cvsVSLRxDataPkts, cvsVSLRxAckPkts, 
+--    cvsVSLTxTotalEobcPkts, cvsVSLTxLmpEobcPkts, 
+--    cvsVSLTxRrpEobcPkts, cvsVSLTxPingEobcPkts, 
+--    cvsVSLTxProtoEobcPkts, cvsVSLTxDataEobcPkts, 
+--    cvsVSLTxAckEobcPkts, cvsVSLRxTotalEobcPkts, 
+--    cvsVSLRxLmpEobcPkts, cvsVSLRxRrpEobcPkts, 
+--    cvsVSLRxPingEobcPkts, cvsVSLRxProtoEobcPkts, 
+--    cvsVSLRxDataEobcPkts, cvsVSLRxAckEobcPkts, 
+--    cvsVSLTxTotalHCPkts, cvsVSLTxErrorHCPkts, 
+--    cvsVSLTxChksumErrHCPkts, cvsVSLRxTotalHCPkts, 
+--    cvsVSLRxErrorHCPkts, cvsVSLRxChksumErrHCPkts, 
+--    cvsVSLPortRxMyInfoMismatchPkts, cvsVSLPortRxMyInfoAbsentPkts, 
+--    cvsVSLPortRxBadMacAddressPkts, cvsVSLPortRxBadSwitchIdPkts, 
+--    cvsVSLPortRxDomainIdMismatchPkts, 
+--    cvsVSLPortRxPeerInfoMismatchPkts
+
+cvsVssModuleStandbyGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to monitor the
+--    module in-chassis standby status information.
+--  objects
+--    cvsModuleRprWarm
+
+cvsCoreSwitchLocationGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to configure
+--    the location information of the core switches in the virtual
+--    switch environment.
+--  objects
+--    cvsCoreSwitchLocation
+
+cvsDualActiveDetectionNotifsControlGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of object(s) which are used to control
+--    the notification of dual active detection in the virtual
+--    switch environment.
+--  objects
+--    cvsDualActiveDetectionNotifEnable
+
+cvsDualActiveDetectionNotifsInfoGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of object(s) providing variable binding
+--    for the dual active detection notification in the virtual
+--    switch environment.
+--  objects
+--    cvsDualActiveDetectionInformation
+
+cvsVSLLinkPortGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of object(s) which are used to get the
+--    VSL Interface Name.
+--  objects
+--    cvsVSLLinkPeerInterface
+
+cvsConnectionNotifsGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 7 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of notifications for the connections in
+--    virtual switch environment.
+--  notifications
+--    cvsVSLConnectionChangeNotif
+
+cvsDualActiveDetectionNotifsGroup OBJECT IDENTIFIER ::= { cvsMIBGroups 13 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of notification(s) for the dual active
+--    detection in the virtual switch environment.
+--  notifications
+--    cvsDualActiveDetectionNotif
+
+cvsMIBCompliance OBJECT IDENTIFIER ::= { cvsMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-VIRTUAL-SWITCH-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvsGlobalGroup
+--   MandGroup
+--    cvsModuleGroup
+--   OptGroup
+--    cvsCoreSwitchGroup
+--   OptGroup
+--    cvsChassisGroup
+--   OptGroup
+--    cvsVSLConnectionGroup
+--   OptGroup
+--    cvsVSLStatisticsGroup
+--   OptGroup
+--    cvsConnectionNotifsGroup
+
+cvsMIBComplianceV02 OBJECT IDENTIFIER ::= { cvsMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-VIRTUAL-SWITCH-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvsGlobalGroup
+--   MandGroup
+--    cvsModuleGroup
+--   MandGroup
+--    cvsVssModuleStandbyGroup
+--   OptGroup
+--    cvsCoreSwitchGroup
+--   OptGroup
+--    cvsChassisGroup
+--   OptGroup
+--    cvsVSLConnectionGroup
+--   OptGroup
+--    cvsVSLStatisticsGroup
+--   OptGroup
+--    cvsConnectionNotifsGroup
+--   OptGroup
+--    cvsVSLStatisticsExtGroup
+
+cvsMIBComplianceV03 OBJECT IDENTIFIER ::= { cvsMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-VIRTUAL-SWITCH-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvsGlobalGroup
+--   MandGroup
+--    cvsModuleGroup
+--   MandGroup
+--    cvsVssModuleStandbyGroup
+--   OptGroup
+--    cvsCoreSwitchGroup
+--   OptGroup
+--    cvsChassisGroup
+--   OptGroup
+--    cvsVSLConnectionGroup
+--   OptGroup
+--    cvsVSLStatisticsGroup
+--   OptGroup
+--    cvsConnectionNotifsGroup
+--   OptGroup
+--    cvsVSLStatisticsExtGroup
+--   OptGroup
+--    cvsCoreSwitchLocationGroup
+--   OptGroup
+--    cvsDualActiveDetectionNotifsControlGroup
+--   OptGroup
+--    cvsDualActiveDetectionNotifsInfoGroup
+--   OptGroup
+--    cvsDualActiveDetectionNotifsGroup
+--   ObjVar
+--    cvsDomain
+--   ObjVar
+--    cvsSwitchID
+--   ObjVar
+--    cvsSwitchMode
+--   ObjVar
+--    cvsVSLChangeNotifEnable
+--   ObjVar
+--    cvsCoreSwitchPriority
+--   ObjVar
+--    cvsCoreSwitchPreempt
+--   ObjVar
+--    cvsCoreSwitchLocation
+--   ObjVar
+--    cvsVSLCoreSwitchID
+--   ObjVar
+--    cvsDualActiveDetectionNotifEnable
+--   ObjVar
+--    cvsVSLConnectionRowStatus
+
+cvsMIBComplianceV04 OBJECT IDENTIFIER ::= { cvsMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-VIRTUAL-SWITCH-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvsGlobalGroup
+--   MandGroup
+--    cvsModuleGroup
+--   MandGroup
+--    cvsVssModuleStandbyGroup
+--   OptGroup
+--    cvsCoreSwitchGroup
+--   OptGroup
+--    cvsChassisGroup
+--   OptGroup
+--    cvsVSLConnectionGroup
+--   OptGroup
+--    cvsVSLStatisticsGroup
+--   OptGroup
+--    cvsConnectionNotifsGroup
+--   OptGroup
+--    cvsVSLStatisticsExtGroup
+--   OptGroup
+--    cvsCoreSwitchLocationGroup
+--   OptGroup
+--    cvsDualActiveDetectionNotifsControlGroup
+--   OptGroup
+--    cvsDualActiveDetectionNotifsInfoGroup
+--   OptGroup
+--    cvsDualActiveDetectionNotifsGroup
+--   OptGroup
+--    cvsVSLLinkPortGroup
+--   ObjVar
+--    cvsDomain
+--   ObjVar
+--    cvsSwitchID
+--   ObjVar
+--    cvsSwitchMode
+--   ObjVar
+--    cvsVSLChangeNotifEnable
+--   ObjVar
+--    cvsCoreSwitchPriority
+--   ObjVar
+--    cvsCoreSwitchPreempt
+--   ObjVar
+--    cvsCoreSwitchLocation
+--   ObjVar
+--    cvsVSLCoreSwitchID
+--   ObjVar
+--    cvsDualActiveDetectionNotifEnable
+--   ObjVar
+--    cvsVSLConnectionRowStatus
+
+
+END
+

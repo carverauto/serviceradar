@@ -1,0 +1,248 @@
+-- *****************************************************************
+-- CISCO-DSG-IF-EXT-MIB.my
+--   
+-- August 2011, Xiaoqi Ding
+--   
+-- Copyright (c) 2011 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-DSG-IF-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetAddressDNS
+        FROM INET-ADDRESS-MIB
+    TruthValue
+        FROM SNMPv2-TC
+    dsgIfClassifierEntry,
+    dsgIfDownstreamEntry
+        FROM DSG-IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoDsgIfExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201109090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ubr@cisco.com"
+    DESCRIPTION
+        "A MIB module for extending the DSG-IF-MIB (ITU-T J.128
+        10/2008) to add objects which provide additional
+        management information about DOCSIS Set-top Gateway (DSG)
+        not available in DSG-IF-MIB.
+
+        The DSG provides a one-way IP datagram transport for Out-Of-Band
+        (OOB) messaging to cable set-top clients. The one-way IP
+        datagram transport is called a DSG Tunnel. A DSG Tunnel carrying
+        either a broadcast, unicast or multicast IP datagram stream
+        originating at the DOCSIS Set-top Gateway and carrying
+        Out-Of-Band messages intended for set-top clients. It is carried
+        over one or more downstream DOCSIS channels. Multiple DSG
+        tunnels may exist on a single downstream DOCSIS channel."
+    REVISION        "201108150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 777 }
+
+
+ciscoDsgIfExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoDsgIfExtMIB 0 }
+
+ciscoDsgIfExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDsgIfExtMIB 1 }
+
+ciscoDsgIfExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoDsgIfExtMIB 2 }
+
+
+cdsgIfExtClassifierTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdsgIfExtClassifierEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table extends DSG-IF-MIB dsgIfClassifierTable for
+        classifiers which classify inbound packets into the
+        tunnel and classifiers for the DSG clients, encoding
+        in the DCD (Downstream Channel Descriptor) messages
+        on the downstream channels to which the classifiers
+        apply."
+    ::= { ciscoDsgIfExtMIBObjects 1 }
+
+cdsgIfExtClassifierEntry OBJECT-TYPE
+    SYNTAX          CdsgIfExtClassifierEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A cdsgIfExtClassifierEntry extends a corresponding
+        dsgIfClassifierTable entry.
+
+        This entry provides additional information for a particular
+        ADSG classifier of the DSG-IF-MIB dsgIfClassifierEntry.
+        For example, the configuration of the fully qualified
+        domain name (FQDN) of ADSG classifier multicast group
+        and source addresses.
+
+        An entry in this table exists for each configured
+        ADSG classifier in DSG-IF-MIB dsgIfClassifierTable."
+    AUGMENTS           { dsgIfClassifierEntry  } 
+    ::= { cdsgIfExtClassifierTable 1 }
+
+CdsgIfExtClassifierEntry ::= SEQUENCE {
+        cdsgIfExtClassSrcHostName  InetAddressDNS,
+        cdsgIfExtClassDestHostName InetAddressDNS
+}
+
+cdsgIfExtClassSrcHostName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the multicast source FQDN of which
+        the CMTS (Cable Modem Termination System) would be able
+        to utilize the CMTS configured domain name server(s) to
+        conduct a lookup and then define the IGMP join with the
+        lookup response." 
+    ::= { cdsgIfExtClassifierEntry 1 }
+
+cdsgIfExtClassDestHostName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the multicast group FQDN of which
+        the CMTS would be able to utilize the CMTS configured
+        domain name server(s) to conduct a lookup and then define
+        the IGMP join with the lookup response." 
+    ::= { cdsgIfExtClassifierEntry 2 }
+ 
+
+
+cdsgIfExtDownstreamTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdsgIfExtDownstreamEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table extends DSG-IF-MIB dsgIfDownstreamTable for
+        ADSG downstream tunnels."
+    ::= { ciscoDsgIfExtMIBObjects 2 }
+
+cdsgIfExtDownstreamEntry OBJECT-TYPE
+    SYNTAX          CdsgIfExtDownstreamEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A cdsgIfExtDownstreamEntry extends a corresponding
+        dsgIfDownstreamEntry.
+
+        This entry displays and controls more characteristics of
+        ADSG downstream tunnel.
+
+        For example, provide management information that CMTS
+        would has the ability to turn off DSG forwarding on
+        certain primary interfaces where the DSG tunnels are
+        not required."
+    AUGMENTS           { dsgIfDownstreamEntry  } 
+    ::= { cdsgIfExtDownstreamTable 1 }
+
+CdsgIfExtDownstreamEntry ::= SEQUENCE {
+        cdsgIfExtDownDsgDisable TruthValue
+}
+
+cdsgIfExtDownDsgDisable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the DSG tunnel is disabled
+        on the primary interface.
+
+        A value of 'true' indicates that the DSG tunnel is
+        disabled on the primary interface.  A value of 'false'
+        indicates that the DSG tunnel is not disabled on the
+        primary interface."
+    DEFVAL          { false } 
+    ::= { cdsgIfExtDownstreamEntry 1 }
+ 
+
+ciscoDsgIfExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoDsgIfExtMIBConform 1 }
+
+ciscoDsgIfExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoDsgIfExtMIBConform 2 }
+
+
+-- comliance statements
+
+ciscoDsgIfExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement for CISCO-DSG-IF-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cdsgIfExtHostGroup,
+                        cdsgIfExtDownControlGroup
+                    }
+
+    OBJECT          cdsgIfExtClassSrcHostName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdsgIfExtClassDestHostName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdsgIfExtDownDsgDisable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoDsgIfExtMIBCompliances 1 }
+
+-- Units of Conformance
+
+cdsgIfExtHostGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdsgIfExtClassSrcHostName,
+                        cdsgIfExtClassDestHostName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides fully
+        qualified domain name of classifier multicast
+        group and source addresses of DOCSIS Set-top
+        Gateway systems."
+    ::= { ciscoDsgIfExtMIBGroups 1 }
+
+cdsgIfExtDownControlGroup OBJECT-GROUP
+    OBJECTS         { cdsgIfExtDownDsgDisable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides control of
+        DSG tunnel for DOCSIS Set-top Gateway systems."
+    ::= { ciscoDsgIfExtMIBGroups 2 }
+
+END
+
+
+
+
+
+
+

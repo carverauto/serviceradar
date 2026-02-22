@@ -1,0 +1,184 @@
+-- MIB file created 18-Nov-2003 15:07:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ISNS-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ISNS-CLIENT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddress, InetAddressType
+            FROM INET-ADDRESS-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    CiscoPort
+            FROM CISCO-TC
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIsnsClientMIB OBJECT IDENTIFIER ::= { ciscoMgmt 372 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200311100000Z
+--  OrgName
+--    Cisco Systems Inc. 
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--    Postal: 170 W Tasman Drive
+--          San Jose, CA  95134
+--          USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    MIB module for monitoring and configuring Internet
+--    Storage Name Service (iSNS) client.
+--  RevDate
+--    200311100000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIsnsClientMIBNotifications OBJECT IDENTIFIER ::= { ciscoIsnsClientMIB 0 }
+ciscoIsnsClientMIBMIBObjects OBJECT IDENTIFIER ::= { ciscoIsnsClientMIB 1 }
+ciscoIsnsClientMIBConformance OBJECT IDENTIFIER ::= { ciscoIsnsClientMIB 2 }
+cIsnsClientConfig OBJECT IDENTIFIER ::= { ciscoIsnsClientMIBMIBObjects 1 }
+ciscoiIsnsClientMIBCompliances OBJECT IDENTIFIER ::= { ciscoIsnsClientMIBConformance 1 }
+ciscoIsnsClientMIBGroups OBJECT IDENTIFIER ::= { ciscoIsnsClientMIBConformance 2 }
+
+cIsnsClntServerProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIsnsClntServerProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists iSNS server profile configured on the 
+        local device."
+    REFERENCE
+        "Internet Storage Name Service, June 2003, Internet
+        Draft."
+    ::= { cIsnsClientConfig 1 }
+
+cIsnsClntServerProfileEntry OBJECT-TYPE
+    SYNTAX CIsnsClntServerProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry representing an iSNS server profile."
+    INDEX { cIsnsClntServerProfileName, cIsnsClntServerIndex }
+    ::= { cIsnsClntServerProfileTable 1 }
+
+CIsnsClntServerProfileEntry ::= SEQUENCE {
+    cIsnsClntServerProfileName SnmpAdminString,
+    cIsnsClntServerIndex Gauge,
+    cIsnsClntServerProfileAddrType InetAddressType,
+    cIsnsClntServerProfileAddr InetAddress,
+    cIsnsClntServerProfilePort CiscoPort,
+    cIsnsClntServerProfileStatus RowStatus
+    }
+
+cIsnsClntServerProfileName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary string value, which identifies an iSNS 
+        server profile."
+    ::= { cIsnsClntServerProfileEntry 1 }
+
+cIsnsClntServerIndex OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer value, which identifies an iSNS 
+        server for this profile."
+    ::= { cIsnsClntServerProfileEntry 2 }
+
+cIsnsClntServerProfileAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The address type of the iSNS server."
+    ::= { cIsnsClntServerProfileEntry 3 }
+
+cIsnsClntServerProfileAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the iSNS server."
+    ::= { cIsnsClntServerProfileEntry 4 }
+
+cIsnsClntServerProfilePort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The port of the iSNS server."
+    DEFVAL { 3205 }
+    ::= { cIsnsClntServerProfileEntry 5 }
+
+cIsnsClntServerProfileStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { cIsnsClntServerProfileEntry 6 }
+
+cIsnsServerConfigGroup OBJECT IDENTIFIER ::= { ciscoIsnsClientMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSNS server 
+--    configuration.
+--  objects
+--    cIsnsClntServerProfileAddrType, cIsnsClntServerProfileAddr, 
+--    cIsnsClntServerProfilePort, cIsnsClntServerProfileStatus
+
+ciscoIsnsClientMIBCompliance OBJECT IDENTIFIER ::= { ciscoiIsnsClientMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-ISNS-CLIENT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cIsnsServerConfigGroup
+--   ObjVar
+--    cIsnsClntServerProfileStatus
+--   ObjVar
+--    cIsnsClntServerProfilePort
+
+
+END
+

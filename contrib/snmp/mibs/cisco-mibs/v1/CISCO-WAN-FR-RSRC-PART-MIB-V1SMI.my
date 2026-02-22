@@ -1,0 +1,253 @@
+-- MIB file created 31-Oct-2002 14:07:20, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-FR-RSRC-PART-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-FR-RSRC-PART-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    frPortCnfResPartGrp
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanFrRsrcPartMIB OBJECT IDENTIFIER ::= { ciscoWan 45 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209040000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--                Customer Service
+--    
+--        Postal: 170 W Tasman Drive
+--                San Jose, CA  95134
+--                USA
+--    
+--                Tel: +1 800 553-NETS
+--    
+--        E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module to configure the resource partition
+--    on Frame Relay Ports.
+--    
+--    Terminlogies used:
+--    
+--    LCN  : Logical Connection Number.
+--    DLCI : Data Link Connection Identifier.
+--           A unique number assigned to a PVC endpoint in
+--           a frame relay network. This identifies a particular
+--           PVC endpoint within a user's access channel in a 
+--           frame relay network and has local significance only
+--           to that channel.
+--  RevDate
+--    200209040000Z
+--  RevDescr
+--    Initial version of the MIB.
+--    
+--    The content of this MIB was originally available
+--    in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+--    The applicable objects from CISCO-WAN-AXIPOP-MIB
+--    are defined using SMIv2 in this MIB. Also the
+--    descriptions of some of the objects have been 
+--    modified.
+
+cwfRsrcPartMIBConformance OBJECT IDENTIFIER ::= { ciscoWanFrRsrcPartMIB 2 }
+cwfRsrcPartMIBCompliances OBJECT IDENTIFIER ::= { cwfRsrcPartMIBConformance 1 }
+cwfRsrcPartMIBGroups OBJECT IDENTIFIER ::= { cwfRsrcPartMIBConformance 2 }
+
+frPortCnfResPartGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FrPortCnfResPartGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is for configuring resource partition
+        parameters. A resource partition is configured 
+        on frame relay port. The frame relay port 
+        if available in ifTable is identified by ifType
+        values frameRelayService(44) and frForward(158)."
+    ::= { frPortCnfResPartGrp 1 }
+
+frPortCnfResPartGrpEntry OBJECT-TYPE
+    SYNTAX FrPortCnfResPartGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for a resource partition. A resource
+        partition has to be created before connections
+        can be added on a frame relay port."
+    INDEX { frResPartPortNum, frResPartCtrlrNum }
+    ::= { frPortCnfResPartGrpTable 1 }
+
+FrPortCnfResPartGrpEntry ::= SEQUENCE {
+    frResPartPortNum INTEGER,
+    frResPartCtrlrNum INTEGER,
+    frResPartRowStatus INTEGER,
+    frResPartNumOfLcnAvail INTEGER,
+    frResPartDlciLow INTEGER,
+    frResPartDlciHigh INTEGER,
+    frResPartIngrPctBW INTEGER,
+    frResPartEgrPctBW INTEGER,
+    frResPartCtrlrID INTEGER
+    }
+
+frResPartPortNum OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the frame
+        relay port. The value of this object must be 
+        same as the value of 'portNum' from frPortCnfPortGrpTable.
+        
+        If frame relay port is available in ifTable,
+        then the value of this object must be same as the
+        ifIndex value of frame relay ports with
+        ifType frameRelayService(44) and frForward(158)."
+    REFERENCE
+        "portNum object in CISCO-WAN-FR-PORT-MIB.my"
+    ::= { frPortCnfResPartGrpEntry 1 }
+
+frResPartCtrlrNum OBJECT-TYPE
+    SYNTAX INTEGER {
+        par(1),
+        pnni(2),
+        tag(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the controller
+        which can be used for accessing the resources.
+         
+         The possible values are :
+           par(1) : Portable Auto Route controller.
+                  : This value is applicable in Release 1.x.
+        
+           pnni(2): PNNI  Controller.
+                  : This value is applicable in Release 2.x.
+        
+           tag(3) : MPLS(Formerly known as Tag Switch)Controller"
+    ::= { frPortCnfResPartGrpEntry 2 }
+
+frResPartRowStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        add(1),
+        del(2),
+        mod(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for adding/deleting/modifying
+        resource partition on a frame relay port.
+        
+        In MGX Release 1.x:
+            To add an entry, this object should be set to add, value for
+            other objects should not be specified. FRSM will choose
+            default values for all other objects.
+        
+        In MGX Release 2.x:
+            To add an entry, this object should be set to add, value
+            for  frResPartCtrlrID may be specified. FRSM will choose
+            default values for all other objects.
+        
+        To delete an entry, this object has to be set to del.
+        
+        Currently the value mod is not supported.
+        
+        The resource partition can be deleted only after
+        deleting all the connections (LCNs)."
+    ::= { frPortCnfResPartGrpEntry 3 }
+
+frResPartNumOfLcnAvail OBJECT-TYPE
+    SYNTAX INTEGER(0..16000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " This represents number of LCNs available for this
+        controller and this port.
+        FRSM VHS 2CT3 can support LCNs upto 4000.
+        FRSM12 can support LCNs upto 16000."
+    ::= { frPortCnfResPartGrpEntry 4 }
+
+frResPartDlciLow OBJECT-TYPE
+    SYNTAX INTEGER(0..8388607)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This represents low end of reserved DLCI."
+    ::= { frPortCnfResPartGrpEntry 5 }
+
+frResPartDlciHigh OBJECT-TYPE
+    SYNTAX INTEGER(0..8388607)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This represents high end of reserved DLCI."
+    ::= { frPortCnfResPartGrpEntry 6 }
+
+frResPartIngrPctBW OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    percentage
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of total ingress bandwidth reserved."
+    ::= { frPortCnfResPartGrpEntry 7 }
+
+frResPartEgrPctBW OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    percentage
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of total egress bandwidth reserved."
+    ::= { frPortCnfResPartGrpEntry 8 }
+
+frResPartCtrlrID OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the controller identifier for the  
+        resource patition.
+        The  default value is set for PNNI controller.
+        Refer object frResPartCtrlrNum."
+    DEFVAL { 2 }
+    ::= { frPortCnfResPartGrpEntry 9 }
+
+ciscoWanFrRsrcPartGroup OBJECT IDENTIFIER ::= { cwfRsrcPartMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--    Frame Relay Port resource partition configuration
+--    information.
+--  objects
+--    frResPartPortNum, frResPartCtrlrNum, frResPartRowStatus, 
+--    frResPartNumOfLcnAvail, frResPartDlciLow, frResPartDlciHigh, 
+--    frResPartIngrPctBW, frResPartEgrPctBW, frResPartCtrlrID
+
+ciscoWanFrRsrcPartCompliance OBJECT IDENTIFIER ::= { cwfRsrcPartMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Frame Relay Resource Partition MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoWanFrRsrcPartGroup
+
+
+END
+

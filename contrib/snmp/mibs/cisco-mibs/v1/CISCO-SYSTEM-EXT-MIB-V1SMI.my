@@ -1,0 +1,1382 @@
+-- MIB file created 19-Jul-2016 14:41:11, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SYSTEM-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SYSTEM-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, DateAndTime
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    sysName
+            FROM RFC1213-MIB
+    EntPhysicalIndexOrZero, TimeIntervalSec
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoSystemExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 305 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201606140000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    MIB module for monitoring High Availability, SNMP SET
+--    errors and bandwidths.  This mib module also provides the
+--    information on core files that are generated in the
+--    system.
+--    GLOSSARY
+--    FIPS Federal Information Processing Standards Publication.
+--  RevDate
+--    201607190000Z
+--  RevDescr
+--    Added support for ciscoSysReloadGroup.
+--  RevDate
+--    201606070000Z
+--  RevDescr
+--    Added cseMaintModeState object.
+--    Added new notifications cseNormalModeChangeNotify and 
+--    cseMaintModeChangeNotify.
+--    Added new group ciscoSystemMaintModeGroup.
+--    Added new objects ciscoSystemNormalModeNotifEnable and 
+--    ciscoSystemMaintModeNotifEnable.
+--    Added new group ciscoSystemMaintModeNotifControl.
+--    Added compilance ciscoSystemExtMIBComplianceRev10 to replace
+--    ciscoSystemExtMIBComplianceRev9.
+--    Added object group ciscoSystemMaintModeObjectsGroup and
+--    notification group ciscoSystemMaintModeNotificationGroup.
+--  RevDate
+--    201508190000Z
+--  RevDescr
+--    Added support for ciscoSystemSwitchingModeObjectsGroup.
+--  RevDate
+--    200708060000Z
+--  RevDescr
+--    -Added a scalar object 'cseSysUpTime'
+--    -Added an Object Group ciscoSystemExtInfoGroupRev3 and
+--     a MODULE-COMPLIANCE ciscoSystemExtMIBComplianceRev8
+--     to include the new object.
+--  RevDate
+--    200611290000Z
+--  RevDescr
+--    Added ciscoSystemExtInfoFIPSGroup.
+--    Added a new object cseSysFIPSModeActivation.
+--  RevDate
+--    200609250000Z
+--  RevDescr
+--    -Added cseSwCoresFileName in cseSwCoresTable.
+--    -Added new notification cseFailSwCoreNotifyExtended.
+--    -Added new group ciscoSystemExtSwFailureGroup3.
+--    -Added new group ciscoSystemExtNotificationGroupSup2.
+--    -Added compliance ciscoSystemExtMIBComplianceRev6 to
+--     replace ciscoSystemExtMIBComplianceRev5.
+--    -Added new group ciscoSystemExtSwFailureControlGroup.
+--    -Added new ciscoSwFailureNotifEnable object.
+--  RevDate
+--    200511090000Z
+--  RevDescr
+--    Added a new group ciscoSystemExtInfoTelnetGroup.
+--    Added a new object cseSysTelnetServiceActivation.
+--  RevDate
+--    200506140000Z
+--  RevDescr
+--    Updated CseHaRestartReason
+--    Added a new table cseSwCoresTable. 
+--    Added notifications - cseFailSwCoreNotify
+--                        - cseShutDownNotify
+--    Added a new group ciscoSystemExtSwFailureGroup2.
+--    Added a new group ciscoSystemExtNotificationGroup1.
+--    
+--    Added a new object cseSysConsolePortStatus. 
+--    Added a new group ciscoSystemExtInfoGroupRev2.
+--    Added a new compliance group 
+--            ciscoSystemExtMIBComplianceRev4.
+--  RevDate
+--    200404190000Z
+--  RevDescr
+--    Added a new object cseSwCorePath.
+--  RevDate
+--    200305020000Z
+--  RevDescr
+--    Added a new object cseWriteErase.
+--    Added a new group ciscoSystemExtInfoGroupOptional.
+--    A new compliance ciscoSystemExtMIBComplianceRev2 
+--    added to replace ciscoSystemExtMIBComplianceRev1.
+--  RevDate
+--    200303020000Z
+--  RevDescr
+--    Added cseSysAutoSync and cseSysAutoSyncState.
+--  RevDate
+--    200211190000Z
+--  RevDescr
+--    Added cseSysConfLastChange.
+--  RevDate
+--    200210040000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSystemExtMIBNotifsPrefix OBJECT IDENTIFIER ::= { ciscoSystemExtMIB 0 }
+ciscoSystemExtMIBObjects OBJECT IDENTIFIER ::= { ciscoSystemExtMIB 1 }
+ciscoSystemExtMIBConformance OBJECT IDENTIFIER ::= { ciscoSystemExtMIB 2 }
+ciscoSysInfoGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 1 }
+ciscoSysErrorGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 2 }
+ciscoHaGroup    OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 3 }
+ciscoSwFailureGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 4 }
+ciscoSwFailureNotifControl OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 5 }
+ciscoSystemSwitchingModeGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 6 }
+ciscoSystemMaintModeGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 7 }
+ciscoSystemMaintModeNotifControl OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 8 }
+ciscoSystemReloadGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBObjects 9 }
+cseHaNotification OBJECT IDENTIFIER ::= { ciscoHaGroup 5 }
+cseHaNotificationPrefix OBJECT IDENTIFIER ::= { cseHaNotification 0 }
+cseFailNotification OBJECT IDENTIFIER ::= { ciscoSwFailureGroup 3 }
+cseFailNotificationPrefix OBJECT IDENTIFIER ::= { cseFailNotification 0 }
+cseMaintModeNotification OBJECT IDENTIFIER ::= { ciscoSystemMaintModeGroup 2 }
+cseMaintModeNotificationPrefix OBJECT IDENTIFIER ::= { cseMaintModeNotification 0 }
+ciscoSystemExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoSystemExtMIBConformance 1 }
+ciscoSystemExtMIBGroups OBJECT IDENTIFIER ::= { ciscoSystemExtMIBConformance 2 }
+
+CseHaRestartReason ::= INTEGER {
+        unknown(1),
+        ungracefulExit(2),
+        otherSignal(3),
+        sigterm(4),
+        softwareUpgrade(5),
+        configUpdate(6),
+        configRemove(7),
+        shutdown(8),
+        aborted(9),
+        heartbeatFailure(10),
+        userTerminate(11),
+        gracefulExit(12),
+        noCallHomeFailure(13),
+        serviceTimeout(14)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Reason codes for the restart of a service.
+--    unknown (1)           - ungraceful exit
+--    ungracefulExit (2)    - ungraceful exit
+--    otherSignal (3)       - service got some other signal
+--    sigterm (4)           - received SIGTERM
+--    softwareUpgrade (5)   - software upgrade
+--    configUpdate (6)      - config update
+--    configRemove (7)      - config removal
+--    shutdown (8)          - manually shutdown
+--    aborted (9)           - aborted
+--    heartbeatFailure (10) - heartbeat failure
+--    userTerminate (11)    - user termination
+--    gracefulExit (12)     - graceful exit
+--    failureNoCallhome (13)- service exited but it 
+--                            does not want a callhome
+--                            message to be generated 
+--    serviceTimeout (14)   - service timeout
+
+CiscoMaintModeState ::= INTEGER {
+        normal(1),
+        maintenance(2),
+        unplannedMaint(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Maintenance Mode state for the system.
+--    normal (1)            - normal operational state
+--    maintenance (2)       - maintenance mode operational state
+--    unplannedMaint (3)    - unplanned maintenance state
+
+cseSysCPUUtilization OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average utilization of CPU on the active
+        supervisor."
+    ::= { ciscoSysInfoGroup 1 }
+
+cseSysMemoryUtilization OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    %
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average utilization of memory on the active
+        supervisor."
+    ::= { ciscoSysInfoGroup 2 }
+
+cseSysConfLastChange OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The local date and time when the
+        configuration was last changed. This object will 
+        be set to zero on power cycle or on reboot of 
+        the system. Also, if the clock is changed on 
+        local system it is set to zero."
+    ::= { ciscoSysInfoGroup 3 }
+
+cseSysAutoSync OBJECT-TYPE
+    SYNTAX INTEGER {
+        sync(1),
+        noSync(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the auto synchronization of images
+        between the active and standby supervisor.
+        Setting the value to sync when the existing value
+        is sync, has no effect on the operation."
+    DEFVAL { noSync }
+    ::= { ciscoSysInfoGroup 4 }
+
+cseSysAutoSyncState OBJECT-TYPE
+    SYNTAX INTEGER {
+        inProgress(1),
+        succeeded(2),
+        failed(3),
+        notStarted(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the current auto synchronization
+        process, or if no such process is in progress,  
+        then the state of the most recent one.  The 
+        value 'notStarted' indicates no auto synchronization 
+        process has occurred recently."
+    ::= { ciscoSysInfoGroup 5 }
+
+cseWriteErase OBJECT-TYPE
+    SYNTAX INTEGER {
+        noOp(1),
+        eraseAll(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to initiate a write erase on the
+        device's saved configuration file(s) from which the 
+        device loads its configuration when it restarts.
+        
+        If the value of this object is set to 'eraseAll', then
+        all the saved configurations are removed.
+        
+        No action is taken when the this object is set to 
+        'noOp'.
+        When read, the value of this object is always 'noOp'."
+    ::= { ciscoSysInfoGroup 6 }
+
+cseSysConsolePortStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        connected(1),
+        notConnected(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the status of the console
+        port on this device.  
+        
+        The status 'connected' means that there is
+        a cable attached to the console port.
+        
+        The status 'notConnected' means that there is
+        no connection out of the console port."
+    ::= { ciscoSysInfoGroup 7 }
+
+cseSysTelnetServiceActivation OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables or disables the Telnet service on the
+        device. In other words, it enables or disables
+        the telneting to the device."
+    DEFVAL { true }
+    ::= { ciscoSysInfoGroup 8 }
+
+cseSysFIPSModeActivation OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to enable/disable FIPS mode  on the device.
+        FIPS 140-2 is a set of security requirements for cryptographic
+        modules and it details the U.S. Government requirements for
+        cryptographic modules.
+        A module will comprise both hardware and software, eg a
+        datacenter  switching or routing module. The module is said to
+        be in FIPS enabled mode when a request is recieved to enable the
+        FIPS mode and a set of self-tests are successfully run in
+        response to the request. If the self-tests fail, then an
+        appropriate error is returned."
+    REFERENCE
+        "FIPS PUB 140-2 Security Requirements for Cryptographic  
+               Modules"
+    DEFVAL { false }
+    ::= { ciscoSysInfoGroup 9 }
+
+cseSysUpTime OBJECT-TYPE
+    SYNTAX TimeIntervalSec
+--    Rsyntax Gauge
+--  Units
+--    Seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time (in seconds) since the entire system
+        was last re-initialized as a result of reload. The 
+        initialization being system loaded and running with a system
+        image software on the first active supervisor (SUP). In High 
+        Availibility (HA) capable system / System that provides 
+        Supervisor module redundancy, this uptime indicates time 
+        elapsed since the first active SUP was booted. This will not 
+        change even if the active SUP goes down and stand-by takes
+        over as active."
+    ::= { ciscoSysInfoGroup 10 }
+
+cseSnmpErrorTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CseSnmpErrorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing information about the errors which have
+        recently caused the generation of a SNMP Response PDU with a 
+        non-zero value in its error-status field for SNMP Set Response
+        PDU. 
+        
+        This table serves as an extension to the SNMP's error status 
+        when a SNMP Set request fails. SNMP returns only a pre-defined
+        set of standard error codes which does not convey the specific 
+        cause for an error. Typically, there is an incumbent and 
+        sizable burden on the configuration application to determine 
+        if the configuration request failure is the result of a 
+        resource issue, a security issue, or an application error 
+        (like an object depending on some other objects). So from a 
+        user perspective, it is important that a specific error be 
+        made known.
+        
+        Ideally, when a 'badValue' error occurs for a given set 
+        request, an application can query the command responder for 
+        more details on the error. 
+        
+        This table provides a framework for the command responders to 
+        provide more information on the SET errors.
+        
+        It is up to the implementation to create entries in this table 
+        for either only certain SNMP errors or all of the SNMP errors.
+        
+        Note that only most recent incarnation of an entry is kept in 
+        this table."
+    ::= { ciscoSysErrorGroup 1 }
+
+cseSnmpErrorEntry OBJECT-TYPE
+    SYNTAX CseSnmpErrorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the  cseSnmpErrorTable, containing
+        information about an error which has recently caused a SNMP 
+        SetRequest to fail.  An entry is created by the agent 
+        on the occurrence of an error, and is deleted approximately 5
+        minutes later. The reasons for this are :
+        - to prevent old entries clogging the table.
+        - optimal utilization of the resources like memory."
+    INDEX { cseSnmpErrorAddressType, cseSnmpErrorAddress, cseSnmpErrorRequestId }
+    ::= { cseSnmpErrorTable 1 }
+
+CseSnmpErrorEntry ::= SEQUENCE {
+    cseSnmpErrorAddressType InetAddressType,
+    cseSnmpErrorAddress InetAddress,
+    cseSnmpErrorRequestId Gauge,
+    cseSnmpErrorCode Gauge,
+    cseSnmpErrorDescription SnmpAdminString
+    }
+
+cseSnmpErrorAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of address from which the error-ed SetRequest
+        originated."
+    ::= { cseSnmpErrorEntry 1 }
+
+cseSnmpErrorAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The address from which the error-ed SetRequest originated."
+    ::= { cseSnmpErrorEntry 2 }
+
+cseSnmpErrorRequestId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The request-id of the error-ed SetRequest."
+    ::= { cseSnmpErrorEntry 3 }
+
+cseSnmpErrorCode OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The code for the Mib object specific error which
+        caused a SetRequest to fail.
+        This error code is platform-specific and for debugging
+        purposes only. For information on this code, the 
+        corresponding instance of cseSnmpErrorDescription must be 
+        used. 
+        This code is not the same as the value contained
+        in the error-status field of SNMP Response PDU."
+    ::= { cseSnmpErrorEntry 4 }
+
+cseSnmpErrorDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The error description for the error happened for the
+        SetRequest."
+    ::= { cseSnmpErrorEntry 5 }
+
+cseHaRestartReason OBJECT-TYPE
+    SYNTAX CseHaRestartReason
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        ungracefulExit(2),
+--        otherSignal(3),
+--        sigterm(4),
+--        softwareUpgrade(5),
+--        configUpdate(6),
+--        configRemove(7),
+--        shutdown(8),
+--        aborted(9),
+--        heartbeatFailure(10),
+--        userTerminate(11),
+--        gracefulExit(12),
+--        noCallHomeFailure(13),
+--        serviceTimeout(14)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The reason for most recent restart of a service on the
+        'active' supervisor."
+    ::= { ciscoHaGroup 2 }
+
+cseHaRestartStateless OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Tells if the most recent restart of a service on the
+        'active' supervisor was 'stateless' or not.
+         A 'stateless' restart of a service is where no runtime 
+         information is preserved while restarting the service."
+    ::= { ciscoHaGroup 3 }
+
+cseHaRestartService OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the service (or process) that was restarted on
+        the 'active' supervisor."
+    ::= { ciscoHaGroup 4 }
+
+cseHaShutDownReason OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The description of the reason as to why the system
+        is going to go down."
+    ::= { ciscoHaGroup 6 }
+
+cseSwCorePath OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Provides the path where the software cores are
+        stored on the system. The management application can
+        use this path to copy the cores from the system using
+        CISCO-FLASH-MIB."
+    ::= { ciscoSwFailureGroup 1 }
+
+cseSwCoresTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CseSwCoresEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing information about the system cores that
+        have been generated as an effect of some system failures."
+    ::= { ciscoSwFailureGroup 2 }
+
+cseSwCoresEntry OBJECT-TYPE
+    SYNTAX CseSwCoresEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the  cseSwCoresTable, containing
+        information about cores that have been generated."
+    INDEX { cseSwCoresModule, cseSwCoresProcName, cseSwCoresInstance }
+    ::= { cseSwCoresTable 1 }
+
+CseSwCoresEntry ::= SEQUENCE {
+    cseSwCoresModule EntPhysicalIndexOrZero,
+    cseSwCoresProcName SnmpAdminString,
+    cseSwCoresInstance Gauge,
+    cseSwCoresPID Gauge,
+    cseSwCoresTimeCreated DateAndTime,
+    cseSwCoresSlotNum Gauge,
+    cseSwCoresFileName SnmpAdminString
+    }
+
+cseSwCoresModule OBJECT-TYPE
+    SYNTAX EntPhysicalIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The physical module on which the process crashed."
+    ::= { cseSwCoresEntry 1 }
+
+cseSwCoresProcName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the process that crashed and generated core."
+    ::= { cseSwCoresEntry 2 }
+
+cseSwCoresInstance OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The instance of the core for a process identified by
+        cseSwCoresProcName and on the module identified by
+        cseSwCoresModule. 
+        
+        To uniquely identify a core, the module number and 
+        process name are not sufficient as there could be 
+        multiple cores for the same module number and process
+        name."
+    ::= { cseSwCoresEntry 3 }
+
+cseSwCoresPID OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The process identifier of the process that dumped the
+        core."
+    ::= { cseSwCoresEntry 4 }
+
+cseSwCoresTimeCreated OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time at which the core was created."
+    ::= { cseSwCoresEntry 5 }
+
+cseSwCoresSlotNum OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The slot number corresponding to the cseSwCoresModule
+        in this chassis."
+    ::= { cseSwCoresEntry 6 }
+
+cseSwCoresFileName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the core file-name(including the
+        path, relative to the value in the cseSwCorePath object). 
+        If the cseSwCorePath contains zero length octet string,
+        then this object will contain the filename with absolute
+        path.  If this object contains zero length octet string,
+        then the core file is available in path identified in
+        cseSwCorePath."
+    ::= { cseSwCoresEntry 7 }
+
+ciscoSystemSwitchingModeAdmin OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        notApplicable(2),
+        nexus3000(3),
+        nexus9000(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Object to specify system's switching mode.
+        
+        'other'         - any other state not covered by below enumerations
+        'notApplicable' - switching mode configuration is not applicable
+                          for this system
+        'nexus3000'     - system switching mode is configured as Nexus 3000
+        'nexus9000'     - system switching mode is configured as Nexus 9000."
+    ::= { ciscoSystemSwitchingModeGroup 1 }
+
+ciscoSystemSwitchingModeOper OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        notApplicable(2),
+        nexus3000(3),
+        nexus9000(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Object indicate system's operational switching mode.
+        
+        'other'         - any other state not covered by below enumerations
+        'notApplicable' - switching mode configuration is not applicable
+                          for this system
+        'nexus3000'     - system is opeerating in Nexus 3000 mode
+        'nexus9000'     - system is opeerating in Nexus 9000 mode."
+    ::= { ciscoSystemSwitchingModeGroup 2 }
+
+cseMaintModeState OBJECT-TYPE
+    SYNTAX CiscoMaintModeState
+--    Rsyntax INTEGER {
+--        normal(1),
+--        maintenance(2),
+--        unplannedMaint(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maintenance mode operational state for the system."
+    ::= { ciscoSystemMaintModeGroup 1 }
+
+cseSystemReloadPending OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to indicate if a system reload is needed to
+        make feature configuration change effective.
+        
+        The object returns 'true' if a system reload is required; it returns
+        'false' if no system reload is required."
+    ::= { ciscoSystemReloadGroup 1 }
+
+ciscoSwFailureNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for administratively
+        enabling/disabling the cseFailSwCoreNotify or
+        cseFailSwCoreNotifyExtended notifications."
+    DEFVAL { false }
+    ::= { ciscoSwFailureNotifControl 1 }
+
+ciscoSystemNormalModeNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for administratively
+        enabling/disabling the cseNormalModeChangeNotify."
+    DEFVAL { false }
+    ::= { ciscoSystemMaintModeNotifControl 1 }
+
+ciscoSystemMaintModeNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for administratively
+        enabling/disabling the cseMaintModeChangeNotify."
+    DEFVAL { false }
+    ::= { ciscoSystemMaintModeNotifControl 2 }
+
+cseHaRestartNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cseHaNotification
+    VARIABLES {
+        cseHaRestartReason, cseHaRestartService, 
+        cseHaRestartStateless }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A service restart notification is generated
+        whenever a service (or a process) on the 'active' 
+        supervisor is restarted."
+    ::= 1
+
+cseShutDownNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cseHaNotification
+    VARIABLES {
+        cseHaShutDownReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A system shutdown notification is generated
+        whenever a system is going to shut down. The
+        cseHaShutDownReason, describes the reason as to
+        why the system is going to go down."
+    ::= 2
+
+cseFailSwCoreNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cseFailNotification
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification is generated whenever a software
+        crash occurs and a core file is generated."
+    ::= 1
+
+cseFailSwCoreNotifyExtended TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cseFailNotification
+    VARIABLES {
+        sysName, cseSwCoresFileName, cseSwCorePath, cseSwCoresPID }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification is generated whenever a software
+        crash occurs and a core file is generated."
+    ::= 2
+
+cseNormalModeChangeNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cseMaintModeNotification
+    VARIABLES {
+        cseMaintModeState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A normal mode state change is generated when the system
+        is changed from maintenance mode to normal mode."
+    ::= 1
+
+cseMaintModeChangeNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cseMaintModeNotification
+    VARIABLES {
+        cseMaintModeState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A maintenance mode state change is generated when the system
+        is changed from normal mode to maintenance mode."
+    ::= 2
+
+ciscoSystemExtInfoGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for system information.
+--    ciscoSystemExtInfoGroup object is superseded by ciscoSystemExtInfoGroupRev1.
+--  objects
+--    cseSysCPUUtilization, cseSysMemoryUtilization, 
+--    cseSysConfLastChange
+
+ciscoSystemExtErrorGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for logging SNMP set error.
+--  objects
+--    cseSnmpErrorCode, cseSnmpErrorDescription
+
+ciscoSystemExtHaGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for High Availability.
+--  objects
+--    cseHaRestartReason, cseHaRestartService, 
+--    cseHaRestartStateless
+
+ciscoSystemExtInfoGroupRev1 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for system information.
+--    ciscoSystemExtInfoGroupRev1 object is superseded by ciscoSystemExtInfoGroupRev3.
+--  objects
+--    cseSysCPUUtilization, cseSysMemoryUtilization, 
+--    cseSysConfLastChange, cseSysAutoSync, cseSysAutoSyncState
+
+ciscoSystemExtInfoGroupOptional OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for system information
+--    which are optional.
+--  objects
+--    cseWriteErase
+
+ciscoSystemExtSwFailureGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for system software failure
+--    information which are optional.
+--  objects
+--    cseSwCorePath
+
+ciscoSystemExtInfoGroupRev2 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for system information.
+--  objects
+--    cseSysConsolePortStatus
+
+ciscoSystemExtSwFailureGroup2 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for system software failure
+--    information which are optional.
+--  objects
+--    cseSwCoresPID, cseSwCoresTimeCreated, cseSwCoresSlotNum
+
+ciscoSystemExtHaGroupRev1 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for High Availability.
+--  objects
+--    cseHaShutDownReason
+
+ciscoSystemExtInfoTelnetGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to telnet support
+--    to the device.
+--  objects
+--    cseSysTelnetServiceActivation
+
+ciscoSystemExtSwFailureGroup3 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to the core file.
+--  objects
+--    cseSwCoresFileName
+
+ciscoSystemExtSwFailureControlGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group of objects controls the sending of
+--    notifications defined in this MIB module.
+--  objects
+--    ciscoSwFailureNotifEnable
+
+ciscoSystemExtInfoFIPSGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to FIPS support
+--    to the device.
+--  objects
+--    cseSysFIPSModeActivation
+
+ciscoSystemExtInfoGroupRev3 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for system information.
+--  objects
+--    cseSysCPUUtilization, cseSysMemoryUtilization, 
+--    cseSysConfLastChange, cseSysAutoSync, cseSysAutoSyncState, 
+--    cseSysUpTime
+
+ciscoSystemSwitchingModeObjectsGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support Switching Mode feature.
+--  objects
+--    ciscoSystemSwitchingModeAdmin, ciscoSystemSwitchingModeOper
+
+ciscoSystemMaintModeObjectsGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 19 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support Maint mode state feature.
+--  objects
+--    cseMaintModeState, ciscoSystemNormalModeNotifEnable, 
+--    ciscoSystemMaintModeNotifEnable
+
+ciscoSystemReloadObjectsGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 21 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support system reload.
+--  objects
+--    cseSystemReloadPending
+
+ciscoSystemExtNotificationGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for the
+--    High Availability.
+--  notifications
+--    cseHaRestartNotify
+
+ciscoSystemExtNotificationGroupSup1 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 10 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for the
+--    system MIB.
+--  notifications
+--    cseShutDownNotify, cseFailSwCoreNotify
+
+ciscoSystemExtNotificationGroupSup2 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 13 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notification related to core file
+--    creation.
+--  notifications
+--    cseFailSwCoreNotifyExtended
+
+ciscoSystemMaintModeNotificationGroup OBJECT IDENTIFIER ::= { ciscoSystemExtMIBGroups 20 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notification related to core file
+--    creation.
+--  notifications
+--    cseNormalModeChangeNotify, cseMaintModeChangeNotify
+
+ciscoSystemExtMIBCompliance OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroup
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+
+ciscoSystemExtMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev1
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+
+ciscoSystemExtMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev1
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+
+ciscoSystemExtMIBComplianceRev3 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev1
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+
+ciscoSystemExtMIBComplianceRev4 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev1
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev2
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroupSup1
+--   MandGroup
+--    ciscoSystemExtHaGroupRev1
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+
+ciscoSystemExtMIBComplianceRev5 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 6 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev1
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev2
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroupSup1
+--   MandGroup
+--    ciscoSystemExtHaGroupRev1
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup2
+--   OptGroup
+--    ciscoSystemExtInfoTelnetGroup
+
+ciscoSystemExtMIBComplianceRev6 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 7 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement the
+--    CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev1
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev2
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   MandGroup
+--    ciscoSystemExtHaGroupRev1
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup2
+--   OptGroup
+--    ciscoSystemExtInfoTelnetGroup
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup3
+--   OptGroup
+--    ciscoSystemExtNotificationGroupSup2
+--   OptGroup
+--    ciscoSystemExtNotificationGroupSup1
+--   OptGroup
+--    ciscoSystemExtSwFailureControlGroup
+
+ciscoSystemExtMIBComplianceRev7 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 8 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev1
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev2
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroupSup1
+--   MandGroup
+--    ciscoSystemExtHaGroupRev1
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup2
+--   OptGroup
+--    ciscoSystemExtInfoTelnetGroup
+--   OptGroup
+--    ciscoSystemExtInfoFIPSGroup
+
+ciscoSystemExtMIBComplianceRev8 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 9 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev3
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev2
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroupSup1
+--   MandGroup
+--    ciscoSystemExtHaGroupRev1
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup2
+--   OptGroup
+--    ciscoSystemExtInfoTelnetGroup
+--   OptGroup
+--    ciscoSystemExtInfoFIPSGroup
+
+ciscoSystemExtMIBComplianceRev9 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 11 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev3
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev2
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroupSup1
+--   MandGroup
+--    ciscoSystemExtHaGroupRev1
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup2
+--   OptGroup
+--    ciscoSystemExtInfoTelnetGroup
+--   OptGroup
+--    ciscoSystemExtInfoFIPSGroup
+--   OptGroup
+--    ciscoSystemSwitchingModeObjectsGroup
+
+ciscoSystemExtMIBComplianceRev10 OBJECT IDENTIFIER ::= { ciscoSystemExtMIBCompliances 12 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-SYTEM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev3
+--   MandGroup
+--    ciscoSystemExtInfoGroupRev2
+--   MandGroup
+--    ciscoSystemExtErrorGroup
+--   MandGroup
+--    ciscoSystemExtHaGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroup
+--   MandGroup
+--    ciscoSystemExtNotificationGroupSup1
+--   MandGroup
+--    ciscoSystemExtHaGroupRev1
+--   OptGroup
+--    ciscoSystemExtInfoGroupOptional
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup
+--   OptGroup
+--    ciscoSystemExtSwFailureGroup2
+--   OptGroup
+--    ciscoSystemExtInfoTelnetGroup
+--   OptGroup
+--    ciscoSystemExtInfoFIPSGroup
+--   OptGroup
+--    ciscoSystemSwitchingModeObjectsGroup
+--   OptGroup
+--    ciscoSystemMaintModeObjectsGroup
+--   OptGroup
+--    ciscoSystemMaintModeNotificationGroup
+
+
+END
+

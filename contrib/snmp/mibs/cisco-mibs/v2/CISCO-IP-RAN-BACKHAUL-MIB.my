@@ -1,0 +1,4057 @@
+-- *****************************************************************
+-- CISCO-IP-RAN-BACKHAUL-MIB: MIB for providing information and
+-- measurements on backhaul traffic used by the Cisco IP Radio
+-- Access Network Transport optimization.
+--   
+-- July 2005 John Linton
+--   
+-- Copyright (c) 2004-2007, 2009-2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-IP-RAN-BACKHAUL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    Counter32,
+    Integer32,
+    Unsigned32,
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    ifDescr,
+    ifIndex,
+    InterfaceIndex,
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    PerfIntervalCount,
+    PerfCurrentCount
+        FROM PerfHist-TC-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    AutonomousType,
+    TimeStamp,
+    TruthValue,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpRanBackHaulMIB MODULE-IDENTITY
+    LAST-UPDATED    "201005040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc
+            Customer Service
+
+            Postal: 170 W. Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ran-o@cisco.com"
+    DESCRIPTION
+        "This MIB provides information on the IP-RAN traffic
+        from cell site to aggregation site in the following
+        situations.  In an GSM environment the cell site will
+        be the Base station Transceiver System(BTS) and the
+        aggregation site will be the Base Station
+        Controller(BSC).  In the UMTS environment the cell
+        site will be the B-Node and the aggregation site will
+        Radio Network Controller(RNC).
+
+
+
+        There are two typical type backhaul, also know
+        as longhaul, links.  The traditional backhaul
+        connection consists of a PPP multilink containing two
+        or more E1 or T1 links or ATM or ATM/IMA.  The
+        alternate backhaul is traffic transported using
+        IP cloud.
+
+
+        Simple back-to-back configuration
+        ---------------------------------
+           This setup consists of two devices that
+           support a limited number of GSM and UMTS links.
+           They are deployed in pairs and inserted between
+           the existing BTS device and BSC device.
+
+               BTS site               BSC site
+
+           GSM-Abis                           GSM-Abis
+           ----||||||||    Backhaul   ||||||||----
+           ----|      |---------------|      |----
+           ----|      |---------------|      |----
+               ||||||||               ||||||||
+
+               RNC  B-Node site       RNC
+
+           UMTS                                UMTS
+           ----||||||||    Backhaul   ||||||||----
+           ----|      |---------------|      |----
+           ----|      |---------------|      |----
+               ||||||||               ||||||||
+                  |                       |
+                  |-----------------------|
+                   Alternate backhaul over
+                   IP cloud
+
+
+        Aggregate node configuration
+        ----------------------------
+        This configuration consists of one aggregate node
+        located at BSC site and several devices at BTS
+        sites. The aggregate device has a seperate backhaul
+        link to each BTS site.
+
+            BTS site                BSC site
+
+                                   Aggregate
+        GSM                                GSM
+        ----||||||||    Backhaul   ||||||||----
+        ----|      |---------------|      |----
+        ----|      |---------------|      |----
+            ||||||||               |      |
+               .                   |      | .
+               .                   |      | .
+        GSM    .                   |      | .
+        ----||||||||    Backhaul   |      |----
+        ----|      |---------------|      |----
+        ----|      |---------------|      |----
+            ||||||||               ||||||||
+
+
+             RNC                   B-Node
+        UMTS                                UMTS
+        ----||||||||    Backhaul   ||||||||----
+        ----|      |---------------|      |----
+        ----|      |---------------|      |----
+            ||||||||               |      |
+               |     Alternate     |      |
+               |        ....       |      |
+               -------.      .     |      |
+                      . IP   .     |      |
+                      . Cloud.-----|      |
+                      .      .     |      |
+               -------.      .     |      |
+               |       ......      |      |
+               |    Backhaul       |      |
+        UMTS   |                   |      |
+        ----||||||||    Backhaul   |      |----
+        ----|      |---------------|      |----
+        ----|      |---------------|      |----
+            ||||||||               ||||||||
+
+
+                           Compression
+                           Multiplexing
+                               |
+        BSC <---------->||||||||  V   ||||||||<---------->BTS
+             . GSM    . |      |<---->|      | . GSM    .
+             . A(bis) . |      |<---->|      | . A(bis) .
+            <---------->||||||||      ||||||||<---------->
+                 A                A
+                 |                |
+            ShortHaul         BackHaul
+
+            Multiple E1/T1 Back Haul Links
+
+        Entries in these tables cannot be created or deleted
+        by the network management system.  All entries are
+        created or deleted by the agent.
+
+        Shorthaul interfaces support the following protocols.
+
+        Protocol    ifType
+        --------    ----------------------------
+        GSM-Abis    propPointToPointSerial(22)
+        UMTS-iub    atm(37)
+        UMTS/IMA    atmSubInterface(134)
+                   aal5(49)
+        ifType.44 = atmIma(107)
+
+
+        The following list provides the currently allowed
+        backhaul interfaces types.  Additional interfaces
+        types will be added as they are supported.
+
+        ifType
+        ---------------------------
+        ethernetCsmacd(6)
+        ppp(23) as Multilink bundle
+        pppMultilinkBundle(108)
+
+
+        In order to manage the IP-RAN optimization solution, two
+        key factors must be monitored. The first and most
+        important is the amount of traffic sent over the backhaul
+        interface.  The second is compression efficiency which has
+        a direct impact amount of traffic placed backhaul link.
+
+        MIB Structure
+        -------------
+        The MIB has the following structure.
+
+        Shorthaul information tables:
+         cirbhInfoTable
+
+        Shorthaul Alarm Information tables
+         cirbhGsmAlarmTable
+         cirbhUmtsConnectionTable
+         cirbhUmtsAlarmTable
+
+        Shorthaul statistics tables
+         cirbhStatsTable
+         cirbhErrorsTable(deprecated)
+         cirbhShortHaulHistoryTable(obsolete)
+         cirbhCongestionTable
+         cirbhGsmErrorsTable(replaces cirbhErrorsTable)
+         cirbhUmtsErrorsTable(replaces cirbhErrorsTable)
+
+        Backhaul information tables
+         cirbhBackHaulTable(obsolete)
+
+        Backhaul statistics tables
+         cirbhBackHaulHistoryTable(obsolete)
+         cirbhBackHaulStatsTable(obsolete)
+         cirbhBackHaulStatsHistoryTable(deprecated)
+
+        Abbreviations:
+            A-bis   Interface between BSC and BTS
+            AAL2    ATM Adaptation Layer type 2
+            AAL5    ATM Adaptation Layer type 5
+            AIM     Advanced Interface Module
+            AgNode  Aggregation Node
+            ALCAP   Access Link Control Application Part
+            AMR     Adaptive Multi-Rate speech codec
+            ATM     Asynchronous Transfer Mode
+            BCH     Broadcast Channel
+            BSC     Base Station Controller.
+            BTS     Base Station Transceiver System
+            CDF     CID Definition Field
+            CID     Channel IDentification
+            CPCH    Common Packet Channel
+            DCH     Dedicated Channel
+            DSCH    Downlink Shared Channel
+            DTX     Discontinuous Transmission (mechanism)
+            FACH    Forward Link Access Channel
+            GSM     Global System for Mobile communications
+            IMA     Inverse Multiplexing for ATM
+            Iub     Node B to RNC interface
+            OC3     Optical Carrier 3
+            OSF     OffSet Field
+            LAPD    Link Access Protocol on Dm Channel
+            O&M     Operations and Maintenance
+            MLPPP   Multi-Link PPP
+            MS      Mobile Station (Handset)
+            NBAP    Node B Application Part
+            NNI     Network to Network Interface
+            Node-B  Node B
+            PCH     Paging Channel
+            PVC     Permanent Virtual Circuit
+            RAN     Radio Access Network
+            SVC     Switched Virtual Circuit
+            RACH    Random Access Channel
+            RNC     Radio Network Controller
+            SAR     Segment Assembly Reassembly
+            SDC     Traffic Channel
+            SDH     Signaling Channel
+            SPVC    Soft Permanent Virtual Circuit
+            SSCOP   Service Specific Connection Oriented Protocol
+            STC     Signaling Transport Converter
+            STM-1   Synchronous Transport Module type 1
+            TRAU    Transcoder Unit
+            UMTS    Universal Mobile Telecommunications System
+            UNI     User to Network Interface
+            USCH    Uplink Shared Channel
+            UTRAN   UMTS Terrestrial Radio Access Network
+            VCI     Virtual Channel Identifier
+            VPI     Virtual Path Identifier"
+    REVISION        "201003240000Z"
+    DESCRIPTION
+        "The following tables are now obsolete and the
+        information provided in them can be calculated using
+        the objects in the cirbhShortHaulBulkTable.
+
+        cirbhShortHaulHistoryTable
+        cirbhBackHaulTable
+        cirbhBackHaulShortHaulTable
+        cirbhBackHaulHistoryTable
+        cirbhBackHaulStatsTable
+        cirbhBackHaulStatsHistoryTable
+
+        The following scalars are no longer used
+        in implementation of MIB.
+        cirbhBackHaulStatsInterval
+        cirbhBackHaulStatsEntries
+        cirbhBackHaulAcceptableThreshold
+        cirbhBackHaulWarningThreshold
+        cirbhBackHaulOverloadedThreshold
+        cirbhBackHaulUtilInterval
+        cirbhUtilNotifEnabled
+
+        The following notifications are now obsolete
+        and not supported.
+
+        ciscoIpRanBackHaulRcvdUtil
+        ciscoIpRanBackHaulSentUtil
+
+        Changes to Compliance and Conformance Statements
+
+        Changed status to obsolete
+        ciscoIpRanBackHaulMIBCompliance
+        ciscoIpRanBackHaulMIBComplianceRev1
+        ciscoIpRanBackHaulMIBComplianceRev2
+        ciscoIpRanBackHaulShortHaulGroup
+        ciscoIpRanBackHaulHistoryGroup
+        ciscoIpRanBackHaulNotifGroup
+        ciscoIpRanBackHaulHistoryGroupRev2
+
+        Added following as active
+        ciscoIpRanBackHaulMIBComplianceRev3
+        ciscoIpRanBackHaulHistoryGroupRev3"
+    REVISION        "200705300000Z"
+    DESCRIPTION
+        "Added the cirbhInfoOptimizeTraffic object to the
+        cirbhInfoTable.
+        Added OBJECT-GROUP ciscoIpRanBackHaulConfigGroupSup3 and
+        MODULE-COMPLIANCE ciscoIpRanBackHaulMIBComplianceRev2."
+    REVISION        "200608250000Z"
+    DESCRIPTION
+        "The following tables, objects and notifications have been
+        deprecated.
+
+        Scalars
+          cirbhBackHaulStatsInterval
+          cirbhBackHaulStatsEntries
+          cirbhBackHaulAcceptableThreshold
+          cirbhBackHaulWarningThreshold
+          cirbhBackHaulOverloadedThreshold
+          cirbhBackHaulUtilInterval
+          cirbhUtilNotifEnabled
+
+        cirbhErrorsTable
+        cirbhBackHaulTable
+        cirbhBackHaulShortHaulTable
+        cirbhBackHaulHistoryTable
+        cirbhBackHaulStatsTable
+        cirbhBackHaulStatsHistoryTable
+
+        The following tables and objects have been added.
+
+        cirbhInfoTable
+          cirbhInfoAdjectSerialNum
+          cirbhInfoAdjectVendorType
+          cirbhInfoBackhaulRxIfIndex
+          cirbhInfoBackhaulTxIfIndex
+          cirbhInfoShBulkLastIndex
+
+        cirbhGsmErrorsTable
+        cirbhUmtsErrorsTable
+        cirbhCongestionTable
+        cirbhShortHaulBulkTable"
+    REVISION        "200510180000Z"
+    DESCRIPTION
+        "Added cirbhUmtsConnectionRootIfIndex object
+        and cirbhBackHaulShortHaulTable."
+    REVISION        "200509130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 483 }
+
+
+ciscoIpRanBackHaulMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIB 0 }
+
+ciscoIpRanBackHaulMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIB 1 }
+
+ciscoIpRanBackHaulMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIB 2 }
+
+cirbhScalars  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIBObjects 1 }
+
+cirbhObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIBObjects 2 }
+
+cirbhNotifEnables  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIBObjects 3 }
+
+cirbhShortHaul  OBJECT IDENTIFIER
+    ::= { cirbhObjects 1 }
+
+cirbhShortHaulInfo  OBJECT IDENTIFIER
+    ::= { cirbhShortHaul 1 }
+
+cirbhShortHaulAlarmInfo  OBJECT IDENTIFIER
+    ::= { cirbhShortHaul 2 }
+
+cirbhShortHaulStats  OBJECT IDENTIFIER
+    ::= { cirbhShortHaul 3 }
+
+cirbhBackHaul  OBJECT IDENTIFIER
+    ::= { cirbhObjects 2 }
+
+cirbhBackHaulInfo  OBJECT IDENTIFIER
+    ::= { cirbhBackHaul 1 }
+
+cirbhBackHaulStats  OBJECT IDENTIFIER
+    ::= { cirbhBackHaul 2 }
+
+
+-- *************************************************************
+-- *                                                           *
+-- * Textual Conventions                                       *
+-- *                                                           *
+-- *************************************************************
+
+CirbhAlarmState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Alarm states of local and remote interfaces.
+        These states apply to both GSM and UMTS interfaces.
+
+          'blue' - Indicates a problem at the remote end. The alarm
+                   generate by the remote interface in the E1/T1 data
+                   stream is sent and no other action is required.
+
+          'green' - No alarm.
+
+          'red' - Indicates local interface problem.
+                  A-bis:
+                  The interface has not received synchronization
+                  from the GSM device. Device stops transmitting
+                  backhaul samples.
+
+          'yellow' - Indicates receive problem in the local device.
+                  The remote device stops transmitting
+                  backhaul data and indicates a blue alarm.
+
+          'unavailable' - Indicates the alarms state is not available.
+                  This state only applies to remote and occurs when
+                  peer connection is inactive."
+    SYNTAX          INTEGER  {
+                        blue(1),
+                        green(2),
+                        red(3),
+                        yellow(4),
+                        unavailable(5)
+                    }
+
+CirbhBackHaulUtilization ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "A percentage representing the average utilization of
+        backhaul interface."
+    SYNTAX          Integer32 (0..100)
+
+CirbhBackHaulUtilizationState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "BackHaul Utilization State:
+
+        'acceptable' - traffic for a specified direction is
+                       at the acceptable level.
+
+        'warning'    - traffic for a specified direction is
+                       above acceptable level but below the
+                       overloaded level.
+
+        'overloaded' - traffic for a specified direction
+                       has reached or exceeds overloaded level"
+    SYNTAX          INTEGER  {
+                        acceptable(1),
+                        warning(2),
+                        overloaded(3)
+                    }
+
+CirbhCommpressInterfaceRate ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "The traffic rate of data received from GSM or UMTS interface
+        after data has been compressed. The transmission compressed
+        interface rate is calculated after data compression and prior
+        to transmission on backhaul. The receive compression
+        interface rate is calculated after data is received and prior
+        to decompression."
+    SYNTAX          Unsigned32 (0..4294967295)
+
+CirbhConnectGsmState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The state of the GSM connection:
+
+        'connected'      - The device is monitoring local and
+                           remote alarm status.
+
+        'disconnected'   - The system ignores the local alarm
+                           status. The local transmitter on the
+                           short-haul is disabled. Capability
+                           messages are transmitted to the remote
+                           describing the provisioning. The system
+                           stays disconnected until the remote
+                           capabilities are known and the peer
+                           state is transitioned to connected.
+
+        'sendConnect'    - One or more attempts have been made to
+                           connect to remote peer.
+
+        'recConnect'     - The local-peer has received a connect
+                           request from the remote-peer.
+
+        'connectedRej'   - Connection was rejected.
+
+        'ackConnect'     - The initial connect request was sent
+                           and acknowledged by remote-peer. The
+                           local-peer is now waiting for a connect
+                           request from the remote-peer.
+
+        'connectedCheck' - The local-peer has reason to believe its
+                           remote-peer has failed. Additional tests
+                           are being processed to verify peer's
+                           state."
+    SYNTAX          INTEGER  {
+                        connected(1),
+                        disconnected(2),
+                        sendConnect(3),
+                        recConnect(4),
+                        connectedRej(5),
+                        ackConnect(6),
+                        connectedCheck(7)
+                    }
+
+CirbhConnectUmtsState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The state of the UMTS connection:
+
+        'init'        - The connection is starting initialization
+                        process.
+
+        'starting'    - The shorthaul interface is administratively
+                        active but the backhaul interface is down.
+
+        'closed'      - The backhaul interface is active but
+                        shorthaul is administratively closed.
+
+        'stopped'     - Unable to connect to peer in specified time
+                        interval. Additional attempts will be tried
+                        based on peer request or restart timers.
+
+        'closing'     - Connection closed by administration
+                        request.
+
+        'stopping'    - Connection shutdown by peer's Term-Request.
+                        Will transition to stopped state.
+
+        'connectSent' - Connection request sent to peer.
+
+        'ackReceived' - Connection request sent and acknowledgement
+                        has been received from peer. Now waiting
+                        for peer's connection request.
+
+        'ackSent'     - Connection request received and
+                        acknowledgement has been sent to peer.
+                        Connection request sent and waiting for
+                        peer's acknowledgement.
+
+        'open'        - Connection open and available for traffic."
+    SYNTAX          INTEGER  {
+                        init(1),
+                        starting(2),
+                        closed(3),
+                        stopped(4),
+                        closing(5),
+                        stopping(6),
+                        connectSent(7),
+                        ackReceived(8),
+                        ackSent(9),
+                        open(10)
+                    }
+
+CirbhHistoryIndex ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "The system maintains a system wide counter that
+        is incremented once a second. All tables that store
+        historical informations should use the provided integer
+        to that data from different tables can be easily compared
+        and referenced. The implementations should ensure that
+        the counters will not wrap and is only reset when device
+        is reloaded."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+CirbhProtocol ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The protocol used between BSC and BTS.
+
+        'undefined' : Protocol not defined.
+
+        'gsmAbis'   : Global System for Mobile communications
+                      A-bis Interface between BSC and BTS.
+
+        'umtsIub'   : Universal Mobile Telecommunications System
+                      Node B to RNC interface."
+    SYNTAX          INTEGER  {
+                        undefined(1),
+                        gsmAbis(2),
+                        umtsIub(3)
+                    }
+
+CirbhRawInterfaceRate ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "The rate of traffic, in bits per second, on an interface in
+        a particular direction prior to optimization for the
+        following flows:
+
+        Traffic received on UMTS or GSM-Abis interface
+        prior to compression and placement on backhaul
+        interface(Multilink).
+
+        Traffic received from backhaul
+        interface(Multilink) after decompression prior to
+        transmittion on UMTS or GSM-Abis interface."
+    SYNTAX          Unsigned32 (0..4294967295)
+
+CirbhRedundancyState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The Redundancy State of an interface. Used to
+        indicate which device was current owner of
+        interface.
+
+           'active'       - Active owner of interface.
+
+           'standby'      - Standby owner of interface."
+    SYNTAX          INTEGER  {
+                        active(1),
+                        standby(2)
+                    }
+
+CirbhShortHaulUtilization ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "A percentage representing the average load over one
+        second as a percent of E1 or T1."
+    SYNTAX          Integer32 (0..255)
+
+CirbhTrafficDirection ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Direction of traffic on an interface."
+    SYNTAX          INTEGER  {
+                        receive(1),
+                        transmit(2)
+                    }
+
+CirbhTrafficType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The types of traffic on backhaul interface.
+
+        'all'  - All types of traffic
+
+        'gsm'  - Only GSM based traffic
+
+        'umts' - Only UMTS based traffic"
+    SYNTAX          INTEGER  {
+                        all(1),
+                        gsm(2),
+                        umts(3)
+                    }
+
+-- *************************************************************
+-- *                                                           *
+-- * Scalars                                                   *
+-- *                                                           *
+-- *************************************************************
+
+cirbhSnmpTrafficMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        undefined(1),
+                        inBand(2),
+                        outOfBand(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object describes the mode of SNMP traffic for this
+        device in relationship to connectivity to network management
+        station. This will be used to define default behavior for
+        the device based on the on available bandwidth for
+        management.
+
+        'undefined' : Traffic mode is not defined.
+
+        'inBand'    : SNMP traffic uses same physical interfaces as
+                      voice traffic.
+
+        'outOfBand' : SNMP traffic does not use same physical
+                      interfaces as voice traffic." 
+    ::= { cirbhScalars 1 }
+
+cirbhLocation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        undefined(1),
+                        aggSite(2),
+                        cellSite(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object provides information on location of
+        the device to aid in topology display.
+
+          'undefined' : not defined.
+
+          'aggSite'   : Located at Base Station Controller or
+                        or Radio Network Controller site.
+
+          'cellSite'  : Located at Base Station Transceiver System
+                        or Node B site." 
+    ::= { cirbhScalars 2 }
+
+cirbhBackHaulStatsInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (60..3600)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "The length of the interval used to collect statistics in the
+        cirbhBackHaulStatsTable."
+    DEFVAL          { 900 } 
+    ::= { cirbhScalars 3 }
+
+cirbhBackHaulStatsEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (4..100)
+    UNITS           "entries"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "The maximum number of entries in the cirbhBackHaulStatsTable
+        table."
+    DEFVAL          { 100 } 
+    ::= { cirbhScalars 4 }
+
+cirbhBackHaulAcceptableThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (20..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object is used to specify a level of
+        traffic below which the instances of the
+        cirbhBackHaulRcvdUtilState and cirbhBackHaulSentUtilState
+        objects are marked as 'acceptable'. All changes to this
+        threshold will take effect at the end of the current
+        interval. The value for this object must be less than
+        the values specified by cirbhBackHaulOverloadedThreshold
+        and cirbhBackHaulWarningThreshold objects."
+    DEFVAL          { 60 } 
+    ::= { cirbhScalars 5 }
+
+cirbhBackHaulWarningThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (30..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object is used to specify a level of
+        traffic were the instances of the
+        cirbhBackHaulRcvdUtilState and cirbhBackHaulSentUtilState
+        objects are marked as 'warning'.  All changes to this
+        threshold will take effect at the end of the current
+        interval. The value for this object must be greater than
+        the value specified for the cirbhBackHaulAcceptableThreshold
+        object. Also, the value for this object must be less than or
+        equal to value of the cirbhBackHaulOverloadedThreshold
+        object."
+    DEFVAL          { 70 } 
+    ::= { cirbhScalars 6 }
+
+cirbhBackHaulOverloadedThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (40..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object is used to specify a level of
+        traffic were the instances of the
+        cirbhBackHaulRcvdUtilState and cirbhBackHaulSentUtilState
+        objects are marked as 'overloaded'. Changes to this
+        threshold will take effect at the end of the current
+        interval. The value for this object must be greater than
+        the value specified for the cirbhBackHaulAcceptableThreshold
+        object. Also, the value for this object must be greater than
+        or equal to value of the cirbhBackHaulWarningThreshold
+        object.
+
+        This object will be used to determine the state of the
+        cirbhBackHaulRcvdUtilState and cirbhBackHaulSentUtilState
+        objects."
+    DEFVAL          { 80 } 
+    ::= { cirbhScalars 7 }
+
+cirbhBackHaulUtilInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 60..3600)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "The length of the interval used to suppress
+        generation of the ciscoIpRanBackHaulRcvdUtil
+        and ciscoIpRanBackHaulSentUtil notifications.
+        Notification will not be suppressed when
+        zero value is specified."
+    DEFVAL          { 0 } 
+    ::= { cirbhScalars 8 }
+-- *************************************************************
+-- *                                                           *
+-- * Information Table                                         *
+-- *                                                           *
+-- *************************************************************
+
+cirbhInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhInfoTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information on interface used to
+        establish shorthaul connection to BTS or BSC or node
+        B site."
+    ::= { cirbhShortHaulInfo 1 }
+
+cirbhInfoTableEntry OBJECT-TYPE
+    SYNTAX          CirbhInfoTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes the information used to route
+        GSM and UMTS packets across backhaul for a single
+        GSM or UMTS link."
+    INDEX           { ifIndex } 
+    ::= { cirbhInfoTable 1 }
+
+CirbhInfoTableEntry ::= SEQUENCE {
+        cirbhInfoProtocol          CirbhProtocol,
+        cirbhInfoLocalAddrType     InetAddressType,
+        cirbhInfoLocalAddr         InetAddress,
+        cirbhInfoLocalPortNumber   InetPortNumber,
+        cirbhInfoRemoteAddrType    InetAddressType,
+        cirbhInfoRemoteAddr        InetAddress,
+        cirbhInfoRemotePortNumber  InetPortNumber,
+        cirbhInfoAdjectSerialNum   SnmpAdminString,
+        cirbhInfoAdjectVendorType  AutonomousType,
+        cirbhInfoBackhaulRxIfIndex InterfaceIndexOrZero,
+        cirbhInfoBackhaulTxIfIndex InterfaceIndexOrZero,
+        cirbhInfoShBulkLastIndex   CirbhHistoryIndex,
+        cirbhInfoOptimizeTraffic   TruthValue
+}
+
+cirbhInfoProtocol OBJECT-TYPE
+    SYNTAX          CirbhProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Protocol used to indicate type of shorthaul."
+    REFERENCE
+        "GSM-Abis - 3GPP TS 08.60 V8.2.1 (Rel99) GSM A-bis
+         specification for FR, EFR and AMR
+              UMTS-Iub - 3GPP TS 25.302" 
+    ::= { cirbhInfoTableEntry 1 }
+
+cirbhInfoLocalAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of address specified in the corresponding instance
+        of cirbhConfigLocalIpAddr object." 
+    ::= { cirbhInfoTableEntry 2 }
+
+cirbhInfoLocalAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local address used to route traffic across backhaul." 
+    ::= { cirbhInfoTableEntry 3 }
+
+cirbhInfoLocalPortNumber OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local port number used to distinguish traffic from this
+        interface when transported over backhaul connection." 
+    ::= { cirbhInfoTableEntry 4 }
+
+cirbhInfoRemoteAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of address in the in the corresponding instance of
+        the cirbhInfoRemoteAddr object." 
+    ::= { cirbhInfoTableEntry 5 }
+
+cirbhInfoRemoteAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote IP address used to route traffic across backhaul." 
+    ::= { cirbhInfoTableEntry 6 }
+
+cirbhInfoRemotePortNumber OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote port number used to distinguish traffic
+        from this interface when transported over backhaul
+        connection." 
+    ::= { cirbhInfoTableEntry 7 }
+
+cirbhInfoAdjectSerialNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the serial number of the adjacent
+        device supporting the other side of this shorthaul.  This object
+        contains the same value as the corresponding
+        entPhysicalSerialNum object on the adjacent device. The type of
+        object like chassis or module is provided by the
+        cirbhInfoAdjectVendorType object." 
+    ::= { cirbhInfoTableEntry 8 }
+
+cirbhInfoAdjectVendorType OBJECT-TYPE
+    SYNTAX          AutonomousType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the vendor type of the adjacent
+        device supporting other end of this shorthaul.  This
+        objectcontains the same value as the corresponding
+        entPhysicalVendorType object on the adjacent device." 
+    ::= { cirbhInfoTableEntry 9 }
+
+cirbhInfoBackhaulRxIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the ifIndex of the interface
+        used to receive traffic from destination." 
+    ::= { cirbhInfoTableEntry 10 }
+
+cirbhInfoBackhaulTxIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the ifIndex of the interface
+        used to sent traffic to destination." 
+    ::= { cirbhInfoTableEntry 11 }
+
+cirbhInfoShBulkLastIndex OBJECT-TYPE
+    SYNTAX          CirbhHistoryIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The latest value of the cirbhShortHaulBulkHistory object
+        from the cirbhShortHaulBulkHistory table." 
+    ::= { cirbhInfoTableEntry 12 }
+
+cirbhInfoOptimizeTraffic OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicate whether the traffic received and sent for
+        this shorthaul interface is optimized." 
+    ::= { cirbhInfoTableEntry 13 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- * GSM Alarm information                                     *
+-- *                                                           *
+-- *************************************************************
+
+cirbhGsmAlarmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhGsmAlarmTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides alarm information for GSM-Abis
+        interfaces."
+    ::= { cirbhShortHaulAlarmInfo 1 }
+
+cirbhGsmAlarmTableEntry OBJECT-TYPE
+    SYNTAX          CirbhGsmAlarmTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents the set of alarms that apply to
+        GSM interface."
+    INDEX           { ifIndex } 
+    ::= { cirbhGsmAlarmTable 1 }
+
+CirbhGsmAlarmTableEntry ::= SEQUENCE {
+        cirbhGsmAlarmConnectState    CirbhConnectGsmState,
+        cirbhGsmAlarmLocalState      CirbhAlarmState,
+        cirbhGsmAlarmRemoteState     CirbhAlarmState,
+        cirbhGsmAlarmRedundancyState CirbhRedundancyState
+}
+
+cirbhGsmAlarmConnectState OBJECT-TYPE
+    SYNTAX          CirbhConnectGsmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The state of the connection for GSM interface." 
+    ::= { cirbhGsmAlarmTableEntry 1 }
+
+cirbhGsmAlarmLocalState OBJECT-TYPE
+    SYNTAX          CirbhAlarmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local alarm state." 
+    ::= { cirbhGsmAlarmTableEntry 2 }
+
+cirbhGsmAlarmRemoteState OBJECT-TYPE
+    SYNTAX          CirbhAlarmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote alarm state." 
+    ::= { cirbhGsmAlarmTableEntry 3 }
+
+cirbhGsmAlarmRedundancyState OBJECT-TYPE
+    SYNTAX          CirbhRedundancyState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The redundancy state of the interface" 
+    ::= { cirbhGsmAlarmTableEntry 4 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- * UMTS Connection information                               *
+-- *                                                           *
+-- *************************************************************
+
+cirbhUmtsConnectionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhUmtsConnectionTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information associated with
+        UMTS connection between BTS and BSC."
+    ::= { cirbhShortHaulAlarmInfo 2 }
+
+cirbhUmtsConnectionTableEntry OBJECT-TYPE
+    SYNTAX          CirbhUmtsConnectionTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents the set of alarms that apply to
+        UMTS interfaces."
+    INDEX           { ifIndex } 
+    ::= { cirbhUmtsConnectionTable 1 }
+
+CirbhUmtsConnectionTableEntry ::= SEQUENCE {
+        cirbhUmtsConnectionState       CirbhConnectUmtsState,
+        cirbhUmtsConnectionRedundState CirbhRedundancyState,
+        cirbhUmtsConnectionRootIfIndex InterfaceIndexOrZero
+}
+
+cirbhUmtsConnectionState OBJECT-TYPE
+    SYNTAX          CirbhConnectUmtsState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The state of the connection between the UMTS
+        interfaces." 
+    ::= { cirbhUmtsConnectionTableEntry 1 }
+
+cirbhUmtsConnectionRedundState OBJECT-TYPE
+    SYNTAX          CirbhRedundancyState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The redundancy state of the interface." 
+    ::= { cirbhUmtsConnectionTableEntry 2 }
+
+cirbhUmtsConnectionRootIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The root interface used to transport
+        and receive UMTS traffic as follows.
+
+        ATM:
+        ATM0/0.0-aal5 layer -> ATM0/0-atm layer.
+
+        IMA
+        ATM0/IMA0.1-aal5 layer -> ATM0/IMA0" 
+    ::= { cirbhUmtsConnectionTableEntry 3 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- * UMTS Alarm information                                    *
+-- *                                                           *
+-- *************************************************************
+
+cirbhUmtsAlarmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhUmtsAlarmTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information on alarm states for
+        UMTS-ATM interfaces."
+    ::= { cirbhShortHaulAlarmInfo 3 }
+
+cirbhUmtsAlarmTableEntry OBJECT-TYPE
+    SYNTAX          CirbhUmtsAlarmTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry provides information about the alarms for
+        each ATM interface used to configure the shorthaul
+        UMTS interface."
+    INDEX           { ifIndex } 
+    ::= { cirbhUmtsAlarmTable 1 }
+
+CirbhUmtsAlarmTableEntry ::= SEQUENCE {
+        cirbhUmtsAlarmRxLocalState  CirbhAlarmState,
+        cirbhUmtsAlarmRxRemoteState CirbhAlarmState,
+        cirbhUmtsAlarmTxLocalState  CirbhAlarmState,
+        cirbhUmtsAlarmTxRemoteState CirbhAlarmState
+}
+
+cirbhUmtsAlarmRxLocalState OBJECT-TYPE
+    SYNTAX          CirbhAlarmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local receive alarm state." 
+    ::= { cirbhUmtsAlarmTableEntry 1 }
+
+cirbhUmtsAlarmRxRemoteState OBJECT-TYPE
+    SYNTAX          CirbhAlarmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote receive alarm state." 
+    ::= { cirbhUmtsAlarmTableEntry 2 }
+
+cirbhUmtsAlarmTxLocalState OBJECT-TYPE
+    SYNTAX          CirbhAlarmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local transmit alarm state." 
+    ::= { cirbhUmtsAlarmTableEntry 3 }
+
+cirbhUmtsAlarmTxRemoteState OBJECT-TYPE
+    SYNTAX          CirbhAlarmState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote transmit alarm state." 
+    ::= { cirbhUmtsAlarmTableEntry 4 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- *  Statistics                                               *
+-- *                                                           *
+-- *************************************************************
+
+cirbhStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhStatsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides measurements on bytes and
+        packets sent or received on a per interface basis.
+        It is important to note that this table shares the
+        same index with the cirbhInfoTable table the ifIndex
+        can be used to associate information from both tables."
+    ::= { cirbhShortHaulStats 1 }
+
+cirbhStatsTableEntry OBJECT-TYPE
+    SYNTAX          CirbhStatsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry provides measurements on shorthaul
+        interfaces to allow compression efficency to be
+        calculated."
+    INDEX           { ifIndex } 
+    ::= { cirbhStatsTable 1 }
+
+CirbhStatsTableEntry ::= SEQUENCE {
+        cirbhStatsRcvdSamples         Counter32,
+        cirbhStatsSentSamples         Counter32,
+        cirbhStatsRcvdBackHaulPackets Counter32,
+        cirbhStatsSentBackHaulPackets Counter32,
+        cirbhStatsRcvdBackHaulBytes   Counter32,
+        cirbhStatsSentBackHaulBytes   Counter32
+}
+
+cirbhStatsRcvdSamples OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "For GSM-Abis interfaces, the count of samples received on
+        interface. For UMTS interfaces, the number of packets received
+        on interface." 
+    ::= { cirbhStatsTableEntry 1 }
+
+cirbhStatsSentSamples OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "For GSM-Abis interfaces, the count of samples sent on
+        interface. For UMTS interfaces, the number of packets sent
+        on this interface." 
+    ::= { cirbhStatsTableEntry 2 }
+
+cirbhStatsRcvdBackHaulPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of packets received from backhaul that contained
+        data for this interface." 
+    ::= { cirbhStatsTableEntry 3 }
+
+cirbhStatsSentBackHaulPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of packets transmitted on backhaul that contained
+        data from this interface." 
+    ::= { cirbhStatsTableEntry 4 }
+
+cirbhStatsRcvdBackHaulBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of bytes received from backhaul that contained
+        data for this interface." 
+    ::= { cirbhStatsTableEntry 5 }
+
+cirbhStatsSentBackHaulBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of bytes transmitted on backhaul that contained
+        data from this interface." 
+    ::= { cirbhStatsTableEntry 6 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- * Error information                                         *
+-- *                                                           *
+-- *************************************************************
+
+cirbhErrorsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhErrorsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table provides information on the errors that
+        can be encountered during the compression and
+        decompression of UMTS and GSM-Abis traffic.
+
+          UMTS
+        -------------------
+                          |
+          GSM Links    --------
+         --------------|      | IP based Multi-link(backhaul)
+         --------------|      |-----------------------------
+         --------------|      |-----------------------------
+                       --------"
+    ::= { cirbhShortHaulStats 2 }
+
+cirbhErrorsTableEntry OBJECT-TYPE
+    SYNTAX          CirbhErrorsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "Each entry provides account of various types of
+        errors encountered on GSM and UMTS interfaces."
+    INDEX           { ifIndex } 
+    ::= { cirbhErrorsTable 1 }
+
+CirbhErrorsTableEntry ::= SEQUENCE {
+        cirbhErrorsBhPeerNotReadyDrops  Counter32,
+        cirbhErrorsBhPeerNotActiveDrops Counter32,
+        cirbhErrorsBhInvalidPackets     Counter32,
+        cirbhErrorsBhLostRcvdPackets    Counter32,
+        cirbhErrorsBhLostSentPackets    Counter32,
+        cirbhErrorsBhMissedPackets      Counter32,
+        cirbhErrorsBhMissedLatePackets  Counter32,
+        cirbhErrorsBhMissedLostPackets  Counter32,
+        cirbhErrorsBhMissedNoMemPackets Counter32,
+        cirbhErrorsBhMissedResetPackets Counter32,
+        cirbhErrorsDecompFailures       Counter32,
+        cirbhErrorsCompFailures         Counter32,
+        cirbhErrorsCompNoPacketFailures Counter32,
+        cirbhErrorsCompNoIntFailures    Counter32,
+        cirbhErrorsCompIntDownFailures  Counter32,
+        cirbhErrorsCompEncapFailures    Counter32,
+        cirbhErrorsCompQosDrops         Counter32
+}
+
+
+cirbhErrorsBhPeerNotReadyDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets dropped on backhaul because peer was
+        not ready." 
+    ::= { cirbhErrorsTableEntry 1 }
+
+cirbhErrorsBhPeerNotActiveDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets dropped on backhaul because peer was
+        reachable but not in active state." 
+    ::= { cirbhErrorsTableEntry 2 }
+
+cirbhErrorsBhInvalidPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of backhaul packets that were received and dropped
+        because they contained invalid information." 
+    ::= { cirbhErrorsTableEntry 3 }
+
+cirbhErrorsBhLostRcvdPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of backhaul packets expected to be received but
+        never arrived." 
+    ::= { cirbhErrorsTableEntry 4 }
+
+cirbhErrorsBhLostSentPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of backhaul packets sent but never were
+        received by peer." 
+    ::= { cirbhErrorsTableEntry 5 }
+
+cirbhErrorsBhMissedPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The value of this object is the sum total of the values of
+        the corresponding instances of the following objects:
+
+        cirbhErrorsBhMissedLatePackets
+        cirbhErrorsBhMissedLostPackets
+        cirbhErrorsBhMissedNoMemPackets
+        cirbhErrorsBhMissedResetPackets" 
+    ::= { cirbhErrorsTableEntry 6 }
+
+cirbhErrorsBhMissedLatePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of packets missed on backhaul because they
+        arrived past the allowed time frame." 
+    ::= { cirbhErrorsTableEntry 7 }
+
+cirbhErrorsBhMissedLostPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of packets missed on backhaul because they
+        were lost on backhaul." 
+    ::= { cirbhErrorsTableEntry 8 }
+
+cirbhErrorsBhMissedNoMemPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of packets missed on backhaul for lack of
+        available memory to allocate packet." 
+    ::= { cirbhErrorsTableEntry 9 }
+
+cirbhErrorsBhMissedResetPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of packets missed on backhaul because the of a
+        reset event." 
+    ::= { cirbhErrorsTableEntry 10 }
+
+cirbhErrorsDecompFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of times information contained in
+        packet could not be decompressed." 
+    ::= { cirbhErrorsTableEntry 11 }
+
+cirbhErrorsCompFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of times the information contained in the
+        packet could not be compressed.  This counter is
+        incremented for all types of compression errors." 
+    ::= { cirbhErrorsTableEntry 12 }
+
+cirbhErrorsCompNoPacketFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of times compression failed because
+        packet was unavailable." 
+    ::= { cirbhErrorsTableEntry 13 }
+
+cirbhErrorsCompNoIntFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of times compression failed because
+        route to peer was not available." 
+    ::= { cirbhErrorsTableEntry 14 }
+
+cirbhErrorsCompIntDownFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of times compression failed because
+        interface was down." 
+    ::= { cirbhErrorsTableEntry 15 }
+
+cirbhErrorsCompEncapFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of times compression failed because of
+        encapsulation errors." 
+    ::= { cirbhErrorsTableEntry 16 }
+
+cirbhErrorsCompQosDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "drops"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The number of times compression failed because
+        of quality of service errors or traffic load." 
+    ::= { cirbhErrorsTableEntry 17 }
+ 
+
+-- *************************************************************
+-- *
+-- * ShortHaul traffic history
+-- *
+-- *************************************************************
+
+cirbhShortHaulHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhShortHaulHistoryTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This table provides historical information on the amount of
+        backhaul traffic contributed by each interface."
+    ::= { cirbhShortHaulStats 3 }
+
+cirbhShortHaulHistoryTableEntry OBJECT-TYPE
+    SYNTAX          CirbhShortHaulHistoryTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Each entry represents the average traffic for last second.
+        Each entry provides information on traffic rates for raw
+        and compressed data."
+    INDEX           {
+                        ifIndex,
+                        cirbhShortHaulHistory
+                    } 
+    ::= { cirbhShortHaulHistoryTable 1 }
+
+CirbhShortHaulHistoryTableEntry ::= SEQUENCE {
+        cirbhShortHaulHistory          CirbhHistoryIndex,
+        cirbhShortHaulRcvdRate         CirbhRawInterfaceRate,
+        cirbhShortHaulSentRate         CirbhRawInterfaceRate,
+        cirbhShortHaulRcvdCompressRate CirbhCommpressInterfaceRate,
+        cirbhShortHaulSentCompressRate CirbhCommpressInterfaceRate,
+        cirbhShortHaulTimeStamp        TimeStamp,
+        cirbhShortHaulRcvdUtilization  CirbhShortHaulUtilization,
+        cirbhShortHaulSentUtilization  CirbhShortHaulUtilization
+}
+
+cirbhShortHaulHistory OBJECT-TYPE
+    SYNTAX          CirbhHistoryIndex
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "An index used to access history of
+        cirbhShortHaulHistoryTable objects." 
+    ::= { cirbhShortHaulHistoryTableEntry 1 }
+
+cirbhShortHaulRcvdRate OBJECT-TYPE
+    SYNTAX          CirbhRawInterfaceRate
+    UNITS           "bytes/second"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The rate of traffic received from this interface to be sent
+        on backhaul prior to compression." 
+    ::= { cirbhShortHaulHistoryTableEntry 2 }
+
+cirbhShortHaulSentRate OBJECT-TYPE
+    SYNTAX          CirbhRawInterfaceRate
+    UNITS           "bytes/second"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The rate of traffic sent out from this interface after
+        traffic was decompressed." 
+    ::= { cirbhShortHaulHistoryTableEntry 3 }
+
+cirbhShortHaulRcvdCompressRate OBJECT-TYPE
+    SYNTAX          CirbhCommpressInterfaceRate
+    UNITS           "bytes/second"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The rate of traffic received into this interface to be sent
+        on backhaul after compression." 
+    ::= { cirbhShortHaulHistoryTableEntry 4 }
+
+cirbhShortHaulSentCompressRate OBJECT-TYPE
+    SYNTAX          CirbhCommpressInterfaceRate
+    UNITS           "bytes/second"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The rate of traffic received from backhaul and prior to
+        decompression." 
+    ::= { cirbhShortHaulHistoryTableEntry 5 }
+
+cirbhShortHaulTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Time when sample was collected." 
+    ::= { cirbhShortHaulHistoryTableEntry 6 }
+
+cirbhShortHaulRcvdUtilization OBJECT-TYPE
+    SYNTAX          CirbhShortHaulUtilization
+    UNITS           "percent of DS load"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Amount of traffic that was receive from backhaul before
+        decompression express as load on E1 or T1." 
+    ::= { cirbhShortHaulHistoryTableEntry 7 }
+
+cirbhShortHaulSentUtilization OBJECT-TYPE
+    SYNTAX          CirbhShortHaulUtilization
+    UNITS           "percent of DS load"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Amount of traffic that was send on after
+        compression express as load on E1 or T1." 
+    ::= { cirbhShortHaulHistoryTableEntry 8 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- * Congestion information                                    *
+-- *                                                           *
+-- *************************************************************
+
+cirbhCongestionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhCongestionTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information on congestion
+        mechanism for shorthaul interfaces."
+    ::= { cirbhShortHaulStats 4 }
+
+cirbhCongestionTableEntry OBJECT-TYPE
+    SYNTAX          CirbhCongestionTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents single shorthaul interface."
+    INDEX           { ifIndex } 
+    ::= { cirbhCongestionTable 1 }
+
+CirbhCongestionTableEntry ::= SEQUENCE {
+        cirbhCongestionEnabled      TruthValue,
+        cirbhCongestionDrops        Counter32,
+        cirbhCongestionDroppedBytes Counter32,
+        cirbhCongestionEvents       Counter32,
+        cirbhCongestionActive       TruthValue,
+        cirbhCongestionDuration     Counter32
+}
+
+cirbhCongestionEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates congestion mechanisms have been
+        enabled for shorthaul interface." 
+    ::= { cirbhCongestionTableEntry 1 }
+
+cirbhCongestionDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provide the number packets or cells
+        that were dropped due to congestion.  When the
+        cirbhInfoProtocol is 'gsmAbis' object indicates the
+        number of packets dropped.  When the cirbhInfoProtocol
+        is 'umtsIub' object indicates the number of cells
+        dropped." 
+    ::= { cirbhCongestionTableEntry 2 }
+
+cirbhCongestionDroppedBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of bytes dropped due to congestion
+        control mechanisms." 
+    ::= { cirbhCongestionTableEntry 3 }
+
+cirbhCongestionEvents OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times congestion mechanism was engaged." 
+    ::= { cirbhCongestionTableEntry 4 }
+
+cirbhCongestionActive OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether congestion mechanism is
+        active." 
+    ::= { cirbhCongestionTableEntry 5 }
+
+cirbhCongestionDuration OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides number of seconds interface was
+        congested." 
+    ::= { cirbhCongestionTableEntry 6 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- * GSM Shorthaul Error information                           *
+-- *                                                           *
+-- *************************************************************
+
+cirbhGsmErrorsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhGsmErrorsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information on the errors that
+        can be encountered during the compression and
+        decompression of GSM-Abis traffic."
+    ::= { cirbhShortHaulStats 5 }
+
+cirbhGsmErrorsTableEntry OBJECT-TYPE
+    SYNTAX          CirbhGsmErrorsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents single shorthaul interface."
+    INDEX           { ifIndex } 
+    ::= { cirbhGsmErrorsTable 1 }
+
+CirbhGsmErrorsTableEntry ::= SEQUENCE {
+        cirbhGsmErrorsPeerNotReadyDrops    Counter32,
+        cirbhGsmErrorsPeerNotActiveDrops   Counter32,
+        cirbhGsmErrorsInvalidPackets       Counter32,
+        cirbhGsmErrorsLostRcvdPackets      Counter32,
+        cirbhGsmErrorsLostSentPackets      Counter32,
+        cirbhGsmErrorsMissedPackets        Counter32,
+        cirbhGsmErrorsMissedLatePackets    Counter32,
+        cirbhGsmErrorsMissedLostPackets    Counter32,
+        cirbhGsmErrorsMissedNoMemPackets   Counter32,
+        cirbhGsmErrorsMissedResetPackets   Counter32,
+        cirbhGsmErrorsDecompFailures       Counter32,
+        cirbhGsmErrorsCompFailures         Counter32,
+        cirbhGsmErrorsCompNoPacketFailures Counter32,
+        cirbhGsmErrorsCompNoIntFailures    Counter32,
+        cirbhGsmErrorsCompIntDownFailures  Counter32,
+        cirbhGsmErrorsCompEncapFailures    Counter32,
+        cirbhGsmErrorsCompQosDrops         Counter32,
+        cirbhGsmErrorsFastSendFailures     Counter32,
+        cirbhGsmErrorsTxPacketFailures     Counter32,
+        cirbhGsmErrorsTxNoBuffers          Counter32,
+        cirbhGsmErrorsTxResets             Counter32,
+        cirbhGsmErrorsOverruns             Counter32,
+        cirbhGsmErrorsInterruptFailures    Counter32,
+        cirbhGsmErrorsLateArrivals         Counter32,
+        cirbhGsmErrorsEarlyArrivals        Counter32
+}
+
+cirbhGsmErrorsPeerNotReadyDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of packets dropped on backhaul because peer was
+        not ready." 
+    ::= { cirbhGsmErrorsTableEntry 1 }
+
+cirbhGsmErrorsPeerNotActiveDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of packets dropped on backhaul because peer was
+        reachable but not in active state." 
+    ::= { cirbhGsmErrorsTableEntry 2 }
+
+cirbhGsmErrorsInvalidPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of backhaul packets that were received and dropped
+        because they contained invalid information." 
+    ::= { cirbhGsmErrorsTableEntry 3 }
+
+cirbhGsmErrorsLostRcvdPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of backhaul packets expected to be received but
+        never arrived." 
+    ::= { cirbhGsmErrorsTableEntry 4 }
+
+cirbhGsmErrorsLostSentPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of backhaul packets sent but never were
+        received by peer." 
+    ::= { cirbhGsmErrorsTableEntry 5 }
+
+cirbhGsmErrorsMissedPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object is the sum total of the values of
+        the corresponding instances of the following objects:
+
+        cirbhGsmErrorsMissedLatePackets
+        cirbhGsmErrorsMissedLostPackets
+        cirbhGsmErrorsMissedNoMemPackets
+        cirbhGsmErrorsMissedResetPackets" 
+    ::= { cirbhGsmErrorsTableEntry 6 }
+
+cirbhGsmErrorsMissedLatePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets missed on backhaul because they
+        arrived past the allowed time frame." 
+    ::= { cirbhGsmErrorsTableEntry 7 }
+
+cirbhGsmErrorsMissedLostPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets missed on backhaul because they
+        were lost on backhaul." 
+    ::= { cirbhGsmErrorsTableEntry 8 }
+
+cirbhGsmErrorsMissedNoMemPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets missed on backhaul for lack of
+        available memory to allocate packet." 
+    ::= { cirbhGsmErrorsTableEntry 9 }
+
+cirbhGsmErrorsMissedResetPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets missed on backhaul because the of a
+        reset event." 
+    ::= { cirbhGsmErrorsTableEntry 10 }
+
+cirbhGsmErrorsDecompFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times information contained in
+        packet could not be decompressed." 
+    ::= { cirbhGsmErrorsTableEntry 11 }
+
+cirbhGsmErrorsCompFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the information contained in the
+        packet could not be compressed." 
+    ::= { cirbhGsmErrorsTableEntry 12 }
+
+cirbhGsmErrorsCompNoPacketFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        packet was unavailable." 
+    ::= { cirbhGsmErrorsTableEntry 13 }
+
+cirbhGsmErrorsCompNoIntFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        route to peer was not available." 
+    ::= { cirbhGsmErrorsTableEntry 14 }
+
+cirbhGsmErrorsCompIntDownFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        interface was down." 
+    ::= { cirbhGsmErrorsTableEntry 15 }
+
+cirbhGsmErrorsCompEncapFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because of
+        encapsulation errors." 
+    ::= { cirbhGsmErrorsTableEntry 16 }
+
+cirbhGsmErrorsCompQosDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "drops"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        of quality of service errors or traffic load." 
+    ::= { cirbhGsmErrorsTableEntry 17 }
+
+cirbhGsmErrorsFastSendFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Fast send failures." 
+    ::= { cirbhGsmErrorsTableEntry 18 }
+
+cirbhGsmErrorsTxPacketFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Unable to transmit GSM packet." 
+    ::= { cirbhGsmErrorsTableEntry 19 }
+
+cirbhGsmErrorsTxNoBuffers OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Unable to allocate buffer for transmission." 
+    ::= { cirbhGsmErrorsTableEntry 20 }
+
+cirbhGsmErrorsTxResets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Transmission interface resets." 
+    ::= { cirbhGsmErrorsTableEntry 21 }
+
+cirbhGsmErrorsOverruns OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Packet was missed because backhaul jitter buffer was
+        ran out of available space." 
+    ::= { cirbhGsmErrorsTableEntry 22 }
+
+cirbhGsmErrorsInterruptFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Packet was lost because of interrupt failure." 
+    ::= { cirbhGsmErrorsTableEntry 23 }
+
+cirbhGsmErrorsLateArrivals OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Count of GSM packets that arrived later than the allowed
+        time." 
+    ::= { cirbhGsmErrorsTableEntry 24 }
+
+cirbhGsmErrorsEarlyArrivals OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Count of GSM packets that arrived earlier than the
+        allowed time." 
+    ::= { cirbhGsmErrorsTableEntry 25 }
+ 
+
+-- *************************************************************
+-- *                                                           *
+-- * UMTS Shorthaul Error information                          *
+-- *                                                           *
+-- *************************************************************
+
+cirbhUmtsErrorsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhUmtsErrorsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information on the errors that
+        can be encountered during the compression and
+        decompression of UMTS-Iub traffic."
+    ::= { cirbhShortHaulStats 6 }
+
+cirbhUmtsErrorsTableEntry OBJECT-TYPE
+    SYNTAX          CirbhUmtsErrorsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents single shorthaul interface."
+    INDEX           { ifIndex } 
+    ::= { cirbhUmtsErrorsTable 1 }
+
+CirbhUmtsErrorsTableEntry ::= SEQUENCE {
+        cirbhUmtsErrorsPeerNotReadyDrops    Counter32,
+        cirbhUmtsErrorsInvalidPackets       Counter32,
+        cirbhUmtsErrorsDecompFailures       Counter32,
+        cirbhUmtsErrorsCompFailures         Counter32,
+        cirbhUmtsErrorsCompNoPacketFailures Counter32,
+        cirbhUmtsErrorsCompNoIntFailures    Counter32,
+        cirbhUmtsErrorsCompIntDownFailures  Counter32,
+        cirbhUmtsErrorsCompEncapFailures    Counter32,
+        cirbhUmtsErrorsCompQosDrops         Counter32,
+        cirbhUmtsErrorsShorthaulPakFailures Counter32,
+        cirbhUmtsErrorsUmtsEncapFailures    Counter32,
+        cirbhUmtsErrorsLocalPvcDrops        Counter32,
+        cirbhUmtsErrorsRemotePvcDrops       Counter32,
+        cirbhUmtsErrorsBackhaulDrops        Counter32
+}
+
+cirbhUmtsErrorsPeerNotReadyDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of packets dropped on backhaul because peer was
+        not ready." 
+    ::= { cirbhUmtsErrorsTableEntry 1 }
+
+cirbhUmtsErrorsInvalidPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of backhaul packets that were received and dropped
+        because they contained invalid information." 
+    ::= { cirbhUmtsErrorsTableEntry 2 }
+
+cirbhUmtsErrorsDecompFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times information contained in
+        packet could not be decompressed." 
+    ::= { cirbhUmtsErrorsTableEntry 3 }
+
+cirbhUmtsErrorsCompFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the information contained int the
+        packet could not be compressed." 
+    ::= { cirbhUmtsErrorsTableEntry 4 }
+
+cirbhUmtsErrorsCompNoPacketFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        packet was unavailable." 
+    ::= { cirbhUmtsErrorsTableEntry 5 }
+
+cirbhUmtsErrorsCompNoIntFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        route to peer was not available." 
+    ::= { cirbhUmtsErrorsTableEntry 6 }
+
+cirbhUmtsErrorsCompIntDownFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        interface was down." 
+    ::= { cirbhUmtsErrorsTableEntry 7 }
+
+cirbhUmtsErrorsCompEncapFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because of
+        encapsulation errors." 
+    ::= { cirbhUmtsErrorsTableEntry 8 }
+
+cirbhUmtsErrorsCompQosDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "drops"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times compression failed because
+        of quality of service errors or traffic load." 
+    ::= { cirbhUmtsErrorsTableEntry 9 }
+
+cirbhUmtsErrorsShorthaulPakFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Unable to allocate packet used to send data on shorthaul
+        interface." 
+    ::= { cirbhUmtsErrorsTableEntry 10 }
+
+cirbhUmtsErrorsUmtsEncapFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The UMTS encapsulate failures." 
+    ::= { cirbhUmtsErrorsTableEntry 11 }
+
+cirbhUmtsErrorsLocalPvcDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Packet dropped because local PVC was unavailable." 
+    ::= { cirbhUmtsErrorsTableEntry 12 }
+
+cirbhUmtsErrorsRemotePvcDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Packet dropped because remote PVC was unavailable." 
+    ::= { cirbhUmtsErrorsTableEntry 13 }
+
+cirbhUmtsErrorsBackhaulDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Packets dropped on backhaul." 
+    ::= { cirbhUmtsErrorsTableEntry 14 }
+ 
+
+-- *************************************************************
+-- *
+-- * ShortHaul Bulk Traffic History
+-- *
+-- *************************************************************
+
+cirbhShortHaulBulkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhShortHaulBulkTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides historical information on the amount of
+        backhaul traffic contributed by each interface."
+    ::= { cirbhShortHaulStats 7 }
+
+cirbhShortHaulBulkTableEntry OBJECT-TYPE
+    SYNTAX          CirbhShortHaulBulkTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents the average traffic for last second.
+        Each entry provides information on traffic rates for raw
+        and compressed data."
+    INDEX           {
+                        ifIndex,
+                        cirbhShortHaulBulkHistory
+                    } 
+    ::= { cirbhShortHaulBulkTable 1 }
+
+CirbhShortHaulBulkTableEntry ::= SEQUENCE {
+        cirbhShortHaulBulkHistory   CirbhHistoryIndex,
+        cirbhShortHaulBulkTimeStamp TimeStamp,
+        cirbhShortHaulBulkBaseUnit  Unsigned32,
+        cirbhShortHaulBulkUtil      OCTET STRING
+}
+
+cirbhShortHaulBulkHistory OBJECT-TYPE
+    SYNTAX          CirbhHistoryIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index used to access history of
+        cirbhShortHaulBulkDataTable objects." 
+    ::= { cirbhShortHaulBulkTableEntry 1 }
+
+cirbhShortHaulBulkTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Time when sample was collected." 
+    ::= { cirbhShortHaulBulkTableEntry 2 }
+
+cirbhShortHaulBulkBaseUnit OBJECT-TYPE
+    SYNTAX          Unsigned32 (256..2147483647)
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Base Unit is an integer used to provide a range of bytes
+        rates provided in the cirbhShortHaulBulkUtil object.  All
+        values in the cirbhShortHaulBulkUtil object share the same
+        base unit." 
+    ::= { cirbhShortHaulBulkTableEntry 3 }
+
+cirbhShortHaulBulkUtil OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    UNITS           "Bytes/Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the amount of traffic transmitted
+        in a particular shorthaul.  The object contains 1 to
+        128 pairs.  The length of the octet string can be used
+        to calculate number of pairs.  The information is in
+        the following format were each rate is stored as single
+        byte.
+
+        [rx,tx] * 128
+
+        The approximated rate can be calculated by multiplying
+        value from cirbhShortHaulBulkUtil times value in the
+        cirbhShortHaulBulkBaseUnit." 
+    ::= { cirbhShortHaulBulkTableEntry 4 }
+ 
+
+-- *************************************************************
+-- *
+-- * BackHaul Table
+-- *
+-- *************************************************************
+
+cirbhBackHaulTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhBackHaulEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This table provides information on backHaul links."
+    ::= { cirbhBackHaulInfo 1 }
+
+cirbhBackHaulEntry OBJECT-TYPE
+    SYNTAX          CirbhBackHaulEntry
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Each entry represents a backhaul link between BSC and
+        a particular BTS site."
+    INDEX           { ifIndex } 
+    ::= { cirbhBackHaulTable 1 }
+
+CirbhBackHaulEntry ::= SEQUENCE {
+        cirbhBackHaulAdjectSerialNum  SnmpAdminString,
+        cirbhBackHaulAdjectVendorType AutonomousType,
+        cirbhBackHaulRcvdUtilState    CirbhBackHaulUtilizationState,
+        cirbhBackHaulSentUtilState    CirbhBackHaulUtilizationState,
+        cirbhBackHaulRcvdUtil         CirbhBackHaulUtilization,
+        cirbhBackHaulSentUtil         CirbhBackHaulUtilization
+}
+
+cirbhBackHaulAdjectSerialNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "This object provides the serial number of the adjacent
+        device supporting the backhaul connection. This object
+        contains the same value as the corresponding
+        entPhysicalSerialNum object. The type of object like chassis
+        or module is provided by the cirbhBackHaulAdjectVendorType
+        object." 
+    ::= { cirbhBackHaulEntry 1 }
+
+cirbhBackHaulAdjectVendorType OBJECT-TYPE
+    SYNTAX          AutonomousType
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "This object provides the vendor type of the adjacent
+        device supporting backhaul connection. This object
+        contains the same value as the corresponding
+        entPhysicalVendorType object." 
+    ::= { cirbhBackHaulEntry 2 }
+
+cirbhBackHaulRcvdUtilState OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilizationState
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The utilization state for traffic received on
+        backhaul multilink.
+
+        The following objects will be used to calculate
+        link utilization state:
+
+        cirbhBackHaulAcceptableThreshold
+        cirbhBackHaulWarningThreshold
+        cirbhBackHaulOverloadedThreshold" 
+    ::= { cirbhBackHaulEntry 3 }
+
+cirbhBackHaulSentUtilState OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilizationState
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The utilization state for traffic transmitted on
+        backhaul multilink.
+
+        The following objects will be used to calculate
+        link utilization state:
+
+        cirbhBackHaulAcceptableThreshold
+        cirbhBackHaulWarningThreshold
+        cirbhBackHaulOverloadedThreshold" 
+    ::= { cirbhBackHaulEntry 4 }
+
+cirbhBackHaulRcvdUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average receive utilization of the link over the last
+        second." 
+    ::= { cirbhBackHaulEntry 5 }
+
+cirbhBackHaulSentUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average transmit utilization of the link over the last
+        second." 
+    ::= { cirbhBackHaulEntry 6 }
+ 
+
+-- *************************************************************
+-- *
+-- * BackHaul to ShortHaul Table
+-- *
+-- *************************************************************
+
+cirbhBackHaulShortHaulTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhBackHaulShortHaulEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This table lists the associations between shorthaul and
+        backhaul interfaces."
+    ::= { cirbhBackHaulInfo 2 }
+
+cirbhBackHaulShortHaulEntry OBJECT-TYPE
+    SYNTAX          CirbhBackHaulShortHaulEntry
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "An entry indicates a single association between a backhaul and
+        shorthaul interface."
+    INDEX           {
+                        cirbhBackHaulShortHaulBhIndex,
+                        cirbhBackHaulShortHaulShIndex
+                    } 
+    ::= { cirbhBackHaulShortHaulTable 1 }
+
+CirbhBackHaulShortHaulEntry ::= SEQUENCE {
+        cirbhBackHaulShortHaulBhIndex   InterfaceIndex,
+        cirbhBackHaulShortHaulShIndex   InterfaceIndex,
+        cirbhBackHaulShortHaulTimestamp TimeStamp
+}
+
+cirbhBackHaulShortHaulBhIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This object indicates the backhaul interface." 
+    ::= { cirbhBackHaulShortHaulEntry 1 }
+
+cirbhBackHaulShortHaulShIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This object indicates the shorthaul interface." 
+    ::= { cirbhBackHaulShortHaulEntry 2 }
+
+cirbhBackHaulShortHaulTimestamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "This object indicates the value of sysUpTime when the
+        entry was created." 
+    ::= { cirbhBackHaulShortHaulEntry 3 }
+ 
+
+-- *************************************************************
+-- *
+-- * BackHaul History Table
+-- *
+-- *************************************************************
+
+cirbhBackHaulHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhBackHaulHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This table provides historical information on traffic
+        distribution on backhaul interface."
+    ::= { cirbhBackHaulStats 1 }
+
+cirbhBackHaulHistoryEntry OBJECT-TYPE
+    SYNTAX          CirbhBackHaulHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Each entry provides information on the utilization of
+        backhaul interface. The utilization is broken down
+        by protocol and by direction.  An entry is updated in
+        this table every second."
+    INDEX           {
+                        ifIndex,
+                        cirbhBackHaulHistoryIndex
+                    } 
+    ::= { cirbhBackHaulHistoryTable 1 }
+
+CirbhBackHaulHistoryEntry ::= SEQUENCE {
+        cirbhBackHaulHistoryIndex        CirbhHistoryIndex,
+        cirbhBackHaulHistoryRcvdUtil     CirbhBackHaulUtilization,
+        cirbhBackHaulHistorySentUtil     CirbhBackHaulUtilization,
+        cirbhBackHaulHistoryRcvdAbisUtil CirbhBackHaulUtilization,
+        cirbhBackHaulHistorySentAbisUtil CirbhBackHaulUtilization,
+        cirbhBackHaulHistoryRcvdUmtsUtil CirbhBackHaulUtilization,
+        cirbhBackHaulHistorySentUmtsUtil CirbhBackHaulUtilization,
+        cirbhBackHaulHistoryTimeStamp    TimeStamp
+}
+
+cirbhBackHaulHistoryIndex OBJECT-TYPE
+    SYNTAX          CirbhHistoryIndex
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "An index used to access history of
+        cirbhBackHaulHistoryTable objects." 
+    ::= { cirbhBackHaulHistoryEntry 1 }
+
+cirbhBackHaulHistoryRcvdUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average receive utilization of link over the last
+        second." 
+    ::= { cirbhBackHaulHistoryEntry 2 }
+
+cirbhBackHaulHistorySentUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average transmit utilization of link over the last
+        second." 
+    ::= { cirbhBackHaulHistoryEntry 3 }
+
+cirbhBackHaulHistoryRcvdAbisUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average receive utilization of link over the last
+        second that consisted of GSM-Abis traffic." 
+    ::= { cirbhBackHaulHistoryEntry 4 }
+
+cirbhBackHaulHistorySentAbisUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average transmit utilization of link over the last
+        second that consisted of GSM-Abis traffic." 
+    ::= { cirbhBackHaulHistoryEntry 5 }
+
+cirbhBackHaulHistoryRcvdUmtsUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average receive utilization of link over the last
+        second that consisted of UMTS traffic." 
+    ::= { cirbhBackHaulHistoryEntry 6 }
+
+cirbhBackHaulHistorySentUmtsUtil OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average transmit utilization of link over the last
+        second that consisted of UMTS traffic." 
+    ::= { cirbhBackHaulHistoryEntry 7 }
+
+cirbhBackHaulHistoryTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Time when sample was collected." 
+    ::= { cirbhBackHaulHistoryEntry 8 }
+ 
+
+-- *************************************************************
+-- *
+-- * BackHaul Statistics Table
+-- *
+-- *************************************************************
+
+cirbhBackHaulStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhBackHaulStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This table provides current information on the utilization of
+        backhaul interface. One second load samples are collected
+        and the corresponding entry is incremented. The provides
+        a distribution of the traffic load. At the end of an
+        interval the information is collected and used to
+        populate entry in the cirbhBackHaulStatsHistoryTable.
+        The interval is specified by the cirbhBackHaulStatsInterval
+        object. The counters in this table increase until the
+        interval ends at which time they are reset."
+    ::= { cirbhBackHaulStats 2 }
+
+cirbhBackHaulStatsEntry OBJECT-TYPE
+    SYNTAX          CirbhBackHaulStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Each entry contains the distribution of traffic in the
+        current window specified by the cirbhBackHaulStatsInterval
+        object."
+    INDEX           {
+                        ifIndex,
+                        cirbhStatsDirection,
+                        cirbhStatsTrafficType
+                    } 
+    ::= { cirbhBackHaulStatsTable 1 }
+
+CirbhBackHaulStatsEntry ::= SEQUENCE {
+        cirbhStatsDirection       CirbhTrafficDirection,
+        cirbhStatsTrafficType     CirbhTrafficType,
+        cirbhStats000to009Seconds PerfCurrentCount,
+        cirbhStats010to019Seconds PerfCurrentCount,
+        cirbhStats020to029Seconds PerfCurrentCount,
+        cirbhStats030to039Seconds PerfCurrentCount,
+        cirbhStats040to049Seconds PerfCurrentCount,
+        cirbhStats050to059Seconds PerfCurrentCount,
+        cirbhStats060to069Seconds PerfCurrentCount,
+        cirbhStats070to079Seconds PerfCurrentCount,
+        cirbhStats080to089Seconds PerfCurrentCount,
+        cirbhStats090to100Seconds PerfCurrentCount,
+        cirbhStatsTimeStamp       TimeStamp,
+        cirbhStatsMaxUtilization  CirbhBackHaulUtilization,
+        cirbhStatsMaxTimeStamp    TimeStamp
+}
+
+cirbhStatsDirection OBJECT-TYPE
+    SYNTAX          CirbhTrafficDirection
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "The direction of traffic on backhaul." 
+    ::= { cirbhBackHaulStatsEntry 1 }
+
+cirbhStatsTrafficType OBJECT-TYPE
+    SYNTAX          CirbhTrafficType
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "The type of traffic." 
+    ::= { cirbhBackHaulStatsEntry 2 }
+
+cirbhStats000to009Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 0 to 9 percent." 
+    ::= { cirbhBackHaulStatsEntry 3 }
+
+cirbhStats010to019Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 10 to 19 percent." 
+    ::= { cirbhBackHaulStatsEntry 4 }
+
+cirbhStats020to029Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 20 to 29 percent." 
+    ::= { cirbhBackHaulStatsEntry 5 }
+
+cirbhStats030to039Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 30 to 39 percent." 
+    ::= { cirbhBackHaulStatsEntry 6 }
+
+cirbhStats040to049Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 40 to 49 percent." 
+    ::= { cirbhBackHaulStatsEntry 7 }
+
+cirbhStats050to059Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 50 to 59 percent." 
+    ::= { cirbhBackHaulStatsEntry 8 }
+
+cirbhStats060to069Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 60 to 69 percent." 
+    ::= { cirbhBackHaulStatsEntry 9 }
+
+cirbhStats070to079Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 70 to 79 percent." 
+    ::= { cirbhBackHaulStatsEntry 10 }
+
+cirbhStats080to089Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 80 to 89 percent." 
+    ::= { cirbhBackHaulStatsEntry 11 }
+
+cirbhStats090to100Seconds OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 90 to 100 percent." 
+    ::= { cirbhBackHaulStatsEntry 12 }
+
+cirbhStatsTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Time when sample was collected." 
+    ::= { cirbhBackHaulStatsEntry 13 }
+
+cirbhStatsMaxUtilization OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The maximum utilization encountered within interval." 
+    ::= { cirbhBackHaulStatsEntry 14 }
+
+cirbhStatsMaxTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Time when cirbhStatsMaxUtilization was recorded." 
+    ::= { cirbhBackHaulStatsEntry 15 }
+ 
+
+-- *************************************************************
+-- *
+-- * BackHaul Statistics History Table
+-- *
+-- *************************************************************
+
+cirbhBackHaulStatsHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CirbhBackHaulStatsHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "This table provides historical information of distribution
+        of load on backhaul interfaces."
+    ::= { cirbhObjects 12 }
+
+cirbhBackHaulStatsHistoryEntry OBJECT-TYPE
+    SYNTAX          CirbhBackHaulStatsHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Each entry in this table is the data collected from the
+        cirbhBackHaulStatsTable table."
+    INDEX           {
+                        ifIndex,
+                        cirbhStatsHistoryIndex,
+                        cirbhStatsHistoryDirection,
+                        cirbhStatsHistoryTrafficType
+                    } 
+    ::= { cirbhBackHaulStatsHistoryTable 1 }
+
+CirbhBackHaulStatsHistoryEntry ::= SEQUENCE {
+        cirbhStatsHistoryIndex           CirbhHistoryIndex,
+        cirbhStatsHistoryDirection       CirbhTrafficDirection,
+        cirbhStatsHistoryTrafficType     CirbhTrafficType,
+        cirbhStatsHistory000to009Seconds PerfIntervalCount,
+        cirbhStatsHistory010to019Seconds PerfIntervalCount,
+        cirbhStatsHistory020to029Seconds PerfIntervalCount,
+        cirbhStatsHistory030to039Seconds PerfIntervalCount,
+        cirbhStatsHistory040to049Seconds PerfIntervalCount,
+        cirbhStatsHistory050to059Seconds PerfIntervalCount,
+        cirbhStatsHistory060to069Seconds PerfIntervalCount,
+        cirbhStatsHistory070to079Seconds PerfIntervalCount,
+        cirbhStatsHistory080to089Seconds PerfIntervalCount,
+        cirbhStatsHistory090to100Seconds PerfIntervalCount,
+        cirbhStatsHistoryTimeStamp       TimeStamp,
+        cirbhStatsHistoryMaxUtilization  CirbhBackHaulUtilization,
+        cirbhStatsHistoryMaxTimeStamp    TimeStamp,
+        cirbhStatsHistoryAverage         CirbhBackHaulUtilization
+}
+
+cirbhStatsHistoryIndex OBJECT-TYPE
+    SYNTAX          CirbhHistoryIndex
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "An index used to access each 15 minute entry." 
+    ::= { cirbhBackHaulStatsHistoryEntry 1 }
+
+cirbhStatsHistoryDirection OBJECT-TYPE
+    SYNTAX          CirbhTrafficDirection
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "The direction of traffic on backhaul." 
+    ::= { cirbhBackHaulStatsHistoryEntry 2 }
+
+cirbhStatsHistoryTrafficType OBJECT-TYPE
+    SYNTAX          CirbhTrafficType
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "The type of traffic in backhaul history table." 
+    ::= { cirbhBackHaulStatsHistoryEntry 3 }
+
+cirbhStatsHistory000to009Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 0 to 9 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 4 }
+
+cirbhStatsHistory010to019Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 10 to 19 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 5 }
+
+cirbhStatsHistory020to029Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 20 to 29 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 6 }
+
+cirbhStatsHistory030to039Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 30 to 39 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 7 }
+
+cirbhStatsHistory040to049Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 40 to 49 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 8 }
+
+cirbhStatsHistory050to059Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 50 to 59 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 9 }
+
+cirbhStatsHistory060to069Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 60 to 69 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 10 }
+
+cirbhStatsHistory070to079Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 70 to 79 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 11 }
+
+cirbhStatsHistory080to089Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 80 to 89 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 12 }
+
+cirbhStatsHistory090to100Seconds OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The total numbers of seconds during which the backhaul link
+        was utilized from 90 to 100 percent." 
+    ::= { cirbhBackHaulStatsHistoryEntry 13 }
+
+cirbhStatsHistoryTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "End time when sample was collected." 
+    ::= { cirbhBackHaulStatsHistoryEntry 14 }
+
+cirbhStatsHistoryMaxUtilization OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The maximum utilization encountered within interval." 
+    ::= { cirbhBackHaulStatsHistoryEntry 15 }
+
+cirbhStatsHistoryMaxTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Time when cirbhStatsHistoryMaxUtilization was recorded." 
+    ::= { cirbhBackHaulStatsHistoryEntry 16 }
+
+cirbhStatsHistoryAverage OBJECT-TYPE
+    SYNTAX          CirbhBackHaulUtilization
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The average utilization over the specified time period." 
+    ::= { cirbhBackHaulStatsHistoryEntry 17 }
+ 
+
+
+-- *************************************************************
+-- *                                                           *
+-- * Notification Enable Objects                               *
+-- *                                                           *
+-- *************************************************************
+
+cirbhGsmAlarmNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the agent should
+        generate the ciscoIpRanBackHaulGsmAlarm defined in
+        this MIB module.
+
+        'true'  Indicates that ciscoIpRanBackHaulGsmAlarm
+               notification is to be generated.
+
+        'false' Indicates that ciscoIpRanBackHaulGsmAlarm
+               notification generation is disabled."
+    DEFVAL          { false } 
+    ::= { cirbhNotifEnables 1 }
+
+cirbhUmtsAlarmNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the agent should
+        generate the ciscoIpRanBackHaulUmtsAlarm defined in
+        this MIB module.
+
+        'true'  Indicates that ciscoIpRanBackHaulUmtsAlarm
+               notification is to be generated.
+
+        'false' Indicates that ciscoIpRanBackHaulUmtsAlarm
+               notification generation is disabled."
+    DEFVAL          { false } 
+    ::= { cirbhNotifEnables 2 }
+
+cirbhUtilNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies whether the agent should
+        generate the ciscoIpRanBackHaulRcvdUtil or
+        ciscoIpRanBackHaulSentUtil defined in this MIB module.
+
+        'true'  Indicates that ciscoIpRanBackHaulRcvdUtil and
+               ciscoIpRanBackHaulSentUtil notifications
+               are to be generated.
+
+        'false' Indicates that ciscoIpRanBackHaulRcvdUtil and
+               ciscoIpRanBackHaulSentUtil notifications
+               generation is disabled."
+    DEFVAL          { false } 
+    ::= { cirbhNotifEnables 3 }
+
+-- *************************************************************
+-- *                                                           *
+-- * Notifications                                             *
+-- *                                                           *
+-- *************************************************************
+
+ciscoIpRanBackHaulGsmAlarm NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifDescr,
+                        cirbhGsmAlarmConnectState,
+                        cirbhGsmAlarmLocalState,
+                        cirbhGsmAlarmRemoteState,
+                        cirbhGsmAlarmRedundancyState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated whenever the
+        values of the specified objects change."
+   ::= { ciscoIpRanBackHaulMIBNotifs 1 }
+
+ciscoIpRanBackHaulUmtsAlarm NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifDescr,
+                        cirbhUmtsConnectionState,
+                        cirbhUmtsAlarmRxLocalState,
+                        cirbhUmtsAlarmRxRemoteState,
+                        cirbhUmtsAlarmTxLocalState,
+                        cirbhUmtsAlarmTxRemoteState,
+                        cirbhUmtsConnectionRedundState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated whenever the
+        values of the specified objects change."
+   ::= { ciscoIpRanBackHaulMIBNotifs 2 }
+
+ciscoIpRanBackHaulRcvdUtil NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifDescr,
+                        cirbhBackHaulRcvdUtilState,
+                        cirbhBackHaulRcvdUtil
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "This notification is generated once for the interval
+        specified by the cirbhBackHaulStatsInterval object
+        for the following state transitions.
+
+        'acceptable' ->  'warning'
+        'acceptable' ->  'overloaded'
+        'warning'    ->  'overloaded'
+
+        At the end of the interval specified by the
+        cirbhBackHaulUtilInterval object another notification
+        will be generated if the current state is
+        different from state sent in last notification."
+   ::= { ciscoIpRanBackHaulMIBNotifs 3 }
+
+ciscoIpRanBackHaulSentUtil NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifDescr,
+                        cirbhBackHaulSentUtilState,
+                        cirbhBackHaulSentUtil
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "This notification is generated once for the interval
+        specified by the cirbhBackHaulStatsInterval object
+        for the following state transitions.
+
+        'acceptable' ->  'warning'
+        'acceptable' ->  'overloaded'
+        'warning'    ->  'overloaded'
+
+        At the end of the interval specified by the
+        cirbhBackHaulUtilInterval object another notification
+        will be generated if the current state is
+        different from state sent in last notification."
+   ::= { ciscoIpRanBackHaulMIBNotifs 4 }
+-- *************************************************************
+-- *                                                           *
+-- * Conformance Information                                   *
+-- *                                                           *
+-- *************************************************************
+
+ciscoIpRanBackHaulMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIBConform 1 }
+
+ciscoIpRanBackHaulMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpRanBackHaulMIBConform 2 }
+
+
+-- ********************************************************************
+-- Compliance Statements
+-- ********************************************************************
+
+ciscoIpRanBackHaulMIBCompliance MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-IP-RAN-BACKHAUL-MIB.my managment information
+        base."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIpRanBackHaulScalarsGroup,
+                        ciscoIpRanBackHaulConfigGroup,
+                        ciscoIpRanBackHaulStatsGroup,
+                        ciscoIpRanBackHaulAlarmGroup,
+                        ciscoIpRanBackHaulErrorsGroup,
+                        ciscoIpRanBackHaulHistoryGroup,
+                        ciscoIpRanBackHaulNotifGroup
+                    }
+    ::= { ciscoIpRanBackHaulMIBCompliances 1 }
+
+ciscoIpRanBackHaulMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-IP-RAN-BACKHAUL-MIB.my managment information
+        base."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIpRanBackHaulScalarsGroup,
+                        ciscoIpRanBackHaulConfigGroup,
+                        ciscoIpRanBackHaulStatsGroup,
+                        ciscoIpRanBackHaulAlarmGroup,
+                        ciscoIpRanBackHaulErrorsGroup,
+                        ciscoIpRanBackHaulHistoryGroup,
+                        ciscoIpRanBackHaulNotifGroup,
+                        ciscoIpRanBackHaulShortHaulGroup,
+                        ciscoIpRanBackHaulAlarmGroupSup1
+                    }
+    ::= { ciscoIpRanBackHaulMIBCompliances 2 }
+
+ciscoIpRanBackHaulMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-IP-RAN-BACKHAUL-MIB.my managment information
+        base."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIpRanBackHaulScalarsGroupRev2,
+                        ciscoIpRanBackHaulConfigGroup,
+                        ciscoIpRanBackHaulConfigGroupSup2,
+                        ciscoIpRanBackHaulConfigGroupSup3,
+                        ciscoIpRanBackHaulStatsGroup,
+                        ciscoIpRanBackHaulAlarmGroup,
+                        ciscoIpRanBackHaulHistoryGroupRev2,
+                        ciscoIpRanBackHaulNotifGroupRev2,
+                        ciscoIpRanBackHaulAlarmGroupSup1,
+                        ciscoIpRanBackHaulCongestionGroup,
+                        ciscoIpRanBackHaulGsmErrorsGroup,
+                        ciscoIpRanBackHaulUmtsErrorsGroup
+                    }
+    ::= { ciscoIpRanBackHaulMIBCompliances 3 }
+
+ciscoIpRanBackHaulMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-IP-RAN-BACKHAUL-MIB.my managment information
+        base."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIpRanBackHaulScalarsGroupRev2,
+                        ciscoIpRanBackHaulConfigGroup,
+                        ciscoIpRanBackHaulConfigGroupSup2,
+                        ciscoIpRanBackHaulConfigGroupSup3,
+                        ciscoIpRanBackHaulStatsGroup,
+                        ciscoIpRanBackHaulAlarmGroup,
+                        ciscoIpRanBackHaulHistoryGroupRev3,
+                        ciscoIpRanBackHaulNotifGroupRev2,
+                        ciscoIpRanBackHaulAlarmGroupSup1,
+                        ciscoIpRanBackHaulCongestionGroup,
+                        ciscoIpRanBackHaulGsmErrorsGroup,
+                        ciscoIpRanBackHaulUmtsErrorsGroup
+                    }
+    ::= { ciscoIpRanBackHaulMIBCompliances 4 }
+
+-- ****************************************************************
+-- Units of Conformance
+-- ****************************************************************
+
+ciscoIpRanBackHaulScalarsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhSnmpTrafficMode,
+                        cirbhLocation,
+                        cirbhBackHaulStatsInterval,
+                        cirbhBackHaulStatsEntries,
+                        cirbhBackHaulAcceptableThreshold,
+                        cirbhBackHaulWarningThreshold,
+                        cirbhBackHaulOverloadedThreshold,
+                        cirbhBackHaulUtilInterval,
+                        cirbhGsmAlarmNotifEnabled,
+                        cirbhUmtsAlarmNotifEnabled,
+                        cirbhUtilNotifEnabled
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "Cisco IP RAN Input Scalars Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 1 }
+
+ciscoIpRanBackHaulConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhInfoProtocol,
+                        cirbhInfoLocalAddrType,
+                        cirbhInfoLocalAddr,
+                        cirbhInfoLocalPortNumber,
+                        cirbhInfoRemoteAddrType,
+                        cirbhInfoRemoteAddr,
+                        cirbhInfoRemotePortNumber
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Configuration Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 2 }
+
+ciscoIpRanBackHaulStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhStatsRcvdSamples,
+                        cirbhStatsSentSamples,
+                        cirbhStatsRcvdBackHaulPackets,
+                        cirbhStatsSentBackHaulPackets,
+                        cirbhStatsRcvdBackHaulBytes,
+                        cirbhStatsSentBackHaulBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Backhaul Statistics Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 3 }
+
+ciscoIpRanBackHaulAlarmGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhGsmAlarmConnectState,
+                        cirbhGsmAlarmLocalState,
+                        cirbhGsmAlarmRemoteState,
+                        cirbhGsmAlarmRedundancyState,
+                        cirbhUmtsConnectionState,
+                        cirbhUmtsConnectionRedundState,
+                        cirbhUmtsAlarmRxLocalState,
+                        cirbhUmtsAlarmRxRemoteState,
+                        cirbhUmtsAlarmTxLocalState,
+                        cirbhUmtsAlarmTxRemoteState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Alarm Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 4 }
+
+ciscoIpRanBackHaulErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhErrorsBhPeerNotReadyDrops,
+                        cirbhErrorsBhPeerNotActiveDrops,
+                        cirbhErrorsBhInvalidPackets,
+                        cirbhErrorsBhLostRcvdPackets,
+                        cirbhErrorsBhLostSentPackets,
+                        cirbhErrorsBhMissedPackets,
+                        cirbhErrorsBhMissedLatePackets,
+                        cirbhErrorsBhMissedLostPackets,
+                        cirbhErrorsBhMissedNoMemPackets,
+                        cirbhErrorsBhMissedResetPackets,
+                        cirbhErrorsDecompFailures,
+                        cirbhErrorsCompFailures,
+                        cirbhErrorsCompNoPacketFailures,
+                        cirbhErrorsCompNoIntFailures,
+                        cirbhErrorsCompIntDownFailures,
+                        cirbhErrorsCompEncapFailures,
+                        cirbhErrorsCompQosDrops
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "Cisco protocol errors Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 5 }
+
+ciscoIpRanBackHaulHistoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhShortHaulRcvdRate,
+                        cirbhShortHaulSentRate,
+                        cirbhShortHaulRcvdCompressRate,
+                        cirbhShortHaulSentCompressRate,
+                        cirbhShortHaulTimeStamp,
+                        cirbhShortHaulRcvdUtilization,
+                        cirbhShortHaulSentUtilization,
+                        cirbhBackHaulRcvdUtilState,
+                        cirbhBackHaulSentUtilState,
+                        cirbhBackHaulRcvdUtil,
+                        cirbhBackHaulSentUtil,
+                        cirbhBackHaulAdjectSerialNum,
+                        cirbhBackHaulAdjectVendorType,
+                        cirbhBackHaulHistoryRcvdUtil,
+                        cirbhBackHaulHistorySentUtil,
+                        cirbhBackHaulHistoryRcvdAbisUtil,
+                        cirbhBackHaulHistorySentAbisUtil,
+                        cirbhBackHaulHistoryRcvdUmtsUtil,
+                        cirbhBackHaulHistorySentUmtsUtil,
+                        cirbhBackHaulHistoryTimeStamp,
+                        cirbhStats000to009Seconds,
+                        cirbhStats010to019Seconds,
+                        cirbhStats020to029Seconds,
+                        cirbhStats030to039Seconds,
+                        cirbhStats040to049Seconds,
+                        cirbhStats050to059Seconds,
+                        cirbhStats060to069Seconds,
+                        cirbhStats070to079Seconds,
+                        cirbhStats080to089Seconds,
+                        cirbhStats090to100Seconds,
+                        cirbhStatsTimeStamp,
+                        cirbhStatsMaxUtilization,
+                        cirbhStatsMaxTimeStamp,
+                        cirbhStatsHistory000to009Seconds,
+                        cirbhStatsHistory010to019Seconds,
+                        cirbhStatsHistory020to029Seconds,
+                        cirbhStatsHistory030to039Seconds,
+                        cirbhStatsHistory040to049Seconds,
+                        cirbhStatsHistory050to059Seconds,
+                        cirbhStatsHistory060to069Seconds,
+                        cirbhStatsHistory070to079Seconds,
+                        cirbhStatsHistory080to089Seconds,
+                        cirbhStatsHistory090to100Seconds,
+                        cirbhStatsHistoryTimeStamp,
+                        cirbhStatsHistoryMaxUtilization,
+                        cirbhStatsHistoryMaxTimeStamp,
+                        cirbhStatsHistoryAverage
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco IP RAN Utilization History Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 6 }
+
+ciscoIpRanBackHaulNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoIpRanBackHaulGsmAlarm,
+                        ciscoIpRanBackHaulUmtsAlarm,
+                        ciscoIpRanBackHaulRcvdUtil,
+                        ciscoIpRanBackHaulSentUtil
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco IP RAN Notifications."
+    ::= { ciscoIpRanBackHaulMIBGroups 7 }
+
+ciscoIpRanBackHaulShortHaulGroup OBJECT-GROUP
+    OBJECTS         { cirbhBackHaulShortHaulTimestamp }
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco IP RAN Backhaul to Shorthaul Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 8 }
+
+ciscoIpRanBackHaulAlarmGroupSup1 OBJECT-GROUP
+    OBJECTS         { cirbhUmtsConnectionRootIfIndex }
+    STATUS          current
+    DESCRIPTION
+        "Additional objects for Cisco IP RAN Alarm Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 9 }
+
+ciscoIpRanBackHaulScalarsGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cirbhSnmpTrafficMode,
+                        cirbhLocation,
+                        cirbhGsmAlarmNotifEnabled,
+                        cirbhUmtsAlarmNotifEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Input Scalars Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 10 }
+
+ciscoIpRanBackHaulConfigGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        cirbhInfoAdjectSerialNum,
+                        cirbhInfoAdjectVendorType,
+                        cirbhInfoBackhaulRxIfIndex,
+                        cirbhInfoBackhaulTxIfIndex,
+                        cirbhInfoShBulkLastIndex
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Configuration Group Sup2."
+    ::= { ciscoIpRanBackHaulMIBGroups 11 }
+
+ciscoIpRanBackHaulHistoryGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cirbhShortHaulRcvdRate,
+                        cirbhShortHaulSentRate,
+                        cirbhShortHaulRcvdCompressRate,
+                        cirbhShortHaulSentCompressRate,
+                        cirbhShortHaulTimeStamp,
+                        cirbhShortHaulRcvdUtilization,
+                        cirbhShortHaulSentUtilization,
+                        cirbhShortHaulBulkTimeStamp,
+                        cirbhShortHaulBulkBaseUnit,
+                        cirbhShortHaulBulkUtil
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "Cisco IP RAN Utilization History Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 12 }
+
+ciscoIpRanBackHaulNotifGroupRev2 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoIpRanBackHaulGsmAlarm,
+                        ciscoIpRanBackHaulUmtsAlarm
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Notifications."
+    ::= { ciscoIpRanBackHaulMIBGroups 13 }
+
+ciscoIpRanBackHaulCongestionGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhCongestionEnabled,
+                        cirbhCongestionDrops,
+                        cirbhCongestionDroppedBytes,
+                        cirbhCongestionEvents,
+                        cirbhCongestionActive,
+                        cirbhCongestionDuration
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN congestion object group."
+    ::= { ciscoIpRanBackHaulMIBGroups 14 }
+
+ciscoIpRanBackHaulGsmErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhGsmErrorsPeerNotReadyDrops,
+                        cirbhGsmErrorsPeerNotActiveDrops,
+                        cirbhGsmErrorsInvalidPackets,
+                        cirbhGsmErrorsLostRcvdPackets,
+                        cirbhGsmErrorsLostSentPackets,
+                        cirbhGsmErrorsMissedPackets,
+                        cirbhGsmErrorsMissedLatePackets,
+                        cirbhGsmErrorsMissedLostPackets,
+                        cirbhGsmErrorsMissedNoMemPackets,
+                        cirbhGsmErrorsMissedResetPackets,
+                        cirbhGsmErrorsDecompFailures,
+                        cirbhGsmErrorsCompFailures,
+                        cirbhGsmErrorsCompNoPacketFailures,
+                        cirbhGsmErrorsCompNoIntFailures,
+                        cirbhGsmErrorsCompIntDownFailures,
+                        cirbhGsmErrorsCompEncapFailures,
+                        cirbhGsmErrorsCompQosDrops,
+                        cirbhGsmErrorsFastSendFailures,
+                        cirbhGsmErrorsTxPacketFailures,
+                        cirbhGsmErrorsTxNoBuffers,
+                        cirbhGsmErrorsTxResets,
+                        cirbhGsmErrorsOverruns,
+                        cirbhGsmErrorsInterruptFailures,
+                        cirbhGsmErrorsLateArrivals,
+                        cirbhGsmErrorsEarlyArrivals
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco GSM-Abis protocol errors Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 15 }
+
+ciscoIpRanBackHaulUmtsErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cirbhUmtsErrorsPeerNotReadyDrops,
+                        cirbhUmtsErrorsInvalidPackets,
+                        cirbhUmtsErrorsDecompFailures,
+                        cirbhUmtsErrorsCompFailures,
+                        cirbhUmtsErrorsCompNoPacketFailures,
+                        cirbhUmtsErrorsCompNoIntFailures,
+                        cirbhUmtsErrorsCompIntDownFailures,
+                        cirbhUmtsErrorsCompEncapFailures,
+                        cirbhUmtsErrorsCompQosDrops,
+                        cirbhUmtsErrorsShorthaulPakFailures,
+                        cirbhUmtsErrorsUmtsEncapFailures,
+                        cirbhUmtsErrorsLocalPvcDrops,
+                        cirbhUmtsErrorsRemotePvcDrops,
+                        cirbhUmtsErrorsBackhaulDrops
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco UMTS-Iub protocol errors Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 16 }
+
+ciscoIpRanBackHaulConfigGroupSup3 OBJECT-GROUP
+    OBJECTS         { cirbhInfoOptimizeTraffic }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Configuration Group for Optimization."
+    ::= { ciscoIpRanBackHaulMIBGroups 17 }
+
+ciscoIpRanBackHaulHistoryGroupRev3 OBJECT-GROUP
+    OBJECTS         {
+                        cirbhShortHaulBulkTimeStamp,
+                        cirbhShortHaulBulkBaseUnit,
+                        cirbhShortHaulBulkUtil
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Cisco IP RAN Utilization History Group."
+    ::= { ciscoIpRanBackHaulMIBGroups 18 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

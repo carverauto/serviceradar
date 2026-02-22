@@ -1,0 +1,24 @@
+MIBs supported by the WS-C1000 (CDDI/FDDI Workgroup Concentrator)
+-----------------------------------------------------------------
+
+
+MIBs supported since version 5.1 of the software:
+
+        CISCO-STACK-MIB
+        RFC1213-MIB      (MIB-II)
+        FDDI-SMT73-MIB   (RFC 1512)
+
+MIBs supported in initial version of the software:
+
+        CISCO-STACK-MIB
+        RFC1213-MIB      (MIB-II)
+        RFC1285-MIB      (FDDI MIB for SMT 6.2)
+
+
+
+Traps supported by the WS-C1000 (CDDI/FDDI Workgroup Concentrator)
+------------------------------------------------------------------
+
+        coldStart                 RFC1157-SNMP
+        authenticationFailure     RFC1157-SNMP
+

@@ -1,0 +1,254 @@
+-- *****************************************************************
+-- CISCO-VISM-RSRC-PART-MIB 
+--   The MIB contain Port Resource Partition Configuration
+--   information on VISM(Voice Interworking Service Module).
+--
+-- December 2003, George Ogagan
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VISM-RSRC-PART-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+                               FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    vismPort                   FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoVismRsrcPartMIB MODULE-IDENTITY
+    LAST-UPDATED    "200312090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module containing Port Resource
+         Partition information for VISM service module.
+        "
+
+    REVISION    "200312090000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+    ::= { ciscoWan 93}
+
+
+vismPortResPartCnfGrp        OBJECT IDENTIFIER ::= { vismPort 2 }
+
+--
+-- vismPortResPartCnfGrpTable 
+--
+-- The vismPortResPartCnfGrpTable is used to partition
+-- the PVC(Permanent Virtual Circuit) on the ports,
+-- based on the controllers like par, pnni and tag.
+--
+
+vismPortResPartCnfGrpTable    OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismPortResPartCnfGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The vismPortResPartCnfGrpTable contains the
+         configuration of port resource partition.
+         Currently this table contains a single row.
+        "
+    ::= { vismPortResPartCnfGrp 1 }
+
+vismPortResPartCnfGrpEntry    OBJECT-TYPE
+    SYNTAX      VismPortResPartCnfGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry for port resource partition.
+        "
+    INDEX  { vismResPartPortNum, vismResPartCtrlrNum }
+    ::= { vismPortResPartCnfGrpTable 1 }
+
+VismPortResPartCnfGrpEntry ::=
+    SEQUENCE {
+        vismResPartPortNum        Integer32,
+        vismResPartCtrlrNum       INTEGER,
+        vismResPartRowStatus      INTEGER,
+        vismResPartNumOfLcnAvail  Integer32,
+        vismResPartLcnLow         Integer32,
+        vismResPartLcnHigh        Integer32,
+        vismResPartIngrPctBW      Integer32,
+        vismResPartEgrPctBW       Integer32,
+        vismResPartCtrlrID        Integer32
+        }
+
+vismResPartPortNum    OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is the index to vismPortResPartCnfGrpTable.
+         If PXM1(Processor Switch Module) is used on the
+         shelf this object should be set to 1. For PXM1E
+         this object should be set to 255.
+        "
+    ::= { vismPortResPartCnfGrpEntry 1 }
+
+vismResPartCtrlrNum OBJECT-TYPE
+    SYNTAX      INTEGER {
+                  par (1),
+                  pnni(2),
+                  tag (3)
+                 }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is index to vismPortResPartCnfGrpTable.
+        "
+    ::= { vismPortResPartCnfGrpEntry 2 }
+
+vismResPartRowStatus OBJECT-TYPE
+    SYNTAX  INTEGER {
+                   add (1),
+                   del (2),
+                   mod (3)
+                  }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This will 'add', 'delete' or 'modify' the partition.
+
+         To delete an entry, this object has to be set to 'del'.
+         The resource partition can be deleted only after
+         deleting all the connections Logical Channel
+         Numbers(LCNs).
+        "
+    ::= { vismPortResPartCnfGrpEntry 3 }
+
+vismResPartNumOfLcnAvail OBJECT-TYPE
+    SYNTAX      Integer32 (0..380)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This represents number of LCNs available for this
+         controller and this port. The default value for this
+         object is chosen based on the object vismMode
+         (defined in CISCO-VISM-MODULE-MIB MIB) :
+        "
+    ::= { vismPortResPartCnfGrpEntry 4 }
+
+vismResPartLcnLow OBJECT-TYPE
+    SYNTAX      Integer32(131..510)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This represents low end of reserved LCN. The LCN 
+         identifies the local VCI(Virtual Channel Identifier)
+         value on the VISM when adding a connection.
+        "
+    DEFVAL { 131 }
+    ::= { vismPortResPartCnfGrpEntry 5 }
+
+vismResPartLcnHigh OBJECT-TYPE
+    SYNTAX      Integer32(131..510)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This represents high end of reserved LCN. The LCN 
+         identifies the local VCI value on the VISM when
+         adding a connection. 
+        "
+    DEFVAL { 510 }
+    ::= { vismPortResPartCnfGrpEntry 6 }
+
+vismResPartIngrPctBW OBJECT-TYPE
+    SYNTAX      Integer32 (0..100)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The percentage of total ingress bandwidth reserved.
+         Since we have only one LCN for VoIP(Voice Over IP),
+         the value is 100.
+        "
+    DEFVAL { 100 }
+    ::= { vismPortResPartCnfGrpEntry 7 }
+
+vismResPartEgrPctBW OBJECT-TYPE
+    SYNTAX      Integer32 (0..100)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The percentage of total egress bandwidth reserved 
+         Since we have only one LCN for VoIP, the value
+         is 100.
+        "
+    DEFVAL { 100 }
+    ::= { vismPortResPartCnfGrpEntry 8 }
+
+vismResPartCtrlrID OBJECT-TYPE
+    SYNTAX     Integer32(1..255)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This is the controller identifier of the PNNI
+         (Private Network to Network Interface) controller. 
+        "
+    DEFVAL { 2 }
+    ::= { vismPortResPartCnfGrpEntry 9 }
+
+-- conformance information
+
+ciscoVismRsrcPartMIBConformance  OBJECT IDENTIFIER ::= 
+                              { ciscoVismRsrcPartMIB 2 }
+
+ciscoVismRsrcPartMIBGroups       OBJECT IDENTIFIER ::=
+                              { ciscoVismRsrcPartMIBConformance 1 }
+
+ciscoVismRsrcPartMIBCompliances  OBJECT IDENTIFIER ::=
+                              { ciscoVismRsrcPartMIBConformance 2 }
+
+-- compliance statements
+
+ciscoVismRsrcPartCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM Port Resource Partition configuration."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            ciscoVismRsrcPartGroup
+        }
+    ::= { ciscoVismRsrcPartMIBCompliances 1 }
+
+ciscoVismRsrcPartGroup OBJECT-GROUP
+     OBJECTS {
+        vismResPartPortNum,
+        vismResPartCtrlrNum,
+        vismResPartRowStatus,
+        vismResPartNumOfLcnAvail,
+        vismResPartLcnLow,
+        vismResPartLcnHigh,
+        vismResPartIngrPctBW,
+        vismResPartEgrPctBW,
+        vismResPartCtrlrID
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM Port Resource Partition configuration."
+      ::= { ciscoVismRsrcPartMIBGroups 1 }
+
+END
+

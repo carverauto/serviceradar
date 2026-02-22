@@ -1,0 +1,871 @@
+-- *****************************************************************
+-- CISCO-IPSLA-JITTER-MIB.my:  IP SLA MIB for UDP jitter and
+-- ICMP jitter operations
+--   
+-- November 2006, Katherine Yang
+--   
+-- Copyright (c) 2006-2007 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-IPSLA-JITTER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    StorageType,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddress,
+    InetAddressType,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    IpSlaCodecType
+        FROM CISCO-IPSLA-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpSlaJitterMIB MODULE-IDENTITY
+    LAST-UPDATED    "200707240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc.
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel: +1 800 553 NETS
+            Email: cs-ipsla@cisco.com"
+    DESCRIPTION
+        "This MIB module defines templates for IP SLA operations of UDP
+        Jitter and ICMP Jitter. 
+
+        The UDP Jitter operation is designed to measure the delay 
+        variance and packet loss in IP networks by generating synthetic 
+        UDP traffic. 
+
+        The ICMP Jitter operation provides capability to measure metrics 
+        such as RTT (Round Trip Time), jitter, packet loss, one-way 
+        latency by sending ICMP Timestamp stream to the destination 
+        devices."
+    REVISION        "200707240000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 635 }
+
+
+ciscoIpSlaJitterMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaJitterMIB 0 }
+
+ciscoIpSlaJitterMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaJitterMIB 1 }
+
+
+cipslaUdpJitterTmplTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaUdpJitterTmplEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table that contains UDP jitter template specific definitions."
+    ::= { ciscoIpSlaJitterMIBObjects 1 }
+
+cipslaUdpJitterTmplEntry OBJECT-TYPE
+    SYNTAX          CipslaUdpJitterTmplEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row entry representing an IPSLA UDP jitter template."
+    INDEX           { cipslaUdpJitterTmplName } 
+    ::= { cipslaUdpJitterTmplTable 1 }
+
+CipslaUdpJitterTmplEntry ::= SEQUENCE {
+        cipslaUdpJitterTmplName          SnmpAdminString,
+        cipslaUdpJitterTmplDescription   SnmpAdminString,
+        cipslaUdpJitterTmplControlEnable TruthValue,
+        cipslaUdpJitterTmplTimeOut       Unsigned32,
+        cipslaUdpJitterTmplVerifyData    TruthValue,
+        cipslaUdpJitterTmplCodecType     IpSlaCodecType,
+        cipslaUdpJitterTmplCodecInterval Unsigned32,
+        cipslaUdpJitterTmplCodecPayload  Unsigned32,
+        cipslaUdpJitterTmplCodecNumPkts  Unsigned32,
+        cipslaUdpJitterTmplInterval      Unsigned32,
+        cipslaUdpJitterTmplNumPkts       Unsigned32,
+        cipslaUdpJitterTmplSrcAddrType   InetAddressType,
+        cipslaUdpJitterTmplSrcAddr       InetAddress,
+        cipslaUdpJitterTmplSrcPort       InetPortNumber,
+        cipslaUdpJitterTmplPrecision     INTEGER ,
+        cipslaUdpJitterTmplReqDataSize   Unsigned32,
+        cipslaUdpJitterTmplPktPriority   INTEGER ,
+        cipslaUdpJitterTmplTOS           Unsigned32,
+        cipslaUdpJitterTmplVrfName       SnmpAdminString,
+        cipslaUdpJitterTmplThreshold     Unsigned32,
+        cipslaUdpJitterTmplNTPTolAbs     Unsigned32,
+        cipslaUdpJitterTmplNTPTolPct     Unsigned32,
+        cipslaUdpJitterTmplNTPTolType    INTEGER ,
+        cipslaUdpJitterTmplIcpifFactor   Unsigned32,
+        cipslaUdpJitterTmplStatsHours    Unsigned32,
+        cipslaUdpJitterTmplDistBuckets   Unsigned32,
+        cipslaUdpJitterTmplDistInterval  Unsigned32,
+        cipslaUdpJitterTmplStorageType   StorageType,
+        cipslaUdpJitterTmplRowStatus     RowStatus
+}
+
+cipslaUdpJitterTmplName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the UDP Jitter template name." 
+    ::= { cipslaUdpJitterTmplEntry 1 }
+
+cipslaUdpJitterTmplDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which provides description of UDP Jitter
+        template."
+    DEFVAL          { "" } 
+    ::= { cipslaUdpJitterTmplEntry 2 }
+
+cipslaUdpJitterTmplControlEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If this object is enabled, then the IP SLA application
+        will send control messages to a responder, residing on the
+        target router to respond to the data request packets being
+        sent by the source router."
+    DEFVAL          { true } 
+    ::= { cipslaUdpJitterTmplEntry 3 }
+
+cipslaUdpJitterTmplTimeOut OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..604800000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the duration to wait for a IP SLA operation
+        completion. 
+
+        For connection oriented protocols, this may cause the
+        connection to be closed by the operation.  Once closed, it
+        will be assumed that the connection reestablishment
+        will be performed.  To prevent unwanted closure of
+        connections, be sure to set this value to a realistic
+        connection timeout."
+    DEFVAL          { 5000 } 
+    ::= { cipslaUdpJitterTmplEntry 4 }
+
+cipslaUdpJitterTmplVerifyData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "When set to true, the resulting data in each IP SLA
+        operation is compared with the expected data.  This
+        includes checking header information (if possible) and
+        exact packet size."
+    DEFVAL          { false } 
+    ::= { cipslaUdpJitterTmplEntry 5 }
+
+cipslaUdpJitterTmplCodecType OBJECT-TYPE
+    SYNTAX          IpSlaCodecType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the codec type to be used with UDP jitter operation.
+
+        If codec-type is configured the following parameters cannot be 
+        configured.
+        cipslaUdpJitterReqDataSize
+        cipslaUdpJitterInterval
+        cipslaUdpJitterNumPkts" 
+    ::= { cipslaUdpJitterTmplEntry 6 }
+
+cipslaUdpJitterTmplCodecInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (4..60000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This field represents the inter-packet delay between
+        packets and is in milliseconds. This object is applicable
+        only to UDP jitter operation  which uses codec type." 
+    ::= { cipslaUdpJitterTmplEntry 7 }
+
+cipslaUdpJitterTmplCodecPayload OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..16384 )
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of octets that needs to be
+        placed into the Data portion of the message. This value is
+        used only for UDP jitter operation  which uses codec type." 
+    ::= { cipslaUdpJitterTmplEntry 8 }
+
+cipslaUdpJitterTmplCodecNumPkts OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..60000 )
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This value represents the number of packets that need to
+        be transmitted. This value is used only for UDP jitter 
+        operation which uses codec type." 
+    ::= { cipslaUdpJitterTmplEntry 9 }
+
+cipslaUdpJitterTmplInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (4..60000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This value represents the inter-packet delay between packets
+        and is in milliseconds."
+    DEFVAL          { 20 } 
+    ::= { cipslaUdpJitterTmplEntry 10 }
+
+cipslaUdpJitterTmplNumPkts OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..60000 )
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This value represents the number of packets that need to be
+        transmitted."
+    DEFVAL          { 10 } 
+    ::= { cipslaUdpJitterTmplEntry 11 }
+
+cipslaUdpJitterTmplSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the IP address type
+        of the source. It must be used along with the
+        cipslaUdpJitterTmplSrcAddr object."
+    DEFVAL          { ipv4 } 
+    ::= { cipslaUdpJitterTmplEntry 12 }
+
+cipslaUdpJitterTmplSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This field specifies the IP address of the source." 
+    ::= { cipslaUdpJitterTmplEntry 13 }
+
+cipslaUdpJitterTmplSrcPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the source's port number. If this
+        object is not specified, the application will get a
+        port allocated by the system."
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpJitterTmplEntry 14 }
+
+cipslaUdpJitterTmplPrecision OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        milliseconds(1),
+                        microseconds(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the accuracy of jitter statistics in
+        rttMonJitterStatsTable that needs to be calculated.
+        milliseconds(1) - The accuracy of stats will be of milliseconds.
+        microseconds(2) - The accuracy of stats will be in microseconds."
+    DEFVAL          { milliseconds } 
+    ::= { cipslaUdpJitterTmplEntry 15 }
+
+cipslaUdpJitterTmplReqDataSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (16..65024 )
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of octets to be
+        placed into the ARR Data portion of the request
+        message, when using SNA protocols.
+
+        For non-ARR protocols' IP SLA request/responses,
+        this value represents the native payload size.
+
+        REMEMBER:  The ARR Header overhead is not included
+                   in this value."
+    DEFVAL          { 32 } 
+    ::= { cipslaUdpJitterTmplEntry 16 }
+
+cipslaUdpJitterTmplPktPriority OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        high(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the priority that will be assigned
+        to operation packet.
+
+        normal(1) - The packet is of normal priority.
+        high(2)   - The packet is of high priority."
+    DEFVAL          { normal } 
+    ::= { cipslaUdpJitterTmplEntry 17 }
+
+cipslaUdpJitterTmplTOS OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of service octet in an
+        IP header."
+    REFERENCE
+        "Refer to the following documents for TOS definition.
+               RFC791/1349  for IPv4, IPv6, draft-ietf-diffserv-header-02.txt"
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpJitterTmplEntry 18 }
+
+cipslaUdpJitterTmplVrfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This field is used to specify the VRF name in
+        which the IP SLA operation will be used. For regular IP SLA
+        operation this field should not be configured. The agent
+        will use this field to identify the VPN routing table for
+        this operation."
+    DEFVAL          { "" } 
+    ::= { cipslaUdpJitterTmplEntry 19 }
+
+cipslaUdpJitterTmplThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines an administrative threshold limit.
+        If the IP SLA operation time exceeds this limit, then
+        one threshold crossing occurrence will be counted."
+    DEFVAL          { 5000 } 
+    ::= { cipslaUdpJitterTmplEntry 20 }
+
+cipslaUdpJitterTmplNTPTolAbs OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100000 )
+    UNITS           "microseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total clock synchronization error
+        on source and responder that is considered tolerable for 
+        oneway measurement when NTP is used as clock synchronization 
+        mechanism.  The total clock synchronization error is sum of
+        NTP offsets on source and responder. The value specified is 
+        microseconds. This value can be set only for UDP jitter operation 
+        with precision of microsecond."
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpJitterTmplEntry 21 }
+
+cipslaUdpJitterTmplNTPTolPct OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total clock synchronization error
+        on source and responder that is considered tolerable for 
+        oneway measurement when NTP is used as clock synchronization 
+        mechanism.  The total clock synchronization error is sum of 
+        NTP offsets on source and responder. The value is expressed 
+        as the percentage of actual oneway latency that is measured. 
+        This value can be set only for UDP jitter operation with precision 
+        of microsecond."
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpJitterTmplEntry 22 }
+
+cipslaUdpJitterTmplNTPTolType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        percent(1),
+                        absolute(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the value specified for oneway
+        NTP sync tolerance is absolute value or percent value.
+
+        percent(1)  - The value for oneway NTP sync tolerance is 
+                      absolute value.
+        absolute(2) - The value for oneway NTP sync tolerance is 
+                      percent value."
+    DEFVAL          { percent } 
+    ::= { cipslaUdpJitterTmplEntry 23 }
+
+cipslaUdpJitterTmplIcpifFactor OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..20 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The advantage factor is dependant on the type of access and
+        how the service is to be used.
+        Conventional Wire-line     0
+        Mobility within Building    5
+        Mobility within geographic area  10
+        Access to hard-to-reach location   20
+
+        It is used when calculating the ICPIF value."
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpJitterTmplEntry 24 }
+
+cipslaUdpJitterTmplStatsHours OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..25 )
+    UNITS           "hours"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of hours for which statistics are
+        maintained. Specifically this is the number of hourly
+        groups to keep before rolling over.
+
+        The value of one is not advisable because the hourly
+        group will close and immediately be deleted before
+        the network management station will have the
+        opportunity to retrieve the statistics.
+
+        The value of zero will shut off data collection."
+    DEFVAL          { 2 } 
+    ::= { cipslaUdpJitterTmplEntry 25 }
+
+cipslaUdpJitterTmplDistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of statistical distribution
+        buckets to accumulate.
+
+        Since this index does not rollover, only the first
+        cipslaUdpJitterTmplDistBuckets will be kept.
+
+        The last bucket will contain all entries from its 
+        distribution interval start point to infinity."
+    DEFVAL          { 1 } 
+    ::= { cipslaUdpJitterTmplEntry 26 }
+
+cipslaUdpJitterTmplDistInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The statistical distribution buckets interval.
+
+        Distribution Bucket Example:
+
+        cipslaUdpJitterTmplDistBuckets = 5 buckets
+        cipslaUdpJitterTmplDistInterval = 10 milliseconds
+
+        | Bucket 1 | Bucket 2 | Bucket 3 | Bucket 4 | Bucket 5  |
+        |  0-9 ms  | 10-19 ms | 20-29 ms | 30-39 ms | 40-Inf ms |
+
+        Odd Example:
+
+        cipslaUdpJitterTmplDistBuckets = 1 buckets
+        cipslaUdpJitterTmplDistInterval = 10 milliseconds
+
+        | Bucket 1  |
+        |  0-Inf ms |
+
+        Thus, this odd example shows that the value of
+        cipslaUdpJitterTmplDistInterval does not apply when
+        cipslaUdpJitterTmplDistBuckets is one."
+    DEFVAL          { 20 } 
+    ::= { cipslaUdpJitterTmplEntry 27 }
+
+cipslaUdpJitterTmplStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type of this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cipslaUdpJitterTmplEntry 28 }
+
+cipslaUdpJitterTmplRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of the conceptual UDP Jitter template control row.
+        When the status is active, all the read-create objects in that 
+        row can be modified." 
+    ::= { cipslaUdpJitterTmplEntry 30 }
+ 
+
+
+cipslaIcmpJitterTmplTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaIcmpJitterTmplEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table that contains ICMP jitter template specific definitions."
+    ::= { ciscoIpSlaJitterMIBObjects 2 }
+
+cipslaIcmpJitterTmplEntry OBJECT-TYPE
+    SYNTAX          CipslaIcmpJitterTmplEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row entry representing an IP SLA ICMP Jitter template."
+    INDEX           { cipslaIcmpJitterTmplName } 
+    ::= { cipslaIcmpJitterTmplTable 1 }
+
+CipslaIcmpJitterTmplEntry ::= SEQUENCE {
+        cipslaIcmpJitterTmplName         SnmpAdminString,
+        cipslaIcmpJitterTmplDescription  SnmpAdminString,
+        cipslaIcmpJitterTmplTimeOut      Unsigned32,
+        cipslaIcmpJitterTmplVerifyData   TruthValue,
+        cipslaIcmpJitterTmplNumPkts      Unsigned32,
+        cipslaIcmpJitterTmplInterval     Unsigned32,
+        cipslaIcmpJitterTmplSrcAddrType  InetAddressType,
+        cipslaIcmpJitterTmplSrcAddr      InetAddress,
+        cipslaIcmpJitterTmplTOS          Unsigned32,
+        cipslaIcmpJitterTmplVrfName      SnmpAdminString,
+        cipslaIcmpJitterTmplThreshold    Unsigned32,
+        cipslaIcmpJitterTmplStatsHours   Unsigned32,
+        cipslaIcmpJitterTmplDistBuckets  Unsigned32,
+        cipslaIcmpJitterTmplDistInterval Unsigned32,
+        cipslaIcmpJitterTmplStorageType  StorageType,
+        cipslaIcmpJitterTmplRowStatus    RowStatus
+}
+
+cipslaIcmpJitterTmplName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the ICMP jitter template name." 
+    ::= { cipslaIcmpJitterTmplEntry 1 }
+
+cipslaIcmpJitterTmplDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which provides description of ICMP Jitter
+        template."
+    DEFVAL          { "" } 
+    ::= { cipslaIcmpJitterTmplEntry 2 }
+
+cipslaIcmpJitterTmplTimeOut OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..604800000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the duration to wait for a IP SLA operation
+        completion.
+
+        For connection oriented protocols, this may cause the
+        connection to be closed by the operation.  Once closed, it
+        will be assumed that the connection reestablishment
+        will be performed.  To prevent unwanted closure of
+        connections, be sure to set this value to a realistic
+        connection timeout."
+    DEFVAL          { 5000 } 
+    ::= { cipslaIcmpJitterTmplEntry 3 }
+
+cipslaIcmpJitterTmplVerifyData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "When set to true, the resulting data in each IP SLA
+        operation is compared with the expected data.  This
+        includes checking header information (if possible) and
+        exact packet size."
+    DEFVAL          { false } 
+    ::= { cipslaIcmpJitterTmplEntry 4 }
+
+cipslaIcmpJitterTmplNumPkts OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..60000 )
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This value represents the number of packets that need to be
+        transmitted."
+    DEFVAL          { 10 } 
+    ::= { cipslaIcmpJitterTmplEntry 5 }
+
+cipslaIcmpJitterTmplInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (4..60000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This value represents the inter-packet delay between packets
+        and is in milliseconds."
+    DEFVAL          { 20 } 
+    ::= { cipslaIcmpJitterTmplEntry 6 }
+
+cipslaIcmpJitterTmplSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the IP address type
+        of the source. It must be used along with the
+        cipslaIcmpJitterTmplSrcAddr object."
+    DEFVAL          { ipv4 } 
+    ::= { cipslaIcmpJitterTmplEntry 7 }
+
+cipslaIcmpJitterTmplSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the IP address of the source." 
+    ::= { cipslaIcmpJitterTmplEntry 8 }
+
+cipslaIcmpJitterTmplTOS OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of service octet in an
+        IP header."
+    REFERENCE
+        "Refer to the following documents for TOS definition.
+               RFC791/1349  for IPv4, IPv6, draft-ietf-diffserv-header-02.txt"
+    DEFVAL          { 0 } 
+    ::= { cipslaIcmpJitterTmplEntry 9 }
+
+cipslaIcmpJitterTmplVrfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This field is used to specify the VRF name in
+        which the IP SLA operation will be used. For regular IP SLA
+        operation this field should not be configured. The agent
+        will use this field to identify the VPN routing Table for
+        this operation."
+    DEFVAL          { "" } 
+    ::= { cipslaIcmpJitterTmplEntry 10 }
+
+cipslaIcmpJitterTmplThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines an administrative threshold limit.
+        If the IP SLA operation time exceeds this limit, then 
+        one threshold crossing occurrence will be counted."
+    DEFVAL          { 5000 } 
+    ::= { cipslaIcmpJitterTmplEntry 11 }
+
+cipslaIcmpJitterTmplStatsHours OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..25 )
+    UNITS           "hours"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of hourss for which statistics are
+        maintained. Specifically this is the number of hourly
+        groups to keep before rolling over.
+
+        The value of one is not advisable because the hourly
+        group will close and immediately be deleted before
+        the network management station will have the
+        opportunity to retrieve the statistics.
+
+        The value of zero will shut off data collection."
+    DEFVAL          { 2 } 
+    ::= { cipslaIcmpJitterTmplEntry 12 }
+
+cipslaIcmpJitterTmplDistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of statistical distribution
+        buckets to accumulate.
+
+        Since this index does not rollover, only the first
+        cipslaIcmpJitterTmplDistBuckets will be kept.
+
+        The last bucket will contain all entries from its 
+        distribution interval start point to infinity."
+    DEFVAL          { 1 } 
+    ::= { cipslaIcmpJitterTmplEntry 13 }
+
+cipslaIcmpJitterTmplDistInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The statistical distribution buckets interval.
+
+        Distribution Bucket Example:
+
+        cipslaIcmpJitterTmplDistBuckets = 5 buckets
+        cipslaIcmpJitterTmplDistInterval = 10 milliseconds
+
+        | Bucket 1 | Bucket 2 | Bucket 3 | Bucket 4 | Bucket 5  |
+        |  0-9 ms  | 10-19 ms | 20-29 ms | 30-39 ms | 40-Inf ms |
+
+        Odd Example:
+
+        cipslaIcmpJitterTmplDistBuckets = 1 buckets
+        cipslaIcmpJitterTmplDistInterval = 10 milliseconds
+
+        | Bucket 1  |
+        |  0-Inf ms |
+
+        Thus, this odd example shows that the value of
+        cipslaIcmpJitterTmplDistInterval does not apply when
+        cipslaIcmpJitterTmplDistBuckets is one."
+    DEFVAL          { 20 } 
+    ::= { cipslaIcmpJitterTmplEntry 14 }
+
+cipslaIcmpJitterTmplStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type of this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cipslaIcmpJitterTmplEntry 15 }
+
+cipslaIcmpJitterTmplRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of the conceptual ICMP jitter template control row.
+        When the status is active, all the read-create objects in 
+        that row can be modified." 
+    ::= { cipslaIcmpJitterTmplEntry 16 }
+ 
+
+-- Conformance Information
+
+ciscoIpSlaJitterMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaJitterMIB 2 }
+
+ciscoIpSlaJitterMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaJitterMIBConform 1 }
+
+ciscoIpSlaJitterMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaJitterMIBConform 2 }
+
+
+ciscoIpSlaJitterMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for IP SLA
+        (1)  UDP Jitter Template
+        (2)  ICMP Jitter Template"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIpSlaUdpJitterTmplGroup,
+                        ciscoIpSlaIcmpJitterTmplGroup
+                    }
+    ::= { ciscoIpSlaJitterMIBCompliances 1 }
+
+ciscoIpSlaUdpJitterTmplGroup OBJECT-GROUP
+    OBJECTS         {
+                        cipslaUdpJitterTmplDescription,
+                        cipslaUdpJitterTmplControlEnable,
+                        cipslaUdpJitterTmplTimeOut,
+                        cipslaUdpJitterTmplVerifyData,
+                        cipslaUdpJitterTmplCodecType,
+                        cipslaUdpJitterTmplCodecInterval,
+                        cipslaUdpJitterTmplCodecPayload,
+                        cipslaUdpJitterTmplCodecNumPkts,
+                        cipslaUdpJitterTmplInterval,
+                        cipslaUdpJitterTmplNumPkts,
+                        cipslaUdpJitterTmplSrcAddrType,
+                        cipslaUdpJitterTmplSrcAddr,
+                        cipslaUdpJitterTmplSrcPort,
+                        cipslaUdpJitterTmplPrecision,
+                        cipslaUdpJitterTmplReqDataSize,
+                        cipslaUdpJitterTmplPktPriority,
+                        cipslaUdpJitterTmplTOS,
+                        cipslaUdpJitterTmplVrfName,
+                        cipslaUdpJitterTmplThreshold,
+                        cipslaUdpJitterTmplNTPTolAbs,
+                        cipslaUdpJitterTmplNTPTolPct,
+                        cipslaUdpJitterTmplNTPTolType,
+                        cipslaUdpJitterTmplIcpifFactor,
+                        cipslaUdpJitterTmplStatsHours,
+                        cipslaUdpJitterTmplDistBuckets,
+                        cipslaUdpJitterTmplDistInterval,
+                        cipslaUdpJitterTmplStorageType,
+                        cipslaUdpJitterTmplRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to UDP Jitter Template."
+    ::= { ciscoIpSlaJitterMIBGroups 1 }
+
+ciscoIpSlaIcmpJitterTmplGroup OBJECT-GROUP
+    OBJECTS         {
+                        cipslaIcmpJitterTmplDescription,
+                        cipslaIcmpJitterTmplTimeOut,
+                        cipslaIcmpJitterTmplVerifyData,
+                        cipslaIcmpJitterTmplNumPkts,
+                        cipslaIcmpJitterTmplInterval,
+                        cipslaIcmpJitterTmplSrcAddrType,
+                        cipslaIcmpJitterTmplSrcAddr,
+                        cipslaIcmpJitterTmplTOS,
+                        cipslaIcmpJitterTmplVrfName,
+                        cipslaIcmpJitterTmplThreshold,
+                        cipslaIcmpJitterTmplStatsHours,
+                        cipslaIcmpJitterTmplDistBuckets,
+                        cipslaIcmpJitterTmplDistInterval,
+                        cipslaIcmpJitterTmplStorageType,
+                        cipslaIcmpJitterTmplRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to ICMP Jitter Template."
+    ::= { ciscoIpSlaJitterMIBGroups 2 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

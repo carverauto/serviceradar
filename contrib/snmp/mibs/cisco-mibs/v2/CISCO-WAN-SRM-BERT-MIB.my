@@ -1,0 +1,792 @@
+-- *****************************************************************
+-- BERT MIB: Bit Error Rate Testing MIB for MGX82xx series products.
+--
+-- August 2002, Subra Hegde
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WAN-SRM-BERT-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE, 
+        Integer32       FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP    FROM    SNMPv2-CONF
+        DisplayString   FROM    SNMPv2-TC
+        axisDiagnostics FROM    BASIS-MIB
+        ciscoWan        FROM    CISCOWAN-SMI;
+
+ciscoWanSrmBertMIB MODULE-IDENTITY
+        LAST-UPDATED    "200208260000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+       "The MIB Module for BERT(Bit Error Rate Testing)
+       using Service Resource Module(SRM). This MIB module
+       is used for BERT on FRSM, AUSM, CESM, VISM modules.
+ 
+       This module contains information on results from
+       BERT tests using DDS(Digital Data Service) pattern."
+
+    REVISION    "200208260000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+        The applicable objects from CISCO-WAN-AXIPOP-MIB
+        are defined using SMIv2 in this MIB. Also the
+        descriptions of some of the objects have been 
+        modified."
+    ::= { ciscoWan 31 }
+
+ 
+bert        OBJECT IDENTIFIER ::= { axisDiagnostics   1 }
+ 
+bertControl  OBJECT-TYPE
+        SYNTAX  INTEGER {
+                acquireBert        (1),
+                releaseBert        (2),
+                cnfBert            (3),
+                startBert          (4),
+                modBert            (5),
+                delBert            (6)
+                }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "This object controls all the SET operations on this MIB group. 
+              acquireBert :  Acquire BERT resources.
+              cnfBert     :  Configure the required BERT test.
+              startBert   :  The configured test has to be started.
+              modBert     :  Modify parameters for the ongoing BERT test.
+              delBert     :  Running BERT test has to be stopped.
+              The above list shows the sequence in which the SET operations 
+              on this group need to be done, ideally.
+	      Bert can be operated upon only with bertUserId and bertSlotNumber.
+	      The default value is 0, means no action." 
+        ::= { bert 1 }
+
+bertResourceStatus   OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        free           (1),
+                        inUse          (2),
+                        cleanupPending (3)
+                        }
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "All of bert resources can be used by only one user at a time.
+              This gives the status of the resources." 
+        DEFVAL { free }
+        ::= { bert 2 }
+
+bertOwner   OBJECT-TYPE
+        SYNTAX        DisplayString 
+        MAX-ACCESS        read-only
+        STATUS        current
+        DESCRIPTION
+             "This refers to the user who owns the BERT resources.
+              If the user is a CLI user, then this is username.
+              If it is SNMP Manager(For example Cisco Wan Manager),
+              then this would be the IP address.
+              For example, this value can be, 192.9.209.157 
+              within quotes."
+        ::= { bert 3 }
+
+bertUserId  OBJECT-TYPE
+        SYNTAX        DisplayString 
+        MAX-ACCESS        read-write
+        STATUS        current
+        DESCRIPTION
+             "This identifies the user who wants to do a SET operation
+              on this group. This will be compared against bertOwner
+              and access will be given only if it matches. Hence, for
+              every SET request, this object should have a valid value.
+              If the user is a CLI user, then this is username.
+              If it is SNMP Manager, then this would be the IP address.
+              For example, this value can be, 192.9.209.157 within quotes.
+	      Required for bert operations."
+        ::= { bert 4 }
+
+bertStatus   OBJECT-TYPE
+        SYNTAX  INTEGER{
+                        inactive                  (1),
+                        bertInSync                (2),
+                        bertOutOfSync             (3),
+                        searchingDDSCommands      (4),
+                        farEndInLoop              (5),
+                        facilityInLoop            (6),
+                        portFacilityFifoFault     (7),
+                        portFacilityFifoOutOfSync (8),
+                        metallicInLoop            (9),
+                        bertFailed                (10)
+                }
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "This variable provides the status of BERT in the shelf." 
+        DEFVAL { inactive }
+        ::= { bert 5 }
+
+bertSlotNumber    OBJECT-TYPE
+        SYNTAX  Integer32 (1..30)
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "specifies the physical slot number of the Service Module 
+              which is to run BERT 
+	      For MGX 8220, the range is 5-14.
+	      For MGX 8850, the range is 1-6, 9-14, 17-22, 25-30.
+	      Required for bert operations." 
+        ::= { bert 6 }
+
+bertTestMedium  OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        port(1),
+                        line(2)
+                        }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "specifies whether the bert is to test a port or an 
+              entire T1/E1 line.
+	      No default value for this, it has to be set if 
+              bert is configured." 
+        ::= { bert 7 }
+
+bertPort   OBJECT-TYPE
+        SYNTAX  Integer32
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "specifies the port number for BERT." 
+        ::= { bert 8 }
+
+bertLine   OBJECT-TYPE
+        SYNTAX  Integer32
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "specifies the line number for BERT. If the test medium
+              is port, this represents the line to which the
+              port belongs." 
+        ::= { bert 9 }
+
+bertMode   OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        bertPatternTest (1),
+                        ddsSeek         (2),
+                        loopback        (3)
+                        }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "specifies the mode, the BERT module is to be 
+              configured for." 
+        ::= { bert 10 }
+
+bertDeviceToLoop  OBJECT-TYPE
+                SYNTAX  INTEGER  {
+                        noLatchOCUwith1         (1),
+                        noLatchOCUwitout1       (2),
+                        noLatchCSU              (3),
+                        noLatchDSU              (4),
+                        latchDS0Drop            (5),
+                        latchDS0Line            (6),
+                        latchOCU                (7),
+                        latchCSU                (8),
+                        latchDSU                (9),
+                        latchHL96               (10),
+                        v54Polynomial           (11),
+                        inband                  (12),
+                        esf                     (13),
+                        metallic                (14),
+                        noDevice                (15),
+                        smartJackInband         (16)
+                }
+                MAX-ACCESS  read-write
+                STATUS  current
+                DESCRIPTION
+                     "This shows the type of the end device and the type of the 
+                      loopback used (latching/nonlatching/polynomial)." 
+        ::= { bert 11 }
+
+bertDS0DPIterationCount   OBJECT-TYPE
+        SYNTAX        Integer32 (1..32) 
+        MAX-ACCESS        read-write
+        STATUS        current
+        DESCRIPTION
+             "The Iteration Register needs to be programmed in SRM when
+              DSO drop loop option is selected in bertDeviceToLoop. The
+              value to be programmed there is minus one of this object value, 
+              since the register is 0 based.  DSP-OP devices can be cross 
+              connected in the centeral office. By this, the user has 
+              capablitiy to put any of the devices in the chain in loopback 
+              mode.  This is done by repeating the latching activation 
+              code in a specific manner.  The binary number in the 
+              iterataion register determines how many times the first portion 
+              of a latching loop activation code needs to be repeated as per 
+              user request and according to the Bellcore spec.  A value of 0 
+              results in no iteration and will cause the very first device in 
+              chain to go into loop back.  A value of 1 will result into one 
+              iteration and will cause the second device to go into loopback 
+              and so on. The range of this count is 1 to 32, and it would 
+              translate to a range of 0 to 31 for the iteration 
+              register." 
+        ::= { bert   12 }
+
+bertPattern   OBJECT-TYPE
+                SYNTAX  INTEGER {
+                            allZeros          (1),
+                            allOnes           (2),
+                            alternateONeZero  (3),
+                            doubleOneZero     (4),
+                            fifteenBit        (5),
+                            twentyBit         (6),
+                            twentyBitQRSS     (7),
+                            twentythreeBit    (8),
+                            oneInEight        (9),
+                            threeIntwentyfour (10),
+                            dds-1             (11),
+                            dds-2             (12),
+                            dds-3             (13),
+                            dds-4             (14),
+                            dds-5             (15),
+                            nineBit           (16),
+                            elevenBit         (17)
+                        }
+                MAX-ACCESS  read-write
+                STATUS  current
+                DESCRIPTION
+                     "This variable determines BERT pattern to
+                      be transmitted."
+        ::= { bert 13 }
+
+bertLoopback   OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        farEndLoopback    (1),
+                        facilityLoopback  (2),
+                        metallicLoopback  (3)
+                        }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "specifies the type of loopback to be (d)established." 
+        ::= { bert 14 }
+
+bertLoopbackOperation   OBJECT-TYPE
+        SYNTAX  INTEGER{
+                        loopUp    (1),
+                        loopDown  (2)
+                }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+             "specifies the operation of loopback (up or down)." 
+        ::= { bert 15 }
+
+bertDS0Speed   OBJECT-TYPE
+        SYNTAX INTEGER {
+               speed56k (1),
+               speed64k (2)
+            }
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "represents the ds0 speed of the test running." 
+        ::= { bert 16 }
+
+bertTimeSlots   OBJECT-TYPE
+        SYNTAX  Integer32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "represents the number of ds0s in the test medium chosen." 
+        ::= { bert 17 }
+
+bertStartTime   OBJECT-TYPE
+        SYNTAX  DisplayString (SIZE (8))
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "The syntax is hh:mm:ss
+              The time zone is as configured in the shelf."
+        ::= { bert 18 }
+
+bertStartDate   OBJECT-TYPE
+        SYNTAX  DisplayString (SIZE (10))
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "On MGX 8220, the syntax is mm/dd/yy
+              On MGX 8850, the syntax is mm/dd/yyyy."
+        ::= { bert 19 }
+
+bertBitCount   OBJECT-TYPE
+        SYNTAX  Integer32 
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "This shows the number of bits transmitted." 
+        ::= { bert 20 }
+
+bertBitErrorCount OBJECT-TYPE
+        SYNTAX  Integer32 
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "This shows the number of bits received in error." 
+        ::= { bert 21 }
+
+bertErrorInjectCount OBJECT-TYPE
+        SYNTAX  Integer32 
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "This shows the number of times error was injected." 
+        ::= { bert 22 }
+
+bertCleanupAction   OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        noAction                             (1),
+                        smCleanup                            (2),
+                        latchDS0DropLoopdown                 (3),
+                        latchDS0LineLoopdown                 (4),
+                        latchOCULoopdown                     (5),
+                        latchCSULoopdown                     (6),
+                        latchDSULoopdown                     (7),
+                        latchHL96Loopdown                    (8),
+                        v54PolynomialLoopdown                (9),
+                        inbandLoopdown                       (10),
+                        esfLoopdown                          (11),
+                        facilityLoopdown                     (12),
+                        metallicLoopdown                     (13),
+                        smartJackInbandLoopdown              (14)
+                        }
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "When the BERT has to be stopped or aborted (due to card state 
+              changes), this object would give the exact action to take. 
+              The bert related changes to  the shelf, then, can be cleaned up. 
+              When its value is a Loopdown, it implies smCleanup plus the 
+              corresponding Loopdown."
+        DEFVAL { noAction }
+        ::= { bert   23 }
+
+bertAbortReason   OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        ascStateChange                (1),
+                        smStateChange                 (2),
+                        srmStateChange                (3),
+                        coreCardSwitch                (4),
+                        smRedundancySwitch            (5)
+                        }
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "when the BERT is aborted, this object would give the 
+              reason for that."
+        ::= { bert   24 }
+
+-- ----------------------------------------------------------------------
+--
+-- This table consists of the last 20 DDS codes that were detected during 
+-- DDS seek. 
+-- ----------------------------------------------------------------------
+
+-- ----------------------------------------------------------------------
+--
+-- If one of the indices to the table is 0, it means that there are no 
+-- entries in the table. This table is a circular one and the first and
+-- last indices refer to the beginning and the end of the circular list 
+-- respectively. If there are more than 20 codes detected, the table
+-- enrties will be overwritten to keep only the last 20 codes detected.
+--
+-- ----------------------------------------------------------------------
+
+
+bertDDSSeekResultsTableFirstIndex   OBJECT-TYPE
+        SYNTAX    Integer32 (0..20) 
+        MAX-ACCESS    read-only
+        STATUS    current
+        DESCRIPTION
+             "Denotes the index of the oldest entry in the table.
+             A value of zero means that there are no entries in 
+             the table." 
+        ::= { bert   25 }
+
+bertDDSSeekResultsTableLastIndex   OBJECT-TYPE
+        SYNTAX    Integer32 (0..20) 
+        MAX-ACCESS    read-only
+        STATUS    current
+        DESCRIPTION
+             "Denotes the index of the latest entry in the table.
+             A value of zero means that there are no entries in 
+             the table." 
+        ::= { bert   26 }
+
+bertDDSSeekResultsTable   OBJECT-TYPE 
+    SYNTAX      SEQUENCE OF  BertDDSSeekResultsTableEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+         "This table contains all available DDS patterns detected
+         and latched by an interaface(lines,ports etc) configured
+         to detect DDS patterns."
+     ::= { bert   27  }
+
+bertDDSSeekResultsTableEntry   OBJECT-TYPE
+    SYNTAX      BertDDSSeekResultsTableEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+         "An entry in the detected DDS codes table."
+    INDEX {  bertDDSSeekResultsTableIndex   }
+    ::= { bertDDSSeekResultsTable   1  }
+
+BertDDSSeekResultsTableEntry  ::=
+SEQUENCE   {
+           bertDDSSeekResultsTableIndex    Integer32,
+           bertDDSCode                     INTEGER
+           }           
+
+bertDDSSeekResultsTableIndex   OBJECT-TYPE
+        SYNTAX        Integer32 (1..20) 
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+             "Denotes the serial number of the entry in the table." 
+        ::= { bertDDSSeekResultsTableEntry   1 }
+
+bertDDSCode   OBJECT-TYPE
+        SYNTAX    INTEGER { 
+                      abnormalStationCondition (30),  -- ('1E'h),
+                      block                    (10),  -- ('0A'h),
+                      channelLoopback          (40),  -- ('28'h),
+                      dsuLoopback              (44),  -- ('2C'h),
+                      farEndVoice              (90),  -- ('5A'h),
+                      idle                     (126), -- ('7E'h),
+                      loopbackEnable           (86),  -- ('56'h),
+                      mjuAlert                 (114), -- ('72'h),
+                      muxOutOfSync             (26),  -- ('1A'h),
+                      ocuLoopback              (42),  -- ('2A'h),
+                      release                  (120), -- ('78'h),
+                      test                     (28),  -- ('1C'h),
+                      testAlert                (108), -- ('6C'h),
+                      transitionInProgress     (58),  -- ('3A'h),
+                      unassignedMuxChannel     (24),  -- ('18'h),
+                      unnamed                  (50)   -- ('32'h)
+                      }
+        MAX-ACCESS        read-only
+        STATUS        current
+        DESCRIPTION
+             "Denotes the type of DDS code detected." 
+        ::= { bertDDSSeekResultsTableEntry   2 }
+
+
+-- --------------------------------------------------------------------
+--
+-- This table contains the list of supported tests for each SM in
+-- the shelf.
+--
+-- --------------------------------------------------------------------
+
+bertSupportedTestsTable OBJECT-TYPE 
+    SYNTAX      SEQUENCE OF   BertSupportedTestsTableEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+         "A list of supported tests for a given SM."
+    ::= { bert   28  }
+
+bertSupportedTestsTableEntry   OBJECT-TYPE
+    SYNTAX      BertSupportedTestsTableEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+         "A general supported tests entry."
+    INDEX { bertSupportedTestsTableIndex  }
+
+    ::= { bertSupportedTestsTable   1  }
+
+BertSupportedTestsTableEntry ::=
+SEQUENCE {
+          bertSupportedTestsTableIndex        Integer32,    
+          bertSupportFlag                     INTEGER,
+          bertTestMediumMask                  Integer32,
+          bertModeMask                        Integer32,
+          bertDeviceToLoopMask                Integer32,
+          bertPatternMask                     Integer32,
+          bertLoopbackMask                    Integer32,
+          bertCardT1E1Type                    INTEGER
+         }
+ 
+bertSupportedTestsTableIndex    OBJECT-TYPE
+        SYNTAX        Integer32 (1..30)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+             "This index is the physical slot number of the Service 
+              Module whose entry it represents in the table.
+	      For MGX 8220, the range is 5-14.
+	      For MGX 8850, the range is 1-6, 9-14, 17-22, 25-30."
+        ::= { bertSupportedTestsTableEntry   1 }
+
+bertSupportFlag OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        yes (1),
+                        no  (2)
+                        }
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+             "'yes' if the table entry correctly represents the supported
+              tests for the SM on the corresponding slot. 'no' if no tests
+              at all are supported."
+        ::= { bertSupportedTestsTableEntry   2 }
+
+bertTestMediumMask   OBJECT-TYPE
+        SYNTAX      Integer32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+             "Every test medium is represented by a bit of mask. Bits 0-1 are
+              valid in this integer. The meaning of the mask can be 
+              understood from the example below:
+
+                 --------------------------
+                  TestMedium  |   SM        
+                              | support
+                 --------------------------
+                    port      |    1
+                    line      |    1
+                 --------------------------
+                 (Table contents applicable to FRSM-4T1)
+                 bertTestMediumMask = 11 binary
+
+              The column titles represent the variables bertTestMedium  
+              depends on. The mask is represented in column
+              major order."
+        ::= { bertSupportedTestsTableEntry   3 }
+
+bertModeMask    OBJECT-TYPE
+        SYNTAX      Integer32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+             "Every mode is represented by 2 bits of mask. Bits 0-5 are
+              valid in this integer. The meaning of the mask can be 
+              understood from the example below:
+                -----------------------------------------------------------
+                 Mode        |  SM support     | Test Medium:
+                             |                 |  Multiple
+                             |                 | T1 time slots
+                -----------------------------------------------------------
+                Pattern test |       1         |      1
+                DDS seek     |       1         |      0
+                Loopback     |       1         |      1
+                -----------------------------------------------------------
+                (Table contents applicable to FRSM-4T1)
+                bertModeMask = 101111 binary
+                 
+              The column titles represent the variables bertMode depends on.
+              The mask is represented in column major order."
+        ::= { bertSupportedTestsTableEntry   4 }
+
+bertDeviceToLoopMask   OBJECT-TYPE
+        SYNTAX        Integer32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+             "Every class of devices to loop is represented by 6 bits 
+              of mask. Bits 0-29 are valid in this integer. The meaning 
+              of the mask can be understood from the example below:
+
+                 -----------------------------------------------------------
+                           |     |         |       Test Medium
+                 Class of  | SM  |   MODE  |________________________________
+                 devices   |supp | Loopback|Line |multiple T1 | 64k |  56k
+                           |     |         |     | time slots |     |
+                 -----------------------------------------------------------
+                 noLatch   |  1        0      0        0         0      1
+                 latch     |  1        1      0        0         1      1
+                 v54       |  1        1      0        1         1      1
+                 inband/esf|  1        1      1        0         0      0
+                 metallic  |  1        0      1        0         0      0
+                 -----------------------------------------------------------
+                 (Table contents applicable to FRSM-4T1)
+                 bertDeviceToLoopMask = 001110011000100110000111011111 binary
+
+              The column titles represent the variables bertDeviceToLoop  
+              depends on. The mask is represented in column major order.
+              Due to the limitation on the length of the mask, 'noDevice'
+              option is not represented in this mask. But, the mask for 
+              it, is assumed to be a row of ones except for a zero on 
+              'MODE Loopback' column."
+        ::=  { bertSupportedTestsTableEntry   5 }
+
+bertPatternMask   OBJECT-TYPE
+        SYNTAX       Integer32
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+             "Every class of patterns is represented by 2 bits of mask. 
+              Bits 0-3 are valid in this integer. The meaning of the 
+              mask can be understood from the example below:
+
+                ----------------------------------------------
+                   Class of       |   SM      | Non latching
+                   patterns       | support   |device to loop
+                ----------------------------------------------
+                  Other patterns  |    1      |    0
+                ----------------------------------------------
+                     Patterns     |    1      |    1
+                  power 9 and 11  |           |
+                ----------------------------------------------
+                (Table contents applicable to FRSM-4T1)
+                bertPatternMask = 1011 binary
+
+              The column titles represent the variables bertPattern  
+              depends on. The mask is represented in column 
+              major order."
+        ::= { bertSupportedTestsTableEntry   6 }
+
+bertLoopbackMask   OBJECT-TYPE
+        SYNTAX        Integer32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+             "Every loopback is represented by 2 bits of mask. Bits 0-5 are
+              valid in this integer. The meaning of the mask can be 
+              understood from the example below:
+                 ----------------------------------------------
+                      Loopback     |   SM       |  Test Medium
+                                   | support    |     Port
+                 ----------------------------------------------
+                 Far End Loopback  |     1      |    1
+                 Facility Loopback |     1      |    1
+                 Metallic Loopback |     1      |    0
+                 ----------------------------------------------
+                 (Table contents applicable to FRSM-4T1)
+                 bertLoopbackMask = 011111 binary
+
+              The column titles represent the variables bertLoopback  
+              depends on. The mask is represented in column 
+              major order."
+        ::= { bertSupportedTestsTableEntry   7 }
+
+bertCardT1E1Type   OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        t1(1),
+                        e1(2)
+                        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+             "Specifies whether a t1 or e1 card."
+        ::= { bertSupportedTestsTableEntry   8 }
+
+-- conformance information
+
+ciscoWanSrmBertMIBConformance  OBJECT IDENTIFIER ::= { ciscoWanSrmBertMIB 2 }
+
+ciscoWanSrmBertMIBGroups       OBJECT IDENTIFIER ::= 
+                                   { ciscoWanSrmBertMIBConformance 1 }
+
+ciscoWanSrmBertMIBCompliances  OBJECT IDENTIFIER ::= 
+                                   { ciscoWanSrmBertMIBConformance 2 }
+
+-- compliance statements
+
+ciscoWanSrmBertCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to Bert MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+        ciscoWanSrmBertConfGroup
+    }
+    ::= { ciscoWanSrmBertMIBCompliances 1 }
+
+ciscoWanSrmBertConfGroup OBJECT-GROUP
+    OBJECTS {
+        bertControl,
+        bertResourceStatus,
+        bertOwner,
+        bertUserId,
+        bertStatus,
+        bertSlotNumber,
+        bertTestMedium,
+        bertPort,
+        bertLine,
+        bertMode,
+        bertDeviceToLoop,
+        bertDS0DPIterationCount,
+        bertPattern,
+        bertLoopback,
+        bertLoopbackOperation,
+        bertDS0Speed,
+        bertTimeSlots,
+        bertStartTime,
+        bertStartDate,
+        bertBitCount,
+        bertBitErrorCount,
+        bertErrorInjectCount,
+        bertCleanupAction,
+        bertAbortReason
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used for
+          configuring/running BERT on Service modules 
+          using SRM module."
+      ::= { ciscoWanSrmBertMIBGroups 1 }
+
+
+ciscoWanSrmBertTestResultsGroup OBJECT-GROUP
+    OBJECTS {
+          bertSupportedTestsTableIndex,
+          bertSupportFlag,
+          bertTestMediumMask,
+          bertModeMask,
+          bertDeviceToLoopMask,
+          bertPatternMask,
+          bertLoopbackMask,
+          bertCardT1E1Type
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used for
+          finding the results of running BERT tests."
+      ::= { ciscoWanSrmBertMIBGroups 2 }
+
+ciscoWanSrmBertDDSResultsGroup OBJECT-GROUP
+    OBJECTS {
+        bertDDSSeekResultsTableFirstIndex,
+        bertDDSSeekResultsTableLastIndex,
+        bertDDSSeekResultsTableIndex,
+        bertDDSCode
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used for
+          finding the results of running BERT tests using
+          DDS pattern."
+      ::= { ciscoWanSrmBertMIBGroups 3 }
+
+END

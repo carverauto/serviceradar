@@ -1,0 +1,1532 @@
+-- *********************************************************************
+-- CISCO-VOICE-AALX-PROFILE-MIB
+--
+-- May 2003, Yizhong Shen
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *********************************************************************
+
+CISCO-VOICE-AALX-PROFILE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Unsigned32,
+    Integer32                   FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue                  FROM SNMPv2-TC
+    ciscoMgmt                   FROM CISCO-SMI
+    cmgwIndex,
+    CCallControlJitterDelayMode FROM CISCO-MEDIA-GATEWAY-MIB
+    CvcSpeechCoderRate        FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB;
+
+
+ciscoVoiceAalxProfileMIB MODULE-IDENTITY
+    LAST-UPDATED "200504210000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-voice-gateway@cisco.com"
+    DESCRIPTION
+            "This MIB defines the objects specific to voice
+             over ATM or voice over IP. Those objects are
+             related to the following areas:
+               1. CODEC Negotiation (AAL1/AAL5) 
+               2. AAL2 Profile 
+               3. SVC connection. "
+
+    REVISION "200504210000Z"
+    DESCRIPTION
+        "Deprecated object cvapCodecConfigVbdPacketPeriod
+         and cvapCodecConfigJitterNomDelay; 
+         Add new object cvapCodecConfigNewJtrNomDelay."
+
+    REVISION "200410150000Z"
+    DESCRIPTION
+        "Add an new enum 'profileCustom210 (210)' to 
+         CiscoAal2ProfileNumber."
+
+    REVISION "200307180000Z"
+    DESCRIPTION
+        "Initial version of this MIB module"
+         
+    ::= { ciscoMgmt 323 }
+
+ciscoVoiceAalxProfileMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoVoiceAalxProfileMIB 0 }
+
+ciscoVoiceAalxProfileMIBObjects OBJECT IDENTIFIER 
+    ::= { ciscoVoiceAalxProfileMIB 1 }
+
+cvapCodecConfig  OBJECT IDENTIFIER 
+    ::= { ciscoVoiceAalxProfileMIBObjects 1 }
+
+cvapAal2Config   OBJECT IDENTIFIER 
+    ::= { ciscoVoiceAalxProfileMIBObjects 2 }
+
+cvapSvcConfig    OBJECT IDENTIFIER 
+    ::= { ciscoVoiceAalxProfileMIBObjects 3 }
+
+cvapSvcStats     OBJECT IDENTIFIER 
+    ::= { ciscoVoiceAalxProfileMIBObjects 4 }
+
+-- *********************************************************************
+--
+-- Textual Conventions
+--
+-- *********************************************************************
+
+CiscoAal2ProfileType ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "In VoATM, an AAL2 profile is used for the parameters 
+             of bearer traffic during the call setup between the 
+             call agent and the media gateway. 
+
+             In AAL2 profile negotiation, some call agents provide
+             the profile, some do not. If the AAL2 profile in the 
+             call setup is not provided by the call agent, the 
+             gateway can select its own configured AAL2 profiles.
+
+             Those AAL2 profiles can be ITU standard AAL2 profiles
+             or customized AAL2 profiles.
+             
+             This textual convention defines the profile type which 
+             is either standard profile from ITU or customized 
+             profile. 
+
+             There are two groups of profile types:
+               itu    - ITU standard profiles
+               custom - Customized profiles."
+        REFERENCE
+            "ITU I.366.2
+             ATM forum af-vtoa-0113.000 "
+        SYNTAX  INTEGER {
+                          itu    (1),
+                          custom (2)
+                        }
+
+CiscoAal2ProfileNumber ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "This textual convention defines the profile number.
+
+             A profile contains a set of entries, each entry 
+             specifies an encoding format with an UUI (User-to-User
+             Indicator) range and length. 
+             The profile set defines a mapping that the receiver of an
+             AAL2 type 1 packet uses to interpret the the packet 
+             contents. 
+             (AAL2 has 3 different packet types : type 1: carry voice,
+              type 2: not used, type 3: event, alarm.)
+
+             In other words, the profile set defines which encoding 
+             format from the profile is being used.
+
+             The following are the legitimate combinations of 
+             CiscoAal2ProfileType and CiscoAal2ProfileNumber: 
+                    ITU:    1, 2, 3, 7, 8, 12
+                    Custom: 100, 101, 110, 200, 210
+            "
+        REFERENCE
+            "ITU I.366.2
+             ATM forum af-vtoa-0113.000
+            "
+        SYNTAX   INTEGER {
+                           profileITU1        (1),
+                           profileITU2        (2),
+                           profileITU3        (3),
+                           profileITU7        (7),
+                           profileITU8        (8),
+                           profileITU12       (12),
+                           profileCustom100   (100),
+                           profileCustom101   (101),
+                           profileCustom110   (110),
+                           profileCustom200   (200),
+                           profileCustom210   (210) 
+                         }
+
+CiscoCodecPacketPeriod ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "This type defines the packetization period for a 
+             particular CODEC in microseconds. 
+
+             The packetization period represents the time for the 
+             gateway to collect the data from TDM side before 
+             it sends out the packet."
+        SYNTAX      INTEGER {
+                             pktPeriod5000us  (1),
+                             pktPeriod5500us  (2),
+                             pktPeriod5785us  (3),
+                             pktPeriod10000us (4),
+                             pktPeriod15000us (5),
+                             pktPeriod20000us (6),
+                             pktPeriod25000us (7),
+                             pktPeriod30000us (8),
+                             pktPeriod35000us (9),
+                             pktPeriod40000us (10),
+                             pktPeriod45000us (11),
+                             pktPeriod50000us (12),
+                             pktPeriod55000us (13),
+                             pktPeriod60000us (14),
+                             pktPeriod65000us (15),
+                             pktPeriod70000us (16),
+                             pktPeriod75000us (17),
+                             pktPeriod80000us (18),
+                             pktPeriod85000us (19),
+                             pktPeriod90000us (20)
+                    }
+
+cvapCodecTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CvapCodecEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table defines attributes of CODEC negotiation. 
+         These attributes are used for CODEC negotiation of a call 
+         when a call setup request is made by call agent to the 
+         media gateway.
+         One entry for AAL1 and one entry for AAL5 are created when
+         a new media gateway is detected by media gateway application.
+         All entries are deleted when the media gateway is removed
+         from the system."
+    ::= { cvapCodecConfig 1 }
+
+cvapCodecEntry OBJECT-TYPE
+    SYNTAX         CvapCodecEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "An entry containing management information for CODEC  
+         negotiation of the adaptation type for a call in the
+         media gateway."
+    INDEX       { cmgwIndex, cvapCodecNegotiationAdaptType }
+    ::= { cvapCodecTable 1 }
+
+CvapCodecEntry ::=
+    SEQUENCE {
+              cvapCodecNegotiationAdaptType   INTEGER,
+              cvapCodecNegotiationOption      INTEGER
+             }
+
+cvapCodecNegotiationAdaptType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                       aal5  (1), 
+                       aal1  (2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+         "This object specifies the adaptation layer which 
+          supports CODEC negotiation of calls and the order of
+          CODECs used in negotiation can be configured as 
+          the value of cvapCodecNegotiationOption.
+          The adaptation types include:
+              aal5  :VoIP with AAL5 as adaptation layer.
+              aal1  :VoATM with AAL1 as adaptation layer."
+    ::= { cvapCodecEntry 1 }
+
+cvapCodecNegotiationOption  OBJECT-TYPE
+    SYNTAX        INTEGER{
+                      lcoRcdLcl   (1),
+                      lcoLclRcd   (2),
+                      rcdLcoLcl   (3),
+                      rcdLclLco   (4),
+                      lclLcoRcd   (5),
+                      lclRcdLco   (6)
+                  }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+         "This object defines the CODEC negotiation option which 
+          determines the order of CODECs used by a call during CODEC 
+          negotiation.
+          The possible CODEC negotiation options are as follows:
+ 
+              Lco - local connection options 
+                    (from local call agent)
+              Rcd - remote connection description
+                    (from remote gateway)
+              Lcl - local CODEC list which is defined in the table,
+                    cvapCodecNegotiationTable. 
+
+          If the value of this object is lcoRcdLcl(1), then 
+          effectively the preferences are:
+            1. the first priority is to the local connection options 
+               sent by the local call agent
+            2. the second priority is to the remote connection 
+               description sent by the remote gateway (or related 
+               call agent)
+            3. the last priority is to the local CODEC list stored 
+               in local gateway
+
+          If the value of this object is lcoLclRcd(2), then 
+          effectively the preferences are:
+            1. the first priority is to the local connection options 
+               sent by the local call agent
+            2. the second priority is to the local CODEC list stored 
+               in local gateway.
+            3. the last priority is to the remote connection  
+               description sent by the remote gateway (or related call 
+               agent)
+
+          If the value of this object is rcdLcoLcl(3), then 
+          effectively the preferences are:
+            1. the first priority is to the remote connection 
+               description sent by the remote gateway (or related 
+               call agent)
+            2. the second priority is to the local connection options 
+               sent by the local call agent
+            3. the last priority is to the local CODEC list stored 
+               in local gateway
+
+          If the value of this object is rcdLclLco(4), then 
+          effectively the preferences are:
+            1. the first priority is to the remote connection 
+               description sent by the remote gateway (or related 
+               call agent)
+            2. the second priority is to the local CODEC list stored 
+               in local gateway
+            3. the last priority is to the local connection options 
+               sent by the local call agent
+    
+          If the value of this object is lclLcoRcd(5), then 
+          effectively the preferences are:
+            1. the first priority is to the local CODEC list stored 
+               in local gateway
+            2. the second priority is to the local connection options 
+               sent by the local call agent
+            3. the last priority is to the remote connection 
+               description sent by the remote gateway (or related call 
+               agent)
+
+          If the value of this object is lclRcdLco(6), then 
+          effectively the preferences are:
+            1. the first priority is to the local CODEC list stored 
+               in local gateway
+            2. the second priority is to the remote connection 
+               description sent by the remote gateway (or related 
+               call agent)
+            3. the last priority is to the local connection options  
+               sent by the local call agent."
+    DEFVAL { lcoRcdLcl }   
+    ::= { cvapCodecEntry 2 }
+
+cvapCodecConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CvapCodecConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains the attributes whose configuration 
+         depends on CODEC types and adaptation types.
+         For each adaptation layer, one entry for each CODEC rate 
+         supported by the media gateway is created by the system at
+         power-up."
+    ::= { cvapCodecConfig 2 }
+
+cvapCodecConfigEntry OBJECT-TYPE
+    SYNTAX      CvapCodecConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry represents a CODEC rate supported for VoIP or
+         VoATM with different adaptation layers in the media gateway." 
+    INDEX  { cmgwIndex, cvapCodecConfigAdaptType, cvapCodecConfigType }
+    ::= { cvapCodecConfigTable 1 }
+
+CvapCodecConfigEntry ::=
+    SEQUENCE {
+          cvapCodecConfigAdaptType         INTEGER,
+          cvapCodecConfigType              CvcSpeechCoderRate,
+          cvapCodecConfigPreference        Unsigned32,
+          cvapCodecConfigVoicePacketPeriod CiscoCodecPacketPeriod,
+          cvapCodecConfigVbdPacketPeriod   CiscoCodecPacketPeriod,
+          cvapCodecConfigJitterDelayMode   CCallControlJitterDelayMode,
+          cvapCodecConfigJitterMaxDelay    Unsigned32,
+          cvapCodecConfigJitterNomDelay    Unsigned32,
+          cvapCodecConfigJitterMinDelay    Unsigned32,
+          cvapCodecConfigDtmfRelay         TruthValue,
+          cvapCodecConfigPayloadType       Unsigned32,
+          cvapCodecConfigNewJtrNomDelay    Unsigned32
+          }
+
+cvapCodecConfigAdaptType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                       other (1), 
+                       aal5  (2), 
+                       aal1  (3),
+                       aal2  (4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An unique index identifying the adaptation layer 
+         supported by voice applications in the media gateway.
+         The adaptation types include:
+             other :Voice over other media.
+             aal5  :VoIP with AAL5 as adaptation layer.
+             aal1  :VoATM with AAL1 as adaptation layer.
+             aal2  :VoATM with AAL2 as adaptation layer."
+    ::= { cvapCodecConfigEntry 1 }
+
+cvapCodecConfigType OBJECT-TYPE
+    SYNTAX          CvcSpeechCoderRate
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CODEC rate defined in
+         CvcSpeechCoderRate."
+    ::= { cvapCodecConfigEntry 2 }
+
+cvapCodecConfigPreference  OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..255)
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specified the preference configured by the
+         user for each CODEC. Lower the number, higher the
+         preference of the CODEC.
+         If this object is set to 0, the corresponding CODEC will
+         not be used in CODEC negotiation or in CODEC choose command.
+         For CODECs having the same preference, the entry with the
+         lower value of cvapCodecConfigType has higher precedence."
+    ::= { cvapCodecConfigEntry 3 }
+
+cvapCodecConfigVoicePacketPeriod  OBJECT-TYPE
+    SYNTAX        CiscoCodecPacketPeriod 
+    UNITS         "microseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the packetization period for a 
+         particular CODEC in voice application.
+         The packetization period represents the time for the 
+         media gateway to collect the data from TDM side before 
+         it sends out the packet.
+
+         This object is not applicable if cvapCodecConfigAdaptType
+         is set to 'aal2(4)' since the packetization period for
+         a CODEC in VoATM with AAL2 depends on the associated
+         profile."
+    ::= { cvapCodecConfigEntry 4 }
+
+cvapCodecConfigVbdPacketPeriod  OBJECT-TYPE
+    SYNTAX        CiscoCodecPacketPeriod 
+    UNITS         "microseconds"
+    MAX-ACCESS    read-write
+    STATUS        deprecated
+    DESCRIPTION
+        "This object specifies the packetization period for a 
+         particular CODEC in VBD (Voice Band Data) upspeed.
+         The packetization period represents the time for the 
+         media gateway to collect the data from TDM side before 
+         it sends out the packet.
+
+         This object is not applicable if cvapCodecConfigAdaptType
+         is set to 'aal2(4)' since the packetization period for
+         a CODEC in VoATM with AAL2 depends on the associated
+         profile."
+    ::= { cvapCodecConfigEntry 5 }
+
+cvapCodecConfigJitterDelayMode  OBJECT-TYPE
+    SYNTAX        CCallControlJitterDelayMode 
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The object specifies the jitter buffer mode applied to
+         a call connection.
+
+         adaptive - means to use cvapCodecConfigNewJtrNomDelay as 
+                    the initial jitter buffers size and let the DSP
+                    pick the optimal value of the jitter buffer
+                    size between the range of
+                    cvapCodecConfigJitterMaxDelay and
+                    cvapCodecConfigJitterMinDelay.
+
+         fixed - means to use a constant jitter buffer size
+                 which is specified by cvapCodecConfigNewJtrNomDelay.
+        "
+    DEFVAL { adaptive }
+    ::= { cvapCodecConfigEntry 6 }
+
+cvapCodecConfigJitterMaxDelay  OBJECT-TYPE
+    SYNTAX        Unsigned32 (20..500) 
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the maximum jitter buffer size.
+
+         If cvapCodecConfigJitterDelayMode is set to adaptive(1),
+         the DSP will dynamically pick an optimal value of the
+         jitter buffer size between the range of
+         cvapCodecConfigJitterMaxDelay and 
+         cvapCodecConfigJitterMinDelay.
+
+         If cvapCodecConfigJitterDelayMode is set to fixed(2),
+         this object is ignored.
+
+         The value of cvapCodecConfigJitterMaxDelay needs to be
+         greater than or equal to the value of 
+         cvapCodecConfigNewJtrNomDelay."
+    ::= { cvapCodecConfigEntry 7 }
+
+cvapCodecConfigJitterNomDelay  OBJECT-TYPE
+    SYNTAX        Unsigned32 (5..500) 
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        deprecated
+    DESCRIPTION
+        "This object specifies the nominal jitter buffer size.
+
+         If cvapCodecConfigJitterDelayMode is set to fixed(2),
+         the jitter buffer is fixed at this value for
+         the duration of the call.
+
+         if cvapCodecConfigJitterDelayMode is set to adaptive(1),
+         the jitter buffer is initially set to this value.
+
+         The value of cvapCodecConfigJitterNomDelay needs to be
+         greater than or equal to the value of 
+         cvapCodecConfigJitterMinDelay and be smaller than or equal
+         to the value of cvapCodecConfigJitterMaxDelay."
+    ::= { cvapCodecConfigEntry 8 }
+
+cvapCodecConfigJitterMinDelay  OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..500) 
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the minimum jitter buffer size.
+
+         If cvapCodecConfigJitterDelayMode is set to adaptive(1),
+         the DSP will dynamically pick an optimal value of the
+         jitter buffer size between the range of
+         cvapCodecConfigJitterMaxDelay and 
+         cvapCodecConfigJitterMinDelay.
+
+         If cvapCodecConfigJitterDelayMode is set to fixed(2),
+         this object is ignored.
+
+         The value of cvapCodecConfigJitterMinDelay needs to be
+         smaller than or equal to the value of 
+         cvapCodecConfigNewJtrNomDelay."
+    ::= { cvapCodecConfigEntry 9 }
+
+cvapCodecConfigDtmfRelay  OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "When this object is set to 'true', the digits will be 
+         sent as peer-to-peer packet in the bearer.
+         When this object is set to 'false', the digits will be
+         sent as regular voice packets in the bearer.
+
+         For low complexity CODECS (such as G.711), the preferred 
+         value for this object could be 'false'.
+         For high complexity CODECS (such as G.729A), the preferred
+         value for this object should be 'true', otherwise
+         the digits may not get recognized properly at the remote
+         end."
+    ::= { cvapCodecConfigEntry 10 }
+    
+cvapCodecConfigPayloadType  OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..127)
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the payload type of the CODEC in
+         voice application as specified in RFC1890.
+
+         The values (0..95) are static payload type.
+         The values (96..127) are dynamic payload type and it is 
+         specified dynamically through the control protocol during
+         call setup.
+
+         If more than one CODEC have the same payload type,
+         the CODEC with the highest preference (the lowest value of
+         cvapCodecConfigPreference) will be selected."
+    REFERENCE
+        "RFC 1890 - RTP Profile for Audio and Video Conferences
+         with Minimal Control."
+    ::= { cvapCodecConfigEntry 11 }
+
+cvapCodecConfigNewJtrNomDelay  OBJECT-TYPE
+    SYNTAX        Unsigned32 (2..500) 
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the nominal jitter buffer size.
+
+         If cvapCodecConfigJitterDelayMode is set to fixed(2),
+         the jitter buffer is fixed at this value for
+         the duration of the call.
+
+         if cvapCodecConfigJitterDelayMode is set to adaptive(1),
+         the jitter buffer is initially set to this value.
+
+         The value of cvapCodecConfigNewJtrNomDelay needs to be
+         greater than or equal to the value of 
+         cvapCodecConfigJitterMinDelay and be smaller than or equal
+         to the value of cvapCodecConfigJitterMaxDelay."
+    ::= { cvapCodecConfigEntry 12 }
+
+
+cvapSvcConfigTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CvapSvcConfigEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table contains the SVC (both in AAL1 and AAL2) 
+         configuration which is used for call connection establishment 
+         between the PNNI controller and the media gateway."
+    ::= { cvapSvcConfig 1 }
+
+cvapSvcConfigEntry OBJECT-TYPE
+    SYNTAX         CvapSvcConfigEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "An entry containing management information for SVC connection 
+         in the media gateway.  
+         An entry of this table is created when a new media gateway is 
+         detected by media gateway application.
+         The entry is deleted when the media gateway is removed from 
+         the system."
+    INDEX        { cmgwIndex }
+    ::= { cvapSvcConfigTable 1 }
+
+CvapSvcConfigEntry ::=
+    SEQUENCE {
+              cvapSvcAtmQosCellDelay           Integer32,
+              cvapSvcAtmQosCtd                 Integer32,
+              cvapSvcAtmQosClr                 Integer32,
+              cvapSvcTrfScalingFactor          Integer32,
+              cvapSvcAal2CidNumber             Integer32,
+              cvapSvcAggTrafficClipping        TruthValue,
+              cvapSvcAggLinkState              INTEGER,
+              cvapSvcPartialFillSupported      Integer32,
+              cvapSvcMgcpSelectorByteValue     Integer32,
+              cvapSvcH248SelectorByteValue     Integer32,
+              cvapSvcDelNotifGuardTimer        Integer32,
+              cvapSvcMultiCIDPerSvc            TruthValue,
+              cvapSvcMultiCIDFillTimer         Unsigned32,
+              cvapSvcMultiCIDCACSCR            Unsigned32,
+              cvapSvcMultiCIDCACPCR            Unsigned32,
+              cvapSvcMultiCIDOriginatDelTimer  Unsigned32,
+              cvapSvcMultiCIDTerminatDelTimer  Unsigned32,
+              cvapSvcMultiCIDGlareThreshold    Unsigned32
+             }
+
+cvapSvcAtmQosCellDelay OBJECT-TYPE
+        SYNTAX          Integer32(500..20000)
+        UNITS           "microseconds"
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+            "This object identifies end-to-end cell delay 
+             in voice SVC establishment.
+             It is used to guarantee the quality of the route selected 
+             for a voice SVC. 
+             It is applicable to both AAL1 and AAL2 SVC connection 
+             establishment.
+             This object is part of the extended quality of services 
+             information element which is sent out during SVC setup."
+        REFERENCE
+            "ATM Forum 'Voice & Telephony over ATM' specifications 
+             af-vtoa-0089.000, af-vtoa-0113.000.  "
+        DEFVAL { 20000 }
+        ::= { cvapSvcConfigEntry 1 }
+
+cvapSvcAtmQosCtd OBJECT-TYPE
+        SYNTAX          Integer32(20000..150000)
+        UNITS           "microseconds"
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+            "This object identifies end-to-end maximum cell transfer 
+             in voice SVC establishment. 
+             It is used to guarantee the quality of the route 
+             selected for a voice SVC. 
+             It is applicable to both AAL1 and AAL2 SVC connection 
+             establishment. 
+             This value is sent in voice SVC setup 
+             messages in end-to-end transit delay information element 
+             as the object value."
+        REFERENCE
+            "ITU G-Series Recommendations: 
+             G.114 - One-way transmission time.  "
+        DEFVAL { 150000 }
+        ::= { cvapSvcConfigEntry 2 }
+
+cvapSvcAtmQosClr OBJECT-TYPE
+        SYNTAX          Integer32(4..8)
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+            "This object identifies maximum Cell Loss Ratio (CLR)
+             in voice SVC establishment.
+             It is used to guarantee the quality of the route selected 
+             for a voice SVC. 
+             It is applicable to both AAL1 and AAL2 SVC connection 
+             establishment. 
+             This value is sent in voice SVC setup messages in 
+             extended quality of services information element as 
+             maximum cell loss ratio value."
+        REFERENCE
+            "Bell Core specifications - GR.1110 "
+        DEFVAL { 8 }
+        ::= { cvapSvcConfigEntry 3 }
+
+cvapSvcTrfScalingFactor OBJECT-TYPE
+        SYNTAX          Integer32(50..200)
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+            "This object specifies Traffic Scaling Factor 
+             in computing factored bandwidth which is used in ATM 
+             signaling in voice SVC establishment. 
+             When this value is less than 100 it can be referred as a 
+             `discount factor' and when more than 100 referred as an 
+             `excess factor.
+             This object is applicable only to VBR SVC connection 
+             establishment.
+             The traffic scaling is not applicable to AAL2 SVC calls 
+             that require G.711 and clear channel CODECs."
+        DEFVAL { 100 }
+        ::= { cvapSvcConfigEntry 4 }
+
+cvapSvcAal2CidNumber    OBJECT-TYPE
+        SYNTAX          Integer32(8..255)
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+            "This object specifies the default AAL2 CID (Channel 
+             Identification) number used for AAL2 SVC connections.
+             0-7 is reserved."
+        REFERENCE
+            "ITU I.363-2 B-ISDN ATM Adaptation layer specification: 
+             Type 2 AAL, September 1997.
+            "
+        DEFVAL { 100 }
+        ::= { cvapSvcConfigEntry 5 }
+
+cvapSvcAggTrafficClipping OBJECT-TYPE
+    SYNTAX      TruthValue 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object defines the aggregate traffic clipping policy.
+         This object specifies if the aggregate traffic clipping 
+         policy is applicable to all bearer traffic generated in the 
+         media gateway.
+         
+         The applicable options are:
+
+         'true' - aggregate traffic clipping is enabled, local gateway 
+             traffic management performs aggregate traffic clipping.
+         'false' - aggregate traffic clipping is disabled, local 
+             gateway traffic management does not perform aggregate 
+             traffic clipping.
+
+         This is applicable to only AAL2 SVC voice bearer traffic.
+
+         When aggregate traffic clipping is enabled, local gateway 
+         can discard cells which are exceeding local gateway aggregate 
+         SVC bandwidth."  
+    DEFVAL { true }
+    ::= { cvapSvcConfigEntry 6 }
+
+cvapSvcAggLinkState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                     up    (1),
+                     down  (2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object provides the state of the SVC link between PNNI
+         controller and the media gateway.
+         When the SVC software module fails to register NSAP address 
+         with the PNNI controller via SAPI (Service Access Point 
+         Interface), this object will be set to 'down', when it 
+         is successful, this object will be set to 'up'.
+         if down 
+             SVC calls cannot be made on gateway
+         if up 
+             SVC calls can be made on gateway "
+    ::= { cvapSvcConfigEntry 7 }
+
+cvapSvcPartialFillSupported OBJECT-TYPE
+    SYNTAX      Integer32(1..48)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the fill level of cells in case of
+         AAL1 adaptation .
+          
+         The value of this object will be used if the call agent does
+         not specify partial fill in the MGCP commands (i.e if 
+         L(local connection option):pf( partial fill) is absent).
+         ATM cell size is 53 bytes, 5 bytes for header, 48 bytes 
+         for data. If the data are not enough to fill 48 bytes of one 
+         ATM cell, the system can fill in the value of this object to
+         the padding bytes."
+    DEFVAL { 47 }
+    ::= { cvapSvcConfigEntry 8 }
+
+cvapSvcMgcpSelectorByteValue OBJECT-TYPE
+    SYNTAX      Integer32(1..255)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the selector byte value of the NSAP
+         address for MGCP protocol.
+         When a SVC call setup indication from the network is received, 
+         it will look at this object to determine the owner application 
+         for this setup.
+         The value of this object can not be modified when ATM SVC  
+         calls are up.
+         The value of this objects can not equal to the value of 
+         'cvapSvcH248SelectorByteValue'."
+    DEFVAL { 21 }
+    ::= { cvapSvcConfigEntry 9 }
+
+
+cvapSvcH248SelectorByteValue OBJECT-TYPE
+    SYNTAX      Integer32(1..255)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the selector byte value of the NSAP
+         address for H.248 protocol.
+         When a SVC call setup indication from the network is received, 
+         it will look at this object to determine the owner application 
+         for this setup.
+         The value of this object can not be modified when ATM SVC  
+         calls are up.
+         The value of this objects can not equal to the value of 
+         'cvapSvcMgcpSelectorByteValue'."
+    DEFVAL { 20 }
+    ::= { cvapSvcConfigEntry 10 }
+
+cvapSvcDelNotifGuardTimer OBJECT-TYPE
+    SYNTAX      Integer32(1..120)
+    UNITS       "seconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "A timer, for a duration as specified by this object, 
+         will be started when the SVC call is released from the 
+         network side. Upon expiration of this timer, the call 
+         agent is notified about this through ServiceChange 
+         message(for H.248 protocol) or through gateway initiated
+         delete message(for MGCP protocol).
+         This object is not applicable for Multi-CID SVC(if MIB object
+         'cvapSvcMultiCIDPerSvc' is set to 'true')."
+    DEFVAL { 60 }
+    ::= { cvapSvcConfigEntry 11 }
+
+cvapSvcMultiCIDPerSvc OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object enables the user to disable or enable the 
+         Multi-CID SVC feature on the gateway.
+         When this object is set to 'true', multiple CIDs can be
+         established on a single SVC. When this object is set to 
+         'false', only one CID per SVC can be established. 
+         This object cannot be modified when active SVC calls exist
+         on the gateway."
+    REFERENCE
+        "Media gateway AAL2 Bearer-Path Establishment,
+         draft-barr-megaco-aal2bearer-00-txt, June 2002."
+    DEFVAL { false }
+    ::= { cvapSvcConfigEntry 12 }
+
+cvapSvcMultiCIDFillTimer OBJECT-TYPE
+    SYNTAX      Unsigned32(0..255)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object defines the time (millisecs) to wait for filling
+         up the cell when the next packet is not ready. After waiting 
+         for the time configured in this object, the cell will be sent 
+         out.
+         This object is applicable only for aal2 adaptations.         
+         Any new programmed value will not affect SVCs already
+         in progress."
+    DEFVAL { 10 }
+    ::= { cvapSvcConfigEntry 13 }
+
+cvapSvcMultiCIDCACSCR OBJECT-TYPE
+    SYNTAX      Unsigned32(20..60000)
+    UNITS       "Cells per Second"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the SCR (Sustained Cell Rate) per
+         Multi-CID SVC.
+         The value of this object will be used for CAC (Call Admission
+         Control) processing, and will determine if a new Multi-Cid SVC
+         needs to be created for a new incoming CID, or whether there
+         is room to add the new CID on the Multi-CID SVC."
+    REFERENCE
+        "Media gateway AAL2 Bearer-Path Establishment,
+         draft-barr-megaco-aal2bearer-00-txt, June 2002,
+         Section 5.0 paragraph 4."
+    DEFVAL { 450 }
+    ::= { cvapSvcConfigEntry 14 }
+
+
+cvapSvcMultiCIDCACPCR OBJECT-TYPE
+    SYNTAX      Unsigned32(20..60000)
+    UNITS       "Cells per Second"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the PCR (Peak Cell Rate) per Multi-CID 
+         SVC.
+         The value of this object will be used for CAC (Call Admission 
+         Control) processing, and will determine whether an upspeed 
+         request can be accepted or not on the Multi-CID SVC.
+         The 'cvapSvcMultiCIDCACPCR' must be greater than or equal to
+         'cvapSvcMultiCIDCACSCR'."
+    REFERENCE
+        "Media gateway AAL2 Bearer-Path Establishment,
+         draft-barr-megaco-aal2bearer-00-txt, June 2002,
+         Section 5.0 paragraph 4."
+    DEFVAL { 875 }
+    ::= { cvapSvcConfigEntry 15 }
+
+
+cvapSvcMultiCIDOriginatDelTimer OBJECT-TYPE
+    SYNTAX      Unsigned32(0..1200)
+    UNITS       "seconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the time to wait to delete an Originated
+         -SVC in the case where a CID delete just occurred and the SVC 
+         has no more CIDs after the deletion. 
+         The interval of this object should be 5.
+         The 'cvapSvcMultiCIDOriginatDelTimer' must be greater than
+         or equal to 'cvapSvcMultiCIDTerminatDelTimer+5', except for
+         the case that 'cvapSvcMultiCIDOriginatDelTimer' is 0 and
+         'cvapSvcMultiCIDTerminatDelTimer' is 0 (which means that the
+         Delete Timer feature is disabled)."
+    REFERENCE
+        "Media gateway AAL2 Bearer-Path Establishment,
+         draft-barr-megaco-aal2bearer-00-txt, June 2002,
+         Section 5.5."
+    DEFVAL { 15 }
+    ::= { cvapSvcConfigEntry 16 }
+
+cvapSvcMultiCIDTerminatDelTimer OBJECT-TYPE
+    SYNTAX      Unsigned32(0..1195)
+    UNITS       "seconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the time that the Terminating end can 
+         attempt to add a new CID into the Terminated-SVC after the 
+         last CID in a slave-end SVC is deleted. 
+         The interval of this object should be 5.
+         The 'cvapSvcMultiCIDOriginatDelTimer' must be greater than
+         or equal to 'cvapSvcMultiCIDTerminatDelTimer+5', except for
+         the case that 'cvapSvcMultiCIDOriginatDelTimer' is 0 and
+         'cvapSvcMultiCIDTerminatDelTimer' is 0 (which means that the
+         Delete Timer feature is disabled)."
+    REFERENCE
+        "Media gateway AAL2 Bearer-Path Establishment,
+         draft-barr-megaco-aal2bearer-00-txt, June 2002,
+         Section 5.5."
+    DEFVAL { 10 }
+    ::= { cvapSvcConfigEntry 17 }
+
+
+cvapSvcMultiCIDGlareThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32(0..248)
+    UNITS       "number of CIDs"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the threshold at when reached
+         on the SVC-Terminating end, that no more CID's can
+         be added to that Terminated-SVC from the Termination
+         end.  The Originating end will be able to use the
+         remaining CID's in the SVC."
+    REFERENCE
+        "Media gateway AAL2 Bearer-Path Establishment,
+         draft-barr-megaco-aal2bearer-00-txt, June 2002,
+         Section 6.3."
+    DEFVAL { 243 }
+    ::= { cvapSvcConfigEntry 18 }
+
+
+cvapSvcStatsTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF CvapSvcStatsEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This table contains SVC statistics associated with 
+         the communication between the media gateway and the PNNI 
+         controller. "
+    ::= { cvapSvcStats 1 }
+
+cvapSvcStatsEntry OBJECT-TYPE
+    SYNTAX        CvapSvcStatsEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "An entry containing statistics information for a SVC 
+         that is associated with the communication between the
+         media gateway and the PNNI controller."
+    INDEX        { cmgwIndex }
+    ::= { cvapSvcStatsTable 1 }
+
+CvapSvcStatsEntry ::=
+    SEQUENCE {
+        cvapSvcTxSetups               Counter32,
+        cvapSvcRxSetups               Counter32,
+        cvapSvcTxCallProcs            Counter32,
+        cvapSvcRxCallProcs            Counter32,
+        cvapSvcTxConns                Counter32,
+        cvapSvcTxConnAcks             Counter32,
+        cvapSvcRxConns                Counter32,
+        cvapSvcRxConnAcks             Counter32,
+        cvapSvcTxReleases             Counter32,
+        cvapSvcTxReleaseCompls        Counter32,
+        cvapSvcRxReleases             Counter32,
+        cvapSvcRxReleaseCompls        Counter32,
+        cvapSvcTxRestarts             Counter32,
+        cvapSvcTxRestartAcks          Counter32,
+        cvapSvcRxRestarts             Counter32,
+        cvapSvcRxRestartAcks          Counter32,
+        cvapSvcTxResyncStrts          Counter32,
+        cvapSvcTxResyncStrtAcks       Counter32,
+        cvapSvcRxResyncStrts          Counter32,
+        cvapSvcRxResyncStrtAcks       Counter32,
+        cvapSvcTxResyncEnds           Counter32,
+        cvapSvcTxResyncEndAcks        Counter32,
+        cvapSvcRxResyncEnds           Counter32,
+        cvapSvcRxResyncEndAcks        Counter32,
+        cvapSvcTxBulkResyncs          Counter32,
+        cvapSvcRxBulkResyncs          Counter32,
+        cvapSvcCallProcExpiries       Counter32,
+        cvapSvcReleasExpiries         Counter32,
+        cvapSvcConnExpiries           Counter32,
+        cvapSvcConnAckExpiries        Counter32,
+        cvapSvcRestartExpiries        Counter32,
+        cvapSvcResyncExpiries         Counter32
+    }
+
+cvapSvcTxSetups  OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This object indicates the number of 'SETUP' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 1 }
+    
+cvapSvcRxSetups  OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This object indicates the number of 'SETUP' messages 
+         received by the media gateway from the PNNI
+         controller since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 2 }
+
+cvapSvcTxCallProcs  OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call 'PROCEED' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 3 }
+    
+cvapSvcRxCallProcs  OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call 'PROCEED' messages 
+         received by the media gateway from the PNNI controller 
+         since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 4 }
+    
+cvapSvcTxConns  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of 'CONNECT' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 5 }
+    
+cvapSvcTxConnAcks  OBJECT-TYPE
+    SYNTAX         Counter32
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This object indicates the number of 'CONNECT ACK' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 6 }
+    
+cvapSvcRxConns  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of 'CONNECT' messages 
+         received by the media gateway from the PNNI controller 
+         since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 7 }
+    
+cvapSvcRxConnAcks  OBJECT-TYPE
+    SYNTAX         Counter32
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This object indicates the number of 'CONNECT ACK' messages 
+         received by the gateway from the PNNI controller 
+         since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 8 }
+    
+cvapSvcTxReleases  OBJECT-TYPE
+    SYNTAX         Counter32
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This object indicates the number of 'RELEASE' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 9 }
+    
+cvapSvcTxReleaseCompls  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object indicates the number of 'RELEASE COMPLETE' 
+         messages sent to the PNNI controller from the media 
+         gateway since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 10 }
+    
+cvapSvcRxReleases  OBJECT-TYPE
+    SYNTAX         Counter32
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This object indicates the number of RELEASE' messages 
+         received by the media gateway from the PNNI controller 
+         since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 11 }
+    
+cvapSvcRxReleaseCompls  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object indicates the number of 'RELEASE COMPLETE' 
+         messages received by the media gateway from the 
+         PNNI controller since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 12 }
+    
+cvapSvcTxRestarts  OBJECT-TYPE
+    SYNTAX         Counter32
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This object indicates the number of 'RESTART' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 13 }
+    
+cvapSvcTxRestartAcks  OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the number of 'RESTART ACK' 
+         messages sent to the PNNI controller from the 
+         media gateway since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 14 }
+    
+cvapSvcRxRestarts  OBJECT-TYPE
+    SYNTAX         Counter32
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This object indicates the number of 'RESTART' messages 
+         received by the media gateway from the PNNI controller 
+         since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 15 }
+    
+cvapSvcRxRestartAcks  OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the number of 'RESTART ACK' messages 
+         received by the media gateway from the PNNI controller 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 16 }
+    
+cvapSvcTxResyncStrts  OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC START' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 17 }
+    
+cvapSvcTxResyncStrtAcks  OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC START ACK' 
+         messages sent to the PNNI controller from the 
+         media gateway since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 18 }
+    
+cvapSvcRxResyncStrts  OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC START' messages 
+         received by the media gateway from the PNNI controller 
+         since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 19 }
+    
+cvapSvcRxResyncStrtAcks  OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC START ACK' 
+         messages received by the media gateway from the PNNI 
+         controller since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 20 }
+    
+cvapSvcTxResyncEnds  OBJECT-TYPE
+    SYNTAX           Counter32
+    MAX-ACCESS       read-only
+    STATUS           current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC END' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 21 }
+    
+cvapSvcTxResyncEndAcks  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC END ACK' 
+         messages sent to the PNNI controller from the 
+         media gateway since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 22 }
+    
+cvapSvcRxResyncEnds  OBJECT-TYPE
+    SYNTAX           Counter32
+    MAX-ACCESS       read-only
+    STATUS           current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC END ACK' 
+         messages received by the media gateway from the 
+         PNNI controller since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 23 }
+    
+cvapSvcRxResyncEndAcks  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object indicates the number of 'RESYNC END ACK' 
+         messages received by the media gateway from the 
+         PNNI controller since last gateway reset.  " 
+    ::= { cvapSvcStatsEntry 24 }
+    
+cvapSvcTxBulkResyncs  OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the number of 'BULK RESYNC' messages 
+         sent to the PNNI controller from the media gateway 
+         since last gateway reset.  "
+    ::= { cvapSvcStatsEntry 25 }
+    
+cvapSvcRxBulkResyncs  OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the number of 'BULK RESYNC' messages 
+         received by the gateway from the PNNI controller 
+         since last gateway reset. " 
+    ::= { cvapSvcStatsEntry 26 }
+
+cvapSvcCallProcExpiries  OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+        "This object indicates the number of call 'PROCEED' messages
+         have been sent from the media gateway and have never received
+         any response from the PNNI controller. "
+    ::= { cvapSvcStatsEntry 27 }
+    
+cvapSvcReleasExpiries  OBJECT-TYPE
+    SYNTAX             Counter32
+    MAX-ACCESS         read-only
+    STATUS             current
+    DESCRIPTION
+        "This object indicates the number of call 'RELEASE' messages
+         have been sent from the media gateway and have never received
+         any response from the PNNI controller. "
+    ::= { cvapSvcStatsEntry 28 }
+    
+cvapSvcConnExpiries  OBJECT-TYPE
+    SYNTAX           Counter32
+    MAX-ACCESS       read-only
+    STATUS           current
+    DESCRIPTION
+        "This object indicates the number of call 'CONNECT' messages
+         have been sent from the media gateway and have never received
+         any response from the PNNI controller. "
+    ::= { cvapSvcStatsEntry 29 }
+    
+cvapSvcConnAckExpiries  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object indicates the number of call 'CONNECT ACK' 
+         messages have been sent from the media gateway and have 
+         never received any response from the PNNI controller. "
+    ::= { cvapSvcStatsEntry 30 }
+    
+cvapSvcRestartExpiries  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object indicates the number of call 'RESTART' messages
+         have been sent from the media gateway and have never received
+         any response from the PNNI controller. "
+    ::= { cvapSvcStatsEntry 31 }
+    
+cvapSvcResyncExpiries  OBJECT-TYPE
+    SYNTAX             Counter32
+    MAX-ACCESS         read-only
+    STATUS             current
+    DESCRIPTION
+        "This object indicates the number of call 'RESYNC START' 
+         messages have been sent from the media gateway and have 
+         never received any response from the PNNI controller. "
+    ::= { cvapSvcStatsEntry 32 }
+
+-- *********************************************************************
+-- Conformance
+-- *********************************************************************
+
+--
+-- conformance information
+--
+
+cvaProfileMIBConformance    OBJECT IDENTIFIER  
+    ::= { ciscoVoiceAalxProfileMIB 2 }
+
+cvaProfileMIBCompliances    OBJECT IDENTIFIER  
+    ::= { cvaProfileMIBConformance 1 }
+
+cvaProfileMIBGroups         OBJECT IDENTIFIER  
+    ::= { cvaProfileMIBConformance 2 }
+
+
+--
+-- Conformance and compliance statements
+--
+
+cvaProfileMIBCompliance MODULE-COMPLIANCE
+    STATUS   deprecated 
+    DESCRIPTION
+        "The Conformance groups."
+    MODULE  -- this module
+        MANDATORY-GROUPS { 
+                           cvapCodecConfigGroup
+                         }
+
+        GROUP cvapSvcConfigGroup
+        DESCRIPTION 
+            "Implementation of this group is mandatory for the
+             gateway if it supports SVC."
+        GROUP cvapSvcStatsGroup
+        DESCRIPTION 
+            "Implementation of this group is mandatory for the
+             gateway if it supports SVC statistics."
+    ::= { cvaProfileMIBCompliances 1 }
+
+cvaProfileMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS   current 
+    DESCRIPTION
+        "The Conformance groups."
+    MODULE  -- this module
+        MANDATORY-GROUPS { 
+                           cvapCodecConfigGroupRev1
+                         }
+
+        GROUP cvapSvcConfigGroup
+        DESCRIPTION 
+            "Implementation of this group is mandatory for the
+             gateway if it supports SVC."
+        GROUP cvapSvcStatsGroup
+        DESCRIPTION 
+            "Implementation of this group is mandatory for the
+             gateway if it supports SVC statistics."
+    ::= { cvaProfileMIBCompliances 2 }
+
+--
+-- Units of conformance
+--
+
+cvapCodecConfigGroup OBJECT-GROUP
+    OBJECTS   {
+                  cvapCodecNegotiationOption,
+                  cvapCodecConfigPreference,
+                  cvapCodecConfigVoicePacketPeriod,
+                  cvapCodecConfigVbdPacketPeriod,
+                  cvapCodecConfigJitterDelayMode,
+                  cvapCodecConfigJitterMaxDelay,
+                  cvapCodecConfigJitterNomDelay,
+                  cvapCodecConfigJitterMinDelay,
+                  cvapCodecConfigDtmfRelay,
+                  cvapCodecConfigPayloadType
+              }
+    STATUS    deprecated
+    DESCRIPTION
+        "This group contains objects related to CODEC
+         configuration information."
+    ::= { cvaProfileMIBGroups 1 }
+
+cvapSvcConfigGroup OBJECT-GROUP
+    OBJECTS   {
+                  cvapSvcAtmQosCellDelay,
+                  cvapSvcAtmQosCtd,
+                  cvapSvcAtmQosClr,
+                  cvapSvcTrfScalingFactor,
+                  cvapSvcAal2CidNumber,
+                  cvapSvcAggTrafficClipping,
+                  cvapSvcAggLinkState,
+                  cvapSvcPartialFillSupported,
+                  cvapSvcMgcpSelectorByteValue,
+                  cvapSvcH248SelectorByteValue,
+                  cvapSvcDelNotifGuardTimer,
+                  cvapSvcMultiCIDPerSvc,
+                  cvapSvcMultiCIDFillTimer,
+                  cvapSvcMultiCIDCACSCR,
+                  cvapSvcMultiCIDCACPCR,
+                  cvapSvcMultiCIDOriginatDelTimer,
+                  cvapSvcMultiCIDTerminatDelTimer,
+                  cvapSvcMultiCIDGlareThreshold
+              }
+    STATUS    current
+    DESCRIPTION
+        "This group contains objects related to SVC 
+         configuration information."
+    ::= { cvaProfileMIBGroups 2 }
+
+cvapSvcStatsGroup OBJECT-GROUP
+    OBJECTS   {
+                  cvapSvcTxSetups,
+                  cvapSvcRxSetups,
+                  cvapSvcTxCallProcs,
+                  cvapSvcRxCallProcs,
+                  cvapSvcTxConns,
+                  cvapSvcTxConnAcks,
+                  cvapSvcRxConns,
+                  cvapSvcRxConnAcks,
+                  cvapSvcTxReleases,
+                  cvapSvcTxReleaseCompls,
+                  cvapSvcRxReleases,
+                  cvapSvcRxReleaseCompls,
+                  cvapSvcTxRestarts,
+                  cvapSvcTxRestartAcks,
+                  cvapSvcRxRestarts,
+                  cvapSvcRxRestartAcks,
+                  cvapSvcTxResyncStrts,
+                  cvapSvcTxResyncStrtAcks,
+                  cvapSvcRxResyncStrts,
+                  cvapSvcRxResyncStrtAcks,
+                  cvapSvcTxResyncEnds,
+                  cvapSvcTxResyncEndAcks,
+                  cvapSvcRxResyncEnds,
+                  cvapSvcRxResyncEndAcks,
+                  cvapSvcTxBulkResyncs,
+                  cvapSvcRxBulkResyncs,
+                  cvapSvcCallProcExpiries,
+                  cvapSvcReleasExpiries,
+                  cvapSvcConnExpiries,
+                  cvapSvcConnAckExpiries,
+                  cvapSvcRestartExpiries,
+                  cvapSvcResyncExpiries
+              }
+    STATUS    current
+    DESCRIPTION
+        "This group contains objects related to SVC statistics."
+    ::= { cvaProfileMIBGroups 3 }
+
+cvapCodecConfigGroupRev1 OBJECT-GROUP
+    OBJECTS   {
+                  cvapCodecNegotiationOption,
+                  cvapCodecConfigPreference,
+                  cvapCodecConfigVoicePacketPeriod,
+                  cvapCodecConfigJitterDelayMode,
+                  cvapCodecConfigJitterMaxDelay,
+                  cvapCodecConfigJitterMinDelay,
+                  cvapCodecConfigDtmfRelay,
+                  cvapCodecConfigPayloadType,
+                  cvapCodecConfigNewJtrNomDelay
+              }
+    STATUS    current
+    DESCRIPTION
+        "This group contains objects related to CODEC
+         configuration information."
+    ::= { cvaProfileMIBGroups 4 }
+
+END
+ 

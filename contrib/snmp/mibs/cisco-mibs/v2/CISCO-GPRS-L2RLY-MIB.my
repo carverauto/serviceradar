@@ -1,0 +1,411 @@
+-- $ID$
+-- ********************************************************************
+-- CISCO-GPRS-L2RLY-MIB.my: MIB file for GPRS L2RLY
+--
+-- December 1998, Ying He
+--
+-- Copyright (c) 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+-- $Endlog$
+
+CISCO-GPRS-L2RLY-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Integer32,
+        Counter32
+                FROM SNMPv2-SMI
+        TruthValue,
+        RowStatus
+                FROM SNMPv2-TC
+        InterfaceIndex
+                FROM IF-MIB
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+ciscoGprsL2rlyMIB MODULE-IDENTITY
+        LAST-UPDATED    "9812150000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+ 
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                   Tel: +1 800 553-NETS
+ 
+                E-mail: cs-gprs@cisco.com"
+        DESCRIPTION
+                "The MIB Module for managing the General Packet Radio 
+                 Service(GPRS) L2RLY related information on Servicing
+                 GPRS Support Node(SGSN).
+                 In GPRS network, a SGSN is typically implemented as
+                 a single node; in cisco-Alcatel joint development,
+                 it's split into Telecom part (T-node) and Datacom
+                 part (D-node). T-nodes and D-nodes are connected
+                 by two fast ethernets. A simple connectionless protocol
+                 called L2RLY is used to provide service of forwarding
+                 packet between T-unit and D-unit, flow control and
+                 defending against the failure of a FE subnet.
+                "
+        ::= { ciscoMgmt 9993 }
+
+
+--  ******************************************************************
+-- Object definitions
+--  ******************************************************************
+
+ciscoGprsL2rlyObjects     OBJECT IDENTIFIER ::= { ciscoGprsL2rlyMIB 1 }
+
+ciscoGprsL2rlyConfig OBJECT IDENTIFIER ::= { ciscoGprsL2rlyObjects 1 }
+ciscoGprsL2rlyStats  OBJECT IDENTIFIER ::= { ciscoGprsL2rlyObjects 2 }
+
+--  ******************************************************************
+--  L2RLY Configurable  Parameters
+--  ******************************************************************
+
+cgprsL2rlyUid  OBJECT-TYPE
+    SYNTAX              Integer32 (0..64)
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+        "L2 Relay unit identification.
+        "
+    DEFVAL { 32 }
+    ::= { ciscoGprsL2rlyConfig 1 }
+ 
+
+cgprsL2rlyUnitType  OBJECT-TYPE
+    SYNTAX      INTEGER {
+                datacomUnit(1),
+                telecomUnit(2)
+    }
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+        " The type can be either a datacom unit, or a telecom unit.
+        "
+    ::= { ciscoGprsL2rlyConfig 2 }
+ 
+cgprsL2rlyEchoTimer  OBJECT-TYPE
+    SYNTAX              Integer32 (0..1000)
+    UNITS               "seconds"
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+        "The frequency of transmission of self_id packet. This packet
+         is transmitted periodically, for keep-alive and auto discovery
+         purposes.
+        "
+    ::= { ciscoGprsL2rlyConfig 3 }
+ 
+
+cgprsL2rlyFlowControlFlag  OBJECT-TYPE
+    SYNTAX                   TruthValue
+    MAX-ACCESS               read-write
+    STATUS                   current
+    DESCRIPTION
+        "L2 Relay flow control function flag. 'on' means that the
+         flow control has been enabled, and 'off' means the converse.
+        "
+    ::= { ciscoGprsL2rlyConfig 4 }
+ 
+
+cgprsL2rlyDroppedPktsMonTime  OBJECT-TYPE
+    SYNTAX              Integer32 (0..65535)
+    UNITS               "seconds"
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+         "The configurable time duration for monitoring the excessive rate
+          at which packets are dropped by the L2 Relay on SGSN due to traffic 
+          congestion problem.
+         "
+    DEFVAL { 300 }
+    ::= { ciscoGprsL2rlyConfig 5 }
+
+cgprsL2rlyNoRespToKeepAliveMsgNotificationEnable  OBJECT-TYPE
+    SYNTAX              TruthValue
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+    "The object  indicates  whether  the  system   produces the
+     cgprsL2rlyNoRespToKeepAliveMsgNotification. A false value will prevent
+     the cgprsL2rlyNoRespToKeepAliveMsgNotification  from being generated
+     by this system.
+    "
+    DEFVAL { true }
+    ::= { ciscoGprsL2rlyConfig 6 }
+
+cgprsL2rlyUnitJoinNotificationEnable  OBJECT-TYPE
+    SYNTAX              TruthValue
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+    "The object  indicates  whether  the  system   produces the
+     cgprsL2rlyUnitJoinNotification. A false value will prevent
+     the cgprsL2rlyUnitJoinNotificationcgprs  from being generated
+     by this system.
+    "
+    DEFVAL { true }
+    ::= { ciscoGprsL2rlyConfig 7 }
+
+cgprsL2rlyInterfaceTable OBJECT-TYPE
+    SYNTAX              SEQUENCE OF CgprsL2rlyInterfaceEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION
+        "The table that lists the interfaces which l2rly is
+         using. Currently the table has just two and always two 
+         entries. There is only one l2rly T or D unit on each router.
+         To ensure reliability and do load sharing, there
+         could be two fast ethernets among the l2rly units.
+         Thus each l2rly unit could interface with two fast ethernets.
+         At least one interface should be configured and working 
+         in order for l2rly to work. 
+        "
+    ::= { ciscoGprsL2rlyConfig 8 }
+
+cgprsL2rlyInterfaceEntry OBJECT-TYPE
+    SYNTAX              CgprsL2rlyInterfaceEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION
+        " The l2rly interface table entry.
+        "
+    INDEX    { cgprsL2rlyInterfaceId }
+    ::= { cgprsL2rlyInterfaceTable 1 }
+ 
+CgprsL2rlyInterfaceEntry ::= SEQUENCE {
+    cgprsL2rlyInterfaceId    InterfaceIndex,
+    cgprsL2rlyInterfaceRowStatus RowStatus
+}
+ 
+cgprsL2rlyInterfaceId OBJECT-TYPE
+    SYNTAX              InterfaceIndex
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION
+        " The ifIndex for the corresponding interface which
+          l2rly is using.
+        "
+    ::= { cgprsL2rlyInterfaceEntry 1 }
+ 
+cgprsL2rlyInterfaceRowStatus OBJECT-TYPE
+    SYNTAX              RowStatus
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        " The status for row creation and deletion.
+        "
+    ::= { cgprsL2rlyInterfaceEntry 2 }
+ 
+-- **************************************************************
+-- L2RLY Statistics
+-- These stats are for SGSN only.
+-- **************************************************************
+
+cgprsL2rlyFlowControlTriggerCount  OBJECT-TYPE
+    SYNTAX              Counter32
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "A running count indicating how many times L2 Relay
+         flow control has been trigerred.
+        "
+    ::= { ciscoGprsL2rlyStats 1 }
+ 
+ 
+cgprsL2rlyInputQLen  OBJECT-TYPE
+    SYNTAX              Counter32
+    UNITS               "packets"
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "The L2 Relay input queue length.
+        "
+    ::= { ciscoGprsL2rlyStats 2 }
+ 
+ 
+cgprsL2rlyTotalPacketsDropped  OBJECT-TYPE
+    SYNTAX              Counter32
+    UNITS               "packets"
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "Total number of packets dropped by L2 Relay due to unknown
+         headers since system startup.
+        "
+    ::= { ciscoGprsL2rlyStats 3 }
+
+cgprsL2rlyDroppedPktsTimeFrame  OBJECT-TYPE
+    SYNTAX              Integer32 (0..65535)
+    UNITS               "seconds"
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+         "The time frame within which the number of L2 Relay packets, defined
+          by cgprsL2rlyDroppedPktsCount, are dropped. 
+         "
+    ::= { ciscoGprsL2rlyStats 4 }
+ 
+cgprsL2rlyDroppedPktsCount  OBJECT-TYPE
+    SYNTAX              Counter32
+    UNITS               "packets"
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+         "The number of packets dropped by L2 Relay on the SGSN
+          within cgprsL2rlyDroppedPktsTimeFrame.
+         "
+    ::= { ciscoGprsL2rlyStats 5 }
+ 
+cgprsL2rlyPeerTable OBJECT-TYPE
+    SYNTAX              SEQUENCE OF CgprsL2rlyPeerEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION
+        " The table lists all the l2rly units on the peer nodes
+          that directly connect with this l2rly units through
+          two fast ethernets.
+        "
+    ::= { ciscoGprsL2rlyStats 6 }
+
+cgprsL2rlyPeerEntry OBJECT-TYPE
+    SYNTAX              CgprsL2rlyPeerEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION
+        " L2rly unit peer entries.
+        "
+    INDEX    { cgprsL2rlyPeerUid, cgprsL2rlyInterfaceId }
+    ::= { cgprsL2rlyPeerTable 1}
+ 
+CgprsL2rlyPeerEntry ::= SEQUENCE {
+    cgprsL2rlyPeerUid               Integer32,
+    cgprsL2rlyPeerUnitType          INTEGER
+    }
+ 
+cgprsL2rlyPeerUid OBJECT-TYPE
+    SYNTAX      Integer32 (0..64)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        " The Uid that uniquely identify the peer l2rly unit that
+          connects to the same fast ethernets as this l2rly unit.
+        "
+    ::= { cgprsL2rlyPeerEntry 1 }
+
+cgprsL2rlyPeerUnitType OBJECT-TYPE
+    SYNTAX      INTEGER {
+                datacomUnit(1),
+                telecomUnit(2)
+    }
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        " The type of the peer l2rly on other devices which connects 
+          to the same fast ethernets as this one.
+        "
+    ::= { cgprsL2rlyPeerEntry 2 }
+
+
+-- ******************************************************************
+-- Trap definitions
+-- ******************************************************************
+
+ciscoGprsL2rlyNotificationPrefix OBJECT IDENTIFIER ::= { ciscoGprsL2rlyMIB 2 }
+ciscoGprsL2rlyNotifications      OBJECT IDENTIFIER ::= { ciscoGprsL2rlyNotificationPrefix 0 }
+
+cgprsL2rlyUnitJoinNotification  NOTIFICATION-TYPE
+    OBJECTS {
+           cgprsL2rlyUid
+    }
+    STATUS current
+    DESCRIPTION
+    "This trap indicates that a new 'SGSN T-node' joins the service.
+     This happens when a new SGSN node restarts or the network
+     problem (fast ethernets among the units) recovers.
+    "
+    ::= { ciscoGprsL2rlyNotifications 1 }
+
+
+cgprsL2rlyNoRespToKeepAliveMsgNotification  NOTIFICATION-TYPE
+    OBJECTS {
+           cgprsL2rlyUid
+    }
+    STATUS current
+    DESCRIPTION
+    "This trap indicates that the 'SGSN T-node' failed to respond to
+     the L2 Relay 'Keep Alive' message. The cgprsL2rlyUid variable identifies
+     the  'SGSN T-node' that failed to respond.
+    "
+    ::= { ciscoGprsL2rlyNotifications 2 }
+
+
+-- ******************************************************************
+-- Conformances
+-- ******************************************************************
+
+ciscoGprsL2rlyConformances OBJECT IDENTIFIER ::= { ciscoGprsL2rlyMIB 3 }
+
+cgprsL2rlyCompliances      OBJECT IDENTIFIER ::= { ciscoGprsL2rlyConformances 1}
+cgprsL2rlyGroups           OBJECT IDENTIFIER ::= { ciscoGprsL2rlyConformances 2}
+
+-- compliance statements
+
+cgprsL2rlyCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        " The compliance statement for entities which implement the
+          CISCO GPRS L2RLY MIB.
+        "
+    MODULE
+        MANDATORY-GROUPS { cgprsL2rlyConfigGroup,
+                           cgprsL2rlyStatsGroup
+                         }
+        ::= {cgprsL2rlyCompliances 1}
+
+-- units of conformance
+
+cgprsL2rlyConfigGroup OBJECT-GROUP
+    OBJECTS { cgprsL2rlyUid, 
+              cgprsL2rlyUnitType, 
+              cgprsL2rlyEchoTimer, 
+              cgprsL2rlyFlowControlFlag,
+              cgprsL2rlyDroppedPktsMonTime,
+              cgprsL2rlyNoRespToKeepAliveMsgNotificationEnable,
+              cgprsL2rlyUnitJoinNotificationEnable,
+              cgprsL2rlyInterfaceRowStatus
+             }
+    STATUS current
+    DESCRIPTION
+        " A collection of configurable parameters for L2RLY.
+        "
+    ::= { cgprsL2rlyGroups 1}
+
+
+cgprsL2rlyStatsGroup OBJECT-GROUP
+    OBJECTS { cgprsL2rlyFlowControlTriggerCount, 
+              cgprsL2rlyInputQLen,
+              cgprsL2rlyTotalPacketsDropped, 
+              cgprsL2rlyDroppedPktsTimeFrame, 
+              cgprsL2rlyDroppedPktsCount,
+              cgprsL2rlyPeerUnitType
+            }
+    STATUS current
+    DESCRIPTION 
+       " A collection of stats for L2RLY."
+    ::= { cgprsL2rlyGroups 2 }
+
+
+END

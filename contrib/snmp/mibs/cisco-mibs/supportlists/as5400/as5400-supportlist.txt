@@ -1,0 +1,307 @@
+The below MIBs are supported by IOS version 10.2 and later.  SNMP
+version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are in
+the v2 directory.  Note that for most every MIB <foo>.my in the v2
+directory, there exists a SNMP version 1 conversion of the MIB
+<foo>-V1SMI.my in the v1 directory.  The exception is SNMPv2-TC.my.
+Thanks go to David T. Perkins for his package smicng which was used to
+produce most of the v1 conversions.
+
+At a minimum, you will want to download all of the OLD-CISCO- and CISCO-
+mibs (including -TC and -SMI) for your network management workstation.
+
+  Supported SNMP version 1 MIBs:
+
+    BRIDGE-MIB.my
+    CISCO-GENERAL-TRAPS.my
+    NOVELL-IPX-MIB.my
+    NOVELL-RIPSAP-MIB.my
+    OLD-CISCO-APPLETALK-MIB.my
+    OLD-CISCO-CHASSIS-MIB.my
+    OLD-CISCO-CPU-MIB.my
+    OLD-CISCO-DECNET-MIB.my
+    OLD-CISCO-ENV-MIB.my
+    OLD-CISCO-FLASH-MIB.my
+    OLD-CISCO-INTERFACES-MIB.my
+    OLD-CISCO-IP-MIB.my
+    OLD-CISCO-MEMORY-MIB.my
+    OLD-CISCO-NOVELL-MIB.my
+    OLD-CISCO-SYS-MIB.my  Note: objects in this doc are also contained in the
+                                separate docs OLD-CISCO-CPU-MIB.my,
+                                OLD-CISCO-SYSTEM-MIB.my and 
+                                OLD-CISCO-MEMORY-MIB.my
+    OLD-CISCO-SYSTEM-MIB.my
+    OLD-CISCO-TCP-MIB.my  Note: objects in this doc replaced by CISCO-TCP-MIB.my
+    OLD-CISCO-TS-MIB.my         as of 10.2
+    OLD-CISCO-VINES-MIB.my
+    OLD-CISCO-XNS-MIB.my
+    RFC1213-MIB.my
+    RFC1231-MIB.my
+    RFC1243-MIB.my
+    RFC1285-MIB.my  Note: support for RFC1285-MIB.my removed in IOS 11.0
+    RFC1315-MIB.my
+    RFC1381-MIB.my
+    RFC1382-MIB.my
+    RFC1398-MIB.my
+    RFC1406-MIB.my
+    SNMP-REPEATER-MIB.my
+    SOURCE-ROUTING-MIB.my
+
+  Supported SNMP version 2 MIBs:
+
+    BGP4-MIB.my
+    CISCO-CHANNEL-MIB.my
+    CISCO-FLASH-MIB.my
+    CISCO-IMAGE-MIB.my
+    CISCO-PING-MIB.my
+    CISCO-PRODUCTS-MIB.my
+    CISCO-QLLC01-MIB.my
+    CISCO-REPEATER-MIB.my
+    CISCO-SMI.my
+    CISCO-TC.my
+    CISCO-TCP-MIB.my
+    RS-232-MIB.my
+    SNA-SDLC-MIB.my
+    SNMPv2-CONF.my
+    SNMPv2-MIB.my
+    SNMPv2-SMI.my
+    SNMPv2-TC.my
+
+  SNMP version 1 MIBs added in IOS 10.3:
+
+    FDDI-SMT73-MIB.my
+    NOVELL-NLSP-MIB.my
+    RFC1253-MIB.my
+
+  SNMP version 2 MIBs added in IOS 10.3:
+
+    CISCO-CALL-HISTORY-MIB.my
+    CISCO-CDP-MIB.my
+    CISCO-DSPU-MIB.my
+    CISCO-ENVMON-MIB.my
+    CISCO-ISDN-MIB.my
+    CISCO-SNAPSHOT-MIB.my
+    CISCO-VINES-MIB.my
+    LANOPTICS-ALERTS-MIB.my           (Supported on 2517/2518/2519)
+    LANOPTICS-BRIDGE-OPTION-MIB.my    (Supported on 2517/2519)
+    LANOPTICS-ETHERNET-OPTION-MIB.my  (Supported on 2518)
+    LANOPTICS-HUB-MIB.my              (Supported on 2517/2518/2519)
+    LANOPTICS-RING-MANAGER-MIB.my     (Supported on 2517/2519)
+    LANOPTICS-SYSTEM-MIB.my           (Supported on 2517/2518/2519)
+
+
+  SNMP version 1 MIBs added in IOS 11.0:
+
+    IBM-6611-APPN-MIB.my
+
+    Note: support for RFC1285-MIB.my removed in IOS 11.0
+
+  SNMP version 2 MIBs added in IOS 11.0:
+
+    CISCO-BSC-MIB.my
+    CISCO-BSTUN-MIB.my
+    CISCO-ICSUDSU-MIB.my (added in 11.0(5), supported on 2524 and 2525)
+    CISCO-IPMROUTE-MIB.my (added in 11.0(2))
+    CISCO-QUEUE-MIB.my
+    CISCO-RSRB-MIB.my
+    CISCO-SDLLC-MIB.my
+    CISCO-STUN-MIB.my
+    IGMP-MIB.my
+    IPMROUTE-MIB.my
+    PIM-MIB.my
+
+ SNMP version 1 MIBs added in IOS 11.1:
+
+    RMON-MIB.my
+
+ SNMP version 2 MIBs added in IOS 11.1:
+
+    CISCO-BUS-MIB.my
+    CISCO-CIPCSNA-MIB.my
+    CISCO-CIPLAN-MIB.my
+    CISCO-CIPTCPIP-MIB.my
+    CISCO-CONFIG-MAN-MIB.my
+    CISCO-DLSW-MIB.my
+    CISCO-LECS-MIB.my
+    CISCO-MEMORY-POOL-MIB.my (added in 11.1(2))
+    CISCO-MODEM-MGMT-MIB.my  (added in 11.1(5))
+    CISCO-SNA-LLC-MIB.my
+    CISCO-TCPOFFLOAD-MIB.my
+    IANAifType-MIB.my
+    IF-MIB.my
+    LAN-EMULATION-CLIENT-MIB.my
+
+ SNMP version 1 MIBs added in IOS 11.1CC:
+
+ SNMP version 2 MIBs added in IOS 11.1CC:
+    CISCO-CAR-MIB.my            (note: not supported in 11.2 or 11.3)
+    CISCO-IP-STAT-MIB.my        (note: not supported in 11.2 or 11.3)
+    CISCO-WRED-MIB.my           (note: not supported in 11.2 or 11.3)
+
+ SNMP version 1 MIBs added in IOS 11.2:
+
+ SNMP version 2 MIBs added in IOS 11.2:
+    APPN-DLUR-MIB.my
+    ATM-MIB.my
+    CISCO-ACCESS-ENVMON-MIB.my
+    CISCO-ATM-SIG-DIAG-MIB.my
+    CISCO-ATM2-MIB.my
+    CISCO-C2900-MIB.my
+    CISCO-ISDNU-IF-MIB.my
+    CISCO-RTTMON-MIB.my
+    CISCO-SYSLOG-MIB.my
+    CISCO-TN3270SERVER-MIB.my
+    INT-SERV-GUARANTEED-MIB.my
+    INT-SERV-MIB.my
+    RSVP-MIB.my
+    SNA-NAU-MIB.my
+    CISCO-IP-ENCRYPTION-MIB.my
+    TCP-MIB.my
+    UDP-MIB.my
+
+SNMP version 2 MIBs added in IOS 11.2P:
+    CISCO-CONFIG-COPY-MIB.my
+    CISCO-POP-MGMT-MIB.my
+
+SNMP version 2 MIBs added in IOS 11.2F:
+    ACCOUNTING-CONTROL-MIB.my
+    ATM-ACCOUNTING-INFORMATION-MIB.my
+    ATM-FORUM-TC-MIB.my
+    ATM-RMON-MIB.my
+    CISCO-ATM-ACCESS-LIST-MIB.my
+    CISCO-ATM-IF-PHYS-MIB.my
+    CISCO-ATM-RM-MIB.my
+    CISCO-ATM-SERVICE-REGISTRY-MIB.my
+    CISCO-COMPRESSION-SERVICE-ADAPTER-MIB.my
+    CISCO-FRAME-RELAY-MIB.my
+    CISCO-PNNI-MIB.my
+    CISCO-RHINO-MIB.my
+    PNNI-MIB.my
+
+SNMP version 2 MIBs added in IOS 11.3:
+    CISCO-DLSW-EXT-MIB.my
+    DLSW-MIB.my
+
+SNMP version 2 MIBs added in IOS 11.3T:
+    CISCO-ALPS-MIB.my (added in 11.3(6.1)T)
+    CISCO-DIAL-CONTROL-MIB.my
+    CISCO-DLCSW-MIB.my (added in 11.3(6.3)T, enterprise and enterprise plus images only)
+    CISCO-VOICE-ANALOG-IF-MIB.my
+    CISCO-VOICE-DIAL-CONTROL-MIB.my
+    CISCO-VOICE-IF-MIB.my
+    CISCO-VPDN-MGMT-MIB.my (added in 11.3(4)T)
+    DIAL-CONTROL-MIB.my
+    PerfHist-TC-MIB.my
+
+SNMP version 2 MIBs added in 11.3(2)AA:
+    CISCO-5800-HEALTH-MON-MIB.my
+    CISCO-BULK-FILE-MIB.my
+    CISCO-FTP-CLIENT-MIB.my
+
+SNMP version 2 MIBs in version 1 format added in 11.3(2)AA:
+    CISCO-5800-HEALTH-MON-MIB-V1SMI.my
+    CISCO-BULK-FILE-MIB-V1SMI.my
+    CISCO-FTP-CLIENT-MIB-V1SMI.my
+
+SNMP version 2 MIBs added in 11.3(2)NA:
+    CISCO-DSP-MGMT-MIB.my
+    CISCO-ENTITY-VENDORTYPE-OID-MIB.my
+    ENTITY-MIB.my
+
+SNMP version 2 MIBs added in 12.0:
+    CISCO-CONFIG-COPY-MIB.my
+    EXPRESSION-MIB.my
+
+SNMP version 2 MIBs added in 12.0(1a)W5(5b)
+    ATM-SOFT-PVC-MIB.my
+
+SNMP version 2 MIBs added in 12.0T:
+    CISCO-CALL-RESOURCE-POOL-MIB.my
+    CISCO-CIPCMPC-MIB.my from 12.0(3.6)T upwards, on 7200, 7500, and RSP7000 platforms only
+    CISCO-CIPTG-MIB.my from 12.0(3.6)T upwards, on 7200, 7500, and RSP7000 platforms only
+    CISCO-DOCS-EXT-MIB.my from 12.0(5)T upwards
+    CISCO-HSRP-EXT-MIB.my from 12.0(3)T upwards
+    CISCO-HSRP-MIB.my from 12.0(3)T upwards
+    CISCO-MMAIL-DIAL-CONTROL-MIB.my
+    CISCO-PROCESS-MIB.my from 12.0(3)T upwards
+    CISCO-VPDN-MGMT-MIB.my, revision 9903240000Z available in 12.0(5)T upwards, plus images only.
+    RFC1407-MIB.my
+    TN3270E-RT-MIB.my from 12.0(5)T upwards, on 7500 and RSP7000 platforms only
+SNMP version 2 MIBs added in 12.0(5)DA:
+
+    ADSL-DMT-LINE-MIB.my
+    ADSL-LINE-MIB.my
+    CISCO-ADSL-DMT-LINE-MIB.my
+    CISCO-ENTITY-ALARM-MIB.my
+    CISCO-ENTITY-ASSET-MIB.my
+    CISCO-ENTITY-PROVISIONING-MIB.my
+
+SNMP version 2 MIBs added in IOS 12.0(7)T:
+
+    CISCO-TRANSACTION-CONNECTION-MIB.my
+    CISCO-CAS-IF-MIB.my
+        
+SNMP version 2 MIBs added in 12.0(10)S:
+    CISCO-BGP-POLICY-ACCOUNTING-MIB.my
+
+SNMP version 2 MIBs added in 12.0(10)W5(18b):
+   CISCO-RHINO-MIB.my
+
+SNMP version 2 MIBs added in 12.0(11)SC:
+    CISCO-DOCS-EXT-MIB.my     
+
+SNMP version 2 MIBs added in 12.0(10.5)S:
+    CISCO-SRP-MIB.my
+
+SNMP version 2 MIBs added in 12.0(12)S:
+    CISCO-CLASS-BASED-QOS-MIB.my
+
+SNMP version 2 MIBs added in 12.1:
+    CISCO-FRAME-RELAY-MIB.my 
+
+SNMP version 2 MIBs added in 12.1(1)DA:
+    CISCO-ADSL-DMT-LINE-MIB.my
+    ADSL-TC-MIB.my
+    CISCO-ADSL-CAP-LINE-MIB.my
+ 
+SNMP version 2 MIBs added in 12.1(2)DA:
+    CISCO-IDSL-LINE-MIB.my
+
+SNMP version 2 MIBs added in 12.1(2)E:
+    CISCO-CLASS-BASED-QOS-MIB.my
+
+SNMP version 2 MIBs added in 12.1(2)EC:
+    CISCO-DOCS-EXT-MIB.my     
+
+SNMP version 2 MIBs added in 12.1T:
+    XGCP-MIB.my 
+    CISCO-WIRELESS-EXP-MIB.my
+    CISCO-WIRELESS-IF-MIB.my
+    CISCO-WIRELESS-P2P-BPI-MIB.my
+    CISCO-WIRELESS-TC-MIB.my
+    CISCO-ENTITY-FRU-CONTROL-MIB.my
+    DOCS-CABLE-DEVICE-MIB.my
+
+SNMP version 2 MIBs added in 12.1(2)T:
+    CISCO-ALPS-MIB.my
+    CISCO-DOCS-REMOTE-QUERY-MIB.my
+
+SNMP version 2 MIBs added in 12.1(2E)T:
+    CISCO-L2L3-INTERFACE-CONFIG-MIB.my
+
+SNMP version 2 MIBs added in 12.1(3)T:
+    CISCO-CALL-APPLICATION-MIB.my
+    CISCO-AAA-SERVER-MIB.my
+    CISCO-AAA-SERVER-CAPABILITY.my
+    CISCO-AAA-SESSION-MIB.my
+    CISCO-CIRCUIT-INTERFACE-MIB.my
+    CISCO-CALL-TRACKER-MIB.my
+    CISCO-CALL-TRACKER-TCP-MIB.my
+    CISCO-CALL-TRACKER-MODEM-MIB.my
+    CISCO-VSIMASTER-MIB.my
+  
+SNMP version 2 MIBs added in 12.1(4)T:
+    CISCO-GATEKEEPER-MIB.my
+    CISCO-H323-TC-MIB.my
+
+
+

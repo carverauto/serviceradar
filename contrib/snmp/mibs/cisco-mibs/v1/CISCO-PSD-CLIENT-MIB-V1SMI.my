@@ -1,0 +1,537 @@
+-- MIB file created 21-Nov-2005 11:22:28, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-PSD-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PSD-CLIENT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoPsdClientMIB OBJECT IDENTIFIER ::= { ciscoMgmt 495 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200508241800Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-gprs@cisco.com
+--  Descr
+--    This MIB module manages the client side
+--    functionality of the Persistent Storage Device(PSD).
+--    
+--    This MIB instrumentation is for configuring
+--    data-store(PSD client) feature on GGSN and monitoring
+--    the state of the PSD server(up/down/full).
+--    
+--    The Cisco Persistent Storage Device(PSD) is an
+--    extension to existing storage on the Cisco Content
+--    Services Gateway(CSG).
+--    
+--    The GGSN currently allows sending of the CDRs to an
+--    active CG, while allowing up to two standby CG's to
+--    be configured. When all the configured CG's become
+--    unavailable, the CDRs get stored at the GGSN and
+--    start using up GGSN resources such as memory. As the
+--    amount of memory is limited on GGSN and failure of
+--    GGSN shall lead to losing these stored CDRs.
+--    Using PSD as temporary storage, shall avoid losses
+--    due to these problems. When all the configured CG's
+--    are unavailable, GGSN needs to backup the live closed
+--    CDR's to a PSD. When any of the CG's shall become
+--    available, GGSN shall retrieve the stored CDR's
+--    automatically from the PSD and forwards them to the
+--    active CG.
+--    
+--    PSD supports the charging protocol(GTP'), version 0 
+--    with a few private extensions, which is used to
+--    facilitate the required functionality via UDP.
+--    
+--    Acronyms and terms:
+--    
+--      CDR    Call Detail Record
+--      CID    Charging Identification
+--      CG     Charging Gateway
+--      CGF    Charging Gateway Functionality
+--      DS     Data-Store
+--      ETSI   European Telecommunications Standards
+--             Institute
+--      Ga     Name of the interface between SGSN/GGSN and
+--             CG
+--      Gi     Name of the interface between GGSN and PDN
+--      Gn     Name of the interface between GGSN and SGSN
+--      G-CDR  Gateway GPRS Support Node-Call Detail Record
+--      GGSN   Gateway GPRS Support Node
+--      GPRS   General Packet Radio Service
+--      GSM    Global System for Mobile communication
+--      GTP    GPRS Tunneling Protocol
+--      GTP'   GTP enhanced for charging
+--      IE     Information Element
+--      MS     Mobile Station
+--      PDN    Packet Data Network
+--      PDP    Packet Data Protocol
+--      SGSN   Serving GPRS support Node
+--      TOS    Type of Service.
+--      PSD    Persistence Storage Device.
+--  RevDate
+--    200508241800Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoPsdClientMIBNotifs OBJECT IDENTIFIER ::= { ciscoPsdClientMIB 0 }
+ciscoPsdClientMIBObjects OBJECT IDENTIFIER ::= { ciscoPsdClientMIB 1 }
+ciscoPsdClientStatistics OBJECT IDENTIFIER ::= { ciscoPsdClientMIBObjects 1 }
+ciscoPsdClientNotifMgmt OBJECT IDENTIFIER ::= { ciscoPsdClientMIBObjects 2 }
+ciscoPsdClientConfigurations OBJECT IDENTIFIER ::= { ciscoPsdClientMIBObjects 3 }
+ciscoPsdClientNotifInfo OBJECT IDENTIFIER ::= { ciscoPsdClientMIBObjects 4 }
+ciscoPsdClientMIBConform OBJECT IDENTIFIER ::= { ciscoPsdClientMIB 2 }
+cPsdClientMIBCompliances OBJECT IDENTIFIER ::= { ciscoPsdClientMIBConform 1 }
+cPsdClientMIBGroups OBJECT IDENTIFIER ::= { ciscoPsdClientMIBConform 2 }
+
+cPsdClientDSWriteReq OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Data Record Transfer request (for write)
+        messages sent to the PSD server.
+        
+        This counter is incremented when the FIFO write request
+        is sent to the PSD server from the client."
+    ::= { ciscoPsdClientStatistics 1 }
+
+cPsdClientDSReadReq OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Data Record Transfer request (for read)
+        messages sent to PSD server.
+        
+        This counter is incremented when the FIFO read request
+        message is sent to PSD server."
+    ::= { ciscoPsdClientStatistics 2 }
+
+cPsdClientDSRdWrRetrans OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Data Record Transfer Request 
+        (retransmission) messages sent to the PSD server.
+        
+        The PSD does not differentiate between a retransmission
+        and original request. So, this counter together with
+        the above two counters cPsdClientDSReadReq/
+        cPsdClientDSWriteReq can be used to tally the number of
+        messages received by the PSD client.
+        
+        This counter is incremented when the FIFO read/write
+        retransmission messages are sent to PSD server."
+    ::= { ciscoPsdClientStatistics 3 }
+
+cPsdClientDSDiskFullTrans OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of state transitions made by the PSD from
+        state 'disk available' to 'disk full'. 
+        
+        This counter is incremented when client receives the
+        disk full indication from PSD server."
+    ::= { ciscoPsdClientStatistics 4 }
+
+cPsdClientNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the agent should
+        generate the notifications defined in this MIB module.
+        
+        If the value of this object is 'true' it enables the
+        device to generate the notifications.
+        If the value of this object is 'false' it disables the
+        device from generating the notifications."
+    DEFVAL { false }
+    ::= { ciscoPsdClientNotifMgmt 1 }
+
+cPsdClientDSTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPsdClientDSEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table consisting of entries for data-store(DS) and
+        auto-retrieval configurations.
+        
+        In order to minimize the performance/memory impact on
+        the PSD client, as well as not to overwhelm the CG
+        with both live CDRs and retrieved CDRs, the maximum
+        retrieval rate from PSD server to GGSN is limited and
+        can be configured by the user."
+    ::= { ciscoPsdClientConfigurations 1 }
+
+cPsdClientDSEntry OBJECT-TYPE
+    SYNTAX CPsdClientDSEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the configuration for
+        auto-retrieval and also maximum retrieval value if
+        auto-retrieval is enabled."
+    INDEX { cPsdClientDSName }
+    ::= { cPsdClientDSTable 1 }
+
+CPsdClientDSEntry ::= SEQUENCE {
+    cPsdClientDSName SnmpAdminString,
+    cPsdClientDSAutoRetrieve TruthValue,
+    cPsdClientDSMaxRetrieve INTEGER,
+    cPsdClientDSRowStatus RowStatus
+    }
+
+cPsdClientDSName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the name of the configured
+        data-store"
+    ::= { cPsdClientDSEntry 1 }
+
+cPsdClientDSAutoRetrieve OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable/disable the CDR 
+        auto-retrieval functionality.
+        
+        If value of this object is set to 'true',
+        auto-retrieval is enabled.
+        
+        If value of this object is set to 'false', 
+        auto-retrieval is disabled."
+    DEFVAL { false }
+    ::= { cPsdClientDSEntry 2 }
+
+cPsdClientDSMaxRetrieve OBJECT-TYPE
+    SYNTAX INTEGER(1..6000)
+--  Units
+--    messages/minute
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object used to specify the maximum retrieval
+        value, when auto retrieve is enabled, i.e when the
+        value of the corresponding instance of
+        cPsdClientDSAutoRetrieve is set to 'true'."
+    DEFVAL { 60 }
+    ::= { cPsdClientDSEntry 3 }
+
+cPsdClientDSRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. This object is 
+        used to create a row or delete a existing row in a
+        table."
+    ::= { cPsdClientDSEntry 4 }
+
+cPsdClientDSServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPsdClientDSServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table contains the list of the PSD servers used to
+        write/retrieve the CDRs."
+    ::= { ciscoPsdClientConfigurations 2 }
+
+cPsdClientDSServerEntry OBJECT-TYPE
+    SYNTAX CPsdClientDSServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains a description of the PSD server."
+    INDEX { cPsdClientDSName, cPsdClientDSServerAddressType, cPsdClientDSServerAddress }
+    ::= { cPsdClientDSServerTable 1 }
+
+CPsdClientDSServerEntry ::= SEQUENCE {
+    cPsdClientDSServerAddressType InetAddressType,
+    cPsdClientDSServerAddress InetAddress,
+    cPsdClientDSRetrieveOnly TruthValue,
+    cPsdClientDSServerRowStatus RowStatus
+    }
+
+cPsdClientDSServerAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of Internet address of
+        the PSD server."
+    ::= { cPsdClientDSServerEntry 1 }
+
+cPsdClientDSServerAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4..20))
+--    Rsyntax OCTET STRING(SIZE(4..20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the Internet address of the PSD
+        server. The type of address of an instance of this object
+        is determined by the value of the corresponding instance
+        of cPsdClientDSServerAddressType."
+    ::= { cPsdClientDSServerEntry 2 }
+
+cPsdClientDSRetrieveOnly OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object represents that, the PSD server can be
+        configured either as write/retrievable or as 
+        retrievable only.
+        
+        If the value of this object is set to 'true', the PSD 
+        server (the value of the corresponding instance of 
+        cPsdClientDSServerAddress) shall not be used for
+        writing the CDRs.
+        
+        If the value of this object is set to 'false', the PSD
+        server (the value of the corresponding instance of    
+        cPsdClientDSServerAddress) shall be used for writing
+        the CDRs as well as retrieving the CDRs."
+    ::= { cPsdClientDSServerEntry 3 }
+
+cPsdClientDSServerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. This object will
+        create a row or delete a existing row in a table."
+    ::= { cPsdClientDSServerEntry 4 }
+
+cPsdClientNotifDSServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of Internet address of
+        the Data-Store server."
+    ::= { ciscoPsdClientNotifInfo 1 }
+
+cPsdClientNotifDSServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Internet address of the 
+        Data-Store server . The type of address of an instance 
+        of this object is determined by the value of 
+        cPsdClientNotifDSServerAddrType."
+    ::= { ciscoPsdClientNotifInfo 2 }
+
+cPsdClientDownNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPsdClientMIB
+    VARIABLES {
+        cPsdClientNotifDSServerAddrType, 
+        cPsdClientNotifDSServerAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification of this type is generated when the
+        PSD server goes DOWN.
+        
+        If the PSD client was in write/retrieving state, then
+        that operation shall be be stopped."
+    ::= 1
+
+cPsdClientUpNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPsdClientMIB
+    VARIABLES {
+        cPsdClientNotifDSServerAddrType, 
+        cPsdClientNotifDSServerAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification of this type is generated when the
+        PSD server comes UP.
+        
+        A GTP' path will be created fulfilling all the specific
+        requirements of the PSD interface."
+    ::= 2
+
+cPsdClientDiskFullNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPsdClientMIB
+    VARIABLES {
+        cPsdClientNotifDSServerAddrType, 
+        cPsdClientNotifDSServerAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification of this type is generated when the
+        PSD server's disk become full.
+        
+        If the disk of writable PSD server becomes full, the
+        client shall not be able to write any CDR into the
+        server. It shall then  behave as a retrieve only PSD
+        server."
+    ::= 3
+
+cPsdClientMIBStatisticsGroup OBJECT IDENTIFIER ::= { cPsdClientMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Data Store
+--     related statistics.
+--  objects
+--    cPsdClientDSWriteReq, cPsdClientDSReadReq, 
+--    cPsdClientDSRdWrRetrans, cPsdClientDSDiskFullTrans
+
+cPsdClientMIBConfigurationsGroup OBJECT IDENTIFIER ::= { cPsdClientMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Data Store related
+--     configurations.
+--  objects
+--    cPsdClientDSRowStatus, cPsdClientDSAutoRetrieve, 
+--    cPsdClientDSMaxRetrieve, cPsdClientDSServerRowStatus, 
+--    cPsdClientDSRetrieveOnly
+
+cPsdClientMIBNotifInfoGroup OBJECT IDENTIFIER ::= { cPsdClientMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notification info objects on PSD.
+--  objects
+--    cPsdClientNotifDSServerAddrType, 
+--    cPsdClientNotifDSServerAddress
+
+cPsdClientMIBNotifMgmtGroup OBJECT IDENTIFIER ::= { cPsdClientMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related with notification
+--    management on PSD.
+--  objects
+--    cPsdClientNotifEnable
+
+cPsdClientMIBNotifGroup OBJECT IDENTIFIER ::= { cPsdClientMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of Notifications.
+--  notifications
+--    cPsdClientDownNotif, cPsdClientUpNotif, 
+--    cPsdClientDiskFullNotif
+
+cPsdClientMIBCompliance OBJECT IDENTIFIER ::= { cPsdClientMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO PSD CLIENT MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cPsdClientMIBStatisticsGroup
+--   MandGroup
+--    cPsdClientMIBConfigurationsGroup
+--   MandGroup
+--    cPsdClientMIBNotifGroup
+--   MandGroup
+--    cPsdClientMIBNotifInfoGroup
+--   MandGroup
+--    cPsdClientMIBNotifMgmtGroup
+--   ObjVar
+--    cPsdClientDSRowStatus
+--   ObjVar
+--    cPsdClientDSServerRowStatus
+
+
+END
+

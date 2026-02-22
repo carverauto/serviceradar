@@ -1,0 +1,329 @@
+-- MIB file created 22-Oct-2003 15:49:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-L2-DEV-MONITORING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-L2-DEV-MONITORING-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress, TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoL2DevMonMIB OBJECT IDENTIFIER ::= { ciscoMgmt 271 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200307220000Z
+--  OrgName
+--    Cisco System Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 West Tasman Drive,
+--            San Jose CA 95134-1706.
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB module is for monitoring of active 
+--    layer 2 devices by hot standby layer 2 devices 
+--    and the configuration of hot standby switch-over
+--    parameters.
+--  RevDate
+--    200307220000Z
+--  RevDescr
+--    Added cl2DevMonActiveRadioMacType to identify 
+--    to the device radio MAC protocol type and
+--    cl2DevMonActiveLocalRadioIndex to identify
+--    the local radio used for monitoring.
+--  RevDate
+--    200109270000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoL2DevMonMIBObjects OBJECT IDENTIFIER ::= { ciscoL2DevMonMIB 1 }
+cl2DevMonConfig OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBObjects 1 }
+ciscoL2DevMonMIBNotifications OBJECT IDENTIFIER ::= { ciscoL2DevMonMIB 0 }
+ciscoL2DevMonMIBConformance OBJECT IDENTIFIER ::= { ciscoL2DevMonMIB 2 }
+ciscoL2DevMonMIBCompliances OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBConformance 1 }
+ciscoL2DevMonMIBGroups OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBConformance 2 }
+
+cl2DevMonInStandbyMode OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If the value of this variable is TRUE, this device 
+        is in monitoring or standby mode and it will poll 
+        for the health of the devices on the 
+        cl2DevMonActiveTable.  If the value of 
+        cl2DevMonInStandbyMode is FALSE,
+        it only can be set back to TRUE using command line 
+        interface or SNMP request. The value can be set to 
+        FALSE only by the device itself because force 
+        switch over from standby mode to active mode is
+        not allowed."
+    DEFVAL { false }
+    ::= { cl2DevMonConfig 1 }
+
+cl2DevMonNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether cl2DevMonSwitchover 
+         notifications will or will not be sent by the device 
+         when it changes its cl2DevMonInStandbyMode to 
+         FALSE and becomes an active unit."
+    DEFVAL { false }
+    ::= { cl2DevMonConfig 2 }
+
+cl2DevMonActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cl2DevMonActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table for active devices on the network
+        being monitored by the hot standby monitoring 
+        unit. This table is on the hot standby 
+        monitoring unit. All entries on this table will 
+        only be added, deleted, modified using command
+        user interface or SNMP request."
+    ::= { cl2DevMonConfig 3 }
+
+cl2DevMonActiveEntry OBJECT-TYPE
+    SYNTAX Cl2DevMonActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cl2DevMonActiveTable table."
+    INDEX { cl2DevMonActiveMacAddress }
+    ::= { cl2DevMonActiveTable 1 }
+
+Cl2DevMonActiveEntry ::= SEQUENCE {
+    cl2DevMonActiveMacAddress MacAddress,
+    cl2DevMonActivePollingFrequency Gauge,
+    cl2DevMonActivePollingTimeOut Gauge,
+    cl2DevMonActiveRowStatus RowStatus,
+    cl2DevMonActiveRadioMacType INTEGER,
+    cl2DevMonActiveLocalRadioIndex InterfaceIndex
+    }
+
+cl2DevMonActiveMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Mac address of the active unit to be monitored by
+        this hot standby monitoring unit."
+    ::= { cl2DevMonActiveEntry 1 }
+
+cl2DevMonActivePollingFrequency OBJECT-TYPE
+    SYNTAX Gauge(1..30)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The frequency, in seconds, the active unit 
+        specified by cl2DevMonActiveMacAddress is polled 
+        for its health."
+    DEFVAL { 5 }
+    ::= { cl2DevMonActiveEntry 2 }
+
+cl2DevMonActivePollingTimeOut OBJECT-TYPE
+    SYNTAX Gauge(1..600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The total time, in seconds, the standby monitoring 
+        unit can tolerate the failure of polling 
+        of the active unit.  After this duration, one
+        more failure of the polling will trigger this hot
+        standby monitoring unit to take over and become an
+        active unit. It then will stop monitoring other 
+        active units and set value of cl2DevMonInStandbyMode 
+        to FALSE."
+    DEFVAL { 5 }
+    ::= { cl2DevMonActiveEntry 3 }
+
+cl2DevMonActiveRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status column used for creating, modifying, and
+        deleting instances of the columnar objects in the 
+        cl2DevMonActiveTable table.
+        
+        Creation of rows must be done via 'createAndGo' and 
+        all columns are mandatory. This object will become 
+        'active' if the NMS performs a multivarbind set 
+        including this object. 
+        
+        Any object in a row can be modified any time when 
+        the row is in the 'active' state.
+        
+        Removal of a row can be done via setting this
+        object to 'destroy'."
+    ::= { cl2DevMonActiveEntry 4 }
+
+cl2DevMonActiveRadioMacType OBJECT-TYPE
+    SYNTAX INTEGER {
+        ieee802dot11a(1),
+        ieee802dot11b(2),
+        ieee802dot11g(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If the device being monitored is a IEEE 802.11
+        Wireless device, cl2DevMonActiveMacAddress 
+        is the remote device radio MAC address and this 
+        is the type of IEEE 802.11 Standard applies that
+        radio:
+             ieee802dot11a(1) - IEEE 802.11a Standard,
+             ieee802dot11b(2) - IEEE 802.11b Standard,
+             ieee802dot11g(3) - IEEE 802.11g Standard.
+        
+        If the device being monitored is not a 
+        IEEE 802.11 Wireless device, the default value
+        for this object is '0'."
+    REFERENCE
+        "IEEE P802.11g (expected June 2003), Wireless LAN
+        Medium Access Control (MAC) and Physical Layer (PHY)
+        Specifications: Higher Speed Physical Layer (PHY)
+        Extension to IEEE 802.11b."
+    ::= { cl2DevMonActiveEntry 5 }
+
+cl2DevMonActiveLocalRadioIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If the device being monitored is a IEEE 802.11
+        Wireless LAN device, this is the ifIndex of a 
+        local radio of ifType ieee80211(71) used for the
+        monitoring. 
+        
+        If the local radio only supports to monitor only 
+        one remote radio, adding or updating multiple 
+        rows to the same ifIndex is not allowed."
+    ::= { cl2DevMonActiveEntry 6 }
+
+cl2DevMonSwitchover TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoL2DevMonMIB
+    VARIABLES {
+        cl2DevMonActivePollingFrequency, 
+        cl2DevMonActivePollingTimeOut }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This cl2DevMonSwitchover notification will 
+        only be sent when this device changes its 
+        cl2DevMonInStandbyMode to FALSE and becomes 
+        an active unit. The sending of these 
+        notifications can be enabled/disabled
+        via the cl2DevMonNotifEnabled object."
+    ::= 1
+
+ciscoL2DevMonConfigGroup OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Management information to support operation of 
+--     L2 monitoring and hot standby.
+--  objects
+--    cl2DevMonInStandbyMode, cl2DevMonNotifEnabled, 
+--    cl2DevMonActivePollingFrequency, 
+--    cl2DevMonActivePollingTimeOut, cl2DevMonActiveRowStatus
+
+ciscoL2DevMonRadioConfigGroup OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Management information to identify the MAC type 
+--     of a IEEE 802.11 Wireless LAN device and local
+--     radio ifIndex.
+--  objects
+--    cl2DevMonActiveRadioMacType, cl2DevMonActiveLocalRadioIndex
+
+ciscoL2DevMonNotificationGroup OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notifications for the 
+--    CISCO-L2-DEV-MONITORING-MIB
+--  notifications
+--    cl2DevMonSwitchover
+
+ciscoL2DevMonCompliance OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the 
+--    ciscoL2DevMonConfig group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoL2DevMonConfigGroup
+--   MandGroup
+--    ciscoL2DevMonNotificationGroup
+
+ciscoL2DevMonComplianceRev1 OBJECT IDENTIFIER ::= { ciscoL2DevMonMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the 
+--    ciscoL2DevMonConfig group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoL2DevMonConfigGroup
+--   MandGroup
+--    ciscoL2DevMonNotificationGroup
+--   OptGroup
+--    ciscoL2DevMonRadioConfigGroup
+
+
+END
+

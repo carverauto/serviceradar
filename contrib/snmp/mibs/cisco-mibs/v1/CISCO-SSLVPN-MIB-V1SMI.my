@@ -1,0 +1,656 @@
+-- MIB file created 18-Nov-2015 23:18:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SSLVPN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SSLVPN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DateAndTime
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress, InetAddressPrefixLength
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge, Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoSslvpnMIB OBJECT IDENTIFIER ::= { ciscoMgmt 829 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201511170000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-vpn@cisco.com
+--  Descr
+--    This MIB module defines management objects for
+--    configuration and monitoring of the Cisco secure
+--    gateway that implements SSLVPN.
+--    
+--    Glossary:
+--    
+--    AnyConnect - Cisco AnyConnect a unified agent that delivers
+--                 multiple security services to help enable and
+--                 protect the enterprise.
+--    
+--    SSL - Secure Sockets Layer
+--    
+--    URL - Uniform Resource Locator
+--    
+--    VPN - Virtual Private Network
+--  RevDate
+--    201511170000Z
+--  RevDescr
+--    Incorporated MIB review comments.
+--  RevDate
+--    201510141200Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSslvpnMIBNotifs OBJECT IDENTIFIER ::= { ciscoSslvpnMIB 0 }
+ciscoSslvpnMIBObjects OBJECT IDENTIFIER ::= { ciscoSslvpnMIB 1 }
+ciscoSslvpnMIBConform OBJECT IDENTIFIER ::= { ciscoSslvpnMIB 2 }
+csslvpnGlobalStatistics OBJECT IDENTIFIER ::= { ciscoSslvpnMIBObjects 1 }
+csslvpnSession  OBJECT IDENTIFIER ::= { ciscoSslvpnMIBObjects 2 }
+csslvpnNotificationControl OBJECT IDENTIFIER ::= { ciscoSslvpnMIBObjects 3 }
+ciscoSslvpnMIBCompliances OBJECT IDENTIFIER ::= { ciscoSslvpnMIBConform 1 }
+ciscoSslvpnMIBGroups OBJECT IDENTIFIER ::= { ciscoSslvpnMIBConform 2 }
+
+csslvpnMaxSessionAllowed OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of active SSLVPN
+        sessions that are supported by the device."
+    ::= { csslvpnGlobalStatistics 1 }
+
+csslvpnActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of active SSLVPN
+        sessions."
+    ::= { csslvpnGlobalStatistics 2 }
+
+csslvpnPeakSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of sessions during peak
+        time."
+    ::= { csslvpnGlobalStatistics 3 }
+
+csslvpnInControlPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of control packets
+        received by the Secure Gateway."
+    ::= { csslvpnGlobalStatistics 4 }
+
+csslvpnInDataPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of data packets
+        received by the Secure Gateway."
+    ::= { csslvpnGlobalStatistics 5 }
+
+csslvpnOutControlPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of control
+        packets sent by the Secure Gateway."
+    ::= { csslvpnGlobalStatistics 6 }
+
+csslvpnOutDataPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of data packets sent by
+        the Secure Gateway."
+    ::= { csslvpnGlobalStatistics 7 }
+
+csslvpnAuthFailures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of authentication
+        failures."
+    ::= { csslvpnGlobalStatistics 8 }
+
+csslvpnConnectFailures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of connect failures."
+    ::= { csslvpnGlobalStatistics 9 }
+
+csslvpnReconnectFailures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of reconnect failures."
+    ::= { csslvpnGlobalStatistics 10 }
+
+csslvpnDpdTimeouts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of Dead Peer Detection
+        timeouts."
+    ::= { csslvpnGlobalStatistics 11 }
+
+csslvpnAuthRequests OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    requests
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of authentication
+        requests."
+    ::= { csslvpnGlobalStatistics 12 }
+
+csslvpnAuthResponses OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    responses
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of authentication
+        responses."
+    ::= { csslvpnGlobalStatistics 13 }
+
+csslvpnInDpdRequests OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    requests
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of Dead Peer Detection
+        requests received by Secure Gateway."
+    ::= { csslvpnGlobalStatistics 14 }
+
+csslvpnOutDpdRequests OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    requests
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of Dead Peer Detection
+        requests sent by Secure Gateway."
+    ::= { csslvpnGlobalStatistics 15 }
+
+csslvpnInDpdResponses OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    responses
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of Dead Peer Detection
+        responses received by Secure Gateway."
+    ::= { csslvpnGlobalStatistics 16 }
+
+csslvpnOutDpdResponses OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    responses
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of Dead Peer Detection
+        responses sent by Secure Gateway."
+    ::= { csslvpnGlobalStatistics 17 }
+
+csslvpnSessionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsslvpnSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of SSLVPN sessions which has been successfully
+        created by the secure gateway."
+    ::= { csslvpnSession 1 }
+
+csslvpnSessionEntry OBJECT-TYPE
+    SYNTAX CsslvpnSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry providing the management information of a
+        SSLVPN session.
+        
+        An entry will be created when the SSLVPN session has been
+        successfully provisioned by the secure gateway.
+        
+        An entry will be removed when the SSLVPN session has been
+        removed by the secure gateway."
+    INDEX { csslvpnSessionID }
+    ::= { csslvpnSessionTable 1 }
+
+CsslvpnSessionEntry ::= SEQUENCE {
+    csslvpnSessionID Gauge,
+    csslvpnSessionUser SnmpAdminString,
+    csslvpnSessionProfile SnmpAdminString,
+    csslvpnSessionPolicy SnmpAdminString,
+    csslvpnSessionClientIpAddrType InetAddressType,
+    csslvpnSessionClientIpAddr InetAddress,
+    csslvpnSessionTunnelIpAddrType InetAddressType,
+    csslvpnSessionTunnelIpAddr InetAddress,
+    csslvpnSessionTunnelNetmask InetAddressPrefixLength,
+    csslvpnSessionNumConnections Gauge,
+    csslvpnSessionRxPackets Counter,
+    csslvpnSessionTxPackets Counter,
+    csslvpnSessionRxBytes Counter,
+    csslvpnSessionTxBytes Counter,
+    csslvpnSessionLastUsed DateAndTime,
+    csslvpnSessionCreated DateAndTime
+    }
+
+csslvpnSessionID OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the index of a SSLVPN session.
+        The value of csslvpnSessionID is assigned uniquely during session
+        creation."
+    ::= { csslvpnSessionEntry 1 }
+
+csslvpnSessionUser OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the username with which session is
+        authenticated."
+    ::= { csslvpnSessionEntry 2 }
+
+csslvpnSessionProfile OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the SSL profile to which session is
+        connected. 
+        
+        The SSL profile defines authentication and accounting
+        lists. Profile selection will be based on policy and URL
+        values.  Profile may also optionally associate with default
+        authorization policy"
+    ::= { csslvpnSessionEntry 3 }
+
+csslvpnSessionPolicy OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the SSL policy to which session is
+        connected. 
+        
+        SSL policy defines the cipher suites to be supported and the
+        trust point to be used during SSL negotiation. SSL policy is a
+        container of all the parameters used in the SSL negotiation.
+        The policy selection would be done by matching the session
+        parameters against the parameters configured under the policy"
+    ::= { csslvpnSessionEntry 4 }
+
+csslvpnSessionClientIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of public IP Address of the
+        client that initiated the session."
+    ::= { csslvpnSessionEntry 5 }
+
+csslvpnSessionClientIpAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the public IP Address of the client that
+        initiated the session.
+        
+        The type of this address is determined by the value of
+        csslvpnSessionClientIpAddrType object."
+    ::= { csslvpnSessionEntry 6 }
+
+csslvpnSessionTunnelIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of IP address assigned to
+        AnyConnect client during tunnel bring up."
+    ::= { csslvpnSessionEntry 7 }
+
+csslvpnSessionTunnelIpAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the IP address assigned to AnyConnect
+        client during tunnel bring up.
+        
+        The type of this address is determined by the value of
+        csslvpnSessionTunnelIpAddrType object."
+    ::= { csslvpnSessionEntry 8 }
+
+csslvpnSessionTunnelNetmask OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the netmask assigned to the client
+        during the session bring up.
+        
+        This object is always interpreted with the value of
+        csslvpnSessionTunnelIpAddrType object."
+    ::= { csslvpnSessionEntry 9 }
+
+csslvpnSessionNumConnections OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of connections
+        associated with a particular session."
+    ::= { csslvpnSessionEntry 10 }
+
+csslvpnSessionRxPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of packets received
+        during the session."
+    ::= { csslvpnSessionEntry 11 }
+
+csslvpnSessionTxPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of packets transmitted
+        during the session."
+    ::= { csslvpnSessionEntry 12 }
+
+csslvpnSessionRxBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of bytes received
+        during the session."
+    ::= { csslvpnSessionEntry 13 }
+
+csslvpnSessionTxBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of bytes transmitted
+        during the session."
+    ::= { csslvpnSessionEntry 14 }
+
+csslvpnSessionLastUsed OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time, when the session was last
+        used."
+    ::= { csslvpnSessionEntry 15 }
+
+csslvpnSessionCreated OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time, when the session was created."
+    ::= { csslvpnSessionEntry 16 }
+
+csslvpnNotificationEnable OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   sessionLimit(0)
+        --   tunnelUp(1)
+        --   tunnelDown(2)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether a specified notification is
+        enabled or not.  If a bit corresponding to a notification
+        is set to 1, then the specified notification can be generated.
+        
+        sessionLimit  -- the csslvpnSessionLimitNotif
+                               notification.
+        
+        tunnelUp      -- the csslvpnTunnelUpNotif notification.
+        
+        tunnelDown    -- the csslvpnTunnelDownNotif notification."
+    ::= { csslvpnNotificationControl 1 }
+
+csslvpnSessionLimitNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSslvpnMIB
+    VARIABLES {
+        csslvpnMaxSessionAllowed }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification would be sent when the attempt of creating
+        a new active sessions may exceed the maximum number of sessions
+        supported by the device."
+    ::= 1
+
+csslvpnTunnelUpNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSslvpnMIB
+    VARIABLES {
+        csslvpnSessionUser, csslvpnSessionTunnelIpAddrType, 
+        csslvpnSessionTunnelIpAddr, csslvpnSessionTunnelNetmask }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification would be sent when SSLVPN tunnel gets
+        created."
+    ::= 2
+
+csslvpnTunnelDownNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSslvpnMIB
+    VARIABLES {
+        csslvpnSessionUser, csslvpnSessionTunnelIpAddrType, 
+        csslvpnSessionTunnelIpAddr, csslvpnSessionTunnelNetmask }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification would be sent when SSLVPN tunnel tears
+        down."
+    ::= 3
+
+csslvpnGlobalSessionGroup OBJECT IDENTIFIER ::= { ciscoSslvpnMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management information
+--    for global SSLVPN session statistics.
+--  objects
+--    csslvpnMaxSessionAllowed, csslvpnActiveSessions, 
+--    csslvpnPeakSessions
+
+csslvpnStatisticsGroup OBJECT IDENTIFIER ::= { ciscoSslvpnMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management information
+--    for global SSLVPN statistics.
+--  objects
+--    csslvpnInControlPackets, csslvpnInDataPackets, 
+--    csslvpnOutControlPackets, csslvpnOutDataPackets, 
+--    csslvpnAuthFailures, csslvpnConnectFailures, 
+--    csslvpnReconnectFailures, csslvpnDpdTimeouts, 
+--    csslvpnAuthRequests, csslvpnAuthResponses, 
+--    csslvpnInDpdRequests, csslvpnOutDpdRequests, 
+--    csslvpnInDpdResponses, csslvpnOutDpdResponses
+
+csslvpnSessionGroup OBJECT IDENTIFIER ::= { ciscoSslvpnMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management information
+--    for SSLVPN sessions.
+--  objects
+--    csslvpnSessionUser, csslvpnSessionProfile, 
+--    csslvpnSessionPolicy, csslvpnSessionClientIpAddrType, 
+--    csslvpnSessionClientIpAddr, csslvpnSessionTunnelIpAddrType, 
+--    csslvpnSessionTunnelIpAddr, csslvpnSessionTunnelNetmask, 
+--    csslvpnSessionNumConnections, csslvpnSessionRxPackets, 
+--    csslvpnSessionTxPackets, csslvpnSessionRxBytes, 
+--    csslvpnSessionTxBytes, csslvpnSessionLastUsed, 
+--    csslvpnSessionCreated
+
+csslvpnNotificationControlGroup OBJECT IDENTIFIER ::= { ciscoSslvpnMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing control on the
+--    generation of SSLVPN notifications.
+--  objects
+--    csslvpnNotificationEnable
+
+csslvpnNotificationGroup OBJECT IDENTIFIER ::= { ciscoSslvpnMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of SSLVPN notifications.
+--  notifications
+--    csslvpnSessionLimitNotif, csslvpnTunnelUpNotif, 
+--    csslvpnTunnelDownNotif
+
+ciscoSslvpnMIBCompliance OBJECT IDENTIFIER ::= { ciscoSslvpnMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--    implement CISCO-SSLVPN-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    csslvpnGlobalSessionGroup
+--   MandGroup
+--    csslvpnStatisticsGroup
+--   MandGroup
+--    csslvpnSessionGroup
+--   MandGroup
+--    csslvpnNotificationGroup
+--   MandGroup
+--    csslvpnNotificationControlGroup
+--   ObjVar
+--    csslvpnNotificationEnable
+
+
+END
+

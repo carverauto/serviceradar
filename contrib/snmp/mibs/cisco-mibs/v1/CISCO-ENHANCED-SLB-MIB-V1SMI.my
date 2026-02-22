@@ -1,0 +1,1681 @@
+-- MIB file created 16-Feb-2010 09:52:12, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ENHANCED-SLB-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ENHANCED-SLB-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DateAndTime, RowStatus, StorageType, TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddressType, InetAddress, InetPortNumber
+            FROM INET-ADDRESS-MIB
+    SlbServerString, SlbRealServerState, slbEntity, 
+    slbServerFarmName
+            FROM CISCO-SLB-MIB
+    SlbUrlString
+            FROM CISCO-SLB-EXT-MIB
+    CiscoHTTPResponseStatusCode
+            FROM CISCO-TC
+    CiscoProbeHealthMonState, cslbxProbeName
+            FROM CISCO-SLB-HEALTH-MON-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoEnhancedSlbMIB OBJECT IDENTIFIER ::= { ciscoMgmt 470 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200909190000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-slb@cisco.com
+--  Descr
+--    The MIB for managing Server Load Balancing
+--    Manager(s), and products supporting Server
+--    Load Balancing(SLB) features.
+--    
+--    This MIB extends the tables(as appropriate)
+--    that  are defined in CISCO-SLB-MIB  and 
+--    CISCO-SLB-EXT-MIB.
+--    Some of the functionalities supported are:  
+--       * Real Server Configuration with real server 
+--         identified by a name
+--       * Real Server configuration in a Server Farm.
+--       * Health Probe Configuration in a real server.
+--       * Sticky Configuration for HTTP Header, HTTP Cookie
+--         and Client IP Address, SSL(Secure Socket Layer).
+--    
+--    Acronyms and terminology:
+--    
+--    SLB       : Server Load Balancing
+--                When a client initiates a connection to 
+--                virtual server, the system load balances 
+--                the connection to the chosen real server 
+--                based on the user configuration.
+--                SLB is important for Scaling of Web 
+--                Services and for traditional serverices 
+--                such as DNS, FTP etc.
+--    Server Farm    : Contains cluster of Real Server
+--    Virtual Server : Group of Real Servers
+--    RServer                   : RServers are physical devices that
+--                                     do not belong to any server farm.                  
+--    Real Server    : Real Servers are physical devices
+--                     assigned to a server farms.
+--                     Real  servers provide services that
+--                     are load balanced.
+--    Health Probe   : The mechanisms to monitor the health 
+--                     of real servers.
+--    sticky ConnectIons : Sticky connections limit traffic
+--                to the individual real servers by allowing
+--                multiple connections from the same client 
+--                to stick (or attach) to the same real 
+--                server using source IP addresses, 
+--                source IP subnets, cookies, and the 
+--                secure socket layer (SSL) or by 
+--                redirecting these connections using 
+--                Hypertext Transfer Protocol (HTTP)
+--                redirect messages. Sticky connection
+--                feature also permits coupling of the
+--                services that are handled by more
+--                than one virtual server.
+--    cookie : A cookie is a small data structure used by a 
+--             server to deliver data to a Web client and 
+--             request that the client store the information.
+--             In certain applications, the client returns 
+--             the information to the server to maintain 
+--             the state between the client and the server.
+--  RevDate
+--    200909190000Z
+--  RevDescr
+--    -Added cesServerFarmRserverDescr to cesServerFarmRserverTable.
+--    
+--    -Deprecated cesRealServerStateUp NOTIFICATION-TYPE.
+--    
+--    -Deprecated cesRealServerStateDown NOTIFICATION-TYPE.
+--    
+--    -Deprecated cesRealServerStateChange NOTIFICATION-TYPE.
+--    
+--    -Added cesRealServerStateUpRev1 NOTIFICATION-TYPE.
+--    
+--    -Added cesRealServerStateDownRev1 NOTIFICATION-TYPE.
+--    
+--    -Added cesRealServerStateChangeRev1 NOTIFICATION-TYPE.
+--    
+--    -Deprecated cesRealServerFarmGroup OBJECT-GROUP.
+--    
+--    -Deprecated cesRealServerNotifGroupRev1 NOTIFICATION-GROUP.
+--    
+--    -Added cesRealServerFarmGroupRev1 OBJECT-GROUP.
+--    
+--    -Added cesRealServerNotifGroupRev2 NOTIFICATION-GROUP
+--    
+--    -Deprecated ciscoEnhancedSlbMIBComplianceRev3
+--    MODULE-COMPLIANCE.
+--    
+--    -Added ciscoEnhancedSlbMIBComplianceRev4 MODULE-COMPLIANCE.
+--  RevDate
+--    200805210000Z
+--  RevDescr
+--    -Added the following objects to the cesRserverProbeTable
+--    cesRserverProbeLastProbeTime  
+--    cesRserverProbeLastActiveTime 
+--    cesRserverProbeLastFailedTime 
+--    
+--    -Deprecated cesRserverProbeGroup OBJECT-GROUP.
+--    
+--    -Deprecated ciscoEnhancedSlbMIBComplianceRev2 MODULE-COMPLIANCE
+--    statement.
+--    
+--    -Added cesRserverProbeGroupRev1 OBJECT-GROUP.
+--    
+--    -Added ciscoEnhancedSlbMIBComplianceRev3 MODULE-COMPLIANCE
+--    statement.
+--  RevDate
+--    200803120000Z
+--  RevDescr
+--    -Added the following objects to the cesRserverTable
+--    cesRserverTotalConns
+--    cesRserverFailedConns
+--    cesRserverCurrConns
+--    
+--            -Added the following objects to the cesRserverProbeTable
+--    cesRserverProbesPassed
+--    cesRserverProbesFailed
+--    cesRserverHealthMonState
+--    
+--    -Added cesRealServerProbeTable
+--    
+--    -Deprecated cesRealServerGroup OBJECT-GROUP
+--    
+--    -Deprecated ciscoEnhancedSlbMIBComplianceRev1 MODULE-COMPLIANCE
+--    statement
+--    
+--    - Added the following OBJECT-GROUP's  
+--    cesRealServerGroupRev1
+--    cesRserverProbeGroup
+--    cesRealserverProbeGroup
+--    
+--    - Added ciscoEnhancedSlbMIBComplianceRev2 MODULE-COMPLIANCE
+--    statement
+--  RevDate
+--    200603310000Z
+--  RevDescr
+--    -Added the following Notifications:
+--    cesRserverStateUp
+--    cesRserverStateDown
+--    cesRserverStateChange.
+--    
+--    -Added OBJECT-GROUP cesRealServerNotifGroupRev1
+--    
+--    -Added MODULE-COMPLIANCE ciscoEnhancedSlbMIBComplianceRev1
+--  RevDate
+--    200602270000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoEnhancedSlbMIBNotifs OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIB 0 }
+ciscoEnhancedSlbMIBObjects OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIB 1 }
+ciscoEnhancedSlbMIBConformance OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIB 2 }
+cesRealServer   OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBObjects 1 }
+cesDfpAgent     OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBObjects 2 }
+cesStickyConfig OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBObjects 3 }
+cesNotifControl OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBObjects 4 }
+cesNotificationObjects OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBObjects 5 }
+ciscoEnhancedSlbMIBCompliances OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBConformance 1 }
+ciscoEnhancedSlbMIBGroups OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBConformance 2 }
+
+CiscoRserverAdminStatus ::= INTEGER {
+        inService(1),
+        outOfService(2),
+        inServiceStandby(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This is the textual convention for
+--    administrative status of the real server.
+--    The possible value(s) are :
+--      'inService'        : Places the real server into service state.
+--      'outOfService'     : Places the real server out of service. 
+--      'inserviceStandby' : Places the real server into standby 
+--                           state.
+
+cesRserverTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CesRserverEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of real servers. A real server
+        is identified by a name."
+    ::= { cesRealServer 1 }
+
+cesRserverEntry OBJECT-TYPE
+    SYNTAX CesRserverEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in real server table.
+        Each entry refers to real server and contains
+        real server IP Address, maximum connections supported,
+        minimum connections supported, redirect code, 
+        redirect port etc. The 'slbEntity' is used
+        in identifying the module in which configuration 
+        is applied."
+    INDEX { slbEntity, cesRserverName }
+    ::= { cesRserverTable 1 }
+
+CesRserverEntry ::= SEQUENCE {
+    cesRserverName SnmpAdminString,
+    cesRserverType INTEGER,
+    cesRserverIpAddressType InetAddressType,
+    cesRserverIpAddress InetAddress,
+    cesRserverDescription SnmpAdminString,
+    cesRserverMaxConns Gauge,
+    cesRserverMinConns Gauge,
+    cesRserverAdminWeight Gauge,
+    cesRserverRedirectRelocationStr SlbUrlString,
+    cesRserverRedirectCode CiscoHTTPResponseStatusCode,
+    cesRserverRedirectPort InetPortNumber,
+    cesRserverAdminStatus CiscoRserverAdminStatus,
+    cesRserverOperStatus SlbRealServerState,
+    cesRserverStatechangeDescr SnmpAdminString,
+    cesRserverStorageType StorageType,
+    cesRserverRowStatus RowStatus,
+    cesRserverTotalConns Counter,
+    cesRserverFailedConns Counter,
+    cesRserverCurrConns Counter
+    }
+
+cesRserverName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the name(unique identifier)
+        of the real server."
+    ::= { cesRserverEntry 1 }
+
+cesRserverType OBJECT-TYPE
+    SYNTAX INTEGER {
+        redirect(1),
+        host(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the real server.
+        The possible values are :
+          redirect(1): Specifies that this real server is just used for
+                       redirecting traffic to new virtual server 
+                       equivalent pointed to by the redirection string
+                       (cesRserverRedirectRelocationStr).
+          host   (2): Specifies typical server offering services.
+        
+        The real server type redirect(1) implies that the following
+        objects are applicable for a real server entry:
+            cesRserverRedirectRelocationStr.
+            cesRserverRedirectCode.
+            cesRserverRedirectPort.
+        This means that only the above objects will be
+        used to create the real server entry, and all 
+        other objects will be ignored during row creation.
+        
+        The real server type host(2) implies that the following
+        objects are applicable for a real server entry:
+            cesRserverIpAddressType
+            cesRserverIpAddress
+        This means that only the above objects will be
+        used to create the real server entry, and all 
+        other objects will be ignored during row creation.
+        
+        This object cannot be changed when the cesRserverRowStatus
+        value is 'active'."
+    DEFVAL { host }
+    ::= { cesRserverEntry 2 }
+
+cesRserverIpAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the internet Address configured in
+        'cesRserverIpAddress'.  This object is applicable 
+        only for cesRserverType value 'host'."
+    ::= { cesRserverEntry 3 }
+
+cesRserverIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the internet address of real server.
+        This object is applicable only for cesRserverType value 'host'.
+        This object contains zero length octet string
+        for cesRserverType value other than 'host'."
+    DEFVAL { "" }
+    ::= { cesRserverEntry 4 }
+
+cesRserverDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for configuring
+        the description of the real server."
+    DEFVAL { "" }
+    ::= { cesRserverEntry 5 }
+
+cesRserverMaxConns OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for configuring the
+        maximum number of concurrent active connections
+        this real server can handle."
+    DEFVAL { 4294967295 }
+    ::= { cesRserverEntry 6 }
+
+cesRserverMinConns OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for configuring the minimum number
+        of concurrent active connections this real server can handle.
+        The value for this object must to be less than or equal
+        to value specified in cesRserverMaxConns object."
+    DEFVAL { 4294967295 }
+    ::= { cesRserverEntry 7 }
+
+cesRserverAdminWeight OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The user configured weight of the real server for the
+        load-balancing algorithms. This is applicable only
+        in case of weighted Round Robin Predictor algorithms
+        (SlbPredictor values: 'roundRobin', 'leastConns').
+        
+        A weight of zero indicates that no new connections will 
+        be assigned to this real server.  
+        Higher weight values indicate to the load-balancing algorithms 
+        a higher availability of this real server to accept more work.
+        
+        This object is applicable only for cesRserverType value 'host'."
+    DEFVAL { 8 }
+    ::= { cesRserverEntry 8 }
+
+cesRserverRedirectRelocationStr OBJECT-TYPE
+    SYNTAX SlbUrlString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The relocation URL string used for redirection.
+        This value is sent in the reply of the Redirect Server.
+        This object is applicable only for 
+        cesRserverType value 'redirect'."
+    DEFVAL { "" }
+    ::= { cesRserverEntry 9 }
+
+cesRserverRedirectCode OBJECT-TYPE
+    SYNTAX CiscoHTTPResponseStatusCode(300..399)
+--    Rsyntax Gauge(300..399)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The HTTP response code sent in the reply by
+        the redirect server.
+        meaning of few Redirect Codes:
+          301 : If page is permanently moved.
+                The requested resource has been assigned a 
+                new permanent URL.
+          302 : The requested resource resides temporarily 
+                under a different URL.
+        This object is applicable only for 
+        cesRserverType value 'redirect'."
+    REFERENCE
+        "RFC 2616 Section 6.1.1 Status Code and Reason Phrase.
+         RFC 2616 Section 10.3 Redirection 3xxx."
+    DEFVAL { 302 }
+    ::= { cesRserverEntry 10 }
+
+cesRserverRedirectPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP or UDP port of redirect server.  This is used
+        for redirecting the URL string identified by
+        'cesRserverRedirectRelocationStr'.
+        This object is applicable only for 
+        cesRserverType = 'redirect'."
+    ::= { cesRserverEntry 11 }
+
+cesRserverAdminStatus OBJECT-TYPE
+    SYNTAX CiscoRserverAdminStatus
+--    Rsyntax INTEGER {
+--        inService(1),
+--        outOfService(2),
+--        inServiceStandby(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is  used for setting the administrative
+        status of the Real server.
+        If set to 'inService', the real server
+        is placed into service. If set to 'outOfService'
+        the real server is taken out of service."
+    DEFVAL { outOfService }
+    ::= { cesRserverEntry 12 }
+
+cesRserverOperStatus OBJECT-TYPE
+    SYNTAX SlbRealServerState
+--    Rsyntax INTEGER {
+--        outOfService(1),
+--        inService(2),
+--        failed(3),
+--        readyToTest(4),
+--        testing(5),
+--        maxConnsThrottle(6),
+--        maxClientsThrottle(7),
+--        dfpThrottle(8),
+--        probeFailed(9),
+--        probeTesting(10),
+--        operWait(11),
+--        testWait(12),
+--        inbandProbeFailed(13),
+--        returnCodeFailed(14),
+--        arpFailed(15),
+--        standby(16),
+--        inactive(17),
+--        maxLoad(18)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides the current state of the
+        real server."
+    ::= { cesRserverEntry 13 }
+
+cesRserverStatechangeDescr OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the descriptive
+        text qualifying the reason for the
+        value in cesRserverOperStatus.
+        
+         Examples:
+           ARP failure
+           Health probe failed."
+    ::= { cesRserverEntry 14 }
+
+cesRserverStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { cesRserverEntry 15 }
+
+cesRserverRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used for adding/deleting entries in
+        the table.
+        
+        An entry MUST NOT exist in the active state unless all
+        objects in the entry have an appropriate value, as described
+        in the description clause for each writeable object.
+        
+        This object may be modified if the associated
+        instance of this object is equal to active(1),
+        notInService(2), or notReady(3).  All other writeable objects
+        may be modified if the associated instance of this object is
+        equal to notInService(2) or notReady(3).
+        
+        This object may not be set to 'destroy' if the real server
+        identified by cesRserverName is referenced and being used in 
+        other tables."
+    ::= { cesRserverEntry 16 }
+
+cesRserverTotalConns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    connections
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of connections loadbalanced to
+        this real server."
+    ::= { cesRserverEntry 17 }
+
+cesRserverFailedConns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    connections
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failed attempts to establish a connection
+        to the real server."
+    ::= { cesRserverEntry 18 }
+
+cesRserverCurrConns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    connections
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of active connections loadbalanced to
+        this real server."
+    ::= { cesRserverEntry 19 }
+
+cesRserverProbeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CesRserverProbeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Rserver health probe table.
+        This table contains list of health probes configured 
+        in a Rserver."
+    ::= { cesRealServer 2 }
+
+cesRserverProbeEntry OBJECT-TYPE
+    SYNTAX CesRserverProbeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in Rserver probe table.
+        Each entry is for a health probe configured in a
+        Rserver. There can be multiple health probes 
+        configured in a Rserver. The 'slbEntity' is used
+        in identifying the module in which configuration 
+        is applied. The 'cesRserverName' identifies the 
+        Rserver in which probe is configured."
+    INDEX { slbEntity, cesRserverName, cesRserverProbeName }
+    ::= { cesRserverProbeTable 1 }
+
+CesRserverProbeEntry ::= SEQUENCE {
+    cesRserverProbeName SlbServerString,
+    cesRserverProbeStorageType StorageType,
+    cesRserverProbeRowStatus RowStatus,
+    cesRserverProbesPassed Counter,
+    cesRserverProbesFailed Counter,
+    cesRserverProbeHealthMonState CiscoProbeHealthMonState,
+    cesRserverProbeLastProbeTime DateAndTime,
+    cesRserverProbeLastActiveTime DateAndTime,
+    cesRserverProbeLastFailedTime DateAndTime
+    }
+
+cesRserverProbeName OBJECT-TYPE
+    SYNTAX SlbServerString
+--    Rsyntax OCTET STRING(SIZE(1..96))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the health probe configured in a Rserver.
+        This value must correspond to an entry in cslbxProbeCfgTable."
+    REFERENCE
+        "cslbxProbeCfgTable defined in CISCO-SLB-HEALTH-MON-MIB"
+    ::= { cesRserverProbeEntry 1 }
+
+cesRserverProbeStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { cesRserverProbeEntry 2 }
+
+cesRserverProbeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used for adding/deleting entries from
+        this table."
+    ::= { cesRserverProbeEntry 3 }
+
+cesRserverProbesPassed OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of probes
+        passed for this Rserver. The probe is identified as pass 
+        if the Rserver returns a valid response."
+    ::= { cesRserverProbeEntry 4 }
+
+cesRserverProbesFailed OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of probes
+        failed for this Rserver. The probe is identified as failed 
+        if the Rserver fails to provide a valid response for a 
+        specified number of retries."
+    ::= { cesRserverProbeEntry 5 }
+
+cesRserverProbeHealthMonState OBJECT-TYPE
+    SYNTAX CiscoProbeHealthMonState
+--    Rsyntax INTEGER {
+--        other(1),
+--        invalid(2),
+--        init(3),
+--        active(4),
+--        failed(5),
+--        disabled(6)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the health monitor state
+        of the probe for this Rserver."
+    DEFVAL { init }
+    ::= { cesRserverProbeEntry 6 }
+
+cesRserverProbeLastProbeTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the date and time of the last probe."
+    ::= { cesRserverProbeEntry 7 }
+
+cesRserverProbeLastActiveTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the last date and time that the
+        probe's state transitioned to 'active'"
+    ::= { cesRserverProbeEntry 8 }
+
+cesRserverProbeLastFailedTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the last date and time that the
+        probe's state transitioned to 'failed'"
+    ::= { cesRserverProbeEntry 9 }
+
+cesServerFarmRserverTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CesServerFarmRserverEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of real servers configured in a server farm.
+        This table is used for configuring real server
+        (cesRserverName) in a server farm(slbServerFarmName)
+        and configuring attributes of real server specific to 
+        a server farm.  The real server identified by 
+        'cesRserverName' should have been configured prior to 
+        creating of an entry in this table.  The probes
+        configured for the real server identifeid by
+        'cesRserverName' will be inherited by the server farm."
+    ::= { cesRealServer 3 }
+
+cesServerFarmRserverEntry OBJECT-TYPE
+    SYNTAX CesServerFarmRserverEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about a real server in a system.
+        Each entry refers to real server and contains
+        information such as real server IP Address,
+        maximum connections supported, minimum connections
+        supported etc.
+        The 'slbEntity' refers to the module in which this 
+        configuration is applied.  The 'cesRserverName' refers 
+        to the Real Server.  The 'slbServerFarmName' refers to 
+        the Server Farm."
+    INDEX { slbEntity, slbServerFarmName, cesRserverName, cesServerFarmRserverPort }
+    ::= { cesServerFarmRserverTable 1 }
+
+CesServerFarmRserverEntry ::= SEQUENCE {
+    cesServerFarmRserverPort InetPortNumber,
+    cesServerFarmRserverAdminWeight Gauge,
+    cesServerFarmRserverOperWeight Gauge,
+    cesServerFarmRserverMaxConns Gauge,
+    cesServerFarmRserverMinConns Gauge,
+    cesServerFarmRserverAdminStatus CiscoRserverAdminStatus,
+    cesServerFarmRserverOperStatus SlbRealServerState,
+    cesServerFarmRserverStateDescr SnmpAdminString,
+    cesServerFarmRserverBackupName SnmpAdminString,
+    cesServerFarmRserverBackupPort InetPortNumber,
+    cesServerFarmRserverTotalConns Counter,
+    cesServerFarmRserverFailedConns Counter,
+    cesServerFarmRserverDroppedConns Counter,
+    cesServerFarmRserverCurrentConns Counter,
+    cesServerFarmRserverStorageType StorageType,
+    cesServerFarmRserverRowStatus RowStatus,
+    cesServerFarmRserverDescr SnmpAdminString
+    }
+
+cesServerFarmRserverPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The port  number of the real server.
+        The value zero specifies that 
+        port number is not used in conjunction
+        with real server IP Address."
+    ::= { cesServerFarmRserverEntry 1 }
+
+cesServerFarmRserverAdminWeight OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies user configured weight of
+        the real server under the serverfarm  for the 
+        load-balancing algorithms. 
+        
+        If value is not specified, then the value
+        specified in the object cesRserverAdminWeight is used."
+    ::= { cesServerFarmRserverEntry 2 }
+
+cesServerFarmRserverOperWeight OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The actual operating weight of the real server used
+        by the load-balancing algorithms.  This can be adjusted
+        dynamically by DFP/SASP.  A weight of zero indicates that no
+        new connections will be assigned to this real server.
+        Higher weight values indicate to the load-balancing
+        algorithms availability of this real server to
+        accept more work."
+    ::= { cesServerFarmRserverEntry 3 }
+
+cesServerFarmRserverMaxConns OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specfies the maximum number of
+        connections that can be supported by the 
+        real server.
+        
+        If value is not specified, then the value
+        specified in the object cesRserverMaxConns is used."
+    ::= { cesServerFarmRserverEntry 4 }
+
+cesServerFarmRserverMinConns OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the minimum number of
+        connections that needs to be supported by the 
+        real server.  The value of this object must be 
+        less than or equal to value specified in 
+        cesServerFarmRserverMaxConns object.
+        The value in this object is relevant only if 
+        the cesServerFarmMaxConns object is configured.
+        
+        If value is not specified, then the value
+        specified in the object cesRserverMinConns is used."
+    ::= { cesServerFarmRserverEntry 5 }
+
+cesServerFarmRserverAdminStatus OBJECT-TYPE
+    SYNTAX CiscoRserverAdminStatus
+--    Rsyntax INTEGER {
+--        inService(1),
+--        outOfService(2),
+--        inServiceStandby(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is  used for setting the administrative status
+        of the Real server a server farm."
+    ::= { cesServerFarmRserverEntry 6 }
+
+cesServerFarmRserverOperStatus OBJECT-TYPE
+    SYNTAX SlbRealServerState
+--    Rsyntax INTEGER {
+--        outOfService(1),
+--        inService(2),
+--        failed(3),
+--        readyToTest(4),
+--        testing(5),
+--        maxConnsThrottle(6),
+--        maxClientsThrottle(7),
+--        dfpThrottle(8),
+--        probeFailed(9),
+--        probeTesting(10),
+--        operWait(11),
+--        testWait(12),
+--        inbandProbeFailed(13),
+--        returnCodeFailed(14),
+--        arpFailed(15),
+--        standby(16),
+--        inactive(17),
+--        maxLoad(18)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides the current state of the
+        real server in a server farm."
+    ::= { cesServerFarmRserverEntry 7 }
+
+cesServerFarmRserverStateDescr OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the descriptive
+        text qualifying the reason for the
+        value in cesServerFarmRserverOperStatus.
+        
+         Examples:
+           ARP failure
+           Health probe failed."
+    ::= { cesServerFarmRserverEntry 8 }
+
+cesServerFarmRserverBackupName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the backup real server.
+        The value of this object cannot be same as
+        the value specified in the INDEX cesRserverName.
+        This value must correspond to an entry in cesRserverTable.
+        The zero length value is not considered as a valid
+        real server name."
+    DEFVAL { "" }
+    ::= { cesServerFarmRserverEntry 9 }
+
+cesServerFarmRserverBackupPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the port number of the backup real server
+        configured in 'cesServerFarmRserverBackupName'.
+        This object can be configured only if the value
+        specified in cesServerFarmRserverBackupName is valid.
+        The value of this object is of signficance for the valid
+        value of cesServerFarmRserverBackupName."
+    DEFVAL { 0 }
+    ::= { cesServerFarmRserverEntry 10 }
+
+cesServerFarmRserverTotalConns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of connections loadbalanced to
+        this real server."
+    ::= { cesServerFarmRserverEntry 11 }
+
+cesServerFarmRserverFailedConns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failed connections after which the real
+        server goes to Failed state.  A failed connection is
+        when a SYN timeouts or a RST is received from the
+        real server."
+    ::= { cesServerFarmRserverEntry 12 }
+
+cesServerFarmRserverDroppedConns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of connections that were not
+        connected to this server due to the current 
+        connection count being at the max number of allowed 
+        connections(cevServerFarmRserverMaxConns value) to 
+        this real server."
+    ::= { cesServerFarmRserverEntry 13 }
+
+cesServerFarmRserverCurrentConns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of connections currently assigned
+        to this real server.  This object represents the
+        connections that are still active."
+    ::= { cesServerFarmRserverEntry 14 }
+
+cesServerFarmRserverStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { cesServerFarmRserverEntry 15 }
+
+cesServerFarmRserverRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in the table."
+    ::= { cesServerFarmRserverEntry 16 }
+
+cesServerFarmRserverDescr OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the descriptive text
+        qualifying the real server."
+    ::= { cesServerFarmRserverEntry 17 }
+
+cesRealServerProbeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CesRealServerProbeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The real server health probe table.
+        This table can be used for configuring probes 
+        in a real server."
+    ::= { cesRealServer 4 }
+
+cesRealServerProbeEntry OBJECT-TYPE
+    SYNTAX CesRealServerProbeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in real server probe table.
+        An entry in the table is created when a probe is
+        associated with a real server. An entry is deleted when a 
+        probe is dissociated with a real server.
+        The 'slbEntity' is used in identifying the module 
+        in which configuration is applied. 
+        The 'cesRserverName' identifies the real server to which 
+        probe is configured. The 'cslbxProbeName' represents
+        the probe associated with the real server. The 
+        'cesServerFarmRserverPort' represents the port of the 
+        real server through which it is attached to the server farm."
+    INDEX { slbEntity, cslbxProbeName, slbServerFarmName, cesRserverName, cesServerFarmRserverPort }
+    ::= { cesRealServerProbeTable 1 }
+
+CesRealServerProbeEntry ::= SEQUENCE {
+    cesRealServerProbeStorageType StorageType,
+    cesRealServerProbeRowStatus RowStatus
+    }
+
+cesRealServerProbeStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { cesRealServerProbeEntry 1 }
+
+cesRealServerProbeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used for adding/deleting entries from
+        this table."
+    ::= { cesRealServerProbeEntry 2 }
+
+cesRealServerNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for enabling/disabling
+        notifications related to real servers."
+    ::= { cesNotifControl 1 }
+
+cesRealServerName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the real server name
+        that are sent in notifications.  This object
+        contains the value of object cesRserverName.
+        This object is set to zero length octet string 
+        value if the real server name is not available
+        or applicable."
+    ::= { cesNotificationObjects 1 }
+
+cesProbeName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the probe name
+        that are sent in notification.  This
+        object must correspond to an entry in
+        cslbxProbeCfgTable.  This object is set to
+        zero length octet string value if the probe
+        is not available/applicable."
+    ::= { cesNotificationObjects 2 }
+
+cesServerFarmName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..64))
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the server farm name
+        that are sent in notifications.  This object
+        contains the value of object slbServerFarmName.
+        This object is set to zero length octet string 
+        value if the server farm name is not available
+        or applicable."
+    ::= { cesNotificationObjects 3 }
+
+cesRealServerStateUp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesServerFarmRserverBackupPort, 
+        cesServerFarmName, cesServerFarmRserverAdminStatus, 
+        cesServerFarmRserverOperStatus, cesRserverIpAddressType, 
+        cesRserverIpAddress }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification is generated when a real server
+        changes to 'inservice' state by the user intervention.
+        
+        The cesServerFarmName refers to the server farm
+        to which the real server identified by the 
+        cesRealServerName is associated.
+        
+        The cesServerFarmRserverBackupPort refers to the
+        real server port.  This object contains the value
+        of cesServerFarmRserverPort."
+    ::= 1
+
+cesRealServerStateDown TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesServerFarmRserverBackupPort, 
+        cesServerFarmName, cesServerFarmRserverAdminStatus, 
+        cesServerFarmRserverOperStatus, 
+        cesServerFarmRserverStateDescr, cesRserverIpAddressType, 
+        cesRserverIpAddress }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification is generated when a real server
+        changes to 'outOfService' state by the user intervention.
+        
+        The cesServerFarmName refers to the server farm
+        to which the real server identified by the 
+        cesRealServerName is associated.
+        
+        The cesServerFarmRserverBackupPort refers to the
+        real server port.  This object contains the value
+        of cesServerFarmRserverPort."
+    ::= 2
+
+cesRealServerStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesServerFarmRserverBackupPort, 
+        cesServerFarmName, cesServerFarmRserverAdminStatus, 
+        cesServerFarmRserverOperStatus, 
+        cesServerFarmRserverStateDescr, cesRserverIpAddressType, 
+        cesRserverIpAddress, cesProbeName }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification generated when a real server
+        changes to a new state other than that is initiated
+        by the user.  This notification is sent for the 
+        reasons that are specified in objects:
+           cesServerFarmRserverOperStatus 
+           cesRserverStatechangeDescr.
+        
+        The cesServerFarmName refers to the server farm
+        to which the real server identified by the 
+        cesRealServerName is associated.
+        
+        The cesServerFarmRserverBackupPort refers to the
+        real server port.  This object contains the value
+        of cesServerFarmRserverPort.
+        
+        The cesProbeName object with zero length
+        octet string specifies that real server state
+        change is not due to probe failure."
+    ::= 3
+
+cesRserverStateUp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesRserverAdminStatus, 
+        cesRserverOperStatus, cesRserverIpAddressType, 
+        cesRserverIpAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the real server
+        identified in cesRserverTable changes state to 
+        'inservice' by the user intervention."
+    ::= 4
+
+cesRserverStateDown TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesRserverAdminStatus, 
+        cesRserverOperStatus, cesRserverIpAddressType, 
+        cesRserverIpAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the real server
+        identified in cesRserverTable changes to 
+        'outOfService' state by the user intervention."
+    ::= 5
+
+cesRserverStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesRserverAdminStatus, 
+        cesRserverOperStatus, cesRserverStatechangeDescr, 
+        cesRserverIpAddressType, cesRserverIpAddress, cesProbeName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification generated when the real server
+        identified in cesRserverTable changes to a new 
+        state other than that is initiated by the user.  
+        This notification is sent for the reasons that 
+        are specified in objects:
+           cesRserverOperStatus 
+           cesRserverStatechangeDescr.
+        
+        The cesProbeName object with zero length
+        octet string specifies that real server state
+        change is not due to probe failure."
+    ::= 6
+
+cesRealServerStateUpRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesServerFarmRserverBackupPort, 
+        cesServerFarmName, cesServerFarmRserverAdminStatus, 
+        cesServerFarmRserverOperStatus, cesRserverIpAddressType, 
+        cesRserverIpAddress, cesServerFarmRserverDescr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a real server
+        changes to 'inservice' state by the user intervention.
+        
+        The cesServerFarmName refers to the server farm
+        to which the real server identified by the 
+        cesRealServerName is associated.
+        
+        The cesServerFarmRserverBackupPort refers to the
+        real server port. This object contains the value
+        of cesServerFarmRserverPort.
+        
+        The cesServerFarmRserverAdminStatus refers to the
+        administrative state of the real server.
+        
+        The cesServerFarmRserverOperStatus refers to the 
+        current state of the real server.
+        
+        The cesRserverIpAddress refers to the internet
+        address of the real server.
+        
+        The cesRserverIpAddressType refers to the type of
+        internet address in cesRserverIpAddress.
+        
+        The cesServerFarmRserverDescr refers to the
+        description configured for the real server."
+    ::= 7
+
+cesRealServerStateDownRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesServerFarmRserverBackupPort, 
+        cesServerFarmName, cesServerFarmRserverAdminStatus, 
+        cesServerFarmRserverOperStatus, 
+        cesServerFarmRserverStateDescr, cesRserverIpAddressType, 
+        cesRserverIpAddress, cesServerFarmRserverDescr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a real server
+        changes to 'outOfService' state by the user intervention.
+        
+        The cesServerFarmName refers to the server farm
+        to which the real server identified by the 
+        cesRealServerName is associated.
+        
+        The cesServerFarmRserverBackupPort refers to the
+        real server port. This object contains the value
+        of cesServerFarmRserverPort.
+        
+        The cesServerFarmRserverAdminStatus refers to the
+        administrative state of the real server.
+        
+        The cesServerFarmRserverOperStatus refers to the 
+        current state of the real server.
+        
+        The cesRserverIpAddress refers to the internet
+        address of the real server.
+        
+        The cesRserverIpAddressType refers to the type of
+        internet address in cesRserverIpAddress.
+        
+        The cesServerFarmRserverDescr refers to the
+        description configured for the real server."
+    ::= 8
+
+cesRealServerStateChangeRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEnhancedSlbMIB
+    VARIABLES {
+        cesRealServerName, cesServerFarmRserverBackupPort, 
+        cesServerFarmName, cesServerFarmRserverAdminStatus, 
+        cesServerFarmRserverOperStatus, 
+        cesServerFarmRserverStateDescr, cesRserverIpAddressType, 
+        cesRserverIpAddress, cesProbeName, 
+        cesServerFarmRserverDescr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a real server
+        changes to a new state other than that is initiated
+        by the user.  This notification is sent for the 
+        reasons that are specified in objects:
+                   cesServerFarmRserverOperStatus 
+                   cesRserverStatechangeDescr.
+        
+        The cesServerFarmName refers to the server farm
+        to which the real server identified by the 
+        cesRealServerName is associated.
+        
+        The cesServerFarmRserverBackupPort refers to the
+        real server port. This object contains the value
+        of cesServerFarmRserverPort.
+        
+        The cesServerFarmRserverAdminStatus refers to the
+        administrative state of the real server.
+        
+        The cesRserverIpAddress refers to the internet
+        address of the real server.
+        
+        The cesRserverIpAddressType refers to the type of
+        internet address in cesRserverIpAddress.
+        
+        The cesProbeName object with zero length
+        octet string specifies that real server state
+        change is not due to probe failure.
+        
+        The cesServerFarmRserverDescr refers to the
+        description configured for the real server."
+    ::= 9
+
+cesRealServerGroup OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This group contains objects applicable for
+--    Rserver configuration.
+--  objects
+--    cesRealServerName, cesRserverType, cesRserverIpAddressType, 
+--    cesRserverIpAddress, cesRserverDescription, 
+--    cesRserverMaxConns, cesRserverMinConns, cesRserverAdminWeight, 
+--    cesRserverRedirectRelocationStr, cesRserverRedirectPort, 
+--    cesRserverRedirectCode, cesRserverAdminStatus, 
+--    cesRserverOperStatus, cesRserverStatechangeDescr, 
+--    cesRserverStorageType, cesRserverRowStatus, 
+--    cesRserverProbeStorageType, cesRserverProbeRowStatus
+
+cesRealServerFarmGroup OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The group contains obbjects for
+--    real server configuration in a server farm.
+--  objects
+--    cesServerFarmRserverAdminWeight, 
+--    cesServerFarmRserverOperWeight, cesServerFarmRserverMaxConns, 
+--    cesServerFarmRserverMinConns, cesServerFarmRserverAdminStatus, 
+--    cesServerFarmRserverOperStatus, 
+--    cesServerFarmRserverStateDescr, 
+--    cesServerFarmRserverBackupName, 
+--    cesServerFarmRserverBackupPort, 
+--    cesServerFarmRserverTotalConns, 
+--    cesServerFarmRserverFailedConns, 
+--    cesServerFarmRserverDroppedConns, 
+--    cesServerFarmRserverCurrentConns, 
+--    cesServerFarmRserverStorageType, 
+--    cesServerFarmRserverRowStatus
+
+cesNotificationObjectGroup OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains objects related to
+--    notification.
+--  objects
+--    cesRealServerName, cesServerFarmName, cesProbeName, 
+--    cesRealServerNotifEnable
+
+cesRealServerGroupRev1 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains objects applicable for
+--    Rserver configuration.
+--  objects
+--    cesRealServerName, cesRserverType, cesRserverIpAddressType, 
+--    cesRserverIpAddress, cesRserverDescription, 
+--    cesRserverMaxConns, cesRserverMinConns, cesRserverAdminWeight, 
+--    cesRserverRedirectRelocationStr, cesRserverRedirectCode, 
+--    cesRserverRedirectPort, cesRserverAdminStatus, 
+--    cesRserverOperStatus, cesRserverStatechangeDescr, 
+--    cesRserverStorageType, cesRserverRowStatus, 
+--    cesRserverTotalConns, cesRserverFailedConns, 
+--    cesRserverCurrConns
+
+cesRserverProbeGroup OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This group contains objects applicable for
+--    Rserver probe configuration and Rserver probe statistics.
+--  objects
+--    cesRserverProbeStorageType, cesRserverProbeRowStatus, 
+--    cesRserverProbesPassed, cesRserverProbesFailed, 
+--    cesRserverProbeHealthMonState
+
+cesRealserverProbeGroup OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains objects applicable for
+--    real server probe configuration.
+--  objects
+--    cesRealServerProbeStorageType, cesRealServerProbeRowStatus
+
+cesRserverProbeGroupRev1 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains objects applicable for
+--    Rserver probe configuration and Rserver probe statistics.
+--  objects
+--    cesRserverProbeStorageType, cesRserverProbeRowStatus, 
+--    cesRserverProbesPassed, cesRserverProbesFailed, 
+--    cesRserverProbeHealthMonState, cesRserverProbeLastProbeTime, 
+--    cesRserverProbeLastActiveTime, cesRserverProbeLastFailedTime
+
+cesRealServerFarmGroupRev1 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 19 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group contains objects for real server configuration in a
+--    server farm.
+--  objects
+--    cesServerFarmRserverAdminWeight, 
+--    cesServerFarmRserverOperWeight, cesServerFarmRserverMaxConns, 
+--    cesServerFarmRserverMinConns, cesServerFarmRserverAdminStatus, 
+--    cesServerFarmRserverOperStatus, 
+--    cesServerFarmRserverStateDescr, 
+--    cesServerFarmRserverBackupName, 
+--    cesServerFarmRserverBackupPort, 
+--    cesServerFarmRserverTotalConns, 
+--    cesServerFarmRserverFailedConns, 
+--    cesServerFarmRserverDroppedConns, 
+--    cesServerFarmRserverCurrentConns, 
+--    cesServerFarmRserverStorageType, 
+--    cesServerFarmRserverRowStatus, cesServerFarmRserverDescr
+
+cesRealServerNotifGroup OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 10 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This group contains real server Notifications.
+--  notifications
+--    cesRealServerStateUp, cesRealServerStateDown, 
+--    cesRealServerStateChange
+
+cesRealServerNotifGroupRev1 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 11 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This group contains real server Notifications.
+--  notifications
+--    cesRealServerStateUp, cesRealServerStateDown, 
+--    cesRealServerStateChange, cesRserverStateUp, 
+--    cesRserverStateDown, cesRserverStateChange
+
+cesRealServerNotifGroupRev2 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBGroups 21 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains real server Notifications.
+--  notifications
+--    cesRealServerStateUpRev1, cesRealServerStateDownRev1, 
+--    cesRealServerStateChangeRev1, cesRserverStateUp, 
+--    cesRserverStateDown, cesRserverStateChange
+
+ciscoEnhancedSlbMIBCompliance OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Enhanced SLB MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cesRealServerGroup
+--   MandGroup
+--    cesRealServerFarmGroup
+--   OptGroup
+--    cesNotificationObjectGroup
+--   OptGroup
+--    cesRealServerNotifGroup
+
+ciscoEnhancedSlbMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Enhanced SLB MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cesRealServerGroup
+--   MandGroup
+--    cesRealServerFarmGroup
+--   OptGroup
+--    cesNotificationObjectGroup
+--   OptGroup
+--    cesRealServerNotifGroupRev1
+
+ciscoEnhancedSlbMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Enhanced SLB MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cesRealServerFarmGroup
+--   MandGroup
+--    cesRealServerGroupRev1
+--   MandGroup
+--    cesRserverProbeGroup
+--   MandGroup
+--    cesRealserverProbeGroup
+--   OptGroup
+--    cesNotificationObjectGroup
+--   OptGroup
+--    cesRealServerNotifGroupRev1
+
+ciscoEnhancedSlbMIBComplianceRev3 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Enhanced SLB MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cesRealServerFarmGroup
+--   MandGroup
+--    cesRealServerGroupRev1
+--   MandGroup
+--    cesRserverProbeGroupRev1
+--   MandGroup
+--    cesRealserverProbeGroup
+--   OptGroup
+--    cesNotificationObjectGroup
+--   OptGroup
+--    cesRealServerNotifGroupRev1
+
+ciscoEnhancedSlbMIBComplianceRev4 OBJECT IDENTIFIER ::= { ciscoEnhancedSlbMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the Cisco
+--    Enhanced SLB MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cesRealServerFarmGroupRev1
+--   MandGroup
+--    cesRealServerGroupRev1
+--   MandGroup
+--    cesRserverProbeGroupRev1
+--   MandGroup
+--    cesRealserverProbeGroup
+--   OptGroup
+--    cesNotificationObjectGroup
+--   OptGroup
+--    cesRealServerNotifGroupRev2
+
+
+END
+

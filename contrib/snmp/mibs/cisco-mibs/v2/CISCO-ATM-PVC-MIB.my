@@ -1,0 +1,314 @@
+-- *****************************************************************
+-- CISCO-ATM-PVC-MIB - This MIB allows the creation of PVCs and binding
+--                       them to a VLAN.
+--
+-- November 1997, Rengabashyam Srinivas.
+--
+-- Copyright (c) 1998, 2000 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-ATM-PVC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE,
+        Unsigned32
+            FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+            FROM SNMPv2-CONF
+    RowStatus, 
+    TruthValue        
+            FROM SNMPv2-TC
+    ciscoMgmt            
+            FROM CISCO-SMI;
+
+ciscoAtmPvcMIB MODULE-IDENTITY
+    LAST-UPDATED    "200204110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+        " Cisco Systems
+          Customer Service
+
+        Postal: 170 W. Tasman Drive
+            San Jose, CA 95134-1706
+            USA
+
+           Tel: +1 800 553-NETS
+        
+        E-mail: cs-atm@cisco.com"
+    DESCRIPTION
+            " PVC's (Permanent Virtual Channel)
+              can carry bridged PDUs (BPDUs)
+              using the encapsulation method 
+              detailed in RFC1483. This is an 
+              alternative to using LAN Emulation 
+              to transfer BPDUs.
+              This MIB allows users to configure 
+              a PVC on an ATM uplink card of a 
+              Catalyst 5000 device, and then bind 
+              that PVC to a Virtual LAN (VLAN). " 
+    REVISION    "200204110000Z"
+    DESCRIPTION
+            "Imported Unsigned32 from SNMPv2-SMI instead
+             of CISCO-TC"
+    REVISION    "9711180000Z"
+    DESCRIPTION
+            " Initial version of this MIB module. "
+    ::= { ciscoMgmt 94 }
+
+ciscoAtmPvcMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmPvcMIB 1 }    
+ 
+ciscoAtmPvcCreateBindGroup OBJECT IDENTIFIER
+                                 ::= { ciscoAtmPvcMIBObjects 1 }
+
+capvcTable OBJECT-TYPE
+    SYNTAX    SEQUENCE OF CapvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS    current
+    DESCRIPTION
+    "A table of all the PVCs configured on an ATM uplink card."
+    ::= { ciscoAtmPvcCreateBindGroup 1 }
+
+capvcEntry OBJECT-TYPE
+    SYNTAX     CapvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS    current
+    DESCRIPTION 
+        " An entry in the PVC table containing information 
+          about a single PVC that has been configured. To 
+          create a PVC at an ATM interface and bind it to a
+          VLAN, either of the following procedures are used :
+
+             Multi step process 
+           (1) The management application creates a 
+              PVC entry in the capvcTable by setting 
+              the capvcRowStatus to createAndWait(5).
+                   This may fail for the following reasons:
+                   - The selected vpi/vci is already being used.
+                   - The selected port is not available.
+              Otherwise, the agent creates a row and 
+              reserves the vpi/vci on that port.
+           (2) The manager then sets the values for 
+              the capvcVlanId, capvcType and optionally, 
+              the capvcPCR, capvcOAM and capvcFrequency.
+           (3) The manager activates the PVC by setting 
+              the capvcRowStatus to active(1). 
+
+            One-Shot PVC establishment
+           (1) A PVC may also be established in one 
+              step by a set-request with all necessary 
+              PVC parameter values and the capvcRowStatus
+               set to createAndGo(4).
+               In contrast to the multi step process which 
+              allows for detailed error checking (i.e., 
+              set errors are explicitly linked to
+              particular resource acquisition failures), 
+              the one-shot PVC establishment performs the 
+              setup on one operation but does not have the 
+              advantage of step-wise error checking.
+
+            PVC Retirement  
+             A PVC is released by setting the capvcRowStatus 
+          to destroy(6), and the agent may release all 
+          associated resources. " 
+    INDEX { capvcPort, capvcVPI, capvcVCI }
+    ::= { capvcTable 1 }
+
+CapvcEntry ::= 
+    SEQUENCE {
+    capvcPort        Unsigned32,
+    capvcVPI        Unsigned32,
+    capvcVCI        Unsigned32,
+    capvcVCD        Unsigned32,
+    capvcType         INTEGER,
+    capvcPCR        Unsigned32,
+    capvcOAM        TruthValue,
+    capvcFrequency    Unsigned32,
+    capvcVlanId        Unsigned32,
+    capvcRowStatus     RowStatus
+    }
+
+
+capvcPort OBJECT-TYPE
+    SYNTAX    Unsigned32 
+    MAX-ACCESS  not-accessible
+    STATUS    current
+    DESCRIPTION
+        " The port number in the ATM module on 
+          which this PVC is being configured. "
+    ::= { capvcEntry 1 }
+
+capvcVPI OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..4095)
+    MAX-ACCESS    not-accessible
+    STATUS    current
+    DESCRIPTION
+        " The Virtual Path Identifier for the PVC. "
+    ::= { capvcEntry 2 }
+
+capvcVCI OBJECT-TYPE
+    SYNTAX    Unsigned32 (0..65535)
+    MAX-ACCESS  not-accessible
+    STATUS     current
+    DESCRIPTION 
+        " The Virtual Channel Identifier for the PVC. "
+    ::= { capvcEntry 3 }
+
+capvcVCD OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..4095)
+    MAX-ACCESS    read-only    
+    STATUS    current
+    DESCRIPTION
+        " This is the Virtual Channel Descriptor,
+          a value which uniquely identifies the PVC. 
+          This is a read-only variable and is not
+          set by the user. When the PVC is created
+          successfully, it is assigned a unique
+          VCD number by the system."
+    ::= {  capvcEntry 4 }
+
+capvcType OBJECT-TYPE
+    SYNTAX INTEGER {
+           aal5snap(1),
+           ilmi(2),
+           qsaal(3)
+           }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        " The type of traffic that will flow 
+          through the PVC. The user can configure 
+          the PVC as:
+            (1) aal5snap PVC which carries network 
+              interconnect traffic over ATM 
+              AAL5 (RFC1483).
+            (2) ilmi PVC which carries Interim Link
+              Management Interface protocol traffic.
+            (3) qsaal PVC which carries ATM UNI 3.x 
+              signalling traffic. "
+    ::= { capvcEntry 5 }
+
+capvcPCR OBJECT-TYPE
+    SYNTAX    Unsigned32 (0..155000)
+    UNITS    "kbps"
+    MAX-ACCESS    read-create
+    STATUS     current
+    DESCRIPTION
+        " The Peak Cell Rate for the PVC. This 
+          value denotes the bandwidth allocated 
+          for this PVC. The default value for 
+          this field is the maximum speed of the 
+          interface. This is 155000 Kbps for an 
+          OC3 Module and 45000 Kbps for a DS3 
+          Module. "
+    ::= { capvcEntry 6 }
+
+capvcOAM OBJECT-TYPE
+    SYNTAX    TruthValue
+    MAX-ACCESS    read-create
+    STATUS    current
+    DESCRIPTION
+        " A boolean that indicates if a F5 OAM 
+          loopback cell will be sent on this 
+          PVC or not. The default value for 
+          this field is false. " 
+    DEFVAL    { false }
+    ::= { capvcEntry 7 }
+
+capvcFrequency OBJECT-TYPE
+    SYNTAX    Unsigned32
+    UNITS    "seconds"
+    MAX-ACCESS    read-create
+    STATUS    current
+    DESCRIPTION
+        " Indicates how often will a F5 OAM 
+          loopback cell be transmitted. If the 
+          value of capvcOAM is true, then the 
+          default value for this variable is 
+          10 seconds. If the value of capvcOAM 
+          is false, then this variable is ignored. "
+    DEFVAL    { 10 }
+    ::= { capvcEntry 8 }
+
+capvcVlanId OBJECT-TYPE
+    SYNTAX    Unsigned32 (1..1024)
+    MAX-ACCESS  read-create
+    STATUS    current
+    DESCRIPTION
+        " The VLAN number of the VLAN that the 
+          PVC is bound to. 
+          Binding a PVC say with VCD number x, 
+          to a VLAN with a VlanId y, causes the 
+          traffic on VLAN y to pass through PVC x.
+            Also a PVC that is bound to a VLAN can 
+          be unbound by the user. After the unbind 
+          operation the VLAN traffic stops flowing 
+          through the PVC. If the user changes the
+          value of this variable then the PVC is 
+          unbound from the original VLAN and bound 
+          to the new VLAN. " 
+    ::= { capvcEntry 9 }
+
+capvcRowStatus OBJECT-TYPE
+    SYNTAX    RowStatus
+    MAX-ACCESS    read-create
+    STATUS     current
+    DESCRIPTION
+        " This object is used to create, delete 
+          or modify a row in this table.  To 
+          create a new PVC, this object is 
+          initially set to 'createAndWait' or 
+          'createAndGo'. This object must not 
+          be set to 'active' unless the following 
+          columnar objects exist in this row:
+          capvcType and capvcVlanId.
+          To delete a row, this object is set 
+          to 'destroy'(6)."
+    ::= { capvcEntry 10 }
+
+-- end of capvcTable
+    
+-- conformance information
+
+ciscoAtmPvcMIBConformance  OBJECT IDENTIFIER ::= { ciscoAtmPvcMIB 3 }
+ciscoAtmPvcMIBCompliances  OBJECT IDENTIFIER
+                                  ::= { ciscoAtmPvcMIBConformance 1 }
+ciscoAtmPvcMIBGroups       OBJECT IDENTIFIER
+                                  ::= { ciscoAtmPvcMIBConformance 2 }
+
+-- Compliance statements
+
+ciscoAtmPvcMIBCompliance  MODULE-COMPLIANCE
+    STATUS    current
+    DESCRIPTION
+        " The compliance statement for entities
+          which implement the Cisco Atm PVC MIB.
+          This MIB is mandatory for all ATM uplink
+          cards on the Catalyst 5000 device.
+        " 
+    MODULE    -- this module
+            MANDATORY-GROUPS { ciscoAtmPvcMIBGroup }
+    ::= { ciscoAtmPvcMIBCompliances 1 }
+
+-- units of conformance
+
+ciscoAtmPvcMIBGroup  OBJECT-GROUP
+    OBJECTS {
+        capvcVCD,
+        capvcType,
+        capvcPCR,
+        capvcOAM,
+        capvcFrequency,
+        capvcVlanId,
+        capvcRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+        " A collection of objects providing ATM 
+          PVC configuration and VLAN binding. "
+    ::= { ciscoAtmPvcMIBGroups 1 } 
+         
+END

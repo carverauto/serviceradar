@@ -1,0 +1,796 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-OBSERVE-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- OBSERVE management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-OBSERVE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsMoMoClassId,
+    CucsObserveObservedFsmCurrentFsm,
+    CucsObserveObservedFsmStageName,
+    CucsObserveObservedFsmTaskItem
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsObserveObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        OBSERVE management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 68 }
+
+cucsObserveFilterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsObserveFilterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS observe:Filter managed object table"
+    ::= { cucsObserveObjects 1 }
+
+cucsObserveFilterEntry OBJECT-TYPE
+    SYNTAX           CucsObserveFilterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsObserveFilterTable table."
+    INDEX { cucsObserveFilterInstanceId }
+    ::= { cucsObserveFilterTable 1 }
+
+CucsObserveFilterEntry ::= SEQUENCE {
+    cucsObserveFilterInstanceId                                      CucsManagedObjectId,
+    cucsObserveFilterDn                                              CucsManagedObjectDn,
+    cucsObserveFilterRn                                              SnmpAdminString,
+    cucsObserveFilterAndOperation                                    TruthValue,
+    cucsObserveFilterChildClassId                                    CucsMoMoClassId,
+    cucsObserveFilterFilterClassId                                   CucsMoMoClassId,
+    cucsObserveFilterFilterPropId1                                   SnmpAdminString,
+    cucsObserveFilterFilterPropId2                                   SnmpAdminString,
+    cucsObserveFilterFilterPropId3                                   SnmpAdminString,
+    cucsObserveFilterFilterPropValue1                                SnmpAdminString,
+    cucsObserveFilterFilterPropValue2                                SnmpAdminString,
+    cucsObserveFilterFilterPropValue3                                SnmpAdminString,
+    cucsObserveFilterHierarchical                                    TruthValue,
+    cucsObserveFilterReplicateIfNoChild                              TruthValue
+}
+
+cucsObserveFilterInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsObserveFilterEntry 1 }
+
+cucsObserveFilterDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:dn managed object property"
+    ::= { cucsObserveFilterEntry 2 }
+
+cucsObserveFilterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:rn managed object property"
+    ::= { cucsObserveFilterEntry 3 }
+
+cucsObserveFilterAndOperation OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:andOperation managed object property"
+    ::= { cucsObserveFilterEntry 4 }
+
+cucsObserveFilterChildClassId OBJECT-TYPE
+    SYNTAX       CucsMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:childClassId managed object property"
+    ::= { cucsObserveFilterEntry 5 }
+
+cucsObserveFilterFilterClassId OBJECT-TYPE
+    SYNTAX       CucsMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:filterClassId managed object property"
+    ::= { cucsObserveFilterEntry 6 }
+
+cucsObserveFilterFilterPropId1 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:filterPropId1 managed object property"
+    ::= { cucsObserveFilterEntry 7 }
+
+cucsObserveFilterFilterPropId2 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:filterPropId2 managed object property"
+    ::= { cucsObserveFilterEntry 8 }
+
+cucsObserveFilterFilterPropId3 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:filterPropId3 managed object property"
+    ::= { cucsObserveFilterEntry 9 }
+
+cucsObserveFilterFilterPropValue1 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:filterPropValue1 managed
+        object property"
+    ::= { cucsObserveFilterEntry 10 }
+
+cucsObserveFilterFilterPropValue2 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:filterPropValue2 managed
+        object property"
+    ::= { cucsObserveFilterEntry 11 }
+
+cucsObserveFilterFilterPropValue3 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:filterPropValue3 managed
+        object property"
+    ::= { cucsObserveFilterEntry 12 }
+
+cucsObserveFilterHierarchical OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:hierarchical managed object property"
+    ::= { cucsObserveFilterEntry 13 }
+
+cucsObserveFilterReplicateIfNoChild OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Filter:replicateIfNoChild managed
+        object property"
+    ::= { cucsObserveFilterEntry 14 }
+
+cucsObserveObservedTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsObserveObservedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS observe:Observed managed object table"
+    ::= { cucsObserveObjects 2 }
+
+cucsObserveObservedEntry OBJECT-TYPE
+    SYNTAX           CucsObserveObservedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsObserveObservedTable table."
+    INDEX { cucsObserveObservedInstanceId }
+    ::= { cucsObserveObservedTable 1 }
+
+CucsObserveObservedEntry ::= SEQUENCE {
+    cucsObserveObservedInstanceId                                    CucsManagedObjectId,
+    cucsObserveObservedDn                                            CucsManagedObjectDn,
+    cucsObserveObservedRn                                            SnmpAdminString,
+    cucsObserveObservedDataSrcAppType                                SnmpAdminString,
+    cucsObserveObservedDataSrcSysId                                  Gauge32,
+    cucsObserveObservedFsmDescr                                      SnmpAdminString,
+    cucsObserveObservedFsmPrev                                       SnmpAdminString,
+    cucsObserveObservedFsmProgr                                      Gauge32,
+    cucsObserveObservedFsmRmtInvErrCode                              Gauge32,
+    cucsObserveObservedFsmRmtInvErrDescr                             SnmpAdminString,
+    cucsObserveObservedFsmRmtInvRslt                                 CucsConditionRemoteInvRslt,
+    cucsObserveObservedFsmStageDescr                                 SnmpAdminString,
+    cucsObserveObservedFsmStamp                                      DateAndTime,
+    cucsObserveObservedFsmStatus                                     SnmpAdminString,
+    cucsObserveObservedFsmTry                                        Gauge32,
+    cucsObserveObservedGenNum                                        Gauge32,
+    cucsObserveObservedHierarchical                                  TruthValue,
+    cucsObserveObservedId                                            Gauge32,
+    cucsObserveObservedIsDeleted                                     TruthValue,
+    cucsObserveObservedObservedDn                                    SnmpAdminString
+}
+
+cucsObserveObservedInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsObserveObservedEntry 1 }
+
+cucsObserveObservedDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:dn managed object property"
+    ::= { cucsObserveObservedEntry 2 }
+
+cucsObserveObservedRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:rn managed object property"
+    ::= { cucsObserveObservedEntry 3 }
+
+cucsObserveObservedDataSrcAppType OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:dataSrcAppType managed
+        object property"
+    ::= { cucsObserveObservedEntry 4 }
+
+cucsObserveObservedDataSrcSysId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:dataSrcSysId managed object property"
+    ::= { cucsObserveObservedEntry 5 }
+
+cucsObserveObservedFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmDescr managed object property"
+    ::= { cucsObserveObservedEntry 6 }
+
+cucsObserveObservedFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmPrev managed object property"
+    ::= { cucsObserveObservedEntry 7 }
+
+cucsObserveObservedFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmProgr managed object property"
+    ::= { cucsObserveObservedEntry 8 }
+
+cucsObserveObservedFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmRmtInvErrCode managed
+        object property"
+    ::= { cucsObserveObservedEntry 9 }
+
+cucsObserveObservedFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cucsObserveObservedEntry 10 }
+
+cucsObserveObservedFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmRmtInvRslt managed object property"
+    ::= { cucsObserveObservedEntry 11 }
+
+cucsObserveObservedFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmStageDescr managed object property"
+    ::= { cucsObserveObservedEntry 12 }
+
+cucsObserveObservedFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmStamp managed object property"
+    ::= { cucsObserveObservedEntry 13 }
+
+cucsObserveObservedFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmStatus managed object property"
+    ::= { cucsObserveObservedEntry 14 }
+
+cucsObserveObservedFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:fsmTry managed object property"
+    ::= { cucsObserveObservedEntry 15 }
+
+cucsObserveObservedGenNum OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:genNum managed object property"
+    ::= { cucsObserveObservedEntry 16 }
+
+cucsObserveObservedHierarchical OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:hierarchical managed object property"
+    ::= { cucsObserveObservedEntry 17 }
+
+cucsObserveObservedId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:id managed object property"
+    ::= { cucsObserveObservedEntry 18 }
+
+cucsObserveObservedIsDeleted OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:isDeleted managed object property"
+    ::= { cucsObserveObservedEntry 19 }
+
+cucsObserveObservedObservedDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:Observed:observedDn managed object property"
+    ::= { cucsObserveObservedEntry 20 }
+
+cucsObserveObservedContTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsObserveObservedContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedCont managed object table"
+    ::= { cucsObserveObjects 3 }
+
+cucsObserveObservedContEntry OBJECT-TYPE
+    SYNTAX           CucsObserveObservedContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsObserveObservedContTable table."
+    INDEX { cucsObserveObservedContInstanceId }
+    ::= { cucsObserveObservedContTable 1 }
+
+CucsObserveObservedContEntry ::= SEQUENCE {
+    cucsObserveObservedContInstanceId                                CucsManagedObjectId,
+    cucsObserveObservedContDn                                        CucsManagedObjectDn,
+    cucsObserveObservedContRn                                        SnmpAdminString,
+    cucsObserveObservedContIdCount                                   Gauge32
+}
+
+cucsObserveObservedContInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsObserveObservedContEntry 1 }
+
+cucsObserveObservedContDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedCont:dn managed object property"
+    ::= { cucsObserveObservedContEntry 2 }
+
+cucsObserveObservedContRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedCont:rn managed object property"
+    ::= { cucsObserveObservedContEntry 3 }
+
+cucsObserveObservedContIdCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedCont:idCount managed object property"
+    ::= { cucsObserveObservedContEntry 4 }
+
+cucsObserveObservedFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsObserveObservedFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm managed object table"
+    ::= { cucsObserveObjects 4 }
+
+cucsObserveObservedFsmEntry OBJECT-TYPE
+    SYNTAX           CucsObserveObservedFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsObserveObservedFsmTable table."
+    INDEX { cucsObserveObservedFsmInstanceId }
+    ::= { cucsObserveObservedFsmTable 1 }
+
+CucsObserveObservedFsmEntry ::= SEQUENCE {
+    cucsObserveObservedFsmInstanceId                                 CucsManagedObjectId,
+    cucsObserveObservedFsmDn                                         CucsManagedObjectDn,
+    cucsObserveObservedFsmRn                                         SnmpAdminString,
+    cucsObserveObservedFsmCompletionTime                             DateAndTime,
+    cucsObserveObservedFsmCurrentFsm                                 CucsObserveObservedFsmCurrentFsm,
+    cucsObserveObservedFsmDescrData                                  SnmpAdminString,
+    cucsObserveObservedFsmFsmStatus                                  CucsFsmFsmStageStatus,
+    cucsObserveObservedFsmProgress                                   Gauge32,
+    cucsObserveObservedFsmRmtErrCode                                 Gauge32,
+    cucsObserveObservedFsmRmtErrDescr                                SnmpAdminString,
+    cucsObserveObservedFsmRmtRslt                                    CucsConditionRemoteInvRslt
+}
+
+cucsObserveObservedFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsObserveObservedFsmEntry 1 }
+
+cucsObserveObservedFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:dn managed object property"
+    ::= { cucsObserveObservedFsmEntry 2 }
+
+cucsObserveObservedFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:rn managed object property"
+    ::= { cucsObserveObservedFsmEntry 3 }
+
+cucsObserveObservedFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:completionTime managed
+        object property"
+    ::= { cucsObserveObservedFsmEntry 4 }
+
+cucsObserveObservedFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsObserveObservedFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:currentFsm managed object property"
+    ::= { cucsObserveObservedFsmEntry 5 }
+
+cucsObserveObservedFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:descr managed object property"
+    ::= { cucsObserveObservedFsmEntry 6 }
+
+cucsObserveObservedFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:fsmStatus managed object property"
+    ::= { cucsObserveObservedFsmEntry 7 }
+
+cucsObserveObservedFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:progress managed object property"
+    ::= { cucsObserveObservedFsmEntry 8 }
+
+cucsObserveObservedFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:rmtErrCode managed object property"
+    ::= { cucsObserveObservedFsmEntry 9 }
+
+cucsObserveObservedFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsObserveObservedFsmEntry 10 }
+
+cucsObserveObservedFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsm:rmtRslt managed object property"
+    ::= { cucsObserveObservedFsmEntry 11 }
+
+cucsObserveObservedFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsObserveObservedFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage managed object table"
+    ::= { cucsObserveObjects 5 }
+
+cucsObserveObservedFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsObserveObservedFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsObserveObservedFsmStageTable table."
+    INDEX { cucsObserveObservedFsmStageInstanceId }
+    ::= { cucsObserveObservedFsmStageTable 1 }
+
+CucsObserveObservedFsmStageEntry ::= SEQUENCE {
+    cucsObserveObservedFsmStageInstanceId                            CucsManagedObjectId,
+    cucsObserveObservedFsmStageDn                                    CucsManagedObjectDn,
+    cucsObserveObservedFsmStageRn                                    SnmpAdminString,
+    cucsObserveObservedFsmStageDescrData                             SnmpAdminString,
+    cucsObserveObservedFsmStageLastUpdateTime                        DateAndTime,
+    cucsObserveObservedFsmStageName                                  CucsObserveObservedFsmStageName,
+    cucsObserveObservedFsmStageOrder                                 Gauge32,
+    cucsObserveObservedFsmStageRetry                                 Gauge32,
+    cucsObserveObservedFsmStageStageStatus                           CucsFsmFsmStageStatus
+}
+
+cucsObserveObservedFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsObserveObservedFsmStageEntry 1 }
+
+cucsObserveObservedFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:dn managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 2 }
+
+cucsObserveObservedFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:rn managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 3 }
+
+cucsObserveObservedFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:descr managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 4 }
+
+cucsObserveObservedFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 5 }
+
+cucsObserveObservedFsmStageName OBJECT-TYPE
+    SYNTAX       CucsObserveObservedFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:name managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 6 }
+
+cucsObserveObservedFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:order managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 7 }
+
+cucsObserveObservedFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:retry managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 8 }
+
+cucsObserveObservedFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmStage:stageStatus
+        managed object property"
+    ::= { cucsObserveObservedFsmStageEntry 9 }
+
+cucsObserveObservedFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsObserveObservedFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmTask managed object table"
+    ::= { cucsObserveObjects 6 }
+
+cucsObserveObservedFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsObserveObservedFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsObserveObservedFsmTaskTable table."
+    INDEX { cucsObserveObservedFsmTaskInstanceId }
+    ::= { cucsObserveObservedFsmTaskTable 1 }
+
+CucsObserveObservedFsmTaskEntry ::= SEQUENCE {
+    cucsObserveObservedFsmTaskInstanceId                             CucsManagedObjectId,
+    cucsObserveObservedFsmTaskDn                                     CucsManagedObjectDn,
+    cucsObserveObservedFsmTaskRn                                     SnmpAdminString,
+    cucsObserveObservedFsmTaskCompletion                             CucsFsmCompletion,
+    cucsObserveObservedFsmTaskFlags                                  CucsFsmFlags,
+    cucsObserveObservedFsmTaskItem                                   CucsObserveObservedFsmTaskItem,
+    cucsObserveObservedFsmTaskSeqId                                  Gauge32
+}
+
+cucsObserveObservedFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsObserveObservedFsmTaskEntry 1 }
+
+cucsObserveObservedFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmTask:dn managed object property"
+    ::= { cucsObserveObservedFsmTaskEntry 2 }
+
+cucsObserveObservedFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmTask:rn managed object property"
+    ::= { cucsObserveObservedFsmTaskEntry 3 }
+
+cucsObserveObservedFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmTask:completion managed
+        object property"
+    ::= { cucsObserveObservedFsmTaskEntry 4 }
+
+cucsObserveObservedFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmTask:flags managed object property"
+    ::= { cucsObserveObservedFsmTaskEntry 5 }
+
+cucsObserveObservedFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsObserveObservedFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmTask:item managed object property"
+    ::= { cucsObserveObservedFsmTaskEntry 6 }
+
+cucsObserveObservedFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS observe:ObservedFsmTask:seqId managed object property"
+    ::= { cucsObserveObservedFsmTaskEntry 7 }
+
+END

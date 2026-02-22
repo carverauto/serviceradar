@@ -1,0 +1,318 @@
+-- MIB file created 12-May-2006 08:27:36, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FTP-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FTP-CLIENT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp, RowStatus, DisplayString
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoFtpClientMIB OBJECT IDENTIFIER ::= { ciscoMgmt 80 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200603310000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--    
+--     E-mail: cs-snmp@cisco.com
+--  Descr
+--    The MIB module for invoking Internet File Transfer Protocol
+--    (FTP) operations for network management purposes.
+--  RevDate
+--    200603310000Z
+--  RevDescr
+--    Updated the imports such that Unsigned32 is imported from
+--    SNMPv2-SMI instead of CISCO-TC.
+--  RevDate
+--    199710091700Z
+--  RevDescr
+--    Initial version.
+
+ciscoFtpClientMIBObjects OBJECT IDENTIFIER ::= { ciscoFtpClientMIB 1 }
+cfcRequest      OBJECT IDENTIFIER ::= { ciscoFtpClientMIBObjects 1 }
+ciscoFtpClientMIBConformance OBJECT IDENTIFIER ::= { ciscoFtpClientMIB 3 }
+ciscoFtpClientMIBCompliances OBJECT IDENTIFIER ::= { ciscoFtpClientMIBConformance 1 }
+ciscoFtpClientMIBGroups OBJECT IDENTIFIER ::= { ciscoFtpClientMIBConformance 2 }
+
+cfcRequestMaximum OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of requests this system can hold in
+        cfcRequestTable.  A value of 0 indicates no configured limit.
+        
+        This object may be read-only on some systems.
+        
+        When an attempt is made to create a new entry but the table
+        is full, the oldest completed entry is bumped out and
+        cfcRequestsBumped is incremented.
+        
+        Changing this number does not disturb existing requests that
+        are not completed and bumps completed requests as necessary."
+    ::= { cfcRequest 1 }
+
+cfcRequests OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of requests in cfcRequestTable."
+    ::= { cfcRequest 2 }
+
+cfcRequestsHigh OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest number of requests in cfcRequestTable since this
+        system was last initialized."
+    ::= { cfcRequest 3 }
+
+cfcRequestsBumped OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of requests in cfcRequestTable that were bumped
+        out to make room for a new request."
+    ::= { cfcRequest 4 }
+
+cfcRequestTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfcRequestEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of FTP client requests."
+    ::= { cfcRequest 5 }
+
+cfcRequestEntry OBJECT-TYPE
+    SYNTAX CfcRequestEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about an FTP client request.  Management applications
+        use cfcRequestEntryStatus to control entry modification, creation,
+        and deletion.
+        
+        Setting cfcRequestEntryStatus to 'active' from any state including
+        'active' causes the operation to be started.
+        
+        The entry may be modified only when cfcRequestOperationState is
+        'stopped'.
+        
+        The value of cfcRequestEntryStatus may be set to 'destroy' at any
+        time.  Doing so will abort a running request.
+        
+        Entries may not be created without explicitly setting
+        cfcRequestEntryStatus to either 'createAndGo' or 'createAndWait'."
+    INDEX { cfcRequestIndex }
+    ::= { cfcRequestTable 1 }
+
+CfcRequestEntry ::= SEQUENCE {
+    cfcRequestIndex Gauge,
+    cfcRequestOperation INTEGER,
+    cfcRequestLocalFile DisplayString,
+    cfcRequestRemoteFile DisplayString,
+    cfcRequestServer DisplayString,
+    cfcRequestUser DisplayString,
+    cfcRequestPassword DisplayString,
+    cfcRequestResult INTEGER,
+    cfcRequestCompletionTime TimeStamp,
+    cfcRequestStop INTEGER,
+    cfcRequestOperationState INTEGER,
+    cfcRequestEntryStatus RowStatus
+    }
+
+cfcRequestIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer to uniquely identify this entry.  To
+        create an entry a management application should pick a
+        random number."
+    ::= { cfcRequestEntry 1 }
+
+cfcRequestOperation OBJECT-TYPE
+    SYNTAX INTEGER {
+        putBinary(1),
+        putASCII(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The FTP operation to be performed."
+    DEFVAL { putBinary }
+    ::= { cfcRequestEntry 2 }
+
+cfcRequestLocalFile OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The local file on which the operation is to be performed."
+    ::= { cfcRequestEntry 3 }
+
+cfcRequestRemoteFile OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The remote file on which the operation is to be performed."
+    ::= { cfcRequestEntry 4 }
+
+cfcRequestServer OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The domain name or IP address of the FTP server to use."
+    ::= { cfcRequestEntry 5 }
+
+cfcRequestUser OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The user name to use at the FTP server."
+    ::= { cfcRequestEntry 6 }
+
+cfcRequestPassword OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..16))
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The password to use at the FTP server.
+        
+        When read this object always returns a zero-length string."
+    DEFVAL { ''H }
+    ::= { cfcRequestEntry 7 }
+
+cfcRequestResult OBJECT-TYPE
+    SYNTAX INTEGER {
+        pending(1),
+        success(2),
+        aborted(3),
+        fileOpenFailLocal(4),
+        fileOpenFailRemote(5),
+        badDomainName(6),
+        unreachableIpAddress(7),
+        linkFailed(8),
+        fileReadFailed(9),
+        fileWriteFailed(10)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The result of the FTP operation."
+    ::= { cfcRequestEntry 8 }
+
+cfcRequestCompletionTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the operation completed.  For
+        an incomplete operation this value is zero."
+    ::= { cfcRequestEntry 9 }
+
+cfcRequestStop OBJECT-TYPE
+    SYNTAX INTEGER {
+        ready(1),
+        stop(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The action control to stop a running request.  Setting this to
+        'stop' will begin the process of stopping the request.  Setting
+        it to 'ready' or setting it to 'stop' more than once have no
+        effect.  When read this object always returns ready."
+    ::= { cfcRequestEntry 10 }
+
+cfcRequestOperationState OBJECT-TYPE
+    SYNTAX INTEGER {
+        running(1),
+        stopping(2),
+        stopped(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational state of the file transfer.  To short-terminate
+        the transfer set cfcRequestStop to 'stop'."
+    ::= { cfcRequestEntry 11 }
+
+cfcRequestEntryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The control that allows modification, creation, and deletion
+        of entries.  For detailed rules see the DESCRIPTION for
+        cfcRequestEntry."
+    ::= { cfcRequestEntry 12 }
+
+ciscoFtpClientRequestGroup OBJECT IDENTIFIER ::= { ciscoFtpClientMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    FTP client request management.
+--  objects
+--    cfcRequestMaximum, cfcRequests, cfcRequestsHigh, 
+--    cfcRequestsBumped, cfcRequestOperation, cfcRequestLocalFile, 
+--    cfcRequestRemoteFile, cfcRequestServer, cfcRequestUser, 
+--    cfcRequestPassword, cfcRequestResult, 
+--    cfcRequestCompletionTime, cfcRequestStop, 
+--    cfcRequestOperationState, cfcRequestEntryStatus
+
+ciscoFtpClientMIBCompliance OBJECT IDENTIFIER ::= { ciscoFtpClientMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco FTP Client MIB.  Implementation of this MIB
+--    is based on individual product needs.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoFtpClientRequestGroup
+
+
+END
+

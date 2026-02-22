@@ -1,0 +1,934 @@
+-- *****************************************************************
+-- CISCO-ATM-QOS-MIB.my:  Cisco ATM QoS MIB file
+--
+-- June 2002, Danny Lee
+--
+-- Copyright (c) 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-ATM-QOS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+      MODULE-IDENTITY,
+      OBJECT-TYPE,
+      Unsigned32,
+      Integer32                 FROM SNMPv2-SMI
+      MODULE-COMPLIANCE,
+      OBJECT-GROUP              FROM SNMPv2-CONF
+      TEXTUAL-CONVENTION        FROM SNMPv2-TC
+      ifIndex                   FROM IF-MIB
+      atmVplVpi,
+      atmVclVpi,
+      atmVclVci                 FROM ATM-MIB
+      AtmServiceCategory        FROM ATM-FORUM-TC-MIB
+      ciscoMgmt                 FROM CISCO-SMI;
+      
+ciscoAtmQosMIB MODULE-IDENTITY
+      LAST-UPDATED      "200206100000Z"
+      ORGANIZATION      "Cisco Systems, Inc."
+      CONTACT-INFO
+            "Cisco Systems
+             Customer Service
+
+             Postal: 170 W. Tasman Drive
+                   San Jose, CA  95134
+                   SA
+
+             Tel: +1 800 553-NETS
+
+             Email: cs-atm@cisco.com"
+             
+      DESCRIPTION
+            "The MIB is created to provide ATM QoS information in
+             these areas:
+             
+             1. Traffic shaping on a per-VC basis
+             2. Traffic shaping on a per-VP basis 
+             3. Per-VC queuing/buffering
+             
+             Although the initial requirements of the MIB are
+             driven to support the GSR TAZ line card,
+             CISCO-ATM-QOS-MIB is designed as a generic MIB to
+             support ATM interfaces across all platforms.
+             
+             Here are the tables defined in this MIB:
+             ciscoAtmQosVccTable 
+                  - to provide information on traffic shaping on 
+                    a per-VC basis.
+                                   
+             ciscoAtmQosVpcTable 
+                  - to provide information on traffic shaping on
+                    a per-VP basis.
+                 
+             ciscoAtmQosVcQueuingTable
+             ciscoAtmQosVcQueuingClassTable
+                  - to provide information on per-VC
+                    queuing/buffering."
+
+      REVISION      "200206100000Z"
+      DESCRIPTION
+            "Initial version of this MIB module."
+      ::= { ciscoMgmt 279 }
+
+
+
+
+ciscoAtmQosMIBNotifs  OBJECT IDENTIFIER ::= { ciscoAtmQosMIB 0 }
+ciscoAtmQosMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmQosMIB 1 }
+ciscoAtmQosMIBConform OBJECT IDENTIFIER ::= { ciscoAtmQosMIB 2 }
+
+
+caqVccParams          OBJECT IDENTIFIER ::= { ciscoAtmQosMIBObjects 1 }
+caqVpcParams          OBJECT IDENTIFIER ::= { ciscoAtmQosMIBObjects 2 }
+caqQueuingParams      OBJECT IDENTIFIER ::= { ciscoAtmQosMIBObjects 3 }
+
+
+--
+--
+-- Beginning Textual Convention Definitions
+
+VcParamConfigLocation ::= TEXTUAL-CONVENTION
+      STATUS            current
+      DESCRIPTION
+        "The configuration source of a vc parameter:
+         1 - Not configured - using default
+         2 - Configured on vc directly
+         3 - VC-class configured on vc
+         4 - VC-class configured on sub-interface
+         5 - VC-class configured on main-interface.
+        "
+      SYNTAX            INTEGER { configDefault(1),
+                                  configVcDirect(2),
+                                  configVcClass(3),
+                                  configVcClassSubInterface(4),
+                                  configVcClassInterface(5)
+                                }
+                                  
+VpState ::= TEXTUAL-CONVENTION
+      STATUS            current
+      DESCRIPTION
+        "States of virtual path:
+         1 - Inactive
+         2 - Active
+        "
+      SYNTAX            INTEGER { vpStateInactive(1),
+                                  vpStateActive(2)
+                                }
+
+-- Ending Textual Convention Definitions
+--
+--
+
+
+--
+--
+-- Per-VC Traffic shaping parameters
+-- (Beginning of caqVccTable)
+
+caqVccParamsTable       OBJECT-TYPE
+      SYNTAX            SEQUENCE OF CaqVccParamsEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This table is defined to provide QoS information for
+         each active ATM VC existing on the interface."
+      ::= { caqVccParams 1 }
+
+caqVccParamsEntry       OBJECT-TYPE
+      SYNTAX            CaqVccParamsEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This list contains the ATM QoS parameters provided by
+         ciscoAtmQosVccEntry."
+      INDEX { ifIndex, atmVclVpi, atmVclVci }
+      ::= { caqVccParamsTable 1 }
+
+CaqVccParamsEntry ::= SEQUENCE {
+      caqVccParamsType              AtmServiceCategory,
+      caqVccParamsPcrIn0            Unsigned32,
+      caqVccParamsPcrIn01           Unsigned32,
+      caqVccParamsPcrOut0           Unsigned32,
+      caqVccParamsPcrOut01          Unsigned32,
+      caqVccParamsScrIn0            Unsigned32,
+      caqVccParamsScrIn01           Unsigned32,
+      caqVccParamsScrOut0           Unsigned32,
+      caqVccParamsScrOut01          Unsigned32,
+      caqVccParamsBcsIn0            Unsigned32,
+      caqVccParamsBcsIn01           Unsigned32,
+      caqVccParamsBcsOut0           Unsigned32,
+      caqVccParamsBcsOut01          Unsigned32,
+      caqVccParamsInheritLevel      VcParamConfigLocation,
+      caqVccParamsMcrIn             Unsigned32,
+      caqVccParamsMcrOut            Unsigned32,
+      caqVccParamsInvRdf            Unsigned32,
+      caqVccParamsInvRif            Unsigned32,
+      caqVccParamsRfl               VcParamConfigLocation,
+      caqVccParamsCdv               Unsigned32,
+      caqVccParamsCdvt              Unsigned32,
+      caqVccParamsIcr               Unsigned32,
+      caqVccParamsTbe               Unsigned32,
+      caqVccParamsFrtt              Unsigned32,
+      caqVccParamsNrm               Unsigned32,
+      caqVccParamsInvTrm            Unsigned32,
+      caqVccParamsInvCdf            Unsigned32,
+      caqVccParamsAdtf              Unsigned32
+      }
+
+caqVccParamsType        OBJECT-TYPE
+        SYNTAX          AtmServiceCategory
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "The service category of this virtual circuit connection."
+        ::= { caqVccParamsEntry 1 }
+
+caqVccParamsPcrIn0      OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Input Peak Cell Rate (PCR) in kbps with 
+           Cell Loss Priority bit set to 0 (clp0)."
+        ::= { caqVccParamsEntry 2 } 
+
+caqVccParamsPcrIn01     OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Number of OAM F5 end to end loopback cells sent through
+           the VCC."
+        ::= { caqVccParamsEntry 3 }
+
+caqVccParamsPcrOut0     OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Output Peak Cell Rate (PCR) in kbps with
+           Cell Loss Priority bit set to 0 (clp0)."
+        ::= { caqVccParamsEntry 4 }
+
+caqVccParamsPcrOut01    OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Output Peak Cell Rate (PCR) in kbps with
+           Cell Loss Priority bit set to 1 (clp01)."
+        ::= { caqVccParamsEntry 5 }
+
+caqVccParamsScrIn0      OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Input Sustained Cell Rate (SCR) in kbps
+           for connection with VBR type of QoS and
+           Cell Loss Priority bit set to 0 (clp0)."
+        ::= { caqVccParamsEntry 6 }
+
+caqVccParamsScrIn01     OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Input Sustained Cell Rate (SCR) in kbps
+           for connection with VBR type of QoS and
+           Cell Loss Priority bit set to 1 (clp01)."
+        ::= { caqVccParamsEntry 7 }
+
+caqVccParamsScrOut0     OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Output Sustained Cell Rate (SCR) in kbps
+           for connection with VBR type of QoS and
+           Cell Loss Priority bit set to 0 (clp0)."
+        ::= { caqVccParamsEntry 8 }
+
+caqVccParamsScrOut01    OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Output Sustained Cell Rate (SCR) in kbps
+           for connection with VBR type of QoS and
+           Cell Loss Priority bit set to 1 (clp01)."
+        ::= { caqVccParamsEntry 9 }
+
+caqVccParamsBcsIn0      OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Input Burst Cell Size (BCS) for connection
+           with VBR type of QoS and
+           Cell Loss Priority bit set to 0 (clp0)."
+        ::= { caqVccParamsEntry 10 }
+
+caqVccParamsBcsIn01     OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Input Burst Cell Size (BCS) for connection
+           with VBR type of QoS and
+           Cell Loss Priority bit set to 1 (clp01)."
+        ::= { caqVccParamsEntry 11 }
+
+caqVccParamsBcsOut0     OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Output Burst Cell Size (BCS) for connection
+           with VBR type of QoS and 
+           Cell Loss Priority bit set to 0 (clp0)."
+        ::= { caqVccParamsEntry 12 }
+
+caqVccParamsBcsOut01    OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Output Burst Cell Size (BCS) for connection
+           with VBR type of QoS and
+           Cell Loss Priority bit set to 1 (clp01)."
+        ::= { caqVccParamsEntry 13 }
+
+caqVccParamsInheritLevel      OBJECT-TYPE
+        SYNTAX          VcParamConfigLocation
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+          "The source of configuration for peak cell rate."
+        ::= { caqVccParamsEntry 14 }
+
+caqVccParamsMcrIn       OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Input Minimum Cell Rate (MCR) in kbps for
+           connection with VBR-nrt or ABR type of QoS."
+        ::= { caqVccParamsEntry 15 } 
+
+caqVccParamsMcrOut      OBJECT-TYPE
+        SYNTAX          Unsigned32  
+        MAX-ACCESS      read-write 
+        STATUS          current
+        DESCRIPTION
+          "Output Minimum Cell Rate (MCR) in kbps for
+           connection with VBR-nrt or ABR type of QoS."
+        ::= { caqVccParamsEntry 16 }
+
+caqVccParamsInvRdf      OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Inverse of rate decrease factor."
+        ::= { caqVccParamsEntry 17 }
+  
+caqVccParamsInvRif      OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Inverse of rate increase factor."
+        ::= { caqVccParamsEntry 18 }
+  
+caqVccParamsRfl         OBJECT-TYPE
+        SYNTAX          VcParamConfigLocation
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+          "The source of configuration for rate factor."
+        ::= { caqVccParamsEntry 19 }
+      
+caqVccParamsCdv         OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+          "Cell delay variation."
+        ::= { caqVccParamsEntry 20 }
+      
+caqVccParamsCdvt        OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Cell delay variation tolerance."
+        ::= { caqVccParamsEntry 21 }
+      
+caqVccParamsIcr         OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Initial cell rate."
+        ::= { caqVccParamsEntry 22 }
+      
+caqVccParamsTbe         OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Transient buffer exposure."
+        ::= { caqVccParamsEntry 23 }
+
+caqVccParamsFrtt        OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Fixed round-trip time."
+        ::= { caqVccParamsEntry 24 }
+      
+caqVccParamsNrm         OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Maximum number of tx cells for each forward rm cell."
+        ::= { caqVccParamsEntry 25 }
+      
+caqVccParamsInvTrm      OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Maximum time between forward rm cells."
+        ::= { caqVccParamsEntry 26 }
+      
+caqVccParamsInvCdf      OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Inverse of cutoff decrease factor."
+        ::= { caqVccParamsEntry 27 }
+      
+caqVccParamsAdtf        OBJECT-TYPE
+        SYNTAX          Unsigned32
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+          "Allowed cell rate decrease time factor."
+        ::= { caqVccParamsEntry 28 }
+
+-- (End of caqVccParamsTable)
+--
+--
+
+        
+--
+--
+-- Per-VP traffic shaping parameters.
+-- (Beginning of caqVpcParamsTable)
+
+caqVpcParamsTable       OBJECT-TYPE
+      SYNTAX            SEQUENCE OF CaqVpcParamsEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This table is defined to provide QoS information for
+         each active ATM VP existing on the interface."
+      ::= { caqVpcParams 1 }
+
+caqVpcParamsEntry       OBJECT-TYPE
+      SYNTAX            CaqVpcParamsEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This list contains the ATM QoS parameters provided by
+         ciscoAtmQosVpcEntry."
+      INDEX { ifIndex, atmVplVpi }
+      ::= { caqVpcParamsTable 1 }
+
+CaqVpcParamsEntry ::= SEQUENCE {
+      caqVpcParamsVpState           VpState,
+      caqVpcParamsPeakRate          Unsigned32,
+      caqVpcParamsCesRate           Unsigned32,
+      caqVpcParamsDataVcCount       Integer32,
+      caqVpcParamsCesVcCount        Integer32,
+      caqVpcParamsVcdF4Seg          Integer32,
+      caqVpcParamsVcdF4Ete          Integer32,
+      caqVpcParamsScr               Unsigned32,
+      caqVpcParamsMbs               Unsigned32,
+      caqVpcParamsAvailBw           Unsigned32
+      }
+
+caqVpcParamsVpState     OBJECT-TYPE
+        SYNTAX          VpState 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "VP state of the current permanent virtual path."
+        ::= { caqVpcParamsEntry 1 } 
+
+caqVpcParamsPeakRate    OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Maximum rate in kbps at which the associated
+               permanent virtual path can transmit data."
+        ::= { caqVpcParamsEntry 2 } 
+
+caqVpcParamsCesRate     OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Maximum rate in kbps at which CES VCs can transmit
+               data with the associated permanent virtual path."
+        ::= { caqVpcParamsEntry 3 } 
+
+caqVpcParamsDataVcCount OBJECT-TYPE
+        SYNTAX          Integer32 (0..65535)
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Number of data VCs currently associated with
+               the permanent virtual path."
+        ::= { caqVpcParamsEntry 4 } 
+
+caqVpcParamsCesVcCount  OBJECT-TYPE
+        SYNTAX          Integer32 (0..65535)
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Number of CES VCs currently associated with
+               the permanent virtual path."
+        ::= { caqVpcParamsEntry 5 } 
+
+caqVpcParamsVcdF4Seg    OBJECT-TYPE
+        SYNTAX          Integer32 (0..65535)
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+              "Vcd for F4 OAM segment processing."
+        ::= { caqVpcParamsEntry 6 } 
+
+caqVpcParamsVcdF4Ete    OBJECT-TYPE
+        SYNTAX          Integer32 (0..65535)
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+              "Vcd for F4 OAM end to end processing."
+        ::= { caqVpcParamsEntry 7 } 
+
+caqVpcParamsScr         OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+              "Sustained cell rate associated with the PVP."
+        ::= { caqVpcParamsEntry 8 } 
+
+caqVpcParamsMbs         OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Maximum burst size associated with the PVP."
+        ::= { caqVpcParamsEntry 9 } 
+
+caqVpcParamsAvailBw     OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Bandwidth in Kbps currently currently available
+               on this PVP."
+        ::= { caqVpcParamsEntry 10 } 
+
+-- End of caqVpcParamsTable
+--
+--
+
+
+        
+--
+--
+-- Per-VC queuing parameters
+-- Beginning of caqQueuingParamsTable
+
+caqQueuingParamsTable   OBJECT-TYPE
+      SYNTAX            SEQUENCE OF CaqQueuingParamsEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This table provides queuing related information
+         for a VC existing on an ATM interface."
+      ::= { caqQueuingParams 1 }
+
+caqQueuingParamsEntry   OBJECT-TYPE
+      SYNTAX            CaqQueuingParamsEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This is defined as an entry in caqQueuingParamsTable."
+      INDEX { ifIndex, atmVclVpi, atmVclVci }
+      ::= { caqQueuingParamsTable 1 }
+
+CaqQueuingParamsEntry ::= SEQUENCE {
+        caqQueuingParamsMeanQDepth  Unsigned32
+      }
+
+caqQueuingParamsMeanQDepth      OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Mean Queue Depth associated with the vc.  This value
+               is calculated based on the actual queue depth on the
+               interface and the exponential weighting constant."
+        ::= { caqQueuingParamsEntry 1 } 
+
+
+-- (End of caqQueuingParamsTable)
+--
+--
+
+
+
+--
+--
+-- (Beginning of caqQueuingParamsClassTable)
+
+caqQueuingParamsClassTable     OBJECT-TYPE
+      SYNTAX            SEQUENCE OF CaqQueuingParamsClassEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This table provides queuing information for all 
+         queuing classes associating with a VC."
+      ::= { caqQueuingParams 2 }
+
+caqQueuingParamsClassEntry     OBJECT-TYPE
+      SYNTAX            CaqQueuingParamsClassEntry
+      MAX-ACCESS        not-accessible
+      STATUS            current
+      DESCRIPTION
+        "This is defined as an entry in ciscoAtmQosVcQueuingClassTable
+         to provide queuing information of a specific class."
+      INDEX { ifIndex, atmVclVpi, atmVclVci, 
+              caqQueuingParamsClassIndex }
+      ::= { caqQueuingParamsClassTable 1 }
+
+CaqQueuingParamsClassEntry ::= SEQUENCE {
+      caqQueuingParamsClassIndex      Integer32,
+      caqQueuingParamsClassRandDrp    Unsigned32,
+      caqQueuingParamsClassTailDrp    Unsigned32,
+      caqQueuingParamsClassMinThre    Unsigned32,
+      caqQueuingParamsClassMaxThre    Unsigned32,
+      caqQueuingParamsClassMrkProb    Unsigned32
+      }
+
+caqQueuingParamsClassIndex      OBJECT-TYPE
+        SYNTAX          Integer32 (0..8) 
+        MAX-ACCESS      not-accessible 
+        STATUS          current
+        DESCRIPTION
+              "A class index, which associates with an IP precedence
+               (0 to 8), is defined to reference individual
+               caqQueuingParamsClassEntry."
+        ::= { caqQueuingParamsClassEntry 1 } 
+
+caqQueuingParamsClassRandDrp      OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Number of packets dropped when Mean Queue
+               Length is between Minimum Threshold and
+               Maximum Threshold range."
+        ::= { caqQueuingParamsClassEntry 2 } 
+
+caqQueuingParamsClassTailDrp      OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Number of packets dropped because the Mean
+               Queue Depth exceeds the Maximum Threshold value."
+        ::= { caqQueuingParamsClassEntry 3 } 
+
+caqQueuingParamsClassMinThre      OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Minimum Threshold value in kbps."
+        ::= { caqQueuingParamsClassEntry 4 } 
+
+caqQueuingParamsClassMaxThre      OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Maximum Threshold value in kbps."
+        ::= { caqQueuingParamsClassEntry 5 } 
+
+caqQueuingParamsClassMrkProb      OBJECT-TYPE
+        SYNTAX          Unsigned32 
+        MAX-ACCESS      read-only 
+        STATUS          current
+        DESCRIPTION
+              "Mark probability denominator.  This is the value used
+               in the calculation of a packet being dropped when
+               the average queue size is between the minimum
+               threshold and the maximum threshold."
+        ::= { caqQueuingParamsClassEntry 6 } 
+
+
+-- (End of caqQueuingParamsClassTable)
+--
+--
+
+      
+-- Conformance Information
+ 
+ciscoAtmQosMIBCompliances OBJECT IDENTIFIER 
+                                 ::= { ciscoAtmQosMIBConform 1 }
+ciscoAtmQosMIBGroups      OBJECT IDENTIFIER
+                                 ::= { ciscoAtmQosMIBConform 2 }
+
+-- Compliance Statement 
+ciscoAtmQosMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                this Cisco ATM QoS MIB."
+        MODULE  -- this module
+        MANDATORY-GROUPS { ciscoAtmQosVccGroup,
+                           ciscoAtmQosVpcGroup,
+                           ciscoAtmQosVcQueuingGroup
+                         }
+                         
+        OBJECT  caqVccParamsType
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsPcrIn0
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsPcrIn01
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsPcrOut0
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsPcrOut01
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsScrIn0
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsScrIn01
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsScrOut0
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsScrOut01
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsBcsIn0
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsBcsIn01
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsBcsOut0
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsBcsOut01
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsMcrIn
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsMcrOut
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsInvRdf
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsInvRif
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsCdvt
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsIcr
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsTbe
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsFrtt
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsNrm
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  caqVccParamsInvTrm
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is not required."
+            
+        GROUP   ciscoAtmQosVccAddon1Group
+        DESCRIPTION
+            "This group is optional."
+
+        GROUP   ciscoAtmQosVpcAddon1Group
+        DESCRIPTION
+            "This group is optional."
+
+        ::= { ciscoAtmQosMIBCompliances 1 }
+ 
+-- units of conformance:
+ 
+ciscoAtmQosVccGroup OBJECT-GROUP
+        OBJECTS {
+            caqVccParamsType,
+            caqVccParamsPcrIn0,
+            caqVccParamsPcrIn01,
+            caqVccParamsPcrOut0,
+            caqVccParamsPcrOut01,
+            caqVccParamsScrIn0,
+            caqVccParamsScrIn01,
+            caqVccParamsScrOut0,
+            caqVccParamsScrOut01,
+            caqVccParamsBcsIn0,
+            caqVccParamsBcsIn01,
+            caqVccParamsBcsOut0,
+            caqVccParamsBcsOut01,
+            caqVccParamsInheritLevel,
+            caqVccParamsMcrIn,
+            caqVccParamsMcrOut,
+            caqVccParamsInvRdf,
+            caqVccParamsInvRif,
+            caqVccParamsRfl
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing per-VC 
+                 ATM QoS related info."
+        ::= { ciscoAtmQosMIBGroups 1 }
+        
+ciscoAtmQosVccAddon1Group OBJECT-GROUP
+        OBJECTS {
+            caqVccParamsCdv,
+            caqVccParamsCdvt,
+            caqVccParamsIcr,
+            caqVccParamsTbe,
+            caqVccParamsFrtt,
+            caqVccParamsNrm,
+            caqVccParamsInvTrm,
+            caqVccParamsInvCdf,
+            caqVccParamsAdtf
+        }
+        STATUS  current
+        DESCRIPTION
+                "Add-on objects providing per-VC 
+                 ATM QoS related info."
+        ::= { ciscoAtmQosMIBGroups 2 }
+
+ciscoAtmQosVpcGroup OBJECT-GROUP
+        OBJECTS {
+            caqVpcParamsVpState,
+            caqVpcParamsPeakRate,
+            caqVpcParamsCesRate,
+            caqVpcParamsDataVcCount,
+            caqVpcParamsCesVcCount,
+            caqVpcParamsVcdF4Seg,
+            caqVpcParamsVcdF4Ete,
+            caqVpcParamsScr,
+            caqVpcParamsMbs
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing per-VP 
+                 ATM QoS related info."
+        ::= { ciscoAtmQosMIBGroups 3 }
+        
+ciscoAtmQosVpcAddon1Group OBJECT-GROUP
+        OBJECTS {
+            caqVpcParamsAvailBw
+        }
+        STATUS  current
+        DESCRIPTION
+                "Add-on objects providing per-VP 
+                 ATM QoS related info."
+        ::= { ciscoAtmQosMIBGroups 4 }
+        
+ciscoAtmQosVcQueuingGroup OBJECT-GROUP
+        OBJECTS {
+            caqQueuingParamsMeanQDepth,
+            caqQueuingParamsClassRandDrp,
+            caqQueuingParamsClassTailDrp,
+            caqQueuingParamsClassMinThre,
+            caqQueuingParamsClassMaxThre,
+            caqQueuingParamsClassMrkProb
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing per-VC 
+                 queuing/buffering related info."
+        ::= { ciscoAtmQosMIBGroups 5 }
+        
+
+END

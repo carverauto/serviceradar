@@ -1,0 +1,421 @@
+-- *****************************************************************
+-- CISCO-IEEE8021-CFM-CAPABILITY.my:
+-- Cisco IEEE8021-CFM-MIB AGENT-CAPABILITIES
+--   
+-- February 2009, Wen Xu
+--   
+-- Copyright (c) 2009, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-IEEE8021-CFM-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIeee8021CfmCapability MODULE-IDENTITY
+    LAST-UPDATED    "201002230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of IEEE8021-CFM-MIB."
+    REVISION        "201002230000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoIeee8021CfmCapV12R0254SE."
+    REVISION        "200902040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 578 }
+
+
+
+ciscoIeee8021CfmCapCatOSV08R0702 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(2)."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-CFM-MIB capabilities."
+
+    SUPPORTS        IEEE8021-CFM-MIB
+    INCLUDES        {
+                        dot1agCfmMdGroup,
+                        dot1agCfmMaGroup,
+                        dot1agCfmMepGroup,
+                        dot1agCfmMepDbGroup,
+                        dot1agCfmNotificationsGroup
+                    }
+    VARIATION       dot1agCfmMdFormat
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1agCfmMdMhfCreation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMdMhfIdPermission
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMdRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1agCfmMaNetCcmInterval
+    SYNTAX          INTEGER  {
+                        intervalInvalid(0),
+                        interval10s(5),
+                        interval1min(6),
+                        interval10min(7)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1agCfmMaNetRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1agCfmMepDirection
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1agCfmMepPrimaryVid
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1agCfmMepCciEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1agCfmMepActive
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLtmStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1agCfmMepFngState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepCcmLtmPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepFngAlarmTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepFngResetTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepErrorCcmLastFailure
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepXconCcmLastFailure
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepLbrBadMsdu
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmDataTlv
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmVlanPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmVlanDropEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepDbRMepState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepDbRMepFailedOkTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepDbManAddressDomain
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepDbManAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmMepRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1agCfmLtrManAddressDomain
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1agCfmLtrManAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { ciscoIeee8021CfmCapability 1 }
+
+ciscoIeee8021CfmCapV12R0254SE AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(54)SE"
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-CFM-MIB capabilities."
+
+    SUPPORTS        IEEE8021-CFM-MIB
+    INCLUDES        {
+                        dot1agCfmMdGroup,
+                        dot1agCfmMepGroup,
+                        dot1agCfmMepDbGroup,
+                        dot1agCfmNotificationsGroup,
+                        ieee8021CfmMaNetGroup
+                    }
+    VARIATION       dot1agCfmMdName
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMdFormat
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMdMdLevel
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMdMhfCreation
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMdMhfIdPermission
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMdRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMaNetFormat
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMaNetName
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMaNetCcmInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMaNetRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMaMepListRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepIfIndex
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepDirection
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepPrimaryVid
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepActive
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepCciEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepCcmLtmPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepLowPrDef
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepFngAlarmTime
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepFngResetTime
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmDestMacAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmDestMepId
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmDestIsMepId
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmMessages
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmDataTlv
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmVlanPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLbmVlanDropEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLtmFlags
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLtmTargetMacAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLtmTargetMepId
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLtmTargetIsMepId
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLtmTtl
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepTransmitLtmEgressIdentifier
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    VARIATION       dot1agCfmMepRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "create/write access is not supported."
+
+    ::= { ciscoIeee8021CfmCapability 2 }
+
+END
+
+
+

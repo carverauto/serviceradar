@@ -1,0 +1,457 @@
+-- *****************************************************************
+-- CISCO-H324-DIAL-CONTROL-MIB.my: H.324 Dial Control MIB 
+-- 
+--
+-- January 2007, Lizzie Cheung 
+--
+-- Copyright (c) 2007 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-H324-DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        TEXTUAL-CONVENTION                  
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        callActiveSetupTime,
+        callActiveIndex,
+        AbsoluteCounter32
+                FROM DIAL-CONTROL-MIB
+        cCallHistoryIndex
+                FROM CISCO-DIAL-CONTROL-MIB
+        CvcGUid,
+        CvcVideoCoderRate
+                FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+ 
+ciscoH324DialControlMIB MODULE-IDENTITY
+        LAST-UPDATED    "200702060000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W. Tasman Drive
+                    San Jose, CA  95134
+                    USA
+ 
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-voice@cisco.com"
+        DESCRIPTION
+            "This MIB module enhances the IETF Dial Control MIB
+             (RFC2128) by providing H.324 call information over 
+             a telephony network.
+
+             ITU-T Recommendation H.324 is the ITU standard
+             covers audio and video to be shared among
+             narrow-band visual telephone systems
+             and terminal equipments over ISDN.
+
+             REFERENCE
+
+             [1] RFC 2128 Dial Control Management Information
+             Base using SMIv2."
+
+        REVISION        "200702060000Z"
+        DESCRIPTION 
+                "Initial version of this MIB module."
+
+        ::= { ciscoMgmt 621 }  
+
+-- H324 Dial Control MIB objects definitions
+
+ciscoH324DialControlMIBObjects OBJECT IDENTIFIER ::=
+       { ciscoH324DialControlMIB 1 }
+ciscoH324DialControlMIBConform OBJECT IDENTIFIER ::=
+       { ciscoH324DialControlMIB 2 }
+
+-- The H324 Dial Control MIB consists of the following groups
+-- [1] H324 Dial Control Call History Group 
+--                                     (cH324DialControlCallHistory)
+-- [2] H324 Dial Control Call Active Group 
+--                                     (cH324DialControlCallActive)
+
+cH324DialControlCallHistory        OBJECT IDENTIFIER ::=
+        { ciscoH324DialControlMIBObjects 1 }
+cH324DialControlCallActive         OBJECT IDENTIFIER ::=
+        { ciscoH324DialControlMIBObjects 2 }
+
+--
+-- Textual Conventions
+--
+
+--
+-- Voice Call H.324 Call Type textual convention
+--
+
+CH324CallType ::= TEXTUAL-CONVENTION
+       STATUS        current
+       DESCRIPTION
+           "This object specifies the H.324 call type of a voice
+            call."
+       SYNTAX INTEGER {
+           h324                   (1)  -- h324 call
+       }
+
+--**********************************************************************
+-- H324 Dial Control Call History Group
+--**********************************************************************
+
+--
+-- H324 Call History Table
+-- 
+
+cH324CallHistoryTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CH324CallHistoryEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table provides the H.324 extension to the call 
+             history table of IETF Dial Control MIB. It contains H.324
+             call leg information about specific voice encapsulation
+             call with H.324 setup.
+
+             An entry is added to the table when its associated call
+             history entry in the IETF Dial Control MIB is created and
+             the call history entry contains information for the call
+             establishment to a voice encapsulation peer with video
+             call information type.
+
+             The entry is deleted when its associated call history 
+             entry in the IETF Dial Control MIB is deleted."
+
+        ::= { cH324DialControlCallHistory 1 }
+
+cH324CallHistoryEntry OBJECT-TYPE
+        SYNTAX      CH324CallHistoryEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The information regarding a single voice encapsulation
+             call with H.324 setup."
+        INDEX       { cCallHistoryIndex }
+        ::= { cH324CallHistoryTable 1 }
+
+
+CH324CallHistoryEntry ::=
+        SEQUENCE {
+            cH324CallHistoryConnectionId          CvcGUid,
+            cH324CallHistoryIncomingConnectionId  CvcGUid,
+            cH324CallHistoryH324CallType          CH324CallType,
+            cH324CallHistoryUsedBandwidth         Unsigned32,
+            cH324CallHistoryTxVideoCodec          CvcVideoCoderRate,
+            cH324CallHistoryTxVideoPackets        AbsoluteCounter32,
+            cH324CallHistoryTxVideoBytes          AbsoluteCounter32,
+            cH324CallHistoryRxVideoCodec          CvcVideoCoderRate,
+            cH324CallHistoryRxVideoPackets        AbsoluteCounter32,
+            cH324CallHistoryRxVideoBytes          AbsoluteCounter32
+        }
+
+cH324CallHistoryConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for the H.324 call."
+        ::= { cH324CallHistoryEntry 1 }
+
+cH324CallHistoryIncomingConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for the gateway call which
+             will be shared with the associated call legs."
+        ::= { cH324CallHistoryEntry 2 }
+
+cH324CallHistoryH324CallType OBJECT-TYPE
+        SYNTAX      CH324CallType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The type of H.324 call."
+        ::= { cH324CallHistoryEntry 3 }
+
+cH324CallHistoryUsedBandwidth       OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..10000000)
+        UNITS       "kilobits per second"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The bandwidth for the H.324 call session."
+        ::= { cH324CallHistoryEntry 4 }
+
+cH324CallHistoryTxVideoCodec        OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The negotiated encoding type used to compress
+             the video data in transmit direction for a 
+             H.324 call session."
+        ::= { cH324CallHistoryEntry 5 }
+
+cH324CallHistoryTxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets
+             transmitted for the H.324 call session."
+        ::= { cH324CallHistoryEntry 6 }
+
+cH324CallHistoryTxVideoBytes       OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes
+             transmitted for the H.324 call session."
+        ::= { cH324CallHistoryEntry 7 }
+
+cH324CallHistoryRxVideoCodec       OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The negotiated encoding type used to compress
+             the video data in receive direction for a 
+             H.324 call session."
+        ::= { cH324CallHistoryEntry 8 }
+
+cH324CallHistoryRxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets 
+             received for the H.324 call session."
+        ::= { cH324CallHistoryEntry 9 }
+
+cH324CallHistoryRxVideoBytes      OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes 
+             received for the H.324 call session."
+        ::= { cH324CallHistoryEntry 10 }
+
+--**********************************************************************
+-- H324 Dial Control Call Active Group
+--**********************************************************************
+
+--
+-- H324 Call Active Table
+-- 
+
+cH324CallActiveTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CH324CallActiveEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table provides the H.324 extension to the active
+             call table of IETF Dial Control MIB. It contains H.324 
+             call leg information about specific voice encapsulation 
+             call with H.324 setup.
+
+             An entry is added to the table when its associated call
+             active entry in the IETF Dial Control MIB is created. The
+             call active entry contains information for the call
+             establishment to a voice encapsulation peer with video
+             call information type.
+
+             The entry is deleted when its associated call active entry
+             in the IETF Dial Control MIB is deleted."
+
+        ::= { cH324DialControlCallActive 1 }
+
+cH324CallActiveEntry OBJECT-TYPE
+        SYNTAX      CH324CallActiveEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The information regarding a single voice encapsulation 
+             call with H.324 setup."
+        INDEX       { callActiveSetupTime, callActiveIndex }
+        ::= { cH324CallActiveTable 1 }
+
+CH324CallActiveEntry ::=
+        SEQUENCE {
+            cH324CallActiveConnectionId          CvcGUid,
+            cH324CallActiveIncomingConnectionId  CvcGUid,
+            cH324CallActiveH324CallType          CH324CallType,
+            cH324CallActiveUsedBandwidth         Unsigned32,
+            cH324CallActiveTxVideoCodec          CvcVideoCoderRate,
+            cH324CallActiveTxVideoPackets        AbsoluteCounter32,
+            cH324CallActiveTxVideoBytes          AbsoluteCounter32,
+            cH324CallActiveRxVideoCodec          CvcVideoCoderRate,
+            cH324CallActiveRxVideoPackets        AbsoluteCounter32,
+            cH324CallActiveRxVideoBytes          AbsoluteCounter32
+        }
+
+cH324CallActiveConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for the H.324 call."
+        ::= { cH324CallActiveEntry 1 }
+
+cH324CallActiveIncomingConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for the gateway call which
+             will be shared with the associated call legs."
+        ::= { cH324CallActiveEntry 2 }
+
+cH324CallActiveH324CallType OBJECT-TYPE
+        SYNTAX      CH324CallType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The type of H.324 call."
+        ::= { cH324CallActiveEntry 3 }
+
+cH324CallActiveUsedBandwidth       OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..10000000)
+        UNITS       "kilobits per second"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The bandwidth for the H.324 call session."
+        ::= { cH324CallActiveEntry 4 }
+
+cH324CallActiveTxVideoCodec        OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The negotiated encoding type used to compress
+             the video data in transmit direction for the 
+             H.324 call session."
+        ::= { cH324CallActiveEntry 5 }
+
+cH324CallActiveTxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets
+             transmitted for the H.324 call session."
+        ::= { cH324CallActiveEntry 6 }
+
+cH324CallActiveTxVideoBytes       OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes
+             transmitted for the H.324 call session."
+        ::= { cH324CallActiveEntry 7 }
+
+cH324CallActiveRxVideoCodec       OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The negotiated encoding type used to compress
+             the video data in receive direction for the 
+             H.324 call session."
+        ::= { cH324CallActiveEntry 8 }
+
+cH324CallActiveRxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets
+             received for the H.324 call session."
+        ::= { cH324CallActiveEntry 9 }
+
+cH324CallActiveRxVideoBytes       OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes
+             received for the H.324 call session."
+        ::= { cH324CallActiveEntry 10 }
+
+
+--
+-- Conformance, Compliance and Group Objects
+--
+
+ciscoH324DialControlMIBConformance OBJECT IDENTIFIER ::=
+        { ciscoH324DialControlMIBConform 1 }
+ciscoH324DialControlMIBCompliances OBJECT IDENTIFIER ::=
+        { ciscoH324DialControlMIBConformance 1 }
+ciscoH324DialControlMIBGroups      OBJECT IDENTIFIER ::=
+        { ciscoH324DialControlMIBConformance 2 }
+ 
+-- compliance statements
+
+ciscoH324DialControlMIBCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for the SNMP entities
+             that implement ciscoH324DialControlMIB module."
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            { cH324CallHistoryGroup,
+              cH324CallActiveGroup }
+        ::= { ciscoH324DialControlMIBCompliances 1 }
+
+-- units of conformance
+
+cH324CallHistoryGroup OBJECT-GROUP
+        OBJECTS {
+            cH324CallHistoryConnectionId,
+            cH324CallHistoryIncomingConnectionId,
+            cH324CallHistoryH324CallType,
+            cH324CallHistoryUsedBandwidth,
+            cH324CallHistoryTxVideoCodec,
+            cH324CallHistoryTxVideoPackets,
+            cH324CallHistoryTxVideoBytes,
+            cH324CallHistoryRxVideoCodec,
+            cH324CallHistoryRxVideoPackets,
+            cH324CallHistoryRxVideoBytes
+        }
+        STATUS      current
+        DESCRIPTION
+            "This collection of objects provide the H.324
+             call history."
+        ::= { ciscoH324DialControlMIBGroups 1 }
+
+cH324CallActiveGroup OBJECT-GROUP
+        OBJECTS {
+            cH324CallActiveConnectionId,
+            cH324CallActiveIncomingConnectionId,
+            cH324CallActiveH324CallType,
+            cH324CallActiveUsedBandwidth,
+            cH324CallActiveTxVideoCodec,
+            cH324CallActiveTxVideoPackets,
+            cH324CallActiveTxVideoBytes,
+            cH324CallActiveRxVideoCodec,
+            cH324CallActiveRxVideoPackets,
+            cH324CallActiveRxVideoBytes
+        }
+        STATUS      current
+        DESCRIPTION
+            "This collection of objects provide the information
+             about the H.324 active calls."
+        ::= { ciscoH324DialControlMIBGroups 2 }
+END
+

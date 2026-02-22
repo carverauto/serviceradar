@@ -1,0 +1,135 @@
+-- *****************************************************************
+-- CISCO-DOT11-CONTEXT-SERVICES-CLIENT-CAPABILITY:  Cisco DOT11
+-- CONTEXT SERVICES CLIENT MIB AGENT CAPABILITIES
+--
+-- August 2003 - Parthasarathy Venkatavaradhan,
+-- Prasanna Viswakumar
+--
+-- Copyright (c) 2003, 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-DOT11-CONTEXT-SERVICES-CLIENT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+
+ciscoDot11CscCapability  MODULE-IDENTITY  
+        LAST-UPDATED    "200407240000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-dot11@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for CISCO-CONTEXT-SERVICES-
+                 CLIENT-MIB"
+        REVISION        "200407240000Z"
+        DESCRIPTION
+                "Added ciscoDot11CscCapabilityV2 for IOS 
+                 12.3(2)."
+
+        REVISION        "200308250000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 336 }
+
+ciscoDot11CscCapabilityV1 AGENT-CAPABILITIES
+    
+PRODUCT-RELEASE "Cisco IOS 12.2"
+        STATUS          current
+        DESCRIPTION     "Cisco Dot11 CONTEXT SERVICES CLIENT
+                           MIB capabilities"
+        SUPPORTS        CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB
+        INCLUDES        { ciscoDot11CscConfigGlobalGroup }
+
+        VARIATION       cDot11CscRootNodeAddress 
+                        DESCRIPTION
+                                "WDS acts as the root node in the
+                                 current implementation and hence
+                                 this object returns the IP address
+                                 of the parent WDS."
+
+        VARIATION       cDot11CscMnAuthenticatorAddress 
+                        DESCRIPTION
+                                "WDS acts as the root node in the
+                                 current implementation and hence
+                                 this object returns the IP address
+                                 of the parent WDS."
+
+        VARIATION       cDot11CscMnInactivityTime
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is currently not
+                                 supported."
+         
+        VARIATION       cDot11CscStateTransitions
+                        ACCESS not-implemented 
+                        DESCRIPTION
+                                "This object is currently not
+                                 supported."
+
+ 
+::= { ciscoDot11CscCapability 1 }
+
+ciscoDot11CscCapabilityV2 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.3(2) JA"
+        STATUS          current
+        DESCRIPTION     "Cisco Dot11 CONTEXT SERVICES CLIENT
+                         MIB capabilities for IOS 12.3(2)."
+
+        SUPPORTS        CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB
+        INCLUDES        { ciscoDot11CscConfigGlobalGroup }
+
+        VARIATION       cDot11CscParentWdsAddress
+                        DESCRIPTION
+                                "A query to this object returns the
+                                 noSuchInstance exception when the
+                                 user credentials are not configured
+                                 in this particular 802.11 
+                                 station."
+
+        VARIATION       cDot11CscRootNodeAddress
+                        DESCRIPTION
+                                "WDS acts as the root node in the
+                                 current implementation and hence
+                                 this object returns the IP address
+                                 of the parent WDS."
+
+        VARIATION       cDot11CscMnAuthenticatorAddress
+                        DESCRIPTION
+                                "WDS acts as the root node in the
+                                 current implementation and hence
+                                 this object returns the IP address
+                                 of the parent WDS."
+
+        VARIATION       cDot11CscMnInactivityTime
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is currently not
+                                 supported."
+
+        VARIATION       cDot11CscStateTransitions
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is currently not
+                                 supported."
+
+::= { ciscoDot11CscCapability 2 }
+
+END

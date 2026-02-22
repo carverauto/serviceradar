@@ -1,0 +1,161 @@
+-- *****************************************************************
+-- CISCO-MEDIA-QUALITY-CAPABILITY.my
+--   
+-- Copyright (c) 2011 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MEDIA-QUALITY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoMediaQualityCapability MODULE-IDENTITY
+    LAST-UPDATED    "201109230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-voice@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-MEDIA-QUALITY-MIB."
+    REVISION        "201109230000Z"
+    DESCRIPTION
+        "Added agent capabilities 'ciscoMediaQualityCapabilityV152R02' 
+        for IOS 15.2(2)T."
+    REVISION        "201104150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 604 }
+
+
+
+ciscoMediaQualityCapabilityV152R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=IOS
+                     OSVERSION=15.2(1)T
+                     PLATFORM=c29xx,c3925,c3945,c3925E,c3945E
+                     INTERFACE=None"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for CISCO-MEDIA-QUALITY-MIB release in
+        15.2(1)T."
+
+    SUPPORTS        CISCO-MEDIA-QUALITY-MIB
+    INCLUDES        {
+                        cmqVideoCallActiveGroup,
+                        cmqVideoCallHistoryGroup
+                    }
+    ::= { ciscoMediaQualityCapability 1 }
+
+ciscoMediaQualityCapabilityV152R02 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=IOS
+                     OSVERSION=15.2(2)T
+                     PLATFORM=c28xx,c3825,c3845,c29xx,c3925,c3945,c3925E,c3945E
+                     INTERFACE=None"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for CISCO-MEDIA-QUALITY-MIB release
+        15.2(2)T."
+
+    SUPPORTS        CISCO-MEDIA-QUALITY-MIB
+    INCLUDES        {
+                        cmqVoiceCallActiveGroup,
+                        cmqVoiceCallHistoryGroup,
+                        cmqVideoCallActiveGroup,
+                        cmqVideoCallHistoryGroup
+                    }
+    VARIATION       cmqCommonCallActivePreNRNoiseFloorEstMic
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqCommonCallActivePostNRNoiseFloorEstMic
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqCommonCallActivePreNRNoiseFloorEstEar
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqCommonCallActivePostNRNoiseFloorEstEar
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqCommonCallHistoryPreNRNoiseFloorEstMic
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqCommonCallHistoryPostNRNoiseFloorEstMic
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqCommonCallHistoryPreNRNoiseFloorEstEar
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqCommonCallHistoryPostNRNoiseFloorEstEar
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cmqVoIPCallActiveTable
+    DESCRIPTION
+        "Supported on c28xx, c3825, c3845, c29xx, c3925, c3945, c3925E,
+        c3945E platforms with DSP modules installed."
+
+    VARIATION       cmqCommonCallActiveNRTable
+    DESCRIPTION
+        "Supported on c29xx, c3925, c3945, c3925E, c3945E platforms
+        with PVDM3 installed."
+
+    VARIATION       cmqCommonCallActiveASPTable
+    DESCRIPTION
+        "Supported on c29xx, c3925, c3945, c3925E, c3945E platforms
+        with PVDM3 installed."
+
+    VARIATION       cmqVoIPCallHistoryTable
+    DESCRIPTION
+        "Supported on c28xx, c3825, c3845, c29xx, c3925, c3945, c3925E,
+        c3945E platforms with DSP modules installed."
+
+    VARIATION       cmqCommonCallHistoryNRTable
+    DESCRIPTION
+        "Supprted on c29xx, c3925, c3945, c3925E, c3945E platforms
+        with PVDM3 installed."
+
+    VARIATION       cmqCommonCallHistoryASPTable
+    DESCRIPTION
+        "Supprted on c29xx, c3925, c3945, c3925E, c3945E platforms
+        with PVDM3 installed."
+
+    VARIATION       cmqVideoCallActiveTable
+    DESCRIPTION
+        "Supported on c29xx, c3925, c3945, c3925E, c3945E platforms with
+        PVDM3 installed."
+
+    VARIATION       cmqVideoCallHistoryTable
+    DESCRIPTION
+        "Supported on c29xx, c3925, c3945, c3925E, c3945E platforms with
+        PVDM3 installed."
+
+    ::= { ciscoMediaQualityCapability 2 }
+
+END
+
+
+
+
+
+

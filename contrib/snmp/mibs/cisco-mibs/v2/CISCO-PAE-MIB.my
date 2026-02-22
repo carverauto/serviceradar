@@ -1,0 +1,4046 @@
+-- *****************************************************************
+-- CISCO-PAE-MIB: CISCO private MIB for IEEE 802.1x
+--   
+-- September 2001, Binh P Le
+--   
+-- Copyright (c) 2001-2009 by cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-PAE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    OBJECT-TYPE,
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    MacAddress,
+    RowStatus,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    dot1xPaePortEntry,
+    dot1xPaePortNumber,
+    dot1xAuthPaeState,
+    dot1xAuthConfigEntry,
+    PaeControlledPortStatus
+        FROM IEEE8021-PAE-MIB
+    InterfaceIndex
+        FROM IF-MIB
+    VlanIndex
+        FROM CISCO-VTP-MIB
+    CiscoURLString
+        FROM CISCO-TC
+    CnnEouPostureToken,
+    CnnEouPostureTokenString
+        FROM CISCO-NAC-TC-MIB
+    CpgPolicyNameOrEmpty
+        FROM CISCO-POLICY-GROUP-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoPaeMIB MODULE-IDENTITY
+    LAST-UPDATED    "200912100000Z"
+    ORGANIZATION    "Cisco System, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ibns@cisco.com,
+                    cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Cisco Port Access Entity (PAE) module for managing
+        IEEE Std 802.1x.
+
+        This MIB provides Port Access Entity information
+        that are either excluded by IEEE8021-PAE-MIB or
+        specific to Cisco products."
+    REVISION        "200912100000Z"
+    DESCRIPTION
+        "Added cpaeSuppPortProfileGroup,
+        and cpaeSuppHostInfoGroup."
+    REVISION        "200807070000Z"
+    DESCRIPTION
+        "Added TEXTUAL-CONVENTION CpaeAuthState.
+        Added enumerated value other(4) to cpaePortMode.
+
+        Added cpaeHostSessionIdGroup,
+        cpaeGuestVlanNotifEnableGroup,
+        cpaeGuestVlanNotifGroup,
+        cpaeAuthFailVlanNotifEnableGrp,
+        cpaeAuthFailVlanNotifGroup,
+        cpaeHostAuthInfoGroup,
+        cpaePortCapabilitiesConfigGroup,
+        cpaeDot1xSuppToGuestVlanGroup.
+
+        Deprecated cpaePortAuthFailVlanGroup, replaced by
+        cpaePortAuthFailVlanConfigGroup and
+        cpaePortAuthFailUserInfoGroup.
+
+        Deprecated cpaeCompliance8, replaced by cpaeCompliance9."
+    REVISION        "200804090000Z"
+    DESCRIPTION
+        "Added cpaeMabAuditInfoGroup,
+        cpaeHostUrlRedirectGroup,
+        cpaeMabPortIpDevTrackConfGroup,
+        cpaePortIpDevTrackConfGroup,
+        cpaeWebAuthIpDevTrackingGroup,
+        cpaeWebAuthUnAuthTimeoutGroup,
+        cpaeGlobalAuthFailVlanGroup,
+        cpaeGlobalSecViolationGroup,
+        cpaeCriticalEapolConfigGroup.
+
+        Deprecated cpaeMacAuthBypassGroup and replace
+        it by cpaeMacAuthBypassPortEnableGroup, and
+        cpaeMacAuthBypassGroup4;
+
+        Deprecated cpaeAuthConfigGroup and replace it by
+        cpaeAuthIabConfigGroup, cpaeAuthConfigGroup3 and
+        cpaeAuthConfigGroup4.
+
+        Modified cpaeMacAuthBypassPortAuthState to add 'ipAwaiting'
+        and 'policyConfig' enum values."
+    REVISION        "200704250000Z"
+    DESCRIPTION
+        "Added cpaeMacAuthBypassGroup3,
+        and cpaeHostPostureTokenGroup."
+    REVISION        "200704160000Z"
+    DESCRIPTION
+        "Add cpaeHostInfoGroup3."
+    REVISION        "200701270000Z"
+    DESCRIPTION
+        "Added 'aaaFail' state to
+        cpaeMacAuthBypassPortAuthState and
+        cpaeWebAuthHostState.
+
+        Added cpaePortAuthFailVlanGroup2,
+        cpaeWebAuthAaaFailGroup,
+        cpaeMacAuthBypassGroup2,
+        cpaePortEapolTestGroup,
+        cpaeHostInfoGroup2,
+        cpaeAuthConfigGroup2,
+        cpaeCriticalRecoveryDelayGroup,
+        cpaeMacAuthBypassCriticalGroup, and
+        cpaeWebAuthCriticalGroup.
+
+        Obsoleted cpaeHostInfoPostureToken object."
+    REVISION        "200509220000Z"
+    DESCRIPTION
+        "Added cpaeGuestVlanGroup3, cpaePortAuthFailVlanGroup,
+        cpaePortOperVlanGroup, cpaeNoGuestVlanNotifEnableGrp,
+        cpaeNoAuthFailVlanNotifEnableGrp,
+        cpaeNoGuestVlanNotifGroup,
+        cpaeNoAuthFailVlanNotifGroup, cpaeMacAuthBypassGroup,
+        cpaeWebAuthGroup, cpaeAuthConfigGroup and
+        cpaeHostInfoGroup.
+
+        Deprecated cpaeInGuestVlan, cpaeGuestVlanGroup2."
+    REVISION        "200404230000Z"
+    DESCRIPTION
+        "Modified the DESCRIPTION clauses of cpaeGuestVlanNumber
+        and cpaeGuestVlanId."
+    REVISION        "200404010000Z"
+    DESCRIPTION
+        "Added cpaeUserGroupGroup and cpaeRadiusConfigGroup."
+    REVISION        "200304080000Z"
+    DESCRIPTION
+        "Added cpaeGuestVlanGroup2 and cpaeShutdownTimeoutGroup.
+        Deprecated cpaeGuestVlanGroup."
+    REVISION        "200210160000Z"
+    DESCRIPTION
+        "Added cpaePortEntryGroup and cpaeGuestVlanGroup.
+        Deprecated cpaeMultipleHostGroup."
+    REVISION        "200105241016Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 220 }
+
+
+cpaeMIBNotification  OBJECT IDENTIFIER
+    ::= { ciscoPaeMIB 0 }
+
+cpaeMIBObject  OBJECT IDENTIFIER
+    ::= { ciscoPaeMIB 1 }
+
+cpaeMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoPaeMIB 2 }
+
+
+-- - Textual Conventions
+
+ReAuthPeriodSource ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Source of the reAuthPeriod constant, used by the
+        802.1x Reauthentication Timer state machine.
+
+        local : local configured reauthentication period
+                specified by the object dot1xAuthReAuthPeriod
+                will be used.
+
+        server: the reauthentication period will be received
+                from the Authentication server.
+
+        auto  : source of reauthentication period will be
+                decided by the system."
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2),
+                        auto(3)
+                    }
+
+CpaeAuthState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The Authenticator PAE state machine value.
+
+        other         :None of the following states.
+
+        initialize    :The PAE state machine is being initialized.
+
+        disconnected  :An explicit logoff request is received from
+                       the Supplicant, or the number of permissible
+                       reauthentication attempts has been exceeded.
+
+        connecting    :Attempting to establish a communication
+                       with a Supplicant.
+
+        authenticating:A Supplicant is being authenticated.
+
+        authenticated :The Authenticator has successfully
+                       authenticated the Supplicant.
+
+        aborting      :The authentication process is
+                       prematurely aborted due to receipt of
+                       a reauthentication request, or an
+                       EAPOL-Start frame, or an EAPOL-Logoff
+                       frame, or an authTimeout.
+
+        held          :The state machine ignores and discards all
+                       EAPOL packets, so as to discourage brute
+                       force attacks. This state is entered from
+                       the 'authenticating' state following an
+                       authentication failure.  At the expiration
+                       of the quietWhile timer, the state machine
+                       transitions to the 'connecting' state.
+
+        forceAuth     :The port is set to Authorized, and a canned
+                       EAP Success packet is sent to the Supplicant.
+
+        forceUnauth   :The port is set to Unauthorized, and a
+                       canned EAP Failure packet is sent to the
+                       Supplicant.  If EAP-Start messages
+                       are received from the Supplicant, the
+                       state is re-entered and further EAP Failure
+                       messages are sent.
+
+        guestVlan     :The port has been moved to a configured
+                       Guest VLAN.
+
+        authFailVlan  :The port has been moved to a configured
+                       Authentication Failed VLAN.
+
+        criticalAuth  :The port has been authorized by Critical
+                       Authentication because RADIUS server is
+                       not reachable, or does not response.
+
+        ipAwaiting    :The port is waiting for an IP address from
+                       DHCP server.
+
+        policyConfig  :This state is entered from 'ipAwaiting'
+                       state if an IP address is received and
+                       the corresponding policies are being
+                       installed.
+
+        authFinished  :The port is set to Authorized by MAC
+                       Authentication Bypass feature.
+
+        restart       :The PAE state machine has been restarted.
+
+        authFallback  :Fallback mechanism is applied to the
+                       authentication process.
+
+        authCResult   :Authentication completed and the validity
+                       of the authorization features is checked.
+
+        authZSuccess  :Authorization policies based on the
+                       authentication result are applied. If the
+                       policies are applied successfully then the
+                       port is authorized otherwise unauthorized."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        initialize(2),
+                        disconnected(3),
+                        connecting(4),
+                        authenticating(5),
+                        authenticated(6),
+                        aborting(7),
+                        held(8),
+                        forceAuth(9),
+                        forceUnauth(10),
+                        guestVlan(11),
+                        authFailVlan(12),
+                        criticalAuth(13),
+                        ipAwaiting(14),
+                        policyConfig(15),
+                        authFinished(16),
+                        restart(17),
+                        authFallback(18),
+                        authCResult(19),
+                        authZSuccess(20)
+                    }
+
+cpaePortTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaePortEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of system level information for each port
+        supported by the Port Access Entity.  An entry
+        appears in this table for each PAE port of this system.
+        This table contains additional objects for the
+        dot1xPaePortTable."
+    REFERENCE
+        "802.1X-2001 9.6.1,
+         802.1X-2004 9.6.1"
+    ::= { cpaeMIBObject 1 }
+
+cpaePortEntry OBJECT-TYPE
+    SYNTAX          CpaePortEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing additional management information
+        applicable to a particular PAE port."
+    AUGMENTS           { dot1xPaePortEntry  } 
+ 
+    ::= { cpaePortTable 1 }
+
+CpaePortEntry ::= SEQUENCE {
+        cpaeMultipleHost            TruthValue,
+        cpaePortMode                INTEGER,
+        cpaeGuestVlanNumber         VlanIndex,
+        cpaeInGuestVlan             TruthValue,
+        cpaeShutdownTimeoutEnabled  TruthValue,
+        cpaePortAuthFailVlan        VlanIndex,
+        cpaePortOperVlan            VlanIndex,
+        cpaePortOperVlanType        INTEGER,
+        cpaeAuthFailVlanMaxAttempts Unsigned32,
+        cpaePortCapabilitiesEnabled BITS
+}
+
+cpaeMultipleHost OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "Specifies whether the port allows multiple-host
+        connection or not." 
+    ::= { cpaePortEntry 1 }
+
+cpaePortMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        singleHost(1),
+                        multiHost(2),
+                        multiAuth(3),
+                        other(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the current mode of dot1x operation on
+        the port.
+            singleHost(1): port allows one host to connect
+                           and authenticate.
+            multiHost(2) : port allows multiple hosts to
+                           connect.  Once a host is
+                           authenticated, all remaining hosts
+                           are also authorized.
+            multiAuth(3) : port allows multiple hosts to
+                           connect and each host is
+                           authenticated.
+
+            other(4)     : none of the above. This is a
+                           read-only value which can not
+                           be used in set operation.
+
+        If the port security feature is enabled on the
+        interface, the configuration of the port security
+        (such as the number of the hosts allowed, the security
+        violation action, etc) will apply to the interface." 
+    ::= { cpaePortEntry 2 }
+
+cpaeGuestVlanNumber OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Guest Vlan of the interface.
+        An interface with cpaePortMode value of 'singleHost'
+        will be moved to its Guest Vlan if the supplicant on
+        the interface is not capable of IEEE-802.1x
+        authentication.
+
+        A value of zero for this object indicates no Guest
+        Vlan configured for the interface." 
+    ::= { cpaePortEntry 3 }
+
+cpaeInGuestVlan OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Indicates whether the interface is in its Guest Vlan
+        or not.
+
+        The object is deprecated in favor of newly added
+        object cpaePortOperVlanType." 
+    ::= { cpaePortEntry 4 }
+
+cpaeShutdownTimeoutEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether shutdown timeout feature is enabled
+        on the interface." 
+    ::= { cpaePortEntry 5 }
+
+cpaePortAuthFailVlan OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Auth-Fail (Authentication Fail) Vlan of
+        the port.  A port is moved to Auth-Fail Vlan if the
+        supplicant which support IEEE-802.1x authentication is
+        unsuccessfully authenticated.
+
+        A value of zero for this object indicates no Auth-Fail
+        Vlan configured for the port." 
+    ::= { cpaePortEntry 6 }
+
+cpaePortOperVlan OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The VlanIndex of the Vlan which is assigned to this
+        port via IEEE-802.1x and related methods of
+        authentication supported by the system.
+
+        A value of zero for this object indicates that no
+        Vlan is assigned to this port via IEEE-802.1x
+        authentication." 
+    ::= { cpaePortEntry 7 }
+
+cpaePortOperVlanType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        none(2),
+                        guest(3),
+                        authFail(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the Vlan which is assigned to this port
+        via IEEE-802.1x and related methods of authentication
+        supported by the system.
+
+        A value of 'other' for this object indicates type of
+        Vlan assigned to this port; via IEEE-802.1x
+        authentication; is other than the ones specified by
+        listed enumerations for this object.
+
+        A value of 'none' for this object indicates that there
+        is no Vlan assigned to this port via IEEE-802.1x
+        authentication.  For such a case, corresponding value
+        of cpaePortOperVlan object will be zero.
+
+        A value of 'guest' for this object indicates that Vlan
+        assigned to this port; via IEEE-802.1x authentication;
+        is of type Guest Vlan and specified by the object
+        cpaeGuestVlanNumber for this entry.
+
+        A value of 'authFail' for this object indicates that
+        Vlan assigned to this port; via IEEE-802.1x
+        authentication; is of type Auth-Fail Vlan and
+        specified by the object cpaePortAuthFailVlan for
+        this entry." 
+    ::= { cpaePortEntry 8 }
+
+cpaeAuthFailVlanMaxAttempts OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the maximum number of authentication attempts
+        should be made before the port is moved into the
+        Auth-Fail Vlan." 
+    ::= { cpaePortEntry 9 }
+
+cpaePortCapabilitiesEnabled OBJECT-TYPE
+    SYNTAX          BITS {
+                        authenticator(0),
+                        supplicant(1)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the type of PAE functionality of the port
+        which are enabled.
+
+        authenticator: PAE Authenticator functions are enabled.
+
+        supplicant   : PAE Supplicant functions are enabled.
+
+        Only those supported PAE functions which are listed
+        in the corresponding instance of dot1xPaePortCapabilities
+        can be enabled."
+    REFERENCE
+        "802.1X-2001 9.6.1, PAE Capabilities,
+        802.1X-2004 9.6.1, PAE Capabilities" 
+    ::= { cpaePortEntry 10 }
+ 
+
+
+cpaeGuestVlanId OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "Specifies the Guest Vlan of the system.
+        An interface with cpaePortMode value of 'singleHost'
+        will be moved to Guest Vlan if the supplicant on the
+        interface is not IEEE-802.1x capable.
+
+        A value of zero indicates no Guest Vlan configured in
+        the system.
+
+        If the platform supports per-port guest Vlan ID
+        configuration, this object is not instantiated." 
+    ::= { cpaeMIBObject 2 }
+
+cpaeShutdownTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the shutdown timeout interval to enable the
+        interface automatically in case it is shutdown due to
+        security violation.
+
+        If the value of this object is 0, the interfaces
+        shutdown due to the security violation will not be
+        enabled automatically.
+
+        The value of this object is applicable to the
+        interface only when cpaeShutdownTimeoutEnabled is
+        'true', and port security feature is disabled on the
+        interface." 
+    ::= { cpaeMIBObject 3 }
+
+cpaeRadiusAccountingEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies if RADIUS accounting is enabled for 802.1x
+        on this devices." 
+    ::= { cpaeMIBObject 4 }
+
+cpaeUserGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeUserGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of Group Manager and authenticated users
+        information on the device."
+    ::= { cpaeMIBObject 5 }
+
+cpaeUserGroupEntry OBJECT-TYPE
+    SYNTAX          CpaeUserGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about an 802.1x authenticated user on the
+        devices."
+    INDEX           {
+                        cpaeUserGroupName,
+                        cpaeUserGroupUserIndex
+                    } 
+    ::= { cpaeUserGroupTable 1 }
+
+CpaeUserGroupEntry ::= SEQUENCE {
+        cpaeUserGroupName          SnmpAdminString,
+        cpaeUserGroupUserIndex     Unsigned32,
+        cpaeUserGroupUserName      SnmpAdminString,
+        cpaeUserGroupUserAddrType  InetAddressType,
+        cpaeUserGroupUserAddr      InetAddress,
+        cpaeUserGroupUserInterface InterfaceIndex,
+        cpaeUserGroupUserVlan      VlanIndex
+}
+
+cpaeUserGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the name of the group that the user
+        belongs to." 
+    ::= { cpaeUserGroupEntry 1 }
+
+cpaeUserGroupUserIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index of an user within a group." 
+    ::= { cpaeUserGroupEntry 2 }
+
+cpaeUserGroupUserName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the name of the user authenticated on a
+        port of the device." 
+    ::= { cpaeUserGroupEntry 3 }
+
+cpaeUserGroupUserAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the type of address used to determine
+        the address of the user." 
+    ::= { cpaeUserGroupEntry 4 }
+
+cpaeUserGroupUserAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the address of the host that the user
+        logging from." 
+    ::= { cpaeUserGroupEntry 5 }
+
+cpaeUserGroupUserInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the interface index that the user is
+        authenticated on." 
+    ::= { cpaeUserGroupEntry 6 }
+
+cpaeUserGroupUserVlan OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the vlan that the user belongs to." 
+    ::= { cpaeUserGroupEntry 7 }
+ 
+
+
+cpaeAuthFailUserTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeAuthFailUserEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table to list user information for each port on
+        the system supported by the Port Access Entity and
+        assigned to Auth-Fail Vlan."
+    ::= { cpaeMIBObject 6 }
+
+cpaeAuthFailUserEntry OBJECT-TYPE
+    SYNTAX          CpaeAuthFailUserEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry appears in this table for each PAE port on
+        the system which is assigned to Vlan of type
+        'authFail' via IEEE-802.1x authentication."
+    INDEX           { dot1xPaePortNumber } 
+    ::= { cpaeAuthFailUserTable 1 }
+
+CpaeAuthFailUserEntry ::= SEQUENCE {
+        cpaeAuthFailUserName SnmpAdminString
+}
+
+cpaeAuthFailUserName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the name of the user who failed IEEE-802.1x
+        authentication and hence now assigned to Auth-Fail
+        Vlan.
+
+        The Auth-Fail Vlan to which the user belongs is
+        determined by the value of object cpaePortAuthFailVlan
+        for this port." 
+    ::= { cpaeAuthFailUserEntry 1 }
+ 
+
+-- Notifications Control
+
+cpaeNotificationControl  OBJECT IDENTIFIER
+    ::= { cpaeMIBObject 7 }
+
+
+cpaeNoGuestVlanNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system produces
+        the cpaeNoGuestVlanNotif.
+
+        A 'false' value will prevent cpaeNoGuestVlanNotif from
+        being generated by this system." 
+    ::= { cpaeNotificationControl 1 }
+
+cpaeNoAuthFailVlanNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system produces
+        the cpaeNoAuthFailVlanNotif.
+
+        A 'false' value will prevent cpaeNoAuthFailVlanNotif
+        from being generated by this system." 
+    ::= { cpaeNotificationControl 2 }
+
+cpaeGuestVlanNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system produces
+        the cpaeGuestVlanNotif.
+
+        A 'false' value will prevent cpaeGuestVlanNotif from
+        being generated by this system." 
+    ::= { cpaeNotificationControl 3 }
+
+cpaeAuthFailVlanNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system produces
+        the cpaeAuthFailVlanNotif.
+
+        A 'false' value will prevent cpaeAuthFailVlanNotif from
+        being generated by this system." 
+    ::= { cpaeNotificationControl 4 }
+-- MAC Authentication Bypass feature
+
+cpaeMacAuthBypass  OBJECT IDENTIFIER
+    ::= { cpaeMIBObject 8 }
+
+
+cpaeMacAuthBypassReAuthTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the waiting time before reauthentication is
+        triggered on all MAC Auth-bypass authenticated ports." 
+    ::= { cpaeMacAuthBypass 1 }
+
+cpaeMacAuthBypassReAuthEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The reauthentication control for all MAC Auth-bypass
+        ports. Setting this object to 'true' causes every MAC
+        Auth-Bypass authenticated port to reauthenticate the
+        device connecting to the port, after every period of
+        time specified by the object
+        cpaeMacAuthBypassReAuthTimeout. Setting this object
+        to 'false' will disable the MAC Auth-Bypass global
+        reauthentication." 
+    ::= { cpaeMacAuthBypass 2 }
+
+cpaeMacAuthBypassViolation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the action upon reception of a security
+        violation  event.
+
+             restrict(1): Packets from MAC address of the
+                          device causing security violation
+                          will be dropped.
+
+             shutdown(2): The port that causes security
+                          violation will be shutdown." 
+    ::= { cpaeMacAuthBypass 3 }
+
+cpaeMacAuthBypassShutdownTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies time before a port is auto-enabled after
+        being shutdown due to a MAC Auth-bypass security
+        violation." 
+    ::= { cpaeMacAuthBypass 4 }
+
+cpaeMacAuthBypassAuthFailTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the time a MAC Auth-bypass unauthenticated
+        port waits before trying the authentication process
+        again." 
+    ::= { cpaeMacAuthBypass 5 }
+
+cpaeMacAuthBypassPortTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeMacAuthBypassPortEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of MAC Authentication Bypass (MAC
+        Auth-Bypass) configuration and information for
+        ports in the device."
+    ::= { cpaeMacAuthBypass 6 }
+
+cpaeMacAuthBypassPortEntry OBJECT-TYPE
+    SYNTAX          CpaeMacAuthBypassPortEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for
+        MAC Auth-Bypass feature on a port."
+    INDEX           { dot1xPaePortNumber } 
+    ::= { cpaeMacAuthBypassPortTable 1 }
+
+CpaeMacAuthBypassPortEntry ::= SEQUENCE {
+        cpaeMacAuthBypassPortEnabled     TruthValue,
+        cpaeMacAuthBypassPortInitialize  TruthValue,
+        cpaeMacAuthBypassPortReAuth      TruthValue,
+        cpaeMacAuthBypassPortMacAddress  MacAddress,
+        cpaeMacAuthBypassPortAuthState   INTEGER,
+        cpaeMacAuthBypassPortTermAction  INTEGER,
+        cpaeMacAuthBypassSessionTimeLeft Unsigned32,
+        cpaeMacAuthBypassPortAuthMethod  INTEGER,
+        cpaeMacAuthBypassPortSessionId   SnmpAdminString,
+        cpaeMacAuthBypassPortUrlRedirect SnmpAdminString,
+        cpaeMacAuthBypassPortPostureTok  CnnEouPostureTokenString
+}
+
+cpaeMacAuthBypassPortEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether MAC Auth-Bypass is enabled
+        on the port." 
+    ::= { cpaeMacAuthBypassPortEntry 1 }
+
+cpaeMacAuthBypassPortInitialize OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The initialization control for this port. Setting
+        this object to 'true' causes the MAC Auth-bypass
+        state machine to be initialized on the port. Setting
+        this object to  'false' has no effect.
+
+        This object always returns 'false' when it is read." 
+    ::= { cpaeMacAuthBypassPortEntry 2 }
+
+cpaeMacAuthBypassPortReAuth OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The reauthentication control for this port. Setting
+        this object to 'true' causes the MAC address of the
+        device connecting to the port to be reauthenticated.
+        Setting this object to 'false' has no effect.
+
+        This object always returns 'false' when it is read." 
+    ::= { cpaeMacAuthBypassPortEntry 3 }
+
+cpaeMacAuthBypassPortMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the MAC address of the device connecting
+        to the port." 
+    ::= { cpaeMacAuthBypassPortEntry 4 }
+
+cpaeMacAuthBypassPortAuthState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        waiting(2),
+                        authenticating(3),
+                        authenticated(4),
+                        fail(5),
+                        finished(6),
+                        aaaFail(7),
+                        ipAwaiting(8),
+                        policyConfig(9)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current state of the MAC Auth-Bypass
+        state machine.
+
+        other(1)         : An unknown state.
+
+        waiting(2)       : Waiting to receive the MAC address
+                           that needs to be authenticated.
+
+        authenticating(3): In authentication process.
+
+        authenticated(4) : MAC address of the device connecting
+                           to the port is authenticated.
+
+        fail(5)          : MAC Auth-bypass authentication
+                           failed. Port waits for a period of
+                           time before moving to the 'waiting'
+                           state, if there is no other
+                           authentication features available
+                           in the system.
+
+        finished(6)      : MAC Auth-bypass authentication
+                           failed. Port is authenticated by
+                           another authentication feature.
+
+        aaaFail(7)       : AAA server is not reachable after
+                           sending the authentication request
+                           or after the expiration of
+                           re-authentication timeout, with IAB
+                           (Inaccessible Authentication Bypass)
+                           enabled on the port.
+
+        ipAwaiting(8)    : Corresponding QoS/Security ACLs and other
+                           Vendor Specific Attributes are being
+                           configured on the port, after which IP
+                           address will be obtained via DHCP snooping
+                           or ARP inspection.
+
+        policyConfig(9)  : Policy Groups or downloaded ACLs are being
+                           configured on the port." 
+    ::= { cpaeMacAuthBypassPortEntry 5 }
+
+cpaeMacAuthBypassPortTermAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        init(2),
+                        reauth(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the termination action received from RADIUS
+        server that will be applied on the port when the
+        current session timeout expired.
+
+        other : none of the following.
+        init  : current session will be terminated and a new
+                authentication process will be initiated.
+        reauth: reauthentication will be applied without
+                terminating the current session." 
+    ::= { cpaeMacAuthBypassPortEntry 6 }
+
+cpaeMacAuthBypassSessionTimeLeft OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the leftover time of the current MAC
+        Auth-Bypass session on this port." 
+    ::= { cpaeMacAuthBypassPortEntry 7 }
+
+cpaeMacAuthBypassPortAuthMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        radius(1),
+                        eap(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the authentication method used by
+        MAC Authentication Bypass.
+
+        radius(1) : communication with authentication server
+                    is performed via RADIUS messages.
+
+        eap(2)    : communication with authentication server
+                    is performed via EAP messages." 
+    ::= { cpaeMacAuthBypassPortEntry 8 }
+
+cpaeMacAuthBypassPortSessionId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the session ID of the MAC Auth-Bypass
+        Audit session on the port. A zero length string will be
+        returned for this object if value of the corresponding instance
+        of cpaeMacAuthBypassPortEnabled is 'false'." 
+    ::= { cpaeMacAuthBypassPortEntry 9 }
+
+cpaeMacAuthBypassPortUrlRedirect OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the URL of an Audit server, provided by AAA
+        server, to which a MAC auth-Bypass host will be
+        redirected to when an Audit session starts off. A
+        zero-length string indicates that the audit process will
+        be performed via port scan instead, or value of the
+        corresponding instance of cpaeMacAuthBypassPortEnabled is
+        'false'." 
+    ::= { cpaeMacAuthBypassPortEntry 10 }
+
+cpaeMacAuthBypassPortPostureTok OBJECT-TYPE
+    SYNTAX          CnnEouPostureTokenString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the Posture Token assigned to the MAC
+        Auth-Bypass host connected to this port. A zero length string
+        will be returned for this object if value of the corresponding
+        instance of cpaeMacAuthBypassPortEnabled is 'false'." 
+    ::= { cpaeMacAuthBypassPortEntry 11 }
+ 
+
+
+cpaeMacAuthBypassAcctEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies if accounting is enabled for Mac
+        Authentication Bypass feature on this device." 
+    ::= { cpaeMacAuthBypass 7 }
+
+cpaeMabCriticalRecoveryDelay OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milli-seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the critical recovery delay
+        time for Mac Authentication Bypass in the system. A
+        value of zero indicates that critical recovery delay
+        for MAC Authentication Bypass is disabled." 
+    ::= { cpaeMacAuthBypass 8 }
+
+cpaeMabPortIpDevTrackConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeMabPortIpDevTrackConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of IP Device Tracking configuration for MAC
+        Auth-Bypass interfaces in the system."
+    ::= { cpaeMacAuthBypass 9 }
+
+cpaeMabPortIpDevTrackConfEntry OBJECT-TYPE
+    SYNTAX          CpaeMabPortIpDevTrackConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry of MAC Auth-Bypass configuration for IP Device
+        Tracking on an MAC Auth-Bypass capable interface."
+    INDEX           { dot1xPaePortNumber } 
+    ::= { cpaeMabPortIpDevTrackConfTable 1 }
+
+CpaeMabPortIpDevTrackConfEntry ::= SEQUENCE {
+        cpaeMabPortIpDevTrackEnabled TruthValue
+}
+
+cpaeMabPortIpDevTrackEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether IP Device Tracking is enabled or not on this
+        port for the corresponding MAC Auth-bypass authenticated host." 
+    ::= { cpaeMabPortIpDevTrackConfEntry 1 }
+ 
+
+-- Web Based Proxy Authentication feature
+
+cpaeWebAuth  OBJECT IDENTIFIER
+    ::= { cpaeMIBObject 9 }
+
+
+cpaeWebAuthEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether Web Proxy Authentication is enabled
+        in the system." 
+    ::= { cpaeWebAuth 1 }
+
+cpaeWebAuthSessionPeriod OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Web Proxy Authentication session period
+        for the system. Session period is the time after which
+        an Web Proxy Authenticated session is terminated." 
+    ::= { cpaeWebAuth 2 }
+
+cpaeWebAuthLoginPage OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the customized login page for Web Proxy
+        Authentication, in the format of an URL.
+
+        A customized login page is required to support the same
+        input fields as the default login page for users to
+        input credentials.
+
+        If this object contains a zero length string, the
+        default login page will be used." 
+    ::= { cpaeWebAuth 3 }
+
+cpaeWebAuthLoginFailedPage OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the customized login-failed page for Web
+        Proxy Authentication, in the format of an URL.
+
+        Login-failed page is sent back to the client upon an
+        authentication failure. A login-failed page requires to
+        have all the input fields of the login page, in
+        addition to the authentication failure information.
+
+        If this object contains a zero length string, the
+        default login-failed page will be used." 
+    ::= { cpaeWebAuth 4 }
+
+cpaeWebAuthQuietPeriod OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the time a Web Proxy Authentication state
+        machine will be held in 'blackListed' state after
+        maximum authentication attempts." 
+    ::= { cpaeWebAuth 5 }
+
+cpaeWebAuthMaxRetries OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the maximum number of unsuccessful login
+        attempts a user is allowed to make." 
+    ::= { cpaeWebAuth 6 }
+
+cpaeWebAuthPortTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeWebAuthPortEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of Web Proxy Authentication configuration and
+        information for the feature capable ports in the
+        device."
+    ::= { cpaeWebAuth 7 }
+
+cpaeWebAuthPortEntry OBJECT-TYPE
+    SYNTAX          CpaeWebAuthPortEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for Web
+        Proxy Authentication feature on a port."
+    INDEX           { dot1xPaePortNumber } 
+    ::= { cpaeWebAuthPortTable 1 }
+
+CpaeWebAuthPortEntry ::= SEQUENCE {
+        cpaeWebAuthPortEnabled           TruthValue,
+        cpaeWebAuthPortInitialize        TruthValue,
+        cpaeWebAuthPortAaaFailPolicy     CpgPolicyNameOrEmpty,
+        cpaeWebAuthPortIpDevTrackEnabled TruthValue
+}
+
+cpaeWebAuthPortEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether Web Proxy Authentication is
+        enabled on the port." 
+    ::= { cpaeWebAuthPortEntry 1 }
+
+cpaeWebAuthPortInitialize OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The initialization control for this port. Setting this
+        object to 'true' causes Web Proxy Authentication state
+        machine to be initialized for all the hosts connecting
+        to the port. Setting this object to 'false' has no
+        effect.
+
+        This object always returns 'false' when it is read." 
+    ::= { cpaeWebAuthPortEntry 2 }
+
+cpaeWebAuthPortAaaFailPolicy OBJECT-TYPE
+    SYNTAX          CpgPolicyNameOrEmpty
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the policy name to be applied on the port
+        when the corresponding cpaeWebAuthHostState is
+        'aaaFail'. The specified policy name must either be
+        an existing entry in cpgPolicyTable defined in
+        CISCO-POLICY-GROUP-MIB, or an empty string which
+        indicates that there will be no policy name
+        applied on the port when the corresponding
+        cpaeWebAuthHostState is 'aaaFail'." 
+    ::= { cpaeWebAuthPortEntry 3 }
+
+cpaeWebAuthPortIpDevTrackEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether IP Device Tracking is enabled or not on this
+        port for the corresponding Web Proxy authenticated host." 
+    ::= { cpaeWebAuthPortEntry 4 }
+ 
+
+
+cpaeWebAuthHostTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeWebAuthHostEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of Web Proxy Authentication information for
+        hosts currently managed by the feature. An entry is
+        added to the table when a host is detected and Web
+        Proxy Authentication state machine is initiated for
+        the host."
+    ::= { cpaeWebAuth 8 }
+
+cpaeWebAuthHostEntry OBJECT-TYPE
+    SYNTAX          CpaeWebAuthHostEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for Web
+        Proxy Authentication feature on a host."
+    INDEX           {
+                        dot1xPaePortNumber,
+                        cpaeWebAuthHostAddrType,
+                        cpaeWebAuthHostAddress
+                    } 
+    ::= { cpaeWebAuthHostTable 1 }
+
+CpaeWebAuthHostEntry ::= SEQUENCE {
+        cpaeWebAuthHostAddrType        InetAddressType,
+        cpaeWebAuthHostAddress         InetAddress,
+        cpaeWebAuthAaaSessionPeriod    Unsigned32,
+        cpaeWebAuthHostSessionTimeLeft Unsigned32,
+        cpaeWebAuthHostState           INTEGER,
+        cpaeWebAuthHostInitialize      TruthValue
+}
+
+cpaeWebAuthHostAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicates the Internet address type for the host." 
+    ::= { cpaeWebAuthHostEntry 1 }
+
+cpaeWebAuthHostAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (0..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicates the Internet address for the host. The type
+        of this address is determined by the value of
+        cpaeWebAuthHostAddrType." 
+    ::= { cpaeWebAuthHostEntry 2 }
+
+cpaeWebAuthAaaSessionPeriod OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the session period for a Web Proxy
+        Authenticated session on this host, supplied by the
+        AAA server. If value of this object is none zero,
+        it will take precedence over the period specified
+        by cpaeWebAuthPortSessionPeriod." 
+    ::= { cpaeWebAuthHostEntry 3 }
+
+cpaeWebAuthHostSessionTimeLeft OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the leftover time of the current Web Proxy
+        Authenticated session for this host." 
+    ::= { cpaeWebAuthHostEntry 4 }
+
+cpaeWebAuthHostState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        initialize(1),
+                        connecting(2),
+                        authenticating(3),
+                        authenticated(4),
+                        authFailed(5),
+                        parseError(6),
+                        sessionTimeout(7),
+                        blackListed(8),
+                        aaaFail(9)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current state of the Web Proxy
+        Authentication state machine.
+
+        initialize    : Initial state of the Web Proxy
+                        Authentication state machine.
+
+        connecting    : Login page is sent to the client,
+                        waiting for response from the client.
+
+        authenticating: Credentials are extracted from client's
+                        response and authenticating with the
+                        AAA server.
+
+        authenticated : Web Proxy Authentication succeeded.
+                        Session timer is started, policies are
+                        applied, and  success page is sent back
+                        to client.
+
+        authFailed    : Web Proxy Authentication failed. Login
+                        page is resent with authentication
+                        failure information embedded, if retry
+                        count has not exceeded the maximum
+                        number of retry attempts. Otherwise,
+                        move to 'blackListed' state.
+
+        parseError    : Failed to extract user's credentials
+                        from the client's response.
+
+        sessionTimeout: Session timer expired, user's policies
+                        are removed, state machine will moves
+                        to 'initialize' state after that.
+
+        blackListed   : Web Proxy Authentication retry count
+                        has exceeded the maximum number of
+                        retry attempts. Only setting the state
+                        machine to 'initialize' will take it
+                        out of this state.
+
+        aaaFail       : AAA server is not reachable after
+                        sending the authentication request, or
+                        after host has been in 'blackListed'
+                        state for the period of time specified
+                        by cpaeWebAuthQuietPeriod, with IAB
+                        (Inaccessible Authentication Bypass)
+                        enabled on the corresponding port
+                        connected to the host." 
+    ::= { cpaeWebAuthHostEntry 5 }
+
+cpaeWebAuthHostInitialize OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The initialization control for this host. Setting this
+        object to 'true' causes Web Proxy Authentication state
+        machine to be initialized for the host. Setting this
+        object to 'false' has no effect.
+
+        This object always returns 'false' when it is read." 
+    ::= { cpaeWebAuthHostEntry 6 }
+ 
+
+
+cpaeWebAuthCriticalRecoveryDelay OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milli-seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the critical recovery delay
+        time for Web Proxy Authentication in the system. A value
+        of zero indicates that critical recovery delay for Web
+        Proxy Authentication is disabled." 
+    ::= { cpaeWebAuth 9 }
+
+cpaeWebAuthUnAuthStateTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The authentication timeout period for Web Proxy
+        Authentication. Once a host enters 'initialize' state as
+        indicated by its corresponding cpaeWebAuthHostState,
+        such host will be removed if it can not be authenticated
+        within the timeout period." 
+    ::= { cpaeWebAuth 10 }
+-- LAN Port 802.1x
+
+cpaeAuthConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeAuthConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing the configuration objects for the
+        Authenticator PAE associated with each port. An entry
+        appears in this table for each PAE port that may
+        authenticate access to itself. This table contain
+        additional objects for the dot1xAuthConfigTable."
+    ::= { cpaeMIBObject 10 }
+
+cpaeAuthConfigEntry OBJECT-TYPE
+    SYNTAX          CpaeAuthConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing additional management information
+        applicable to a particular Authenticator PAE."
+    AUGMENTS           { dot1xAuthConfigEntry  } 
+ 
+    ::= { cpaeAuthConfigTable 1 }
+
+CpaeAuthConfigEntry ::= SEQUENCE {
+        cpaeAuthReAuthPeriodSrcAdmin ReAuthPeriodSource,
+        cpaeAuthReAuthPeriodSrcOper  ReAuthPeriodSource,
+        cpaeAuthReAuthPeriodOper     Unsigned32,
+        cpaeAuthTimeToNextReAuth     Unsigned32,
+        cpaeAuthReAuthAction         INTEGER,
+        cpaeAuthReAuthMax            Unsigned32,
+        cpaeAuthIabEnabled           TruthValue,
+        cpaeAuthPaeState             CpaeAuthState
+}
+
+cpaeAuthReAuthPeriodSrcAdmin OBJECT-TYPE
+    SYNTAX          ReAuthPeriodSource
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the source of the reAuthPeriod constant to
+        be used by the Reauthentication Timer state machine." 
+    ::= { cpaeAuthConfigEntry 1 }
+
+cpaeAuthReAuthPeriodSrcOper OBJECT-TYPE
+    SYNTAX          ReAuthPeriodSource
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the source of the reAuthPeriod constant
+        currently in use by the Reauthentication Timer state
+        machine." 
+    ::= { cpaeAuthConfigEntry 2 }
+
+cpaeAuthReAuthPeriodOper OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the operational reauthentication period
+        for this port." 
+    ::= { cpaeAuthConfigEntry 3 }
+
+cpaeAuthTimeToNextReAuth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the leftover time of the current session
+        for this port." 
+    ::= { cpaeAuthConfigEntry 4 }
+
+cpaeAuthReAuthAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        terminate(1),
+                        reAuth(2),
+                        noReAuth(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the reauthentication action for this port.
+
+        terminate: Session will be terminated, with the
+                   corresponding Authenticator PAE state
+                   machine transits to 'disconnected'.
+
+        reAuth   : The port will be reauthenticated.
+
+        noReAuth : The port will not be reauthenticated." 
+    ::= { cpaeAuthConfigEntry 5 }
+
+cpaeAuthReAuthMax OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of reauthentication
+        attempts that are permitted before the port becomes
+        unauthorized.
+
+        The value of this object is used as the reAuthMax
+        constant by the Authenticator PAE state machine."
+    REFERENCE       "IEEE Std 802.1X-2004, 8.2.4.1.2, reAuthMax" 
+    ::= { cpaeAuthConfigEntry 6 }
+
+cpaeAuthIabEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether the PAE port is declared as
+        Inaccessible Authentication Bypass (IAB). IAB ports
+        will be granted network access via the administrative
+        configured VLAN if it failed to connect to the
+        Authentication server. The only way to bring an IAB
+        port back to the Backend Authentication state machine
+        is through setting dot1xPaePortInitialize in the
+        corresponding entry in dot1xPaePortTable to 'true'.
+
+        802.1x reauthentication will be temporary disabled on
+        an authenticated IAB port if the connection to
+        the Authentication server is broken, and enable again
+        when the connection is resumed." 
+    ::= { cpaeAuthConfigEntry 7 }
+
+cpaeAuthPaeState OBJECT-TYPE
+    SYNTAX          CpaeAuthState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current value of the Authenticator PAE
+        state machine on the port." 
+    ::= { cpaeAuthConfigEntry 8 }
+ 
+
+
+cpaeHostInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeHostInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing 802.1x authentication information
+        for hosts connecting to PAE ports in the system."
+    ::= { cpaeMIBObject 11 }
+
+cpaeHostInfoEntry OBJECT-TYPE
+    SYNTAX          CpaeHostInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry appears in the table for each 802.1x capable
+        host connecting to an PAE port, providing its
+        authentication information."
+    INDEX           {
+                        dot1xPaePortNumber,
+                        cpaeHostInfoHostIndex
+                    } 
+    ::= { cpaeHostInfoTable 1 }
+
+CpaeHostInfoEntry ::= SEQUENCE {
+        cpaeHostInfoHostIndex    Unsigned32,
+        cpaeHostInfoMacAddress   MacAddress,
+        cpaeHostInfoPostureToken CnnEouPostureToken,
+        cpaeHostInfoUserName     SnmpAdminString,
+        cpaeHostInfoAddrType     InetAddressType,
+        cpaeHostInfoAddr         InetAddress,
+        cpaeHostPostureTokenStr  CnnEouPostureTokenString,
+        cpaeHostUrlRedirection   SnmpAdminString,
+        cpaeHostAuthPaeState     CpaeAuthState,
+        cpaeHostBackendState     INTEGER,
+        cpaeHostSessionId        OCTET STRING
+}
+
+cpaeHostInfoHostIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary index assigned by the agent to identify
+        the host." 
+    ::= { cpaeHostInfoEntry 1 }
+
+cpaeHostInfoMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the Mac Address of the host." 
+    ::= { cpaeHostInfoEntry 2 }
+
+cpaeHostInfoPostureToken OBJECT-TYPE
+    SYNTAX          CnnEouPostureToken
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Indicates the posture token assigned to the host.
+        This object has been obsoleted and replaced by
+        cpaeHostPostureTokenStr." 
+    ::= { cpaeHostInfoEntry 3 }
+
+cpaeHostInfoUserName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the name of the authenticated user on
+        the host." 
+    ::= { cpaeHostInfoEntry 4 }
+
+cpaeHostInfoAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the type of Internet address of the host." 
+    ::= { cpaeHostInfoEntry 5 }
+
+cpaeHostInfoAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the Internet address of the host. The type
+        of this address is determined by the value of
+        cpaeHostInfoAddrType object." 
+    ::= { cpaeHostInfoEntry 6 }
+
+cpaeHostPostureTokenStr OBJECT-TYPE
+    SYNTAX          CnnEouPostureTokenString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the posture token assigned to the host." 
+    ::= { cpaeHostInfoEntry 7 }
+
+cpaeHostUrlRedirection OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the URL-redirection assigned for this host
+        by AAA server." 
+    ::= { cpaeHostInfoEntry 8 }
+
+cpaeHostAuthPaeState OBJECT-TYPE
+    SYNTAX          CpaeAuthState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current value of the Authenticator PAE
+        state machine for the host."
+    REFERENCE
+        "802.1X-2001 9.4.1, Authenticator PAE state, 
+        802.1X-2004 9.4.1, Authenticator PAE state" 
+    ::= { cpaeHostInfoEntry 9 }
+
+cpaeHostBackendState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        request(1),
+                        response(2),
+                        success(3),
+                        fail(4),
+                        timeout(5),
+                        idle(6),
+                        initialize(7),
+                        ignore(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current state of the Backend Authentication
+        state machine of the host."
+    REFERENCE
+        "802.1X-2001 9.4.1, Backend Authentication state,
+        802.1X-2004 9.4.1, Backend Authentication state." 
+    ::= { cpaeHostInfoEntry 10 }
+
+cpaeHostSessionId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A unique identifier of the 802.1x session." 
+    ::= { cpaeHostInfoEntry 11 }
+ 
+cpaePortEapolTestLimits OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the maximum number of entries allowed in
+        cpaePortEapolTestTable." 
+    ::= { cpaeMIBObject 12 }
+
+cpaePortEapolTestTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaePortEapolTestEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table for testing EAPOL (Extensible Authentication
+        Protocol Over LAN) capable information of hosts
+        connecting to PAE ports in the device."
+    ::= { cpaeMIBObject 13 }
+
+cpaePortEapolTestEntry OBJECT-TYPE
+    SYNTAX          CpaePortEapolTestEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing EAPOL capable information for
+        hosts connecting to a PAE port."
+    INDEX           { dot1xPaePortNumber } 
+    ::= { cpaePortEapolTestTable 1 }
+
+CpaePortEapolTestEntry ::= SEQUENCE {
+        cpaePortEapolTestResult INTEGER,
+        cpaePortEapolTestStatus RowStatus
+}
+
+cpaePortEapolTestResult OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        inProgress(1),
+                        notCapable(2),
+                        capable(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the test result of whether there is
+        EAPOL supporting host connecting to the port.
+
+        inProgress: the test is in progress.
+        notCapable: there is no EAPOL supporting host
+                    connecting to the port.
+        capable   : there is EAPOL supporting host connecting
+                    to the port." 
+    ::= { cpaePortEapolTestEntry 1 }
+
+cpaePortEapolTestStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to manage the creation,
+        and deletion of rows in the table.
+
+        An entry can be created by setting the instance
+        value of this object to 'createAndGo', and deleted
+        by setting the instance value of this object to
+        'destroy'." 
+    ::= { cpaePortEapolTestEntry 2 }
+ 
+
+-- 802.1x Critical Authentication
+-- This feature allows network access for critical machines,
+-- when 802.1x is not able to reach the configured RADIUS server(s).
+
+cpaeCriticalConfig  OBJECT IDENTIFIER
+    ::= { cpaeMIBObject 14 }
+
+
+cpaeCriticalEapolEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies if the device will send an EAPOL-Success
+        message on successful Critical Authentication for a
+        supplicant." 
+    ::= { cpaeCriticalConfig 1 }
+
+cpaeCriticalRecoveryDelay OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milli-seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the critical recovery delay time
+        for 802.1x in the system. A value of zero indicates
+        that Critical Authentication recovery delay for
+        802.1x is disabled." 
+    ::= { cpaeCriticalConfig 2 }
+
+cpaePortIpDevTrackConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaePortIpDevTrackConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of IP Device Tracking configuration for PAE
+        ports in the system."
+    ::= { cpaeMIBObject 15 }
+
+cpaePortIpDevTrackConfigEntry OBJECT-TYPE
+    SYNTAX          CpaePortIpDevTrackConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry of IP Device Tracking configuration on a
+        PAE port."
+    INDEX           { dot1xPaePortNumber } 
+    ::= { cpaePortIpDevTrackConfigTable 1 }
+
+CpaePortIpDevTrackConfigEntry ::= SEQUENCE {
+        cpaePortIpDevTrackEnabled TruthValue
+}
+
+cpaePortIpDevTrackEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies if IP Device Tracking is enabled on this port
+        for the corresponding 802.1x authenticated host." 
+    ::= { cpaePortIpDevTrackConfigEntry 1 }
+ 
+
+
+cpaeGlobalAuthFailMaxAttempts OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A global configuration to specify the maximum number
+        of authentication attempts that should be made before a port
+        is moved into its Auth-Fail VLAN." 
+    ::= { cpaeMIBObject 16 }
+
+cpaeGlobalSecViolationAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A global configuration to specify the action that will be
+        applied to a PAE port upon reception of a security violation
+        event.
+
+             restrict: Packets from MAC address of the device
+                       causing security violation will be dropped.
+
+             shutdown: The port that causes security violation
+                       will be shutdown." 
+    ::= { cpaeMIBObject 17 }
+
+cpaeDot1xSuppToGuestVlanAllowed OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether ports associated with 802.1x supplicants are
+        allowed to move to Guest Vlan when they stop responding to EAPOL
+        inquiries." 
+    ::= { cpaeMIBObject 18 }
+-- Supplicant support
+
+cpaeSupplicantObjects  OBJECT IDENTIFIER
+    ::= { cpaeMIBObject 19 }
+
+cpaeSuppPortTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeSuppPortEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of objects providing information and configuration
+        for the Supplicant PAE associated with each port.  This
+        table provides additional objects for the dot1xSuppConfigTable."
+    ::= { cpaeSupplicantObjects 1 }
+
+cpaeSuppPortEntry OBJECT-TYPE
+    SYNTAX          CpaeSuppPortEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing supplicant configuration information for a
+        particular PAE port."
+    INDEX           { dot1xPaePortNumber } 
+    ::= { cpaeSuppPortTable 1 }
+
+CpaeSuppPortEntry ::= SEQUENCE {
+        cpaeSuppPortCredentialProfileName SnmpAdminString,
+        cpaeSuppPortEapProfileName        SnmpAdminString
+}
+
+cpaeSuppPortCredentialProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the credentials profile of the Supplicant PAE.
+        A zero length string for this object indicates that the
+        Supplicant PAE does not have credential profile." 
+    ::= { cpaeSuppPortEntry 1 }
+
+cpaeSuppPortEapProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the EAP profile of the Supplicant PAE.  A zero
+        length string for this object indicates that the
+        Supplicant PAE does not have EAP profile." 
+    ::= { cpaeSuppPortEntry 2 }
+ 
+cpaeSuppHostInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpaeSuppHostInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of dot1x supplicants in the system."
+    ::= { cpaeSupplicantObjects 2 }
+
+cpaeSuppHostInfoEntry OBJECT-TYPE
+    SYNTAX          CpaeSuppHostInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing dot1x supplicant information for a
+        supplicant on a particular PAE port in the system."
+    INDEX           {
+                        dot1xPaePortNumber,
+                        cpaeSuppHostInfoSuppIndex
+                    } 
+    ::= { cpaeSuppHostInfoTable 1 }
+
+CpaeSuppHostInfoEntry ::= SEQUENCE {
+        cpaeSuppHostInfoSuppIndex  Unsigned32,
+        cpaeSuppHostAuthMacAddress MacAddress,
+        cpaeSuppHostPaeState       INTEGER,
+        cpaeSuppHostBackendState   INTEGER,
+        cpaeSuppHostStatus         PaeControlledPortStatus
+}
+
+cpaeSuppHostInfoSuppIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary index assigned by the agent to identify the
+        supplicant." 
+    ::= { cpaeSuppHostInfoEntry 1 }
+
+cpaeSuppHostAuthMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the MAC address of the authenticator, which
+        authenticates the supplicant." 
+    ::= { cpaeSuppHostInfoEntry 2 }
+
+cpaeSuppHostPaeState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disconnected(1),
+                        logoff(2),
+                        connecting(3),
+                        authenticating(4),
+                        authenticated(5),
+                        acquired(6),
+                        held(7),
+                        restart(8),
+                        sForceAuth(9),
+                        sForceUnauth(10)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current state of the Supplicant PAE State
+        machine."
+    REFERENCE       "802.1X-2004 9.5.1, Supplicant PAE State" 
+    ::= { cpaeSuppHostInfoEntry 3 }
+
+cpaeSuppHostBackendState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        initialize(1),
+                        idle(2),
+                        request(3),
+                        response(4),
+                        receive(5),
+                        fail(6),
+                        success(7),
+                        timeout(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current state of the Supplicant Backend state
+        machine."
+    REFERENCE       "802.1X-2004 9.5.1, Backend Supplicant state" 
+    ::= { cpaeSuppHostInfoEntry 4 }
+
+cpaeSuppHostStatus OBJECT-TYPE
+    SYNTAX          PaeControlledPortStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the status of the supplicant."
+    REFERENCE       "802.1X-2004 9.5.1, SuppControlledPortStatus" 
+    ::= { cpaeSuppHostInfoEntry 5 }
+ 
+-- Notifications
+
+cpaeNoGuestVlanNotif NOTIFICATION-TYPE
+    OBJECTS         { dot1xAuthPaeState }
+    STATUS          current
+    DESCRIPTION
+        "A cpaeNoGuestVlanNotif is sent if a non-802.1x
+        supplicant is detected on a PAE port for which the
+        value of corresponding instance of
+        dot1xAuthAuthControlledPortControl is 'auto' and the
+        value of corresponding instance of cpaeGuestVlanNumber
+        is zero."
+   ::= { cpaeMIBNotification 1 }
+
+cpaeNoAuthFailVlanNotif NOTIFICATION-TYPE
+    OBJECTS         { dot1xAuthPaeState }
+    STATUS          current
+    DESCRIPTION
+        "A cpaeNoAuthFailVlanNotif is sent if a 802.1x
+        supplicant fails to authenticate on a PAE port for
+        which the value of corresponding instance of
+        dot1xAuthAuthControlledPortControl is 'auto' and the
+        value of corresponding instance of cpaePortAuthFailVlan
+        is zero."
+   ::= { cpaeMIBNotification 2 }
+
+cpaeGuestVlanNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cpaeGuestVlanNumber,
+                        dot1xAuthPaeState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A cpaeGuestVlanNotif is sent if value of the instance
+        of cpaeGuestVlanNotifEnable is set to 'true', and a PAE
+        port is being moved to the VLAN specified by value of
+        the corresponding instance of cpaeGuestVlanNumber."
+   ::= { cpaeMIBNotification 3 }
+
+cpaeAuthFailVlanNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cpaePortAuthFailVlan,
+                        dot1xAuthPaeState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A cpaeAuthFailVlanNotif is sent if value of the instance
+        of cpaeAuthFailVlanNotifEnable is set to 'true', and a PAE
+        port is being moved to the VLAN specified by value of
+        the corresponding instance of cpaePortAuthFailVlan."
+   ::= { cpaeMIBNotification 4 }
+-- Conformance
+
+cpaeMIBCompliances  OBJECT IDENTIFIER
+    ::= { cpaeMIBConformance 1 }
+
+cpaeMIBGroups  OBJECT IDENTIFIER
+    ::= { cpaeMIBConformance 2 }
+
+
+cpaeCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaeMultipleHostGroup }
+    ::= { cpaeMIBCompliances 1 }
+
+cpaeCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Guest Vlan feature."
+    ::= { cpaeMIBCompliances 2 }
+
+cpaeCompliance3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Shutdown Timeout feature."
+    ::= { cpaeMIBCompliances 3 }
+
+cpaeCompliance4 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Shutdown Timeout feature."
+
+    GROUP           cpaeRadiusConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support RADIUS configuration for 802.1x feature."
+
+    GROUP           cpaeUserGroupGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Group Manager for 802.1x feature."
+    ::= { cpaeMIBCompliances 4 }
+
+cpaeCompliance5 MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Shutdown Timeout feature."
+
+    GROUP           cpaeRadiusConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support RADIUS configuration for 802.1x feature."
+
+    GROUP           cpaeUserGroupGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Group Manager for 802.1x feature."
+
+    GROUP           cpaePortOperVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeNoAuthFailVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support MAC Authentication Bypass feature."
+
+    GROUP           cpaeWebAuthGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Web Proxy Authentication feature."
+
+    GROUP           cpaeAuthConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support remote reauthentication timer."
+
+    GROUP           cpaeHostInfoGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+    ::= { cpaeMIBCompliances 5 }
+
+cpaeCompliance6 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Shutdown Timeout feature."
+
+    GROUP           cpaeRadiusConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support RADIUS configuration for 802.1x feature."
+
+    GROUP           cpaeUserGroupGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Group Manager for 802.1x feature."
+
+    GROUP           cpaePortOperVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeNoAuthFailVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support MAC Authentication Bypass feature."
+
+    GROUP           cpaeMacAuthBypassGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides additional information of
+        MAC Authentication Bypass feature."
+
+    GROUP           cpaeWebAuthGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Web Proxy Authentication feature."
+
+    GROUP           cpaeWebAuthAaaFailGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Inaccessible Authentication Bypass
+        for Web Proxy Authentication feature."
+
+    GROUP           cpaeHostInfoGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortEapolTestGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration for maximum authentication
+        attempts for Auth-Fail Vlan feature."
+
+    GROUP           cpaeAuthConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support remote reauthentication timer,
+        re-authentication action, maximum re-authentication
+        attempts and critical configuration for PAE ports."
+
+    GROUP           cpaeAuthConfigGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides additional states in the PAE state
+        machines."
+
+    GROUP           cpaeCriticalRecoveryDelayGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides recovery delay configuration for 802.1x
+        Critical Authentication."
+
+    GROUP           cpaeMacAuthBypassCriticalGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support critical recovery delay configuration for
+        MAC Authentication Bypass."
+
+    GROUP           cpaeWebAuthCriticalGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support critical recovery delay configuration for
+        Web Proxy Authentication."
+
+    OBJECT          cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'active', 'createAndGo' and 'destroy' are
+        needed to be supported."
+    ::= { cpaeMIBCompliances 6 }
+
+cpaeCompliance7 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Shutdown Timeout feature."
+
+    GROUP           cpaeRadiusConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support RADIUS configuration for 802.1x feature."
+
+    GROUP           cpaeUserGroupGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Group Manager for 802.1x feature."
+
+    GROUP           cpaePortOperVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeNoAuthFailVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support MAC Authentication Bypass feature."
+
+    GROUP           cpaeMacAuthBypassGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides additional information of
+        MAC Authentication Bypass feature."
+
+    GROUP           cpaeMacAuthBypassGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration for authentication
+        method for MAC Authentication Bypass feature."
+
+    GROUP           cpaeWebAuthGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Web Proxy Authentication feature."
+
+    GROUP           cpaeWebAuthAaaFailGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Inaccessible Authentication Bypass
+        for Web Proxy Authentication feature."
+
+    GROUP           cpaeHostInfoGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostInfoGroup3
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortEapolTestGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration for maximum authentication
+        attempts for Auth-Fail Vlan feature."
+
+    GROUP           cpaeAuthConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support remote reauthentication timer,
+        re-authentication action, maximum re-authentication
+        attempts and critical configuration for PAE ports."
+
+    GROUP           cpaeAuthConfigGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides additional states in the PAE state
+        machines."
+
+    GROUP           cpaeCriticalRecoveryDelayGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides recovery delay configuration for 802.1x
+        Critical Authentication."
+
+    GROUP           cpaeMacAuthBypassCriticalGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support critical recovery delay configuration for
+        MAC Authentication Bypass."
+
+    GROUP           cpaeWebAuthCriticalGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support critical recovery delay configuration for
+        Web Proxy Authentication."
+
+    GROUP           cpaeHostPostureTokenGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides information about Posture Token of
+        host(s) connecting to a PAE port."
+
+    OBJECT          cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'active', 'createAndGo' and 'destroy' are
+        needed to be supported."
+    ::= { cpaeMIBCompliances 7 }
+
+cpaeCompliance8 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeRadiusConfigGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeUserGroupGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortOperVlanGroup
+    DESCRIPTION
+        "This group is mandatory for the devices which assign
+        interfaces to specific VLANs based on 802.1x authentication."
+
+    GROUP           cpaePortAuthFailVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeNoGuestVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeMacAuthBypassGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassGroup3
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthAaaFailGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostInfoGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostInfoGroup3
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortEapolTestGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration for maximum authentication
+        attempts for Auth-Fail Vlan feature."
+
+    GROUP           cpaeAuthConfigGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeCriticalRecoveryDelayGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassCriticalGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthCriticalGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostPostureTokenGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMabAuditInfoGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMabPortIpDevTrackConfGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortIpDevTrackConfGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostUrlRedirectGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthIpDevTrackingGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthUnAuthTimeoutGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeGlobalAuthFailVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeGlobalSecViolationGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeCriticalEapolConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides EAPOL configuration for 802.1x
+        Critical Authentication."
+
+    GROUP           cpaeMacAuthBypassPortEnableGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassGroup4
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeAuthIabConfigGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeAuthConfigGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information related
+        to re-authentication of 802.1x ports in the system."
+
+    GROUP           cpaeAuthConfigGroup4
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    OBJECT          cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'active', 'createAndGo' and 'destroy' are
+        needed to be supported."
+    ::= { cpaeMIBCompliances 8 }
+
+cpaeCompliance9 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeRadiusConfigGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeUserGroupGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortOperVlanGroup
+    DESCRIPTION
+        "This group is mandatory for the devices which assign
+        interfaces to specific VLANs based on 802.1x authentication."
+
+    GROUP           cpaePortAuthFailVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeNoGuestVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeMacAuthBypassGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassGroup3
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthAaaFailGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostInfoGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostInfoGroup3
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortEapolTestGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration for maximum authentication
+        attempts for Auth-Fail Vlan feature."
+
+    GROUP           cpaeAuthConfigGroup2
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeCriticalRecoveryDelayGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassCriticalGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthCriticalGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostPostureTokenGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMabAuditInfoGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMabPortIpDevTrackConfGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortIpDevTrackConfGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostUrlRedirectGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthIpDevTrackingGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeWebAuthUnAuthTimeoutGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeGlobalAuthFailVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeGlobalSecViolationGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeCriticalEapolConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides EAPOL configuration for 802.1x
+        Critical Authentication."
+
+    GROUP           cpaeMacAuthBypassPortEnableGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeMacAuthBypassGroup4
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeAuthIabConfigGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeAuthConfigGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information related
+        to re-authentication of 802.1x ports in the system."
+
+    GROUP           cpaeAuthConfigGroup4
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostSessionIdGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeHostAuthInfoGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortCapabilitiesConfigGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeDot1xSuppToGuestVlanGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeGuestVlanNotifEnableGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeGuestVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaeAuthFailVlanNotifGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    GROUP           cpaePortAuthFailVlanConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software which
+        supports Auth-Fail Vlan configuration for 802.1x feature."
+
+    GROUP           cpaePortAuthFailUserInfoGroup
+    DESCRIPTION
+        "Implementation of this group is optional."
+
+    OBJECT          cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'active', 'createAndGo' and 'destroy' are
+        needed to be supported."
+    ::= { cpaeMIBCompliances 9 }
+
+cpaeCompliance10 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for devices that implement
+        the CISCO-PAE-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cpaePortEntryGroup }
+
+    GROUP           cpaeGuestVlanGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeShutdownTimeoutGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Shutdown Timeout for 802.1x."
+
+    GROUP           cpaeRadiusConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support RADIUS accounting configuration for 802.1x."
+
+    GROUP           cpaeUserGroupGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which support Group Manager for 802.1x."
+
+    GROUP           cpaePortOperVlanGroup
+    DESCRIPTION
+        "This group is mandatory for the devices which assign
+        interfaces to specific VLANs based on 802.1x authentication."
+
+    GROUP           cpaeNoGuestVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeNoGuestVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports per-interface Guest Vlan feature."
+
+    GROUP           cpaeNoAuthFailVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which supports Auth-Fail Vlan configuration for
+        802.1x feature."
+
+    GROUP           cpaeMacAuthBypassGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides information about termination action and
+        session time left for Mac Authentication Bypass via
+        802.1x feature."
+
+    GROUP           cpaeMacAuthBypassGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration of authentication method
+        for Mac Authentication Bypass via 802.1x feature."
+
+    GROUP           cpaeWebAuthGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration for Web Proxy Authentication
+        via 802.1x feature."
+
+    GROUP           cpaeWebAuthAaaFailGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration of Inaccessible Authentication
+        Bypass for Web Proxy Authentication via 802.1x feature."
+
+    GROUP           cpaeHostInfoGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides MAC address information of hosts connecting
+        to PAE ports in the system."
+
+    GROUP           cpaeHostInfoGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides user and IP address information for 802.1x
+        authenticated host in the system."
+
+    GROUP           cpaePortEapolTestGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides EAPOL capable information of hosts connecting
+        to PAE ports in the system."
+
+    GROUP           cpaePortAuthFailVlanGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration for maximum authentication
+        attempts for Auth-Fail Vlan feature."
+
+    GROUP           cpaeAuthConfigGroup2
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides additional states in the PAE state machine."
+
+    GROUP           cpaeCriticalRecoveryDelayGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides recovery delay configuration for 802.1x
+        Critical Authentication in the system."
+
+    GROUP           cpaeMacAuthBypassCriticalGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides control over critical configuration for Mac
+        Authentication Bypass via 802.1x feature."
+
+    GROUP           cpaeWebAuthCriticalGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides control over critical configuration for Web
+        Proxy Authentication via 802.1x feature."
+
+    GROUP           cpaeHostPostureTokenGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides information about Posture Token of hosts
+        connecting to  PAE ports."
+
+    GROUP           cpaeMabAuditInfoGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides information about MAC Auth-Bypass Audit
+        sessions via 802.1x feature."
+
+    GROUP           cpaeMabPortIpDevTrackConfGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information about MAC
+        Auth-Bypass IP Device Tracking via 802.1x feature."
+
+    GROUP           cpaePortIpDevTrackConfGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information about
+        802.1x IP Device Tracking feature."
+
+    GROUP           cpaeHostUrlRedirectGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides information about URL-redirection of 802.1x
+        authenticated hosts."
+
+    GROUP           cpaeWebAuthIpDevTrackingGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information about Web
+        Proxy Authentication IP Device Tracking via 802.1x feature."  
+
+    GROUP           cpaeWebAuthUnAuthTimeoutGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information about Init State
+        Timeout of Web Proxy Authentication via 802.1x feature."
+
+    GROUP           cpaeGlobalAuthFailVlanGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides global configuration and information about
+        maximum authentication attempts for Auth-Fail Vlan feature
+        in the system."
+
+    GROUP           cpaeGlobalSecViolationGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides global configuration and information about
+        security violation action on PAE ports in the system."
+
+    GROUP           cpaeCriticalEapolConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides EAPOL configuration for 802.1x
+        Critical Authentication."
+
+    GROUP           cpaeMacAuthBypassPortEnableGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration to enable or disable MAC
+        Auth-Bypass on capable ports via 802.1x feature."
+
+    GROUP           cpaeMacAuthBypassGroup4
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information of MAC
+        Auth-Bypass parameters via 802.1x feature."
+
+    GROUP           cpaeAuthIabConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration to enable or disable IAB
+        feature on capable ports in the system."
+
+    GROUP           cpaeAuthConfigGroup3
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information related
+        to re-authentication of 802.1x ports in the system."
+
+    GROUP           cpaeAuthConfigGroup4
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration of maximum reauthentication
+        attempts of 802.1x ports in the system."
+
+    GROUP           cpaeHostSessionIdGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides session identification information for 802.1x
+        hosts in the system."
+
+    GROUP           cpaeHostAuthInfoGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides information about state machines and
+        authentication information for 802.1x authenticated hosts in
+        the system."
+
+    GROUP           cpaePortCapabilitiesConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration and information about PAE
+        functionalities of ports in the systems."
+
+    GROUP           cpaeDot1xSuppToGuestVlanGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides configuration that allows moving ports with
+        802.1x supplicants to Guest Vlan."
+
+    GROUP           cpaeGuestVlanNotifEnableGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides control over Guest Vlan related notification(s)."
+
+    GROUP           cpaeGuestVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides Guest-Vlan notification."
+
+    GROUP           cpaeAuthFailVlanNotifEnableGrp
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides control over Auth-Fail Vlan related
+        notification(s)."
+
+    GROUP           cpaeAuthFailVlanNotifGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides Auth-Fail Vlan notification."
+
+    GROUP           cpaePortAuthFailVlanConfigGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software which
+        supports Auth-Fail Vlan configuration for 802.1x feature."
+
+    GROUP           cpaePortAuthFailUserInfoGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software
+        which provides the Auth-Fail user information in the system."
+
+    GROUP           cpaeSuppPortProfileGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software which
+        supports PAE supplicant credential and EAP profiles feature."
+
+    GROUP           cpaeSuppHostInfoGroup
+    DESCRIPTION
+        "This group is mandatory in devices running software which
+        supports per-host supplicant feature."
+
+    OBJECT          cpaePortMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeGuestVlanNumber
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeShutdownTimeoutEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaePortAuthFailVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeAuthFailVlanMaxAttempts
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaePortCapabilitiesEnabled 
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeShutdownTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeRadiusAccountingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeNoGuestVlanNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeNoAuthFailVlanNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeGuestVlanNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeAuthFailVlanNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassReAuthTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassReAuthEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassViolation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassShutdownTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassAuthFailTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassPortEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassPortInitialize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassPortReAuth
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassPortAuthMethod
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMacAuthBypassAcctEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMabCriticalRecoveryDelay
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeMabPortIpDevTrackEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthSessionPeriod
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthLoginPage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthLoginFailedPage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthQuietPeriod
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthMaxRetries
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthPortEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthPortInitialize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthPortAaaFailPolicy
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthPortIpDevTrackEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthHostInitialize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthCriticalRecoveryDelay
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeWebAuthUnAuthStateTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeAuthReAuthPeriodSrcAdmin
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeAuthReAuthMax
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeAuthIabEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeCriticalEapolEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeCriticalRecoveryDelay
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaePortIpDevTrackEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeGlobalAuthFailMaxAttempts
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeGlobalSecViolationAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeDot1xSuppToGuestVlanAllowed
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeSuppPortCredentialProfileName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaeSuppPortEapProfileName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        Support for createAndWait and notInService is not required."
+    ::= { cpaeMIBCompliances 10 }
+
+-- Units of Conformance
+
+cpaeMultipleHostGroup OBJECT-GROUP
+    OBJECTS         { cpaeMultipleHost }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects that provide the multiple
+        host configuration information for a PAE port.
+        These are additional to the IEEE Std 802.1x PAE MIB."
+    ::= { cpaeMIBGroups 1 }
+
+cpaePortEntryGroup OBJECT-GROUP
+    OBJECTS         { cpaePortMode }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides the port-mode
+        configuration for a PAE port."
+    ::= { cpaeMIBGroups 2 }
+
+cpaeGuestVlanGroup OBJECT-GROUP
+    OBJECTS         { cpaeGuestVlanId }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects that provides the Guest Vlan
+        configuration information for the system."
+    ::= { cpaeMIBGroups 3 }
+
+cpaeGuestVlanGroup2 OBJECT-GROUP
+    OBJECTS         {
+                        cpaeGuestVlanNumber,
+                        cpaeInGuestVlan
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects that provides the per-interface
+        Guest Vlan configuration information for the system."
+    ::= { cpaeMIBGroups 4 }
+
+cpaeShutdownTimeoutGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeShutdownTimeout,
+                        cpaeShutdownTimeoutEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides the dot1x
+        shutdown timeout configuration information for
+        the system."
+    ::= { cpaeMIBGroups 5 }
+
+cpaeRadiusConfigGroup OBJECT-GROUP
+    OBJECTS         { cpaeRadiusAccountingEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides the RADIUS
+        configuration information for the system."
+    ::= { cpaeMIBGroups 6 }
+
+cpaeUserGroupGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeUserGroupUserName,
+                        cpaeUserGroupUserAddrType,
+                        cpaeUserGroupUserAddr,
+                        cpaeUserGroupUserInterface,
+                        cpaeUserGroupUserVlan
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides the group manager
+        information of authenticated users in the system."
+    ::= { cpaeMIBGroups 7 }
+
+cpaeGuestVlanGroup3 OBJECT-GROUP
+    OBJECTS         { cpaeGuestVlanNumber }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides the per-interface
+        Guest Vlan configuration information for the system."
+    ::= { cpaeMIBGroups 8 }
+
+cpaePortOperVlanGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaePortOperVlan,
+                        cpaePortOperVlanType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides the
+        information about Operational Vlan for each PAE port."
+    ::= { cpaeMIBGroups 9 }
+
+cpaePortAuthFailVlanGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaePortAuthFailVlan,
+                        cpaeAuthFailUserName
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of object(s) that provides the
+        Auth-Fail (Authentication Fail) Vlan configuration
+        and Auth-Fail user information for the system."
+    ::= { cpaeMIBGroups 10 }
+
+cpaeNoGuestVlanNotifEnableGrp OBJECT-GROUP
+    OBJECTS         { cpaeNoGuestVlanNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides control over
+        Guest Vlan related notification(s)."
+    ::= { cpaeMIBGroups 11 }
+
+cpaeNoAuthFailVlanNotifEnableGrp OBJECT-GROUP
+    OBJECTS         { cpaeNoAuthFailVlanNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides control over
+        Auth-Fail related notification(s)."
+    ::= { cpaeMIBGroups 12 }
+
+cpaeNoGuestVlanNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cpaeNoGuestVlanNotif }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification(s) providing the
+        information for unconfigured Guest Vlan."
+    ::= { cpaeMIBGroups 13 }
+
+cpaeNoAuthFailVlanNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cpaeNoAuthFailVlanNotif }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications providing the
+        information for unconfigured Auth-Fail Vlan."
+    ::= { cpaeMIBGroups 14 }
+
+cpaeMacAuthBypassGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeMacAuthBypassReAuthTimeout,
+                        cpaeMacAuthBypassReAuthEnabled,
+                        cpaeMacAuthBypassViolation,
+                        cpaeMacAuthBypassShutdownTimeout,
+                        cpaeMacAuthBypassAuthFailTimeout,
+                        cpaeMacAuthBypassPortEnabled,
+                        cpaeMacAuthBypassPortInitialize,
+                        cpaeMacAuthBypassPortReAuth,
+                        cpaeMacAuthBypassPortMacAddress,
+                        cpaeMacAuthBypassPortAuthState,
+                        cpaeMacAuthBypassAcctEnable
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of object(s) that provides the
+        MAC Auth-Bypass configuration and information
+        for the system."
+    ::= { cpaeMIBGroups 15 }
+
+cpaeWebAuthGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeWebAuthEnabled,
+                        cpaeWebAuthSessionPeriod,
+                        cpaeWebAuthLoginPage,
+                        cpaeWebAuthLoginFailedPage,
+                        cpaeWebAuthQuietPeriod,
+                        cpaeWebAuthMaxRetries,
+                        cpaeWebAuthPortEnabled,
+                        cpaeWebAuthPortInitialize,
+                        cpaeWebAuthAaaSessionPeriod,
+                        cpaeWebAuthHostSessionTimeLeft,
+                        cpaeWebAuthHostState,
+                        cpaeWebAuthHostInitialize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides the
+        Web Proxy Authentication configuration and
+        information for the system."
+    ::= { cpaeMIBGroups 16 }
+
+cpaeAuthConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeAuthReAuthPeriodSrcAdmin,
+                        cpaeAuthReAuthPeriodSrcOper,
+                        cpaeAuthReAuthPeriodOper,
+                        cpaeAuthTimeToNextReAuth,
+                        cpaeAuthReAuthAction,
+                        cpaeAuthReAuthMax,
+                        cpaeAuthIabEnabled
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of object(s) that provides additional
+        configuration information about an Authenticator PAE."
+    ::= { cpaeMIBGroups 17 }
+
+cpaeHostInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeHostInfoMacAddress,
+                        cpaeHostInfoPostureToken
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "A collection of object(s) that provides information
+        about an host connecting to a PAE port."
+    ::= { cpaeMIBGroups 18 }
+
+cpaeWebAuthAaaFailGroup OBJECT-GROUP
+    OBJECTS         { cpaeWebAuthPortAaaFailPolicy }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides Inaccessible
+        Authentication Bypass configuration and information
+        for Web Proxy Authentication in the system."
+    ::= { cpaeMIBGroups 19 }
+
+cpaeMacAuthBypassGroup2 OBJECT-GROUP
+    OBJECTS         {
+                        cpaeMacAuthBypassPortTermAction,
+                        cpaeMacAuthBypassSessionTimeLeft
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides additional
+        information of MAC Auth-bypass feature in the system."
+    ::= { cpaeMIBGroups 20 }
+
+cpaePortEapolTestGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaePortEapolTestLimits,
+                        cpaePortEapolTestResult,
+                        cpaePortEapolTestStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides information
+        about if connecting hosts are EAPOL capable."
+    ::= { cpaeMIBGroups 21 }
+
+cpaeHostInfoGroup2 OBJECT-GROUP
+    OBJECTS         { cpaeHostInfoMacAddress }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides information
+        about an host connecting to a PAE port."
+    ::= { cpaeMIBGroups 22 }
+
+cpaeMacAuthBypassGroup3 OBJECT-GROUP
+    OBJECTS         { cpaeMacAuthBypassPortAuthMethod }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration
+        for authentication method for MAC Auth-bypass feature
+        in the system."
+    ::= { cpaeMIBGroups 23 }
+
+cpaePortAuthFailVlanGroup2 OBJECT-GROUP
+    OBJECTS         { cpaeAuthFailVlanMaxAttempts }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration
+        for maximum authentication attempts for Auth-Fail Vlan
+        feature in the system."
+    ::= { cpaeMIBGroups 24 }
+
+cpaeAuthConfigGroup2 OBJECT-GROUP
+    OBJECTS         { cpaeAuthPaeState }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides additional
+        states in the PAE state machine."
+    ::= { cpaeMIBGroups 25 }
+
+cpaeCriticalRecoveryDelayGroup OBJECT-GROUP
+    OBJECTS         { cpaeCriticalRecoveryDelay }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides recovery delay
+        configuration for 802.1x Critical Authentication
+        in the system."
+    ::= { cpaeMIBGroups 26 }
+
+cpaeAuthConfigGroup3 OBJECT-GROUP
+    OBJECTS         {
+                        cpaeAuthReAuthPeriodSrcAdmin,
+                        cpaeAuthReAuthPeriodSrcOper,
+                        cpaeAuthReAuthPeriodOper,
+                        cpaeAuthTimeToNextReAuth,
+                        cpaeAuthReAuthAction
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration
+        and information related to re-authentication of 802.1x
+        ports in the system."
+    ::= { cpaeMIBGroups 27 }
+
+cpaeAuthConfigGroup4 OBJECT-GROUP
+    OBJECTS         { cpaeAuthReAuthMax }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration
+        of maximum reauthentication attempts of 802.1x
+        ports in the system."
+    ::= { cpaeMIBGroups 28 }
+
+cpaeAuthIabConfigGroup OBJECT-GROUP
+    OBJECTS         { cpaeAuthIabEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to enable/disable IAB feature
+        on capable interface for the system."
+    ::= { cpaeMIBGroups 29 }
+
+cpaeGlobalAuthFailVlanGroup OBJECT-GROUP
+    OBJECTS         { cpaeGlobalAuthFailMaxAttempts }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides global configuration
+        and information about  maximum authentication attempts for
+        Auth-Fail Vlan feature in the system."
+    ::= { cpaeMIBGroups 30 }
+
+cpaeMacAuthBypassCriticalGroup OBJECT-GROUP
+    OBJECTS         { cpaeMabCriticalRecoveryDelay }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides control over
+        critical configuration for Mac Authentication Bypass."
+    ::= { cpaeMIBGroups 31 }
+
+cpaeWebAuthCriticalGroup OBJECT-GROUP
+    OBJECTS         { cpaeWebAuthCriticalRecoveryDelay }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides control over
+        critical configuration for Web Proxy Authentication."
+    ::= { cpaeMIBGroups 32 }
+
+cpaeCriticalEapolConfigGroup OBJECT-GROUP
+    OBJECTS         { cpaeCriticalEapolEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides EAPOL
+        configuration for 802.1x Critical Authentication
+        in the system."
+    ::= { cpaeMIBGroups 33 }
+
+cpaeHostPostureTokenGroup OBJECT-GROUP
+    OBJECTS         { cpaeHostPostureTokenStr }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides information
+        about Posture Token of an host connecting to a PAE port."
+    ::= { cpaeMIBGroups 34 }
+
+cpaeMabAuditInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeMacAuthBypassPortSessionId,
+                        cpaeMacAuthBypassPortUrlRedirect,
+                        cpaeMacAuthBypassPortPostureTok
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides information about
+        MAC Auth-Bypass Audit sessions."
+    ::= { cpaeMIBGroups 35 }
+
+cpaeMabPortIpDevTrackConfGroup OBJECT-GROUP
+    OBJECTS         { cpaeMabPortIpDevTrackEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration and
+        information about MAC Auth-Bypass IP Device Tracking
+        feature."
+    ::= { cpaeMIBGroups 36 }
+
+cpaePortIpDevTrackConfGroup OBJECT-GROUP
+    OBJECTS         { cpaePortIpDevTrackEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration and
+        information about 802.1x IP Device Tracking feature."
+    ::= { cpaeMIBGroups 37 }
+
+cpaeHostUrlRedirectGroup OBJECT-GROUP
+    OBJECTS         { cpaeHostUrlRedirection }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides information about
+        URL-redirection of 802.1x authenticated hosts."
+    ::= { cpaeMIBGroups 38 }
+
+cpaeWebAuthIpDevTrackingGroup OBJECT-GROUP
+    OBJECTS         { cpaeWebAuthPortIpDevTrackEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration and
+        information about Web Proxy Authentication IP Device
+        Tracking feature."
+    ::= { cpaeMIBGroups 39 }
+
+cpaeWebAuthUnAuthTimeoutGroup OBJECT-GROUP
+    OBJECTS         { cpaeWebAuthUnAuthStateTimeout }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration and
+        information about Init State Timeout of Web Proxy
+        Authentication."
+    ::= { cpaeMIBGroups 40 }
+
+cpaeHostInfoGroup3 OBJECT-GROUP
+    OBJECTS         {
+                        cpaeHostInfoUserName,
+                        cpaeHostInfoAddrType,
+                        cpaeHostInfoAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides user and the
+        address information for 802.1x authenticated host."
+    ::= { cpaeMIBGroups 41 }
+
+cpaeGlobalSecViolationGroup OBJECT-GROUP
+    OBJECTS         { cpaeGlobalSecViolationAction }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides global configuration
+        and information about security violation action on PAE ports
+        in the system."
+    ::= { cpaeMIBGroups 42 }
+
+cpaeMacAuthBypassPortEnableGroup OBJECT-GROUP
+    OBJECTS         { cpaeMacAuthBypassPortEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to enable/disable Mac Auth-Bypass
+        on capable interfaces for the system."
+    ::= { cpaeMIBGroups 43 }
+
+cpaeMacAuthBypassGroup4 OBJECT-GROUP
+    OBJECTS         {
+                        cpaeMacAuthBypassReAuthEnabled,
+                        cpaeMacAuthBypassReAuthTimeout,
+                        cpaeMacAuthBypassViolation,
+                        cpaeMacAuthBypassShutdownTimeout,
+                        cpaeMacAuthBypassAuthFailTimeout,
+                        cpaeMacAuthBypassPortInitialize,
+                        cpaeMacAuthBypassPortReAuth,
+                        cpaeMacAuthBypassPortMacAddress,
+                        cpaeMacAuthBypassPortAuthState,
+                        cpaeMacAuthBypassAcctEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides the
+        MAC Auth-Bypass configuration and information
+        for the system."
+    ::= { cpaeMIBGroups 44 }
+
+cpaeHostSessionIdGroup OBJECT-GROUP
+    OBJECTS         { cpaeHostSessionId }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides session
+        identification information for 802.1x hosts in the system."
+    ::= { cpaeMIBGroups 45 }
+
+cpaeHostAuthInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeHostAuthPaeState,
+                        cpaeHostBackendState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides state machines and
+        authentication information for 802.1x authenticated hosts
+        in the system."
+    ::= { cpaeMIBGroups 46 }
+
+cpaePortCapabilitiesConfigGroup OBJECT-GROUP
+    OBJECTS         { cpaePortCapabilitiesEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration and
+        information about PAE functionalities of ports in the systems."
+    ::= { cpaeMIBGroups 47 }
+
+cpaeDot1xSuppToGuestVlanGroup OBJECT-GROUP
+    OBJECTS         { cpaeDot1xSuppToGuestVlanAllowed }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides configuration that
+        allows moving ports with 802.1x supplicants to Guest Vlan."
+    ::= { cpaeMIBGroups 48 }
+
+cpaeGuestVlanNotifEnableGroup OBJECT-GROUP
+    OBJECTS         { cpaeGuestVlanNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides control over
+        Guest Vlan related notification(s)."
+    ::= { cpaeMIBGroups 49 }
+
+cpaeGuestVlanNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cpaeGuestVlanNotif }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications providing information
+        for Guest Vlan."
+    ::= { cpaeMIBGroups 50 }
+
+cpaeAuthFailVlanNotifEnableGrp OBJECT-GROUP
+    OBJECTS         { cpaeAuthFailVlanNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides control over
+        Auth-Fail Vlan related notification(s)."
+    ::= { cpaeMIBGroups 51 }
+
+cpaeAuthFailVlanNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cpaeAuthFailVlanNotif }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications providing information
+        for Auth-Fail Vlan."
+    ::= { cpaeMIBGroups 52 }
+
+cpaePortAuthFailVlanConfigGroup OBJECT-GROUP
+    OBJECTS         { cpaePortAuthFailVlan }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides the Auth-Fail
+        (Authentication Fail) Vlan configuration for the system."
+    ::= { cpaeMIBGroups 53 }
+
+cpaePortAuthFailUserInfoGroup OBJECT-GROUP
+    OBJECTS         { cpaeAuthFailUserName }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides the Auth-Fail user
+        information for the system."
+    ::= { cpaeMIBGroups 54 }
+
+cpaeSuppPortProfileGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeSuppPortCredentialProfileName,
+                        cpaeSuppPortEapProfileName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides Credential and
+        EAP profiles configuration for a Supplicant PAE."
+    ::= { cpaeMIBGroups 55 }
+
+cpaeSuppHostInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpaeSuppHostAuthMacAddress,
+                        cpaeSuppHostPaeState,
+                        cpaeSuppHostBackendState,
+                        cpaeSuppHostStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) that provides information about
+        supplicants in the system."
+    ::= { cpaeMIBGroups 56 }
+
+END
+

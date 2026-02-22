@@ -1,0 +1,1687 @@
+-- MIB file created 26-May-2010 16:06:53, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-UNIFIED-COMPUTING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-UNIFIED-COMPUTING-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    RowPointer, DateAndTime
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoUnifiedComputingMIB OBJECT IDENTIFIER ::= { ciscoMgmt 719 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201005200000Z
+--  OrgName
+--    Cisco
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: ucs-snmp@cisco.com
+--  Descr
+--    This MIB module defines the managed objects for
+--    Unified Computing System (UCS) Manager.
+--           
+--    Cisco UCS Manager provides centralized management
+--    capabilities, creates a unified management domain, and
+--    serves as the central nervous system of the Cisco Unified
+--    Computing System.
+--    
+--    UCS configuration is comprised of operational and
+--    administrative settings. The data is organized hierarchically
+--    in a tree structure, starts from the top (root) and contains
+--    children and parent nodes. Each node in the tree is a managed
+--    object and each object in the UCS has a unique Distinguished
+--    Name (DN) that describes the object and its place in the tree.
+--    Every managed object is also identified through a
+--    CucsManagedObjectId of type integer.
+--    
+--    Managed objects are abstractions of real world resources,
+--    they represent the physical and logical components of the UCS,
+--    for example, switch, chassis, blades, and so on. Properties on
+--    the Managed Objects (MO) are characterized as configurations
+--    and operations.
+--    Configuration Policies are the majority of the policies in the
+--    system and are used to describe configurations of different
+--    components of the UCS. Policies determine how the system
+--    behaves under specific circumstances. Certain MOs are not
+--    created by users, but are automatically created by the UCS,
+--    power supply objects and fan objects are examples of
+--    automatically created MOs.
+--  RevDate
+--    201005200000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoUnifiedComputingMIBNotifs OBJECT IDENTIFIER ::= { ciscoUnifiedComputingMIB 0 }
+ciscoUnifiedComputingMIBObjects OBJECT IDENTIFIER ::= { ciscoUnifiedComputingMIB 1 }
+ciscoUnifiedComputingMIBConform OBJECT IDENTIFIER ::= { ciscoUnifiedComputingMIB 2 }
+cucsFaultObjects OBJECT IDENTIFIER ::= { ciscoUnifiedComputingMIBObjects 1 }
+cucsFaultMIBConform OBJECT IDENTIFIER ::= { ciscoUnifiedComputingMIBConform 1 }
+cucsFaultMIBCompliances OBJECT IDENTIFIER ::= { cucsFaultMIBConform 1 }
+cucsFaultMIBGroups OBJECT IDENTIFIER ::= { cucsFaultMIBConform 2 }
+
+CucsManagedObjectId ::= Gauge
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    A unique identifier for this managed object.
+--    Objects in UCS Manager are stored in a Management
+--    Information Tree (MIT). The MIT is a repository of all
+--    Managed Object (MO) instances, indexed by their
+--    Distinguished Name (DN).
+--    The MIT somewhat resembles a file structure - going from
+--    main folder to the next lowest folder, and so on, until
+--    the full path to a MO is established.
+--    
+--    Every object in UCS Manager has two unique identifiers:
+--    1) A distinguished name (DN). A DN provides a
+--    fully-qualified path from the top of the object tree.
+--    It is built as an ordered sequence of relative names
+--    separated by the '/' character.
+--    The DN is used to identify objects in the XML API.
+--    
+--    2) A CucsManagedObjectId, which is an integer uniquely
+--    identifying an object. 
+--    The CucsManagedObjectId is used to identify objects and
+--    traverse tables when using the SNMP protocol. 
+--    
+--    For example, an object representing a network adaptor
+--    on a blade might be identified with its DN set
+--    to 'sys/chassis-5/blade-2/adaptor-1' and its
+--    CucsManagedObjectId set to '13203'.
+
+CucsManagedObjectDn ::= OCTET STRING
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An immutable property of all Managed Objects (MO) that
+--    provides a fully qualified and unambiguous name for the MO.
+--    A DN provides a fully-qualified path from the top of the
+--    object tree.
+--    It is built as an ordered sequence of relative names
+--    separated by the '/' character.
+--    
+--    For example, an object representing a network adaptor
+--    on a blade might be identified with its DN set
+--    to 'sys/chassis-5/blade-2/adaptor-1'.
+
+CucsFaultCode ::= INTEGER {
+        fltFabricComputeSlotEpMisplacedInChassisSlot(156),
+        fltFabricComputeSlotEpServerIdentificationProblem(157),
+        fltVnicEtherConfigFailed(169),
+        fltVnicFcConfigFailed(170),
+        fltProcessorUnitInoperable(174),
+        fltProcessorUnitThermalNonCritical(175),
+        fltProcessorUnitThermalThresholdCritical(176),
+        fltProcessorUnitThermalThresholdNonRecoverable(177),
+        fltProcessorUnitVoltageThresholdNonCritical(178),
+        fltProcessorUnitVoltageThresholdCritical(179),
+        fltProcessorUnitVoltageThresholdNonRecoverable(180),
+        fltStorageItemCapacityExceeded(182),
+        fltStorageItemCapacityWarning(183),
+        fltMemoryUnitDegraded(184),
+        fltMemoryUnitInoperable(185),
+        fltMemoryUnitThermalThresholdNonCritical(186),
+        fltMemoryUnitThermalThresholdCritical(187),
+        fltMemoryUnitThermalThresholdNonRecoverable(188),
+        fltMemoryArrayVoltageThresholdNonCritical(189),
+        fltMemoryArrayVoltageThresholdCritical(190),
+        fltMemoryArrayVoltageThresholdNonRecoverable(191),
+        fltAdaptorUnitUnidentifiableFru(200),
+        fltAdaptorUnitMissing(203),
+        fltAdaptorUnitAdaptorReachability(206),
+        fltAdaptorHostIfLinkDown(207),
+        fltAdaptorExtIfLinkDown(209),
+        fltPortPIoLinkDown(276),
+        fltPortPIoFailed(277),
+        fltPortPIoHardwareFailure(278),
+        fltPortPIoSfpNotPresent(279),
+        fltFabricExternalPcDown(282),
+        fltDcxVcDown(283),
+        fltNetworkElementInoperable(291),
+        fltMgmtEntityDegraded(293),
+        fltMgmtEntityDown(294),
+        fltDcxNsFailed(304),
+        fltComputeBladeInsufficientlyEquipped(305),
+        fltComputeBladeIdentityUnestablishable(306),
+        fltComputeBoardPowerError(310),
+        fltComputeBladePowerProblem(311),
+        fltComputeBladeThermalProblem(312),
+        fltComputeBladeBiosPostTimeout(313),
+        fltComputeBladeDiscoveryFailed(314),
+        fltComputeBladeAssociationFailed(315),
+        fltComputeBladeInoperable(317),
+        fltComputeBladeUnassignedMissing(318),
+        fltComputeBladeAssignedMissing(319),
+        fltComputeBladeUnidentified(320),
+        fltComputeBladeUnassignedInaccessible(321),
+        fltComputeBladeAssignedInaccessible(322),
+        fltLsServerFailed(324),
+        fltLsServerDiscoveryFailed(326),
+        fltLsServerConfigFailure(327),
+        fltLsServerMaintenanceFailed(329),
+        fltLsServerRemoved(330),
+        fltLsServerInaccessible(331),
+        fltLsServerAssociationFailed(332),
+        fltLsServerUnassociated(334),
+        fltLsServerServerUnfulfilled(337),
+        fltEtherSwitchIntFIoSatelliteConnectionAbsent(367),
+        fltEtherSwitchIntFIoSatelliteWiringProblem(368),
+        fltEquipmentPsuPowerSupplyProblem(369),
+        fltEquipmentFanDegraded(371),
+        fltEquipmentFanInoperable(373),
+        fltEquipmentPsuInoperable(374),
+        fltEquipmentIOCardRemoved(376),
+        fltEquipmentFanModuleMissing(377),
+        fltEquipmentPsuMissing(378),
+        fltEquipmentIOCardThermalProblem(379),
+        fltEquipmentFanModuleThermalThresholdNonCritical(380),
+        fltEquipmentPsuThermalThresholdNonCritical(381),
+        fltEquipmentFanModuleThermalThresholdCritical(382),
+        fltEquipmentPsuThermalThresholdCritical(383),
+        fltEquipmentFanModuleThermalThresholdNonRecoverable(384),
+        fltEquipmentPsuThermalThresholdNonRecoverable(385),
+        fltEquipmentPsuVoltageThresholdNonCritical(387),
+        fltEquipmentPsuVoltageThresholdCritical(389),
+        fltEquipmentPsuVoltageThresholdNonRecoverable(391),
+        fltEquipmentPsuPerfThresholdNonCritical(392),
+        fltEquipmentPsuPerfThresholdCritical(393),
+        fltEquipmentPsuPerfThresholdNonRecoverable(394),
+        fltEquipmentFanPerfThresholdNonCritical(395),
+        fltEquipmentFanPerfThresholdCritical(396),
+        fltEquipmentFanPerfThresholdNonRecoverable(397),
+        fltEquipmentIOCardFirmwareUpgrade(398),
+        fltEquipmentChassisUnsupportedConnectivity(399),
+        fltEquipmentChassisUnacknowledged(400),
+        fltEquipmentIOCardUnsupportedConnectivity(401),
+        fltEquipmentIOCardUnacknowledged(402),
+        fltEquipmentIOCardPeerDisconnected(403),
+        fltEquipmentChassisIdentity(404),
+        fltEquipmentIOCardIdentity(405),
+        fltEquipmentFanModuleIdentity(406),
+        fltEquipmentPsuIdentity(407),
+        fltEquipmentChassisPowerProblem(408),
+        fltEquipmentChassisThermalThresholdCritical(409),
+        fltEquipmentChassisThermalThresholdNonCritical(410),
+        fltEquipmentChassisThermalThresholdNonRecoverable(411),
+        fltComputeBoardCmosVoltageThresholdCritical(424),
+        fltComputeBoardCmosVoltageThresholdNonRecoverable(425),
+        fltMgmtEntityElectionFailure(428),
+        fltMgmtEntityHaNotReady(429),
+        fltMgmtEntityVersionIncompatible(430),
+        fltEquipmentFanMissing(434),
+        fltEquipmentIOCardAutoUpgradingFirmware(435),
+        fltFirmwarePackItemImageMissing(436),
+        fltEtherSwitchIntFIoSatelliteWiringNumbersUnexpected(440),
+        fltMgmtEntityManagementServicesFailure(451),
+        fltMgmtEntityManagementServicesUnresponsive(452),
+        fltMgmtEntityChassis1SEEPROMError(453),
+        fltMgmtEntityChassis2SEEPROMError(454),
+        fltMgmtEntityChassis3SEEPROMError(455),
+        fltEquipmentChassisInoperable(456),
+        fltEtherServerIntFIoHardwareFailure(458),
+        fltDcxVcMgmtVifDown(459),
+        fltSysdebugMEpLogMEpLogLog(460),
+        fltSysdebugMEpLogMEpLogVeryLow(461),
+        fltSysdebugMEpLogMEpLogFull(462),
+        fltComputePoolEmpty(463),
+        fltUuidpoolPoolEmpty(464),
+        fltIppoolPoolEmpty(465),
+        fltMacpoolPoolEmpty(466),
+        fltFirmwareUpdatableImageUnusable(470),
+        fltFirmwareBootUnitCantBoot(471),
+        fltFcpoolInitiatorsEmpty(476),
+        fltEquipmentIOCardInaccessible(478),
+        fltDcxVIfLinkState(479),
+        fltEquipmentFanModuleDegraded(480),
+        fltEquipmentIOCardPostFailure(481),
+        fltEquipmentFanPerfThresholdLowerNonRecoverable(484),
+        fltMemoryUnitIdentityUnestablishable(502),
+        fltComputeBladePostFailure(517),
+        fltEquipmentPsuOffline(528),
+        fltStorageRaidBatteryInoperable(531),
+        fltSysdebugMEpLogTransferError(532),
+        fltComputeRtcBatteryInoperable(533),
+        fltMemoryBufferUnitThermalThresholdNonCritical(535),
+        fltMemoryBufferUnitThermalThresholdCritical(536),
+        fltMemoryBufferUnitThermalThresholdNonRecoverable(537),
+        fltComputeIOHubThermalNonCritical(538),
+        fltComputeIOHubThermalThresholdCritical(539),
+        fltComputeIOHubThermalThresholdNonRecoverable(540),
+        fltEquipmentChassisIdentityUnestablishable(543),
+        fltSwVlanPortNsResourceStatus(549),
+        fsmStFailEquipmentIOCardFePresenceIdentify(16405),
+        fsmStFailEquipmentIOCardFeConnEnableChassis(16406),
+        fsmStFailEquipmentChassisRemoveChassisDecomission(16407),
+        fsmStFailEquipmentLocatorLedSetLocatorLedExecute(16408),
+        fsmStFailMgmtControllerExtMgmtIfConfigSecondary(16518),
+        fsmStFailFabricComputeSlotEpIdentifyExecutePeer(16519),
+        fsmStFailComputeBladeDiscoverHagDisconnect(16520),
+        fsmStFailComputeBladeAssociateWaitForIBMCFwUpdate(16521),
+        fsmStFailComputeBladeDisassociateHagPnuOSDisconnect(16522),
+        fsmStFailComputeBladeDecommissionExecute(16523),
+        fsmStFailComputeBladeSoftShutdownExecute(16524),
+        fsmStFailComputeBladeHardShutdownExecute(16525),
+        fsmStFailComputeBladeTurnupExecute(16526),
+        fsmStFailComputeBladeHardresetSanitize(16528),
+        fsmStFailComputeBladeSoftresetSanitize(16529),
+        fsmStFailComputeBladeSwConnUpdB(16530),
+        fsmStFailComputeBladeBiosRecoveryWait(16531),
+        fsmStFailComputeBladeCmosResetSanitize(16532),
+        fsmStFailEquipmentChassisPsuPolicyConfigExecute(16533),
+        fsmStFailAdaptorHostFcIfResetFcPersBindingExecute(16534),
+        fsmStFailComputeBladeDiagUnconfigUserAccess(16535),
+        fsmStFailFabricLanCloudSwitchModeSwConfigPeer(16539),
+        fsmStFailVnicProfileSetDeployPeer(16550),
+        fsmStFailCommSvcEpUpdateSvcEpSetEpPeer(16576),
+        fsmStFailCommSvcEpRestartWebSvcRestart(16577),
+        fsmStFailComputeBladeUpdateExtUsersDeploy(16578),
+        fsmStFailStatsCollectionPolicyUpdateEpSetEpB(16579),
+        fsmStFailAaaRealmUpdateRealmSetRealmPeer(16580),
+        fsmStFailAaaUserEpUpdateUserEpSetUserPeer(16581),
+        fsmStFailSysfileMutationSingleExecute(16600),
+        fsmStFailSysfileMutationGlobalPeer(16601),
+        fsmStFailSysdebugManualCoreFileExportTargetExportExecute(16604),
+        fsmStFailSysdebugAutoCoreFileExportTargetConfigurePeer(16605),
+        fsmStFailSysdebugLogControlEpLogControlPersistPeer(16606),
+        fsmStFailSyntheticFsObjCreateCreateRemote(16641),
+        fsmStFailFirmwareDownloaderDownloadUnpackLocal(16650),
+        fsmStFailFirmwareImageDeleteRemote(16651),
+        fsmStFailMgmtControllerUpdateSwitchVerifyRemote(16653),
+        fsmStFailMgmtControllerUpdateIOMUpdateRequest(16654),
+        fsmStFailMgmtControllerActivateIOMReset(16655),
+        fsmStFailMgmtControllerUpdateBMCUpdateRequest(16656),
+        fsmStFailMgmtControllerActivateBMCReset(16657),
+        fsmStFailComputeBladeUpdateAdaptorUpdateRequest(16658),
+        fsmStFailComputeBladeActivateAdaptorReset(16659),
+        fsmStFailCallhomeEpConfigCallhomeSetPeer(16670),
+        fsmStFailMgmtIfSwMgmtOobIfConfigSwitch(16673),
+        fsmStFailMgmtIfSwMgmtInbandIfConfigSwitch(16674),
+        fsmStFailMgmtIfVirtualIfConfigRemote(16679),
+        fsmStFailMgmtIfEnableVipLocal(16680),
+        fsmStFailMgmtIfDisableVipPeer(16681),
+        fsmStFailMgmtIfEnableHALocal(16682),
+        fsmStFailMgmtBackupBackupUpload(16683),
+        fsmStFailMgmtImporterImportReportResults(16684),
+        fsmStFailComputeBladeConfigSoLExecute(16739),
+        fsmStFailComputeBladeUnconfigSoLExecute(16740),
+        fsmStFailQosclassDefinitionConfigGlobalQoSSetPeer(16745),
+        fsmStFailEpqosDefinitionDelTaskRemovePeer(16750),
+        fsmStFailComputeBladeResetBmcExecute(16802),
+        fsmStFailEquipmentIOCardResetCmcExecute(16803),
+        fsmStFailMgmtControllerUpdateUCSManagerStart(16815),
+        fsmStFailMgmtControllerSysConfigSecondary(16823),
+        fsmStFailComputeBladePowercycleSanitize(16834),
+        fsmStFailAdaptorExtEthIfPathResetEnable(16852),
+        fsmStFailAdaptorHostFcIfCircuitResetEnableB(16857),
+        fsmStFailExtvmmProviderConfigSetPeer(16879),
+        fsmStFailExtvmmKeyStoreCertInstallSetPeer(16880),
+        fsmStFailExtvmmSwitchDelTaskRemoveProviderRemoveLocal(16881),
+        fsmStFailComputeBladePowerCapConfig(16890),
+        fsmStFailComputeBladeBiosProfileConfigure(16891),
+        fsmStFailCapabilityUpdaterUpdaterUnpackLocal(16904),
+        fsmStFailComputeBladeUpdateBoardControllerUpdateRequest(16930),
+        fsmStFailCapabilityCatalogueDeployCatalogueFinalize(16931),
+        fsmRmtErrEquipmentIOCardFePresenceIdentify(77845),
+        fsmRmtErrEquipmentIOCardFeConnEnableChassis(77846),
+        fsmRmtErrEquipmentChassisRemoveChassisDecomission(77847),
+        fsmRmtErrEquipmentLocatorLedSetLocatorLedExecute(77848),
+        fsmRmtErrMgmtControllerExtMgmtIfConfigSecondary(77958),
+        fsmRmtErrFabricComputeSlotEpIdentifyExecutePeer(77959),
+        fsmRmtErrComputeBladeDiscoverHagDisconnect(77960),
+        fsmRmtErrComputeBladeAssociateWaitForIBMCFwUpdate(77961),
+        fsmRmtErrComputeBladeDisassociateHagPnuOSDisconnect(77962),
+        fsmRmtErrComputeBladeDecommissionExecute(77963),
+        fsmRmtErrComputeBladeSoftShutdownExecute(77964),
+        fsmRmtErrComputeBladeHardShutdownExecute(77965),
+        fsmRmtErrComputeBladeTurnupExecute(77966),
+        fsmRmtErrComputeBladeHardresetSanitize(77968),
+        fsmRmtErrComputeBladeSoftresetSanitize(77969),
+        fsmRmtErrComputeBladeSwConnUpdB(77970),
+        fsmRmtErrComputeBladeBiosRecoveryWait(77971),
+        fsmRmtErrComputeBladeCmosResetSanitize(77972),
+        fsmRmtErrEquipmentChassisPsuPolicyConfigExecute(77973),
+        fsmRmtErrAdaptorHostFcIfResetFcPersBindingExecute(77974),
+        fsmRmtErrComputeBladeDiagUnconfigUserAccess(77975),
+        fsmRmtErrFabricLanCloudSwitchModeSwConfigPeer(77979),
+        fsmRmtErrVnicProfileSetDeployPeer(77990),
+        fsmRmtErrCommSvcEpUpdateSvcEpSetEpPeer(78016),
+        fsmRmtErrCommSvcEpRestartWebSvcRestart(78017),
+        fsmRmtErrComputeBladeUpdateExtUsersDeploy(78018),
+        fsmRmtErrStatsCollectionPolicyUpdateEpSetEpB(78019),
+        fsmRmtErrAaaRealmUpdateRealmSetRealmPeer(78020),
+        fsmRmtErrAaaUserEpUpdateUserEpSetUserPeer(78021),
+        fsmRmtErrSysfileMutationSingleExecute(78040),
+        fsmRmtErrSysfileMutationGlobalPeer(78041),
+        fsmRmtErrSysdebugManualCoreFileExportTargetExportExecute(78044),
+        fsmRmtErrSysdebugAutoCoreFileExportTargetConfigurePeer(78045),
+        fsmRmtErrSysdebugLogControlEpLogControlPersistPeer(78046),
+        fsmRmtErrSyntheticFsObjCreateCreateRemote(78081),
+        fsmRmtErrFirmwareDownloaderDownloadUnpackLocal(78090),
+        fsmRmtErrFirmwareImageDeleteRemote(78091),
+        fsmRmtErrMgmtControllerUpdateSwitchVerifyRemote(78093),
+        fsmRmtErrMgmtControllerUpdateIOMUpdateRequest(78094),
+        fsmRmtErrMgmtControllerActivateIOMReset(78095),
+        fsmRmtErrMgmtControllerUpdateBMCUpdateRequest(78096),
+        fsmRmtErrMgmtControllerActivateBMCReset(78097),
+        fsmRmtErrComputeBladeUpdateAdaptorUpdateRequest(78098),
+        fsmRmtErrComputeBladeActivateAdaptorReset(78099),
+        fsmRmtErrCallhomeEpConfigCallhomeSetPeer(78110),
+        fsmRmtErrMgmtIfSwMgmtOobIfConfigSwitch(78113),
+        fsmRmtErrMgmtIfSwMgmtInbandIfConfigSwitch(78114),
+        fsmRmtErrMgmtIfVirtualIfConfigRemote(78119),
+        fsmRmtErrMgmtIfEnableVipLocal(78120),
+        fsmRmtErrMgmtIfDisableVipPeer(78121),
+        fsmRmtErrMgmtIfEnableHALocal(78122),
+        fsmRmtErrMgmtBackupBackupUpload(78123),
+        fsmRmtErrMgmtImporterImportReportResults(78124),
+        fsmRmtErrComputeBladeConfigSoLExecute(78179),
+        fsmRmtErrComputeBladeUnconfigSoLExecute(78180),
+        fsmRmtErrQosclassDefinitionConfigGlobalQoSSetPeer(78185),
+        fsmRmtErrEpqosDefinitionDelTaskRemovePeer(78190),
+        fsmRmtErrComputeBladeResetBmcExecute(78242),
+        fsmRmtErrEquipmentIOCardResetCmcExecute(78243),
+        fsmRmtErrMgmtControllerUpdateUCSManagerStart(78255),
+        fsmRmtErrMgmtControllerSysConfigSecondary(78263),
+        fsmRmtErrComputeBladePowercycleSanitize(78274),
+        fsmRmtErrAdaptorExtEthIfPathResetEnable(78292),
+        fsmRmtErrAdaptorHostFcIfCircuitResetEnableB(78297),
+        fsmRmtErrExtvmmProviderConfigSetPeer(78319),
+        fsmRmtErrExtvmmKeyStoreCertInstallSetPeer(78320),
+        fsmRmtErrExtvmmSwitchDelTaskRemoveProviderRemoveLocal(78321),
+        fsmRmtErrComputeBladePowerCapConfig(78330),
+        fsmRmtErrComputeBladeBiosProfileConfigure(78331),
+        fsmRmtErrCapabilityUpdaterUpdaterUnpackLocal(78344),
+        fsmRmtErrComputeBladeUpdateBoardControllerUpdateRequest(78370),
+        fsmRmtErrCapabilityCatalogueDeployCatalogueFinalize(78371),
+        fsmFailEquipmentIOCardFePresence(999445),
+        fsmFailEquipmentIOCardFeConn(999446),
+        fsmFailEquipmentChassisRemoveChassis(999447),
+        fsmFailEquipmentLocatorLedSetLocatorLed(999448),
+        fsmFailMgmtControllerExtMgmtIfConfig(999558),
+        fsmFailFabricComputeSlotEpIdentify(999559),
+        fsmFailComputeBladeDiscover(999560),
+        fsmFailComputeBladeAssociate(999561),
+        fsmFailComputeBladeDisassociate(999562),
+        fsmFailComputeBladeDecommission(999563),
+        fsmFailComputeBladeSoftShutdown(999564),
+        fsmFailComputeBladeHardShutdown(999565),
+        fsmFailComputeBladeTurnup(999566),
+        fsmFailComputeBladeHardreset(999568),
+        fsmFailComputeBladeSoftreset(999569),
+        fsmFailComputeBladeSwConnUpd(999570),
+        fsmFailComputeBladeBiosRecovery(999571),
+        fsmFailComputeBladeCmosReset(999572),
+        fsmFailEquipmentChassisPsuPolicyConfig(999573),
+        fsmFailAdaptorHostFcIfResetFcPersBinding(999574),
+        fsmFailComputeBladeDiag(999575),
+        fsmFailFabricLanCloudSwitchMode(999579),
+        fsmFailVnicProfileSetDeploy(999590),
+        fsmFailCommSvcEpUpdateSvcEp(999616),
+        fsmFailCommSvcEpRestartWebSvc(999617),
+        fsmFailComputeBladeUpdateExtUsers(999618),
+        fsmFailStatsCollectionPolicyUpdateEp(999619),
+        fsmFailAaaRealmUpdateRealm(999620),
+        fsmFailAaaUserEpUpdateUserEp(999621),
+        fsmFailSysfileMutationSingle(999640),
+        fsmFailSysfileMutationGlobal(999641),
+        fsmFailSysdebugManualCoreFileExportTargetExport(999644),
+        fsmFailSysdebugAutoCoreFileExportTargetConfigure(999645),
+        fsmFailSysdebugLogControlEpLogControlPersist(999646),
+        fsmFailSyntheticFsObjCreate(999681),
+        fsmFailFirmwareDownloaderDownload(999690),
+        fsmFailFirmwareImageDelete(999691),
+        fsmFailMgmtControllerUpdateSwitch(999693),
+        fsmFailMgmtControllerUpdateIOM(999694),
+        fsmFailMgmtControllerActivateIOM(999695),
+        fsmFailMgmtControllerUpdateBMC(999696),
+        fsmFailMgmtControllerActivateBMC(999697),
+        fsmFailComputeBladeUpdateAdaptor(999698),
+        fsmFailComputeBladeActivateAdaptor(999699),
+        fsmFailCallhomeEpConfigCallhome(999710),
+        fsmFailMgmtIfSwMgmtOobIfConfig(999713),
+        fsmFailMgmtIfSwMgmtInbandIfConfig(999714),
+        fsmFailMgmtIfVirtualIfConfig(999719),
+        fsmFailMgmtIfEnableVip(999720),
+        fsmFailMgmtIfDisableVip(999721),
+        fsmFailMgmtIfEnableHA(999722),
+        fsmFailMgmtBackupBackup(999723),
+        fsmFailMgmtImporterImport(999724),
+        fsmFailComputeBladeConfigSoL(999779),
+        fsmFailComputeBladeUnconfigSoL(999780),
+        fsmFailQosclassDefinitionConfigGlobalQoS(999785),
+        fsmFailEpqosDefinitionDelTaskRemove(999790),
+        fsmFailComputeBladeResetBmc(999842),
+        fsmFailEquipmentIOCardResetCmc(999843),
+        fsmFailMgmtControllerUpdateUCSManager(999855),
+        fsmFailMgmtControllerSysConfig(999863),
+        fsmFailComputeBladePowercycle(999874),
+        fsmFailAdaptorExtEthIfPathReset(999892),
+        fsmFailAdaptorHostFcIfCircuitReset(999897),
+        fsmFailExtvmmProviderConfig(999919),
+        fsmFailExtvmmKeyStoreCertInstall(999920),
+        fsmFailExtvmmSwitchDelTaskRemoveProvider(999921),
+        fsmFailComputeBladePowerCap(999930),
+        fsmFailComputeBladeBiosProfile(999931),
+        fsmFailCapabilityUpdaterUpdater(999944),
+        fsmFailComputeBladeUpdateBoardController(999970),
+        fsmFailCapabilityCatalogueDeployCatalogue(999971)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A code identifying a class of fault.
+
+CucsFaultType ::= INTEGER {
+        fsm(1),
+        equipment(2),
+        server(3),
+        configuration(4),
+        environmental(5),
+        management(6),
+        connectivity(7),
+        network(8),
+        operational(9)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A code used to categorize UCS faults
+
+CucsFaultProbableCause ::= INTEGER {
+        fsmFailed(3),
+        checkLicenseFailed(4),
+        identifyFailed(5),
+        configureSwMgmtEndPointFailed(6),
+        configureVifNsFailed(7),
+        configureEndPointFailed(8),
+        discoverChassisFailed(9),
+        enableChassisFailed(10),
+        decomissionFailed(11),
+        disableEndPointFailed(12),
+        unIdentifyLocalFailed(13),
+        unIdentifyPeerFailed(14),
+        waitFailed(15),
+        executeFailed(16),
+        bmcPresenceFailed(17),
+        bmcInventoryFailed(18),
+        configFeLocalFailed(19),
+        configFePeerFailed(20),
+        bladePowerOnFailed(21),
+        nicPresenceFailed(22),
+        nicInventoryFailed(23),
+        deriveConfigFailed(24),
+        configUserAccessFailed(25),
+        configSolFailed(26),
+        swConfigLocalFailed(27),
+        swConfigPeerFailed(28),
+        nicConfigFailed(29),
+        stopvmediaLocalFailed(30),
+        stopvmediaPeerFailed(31),
+        setupvmediaLocalFailed(32),
+        setupvmediaPeerFailed(33),
+        bladeBootFailed(34),
+        bladeBootWaitFailed(35),
+        biosPostCompletionFailed(36),
+        bladeReadSmbiosFailed(37),
+        bladeReadBiosSettingsFailed(38),
+        hostConnectFailed(39),
+        startMemoryTestStatusFailed(40),
+        pollMemoryTestStatusFailed(41),
+        hostIdentFailed(42),
+        hostPolicyFailed(43),
+        setDiagUserFailed(44),
+        hostInventoryFailed(45),
+        hostServerDiagFailed(46),
+        hostServerDiagStatusFailed(47),
+        disableServerConnSwBfailed(48),
+        startFabricatrafficTestFailed(49),
+        fabricatrafficTestStatusFailed(50),
+        enableServerConnSwBfailed(51),
+        disableServerConnSwAfailed(52),
+        startFabricbtrafficTestFailed(53),
+        fabricbtrafficTestStatusFailed(54),
+        enableServerConnSwAfailed(55),
+        generateReportFailed(56),
+        generateLogWaitFailed(57),
+        debugWaitFailed(58),
+        removevmediaLocalFailed(59),
+        removevmediaPeerFailed(60),
+        nicUnconfigFailed(61),
+        swUnconfigLocalFailed(62),
+        swUnconfigPeerFailed(63),
+        removeConfigFailed(64),
+        restoreConfigFeLocalFailed(65),
+        restoreConfigFePeerFailed(66),
+        unconfigUserAccessFailed(67),
+        unconfigSolFailed(68),
+        hostDisconnectFailed(69),
+        bmcShutdownDiagCompletedFailed(70),
+        evaluateStatusFailed(71),
+        primaryFailed(74),
+        secondaryFailed(75),
+        executeLocalFailed(76),
+        executePeerFailed(77),
+        preSanitizeFailed(78),
+        sanitizeFailed(79),
+        nicConfigPnuosFailed(80),
+        swConfigPnuoslocalFailed(81),
+        swConfigPnuospeerFailed(82),
+        setupVmediaLocalFailed(83),
+        setupVmediaPeerFailed(84),
+        bladeBootPnuosFailed(85),
+        hagConnectFailed(86),
+        pnuosidentFailed(87),
+        pnuospolicyFailed(88),
+        pnuosinventoryFailed(89),
+        pnuosselfTestFailed(90),
+        pnuosscrubFailed(91),
+        nicUnconfigPnuosFailed(92),
+        swUnconfigPnuoslocalFailed(93),
+        swUnconfigPnuospeerFailed(94),
+        teardownVmediaLocalFailed(95),
+        teardownVmediaPeerFailed(96),
+        hagDisconnectFailed(97),
+        bmcShutdownDiscoveredFailed(98),
+        handlePoolingFailed(99),
+        updateibmcfwFailed(100),
+        waitForibmcfwUpdateFailed(101),
+        activateibmcfwFailed(102),
+        resetibmcFailed(103),
+        bladePowerOffFailed(104),
+        updateBoardCtrlRequestFailed(105),
+        pollBoardCtrlUpdateStatusFailed(106),
+        updateAdaptorNwFwFailed(107),
+        waitForAdaptorNwFwUpdateFailed(108),
+        activateAdaptorNwFwFailed(109),
+        hagPnuosconnectFailed(110),
+        pnuosvalidateFailed(111),
+        biosImgUpdateFailed(112),
+        storageCtlrImgUpdateFailed(113),
+        hbaImgUpdateFailed(114),
+        nicImgUpdateFailed(115),
+        pnuosconfigFailed(116),
+        pnuoslocalDiskConfigFailed(117),
+        pnuosunloadDriversFailed(118),
+        swConfigHostoslocalFailed(119),
+        swConfigHostospeerFailed(120),
+        nicConfigHostosFailed(121),
+        hagPnuosdisconnectFailed(122),
+        configSoLfailed(123),
+        prepareForBootFailed(124),
+        configUuidFailed(125),
+        bladeBootHostFailed(126),
+        hagHostosconnectFailed(127),
+        hostosidentFailed(128),
+        hostospolicyFailed(129),
+        hostosvalidateFailed(130),
+        hostosconfigFailed(131),
+        nicUnconfigHostosFailed(132),
+        swUnconfigHostoslocalFailed(133),
+        swUnconfigHostospeerFailed(134),
+        configBiosFailed(135),
+        pnuosunconfigFailed(136),
+        unconfigUuidFailed(137),
+        bladeShutdownFailed(138),
+        unconfigBiosFailed(139),
+        unconfigSoLfailed(140),
+        configFailed(141),
+        aFailed(142),
+        bFailed(143),
+        shutdownFailed(144),
+        startFailed(145),
+        cleanupFailed(146),
+        resetFailed(147),
+        configureFailed(148),
+        reconfigBiosFailed(149),
+        reconfigUuidFailed(150),
+        serverMoved(151),
+        serverIdentificationProblem(152),
+        localFailed(153),
+        peerFailed(154),
+        configurationFailed(155),
+        equipmentInoperable(156),
+        thermalProblem(157),
+        voltageProblem(158),
+        capacityExceeded(159),
+        equipmentDegraded(160),
+        identityUnestablishable(161),
+        setEpLocalFailed(162),
+        setEpPeerFailed(163),
+        propogateEpSettingsFailed(164),
+        propogateEpTimeZoneSettingsLocalFailed(165),
+        propogateEpTimeZoneSettingsPeerFailed(166),
+        restartFailed(167),
+        deployFailed(168),
+        setRealmLocalFailed(169),
+        setRealmPeerFailed(170),
+        setUserLocalFailed(171),
+        setUserPeerFailed(172),
+        setKeyRingLocalFailed(173),
+        setKeyRingPeerFailed(174),
+        vifDown(175),
+        unidentifiableFru(176),
+        equipmentMissing(177),
+        connectivityProblem(178),
+        linkDown(179),
+        disableFailed(180),
+        enableFailed(181),
+        disableAfailed(182),
+        enableAfailed(183),
+        disableBfailed(184),
+        enableBfailed(185),
+        updateConnectivityFailed(186),
+        createLocalFailed(187),
+        createRemoteFailed(188),
+        unpackLocalFailed(189),
+        deleteLocalFailed(190),
+        copyRemoteFailed(191),
+        remoteFailed(192),
+        updateLocalFailed(193),
+        verifyLocalFailed(194),
+        resetLocalFailed(195),
+        updateRemoteFailed(196),
+        verifyRemoteFailed(197),
+        resetRemoteFailed(198),
+        updateRequestFailed(199),
+        pollUpdateStatusFailed(200),
+        activateFailed(201),
+        prepareForUpdateFailed(202),
+        imageDeleted(203),
+        imageUnusable(204),
+        imageCannotBoot(205),
+        applyFailed(206),
+        rescanImagesFailed(207),
+        syncBladeaglocalFailed(208),
+        syncBladeagremoteFailed(209),
+        syncNicaglocalFailed(210),
+        syncNicagremoteFailed(211),
+        syncPortaglocalFailed(212),
+        syncPortagremoteFailed(213),
+        syncHostagentaglocalFailed(214),
+        syncHostagentagremoteFailed(215),
+        finalizeFailed(216),
+        portFailed(217),
+        interfaceFailed(218),
+        operationalStateDown(219),
+        cmcVifDown(220),
+        setLocalFailed(221),
+        setPeerFailed(222),
+        switchFailed(223),
+        limitReached(224),
+        emptyPool(225),
+        backupLocalFailed(228),
+        uploadFailed(229),
+        downloadLocalFailed(230),
+        reportResultsFailed(231),
+        electionFailure(232),
+        managementServicesFailure(233),
+        managementServicesUnresponsive(234),
+        haNotReady(235),
+        versionIncompatible(236),
+        chassisSeepromError(237),
+        logCapacity(238),
+        fileTransferFailed(239),
+        insufficientResources(241),
+        insufficientlyEquipped(242),
+        powerProblem(243),
+        discoveryFailed(244),
+        associationFailed(245),
+        equipmentInaccessible(246),
+        equipmentProblem(247),
+        serverFailed(263),
+        configurationFailure(264),
+        maintenanceFailed(265),
+        equipmentRemoved(266),
+        serverInaccessible(267),
+        unassociated(268),
+        getVersionFailed(269),
+        removeLocalFailed(270),
+        setEpAfailed(271),
+        setEpBfailed(272),
+        satelliteConnectionAbsent(273),
+        satelliteMisConnected(275),
+        unexpectedNumberOfLinks(276),
+        equipmentOffline(277),
+        performanceProblem(278),
+        firmwareUpgradeProblem(279),
+        unsupportedConnectivityConfiguration(280),
+        equipmentUnacknowledged(281),
+        autoFirmwareUpgrade(282),
+        equipmentDisconnected(283),
+        fruProblem(284)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A code used to identify the probable cause of a fault
+
+CucsFaultSeverity ::= INTEGER {
+        --?? enum value of zero may cause problems
+        cleared(0),
+        info(1),
+        warning(3),
+        minor(4),
+        major(5),
+        critical(6)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A code used to identify the severity of a fault
+
+cucsFaultTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CucsFaultEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of UCS faults. This table may contain both active
+        and cleared faults.
+        The following UCS Managed Objects may have faults:
+        * MOs representing physical equipment, such as chassis,
+        blades, fans, IO modules, interface cards...
+        * Service Profiles and their sub-components.
+        * vNIC and vHBA templates.
+        * Pools, such as server pools or WWN pools.
+        * Port channels."
+    ::= { cucsFaultObjects 1 }
+
+cucsFaultEntry OBJECT-TYPE
+    SYNTAX CucsFaultEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the UCS fault table. Entries appear in this table
+        when faults are active. A system-wide fault policy specifies
+        what to do when faults are cleared:
+        * clearAction: what should happen to cleared faults
+          (retain or delete) 
+        * retentionInterval: duration (seconds) to retain a
+          cleared fault 
+        * flapInterval: duration (seconds) to detect possible flapping
+          condition 
+        * clearInterval: for non-auto-cleared faults,
+          duration (seconds) for a fault to be cleared
+            
+        Cleared faults may or may not remain in this table depending
+        on the fault policy. Refer to the UCS documentation for more
+        details about the fault policy."
+    INDEX { cucsFaultIndex }
+    ::= { cucsFaultTable 1 }
+
+CucsFaultEntry ::= SEQUENCE {
+    cucsFaultIndex CucsManagedObjectId,
+    cucsFaultDescription SnmpAdminString,
+    cucsFaultAffectedObjectId RowPointer,
+    cucsFaultAffectedObjectDn CucsManagedObjectDn,
+    cucsFaultCreationTime DateAndTime,
+    cucsFaultLastModificationTime DateAndTime,
+    cucsFaultCode CucsFaultCode,
+    cucsFaultType CucsFaultType,
+    cucsFaultProbableCause CucsFaultProbableCause,
+    cucsFaultSeverity CucsFaultSeverity,
+    cucsFaultOccur Counter
+    }
+
+cucsFaultIndex OBJECT-TYPE
+    SYNTAX CucsManagedObjectId
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies a specific instance of
+        a UCS fault.
+        For example, if two separate chassis have a Fan Failure, then
+        each chassis will have a fault instance with a unique index."
+    ::= { cucsFaultEntry 1 }
+
+cucsFaultDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A human-readable message providing details about the fault."
+    ::= { cucsFaultEntry 11 }
+
+cucsFaultAffectedObjectId OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies the managed object on which
+        this fault is occurring.
+        
+        For example, suppose a chassis has 2 power supply units PSU1
+        and PSU2. PSU1 is operational and PSU2 is in a failed state,
+        hence the MO representing PSU2 has a fault. Suppose the MO Id
+        of PSU2 is '1234' and its DN is 'sys/chassis-5/psu-1'.
+        The cucsFaultTable table would have an entry for the PSU fault.
+        The value of cucsFaultAffectedObjectId would be set to
+        'psuTable.psuEntry.1.1234'
+        and the value of cucsFaultAffectedObjectDn would be set to
+        'sys/chassis-5/psu-1'."
+    ::= { cucsFaultEntry 4 }
+
+cucsFaultAffectedObjectDn OBJECT-TYPE
+    SYNTAX CucsManagedObjectDn
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The distinguished name (DN) of the managed object that
+        has a fault.
+        The DN value provides a friendly unique identifier for the
+        object and can be used to query Managed Objects through the
+        XML API."
+    ::= { cucsFaultEntry 5 }
+
+cucsFaultCreationTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when the fault was created."
+    ::= { cucsFaultEntry 10 }
+
+cucsFaultLastModificationTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when the fault was last modified. The
+        modification time is changed whenever a fault attribute
+        is changed."
+    ::= { cucsFaultEntry 14 }
+
+cucsFaultCode OBJECT-TYPE
+    SYNTAX CucsFaultCode
+--    Rsyntax INTEGER {
+--        fltFabricComputeSlotEpMisplacedInChassisSlot(156),
+--        fltFabricComputeSlotEpServerIdentificationProblem(157),
+--        fltVnicEtherConfigFailed(169),
+--        fltVnicFcConfigFailed(170),
+--        fltProcessorUnitInoperable(174),
+--        fltProcessorUnitThermalNonCritical(175),
+--        fltProcessorUnitThermalThresholdCritical(176),
+--        fltProcessorUnitThermalThresholdNonRecoverable(177),
+--        fltProcessorUnitVoltageThresholdNonCritical(178),
+--        fltProcessorUnitVoltageThresholdCritical(179),
+--        fltProcessorUnitVoltageThresholdNonRecoverable(180),
+--        fltStorageItemCapacityExceeded(182),
+--        fltStorageItemCapacityWarning(183),
+--        fltMemoryUnitDegraded(184),
+--        fltMemoryUnitInoperable(185),
+--        fltMemoryUnitThermalThresholdNonCritical(186),
+--        fltMemoryUnitThermalThresholdCritical(187),
+--        fltMemoryUnitThermalThresholdNonRecoverable(188),
+--        fltMemoryArrayVoltageThresholdNonCritical(189),
+--        fltMemoryArrayVoltageThresholdCritical(190),
+--        fltMemoryArrayVoltageThresholdNonRecoverable(191),
+--        fltAdaptorUnitUnidentifiableFru(200),
+--        fltAdaptorUnitMissing(203),
+--        fltAdaptorUnitAdaptorReachability(206),
+--        fltAdaptorHostIfLinkDown(207),
+--        fltAdaptorExtIfLinkDown(209),
+--        fltPortPIoLinkDown(276),
+--        fltPortPIoFailed(277),
+--        fltPortPIoHardwareFailure(278),
+--        fltPortPIoSfpNotPresent(279),
+--        fltFabricExternalPcDown(282),
+--        fltDcxVcDown(283),
+--        fltNetworkElementInoperable(291),
+--        fltMgmtEntityDegraded(293),
+--        fltMgmtEntityDown(294),
+--        fltDcxNsFailed(304),
+--        fltComputeBladeInsufficientlyEquipped(305),
+--        fltComputeBladeIdentityUnestablishable(306),
+--        fltComputeBoardPowerError(310),
+--        fltComputeBladePowerProblem(311),
+--        fltComputeBladeThermalProblem(312),
+--        fltComputeBladeBiosPostTimeout(313),
+--        fltComputeBladeDiscoveryFailed(314),
+--        fltComputeBladeAssociationFailed(315),
+--        fltComputeBladeInoperable(317),
+--        fltComputeBladeUnassignedMissing(318),
+--        fltComputeBladeAssignedMissing(319),
+--        fltComputeBladeUnidentified(320),
+--        fltComputeBladeUnassignedInaccessible(321),
+--        fltComputeBladeAssignedInaccessible(322),
+--        fltLsServerFailed(324),
+--        fltLsServerDiscoveryFailed(326),
+--        fltLsServerConfigFailure(327),
+--        fltLsServerMaintenanceFailed(329),
+--        fltLsServerRemoved(330),
+--        fltLsServerInaccessible(331),
+--        fltLsServerAssociationFailed(332),
+--        fltLsServerUnassociated(334),
+--        fltLsServerServerUnfulfilled(337),
+--        fltEtherSwitchIntFIoSatelliteConnectionAbsent(367),
+--        fltEtherSwitchIntFIoSatelliteWiringProblem(368),
+--        fltEquipmentPsuPowerSupplyProblem(369),
+--        fltEquipmentFanDegraded(371),
+--        fltEquipmentFanInoperable(373),
+--        fltEquipmentPsuInoperable(374),
+--        fltEquipmentIOCardRemoved(376),
+--        fltEquipmentFanModuleMissing(377),
+--        fltEquipmentPsuMissing(378),
+--        fltEquipmentIOCardThermalProblem(379),
+--        fltEquipmentFanModuleThermalThresholdNonCritical(380),
+--        fltEquipmentPsuThermalThresholdNonCritical(381),
+--        fltEquipmentFanModuleThermalThresholdCritical(382),
+--        fltEquipmentPsuThermalThresholdCritical(383),
+--        fltEquipmentFanModuleThermalThresholdNonRecoverable(384),
+--        fltEquipmentPsuThermalThresholdNonRecoverable(385),
+--        fltEquipmentPsuVoltageThresholdNonCritical(387),
+--        fltEquipmentPsuVoltageThresholdCritical(389),
+--        fltEquipmentPsuVoltageThresholdNonRecoverable(391),
+--        fltEquipmentPsuPerfThresholdNonCritical(392),
+--        fltEquipmentPsuPerfThresholdCritical(393),
+--        fltEquipmentPsuPerfThresholdNonRecoverable(394),
+--        fltEquipmentFanPerfThresholdNonCritical(395),
+--        fltEquipmentFanPerfThresholdCritical(396),
+--        fltEquipmentFanPerfThresholdNonRecoverable(397),
+--        fltEquipmentIOCardFirmwareUpgrade(398),
+--        fltEquipmentChassisUnsupportedConnectivity(399),
+--        fltEquipmentChassisUnacknowledged(400),
+--        fltEquipmentIOCardUnsupportedConnectivity(401),
+--        fltEquipmentIOCardUnacknowledged(402),
+--        fltEquipmentIOCardPeerDisconnected(403),
+--        fltEquipmentChassisIdentity(404),
+--        fltEquipmentIOCardIdentity(405),
+--        fltEquipmentFanModuleIdentity(406),
+--        fltEquipmentPsuIdentity(407),
+--        fltEquipmentChassisPowerProblem(408),
+--        fltEquipmentChassisThermalThresholdCritical(409),
+--        fltEquipmentChassisThermalThresholdNonCritical(410),
+--        fltEquipmentChassisThermalThresholdNonRecoverable(411),
+--        fltComputeBoardCmosVoltageThresholdCritical(424),
+--        fltComputeBoardCmosVoltageThresholdNonRecoverable(425),
+--        fltMgmtEntityElectionFailure(428),
+--        fltMgmtEntityHaNotReady(429),
+--        fltMgmtEntityVersionIncompatible(430),
+--        fltEquipmentFanMissing(434),
+--        fltEquipmentIOCardAutoUpgradingFirmware(435),
+--        fltFirmwarePackItemImageMissing(436),
+--        fltEtherSwitchIntFIoSatelliteWiringNumbersUnexpected(440),
+--        fltMgmtEntityManagementServicesFailure(451),
+--        fltMgmtEntityManagementServicesUnresponsive(452),
+--        fltMgmtEntityChassis1SEEPROMError(453),
+--        fltMgmtEntityChassis2SEEPROMError(454),
+--        fltMgmtEntityChassis3SEEPROMError(455),
+--        fltEquipmentChassisInoperable(456),
+--        fltEtherServerIntFIoHardwareFailure(458),
+--        fltDcxVcMgmtVifDown(459),
+--        fltSysdebugMEpLogMEpLogLog(460),
+--        fltSysdebugMEpLogMEpLogVeryLow(461),
+--        fltSysdebugMEpLogMEpLogFull(462),
+--        fltComputePoolEmpty(463),
+--        fltUuidpoolPoolEmpty(464),
+--        fltIppoolPoolEmpty(465),
+--        fltMacpoolPoolEmpty(466),
+--        fltFirmwareUpdatableImageUnusable(470),
+--        fltFirmwareBootUnitCantBoot(471),
+--        fltFcpoolInitiatorsEmpty(476),
+--        fltEquipmentIOCardInaccessible(478),
+--        fltDcxVIfLinkState(479),
+--        fltEquipmentFanModuleDegraded(480),
+--        fltEquipmentIOCardPostFailure(481),
+--        fltEquipmentFanPerfThresholdLowerNonRecoverable(484),
+--        fltMemoryUnitIdentityUnestablishable(502),
+--        fltComputeBladePostFailure(517),
+--        fltEquipmentPsuOffline(528),
+--        fltStorageRaidBatteryInoperable(531),
+--        fltSysdebugMEpLogTransferError(532),
+--        fltComputeRtcBatteryInoperable(533),
+--        fltMemoryBufferUnitThermalThresholdNonCritical(535),
+--        fltMemoryBufferUnitThermalThresholdCritical(536),
+--        fltMemoryBufferUnitThermalThresholdNonRecoverable(537),
+--        fltComputeIOHubThermalNonCritical(538),
+--        fltComputeIOHubThermalThresholdCritical(539),
+--        fltComputeIOHubThermalThresholdNonRecoverable(540),
+--        fltEquipmentChassisIdentityUnestablishable(543),
+--        fltSwVlanPortNsResourceStatus(549),
+--        fsmStFailEquipmentIOCardFePresenceIdentify(16405),
+--        fsmStFailEquipmentIOCardFeConnEnableChassis(16406),
+--        fsmStFailEquipmentChassisRemoveChassisDecomission(16407),
+--        fsmStFailEquipmentLocatorLedSetLocatorLedExecute(16408),
+--        fsmStFailMgmtControllerExtMgmtIfConfigSecondary(16518),
+--        fsmStFailFabricComputeSlotEpIdentifyExecutePeer(16519),
+--        fsmStFailComputeBladeDiscoverHagDisconnect(16520),
+--        fsmStFailComputeBladeAssociateWaitForIBMCFwUpdate(16521),
+--        fsmStFailComputeBladeDisassociateHagPnuOSDisconnect(16522),
+--        fsmStFailComputeBladeDecommissionExecute(16523),
+--        fsmStFailComputeBladeSoftShutdownExecute(16524),
+--        fsmStFailComputeBladeHardShutdownExecute(16525),
+--        fsmStFailComputeBladeTurnupExecute(16526),
+--        fsmStFailComputeBladeHardresetSanitize(16528),
+--        fsmStFailComputeBladeSoftresetSanitize(16529),
+--        fsmStFailComputeBladeSwConnUpdB(16530),
+--        fsmStFailComputeBladeBiosRecoveryWait(16531),
+--        fsmStFailComputeBladeCmosResetSanitize(16532),
+--        fsmStFailEquipmentChassisPsuPolicyConfigExecute(16533),
+--        fsmStFailAdaptorHostFcIfResetFcPersBindingExecute(16534),
+--        fsmStFailComputeBladeDiagUnconfigUserAccess(16535),
+--        fsmStFailFabricLanCloudSwitchModeSwConfigPeer(16539),
+--        fsmStFailVnicProfileSetDeployPeer(16550),
+--        fsmStFailCommSvcEpUpdateSvcEpSetEpPeer(16576),
+--        fsmStFailCommSvcEpRestartWebSvcRestart(16577),
+--        fsmStFailComputeBladeUpdateExtUsersDeploy(16578),
+--        fsmStFailStatsCollectionPolicyUpdateEpSetEpB(16579),
+--        fsmStFailAaaRealmUpdateRealmSetRealmPeer(16580),
+--        fsmStFailAaaUserEpUpdateUserEpSetUserPeer(16581),
+--        fsmStFailSysfileMutationSingleExecute(16600),
+--        fsmStFailSysfileMutationGlobalPeer(16601),
+--        fsmStFailSysdebugManualCoreFileExportTargetExportExecute(16604),
+--        fsmStFailSysdebugAutoCoreFileExportTargetConfigurePeer(16605),
+--        fsmStFailSysdebugLogControlEpLogControlPersistPeer(16606),
+--        fsmStFailSyntheticFsObjCreateCreateRemote(16641),
+--        fsmStFailFirmwareDownloaderDownloadUnpackLocal(16650),
+--        fsmStFailFirmwareImageDeleteRemote(16651),
+--        fsmStFailMgmtControllerUpdateSwitchVerifyRemote(16653),
+--        fsmStFailMgmtControllerUpdateIOMUpdateRequest(16654),
+--        fsmStFailMgmtControllerActivateIOMReset(16655),
+--        fsmStFailMgmtControllerUpdateBMCUpdateRequest(16656),
+--        fsmStFailMgmtControllerActivateBMCReset(16657),
+--        fsmStFailComputeBladeUpdateAdaptorUpdateRequest(16658),
+--        fsmStFailComputeBladeActivateAdaptorReset(16659),
+--        fsmStFailCallhomeEpConfigCallhomeSetPeer(16670),
+--        fsmStFailMgmtIfSwMgmtOobIfConfigSwitch(16673),
+--        fsmStFailMgmtIfSwMgmtInbandIfConfigSwitch(16674),
+--        fsmStFailMgmtIfVirtualIfConfigRemote(16679),
+--        fsmStFailMgmtIfEnableVipLocal(16680),
+--        fsmStFailMgmtIfDisableVipPeer(16681),
+--        fsmStFailMgmtIfEnableHALocal(16682),
+--        fsmStFailMgmtBackupBackupUpload(16683),
+--        fsmStFailMgmtImporterImportReportResults(16684),
+--        fsmStFailComputeBladeConfigSoLExecute(16739),
+--        fsmStFailComputeBladeUnconfigSoLExecute(16740),
+--        fsmStFailQosclassDefinitionConfigGlobalQoSSetPeer(16745),
+--        fsmStFailEpqosDefinitionDelTaskRemovePeer(16750),
+--        fsmStFailComputeBladeResetBmcExecute(16802),
+--        fsmStFailEquipmentIOCardResetCmcExecute(16803),
+--        fsmStFailMgmtControllerUpdateUCSManagerStart(16815),
+--        fsmStFailMgmtControllerSysConfigSecondary(16823),
+--        fsmStFailComputeBladePowercycleSanitize(16834),
+--        fsmStFailAdaptorExtEthIfPathResetEnable(16852),
+--        fsmStFailAdaptorHostFcIfCircuitResetEnableB(16857),
+--        fsmStFailExtvmmProviderConfigSetPeer(16879),
+--        fsmStFailExtvmmKeyStoreCertInstallSetPeer(16880),
+--        fsmStFailExtvmmSwitchDelTaskRemoveProviderRemoveLocal(16881),
+--        fsmStFailComputeBladePowerCapConfig(16890),
+--        fsmStFailComputeBladeBiosProfileConfigure(16891),
+--        fsmStFailCapabilityUpdaterUpdaterUnpackLocal(16904),
+--        fsmStFailComputeBladeUpdateBoardControllerUpdateRequest(16930),
+--        fsmStFailCapabilityCatalogueDeployCatalogueFinalize(16931),
+--        fsmRmtErrEquipmentIOCardFePresenceIdentify(77845),
+--        fsmRmtErrEquipmentIOCardFeConnEnableChassis(77846),
+--        fsmRmtErrEquipmentChassisRemoveChassisDecomission(77847),
+--        fsmRmtErrEquipmentLocatorLedSetLocatorLedExecute(77848),
+--        fsmRmtErrMgmtControllerExtMgmtIfConfigSecondary(77958),
+--        fsmRmtErrFabricComputeSlotEpIdentifyExecutePeer(77959),
+--        fsmRmtErrComputeBladeDiscoverHagDisconnect(77960),
+--        fsmRmtErrComputeBladeAssociateWaitForIBMCFwUpdate(77961),
+--        fsmRmtErrComputeBladeDisassociateHagPnuOSDisconnect(77962),
+--        fsmRmtErrComputeBladeDecommissionExecute(77963),
+--        fsmRmtErrComputeBladeSoftShutdownExecute(77964),
+--        fsmRmtErrComputeBladeHardShutdownExecute(77965),
+--        fsmRmtErrComputeBladeTurnupExecute(77966),
+--        fsmRmtErrComputeBladeHardresetSanitize(77968),
+--        fsmRmtErrComputeBladeSoftresetSanitize(77969),
+--        fsmRmtErrComputeBladeSwConnUpdB(77970),
+--        fsmRmtErrComputeBladeBiosRecoveryWait(77971),
+--        fsmRmtErrComputeBladeCmosResetSanitize(77972),
+--        fsmRmtErrEquipmentChassisPsuPolicyConfigExecute(77973),
+--        fsmRmtErrAdaptorHostFcIfResetFcPersBindingExecute(77974),
+--        fsmRmtErrComputeBladeDiagUnconfigUserAccess(77975),
+--        fsmRmtErrFabricLanCloudSwitchModeSwConfigPeer(77979),
+--        fsmRmtErrVnicProfileSetDeployPeer(77990),
+--        fsmRmtErrCommSvcEpUpdateSvcEpSetEpPeer(78016),
+--        fsmRmtErrCommSvcEpRestartWebSvcRestart(78017),
+--        fsmRmtErrComputeBladeUpdateExtUsersDeploy(78018),
+--        fsmRmtErrStatsCollectionPolicyUpdateEpSetEpB(78019),
+--        fsmRmtErrAaaRealmUpdateRealmSetRealmPeer(78020),
+--        fsmRmtErrAaaUserEpUpdateUserEpSetUserPeer(78021),
+--        fsmRmtErrSysfileMutationSingleExecute(78040),
+--        fsmRmtErrSysfileMutationGlobalPeer(78041),
+--        fsmRmtErrSysdebugManualCoreFileExportTargetExportExecute(78044),
+--        fsmRmtErrSysdebugAutoCoreFileExportTargetConfigurePeer(78045),
+--        fsmRmtErrSysdebugLogControlEpLogControlPersistPeer(78046),
+--        fsmRmtErrSyntheticFsObjCreateCreateRemote(78081),
+--        fsmRmtErrFirmwareDownloaderDownloadUnpackLocal(78090),
+--        fsmRmtErrFirmwareImageDeleteRemote(78091),
+--        fsmRmtErrMgmtControllerUpdateSwitchVerifyRemote(78093),
+--        fsmRmtErrMgmtControllerUpdateIOMUpdateRequest(78094),
+--        fsmRmtErrMgmtControllerActivateIOMReset(78095),
+--        fsmRmtErrMgmtControllerUpdateBMCUpdateRequest(78096),
+--        fsmRmtErrMgmtControllerActivateBMCReset(78097),
+--        fsmRmtErrComputeBladeUpdateAdaptorUpdateRequest(78098),
+--        fsmRmtErrComputeBladeActivateAdaptorReset(78099),
+--        fsmRmtErrCallhomeEpConfigCallhomeSetPeer(78110),
+--        fsmRmtErrMgmtIfSwMgmtOobIfConfigSwitch(78113),
+--        fsmRmtErrMgmtIfSwMgmtInbandIfConfigSwitch(78114),
+--        fsmRmtErrMgmtIfVirtualIfConfigRemote(78119),
+--        fsmRmtErrMgmtIfEnableVipLocal(78120),
+--        fsmRmtErrMgmtIfDisableVipPeer(78121),
+--        fsmRmtErrMgmtIfEnableHALocal(78122),
+--        fsmRmtErrMgmtBackupBackupUpload(78123),
+--        fsmRmtErrMgmtImporterImportReportResults(78124),
+--        fsmRmtErrComputeBladeConfigSoLExecute(78179),
+--        fsmRmtErrComputeBladeUnconfigSoLExecute(78180),
+--        fsmRmtErrQosclassDefinitionConfigGlobalQoSSetPeer(78185),
+--        fsmRmtErrEpqosDefinitionDelTaskRemovePeer(78190),
+--        fsmRmtErrComputeBladeResetBmcExecute(78242),
+--        fsmRmtErrEquipmentIOCardResetCmcExecute(78243),
+--        fsmRmtErrMgmtControllerUpdateUCSManagerStart(78255),
+--        fsmRmtErrMgmtControllerSysConfigSecondary(78263),
+--        fsmRmtErrComputeBladePowercycleSanitize(78274),
+--        fsmRmtErrAdaptorExtEthIfPathResetEnable(78292),
+--        fsmRmtErrAdaptorHostFcIfCircuitResetEnableB(78297),
+--        fsmRmtErrExtvmmProviderConfigSetPeer(78319),
+--        fsmRmtErrExtvmmKeyStoreCertInstallSetPeer(78320),
+--        fsmRmtErrExtvmmSwitchDelTaskRemoveProviderRemoveLocal(78321),
+--        fsmRmtErrComputeBladePowerCapConfig(78330),
+--        fsmRmtErrComputeBladeBiosProfileConfigure(78331),
+--        fsmRmtErrCapabilityUpdaterUpdaterUnpackLocal(78344),
+--        fsmRmtErrComputeBladeUpdateBoardControllerUpdateRequest(78370),
+--        fsmRmtErrCapabilityCatalogueDeployCatalogueFinalize(78371),
+--        fsmFailEquipmentIOCardFePresence(999445),
+--        fsmFailEquipmentIOCardFeConn(999446),
+--        fsmFailEquipmentChassisRemoveChassis(999447),
+--        fsmFailEquipmentLocatorLedSetLocatorLed(999448),
+--        fsmFailMgmtControllerExtMgmtIfConfig(999558),
+--        fsmFailFabricComputeSlotEpIdentify(999559),
+--        fsmFailComputeBladeDiscover(999560),
+--        fsmFailComputeBladeAssociate(999561),
+--        fsmFailComputeBladeDisassociate(999562),
+--        fsmFailComputeBladeDecommission(999563),
+--        fsmFailComputeBladeSoftShutdown(999564),
+--        fsmFailComputeBladeHardShutdown(999565),
+--        fsmFailComputeBladeTurnup(999566),
+--        fsmFailComputeBladeHardreset(999568),
+--        fsmFailComputeBladeSoftreset(999569),
+--        fsmFailComputeBladeSwConnUpd(999570),
+--        fsmFailComputeBladeBiosRecovery(999571),
+--        fsmFailComputeBladeCmosReset(999572),
+--        fsmFailEquipmentChassisPsuPolicyConfig(999573),
+--        fsmFailAdaptorHostFcIfResetFcPersBinding(999574),
+--        fsmFailComputeBladeDiag(999575),
+--        fsmFailFabricLanCloudSwitchMode(999579),
+--        fsmFailVnicProfileSetDeploy(999590),
+--        fsmFailCommSvcEpUpdateSvcEp(999616),
+--        fsmFailCommSvcEpRestartWebSvc(999617),
+--        fsmFailComputeBladeUpdateExtUsers(999618),
+--        fsmFailStatsCollectionPolicyUpdateEp(999619),
+--        fsmFailAaaRealmUpdateRealm(999620),
+--        fsmFailAaaUserEpUpdateUserEp(999621),
+--        fsmFailSysfileMutationSingle(999640),
+--        fsmFailSysfileMutationGlobal(999641),
+--        fsmFailSysdebugManualCoreFileExportTargetExport(999644),
+--        fsmFailSysdebugAutoCoreFileExportTargetConfigure(999645),
+--        fsmFailSysdebugLogControlEpLogControlPersist(999646),
+--        fsmFailSyntheticFsObjCreate(999681),
+--        fsmFailFirmwareDownloaderDownload(999690),
+--        fsmFailFirmwareImageDelete(999691),
+--        fsmFailMgmtControllerUpdateSwitch(999693),
+--        fsmFailMgmtControllerUpdateIOM(999694),
+--        fsmFailMgmtControllerActivateIOM(999695),
+--        fsmFailMgmtControllerUpdateBMC(999696),
+--        fsmFailMgmtControllerActivateBMC(999697),
+--        fsmFailComputeBladeUpdateAdaptor(999698),
+--        fsmFailComputeBladeActivateAdaptor(999699),
+--        fsmFailCallhomeEpConfigCallhome(999710),
+--        fsmFailMgmtIfSwMgmtOobIfConfig(999713),
+--        fsmFailMgmtIfSwMgmtInbandIfConfig(999714),
+--        fsmFailMgmtIfVirtualIfConfig(999719),
+--        fsmFailMgmtIfEnableVip(999720),
+--        fsmFailMgmtIfDisableVip(999721),
+--        fsmFailMgmtIfEnableHA(999722),
+--        fsmFailMgmtBackupBackup(999723),
+--        fsmFailMgmtImporterImport(999724),
+--        fsmFailComputeBladeConfigSoL(999779),
+--        fsmFailComputeBladeUnconfigSoL(999780),
+--        fsmFailQosclassDefinitionConfigGlobalQoS(999785),
+--        fsmFailEpqosDefinitionDelTaskRemove(999790),
+--        fsmFailComputeBladeResetBmc(999842),
+--        fsmFailEquipmentIOCardResetCmc(999843),
+--        fsmFailMgmtControllerUpdateUCSManager(999855),
+--        fsmFailMgmtControllerSysConfig(999863),
+--        fsmFailComputeBladePowercycle(999874),
+--        fsmFailAdaptorExtEthIfPathReset(999892),
+--        fsmFailAdaptorHostFcIfCircuitReset(999897),
+--        fsmFailExtvmmProviderConfig(999919),
+--        fsmFailExtvmmKeyStoreCertInstall(999920),
+--        fsmFailExtvmmSwitchDelTaskRemoveProvider(999921),
+--        fsmFailComputeBladePowerCap(999930),
+--        fsmFailComputeBladeBiosProfile(999931),
+--        fsmFailCapabilityUpdaterUpdater(999944),
+--        fsmFailComputeBladeUpdateBoardController(999970),
+--        fsmFailCapabilityCatalogueDeployCatalogue(999971)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A code uniquely identifying the fault class.
+        A managed object can have multiple faults, but it cannot have
+        multiple faults with the same code."
+    ::= { cucsFaultEntry 9 }
+
+cucsFaultType OBJECT-TYPE
+    SYNTAX CucsFaultType
+--    Rsyntax INTEGER {
+--        fsm(1),
+--        equipment(2),
+--        server(3),
+--        configuration(4),
+--        environmental(5),
+--        management(6),
+--        connectivity(7),
+--        network(8),
+--        operational(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to categorize faults."
+    ::= { cucsFaultEntry 22 }
+
+cucsFaultProbableCause OBJECT-TYPE
+    SYNTAX CucsFaultProbableCause
+--    Rsyntax INTEGER {
+--        fsmFailed(3),
+--        checkLicenseFailed(4),
+--        identifyFailed(5),
+--        configureSwMgmtEndPointFailed(6),
+--        configureVifNsFailed(7),
+--        configureEndPointFailed(8),
+--        discoverChassisFailed(9),
+--        enableChassisFailed(10),
+--        decomissionFailed(11),
+--        disableEndPointFailed(12),
+--        unIdentifyLocalFailed(13),
+--        unIdentifyPeerFailed(14),
+--        waitFailed(15),
+--        executeFailed(16),
+--        bmcPresenceFailed(17),
+--        bmcInventoryFailed(18),
+--        configFeLocalFailed(19),
+--        configFePeerFailed(20),
+--        bladePowerOnFailed(21),
+--        nicPresenceFailed(22),
+--        nicInventoryFailed(23),
+--        deriveConfigFailed(24),
+--        configUserAccessFailed(25),
+--        configSolFailed(26),
+--        swConfigLocalFailed(27),
+--        swConfigPeerFailed(28),
+--        nicConfigFailed(29),
+--        stopvmediaLocalFailed(30),
+--        stopvmediaPeerFailed(31),
+--        setupvmediaLocalFailed(32),
+--        setupvmediaPeerFailed(33),
+--        bladeBootFailed(34),
+--        bladeBootWaitFailed(35),
+--        biosPostCompletionFailed(36),
+--        bladeReadSmbiosFailed(37),
+--        bladeReadBiosSettingsFailed(38),
+--        hostConnectFailed(39),
+--        startMemoryTestStatusFailed(40),
+--        pollMemoryTestStatusFailed(41),
+--        hostIdentFailed(42),
+--        hostPolicyFailed(43),
+--        setDiagUserFailed(44),
+--        hostInventoryFailed(45),
+--        hostServerDiagFailed(46),
+--        hostServerDiagStatusFailed(47),
+--        disableServerConnSwBfailed(48),
+--        startFabricatrafficTestFailed(49),
+--        fabricatrafficTestStatusFailed(50),
+--        enableServerConnSwBfailed(51),
+--        disableServerConnSwAfailed(52),
+--        startFabricbtrafficTestFailed(53),
+--        fabricbtrafficTestStatusFailed(54),
+--        enableServerConnSwAfailed(55),
+--        generateReportFailed(56),
+--        generateLogWaitFailed(57),
+--        debugWaitFailed(58),
+--        removevmediaLocalFailed(59),
+--        removevmediaPeerFailed(60),
+--        nicUnconfigFailed(61),
+--        swUnconfigLocalFailed(62),
+--        swUnconfigPeerFailed(63),
+--        removeConfigFailed(64),
+--        restoreConfigFeLocalFailed(65),
+--        restoreConfigFePeerFailed(66),
+--        unconfigUserAccessFailed(67),
+--        unconfigSolFailed(68),
+--        hostDisconnectFailed(69),
+--        bmcShutdownDiagCompletedFailed(70),
+--        evaluateStatusFailed(71),
+--        primaryFailed(74),
+--        secondaryFailed(75),
+--        executeLocalFailed(76),
+--        executePeerFailed(77),
+--        preSanitizeFailed(78),
+--        sanitizeFailed(79),
+--        nicConfigPnuosFailed(80),
+--        swConfigPnuoslocalFailed(81),
+--        swConfigPnuospeerFailed(82),
+--        setupVmediaLocalFailed(83),
+--        setupVmediaPeerFailed(84),
+--        bladeBootPnuosFailed(85),
+--        hagConnectFailed(86),
+--        pnuosidentFailed(87),
+--        pnuospolicyFailed(88),
+--        pnuosinventoryFailed(89),
+--        pnuosselfTestFailed(90),
+--        pnuosscrubFailed(91),
+--        nicUnconfigPnuosFailed(92),
+--        swUnconfigPnuoslocalFailed(93),
+--        swUnconfigPnuospeerFailed(94),
+--        teardownVmediaLocalFailed(95),
+--        teardownVmediaPeerFailed(96),
+--        hagDisconnectFailed(97),
+--        bmcShutdownDiscoveredFailed(98),
+--        handlePoolingFailed(99),
+--        updateibmcfwFailed(100),
+--        waitForibmcfwUpdateFailed(101),
+--        activateibmcfwFailed(102),
+--        resetibmcFailed(103),
+--        bladePowerOffFailed(104),
+--        updateBoardCtrlRequestFailed(105),
+--        pollBoardCtrlUpdateStatusFailed(106),
+--        updateAdaptorNwFwFailed(107),
+--        waitForAdaptorNwFwUpdateFailed(108),
+--        activateAdaptorNwFwFailed(109),
+--        hagPnuosconnectFailed(110),
+--        pnuosvalidateFailed(111),
+--        biosImgUpdateFailed(112),
+--        storageCtlrImgUpdateFailed(113),
+--        hbaImgUpdateFailed(114),
+--        nicImgUpdateFailed(115),
+--        pnuosconfigFailed(116),
+--        pnuoslocalDiskConfigFailed(117),
+--        pnuosunloadDriversFailed(118),
+--        swConfigHostoslocalFailed(119),
+--        swConfigHostospeerFailed(120),
+--        nicConfigHostosFailed(121),
+--        hagPnuosdisconnectFailed(122),
+--        configSoLfailed(123),
+--        prepareForBootFailed(124),
+--        configUuidFailed(125),
+--        bladeBootHostFailed(126),
+--        hagHostosconnectFailed(127),
+--        hostosidentFailed(128),
+--        hostospolicyFailed(129),
+--        hostosvalidateFailed(130),
+--        hostosconfigFailed(131),
+--        nicUnconfigHostosFailed(132),
+--        swUnconfigHostoslocalFailed(133),
+--        swUnconfigHostospeerFailed(134),
+--        configBiosFailed(135),
+--        pnuosunconfigFailed(136),
+--        unconfigUuidFailed(137),
+--        bladeShutdownFailed(138),
+--        unconfigBiosFailed(139),
+--        unconfigSoLfailed(140),
+--        configFailed(141),
+--        aFailed(142),
+--        bFailed(143),
+--        shutdownFailed(144),
+--        startFailed(145),
+--        cleanupFailed(146),
+--        resetFailed(147),
+--        configureFailed(148),
+--        reconfigBiosFailed(149),
+--        reconfigUuidFailed(150),
+--        serverMoved(151),
+--        serverIdentificationProblem(152),
+--        localFailed(153),
+--        peerFailed(154),
+--        configurationFailed(155),
+--        equipmentInoperable(156),
+--        thermalProblem(157),
+--        voltageProblem(158),
+--        capacityExceeded(159),
+--        equipmentDegraded(160),
+--        identityUnestablishable(161),
+--        setEpLocalFailed(162),
+--        setEpPeerFailed(163),
+--        propogateEpSettingsFailed(164),
+--        propogateEpTimeZoneSettingsLocalFailed(165),
+--        propogateEpTimeZoneSettingsPeerFailed(166),
+--        restartFailed(167),
+--        deployFailed(168),
+--        setRealmLocalFailed(169),
+--        setRealmPeerFailed(170),
+--        setUserLocalFailed(171),
+--        setUserPeerFailed(172),
+--        setKeyRingLocalFailed(173),
+--        setKeyRingPeerFailed(174),
+--        vifDown(175),
+--        unidentifiableFru(176),
+--        equipmentMissing(177),
+--        connectivityProblem(178),
+--        linkDown(179),
+--        disableFailed(180),
+--        enableFailed(181),
+--        disableAfailed(182),
+--        enableAfailed(183),
+--        disableBfailed(184),
+--        enableBfailed(185),
+--        updateConnectivityFailed(186),
+--        createLocalFailed(187),
+--        createRemoteFailed(188),
+--        unpackLocalFailed(189),
+--        deleteLocalFailed(190),
+--        copyRemoteFailed(191),
+--        remoteFailed(192),
+--        updateLocalFailed(193),
+--        verifyLocalFailed(194),
+--        resetLocalFailed(195),
+--        updateRemoteFailed(196),
+--        verifyRemoteFailed(197),
+--        resetRemoteFailed(198),
+--        updateRequestFailed(199),
+--        pollUpdateStatusFailed(200),
+--        activateFailed(201),
+--        prepareForUpdateFailed(202),
+--        imageDeleted(203),
+--        imageUnusable(204),
+--        imageCannotBoot(205),
+--        applyFailed(206),
+--        rescanImagesFailed(207),
+--        syncBladeaglocalFailed(208),
+--        syncBladeagremoteFailed(209),
+--        syncNicaglocalFailed(210),
+--        syncNicagremoteFailed(211),
+--        syncPortaglocalFailed(212),
+--        syncPortagremoteFailed(213),
+--        syncHostagentaglocalFailed(214),
+--        syncHostagentagremoteFailed(215),
+--        finalizeFailed(216),
+--        portFailed(217),
+--        interfaceFailed(218),
+--        operationalStateDown(219),
+--        cmcVifDown(220),
+--        setLocalFailed(221),
+--        setPeerFailed(222),
+--        switchFailed(223),
+--        limitReached(224),
+--        emptyPool(225),
+--        backupLocalFailed(228),
+--        uploadFailed(229),
+--        downloadLocalFailed(230),
+--        reportResultsFailed(231),
+--        electionFailure(232),
+--        managementServicesFailure(233),
+--        managementServicesUnresponsive(234),
+--        haNotReady(235),
+--        versionIncompatible(236),
+--        chassisSeepromError(237),
+--        logCapacity(238),
+--        fileTransferFailed(239),
+--        insufficientResources(241),
+--        insufficientlyEquipped(242),
+--        powerProblem(243),
+--        discoveryFailed(244),
+--        associationFailed(245),
+--        equipmentInaccessible(246),
+--        equipmentProblem(247),
+--        serverFailed(263),
+--        configurationFailure(264),
+--        maintenanceFailed(265),
+--        equipmentRemoved(266),
+--        serverInaccessible(267),
+--        unassociated(268),
+--        getVersionFailed(269),
+--        removeLocalFailed(270),
+--        setEpAfailed(271),
+--        setEpBfailed(272),
+--        satelliteConnectionAbsent(273),
+--        satelliteMisConnected(275),
+--        unexpectedNumberOfLinks(276),
+--        equipmentOffline(277),
+--        performanceProblem(278),
+--        firmwareUpgradeProblem(279),
+--        unsupportedConnectivityConfiguration(280),
+--        equipmentUnacknowledged(281),
+--        autoFirmwareUpgrade(282),
+--        equipmentDisconnected(283),
+--        fruProblem(284)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A code identifying the probable cause of the fault."
+    ::= { cucsFaultEntry 7 }
+
+cucsFaultSeverity OBJECT-TYPE
+    SYNTAX CucsFaultSeverity
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        cleared(0),
+--        info(1),
+--        warning(3),
+--        minor(4),
+--        major(5),
+--        critical(6)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A code identifying the perceived severity of the fault."
+    ::= { cucsFaultEntry 20 }
+
+cucsFaultOccur OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times this fault has occurred since the
+        fault became active.
+        This counter can only increase when the fault is active.
+        It does not increase when the fault is cleared.
+        When a fault is cleared, the value of this counter remains
+        at the value it was before the fault was cleared."
+    ::= { cucsFaultEntry 16 }
+
+cucsFaultActiveNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUnifiedComputingMIB
+    VARIABLES {
+        cucsFaultDescription, cucsFaultAffectedObjectId, 
+        cucsFaultAffectedObjectDn, cucsFaultCreationTime, 
+        cucsFaultLastModificationTime, cucsFaultCode, cucsFaultType, 
+        cucsFaultProbableCause, cucsFaultSeverity, cucsFaultOccur }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated by a UCS node whenever a fault
+        is active and the fault state changes."
+    ::= 1
+
+cucsFaultClearNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoUnifiedComputingMIB
+    VARIABLES {
+        cucsFaultDescription, cucsFaultAffectedObjectId, 
+        cucsFaultAffectedObjectDn, cucsFaultCreationTime, 
+        cucsFaultLastModificationTime, cucsFaultCode, cucsFaultType, 
+        cucsFaultProbableCause, cucsFaultSeverity, cucsFaultOccur }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated by a UCS node whenever a fault
+        is cleared."
+    ::= 2
+
+cucsFaultsGroup OBJECT IDENTIFIER ::= { cucsFaultMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing UCS fault information.
+--  objects
+--    cucsFaultDescription, cucsFaultAffectedObjectId, 
+--    cucsFaultAffectedObjectDn, cucsFaultCreationTime, 
+--    cucsFaultLastModificationTime, cucsFaultCode, cucsFaultType, 
+--    cucsFaultProbableCause, cucsFaultSeverity, cucsFaultOccur
+
+cucsFaultsNotifGroup OBJECT IDENTIFIER ::= { cucsFaultMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The set of UCS notifications defined by this MIB.
+--  notifications
+--    cucsFaultActiveNotif, cucsFaultClearNotif
+
+cucsFaultMIBCompliance OBJECT IDENTIFIER ::= { cucsFaultMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities that support
+--    the Cisco UCS Fault Managed Objects.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cucsFaultsNotifGroup
+--   OptGroup
+--    cucsFaultsGroup
+
+
+END
+

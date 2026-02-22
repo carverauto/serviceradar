@@ -1,0 +1,526 @@
+-- MIB file created 06-May-2010 22:21:31, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MEETINGPLACE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MEETINGPLACE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoMeetingPlaceMIB OBJECT IDENTIFIER ::= { ciscoMgmt 733 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201005060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA 95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: support-meetingplace@cisco.com
+--  Descr
+--    This MIB allows management of Cisco Unified MeetingPlace (CUMP)
+--    features, CUMP is the key conferencing solution component for
+--    Cisco Unified Communications. The CUMP MIB runs on the CUMP
+--    application server and provides the status/usage information,
+--    and minor/major system alarms to the monitoring station. The
+--    monitoring station can either pull application server
+--    information through the MIB or set as a trap
+--    destination to receive alarms.
+--  RevDate
+--    201005060000Z
+--  RevDescr
+--    Initial version of the MIB module.
+
+ciscoMeetingPlaceMIBNotifs OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIB 0 }
+ciscoMeetingPlaceMIBObjects OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIB 1 }
+ciscoMeetingPlaceMIBConform OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIB 2 }
+cmpAlarmObjects OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIBObjects 1 }
+cmpConferenceInfo OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIBObjects 2 }
+cmpLicenseInfo  OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIBObjects 3 }
+cmpUsageInfo    OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIBObjects 4 }
+cmpNodeInfo     OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIBObjects 5 }
+cmpMIBCompliances OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIBConform 1 }
+cmpMIBGroups    OBJECT IDENTIFIER ::= { ciscoMeetingPlaceMIBConform 2 }
+
+cmpNotificationStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the current status of the notification.
+        The notifications are generated when the object is set to
+        'true'. The notifications, which are controlled by this MIB
+        object, include the cmpT1Down, cmpGWSimAlarm, cmpMajHwAlarm,
+        cmpMinHwAlarm, cmpMajSwAlarm, and cmpMinSwAlarm."
+    ::= { ciscoMeetingPlaceMIBObjects 6 }
+
+cmpExceptionCode OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates MeetingPlace Exception Code.
+        This is the primary code associated with each 
+        MeetingPlace exception condition. Each exception code is
+        associated with a description, and the monitoring station will
+        receive the cmpAlarmDesc and the exception code in the same
+        trap. The application server will keep sending the alarm in
+        every 1 minute until the event has been cleared."
+    ::= { cmpAlarmObjects 1 }
+
+cmpSysUnit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates MeetingPlace Server Unit (Component)
+        Number.
+        This is the unit (component) number of the server that 
+        reported the exception. In the MeetingPlace Server, there are
+        multiple units, such as database, SIP signaling, ..., etc."
+    ::= { cmpAlarmObjects 2 }
+
+cmpHwDev OBJECT-TYPE
+    SYNTAX INTEGER {
+        mpTemperature(1),
+        mpPowerSupply(2),
+        mpSerialPort(3),
+        mpTapeDrive(4),
+        mpHardDrive(5),
+        mpDisketteDrive(6),
+        mpEthernet(7),
+        mpModem(8),
+        mpSystemMisc(9),
+        mpDSPMSC(10),
+        mpDSPPRC(11),
+        mpT1Blade(12),
+        mpAnalogBlade(13),
+        mpT1Network(14),
+        mpSystemIntegrityCard(15),
+        mpMainMemory(16),
+        mpE1Blade(17),
+        mpE1Network(18),
+        mpVoIPBlade(19)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates MeetingPlace Hardware Device Code.
+        This defines the class of device that generated a 
+        hardware fault.
+        
+        'mpTemperature' - indicates the hardware temperature is high 
+        'mpPowerSupply' - indicates the power supply failure
+        'mpSerialPort' - indicates the serial ports failure
+        'mpTapeDrive' - indicates the tape device failure
+        'mpHardDrive' - indicates the hard drive failure
+        'mpDisketteDrive' - indicates the floppy drive failure
+        'mpEthernet' - indicates the ethernet card failure 
+        'mpModem' - indicates the modem failure
+        'mpSystemMisc' - indicates the other hardware failure
+        'mpDSPMSC' - indicates the DSPMSC device failure
+        'mpDSPPRC' - indicates the DSPPRC device failure
+        'mpT1Blade' - indicates the T1 line blade device failure 
+        'mpAnalogBlade' - indicates the analog blade device failure
+        'mpT1Network' - indicates the T1 network device failure
+        'mpSystemIntegrityCard' - indicates the system integrity card 
+        failure
+        'mpMainMemory' - indicates the main memory failure
+        'mpE1Blade' - indicates the E1 blade device failure
+        'mpE1Network' - indicates the E1 network failure
+        'mpVoIPBlade' - indicates the Voice Over IP blade failure"
+    ::= { cmpAlarmObjects 3 }
+
+cmpHwUnit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates MeetingPlace Hardware Device Unit
+        Number. This is the unit number of the hardware device that 
+        generated a fault.  For a disk this would be the SCSI 
+        ID.  For a blade this would the the logical card 
+        number as defined in the system configuration."
+    ::= { cmpAlarmObjects 4 }
+
+cmpHwSlot OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates MeetingPlace Hardware Device Slot
+        Number. This is the location of the hardware device that 
+        generated a fault.  For a blade this would be the slot
+        number"
+    ::= { cmpAlarmObjects 5 }
+
+cmpHwPort OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates MeetingPlace Hardware Device Port
+        Number. This is the logical port number associated with a 
+        hardware fault.  For a T1 alarm, this is the logical 
+        span number."
+    ::= { cmpAlarmObjects 6 }
+
+cmpAlarmDesc OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates MeetingPlace Alarm Description.
+        This is a one-line text description of the exception
+        condition.  It comprises a string indexed by the 
+        exception code filled in with context-specific values.
+        The exception code and alarm description has one to one mapping,
+        the alarm description is in the admin help page."
+    ::= { cmpAlarmObjects 7 }
+
+cmpPeakMeeting OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of meetings that
+        has been scheduled during the last 24 hours time frame."
+    ::= { cmpConferenceInfo 1 }
+
+cmpPeakHour OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the peak hour which has the maximum
+        number of meetings in last 24 hours. For example, if the
+        meetingplace server has maximum number of meetings at 2pm, it
+        will give value of 14."
+    ::= { cmpConferenceInfo 2 }
+
+cmpMeetingCurrent OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of meeting on current moment
+        at this meetingplace server."
+    ::= { cmpConferenceInfo 3 }
+
+cmpAudioLicense OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of audio license is used on
+        this node. 
+        ."
+    ::= { cmpLicenseInfo 1 }
+
+cmpMaxAudioLicense OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of audio license that
+        can be used on this meetingplace system."
+    ::= { cmpLicenseInfo 2 }
+
+cmpVideoLicense OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of video license is used on
+        this node."
+    ::= { cmpLicenseInfo 3 }
+
+cmpMaxVideoLicense OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of video license that
+        can be used on this meetingplace system."
+    ::= { cmpLicenseInfo 4 }
+
+cmpVideoPortsUsage OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of video ports in use at this
+        meetingplace server on the current moment."
+    ::= { cmpUsageInfo 1 }
+
+cmpMaxVideoPortsAvailable OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of video ports
+        available on this meetingplace server."
+    ::= { cmpUsageInfo 2 }
+
+cmpAudioPortsUsage OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of audio ports in use at this
+        meetingplace server on the current moment."
+    ::= { cmpUsageInfo 3 }
+
+cmpMaxAudioPortsAvailable OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of audio ports
+        available on this meetingplace server."
+    ::= { cmpUsageInfo 4 }
+
+cmpMaxAudioPortsUsage24Hours OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of audio ports has
+        been used during the last 24 hours."
+    ::= { cmpUsageInfo 5 }
+
+cmpMaxVideoPortsUsage24Hours OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of video ports has
+        been used during the last 24 hours."
+    ::= { cmpUsageInfo 6 }
+
+cmpNodeDeployType OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the meetingplace deployment type. It can
+        be webex type I, webex type II and audio only."
+    ::= { cmpNodeInfo 1 }
+
+cmpNodeRole OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the role of this MeetingPlace node,
+        this meetingplace node can be acting as a master node, leaf
+        node, replica node, or TSPP node."
+    ::= { cmpNodeInfo 2 }
+
+cmpRegionInfo OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which geographic region the meetingplace
+        server is located."
+    ::= { cmpNodeInfo 3 }
+
+cmpSiteInfo OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which geographic site the meetingplace
+        server is located."
+    ::= { cmpNodeInfo 4 }
+
+cmpT1Down TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMeetingPlaceMIB
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace T1 line Down Alarm.
+        This notification indicates that there is a problem with a
+        telephony port which is caused when the T1 line goes down."
+    ::= 1
+
+cmpGWSimAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMeetingPlaceMIB
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Gateway Alarm.
+        This notification indicates an alarm generated by a MeetingPlace
+        gateway system, when the gateway system is blocking the
+        signaling."
+    ::= 2
+
+cmpMajHwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMeetingPlaceMIB
+    VARIABLES {
+        cmpExceptionCode, cmpSysUnit, cmpHwDev, cmpHwUnit, 
+        cmpHwSlot, cmpHwPort }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Major Hardware Alarm. The network management
+        station will receive the trap, and see the description in
+        cmpAlarmDesc. The system will keep sending alarms until alarms
+        have been cleared.
+        This notification indicates any major hardware alarms reported  
+             in the system.
+        cmpExCode is MeetingPlace Exception Code
+        cmpSysUnit is MeetingPlace Server Unit Number
+        cmpHwDev is MeetingPlace Hardware Device Code
+        cmpHwUnit is MeetingPlace Hardware Device Unit Number
+        cmpHwSlot is MeetingPlace Hardware Device Slot Number
+        cmpHwPort is MeetingPlace Hardware Device Port Number"
+    ::= 3
+
+cmpMinHwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMeetingPlaceMIB
+    VARIABLES {
+        cmpExceptionCode, cmpSysUnit, cmpHwDev, cmpHwUnit, 
+        cmpHwSlot, cmpHwPort }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Minor Hardware Alarm.
+        This notification indicates any major hardware alarms reported
+        in the system. The network management station will receive the
+        trap, and see the description in cmpAlarmDesc. The system will
+        keep sending alarms until alarms have been cleared.
+        
+        cmpExCode is MeetingPlace Exception Code
+        cmpSysUnit is MeetingPlace Server Unit Number
+        cmpHwDev is MeetingPlace Hardware Device Code
+        cmpHwUnit is MeetingPlace Hardware Device Unit Number
+        cmpHwSlot is MeetingPlace Hardware Device Slot Number
+        cmpHwPort is MeetingPlace Hardware Device Port Number"
+    ::= 4
+
+cmpMajSwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMeetingPlaceMIB
+    VARIABLES {
+        cmpExceptionCode, cmpSysUnit, cmpAlarmDesc }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Major Software Alarm.
+        This notification indicates any major software alarms reported  
+          in the system. The network management station will receive the
+        trap, and see the description in cmpAlarmDesc. The system will
+        keep sending alarms until alarms have been cleared.
+        
+        cmpExCode is MeetingPlace Exception Code
+        cmpSysUnit is MeetingPlace Server Unit Number
+        cmpAlarmDesc is MeetingPlace Alarm Description"
+    ::= 5
+
+cmpMinSwAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMeetingPlaceMIB
+    VARIABLES {
+        cmpExceptionCode, cmpSysUnit, cmpAlarmDesc }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "MeetingPlace Minor Software Alarm.
+        This notification indicates any minor software alarms reported 
+        
+        in the system. The network management station will receive the
+        trap, and see the description in cmpAlarmDesc. The system will
+        keep sending alarms until alarms have been cleared.
+        
+        cmpExCode is MeetingPlace Exception Code
+        cmpSysUnit is the MeetingPlace Server Unit Number
+        cmpAlarmDesc is MeetingPlace Alarm Description"
+    ::= 6
+
+cmpAlarmGroup OBJECT IDENTIFIER ::= { cmpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects representing alarms within
+--    MeetingPlace.
+--  objects
+--    cmpExceptionCode, cmpSysUnit, cmpHwDev, cmpHwUnit, cmpHwSlot, 
+--    cmpHwPort, cmpAlarmDesc, cmpNotificationStatus
+
+cmpInfoGroup OBJECT IDENTIFIER ::= { cmpMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects representing the MeetingPlace
+--    application server status information.
+--  objects
+--    cmpPeakMeeting, cmpPeakHour, cmpMaxAudioPortsUsage24Hours, 
+--    cmpAudioLicense, cmpMaxAudioLicense, cmpVideoLicense, 
+--    cmpMaxVideoLicense, cmpVideoPortsUsage, 
+--    cmpMaxVideoPortsAvailable, cmpAudioPortsUsage, 
+--    cmpMaxAudioPortsAvailable, cmpMeetingCurrent, 
+--    cmpMaxVideoPortsUsage24Hours, cmpNodeDeployType, cmpNodeRole, 
+--    cmpRegionInfo, cmpSiteInfo
+
+cmpNotifsGroup OBJECT IDENTIFIER ::= { cmpMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notifications generated by this MIB module.
+--  notifications
+--    cmpT1Down, cmpGWSimAlarm, cmpMajHwAlarm, cmpMinHwAlarm, 
+--    cmpMajSwAlarm, cmpMinSwAlarm
+
+cmpMIBCompliance OBJECT IDENTIFIER ::= { cmpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the
+--    Cisco MeetingPlace MIB for MeetingPlace.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmpAlarmGroup
+--   MandGroup
+--    cmpNotifsGroup
+--   MandGroup
+--    cmpInfoGroup
+
+
+END
+

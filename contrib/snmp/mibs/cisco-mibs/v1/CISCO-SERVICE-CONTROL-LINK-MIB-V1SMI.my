@@ -1,0 +1,321 @@
+-- MIB file created 01-Jul-2008 10:20:12, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SERVICE-CONTROL-LINK-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SERVICE-CONTROL-LINK-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    PhysicalIndex, entPhysicalIndex
+            FROM ENTITY-MIB
+    TruthValue
+            FROM SNMPv2-TC-v1
+    EntPhysicalIndexOrZero
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoServiceControlLinkMIB OBJECT IDENTIFIER ::= { ciscoMgmt 631 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200706260000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-excelsior-dev@cisco.com
+--  Descr
+--    This MIB module provides information about the status and
+--    configuration of links used by service control entities.
+--    
+--    The link on a service control entity is a contained entity that
+--    joins subscriber side port(s) to network side port(s).
+--  RevDate
+--    200706260000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSCLinkMIBNotifs OBJECT IDENTIFIER ::= { ciscoServiceControlLinkMIB 0 }
+ciscoSCLinkMIBObjects OBJECT IDENTIFIER ::= { ciscoServiceControlLinkMIB 1 }
+ciscoSCLinkMIBConform OBJECT IDENTIFIER ::= { ciscoServiceControlLinkMIB 2 }
+ciscoSCLinkMIBCompliances OBJECT IDENTIFIER ::= { ciscoSCLinkMIBConform 1 }
+ciscoSCLinkMIBObjectGroups OBJECT IDENTIFIER ::= { ciscoSCLinkMIBConform 2 }
+
+CsceLinkModeType ::= INTEGER {
+        other(1),
+        bypass(2),
+        forwarding(3),
+        cutoff(4),
+        sniffing(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An enumerated value which identifies the various modes of a
+--    link.
+--            'other'
+--                 None of the following.
+--            'bypass'
+--                 The traffic is forwarded from one port to the
+--                 other using an internal splitter.
+--            'forwarding'
+--                 The traffic is forwarded through the internal
+--                 hardware and software modules of the system.
+--            'cutoff'
+--                 The traffic is dropped by the system.
+--            'sniffing'
+--                 The traffic is passed in the same manner as in
+--                 'bypass' mode, however a copy of the traffic is
+--                 made and analyzed internally in the box.
+
+cscLinkNotifsEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls whether the cServiceLinkModeChange
+        notification is generated. A 'false' value will prevent
+        notifications from being generated."
+    ::= { ciscoSCLinkMIBObjects 1 }
+
+cscLinkStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CscLinkStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information regarding the configuration and
+        status of the links that pass through the service control
+        entity
+        and carry inband traffic. The link is an entity and has an entry
+        in the entPhysicalTable of the ENTITY-MIB with entPhysicalClass
+        of 'other' and is contained in entity 'chassis' or 'module'. A
+        link entity contains entities from the entPhysicalTable of
+        entPhysicalClass 'port'.
+        
+        The number of entries in this table is determined by the number
+        of service control entities in the entPhysicalTable and the
+        number of links supported by each. 
+        
+        Each Link entity contains at least a subscriber side port entity
+        and a network side port entity."
+    ::= { ciscoSCLinkMIBObjects 2 }
+
+cscLinkStatusEntry OBJECT-TYPE
+    SYNTAX CscLinkStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cscLinkStatusTable created by
+        the agent for every link entity contained in the service control
+        entity after initilization.
+        
+        entPhysicalIndex is index for this table which represents
+        entities of 'other' entPhysicalClass."
+    INDEX { entPhysicalIndex }
+    ::= { cscLinkStatusTable 1 }
+
+CscLinkStatusEntry ::= SEQUENCE {
+    cscLinkAdminModeOnActive CsceLinkModeType,
+    cscLinkAdminModeOnFailure CsceLinkModeType,
+    cscLinkOperMode CsceLinkModeType,
+    cscLinkAdminReflectionEnable INTEGER,
+    cscLinkSubscriberSidePortIndex EntPhysicalIndexOrZero,
+    cscLinkNetworkSidePortIndex EntPhysicalIndexOrZero,
+    cscLinkAdminReflectionState INTEGER
+    }
+
+cscLinkAdminModeOnActive OBJECT-TYPE
+    SYNTAX CsceLinkModeType
+--    Rsyntax INTEGER {
+--        other(1),
+--        bypass(2),
+--        forwarding(3),
+--        cutoff(4),
+--        sniffing(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the desired mode of the link when the
+        entity that contains this link has the operating status of
+        active and the entity is not in boot or failure state."
+    ::= { cscLinkStatusEntry 1 }
+
+cscLinkAdminModeOnFailure OBJECT-TYPE
+    SYNTAX CsceLinkModeType
+--    Rsyntax INTEGER {
+--        other(1),
+--        bypass(2),
+--        forwarding(3),
+--        cutoff(4),
+--        sniffing(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the desired mode of the link when the
+        entity that contains this link has the operational status of
+        failure."
+    ::= { cscLinkStatusEntry 2 }
+
+cscLinkOperMode OBJECT-TYPE
+    SYNTAX CsceLinkModeType
+--    Rsyntax INTEGER {
+--        other(1),
+--        bypass(2),
+--        forwarding(3),
+--        cutoff(4),
+--        sniffing(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object reflects the operational mode of the link."
+    ::= { cscLinkStatusEntry 3 }
+
+cscLinkAdminReflectionEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        reflectionEnabled(1),
+        reflectionOnAllPortsEnabled(2),
+        reflectionDisabled(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates how the failure status of the physical
+        link on one port should be reflected to the other port(s) of the
+        link.
+        'reflectionEnabled'          : Failure is reflected on the other 
+                                       port of the link.
+        'reflectionOnAllPortsEnabled': Failure of Physical Link is reflected 
+                                       on all other ports on all links.                
+        'reflectionDisabled'         : Port status is not reflected on the 
+                                       link."
+    ::= { cscLinkStatusEntry 4 }
+
+cscLinkSubscriberSidePortIndex OBJECT-TYPE
+    SYNTAX EntPhysicalIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the entPhysicalIndex value that uniquely
+        identifies the port entity contained in this link entity in the
+        entPhysicalTable. This port entity is connected to the 
+        subscriber side."
+    ::= { cscLinkStatusEntry 5 }
+
+cscLinkNetworkSidePortIndex OBJECT-TYPE
+    SYNTAX EntPhysicalIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the entPhysicalIndex value that uniquely
+        identifies the port entity contained in this link entity in the
+        entPhysicalTable. This port entity is connected to the 
+        network side."
+    ::= { cscLinkStatusEntry 6 }
+
+cscLinkAdminReflectionState OBJECT-TYPE
+    SYNTAX INTEGER {
+        noLinkReflection(1),
+        reflectingFailureToNetwork(2),
+        reflectingFailureToSubscriber(3),
+        reflectingFailureToBoth(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates how the link propagates the failure state
+        between the ports on each end of the link.
+        'noLinkReflection'             : No failure is currently being 
+                                         reflected.
+        'reflectingFailureToNetwork'   : Link failure on subscriber side
+                                         is reflected to the network side.
+        'reflectingFailureToSubscriber': Link failure on network side
+                                         is reflected to the subscriber side.
+        'reflectingFailureToBoth'      : Failure reflected to both sides of 
+                                         the link."
+    ::= { cscLinkStatusEntry 7 }
+
+ciscoServiceControlLinkModeChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoServiceControlLinkMIB
+    VARIABLES {
+        cscLinkOperMode }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that the agent entity has detected
+        that the cscLinkOperMode object in this MIB has changed."
+    ::= 1
+
+cSCLinkMIBObjectGroup OBJECT IDENTIFIER ::= { ciscoSCLinkMIBObjectGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects for link status.
+--  objects
+--    cscLinkAdminModeOnActive, cscLinkAdminModeOnFailure, 
+--    cscLinkOperMode, cscLinkAdminReflectionEnable, 
+--    cscLinkSubscriberSidePortIndex, cscLinkNetworkSidePortIndex, 
+--    cscLinkAdminReflectionState
+
+cSCLinkNotifControlGroup OBJECT IDENTIFIER ::= { ciscoSCLinkMIBObjectGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This is a collection of objects that controls the
+--    enable/disable of notifications defined in this MIB.
+--  objects
+--    cscLinkNotifsEnabled
+
+cSCLinkMIBNotificationGroup OBJECT IDENTIFIER ::= { ciscoSCLinkMIBObjectGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains notifications of this MIB.
+--  notifications
+--    ciscoServiceControlLinkModeChange
+
+cServiceLinkMIBCompliance OBJECT IDENTIFIER ::= { ciscoSCLinkMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP Agents which implement this
+--    MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cSCLinkMIBObjectGroup
+--   MandGroup
+--    cSCLinkMIBNotificationGroup
+--   OptGroup
+--    cSCLinkNotifControlGroup
+
+
+END
+

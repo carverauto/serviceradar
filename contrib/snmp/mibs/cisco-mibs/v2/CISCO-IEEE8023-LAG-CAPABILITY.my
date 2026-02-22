@@ -1,0 +1,313 @@
+-- *****************************************************************
+-- CISCO-IEEE8023-LAG-CAPABILITY.my:
+-- Cisco IEEE8023-LAG-MIB AGENT-CAPABILITIES
+--   
+-- February 2004, Edward Pham
+--   
+-- Copyright (c) 2004,-2007 by Cisco Systems, Inc.
+--  
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-IEEE8023-LAG-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIeee8023LagCapability MODULE-IDENTITY
+    LAST-UPDATED    "200604190000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION     "The capabilities description of IEEE8023-LAG-MIB."
+    REVISION        "200604190000Z"
+    DESCRIPTION
+        "Added cIeee8023LagCapCatOSV08R0601."
+    REVISION        "200402060000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+          ::= { ciscoAgentCapability 337 }
+
+
+
+cIeee8023LagCapV12R0111bEXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION     "IEEE8023-LAG-MIB capabilities."
+
+    SUPPORTS        IEEE8023-LAG-MIB
+    INCLUDES        {
+                        dot3adAggGroup,
+                        dot3adAggPortListGroup,
+                        dot3adAggPortGroup,
+                        dot3adAggPortStatsGroup,
+                        dot3adTablesLastChangedGroup
+                    }
+    VARIATION       dot3adAggActorAdminKey
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggCollectorMaxDelay
+    SYNTAX          INTEGER (32768)
+    DESCRIPTION     "Only value 32768 is supported."
+
+    VARIATION       dot3adAggPortActorOperKey
+    ACCESS          read-only
+    DESCRIPTION     "Only support read-only access."
+
+    VARIATION       dot3adAggPortPartnerAdminSystemPriority
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminSystemID
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminKey
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminPort
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminPortPriority
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminState
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    ::= { ciscoIeee8023LagCapability 1 }
+
+cIeee8023LagCapV12R0214SXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(14)SX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION     "IEEE8023-LAG-MIB capabilities."
+
+    SUPPORTS        IEEE8023-LAG-MIB
+    INCLUDES        {
+                        dot3adAggGroup,
+                        dot3adAggPortListGroup,
+                        dot3adAggPortGroup,
+                        dot3adAggPortStatsGroup,
+                        dot3adTablesLastChangedGroup
+                    }
+    VARIATION       dot3adAggActorAdminKey
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggCollectorMaxDelay
+    SYNTAX          INTEGER (32768)
+    DESCRIPTION     "Only value 32768 is supported."
+
+    VARIATION       dot3adAggPortActorOperKey
+    ACCESS          read-only
+    DESCRIPTION     "Only support read-only access."
+
+    VARIATION       dot3adAggPortPartnerAdminSystemPriority
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminSystemID
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminKey
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminPort
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminPortPriority
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminState
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    ::= { ciscoIeee8023LagCapability 2 }
+
+cIeee8023LagCapCatOSV08R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1)."
+    STATUS          current
+    DESCRIPTION     "IEEE8023-LAG-MIB capabilities."
+
+    SUPPORTS        IEEE8023-LAG-MIB
+    INCLUDES        {
+                        dot3adAggGroup,
+                        dot3adAggPortListGroup,
+                        dot3adAggPortGroup,
+                        dot3adAggPortStatsGroup,
+                        dot3adTablesLastChangedGroup
+                    }
+    VARIATION       dot3adAggActorAdminKey
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggCollectorMaxDelay
+    SYNTAX          INTEGER (32768)
+    DESCRIPTION     "Only value 32768 is supported."
+
+    VARIATION       dot3adAggPortActorOperKey
+    ACCESS          read-only
+    DESCRIPTION     "Only support read-only access."
+
+    VARIATION       dot3adAggPortPartnerAdminSystemPriority
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminKey
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminPort
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminPortPriority
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortPartnerAdminState
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    VARIATION       dot3adAggPortActorAdminState
+    DESCRIPTION
+        "Setting this object to value other than the
+        existing value in this object would result in
+        an error."
+
+    ::= { ciscoIeee8023LagCapability 3 }
+
+cIeee8023LagCapCatOSV08R0601 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1)."
+    STATUS          current
+    DESCRIPTION     "IEEE8023-LAG-MIB capabilities."
+
+    SUPPORTS        IEEE8023-LAG-MIB
+    INCLUDES        {
+                        dot3adAggGroup,
+                        dot3adAggPortListGroup,
+                        dot3adAggPortGroup,
+                        dot3adAggPortStatsGroup,
+                        dot3adTablesLastChangedGroup
+                    }
+    VARIATION       dot3adAggActorAdminKey
+    ACCESS          read-only
+    DESCRIPTION     "Write access is not supported."
+
+    VARIATION       dot3adAggCollectorMaxDelay
+    SYNTAX          INTEGER (32768)
+    DESCRIPTION     "Only limited set of values are supported."
+
+    VARIATION       dot3adAggPortActorOperKey
+    ACCESS          read-only
+    DESCRIPTION     "Write access is not supported."
+
+    VARIATION       dot3adAggPortPartnerAdminSystemPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported.
+        Value range 0..65535 is supported."
+
+    VARIATION       dot3adAggPortPartnerOperSystemPriority
+    DESCRIPTION     "Value range 0..65535 is supported."
+
+    VARIATION       dot3adAggPortPartnerAdminSystemID
+    ACCESS          read-only
+    DESCRIPTION     "Write access is not supported."
+
+    VARIATION       dot3adAggPortPartnerAdminKey
+    ACCESS          read-only
+    DESCRIPTION     "Write access is not supported."
+
+    VARIATION       dot3adAggPortActorPortPriority
+    DESCRIPTION     "Value range 0..65535 is supported."
+
+    VARIATION       dot3adAggPortPartnerAdminPort
+    ACCESS          read-only
+    DESCRIPTION     "Write access is not supported."
+
+    VARIATION       dot3adAggPortPartnerAdminPortPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported.
+        Value range 0..65535 is supported."
+
+    VARIATION       dot3adAggPortPartnerOperPortPriority
+    DESCRIPTION     "Value range 0..65535 is supported."
+
+    VARIATION       dot3adAggPortActorAdminState
+    ACCESS          read-only
+    DESCRIPTION     "Write access is not supported."
+
+    VARIATION       dot3adAggPortPartnerAdminState
+    ACCESS          read-only
+    DESCRIPTION     "Write access is not supported."
+
+    ::= { ciscoIeee8023LagCapability 4 }
+
+END

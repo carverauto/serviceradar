@@ -1,0 +1,63 @@
+-- *****************************************************************
+-- CISCO-PSM-MIB-CAPABILITY.my: 
+-- Cisco PSM MIB AGENT-CAPABILITIES
+--
+-- August 2003, H.K.Vivek
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-PSM-MIB-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoPsmMibCapability MODULE-IDENTITY
+                        LAST-UPDATED    "200308050000Z"
+                        ORGANIZATION    "Cisco Systems, Inc."
+                        CONTACT-INFO  
+                                "       Cisco Systems
+                                        Customer Service
+
+                                Postal: 170 West Tasman Drive
+                                        San Jose, CA  95134
+                                        USA
+
+                                Tel: +1 800 553-NETS
+
+                                E-mail: cs-san@cisco.com"
+                        DESCRIPTION
+                                "Agent capabilities for 
+                                 CISCO-PSM-MIB"
+                        REVISION        "200308050000Z"
+                        DESCRIPTION
+                                "The capabilities description of 
+                                 Cisco Port Security MIB for
+                                 MDS 1.2(1)."
+        ::= { ciscoAgentCapability 999 }
+
+ciscoPsmMibCapabilityMDS12R0 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco MDS 1.2(1)"
+STATUS          current
+DESCRIPTION     "Cisco Port Security MIB capabilities"
+
+SUPPORTS        CISCO-PSM-MIB
+INCLUDES        { 
+                        ciscoPsmPortBindConfigGroup,
+                        ciscoPsmPortBindEnforcedGroup,
+                        ciscoPsmPortBindStatsGroup,
+                        ciscoPsmPortBindNotifyGroup,
+                        ciscoPsmPortBindAutoLearnGroup     
+                }
+
+    ::= { ciscoPsmMibCapability 1 } 
+
+END

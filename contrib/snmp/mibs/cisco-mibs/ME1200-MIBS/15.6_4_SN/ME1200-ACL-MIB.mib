@@ -1,0 +1,2698 @@
+-- *****************************************************************
+-- ACL-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-ACL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    InetAddressIPv6 FROM INET-ADDRESS-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200PortList FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200AclMIB MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        " "
+    DESCRIPTION
+        "This is a private MIB for ACL"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201403070000Z"
+    DESCRIPTION
+        "Updated the maximum of ACL packet rate"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201402060000Z"
+    DESCRIPTION
+        "Modified description of me1200AclInterfacePolicyId"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401230000Z"
+    DESCRIPTION
+        "Changed type of AclAceLookup from Unsigned8 to TruthValue"
+    REVISION    "201311060000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 17 }
+
+
+ME1200ASRType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents an Any/Specific/Range selector."
+    SYNTAX      INTEGER { any(0), specific(1), range(2) }
+
+ME1200ASType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents an Any/Specific selector."
+    SYNTAX      INTEGER { any(0), specific(1) }
+
+ME1200AclAceFlagOpcode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "ACL ACE flag opcode."
+    SYNTAX      INTEGER { any(0), notequal(1), equal(2) }
+
+ME1200AclAceHitAction ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The hit action of the ACE."
+    SYNTAX      INTEGER { deny(0), permit(1), filter(2) }
+
+ME1200AclAceType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The frame type of the ACE."
+    SYNTAX      INTEGER { any(0), etype(1), arp(4), ipv4(5), ipv6(6) }
+
+ME1200AclInterfaceHitAction ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The hit action of the interface."
+    SYNTAX      INTEGER { deny(0), permit(1) }
+
+ME1200AclUser ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "ACL user."
+    SYNTAX      INTEGER { static(0), ipSourceGuard(1), ipmc(2), evc(3), mep(4), arpInspection(5), upnp(6), ptp(7), dhcp(8), loopProtect(9), linkOam(10), ztp(11), ttLoop(12), y1564(13) }
+
+ME1200AdvDestMacType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a destination MAC type selector."
+    SYNTAX      INTEGER { any(0), unicast(1), multicast(2), broadcast(3), specific(4) }
+
+ME1200ArpOpcode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "ARP opcode."
+    SYNTAX      INTEGER { any(0), arp(1), rarp(2), other(3) }
+
+ME1200DestMacType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a destination MAC type selector."
+    SYNTAX      INTEGER { any(0), unicast(1), multicast(2), broadcast(3) }
+
+ME1200VlanTagPriority ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "VLAN priority."
+    SYNTAX      INTEGER { any(0), value0(1), value1(2), value2(3), value3(4), value4(5), value5(6), value6(7), value7(8), range0to1(9), range2to3(10), range4to5(11), range6to7(12), range0to3(13), range4to7(14) }
+
+ME1200VlanTagged ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "VLAN tagged/untagged."
+    SYNTAX      INTEGER { any(0), untagged(1), tagged(2) }
+
+me1200AclMIBObjects OBJECT IDENTIFIER
+    ::= { me1200AclMIB 1 }
+
+me1200AclConfig OBJECT IDENTIFIER
+    ::= { me1200AclMIBObjects 2 }
+
+me1200AclGlobals OBJECT IDENTIFIER
+    ::= { me1200AclConfig 1 }
+
+me1200AclRateLimiterTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AclRateLimiterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The ACL rate limiter configuration table."
+    ::= { me1200AclGlobals 1 }
+
+me1200AclRateLimiterEntry OBJECT-TYPE
+    SYNTAX      ME1200AclRateLimiterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each rate limiter ID has a set of parameters"
+    INDEX       { me1200AclRateLimiterId }
+    ::= { me1200AclRateLimiterTable 1 }
+
+ME1200AclRateLimiterEntry ::= SEQUENCE {
+    me1200AclRateLimiterId    Integer32,
+    me1200AclRateLimiterPacketRate    Unsigned32,
+    me1200AclRateLimiterBitRate   Unsigned32,
+    me1200AclRateLimiterBitRateEnable     TruthValue
+}
+
+me1200AclRateLimiterId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of ACL rate limter."
+    ::= { me1200AclRateLimiterEntry 1 }
+
+me1200AclRateLimiterPacketRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The packet rate per second. The operation is inactive when bit rate
+         mode is enabled. Possible values are: 0-99, 100, 2*100, 3*100...,
+         1092000."
+    ::= { me1200AclRateLimiterEntry 2 }
+
+me1200AclRateLimiterBitRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The bit rate per second.The operation is inactive when bit rate mode is
+         disabled. Possible values are: 0, 100, 2*100, 3*100, ..., 1000000."
+    ::= { me1200AclRateLimiterEntry 3 }
+
+me1200AclRateLimiterBitRateEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable bit rate."
+    ::= { me1200AclRateLimiterEntry 4 }
+
+me1200AclAce OBJECT IDENTIFIER
+    ::= { me1200AclGlobals 2 }
+
+me1200AclAceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AclAceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The ACL ACE configuration table."
+    ::= { me1200AclAce 1 }
+
+me1200AclAceEntry OBJECT-TYPE
+    SYNTAX      ME1200AclAceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains a set of parameters."
+    INDEX       { me1200AclAceId }
+    ::= { me1200AclAceTable 1 }
+
+ME1200AclAceEntry ::= SEQUENCE {
+    me1200AclAceId    Integer32,
+    me1200AclAceNextAceId     Unsigned32,
+    me1200AclAceLookup    TruthValue,
+    me1200AclAceIngressPortList   ME1200PortList,
+    me1200AclAcePolicyValue   ME1200Unsigned8,
+    me1200AclAcePolicyMask    ME1200Unsigned8,
+    me1200AclAceHitAction     ME1200AclAceHitAction,
+    me1200AclAceFilterPortList    ME1200PortList,
+    me1200AclAceRateLimiterId     Unsigned32,
+    me1200AclAceEvcPolicerId      ME1200Unsigned16,
+    me1200AclAceRedirectPortList      ME1200PortList,
+    me1200AclAceMirror    TruthValue,
+    me1200AclAceLogging   TruthValue,
+    me1200AclAceShutdown      TruthValue,
+    me1200AclAceVlanTagged    ME1200VlanTagged,
+    me1200AclAceVlanId    ME1200Unsigned16,
+    me1200AclAceVlanTagPriority   ME1200VlanTagPriority,
+    me1200AclAceFrameType     ME1200AclAceType,
+    me1200AclAceEtypeSrcMacOp     ME1200ASType,
+    me1200AclAceEtypeSrcMac   MacAddress,
+    me1200AclAceEtypeDestMacOp    ME1200AdvDestMacType,
+    me1200AclAceEtypeDestMac      MacAddress,
+    me1200AclAceEtype     ME1200Unsigned16,
+    me1200AclAceArpSrcMacOp   ME1200ASType,
+    me1200AclAceArpSrcMac     MacAddress,
+    me1200AclAceArpDestMacOp      ME1200DestMacType,
+    me1200AclAceArpSenderIp   IpAddress,
+    me1200AclAceArpSenderIpMask   IpAddress,
+    me1200AclAceArpTragetIp   IpAddress,
+    me1200AclAceArpTragetIpMask   IpAddress,
+    me1200AclAceArpOpcode     ME1200ArpOpcode,
+    me1200AclAceArpFlagRequest    ME1200AclAceFlagOpcode,
+    me1200AclAceArpFlagSenderMac      ME1200AclAceFlagOpcode,
+    me1200AclAceArpFlagTargetMac      ME1200AclAceFlagOpcode,
+    me1200AclAceArpFlagLen    ME1200AclAceFlagOpcode,
+    me1200AclAceArpFlagIp     ME1200AclAceFlagOpcode,
+    me1200AclAceArpFlagEthernet   ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4DestMacOp     ME1200DestMacType,
+    me1200AclAceIpv4ProtocolOp    ME1200ASType,
+    me1200AclAceIpv4Protocol      ME1200Unsigned8,
+    me1200AclAceIpv4FlagTtl   ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4FlagFragment      ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4FlagIpOption      ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4SrcIp     IpAddress,
+    me1200AclAceIpv4SrcIpMask     IpAddress,
+    me1200AclAceIpv4DestIp    IpAddress,
+    me1200AclAceIpv4DestIpMask    IpAddress,
+    me1200AclAceIpv4IcmpTypeOp    ME1200ASType,
+    me1200AclAceIpv4IcmpType      ME1200Unsigned8,
+    me1200AclAceIpv4IcmpCodeOp    ME1200ASType,
+    me1200AclAceIpv4IcmpCode      ME1200Unsigned8,
+    me1200AclAceIpv4SrcPortOp     ME1200ASRType,
+    me1200AclAceIpv4SrcPort   ME1200Unsigned16,
+    me1200AclAceIpv4SrcPortRange      ME1200Unsigned16,
+    me1200AclAceIpv4DestPortOp    ME1200ASRType,
+    me1200AclAceIpv4DestPort      ME1200Unsigned16,
+    me1200AclAceIpv4DestPortRange     ME1200Unsigned16,
+    me1200AclAceIpv4TcpFlagFin    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4TcpFlagSyn    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4TcpFlagRst    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4TcpFlagPsh    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4TcpFlagAck    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv4TcpFlagUrg    ME1200AclAceFlagOpcode,
+    me1200AclAceIPv6DestMacOp     ME1200DestMacType,
+    me1200AclAceIpv6NextHeaderOp      ME1200ASType,
+    me1200AclAceIpv6NextHeader    ME1200Unsigned8,
+    me1200AclAceIpv6SrcIp     InetAddressIPv6,
+    me1200AclAceIpv6SrcIpMask     InetAddressIPv6,
+    me1200AclAceIpv6FlagHopLimiter    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv6Icmpv6TypeOp      ME1200ASType,
+    me1200AclAceIpv6Icmpv6Type    ME1200Unsigned8,
+    me1200AclAceIpv6Icmpv6CodeOp      ME1200ASType,
+    me1200AclAceIpv6Icmpv6Code    ME1200Unsigned8,
+    me1200AclAceIpv6SrcPortOp     ME1200ASRType,
+    me1200AclAceIpv6SrcPort   ME1200Unsigned16,
+    me1200AclAceIpv6SrcPortRange      ME1200Unsigned16,
+    me1200AclAceIpv6DestPortOp    ME1200ASRType,
+    me1200AclAceIpv6DestPort      ME1200Unsigned16,
+    me1200AclAceIpv6DestPortRange     ME1200Unsigned16,
+    me1200AclAceIpv6TcpFlagFin    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv6TcpFlagSyn    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv6TcpFlagRst    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv6TcpFlagPsh    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv6TcpFlagAck    ME1200AclAceFlagOpcode,
+    me1200AclAceIpv6TcpFlagUrg    ME1200AclAceFlagOpcode,
+    me1200AclAceAction    ME1200RowEditorState
+}
+
+me1200AclAceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of ACE."
+    ::= { me1200AclAceEntry 1 }
+
+me1200AclAceNextAceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The next identification for this ACE. Possible values are: 0(end of
+         list), 1-512."
+    ::= { me1200AclAceEntry 2 }
+
+me1200AclAceLookup OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The second lookup operation for this ACE. Possible values are:
+         1(enabled) and 2(disabled)."
+    ::= { me1200AclAceEntry 3 }
+
+me1200AclAceIngressPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ingress port list for this ACE. Each octet within this value
+         specifies a set of eight ports, with the first octet specifying ports 1
+         through 8, the second octet specifying ports 9 through 16, etc. Within
+         each octet, the most significant bit represents the lowest numbered
+         port, and the least significant bit represents the highest numbered
+         port. Thus, each port of the switch is represented by a single bit
+         within the value of this object. If that bit has a value of '1' then
+         that port is included in the set of ports; the port is not included if
+         its bit has a value of '0'."
+    ::= { me1200AclAceEntry 5 }
+
+me1200AclAcePolicyValue OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy number for this ACE. The feature is inactive when policy
+         mask value is non-zero."
+    ::= { me1200AclAceEntry 6 }
+
+me1200AclAcePolicyMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy number for this ACE. The feature is inactive when policy
+         mask value is non-zero."
+    ::= { me1200AclAceEntry 7 }
+
+me1200AclAceHitAction OBJECT-TYPE
+    SYNTAX      ME1200AclAceHitAction
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The hit action operation for this ACE. Note all ports will be the
+         filter port member when filter action is set on the first time. "
+    ::= { me1200AclAceEntry 8 }
+
+me1200AclAceFilterPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The filter port list. It is active only when the hit action is
+         filtered. Set the action value to 0(filter) before the new setting.
+         Note that the action will change deny action if there is no any port in
+         the member set. Each octet within this value specifies a set of eight
+         ports, with the first octet specifying ports 1 through 8, the second
+         octet specifying ports 9 through 16, etc. Within each octet, the most
+         significant bit represents the lowest numbered port, and the least
+         significant bit represents the highest numbered port. Thus, each port
+         of the switch is represented by a single bit within the value of this
+         object. If that bit has a value of '1' then that port is included in
+         the set of ports; the port is not included if its bit has a value of
+         '0'."
+    ::= { me1200AclAceEntry 9 }
+
+me1200AclAceRateLimiterId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The rate limiter ID. Possible values are: 0(disabled), 1-16."
+    ::= { me1200AclAceEntry 10 }
+
+me1200AclAceEvcPolicerId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC policer ID. Possible values are: 0(disabled), 1-1022."
+    ::= { me1200AclAceEntry 11 }
+
+me1200AclAceRedirectPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ingress port list for this ACE. It is active only when the hit
+         action is denied. Set the action value to 1(deny) before the new
+         setting. Set value 0 to disable the opertion. Each octet within this
+         value specifies a set of eight ports, with the first octet specifying
+         ports 1 through 8, the second octet specifying ports 9 through 16, etc.
+         Within each octet, the most significant bit represents the lowest
+         numbered port, and the least significant bit represents the highest
+         numbered port. Thus, each port of the switch is represented by a single
+         bit within the value of this object. If that bit has a value of '1'
+         then that port is included in the set of ports; the port is not
+         included if its bit has a value of '0'."
+    ::= { me1200AclAceEntry 12 }
+
+me1200AclAceMirror OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The rmirror operation. Frames matching this ACE are mirrored to the
+         destination mirror port."
+    ::= { me1200AclAceEntry 13 }
+
+me1200AclAceLogging OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The logging operation."
+    ::= { me1200AclAceEntry 14 }
+
+me1200AclAceShutdown OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The shutdown operation."
+    ::= { me1200AclAceEntry 15 }
+
+me1200AclAceVlanTagged OBJECT-TYPE
+    SYNTAX      ME1200VlanTagged
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The 802.1Q VLAN tagged for this ACE."
+    ::= { me1200AclAceEntry 100 }
+
+me1200AclAceVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID for this ACE. Possible values are: 0(disabled), 1-4095."
+    ::= { me1200AclAceEntry 101 }
+
+me1200AclAceVlanTagPriority OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLN tag priority for this ACE. Enable VLAN tagged filter before the
+         new setting."
+    ::= { me1200AclAceEntry 102 }
+
+me1200AclAceFrameType OBJECT-TYPE
+    SYNTAX      ME1200AclAceType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The frame type for this ACE. "
+    ::= { me1200AclAceEntry 200 }
+
+me1200AclAceEtypeSrcMacOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a Ethernet type packet's source MAC address is to be
+         compared. This object can only be configured if FrameType is etype(1)."
+    ::= { me1200AclAceEntry 300 }
+
+me1200AclAceEtypeSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address. This object can only be
+         configured if FrameType is etype(1) and EtypeSrcMacOp is specific(1)."
+    ::= { me1200AclAceEntry 301 }
+
+me1200AclAceEtypeDestMacOp OBJECT-TYPE
+    SYNTAX      ME1200AdvDestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a Ethernet type packet's destination MAC address is to be
+         compared. This object can only be configured if FrameType is etype(1)."
+    ::= { me1200AclAceEntry 302 }
+
+me1200AclAceEtypeDestMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits destination MAC address. This object can only be
+         configured if FrameType is etype(1) and EtypeDestMacOp is specific(1)."
+    ::= { me1200AclAceEntry 303 }
+
+me1200AclAceEtype OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's 16 bit Ethernet type field. Possible values are:
+         0(disabled), 0x600-0xFFFF but excluding 0x800(IPv4), 0x806(ARP) and
+         0x86DD(IPv6).This object can only be configured if FrameType is
+         etype(1) and EtypeDestMacOp is specific(1)."
+    ::= { me1200AclAceEntry 304 }
+
+me1200AclAceArpSrcMacOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's source MAC address is to be compared. This
+         object can only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 600 }
+
+me1200AclAceArpSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address. This object can only be
+         configured if FrameType is arp(4) and ArpSrcMacOp is specific(1)."
+    ::= { me1200AclAceEntry 601 }
+
+me1200AclAceArpDestMacOp OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's destination MAC address is to be compared.
+         This object can only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 602 }
+
+me1200AclAceArpSenderIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP sender IP address. The packets sender address is
+         AND-ed with the value of ArpSenderIpMask and then compared with the
+         value of this object. If ArpSenderIp and ArpSrcIpMask are 0.0.0.0, this
+         entry matches any sender IP address. This object can only be configured
+         if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 603 }
+
+me1200AclAceArpSenderIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP sender IP address mask. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 604 }
+
+me1200AclAceArpTragetIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP target IP address. The packets target address is
+         AND-ed with the value of ArpTragetIpMask and then compared with the
+         value of this object. If ArpTragetIp and ArpSrcIpMask are 0.0.0.0, this
+         entry matches any target IP address. This object can only be configured
+         if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 605 }
+
+me1200AclAceArpTragetIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP target IP address mask. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 606 }
+
+me1200AclAceArpOpcode OBJECT-TYPE
+    SYNTAX      ME1200ArpOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's opcode is to be compared. This object can
+         only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 607 }
+
+me1200AclAceArpFlagRequest OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's request/reply opcode is to be compared.
+         The value 0 means any ARP opcode is allowed (don't-care field), value 1
+         means ARP opcode is equal to request opcode and value 2 means ARP
+         opcode is equal to reply opcode. This object can only be configured if
+         FrameType is arp(4)."
+    ::= { me1200AclAceEntry 608 }
+
+me1200AclAceArpFlagSenderMac OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's sender hardware address field (SHA) is to
+         be compared. The value 0 means any SHA value is allowed (don't-care
+         field), value 1 means SHA is not equal to the SMAC address and value 2
+         means SHA is equal to the SMAC address. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 609 }
+
+me1200AclAceArpFlagTargetMac OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's target hardware address field (THA) is to
+         be compared. The value 0 means any THA value is allowed (don't-care
+         field), value 1 means THA is not equal to the DMAC address and value 2
+         means THA is equal to the DMAC address. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 610 }
+
+me1200AclAceArpFlagLen OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's s hardware address length field (HLN) is
+         to be compared. The value 0 means any HLN value is allowed (don't-care
+         field), value 1 means HLN is not equal to Ethernet (0x06) or the (PLN)
+         is not equal to IPv4 (0x04) and value 2 means HLN is equal to Ethernet
+         (0x06) or the (PLN) is not equal to IPv4 (0x04). This object can only
+         be configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 611 }
+
+me1200AclAceArpFlagIp OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's hardware address space field (HRD) is to
+         be compared. The value 0 means any HRD value is allowed (don't-care
+         field), value 1 means HRD is not equal to Ethernet (1) and value 2
+         means HRD is equal to Ethernet (1). This object can only be configured
+         if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 612 }
+
+me1200AclAceArpFlagEthernet OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's protocol address space field (PRO) is to
+         be compared. The value 0 means any PRO value is allowed (don't-care
+         field), value 1 means PRO is not equal to IP (0x800) and value 2 means
+         PRO is equal to IP (0x800). This object can only be configured if
+         FrameType is arp(4)."
+    ::= { me1200AclAceEntry 613 }
+
+me1200AclAceIpv4DestMacOp OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's destination MAC address is to be
+         compared. This object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 700 }
+
+me1200AclAceIpv4ProtocolOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's protocol field is to be compared. This
+         object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 701 }
+
+me1200AclAceIpv4Protocol OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol number field in the IPv4 header used to indicate a higher
+         layer protocol. Possible values are 0-255.This object can only be
+         configured if FrameType is ipv4(5) and Ipv4ProtocolOp is specific(1)."
+    ::= { me1200AclAceEntry 702 }
+
+me1200AclAceIpv4FlagTtl OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's Time-to-Live field (TTL) is to be
+         compared. The value 0 means any TTL value is allowed (don't-care
+         field), value 1 means TTL is not equal zero and value 2 means TTL is
+         equal to zero. This object can only be configured if FrameType is
+         ipv4(5)."
+    ::= { me1200AclAceEntry 703 }
+
+me1200AclAceIpv4FlagFragment OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's More-Fragments field (MF) is to be
+         compared. The value 0 means any MF value is allowed (don't-care field),
+         value 1 means MF is not equal one (MF field isn't set) and value 2
+         means MF is equal to one (MF field is set). This object can only be
+         configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 704 }
+
+me1200AclAceIpv4FlagIpOption OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's options field is to be compared. The
+         value 0 means any options is allowed (don't-care field), value 1 means
+         options is not equal one (options field isn't set) and value 2 means
+         options is equal to one (options field is set). This object can only be
+         configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 705 }
+
+me1200AclAceIpv4SrcIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified source IPv4 address. The packets sender address is AND-ed
+         with the value of Ipv4SrcIpMask and then compared with the value of
+         this object. If Ipv4SrcIp and Ipv4SrcIpMask are 0.0.0.0, this entry
+         matches any source IP address. This object can only be configured if
+         FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 706 }
+
+me1200AclAceIpv4SrcIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified source IPv4 address mask. This object can only be
+         configured if FrameType isipv4(5)."
+    ::= { me1200AclAceEntry 707 }
+
+me1200AclAceIpv4DestIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified destination IPv4 address. The packets sender address is
+         AND-ed with the value of Ipv4DestIpMask and then compared with the
+         value of this object. If Ipv4DestIp and Ipv4DestIpMask are 0.0.0.0,
+         this entry matches any destination IP address. This object can only be
+         configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 708 }
+
+me1200AclAceIpv4DestIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified destination IPv4 address mask. This object can only be
+         configured if FrameType isipv4(5)."
+    ::= { me1200AclAceEntry 709 }
+
+me1200AclAceIpv4IcmpTypeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's ICMP type field is to be compared. This
+         object can only be configured if FrameType is ipv4(5) and Ipv4Protocol
+         is icmp(1)."
+    ::= { me1200AclAceEntry 710 }
+
+me1200AclAceIpv4IcmpType OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMP type field in the IPv4 header. Possible values are 0-255.This
+         object can only be configured if FrameType is ipv4(5), Ipv4Protocol is
+         icmp(1) and Ipv4IcmpTypeOp is specific(1)."
+    ::= { me1200AclAceEntry 711 }
+
+me1200AclAceIpv4IcmpCodeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's ICMP code field is to be compared. This
+         object can only be configured if FrameType is ipv4(5) and Ipv4Protocol
+         is icmp(1)."
+    ::= { me1200AclAceEntry 712 }
+
+me1200AclAceIpv4IcmpCode OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMP code field in the IPv4 header. Possible values are 0-255.This
+         object can only be configured if FrameType is ipv4(5), Ipv4Protocol is
+         icmp(1) and Ipv4IcmpCodeOp is specific(1)."
+    ::= { me1200AclAceEntry 713 }
+
+me1200AclAceIpv4SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 714 }
+
+me1200AclAceIpv4SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv4(5) and Ipv4SrcPortOp is not
+         any(0)."
+    ::= { me1200AclAceEntry 715 }
+
+me1200AclAceIpv4SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv4(5) and Ipv4SrcPortOp is range(2)."
+    ::= { me1200AclAceEntry 716 }
+
+me1200AclAceIpv4DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceEntry 717 }
+
+me1200AclAceIpv4DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv4(5) and
+         Ipv4DestPortOp is not any(0)."
+    ::= { me1200AclAceEntry 718 }
+
+me1200AclAceIpv4DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv4(5) and
+         Ipv4DestPortOp is range(2)."
+    ::= { me1200AclAceEntry 719 }
+
+me1200AclAceIpv4TcpFlagFin OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'No more data from sender' field
+         (FIN) is to be compared. The value 0 means any FIN value is allowed
+         (don't-care field), value 1 means FIN is not equal one (FIN field isn't
+         set) and value 2 means FIN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 720 }
+
+me1200AclAceIpv4TcpFlagSyn OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Synchronize sequence numbers' field
+         (SYN) is to be compared. The value 0 means any SYN value is allowed
+         (don't-care field), value 1 means SYN is not equal one (FIN field isn't
+         set) and value 2 means SYN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 721 }
+
+me1200AclAceIpv4TcpFlagRst OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Reset the connection' field (RST) is
+         to be compared. The value 0 means any RST value is allowed (don't-care
+         field), value 1 means RST is not equal one (FIN field isn't set) and
+         value 2 means RST is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv4(5) and Ipv4ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceEntry 722 }
+
+me1200AclAceIpv4TcpFlagPsh OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Push Function' field (PSH) is to be
+         compared. The value 0 means any PSH value is allowed (don't-care
+         field), value 1 means PSH is not equal one (FIN field isn't set) and
+         value 2 means PSH is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv4(5) and Ipv4ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceEntry 723 }
+
+me1200AclAceIpv4TcpFlagAck OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Acknowledgment field significant'
+         field (ACK) is to be compared. The value 0 means any FIN value is
+         allowed (don't-care field), value 1 means ACK is not equal one (FIN
+         field isn't set) and value 2 means ACK is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 724 }
+
+me1200AclAceIpv4TcpFlagUrg OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Urgent Pointer field significant'
+         field (URG) is to be compared. The value 0 means any URG value is
+         allowed (don't-care field), value 1 means URG is not equal one (FIN
+         field isn't set) and value 2 means URG is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 725 }
+
+me1200AclAceIPv6DestMacOp OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's destination MAC address is to be
+         compared. This object can only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceEntry 800 }
+
+me1200AclAceIpv6NextHeaderOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's next header field is to be compared. This
+         object can only be configured if FrameType is ipv6(6)."
+    ::= { me1200AclAceEntry 801 }
+
+me1200AclAceIpv6NextHeader OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The next header field in the IPv6 header used to indicate a higher
+         layer protocol. Possible values are 0-255.This object can only be
+         configured if FrameType is ipv6(6) and Ipv6NextHeaderOp is specific(1)."
+    ::= { me1200AclAceEntry 802 }
+
+me1200AclAceIpv6SrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address. The packets source address is AND-ed
+         with the value of Ipv6SrcIpMask and then compared with the value of
+         this object. If Ipv6SrcIp and Ipv6SrcIpMask are all zeros, this entry
+         matches any IPv6 source address. Only the least significant 32 bits of
+         this object are used. This object can only be configured if FrameType
+         is ipv6(6) and Ipv6SrcIpMask is not all zeros."
+    ::= { me1200AclAceEntry 803 }
+
+me1200AclAceIpv6SrcIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address mask. Only the least significant 32
+         bits of this object are used. This object can only be configured if
+         FrameType is ipv6(6)."
+    ::= { me1200AclAceEntry 804 }
+
+me1200AclAceIpv6FlagHopLimiter OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's hop limit field is to be compared. The
+         value 0 means any hop limit value is allowed (don't-care field), value
+         1 means hop limit is not equal zero and value 2 means hop limit is
+         equal to zero. This object can only be configured if FrameType is
+         ipv6(6)."
+    ::= { me1200AclAceEntry 805 }
+
+me1200AclAceIpv6Icmpv6TypeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's ICMPv6 type field is to be compared. This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6NextHeader is icmpv6(58)."
+    ::= { me1200AclAceEntry 806 }
+
+me1200AclAceIpv6Icmpv6Type OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMPv6 type field in the IPv6 header. Possible values are
+         0-255.This object can only be configured if FrameType is ipv6(6),
+         Ipv6NextHeader is icmpv6(58) and Ipv6Icmpv6TypeOp is specific(1)."
+    ::= { me1200AclAceEntry 807 }
+
+me1200AclAceIpv6Icmpv6CodeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's ICMPv6 code field is to be compared. This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6NextHeader is icmpv6(58)."
+    ::= { me1200AclAceEntry 808 }
+
+me1200AclAceIpv6Icmpv6Code OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMPv6 code field in the IPv6 header. Possible values are
+         0-255.This object can only be configured if FrameType is ipv6(6),
+         Ipv6NextHeader is icmpv6(58) and Ipv6Icmpv6CodeOp is specific(1)."
+    ::= { me1200AclAceEntry 809 }
+
+me1200AclAceIpv6SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv6(6)."
+    ::= { me1200AclAceEntry 810 }
+
+me1200AclAceIpv6SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv6(6) and Ipv6SrcPortOp is not
+         any(0)."
+    ::= { me1200AclAceEntry 811 }
+
+me1200AclAceIpv6SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv6(6) and Ipv6SrcPortOp is range(2)."
+    ::= { me1200AclAceEntry 812 }
+
+me1200AclAceIpv6DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv6(6)."
+    ::= { me1200AclAceEntry 813 }
+
+me1200AclAceIpv6DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv6(6) and
+         Ipv6DestPortOp is not any(0)."
+    ::= { me1200AclAceEntry 814 }
+
+me1200AclAceIpv6DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6DestPortOp is range(2)."
+    ::= { me1200AclAceEntry 815 }
+
+me1200AclAceIpv6TcpFlagFin OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'No more data from sender' field
+         (FIN) is to be compared. The value 0 means any FIN value is allowed
+         (don't-care field), value 1 means FIN is not equal one (FIN field isn't
+         set) and value 2 means FIN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 816 }
+
+me1200AclAceIpv6TcpFlagSyn OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Synchronize sequence numbers' field
+         (SYN) is to be compared. The value 0 means any SYN value is allowed
+         (don't-care field), value 1 means SYN is not equal one (FIN field isn't
+         set) and value 2 means SYN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 817 }
+
+me1200AclAceIpv6TcpFlagRst OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Reset the connection' field (RST) is
+         to be compared. The value 0 means any RST value is allowed (don't-care
+         field), value 1 means RST is not equal one (FIN field isn't set) and
+         value 2 means RST is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv6(6) and Ipv6ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceEntry 818 }
+
+me1200AclAceIpv6TcpFlagPsh OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Push Function' field (PSH) is to be
+         compared. The value 0 means any PSH value is allowed (don't-care
+         field), value 1 means PSH is not equal one (FIN field isn't set) and
+         value 2 means PSH is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv6(6) and Ipv6ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceEntry 819 }
+
+me1200AclAceIpv6TcpFlagAck OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Acknowledgment field significant'
+         field (ACK) is to be compared. The value 0 means any FIN value is
+         allowed (don't-care field), value 1 means ACK is not equal one (FIN
+         field isn't set) and value 2 means ACK is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 820 }
+
+me1200AclAceIpv6TcpFlagUrg OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Urgent Pointer field significant'
+         field (URG) is to be compared. The value 0 means any URG value is
+         allowed (don't-care field), value 1 means URG is not equal one (FIN
+         field isn't set) and value 2 means URG is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceEntry 821 }
+
+me1200AclAceAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AclAceEntry 1000 }
+
+me1200AclAceTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200AclAce 2 }
+
+me1200AclAceTableRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The identification of ACE."
+    ::= { me1200AclAceTableRowEditor 1 }
+
+me1200AclAceTableRowEditorNextAceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The next identification for this ACE. Possible values are: 0(end of
+         list), 1-512."
+    ::= { me1200AclAceTableRowEditor 2 }
+
+me1200AclAceTableRowEditorLookup OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The second lookup operation for this ACE. Possible values are:
+         1(enabled) and 2(disabled)."
+    ::= { me1200AclAceTableRowEditor 3 }
+
+me1200AclAceTableRowEditorIngressPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ingress port list for this ACE. Each octet within this value
+         specifies a set of eight ports, with the first octet specifying ports 1
+         through 8, the second octet specifying ports 9 through 16, etc. Within
+         each octet, the most significant bit represents the lowest numbered
+         port, and the least significant bit represents the highest numbered
+         port. Thus, each port of the switch is represented by a single bit
+         within the value of this object. If that bit has a value of '1' then
+         that port is included in the set of ports; the port is not included if
+         its bit has a value of '0'."
+    ::= { me1200AclAceTableRowEditor 5 }
+
+me1200AclAceTableRowEditorPolicyValue OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy number for this ACE. The feature is inactive when policy
+         mask value is non-zero."
+    ::= { me1200AclAceTableRowEditor 6 }
+
+me1200AclAceTableRowEditorPolicyMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy number for this ACE. The feature is inactive when policy
+         mask value is non-zero."
+    ::= { me1200AclAceTableRowEditor 7 }
+
+me1200AclAceTableRowEditorHitAction OBJECT-TYPE
+    SYNTAX      ME1200AclAceHitAction
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The hit action operation for this ACE. Note all ports will be the
+         filter port member when filter action is set on the first time. "
+    ::= { me1200AclAceTableRowEditor 8 }
+
+me1200AclAceTableRowEditorFilterPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The filter port list. It is active only when the hit action is
+         filtered. Set the action value to 0(filter) before the new setting.
+         Note that the action will change deny action if there is no any port in
+         the member set. Each octet within this value specifies a set of eight
+         ports, with the first octet specifying ports 1 through 8, the second
+         octet specifying ports 9 through 16, etc. Within each octet, the most
+         significant bit represents the lowest numbered port, and the least
+         significant bit represents the highest numbered port. Thus, each port
+         of the switch is represented by a single bit within the value of this
+         object. If that bit has a value of '1' then that port is included in
+         the set of ports; the port is not included if its bit has a value of
+         '0'."
+    ::= { me1200AclAceTableRowEditor 9 }
+
+me1200AclAceTableRowEditorRateLimiterId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The rate limiter ID. Possible values are: 0(disabled), 1-16."
+    ::= { me1200AclAceTableRowEditor 10 }
+
+me1200AclAceTableRowEditorEvcPolicerId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC policer ID. Possible values are: 0(disabled), 1-1022."
+    ::= { me1200AclAceTableRowEditor 11 }
+
+me1200AclAceTableRowEditorRedirectPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ingress port list for this ACE. It is active only when the hit
+         action is denied. Set the action value to 1(deny) before the new
+         setting. Set value 0 to disable the opertion. Each octet within this
+         value specifies a set of eight ports, with the first octet specifying
+         ports 1 through 8, the second octet specifying ports 9 through 16, etc.
+         Within each octet, the most significant bit represents the lowest
+         numbered port, and the least significant bit represents the highest
+         numbered port. Thus, each port of the switch is represented by a single
+         bit within the value of this object. If that bit has a value of '1'
+         then that port is included in the set of ports; the port is not
+         included if its bit has a value of '0'."
+    ::= { me1200AclAceTableRowEditor 12 }
+
+me1200AclAceTableRowEditorMirror OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The rmirror operation. Frames matching this ACE are mirrored to the
+         destination mirror port."
+    ::= { me1200AclAceTableRowEditor 13 }
+
+me1200AclAceTableRowEditorLogging OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The logging operation."
+    ::= { me1200AclAceTableRowEditor 14 }
+
+me1200AclAceTableRowEditorShutdown OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The shutdown operation."
+    ::= { me1200AclAceTableRowEditor 15 }
+
+me1200AclAceTableRowEditorVlanTagged OBJECT-TYPE
+    SYNTAX      ME1200VlanTagged
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The 802.1Q VLAN tagged for this ACE."
+    ::= { me1200AclAceTableRowEditor 100 }
+
+me1200AclAceTableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID for this ACE. Possible values are: 0(disabled), 1-4095."
+    ::= { me1200AclAceTableRowEditor 101 }
+
+me1200AclAceTableRowEditorVlanTagPriority OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLN tag priority for this ACE. Enable VLAN tagged filter before the
+         new setting."
+    ::= { me1200AclAceTableRowEditor 102 }
+
+me1200AclAceTableRowEditorFrameType OBJECT-TYPE
+    SYNTAX      ME1200AclAceType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The frame type for this ACE. "
+    ::= { me1200AclAceTableRowEditor 200 }
+
+me1200AclAceTableRowEditorEtypeSrcMacOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a Ethernet type packet's source MAC address is to be
+         compared. This object can only be configured if FrameType is etype(1)."
+    ::= { me1200AclAceTableRowEditor 300 }
+
+me1200AclAceTableRowEditorEtypeSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address. This object can only be
+         configured if FrameType is etype(1) and EtypeSrcMacOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 301 }
+
+me1200AclAceTableRowEditorEtypeDestMacOp OBJECT-TYPE
+    SYNTAX      ME1200AdvDestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a Ethernet type packet's destination MAC address is to be
+         compared. This object can only be configured if FrameType is etype(1)."
+    ::= { me1200AclAceTableRowEditor 302 }
+
+me1200AclAceTableRowEditorEtypeDestMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits destination MAC address. This object can only be
+         configured if FrameType is etype(1) and EtypeDestMacOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 303 }
+
+me1200AclAceTableRowEditorEtype OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the packet's 16 bit Ethernet type field. Possible values are:
+         0(disabled), 0x600-0xFFFF but excluding 0x800(IPv4), 0x806(ARP) and
+         0x86DD(IPv6).This object can only be configured if FrameType is
+         etype(1) and EtypeDestMacOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 304 }
+
+me1200AclAceTableRowEditorArpSrcMacOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's source MAC address is to be compared. This
+         object can only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 600 }
+
+me1200AclAceTableRowEditorArpSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the 48 bits source MAC address. This object can only be
+         configured if FrameType is arp(4) and ArpSrcMacOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 601 }
+
+me1200AclAceTableRowEditorArpDestMacOp OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's destination MAC address is to be compared.
+         This object can only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 602 }
+
+me1200AclAceTableRowEditorArpSenderIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP sender IP address. The packets sender address is
+         AND-ed with the value of ArpSenderIpMask and then compared with the
+         value of this object. If ArpSenderIp and ArpSrcIpMask are 0.0.0.0, this
+         entry matches any sender IP address. This object can only be configured
+         if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 603 }
+
+me1200AclAceTableRowEditorArpSenderIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP sender IP address mask. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 604 }
+
+me1200AclAceTableRowEditorArpTragetIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP target IP address. The packets target address is
+         AND-ed with the value of ArpTragetIpMask and then compared with the
+         value of this object. If ArpTragetIp and ArpSrcIpMask are 0.0.0.0, this
+         entry matches any target IP address. This object can only be configured
+         if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 605 }
+
+me1200AclAceTableRowEditorArpTragetIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified ARP target IP address mask. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 606 }
+
+me1200AclAceTableRowEditorArpOpcode OBJECT-TYPE
+    SYNTAX      ME1200ArpOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's opcode is to be compared. This object can
+         only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 607 }
+
+me1200AclAceTableRowEditorArpFlagRequest OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's request/reply opcode is to be compared.
+         The value 0 means any ARP opcode is allowed (don't-care field), value 1
+         means ARP opcode is equal to request opcode and value 2 means ARP
+         opcode is equal to reply opcode. This object can only be configured if
+         FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 608 }
+
+me1200AclAceTableRowEditorArpFlagSenderMac OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's sender hardware address field (SHA) is to
+         be compared. The value 0 means any SHA value is allowed (don't-care
+         field), value 1 means SHA is not equal to the SMAC address and value 2
+         means SHA is equal to the SMAC address. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 609 }
+
+me1200AclAceTableRowEditorArpFlagTargetMac OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's target hardware address field (THA) is to
+         be compared. The value 0 means any THA value is allowed (don't-care
+         field), value 1 means THA is not equal to the DMAC address and value 2
+         means THA is equal to the DMAC address. This object can only be
+         configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 610 }
+
+me1200AclAceTableRowEditorArpFlagLen OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's s hardware address length field (HLN) is
+         to be compared. The value 0 means any HLN value is allowed (don't-care
+         field), value 1 means HLN is not equal to Ethernet (0x06) or the (PLN)
+         is not equal to IPv4 (0x04) and value 2 means HLN is equal to Ethernet
+         (0x06) or the (PLN) is not equal to IPv4 (0x04). This object can only
+         be configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 611 }
+
+me1200AclAceTableRowEditorArpFlagIp OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's hardware address space field (HRD) is to
+         be compared. The value 0 means any HRD value is allowed (don't-care
+         field), value 1 means HRD is not equal to Ethernet (1) and value 2
+         means HRD is equal to Ethernet (1). This object can only be configured
+         if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 612 }
+
+me1200AclAceTableRowEditorArpFlagEthernet OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a ARP packet's protocol address space field (PRO) is to
+         be compared. The value 0 means any PRO value is allowed (don't-care
+         field), value 1 means PRO is not equal to IP (0x800) and value 2 means
+         PRO is equal to IP (0x800). This object can only be configured if
+         FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 613 }
+
+me1200AclAceTableRowEditorIpv4DestMacOp OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's destination MAC address is to be
+         compared. This object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 700 }
+
+me1200AclAceTableRowEditorIpv4ProtocolOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's protocol field is to be compared. This
+         object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 701 }
+
+me1200AclAceTableRowEditorIpv4Protocol OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol number field in the IPv4 header used to indicate a higher
+         layer protocol. Possible values are 0-255.This object can only be
+         configured if FrameType is ipv4(5) and Ipv4ProtocolOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 702 }
+
+me1200AclAceTableRowEditorIpv4FlagTtl OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's Time-to-Live field (TTL) is to be
+         compared. The value 0 means any TTL value is allowed (don't-care
+         field), value 1 means TTL is not equal zero and value 2 means TTL is
+         equal to zero. This object can only be configured if FrameType is
+         ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 703 }
+
+me1200AclAceTableRowEditorIpv4FlagFragment OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's More-Fragments field (MF) is to be
+         compared. The value 0 means any MF value is allowed (don't-care field),
+         value 1 means MF is not equal one (MF field isn't set) and value 2
+         means MF is equal to one (MF field is set). This object can only be
+         configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 704 }
+
+me1200AclAceTableRowEditorIpv4FlagIpOption OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's options field is to be compared. The
+         value 0 means any options is allowed (don't-care field), value 1 means
+         options is not equal one (options field isn't set) and value 2 means
+         options is equal to one (options field is set). This object can only be
+         configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 705 }
+
+me1200AclAceTableRowEditorIpv4SrcIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified source IPv4 address. The packets sender address is AND-ed
+         with the value of Ipv4SrcIpMask and then compared with the value of
+         this object. If Ipv4SrcIp and Ipv4SrcIpMask are 0.0.0.0, this entry
+         matches any source IP address. This object can only be configured if
+         FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 706 }
+
+me1200AclAceTableRowEditorIpv4SrcIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified source IPv4 address mask. This object can only be
+         configured if FrameType isipv4(5)."
+    ::= { me1200AclAceTableRowEditor 707 }
+
+me1200AclAceTableRowEditorIpv4DestIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified destination IPv4 address. The packets sender address is
+         AND-ed with the value of Ipv4DestIpMask and then compared with the
+         value of this object. If Ipv4DestIp and Ipv4DestIpMask are 0.0.0.0,
+         this entry matches any destination IP address. This object can only be
+         configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 708 }
+
+me1200AclAceTableRowEditorIpv4DestIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified destination IPv4 address mask. This object can only be
+         configured if FrameType isipv4(5)."
+    ::= { me1200AclAceTableRowEditor 709 }
+
+me1200AclAceTableRowEditorIpv4IcmpTypeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's ICMP type field is to be compared. This
+         object can only be configured if FrameType is ipv4(5) and Ipv4Protocol
+         is icmp(1)."
+    ::= { me1200AclAceTableRowEditor 710 }
+
+me1200AclAceTableRowEditorIpv4IcmpType OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMP type field in the IPv4 header. Possible values are 0-255.This
+         object can only be configured if FrameType is ipv4(5), Ipv4Protocol is
+         icmp(1) and Ipv4IcmpTypeOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 711 }
+
+me1200AclAceTableRowEditorIpv4IcmpCodeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 packet's ICMP code field is to be compared. This
+         object can only be configured if FrameType is ipv4(5) and Ipv4Protocol
+         is icmp(1)."
+    ::= { me1200AclAceTableRowEditor 712 }
+
+me1200AclAceTableRowEditorIpv4IcmpCode OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMP code field in the IPv4 header. Possible values are 0-255.This
+         object can only be configured if FrameType is ipv4(5), Ipv4Protocol is
+         icmp(1) and Ipv4IcmpCodeOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 713 }
+
+me1200AclAceTableRowEditorIpv4SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 714 }
+
+me1200AclAceTableRowEditorIpv4SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv4(5) and Ipv4SrcPortOp is not
+         any(0)."
+    ::= { me1200AclAceTableRowEditor 715 }
+
+me1200AclAceTableRowEditorIpv4SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv4SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv4(5) and Ipv4SrcPortOp is range(2)."
+    ::= { me1200AclAceTableRowEditor 716 }
+
+me1200AclAceTableRowEditorIpv4DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv4(5)."
+    ::= { me1200AclAceTableRowEditor 717 }
+
+me1200AclAceTableRowEditorIpv4DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv4(5) and
+         Ipv4DestPortOp is not any(0)."
+    ::= { me1200AclAceTableRowEditor 718 }
+
+me1200AclAceTableRowEditorIpv4DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv4DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv4(5) and
+         Ipv4DestPortOp is range(2)."
+    ::= { me1200AclAceTableRowEditor 719 }
+
+me1200AclAceTableRowEditorIpv4TcpFlagFin OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'No more data from sender' field
+         (FIN) is to be compared. The value 0 means any FIN value is allowed
+         (don't-care field), value 1 means FIN is not equal one (FIN field isn't
+         set) and value 2 means FIN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 720 }
+
+me1200AclAceTableRowEditorIpv4TcpFlagSyn OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Synchronize sequence numbers' field
+         (SYN) is to be compared. The value 0 means any SYN value is allowed
+         (don't-care field), value 1 means SYN is not equal one (FIN field isn't
+         set) and value 2 means SYN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 721 }
+
+me1200AclAceTableRowEditorIpv4TcpFlagRst OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Reset the connection' field (RST) is
+         to be compared. The value 0 means any RST value is allowed (don't-care
+         field), value 1 means RST is not equal one (FIN field isn't set) and
+         value 2 means RST is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv4(5) and Ipv4ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceTableRowEditor 722 }
+
+me1200AclAceTableRowEditorIpv4TcpFlagPsh OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Push Function' field (PSH) is to be
+         compared. The value 0 means any PSH value is allowed (don't-care
+         field), value 1 means PSH is not equal one (FIN field isn't set) and
+         value 2 means PSH is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv4(5) and Ipv4ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceTableRowEditor 723 }
+
+me1200AclAceTableRowEditorIpv4TcpFlagAck OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Acknowledgment field significant'
+         field (ACK) is to be compared. The value 0 means any FIN value is
+         allowed (don't-care field), value 1 means ACK is not equal one (FIN
+         field isn't set) and value 2 means ACK is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 724 }
+
+me1200AclAceTableRowEditorIpv4TcpFlagUrg OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv4 TCP packet's 'Urgent Pointer field significant'
+         field (URG) is to be compared. The value 0 means any URG value is
+         allowed (don't-care field), value 1 means URG is not equal one (FIN
+         field isn't set) and value 2 means URG is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv4(5) and
+         Ipv4ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 725 }
+
+me1200AclAceTableRowEditorIPv6DestMacOp OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's destination MAC address is to be
+         compared. This object can only be configured if FrameType is arp(4)."
+    ::= { me1200AclAceTableRowEditor 800 }
+
+me1200AclAceTableRowEditorIpv6NextHeaderOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's next header field is to be compared. This
+         object can only be configured if FrameType is ipv6(6)."
+    ::= { me1200AclAceTableRowEditor 801 }
+
+me1200AclAceTableRowEditorIpv6NextHeader OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The next header field in the IPv6 header used to indicate a higher
+         layer protocol. Possible values are 0-255.This object can only be
+         configured if FrameType is ipv6(6) and Ipv6NextHeaderOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 802 }
+
+me1200AclAceTableRowEditorIpv6SrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address. The packets source address is AND-ed
+         with the value of Ipv6SrcIpMask and then compared with the value of
+         this object. If Ipv6SrcIp and Ipv6SrcIpMask are all zeros, this entry
+         matches any IPv6 source address. Only the least significant 32 bits of
+         this object are used. This object can only be configured if FrameType
+         is ipv6(6) and Ipv6SrcIpMask is not all zeros."
+    ::= { me1200AclAceTableRowEditor 803 }
+
+me1200AclAceTableRowEditorIpv6SrcIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The specified IPv6 source address mask. Only the least significant 32
+         bits of this object are used. This object can only be configured if
+         FrameType is ipv6(6)."
+    ::= { me1200AclAceTableRowEditor 804 }
+
+me1200AclAceTableRowEditorIpv6FlagHopLimiter OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's hop limit field is to be compared. The
+         value 0 means any hop limit value is allowed (don't-care field), value
+         1 means hop limit is not equal zero and value 2 means hop limit is
+         equal to zero. This object can only be configured if FrameType is
+         ipv6(6)."
+    ::= { me1200AclAceTableRowEditor 805 }
+
+me1200AclAceTableRowEditorIpv6Icmpv6TypeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's ICMPv6 type field is to be compared. This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6NextHeader is icmpv6(58)."
+    ::= { me1200AclAceTableRowEditor 806 }
+
+me1200AclAceTableRowEditorIpv6Icmpv6Type OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMPv6 type field in the IPv6 header. Possible values are
+         0-255.This object can only be configured if FrameType is ipv6(6),
+         Ipv6NextHeader is icmpv6(58) and Ipv6Icmpv6TypeOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 807 }
+
+me1200AclAceTableRowEditorIpv6Icmpv6CodeOp OBJECT-TYPE
+    SYNTAX      ME1200ASType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 packet's ICMPv6 code field is to be compared. This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6NextHeader is icmpv6(58)."
+    ::= { me1200AclAceTableRowEditor 808 }
+
+me1200AclAceTableRowEditorIpv6Icmpv6Code OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ICMPv6 code field in the IPv6 header. Possible values are
+         0-255.This object can only be configured if FrameType is ipv6(6),
+         Ipv6NextHeader is icmpv6(58) and Ipv6Icmpv6CodeOp is specific(1)."
+    ::= { me1200AclAceTableRowEditor 809 }
+
+me1200AclAceTableRowEditorIpv6SrcPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's source TCP/UDP port number is to be compared.
+         This object can only be configured if FrameType is ipv6(6)."
+    ::= { me1200AclAceTableRowEditor 810 }
+
+me1200AclAceTableRowEditorIpv6SrcPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the starting
+         port number of the port range. Valid range is 0-65535. This object can
+         only be configured if FrameType is ipv6(6) and Ipv6SrcPortOp is not
+         any(0)."
+    ::= { me1200AclAceTableRowEditor 811 }
+
+me1200AclAceTableRowEditorIpv6SrcPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source port number of the TCP or UDP protocol. If the Ipv6SrcPortOp
+         object in the same row is range(2), this object will be the ending port
+         number of the port range. Valid range is 0-65535. This object can only
+         be configured if FrameType is ipv6(6) and Ipv6SrcPortOp is range(2)."
+    ::= { me1200AclAceTableRowEditor 812 }
+
+me1200AclAceTableRowEditorIpv6DestPortOp OBJECT-TYPE
+    SYNTAX      ME1200ASRType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a packet's destination TCP/UDP port number is to be
+         compared. This object can only be configured if FrameType is ipv6(6)."
+    ::= { me1200AclAceTableRowEditor 813 }
+
+me1200AclAceTableRowEditorIpv6DestPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the starting port number of the port range. Valid range is 0-65535.
+         This object can only be configured if FrameType is ipv6(6) and
+         Ipv6DestPortOp is not any(0)."
+    ::= { me1200AclAceTableRowEditor 814 }
+
+me1200AclAceTableRowEditorIpv6DestPortRange OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination port number of the TCP or UDP protocol. If the
+         Ipv6DestPortOp object in the same row is range(2), this object will be
+         the ending port number of the port range. Valid range is 0-65535. This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6DestPortOp is range(2)."
+    ::= { me1200AclAceTableRowEditor 815 }
+
+me1200AclAceTableRowEditorIpv6TcpFlagFin OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'No more data from sender' field
+         (FIN) is to be compared. The value 0 means any FIN value is allowed
+         (don't-care field), value 1 means FIN is not equal one (FIN field isn't
+         set) and value 2 means FIN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 816 }
+
+me1200AclAceTableRowEditorIpv6TcpFlagSyn OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Synchronize sequence numbers' field
+         (SYN) is to be compared. The value 0 means any SYN value is allowed
+         (don't-care field), value 1 means SYN is not equal one (FIN field isn't
+         set) and value 2 means SYN is equal to one (FIN field is set). This
+         object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 817 }
+
+me1200AclAceTableRowEditorIpv6TcpFlagRst OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Reset the connection' field (RST) is
+         to be compared. The value 0 means any RST value is allowed (don't-care
+         field), value 1 means RST is not equal one (FIN field isn't set) and
+         value 2 means RST is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv6(6) and Ipv6ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceTableRowEditor 818 }
+
+me1200AclAceTableRowEditorIpv6TcpFlagPsh OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Push Function' field (PSH) is to be
+         compared. The value 0 means any PSH value is allowed (don't-care
+         field), value 1 means PSH is not equal one (FIN field isn't set) and
+         value 2 means PSH is equal to one (FIN field is set). This object can
+         only be configured if FrameType is ipv6(6) and Ipv6ProtocolType is
+         tcp(6)."
+    ::= { me1200AclAceTableRowEditor 819 }
+
+me1200AclAceTableRowEditorIpv6TcpFlagAck OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Acknowledgment field significant'
+         field (ACK) is to be compared. The value 0 means any FIN value is
+         allowed (don't-care field), value 1 means ACK is not equal one (FIN
+         field isn't set) and value 2 means ACK is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 820 }
+
+me1200AclAceTableRowEditorIpv6TcpFlagUrg OBJECT-TYPE
+    SYNTAX      ME1200AclAceFlagOpcode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates how a IPv6 TCP packet's 'Urgent Pointer field significant'
+         field (URG) is to be compared. The value 0 means any URG value is
+         allowed (don't-care field), value 1 means URG is not equal one (FIN
+         field isn't set) and value 2 means URG is equal to one (FIN field is
+         set). This object can only be configured if FrameType is ipv6(6) and
+         Ipv6ProtocolType is tcp(6)."
+    ::= { me1200AclAceTableRowEditor 821 }
+
+me1200AclAceTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200AclAceTableRowEditor 1000 }
+
+me1200AclAcePrecedenceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AclAcePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides an overview of ACE by hit precedence."
+    ::= { me1200AclAce 3 }
+
+me1200AclAcePrecedenceEntry OBJECT-TYPE
+    SYNTAX      ME1200AclAcePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains a set of parameters."
+    INDEX       { me1200AclAcePrecedencePrecedenceIndex }
+    ::= { me1200AclAcePrecedenceTable 1 }
+
+ME1200AclAcePrecedenceEntry ::= SEQUENCE {
+    me1200AclAcePrecedencePrecedenceIndex     Integer32,
+    me1200AclAcePrecedenceAceId   Unsigned32
+}
+
+me1200AclAcePrecedencePrecedenceIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The ACL ACE hit precedence."
+    ::= { me1200AclAcePrecedenceEntry 1 }
+
+me1200AclAcePrecedenceAceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The identification for this ACE. Possible values are: 0(end of list),
+         1-512."
+    ::= { me1200AclAcePrecedenceEntry 2 }
+
+me1200AclInterface OBJECT IDENTIFIER
+    ::= { me1200AclConfig 2 }
+
+me1200AclInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AclInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The ACL interface configuration table."
+    ::= { me1200AclInterface 1 }
+
+me1200AclInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200AclInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each interface has a set of parameters"
+    INDEX       { me1200AclInterfaceIfIndex }
+    ::= { me1200AclInterfaceTable 1 }
+
+ME1200AclInterfaceEntry ::= SEQUENCE {
+    me1200AclInterfaceIfIndex     ME1200InterfaceIndex,
+    me1200AclInterfacePolicyId    Unsigned32,
+    me1200AclInterfaceHitAction   ME1200AclInterfaceHitAction,
+    me1200AclInterfaceRateLimiterId   Unsigned32,
+    me1200AclInterfaceEvcPolicerId    ME1200Unsigned16,
+    me1200AclInterfaceRedirectPortList    ME1200PortList,
+    me1200AclInterfaceMirror      TruthValue,
+    me1200AclInterfaceLogging     TruthValue,
+    me1200AclInterfaceShutdown    TruthValue,
+    me1200AclInterfaceState   TruthValue
+}
+
+me1200AclInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The index of logical interface, it is as well as the IF-MIB [RFC2863]
+         objects ifIndex."
+    ::= { me1200AclInterfaceEntry 1 }
+
+me1200AclInterfacePolicyId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy ID. Possible values are: 0-63."
+    ::= { me1200AclInterfaceEntry 2 }
+
+me1200AclInterfaceHitAction OBJECT-TYPE
+    SYNTAX      ME1200AclInterfaceHitAction
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The hit action."
+    ::= { me1200AclInterfaceEntry 3 }
+
+me1200AclInterfaceRateLimiterId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The rate limiter ID. Possible values are: 0(disabled), 1-16."
+    ::= { me1200AclInterfaceEntry 4 }
+
+me1200AclInterfaceEvcPolicerId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC policer ID. Possible values are: 0(disabled), 1-1022."
+    ::= { me1200AclInterfaceEntry 5 }
+
+me1200AclInterfaceRedirectPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ingress port list for this ACE. It is active only when the hit
+         action is denied. Set the action value to 1(deny) before the new
+         setting. Set value 0 to disable the opertion. Each octet within this
+         value specifies a set of eight ports, with the first octet specifying
+         ports 1 through 8, the second octet specifying ports 9 through 16, etc.
+         Within each octet, the most significant bit represents the lowest
+         numbered port, and the least significant bit represents the highest
+         numbered port. Thus, each port of the switch is represented by a single
+         bit within the value of this object. If that bit has a value of '1'
+         then that port is included in the set of ports; the port is not
+         included if its bit has a value of '0'."
+    ::= { me1200AclInterfaceEntry 6 }
+
+me1200AclInterfaceMirror OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The rmirror operation. Frames matching this ACE are mirrored to the
+         destination mirror port."
+    ::= { me1200AclInterfaceEntry 7 }
+
+me1200AclInterfaceLogging OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The logging operation."
+    ::= { me1200AclInterfaceEntry 8 }
+
+me1200AclInterfaceShutdown OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The shutdown operation."
+    ::= { me1200AclInterfaceEntry 9 }
+
+me1200AclInterfaceState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The port state of this interface."
+    ::= { me1200AclInterfaceEntry 10 }
+
+me1200AclStatus OBJECT IDENTIFIER
+    ::= { me1200AclMIBObjects 3 }
+
+me1200AclStatusGlobals OBJECT IDENTIFIER
+    ::= { me1200AclStatus 1 }
+
+me1200AclAceStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AclAceStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides the ACE status in the hardware table."
+    ::= { me1200AclStatusGlobals 1 }
+
+me1200AclAceStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200AclAceStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains a set of parameters."
+    INDEX       { me1200AclAceStatusPrecedenceIndex }
+    ::= { me1200AclAceStatusTable 1 }
+
+ME1200AclAceStatusEntry ::= SEQUENCE {
+    me1200AclAceStatusPrecedenceIndex     Integer32,
+    me1200AclAceStatusUser    ME1200AclUser,
+    me1200AclAceStatusAceId   Unsigned32,
+    me1200AclAceStatusConflict    TruthValue
+}
+
+me1200AclAceStatusPrecedenceIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The ACL ACE hit precedence."
+    ::= { me1200AclAceStatusEntry 2 }
+
+me1200AclAceStatusUser OBJECT-TYPE
+    SYNTAX      ME1200AclUser
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The application user of ACL."
+    ::= { me1200AclAceStatusEntry 3 }
+
+me1200AclAceStatusAceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The identification for this ACE. Possible values are: 0(end of list),
+         1-512."
+    ::= { me1200AclAceStatusEntry 4 }
+
+me1200AclAceStatusConflict OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The conflict status of this ACE. When the status value is 1(true), it
+         means the specific ACE is not applied to the hardware due to hardware
+         limitations."
+    ::= { me1200AclAceStatusEntry 5 }
+
+me1200AclAceHitCountTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AclAceHitCountEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The ACL ACE hit count table."
+    ::= { me1200AclStatusGlobals 2 }
+
+me1200AclAceHitCountEntry OBJECT-TYPE
+    SYNTAX      ME1200AclAceHitCountEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row has the hit count of ACE"
+    INDEX       { me1200AclAceHitCountAceId }
+    ::= { me1200AclAceHitCountTable 1 }
+
+ME1200AclAceHitCountEntry ::= SEQUENCE {
+    me1200AclAceHitCountAceId     Integer32,
+    me1200AclAceHitCountHitCount      Unsigned32
+}
+
+me1200AclAceHitCountAceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of ACE."
+    ::= { me1200AclAceHitCountEntry 1 }
+
+me1200AclAceHitCountHitCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The hit count of this ACE."
+    ::= { me1200AclAceHitCountEntry 2 }
+
+me1200AclStatusInterface OBJECT IDENTIFIER
+    ::= { me1200AclStatus 2 }
+
+me1200AclInterfaceHitCountTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200AclInterfaceHitCountEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The ACL interface hit count table."
+    ::= { me1200AclStatusInterface 1 }
+
+me1200AclInterfaceHitCountEntry OBJECT-TYPE
+    SYNTAX      ME1200AclInterfaceHitCountEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row has the hit count of interface"
+    INDEX       { me1200AclInterfaceHitCountId }
+    ::= { me1200AclInterfaceHitCountTable 1 }
+
+ME1200AclInterfaceHitCountEntry ::= SEQUENCE {
+    me1200AclInterfaceHitCountId      Integer32,
+    me1200AclInterfaceHitCountHitCount    Unsigned32
+}
+
+me1200AclInterfaceHitCountId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of ACE."
+    ::= { me1200AclInterfaceHitCountEntry 1 }
+
+me1200AclInterfaceHitCountHitCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The hit count of this interface. The hit count will be increased if the
+         incoming frame doesn't hit any ACEs."
+    ::= { me1200AclInterfaceHitCountEntry 2 }
+
+me1200AclControl OBJECT IDENTIFIER
+    ::= { me1200AclMIBObjects 4 }
+
+me1200AclControlGlobals OBJECT IDENTIFIER
+    ::= { me1200AclControl 1 }
+
+me1200AclControlGlobalsClearAllHitCount OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The operation is active when the value is set to 'ture(1)'."
+    ::= { me1200AclControlGlobals 1 }
+
+me1200AclMIBConformance OBJECT IDENTIFIER
+    ::= { me1200AclMIB 3 }
+
+me1200AclMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200AclMIBConformance 1 }
+
+me1200AclMIBGroups OBJECT IDENTIFIER
+    ::= { me1200AclMIBConformance 2 }
+
+me1200AclRateLimiterTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclRateLimiterPacketRate, me1200AclRateLimiterBitRate, 
+                  me1200AclRateLimiterBitRateEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 1 }
+
+me1200AclAceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclAceNextAceId, me1200AclAceLookup, me1200AclAceIngressPortList, 
+                  me1200AclAcePolicyValue, me1200AclAcePolicyMask, me1200AclAceHitAction, 
+                  me1200AclAceFilterPortList, me1200AclAceRateLimiterId, 
+                  me1200AclAceEvcPolicerId, me1200AclAceRedirectPortList, 
+                  me1200AclAceMirror, me1200AclAceLogging, me1200AclAceShutdown, 
+                  me1200AclAceVlanTagged, me1200AclAceVlanId, me1200AclAceVlanTagPriority, 
+                  me1200AclAceFrameType, me1200AclAceEtypeSrcMacOp, 
+                  me1200AclAceEtypeSrcMac, me1200AclAceEtypeDestMacOp, 
+                  me1200AclAceEtypeDestMac, me1200AclAceEtype, me1200AclAceArpSrcMacOp, 
+                  me1200AclAceArpSrcMac, me1200AclAceArpDestMacOp, me1200AclAceArpSenderIp, 
+                  me1200AclAceArpSenderIpMask, me1200AclAceArpTragetIp, 
+                  me1200AclAceArpTragetIpMask, me1200AclAceArpOpcode, 
+                  me1200AclAceArpFlagRequest, me1200AclAceArpFlagSenderMac, 
+                  me1200AclAceArpFlagTargetMac, me1200AclAceArpFlagLen, 
+                  me1200AclAceArpFlagIp, me1200AclAceArpFlagEthernet, 
+                  me1200AclAceIpv4DestMacOp, me1200AclAceIpv4ProtocolOp, 
+                  me1200AclAceIpv4Protocol, me1200AclAceIpv4FlagTtl, 
+                  me1200AclAceIpv4FlagFragment, me1200AclAceIpv4FlagIpOption, 
+                  me1200AclAceIpv4SrcIp, me1200AclAceIpv4SrcIpMask, me1200AclAceIpv4DestIp, 
+                  me1200AclAceIpv4DestIpMask, me1200AclAceIpv4IcmpTypeOp, 
+                  me1200AclAceIpv4IcmpType, me1200AclAceIpv4IcmpCodeOp, 
+                  me1200AclAceIpv4IcmpCode, me1200AclAceIpv4SrcPortOp, 
+                  me1200AclAceIpv4SrcPort, me1200AclAceIpv4SrcPortRange, 
+                  me1200AclAceIpv4DestPortOp, me1200AclAceIpv4DestPort, 
+                  me1200AclAceIpv4DestPortRange, me1200AclAceIpv4TcpFlagFin, 
+                  me1200AclAceIpv4TcpFlagSyn, me1200AclAceIpv4TcpFlagRst, 
+                  me1200AclAceIpv4TcpFlagPsh, me1200AclAceIpv4TcpFlagAck, 
+                  me1200AclAceIpv4TcpFlagUrg, me1200AclAceIPv6DestMacOp, 
+                  me1200AclAceIpv6NextHeaderOp, me1200AclAceIpv6NextHeader, 
+                  me1200AclAceIpv6SrcIp, me1200AclAceIpv6SrcIpMask, 
+                  me1200AclAceIpv6FlagHopLimiter, me1200AclAceIpv6Icmpv6TypeOp, 
+                  me1200AclAceIpv6Icmpv6Type, me1200AclAceIpv6Icmpv6CodeOp, 
+                  me1200AclAceIpv6Icmpv6Code, me1200AclAceIpv6SrcPortOp, 
+                  me1200AclAceIpv6SrcPort, me1200AclAceIpv6SrcPortRange, 
+                  me1200AclAceIpv6DestPortOp, me1200AclAceIpv6DestPort, 
+                  me1200AclAceIpv6DestPortRange, me1200AclAceIpv6TcpFlagFin, 
+                  me1200AclAceIpv6TcpFlagSyn, me1200AclAceIpv6TcpFlagRst, 
+                  me1200AclAceIpv6TcpFlagPsh, me1200AclAceIpv6TcpFlagAck, 
+                  me1200AclAceIpv6TcpFlagUrg, me1200AclAceAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 2 }
+
+me1200AclAceTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclAceTableRowEditorId, me1200AclAceTableRowEditorNextAceId, 
+                  me1200AclAceTableRowEditorLookup, 
+                  me1200AclAceTableRowEditorIngressPortList, 
+                  me1200AclAceTableRowEditorPolicyValue, 
+                  me1200AclAceTableRowEditorPolicyMask, 
+                  me1200AclAceTableRowEditorHitAction, 
+                  me1200AclAceTableRowEditorFilterPortList, 
+                  me1200AclAceTableRowEditorRateLimiterId, 
+                  me1200AclAceTableRowEditorEvcPolicerId, 
+                  me1200AclAceTableRowEditorRedirectPortList, 
+                  me1200AclAceTableRowEditorMirror, 
+                  me1200AclAceTableRowEditorLogging, 
+                  me1200AclAceTableRowEditorShutdown, 
+                  me1200AclAceTableRowEditorVlanTagged, 
+                  me1200AclAceTableRowEditorVlanId, 
+                  me1200AclAceTableRowEditorVlanTagPriority, 
+                  me1200AclAceTableRowEditorFrameType, 
+                  me1200AclAceTableRowEditorEtypeSrcMacOp, 
+                  me1200AclAceTableRowEditorEtypeSrcMac, 
+                  me1200AclAceTableRowEditorEtypeDestMacOp, 
+                  me1200AclAceTableRowEditorEtypeDestMac, 
+                  me1200AclAceTableRowEditorEtype, 
+                  me1200AclAceTableRowEditorArpSrcMacOp, 
+                  me1200AclAceTableRowEditorArpSrcMac, 
+                  me1200AclAceTableRowEditorArpDestMacOp, 
+                  me1200AclAceTableRowEditorArpSenderIp, 
+                  me1200AclAceTableRowEditorArpSenderIpMask, 
+                  me1200AclAceTableRowEditorArpTragetIp, 
+                  me1200AclAceTableRowEditorArpTragetIpMask, 
+                  me1200AclAceTableRowEditorArpOpcode, 
+                  me1200AclAceTableRowEditorArpFlagRequest, 
+                  me1200AclAceTableRowEditorArpFlagSenderMac, 
+                  me1200AclAceTableRowEditorArpFlagTargetMac, 
+                  me1200AclAceTableRowEditorArpFlagLen, 
+                  me1200AclAceTableRowEditorArpFlagIp, 
+                  me1200AclAceTableRowEditorArpFlagEthernet, 
+                  me1200AclAceTableRowEditorIpv4DestMacOp, 
+                  me1200AclAceTableRowEditorIpv4ProtocolOp, 
+                  me1200AclAceTableRowEditorIpv4Protocol, 
+                  me1200AclAceTableRowEditorIpv4FlagTtl, 
+                  me1200AclAceTableRowEditorIpv4FlagFragment, 
+                  me1200AclAceTableRowEditorIpv4FlagIpOption, 
+                  me1200AclAceTableRowEditorIpv4SrcIp, 
+                  me1200AclAceTableRowEditorIpv4SrcIpMask, 
+                  me1200AclAceTableRowEditorIpv4DestIp, 
+                  me1200AclAceTableRowEditorIpv4DestIpMask, 
+                  me1200AclAceTableRowEditorIpv4IcmpTypeOp, 
+                  me1200AclAceTableRowEditorIpv4IcmpType, 
+                  me1200AclAceTableRowEditorIpv4IcmpCodeOp, 
+                  me1200AclAceTableRowEditorIpv4IcmpCode, 
+                  me1200AclAceTableRowEditorIpv4SrcPortOp, 
+                  me1200AclAceTableRowEditorIpv4SrcPort, 
+                  me1200AclAceTableRowEditorIpv4SrcPortRange, 
+                  me1200AclAceTableRowEditorIpv4DestPortOp, 
+                  me1200AclAceTableRowEditorIpv4DestPort, 
+                  me1200AclAceTableRowEditorIpv4DestPortRange, 
+                  me1200AclAceTableRowEditorIpv4TcpFlagFin, 
+                  me1200AclAceTableRowEditorIpv4TcpFlagSyn, 
+                  me1200AclAceTableRowEditorIpv4TcpFlagRst, 
+                  me1200AclAceTableRowEditorIpv4TcpFlagPsh, 
+                  me1200AclAceTableRowEditorIpv4TcpFlagAck, 
+                  me1200AclAceTableRowEditorIpv4TcpFlagUrg, 
+                  me1200AclAceTableRowEditorIPv6DestMacOp, 
+                  me1200AclAceTableRowEditorIpv6NextHeaderOp, 
+                  me1200AclAceTableRowEditorIpv6NextHeader, 
+                  me1200AclAceTableRowEditorIpv6SrcIp, 
+                  me1200AclAceTableRowEditorIpv6SrcIpMask, 
+                  me1200AclAceTableRowEditorIpv6FlagHopLimiter, 
+                  me1200AclAceTableRowEditorIpv6Icmpv6TypeOp, 
+                  me1200AclAceTableRowEditorIpv6Icmpv6Type, 
+                  me1200AclAceTableRowEditorIpv6Icmpv6CodeOp, 
+                  me1200AclAceTableRowEditorIpv6Icmpv6Code, 
+                  me1200AclAceTableRowEditorIpv6SrcPortOp, 
+                  me1200AclAceTableRowEditorIpv6SrcPort, 
+                  me1200AclAceTableRowEditorIpv6SrcPortRange, 
+                  me1200AclAceTableRowEditorIpv6DestPortOp, 
+                  me1200AclAceTableRowEditorIpv6DestPort, 
+                  me1200AclAceTableRowEditorIpv6DestPortRange, 
+                  me1200AclAceTableRowEditorIpv6TcpFlagFin, 
+                  me1200AclAceTableRowEditorIpv6TcpFlagSyn, 
+                  me1200AclAceTableRowEditorIpv6TcpFlagRst, 
+                  me1200AclAceTableRowEditorIpv6TcpFlagPsh, 
+                  me1200AclAceTableRowEditorIpv6TcpFlagAck, 
+                  me1200AclAceTableRowEditorIpv6TcpFlagUrg, 
+                  me1200AclAceTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 3 }
+
+me1200AclAcePrecedenceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclAcePrecedenceAceId }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 4 }
+
+me1200AclInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclInterfacePolicyId, me1200AclInterfaceHitAction, 
+                  me1200AclInterfaceRateLimiterId, me1200AclInterfaceEvcPolicerId, 
+                  me1200AclInterfaceRedirectPortList, me1200AclInterfaceMirror, 
+                  me1200AclInterfaceLogging, me1200AclInterfaceShutdown, 
+                  me1200AclInterfaceState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 5 }
+
+me1200AclAceStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclAceStatusUser, me1200AclAceStatusAceId, 
+                  me1200AclAceStatusConflict }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 6 }
+
+me1200AclAceHitCountTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclAceHitCountHitCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 7 }
+
+me1200AclInterfaceHitCountTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclInterfaceHitCountHitCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 8 }
+
+me1200AclControlGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200AclControlGlobalsClearAllHitCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200AclMIBGroups 9 }
+
+me1200AclMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200AclRateLimiterTableInfoGroup, 
+                  me1200AclAceTableInfoGroup, me1200AclAceTableRowEditorInfoGroup, 
+                  me1200AclAcePrecedenceTableInfoGroup, 
+                  me1200AclInterfaceTableInfoGroup, me1200AclAceStatusTableInfoGroup, 
+                  me1200AclAceHitCountTableInfoGroup, 
+                  me1200AclInterfaceHitCountTableInfoGroup, 
+                  me1200AclControlGlobalsInfoGroup }
+
+    ::= { me1200AclMIBCompliances 1 }
+
+END

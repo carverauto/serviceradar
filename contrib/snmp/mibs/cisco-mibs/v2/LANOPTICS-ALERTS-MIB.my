@@ -1,0 +1,170 @@
+-- *****************************************************************
+-- L A N O P T I C S - A L E R T S - M I B . m y
+-- 
+-- March 1996, Keith Horil
+--
+-- Copyright (c) 1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+-- This mib was developed by LanOptics
+
+
+LANOPTICS-ALERTS-MIB DEFINITIONS ::= BEGIN
+
+-- This is LanOptics MIB variables for managing alerts (traps) 
+ 
+IMPORTS 
+        OBJECT-TYPE
+                FROM RFC-1212
+        TimeTicks, enterprises
+                FROM RFC1155-SMI;
+
+-- Alerts MIB tree
+        lanOptics         OBJECT IDENTIFIER ::= { enterprises 224 }
+        alerts            OBJECT IDENTIFIER ::= { lanOptics 9 }
+        alerts-mgmt       OBJECT IDENTIFIER ::= { alerts 2 }
+
+
+
+
+        lanOpticsAlertsEnabled     OBJECT-TYPE
+                     SYNTAX  INTEGER {
+                        enabled (1)
+                     }
+                     ACCESS  read-write
+                     STATUS  mandatory
+                     DESCRIPTION
+                        "A boolean variable that defines if the
+                        agent is sending alerts (traps) or alerts are 
+                        disabled due to high frequency of alerts generation 
+                        (see RFC-1224), regarding this manager
+                         enabled - 1 , disabled - 0."
+                     ::= { alerts-mgmt 1 }
+
+        lanOpticsMaxAlertsPerTime     OBJECT-TYPE
+                     SYNTAX  INTEGER
+                     ACCESS  read-write
+                     STATUS  mandatory
+                     DESCRIPTION
+                        "Defines the maximum alerts allowed in
+                        lanOpticsWindowTime interval before an 
+			'lanOpticsAlertsDisabled' trap is 
+                        issued and 'lanOpticsAlertsEnabled' is set to 0
+                        (see RFC-1224)."
+                     ::= { alerts-mgmt 2 }
+
+        lanOpticsWindowTime     OBJECT-TYPE
+                     SYNTAX  TimeTicks
+                     ACCESS  read-write
+                     STATUS  mandatory
+                     DESCRIPTION
+                      "Defines the time interval in centiseconds, in
+                      which no more than 'lanOpticsMaxAlertsPerTime' 
+                      may be sent before a 'lanOpticsAlertsDisabled' trap is 
+                      issued and 'lanOpticsAlertsEnabled' is set to 0
+                      (see RFC-1224)."
+                     ::= { alerts-mgmt 3 }
+
+        lanOpticsMaxLogTableEntries OBJECT-TYPE
+                     SYNTAX  INTEGER
+                     ACCESS  read-only
+                     STATUS  mandatory
+                     DESCRIPTION
+                        "Defines the number of alerts saved in the 
+                        lanOpticsAlertsTable below."
+                     ::= { alerts-mgmt 4 }
+
+        lanOpticsCurrentAlertId OBJECT-TYPE
+                     SYNTAX  INTEGER
+                     ACCESS  read-only
+                     STATUS  mandatory
+                     DESCRIPTION
+                        "Holds the last alert ID in the 
+                         lanOpticsAlertsTable"
+                     ::= { alerts-mgmt 5 }
+
+        lanOpticsAlertsRegisterTable     OBJECT-TYPE
+                     SYNTAX  SEQUENCE OF LanOpticsAlertsRegisterEntry
+                     ACCESS  not-accessible
+                     STATUS  mandatory
+                     DESCRIPTION
+		     "Each entry in this table, designated by the four
+                      digits of an IP address, defines if this address
+                      is registered to receive traps by the agent."
+
+                    ::= { alerts-mgmt 10 }
+
+        lanOpticsAlertsRegisterEntry  OBJECT-TYPE
+                    SYNTAX  LanOpticsAlertsRegisterEntry
+                    ACCESS  not-accessible
+                    STATUS  mandatory
+                    INDEX   { INTEGER ,INTEGER,INTEGER,INTEGER}
+                    ::= { lanOpticsAlertsRegisterTable 1 }
+
+        LanOpticsAlertsRegisterEntry  ::= SEQUENCE {
+               lanOpticsAlertsRegister
+                        INTEGER
+               }
+
+        lanOpticsAlertsRegister OBJECT-TYPE
+                     SYNTAX  INTEGER {
+                        register (1)
+       --                 deregister (0)
+                     }
+                     ACCESS  read-write
+                     STATUS  mandatory
+                     DESCRIPTION
+                        "A boolean variable that is set (to 1) if
+                        the manager wants to be registered to receive
+                        SNMP traps, and is set to 0 if not."
+                     ::= { lanOpticsAlertsRegisterEntry 1 }
+
+        lanOpticsAlertsTable  OBJECT-TYPE
+                     SYNTAX  SEQUENCE OF LanOpticsAlertsEntry
+                     ACCESS  not-accessible
+                     STATUS  mandatory
+                     DESCRIPTION
+                      "This table contains the last lanOpticsMaxLogTableEntries
+                      alerts that have been issued by the agent. Some of
+                      these alerts may have not been sent if 
+                      lanOpticsAlertsEnabled is FALSE. The table is used to
+                      enable the manager to poll alerts. The first alertId
+                      can be retrieved by get-next on the table's object ID, 
+                      and the next by get-next on the first one and so on."
+                     ::= { alerts-mgmt 11 }
+
+        lanOpticsAlertsEntry  OBJECT-TYPE
+                    SYNTAX  LanOpticsAlertsEntry
+                    ACCESS  not-accessible
+                    STATUS  mandatory
+                    INDEX   { lanOpticsAlertId }
+
+                    ::= { lanOpticsAlertsTable 1 }
+
+        LanOpticsAlertsEntry  ::= SEQUENCE {
+               lanOpticsAlertId
+                        INTEGER,
+               lanOpticsAlertData
+                        OCTET STRING
+               }
+
+        lanOpticsAlertId  OBJECT-TYPE
+                    SYNTAX  INTEGER
+                    ACCESS  read-only
+                    STATUS  mandatory
+                    DESCRIPTION
+                       "Give the manager a mean to get the first alertId
+                       by a GET-NEXT (see RFC 1224)."
+                    ::= { lanOpticsAlertsEntry 1 }
+
+        lanOpticsAlertData  OBJECT-TYPE
+                    SYNTAX  OCTET STRING
+                    ACCESS  read-only
+                    STATUS  mandatory
+                    DESCRIPTION
+                     "An Internal description of the alert to be polled
+                    by a StarNet Trapper."
+                    ::= { lanOpticsAlertsEntry 2 }
+
+END

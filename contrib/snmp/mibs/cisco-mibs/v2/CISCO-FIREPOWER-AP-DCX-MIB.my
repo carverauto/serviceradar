@@ -1,0 +1,1007 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-DCX-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- DCX management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-DCX-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApAdaptorLinkState,
+    CfprApAdaptorServiceState,
+    CfprApDcxAdminState,
+    CfprApDcxNsAllocStatus,
+    CfprApDcxOperState,
+    CfprApDcxProtState,
+    CfprApDcxState,
+    CfprApDcxVIfProtRole,
+    CfprApDpsecForgedTransmit,
+    CfprApFabricTrafficDirection,
+    CfprApFsmLifecycle,
+    CfprApNetworkConnectionType,
+    CfprApNetworkLocale,
+    CfprApNetworkPortRole,
+    CfprApNetworkPortType,
+    CfprApNetworkSide,
+    CfprApNetworkSwitchId,
+    CfprApNetworkTransport,
+    CfprApNwctrlAdminState,
+    CfprApNwctrlLinkFailAction,
+    CfprApNwctrlRegistrationMode,
+    CfprApQosHostControl,
+    CfprApVnicInstantiation
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApDcxObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        DCX management information model package"
+    ::= { ciscoFirepowerApMIBObjects 14 }
+
+cfprApDcxFcoeVifEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDcxFcoeVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dcx:FcoeVifEp managed object table"
+    ::= { cfprApDcxObjects 1 }
+
+cfprApDcxFcoeVifEpEntry OBJECT-TYPE
+    SYNTAX           CfprApDcxFcoeVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDcxFcoeVifEpTable table."
+    INDEX { cfprApDcxFcoeVifEpInstanceId }
+    ::= { cfprApDcxFcoeVifEpTable 1 }
+
+CfprApDcxFcoeVifEpEntry ::= SEQUENCE {
+    cfprApDcxFcoeVifEpInstanceId                                     CfprApManagedObjectId,
+    cfprApDcxFcoeVifEpDn                                             CfprApManagedObjectDn,
+    cfprApDcxFcoeVifEpRn                                             SnmpAdminString,
+    cfprApDcxFcoeVifEpId                                             Gauge32
+}
+
+cfprApDcxFcoeVifEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDcxFcoeVifEpEntry 1 }
+
+cfprApDcxFcoeVifEpDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:FcoeVifEp:dn managed object property"
+    ::= { cfprApDcxFcoeVifEpEntry 2 }
+
+cfprApDcxFcoeVifEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:FcoeVifEp:rn managed object property"
+    ::= { cfprApDcxFcoeVifEpEntry 3 }
+
+cfprApDcxFcoeVifEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:FcoeVifEp:id managed object property"
+    ::= { cfprApDcxFcoeVifEpEntry 4 }
+
+cfprApDcxNsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDcxNsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns managed object table"
+    ::= { cfprApDcxObjects 2 }
+
+cfprApDcxNsEntry OBJECT-TYPE
+    SYNTAX           CfprApDcxNsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDcxNsTable table."
+    INDEX { cfprApDcxNsInstanceId }
+    ::= { cfprApDcxNsTable 1 }
+
+CfprApDcxNsEntry ::= SEQUENCE {
+    cfprApDcxNsInstanceId                                            CfprApManagedObjectId,
+    cfprApDcxNsDn                                                    CfprApManagedObjectDn,
+    cfprApDcxNsRn                                                    SnmpAdminString,
+    cfprApDcxNsAllocStatus                                           CfprApDcxNsAllocStatus,
+    cfprApDcxNsSide                                                  CfprApNetworkSide,
+    cfprApDcxNsSize                                                  Gauge32,
+    cfprApDcxNsSwitchId                                              CfprApNetworkSwitchId,
+    cfprApDcxNsUsed                                                  Gauge32
+}
+
+cfprApDcxNsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDcxNsEntry 1 }
+
+cfprApDcxNsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns:dn managed object property"
+    ::= { cfprApDcxNsEntry 2 }
+
+cfprApDcxNsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns:rn managed object property"
+    ::= { cfprApDcxNsEntry 3 }
+
+cfprApDcxNsAllocStatus OBJECT-TYPE
+    SYNTAX       CfprApDcxNsAllocStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns:allocStatus managed object property"
+    ::= { cfprApDcxNsEntry 4 }
+
+cfprApDcxNsSide OBJECT-TYPE
+    SYNTAX       CfprApNetworkSide
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns:side managed object property"
+    ::= { cfprApDcxNsEntry 5 }
+
+cfprApDcxNsSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns:size managed object property"
+    ::= { cfprApDcxNsEntry 6 }
+
+cfprApDcxNsSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns:switchId managed object property"
+    ::= { cfprApDcxNsEntry 7 }
+
+cfprApDcxNsUsed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Ns:used managed object property"
+    ::= { cfprApDcxNsEntry 8 }
+
+cfprApDcxUniverseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDcxUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dcx:Universe managed object table"
+    ::= { cfprApDcxObjects 3 }
+
+cfprApDcxUniverseEntry OBJECT-TYPE
+    SYNTAX           CfprApDcxUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDcxUniverseTable table."
+    INDEX { cfprApDcxUniverseInstanceId }
+    ::= { cfprApDcxUniverseTable 1 }
+
+CfprApDcxUniverseEntry ::= SEQUENCE {
+    cfprApDcxUniverseInstanceId                                      CfprApManagedObjectId,
+    cfprApDcxUniverseDn                                              CfprApManagedObjectDn,
+    cfprApDcxUniverseRn                                              SnmpAdminString
+}
+
+cfprApDcxUniverseInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDcxUniverseEntry 1 }
+
+cfprApDcxUniverseDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Universe:dn managed object property"
+    ::= { cfprApDcxUniverseEntry 2 }
+
+cfprApDcxUniverseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Universe:rn managed object property"
+    ::= { cfprApDcxUniverseEntry 3 }
+
+cfprApDcxVIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDcxVIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf managed object table"
+    ::= { cfprApDcxObjects 4 }
+
+cfprApDcxVIfEntry OBJECT-TYPE
+    SYNTAX           CfprApDcxVIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDcxVIfTable table."
+    INDEX { cfprApDcxVIfInstanceId }
+    ::= { cfprApDcxVIfTable 1 }
+
+CfprApDcxVIfEntry ::= SEQUENCE {
+    cfprApDcxVIfInstanceId                                           CfprApManagedObjectId,
+    cfprApDcxVIfDn                                                   CfprApManagedObjectDn,
+    cfprApDcxVIfRn                                                   SnmpAdminString,
+    cfprApDcxVIfAdminState                                           CfprApDcxAdminState,
+    cfprApDcxVIfCookie                                               Unsigned64,
+    cfprApDcxVIfEpDn                                                 SnmpAdminString,
+    cfprApDcxVIfId                                                   Gauge32,
+    cfprApDcxVIfIfRole                                               CfprApNetworkPortRole,
+    cfprApDcxVIfIfType                                               CfprApNetworkPortType,
+    cfprApDcxVIfInstType                                             CfprApVnicInstantiation,
+    cfprApDcxVIfLc                                                   CfprApFsmLifecycle,
+    cfprApDcxVIfLinkState                                            CfprApAdaptorLinkState,
+    cfprApDcxVIfLocale                                               CfprApNetworkLocale,
+    cfprApDcxVIfName                                                 SnmpAdminString,
+    cfprApDcxVIfOperState                                            CfprApDcxOperState,
+    cfprApDcxVIfPeerDn                                               SnmpAdminString,
+    cfprApDcxVIfProtPeerId                                           Gauge32,
+    cfprApDcxVIfProtRole                                             CfprApDcxVIfProtRole,
+    cfprApDcxVIfProtState                                            CfprApDcxProtState,
+    cfprApDcxVIfQosControl                                           CfprApQosHostControl,
+    cfprApDcxVIfServiceState                                         CfprApAdaptorServiceState,
+    cfprApDcxVIfState                                                CfprApDcxState,
+    cfprApDcxVIfSwitchId                                             CfprApNetworkSwitchId,
+    cfprApDcxVIfTag                                                  Gauge32,
+    cfprApDcxVIfTransport                                            CfprApNetworkTransport,
+    cfprApDcxVIfType                                                 CfprApNetworkConnectionType
+}
+
+cfprApDcxVIfInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDcxVIfEntry 1 }
+
+cfprApDcxVIfDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:dn managed object property"
+    ::= { cfprApDcxVIfEntry 2 }
+
+cfprApDcxVIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:rn managed object property"
+    ::= { cfprApDcxVIfEntry 3 }
+
+cfprApDcxVIfAdminState OBJECT-TYPE
+    SYNTAX       CfprApDcxAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:adminState managed object property"
+    ::= { cfprApDcxVIfEntry 4 }
+
+cfprApDcxVIfCookie OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:cookie managed object property"
+    ::= { cfprApDcxVIfEntry 5 }
+
+cfprApDcxVIfEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:epDn managed object property"
+    ::= { cfprApDcxVIfEntry 6 }
+
+cfprApDcxVIfId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:id managed object property"
+    ::= { cfprApDcxVIfEntry 7 }
+
+cfprApDcxVIfIfRole OBJECT-TYPE
+    SYNTAX       CfprApNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:ifRole managed object property"
+    ::= { cfprApDcxVIfEntry 8 }
+
+cfprApDcxVIfIfType OBJECT-TYPE
+    SYNTAX       CfprApNetworkPortType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:ifType managed object property"
+    ::= { cfprApDcxVIfEntry 9 }
+
+cfprApDcxVIfInstType OBJECT-TYPE
+    SYNTAX       CfprApVnicInstantiation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:instType managed object property"
+    ::= { cfprApDcxVIfEntry 10 }
+
+cfprApDcxVIfLc OBJECT-TYPE
+    SYNTAX       CfprApFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:lc managed object property"
+    ::= { cfprApDcxVIfEntry 11 }
+
+cfprApDcxVIfLinkState OBJECT-TYPE
+    SYNTAX       CfprApAdaptorLinkState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:linkState managed object property"
+    ::= { cfprApDcxVIfEntry 12 }
+
+cfprApDcxVIfLocale OBJECT-TYPE
+    SYNTAX       CfprApNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:locale managed object property"
+    ::= { cfprApDcxVIfEntry 13 }
+
+cfprApDcxVIfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:name managed object property"
+    ::= { cfprApDcxVIfEntry 14 }
+
+cfprApDcxVIfOperState OBJECT-TYPE
+    SYNTAX       CfprApDcxOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:operState managed object property"
+    ::= { cfprApDcxVIfEntry 15 }
+
+cfprApDcxVIfPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:peerDn managed object property"
+    ::= { cfprApDcxVIfEntry 16 }
+
+cfprApDcxVIfProtPeerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:protPeerId managed object property"
+    ::= { cfprApDcxVIfEntry 17 }
+
+cfprApDcxVIfProtRole OBJECT-TYPE
+    SYNTAX       CfprApDcxVIfProtRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:protRole managed object property"
+    ::= { cfprApDcxVIfEntry 18 }
+
+cfprApDcxVIfProtState OBJECT-TYPE
+    SYNTAX       CfprApDcxProtState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:protState managed object property"
+    ::= { cfprApDcxVIfEntry 19 }
+
+cfprApDcxVIfQosControl OBJECT-TYPE
+    SYNTAX       CfprApQosHostControl
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:qosControl managed object property"
+    ::= { cfprApDcxVIfEntry 20 }
+
+cfprApDcxVIfServiceState OBJECT-TYPE
+    SYNTAX       CfprApAdaptorServiceState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:serviceState managed object property"
+    ::= { cfprApDcxVIfEntry 21 }
+
+cfprApDcxVIfState OBJECT-TYPE
+    SYNTAX       CfprApDcxState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:state managed object property"
+    ::= { cfprApDcxVIfEntry 22 }
+
+cfprApDcxVIfSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:switchId managed object property"
+    ::= { cfprApDcxVIfEntry 23 }
+
+cfprApDcxVIfTag OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:tag managed object property"
+    ::= { cfprApDcxVIfEntry 24 }
+
+cfprApDcxVIfTransport OBJECT-TYPE
+    SYNTAX       CfprApNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:transport managed object property"
+    ::= { cfprApDcxVIfEntry 25 }
+
+cfprApDcxVIfType OBJECT-TYPE
+    SYNTAX       CfprApNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VIf:type managed object property"
+    ::= { cfprApDcxVIfEntry 26 }
+
+cfprApDcxVcTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDcxVcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc managed object table"
+    ::= { cfprApDcxObjects 5 }
+
+cfprApDcxVcEntry OBJECT-TYPE
+    SYNTAX           CfprApDcxVcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDcxVcTable table."
+    INDEX { cfprApDcxVcInstanceId }
+    ::= { cfprApDcxVcTable 1 }
+
+CfprApDcxVcEntry ::= SEQUENCE {
+    cfprApDcxVcInstanceId                                            CfprApManagedObjectId,
+    cfprApDcxVcDn                                                    CfprApManagedObjectDn,
+    cfprApDcxVcRn                                                    SnmpAdminString,
+    cfprApDcxVcAdminState                                            CfprApDcxAdminState,
+    cfprApDcxVcAllowDtagVlan                                         TruthValue,
+    cfprApDcxVcBorderAggrPortId                                      Gauge32,
+    cfprApDcxVcBorderPortId                                          Gauge32,
+    cfprApDcxVcBorderSlotId                                          Gauge32,
+    cfprApDcxVcBorderVfcId                                           Gauge32,
+    cfprApDcxVcCdp                                                   CfprApNwctrlAdminState,
+    cfprApDcxVcCookie                                                Unsigned64,
+    cfprApDcxVcCos                                                   Gauge32,
+    cfprApDcxVcDerivedFromId                                         Gauge32,
+    cfprApDcxVcEncap                                                 Gauge32,
+    cfprApDcxVcFcoeId                                                Gauge32,
+    cfprApDcxVcFltAggr                                               Unsigned64,
+    cfprApDcxVcForgeMac                                              CfprApDpsecForgedTransmit,
+    cfprApDcxVcId                                                    Gauge32,
+    cfprApDcxVcInstType                                              CfprApVnicInstantiation,
+    cfprApDcxVcLc                                                    CfprApFsmLifecycle,
+    cfprApDcxVcLinkState                                             CfprApAdaptorLinkState,
+    cfprApDcxVcLocale                                                CfprApNetworkLocale,
+    cfprApDcxVcMacRegisterMode                                       CfprApNwctrlRegistrationMode,
+    cfprApDcxVcMonTrafDir                                            CfprApFabricTrafficDirection,
+    cfprApDcxVcName                                                  SnmpAdminString,
+    cfprApDcxVcOperBorderAggrPortId                                  Gauge32,
+    cfprApDcxVcOperBorderPortId                                      Gauge32,
+    cfprApDcxVcOperBorderSlotId                                      Gauge32,
+    cfprApDcxVcOperState                                             CfprApDcxOperState,
+    cfprApDcxVcPeerId                                                Gauge32,
+    cfprApDcxVcProtState                                             CfprApDcxProtState,
+    cfprApDcxVcQosPolicyDn                                           SnmpAdminString,
+    cfprApDcxVcQosPolicyId                                           SnmpAdminString,
+    cfprApDcxVcRole                                                  CfprApNetworkPortRole,
+    cfprApDcxVcServiceState                                          CfprApAdaptorServiceState,
+    cfprApDcxVcState                                                 CfprApDcxState,
+    cfprApDcxVcStateQual                                             SnmpAdminString,
+    cfprApDcxVcSwitchId                                              CfprApNetworkSwitchId,
+    cfprApDcxVcTag                                                   Gauge32,
+    cfprApDcxVcTransport                                             CfprApNetworkTransport,
+    cfprApDcxVcType                                                  CfprApNetworkConnectionType,
+    cfprApDcxVcUplinkFailAction                                      CfprApNwctrlLinkFailAction,
+    cfprApDcxVcVnic                                                  SnmpAdminString
+}
+
+cfprApDcxVcInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDcxVcEntry 1 }
+
+cfprApDcxVcDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:dn managed object property"
+    ::= { cfprApDcxVcEntry 2 }
+
+cfprApDcxVcRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:rn managed object property"
+    ::= { cfprApDcxVcEntry 3 }
+
+cfprApDcxVcAdminState OBJECT-TYPE
+    SYNTAX       CfprApDcxAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:adminState managed object property"
+    ::= { cfprApDcxVcEntry 4 }
+
+cfprApDcxVcAllowDtagVlan OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:allowDtagVlan managed object property"
+    ::= { cfprApDcxVcEntry 5 }
+
+cfprApDcxVcBorderAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:borderAggrPortId managed object property"
+    ::= { cfprApDcxVcEntry 6 }
+
+cfprApDcxVcBorderPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:borderPortId managed object property"
+    ::= { cfprApDcxVcEntry 7 }
+
+cfprApDcxVcBorderSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:borderSlotId managed object property"
+    ::= { cfprApDcxVcEntry 8 }
+
+cfprApDcxVcBorderVfcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:borderVfcId managed object property"
+    ::= { cfprApDcxVcEntry 9 }
+
+cfprApDcxVcCdp OBJECT-TYPE
+    SYNTAX       CfprApNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:cdp managed object property"
+    ::= { cfprApDcxVcEntry 10 }
+
+cfprApDcxVcCookie OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:cookie managed object property"
+    ::= { cfprApDcxVcEntry 11 }
+
+cfprApDcxVcCos OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:cos managed object property"
+    ::= { cfprApDcxVcEntry 12 }
+
+cfprApDcxVcDerivedFromId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:derivedFromId managed object property"
+    ::= { cfprApDcxVcEntry 13 }
+
+cfprApDcxVcEncap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:encap managed object property"
+    ::= { cfprApDcxVcEntry 14 }
+
+cfprApDcxVcFcoeId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:fcoeId managed object property"
+    ::= { cfprApDcxVcEntry 15 }
+
+cfprApDcxVcFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:fltAggr managed object property"
+    ::= { cfprApDcxVcEntry 16 }
+
+cfprApDcxVcForgeMac OBJECT-TYPE
+    SYNTAX       CfprApDpsecForgedTransmit
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:forgeMac managed object property"
+    ::= { cfprApDcxVcEntry 17 }
+
+cfprApDcxVcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:id managed object property"
+    ::= { cfprApDcxVcEntry 18 }
+
+cfprApDcxVcInstType OBJECT-TYPE
+    SYNTAX       CfprApVnicInstantiation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:instType managed object property"
+    ::= { cfprApDcxVcEntry 19 }
+
+cfprApDcxVcLc OBJECT-TYPE
+    SYNTAX       CfprApFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:lc managed object property"
+    ::= { cfprApDcxVcEntry 20 }
+
+cfprApDcxVcLinkState OBJECT-TYPE
+    SYNTAX       CfprApAdaptorLinkState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:linkState managed object property"
+    ::= { cfprApDcxVcEntry 21 }
+
+cfprApDcxVcLocale OBJECT-TYPE
+    SYNTAX       CfprApNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:locale managed object property"
+    ::= { cfprApDcxVcEntry 22 }
+
+cfprApDcxVcMacRegisterMode OBJECT-TYPE
+    SYNTAX       CfprApNwctrlRegistrationMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:macRegisterMode managed object property"
+    ::= { cfprApDcxVcEntry 23 }
+
+cfprApDcxVcMonTrafDir OBJECT-TYPE
+    SYNTAX       CfprApFabricTrafficDirection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:monTrafDir managed object property"
+    ::= { cfprApDcxVcEntry 24 }
+
+cfprApDcxVcName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:name managed object property"
+    ::= { cfprApDcxVcEntry 25 }
+
+cfprApDcxVcOperBorderAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:operBorderAggrPortId managed
+        object property"
+    ::= { cfprApDcxVcEntry 26 }
+
+cfprApDcxVcOperBorderPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:operBorderPortId managed object property"
+    ::= { cfprApDcxVcEntry 27 }
+
+cfprApDcxVcOperBorderSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:operBorderSlotId managed object property"
+    ::= { cfprApDcxVcEntry 28 }
+
+cfprApDcxVcOperState OBJECT-TYPE
+    SYNTAX       CfprApDcxOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:operState managed object property"
+    ::= { cfprApDcxVcEntry 29 }
+
+cfprApDcxVcPeerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:peerId managed object property"
+    ::= { cfprApDcxVcEntry 30 }
+
+cfprApDcxVcProtState OBJECT-TYPE
+    SYNTAX       CfprApDcxProtState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:protState managed object property"
+    ::= { cfprApDcxVcEntry 31 }
+
+cfprApDcxVcQosPolicyDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:qosPolicyDn managed object property"
+    ::= { cfprApDcxVcEntry 32 }
+
+cfprApDcxVcQosPolicyId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:qosPolicyId managed object property"
+    ::= { cfprApDcxVcEntry 33 }
+
+cfprApDcxVcRole OBJECT-TYPE
+    SYNTAX       CfprApNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:role managed object property"
+    ::= { cfprApDcxVcEntry 34 }
+
+cfprApDcxVcServiceState OBJECT-TYPE
+    SYNTAX       CfprApAdaptorServiceState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:serviceState managed object property"
+    ::= { cfprApDcxVcEntry 35 }
+
+cfprApDcxVcState OBJECT-TYPE
+    SYNTAX       CfprApDcxState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:state managed object property"
+    ::= { cfprApDcxVcEntry 36 }
+
+cfprApDcxVcStateQual OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:stateQual managed object property"
+    ::= { cfprApDcxVcEntry 37 }
+
+cfprApDcxVcSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:switchId managed object property"
+    ::= { cfprApDcxVcEntry 38 }
+
+cfprApDcxVcTag OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:tag managed object property"
+    ::= { cfprApDcxVcEntry 39 }
+
+cfprApDcxVcTransport OBJECT-TYPE
+    SYNTAX       CfprApNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:transport managed object property"
+    ::= { cfprApDcxVcEntry 40 }
+
+cfprApDcxVcType OBJECT-TYPE
+    SYNTAX       CfprApNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:type managed object property"
+    ::= { cfprApDcxVcEntry 41 }
+
+cfprApDcxVcUplinkFailAction OBJECT-TYPE
+    SYNTAX       CfprApNwctrlLinkFailAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:uplinkFailAction managed object property"
+    ::= { cfprApDcxVcEntry 42 }
+
+cfprApDcxVcVnic OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:Vc:vnic managed object property"
+    ::= { cfprApDcxVcEntry 43 }
+
+cfprApDcxVifEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDcxVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower dcx:VifEp managed object table"
+    ::= { cfprApDcxObjects 6 }
+
+cfprApDcxVifEpEntry OBJECT-TYPE
+    SYNTAX           CfprApDcxVifEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDcxVifEpTable table."
+    INDEX { cfprApDcxVifEpInstanceId }
+    ::= { cfprApDcxVifEpTable 1 }
+
+CfprApDcxVifEpEntry ::= SEQUENCE {
+    cfprApDcxVifEpInstanceId                                         CfprApManagedObjectId,
+    cfprApDcxVifEpDn                                                 CfprApManagedObjectDn,
+    cfprApDcxVifEpRn                                                 SnmpAdminString,
+    cfprApDcxVifEpId                                                 Gauge32
+}
+
+cfprApDcxVifEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDcxVifEpEntry 1 }
+
+cfprApDcxVifEpDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VifEp:dn managed object property"
+    ::= { cfprApDcxVifEpEntry 2 }
+
+cfprApDcxVifEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VifEp:rn managed object property"
+    ::= { cfprApDcxVifEpEntry 3 }
+
+cfprApDcxVifEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower dcx:VifEp:id managed object property"
+    ::= { cfprApDcxVifEpEntry 4 }
+
+END

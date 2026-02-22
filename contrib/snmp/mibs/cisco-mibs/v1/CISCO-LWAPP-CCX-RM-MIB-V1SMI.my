@@ -1,0 +1,689 @@
+-- MIB file created 23-Feb-2012 09:05:55, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-CCX-RM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-CCX-RM-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress, TruthValue, TimeInterval, TimeStamp
+            FROM SNMPv2-TC-v1
+    cLWlanIndex
+            FROM CISCO-LWAPP-WLAN-MIB
+    cLApSysMacAddress, cLApDot11IfSlotId
+            FROM CISCO-LWAPP-AP-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoLwappCcxRmMIB OBJECT IDENTIFIER ::= { ciscoMgmt 520 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201202210000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-aironet@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    Information provided by this MIB is for CCX related 
+--    features as specified in the CCX specifications. 
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--    +......+     +......+     +......+           +......+
+--    +      +     +      +     +      +           +      +
+--    +  CC  +     +  CC  +     +  CC  +           +  CC  +
+--    +      +     +      +     +      +           +      +
+--    +......+     +......+     +......+           +......+
+--    ..            .             .                 .
+--    ..            .             .                 .
+--    .  .            .             .                 .
+--    .    .            .             .                 .
+--    .      .            .             .                 .
+--    .        .            .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    .              .             .                 .
+--    .  .              .             .                 .
+--    .    .              .             .                 .
+--    .      .              .             .                 .
+--    .        .              .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Central Controller ( CC )
+--    
+--    The central entity that terminates the LWAPP protocol
+--    tunnel from the LWAPP APs.  Throughout this MIB,
+--    this entity also referred to as 'controller'.
+--    
+--    Cisco Compatible eXtensions (CCX)
+--    
+--    Wireless LAN Access Points (APs) manufactured by Cisco
+--    Systems have features and capabilities beyond those in
+--    related standards (e.g., IEEE 802.11 suite of 
+--    standards, Wi-Fi recommendations by WECA, 802.1X 
+--    security suite, etc). A number of features provide 
+--    higher performance. For example, Cisco AP transmits a 
+--    specific Information Element, which the clients adapt 
+--    to for enhanced performance. Similarly, a number of 
+--    features are implemented by means of proprietary 
+--    Information Elements, which Cisco clients use in 
+--    specific ways to carry out tasks above and beyond the
+--    standard. Other examples of feature categories are 
+--    roaming and power saving.
+--    
+--    Light Weight Access Point Protocol ( LWAPP ) 
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller.
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point.  The terms  
+--    'Mobile node' and 'client' are used interchangeably. 
+--    
+--    Radio Management (RM)
+--    
+--    This term refers to managing the 802.11 radio
+--    environment to provide the best quality service to
+--    to the 802.11 wireless clients. 
+--    
+--    Service Set Identifier ( SSID ) 
+--    
+--    SSID is a unique identifier that APs and clients
+--    use to identify with each other.  SSID is a simple
+--    means of access control and is not for security.
+--    The SSID can be any alphanumeric entry up to 32
+--    characters.
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    201202210000Z
+--  RevDescr
+--    Added ciscoLwappCcxRmDot11aConfigGroupVer1,
+--    ciscoLwappCcxRmDot11bConfigGroupVer1,
+--    and ciscoLwappCcxRmApIfConfigGroupVer1. 
+--    Deprecated ciscoLwappCcxRmDot11aConfigGroup,
+--    ciscoLwappCcxRmDot11bConfigGroup,
+--    and ciscoLwappCcxRmApIfConfigGroup. 
+--    Added ciscoLwappCcxRmMIBComplianceVer1 and 
+--    deprecated ciscoLwappCcxRmMIBCompliance.
+--  RevDate
+--    200604110000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappCcxRmMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIB 0 }
+ciscoLwappCcxRmMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIB 1 }
+ciscoLwappCcxRmMIBConform OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIB 2 }
+clcrDot11aConfigGlobal OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBObjects 1 }
+clcrDot11bConfigGlobal OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBObjects 2 }
+clcrApIfConfig  OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBObjects 3 }
+clcrClientMeasurementReport OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBObjects 4 }
+clcrWlanConfig  OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBObjects 5 }
+ciscoLwappCcxRmMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBConform 1 }
+ciscoLwappCcxRmMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBConform 2 }
+
+clcrdot11aBeaconEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When set to 'true', LWAPP APs broadcast radio
+        measurement request messages that include a
+        beacon measurement request information element
+        on 802.11a radio to clients compatible to
+        CCX versions 2 and above.  This configuration
+        takes higher precedence than that on the radio
+        interface of the particular AP when 
+        clcrAPIfOverrideGlobal is set to 'false'."
+    DEFVAL { false }
+    ::= { clcrDot11aConfigGlobal 1 }
+
+clcrdot11aBeaconInterval OBJECT-TYPE
+    SYNTAX TimeInterval(6000..3240000)
+--    Rsyntax INTEGER(6000..3240000)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "The interval in hundredths of a second, in
+        which the AP issues radio measurement request 
+        message to client periodically for every SSID. 
+        
+        This configuration takes higher precedence than
+        that on the radio interface of the particular AP
+        when clcrAPIfOverrideGlobal is set to 'false'.
+        clcrdot11aBeaconInterval object is superseded by 
+        clcrdot11aBeaconIntvl."
+    DEFVAL { 6000 }
+    ::= { clcrDot11aConfigGlobal 2 }
+
+clcrdot11aBeaconIntvl OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval in hundredths of a second, in
+        which the AP issues radio measurement request 
+        message to client periodically for every SSID. 
+        
+        This configuration takes higher precedence than
+        that on the radio interface of the particular AP
+        when clcrAPIfOverrideGlobal is set to 'false'."
+    ::= { clcrDot11aConfigGlobal 3 }
+
+clcrdot11bBeaconEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When set to 'true', LWAPP APs broadcast radio
+        measurement request messages that include a
+        beacon measurement request information element,
+        on 802.11b/802.11g radio to clients compatible to
+        CCX versions 2 and above.  This configuration
+        takes higher precedence than that on the radio
+        interface of the particular AP when 
+        clcrAPIfOverrideGlobal is set to 'false'."
+    DEFVAL { false }
+    ::= { clcrDot11bConfigGlobal 1 }
+
+clcrdot11bBeaconInterval OBJECT-TYPE
+    SYNTAX TimeInterval(6000..3240000)
+--    Rsyntax INTEGER(6000..3240000)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "The interval in hundredths of a second, at
+        which the AP issues radio measurement request 
+        message to client periodically for every SSID.
+        
+        This configuration takes higher precedence than
+        that on the radio interface of the particular AP
+        when clcrAPIfOverrideGlobal is set to 'false'.
+        clcrdot11bBeaconInterval object is superseded by 
+        clcrdot11bBeaconIntvl."
+    DEFVAL { 6000 }
+    ::= { clcrDot11bConfigGlobal 2 }
+
+clcrdot11bBeaconIntvl OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval in hundredths of a second, at
+        which the AP issues radio measurement request 
+        message to client periodically for every SSID.
+        
+        This configuration takes higher precedence than
+        that on the radio interface of the particular AP
+        when clcrAPIfOverrideGlobal is set to 'false'."
+    ::= { clcrDot11bConfigGlobal 3 }
+
+clcrAPIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClcrAPIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the CCX related parameters on
+        the radio interface of the APs.  The values configured
+        through the objects of this table are passed onto the
+        AP by the controller, when the AP joins the 
+        controller. 
+        
+        There exists a row in this table for each conceptual row
+        in cLApDot11IfTable that represents a dot11 interface
+        of an AP."
+    ::= { clcrApIfConfig 1 }
+
+clcrAPIfEntry OBJECT-TYPE
+    SYNTAX ClcrAPIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        An entry corresponding to each dot11 interface of an
+        AP is added to this table when the AP joins the
+        controller and deleted when AP disassociates from the
+        controller."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId }
+-- Augments cLApDot11IfEntry FROM CISCO-LWAPP-AP-MIB
+    ::= { clcrAPIfTable 1 }
+
+ClcrAPIfEntry ::= SEQUENCE {
+    clcrAPIfOverrideGlobal TruthValue,
+    clcrAPIfBeaconEnabled TruthValue,
+    clcrAPIfBeaconInterval TimeInterval,
+    clcrAPIfBeaconIntvl TimeInterval
+    }
+
+clcrAPIfOverrideGlobal OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If this object is set to 'true', values populated
+        through clcrAPIfBeaconEnabled and
+        clcrAPIfBeaconInterval are considered for sending
+        beacon measurement requests.
+        
+        If this object is set to 'false', the values 
+        configured through the objects 
+        clcrdot11bBeaconEnabled, clcrdot11aBeaconEnabled,
+        clcrdot11bBeaconInterval and clcrdot11aBeaconInterval
+        take precedence and are used for sending beacon
+        measurement requests."
+    DEFVAL { false }
+    ::= { clcrAPIfEntry 1 }
+
+clcrAPIfBeaconEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When set to 'true', LWAPP APs broadcast radio
+        measurement request messages that include a
+        beacon measurement request information element
+        to clients compatible with CCX versions 2 and
+        above.
+        
+        Global configuration at network level takes
+        higher precedence if clcrAPIfOverrideGlobal is
+        set to 'false'.  Radio measurement frames include 
+        a beacon request information element for every
+        channel over which the measurement needs
+        to be performed.  The measurement requests are
+        repeated at every interval configured through
+        clcrAPIfBeaconInterval."
+    DEFVAL { false }
+    ::= { clcrAPIfEntry 2 }
+
+clcrAPIfBeaconInterval OBJECT-TYPE
+    SYNTAX TimeInterval(6000..3240000)
+--    Rsyntax INTEGER(6000..3240000)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "The interval at which the AP sends radio measurement
+        request messages to the clients associated through
+        each and every SSID.
+        clcrAPIfBeaconInterval object is superseded by 
+        clcrAPIfBeaconIntvl."
+    DEFVAL { 6000 }
+    ::= { clcrAPIfEntry 3 }
+
+clcrAPIfBeaconIntvl OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval at which the AP sends radio measurement
+        request messages to the clients associated through
+        each and every SSID."
+    ::= { clcrAPIfEntry 4 }
+
+clcrClientBeaconReportTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClcrClientBeaconReportEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table reports the received signal power as seen
+        by a wireless client when conducting radio
+        measurements.  Clients measure the received signal
+        power by observing the beacon requests and probe
+        response messages on all the specified channels and
+        pass them to the APs through beacon reports.
+        
+        An entry is added to the table by the agent when the
+        beacon report sent by the client arrives at the dot11
+        interface of an AP.  An existing entry for a client
+        gets over-written when the subsequent reports arrive
+        at an AP from that client.  The term 'client' here
+        refers to all the wireless CCX compliant devices like
+        mobile stations, tags etc.
+        
+        An entry is deleted from this table when the particular
+        client dissociates from the AP.  The entry also gets
+        deleted when the AP dissociates from the controller."
+    ::= { clcrClientMeasurementReport 1 }
+
+clcrClientBeaconReportEntry OBJECT-TYPE
+    SYNTAX ClcrClientBeaconReportEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table
+        and populates the received signal power as observed
+        and reported by the respective client."
+    INDEX { clcrClientMacAddress, cLApSysMacAddress, cLApDot11IfSlotId }
+    ::= { clcrClientBeaconReportTable 1 }
+
+ClcrClientBeaconReportEntry ::= SEQUENCE {
+    clcrClientMacAddress MacAddress,
+    clcrClientRxPowerSignal INTEGER,
+    clcrClientTimeStamp TimeStamp
+    }
+
+clcrClientMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the MAC address of a
+        client that has sent a beacon report to the
+        AP."
+    ::= { clcrClientBeaconReportEntry 1 }
+
+clcrClientRxPowerSignal OBJECT-TYPE
+    SYNTAX INTEGER(-90..30)
+--  Units
+--    dBm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the signal strength of the
+        beacon or probe response frame as seen by the
+        client."
+    ::= { clcrClientBeaconReportEntry 2 }
+
+clcrClientTimeStamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the value of sysUpTime at
+        which the beacon measurement report was 
+        received."
+    ::= { clcrClientBeaconReportEntry 3 }
+
+clcrWlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClcrWlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the CCX parameters of a
+        particular WLAN.
+        
+        There exist a row in this table corresponding to each
+        row representing a WLAN in cLWlanConfigTable."
+    ::= { clcrWlanConfig 1 }
+
+clcrWlanEntry OBJECT-TYPE
+    SYNTAX ClcrWlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table
+        and provides information about the CCX capabilities
+        of the WLAN."
+    INDEX { cLWlanIndex }
+-- Augments cLWlanConfigEntry FROM CISCO-LWAPP-WLAN-MIB
+    ::= { clcrWlanTable 1 }
+
+ClcrWlanEntry ::= SEQUENCE {
+    clcrVersionIESupport TruthValue,
+    clcrAironetIESupport TruthValue
+    }
+
+clcrVersionIESupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the support for the Cisco
+        Compatible Extensions Version information element
+        on this WLAN.
+        
+        A value of 'true' indicates the presence of the
+        support and 'false' indicates the absence of the
+        same."
+    ::= { clcrWlanEntry 1 }
+
+clcrAironetIESupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the support for the Cisco
+        Compatible Extensions Aironet information element
+        on this WLAN. 
+        
+        The support is enabled or disabled by setting 
+        this object to 'true' or 'false' respectively."
+    DEFVAL { false }
+    ::= { clcrWlanEntry 2 }
+
+ciscoLwappCcxRmDot11aConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This collection of objects represent the beacon
+--    request and beacon interval parameters for 802.11a
+--    networks.
+--    ciscoLwappCcxRmDot11aConfigGroup object is superseded by 
+--    ciscoLwappCcxRmDot11aConfigGroupVer1.
+--  objects
+--    clcrdot11aBeaconEnabled, clcrdot11aBeaconInterval
+
+ciscoLwappCcxRmDot11bConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This collection of objects represent the beacon
+--    request and beacon interval parameters for 802.11b
+--    networks.
+--    ciscoLwappCcxRmDot11bConfigGroup object is superseded by 
+--    ciscoLwappCcxRmDot11bConfigGroupVer1.
+--  objects
+--    clcrdot11bBeaconEnabled, clcrdot11bBeaconInterval
+
+ciscoLwappCcxRmApIfConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This collection of objects represent the beacon
+--    request and beacon interval parameters for the
+--    respective 802.11 radio interfaces.
+--    ciscoLwappCcxRmApIfConfigGroup object is superseded by 
+--    ciscoLwappCcxRmApIfConfigGroupVer1.
+--  objects
+--    clcrAPIfOverrideGlobal, clcrAPIfBeaconEnabled, 
+--    clcrAPIfBeaconInterval
+
+ciscoLwappCcxRmBeaconReportGroup OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent information
+--    about the beacon reports received from CCX 
+--    clients.
+--  objects
+--    clcrClientRxPowerSignal, clcrClientTimeStamp
+
+ciscoLwappCcxRmD11WlanConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the CCX
+--    settings on a particular WLAN.
+--  objects
+--    clcrVersionIESupport, clcrAironetIESupport
+
+ciscoLwappCcxRmDot11aConfigGroupVer1 OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the beacon
+--    request and beacon interval parameters for 802.11a
+--    networks.
+--  objects
+--    clcrdot11aBeaconEnabled, clcrdot11aBeaconIntvl
+
+ciscoLwappCcxRmDot11bConfigGroupVer1 OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the beacon
+--    request and beacon interval parameters for 802.11b
+--    networks.
+--  objects
+--    clcrdot11bBeaconEnabled, clcrdot11bBeaconIntvl
+
+ciscoLwappCcxRmApIfConfigGroupVer1 OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the beacon
+--    request and beacon interval parameters for the
+--    respective 802.11 radio interfaces.
+--  objects
+--    clcrAPIfOverrideGlobal, clcrAPIfBeaconEnabled, 
+--    clcrAPIfBeaconIntvl
+
+ciscoLwappCcxRmMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappCcxRmMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappCcxRmDot11aConfigGroup
+--   MandGroup
+--    ciscoLwappCcxRmDot11bConfigGroup
+--   MandGroup
+--    ciscoLwappCcxRmApIfConfigGroup
+--   MandGroup
+--    ciscoLwappCcxRmBeaconReportGroup
+--   MandGroup
+--    ciscoLwappCcxRmD11WlanConfigGroup
+
+ciscoLwappCcxRmMIBComplianceVer1 OBJECT IDENTIFIER ::= { ciscoLwappCcxRmMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappCcxRmMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappCcxRmDot11aConfigGroupVer1
+--   MandGroup
+--    ciscoLwappCcxRmDot11bConfigGroupVer1
+--   MandGroup
+--    ciscoLwappCcxRmApIfConfigGroupVer1
+--   MandGroup
+--    ciscoLwappCcxRmBeaconReportGroup
+--   MandGroup
+--    ciscoLwappCcxRmD11WlanConfigGroup
+
+
+END
+

@@ -1,0 +1,2202 @@
+-- *****************************************************************
+-- CISCO-WIRELESS-DOCS-IF-MIB.my: Wireless Data Over Cable IF MIB file
+
+-- October 1999 Saradha Srinivasan
+-- Joseph Raja
+
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WIRELESS-DOCS-IF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32,
+    Counter32,
+    IpAddress
+        FROM SNMPv2-SMI
+    MacAddress,
+    RowStatus,
+    TruthValue,
+    TimeStamp,
+    TimeInterval
+        FROM SNMPv2-TC
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    ifIndex,
+    InterfaceIndexOrZero,
+    InterfaceIndex
+        FROM IF-MIB
+    CwrdBm
+        FROM CISCO-WIRELESS-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoWirelessDocsIfMib MODULE-IDENTITY
+    LAST-UPDATED    "200512271003Z"
+    ORGANIZATION    "Cisco Systems - Wireless Engineering"
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+               E-mail: wireless-nms@cisco.com"
+    DESCRIPTION
+            "This is the MIB Module for MCNS compliant Radio Frequency
+            (RF) interfaces in wireless point-to-multipoint subscriber
+            units (SU) and wireless Head-end (HE).
+
+            Glossary :
+
+            The following terms are used in the MIB definitions below.
+
+            MCNS        : Multimedia Cable Network System 
+            P2MP        : Point-Multipoint wireless system consisting of
+            Headend (HE)  and Subscriber-units (SU). 
+            HE          : Head-end
+            SU          : Subscriber-unit.
+            Attached US  
+            channel     : The upstream channel on which the SU is 
+                          transmitting.
+            codeword    : Data unit in a FEC (forward error correction) 
+                          process.
+            OFDM        : Orthogonal Frequency Division Multiplexing.
+            ODU         : Outdoor unit (antenna).
+            UCD         : Upstream Change Descriptor.
+
+            Cisco Wireless DOCSIS MIB Organization:
+
+            The Cisco Wireless DOCSIS MIB provides the following 
+            categories :
+            * Groups/Tables that are common between HE and SU
+            * Groups/Tables that apply to SU only
+            * Groups/Tables that apply to HE only
+
+            Groups/Tables that are common between HE and SU
+
+            o. cwdIfChannelTable
+               This represents the RF channel within which upstream 
+               and downstream sub-channels operate. There will one such
+               RF channel per point-to-multipoint interface.
+
+               A RF channel identifies the portion of the RF spectrum
+               that will be used to create a broadcast domain that
+               will be used for communication.
+
+               This channel deploys a sub-channel plan, which is used by 
+               the upstreams and downstreams. 
+
+               The sub-channel number for a channel is determined based
+               on the number of sub-channels allowed and sub-channel plan 
+               version. If the maximum number of sub-channels allowed is
+               4 and the sub-channel plan version is 1 the spectrum can
+               be sub divided as shown below.  
+
+               reference center frequency of a channel 
+                              |
+                              |
+                              v
+                      +===============+
+                      |   sub 1       |   The whole spectrum is used 
+                      +=======+=======+   so only one sub-channel.
+
+                      +===============+
+                      |   2   |   3   |   The spectrum is divided into
+                      +===============+   two sub-channels.
+
+                      +===============+
+                      |   2   | 6 | 7 |   The spectrum is divided into
+                      +===============+   three sub-channels.
+
+                      +===============+
+                      | 4 | 5 |   3   |   The spectrum is divided into
+                      +===============+   three sub-channels.
+
+                      +===+===+===+===+
+                      | 4 | 5 | 6 | 7 |   The spectrum is divided into
+                      +===+===+===+===+   4 sub-channels
+
+
+               The above sub-channel planning can be extended to
+               allow maximum number of sub-channels to be 8, 26 etc.
+
+               The objects in this group are configurable only at
+               the head-end and are read-only at the subscriber end.
+
+            o. cwdIfDownstreamChannelTable
+               This table contains the configuration 
+               information and attributes of downstream channel. 
+               The objects in this group are configurable
+               only at the head-end and are read-only at the 
+               subscriber end.
+
+            o. cwdIfUpstreamChannelTable
+               This table contains the configuration information 
+               and attributes of upstream channel. 
+               Parameters in this table are configurable
+               only at the Head-end, and are read-only at the SU.
+               Only the rows that pertain to the upstream used by 
+               the subscriber unit will be available at the SU.
+
+            o. cwdIfQosProfileTable
+               This table describes the attributes of each class of
+               service.
+               The entries in this table are referenced from the
+               cwdIfHeServiceEntries or cwdIfSuServiceEntries.
+               This table is implemented at both the SU and the HE.
+               The SU need only maintain entries for the classes of
+               service referenced by its cwdIfSuServiceTable.
+
+            o. cwdIfSignalQualityTable
+               At the SU, this table describes the PHY signal quality of 
+               downstream channels. At the HE, it describes the PHY signal 
+               quality of upstream channels. 
+
+            o. cwdIfModulationTable
+               Describes modulation parameters associated with one or more
+               Upstream or downstream channels.
+
+            Groups/Tables that apply to SU only
+
+            o. cwdIfSuMacTable
+               This table describes the attributes of each SU MAC 
+               interface, extending the information available from 
+               ifEntry. An entry in this table exists for each 
+               ifEntry with an ifType of propDocsWirelessMacLayer(nnn).
+
+            o. cwdIfSuStatusTable
+               This table maintains a number of status objects
+               and counters for Subscriber Units.
+               An entry in this table exists for each ifEntry with an
+               ifType of propDocsWirelessMacLayer(nnn).
+
+            o. cwdIfSuServiceTable
+               This table describes the attributes of each upstream 
+               service queue on a SU.  
+
+            Groups/Tables that apply to HE only
+
+            o. cwdIfHeMacTable 
+               Describes the attributes of each HE MAC interface,
+               extending the information available from ifEntry. 
+               An entry in this table exists for each ifEntry with an
+               ifType of propDocsWirelessMacLayer(nnn).
+
+            o. cwdIfHeStatusTable
+               For the MAC layer, this group maintains a number of
+               status objects and counters.
+               An entry in this table exists for each ifEntry with an
+               ifType of propDocsWirelessMacLayer(nnn).
+
+            o. cwdIfHeServiceTable
+               This table describes the attributes of upstream 
+               service queues in a Head-end System. Entries in 
+               this table exist for each ifEntry with an ifType 
+               of propDocsWirelessMacLayer(nnn), and for each 
+               service queue (Service ID) within this MAC layer.
+               Entries in this table are created with the creation of
+               individual Service IDs by the MAC layer and removed
+               when a Service ID is removed."
+    REVISION        "200512271003Z"
+    DESCRIPTION
+            "Imported Unsigned32 from SNMPv2-SMI."
+    REVISION        "200006071003Z"
+    DESCRIPTION
+            "Initial version"
+    ::= { ciscoMgmt 167 }
+
+-- Textual Conventions
+cwdIfMibObjects OBJECT IDENTIFIER
+    ::= { ciscoWirelessDocsIfMib 1 }
+
+cwdIfBaseObjects OBJECT IDENTIFIER
+    ::= { cwdIfMibObjects 1 }
+
+cwdIfSuObjects OBJECT IDENTIFIER
+    ::= { cwdIfMibObjects 2 }
+
+cwdIfHeObjects OBJECT IDENTIFIER
+    ::= { cwdIfMibObjects 3 }
+
+-- BASE GROUP
+
+
+-- The following table is implemented on both the Subscriber unit (SU)
+-- and the Head-end (HE)
+cwdIfChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table describes the attributes of a channel
+            group which consists of one or more downstream and
+            upstream channels. "
+    ::= { cwdIfBaseObjects 1 }
+
+cwdIfChannelEntry OBJECT-TYPE
+    SYNTAX          CwdIfChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "List of attributes for a single Channel. There
+            is one per Point-to-multipoint card. 
+            An entry in this table exists for each ifEntry with an
+            ifType of propDocsWirelessMacLayer(nnn)."
+    INDEX           { ifIndex }
+    ::= { cwdIfChannelTable 1 }
+
+CwdIfChannelEntry ::= SEQUENCE {
+    cwdIfChannelUpFrequency           INTEGER,
+    cwdIfChannelUpWidth               INTEGER,
+    cwdIfChannelDownFrequency         INTEGER,
+    cwdIfChannelDownWidth             INTEGER,
+    cwdIfChannelMiniSlotTimeBaseTick  INTEGER,
+    cwdIfChannelSubChannelPlanVer     Unsigned32
+}
+
+cwdIfChannelUpFrequency OBJECT-TYPE
+    SYNTAX          INTEGER (0..60000000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The reference center frequency used by the upstream
+            channels in this channel."
+    ::= { cwdIfChannelEntry 1 }
+
+cwdIfChannelUpWidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..500000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The maximum bandwidth that can be used by any upstream
+            channel. The sum of the bandwidths used by all 
+            upstream channels created within this channel cannot
+            exceed this value."
+    ::= { cwdIfChannelEntry 2 }
+
+cwdIfChannelDownFrequency OBJECT-TYPE
+    SYNTAX          INTEGER (0..60000000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The reference center frequency used by the
+            downstream channels in this channel."
+    ::= { cwdIfChannelEntry 3 }
+
+cwdIfChannelDownWidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..500000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The maximum bandwidth that can be used by any
+            downstream channel.  The sum of the bandwidths
+            used by all downstream channels created
+            within this channel cannot exceed this value."
+    ::= { cwdIfChannelEntry 4 }
+
+cwdIfChannelMiniSlotTimeBaseTick OBJECT-TYPE
+    SYNTAX          INTEGER (0..102400000)
+    UNITS           "Microseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents a unit of measurement of mini-slots.
+            Upstream mini-slots and bandwidth allocations are done 
+            in multiples of this unit of time."
+    ::= { cwdIfChannelEntry 5 }
+
+cwdIfChannelSubChannelPlanVer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the sub-channel plan version number
+            common to both upstream and downstream supported by the 
+            hardware."
+    REFERENCE       "Firestorm(P2MP) Sub-Channel Plan Specification - ENG-51192"
+    ::= { cwdIfChannelEntry 6 }
+
+-- The following table is implemented on both the Subscriber unit (SU)
+-- and the Head-end (HE)
+cwdIfDownstreamChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfDownstreamChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table describes the attributes of downstream
+            channels (frequency bands)."
+    ::= { cwdIfBaseObjects 2 }
+
+cwdIfDownstreamChannelEntry OBJECT-TYPE
+    SYNTAX          CwdIfDownstreamChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "List of attributes for a single downstream channel.
+            The index to this table is an ifIndex with an ifType
+            of propDocsWirelessDownStream(nnn). "
+    INDEX           { ifIndex }
+    ::= { cwdIfDownstreamChannelTable 1 }
+
+CwdIfDownstreamChannelEntry ::= SEQUENCE {
+    cwdIfDownChannelSubChannelNumber  INTEGER,
+    cwdIfDownChannelId                INTEGER,
+    cwdIfDownChannelFrequency         INTEGER,
+    cwdIfDownChannelWidth             INTEGER,
+    cwdIfDownChannelPower             Integer32,
+    cwdIfDownChannelModProfileIndex   Unsigned32
+}
+
+cwdIfDownChannelSubChannelNumber OBJECT-TYPE
+    SYNTAX          INTEGER (1..1024)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This identifies the sub-channel used by this downstream.
+            The value of this object determines the usability of the
+            other downstream channels."
+    ::= { cwdIfDownstreamChannelEntry 1 }
+
+cwdIfDownChannelId OBJECT-TYPE
+    SYNTAX          INTEGER (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The internal (DOCSIS) identification of the downstream
+            channel within this particular MAC interface. If the
+            interface is down, the object returns the last assigned 
+            value. If the downstream channel ID is unknown, this
+            object returns a value of 0."
+    ::= { cwdIfDownstreamChannelEntry 2 }
+
+cwdIfDownChannelFrequency OBJECT-TYPE
+    SYNTAX          INTEGER (0..60000000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The downstream center frequency associated with
+            this channel. The channel settings determine this
+            value."
+    ::= { cwdIfDownstreamChannelEntry 3 }
+
+cwdIfDownChannelWidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..500000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The bandwidth of this downstream channel. The channel
+            settings determine this value."
+    ::= { cwdIfDownstreamChannelEntry 4 }
+
+cwdIfDownChannelPower OBJECT-TYPE
+    SYNTAX          Integer32 (-80..50)
+    UNITS           "dBm - decibel milliwatts"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "At the HE, the operational transmit power. At the SU,
+            the received power level. May be set to zero at the SU
+            if power level measurement is not supported.
+            If the interface is down, this object returns the
+            configured value (if at HE), the most current value
+            (if at SU) or zero (if not supported by the 
+            implementation)."
+    ::= { cwdIfDownstreamChannelEntry 5 }
+
+cwdIfDownChannelModProfileIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "An index into cwdIfModulationTable that describes
+            modulation characteristics of this channel.
+            This object returns 0 if the cwdIfModulationTable
+            does not exist, or there is no corresponding row
+            in that table that describes modulation 
+            characteristics of this channel."
+    ::= { cwdIfDownstreamChannelEntry 6 }
+
+-- The following table is implemented on both the SU and the HE.
+-- For the SU, only attached channels appear in the table.
+cwdIfUpstreamChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfUpstreamChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes of attached upstream channels."
+    ::= { cwdIfBaseObjects 4 }
+
+cwdIfUpstreamChannelEntry OBJECT-TYPE
+    SYNTAX          CwdIfUpstreamChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "List of attributes for a single upstream channel.
+            The primary index is an ifIndex with an ifType of 
+            propDocsWirelessUpstream(nnn)."
+    INDEX           { ifIndex }
+    ::= { cwdIfUpstreamChannelTable 1 }
+
+CwdIfUpstreamChannelEntry ::= SEQUENCE {
+    cwdIfUpChannelSubChannelNumber  INTEGER,
+    cwdIfUpChannelId                INTEGER,
+    cwdIfUpChannelFrequency         INTEGER,
+    cwdIfUpChannelWidth             INTEGER,
+    cwdIfUpChannelTargetPower       Integer32,
+    cwdIfUpChannelModProfileIndex   Unsigned32,
+    cwdIfUpChannelSlotSize          Unsigned32,
+    cwdIfUpChannelTxTimingOffset    Unsigned32,
+    cwdIfUpChannelRangBackoffStart  INTEGER,
+    cwdIfUpChannelRangBackoffEnd    INTEGER,
+    cwdIfUpChannelTxBackoffStart    INTEGER,
+    cwdIfUpChannelTxBackoffEnd      INTEGER
+}
+
+cwdIfUpChannelSubChannelNumber OBJECT-TYPE
+    SYNTAX          INTEGER (0..1024)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This identifies the sub-channel used by this upstream."
+    ::= { cwdIfUpstreamChannelEntry 1 }
+
+cwdIfUpChannelId OBJECT-TYPE
+    SYNTAX          INTEGER (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The internal (DOCSIS) identification of the upstream
+            channel within this particular MAC interface. If the
+            interface is down, the object returns the most current
+            value. If the upstream channel ID is unknown, this
+            object returns a value of 0."
+    ::= { cwdIfUpstreamChannelEntry 2 }
+
+cwdIfUpChannelFrequency OBJECT-TYPE
+    SYNTAX          INTEGER (0..60000000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The center of the upstream frequency associated with
+            this channel. The channel settings determine this value."
+    ::= { cwdIfUpstreamChannelEntry 3 }
+
+cwdIfUpChannelWidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..500000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The bandwidth of this upstream channel. The channel
+            settings determine this value."
+    ::= { cwdIfUpstreamChannelEntry 4 }
+
+cwdIfUpChannelTargetPower OBJECT-TYPE
+    SYNTAX          Integer32 (-80..50)
+    UNITS           "dBm - decibel milliwatts"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The target receive power of this upstream channel at the
+            headend and the transmit power of the channel at the
+            subscriber end."
+    ::= { cwdIfUpstreamChannelEntry 5 }
+
+cwdIfUpChannelModProfileIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "An index into cwdIfModulationTable that describes
+            modulation characteristics of this channel.
+            This object returns 0 if the cwdIfModulationTable 
+            does not exist or is empty."
+    ::= { cwdIfUpstreamChannelEntry 6 }
+
+cwdIfUpChannelSlotSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The number of units of time-slot (measured by
+            cwdIfChannelMiniSlotTimeBaseTick) in each upstream
+            mini-slot. Returns zero if the value is undefined
+            or unknown."
+    ::= { cwdIfUpstreamChannelEntry 7 }
+
+cwdIfUpChannelTxTimingOffset OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "A measure of the current round trip time at the SU, or the
+            maximum round trip time seen by the HE.  Used for timing
+            of SU upstream transmissions to ensure synchronized
+            arrivals at the HE. Units are in terms of
+            (cwdIfChannelMiniSlotTimeBaseTick/64)."
+    ::= { cwdIfUpstreamChannelEntry 8 }
+
+cwdIfUpChannelRangBackoffStart OBJECT-TYPE
+    SYNTAX          INTEGER (0..16)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This value determines the initial contention resolution
+            back-off window used by the SU when attempting to transmit
+            an initial ranging request. The SU randomly selects a 
+            number within the back-off window defined by this 
+            parameter then defers this number of contention 
+            transmit opportunities before actually attempting the 
+            transmission. Expressed as a power of 2. A value of 16
+            at the HE indicates that a proprietary adaptive retry 
+            mechanism is to be used."
+    ::= { cwdIfUpstreamChannelEntry 9 }
+
+cwdIfUpChannelRangBackoffEnd OBJECT-TYPE
+    SYNTAX          INTEGER (0..16)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This value determines the final contention resolution
+            back-off window used by the SU when attempting to transmit
+            an initial ranging request. The SU randomly selects a 
+            number within the back-off window defined by this 
+            parameter then defers this number of contention 
+            transmit opportunities before actually attempting the 
+            transmission. Expressed as a power of 2. A value of 16
+            at the HE indicates that a proprietary adaptive retry 
+            mechanism is to be used."
+    ::= { cwdIfUpstreamChannelEntry 10 }
+
+cwdIfUpChannelTxBackoffStart OBJECT-TYPE
+    SYNTAX          INTEGER (0..16)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This value determines the initial contention resolution
+            back-off window used by the SU when attempting to 
+            transmit data packets. The SU randomly selects a 
+            number within the back-off window defined by this 
+            parameter then defers this number of contention 
+            transmit opportunities before actually attempting the 
+            transmission. Expressed as a power of 2. A value of 16
+            at the HE indicates that a proprietary adaptive retry 
+            mechanism is to be used."
+    ::= { cwdIfUpstreamChannelEntry 11 }
+
+cwdIfUpChannelTxBackoffEnd OBJECT-TYPE
+    SYNTAX          INTEGER (0..16)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This value determines the final contention resolution
+            back-off window used by the SU when attempting to 
+            transmit data packets. The SU randomly selects a 
+            number within the back-off window defined by this 
+            parameter then defers this number of contention 
+            transmit opportunities before actually attempting the 
+            transmission. Expressed as a power of 2. A value of 16
+            at the HE indicates that a proprietary adaptive retry 
+            mechanism is to be used."
+    ::= { cwdIfUpstreamChannelEntry 12 }
+
+-- The following table describes the attributes of each class of
+-- service.
+-- The entries in this table are referenced from the
+-- cwdIfHeServiceEntries and cwdIfSuServiceEntries.
+-- They exist as a separate table in order to reduce redundant
+-- information in cwdIf(He or Su)ServiceTable.
+
+-- This table is implemented at both the SU and the HE.
+-- The SU need only maintain entries for the classes of service
+-- referenced by its cwdIfSuServiceTable.
+cwdIfQosProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfQosProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes for each class of service."
+    ::= { cwdIfBaseObjects 5 }
+
+cwdIfQosProfileEntry OBJECT-TYPE
+    SYNTAX          CwdIfQosProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes for a single class of service.
+
+            The row operation for this table is as follows:
+            1. This table will be implemented as read-only at the SU. 
+               SU entries are created by the agent based on 
+               information in REG-REQ MAC messages received at 
+               the SU from HE or based on information extracted 
+               from the TFTP option file 
+            2. Creation of entries in this table is controlled by
+               the value of cwdIfHeQosProfilePermissions.
+            3. There can be default entries created by the agent at
+               the initialization time.
+            3. If a table is created by agent, there should only
+               be a single entry for each Class of Service. Multiple
+               entries with the same Class of Service parameters are
+               not recommended as it doesn't add any extra benefit
+               and creates extra processing of a row in the table.
+            4. You CAN modify a row when it is active provided you
+               have the right cwdIfHeQosProfilePermissions. You can
+               also change the row to notInService and change 
+               the values. 
+                  An entry in this table cannot be removed while it
+               is referenced by an entry in cwdIfSuServiceTable
+               (Subscriber Unit) or cwdIfHeServiceTable (Head-end
+               System).
+                  An entry in this table cannot be modified while
+               it is referenced by an entry in cwdIfHeServiceTable.
+            5. If the cwdIfHeQosProfilePermissions is 
+               createBySubscriberUnits(2) then that row cannot be
+               modified by the management system.
+            6. Any arbitrary integer within the range can be used
+               as index to create a row."
+    INDEX           { cwdIfQosProfIndex }
+    ::= { cwdIfQosProfileTable 1 }
+
+CwdIfQosProfileEntry ::= SEQUENCE {
+    cwdIfQosProfIndex             INTEGER,
+    cwdIfQosProfPriority          INTEGER,
+    cwdIfQosProfMaxUpBandwidth    INTEGER,
+    cwdIfQosProfGuarUpBandwidth   INTEGER,
+    cwdIfQosProfMaxDownBandwidth  INTEGER,
+    cwdIfQosProfMaxTxBurst        Integer32,
+    cwdIfQosProfBaselinePrivacy   TruthValue,
+    cwdIfQosProfStatus            RowStatus
+}
+
+cwdIfQosProfIndex OBJECT-TYPE
+    SYNTAX          INTEGER (1..16383)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The index value which uniquely identifies an entry
+            in the cwdIfQosProfileTable. Any arbitrary integer
+            within the range can be used as index to create a row."
+    ::= { cwdIfQosProfileEntry 1 }
+
+cwdIfQosProfPriority OBJECT-TYPE
+    SYNTAX          INTEGER (0..7)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "A relative priority assigned to this service when
+            allocating bandwidth. Zero indicates lowest priority.
+            seven highest. 
+            Interpretation of priority is device-specific."
+    DEFVAL          { 0 }
+    ::= { cwdIfQosProfileEntry 2 }
+
+cwdIfQosProfMaxUpBandwidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..100000000)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The maximum upstream bandwidth, in bits per second,
+            allowed for a service with this service class.
+            Zero if there is no restriction of upstream bandwidth."
+    DEFVAL          { 0 }
+    ::= { cwdIfQosProfileEntry 3 }
+
+cwdIfQosProfGuarUpBandwidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..100000000)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "Minimum guaranteed upstream bandwidth, in bits per second,
+            allowed for a service with this service class."
+    DEFVAL          { 0 }
+    ::= { cwdIfQosProfileEntry 4 }
+
+cwdIfQosProfMaxDownBandwidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..100000000)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The maximum downstream bandwidth, in bits per second,
+            allowed for a service with this service class.
+            Zero if there is no restriction of downstream bandwidth."
+    DEFVAL          { 0 }
+    ::= { cwdIfQosProfileEntry 5 }
+
+cwdIfQosProfMaxTxBurst OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The maximum number of mini-slots that may be requested
+            for a single upstream transmission.
+            A value of zero means there is no limit."
+    DEFVAL          { 0 }
+    ::= { cwdIfQosProfileEntry 6 }
+
+cwdIfQosProfBaselinePrivacy OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "Indicates whether Baseline Privacy is enabled for this
+            service class."
+    DEFVAL          { false }
+    ::= { cwdIfQosProfileEntry 7 }
+
+cwdIfQosProfStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "Controls and reflects the status of rows in this table."
+    ::= { cwdIfQosProfileEntry 8 }
+
+-- The following table is implemented on both the SU and the HE.
+cwdIfSignalQualityTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfSignalQualityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "At the SU, this table describes the PHY signal quality
+            of downstream channels. At the HE, this table describes
+            the PHY signal quality of upstream channels."
+    ::= { cwdIfBaseObjects 6 }
+
+cwdIfSignalQualityEntry OBJECT-TYPE
+    SYNTAX          CwdIfSignalQualityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "At the SU, describes the PHY signal quality of a
+            downstream channel. At the HE, describes the PHY signal
+            quality of an upstream channel.
+            An entry in this table exists for each ifEntry with an
+            ifType of propDocsWirelessUpstream(nnn) for Head-End
+            Systems and propDocsWirelessDownstream(nnn) for
+            Subscriber units."
+    INDEX           { ifIndex }
+    ::= { cwdIfSignalQualityTable 1 }
+
+CwdIfSignalQualityEntry ::= SEQUENCE {
+    cwdIfSigQIncludesContention  TruthValue,
+    cwdIfSigQUnerroreds          Counter32,
+    cwdIfSigQCorrecteds          Counter32,
+    cwdIfSigQUncorrectables      Counter32,
+    cwdIfSigQSignalNoise         CwrdBm
+}
+
+cwdIfSigQIncludesContention OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "true(1) if this HE includes contention intervals in
+            the counters in this table. Always false(2) for SUs."
+    ::= { cwdIfSignalQualityEntry 1 }
+
+cwdIfSigQUnerroreds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Codewords received on this channel without error.
+            This includes all codewords, whether or not they
+            were part of frames destined for this device."
+    ::= { cwdIfSignalQualityEntry 2 }
+
+cwdIfSigQCorrecteds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Codewords received on this channel with correctable
+            errors. This includes all codewords, whether or not
+            they were part of frames destined for this device."
+    ::= { cwdIfSignalQualityEntry 3 }
+
+cwdIfSigQUncorrectables OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Codewords received on this channel with uncorrectable
+            errors. This includes all codewords, whether or not
+            they were part of frames destined for this device."
+    ::= { cwdIfSignalQualityEntry 4 }
+
+cwdIfSigQSignalNoise OBJECT-TYPE
+    SYNTAX          CwrdBm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Signal to Interference plus Noise  ratio as perceived
+            for this channel."
+    ::= { cwdIfSignalQualityEntry 5 }
+
+-- The following table provides upstream/downstream channel modulation
+-- profiles.
+-- Entries in this table can be re-used by one or more upstream  and
+-- downstream channels.
+cwdIfModulationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfModulationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes  modulation parameters associated with one
+            or more upstream and/or downstream channels."
+    ::= { cwdIfBaseObjects 7 }
+
+cwdIfModulationEntry OBJECT-TYPE
+    SYNTAX          CwdIfModulationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes a modulation profile for one or more
+            upstream and downstream channels.
+            Initial default entries may be created at system 
+            initialization time by the agent.
+            The row operation for this table is as follows :
+            1. Any arbitrary index within the range can be
+               used to create a row.
+            2. No individual non-index objects have to be
+               specified in order to create an entry in this table.
+            3. CreateAndWait is not supported.
+            4. You can update/change the values in a row when
+               the row is active.
+            5. The rows can be destroyed any time. "
+    INDEX           { cwdIfModIndex }
+    ::= { cwdIfModulationTable 1 }
+
+CwdIfModulationEntry ::= SEQUENCE {
+    cwdIfModIndex                INTEGER,
+    cwdIfModRowStatus            RowStatus,
+    cwdIfModBandwidth            INTEGER,
+    cwdIfModThroughput           INTEGER,
+    cwdIfModBurstLength          INTEGER,
+    cwdIfModMultipathRobustness  INTEGER
+}
+
+cwdIfModIndex OBJECT-TYPE
+    SYNTAX          INTEGER (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An index into the Channel Modulation table
+            (cwdIfModulationTable) representing modulation
+            parameters of a channel."
+    ::= { cwdIfModulationEntry 1 }
+
+cwdIfModRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "Controls and reflects the status of rows in this table."
+    ::= { cwdIfModulationEntry 2 }
+
+cwdIfModBandwidth OBJECT-TYPE
+    SYNTAX          INTEGER (0..500000)
+    UNITS           "kHz"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The maximum bandwidth that can be used by a channel
+            with using this modulation profile."
+    DEFVAL          { 6000 }
+    ::= { cwdIfModulationEntry 3 }
+
+cwdIfModThroughput OBJECT-TYPE
+    SYNTAX          INTEGER (0..50000000)
+    UNITS           "bps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This represents the throughput expected of the
+            identified radio link."
+    ::= { cwdIfModulationEntry 4 }
+
+cwdIfModBurstLength OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        veryShort(1),
+                        short(2),
+                        medium(3),
+                        long(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The duration of the OFDM burst used by the physical layer.
+            This is also the duration of the MAC minislot.  
+            Not all the settings  will be supported by a particular ODU.
+            Consult the capabilities of the ODU to determine the best
+            burst length setting to use.
+            The exact durations are hardware and implementation 
+            dependent."
+    DEFVAL          { medium }
+    ::= { cwdIfModulationEntry 5 }
+
+cwdIfModMultipathRobustness OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        standard(1),
+                        high(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The quantitative level of robustness to multipath (also
+            known as delay spread tolerance). The degree of 
+            multipath in the environment will vary with deployment.
+            Consult installation and deployment documentation to
+            determine the best setting to use."
+    DEFVAL          { standard }
+    ::= { cwdIfModulationEntry 6 }
+
+-- SUBSCRIBER-END  GROUP
+
+
+-- The SU MAC Table
+cwdIfSuMacTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfSuMacEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes of each SU MAC interface,
+            extending the information available from ifEntry."
+    ::= { cwdIfSuObjects 1 }
+
+cwdIfSuMacEntry OBJECT-TYPE
+    SYNTAX          CwdIfSuMacEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry containing objects describing attributes of
+            each MAC entry, extending the information in ifEntry.
+            An entry in this table exists for each ifEntry with an
+            ifType of propDocsWirelessMacLayer(nnn)."
+    INDEX           { ifIndex }
+    ::= { cwdIfSuMacTable 1 }
+
+CwdIfSuMacEntry ::= SEQUENCE {
+    cwdIfSuHeAddress           MacAddress,
+    cwdIfSuCapabilities        BITS,
+    cwdIfSuRangingRespTimeout  TimeInterval
+}
+
+cwdIfSuHeAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Identifies the HE that controls this MAC domain. At the
+            SU, this will be the source address from SYNC, MAP, and
+            other MAC-layer messages. If the HE is unknown, returns
+            00-00-00-00-00-00."
+    ::= { cwdIfSuMacEntry 1 }
+
+cwdIfSuCapabilities OBJECT-TYPE
+    SYNTAX          BITS {
+                        atmCells(0),
+                        concatenation(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Identifies the capabilities of the MAC implementation
+            at this interface. Note that packet transmission is 
+            always supported. Therefore, there is no specific bit
+            required to explicitly indicate this capability."
+    ::= { cwdIfSuMacEntry 2 }
+
+cwdIfSuRangingRespTimeout OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION     "Waiting time for a Ranging Response packet."
+    REFERENCE       "Data over Cable Radio Frequency Interface specification, 
+             Section 7, timer T3"
+    DEFVAL          { 20 }
+    ::= { cwdIfSuMacEntry 3 }
+
+-- SU status table.
+-- This table is implemented only at the SU.
+-- The counters T1, T2, T3 and T4 have the following time references
+-- at the SU :
+-- T1 - Wait for UCD (Upstream Change Descriptor) timeout.
+-- T2 - Wait for broadcast ranging timeout.
+-- T3 - Wait for ranging response.
+-- T4 - Wait for unicast ranging opportunity.
+-- If the pending-till-complete field was used earlier by
+-- this modem, then the value of that field must be added
+-- to this interval.
+cwdIfSuStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfSuStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table maintains a number of status objects
+            and counters for Subscriber Units."
+    ::= { cwdIfSuObjects 2 }
+
+cwdIfSuStatusEntry OBJECT-TYPE
+    SYNTAX          CwdIfSuStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A set of status objects and counters for a single MAC
+            layer instance in a Subscriber unit.
+            An entry in this table exists for each ifEntry with an
+            ifType of propDocsWirelessMacLayer(nnn)."
+    INDEX           { ifIndex }
+    ::= { cwdIfSuStatusTable 1 }
+
+CwdIfSuStatusEntry ::= SEQUENCE {
+    cwdIfSuStatusValue               INTEGER,
+    cwdIfSuStatusCode                OCTET STRING,
+    cwdIfSuStatusTxPower             Integer32,
+    cwdIfSuStatusResets              Counter32,
+    cwdIfSuStatusLostSyncs           Counter32,
+    cwdIfSuStatusInvalidMaps         Counter32,
+    cwdIfSuStatusInvalidUcds         Counter32,
+    cwdIfSuStatusInvalidRangingResp  Counter32,
+    cwdIfSuStatusInvalidRegResp      Counter32,
+    cwdIfSuStatusT1Timeouts          Counter32,
+    cwdIfSuStatusT2Timeouts          Counter32,
+    cwdIfSuStatusT3Timeouts          Counter32,
+    cwdIfSuStatusT4Timeouts          Counter32,
+    cwdIfSuStatusRangingAborteds     Counter32
+}
+
+cwdIfSuStatusValue OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        other(1),
+                        notReady(2),
+                        notSynchronized(3),
+                        phySynchronized(4),
+                        usParametersAcquired(5),
+                        rangingComplete(6),
+                        ipComplete(7),
+                        todEstablished(8),
+                        securityEstablished(9),
+                        paramTransferComplete(10),
+                        registrationComplete(11),
+                        operational(12),
+                        accessDenied(13)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Current Subscriber unit connectivity state, as specified
+            in the RF Interface Specification."
+    REFERENCE       "Data over Cable Radio Frequency Interface Specification,
+             Chapter 7.2."
+    ::= { cwdIfSuStatusEntry 1 }
+
+cwdIfSuStatusCode OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Status code for this Subscriber unit as defined in the
+            RF Interface Specification. The status code consists
+            of a single character indicating error groups, followed
+            by a two- or three-digit number indicating the status
+            condition."
+    REFERENCE       "Data over Cable Radio Frequency Interface Specification,
+             Subscriber unit status codes."
+    ::= { cwdIfSuStatusEntry 2 }
+
+cwdIfSuStatusTxPower OBJECT-TYPE
+    SYNTAX          Integer32 (-80..50)
+    UNITS           "dBm - decibel milliwatts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The operational transmit power for the attached upstream
+            channel."
+    ::= { cwdIfSuStatusEntry 3 }
+
+cwdIfSuStatusResets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of times the SU reset or initialized
+            this interface."
+    ::= { cwdIfSuStatusEntry 4 }
+
+cwdIfSuStatusLostSyncs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of times the SU lost synchronization with
+            the downstream channel."
+    ::= { cwdIfSuStatusEntry 5 }
+
+cwdIfSuStatusInvalidMaps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of times the SU received invalid MAP messages."
+    ::= { cwdIfSuStatusEntry 6 }
+
+cwdIfSuStatusInvalidUcds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of times the SU received invalid UCD messages."
+    ::= { cwdIfSuStatusEntry 7 }
+
+cwdIfSuStatusInvalidRangingResp OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of times the SU received invalid ranging response
+            messages."
+    ::= { cwdIfSuStatusEntry 8 }
+
+cwdIfSuStatusInvalidRegResp OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of times the SU received invalid registration
+            response messages."
+    ::= { cwdIfSuStatusEntry 9 }
+
+cwdIfSuStatusT1Timeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "Number of times counter T1 expired in the SU."
+    ::= { cwdIfSuStatusEntry 10 }
+
+cwdIfSuStatusT2Timeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "Number of times counter T2 expired in the SU."
+    ::= { cwdIfSuStatusEntry 11 }
+
+cwdIfSuStatusT3Timeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "Number of times counter T3 expired in the SU."
+    ::= { cwdIfSuStatusEntry 12 }
+
+cwdIfSuStatusT4Timeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "Number of times counter T4 expired in the SU."
+    ::= { cwdIfSuStatusEntry 13 }
+
+cwdIfSuStatusRangingAborteds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of times the ranging process was aborted
+            by the HE."
+    ::= { cwdIfSuStatusEntry 14 }
+
+-- The Subscriber Unit Service Table
+cwdIfSuServiceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfSuServiceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes of each upstream service queue
+            on a SU."
+    ::= { cwdIfSuObjects 3 }
+
+cwdIfSuServiceEntry OBJECT-TYPE
+    SYNTAX          CwdIfSuServiceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes of an upstream bandwidth service
+            queue.
+            An entry in this table exists for each Service ID.
+            The primary index is an ifIndex with an ifType of
+            propDocsWirelessMacLayer(nnn)."
+    INDEX           {
+                        ifIndex,
+                        cwdIfSuServiceId
+                    }
+    ::= { cwdIfSuServiceTable 1 }
+
+CwdIfSuServiceEntry ::= SEQUENCE {
+    cwdIfSuServiceId            INTEGER,
+    cwdIfSuServiceQosProfile    INTEGER,
+    cwdIfSuServiceTxSlotsImmed  Counter32,
+    cwdIfSuServiceTxSlotsDed    Counter32,
+    cwdIfSuServiceTxRetries     Counter32,
+    cwdIfSuServiceTxExceeded    Counter32,
+    cwdIfSuServiceRqRetries     Counter32,
+    cwdIfSuServiceRqExceeded    Counter32
+}
+
+cwdIfSuServiceId OBJECT-TYPE
+    SYNTAX          INTEGER (1..16383)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Identifies a service queue for upstream bandwidth. The
+            attributes of this service queue are shared between the
+            SU and the HE. The HE allocates upstream bandwidth
+            to this service queue based on requests from the SU and
+            on the class of service associated with this queue."
+    ::= { cwdIfSuServiceEntry 1 }
+
+cwdIfSuServiceQosProfile OBJECT-TYPE
+    SYNTAX          INTEGER (0..16383)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The index in cwdIfQosProfileTable describing the quality
+            of service attributes associated with this particular
+            service. If cwdIfQosProfileTable is not supported or
+            doesn't exist, this object returns the value of zero."
+    ::= { cwdIfSuServiceEntry 2 }
+
+cwdIfSuServiceTxSlotsImmed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of upstream mini-slots which have been used to
+            transmit data PDUs in immediate (contention) mode. This
+            includes only those PDUs which are presumed to have
+            arrived at the headend (i.e., those which were explicitly
+            acknowledged.) It does not include retransmission attempts
+            or mini-slots used by requests."
+    ::= { cwdIfSuServiceEntry 3 }
+
+cwdIfSuServiceTxSlotsDed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of upstream mini-slots which have been used to
+            transmit data PDUs in dedicated mode (i.e., as a result
+            of a unicast Data Grant)."
+    ::= { cwdIfSuServiceEntry 4 }
+
+cwdIfSuServiceTxRetries OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The data PDUs transmitted directly in contention data
+            slots expects explicit acknowledgement from the Headend.
+            If the acknowledgement is not received the PDUs are 
+            transmitted again. This object is the number of attempts
+            to transmit data PDUs which didn't receive 
+            acknowledgement."
+    ::= { cwdIfSuServiceEntry 5 }
+
+cwdIfSuServiceTxExceeded OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The data PDUs transmitted directly in contention data
+            slots expects explicit acknowledgement from the Headend. 
+            If the acknowledgement is not received the PDUs are 
+            transmitted again. After excessive retries the data 
+            PDUs are dropped. This object represents the number 
+            of data PDU transmission failures due to excessive
+            retries without acknowledgment."
+    ::= { cwdIfSuServiceEntry 6 }
+
+cwdIfSuServiceRqRetries OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of attempts to transmit bandwidth requests
+            which did not result in acknowledgment."
+    ::= { cwdIfSuServiceEntry 7 }
+
+cwdIfSuServiceRqExceeded OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of requests for bandwidth which failed due to
+            excessive retries without acknowledgment."
+    ::= { cwdIfSuServiceEntry 8 }
+
+-- HE GROUP
+
+
+-- The HE MAC Table
+cwdIfHeMacTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfHeMacEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes of each HE MAC interface,
+            extending the information available from ifEntry."
+    ::= { cwdIfHeObjects 1 }
+
+cwdIfHeMacEntry OBJECT-TYPE
+    SYNTAX          CwdIfHeMacEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry containing objects describing attributes of each
+            MAC entry, extending the information in ifEntry.
+            An entry in this table exists for each ifEntry with an
+            ifType of propDocsWirelessMacLayer(nnn)."
+    INDEX           { ifIndex }
+    ::= { cwdIfHeMacTable 1 }
+
+CwdIfHeMacEntry ::= SEQUENCE {
+    cwdIfHeCapabilities            BITS,
+    cwdIfHeSyncInterval            INTEGER,
+    cwdIfHeUcdInterval             INTEGER,
+    cwdIfHeMaxServiceIds           INTEGER,
+    cwdIfHeInsertionInterval       TimeInterval,
+    cwdIfHeInvitedRangingAttempts  INTEGER
+}
+
+cwdIfHeCapabilities OBJECT-TYPE
+    SYNTAX          BITS {
+                        atmCells(0),
+                        concatenation(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Identifies the capabilities of the HE MAC
+            implementation at this interface. Note that packet
+            transmission is always supported. Therefore, there
+            is no specific bit required to explicitly indicate
+            this capability."
+    ::= { cwdIfHeMacEntry 1 }
+
+cwdIfHeSyncInterval OBJECT-TYPE
+    SYNTAX          INTEGER (1..200)
+    UNITS           "Milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The interval between HE transmission of successive SYNC
+            messages at this interface."
+    REFERENCE       "Data Over Cable Radio Frequency Interface Specification, 
+             Sync Interval."
+    ::= { cwdIfHeMacEntry 2 }
+
+cwdIfHeUcdInterval OBJECT-TYPE
+    SYNTAX          INTEGER (1..2000)
+    UNITS           "Milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The interval between HE transmission of successive
+            Upstream Channel Descriptor messages for each upstream
+            channel at this interface."
+    REFERENCE       "Data Over Cable Radio Frequency Interface Specification, 
+             UCD Interval."
+    ::= { cwdIfHeMacEntry 3 }
+
+cwdIfHeMaxServiceIds OBJECT-TYPE
+    SYNTAX          INTEGER (1..16383)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum number of service IDs that may be
+            simultaneously active."
+    REFERENCE       "Data Over Cable Radio Frequency Interface Specification, 
+             Appendix A.  Well-Known Addresses. 
+                      A.2 MAC Service IDs."
+    ::= { cwdIfHeMacEntry 4 }
+
+cwdIfHeInsertionInterval OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The amount of time between each broadcast station
+            maintenance grant. Broadcast station maintenance
+            grants are used to allow new subscriber units to join the
+            network. Zero indicates that a vendor-specific algorithm
+            is used instead of a fixed time. Maximum amount of time
+            permitted by the DOCSIS specification is 2 seconds."
+    REFERENCE       "Data Over Cable Radio Frequency Interface Specification, 
+             Ranging Interval."
+    ::= { cwdIfHeMacEntry 5 }
+
+cwdIfHeInvitedRangingAttempts OBJECT-TYPE
+    SYNTAX          INTEGER (0..1024)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "The maximum number of attempts to make on invitations
+            for ranging requests. A value of zero means the system 
+            should attempt to range forever."
+    ::= { cwdIfHeMacEntry 6 }
+
+-- HE status table.
+cwdIfHeStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfHeStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "For the MAC layer, this group maintains a number of
+            status objects and counters."
+    ::= { cwdIfHeObjects 2 }
+
+cwdIfHeStatusEntry OBJECT-TYPE
+    SYNTAX          CwdIfHeStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Status entry for a single MAC layer.
+            An entry in this table exists for each ifEntry with an
+            ifType of propDocsWirelessMacLayer(nnn)."
+    INDEX           { ifIndex }
+    ::= { cwdIfHeStatusTable 1 }
+
+CwdIfHeStatusEntry ::= SEQUENCE {
+    cwdIfHeStatusInvalidRangeReqs  Counter32,
+    cwdIfHeStatusRangingAborteds   Counter32,
+    cwdIfHeStatusInvalidRegReqs    Counter32,
+    cwdIfHeStatusFailedRegReqs     Counter32,
+    cwdIfHeStatusInvalidDataReqs   Counter32,
+    cwdIfHeStatusT5Timeouts        Counter32
+}
+
+cwdIfHeStatusInvalidRangeReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object counts invalid RNG-REQ messages received on
+            this interface."
+    ::= { cwdIfHeStatusEntry 1 }
+
+cwdIfHeStatusRangingAborteds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object counts ranging attempts that were explicitly
+            aborted by the HE."
+    ::= { cwdIfHeStatusEntry 2 }
+
+cwdIfHeStatusInvalidRegReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object counts invalid REG-REQ messages received on
+            this interface."
+    ::= { cwdIfHeStatusEntry 3 }
+
+cwdIfHeStatusFailedRegReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object counts failed registration attempts, i.e.,
+            authentication failures and class of service failures,
+            on this interface."
+    ::= { cwdIfHeStatusEntry 4 }
+
+cwdIfHeStatusInvalidDataReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object counts invalid data request messages
+            received on this interface."
+    ::= { cwdIfHeStatusEntry 5 }
+
+cwdIfHeStatusT5Timeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object counts the number of times counter T5
+            expired on this interface.
+            The T5 timer is the 'Wait for Upstream Channel Change 
+            Response Timer' on the Head end."
+    REFERENCE       "Data Over Cable Radio Frequency Interface Specification, 
+             Sync Interval. Appendix B"
+    ::= { cwdIfHeStatusEntry 6 }
+
+-- SU status table (within HE).
+-- This table is implemented only at the HE.
+-- It contains per SU status information available in the HE.
+cwdIfHeSuStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfHeSuStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A set of objects in the HE, maintained for each
+            Subscriber unit connected to this HE."
+    ::= { cwdIfHeObjects 3 }
+
+cwdIfHeSuStatusEntry OBJECT-TYPE
+    SYNTAX          CwdIfHeSuStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Status information for a single Subscriber unit.
+            An entry in this table exists for each Subscriber unit 
+            that is connected to the HE implementing this table."
+    INDEX           { cwdIfHeSuStatusIndex }
+    ::= { cwdIfHeSuStatusTable 1 }
+
+CwdIfHeSuStatusEntry ::= SEQUENCE {
+    cwdIfHeSuStatusIndex            INTEGER,
+    cwdIfHeSuStatusMacAddress       MacAddress,
+    cwdIfHeSuStatusIpAddress        IpAddress,
+    cwdIfHeSuStatusDownChanIfIndex  InterfaceIndexOrZero,
+    cwdIfHeSuStatusUpChanIfIndex    InterfaceIndexOrZero,
+    cwdIfHeSuStatusRxPower          Integer32,
+    cwdIfHeSuStatusTimingOffset     Unsigned32,
+    cwdIfHeSuStatusValue            INTEGER,
+    cwdIfHeSuStatusIfIndex          InterfaceIndex,
+    cwdIfHeSuStatusServiceId        INTEGER
+}
+
+cwdIfHeSuStatusIndex OBJECT-TYPE
+    SYNTAX          INTEGER (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Index value to uniquely identify an entry in this table.
+            For an individual Subscriber Unit, this index value should
+            not change during HE uptime."
+    ::= { cwdIfHeSuStatusEntry 1 }
+
+cwdIfHeSuStatusMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "MAC address of this Subscriber Unit. If the Subscriber
+            Unit has multiple MAC addresses, this is the MAC
+            address associated with the Wireless interface.
+            Each SU has only one wireless MAC interface."
+    ::= { cwdIfHeSuStatusEntry 2 }
+
+cwdIfHeSuStatusIpAddress OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "IP address of this Subscriber Unit. If the Subscriber
+            Unit has no IP address assigned, or the IP address is
+            unknown, this object returns a value of 0.0.0.0. If 
+            the Subscriber Unit has multiple IP addresses, this 
+            object returns the IP address associated with the 
+            Wireless interface. Each SU has only one wireless 
+            MAC interface."
+    ::= { cwdIfHeSuStatusEntry 3 }
+
+cwdIfHeSuStatusDownChanIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "IfIndex of the downstream channel this Subscriber Unit
+            is connected to. If the downstream channel is unknown, 
+            this object returns a value of zero."
+    ::= { cwdIfHeSuStatusEntry 4 }
+
+cwdIfHeSuStatusUpChanIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "IfIndex of the upstream channel this Subscriber Unit
+            is connected to. If the upstream channel is unknown, 
+            this object returns a value of zero."
+    ::= { cwdIfHeSuStatusEntry 5 }
+
+cwdIfHeSuStatusRxPower OBJECT-TYPE
+    SYNTAX          Integer32 (-80..33)
+    UNITS           "dBm Decibel milliwatts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The receive power as perceived for upstream data from
+            this subscriber unit.
+            If the receive power is unknown, this object returns
+            a value of zero."
+    ::= { cwdIfHeSuStatusEntry 6 }
+
+cwdIfHeSuStatusTimingOffset OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "A measure of the current round trip time for this SU.
+            Used for timing of SU upstream transmissions to ensure
+            synchronized arrivals at the HE. Units are in terms
+            of (cwdIfUpstreamMiniSlotTimeBaseTick/64). Returns
+            zero if the value is unknown."
+    ::= { cwdIfHeSuStatusEntry 7 }
+
+cwdIfHeSuStatusValue OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        other(1),
+                        ranging(2),
+                        rangingAborted(3),
+                        rangingComplete(4),
+                        ipComplete(5),
+                        registrationComplete(6),
+                        accessDenied(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Current subscriber unit connectivity state, as specified
+            in the RF Interface Specification. Returned status
+            information is the SU status as assumed by the HE,
+            and indicates the following events:
+            other(1)
+               Any state other than below.
+            ranging(2)
+               The HE has received an Initial Ranging Request
+               message from the SU, and the ranging process is not
+               yet complete.
+            rangingAborted(3)
+               The HE has sent a Ranging Abort message to the SU.
+            rangingComplete(4)
+               The HE has sent a Ranging Complete message to the SU.
+            ipComplete(5)
+               The HE has received a DHCP reply message and forwarded
+               it to the SU.
+            registrationComplete(6)
+               The HE has sent a Registration Response message to
+               the SU.
+            accessDenied(7)
+               The HE has sent a Registration Aborted message
+               to the SU.
+            The HE only needs to report states it is able to detect."
+    REFERENCE       "Data over Cable Radio Frequency Interface Specification,
+             Chapter 7.2."
+    ::= { cwdIfHeSuStatusEntry 8 }
+
+cwdIfHeSuStatusIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The HE MAC interface index (ifType of
+            propDocsWirelessMacLayer(nnn)) that SU connects to."
+    ::= { cwdIfHeSuStatusEntry 9 }
+
+cwdIfHeSuStatusServiceId OBJECT-TYPE
+    SYNTAX          INTEGER (1..16383)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "The SU's primary Service ID."
+    ::= { cwdIfHeSuStatusEntry 10 }
+
+-- The HE Service Table.
+cwdIfHeServiceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwdIfHeServiceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes of upstream service queues
+            in a Head-end System."
+    ::= { cwdIfHeObjects 4 }
+
+cwdIfHeServiceEntry OBJECT-TYPE
+    SYNTAX          CwdIfHeServiceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Describes the attributes of a single upstream bandwidth
+            service queue.
+            Entries in this table exist for each ifEntry with an
+            ifType of propDocsWirelessMacLayer(nnn), and for 
+            each service queue (Service ID) within this MAC layer.
+            Entries in this table are created with the creation of
+            individual Service IDs by the MAC layer and removed
+            when a Service ID is removed."
+    INDEX           {
+                        ifIndex,
+                        cwdIfHeServiceId
+                    }
+    ::= { cwdIfHeServiceTable 1 }
+
+CwdIfHeServiceEntry ::= SEQUENCE {
+    cwdIfHeServiceId             INTEGER,
+    cwdIfHeServiceSuStatusIndex  INTEGER,
+    cwdIfHeServiceAdminStatus    INTEGER,
+    cwdIfHeServiceQosProfile     INTEGER,
+    cwdIfHeServiceCreateTime     TimeStamp,
+    cwdIfHeServiceInOctets       Counter32,
+    cwdIfHeServiceInPackets      Counter32
+}
+
+cwdIfHeServiceId OBJECT-TYPE
+    SYNTAX          INTEGER (1..16383)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Identifies a service queue for upstream bandwidth. The
+            attributes of this service queue are shared between the
+            Subscriber unit and the Head-end System.
+            The HE allocates upstream bandwidth to this service 
+            queue based on requests from the SU and on the class of
+            service associated with this queue."
+    ::= { cwdIfHeServiceEntry 1 }
+
+cwdIfHeServiceSuStatusIndex OBJECT-TYPE
+    SYNTAX          INTEGER (0..2147483647)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Pointer to an entry in cwdIfHeSuStatusTable identifying
+            the Subscriber unit using this Service Queue."
+    ::= { cwdIfHeServiceEntry 2 }
+
+cwdIfHeServiceAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        enabled(1),
+                        disabled(2),
+                        destroyed(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "Allows a service class for a particular modem to be
+            suppressed, (re-)enabled, or deleted altogether."
+    ::= { cwdIfHeServiceEntry 3 }
+
+cwdIfHeServiceQosProfile OBJECT-TYPE
+    SYNTAX          INTEGER (0..16383)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The index in cwdIfQosProfileTable describing the quality
+            of service attributes associated with this particular
+            service. If cwdIfQosProfileTable is not supported, this
+            object returns the value of zero."
+    ::= { cwdIfHeServiceEntry 4 }
+
+cwdIfHeServiceCreateTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The value of sysUpTime when this entry was created."
+    ::= { cwdIfHeServiceEntry 5 }
+
+cwdIfHeServiceInOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The cumulative number of Packet Data octets received
+            on this Service ID. The count does not include the
+            size of the Wireless MAC header"
+    ::= { cwdIfHeServiceEntry 6 }
+
+cwdIfHeServiceInPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The cumulative number of Packet Data packets received
+            on this Service ID."
+    ::= { cwdIfHeServiceEntry 7 }
+
+cwdIfHeQosProfilePermissions OBJECT-TYPE
+    SYNTAX          BITS {
+                        createByManagement(0),
+                        updateByManagement(1),
+                        createBySubscriberUnits(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies permitted methods of creating
+            entries in cwdIfQosProfileTable.
+            CreateByManagement(0) is set if entries can be created
+            using SNMP. UpdateByManagement(1) is set if updating
+            entries using SNMP is permitted.
+            CreateBySubscriberUnits(2) is set if entries can be
+            created based on information in REG-REQ MAC messages
+            received from Subscriber units.  Information in this
+            object is only applicable if cwdIfQosProfileTable is
+            implemented as read-create.
+            Otherwise, this object is implemented as read-only
+            and returns CreateBySubscriberUnits(2).
+            Either CreateByManagement(0) or
+            CreateBySubscriberUnits(2) must be set when writing
+            to this object.  If this object has a value of
+            createByManagement(2) the qos entries can be created
+            and modified by the management. 
+            If this object has a value of UpdateByManagement(1)
+            the qos entries can be updated my management irrespective
+            of who created it. But the management cannot create
+            new entry in the cwdIfQosProfileTable."
+    ::= { cwdIfHeObjects 6 }
+
+-- notification group is for future extension.
+cwdIfNotification OBJECT IDENTIFIER
+    ::= { ciscoWirelessDocsIfMib 2 }
+
+cwdIfConformance OBJECT IDENTIFIER
+    ::= { ciscoWirelessDocsIfMib 3 }
+
+cwdIfCompliances OBJECT IDENTIFIER
+    ::= { cwdIfConformance 1 }
+
+cwdIfGroups OBJECT IDENTIFIER
+    ::= { cwdIfConformance 2 }
+
+-- compliance statements
+cwdIfBasicCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+            "The compliance statement for wireless devices that
+            implement MCNS compliant Radio Frequency Interfaces."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cwdIfBasicGroup }
+
+    GROUP           cwdIfSuGroup
+    DESCRIPTION
+            "This group is implemented only in Subscriber Units, not in
+            Head-end Systems."
+
+    GROUP           cwdIfHeGroup
+    DESCRIPTION
+            "This group is implemented only in Head-end
+            Systems, not in Subscriber Units."
+
+    GROUP           cwdIfQosGroup
+    DESCRIPTION
+            "This group of objects is implemented in both Subscriber
+            Units and Head-end Systems. Implementation of this 
+            group is optional."
+
+    GROUP           cwdIfQosHeGroup
+    DESCRIPTION
+            "This group of objects is implemented only in Head-end
+            systems. Implementation of this group is optional."
+
+    GROUP           cwdIfModGroup
+    DESCRIPTION
+            "This group of objects is implemented only in Head-end
+            Systems. Implementation of this group is optional at
+            the subscriber end."
+
+    OBJECT          cwdIfChannelDownFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfChannelDownWidth
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfChannelUpFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfChannelUpWidth
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfUpChannelTargetPower
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfDownChannelSubChannelNumber
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfDownChannelPower
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfDownChannelModProfileIndex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfUpChannelSubChannelNumber
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfUpChannelModProfileIndex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfUpChannelSlotSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfUpChannelTxBackoffStart
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfUpChannelTxBackoffEnd
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "Read-write in Head-end Systems;
+            read-only in Subscriber Units."
+
+    OBJECT          cwdIfQosProfPriority
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "This object is always read-only in Subscriber Units.
+            It is compliant to implement this object as read-only
+            in Head-end Systems."
+
+    OBJECT          cwdIfQosProfMaxUpBandwidth
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "This object is always read-only in Subscriber Units.
+            It is compliant to implement this object as read-only
+            in Head-end Systems."
+
+    OBJECT          cwdIfQosProfGuarUpBandwidth
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "This object is always read-only in Subscriber Units.
+            It is compliant to implement this object as read-only
+            in Head-end Systems."
+
+    OBJECT          cwdIfQosProfMaxDownBandwidth
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "This object is always read-only in Subscriber Units.
+            It is compliant to implement this object as read-only
+            in Head-end Systems."
+
+    OBJECT          cwdIfQosProfMaxTxBurst
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "This object is always read-only in Subscriber Units.
+            It is compliant to implement this object as read-only
+            in Head-end Systems."
+
+    OBJECT          cwdIfQosProfBaselinePrivacy
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "This object is always read-only in Subscriber Units.
+            It is compliant to implement this object as read-only
+            in Head-end Systems."
+
+    OBJECT          cwdIfHeUcdInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "It is compliant to implement this object as read-only."
+
+    OBJECT          cwdIfHeInvitedRangingAttempts
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "It is compliant to implement this object as read-only."
+
+    OBJECT          cwdIfHeQosProfilePermissions
+    MIN-ACCESS      read-only
+    DESCRIPTION
+            "It is compliant to implement this object as read-only."
+    ::= { cwdIfCompliances 2 }
+
+-- units of conformance
+cwdIfBasicGroup OBJECT-GROUP
+    OBJECTS         {
+                        cwdIfChannelUpFrequency,
+                        cwdIfChannelUpWidth,
+                        cwdIfChannelDownFrequency,
+                        cwdIfChannelDownWidth,
+                        cwdIfChannelMiniSlotTimeBaseTick,
+                        cwdIfChannelSubChannelPlanVer,
+                        cwdIfDownChannelSubChannelNumber,
+                        cwdIfDownChannelId,
+                        cwdIfDownChannelFrequency,
+                        cwdIfDownChannelWidth,
+                        cwdIfDownChannelPower,
+                        cwdIfDownChannelModProfileIndex,
+                        cwdIfUpChannelSubChannelNumber,
+                        cwdIfUpChannelId,
+                        cwdIfUpChannelFrequency,
+                        cwdIfUpChannelWidth,
+                        cwdIfUpChannelTargetPower,
+                        cwdIfUpChannelModProfileIndex,
+                        cwdIfUpChannelSlotSize,
+                        cwdIfUpChannelTxTimingOffset,
+                        cwdIfUpChannelRangBackoffStart,
+                        cwdIfUpChannelRangBackoffEnd,
+                        cwdIfUpChannelTxBackoffStart,
+                        cwdIfUpChannelTxBackoffEnd,
+                        cwdIfSigQIncludesContention,
+                        cwdIfSigQUnerroreds,
+                        cwdIfSigQCorrecteds,
+                        cwdIfSigQUncorrectables,
+                        cwdIfSigQSignalNoise
+                    }
+    STATUS          current
+    DESCRIPTION
+            "Group of objects implemented in both Subscriber Units and
+            Head-end Systems."
+    ::= { cwdIfGroups 1 }
+
+cwdIfHeGroup OBJECT-GROUP
+    OBJECTS         {
+                        cwdIfHeCapabilities,
+                        cwdIfHeSyncInterval,
+                        cwdIfHeUcdInterval,
+                        cwdIfHeMaxServiceIds,
+                        cwdIfHeInsertionInterval,
+                        cwdIfHeInvitedRangingAttempts,
+                        cwdIfHeStatusInvalidRangeReqs,
+                        cwdIfHeStatusRangingAborteds,
+                        cwdIfHeStatusInvalidRegReqs,
+                        cwdIfHeStatusFailedRegReqs,
+                        cwdIfHeStatusInvalidDataReqs,
+                        cwdIfHeStatusT5Timeouts,
+                        cwdIfHeSuStatusMacAddress,
+                        cwdIfHeSuStatusIpAddress,
+                        cwdIfHeSuStatusDownChanIfIndex,
+                        cwdIfHeSuStatusUpChanIfIndex,
+                        cwdIfHeSuStatusRxPower,
+                        cwdIfHeSuStatusTimingOffset,
+                        cwdIfHeSuStatusValue,
+                        cwdIfHeSuStatusIfIndex,
+                        cwdIfHeSuStatusServiceId,
+                        cwdIfHeServiceSuStatusIndex,
+                        cwdIfHeServiceAdminStatus,
+                        cwdIfHeServiceQosProfile,
+                        cwdIfHeServiceCreateTime,
+                        cwdIfHeServiceInOctets,
+                        cwdIfHeServiceInPackets
+                    }
+    STATUS          current
+    DESCRIPTION
+            "Group of objects implemented in Head-end
+            Systems."
+    ::= { cwdIfGroups 7 }
+
+cwdIfSuGroup OBJECT-GROUP
+    OBJECTS         {
+                        cwdIfSuHeAddress,
+                        cwdIfSuCapabilities,
+                        cwdIfSuRangingRespTimeout,
+                        cwdIfSuStatusValue,
+                        cwdIfSuStatusCode,
+                        cwdIfSuStatusTxPower,
+                        cwdIfSuStatusResets,
+                        cwdIfSuStatusLostSyncs,
+                        cwdIfSuStatusInvalidMaps,
+                        cwdIfSuStatusInvalidUcds,
+                        cwdIfSuStatusInvalidRangingResp,
+                        cwdIfSuStatusInvalidRegResp,
+                        cwdIfSuStatusT1Timeouts,
+                        cwdIfSuStatusT2Timeouts,
+                        cwdIfSuStatusT3Timeouts,
+                        cwdIfSuStatusT4Timeouts,
+                        cwdIfSuStatusRangingAborteds,
+                        cwdIfSuServiceQosProfile,
+                        cwdIfSuServiceTxSlotsImmed,
+                        cwdIfSuServiceTxSlotsDed,
+                        cwdIfSuServiceTxRetries,
+                        cwdIfSuServiceTxExceeded,
+                        cwdIfSuServiceRqRetries,
+                        cwdIfSuServiceRqExceeded
+                    }
+    STATUS          current
+    DESCRIPTION     "Group of objects implemented in Subscriber Units."
+    ::= { cwdIfGroups 2 }
+
+cwdIfQosGroup OBJECT-GROUP
+    OBJECTS         {
+                        cwdIfQosProfPriority,
+                        cwdIfQosProfMaxUpBandwidth,
+                        cwdIfQosProfGuarUpBandwidth,
+                        cwdIfQosProfMaxDownBandwidth,
+                        cwdIfQosProfMaxTxBurst,
+                        cwdIfQosProfBaselinePrivacy,
+                        cwdIfQosProfStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+            "Quality of Service related group of objects.
+            This group is implemented in both Subscriber Units and
+            Head-end Systems."
+    ::= { cwdIfGroups 3 }
+
+cwdIfQosHeGroup OBJECT-GROUP
+    OBJECTS         { cwdIfHeQosProfilePermissions }
+    STATUS          current
+    DESCRIPTION
+            "Quality of Service related group of objects.
+            This group is implemented in Head-end
+            Systems only."
+    ::= { cwdIfGroups 4 }
+
+cwdIfModGroup OBJECT-GROUP
+    OBJECTS         {
+                        cwdIfModRowStatus,
+                        cwdIfModBandwidth,
+                        cwdIfModThroughput,
+                        cwdIfModBurstLength,
+                        cwdIfModMultipathRobustness
+                    }
+    STATUS          current
+    DESCRIPTION
+            "Objects that describe modulation characteristics
+            of a channel.
+            This group is implemented in both Subscriber Units and
+            Head-end Systems."
+    ::= { cwdIfGroups 5 }
+
+END
+
+

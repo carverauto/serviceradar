@@ -1,0 +1,1454 @@
+-- *****************************************************************
+-- CISCO-STACK-CAPABILITY.my:
+-- Cisco CISCO-STACK-MIB AGENT-CAPABILITIES
+--
+-- August 2003, Binh Le
+--
+-- Copyright (c) 2003, 2004, 2005, 2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-STACK-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, Unsigned32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoStackCapability MODULE-IDENTITY
+        LAST-UPDATED    "200803190000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com,
+                        cs-snmp@cisco.com"
+        DESCRIPTION
+                "The capabilities description of
+                 CISCO-STACK-MIB."
+        REVISION        "200803190000Z"
+        DESCRIPTION
+                "Added ciscoStackCapCatOSV08R0701PCat6k for Cisco   
+                 CatOS 8.7(1)." 
+        REVISION        "200603150000Z"
+        DESCRIPTION
+                "Add VARIATIONs for notifications chassisAlarmOff, 
+                 chassisAlarmOn, moduleDown and moduleUp, in 
+                 ciscoStackCapCatOSV08R0101Cat6k."
+        REVISION        "200501190000Z"
+        DESCRIPTION
+                "Added ciscoStackCapV12R0112cE01PCat6k for Cisco IOS
+                12.1(12c)E1."
+        REVISION        "200312170000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 378 }
+
+ciscoStackCapCatOSV08R0101Cat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS               current
+    DESCRIPTION          "CISCO-STACK-MIB capabilities."
+ 
+    SUPPORTS             CISCO-STACK-MIB
+        INCLUDES         { systemMiscGroup, systemTrapGroup, 
+                           chassisGroup, chassisGroup1, 
+                           optionalChassisGroup, moduleGroup,
+                           moduleGroup1, moduleGroup2,
+                           optionalModuleGroup, portGroup, portGroup1,
+                           portGroup2, portGroup3, optionalPortGroup,
+                           optionalSystemMiscGroup,
+                           optionalSystemMiscGroup1,
+                           optionalSystemMiscGroup2,
+                           optionalSystemMiscGroup3,
+                           optionalSystemMiscGroup4,
+                           optionalSystemMiscGroup5,
+                           optionalSystemTrapGroup, systemTrafficGroup,
+                           systemRmonGroup, systemRmonGroup2, 
+                           authenticationGroup, authenticationGroup1,
+                           tftpGroup, filterGroup, filterGroup1,
+                           filterGroup2, filterGroup3, monitorGroup,
+                           vlanGroup, vmpsGroup, tokenRingGroup,
+                           mcastGroup, mcastGroup1, portCpbGroup2,
+                           portCpbGroup3, portCpbGroup4, portCpbGroup5,
+                           dnsGroup, syslogGroup, syslogGroup2,
+                           ntpGroup, ipPermitGroup, ipPermitGroup1,
+                           mdgGatewayGroup, traceRouteGroup,
+                           ntpAuthenticationGroup,
+                           tokenRingSoftErrorMonitorGroup,
+                           portCpbGroup1, portSecurityGroup1,
+                           fileCopyGroup, fileCopyGroup2, voiceGroup,
+                           vlanGroup1, vlanTrunkMappingGroup,
+                           portJumboFrameGroup, systemStatusGroup,
+                           configurationGroup }
+
+        VARIATION        chassisComponentIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentSerialNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentHwVersion
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentModel
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeterType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeter
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeterPeak
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeterPeakTime
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysExtendedRmonNetflowPassword
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysExtendedRmonNetflowEnable
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestOffset
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestValue
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestMask
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisAlarmOn -- NOTIFICATION-TYPE
+--          OBJECTS    { chassisTempAlarm, chassisMinorAlarm,
+--                       chassisMajorAlarm, chassisFanStatus, 
+--                       chassisFanTestResult, sysStatus,
+--                       chassisPs1Status,  chassisPs1TestResult,
+--                       chassisPs2Status,  chassisPs2TestResult,
+--                       chassisPs3Status,  chassisPs3TestResult,
+--                     }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance 
+                     values for chassisFanStatus, chassisFanTestResult, 
+                     sysStatus are appended to the notification. 
+
+                     The instance values for chassisPs1Status, 
+                     chassisPs1TestResult are appended upon the 
+                     existence of PS1.
+
+                     The instance values for chassisPs2Status, 
+                     chassisPs2TestResult are appended upon the 
+                     existence of PS2.
+
+                     The instance values for chassisPs3Status, 
+                     chassisPs3TestResult are appended upon the 
+                     existence of PS3."
+
+        VARIATION        chassisAlarmOff -- NOTIFICATION-TYPE
+--          OBJECTS    { chassisTempAlarm, chassisMinorAlarm,
+--                       chassisMajorAlarm, chassisFanStatus, 
+--                       chassisFanTestResult, sysStatus,
+--                       chassisPs1Status,  chassisPs1TestResult,
+--                       chassisPs2Status,  chassisPs2TestResult,
+--                       chassisPs3Status,  chassisPs3TestResult,
+--                     }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance
+                     values of chassisFanStatus, chassisFanTestResult,
+                     sysStatus are appended to the notification.
+
+                     The instance values of chassisPs1Status,
+                     chassisPs1TestResult are appended upon the
+                     existence of PS1.
+
+                     The instance values of chassisPs2Status,
+                     chassisPs2TestResult are appended upon the
+                     existence of PS2.
+
+                     The instance values of chassisPs3Status,
+                     chassisPs3TestResult are appended upon the
+                     existence of PS3."
+
+        VARIATION        moduleUp -- NOTIFICATION-TYPE
+--          OBJECTS     { moduleIndex, moduleType, moduleName }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance
+                     value of moduleName is appended to the 
+                     notification."
+
+        VARIATION        moduleDown -- NOTIFICATION-TYPE
+--          OBJECTS     { moduleIndex, moduleType, moduleName }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance
+                     value of moduleName is appended to the 
+                     notification."
+
+    ::= { ciscoStackCapability 1 }
+
+ciscoStackCapV12R0111bEXCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS               current
+    DESCRIPTION          "CISCO-STACK-MIB capabilities."
+
+    SUPPORTS             CISCO-STACK-MIB
+        INCLUDES         { systemTrapGroup, 
+                           chassisGroup, optionalChassisGroup,
+                           moduleGroup, moduleGroup1, 
+                           optionalModuleGroup, 
+                           portGroup, portGroup1,
+                           optionalPortGroup,
+                           optionalSystemMiscGroup1,
+                           systemTrafficGroup,
+                           filterGroup, filterGroup1,
+                           vlanGroup, vlanGroup1,
+                           portCpbGroup1, portCpbGroup2,
+                           portCpbGroup3, portCpbGroup4, portCpbGroup5,
+                           systemStatusGroup }
+
+        VARIATION        sysTrapReceiverAddr
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrapReceiverType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrapReceiverComm
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysEnableBridgeTraps
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysEnableRepeaterTraps
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentSerialNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentHwVersion
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentModel
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisSerialNumberString
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        moduleName
+            DESCRIPTION
+                   "Only supports same name configuration."
+
+        VARIATION        moduleSlotNum
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portCrossGroupIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portAdditionalStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portAdminSpeed
+            SYNTAX       INTEGER { 
+                            autoDetect(1),
+                            s10G(10),
+                            s10000000(10000000),
+                            s100000000(100000000),
+                            s1000000000(1000000000)
+                         }
+            DESCRIPTION
+                   "Only supports autoDetect(1), s10000000(10000000),
+                    s100000000(100000000), s1000000000(1000000000),
+                    and s10G(10)."
+
+        VARIATION        portSpantreeFastStart
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portMacControlUnknownProtocolFrames
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portLinkFaultStatus
+            SYNTAX       INTEGER { noFault(1), nearEndFault(2) } 
+            DESCRIPTION
+                   "Only supports noFault(1) and nearEndFault(2)."
+
+        VARIATION        portSecurityModuleIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityPortIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityAdminStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityOperStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityLastSrcAddr 
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecuritySecureSrcAddr
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelModuleIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelPortIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelPorts
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelAdminStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelOperStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelNeighbourDeviceId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelNeighbourPortId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelProtInPackets
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelProtOutPackets
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelIfIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNControlIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNDuration
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNTimeRemaining
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNStartTime
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNRequestedSize
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNGrantedSize
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNOwner
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNModuleNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNPortNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNUtilization
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOOctets
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOPkts
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOBroadcast
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOMulticast
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNInErrors
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNBufferOverFlow
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysStartupConfigSource
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysStartupConfigSourceFile
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysConfigSupervisorModuleNo
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysStandbyPortEnable 
+            SYNTAX       INTEGER { enabled(1) }
+            DESCRIPTION
+                   "Only supports enabled(1)."
+
+        VARIATION        filterMacModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterMacPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterMacAddress
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterMacType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolValue
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestOffset
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestValue
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestMask
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        vlanSpantreeEnable
+            SYNTAX       INTEGER { enabled(1), disabled(2) }
+            DESCRIPTION
+                   "Only supports enabled(1) and disable(2)."
+
+        VARIATION        vlanPortSwitchLevel
+            SYNTAX       INTEGER { notApplicable(3) }
+            DESCRIPTION
+                   "Only supports notApplicable(3)."
+
+        VARIATION        vlanPortIslPriorityVlans
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        vlanPortAdminStatus
+            SYNTAX       INTEGER { static(1) }
+            DESCRIPTION
+                   "Only supports static(2)."
+
+        VARIATION        vlanPortOperStatus
+            SYNTAX       INTEGER { inactive(1), active(2) }
+            DESCRIPTION
+                   "Only supports inactive(1) and active(2)."
+
+        VARIATION        vlanPortAuxiliaryVlan
+            SYNTAX       INTEGER ( 0 )
+            DESCRIPTION
+                   "Only supports value '0'."
+
+        VARIATION        lerAlarmOn     -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        lerAlarmOff    -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisAlarmOn -- NOTIFICATION-TYPE
+            DESCRIPTION
+                    "Additional VarBinds are appended to notification
+                     chassisAlarmOn. They are chassisFanStatus,
+                     chassisFanTestResult, sysStatus,
+                     chassisPs1Status, chassisPs1TestResult,
+                     chassisPs2Status, chassisPs2TestResult."
+
+        VARIATION        chassisAlarmOff -- NOTIFICATION-TYPE
+            DESCRIPTION
+                    "Additional VarBinds are appended to notification
+                     chassisAlarmOff. They are chassisFanStatus,
+                     chassisFanTestResult, sysStatus,
+                     chassisPs1Status, chassisPs1TestResult,
+                     chassisPs2Status, chassisPs2TestResult."
+
+        VARIATION        ipPermitDeniedTrap  -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysConfigChangeTrap -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+    ::= { ciscoStackCapability 2 }
+
+ciscoStackCapV12R0112cE01PCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco IOS 12.1(12c)E1 on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS               current
+    DESCRIPTION          "CISCO-STACK-MIB capabilities."
+
+    SUPPORTS             CISCO-STACK-MIB
+        INCLUDES         { systemTrapGroup, 
+                           chassisGroup, optionalChassisGroup,
+                           moduleGroup, moduleGroup1, 
+                           optionalModuleGroup, 
+                           portGroup, portGroup1,
+                           optionalPortGroup,
+                           optionalSystemMiscGroup1,
+                           systemTrafficGroup,
+                           filterGroup, filterGroup1,
+                           vlanGroup, vlanGroup1,
+                           portCpbGroup1, portCpbGroup2,
+                           portCpbGroup3, portCpbGroup4, portCpbGroup5,
+                           systemStatusGroup, filterGroup2 }
+
+        VARIATION        sysTrapReceiverAddr
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrapReceiverType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrapReceiverComm
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysEnableBridgeTraps
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysEnableRepeaterTraps
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentSerialNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentHwVersion
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentModel
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisSerialNumberString
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        moduleName
+            DESCRIPTION
+                   "Only supports same name configuration."
+
+        VARIATION        moduleSlotNum
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portCrossGroupIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portAdditionalStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portAdminSpeed
+            SYNTAX       INTEGER { 
+                            autoDetect(1),
+                            s10G(10),
+                            s10000000(10000000),
+                            s100000000(100000000),
+                            s1000000000(1000000000)
+                         }
+            DESCRIPTION
+                   "Only supports autoDetect(1), s10000000(10000000),
+                    s100000000(100000000), s1000000000(1000000000),
+                    and s10G(10)."
+
+        VARIATION        portSpantreeFastStart
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portMacControlUnknownProtocolFrames
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portLinkFaultStatus
+            SYNTAX       INTEGER { noFault(1), nearEndFault(2) } 
+            DESCRIPTION
+                   "Only limited set of enumerated values
+                    are supported."
+
+        VARIATION        portSecurityModuleIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityPortIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityAdminStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityOperStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecurityLastSrcAddr 
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portSecuritySecureSrcAddr
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelModuleIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelPortIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelPorts
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelAdminStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelOperStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelNeighbourDeviceId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelNeighbourPortId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelProtInPackets
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelProtOutPackets
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portChannelIfIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNControlIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNDuration
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNTimeRemaining
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNStartTime
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNRequestedSize
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNGrantedSize
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNOwner
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNStatus
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNModuleNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNPortNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNUtilization
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOOctets
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOPkts
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOBroadcast
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNIOMulticast
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNInErrors
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        portTopNBufferOverFlow
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysStartupConfigSource
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysStartupConfigSourceFile
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysConfigSupervisorModuleNo
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysStandbyPortEnable 
+            SYNTAX       INTEGER { enabled(1) }
+            DESCRIPTION
+                   "Only limited set of enumerated values
+                    are supported."
+
+        VARIATION        filterMacModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterMacPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterMacAddress
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterMacType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolValue
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterProtocolType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestOffset
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestValue
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestMask
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        vlanSpantreeEnable
+            SYNTAX       INTEGER { enabled(1), disabled(2) }
+            DESCRIPTION
+                   "Only limited set of enumerated values
+                    are supported."
+
+        VARIATION        vlanPortSwitchLevel
+            SYNTAX       INTEGER { notApplicable(3) }
+            DESCRIPTION
+                   "Only limited set of enumerated values
+                    are supported."
+
+        VARIATION        vlanPortIslPriorityVlans
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        vlanPortAdminStatus
+            SYNTAX       INTEGER { static(1) }
+            DESCRIPTION
+                   "Only limited set of enumerated values
+                    are supported."
+
+        VARIATION        vlanPortOperStatus
+            SYNTAX       INTEGER { inactive(1), active(2) }
+            DESCRIPTION
+                   "Only limited set of enumerated values
+                    are supported."
+
+        VARIATION        vlanPortAuxiliaryVlan
+            SYNTAX       INTEGER ( 0 )
+            DESCRIPTION
+                   "Only supports value '0'."
+
+        VARIATION        lerAlarmOn     -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        lerAlarmOff    -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisAlarmOn -- NOTIFICATION-TYPE
+            DESCRIPTION
+                    "Additional VarBinds are appended to notification
+                     chassisAlarmOn. They are chassisFanStatus,
+                     chassisFanTestResult, sysStatus,
+                     chassisPs1Status, chassisPs1TestResult,
+                     chassisPs2Status, chassisPs2TestResult."
+
+        VARIATION        chassisAlarmOff -- NOTIFICATION-TYPE
+            DESCRIPTION
+                    "Additional VarBinds are appended to notification
+                     chassisAlarmOff. They are chassisFanStatus,
+                     chassisFanTestResult, sysStatus,
+                     chassisPs1Status, chassisPs1TestResult,
+                     chassisPs2Status, chassisPs2TestResult."
+
+        VARIATION        ipPermitDeniedTrap  -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysConfigChangeTrap -- NOTIFICATION-TYPE
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+    ::= { ciscoStackCapability 3 }
+
+ciscoStackCapCatOSV08R0701PCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco CatOS 8.7(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS               current
+    DESCRIPTION          "CISCO-STACK-MIB capabilities."
+
+    SUPPORTS             CISCO-STACK-MIB
+        INCLUDES         { systemMiscGroup, systemTrapGroup,
+                           chassisGroup, chassisGroup1,
+                           optionalChassisGroup, moduleGroup,
+                           moduleGroup1, moduleGroup2,
+                           optionalModuleGroup, portGroup, portGroup1,
+                           portGroup2, portGroup3, optionalPortGroup,
+                           optionalSystemMiscGroup,
+                           optionalSystemMiscGroup1,
+                           optionalSystemMiscGroup2,
+                           optionalSystemMiscGroup3,
+                           optionalSystemMiscGroup4,
+                           optionalSystemMiscGroup5,
+                           optionalSystemTrapGroup, systemTrafficGroup,
+                           systemRmonGroup, systemRmonGroup2,
+                           authenticationGroup, authenticationGroup1,
+                           tftpGroup, filterGroup, filterGroup1,
+                           filterGroup2, filterGroup3, monitorGroup,
+                           vlanGroup, vmpsGroup, tokenRingGroup,
+                           mcastGroup, mcastGroup1, portCpbGroup2,
+                           portCpbGroup3, portCpbGroup4, portCpbGroup5,
+                           dnsGroup, syslogGroup, syslogGroup2,
+                           ntpGroup, ipPermitGroup, ipPermitGroup1,
+                           mdgGatewayGroup, traceRouteGroup,
+                           ntpAuthenticationGroup,
+                           tokenRingSoftErrorMonitorGroup,
+                           portCpbGroup1, portSecurityGroup1,
+                           fileCopyGroup, fileCopyGroup2, voiceGroup,
+                           vlanGroup1, vlanTrunkMappingGroup,
+                           portJumboFrameGroup, systemStatusGroup,
+                           configurationGroup, ipPermitGroup3 }
+
+        VARIATION        chassisComponentIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentSerialNumber
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentHwVersion
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisComponentModel
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeterType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeter
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeterPeak
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysTrafficMeterPeakTime
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        sysExtendedRmonNetflowPassword
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported." 
+
+        VARIATION        sysExtendedRmonNetflowEnable
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorId
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterVendorType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestModule
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestPort
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestIndex
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestType
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestOffset
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestValue
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        filterTestMask
+            ACCESS       not-implemented
+            DESCRIPTION
+                   "Not supported."
+
+        VARIATION        chassisAlarmOn -- NOTIFICATION-TYPE
+--          OBJECTS    { chassisTempAlarm, chassisMinorAlarm,
+--                       chassisMajorAlarm, chassisFanStatus,
+--                       chassisFanTestResult, sysStatus,
+--                       chassisPs1Status,  chassisPs1TestResult,
+--                       chassisPs2Status,  chassisPs2TestResult,
+--                       chassisPs3Status,  chassisPs3TestResult,
+--                     }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance
+                     values for chassisFanStatus, chassisFanTestResult,
+                     sysStatus are appended to the notification.
+
+                     The instance values for chassisPs1Status,
+                     chassisPs1TestResult are appended upon the
+                     existence of PS1.
+
+                     The instance values for chassisPs2Status,
+                     chassisPs2TestResult are appended upon the
+                     existence of PS2.
+
+                     The instance values for chassisPs3Status,
+                     chassisPs3TestResult are appended upon the
+                     existence of PS3."
+
+        VARIATION        chassisAlarmOff -- NOTIFICATION-TYPE
+--          OBJECTS    { chassisTempAlarm, chassisMinorAlarm,
+--                       chassisMajorAlarm, chassisFanStatus,
+--                       chassisFanTestResult, sysStatus,
+--                       chassisPs1Status,  chassisPs1TestResult,
+--                       chassisPs2Status,  chassisPs2TestResult,
+--                       chassisPs3Status,  chassisPs3TestResult,
+--                     }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance
+                     values of chassisFanStatus, chassisFanTestResult,
+                     sysStatus are appended to the notification.
+
+                     The instance values of chassisPs1Status,
+                     chassisPs1TestResult are appended upon the
+                     existence of PS1.
+
+                     The instance values of chassisPs2Status,
+                     chassisPs2TestResult are appended upon the
+                     existence of PS2.
+
+                     The instance values of chassisPs3Status,
+                     chassisPs3TestResult are appended upon the
+                     existence of PS3."
+
+        VARIATION        moduleUp -- NOTIFICATION-TYPE
+--          OBJECTS     { moduleIndex, moduleType, moduleName }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance
+                     value of moduleName is appended to the
+                     notification."
+
+        VARIATION        moduleDown -- NOTIFICATION-TYPE
+--          OBJECTS     { moduleIndex, moduleType, moduleName }
+            DESCRIPTION
+                    "In addition to regular varbinds, the instance
+                     value of moduleName is appended to the
+                     notification."
+       
+        VARIATION        ipPermitTelnetConnectLimit  
+            SYNTAX        Unsigned32 (0..13)
+            DESCRIPTION
+                    "Only limited set of values are supported."
+
+        VARIATION        ipPermitSshConnectLimit  
+            SYNTAX        Unsigned32 (0..13)
+            DESCRIPTION
+                    "Only limited set of values are supported."
+
+    ::= { ciscoStackCapability 4 }
+END
+
+

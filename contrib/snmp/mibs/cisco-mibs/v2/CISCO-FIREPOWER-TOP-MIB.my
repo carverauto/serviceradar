@@ -1,0 +1,444 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-TOP-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- TOP management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-TOP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprTopInfoPolicyState,
+    CfprTopMode
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprTopObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        TOP management information model package"
+    ::= { ciscoFirepowerMIBObjects 78 }
+
+cfprTopInfoPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprTopInfoPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower top:InfoPolicy managed object table"
+    ::= { cfprTopObjects 1 }
+
+cfprTopInfoPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprTopInfoPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprTopInfoPolicyTable table."
+    INDEX { cfprTopInfoPolicyInstanceId }
+    ::= { cfprTopInfoPolicyTable 1 }
+
+CfprTopInfoPolicyEntry ::= SEQUENCE {
+    cfprTopInfoPolicyInstanceId                                      CfprManagedObjectId,
+    cfprTopInfoPolicyDn                                              CfprManagedObjectDn,
+    cfprTopInfoPolicyRn                                              SnmpAdminString,
+    cfprTopInfoPolicyState                                           CfprTopInfoPolicyState
+}
+
+cfprTopInfoPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprTopInfoPolicyEntry 1 }
+
+cfprTopInfoPolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:InfoPolicy:dn managed object property"
+    ::= { cfprTopInfoPolicyEntry 2 }
+
+cfprTopInfoPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:InfoPolicy:rn managed object property"
+    ::= { cfprTopInfoPolicyEntry 3 }
+
+cfprTopInfoPolicyState OBJECT-TYPE
+    SYNTAX       CfprTopInfoPolicyState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:InfoPolicy:state managed object property"
+    ::= { cfprTopInfoPolicyEntry 4 }
+
+cfprTopMetaInfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprTopMetaInfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower top:MetaInf managed object table"
+    ::= { cfprTopObjects 2 }
+
+cfprTopMetaInfEntry OBJECT-TYPE
+    SYNTAX           CfprTopMetaInfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprTopMetaInfTable table."
+    INDEX { cfprTopMetaInfInstanceId }
+    ::= { cfprTopMetaInfTable 1 }
+
+CfprTopMetaInfEntry ::= SEQUENCE {
+    cfprTopMetaInfInstanceId                                         CfprManagedObjectId,
+    cfprTopMetaInfDn                                                 CfprManagedObjectDn,
+    cfprTopMetaInfRn                                                 SnmpAdminString,
+    cfprTopMetaInfEcode                                              SnmpAdminString,
+    cfprTopMetaInfName                                               SnmpAdminString,
+    cfprTopMetaInfEveri                                              SnmpAdminString
+}
+
+cfprTopMetaInfInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprTopMetaInfEntry 1 }
+
+cfprTopMetaInfDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:MetaInf:dn managed object property"
+    ::= { cfprTopMetaInfEntry 2 }
+
+cfprTopMetaInfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:MetaInf:rn managed object property"
+    ::= { cfprTopMetaInfEntry 3 }
+
+cfprTopMetaInfEcode OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:MetaInf:ecode managed object property"
+    ::= { cfprTopMetaInfEntry 4 }
+
+cfprTopMetaInfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:MetaInf:name managed object property"
+    ::= { cfprTopMetaInfEntry 5 }
+
+cfprTopMetaInfEveri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:MetaInf:everi managed object property"
+    ::= { cfprTopMetaInfEntry 6 }
+
+cfprTopRootTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprTopRootEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower top:Root managed object table"
+    ::= { cfprTopObjects 3 }
+
+cfprTopRootEntry OBJECT-TYPE
+    SYNTAX           CfprTopRootEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprTopRootTable table."
+    INDEX { cfprTopRootInstanceId }
+    ::= { cfprTopRootTable 1 }
+
+CfprTopRootEntry ::= SEQUENCE {
+    cfprTopRootInstanceId                                            CfprManagedObjectId,
+    cfprTopRootDn                                                    CfprManagedObjectDn,
+    cfprTopRootRn                                                    SnmpAdminString
+}
+
+cfprTopRootInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprTopRootEntry 1 }
+
+cfprTopRootDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:Root:dn managed object property"
+    ::= { cfprTopRootEntry 2 }
+
+cfprTopRootRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:Root:rn managed object property"
+    ::= { cfprTopRootEntry 3 }
+
+cfprTopSysDefaultsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprTopSysDefaultsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower top:SysDefaults managed object table"
+    ::= { cfprTopObjects 4 }
+
+cfprTopSysDefaultsEntry OBJECT-TYPE
+    SYNTAX           CfprTopSysDefaultsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprTopSysDefaultsTable table."
+    INDEX { cfprTopSysDefaultsInstanceId }
+    ::= { cfprTopSysDefaultsTable 1 }
+
+CfprTopSysDefaultsEntry ::= SEQUENCE {
+    cfprTopSysDefaultsInstanceId                                     CfprManagedObjectId,
+    cfprTopSysDefaultsDn                                             CfprManagedObjectDn,
+    cfprTopSysDefaultsRn                                             SnmpAdminString
+}
+
+cfprTopSysDefaultsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprTopSysDefaultsEntry 1 }
+
+cfprTopSysDefaultsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:SysDefaults:dn managed object property"
+    ::= { cfprTopSysDefaultsEntry 2 }
+
+cfprTopSysDefaultsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:SysDefaults:rn managed object property"
+    ::= { cfprTopSysDefaultsEntry 3 }
+
+cfprTopSystemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprTopSystemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower top:System managed object table"
+    ::= { cfprTopObjects 5 }
+
+cfprTopSystemEntry OBJECT-TYPE
+    SYNTAX           CfprTopSystemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprTopSystemTable table."
+    INDEX { cfprTopSystemInstanceId }
+    ::= { cfprTopSystemTable 1 }
+
+CfprTopSystemEntry ::= SEQUENCE {
+    cfprTopSystemInstanceId                                          CfprManagedObjectId,
+    cfprTopSystemDn                                                  CfprManagedObjectDn,
+    cfprTopSystemRn                                                  SnmpAdminString,
+    cfprTopSystemAddress                                             InetAddressIPv4,
+    cfprTopSystemCurrentTime                                         DateAndTime,
+    cfprTopSystemDescr                                               SnmpAdminString,
+    cfprTopSystemIpv6Addr                                            InetAddressIPv6,
+    cfprTopSystemMode                                                CfprTopMode,
+    cfprTopSystemName                                                SnmpAdminString,
+    cfprTopSystemOwner                                               SnmpAdminString,
+    cfprTopSystemSite                                                SnmpAdminString,
+    cfprTopSystemSystemUpTime                                        TimeIntervalSec,
+    cfprTopSystemMgmtUrl                                             SnmpAdminString,
+    cfprTopSystemInitialSetupComplete                                TruthValue
+}
+
+cfprTopSystemInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprTopSystemEntry 1 }
+
+cfprTopSystemDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:dn managed object property"
+    ::= { cfprTopSystemEntry 2 }
+
+cfprTopSystemRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:rn managed object property"
+    ::= { cfprTopSystemEntry 3 }
+
+cfprTopSystemAddress OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:address managed object property"
+    ::= { cfprTopSystemEntry 4 }
+
+cfprTopSystemCurrentTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:currentTime managed object property"
+    ::= { cfprTopSystemEntry 5 }
+
+cfprTopSystemDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:descr managed object property"
+    ::= { cfprTopSystemEntry 6 }
+
+cfprTopSystemIpv6Addr OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:ipv6Addr managed object property"
+    ::= { cfprTopSystemEntry 7 }
+
+cfprTopSystemMode OBJECT-TYPE
+    SYNTAX       CfprTopMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:mode managed object property"
+    ::= { cfprTopSystemEntry 8 }
+
+cfprTopSystemName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:name managed object property"
+    ::= { cfprTopSystemEntry 9 }
+
+cfprTopSystemOwner OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:owner managed object property"
+    ::= { cfprTopSystemEntry 10 }
+
+cfprTopSystemSite OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:site managed object property"
+    ::= { cfprTopSystemEntry 11 }
+
+cfprTopSystemSystemUpTime OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:systemUpTime managed object property"
+    ::= { cfprTopSystemEntry 12 }
+
+cfprTopSystemMgmtUrl OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:mgmtUrl managed object property"
+    ::= { cfprTopSystemEntry 13 }
+
+cfprTopSystemInitialSetupComplete OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower top:System:initialSetupComplete
+        managed object property"
+    ::= { cfprTopSystemEntry 14 }
+
+END

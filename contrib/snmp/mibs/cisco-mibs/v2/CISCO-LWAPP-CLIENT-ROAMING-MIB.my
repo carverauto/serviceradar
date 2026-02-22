@@ -1,0 +1,905 @@
+-- *******************************************************************
+-- CISCO-LWAPP-CLIENT-ROAMING-MIB.my: Wireless client roaming MIB
+-- December 2005, Devesh Pujari , Prasanna Viswakumar
+--   
+-- Copyright (c) 2005-2006, 2009-2017 by Cisco Systems, Inc.
+-- *******************************************************************
+
+CISCO-LWAPP-CLIENT-ROAMING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Integer32,
+    TimeTicks
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MacAddress,
+    TimeInterval
+        FROM SNMPv2-TC
+    cLApSysMacAddress,
+    cLApDot11IfSlotId
+        FROM CISCO-LWAPP-AP-MIB
+    CLDot11Channel,
+    CLDot11RfParamMode
+        FROM CISCO-LWAPP-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoLwappClRoamMIB MODULE-IDENTITY
+    LAST-UPDATED    "201704270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        Information provided by this MIB is for CCX related 
+        features as specified in the CCX specifications.  
+        This MIB covers roaming RF parameters for CCX 
+        clients.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+              +......+     +......+     +......+
+              +      +     +      +     +      +
+              +  CC  +     +  CC  +     +  CC  +
+              +      +     +      +     +      +
+              +......+     +......+     +......+
+                ..            .             .
+                ..            .             .
+               .  .            .             .
+              .    .            .             .
+             .      .            .             .
+            .        .            .             .
+        +......+ +......+     +......+      +......+
+        +      + +      +     +      +      +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +
+        +      + +      +     +      +      +      +
+        +......+ +......+     +......+      +......+
+                   .              .             .
+                 .  .              .             .
+                .    .              .             .
+               .      .              .             .
+              .        .              .             .
+           +......+ +......+     +......+      +......+
+           +      + +      +     +      +      +      +
+           +  MN  + +  MN  +     +  MN  +      +  MN  +
+           +      + +      +     +      +      +      +
+           +......+ +......+     +......+      +......+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Basic Service Set ( BSS )
+
+        The IEEE 802.11 BSS of an AP comprises of the
+        stations directly associating with the AP.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity is also referred to as 'controller'.
+
+        Cisco Compatible eXtensions (CCX)
+
+        Wireless LAN Access Points (APs) manufactured by Cisco
+        Systems have features and capabilities beyond those in
+        related standards (e.g., IEEE 802.11 suite of
+        standards ,Wi-Fi recommendations by WECA, 802.1X
+        security suite,etc). A number of features provide
+        higher performance.For example, Cisco AP transmits a
+        specific Information Element, which the clients adapt
+        to for enhanced performance. Similarly, a number of
+        features are implemented by means of proprietary
+        Information Elements, which Cisco clients use in 
+        specific ways to carry out tasks above and beyond the
+        standard. Other examples of feature categories are
+        roaming and power saving.
+
+        Client Roaming
+
+        A client may decide to reassociate with another AP for
+        reasons of its own choosing. The decision of whether
+        or not to use the information contained in the AP list
+        is up to the discretion of the implementor, as long as 
+        the roam time requirement is met.
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the 
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. Mobile Node 
+        and client are used interchangeably. 
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol"
+    REVISION        "201704270000Z"
+    DESCRIPTION
+        "Added following attribute:-
+        clcrRoamIntraCount"
+    REVISION        "201001290000Z"
+    DESCRIPTION
+        "Deprecated following attributes:-
+        clcrDot11aMinRssi, clcrDot11aHysteresis,
+        clcrDot11aAdaptiveScanThreshold, clcrDot11aTransitionTime, 
+        clcrDot11bMinRssi, clcrDot11bHysteresis,
+        clcrDot11bAdaptiveScanThreshold, clcrDot11bTransitionTime.
+        clcrMIBCompliance, ciscoLwappClRoamDot11aRfParamsGroup,
+        ciscoLwappClRoamDot11bRfParamsGroup
+
+        Added following attributes:-
+        clcrDot11aMinRssiV2, clcrDot11aHysteresisV2,
+        clcrDot11aAdaptiveScanThresholdV2, clcrDot11aTransitionTimeV2, 
+        clcrDot11bMinRssiV2, clcrDot11bHysteresisV2,
+        clcrDot11bAdaptiveScanThresholdV2, clcrDot11bTransitionTimeV2.
+        clcrMIBComplianceRev1, ciscoLwappClRoamDot11aRfParamsGroupSup1,
+        ciscoLwappClRoamDot11bRfParamsGroupSup1"
+    REVISION        "200604110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 523 }
+
+
+ciscoLwappClRoamMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIB 0 }
+
+ciscoLwappClRoamMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIB 1 }
+
+ciscoLwappClRoamMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIB 2 }
+
+clcrRoamDot11aRfParamConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIBObjects 1 }
+
+clcrRoamDot11bRfParamConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIBObjects 2 }
+
+clcrRoamReasonReport  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIBObjects 3 }
+
+clcrRoamDot11Stats  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIBObjects 4 }
+
+clcrRoamStats  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIBObjects 5 }
+
+
+-- ********************************************************************
+-- Clients Roaming RF Parameters for 802.11a band.
+-- ********************************************************************
+
+clcrDot11aMode OBJECT-TYPE
+    SYNTAX          CLDot11RfParamMode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the controller chooses
+        the values of the RF parameters needed to manage
+        roaming in 802.11a networks."
+    DEFVAL          { default } 
+    ::= { clcrRoamDot11aRfParamConfig 1 }
+
+clcrDot11aMinRssi OBJECT-TYPE
+    SYNTAX          Integer32 (-90..-80)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the Minimum Received Signal
+        Strength Indication (RSSI) in dBm required to
+        associate with the AP. It also defines the edge of
+        coverage for the BSS. If the client's average
+        received signal power dips below this threshold,
+        clients  must have roamed to another AP with a
+        stronger signal.
+
+        This object is superceded by clcrDot11aMinRssiV2
+        clcrDot11aMinRssi object is superseded by clcrDot11aMinRssiV2."
+    DEFVAL          { -85 } 
+    ::= { clcrRoamDot11aRfParamConfig 2 }
+
+clcrDot11aHysteresis OBJECT-TYPE
+    SYNTAX          Integer32 (2..4)
+    UNITS           "dB"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies how much stronger the signal
+        strength (dB) of a neighbor AP must be, in order
+        for the client to roam to it.  The use of roaming
+        hysteresis is intended to reduce the amount of
+        clients roaming back and forth between BSSs if the
+        client is physically located on or near the border
+        between two BSSs.
+
+        This object is superceded by clcrDot11aHysteresisV2
+        clcrDot11aHysteresis object is superseded by clcrDot11aHysteresisV2."
+    DEFVAL          { 2 } 
+    ::= { clcrRoamDot11aRfParamConfig 3 }
+
+clcrDot11aAdaptiveScanThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (-77..-70)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the threshold for the
+        strength of the signals received(RSSI) from an AP,
+        as seen by an associated client, below which the
+        client must be able to roam to a neighbor AP within
+        the specified Transition Time configured through
+        clcrDot11aTransitionTime.
+
+        This object is superceded by clcrDot11aAdaptiveScanThresholdV2
+        clcrDot11aAdaptiveScanThreshold object is superseded by clcrDot11aAdaptiveScanThresholdV2."
+    DEFVAL          { -72 } 
+    ::= { clcrRoamDot11aRfParamConfig 4 }
+
+clcrDot11aTransitionTime OBJECT-TYPE
+    SYNTAX          TimeInterval (100..10000)
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the maximum time duration
+        permitted for the client to detect a suitable
+        neighbor AP to roam to and to complete the roam,
+        whenever the RSSI from the clients associated AP
+        is below the adaptive scan threshold configured
+        through clcrDot11aAdaptiveScanThreshold.  The time
+        is expressed in 100th of a second.
+
+        This object is superceded by clcrDot11aTransitionTimeV2
+        clcrDot11aTransitionTime object is superseded by clcrDot11aTransitionTimeV2."
+    DEFVAL          { 500 } 
+    ::= { clcrRoamDot11aRfParamConfig 5 }
+
+clcrDot11aMinRssiV2 OBJECT-TYPE
+    SYNTAX          Integer32 (-255..255)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Minimum Received Signal
+        Strength Indication (RSSI) in dBm required to
+        associate with the AP. It also defines the edge of
+        coverage for the BSS. If the client's average
+        received signal power dips below this threshold,
+        clients  must have roamed to another AP with a
+        stronger signal." 
+    ::= { clcrRoamDot11aRfParamConfig 6 }
+
+clcrDot11aHysteresisV2 OBJECT-TYPE
+    SYNTAX          Integer32 (0..255)
+    UNITS           "dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how much stronger the signal
+        strength (dB) of a neighbor AP must be, in order
+        for the client to roam to it.  The use of roaming
+        hysteresis is intended to reduce the amount of
+        clients roaming back and forth between BSSs if the
+        client is physically located on or near the border
+        between two BSSs." 
+    ::= { clcrRoamDot11aRfParamConfig 7 }
+
+clcrDot11aAdaptiveScanThresholdV2 OBJECT-TYPE
+    SYNTAX          Integer32 (-255..255)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold for the
+        strength of the signals received(RSSI) from an AP,
+        as seen by an associated client, below which the
+        client must be able to roam to a neighbor AP within
+        the specified Transition Time configured through
+        clcrDot11aTransitionTime." 
+    ::= { clcrRoamDot11aRfParamConfig 8 }
+
+clcrDot11aTransitionTimeV2 OBJECT-TYPE
+    SYNTAX          TimeInterval (0..10000)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum time duration
+        permitted for the client to detect a suitable
+        neighbor AP to roam to and to complete the roam,
+        whenever the RSSI from the clients associated AP
+        is below the adaptive scan threshold configured
+        through clcrDot11aAdaptiveScanThreshold.  The time
+        is expressed in 100th of a second." 
+    ::= { clcrRoamDot11aRfParamConfig 9 }
+
+-- ********************************************************************
+-- Clients Roaming RF Parameters for 802.11b/g band.
+-- ********************************************************************
+
+clcrDot11bMode OBJECT-TYPE
+    SYNTAX          CLDot11RfParamMode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the controller chooses
+        the values of the RF parameters needed to manage
+        roaming in 802.11b/g networks."
+    DEFVAL          { default } 
+    ::= { clcrRoamDot11bRfParamConfig 1 }
+
+clcrDot11bMinRssi OBJECT-TYPE
+    SYNTAX          Integer32 (-90..-80)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the minimum Received Signal
+        Strength Indication (RSSI) in dBm required to
+        associate with the AP. It also defines the edge of
+        coverage for the BSS. If the client's average
+        received signal power dips below this threshold,
+        clients  must have roamed to another AP with a
+        stronger signal.
+
+        This object is superceded by clcrDot11bMinRssiV2
+        clcrDot11bMinRssi object is superseded by clcrDot11bMinRssiV2."
+    DEFVAL          { -85 } 
+    ::= { clcrRoamDot11bRfParamConfig 2 }
+
+clcrDot11bHysteresis OBJECT-TYPE
+    SYNTAX          Integer32 (2..4)
+    UNITS           "dB"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies how much stronger the signal
+        strength (dB) of a neighbor AP must be, in order
+        for the client to roam to it.  The use of roaming
+        hysteresis is intended to reduce the amount of
+        clients roaming back and forth between BSSs if the
+        client is physically located on or near the border
+        between two BSSs.
+
+        This object is superceded by clcrDot11bHysteresisV2
+        clcrDot11bHysteresis object is superseded by clcrDot11bHysteresisV2."
+    DEFVAL          { 2 } 
+    ::= { clcrRoamDot11bRfParamConfig 3 }
+
+clcrDot11bAdaptiveScanThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (-77..-70)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the threshold for the
+        strength of the signals received(RSSI) from an AP,
+        as seen by an associated client, below which the
+        client must be able to roam to a neighbor AP within
+        the specified Transition Time configured through
+        clcrDot11bTransitionTime.
+
+        This object is superceded by clcrDot11bAdaptiveScanThresholdV2
+        clcrDot11bAdaptiveScanThreshold object is superseded by clcrDot11bAdaptiveScanThresholdV2."
+    DEFVAL          { -72 } 
+    ::= { clcrRoamDot11bRfParamConfig 4 }
+
+clcrDot11bTransitionTime OBJECT-TYPE
+    SYNTAX          TimeInterval (100..10000)
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the maximum time duration
+        permitted for the client to detect a suitable
+        neighbor AP to roam to and to complete the roam,
+        whenever the RSSI from the client is associated AP
+        is below the adaptive scan threshold configured
+        through clcrDot11aAdaptiveScanThreshold.  The
+        time is expressed in 100th of a second.
+
+        This object is superceded by clcrDot11bTransitionTimeV2
+        clcrDot11bTransitionTime object is superseded by clcrDot11bTransitionTimeV2.."
+    DEFVAL          { 500 } 
+    ::= { clcrRoamDot11bRfParamConfig 5 }
+
+clcrDot11bMinRssiV2 OBJECT-TYPE
+    SYNTAX          Integer32 (-255..255)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum Received Signal
+        Strength Indication (RSSI) in dBm required to
+        associate with the AP. It also defines the edge of
+        coverage for the BSS. If the client's average
+        received signal power dips below this threshold,
+        clients  must have roamed to another AP with a
+        stronger signal." 
+    ::= { clcrRoamDot11bRfParamConfig 6 }
+
+clcrDot11bHysteresisV2 OBJECT-TYPE
+    SYNTAX          Integer32 (0..255)
+    UNITS           "dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how much stronger the signal
+        strength (dB) of a neighbor AP must be, in order
+        for the client to roam to it.  The use of roaming
+        hysteresis is intended to reduce the amount of
+        clients roaming back and forth between BSSs if the
+        client is physically located on or near the border
+        between two BSSs." 
+    ::= { clcrRoamDot11bRfParamConfig 7 }
+
+clcrDot11bAdaptiveScanThresholdV2 OBJECT-TYPE
+    SYNTAX          Integer32 (-255..255)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold for the
+        strength of the signals received(RSSI) from an AP,
+        as seen by an associated client, below which the
+        client must be able to roam to a neighbor AP within
+        the specified Transition Time configured through
+        clcrDot11bTransitionTime." 
+    ::= { clcrRoamDot11bRfParamConfig 8 }
+
+clcrDot11bTransitionTimeV2 OBJECT-TYPE
+    SYNTAX          TimeInterval (0..10000)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum time duration
+        permitted for the client to detect a suitable
+        neighbor AP to roam to and to complete the roam,
+        whenever the RSSI from the client is associated AP
+        is below the adaptive scan threshold configured
+        through clcrDot11aAdaptiveScanThreshold.  The
+        time is expressed in 100th of a second." 
+    ::= { clcrRoamDot11bRfParamConfig 9 }
+-- ********************************************************************
+-- Client Roam Reason Report
+-- ********************************************************************
+
+clcrRoamReasonReportTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClcrRoamReasonReportEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the reasons for CCX clients
+        roaming from one AP to another. 
+
+        When a CCX client associates to an AP, it will always 
+        send an IAPP information packet to the new AP listing 
+        the characteristics of the previous AP.
+
+        An entry is added to this table when a roam reason
+        report is sent by a CCX client when it roams to a
+        new AP."
+    ::= { clcrRoamReasonReport 1 }
+
+clcrRoamReasonReportEntry OBJECT-TYPE
+    SYNTAX          ClcrRoamReasonReportEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry corresponds to the roam reason report
+        sent by a CCX client to the new AP to which client 
+        associates."
+    INDEX           {
+                        clcrRoamClientMacAddress,
+                        clcrRoamClientTimeStamp
+                    } 
+    ::= { clcrRoamReasonReportTable 1 }
+
+ClcrRoamReasonReportEntry ::= SEQUENCE {
+        clcrRoamClientMacAddress     MacAddress,
+        clcrRoamClientTimeStamp      TimeTicks,
+        clcrRoamNewApMacAddress      MacAddress,
+        clcrRoamPrevApMacAddress     MacAddress,
+        clcrRoamPrevApChannel        CLDot11Channel,
+        clcrRoamPrevApSsid           OCTET STRING,
+        clcrRoamDisassocTimeInterval TimeInterval,
+        clcrRoamReason               INTEGER
+}
+
+clcrRoamClientMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the mac address of the
+        client which has roamed to a new AP." 
+    ::= { clcrRoamReasonReportEntry 1 }
+
+clcrRoamClientTimeStamp OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time instance at which
+        this report was received by the new AP, to which 
+        client roamed to.  This represents number of
+        seconds elapsed since 00:00:00 on January 1, 1970,
+        Coordinated Universal Time (UTC).  So a value of 
+        '1131362704' means 'Mon Nov  7 16:55:04 2005'." 
+    ::= { clcrRoamReasonReportEntry 2 }
+
+clcrRoamNewApMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the mac address of the
+        current AP to which client has roamed to. This AP
+        receives the roam reason report." 
+    ::= { clcrRoamReasonReportEntry 3 }
+
+clcrRoamPrevApMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the mac address of the
+        previous AP to which client was associated." 
+    ::= { clcrRoamReasonReportEntry 4 }
+
+clcrRoamPrevApChannel OBJECT-TYPE
+    SYNTAX          CLDot11Channel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the channel number at which
+        the client was associated to the previous AP." 
+    ::= { clcrRoamReasonReportEntry 5 }
+
+clcrRoamPrevApSsid OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SSID at which the client
+        was associated to the previous AP." 
+    ::= { clcrRoamReasonReportEntry 6 }
+
+clcrRoamDisassocTimeInterval OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time elapsed since the
+        client disassociated, in hundredth of a second." 
+    ::= { clcrRoamReasonReportEntry 7 }
+
+clcrRoamReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        clcrUnspecified(0),
+                        clcrPoorLink(1),
+                        clcrLoadBalancing(2),
+                        clcrInsufficientCapacity(3),
+                        clcrDirectedRoam(4),
+                        clcrFirstAssociation(5),
+                        clcrRoamingIn(6),
+                        clcrRoamingOut(7),
+                        clcrBetterAp(8),
+                        clcrDisassociated(9)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason for a client to
+        roam to a new AP.
+
+        The semantics are as follows.
+
+        clcrUnspecified - The reason is not known or can't
+        be found.
+
+        clcrPoorLink - Normal roam due to poor link 
+        (excessive retries, too much interference, RSSI too 
+        low, etc.)
+
+        clcrLoadBalancing - Normal roam due to load 
+        balancing
+
+        clcrInsufficientCapacity - Roaming occured due to
+        the insufficient capacity on the previous AP
+        (TSPEC rejected)
+
+        clcrDirectedRoam - Roaming is directed by the
+        802.11 wireless Infrastructure 
+
+        clcrFirstAssociation - This is the first  
+        association to a particular WLAN
+
+        clcrRoamingIn - Roaming in from cellular or other 
+        WAN
+
+        clcrRoamingOut - Roaming out to cellular or other 
+        WAN
+
+        clcrBetterAp - Normal roam due to better AP found
+
+        clcrDisassociated - Deauthenticated or
+        Disassociated from the previous AP." 
+    ::= { clcrRoamReasonReportEntry 8 }
+ 
+
+-- ********************************************************************
+-- Roaming Stats per 802.11 interface.
+-- ********************************************************************
+
+clcrDot11StatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClcrDot11StatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table populates the statistics collected when
+        the client roamed in the WLAN.
+
+        There exists a row in this table for each conceptual
+        row in cLApDot11IfTable that represents a dot11 
+        interface of an AP."
+    ::= { clcrRoamDot11Stats 1 }
+
+clcrDot11StatsEntry OBJECT-TYPE
+    SYNTAX          ClcrDot11StatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        clcrDot11StatsTable and corresponds to the roam
+        reason report  sent by a CCX client to the new AP
+        which the client associates to."
+    INDEX           {
+                        cLApSysMacAddress,
+                        cLApDot11IfSlotId
+                    } 
+    ::= { clcrDot11StatsTable 1 }
+
+ClcrDot11StatsEntry ::= SEQUENCE {
+        clcrDot11NeighborRequestRx  Counter32,
+        clcrDot11NeighborReplySent  Counter32,
+        clcrDot11RoamReasonReportRx Counter32,
+        clcrDot11BcastUpdatesSent   Counter32
+}
+
+clcrDot11NeighborRequestRx OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the count of the number
+        of requests received from an E2E client for 
+        neighbor updates." 
+    ::= { clcrDot11StatsEntry 1 }
+
+clcrDot11NeighborReplySent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the count of the number
+        of replies sent to the client in reply to the
+        request for neighbor updates received from the
+        client." 
+    ::= { clcrDot11StatsEntry 2 }
+
+clcrDot11RoamReasonReportRx OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object reports the count of the number
+        of roam reason reports received from CCX
+        clients." 
+    ::= { clcrDot11StatsEntry 3 }
+
+clcrDot11BcastUpdatesSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the count of the number of
+        broadcast neighbor updates sent by an AP." 
+    ::= { clcrDot11StatsEntry 4 }
+ 
+
+
+-- ********************************************************************
+-- Roaming Stats per WLC
+-- ********************************************************************
+
+clcrRoamIntraCount OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the count of successful
+        intra-WLC roaming." 
+    ::= { clcrRoamStats 1 }
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappClRoamMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIBConform 1 }
+
+ciscoLwappClRoamMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappClRoamMIBConform 2 }
+
+
+clcrMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRoamMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappClRoamDot11aRfParamsGroup,
+                        ciscoLwappClRoamDot11bRfParamsGroup,
+                        ciscoLwappClRoamroamReasonGroup,
+                        ciscoLwappClRoamroamingStatsGroup
+                    }
+    ::= { ciscoLwappClRoamMIBCompliances 1 }
+
+clcrMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRoamMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappClRoamDot11aRfParamsGroupSup1,
+                        ciscoLwappClRoamDot11bRfParamsGroupSup1,
+                        ciscoLwappClRoamroamReasonGroup,
+                        ciscoLwappClRoamroamingStatsGroup
+                    }
+    ::= { ciscoLwappClRoamMIBCompliances 2 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappClRoamDot11aRfParamsGroup OBJECT-GROUP
+    OBJECTS         {
+                        clcrDot11aMode,
+                        clcrDot11aMinRssi,
+                        clcrDot11aHysteresis,
+                        clcrDot11aAdaptiveScanThreshold,
+                        clcrDot11aTransitionTime
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the radio
+        parameters for the 802.11a networks.
+        ciscoLwappClRoamDot11aRfParamsGroup object is superseded by ciscoLwappClRoamDot11aRfParamsGroupSup1."
+    ::= { ciscoLwappClRoamMIBGroups 1 }
+
+ciscoLwappClRoamDot11bRfParamsGroup OBJECT-GROUP
+    OBJECTS         {
+                        clcrDot11bMode,
+                        clcrDot11bMinRssi,
+                        clcrDot11bHysteresis,
+                        clcrDot11bAdaptiveScanThreshold,
+                        clcrDot11bTransitionTime
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the radio
+        parameters for the 802.11b/g bands.
+        ciscoLwappClRoamDot11bRfParamsGroup object is superseded by ciscoLwappClRoamDot11bRfParamsGroupSup1."
+    ::= { ciscoLwappClRoamMIBGroups 2 }
+
+ciscoLwappClRoamroamReasonGroup OBJECT-GROUP
+    OBJECTS         {
+                        clcrRoamNewApMacAddress,
+                        clcrRoamPrevApMacAddress,
+                        clcrRoamPrevApChannel,
+                        clcrRoamPrevApSsid,
+                        clcrRoamDisassocTimeInterval,
+                        clcrRoamReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects provide the reasons for
+        clients roaming between APs."
+    ::= { ciscoLwappClRoamMIBGroups 3 }
+
+ciscoLwappClRoamroamingStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        clcrDot11NeighborRequestRx,
+                        clcrDot11NeighborReplySent,
+                        clcrDot11RoamReasonReportRx,
+                        clcrDot11BcastUpdatesSent,
+                        clcrRoamIntraCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects provide the counters
+        related to roaming."
+    ::= { ciscoLwappClRoamMIBGroups 4 }
+
+ciscoLwappClRoamDot11aRfParamsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        clcrDot11aMode,
+                        clcrDot11aMinRssiV2,
+                        clcrDot11aHysteresisV2,
+                        clcrDot11aAdaptiveScanThresholdV2,
+                        clcrDot11aTransitionTimeV2
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the radio
+        parameters for the 802.11a networks."
+    ::= { ciscoLwappClRoamMIBGroups 5 }
+
+ciscoLwappClRoamDot11bRfParamsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        clcrDot11bMode,
+                        clcrDot11bMinRssiV2,
+                        clcrDot11bHysteresisV2,
+                        clcrDot11bAdaptiveScanThresholdV2,
+                        clcrDot11bTransitionTimeV2
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the radio
+        parameters for the 802.11b/g bands."
+    ::= { ciscoLwappClRoamMIBGroups 6 }
+
+END
+
+
+
+

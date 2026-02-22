@@ -1,0 +1,323 @@
+-- *****************************************************************
+-- ciscoVSIController MIB
+--
+-- Virtual Switch Interface(VSI) controller MIB
+-- April 1999 Subra.Hegde
+--
+-- Copyright (c) 1999 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VSI-CONTROLLER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32     	 FROM SNMPv2-SMI
+    RowStatus,
+    TEXTUAL-CONVENTION,
+    DisplayString     	 FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP 	 FROM SNMPv2-CONF
+    ciscoMgmt       	 FROM CISCO-SMI;
+
+
+ciscoVSIControllerMIB MODULE-IDENTITY
+LAST-UPDATED   "9906080000Z"
+ORGANIZATION   "Cisco Systems, Inc."
+CONTACT-INFO
+               "Cisco Systems
+                Customer Service
+
+        Postal: 170 W Tasman Drive
+                San Jose, CA  95134
+                USA
+
+          Tel: +1 800 553-NETS
+
+     E-mail: cs-wanatm@cisco.com"
+
+DESCRIPTION
+    "This MIB module is used for configuring ATM Capable Switch 
+     to be aware of VSI Controller information.
+
+     Terminolgies used:
+
+     VSI       - Virtual Switch Interface, a hardware-independent switch 
+                 control protocol. This allows a Switch(node) to be 
+		 controlled by a multiple controllers such as PNNI,LSC.
+		 These control planes can be internal or external to the
+	         switch.The VSI interface defines the messages and associated
+	         functions which allow communication between the controller 
+		 and the switch.This interface is expected to support all 
+		 types of connections (voice,data,frame relay,ATM) for PVCs,
+	         SPVCs and SVCs.
+
+     VSI Master - software component which requests connections and receives
+                  switch generic information. This controls one or more VSI 
+                  Slaves. This may run on the switch or a dedicated controller
+		  platform. This is the master module.It performs the interface
+	 	  to the higher layer networking software and handles all VSI
+		  related functions.
+            
+     VSI Slave - software component which converts generic connection
+                 requests into hardware specific requests and hardware 
+		 specific information into generic information.
+		 This runs on the switch.a A centralized slave has a single
+		 point of control for making connections and controlling 
+		 interfaces, while a distributed slave allows for multiple
+		 slaves to coexist on the same switch.
+
+     Controller - Software ( and possibly hardware) which manages topology
+                  and network resources and performs VSI Master fucntion. 
+		  This performs source routing for ent-to-end SVCs, including
+		  general call acceptance GCAC,setup calls with other 
+		  controllers.
+                  PNNI and MPLS are examples for the Controller.
+
+     Controller Shelf - A controller shelf is a switch containing atleast
+		   one VSI Controller which is controlling a different 
+		   switch.It will also, typically, contain 'local' controllers
+		   for itself."
+   ::= {ciscoMgmt 141 }
+
+CvcControllerShelfLocation ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "The location of the Controller Shelf. 
+
+	 internal(1)  - controller resides on the same shelf
+	                as the switch.
+	 external(2)  - controller resides on the external 
+		        platform. The controller shelf is
+		        connected to the switch by an ATM link."
+        SYNTAX   INTEGER{
+           internal(1),
+           external(2) 
+           }
+
+CvcControllerType ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "The type of the controller which is a VSI Master.
+	 The Possible values are :
+	     
+	 par(1) -  Portable Auto Route(PAR). This is a VSI Master controller
+	           implementing Cisco Proprietary protocol for network
+	           routing and topology in a Network containing only 
+		   Cisco Switches.
+
+	 pnni(2) - Private Network-to-Network Interface (PNNI) controller.
+		   The PNNI protocol is used between private ATM Switches
+		   and between groups of ATM switches. This protocol is 
+		   defined for distributing topology information between
+		   switches and clusters of switches.
+
+	 lsc(3)  - Label Switch Controller(TSC).The LSC Implements MPLS
+	           (Multi Protocol Label Switching) protocol. The LSC is 
+		   a router which is capable of controlling the operation
+		   of a separate ATM switch so that the two of them 
+                   together function as a single ATM-LSR(ATM Label Switch
+                   Router).
+		   The LSC controls the operation of the ATM Switch
+		   using a 'Switch Control Protocol', which allows the
+		   LSC to setup and remove cross-connects on the ATM
+		   switch, to discover the configuration and capabilities
+		   of the controlled switch, and to gather statistics from
+		   the controlled switch."
+    SYNTAX   INTEGER {
+        par(1),
+        pnni(2),
+        lsc(3)  
+    }
+
+cvcMIBObjects       OBJECT IDENTIFIER ::= {ciscoVSIControllerMIB 1}
+cvcConfController   OBJECT IDENTIFIER ::= { cvcMIBObjects 1}
+
+-- VSI Controller Configuration table
+
+cvcConfTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CvcConfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the entries for VSI Controllers.
+         This table is used for informing the VSI Slaves about
+         the existence of VSI Controllers and how the VSI slaves
+	 can reach the controller. The information in these entries
+	 are advertised to all the VSI Slaves using a system
+	 dependent implementation when an entry is created/activated."
+   ::= { cvcConfController 1 }
+ 
+cvcConfEntry  OBJECT-TYPE
+    SYNTAX      CvcConfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "An entry for a VSI Controller. 
+         The entries in this table are created by setting the 
+         cvcConfRowStatus object to 'createAndGo(4)'.
+	 The entries in this table are deleted by setting the
+	 cvcConfRowStatus object to 'destroy(6)'. The entries
+	 are can be created/modified/deleted through the Command
+	 Line Interface(CLI) also."
+    INDEX   { cvcConfControllerID }
+    ::= { cvcConfTable 1 }
+
+CvcConfEntry ::=
+    SEQUENCE {
+	cvcConfControllerID           		Integer32,
+	cvcConfControllerType	  	        CvcControllerType,
+	cvcConfControllerShelfLocation	        CvcControllerShelfLocation,
+        cvcConfControllerLocation	        Integer32,
+	cvcConfControllerName			DisplayString,
+        cvcConfVpi	       			Integer32,
+        cvcConfVci	       			Integer32,
+        cvcConfRowStatus    	  	        RowStatus
+    }
+
+cvcConfControllerID OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647) 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION 
+        "This is the unique value for VSI Controller(VSI Master).
+         The VSI Slave uses this value in the message to identify 
+         the VSI Master controller."
+    ::= { cvcConfEntry 1}
+
+cvcConfControllerType OBJECT-TYPE
+    SYNTAX      CvcControllerType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION 
+        "This object identifies the controller type.
+	 This object may not be modified if the associated
+	 cvcConfRowStatus is equal to 'active(1)'."
+    ::= { cvcConfEntry 2}
+
+cvcConfControllerShelfLocation OBJECT-TYPE
+    SYNTAX      CvcControllerShelfLocation
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION 
+        "This identifies the location of the controller shelf.
+         This Object can be set only during row creation."
+    ::= { cvcConfEntry 3}
+
+cvcConfControllerLocation OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647)
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION 
+        "This identifies the location of the controller.
+         This object might contain the logical slot number
+         of the Module where the controller is running
+         on the same shelf as the switch.
+	 This object might contain the value of the interface 
+         on the module where the controller is running on an
+         external shelf connected to the switch.
+	 This object may not be modified if the associated
+	 cvcConfRowStatus is equal to 'active(1)'."
+    ::= { cvcConfEntry 4}
+
+cvcConfControllerName OBJECT-TYPE
+    SYNTAX  DisplayString
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION 
+       "This is the  name choosen by the user for the VSI Controller.
+        This object contains Octet string of length zero, if the user
+        does not set the value for this object.
+	This object may not be modified if the associated
+	cvcConfRowStatus is equal to 'active(1)'."
+    ::= { cvcConfEntry 5 }
+
+cvcConfVpi OBJECT-TYPE
+    SYNTAX  Integer32 (0..4095)
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION 
+       "This is the Virtual Path Identifier(VPI) used for connecting to
+        the controller which is external to the switch. This object has
+        significance only if cvcConfControllerShelfLocation is 'external(2)'.
+	This object may not be modified if the associated
+	cvcConfRowStatus is equal to 'active(1)'."
+    ::= { cvcConfEntry 6 }
+
+cvcConfVci OBJECT-TYPE
+    SYNTAX  Integer32 (32..65535)
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION 
+       "This is the start value of Virtual Channel Identifier(VCI) used 
+        for connecting to the controller which is external to the switch.
+        This object has significance only if cvcConfControllerShelfLocation 
+        is 'external(2)'.
+	This object may not be modified if the associated
+	cvcConfRowStatus is equal to 'active(1)'."
+    ::= { cvcConfEntry 7 }
+
+cvcConfRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION
+       "This object is used for adding,deleting and modifying the
+        controller configuration. The row can be created by 
+        setting this object to 'createAndGo(4)'.
+	The row can be deleted by setting this object to 'destroy(6)'.
+	The objects in the row can not be modified when this object 
+        contains value 'active(1)'."
+    ::= { cvcConfEntry 8 }
+
+-- conformance information
+ 
+cvcMIBConformance OBJECT IDENTIFIER ::= {ciscoVSIControllerMIB 3}
+
+cvcMIBCompliances OBJECT IDENTIFIER
+     ::= {cvcMIBConformance 1}
+cvcMIBGroups  OBJECT IDENTIFIER
+     ::= {cvcMIBConformance 2}
+
+cvcMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+       "The Compliance statement for cisco VSI Controller group."
+    MODULE -- this module
+    MANDATORY-GROUPS { cvcConfGroup }
+	
+    GROUP cvcConfGroupExternal
+    DESCRIPTION 
+        "This group is required only for controllers running
+         on a shelf external to the switch.
+        "
+    ::= {cvcMIBCompliances 1}
+
+-- units of conformance
+cvcConfGroup OBJECT-GROUP
+        OBJECTS {
+	    cvcConfControllerType,
+            cvcConfControllerShelfLocation,
+            cvcConfControllerLocation,
+            cvcConfControllerName,
+            cvcConfRowStatus
+        }
+       STATUS current
+       DESCRIPTION
+          "The objects related to configuring VSI controllers
+           running on the same shelf as the switch.
+          "
+       ::= { cvcMIBGroups 1}
+
+cvcConfGroupExternal OBJECT-GROUP
+        OBJECTS {
+            cvcConfVpi,
+            cvcConfVci
+        }
+       STATUS current
+       DESCRIPTION
+          "The objects related to configuring VSI controllers
+           running on the shelf external to the switch. "
+       ::= { cvcMIBGroups 2}
+END

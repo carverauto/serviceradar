@@ -1,0 +1,2405 @@
+-- *****************************************************************
+-- CISCO-VTP-CAPABILITY.my:
+-- Cisco CISCO-VTP-MIB AGENT-CAPABILITIES
+--   
+-- August 2003, Wen Xu
+--   
+-- Copyright (c) 2003-2008, 2010-2013 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- ***************************************************************
+
+CISCO-VTP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVtpCapability MODULE-IDENTITY
+    LAST-UPDATED    "201309270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-VTP-MIB."
+    REVISION        "201309270000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapV15R0102SYPCat6k."
+    REVISION        "201308270000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapNxOSV06R0101PN7K."
+    REVISION        "201109300000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapV15R0001SYPCat6kSup2T."
+    REVISION        "201107310000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapNxOSV05R0201PN7K."
+    REVISION        "201104060000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapNxOSV05R0002PN5k."
+    REVISION        "201103300000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapV12R0233SXJPCat6k."
+    REVISION        "201011100000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapNxOSV05R0101PN7K."
+    REVISION        "201003220000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoVtpCapV12R0254SGPCat4K."
+    REVISION        "201003100000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoVtpCapV12R0233SXI4PCat6K.
+
+        Removed vtpVlanInfoEditGroup2 and 
+        added VARIATION on vtpVlanEditRowStatus
+        to the following capability statements:
+        ciscoVtpCapCatOSV08R0101,
+        ciscoVtpCapCatOSV08R0301,
+        ciscoVtpCapCatOSV08R0701
+
+        Removed vtpVlanInfoEditGroup2 and  
+        vtpDot1qTunnelGroup, added vtpDot1qTunnelGroup2,
+        and added VARIATION on vtpVlanEditRowStatus to 
+        the following capability statements:
+        ciscoVtpCapV12R0119ECat6K,
+        ciscoVtpCapV12R0217SXCat6K,
+        ciscoVtpCapV12R0217SXACat6K,
+        ciscoVtpCapV12R0218SXECat6K,
+        ciscoVtpCapV12R0233SXHPCat6K,
+        ciscoVtpCapV12R0233SXIPCat6K."
+    REVISION        "200810280000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoVtpCapV12R0233SXIPCat6K."
+    REVISION        "200805280000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapCatOSV08R0701."
+    REVISION        "200707180000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoVtpCapV12R0233SXHPCat6K."
+    REVISION        "200603150000Z"
+    DESCRIPTION
+        "Added VARIATION clause for managementDomainLocalMode
+        in capability statement ciscoVtpCapV12R0119ECat6K,
+        ciscoVtpCapV12R0217SXCat6K,ciscoVtpCapV12R0217SXACat6K
+        and ciscoVtpCapV12R0218SXECat6K."
+    REVISION        "200503090000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapV12R0218SXECat6K.
+
+        Added VARIATION clause for vtpVlanTypeExt 
+        and vtpVlanEditTypeExt2 in capability
+        statement ciscoVtpCapV12R0119ECat6K, 
+        ciscoVtpCapV12R0217SXCat6K and 
+        ciscoVtpCapV12R0217SXACat6K."
+    REVISION        "200404150000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapV12R0217SXACat6K.
+
+        Added a VARIATION statement for the object
+        vlanTrunkPortDynamicStatus in capability
+        statement ciscoVtpCapV12R0119ECat6K and
+        ciscoVtpCapV12R0217SXCat6K."
+    REVISION        "200312010000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVtpCapCatOSV08R0301."
+    REVISION        "200309150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 329 }
+
+
+
+ciscoVtpCapV12R0119ECat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortDynamicStatus
+    SYNTAX          INTEGER  {
+                        trunking(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported.
+        vlanTrunkPortTable only includes the
+        trunking ports."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 1 }
+
+ciscoVtpCapV12R0217SXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17)SX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortDynamicStatus
+    SYNTAX          INTEGER  {
+                        trunking(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported.
+        vlanTrunkPortTable only includes the
+        trunking ports."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 2 }
+
+ciscoVtpCapCatOSV08R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpDot1qTunnelGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 3 }
+
+ciscoVtpCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpDot1qTunnelGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vtpInternalVlanGrp
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 4 }
+
+ciscoVtpCapV12R0217SXACat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17)SXA on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 5 }
+
+ciscoVtpCapV12R0218SXECat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXE on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 6 }
+
+ciscoVtpCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 7 }
+
+ciscoVtpCapCatOSV08R0701 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpDot1qTunnelGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vtpInternalVlanGrp,
+                        vtpConfigNotificationsGroup6
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 8 }
+
+ciscoVtpCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 9 }
+
+ciscoVtpCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vtpConfigNotificationsGroup8
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 10 }
+
+ciscoVtpCapV12R0254SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(54)SG on CAT4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vtpConfigNotificationsGroup6
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 11 }
+
+ciscoVtpCapNxOSV05R0101PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.1(1) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vlanTrunkPortActiveVlansGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        two(2),
+                        none(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpNotificationsEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainLocalMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainTftpServer
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainTftpPathname
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortManagementDomain
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortEncapsulationType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortNativeVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortSetSerialNo
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortVlansPruningEligible
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainPruningState
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortDynamicState
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortVtpEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainVersionInUse
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanCreatedNotifEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanDeletedNotifEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       vtpVlansPruningEligible2k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible3k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible4k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthPassword
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthPasswordType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthSecretKey
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpInternalVlanAllocPolicy
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVtpCapability 12 }
+
+ciscoVtpCapV12R0233SXJPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXJ on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vtpConfigNotificationsGroup8,
+                        vlanTrunkPortActiveVlansGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vlanTrunkPortEncapsulationType
+    SYNTAX          INTEGER  {
+                        isl(1),
+                        dot1Q(4),
+                        negotiate(5)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 13 }
+
+ciscoVtpCapNxOSV05R0002PN5k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.0(2) on Nexus 5000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vlanTrunkPortActiveVlansGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        two(2),
+                        none(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpNotificationsEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainLocalMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainTftpServer
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainTftpPathname
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortManagementDomain
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortEncapsulationType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortNativeVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortSetSerialNo
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortVlansPruningEligible
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainPruningState
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortDynamicState
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortVtpEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainVersionInUse
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanCreatedNotifEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanDeletedNotifEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       vtpVlansPruningEligible2k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible3k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible4k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthPassword
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthPasswordType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthSecretKey
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpInternalVlanAllocPolicy
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVtpCapability 14 }
+
+ciscoVtpCapNxOSV05R0201PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.2(1) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpVlanInfoEditGroup2,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vlanTrunkPortActiveVlansGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        none(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainName
+    DESCRIPTION
+        "Write operation only supports 1..32 characters."
+
+    VARIATION       managementDomainTftpServer
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainTftpPathname
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortDynamicState
+    SYNTAX          INTEGER  {
+                        off(2),
+                        onNoNegotiate(5)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditConfigRevNumber
+    DESCRIPTION
+        "Value must be exactly one greater than the value of
+        managementDomainConfigRevNumber."
+
+    VARIATION       vtpVlanEditType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditMtu
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditDot10Said
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditRingNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditBridgeNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditStpType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditParentVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditTranslationalVlan1
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditTranslationalVlan2
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditBridgeType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditAreHopCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditSteHopCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditIsCRFBackup
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortEncapsulationType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        none(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlansPruningEligible2k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible3k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible4k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthPasswordType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthSecretKey
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpInternalVlanAllocPolicy
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVtpCapability 15 }
+
+ciscoVtpCapV15R0001SYPCat6kSup2T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                    series devices with Supervisor 2T present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vtpConfigNotificationsGroup8,
+                        vlanTrunkPortActiveVlansGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vlanTrunkPortEncapsulationType
+    SYNTAX          INTEGER  {
+                        dot1Q(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 16 }
+
+ciscoVtpCapNxOSV06R0101PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.1(1) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpVlanInfoEditGroup2,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vlanTrunkPortActiveVlansGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        none(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainName
+    DESCRIPTION
+        "Write operation only supports 1..32 characters."
+
+    VARIATION       managementDomainTftpServer
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainTftpPathname
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanName
+    DESCRIPTION
+        "Vlan name of upto 128 octets is supported when
+        Long Vlan Name functionality is enabled."
+
+    VARIATION       vlanTrunkPortDynamicState
+    SYNTAX          INTEGER  {
+                        off(2),
+                        onNoNegotiate(5)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditConfigRevNumber
+    DESCRIPTION
+        "Value must be exactly one greater than the value of
+        managementDomainConfigRevNumber."
+
+    VARIATION       vtpVlanEditType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditName
+    DESCRIPTION
+        "Vlan name of upto 128 octets is supported when
+        Long Vlan Name functionality is enabled."
+
+    VARIATION       vtpVlanEditMtu
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditDot10Said
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditRingNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditBridgeNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditStpType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditParentVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditTranslationalVlan1
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditTranslationalVlan2
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditBridgeType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditAreHopCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditSteHopCount
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlanEditIsCRFBackup
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortEncapsulationType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        none(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlansPruningEligible2k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible3k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpVlansPruningEligible4k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthPasswordType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpAuthSecretKey
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       vtpInternalVlanAllocPolicy
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVtpCapability 17 }
+
+ciscoVtpCapV15R0102SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(2)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VTP-MIB capabilities."
+
+    SUPPORTS        CISCO-VTP-MIB
+    INCLUDES        {
+                        vtpBasicGroup,
+                        vtpVlanInfoGroup,
+                        vtpConfigNotificationsGroupRev1,
+                        vtpStatsGroup,
+                        vtpTrunkPortGroup,
+                        vtpVersion2BasicGroup,
+                        vtpVlanInfoEditGroup,
+                        vtpTrunkPortGroup2,
+                        vtpTrunkPortGroup3,
+                        vtpTrunkPruningGroup,
+                        vtpTrunkPruningGroup2,
+                        vtpVlanIfIndexGroup,
+                        vtp4kVlanGroupRev1,
+                        vtpDot1qTunnelGroup2,
+                        vtpConfigNotificationsGroup2,
+                        vtpVlanNotifEnabledGroup,
+                        vtpConfigNotificationsGroup3,
+                        vtpInternalVlanGrp,
+                        vtpDiscoverGroup,
+                        vtpDatabaseGroup,
+                        vtpAuthGroup,
+                        vlanStatsGroup,
+                        vtpConfigNotificationsGroup6,
+                        vtpTrunkPruningGroup3,
+                        vtpConfigNotificationsGroup8,
+                        vlanTrunkPortActiveVlansGroup,
+                        vtpSourceInterfaceGroup,
+                        vtpConfigFileGroup,
+                        vtpVlanLocalShutdownGroup,
+                        vtpLocalUpdaterGroup,
+                        vtpDeviceIdGroup
+                    }
+    VARIATION       vtpVersion
+    SYNTAX          INTEGER  {
+                        one(1),
+                        two(2),
+                        three(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vlanTrunkPortRowStatus
+    SYNTAX          RowStatus {
+                        active(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       managementDomainVersionInUse
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vtpVlanTypeExt
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vtpVlanEditTypeExt2
+    SYNTAX          BITS {
+                        vtpmanageable(0),
+                        rspan(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       managementDomainLocalMode
+    SYNTAX          INTEGER  {
+                        client(1),
+                        server(2),
+                        transparent(3),
+                        off(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    VARIATION       vtpVlanEditRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       vlanTrunkPortEncapsulationType
+    SYNTAX          INTEGER  {
+                        dot1Q(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoVtpCapability 18 }
+
+END
+
+
+
+

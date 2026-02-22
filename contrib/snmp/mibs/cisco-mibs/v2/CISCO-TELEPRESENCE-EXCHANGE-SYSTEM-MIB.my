@@ -1,0 +1,2559 @@
+-- *****************************************************************
+-- CISCO-TELEPRESENCE-EXCHANGE-SYSTEM-MIB.my
+--   
+-- Aug 2010, Tim Evens
+--   
+-- Copyright (c) 2005-2006-2011 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-TELEPRESENCE-EXCHANGE-SYSTEM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32,
+    Counter32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString,
+    TEXTUAL-CONVENTION,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SyslogSeverity
+        FROM CISCO-SYSLOG-MIB
+    CiscoPort
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoTelepresenceExchangeSystemMIB MODULE-IDENTITY
+    LAST-UPDATED    "201101130000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service 
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA 
+            Tel: +1 800 553-NETS 
+
+            E-mail: cs-txbu-snmp@cisco.com"
+    DESCRIPTION
+        "The main purpose of this MIB is to provide product
+        component level configuration, status, statistics, 
+        events, and alarm notifications for the Cisco TelePresence
+        Exchange System (CTX System).
+
+        A network management entity can use this MIB to:
+             - Discover cluster nodes
+             - Discover resources and their configurations
+             - Monitor status of all cluster nodes
+             - Monitor status of resources
+             - Monitor configuration status
+             - Monitor license status
+             - Monitor backup process status
+             - Monitor scheduling allocation failures
+               and port usage statistics
+             - Monitor product level error events
+             - Receive real time notifications for status change
+               and error
+
+        *********************************
+                 System Overview               
+        *********************************
+        Cisco TelePresence Exchange System (CTX System) is a turnkey 
+        solution tailored to service providers who want to offer
+        premium video collaboration services and TelePresence as
+        a service to enterprise customers. The CTX System solution 
+        preserves the full TelePresence experience across 
+        enterprise and service provider boundaries, integrates with
+        third party SD/HD video technology, and maximizes service 
+        and network value via tight integration with other Cisco
+        video and unified collaboration products. 
+
+        The Cisco TelePresence Exchange is comprised of a variety
+        of components in order to deliver a highly integrated video
+        service platform that will meet the needs of the service 
+        provider. At the heart of the exchange is what we refer to as
+        the core components that are standards based platforms 
+        containing custom software to deliver the majority of the 
+        systems services and functions. These core components are
+        the Cisco TelePresence Exchange System. 
+
+
+        *********************************
+                System Components               
+        *********************************
+        The core components are broken down into three application
+        functional areas; administration, call processing, and 
+        persistent data storage.  Each application is run on a
+        dedicated server.  Each dedicated server has a backup 
+        server.  For each CTX System there are six servers. The 
+        collection of servers are considered a cluster and the
+        servers are considered nodes within the cluster.  
+        The below diagram illustrates the CTX System:
+
+          Cisco TelePresence Exchange System (CTX System)
+           /--------------------------------------------\ 
+           |  ---------------          ---------------  |
+           | |    Admin 1    | <----> |    Admin 2    | |
+           |  ---------------          ---------------  |
+           |        |                        |          |
+           |  ---------------          ---------------  |
+           | | Call Engine 1 | <----> | Call Engine 2 | |
+           |  ---------------          ---------------  |
+           |        |                        |          |
+           |  ---------------          ---------------  |
+           | |   Database 1  | <----> |   Database 2  | |
+           |  ---------------          ---------------  |
+           \--------------------------------------------/
+
+        The overall system requires a number of other Cisco 
+        platforms to deliver an end-to-end solution. These other
+        platforms are configured in the CTX System as resources.
+
+
+        *********************************
+                 Implementation    
+        *********************************
+        The administration servers provide management interfaces
+        for the CTX System cluster nodes and for the resources
+        configured.  This MIB consolidates the configuration, 
+        status, alarms, errors, and statistics for all cluster 
+        nodes.  Therefore this MIB will only be implemented on 
+        the admin servers.  Each admin server can be polled 
+        independently or via a virtual IP address. Each admin server
+        functions in an active/active mode with the same set of
+        information. 
+
+        Hardware and operating system level information, such
+        as CPU, memory, power supplies, fans, etc. remain accessible
+        in hardware and operating system specific MIBS, such as
+        HOST-RESOURCES-MIB, IF-MIB, ...
+
+
+        *********************************
+        Configuration Tables and Linking 
+        *********************************
+        Configuration table hierarchal structure is as follows:
+         ___ 
+          |- Cluster Nodes - CTX System devices
+          |
+          |- Service Providers - Logical grouping
+             |-- Regions - Logical grouping
+             |  |
+             |  |--- Resources - General configs for resources 
+             |  |      that are common to all resources
+             |  |
+             |     |--- SIP Configs - SIP configurations such as 
+             |     |       SIP IP, port, and protocol
+             |     |
+             |     |--- Meeting Configs - Meeting configurations
+             |     |       such as Min/Max meeting ID's 
+             |     |
+             |     |--- Capacity Configs - Media port counts, 
+             |     |       large meeting support, etc.
+             |
+             |-- Organizations
+
+
+        All configuration table entries have a globally unique key.
+        No two keys will be the same within or across configuration
+        tables. The intent is to allow network management applications
+        to use these unique keys to link or join associated tables
+        together.
+
+        Configuration tables that have an association to another
+        table will contain a key reference object.  Multiple 
+        associations may exist, so the key reference will contain
+        a number in the object name.  This number indicates only that
+        there are multiple associations.  The reference key object
+        name will have the appended syntax 'KeyRef1'.  Optionally
+        there maybe 'KeyRef2', etc. when multiple associations 
+        exist.
+
+        Example of linking associated tables:
+
+         REGION TABLE Entry:
+           ctxRegionKey.1 = 
+                  STRING: 8a960c882aa5cd64012aa5d3963b0028
+           ctxRegionName.1 = 
+                  STRING: San Francisco
+           ctxRegionDescr.1 = 
+                  STRING: null
+           ctxRegionServiceProviderKeyRef1.1 = 
+                  STRING: 8a960c882aa5cd64012aa5d144730017
+
+         RESOURCE TABLE Entry:
+
+           ctxResourceKey.1 = 
+                  STRING: 8a960c882aca4db8012aca9bbdb401dd
+           ctxResourceName.1 = 
+                  STRING: abc-cuvcm
+           ctxResourceDescr.1 = 
+                  STRING: abc-cuvcm
+           ctxResourceMgmtIPType.1 = 
+                  INTEGER: ipv4(1)
+           ctxResourceMgmtIPAddr.1 = 
+                  STRING: 0.0.0.0
+           ctxResourceDeviceType.1 = 
+                  INTEGER: cuvcm(9)
+           ctxResourceRegionKeyRef1.1 = 
+                  STRING: 8a960c882aa5cd64012aa5d3963b0028
+
+          For the above entry we can see that there is a 
+          ctxResourceRegionKeyRef1 that has the ctxRegionKey
+          value for region 'San Francisco' . Therefore resource
+          'abc-cuvcm' is associated to region 'San Francisco'
+
+        *********************************
+               Glossary 
+        *********************************
+        CTX System : Cisco TelePresence Exchange System
+        Service Provider : 
+           A service provider is configured in the CTX System
+           and serves as a logical grouping of configuration
+           objects. 
+        Region :
+           A region is defined as a set of 'like' resources
+           in terms of network latency, jitter, quality of service,
+           etc. Normally a region is a geographic area such as 
+           Americas, Europe, or Asia Pacific, but a region can be
+           a smaller set of like resources such as East and West 
+           regions.
+        Resource :
+           A resource is server or network device that the CTX
+           System includes in configuration to provide call
+           signaling, media services, scheduling, or other function.
+        Cluster Node: 
+           A cluster node is a server within the CTX System, such as
+           admin server, call engine server, or database server.
+        SIP Protocol:
+           SIP protocol is the transport protocol used to exchange
+           messages between user agents. The protocols are described
+           in RFC3261.
+        Port    : Port is the media session port
+                  allocation,  also referred to as screen
+        E.164   : E.164 is an ITU-T recommendation for telephone 
+                  numbers. Reference link  
+                  http://www.itu.int/rec/T-REC-E.164/en
+        Endpoint: End system TelePresence device 
+        CUCM    : Cisco Unified Communications Manager
+        SBC     : Session Border Controller such as ASR-1000 CUBE(sp)
+        CTMS    : Cisco TelePresence Multipoint Switch
+        CTS     : Cisco TelePresence System endpoint
+        CTS-MAN : Cisco TelePresence Manager
+        CUVCM   : Cisco Unified Videoconferencing Manager
+        Media2  : Tandberg MSE 8510 blade
+        TPS     : Tandberg MSE 8710 blade
+        VCS     : Tandberg Video Communication Server
+        TMS     : Tandberg Management Suite
+        XMLRPC  : XML Remote Procedure Call protocol"
+    REVISION        "201101130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module"
+    ::= { ciscoMgmt 758 }
+
+
+
+CtxKeyId ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "4x-"
+    STATUS          current
+    DESCRIPTION
+        "A key id is a globally unique key across all database
+        tables and entries.  This key will persist upon restart
+        and reboot.  This key is generated by the CTX System when
+        the entry is added to the database.
+
+        The format of the key is a HEX string value. The value
+        can be up to 32 hexadecimal characters."
+    SYNTAX          OCTET STRING (SIZE (0..32))
+
+CtxIndex ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary (system-assigned) index for each instance.
+
+        If MIB index persistence is configured via the CTX System CLI
+        interface, this index will persist upon restart and reboot. 
+
+        When an entry is removed, this index will be cleared but will
+        not be reused unless MIB index persistence is disabled or if
+        persistence cache is cleared via the CTX System CLI interface."
+    SYNTAX          Unsigned32
+
+CtxPorts ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "A port is the media session port allocation for a resource. It
+        is commonly referred to as a media video RTP stream for a
+        multipoint switch and an audio RTP steam for ISDN/IVR. It is
+        also known as a segment or screen.  A Cisco TelePresence System
+        1000 uses one port while a Cisco TelePresence System 3000 uses 3
+        ports, one for each video screen."
+    SYNTAX          Unsigned32 (1..65535)
+
+-- Textual Conventions
+
+CtxClusterNodeTypes ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The types of cluster nodes.
+
+        admin(1)    - CTX System administrative server
+        engine(2)   - CTX System call processing engine server
+        db(3)       - CTX System database server"
+    SYNTAX          INTEGER  {
+                        admin(1),
+                        engine(2),
+                        db(3)
+                    }
+
+CtxHealthStates ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The CTX System high level status.
+
+        normal(1)   - Normal operational state
+        warning(2)  - The system is in a warning state.  A 
+                      warning state needs attention, but is
+                      not affecting the system or solution
+                      from functioning.  A warning state could
+                      be generated a redundant server is down
+                      or if a configured resource is down
+                      but is not affecting current call
+                      processing.
+        error(3)    - Error state indicates that the system is
+                      not fully usable and that immediate
+                      attention is required.  Example of a 
+                      error state is if both call engine servers
+                      are down."
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        warning(2),
+                        error(3)
+                    }
+
+CtxResourceOperState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The resource operational state.  The operational state of a
+        resource is determined by the CTX system configuration and
+        proactive health probe monitoring of the resource. An example of
+        a health check probe is a SIP Options Ping or XMLRPC ping. 
+
+          operational(1) - Resource is fully operational and 
+                           is successfully passing health probe
+                           validation checks.
+          disabled(2)    - Resource has been administratively
+                           disabled. 
+          failed(3)      - Resource has failed to respond to 
+                           consecutive health check probes or has
+                           failed due to an application failure on
+                           the resource. IP connectivity failures 
+                           are indicated by the unreachable state.
+          maintenance(4) - Resource is currently in maintenance
+                           mode.  In this state, the resource
+                           may be up or down.  Probe monitoring
+                           is not active on a device in this state.
+          pending(5)     - Resource is currently pending a state
+                           transition.  When a device is added and
+                           fully configured, the device will be put
+                           into pending state till the health check
+                           probes have successfully passed.  When
+                           passed the state will change to either
+                           operational or failed.  A device that is
+                           put into maintenance mode will go into
+                           pending state till all calls are cleared
+                           from that device.
+          standby(6)     - A resource device in this state is 
+                           considered fully operational, but is 
+                           currently the standby server/resource.
+          unreachable(7) - A resource will be in this state if
+                           the IP connectivity to the device is 
+                           not functioning."
+    SYNTAX          INTEGER  {
+                        operational(1),
+                        disabled(2),
+                        failed(3),
+                        maintenance(4),
+                        pending(5),
+                        standby(6),
+                        unreachable(7)
+                    }
+
+CtxSIPProtocolType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The SIP transport protocol in use.
+
+        tcp(1)      - connection oriented transport
+        udp(2)      - connectionless transport
+        tls(3)      - Secured connection oriented transport"
+    SYNTAX          INTEGER  {
+                        tcp(1),
+                        udp(2),
+                        tls(3)
+                    }
+
+CtxResourceType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The resource device object type.
+
+        ctms(1)       - Cisco TelePresence Multipoint Switch
+        ivr(2)        - Interactive Voice Response
+        sbc(3)        - Session Border Controller
+        sip(4)        - Generic SIP user agent
+        ctsmanager(5) - CTS Manager
+        mseTps(6)     - Tandberg MSE 8710 blade
+        mseMedia2(7)  - Tandberg MSG 8510 blade
+        isdn(8)       - ISDN PSTN gateway
+        cuvcm(9)      - Cisco Unified Videoconferencing Manager
+        cucm(10)      - Cisco Unified Communications Manager
+        vcs(11)       - Tandberg Video Communication Server 
+        tms(12)       - Tandberg Management Suite server"
+    SYNTAX          INTEGER  {
+                        ctms(1),
+                        ivr(2),
+                        sbc(3),
+                        sip(4),
+                        ctsmanager(5),
+                        mseTps(6),
+                        mseMedia2(7),
+                        isdn(8),
+                        cuvcm(9),
+                        cucm(10),
+                        vcs(11),
+                        tms(12)
+                    }
+-- Root Objects
+
+ciscoTelepresenceExchangeSystemMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIB 0 }
+
+ciscoTelepresenceExchangeSystemMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIB 1 }
+
+ciscoTelepresenceExchangeSystemMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIB 7 }
+
+ctxConfigObjects  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIBObjects 1 }
+
+ctxSystemStatusObjects  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIBObjects 2 }
+
+ctxStatisticsObjects  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIBObjects 3 }
+
+ctxEventHistory  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIBObjects 4 }
+
+ctxNotifyObjects  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIBObjects 5 }
+
+-- -
+-- - CTX System configuration objects
+-- -
+--   
+-- Service Provider configuration table objects
+
+ctxServiceProviderTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxServiceProviderEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the configuration information
+        for service providers as they are configured in the 
+        CTX System.  Service provider entries provide a logical 
+        grouping of regions, organizations, and resources."
+    ::= { ctxConfigObjects 1 }
+
+ctxServiceProviderEntry OBJECT-TYPE
+    SYNTAX          CtxServiceProviderEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes a service provider entry as
+        configured in the CTX System."
+    INDEX           { ctxServiceProviderIndex } 
+    ::= { ctxServiceProviderTable 1 }
+
+CtxServiceProviderEntry ::= SEQUENCE {
+        ctxServiceProviderIndex    CtxIndex,
+        ctxServiceProviderKey      CtxKeyId,
+        ctxServiceProviderName     DisplayString,
+        ctxServiceProviderDescr    OCTET STRING,
+        ctxServiceProviderHDNumber DisplayString
+}
+
+ctxServiceProviderIndex OBJECT-TYPE
+    SYNTAX          CtxIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Service provider snmp instance configuration index." 
+    ::= { ctxServiceProviderEntry 1 }
+
+ctxServiceProviderKey OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the service provider ID key." 
+    ::= { ctxServiceProviderEntry 2 }
+
+ctxServiceProviderName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the service provider name as configured
+        in the CTX System." 
+    ::= { ctxServiceProviderEntry 3 }
+
+ctxServiceProviderDescr OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the service provider description
+        as configured in the CTX System." 
+    ::= { ctxServiceProviderEntry 4 }
+
+ctxServiceProviderHDNumber OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the service provider help desk
+        number. This number is normally in the e.164 format." 
+    ::= { ctxServiceProviderEntry 5 }
+ 
+
+-- Region configuration table objects
+
+ctxRegionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxRegionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the configuration information
+        for regions as they are configured in the CTX System.
+
+        A region is defined as a set of 'like' resources
+        in terms of network latency, jitter, quality of service,
+        etc. Normally a region is a geographic area such as 
+        Americas, Europe, or Asia Pacific, but a region can be
+        a smaller set of like resources such as East and West 
+        regions."
+    ::= { ctxConfigObjects 2 }
+
+ctxRegionEntry OBJECT-TYPE
+    SYNTAX          CtxRegionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes a region entry as
+        configured in the CTX System."
+    INDEX           { ctxRegionIndex } 
+    ::= { ctxRegionTable 1 }
+
+CtxRegionEntry ::= SEQUENCE {
+        ctxRegionIndex                  CtxIndex,
+        ctxRegionKey                    CtxKeyId,
+        ctxRegionName                   DisplayString,
+        ctxRegionDescr                  OCTET STRING,
+        ctxRegionServiceProviderKeyRef1 CtxKeyId
+}
+
+ctxRegionIndex OBJECT-TYPE
+    SYNTAX          CtxIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Region snmp instance configuration index." 
+    ::= { ctxRegionEntry 1 }
+
+ctxRegionKey OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the region entry ID key as
+        generated by the CTX System when the entry
+        entry was configured." 
+    ::= { ctxRegionEntry 2 }
+
+ctxRegionName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the region name as configured in
+        the CTX System." 
+    ::= { ctxRegionEntry 3 }
+
+ctxRegionDescr OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the region description as configured
+        in the CTX System." 
+    ::= { ctxRegionEntry 4 }
+
+ctxRegionServiceProviderKeyRef1 OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object references the ctxServiceProviderKey object
+        from the ctxServiceProviderEntry table.  This key matches
+        the service provider key.  This key provides an 
+        association reference to the service provider entry that
+        is associated to this region entry.  
+
+        This object maybe null or empty if no reference is provided.
+
+        See MIB description under 'Configuration Tables and Linking'
+        for a detailed example."
+    REFERENCE       "ctxServiceProviderKey" 
+    ::= { ctxRegionEntry 5 }
+ 
+
+-- Organization configuration table objects
+
+ctxOrganizationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxOrganizationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the configuration information
+        for an organization as they are configured in the 
+        CTX System.  Organization entries provide a logical 
+        grouping of customer endpoints and resources."
+    ::= { ctxConfigObjects 3 }
+
+ctxOrganizationEntry OBJECT-TYPE
+    SYNTAX          CtxOrganizationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents an organization configuration
+        entry as configured in the CTX system."
+    INDEX           { ctxOrganizationIndex } 
+    ::= { ctxOrganizationTable 1 }
+
+CtxOrganizationEntry ::= SEQUENCE {
+        ctxOrganizationIndex                  CtxIndex,
+        ctxOrganizationKey                    CtxKeyId,
+        ctxOrganizationName                   DisplayString,
+        ctxOrganizationDescr                  OCTET STRING,
+        ctxOrganizationMaxPorts               CtxPorts,
+        ctxOrganizationDirectDial             TruthValue,
+        ctxOrganizationServiceProviderKeyRef1 CtxKeyId
+}
+
+ctxOrganizationIndex OBJECT-TYPE
+    SYNTAX          CtxIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Organization snmp instance configuration index." 
+    ::= { ctxOrganizationEntry 1 }
+
+ctxOrganizationKey OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the organization ID key as
+        generated by the CTX System when the organization
+        entry was configured." 
+    ::= { ctxOrganizationEntry 2 }
+
+ctxOrganizationName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the organization name as
+        configured in the CTX System." 
+    ::= { ctxOrganizationEntry 3 }
+
+ctxOrganizationDescr OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the organization description
+        as configured in the CTX System." 
+    ::= { ctxOrganizationEntry 4 }
+
+ctxOrganizationMaxPorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the organization maximum ports for
+        scheduled meetings.          
+
+        The value of 0 indicates undefined." 
+    ::= { ctxOrganizationEntry 5 }
+
+ctxOrganizationDirectDial OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the organization direct dial enabled
+        flag as configured in the CTX System.  If direct dial calls
+        are allowed, this value will be TRUE.  If direct dial calls
+        are not allowed, this value will be FALSE." 
+    ::= { ctxOrganizationEntry 6 }
+
+ctxOrganizationServiceProviderKeyRef1 OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object references the ctxServiceProviderKey object
+        from the ctxServiceProviderEntry table.  This key matches
+        the service provider key.  This key provides an 
+        association reference to the service provider entry that
+        is associated to this region entry.  
+
+        This object maybe null or empty if no reference is provided.
+
+        See MIB description under 'Configuration Tables and Linking'
+        for a detailed example."
+    REFERENCE       "ctxServiceProviderKey" 
+    ::= { ctxOrganizationEntry 7 }
+ 
+
+-- Resource configuration table objects
+
+ctxResourceObjects  OBJECT IDENTIFIER
+    ::= { ctxConfigObjects 4 }
+
+
+ctxResourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxResourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the configuration information
+        for resources as they are configured in the 
+        CTX System. 
+
+        A resource is server or network device that the CTX
+        System includes in configuration to provide call
+        signaling, media services, scheduling, or other function. 
+
+        A resource may have additional configuration items, 
+        such as ctxSipConfigTable.  Each of the other
+        ctxResourceObjects tables are indexed by this resource
+        entry.  If a resource has SIP configurations, there 
+        will be a entry in the ctxSipConfigEntry indexed by
+        this ctxResourceIndex.  
+
+          |- Service Providers - Logical grouping
+             |-- Regions - Logical grouping
+             |  |
+             |  |--- Resources - General configs for resources 
+             |  |      that are common to all resources
+             |  |
+             |     |--- SIP Configs - SIP configurations such as 
+             |     |       SIP IP, port, and protocol
+             |     |
+             |     |--- Meeting Configs - Meeting configurations
+             |     |       such as Min/Max meeting ID's 
+             |     |
+             |     |--- Capacity Configs - Media port counts, 
+             |     |       large meeting support, etc."
+    ::= { ctxResourceObjects 1 }
+
+ctxResourceEntry OBJECT-TYPE
+    SYNTAX          CtxResourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a resource configuration
+        entry as configured in the CTX system."
+    INDEX           { ctxResourceIndex } 
+    ::= { ctxResourceTable 1 }
+
+CtxResourceEntry ::= SEQUENCE {
+        ctxResourceIndex         CtxIndex,
+        ctxResourceKey           CtxKeyId,
+        ctxResourceName          DisplayString,
+        ctxResourceDescr         OCTET STRING,
+        ctxResourceMgmtIPType    InetAddressType,
+        ctxResourceMgmtIPAddr    InetAddress,
+        ctxResourceDeviceType    CtxResourceType,
+        ctxResourceRegionKeyRef1 CtxKeyId
+}
+
+ctxResourceIndex OBJECT-TYPE
+    SYNTAX          CtxIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Resource snmp instance configuration index." 
+    ::= { ctxResourceEntry 1 }
+
+ctxResourceKey OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the resource ID key as
+        generated by the CTX System when the resource 
+        entry was configured.  
+
+        This key is a globally unique across all configuration
+        tables and entries.  This key will persist upon restart
+        and reboot." 
+    ::= { ctxResourceEntry 2 }
+
+ctxResourceName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the resource name as configured
+        in the CTX System." 
+    ::= { ctxResourceEntry 3 }
+
+ctxResourceDescr OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the resource configuration as
+        configured in the CTX System." 
+    ::= { ctxResourceEntry 4 }
+
+ctxResourceMgmtIPType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the management IP address type
+        for the resource as configured in the CTX System." 
+    ::= { ctxResourceEntry 5 }
+
+ctxResourceMgmtIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the management IP for the
+        resource as configured in the CTX System. This IP 
+        address is used for provisioning, monitoring, and 
+        resource probes.
+
+        The IP address 0.0.0.0 will be used if the resource does
+        not have a management IP address configured." 
+    ::= { ctxResourceEntry 6 }
+
+ctxResourceDeviceType OBJECT-TYPE
+    SYNTAX          CtxResourceType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the resource device type as
+        configured in the CTX System." 
+    ::= { ctxResourceEntry 7 }
+
+ctxResourceRegionKeyRef1 OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object references the ctxRegionKey object
+        from the ctxRegionEntry table.  This key matches
+        the region key.  This key provides an association 
+        reference to the region entry that is associated to 
+        this resource entry.  
+
+        This object maybe null or empty if no reference is provided.
+
+        See MIB description under 'Configuration Tables and Linking'
+        for a detailed example."
+    REFERENCE       "ctxRegionKey" 
+    ::= { ctxResourceEntry 8 }
+ 
+
+-- SIP configuration table objects
+
+ctxSipConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxSipConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the SIP configuration attributes
+        for a resource.  Only resources that have SIP attributes
+        will have an entry in this table."
+    ::= { ctxResourceObjects 2 }
+
+ctxSipConfigEntry OBJECT-TYPE
+    SYNTAX          CtxSipConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes the SIP attributes for a resource
+        as configured in the CTX System.   
+
+        As described in ctxResourceTable description, this 
+        table is indexed by the ctxResourceIndex.  Only entries
+        that have SIP attributes will have an entry in this
+        table."
+    INDEX           { ctxResourceIndex } 
+    ::= { ctxSipConfigTable 1 }
+
+CtxSipConfigEntry ::= SEQUENCE {
+        ctxSipIpType         InetAddressType,
+        ctxSipIpAddr         InetAddress,
+        ctxSipPort           CiscoPort,
+        ctxSipTransportProto CtxSIPProtocolType
+}
+
+ctxSipIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the SIP IP address type
+        for the resource as configured in the CTX System." 
+    ::= { ctxSipConfigEntry 1 }
+
+ctxSipIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the SIP signaling IP for the
+        resource as configured in the CTX System. This IP 
+        address is used for signaling and for SIP OPTION
+        PING resource probes." 
+    ::= { ctxSipConfigEntry 2 }
+
+ctxSipPort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the SIP port for the resource
+        as configured in the CTX System." 
+    ::= { ctxSipConfigEntry 3 }
+
+ctxSipTransportProto OBJECT-TYPE
+    SYNTAX          CtxSIPProtocolType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the SIP transport protocol type
+        as configured in the CTX System." 
+    ::= { ctxSipConfigEntry 4 }
+ 
+
+-- Media Capacity configuration table objects
+
+ctxMediaCapacityConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxMediaCapacityConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the media capacity configuration
+        attributes for a resource. Only resources that have 
+        media capacity attributes will have an entry in this 
+        table."
+    ::= { ctxResourceObjects 3 }
+
+ctxMediaCapacityConfigEntry OBJECT-TYPE
+    SYNTAX          CtxMediaCapacityConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes the media capacity attributes for
+        a resource as configured in the CTX System.   
+
+        As described in ctxResourceTable description, this 
+        table is indexed by the ctxResourceIndex.  Only entries
+        that have media capacity attributes will have an entry
+        in this table."
+    INDEX           { ctxResourceIndex } 
+    ::= { ctxMediaCapacityConfigTable 1 }
+
+CtxMediaCapacityConfigEntry ::= SEQUENCE {
+        ctxMediaCapacityMaxPorts     CtxPorts,
+        ctxMediaCapacityLargeMeeting TruthValue
+}
+
+ctxMediaCapacityMaxPorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum port capacity for the
+        resource as configured in the CTX System." 
+    ::= { ctxMediaCapacityConfigEntry 1 }
+
+ctxMediaCapacityLargeMeeting OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the large meeting reservation
+        allowed option for the resource as configured in 
+        the CTX System." 
+    ::= { ctxMediaCapacityConfigEntry 2 }
+ 
+
+-- Meeting configuration table objects
+
+ctxMeetingConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxMeetingConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the meeting configuration
+        attributes for a resource. Only resources that have 
+        meeting attributes will have an entry in this 
+        table."
+    ::= { ctxResourceObjects 4 }
+
+ctxMeetingConfigEntry OBJECT-TYPE
+    SYNTAX          CtxMeetingConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes the meeting attributes for
+        a resource as configured in the CTX System.   
+
+        As described in ctxResourceTable description, this 
+        table is indexed by the ctxResourceIndex.  Only entries
+        that have meeting attributes will have an entry
+        in this table."
+    INDEX           { ctxResourceIndex } 
+    ::= { ctxMeetingConfigTable 1 }
+
+CtxMeetingConfigEntry ::= SEQUENCE {
+        ctxMeetingConfigStaticMinId  DisplayString,
+        ctxMeetingConfigStaticMaxId  DisplayString,
+        ctxMeetingConfigInterOpMinId DisplayString,
+        ctxMeetingConfigInterOpMaxId DisplayString
+}
+
+ctxMeetingConfigStaticMinId OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..15))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the vendor specific minimum static
+        meeting ID as configured in the CTX System." 
+    ::= { ctxMeetingConfigEntry 1 }
+
+ctxMeetingConfigStaticMaxId OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..15))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the vendor specific maximum static
+        meeting ID as configured in the CTX System." 
+    ::= { ctxMeetingConfigEntry 2 }
+
+ctxMeetingConfigInterOpMinId OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..15))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the vendor specific minimum interOp
+        meeting ID as configured in the CTX System." 
+    ::= { ctxMeetingConfigEntry 3 }
+
+ctxMeetingConfigInterOpMaxId OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..15))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the vendor specific maximum interOp
+        meeting ID as configured in the CTX System." 
+    ::= { ctxMeetingConfigEntry 4 }
+ 
+
+-- Cluster node configuration table objects
+
+ctxClusterNodeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxClusterNodeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the configuration information
+        for cluster nodes as they are configured in the 
+        CTX System. 
+
+        A cluster node is a server within the CTX System, such as
+        admin server, call engine server, or database server."
+    ::= { ctxConfigObjects 5 }
+
+ctxClusterNodeEntry OBJECT-TYPE
+    SYNTAX          CtxClusterNodeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes a cluster node entry as configured
+        in the CTX System."
+    INDEX           { ctxClusterNodeIndex } 
+    ::= { ctxClusterNodeTable 1 }
+
+CtxClusterNodeEntry ::= SEQUENCE {
+        ctxClusterNodeIndex       CtxIndex,
+        ctxClusterNodeKey         CtxKeyId,
+        ctxClusterNodeName        DisplayString,
+        ctxClusterNodeHostName    DisplayString,
+        ctxClusterNodeIPType      InetAddressType,
+        ctxClusterNodeIPAddr      InetAddress,
+        ctxClusterNodeClusterName DisplayString,
+        ctxClusterNodeType        CtxClusterNodeTypes,
+        ctxClusterNodeOperState   CtxResourceOperState
+}
+
+ctxClusterNodeIndex OBJECT-TYPE
+    SYNTAX          CtxIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Cluster node snmp instance configuration index." 
+    ::= { ctxClusterNodeEntry 1 }
+
+ctxClusterNodeKey OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cluster node ID key as
+        generated by the CTX System when the cluster node
+        entry was configured." 
+    ::= { ctxClusterNodeEntry 2 }
+
+ctxClusterNodeName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cluster node name as configured
+        in the CTX system." 
+    ::= { ctxClusterNodeEntry 3 }
+
+ctxClusterNodeHostName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cluster node hostname as
+        configured in the CTX System." 
+    ::= { ctxClusterNodeEntry 4 }
+
+ctxClusterNodeIPType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cluster node IP address type
+        as configured in the CTX System." 
+    ::= { ctxClusterNodeEntry 5 }
+
+ctxClusterNodeIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cluster node IP address as
+        configured in the CTX System." 
+    ::= { ctxClusterNodeEntry 6 }
+
+ctxClusterNodeClusterName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cluster node cluster name as
+        configured in the CTX System." 
+    ::= { ctxClusterNodeEntry 7 }
+
+ctxClusterNodeType OBJECT-TYPE
+    SYNTAX          CtxClusterNodeTypes
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cluster node type as
+        configured in the CTX System." 
+    ::= { ctxClusterNodeEntry 8 }
+
+ctxClusterNodeOperState OBJECT-TYPE
+    SYNTAX          CtxResourceOperState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the operational state of the
+        cluster node. The operational state is set by the
+        CTX System based on configuration and proactive
+        monitoring of the cluster node. 
+
+        See the textual convention CtxResourceOperState
+        for a detail description of the various states." 
+    ::= { ctxClusterNodeEntry 9 }
+ 
+
+
+-- System Status Monitor Objects
+
+ctxAdminServersStatus OBJECT-TYPE
+    SYNTAX          CtxHealthStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an overall system health
+        status state for the cluster admin server nodes. This 
+        state is an indicator of the CTX System functional
+        health in terms of the admin functions. 
+
+        The ctxAdminServersStatusChg notification provides
+        real-time alerts for when this state changes. A 
+        ctxNotifyMessage will detail the reason why the
+        state changed." 
+    ::= { ctxSystemStatusObjects 1 }
+
+ctxCallEnginesStatus OBJECT-TYPE
+    SYNTAX          CtxHealthStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an overall system health
+        status state for the cluster engine server nodes. This 
+        state is an indicator of the CTX System functional
+        health in terms of the call processing engine functions. 
+
+        The ctxCallEnginesStatusChg notification provides
+        real-time alerts for when this state changes. A 
+        ctxNotifyMessage will detail the reason why the
+        state changed." 
+    ::= { ctxSystemStatusObjects 2 }
+
+ctxDatabaseServersStatus OBJECT-TYPE
+    SYNTAX          CtxHealthStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an overall system health
+        status state for the cluster database server nodes. This 
+        state is an indicator of the CTX System functional
+        health in terms of the database server functions. 
+
+        The ctxDatabaseServersStatusChg notification provides
+        real-time alerts for when this state changes. A 
+        ctxNotifyMessage will detail the reason why the
+        state changed." 
+    ::= { ctxSystemStatusObjects 3 }
+
+ctxResourceStatus OBJECT-TYPE
+    SYNTAX          CtxHealthStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an overall system health
+        status state for the resources configured. This 
+        state is an indicator of the CTX System functional
+        health in terms of the resource dependencies. 
+
+        The ctxResourceStatusChg notification provides
+        real-time alerts for when this state changes. A 
+        ctxNotifyMessage will detail the reason why the
+        state changed." 
+    ::= { ctxSystemStatusObjects 4 }
+
+ctxSystemConfigStatus OBJECT-TYPE
+    SYNTAX          CtxHealthStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an overall system health
+        status state for the system configuration. This 
+        state is an indicator of the CTX System functional
+        health in terms of the overall configuration. 
+
+        The ctxSystemConfigStatusChg notification provides
+        real-time alerts for when this state changes. A 
+        ctxNotifyMessage will detail the reason why the
+        state changed." 
+    ::= { ctxSystemStatusObjects 5 }
+
+ctxSystemBackupStatus OBJECT-TYPE
+    SYNTAX          CtxHealthStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an overall system health
+        status state for the system backups. This 
+        state is an indicator of the CTX System functional
+        health in terms of the overall system backups. 
+
+        The ctxBackupStatusChg notification provides
+        real-time alerts for when this state changes. A 
+        ctxNotifyMessage will detail the reason why the
+        state changed." 
+    ::= { ctxSystemStatusObjects 6 }
+-- Resource statistics table objects
+
+ctxResourceStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxResourceStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the run-time resource statistics."
+    ::= { ctxStatisticsObjects 1 }
+
+ctxResourceStatsEntry OBJECT-TYPE
+    SYNTAX          CtxResourceStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes an individual resource and
+        statistics for it.   
+
+        This table is indexed by the ctxResourceIndex. All
+        resources will have an entry in this table to define
+        common resource statistics, such as operational state."
+    INDEX           { ctxResourceIndex } 
+    ::= { ctxResourceStatsTable 1 }
+
+CtxResourceStatsEntry ::= SEQUENCE {
+        ctxResourceOperState         CtxResourceOperState,
+        ctxResourceUnavailTrans      Counter32,
+        ctxResourceUnavailDuration   Counter32,
+        ctxResourceCallSetupFailures Counter32
+}
+
+ctxResourceOperState OBJECT-TYPE
+    SYNTAX          CtxResourceOperState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the operational state of the
+        resource. 
+
+        The operational state is set by the
+        CTX System based on configuration and proactive
+        monitoring of the resource. 
+
+        See the textual convention CtxResourceOperState
+        for a detail description of the various states." 
+    ::= { ctxResourceStatsEntry 1 }
+
+ctxResourceUnavailTrans OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a counter that increments when
+        the resource transitions to unreachable or failed state from 
+        another state. The management entity can use this to 
+        track the operational stability of the resource." 
+    ::= { ctxResourceStatsEntry 2 }
+
+ctxResourceUnavailDuration OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Defines the total time in seconds that the resource was in
+        either the failed or unreachable states. This counter keeps
+        track of time in seconds on how much the resource stays in
+        the failed and unreachable states.  
+
+        The duration is accumulative from SNMP start time and will
+        reset to zero when the snmp agent is restarted." 
+    ::= { ctxResourceStatsEntry 3 }
+
+ctxResourceCallSetupFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a counter that increments every time
+        a call fails to be setup correctly to this resource. 
+        Miss-dialed numbers are excluded and not considered a 
+        failure." 
+    ::= { ctxResourceStatsEntry 4 }
+ 
+
+-- Scheduling allocation statistics table objects
+
+ctxAllocStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxAllocStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the run-time scheduling port
+        allocation statistics."
+    ::= { ctxStatisticsObjects 2 }
+
+ctxAllocStatsEntry OBJECT-TYPE
+    SYNTAX          CtxAllocStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes an individual resource and
+        statistics for media port allocations.   
+
+        This table is indexed by the ctxResourceIndex. Only
+        resources that require port allocations will have
+        an entry in this table."
+    INDEX           { ctxResourceIndex } 
+    ::= { ctxAllocStatsTable 1 }
+
+CtxAllocStatsEntry ::= SEQUENCE {
+        ctxAllocActivePorts CtxPorts,
+        ctxAllocAvailPorts  CtxPorts,
+        ctxAllocFailures    Counter32,
+        ctxAllocOutOfPorts  Counter32
+}
+
+ctxAllocActivePorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the active in-use ports for the
+        resource." 
+    ::= { ctxAllocStatsEntry 1 }
+
+ctxAllocAvailPorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the available ports for the
+        resource." 
+    ::= { ctxAllocStatsEntry 2 }
+
+ctxAllocFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object increments when there are not enough port resources
+        available to process the requested allocation or if there is an
+        error allocating the ports." 
+    ::= { ctxAllocStatsEntry 3 }
+
+ctxAllocOutOfPorts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object increments when there are not enough port resources
+        available to process the requested allocation." 
+    ::= { ctxAllocStatsEntry 4 }
+ 
+
+-- Region statistics table objects
+
+ctxRegionStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxRegionStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the run-time statistics for regions
+        for scheduling port allocations and call setup failures.
+        This table is similar to the ctxAllocStatsTable table, 
+        except this table provides statistics per region for 
+        all resources."
+    ::= { ctxStatisticsObjects 3 }
+
+ctxRegionStatsEntry OBJECT-TYPE
+    SYNTAX          CtxRegionStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes statistics for a region.
+
+        This table is indexed by the ctxRegionIndex."
+    INDEX           { ctxRegionIndex } 
+    ::= { ctxRegionStatsTable 1 }
+
+CtxRegionStatsEntry ::= SEQUENCE {
+        ctxRegionCallSetupFailures  Counter32,
+        ctxAllocPoolActivePorts     CtxPorts,
+        ctxAllocPoolAvailPorts      CtxPorts,
+        ctxAllocPoolAllocFailures   Counter32,
+        ctxAllocPoolAllocOutOfPorts Counter32
+}
+
+ctxRegionCallSetupFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a counter that increments every time
+        a call fails to be setup correctly in this region. Mis-dialed
+        numbers are excluded and not considered a failure." 
+    ::= { ctxRegionStatsEntry 1 }
+
+ctxAllocPoolActivePorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the active in-use ports for the
+        region." 
+    ::= { ctxRegionStatsEntry 2 }
+
+ctxAllocPoolAvailPorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the available ports for resources
+        within the region." 
+    ::= { ctxRegionStatsEntry 3 }
+
+ctxAllocPoolAllocFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object increments when there are not enough port resources
+        available to process the requested allocation or if there is an
+        error allocating the port for the given region." 
+    ::= { ctxRegionStatsEntry 4 }
+
+ctxAllocPoolAllocOutOfPorts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "occurrences"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object increments when there are not enough port resources
+        available to process the requested allocation for the given
+        region resource pool." 
+    ::= { ctxRegionStatsEntry 5 }
+ 
+
+ctxAllocPeakHistory  OBJECT IDENTIFIER
+    ::= { ctxStatisticsObjects 4 }
+
+
+ctxPeakHistMaxIntervals OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 5..1440)
+    UNITS           "intervals"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of time intervals kept in the
+        history tables ctxPeakHistAllocTable and
+        ctxPeakHistAllocPoolTable.
+
+        The default is 96 intervals.  96 intervals at the
+        ctxPeakHistIntTime default of 15 minutes stores peak
+        values for 24 hours.  
+
+        A value of 0 will disable peak history tables from collecting
+        data.
+
+        The minimum value is 5 with a maximum of 1440. 
+
+        Changing this value will reset and clear both
+        ctxPeakHistAllocTable and ctxPeakHistAllocPoolTable table
+        entries."
+    DEFVAL          { 96 } 
+    ::= { ctxAllocPeakHistory 1 }
+
+ctxPeakHistIntTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1440)
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time interval in minutes.
+
+        Default is 15 minutes. 
+
+        The minimum interval time is 1 and the maximum is 1440
+        minutes. 
+
+        Changing this value will reset and clear both
+        ctxPeakHistAllocTable and ctxPeakHistAllocPoolTable table
+        entries."
+    DEFVAL          { 15 } 
+    ::= { ctxAllocPeakHistory 2 }
+
+ctxPeakHistAllocTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxPeakHistAllocEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the run-time peak statistics for resource
+        port allocations. This table contains peak port allocations per
+        resource for ctxHistMaxIntervals. The management entity can 
+        use this table to monitor the peak port allocations per
+        interval.    
+
+        Setting ctxPeakHistMaxIntervals to 0 will disable this table and
+        clear all entries in table."
+    ::= { ctxAllocPeakHistory 3 }
+
+ctxPeakHistAllocEntry OBJECT-TYPE
+    SYNTAX          CtxPeakHistAllocEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes a single peak time interval per resource.
+
+        This table is indexed by the ctxResourceIndex and
+        ctxPeakHistAllocIntIndex. Only resources that have port
+        allocations will have an entry in this table."
+    INDEX           {
+                        ctxResourceIndex,
+                        ctxPeakHistAllocIntIndex
+                    } 
+    ::= { ctxPeakHistAllocTable 1 }
+
+CtxPeakHistAllocEntry ::= SEQUENCE {
+        ctxPeakHistAllocIntIndex Integer32,
+        ctxPeakHistAllocTS       TimeStamp,
+        ctxPeakHistAllocPorts    CtxPorts
+}
+
+ctxPeakHistAllocIntIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A monotonically increasing integer which is incremented for
+        every interval. Based on the allowed interval length the object
+        will not wrap for life of Device. The intent of this object is
+        to allow network management applications a mechanism that
+        allows
+        them to collect only those newly added interval. The network
+        management application only needs to save the index of the last
+        received interval and use it as a starting point when data is
+        next collected
+        from this table." 
+    ::= { ctxPeakHistAllocEntry 1 }
+
+ctxPeakHistAllocTS OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the start timestamp of the interval.
+        The interval end time is this time plus the
+        ctxPeakHistIntTime." 
+    ::= { ctxPeakHistAllocEntry 2 }
+
+ctxPeakHistAllocPorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peak ports for the given interval.
+        This is the maximum port count during the interval time period." 
+    ::= { ctxPeakHistAllocEntry 3 }
+ 
+
+
+ctxPeakHistAllocPoolTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxPeakHistAllocPoolEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the run-time peak port allocation
+        statistics for all resources within a region. This table 
+        contains peak port allocations per region for 
+        ctxHistMaxIntervals. The management entity can 
+        use this table to monitor the peak port allocations per
+        interval.    
+
+        Setting ctxPeakHistMaxIntervals to 0 will disable this table and
+        clear all entries in table."
+    ::= { ctxAllocPeakHistory 4 }
+
+ctxPeakHistAllocPoolEntry OBJECT-TYPE
+    SYNTAX          CtxPeakHistAllocPoolEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry describes a single peak time interval per region.
+
+        This table is indexed by the ctxRegionIndex and
+        ctxPeakHistAllocPoolIntIndex."
+    INDEX           {
+                        ctxRegionIndex,
+                        ctxPeakHistAllocPoolIntIndex
+                    } 
+    ::= { ctxPeakHistAllocPoolTable 1 }
+
+CtxPeakHistAllocPoolEntry ::= SEQUENCE {
+        ctxPeakHistAllocPoolIntIndex Integer32,
+        ctxPeakHistAllocPoolTS       TimeStamp,
+        ctxPeakHistAllocPoolPorts    CtxPorts
+}
+
+ctxPeakHistAllocPoolIntIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A monotonically increasing integer which is incremented for
+        every interval. Based on the allowed interval length the object
+        will not wrap for life of Device. The intent of this object is
+        to allow network management applications a mechanism that
+        allows
+        them to collect only those newly added interval. The network
+        management application only needs to save the index of the last
+        received interval and use it as a starting point when data is
+        next collected
+        from this table." 
+    ::= { ctxPeakHistAllocPoolEntry 1 }
+
+ctxPeakHistAllocPoolTS OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the start timestamp of the interval.
+        The interval end time is this time plus the
+        ctxPeakHistIntTime." 
+    ::= { ctxPeakHistAllocPoolEntry 2 }
+
+ctxPeakHistAllocPoolPorts OBJECT-TYPE
+    SYNTAX          CtxPorts
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peak ports for the given interval.
+        This is the maximum port count during the interval time 
+        period." 
+    ::= { ctxPeakHistAllocPoolEntry 3 }
+ 
+
+
+-- Error History objects
+
+ctxErrorHistoryTableSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 25..2500)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of entries that the
+        ctxErrorHistoryTable can contain.  When the 
+        capacity of the ctxErrorHistoryTable is reached, the oldest
+        entry in the table will be deleted in order to accommodate the
+        new entry. 
+
+        A value of '0' disables the history table.  The default 
+        value is set to 100 entries."
+    DEFVAL          { 100 } 
+    ::= { ctxEventHistory 1 }
+
+ctxErrorHistoryMaxSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Defines the maximum severity of the event messages that the
+        history table will contain.  
+
+        The default is notice(5), which can be changed by setting
+        the object."
+    DEFVAL          { notice } 
+    ::= { ctxEventHistory 2 }
+
+ctxErrorHistoryLastIndex OBJECT-TYPE
+    SYNTAX          CtxIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the value of the
+        ctxErrorIndex object corresponding to the
+        last entry added into the table.
+
+        The management entity can use this object to determine 
+        if a new entry has been added into the ctxErrorHistoryTable." 
+    ::= { ctxEventHistory 3 }
+
+ctxErrorHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtxErrorHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a history of alarms and events generated
+        by the CTX system.
+
+        This table is a real-time history table of alarms and events
+        for the CTX System. When the table reaches its capacity 
+        specified in ctxErrorHistoryTableSize, the agent will purge
+        the oldest entry. 
+
+        The management entity can receive real-time events when an
+        object is inserted into this table by configuring 
+        ctxErrorHistoryEventNotifyEnable to TRUE and receiving
+        ctxErrorHistoryEvent notifications"
+    ::= { ctxEventHistory 4 }
+
+ctxErrorHistoryEntry OBJECT-TYPE
+    SYNTAX          CtxErrorHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is an event that was generated by the CTX System.
+        Events can be traps that were sent and other log messages."
+    INDEX           { ctxErrorIndex } 
+    ::= { ctxErrorHistoryTable 1 }
+
+CtxErrorHistoryEntry ::= SEQUENCE {
+        ctxErrorIndex      CtxIndex,
+        ctxErrorKey        CtxKeyId,
+        ctxErrorTimeStamp  TimeStamp,
+        ctxErrorSeverity   SyslogSeverity,
+        ctxErrorAppName    DisplayString,
+        ctxErrorAlarmId    DisplayString,
+        ctxErrorAttrValStr DisplayString,
+        ctxErrorMessage    DisplayString
+}
+
+ctxErrorIndex OBJECT-TYPE
+    SYNTAX          CtxIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Error history snmp instance index." 
+    ::= { ctxErrorHistoryEntry 1 }
+
+ctxErrorKey OBJECT-TYPE
+    SYNTAX          CtxKeyId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the error history key id.
+
+        A empty string maybe used if the key is not present." 
+    ::= { ctxErrorHistoryEntry 2 }
+
+ctxErrorTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the timestamp when the message or the
+        notification is generated by the CTX system. The timestamp
+        is UTC." 
+    ::= { ctxErrorHistoryEntry 3 }
+
+ctxErrorSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the severity for the given message." 
+    ::= { ctxErrorHistoryEntry 4 }
+
+ctxErrorAppName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..48))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the application name for the
+        message. AppNames are documented in the CTX System
+        user guide." 
+    ::= { ctxErrorHistoryEntry 5 }
+
+ctxErrorAlarmId OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the alarm ID for the event
+        as generated by the CTX System.  Alarm ID's are 
+        documented in the CTX System user guide." 
+    ::= { ctxErrorHistoryEntry 6 }
+
+ctxErrorAttrValStr OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an attribute value pair in the format
+        of attr=value [attr=value ...].  This string is limited to
+        255 characters.  If the attribute value string is larger
+        than 255 characters, the string will be truncated to 254
+        characters and an '*' will be inserted as the 255th
+        character as a way to indicate the message was truncated.
+        Attributes and associated values are documented in the
+        CTX System user guide." 
+    ::= { ctxErrorHistoryEntry 7 }
+
+ctxErrorMessage OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the message text for the event.
+        This string is limited to 255 characters.  If the 
+        message string is larger than 255 characters, the string 
+        will be truncated to 254 characters and an '*' will be 
+        inserted as the 255th character as a way to indicate the
+        message was truncated." 
+    ::= { ctxErrorHistoryEntry 8 }
+ 
+
+
+ctxNotifyMessage OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a message text for the notification
+        that is sent.  This message will indicate a short 
+        description detailing the cause for the trap.  This is 
+        intended as value added information for operational support
+        staff, such as value added information in a ticket that is
+        generated for this trap. 
+
+        Event and trap de-duplication systems should ignore this
+        varbind as this entry will vary.  De-duplication should be
+        performed on the other varbinds and should exclude both 
+        ctxNotifyMesssage and ctxNotifyState." 
+    ::= { ctxNotifyObjects 1 }
+-- Notification configuration objects that enable or disable traps
+
+ctxNotifyConfigObjects  OBJECT IDENTIFIER
+    ::= { ctxNotifyObjects 2 }
+
+
+ctxStatusChangeNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the status change traps
+        should be enabled or disabled. Setting this to TRUE
+        will enable the notifications.  Setting this to FALSE
+        will disable the notifications. 
+
+        Default is true/enabled.
+
+        This object controls the generation of the following
+        notifications:
+
+           ciscoCTXSysAdminServersStatusChg,
+           ciscoCTXSysDatabaseServersStatusChg,
+           ciscoCTXSysCallEnginesStatusChg,
+           ciscoCTXSysResourceStatusChg,
+           ciscoCTXSysSystemConfigStatusChg,
+           ciscoCTXSysSystemBackupStatusChg"
+    DEFVAL          { true } 
+    ::= { ctxNotifyConfigObjects 1 }
+
+ctxLicenseAlarmNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the license alarm traps
+        should be enabled or disabled. Setting this to TRUE
+        will enable the notifications.  Setting this to FALSE
+        will disable the notifications. 
+
+        Default is true/enabled.
+
+        This object controls the generation of the following
+        notifications:
+
+           ciscoCTXSysLicenseFailure"
+    DEFVAL          { true } 
+    ::= { ctxNotifyConfigObjects 2 }
+
+ctxAuthFailureNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the authentication failure traps
+        should be enabled or disabled. Setting this to TRUE
+        will enable the notifications.  Setting this to FALSE
+        will disable the notifications. 
+
+        The default setting for authentication failures is 
+        FALSE/disabled in order to prevent unnecessary event
+        flooding.
+
+        This object controls the generation of the following
+        notifications:
+
+           ciscoCTXSysUserAuthFailure"
+    DEFVAL          { false } 
+    ::= { ctxNotifyConfigObjects 3 }
+
+ctxClusterNodeAlarmNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the cluster node alarm traps
+        should be enabled or disabled. Setting this to TRUE
+        will enable the notifications.  Setting this to FALSE
+        will disable the notifications. 
+
+        Default is true/enabled.
+
+        This object controls the generation of the following
+        notifications:
+
+           ciscoCTXSysClusterNodeDown,
+           ciscoCTXSysClusterNodeUp"
+    DEFVAL          { true } 
+    ::= { ctxNotifyConfigObjects 4 }
+
+ctxResourceAlarmNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the resource alarm traps
+        should be enabled or disabled. Setting this to TRUE
+        will enable the notifications.  Setting this to FALSE
+        will disable the notifications. 
+
+        Default is true/enabled.
+
+        This object controls the generation of the following
+        notifications:
+
+           ciscoCTXSysResourceDown,
+           ciscoCTXSysResourceUp,
+           ciscoCTXSysResourceAllocFailure"
+    DEFVAL          { true } 
+    ::= { ctxNotifyConfigObjects 5 }
+
+ctxCallFailureNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the call failure traps
+        should be enabled or disabled. Setting this to TRUE
+        will enable the notifications.  Setting this to FALSE
+        will disable the notifications. 
+
+        Default is true/enabled.
+
+        This object controls the generation of the following
+        notifications:
+
+           ciscoCTXSysCallSetupFailure,
+           ciscoCTXSysCallAbnormalDisconnect"
+    DEFVAL          { true } 
+    ::= { ctxNotifyConfigObjects 6 }
+
+ctxErrorHistoryEventNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the error event history traps
+        should be enabled or disabled. Setting this to TRUE
+        will enable the notifications.  Setting this to FALSE
+        will disable the notifications. 
+
+        Notifications and other error logs are logged in the error
+        history table.  Enabling this may cause duplication for events
+        that are in duplicate of other notifications.  This may be the
+        desired behavior of the management system.  Use
+        ctxErrorHistoryMaxSeverity to specify the maximum severity
+        level to be logged and sent via a notification.  
+
+        Sending error history notifications are disabled by default.
+
+        This object controls the generation of the following
+        notifications:
+
+           ciscoCTXSysErrorHistoryEvent"
+    DEFVAL          { false } 
+    ::= { ctxNotifyConfigObjects 7 }
+
+-- Notifications
+
+ciscoCTXSysAdminServersStatusChg NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxAdminServersStatus,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the ctxAdminServersStatus
+        changes.  
+
+        ctxStatusChangeNotifyEnable controls whether this notification
+        is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 1 }
+
+ciscoCTXSysDatabaseServersStatusChg NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxDatabaseServersStatus,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the ctxDatabaseServerStatus
+        changes.  
+
+        ctxStatusChangeNotifyEnable controls whether this notification
+        is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 2 }
+
+ciscoCTXSysCallEnginesStatusChg NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxCallEnginesStatus,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the ctxCallEnginesStatus
+        changes.  
+
+        ctxStatusChangeNotifyEnable controls whether this notification
+        is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 3 }
+
+ciscoCTXSysResourceStatusChg NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxResourceStatus,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the ctxResourceStatus
+        changes.  
+
+        ctxStatusChangeNotifyEnable controls whether this notification
+        is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 4 }
+
+ciscoCTXSysSystemConfigStatusChg NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxSystemConfigStatus,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the ctxSystemConfigStatus
+        changes.  
+
+        ctxStatusChangeNotifyEnable controls whether this notification
+        is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 5 }
+
+ciscoCTXSysSystemBackupStatusChg NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxSystemBackupStatus,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the ctxSystemBackupStatus
+        changes.  
+
+        ctxStatusChangeNotifyEnable controls whether this notification
+        is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 6 }
+
+ciscoCTXSysLicenseFailure NOTIFICATION-TYPE
+    OBJECTS         { ctxNotifyMessage }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent for the following license
+        violation failures:
+
+        1. DEMO License Errors
+           a. Warnings 5 days prior to Demo License expiration 
+              if the user has not installed a permanent license.
+           b. Error message immediately after the Demo License
+              expiration if the user has not installed a permanent
+              license.
+        2. Volume Based Licensing Errors 
+           a. Warning message that the system is reaching the 
+              license capacity if using more than 75% of current
+              licenses
+           b. Error Message that the system is violating the current
+              licensing capacity and will soon start rejecting the 
+              calls if using more than 100% and less than 150% of
+              available licenses
+           c. Error message that the system will reject calls if
+              claiming more than 150% of available licenses.
+
+        ctxLicenseAlarmNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 7 }
+
+ciscoCTXSysUserAuthFailure NOTIFICATION-TYPE
+    OBJECTS         { ctxNotifyMessage }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when a user authentication
+        failure results in CTX System.
+           1. User authentication errors while trying to log into
+              the CTX System Admin UI.
+           2. User authentication errors while trying to log into
+              the CTX System CLI.
+
+        ctxAuthFailureNotifyEnable controls whether this notification
+        is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 8 }
+
+ciscoCTXSysClusterNodeDown NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxClusterNodeType,
+                        ctxClusterNodeName,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when there is a network
+        connectivity or probe monitor failure to the cluster node from
+        the admin server. 
+
+        ctxClusterNodeAlarmNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 9 }
+
+ciscoCTXSysClusterNodeUp NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxClusterNodeType,
+                        ctxClusterNodeName,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when the cluster node
+        connectivity is restored or when the probe monitor is successful
+        in monitoring the node after being down. 
+
+        ctxClusterNodeAlarmNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 10 }
+
+ciscoCTXSysResourceDown NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxResourceName,
+                        ctxResourceDeviceType,
+                        ctxRegionName,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when there is a network
+        connectivity or probe monitor failure to the resource.  This can
+        be a SIP OPTION PING, XMLRPC, or network connectivity failure. 
+        The ctxNotifyMessage will contain the failure details. 
+
+        ctxResourceAlarmNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 11 }
+
+ciscoCTXSysResourceUp NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxResourceName,
+                        ctxResourceDeviceType,
+                        ctxRegionName,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when the resource connectivity
+        is restored or when the probe monitor is successful in
+        monitoring the resource after being down. 
+
+        ctxResourceAlarmNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 12 }
+
+ciscoCTXSysResourceAllocFailure NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxResourceName,
+                        ctxResourceDeviceType,
+                        ctxRegionKey,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when a resource allocation
+        failure occurs.
+
+        ctxResourceAlarmNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 13 }
+
+ciscoCTXSysCallSetupFailure NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxResourceName,
+                        ctxResourceDeviceType,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when there is a call
+        setup/routing failure between the CTX System and a resource.
+        The cause for the setup failure will be detailed in
+        ctxNotifyMessage. 
+
+        ctxCallFailureNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 14 }
+
+ciscoCTXSysCallAbnormalDisconnect NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxResourceName,
+                        ctxResourceDeviceType,
+                        ctxNotifyMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification will be sent when there is an abnormal
+        call disconnect.
+
+        The call disconnect reason will be detailed in 
+        ctxNotifyMessage.
+
+        ctxCallFailureNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 15 }
+
+ciscoCTXSysErrorHistoryEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctxErrorKey,
+                        ctxErrorSeverity,
+                        ctxErrorAppName,
+                        ctxErrorAlarmId,
+                        ctxErrorAttrValStr,
+                        ctxErrorMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when a new ctxErrorHistoryEntry
+        is created.  
+
+        If the event being logged does not have an organization
+        name, this varbind entry will be an empty string value.
+
+        ctxErrorHistoryEventNotifyEnable controls whether this 
+        notification is sent or not."
+   ::= { ciscoTelepresenceExchangeSystemMIBNotifs 16 }
+-- Conformance Information Definition
+
+ciscoTelepresenceExchangeSystemMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIBConform 1 }
+
+ciscoTelepresenceExchangeSystemMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoTelepresenceExchangeSystemMIBConform 2 }
+
+
+ciscoTelepresenceExchangeSystemMIBModuleCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement the Cisco
+        Telepresence Exchange MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoTelepresenceExchangeSystemMIBStatusGroup,
+                        ciscoTelepresenceExchangeSystemMIBConfigGroup,
+                        ciscoTelepresenceExchangeSystemMIBNotfyObjectsGroup,
+                        ciscoTelepresenceExchangeSystemMIBNotifyGroup,
+                        ciscoTelepresenceExchangeSystemMIBErrorHistoryGroup,
+                        ciscoTelePresenceExchangeSystemMIBStatsGroup
+                    }
+    ::= { ciscoTelepresenceExchangeSystemMIBCompliances 1 }
+
+ciscoTelepresenceExchangeSystemMIBStatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctxAdminServersStatus,
+                        ctxCallEnginesStatus,
+                        ctxDatabaseServersStatus,
+                        ctxResourceStatus,
+                        ctxSystemConfigStatus,
+                        ctxSystemBackupStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "CTX System status object group."
+    ::= { ciscoTelepresenceExchangeSystemMIBGroups 1 }
+
+ciscoTelepresenceExchangeSystemMIBConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctxServiceProviderName,
+                        ctxServiceProviderDescr,
+                        ctxServiceProviderHDNumber,
+                        ctxRegionName,
+                        ctxRegionDescr,
+                        ctxOrganizationName,
+                        ctxOrganizationDescr,
+                        ctxOrganizationMaxPorts,
+                        ctxOrganizationDirectDial,
+                        ctxResourceName,
+                        ctxResourceDescr,
+                        ctxResourceMgmtIPType,
+                        ctxResourceMgmtIPAddr,
+                        ctxResourceDeviceType,
+                        ctxSipIpType,
+                        ctxSipIpAddr,
+                        ctxSipPort,
+                        ctxSipTransportProto,
+                        ctxMediaCapacityMaxPorts,
+                        ctxMediaCapacityLargeMeeting,
+                        ctxClusterNodeName,
+                        ctxClusterNodeHostName,
+                        ctxClusterNodeIPType,
+                        ctxClusterNodeIPAddr,
+                        ctxClusterNodeClusterName,
+                        ctxClusterNodeType,
+                        ctxServiceProviderKey,
+                        ctxRegionKey,
+                        ctxRegionServiceProviderKeyRef1,
+                        ctxOrganizationKey,
+                        ctxOrganizationServiceProviderKeyRef1,
+                        ctxResourceKey,
+                        ctxResourceRegionKeyRef1,
+                        ctxClusterNodeOperState,
+                        ctxClusterNodeKey,
+                        ctxMeetingConfigStaticMinId,
+                        ctxMeetingConfigStaticMaxId,
+                        ctxMeetingConfigInterOpMinId,
+                        ctxMeetingConfigInterOpMaxId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "CTX System configuration object group."
+    ::= { ciscoTelepresenceExchangeSystemMIBGroups 2 }
+
+ciscoTelePresenceExchangeSystemMIBStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctxResourceUnavailTrans,
+                        ctxAllocActivePorts,
+                        ctxAllocAvailPorts,
+                        ctxAllocPoolActivePorts,
+                        ctxAllocPoolAvailPorts,
+                        ctxAllocFailures,
+                        ctxAllocPoolAllocFailures,
+                        ctxResourceCallSetupFailures,
+                        ctxRegionCallSetupFailures,
+                        ctxAllocOutOfPorts,
+                        ctxAllocPoolAllocOutOfPorts,
+                        ctxResourceOperState,
+                        ctxResourceUnavailDuration,
+                        ctxPeakHistMaxIntervals,
+                        ctxPeakHistIntTime,
+                        ctxPeakHistAllocTS,
+                        ctxPeakHistAllocPorts,
+                        ctxPeakHistAllocPoolTS,
+                        ctxPeakHistAllocPoolPorts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Statistics object group."
+    ::= { ciscoTelepresenceExchangeSystemMIBGroups 3 }
+
+ciscoTelepresenceExchangeSystemMIBNotfyObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctxNotifyMessage,
+                        ctxStatusChangeNotifyEnable,
+                        ctxLicenseAlarmNotifyEnable,
+                        ctxAuthFailureNotifyEnable,
+                        ctxClusterNodeAlarmNotifyEnable,
+                        ctxResourceAlarmNotifyEnable,
+                        ctxCallFailureNotifyEnable,
+                        ctxErrorHistoryEventNotifyEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "CTX System notify objects."
+    ::= { ciscoTelepresenceExchangeSystemMIBGroups 4 }
+
+ciscoTelepresenceExchangeSystemMIBErrorHistoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctxErrorHistoryTableSize,
+                        ctxErrorHistoryMaxSeverity,
+                        ctxErrorHistoryLastIndex,
+                        ctxErrorKey,
+                        ctxErrorTimeStamp,
+                        ctxErrorSeverity,
+                        ctxErrorMessage,
+                        ctxErrorAppName,
+                        ctxErrorAlarmId,
+                        ctxErrorAttrValStr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "CTX System error history table objects."
+    ::= { ciscoTelepresenceExchangeSystemMIBGroups 5 }
+
+ciscoTelepresenceExchangeSystemMIBNotifyGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoCTXSysAdminServersStatusChg,
+                        ciscoCTXSysDatabaseServersStatusChg,
+                        ciscoCTXSysCallEnginesStatusChg,
+                        ciscoCTXSysResourceStatusChg,
+                        ciscoCTXSysSystemConfigStatusChg,
+                        ciscoCTXSysSystemBackupStatusChg,
+                        ciscoCTXSysLicenseFailure,
+                        ciscoCTXSysUserAuthFailure,
+                        ciscoCTXSysClusterNodeDown,
+                        ciscoCTXSysResourceDown,
+                        ciscoCTXSysCallSetupFailure,
+                        ciscoCTXSysErrorHistoryEvent,
+                        ciscoCTXSysCallAbnormalDisconnect,
+                        ciscoCTXSysResourceAllocFailure,
+                        ciscoCTXSysClusterNodeUp,
+                        ciscoCTXSysResourceUp
+                    }
+    STATUS          current
+    DESCRIPTION
+        "CTX System trap/notifications."
+    ::= { ciscoTelepresenceExchangeSystemMIBGroups 6 }
+
+END
+
+
+
+
+
+
+
+

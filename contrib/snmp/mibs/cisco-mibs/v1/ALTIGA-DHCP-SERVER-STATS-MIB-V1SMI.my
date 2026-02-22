@@ -1,0 +1,231 @@
+-- MIB file created 04-Dec-2002 18:55:53, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-DHCP-SERVER-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-DHCP-SERVER-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, MacAddress, DisplayString
+            FROM SNMPv2-TC-v1
+    alStatsDhcpServer, alDhcpServerGroup
+            FROM ALTIGA-MIB
+    alDhcpServerMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaDhcpServerStatsMibModule OBJECT IDENTIFIER ::= { alDhcpServerMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga DHCP Statistics Server MIB models counters and objects that are
+--     of management interest for DHCP.
+--    
+--     Acronyms
+--     The following acronyms are used in this document:
+--    
+--       DHCP:       Dynamic Host Configuration Protocol
+--    
+--       MIB:        Management Information Base
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsDhcpServerGlobal OBJECT IDENTIFIER ::= { alStatsDhcpServer 1 }
+altigaDhcpServerStatsMibConformance OBJECT IDENTIFIER ::= { altigaDhcpServerStatsMibModule 1 }
+altigaDhcpServerStatsMibCompliances OBJECT IDENTIFIER ::= { altigaDhcpServerStatsMibConformance 1 }
+
+alDhcpServerStatsActiveLeases OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of active DHCP leases."
+    ::= { alStatsDhcpServerGlobal 1 }
+
+alDhcpServerStatsMaximumLeases OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of leases that were active at any one time."
+    ::= { alStatsDhcpServerGlobal 2 }
+
+alDhcpServerStatsDiscoversRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted DHCPDISCOVER messages."
+    ::= { alStatsDhcpServerGlobal 3 }
+
+alDhcpServerStatsOffersSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received DHCPOFFER messages."
+    ::= { alStatsDhcpServerGlobal 4 }
+
+alDhcpServerStatsAcksSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received original (i.e. in the REQUESTING state)
+        DHCPACK messages."
+    ::= { alStatsDhcpServerGlobal 5 }
+
+alDhcpServerStatsNaksSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received original (i.e. in the REQUESTING state)
+        DHCPNAK messages."
+    ::= { alStatsDhcpServerGlobal 6 }
+
+alDhcpServerStatsReqTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of request timeouts that occurred."
+    ::= { alStatsDhcpServerGlobal 7 }
+
+alDhcpServerStatsSessTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlDhcpServerStatsSessEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active sessions."
+    ::= { alStatsDhcpServer 2 }
+
+alDhcpServerStatsSessEntry OBJECT-TYPE
+    SYNTAX AlDhcpServerStatsSessEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alDhcpServerStatsSessTable."
+    INDEX { alDhcpServerStatsSessId }
+    ::= { alDhcpServerStatsSessTable 1 }
+
+AlDhcpServerStatsSessEntry ::= SEQUENCE {
+    alDhcpServerStatsSessRowStatus RowStatus,
+    alDhcpServerStatsSessId INTEGER,
+    alDhcpServerStatsSessIpAddr IpAddress,
+    alDhcpServerStatsSessLeaseExpire Gauge,
+    alDhcpServerStatsSessMacAddr MacAddress,
+    alDhcpServerStatsSessHostName DisplayString
+    }
+
+alDhcpServerStatsSessRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row. This can be used to delete the
+        lease, but can not be used to create one."
+    ::= { alDhcpServerStatsSessEntry 1 }
+
+alDhcpServerStatsSessId OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unique DHCP session ID used as the index for this row."
+    ::= { alDhcpServerStatsSessEntry 2 }
+
+alDhcpServerStatsSessIpAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the remote client."
+    ::= { alDhcpServerStatsSessEntry 3 }
+
+alDhcpServerStatsSessLeaseExpire OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The remaining seconds until the current lease expires."
+    ::= { alDhcpServerStatsSessEntry 4 }
+
+alDhcpServerStatsSessMacAddr OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MAC address of the client."
+    ::= { alDhcpServerStatsSessEntry 5 }
+
+alDhcpServerStatsSessHostName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Host Name of the client."
+    ::= { alDhcpServerStatsSessEntry 6 }
+
+altigaDhcpServerStatsGroup OBJECT IDENTIFIER ::= { alDhcpServerGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for the DHCP Server statistics.
+--  objects
+--    alDhcpServerStatsActiveLeases, alDhcpServerStatsMaximumLeases, 
+--    alDhcpServerStatsDiscoversRcvd, alDhcpServerStatsOffersSent, 
+--    alDhcpServerStatsAcksSent, alDhcpServerStatsNaksSent, 
+--    alDhcpServerStatsReqTimeouts, alDhcpServerStatsSessRowStatus, 
+--    alDhcpServerStatsSessId, alDhcpServerStatsSessIpAddr, 
+--    alDhcpServerStatsSessLeaseExpire, 
+--    alDhcpServerStatsSessMacAddr, alDhcpServerStatsSessHostName
+
+altigaDhcpServerStatsMibCompliance OBJECT IDENTIFIER ::= { altigaDhcpServerStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which 
+--     implement the Altiga DHCP Server Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaDhcpServerStatsGroup
+
+
+END
+

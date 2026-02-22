@@ -1,0 +1,286 @@
+-- MIB file created 10-Dec-2002 11:06:55, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ADMIN-AUTH-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ADMIN-AUTH-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alAdminAuthStats, alAdminAuthGroup
+            FROM ALTIGA-MIB
+    alAdminAuthMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge, IpAddress, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaAdminAuthStatsMibModule OBJECT IDENTIFIER ::= { alAdminAuthMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga Administrator Authentication Statistics MIB models counters and objects that are 
+--     of management interest for administration authentication. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       IP:         Internet Protocol 
+--    
+--       MIB:        Management Information Base 
+--    
+--       TACACS:     Terminal Access Controller Access Control System 
+--    
+--       UDP:        User Datagram Protocol 
+--     
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alAminAuthStatsGlobal OBJECT IDENTIFIER ::= { alAdminAuthStats 1 }
+altigaAdminAuthStatsMibConformance OBJECT IDENTIFIER ::= { altigaAdminAuthStatsMibModule 1 }
+altigaAdminAuthStatsMibCompliances OBJECT IDENTIFIER ::= { altigaAdminAuthStatsMibConformance 1 }
+
+alAdminAuthServStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlAdminAuthServStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the TACACS authentication 
+         servers with which the client shares a secret."
+    ::= { alAdminAuthStats 2 }
+
+alAdminAuthServStatsEntry OBJECT-TYPE
+    SYNTAX AlAdminAuthServStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) representing a TACACS 
+         authentication server with which the client shares a secret."
+    INDEX { alAdminAuthServIndex }
+    ::= { alAdminAuthServStatsTable 1 }
+
+AlAdminAuthServStatsEntry ::= SEQUENCE {
+    alAdminAuthServIndex INTEGER,
+    alAdminAuthServAddress IpAddress,
+    alAdminAuthClientServerPortNumber INTEGER,
+    alAdminAuthClientRoundTripTime TimeTicks,
+    alAdminAuthClientAccessRequests Counter,
+    alAdminAuthClientAccessRetransmissions Counter,
+    alAdminAuthClientAccessAccepts Counter,
+    alAdminAuthClientAccessRejects Counter,
+    alAdminAuthClientAccessChallenges Counter,
+    alAdminAuthClientMalformedAccessResponses Counter,
+    alAdminAuthClientBadAuthenticators Counter,
+    alAdminAuthClientPendingRequests Gauge,
+    alAdminAuthClientTimeouts Counter,
+    alAdminAuthClientUnknownType Counter,
+    alAdminAuthServerGroupIdentification Gauge
+    }
+
+alAdminAuthServIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..MAX)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A number uniquely identifying each ADMIN 
+         Authentication server with which this client 
+         communicates."
+    ::= { alAdminAuthServStatsEntry 1 }
+
+alAdminAuthServAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the ADMIN authentication server 
+         referred to in this table entry."
+    ::= { alAdminAuthServStatsEntry 2 }
+
+alAdminAuthClientServerPortNumber OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The UDP port the client is using to send requests to 
+         this server."
+    ::= { alAdminAuthServStatsEntry 3 }
+
+alAdminAuthClientRoundTripTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time interval between the most recent 
+         Access-Reply/Access-Challenge and the Access-Request that 
+         matched it from this ADMIN authentication server."
+    ::= { alAdminAuthServStatsEntry 4 }
+
+alAdminAuthClientAccessRequests OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN Access-Request packets sent 
+         to this server since client start-up. This does not 
+         include retransmissions."
+    ::= { alAdminAuthServStatsEntry 5 }
+
+alAdminAuthClientAccessRetransmissions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN Access-Request packets 
+         retransmitted to this ADMIN authentication server 
+         since client start-up."
+    ::= { alAdminAuthServStatsEntry 6 }
+
+alAdminAuthClientAccessAccepts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN Access-Accept packets 
+         received from this server since client start-up."
+    ::= { alAdminAuthServStatsEntry 7 }
+
+alAdminAuthClientAccessRejects OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN Access-Reject packets 
+         received from this server since client start-up."
+    ::= { alAdminAuthServStatsEntry 8 }
+
+alAdminAuthClientAccessChallenges OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN Access-Challenge packets 
+         received from this server since client start-up."
+    ::= { alAdminAuthServStatsEntry 9 }
+
+alAdminAuthClientMalformedAccessResponses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of malformed ADMIN Access-Response 
+         packets received from this server since client 
+         start-up. Malformed packets include packets with 
+         an invalid length. Bad authenticators or 
+         Signature attributes are not 
+         included as malformed access responses."
+    ::= { alAdminAuthServStatsEntry 10 }
+
+alAdminAuthClientBadAuthenticators OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN Access-Response packets 
+         containing invalid authenticators or Signature 
+         attributes received from this server since client 
+         start-up."
+    ::= { alAdminAuthServStatsEntry 11 }
+
+alAdminAuthClientPendingRequests OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN Access-Request packets 
+         destined for this server that have not yet timed out 
+         or received a response. This variable is incremented 
+         when an Access-Request is sent and decremented due to 
+         receipt of an Access-Reply or Access-Challenge, 
+         a timeout or retransmission."
+    ::= { alAdminAuthServStatsEntry 12 }
+
+alAdminAuthClientTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of authentication timeouts to this server 
+         since client startup. After a timeout the client may 
+         retry to the same server, send to a different server, or 
+         give up. A retry to the same server is counted as a 
+         retransmit as well as a timeout. A send to a different 
+         server is counted as a Request as well as a timeout."
+    ::= { alAdminAuthServStatsEntry 13 }
+
+alAdminAuthClientUnknownType OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ADMIN packets of unknown type which 
+         were received from this server on the authentication port 
+         since client start-up."
+    ::= { alAdminAuthServStatsEntry 14 }
+
+alAdminAuthServerGroupIdentification OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Id of group accociated with this server."
+    ::= { alAdminAuthServStatsEntry 15 }
+
+alAdminAuthClientMIBGroup OBJECT IDENTIFIER ::= { alAdminAuthGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The basic collection of objects providing management of 
+--     ADMIN Authentication Clients.
+--  objects
+--    alAdminAuthServAddress, alAdminAuthClientServerPortNumber, 
+--    alAdminAuthClientRoundTripTime, 
+--    alAdminAuthClientAccessRequests, 
+--    alAdminAuthClientAccessRetransmissions, 
+--    alAdminAuthClientAccessAccepts, 
+--    alAdminAuthClientAccessRejects, 
+--    alAdminAuthClientAccessChallenges, 
+--    alAdminAuthClientMalformedAccessResponses, 
+--    alAdminAuthClientBadAuthenticators, 
+--    alAdminAuthClientPendingRequests, alAdminAuthClientTimeouts, 
+--    alAdminAuthClientUnknownType, 
+--    alAdminAuthServerGroupIdentification
+
+altigaAdminAuthStatsMibCompliance OBJECT IDENTIFIER ::= { altigaAdminAuthStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga Administrator Authentication Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    alAdminAuthClientMIBGroup
+
+
+END
+

@@ -1,0 +1,2973 @@
+--
+-- CISCO-ERM-MIB.my : Cisco Embedded Resource Manager MIB file
+--
+-- February 2006, Ashok Kumar A
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+--
+
+CISCO-ERM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowStatus,
+    StorageType,
+    TruthValue
+        FROM SNMPv2-TC
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    PhysicalIndex,
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoErmMIB MODULE-IDENTITY
+    LAST-UPDATED    "200602110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO    "Cisco Systems
+                     Customer Service
+            Postal:  170 West Tasman Drive
+                     San Jose, California 95134-1706
+            E-mail:  cs-erm@cisco.com"
+    DESCRIPTION
+        "Cisco Embedded Resource Manager (ERM) MIB.
+
+         The Embedded Resource Manager (ERM) is a framework which
+         helps in effectively managing resources such as cpu, memory,
+         buffers, etc. There are two important scenarios where the ERM
+         framework would be useful:
+
+         1. Resource Depletion
+            - how to gracefully handle a situation where the system
+              runs out of a finite resource.
+
+         2. Resource Separation
+            - how to share resources fairly between different entities
+              in the system such that activity of one entity does not
+              adversely affect others.
+
+         The ERM framework has the following entities:
+
+         1. Resource Owner
+
+            Resource Owner (RO) provides resources to one or more
+            resource users. Example: cpu, memory and buffer.
+
+            The resource owner doesn't mean the physical resource.
+            For example, 'memory' resource owner would actually 
+            mean the memory manager rather than the physical memory.
+
+         2. Resource User Type
+
+            Resource User Type (RUT) is a template which defines
+            a set of resource owners from where resources can be
+            obtained by any of the resource users instantiated from
+            the resource user type. 
+
+         3. Resource User
+
+            Resource User (RU) is a logical entity or application
+            that consumes one or more resources. Resource users are
+            instantiated from the Resource User Type. Resource user
+            can also be called as 'instance of a resource user type'.
+            A resource user registers with a resource user type and 
+            thus it is indirectly registered with all resource owners 
+            defined by the resource user type. 
+
+         4. Resource User Group
+
+            Resource User Group (RG) is a logical entity which contains
+            group of resource users. It would hence forth be referred
+            as Resource Group. In some cases (for example, multiple
+            users with same name), user may want to set threshold value
+            for sum of resource utilized by a group of resource users.
+            In such case, those resource users can be grouped/added
+            under a resource group. Then, user can apply a resource
+            policy to the resource group.
+
+         5. Resource Usage Monitor
+
+            This is also called as Resource Monitor (RM). The resource
+            monitor is a logical entity or application that monitors
+            resource owner, resource user, resource policy and resource
+            owner <-> resource user relationship. When any applied
+            resource policy is violated, all resource monitors
+            monitoring the resource policy will be notified and the 
+            resource monitor can take appropriate action based on the 
+            resource owner and resource user attributes.
+
+         The ERM framework allows three types of thresholding:
+
+         1) System Global Thresholding
+
+            When total utilization of a resource exceeds the applied
+            global rising threshold value, all resource users which
+            consume resources from the concerned resource owner are
+            notified to take appropriate action. The notification
+            order is determined by priority of the resource users.
+            Resource users with a lower priority are notified first,
+            so as to enable lower priority resource users to reduce its
+            resource consumption prior to any higher priority resource
+            users. This order prevents higher priority resource
+            users to start freeing up their resource, thereby not
+            affecting their performance.
+
+         2) User Local Thresholding
+
+            When utilization of a resource by a specific resource user
+            exceeds the applied user local rising threshold value,
+            a notification is sent *only* to the concerned resource
+            user. The user local thresholding method can be used to
+            prevent a resource user from monopolizing any available
+            resources.
+
+         3) Per User Global Thresholding
+
+            When total utilization of a resource exceeds the applied
+            per user global rising threshold value, a notification
+            is sent *only* to the concerned resource user. Each
+            resource user can have its own per user global threshold
+            value (per resource owner). Per User Global Thresholding
+            is similar to System Global Thresholding, except that
+            notification for Per User Global Threshold violation is
+            sent only to the corresponding resource user. The main
+            purpose of the Per User Global Thresholding is that a
+            resource user can take preventive actions based on the
+            global resource utilization of a resource.
+
+         The Embedded Resource Manager (ERM) framework allows applying
+         and monitoring threshold limit for usage of resources such as
+         cpu, memory, buffer, etc. Exceeding any applied rising
+         threshold value will trigger an 'up' notification to relevant
+         resource user(s) and resource monitor(s) based on the type 
+         of violated resource policy.  After the 'up' notification,
+         if the utilization goes below the falling threshold value,
+         a 'down' notification will be sent to the resource user(s)
+         and resource monitor(s). The 'up' and 'down' notifications
+         do not mean the SNMP notifications/traps. Rising threshold
+         value and falling threshold value should be different to
+         avoid flapping.
+
+         The ERM framework enables configuration of resource policy
+         in which rising/falling threshold values for a set of
+         resource owners can be specified. There are two types of
+         resource policies which can be configured.
+
+         1) Global Resource Policy
+            There can be only one global resource policy applied
+            in the system at any point of time, though multiple
+            global resource policies can be configured. On violation 
+            of a applied global resource policy, all resource users
+            (which consume resources from the concerned resource owner)
+            and resource monitors (which watch the concerned
+            resource owner) will be notified to take appropriate
+            action.
+
+         2) Local Resource Policy
+            The local resource policy is configured for a specific
+            resource user type. This policy can be applied for a
+            resource user (or group) of the same resource user type.
+            A local resource policy can be applied for more than one
+            resource users (or groups). Both user local thresholding
+            and per user global thresholding can be configured under
+            a local resource policy. On violation of any local resource
+            policy, only those resource users on which the violated
+            resource policy was applied, will be notified in order to
+            take appropriate action.
+
+         Whenever a resource is consumed, current utilization of the
+         resource will be compared against the applied rising
+         threshold value. The ERM framework provides a mechanism
+         to send notifications to resource user(s) and resource
+         monitor(s) whenever resource utilization exceeds any applied
+         rising threshold value or falls below any applied falling
+         threshold value. In such situations, the resource user(s)
+         can take appropriate corrective action (for example, limiting
+         or avoiding resource consumption). Thus, the ERM framework
+         helps in preventing catastrophic system failures caused by
+         high levels of resource depletion. The ERM framework can be
+         extended to all kinds of resources (for example, incoming
+         control plane packets) that need to be managed.
+
+         The ERM MIB module facilitates the following operations:
+
+         1. Getting information about all the above mentioned
+            ERM entities available in a managed system.
+         2. Creating/modifying/removing a resource policy.
+         3. Creating/modifying/removing a threshold configuration
+            for a particular resource policy.
+         4. Creating/removing a resource group.
+         5. Adding/removing a resource user to/from a particular
+            resource group.
+         6. Applying global resource policy.
+         7. Applying local resource policy for a resource user or
+            resource group."
+
+    REVISION    "200602110000Z"
+    DESCRIPTION
+        "Initial version of Cisco ERM MIB module."
+    ::= { ciscoMgmt 510 }
+
+
+ciscoErmMIBNotifs       OBJECT IDENTIFIER ::= { ciscoErmMIB 0 }
+ciscoErmMIBObjects      OBJECT IDENTIFIER ::= { ciscoErmMIB 1 }
+ciscoErmMIBConform      OBJECT IDENTIFIER ::= { ciscoErmMIB 2 }
+
+cermScalars             OBJECT IDENTIFIER ::=  { ciscoErmMIBObjects 1 }
+cermStats               OBJECT IDENTIFIER ::=  { ciscoErmMIBObjects 2 }
+cermConfig              OBJECT IDENTIFIER ::=  { ciscoErmMIBObjects 3 }
+cermNotifObjects        OBJECT IDENTIFIER ::=  { ciscoErmMIBObjects 4 }
+cermNotifControlObjects OBJECT IDENTIFIER ::=  { ciscoErmMIBObjects 5 }
+
+--
+-- Textual Conventions
+--
+
+CermSubEntityId ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the sub-entity identifier. If a physical entity
+         has multiple logical processing entities and these entities
+         have its own set of resources, we use sub-entities to uniquely
+         identiy these logical processing entities.
+
+         For example, if each process in the system has separate memory
+         address space (i.e. memory address space is not shared between
+         processes), then each process can be considered as a separate
+         logical processing entity.
+
+         In such cases, the sub-entity identifier can be used to
+         distinguish an ERM entity in one logical processing entity
+         from others. Each sub-entity (i.e. logical processing entity)
+         might have its own set of resources owners, resource user
+         types, resource users, resource groups and resource monitors.
+
+         If the system doesn't have more than one logical processing
+         entities, then sub-entity identifier may have zero value."
+    SYNTAX  Unsigned32 (0..4294967295)
+
+CermUserTypeId ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the resource user type identifier.
+         The resource user type identifier is used to uniquely
+         identify a resource user type in the system."
+    SYNTAX  Unsigned32 (1..65535)
+
+CermUserTypeIdOrZero ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This textual convention is an extension of the CermUserTypeId
+         convention. The latter defines a greater than zero value used
+         to identify a resource user type in the managed system. This
+         extension permits the additional value of zero. The value zero
+         is object specific and must therefore be defined as part of
+         the description of any object which uses this syntax."
+    SYNTAX  Unsigned32 (0..65535)
+
+CermUserId ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the resource user identifier. The resource
+         user identifier represents a resource user instantiated
+         from a resource user type. This identifier is used to
+         uniquely identify a resource user in a resource user type."
+    SYNTAX  Unsigned32 (1..4294967295)
+
+CermUserIdOrZero ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This textual convention is an extension of the CermUserId
+         convention. The latter defines a greater than zero value used
+         to identify a resource user in the managed system. This
+         extension permits the additional value of zero. The value zero
+         is object specific and must therefore be defined as part of
+         the description of any object which uses this syntax."
+    SYNTAX  Unsigned32 (0..4294967295)
+
+CermGroupId ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the resource group identifier. This identifier
+         is used to uniquely identify a resource group in a resource
+         user type."
+    SYNTAX  Unsigned32 (1..4294967295)
+
+CermOwnerId ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the resource owner identifier. The resource
+         owner identifier is used to uniquely identify a resource
+         owner in the system."
+    SYNTAX  Unsigned32 (1..4294967295)
+
+CermOwnerIdOrZero ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This textual convention is an extension of the CermOwnerId
+         convention. The latter defines a greater than zero value used
+         to identify a resource owner in the managed system. This
+         extension permits the additional value of zero. The value zero
+         is object specific and must therefore be defined as part of
+         the description of any object which uses this syntax."
+    SYNTAX  Unsigned32 (0..4294967295)
+
+CermMonitorId ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the resource monitor identifier. The resource
+         monitor identifier is used to uniquely identify a resource
+         monitor in the system."
+    SYNTAX  Unsigned32 (1..4294967295)
+
+CermUserOrGroup ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates one of the following:
+         1. group - resource group.
+         2. user  - resource user."
+    SYNTAX  INTEGER {
+                group(1),
+                user(2)
+            }
+
+CermResUsagePct ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the resource utilization value, in percentage.
+         That means the percentage of resources utilized from a
+         resource owner."
+    SYNTAX  Unsigned32
+
+CermThreshold ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the threshold value for resource utilization,
+         in percentage."
+    SYNTAX  Unsigned32 (1..4294967295)
+
+CermThresholdOrZero ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This textual convention is an extension of the CermThreshold
+         convention. The latter defines a greater than zero value
+         used to indicate a resource utilization threshold value
+         in percentage. This extension permits the additional value
+         of zero. The value zero is object specific and must therefore
+         be defined as part of the description of any object which uses
+         this syntax."
+    SYNTAX  Unsigned32 (0..4294967295)
+
+CermDampenInterval ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the dampening or observation interval time
+         during which the variations in the resource utilization
+         are not notified to any relevant resource user(s) or resource
+         monitor(s). The interval is set to avoid unnecessary and
+         unwanted notifications."
+    SYNTAX  Integer32 (0..2592000)
+
+CermThresholdSeverity ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the severity of thresholds. The threshold
+         severity is used to reflect the severity of resource
+         utilization related problem in the system. There are three
+         thresholding severity levels defined in the ERM:
+
+         1. Minor
+            Violation of 'minor' thresholding indicates a minor
+            problem (related to resource utilization) in the system.
+         2. Major
+            Violation of 'major' thresholding indicates a major
+            problem (related to resource utilization) in the system.
+         3. Critical
+            Violation of 'critical' thresholding indicates a critical
+            problem (related to resource utilization) in the system."
+
+    SYNTAX  INTEGER {
+                minor(1),
+                major(2),
+                critical(3)
+            }
+
+CermNotificationSeverity ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the severity of ERM notification that reflects
+         the severity of resource utilization related problem.
+         The following notification severites are defined in the ERM:
+         1. None
+            This indicates that the system is running without violating
+            any applied resource utilization threshold values.
+         2. Minor
+            This indicates that a 'minor' severity level threshold has
+            been violated in the system.
+         3. Major
+            This indicates that a 'major' severity level threshold has
+            been violated in the system.
+         4. Critical
+            This indicates that a 'critical' severity level threshold
+            has been violated in the system."
+
+    SYNTAX  INTEGER {
+                none(1),
+                minor(2),
+                major(3),
+                critical(4)
+            }
+
+CermNotificationDirection ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "This indicates the direction/cause of the ERM notifications.
+         There are two ERM notification directions defined in the ERM:
+
+         1. Up Notification
+            The 'up' notification would be triggered by a resource
+            owner when utilization of the corresponding resource exceeds
+            an applied rising threshold value for the resource owner.
+            The 'up' notification indicates that utilization for a
+            resource owner has gone above an applied rising threshold.
+
+         2. Down Notification
+            The 'down' notification would be triggered by a resource
+            owner when resource utilization of the resource owner falls
+            below (after exceeding an applied rising threshold value)
+            any applied falling threshold value for the resource owner.
+            The 'down' notification indicates that utilization for
+            a resource owner has come down to normal state after
+            exceeding an applied rising threshold."
+
+    SYNTAX  INTEGER {
+                up(1),
+                down(2)
+            }
+
+--
+-- Global Resource Policy Name
+--
+cermScalarsGlobalPolicyName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing name of the global resource
+         policy applied in the system. If global resource policy is not
+         applied in the system, then this scalar object will contain
+         zero-length string. A global resource policy can be applied
+         to the system by setting this scalar object to any global
+         resource policy name (i.e. cermPolicyName) present in the
+         cermConfigPolicyTable. Setting this object to zero-length
+         string, will undo any applied global resource policy in
+         the system."
+    ::= { cermScalars 1 }
+
+--
+-- Resource Owner Table
+--
+cermResOwnerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResOwnerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each resource owner
+         in the system. 
+
+         Each resource owner maintains a list of resource users and
+         performs the following:
+
+         a) Accounting and Thresholding
+
+            Accounting and thresholding involves accounting of
+            resources allocated to each resource user and using
+            threshold limits for notifying resource user(s) and
+            resource usage monitor(s) about violations. Accounting
+            is done by each resource owner.
+
+            The ERM framework allows user to configure thresholding
+            values for each resource owner. When resource utilization
+            of a resource owner exceeds an applied threshold value,
+            the resource owner will send notification to relevant
+            resource user(s).
+
+         b) Notifications Sent and Actions Taken
+
+            In case of system global thresholding, whenever total
+            resource utilization of a resource owner exceeds an applied
+            rising threshold value, the resource owner will send an 'up'
+            notification to the ERM framework. Whenever total resource
+            utilization of the same resource owner falls below
+            the corresponding falling threshold value (after crossing
+            the rising threshold value), the resource owner will sent
+            a 'down' notification to the ERM framework.
+
+            On receiving the 'up' notification, resource user(s)
+            is(are) expected to take appropriate action by freeing
+            the resource or limiting the resource consumption.
+            The resource owner may restrain from allocating
+            resource to the resource user(s) in case of the
+            resource user(s) not taking any action."
+    ::= { cermStats 1 }
+
+cermResOwnerEntry OBJECT-TYPE
+    SYNTAX      CermResOwnerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a particular resource
+         owner. This entry includes resource owner name, measurement
+         units for the resource owner, flag indicating whether 
+         thresholding for the resource owner is configurable by
+         the user, number of resource users and number of resource
+         groups for the resource owner.
+
+         Whenever a resource owner registers with the ERM framework
+         (normally this happens during system initialization), an
+         entry for the resource owner will be included in this table.
+         Likewise, whenever a resource owner is unregistered itself
+         from the ERM framework, the corresponding entry in this table
+         will be removed. Resource owners are created by the system;
+         not by the user.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource owner belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResOwnerSubEntityId,
+            cermResOwnerId }
+    ::= { cermResOwnerTable 1 }
+
+CermResOwnerEntry ::= SEQUENCE {
+    cermResOwnerSubEntityId              CermSubEntityId,
+    cermResOwnerId                       CermOwnerId,
+    cermResOwnerName                     SnmpAdminString,
+    cermResOwnerMeasurementUnit          SnmpAdminString,
+    cermResOwnerThreshIsConfigurable     TruthValue,
+    cermResOwnerResUserCount             Unsigned32,
+    cermResOwnerResGroupCount            Unsigned32
+}
+
+cermResOwnerSubEntityId  OBJECT-TYPE
+    SYNTAX      CermSubEntityId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the sub-entity (i.e. logical processing
+         entity in a physical entity) in which the resource owner is
+         present."
+    ::= { cermResOwnerEntry 1 }
+
+cermResOwnerId  OBJECT-TYPE
+    SYNTAX      CermOwnerId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource owner identifier. This
+         object value is unique in a sub-entity."
+    ::= { cermResOwnerEntry 2 }
+
+cermResOwnerName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing name of the resource
+         owner. For example: cpu, memory."
+    ::= { cermResOwnerEntry 3 }
+
+cermResOwnerMeasurementUnit  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing unit of measurement for
+         the resource owner.
+
+         For example, utilization of 'memory' and 'cpu' resource
+         owners can be specified in terms of 'bytes' and 'percentage'
+         respectively. In that case, this object value would be
+         'bytes' for the 'memory' resource owner and 'percentage'
+         for the 'cpu' resource owner."
+    ::= { cermResOwnerEntry 4 }
+
+cermResOwnerThreshIsConfigurable  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a flag indicating whether thresholding is configurable
+         for the resource owner by users or not. Some resource owners
+         may not allow users to configure resource utilization
+         threshold values. This object value will be 'false' for
+         such resource owners."
+    ::= { cermResOwnerEntry 5 }
+
+cermResOwnerResUserCount  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of resource users which
+         consume resources from the resource owner."
+    ::= { cermResOwnerEntry 6 }
+
+cermResOwnerResGroupCount  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of resource groups which
+         consume resources from the resource owner."
+    ::= { cermResOwnerEntry 7 }
+
+--
+-- Resource Owner Sub-Type Table
+--
+cermResOwnerSubTypeTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResOwnerSubTypeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each sub-type for
+         each resource owner in the cermResOwnerTable.
+
+         For example, lets consider that the 'memory' resource owner
+         has two sub-types called 'processor' and 'io' in the system.
+         Then, two entries (one is for 'processor' memory and another
+         one is for 'io' memory) will be present in this table for
+         the 'memory' resource owner.
+
+         If a resource owner does not have any sub-types, then
+         this table will have an entry with the zero value for
+         the cermResOwnerSubTypeId and zero-length string value
+         for the cermResOwnerSubTypeName, for the corresponding
+         resource owner."
+    ::= { cermStats 2 }
+
+cermResOwnerSubTypeEntry OBJECT-TYPE
+    SYNTAX      CermResOwnerSubTypeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a resource owner
+         sub-type. This entry includes resource owner sub-type name,
+         utilization in percentage, utilization in its own measurement
+         unit, maximum utilization in its own measurement unit and
+         current global notification severity level for the resource
+         owner sub-type.
+
+         Whenever a resource owner is registered with the ERM framework
+         (normally this happens during system initialization), a new
+         entry will be included in the cermResOwnerTable for the
+         resource owner. At the sametime, one new entry will be included
+         in this table for each sub-type of the resource owner.
+         Likewise, whenever a resource owner is unregistered from
+         the ERM framework, the resource owner entry will be removed
+         from the cermResOwnerTable and the corresponding resource owner
+         sub-types entries will be removed from this table.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource owner belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResOwnerSubEntityId,
+            cermResOwnerId,
+            cermResOwnerSubTypeId }
+    ::= { cermResOwnerSubTypeTable 1 }
+
+CermResOwnerSubTypeEntry ::= SEQUENCE {
+    cermResOwnerSubTypeId                 Unsigned32,
+    cermResOwnerSubTypeName               SnmpAdminString,
+    cermResOwnerSubTypeUsagePct           CermResUsagePct,
+    cermResOwnerSubTypeUsage              Unsigned32,
+    cermResOwnerSubTypeMaxUsage           Unsigned32,
+    cermResOwnerSubTypeGlobNotifSeverity  CermNotificationSeverity
+}
+
+cermResOwnerSubTypeId  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource owner sub-type identifier.
+         If the resource owner does not have any sub-types, this object
+         value for the resource owner will be zero. Otherwise, it will
+         have a non-zero value."
+    ::= { cermResOwnerSubTypeEntry 1 }
+
+cermResOwnerSubTypeName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string indicating name of the resource
+         owner sub-type.
+
+         For example, 'processor' memory and 'io' memory are two
+         sub-types in the 'memory' resource owner.
+
+         If the resource owner does not have any sub-types, this
+         object value for the resource owner will be a zero-length
+         string."
+    ::= { cermResOwnerSubTypeEntry 2 }
+
+cermResOwnerSubTypeUsagePct  OBJECT-TYPE
+    SYNTAX      CermResUsagePct
+    UNITS       "percentage"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the percentage of resource utilized for
+         the resource owner sub-type."
+    ::= { cermResOwnerSubTypeEntry 3 }
+
+cermResOwnerSubTypeUsage  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource utilization,
+         in the unit of measurement specified by the object
+         cermResOwnerMeasurementUnit, for the corresponding
+         resource owner sub-type."
+    ::= { cermResOwnerSubTypeEntry 4 }
+
+cermResOwnerSubTypeMaxUsage  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the maximum resource utilization
+         since the system has been up, in the measurement unit
+         specified by the object cermResOwnerMeasurementUnit, for
+         the corresponding resource owner sub-type.
+
+         For example, if maximum utilization for the 'io' memory
+         resource owner is 15000000 bytes since the system has been up,
+         this object value for the 'io' memory resource owner would be
+         15000000.
+
+         If this object is not implemented for the resource owner
+         sub-type, then value of this object would be zero."
+    ::= { cermResOwnerSubTypeEntry 5 }
+
+cermResOwnerSubTypeGlobNotifSeverity  OBJECT-TYPE
+    SYNTAX      CermNotificationSeverity
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the current global notification severity
+         level for the resource owner sub-type."
+    ::= { cermResOwnerSubTypeEntry 6 }
+
+--
+-- System Global Thresholding Table
+--
+cermResOwnerSubTypeThresholdTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResOwnerSubTypeThresholdEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each applied global
+         threshold configuration for each resource owner sub-type in
+         the system."
+    ::= { cermStats 3 }
+
+cermResOwnerSubTypeThresholdEntry OBJECT-TYPE
+    SYNTAX      CermResOwnerSubTypeThresholdEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing an applied global threshold configuration
+         details for a resource owner sub-type. This entry includes
+         threshold severity level, rising threshold value, rising
+         interval time, falling threshold value and falling interval
+         time for the threshold configuration.
+
+         One or more entries will be included in this table when
+         a global resource policy is applied. If the system has
+         internally applied any threshold values, those threshold
+         configurations will also be present in this table.
+
+         For example, if the applied global resource policy has 'major'
+         and 'critical' severity threshold configurations for
+         'processor' memory sub-type of the 'memory' resource owner,
+         then two entries will be included in this table for the
+         'processor' memory sub-type. All threshold configuration
+         entries included via applying the global resource policy,
+         will be removed when the applied global resource policy is
+         unapplied/unconfigured.
+
+         Note: Global resource policy is applied by setting the scalar
+         object cermScalarsGlobalPolicyName to an existing global
+         resource policy in the cermConfigPolicyTable. Global resource
+         policy is unapplied by setting the cermScalarsGlobalPolicyName
+         to zero-length string.
+
+         Apart from threshold configurations in the applied global
+         resource policy (those are configured and applied by the user),
+         the system may have some internally applied global threshold
+         configurations for some resource owners for which the user
+         is not allowed to configure thresholding.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource owner belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResOwnerSubEntityId,
+            cermResOwnerId,
+            cermResOwnerSubTypeId,
+            cermResOwnerSubTypeThreshSeverity }
+    ::= { cermResOwnerSubTypeThresholdTable 1 }
+
+CermResOwnerSubTypeThresholdEntry ::= SEQUENCE {
+    cermResOwnerSubTypeThreshSeverity   CermThresholdSeverity,
+    cermResOwnerSubTypeRisingThresh     CermThreshold,
+    cermResOwnerSubTypeRisingInterval   CermDampenInterval,
+    cermResOwnerSubTypeFallingThresh    CermThreshold,
+    cermResOwnerSubTypeFallingInterval  CermDampenInterval
+}
+
+cermResOwnerSubTypeThreshSeverity  OBJECT-TYPE
+    SYNTAX      CermThresholdSeverity
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the threshold severity of an applied
+         threshold configuration, for a resource owner sub-type."
+    ::= { cermResOwnerSubTypeThresholdEntry 1 }
+
+cermResOwnerSubTypeRisingThresh  OBJECT-TYPE
+    SYNTAX      CermThreshold
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the applied global rising threshold
+         value for the resource owner sub-type.
+
+         When total resource utilization of the resource owner sub-type
+         exceeds the rising threshold value set for it, the resource
+         owner sends an 'up' notification to the ERM framework.
+         If the ERM framework did not receive any 'down' notification
+         from the same resource owner sub-type till the rising interval
+         time (represented by cermResOwnerSubTypeRisingInterval)
+         is elapsed, the 'up' notification will be sent to all resource
+         users which consume resources from the resource owner.
+
+         The order of sending the 'up' notification will be based on
+         priority of those resource users. Lowest priority resource
+         user will get the 'up' notification first. Upon receiving
+         the 'up' notification, the resource users can take appropriate
+         action (for example, limiting consumption of the concerned
+         resource)."
+    ::= { cermResOwnerSubTypeThresholdEntry 2 }
+
+cermResOwnerSubTypeRisingInterval  OBJECT-TYPE
+    SYNTAX      CermDampenInterval
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the dampening interval time for the
+         global rising threshold, specified in the applied threshold
+         configuration for the resource owner sub-type. Whenever the
+         ERM framework gets an 'up' notification from the resource
+         owner sub-type, it will wait till the rising interval time
+         (represented by this object) is elapsed. If the ERM framework
+         did not receive any 'down' notification from the same resource
+         owner sub-type before the rising interval time is elapsed,
+         it will send the 'up' notification to all resource users
+         which consume resources from the resource owner. Otherwise,
+         the 'up' notification will be dropped by the ERM framework.
+
+         If the global rising threshold is configured but the rising
+         interval time is not configured in the applied threshold
+         configuration for the resource owner sub-type, then default
+         value would be taken. The default value is specific to the
+         resource owner sub-type."
+    ::= { cermResOwnerSubTypeThresholdEntry 3 }
+
+cermResOwnerSubTypeFallingThresh  OBJECT-TYPE
+    SYNTAX      CermThreshold
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the applied global falling threshold
+         value for the resource owner sub-type.
+
+         The global falling threshold value will be applicable
+         only after an 'up' notification is sent by the resource
+         owner. When resource utilization of the resource owner
+         sub-type falls below the applied global falling threshold
+         value (after crossing the corresponding global rising
+         threshold value), the resource owner sub-type sends a 'down'
+         notification to the ERM framework. If the ERM framework did
+         not receive any 'up' notification from the same resource owner
+         sub-type till the falling interval time (represented by the
+         object cermResOwnerSubTypeFallingInterval) is elapsed, the
+         'down' notification will be sent to all resource users which
+         consume resources from the concerned resource owner sub-type.
+         The order of sending the 'down' notification will be based on
+         priority of those resource users. Highest priority resource
+         user will get the 'down' notification first. Upon receiving
+         the 'down' notification, the resource users can start
+         consuming the concerned resource as usual.
+
+         If the global rising threshold value is configured but
+         the global falling threshold value is not configured in
+         the applied threshold configuration for the resource owner
+         sub-type, then default value would be taken. The default value
+         is specific to the resource owner sub-type and may depend on
+         the rising threshold value."
+    ::= { cermResOwnerSubTypeThresholdEntry 4 }
+
+cermResOwnerSubTypeFallingInterval  OBJECT-TYPE
+    SYNTAX      CermDampenInterval
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the dampening interval time
+         for the global falling threshold, specified in the applied
+         threshold configuration for the resource owner sub-type.
+         Whenever the ERM framework gets a 'down' notification from
+         the resource owner sub-type, it will wait till the falling
+         interval time (represented by this object) is elapsed.
+         If the ERM framework did not receive any 'up' notification
+         from the same resource owner sub-type before the falling
+         interval time is elapsed, it will send the 'down' notification
+         to all resource users which consume resources from the
+         concerned resource owner sub-type. Otherwise, the 'down'
+         notification will be dropped by the ERM framework.
+
+         If the global rising threshold is configured but the falling
+         interval time is not configured in the applied threshold
+         configuration for the resource owner sub-type, then default
+         value would be taken. The default value is specific to the
+         resource owner sub-type."
+    ::= { cermResOwnerSubTypeThresholdEntry 5 }
+
+--
+-- Resource User Type Table
+--
+cermResUserTypeTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResUserTypeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each resource user type
+         in the system. This table will have one entry for each
+         resource user type in the system."
+    ::= { cermStats 4 }
+
+cermResUserTypeEntry OBJECT-TYPE
+    SYNTAX      CermResUserTypeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a particular resource
+         user type in the system. This entry includes the resource
+         user type name, number of resource owners present in the
+         resource user type, number of resource users and resource
+         groups instantiated from the resource user type.
+
+         Whenever a new resource user type is registered with the ERM
+         framework (normally this happens during system initialization),
+         an entry will be included in this table for the resource user
+         type. Likewise, whenever a resource user type is unregistered
+         from the ERM framework, the corresponding resource user type
+         entry in this table will be removed.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource user type belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX       { entPhysicalIndex,
+                  cermResUserTypeSubEntityId,
+                  cermResUserTypeId }
+    ::= { cermResUserTypeTable 1 }
+
+CermResUserTypeEntry ::= SEQUENCE {
+    cermResUserTypeSubEntityId    CermSubEntityId,
+    cermResUserTypeId             CermUserTypeId,
+    cermResUserTypeName           SnmpAdminString,
+    cermResUserTypeResOwnerCount  Unsigned32,
+    cermResUserTypeResUserCount   Unsigned32,
+    cermResUserTypeResGroupCount  Unsigned32
+}
+
+cermResUserTypeSubEntityId  OBJECT-TYPE
+    SYNTAX      CermSubEntityId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the sub-entity (i.e. logical processing
+         entity in a physical entity) in which the resource user type
+         is present."
+    ::= { cermResUserTypeEntry 1 }
+
+cermResUserTypeId  OBJECT-TYPE
+    SYNTAX      CermUserTypeId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource user type identifier. This
+         uniquely identifies a resource user type in a sub-entity."
+    ::= { cermResUserTypeEntry 2 }
+
+cermResUserTypeName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing name of the resource
+         user type."
+    ::= { cermResUserTypeEntry 3 }
+
+cermResUserTypeResOwnerCount  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of resource owners in
+         the resource user type."
+    ::= { cermResUserTypeEntry 4 }
+
+cermResUserTypeResUserCount  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of resource users
+         instantiated from the resource user type. This object value
+         will be equal to the number of resource user entries present
+         in the cermResUserTable for the resource user type."
+    ::= { cermResUserTypeEntry 5 }
+
+cermResUserTypeResGroupCount  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of resource groups in
+         the resource user type. This object value will be equal to
+         the number of resource group entries present in the
+         cermResGroupTable for the resource user type."
+    ::= { cermResUserTypeEntry 6 }
+
+--
+-- Resource User Table
+--
+cermResUserTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table which contains information about each resource user
+         in the system. This table will have one entry for each
+         resource user in the system."
+    ::= { cermStats 5 }
+
+cermResUserEntry OBJECT-TYPE
+    SYNTAX      CermResUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a particular resource
+         user in the system. This entry includes the resource user
+         name and priority of the resource user.
+
+         Whenever a new resource user is registered with the ERM
+         framework (normally this happens when the resource user
+         is created in the system), an entry will be included in
+         this table for the resource user. Likewise, whenever a
+         resource user is unregistered from the ERM framework,
+         the corresponding resource user entry in this table will
+         be removed.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource user belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResUserTypeSubEntityId,
+            cermResUserTypeId,
+            cermResUserId }
+    ::= { cermResUserTable 1 }
+
+CermResUserEntry ::= SEQUENCE {
+    cermResUserId          CermUserId,
+    cermResUserName        SnmpAdminString,
+    cermResUserPriority    Unsigned32,
+    cermResUserResGroupId  CermGroupId
+}
+
+cermResUserId  OBJECT-TYPE
+    SYNTAX      CermUserId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource user identifier. This
+         uniquely identifies a resource user in a resource user type."
+    ::= { cermResUserEntry 1 }
+
+cermResUserName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is a textual string containing name of
+         the resource user. For example: 'IP Input' process."
+    ::= { cermResUserEntry 2 }
+
+cermResUserPriority  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates priority of the resource user.
+         High value for this object indicates that corresponding
+         resource user has *low* priority and vice versa. The global
+         ERM notification will be sent to the resource user in the
+         order based on its priority. Lowest priority resource user
+         (i.e. resource user which has highest value for this object)
+         will get the global 'up' notification first and 'down'
+         notification last."
+    ::= { cermResUserEntry 3 }
+
+cermResUserResGroupId  OBJECT-TYPE
+    SYNTAX      CermGroupId
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource group in which the resource
+         user is present. If the resource user does not belong to any
+         resource group, then the value of this object will be zero.
+         Otherwise, this object will contain value of the object
+         cermResGroupId corresponding to the resource group
+         entry in the cermResGroupTable."
+    ::= { cermResUserEntry 4 }
+
+--
+-- Resource Group Table
+--
+cermResGroupTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each resource group
+         in the system. This table will have one entry for each
+         resource group in the system."
+    ::= { cermStats 6 }
+
+cermResGroupEntry OBJECT-TYPE
+    SYNTAX      CermResGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a particular resource
+         group in the system. This entry includes the resource group
+         name and number of resource users in the resource group.
+
+         Whenever a new resource group is configured, an entry will
+         be included in this table for the resource group. Likewise,
+         whenever a resource group is unconfigured, the corresponding
+         resource group entry in this table will be removed. Resource
+         groups can be created/deleted by the user using the table
+         cermConfigResGroupTable. Resource groups will also be created
+         internally if multiple instances of same resource user (i.e.
+         more than one resource users with the same name) are present
+         in the system.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource group belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResUserTypeSubEntityId,
+            cermResUserTypeId,
+            cermResGroupId }
+    ::= { cermResGroupTable 1 }
+
+CermResGroupEntry ::= SEQUENCE {
+    cermResGroupId                 CermGroupId,
+    cermResGroupName               SnmpAdminString,
+    cermResGroupUserInstanceCount  Unsigned32
+}
+
+cermResGroupId  OBJECT-TYPE
+    SYNTAX      CermGroupId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource group identifier. This
+         uniquely identifies a resource group in a resource user type."
+    ::= { cermResGroupEntry 1 }
+
+cermResGroupName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is a textual string containing name of the
+         resource group. If the resource group has been configured
+         by the user, this object will contain value of the
+         cermConfigResGroupName corresponding to the configured
+         resource group in the cermConfigResGroupTable."
+    ::= { cermResGroupEntry 2 }
+
+cermResGroupUserInstanceCount  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of resource user instances
+         present in the resource group."
+    ::= { cermResGroupEntry 3 }
+
+--
+-- Resource Group ==> Resource User Mapping Table
+--
+cermResGroupResUserTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResGroupResUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table has list of resource users present in each
+         resource group."
+    ::= { cermStats 7 }
+
+cermResGroupResUserEntry OBJECT-TYPE
+    SYNTAX      CermResGroupResUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing a resource group identifier and one of
+         the resource users identifier in the resource group.
+
+         Whenever a new resource user is added into a resource group,
+         an entry will be included in this table. Likewise, whenever
+         a resource user is removed from a resource group,
+         the corresponding entry in this table will be removed.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource group and resource user belong. Only 'module'
+         class physical entities which run operating system with
+         the ERM framework, are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResUserTypeSubEntityId,
+            cermResUserTypeId,
+            cermResGroupId,
+            cermResGroupResUserId }
+    ::= { cermResGroupResUserTable 1 }
+
+CermResGroupResUserEntry ::= SEQUENCE {
+    cermResGroupResUserId  CermUserId
+}
+
+cermResGroupResUserId  OBJECT-TYPE
+    SYNTAX      CermUserId
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object identifies one of the resource users in a
+         particular resource group. This object will contain value of
+         the cermResUserId, in the cermResUserTable, corresponding to
+         one of resource users in the resource group."
+    ::= { cermResGroupResUserEntry 1 }
+
+--
+-- Resource Owner <-> Resource Group/User Relationship Table
+--
+cermResOwnerResUserOrGroupTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResOwnerResUserOrGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each resource owner
+         sub-type and resource user/group relationship."
+    ::= { cermStats 8 }
+
+cermResOwnerResUserOrGroupEntry OBJECT-TYPE
+    SYNTAX      CermResOwnerResUserOrGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a resource owner
+         sub-type and resource user/group relationship.
+
+         Whenever a resource user/group is registered with the ERM
+         framework, one or more number of entries will be created in
+         this table. The number of entries that will be created,
+         depends upon the number of resource owners in the resource
+         user type from which the resource user was instantiated
+         and the number of sub-types in each resource owner. Even if
+         the resource owner does not have any sub-types, there will be
+         one entry per resource user/group for the resource owner.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource owner and resource user belong. Only 'module'
+         class physical entities which run operating system with
+         the ERM framework, are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResOwnerSubEntityId,
+            cermResOwnerId,
+            cermResOwnerSubTypeId,
+            cermResOwnerResUserTypeId,
+            cermResOwnerResUserOrGroupId }
+    ::= { cermResOwnerResUserOrGroupTable 1 }
+
+CermResOwnerResUserOrGroupEntry ::= SEQUENCE {
+    cermResOwnerResUserTypeId            CermUserTypeId,
+    cermResOwnerResUserOrGroupId         CermUserId,
+    cermResUserOrGroupFlag               CermUserOrGroup,
+    cermResUserOrGroupUsagePct           CermResUsagePct,
+    cermResUserOrGroupUsage              Unsigned32,
+    cermResUserOrGroupMaxUsage           Unsigned32,
+    cermResUserOrGroupNotifSeverity      CermNotificationSeverity,
+    cermResUserOrGroupGlobNotifSeverity  CermNotificationSeverity
+}
+
+cermResOwnerResUserTypeId  OBJECT-TYPE
+    SYNTAX      CermUserTypeId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the resource user type corresponding
+         to the resource user/group which is part of the resource owner
+         <-> resource user/group relationship. This object will contain
+         value of the cermResUserTypeId in the cermResUserTypeTable,
+         corresponding to the resource user type."
+    ::= { cermResOwnerResUserOrGroupEntry 1 }
+
+cermResOwnerResUserOrGroupId  OBJECT-TYPE
+    SYNTAX      CermUserId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the resource group/user which is part
+         of the resource owner sub-type <-> resource group/user
+         relationship. If the cermResUserOrGroupFlag is 'user',
+         this object will contain value of the cermResUserId for one
+         of the resource user entry in the cermResUserTable. If the
+         cermResUserOrGroupFlag is 'group', this object will contain
+         value of the cermResGroupId for one of the resource group
+         entry in the cermResGroupTable."
+    ::= { cermResOwnerResUserOrGroupEntry 2 }
+
+cermResUserOrGroupFlag  OBJECT-TYPE
+    SYNTAX      CermUserOrGroup
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a flag indicating whether corresponding entry belongs
+         to a resource group or resource user. If this object value
+         is 'user', this entry belongs to a resource owner sub-type
+         <-> resource user relationship. If this object value is
+         'group', this entry belongs to a resource owner sub-type
+         <-> resource group relationship."
+    ::= { cermResOwnerResUserOrGroupEntry 3 }
+
+cermResUserOrGroupUsagePct  OBJECT-TYPE
+    SYNTAX      CermResUsagePct
+    UNITS       "percentage"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates percentage of resources utilized from
+         the resource owner sub-type by the resource user (if the
+         cermResUserOrGroupFlag is 'user') or resource group
+         (if the cermResUserOrGroupFlag is 'group').
+
+         For example, if 1 MB out of 50 MB 'processor' memory has
+         been utilized by the resource user 'RU-1', then value of
+         this object would be 2 in the entry corresponding to
+         the 'processor' memory <-> 'RU-1' relationship."
+    ::= { cermResOwnerResUserOrGroupEntry 4 }
+
+cermResUserOrGroupUsage  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the amount of resources utilized from
+         the resource owner sub-type by the resource user (if the
+         cermResUserOrGroupFlag is 'user') or resource group
+         (if the cermResUserOrGroupFlag is 'group'), in the unit
+         of measurement indicated by the object
+         cermResOwnerMeasurementUnit for the corresponding
+         resource owner.
+
+         For example, if 1 MB (i.e. 1048576 bytes) of 'processor'
+         memory has been utilized by the resource user 'RU-1', then
+         value of this object would be 1048576 in the entry
+         corresponding to the 'processor' memory <-> 'RU-1'
+         relationship."
+    ::= { cermResOwnerResUserOrGroupEntry 5 }
+
+cermResUserOrGroupMaxUsage  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the maximum amount of resource utilized
+         from the resource owner sub-type by the resource user (if the
+         cermResUserOrGroupFlag is 'user') or resource group
+         (if the cermResUserOrGroupFlag is 'group') since the system
+         has been up, in the unit of measurement specified by the object
+         cermResOwnerMeasurementUnit for the corresponding resource
+         owner. If this object is not implemented by the resource owner
+         sub-type, then value of this object would be zero."
+    ::= { cermResOwnerResUserOrGroupEntry 6 }
+
+cermResUserOrGroupNotifSeverity  OBJECT-TYPE
+    SYNTAX      CermNotificationSeverity
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the user local current notification
+         severity for the resource owner sub-type and resource
+         user/group relationship.
+
+         For example, lets assume that the resource user 'RU-1'
+         has utilized the 'processor' memory more than the applied
+         *minor* severity user local rising threshold value (and
+         its utilization is still above the corresponding falling
+         threshold value), then current user local notification
+         severity for the 'processor' memory <-> 'RU-1' relationship
+         would be 'minor'."
+    ::= { cermResOwnerResUserOrGroupEntry 7 }
+
+cermResUserOrGroupGlobNotifSeverity  OBJECT-TYPE
+    SYNTAX      CermNotificationSeverity
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates per user global current notification
+         severity for the resource owner sub-type and resource
+         user/group relationship.
+
+         For example, lets assume that total utilization of the
+         'processor' memory resource owner has exceeded the applied
+         per user global rising threshold value for *minor* severity
+         (and its utilization is still above the corresponding
+         falling threshold value), then current per user global
+         notification severity for the 'processor' memory and 'RU-1'
+         relationship would be 'minor'."
+    ::= { cermResOwnerResUserOrGroupEntry 8 }
+
+--
+-- Resource Owner <-> Resource User Threshold Table
+--
+cermResOwnerResUserOrGroupThresholdTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResOwnerResUserOrGroupThresholdEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each applied
+         threshold configuration for each resource owner sub-type <->
+         resource user/group relationship. This table will have
+         an entry for each threshold configuration for each 
+         resource owner sub-type <-> resource user/group relationship
+         for which a rising threshold value is set. If rising threshold
+         value is not set for a resource owner sub-type <-> resource
+         user/group relationship, then an entry will not be present
+         in this table for the relationship."
+    ::= { cermStats 9 }
+
+cermResOwnerResUserOrGroupThresholdEntry OBJECT-TYPE
+    SYNTAX      CermResOwnerResUserOrGroupThresholdEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a applied threshold
+         configuration for a resource owner sub-type <-> resource
+         user/group relationship.
+
+         Whenever a local resource policy is applied for a resource
+         user/group, one or more number of entries will be included
+         in this table. The number of entries that will be created,
+         depends upon the number of threshold configurations present
+         in the local resource policy.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource owner and resource user belong. Only 'module'
+         class physical entities which run operating system with
+         the ERM framework, are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResOwnerSubEntityId,
+            cermResOwnerId,
+            cermResOwnerSubTypeId,
+            cermResOwnerResUserTypeId,
+            cermResOwnerResUserOrGroupId,
+            cermResUserOrGroupThreshIsUserGlob,
+            cermResUserOrGroupThreshSeverity }
+    ::= { cermResOwnerResUserOrGroupThresholdTable 1 }
+
+CermResOwnerResUserOrGroupThresholdEntry ::= SEQUENCE {
+    cermResUserOrGroupThreshIsUserGlob  TruthValue,
+    cermResUserOrGroupThreshSeverity    CermThresholdSeverity,
+    cermResUserOrGroupThreshFlag        CermUserOrGroup,
+    cermResUserOrGroupRisingThresh      CermThreshold,
+    cermResUserOrGroupRisingInterval    CermDampenInterval,
+    cermResUserOrGroupFallingThresh     CermThreshold,
+    cermResUserOrGroupFallingInterval   CermDampenInterval
+}
+
+cermResUserOrGroupThreshIsUserGlob  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A flag which indicates whether the threshold configuration
+         is about user local thresholding or per user global
+         thresholding. The value of this object would be 'true' for
+         the per user global threshold configuration."
+    ::= { cermResOwnerResUserOrGroupThresholdEntry 1 }
+
+cermResUserOrGroupThreshSeverity  OBJECT-TYPE
+    SYNTAX      CermThresholdSeverity
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the threshold severity for the threshold
+         configuration entry. The value of this object can be 'minor',
+         'major' and 'critical'."
+    ::= { cermResOwnerResUserOrGroupThresholdEntry 2 }
+
+cermResUserOrGroupThreshFlag  OBJECT-TYPE
+    SYNTAX      CermUserOrGroup
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a flag indicating whether corresponding entry belongs
+         to a resource group or resource user. If this object value
+         is 'user', this entry belongs to a resource owner sub-type
+         <-> resource user relationship. If this object value is
+         'group', this entry belongs to a resource owner sub-type
+         <-> resource group relationship."
+    ::= { cermResOwnerResUserOrGroupThresholdEntry 3 }
+
+cermResUserOrGroupRisingThresh  OBJECT-TYPE
+    SYNTAX      CermThreshold
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the rising threshold value set for the
+         thereshold configuration for the resource owner sub-type <->
+         resource user/group relationship. If the rising threshold
+         value is not set for the resource owner sub-type <-> resource
+         user/group relationship, then this table will not have any
+         entry for the relationship."
+    ::= { cermResOwnerResUserOrGroupThresholdEntry 4 }
+
+cermResUserOrGroupRisingInterval  OBJECT-TYPE
+    SYNTAX      CermDampenInterval
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates dampening interval time set for the
+         rising threshold for the threshold configuration entry
+         in this table. If the rising threshold value is configured
+         but the rising interval time is not configured for the
+         resource owner sub-type <-> resource user/group relationship,
+         then default value would be taken. The default value is
+         specific to the resource owner sub-type."
+    ::= { cermResOwnerResUserOrGroupThresholdEntry 5 }
+
+cermResUserOrGroupFallingThresh  OBJECT-TYPE
+    SYNTAX      CermThreshold
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the falling threshold value set for
+         the threshold configuration for the resource owner sub-type
+         <-> resource user/group relationship. If the rising threshold
+         value is configured but the falling threshold value is not
+         configured for the resource owner sub-type <-> resource
+         user/group relationship, then default value would be taken.
+         The default value is specific to the resource owner sub-type."
+    ::= { cermResOwnerResUserOrGroupThresholdEntry 6 }
+
+cermResUserOrGroupFallingInterval  OBJECT-TYPE
+    SYNTAX      CermDampenInterval
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the dampening interval time set for
+         the falling threshold for the threshold configuration entry
+         in this table. If the rising threshold value is configured
+         but the falling interval value is not configured for the
+         resource owner sub-type <-> resource user/group relationship,
+         then default value would be taken. The default value is
+         specific to the resource owner sub-type."
+    ::= { cermResOwnerResUserOrGroupThresholdEntry 7 }
+
+--
+-- Resource User Type <==> Resource Owner Mapping Table
+--
+cermResUserTypeResOwnerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResUserTypeResOwnerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains an entry for each resource user type
+         and resource owner relationship in the system. This table
+         would be useful in getting list of resource owners in a
+         particular resource user type and vice versa."
+    ::= { cermStats 10 }
+
+cermResUserTypeResOwnerEntry OBJECT-TYPE
+    SYNTAX      CermResUserTypeResOwnerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing a resource user type identifier and one
+         of it's resource owners.
+
+         Whenever a resource user type is registered with the ERM
+         framework, <N> number of entries will be included in this table
+         for the resource user type.  Where, <N> is equal to the number
+         of resource owners in the resource user type. Likewise,
+         whenever a resource user type is unregistered from the ERM
+         framework, then all entries corresponding to the resource user
+         type will be removed from this table.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource user type and resource owner belong. Only 'module'
+         class physical entities which run operating system with
+         the ERM framework, are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResUserTypeSubEntityId,
+            cermResUserTypeId,
+            cermResUserTypeResOwnerId }
+    ::= { cermResUserTypeResOwnerTable 1 }
+
+CermResUserTypeResOwnerEntry ::= SEQUENCE {
+    cermResUserTypeResOwnerId  CermOwnerId
+}
+
+cermResUserTypeResOwnerId  OBJECT-TYPE
+    SYNTAX      CermOwnerId
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "A unique identifier representing one of the resource owner
+         in the resource user type. This object contains value of
+         the cermResOwnerId in one of the entries in the
+         cermResOwnerTable."
+    ::= { cermResUserTypeResOwnerEntry 1 }
+
+--
+-- Resource Monitor Table
+--
+cermResMonitorTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResMonitorEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each resource monitor
+         in the system."
+    ::= { cermStats 11 }
+
+cermResMonitorEntry OBJECT-TYPE
+    SYNTAX      CermResMonitorEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a resource monitor in
+         the system.
+
+         Whenever a new resource monitor is registered with the ERM
+         framework, an entry will be included in this table for the
+         resource monitor. Likewise, whenever a resource monitor is
+         unregistered from the ERM framework, the corresponding 
+         resource monitor entry will be removed from this table.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource monitor belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResMonitorSubEntityId,
+            cermResMonitorId }
+    ::= { cermResMonitorTable 1 }
+
+CermResMonitorEntry ::= SEQUENCE {
+    cermResMonitorSubEntityId  CermSubEntityId,
+    cermResMonitorId           CermMonitorId,
+    cermResMonitorName         SnmpAdminString
+}
+
+cermResMonitorSubEntityId  OBJECT-TYPE
+    SYNTAX      CermSubEntityId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the sub-entity (i.e. logical processing
+         entity in a physical entity) in which the resource monitor
+         is present."
+    ::= { cermResMonitorEntry 1 }
+
+cermResMonitorId  OBJECT-TYPE
+    SYNTAX      CermMonitorId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the resource monitor identifier."
+    ::= { cermResMonitorEntry 2 }
+
+cermResMonitorName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing name of the
+         resource monitor."
+    ::= { cermResMonitorEntry 3 }
+
+--
+-- Resource Monitor <==> Resource Owner - Resource User Mapping Table
+--
+cermResMonitorResOwnerResUserTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResMonitorResOwnerResUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains the following information:
+         1) resource owners being watched by each resource monitor.
+         2) resource users being watched by each resource monitor.
+         3) resource owner and resource user relationships being
+            watched by each resource monitor."
+    ::= { cermStats 12 }
+
+cermResMonitorResOwnerResUserEntry OBJECT-TYPE
+    SYNTAX      CermResMonitorResOwnerResUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing any of the following information:
+         1) one of the resource owners being watched by a resource
+            monitor.
+         2) one of the resource users being watched by a resource
+            monitor.
+         3) one of the resource owner and resource user relationships
+            being watched by a resource monitor.
+
+         Whenever a resource monitor starts watching a resource owner
+         or resource user or resource owner <-> resource user
+         relationship, an entry will be included in this table for
+         the resource monitor.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource monitor belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResMonitorSubEntityId,
+            cermResMonitorId,
+            cermResMonitorResOwnerId,
+            cermResMonitorResUserTypeId,
+            cermResMonitorResUserId }
+    ::= { cermResMonitorResOwnerResUserTable 1 }
+
+CermResMonitorResOwnerResUserEntry ::= SEQUENCE {
+    cermResMonitorResOwnerId     CermOwnerIdOrZero,
+    cermResMonitorResUserTypeId  CermUserTypeIdOrZero,
+    cermResMonitorResUserId      CermUserIdOrZero,
+    cermResMonitorResPolicyName  SnmpAdminString
+}
+
+cermResMonitorResOwnerId  OBJECT-TYPE
+    SYNTAX      CermOwnerIdOrZero
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the resource owner which is being
+         monitored by the resource monitor. The value of this object
+         would be 0 in the entry where only the resource user (not
+         the resource owner and resource user relationship) being
+         watched by the resource monitor.
+
+         In case of non-zero value, this object indicates the 
+         cermResOwnerId object value for one of the resource owner
+         entry in the cermResOwnerTable."
+    ::= { cermResMonitorResOwnerResUserEntry 1 }
+
+cermResMonitorResUserTypeId  OBJECT-TYPE
+    SYNTAX      CermUserTypeIdOrZero
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the resource user type of the resource
+         user which is being monitored by the resource monitor.
+         The value of this object would be 0 in the entry where only
+         the resource owner (not the resource owner and resource user
+         relationship) being watched by the resource monitor.
+
+         In case of non-zero value, this object indicates the 
+         cermResUserTypeId object value for one of the resource user
+         type entry in the cermResUserTypeTable."
+    ::= { cermResMonitorResOwnerResUserEntry 2 }
+
+cermResMonitorResUserId  OBJECT-TYPE
+    SYNTAX      CermUserIdOrZero
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the resource user which is being
+         monitored by the resource monitor. The value of this object
+         would be 0 in the entry where only the resource owner (not
+         the resource owner and resource user relationship) being
+         watched by the resource monitor.
+
+         In case of non-zero value, this object indicates the 
+         cermResUserId object value for one of the resource user
+         entry in the cermResUserTable."
+    ::= { cermResMonitorResOwnerResUserEntry 3 }
+
+cermResMonitorResPolicyName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the policy name corresponding to the
+         resource owner <-> resource user relationship being watched
+         by the resource monitor. If there is no corresponding applied
+         resource policy for the resource owner and resource user in
+         the entry, then this object will contain zero-length string.
+
+         This object indicates the cermPolicyName object value in one
+         of the resource policy entry in the cermConfigPolicyTable."
+    ::= { cermResMonitorResOwnerResUserEntry 4 }
+
+--
+-- Resource Monitor ==> Resource Policy Mapping Table
+--
+cermResMonitorPolicyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermResMonitorPolicyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains an entry for each resource policy being
+         watched by each resource monitor in the system. This table
+         will be useful to get the name of all the resource policies
+         being watched by a particular resource monitor.
+         If a resource monitor doesn't watch any resource policy,
+         then this table will not have any entry for the resource
+         monitor."
+    ::= { cermStats 13 }
+
+cermResMonitorPolicyEntry OBJECT-TYPE
+    SYNTAX      CermResMonitorPolicyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing one of the resource policies being
+         watched by a particular resource monitor.
+
+         Whenever a resource monitor starts watching a resource policy,
+         an entry will be added into this table, for the resource
+         monitor <-> resource policy relationship.
+
+         The entPhysicalIndex represents the physical entity to which
+         the resource monitor belongs. Only 'module' class physical
+         entities which run operating system with the ERM framework,
+         are applicable here."
+    INDEX { entPhysicalIndex,
+            cermResMonitorSubEntityId,
+            cermResMonitorId,
+            cermResMonitorPolicyName }
+    ::= { cermResMonitorPolicyTable 1 }
+
+CermResMonitorPolicyEntry ::= SEQUENCE {
+    cermResMonitorPolicyName  SnmpAdminString
+}
+
+cermResMonitorPolicyName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string indicating name of a resource policy
+         being watched by the resource monitor. This object will contain
+         the cermPolicyName object value in one of the resource policy
+         entry in the cermConfigPolicyTable."
+    ::= { cermResMonitorPolicyEntry 1 }
+
+--
+-- Cisco ERM Configuration Related Tables
+--
+
+--
+-- Resource Policy Table
+--
+cermConfigPolicyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermConfigPolicyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each resource policy
+         configured in the system. Resource Policy will contain
+         threshold configurations for a set of resource owners.
+         Each threshold configuration must specify the threshold
+         severity and the rising threshold value which are mandatory.
+         The rising interval time, falling threshold value and falling
+         interval time are optional for the threshold configuration.
+         Only one local resource policy can be applied for a resource
+         user or resource group, at any point in time. The global
+         resource policy cannot be applied for a resource user or
+         resource group.
+
+         Whenever a resource policy is applied to a resource user
+         instance, each threshold configuration in the resource policy
+         will be applied to all relevant resource owner and resource
+         user relationships."
+    ::= { cermConfig 1 }
+
+cermConfigPolicyEntry OBJECT-TYPE
+    SYNTAX      CermConfigPolicyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a resource policy.
+
+         Whenever a new resource policy is configured in the system,
+         an entry will be added in this table for the resource
+         policy. Likewise, whenever a resource policy is unconfigured,
+         corresponding entry for the resource policy will be removed
+         from this table."
+    INDEX { cermPolicyName }
+    ::= { cermConfigPolicyTable 1 }
+
+CermConfigPolicyEntry ::= SEQUENCE {
+    cermPolicyName              SnmpAdminString,
+    cermPolicyIsGlobal          TruthValue,
+    cermPolicyUserTypeName      SnmpAdminString,
+    cermPolicyLoggingEnabled    TruthValue,
+    cermPolicySnmpNotifEnabled  TruthValue,
+    cermPolicyStorageType       StorageType,
+    cermPolicyRowStatus         RowStatus
+}
+
+cermPolicyName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This is textual string containing name of the resource policy.
+         The resource policy name should be unique for each resource
+         policy configured in the system."
+    ::= { cermConfigPolicyEntry 1 }
+
+cermPolicyIsGlobal  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This is a flag indicating whether the resource policy is a
+         global resource policy or not. For global resource policies,
+         this object value would be 'true'. This object value
+         cannot be changed after creating the resource policy."
+    DEFVAL { false }
+    ::= { cermConfigPolicyEntry 2 }
+
+cermPolicyUserTypeName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..64))
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This is a  textual string indicating the resource user type
+         name for the resource policy. For a global resource policy,
+         this object will have zero-length string. For a local resource
+         policy, this object will contain name of the resource user
+         type for the resource policy. The resource user type name
+         for a resource policy, cannot be changed after creating the
+         resource policy."
+    ::= { cermConfigPolicyEntry 3 }
+
+cermPolicyLoggingEnabled  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This is a flag indicating whether syslog is enabled for the
+         resource policy or not."
+    DEFVAL { true }
+    ::= { cermConfigPolicyEntry 4 }
+
+cermPolicySnmpNotifEnabled  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This is a flag indicating whether SNMP notifications are
+         enabled for the resource policy or not. If this object value
+         is set to 'true', all notifications related to the resource
+         policy will be sent to all remote hosts which are configured
+         to get SNMP notifications from the managed device."
+    DEFVAL { true }
+    ::= { cermConfigPolicyEntry 5 }
+
+cermPolicyStorageType OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the storage type of this conceptual row.
+         If it is set to 'nonVolatile', this entry can be saved into
+         non-volatile memory."
+    DEFVAL { nonVolatile }
+    ::= { cermConfigPolicyEntry 6 }
+
+cermPolicyRowStatus  OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the status of the conceptual row in the
+         cermConfigPolicyTable. To create a new entry (i.e. creating
+         a new resource policy) in the cermConfigPolicyTable, this
+         object has to be set to 'createAndGo' after setting all
+         mandatory columnar objects for the corresponding entry.
+         Setting the status to 'createAndGo' will fail if any of the
+         columnar objects in the same row does not have acceptable
+         value. If it succeeds, status of this row will be set to
+         'active'.
+
+         To delete an existing resource policy, this object has to be
+         set to 'destroy'. Deletion may fail if the resource policy
+         is being configured by any other user or the resource policy
+         has been associated with any resource user instance."
+    ::= { cermConfigPolicyEntry 7 }
+
+--
+-- Resource Policy and Resource Owner Threshold Configuration Table
+--
+cermConfigPolicyResOwnerThreshTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermConfigPolicyResOwnerThreshEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each threshold
+         configuration in each resource policy in the
+         cermConfigPolicyTable. This table can be used to configure
+         threshold details (i.e. threshold severity, rising threshold
+         value, falling threshold value, rising interval time and
+         falling interval time) for a resource policy in the
+         cermConfigPolicyTable."
+    ::= { cermConfig 2 }
+
+cermConfigPolicyResOwnerThreshEntry OBJECT-TYPE
+    SYNTAX      CermConfigPolicyResOwnerThreshEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing threshold configuration details for a
+         resource owner sub-type, for a particular resource policy.
+
+         Whenever a new threshold configuration is added in the resource
+         policy, an entry wil be created in this table for the threshold
+         configuration for the resource policy. Likewise, whenever
+         a threshold configuration is removed from the resource policy,
+         the corresponding entry will be removed from this table.
+
+         The cermPolicyPhysicalIndex represents the physical entity
+         to which the resource owner belongs. Only 'module' class
+         physical entities which run operating system with the ERM
+         framework, are applicable here."
+    INDEX { cermPolicyName,
+            cermPolicyPhysicalIndex,
+            cermPolicyResOwnerSubEntityId,
+            cermPolicyResOwnerId,
+            cermPolicyResOwnerSubTypeId,
+            cermPolicyIsUserGlobal,
+            cermPolicyThresholdSeverity }
+    ::= { cermConfigPolicyResOwnerThreshTable 1 }
+
+CermConfigPolicyResOwnerThreshEntry ::= SEQUENCE {
+    cermPolicyPhysicalIndex              PhysicalIndex,
+    cermPolicyResOwnerSubEntityId        CermSubEntityId,
+    cermPolicyResOwnerId                 CermOwnerId,
+    cermPolicyResOwnerSubTypeId          Unsigned32,
+    cermPolicyIsUserGlobal               TruthValue,
+    cermPolicyThresholdSeverity          CermThresholdSeverity,
+    cermPolicyRisingThreshold            CermThreshold,
+    cermPolicyRisingInterval             CermDampenInterval,
+    cermPolicyFallingThreshold           CermThresholdOrZero,
+    cermPolicyFallingInterval            CermDampenInterval,
+    cermPolicyResOwnerThreshStorageType  StorageType,
+    cermPolicyResOwnerThreshRowStatus    RowStatus
+}
+
+cermPolicyPhysicalIndex  OBJECT-TYPE
+    SYNTAX      PhysicalIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object uniquely identifies the physical entity to which
+         the threshold configuration belongs. This objects indicates
+         the entPhysicalIndex value (in the entPhysicalTable) for the
+         corresponding physical entity."
+    ::= { cermConfigPolicyResOwnerThreshEntry 1 }
+
+cermPolicyResOwnerSubEntityId  OBJECT-TYPE
+    SYNTAX      CermSubEntityId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the sub-entity (i.e. logical processing
+         entity in a physical entity) in which the resource owner is
+         present. This object indicates the cermResOwnerSubEntityId
+         value (in the cermResOwnerTable) for the resource owner."
+    ::= { cermConfigPolicyResOwnerThreshEntry 2 }
+
+cermPolicyResOwnerId  OBJECT-TYPE
+    SYNTAX      CermOwnerId
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the resource owner for which
+         the threshold is configured. This object indicates the
+         cermResOwnerId value (in the cermResOwnerTable) for the
+         corresponding resource owner."
+    ::= { cermConfigPolicyResOwnerThreshEntry 3 }
+
+cermPolicyResOwnerSubTypeId  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the resource owner sub-type for which
+         threshold is configured.
+
+         For example, 'processor' and 'io' are sub-types of the
+         'memory' resource owner. Each resource owner sub-type may
+         have different threshold configuration. If the resource owner
+         does not have any sub-type, then value of this object would
+         be zero. This object indicates the 'cermResOwnerSubTypeId'
+         value (in the cermResOwnerSubTypeTable) for the corresponding
+         resource owner sub-type."
+    ::= { cermConfigPolicyResOwnerThreshEntry 4 }
+
+cermPolicyIsUserGlobal  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This is a flag indicating whether the threshold configuration
+         is for per user global thresholding or user local thresholding.
+         For per user global threshold configuration, value of this
+         object would be 'true'. For system global and user local
+         threshold configuration, value of this object would be
+         'false'."
+    ::= { cermConfigPolicyResOwnerThreshEntry 5 }
+
+cermPolicyThresholdSeverity  OBJECT-TYPE
+    SYNTAX      CermThresholdSeverity
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the threshold severity set for the
+         threshold configuration.
+
+         For a minor threshold configuration, value of this object
+         would be 'minor'. For major threshold configuration, value
+         of this object would be 'major'. For critical threshold
+         configuration, value of this object would be 'critical'."
+    ::= { cermConfigPolicyResOwnerThreshEntry 6 }
+
+cermPolicyRisingThreshold  OBJECT-TYPE
+    SYNTAX      CermThreshold
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the rising threshold value set for
+         the threshold configuration entry.
+
+         Lets assume that system global threshold value (in percentage)
+         for 'io' memory resource owner is set to 60% as minor rising
+         threshold value, 70% as major rising threshold value and 90%
+         as critical rising threshold value. When the total 'io' memory
+         utilization exceeds the 60% threshold limit, a minor 'up'
+         notification will be sent to relevant resource user(s).
+         When the total 'io' memory utilization exceeds the 70%
+         threshold limit, a major 'up' notification will be sent to
+         relevant resource user(s). When it exceeds the 90% threshold
+         limit, a critical 'up' notification will be sent to relevant
+         resource user(s).
+
+         The rising threshold value is mandatory for any threshold
+         configuration entry in the
+         cermConfigPolicyResOwnerThreshTable."
+    ::= { cermConfigPolicyResOwnerThreshEntry 7 }
+
+cermPolicyRisingInterval  OBJECT-TYPE
+    SYNTAX      CermDampenInterval
+    UNITS       "seconds"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the dampening interval for the
+         rising threshold, for the threshold configuration. That means,
+         an interval during which variations in the rising and falling
+         threshold values are not notified to any resource user(s).
+
+         If the dampening interval for the rising threshold is not
+         configured, it will contain zero."
+    DEFVAL { 0 }
+    ::= { cermConfigPolicyResOwnerThreshEntry 8 }
+
+cermPolicyFallingThreshold  OBJECT-TYPE
+    SYNTAX      CermThresholdOrZero
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the falling threshold value set for
+         the threshold configuration.
+
+         Lets assume that system global threshold value (in percentage)
+         for 'io' memory resource owner is set to 10% as minor falling
+         threshold value, 20% as major falling threshold value and 30%
+         as critical falling threshold value. When the total 'io' memory
+         utilization falls below 10%, a minor 'down' notification will
+         be sent to relevant resource user(s). When the total 'io'
+         memory utilization falls below 20%, a major 'down'
+         notification will be sent to relevant resource user(s). When
+         it falls below 30%, a critical 'down' notification will be
+         sent to relevant resource user(s). The 'down' notification
+         will be sent only if corresponding 'up' notification has
+         already been sent to relevant resource user(s).
+
+         Zero value for this object indicates that the falling
+         threshold value is not configured."
+    DEFVAL { 0 }
+    ::= { cermConfigPolicyResOwnerThreshEntry 9 }
+
+cermPolicyFallingInterval  OBJECT-TYPE
+    SYNTAX      CermDampenInterval
+    UNITS       "seconds"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the dampening interval for the
+         falling threshold for the threshold configuration. That means,
+         an interval during which variations in the rising and falling
+         threshold values are not notified to the resource user(s).
+
+         If the dampening interval for the falling threshold is not
+         configured, it will contain zero."
+    DEFVAL { 0 }
+    ::= { cermConfigPolicyResOwnerThreshEntry 10 }
+
+cermPolicyResOwnerThreshStorageType OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the storage type of this conceptual row.
+         If it is set to 'nonVolatile', this entry can be saved into
+         non-volatile memory."
+    DEFVAL { nonVolatile }
+    ::= { cermConfigPolicyResOwnerThreshEntry 11 }
+
+cermPolicyResOwnerThreshRowStatus  OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the status of the conceptual row
+         in the cermConfigPolicyResOwnerThreshTable.
+
+         To create a new entry (i.e. adding a new threshold
+         configuration for the resource policy) in the
+         cermConfigPolicyResOwnerThreshTable, this object
+         has to be set to 'createAndGo'. Setting the status to
+         'createAndGo' will fail if any columnar object in the same row
+         does not have acceptable value. If it succeeds, status of this
+         row will be set to 'active'.
+
+         To delete an existing threshold configuration in the resource
+         policy, this object value to be set to 'destroy'."
+    ::= { cermConfigPolicyResOwnerThreshEntry 12 }
+
+--
+-- Resource Group Configuration Table
+--
+cermConfigResGroupTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermConfigResGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about each resource group
+         created by the user in the system. This table is used to
+         create or delete a resource group in the system."
+    ::= { cermConfig 3 }
+
+cermConfigResGroupEntry OBJECT-TYPE
+    SYNTAX      CermConfigResGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing a resource group name and its resource
+         user type name.
+
+         Whenever a new resource group is configured by the user,
+         an entry will be created for the resource group in this table.
+         Likewise, whenever a resource group is unconfigured by the
+         user, the corresponding resource group entry will be removed
+         from this table."
+    INDEX { cermConfigResGroupName }
+    ::= { cermConfigResGroupTable 1 }
+
+CermConfigResGroupEntry ::= SEQUENCE {
+    cermConfigResGroupName          SnmpAdminString,
+    cermConfigResGroupUserTypeName  SnmpAdminString,
+    cermConfigResGroupStorageType   StorageType,
+    cermConfigResGroupRowStatus     RowStatus
+}
+
+cermConfigResGroupName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..48))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing name of the resource group.
+         The name is unique for each resource group available in
+         the system."
+    ::= { cermConfigResGroupEntry 1 }
+
+cermConfigResGroupUserTypeName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing name of the resource user
+         type to which the resource group belongs. Only the resource
+         user instance of the same resource user type, can be added
+         into the resource group."
+    ::= { cermConfigResGroupEntry 2 }
+
+cermConfigResGroupStorageType OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the storage type of this conceptual row.
+         If it is set to 'nonVolatile', this entry can be saved into
+         non-volatile memory."
+    DEFVAL { nonVolatile }
+    ::= { cermConfigResGroupEntry 3 }
+
+cermConfigResGroupRowStatus  OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the status of the conceptual row in
+         the cermConfigResGroupTable. To create a new row
+         (i.e. creating a new resource group) in this table,
+         this object has to be set to 'createAndGo'. If it succeeds,
+         status of the row will be set to 'active'.
+
+         To delete an existing resource group, this object has to be
+         set to 'destroy'."
+    ::= { cermConfigResGroupEntry 4 }
+
+--
+-- Resource Group ==> Resource User Instance Table
+--
+cermConfigResGroupUserTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermConfigResGroupUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table has list of resource user instances added into
+         each resource group."
+    ::= { cermConfig 4 }
+
+cermConfigResGroupUserEntry OBJECT-TYPE
+    SYNTAX      CermConfigResGroupUserEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing a resource group name and one of it's
+         resource user instance name.
+
+         Whenever a resource user instance is added into the resource
+         group by the user, an entry will be created in this table.
+         Likewise, whenever a resource user instance is removed from
+         the resource group, the corresponding entry in this table
+         will be removed."
+    INDEX { cermConfigResGroupName,
+            cermConfigResGroupUserName }
+    ::= { cermConfigResGroupUserTable 1 }
+
+CermConfigResGroupUserEntry ::= SEQUENCE {
+    cermConfigResGroupUserName         SnmpAdminString,
+    cermConfigResGroupUserStorageType  StorageType,
+    cermConfigResGroupUserRowStatus    RowStatus
+}
+
+cermConfigResGroupUserName  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This is a textual string containing name of the resource user
+         instance in the resource group. The resource user instance
+         need not exist in the system when the resource group is
+         configured."
+    ::= { cermConfigResGroupUserEntry 1 }
+
+cermConfigResGroupUserStorageType OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the storage type of this conceptual row.
+         If it is set to 'nonVolatile', this entry can be saved into
+         non-volatile memory."
+    DEFVAL { nonVolatile }
+    ::= { cermConfigResGroupUserEntry 2 }
+
+cermConfigResGroupUserRowStatus  OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the status of the conceptual row in
+         the cermConfigResGroupUserTable. To create a new row
+         (i.e. adding a new resource user instance) in the
+         cermConfigResGroupUserTable, this object has to be set to
+         'createAndGo'. Setting the status to 'createAndGo' will fail
+         if the given resource group is not yet created (i.e. not
+         available in the cermConfigResGroupTable) or given resource
+         user instance index is already exist. If it succeeds, status
+         of the row will be set to 'active'.
+
+         To delete an resource user instance from the resource group,
+         this object has to be set to 'destroy'."
+    ::= { cermConfigResGroupUserEntry 3 }
+
+--
+-- Resource Policy Apply Table
+--
+cermConfigPolicyApplyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CermConfigPolicyApplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table has a list of resource users (or groups) for which
+         local resource policies are applied in the system. The main
+         purpose of this table is to apply a local resource policy for
+         a resource user or resource group."
+    ::= { cermConfig 5 }
+
+cermConfigPolicyApplyEntry OBJECT-TYPE
+    SYNTAX      CermConfigPolicyApplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing a resource user (or group) name and
+         a local resource policy name applied to the resource user
+         (or group).
+
+         Whenever a policy is applied to a resource user (or group),
+         an entry will be created in this table. Likewise, whenever
+         a policy applied to a resource user (or group) is removed,
+         the corresponding entry will be removed."
+    INDEX { cermPolicyApplyUserOrGroupName,
+            cermPolicyApplyUserOrGroupFlag }
+    ::= { cermConfigPolicyApplyTable 1 }
+
+CermConfigPolicyApplyEntry ::= SEQUENCE {
+    cermPolicyApplyUserOrGroupName  SnmpAdminString,
+    cermPolicyApplyUserOrGroupFlag  CermUserOrGroup,
+    cermPolicyApplyPolicyName       SnmpAdminString,
+    cermPolicyApplyStorageType      StorageType,
+    cermPolicyApplyRowStatus        RowStatus
+}
+
+cermPolicyApplyUserOrGroupName  OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is a textual string containing name of the resource
+         user (or resource group) for which the resource policy is
+         applied.  A resource user (or group) cannot be associated
+         with more than one resource policies. In other words, more
+         than one resource polices cannot be applied to a resource
+         user (or group) at any point in time."
+    ::= { cermConfigPolicyApplyEntry 1 }
+
+cermPolicyApplyUserOrGroupFlag  OBJECT-TYPE
+    SYNTAX          CermUserOrGroup
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is a flag indicating whether the
+         cermPolicyApplyUserOrGroupName is a resource user name or
+         resource group name. For resource group name, this object
+         has to be set to 'group'."
+    ::= { cermConfigPolicyApplyEntry 2 }
+
+cermPolicyApplyPolicyName  OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A textual string indicating name of the resource policy which
+         is applied for the resource user (or resource group). This
+         object indicates the cermPolicyName, in the
+         cermConfigPolicyTable, applied to the resource user (or group)
+         name."
+    ::= { cermConfigPolicyApplyEntry 3 }
+
+cermPolicyApplyStorageType OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the storage type of this conceptual row.
+         If it is set to 'nonVolatile', this entry can be saved into
+         non-volatile memory."
+    DEFVAL { nonVolatile }
+    ::= { cermConfigPolicyApplyEntry 4 }
+
+cermPolicyApplyRowStatus  OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the row in the
+         cermConfigPolicyApplyTable. To create a new entry
+         (i.e. applying a resource policy to a resource group or
+         resource user) in the cermConfigPolicyApplyTable, this object
+         has to be set to 'createAndGo'. Setting the status to
+         'createAndGo' will fail if any columnar object in the
+         same row does not have acceptable value (for example,
+         the specified resource policy name does not exist in
+         the cermConfigPolicyTable). If it succeeds, status of
+         the row will be set to 'active'.
+
+         To delete a row in the table (i.e. unconfiguring a policy
+         for a resource group/user), this object has to be set to
+         'destroy'."
+    ::= { cermConfigPolicyApplyEntry 5 }
+
+--
+-- Notification Control Objects
+--
+
+cermNotifsEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object indicates whether generation of traps for ERM
+         policy violation notifications are allowed or not.
+
+         When this object is set to 'true', it allows generation
+         of traps for the ERM policy violation related notifications
+         ciscoErmGlobalPolicyViolation and
+         ciscoErmLocalPolicyViolation."
+    DEFVAL { false }
+    ::= { cermNotifControlObjects 1 }
+
+--
+-- Notification related Objects
+--
+
+cermNotifsThresholdSeverity OBJECT-TYPE
+    SYNTAX      CermThresholdSeverity
+
+
+    MAX-ACCESS  read-only
+--    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the severity of the threshold
+         configuration."
+    ::= { cermNotifObjects 1 }
+
+cermNotifsThresholdIsUserGlob OBJECT-TYPE
+    SYNTAX      TruthValue
+
+
+    MAX-ACCESS  read-only
+--    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "This object indicates whether the threshold configuration is
+         per user global thresholding or not."
+    ::= { cermNotifObjects 2 }
+
+cermNotifsThresholdValue OBJECT-TYPE
+    SYNTAX      CermThreshold
+
+
+    MAX-ACCESS  read-only
+--    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the rising (or falling) threshold value."
+    ::= { cermNotifObjects 3 }
+
+cermNotifsDirection OBJECT-TYPE
+    SYNTAX      CermNotificationDirection
+
+
+    MAX-ACCESS  read-only
+--    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the direction of the ERM notification."
+    ::= { cermNotifObjects 4 }
+
+cermNotifsPolicyName OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+
+
+    MAX-ACCESS  read-only
+--    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the name of the resource policy."
+    ::= { cermNotifObjects 5 }
+
+--
+-- Resource Policy Violation Notifications
+--
+
+ciscoErmGlobalPolicyViolation NOTIFICATION-TYPE
+    OBJECTS  { cermResOwnerName,
+               cermResOwnerSubTypeName,
+               cermNotifsThresholdSeverity,
+               cermNotifsThresholdValue,
+               cermNotifsDirection,
+               cermNotifsPolicyName
+    }
+    STATUS  current
+    DESCRIPTION
+        "This notification event will be generated whenever system
+         global resource policy is violated i.e. total resource
+         utilization exceeds the applied global threshold limit for
+         any resource owner sub-type. Also, this notificatioin will be
+         generated when resource utilization of the affected resource
+         owner sub-type falls below the corresponding falling threshold
+         value.
+
+         The cermResOwnerName and cermResOwnerSubTypeName objects
+         indicates the resource owner name and resource owner sub-type
+         name for which an applied global threshold value got violated.
+
+         The cermNotifsThresholdSeverity object indicates the configured
+         threshold severity which got violated. This object contains
+         value of the cermResOwnerSubTypeThreshSeverity corresponding
+         to the global threshold configuration which got violated.
+
+         The cermNotifsThresholdValue object indicates the configured
+         threshold limit which got violated. This object contains value
+         of either cermResOwnerSubTypeRisingThresh or
+         cermResOwnerSubTypeFallingThresh based on the ERM notification
+         direction indicated by the object cermNotifsDirection.
+         If the cermNotifsDirection object value is 'up', the
+         cermNotifsThresholdValue object would contain the value of
+         the object cermResOwnerSubTypeRisingThresh. If the
+         cermNotifsDirection object value is 'down', the
+         cermNotifsThresholdValue object would contain the value of
+         the object cermResOwnerSubTypeFallingThresh.
+
+         The cermNotifsDirection object indicates whether it is
+         an 'up' notification or a 'down' notification.
+
+         The cermNotifsPolicyName object indicates name of the global
+         resource policy which got violated. This object contains
+         value of the cermPolicyName for the violated resource policy,
+         in the cermConfigPolicyTable. If there is no associated
+         resource policy name for the notification, then this object
+         will contain zero-length string."
+    ::= { ciscoErmMIBNotifs 1 }
+
+ciscoErmLocalPolicyViolation NOTIFICATION-TYPE
+    OBJECTS  { cermResOwnerName,
+               cermResOwnerSubTypeName,
+               cermResUserTypeName,
+               cermResUserName,
+               cermResUserOrGroupThreshFlag,
+               cermNotifsThresholdIsUserGlob,
+               cermNotifsThresholdSeverity,
+               cermNotifsThresholdValue,
+               cermNotifsDirection,
+               cermNotifsPolicyName
+    }
+    STATUS  current
+    DESCRIPTION
+        "This notification event will be generated whenever a local
+         resource policy is violated i.e. resource utilization exceeds
+         the applied user local or per user global threshold limit
+         for any resource owner sub-type <-> resource user relationship.
+
+         The cermResOwnerName and cermResOwnerSubTypeName objects
+         indicates the resource owner name and resource owner sub-type
+         name for which an applied per user global or user local
+         threshold value got violated.
+
+         The cermResUserOrGroupThreshFlag object indicates whether
+         the ERM notification is because of *resource user* threshold
+         violation or *resource group* threshold violation.
+
+         The cermNotifsThresholdIsUserGlob object indicates whether
+         the notification belongs to Per User Global threshold
+         violation or User Local threshold violation. This object
+         contains the value of cermResUserOrGroupThreshIsUserGlob 
+         corresponding to the threshold configuration which got
+         violated.
+
+         The cermNotifsThresholdValue object indicates the configured
+         threshold limit which got violated. This object contains
+         value of either cermResUserOrGroupRisingThresh or
+         cermResUserOrGroupFallingThresh based on the ERM notification
+         direction indicated by the object cermNotifsDirection. For
+         the 'up' notification, this object would contain value of
+         the object cermResUserOrGroupRisingThresh. For the 'down'
+         notification, it would contain value of the object
+         cermResUserOrGroupFallingThresh.
+
+         The cermNotifsThresholdSeverity object indicates the
+         configured threshold severity which got violated. This object
+         contains value of the object cermResUserOrGroupThreshSeverity
+         corresponding to the resource owner sub-type and resource user
+         relationship.
+
+         The cermNotifsDirection object indicates whether it is an
+         'up' notification or a 'down' notification.
+
+         The cermNotifsPolicyName object indicates name of the local
+         resource policy which got violated. If there is no associated
+         policy name for the notification, then this object will
+         contain zero-length string."
+    ::= { ciscoErmMIBNotifs 2 }
+
+--
+-- Conformance
+--
+
+ciscoErmMIBCompliances OBJECT IDENTIFIER ::=
+                       { ciscoErmMIBConform 1 }
+
+ciscoErmMIBGroups      OBJECT IDENTIFIER ::=
+                       { ciscoErmMIBConform 2 }
+
+ciscoErmMIBCompliance  MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for the ERM MIB module."
+    MODULE  -- this module
+            MANDATORY-GROUPS {
+                ciscoErmResOwnerGroup,
+                ciscoErmResUserTypeGroup,
+                ciscoErmResUserGroup,
+                ciscoErmResGroupGroup,
+                ciscoErmResOwnerResUserOrGroupRelationGroup,
+                ciscoErmResMonitorGroup,
+                ciscoErmPolicyConfigGroup,
+                ciscoErmResGroupConfigGroup,
+                ciscoErmNotifObjectsGroup,
+                ciscoErmNotifControlObjectsGroup,
+                ciscoErmPolicyViolationNotifGroup
+            }
+    ::= { ciscoErmMIBCompliances 1 }
+
+--
+-- Units of Conformance
+--
+
+ciscoErmResOwnerGroup OBJECT-GROUP
+    OBJECTS  {
+        cermResOwnerName,
+        cermResOwnerMeasurementUnit,
+        cermResOwnerThreshIsConfigurable,
+        cermResOwnerResUserCount,
+        cermResOwnerResGroupCount,
+        cermResOwnerSubTypeName,
+        cermResOwnerSubTypeUsagePct,
+        cermResOwnerSubTypeUsage,
+        cermResOwnerSubTypeMaxUsage,
+        cermResOwnerSubTypeGlobNotifSeverity,
+        cermResOwnerSubTypeRisingThresh,
+        cermResOwnerSubTypeRisingInterval,
+        cermResOwnerSubTypeFallingThresh,
+        cermResOwnerSubTypeFallingInterval
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing information relevant to
+         resource owner entity in the ERM framework."
+    ::= { ciscoErmMIBGroups 1 }
+
+ciscoErmResUserTypeGroup OBJECT-GROUP
+    OBJECTS  {
+        cermResUserTypeName,
+        cermResUserTypeResOwnerCount,
+        cermResUserTypeResUserCount,
+        cermResUserTypeResGroupCount,
+        cermResUserTypeResOwnerId
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing information relevant to
+         resource user type entity in the ERM framework."
+    ::= { ciscoErmMIBGroups 2 }
+
+ciscoErmResUserGroup OBJECT-GROUP
+    OBJECTS  {
+        cermResUserName,
+        cermResUserPriority,
+        cermResUserResGroupId
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing information relevant to
+         resource user entity in the ERM framework."
+    ::= { ciscoErmMIBGroups 3 }
+
+ciscoErmResGroupGroup OBJECT-GROUP
+    OBJECTS  {
+        cermResGroupName,
+        cermResGroupUserInstanceCount,
+        cermResGroupResUserId
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing information relevant to
+         resource group entity in the ERM framework."
+    ::= { ciscoErmMIBGroups 4 }
+
+ciscoErmResOwnerResUserOrGroupRelationGroup OBJECT-GROUP
+    OBJECTS  {
+        cermResUserOrGroupFlag,
+        cermResUserOrGroupUsagePct,
+        cermResUserOrGroupUsage,
+        cermResUserOrGroupMaxUsage,
+        cermResUserOrGroupNotifSeverity,
+        cermResUserOrGroupGlobNotifSeverity,
+        cermResUserOrGroupThreshFlag,
+        cermResUserOrGroupRisingThresh,
+        cermResUserOrGroupRisingInterval,
+        cermResUserOrGroupFallingThresh,
+        cermResUserOrGroupFallingInterval
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing information relevant to
+         resource owner sub-type <-> resource user/group relationship."
+    ::= { ciscoErmMIBGroups 5 }
+
+ciscoErmResMonitorGroup OBJECT-GROUP
+    OBJECTS  {
+        cermResMonitorName,
+        cermResMonitorResPolicyName,
+        cermResMonitorPolicyName
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing information relevant to
+         resource monitor entity in the ERM framework."
+    ::= { ciscoErmMIBGroups 6 }
+
+ciscoErmPolicyConfigGroup OBJECT-GROUP
+    OBJECTS  {
+        cermScalarsGlobalPolicyName,
+        cermPolicyIsGlobal,
+        cermPolicyUserTypeName,
+        cermPolicyLoggingEnabled,
+        cermPolicySnmpNotifEnabled,
+        cermPolicyStorageType,
+        cermPolicyRowStatus,
+        cermPolicyRisingThreshold,
+        cermPolicyRisingInterval,
+        cermPolicyFallingThreshold,
+        cermPolicyFallingInterval,
+        cermPolicyResOwnerThreshStorageType,
+        cermPolicyResOwnerThreshRowStatus,
+        cermPolicyApplyPolicyName,
+        cermPolicyApplyStorageType,
+        cermPolicyApplyRowStatus
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing the ability to configure
+         a resource policy and applying the resource policy to a
+         resource group or resource user."
+    ::= { ciscoErmMIBGroups 7 }
+
+ciscoErmResGroupConfigGroup OBJECT-GROUP
+    OBJECTS  {
+        cermConfigResGroupUserTypeName,
+        cermConfigResGroupStorageType,
+        cermConfigResGroupRowStatus,
+        cermConfigResGroupUserStorageType,
+        cermConfigResGroupUserRowStatus
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing the ability to configure
+         a resource group."
+    ::= { ciscoErmMIBGroups 8 }
+
+ciscoErmNotifControlObjectsGroup OBJECT-GROUP
+    OBJECTS  {
+        cermNotifsEnabled
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of notification control objects."
+    ::= { ciscoErmMIBGroups 9 }
+
+ciscoErmNotifObjectsGroup OBJECT-GROUP
+    OBJECTS  {
+        cermNotifsThresholdSeverity,
+        cermNotifsThresholdIsUserGlob,
+        cermNotifsThresholdValue,
+        cermNotifsDirection,
+        cermNotifsPolicyName
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of notification related objects."
+    ::= { ciscoErmMIBGroups 10 }
+
+ciscoErmPolicyViolationNotifGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        ciscoErmGlobalPolicyViolation,
+        ciscoErmLocalPolicyViolation
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of notifications relevant to policy violation."
+    ::= { ciscoErmMIBGroups 11 }
+
+END

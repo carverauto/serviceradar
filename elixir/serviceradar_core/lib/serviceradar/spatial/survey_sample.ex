@@ -25,6 +25,7 @@ defmodule ServiceRadar.Spatial.SurveySample do
 
     create :create do
       primary? true
+
       accept [
         :session_id,
         :scanner_device_id,
@@ -41,11 +42,11 @@ defmodule ServiceRadar.Spatial.SurveySample do
         :longitude,
         :uncertainty
       ]
-      
+
       # Vectors require special casting
       argument :rf_vector_array, {:array, :float}
       argument :ble_vector_array, {:array, :float}
-      
+
       change set_attribute(:rf_vector, arg(:rf_vector_array))
       change set_attribute(:ble_vector, arg(:ble_vector_array))
       change set_attribute(:timestamp, &DateTime.utc_now/0)
@@ -54,7 +55,7 @@ defmodule ServiceRadar.Spatial.SurveySample do
     action :bulk_insert, :boolean do
       argument :session_id, :string, allow_nil?: false
       argument :samples, {:array, :map}, allow_nil?: false
-      
+
       run ServiceRadar.Spatial.Actions.BulkInsertSamples
     end
   end
@@ -65,7 +66,7 @@ defmodule ServiceRadar.Spatial.SurveySample do
     attribute :session_id, :string, allow_nil?: false
     attribute :scanner_device_id, :string, allow_nil?: false
     attribute :timestamp, :utc_datetime_usec, allow_nil?: false
-    
+
     # RF Identification
     attribute :bssid, :string, allow_nil?: false
     attribute :ssid, :string, allow_nil?: false
@@ -79,7 +80,7 @@ defmodule ServiceRadar.Spatial.SurveySample do
     attribute :y, :float, allow_nil?: false
     attribute :z, :float, allow_nil?: false
     attribute :uncertainty, :float
-    
+
     # Global Spatial Positioning (GPS)
     attribute :latitude, :float
     attribute :longitude, :float

@@ -1,0 +1,1337 @@
+-- *********************************************************************
+-- CISCO-SCSI-FLOW-MIB.my: SCSI (Small Computer Systems Interface) Flow 
+--                         MIB
+--
+-- October 2004, H K Vivek, Giri Rajaram
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+CISCO-SCSI-FLOW-MIB DEFINITIONS ::= BEGIN 
+    
+IMPORTS 
+    MODULE-IDENTITY, 
+    OBJECT-TYPE,  
+    Unsigned32, 
+    NOTIFICATION-TYPE,
+    Counter32, 
+    Counter64, 
+    Gauge32            
+        FROM SNMPv2-SMI 
+
+    TruthValue,
+    RowStatus, 
+    TEXTUAL-CONVENTION             
+        FROM SNMPv2-TC
+
+    MODULE-COMPLIANCE, 
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP                        
+       FROM SNMPv2-CONF 
+
+    ciscoMgmt                                 
+       FROM CISCO-SMI
+
+    VsanIndex, 
+    FcNameId                                  
+       FROM CISCO-ST-TC
+
+    ScsiLUNOrZero                             
+       FROM CISCO-SCSI-MIB;
+           
+                   
+ciscoScsiFlowMIB MODULE-IDENTITY 
+    LAST-UPDATED     "200501060000Z"
+    ORGANIZATION     "Cisco Systems Inc." 
+    CONTACT-INFO 
+        "             Cisco Systems
+                      Customer Service
+             Postal:  170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel:  +1 800 553-NETS
+               mail:  cs-san@cisco.com"
+    DESCRIPTION  
+        "A SCSI Flow is described as a SCSI Initiator
+         SCSI Target combination.  This MIB is used to 
+         configure and monitor SCSI Flows.
+
+         Glossary of terms used in this MIB:
+
+             ABTS           - Abort Sequence.
+
+             ACA            - Acquire Change Authorization.
+
+             CFS            - Cisco Fabric Service is a general 
+                              mechanism to distribute data within
+                              a Storage Area Network.
+
+             DPP            - Data Path Processor.
+
+             ILC            - Intelligent Line Card. 
+
+             LUN            - Logical Unit Number is a 64-bit 
+                              identifier for a logical unit.
+
+             pWWN           - port World Wide Name.
+
+             nWWN           - node World Wide Name.
+
+             SCSI Initiator - is a device that contains application
+                              clients and SCSI initiator ports
+                              that originate device service and
+                              task management requests to be
+                              processed by a target SCSI device.
+
+             SCSI flow      - connection between SCSI initiator and
+                              SCSI target.
+
+             SCSI Target    - is a device that contains logical units
+                              and SCSI target ports that receive
+                              device service and task management
+                              requests for processing.
+
+             SFC            - SCSI Flow Client.
+
+             SFM            - SCSI Flow Manager.
+
+             TCAM           - Ternary Content Addressable Memory.
+
+             VSAN           - Virtual Storage Area Network, similar to
+                              a VLAN.
+
+             WWN            - World Wide Name. Mechanism of identifying
+                              devices in Fibre Channel Networks. It is
+                              8 bytes long."
+
+    REVISION     "200501060000Z"            
+    DESCRIPTION  
+        "Initial version of this MIB." 
+    ::= { ciscoMgmt 447 }
+   
+ciscoScsiFlowMIBNotifs  OBJECT IDENTIFIER
+                           ::= { ciscoScsiFlowMIB 0 } 
+
+ciscoScsiFlowMIBObjects OBJECT IDENTIFIER 
+                           ::= { ciscoScsiFlowMIB 1 }
+
+ciscoScsiFlowMIBConform OBJECT IDENTIFIER 
+                           ::= { ciscoScsiFlowMIB 2 }
+
+csfConfiguration        OBJECT IDENTIFIER 
+                           ::= { ciscoScsiFlowMIBObjects 1 }
+
+csfStats                OBJECT IDENTIFIER
+                           ::= { ciscoScsiFlowMIBObjects 2 }
+
+csfFeatureStatus        OBJECT IDENTIFIER
+                           ::= { ciscoScsiFlowMIBObjects 3 }
+
+-- Textual Conventions
+CSFlowDeviceType ::= TEXTUAL-CONVENTION
+    STATUS     current
+    DESCRIPTION
+        "Represents the type of SCSI device. 
+
+         initiator(1) - the device is a SCSI initiator.
+
+         target(2)    - the device is a SCSI target."
+    SYNTAX     INTEGER {
+                   initiator(1),
+                   target(2)
+               }
+
+CSFlowVerifyReasonCode ::= TEXTUAL-CONVENTION
+    STATUS     current
+    DESCRIPTION
+        "Represents the reason codes associated with SCSI flow
+         verification notifications.
+
+         success(1) - successful. 
+
+         noLicense(2) - there was no license available.
+
+         generalError(3) - generic error.
+
+         notInNameServer(4) - device was not found in Name Server
+                              database.
+
+         notInFlogiServer(5) - device was not found in FLOGI Server
+                               database.
+                 
+         deviceNotOnIlc(6) - device was not on Intelligent Line
+                             card.
+
+         deviceNotScsi(7) - device was not SCSI device.
+
+         deviceNotInitiator(8) - device was not initiator.
+
+         deviceNotTarget(9)  - device was not target.
+
+         deviceNotFibreChannel(10)  - device was not a Fibre Channel
+                                      device.
+
+         ipcTimeout(11) - internal IPC timeout.
+
+         cfsError(12)   - Cisco Fabric Service has
+                          reported error.
+
+         cfsTimeout(13) - Cisco Fabric Service has timed
+                          out.
+
+         portsUnprovisioned(14) - ports have not been
+                                  provisioned.
+
+         initTargetZonedOut(15) - Initiator and target have
+                                  been zoned out.
+
+         statusNotChecked(16) - The device status has not been
+                                checked.
+
+         initNotInNameServer(17) - The initiator was not found in
+                                Name Server database.
+
+         tgtNotInNameServer(18) - The target was not found in
+                                Name Server database.
+
+         tgtNotInFlogiServer(19) - The target was not found in
+                                FLOGI Server database."
+
+    SYNTAX     INTEGER {
+                   success(1),
+                   noLicense(2),
+                   generalError(3),
+                   notInNameServer(4),
+                   notInFlogiServer(5),
+                   deviceNotOnIlc(6),
+                   deviceNotScsi(7),
+                   deviceNotInitiator(8),
+                   deviceNotTarget(9),
+                   deviceNotFibreChannel(10),
+                   ipcTimeout(11),
+                   cfsError(12),
+                   cfsTimeout(13),
+                   portsUnprovisioned(14),
+                   initTargetZonedOut(15),
+                   statusNotChecked(16),
+                   initNotInNameServer(17),
+                   tgtNotInNameServer(18),
+                   tgtNotInFlogiServer(19)
+               }
+
+CSFlowCfgReasonCode ::= TEXTUAL-CONVENTION
+    STATUS     current
+    DESCRIPTION
+        "Represents the reason code associated with SCSI flow
+         feature configuration notifications.
+
+         success(1) - successful. 
+
+         ipcError(2) - IPC error.
+
+         ipcTimeout(3) - IPC timeout.
+
+         sfmGenericError(4) - SCSI Flow Manager error.
+
+         sfcGenericError(5) - SCSI Flow Client error.
+
+         cfsError(6) - Cisco Fabric Service error.
+
+         cfsTimeout(7) - Cisco Fabric Service timeout.
+
+         deviceNotOnIlc(8) - device was not on Intelligent
+                             Line Card.
+
+         lcIpcError(9) - Line card IPC error.
+
+         tcamError(10) - Hardware programming (TCAM)
+                         error.
+
+         ilcAsicDrvError(11) - Intelligent Line Card ASIC
+                               driver error.
+
+         dppError(12) - Data Path Processor error.
+
+         statusNotChecked(13) - The configuration status has
+                                not been checked.
+
+         sfcDBError(14) - SCSI Flow Client process on
+                          ILC gives Database error.
+
+         sfcNoSuchFlow(15) - No such flow exists on SFC process
+                             on ILC.
+
+         sfcFlowExists(16) - The flow already exists on the SFC
+                             process on ILC.
+
+         dppNoBuffers(17) - No free buffers are available on the
+                            DPP.
+
+         dppNoMemory(18) - No more memory is available on the DPP.
+
+         dppFlowExists(19) - Flow already exists on the DPP."
+
+    SYNTAX     INTEGER {
+                   success(1),
+                   ipcError(2),
+                   ipcTimeout(3),
+                   sfmGenericError(4),
+                   sfcGenericError(5),
+                   cfsError(6),
+                   cfsTimeout(7),
+                   deviceNotOnIlc(8),
+                   lcIpcError(9),
+                   tcamError(10),
+                   ilcAsicDrvError(11),
+                   dppError(12),
+                   statusNotChecked(13),
+                   sfcDBError(14),
+                   sfcNoSuchFlow(15),
+                   sfcFlowExists(16),
+                   dppNoBuffers(17),
+                   dppNoMemory(18),
+                   dppFlowExists(19)
+               }
+
+CSFlowFeatureCfgReasonCode ::= TEXTUAL-CONVENTION
+    STATUS     current
+    DESCRIPTION
+        "Represents the reason code to be used with SCSI flow
+         feature configuration notifications.
+
+         success(1) - successful.
+
+         featureCfgFailure(2) - failure in configuring the feature.
+
+         flowVerifFailure(3) - flow verification failure."
+    SYNTAX     INTEGER {
+                    success(1),
+                    featureCfgFailure(2),
+                    flowVerifFailure(3)
+                }
+
+
+-- Scsi Flow Table
+
+ciscoScsiFlowNextIndexAvail OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the next available value
+         for the object ciscoScsiFlowId. If all values 
+         are exhausted, then this object will contain a 0
+         value. A management application should read
+         this object, get the (non-zero) value and use
+         same for creating an entry in the 
+         ciscoScsiFlowTable.
+
+         If two network management applications read
+         this object at the same time and try to create
+         an entry in the ciscoScsiFlowTable, only one 
+         of them will succeed. The network management
+         application which failed, will need to re-read 
+         this object and try the SET again."
+    ::= { csfConfiguration 1 }
+
+ciscoScsiFlowTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoScsiFlowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table allows configuration of SCSI flows.
+         The Initiator should be connected to a port on an
+         Intelligent Line Card on the local switch.
+         The Target device can be present anywhere in
+         the network. The management application should
+         create entries in this table for all SCSI flows
+         it is interested in. This table contains all the
+         SCSI flows configured on the local device. A
+         SCSI flow is identified uniquely by a SCSI flow
+         ID."
+    ::= { csfConfiguration 2 }
+
+ciscoScsiFlowEntry OBJECT-TYPE
+    SYNTAX          CiscoScsiFlowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry, which is uniquely identified by the
+         SCSI flow ID, contains the various attributes of
+         a SCSI flow."
+    INDEX { ciscoScsiFlowId }
+    ::= { ciscoScsiFlowTable 1 }
+
+CiscoScsiFlowEntry ::= SEQUENCE {
+    ciscoScsiFlowId             Unsigned32,
+    ciscoScsiFlowIntrWwn        FcNameId,
+    ciscoScsiFlowTargetWwn      FcNameId,
+    ciscoScsiFlowIntrVsan       VsanIndex,
+    ciscoScsiFlowTargetVsan     VsanIndex,
+    ciscoScsiFlowAllLuns        TruthValue,
+    ciscoScsiFlowWriteAcc       TruthValue,
+    ciscoScsiFlowBufCount       Unsigned32,
+    ciscoScsiFlowStatsEnabled   TruthValue,
+    ciscoScsiFlowClearStats     INTEGER,
+    ciscoScsiFlowIntrVrfStatus  CSFlowVerifyReasonCode,
+    ciscoScsiFlowTgtVrfStatus   CSFlowVerifyReasonCode,
+    ciscoScsiFlowIntrLCStatus   CSFlowVerifyReasonCode,
+    ciscoScsiFlowTgtLCStatus    CSFlowVerifyReasonCode,
+    ciscoScsiFlowRowStatus      RowStatus
+}
+
+ciscoScsiFlowId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the flow identifier."
+    ::= { ciscoScsiFlowEntry 1 }
+
+ciscoScsiFlowIntrWwn OBJECT-TYPE
+    SYNTAX          FcNameId
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the pWWN of the
+         Initiator in the flow. This object must
+         be set to a valid value before or
+         concurrently setting the corresponding
+         instance of ciscoScsiFlowRowStatus
+         object to 'active'."
+    ::= { ciscoScsiFlowEntry 2 }
+
+ciscoScsiFlowTargetWwn OBJECT-TYPE
+    SYNTAX          FcNameId
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the pWWN of the
+         Target in the flow. This object must
+         be set to a valid value before or
+         concurrently setting the corresponding
+         instance of ciscoScsiFlowRowStatus
+         object to 'active'."
+    ::= { ciscoScsiFlowEntry 3 }
+
+ciscoScsiFlowIntrVsan OBJECT-TYPE
+    SYNTAX          VsanIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The VSAN ID of the initiator on which the flow 
+         is configured."
+    DEFVAL { 1 }
+    ::= { ciscoScsiFlowEntry 4 }
+
+ciscoScsiFlowTargetVsan OBJECT-TYPE
+    SYNTAX          VsanIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The VSAN ID of the target on which the flow 
+         is configured."
+    DEFVAL { 1 }
+    ::= { ciscoScsiFlowEntry 5 }
+
+ciscoScsiFlowAllLuns OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If this object is set to 'true', it specifies
+         that all the LUNs on the target are to be
+         included in the flow."
+    DEFVAL { true }
+    ::= { ciscoScsiFlowEntry 6 }
+
+ciscoScsiFlowWriteAcc OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if write-acceleration
+         feature is enabled for this flow. If set to
+         'true' it is enabled. If set to 'false', it
+         is disabled."
+    DEFVAL { false }
+    ::= { ciscoScsiFlowEntry 7 }
+
+ciscoScsiFlowBufCount OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of this object is relevant only if
+         the corresponding instance of 
+         ciscoScsiFlowWriteAcc has been set to 'true'.
+         It specifies the number of buffers to be
+         used for write-acceleration."
+    DEFVAL { 1024 }
+    ::= { ciscoScsiFlowEntry 8 }
+
+ciscoScsiFlowStatsEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the statistics 
+         gathering needs to be enabled for this flow.
+         If it is set to 'true', then it is enabled.
+         If it is set to 'false', then it is disabled."
+    DEFVAL { false }
+    ::= { ciscoScsiFlowEntry 9 }
+
+ciscoScsiFlowClearStats OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        clear(1),
+                        noop(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object assists in clearing the statistics
+         for this flow.
+
+         If this object is set to 'clear(1)', it results
+         in all statistics for this flow being cleared.
+
+         No action is taken if it is set to 'noop(2)'.
+
+         The value of this object when read is always
+         'noop(2)'."
+    ::= { ciscoScsiFlowEntry 10 }
+
+ciscoScsiFlowIntrVrfStatus    OBJECT-TYPE
+    SYNTAX          CSFlowVerifyReasonCode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The verification status of the initiator
+         device corresponding to the SCSI Flow."
+    ::= { ciscoScsiFlowEntry 11 }
+
+ciscoScsiFlowTgtVrfStatus    OBJECT-TYPE
+    SYNTAX          CSFlowVerifyReasonCode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The verification status of the target
+         device corresponding to the SCSI Flow."
+    ::= { ciscoScsiFlowEntry 12 }
+
+ciscoScsiFlowIntrLCStatus    OBJECT-TYPE
+    SYNTAX          CSFlowVerifyReasonCode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The status of the linecard where the SCSI Flow 
+         initiator device is located."
+    ::= { ciscoScsiFlowEntry 13 }
+
+ciscoScsiFlowTgtLCStatus    OBJECT-TYPE
+    SYNTAX          CSFlowVerifyReasonCode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The status of the linecard where the SCSI Flow 
+         target device is located."
+    ::= { ciscoScsiFlowEntry 14 }
+
+ciscoScsiFlowRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+         When creating an entry in this table, the
+         management application MUST set values for the
+         corresponding instances of ciscoScsiFlowIntrWwn
+         and ciscoScsiFlowTargetWwn before or
+         concurrently with setting this object to 'active'."
+    ::= { ciscoScsiFlowEntry 15 }
+
+ciscoScsiFlowNum OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the flow ID corresponding
+         to which notifications need to be sent."
+    ::= { csfConfiguration 3 }
+
+ciscoScsiFlowDeviceType OBJECT-TYPE
+    SYNTAX          CSFlowDeviceType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the notification 
+         pertains to an initiator or target."
+    ::= { csfConfiguration 4 }
+
+ciscoScsiFlowVerifyReasonCode OBJECT-TYPE
+    SYNTAX          CSFlowVerifyReasonCode
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the verification reason code 
+         to be included in notifications."
+    ::= { csfConfiguration 5 }
+
+ciscoScsiFlowCfgReasonCode OBJECT-TYPE
+    SYNTAX          CSFlowCfgReasonCode
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the feature configuration
+         reason code to be included in notifications."
+    ::= { csfConfiguration 6 }
+
+ciscoScsiFlowStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoScsiFlowStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing statistics related to SCSI
+         flows on active LUNs. Counters in this table 
+         pertaining to a flow on a LUN will be populated
+         if the corresponding statistics gathering object
+         for that flow (ciscoScsiFlowStatsEnabled) is 
+         enabled and I/Os have been done to that LUN. The
+         management application can cause entries to be
+         created in this table by setting the appropriate 
+         instance of ciscoScsiFlowStatsEnabled object."
+    ::= { csfStats 1 }
+
+ciscoScsiFlowStatsEntry OBJECT-TYPE
+    SYNTAX          CiscoScsiFlowStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in this table.
+         An entry contains the statistics related to a
+         LUN on a flow."
+    INDEX { ciscoScsiFlowId,
+            ciscoScsiFlowLunId }
+    ::= { ciscoScsiFlowStatsTable 1 }
+
+CiscoScsiFlowStatsEntry ::= SEQUENCE {
+    ciscoScsiFlowLunId                 ScsiLUNOrZero,
+    ciscoScsiFlowRdIos                 Counter64,
+    ciscoScsiFlowRdFailedIos           Counter32,
+    ciscoScsiFlowRdTimeouts            Counter32,
+    ciscoScsiFlowRdBlocks              Counter64,
+    ciscoScsiFlowRdMaxBlocks           Gauge32,
+    ciscoScsiFlowRdMinTime             Gauge32,
+    ciscoScsiFlowRdMaxTime             Gauge32,
+    ciscoScsiFlowRdsActive             Gauge32,
+
+    ciscoScsiFlowWrIos                 Counter64,
+    ciscoScsiFlowWrFailedIos           Counter32,
+    ciscoScsiFlowWrTimeouts            Counter32,
+    ciscoScsiFlowWrBlocks              Counter64,
+    ciscoScsiFlowWrMaxBlocks           Gauge32,
+    ciscoScsiFlowWrMinTime             Gauge32,
+    ciscoScsiFlowWrMaxTime             Gauge32,
+    ciscoScsiFlowWrsActive             Gauge32,
+
+    ciscoScsiFlowTestUnitRdys          Counter32,
+    ciscoScsiFlowRepLuns               Counter32,
+    ciscoScsiFlowInquirys              Counter32,
+    ciscoScsiFlowRdCapacitys           Counter32,
+    ciscoScsiFlowModeSenses            Counter32,
+    ciscoScsiFlowReqSenses             Counter32,
+
+    ciscoScsiFlowRxFc2Frames           Counter64,
+    ciscoScsiFlowTxFc2Frames           Counter64,
+    ciscoScsiFlowRxFc2Octets           Counter64,
+    ciscoScsiFlowTxFc2Octets           Counter64,
+
+    ciscoScsiFlowBusyStatuses          Counter32,
+    ciscoScsiFlowStatusResvConfs       Counter32,
+    ciscoScsiFlowTskSetFulStatuses     Counter32,
+    ciscoScsiFlowAcaActiveStatuses     Counter32,
+
+    ciscoScsiFlowSenseKeyNotRdyErrs    Counter32,
+    ciscoScsiFlowSenseKeyMedErrs       Counter32,
+    ciscoScsiFlowSenseKeyHwErrs        Counter32,
+    ciscoScsiFlowSenseKeyIllReqErrs    Counter32,
+    ciscoScsiFlowSenseKeyUnitAttErrs   Counter32,
+    ciscoScsiFlowSenseKeyDatProtErrs   Counter32,
+    ciscoScsiFlowSenseKeyBlankErrs     Counter32,
+    ciscoScsiFlowSenseKeyCpAbrtErrs    Counter32,
+    ciscoScsiFlowSenseKeyAbrtCmdErrs   Counter32,
+    ciscoScsiFlowSenseKeyVolFlowErrs   Counter32,
+    ciscoScsiFlowSenseKeyMiscmpErrs    Counter32,
+    ciscoScsiFlowAbts                  Counter32
+}
+
+ciscoScsiFlowLunId OBJECT-TYPE
+    SYNTAX        ScsiLUNOrZero
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "The LUN ID on this flow on which the statistics
+         are gathered."
+    ::= { ciscoScsiFlowStatsEntry 1 }
+
+ciscoScsiFlowRdIos OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of SCSI read operations on this
+         LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 2 }
+
+ciscoScsiFlowRdFailedIos OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of SCSI read operations that
+         have failed on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 3 }
+
+ciscoScsiFlowRdTimeouts OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of SCSI read operations that
+         have timed out on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 4 }
+
+ciscoScsiFlowRdBlocks OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of blocks that have been read on
+         this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 5 }
+
+ciscoScsiFlowRdMaxBlocks OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The maximum number of blocks read across all read
+         operations on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 6 }
+
+ciscoScsiFlowRdMinTime OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The minimum response time over all read operations
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 7 }
+
+ciscoScsiFlowRdMaxTime OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The maximum response time over all read operations
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 8 }
+
+ciscoScsiFlowRdsActive OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of read operations that are currently 
+         active on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 9 }
+
+ciscoScsiFlowWrIos OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of SCSI write operations on this
+         LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 10 }
+
+ciscoScsiFlowWrFailedIos OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of SCSI write operations that
+         have failed on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 11 }
+
+ciscoScsiFlowWrTimeouts OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of SCSI write operations that
+         have timed out on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 12 }
+
+ciscoScsiFlowWrBlocks OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of blocks that have been written 
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 13 }
+
+ciscoScsiFlowWrMaxBlocks OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The maximum number of blocks written across all 
+         write operations on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 14 }
+
+ciscoScsiFlowWrMinTime OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The minimum response time over all write operations
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 15 }
+
+ciscoScsiFlowWrMaxTime OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The maximum response time over all write operations
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 16 }
+
+ciscoScsiFlowWrsActive OBJECT-TYPE
+    SYNTAX        Gauge32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of write operations that are currently 
+         active on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 17 }
+
+ciscoScsiFlowTestUnitRdys OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of test unit ready SCSI commands sent
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 18 }
+
+ciscoScsiFlowRepLuns OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of Report LUN SCSI commands sent
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 19 }
+
+ciscoScsiFlowInquirys OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of SCSI Inquiry commands sent on
+         this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 20 }
+
+ciscoScsiFlowRdCapacitys OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of Read Capacity SCSI commands sent on 
+         this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 21 }
+
+ciscoScsiFlowModeSenses OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of Mode Sense SCSI commands sent on this
+         LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 22 }
+
+ciscoScsiFlowReqSenses OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of Request Sense SCSI commands sent on
+         LUN on this this flow."
+    ::= { ciscoScsiFlowStatsEntry 23 }
+
+ciscoScsiFlowRxFc2Frames OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of link-level FC frames received 
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 24 }
+
+ciscoScsiFlowTxFc2Frames OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of link-level frames transmitted 
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 25 }
+
+ciscoScsiFlowRxFc2Octets OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of octets received in link-level 
+         frames on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 26 }
+
+ciscoScsiFlowTxFc2Octets OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The total number of octets transmitted in link-level  
+         frames on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 27 }
+
+ciscoScsiFlowBusyStatuses OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of busy SCSI statuses received on this
+         LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 28 }
+
+ciscoScsiFlowStatusResvConfs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of reservation conflicts SCSI status 
+         received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 29 }
+
+ciscoScsiFlowTskSetFulStatuses OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of task set full SCSI statuses received
+         on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 30 }
+
+ciscoScsiFlowAcaActiveStatuses OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of ACA active statuses received on this 
+         LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 31 }
+
+ciscoScsiFlowSenseKeyNotRdyErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of NOT READY SCSI SENSE key errors
+         received on this LUN on this flow. This indicates 
+         that the logical unit being addressed cannot be
+         accessed."
+    ::= { ciscoScsiFlowStatsEntry 32 }
+
+ciscoScsiFlowSenseKeyMedErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of MEDIUM ERROR SCSI SENSE key errors
+         received on this LUN on this flow. This indicates 
+         that the command terminated with a non-recovered 
+         error condition possibly caused by a flaw in the
+         medium."
+    ::= { ciscoScsiFlowStatsEntry 33 }
+
+ciscoScsiFlowSenseKeyHwErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of HARDWARE ERROR SCSI SENSE key
+         errors received on this LUN on this flow. This 
+         indicates that the target detected a
+         non-recoverable hardware failure."
+    ::= { ciscoScsiFlowStatsEntry 34 }
+
+ciscoScsiFlowSenseKeyIllReqErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of ILLEGAL REQUEST SCSI SENSE key
+         errors received on this LUN on this flow. "
+    ::= { ciscoScsiFlowStatsEntry 35 }
+
+ciscoScsiFlowSenseKeyUnitAttErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of UNIT ATTENTION SCSI SENSE key
+         errors received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 36 }
+
+ciscoScsiFlowSenseKeyDatProtErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of DATA PROTECT SCSI SENSE key errors
+         received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 37 }
+
+ciscoScsiFlowSenseKeyBlankErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of BLANK CHECK SCSI SENSE key errors
+         received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 38 }
+
+ciscoScsiFlowSenseKeyCpAbrtErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of COPY ABORTED SCSI SENSE key errors
+         received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 39 }
+
+ciscoScsiFlowSenseKeyAbrtCmdErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of ABORTED COMMAND SCSI SENSE key 
+         errors received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 40 }
+
+ciscoScsiFlowSenseKeyVolFlowErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of VOLUME OVERFLOW SCSI SENSE key
+         errors received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 41 }
+
+ciscoScsiFlowSenseKeyMiscmpErrs OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of MISCOMPARE SCSI SENSE key errors
+         received on this LUN on this flow."
+    ::= { ciscoScsiFlowStatsEntry 42 }
+
+ciscoScsiFlowAbts OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The number of ABTSs encountered on this LUN on this 
+         flow."
+    ::= { ciscoScsiFlowStatsEntry 43 }
+
+
+ciscoScsiFlowWrAccStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoScsiFlowWrAccStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing status for flows with
+         write-acceleration configured."
+    ::= { csfFeatureStatus 1 }
+
+ciscoScsiFlowWrAccStatusEntry OBJECT-TYPE
+    SYNTAX          CiscoScsiFlowWrAccStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in this table.
+         An entry contains the status for  
+         write-acceleration feature of the flow."
+    INDEX { ciscoScsiFlowId }
+    ::= { ciscoScsiFlowWrAccStatusTable 1 }
+
+CiscoScsiFlowWrAccStatusEntry ::= SEQUENCE {
+    ciscoScsiFlowWrAccCfgStatus      CSFlowFeatureCfgReasonCode,
+    ciscoScsiFlowWrAccIntrCfgStatus  CSFlowCfgReasonCode,
+    ciscoScsiFlowWrAccTgtCfgStatus   CSFlowCfgReasonCode
+}
+
+ciscoScsiFlowWrAccCfgStatus OBJECT-TYPE
+    SYNTAX        CSFlowFeatureCfgReasonCode
+    MAX-ACCESS    read-only 
+    STATUS        current
+    DESCRIPTION
+        "The configuration status for write-acceleration
+         feature for this flow." 
+    ::= { ciscoScsiFlowWrAccStatusEntry 1 }
+
+ciscoScsiFlowWrAccIntrCfgStatus OBJECT-TYPE
+    SYNTAX        CSFlowCfgReasonCode
+    MAX-ACCESS    read-only 
+    STATUS        current
+    DESCRIPTION
+        "The initiator configuration status for write-acceleration
+         feature for this flow." 
+    ::= { ciscoScsiFlowWrAccStatusEntry 2 }
+
+ciscoScsiFlowWrAccTgtCfgStatus OBJECT-TYPE
+    SYNTAX        CSFlowCfgReasonCode
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The target configuration status for write-acceleration
+         feature for this flow."
+    ::= { ciscoScsiFlowWrAccStatusEntry 3 }
+
+ciscoScsiFlowStatsStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoScsiFlowStatsStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing status for flows with
+         statistics configured."
+    ::= { csfFeatureStatus 2 }
+
+ciscoScsiFlowStatsStatusEntry OBJECT-TYPE
+    SYNTAX          CiscoScsiFlowStatsStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in this table.
+         An entry contains the status for
+         statistics feature of the flow."
+    INDEX { ciscoScsiFlowId }
+    ::= { ciscoScsiFlowStatsStatusTable 1 }
+
+CiscoScsiFlowStatsStatusEntry ::= SEQUENCE {
+    ciscoScsiFlowStatsCfgStatus      CSFlowFeatureCfgReasonCode,
+    ciscoScsiFlowStatsIntrCfgStatus  CSFlowCfgReasonCode,
+    ciscoScsiFlowStatsTgtCfgStatus   CSFlowCfgReasonCode
+}
+
+ciscoScsiFlowStatsCfgStatus OBJECT-TYPE
+    SYNTAX        CSFlowFeatureCfgReasonCode
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The configuration status for statistics 
+         feature for this flow."
+    ::= { ciscoScsiFlowStatsStatusEntry 1 }
+
+ciscoScsiFlowStatsIntrCfgStatus OBJECT-TYPE
+    SYNTAX        CSFlowCfgReasonCode
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The initiator configuration status for statistics 
+         feature for this flow."
+    ::= { ciscoScsiFlowStatsStatusEntry 2 }
+
+ciscoScsiFlowStatsTgtCfgStatus OBJECT-TYPE
+    SYNTAX        CSFlowCfgReasonCode
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The target configuration status for statistics 
+         feature for this flow."
+    ::= { ciscoScsiFlowStatsStatusEntry 3 }
+
+-- Notification
+
+ciscoScsiFlowVerifyNotify NOTIFICATION-TYPE
+    OBJECTS { ciscoScsiFlowNum,
+              ciscoScsiFlowDeviceType,
+              ciscoScsiFlowVerifyReasonCode }
+    STATUS  current
+    DESCRIPTION
+        "This notification is generated whenever a 
+         change occurs in the fabric causing a flow
+         to be valid or invalid. The ciscoScsiFlowNum
+         object specifies the flow and the 
+         ciscoScsiFlowVerifyReasonCode object specifies the
+         actual reason."
+    ::= { ciscoScsiFlowMIBNotifs 1 }
+
+ciscoScsiFlowWrAccNotify NOTIFICATION-TYPE
+    OBJECTS { ciscoScsiFlowNum,
+              ciscoScsiFlowDeviceType,
+              ciscoScsiFlowCfgReasonCode }
+    STATUS  current
+    DESCRIPTION
+        "This notification is generated whenever write
+         acceleration is configured on a flow to indicate 
+         the outcome."
+    ::= { ciscoScsiFlowMIBNotifs 2 }
+
+ciscoScsiFlowStatsNotify NOTIFICATION-TYPE
+    OBJECTS  { ciscoScsiFlowNum,
+               ciscoScsiFlowDeviceType,
+               ciscoScsiFlowCfgReasonCode }
+    STATUS  current
+    DESCRIPTION
+        "This notification is generated whenever statistics
+         gathering is configured on a flow to indicate the
+         outcome."
+    ::= { ciscoScsiFlowMIBNotifs 3 }
+
+
+-- Compliance
+
+ciscoScsiFlowMIBCompliances OBJECT IDENTIFIER 
+                         ::= { ciscoScsiFlowMIBConform 1 }
+
+ciscoScsiFlowMIBGroups      OBJECT IDENTIFIER 
+                         ::= { ciscoScsiFlowMIBConform 2 }
+
+ciscoScsiFlowMIBCompliance  MODULE-COMPLIANCE
+    STATUS   current
+    DESCRIPTION
+        "The compliance statement for entities that
+         implement the CISCO-SCSI-FLOW-MIB." 
+    MODULE  MANDATORY-GROUPS { ciscoScsiFlowGroup,
+                               ciscoScsiFlowNotifyGroup,
+                               ciscoScsiFlowInfoGroup,
+                               ciscoScsiFlowStatsGroup,
+                               ciscoScsiFlowFeatureStatusGroup
+                             }
+
+    ::= { ciscoScsiFlowMIBCompliances 1 }
+
+-- Units of conformance
+ciscoScsiFlowGroup OBJECT-GROUP
+    OBJECTS  { ciscoScsiFlowNextIndexAvail,
+               ciscoScsiFlowIntrWwn,
+               ciscoScsiFlowTargetWwn,
+               ciscoScsiFlowIntrVsan,
+               ciscoScsiFlowTargetVsan,
+               ciscoScsiFlowAllLuns,
+               ciscoScsiFlowWriteAcc,
+               ciscoScsiFlowBufCount,
+               ciscoScsiFlowStatsEnabled,
+               ciscoScsiFlowRowStatus,
+               ciscoScsiFlowClearStats,
+               ciscoScsiFlowIntrVrfStatus,
+               ciscoScsiFlowIntrLCStatus,
+               ciscoScsiFlowTgtLCStatus,
+               ciscoScsiFlowTgtVrfStatus }
+    STATUS   current
+    DESCRIPTION
+        "A set of objects for configuring SCSI flows."
+    ::= { ciscoScsiFlowMIBGroups 1 }
+
+ciscoScsiFlowStatsGroup OBJECT-GROUP
+    OBJECTS  { ciscoScsiFlowRdIos,
+               ciscoScsiFlowRdFailedIos,
+               ciscoScsiFlowRdTimeouts,
+               ciscoScsiFlowRdBlocks,
+               ciscoScsiFlowRdMaxBlocks,
+               ciscoScsiFlowRdMinTime,
+               ciscoScsiFlowRdMaxTime,
+               ciscoScsiFlowRdsActive,
+               ciscoScsiFlowWrIos,
+               ciscoScsiFlowWrFailedIos,
+               ciscoScsiFlowWrTimeouts,
+               ciscoScsiFlowWrBlocks,
+               ciscoScsiFlowWrMaxBlocks,
+               ciscoScsiFlowWrMinTime,
+               ciscoScsiFlowWrMaxTime,
+               ciscoScsiFlowWrsActive,
+               ciscoScsiFlowTestUnitRdys,
+               ciscoScsiFlowRepLuns,
+               ciscoScsiFlowInquirys,
+               ciscoScsiFlowRdCapacitys,
+               ciscoScsiFlowModeSenses,
+               ciscoScsiFlowReqSenses,
+               ciscoScsiFlowRxFc2Frames,
+               ciscoScsiFlowTxFc2Frames,
+               ciscoScsiFlowRxFc2Octets,
+               ciscoScsiFlowTxFc2Octets,
+               ciscoScsiFlowBusyStatuses,
+               ciscoScsiFlowStatusResvConfs,
+               ciscoScsiFlowTskSetFulStatuses,
+               ciscoScsiFlowAcaActiveStatuses,
+               ciscoScsiFlowSenseKeyNotRdyErrs,
+               ciscoScsiFlowSenseKeyMedErrs,
+               ciscoScsiFlowSenseKeyHwErrs,
+               ciscoScsiFlowSenseKeyIllReqErrs,
+               ciscoScsiFlowSenseKeyUnitAttErrs,
+               ciscoScsiFlowSenseKeyDatProtErrs,
+               ciscoScsiFlowSenseKeyBlankErrs,
+               ciscoScsiFlowSenseKeyCpAbrtErrs,
+               ciscoScsiFlowSenseKeyAbrtCmdErrs,
+               ciscoScsiFlowSenseKeyVolFlowErrs,
+               ciscoScsiFlowSenseKeyMiscmpErrs,
+               ciscoScsiFlowAbts }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects for displaying 
+         SCSI flow statistics."
+    ::= { ciscoScsiFlowMIBGroups 2 }
+
+ciscoScsiFlowInfoGroup OBJECT-GROUP
+    OBJECTS  { ciscoScsiFlowNum,
+               ciscoScsiFlowDeviceType,
+               ciscoScsiFlowVerifyReasonCode,
+               ciscoScsiFlowCfgReasonCode }
+    STATUS   current
+    DESCRIPTION
+        "A collection of notification information 
+         objects for notification generation."
+    ::= { ciscoScsiFlowMIBGroups 3 }
+
+ciscoScsiFlowNotifyGroup NOTIFICATION-GROUP
+    NOTIFICATIONS  { ciscoScsiFlowVerifyNotify,
+                     ciscoScsiFlowWrAccNotify,
+                     ciscoScsiFlowStatsNotify }
+    STATUS   current
+    DESCRIPTION
+        "A collection of notifications for monitoring
+         SCSI flows."
+    ::= { ciscoScsiFlowMIBGroups 4 }
+
+ciscoScsiFlowFeatureStatusGroup OBJECT-GROUP
+    OBJECTS { ciscoScsiFlowWrAccCfgStatus,
+              ciscoScsiFlowWrAccIntrCfgStatus,
+              ciscoScsiFlowWrAccTgtCfgStatus,
+              ciscoScsiFlowStatsCfgStatus,
+              ciscoScsiFlowStatsIntrCfgStatus,
+              ciscoScsiFlowStatsTgtCfgStatus }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects for monitoring feature
+         status on SCSI flows."
+    ::= { ciscoScsiFlowMIBGroups 5 }
+END

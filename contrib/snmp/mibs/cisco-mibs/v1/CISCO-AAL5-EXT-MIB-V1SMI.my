@@ -1,0 +1,202 @@
+-- MIB file created 11-Jun-2003 14:28:30, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-AAL5-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-AAL5-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+--?? may need import of ifIndex from RFC1213-MIB
+    aal5VccVpi, aal5VccVci
+            FROM ATM-MIB
+    Counter
+            FROM RFC1155-SMI
+    ifIndex
+            FROM IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAal5ExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 9999 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200111050000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    This MIB is the RFC 1695 extension for Cisco product. 
+--     It provides the additional AAL5 performance statistics
+--     of a VCC from RFC 1695.
+--  RevDate
+--    200111050000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoAal5ExtMIBObjects OBJECT IDENTIFIER ::= { ciscoAal5ExtMIB 1 }
+cAal5ExtConnections OBJECT IDENTIFIER ::= { ciscoAal5ExtMIBObjects 1 }
+ciscoAAL5ExtMIBConformance OBJECT IDENTIFIER ::= { ciscoAal5ExtMIB 2 }
+ciscoAAL5ExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoAAL5ExtMIBConformance 1 }
+ciscoAAL5ExtMIBGroups OBJECT IDENTIFIER ::= { ciscoAAL5ExtMIBConformance 2 }
+
+cAal5ExtVccTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CAal5ExtVccEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains AAL5 VCC performance 
+         parameters beyond that provided by aal5VccEntry
+        defined in RFC1695 and AAL5 MIB."
+    ::= { cAal5ExtConnections 1 }
+
+cAal5ExtVccEntry OBJECT-TYPE
+    SYNTAX CAal5ExtVccEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This list contains the additional AAL5 VCC performance 
+        parameters beyond that provided by aal5VccEntry defined
+        in RFC1695."
+    INDEX { ifIndex, aal5VccVpi, aal5VccVci }
+-- Augments aal5VccEntry FROM ATM-MIB
+    ::= { cAal5ExtVccTable 1 }
+
+CAal5ExtVccEntry ::= SEQUENCE {
+    cAal5VccInDroppedPkts Counter,
+    cAal5VccOutDroppedPkts Counter,
+    cAal5VccInDroppedOctets Counter,
+    cAal5VccOutDroppedOctets Counter,
+    cAal5VccInCells Counter,
+    cAal5VccOutCells Counter,
+    cAal5VccInDroppedCells Counter,
+    cAal5VccOutDroppedCells Counter
+    }
+
+cAal5VccInDroppedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDUs dropped at the receive side of this 
+        AAL5 VCC at the interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 1 }
+
+cAal5VccOutDroppedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDUs dropped at the transmit side of this 
+        AAL5 VCC at the interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 2 }
+
+cAal5VccInDroppedOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDU Octets dropped at the receive side of 
+        this AAL5 VCC at the interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 3 }
+
+cAal5VccOutDroppedOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDU Octets dropped at the transmit side of 
+        this AAL5 VCC at the interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 4 }
+
+cAal5VccInCells OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 SAR cells received on this AAL5 VCC at the
+         interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 5 }
+
+cAal5VccOutCells OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 SAR cells transmitted on this AAL5 VCC at
+        the interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 6 }
+
+cAal5VccInDroppedCells OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 SAR cells dropped at the receive side of this 
+        AAL5 VCC at the interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 7 }
+
+cAal5VccOutDroppedCells OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    cells
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 SAR cells dropped at the transmit side of this 
+        AAL5 VCC at the interface associated with an AAL5 entity."
+    ::= { cAal5ExtVccEntry 8 }
+
+ciscoAal5ExtMIBGroup OBJECT IDENTIFIER ::= { ciscoAAL5ExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing these extra AAL5 
+--    interface related statistics.
+--  objects
+--    cAal5VccInDroppedPkts, cAal5VccOutDroppedPkts, 
+--    cAal5VccInDroppedOctets, cAal5VccOutDroppedOctets, 
+--    cAal5VccInCells, cAal5VccOutCells, cAal5VccInDroppedCells, 
+--    cAal5VccOutDroppedCells
+
+ciscoAAL5ExtMIBCompliance OBJECT IDENTIFIER ::= { ciscoAAL5ExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    this Cisco AAL5 EXT MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAal5ExtMIBGroup
+
+
+END
+

@@ -1,0 +1,881 @@
+-- MIB file created 27-Jun-2003 18:03:02, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-FR-CONN-STAT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-FR-CONN-STAT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    frChan
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanFrConnStatMIB OBJECT IDENTIFIER ::= { ciscoWan 48 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200210180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--         Postal: 170 W Tasman Drive
+--                     San Jose, CA  95134
+--                     USA
+--    
+--                     Tel: +1 800 553-NETS
+--    
+--         E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module for frame relay connection
+--    statistics.
+--    
+--    Terminologies Used:
+--    
+--     SIW    - Frame-Relay-to ATM Service Interworking
+--     
+--     FECN   - Forward Explicit Congestion Notification.
+--              The FECN bit in Frame Relay header communicate
+--              network congestion to the endpoint in the forward
+--              direction.
+--    
+--     BECN   - Backward Explicit Congestion Notification.
+--              The BECN bit in Frame Relay header communicate
+--              network congestion to the endpoint in the backward
+--              direction.
+--    
+--     DE     - Discard Eligibility. The DE bit in Frame Relay
+--              header communicates the loss priority. A marked 
+--              frame with a DE bit value of 1 is considered
+--              less important than other frames in transmission
+--              and should be discarded before frames with a 
+--              DE bit value of zero.
+--    
+--     Tagged - Some of the statistics objects described in 
+--             this MIB are applicable where the 
+--             information is Set by the Switch/Service-Module.
+--             These objects contain word 'Tagged' in the name.
+--    
+--             For example : 'rcvFramesTaggedFECN'; This is the
+--             counter where FECN is set by the Switch in
+--             the frame received from the network. FECN was
+--             not set in the frame from the Network.
+--    
+--             The bit Set by the switch on an incoming or outgoing
+--             frame is called 'tagged' in this mib.
+--  RevDate
+--    200210180000Z
+--  RevDescr
+--    Initial version of the MIB.
+--    
+--    The content of this MIB was originally available
+--    in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+--    The applicable objects from CISCO-WAN-AXIPOP-MIB
+--    are defined using SMIv2 in this MIB.
+
+frChanCntGrp    OBJECT IDENTIFIER ::= { frChan 3 }
+cwfConnStatMIBConformance OBJECT IDENTIFIER ::= { ciscoWanFrConnStatMIB 2 }
+cwfConnStatMIBGroups OBJECT IDENTIFIER ::= { cwfConnStatMIBConformance 1 }
+cwfConnStatMIBCompliances OBJECT IDENTIFIER ::= { cwfConnStatMIBConformance 2 }
+
+frChanCntGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FrChanCntGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on statistics
+        for Frame Relay Connections."
+    ::= { frChanCntGrp 1 }
+
+frChanCntGrpEntry OBJECT-TYPE
+    SYNTAX FrChanCntGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table describes the
+        statistical information for Frame Relay
+        connections."
+    INDEX { cntChanNum }
+    ::= { frChanCntGrpTable 1 }
+
+FrChanCntGrpEntry ::= SEQUENCE {
+    cntChanNum INTEGER,
+    rcvFrames Counter,
+    rcvBytes Counter,
+    rcvFramesDE Counter,
+    rcvBytesDE Counter,
+    rcvFramesDiscard Counter,
+    rcvBytesDiscard Counter,
+    rcvFramesDiscShelfAlarm Counter,
+    rcvFramesDiscXceedQDepth Counter,
+    rcvBytesDiscXceedQDepth Counter,
+    rcvFramesDiscXceedDEThresh Counter,
+    rcvFramesFECN Counter,
+    rcvFramesBECN Counter,
+    rcvFramesTaggedFECN Counter,
+    rcvFramesTaggedBECN Counter,
+    rcvFramesTaggedDE Counter,
+    rcvBytesTaggedDE Counter,
+    rcvKbpsAIR INTEGER,
+    xmtFrames Counter,
+    xmtBytes Counter,
+    xmtFramesFECN Counter,
+    xmtFramesBECN Counter,
+    xmtFramesDE Counter,
+    xmtBytesDE Counter,
+    xmtFramesDiscard Counter,
+    xmtBytesDiscard Counter,
+    xmtFramesDiscXceedQDepth Counter,
+    xmtBytesDiscXceedQDepth Counter,
+    xmtFramesDiscXceedDEThresh Counter,
+    xmtFramesDiscPhyLayerFail Counter,
+    xmtFramesDiscCRCError Counter,
+    xmtFramesDiscReassmFail Counter,
+    xmtFramesDiscSrcAbort Counter,
+    xmtFramesDuringLMIAlarm Counter,
+    xmtBytesDuringLMIAlarm Counter,
+    xmtFramesTaggedFECN Counter,
+    xmtFramesTaggedBECN Counter,
+    xmtKbpsAIR INTEGER,
+    chanClrButton INTEGER,
+    chanSecUpTime Counter,
+    rcvFramesDiscUPC Counter,
+    xmtBytesTaggedDE Counter,
+    xmtFramesTaggedDE Counter,
+    xmtFramesInvalidCPIs Counter,
+    xmtFramesLengthViolations Counter,
+    xmtFramesOversizedSDUs Counter,
+    xmtFramesUnknownProtocols Counter,
+    rcvFramesUnknownProtocols Counter,
+    xmtBytesDEDiscard Counter,
+    rcvBytesDEDiscard Counter
+    }
+
+cntChanNum OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object refers to
+        refers to the virtual connection/channel index.
+        The value for this object must be same as the
+        value of 'chanNum' from frChanCnfGrpTable."
+    REFERENCE
+        "chanNum object in CISCO-WAN-FR-CONN-MIB."
+    ::= { frChanCntGrpEntry 1 }
+
+rcvFrames OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames Received by the network
+        (ingress) for this PVC end-point."
+    ::= { frChanCntGrpEntry 2 }
+
+rcvBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes Received by the network
+        (ingress) for this PVC end-point."
+    ::= { frChanCntGrpEntry 3 }
+
+rcvFramesDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received by the network(ingress)
+               with the DE bit set to (1) for this frame relay connection."
+    ::= { frChanCntGrpEntry 4 }
+
+rcvBytesDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received by the network(ingress)
+               with the DE bit set to (1) for this frame relay connection."
+    ::= { frChanCntGrpEntry 5 }
+
+rcvFramesDiscard OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received by the network(ingress)
+        that were discarded due to traffic enforcement
+        for this frame relay connection."
+    ::= { frChanCntGrpEntry 6 }
+
+rcvBytesDiscard OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes received by the network(ingress)
+        that were discarded due to traffic enforcement
+        for this frame relay connection."
+    ::= { frChanCntGrpEntry 7 }
+
+rcvFramesDiscShelfAlarm OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the ingress
+        due to shelf alarm
+        
+        For FRSM12 Card: Not Supported."
+    ::= { frChanCntGrpEntry 8 }
+
+rcvFramesDiscXceedQDepth OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the ingress
+        due to exceeded queue depth."
+    ::= { frChanCntGrpEntry 9 }
+
+rcvBytesDiscXceedQDepth OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes discarded on the ingress
+        due to exceeded queue depth."
+    ::= { frChanCntGrpEntry 10 }
+
+rcvFramesDiscXceedDEThresh OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the ingress
+        due to exceeded DE Threshold."
+    ::= { frChanCntGrpEntry 11 }
+
+rcvFramesFECN OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received by the network(ingress)
+        that have the FECN bit set for this frame relay connection."
+    ::= { frChanCntGrpEntry 12 }
+
+rcvFramesBECN OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received by the network(ingress)
+        that have the BECN bit set for this frame relay connection."
+    ::= { frChanCntGrpEntry 13 }
+
+rcvFramesTaggedFECN OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received for which the
+        the switch set(tagged) the FECN bit."
+    ::= { frChanCntGrpEntry 14 }
+
+rcvFramesTaggedBECN OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received for which the
+        switch set(tagged) the BECN bit."
+    ::= { frChanCntGrpEntry 15 }
+
+rcvFramesTaggedDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames received for which the
+        switch set(tagged) the DE bit."
+    ::= { frChanCntGrpEntry 16 }
+
+rcvBytesTaggedDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes received for which the
+        switch set the DE bit."
+    ::= { frChanCntGrpEntry 17 }
+
+rcvKbpsAIR OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    kbps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Received Average Information Rate in KBPS."
+    ::= { frChanCntGrpEntry 18 }
+
+xmtFrames OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames sent by the network(egress)."
+    ::= { frChanCntGrpEntry 19 }
+
+xmtBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes sent by the network(egress)."
+    ::= { frChanCntGrpEntry 20 }
+
+xmtFramesFECN OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames sent by the network(egress)
+        that have the FECN bit set for this frame relay connection."
+    ::= { frChanCntGrpEntry 21 }
+
+xmtFramesBECN OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames sent by the network(egress)
+        that have the BECN bit set for this frame relay connection."
+    ::= { frChanCntGrpEntry 22 }
+
+xmtFramesDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames sent by the network(egress)
+        with the DE bit set to (1) for this frame relay 
+        connection."
+    ::= { frChanCntGrpEntry 23 }
+
+xmtBytesDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames sent by the network(egress)
+        with the DE bit set to (1) for this frame relay 
+        connection."
+    ::= { frChanCntGrpEntry 24 }
+
+xmtFramesDiscard OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames sent by the network(egress)
+        that were discarded due to traffic enforcement
+        for this frame relay connection."
+    ::= { frChanCntGrpEntry 25 }
+
+xmtBytesDiscard OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes discarded on the egress
+        
+        For FRSM12 Card: Not Supported"
+    ::= { frChanCntGrpEntry 26 }
+
+xmtFramesDiscXceedQDepth OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the egress
+        due to exceeded queue depth
+        
+        For FRSM12 Card: Not Supported."
+    ::= { frChanCntGrpEntry 27 }
+
+xmtBytesDiscXceedQDepth OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes discarded on the egress
+        due to exceeded queue depth
+        
+        For FRSM12 Card: Not Supported."
+    ::= { frChanCntGrpEntry 28 }
+
+xmtFramesDiscXceedDEThresh OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the egress
+        due to exceeded DE Threshold
+        
+        For FRSM12 Card: Not Supported"
+    ::= { frChanCntGrpEntry 29 }
+
+xmtFramesDiscPhyLayerFail OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the egress
+        due to physical layer failure."
+    ::= { frChanCntGrpEntry 30 }
+
+xmtFramesDiscCRCError OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the egress
+        due to CRC Error."
+    ::= { frChanCntGrpEntry 31 }
+
+xmtFramesDiscReassmFail OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the egress
+        due to reassembly failure
+        
+        For FRSM12 Card: Not Supported."
+    ::= { frChanCntGrpEntry 32 }
+
+xmtFramesDiscSrcAbort OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded on the egress
+        due to source abort."
+    ::= { frChanCntGrpEntry 33 }
+
+xmtFramesDuringLMIAlarm OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames transmitted during
+        LMI logical port alarm"
+    ::= { frChanCntGrpEntry 34 }
+
+xmtBytesDuringLMIAlarm OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes transmitted during
+        LMI logical port alarm."
+    ::= { frChanCntGrpEntry 35 }
+
+xmtFramesTaggedFECN OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames transmitted for which 
+        the switch set the FECN bit."
+    ::= { frChanCntGrpEntry 36 }
+
+xmtFramesTaggedBECN OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames transmitted for which 
+        the switch set the BECN bit."
+    ::= { frChanCntGrpEntry 37 }
+
+xmtKbpsAIR OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    kbps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Transmitted Average Information Rate in KBPS."
+    ::= { frChanCntGrpEntry 38 }
+
+chanClrButton OBJECT-TYPE
+    SYNTAX INTEGER {
+        noaction(1),
+        clear(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Channel clear button. Clears Channel Counters."
+    ::= { frChanCntGrpEntry 39 }
+
+xmtFramesTaggedDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames transmitted which have been DE tagged
+         at the far end ingress in excess of CIR."
+    ::= { frChanCntGrpEntry 40 }
+
+xmtBytesTaggedDE OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes transmitted which have been DE tagged
+        at the far end ingress in excess of CIR."
+    ::= { frChanCntGrpEntry 41 }
+
+rcvFramesDiscUPC OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded at ingress
+        due to the UPC measurement in excess of CIR+EIR."
+    ::= { frChanCntGrpEntry 42 }
+
+chanSecUpTime OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time in seconds the PVC stay in service."
+    ::= { frChanCntGrpEntry 43 }
+
+xmtFramesInvalidCPIs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames transmitted with invalid CPI header.
+        currently valid is 0."
+    ::= { frChanCntGrpEntry 44 }
+
+xmtFramesLengthViolations OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded due to violation 
+        of length in the egress direction."
+    ::= { frChanCntGrpEntry 45 }
+
+xmtFramesOversizedSDUs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded because the size is beyond 
+        the max in the egress direction."
+    ::= { frChanCntGrpEntry 46 }
+
+xmtFramesUnknownProtocols OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames discarded for Unknown protocol in
+        the egress direction. Used only in SIW for PDUs that
+        are dropped."
+    ::= { frChanCntGrpEntry 47 }
+
+rcvFramesUnknownProtocols OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of frames discarded for Unknown protocol in the 
+        ingress direction. Used only in SIW for PDUs that 
+        are dropped."
+    ::= { frChanCntGrpEntry 48 }
+
+xmtBytesDEDiscard OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes discarded in the egress direction
+         by the channel due to exceeded DE Threshold."
+    ::= { frChanCntGrpEntry 49 }
+
+rcvBytesDEDiscard OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes discarded in the ingress direction
+         by the channel due to exceeded DE Threshold."
+    ::= { frChanCntGrpEntry 50 }
+
+frstdABRCntGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FrstdABRCntGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on statistics
+        for Frame Relay Connections. This is applicable
+        for ABR Frame Relay connections only."
+    ::= { frChanCntGrp 2 }
+
+frstdABRCntGrpEntry OBJECT-TYPE
+    SYNTAX FrstdABRCntGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table describes the
+        statistical information for Frame Relay
+        connections."
+    INDEX { frstdABRcntChanNum }
+    ::= { frstdABRCntGrpTable 1 }
+
+FrstdABRCntGrpEntry ::= SEQUENCE {
+    frstdABRcntChanNum INTEGER,
+    frChanFrmXmtToNetworkCnt Counter,
+    frChanBrmXmtToNetworkCnt Counter,
+    frChanCrcErrRmRcvFromNetworkCnt Counter,
+    frChanFrmRcvFromNetworkCnt Counter,
+    frChanBrmRcvFromNetworkCnt Counter,
+    frChanFrmNotTurnedAroundCnt Counter
+    }
+
+frstdABRcntChanNum OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object refers to 
+        the frame relay connection/channel index.
+        
+        The value for this object must be same as the value 
+        of object 'chanNum' from frChanCnfGrpTable."
+    REFERENCE
+        "chanNum object in CISCO-WAN-FR-CONN-MIB."
+    ::= { frstdABRCntGrpEntry 1 }
+
+frChanFrmXmtToNetworkCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Forward RM cells 
+        transmitted to the network."
+    ::= { frstdABRCntGrpEntry 2 }
+
+frChanBrmXmtToNetworkCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Backward RM cells 
+        transmitted to the network."
+    ::= { frstdABRCntGrpEntry 3 }
+
+frChanCrcErrRmRcvFromNetworkCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RM cells received from
+        the network with incorrect CRC-10."
+    ::= { frstdABRCntGrpEntry 4 }
+
+frChanFrmRcvFromNetworkCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Forward RM cells
+        received from the network."
+    ::= { frstdABRCntGrpEntry 5 }
+
+frChanBrmRcvFromNetworkCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Backward RM cells
+        received from the network."
+    ::= { frstdABRCntGrpEntry 6 }
+
+frChanFrmNotTurnedAroundCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Forward RM cells 
+        received from the network and not
+        turned around."
+    ::= { frstdABRCntGrpEntry 7 }
+
+ciscoWanFrConnStatsGroup OBJECT IDENTIFIER ::= { cwfConnStatMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects related to Frame Relay connection
+--    statistics.
+--  objects
+--    cntChanNum, rcvFrames, rcvBytes, rcvFramesDE, rcvBytesDE, 
+--    rcvFramesDiscard, rcvBytesDiscard, rcvFramesDiscShelfAlarm, 
+--    rcvFramesFECN, rcvFramesBECN, rcvFramesTaggedFECN, 
+--    rcvFramesTaggedBECN, rcvFramesTaggedDE, rcvBytesTaggedDE, 
+--    rcvKbpsAIR, xmtFrames, xmtBytes, xmtFramesFECN, xmtFramesBECN, 
+--    xmtFramesDE, xmtBytesDE, xmtFramesDiscard, xmtBytesDiscard, 
+--    xmtFramesDiscPhyLayerFail, xmtFramesDiscCRCError, 
+--    xmtFramesDiscReassmFail, xmtFramesDiscSrcAbort, 
+--    xmtFramesDuringLMIAlarm, xmtBytesDuringLMIAlarm, 
+--    xmtFramesTaggedFECN, xmtFramesTaggedBECN, xmtKbpsAIR, 
+--    chanClrButton, chanSecUpTime, rcvFramesDiscUPC, 
+--    xmtBytesTaggedDE, xmtFramesTaggedDE, xmtFramesInvalidCPIs, 
+--    xmtFramesLengthViolations, xmtFramesOversizedSDUs, 
+--    xmtFramesUnknownProtocols, rcvFramesUnknownProtocols, 
+--    xmtBytesDEDiscard, rcvBytesDEDiscard
+
+ciscoWanFrConnQueueStatsGroup OBJECT IDENTIFIER ::= { cwfConnStatMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects related to Queue depth and threshold
+--    related statistics for Frame Relay connections.
+--  objects
+--    rcvFramesDiscXceedQDepth, rcvBytesDiscXceedQDepth, 
+--    rcvFramesDiscXceedDEThresh, xmtFramesDiscXceedQDepth, 
+--    xmtBytesDiscXceedQDepth, xmtFramesDiscXceedDEThresh
+
+ciscoWanFrConnABRStatsGroup OBJECT IDENTIFIER ::= { cwfConnStatMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects related to ABR statistics on
+--    frame relay connections.
+--  objects
+--    frstdABRcntChanNum, frChanFrmXmtToNetworkCnt, 
+--    frChanBrmXmtToNetworkCnt, frChanCrcErrRmRcvFromNetworkCnt, 
+--    frChanFrmRcvFromNetworkCnt, frChanBrmRcvFromNetworkCnt, 
+--    frChanFrmNotTurnedAroundCnt
+
+ciscoWanFrConnStatCompliance OBJECT IDENTIFIER ::= { cwfConnStatMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for Frame Relay 
+--    Connection Statstics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoWanFrConnStatsGroup
+--   OptGroup
+--    ciscoWanFrConnABRStatsGroup
+--   OptGroup
+--    ciscoWanFrConnQueueStatsGroup
+
+
+END
+

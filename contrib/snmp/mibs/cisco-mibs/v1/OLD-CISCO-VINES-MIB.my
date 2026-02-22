@@ -1,0 +1,1156 @@
+-- *****************************************************************
+-- OLD-CISCO-VINES-MIB.my:  Old Cisco Vines MIB file
+--
+-- Copyright (c) 1994-1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+               OLD-CISCO-VINES-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+			Counter
+				FROM RFC1155-SMI
+			OBJECT-TYPE
+				FROM RFC-1212
+			ifIndex
+				FROM RFC1213-MIB
+			temporary
+				FROM CISCO-SMI;
+          
+
+               tmpvines               OBJECT IDENTIFIER ::= { temporary 5 }
+
+               -- Temporary Vines Section
+
+          -- This group is present in all router based products.
+
+               vinesInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of Vines
+                           packets."
+                   ::= { tmpvines 1 }
+
+               vinesOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines output
+                           packets."
+                   ::= { tmpvines 2 }
+
+               vinesLocaldest OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of Vines input packets for this
+                           host."
+                   ::= { tmpvines 3 }
+
+               vinesForwarded OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines packets
+                           forwarded."
+                   ::= { tmpvines 4 }
+
+               vinesBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input
+                           broadcast packets."
+                   ::= { tmpvines 5 }
+
+               vinesBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines output
+                           broadcast packets."
+                   ::= { tmpvines 6 }
+
+               vinesBcastfwd OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines broadcast
+                           packets forwarded."
+                   ::= { tmpvines 7 }
+
+               vinesNotlan OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines broadcast
+                           packets not forwarded to all interfaces
+                           because the LAN ONLY bit was set."
+                   ::= { tmpvines 8 }
+
+               vinesNotgt4800 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines broadcast
+                           packets not forwarded to all interfaces
+                           because the OVER 4800 BPS bit was set."
+                   ::= { tmpvines 9 }
+
+               vinesNocharges OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines broadcast
+                           packets not forwarded to all interfaces
+                           because the NO CHARGES only bit was set."
+                   ::= { tmpvines 10 }
+
+               vinesFormaterror OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input packets
+                           with header errors."
+                   ::= { tmpvines 11 }
+
+               vinesCksumerr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input packets
+                           with checksum errors."
+                   ::= { tmpvines 12 }
+
+               vinesHopcount OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines input packets
+                           that have exceeded the maximum hop count."
+                   ::= { tmpvines 13 }
+
+               vinesNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines packets
+                           dropped due to no route."
+                   ::= { tmpvines 14 }
+
+               vinesEncapsfailed OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines packets
+                           dropped due to output encapsulation failed."
+                   ::= { tmpvines 15 }
+
+               vinesUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown Vines input
+                           packets."
+                   ::= { tmpvines 16 }
+
+               vinesIcpIn OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines ICP packets
+                           received."
+                   ::= { tmpvines 17 }
+
+               vinesIcpOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines ICP packets
+                           generaed."
+                   ::= { tmpvines 18 }
+
+               vinesMetricOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines ICP Metric
+                           Notification packets generated."
+                   ::= { tmpvines 19 }
+
+               vinesMacEchoIn OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines MAC level
+                           Echo packets received."
+                   ::= { tmpvines 20 }
+
+               vinesMacEchoOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines MAC level
+                           Echo packets generated."
+                   ::= { tmpvines 21 }
+
+               vinesEchoIn OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines Echo packets
+                           received."
+                   ::= { tmpvines 22 }
+
+               vinesEchoOut OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of Vines Echo packets
+                           generated."
+                   ::= { tmpvines 23 }
+
+               vinesProxyCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of proxy packets sent."
+                   ::= { tmpvines 24 }
+
+               vinesProxyReplyCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of responses to proxy packets."
+                   ::= { tmpvines 25 }
+
+               vinesNet OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines network number of this router."
+                   ::= { tmpvines 26 }
+
+               vinesSubNet OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines sub-network number of this router."
+                   ::= { tmpvines 27 }
+
+               vinesClient OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Next Vines client sub-network number to be
+                           assigned by this router."
+                   ::= { tmpvines 28 }
+
+               vinesIfTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF VinesIfTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "Vines interface table"
+                   ::= { tmpvines 29 }
+
+               vinesIfTableEntry OBJECT-TYPE
+                   SYNTAX VinesIfTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "VINES interface table"
+                   INDEX { ifIndex }
+               ::= { vinesIfTable 1 }
+
+               VinesIfTableEntry ::=
+                   SEQUENCE {
+                       vinesIfMetric
+                           INTEGER,
+                       vinesIfEnctype
+                           INTEGER,
+                       vinesIfAccesslist
+                           INTEGER,
+                       vinesIfPropagate
+                           INTEGER,
+                       vinesIfArpEnabled
+                           INTEGER,
+                       vinesIfServerless
+                           INTEGER,
+                       vinesIfRedirectInterval
+                           INTEGER,
+                       vinesIfSplitDisabled
+                           INTEGER,
+                       vinesIfLineup
+                           INTEGER,
+                       vinesIfFastokay
+                           INTEGER,
+                       vinesIfRouteCache
+                           INTEGER,
+                       vinesIfRxNotEnabledCnt
+                           Counter,
+                       vinesIfRxFormatErrorCnt
+                           Counter,
+                       vinesIfRxLocalDestCnt
+                           Counter,
+                       vinesIfRxBcastinCnt
+                           Counter,
+                       vinesIfRxForwardedCnt
+                           Counter,
+                       vinesIfRxNoRouteCnt
+                           Counter,
+                       vinesIfRxZeroHopCountCnt
+                           Counter,
+                       vinesIfRxChecksumErrorCnt
+                           Counter,
+                       vinesIfRxArp0Cnt
+                           Counter,
+                       vinesIfRxArp1Cnt
+                           Counter,
+                       vinesIfRxArp2Cnt
+                           Counter,
+                       vinesIfRxArp3Cnt
+                           Counter,
+                       vinesIfRxArpIllegalCnt
+                           Counter,
+                       vinesIfRxIcpErrorCnt
+                           Counter,
+                       vinesIfRxIcpMetricCnt
+                           Counter,
+                       vinesIfRxIcpIllegalCnt
+                           Counter,
+                       vinesIfRxIpcCnt
+                           Counter,
+                       vinesIfRxRtp0Cnt
+                           Counter,
+                       vinesIfRxRtp1Cnt
+                           Counter,
+                       vinesIfRxRtp2Cnt
+                           Counter,
+                       vinesIfRxRtp3Cnt
+                           Counter,
+                       vinesIfRxRtp4Cnt
+                           Counter,
+                       vinesIfRxRtp5Cnt
+                           Counter,
+                       vinesIfRxRtp6Cnt
+                           Counter,
+                       vinesIfRxRtpIllegalCnt
+                           Counter,
+                       vinesIfRxSppCnt
+                           Counter,
+                       vinesIfRxIpUnknownCnt
+                           Counter,
+                       vinesIfRxIpcUnknownCnt
+                           Counter,
+                       vinesIfRxBcastHelperedCnt
+                           Counter,
+                       vinesIfRxBcastForwardedCnt
+                           Counter,
+                       vinesIfRxBcastDuplicateCnt
+                           Counter,
+                       vinesIfRxEchoCnt
+                           Counter,
+                       vinesIfRxMacEchoCnt
+                           Counter,
+                       vinesIfRxProxyReplyCnt
+                           Counter,
+                       vinesIfTxUnicastCnt
+                           Counter,
+                       vinesIfTxBcastCnt
+                           Counter,
+                       vinesIfTxForwardedCnt
+                           Counter,
+                       vinesIfTxFailedEncapsCnt
+                           Counter,
+                       vinesIfTxFailedAccessCnt
+                           Counter,
+                       vinesIfTxFailedDownCnt
+                           Counter,
+                       vinesIfTxNotBcastToSourceCnt
+                           Counter,
+                       vinesIfTxNotBcastNotlanCnt
+                           Counter,
+                       vinesIfTxNotBcastNotgt4800Cnt
+                           Counter,
+                       vinesIfTxNotBcastPpchargeCnt
+                           Counter,
+                       vinesIfTxBcastForwardedCnt
+                           Counter,
+                       vinesIfTxBcastHelperedCnt
+                           Counter,
+                       vinesIfTxArp0Cnt
+                           Counter,
+                       vinesIfTxArp1Cnt
+                           Counter,
+                       vinesIfTxArp2Cnt
+                           Counter,
+                       vinesIfTxArp3Cnt
+                           Counter,
+                       vinesIfTxIcpErrorCnt
+                           Counter,
+                       vinesIfTxIcpMetricCnt
+                           Counter,
+                       vinesIfTxIpcCnt
+                           Counter,
+                       vinesIfTxRtp0Cnt
+                           Counter,
+                       vinesIfTxRtp1Cnt
+                           Counter,
+                       vinesIfTxRtp2Cnt
+                           Counter,
+                       vinesIfTxRtp3Cnt
+                           Counter,
+                       vinesIfTxRtp4Cnt
+                           Counter,
+                       vinesIfTxRtp5Cnt
+                           Counter,
+                       vinesIfTxRtp6Cnt
+                           Counter,
+                       vinesIfTxSppCnt
+                           Counter,
+                       vinesIfTxEchoCnt
+                           Counter,
+                       vinesIfTxMacEchoCnt
+                           Counter,
+                       vinesIfTxProxyCnt
+                           Counter,
+                       vinesIfInputRouterFilter
+                           INTEGER,
+                       vinesIfInputNetworkFilter
+                           INTEGER,
+                       vinesIfOutputNetworkFilter
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               vinesIfMetric OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol metric value."
+                   ::= { vinesIfTableEntry 1 }
+
+               vinesIfEnctype OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol default encapsulation"
+                   ::= { vinesIfTableEntry 2 }
+
+               vinesIfAccesslist OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol outgoing access list number."
+                   ::= { vinesIfTableEntry 3 }
+
+               vinesIfPropagate OBJECT-TYPE
+                   SYNTAX  INTEGER {
+			neverPropagate   (1),	-- VPROP_NEVER   = 0
+			alwaysPropagate  (2),	-- VPROP_ALWAYS  = 1
+			dynamicPropagate (3)	-- VPROP_DYNAMIC = 2
+		   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol 'propagate' enabled."
+                   ::= { vinesIfTableEntry 4 }
+
+               vinesIfArpEnabled OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol arp replies enabled."
+                   ::= { vinesIfTableEntry 5 }
+
+               vinesIfServerless OBJECT-TYPE
+                   SYNTAX  INTEGER {
+		       neverSvrless	  (1),	-- VSVLESS_NEVER        = 0
+		       dynamicSvrless	  (2),	-- VSVLESS_DYNAMIC      = 1
+		       alwaysSvrless	  (3),	-- VSVLESS_ALWAYS       = 2
+		       alwaysBcastSvrless (4)	-- VSVLESS_ALWAYS_BCAST = 3
+		   }
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol serverless support enabled."
+                   ::= { vinesIfTableEntry 6 }
+
+               vinesIfRedirectInterval OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol redirect interval (in ms)."
+                   ::= { vinesIfTableEntry 8 }
+
+               vinesIfSplitDisabled OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol split horizon disabled"
+                   ::= { vinesIfTableEntry 9 }
+
+               vinesIfLineup OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol line up/down."
+                   ::= { vinesIfTableEntry 10 }
+
+               vinesIfFastokay OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol fast switching supported."
+                   ::= { vinesIfTableEntry 11 }
+
+               vinesIfRouteCache OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol fast switching requested"
+                   ::= { vinesIfTableEntry 12 }
+
+               vinesIfRxNotEnabledCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets
+                           discarded because interface not configured."
+                   ::= { vinesIfTableEntry 17 }
+
+               vinesIfRxFormatErrorCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets with
+                           format errors."
+                   ::= { vinesIfTableEntry 18 }
+
+               vinesIfRxLocalDestCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets
+                           destined for this router."
+                   ::= { vinesIfTableEntry 19 }
+
+               vinesIfRxBcastinCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol input broadcast count."
+                   ::= { vinesIfTableEntry 20 }
+
+               vinesIfRxForwardedCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets
+                           forwarded to another interface."
+                   ::= { vinesIfTableEntry 21 }
+
+               vinesIfRxNoRouteCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets
+                           dropped because there was no route to the
+                           destination."
+                   ::= { vinesIfTableEntry 22 }
+
+               vinesIfRxZeroHopCountCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets
+                           dropped due to a zero hop count."
+                   ::= { vinesIfTableEntry 23 }
+
+               vinesIfRxChecksumErrorCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets with
+                           checksum errors."
+                   ::= { vinesIfTableEntry 24 }
+
+               vinesIfRxArp0Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input ARP Query
+                           Request messages."
+                   ::= { vinesIfTableEntry 25 }
+
+               vinesIfRxArp1Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input ARP Query
+                           Response messages."
+                   ::= { vinesIfTableEntry 26 }
+
+               vinesIfRxArp2Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input ARP Assignment
+                           Request messages."
+                   ::= { vinesIfTableEntry 27 }
+
+               vinesIfRxArp3Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input ARP Assignment
+                           Response messages."
+                   ::= { vinesIfTableEntry 28 }
+
+               vinesIfRxArpIllegalCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input illegal ARP
+                           messages."
+                   ::= { vinesIfTableEntry 29 }
+
+               vinesIfRxIcpErrorCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input ICP error
+                           messages."
+                   ::= { vinesIfTableEntry 30 }
+
+               vinesIfRxIcpMetricCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input ICP metric
+                           messages."
+                   ::= { vinesIfTableEntry 31 }
+
+               vinesIfRxIcpIllegalCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input illegal ICP
+                           messages."
+                   ::= { vinesIfTableEntry 32 }
+
+               vinesIfRxIpcCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input IPC messages."
+                   ::= { vinesIfTableEntry 33 }
+
+               vinesIfRxRtp0Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input RTP type 0
+                           messages."
+                   ::= { vinesIfTableEntry 34 }
+
+               vinesIfRxRtp1Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input RTP Request
+                           messages."
+                   ::= { vinesIfTableEntry 35 }
+
+               vinesIfRxRtp2Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input RTP type 2
+                           messages."
+                   ::= { vinesIfTableEntry 36 }
+
+               vinesIfRxRtp3Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input RTP type 3
+                           messages."
+                   ::= { vinesIfTableEntry 37 }
+
+               vinesIfRxRtp4Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only 
+		   STATUS  mandatory 
+		   DESCRIPTION
+                           "Vines protocol count of input RTP Update
+                           messages."
+                   ::= { vinesIfTableEntry 38 }
+
+               vinesIfRxRtp5Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input RTP Response
+                           messages."
+                   ::= { vinesIfTableEntry 39 }
+
+               vinesIfRxRtp6Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input RTP Redirect
+                           messages."
+                   ::= { vinesIfTableEntry 40 }
+
+               vinesIfRxRtpIllegalCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input illegal RTP
+                           messages."
+                   ::= { vinesIfTableEntry 41 }
+
+               vinesIfRxSppCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input SPP messages."
+                   ::= { vinesIfTableEntry 42 }
+
+               vinesIfRxIpUnknownCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets of
+                           unknown Vines protocols."
+                   ::= { vinesIfTableEntry 43 }
+
+               vinesIfRxIpcUnknownCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets of
+                           unknown Vines IPC ports."
+                   ::= { vinesIfTableEntry 44 }
+
+               vinesIfRxBcastHelperedCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input packets
+                           helpered to another server."
+                   ::= { vinesIfTableEntry 45 }
+
+               vinesIfRxBcastForwardedCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol input broadcast forwarded to
+                           other interface(s)."
+                   ::= { vinesIfTableEntry 46 }
+
+               vinesIfRxBcastDuplicateCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol input duplicate broadcast
+                           count."
+                   ::= { vinesIfTableEntry 47 }
+
+               vinesIfRxEchoCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input IPC echo
+                           messages."
+                   ::= { vinesIfTableEntry 48 }
+
+               vinesIfRxMacEchoCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input MAC layer echo
+                           frames."
+                   ::= { vinesIfTableEntry 49 }
+
+               vinesIfRxProxyReplyCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of responses to proxy
+                           packets."
+                   ::= { vinesIfTableEntry 50 }
+
+               vinesIfTxUnicastCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol unicast packets generated."
+                   ::= { vinesIfTableEntry 51 }
+
+               vinesIfTxBcastCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol broadcast packets
+                           generated."
+                   ::= { vinesIfTableEntry 52 }
+
+               vinesIfTxForwardedCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of forwarded packets."
+                   ::= { vinesIfTableEntry 53 }
+
+               vinesIfTxFailedEncapsCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output encapsulation
+                           failures."
+                   ::= { vinesIfTableEntry 54 }
+
+               vinesIfTxFailedAccessCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output access list failures."
+                   ::= { vinesIfTableEntry 55 }
+
+               vinesIfTxFailedDownCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output interface down count."
+                   ::= { vinesIfTableEntry 56 }
+
+               vinesIfTxNotBcastToSourceCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output broadcast not sent
+                           because interfaceleads back to the source."
+                   ::= { vinesIfTableEntry 57 }
+
+               vinesIfTxNotBcastNotlanCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output broadcast not sent due
+                           to 'Lan Only' class."
+                   ::= { vinesIfTableEntry 58 }
+
+               vinesIfTxNotBcastNotgt4800Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output broadcast not sent due
+                           to 'High Speed' class."
+                   ::= { vinesIfTableEntry 59 }
+
+               vinesIfTxNotBcastPpchargeCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output broadcast not sent due
+                           to 'No Charges' class."
+                   ::= { vinesIfTableEntry 60 }
+
+               vinesIfTxBcastForwardedCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output broadcast forwarded
+                           from another interface."
+                   ::= { vinesIfTableEntry 61 }
+
+               vinesIfTxBcastHelperedCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol output broadcast helpered to
+                           a vines server."
+                   ::= { vinesIfTableEntry 62 }
+
+               vinesIfTxArp0Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output ARP Query
+                           Request messages."
+                   ::= { vinesIfTableEntry 63 }
+
+               vinesIfTxArp1Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output ARP Query
+                           Response messages."
+                   ::= { vinesIfTableEntry 64 }
+
+               vinesIfTxArp2Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output ARP
+                           Assignment Request messages."
+                   ::= { vinesIfTableEntry 65 }
+
+               vinesIfTxArp3Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of input ARP Assignment
+                           Response messages."
+                   ::= { vinesIfTableEntry 66 }
+
+               vinesIfTxIcpErrorCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output IPC Error
+                           messages."
+                   ::= { vinesIfTableEntry 67 }
+
+               vinesIfTxIcpMetricCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output IPC metric
+                           messages."
+                   ::= { vinesIfTableEntry 68 }
+
+               vinesIfTxIpcCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output ICP
+                           messages."
+                   ::= { vinesIfTableEntry 69 }
+
+               vinesIfTxRtp0Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output RTP type 0
+                           messages."
+                   ::= { vinesIfTableEntry 70 }
+
+               vinesIfTxRtp1Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output RTP Request
+                           messages."
+                   ::= { vinesIfTableEntry 71 }
+
+               vinesIfTxRtp2Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output RTP type 2
+                           messages."
+                   ::= { vinesIfTableEntry 72 }
+
+               vinesIfTxRtp3Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output RTP type 3
+                           messages."
+                   ::= { vinesIfTableEntry 73 }
+
+               vinesIfTxRtp4Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output RTP Update
+                           messages."
+                   ::= { vinesIfTableEntry 74 }
+
+               vinesIfTxRtp5Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output RTP Response
+                           messages."
+                   ::= { vinesIfTableEntry 75 }
+
+               vinesIfTxRtp6Cnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output RTP Redirect
+                           messages."
+                   ::= { vinesIfTableEntry 76 }
+
+               vinesIfTxSppCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output SPP
+                           messages."
+                   ::= { vinesIfTableEntry 77 }
+
+               vinesIfTxEchoCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output IPC echo
+                           messages."
+                   ::= { vinesIfTableEntry 78 }
+
+               vinesIfTxMacEchoCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of output IPCMAC layer
+                           echo frames."
+                   ::= { vinesIfTableEntry 79 }
+
+               vinesIfTxProxyCnt OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol count of proxy packets sent."
+                   ::= { vinesIfTableEntry 80 }
+
+               vinesIfInputRouterFilter OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol filter on received routing
+			   information source address."
+                   ::= { vinesIfTableEntry 81 }
+
+               vinesIfInputNetworkFilter OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol filter on received routing
+			   information content."
+                   ::= { vinesIfTableEntry 82 }
+
+               vinesIfOutputNetworkFilter OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Vines protocol filter on transmitted routing
+			   information content."
+                   ::= { vinesIfTableEntry 83 }
+
+               -- End of table
+END
+
+

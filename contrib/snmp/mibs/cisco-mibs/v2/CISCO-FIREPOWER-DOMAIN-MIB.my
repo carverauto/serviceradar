@@ -1,0 +1,966 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-DOMAIN-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- DOMAIN management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-DOMAIN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprDomainFeatureType,
+    CfprDomainFunctionalState
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprDomainObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        DOMAIN management information model package"
+    ::= { ciscoFirepowerMIBObjects 17 }
+
+cfprDomainEnvironmentFeatureTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainEnvironmentFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeature managed object table"
+    ::= { cfprDomainObjects 1 }
+
+cfprDomainEnvironmentFeatureEntry OBJECT-TYPE
+    SYNTAX           CfprDomainEnvironmentFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainEnvironmentFeatureTable table."
+    INDEX { cfprDomainEnvironmentFeatureInstanceId }
+    ::= { cfprDomainEnvironmentFeatureTable 1 }
+
+CfprDomainEnvironmentFeatureEntry ::= SEQUENCE {
+    cfprDomainEnvironmentFeatureInstanceId                           CfprManagedObjectId,
+    cfprDomainEnvironmentFeatureDn                                   CfprManagedObjectDn,
+    cfprDomainEnvironmentFeatureRn                                   SnmpAdminString,
+    cfprDomainEnvironmentFeatureFltAggr                              Unsigned64,
+    cfprDomainEnvironmentFeatureFunctionalState                      CfprDomainFunctionalState,
+    cfprDomainEnvironmentFeatureName                                 SnmpAdminString,
+    cfprDomainEnvironmentFeatureType                                 CfprDomainFeatureType
+}
+
+cfprDomainEnvironmentFeatureInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainEnvironmentFeatureEntry 1 }
+
+cfprDomainEnvironmentFeatureDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeature:dn managed
+        object property"
+    ::= { cfprDomainEnvironmentFeatureEntry 2 }
+
+cfprDomainEnvironmentFeatureRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeature:rn managed
+        object property"
+    ::= { cfprDomainEnvironmentFeatureEntry 3 }
+
+cfprDomainEnvironmentFeatureFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeature:fltAggr
+        managed object property"
+    ::= { cfprDomainEnvironmentFeatureEntry 4 }
+
+cfprDomainEnvironmentFeatureFunctionalState OBJECT-TYPE
+    SYNTAX       CfprDomainFunctionalState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeature:functionalState
+        managed object property"
+    ::= { cfprDomainEnvironmentFeatureEntry 5 }
+
+cfprDomainEnvironmentFeatureName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeature:name
+        managed object property"
+    ::= { cfprDomainEnvironmentFeatureEntry 6 }
+
+cfprDomainEnvironmentFeatureType OBJECT-TYPE
+    SYNTAX       CfprDomainFeatureType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeature:type
+        managed object property"
+    ::= { cfprDomainEnvironmentFeatureEntry 7 }
+
+cfprDomainEnvironmentFeatureContTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainEnvironmentFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeatureCont
+        managed object table"
+    ::= { cfprDomainObjects 2 }
+
+cfprDomainEnvironmentFeatureContEntry OBJECT-TYPE
+    SYNTAX           CfprDomainEnvironmentFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainEnvironmentFeatureContTable table."
+    INDEX { cfprDomainEnvironmentFeatureContInstanceId }
+    ::= { cfprDomainEnvironmentFeatureContTable 1 }
+
+CfprDomainEnvironmentFeatureContEntry ::= SEQUENCE {
+    cfprDomainEnvironmentFeatureContInstanceId                       CfprManagedObjectId,
+    cfprDomainEnvironmentFeatureContDn                               CfprManagedObjectDn,
+    cfprDomainEnvironmentFeatureContRn                               SnmpAdminString,
+    cfprDomainEnvironmentFeatureContFltAggr                          Unsigned64
+}
+
+cfprDomainEnvironmentFeatureContInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainEnvironmentFeatureContEntry 1 }
+
+cfprDomainEnvironmentFeatureContDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeatureCont:dn
+        managed object property"
+    ::= { cfprDomainEnvironmentFeatureContEntry 2 }
+
+cfprDomainEnvironmentFeatureContRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeatureCont:rn
+        managed object property"
+    ::= { cfprDomainEnvironmentFeatureContEntry 3 }
+
+cfprDomainEnvironmentFeatureContFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentFeatureCont:fltAggr
+        managed object property"
+    ::= { cfprDomainEnvironmentFeatureContEntry 4 }
+
+cfprDomainEnvironmentParamTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainEnvironmentParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentParam managed object table"
+    ::= { cfprDomainObjects 3 }
+
+cfprDomainEnvironmentParamEntry OBJECT-TYPE
+    SYNTAX           CfprDomainEnvironmentParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainEnvironmentParamTable table."
+    INDEX { cfprDomainEnvironmentParamInstanceId }
+    ::= { cfprDomainEnvironmentParamTable 1 }
+
+CfprDomainEnvironmentParamEntry ::= SEQUENCE {
+    cfprDomainEnvironmentParamInstanceId                             CfprManagedObjectId,
+    cfprDomainEnvironmentParamDn                                     CfprManagedObjectDn,
+    cfprDomainEnvironmentParamRn                                     SnmpAdminString,
+    cfprDomainEnvironmentParamFltAggr                                Unsigned64,
+    cfprDomainEnvironmentParamName                                   SnmpAdminString,
+    cfprDomainEnvironmentParamValue                                  SnmpAdminString
+}
+
+cfprDomainEnvironmentParamInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainEnvironmentParamEntry 1 }
+
+cfprDomainEnvironmentParamDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentParam:dn managed
+        object property"
+    ::= { cfprDomainEnvironmentParamEntry 2 }
+
+cfprDomainEnvironmentParamRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentParam:rn managed
+        object property"
+    ::= { cfprDomainEnvironmentParamEntry 3 }
+
+cfprDomainEnvironmentParamFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentParam:fltAggr
+        managed object property"
+    ::= { cfprDomainEnvironmentParamEntry 4 }
+
+cfprDomainEnvironmentParamName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentParam:name managed
+        object property"
+    ::= { cfprDomainEnvironmentParamEntry 5 }
+
+cfprDomainEnvironmentParamValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:EnvironmentParam:value
+        managed object property"
+    ::= { cfprDomainEnvironmentParamEntry 6 }
+
+cfprDomainNetworkFeatureTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainNetworkFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeature managed object table"
+    ::= { cfprDomainObjects 4 }
+
+cfprDomainNetworkFeatureEntry OBJECT-TYPE
+    SYNTAX           CfprDomainNetworkFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainNetworkFeatureTable table."
+    INDEX { cfprDomainNetworkFeatureInstanceId }
+    ::= { cfprDomainNetworkFeatureTable 1 }
+
+CfprDomainNetworkFeatureEntry ::= SEQUENCE {
+    cfprDomainNetworkFeatureInstanceId                               CfprManagedObjectId,
+    cfprDomainNetworkFeatureDn                                       CfprManagedObjectDn,
+    cfprDomainNetworkFeatureRn                                       SnmpAdminString,
+    cfprDomainNetworkFeatureFltAggr                                  Unsigned64,
+    cfprDomainNetworkFeatureFunctionalState                          CfprDomainFunctionalState,
+    cfprDomainNetworkFeatureName                                     SnmpAdminString,
+    cfprDomainNetworkFeatureType                                     CfprDomainFeatureType
+}
+
+cfprDomainNetworkFeatureInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainNetworkFeatureEntry 1 }
+
+cfprDomainNetworkFeatureDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeature:dn managed object property"
+    ::= { cfprDomainNetworkFeatureEntry 2 }
+
+cfprDomainNetworkFeatureRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeature:rn managed object property"
+    ::= { cfprDomainNetworkFeatureEntry 3 }
+
+cfprDomainNetworkFeatureFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeature:fltAggr
+        managed object property"
+    ::= { cfprDomainNetworkFeatureEntry 4 }
+
+cfprDomainNetworkFeatureFunctionalState OBJECT-TYPE
+    SYNTAX       CfprDomainFunctionalState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeature:functionalState
+        managed object property"
+    ::= { cfprDomainNetworkFeatureEntry 5 }
+
+cfprDomainNetworkFeatureName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeature:name managed
+        object property"
+    ::= { cfprDomainNetworkFeatureEntry 6 }
+
+cfprDomainNetworkFeatureType OBJECT-TYPE
+    SYNTAX       CfprDomainFeatureType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeature:type managed
+        object property"
+    ::= { cfprDomainNetworkFeatureEntry 7 }
+
+cfprDomainNetworkFeatureContTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainNetworkFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeatureCont managed object table"
+    ::= { cfprDomainObjects 5 }
+
+cfprDomainNetworkFeatureContEntry OBJECT-TYPE
+    SYNTAX           CfprDomainNetworkFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainNetworkFeatureContTable table."
+    INDEX { cfprDomainNetworkFeatureContInstanceId }
+    ::= { cfprDomainNetworkFeatureContTable 1 }
+
+CfprDomainNetworkFeatureContEntry ::= SEQUENCE {
+    cfprDomainNetworkFeatureContInstanceId                           CfprManagedObjectId,
+    cfprDomainNetworkFeatureContDn                                   CfprManagedObjectDn,
+    cfprDomainNetworkFeatureContRn                                   SnmpAdminString,
+    cfprDomainNetworkFeatureContFltAggr                              Unsigned64
+}
+
+cfprDomainNetworkFeatureContInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainNetworkFeatureContEntry 1 }
+
+cfprDomainNetworkFeatureContDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeatureCont:dn managed
+        object property"
+    ::= { cfprDomainNetworkFeatureContEntry 2 }
+
+cfprDomainNetworkFeatureContRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeatureCont:rn managed
+        object property"
+    ::= { cfprDomainNetworkFeatureContEntry 3 }
+
+cfprDomainNetworkFeatureContFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkFeatureCont:fltAggr
+        managed object property"
+    ::= { cfprDomainNetworkFeatureContEntry 4 }
+
+cfprDomainNetworkParamTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainNetworkParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkParam managed object table"
+    ::= { cfprDomainObjects 6 }
+
+cfprDomainNetworkParamEntry OBJECT-TYPE
+    SYNTAX           CfprDomainNetworkParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainNetworkParamTable table."
+    INDEX { cfprDomainNetworkParamInstanceId }
+    ::= { cfprDomainNetworkParamTable 1 }
+
+CfprDomainNetworkParamEntry ::= SEQUENCE {
+    cfprDomainNetworkParamInstanceId                                 CfprManagedObjectId,
+    cfprDomainNetworkParamDn                                         CfprManagedObjectDn,
+    cfprDomainNetworkParamRn                                         SnmpAdminString,
+    cfprDomainNetworkParamFltAggr                                    Unsigned64,
+    cfprDomainNetworkParamName                                       SnmpAdminString,
+    cfprDomainNetworkParamValue                                      SnmpAdminString
+}
+
+cfprDomainNetworkParamInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainNetworkParamEntry 1 }
+
+cfprDomainNetworkParamDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkParam:dn managed object property"
+    ::= { cfprDomainNetworkParamEntry 2 }
+
+cfprDomainNetworkParamRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkParam:rn managed object property"
+    ::= { cfprDomainNetworkParamEntry 3 }
+
+cfprDomainNetworkParamFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkParam:fltAggr managed
+        object property"
+    ::= { cfprDomainNetworkParamEntry 4 }
+
+cfprDomainNetworkParamName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkParam:name managed object property"
+    ::= { cfprDomainNetworkParamEntry 5 }
+
+cfprDomainNetworkParamValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:NetworkParam:value managed
+        object property"
+    ::= { cfprDomainNetworkParamEntry 6 }
+
+cfprDomainServerFeatureTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainServerFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeature managed object table"
+    ::= { cfprDomainObjects 7 }
+
+cfprDomainServerFeatureEntry OBJECT-TYPE
+    SYNTAX           CfprDomainServerFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainServerFeatureTable table."
+    INDEX { cfprDomainServerFeatureInstanceId }
+    ::= { cfprDomainServerFeatureTable 1 }
+
+CfprDomainServerFeatureEntry ::= SEQUENCE {
+    cfprDomainServerFeatureInstanceId                                CfprManagedObjectId,
+    cfprDomainServerFeatureDn                                        CfprManagedObjectDn,
+    cfprDomainServerFeatureRn                                        SnmpAdminString,
+    cfprDomainServerFeatureFltAggr                                   Unsigned64,
+    cfprDomainServerFeatureFunctionalState                           CfprDomainFunctionalState,
+    cfprDomainServerFeatureName                                      SnmpAdminString,
+    cfprDomainServerFeatureType                                      CfprDomainFeatureType
+}
+
+cfprDomainServerFeatureInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainServerFeatureEntry 1 }
+
+cfprDomainServerFeatureDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeature:dn managed object property"
+    ::= { cfprDomainServerFeatureEntry 2 }
+
+cfprDomainServerFeatureRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeature:rn managed object property"
+    ::= { cfprDomainServerFeatureEntry 3 }
+
+cfprDomainServerFeatureFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeature:fltAggr managed
+        object property"
+    ::= { cfprDomainServerFeatureEntry 4 }
+
+cfprDomainServerFeatureFunctionalState OBJECT-TYPE
+    SYNTAX       CfprDomainFunctionalState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeature:functionalState
+        managed object property"
+    ::= { cfprDomainServerFeatureEntry 5 }
+
+cfprDomainServerFeatureName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeature:name managed
+        object property"
+    ::= { cfprDomainServerFeatureEntry 6 }
+
+cfprDomainServerFeatureType OBJECT-TYPE
+    SYNTAX       CfprDomainFeatureType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeature:type managed
+        object property"
+    ::= { cfprDomainServerFeatureEntry 7 }
+
+cfprDomainServerFeatureContTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainServerFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeatureCont managed object table"
+    ::= { cfprDomainObjects 8 }
+
+cfprDomainServerFeatureContEntry OBJECT-TYPE
+    SYNTAX           CfprDomainServerFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainServerFeatureContTable table."
+    INDEX { cfprDomainServerFeatureContInstanceId }
+    ::= { cfprDomainServerFeatureContTable 1 }
+
+CfprDomainServerFeatureContEntry ::= SEQUENCE {
+    cfprDomainServerFeatureContInstanceId                            CfprManagedObjectId,
+    cfprDomainServerFeatureContDn                                    CfprManagedObjectDn,
+    cfprDomainServerFeatureContRn                                    SnmpAdminString,
+    cfprDomainServerFeatureContFltAggr                               Unsigned64
+}
+
+cfprDomainServerFeatureContInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainServerFeatureContEntry 1 }
+
+cfprDomainServerFeatureContDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeatureCont:dn managed
+        object property"
+    ::= { cfprDomainServerFeatureContEntry 2 }
+
+cfprDomainServerFeatureContRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeatureCont:rn managed
+        object property"
+    ::= { cfprDomainServerFeatureContEntry 3 }
+
+cfprDomainServerFeatureContFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerFeatureCont:fltAggr
+        managed object property"
+    ::= { cfprDomainServerFeatureContEntry 4 }
+
+cfprDomainServerParamTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainServerParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerParam managed object table"
+    ::= { cfprDomainObjects 9 }
+
+cfprDomainServerParamEntry OBJECT-TYPE
+    SYNTAX           CfprDomainServerParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainServerParamTable table."
+    INDEX { cfprDomainServerParamInstanceId }
+    ::= { cfprDomainServerParamTable 1 }
+
+CfprDomainServerParamEntry ::= SEQUENCE {
+    cfprDomainServerParamInstanceId                                  CfprManagedObjectId,
+    cfprDomainServerParamDn                                          CfprManagedObjectDn,
+    cfprDomainServerParamRn                                          SnmpAdminString,
+    cfprDomainServerParamFltAggr                                     Unsigned64,
+    cfprDomainServerParamName                                        SnmpAdminString,
+    cfprDomainServerParamValue                                       SnmpAdminString
+}
+
+cfprDomainServerParamInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainServerParamEntry 1 }
+
+cfprDomainServerParamDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerParam:dn managed object property"
+    ::= { cfprDomainServerParamEntry 2 }
+
+cfprDomainServerParamRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerParam:rn managed object property"
+    ::= { cfprDomainServerParamEntry 3 }
+
+cfprDomainServerParamFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerParam:fltAggr managed
+        object property"
+    ::= { cfprDomainServerParamEntry 4 }
+
+cfprDomainServerParamName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerParam:name managed object property"
+    ::= { cfprDomainServerParamEntry 5 }
+
+cfprDomainServerParamValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:ServerParam:value managed object property"
+    ::= { cfprDomainServerParamEntry 6 }
+
+cfprDomainStorageFeatureTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainStorageFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeature managed object table"
+    ::= { cfprDomainObjects 10 }
+
+cfprDomainStorageFeatureEntry OBJECT-TYPE
+    SYNTAX           CfprDomainStorageFeatureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainStorageFeatureTable table."
+    INDEX { cfprDomainStorageFeatureInstanceId }
+    ::= { cfprDomainStorageFeatureTable 1 }
+
+CfprDomainStorageFeatureEntry ::= SEQUENCE {
+    cfprDomainStorageFeatureInstanceId                               CfprManagedObjectId,
+    cfprDomainStorageFeatureDn                                       CfprManagedObjectDn,
+    cfprDomainStorageFeatureRn                                       SnmpAdminString,
+    cfprDomainStorageFeatureFltAggr                                  Unsigned64,
+    cfprDomainStorageFeatureFunctionalState                          CfprDomainFunctionalState,
+    cfprDomainStorageFeatureName                                     SnmpAdminString,
+    cfprDomainStorageFeatureType                                     CfprDomainFeatureType
+}
+
+cfprDomainStorageFeatureInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainStorageFeatureEntry 1 }
+
+cfprDomainStorageFeatureDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeature:dn managed object property"
+    ::= { cfprDomainStorageFeatureEntry 2 }
+
+cfprDomainStorageFeatureRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeature:rn managed object property"
+    ::= { cfprDomainStorageFeatureEntry 3 }
+
+cfprDomainStorageFeatureFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeature:fltAggr
+        managed object property"
+    ::= { cfprDomainStorageFeatureEntry 4 }
+
+cfprDomainStorageFeatureFunctionalState OBJECT-TYPE
+    SYNTAX       CfprDomainFunctionalState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeature:functionalState
+        managed object property"
+    ::= { cfprDomainStorageFeatureEntry 5 }
+
+cfprDomainStorageFeatureName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeature:name managed
+        object property"
+    ::= { cfprDomainStorageFeatureEntry 6 }
+
+cfprDomainStorageFeatureType OBJECT-TYPE
+    SYNTAX       CfprDomainFeatureType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeature:type managed
+        object property"
+    ::= { cfprDomainStorageFeatureEntry 7 }
+
+cfprDomainStorageFeatureContTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainStorageFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeatureCont managed object table"
+    ::= { cfprDomainObjects 11 }
+
+cfprDomainStorageFeatureContEntry OBJECT-TYPE
+    SYNTAX           CfprDomainStorageFeatureContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainStorageFeatureContTable table."
+    INDEX { cfprDomainStorageFeatureContInstanceId }
+    ::= { cfprDomainStorageFeatureContTable 1 }
+
+CfprDomainStorageFeatureContEntry ::= SEQUENCE {
+    cfprDomainStorageFeatureContInstanceId                           CfprManagedObjectId,
+    cfprDomainStorageFeatureContDn                                   CfprManagedObjectDn,
+    cfprDomainStorageFeatureContRn                                   SnmpAdminString,
+    cfprDomainStorageFeatureContFltAggr                              Unsigned64
+}
+
+cfprDomainStorageFeatureContInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainStorageFeatureContEntry 1 }
+
+cfprDomainStorageFeatureContDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeatureCont:dn managed
+        object property"
+    ::= { cfprDomainStorageFeatureContEntry 2 }
+
+cfprDomainStorageFeatureContRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeatureCont:rn managed
+        object property"
+    ::= { cfprDomainStorageFeatureContEntry 3 }
+
+cfprDomainStorageFeatureContFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageFeatureCont:fltAggr
+        managed object property"
+    ::= { cfprDomainStorageFeatureContEntry 4 }
+
+cfprDomainStorageParamTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprDomainStorageParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageParam managed object table"
+    ::= { cfprDomainObjects 12 }
+
+cfprDomainStorageParamEntry OBJECT-TYPE
+    SYNTAX           CfprDomainStorageParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprDomainStorageParamTable table."
+    INDEX { cfprDomainStorageParamInstanceId }
+    ::= { cfprDomainStorageParamTable 1 }
+
+CfprDomainStorageParamEntry ::= SEQUENCE {
+    cfprDomainStorageParamInstanceId                                 CfprManagedObjectId,
+    cfprDomainStorageParamDn                                         CfprManagedObjectDn,
+    cfprDomainStorageParamRn                                         SnmpAdminString,
+    cfprDomainStorageParamFltAggr                                    Unsigned64,
+    cfprDomainStorageParamName                                       SnmpAdminString,
+    cfprDomainStorageParamValue                                      SnmpAdminString
+}
+
+cfprDomainStorageParamInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprDomainStorageParamEntry 1 }
+
+cfprDomainStorageParamDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageParam:dn managed object property"
+    ::= { cfprDomainStorageParamEntry 2 }
+
+cfprDomainStorageParamRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageParam:rn managed object property"
+    ::= { cfprDomainStorageParamEntry 3 }
+
+cfprDomainStorageParamFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageParam:fltAggr managed
+        object property"
+    ::= { cfprDomainStorageParamEntry 4 }
+
+cfprDomainStorageParamName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageParam:name managed object property"
+    ::= { cfprDomainStorageParamEntry 5 }
+
+cfprDomainStorageParamValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower domain:StorageParam:value managed
+        object property"
+    ::= { cfprDomainStorageParamEntry 6 }
+
+END

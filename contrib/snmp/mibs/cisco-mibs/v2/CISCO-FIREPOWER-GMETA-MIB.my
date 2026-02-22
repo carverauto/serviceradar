@@ -1,0 +1,908 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-GMETA-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- GMETA management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-GMETA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprConditionRemoteInvRslt,
+    CfprExtpolConnType,
+    CfprFsmCompletion,
+    CfprFsmFsmStageStatus,
+    CfprGmetaCategory,
+    CfprGmetaHolderFsmCurrentFsm,
+    CfprGmetaHolderFsmStageName,
+    CfprGmetaHolderFsmTaskFlags,
+    CfprGmetaHolderFsmTaskItem,
+    CfprGmetaInventoryStatus,
+    CfprGmetaPollInterval,
+    CfprMoMoClassId
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprGmetaObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        GMETA management information model package"
+    ::= { ciscoFirepowerMIBObjects 33 }
+
+cfprGmetaClassTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class managed object table"
+    ::= { cfprGmetaObjects 1 }
+
+cfprGmetaClassEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaClassTable table."
+    INDEX { cfprGmetaClassInstanceId }
+    ::= { cfprGmetaClassTable 1 }
+
+CfprGmetaClassEntry ::= SEQUENCE {
+    cfprGmetaClassInstanceId                                         CfprManagedObjectId,
+    cfprGmetaClassDn                                                 CfprManagedObjectDn,
+    cfprGmetaClassRn                                                 SnmpAdminString,
+    cfprGmetaClassAdminPropMask                                      Unsigned64,
+    cfprGmetaClassEpClassId                                          CfprMoMoClassId,
+    cfprGmetaClassId                                                 Gauge32,
+    cfprGmetaClassName                                               SnmpAdminString,
+    cfprGmetaClassOperPropMask                                       Unsigned64
+}
+
+cfprGmetaClassInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaClassEntry 1 }
+
+cfprGmetaClassDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class:dn managed object property"
+    ::= { cfprGmetaClassEntry 2 }
+
+cfprGmetaClassRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class:rn managed object property"
+    ::= { cfprGmetaClassEntry 3 }
+
+cfprGmetaClassAdminPropMask OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class:adminPropMask managed
+        object property"
+    ::= { cfprGmetaClassEntry 4 }
+
+cfprGmetaClassEpClassId OBJECT-TYPE
+    SYNTAX       CfprMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class:epClassId managed object property"
+    ::= { cfprGmetaClassEntry 5 }
+
+cfprGmetaClassId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class:id managed object property"
+    ::= { cfprGmetaClassEntry 6 }
+
+cfprGmetaClassName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class:name managed object property"
+    ::= { cfprGmetaClassEntry 7 }
+
+cfprGmetaClassOperPropMask OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Class:operPropMask managed object property"
+    ::= { cfprGmetaClassEntry 8 }
+
+cfprGmetaEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Ep managed object table"
+    ::= { cfprGmetaObjects 2 }
+
+cfprGmetaEpEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaEpTable table."
+    INDEX { cfprGmetaEpInstanceId }
+    ::= { cfprGmetaEpTable 1 }
+
+CfprGmetaEpEntry ::= SEQUENCE {
+    cfprGmetaEpInstanceId                                            CfprManagedObjectId,
+    cfprGmetaEpDn                                                    CfprManagedObjectDn,
+    cfprGmetaEpRn                                                    SnmpAdminString
+}
+
+cfprGmetaEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaEpEntry 1 }
+
+cfprGmetaEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Ep:dn managed object property"
+    ::= { cfprGmetaEpEntry 2 }
+
+cfprGmetaEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Ep:rn managed object property"
+    ::= { cfprGmetaEpEntry 3 }
+
+cfprGmetaHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder managed object table"
+    ::= { cfprGmetaObjects 3 }
+
+cfprGmetaHolderEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaHolderTable table."
+    INDEX { cfprGmetaHolderInstanceId }
+    ::= { cfprGmetaHolderTable 1 }
+
+CfprGmetaHolderEntry ::= SEQUENCE {
+    cfprGmetaHolderInstanceId                                        CfprManagedObjectId,
+    cfprGmetaHolderDn                                                CfprManagedObjectDn,
+    cfprGmetaHolderRn                                                SnmpAdminString,
+    cfprGmetaHolderCategory                                          CfprGmetaCategory,
+    cfprGmetaHolderFsmDescr                                          SnmpAdminString,
+    cfprGmetaHolderFsmFlags                                          SnmpAdminString,
+    cfprGmetaHolderFsmPrev                                           SnmpAdminString,
+    cfprGmetaHolderFsmProgr                                          Gauge32,
+    cfprGmetaHolderFsmRmtInvErrCode                                  Gauge32,
+    cfprGmetaHolderFsmRmtInvErrDescr                                 SnmpAdminString,
+    cfprGmetaHolderFsmRmtInvRslt                                     CfprConditionRemoteInvRslt,
+    cfprGmetaHolderFsmStageDescr                                     SnmpAdminString,
+    cfprGmetaHolderFsmStamp                                          DateAndTime,
+    cfprGmetaHolderFsmStatus                                         SnmpAdminString,
+    cfprGmetaHolderFsmTry                                            Gauge32,
+    cfprGmetaHolderInventoryStatus                                   CfprGmetaInventoryStatus,
+    cfprGmetaHolderPollInterval                                      CfprGmetaPollInterval,
+    cfprGmetaHolderProvider                                          CfprExtpolConnType
+}
+
+cfprGmetaHolderInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaHolderEntry 1 }
+
+cfprGmetaHolderDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:dn managed object property"
+    ::= { cfprGmetaHolderEntry 2 }
+
+cfprGmetaHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:rn managed object property"
+    ::= { cfprGmetaHolderEntry 3 }
+
+cfprGmetaHolderCategory OBJECT-TYPE
+    SYNTAX       CfprGmetaCategory
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:category managed object property"
+    ::= { cfprGmetaHolderEntry 4 }
+
+cfprGmetaHolderFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmDescr managed object property"
+    ::= { cfprGmetaHolderEntry 5 }
+
+cfprGmetaHolderFsmFlags OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmFlags managed object property"
+    ::= { cfprGmetaHolderEntry 6 }
+
+cfprGmetaHolderFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmPrev managed object property"
+    ::= { cfprGmetaHolderEntry 7 }
+
+cfprGmetaHolderFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmProgr managed object property"
+    ::= { cfprGmetaHolderEntry 8 }
+
+cfprGmetaHolderFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprGmetaHolderEntry 9 }
+
+cfprGmetaHolderFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprGmetaHolderEntry 10 }
+
+cfprGmetaHolderFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmRmtInvRslt managed
+        object property"
+    ::= { cfprGmetaHolderEntry 11 }
+
+cfprGmetaHolderFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmStageDescr managed
+        object property"
+    ::= { cfprGmetaHolderEntry 12 }
+
+cfprGmetaHolderFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmStamp managed object property"
+    ::= { cfprGmetaHolderEntry 13 }
+
+cfprGmetaHolderFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmStatus managed object property"
+    ::= { cfprGmetaHolderEntry 14 }
+
+cfprGmetaHolderFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:fsmTry managed object property"
+    ::= { cfprGmetaHolderEntry 15 }
+
+cfprGmetaHolderInventoryStatus OBJECT-TYPE
+    SYNTAX       CfprGmetaInventoryStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:inventoryStatus managed
+        object property"
+    ::= { cfprGmetaHolderEntry 16 }
+
+cfprGmetaHolderPollInterval OBJECT-TYPE
+    SYNTAX       CfprGmetaPollInterval
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:pollInterval managed
+        object property"
+    ::= { cfprGmetaHolderEntry 17 }
+
+cfprGmetaHolderProvider OBJECT-TYPE
+    SYNTAX       CfprExtpolConnType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Holder:provider managed object property"
+    ::= { cfprGmetaHolderEntry 18 }
+
+cfprGmetaHolderFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaHolderFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm managed object table"
+    ::= { cfprGmetaObjects 4 }
+
+cfprGmetaHolderFsmEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaHolderFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaHolderFsmTable table."
+    INDEX { cfprGmetaHolderFsmInstanceId }
+    ::= { cfprGmetaHolderFsmTable 1 }
+
+CfprGmetaHolderFsmEntry ::= SEQUENCE {
+    cfprGmetaHolderFsmInstanceId                                     CfprManagedObjectId,
+    cfprGmetaHolderFsmDn                                             CfprManagedObjectDn,
+    cfprGmetaHolderFsmRn                                             SnmpAdminString,
+    cfprGmetaHolderFsmCompletionTime                                 DateAndTime,
+    cfprGmetaHolderFsmCurrentFsm                                     CfprGmetaHolderFsmCurrentFsm,
+    cfprGmetaHolderFsmDescrData                                      SnmpAdminString,
+    cfprGmetaHolderFsmFsmStatus                                      CfprFsmFsmStageStatus,
+    cfprGmetaHolderFsmProgress                                       Gauge32,
+    cfprGmetaHolderFsmRmtErrCode                                     Gauge32,
+    cfprGmetaHolderFsmRmtErrDescr                                    SnmpAdminString,
+    cfprGmetaHolderFsmRmtRslt                                        CfprConditionRemoteInvRslt
+}
+
+cfprGmetaHolderFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaHolderFsmEntry 1 }
+
+cfprGmetaHolderFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:dn managed object property"
+    ::= { cfprGmetaHolderFsmEntry 2 }
+
+cfprGmetaHolderFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:rn managed object property"
+    ::= { cfprGmetaHolderFsmEntry 3 }
+
+cfprGmetaHolderFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:completionTime
+        managed object property"
+    ::= { cfprGmetaHolderFsmEntry 4 }
+
+cfprGmetaHolderFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprGmetaHolderFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:currentFsm managed
+        object property"
+    ::= { cfprGmetaHolderFsmEntry 5 }
+
+cfprGmetaHolderFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:descr managed object property"
+    ::= { cfprGmetaHolderFsmEntry 6 }
+
+cfprGmetaHolderFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:fsmStatus managed
+        object property"
+    ::= { cfprGmetaHolderFsmEntry 7 }
+
+cfprGmetaHolderFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:progress managed object property"
+    ::= { cfprGmetaHolderFsmEntry 8 }
+
+cfprGmetaHolderFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:rmtErrCode managed
+        object property"
+    ::= { cfprGmetaHolderFsmEntry 9 }
+
+cfprGmetaHolderFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:rmtErrDescr managed
+        object property"
+    ::= { cfprGmetaHolderFsmEntry 10 }
+
+cfprGmetaHolderFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsm:rmtRslt managed object property"
+    ::= { cfprGmetaHolderFsmEntry 11 }
+
+cfprGmetaHolderFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaHolderFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage managed object table"
+    ::= { cfprGmetaObjects 5 }
+
+cfprGmetaHolderFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaHolderFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaHolderFsmStageTable table."
+    INDEX { cfprGmetaHolderFsmStageInstanceId }
+    ::= { cfprGmetaHolderFsmStageTable 1 }
+
+CfprGmetaHolderFsmStageEntry ::= SEQUENCE {
+    cfprGmetaHolderFsmStageInstanceId                                CfprManagedObjectId,
+    cfprGmetaHolderFsmStageDn                                        CfprManagedObjectDn,
+    cfprGmetaHolderFsmStageRn                                        SnmpAdminString,
+    cfprGmetaHolderFsmStageDescrData                                 SnmpAdminString,
+    cfprGmetaHolderFsmStageLastUpdateTime                            DateAndTime,
+    cfprGmetaHolderFsmStageName                                      CfprGmetaHolderFsmStageName,
+    cfprGmetaHolderFsmStageOrder                                     Gauge32,
+    cfprGmetaHolderFsmStageRetry                                     Gauge32,
+    cfprGmetaHolderFsmStageStageStatus                               CfprFsmFsmStageStatus
+}
+
+cfprGmetaHolderFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaHolderFsmStageEntry 1 }
+
+cfprGmetaHolderFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:dn managed object property"
+    ::= { cfprGmetaHolderFsmStageEntry 2 }
+
+cfprGmetaHolderFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:rn managed object property"
+    ::= { cfprGmetaHolderFsmStageEntry 3 }
+
+cfprGmetaHolderFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:descr managed
+        object property"
+    ::= { cfprGmetaHolderFsmStageEntry 4 }
+
+cfprGmetaHolderFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprGmetaHolderFsmStageEntry 5 }
+
+cfprGmetaHolderFsmStageName OBJECT-TYPE
+    SYNTAX       CfprGmetaHolderFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:name managed
+        object property"
+    ::= { cfprGmetaHolderFsmStageEntry 6 }
+
+cfprGmetaHolderFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:order managed
+        object property"
+    ::= { cfprGmetaHolderFsmStageEntry 7 }
+
+cfprGmetaHolderFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:retry managed
+        object property"
+    ::= { cfprGmetaHolderFsmStageEntry 8 }
+
+cfprGmetaHolderFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmStage:stageStatus
+        managed object property"
+    ::= { cfprGmetaHolderFsmStageEntry 9 }
+
+cfprGmetaHolderFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaHolderFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmTask managed object table"
+    ::= { cfprGmetaObjects 6 }
+
+cfprGmetaHolderFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaHolderFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaHolderFsmTaskTable table."
+    INDEX { cfprGmetaHolderFsmTaskInstanceId }
+    ::= { cfprGmetaHolderFsmTaskTable 1 }
+
+CfprGmetaHolderFsmTaskEntry ::= SEQUENCE {
+    cfprGmetaHolderFsmTaskInstanceId                                 CfprManagedObjectId,
+    cfprGmetaHolderFsmTaskDn                                         CfprManagedObjectDn,
+    cfprGmetaHolderFsmTaskRn                                         SnmpAdminString,
+    cfprGmetaHolderFsmTaskCompletion                                 CfprFsmCompletion,
+    cfprGmetaHolderFsmTaskFlags                                      CfprGmetaHolderFsmTaskFlags,
+    cfprGmetaHolderFsmTaskItem                                       CfprGmetaHolderFsmTaskItem,
+    cfprGmetaHolderFsmTaskSeqId                                      Gauge32
+}
+
+cfprGmetaHolderFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaHolderFsmTaskEntry 1 }
+
+cfprGmetaHolderFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmTask:dn managed object property"
+    ::= { cfprGmetaHolderFsmTaskEntry 2 }
+
+cfprGmetaHolderFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmTask:rn managed object property"
+    ::= { cfprGmetaHolderFsmTaskEntry 3 }
+
+cfprGmetaHolderFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmTask:completion
+        managed object property"
+    ::= { cfprGmetaHolderFsmTaskEntry 4 }
+
+cfprGmetaHolderFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprGmetaHolderFsmTaskFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmTask:flags managed
+        object property"
+    ::= { cfprGmetaHolderFsmTaskEntry 5 }
+
+cfprGmetaHolderFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprGmetaHolderFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmTask:item managed object property"
+    ::= { cfprGmetaHolderFsmTaskEntry 6 }
+
+cfprGmetaHolderFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:HolderFsmTask:seqId managed
+        object property"
+    ::= { cfprGmetaHolderFsmTaskEntry 7 }
+
+cfprGmetaPolicyMapElementTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaPolicyMapElementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:PolicyMapElement managed object table"
+    ::= { cfprGmetaObjects 7 }
+
+cfprGmetaPolicyMapElementEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaPolicyMapElementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaPolicyMapElementTable table."
+    INDEX { cfprGmetaPolicyMapElementInstanceId }
+    ::= { cfprGmetaPolicyMapElementTable 1 }
+
+CfprGmetaPolicyMapElementEntry ::= SEQUENCE {
+    cfprGmetaPolicyMapElementInstanceId                              CfprManagedObjectId,
+    cfprGmetaPolicyMapElementDn                                      CfprManagedObjectDn,
+    cfprGmetaPolicyMapElementRn                                      SnmpAdminString,
+    cfprGmetaPolicyMapElementName                                    SnmpAdminString
+}
+
+cfprGmetaPolicyMapElementInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaPolicyMapElementEntry 1 }
+
+cfprGmetaPolicyMapElementDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:PolicyMapElement:dn managed
+        object property"
+    ::= { cfprGmetaPolicyMapElementEntry 2 }
+
+cfprGmetaPolicyMapElementRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:PolicyMapElement:rn managed
+        object property"
+    ::= { cfprGmetaPolicyMapElementEntry 3 }
+
+cfprGmetaPolicyMapElementName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:PolicyMapElement:name managed
+        object property"
+    ::= { cfprGmetaPolicyMapElementEntry 4 }
+
+cfprGmetaPolicyMapHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaPolicyMapHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:PolicyMapHolder managed object table"
+    ::= { cfprGmetaObjects 8 }
+
+cfprGmetaPolicyMapHolderEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaPolicyMapHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaPolicyMapHolderTable table."
+    INDEX { cfprGmetaPolicyMapHolderInstanceId }
+    ::= { cfprGmetaPolicyMapHolderTable 1 }
+
+CfprGmetaPolicyMapHolderEntry ::= SEQUENCE {
+    cfprGmetaPolicyMapHolderInstanceId                               CfprManagedObjectId,
+    cfprGmetaPolicyMapHolderDn                                       CfprManagedObjectDn,
+    cfprGmetaPolicyMapHolderRn                                       SnmpAdminString
+}
+
+cfprGmetaPolicyMapHolderInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaPolicyMapHolderEntry 1 }
+
+cfprGmetaPolicyMapHolderDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:PolicyMapHolder:dn managed object property"
+    ::= { cfprGmetaPolicyMapHolderEntry 2 }
+
+cfprGmetaPolicyMapHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:PolicyMapHolder:rn managed object property"
+    ::= { cfprGmetaPolicyMapHolderEntry 3 }
+
+cfprGmetaPropTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprGmetaPropEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Prop managed object table"
+    ::= { cfprGmetaObjects 9 }
+
+cfprGmetaPropEntry OBJECT-TYPE
+    SYNTAX           CfprGmetaPropEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprGmetaPropTable table."
+    INDEX { cfprGmetaPropInstanceId }
+    ::= { cfprGmetaPropTable 1 }
+
+CfprGmetaPropEntry ::= SEQUENCE {
+    cfprGmetaPropInstanceId                                          CfprManagedObjectId,
+    cfprGmetaPropDn                                                  CfprManagedObjectDn,
+    cfprGmetaPropRn                                                  SnmpAdminString,
+    cfprGmetaPropName                                                SnmpAdminString,
+    cfprGmetaPropOrder                                               Gauge32,
+    cfprGmetaPropPropId                                              SnmpAdminString
+}
+
+cfprGmetaPropInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprGmetaPropEntry 1 }
+
+cfprGmetaPropDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Prop:dn managed object property"
+    ::= { cfprGmetaPropEntry 2 }
+
+cfprGmetaPropRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Prop:rn managed object property"
+    ::= { cfprGmetaPropEntry 3 }
+
+cfprGmetaPropName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Prop:name managed object property"
+    ::= { cfprGmetaPropEntry 4 }
+
+cfprGmetaPropOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Prop:order managed object property"
+    ::= { cfprGmetaPropEntry 5 }
+
+cfprGmetaPropPropId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower gmeta:Prop:propId managed object property"
+    ::= { cfprGmetaPropEntry 6 }
+
+END

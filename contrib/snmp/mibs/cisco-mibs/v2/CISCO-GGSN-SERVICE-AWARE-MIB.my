@@ -1,0 +1,2641 @@
+-- $ID$
+-- ********************************************************************
+-- CISCO-GGSN-SERVICE-AWARE-MIB.my: MIB file for SERVICE-AWARE
+--   
+-- Aug   2005, Suma Marutirao  Sutar.
+-- Oct   2008, Annie Mishalini Devasahayam.
+-- Dec   2009, Bibhabari Praharaj
+--   
+-- Copyright (c) 2000-2006, 2008-2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- ********************************************************************
+-- $Endlog$
+
+CISCO-GGSN-SERVICE-AWARE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    cGgsnNotifPdpImsi,
+    cGgsnNotifPdpMsisdn
+        FROM CISCO-GGSN-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+cGgsnSAMIB MODULE-IDENTITY
+    LAST-UPDATED    "201008060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-gprs@cisco.com"
+    DESCRIPTION
+        "This MIB module manages the service-aware feature of
+        Gateway GPRS Support Node (GGSN).
+
+        This MIB is an enhancement of the CISCO-GGSN-MIB. 
+
+        There needs to be a tight coupling between GGSN and CSG 
+        in order to realize the enhanced GGSN, which is capable 
+        of categorizing traffic flowing within a PDP context to
+        different services.
+
+        An enhanced version of Diameter Credit Control 
+        Application (DCCA) will be used for implementing  
+        real-time credit control of end users in the IPS 
+        framework.  The GGSN will act as DCCA client and will 
+        interact with DCCA server for quota negotiation and
+        usage reporting.
+
+        The credit control request (CCR) message is used between
+        DCCA-Client (DCCA-C) and DCCA-Server to request credit 
+        authorization for a given service.  The credit control 
+        request has one mandatory AVP (Attribute Value Pair) 
+        called CCR.  For a session based credit control 
+        several interrogation required, the first, intermediate
+        and final.  The first interrogation must be sent
+        before the DCCA-C allows any service event to the 
+        user, CCR type is set to INITIAL in this case.  When all
+        the granted service units for one unit type are spent
+        by the end user or the validity time is expired
+        the DCCA-C must send a new credit control (CC) request
+        to CC server, this is the intermediate interrogation
+        and the CCR type AVP is set to the value UPDATE. 
+        When the end user terminates a service session the 
+        DCCA-C must send a final CCR request message to the 
+        CC server.  The CCR type AVP is set to the FINAL 
+        or TERMINATION_REQUSET. 
+
+        CSG will be responsible for categorizing the traffic, 
+        quota management activities and usage reporting 
+        functions.  GGSN will act as a quota server for CSG. 
+        A proprietary interface based on GTP' will be used 
+        between GGSN and CSG.     
+
+         Acronyms and terms:
+
+         APN    Access Point Name
+         CCA    Credit Control Answer
+         CCR    Credit Control Request
+         CCFH   Credit Control Failure  Handling
+         CDR    Charging Data Record
+         CLCI   Closed Loop Charging Interface
+         CSG    Content Service Gateway
+         DCCA   Diameter Credit Control Application
+         ETSI   European Telecommunications Standards Institute
+         GGSN   Gateway GPRS Support Node
+         GPRS   General Packet Radio Service
+         GSM    Global System for Mobile communication
+         GTP    GPRS Tunneling Protocol
+         MS     Mobile Station
+         MSISDN Mobile Station ISDN number
+         PDP    Packet Data Protocol
+         PLMN   Public Land Mobile Network
+         SGSN   Serving GPRS support Node
+         SLB    Server Load Balancing
+         TFT    Traffic Flow Template
+         UMTS   Universal Mobile Telecommunications System
+         QS     Quota Server
+         UE     User Equipment
+
+        REFERENCE
+
+        [1] GSM 03.60: Digital cellular telecommunications
+            system (Phase 2+); General Packet Radio Service
+            (GPRS); Service description; Stage 2. V7.1.0
+
+        [2] GSM 09.60: Digital cellular telecommunication
+            system (Phase 2+); General Packet Radio Service
+            (GPRS); GPRS Tunnelling Protocol (GTP) across
+            Gn and Gp Interface. V7.3.0
+
+        [3] 3GPP; Technical Specification Group Services
+            and System Aspects; QoS Concept and Architecture.
+            3G TS 23.107 v3.2.0.
+
+        [4] 3GPP; Technical Specification Group Core Network;
+            General Packet Radio Service(GPRS); GPRS
+            Tunnelling Protocol (GTP) across Gn and Gp
+            Interface (Release 1999). 3G TS 29.060 v3.5.0."
+    REVISION        "201008060000Z"
+    DESCRIPTION
+        "The following changes have been made.
+
+        [1] Modified description for the following.
+
+            cGgsnSADccaTriggerSgsnChange,
+            cGgsnSADccaTriggerQosChange,
+            cGgsnSADccaTriggerPlmnChange,
+            cGgsnSADccaTriggerRatChange,
+            cGgsnSADccaTriggerUserLocChange,
+            cGgsnSADccaClci.
+
+        [2] Added the enumeration 'none' to object
+            cGgsnSADccaClci and changed its default value
+            to 'none'."
+    REVISION        "200912160000Z"
+    DESCRIPTION
+        "Added new TEXTUAL-CONVENTION CGgsnCsgPathState.
+
+        Added the following objects to
+        cGgsnSACsgTable.
+        cGgsnSACsgAaaAcctGroup,
+        cGgsnSACsgPathState,
+        cGgsnSACsgNumPdps.
+
+        Added cggsnSACsgStatisticsTable and the 
+        following objects to the table.
+        cGgsnSACsgStatsOutboundMsgs,
+        cGgsnSACsgStatsOutboundOctets,
+        cGgsnSACsgStatsInboundMsgs,
+        cGgsnSACsgStatsInboundOctets,
+        cGgsnSACsgStatsServiceAuthReqs,
+        cGgsnSACsgStatsServiceAuthResps,
+        cGgsnSACsgStatsServiceReAuthReqs,
+        cGgsnSACsgStatsQuotaReturns,
+        cGgsnSACsgStatsQuotaReturnReqs,
+        cGgsnSACsgStatsQuotaReturnAccept,
+        cGgsnSACsgStatsServiceStopMsgs,
+        cGgsnSACsgStatsServiceStopReqs,
+        cGgsnSACsgStatsQuotaPushMsgs,
+        cGgsnSACsgStatsQuotaPushRsps,
+        cGgsnSACsgStatsGtpAcks.
+
+        deprecated the following objects
+        cGgsnSACsgOutboundMsgs,
+        cGgsnSACsgOutboundOctets,
+        cGgsnSACsgInboundMsgs,
+        cGgsnSACsgInboundOctets,
+        cGgsnSACsgServiceAuthReqs,
+        cGgsnSACsgServiceAuthResps,
+        cGgsnSACsgServiceReAuthReqs,
+        cGgsnSACsgQuotaReturns,
+        cGgsnSACsgQuotaReturnReqs,
+        cGgsnSACsgQuotaPushResps,
+        cGgsnSACsgServiceStopMsgs,
+        cGgsnSACsgServiceStopReqs,
+        cGgsnSACsgQuotaPushMsgs,
+        cGgsnSACsgQuotaPushRsps,
+        cGgsnSACsgGtpAcks.
+
+        Deprecated cGgsnSACsgStateUpNotif
+        and cGgsnSACsgStateDownNotif.
+        Added new notifications cGgsnSACsgR100StateUpNotif
+        and cGgsnSACsgR100StateDownNotif and added below objects
+        to the notifications
+        cGgsnSANotifCsgName
+        cGgsnSANotifCsgRealAddressType
+        cGgsnSANotifCsgRealAddress
+        cGgsnSANotifCsgVirtualAddrType
+        cGgsnSANotifCsgVirtualAddress
+        cGgsnSANotifCsgPort.
+
+        Deprecated OBJECT-GROUPs cGgsnSAStatisticsGroup and
+        cGgsnSANotifGroup.
+        Added following OBJECT-GROUPs
+        cGgsnSAConfigurationsGroupR100,
+        cGgsnSAStatisticsGroupR100,
+        cGgsnSANotifInfoGroupR100,
+        cGgsnSANotifGroupR100.
+        Created new MODULE-COMPLIANCE cGgsnSAMIBComplianceRev4."
+    REVISION        "200909170000Z"
+    DESCRIPTION
+        "Added cGgsnSAQuotaServerSvcMsgEnabled to
+        cGgsnSAQuotaServerEntry.
+
+        Added following OBJECT-GROUP
+        cGgsnSAConfigurationsGroupSup1
+
+        Added MODULE-COMPLIANCE cGgsnSAMIBComplianceRev3,
+        which deprecates cGgsnSAMIBComplianceRev2."
+    REVISION        "200812100000Z"
+    DESCRIPTION
+        "Added cGgsnSADccaTriggerUserLocChange to
+        cGgsnSADccaProfileTable."
+    REVISION        "200605041700Z"
+    DESCRIPTION
+        "Added following objects to cGgsnSADccaProfileTable:
+        cGgsnSADccaTriggerPlmnChange, 
+        cGgsnSADccaTriggerRatChange.
+        Added following group to cGgsnSAMIBGroups:
+        cGgsnSAExtConfigurationsGroup.
+        Added following compliance to cGgsnSAMIBCompliances:
+        cGgsnSAMIBComplianceRev1."
+    REVISION        "200510110900Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 497 }
+
+
+
+-- Textual convention
+
+CGgsnCsgPathState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This data type is used to specify the CSG
+        Path State. CSG path indicates the link between
+        GGSN and configured CSG. Values down/up indicates
+        the state of the link."
+    SYNTAX          BITS {
+                        down(0),
+                        up(1)
+                    }
+-- Object definitions
+
+cGgsnSAMIBObjects  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIB 1 }
+
+cGgsnSAStatistics  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIBObjects 1 }
+
+cGgsnSACsgStatistics  OBJECT IDENTIFIER
+    ::= { cGgsnSAStatistics 1 }
+
+cGgsnSAQuotaServerStatistics  OBJECT IDENTIFIER
+    ::= { cGgsnSAStatistics 2 }
+
+cGgsnSAServiceAwareStatistics  OBJECT IDENTIFIER
+    ::= { cGgsnSAStatistics 3 }
+
+cGgsnSANotifMgmt  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIBObjects 2 }
+
+cGgsnSAConfigurations  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIBObjects 3 }
+
+cGgsnSANotifInfo  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIBObjects 4 }
+
+
+-- Statistics
+--   
+
+-- CSG statistics
+
+cGgsnSACsgOutboundMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages sent. This object is deprecated and replaced by
+        cGgsnSACsgStatsOutboundMsgs object." 
+    ::= { cGgsnSACsgStatistics 1 }
+
+cGgsnSACsgOutboundOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages sent in terms of octets. This object is
+        deprecated and replaced by cGgsnSACsgStatsOutboundOctets." 
+    ::= { cGgsnSACsgStatistics 2 }
+
+cGgsnSACsgInboundMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages received. This object is deprecated and replaced
+        by cGgsnSACsgStatsInboundMsgs object." 
+    ::= { cGgsnSACsgStatistics 3 }
+
+cGgsnSACsgInboundOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages received in terms of octets. This object is
+        deprecated and replaced by cGgsnSACsgStatsInboundOctets." 
+    ::= { cGgsnSACsgStatistics 4 }
+
+cGgsnSACsgServiceAuthReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of requests by the CSG for
+        initial quota grant of a particular category.  Currently, 
+        the CSG allows only synchronous quota grants (i.e., grants due
+        to explicit requests from it). This object is deprecated and
+        replaced by cGgsnSACsgStatsServiceAuthReqs object." 
+    ::= { cGgsnSACsgStatistics 5 }
+
+cGgsnSACsgServiceAuthResps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of responses given to the
+        CSG for service authorization requests. This object is
+        deprecated and replaced by cGgsnSACsgStatsServiceAuthResps." 
+    ::= { cGgsnSACsgStatistics 6 }
+
+cGgsnSACsgServiceReAuthReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of service re-authorization
+        requests by the CSG for a category verification. This object is
+        deprecated and replaced by cGgsnSACsgStatsServiceReAuthReqs." 
+    ::= { cGgsnSACsgStatistics 7 }
+
+cGgsnSACsgQuotaReturns OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of quota return messages by
+        the CSG.  The CSG sends quota return message when validity 
+        timer expires or there is no response message from the QS.
+        On receipt of quota return message, QS returns the usage of 
+        a particular category. This object is deprecated and replaced
+        by cGgsnSACsgStatsQuotaReturns object." 
+    ::= { cGgsnSACsgStatistics 8 }
+
+cGgsnSACsgQuotaReturnReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of quota return requests
+        by the QS.  QS may send this message to cause CSG to
+        return unused quota for the target service.
+
+        QS sends the quota return request when the validity timer 
+        expires, this in turn triggers the CCR update.  The DCCA server
+        grants quota in response to quota return request. This object is
+        deprecated and replaced by cGgsnSACsgStatsQuotaReturnReqs." 
+    ::= { cGgsnSACsgStatistics 9 }
+
+cGgsnSACsgQuotaPushResps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of quota push responses
+        by the CSG.  The purpose of quota push response is mainly
+        to convey session ID to QS, so that QS can save it for
+        subsequent transactions it originates. This object is
+        deprecated and replaced by cGgsnSACsgStatsQuotaReturnAccept
+        object." 
+    ::= { cGgsnSACsgStatistics 10 }
+
+cGgsnSACsgServiceStopMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of service stop messages
+        by the CSG.
+        The following list summarizes the situations under which user 
+        is disconnected from the service: 
+        - When the CSG removes the user, by a RADIUS Accounting
+         (stop) message, the CSG sends the service stop message for
+          each service for which user had an active session.
+        - When the idle timer on the CSG expires, it will send service
+          stop for the category.
+        - If the QS sends service stop request message.
+          The CSG will report the usage and remaining quota.
+
+        This object is deprecated and replaced by
+        cGgsnSACsgStatsServiceStopMsgs object." 
+    ::= { cGgsnSACsgStatistics 11 }
+
+cGgsnSACsgServiceStopReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of service stop messages
+        received by the CSG. 
+
+        If following a quota push message and update request from
+        SGSN, GGSN sent a CCR update and received CCA update with
+        terminate category, in this case GGSN will generate service
+        stop request to CSG. This object is deprecated and replaced
+        by cGgsnSACsgStatsServiceStopReqs object." 
+    ::= { cGgsnSACsgStatistics 12 }
+
+cGgsnSACsgQuotaPushMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of quota push messages sent
+        by the GGSN.
+        GGSN sends the quota push message in the following
+        conditions:
+        - When DCCA server returns non zero quota.
+        - When category is blacklisted or unknown.
+        - When retransmit (Tx) timer, associated with DCCA client,
+          expires.
+        - When credit control not required.
+
+        This object is deprecated and replaced by
+        cGgsnSACsgStatsQuotaPushMsgs object." 
+    ::= { cGgsnSACsgStatistics 13 }
+
+cGgsnSACsgQuotaPushRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of quota push responses by
+        the CSG.  The CSG respond to the quota push with the quota push
+        response.  The cause IE in the GTP' header indicates
+        success/failure.  The category whose quota is pushed must be 
+        statically configured on the CSG.  If it is not configured,
+        CSG sends the reject cause 255 in its quota push response.
+        This object is deprecated and replaced by
+        cGgsnSACsgStatsQuotaPushRsps object." 
+    ::= { cGgsnSACsgStatistics 14 }
+
+cGgsnSACsgGtpAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of GTP' level
+        acknowledgements by the CSG for some requests from the QS  
+        (e.g., quota return request and service stop request).
+        The acknowledgements do not contain the user index and service 
+        ID TLVs, which are helpful for category lookup.  However,
+        they contain the sequence number in the GTP' header that 
+        matches with that of the corresponding requests. This object
+        is deprecated and replaced by cGgsnSACsgStatsGtpAcks object." 
+    ::= { cGgsnSACsgStatistics 15 }
+
+cggsnSACsgStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CggsnSACsgStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the path statistics of
+        each CSG Group on this GGSN."
+    ::= { cGgsnSACsgStatistics 16 }
+
+cggsnSACsgStatisticsEntry OBJECT-TYPE
+    SYNTAX          CggsnSACsgStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Entry for each CSG path statistics table."
+    AUGMENTS           { cGgsnSACsgEntry  } 
+ 
+    ::= { cggsnSACsgStatisticsTable 1 }
+
+CggsnSACsgStatisticsEntry ::= SEQUENCE {
+        cGgsnSACsgStatsOutboundMsgs      Counter32,
+        cGgsnSACsgStatsOutboundOctets    Counter32,
+        cGgsnSACsgStatsInboundMsgs       Counter32,
+        cGgsnSACsgStatsInboundOctets     Counter32,
+        cGgsnSACsgStatsServiceAuthReqs   Counter32,
+        cGgsnSACsgStatsServiceAuthResps  Counter32,
+        cGgsnSACsgStatsServiceReAuthReqs Counter32,
+        cGgsnSACsgStatsQuotaReturns      Counter32,
+        cGgsnSACsgStatsQuotaReturnReqs   Counter32,
+        cGgsnSACsgStatsQuotaReturnAccept Counter32,
+        cGgsnSACsgStatsServiceStopMsgs   Counter32,
+        cGgsnSACsgStatsServiceStopReqs   Counter32,
+        cGgsnSACsgStatsQuotaPushMsgs     Counter32,
+        cGgsnSACsgStatsQuotaPushRsps     Counter32,
+        cGgsnSACsgStatsGtpAcks           Counter32
+}
+
+cGgsnSACsgStatsOutboundMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages sent." 
+    ::= { cggsnSACsgStatisticsEntry 1 }
+
+cGgsnSACsgStatsOutboundOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages sent in terms of octets." 
+    ::= { cggsnSACsgStatisticsEntry 2 }
+
+cGgsnSACsgStatsInboundMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages received." 
+    ::= { cggsnSACsgStatisticsEntry 3 }
+
+cGgsnSACsgStatsInboundOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate number of echo request, echo response, and node
+        alive messages received in terms of octets." 
+    ::= { cggsnSACsgStatisticsEntry 4 }
+
+cGgsnSACsgStatsServiceAuthReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of requests by the CSG for
+        initial quota grant of a particular category.  Currently,
+        the CSG allows only synchronous quota grants (i.e., grants due
+        to explicit requests from it)." 
+    ::= { cggsnSACsgStatisticsEntry 5 }
+
+cGgsnSACsgStatsServiceAuthResps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of responses given to the
+        CSG for service authorization requests." 
+    ::= { cggsnSACsgStatisticsEntry 6 }
+
+cGgsnSACsgStatsServiceReAuthReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of service re-authorization
+        requests by the CSG for a category verification." 
+    ::= { cggsnSACsgStatisticsEntry 7 }
+
+cGgsnSACsgStatsQuotaReturns OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of quota return messages by
+        the CSG.  The CSG sends quota return message when validity
+        timer expires or there is no response message from the QS.
+        On receipt of quota return message, QS returns the usage of
+        a particular category." 
+    ::= { cggsnSACsgStatisticsEntry 8 }
+
+cGgsnSACsgStatsQuotaReturnReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of quota return requests
+        by the QS.  QS may send this message to cause CSG to
+        return unused quota for the target service.
+
+        QS sends the quota return request when the validity timer
+        expires, this in turn triggers the CCR update.  The DCCA server
+        grants quota in response to quota return request." 
+    ::= { cggsnSACsgStatisticsEntry 9 }
+
+cGgsnSACsgStatsQuotaReturnAccept OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of quota return responses
+        by the CSG.  The purpose of quota return response is mainly
+        to convey session ID to QS, so that QS can save it for
+        subsequent transactions it originates." 
+    ::= { cggsnSACsgStatisticsEntry 10 }
+
+cGgsnSACsgStatsServiceStopMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of service stop messages
+        by the CSG to QS.
+
+        The following list summarizes the situations under which user
+        is disconnected from the service:
+
+        - When the CSG removes the user, by a RADIUS Accounting
+         (stop) message, the CSG sends the service stop message for
+          each service for which user had an active session.
+
+        - When the idle timer on the CSG expires, it will send service
+          stop for the category.
+
+        - If the QS sends service stop request message.
+          The CSG will report the usage and remaining quota." 
+    ::= { cggsnSACsgStatisticsEntry 11 }
+
+cGgsnSACsgStatsServiceStopReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of service stop messages
+        received by the CSG.
+
+        If following a quota push message and update request from
+        SGSN, GGSN sent a CCR update and received CCA update with
+        terminate category, in this case GGSN will generate service
+        stop request to CSG." 
+    ::= { cggsnSACsgStatisticsEntry 12 }
+
+cGgsnSACsgStatsQuotaPushMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of quota push messages sent
+        by the GGSN.
+        GGSN sends the quota push message in the following
+        conditions:
+        - When DCCA server returns non zero quota.
+        - When category is blacklisted or unknown.
+        - When retransmit (Tx) timer, associated with DCCA client,
+          expires.
+        - When credit control not required." 
+    ::= { cggsnSACsgStatisticsEntry 13 }
+
+cGgsnSACsgStatsQuotaPushRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of quota push responses sent
+        by the CSG.  The CSG respond to the quota push message with the
+        quota push response.  The cause IE in the GTP header indicates
+        success/failure.  The category whose quota is pushed must be
+        statically configured on the CSG.  If it is not configured,
+        CSG sends the reject cause 255 in its quota push response." 
+    ::= { cggsnSACsgStatisticsEntry 14 }
+
+cGgsnSACsgStatsGtpAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of GTP's level
+        acknowledgements by the CSG for some requests from the QS
+        (e.g., quota return request and service stop request).
+        The acknowledgements do not contain the user index and service
+        ID TLVs, which are helpful for category lookup.  However,
+        they contain the sequence number in the GTP header that
+        matches with that of the corresponding requests." 
+    ::= { cggsnSACsgStatisticsEntry 15 }
+ 
+
+
+-- Quota Server
+
+cGgsnSAQsRcvdRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of request messages
+        received from the CSG.  The counter is incremented
+        when QS receives the messages as listed below:
+
+        - User profile request.
+        - Service authorization request.
+        - Service re-authorization request.
+        - Content authorization request." 
+    ::= { cGgsnSAQuotaServerStatistics 1 }
+
+cGgsnSAQsRcvdResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of responses received from
+        the CSG for the corresponding requests." 
+    ::= { cGgsnSAQuotaServerStatistics 2 }
+
+cGgsnSAQsSentRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of request messages
+        sent to the CSG.  The counter is incremented for every
+        request sent from the QS, like,
+
+        - Quota return request
+        - Service stop request
+        - User disconnect request." 
+    ::= { cGgsnSAQuotaServerStatistics 3 }
+
+cGgsnSAQsSentResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates number of responses sent, for the
+        requests received from CSG.  The counter is incremented
+        when QS sends the response, like,
+
+        - User profile response
+        - Service authorization response
+        - Content authorization response." 
+    ::= { cGgsnSAQuotaServerStatistics 4 }
+
+cGgsnSAQsRcvdPathRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of echo request and node
+        alive request received from the CSG.  Both CSG and QS use 
+        echoes to detect health of path between them.  The CSG sends
+        the real address while sending the request." 
+    ::= { cGgsnSAQuotaServerStatistics 5 }
+
+cGgsnSAQsRcvdPathResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of responses received for
+        path management request messages from QS." 
+    ::= { cGgsnSAQuotaServerStatistics 6 }
+
+cGgsnSAQsSentPathRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of echo request messages
+        sent by the QS, to check the health of the path between
+        QS and CSG." 
+    ::= { cGgsnSAQuotaServerStatistics 7 }
+
+cGgsnSAQsSentPathResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of path responses sent
+        by the QS.  The QS sends the node alive response to the CSG 
+        for node alive request and it sends the response for the echo
+        request made by CSG, with valid restart counter." 
+    ::= { cGgsnSAQuotaServerStatistics 8 }
+
+cGgsnSAQsRcvdNegativeResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of negative responses
+        received from the CSG.  The CSG sends negative GTP' 
+        acknowledgement and also the failure cause code in the 
+        quota push response." 
+    ::= { cGgsnSAQuotaServerStatistics 9 }
+
+cGgsnSAQsRequestsUnreplied OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of pending requests which
+        are waiting for the response from CSG." 
+    ::= { cGgsnSAQuotaServerStatistics 10 }
+
+cGgsnSAQsSeqnumFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages received
+        without proper sequence number.
+
+        The QS uses different pool of sequence numbers for
+        quota management and path management messages.  To manage 
+        these sequence numbers, QS utilizes the service of sequence
+        number manager.  For quota management messages the sequence 
+        numbers start from 1 and increases till 65535 and then wraps
+        around." 
+    ::= { cGgsnSAQuotaServerStatistics 11 }
+
+cGgsnSAQsDroppedMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of dropped messages.  The QS
+        verifies the GTP' header content before queuing an
+        inbound message to the QS process.  If any field is bad, it 
+        will drop the message before queuing." 
+    ::= { cGgsnSAQuotaServerStatistics 12 }
+
+cGgsnSAQsUnknownMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unknown messages
+        in the QS." 
+    ::= { cGgsnSAQuotaServerStatistics 13 }
+
+cGgsnSAQsUnknownResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unknown responses
+        received by the QS." 
+    ::= { cGgsnSAQuotaServerStatistics 14 }
+
+cGgsnSAQsIEErrorMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages received with
+        IE error." 
+    ::= { cGgsnSAQuotaServerStatistics 15 }
+
+cGgsnSAQsBadSrcAddressMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages with
+        bad source address." 
+    ::= { cGgsnSAQuotaServerStatistics 16 }
+
+cGgsnSAQsVersionUnSupportedMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages with a higher
+        version.  The QS and CSG uses version '0' of GTP' for 
+        communication between them.  If CSG sends message with
+        higher version, QS will respond with the message
+        'version not supported'." 
+    ::= { cGgsnSAQuotaServerStatistics 17 }
+
+cGgsnSAQsMandTlvMissingMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages sent by CSG with
+        mandatory TLV missing.  The message will be dropped." 
+    ::= { cGgsnSAQuotaServerStatistics 18 }
+
+cGgsnSAQsMandTlvIncorrectMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages sent by the CSG
+        with incorrect mandatory TLV." 
+    ::= { cGgsnSAQuotaServerStatistics 19 }
+
+cGgsnSAQsInvalidMsgFormats OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages sent by the CSG
+        with TLV of unexpected length.  The QS will drop the message." 
+    ::= { cGgsnSAQuotaServerStatistics 20 }
+
+cGgsnSAQsNoResponseToMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages sent from QS, for
+        which there is no response from the CSG after n3/t3 
+        retransmission." 
+    ::= { cGgsnSAQuotaServerStatistics 21 }
+
+-- GGSN Service-aware Statistics
+
+cGgsnSANumServiceAwareApns OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of service
+        aware APNs." 
+    ::= { cGgsnSAServiceAwareStatistics 1 }
+
+cGgsnSATotalGgsnEvents OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of GGSN events." 
+    ::= { cGgsnSAServiceAwareStatistics 2 }
+
+cGgsnSATotalCsgEvents OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of CSG events." 
+    ::= { cGgsnSAServiceAwareStatistics 3 }
+
+cGgsnSATotalDccaEvents OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DCCA events." 
+    ::= { cGgsnSAServiceAwareStatistics 4 }
+
+cGgsnSATotalCreatedCategories OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of categories
+        that are created.  Categories will not be statically
+        configured in GGSN.  GGSN learn about the categories for
+        particular PDP session dynamically by DCCA server and CSG." 
+    ::= { cGgsnSAServiceAwareStatistics 5 }
+
+cGgsnSATotalCreatedSyncObjs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of synchronization
+        objects that get created for each of the trigger, which keep
+        track of the affected categories and their current state.
+        The synchronization object contains:
+
+        -Type of object
+
+        -List of affected categories." 
+    ::= { cGgsnSAServiceAwareStatistics 6 }
+
+cGgsnSACategoryFsmRtnErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of errors, returned by
+        category FSM." 
+    ::= { cGgsnSAServiceAwareStatistics 7 }
+
+cGgsnSATotalServiceAuthMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of service
+        authorization messages sent by CSG." 
+    ::= { cGgsnSAServiceAwareStatistics 8 }
+
+cGgsnSATotalServiceStopMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total number of service stop
+        messages received." 
+    ::= { cGgsnSAServiceAwareStatistics 9 }
+
+cGgsnSATotalQuotaGranted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total amount of quota granted." 
+    ::= { cGgsnSAServiceAwareStatistics 10 }
+
+cGgsnSATotalBlackListCategories OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of categories which
+        are blacklisted." 
+    ::= { cGgsnSAServiceAwareStatistics 11 }
+
+cGgsnSATotalRAREvents OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of re-authorization
+        (RAR) events." 
+    ::= { cGgsnSAServiceAwareStatistics 12 }
+
+cGgsnSATotalDeletePdps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number PDPs which are deleted." 
+    ::= { cGgsnSAServiceAwareStatistics 13 }
+
+cGgsnSAFinalConvertToPostpaidPdps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of prepaid PDPs which are
+        converted to postpaid after reporting the final usage of the 
+        quota.
+
+        The steps involved are: send quota return request to the
+        CSG and if there is a synchronization object for Gn side
+        trigger, send the update response and delete the sync object.
+        Create a new sync object for this event.  Make the category
+        part of sync object." 
+    ::= { cGgsnSAServiceAwareStatistics 14 }
+
+cGgsnSATotalGgsnFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of GGSN failures
+        (i.e., when GGSN fails to communicate with CSG or fail to
+        receive response from DCCA server)." 
+    ::= { cGgsnSAServiceAwareStatistics 15 }
+
+cGgsnSATotalCsgFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of CSG failures
+        (i.e., failure in communication with QS)." 
+    ::= { cGgsnSAServiceAwareStatistics 16 }
+
+cGgsnSATotalDccaFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of failures, in DCCA
+        server." 
+    ::= { cGgsnSAServiceAwareStatistics 17 }
+
+cGgsnSATotalDeletedCategories OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of categories,
+        which are deleted from the list." 
+    ::= { cGgsnSAServiceAwareStatistics 18 }
+
+cGgsnSATotalDeletedSyncObjects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of synchronization
+        objects which are deleted." 
+    ::= { cGgsnSAServiceAwareStatistics 19 }
+
+cGgsnSATotalQuotaPushAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of
+        acknowledgements received for the quota push event." 
+    ::= { cGgsnSAServiceAwareStatistics 20 }
+
+cGgsnSATotalServiceReAuthMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of service
+        re-authorization messages sent by CSG." 
+    ::= { cGgsnSAServiceAwareStatistics 21 }
+
+cGgsnSATotalQuotaReturns OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of quota
+        return message sent by CSG." 
+    ::= { cGgsnSAServiceAwareStatistics 22 }
+
+cGgsnSATotalTerminateCategories OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of categories
+        which are terminated.
+        The category is terminated, if:
+
+        -PDP session is terminated
+        -Category Termination event in CCA message
+        -QHT expires for a category." 
+    ::= { cGgsnSAServiceAwareStatistics 23 }
+
+cGgsnSATotalUnknownCategories OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of unknown
+        categories." 
+    ::= { cGgsnSAServiceAwareStatistics 24 }
+
+cGgsnSATotalRatingChanges OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of rating condition
+        change events.  Rating condition change is typically an update
+        request from SGSN involving SGSN change or QOS change." 
+    ::= { cGgsnSAServiceAwareStatistics 25 }
+
+cGgsnSATotalPostpaidConversions OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of conversions,
+        from prepaid to postpaid." 
+    ::= { cGgsnSAServiceAwareStatistics 26 }
+
+cGgsnSATotalDummyQuotas OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total amount of dummy quota pushed
+        to CSG." 
+    ::= { cGgsnSAServiceAwareStatistics 27 }
+
+cGgsnSATotalPrepaidUsers OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of prepaid
+        users." 
+    ::= { cGgsnSAServiceAwareStatistics 28 }
+
+cGgsnSATotalPostpaidUsers OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of postpaid
+        users." 
+    ::= { cGgsnSAServiceAwareStatistics 29 }
+
+cGgsnSARejDccaFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of PDP sessions,
+        which are rejected due to DCCA failure." 
+    ::= { cGgsnSAServiceAwareStatistics 30 }
+
+cGgsnSARejCsgFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of rejected PDPs
+        due to CSG failure." 
+    ::= { cGgsnSAServiceAwareStatistics 31 }
+
+-- Notification-Related Objects
+
+cGgsnSACsgNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether cGgsnSACsgR100StateUpNotif notification
+        and cGgsnSACsgR100StateDownNotif notification will be sent
+        when  the path state between CSG and QS goes UP/DOWN.
+
+         - 'true',  it will enable the device to send a notification.
+
+         - 'false', it will prevent the device from sending out a
+           notification."
+    DEFVAL          { false } 
+    ::= { cGgsnSANotifMgmt 1 }
+
+cGgsnSADccaNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether cGgsnSADccaEndUsrServDeniedNotif,
+        cGgsnSADccaCreditLimReachedNotif, cGgsnSADccaUserUnknownNotif,
+        cGgsnSADccaRatingFailed, cGgsnSADccaAuthRejectedNotif
+        notifications will be sent when a notification is generated
+        by the device.
+
+        - 'true', it will enable the device to send a notification.
+
+        - 'false', it will prevent the device from sending out a
+          notification."
+    DEFVAL          { false } 
+    ::= { cGgsnSANotifMgmt 2 }
+
+-- Configurations
+
+cGgsnSAServiceAware OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the service-aware feature on GGSN.
+
+        If this object is set to 'true', all service-aware
+        features (e.g. quota-server, csg, dcca) can be seen.
+
+        If this object is set to 'false', it will disable the
+        GGSN service from the GPRS service."
+    DEFVAL          { false } 
+    ::= { cGgsnSAConfigurations 1 }
+-- DCCA
+
+cGgsnSADccaProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnSADccaProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table represents a list of DCCA profiles.
+
+        The GPRS-DCCA-Client component is responsible 
+        for interfacing with the DCCA server.
+
+        A DCCA profile defines the DCCA server group. The DCCA client
+        specific configurations will be put in a DCCA profile table,
+        and it is indexed by profile name. 
+
+        The agent can create/destroy/modify a profile as a result 
+        of actions from the local console. The table objects can be 
+        modified, when the RowStatus (cGgsnSADccaRowStatus) is active."
+    ::= { cGgsnSAConfigurations 2 }
+
+cGgsnSADccaProfileEntry OBJECT-TYPE
+    SYNTAX          CGgsnSADccaProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry contains DCCA profile, which interact with DCCA
+        server for quota negotiation and usage reporting.
+
+        The entries in this table are stored in NVRAM when the agent 
+        writes the configuration to memory before restart."
+    INDEX           { cGgsnSADccaProfileName } 
+    ::= { cGgsnSADccaProfileTable 1 }
+
+CGgsnSADccaProfileEntry ::= SEQUENCE {
+        cGgsnSADccaProfileName          SnmpAdminString,
+        cGgsnSADccaAuthorization        SnmpAdminString,
+        cGgsnSADccaCcfh                 INTEGER,
+        cGgsnSADccaDestinationRealm     SnmpAdminString,
+        cGgsnSADccaSessionFailover      TruthValue,
+        cGgsnSADccaTxTimeout            Unsigned32,
+        cGgsnSADccaTriggerSgsnChange    TruthValue,
+        cGgsnSADccaTriggerQosChange     TruthValue,
+        cGgsnSADccaRowStatus            RowStatus,
+        cGgsnSADccaTriggerPlmnChange    TruthValue,
+        cGgsnSADccaTriggerRatChange     TruthValue,
+        cGgsnSADccaTriggerUserLocChange TruthValue
+}
+
+cGgsnSADccaProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the DCCA profile name.
+
+        The GGSN contacts the DCCA server, for online billing,
+        if the DCCA profile name is set in charging profile." 
+    ::= { cGgsnSADccaProfileEntry 1 }
+
+cGgsnSADccaAuthorization OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object must be set to a valid value upon transition of
+        the entry to the 'active' state. 
+
+        The object defines the authorization method list 
+        (given by AAA authorization) referencing the DIAMETER server 
+        group, which are defined in an AAA server group." 
+    ::= { cGgsnSADccaProfileEntry 2 }
+
+cGgsnSADccaCcfh OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        terminate(1),
+                        retryTerminate(2),
+                        continue(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CCFH attribute. The
+        CCFH value governs the behavior of credit control client 
+        in fault situations.  When the response is not received from 
+        the DCCA server within the configured retransmit timer,  
+        handling is done based on the CCFH attribute for the session. 
+
+        - 'continue': The CCFH will allow the PDP context to 
+          continue and allow the traffic.
+
+        - 'terminate': It will terminate the PDP context and the
+          CC session.
+
+        - 'retryTerminate': The DCCA client retries an alternate 
+          server and if 'fail-to send' condition occur, then
+          PDP context will be terminated."
+    DEFVAL          { terminate } 
+    ::= { cGgsnSADccaProfileEntry 3 }
+
+cGgsnSADccaDestinationRealm OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Destination realm is to be sent within the CCR (Initial)
+        request.  This is the mandatory configuration while defining
+        the row and can be changed when the row is still active.
+        For subsequent CCRs, the original-realm AVP received in
+        the last CCA is used as destination-realm." 
+    ::= { cGgsnSADccaProfileEntry 4 }
+
+cGgsnSADccaSessionFailover OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether session failover is
+        supported or not. 
+
+        If this object is set to 'false', credit control session 
+        will never be moved to an alternate server. 
+
+        If this object is set to 'true', DCCA client will move the 
+        session to an alternate server."
+    DEFVAL          { false } 
+    ::= { cGgsnSADccaProfileEntry 5 }
+
+cGgsnSADccaTxTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the retransmit timer value for DCCA
+        client.
+
+        The retransmit timeout is to be used for CCR messages.  The 
+        DCCA specification defines a retransmit timer (Tx) that is 
+        used by the client to supervise the communication with 
+        the server, because for pre-paid services, the end user 
+        expects the response from the network in a reasonable time, 
+        thus the DCCA client shall react faster than the underlying  
+        base protocol.  When the retransmit timer elapses, the DCCA 
+        client will take an action on the PDP context depending on  
+        the current value of CCFH for that session. 
+
+        The retransmit timer is started with each CCR (initial) and 
+        CCR (update).  Since multiple CCR (update) messages are 
+        possible, if one CCR (update) message is pending, a subsequent 
+        CCR (update) message restart the timer.  When answer to all
+        pending CCR (update) messages are received, the retransmit 
+        timer is stopped."
+    DEFVAL          { 10 } 
+    ::= { cGgsnSADccaProfileEntry 6 }
+
+cGgsnSADccaTriggerSgsnChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object takes effect only for generic DCCA implementation.
+        For customer specific implementation it does not have any 
+        effect.
+
+        - 'true': Then change in the SGSN is considered
+                  as trigger for quota re-authorization.
+
+        - 'false': Change in SGSN will not cause quota
+                   re-authorization.
+
+        Modifying this object will not take any effect on existing
+        PDPs using this DCCA profile.  Only new PDP contexts using the
+        DCCA profile will be based on the new change."
+    DEFVAL          { false } 
+    ::= { cGgsnSADccaProfileEntry 7 }
+
+cGgsnSADccaTriggerQosChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object takes effect only for generic DCCA implementation.
+        For customer specific implementation it does not have 
+        any effect.
+
+        - 'true': QOS change is considered as
+                  trigger for quota re-authorization.
+
+        - 'false': quota re-authorization will not take place when
+                  when there is change in QOS.
+        Change in the trigger effect new PDP contexts."
+    DEFVAL          { false } 
+    ::= { cGgsnSADccaProfileEntry 8 }
+
+cGgsnSADccaRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or delete an
+        existing row in this table." 
+    ::= { cGgsnSADccaProfileEntry 9 }
+
+cGgsnSADccaTriggerPlmnChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of this object takes effect only when DCCA client
+        is configured as standard specfic. 
+
+        - 'true': PLMN ID change is considered as
+                  trigger for quota re-authorization.
+
+        - 'false': PLMN ID change is not considered as
+                   trigger for quota re-authorization.
+        This trigger will have effect on new PDPs, which are created
+        after enabling the trigger."
+    DEFVAL          { false } 
+    ::= { cGgsnSADccaProfileEntry 10 }
+
+cGgsnSADccaTriggerRatChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of this object takes effect only when DCCA client
+        is configured as standard specfic. 
+
+        - 'true': RAT change is considered as
+                  trigger for quota re-authorization.
+
+        - 'false': RAT change is not considered as
+                   trigger for quota re-authorization.
+        This trigger will have effect on new PDPs, which are created
+        after enabling the trigger."
+    DEFVAL          { false } 
+    ::= { cGgsnSADccaProfileEntry 11 }
+
+cGgsnSADccaTriggerUserLocChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of this object takes effect only when the object
+        cGgsnSADcccClci is set to the value 'a3Gpp(1)' which indicates
+        that the DCCA client is configured as standard specific.
+        The value of the object cGgsnSADccaTriggerUserLocChange indicates
+        whether a change in the geographical location of the MS is
+        considered as a trigger for quota re-authorization.
+
+        - 'true': User location change is considered as
+                  trigger for quota re-authorization.
+
+        - 'false': User location change is not considered as
+                   trigger for quota re-authorization.
+        This trigger will have effect on new PDPs, which are
+        created after enabling the trigger."
+    DEFVAL          { false } 
+    ::= { cGgsnSADccaProfileEntry 12 }
+ 
+
+
+cGgsnSADccaClci OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(0),
+                        a3Gpp(1),
+                        clci(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is introduced to make GGSN's DCCA implementation
+        a customer specific.  The objective of this configuration is 
+        for GPRS client to add some vodafone specific attributes to 
+        the request message.
+
+        - 'none': DCCA implementation not specified.
+
+        - 'clci': DCCA implementation is customer specific.
+
+        - 'a3Gpp': DCCA implementation is standard specific."
+    DEFVAL          { none } 
+    ::= { cGgsnSAConfigurations 3 }
+-- CSG
+
+cGgsnSACsgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnSACsgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table contains the list of CSG groups indexed by the
+        CSG group name. 
+
+        A pair of CSG instances works with the QS together,
+        to achieve CSG redundancy.  But only one of them is active,
+        performing the packet forwarding functionality at any time.
+        User information is replicated from the active to the standby.
+        The pair appears as one virtual CSG to the rest of the network
+        by using a virtual IP address on both of them.  This virtual 
+        address is the address to be used for the CSG."
+    ::= { cGgsnSAConfigurations 4 }
+
+cGgsnSACsgEntry OBJECT-TYPE
+    SYNTAX          CGgsnSACsgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry represents the CSG group and the virtual address to
+        reach the CSG."
+    INDEX           { cGgsnSACsgGroupName } 
+    ::= { cGgsnSACsgTable 1 }
+
+CGgsnSACsgEntry ::= SEQUENCE {
+        cGgsnSACsgGroupName          SnmpAdminString,
+        cGgsnSACsgRealAddressType    InetAddressType,
+        cGgsnSACsgRealAddress1       InetAddress,
+        cGgsnSACsgRealAddress2       InetAddress,
+        cGgsnSACsgVirtualAddressType InetAddressType,
+        cGgsnSACsgVirtualAddress     InetAddress,
+        cGgsnSACsgPort               InetPortNumber,
+        cGgsnSACsgRowStatus          RowStatus,
+        cGgsnSACsgAaaAcctGroup       SnmpAdminString,
+        cGgsnSACsgPathState          CGgsnCsgPathState,
+        cGgsnSACsgNumPdps            Unsigned32
+}
+
+cGgsnSACsgGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the CSG group. The name of
+        CSG group is used by the QS to establish the path between 
+        CSG-QS." 
+    ::= { cGgsnSACsgEntry 1 }
+
+cGgsnSACsgRealAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of Internet address specified
+        by cGgsnSACsgRealAddress1 and cGgsnSACsgRealAddress2."
+    DEFVAL          { ipv4 } 
+    ::= { cGgsnSACsgEntry 2 }
+
+cGgsnSACsgRealAddress1 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the address of real CSG.
+
+        The addrress associated with each CSG is called real
+        address and the address associated with the CSG group is 
+        called virtual address.
+
+        This is not an essential configuration for CSG and QS
+        inter-working.  But it will serve as an additional security
+        check against the source of messages." 
+    ::= { cGgsnSACsgEntry 3 }
+
+cGgsnSACsgRealAddress2 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object configures the real address of the
+        second real CSG.  The type of the address for two real CSGs
+        are specified by cGgsnSACsgRealAddressType." 
+    ::= { cGgsnSACsgEntry 4 }
+
+cGgsnSACsgVirtualAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of Internet address specified
+        by cGgsnSACsgVirtualAddress."
+    DEFVAL          { ipv4 } 
+    ::= { cGgsnSACsgEntry 5 }
+
+cGgsnSACsgVirtualAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the virtual address of
+        the CSG group.  QS will send all its requests to this address. 
+        The path between QS and CSG will come up after configuring
+        this address.  Hence it is very important configuration object 
+        for proper QS and CSG inter-working.
+
+        The type of the address is specified by the object 
+        cGgsnSAVirtualAddressType." 
+    ::= { cGgsnSACsgEntry 6 }
+
+cGgsnSACsgPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the port to which the CSG
+        listens for QS traffic."
+    DEFVAL          { 3386 } 
+    ::= { cGgsnSACsgEntry 7 }
+
+cGgsnSACsgRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create new row into the table or
+        deletes the existing one." 
+    ::= { cGgsnSACsgEntry 8 }
+
+cGgsnSACsgAaaAcctGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the AAA
+        server group used for accounting. If there is no
+        AAA accounting server group present then the value
+        of this object will be an empty string.
+        This object can be modified when the value of 
+        cGgsnSACsgRowStatus object is 'active'."
+    DEFVAL          { "" } 
+    ::= { cGgsnSACsgEntry 9 }
+
+cGgsnSACsgPathState OBJECT-TYPE
+    SYNTAX          CGgsnCsgPathState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CSG path state." 
+    ::= { cGgsnSACsgEntry 10 }
+
+cGgsnSACsgNumPdps OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PDPs created
+        for the entry." 
+    ::= { cGgsnSACsgEntry 11 }
+ 
+
+-- Quota server
+
+cGgsnSAQuotaServerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnSAQuotaServerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of quota servers indexed by QS
+        name.  GGSN acts as a QS.  The responsibilities of QS are: 
+
+        - Handle the incoming path management messages from the CSG.
+
+        - Handle the incoming quota management messages from 
+          the CSG, and feed events and usage reports to the DCCA
+          category instance FSM.
+
+        - Provide interface to other modules to send quota management
+          messages (requests and responses)to the CSG.
+        An entry is created when user configures the quota server 
+        name."
+    ::= { cGgsnSAConfigurations 5 }
+
+cGgsnSAQuotaServerEntry OBJECT-TYPE
+    SYNTAX          CGgsnSAQuotaServerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry represents the quota server name and interface
+        details."
+    INDEX           { cGgsnSAQuotaServerName } 
+    ::= { cGgsnSAQuotaServerTable 1 }
+
+CGgsnSAQuotaServerEntry ::= SEQUENCE {
+        cGgsnSAQuotaServerName          SnmpAdminString,
+        cGgsnSAQuotaServerInterface     SnmpAdminString,
+        cGgsnSAQuotaServerCsgGroup      SnmpAdminString,
+        cGgsnSAQuotaServerEchoInterval  Integer32,
+        cGgsnSAQuotaServerN3Requests    Integer32,
+        cGgsnSAQuotaServerT3Response    Integer32,
+        cGgsnSAQuotaServerRowStatus     RowStatus,
+        cGgsnSAQuotaServerSvcMsgEnabled TruthValue
+}
+
+cGgsnSAQuotaServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object is used to identify the QS." 
+    ::= { cGgsnSAQuotaServerEntry 1 }
+
+cGgsnSAQuotaServerInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the logical/virtual interface
+        to be used by the QS with the interface name.  The address
+        on this interface become the QS's address. 
+
+        To communicate with the CSG, the QS use its own address
+        which is different than the GGSN's own address on its
+        virtual-template interface. 
+
+        This is very essential configuration for proper
+        QS and CSG inter-working." 
+    ::= { cGgsnSAQuotaServerEntry 2 }
+
+cGgsnSAQuotaServerCsgGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object associates the QS configuration set to the CSG
+        group, given by group-name.  This object must be set for
+        such association before both set of configurations can work
+        together." 
+    ::= { cGgsnSAQuotaServerEntry 3 }
+
+cGgsnSAQuotaServerEchoInterval OBJECT-TYPE
+    SYNTAX          Integer32 (0 | 60..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the echo interval for QS path
+        management.  
+
+        When the value is set to zero(0),it will disable the
+        GGSN-QS originated echoes."
+    DEFVAL          { 60 } 
+    ::= { cGgsnSAQuotaServerEntry 4 }
+
+cGgsnSAQuotaServerN3Requests OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object configures the number of retries for message
+        transmission to CSG."
+    DEFVAL          { 4 } 
+    ::= { cGgsnSAQuotaServerEntry 5 }
+
+cGgsnSAQuotaServerT3Response OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the waiting time for a message
+        in response from the CSG in seconds."
+    DEFVAL          { 1 } 
+    ::= { cGgsnSAQuotaServerEntry 6 }
+
+cGgsnSAQuotaServerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object creates new row into the table or deletes the
+        existing one." 
+    ::= { cGgsnSAQuotaServerEntry 7 }
+
+cGgsnSAQuotaServerSvcMsgEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables the quota server interface to be
+        capable of exchange service control messages."
+    DEFVAL          { false } 
+    ::= { cGgsnSAQuotaServerEntry 8 }
+ 
+
+
+-- Notif Info
+
+cGgsnSANotifCsgRealAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address, for real
+        address of the CSG group." 
+    ::= { cGgsnSANotifInfo 1 }
+
+cGgsnSANotifCsgRealAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the real IP address of the CSG group." 
+    ::= { cGgsnSANotifInfo 2 }
+
+cGgsnSANotifCsgVirtualAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address, for virtual
+        address of the CSG group." 
+    ::= { cGgsnSANotifInfo 3 }
+
+cGgsnSANotifCsgVirtualAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the virtual IP address of the
+        CSG group." 
+    ::= { cGgsnSANotifInfo 4 }
+
+cGgsnSANotifCsgPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port number of the CSG group."
+    DEFVAL          { 3386 } 
+    ::= { cGgsnSANotifInfo 5 }
+
+cGgsnSANotifCsgName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CSG group name in
+        cGgsnSACsgEntry." 
+    ::= { cGgsnSANotifInfo 6 }
+-- Notifications
+
+cGgsnSAMIBNotificationPrefix  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIB 2 }
+
+cGgsnSANotifications  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIBNotificationPrefix 0 }
+
+
+cGgsnSACsgStateUpNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnSANotifCsgRealAddressType,
+                        cGgsnSANotifCsgRealAddress,
+                        cGgsnSANotifCsgVirtualAddrType,
+                        cGgsnSANotifCsgVirtualAddress,
+                        cGgsnSANotifCsgPort
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification is generated when CSG state goes
+        up. This notification is deprecated and replaced by
+        cGgsnSACsgR100StateUpNotif."
+   ::= { cGgsnSANotifications 1 }
+
+cGgsnSACsgStateDownNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnSANotifCsgRealAddressType,
+                        cGgsnSANotifCsgRealAddress,
+                        cGgsnSANotifCsgVirtualAddrType,
+                        cGgsnSANotifCsgVirtualAddress,
+                        cGgsnSANotifCsgPort
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification is generated when CSG state goes
+        down. This notification is deprecated and replaced
+        by cGgsnSACsgR100StateDownNotif."
+   ::= { cGgsnSANotifications 2 }
+
+cGgsnSADccaEndUsrServDeniedNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnNotifPdpImsi,
+                        cGgsnNotifPdpMsisdn
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the credit-
+        control server denies the service request due to
+        service restrictions.  On reception of this notif
+        on category level, the CLCI-C shall discard all future
+        user traffic for that category on that PDP context and
+        not attempt to ask for more quotas during the same PDP
+        context."
+   ::= { cGgsnSANotifications 3 }
+
+cGgsnSADccaCreditLimReachedNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnNotifPdpImsi,
+                        cGgsnNotifPdpMsisdn
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the credit limit
+        is reached.  The credit-control server denies the service
+        request since the end user's account could not cover the
+        requested service.  Client shall behave exactly as with
+        cGgsnSADccaEndUsrServDeniedNotif."
+   ::= { cGgsnSANotifications 4 }
+
+cGgsnSADccaUserUnknownNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnNotifPdpImsi,
+                        cGgsnNotifPdpMsisdn
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the specified
+        end user is unknown in the credit-control server.
+        Such permanent failures cause the client to enter
+        the Idle state.  The client shall reject or terminate the
+        PDP context depending on whether the result code was
+        received in a CCA (Initial) or CCA (Update)."
+   ::= { cGgsnSANotifications 5 }
+
+cGgsnSADccaRatingFailed NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnNotifPdpImsi,
+                        cGgsnNotifPdpMsisdn
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the credit-control
+        server cannot rate the service request, due to insufficient
+        rating input, incorrect AVP combination or due to an AVP or
+        an AVP value that is not recognized or supported in the
+        rating."
+   ::= { cGgsnSANotifications 6 }
+
+cGgsnSADccaAuthRejectedNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnNotifPdpImsi,
+                        cGgsnNotifPdpMsisdn
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when credit-control
+        server failed in authorization of end user.  The PDP
+        context is deleted and category is blacklisted."
+   ::= { cGgsnSANotifications 7 }
+
+cGgsnSACsgR100StateUpNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnSANotifCsgName,
+                        cGgsnSANotifCsgRealAddressType,
+                        cGgsnSANotifCsgRealAddress,
+                        cGgsnSANotifCsgVirtualAddrType,
+                        cGgsnSANotifCsgVirtualAddress,
+                        cGgsnSANotifCsgPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when CSG state goes
+        up. The objects in the varbind list represents -
+        cGgsnSANotifCsgName: CSG group Name.
+        cGgsnSANotifCsgRealAddressType: Type of CSG group real
+                                        IP address.
+        cGgsnSANotifCsgRealAddress: Real IP address of the
+                                    CSG group.
+        cGgsnSANotifCsgVirtualAddrType: Type of CSG group virtual
+                                        IP address.
+        cGgsnSANotifCsgVirtualAddress: Virtual IP address of the
+                                       CSG group.
+        cGgsnSANotifCsgPort: CSG group port number."
+   ::= { cGgsnSANotifications 8 }
+
+cGgsnSACsgR100StateDownNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnSANotifCsgName,
+                        cGgsnSANotifCsgRealAddressType,
+                        cGgsnSANotifCsgRealAddress,
+                        cGgsnSANotifCsgVirtualAddrType,
+                        cGgsnSANotifCsgVirtualAddress,
+                        cGgsnSANotifCsgPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when CSG state goes
+        down. The objects in the varbind list represents -
+        cGgsnSANotifCsgName: CSG group Name.
+        cGgsnSANotifCsgRealAddressType: Type of CSG group real
+                                        IP address.
+        cGgsnSANotifCsgRealAddress: Real IP address of the
+                                    CSG group.
+        cGgsnSANotifCsgVirtualAddrType: Type of CSG group virtual
+                                        IP address.
+        cGgsnSANotifCsgVirtualAddress: Virtual IP address of the
+                                       CSG group.
+        cGgsnSANotifCsgPort: CSG group port number."
+   ::= { cGgsnSANotifications 9 }
+cGgsnSAMIBConformance  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIB 3 }
+
+cGgsnSAMIBCompliances  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIBConformance 1 }
+
+cGgsnSAMIBGroups  OBJECT IDENTIFIER
+    ::= { cGgsnSAMIBConformance 2 }
+
+
+-- Compliances statements
+
+cGgsnSAMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO GGSN SERVICE AWARE MIB. This 
+        is deprecated by cGgsnSAMIBComplianceRev1."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnSAConfigurationsGroup,
+                        cGgsnSAStatisticsGroup,
+                        cGgsnSANotifGroup,
+                        cGgsnSANotifInfoGroup,
+                        cGgsnSANotifMgmtGroup
+                    }
+
+    OBJECT          cGgsnSADccaRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSACsgRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSAQuotaServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+    ::= { cGgsnSAMIBCompliances 1 }
+
+cGgsnSAMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO GGSN SERVICE AWARE MIB. This
+        is deprecated by cGgsnSAMIBComplianceRev2."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnSAConfigurationsGroup,
+                        cGgsnSAExtConfigurationsGroup,
+                        cGgsnSAStatisticsGroup,
+                        cGgsnSANotifGroup,
+                        cGgsnSANotifInfoGroup,
+                        cGgsnSANotifMgmtGroup
+                    }
+
+    OBJECT          cGgsnSADccaRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSACsgRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSAQuotaServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+    ::= { cGgsnSAMIBCompliances 2 }
+
+cGgsnSAMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO GGSN SERVICE AWARE MIB. This
+        is deprecated by cGgsnSAMIBComplianceRev3."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnSAConfigurationsGroup,
+                        cGgsnSAExtConfigurationsGroup,
+                        cGgsnSAExtConfigurationsGroupSup1,
+                        cGgsnSAStatisticsGroup,
+                        cGgsnSANotifGroup,
+                        cGgsnSANotifInfoGroup,
+                        cGgsnSANotifMgmtGroup
+                    }
+
+    OBJECT          cGgsnSADccaRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSACsgRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSAQuotaServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+    ::= { cGgsnSAMIBCompliances 3 }
+
+cGgsnSAMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO GGSN SERVICE AWARE MIB. This is
+        deprecated and superceded by cGgsnSAMIBComplianceRev4."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnSAConfigurationsGroup,
+                        cGgsnSAExtConfigurationsGroup,
+                        cGgsnSAExtConfigurationsGroupSup1,
+                        cGgsnSAStatisticsGroup,
+                        cGgsnSANotifGroup,
+                        cGgsnSANotifInfoGroup,
+                        cGgsnSANotifMgmtGroup,
+                        cGgsnSAConfigurationsGroupSup1
+                    }
+
+    OBJECT          cGgsnSADccaRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSACsgRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSAQuotaServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+    ::= { cGgsnSAMIBCompliances 4 }
+
+cGgsnSAMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO GGSN SERVICE AWARE MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnSAConfigurationsGroup,
+                        cGgsnSAExtConfigurationsGroup,
+                        cGgsnSAExtConfigurationsGroupSup1,
+                        cGgsnSANotifInfoGroup,
+                        cGgsnSANotifMgmtGroup,
+                        cGgsnSAConfigurationsGroupSup1,
+                        cGgsnSAConfigurationsGroupR100,
+                        cGgsnSAStatisticsGroupR100,
+                        cGgsnSANotifInfoGroupR100,
+                        cGgsnSANotifGroupR100
+                    }
+
+    OBJECT          cGgsnSADccaRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSACsgRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+
+    OBJECT          cGgsnSAQuotaServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "The states notInService(2), notReady(3) and
+        createAndWait(5) need not be supported."
+    ::= { cGgsnSAMIBCompliances 5 }
+
+cGgsnSAConfigurationsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnSADccaRowStatus,
+                        cGgsnSADccaAuthorization,
+                        cGgsnSADccaCcfh,
+                        cGgsnSADccaDestinationRealm,
+                        cGgsnSADccaSessionFailover,
+                        cGgsnSADccaTxTimeout,
+                        cGgsnSADccaTriggerSgsnChange,
+                        cGgsnSADccaTriggerQosChange,
+                        cGgsnSADccaClci,
+                        cGgsnSAServiceAware,
+                        cGgsnSACsgRowStatus,
+                        cGgsnSACsgRealAddressType,
+                        cGgsnSACsgRealAddress1,
+                        cGgsnSACsgRealAddress2,
+                        cGgsnSACsgVirtualAddressType,
+                        cGgsnSACsgVirtualAddress,
+                        cGgsnSACsgPort,
+                        cGgsnSAQuotaServerRowStatus,
+                        cGgsnSAQuotaServerInterface,
+                        cGgsnSAQuotaServerCsgGroup,
+                        cGgsnSAQuotaServerEchoInterval,
+                        cGgsnSAQuotaServerN3Requests,
+                        cGgsnSAQuotaServerT3Response
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects representing configurations on GGSN."
+    ::= { cGgsnSAMIBGroups 1 }
+
+cGgsnSAStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnSACsgOutboundMsgs,
+                        cGgsnSACsgOutboundOctets,
+                        cGgsnSACsgInboundMsgs,
+                        cGgsnSACsgInboundOctets,
+                        cGgsnSACsgServiceAuthReqs,
+                        cGgsnSACsgServiceAuthResps,
+                        cGgsnSACsgServiceReAuthReqs,
+                        cGgsnSACsgQuotaReturns,
+                        cGgsnSACsgQuotaReturnReqs,
+                        cGgsnSACsgQuotaPushResps,
+                        cGgsnSACsgServiceStopMsgs,
+                        cGgsnSACsgServiceStopReqs,
+                        cGgsnSACsgQuotaPushMsgs,
+                        cGgsnSACsgQuotaPushRsps,
+                        cGgsnSACsgGtpAcks,
+                        cGgsnSAQsRcvdRequests,
+                        cGgsnSAQsRcvdResponses,
+                        cGgsnSAQsSentRequests,
+                        cGgsnSAQsSentResponses,
+                        cGgsnSAQsRcvdPathRequests,
+                        cGgsnSAQsRcvdPathResponses,
+                        cGgsnSAQsSentPathRequests,
+                        cGgsnSAQsSentPathResponses,
+                        cGgsnSAQsRcvdNegativeResponses,
+                        cGgsnSAQsRequestsUnreplied,
+                        cGgsnSAQsSeqnumFailures,
+                        cGgsnSAQsDroppedMsgs,
+                        cGgsnSAQsUnknownMsgs,
+                        cGgsnSAQsUnknownResponses,
+                        cGgsnSAQsIEErrorMsgs,
+                        cGgsnSAQsBadSrcAddressMsgs,
+                        cGgsnSAQsVersionUnSupportedMsgs,
+                        cGgsnSAQsMandTlvMissingMsgs,
+                        cGgsnSAQsMandTlvIncorrectMsgs,
+                        cGgsnSAQsInvalidMsgFormats,
+                        cGgsnSAQsNoResponseToMsgs,
+                        cGgsnSANumServiceAwareApns,
+                        cGgsnSATotalGgsnEvents,
+                        cGgsnSATotalCsgEvents,
+                        cGgsnSATotalDccaEvents,
+                        cGgsnSATotalCreatedCategories,
+                        cGgsnSATotalCreatedSyncObjs,
+                        cGgsnSACategoryFsmRtnErrors,
+                        cGgsnSATotalServiceAuthMsgs,
+                        cGgsnSATotalServiceStopMsgs,
+                        cGgsnSATotalQuotaGranted,
+                        cGgsnSATotalBlackListCategories,
+                        cGgsnSATotalRAREvents,
+                        cGgsnSATotalDeletePdps,
+                        cGgsnSAFinalConvertToPostpaidPdps,
+                        cGgsnSATotalGgsnFailures,
+                        cGgsnSATotalCsgFailures,
+                        cGgsnSATotalDccaFailures,
+                        cGgsnSATotalDeletedCategories,
+                        cGgsnSATotalDeletedSyncObjects,
+                        cGgsnSATotalQuotaPushAcks,
+                        cGgsnSATotalServiceReAuthMsgs,
+                        cGgsnSATotalQuotaReturns,
+                        cGgsnSATotalTerminateCategories,
+                        cGgsnSATotalUnknownCategories,
+                        cGgsnSATotalRatingChanges,
+                        cGgsnSATotalPostpaidConversions,
+                        cGgsnSATotalDummyQuotas,
+                        cGgsnSATotalPrepaidUsers,
+                        cGgsnSATotalPostpaidUsers,
+                        cGgsnSARejDccaFailures,
+                        cGgsnSARejCsgFailures
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects related with statistics."
+    ::= { cGgsnSAMIBGroups 2 }
+
+cGgsnSANotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cGgsnSACsgStateUpNotif,
+                        cGgsnSACsgStateDownNotif,
+                        cGgsnSADccaEndUsrServDeniedNotif,
+                        cGgsnSADccaCreditLimReachedNotif,
+                        cGgsnSADccaUserUnknownNotif,
+                        cGgsnSADccaRatingFailed,
+                        cGgsnSADccaAuthRejectedNotif
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of Notifications."
+    ::= { cGgsnSAMIBGroups 3 }
+
+cGgsnSANotifInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnSANotifCsgRealAddressType,
+                        cGgsnSANotifCsgRealAddress,
+                        cGgsnSANotifCsgVirtualAddrType,
+                        cGgsnSANotifCsgVirtualAddress,
+                        cGgsnSANotifCsgPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects representing the Notif info on
+        GGSN."
+    ::= { cGgsnSAMIBGroups 4 }
+
+cGgsnSANotifMgmtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnSACsgNotifEnabled,
+                        cGgsnSADccaNotifEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related with notification
+        management on GGSN."
+    ::= { cGgsnSAMIBGroups 5 }
+
+cGgsnSAExtConfigurationsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnSADccaTriggerPlmnChange,
+                        cGgsnSADccaTriggerRatChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects representing configurations on GGSN."
+    ::= { cGgsnSAMIBGroups 6 }
+
+cGgsnSAExtConfigurationsGroupSup1 OBJECT-GROUP
+    OBJECTS         { cGgsnSADccaTriggerUserLocChange }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects representing configurations on GGSN."
+    ::= { cGgsnSAMIBGroups 7 }
+
+cGgsnSAConfigurationsGroupSup1 OBJECT-GROUP
+    OBJECTS         { cGgsnSAQuotaServerSvcMsgEnabled }
+    STATUS          current
+    DESCRIPTION
+        "This object group representing the supplementary
+        group of cGgsnSAConfigurationsGroup."
+    ::= { cGgsnSAMIBGroups 8 }
+
+cGgsnSAConfigurationsGroupR100 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnSACsgAaaAcctGroup,
+                        cGgsnSACsgPathState,
+                        cGgsnSACsgNumPdps
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of Service Aware configuration objects
+        added for GGSN R10.0."
+    ::= { cGgsnSAMIBGroups 9 }
+
+cGgsnSAStatisticsGroupR100 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnSAQsRcvdRequests,
+                        cGgsnSAQsRcvdResponses,
+                        cGgsnSAQsSentRequests,
+                        cGgsnSAQsSentResponses,
+                        cGgsnSAQsRcvdPathRequests,
+                        cGgsnSAQsRcvdPathResponses,
+                        cGgsnSAQsSentPathRequests,
+                        cGgsnSAQsSentPathResponses,
+                        cGgsnSAQsRcvdNegativeResponses,
+                        cGgsnSAQsRequestsUnreplied,
+                        cGgsnSAQsSeqnumFailures,
+                        cGgsnSAQsDroppedMsgs,
+                        cGgsnSAQsUnknownMsgs,
+                        cGgsnSAQsUnknownResponses,
+                        cGgsnSAQsIEErrorMsgs,
+                        cGgsnSAQsBadSrcAddressMsgs,
+                        cGgsnSAQsVersionUnSupportedMsgs,
+                        cGgsnSAQsMandTlvMissingMsgs,
+                        cGgsnSAQsMandTlvIncorrectMsgs,
+                        cGgsnSAQsInvalidMsgFormats,
+                        cGgsnSAQsNoResponseToMsgs,
+                        cGgsnSANumServiceAwareApns,
+                        cGgsnSATotalGgsnEvents,
+                        cGgsnSATotalCsgEvents,
+                        cGgsnSATotalDccaEvents,
+                        cGgsnSATotalCreatedCategories,
+                        cGgsnSATotalCreatedSyncObjs,
+                        cGgsnSACategoryFsmRtnErrors,
+                        cGgsnSATotalServiceAuthMsgs,
+                        cGgsnSATotalServiceStopMsgs,
+                        cGgsnSATotalQuotaGranted,
+                        cGgsnSATotalBlackListCategories,
+                        cGgsnSATotalRAREvents,
+                        cGgsnSATotalDeletePdps,
+                        cGgsnSAFinalConvertToPostpaidPdps,
+                        cGgsnSATotalGgsnFailures,
+                        cGgsnSATotalCsgFailures,
+                        cGgsnSATotalDccaFailures,
+                        cGgsnSATotalDeletedCategories,
+                        cGgsnSATotalDeletedSyncObjects,
+                        cGgsnSATotalQuotaPushAcks,
+                        cGgsnSATotalServiceReAuthMsgs,
+                        cGgsnSATotalQuotaReturns,
+                        cGgsnSATotalTerminateCategories,
+                        cGgsnSATotalUnknownCategories,
+                        cGgsnSATotalRatingChanges,
+                        cGgsnSATotalPostpaidConversions,
+                        cGgsnSATotalDummyQuotas,
+                        cGgsnSATotalPrepaidUsers,
+                        cGgsnSATotalPostpaidUsers,
+                        cGgsnSARejDccaFailures,
+                        cGgsnSARejCsgFailures,
+                        cGgsnSACsgStatsOutboundMsgs,
+                        cGgsnSACsgStatsOutboundOctets,
+                        cGgsnSACsgStatsInboundMsgs,
+                        cGgsnSACsgStatsInboundOctets,
+                        cGgsnSACsgStatsServiceAuthReqs,
+                        cGgsnSACsgStatsServiceAuthResps,
+                        cGgsnSACsgStatsServiceReAuthReqs,
+                        cGgsnSACsgStatsQuotaReturns,
+                        cGgsnSACsgStatsQuotaReturnReqs,
+                        cGgsnSACsgStatsQuotaReturnAccept,
+                        cGgsnSACsgStatsServiceStopMsgs,
+                        cGgsnSACsgStatsServiceStopReqs,
+                        cGgsnSACsgStatsQuotaPushMsgs,
+                        cGgsnSACsgStatsQuotaPushRsps,
+                        cGgsnSACsgStatsGtpAcks
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related with statistics
+        for GGSN R10.0."
+    ::= { cGgsnSAMIBGroups 10 }
+
+cGgsnSANotifInfoGroupR100 OBJECT-GROUP
+    OBJECTS         { cGgsnSANotifCsgName }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects representing the Notif info
+        added for GGSN R10.0."
+    ::= { cGgsnSAMIBGroups 11 }
+
+cGgsnSANotifGroupR100 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cGgsnSADccaEndUsrServDeniedNotif,
+                        cGgsnSADccaCreditLimReachedNotif,
+                        cGgsnSADccaUserUnknownNotif,
+                        cGgsnSADccaRatingFailed,
+                        cGgsnSADccaAuthRejectedNotif,
+                        cGgsnSACsgR100StateUpNotif,
+                        cGgsnSACsgR100StateDownNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of Notifications included in
+        GGSN R10.0 release."
+    ::= { cGgsnSAMIBGroups 12 }
+
+END
+
+
+

@@ -1,0 +1,98 @@
+-- *****************************************************************
+-- CISCO-SYSTEM-EXT-CAPABILITY.my:
+-- Cisco SYSTEM EXT MIB  AGENT-CAPABILITIES
+--   
+-- September 2005, Charuhas Ghatge
+--   
+-- Copyright (c) 2005, 2008 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-SYSTEM-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSysExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "200808190000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-SYSTEM-EXT-MIB."
+    REVISION        "200808190000Z"
+    DESCRIPTION
+        "Added ciscoSysExtCapabilityGssV02R00 agent
+        capabilities for Global Site Selector(GSS)
+        release 2.0."
+    REVISION        "200509230000Z"
+    DESCRIPTION
+        "Initial version of this MIB."
+    ::= { ciscoAgentCapability 569 }
+
+
+
+ciscoSysExtCapabilityMDS3R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco MDS 3.0(1)"
+    STATUS          current
+    DESCRIPTION
+        "Cisco System Extension MIB capabilities."
+
+    SUPPORTS        CISCO-SYSTEM-EXT-MIB
+    INCLUDES        {
+                        ciscoSystemExtInfoGroupRev1,
+                        ciscoSystemExtInfoGroupRev2,
+                        ciscoSystemExtErrorGroup,
+                        ciscoSystemExtHaGroup,
+                        ciscoSystemExtHaGroupRev1,
+                        ciscoSystemExtNotificationGroup,
+                        ciscoSystemExtNotificationGroupSup1,
+                        ciscoSystemExtInfoGroupOptional,
+                        ciscoSystemExtSwFailureGroup2
+                    }
+    VARIATION       cseSysAutoSync
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseSysAutoSyncState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFailSwCoreNotify
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoSysExtCapability 1 }
+
+ciscoSysExtCapabilityGssV02R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Global Site Selector(GSS) 2.0"
+    STATUS          current
+    DESCRIPTION
+        "GSS 2.0 CISCO-SYSTEM-EXT-MIB capabilities"
+
+    SUPPORTS        CISCO-SYSTEM-EXT-MIB
+    INCLUDES        { ciscoSystemExtNotificationGroupSup2 }
+    ::= { ciscoSysExtCapability 2 }
+
+END
+
+

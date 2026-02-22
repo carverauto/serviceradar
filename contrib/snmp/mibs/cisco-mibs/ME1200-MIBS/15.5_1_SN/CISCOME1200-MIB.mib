@@ -1,0 +1,45 @@
+-- *****************************************************************
+-- CISCOME1200-MIB:  Root for Cisco ME1200
+--   
+-- All Rights Reserved.
+--   
+-- ****************************************************************
+
+CISCOME1200-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-IDENTITY
+        FROM SNMPv2-SMI
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoME1200MIB MODULE-IDENTITY
+    LAST-UPDATED "201401280000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "The collection of MIBs relating to Cisco ME1200"
+    REVISION    "201401280000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { ciscoMgmt 815 }
+
+me1200SwitchMgmt OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "switchMgmt is the root OBJECT IDENTIFIER from
+         which object id values are assigned."
+    ::= { ciscoME1200MIB 1 }
+
+END
+
+

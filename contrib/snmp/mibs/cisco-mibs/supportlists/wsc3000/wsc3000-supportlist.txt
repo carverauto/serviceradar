@@ -1,0 +1,98 @@
+MIBs supported by the Catalyst 3000 series switches (WS-C3000,
+WS-C3100, WS-C3200)
+--------------------------------------------------------------
+
+MIBs supported since version 2.2 of the switch software:
+
+        VIPER-MIB                 (Rel 2.1)
+        CISCO-CDP-MIB
+        CISCO-VTP-MIB             (Revision 9607171230Z)
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+        RMON-MIB                  (RFC 1757)
+        LAN-EMULATION-CLIENT-MIB  (LEC MIB)
+
+MIBs supported since version 2.1 of the switch software:
+
+        VIPER-R21-MIB             (Rel 2.1)
+        CISCO-CDP-MIB
+        CISCO-VTP-MIB             (Revision 9607171230Z)
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+        RMON-MIB                  (RFC 1757)
+        LAN-EMULATION-CLIENT-MIB  (LEC MIB)
+
+MIBs supported since version 2.0 of the switch software:
+
+        VIPER-R20-MIB             (Rel 2.0)
+        CISCO-CDP-MIB
+        CISCO-VTP-MIB             (Revision 9609161230Z)
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+        RMON-MIB                  (RFC 1757)
+        LAN-EMULATION-CLIENT-MIB  (LEC MIB)
+
+MIBs supported since version 1.3 of the switch software:
+
+        VIPER-R13-MIB             (Rel 1.3)
+        CISCO-CDP-MIB
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+        LAN-EMULATION-CLIENT-MIB  (LEC MIB)
+
+MIBs supported in initial version (1.1.2) of the switch software:
+
+        VIPER-R12-MIB             (Kalpana enterprise)
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+
+Note: The enterprise mibs for the earlier releases (VIPER-Rnn-MIB) are 
+      available under ftp/pub/mibs/archive/v1. The location /ftp/pub/mibs/v1, 
+      always contain the mib (VIPER-MIB) for the latest release of the 
+      Catalyst 3000 series of switch software.
+
+
+Traps supported by the WS-C3000 (Catalyst 3000 Switching System)
+----------------------------------------------------------------
+
+Traps supported since version 2.0 of the switch software:
+
+        coldStart                            RFC1157-SNMP
+        warmStart                            RFC1157-SNMP
+        authenticationFailure                RFC1157-SNMP
+        linkDown                             IF-MIB
+        linkUp                               IF-MIB
+        risingAlarm                          RMON-MIB
+        fallingAlarm                         RMON-MIB
+        ciscoEsVLANNewRoot                   BRIDGE-MIB/VIPER-R20-MIB
+        ciscoESVLANTopologyChange            BRIDGE-MIB/VIPER-R20-MIB
+        ciscoEsStackCfgChange                VIPER-R20-MIB
+        ciscoEsStackProStackMatrixChange     VIPER-R20-MIB
+        ciscoEsStackTempChange               VIPER-R20-MIB
+        ciscoEsPortStrNFwdEntry              VIPER-R20-MIB
+        ciscoEsEtherChannelFailed            VIPER-R20-MIB
+
+Traps supported since version 1.3 of the supervisor card software:
+
+        coldStart                            RFC1157-SNMP
+        warmStart                            RFC1157-SNMP
+        authenticationFailure                RFC1157-SNMP
+        linkDown                             IF-MIB
+        linkUp                               IF-MIB
+        ciscoEsDmnNewRoot                    BRIDGE-MIB/VIPER-R13-MIB
+        ciscoESDmnTopologyChange             BRIDGE-MIB/VIPER-R13-MIB
+        ciscoEsStackCfgChange                VIPER-R13-MIB
+        ciscoEsStackProStackMatrixChange     VIPER-R13-MIB
+        ciscoEsStackTempChange               VIPER-R13-MIB
+        ciscoEsPortStrNFwdEntry              VIPER-R13-MIB
+        ciscoEsEtherChannelFailed            VIPER-R13-MIB

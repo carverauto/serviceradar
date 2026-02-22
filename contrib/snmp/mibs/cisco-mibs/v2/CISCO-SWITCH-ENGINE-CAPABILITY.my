@@ -1,0 +1,3393 @@
+-- *****************************************************************
+-- CISCO-SWITCH-ENGINE-CAPABILITY.my:
+-- Cisco CISCO-SWITCH-ENGINE-MIB AGENT-CAPABILITIES
+--   
+-- July 2003, Edward Pham, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2003-2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-ENGINE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Counter32,
+    Counter64
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSwitchEngineCapability MODULE-IDENTITY
+    LAST-UPDATED    "201307250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The agent capabilities description of
+        CISCO-SWITCH-ENGINE-MIB."
+    REVISION        "201307250000Z"
+    DESCRIPTION
+        "Added capability statement cseCapNxOSV06R0104PN7k."
+    REVISION        "201209100000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapV15R0101SYPCat6kPfc3,
+        cseCapV15R0101SYPCat6kPfc4."
+    REVISION        "201109280000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapV15R0001SYPCat6kPfc4."
+    REVISION        "201011110000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapV12R0250SYPCat6KPfc4."
+    REVISION        "201003220000Z"
+    DESCRIPTION
+        "Added capability statement cseCapV12R0233SXI4PCat6K."
+    REVISION        "200810300000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapV12R0233SXIPCat6K.
+
+        Added the following missing groups to 
+        previous releases:
+            cse4kVlanGroup
+            cseNDEReportGroup
+            cseCefAdjacencyEncapGroup
+            cseCefAdjacencyMTUGroup"
+    REVISION        "200707160000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapV12R0233SXHPCat6K."
+    REVISION        "200509160000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapV12R0218SXGPCat6K.
+
+        Added variation for cseFlowIPFlowMask to
+        cseCapV12R0119ECat6KPfc,
+        cseCapV12R0119ECat6KPfc2,
+        cseCapV12R0217SXCat6KPfc3 and
+        cseCapV12R0218SXEPCat6K."
+    REVISION        "200508240000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapCatOSV08R0501PCat6KPfc3
+
+        Added variation for cseFlowIPFlowMask to 
+        cseCapCatOSV08R0101Cat6KPfc,
+        cseCapCatOSV08R0101Cat6KPfc2,
+        cseCapCatOSV08R0101Cat6KPfc3,
+        cseCapCatOSV08R0301Cat6KPfc2,
+        cseCapCatOSV08R0301Cat6KPfc3 and
+        cseCapCatOSV08R0401Cat6KPfc3."
+    REVISION        "200412220000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapV12R0218SXEPCat6K."
+    REVISION        "200406140000Z"
+    DESCRIPTION
+        "Added capability statement
+        cseCapCatOSV08R0401Cat6KPfc3."
+    REVISION        "200401150000Z"
+    DESCRIPTION
+        "Added capability statement cseCapCatOSV08R0301Cat6KPfc2
+        and cseCapCatOSV08R0301Cat6KPfc3."
+    REVISION        "200312040000Z"
+    DESCRIPTION
+        "Fixed description for cseCapV12R0217SXCat6KPfc3
+        to match actual product release and added
+        cseTcamUsageGroup to the INCLUDES section."
+    REVISION        "200308120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 343 }
+
+
+
+cseCapCatOSV08R0101Cat6KPfc AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                    series devices with PFC card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseRouterGroup,
+                        cseFlowMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseProtocolFilterGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDESingleFilterGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseBridgedFlowGroup,
+                        cseProtocolFilterExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDESingleFilterGroupRev1
+                    }
+    VARIATION       cseCacheUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMcastResultDstVlans
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans2k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans3k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans4k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseNetflowLSFilterSupport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 1 }
+
+cseCapCatOSV08R0101Cat6KPfc2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseRouterGroup,
+                        cseFlowMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseProtocolFilterGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDESingleFilterGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseBridgedFlowGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseProtocolFilterExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseNDESingleFilterGroupRev1
+                    }
+    VARIATION       cseL3VlanInPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3VlanInOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseCacheUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMcastResultDstVlans
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans2k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans3k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans4k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseNetflowLSFilterSupport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 2 }
+
+cseCapCatOSV08R0101Cat6KPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with 
+                    PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseRouterGroup,
+                        cseFlowMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseProtocolFilterGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDESingleFilterGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseNDESingleFilterGroupRev1
+                    }
+    VARIATION       cseCacheUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortAdminStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortOperStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMcastResultDstVlans
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans2k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans3k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans4k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseNetflowLSFilterSupport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 3 }
+
+cseCapV12R0119ECat6KPfc AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500
+                    series devices with PFC card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup
+                    }
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3VlanInPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3VlanInOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 4 }
+
+cseCapV12R0119ECat6KPfc2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with 
+                    PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3VlanInPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3VlanInOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 5 }
+
+cseCapV12R0217SXCat6KPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17SX) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with 
+                    PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseTcamUsageGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMaxQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTransport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestinationMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryRouterIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultingRows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgDuration
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgIdle
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryCreateTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTotalFlows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSrcMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDstMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataEncapType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataStaticFlow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOS
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOSPolicy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataWhenCreated
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataLastUsed
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowAged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowPurged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowParityFail
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXFlowMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10)
+                    }
+    DESCRIPTION
+        "No support for aclDynamicStorageMask(3),
+        aclDynamicStorageValue(4),
+        qosDynamicStorageMask(7) and
+        qosDynamicStorageValue(8)."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 6 }
+
+cseCapCatOSV08R0301Cat6KPfc2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseRouterGroup,
+                        cseFlowMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseProtocolFilterGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDESingleFilterGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseBridgedFlowGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseProtocolFilterExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseNDESingleFilterGroupRev1,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseTcamUsageGroup
+                    }
+    VARIATION       cseL3VlanInPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3VlanInOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseCacheUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMcastResultDstVlans
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans2k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans3k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans4k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseNetflowLSFilterSupport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 7 }
+
+cseCapCatOSV08R0301Cat6KPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with 
+                    PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseRouterGroup,
+                        cseFlowMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseProtocolFilterGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDESingleFilterGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseNDESingleFilterGroupRev1,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseTcamUsageGroup
+                    }
+    VARIATION       cseCacheUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortAdminStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortOperStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMcastResultDstVlans
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans2k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans3k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans4k
+    SYNTAX          OCTET STRING
+    DESCRIPTION
+        "A NULL octet string is returned."
+
+    VARIATION       cseNetflowLSFilterSupport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 8 }
+
+cseCapCatOSV08R0401Cat6KPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with 
+                    PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseRouterGroup,
+                        cseFlowMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseProtocolFilterGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDESingleFilterGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseNDESingleFilterGroupRev1,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseTcamUsageGroup,
+                        cseNetflowASInfoExportGroup,
+                        cseNetflowPerVlanIfGroup
+                    }
+    VARIATION       cseCacheUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortAdminStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortOperStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMcastResultDstVlans
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans2k
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans3k
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans4k
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseNetflowLSFilterSupport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 9 }
+
+cseCapV12R0218SXEPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXE on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cse4kVlanGroup,
+                        cseTcamUsageGroup,
+                        cseCefFibAdjacencyGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMaxQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTransport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestinationMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryRouterIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultingRows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgDuration
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgIdle
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryCreateTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTotalFlows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSrcMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDstMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataEncapType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataStaticFlow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOS
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOSPolicy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataWhenCreated
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataLastUsed
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowAged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowPurged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowParityFail
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXFlowMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 10 }
+
+cseCapCatOSV08R0501PCat6KPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.5(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices with 
+                    PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseRouterGroup,
+                        cseFlowMgmtGroup,
+                        cseNetflowLSGroup,
+                        cseProtocolFilterGroup,
+                        cseFlowMcastMgmtGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDESingleFilterGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseNDESingleFilterGroupRev1,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseTcamUsageGroup,
+                        cseNetflowASInfoExportGroup,
+                        cseNetflowPerVlanIfGroup
+                    }
+    VARIATION       cseCacheUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortAdminStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseProtocolFilterPortOperStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMcastResultDstVlans
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans2k
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans3k
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseFlowMcastResultDstVlans4k
+    DESCRIPTION
+        "A zero-length octet string is returned."
+
+    VARIATION       cseNetflowLSFilterSupport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPFlowMask
+    SYNTAX          INTEGER  {
+                        dstOnly(1),
+                        srcDst(2),
+                        fullFlow(3),
+                        null(7)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 11 }
+
+cseCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseStatisticsFlowGroup,
+                        cseFlowMgmtExtGroup2,
+                        cseNDEReportGroup,
+                        cseTcamUsageGroup,
+                        cseL3ErrorsLCGroup,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseCefAdjacencyMTUGroup,
+                        cseFlowMcastMgmtGroup1,
+                        cseFlowMcastMgmtGroup2,
+                        cseMetUsageGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMaxQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTransport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestinationMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryRouterIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultingRows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgDuration
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgIdle
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryCreateTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTotalFlows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSrcMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDstMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataEncapType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataStaticFlow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOS
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOSPolicy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataWhenCreated
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataLastUsed
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowAged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowPurged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowParityFail
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXFlowMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10),
+                        ingressInterfaceMapping(11),
+                        egressInterfaceMapping(12)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 12 }
+
+cseCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseFlowMgmtExtGroup2,
+                        cseTcamUsageGroup,
+                        cseL3ErrorsLCGroup,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseCefAdjacencyMTUGroup,
+                        cseFlowMcastMgmtGroup1,
+                        cseFlowMcastMgmtGroup2,
+                        cseMetUsageGroup,
+                        cseFlowMcastRtrMgmtGroup,
+                        cseCacheStatisticsGroup,
+                        cseL3SwitchedPktsPerSecGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMaxQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTransport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestinationMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryRouterIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultingRows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgDuration
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgIdle
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryCreateTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTotalFlows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSrcMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDstMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataEncapType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataStaticFlow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOS
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOSPolicy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataWhenCreated
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataLastUsed
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowAged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowPurged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowParityFail
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXFlowMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10),
+                        ingressInterfaceMapping(11),
+                        egressInterfaceMapping(12),
+                        louSource(13),
+                        louDestination(14),
+                        andOr(15),
+                        orAnd(16),
+                        aclAdjacency(17)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 13 }
+
+cseCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseFlowMgmtExtGroup2,
+                        cseTcamUsageGroup,
+                        cseL3ErrorsLCGroup,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseCefAdjacencyMTUGroup,
+                        cseFlowMcastMgmtGroup1,
+                        cseFlowMcastMgmtGroup2,
+                        cseMetUsageGroup,
+                        cseFlowMcastRtrMgmtGroup,
+                        cseCacheStatisticsGroup,
+                        cseL3SwitchedPktsPerSecGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMaxQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTransport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestinationMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryRouterIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultingRows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgDuration
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgIdle
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryCreateTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTotalFlows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSrcMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDstMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataEncapType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataStaticFlow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOS
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOSPolicy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataWhenCreated
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataLastUsed
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowAged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowPurged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowParityFail
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXFlowMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10),
+                        ingressInterfaceMapping(11),
+                        egressInterfaceMapping(12),
+                        louSource(13),
+                        louDestination(14),
+                        andOr(15),
+                        orAnd(16),
+                        aclAdjacency(17),
+                        aclHighStorageMask(18),
+                        aclHighStorageValue(19),
+                        aclLowStorageMask(20),
+                        aclLowStorageValue(21),
+                        qosHighStorageMask(22),
+                        qosHighStorageValue(23),
+                        qosLowStorageMask(24),
+                        qosLowStorageValue(25)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 14 }
+
+cseCapV12R0250SYPCat6KPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices for PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseVlanStatisticsExtGroup,
+                        cseStatisticsFlowGroup,
+                        cseFlowMgmtExtGroup2,
+                        cseTcamUsageGroup,
+                        cseMetUsageGroup,
+                        cseL3SwitchedPktsPerSecGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedTotalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2IpPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2IpxPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2AssignedProtoPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2OtherProtoPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCForwardedLocalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowForwardedTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCForwardedTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowIpPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCIpPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowIpxPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCIpxPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowAssignedProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCAssignedProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowOtherProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOtherProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3SwitchedAggrPktsPerSec
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3SwitchedTotalOctets
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3CandidateFlowHits
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3EstablishedFlowHits
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3ActiveFlows
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3FlowLearnFailures
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3IntFlowInvalids
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3ExtFlowInvalids
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3SwitchedPktsPerSec
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10),
+                        ingressInterfaceMapping(11),
+                        egressInterfaceMapping(12),
+                        louSource(13),
+                        louDestination(14),
+                        andOr(15),
+                        orAnd(16),
+                        sgacl(26),
+                        accounting(27),
+                        ipv6Ext(28),
+                        ethertype(29),
+                        destInfo(30)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 15 }
+
+cseCapV15R0001SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                    series devices for PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseVlanStatisticsExtGroup,
+                        cseStatisticsFlowGroup,
+                        cseFlowMgmtExtGroup2,
+                        cseTcamUsageGroup,
+                        cseMetUsageGroup,
+                        cseL3SwitchedPktsPerSecGroup
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedTotalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2IpPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2IpxPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2AssignedProtoPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2OtherProtoPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCForwardedLocalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowForwardedTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCForwardedTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowIpPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCIpPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowIpxPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCIpxPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowAssignedProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCAssignedProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowOtherProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOtherProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3SwitchedAggrPktsPerSec
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3SwitchedTotalOctets
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3CandidateFlowHits
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3EstablishedFlowHits
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3ActiveFlows
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3FlowLearnFailures
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3IntFlowInvalids
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3ExtFlowInvalids
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3SwitchedPktsPerSec
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10),
+                        ingressInterfaceMapping(11),
+                        egressInterfaceMapping(12),
+                        louSource(13),
+                        louDestination(14),
+                        andOr(15),
+                        orAnd(16),
+                        sgacl(26),
+                        accounting(27),
+                        ipv6Ext(28),
+                        ethertype(29),
+                        destInfo(30),
+                        dgtSgtRegion(31),
+                        anyAnyRegion(32),
+                        tcamALabel(33),
+                        tcamBLabel(34),
+                        destInfoIn(35),
+                        destInfoOut(36)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 16 }
+
+cseCapV15R0101SYPCat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseStatisticsGroup2,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cse4kVlanGroup,
+                        cseNDEMandatoryGroup,
+                        cseNDEMultipleFiltersGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseL3ErrorsGroup,
+                        cseVlanStatisticsExtGroup,
+                        cseFlowMgmtExtGroup,
+                        cseFlowMgmtExtGroup1,
+                        cseNDEReportGroup,
+                        cseStatisticsFlowGroup,
+                        cseFlowMgmtExtGroup2,
+                        cseTcamUsageGroup,
+                        cseL3ErrorsLCGroup,
+                        cseCefFibAdjacencyGroup,
+                        cseCefAdjacencyEncapGroup,
+                        cseCefAdjacencyMTUGroup,
+                        cseFlowMcastMgmtGroup1,
+                        cseFlowMcastMgmtGroup2,
+                        cseMetUsageGroup,
+                        cseFlowMcastRtrMgmtGroup,
+                        cseCacheStatisticsGroup,
+                        cseL3SwitchedPktsPerSecGroup,
+                        cseStatisticsFlowGroup1
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseNetflowLSExportHost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportTransportNumber
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataSourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDest
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataDestMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseNetflowLSExportDataFilterSelection
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowMaxQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTransport
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQuerySourceMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryDestinationMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryRouterIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultingRows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultTotalOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgDuration
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryResultAvgIdle
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryCreateTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowQueryTotalFlows
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSrcMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDstMac
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataEncapType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataSource
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataStaticFlow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataDestination
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOS
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataIpQOSPolicy
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataWhenCreated
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataLastUsed
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowDataOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowAged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowPurged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseStatsFlowParityFail
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXFlowMask
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10),
+                        ingressInterfaceMapping(11),
+                        egressInterfaceMapping(12),
+                        louSource(13),
+                        louDestination(14),
+                        andOr(15),
+                        orAnd(16),
+                        aclAdjacency(17),
+                        aclHighStorageMask(18),
+                        aclHighStorageValue(19),
+                        aclLowStorageMask(20),
+                        aclLowStorageValue(21),
+                        qosHighStorageMask(22),
+                        qosHighStorageValue(23),
+                        qosLowStorageMask(24),
+                        qosLowStorageValue(25)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 17 }
+
+cseCapV15R0101SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices for PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        {
+                        cseStatisticsGroup,
+                        cseVlanStatisticsGroup,
+                        cseNetflowLSGroup,
+                        cseFlowMgmtOperStatusGroup,
+                        cseFlowMgmtGroupRev1,
+                        cseVlanStatisticsExtGroup,
+                        cseStatisticsFlowGroup,
+                        cseFlowMgmtExtGroup2,
+                        cseTcamUsageGroup,
+                        cseMetUsageGroup,
+                        cseL3SwitchedPktsPerSecGroup,
+                        cseStatisticsFlowGroup1
+                    }
+    VARIATION       cseL2ForwardedLocalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedLocalOctets
+    SYNTAX          Counter64
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2ForwardedTotalPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2IpPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2IpxPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2AssignedProtoPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2OtherProtoPkts
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL2HCOverflowForwardedLocalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCForwardedLocalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowForwardedTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCForwardedTotalPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowIpPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCIpPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowIpxPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCIpxPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowAssignedProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCAssignedProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOverflowOtherProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL2HCOtherProtoPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3SwitchedAggrPktsPerSec
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseFlowSwitchStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowIPXEstablishedAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseFlowOperIPXAgingTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cseL3SwitchedTotalOctets
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3CandidateFlowHits
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3EstablishedFlowHits
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3ActiveFlows
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3FlowLearnFailures
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3IntFlowInvalids
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3ExtFlowInvalids
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseL3SwitchedPktsPerSec
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       cseTcamResourceType
+    SYNTAX          INTEGER  {
+                        aclStorageMask(1),
+                        aclStorageValue(2),
+                        qosStorageMask(5),
+                        qosStorageValue(6),
+                        l4PortOperator(9),
+                        interfaceMapping(10),
+                        ingressInterfaceMapping(11),
+                        egressInterfaceMapping(12),
+                        louSource(13),
+                        louDestination(14),
+                        andOr(15),
+                        orAnd(16),
+                        sgacl(26),
+                        accounting(27),
+                        ipv6Ext(28),
+                        ethertype(29),
+                        destInfo(30),
+                        dgtSgtRegion(31),
+                        anyAnyRegion(32),
+                        tcamALabel(33),
+                        tcamBLabel(34),
+                        destInfoIn(35),
+                        destInfoOut(36)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cseCefFibAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cseCefAdjacencyAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchEngineCapability 18 }
+
+cseCapNxOSV06R0104PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.1(4) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-ENGINE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-ENGINE-MIB
+    INCLUDES        { cseTcamUsageGroup }
+    ::= { ciscoSwitchEngineCapability 19 }
+
+END
+
+
+
+

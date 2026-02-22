@@ -1,0 +1,138 @@
+-- *****************************************************************
+-- CISCO-WAN-CELL-EXT-CAPABILITY.my
+-- CISCO-WAN-CELL-EXT-MIB agent capabilities
+--   
+-- March 2014, Christine Yu
+--   
+-- Copyright (c) 2014 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WAN-CELL-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoWanCellExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "201403210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-WAN-CELL-EXT-MIB."
+    REVISION        "201403210000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 625 }
+
+
+
+cwceCapV15R0501PIsr AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.5(1) Version on Cisco ISR
+                    3900/2900/1900/3800/2800/1800/800 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-WAN-CELL-EXT-MIB agent capabilities."
+
+    SUPPORTS        CISCO-WAN-CELL-EXT-MIB
+    INCLUDES        {
+                        ciscoWanCellExtMIBNotificationGroup,
+                        ciscoWanCellExtMIBLteObjectGroup
+                    }
+    VARIATION       cwceLteRsrpOnsetNotifThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteRsrpAbateNotifThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteRsrqOnsetNotifThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteRsrqAbateNotifThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteRsrpOnsetNotifFlag
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteRsrpAbateNotifFlag
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteRsrqOnsetNotifFlag
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteRsrqAbateNotifFlag
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteProfileType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteProfileIPv4Addr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteProfileIPv6Addr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteProfileApn
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteProfileApnAmbr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteProfileStorage
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cwceLteProfileRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoWanCellExtCapability 1 }
+
+END
+
+
+
+

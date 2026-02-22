@@ -1,0 +1,553 @@
+-- *****************************************************************
+-- CISCO-IETF-VPLS-BGP-EXT-MIB.my
+--   
+-- November 2008, Panchalingesh Konananavar.
+--   
+-- Copyright (c) 2008-2009 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-IETF-VPLS-BGP-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    ciscoExperiment
+        FROM CISCO-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    StorageType,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    cvplsConfigIndex,
+    cvplsPwBindIndex
+        FROM CISCO-IETF-VPLS-GENERIC-MIB;
+
+
+ciscoIetfVplsBgpExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "200810240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-l2vpn@cisco.com"
+    DESCRIPTION
+        "This MIB module enables the use of any underlying Pseudo Wire network.
+
+        This MIB extends the MIB module published in the RFC 4188 to manage
+        object definitions for BGP signalled VPLS.
+
+                              GLOSSARY
+        PE 
+        The term PE refers to Provider-Edge devices.
+
+        Pseudo Wire
+        An emulation of a native service over a Packet Switched Network. 
+
+        RD (Route Distinguisher)
+        They are used to create VPN-IPv4 addresses, as specified in [RFC4364].
+
+        RT (Route Target)
+        A Route Target attribute can be thought of as identifying a set of
+        sites. More description specified in [RFC4364].
+
+        u-PE
+        A Layer 2 PE device used for Layer 2 aggregation. The notion of u-PE is 
+        described further in [RFC4761].
+
+        VE
+        The term VE refers to a VPLS Edge device, which could be either
+        a PE or a u-PE.
+
+        VPLS
+        Virtual private LAN service. A type of layer 2 VPN."
+    REVISION        "200810240000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoExperiment 140 }
+
+
+
+CiVplsBgpExtRouteDistinguisher ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents a Route Distinguisher.
+        Please refer to RFC 4364 for more details about the 
+        Route Distinguisher. Please refer to draft-ietf-l2vpn-vpls-bgp-08 
+        on the use of a Route Distinguisher for a VPLS."
+
+    REFERENCE       "[RFC4364]"
+    SYNTAX          OCTET STRING (SIZE (0..256))
+
+CiVplsBgpExtRouteTarget ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents a Route Target.
+        Please refer to RFC 4364 for more details about the 
+        Route Target. Please refer to draft-ietf-l2vpn-vpls-bgp-08 
+        on the use of a Route Target for a VPLS."
+
+    REFERENCE       "[RFC4364]"
+    SYNTAX          OCTET STRING (SIZE (0..256))
+
+CiVplsBgpExtRouteTargetType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the type of a route target usage.
+        Route targets can be specified to be imported, exported, or both."
+
+    REFERENCE       "[RFC 4364]"
+    SYNTAX          INTEGER  {
+                        import(1),
+                        export(2),
+                        both(3)
+                    }
+
+CiVplsBgpExtVEID ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents a VE id."
+    SYNTAX          Unsigned32
+ciscoIetfVplsBgpExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIetfVplsBgpExtMIB 0 }
+
+ciscoIetfVplsBgpExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIetfVplsBgpExtMIB 1 }
+
+ciscoIetfVplsBgpExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIetfVplsBgpExtMIB 2 }
+
+-- Objects
+
+ciVplsBgpExtConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiVplsBgpExtConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies information for configuring
+        and monitoring BGP-specific parameters for VPLS.
+
+        A row is automatically created when a VPLS is
+        configured using BGP signalling.
+
+        None of the read-write objects values can be
+        changed when cvplsConfigRowStatus is in the active(1)
+        state. Changes are allowed when the cvplsConfigRowStatus
+        is in notInService(2) or notReady(3) states only.
+        If the operator need to change one of the values
+        for an active row the cvplsConfigRowStatus should be
+        first changed to notInService(2), the objects may
+        be changed now, and later to active(1) in order to
+        re-initiate the signaling process with the new
+        values in effect."
+    ::= { ciscoIetfVplsBgpExtMIBObjects 1 }
+
+ciVplsBgpExtConfigEntry OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a conceptual row in ciVplsBgpExtConfigTable
+        and provides the information about BGP-specific information
+        for VPLS in a packet network."
+    INDEX           { cvplsConfigIndex } 
+    ::= { ciVplsBgpExtConfigTable 1 }
+
+CiVplsBgpExtConfigEntry ::= SEQUENCE {
+        ciVplsBgpExtConfigRouteDistinguisher CiVplsBgpExtRouteDistinguisher,
+        ciVplsBgpExtConfigVERangeSize        Unsigned32
+}
+
+ciVplsBgpExtConfigRouteDistinguisher OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtRouteDistinguisher
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Route Distingiusher for this VPLS."
+    DEFVAL          { "" } 
+    ::= { ciVplsBgpExtConfigEntry 1 }
+
+ciVplsBgpExtConfigVERangeSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the size of the range of VE identifiers in this VPLS.
+        This number controls the size of the label block advertised for this 
+        VE by the PE.
+        A value of 0 indicates that the range is not configured and the PE 
+        derives the range value from received advertisements from other PEs."
+    DEFVAL          { 0 } 
+    ::= { ciVplsBgpExtConfigEntry 4 }
+ 
+
+
+civplsBgpExtRTTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiVplsBgpExtRTEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies information for the list of RTs imported or 
+         exported by BGP during auto-discovery of VPLS."
+    ::= { ciscoIetfVplsBgpExtMIBObjects 2 }
+
+civplsBgpExtRTEntry OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtRTEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a conceptual row in civplsBgpExtRTTable
+        and provides the information about the value of the RT being used by BGP. 
+        Depending on the value of civplsBgpExtRTType, an RT might be exported or
+        imported or both. Every VPLS, which uses auto-discovery for finding peer 
+        nodes, can import and export multiple RTs. This representation allows 
+        support for hierarchical VPLS. A row is created by the operator or agent 
+        prior to autodiscovery."
+    INDEX           {
+                        cvplsConfigIndex,
+                        ciVplsBgpExtRTType,
+                        ciVplsBgpExtRT
+                    } 
+    ::= { civplsBgpExtRTTable 1 }
+
+CiVplsBgpExtRTEntry ::= SEQUENCE {
+        ciVplsBgpExtRTType        CiVplsBgpExtRouteTargetType,
+        ciVplsBgpExtRT            CiVplsBgpExtRouteTarget,
+        ciVplsBgpExtRTStorageType StorageType,
+        ciVplsBgpExtRTRowStatus   RowStatus
+}
+
+ciVplsBgpExtRTType OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtRouteTargetType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of a RT usage. RTs can be specified 
+        to be imported, exported, or both."
+    ::= { civplsBgpExtRTEntry 1 }
+
+ciVplsBgpExtRT OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtRouteTarget (SIZE  (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The RT associated with the VPLS service." 
+    ::= { civplsBgpExtRTEntry 2 }
+
+ciVplsBgpExtRTStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the storage type for this row."
+    DEFVAL          { volatile } 
+    ::= { civplsBgpExtRTEntry 3 }
+
+ciVplsBgpExtRTRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create, modify, and/or
+        delete a row in this table.  When a row in this
+        table is in active(1) state, no objects in that row
+        can be modified." 
+    ::= { civplsBgpExtRTEntry 4 }
+ 
+
+
+ciVplsBgpExtVETable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiVplsBgpExtVEEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table associates VPLS Edge devices to a VPLS.
+        The VEs assigned to a VPLS can be configured on a PE.
+        This table has an expansion dependant relationship 
+        with cvplsConfigTable. For each row identified by 
+        cvplsConfigIndex, there may exist one or more rows 
+        in this table. ciVplsBgpExtVEId is the expansion index. 
+
+        None of the read-create objects values can be
+        changed when ciVplsBgpExtVERowStatus is in the active(1)
+        state. Changes are allowed when the ciVplsBgpExtVERowStatus
+        is in notInService(2) or notReady(3) states only.
+        If the operator need to change one of the values
+        for an active row the ciVplsBgpExtVERowStatus should be
+        first changed to notInService(2), the objects may
+        be changed now, and later to active(1) in order to
+        re-initiate the signaling process with the new
+        values in effect."
+    ::= { ciscoIetfVplsBgpExtMIBObjects 3 }
+
+ciVplsBgpExtVEEntry OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtVEEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a conceptual row in ciVplsBgpExtVETable
+        and provides the information about VPLS Edge devices."
+    INDEX           {
+                        cvplsConfigIndex,
+                        ciVplsBgpExtVEId
+                    } 
+    ::= { ciVplsBgpExtVETable 1 }
+
+CiVplsBgpExtVEEntry ::= SEQUENCE {
+        ciVplsBgpExtVEId          CiVplsBgpExtVEID,
+        ciVplsBgpExtVEName        SnmpAdminString,
+        ciVplsBgpExtVEPreference  Unsigned32,
+        ciVplsBgpExtVEStorageType StorageType,
+        ciVplsBgpExtVERowStatus   RowStatus
+}
+
+ciVplsBgpExtVEId OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtVEID
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies a VE associated with a VPLS." 
+    ::= { ciVplsBgpExtVEEntry 1 }
+
+ciVplsBgpExtVEName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the site or u-PE associated with this VE."
+    DEFVAL          { "" } 
+    ::= { ciVplsBgpExtVEEntry 2 }
+
+ciVplsBgpExtVEPreference OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the preference of the VE if the site is multi-homed and VE Id is used."
+    DEFVAL          { 0 } 
+    ::= { ciVplsBgpExtVEEntry 3 }
+
+ciVplsBgpExtVEStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the storage type for this row."
+    DEFVAL          { volatile } 
+    ::= { ciVplsBgpExtVEEntry 5 }
+
+ciVplsBgpExtVERowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create, modify, and/or
+        delete a row in this table.  When a row in this
+        table is in active(1) state, no objects in that row
+        can be modified." 
+    ::= { ciVplsBgpExtVEEntry 6 }
+ 
+
+
+ciVplsBgpExtPwBindTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiVplsBgpExtPwBindEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides BGP-specific information for
+        an association between a VPLS and the 
+        corresponding Pseudo Wires. A service can have more
+        than one Pseudo Wire association. Pseudo Wires are
+        defined in the cpwvcTable.
+
+        Each row represents an association between a VPLS instance 
+        and one or more Pseudo Wires defined in the cpwVcTable in 
+        CISCO-IETF-PW-MIB. 
+
+        An Entry in this table in instantiated only when
+        BGP signalling is used to configure VPLS."
+    ::= { ciscoIetfVplsBgpExtMIBObjects 4 }
+
+ciVplsBgpExtPwBindEntry OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtPwBindEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a conceptual row in ciVplsBgpExtPwBindTable
+        and provides the information about BGP-specific information for
+        an association between a VPLS and the 
+        corresponding Pseudo Wires."
+    INDEX           {
+                        cvplsConfigIndex,
+                        cvplsPwBindIndex
+                    } 
+    ::= { ciVplsBgpExtPwBindTable 1 }
+
+CiVplsBgpExtPwBindEntry ::= SEQUENCE {
+        ciVplsBgpExtPwBindLocalVEId  CiVplsBgpExtVEID,
+        ciVplsBgpExtPwBindRemoteVEId CiVplsBgpExtVEID
+}
+
+ciVplsBgpExtPwBindLocalVEId OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtVEID
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the local VE this Pseudo Wire is associated with." 
+    ::= { ciVplsBgpExtPwBindEntry 1 }
+
+ciVplsBgpExtPwBindRemoteVEId OBJECT-TYPE
+    SYNTAX          CiVplsBgpExtVEID
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the remote VE this Pseudo Wire is associated with." 
+    ::= { ciVplsBgpExtPwBindEntry 2 }
+ 
+
+-- Notifiations
+--   
+
+-- Conformance
+
+ciscoIetfVplsBgpExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIetfVplsBgpExtMIBConform 1 }
+
+ciscoIetfVplsBgpExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIetfVplsBgpExtMIBConform 2 }
+
+
+ciscoIetfVplsBgpExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance statement for the entities that implement
+        the ciscoIetfVplsBgpExtMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciVplsBgpExtConfigGroup,
+                        ciVplsBgpExtRTGroup,
+                        ciVplsBgpExtVEGroup,
+                        ciVplsBgpExtPwBindGroup
+                    }
+
+    OBJECT          ciVplsBgpExtConfigRouteDistinguisher
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciVplsBgpExtRT
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciVplsBgpExtRTType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciVplsBgpExtRTStorageType
+    DESCRIPTION
+        "volatile(2) is the only storage type required
+        to be supported.  Support for other(1), nonVolatile (3), 
+        permanent (4) and readOnly (5) is not required."
+
+    OBJECT          ciVplsBgpExtRTRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciVplsBgpExtConfigVERangeSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciVplsBgpExtVEName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciVplsBgpExtVEPreference
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciVplsBgpExtVEStorageType
+    DESCRIPTION
+        "volatile(2) is the only storage type required
+        to be supported.  Support for other(1), nonVolatile (3), 
+        permanent (4) and readOnly (5) is not required."
+
+    OBJECT          ciVplsBgpExtVERowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoIetfVplsBgpExtMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciVplsBgpExtConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciVplsBgpExtConfigRouteDistinguisher,
+                        ciVplsBgpExtConfigVERangeSize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects help to configure L2VPN  VPLS using BGP."
+    ::= { ciscoIetfVplsBgpExtMIBGroups 1 }
+
+ciVplsBgpExtRTGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciVplsBgpExtRTType,
+                        ciVplsBgpExtRT,
+                        ciVplsBgpExtRTStorageType,
+                        ciVplsBgpExtRTRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The group of objects help to manage RTs
+        for L2VPN VPLS using BGP."
+    ::= { ciscoIetfVplsBgpExtMIBGroups 2 }
+
+ciVplsBgpExtVEGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciVplsBgpExtVEName,
+                        ciVplsBgpExtVEPreference,
+                        ciVplsBgpExtVERowStatus,
+                        ciVplsBgpExtVEStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The group of objects help to manage VE devices
+        for L2VPN VPLS using BGP."
+    ::= { ciscoIetfVplsBgpExtMIBGroups 3 }
+
+ciVplsBgpExtPwBindGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciVplsBgpExtPwBindLocalVEId,
+                        ciVplsBgpExtPwBindRemoteVEId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The group of objects help to manage
+        Pseudo Wires for L2VPN VPLS using BGP."
+    ::= { ciscoIetfVplsBgpExtMIBGroups 4 }
+
+END
+
+
+
+

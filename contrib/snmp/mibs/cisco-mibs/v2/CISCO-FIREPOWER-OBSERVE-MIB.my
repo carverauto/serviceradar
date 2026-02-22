@@ -1,0 +1,831 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-OBSERVE-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- OBSERVE management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-OBSERVE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprConditionRemoteInvRslt,
+    CfprFsmCompletion,
+    CfprFsmFlags,
+    CfprFsmFsmStageStatus,
+    CfprMoMoClassId,
+    CfprObserveObservedFsmCurrentFsm,
+    CfprObserveObservedFsmStageName,
+    CfprObserveObservedFsmTaskItem
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprObserveObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        OBSERVE management information model package"
+    ::= { ciscoFirepowerMIBObjects 57 }
+
+cfprObserveFilterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprObserveFilterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter managed object table"
+    ::= { cfprObserveObjects 1 }
+
+cfprObserveFilterEntry OBJECT-TYPE
+    SYNTAX           CfprObserveFilterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprObserveFilterTable table."
+    INDEX { cfprObserveFilterInstanceId }
+    ::= { cfprObserveFilterTable 1 }
+
+CfprObserveFilterEntry ::= SEQUENCE {
+    cfprObserveFilterInstanceId                                      CfprManagedObjectId,
+    cfprObserveFilterDn                                              CfprManagedObjectDn,
+    cfprObserveFilterRn                                              SnmpAdminString,
+    cfprObserveFilterAndOperation                                    TruthValue,
+    cfprObserveFilterChildClassId                                    CfprMoMoClassId,
+    cfprObserveFilterFilterClassId                                   CfprMoMoClassId,
+    cfprObserveFilterFilterPropId1                                   SnmpAdminString,
+    cfprObserveFilterFilterPropId2                                   SnmpAdminString,
+    cfprObserveFilterFilterPropId3                                   SnmpAdminString,
+    cfprObserveFilterFilterPropValue1                                SnmpAdminString,
+    cfprObserveFilterFilterPropValue2                                SnmpAdminString,
+    cfprObserveFilterFilterPropValue3                                SnmpAdminString,
+    cfprObserveFilterHierarchical                                    TruthValue,
+    cfprObserveFilterReplicateIfNoChild                              TruthValue
+}
+
+cfprObserveFilterInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprObserveFilterEntry 1 }
+
+cfprObserveFilterDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:dn managed object property"
+    ::= { cfprObserveFilterEntry 2 }
+
+cfprObserveFilterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:rn managed object property"
+    ::= { cfprObserveFilterEntry 3 }
+
+cfprObserveFilterAndOperation OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:andOperation managed
+        object property"
+    ::= { cfprObserveFilterEntry 4 }
+
+cfprObserveFilterChildClassId OBJECT-TYPE
+    SYNTAX       CfprMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:childClassId managed
+        object property"
+    ::= { cfprObserveFilterEntry 5 }
+
+cfprObserveFilterFilterClassId OBJECT-TYPE
+    SYNTAX       CfprMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:filterClassId managed
+        object property"
+    ::= { cfprObserveFilterEntry 6 }
+
+cfprObserveFilterFilterPropId1 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:filterPropId1 managed
+        object property"
+    ::= { cfprObserveFilterEntry 7 }
+
+cfprObserveFilterFilterPropId2 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:filterPropId2 managed
+        object property"
+    ::= { cfprObserveFilterEntry 8 }
+
+cfprObserveFilterFilterPropId3 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:filterPropId3 managed
+        object property"
+    ::= { cfprObserveFilterEntry 9 }
+
+cfprObserveFilterFilterPropValue1 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:filterPropValue1
+        managed object property"
+    ::= { cfprObserveFilterEntry 10 }
+
+cfprObserveFilterFilterPropValue2 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:filterPropValue2
+        managed object property"
+    ::= { cfprObserveFilterEntry 11 }
+
+cfprObserveFilterFilterPropValue3 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:filterPropValue3
+        managed object property"
+    ::= { cfprObserveFilterEntry 12 }
+
+cfprObserveFilterHierarchical OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:hierarchical managed
+        object property"
+    ::= { cfprObserveFilterEntry 13 }
+
+cfprObserveFilterReplicateIfNoChild OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Filter:replicateIfNoChild
+        managed object property"
+    ::= { cfprObserveFilterEntry 14 }
+
+cfprObserveObservedTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprObserveObservedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed managed object table"
+    ::= { cfprObserveObjects 2 }
+
+cfprObserveObservedEntry OBJECT-TYPE
+    SYNTAX           CfprObserveObservedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprObserveObservedTable table."
+    INDEX { cfprObserveObservedInstanceId }
+    ::= { cfprObserveObservedTable 1 }
+
+CfprObserveObservedEntry ::= SEQUENCE {
+    cfprObserveObservedInstanceId                                    CfprManagedObjectId,
+    cfprObserveObservedDn                                            CfprManagedObjectDn,
+    cfprObserveObservedRn                                            SnmpAdminString,
+    cfprObserveObservedDataSrcAppType                                SnmpAdminString,
+    cfprObserveObservedDataSrcSysId                                  Gauge32,
+    cfprObserveObservedFsmDescr                                      SnmpAdminString,
+    cfprObserveObservedFsmPrev                                       SnmpAdminString,
+    cfprObserveObservedFsmProgr                                      Gauge32,
+    cfprObserveObservedFsmRmtInvErrCode                              Gauge32,
+    cfprObserveObservedFsmRmtInvErrDescr                             SnmpAdminString,
+    cfprObserveObservedFsmRmtInvRslt                                 CfprConditionRemoteInvRslt,
+    cfprObserveObservedFsmStageDescr                                 SnmpAdminString,
+    cfprObserveObservedFsmStamp                                      DateAndTime,
+    cfprObserveObservedFsmStatus                                     SnmpAdminString,
+    cfprObserveObservedFsmTry                                        Gauge32,
+    cfprObserveObservedGenNum                                        Gauge32,
+    cfprObserveObservedHierarchical                                  TruthValue,
+    cfprObserveObservedId                                            Gauge32,
+    cfprObserveObservedIsDeleted                                     TruthValue,
+    cfprObserveObservedObservedDn                                    SnmpAdminString
+}
+
+cfprObserveObservedInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprObserveObservedEntry 1 }
+
+cfprObserveObservedDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:dn managed object property"
+    ::= { cfprObserveObservedEntry 2 }
+
+cfprObserveObservedRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:rn managed object property"
+    ::= { cfprObserveObservedEntry 3 }
+
+cfprObserveObservedDataSrcAppType OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:dataSrcAppType
+        managed object property"
+    ::= { cfprObserveObservedEntry 4 }
+
+cfprObserveObservedDataSrcSysId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:dataSrcSysId
+        managed object property"
+    ::= { cfprObserveObservedEntry 5 }
+
+cfprObserveObservedFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmDescr managed
+        object property"
+    ::= { cfprObserveObservedEntry 6 }
+
+cfprObserveObservedFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmPrev managed object property"
+    ::= { cfprObserveObservedEntry 7 }
+
+cfprObserveObservedFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmProgr managed
+        object property"
+    ::= { cfprObserveObservedEntry 8 }
+
+cfprObserveObservedFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprObserveObservedEntry 9 }
+
+cfprObserveObservedFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprObserveObservedEntry 10 }
+
+cfprObserveObservedFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprObserveObservedEntry 11 }
+
+cfprObserveObservedFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmStageDescr
+        managed object property"
+    ::= { cfprObserveObservedEntry 12 }
+
+cfprObserveObservedFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmStamp managed
+        object property"
+    ::= { cfprObserveObservedEntry 13 }
+
+cfprObserveObservedFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmStatus managed
+        object property"
+    ::= { cfprObserveObservedEntry 14 }
+
+cfprObserveObservedFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:fsmTry managed object property"
+    ::= { cfprObserveObservedEntry 15 }
+
+cfprObserveObservedGenNum OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:genNum managed object property"
+    ::= { cfprObserveObservedEntry 16 }
+
+cfprObserveObservedHierarchical OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:hierarchical
+        managed object property"
+    ::= { cfprObserveObservedEntry 17 }
+
+cfprObserveObservedId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:id managed object property"
+    ::= { cfprObserveObservedEntry 18 }
+
+cfprObserveObservedIsDeleted OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:isDeleted managed
+        object property"
+    ::= { cfprObserveObservedEntry 19 }
+
+cfprObserveObservedObservedDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:Observed:observedDn managed
+        object property"
+    ::= { cfprObserveObservedEntry 20 }
+
+cfprObserveObservedContTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprObserveObservedContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedCont managed object table"
+    ::= { cfprObserveObjects 3 }
+
+cfprObserveObservedContEntry OBJECT-TYPE
+    SYNTAX           CfprObserveObservedContEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprObserveObservedContTable table."
+    INDEX { cfprObserveObservedContInstanceId }
+    ::= { cfprObserveObservedContTable 1 }
+
+CfprObserveObservedContEntry ::= SEQUENCE {
+    cfprObserveObservedContInstanceId                                CfprManagedObjectId,
+    cfprObserveObservedContDn                                        CfprManagedObjectDn,
+    cfprObserveObservedContRn                                        SnmpAdminString,
+    cfprObserveObservedContIdCount                                   Gauge32
+}
+
+cfprObserveObservedContInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprObserveObservedContEntry 1 }
+
+cfprObserveObservedContDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedCont:dn managed object property"
+    ::= { cfprObserveObservedContEntry 2 }
+
+cfprObserveObservedContRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedCont:rn managed object property"
+    ::= { cfprObserveObservedContEntry 3 }
+
+cfprObserveObservedContIdCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedCont:idCount managed
+        object property"
+    ::= { cfprObserveObservedContEntry 4 }
+
+cfprObserveObservedFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprObserveObservedFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm managed object table"
+    ::= { cfprObserveObjects 4 }
+
+cfprObserveObservedFsmEntry OBJECT-TYPE
+    SYNTAX           CfprObserveObservedFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprObserveObservedFsmTable table."
+    INDEX { cfprObserveObservedFsmInstanceId }
+    ::= { cfprObserveObservedFsmTable 1 }
+
+CfprObserveObservedFsmEntry ::= SEQUENCE {
+    cfprObserveObservedFsmInstanceId                                 CfprManagedObjectId,
+    cfprObserveObservedFsmDn                                         CfprManagedObjectDn,
+    cfprObserveObservedFsmRn                                         SnmpAdminString,
+    cfprObserveObservedFsmCompletionTime                             DateAndTime,
+    cfprObserveObservedFsmCurrentFsm                                 CfprObserveObservedFsmCurrentFsm,
+    cfprObserveObservedFsmDescrData                                  SnmpAdminString,
+    cfprObserveObservedFsmFsmStatus                                  CfprFsmFsmStageStatus,
+    cfprObserveObservedFsmProgress                                   Gauge32,
+    cfprObserveObservedFsmRmtErrCode                                 Gauge32,
+    cfprObserveObservedFsmRmtErrDescr                                SnmpAdminString,
+    cfprObserveObservedFsmRmtRslt                                    CfprConditionRemoteInvRslt
+}
+
+cfprObserveObservedFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprObserveObservedFsmEntry 1 }
+
+cfprObserveObservedFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:dn managed object property"
+    ::= { cfprObserveObservedFsmEntry 2 }
+
+cfprObserveObservedFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:rn managed object property"
+    ::= { cfprObserveObservedFsmEntry 3 }
+
+cfprObserveObservedFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:completionTime
+        managed object property"
+    ::= { cfprObserveObservedFsmEntry 4 }
+
+cfprObserveObservedFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprObserveObservedFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:currentFsm
+        managed object property"
+    ::= { cfprObserveObservedFsmEntry 5 }
+
+cfprObserveObservedFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:descr managed
+        object property"
+    ::= { cfprObserveObservedFsmEntry 6 }
+
+cfprObserveObservedFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:fsmStatus
+        managed object property"
+    ::= { cfprObserveObservedFsmEntry 7 }
+
+cfprObserveObservedFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:progress managed
+        object property"
+    ::= { cfprObserveObservedFsmEntry 8 }
+
+cfprObserveObservedFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:rmtErrCode
+        managed object property"
+    ::= { cfprObserveObservedFsmEntry 9 }
+
+cfprObserveObservedFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprObserveObservedFsmEntry 10 }
+
+cfprObserveObservedFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsm:rmtRslt managed
+        object property"
+    ::= { cfprObserveObservedFsmEntry 11 }
+
+cfprObserveObservedFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprObserveObservedFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage managed object table"
+    ::= { cfprObserveObjects 5 }
+
+cfprObserveObservedFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprObserveObservedFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprObserveObservedFsmStageTable table."
+    INDEX { cfprObserveObservedFsmStageInstanceId }
+    ::= { cfprObserveObservedFsmStageTable 1 }
+
+CfprObserveObservedFsmStageEntry ::= SEQUENCE {
+    cfprObserveObservedFsmStageInstanceId                            CfprManagedObjectId,
+    cfprObserveObservedFsmStageDn                                    CfprManagedObjectDn,
+    cfprObserveObservedFsmStageRn                                    SnmpAdminString,
+    cfprObserveObservedFsmStageDescrData                             SnmpAdminString,
+    cfprObserveObservedFsmStageLastUpdateTime                        DateAndTime,
+    cfprObserveObservedFsmStageName                                  CfprObserveObservedFsmStageName,
+    cfprObserveObservedFsmStageOrder                                 Gauge32,
+    cfprObserveObservedFsmStageRetry                                 Gauge32,
+    cfprObserveObservedFsmStageStageStatus                           CfprFsmFsmStageStatus
+}
+
+cfprObserveObservedFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprObserveObservedFsmStageEntry 1 }
+
+cfprObserveObservedFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:dn managed
+        object property"
+    ::= { cfprObserveObservedFsmStageEntry 2 }
+
+cfprObserveObservedFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:rn managed
+        object property"
+    ::= { cfprObserveObservedFsmStageEntry 3 }
+
+cfprObserveObservedFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:descr
+        managed object property"
+    ::= { cfprObserveObservedFsmStageEntry 4 }
+
+cfprObserveObservedFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprObserveObservedFsmStageEntry 5 }
+
+cfprObserveObservedFsmStageName OBJECT-TYPE
+    SYNTAX       CfprObserveObservedFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:name
+        managed object property"
+    ::= { cfprObserveObservedFsmStageEntry 6 }
+
+cfprObserveObservedFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:order
+        managed object property"
+    ::= { cfprObserveObservedFsmStageEntry 7 }
+
+cfprObserveObservedFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:retry
+        managed object property"
+    ::= { cfprObserveObservedFsmStageEntry 8 }
+
+cfprObserveObservedFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmStage:stageStatus
+        managed object property"
+    ::= { cfprObserveObservedFsmStageEntry 9 }
+
+cfprObserveObservedFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprObserveObservedFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmTask managed object table"
+    ::= { cfprObserveObjects 6 }
+
+cfprObserveObservedFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprObserveObservedFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprObserveObservedFsmTaskTable table."
+    INDEX { cfprObserveObservedFsmTaskInstanceId }
+    ::= { cfprObserveObservedFsmTaskTable 1 }
+
+CfprObserveObservedFsmTaskEntry ::= SEQUENCE {
+    cfprObserveObservedFsmTaskInstanceId                             CfprManagedObjectId,
+    cfprObserveObservedFsmTaskDn                                     CfprManagedObjectDn,
+    cfprObserveObservedFsmTaskRn                                     SnmpAdminString,
+    cfprObserveObservedFsmTaskCompletion                             CfprFsmCompletion,
+    cfprObserveObservedFsmTaskFlags                                  CfprFsmFlags,
+    cfprObserveObservedFsmTaskItem                                   CfprObserveObservedFsmTaskItem,
+    cfprObserveObservedFsmTaskSeqId                                  Gauge32
+}
+
+cfprObserveObservedFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprObserveObservedFsmTaskEntry 1 }
+
+cfprObserveObservedFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmTask:dn managed
+        object property"
+    ::= { cfprObserveObservedFsmTaskEntry 2 }
+
+cfprObserveObservedFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmTask:rn managed
+        object property"
+    ::= { cfprObserveObservedFsmTaskEntry 3 }
+
+cfprObserveObservedFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmTask:completion
+        managed object property"
+    ::= { cfprObserveObservedFsmTaskEntry 4 }
+
+cfprObserveObservedFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmTask:flags
+        managed object property"
+    ::= { cfprObserveObservedFsmTaskEntry 5 }
+
+cfprObserveObservedFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprObserveObservedFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmTask:item managed
+        object property"
+    ::= { cfprObserveObservedFsmTaskEntry 6 }
+
+cfprObserveObservedFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower observe:ObservedFsmTask:seqId
+        managed object property"
+    ::= { cfprObserveObservedFsmTaskEntry 7 }
+
+END

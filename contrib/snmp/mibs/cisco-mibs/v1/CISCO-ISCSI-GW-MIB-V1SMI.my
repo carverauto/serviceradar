@@ -1,0 +1,2396 @@
+-- MIB file created 24-Jun-2005 13:38:08, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ISCSI-GW-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ISCSI-GW-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex, ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    ListIndexOrZero, ListIndex, CiscoPort
+            FROM CISCO-TC
+    FcNameId, FcNameIdOrZero, VsanIndex
+            FROM CISCO-ST-TC
+    ScsiName, ScsiLUNOrZero, ciscoScsiInstIndex, 
+    ciscoScsiDeviceIndex, ciscoScsiLuIndex
+            FROM CISCO-SCSI-MIB
+    cIscsiInstIndex, cIscsiNodeIndex, cIscsiNodeIndex, 
+    cIscsiSsnIndex
+            FROM CISCO-ISCSI-MIB
+    FcList
+            FROM CISCO-ZS-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIscsiGwMIB OBJECT IDENTIFIER ::= { ciscoMgmt 317 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200504290000Z
+--  OrgName
+--    Cisco Systems Inc. 
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--    Postal: 170 W Tasman Drive
+--          San Jose, CA  95134
+--          USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    MIB module for monitoring and configuring iSCSI 
+--    gateway functions. An iSCSI gateway represents FC 
+--    (Fibre Channel) targets/initiators as iSCSI 
+--    targets/initiators respectively and vice versa. It 
+--    means that an iSCSI target/initiator is presented to 
+--    the FC network as a virtual FC target/initiator which 
+--    can be accessed by the real FC initiators or can access
+--    real FC targets, respectively. 
+--    It is up to the gateway implementation how to represent 
+--    the targets/initiators in each of the domains. For 
+--    example, a gateway implementation may choose to 
+--    represent multiple FC targets either as one iSCSI target
+--    or multiple iSCSI targets (one to one). Same applies to 
+--    initiators also.
+--  RevDate
+--    200504290000Z
+--  RevDescr
+--    Added new table ciscsiConnectionStatsTable.
+--     Added new group cigConnectionStatsGroup.
+--     Added new objects to IscsiIfEntry -
+--         iscsiIfNumNormalConnections
+--         iscsiIfNumDiscovConnections
+--         iscsiIfTcpCWMEnable
+--         iscsiIfTcpCWMBurstSize
+--         iscsiIfTcpMaxJitter
+--    
+--     Added new objects to Iscsi2FcNodeEntry -
+--        iscsi2FcTargetUserName
+--        iscsi2FcTargetPassword
+--    
+--     Added new objects -
+--        iscsiTargetUserName and
+--        iscsiTargetPassword to ciScsiConfig, global
+--        Scsi configuration.
+--  RevDate
+--    200411160000Z
+--  RevDescr
+--    Added new objects iscsiIfTcpRndTrpTimeEst.
+--     Added new group cigIscsiIfGroupRev4.
+--     Added new object iscsiIfTcpLocalTcpPort. 
+--     Deprecated iscsiIfTcpLocalPort. 
+--     Added a new compliance ciscoiScsiGwMIBCompliance4.
+--  RevDate
+--    200312080000Z
+--  RevDescr
+--    Added new objects iscsiIfIntrIdentificationMode,
+--    iscsiIntrIdentificationMode and 
+--    iscsiInitiatorIdleTimeout.
+--    Added a new compliance ciscoiScsiGwMIBCompliance3.
+--  RevDate
+--    200311140000Z
+--  RevDescr
+--    Added new objects iscsiAuthMethod,iscsi2FcNodeAuthUser, 
+--    iscsiIfForwardingMode, and iscsiIfIntrProxyMode.
+--    Added new compliance ciscoiScsiGwMIBCompliance1.
+--    Added new table iscsiGigEIfTable and new comformance
+--    group cigIscsiGigEIfGroup.
+--    Added new objects fc2IscsiNodeTrespassMode and 
+--    fc2IscsiNodeRevertToPrimaryPort to fc2IscsiNodeTable.
+--  RevDate
+--    200308180000Z
+--  RevDescr
+--    Added a new table iscsiSessionAttributesExtTable.
+--    Added iscsiIfTable.
+--    Added scsiLuExtRemoteSecLun to scsiLyExtTable.
+--    Added new object iscsi2FcNodeFcAddrAssignment to 
+--    iscsi2FcNodeTable. Changed MAX-ACCESS of 
+--    iscsi2FcNodeDiscovered to read-create. Added a
+--    MIN-ACCESS to to this object to be backward
+--    compatible.
+--    Added new conformance groups cigLuConfigurationGroupRev1
+--    and cigConfigurationGroupRev1. Also added a new 
+--    compliance ciscoiScsiGwMIBCompliance1.
+--  RevDate
+--    200305220000Z
+--  RevDescr
+--    Fixed the MIB compile errors during MIB release.
+--  RevDate
+--    200304100000Z
+--  RevDescr
+--    Changed the syntax of CIscsiTargetDomains to BITS from 
+--    INTEGER.
+--    Added a new table iscsiImprtExprtTgtsConfTable instead of 
+--    the two scalar objects iscsiImportTargets and 
+--    iscsiExportTargets.
+--    Added two new objects iscsi2FcNodeDiscovered and 
+--    fc2IscsiNodeDiscovered to iscsi2FcNodeTable and 
+--    fc2IscsiNodeTable respectively.
+--    Added  new object fc2IscsiNodeAllIntrAccessAllowed.
+--    Changed the range of iscsi2FcPortNumFCAddr to 0-64 from 
+--    0-255.
+--  RevDate
+--    200302110000Z
+--  RevDescr
+--    Added an enumeration 'none' to the CIscsiTargetDomains TC.
+--    Changed the DESCRIPTION of iscsiImportTargets and 
+--    iscsiExportTargets to reflect this change.
+--  RevDate
+--    200210050000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoiScsiGwMIBNotifications OBJECT IDENTIFIER ::= { ciscoIscsiGwMIB 0 }
+ciscoiScsiGwMIBObjects OBJECT IDENTIFIER ::= { ciscoIscsiGwMIB 1 }
+ciscoiScsiGwMIBConformance OBJECT IDENTIFIER ::= { ciscoIscsiGwMIB 2 }
+ciScsiConfig    OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBObjects 1 }
+ciScsiStatistics OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBObjects 2 }
+ciscoiScsiGwMIBCompliances OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBConformance 1 }
+ciscoiScsiGwMIBGroups OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBConformance 2 }
+
+CIscsiTargetDomains ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   fibreChannel(0)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A value which identifies zero or more target domains.  
+--    One bit is defined for each defined domain, and a domain
+--    is identified if its bit is set.
+
+CIscsiNodeRoles ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   targetTypeNode(0)
+        --   initiatorTypeNode(1)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Role of the iSCSI node.
+--    A node can operate as in one or both of two roles:
+--    a target role and/or an initiator role.
+--    An initiator starts a iSCSI session  with a target to 
+--    to do any iSCSI transaction.
+
+IscsiName ::= OCTET STRING(SIZE(16..223))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    223a
+--  Status
+--    mandatory
+--  Descr
+--    This data type is a local refinement of the SnmpAdminString
+--    used to define an iSCSI Name.
+--  Refer
+--    iSCSI Protocol Specification, Section 3.2.6, iSCSI Names.
+
+IscsiAuthMethod ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   none(0)
+        --   chap(1)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The authentication method.
+
+CIscsiIntrIdentificationMode ::= INTEGER {
+        name(1),
+        ipaddress(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The initiator identification mode. An initiator is 
+--    identified either by its iSCSI name (name) or by
+--    its IP address (ipaddress).
+
+iscsiImprtExprtTgtsConfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IscsiImprtExprtTgtsConfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the configuration of automatic 
+        importing and exporting of targets into and from iSCSI 
+        domain. If a targets is discovered in other domains, it 
+        is automatically imported if it is configured for 
+        automatic importing. Similarly, if an iSCSI target is
+        discovered, it is automatically exported to other domains
+        if it is configured to do so."
+    ::= { ciScsiConfig 1 }
+
+iscsiImprtExprtTgtsConfEntry OBJECT-TYPE
+    SYNTAX IscsiImprtExprtTgtsConfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information on configuration of 
+        importing/exporting of the targets into/from iSCSI 
+        domain."
+    INDEX { cIscsiInstIndex }
+-- Augments cIscsiInstanceAttributesEntry FROM CISCO-ISCSI-MIB
+    ::= { iscsiImprtExprtTgtsConfTable 1 }
+
+IscsiImprtExprtTgtsConfEntry ::= SEQUENCE {
+    iscsiImprtExprtTgtsConfImport CIscsiTargetDomains,
+    iscsiImprtExprtTgtsConfExport CIscsiTargetDomains
+    }
+
+iscsiImprtExprtTgtsConfImport OBJECT-TYPE
+    SYNTAX CIscsiTargetDomains
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           fibreChannel(0)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies zero or more target
+        domains. If a target domain is identified, then all the
+        targets in that domain are automatically imported into 
+        iSCSI domain. Note that a target is not imported if it is
+        already in the iSCSI domain.
+        If value of this object is '00'H, then no targets are
+        automatically imported."
+    DEFVAL { '00'h }
+    ::= { iscsiImprtExprtTgtsConfEntry 1 }
+
+iscsiImprtExprtTgtsConfExport OBJECT-TYPE
+    SYNTAX CIscsiTargetDomains
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           fibreChannel(0)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies zero or more target
+        domains. If a target domain is identified, then all the
+        targets in the iSCSI domain are automatically exported 
+        to that domain. 
+        Note that only the real iSCSI targets are exported.
+        No targets are exported if the value of the object
+        is '00'H."
+    DEFVAL { '00'h }
+    ::= { iscsiImprtExprtTgtsConfEntry 2 }
+
+iscsiAuthMethod OBJECT-TYPE
+    SYNTAX IscsiAuthMethod
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           none(0)
+--           chap(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global authentication method for iSCSI."
+    DEFVAL { '00'h }
+    ::= { ciScsiConfig 2 }
+
+iscsi2FcNodeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Iscsi2FcNodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all the nodes in the iSCSI domain 
+        which are currently represented in the FC domain.  
+        
+        Entries in this table are automatically created when
+        an iSCSI initiator logs (starts a session) into a target
+        or an iSCSI target is discovered. Entries are also 
+        created when targets are exported from the iSCSI domain 
+        into FC.  
+        
+        Entries in this table are automatically removed when an
+        iSCSI initiator logs out of all targets or an iSCSI 
+        target disappears.
+        
+        Entries also can be created and deleted  using the 
+        iscsi2FcNodeRowStatus object.
+        If the entry created in this table exposes either iSCSI
+        initiator or iSCSI target or both from the local device,
+        then a entry has to be created implicitly by the agent 
+        in the cIscsiNodeAttributesTable when an entry is 
+        created in this table.
+        
+        A row in this table can not be made 'active' until values
+        are explicitly provided for that row's instances of 
+        iscsi2FcNodeName and iscsi2FcNodeRole.
+        
+        The following objects cannot be modified when the 
+        iscsi2FcNodeRowStatus is 'active' :
+           iscsi2FcNodeName
+           iscsi2FcNodeRole
+        
+        To modify the above objects, the entry must be deleted 
+        and re-created with new values of above objects.
+        
+        Every node in this table is associated with a iSCSI 
+        instance which is uniquely identified by 
+        cIscsiInstIndex."
+    ::= { ciScsiConfig 3 }
+
+iscsi2FcNodeEntry OBJECT-TYPE
+    SYNTAX Iscsi2FcNodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry representing an iSCSI node which is presented 
+        as a FC node to the FC domain."
+    INDEX { cIscsiInstIndex, iscsi2FcNodeIndex }
+    ::= { iscsi2FcNodeTable 1 }
+
+Iscsi2FcNodeEntry ::= SEQUENCE {
+    iscsi2FcNodeIndex Gauge,
+    iscsi2FcNodeName IscsiName,
+    iscsi2FcNodeRole CIscsiNodeRoles,
+    iscsi2FcNodePersistentFCAddr TruthValue,
+    iscsi2FcPortPersistentFCAddr TruthValue,
+    iscsi2FcPortNumFCAddr Gauge,
+    iscsi2FcNodeFCAddr FcNameIdOrZero,
+    iscsi2FcPortFCAddrListIndex ListIndexOrZero,
+    iscsi2FcNodeVsanList2k FcList,
+    iscsi2FcNodeVsanList4k FcList,
+    iscsi2FcNodeDiscovered TruthValue,
+    iscsi2FcNodeRowStatus RowStatus,
+    iscsi2FcNodeFcAddrAssignment INTEGER,
+    iscsi2FcNodeAuthUser SnmpAdminString,
+    iscsi2FcTargetUserName SnmpAdminString,
+    iscsi2FcTargetPassword SnmpAdminString
+    }
+
+iscsi2FcNodeIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer value, which identifies an iSCSI
+        node in a FC domain."
+    ::= { iscsi2FcNodeEntry 1 }
+
+iscsi2FcNodeName OBJECT-TYPE
+    SYNTAX IscsiName
+--    Rsyntax OCTET STRING(SIZE(16..223))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A character string that is a globally unique identifier
+        for the node represented by this entry.  The node name 
+        is independent of the location of the node, and can be 
+        resolved into a set of addresses through various 
+        discovery services."
+    ::= { iscsi2FcNodeEntry 2 }
+
+iscsi2FcNodeRole OBJECT-TYPE
+    SYNTAX CIscsiNodeRoles
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           targetTypeNode(0)
+--           initiatorTypeNode(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The role of the node represented by this entry.
+        Note that a gateway implementation may choose not to 
+        allow a node to operate in both roles."
+    ::= { iscsi2FcNodeEntry 3 }
+
+iscsi2FcNodePersistentFCAddr OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if the node FC Address 
+        (iscsi2FcNodeFCAddr) is made persistent or not. If this 
+        object is 'true', then the same FC address is assigned to
+        the node if it were to be represented again in the FC 
+        domain with the same node name. Note that the node FC 
+        address is either automatically assigned or manually 
+        configured."
+    ::= { iscsi2FcNodeEntry 4 }
+
+iscsi2FcPortPersistentFCAddr OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if the port FC addresses (given 
+        by iscsi2FcPortFCAddrListIndex) of this node is made 
+        persistent or not. 
+        
+        If this object is 'true', then the same FC address is 
+        assigned to the ports of the node if it were to be 
+        represented again in the FC domain with the same node 
+        name. Note that the port FC address is either 
+        automatically assigned or manually configured.
+        
+        If this object is 'false', then iscsi2FcPortNumFCAddr
+        and iscsi2FcPortFCAddrListIndex are not valid as 
+        port FC addresses are dynamically assigned/released."
+    ::= { iscsi2FcNodeEntry 5 }
+
+iscsi2FcPortNumFCAddr OBJECT-TYPE
+    SYNTAX Gauge(0..64)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of persistent port FC addresses that are 
+        automatically assigned to ports associated with this 
+        node. The fcAddressListTable contains the FC addresses
+        that are assigned for the node represented by this entry.
+        
+        If the value of this object is 0, then the port FC 
+        addresses are not automatically assigned.
+        Otherwise :
+        - the entries in the fcAddressListTable corresponding to
+          this automatic assignment as indicated by the object
+          iscsi2FcPortFCAddrListIndex cannot be either modified
+          or deleted.
+        - new entries cannot be created in the fcAddressListTable
+          with fcAddressListIndex which is equal to corresponding
+          iscsi2FcPortFCAddrListIndex for this instance.
+        - the corresponding iscsi2FcPortFCAddrListIndex cannot be
+          changed.
+        If the value of the object iscsi2FcPortPersistentFCAddr
+        is 'false', then this object cannot be modified."
+    ::= { iscsi2FcNodeEntry 6 }
+
+iscsi2FcNodeFCAddr OBJECT-TYPE
+    SYNTAX FcNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8|16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The persistent FC address of the node. If this object 
+        is zero-length and iscsi2FcNodePersistentFCAddr is 
+        'true' then the FC address of the node represented by
+        this entry is automatically assigned and made persistent.
+        If this object is non-zero length  and 
+        iscsi2FcNodePersistentFCAddr is 'true', then this value 
+        is always used as FC address of the node represented by
+        this entry. If iscsi2FcNodePersistentFCAddr is 'false, 
+        this object is not valid. The FC address for the node 
+        represented by this entry is dynamically 
+        assigned/released when the node represented by this entry
+        is created/destroyed."
+    ::= { iscsi2FcNodeEntry 7 }
+
+iscsi2FcPortFCAddrListIndex OBJECT-TYPE
+    SYNTAX ListIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The index of a list in the fcAddressListTable which
+        lists all the FC port addresses associated with this
+        node.
+        
+        The object value of the iscsi2FcPortPersistentFCAddr 
+        indicates if the addresses are persistent or not.
+        
+        Note that this object cannot be modified if the 
+        corresponding value of iscsi2FcPortNumFCAddr is non-zero.
+        
+        If the value of the object iscsi2FcPortPersistentFCAddr  
+        is 'false', then this object cannot be modified."
+    ::= { iscsi2FcNodeEntry 8 }
+
+iscsi2FcNodeVsanList2k OBJECT-TYPE
+    SYNTAX FcList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The list of VSANs the node represented by this entry 
+        can access.
+        
+        Each octet within the value of this object specifies a
+        set of eight VSANs, with the first octet specifying 
+        VSANs 0 through 7, the second octet specifying VSANs 8
+        through 15, etc. Within each octet, the most significant
+        bit represents the lowest numbered VSAN, and the least
+        significant bit represents the highest numbered VSAN.  
+        Thus, each VSAN, is represented by a single bit within
+        the value of this object. The corresponding VSAN is 
+        allowed on the node represented by this entry if and 
+        only if that bit has a value of '1'. If this object has 
+        a value which is less than 256 bytes long, then the 
+        VSANs which are not represented are not considered to be
+        in this list.
+        
+        If this object is a zero-length string, the node 
+        represented by this entry can access only the default 
+        VSAN."
+    DEFVAL { ''H }
+    ::= { iscsi2FcNodeEntry 9 }
+
+iscsi2FcNodeVsanList4k OBJECT-TYPE
+    SYNTAX FcList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The list of VSANs the node represented by this entry
+        can access.
+        
+        Each octet within the value of this object specifies a 
+        set of eight VSANs, with the first octet specifying 
+        VSANs 2047 through 2054, the second octet specifying 
+        VSANs 2055 through 2062, etc. Within each octet, the 
+        most significant bit represents the lowest numbered 
+        VSAN, and the least significant bit represents the 
+        highest numbered VSAN. Thus, each VSAN, is represented
+        by a single bit within the value of this object. The 
+        corresponding VSAN is allowed on the node represented by
+        this entry if and only if that bit has a value of '1'. 
+        If this object has a value which is less than 256 bytes 
+        long, then the VSANs which are not represented are not 
+        considered to be in the list. 
+        
+        If this object is a zero-length string, the node 
+        represented by this entry can access only the default 
+        VSAN."
+    DEFVAL { ''H }
+    ::= { iscsi2FcNodeEntry 10 }
+
+iscsi2FcNodeDiscovered OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects indicates if the node represented by this 
+        entry was either automatically discovered or configured 
+        manually.
+        If the value of this object is 'true', then the node
+        represented by this entry is automatically discovered.
+        If it is 'false', then the node represented by this entry
+        was manually configured.
+        
+        An auto discovered node can be made manually configured 
+        node by setting this object to 'false'. 
+        Note that setting to 'false' when current value of the 
+        object is 'false' results in error. Also, object cannot
+        be set to 'true'."
+    ::= { iscsi2FcNodeEntry 11 }
+
+iscsi2FcNodeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { iscsi2FcNodeEntry 12 }
+
+iscsi2FcNodeFcAddrAssignment OBJECT-TYPE
+    SYNTAX INTEGER {
+        auto(1),
+        manual(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies how the FC address of this node 
+        is assigned.
+        If set to 'auto', the FC address is automatically 
+        assigned to this node. If it is 'manual', then the FC
+        address has to be configured manually.
+        An auto assigned node FC address can be made manually
+        configured by setting this object to 'manual' and vice
+        versa."
+    DEFVAL { auto }
+    ::= { iscsi2FcNodeEntry 13 }
+
+iscsi2FcNodeAuthUser OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the user which is to be sent with iSCSI 
+        authentication to the target, if authentication is
+        enabled (iscsiAuthMethod other than 'none') interface
+        on which carries session between initiator and target."
+    DEFVAL { ''H }
+    ::= { iscsi2FcNodeEntry 14 }
+
+iscsi2FcTargetUserName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The user name to be used during the login
+         authentication. This is optional. If no user
+         name and password (defined by iscsi2FcTargetPassword
+         ) is specified, then the global username and
+         password defined by iscsiTargetUserName and
+         iscsiTargetPassword (respectively) are used."
+    DEFVAL { ''H }
+    ::= { iscsi2FcNodeEntry 15 }
+
+iscsi2FcTargetPassword OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The password to be used during the login
+         authentication. This is optional. If no user
+         name (specified by iscsi2FcTargetUserName )and
+         password is specified, then the global username
+         and password defined by iscsiTargetUserName and
+         iscsiTargetPassword (respectively) is used.
+        
+         When read, it returns zero length  string."
+    DEFVAL { ''H }
+    ::= { iscsi2FcNodeEntry 16 }
+
+fc2IscsiNodeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Fc2IscsiNodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all the FC nodes which the gateway 
+        presents as iSCSI nodes to the iSCSI domain. 
+        
+        Entries in this table are automatically created when
+        FC nodes are discovered.
+        
+        Entries in this table are automatically removed when 
+        FC nodes go offline.
+        
+        Entries also can be created/deleted using the 
+        fc2IscsiNodeRowStatus object. An entry can be created by
+        to configure a node statically instead of allowing it to
+        be discovered.
+        
+        A row in this table can not be made 'active' until values
+        are explicitly provided for that row's instances of 
+        fc2IscsiNodeName and fc2IscsiNodeRole.
+        
+        The following objects cannot be modified when the 
+        fc2IscsiNodeRowStatus is 'active' :
+        - fc2IscsiNodeRole    
+        - fc2IscsiNodeName
+        
+        To modify the above objects, the entry must be deleted 
+        and re-created with new values of above objects.
+        
+        To create an iSCSI target from whole a FC target, use 
+        fc2ScsiPortFCAddrListIndex.
+        To create an iSCSI target from Logical Units on the 
+        FC targets, create an entry in this table. And
+        then create an entry (s) in the scsiLuExtTable using
+        fc2IscsiNodeName of an entry in this table as 
+        scsiLuExtLocalTargetAddress value."
+    ::= { ciScsiConfig 4 }
+
+fc2IscsiNodeEntry OBJECT-TYPE
+    SYNTAX Fc2IscsiNodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry representing a FC node which is presented as an
+        iSCSI node to the iSCSI domain."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex }
+-- Augments cIscsiNodeAttributesEntry FROM CISCO-ISCSI-MIB
+    ::= { fc2IscsiNodeTable 1 }
+
+Fc2IscsiNodeEntry ::= SEQUENCE {
+    fc2IscsiNodeRole CIscsiNodeRoles,
+    fc2IscsiNodeName IscsiName,
+    fc2IscsiPortFCAddrListIndex ListIndexOrZero,
+    fc2IscsiNodePermitListIndex ListIndexOrZero,
+    fc2IscsiNodeAdvIntfListIndex ListIndexOrZero,
+    fc2IscsiNodeAllIntrAccessAllowed TruthValue,
+    fc2IscsiNodeDiscovered TruthValue,
+    fc2IscsiNodeRowStatus RowStatus,
+    fc2IscsiNodeTrespassMode TruthValue,
+    fc2IscsiNodeRevertToPrimaryPort TruthValue
+    }
+
+fc2IscsiNodeRole OBJECT-TYPE
+    SYNTAX CIscsiNodeRoles
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           targetTypeNode(0)
+--           initiatorTypeNode(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Role of the node represented by this entry.
+        Note that a gateway implementation may choose not to 
+        allow a node to operate in both roles."
+    ::= { fc2IscsiNodeEntry 1 }
+
+fc2IscsiNodeName OBJECT-TYPE
+    SYNTAX IscsiName
+--    Rsyntax OCTET STRING(SIZE(16..223))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The iSCSI name of the node represented by this entry."
+    ::= { fc2IscsiNodeEntry 2 }
+
+fc2IscsiPortFCAddrListIndex OBJECT-TYPE
+    SYNTAX ListIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The index of  a list in the fcAddressListTable which 
+        lists all the FC node addresses associated with the
+        node represented by this entry.
+        Use this object to represent the whole FC targets."
+    ::= { fc2IscsiNodeEntry 3 }
+
+fc2IscsiNodePermitListIndex OBJECT-TYPE
+    SYNTAX ListIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The index of a list in the iscsiNodeNameListTable which
+        lists all the iSCSI nodes that are permitted to access
+        the node represented by this entry.
+        If fc2IscsiNodeAllIntrAccessAllowed is 'false' and the 
+        value of this object is 0, then no initiators are allowed
+         to access this target."
+    ::= { fc2IscsiNodeEntry 4 }
+
+fc2IscsiNodeAdvIntfListIndex OBJECT-TYPE
+    SYNTAX ListIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The index of  a list in the nodeAdvIntfListTable which 
+        lists all the interfaces on which the node represented 
+        by this entry could be advertised."
+    ::= { fc2IscsiNodeEntry 5 }
+
+fc2IscsiNodeAllIntrAccessAllowed OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if all the initiators can access 
+        the target represented by this entry. If this object is 
+        'true', then all the initiators can access this target 
+        even those which are not in the initiator permit list 
+        (fc2IscsiNodePermitListIndex) of the target represented 
+        by this entry. 
+        If this object is false, then only initiators which are 
+        in the permit list are allowed access to the target 
+        represented by this entry.
+        
+        Note that this object is valid only if the role of 
+        the node represented by this entry is 'targetTypeNode'."
+    DEFVAL { false }
+    ::= { fc2IscsiNodeEntry 6 }
+
+fc2IscsiNodeDiscovered OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This objects indicates if the node represented by this 
+        entry was either automatically discovered or configured 
+        manually. 
+        If the value of this object is 'true', then the node
+        represented by this entry is automatically discovered.
+        If it is 'false', then the node represented by this entry
+        was manually configured."
+    ::= { fc2IscsiNodeEntry 7 }
+
+fc2IscsiNodeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { fc2IscsiNodeEntry 8 }
+
+fc2IscsiNodeTrespassMode OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The trespass mode for this node. 
+        
+        Every iSCSI target represents one or more port(s) on the
+        FC target (fc2ScsiPortFCAddrListIndex).
+        
+        If this object is 'true', the node instructs the FC node 
+        to present all LUN I/O requests to secondary port 
+        (fcSecondaryAddress) if the primary port (fcAddress) is 
+        down.
+        
+        Note that this object is valid only if fc2IscsiNodeRole
+        is 'targetTypeNode'."
+    DEFVAL { false }
+    ::= { fc2IscsiNodeEntry 9 }
+
+fc2IscsiNodeRevertToPrimaryPort OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if it is required to revert back
+        to primary port the FC target if it comes back online.
+        
+        Every iSCSI target represent one or more port(s) on the
+        FC target (fc2IscsiPortFCAddrListIndex). Only one of
+        the ports is the primary port. If the primary port goes
+        down, the designated secondary port takes over. This
+        objects indicates if the primary port has to be used
+        used once it comes back up. 
+        
+        Note that this object is valid only if fc2IscsiNodeRole
+        is 'targetTypeNode'."
+    DEFVAL { false }
+    ::= { fc2IscsiNodeEntry 10 }
+
+fcAddressListTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FcAddressListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the list of FC addresses.
+        Entries in this table are automatically created/deleted
+        when the FC addresses are automatically 
+        assigned/released to/from the entities which are using
+        this table to create FC address lists.
+        
+        Entries in this table are also created/deleted using 
+        fcAddressRowStatus.
+        
+        A row in this table can not be made 'active' until a 
+        value is explicitly provided for that row's instances 
+        of fcAddress.
+        
+        Also, the following object cannot be modified when 
+        'fcAddressRowStatus' is 'active' :
+        - fcAddress
+        
+        To modify the above object, the entry must be deleted and
+        re-created with new value of above object."
+    ::= { ciScsiConfig 5 }
+
+fcAddressListEntry OBJECT-TYPE
+    SYNTAX FcAddressListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry information about a FC address which is part 
+        of a list. Entries with same fcAddressListIndex form a 
+        list."
+    INDEX { fcAddressListIndex, fcAddressIndex }
+    ::= { fcAddressListTable 1 }
+
+FcAddressListEntry ::= SEQUENCE {
+    fcAddressListIndex ListIndex,
+    fcAddressIndex Gauge,
+    fcAddress FcNameId,
+    fcSecondaryAddress FcNameIdOrZero,
+    fcAddressRowStatus RowStatus
+    }
+
+fcAddressListIndex OBJECT-TYPE
+    SYNTAX ListIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index of a list of FC addresses."
+    ::= { fcAddressListEntry 1 }
+
+fcAddressIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer value, which identifies a FC 
+        address."
+    ::= { fcAddressListEntry 2 }
+
+fcAddress OBJECT-TYPE
+    SYNTAX FcNameId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The FC address for this entry."
+    ::= { fcAddressListEntry 3 }
+
+fcSecondaryAddress OBJECT-TYPE
+    SYNTAX FcNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8|16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary FC address for this entry.
+        This is the FC address used if the 'fcAddress' cannot be
+        reached. Note that every 'fcAddress' may not need a 
+        secondary FC Address."
+    DEFVAL { ''H }
+    ::= { fcAddressListEntry 4 }
+
+fcAddressRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { fcAddressListEntry 5 }
+
+iscsiNodeNameListTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IscsiNodeNameListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the list of iSCSI node names.
+        
+        A row in this table can not be made 'active' until a 
+        value is explicitly provided for that row's instances 
+        of iscsiNodeName.
+        
+        Also, the following objects cannot be modified when 
+        'iscsiNodeNameRowStatus' is 'active' :
+        - iscsiNodeName
+        
+        To modify the above object, the entry must be deleted and
+        re-created with new value of above object."
+    ::= { ciScsiConfig 6 }
+
+iscsiNodeNameListEntry OBJECT-TYPE
+    SYNTAX IscsiNodeNameListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry information about an iSCSI node name which is 
+        part of a list. Entries with same iscsiNodeNameListIndex 
+        form a list."
+    INDEX { iscsiNodeNameListIndex, iscsiNodeNameIndex }
+    ::= { iscsiNodeNameListTable 1 }
+
+IscsiNodeNameListEntry ::= SEQUENCE {
+    iscsiNodeNameListIndex ListIndex,
+    iscsiNodeNameIndex Gauge,
+    iscsiNodeName IscsiName,
+    iscsiNodeNameRowStatus RowStatus
+    }
+
+iscsiNodeNameListIndex OBJECT-TYPE
+    SYNTAX ListIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index of a list of iSCSI node names."
+    ::= { iscsiNodeNameListEntry 1 }
+
+iscsiNodeNameIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer value, which identifies a iSCSI 
+        node name."
+    ::= { iscsiNodeNameListEntry 2 }
+
+iscsiNodeName OBJECT-TYPE
+    SYNTAX IscsiName
+--    Rsyntax OCTET STRING(SIZE(16..223))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The iSCSI node name."
+    ::= { iscsiNodeNameListEntry 3 }
+
+iscsiNodeNameRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { iscsiNodeNameListEntry 4 }
+
+nodeAdvIntfListTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF NodeAdvIntfListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the list of advertised 
+        interface list.
+        
+        A FC node represented in the iSCSI domain as an iSCSI
+        node is advertised only on the interfaces which are 
+        allowed advertised interface list of the iSCSI node.
+        
+        A row in this table can not be made 'active' until a 
+        value is explicitly provided for that row's instances 
+        of nodeAdvIntfIfIndex.
+        
+        Also, the following object cannot be modified when 
+        'nodeAdvIntfIfRowStatus' is 'active' :
+        - nodeAdvIntfIfIndex
+        
+        To modify the above object, the entry must be deleted and
+        re-created with new value of above object."
+    ::= { ciScsiConfig 7 }
+
+nodeAdvIntfListEntry OBJECT-TYPE
+    SYNTAX NodeAdvIntfListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry with containing ifIndex of an interface which
+        is part of the interface list. Entries with same 
+        nodeAdvIntfListIndex form a list."
+    INDEX { nodeAdvIntfListIndex, nodeAdvIntfIndex }
+    ::= { nodeAdvIntfListTable 1 }
+
+NodeAdvIntfListEntry ::= SEQUENCE {
+    nodeAdvIntfListIndex Gauge,
+    nodeAdvIntfIndex Gauge,
+    nodeAdvIntfIfIndex InterfaceIndex,
+    nodeAdvIntfIfRowStatus RowStatus
+    }
+
+nodeAdvIntfListIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index of a list of advertized interface list."
+    ::= { nodeAdvIntfListEntry 1 }
+
+nodeAdvIntfIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index of an interface entry."
+    ::= { nodeAdvIntfListEntry 2 }
+
+nodeAdvIntfIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the interface."
+    ::= { nodeAdvIntfListEntry 3 }
+
+nodeAdvIntfIfRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { nodeAdvIntfListEntry 4 }
+
+scsiLuExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ScsiLuExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An extension of the scsiLuTable to support creation of
+        iSCSI virtual targets from LUs on remote FC targets.
+        
+        To create iSCSI virtual targets from a set of LUs on FC 
+        targets, entries needs to be created in this table. The 
+        iSCSI targets can be created in different ways. For 
+        example:
+        - multiple iSCSI targets can be created from either one
+          LU or a subset of LUs from a single FC target device. 
+        - a single iSCSI target can be created from LUs of 
+          multiple FC target devices.      
+        
+        Note that a gateway implementation may choose to support 
+        only a subset of these features.
+          
+        To create a virtual iSCSI target from LUs on the remote 
+        FC targets,  create an entry (s) in this table with 
+        local LUs to map to remote LUs and 
+        value of scsiLuExtLocalTargetAddress to same as the
+        iSCSI node name of the virtual iSCSI node being created.
+        
+        A row in this table can not be made 'active' until a 
+        value is explicitly provided for that row's instances 
+        of following objects :
+        - scsiLuExtRemotePortFcAddress
+        - scsiLuExtLocalTargetAddress
+        - scsiLuExtLocalLun
+        - scsiLuExtRemoteLun
+        
+        Also, the following objects cannot be modified when 
+        'scsiLuExtRowStatus 'active' :
+        - scsiLuExtRemotePortFcAddress
+        - scsiLuExtLocalTargetAddress
+        - scsiLuExtLocalLun
+        - scsiLuExtRemoteLun
+        
+        To modify the above objects, the entry must be deleted 
+        and re-created with new values of above objects."
+    ::= { ciScsiConfig 8 }
+
+scsiLuExtEntry OBJECT-TYPE
+    SYNTAX ScsiLuExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry representing a LU."
+    INDEX { ciscoScsiInstIndex, ciscoScsiDeviceIndex, ciscoScsiLuIndex }
+-- Augments ciscoScsiLuEntry FROM CISCO-SCSI-MIB
+    ::= { scsiLuExtTable 1 }
+
+ScsiLuExtEntry ::= SEQUENCE {
+    scsiLuExtRemotePortFcAddress FcNameId,
+    scsiLuExtRemotePortSecFcAddress FcNameIdOrZero,
+    scsiLuExtLocalTargetAddress ScsiName,
+    scsiLuExtRemoteLun ScsiLUNOrZero,
+    scsiLuExtLocalLun ScsiLUNOrZero,
+    scsiLuExtRowStatus RowStatus,
+    scsiLuExtRemoteSecLun ScsiLUNOrZero
+    }
+
+scsiLuExtRemotePortFcAddress OBJECT-TYPE
+    SYNTAX FcNameId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The FC address of the remote Fibre Channel port via
+        which the remote LU (scsiLuExtRemoteLun) is accessed."
+    ::= { scsiLuExtEntry 1 }
+
+scsiLuExtRemotePortSecFcAddress OBJECT-TYPE
+    SYNTAX FcNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8|16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The secondary FC address of the remote Fibre Channel 
+        port via which the remote LU (scsiLuExtRemoteSecLun) is
+        accessed."
+    DEFVAL { ''H }
+    ::= { scsiLuExtEntry 2 }
+
+scsiLuExtLocalTargetAddress OBJECT-TYPE
+    SYNTAX ScsiName
+--    Rsyntax OCTET STRING(SIZE(0|8|11|16|256|258|262))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the SCSI name of the 
+        local SCSI target through which this LU 
+        (scsiLuExtLocalLun) can be accessed.  The format of a 
+        SCSI name is dependent on the type of transport used to 
+        access the target.  For example, when the local SCSI 
+        target is accessible via iSCSI, then this object  
+        contains the iSCSI node name of the local target."
+    ::= { scsiLuExtEntry 3 }
+
+scsiLuExtRemoteLun OBJECT-TYPE
+    SYNTAX ScsiLUNOrZero
+--    Rsyntax OCTET STRING(SIZE(0|2|8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Logical Unit Number of the remote LU."
+    ::= { scsiLuExtEntry 4 }
+
+scsiLuExtLocalLun OBJECT-TYPE
+    SYNTAX ScsiLUNOrZero
+--    Rsyntax OCTET STRING(SIZE(0|2|8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The configured default Logical Unit Number of this LU."
+    ::= { scsiLuExtEntry 5 }
+
+scsiLuExtRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { scsiLuExtEntry 6 }
+
+scsiLuExtRemoteSecLun OBJECT-TYPE
+    SYNTAX ScsiLUNOrZero
+--    Rsyntax OCTET STRING(SIZE(0|2|8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Logical Unit Number of the remote LU corresponding 
+        to FC address scsiLuExtRemotePortSecFcAddress."
+    ::= { scsiLuExtEntry 7 }
+
+iscsiIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IscsiIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of iSCSI interfaces."
+    ::= { ciScsiConfig 9 }
+
+iscsiIfEntry OBJECT-TYPE
+    SYNTAX IscsiIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about an iSCSI 
+        interface."
+    INDEX { ifIndex }
+    ::= { iscsiIfTable 1 }
+
+IscsiIfEntry ::= SEQUENCE {
+    iscsiIfTcpKeepAliveTimeout Gauge,
+    iscsiIfTcpMaxBandwidth Gauge,
+    iscsiIfTcpMaxRetransmissions Gauge,
+    iscsiIfTcpMinRetransmitTime Gauge,
+    iscsiIfTcpPMTUEnable TruthValue,
+    iscsiIfTcpQOS Gauge,
+    iscsiIfTcpSACKEnable TruthValue,
+    iscsiIfTcpSendBufferSize Gauge,
+    iscsiIfTcpMinBandwidth Gauge,
+    iscsiIfTcpPMTUResetTimeout Gauge,
+    iscsiIfTcpLocalPort CiscoPort,
+    iscsiIfForwardingMode INTEGER,
+    iscsiIfIntrProxyMode TruthValue,
+    iscsiIfIntrProxyModeNodeFcAddr FcNameIdOrZero,
+    iscsiIfIntrProxyModePortFcAddr FcNameIdOrZero,
+    iscsiIfIntrProxyModeFcAddrAsgnmt INTEGER,
+    iscsiIfIntrIdentificationMode CIscsiIntrIdentificationMode,
+    iscsiIfTcpRndTrpTimeEst Gauge,
+    iscsiIfTcpLocalTcpPort CiscoPort,
+    iscsiIfNumNormalConnections Gauge,
+    iscsiIfNumDiscovConnections Gauge,
+    iscsiIfTcpCWMEnable TruthValue,
+    iscsiIfTcpCWMBurstSize Gauge,
+    iscsiIfTcpMaxJitter Gauge
+    }
+
+iscsiIfTcpKeepAliveTimeout OBJECT-TYPE
+    SYNTAX Gauge(1..7200)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP Keep alive timeout for this iSCSI interface.
+        If the value is 0, the keep-alive timeout feature is 
+        disabled."
+    ::= { iscsiIfEntry 1 }
+
+iscsiIfTcpMaxBandwidth OBJECT-TYPE
+    SYNTAX Gauge(1000..1000000)
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP maximum bandwidth for this iSCSI interface."
+    ::= { iscsiIfEntry 2 }
+
+iscsiIfTcpMaxRetransmissions OBJECT-TYPE
+    SYNTAX Gauge(1..8)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP maximum retransmissions for this iSCSI 
+        interface."
+    ::= { iscsiIfEntry 3 }
+
+iscsiIfTcpMinRetransmitTime OBJECT-TYPE
+    SYNTAX Gauge(250..5000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP minimum retransmit time for this iSCSI 
+        interface."
+    ::= { iscsiIfEntry 4 }
+
+iscsiIfTcpPMTUEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects indicates if the Path MTU discovery option
+        is enabled or not for this iSCSI interface."
+    REFERENCE
+        "For more information on PMTU, refer RFC 1191."
+    ::= { iscsiIfEntry 5 }
+
+iscsiIfTcpQOS OBJECT-TYPE
+    SYNTAX Gauge(0..63)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP QOS code point for this iSCSI interface."
+    REFERENCE
+        "RFC 2474, RFC 2780."
+    ::= { iscsiIfEntry 6 }
+
+iscsiIfTcpSACKEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if the Selective Acknowledgement 
+        (SACK) option is enabled or not for this iSCSI 
+        interface."
+    REFERENCE
+        "For more information on SACK, refer RFC 2018, RFC 2883."
+    ::= { iscsiIfEntry 7 }
+
+iscsiIfTcpSendBufferSize OBJECT-TYPE
+    SYNTAX Gauge(0..8192)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP send buffer size for this iSCSI interface."
+    ::= { iscsiIfEntry 8 }
+
+iscsiIfTcpMinBandwidth OBJECT-TYPE
+    SYNTAX Gauge(1000..1000000)
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP minimum bandwidth for this iSCSI interface."
+    ::= { iscsiIfEntry 9 }
+
+iscsiIfTcpPMTUResetTimeout OBJECT-TYPE
+    SYNTAX Gauge(60..3600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The timeout after which the PMTU resets to original 
+            value on this interface."
+    ::= { iscsiIfEntry 10 }
+
+iscsiIfTcpLocalPort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The local TCP port of this interface."
+    ::= { iscsiIfEntry 11 }
+
+iscsiIfForwardingMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        passThrough(1),
+        storeAndForward(2),
+        cutThrough(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The forwarding mode of this interface.
+        
+         passThrough - In this mode the iSCSI interface
+                       converts an iSCSI PDU into a FCP
+                       frame and then forwards it one at
+                       a time.
+         storeAndForward - In this mode iSCSI payload data
+                       is sent or received at the size desired
+                       by the iSCSI client. The interface
+                       stores each TCP segment it receives
+                       until one full iSCSI PDU is received
+                       before forwarding it as FC frames.
+        
+         cutThrough  - In this mode iSCSI payload data is sent
+                       or received at the size  desired by the
+                       iSCSI client. The interface stores each 
+                       TCP segment until one full iSCSI PDU is
+                       received before forwarding it as as FC
+                       frames."
+    ::= { iscsiIfEntry 12 }
+
+iscsiIfIntrProxyMode OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The initiator proxy mode for this interface. If this 
+        object is 'true', then all the initiators coming on this
+        interface would use the initiator configuration provided 
+        by this interface. The initiator configuration include
+        port WWN and node WWN."
+    ::= { iscsiIfEntry 13 }
+
+iscsiIfIntrProxyModeNodeFcAddr OBJECT-TYPE
+    SYNTAX FcNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8|16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Node FC address used by the initiators on this 
+        interface when the initiator proxy mode is on
+        (iscsiIfIntrProxyMode equal to 'true')."
+    ::= { iscsiIfEntry 14 }
+
+iscsiIfIntrProxyModePortFcAddr OBJECT-TYPE
+    SYNTAX FcNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8|16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Port FC address used by the initiators on this 
+        interface when the initiator proxy mode is on 
+        (iscsiIfIntrProxyMode equal to 'true')."
+    ::= { iscsiIfEntry 15 }
+
+iscsiIfIntrProxyModeFcAddrAsgnmt OBJECT-TYPE
+    SYNTAX INTEGER {
+        auto(1),
+        manual(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects tells how the initiator proxy mode FC 
+        addresses (iscsiIfIntrProxyModeNodeFcAddr and 
+        iscsiIfIntrProxyModePortFcAddr) are assigned.
+        If value of this object is 'auto', then the FC addresses
+        are automatically assigned. If it is 'manual', then
+        they have to be manually configured."
+    ::= { iscsiIfEntry 16 }
+
+iscsiIfIntrIdentificationMode OBJECT-TYPE
+    SYNTAX CIscsiIntrIdentificationMode
+--    Rsyntax INTEGER {
+--        name(1),
+--        ipaddress(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects indicates how the initiator is identified
+        on this interface, either by its iSCSI name (name) or by
+        its IP address (ipaddress)."
+    ::= { iscsiIfEntry 17 }
+
+iscsiIfTcpRndTrpTimeEst OBJECT-TYPE
+    SYNTAX Gauge(0..300000)
+--  Units
+--    microseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is an estimate of the round trip delay of the network
+         pipe used for the B-D product computation, which lets us
+         derive the TCP receive window to advertise."
+    ::= { iscsiIfEntry 18 }
+
+iscsiIfTcpLocalTcpPort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The local TCP port of this interface."
+    ::= { iscsiIfEntry 19 }
+
+iscsiIfNumNormalConnections OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of normal iscsi connections."
+    ::= { iscsiIfEntry 20 }
+
+iscsiIfNumDiscovConnections OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of discovery iscsi connections."
+    ::= { iscsiIfEntry 21 }
+
+iscsiIfTcpCWMEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for enabling/disabling the 
+         congestion window monitoring. If the value of
+         this object is true(1), it is enabled. It is 
+         disabled if the value is false(2). "
+    DEFVAL { true }
+    ::= { iscsiIfEntry 22 }
+
+iscsiIfTcpCWMBurstSize OBJECT-TYPE
+    SYNTAX Gauge(10..100)
+--  Units
+--    kilobytes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum burst sent after a tcp sender idle
+         period."
+    DEFVAL { 50 }
+    ::= { iscsiIfEntry 23 }
+
+iscsiIfTcpMaxJitter OBJECT-TYPE
+    SYNTAX Gauge(0..10000)
+--  Units
+--    microseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum delay variation that is not due to
+         to congestion that can be experienced by TCP 
+         connections on this interface."
+    DEFVAL { 500 }
+    ::= { iscsiIfEntry 24 }
+
+iscsiGigEIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IscsiGigEIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains Gigabit Ethernet (GigE) interfaces.
+        It contains iSCSI-specific configuration objects for the 
+        GigE interface."
+    ::= { ciScsiConfig 10 }
+
+iscsiGigEIfEntry OBJECT-TYPE
+    SYNTAX IscsiGigEIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about a GigE
+        interface."
+    INDEX { ifIndex }
+    ::= { iscsiGigEIfTable 1 }
+
+IscsiGigEIfEntry ::= SEQUENCE {
+    iscsiGigEIfAuthMethod IscsiAuthMethod,
+    iscsiGigEIfIsnsServerProfileName SnmpAdminString,
+    iscsiGigEIfIscsiSessions Gauge
+    }
+
+iscsiGigEIfAuthMethod OBJECT-TYPE
+    SYNTAX IscsiAuthMethod
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           none(0)
+--           chap(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The authentication method for this interface."
+    ::= { iscsiGigEIfEntry 1 }
+
+iscsiGigEIfIsnsServerProfileName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The iSNS server profile name for this interface.
+        The iSNS server profiles are defined in 
+        cIsnsClntServerProfileTable from CISCO-ISNS-CLIENT-MIB."
+    ::= { iscsiGigEIfEntry 2 }
+
+iscsiGigEIfIscsiSessions OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of iSCSI sessions running over this interface."
+    ::= { iscsiGigEIfEntry 3 }
+
+iscsiInitiatorIdleTimeout OBJECT-TYPE
+    SYNTAX Gauge(0..3600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time for which the gateway (representing a FC 
+        target) waits from the time of last iSCSI session to a 
+        iSCSI initiator went down, before purging the 
+        information about that iSCSI initiator."
+    ::= { ciScsiConfig 11 }
+
+iscsiIntrIdentificationMode OBJECT-TYPE
+    SYNTAX CIscsiIntrIdentificationMode
+--    Rsyntax INTEGER {
+--        name(1),
+--        ipaddress(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects indicates how the initiator is identified
+        on local device, either by its iSCSI name (name) or by
+        its IP address (ipaddress)."
+    ::= { ciScsiConfig 12 }
+
+iscsiTargetUserName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global user name to be used during the
+         login authentication. If the initiator specific
+         username is specified by iscsi2FcTargetUserName,
+         then that user name is used.
+         If not, iscsiTargetUserName is used by default."
+    DEFVAL { ''H }
+    ::= { ciScsiConfig 13 }
+
+iscsiTargetPassword OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The password  to be used during the login
+         authentication. If the initiator specific
+         password is specified by iscsi2FcTargetPassword,
+         then that password is used.
+         If not, iscsiTargetPassword is used by default.
+        
+         When read, a zero length  string is returned."
+    DEFVAL { ''H }
+    ::= { ciScsiConfig 14 }
+
+iscsiSessionAttributesExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IscsiSessionAttributesExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains objects which provide more 
+        information about iSCSI sessions which are not in 
+        cIscsiSessionAttributesTable."
+    ::= { ciScsiStatistics 1 }
+
+iscsiSessionAttributesExtEntry OBJECT-TYPE
+    SYNTAX IscsiSessionAttributesExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about an iSCSI 
+         session which is not in cIscsiSessionAttributesEntry."
+    INDEX { cIscsiInstIndex, cIscsiNodeIndex, cIscsiSsnIndex }
+-- Augments cIscsiSessionAttributesEntry FROM CISCO-ISCSI-MIB
+    ::= { iscsiSessionAttributesExtTable 1 }
+
+IscsiSessionAttributesExtEntry ::= SEQUENCE {
+    iscsiSsnVsan VsanIndex
+    }
+
+iscsiSsnVsan OBJECT-TYPE
+    SYNTAX VsanIndex
+--    Rsyntax INTEGER(1..4094)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The vsan to which this session belongs to."
+    ::= { iscsiSessionAttributesExtEntry 1 }
+
+ciscsiConnectionStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscsiConnectionStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains objects which provide 
+        iSCSI connection statistics."
+    ::= { ciScsiStatistics 2 }
+
+ciscsiConnectionStatsEntry OBJECT-TYPE
+    SYNTAX CiscsiConnectionStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about iSCSI
+         connection statistics."
+    INDEX { ifIndex, cIscsiInstIndex, cIscsiStatsNodeIndex, cIscsiStatsSessionIndex, cIscsiStatsConnectionIndex }
+    ::= { ciscsiConnectionStatsTable 1 }
+
+CiscsiConnectionStatsEntry ::= SEQUENCE {
+    cIscsiStatsNodeIndex Gauge,
+    cIscsiStatsSessionIndex Gauge,
+    cIscsiStatsConnectionIndex Gauge,
+    cIscsiStatsConnectionRxBytes Counter,
+    cIscsiStatsConnectionTxBytes Counter,
+    cIscsiStatsIpSecInUse TruthValue
+    }
+
+cIscsiStatsNodeIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An integer value, which identifies an iSCSI
+        node in a FC domain."
+    ::= { ciscsiConnectionStatsEntry 1 }
+
+cIscsiStatsSessionIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An integer value, which identifies an iSCSI
+        session."
+    ::= { ciscsiConnectionStatsEntry 2 }
+
+cIscsiStatsConnectionIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An integer value, which identifies an iSCSI
+        connection. "
+    ::= { ciscsiConnectionStatsEntry 3 }
+
+cIscsiStatsConnectionRxBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of bytes received on an iSCSI
+        session."
+    ::= { ciscsiConnectionStatsEntry 4 }
+
+cIscsiStatsConnectionTxBytes OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of bytes transmitted on an iSCSI
+        session."
+    ::= { ciscsiConnectionStatsEntry 5 }
+
+cIscsiStatsIpSecInUse OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether an iSCSI connection is secure
+         or not. If the value of this object is 'true', the
+         Ip Security is turned on and the connection is
+         secure. If 'false', Ip Security is not turned
+         on and the connection may be unsecure."
+    ::= { ciscsiConnectionStatsEntry 6 }
+
+cigConfigurationGroup OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for iSCSI Gateway 
+--    configuration.
+--  objects
+--    iscsiImprtExprtTgtsConfImport, iscsiImprtExprtTgtsConfExport, 
+--    iscsi2FcNodeName, iscsi2FcNodeRole, 
+--    iscsi2FcNodePersistentFCAddr, iscsi2FcPortPersistentFCAddr, 
+--    iscsi2FcPortNumFCAddr, iscsi2FcNodeFCAddr, 
+--    iscsi2FcPortFCAddrListIndex, iscsi2FcNodeVsanList2k, 
+--    iscsi2FcNodeVsanList4k, iscsi2FcNodeDiscovered, 
+--    iscsi2FcNodeRowStatus, fc2IscsiNodeRole, fc2IscsiNodeName, 
+--    fc2IscsiPortFCAddrListIndex, fc2IscsiNodePermitListIndex, 
+--    fc2IscsiNodeAdvIntfListIndex, 
+--    fc2IscsiNodeAllIntrAccessAllowed, fc2IscsiNodeDiscovered, 
+--    fc2IscsiNodeRowStatus, fcAddress, fcSecondaryAddress, 
+--    fcAddressRowStatus, iscsiNodeName, iscsiNodeNameRowStatus, 
+--    nodeAdvIntfIfIndex, nodeAdvIntfIfRowStatus
+
+cigLuConfigurationGroup OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for creation virtual iSCSI 
+--    targets from remote LUs.
+--  objects
+--    scsiLuExtRemotePortFcAddress, scsiLuExtRemotePortSecFcAddress, 
+--    scsiLuExtLocalTargetAddress, scsiLuExtRemoteLun, 
+--    scsiLuExtLocalLun, scsiLuExtRowStatus
+
+cigSessionStatsGroup OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI session statistics.
+--  objects
+--    iscsiSsnVsan
+
+cigConfigurationGroupRev1 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for iSCSI Gateway 
+--    configuration.
+--  objects
+--    iscsiImprtExprtTgtsConfImport, iscsiImprtExprtTgtsConfExport, 
+--    iscsi2FcNodeName, iscsi2FcNodeRole, 
+--    iscsi2FcNodePersistentFCAddr, iscsi2FcPortPersistentFCAddr, 
+--    iscsi2FcPortNumFCAddr, iscsi2FcNodeFCAddr, 
+--    iscsi2FcPortFCAddrListIndex, iscsi2FcNodeVsanList2k, 
+--    iscsi2FcNodeVsanList4k, iscsi2FcNodeDiscovered, 
+--    iscsi2FcNodeRowStatus, iscsi2FcNodeFcAddrAssignment, 
+--    fc2IscsiNodeRole, fc2IscsiNodeName, 
+--    fc2IscsiPortFCAddrListIndex, fc2IscsiNodePermitListIndex, 
+--    fc2IscsiNodeAdvIntfListIndex, 
+--    fc2IscsiNodeAllIntrAccessAllowed, fc2IscsiNodeDiscovered, 
+--    fc2IscsiNodeRowStatus, fcAddress, fcSecondaryAddress, 
+--    fcAddressRowStatus, iscsiNodeName, iscsiNodeNameRowStatus, 
+--    nodeAdvIntfIfIndex, nodeAdvIntfIfRowStatus
+
+cigLuConfigurationGroupRev1 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for creation virtual iSCSI 
+--    targets from remote LUs.
+--  objects
+--    scsiLuExtRemotePortFcAddress, scsiLuExtRemotePortSecFcAddress, 
+--    scsiLuExtLocalTargetAddress, scsiLuExtRemoteLun, 
+--    scsiLuExtLocalLun, scsiLuExtRowStatus, scsiLuExtRemoteSecLun
+
+cigIscsiIfGroup OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for iSCSI interface 
+--    configuration and monitoring.
+--  objects
+--    iscsiIfTcpKeepAliveTimeout, iscsiIfTcpMaxBandwidth, 
+--    iscsiIfTcpMaxRetransmissions, iscsiIfTcpMinRetransmitTime, 
+--    iscsiIfTcpPMTUEnable, iscsiIfTcpQOS, iscsiIfTcpSACKEnable, 
+--    iscsiIfTcpSendBufferSize, iscsiIfTcpMinBandwidth, 
+--    iscsiIfTcpPMTUResetTimeout, iscsiIfTcpLocalPort
+
+cigIscsiIfGroupRev1 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for iSCSI interface 
+--    configuration and monitoring.
+--  objects
+--    iscsiIfTcpKeepAliveTimeout, iscsiIfTcpMaxBandwidth, 
+--    iscsiIfTcpMaxRetransmissions, iscsiIfTcpMinRetransmitTime, 
+--    iscsiIfTcpPMTUEnable, iscsiIfTcpQOS, iscsiIfTcpSACKEnable, 
+--    iscsiIfTcpSendBufferSize, iscsiIfTcpMinBandwidth, 
+--    iscsiIfTcpPMTUResetTimeout, iscsiIfTcpLocalPort, 
+--    iscsiIfForwardingMode, iscsiIfIntrProxyMode, 
+--    iscsiIfIntrProxyModeNodeFcAddr, 
+--    iscsiIfIntrProxyModePortFcAddr, 
+--    iscsiIfIntrProxyModeFcAddrAsgnmt
+
+cigIscsiAuthGroup OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI authentication.
+--  objects
+--    iscsiAuthMethod, iscsi2FcNodeAuthUser, iscsiGigEIfAuthMethod
+
+cigConfigurationGroupRev2 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for iSCSI Gateway 
+--    configuration.
+--  objects
+--    iscsiImprtExprtTgtsConfImport, iscsiImprtExprtTgtsConfExport, 
+--    iscsi2FcNodeName, iscsi2FcNodeRole, 
+--    iscsi2FcNodePersistentFCAddr, iscsi2FcPortPersistentFCAddr, 
+--    iscsi2FcPortNumFCAddr, iscsi2FcNodeFCAddr, 
+--    iscsi2FcPortFCAddrListIndex, iscsi2FcNodeVsanList2k, 
+--    iscsi2FcNodeVsanList4k, iscsi2FcNodeDiscovered, 
+--    iscsi2FcNodeRowStatus, iscsi2FcNodeFcAddrAssignment, 
+--    fc2IscsiNodeRole, fc2IscsiNodeName, 
+--    fc2IscsiPortFCAddrListIndex, fc2IscsiNodePermitListIndex, 
+--    fc2IscsiNodeAdvIntfListIndex, 
+--    fc2IscsiNodeAllIntrAccessAllowed, fc2IscsiNodeDiscovered, 
+--    fc2IscsiNodeRowStatus, fc2IscsiNodeTrespassMode, 
+--    fc2IscsiNodeRevertToPrimaryPort, fcAddress, 
+--    fcSecondaryAddress, fcAddressRowStatus, iscsiNodeName, 
+--    iscsiNodeNameRowStatus, nodeAdvIntfIfIndex, 
+--    nodeAdvIntfIfRowStatus
+
+cigIscsiGigEIfGroup OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI GigE interface
+--    configurations.
+--  objects
+--    iscsiGigEIfIsnsServerProfileName, iscsiGigEIfIscsiSessions
+
+cigIscsiIfGroupRev2 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for iSCSI interface 
+--    configuration and monitoring.
+--  objects
+--    iscsiIfTcpKeepAliveTimeout, iscsiIfTcpMaxBandwidth, 
+--    iscsiIfTcpMaxRetransmissions, iscsiIfTcpMinRetransmitTime, 
+--    iscsiIfTcpPMTUEnable, iscsiIfTcpQOS, iscsiIfTcpSACKEnable, 
+--    iscsiIfTcpSendBufferSize, iscsiIfTcpMinBandwidth, 
+--    iscsiIfTcpPMTUResetTimeout, iscsiIfTcpLocalPort, 
+--    iscsiIfForwardingMode, iscsiIfIntrProxyMode, 
+--    iscsiIfIntrProxyModeNodeFcAddr, 
+--    iscsiIfIntrProxyModePortFcAddr, 
+--    iscsiIfIntrProxyModeFcAddrAsgnmt
+
+cigConfigurationGroupRev3 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI Gateway 
+--    configuration.
+--  objects
+--    iscsiImprtExprtTgtsConfImport, iscsiImprtExprtTgtsConfExport, 
+--    iscsi2FcNodeName, iscsi2FcNodeRole, 
+--    iscsi2FcNodePersistentFCAddr, iscsi2FcPortPersistentFCAddr, 
+--    iscsi2FcPortNumFCAddr, iscsi2FcNodeFCAddr, 
+--    iscsi2FcPortFCAddrListIndex, iscsi2FcNodeVsanList2k, 
+--    iscsi2FcNodeVsanList4k, iscsi2FcNodeDiscovered, 
+--    iscsi2FcNodeRowStatus, iscsi2FcNodeFcAddrAssignment, 
+--    fc2IscsiNodeRole, fc2IscsiNodeName, 
+--    fc2IscsiPortFCAddrListIndex, fc2IscsiNodePermitListIndex, 
+--    fc2IscsiNodeAdvIntfListIndex, 
+--    fc2IscsiNodeAllIntrAccessAllowed, fc2IscsiNodeDiscovered, 
+--    fc2IscsiNodeRowStatus, fc2IscsiNodeTrespassMode, 
+--    fc2IscsiNodeRevertToPrimaryPort, fcAddress, 
+--    fcSecondaryAddress, fcAddressRowStatus, iscsiNodeName, 
+--    iscsiNodeNameRowStatus, nodeAdvIntfIfIndex, 
+--    nodeAdvIntfIfRowStatus, iscsiInitiatorIdleTimeout, 
+--    iscsiIntrIdentificationMode
+
+cigIscsiIfGroupRev3 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for iSCSI interface
+--    configuration and monitoring.
+--  objects
+--    iscsiIfTcpKeepAliveTimeout, iscsiIfTcpMaxBandwidth, 
+--    iscsiIfTcpMaxRetransmissions, iscsiIfTcpMinRetransmitTime, 
+--    iscsiIfTcpPMTUEnable, iscsiIfTcpQOS, iscsiIfTcpSACKEnable, 
+--    iscsiIfTcpSendBufferSize, iscsiIfTcpMinBandwidth, 
+--    iscsiIfTcpPMTUResetTimeout, iscsiIfTcpLocalPort, 
+--    iscsiIfForwardingMode, iscsiIfIntrProxyMode, 
+--    iscsiIfIntrProxyModeNodeFcAddr, 
+--    iscsiIfIntrProxyModePortFcAddr, 
+--    iscsiIfIntrProxyModeFcAddrAsgnmt, 
+--    iscsiIfIntrIdentificationMode
+
+cigIscsiIfGroupRev4 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    An collection of objects for iSCSI interface
+--    configuration and monitoring.
+--  objects
+--    iscsiIfTcpKeepAliveTimeout, iscsiIfTcpMaxBandwidth, 
+--    iscsiIfTcpMaxRetransmissions, iscsiIfTcpMinRetransmitTime, 
+--    iscsiIfTcpPMTUEnable, iscsiIfTcpQOS, iscsiIfTcpSACKEnable, 
+--    iscsiIfTcpSendBufferSize, iscsiIfTcpMinBandwidth, 
+--    iscsiIfTcpPMTUResetTimeout, iscsiIfForwardingMode, 
+--    iscsiIfIntrProxyMode, iscsiIfIntrProxyModeNodeFcAddr, 
+--    iscsiIfIntrProxyModePortFcAddr, 
+--    iscsiIfIntrProxyModeFcAddrAsgnmt, 
+--    iscsiIfIntrIdentificationMode, iscsiIfTcpLocalTcpPort, 
+--    iscsiIfTcpRndTrpTimeEst
+
+cigIscsiIfGroupSup1 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI interface
+--    configuration and monitoring.
+--  objects
+--    iscsiIfNumNormalConnections, iscsiIfNumDiscovConnections, 
+--    iscsiIfTcpCWMEnable, iscsiIfTcpCWMBurstSize, 
+--    iscsiIfTcpMaxJitter
+
+cigConnectionStatsGroup OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI connection
+--    statistics.
+--  objects
+--    cIscsiStatsConnectionTxBytes, cIscsiStatsConnectionRxBytes, 
+--    cIscsiStatsIpSecInUse
+
+cigConfigurationGroupSup1 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI Gateway
+--    configuration.
+--  objects
+--    iscsiTargetUserName, iscsiTargetPassword
+
+cigIscsiAuthGroupSup1 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for iSCSI authentication.
+--  objects
+--    iscsi2FcTargetUserName, iscsi2FcTargetPassword
+
+ciscoiScsiGwMIBCompliance OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-ISCSI-GW-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cigConfigurationGroup
+--   OptGroup
+--    cigLuConfigurationGroup
+--   ObjVar
+--    iscsi2FcNodeRole
+--   ObjVar
+--    fc2IscsiNodeRole
+--   ObjVar
+--    iscsi2FcNodeRowStatus
+--   ObjVar
+--    fc2IscsiNodeRowStatus
+--   ObjVar
+--    fcAddressRowStatus
+--   ObjVar
+--    iscsiNodeNameRowStatus
+--   ObjVar
+--    scsiLuExtRowStatus
+
+ciscoiScsiGwMIBCompliance1 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-ISCSI-GW-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cigConfigurationGroupRev1
+--   MandGroup
+--    cigSessionStatsGroup
+--   MandGroup
+--    cigIscsiIfGroup
+--   OptGroup
+--    cigLuConfigurationGroupRev1
+--   ObjVar
+--    iscsi2FcNodeRole
+--   ObjVar
+--    fc2IscsiNodeRole
+--   ObjVar
+--    iscsi2FcNodeRowStatus
+--   ObjVar
+--    fc2IscsiNodeRowStatus
+--   ObjVar
+--    fcAddressRowStatus
+--   ObjVar
+--    iscsiNodeNameRowStatus
+--   ObjVar
+--    scsiLuExtRowStatus
+--   ObjVar
+--    iscsi2FcNodeDiscovered
+
+ciscoiScsiGwMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-ISCSI-GW-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cigConfigurationGroupRev2
+--   MandGroup
+--    cigSessionStatsGroup
+--   MandGroup
+--    cigIscsiIfGroupRev1
+--   MandGroup
+--    cigIscsiAuthGroup
+--   MandGroup
+--    cigIscsiGigEIfGroup
+--   OptGroup
+--    cigLuConfigurationGroupRev1
+--   ObjVar
+--    iscsi2FcNodeRole
+--   ObjVar
+--    fc2IscsiNodeRole
+--   ObjVar
+--    iscsi2FcNodeRowStatus
+--   ObjVar
+--    fc2IscsiNodeRowStatus
+--   ObjVar
+--    fcAddressRowStatus
+--   ObjVar
+--    iscsiNodeNameRowStatus
+--   ObjVar
+--    scsiLuExtRowStatus
+--   ObjVar
+--    iscsi2FcNodeDiscovered
+
+ciscoiScsiGwMIBCompliance3 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-ISCSI-GW-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cigConfigurationGroupRev3
+--   MandGroup
+--    cigSessionStatsGroup
+--   MandGroup
+--    cigIscsiIfGroupRev3
+--   MandGroup
+--    cigIscsiAuthGroup
+--   MandGroup
+--    cigIscsiGigEIfGroup
+--   OptGroup
+--    cigLuConfigurationGroupRev1
+--   ObjVar
+--    iscsi2FcNodeRole
+--   ObjVar
+--    fc2IscsiNodeRole
+--   ObjVar
+--    iscsi2FcNodeRowStatus
+--   ObjVar
+--    fc2IscsiNodeRowStatus
+--   ObjVar
+--    fcAddressRowStatus
+--   ObjVar
+--    iscsiNodeNameRowStatus
+--   ObjVar
+--    scsiLuExtRowStatus
+--   ObjVar
+--    iscsi2FcNodeDiscovered
+
+ciscoiScsiGwMIBCompliance4 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-ISCSI-GW-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cigConfigurationGroupRev3
+--   MandGroup
+--    cigSessionStatsGroup
+--   MandGroup
+--    cigIscsiIfGroupRev4
+--   MandGroup
+--    cigIscsiAuthGroup
+--   MandGroup
+--    cigIscsiGigEIfGroup
+--   OptGroup
+--    cigLuConfigurationGroupRev1
+--   ObjVar
+--    iscsi2FcNodeRole
+--   ObjVar
+--    fc2IscsiNodeRole
+--   ObjVar
+--    iscsi2FcNodeRowStatus
+--   ObjVar
+--    fc2IscsiNodeRowStatus
+--   ObjVar
+--    fcAddressRowStatus
+--   ObjVar
+--    iscsiNodeNameRowStatus
+--   ObjVar
+--    scsiLuExtRowStatus
+--   ObjVar
+--    iscsi2FcNodeDiscovered
+
+ciscoiScsiGwMIBCompliance5 OBJECT IDENTIFIER ::= { ciscoiScsiGwMIBCompliances 6 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-ISCSI-GW-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cigConfigurationGroupRev3
+--   MandGroup
+--    cigConfigurationGroupSup1
+--   MandGroup
+--    cigSessionStatsGroup
+--   MandGroup
+--    cigIscsiIfGroupRev4
+--   MandGroup
+--    cigIscsiIfGroupSup1
+--   MandGroup
+--    cigIscsiAuthGroup
+--   MandGroup
+--    cigIscsiAuthGroupSup1
+--   MandGroup
+--    cigIscsiGigEIfGroup
+--   MandGroup
+--    cigConnectionStatsGroup
+--   OptGroup
+--    cigLuConfigurationGroupRev1
+--   ObjVar
+--    iscsi2FcNodeRole
+--   ObjVar
+--    fc2IscsiNodeRole
+--   ObjVar
+--    iscsi2FcNodeRowStatus
+--   ObjVar
+--    fc2IscsiNodeRowStatus
+--   ObjVar
+--    fcAddressRowStatus
+--   ObjVar
+--    iscsiNodeNameRowStatus
+--   ObjVar
+--    scsiLuExtRowStatus
+--   ObjVar
+--    iscsi2FcNodeDiscovered
+
+
+END
+

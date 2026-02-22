@@ -1,0 +1,634 @@
+-- *****************************************************************
+-- CISCO-SEU-MITIGATION.my
+--   
+-- Copyright (c) 2009 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-SEU-MITIGATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString,
+    TruthValue,
+    DateAndTime
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI
+    EntPhysicalIndexOrZero
+        FROM CISCO-TC;
+
+
+ciscoSeuMitigationMIB MODULE-IDENTITY
+    LAST-UPDATED    "200906240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-seu-mitigation@cisco.com"
+    DESCRIPTION
+        "This MIB reports the status of non-automatic and automatic,
+        rate-adaptive Single Event Upset (SEU) mitigation algorithms and
+        adjusts their parameters, as well as reports the effects of 
+        those mitigations on memories, caches, and registers. SEU 
+        mitigation allows Cisco IOS to run on radiation tolerant 
+        hardware deployed in a geosynchronous Earth orbit satellites for
+        IP communications. One of the challenges in deploying equipment 
+        in such an environment is the impact that radiation has on 
+        digital circuits. A Single Event Upset (SEU) occurs when the 
+        hardware is exposed to energetic ions and protons in the space
+        environment. The value stored in a bit of information can change
+        when a large enough charge is deposited on the digital circuit. 
+        This leads to adverse effects in the operation of the software;
+        in this case Cisco IOS. While steps have been taken to reduce 
+        the occurrence of SEUs through the use of radiation tolerant 
+        hardware, these steps do not eliminate the threat. A critical
+        requirement in running IOS on such platforms is the utilization
+        of SEU mitigation strategies to reduce the impact of such events
+        on the operation of the Cisco device.
+
+                 GLOSSARY
+
+        SEU  :   Acronym for 'Single Event Upset' : A hardware 
+                 disruption caused when hardware is exposed to energetic
+                 ions and protons.
+
+        scrub :  An algorithm that periodically refreshes memory, cache
+                 or register contents by various means."
+    REVISION        "200906240000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 701 }
+
+
+ciscoSeuMitigationMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSeuMitigationMIB 0 }
+
+ciscoSeuMitigationMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSeuMitigationMIB 1 }
+
+ciscoSeuMitigationMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSeuMitigationMIB 2 }
+
+-- ********************************************************
+
+csmScrubTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsmScrubEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the configuration settings for the
+        scrub algorithms. All entries are added with the SEU 
+        subsystem is initialized."
+    ::= { ciscoSeuMitigationMIBObjects 1 }
+
+csmScrubEntry OBJECT-TYPE
+    SYNTAX          CsmScrubEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents an entry in the
+        csmScrubConfigTable."
+    INDEX           { csmScrubIndex } 
+    ::= { csmScrubTable 1 }
+
+CsmScrubEntry ::= SEQUENCE {
+        csmScrubIndex                  Unsigned32,
+        csmScrubEntPhysicalIndex       EntPhysicalIndexOrZero,
+        csmScrubScrubName              DisplayString,
+        csmScrubRateAdaptive           TruthValue,
+        csmScrubAlgorithmEnabled       TruthValue,
+        csmScrubRunInterval            Unsigned32,
+        csmScrubRunIntervalUnits       DisplayString,
+        csmScrubDeltaInterval          Unsigned32,
+        csmScrubDeltaIntervalUnits     DisplayString,
+        csmScrubRetryInterval          Unsigned32,
+        csmScrubRetryIntervalUnits     DisplayString,
+        csmScrubCurrentInterval        Unsigned32,
+        csmScrubCurrentIntervalUnits   DisplayString,
+        csmScrubThresholdInterval      Unsigned32,
+        csmScrubThresholdIntervalUnits DisplayString,
+        csmScrubThresholdIntervalCount Unsigned32,
+        csmScrubThresholdErrorValue    Unsigned32,
+        csmScrubRunning                TruthValue,
+        csmScrubStatus                 INTEGER,
+        csmScrubLastRun                DateAndTime,
+        csmScrubPassesCompleted        Unsigned32
+}
+
+csmScrubIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the csmScrubEntry." 
+    ::= { csmScrubEntry 1 }
+
+csmScrubEntPhysicalIndex OBJECT-TYPE
+    SYNTAX          EntPhysicalIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the EntityPhysicalIndex (from the
+        ENTITY-MIB) corresponding to the physical entity upon which the
+        scrub or SEU-mitigation is being performed." 
+    ::= { csmScrubEntry 2 }
+
+csmScrubScrubName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the particular scrub or SEU
+        algorithm, such as Memory Scrub, Register Scrub, etc." 
+    ::= { csmScrubEntry 3 }
+
+csmScrubRateAdaptive OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the scrub or SEU algorithm is
+        rate-adaptive. The values provided by objects 
+        csmScrubDeltaInterval, csmScrubRetryInterval, and 
+        csmScrubThresholdInterval are only applicable when this 
+        object is set to 'true'.
+           true  : Algorithm is rate-adaptive.
+           false : Algorithm is NOT rate-adaptive." 
+    ::= { csmScrubEntry 4 }
+
+csmScrubAlgorithmEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the SEU algorithm is
+        enabled.
+        true  : Algorithm is enabled
+        false : Algorithm is disabled" 
+    ::= { csmScrubEntry 5 }
+
+csmScrubRunInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the amount of wait time between when
+        a scrub algorithm finishes its current run and begins its 
+        next run."
+    DEFVAL          { 60 } 
+    ::= { csmScrubEntry 6 }
+
+csmScrubRunIntervalUnits OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the units for csmScrubRunInterval."
+    DEFVAL          { "Minutes" } 
+    ::= { csmScrubEntry 7 }
+
+csmScrubDeltaInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the amount of time that a rate-adaptive
+        scrub algorithm increases or decreases the 
+        csmScrubRunInterval. The scrub interval is decreased when
+        an error interrupt occurs and the 
+        cScrubThresholdIntervalCount is exceeded. The scrub 
+        interval is increased when the scrub retry timer expires."
+    DEFVAL          { 10 } 
+    ::= { csmScrubEntry 8 }
+
+csmScrubDeltaIntervalUnits OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the units for csmScrubDeltaInterval."
+    DEFVAL          { "Minutes" } 
+    ::= { csmScrubEntry 9 }
+
+csmScrubRetryInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the amount of time a rate-adaptive scrub
+        algorithm waits before increasing the csmScrubRunInterval."
+    DEFVAL          { 10 } 
+    ::= { csmScrubEntry 10 }
+
+csmScrubRetryIntervalUnits OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the units for
+        csmScrubConfigRetryInterval."
+    DEFVAL          { "Minutes" } 
+    ::= { csmScrubEntry 11 }
+
+csmScrubCurrentInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current interval between which
+        scrubs or SEU-mitigation runs. A value of 0 (zero) indicates
+        that the scrubs or runs are back-to-back." 
+    ::= { csmScrubEntry 12 }
+
+csmScrubCurrentIntervalUnits OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the units for csmScrubCurrentInterval." 
+    ::= { csmScrubEntry 13 }
+
+csmScrubThresholdInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the period of time that a rate-adaptive
+        scrub algorithm will check for csmScrubThresholdErrorValue being
+        exceeded. If the threshold is exceeded within this sliding time
+        window, the scrub rate will increase."
+    DEFVAL          { 60 } 
+    ::= { csmScrubEntry 14 }
+
+csmScrubThresholdIntervalUnits OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for
+        csmScrubConfigThresholdInterval."
+    DEFVAL          { "Minutes" } 
+    ::= { csmScrubEntry 15 }
+
+csmScrubThresholdIntervalCount OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of error interrupts received
+        before a rate-adaptive scrub or SEU-mitigation algorithm
+        decreases the scrub interval." 
+    ::= { csmScrubEntry 16 }
+
+csmScrubThresholdErrorValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the error threshold above which,
+        when it occurs during sliding window 
+        (csmScrubThresholdInterval), the scrub or SEU-mitigation
+        rate will increase." 
+    ::= { csmScrubEntry 17 }
+
+csmScrubRunning OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the scrub or SEU algorithm is
+        running or not.
+           true  : Algorithm is running.
+           false : Algorithm is NOT running." 
+    ::= { csmScrubEntry 18 }
+
+csmScrubStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        elevated(1),
+                        decreased(2),
+                        normal(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether an adaptive scrub or SEU
+        algorithm is performing scrubs more frequently (elevated)
+        due most likely to more frequent SEUs or decreased due to
+        less frequent SEUs, or at a normal rate." 
+    ::= { csmScrubEntry 19 }
+
+csmScrubLastRun OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the date and time a scrub or
+        SEU-mitigation algorithm last ran." 
+    ::= { csmScrubEntry 20 }
+
+csmScrubPassesCompleted OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of scrub or
+        SEU-mitigations runs since the last 'clear SEU counters' CLI
+        (command line interace) command was issued." 
+    ::= { csmScrubEntry 21 }
+ 
+
+-- ********************************************************************
+
+csmScrubErrorsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsmScrubErrorsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the errors and counts for the errors that the
+        scrub algorithms are mitigating. All entries are 
+        added with the SEU subsystem is initialized."
+    ::= { ciscoSeuMitigationMIBObjects 2 }
+
+csmScrubErrorsEntry OBJECT-TYPE
+    SYNTAX          CsmScrubErrorsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents an entry in the csmScrubErrorsTable."
+    INDEX           { csmScrubErrorsIndex } 
+    ::= { csmScrubErrorsTable 1 }
+
+CsmScrubErrorsEntry ::= SEQUENCE {
+        csmScrubErrorsIndex               Unsigned32,
+        csmScrubErrorsEntPhysicalIndex    EntPhysicalIndexOrZero,
+        csmScrubErrorsDescription         DisplayString,
+        csmScrubErrorsReference           DisplayString,
+        csmScrubErrorsSingleBit           Counter32,
+        csmScrubErrorsSingleBitInterrupts Counter32,
+        csmScrubErrorsMultibit            Counter32,
+        csmScrubErrorsMultibitInterrupts  Counter32
+}
+
+csmScrubErrorsIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the csmScrubEntry." 
+    ::= { csmScrubErrorsEntry 1 }
+
+csmScrubErrorsEntPhysicalIndex OBJECT-TYPE
+    SYNTAX          EntPhysicalIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is represents the EntityPhysicalIndex (from the
+        ENTITY-MIB) corresponding to the physical entity upon which the
+        scrub or
+        SEU-mitigation is being performed." 
+    ::= { csmScrubErrorsEntry 2 }
+
+csmScrubErrorsDescription OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the error name and may include things
+        such as DDR memory errors, cache errors, register errors, and
+        other processor-specific register errors." 
+    ::= { csmScrubErrorsEntry 3 }
+
+csmScrubErrorsReference OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides a reference to a User's Manual entry, if
+        one exists, for processor and other device-specific errors." 
+    ::= { csmScrubErrorsEntry 4 }
+
+csmScrubErrorsSingleBit OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object counts the single-bit errors for the specific error
+        type described by csmScrubErrorsDescription." 
+    ::= { csmScrubErrorsEntry 5 }
+
+csmScrubErrorsSingleBitInterrupts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object counts number of interrupts thrown, if any, for
+        single-bit errors that occurred for the specific error
+        type described by csmScrubErrorsDescription." 
+    ::= { csmScrubErrorsEntry 6 }
+
+csmScrubErrorsMultibit OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object counts the multi-bit errors for the specific
+        error type described by csmScrubErrorsDescription." 
+    ::= { csmScrubErrorsEntry 7 }
+
+csmScrubErrorsMultibitInterrupts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object counts number of interrupts thrown, if any, for
+        multiple-bit errors that occurred for the specific error
+        type described by csmScrubErrorsDescription." 
+    ::= { csmScrubErrorsEntry 8 }
+ 
+
+
+-- *********************************************************************
+
+csmSeuEventLogMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum number of entries
+        in the csmSeuEventLogTable." 
+    ::= { ciscoSeuMitigationMIBObjects 3 }
+-- *********************************************************************
+
+csmSeuEventLogTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsmSeuEventLogEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists any special error and scrub or SEU-mitigation
+        algorithm events that may have occurred and is limited to
+        csmSeuEventLogMaxEntries. All entries are added with the SEU
+        subsystem is initialized."
+    ::= { ciscoSeuMitigationMIBObjects 4 }
+
+csmSeuEventLogEntry OBJECT-TYPE
+    SYNTAX          CsmSeuEventLogEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents an entry in the
+        csmSeuEventLogTable."
+    INDEX           { csmSeuEventLogIndex } 
+    ::= { csmSeuEventLogTable 1 }
+
+CsmSeuEventLogEntry ::= SEQUENCE {
+        csmSeuEventLogIndex       Unsigned32,
+        csmSeuEventLogDescription DisplayString,
+        csmSeuEventLogReference   DisplayString,
+        csmSeuEventLogAddress     DisplayString,
+        csmSeuEventLogTimeStamp   DateAndTime
+}
+
+csmSeuEventLogIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the csmScrubEventLogEntry." 
+    ::= { csmSeuEventLogEntry 1 }
+
+csmSeuEventLogDescription OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (64..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object describes the event of interest." 
+    ::= { csmSeuEventLogEntry 2 }
+
+csmSeuEventLogReference OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides a reference to a User's Manual entry, if
+        one exists, that describes and provides more detail for the
+        event of interest." 
+    ::= { csmSeuEventLogEntry 3 }
+
+csmSeuEventLogAddress OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the hexadecimal address (if one exists)
+        associated with the event that occurred." 
+    ::= { csmSeuEventLogEntry 4 }
+
+csmSeuEventLogTimeStamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides a date-and-time-stamp for the event that
+        occurred." 
+    ::= { csmSeuEventLogEntry 5 }
+ 
+
+
+-- Default Notification Type
+
+csmSeuScrubAlert NOTIFICATION-TYPE
+    OBJECTS         { csmScrubStatus }
+    STATUS          current
+    DESCRIPTION
+        "Notifies NMS when the scrub rate or SEU-mitigation rate
+        is elevated, decreased or returns to normal."
+   ::= { ciscoSeuMitigationMIBNotifs 1 }
+ciscoSeuMitigationMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSeuMitigationMIBConform 1 }
+
+ciscoSeuMitigationMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSeuMitigationMIBConform 2 }
+
+
+ciscoSeuMitigationMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is the module-compliance containing default object
+        groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoSeuMitigationMIBMainObjectGroup,
+                        ciscoSeuMitigationMIBNotificationGroup
+                    }
+    ::= { ciscoSeuMitigationMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoSeuMitigationMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        csmScrubEntPhysicalIndex,
+                        csmScrubAlgorithmEnabled,
+                        csmScrubScrubName,
+                        csmScrubRateAdaptive,
+                        csmScrubRunInterval,
+                        csmScrubRunIntervalUnits,
+                        csmScrubDeltaInterval,
+                        csmScrubDeltaIntervalUnits,
+                        csmScrubRetryInterval,
+                        csmScrubRetryIntervalUnits,
+                        csmScrubThresholdInterval,
+                        csmScrubThresholdIntervalUnits,
+                        csmScrubCurrentInterval,
+                        csmScrubCurrentIntervalUnits,
+                        csmScrubThresholdIntervalCount,
+                        csmScrubThresholdErrorValue,
+                        csmScrubRunning,
+                        csmScrubStatus,
+                        csmScrubLastRun,
+                        csmScrubPassesCompleted,
+                        csmScrubErrorsEntPhysicalIndex,
+                        csmScrubErrorsDescription,
+                        csmScrubErrorsReference,
+                        csmScrubErrorsSingleBit,
+                        csmScrubErrorsSingleBitInterrupts,
+                        csmScrubErrorsMultibit,
+                        csmScrubErrorsMultibitInterrupts,
+                        csmSeuEventLogMaxEntries,
+                        csmSeuEventLogDescription,
+                        csmSeuEventLogReference,
+                        csmSeuEventLogAddress,
+                        csmSeuEventLogTimeStamp
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is the list of objects that are required for an agent to
+        support the CISCO-SEU-MITIGATION-MIB."
+    ::= { ciscoSeuMitigationMIBGroups 1 }
+
+ciscoSeuMitigationMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { csmSeuScrubAlert }
+    STATUS          current
+    DESCRIPTION
+        "This is the list of Notifications required for an agent to
+        support the CISCO-SEU-MITIGATION-MIB."
+    ::= { ciscoSeuMitigationMIBGroups 2 }
+
+END

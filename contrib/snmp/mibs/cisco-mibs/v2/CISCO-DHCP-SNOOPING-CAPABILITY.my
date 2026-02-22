@@ -1,0 +1,575 @@
+-- *****************************************************************
+-- CISCO-DHCP-SNOOPING-CAPABILITY.my:
+-- Cisco CISCO-DHCP-SNOOPING-MIB AGENT-CAPABILITIES
+--   
+-- March 2004, Edward Pham
+--   
+-- Copyright (c) 2004, 2006-2008, 2010-2011 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-DHCP-SNOOPING-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoDhcpSnoopingCapability MODULE-IDENTITY
+    LAST-UPDATED    "201109280000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-DHCP-SNOOPING-MIB."
+    REVISION        "201109280000Z"
+    DESCRIPTION
+        "Added capability statement cdsCapV15R0001SYPCat6k."
+    REVISION        "201010270000Z"
+    DESCRIPTION
+        "Added capability statement cdsCapV12R0250SYPCat6k."
+    REVISION        "201003180000Z"
+    DESCRIPTION
+        "Added capability statement cdsCapV12R0233SXI4PCat6k.
+
+        Added VARIATION clause for cdsStaticBindingsStatus in 
+        capability statement cdsCapV12R0233SXHPCat6k."
+    REVISION        "200803200000Z"
+    DESCRIPTION
+        "Added capability statements
+        cdsCapabilityV08R0701Cat6kPfc and
+        cdsCapabilityV08R0701Cat6kPfc3."
+    REVISION        "200707020900Z"
+    DESCRIPTION
+        "Added capability statements
+        cdsCapV12R0233SXHPCat6k."
+    REVISION        "200606280000Z"
+    DESCRIPTION
+        "Added capability statements
+        cdsCapabilityV08R0601Cat6kPfc and
+        cdsCapabilityV08R0601Cat6kPfc3."
+    REVISION        "200403090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 383 }
+
+
+
+cdsCapabilityV08R0301Cat6kPfc AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices with PFC
+                          of PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsIfConfigGroup,
+                        cdsBindingsGroup,
+                        cdsGlobalEnableGroup,
+                        cdsVlanConfigGroup,
+                        cdsStatisticsGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsRelayAgentRemoteIdGroup,
+                        cdsMatchMacAddressGroup
+                    }
+    VARIATION       cdsFeatureEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Only support read-only access."
+
+    VARIATION       cdsVlanDhcpSnoopingEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Only support read-only access."
+
+    ::= { ciscoDhcpSnoopingCapability 1 }
+
+cdsCapabilityV08R0301Cat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices with PFC3
+                          card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsIfConfigGroup,
+                        cdsBindingsGroup,
+                        cdsGlobalEnableGroup,
+                        cdsVlanConfigGroup,
+                        cdsStatisticsGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsRelayAgentRemoteIdGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsIfSrcGuardGroup
+                    }
+    VARIATION       cdsFeatureEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Only support read-only access."
+
+    VARIATION       cdsVlanDhcpSnoopingEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Only support read-only access."
+
+    ::= { ciscoDhcpSnoopingCapability 2 }
+
+cdsCapabilityV08R0601Cat6kPfc AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices with PFC
+                          or PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsIfConfigGroup,
+                        cdsBindingsGroup,
+                        cdsGlobalEnableGroup,
+                        cdsVlanConfigGroup,
+                        cdsStatisticsGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsRelayAgentRemoteIdGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsBindingsLimitGroup
+                    }
+    VARIATION       cdsFeatureEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsVlanDhcpSnoopingEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsGlobalMaxBindingsLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    ::= { ciscoDhcpSnoopingCapability 3 }
+
+cdsCapabilityV08R0601Cat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices with PFC3
+                          card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsIfConfigGroup,
+                        cdsBindingsGroup,
+                        cdsGlobalEnableGroup,
+                        cdsVlanConfigGroup,
+                        cdsStatisticsGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsRelayAgentRemoteIdGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsIfSrcGuardGroup,
+                        cdsBindingsLimitGroup
+                    }
+    VARIATION       cdsFeatureEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsVlanDhcpSnoopingEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsGlobalMaxBindingsLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    ::= { ciscoDhcpSnoopingCapability 4 }
+
+cdsCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsGlobalEnableGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsVlanConfigGroup,
+                        cdsIfConfigGroup,
+                        cdsIfRateLimitGroup,
+                        cdsIfFeatureConfigGroup,
+                        cdsBindingsGroup,
+                        cdsStaticBindingsGroup,
+                        cdsIfSrcGuardTrafficFilterGroup,
+                        cdsIfSrcGuardGroupRev1,
+                        cdsIfSrcGuardIpFilterGroup,
+                        cdsIfSrcGuardExtGroup
+                    }
+    VARIATION       cdsIfRateLimit
+    SYNTAX          Unsigned32 (0..4294967294)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        On L2 interfaces (0..2048) and on L3 interfaces
+        (0..4294967294) range is supported."
+
+    VARIATION       cdsStaticBindingsAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsIfSrcGuardFilterType
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        ip(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsStaticBindingsStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    ::= { ciscoDhcpSnoopingCapability 5 }
+
+cdsCapabilityV08R0701Cat6kPfc AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices with PFC
+                          or PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsIfConfigGroup,
+                        cdsBindingsGroup,
+                        cdsGlobalEnableGroup,
+                        cdsVlanConfigGroup,
+                        cdsStatisticsGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsRelayAgentRemoteIdGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsBindingsLimitGroup,
+                        cdsBindingsHostnameGroup,
+                        cdsStaticBindingsGroup,
+                        cdsStatisticsExtGroup
+                    }
+    VARIATION       cdsFeatureEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsVlanDhcpSnoopingEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsGlobalMaxBindingsLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsStaticBindingsAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsStaticBindingsStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoDhcpSnoopingCapability 6 }
+
+cdsCapabilityV08R0701Cat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices with PFC3
+                          card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsIfConfigGroup,
+                        cdsBindingsGroup,
+                        cdsGlobalEnableGroup,
+                        cdsVlanConfigGroup,
+                        cdsStatisticsGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsRelayAgentRemoteIdGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsIfSrcGuardGroup,
+                        cdsBindingsLimitGroup,
+                        cdsBindingsHostnameGroup,
+                        cdsStaticBindingsGroup,
+                        cdsStatisticsExtGroup
+                    }
+    VARIATION       cdsFeatureEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsVlanDhcpSnoopingEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsGlobalMaxBindingsLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Cannot set this object in CatOS."
+
+    VARIATION       cdsStaticBindingsAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsStaticBindingsStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoDhcpSnoopingCapability 7 }
+
+cdsCapV12R0233SXI4PCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsGlobalEnableGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsVlanConfigGroup,
+                        cdsIfConfigGroup,
+                        cdsIfRateLimitGroup,
+                        cdsIfFeatureConfigGroup,
+                        cdsBindingsGroup,
+                        cdsStaticBindingsGroup,
+                        cdsIfSrcGuardTrafficFilterGroup,
+                        cdsIfSrcGuardGroupRev1,
+                        cdsIfSrcGuardIpFilterGroup,
+                        cdsIfSrcGuardExtGroup,
+                        cdsNotifControlGroup,
+                        cdsBindingsNotificationGroup
+                    }
+    VARIATION       cdsIfRateLimit
+    SYNTAX          Unsigned32 (0..4294967294)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        On L2 interfaces (0..2048) and on L3 interfaces
+        (0..4294967294) range is supported."
+
+    VARIATION       cdsStaticBindingsAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsIfSrcGuardFilterType
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        ip(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsStaticBindingsStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    ::= { ciscoDhcpSnoopingCapability 8 }
+
+cdsCapV12R0250SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsGlobalEnableGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsVlanConfigGroup,
+                        cdsIfConfigGroup,
+                        cdsIfRateLimitGroup,
+                        cdsIfFeatureConfigGroup,
+                        cdsBindingsGroup,
+                        cdsStaticBindingsGroup,
+                        cdsIfSrcGuardTrafficFilterGroup,
+                        cdsIfSrcGuardGroupRev1,
+                        cdsIfSrcGuardIpFilterGroup,
+                        cdsIfSrcGuardExtGroup,
+                        cdsNotifControlGroup,
+                        cdsBindingsNotificationGroup
+                    }
+    VARIATION       cdsIfRateLimit
+    SYNTAX          Unsigned32 (0..4294967294)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        On L2 interfaces (0..2048) and on L3 interfaces
+        (0..4294967294) range is supported."
+
+    VARIATION       cdsStaticBindingsAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsIfSrcGuardFilterType
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        strictIpMac(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsStaticBindingsStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    ::= { ciscoDhcpSnoopingCapability 9 }
+
+cdsCapV15R0001SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DHCP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-DHCP-SNOOPING-MIB
+    INCLUDES        {
+                        cdsGlobalEnableGroup,
+                        cdsRelayAgentInfoOptGroup,
+                        cdsMatchMacAddressGroup,
+                        cdsVlanConfigGroup,
+                        cdsIfConfigGroup,
+                        cdsIfRateLimitGroup,
+                        cdsIfFeatureConfigGroup,
+                        cdsBindingsGroup,
+                        cdsStaticBindingsGroup,
+                        cdsIfSrcGuardTrafficFilterGroup,
+                        cdsIfSrcGuardGroupRev1,
+                        cdsIfSrcGuardIpFilterGroup,
+                        cdsIfSrcGuardExtGroup,
+                        cdsNotifControlGroup,
+                        cdsBindingsNotificationGroup,
+                        cdsVlanOperStatusGroup
+                    }
+    VARIATION       cdsIfRateLimit
+    SYNTAX          Unsigned32 (0..4294967294)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        On L2 interfaces (0..2048) and on L3 interfaces
+        (0..4294967294) range is supported."
+
+    VARIATION       cdsStaticBindingsAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsIfSrcGuardFilterType
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        strictIpMac(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cdsStaticBindingsStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    ::= { ciscoDhcpSnoopingCapability 10 }
+
+END
+
+
+
+

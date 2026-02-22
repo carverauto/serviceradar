@@ -1,0 +1,255 @@
+-- *****************************************************************
+-- SYSLOG-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-SYSLOG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InetAddress FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    DateAndTime FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200SyslogMib MODULE-IDENTITY
+    LAST-UPDATED "201403250000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        " "
+    DESCRIPTION
+        "This is a private MIB for Syslog"
+    REVISION    "201403250000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 37 }
+
+
+ME1200SyslogLevelType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The syslog severity level."
+    SYNTAX      INTEGER { error(3), warning(4), notice(5), informational(6), all(8) }
+
+me1200SyslogMibObjects OBJECT IDENTIFIER
+    ::= { me1200SyslogMib 1 }
+
+me1200SyslogConfig OBJECT IDENTIFIER
+    ::= { me1200SyslogMibObjects 2 }
+
+me1200SyslogConfigServer OBJECT IDENTIFIER
+    ::= { me1200SyslogConfig 1 }
+
+me1200SyslogConfigServerMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the syslog server mode operation. When the mode operation is
+         enabled, the syslog message will send out to syslog server."
+    ::= { me1200SyslogConfigServer 1 }
+
+me1200SyslogConfigServerAddress OBJECT-TYPE
+    SYNTAX      ME1200InetAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The domain name of syslog server."
+    ::= { me1200SyslogConfigServer 2 }
+
+me1200SyslogConfigServerLevel OBJECT-TYPE
+    SYNTAX      ME1200SyslogLevelType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates what level of message will send to syslog server. For
+         example, the error level will send the specific messages which severity
+         code is less or equal than error(3), the warning level will send the
+         specific messages which severity code is less or equal than warning(4),
+         the notice level will send the specific messages which severity code is
+         less or equal than notice(5), the informational level will send the
+         specific messages which severity code is less or equal than
+         informational(6) and the enumeration option of all(8) isn't used in
+         this case."
+    ::= { me1200SyslogConfigServer 3 }
+
+me1200SyslogStatus OBJECT IDENTIFIER
+    ::= { me1200SyslogMibObjects 3 }
+
+me1200SyslogStatusHistoryTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SyslogStatusHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The syslog history table."
+    ::= { me1200SyslogStatus 1 }
+
+me1200SyslogStatusHistoryEntry OBJECT-TYPE
+    SYNTAX      ME1200SyslogStatusHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains a set of parameters."
+    INDEX       { me1200SyslogStatusHistorySwitchId, me1200SyslogStatusHistoryMsgId }
+    ::= { me1200SyslogStatusHistoryTable 1 }
+
+ME1200SyslogStatusHistoryEntry ::= SEQUENCE {
+    me1200SyslogStatusHistorySwitchId     Integer32,
+    me1200SyslogStatusHistoryMsgId    Integer32,
+    me1200SyslogStatusHistoryMsgLevel     ME1200SyslogLevelType,
+    me1200SyslogStatusHistoryMsgTimeStamp     DateAndTime,
+    me1200SyslogStatusHistoryMsgText      ME1200DisplayString
+}
+
+me1200SyslogStatusHistorySwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch. For non-stackable switch, the valid value
+         is limited to 1. "
+    ::= { me1200SyslogStatusHistoryEntry 1 }
+
+me1200SyslogStatusHistoryMsgId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of Syslog message."
+    ::= { me1200SyslogStatusHistoryEntry 2 }
+
+me1200SyslogStatusHistoryMsgLevel OBJECT-TYPE
+    SYNTAX      ME1200SyslogLevelType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The severity level of the system log message. Note that enumeration
+         option of all(8) isn't used in this case."
+    ::= { me1200SyslogStatusHistoryEntry 3 }
+
+me1200SyslogStatusHistoryMsgTimeStamp OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The value of sysUpTime when this message was generated."
+    ::= { me1200SyslogStatusHistoryEntry 4 }
+
+me1200SyslogStatusHistoryMsgText OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..255))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The detailed context of the system log message."
+    ::= { me1200SyslogStatusHistoryEntry 5 }
+
+me1200SyslogControl OBJECT IDENTIFIER
+    ::= { me1200SyslogMibObjects 4 }
+
+me1200SyslogControlHistoryTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SyslogControlHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The syslog history clear table."
+    ::= { me1200SyslogControl 1 }
+
+me1200SyslogControlHistoryEntry OBJECT-TYPE
+    SYNTAX      ME1200SyslogControlHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains a set of parameters."
+    INDEX       { me1200SyslogControlHistorySwitchId, me1200SyslogControlHistoryClearLevel }
+    ::= { me1200SyslogControlHistoryTable 1 }
+
+ME1200SyslogControlHistoryEntry ::= SEQUENCE {
+    me1200SyslogControlHistorySwitchId    Integer32,
+    me1200SyslogControlHistoryClearLevel      ME1200SyslogLevelType,
+    me1200SyslogControlHistoryClear   TruthValue
+}
+
+me1200SyslogControlHistorySwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch. For non-stackable switch, the valid value
+         is limited to 1. For stackable switch, value 0 means the action is
+         applied to all switches."
+    ::= { me1200SyslogControlHistoryEntry 1 }
+
+me1200SyslogControlHistoryClearLevel OBJECT-TYPE
+    SYNTAX      ME1200SyslogLevelType
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Indicates which level of message want to clear."
+    ::= { me1200SyslogControlHistoryEntry 2 }
+
+me1200SyslogControlHistoryClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear syslog history by setting to true."
+    ::= { me1200SyslogControlHistoryEntry 3 }
+
+me1200SyslogMibConformance OBJECT IDENTIFIER
+    ::= { me1200SyslogMib 2 }
+
+me1200SyslogMibCompliances OBJECT IDENTIFIER
+    ::= { me1200SyslogMibConformance 1 }
+
+me1200SyslogMibGroups OBJECT IDENTIFIER
+    ::= { me1200SyslogMibConformance 2 }
+
+me1200SyslogConfigServerInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SyslogConfigServerMode, me1200SyslogConfigServerAddress, 
+                  me1200SyslogConfigServerLevel }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SyslogMibGroups 1 }
+
+me1200SyslogStatusHistoryTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SyslogStatusHistoryMsgLevel, 
+                  me1200SyslogStatusHistoryMsgTimeStamp, 
+                  me1200SyslogStatusHistoryMsgText }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SyslogMibGroups 2 }
+
+me1200SyslogControlHistoryTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SyslogControlHistoryClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SyslogMibGroups 3 }
+
+me1200SyslogMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200SyslogConfigServerInfoGroup, 
+                  me1200SyslogStatusHistoryTableInfoGroup, 
+                  me1200SyslogControlHistoryTableInfoGroup }
+
+    ::= { me1200SyslogMibCompliances 1 }
+
+END

@@ -1,0 +1,2369 @@
+-- ********************************************************************
+-- CISCO-WIRELESS-HOTSPOT-MIB.my
+-- This MIB helps to manage the Hotspot functionality on the controller
+-- June 2019, Roberto Muccifora
+--   
+-- Copyright (c) 2019-2020 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+
+CISCO-WIRELESS-HOTSPOT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MacAddress,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoWirelessHotspotMIB MODULE-IDENTITY
+    LAST-UPDATED    "202006180000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central Controllers (CC)  that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight CAPWAP Access Points.
+
+        This MIB provides configuration about Hotspot 2.0
+        functionality as defined by WiFi Alliance.
+
+        Particularly there are two main configuration groups
+        related to Hotspot:
+
+          - ANQP server configuration
+          - Hotspot icon configuration
+
+        The ANQP server configuration contains the server
+        parameters and the network information that the client
+        can query through the GAS/ANQP protocol.
+        A given ANQP server is associated to a policy-profile,
+        which is then mapped to a WLAN.
+
+        The Hotspot icon configuration allows to define the
+        properties of the icons stored on the CC that can be
+        associated to an Online Sing-up (OSU) provider defined
+        in the ANQP server.
+
+                                   GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity is also referred to as 'controller'.
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point.
+
+        Access Network Query Protocol ( ANQP )
+
+        This is a query and response protocol used by a Mobile
+        Node to discover information about the network advertised
+        by an Access Point.
+
+        Generic Advertisement Service ( GAS )
+
+        It provides the Layer 2 transport between MN and a server
+        in the network for the advertisement protocol frames prior
+        to authentication.
+
+        Organization Identifier ( OI )
+
+        Identifies an operator, manufacturer or organization. It is
+        assigned by IEEE.
+
+        ANQP server
+
+        This is the server that replies to the ANQP queries, providing
+        the requested information. In can be the AP itself, the CC or an
+        external entity.
+
+        Service Set Identifier ( SSID )
+
+        A service set identifier is a name that identifies a
+        particular 802.11 wireless LAN. A client device
+        receives broadcast messages from all access points
+        within range advertising their SSIDs. The client
+        device can then either manually or automatically,
+        based on configuration, select the network with which
+        to associate. The SSID can be up to 32 characters long.
+
+        Homogeneous Extended Service Set Identifier ( HESSID )
+
+        This is a globally unique identifier, in MAC address format,
+        used to identify a group of APs connected to the same list
+        of Service Providers or other destination network(s).
+
+        Network Access Identifier ( NAI )
+
+        In order to provide roaming services, it is necessary
+        to have a standardized method for  identifying users.
+        NAI is actually the user identity submitted by the client
+        during network authentication.
+
+        Hotspot Operator Icon
+
+        An icon representing a given operator.
+
+        REFERENCE
+
+                [1] Wireless LAN Medium Access Control ( MAC ) and
+                    Physical Layer ( PHY ) Specifications.
+
+                [2] Draft-obara-capwap-lwapp-00.txt, IETF Light
+                    Weight Access Point Protocol."
+    REVISION        "202006180000Z"
+    DESCRIPTION
+        "Marked cLHotspotRealmEAPAuthTable as deprecated.
+        Added cLHotspotEAPAuthTable.
+        Added cLHotspotAdviceChargeTable.
+        Added cLHotspotAdviceChargePlanInfoTable.
+        Added cLHotspotAdviceChargeNAIRealmTable.
+        Added cLHotspotRealmEAPAuthTable."
+    REVISION        "201906200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 863 }
+
+
+ciscoWirelessHotspotMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoWirelessHotspotMIB 0 }
+
+ciscoWirelessHotspotMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoWirelessHotspotMIB 1 }
+
+ciscoWirelessHotspotMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoWirelessHotspotMIB 2 }
+
+ciscoWirelessHotspotConfig  OBJECT IDENTIFIER
+    ::= { ciscoWirelessHotspotMIBObjects 1 }
+
+-- ********************************************************************
+-- ANQP Server configuration
+-- ********************************************************************
+
+cLHotspotAnqpServerConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotAnqpServerConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Hotspot 2.0 ANQP server configuration managed
+        by the controller."
+    ::= { ciscoWirelessHotspotConfig 1 }
+
+cLHotspotAnqpServerConfigEntry OBJECT-TYPE
+    SYNTAX          CLHotspotAnqpServerConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing Hotspot 2.0 configuration that is
+        either sent by the controller to CAPWAP APs for use during
+        their operations or used to determine which information should
+        be sent to clients to negotiate proper session establishment."
+    INDEX           { cLHotspotAnqpServerName } 
+    ::= { cLHotspotAnqpServerConfigTable 1 }
+
+CLHotspotAnqpServerConfigEntry ::= SEQUENCE {
+        cLHotspotAnqpServerName             SnmpAdminString,
+        cLHotspotAnqpServerRowStatus        RowStatus,
+        cLHotspotAnqpServerDescription      SnmpAdminString,
+        cLHotspotAnqpServerInternetEnabled  TruthValue,
+        cLHotspotAnqpServerNetworkType      INTEGER,
+        cLHotspotAnqpServerVenueType        INTEGER,
+        cLHotspotAnqpServerHessid           MacAddress,
+        cLHotspotGasRequestTimeout          Unsigned32,
+        cLHotspotAnqpFragmentationThreshold Unsigned32,
+        cLHotspotAnqpDomainId               Unsigned32,
+        cLHotspotAnqpDomainIdEnabled        TruthValue,
+        cLHotspotAnqpServerIpv4AddressType  INTEGER,
+        cLHotspotAnqpServerIpv6AddressType  INTEGER,
+        cLHotspotAnqpOsuSsid                SnmpAdminString,
+        cLHotspotWanLinkStatus              INTEGER,
+        cLHotspotWanIsAtCapacity            TruthValue,
+        cLHotspotWanDownlinkSpeed           Unsigned32,
+        cLHotspotWanUplinkSpeed             Unsigned32,
+        cLHotspotWanDownlinkLoad            Unsigned32,
+        cLHotspotWanUplinkLoad              Unsigned32,
+        cLHotspotWanLoadMeasDuration        Unsigned32,
+        cLHotspotTermsConditionsFilename    SnmpAdminString,
+        cLHotspotTermsConditionsDate        SnmpAdminString,
+        cLHotspotTermsConditionsTime        SnmpAdminString,
+        cLHotspotTermsConditionsUrlFilter   SnmpAdminString
+}
+
+cLHotspotAnqpServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the
+        ANQP server name that can be used inside
+        policy profile to enable Hotspot 2.0.
+        The name has to be unique across other
+        ANQP server names on the controller." 
+    ::= { cLHotspotAnqpServerConfigEntry 1 }
+
+cLHotspotAnqpServerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active." 
+    ::= { cLHotspotAnqpServerConfigEntry 2 }
+
+cLHotspotAnqpServerDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a textual description
+        of the current ANQP server." 
+    ::= { cLHotspotAnqpServerConfigEntry 3 }
+
+cLHotspotAnqpServerInternetEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Internet access policy.
+        - A value of 'true' indicates that network will
+        provide Internet access.
+        - A value of 'false' indicates that network will
+        not provide internet access." 
+    ::= { cLHotspotAnqpServerConfigEntry 4 }
+
+cLHotspotAnqpServerNetworkType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        private(1),
+                        guestPrivate(2),
+                        chargeablePublic(3),
+                        freePublic(4),
+                        personalDevice(5),
+                        emergency(6),
+                        test(7),
+                        wildcard(8)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the network type associated with
+        this ANQP profile.
+           private             : Non-authorized users are not
+                                   permitted on this network.
+           guestPrivate        : Private network but guest accounts
+                                   are available.
+           chargeablePublic    : The network is accessible to
+                                   anyone, however, access to the
+                                   network requires payment.
+           freePublic          : The network is accessible to anyone
+                                   and no charges applies for the
+                                   network use.
+           personalDevice      : The network is accessible only by
+                                   Personal Device
+           emergency           : Emergency Service network Type
+           test                : The network is used for test or
+                                   experimental purposes only.
+           wildcard           : Wildcard network type."
+    DEFVAL          { private } 
+    ::= { cLHotspotAnqpServerConfigEntry 5 }
+
+cLHotspotAnqpServerVenueType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unspecifiedUnspecified(1),
+                        assemblyUnspecified(2),
+                        assemblyArena(3),
+                        assemblyStadium(4),
+                        assemblyPassengerTerminal(5),
+                        assemblyAmphitheater(6),
+                        assemblyAmusementPark(7),
+                        assemblyPlaceOfWorship(8),
+                        assemblyConventionCenter(9),
+                        assemblyLibrary(10),
+                        assemblyMuseum(11),
+                        assemblyRestaurant(12),
+                        assemblyTheater(13),
+                        assemblyBar(14),
+                        assemblyCoffeeShop(15),
+                        assemblyZoo(16),
+                        assemblyEmergencyCoordCenter(17),
+                        businessUnspecified(18),
+                        businessDoctor(19),
+                        businessBank(20),
+                        businessFireStation(21),
+                        businessPoliceStation(22),
+                        businessPostOffice(23),
+                        businessProfessionalOffice(24),
+                        businessRdFacility(25),
+                        businessAttorney(26),
+                        educationalUnspecifiedEducational(27),
+                        educationalPrimarySchool(28),
+                        educationalSecondarySchool(29),
+                        educationaluniversity(30),
+                        industrialUnspecified(31),
+                        industrialFactory(32),
+                        institutionalUnspecified(33),
+                        institutionalHospital(34),
+                        institutionalLongTermCareFacility(35),
+                        institutionalAlcoholDrugRehabCenter(36),
+                        institutionalGroupHome(37),
+                        institutionalJail(38),
+                        mercantileUnspecified(39),
+                        mercantileRetailStore(40),
+                        mercantileGroceryMarket(41),
+                        mercantileAutomotiveServiceStation(42),
+                        mercantileShoppingMall(43),
+                        mercantileGasStation(44),
+                        residentialUnspecified(45),
+                        residentialPrivate(46),
+                        residentialHotel(47),
+                        residentialDormitory(48),
+                        residentialBoardingHouse(49),
+                        storageUnspecified(50),
+                        utilityUnspecified(51),
+                        vehicularUnspecified(52),
+                        vehicularAutomobileTruck(53),
+                        vehicularAirplane(54),
+                        vehicularBus(55),
+                        vehicularFerry(56),
+                        vehicularBoat(57),
+                        vehicularTrain(58),
+                        vehicularMotorbike(59),
+                        outdoorUnspecified(60),
+                        outdoorMuniMesh(61),
+                        outdoorCityPark(62),
+                        outdoorRestArea(63),
+                        outdoorTrafficControl(64),
+                        outdoorBusStop(65),
+                        outdoorKiosk(66)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the venue type within
+        a particular venue group and type, with respect
+        to  802.11u feature.
+        The Venue group-Venue Type relationship is per
+        the following table:
+        Venue Group Venue Type Code Venue Description
+        =========== =============== =================
+             0            0         Unspecified
+             0            1-255     Reserved
+             1            0         Unspecified Assembly
+             1            1         Arena
+             1            2         Stadium
+             1            3         Passenger Terminal (e.g.,
+                                    airport, port, bus station, ferry
+                                    terminal, train station)
+             1            4         Amphitheater
+             1            5         Amusement Park
+             1            6         Place of Worship
+             1            7         Convention Center
+             1            8         Library
+             1            9         Museum
+             1            10        Restaurant
+             1            11        Theater
+             1            12        Bar
+             1            13        Coffee Shop
+             1            14        Zoo or Aquarium
+             1            15        Emergency Coordination Center
+             1            16-255    Reserved
+             2            0         Unspecified Business
+             2            1         Doctor or Dentist office
+             2            2         Bank
+             2            3         Fire Station
+             2            4         Police Station
+             2            6         Post Office
+             2            7         Professional Office
+             2            8         Research and Development Facility
+             2            9         Attorney Office
+             2            10-255    Reserved
+             3            0         Unspecified Educational
+             3            1         School, Primary
+             3            2         School, Secondary
+             3            3         University or College
+             3            4-255     Reserved
+             4            0         Unspecified Factory and Industrial
+             4            1         Factory
+             4            2-255     Reserved
+             5            0         Unspecified Institutional
+             5            1         Hospital
+             5            2         Long-Term Care Facility (e.g.,
+                                    Nursing home, Hospice, etc.)
+             5            3         Alcohol and Drug Re-habilitation
+                                    Center
+             5            4         Group Home
+             5            5         Prison or Jail
+             5            6-255     Reserved
+             6            0         Unspecified Mercantile
+             6            1         Retail Store
+             6            2         Grocery Market
+             6            3         Automotive Service Station
+             6            4         Shopping Mall
+             6            5         Gas Station
+             6            6-255     Reserved
+             7            0         Unspecified Residential
+             7            1         Private Residence
+             7            2         Hotel or Motel
+             7            3         Dormitory
+             7            4         Boarding House
+             7            5-255     Reserved
+             8            0         Unspecified Storage
+             8            1-255     Reserved
+             9            0         Unspecified Utility and
+                                    Miscellaneous
+             9            1-255     Reserved
+             10           0         Unspecified Vehicular
+             10           1         Automobile or Truck
+             10           2         Airplane
+             10           3         Bus
+             10           4         Ferry
+             10           5         Ship or Boat
+             10           6         Train
+             10           7         Motor Bike
+             10           7-255     Reserved
+             11           0         Unspecified Outdoor
+             11           1         Muni-mesh Network
+             11           2         City Park
+             11           3         Rest Area
+             11           4         Traffic Control
+             11           5         Bus Stop
+             11           6         Kiosk
+             11           7-255     Reserved"
+    DEFVAL          { unspecifiedUnspecified } 
+    ::= { cLHotspotAnqpServerConfigEntry 6 }
+
+cLHotspotAnqpServerHessid OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the HESSID for this ANQP server." 
+    ::= { cLHotspotAnqpServerConfigEntry 7 }
+
+cLHotspotGasRequestTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (100..10000)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timeout in milliseconds
+        of a GAS request."
+    DEFVAL          { 1000 } 
+    ::= { cLHotspotAnqpServerConfigEntry 8 }
+
+cLHotspotAnqpFragmentationThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (16..1294)
+    UNITS           "bytes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold in bytes
+        for the ANQP reply fragmentation. Any ANQP
+        replies bigger than this value will be sent
+        to the client in one or more GAS comeback
+        replies."
+    DEFVAL          { 1294 } 
+    ::= { cLHotspotAnqpServerConfigEntry 9 }
+
+cLHotspotAnqpDomainId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ANQP domain ID." 
+    ::= { cLHotspotAnqpServerConfigEntry 10 }
+
+cLHotspotAnqpDomainIdEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the ANQP domain ID
+        should be included in the Hotspot 2.0 information
+        element." 
+    ::= { cLHotspotAnqpServerConfigEntry 11 }
+
+cLHotspotAnqpServerIpv4AddressType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notAvailable(1),
+                        public(2),
+                        portRestricted(3),
+                        singleNatedPrivate(4),
+                        doubleNatedPrivate(5),
+                        portRestrictedSingleNatedPrivate(6),
+                        portRestrictedDoubleNatedPrivate(7),
+                        notKnown(8)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IPv4 address availability.
+        notAvailable                     : Address type not
+                                            available.
+        public                           : Public IPv4 address
+                                            available.
+        portRestricted                   : Port-restricted IPv4
+                                            address available.
+        singleNatedPrivate               : Single NATed private
+                                            IPv4 address available.
+        doubleNatedPrivate               : Double NATed private
+                                            IPv4 address available.
+        portRestrictedSingleNatedPrivate : Port-restricted IPv4
+                                            address and single
+                                            NATed IPv4 address
+                                            available.
+        portRestrictedDoubleNatedPrivate : Port-restricted IPv4
+                                            address and double
+                                            NATed IPv4 address
+                                            available.
+        notKnown                         : Availability of the
+                                            address type is not
+                                            known."
+    DEFVAL          { notAvailable } 
+    ::= { cLHotspotAnqpServerConfigEntry 12 }
+
+cLHotspotAnqpServerIpv6AddressType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notAvailable(1),
+                        available(2),
+                        notKnown(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IPv6 address availability.
+        notAvailable  : Address type not available.
+        available     : Address type available.
+        notKnown      : Availability of the address type not known."
+    DEFVAL          { notAvailable } 
+    ::= { cLHotspotAnqpServerConfigEntry 13 }
+
+cLHotspotAnqpOsuSsid OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the non broadcasted SSID from the AP.
+        The SSID is present in ANQP response message and this WLAN
+        is used for Online Signup of Hotspot 2.0 devices." 
+    ::= { cLHotspotAnqpServerConfigEntry 14 }
+
+cLHotspotWanLinkStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notConfigured(0),
+                        up(1),
+                        down(2),
+                        testState(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the link with respect to
+        WAN metrics configuration.
+           notConfigured      : Not configured.
+           up                 : WAN link is up.
+           down               : WAN link is down.
+           testState          : WAN link is in test state." 
+    ::= { cLHotspotAnqpServerConfigEntry 15 }
+
+cLHotspotWanIsAtCapacity OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if WAN link is currently operating at its
+        maximum capacity." 
+    ::= { cLHotspotAnqpServerConfigEntry 16 }
+
+cLHotspotWanDownlinkSpeed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the down link speed of WAN Backhaul
+        in kbps." 
+    ::= { cLHotspotAnqpServerConfigEntry 17 }
+
+cLHotspotWanUplinkSpeed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the up link speed of WAN Backhaul
+        in kbps." 
+    ::= { cLHotspotAnqpServerConfigEntry 18 }
+
+cLHotspotWanDownlinkLoad OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the down link load of WAN Backhaul. It
+        represents the percentage loading of the down link WAN
+        connection, scaled linearly with 255 representing 100%, as
+        measured over an interval, the duration of which is reported in
+        cLHotspotWanLoadMeasDuration." 
+    ::= { cLHotspotAnqpServerConfigEntry 19 }
+
+cLHotspotWanUplinkLoad OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the up link load of WAN Backhaul. It
+        represents the percentage loading of the up link WAN
+        connection, scaled linearly with 255 representing 100%, as
+        measured over an interval, the duration of which is reported in
+        cLHotspotWanLoadMeasDuration." 
+    ::= { cLHotspotAnqpServerConfigEntry 20 }
+
+cLHotspotWanLoadMeasDuration OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "tenths of seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the load measurement duration of
+        WAN Backhaul." 
+    ::= { cLHotspotAnqpServerConfigEntry 21 }
+
+cLHotspotTermsConditionsFilename OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..220))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the file name used for
+        terms and conditions acceptance." 
+    ::= { cLHotspotAnqpServerConfigEntry 22 }
+
+cLHotspotTermsConditionsDate OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..10))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the date portion of timestamp
+        when AAA server processed terms and conditions acceptance.
+        It should have the YYYY-MM-DD format." 
+    ::= { cLHotspotAnqpServerConfigEntry 23 }
+
+cLHotspotTermsConditionsTime OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..8))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time portion of timestamp
+        when AAA server processed terms and conditions acceptance.
+        It should have the hh-mm-ss format." 
+    ::= { cLHotspotAnqpServerConfigEntry 24 }
+
+cLHotspotTermsConditionsUrlFilter OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the URL filter list name used for
+        terms and conditions acceptance." 
+    ::= { cLHotspotAnqpServerConfigEntry 25 }
+ 
+
+-- ********************************************************************
+-- Roaming OI table
+-- ********************************************************************
+
+cLHotspotRoamingOITable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotRoamingOIEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of roaming consortium Organization Identifiers (OIs)
+        that will be either broadcasted to clients using
+        beacons or retrieved using ANQP requests. Up to 255
+        non-beacon OIs can be configured. Up to 3 beacons OIs
+        can be added."
+    ::= { ciscoWirelessHotspotConfig 2 }
+
+cLHotspotRoamingOIEntry OBJECT-TYPE
+    SYNTAX          CLHotspotRoamingOIEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing a given roaming
+        consortium unique OI which can be flagged as being
+        either broadcasted in beacon or not."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotRoamingOI
+                    } 
+    ::= { cLHotspotRoamingOITable 1 }
+
+CLHotspotRoamingOIEntry ::= SEQUENCE {
+        cLHotspotRoamingOI          OCTET STRING,
+        cLHotspotRoamingOIRowStatus RowStatus,
+        cLHotspotRoamingOIIsBeacon  TruthValue
+}
+
+cLHotspotRoamingOI OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (6 | 10))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the public OI assigned by the IEEE.
+        Each OI identifies a roaming consortium
+        (group of SSPs with inter-SSP roaming agreement)
+        or a single SSP. WLAN can have up to 255 OUIs defined.
+        Each OUI defined should be unique.
+        For example the value for Cisco is 004096." 
+    ::= { cLHotspotRoamingOIEntry 1 }
+
+cLHotspotRoamingOIRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active." 
+    ::= { cLHotspotRoamingOIEntry 2 }
+
+cLHotspotRoamingOIIsBeacon OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a method
+        to configure a particular
+        OI as one of the beacon OIs.
+        Beacon can carry at most 3 OIs.
+        User should be able to select 0-3 OIs
+        - A value of 'true' indicates that this OI would
+        be carried in beacon.
+        - A value of 'false' indicates that this OI
+        is not a beacon OI."
+    DEFVAL          { false } 
+    ::= { cLHotspotRoamingOIEntry 3 }
+ 
+
+-- ********************************************************************
+-- Domain table
+-- ********************************************************************
+
+cLHotspotDomainNameTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotDomainNameEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of domain names that can be queried by
+        the client using ANQP."
+    ::= { ciscoWirelessHotspotConfig 3 }
+
+cLHotspotDomainNameEntry OBJECT-TYPE
+    SYNTAX          CLHotspotDomainNameEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing a given domain
+        name. Name format should be compliant with the
+        preferred name syntax defined in RFC 1035."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotDomainName
+                    } 
+    ::= { cLHotspotDomainNameTable 1 }
+
+CLHotspotDomainNameEntry ::= SEQUENCE {
+        cLHotspotDomainName          SnmpAdminString,
+        cLHotspotDomainNameRowStatus RowStatus
+}
+
+cLHotspotDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of a domain" 
+    ::= { cLHotspotDomainNameEntry 1 }
+
+cLHotspotDomainNameRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active." 
+    ::= { cLHotspotDomainNameEntry 2 }
+ 
+
+-- ********************************************************************
+-- 3gpp table
+-- ********************************************************************
+
+cLHotspot3gppTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspot3gppEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of 3gpp cellular information
+        to assist a 3gpp mobile client in selecting an AP
+        to access 3gpp network."
+    ::= { ciscoWirelessHotspotConfig 4 }
+
+cLHotspot3gppEntry OBJECT-TYPE
+    SYNTAX          CLHotspot3gppEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing a tuple of mobile
+        country code (MCC) and mobile network code (MNC). Up
+        to 32 entries can be defined for a given ANQP server."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspot3gppNetworkCode,
+                        cLHotspot3gppCountryCode
+                    } 
+    ::= { cLHotspot3gppTable 1 }
+
+CLHotspot3gppEntry ::= SEQUENCE {
+        cLHotspot3gppNetworkCode OCTET STRING,
+        cLHotspot3gppCountryCode OCTET STRING,
+        cLHotspot3gppRowStatus   RowStatus
+}
+
+cLHotspot3gppNetworkCode OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (2 | 3))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mobile network code consisting
+        in a two or three decimal digits value." 
+    ::= { cLHotspot3gppEntry 1 }
+
+cLHotspot3gppCountryCode OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (3))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mobile country code consisting
+        in a three decimal digits value." 
+    ::= { cLHotspot3gppEntry 2 }
+
+cLHotspot3gppRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active." 
+    ::= { cLHotspot3gppEntry 3 }
+ 
+
+-- ********************************************************************
+-- *        Realm Table
+-- ********************************************************************
+
+cLHotspotRealmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotRealmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of the NAI realm details.
+        Each realm entry should be unique as it represents the user
+        identity submitted by the client during authentication."
+    ::= { ciscoWirelessHotspotConfig 5 }
+
+cLHotspotRealmEntry OBJECT-TYPE
+    SYNTAX          CLHotspotRealmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry specifying a single realm configuration.
+        Up to 32 realms can be configured."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotRealmName
+                    } 
+    ::= { cLHotspotRealmTable 1 }
+
+CLHotspotRealmEntry ::= SEQUENCE {
+        cLHotspotRealmName      SnmpAdminString,
+        cLHotspotRealmRowStatus RowStatus
+}
+
+cLHotspotRealmName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the NAI name.
+        In order to provide roaming services,
+        it is necessary to have a standardized method for
+        identifying users. NAI represents the SSP identities
+        supported  during network authentication.
+        In roaming, the purpose of the NAI is to provide information
+        to the user as well as to assist in the routing of the
+        authentication request." 
+    ::= { cLHotspotRealmEntry 1 }
+
+cLHotspotRealmRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active." 
+    ::= { cLHotspotRealmEntry 2 }
+ 
+
+-- ********************************************************************
+-- *        Realm EAP Table
+-- ********************************************************************
+
+cLHotspotRealmEAPTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotRealmEAPEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of EAP methods configured for a given NAI realm."
+    ::= { ciscoWirelessHotspotConfig 6 }
+
+cLHotspotRealmEAPEntry OBJECT-TYPE
+    SYNTAX          CLHotspotRealmEAPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing a single EAP method realm configuration."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotRealmName,
+                        cLHotspotRealmEAPMethod
+                    } 
+    ::= { cLHotspotRealmEAPTable 1 }
+
+CLHotspotRealmEAPEntry ::= SEQUENCE {
+        cLHotspotRealmEAPMethod    INTEGER,
+        cLHotspotRealmEAPRowStatus RowStatus
+}
+
+cLHotspotRealmEAPMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        eapTLS(1),
+                        eapLEAP(2),
+                        eapSIM(3),
+                        eapTTLS(4),
+                        eapAKA(5),
+                        eapPEAP(6),
+                        eapFAST(7)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a single EAP method allowed
+        for a authentication to a given NAI realm.
+           eapTLS       : EAP Transport Layer Security.
+           eapLEAP      : EAP Lightweight Extensible Authentication
+                           Protocol.
+           eapSIM       : EAP for GSM Subscriber Identity Modules.
+           eapTTLS      : EAP Tunneled Transport Layer Security.
+           eapAKA       : EAP for UMTS Authentication and Key Agreement.
+           eapPEAP      : EAP Protected Extensible Authentication
+        Protocol.
+           eapFAST      : EAP Flexible Authentication via Secure
+        Tunneling." 
+    ::= { cLHotspotRealmEAPEntry 1 }
+
+cLHotspotRealmEAPRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active." 
+    ::= { cLHotspotRealmEAPEntry 2 }
+ 
+
+-- ********************************************************************
+-- *        Realm EAP Auth Table
+-- ********************************************************************
+
+cLHotspotRealmEAPAuthTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotRealmEAPAuthEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A list of authentication EAP method details for a given NAI
+        realm.
+        This table is deprecated and replaced by cLHotspotEAPAuthTable."
+    ::= { ciscoWirelessHotspotConfig 7 }
+
+cLHotspotRealmEAPAuthEntry OBJECT-TYPE
+    SYNTAX          CLHotspotRealmEAPAuthEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An entry representing a single EAP method configuration
+        details.
+        cLHotspotRealmEAPAuthEntry object is superseded by cLHotspotEAPAuthTable."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotRealmName,
+                        cLHotspotRealmEAPMethod,
+                        cLHotspotRealmEAPAuthMethod
+                    } 
+    ::= { cLHotspotRealmEAPAuthTable 1 }
+
+CLHotspotRealmEAPAuthEntry ::= SEQUENCE {
+        cLHotspotRealmEAPAuthMethod                    INTEGER,
+        cLHotspotRealmEAPAuthRowStatus                 RowStatus,
+        cLHotspotRealmEAPAuthInnerAuthEAPType          INTEGER,
+        cLHotspotRealmEAPAuthNonInnerAuthEAPType       INTEGER,
+        cLHotspotRealmEAPAuthCredentialType            INTEGER,
+        cLHotspotRealmEAPAuthTunneledEAPCredentialType INTEGER
+}
+
+cLHotspotRealmEAPAuthMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        innerAuthNonEap(1),
+                        innerAuthEap(2),
+                        credential(3),
+                        tunneledEapCredential(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the Extensible Authentication Protocol
+        (EAP) authentication method defined.
+           innerAuthNonEap       : Uses non-EAP inner authentication
+                                    type.
+           innerAuthEap          : Uses EAP inner authentication type.
+           credential            : Uses credential authentication.
+           tunneledEapCredential : Uses tunneled EAP credential
+                                    authentication.
+        cLHotspotRealmEAPAuthMethod object is superseded by cLHotspotEAPAuthTable."
+    DEFVAL          { innerAuthNonEap } 
+    ::= { cLHotspotRealmEAPAuthEntry 1 }
+
+cLHotspotRealmEAPAuthRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active.
+        cLHotspotRealmEAPAuthRowStatus object is superseded by cLHotspotEAPAuthTable." 
+    ::= { cLHotspotRealmEAPAuthEntry 2 }
+
+cLHotspotRealmEAPAuthInnerAuthEAPType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        reserved(1),
+                        eapTLS(2),
+                        eapLEAP(3),
+                        eapSIM(4),
+                        eapTTLS(5),
+                        eapAKA(6),
+                        eapPEAP(7),
+                        eapFAST(8)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the authentication parameters defined
+        in the case inner EAP authentication is chosen. It will be
+        set to reserved if another type of EAP authentication is
+        defined.
+        cLHotspotRealmEAPAuthInnerAuthEAPType object is superseded by cLHotspotEAPAuthTable."
+    DEFVAL          { reserved } 
+    ::= { cLHotspotRealmEAPAuthEntry 3 }
+
+cLHotspotRealmEAPAuthNonInnerAuthEAPType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        reserved(1),
+                        pap(2),
+                        chap(3),
+                        mschap(4),
+                        mschapV2(5)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the authentication parameters defined
+        in the case non inner EAP authentication is chosen. It will be
+        set to reserved if another type of EAP authentication is
+        defined.
+        cLHotspotRealmEAPAuthNonInnerAuthEAPType object is superseded by cLHotspotEAPAuthTable."
+    DEFVAL          { reserved } 
+    ::= { cLHotspotRealmEAPAuthEntry 4 }
+
+cLHotspotRealmEAPAuthCredentialType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        reserved(1),
+                        sim(2),
+                        usim(3),
+                        nfc(4),
+                        hwToken(5),
+                        softoken(6),
+                        certificate(7),
+                        usernamePassword(8),
+                        none(9)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the authentication parameters defined
+        in the case credential authentication is chosen. It will be set
+        to reserved if another type of EAP authentication is defined.
+        cLHotspotRealmEAPAuthCredentialType object is superseded by cLHotspotEAPAuthTable."
+    DEFVAL          { reserved } 
+    ::= { cLHotspotRealmEAPAuthEntry 5 }
+
+cLHotspotRealmEAPAuthTunneledEAPCredentialType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        reserved(1),
+                        sim(2),
+                        usim(3),
+                        nfc(4),
+                        hwToken(5),
+                        softoken(6),
+                        certificate(7),
+                        usernamePassword(8),
+                        anonymous(9)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the authentication parameters defined
+        in the case tunneled EAP credential authentication is chosen.
+        It will be set to reserved if another type of EAP authentication
+        is defined.
+        cLHotspotRealmEAPAuthTunneledEAPCredentialType object is superseded by cLHotspotEAPAuthTable."
+    DEFVAL          { reserved } 
+    ::= { cLHotspotRealmEAPAuthEntry 6 }
+ 
+
+-- ********************************************************************
+-- *        Connection capability table
+-- ***********************************s*********************************
+
+cLHotspotConnectionCapabilityTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotConnectionCapabilityEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of connection capabilities in the Hotspot WLAN for
+        the most commonly used communication protocols and ports."
+    ::= { ciscoWirelessHotspotConfig 8 }
+
+cLHotspotConnectionCapabilityEntry OBJECT-TYPE
+    SYNTAX          CLHotspotConnectionCapabilityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing the Port-Protocol
+        configuration advertised by the ANQP server.
+        An ANQP server can have up to 255 protocol port
+        configurations defined."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotConnectionCapabilityProtocol,
+                        cLHotspotConnectionCapabilityPort
+                    } 
+    ::= { cLHotspotConnectionCapabilityTable 1 }
+
+CLHotspotConnectionCapabilityEntry ::= SEQUENCE {
+        cLHotspotConnectionCapabilityProtocol  Unsigned32,
+        cLHotspotConnectionCapabilityPort      Unsigned32,
+        cLHotspotConnectionCapabilityRowStatus RowStatus,
+        cLHotspotConnectionCapabilityStatus    INTEGER
+}
+
+cLHotspotConnectionCapabilityProtocol OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP protocol number." 
+    ::= { cLHotspotConnectionCapabilityEntry 1 }
+
+cLHotspotConnectionCapabilityPort OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port number." 
+    ::= { cLHotspotConnectionCapabilityEntry 2 }
+
+cLHotspotConnectionCapabilityRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status
+        for creation and deletion of a particular
+        connection capability entry in the table." 
+    ::= { cLHotspotConnectionCapabilityEntry 3 }
+
+cLHotspotConnectionCapabilityStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        closed(1),
+                        open(2),
+                        unknown(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the protocol status.
+        closed     : The IP protocol or the associated port number
+                      is not open for communication.
+        open       : The IP protocol or the associated port number
+                      is open for communication.
+        unknown    : The IP protocol or the associated port number
+                      may or may not be open for communication." 
+    ::= { cLHotspotConnectionCapabilityEntry 4 }
+ 
+
+-- ********************************************************************
+-- *        Operator name table
+-- ********************************************************************
+
+cLHotspotOperatorNameTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotOperatorNameEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Operator names for a particular WLAN in a
+        controller.
+        Rows are added or deleted by explicit
+        management actions initiated by the user from a
+        network management station through the
+        cLHotspotOperatorNameRowStatus object"
+    ::= { ciscoWirelessHotspotConfig 9 }
+
+cLHotspotOperatorNameEntry OBJECT-TYPE
+    SYNTAX          CLHotspotOperatorNameEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing the operator
+        name configuration for a particular WLAN.
+        A WLAN can have up to 32 operators defined."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotOperatorNameLanguage
+                    } 
+    ::= { cLHotspotOperatorNameTable 1 }
+
+CLHotspotOperatorNameEntry ::= SEQUENCE {
+        cLHotspotOperatorNameLanguage  SnmpAdminString,
+        cLHotspotOperatorNameRowStatus RowStatus,
+        cLHotspotOperatorName          SnmpAdminString
+}
+
+cLHotspotOperatorNameLanguage OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (2..3))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the language ISO-14962-1997 encoded
+        defined for this operator." 
+    ::= { cLHotspotOperatorNameEntry 1 }
+
+cLHotspotOperatorNameRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status
+        for creation and deletion of a particular
+        Operator entry in the table." 
+    ::= { cLHotspotOperatorNameEntry 2 }
+
+cLHotspotOperatorName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..252))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name for this operator." 
+    ::= { cLHotspotOperatorNameEntry 3 }
+ 
+
+-- ********************************************************************
+-- *        OSU provider table
+-- ********************************************************************
+
+cLHotspotOsuProviderTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotOsuProviderEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of service provider configuration of
+        the Online-Signup (OSU) functionality of Hotspot 2.0."
+    ::= { ciscoWirelessHotspotConfig 10 }
+
+cLHotspotOsuProviderEntry OBJECT-TYPE
+    SYNTAX          CLHotspotOsuProviderEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing the OSU-service provider
+        configuration for Hotspot 2.0 feature."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotOsuProviderName
+                    } 
+    ::= { cLHotspotOsuProviderTable 1 }
+
+CLHotspotOsuProviderEntry ::= SEQUENCE {
+        cLHotspotOsuProviderName            SnmpAdminString,
+        cLHotspotOsuProviderRowStatus       RowStatus,
+        cLHotspotOsuProviderServerUri       SnmpAdminString,
+        cLHotspotOsuProviderNai             SnmpAdminString,
+        cLHotspotOsuProviderPrimaryMethod   INTEGER,
+        cLHotspotOsuProviderSecondaryMethod INTEGER
+}
+
+cLHotspotOsuProviderName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Service Provider name
+        for this particular OSU provider." 
+    ::= { cLHotspotOsuProviderEntry 1 }
+
+cLHotspotOsuProviderRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status
+        for creation and deletion of a particular
+        OSU provider entry in the table." 
+    ::= { cLHotspotOsuProviderEntry 2 }
+
+cLHotspotOsuProviderServerUri OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the URI for this particular OSU
+        provider." 
+    ::= { cLHotspotOsuProviderEntry 3 }
+
+cLHotspotOsuProviderNai OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the NAI for this particular OSU provider.
+        This is an optional parameter." 
+    ::= { cLHotspotOsuProviderEntry 4 }
+
+cLHotspotOsuProviderPrimaryMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        omaDm(2),
+                        soapXmlSpp(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the primary server method for this
+        particular OSU provider, This is an optional parameter.
+           none          : No primary method.
+           omaDm         : Open Mobile Alliance's Device Management.
+           soapXmlSpp    : Simple Object Access Protocol (SOAP) with XML
+                            encoding Subscription Provisioning Protocol
+                            (SPP)." 
+    ::= { cLHotspotOsuProviderEntry 5 }
+
+cLHotspotOsuProviderSecondaryMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        omaDm(2),
+                        soapXmlSpp(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the secondary server method for this
+        particular OSU provider, This is an optional parameter.
+           none          : No secondary method.
+           omaDm         : Open Mobile Alliance's Device Management.
+           soapXmlSpp    : Simple Object Access Protocol (SOAP) with XML
+                            encoding Subscription Provisioning Protocol
+                            (SPP)." 
+    ::= { cLHotspotOsuProviderEntry 6 }
+ 
+
+-- ********************************************************************
+-- *        OSU provider friendly name table
+-- ********************************************************************
+
+cLHotspotOsuProviderFriendlyNameTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotOsuProviderFriendlyNameEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of service provider friendly name
+        configuration of the Online-Signup (OSU) functionality of
+        Hotspot 2.0."
+    ::= { ciscoWirelessHotspotConfig 11 }
+
+cLHotspotOsuProviderFriendlyNameEntry OBJECT-TYPE
+    SYNTAX          CLHotspotOsuProviderFriendlyNameEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing the OSU-service provider
+        friendly name configuration for Hotspot 2.0 feature."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotOsuProviderName,
+                        cLHotspotOsuProviderFriendlyNameLanguage
+                    } 
+    ::= { cLHotspotOsuProviderFriendlyNameTable 1 }
+
+CLHotspotOsuProviderFriendlyNameEntry ::= SEQUENCE {
+        cLHotspotOsuProviderFriendlyNameLanguage    SnmpAdminString,
+        cLHotspotOsuProviderFriendlyNameRowStatus   RowStatus,
+        cLHotspotOsuProviderFriendlyName            SnmpAdminString,
+        cLHotspotOsuProviderFriendlyNameDescription SnmpAdminString
+}
+
+cLHotspotOsuProviderFriendlyNameLanguage OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (2..3))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the language defined for this OSU
+        friendly name." 
+    ::= { cLHotspotOsuProviderFriendlyNameEntry 1 }
+
+cLHotspotOsuProviderFriendlyNameRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for
+        creation and deletion of a particular OSU provider
+        friendly name entry in the table." 
+    ::= { cLHotspotOsuProviderFriendlyNameEntry 2 }
+
+cLHotspotOsuProviderFriendlyName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the friendly name in the specified
+        language for this particular OSU provider." 
+    ::= { cLHotspotOsuProviderFriendlyNameEntry 3 }
+
+cLHotspotOsuProviderFriendlyNameDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the description for this particular
+        OSU provider. This is an optional parameter." 
+    ::= { cLHotspotOsuProviderFriendlyNameEntry 4 }
+ 
+
+-- ********************************************************************
+-- *        OSU provider icon table
+-- ********************************************************************
+
+cLHotspotOsuProviderIconTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotOsuProviderIconEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list the icon configuration for an
+        Online-Signup provider of Hotspot 2.0."
+    ::= { ciscoWirelessHotspotConfig 12 }
+
+cLHotspotOsuProviderIconEntry OBJECT-TYPE
+    SYNTAX          CLHotspotOsuProviderIconEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing the OSU-service provider
+        icon configuration for Hotspot 2.0 feature."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotOsuProviderName,
+                        cLHotspotOsuProviderIconFileName
+                    } 
+    ::= { cLHotspotOsuProviderIconTable 1 }
+
+CLHotspotOsuProviderIconEntry ::= SEQUENCE {
+        cLHotspotOsuProviderIconFileName  SnmpAdminString,
+        cLHotspotOsuProviderIconRowStatus RowStatus
+}
+
+cLHotspotOsuProviderIconFileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the icon filename for this OSU
+        provider." 
+    ::= { cLHotspotOsuProviderIconEntry 1 }
+
+cLHotspotOsuProviderIconRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular OSU provider icon entry
+        in the table." 
+    ::= { cLHotspotOsuProviderIconEntry 2 }
+ 
+
+-- ********************************************************************
+-- *        Oprating Class table
+-- ********************************************************************
+
+cLHotspotOperatingClassTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotOperatingClassEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Hotspot 2.0 operating class indicators."
+    ::= { ciscoWirelessHotspotConfig 13 }
+
+cLHotspotOperatingClassEntry OBJECT-TYPE
+    SYNTAX          CLHotspotOperatingClassEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing the operating class indicator for
+        the Hotspot 2.0 ANQP server."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotOperatingClassId
+                    } 
+    ::= { cLHotspotOperatingClassTable 1 }
+
+CLHotspotOperatingClassEntry ::= SEQUENCE {
+        cLHotspotOperatingClassId        Unsigned32,
+        cLHotspotOperatingClassRowStatus RowStatus
+}
+
+cLHotspotOperatingClassId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the operating class identifier
+        which indicates the group of channels in the frequency
+        bands that are in use. The values are defined in IEEE
+        802.11-2016, Part 11 specifications." 
+    ::= { cLHotspotOperatingClassEntry 1 }
+
+cLHotspotOperatingClassRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular operating class
+        in the table." 
+    ::= { cLHotspotOperatingClassEntry 2 }
+ 
+
+-- ********************************************************************
+-- *        Icon table
+-- ********************************************************************
+
+cLHotspotIconTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotIconEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of operator icon configuration for Hotspot 2.0."
+    ::= { ciscoWirelessHotspotConfig 14 }
+
+cLHotspotIconEntry OBJECT-TYPE
+    SYNTAX          CLHotspotIconEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing the icon configuration for Hotspot 2.0
+        feature."
+    INDEX           { cLHotspotIconFileName } 
+    ::= { cLHotspotIconTable 1 }
+
+CLHotspotIconEntry ::= SEQUENCE {
+        cLHotspotIconFileName  SnmpAdminString,
+        cLHotspotIconRowStatus RowStatus,
+        cLHotspotIconPath      SnmpAdminString,
+        cLHotspotIconType      SnmpAdminString,
+        cLHotspotIconLanguage  SnmpAdminString,
+        cLHotspotIconWidth     Unsigned32,
+        cLHotspotIconHeight    Unsigned32
+}
+
+cLHotspotIconFileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the icon filename." 
+    ::= { cLHotspotIconEntry 1 }
+
+cLHotspotIconRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular icon entry
+        in the table." 
+    ::= { cLHotspotIconEntry 2 }
+
+cLHotspotIconPath OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (5 | 9))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the path where the icon
+        file is stored on the device. The allowed values
+        are flash and bootflash." 
+    ::= { cLHotspotIconEntry 3 }
+
+cLHotspotIconType OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the MIME media type of the
+        binary icon file formatted in accordance with RFC 4288.
+        The value is one of the IANA MIME media types regsitered
+        at http://www.iana.org/assignments/media-types/index.html." 
+    ::= { cLHotspotIconEntry 4 }
+
+cLHotspotIconLanguage OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (2..3))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the language code used in the
+        icon metadata field. It is a two or three character
+        language code selected from ISO-639. If there is no
+        linguistic content in the icon file, the language code
+        is set to zxx." 
+    ::= { cLHotspotIconEntry 5 }
+
+cLHotspotIconWidth OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the width of the icon file
+        expressed in pixels." 
+    ::= { cLHotspotIconEntry 6 }
+
+cLHotspotIconHeight OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the height of the icon file
+        expressed in pixels." 
+    ::= { cLHotspotIconEntry 7 }
+ 
+
+-- ********************************************************************
+-- *        Venue Name table
+-- ********************************************************************
+
+cLHotspotVenueNameTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotVenueNameEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of venue names along with their localized information."
+    ::= { ciscoWirelessHotspotConfig 15 }
+
+cLHotspotVenueNameEntry OBJECT-TYPE
+    SYNTAX          CLHotspotVenueNameEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing a venue name."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotVenueNameLanguage
+                    } 
+    ::= { cLHotspotVenueNameTable 1 }
+
+CLHotspotVenueNameEntry ::= SEQUENCE {
+        cLHotspotVenueNameLanguage    SnmpAdminString,
+        cLHotspotVenueNameRowStatus   RowStatus,
+        cLHotspotVenueNameDescription SnmpAdminString,
+        cLHotspotVenueNameUrl         SnmpAdminString
+}
+
+cLHotspotVenueNameLanguage OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (2..3))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the language used to describe
+        this venue." 
+    ::= { cLHotspotVenueNameEntry 1 }
+
+cLHotspotVenueNameRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular venue name entry
+        in the table." 
+    ::= { cLHotspotVenueNameEntry 2 }
+
+cLHotspotVenueNameDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..252))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of this venue in the given
+        language." 
+    ::= { cLHotspotVenueNameEntry 3 }
+
+cLHotspotVenueNameUrl OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents an URL describing this venue in the
+        given language." 
+    ::= { cLHotspotVenueNameEntry 4 }
+ 
+
+-- ********************************************************************
+-- *        Network Auth table
+-- ********************************************************************
+
+cLHotspotNetworkAuthTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotNetworkAuthEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of authentication types required when Additional Steps
+        required for Access (ASRA) is enabled."
+    ::= { ciscoWirelessHotspotConfig 16 }
+
+cLHotspotNetworkAuthEntry OBJECT-TYPE
+    SYNTAX          CLHotspotNetworkAuthEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing an authentication type."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotNetworkAuthType
+                    } 
+    ::= { cLHotspotNetworkAuthTable 1 }
+
+CLHotspotNetworkAuthEntry ::= SEQUENCE {
+        cLHotspotNetworkAuthType      INTEGER,
+        cLHotspotNetworkAuthRowStatus RowStatus,
+        cLHotspotNetworkAuthUrl       SnmpAdminString
+}
+
+cLHotspotNetworkAuthType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        termsAndConditions(1),
+                        onlineEnrollment(2),
+                        httpHttpsRedirect(3),
+                        dnsRedirect(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of authentication supported.
+        termsAndCondition   : Acceptance of terms and conditions.
+        onlineEnrollment    : On-line enrollment supported.
+        httpHttpsRedirect   : Http/https redirection.
+        dnsRedirect         : DNS redirection." 
+    ::= { cLHotspotNetworkAuthEntry 1 }
+
+cLHotspotNetworkAuthRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular network authentication
+        entry in the table." 
+    ::= { cLHotspotNetworkAuthEntry 2 }
+
+cLHotspotNetworkAuthUrl OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents an optional redirection URL
+        used for client web authentication." 
+    ::= { cLHotspotNetworkAuthEntry 3 }
+ 
+
+-- ********************************************************************
+-- *        Advice of Charge table
+-- ********************************************************************
+
+cLHotspotAdviceChargeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotAdviceChargeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of charge plans related to given hotspot access.
+        Table advice of charge provides information on
+        what kind of financial charges can result in the use of the
+        SSID for each of the NAI Realm. This table may not have a charge plan
+        entry for every anqp server present"
+    ::= { ciscoWirelessHotspotConfig 17 }
+
+cLHotspotAdviceChargeEntry OBJECT-TYPE
+    SYNTAX          CLHotspotAdviceChargeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing an single charge plan."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotAdviceChargeType
+                    } 
+    ::= { cLHotspotAdviceChargeTable 1 }
+
+CLHotspotAdviceChargeEntry ::= SEQUENCE {
+        cLHotspotAdviceChargeType      INTEGER,
+        cLHotspotAdviceChargeRowStatus RowStatus
+}
+
+cLHotspotAdviceChargeType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        time(1),
+                        data(2),
+                        timeAndData(3),
+                        unlimited(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of charge provided.
+        time        : Charge plan based on time information.
+        data        : Charge plan on data volume information.
+        timeAndData : Charge plan based on time and data volume
+                      information.
+        unlimited   : Charge plan is not limited." 
+    ::= { cLHotspotAdviceChargeEntry 1 }
+
+cLHotspotAdviceChargeRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular advice of charge
+        entry in the table." 
+    ::= { cLHotspotAdviceChargeEntry 2 }
+ 
+
+-- ********************************************************************
+-- *        Advice of Charge Plan Information table
+-- ********************************************************************
+
+cLHotspotAdviceChargePlanInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotAdviceChargePlanInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of files decribing a charge plan for
+        a given hotspot access. Plan information table defines the details
+        of financial charges and multiple financial plans can be defined"
+    ::= { ciscoWirelessHotspotConfig 18 }
+
+cLHotspotAdviceChargePlanInfoEntry OBJECT-TYPE
+    SYNTAX          CLHotspotAdviceChargePlanInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing a charge plan for a
+        given hotspot access."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotAdviceChargeType,
+                        cLHotspotAdviceChargePlanInfoFilename,
+                        cLHotspotAdviceChargePlanInfoPath
+                    } 
+    ::= { cLHotspotAdviceChargePlanInfoTable 1 }
+
+CLHotspotAdviceChargePlanInfoEntry ::= SEQUENCE {
+        cLHotspotAdviceChargePlanInfoFilename  SnmpAdminString,
+        cLHotspotAdviceChargePlanInfoPath      SnmpAdminString,
+        cLHotspotAdviceChargePlanInfoRowStatus RowStatus,
+        cLHotspotAdviceChargePlanInfoLanguage  SnmpAdminString,
+        cLHotspotAdviceChargePlanInfoCurrency  SnmpAdminString
+}
+
+cLHotspotAdviceChargePlanInfoFilename OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..220))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the file on the system
+        describing the charge plan." 
+    ::= { cLHotspotAdviceChargePlanInfoEntry 1 }
+
+cLHotspotAdviceChargePlanInfoPath OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..231))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the system path of the file describing
+        charge plan information." 
+    ::= { cLHotspotAdviceChargePlanInfoEntry 2 }
+
+cLHotspotAdviceChargePlanInfoRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular charge plan information
+        entry in the table." 
+    ::= { cLHotspotAdviceChargePlanInfoEntry 3 }
+
+cLHotspotAdviceChargePlanInfoLanguage OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (3))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the language ISO-14962-1997 encoded
+        used in the charge plan file." 
+    ::= { cLHotspotAdviceChargePlanInfoEntry 4 }
+
+cLHotspotAdviceChargePlanInfoCurrency OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (3))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the currency ISO-4217 encoded
+        used for billing for the charge plan." 
+    ::= { cLHotspotAdviceChargePlanInfoEntry 5 }
+ 
+
+-- ********************************************************************
+-- *        Advice of Charge NAI Realms table
+-- ********************************************************************
+
+cLHotspotAdviceChargeNAIRealmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotAdviceChargeNAIRealmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of NAI realms associated with
+        given charge plan to hotspot access. NAI realm table defines
+        NAI realms that are included in each advice of charge"
+    ::= { ciscoWirelessHotspotConfig 19 }
+
+cLHotspotAdviceChargeNAIRealmEntry OBJECT-TYPE
+    SYNTAX          CLHotspotAdviceChargeNAIRealmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing a single NAI realm associated with charge plan."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotAdviceChargeType,
+                        cLHotspotAdviceChargeNAIRealmName
+                    } 
+    ::= { cLHotspotAdviceChargeNAIRealmTable 1 }
+
+CLHotspotAdviceChargeNAIRealmEntry ::= SEQUENCE {
+        cLHotspotAdviceChargeNAIRealmName      SnmpAdminString,
+        cLHotspotAdviceChargeNAIRealmRowStatus RowStatus
+}
+
+cLHotspotAdviceChargeNAIRealmName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..220))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Realm name associated with charge plan." 
+    ::= { cLHotspotAdviceChargeNAIRealmEntry 1 }
+
+cLHotspotAdviceChargeNAIRealmRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Row Status for creation
+        and deletion of a particular NAI realm entry in the
+        table." 
+    ::= { cLHotspotAdviceChargeNAIRealmEntry 2 }
+ 
+
+-- ********************************************************************
+-- *        EAP Auth table
+-- ********************************************************************
+
+cLHotspotEAPAuthTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLHotspotEAPAuthEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of authentication EAP method details
+        for a given NAI realm."
+    ::= { ciscoWirelessHotspotConfig 20 }
+
+cLHotspotEAPAuthEntry OBJECT-TYPE
+    SYNTAX          CLHotspotEAPAuthEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry representing a single EAP
+        authentication method configuration details."
+    INDEX           {
+                        cLHotspotAnqpServerName,
+                        cLHotspotRealmName,
+                        cLHotspotRealmEAPMethod,
+                        cLHotspotEAPAuthType
+                    } 
+    ::= { cLHotspotEAPAuthTable 1 }
+
+CLHotspotEAPAuthEntry ::= SEQUENCE {
+        cLHotspotEAPAuthType      INTEGER,
+        cLHotspotEAPAuthRowStatus RowStatus
+}
+
+cLHotspotEAPAuthType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        innerAuthPap(1),
+                        innerAuthChap(2),
+                        innerAuthMschap(3),
+                        innerAuthMschapv2(4),
+                        innerAuthEapTls(5),
+                        innerAuthEapLeap(6),
+                        innerAuthEapSim(7),
+                        innerAuthEapTtls(8),
+                        innerAuthEapAka(9),
+                        innerAuthEapPeap(10),
+                        innerAuthEapFast(11),
+                        credentialSim(12),
+                        credentialUsim(13),
+                        credentialNfc(14),
+                        credentialHwToken(15),
+                        credentialSoftoken(16),
+                        credentialCertificate(17),
+                        credentialUsernamePassword(18),
+                        credentialNone(19),
+                        tunneledEapCredentialSim(20),
+                        tunneledEapCredentialUsim(21),
+                        tunneledEapCredentialNfc(22),
+                        tunneledEapCredentialHwToken(23),
+                        tunneledEapCredentialSoftoken(24),
+                        tunneledEapCredentialCertificate(25),
+                        tunneledEapCredentialUsernamePassword(26),
+                        tunneledEapCredentialAnonymous(27)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Extensible Authentication Protocol
+        (EAP) authentication type defined.
+           innerAuthPap          : Uses PAP as inner authentication
+                                    type.
+           innerAuthChap         : Uses CHAP as inner authentication
+                                    type.
+           innerAuthMschap       : Uses MSCHAP as inner authentication
+                                    type.
+           innerAuthMschapv2     : Uses MSCHAPv2 as inner
+                                    authentication type.
+           innerAuthEapTls       : Uses EAP-TLS inner authentication
+                                    type.
+           innerAuthEapLeap      : Uses EAP-LEAP inner authentication
+                                    type.
+           innerAuthEapSim       : Uses EAP-SIM inner authentication
+                                    type.
+           innerAuthEapTtls      : Uses EAP-TTLS inner authentication
+                                    type.
+           innerAuthEapAka       : Uses EAP-AKA inner authentication
+                                    type.
+           innerAuthEapPeap      : Uses EAP-PEAP inner authentication
+                                    type.
+           innerAuthEapFast      : Uses EAP-FAST inner authentication
+                                    type.
+           credentialSim         : Uses SIM credential authentication.
+           credentialUsim        : Uses USIM credential authentication.
+           credentialNfc         : Uses NFC credential authentication.
+           credentialHwToken     : Uses hardware token credential
+                                    authentication.
+           credentialSoftoken    : Uses softoken credential
+                                    authentication.
+           credentialCertificate : Uses certificate credential
+                                    authentication.
+           credentialUsernamePassword : Uses username and password
+                                    credential authentication.
+           credentialNone        : Uses no credential authentication.
+           tunneledEapCredentialSim     : Uses SIM tunneled EAP
+                                           credential authentication.
+           tunneledEapCredentialUsim    : Uses USIM tunneled EAP
+                                           credential authentication.
+           tunneledEapCredentialNfc     : Uses NFC tunneled EAP
+                                           credential authentication.
+           tunneledEapCredentialHwToken : Uses hardware token tunneled
+                                           EAP credential
+                                           authentication.
+           tunneledEapCredentialSoftoken : Uses softoken tunneled EAP
+                                            credential authentication.
+           tunneledEapCredentialCertificate : Uses certificate tunneled
+                                               EAP credential
+                                               authentication.
+           tunneledEapCredentialUsernamePassword : Uses username and
+                                                    password tunneled
+                                                    EAP credential
+                                                    authentication.
+           tunneledEapCredentialAnonymous : Uses anonymous tunneled EAP
+                                             credential authentication." 
+    ::= { cLHotspotEAPAuthEntry 1 }
+
+cLHotspotEAPAuthRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects
+        in this row may be modified when the row is active." 
+    ::= { cLHotspotEAPAuthEntry 2 }
+ 
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoWirelessHotspotCompliances  OBJECT IDENTIFIER
+    ::= { ciscoWirelessHotspotMIBConform 1 }
+
+ciscoWirelessHotspotGroups  OBJECT IDENTIFIER
+    ::= { ciscoWirelessHotspotMIBConform 2 }
+
+
+ciscoWirelessHotspotCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoWirelessHotspotMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoWirelessHotspotConfigGroup1,
+                        ciscoWirelessHotspotConfigGroup2
+                    }
+    ::= { ciscoWirelessHotspotCompliances 1 }
+
+ciscoWirelessHotspotComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the compliance statement for the SNMP
+        entities that implement the ciscoWirelessHotspotMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoWirelessHotspotConfigGroup2,
+                        ciscoWirelessHotspotConfigGroup3
+                    }
+    ::= { ciscoWirelessHotspotCompliances 2 }
+
+ciscoWirelessHotspotConfigGroup1 OBJECT-GROUP
+    OBJECTS         {
+                        cLHotspotAnqpServerDescription,
+                        cLHotspotAnqpServerInternetEnabled,
+                        cLHotspotAnqpServerNetworkType,
+                        cLHotspotAnqpServerVenueType,
+                        cLHotspotAnqpServerHessid,
+                        cLHotspotGasRequestTimeout,
+                        cLHotspotAnqpFragmentationThreshold,
+                        cLHotspotAnqpDomainId,
+                        cLHotspotAnqpDomainIdEnabled,
+                        cLHotspotAnqpServerIpv4AddressType,
+                        cLHotspotAnqpServerIpv6AddressType,
+                        cLHotspotAnqpOsuSsid,
+                        cLHotspotWanLinkStatus,
+                        cLHotspotWanIsAtCapacity,
+                        cLHotspotWanDownlinkSpeed,
+                        cLHotspotWanUplinkSpeed,
+                        cLHotspotWanDownlinkLoad,
+                        cLHotspotWanUplinkLoad,
+                        cLHotspotWanLoadMeasDuration,
+                        cLHotspotAnqpServerRowStatus,
+                        cLHotspotRoamingOIIsBeacon,
+                        cLHotspotRoamingOIRowStatus,
+                        cLHotspotDomainNameRowStatus,
+                        cLHotspot3gppRowStatus,
+                        cLHotspotRealmRowStatus,
+                        cLHotspotRealmEAPRowStatus,
+                        cLHotspotRealmEAPAuthInnerAuthEAPType,
+                        cLHotspotRealmEAPAuthNonInnerAuthEAPType,
+                        cLHotspotRealmEAPAuthCredentialType,
+                        cLHotspotRealmEAPAuthTunneledEAPCredentialType,
+                        cLHotspotRealmEAPAuthRowStatus,
+                        cLHotspotConnectionCapabilityStatus,
+                        cLHotspotConnectionCapabilityRowStatus,
+                        cLHotspotOperatorName,
+                        cLHotspotOperatorNameRowStatus,
+                        cLHotspotOsuProviderServerUri,
+                        cLHotspotOsuProviderNai,
+                        cLHotspotOsuProviderPrimaryMethod,
+                        cLHotspotOsuProviderSecondaryMethod,
+                        cLHotspotOsuProviderRowStatus,
+                        cLHotspotOsuProviderFriendlyName,
+                        cLHotspotOsuProviderFriendlyNameDescription,
+                        cLHotspotOsuProviderFriendlyNameRowStatus,
+                        cLHotspotOsuProviderIconRowStatus,
+                        cLHotspotOperatingClassRowStatus,
+                        cLHotspotVenueNameDescription,
+                        cLHotspotVenueNameUrl,
+                        cLHotspotVenueNameRowStatus,
+                        cLHotspotNetworkAuthUrl,
+                        cLHotspotNetworkAuthRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represents the
+        Hotspot ANQP server attributes.
+        ciscoWirelessHotspotConfigGroup1 object is superseded by ciscoWirelessHotspotConfigGroup3."
+    ::= { ciscoWirelessHotspotGroups 1 }
+
+ciscoWirelessHotspotConfigGroup2 OBJECT-GROUP
+    OBJECTS         {
+                        cLHotspotIconPath,
+                        cLHotspotIconType,
+                        cLHotspotIconLanguage,
+                        cLHotspotIconWidth,
+                        cLHotspotIconHeight,
+                        cLHotspotIconRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the
+        Hotspot icon attributes."
+    ::= { ciscoWirelessHotspotGroups 2 }
+
+ciscoWirelessHotspotConfigGroup3 OBJECT-GROUP
+    OBJECTS         {
+                        cLHotspotAnqpServerDescription,
+                        cLHotspotAnqpServerInternetEnabled,
+                        cLHotspotAnqpServerNetworkType,
+                        cLHotspotAnqpServerVenueType,
+                        cLHotspotAnqpServerHessid,
+                        cLHotspotGasRequestTimeout,
+                        cLHotspotAnqpFragmentationThreshold,
+                        cLHotspotAnqpDomainId,
+                        cLHotspotAnqpDomainIdEnabled,
+                        cLHotspotAnqpServerIpv4AddressType,
+                        cLHotspotAnqpServerIpv6AddressType,
+                        cLHotspotAnqpOsuSsid,
+                        cLHotspotWanLinkStatus,
+                        cLHotspotWanIsAtCapacity,
+                        cLHotspotWanDownlinkSpeed,
+                        cLHotspotWanUplinkSpeed,
+                        cLHotspotWanDownlinkLoad,
+                        cLHotspotWanUplinkLoad,
+                        cLHotspotWanLoadMeasDuration,
+                        cLHotspotTermsConditionsFilename,
+                        cLHotspotTermsConditionsDate,
+                        cLHotspotTermsConditionsTime,
+                        cLHotspotTermsConditionsUrlFilter,
+                        cLHotspotAnqpServerRowStatus,
+                        cLHotspotRoamingOIIsBeacon,
+                        cLHotspotRoamingOIRowStatus,
+                        cLHotspotDomainNameRowStatus,
+                        cLHotspot3gppRowStatus,
+                        cLHotspotRealmRowStatus,
+                        cLHotspotRealmEAPRowStatus,
+                        cLHotspotConnectionCapabilityStatus,
+                        cLHotspotConnectionCapabilityRowStatus,
+                        cLHotspotOperatorName,
+                        cLHotspotOperatorNameRowStatus,
+                        cLHotspotOsuProviderServerUri,
+                        cLHotspotOsuProviderNai,
+                        cLHotspotOsuProviderPrimaryMethod,
+                        cLHotspotOsuProviderSecondaryMethod,
+                        cLHotspotOsuProviderRowStatus,
+                        cLHotspotOsuProviderFriendlyName,
+                        cLHotspotOsuProviderFriendlyNameDescription,
+                        cLHotspotOsuProviderFriendlyNameRowStatus,
+                        cLHotspotOsuProviderIconRowStatus,
+                        cLHotspotOperatingClassRowStatus,
+                        cLHotspotVenueNameDescription,
+                        cLHotspotVenueNameUrl,
+                        cLHotspotVenueNameRowStatus,
+                        cLHotspotNetworkAuthUrl,
+                        cLHotspotNetworkAuthRowStatus,
+                        cLHotspotAdviceChargeRowStatus,
+                        cLHotspotAdviceChargePlanInfoRowStatus,
+                        cLHotspotAdviceChargePlanInfoLanguage,
+                        cLHotspotAdviceChargePlanInfoCurrency,
+                        cLHotspotAdviceChargeNAIRealmRowStatus,
+                        cLHotspotEAPAuthRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the
+        Hotspot ANQP server attributes."
+    ::= { ciscoWirelessHotspotGroups 3 }
+
+END
+
+

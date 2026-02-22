@@ -1,0 +1,868 @@
+module viptela-wlan {
+  namespace "http://viptela.com/wlan";
+  prefix viptela-wlan;
+
+    prefix tailf;
+  }
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+  import ietf-yang-types {
+    prefix yang;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:yang.model@viptela.com";
+  description
+    "This module defines the data model for WLAN management";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+
+  typedef wlan-security-type {
+    description
+      "Security options";
+    type enumeration {
+      enum "none";
+      enum "wpa-personal";
+      enum "wpa2-personal";
+      enum "wpa/wpa2-personal";
+      enum "wpa-enterprise";
+      enum "wpa2-enterprise";
+      enum "wpa/wpa2-enterprise";
+    }
+  }
+
+  typedef country-code {
+    description
+      "Regulatory country code";
+    type enumeration {
+      enum "Australia" {
+        value 36;
+      }
+      enum "Austria" {
+        value 40;
+      }
+      enum "Belgium" {
+        value 56;
+      }
+      enum "Brazil" {
+        value 76;
+      }
+      enum "Bulgaria" {
+        value 100;
+      }
+      enum "Canada" {
+        value 124;
+      }
+      enum "China" {
+        value 156;
+      }
+      enum "Costa Rica" {
+        value 188;
+      }
+      enum "Croatia" {
+        value 191;
+      }
+      enum "Cyprus" {
+        value 196;
+      }
+      enum "Czech Republic" {
+        value 203;
+      }
+      enum "Denmark" {
+        value 208;
+      }
+      enum "Estonia" {
+        value 233;
+      }
+      enum "Finland" {
+        value 246;
+      }
+      enum "France" {
+        value 250;
+      }
+      enum "Germany" {
+        value 276;
+      }
+      enum "Greece" {
+        value 300;
+      }
+      enum "Hong Kong" {
+        value 344;
+      }
+      enum "Hungary" {
+        value 348;
+      }
+      enum "Iceland" {
+        value 352;
+      }
+      enum "India" {
+        value 356;
+      }
+      enum "Indonesia" {
+        value 360;
+      }
+      enum "Ireland" {
+        value 372;
+      }
+      enum "Italy" {
+        value 380;
+      }
+      enum "Japan" {
+        value 392;
+      }
+      enum "Latvia" {
+        value 428;
+      }
+      enum "Liechtenstein" {
+        value 438;
+      }
+      enum "Lithuania" {
+        value 440;
+      }
+      enum "Luxembourg" {
+        value 442;
+      }
+      enum "Malaysia" {
+        value 458;
+      }
+      enum "Malta" {
+        value 470;
+      }
+      enum "Mexico" {
+        value 484;
+      }
+      enum "Netherlands" {
+        value 528;
+      }
+      enum "New Zealand" {
+        value 554;
+      }
+      enum "Norway" {
+        value 578;
+      }
+      enum "Pakistan" {
+        value 586;
+      }
+      enum "Panama" {
+        value 591;
+      }
+      enum "Philippines" {
+        value 608;
+      }
+      enum "Poland" {
+        value 616;
+      }
+      enum "Portugal" {
+        value 620;
+      }
+      enum "Puerto Rico" {
+        value 630;
+      }
+      enum "Romania" {
+        value 642;
+      }
+      enum "Saudi Arabia" {
+        value 682;
+      }
+      enum "Singapore" {
+        value 702;
+      }
+      enum "Slovakia" {
+        value 703;
+      }
+      enum "Slovenia" {
+        value 705;
+      }
+      enum "South Africa" {
+        value 710;
+      }
+      enum "South Korea" {
+        value 412;
+      }
+      enum "Spain" {
+        value 724;
+      }
+      enum "Sri Lanka" {
+        value 144;
+      }
+      enum "Sweden" {
+        value 752;
+      }
+      enum "Switzerland" {
+        value 756;
+      }
+      enum "Taiwan" {
+        value 158;
+      }
+      enum "Thailand" {
+        value 764;
+      }
+      enum "Turkey" {
+        value 792;
+      }
+      enum "United Kingdom" {
+        value 826;
+      }
+      enum "United States" {
+        value 843;
+      }
+      enum "Vietnam" {
+        value 704;
+      }
+    }
+  }
+
+  typedef wlan-pmf-type {
+    description
+      "Management frame security options";
+    type enumeration {
+      enum "none";
+      enum "optional";
+      enum "required";
+    }
+  }
+
+  typedef wlan-band {
+    description
+      "Radio band";
+    type enumeration {
+      enum "5GHz";
+      enum "2.4GHz";
+    }
+  }
+
+  typedef wlan-band-str {
+    description
+      "Radio band";
+    type enumeration {
+      enum "5 GHz";
+      enum "2.4 GHz";
+    }
+  }
+
+  typedef wlan-gi {
+    description
+      "Guard interval, in nanoseconds";
+    type enumeration {
+      enum "800" {
+        value 800;
+      }
+      enum "400" {
+        value 400;
+      }
+    }
+  }
+
+  typedef wlan-bw {
+    description
+      "Channel bandwidth, in MHz";
+    type enumeration {
+      enum "20" {
+        value 20;
+      }
+      enum "40" {
+        value 40;
+      }
+      enum "80" {
+        value 80;
+      }
+    }
+  }
+
+  container wlan {
+    description "Configure the wireless LAN radio";
+    when
+      "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+        (/viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+          /viptela-system:system/viptela-system:device-model = 'vedge-100-W2')";
+    list wlan-instance {
+      description "List of wireless LAN radios";
+      key "radio";
+      leaf radio {
+        description "Radio band";
+        type wlan-band;
+      }
+      leaf country {
+        description "Country of installation";
+        type country-code;
+      }
+      leaf channel-bandwidth {
+        description "Channel bandwidth, in MHz";
+        type wlan-bw;
+      }
+      leaf guard-interval {
+        description "Guard interval, in nanoseconds";
+        type wlan-gi;
+      }
+      leaf channel {
+        description "Radio channel";
+        type union {
+          type enumeration {
+            enum "auto" {
+              value 0;
+            }
+            enum "auto-no-dfs" {
+              value 255;
+            }
+            description "Automatic channel selection";
+          }
+          type uint8 {
+            description "2.4GHz   : <1..13>";
+            range "1..13";
+          }
+          type uint8 {
+            description "5GHz     : <36,40,44,48,149,153,157,161,165>";
+            range "36|40|44|48|149|153|157|161|165";
+          }
+          type uint8 {
+            description "5GHz DFS : <52,56,60,64,100,104,108,112,116,120,124,128,132,136,140,144>";
+            range "52|56|60|64|100|104|108|112|116|120|124|128|132|136|140|144";
+          }
+        }
+        default "auto";
+      }
+      list interface {
+        description "Configure VAP interface";
+        key "if-name";
+        must "((shutdown='false' and ../country) or (shutdown='true'))" {
+          error-message "Country of installation must be configured";
+        }
+        must "((shutdown='false' and ssid) or (shutdown='true'))" {
+          error-message "SSID must be configured";
+        }
+        must
+          "(shutdown='false' and wpa-personal-key and 
+           ((data-security = 'wpa-personal') or (data-security = 'wpa2-personal') or (data-security = 'wpa/wpa2-personal'))) or 
+           (not(((data-security = 'wpa-personal') or (data-security = 'wpa2-personal') or (data-security = 'wpa/wpa2-personal')))) or 
+           (shutdown='true')" {
+          error-message "You must configure a key for WPA or WPA2 personal security";
+        }
+        must
+          "(shutdown='false' and radius-servers and 
+           ((data-security = 'wpa-enterprise') or (data-security = 'wpa2-enterprise') or (data-security = 'wpa/wpa2-enterprise'))) or 
+           (not(((data-security = 'wpa-enterprise') or (data-security = 'wpa2-enterprise') or (data-security = 'wpa/wpa2-enterprise')))) or 
+           (shutdown='true')" {
+          error-message "You must configure a RADIUS server for WPA or WPA2 enterprise security";
+        }
+        must
+          "(shutdown='false' and not(mgmt-security = 'none') and 
+           ((data-security = 'wpa2-personal') or (data-security = 'wpa2-enterprise'))) or 
+           (mgmt-security = 'none') or 
+           (shutdown='true')" {
+          error-message "You must configure WPA2 data frame security to use management frame security";
+        }
+        leaf if-name {
+          type viptela:vap-iftype;
+        }
+        leaf description {
+          description "Description";
+          type string {
+            length "4..64";
+            description "<4..64> characters";
+          }
+        }
+        leaf ssid {
+          description "Service set identifier (SSID)";
+          type string {
+            length "4..32";
+            description "<4..32> characters";
+          }
+        }
+        leaf data-security {
+          description "Data frame encryption";
+          type wlan-security-type;
+          default "none";
+        }
+        leaf mgmt-security {
+          description "Management frame encryption";
+          type wlan-pmf-type;
+          default "none";
+        }
+        leaf-list radius-servers {
+          description "RADIUS servers";
+          ordered-by user;
+          type leafref {
+            path "/viptela-system:system/viptela-system:radius/viptela-system:server/viptela-system:tag";
+          }
+          max-elements "3";
+        }
+        leaf wpa-personal-key {
+          description "WPA or WPA2 personal key";
+          when
+            "(../data-security = 'wpa-personal') or
+             (../data-security = 'wpa2-personal') or
+             (../data-security = 'wpa/wpa2-personal')";
+          type aes-cfb-128-encrypted-string {
+            description "Cleartext or AES-encrypted key";
+          }
+        }
+        leaf max-clients {
+          description "Number of supported clients";
+          type uint8 {
+            range "1..50";
+          }
+          default "25";
+        }
+        leaf shutdown {
+          description "Administrative state";
+          type boolean;
+          default "true";
+        }
+      }
+    }
+    list radios {
+      description "Display WLAN radio information";
+      config false;
+      key "radio-name";
+      leaf radio-name {
+        description "WLAN radio name: wifi<0-1>";
+        type string {
+          length "1..6";
+          pattern "wifi0|wifi1";
+        }
+      }
+      leaf mode {
+        description "Radio mode";
+        type string {
+          length "1..18";
+          description "<1..18> characters";
+        }
+      }
+      leaf band {
+        description "Radio band";
+        type wlan-band-str;
+      }
+      leaf mac {
+        description "MAC address in aa:bb:cc:dd:ee:ff format";
+        type string {
+          length "1..18";
+          description "<1..18> characters";
+        }
+      }
+      leaf country {
+        description "Regulatory country code";
+        type country-code;
+      }
+      leaf channel {
+        description "Radio channel";
+        type uint8;
+      }
+      leaf channel-bandwidth {
+        description "Channel bandwidth, in MHz";
+        type wlan-bw;
+      }
+      leaf frequency {
+        description "Frequency, in MHz";
+        type uint32;
+      }
+      leaf guard-interval {
+        description "Guard interval, in nanoseconds";
+        type wlan-gi;
+      }
+      leaf vaps {
+        description "Number of virtual access point interfaces";
+        type uint8;
+      }
+    }
+    list interfaces {
+      description "Display WLAN interface information";
+      config false;
+      key "vap";
+      leaf vap {
+        type viptela:vap-iftype;
+      }
+      leaf ssid {
+        description "Service set identifier (SSID)";
+        type string {
+          length "4..32";
+          description "<4..32> characters";
+        }
+      }
+      leaf bssid {
+        description "Basic service set identifier (BSSID)";
+        type string {
+          length "1..18";
+          description "<1..18> characters";
+        }
+      }
+      leaf data-security {
+        description "Data frame encryption";
+        type wlan-security-type;
+      }
+      leaf mgmt-security {
+        description "Management frame encryption";
+        type wlan-pmf-type;
+      }
+      leaf band {
+        description "Radio band";
+        type wlan-band-str;
+      }
+      leaf mode {
+        description "Radio mode";
+        type string {
+          length "1..18";
+          description "<1..18> characters";
+        }
+      }
+      leaf description {
+        description "Description";
+        type string {
+          length "4..64";
+          description "<4..64> characters";
+        }
+      }
+      leaf bit-rate {
+        description "Bit rate";
+        type uint32;
+      }
+      leaf tx-power {
+        description "Transmit power";
+        type uint32;
+      }
+      leaf max-clients {
+        description "Number of supported clients";
+        type uint8;
+      }
+      leaf admin-status {
+        description "Administrative status";
+        type viptela:if-admin-status-type;
+      }
+      leaf oper-status {
+        description "Operational status";
+        type viptela:if-oper-status-type;
+      }
+      leaf num-clients {
+        description "Number of active clients";
+        type uint8;
+      }
+    }
+    list clients {
+      description "Display WLAN client information";
+      config false;
+      key "vap client-id";
+      leaf vap {
+        type viptela:vap-iftype;
+      }
+      leaf client-id {
+        description "Client ID";
+        type uint32;
+      }
+      leaf mac {
+        description "MAC address in aa:bb:cc:dd:ee:ff format";
+        type string {
+          length "1..18";
+          description "<1..18> characters";
+        }
+      }
+      leaf mode {
+        description "Radio mode";
+        type string {
+          length "1..18";
+          description "<1..18> characters";
+        }
+      }
+      leaf band {
+        description "Radio band";
+        type wlan-band-str;
+      }
+      leaf channel {
+        description "Radio channel";
+        type uint32;
+      }
+      leaf channel-bandwidth {
+        description "Channel bandwidth, in MHz";
+        type wlan-bw;
+      }
+      leaf data-security {
+        description "Data frame encryption";
+        type wlan-security-type;
+      }
+      leaf rx-rate {
+        description "Receive rate";
+        type uint32;
+      }
+      leaf rssi {
+        description "Received signal strength";
+        type uint32;
+      }
+      leaf assoc-time {
+        description "Association time";
+        type string {
+          length "1..10";
+          description "<1..10> characters";
+        }
+      }
+    }
+    list radius {
+      description "Display WLAN RADIUS server information";
+      config false;
+      key "vap-ifname preference";
+      leaf vap-ifname {
+        type viptela:vap-iftype;
+      }
+      leaf preference {
+        description "RADIUS server preference";
+        type uint32;
+      }
+      leaf ip-address {
+        description "RADIUS server IP address";
+        type inet:ip-address;
+      }
+      leaf vpn-id {
+        description "RADIUS server VPN";
+        type viptela:vpn-id;
+      }
+      leaf priority {
+        description "RADIUS server priority value";
+        type uint32;
+      }
+      leaf source-interface {
+        description "Source interface for outgoing RADIUS packets";
+        type viptela:named-type;
+      }
+      leaf source-address {
+        description "Source ip address for outgoing RADIUS packets";
+        type inet:ip-address;
+      }
+      leaf tag {
+        description "Reference tag/name for the server";
+        type string {
+          description "<4..16> characters";
+          length "4..16";
+        }
+      }
+      leaf auth-port {
+        description "RADIUS server authentication port number";
+        type uint32;
+      }
+      leaf auth-active {
+        description "RADIUS server is the currently active one";
+        type boolean;
+      }
+      leaf auth-rtt {
+        description "Authentication server round trip time for last message, in seconds";
+        type uint32;
+      }
+      leaf auth-requests {
+        description "Number of access requests sent";
+        type uint32;
+      }
+      leaf auth-retrans {
+        description "Number of access request retransmissions";
+        type uint32;
+      }
+      leaf auth-accepts {
+        description "Number of access accepts received";
+        type uint32;
+      }
+      leaf auth-rejects {
+        description "Number of access rejects received";
+        type uint32;
+      }
+      leaf auth-challenges {
+        description "Number of access challenges received";
+        type uint32;
+      }
+      leaf auth-mal-resp {
+        description "Number of malformed access responses received";
+        type uint32;
+      }
+      leaf auth-bad-auth {
+        description "Number of authentication requests with bad authentication";
+        type uint32;
+      }
+      leaf auth-pend-reqs {
+        description "Number of un-acknowledged access requests";
+        type uint32;
+      }
+      leaf auth-timeouts {
+        description "Number of authentication request timeouts";
+        type uint32;
+      }
+      leaf auth-unk-types {
+        description "Number of authentication messages of unknown type";
+        type uint32;
+      }
+      leaf auth-pkts-drop {
+        description "Number of dropped authentication packets";
+        type uint32;
+      }
+      leaf acct-port {
+        description "RADIUS server accounting port number";
+        type uint32;
+      }
+      leaf acct-active {
+        description "RADIUS server is the currently active one";
+        type boolean;
+      }
+      leaf acct-rtt {
+        description "Accounting server round trip time for last message, in seconds";
+        type uint32;
+      }
+      leaf acct-requests {
+        description "Number of accounting requests sent";
+        type uint32;
+      }
+      leaf acct-retrans {
+        description "Number of accounting request restransmissions";
+        type uint32;
+      }
+      leaf acct-responses {
+        description "Number of accounting responses received";
+        type uint32;
+      }
+      leaf acct-mal-resp {
+        description "Number of malformed accounting responses received";
+        type uint32;
+      }
+      leaf acct-bad-auth {
+        description "Number of accounting requests with bad authentication";
+        type uint32;
+      }
+      leaf acct-pend-reqs {
+        description "Number of un-acknowledged accounting requests";
+        type uint32;
+      }
+      leaf acct-timeouts {
+        description "Number of accounting request timeouts";
+        type uint32;
+      }
+      leaf acct-unk-types {
+        description "Number of accounting responses of unknown type";
+        type uint32;
+      }
+      leaf acct-pkts-drop {
+        description "Number of dropped accounting packets";
+        type uint32;
+      }
+    }
+  }
+
+  typedef aes-cfb-128-encrypted-string {
+    type string;
+    description
+      "The aes-cfb-128-encrypted-string works exactly like
+       des3-cbc-encrypted-string but AES/128bits in CFB mode is used to
+       encrypt the string.  The prefix for encrypted values is '$8$'.";
+  }
+}

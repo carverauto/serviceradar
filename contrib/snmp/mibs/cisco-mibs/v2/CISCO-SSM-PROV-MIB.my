@@ -1,0 +1,344 @@
+-- ********************************************************************
+-- CISCO-SSM-PROV-MIB.my: 
+-- A MIB to provision Data Path Processors (DPPs) on a 
+-- Storage Service Module (SSM)
+--
+-- Feb 2005, Giri Rajaram
+--
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- ********************************************************************
+CISCO-SSM-PROV-MIB DEFINITIONS ::= BEGIN 
+    
+IMPORTS 
+   MODULE-IDENTITY, OBJECT-TYPE              FROM SNMPv2-SMI
+   MODULE-COMPLIANCE, OBJECT-GROUP           FROM SNMPv2-CONF
+   RowStatus, TruthValue                     FROM SNMPv2-TC
+   SnmpAdminString                           FROM SNMP-FRAMEWORK-MIB
+   entPhysicalIndex                          FROM ENTITY-MIB
+   ciscoMgmt                                 FROM CISCO-SMI
+   InterfaceIndex                            FROM IF-MIB;
+    
+ciscoSsmProvMIB MODULE-IDENTITY 
+   LAST-UPDATED "200502150000Z"
+   ORGANIZATION "Cisco Systems Inc." 
+   CONTACT-INFO 
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553-NETS
+                E-mail: cs-san@cisco.com"
+   DESCRIPTION  "This MIB is used to provision features
+                 on a Data Path Processor (DPP) of a Storage Service
+                 Module (SSM). A DPP is assigned to a contiguous 
+                 set of ports.  Each DPP can run one or more 
+                 features independent of other DPPs on the module.
+                 Since the concept of a DPP is transparent to the 
+                 network manager, ranges of ports are used to
+                 configure different features. A start and an end 
+                 port are specified to identify a DPP and 
+                 provision a feature."
+
+   REVISION     "200502150000Z"            
+   DESCRIPTION  "Initial version of this MIB." 
+   ::= { ciscoMgmt 448 }
+
+ciscoSsmProvMIBObjects OBJECT IDENTIFIER ::= { ciscoSsmProvMIB 1 }
+ciscoSsmProvMIBConform OBJECT IDENTIFIER ::= { ciscoSsmProvMIB 2 }
+ssmProvConfiguration   OBJECT IDENTIFIER ::= 
+                       { ciscoSsmProvMIBObjects 1 }
+
+-- Feature Table
+
+ssmProvFeatureTable OBJECT-TYPE
+        SYNTAX       SEQUENCE OF SsmProvFeatureEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "A table containing list of features that can be
+                 provisioned on an SSM."
+        ::= { ssmProvConfiguration 1 }
+
+ssmProvFeatureEntry OBJECT-TYPE
+        SYNTAX       SsmProvFeatureEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "An entry in the ssmProvFeatureTable that contains 
+                 information on the features that can be configured 
+                 on an SSM."
+        INDEX { entPhysicalIndex, ssmProvFeatureName }
+        ::= { ssmProvFeatureTable 1 }
+
+SsmProvFeatureEntry ::= SEQUENCE {
+        ssmProvFeatureName                SnmpAdminString,
+        ssmProvFeatureNeedsImage          TruthValue
+}
+
+ssmProvFeatureName  OBJECT-TYPE
+        SYNTAX       SnmpAdminString (SIZE (1..80))
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "The name of the feature that can be provisioned
+                 on the SSM."
+        ::= { ssmProvFeatureEntry 1 }
+
+ssmProvFeatureNeedsImage  OBJECT-TYPE
+        SYNTAX            TruthValue
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "The object indicates if the feature needs an 
+                image name to be specified during provisioning.
+                
+                If the value of this object is 'true', then an
+                image needs to be specified.
+                
+                If the value of this object is 'false', then an
+                image does not need to be specified."
+        ::= { ssmProvFeatureEntry 2 }
+
+
+--
+-- Feature interface table
+--
+
+
+ssmProvFeatureIfTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF SsmProvFeatureIfEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A table containing feature related information
+                for interfaces.  This table gives a list of
+                interfaces that are assigned to different features.
+                The interfaces supported are of the type
+                fibreChannel.
+                
+                If a feature is removed from ssmProvFeatureTable,
+                then corresponding entries in ssmProvFeatureIfTable
+                will also get removed."
+        ::= { ssmProvConfiguration 2 }
+
+ssmProvFeatureIfEntry OBJECT-TYPE
+        SYNTAX     SsmProvFeatureIfEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This contains information on the SSM-feature
+                membership of a interface."
+        INDEX { ssmProvFeatureIfStartPort, ssmProvFeatureIfEndPort, 
+                ssmProvFeatureIfFeatureName }
+        ::= { ssmProvFeatureIfTable 1 }
+
+SsmProvFeatureIfEntry ::= SEQUENCE {
+        ssmProvFeatureIfStartPort                InterfaceIndex,
+        ssmProvFeatureIfEndPort                  InterfaceIndex,
+        ssmProvFeatureIfFeatureName              SnmpAdminString,
+        ssmProvFeatureIfForceRemove              INTEGER,
+        ssmProvFeatureIfPartnerImageURI          SnmpAdminString,
+        ssmProvFeatureIfRowStatus                RowStatus
+}
+
+ssmProvFeatureIfStartPort  OBJECT-TYPE
+        SYNTAX     InterfaceIndex
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The starting interface index on the SSM card to
+                 which a feature is going to be assigned.  A feature
+                 is assigned to a DPP by specifying a starting and
+                 ending port."
+        ::= { ssmProvFeatureIfEntry 1 }
+
+ssmProvFeatureIfEndPort  OBJECT-TYPE
+        SYNTAX     InterfaceIndex
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The end interface index on the SSM card to
+                 which a feature is going to be assigned.  A
+                 feature is assigned to a DPP by specifying a
+                 start and end port."
+        ::= { ssmProvFeatureIfEntry 2 }
+
+ssmProvFeatureIfFeatureName  OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE (1..80))
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The SSM feature name bound to the interface. This
+                 must be one of the features listed in 
+                 ssmProvFeatureTable."
+        ::= { ssmProvFeatureIfEntry 3 }
+
+ssmProvFeatureIfForceRemove  OBJECT-TYPE
+        SYNTAX     INTEGER {
+                        forceReset(1),
+                        noop(2)
+                   }
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "This object indicates if the provisioning should be 
+                 forcefully removed. The object must be set 
+                 concurrently with setting the corresponding instance 
+                 of ssmProvFeatureIfRowStatus to 'destroy'.
+
+                 The 'forceReset' option will cause the configuration
+                 to be removed and the SSM card to be reset in the 
+                 process.
+
+                 No action is taken if this object is set to 'noop'.
+
+                 The value of this object when read is always 'noop'."
+        DEFVAL   { noop }
+        ::= { ssmProvFeatureIfEntry 4 }
+
+ssmProvFeatureIfPartnerImageURI  OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE (1..80))
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The object representing the location on the local
+                 system, from where the partner image will be picked
+                 for installation. The value of this object is only
+                 relevant if the ssmProvFeatureNeedsImage object is
+                 set to 'true' for that feature in 
+                 ssmProvFeatureTable."
+        ::= { ssmProvFeatureIfEntry 5 }
+
+ssmProvFeatureIfRowStatus OBJECT-TYPE
+        SYNTAX         RowStatus
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+                "The status of this conceptual row."
+        ::= { ssmProvFeatureIfEntry 6 }
+
+
+
+--
+-- DPP table
+--
+
+ssmProvDppTable    OBJECT-TYPE
+        SYNTAX     SEQUENCE OF SsmProvDppEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A table containing DPP information for interfaces.
+                This table gives a list of DPPs for every interface.
+                Entries get added to the table when an SSM comes 
+                online and removed when it goes offline."
+        ::= { ssmProvConfiguration 3 }
+
+ssmProvDppEntry    OBJECT-TYPE
+        SYNTAX     SsmProvDppEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This contains information on the DPP to interface
+                association."
+        INDEX { ssmProvDppStartPort }
+        ::= { ssmProvDppTable 1 }
+
+SsmProvDppEntry ::= SEQUENCE {
+        ssmProvDppStartPort                     InterfaceIndex,
+        ssmProvDppEndPort                       InterfaceIndex,
+        ssmProvDppName                          SnmpAdminString
+}
+
+ssmProvDppStartPort  OBJECT-TYPE
+        SYNTAX     InterfaceIndex
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The starting interface index on the SSM card 
+                that corresponds to a DPP." 
+        ::= { ssmProvDppEntry 1 }
+
+ssmProvDppEndPort    OBJECT-TYPE
+        SYNTAX       InterfaceIndex
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+                "The ending interface index on the SSM card 
+                that corresponds to a DPP." 
+        ::= { ssmProvDppEntry 2 }
+
+ssmProvDppName  OBJECT-TYPE
+        SYNTAX       SnmpAdminString (SIZE (1..80))
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+                "The DPP that is associated with the given
+                starting and ending interface." 
+        ::= { ssmProvDppEntry 3 }
+
+
+
+-- 
+-- Conformance
+--
+
+ssmProvMIBCompliances OBJECT IDENTIFIER ::= { ciscoSsmProvMIBConform 1 }
+ssmProvMIBGroups      OBJECT IDENTIFIER ::= { ciscoSsmProvMIBConform 2 }
+
+ssmProvMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which 
+                implement this MIB."
+        MODULE MANDATORY-GROUPS { ssmProvFeatureGroup,
+                                  ssmProvFeatureIfGroup,
+                                  ssmProvDppGroup }
+
+        OBJECT     ssmProvFeatureIfRowStatus             
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        -- MIN-ACCESS read-create 
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and
+                 'active' out of the six enumerated values need
+                 to be supported."
+        ::= { ssmProvMIBCompliances 1 }
+        
+-- Units of Conformance
+
+ssmProvFeatureGroup  OBJECT-GROUP
+     OBJECTS  { ssmProvFeatureNeedsImage }
+     STATUS  current
+     DESCRIPTION
+            "A collection of objects related to SSM features."
+        ::= { ssmProvMIBGroups 1 }
+
+
+ssmProvFeatureIfGroup  OBJECT-GROUP
+     OBJECTS  { ssmProvFeatureIfForceRemove, 
+                ssmProvFeatureIfPartnerImageURI, 
+                ssmProvFeatureIfRowStatus }
+     STATUS  current
+     DESCRIPTION
+            "A collection of objects related to SSM Feature to 
+             Interface mapping . "
+        ::= { ssmProvMIBGroups 2 }
+
+
+ssmProvDppGroup       OBJECT-GROUP
+     OBJECTS  { ssmProvDppEndPort,
+                ssmProvDppName }
+     STATUS  current
+     DESCRIPTION
+            "A collection of objects related to DPP 
+             to interface mapping."
+        ::= { ssmProvMIBGroups 3 }
+
+
+END 

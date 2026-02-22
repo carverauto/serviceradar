@@ -1,0 +1,4146 @@
+-- *------------------------------------------------------------------
+-- * CISCO-UNIFIED-FIREWALL-MIB.my:  Cisco Firewall MIB.
+-- *
+-- * Sep 2005, fw-mib-dev@cisco.com
+-- *
+-- * Copyright (c) 2005, 2019-2021 by cisco Systems Inc.
+-- * All rights reserved.
+-- *
+-- *------------------------------------------------------------------
+
+CISCO-UNIFIED-FIREWALL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter64,
+    Gauge32,
+    Counter32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    DateAndTime,
+    DisplayString,
+    TEXTUAL-CONVENTION,
+    TimeStamp
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    dot1dTpFdbPort,
+    dot1dTpFdbStatus
+        FROM BRIDGE-MIB
+    InterfaceIndex
+        FROM IF-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CFWNetworkProtocol,
+    CFWApplicationProtocol,
+    CFWPolicy,
+    CFWPolicyTarget,
+    CFWPolicyTargetType,
+    CFWUrlfVendorId,
+    CFWUrlServerStatus
+        FROM CISCO-FIREWALL-TC
+    Hardware,
+    HardwareStatus
+        FROM CISCO-FIREWALL-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoUnifiedFirewallMIB MODULE-IDENTITY
+    LAST-UPDATED    "202103180000Z"
+    ORGANIZATION    "Cisco Systems"
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: cs-firewalls@cisco.com"
+    DESCRIPTION
+        "Overview of Cisco Firewall MIB
+        ==============================
+        This MIB Module models status and performance
+        statistics pertaining to the common features supported
+        by Cisco firewall implementations. For each firewall 
+        feature, capability (if applicable) and statistics are
+        defined. Supporting the configuration of firewall 
+        features is outside the scope of this MIB.
+
+        Following are the major firewall features:
+
+        1) 'Stateful Packet Filtering'
+             Creating and maintaining the state of authorized 
+             traffic flows dynamically to permit only
+             flows authorized by the policy is a mandatory 
+             function of a firewall.  
+             This MIB instruments the activity and memory
+             usage by this function.
+
+        2) 'Application Inspection'
+             This refers to the function of inspecting the
+             headers of layer 3 and layer 4 protocols and
+             creating dynamic entries in the connection
+             table for traffic flows spawned by an already
+             established traffic flow.
+
+             This MIB reflects the protocols that are being 
+             inspected.
+
+        3) 'URL Filtering'
+             This refers to the function of facilitating
+             or restricting URL access requests through
+             the firewall by consulting either local policy
+             or that configured on a dedicated URL filtering
+             server.
+
+             This MIB instruments the URL filtering activity,
+             the status and activity of distinct URL filtering
+             servers configured on the firewall and the
+             impact of the performance of the URL filtering
+             servers on the latency and throughput of the
+             firewall.
+
+        4) 'Proxy Authentication'
+             This refers to the function of authenticating
+             and/or authorizing users on behalf of servers
+             on the secure side of the firewall. This operation
+             could affect the throughput of the firewall.
+
+             The MIB objects pertaining to Proxy Authentication
+             will be defined in a subsequent revision of this
+             MIB. 
+
+
+        5) 'Transparent Mode Operation'
+             A firewall could operate as a bridge and yet
+             filter traffic based on layer 3-layer 7 control
+             and payload information. Operating in this mode
+             makes it easy to implement a firewall without
+             fragmenting existing subnets. Another advantage
+             of this mode of operation is enhanced security.
+
+             This MIB instruments the status, activity, 
+             and performance of the firewall in this mode.
+             Please note that to fully manage a firewall
+             operating in this mode, the firewall must also
+             support the bridge MIB (BRIDGE-MIB).
+
+
+        6) 'Advanced Application Inspection and Control'
+             This function is also termed 'Application
+             Firewall' and pertains to inspecting payload and
+             headers of application traffic to make sure the
+             traffic flows conform to the configured security
+             policy.
+
+             Monitoring this function entails identifying the
+             security alerts generated by this function and 
+             measuring the impact on firewall performance by
+             this task. Application Firewall will be 
+             instrumented in a separate MIB dedicated for the
+             function.
+
+        7) 'Failover' or 'Redundancy'
+             Redundancy configuration is essential for business
+             critical firewalls.
+
+             Instrumenting this function entails reflecting
+             the configuration of redundancy and identifying
+             failover events.
+
+             The MIB objects pertaining to Proxy Authentication
+             will be defined in a subsequent revision of this
+             MIB. 
+
+
+        The management information for each firewall feature
+        is defined in a distinct module compliance unit. The 
+        compliance units corresponding to basic features of 
+        firewalls are defined as mandatory.
+
+        Acronyms
+        ========
+        Following are definitions of some terms used in this
+        module. Please refer to the module conformance for a
+        glossary of feature-specific terms.
+
+         `Firewall'
+            A firewall is a set of related programs, 
+            implemented on a host or a network device, that
+            protects the resources of a private network from
+            users from other networks. Common firewalling
+            functions include stateful packet filtering,
+            proxy authentication of users on behalf of 
+            applications on the secure side of the firewall,
+            URL access control, inspection of payload of 
+            traffic streams to determine security threats.
+
+         `Layer2 Firewall' or 'Transparent Firewall'
+            A firewall device that operates as a bridge
+            while performing firewalling function.
+
+         `Connection'
+            The record in the firewall of a traffic strean
+            that has been authorized to flow through the 
+            firewall.
+
+         `Half Open Connection'
+            For a connection oriented protocol: a connection
+            that has not reached the established on both the
+            sides of the connection.
+            For a connection-less protocol: the connection
+            corresponding to a traffic stream where traffic
+            flow has occurred (since the establishment of the
+            connection entry) only on one direction.
+
+         `Embryonic Connection'
+            The connection entry corresponding to an 
+            application layer protocol in which the signaling
+            channel has been established while the setup of
+            the data channel is underway.
+
+         `Policy'
+            An element of firewall configuration that
+            identifies the access rights to a resource by a
+            traffic source. An example of a policy is an 
+            Access Control Rule.
+
+         `Policy Target'
+            An entity to which a policy is applied so that 
+            the action corresponding to the policy is taken
+            only on traffic streams associated with the
+            entity. An example of a policy target is an 
+            interface.
+
+         `URL Filtering Server'
+            A server which is employed by the firewall to 
+            enforce URL access policies.
+
+         `Protocol Data Unit' or PDU
+            An instance of the unit of information using which
+            a protocol operates is called the Protocol Data
+            Unit or the PDU of the protocol.
+
+         `Deep Packet Inspection'
+            The task of examining the contents of the payloads
+            of one or more layer 7 application protocols 
+            with a view to enforcing the local security
+            policies termed 'Deep Packet Inspection'.
+
+         `Advanced Application Inspection and Control'
+            An entity that performs deep packet inspection
+            of layer 7 application protocol data units is
+            termed an 'Application Firewall'."
+    REVISION        "202103180000Z"
+    DESCRIPTION
+        "Update includes defining cufwAspFlowDropsTable and cufwAspFrameDropsTable."
+    REVISION        "202010290000Z"
+    DESCRIPTION
+        "Update includes defining cufwAaicSnortEvRates and cufwAaicIntrusionEvtRate."
+    REVISION        "202003060000Z"
+    DESCRIPTION
+        "Update includes changing datatype from TimeStamp into String
+        in cuFwClusterGrp & cuFwFailoverGrp."
+    REVISION        "202001070000Z"
+    DESCRIPTION
+        "Update includes defining cuFwClusterGrp."
+    REVISION        "201912120000Z"
+    DESCRIPTION
+        "Update includes defining cuFwFailoverGrp."
+    REVISION        "200509220000Z"
+    DESCRIPTION
+        "Initial version of this module."
+    ::= { ciscoMgmt 491 }
+
+
+-- Tentative anchor under ciscoMgmt
+--   
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Cisco Firewall MIB Object Groups
+--   
+-- This MIB module contains the following groups:
+-- 1) Connection Activity Summary
+-- 2) Application Inspection group
+-- 3) URL Filtering group
+-- 4) Failover group
+-- 5) Advanced Application Inspection and Control group
+-- 6) Transparent firewall group
+-- 7) Notification and control group
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoUnifiedFirewallMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIB 0 }
+
+ciscoUnifiedFirewallMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIB 1 }
+
+ciscoUnifiedFirewallMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIB 2 }
+
+cuFwConnectionGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 1 }
+
+cuFwApplInspectionGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 2 }
+
+cuFwUrlFilterGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 3 }
+
+cuFwFailoverGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 4 }
+
+cuFwAaicGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 5 }
+
+cuFwL2FwGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 6 }
+
+cuFwNotifCntlGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 7 }
+
+cuFwClusterGrp  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBObjects 8 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Firewall Connection Summary Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+cuFwConnectionGlobals  OBJECT IDENTIFIER
+    ::= { cuFwConnectionGrp 1 }
+
+cuFwConnectionResources  OBJECT IDENTIFIER
+    ::= { cuFwConnectionGrp 2 }
+
+cuFwConnectionReportSettings  OBJECT IDENTIFIER
+    ::= { cuFwConnectionGrp 3 }
+
+cuFwConnectionSummaryTables  OBJECT IDENTIFIER
+    ::= { cuFwConnectionGrp 4 }
+
+
+-- Connection Activity: Global summary
+
+cufwConnGlobalNumAttempted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Connection Statistics Aggregation
+
+        Connection 1  +-----------+ 
+        ------------->|           |-------> Global Connection Summary
+        Connection 2  |           |
+        ------------->|           |
+        Connection 3  |           |
+        ------------->|   First   |------------> ConnSummary 
+          |   Level   |            (i.e, L-3/4 Protocol
+        Connection 4  |Aggregation|             Connection Summary)
+        ------------->|           |
+        .    |           |
+        .    |           |---------------> PolicyConnSummary 
+        Connection N  |           |       (i.e, L-3/4 Policy Target based
+        ------------->|           |        Protocol Connection Summary)
+          +-----------+
+
+
+          +-----------+ 
+        L-3/4 Protocol   |           |
+        Connection Summary |           |
+        ------------------>|           |---------> AppConnSummary 
+          |           |         (i.e, L-7 Protocol 
+          |  Second   |          Connection Summary)
+          |---Level---|
+        L-3/4 Policy Target |Aggregation|
+        based Protocol    |           |
+        Connection Summary  |           |
+        ------------------>|           |---------------> PolicyAppConnSummary
+          |           |       (i.e, L-7 Policy Target based
+          |           |        Protocol Connection Summary)
+          +-----------+
+
+
+        Specifically, the object 
+        'cufwConnGlobalNumAttempted' models
+        the number of connections which are attempted to
+        be set up through the firewall.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 1 }
+
+cufwConnGlobalNumSetupsAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection setup attempts that
+        were aborted before the connection could proceed
+        to completion. The counter includes setup
+        attempts aborted by the firewall as well as 
+        those aborted by the initiator and/or the 
+        responder(s) of/to the connection setup attempt.
+
+        Consequently, this value subsumes the values of
+        objects 'cufwConnGlobalNumPolicyDeclined' and 
+        'cufwConnGlobalNumResDeclined'.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 2 }
+
+cufwConnGlobalNumPolicyDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections which were attempted to
+        be setup but which were declined due to reasons of
+        security policy.
+
+        This includes the connections that failed 
+        authentication.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 3 }
+
+cufwConnGlobalNumResDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections which were attempted to
+        be setup but which were declined due to 
+        non-availability of required resources.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 4 }
+
+cufwConnGlobalNumHalfOpen OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections which are in the process
+        of being setup but which have not yet reached the
+        established state in the connection table." 
+    ::= { cuFwConnectionGlobals 5 }
+
+cufwConnGlobalNumActive OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections which are currently active." 
+    ::= { cuFwConnectionGlobals 6 }
+
+cufwConnGlobalNumExpired OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections which were active but
+        which were since normally terminated.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 7 }
+
+cufwConnGlobalNumAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections which were active but
+        which were aborted by the firewall due to reasons
+        of policy or resource rationing.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 8 }
+
+cufwConnGlobalNumEmbryonic OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of embryonic application layer connections
+        (that is, connections in which the signaling channel
+        has been established while the data channel is awaiting
+        setup).
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 9 }
+
+cufwConnGlobalConnSetupRate1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The averaged number of connections which the firewall
+        establishing per second, averaged over the last 60 
+        seconds." 
+    ::= { cuFwConnectionGlobals 10 }
+
+cufwConnGlobalConnSetupRate5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The averaged number of connections which the firewall
+        establishing per second, averaged over the last 300
+        seconds." 
+    ::= { cuFwConnectionGlobals 11 }
+
+cufwConnGlobalNumRemoteAccess OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of active connections which correspond
+        to remote access applications. Specifically, the
+        protocol for which the connection is established
+        must be one of PPP, PPTP, L2TP or remote access IPsec
+        (IPsec connections employing extended authentication).
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cuFwConnectionGlobals 12 }
+
+-- Resource consumption by connection activity
+
+cufwConnResMemoryUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The amount of memory occupied by all structures
+        required to maintain the state of all connections
+        which are either being established or are active." 
+    ::= { cuFwConnectionResources 1 }
+
+cufwConnResActiveConnMemoryUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The amount of memory occupied by all structures
+        required to maintain the state of all active
+        connections." 
+    ::= { cuFwConnectionResources 2 }
+
+cufwConnResHOConnMemoryUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The amount of memory occupied by all structures
+        required to maintain the state of all half
+        open connections." 
+    ::= { cuFwConnectionResources 3 }
+
+cufwConnResEmbrConnMemoryUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The amount of memory occupied by all structures
+        required to maintain the state of all embryonic
+        connections." 
+    ::= { cuFwConnectionResources 4 }
+
+-- Connection Activity Report Settings: Controls to
+-- configure the MIB to change connection activity reporting
+-- settings.
+
+cufwConnReptAppStats OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Setting this object to 'true' enables the MIB to
+        report connection activity statistics pertaining
+        to application protocols.
+
+        If this object is set to 'false', the agent
+        should stop updating the objects defined in this
+        module pertaining to application protocols.
+
+        Application monitoring could be a resource intensive
+        operation. It is expected that the administrators 
+        would use this control to disable application 
+        monitoring when the performance of the firewall is 
+        degrading."
+    DEFVAL          { false } 
+    ::= { cuFwConnectionReportSettings 1 }
+
+cufwConnReptAppStatsLastChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time at which the value of cufwConnReptAppStats
+        was last changed." 
+    ::= { cuFwConnectionReportSettings 2 }
+-- Connection Activity: Protocol-based summary
+
+cufwConnSummaryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwConnSummaryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table summarizes the connection activity on
+        the firewall per layer3-layer 4 protocol instance.
+
+        Each entry in the table lists the connection
+        summary of a distinct network protocol.
+
+        For instance, the conceptual row corresponding to the
+        index
+
+             cufwConnProtocol = fwpTcp
+
+        yields the summary of TCP connection activity on the 
+        firewall since its reboot."
+    ::= { cuFwConnectionSummaryTables 1 }
+
+cufwConnSummaryEntry OBJECT-TYPE
+    SYNTAX          CufwConnSummaryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the summary of connection
+        activity for a layer3-layer4 network protocol."
+    INDEX           { cufwConnProtocol } 
+    ::= { cufwConnSummaryTable 1 }
+
+CufwConnSummaryEntry ::= SEQUENCE {
+        cufwConnProtocol          CFWNetworkProtocol,
+        cufwConnNumAttempted      Counter64,
+        cufwConnNumSetupsAborted  Counter64,
+        cufwConnNumPolicyDeclined Counter64,
+        cufwConnNumResDeclined    Counter64,
+        cufwConnNumHalfOpen       Gauge32,
+        cufwConnNumActive         Gauge32,
+        cufwConnNumAborted        Counter64,
+        cufwConnSetupRate1        Gauge32,
+        cufwConnSetupRate5        Gauge32
+}
+
+cufwConnProtocol OBJECT-TYPE
+    SYNTAX          CFWNetworkProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (L3-L4) protocol for which this conceptual
+        row summarizes the connection activity on the
+        managed entity." 
+    ::= { cufwConnSummaryEntry 1 }
+
+cufwConnNumAttempted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections attempted since the last
+        reboot of the firewall, corresponding to the protocol
+        denoted by 'cufwConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwConnSummaryEntry 2 }
+
+cufwConnNumSetupsAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection setup attempts,
+        corresponding to the protocol denoted by 
+        'cufwConnProtocol', that were aborted before the 
+        connection could proceed to completion. The 
+        counter includes setup attempts aborted by the 
+        firewall as well as those aborted by the initiator 
+        and/or the responder(s) of/to the connection setup 
+        attempt.
+
+        Consequently, this value subsumes the values of
+        objects 'cufwConnNumPolicyDeclined' and 
+        'cufwConnNumResDeclined'.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwConnSummaryEntry 3 }
+
+cufwConnNumPolicyDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to security policy, corresponding to the protocol 
+        denoted by 'cufwConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwConnSummaryEntry 4 }
+
+cufwConnNumResDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to resource unavailability, corresponding to the 
+        protocol denoted by 'cufwConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwConnSummaryEntry 5 }
+
+cufwConnNumHalfOpen OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently in the
+        process of being established, corresponding to the 
+        protocol denoted by 'cufwConnProtocol'." 
+    ::= { cufwConnSummaryEntry 6 }
+
+cufwConnNumActive OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently active,
+        corresponding to the protocol denoted by 
+        'cufwConnProtocol'." 
+    ::= { cufwConnSummaryEntry 7 }
+
+cufwConnNumAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that were abnormally
+        terminated after successful establishment, 
+        corresponding to the protocol denoted by 
+        'cufwConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwConnSummaryEntry 8 }
+
+cufwConnSetupRate1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The connection setup rate averaged over the last
+        60 seconds corresponding to the protocol denoted by 
+        'cufwConnProtocol'." 
+    ::= { cufwConnSummaryEntry 9 }
+
+cufwConnSetupRate5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The connection setup rate averaged over the last
+        300 seconds corresponding to the protocol denoted by 
+        'cufwConnProtocol'." 
+    ::= { cufwConnSummaryEntry 10 }
+ 
+
+-- Layer 7 protocol based connection summary
+
+cufwAppConnSummaryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwAppConnSummaryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the summary of firewall
+        connections pertaining to Layer 7 protocols,
+        catalogued by distinct application protocols.
+
+        Each entry in the table lists the connection
+        summary corresponding to a distinct application 
+        protocol.
+
+        For instance, to obtain the connection summary 
+        for SMTP on the firewall since the last reboot 
+        of the device, use the conceptual row 
+        corresponding to 
+
+           cufwAppConnProtocol = fwApSmtp"
+    ::= { cuFwConnectionSummaryTables 2 }
+
+cufwAppConnSummaryEntry OBJECT-TYPE
+    SYNTAX          CufwAppConnSummaryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the summary of connection
+        activity for a distinct layer 7 protocol identified
+        by the index element 'cufwAppConnProtocol'."
+    INDEX           { cufwAppConnProtocol } 
+    ::= { cufwAppConnSummaryTable 1 }
+
+CufwAppConnSummaryEntry ::= SEQUENCE {
+        cufwAppConnProtocol          CFWApplicationProtocol,
+        cufwAppConnNumAttempted      Counter64,
+        cufwAppConnNumSetupsAborted  Counter64,
+        cufwAppConnNumPolicyDeclined Counter64,
+        cufwAppConnNumResDeclined    Counter64,
+        cufwAppConnNumHalfOpen       Gauge32,
+        cufwAppConnNumActive         Gauge32,
+        cufwAppConnNumAborted        Counter64,
+        cufwAppConnSetupRate1        Gauge32,
+        cufwAppConnSetupRate5        Gauge32
+}
+
+cufwAppConnProtocol OBJECT-TYPE
+    SYNTAX          CFWApplicationProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The layer7 protocol for which this conceptual
+        row summarizes the connection activity for this 
+        firewall." 
+    ::= { cufwAppConnSummaryEntry 1 }
+
+cufwAppConnNumAttempted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections attempted since the last
+        reboot of the firewall, corresponding to the protocol
+        denoted by 'cufwAppConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwAppConnSummaryEntry 2 }
+
+cufwAppConnNumSetupsAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection setup attempts,
+        corresponding to the protocol denoted by 
+        'cufwAppConnProtocol', that were aborted before
+        the connection could proceed to completion. The 
+        counter includes setup attempts aborted by the 
+        firewall as well as those aborted by the initiator 
+        and/or the responder(s) of/to the connection setup 
+        attempt.
+
+        Consequently, this value subsumes the values of
+        objects 'cufwAppConnNumPolicyDeclined' and 
+        'cufwAppConnNumResDeclined'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwAppConnSummaryEntry 3 }
+
+cufwAppConnNumPolicyDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to security policy, corresponding to the protocol 
+        denoted by 'cufwAppConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwAppConnSummaryEntry 4 }
+
+cufwAppConnNumResDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to resource unavailability, corresponding to the 
+        protocol denoted by 'cufwAppConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwAppConnSummaryEntry 5 }
+
+cufwAppConnNumHalfOpen OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently in the
+        process of being established, corresponding to the 
+        protocol denoted by 'cufwAppConnProtocol'." 
+    ::= { cufwAppConnSummaryEntry 6 }
+
+cufwAppConnNumActive OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently active,
+        corresponding to the protocol denoted by 
+        'cufwAppConnProtocol'." 
+    ::= { cufwAppConnSummaryEntry 7 }
+
+cufwAppConnNumAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that were terminated by the
+        firewall successful establishment, corresponding 
+        to the protocol denoted by 'cufwAppConnProtocol'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwAppConnSummaryEntry 8 }
+
+cufwAppConnSetupRate1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The connection setup rate averaged over the last
+        60 seconds corresponding to the protocol denoted by 
+        'cufwAppConnProtocol'." 
+    ::= { cufwAppConnSummaryEntry 9 }
+
+cufwAppConnSetupRate5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The connection setup rate averaged over the last
+        300 seconds corresponding to the protocol denoted by 
+        'cufwAppConnProtocol'." 
+    ::= { cufwAppConnSummaryEntry 10 }
+ 
+
+-- Connection Activity: Policy-based summary
+
+cufwPolicyConnSummaryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwPolicyConnSummaryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the summary of firewall
+        connections for layer3-layer 4 protocols catalogued 
+        on a per policy basis.
+
+        Each entry in the table lists the connection summary of
+        a distinct network protocol, configured on the specified
+        policy on the firewall, and pertaining to a specified 
+        target to which the policy is currently applied. 
+
+        If a policy is bound to a target, it would have one
+        or more entries in this table. If the policy is 
+        detached from the target, all entries corresponding 
+        to the association between the policy and the target 
+        are elminated from this table.
+
+        Although the information is indexed by policy targets
+        as well, one may aggregate the connection summary for
+        a specific policy across all the target to which the 
+        policy is currently applied by setting
+
+              cufwConnPolicyTargetType =  'targetAll'"
+    ::= { cuFwConnectionSummaryTables 3 }
+
+cufwPolicyConnSummaryEntry OBJECT-TYPE
+    SYNTAX          CufwPolicyConnSummaryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the summary of connection
+        activity for a specific protocol in a specific
+        policy applied to the specified policy target."
+    INDEX           {
+                        cufwPolConnPolicy,
+                        cufwPolConnPolicyTargetType,
+                        cufwPolConnPolicyTarget,
+                        cufwPolConnProtocol
+                    } 
+    ::= { cufwPolicyConnSummaryTable 1 }
+
+CufwPolicyConnSummaryEntry ::= SEQUENCE {
+        cufwPolConnPolicy            CFWPolicy,
+        cufwPolConnPolicyTargetType  CFWPolicyTargetType,
+        cufwPolConnPolicyTarget      CFWPolicyTarget,
+        cufwPolConnProtocol          CFWNetworkProtocol,
+        cufwPolConnNumAttempted      Counter64,
+        cufwPolConnNumSetupsAborted  Counter64,
+        cufwPolConnNumPolicyDeclined Counter64,
+        cufwPolConnNumResDeclined    Counter64,
+        cufwPolConnNumHalfOpen       Gauge32,
+        cufwPolConnNumActive         Gauge32,
+        cufwPolConnNumAborted        Counter64
+}
+
+cufwPolConnPolicy OBJECT-TYPE
+    SYNTAX          CFWPolicy
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The identity of the firewall policy for which
+        this conceptual row contains the connection 
+        activity summary." 
+    ::= { cufwPolicyConnSummaryEntry 1 }
+
+cufwPolConnPolicyTargetType OBJECT-TYPE
+    SYNTAX          CFWPolicyTargetType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of the entity to which the firewall policy
+        'cufwPolConnPolicy' has been applied. This could be
+        an interface type (most commonly), the type of another
+        object or a group of objects defined in the firewall
+        configuration.
+
+        When this object is set to 'targetALL', the value of
+        index object cufwConnPolicyTarget is ignored." 
+    ::= { cufwPolicyConnSummaryEntry 2 }
+
+cufwPolConnPolicyTarget OBJECT-TYPE
+    SYNTAX          CFWPolicyTarget (SIZE  (0..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The identity of the entity to which the firewall
+        policy 'cufwPolConnPolicy' is applied. This could be an
+        interface object (most commonly), another object or
+        group of objects defined in the firewall configuration." 
+    ::= { cufwPolicyConnSummaryEntry 3 }
+
+cufwPolConnProtocol OBJECT-TYPE
+    SYNTAX          CFWNetworkProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (L3-L4) protocol corresponding to which this
+        conceptual row summarizes the connection activity
+        on the firewall." 
+    ::= { cufwPolicyConnSummaryEntry 4 }
+
+cufwPolConnNumAttempted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections attempted since the last
+        reboot of the firewall, corresponding to the protocol
+        denoted by 'cufwPolConnProtocol', in the policy 
+        'cufwPolConnPolicy' applied to the entity identified
+        by 'cufwPolConnPolicyTarget'." 
+    ::= { cufwPolicyConnSummaryEntry 5 }
+
+cufwPolConnNumSetupsAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection setup attempts,
+        corresponding to the protocol denoted by 
+        'cufwPolConnProtocol', associated with the policy 
+        'cufwPolConnPolicy' applied to the entity
+        identified by 'cufwPolConnPolicyTarget',
+        that were aborted before the connection could 
+        proceed to completion. The counter includes 
+        setup attempts aborted by the firewall as well 
+        as those aborted by the initiator and/or the 
+        responder(s) of/to the connection setup attempt.
+
+        Consequently, this value subsumes the values of
+        objects 'cufwPolConnNumPolicyDeclined' and
+        'cufwPolConnNumResDeclined'." 
+    ::= { cufwPolicyConnSummaryEntry 6 }
+
+cufwPolConnNumPolicyDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to security policy, corresponding to the protocol 
+        denoted by 'cufwPolConnProtocol', in the policy 
+        'cufwPolConnPolicy' applied to the entity identified by
+        'cufwPolConnPolicyTarget'." 
+    ::= { cufwPolicyConnSummaryEntry 7 }
+
+cufwPolConnNumResDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to resource unavailability, corresponding to the 
+        protocol denoted by 'cufwPolConnProtocol', in the policy
+        'cufwPolConnPolicy' applied to the entity identified by
+        'cufwPolConnPolicyTarget'." 
+    ::= { cufwPolicyConnSummaryEntry 8 }
+
+cufwPolConnNumHalfOpen OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently in the
+        process of being established, corresponding to the 
+        protocol denoted by 'cufwPolConnProtocol', in the 
+        policy 'cufwPolConnPolicy' applied to the entity
+        identified by 'cufwPolConnPolicyTarget'." 
+    ::= { cufwPolicyConnSummaryEntry 9 }
+
+cufwPolConnNumActive OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently active,
+        corresponding to the protocol denoted by 
+        'cufwPolConnProtocol', in the policy 
+        'cufwPolConnPolicy' applied to the entity identified
+        by 'cufwPolConnPolicyTarget'." 
+    ::= { cufwPolicyConnSummaryEntry 10 }
+
+cufwPolConnNumAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that were abnormally
+        terminated after successful establishment, corresponding
+        to the protocol denoted by 'cufwPolConnProtocol', 
+        in the policy 'cufwPolConnPolicy' applied to the entity
+        identified by 'cufwPolConnPolicyTarget'." 
+    ::= { cufwPolicyConnSummaryEntry 11 }
+ 
+
+-- Layer 7 protocol policy based connection summary
+
+cufwPolicyAppConnSummaryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwPolicyAppConnSummaryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the summary of firewall
+        connections pertaining to Layer 7 protocols,
+        catalogued on a per policy basis
+
+        Each entry in the table lists the connection
+        summary of a distinct application protocol, 
+        configured on the specified policy on the firewall, 
+        and pertaining to a specified target to which the
+        policy has been applied.
+
+        If a policy is bound to a target, it would have one
+        or more entries in this table. If the policy is
+        detached from the target, all entries corresponding
+        to the association between the policy and the target
+        are elminated from this table.
+
+        Although the information is indexed by policy targets
+        as well, one may aggregate the connection summary for
+        a specific policy across all the target to which the
+        policy is currently applied by setting
+
+              cufwAppConnPolicyTargetType = 'targetALL'"
+    ::= { cuFwConnectionSummaryTables 4 }
+
+cufwPolicyAppConnSummaryEntry OBJECT-TYPE
+    SYNTAX          CufwPolicyAppConnSummaryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the summary of connection
+        activity for a specific layer 7 protocol in a
+        specific policy applied to the specified policy 
+        target."
+    INDEX           {
+                        cufwPolAppConnPolicy,
+                        cufwPolAppConnPolicyTargetType,
+                        cufwPolAppConnPolicyTarget,
+                        cufwPolAppConnProtocol
+                    } 
+    ::= { cufwPolicyAppConnSummaryTable 1 }
+
+CufwPolicyAppConnSummaryEntry ::= SEQUENCE {
+        cufwPolAppConnPolicy            CFWPolicy,
+        cufwPolAppConnPolicyTargetType  CFWPolicyTargetType,
+        cufwPolAppConnPolicyTarget      CFWPolicyTarget,
+        cufwPolAppConnProtocol          CFWApplicationProtocol,
+        cufwPolAppConnNumAttempted      Counter64,
+        cufwPolAppConnNumSetupsAborted  Counter64,
+        cufwPolAppConnNumPolicyDeclined Counter64,
+        cufwPolAppConnNumResDeclined    Counter64,
+        cufwPolAppConnNumHalfOpen       Gauge32,
+        cufwPolAppConnNumActive         Gauge32,
+        cufwPolAppConnNumAborted        Counter64
+}
+
+cufwPolAppConnPolicy OBJECT-TYPE
+    SYNTAX          CFWPolicy
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The identity of the firewall policy for which
+        this conceptual row contains the connection 
+        activity summary." 
+    ::= { cufwPolicyAppConnSummaryEntry 1 }
+
+cufwPolAppConnPolicyTargetType OBJECT-TYPE
+    SYNTAX          CFWPolicyTargetType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of the entity to which the firewall policy
+        'cufwPolAppConnPolicy' has been applied. This could be
+        an interface type (most commonly), the type of another
+        object or a group of objects defined in the firewall
+        configuration.
+
+        When this object is set to 'targetALL', the value of
+        index object cufwAppConnPolicyTarget is ignored." 
+    ::= { cufwPolicyAppConnSummaryEntry 2 }
+
+cufwPolAppConnPolicyTarget OBJECT-TYPE
+    SYNTAX          CFWPolicyTarget (SIZE  (0..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The identity of the entity to which the firewall
+        policy 'cufwPolAppProtocol' refers. This could be an 
+        interface object (most commonly), another object or
+        group of objects defined in the firewall configuration." 
+    ::= { cufwPolicyAppConnSummaryEntry 3 }
+
+cufwPolAppConnProtocol OBJECT-TYPE
+    SYNTAX          CFWApplicationProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The layer7 protocol for which this conceptual
+        row summarizes the connection activity for this 
+        firewall." 
+    ::= { cufwPolicyAppConnSummaryEntry 4 }
+
+cufwPolAppConnNumAttempted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections attempted since the last
+        reboot of the firewall, corresponding to the protocol
+        denoted by 'cufwPolAppConnProtocol', in the policy 
+        'cufwPolAppConnPolicy' applied to the entity identified
+        by 'cufwPolAppConnPolicyTarget'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwPolicyAppConnSummaryEntry 5 }
+
+cufwPolAppConnNumSetupsAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection setup attempts,
+        corresponding to the protocol denoted by 
+        'cufwPolAppConnProtocol', associated with the policy
+        'cufwPolAppConnPolicy' applied to the entity 
+        identified by 'cufwPolAppConnPolicyTarget',
+        that were aborted before the connections could 
+        proceed to completion. The counter includes setup 
+        attempts aborted by the firewall as well as those 
+        aborted by the initiator and/or the responder(s) 
+        of/to the connection setup attempt.
+
+        Consequently, this value subsumes the values of
+        objects 'cufwPolAppConnNumPolicyDeclined' and 
+        'cufwPolAppConnNumResDeclined'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwPolicyAppConnSummaryEntry 6 }
+
+cufwPolAppConnNumPolicyDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to security policy, corresponding to the protocol 
+        denoted by 'cufwPolAppConnProtocol', in the policy 
+        'cufwPolAppConnPolicy' applied to the entity identified
+        by 'cufwPolAppConnPolicyTarget'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwPolicyAppConnSummaryEntry 7 }
+
+cufwPolAppConnNumResDeclined OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connection attempts that were declined
+        due to resource unavailability, corresponding to the 
+        protocol denoted by 'cufwPolAppConnProtocol', in the
+        policy 'cufwPolAppConnPolicy' applied to the entity
+        identified by 'cufwPolAppConnPolicyTarget'.
+
+        This value is accumulated from the last reboot of
+        the firewall subject to the control exercised by
+        cufwConnReptAppStats." 
+    ::= { cufwPolicyAppConnSummaryEntry 8 }
+
+cufwPolAppConnNumHalfOpen OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently in the
+        process of being established, corresponding to the 
+        protocol
+        denoted by 'cufwPolAppConnProtocol', in the policy 
+        'cufwPolAppConnPolicy' applied to the entity identified
+        by 'cufwPolAppConnPolicyTarget'." 
+    ::= { cufwPolicyAppConnSummaryEntry 9 }
+
+cufwPolAppConnNumActive OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that are currently active,
+        corresponding to the protocol denoted by 
+        'cufwPolAppConnProtocol', in the policy 
+        'cufwPolAppConnPolicy' applied to the entity identified
+        by 'cufwPolAppConnPolicyTarget'." 
+    ::= { cufwPolicyAppConnSummaryEntry 10 }
+
+cufwPolAppConnNumAborted OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections that were abnormally
+        terminated after successful establishment, corresponding
+        to the protocol denoted by 'cufwPolAppConnProtocol', in
+        the policy 'cufwPolAppConnPolicy' applied to the entity
+        identified by 'cufwPolAppConnPolicyTarget'." 
+    ::= { cufwPolicyAppConnSummaryEntry 11 }
+ 
+
+
+-- Application Inspection Group
+
+cufwAIAuditTrailEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The value identifies if audit trail in application
+        inspection has been globally enabled or disabled." 
+    ::= { cuFwApplInspectionGrp 1 }
+
+cufwAIAlertEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The value identifies if application inspection alerts
+        have been globally enabled or disabled." 
+    ::= { cuFwApplInspectionGrp 2 }
+-- Application Inspection configuration table
+
+cufwInspectionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwInspectionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table identifies if an application protocol has
+        been configured for inspection and if so, the name of 
+        the firewall policy or the inspection configuration
+        that configures the specified protocol for inspection.
+        The table also identifies if the specified protocol is
+        actively being inspected.
+
+        This table may be used by an administrator to quickly
+        identify if a protocol is being subjected to application
+        inspection by the managed firewall."
+    ::= { cuFwApplInspectionGrp 3 }
+
+cufwInspectionEntry OBJECT-TYPE
+    SYNTAX          CufwInspectionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the configuration of
+        a specific application inspection element."
+    INDEX           {
+                        cufwInspectionPolicyName,
+                        cufwInspectionProtocol
+                    } 
+    ::= { cufwInspectionTable 1 }
+
+CufwInspectionEntry ::= SEQUENCE {
+        cufwInspectionPolicyName CFWPolicy,
+        cufwInspectionProtocol   CFWApplicationProtocol,
+        cufwInspectionStatus     TruthValue
+}
+
+cufwInspectionPolicyName OBJECT-TYPE
+    SYNTAX          CFWPolicy (SIZE  (0..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The name of the policy that configures the device
+        inspect the protocol specified by 
+          'cufwInspectionProtocol'." 
+    ::= { cufwInspectionEntry 1 }
+
+cufwInspectionProtocol OBJECT-TYPE
+    SYNTAX          CFWApplicationProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The application protocol that is configured for
+        inspection." 
+    ::= { cufwInspectionEntry 2 }
+
+cufwInspectionStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This MIB object identifies if the directive to inspect
+        the protocol specified by 'cufwInspectionProtocol' by
+        the policy corresponding to this conceptual row is
+        enabled or disabled." 
+    ::= { cufwInspectionEntry 3 }
+ 
+
+-- URL Filter group
+
+cufwUrlFilterGlobals  OBJECT IDENTIFIER
+    ::= { cuFwUrlFilterGrp 1 }
+
+cufwUrlFilterResourceUsage  OBJECT IDENTIFIER
+    ::= { cuFwUrlFilterGrp 2 }
+
+cufwUrlFilterServers  OBJECT IDENTIFIER
+    ::= { cuFwUrlFilterGrp 3 }
+
+
+-- URL Filter global group
+
+cufwUrlfFunctionEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "URL Filtering Operation
+
+        _________
+        2.2 Request   |         |
+        |---------->| Server  |
+        |           |         |
+        _________                      __|_          |_________|
+        |         |<--(5. Response )---|    | 3. Response  |  
+        |         |                    |    |<-------------| 
+        | Client  |---(1. Request )--->|FW  |
+        |_________|                    |____|<--------------|
+        | 4. URLF Resp ____|______
+        |             |           |
+        |------------>|URLF Server|
+        2.1 URLF Req   |___________|
+
+        1)  Client sends a Request containing a URL to the Server
+
+        2.1)  FW extracts the URL from the Request and sends it to 
+        URL Filtering Server (or Verifies the URL locally)
+
+        2.2)  FW also forwards the original Request from the Client to 
+        the Server
+
+        3)  Any Responses from the Server received before receiving
+        a response from URLF Server are cached by the FW
+
+        4)  URLF Response indicates whether the URL access should be 
+        allowed or denied
+
+        5)  If the URLF Response allows the URL, FW forwards the
+        URL Access responses from the Server to the Client
+
+        6)  If the URLF Response indicates that the URL access should be
+        denied, FW drops all the cached URL responses and forces the
+        connection between the Client and the Server to be terminated
+
+        Specifically, the object cufwUrlfFunctionEnabled 
+        indicates if the URL filtering function
+        is enabled.
+
+        When this MIB object contains the value 'false',
+        the firewall device will not perform URL filtering
+        function, even if it contains configuration pertaining
+        to other aspects of URL filtering." 
+    ::= { cufwUrlFilterGlobals 1 }
+
+cufwUrlfRequestsNumProcessed OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests processed by
+        this firewall.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwUrlFilterGlobals 2 }
+
+cufwUrlfRequestsProcRate1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Requests per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests processed per
+        seconds by this firewall averaged over the last 60 
+        seconds." 
+    ::= { cufwUrlFilterGlobals 3 }
+
+cufwUrlfRequestsProcRate5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Requests per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests processed per second
+        by this firewall averaged over the last 300 seconds." 
+    ::= { cufwUrlFilterGlobals 4 }
+
+cufwUrlfRequestsNumAllowed OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests allowed by
+        this firewall, due to a directive from a URL 
+        filtering server or a static policy configured on 
+        the firewall.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 5 }
+
+cufwUrlfRequestsNumDenied OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests declined by
+        this firewall, due to a directive from a URL 
+        filtering server, a static policy configured on 
+        the firewall, due to resource constraints or
+        any other reason.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwUrlFilterGlobals 6 }
+
+cufwUrlfRequestsDeniedRate1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Requests per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The rate at which URL access requests were denied
+        by this firewall, due to a directive from a URL 
+        filtering server, a static policy configured on 
+        the firewall, due to resource constraints or
+        any other reason, averaged over the last 60 seconds." 
+    ::= { cufwUrlFilterGlobals 7 }
+
+cufwUrlfRequestsDeniedRate5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Requests Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The rate at which URL access requests were denied
+        by this firewall, due to a directive from a URL 
+        filtering server, a static policy configured on 
+        the firewall, due to resource constraints or
+        any other reason, averaged over the last 300 seconds." 
+    ::= { cufwUrlFilterGlobals 8 }
+
+cufwUrlfRequestsNumCacheAllowed OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests allowed by
+        the firewall because of a cached entry holding the
+        result from a previous URL access request that was
+        handled either by a URLF Server or exclusive domain
+        configuration. 
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 9 }
+
+cufwUrlfRequestsNumCacheDenied OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests denied by
+        the firewall because of a cached entry holding the
+        result from a previous URL access request that was
+        handled either by a URLF Server or exclusive domain
+        configuration. 
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 10 }
+
+cufwUrlfAllowModeReqNumAllowed OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests that were allowed
+        by the firewall when the URL filtering server was not
+        available.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 11 }
+
+cufwUrlfAllowModeReqNumDenied OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests that were declined
+        by the firewall when the URL filtering server was not
+        available.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 12 }
+
+cufwUrlfRequestsNumResDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of incoming URL access requests that
+        were dropped by the firewall because of resource
+        constraints.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 13 }
+
+cufwUrlfRequestsResDropRate1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Requests Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The rate at which incoming URL access requests
+        were dropped by the firewall because of resource
+        constraints, averaged over the last 60 seconds." 
+    ::= { cufwUrlFilterGlobals 14 }
+
+cufwUrlfRequestsResDropRate5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Requests Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The rate at which incoming URL access requests
+        were dropped by the firewall because of resource
+        constraints, averaged over the last 300 seconds." 
+    ::= { cufwUrlFilterGlobals 15 }
+
+cufwUrlfNumServerTimeouts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the firewall failed to receive
+        a response from the configured URL filtering servers 
+        for a request to authorize a URL access request.
+
+        This is equal to the number of times a firewall removed
+        a URL access request from the queue of pending requests
+        because no response was received from the URL filtering
+        server(s).
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 16 }
+
+cufwUrlfNumServerRetries OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access authorization requests
+        re-sent by the firewall to the URL Filtering Servers 
+        because a response was not received within the 
+        configured time interval.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 17 }
+
+cufwUrlfResponsesNumLate OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of responses from URL filtering servers
+        which were received after the original URL access
+        request was removed from the queue of pending
+        requests.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 18 }
+
+cufwUrlfUrlAccRespsNumResDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of transport packets constituting responses
+        to URL access requests that were dropped by the firewall
+        due to resource constraints waiting for a response from
+        the filtering server.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlFilterGlobals 19 }
+
+-- Resource consumption by URL filtering activity
+
+cufwUrlfResTotalRequestCacheSize OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The amount of memory occupied by all the caches
+        used in the firewall to cache pending URL access
+        requests." 
+    ::= { cufwUrlFilterResourceUsage 1 }
+
+cufwUrlfResTotalRespCacheSize OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The amount of memory occupied by all the caches
+        used in the firewall to cache responses for URL 
+        requests received from servers while awaiting a
+        response from URL filter server." 
+    ::= { cufwUrlFilterResourceUsage 2 }
+-- URL Filter server table
+
+cufwUrlfServerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwUrlfServerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the URL filtering servers
+        configured on the managed device and their
+        performance statistics.
+
+        This table is not meant as a device to 
+        configure URL filtering servers."
+    ::= { cufwUrlFilterServers 1 }
+
+cufwUrlfServerEntry OBJECT-TYPE
+    SYNTAX          CufwUrlfServerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the configuration of
+        a specific URL filtering server."
+    INDEX           {
+                        cufwUrlfServerAddrType,
+                        cufwUrlfServerAddress,
+                        cufwUrlfServerPort
+                    } 
+    ::= { cufwUrlfServerTable 1 }
+
+CufwUrlfServerEntry ::= SEQUENCE {
+        cufwUrlfServerAddrType         InetAddressType,
+        cufwUrlfServerAddress          InetAddress,
+        cufwUrlfServerPort             InetPortNumber,
+        cufwUrlfServerVendor           CFWUrlfVendorId,
+        cufwUrlfServerStatus           CFWUrlServerStatus,
+        cufwUrlfServerReqsNumProcessed Counter64,
+        cufwUrlfServerReqsNumAllowed   Counter64,
+        cufwUrlfServerReqsNumDenied    Counter64,
+        cufwUrlfServerNumTimeouts      Counter64,
+        cufwUrlfServerNumRetries       Counter64,
+        cufwUrlfServerRespsNumReceived Counter64,
+        cufwUrlfServerRespsNumLate     Counter64,
+        cufwUrlfServerAvgRespTime1     Gauge32,
+        cufwUrlfServerAvgRespTime5     Gauge32
+}
+
+cufwUrlfServerAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address of the URL filtering
+        server." 
+    ::= { cufwUrlfServerEntry 1 }
+
+cufwUrlfServerAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The value of the IP address of the URL filtering
+        server." 
+    ::= { cufwUrlfServerEntry 2 }
+
+cufwUrlfServerPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The value of the port at which the URL filtering
+        server listens for incoming requests." 
+    ::= { cufwUrlfServerEntry 3 }
+
+cufwUrlfServerVendor OBJECT-TYPE
+    SYNTAX          CFWUrlfVendorId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor type of the URL filtering server." 
+    ::= { cufwUrlfServerEntry 4 }
+
+cufwUrlfServerStatus OBJECT-TYPE
+    SYNTAX          CFWUrlServerStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The status of the URL filtering server
+        corresponding to this conceptual row." 
+    ::= { cufwUrlfServerEntry 5 }
+
+cufwUrlfServerReqsNumProcessed OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests forwarded by
+        the managed firewall device to the URL filtering
+        server corresponding to this conceptual row.
+
+        This value is counted from the last reboot of
+        the managed device." 
+    ::= { cufwUrlfServerEntry 6 }
+
+cufwUrlfServerReqsNumAllowed OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests allowed by the
+        URL filtering server corresponding to this conceptual 
+        row. This counter does not include late responses.
+
+        This value is counted from the last reboot of
+        the managed device." 
+    ::= { cufwUrlfServerEntry 7 }
+
+cufwUrlfServerReqsNumDenied OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access requests denied by the
+        URL filtering server corresponding to this conceptual 
+        row. This counter does not include late responses.
+
+        This value is counted from the last reboot of
+        the managed device." 
+    ::= { cufwUrlfServerEntry 8 }
+
+cufwUrlfServerNumTimeouts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the firewall failed to receive
+        a response from the URL filtering server corresponding 
+        to this conceptual row, for a request to authorize a 
+        URL access request.
+
+        This is equal to the number of times a firewall removed
+        a URL access request from the queue of pending requests
+        because no response was received from the URL filtering
+        server.
+
+        This value is accumulated from the last reboot of the
+        firewall." 
+    ::= { cufwUrlfServerEntry 9 }
+
+cufwUrlfServerNumRetries OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access authorization requests
+        re-sent by the firewall to the URL Filtering Server 
+        corresponding to this conceptual row, because a response
+        was not received within the configured time interval
+        from the server.
+
+        This value is counted from the last reboot of
+        the managed device." 
+    ::= { cufwUrlfServerEntry 10 }
+
+cufwUrlfServerRespsNumReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access responses received by the
+        firewall from the URL filtering server corresponding 
+        to this conceptual row. This counter does not include 
+        late responses.
+
+        This value is counted from the last reboot of
+        the managed device." 
+    ::= { cufwUrlfServerEntry 11 }
+
+cufwUrlfServerRespsNumLate OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of URL access responses received by
+        the managed firewall from the URL filtering server 
+        corresponding to this conceptual row after the 
+        original URL access request was removed from the 
+        queue of pending requests.
+
+        This value is counted from the last reboot of
+        the managed device." 
+    ::= { cufwUrlfServerEntry 12 }
+
+cufwUrlfServerAvgRespTime1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average round-trip response time of the
+        URL filtering server computed over the last
+        60 seconds.
+
+        A value of zero indicates that there was 
+        insufficient data to compute this value over the 
+        last time interval." 
+    ::= { cufwUrlfServerEntry 13 }
+
+cufwUrlfServerAvgRespTime5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average round-trip response time of the
+        URL filtering server computed over the last
+        300 seconds.
+
+        A value of zero indicates that there was 
+        insufficient data to compute this value over the 
+        last time interval." 
+    ::= { cufwUrlfServerEntry 14 }
+ 
+
+-- Failover group
+
+cuFwFailoverGlobals  OBJECT IDENTIFIER
+    ::= { cuFwFailoverGrp 1 }
+
+cuFwFailoverStatus  OBJECT IDENTIFIER
+    ::= { cuFwFailoverGrp 2 }
+
+cuFwFailoverStatistics  OBJECT IDENTIFIER
+    ::= { cuFwFailoverGrp 3 }
+
+cuFwFailoverHistory  OBJECT IDENTIFIER
+    ::= { cuFwFailoverGrp 4 }
+
+
+-- Textual Conventions
+
+CUfwFOState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This type denotes possible HA states.
+
+        init          : Establishing any platform dependant capabilities required for redundancy
+        disabled      :        Failover is disabled
+        failed        : Unit is disabled for some reason
+        negotiation   : Negotiating to identify the peer
+        standbyCold   : Verifing compatibility with the peer device
+        standbyConfig : Config sync with Active
+        standbyFilesys: Syncing its file system with Active
+        standbyBulk   : Executing a bulk sync for some HA clients
+        standby       : Unit progression to standby complete
+        activeFast    : HA clients are completing time critical platform dependent processing
+        activeDrain   : HA clients are notified to drain already queued messages
+        activePreConf : HA clients are preparing for system configuration
+        active        : Unit is Active"
+    SYNTAX          INTEGER  {
+                        init(0),
+                        disabled(1),
+                        failed(2),
+                        negotiation(3),
+                        standbyCold(4),
+                        standbyConfig(5),
+                        standbyFilesys(6),
+                        standbyBulk(7),
+                        standby(8),
+                        activeFast(9),
+                        activeDrain(10),
+                        activePreConf(11),
+                        activePostConf(12),
+                        active(13),
+                        invalid(14)
+                    }
+
+CUfwInterfaceMonitor ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This type denotes possible interface monitor states.
+
+        monitored    : interface monitoring is enabled.
+        notMonitored : interface monitoring is not enabled.
+        waiting      : interface tests are going on and awaiting results.
+        autostateDown: Applies only to ASASM interfaces. Supervisor informs
+                       when last physical interface of that vlan goes down.
+        shutdown     : interface is administratively down"
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        monitored(1),
+                        notMonitored(2),
+                        waiting(3),
+                        autostateDown(4),
+                        shutdown(5)
+                    }
+
+CUfwInterfaceHealth ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This type denotes possible Interface health-check outcomes.
+
+        normal        : interface is monitored and in healthy state.
+        testing       : Ongoing testing.
+        linkDown      : interface link is administratively down.
+        failed        : interface link is physically up, but not able
+                        to pass the tests. Declared as failed.
+        noLink        : interface link is down."
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        normal(1),
+                        testing(2),
+                        linkDown(3),
+                        failed(4),
+                        noLink(5)
+                    }
+
+CUfwFOGroupId ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This type denotes possible HA group identifiers.
+        A failover group is simply a logical group of one or more security contexts.
+        One group is assigned to be active on the primary ASA, 
+        and the other group is assigned to be active on the secondary ASA.
+        When a failover occurs, it occurs at the failover group level.
+        Use value 0, if not applicable."
+    SYNTAX          INTEGER  {
+                        default(0),
+                        group1(1),
+                        group2(2)
+                    }
+
+cuFwFOMaxStateEvents OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The max count of history logs for FO state transitions
+        that can be saved on the device." 
+    ::= { cuFwFailoverHistory 1 }
+
+cufwFOHistoryEvTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CUfwFOHistoryEvEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table summarizes the failover state of a logical
+        group of ASA contexts."
+    ::= { cuFwFailoverHistory 3 }
+
+cufwFOHistoryEvEntry OBJECT-TYPE
+    SYNTAX          CUfwFOHistoryEvEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table."
+    INDEX           {
+                        cufwFOGrpIndex,
+                        cufwFOHistoryIndex
+                    } 
+    ::= { cufwFOHistoryEvTable 1 }
+
+CUfwFOHistoryEvEntry ::= SEQUENCE {
+        cufwFOGrpIndex            CUfwFOGroupId,
+        cufwFOHistoryIndex        Integer32,
+        cufwFOGrpHAFromState      CUfwFOState,
+        cufwFOGrpHAToState        CUfwFOState,
+        cufwFOGrpTransitionAt     DisplayString,
+        cufwFOGrpTransitionReason DisplayString
+}
+
+cufwFOGrpIndex OBJECT-TYPE
+    SYNTAX          CUfwFOGroupId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A distinct HA group identifier for which this conceptual
+        row summarizes time-tale history of failover events." 
+    ::= { cufwFOHistoryEvEntry 1 }
+
+cufwFOHistoryIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A distinct index that points to an entry in the table for an
+        HA group." 
+    ::= { cufwFOHistoryEvEntry 2 }
+
+cufwFOGrpHAFromState OBJECT-TYPE
+    SYNTAX          CUfwFOState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The log entry points to the HA state that this event transitioned from." 
+    ::= { cufwFOHistoryEvEntry 3 }
+
+cufwFOGrpHAToState OBJECT-TYPE
+    SYNTAX          CUfwFOState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The log entry points to the HA state that this event transitioned to." 
+    ::= { cufwFOHistoryEvEntry 4 }
+
+cufwFOGrpTransitionAt OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The date&time at which this transition happened for an HA group." 
+    ::= { cufwFOHistoryEvEntry 5 }
+
+cufwFOGrpTransitionReason OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The reason for this transition event for an HA group." 
+    ::= { cufwFOHistoryEvEntry 6 }
+ 
+
+-- Failover Status
+
+cufwFOGrpStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CUfwFOGrpStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table summarizes the failover state of a logical
+        group of ASA contexts. The HA switchover happens at the
+        group level."
+    ::= { cuFwFailoverStatus 1 }
+
+cufwFOGrpStatusEntry OBJECT-TYPE
+    SYNTAX          CUfwFOGrpStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table lists necessary HA status of a group."
+    INDEX           { cufwFOGroupIndex } 
+    ::= { cufwFOGrpStatusTable 1 }
+
+CUfwFOGrpStatusEntry ::= SEQUENCE {
+        cufwFOGroupIndex        CUfwFOGroupId,
+        cufwFOGrpLastFailoverAt DisplayString,
+        cufwFOGrpHAstate        HardwareStatus,
+        cufwFOGrpUpTime         Gauge32,
+        cufwFOGrpContextCount   Gauge32
+}
+
+cufwFOGroupIndex OBJECT-TYPE
+    SYNTAX          CUfwFOGroupId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A distinct HA group identifier for which this conceptual
+        row summarizes critical failover data." 
+    ::= { cufwFOGrpStatusEntry 1 }
+
+cufwFOGrpLastFailoverAt OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The date&time at which the last switchover was triggered for an HA group." 
+    ::= { cufwFOGrpStatusEntry 2 }
+
+cufwFOGrpHAstate OBJECT-TYPE
+    SYNTAX          HardwareStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current HA role of a group on the unit being polled.
+        Allowed values are active or standby or unknown." 
+    ::= { cufwFOGrpStatusEntry 3 }
+
+cufwFOGrpUpTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Uptime of a group in the current HA role on the unit being polled." 
+    ::= { cufwFOGrpStatusEntry 4 }
+
+cufwFOGrpContextCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of virtual contexts part of the group on the unit being polled." 
+    ::= { cufwFOGrpStatusEntry 5 }
+ 
+
+
+cufwFOInterfaceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CUfwFOInterfaceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table summarizes the interface health check status
+        of each interface in a group per context."
+    ::= { cuFwFailoverStatus 2 }
+
+cufwFOInterfaceEntry OBJECT-TYPE
+    SYNTAX          CUfwFOInterfaceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table pertains to an interface in a context."
+    INDEX           {
+                        cufwFOGroupIndex,
+                        cufwContextId,
+                        cufwContextifIndex
+                    } 
+    ::= { cufwFOInterfaceTable 1 }
+
+CUfwFOInterfaceEntry ::= SEQUENCE {
+        cufwFOGrpId               CUfwFOGroupId,
+        cufwContextId             Integer32,
+        cufwContextifIndex        InterfaceIndex,
+        cufwFOInterfaceMonitoring CUfwInterfaceMonitor,
+        cufwFOInterfaceStatus     CUfwInterfaceHealth
+}
+
+cufwFOGrpId OBJECT-TYPE
+    SYNTAX          CUfwFOGroupId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A distinct HA group identifier for which this conceptual
+        row summarizes the interface health." 
+    ::= { cufwFOInterfaceEntry 1 }
+
+cufwContextId OBJECT-TYPE
+    SYNTAX          Integer32 (1..250)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The virtual context-id of the ASA context for which this conceptual
+        row summarizes an interface's health within a logical HA group." 
+    ::= { cufwFOInterfaceEntry 2 }
+
+cufwContextifIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex from the IF-MIB for an interface in a context." 
+    ::= { cufwFOInterfaceEntry 3 }
+
+cufwFOInterfaceMonitoring OBJECT-TYPE
+    SYNTAX          CUfwInterfaceMonitor
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The monitoring state of the interface being addressed in a context." 
+    ::= { cufwFOInterfaceEntry 4 }
+
+cufwFOInterfaceStatus OBJECT-TYPE
+    SYNTAX          CUfwInterfaceHealth
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The health-check outcome of the interface being addressed in a context." 
+    ::= { cufwFOInterfaceEntry 5 }
+ 
+
+
+-- Failover Statistics Info
+
+cufwFOStatefulUpdateEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This value depicts if failover has enabled stateful updates
+        for all HA clients on the device." 
+    ::= { cuFwFailoverStatistics 1 }
+
+cufwFOLogicalUpdatesTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CUfwFOLogicalUpdateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table summarizes the statistics of every HA client's
+        logical updates to and from its peer."
+    ::= { cuFwFailoverStatistics 2 }
+
+cufwFOLogicalUpdateEntry OBJECT-TYPE
+    SYNTAX          CUfwFOLogicalUpdateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table lists the transmit and receive
+        stats summary of a distinct HA client in the system."
+    INDEX           {
+                        cufwFOGroupIdx,
+                        cufwFOCLientId
+                    } 
+    ::= { cufwFOLogicalUpdatesTable 1 }
+
+CUfwFOLogicalUpdateEntry ::= SEQUENCE {
+        cufwFOGroupIdx         CUfwFOGroupId,
+        cufwFOCLientId         Integer32,
+        cufwFOCLientName       DisplayString,
+        cufwFOLUTransmitCount  Counter32,
+        cufwFOLUTransmitErrors Counter32,
+        cufwFOLUReceiveCount   Counter32,
+        cufwFOLUReceiveErrors  Counter32
+}
+
+cufwFOGroupIdx OBJECT-TYPE
+    SYNTAX          CUfwFOGroupId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A distinct HA group identifier for which this conceptual
+        row summarizes the sync statistics." 
+    ::= { cufwFOLogicalUpdateEntry 1 }
+
+cufwFOCLientId OBJECT-TYPE
+    SYNTAX          Integer32 (1..64)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A distinct HA client identifier for which this conceptual
+        row summarizes the sync statistics." 
+    ::= { cufwFOLogicalUpdateEntry 2 }
+
+cufwFOCLientName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The HA client's name for which this conceptual
+        row summarizes the sync statistics." 
+    ::= { cufwFOLogicalUpdateEntry 3 }
+
+cufwFOLUTransmitCount OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of transmitted updates sent to peer for the HA client." 
+    ::= { cufwFOLogicalUpdateEntry 4 }
+
+cufwFOLUTransmitErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of transmit errors for updates sent to peer for the HA client." 
+    ::= { cufwFOLogicalUpdateEntry 5 }
+
+cufwFOLUReceiveCount OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of received updates from peer for the HA client." 
+    ::= { cufwFOLogicalUpdateEntry 6 }
+
+cufwFOLUReceiveErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of receive errors for updates from peer for the HA client." 
+    ::= { cufwFOLogicalUpdateEntry 7 }
+ 
+
+
+-- Failover Globals
+
+cufwFOEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This value depicts if failover is enabled or not
+        on the device." 
+    ::= { cuFwFailoverGlobals 1 }
+
+cufwFOUnitDesignation OBJECT-TYPE
+    SYNTAX          Hardware
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The hardware type that points to designation as primary
+        or secondary unit." 
+    ::= { cuFwFailoverGlobals 2 }
+
+cufwFOLink OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the interface used for failover communication
+        between the two units." 
+    ::= { cuFwFailoverGlobals 3 }
+
+cufwFOStateLink OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the interface used for failover communication
+        to pass connection state information." 
+    ::= { cuFwFailoverGlobals 4 }
+
+cufwFOStdbyConfigLocked OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object depicts if the the ability to make any configuration
+        changes directly on the standby unit or context is enabled." 
+    ::= { cuFwFailoverGlobals 5 }
+
+cufwFOEncryption OBJECT-TYPE
+    SYNTAX          Integer32 (0..2)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of encryption enabled
+        on the failover links between the units to encrypt all failover
+        communications.
+               Value        Type
+                 0                none
+                 1         IPSec LAN-to-LAN tunnels
+                 2                Key Passphrase" 
+    ::= { cuFwFailoverGlobals 6 }
+
+cufwFOSerialNumOurs OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor-specific serial number string for the
+        current unit in pair." 
+    ::= { cuFwFailoverGlobals 7 }
+
+cufwFOSerialNumMate OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor-specific serial number string for the
+        peer unit in pair." 
+    ::= { cuFwFailoverGlobals 8 }
+
+cufwFOSwVersionOurs OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor-specific software revision string for the
+        current unit in pair." 
+    ::= { cuFwFailoverGlobals 9 }
+
+cufwFOSwVersionMate OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor-specific software revision string for the
+        peer unit in pair." 
+    ::= { cuFwFailoverGlobals 10 }
+
+cufwFOUnitPolltime OBJECT-TYPE
+    SYNTAX          Integer32 (200..15000)
+    UNITS           "millisec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The polling frequency of the Hello packets
+        between the units in HA pair." 
+    ::= { cuFwFailoverGlobals 11 }
+
+cufwFOUnitHoldtime OBJECT-TYPE
+    SYNTAX          Integer32 (800..45000)
+    UNITS           "millisec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The hold time that each unit will wait before
+        declaring the peer unit as dead. If the failed unit is the active unit,
+        the standby unit takes over as the active unit." 
+    ::= { cuFwFailoverGlobals 12 }
+
+cufwFOUnitBfdEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object depicts if BFD protocol is enabled between the units for
+        health monitoring." 
+    ::= { cuFwFailoverGlobals 13 }
+
+cufwFOLinkStatePolltime OBJECT-TYPE
+    SYNTAX          Integer32 (300..799)
+    UNITS           "millisec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The frequency at which the link-state of a unit's
+        interfaces are polled to detect link failures." 
+    ::= { cuFwFailoverGlobals 14 }
+
+cufwFOInterfacePolicy OBJECT-TYPE
+    SYNTAX          Integer32 (1..1025)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of interface failures set as threshold to trigger switchover when interfaces
+        are declared as health-check failed." 
+    ::= { cuFwFailoverGlobals 15 }
+
+cufwFOMonitoredInterfaces OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of interfaces monitored on the HA units for interface health." 
+    ::= { cuFwFailoverGlobals 16 }
+
+cufwFOInterfacePolltime OBJECT-TYPE
+    SYNTAX          Integer32 (500..15000)
+    UNITS           "millisec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The polling frequency of the Hello packets
+        on each interface between the units in HA pair." 
+    ::= { cuFwFailoverGlobals 17 }
+
+cufwFOInterfaceHoldtime OBJECT-TYPE
+    SYNTAX          Integer32 (5000..75000)
+    UNITS           "millisec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The hold time that each unit will wait before
+        declaring the peer unit as dead due to interface check failure." 
+    ::= { cuFwFailoverGlobals 18 }
+
+cufwFOReplicationHttp OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object depicts if the stateful replication of HTTP
+        sessions is enabled in a Stateful Failover environment." 
+    ::= { cuFwFailoverGlobals 19 }
+
+cufwFOReplicationRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Connections Per Second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The bulk-sync connection replication rate between the HA units." 
+    ::= { cuFwFailoverGlobals 20 }
+-- Application Firewall or Deep Packet Inspection Group
+
+cufwAaicGlobals  OBJECT IDENTIFIER
+    ::= { cuFwAaicGrp 1 }
+
+
+cufwAaicGlobalNumBadProtocolOps OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "'Protocol Operation' is the application protocol
+        specific operation that the PDU is intended to 
+        perform. An example of 'protocol operation' is the 
+        HELO command of SMTP protocol.
+
+        This MIB object records the number of application 
+        protocol data units that contained a protocol operation
+        which was disallowed by the local security policy. 
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        application traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicGlobals 1 }
+
+cufwAaicGlobalNumBadPDUSize OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This MIB object records the number of application
+        protocol data units (PDU) that had either an invalid
+        header size or an invalid payload size, as determined 
+        by the local security policy.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        application traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicGlobals 2 }
+
+cufwAaicGlobalNumBadPortRange OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of application protocol units that attempted
+        to advertise illegal port ranges for secondary 
+        connections. An example of such an occurrence
+        would be a passive FTP connection, where the 
+        server advertises a disallowed port range for data
+        connection.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        application traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicGlobals 3 }
+-- Deep packet inspection: Protocol-specific statistics
+
+cufwAaicProtocolStats  OBJECT IDENTIFIER
+    ::= { cuFwAaicGrp 2 }
+
+cufwAaicHttpProtocolStats  OBJECT IDENTIFIER
+    ::= { cufwAaicProtocolStats 1 }
+
+
+cufwAaicHttpNumBadProtocolOps OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "HTTP Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PDUs corresponding to HTTP protocol
+        which were detected to be containing HTTP protocol
+        methods which are disallowed by the local security 
+        policy.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        HTTP traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicHttpProtocolStats 1 }
+
+cufwAaicHttpNumBadPDUSize OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "HTTP Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PDUs corresponding to HTTP protocol
+        that had either an invalid header size or an invalid 
+        payload size, as determined by the local security
+        policy.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        HTTP traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicHttpProtocolStats 2 }
+
+cufwAaicHttpNumTunneledConns OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Connections"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of connections corresponding to HTTP
+        protocol which were detected to be tunneling other 
+        application traffic streams. An instance of this 
+        would be InstantMessenger traffic running on HTTP.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        HTTP traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicHttpProtocolStats 3 }
+
+cufwAaicHttpNumLargeURIs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "HTTP Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PDUs corresponding to HTTP protocol
+        which were detected to be containing a URI of
+        size not permitted by the local security policy.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        HTTP traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicHttpProtocolStats 4 }
+
+cufwAaicHttpNumBadContent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "HTTP Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PDUs corresponding to HTTP protocol
+        which were detected to be containing content whose
+        type disallowed by the local security policy.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        HTTP traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicHttpProtocolStats 5 }
+
+cufwAaicHttpNumMismatchContent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "HTTP Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PDUs corresponding to HTTP protocol
+        which were detected to be containing content whose
+        type was different from the content type specified 
+        in the header of the PDU.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        HTTP traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicHttpProtocolStats 6 }
+
+cufwAaicHttpNumDoubleEncodedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "HTTP Protocol Data Units"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PDUs corresponding to HTTP protocol
+        which were detected to be containing double encoding.
+        Double encoding is a mechanism to obfuscate content 
+        in which a encoded data is re-encoded so as to evade 
+        deep packet inspections.
+
+        For this MIB to be implemented, the managed firewall 
+        must be implementing deep packet inspection of 
+        HTTP traffic payloads.
+
+        This value is accumulated from the last reboot of
+        the firewall." 
+    ::= { cufwAaicHttpProtocolStats 7 }
+-- Deep packet inspection: Engine statistics
+
+cufwAaicEngineStats  OBJECT IDENTIFIER
+    ::= { cuFwAaicGrp 3 }
+
+cufwAaicLinaSnortStats  OBJECT IDENTIFIER
+    ::= { cufwAaicEngineStats 1 }
+
+
+cufwAaicPassedSnortCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets sent to Snort from Lina.
+        These are packets with pass verdict." 
+    ::= { cufwAaicLinaSnortStats 1 }
+
+cufwAaicBlockedSnortCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets blocked in Snort." 
+    ::= { cufwAaicLinaSnortStats 2 }
+
+cufwAaicInjbySnortCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets Snort created and added to the traffic stream." 
+    ::= { cufwAaicLinaSnortStats 3 }
+
+cufwAaicBypassSnortDownCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets that bypassed inspection when Snort was Down." 
+    ::= { cufwAaicLinaSnortStats 4 }
+
+cufwAaicBypassSnortBusyCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets that bypassed inspection when Snort was
+        too busy to handle the packets." 
+    ::= { cufwAaicLinaSnortStats 5 }
+
+cufwAaicFastfwdFlowsCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Flow"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of flows that were fast forwarded both by policy,
+        and as result of initial inspection due to say Whitelisting." 
+    ::= { cufwAaicLinaSnortStats 6 }
+
+cufwAaicBlacklistedFlowsCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Flow"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of flows from policy configuration that were black-listed by Snort
+        after inspection." 
+    ::= { cufwAaicLinaSnortStats 7 }
+
+cufwAaicStartofFlowEvCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Event"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Lina process sends start-of-flow events to Snort when it fast paths a flow without sending it to Snort.
+        These events help Snort keep track of the connections and report the connection events." 
+    ::= { cufwAaicLinaSnortStats 8 }
+
+cufwAaicEndofFlowEvCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Event"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Lina process sends end-of-flow events to Snort when a fast path flow ends." 
+    ::= { cufwAaicLinaSnortStats 9 }
+
+cufwAaicDeniedFlowEvCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Event"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Lina process sends denied flow events to Snort when it decides to drop a flow before sending it to Snort." 
+    ::= { cufwAaicLinaSnortStats 10 }
+
+cufwAaicFwdbeforeDropCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packet"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Valid for NGIPS interfaces only. This is the number of to-be-dropped packets forwarded to Snort.
+        When the Lina process decides to drop the frame for some reason such as (Invalid TCP header length,
+        Invalid UDP length or Invalid IP length), the frames are also sent to Snort for visibility." 
+    ::= { cufwAaicLinaSnortStats 11 }
+
+cufwAaicInjDropCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packet"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets that Snort added to the traffic stream that were dropped." 
+    ::= { cufwAaicLinaSnortStats 12 }
+cufwAaicSnortEvRates  OBJECT IDENTIFIER
+    ::= { cufwAaicEngineStats 2 }
+
+
+cufwAaicIntrusionEvtRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Events per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The rate at which intrusion events were recorded by Snort on this firewall
+        averaged over the last 300 seconds." 
+    ::= { cufwAaicSnortEvRates 1 }
+
+cufwAspFrameDropsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CUfwAspFrameDropsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all the ASP frame drops on this firewall device."
+    ::= { cufwAaicEngineStats 3 }
+
+cufwAspFrameDropsEntry OBJECT-TYPE
+    SYNTAX          CUfwAspFrameDropsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table pertains to an ASP frame drop."
+    INDEX           { cufwAspFrameDropIndex } 
+    ::= { cufwAspFrameDropsTable 1 }
+
+CUfwAspFrameDropsEntry ::= SEQUENCE {
+        cufwAspFrameDropIndex       Integer32,
+        cufwAspFrameDropName        SnmpAdminString,
+        cufwAspFrameDropDescription SnmpAdminString,
+        cufwAspFrameDropValue       Counter32
+}
+
+cufwAspFrameDropIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Index within the data-plane frame drop list of supported counters." 
+    ::= { cufwAspFrameDropsEntry 1 }
+
+cufwAspFrameDropName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Name of the frame drop counter." 
+    ::= { cufwAspFrameDropsEntry 2 }
+
+cufwAspFrameDropDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Description of the frame drop counter." 
+    ::= { cufwAspFrameDropsEntry 3 }
+
+cufwAspFrameDropValue OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Frame drop counter value." 
+    ::= { cufwAspFrameDropsEntry 4 }
+ 
+
+
+cufwAspFlowDropsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CUfwAspFlowDropsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all the ASP flow drops on this firewall device."
+    ::= { cufwAaicEngineStats 4 }
+
+cufwAspFlowDropsEntry OBJECT-TYPE
+    SYNTAX          CUfwAspFlowDropsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table pertains to an ASP flow drop."
+    INDEX           { cufwAspFlowDropIndex } 
+    ::= { cufwAspFlowDropsTable 1 }
+
+CUfwAspFlowDropsEntry ::= SEQUENCE {
+        cufwAspFlowDropIndex       Integer32,
+        cufwAspFlowDropName        SnmpAdminString,
+        cufwAspFlowDropDescription SnmpAdminString,
+        cufwAspFlowDropValue       Counter32
+}
+
+cufwAspFlowDropIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Index within the data-plane flow drop list of supported counters." 
+    ::= { cufwAspFlowDropsEntry 1 }
+
+cufwAspFlowDropName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Name of the flow drop counter." 
+    ::= { cufwAspFlowDropsEntry 2 }
+
+cufwAspFlowDropDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Description of the flow drop counter." 
+    ::= { cufwAspFlowDropsEntry 3 }
+
+cufwAspFlowDropValue OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Flow drop counter value." 
+    ::= { cufwAspFlowDropsEntry 4 }
+ 
+
+-- Transparent or Layer 2 or Stealth Firewall group
+
+cufwL2FwGlobals  OBJECT IDENTIFIER
+    ::= { cuFwL2FwGrp 1 }
+
+
+cufwL2GlobalEnableStealthMode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value indicates if the firewall is operating
+        in transparent (layer 2) mode or not.
+
+        When operating in transparent mode, the firewall
+        operates as a bridge while performing firewalling
+        functions." 
+    ::= { cufwL2FwGlobals 1 }
+
+cufwL2GlobalArpCacheSize OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647)
+    UNITS           "ARP entries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value indicates the configured maximum size of
+        the ARP cache used for management traffic." 
+    ::= { cufwL2FwGlobals 2 }
+
+cufwL2GlobalEnableArpInspection OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The value indicates if ARP inspection, which is a
+        security feature, is enabled globally on the
+        managed firewall." 
+    ::= { cufwL2FwGlobals 3 }
+
+-- Transparent Firewall performance statistics
+
+cufwL2GlobalNumArpRequests OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ARP Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ARP requests issued by the transparent
+        firewall to resolve a destination IP address.
+
+        This counter is accumulated since the last reboot of 
+        the firewall." 
+    ::= { cufwL2FwGlobals 5 }
+
+cufwL2GlobalNumIcmpRequests OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ICMP Traceroute Requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ICMP traceroute requests issued by the
+        transparent firewall to resolve a destination IP 
+        address.
+
+        This counter is accumulated since the last reboot of 
+        the firewall." 
+    ::= { cufwL2FwGlobals 6 }
+
+cufwL2GlobalNumFloods OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the firewall floods a frame to be
+        forwarded to the egress interfaces because the 
+        destination MAC address is missing in the bridge table.
+
+        This counter is accumulated since the last reboot of 
+        the firewall." 
+    ::= { cufwL2FwGlobals 7 }
+
+cufwL2GlobalNumDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the firewall dropped an incoming
+        frame because the destination MAC address is missing 
+        in the bridge table.
+
+        This counter is accumulated since the last reboot of 
+        the firewall." 
+    ::= { cufwL2FwGlobals 8 }
+
+cufwL2GlobalArpOverflowRate5 OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times an existing entry from the ARP
+        cache had to be ejected in order to insert a new entry
+        in the last 300 seconds.
+
+        This counter is accumulated since the last reboot of 
+        the firewall." 
+    ::= { cufwL2FwGlobals 9 }
+
+-- Transparent Firewall security incident statistics
+
+cufwL2GlobalNumBadArpResponses OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ARP Responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of malformed ARP responses received by the
+        firewall in trying to resolve the MAC address of the
+        destination IP address in an incoming frame.
+
+        This counter is accumulated since the last reboot of 
+        the firewall." 
+    ::= { cufwL2FwGlobals 10 }
+
+cufwL2GlobalNumSpoofedArpResps OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ARP Responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of spoofed ARP responses received by the
+        firewall. Such an event would occur when the firewall
+        encounters an ARP response mapping an IP address to
+        a different MAC Address from the one present in the
+        local ARP cache.
+
+        This counter is accumulated since the last reboot of 
+        the firewall." 
+    ::= { cufwL2FwGlobals 11 }
+-- Cluster group
+
+cuFwClusterGlobals  OBJECT IDENTIFIER
+    ::= { cuFwClusterGrp 1 }
+
+cuFwClusterStatus  OBJECT IDENTIFIER
+    ::= { cuFwClusterGrp 2 }
+
+cuFwClusterHistory  OBJECT IDENTIFIER
+    ::= { cuFwClusterGrp 3 }
+
+
+CUfwCluState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This type denotes possible cluster unit states."
+    SYNTAX          INTEGER  {
+                        disabled(0),
+                        election(1),
+                        onCall(2),
+                        slaveCold(3),
+                        slaveAppSync(4),
+                        slaveConfig(5),
+                        slaveFilesys(6),
+                        slaveBulkSync(7),
+                        slave(8),
+                        slavePending(9),
+                        deputyBulkSync(10),
+                        deputy(11),
+                        masterFast(12),
+                        masterDrain(13),
+                        masterConfig(14),
+                        masterPostConfig(15),
+                        master(16),
+                        masterDefer(17)
+                    }
+
+CUfwCluHealth ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This type denotes possible cluster interface/app health states."
+    SYNTAX          INTEGER  {
+                        init(0),
+                        up(1),
+                        down(2),
+                        goingDown(3),
+                        goingUp(4),
+                        noLicense(5),
+                        none(6)
+                    }
+
+cuFwCluUnitHealth OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The string would show either healthy
+        or un-healthy." 
+    ::= { cuFwClusterStatus 1 }
+
+cufwCluOverallHealth OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The string would show either healthy
+        or un-healthy." 
+    ::= { cuFwClusterStatus 2 }
+
+cufwCluInterfaceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwCluInterfaceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table summarises the health of each interface
+        in a cluster unit."
+    ::= { cuFwClusterStatus 3 }
+
+cufwCluInterfaceEntry OBJECT-TYPE
+    SYNTAX          CufwCluInterfaceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table depicts the health of a clustering interface."
+    INDEX           { cuCluIfcIndex } 
+    ::= { cufwCluInterfaceTable 1 }
+
+CufwCluInterfaceEntry ::= SEQUENCE {
+        cuCluIfcIndex       InterfaceIndex,
+        cufwCluHealthCheck  CUfwInterfaceMonitor,
+        cufwCluHealthStatus CUfwCluHealth
+}
+
+cuCluIfcIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex from the IF-MIB for an interface in a cluster unit." 
+    ::= { cufwCluInterfaceEntry 1 }
+
+cufwCluHealthCheck OBJECT-TYPE
+    SYNTAX          CUfwInterfaceMonitor
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The monitoring state of the interface being addressed in a cluster unit." 
+    ::= { cufwCluInterfaceEntry 3 }
+
+cufwCluHealthStatus OBJECT-TYPE
+    SYNTAX          CUfwCluHealth
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The health-check outcome of the interface being addressed in a cluster unit." 
+    ::= { cufwCluInterfaceEntry 2 }
+ 
+
+
+cuFwCluMaxStateEvents OBJECT-TYPE
+    SYNTAX          INTEGER
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The max count of history logs for cluster state transitions
+        that can be saved on the device." 
+    ::= { cuFwClusterHistory 1 }
+
+cufwCluHistEvTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CufwCluHistEvEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table summarises the cluster state transitions' history
+        in a unit."
+    ::= { cuFwClusterHistory 2 }
+
+cufwCluHistEvEntry OBJECT-TYPE
+    SYNTAX          CufwCluHistEvEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table lists details of a cluster state transition."
+    INDEX           { cufwCluHistIndex } 
+    ::= { cufwCluHistEvTable 1 }
+
+CufwCluHistEvEntry ::= SEQUENCE {
+        cufwCluHistIndex        INTEGER,
+        cufwCluFromState        CUfwCluState,
+        cufwCluToState          CUfwCluState,
+        cufwCluTransitionAt     DateAndTime,
+        cufwCluTransitionReason DisplayString
+}
+
+cufwCluHistIndex OBJECT-TYPE
+    SYNTAX          INTEGER
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A distinct index that points to an entry in the cluster history table
+        for this unit." 
+    ::= { cufwCluHistEvEntry 1 }
+
+cufwCluFromState OBJECT-TYPE
+    SYNTAX          CUfwCluState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The log entry points to the cluster state that this event transitioned from." 
+    ::= { cufwCluHistEvEntry 2 }
+
+cufwCluToState OBJECT-TYPE
+    SYNTAX          CUfwCluState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The log entry points to the cluster state that this event transitioned to." 
+    ::= { cufwCluHistEvEntry 3 }
+
+cufwCluTransitionAt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The date&time at which this transition happened for the cluster unit." 
+    ::= { cufwCluHistEvEntry 4 }
+
+cufwCluTransitionReason OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The reason for this transition for the cluster unit." 
+    ::= { cufwCluHistEvEntry 5 }
+ 
+
+
+-- Cluster Globals
+
+cufwCluEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This value depicts if clustering is enabled or not
+        on the device." 
+    ::= { cuFwClusterGlobals 1 }
+
+cufwCluInterfaceMode OBJECT-TYPE
+    SYNTAX          INTEGER (0..3)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Mode of interface in clustering.
+        Value        Type
+          0        none
+          1        Spanned ether-channel
+          2         Individual
+          3     invalid" 
+    ::= { cuFwClusterGlobals 2 }
+
+cufwCluUnitState OBJECT-TYPE
+    SYNTAX          CUfwCluState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current state of the unit in cluster." 
+    ::= { cuFwClusterGlobals 3 }
+
+cufwCCLink OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the interface used for cluster communication
+        between the units." 
+    ::= { cuFwClusterGlobals 4 }
+
+cufwCluGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The group name uniquely identifying this cluster." 
+    ::= { cuFwClusterGlobals 5 }
+
+cufwCluUnitName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name uniquely identifying this cluster member." 
+    ::= { cuFwClusterGlobals 6 }
+
+cufwCluConsoleReplicate OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The console replication feature is enabled on this slave. Slave units
+        send the console messages to the master unit so that you 
+        only need to monitor one console port for the cluster." 
+    ::= { cuFwClusterGlobals 7 }
+
+cufwCluSiteID OBJECT-TYPE
+    SYNTAX          INTEGER (0..8)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The site ID for this unit used in inter-site clustering." 
+    ::= { cuFwClusterGlobals 8 }
+
+cufwCluPriority OBJECT-TYPE
+    SYNTAX          INTEGER (1..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The priority of this unit for master unit elections (1 being highest)." 
+    ::= { cuFwClusterGlobals 9 }
+
+cufwCluSerialNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor-specific serial number string for the
+        current unit in cluster." 
+    ::= { cuFwClusterGlobals 10 }
+
+cufwCCLipAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ip address used on the interface for CCL communication." 
+    ::= { cuFwClusterGlobals 11 }
+
+cufwCCLmacAddr OBJECT-TYPE
+    SYNTAX          PhysAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MAC address on the CCL link." 
+    ::= { cuFwClusterGlobals 12 }
+
+cufwCluSwVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor-specific software revision string for the
+        current unit in cluster." 
+    ::= { cuFwClusterGlobals 13 }
+
+cufwCluUnitHoldtime OBJECT-TYPE
+    SYNTAX          INTEGER (800..45000)
+    UNITS           "millisec"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "To determine unit health, the ASA cluster units send
+        keepalive messages on the cluster control link to other units.
+        The hold time that each unit will wait before
+        declaring a peer unit as dead." 
+    ::= { cuFwClusterGlobals 14 }
+
+cufwCluLastJoinAt OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The date&time at which this unit last joined the cluster." 
+    ::= { cuFwClusterGlobals 15 }
+
+cufwCluLastLeaveAt OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The date&time at which this unit last left the cluster." 
+    ::= { cuFwClusterGlobals 16 }
+
+-- Cisco Firewall MIB Notification Control
+
+cufwCntlUrlfServerStatusChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of
+        sending the SNMP notification to signal the election
+        of a new primary URL filtering server by this
+        firewall.
+
+        Such a change could occur either as a result of 
+        the current primary server becoming unavailable or
+        as a result of explicit management action in 
+        nominating a filtering server the primary server."
+    DEFVAL          { false } 
+    ::= { cuFwNotifCntlGrp 1 }
+
+cufwCntlL2StaticMacAddressMoved OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of
+        sending the SNMP notification to signal the move
+        of a statically configured MAC address to a new 
+        port.
+
+        Such a change could occur either as a result of physical
+        move of the device with the MAC Address to the new port
+        or due to MAC address spoofing."
+    DEFVAL          { true } 
+    ::= { cuFwNotifCntlGrp 2 }
+
+cufwCntlFOstateChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of
+        sending the SNMP notification to signal the election
+        of a new active or standby in an HA pair."
+    DEFVAL          { true } 
+    ::= { cuFwNotifCntlGrp 3 }
+
+cufwCntlCluStateChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of
+        sending the SNMP notification to signal the election
+        of a new master in a cluster unit."
+    DEFVAL          { true } 
+    ::= { cuFwNotifCntlGrp 4 }
+
+-- Cisco Firewall MIB Notifications
+
+ciscoUFwUrlfServerStateChange NOTIFICATION-TYPE
+    OBJECTS         { cufwUrlfServerStatus }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the firewall
+        elects a new primary URL filtering server from
+        the existing set of configured servers. 
+
+        Such a change could occur either as a result of 
+        the current primary server becoming unavailable or
+        as a result of explicit management action in 
+        nominating a filtering server the primary server.
+
+        The notification is issued just before the change
+        occurs. Consequently, the varbinds identify the 
+        attributes corresponding to the old primary server.
+
+        This notification is issued if and only if the
+        object 'cufwCntlUrlfServerStatusChange' has been
+        set to 'true'."
+   ::= { ciscoUnifiedFirewallMIBNotifs 1 }
+
+ciscoUFwL2StaticMacAddressMoved NOTIFICATION-TYPE
+    OBJECTS         {
+                        dot1dTpFdbPort,
+                        dot1dTpFdbStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the firewall
+        detects the move of a static MAC address to a new
+        port.
+
+        Such a change could occur either as a result of 
+        physical move of the device with the MAC Address 
+        to the new port, due to management action of 
+        relocating the MAC address at the new location or
+        due to MAC address spoofing.
+
+        The varbinds identify the new location (port) of 
+        the MAC Address and its status at the new location.
+
+        This notification is issued if and only if the
+        object 'cufwCntlL2StaticMacAddressMoved' has been
+        set to 'true'."
+   ::= { ciscoUnifiedFirewallMIBNotifs 2 }
+
+cufwFailoverStateChanged NOTIFICATION-TYPE
+    OBJECTS         {
+                        cufwFOGroupIndex,
+                        cufwFOGrpHAstate
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the firewall
+        detects a state change in either units of an HA pair.
+
+        This notification is issued if and only if the
+        object 'cufwCntlFOstateChange' has been
+        set to 'true'."
+   ::= { ciscoUnifiedFirewallMIBNotifs 3 }
+
+cufwClusterStateChanged NOTIFICATION-TYPE
+    OBJECTS         { cufwCluUnitState }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the firewall
+        detects a new master has been elected.
+
+        This notification is issued if and only if the
+        object 'cufwCntlCluStateChange' has been
+        set to 'true'."
+   ::= { ciscoUnifiedFirewallMIBNotifs 4 }
+-- Conformance Information
+
+ciscoUniFirewallMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBConform 1 }
+
+ciscoUniFirewallMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoUnifiedFirewallMIBConform 2 }
+
+
+-- Compliance Statements
+
+ciscoUniFirewallMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for SNMP entities
+        the Cisco Firewall MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoFwConnectionGroup,
+                        ciscoFwMibReportingControlGroup
+                    }
+
+    GROUP           ciscoFwApplInspectionGroup
+    DESCRIPTION
+        "This group is mandatory for a firewall
+        implementation which implements application 
+        inspection of L7 protocols"
+
+    GROUP           ciscoFwConnResourceUsageGroup
+    DESCRIPTION
+        "This group is optional."
+
+    GROUP           ciscoFwFailoverGroup
+    DESCRIPTION
+        "This group is optional."
+
+    GROUP           ciscoFwPolicyConnectionGroup
+    DESCRIPTION
+        "This group is mandatory for a firewall
+        implementation which implements the
+        instrumentation of policy based connection
+        statistics."
+
+    GROUP           ciscoFwUrlFilterGroup
+    DESCRIPTION
+        "This group is mandatory only if the
+        firewall implements URL Filtering 
+        functionality."
+
+    GROUP           ciscoFwUrlFilterResourceGroup
+    DESCRIPTION
+        "This group is optional."
+
+    GROUP           ciscoFwTransparentFwGroup
+    DESCRIPTION
+        "This group is mandatory only if the
+        firewall implements transparent or layer 2 
+        mode of operation."
+
+    GROUP           ciscoFwTransparentNotifGroup
+    DESCRIPTION
+        "This group is mandatory only if the
+        firewall implements transparent or layer 2 
+        mode of operation."
+
+    GROUP           ciscoFwBasicAaicGroup
+    DESCRIPTION
+        "This group is mandatory only if the
+        firewall implements the group 
+        'ciscoFwAaicHttpGroup'."
+
+    GROUP           ciscoFwAaicHttpGroup
+    DESCRIPTION
+        "This group is mandatory only for a
+        firewall implementation which implements 
+        Advanced Application Inspection and 
+        Control (deep packet inspection) of HTTP 
+        traffic.
+
+        Further, any implementation that supports
+        thsi group MUST implement group
+        ciscoFwBasicAaicGroup."
+    ::= { ciscoUniFirewallMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoFwConnectionGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwConnGlobalNumAttempted,
+                        cufwConnGlobalNumSetupsAborted,
+                        cufwConnGlobalNumPolicyDeclined,
+                        cufwConnGlobalNumResDeclined,
+                        cufwConnGlobalNumHalfOpen,
+                        cufwConnGlobalNumActive,
+                        cufwConnGlobalNumAborted,
+                        cufwConnGlobalNumExpired,
+                        cufwConnGlobalNumEmbryonic,
+                        cufwConnGlobalConnSetupRate1,
+                        cufwConnGlobalConnSetupRate5,
+                        cufwConnGlobalNumRemoteAccess,
+                        cufwConnNumAttempted,
+                        cufwConnNumSetupsAborted,
+                        cufwConnNumPolicyDeclined,
+                        cufwConnNumResDeclined,
+                        cufwConnNumHalfOpen,
+                        cufwConnNumActive,
+                        cufwConnNumAborted,
+                        cufwConnSetupRate1,
+                        cufwConnSetupRate5,
+                        cufwAppConnNumAttempted,
+                        cufwAppConnNumSetupsAborted,
+                        cufwAppConnNumPolicyDeclined,
+                        cufwAppConnNumResDeclined,
+                        cufwAppConnNumHalfOpen,
+                        cufwAppConnNumActive,
+                        cufwAppConnNumAborted,
+                        cufwAppConnSetupRate1,
+                        cufwAppConnSetupRate5
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument the firewall stateful connection activity."
+    ::= { ciscoUniFirewallMIBGroups 1 }
+
+ciscoFwConnResourceUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwConnResMemoryUsage,
+                        cufwConnResActiveConnMemoryUsage,
+                        cufwConnResHOConnMemoryUsage,
+                        cufwConnResEmbrConnMemoryUsage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument the resource usage of the stateful packet
+        filtering feature of the managed firewall."
+    ::= { ciscoUniFirewallMIBGroups 2 }
+
+ciscoFwPolicyConnectionGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwPolConnNumAttempted,
+                        cufwPolConnNumSetupsAborted,
+                        cufwPolConnNumPolicyDeclined,
+                        cufwPolConnNumResDeclined,
+                        cufwPolConnNumHalfOpen,
+                        cufwPolConnNumActive,
+                        cufwPolConnNumAborted,
+                        cufwPolAppConnNumAttempted,
+                        cufwPolAppConnNumSetupsAborted,
+                        cufwPolAppConnNumPolicyDeclined,
+                        cufwPolAppConnNumResDeclined,
+                        cufwPolAppConnNumHalfOpen,
+                        cufwPolAppConnNumActive,
+                        cufwPolAppConnNumAborted
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument policy based summary of firewall connection
+        activity."
+    ::= { ciscoUniFirewallMIBGroups 3 }
+
+ciscoFwApplInspectionGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwAIAuditTrailEnabled,
+                        cufwAIAlertEnabled,
+                        cufwInspectionStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument the firewall Application Inspection
+        function."
+    ::= { ciscoUniFirewallMIBGroups 4 }
+
+ciscoFwUrlFilterGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwUrlfFunctionEnabled,
+                        cufwUrlfRequestsNumProcessed,
+                        cufwUrlfRequestsProcRate1,
+                        cufwUrlfRequestsProcRate5,
+                        cufwUrlfRequestsNumAllowed,
+                        cufwUrlfRequestsNumDenied,
+                        cufwUrlfRequestsDeniedRate1,
+                        cufwUrlfRequestsDeniedRate5,
+                        cufwUrlfRequestsNumCacheAllowed,
+                        cufwUrlfRequestsNumCacheDenied,
+                        cufwUrlfAllowModeReqNumAllowed,
+                        cufwUrlfAllowModeReqNumDenied,
+                        cufwUrlfRequestsNumResDropped,
+                        cufwUrlfRequestsResDropRate1,
+                        cufwUrlfRequestsResDropRate5,
+                        cufwUrlfNumServerTimeouts,
+                        cufwUrlfNumServerRetries,
+                        cufwUrlfResponsesNumLate,
+                        cufwUrlfUrlAccRespsNumResDropped,
+                        cufwUrlfServerVendor,
+                        cufwUrlfServerStatus,
+                        cufwUrlfServerReqsNumProcessed,
+                        cufwUrlfServerReqsNumAllowed,
+                        cufwUrlfServerReqsNumDenied,
+                        cufwUrlfServerNumTimeouts,
+                        cufwUrlfServerNumRetries,
+                        cufwUrlfServerRespsNumReceived,
+                        cufwUrlfServerRespsNumLate,
+                        cufwUrlfServerAvgRespTime1,
+                        cufwUrlfServerAvgRespTime5,
+                        cufwCntlUrlfServerStatusChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument the firewall URL filtering function."
+    ::= { ciscoUniFirewallMIBGroups 5 }
+
+ciscoFwUrlFilterResourceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwUrlfResTotalRequestCacheSize,
+                        cufwUrlfResTotalRespCacheSize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument the resource usage of the URL filtering
+        feature of the managed firewall."
+    ::= { ciscoUniFirewallMIBGroups 6 }
+
+ciscoFwTransparentFwGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwL2GlobalEnableStealthMode,
+                        cufwL2GlobalArpCacheSize,
+                        cufwL2GlobalEnableArpInspection,
+                        cufwL2GlobalNumArpRequests,
+                        cufwL2GlobalNumIcmpRequests,
+                        cufwL2GlobalNumFloods,
+                        cufwL2GlobalNumDrops,
+                        cufwL2GlobalArpOverflowRate5,
+                        cufwL2GlobalNumBadArpResponses,
+                        cufwL2GlobalNumSpoofedArpResps,
+                        cufwCntlL2StaticMacAddressMoved
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument the transparent mode (or layer 2) operation
+        of a firewall."
+    ::= { ciscoUniFirewallMIBGroups 7 }
+
+ciscoFwNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoUFwUrlfServerStateChange }
+    STATUS          current
+    DESCRIPTION
+        "This group contains notifications defined
+        in the Cisco Firewall MIB pertaining to 
+        basic firewall operations.
+
+        Presently, the list include a notification
+        pertaining to URL filtering alone."
+    ::= { ciscoUniFirewallMIBGroups 8 }
+
+ciscoFwTransparentNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoUFwL2StaticMacAddressMoved }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the notifications that signal
+        security critical events pertaining to the 
+        transparent mode operation of the firewall."
+    ::= { ciscoUniFirewallMIBGroups 9 }
+
+ciscoFwBasicAaicGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwAaicGlobalNumBadProtocolOps,
+                        cufwAaicGlobalNumBadPDUSize,
+                        cufwAaicGlobalNumBadPortRange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects required to
+        instrument the basic elements of Advanced Application
+        Inspection and Control (AAIC)."
+    ::= { ciscoUniFirewallMIBGroups 10 }
+
+ciscoFwAaicHttpGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwAaicHttpNumBadProtocolOps,
+                        cufwAaicHttpNumBadPDUSize,
+                        cufwAaicHttpNumTunneledConns,
+                        cufwAaicHttpNumLargeURIs,
+                        cufwAaicHttpNumBadContent,
+                        cufwAaicHttpNumMismatchContent,
+                        cufwAaicHttpNumDoubleEncodedPkts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group defines statistics pertaining to deep
+        packet inspection of HTTP payloads.
+
+        A firewall that implements this group must implement
+        the group 'ciscoFwBasicAaicGroup'."
+    ::= { ciscoUniFirewallMIBGroups 11 }
+
+ciscoFwMibReportingControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwConnReptAppStats,
+                        cufwConnReptAppStatsLastChanged
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects that allow
+        the administrator to control the granularity of
+        objects reported by the agent."
+    ::= { ciscoUniFirewallMIBGroups 12 }
+
+ciscoFwFailoverGroup OBJECT-GROUP
+    OBJECTS         {
+                        cufwFOEnabled,
+                        cufwFOUnitDesignation,
+                        cufwFOLink,
+                        cufwFOStateLink,
+                        cufwFOStdbyConfigLocked,
+                        cufwFOEncryption,
+                        cufwFOSerialNumOurs,
+                        cufwFOSerialNumMate,
+                        cufwFOSwVersionOurs,
+                        cufwFOSwVersionMate,
+                        cufwFOUnitPolltime,
+                        cufwFOUnitHoldtime,
+                        cufwFOUnitBfdEnabled,
+                        cufwFOLinkStatePolltime,
+                        cufwFOInterfacePolicy,
+                        cufwFOMonitoredInterfaces,
+                        cufwFOInterfacePolltime,
+                        cufwFOInterfaceHoldtime,
+                        cufwFOReplicationHttp,
+                        cufwFOReplicationRate,
+                        cufwFOGroupIdx,
+                        cufwFOCLientId,
+                        cufwFOCLientName,
+                        cufwFOLUTransmitCount,
+                        cufwFOLUTransmitErrors,
+                        cufwFOLUReceiveCount,
+                        cufwFOLUReceiveErrors,
+                        cufwFOStatefulUpdateEnabled,
+                        cufwFOGroupIndex,
+                        cufwContextId,
+                        cufwContextifIndex,
+                        cufwFOInterfaceMonitoring,
+                        cufwFOInterfaceStatus,
+                        cufwFOGroupIndex,
+                        cufwFOGrpLastFailoverAt,
+                        cufwFOGrpHAstate,
+                        cufwFOGrpUpTime,
+                        cufwFOGrpContextCount,
+                        cufwFOGrpIndex,
+                        cufwFOHistoryIndex,
+                        cufwFOGrpHAFromState,
+                        cufwFOGrpHAToState,
+                        cufwFOGrpTransitionAt,
+                        cufwFOGrpTransitionReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the MIB objects that allow
+        the administrator to control the granularity of
+        objects reported by the agent."
+    ::= { ciscoUniFirewallMIBGroups 13 }
+
+END

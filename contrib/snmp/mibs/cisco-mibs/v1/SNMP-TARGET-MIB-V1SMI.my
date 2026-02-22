@@ -1,0 +1,694 @@
+-- MIB file created 28-Jun-2001 22:14:18, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+SNMP-TARGET-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "SNMP-TARGET-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    snmpModules
+            FROM SNMPv2-SMI-v1
+    TDomain, TAddress, TimeInterval, RowStatus, StorageType, 
+    TestAndIncr
+            FROM SNMPv2-TC-v1
+    SnmpSecurityModel, SnmpMessageProcessingModel, 
+    SnmpSecurityLevel, SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+snmpTargetMIB OBJECT IDENTIFIER ::= { snmpModules 12 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9808040000Z
+--  OrgName
+--    IETF SNMPv3 Working Group
+--  ContactInfo
+--    WG-email:   snmpv3@lists.tislabs.com
+--     Subscribe:  majordomo@lists.tislabs.com
+--                 In message body:  subscribe snmpv3
+--    
+--     Chair:      Russ Mundy
+--    
+--    
+--    
+--    
+--    
+--                 Trusted Information Systems
+--     Postal:     3060 Washington Rd
+--                 Glenwood MD 21738
+--                 USA
+--     EMail:      mundy@tislabs.com
+--     Phone:      +1-301-854-6889
+--    
+--     Co-editor:  David B. Levi
+--                 SNMP Research, Inc.
+--     Postal:     3001 Kimberlin Heights Road
+--                 Knoxville, TN 37920-9716
+--     EMail:      levi@snmp.com
+--     Phone:      +1 423 573 1434
+--    
+--     Co-editor:  Paul Meyer
+--                 Secure Computing Corporation
+--     Postal:     2675 Long Lake Road
+--                 Roseville, MN 55113
+--     EMail:      paul_meyer@securecomputing.com
+--     Phone:      +1 651 628 1592
+--    
+--     Co-editor:  Bob Stewart
+--                 Cisco Systems, Inc.
+--     Postal:     170 West Tasman Drive
+--                 San Jose, CA 95134-1706
+--     EMail:      bstewart@cisco.com
+--     Phone:      +1 603 654 2686
+--  Descr
+--    This MIB module defines MIB objects which provide
+--     mechanisms to remotely configure the parameters used
+--     by an SNMP entity for the generation of SNMP messages.
+--  RevDate
+--    9808040000Z
+--  RevDescr
+--    Clarifications, published as
+--     RFC2573.
+--  RevDate
+--    9707140000Z
+--  RevDescr
+--    The initial revision, published as RFC2273.
+
+snmpTargetObjects OBJECT IDENTIFIER ::= { snmpTargetMIB 1 }
+snmpTargetConformance OBJECT IDENTIFIER ::= { snmpTargetMIB 3 }
+snmpTargetCompliances OBJECT IDENTIFIER ::= { snmpTargetConformance 1 }
+snmpTargetGroups OBJECT IDENTIFIER ::= { snmpTargetConformance 2 }
+
+SnmpTagValue ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    An octet string containing a tag value.
+--     Tag values are preferably in human-readable form.
+--    
+--    
+--    
+--    
+--    
+--    
+--     To facilitate internationalization, this information
+--     is represented using the ISO/IEC IS 10646-1 character
+--     set, encoded as an octet string using the UTF-8
+--     character encoding scheme described in RFC 2279.
+--    
+--     Since additional code points are added by amendments
+--     to the 10646 standard from time to time,
+--     implementations must be prepared to encounter any code
+--     point from 0x00000000 to 0x7fffffff.
+--    
+--     The use of control codes should be avoided, and certain
+--     control codes are not allowed as described below.
+--    
+--     For code points not directly supported by user
+--     interface hardware or software, an alternative means
+--     of entry and display, such as hexadecimal, may be
+--     provided.
+--    
+--     For information encoded in 7-bit US-ASCII, the UTF-8
+--     representation is identical to the US-ASCII encoding.
+--    
+--     Note that when this TC is used for an object that
+--     is used or envisioned to be used as an index, then a
+--     SIZE restriction must be specified so that the number
+--     of sub-identifiers for any object instance does not
+--     exceed the limit of 128, as defined by [RFC1905].
+--    
+--     An object of this type contains a single tag value
+--     which is used to select a set of entries in a table.
+--    
+--     A tag value is an arbitrary string of octets, but
+--     may not contain a delimiter character.  Delimiter
+--     characters are defined to be one of the following:
+--    
+--         -  An ASCII space character (0x20).
+--    
+--         -  An ASCII TAB character (0x09).
+--    
+--         -  An ASCII carriage return (CR) character (0x0D).
+--    
+--         -  An ASCII line feed (LF) character (0x0B).
+--    
+--     Delimiter characters are used to separate tag values
+--     in a tag list.  An object of this type may only
+--     contain a single tag value, and so delimiter
+--     characters are not allowed in a value of this type.
+--    
+--     Some examples of valid tag values are:
+--    
+--    
+--    
+--    
+--    
+--         - 'acme'
+--    
+--         - 'router'
+--    
+--         - 'host'
+--    
+--     The use of a tag value to select table entries is
+--     application and MIB specific.
+
+SnmpTagList ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    An octet string containing a list of tag values.
+--     Tag values are preferably in human-readable form.
+--    
+--     To facilitate internationalization, this information
+--     is represented using the ISO/IEC IS 10646-1 character
+--     set, encoded as an octet string using the UTF-8
+--     character encoding scheme described in RFC 2279.
+--    
+--     Since additional code points are added by amendments
+--     to the 10646 standard from time to time,
+--     implementations must be prepared to encounter any code
+--     point from 0x00000000 to 0x7fffffff.
+--    
+--     The use of control codes should be avoided, except as
+--     described below.
+--    
+--     For code points not directly supported by user
+--     interface hardware or software, an alternative means
+--     of entry and display, such as hexadecimal, may be
+--     provided.
+--    
+--     For information encoded in 7-bit US-ASCII, the UTF-8
+--     representation is identical to the US-ASCII encoding.
+--    
+--     An object of this type contains a list of tag values
+--     which are used to select a set of entries in a table.
+--    
+--     A tag value is an arbitrary string of octets, but
+--     may not contain a delimiter character.  Delimiter
+--     characters are defined to be one of the following:
+--    
+--         -  An ASCII space character (0x20).
+--    
+--         -  An ASCII TAB character (0x09).
+--    
+--    
+--    
+--    
+--    
+--         -  An ASCII carriage return (CR) character (0x0D).
+--    
+--         -  An ASCII line feed (LF) character (0x0B).
+--    
+--     Delimiter characters are used to separate tag values
+--     in a tag list.  Only a single delimiter character may
+--     occur between two tag values.  A tag value may not
+--     have a zero length.  These constraints imply certain
+--     restrictions on the contents of this object:
+--    
+--         - There cannot be a leading or trailing delimiter
+--           character.
+--    
+--         - There cannot be multiple adjacent delimiter
+--           characters.
+--    
+--     Some examples of valid tag lists are:
+--    
+--         - An empty string
+--    
+--         - 'acme router'
+--    
+--         - 'host managerStation'
+--    
+--     Note that although a tag value may not have a length of
+--     zero, an empty string is still valid.  This indicates
+--     an empty list (i.e. there are no tag values in the list).
+--    
+--     The use of the tag list to select table entries is
+--     application and MIB specific.  Typically, an application
+--     will provide one or more tag values, and any entry
+--     which contains some combination of these tag values
+--     will be selected.
+
+snmpTargetSpinLock OBJECT-TYPE
+    SYNTAX TestAndIncr
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to facilitate modification of table
+         entries in the SNMP-TARGET-MIB module by multiple
+        
+        
+        
+        
+        
+         managers.  In particular, it is useful when modifying
+         the value of the snmpTargetAddrTagList object.
+        
+         The procedure for modifying the snmpTargetAddrTagList
+         object is as follows:
+        
+             1.  Retrieve the value of snmpTargetSpinLock and
+                 of snmpTargetAddrTagList.
+        
+             2.  Generate a new value for snmpTargetAddrTagList.
+        
+             3.  Set the value of snmpTargetSpinLock to the
+                 retrieved value, and the value of
+                 snmpTargetAddrTagList to the new value.  If
+                 the set fails for the snmpTargetSpinLock
+                 object, go back to step 1."
+    ::= { snmpTargetObjects 1 }
+
+snmpTargetAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SnmpTargetAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of transport addresses to be used in the generation
+         of SNMP messages."
+    ::= { snmpTargetObjects 2 }
+
+snmpTargetAddrEntry OBJECT-TYPE
+    SYNTAX SnmpTargetAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A transport address to be used in the generation
+         of SNMP operations.
+        
+         Entries in the snmpTargetAddrTable are created and
+         deleted using the snmpTargetAddrRowStatus object."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED snmpTargetAddrName }
+    ::= { snmpTargetAddrTable 1 }
+
+SnmpTargetAddrEntry ::= SEQUENCE {
+    snmpTargetAddrName SnmpAdminString,
+    snmpTargetAddrTDomain TDomain,
+    snmpTargetAddrTAddress TAddress,
+    snmpTargetAddrTimeout TimeInterval,
+    snmpTargetAddrRetryCount INTEGER,
+    snmpTargetAddrTagList SnmpTagList,
+    snmpTargetAddrParams SnmpAdminString,
+    snmpTargetAddrStorageType StorageType,
+    snmpTargetAddrRowStatus RowStatus
+    }
+
+snmpTargetAddrName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The locally arbitrary, but unique identifier associated
+         with this snmpTargetAddrEntry."
+    ::= { snmpTargetAddrEntry 1 }
+
+snmpTargetAddrTDomain OBJECT-TYPE
+    SYNTAX TDomain
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the transport type of the address
+         contained in the snmpTargetAddrTAddress object."
+    ::= { snmpTargetAddrEntry 2 }
+
+snmpTargetAddrTAddress OBJECT-TYPE
+    SYNTAX TAddress
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains a transport address.  The format of
+         this address depends on the value of the
+         snmpTargetAddrTDomain object."
+    ::= { snmpTargetAddrEntry 3 }
+
+snmpTargetAddrTimeout OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object should reflect the expected maximum round
+         trip time for communicating with the transport address
+         defined by this row.  When a message is sent to this
+         address, and a response (if one is expected) is not
+         received within this time period, an implementation
+         may assume that the response will not be delivered.
+        
+         Note that the time interval that an application waits
+         for a response may actually be derived from the value
+         of this object.  The method for deriving the actual time
+         interval is implementation dependent.  One such method
+        
+        
+        
+        
+        
+         is to derive the expected round trip time based on a
+         particular retransmission algorithm and on the number
+         of timeouts which have occurred.  The type of message may
+         also be considered when deriving expected round trip
+         times for retransmissions.  For example, if a message is
+         being sent with a securityLevel that indicates both
+         authentication and privacy, the derived value may be
+         increased to compensate for extra processing time spent
+         during authentication and encryption processing."
+    DEFVAL { 1500 }
+    ::= { snmpTargetAddrEntry 4 }
+
+snmpTargetAddrRetryCount OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies a default number of retries to be
+         attempted when a response is not received for a generated
+         message.  An application may provide its own retry count,
+         in which case the value of this object is ignored."
+    DEFVAL { 3 }
+    ::= { snmpTargetAddrEntry 5 }
+
+snmpTargetAddrTagList OBJECT-TYPE
+    SYNTAX SnmpTagList
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains a list of tag values which are
+         used to select target addresses for a particular
+         operation."
+    DEFVAL { "" }
+    ::= { snmpTargetAddrEntry 6 }
+
+snmpTargetAddrParams OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies an entry in the
+         snmpTargetParamsTable.  The identified entry
+         contains SNMP parameters to be used when generating
+         messages to be sent to this transport address."
+    ::= { snmpTargetAddrEntry 7 }
+
+snmpTargetAddrStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { snmpTargetAddrEntry 8 }
+
+snmpTargetAddrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         To create a row in this table, a manager must
+         set this object to either createAndGo(4) or
+         createAndWait(5).
+        
+         Until instances of all corresponding columns are
+         appropriately configured, the value of the
+         corresponding instance of the snmpTargetAddrRowStatus
+         column is 'notReady'.
+        
+         In particular, a newly created row cannot be made
+         active until the corresponding instances of
+         snmpTargetAddrTDomain, snmpTargetAddrTAddress, and
+         snmpTargetAddrParams have all been set.
+        
+         The following objects may not be modified while the
+         value of this object is active(1):
+             - snmpTargetAddrTDomain
+             - snmpTargetAddrTAddress
+         An attempt to set these objects while the value of
+         snmpTargetAddrRowStatus is active(1) will result in
+         an inconsistentValue error."
+    ::= { snmpTargetAddrEntry 9 }
+
+snmpTargetParamsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SnmpTargetParamsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of SNMP target information to be used
+         in the generation of SNMP messages."
+    ::= { snmpTargetObjects 3 }
+
+snmpTargetParamsEntry OBJECT-TYPE
+    SYNTAX SnmpTargetParamsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of SNMP target information.
+        
+         Entries in the snmpTargetParamsTable are created and
+         deleted using the snmpTargetParamsRowStatus object."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED snmpTargetParamsName }
+    ::= { snmpTargetParamsTable 1 }
+
+SnmpTargetParamsEntry ::= SEQUENCE {
+    snmpTargetParamsName SnmpAdminString,
+    snmpTargetParamsMPModel SnmpMessageProcessingModel,
+    snmpTargetParamsSecurityModel SnmpSecurityModel,
+    snmpTargetParamsSecurityName SnmpAdminString,
+    snmpTargetParamsSecurityLevel SnmpSecurityLevel,
+    snmpTargetParamsStorageType StorageType,
+    snmpTargetParamsRowStatus RowStatus
+    }
+
+snmpTargetParamsName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The locally arbitrary, but unique identifier associated
+         with this snmpTargetParamsEntry."
+    ::= { snmpTargetParamsEntry 1 }
+
+snmpTargetParamsMPModel OBJECT-TYPE
+    SYNTAX SnmpMessageProcessingModel
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Message Processing Model to be used when generating
+         SNMP messages using this entry."
+    ::= { snmpTargetParamsEntry 2 }
+
+snmpTargetParamsSecurityModel OBJECT-TYPE
+    SYNTAX SnmpSecurityModel(1..2147483647)
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Security Model to be used when generating SNMP
+          messages using this entry.  An implementation may
+          choose to return an inconsistentValue error if an
+          attempt is made to set this variable to a value
+          for a security model which the implementation does
+        
+        
+        
+        
+        
+          not support."
+    ::= { snmpTargetParamsEntry 3 }
+
+snmpTargetParamsSecurityName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The securityName which identifies the Principal on
+         whose behalf SNMP messages will be generated using
+         this entry."
+    ::= { snmpTargetParamsEntry 4 }
+
+snmpTargetParamsSecurityLevel OBJECT-TYPE
+    SYNTAX SnmpSecurityLevel
+--    Rsyntax INTEGER {
+--        noAuthNoPriv(1),
+--        authNoPriv(2),
+--        authPriv(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Level of Security to be used when generating
+         SNMP messages using this entry."
+    ::= { snmpTargetParamsEntry 5 }
+
+snmpTargetParamsStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { snmpTargetParamsEntry 6 }
+
+snmpTargetParamsRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         To create a row in this table, a manager must
+         set this object to either createAndGo(4) or
+         createAndWait(5).
+        
+         Until instances of all corresponding columns are
+         appropriately configured, the value of the
+         corresponding instance of the snmpTargetParamsRowStatus
+         column is 'notReady'.
+        
+         In particular, a newly created row cannot be made
+        
+        
+        
+        
+        
+         active until the corresponding
+         snmpTargetParamsMPModel,
+         snmpTargetParamsSecurityModel,
+         snmpTargetParamsSecurityName,
+         and snmpTargetParamsSecurityLevel have all been set.
+         The following objects may not be modified while the
+         value of this object is active(1):
+             - snmpTargetParamsMPModel
+             - snmpTargetParamsSecurityModel
+             - snmpTargetParamsSecurityName
+             - snmpTargetParamsSecurityLevel
+         An attempt to set these objects while the value of
+         snmpTargetParamsRowStatus is active(1) will result in
+         an inconsistentValue error."
+    ::= { snmpTargetParamsEntry 7 }
+
+snmpUnavailableContexts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets received by the SNMP
+         engine which were dropped because the context
+         contained in the message was unavailable."
+    ::= { snmpTargetObjects 4 }
+
+snmpUnknownContexts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets received by the SNMP
+         engine which were dropped because the context
+         contained in the message was unknown."
+    ::= { snmpTargetObjects 5 }
+
+snmpTargetBasicGroup OBJECT IDENTIFIER ::= { snmpTargetGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing basic remote
+--     configuration of management targets.
+--  objects
+--    snmpTargetSpinLock, snmpTargetAddrTDomain, 
+--    snmpTargetAddrTAddress, snmpTargetAddrTagList, 
+--    snmpTargetAddrParams, snmpTargetAddrStorageType, 
+--    snmpTargetAddrRowStatus, snmpTargetParamsMPModel, 
+--    snmpTargetParamsSecurityModel, snmpTargetParamsSecurityName, 
+--    snmpTargetParamsSecurityLevel, snmpTargetParamsStorageType, 
+--    snmpTargetParamsRowStatus
+
+snmpTargetResponseGroup OBJECT IDENTIFIER ::= { snmpTargetGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing remote configuration
+--     of management targets for applications which generate
+--     SNMP messages for which a response message would be
+--     expected.
+--  objects
+--    snmpTargetAddrTimeout, snmpTargetAddrRetryCount
+
+snmpTargetCommandResponderGroup OBJECT IDENTIFIER ::= { snmpTargetGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects required for command responder
+--     applications, used for counting error conditions.
+--  objects
+--    snmpUnavailableContexts, snmpUnknownContexts
+
+snmpTargetCommandResponderCompliance OBJECT IDENTIFIER ::= { snmpTargetCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities which include
+--     a command responder application.
+--  Module
+--    >>current<<
+--   MandGroup
+--    snmpTargetCommandResponderGroup
+
+
+END
+

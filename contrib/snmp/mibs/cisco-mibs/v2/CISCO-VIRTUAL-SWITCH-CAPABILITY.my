@@ -1,0 +1,270 @@
+-- *********************************************************************
+-- CISCO-VIRTUAL-SWITCH-CAPABILITY.my:
+-- Cisco CISCO-VIRTUAL-SWITCH-MIB AGENT-CAPABILITIES
+--   
+-- January 2008, Frank Chao
+--   
+-- Copyright(c) 2008-2012 by Cisco Systems Inc.
+-- All rights reserved.
+-- *********************************************************************
+
+CISCO-VIRTUAL-SWITCH-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVirtualSwitchCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The Agent capabilities for CISCO-VIRTUAL-SWITCH-MIB."
+    REVISION        "201209070000Z"
+    DESCRIPTION
+        "Added capability statement cvsCapV15R0101SYPCat6K."
+    REVISION        "201109260000Z"
+    DESCRIPTION
+        "Added capability statement cvsCapV15R0001SYPCat6K."
+    REVISION        "201003290000Z"
+    DESCRIPTION
+        "Added capability statement cvsCapV12R0233SXI4PCat6K."
+    REVISION        "200801140000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 563 }
+
+
+
+cvsCapV12R0233SXH01PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH1 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VIRTUAL-SWITCH-MIB capabilities."
+
+    SUPPORTS        CISCO-VIRTUAL-SWITCH-MIB
+    INCLUDES        {
+                        cvsGlobalGroup,
+                        cvsCoreSwitchGroup,
+                        cvsChassisGroup,
+                        cvsVSLConnectionGroup,
+                        cvsVSLStatisticsGroup,
+                        cvsModuleGroup,
+                        cvsConnectionNotifsGroup
+                    }
+    VARIATION       cvsDomain
+    SYNTAX          Unsigned32 (0..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsSwitchID
+    SYNTAX          Unsigned32 (0..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsCoreSwitchPriority
+    SYNTAX          Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLCoreSwitchID
+    SYNTAX          Unsigned32 (1..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLConnectionRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoVirtualSwitchCapability 1 }
+
+cvsCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VIRTUAL-SWITCH-MIB capabilities."
+
+    SUPPORTS        CISCO-VIRTUAL-SWITCH-MIB
+    INCLUDES        {
+                        cvsGlobalGroup,
+                        cvsCoreSwitchGroup,
+                        cvsChassisGroup,
+                        cvsVSLConnectionGroup,
+                        cvsVSLStatisticsGroup,
+                        cvsModuleGroup,
+                        cvsVssModuleStandbyGroup,
+                        cvsConnectionNotifsGroup,
+                        cvsVSLStatisticsExtGroup
+                    }
+    VARIATION       cvsDomain
+    SYNTAX          Unsigned32 (0..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsSwitchID
+    SYNTAX          Unsigned32 (0..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsCoreSwitchPriority
+    SYNTAX          Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLCoreSwitchID
+    SYNTAX          Unsigned32 (1..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLConnectionRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoVirtualSwitchCapability 2 }
+
+cvsCapV15R0001SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VIRTUAL-SWITCH-MIB capabilities."
+
+    SUPPORTS        CISCO-VIRTUAL-SWITCH-MIB
+    INCLUDES        {
+                        cvsGlobalGroup,
+                        cvsCoreSwitchGroup,
+                        cvsChassisGroup,
+                        cvsVSLConnectionGroup,
+                        cvsVSLStatisticsGroup,
+                        cvsModuleGroup,
+                        cvsVssModuleStandbyGroup,
+                        cvsConnectionNotifsGroup,
+                        cvsVSLStatisticsExtGroup
+                    }
+    VARIATION       cvsDomain
+    SYNTAX          Unsigned32 (0..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsSwitchID
+    SYNTAX          Unsigned32 (0..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsCoreSwitchPriority
+    SYNTAX          Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLCoreSwitchID
+    SYNTAX          Unsigned32 (1..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLConnectionRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoVirtualSwitchCapability 3 }
+
+cvsCapV15R0101SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VIRTUAL-SWITCH-MIB capabilities."
+
+    SUPPORTS        CISCO-VIRTUAL-SWITCH-MIB
+    INCLUDES        {
+                        cvsGlobalGroup,
+                        cvsCoreSwitchGroup,
+                        cvsChassisGroup,
+                        cvsVSLConnectionGroup,
+                        cvsVSLStatisticsGroup,
+                        cvsModuleGroup,
+                        cvsVssModuleStandbyGroup,
+                        cvsConnectionNotifsGroup,
+                        cvsVSLStatisticsExtGroup,
+                        cvsCoreSwitchLocationGroup,
+                        cvsDualActiveDetectionNotifsControlGroup,
+                        cvsDualActiveDetectionNotifsInfoGroup,
+                        cvsDualActiveDetectionNotifsGroup
+                    }
+    VARIATION       cvsDomain
+    SYNTAX          Unsigned32 (0..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsSwitchID
+    SYNTAX          Unsigned32 (0..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsCoreSwitchPriority
+    SYNTAX          Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLCoreSwitchID
+    SYNTAX          Unsigned32 (1..2)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsVSLConnectionRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cvsCoreSwitchLocation
+    SYNTAX          SnmpAdminString (SIZE (0..230))
+    DESCRIPTION
+        "Implementation supports size 0 to 230 octets."
+
+    ::= { ciscoVirtualSwitchCapability 4 }
+
+END
+
+
+
+

@@ -1,0 +1,488 @@
+-- *****************************************************************
+-- LACP-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-LACP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Counter64 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200LacpMib MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the IEEE802.3ad LAG MIB"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Changed size of me1200LacpSystemStatusDot3adAggrLocalPorts."
+    REVISION    "201310080000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 35 }
+
+
+me1200LacpMibObjects OBJECT IDENTIFIER
+    ::= { me1200LacpMib 1 }
+
+me1200LacpConfig OBJECT IDENTIFIER
+    ::= { me1200LacpMibObjects 2 }
+
+me1200LacpPortConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LacpPortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the LACP port configurations"
+    ::= { me1200LacpConfig 1 }
+
+me1200LacpPortConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200LacpPortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200LacpPortConfigInterfaceNo }
+    ::= { me1200LacpPortConfigTable 1 }
+
+ME1200LacpPortConfigEntry ::= SEQUENCE {
+    me1200LacpPortConfigInterfaceNo   ME1200InterfaceIndex,
+    me1200LacpPortConfigDot3adAggrActorAdminMode      TruthValue,
+    me1200LacpPortConfigDot3adAggrActorAdminKey   ME1200Unsigned16,
+    me1200LacpPortConfigDot3adAggrRole    TruthValue,
+    me1200LacpPortConfigDot3adAggrTimeout     TruthValue,
+    me1200LacpPortConfigDot3adAggrPortPriority    ME1200Unsigned16
+}
+
+me1200LacpPortConfigInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LacpPortConfigEntry 1 }
+
+me1200LacpPortConfigDot3adAggrActorAdminMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Control whether port is LACP enabled(1) or disabled(0)."
+    ::= { me1200LacpPortConfigEntry 2 }
+
+me1200LacpPortConfigDot3adAggrActorAdminKey OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The current administrative value of the Key for the Aggregator. The
+         administrative Key value may differ from the operational Key value for
+         the reasons discussed in 43.6.2. This is a 16-bit, read-write value.
+         The meaning of particular Key values is of local significance"
+    ::= { me1200LacpPortConfigEntry 3 }
+
+me1200LacpPortConfigDot3adAggrRole OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Role shows the LACP activity status. The Active(true) will transmit
+         LACP packets each second, while Passive(false) will wait for a LACP
+         packet from a partner"
+    ::= { me1200LacpPortConfigEntry 4 }
+
+me1200LacpPortConfigDot3adAggrTimeout OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Timeout controls the period between BPDU transmissions. Fast(true)
+         will transmit LACP packets each second, while Slow(0) will wait for 30
+         seconds before sending a LACP packet."
+    ::= { me1200LacpPortConfigEntry 5 }
+
+me1200LacpPortConfigDot3adAggrPortPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Port Priority controls the priority of the port. If the LACP
+         partner wants to form a larger group than is supported by this device
+         then this parameter will control which ports will be active and which
+         ports will be in a backup role. Lower number means greater priority"
+    ::= { me1200LacpPortConfigEntry 6 }
+
+me1200LacpStatus OBJECT IDENTIFIER
+    ::= { me1200LacpMibObjects 3 }
+
+me1200LacpSystemStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LacpSystemStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the LACP system status"
+    ::= { me1200LacpStatus 1 }
+
+me1200LacpSystemStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200LacpSystemStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each lag has a set of parameters"
+    INDEX       { me1200LacpSystemStatusInterfaceNo }
+    ::= { me1200LacpSystemStatusTable 1 }
+
+ME1200LacpSystemStatusEntry ::= SEQUENCE {
+    me1200LacpSystemStatusInterfaceNo     ME1200InterfaceIndex,
+    me1200LacpSystemStatusDot3adAggrID    ME1200Unsigned16,
+    me1200LacpSystemStatusDot3adAggrPartnerSystemID   OCTET STRING,
+    me1200LacpSystemStatusDot3adAggrPartnerOperKey    ME1200Unsigned16,
+    me1200LacpSystemStatusDot3adAggrPartnerOperSystemPriority     ME1200Unsigned16,
+    me1200LacpSystemStatusDot3adAggrPartnerStateLastChanged   Unsigned32,
+    me1200LacpSystemStatusDot3adAggrLocalPorts    OCTET STRING
+}
+
+me1200LacpSystemStatusInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LacpSystemStatusEntry 1 }
+
+me1200LacpSystemStatusDot3adAggrID OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The aggregation ID for a particular link aggregation group."
+    ::= { me1200LacpSystemStatusEntry 2 }
+
+me1200LacpSystemStatusDot3adAggrPartnerSystemID OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(6))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The system ID (MAC address) of the aggregation partner."
+    ::= { me1200LacpSystemStatusEntry 3 }
+
+me1200LacpSystemStatusDot3adAggrPartnerOperKey OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The Key that the partner has assigned to this aggregation ID."
+    ::= { me1200LacpSystemStatusEntry 4 }
+
+me1200LacpSystemStatusDot3adAggrPartnerOperSystemPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "A 2-octet read-only value indicating the operational value of priority
+         associated with the Partner's System ID. The value of this attribute
+         may contain the manually configured value carried in
+         aAggPortPartnerAdminSystemPriority if there is no protocol Partner."
+    ::= { me1200LacpSystemStatusEntry 5 }
+
+me1200LacpSystemStatusDot3adAggrPartnerStateLastChanged OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The time in second since this aggregation changed"
+    ::= { me1200LacpSystemStatusEntry 6 }
+
+me1200LacpSystemStatusDot3adAggrLocalPorts OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(0..1))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Local port list"
+    ::= { me1200LacpSystemStatusEntry 7 }
+
+me1200LacpPortStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LacpPortStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the LACP port status"
+    ::= { me1200LacpStatus 2 }
+
+me1200LacpPortStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200LacpPortStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200LacpPortStatusInterfaceNo }
+    ::= { me1200LacpPortStatusTable 1 }
+
+ME1200LacpPortStatusEntry ::= SEQUENCE {
+    me1200LacpPortStatusInterfaceNo   ME1200InterfaceIndex,
+    me1200LacpPortStatusDot3adAggrActorAdminMode      TruthValue,
+    me1200LacpPortStatusDot3adAggrActorAdminKey   ME1200Unsigned16,
+    me1200LacpPortStatusDot3adAggrPartnerOperPortIndex    ME1200Unsigned8,
+    me1200LacpPortStatusDot3adAggrPartnerOperPortPriority     ME1200Unsigned16
+}
+
+me1200LacpPortStatusInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LacpPortStatusEntry 1 }
+
+me1200LacpPortStatusDot3adAggrActorAdminMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the current Admin mode of port, if LACP enabled then returns true
+         else returns false."
+    ::= { me1200LacpPortStatusEntry 2 }
+
+me1200LacpPortStatusDot3adAggrActorAdminKey OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the current administrative value of the Key for the Aggregator.
+         The administrative Key value may differ from the operational Key value
+         for the reasons discussed in 43.6.2. This is a 16-bit, read-write
+         value. The meaning of particular Key values is of local significance"
+    ::= { me1200LacpPortStatusEntry 3 }
+
+me1200LacpPortStatusDot3adAggrPartnerOperPortIndex OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the port index of the partner port connected to this port."
+    ::= { me1200LacpPortStatusEntry 4 }
+
+me1200LacpPortStatusDot3adAggrPartnerOperPortPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the port priority of the port partner port connected to this
+         port."
+    ::= { me1200LacpPortStatusEntry 5 }
+
+me1200LacpPortStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LacpPortStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the LACP port statistics"
+    ::= { me1200LacpStatus 3 }
+
+me1200LacpPortStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200LacpPortStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200LacpPortStatisticsInterfaceNo }
+    ::= { me1200LacpPortStatisticsTable 1 }
+
+ME1200LacpPortStatisticsEntry ::= SEQUENCE {
+    me1200LacpPortStatisticsInterfaceNo   ME1200InterfaceIndex,
+    me1200LacpPortStatisticsDot3adAggrRxFrames    Counter64,
+    me1200LacpPortStatisticsDot3adAggrTxFrames    Counter64,
+    me1200LacpPortStatisticsDot3adAggrRxIllegalFrames     Counter64,
+    me1200LacpPortStatisticsDot3adAggrRxUnknownFrames     Counter64
+}
+
+me1200LacpPortStatisticsInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LacpPortStatisticsEntry 1 }
+
+me1200LacpPortStatisticsDot3adAggrRxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows received LACP frame count."
+    ::= { me1200LacpPortStatisticsEntry 2 }
+
+me1200LacpPortStatisticsDot3adAggrTxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows transmitted LACP frame count."
+    ::= { me1200LacpPortStatisticsEntry 3 }
+
+me1200LacpPortStatisticsDot3adAggrRxIllegalFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows recevied illegal LACP frame count."
+    ::= { me1200LacpPortStatisticsEntry 4 }
+
+me1200LacpPortStatisticsDot3adAggrRxUnknownFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows recevied unknown LACP frame count."
+    ::= { me1200LacpPortStatisticsEntry 5 }
+
+me1200LacpControl OBJECT IDENTIFIER
+    ::= { me1200LacpMibObjects 4 }
+
+me1200LacpPortStatsClearTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LacpPortStatsClearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to clear LACP port statistics"
+    ::= { me1200LacpControl 1 }
+
+me1200LacpPortStatsClearEntry OBJECT-TYPE
+    SYNTAX      ME1200LacpPortStatsClearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters"
+    INDEX       { me1200LacpPortStatsClearInterfaceNo }
+    ::= { me1200LacpPortStatsClearTable 1 }
+
+ME1200LacpPortStatsClearEntry ::= SEQUENCE {
+    me1200LacpPortStatsClearInterfaceNo   ME1200InterfaceIndex,
+    me1200LacpPortStatsClearPortStatisticsClear   TruthValue
+}
+
+me1200LacpPortStatsClearInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LacpPortStatsClearEntry 1 }
+
+me1200LacpPortStatsClearPortStatisticsClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to true to clear the statistics of a port."
+    ::= { me1200LacpPortStatsClearEntry 2 }
+
+me1200LacpMibConformance OBJECT IDENTIFIER
+    ::= { me1200LacpMib 2 }
+
+me1200LacpMibCompliances OBJECT IDENTIFIER
+    ::= { me1200LacpMibConformance 1 }
+
+me1200LacpMibGroups OBJECT IDENTIFIER
+    ::= { me1200LacpMibConformance 2 }
+
+me1200LacpPortConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LacpPortConfigDot3adAggrActorAdminMode, 
+                  me1200LacpPortConfigDot3adAggrActorAdminKey, 
+                  me1200LacpPortConfigDot3adAggrRole, 
+                  me1200LacpPortConfigDot3adAggrTimeout, 
+                  me1200LacpPortConfigDot3adAggrPortPriority }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LacpMibGroups 1 }
+
+me1200LacpSystemStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LacpSystemStatusDot3adAggrID, 
+                  me1200LacpSystemStatusDot3adAggrPartnerSystemID, 
+                  me1200LacpSystemStatusDot3adAggrPartnerOperKey, 
+                  me1200LacpSystemStatusDot3adAggrPartnerOperSystemPriority, 
+                  me1200LacpSystemStatusDot3adAggrPartnerStateLastChanged, 
+                  me1200LacpSystemStatusDot3adAggrLocalPorts }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LacpMibGroups 2 }
+
+me1200LacpPortStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LacpPortStatusDot3adAggrActorAdminMode, 
+                  me1200LacpPortStatusDot3adAggrActorAdminKey, 
+                  me1200LacpPortStatusDot3adAggrPartnerOperPortIndex, 
+                  me1200LacpPortStatusDot3adAggrPartnerOperPortPriority }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LacpMibGroups 3 }
+
+me1200LacpPortStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LacpPortStatisticsDot3adAggrRxFrames, 
+                  me1200LacpPortStatisticsDot3adAggrTxFrames, 
+                  me1200LacpPortStatisticsDot3adAggrRxIllegalFrames, 
+                  me1200LacpPortStatisticsDot3adAggrRxUnknownFrames }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LacpMibGroups 4 }
+
+me1200LacpPortStatsClearTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LacpPortStatsClearPortStatisticsClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LacpMibGroups 5 }
+
+me1200LacpMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200LacpPortConfigTableInfoGroup, 
+                  me1200LacpSystemStatusTableInfoGroup, 
+                  me1200LacpPortStatusTableInfoGroup, 
+                  me1200LacpPortStatisticsTableInfoGroup, 
+                  me1200LacpPortStatsClearTableInfoGroup }
+
+    ::= { me1200LacpMibCompliances 1 }
+
+END

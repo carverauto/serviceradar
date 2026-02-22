@@ -1,0 +1,152 @@
+-- *****************************************************************
+-- CISCO-JOB-MONITORING-CAPABILITY.my: Job-Monitoring-MIB AGENT-CAPABILITIES
+--   
+-- Copyright (c) 2006-2007 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-JOB-MONITORING-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoJobMonitoringCapability MODULE-IDENTITY
+    LAST-UPDATED    "200706070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for Job-Monitoring-MIB"
+    REVISION        "200706070000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 557 }
+
+
+
+ciscoJobMonitoringCapabilityV12R04 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4"
+    STATUS          current
+    DESCRIPTION
+        "JOB MONITORING MIB capabilities"
+
+    SUPPORTS        Job-Monitoring-MIB
+    INCLUDES        {
+                        jmGeneralGroup,
+                        jmJobGroup,
+                        jmAttributeGroup
+                    }
+    VARIATION       jmGeneralOldestActiveJobIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmGeneralNewestActiveJobIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmGeneralJobPersistence
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmGeneralAttributePersistence
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmJobState
+    SYNTAX          INTEGER  {
+                        unknown(2),
+                        pending(3),
+                        processing(5),
+                        canceled(7),
+                        aborted(8),
+                        completed(9)
+                    }
+    DESCRIPTION
+        "Supported job states are unknown(2),
+        pending(3), processing(5),
+        canceled(7), aborted(8), completed(9)."
+
+    VARIATION       jmJobStateReasons1
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmNumberOfInterveningJobs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmJobKOctetsPerCopyRequested
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmJobKOctetsProcessed
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmJobImpressionsPerCopyRequested
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmJobImpressionsCompleted
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Implemented."
+
+    VARIATION       jmAttributeTypeIndex
+    SYNTAX          INTEGER  {
+                        jobNaturalLanguageTag(9),
+                        jobURI(20),
+                        jobName(23),
+                        jobServiceTypes(24),
+                        deviceNameRequested(30),
+                        physicalDevice(32),
+                        fileName(34),
+                        documentName(35)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values available. For
+        IPP[Internet Printing Protocol] printing the above
+        enumarated values are possible. For LPD[Line Printing
+        Daemon] printing only deviceNameRequested(30),
+        physicalDevice(32) values are possible.
+        For jobServiceTypes(24) hardcoded the type of service
+        to print(4) since the current implemetation supports
+        only printing."
+
+    VARIATION       jmAttributeInstanceIndex
+    SYNTAX          Integer32 (1..32767 )
+    DESCRIPTION
+        "Hardcoded to 1 as the current implementation supports
+        attributes with only a single instance per job."
+
+    ::= { ciscoJobMonitoringCapability 1 }
+
+END
+
+
+

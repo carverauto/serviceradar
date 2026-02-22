@@ -1,0 +1,2922 @@
+-- *****************************************************************
+-- IMA-MIB - Inverse Multiplexing for ATM(IMA) MIB
+--
+-- April 2002, Subra Hegde
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+-- This MIB is extracted from IMA v1.1 specified in 
+-- ATM FORUM Document: af-phy-0086.001
+--
+-- Following Changes are made in the ATM Forum MIB to
+-- get rid of issues for compiling with mosy compiler.
+--  * Changed accessible-for-notify to read-only
+--
+
+IMA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+      MODULE-IDENTITY, OBJECT-TYPE, Integer32, Counter32, Gauge32,
+      NOTIFICATION-TYPE, enterprises
+        FROM SNMPv2-SMI
+      MODULE-COMPLIANCE, OBJECT-GROUP,
+      NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+      TEXTUAL-CONVENTION, DateAndTime, RowStatus
+        FROM SNMPv2-TC
+      InterfaceIndex, InterfaceIndexOrZero, ifIndex
+        FROM IF-MIB;
+
+atmfImaMib MODULE-IDENTITY
+      LAST-UPDATED "9902111830Z"
+      ORGANIZATION "The ATM Forum"
+      CONTACT-INFO
+        "ATM Forum
+        World Headquarters
+        2570 West El Camino Real
+        Suite 304
+        Mountain View, CA 94040-1313
+        USA
+        Phone: +1 415 949 6700
+        Fax: +1 415 949 6705
+        email: info@atmforum.com"
+      DESCRIPTION
+        "The MIB module for managing ATM Forum Inverse Multiplexing
+        for ATM (IMA) interfaces."
+      REVISION     "9902111830Z"
+      DESCRIPTION
+        "Updated and repaired version of the IMA-MIB released with the
+        IMA v1.1 specification (af-phy-0086.001)."
+      REVISION     "9701092245Z"
+      DESCRIPTION
+        "Initial incomplete version of the IMA-MIB as published in the
+        IMA v1.0 specification (af-phy-0086.000)."
+      ::= { atmfIma 1 }
+
+-- The object identifier subtree for the IMA-MIB.
+
+atmForum OBJECT IDENTIFIER ::= { enterprises 353 }
+atmForumNetworkManagement OBJECT IDENTIFIER ::= { atmForum 5 }
+atmfIma OBJECT IDENTIFIER ::= { atmForumNetworkManagement 7 }
+
+atmfImaMibObjects OBJECT IDENTIFIER ::= { atmfImaMib 1 }
+atmfImaMibTraps OBJECT IDENTIFIER ::= { atmfImaMib 2 }
+atmfImaMibTrapPrefix OBJECT IDENTIFIER ::= { atmfImaMibTraps 0 }
+atmfImaMibConformance OBJECT IDENTIFIER ::= { atmfImaMib 3 }
+
+-- Textual conventions
+
+MilliSeconds ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "Time in milliseconds"
+      SYNTAX      Integer32
+
+ImaGroupState ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "State of the IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55"
+      SYNTAX      INTEGER {
+        notConfigured(1),
+        startUp(2),
+        startUpAck(3),
+        configAbortUnsupportedM(4),
+        configAbortIncompatibleSymmetry(5),
+        configAbortOther(6),
+        insufficientLinks(7),
+        blocked(8),
+        operational(9),
+        configAbortUnsupportedImaVersion(10) }
+
+ImaGroupFailureStatus ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "Failure reason of an IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1, page 55"
+      SYNTAX      INTEGER {
+        noFailure(1), -- unit is up
+        startUpNe(2),
+        startUpFe(3),
+        invalidMValueNe(4),
+        invalidMValueFe(5),
+        failedAssymetricNe(6),
+        failedAssymetricFe(7),
+        insufficientLinksNe(8),
+        insufficientLinksFe(9),
+        blockedNe(10),
+        blockedFe(11),
+        otherFailure(12),
+        invalidImaVersionNe(13),
+        invalidImaVersionFe(14) }
+
+ImaAlarmStatus ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "A qualification of the IMA trap which indicates if the
+        condition causing the trap has been detected (declared)
+        or is no longer present (cleared)."
+      SYNTAX      INTEGER {
+        cleared(1),
+        declared(2) }
+
+ImaAlarmType ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "An identification of the event that caused the generation
+        of the IMA trap."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 12.2.3 on page 79"
+      SYNTAX      INTEGER {
+        imaAlarmLinkLif(1),
+        imaAlarmLinkLods(2),
+        imaAlarmLinkRfi(3),
+        imaAlarmLinkTxMisConnect(4),
+        imaAlarmLinkRxMisConnect(5),
+        imaAlarmLinkTxFault(6),
+        imaAlarmLinkRxFault(7),
+        imaAlarmLinkTxUnusableFe(8),
+        imaAlarmLinkRxUnusableFe(9),
+        imaAlarmGroupStartupFe(10),
+        imaAlarmGroupCfgAbort(11),
+        imaAlarmGroupCfgAbortFe(12),
+        imaAlarmGroupInsuffLinks(13),
+        imaAlarmGroupInsuffLinksFe(14),
+        imaAlarmGroupBlockedFe(15),
+        imaAlarmGroupTimingSynch(16) }
+
+ImaGroupTxClkMode  ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "Indicate the transmit clock mode of the IMA group.
+        There are two possible modes: the Common Transmit
+        Clock (CTC) and the Independent Transmit Clock (ITC).
+        The CTC mode corresponds to the case when the transmit clock
+        of all IMA links are derived from the same source.  The ITC
+        configuration corresponds to the case where there is at least
+        one IMA link whose transmit clock is derived from a source
+        different than at least another link transmit clock."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 7 on page 38"
+      SYNTAX      INTEGER {
+        ctc(1),
+        itc(2) }
+
+ImaGroupSymmetry ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "The group symmetry mode adjusted during the group start-up."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.7 on page 35"
+      SYNTAX      INTEGER {
+        symmetricOperation(1),
+        asymmetricOperation(2),
+        asymmetricConfiguration(3) }
+
+ImaFrameLength ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "Length of the IMA frames."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.4.2 on page 34"
+      SYNTAX      INTEGER {
+        m32(32),
+        m64(64),
+        m128(128),
+        m256(256) }
+
+ImaLinkState ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "State of a link belonging to an IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      SYNTAX      INTEGER {
+        notInGroup(1),
+        unusableNoGivenReason(2),
+        unusableFault(3),
+        unusableMisconnected(4),
+        unusableInhibited(5),
+        unusableFailed(6),
+        usable(7),
+        active(8) }
+
+ImaLinkFailureStatus ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "Local failure status of a link belonging to an IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      SYNTAX      INTEGER {
+        noFailure(1),
+        imaLinkFailure(2),
+        lifFailure(3),
+        lodsFailure(4),
+        misConnected(5),
+        blocked(6),
+        fault(7),
+        farEndTxLinkUnusable(8),
+        farEndRxLinkUnusable(9) }
+
+ImaTestProcStatus ::= TEXTUAL-CONVENTION
+      STATUS      current
+      DESCRIPTION
+        "States of the Test Pattern Procedure."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 13 on page 81"
+      SYNTAX      INTEGER {
+        disabled(1),
+        operating(2),
+        linkFail(3) }
+
+--
+-- The IMA Group subtree
+--
+-- The IMA Group subtree consists of the number of IMA groups and a
+-- table of IMA groups.  Each entry in the table of IMA groups contains
+-- information (configuration and status) specific to each group.
+--
+
+imaGroupNumber OBJECT-TYPE
+      SYNTAX      INTEGER (0..2147483647)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of IMA groups configured on this system."
+      ::= { atmfImaMibObjects 1 }
+
+imaGroupTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaGroupEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA Group Configuration table."
+      ::= { atmfImaMibObjects 2 }
+
+imaGroupEntry OBJECT-TYPE
+      SYNTAX      ImaGroupEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Group table."
+      INDEX       { imaGroupIndex }
+      ::= { imaGroupTable 1 }
+
+ImaGroupEntry ::= SEQUENCE {
+      imaGroupIndex               INTEGER (1..2147483647),
+      imaGroupRowStatus           RowStatus,
+      imaGroupIfIndex             InterfaceIndex,
+      imaGroupNeState             ImaGroupState,
+      imaGroupFeState             ImaGroupState,
+      imaGroupFailureStatus       ImaGroupFailureStatus,
+      imaGroupSymmetry            ImaGroupSymmetry,
+      imaGroupMinNumTxLinks       INTEGER (1..32),
+      imaGroupMinNumRxLinks       INTEGER (1..32),
+      imaGroupNeTxClkMode         ImaGroupTxClkMode,
+      imaGroupFeTxClkMode         ImaGroupTxClkMode,
+      imaGroupTxTimingRefLink     InterfaceIndexOrZero,
+      imaGroupRxTimingRefLink     InterfaceIndexOrZero,
+      imaGroupLastChange          DateAndTime,
+      imaGroupTxImaId             INTEGER (0..255),
+      imaGroupRxImaId             INTEGER (0..255),
+      imaGroupTxFrameLength       ImaFrameLength,
+      imaGroupRxFrameLength       ImaFrameLength,
+      imaGroupDiffDelayMax        MilliSeconds,
+      imaGroupLeastDelayLink      InterfaceIndexOrZero,
+      imaGroupDiffDelayMaxObs     MilliSeconds,
+      imaGroupAlphaValue          INTEGER (1..2),
+      imaGroupBetaValue           INTEGER (1..5),
+      imaGroupGammaValue          INTEGER (1..5),
+      imaGroupRunningSecs         Gauge32,
+      imaGroupUnavailSecs         Counter32,
+      imaGroupNeNumFailures       Counter32,
+      imaGroupFeNumFailures       Counter32,
+      imaGroupTxAvailCellRate     Gauge32,
+      imaGroupRxAvailCellRate     Gauge32,
+      imaGroupNumTxCfgLinks       Gauge32,
+      imaGroupNumRxCfgLinks       Gauge32,
+      imaGroupNumTxActLinks       Gauge32,
+      imaGroupNumRxActLinks       Gauge32,
+      imaGroupTestLinkIfIndex     InterfaceIndexOrZero,
+      imaGroupTestPattern         INTEGER (-1..255),
+      imaGroupTestProcStatus      ImaTestProcStatus,
+      imaGroupValidIntervals      INTEGER (0..96),
+      imaGroupInvalidIntervals    INTEGER (0..96),
+      imaGroupTimeElapsed         INTEGER (0..899),
+      imaGroupTxOamLabelValue     INTEGER (1..255),
+      imaGroupRxOamLabelValue     INTEGER (0..255) }
+
+imaGroupIndex OBJECT-TYPE
+      SYNTAX      INTEGER (1..2147483647)
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "A unique value for the IMA Group."
+      ::= { imaGroupEntry 1 }
+
+imaGroupRowStatus OBJECT-TYPE
+      SYNTAX      RowStatus
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "The imaGroupRowStatus object allows create, change, and delete
+        operations on imaGroupTable entries.
+
+        To create a new conceptual row (or instance) of the imaGroupTable,
+        imaGroupRowStatus must be set to 'createAndWait' or 'createAndGo'.
+        If settable, a successful set of the following objects must be
+        performed before the imaGroupRowStatus of a new conceptual row can
+        be set to 'active':
+
+          imaGroupMinNumTxLinks
+          imaGroupMinNumRxLinks
+          imaGroupTxImaId
+
+        Some objects in the imaGroupTable control settings which can only
+        be established or changed at group start-up time.  These objects
+        include:
+
+          imaGroupTxImaId
+          imaGroupSymmetry
+          imaGroupTxFrameLength
+
+        To change (modify) the imaGroupTxImaId object, the manager must
+        first set imaGroupRowStatus to 'notInService'.  However, changes
+        to the following two objects can be optionally allowed while the
+        imaGroupRowStatus is 'active':
+
+          imaGroupSymmetry
+          imaGroupTxFrameLength
+
+        These two objects can be changed when the imaGroupRowStatus is
+        'active' in order to allow the far-end to recover from its
+        Config-Aborted state without having to force the near-end Group
+        State machine to go to the 'Not Configured' state.  Changing
+        these object values after group start-up has completed causes a
+        restart of the IMA group.
+
+        Alternatively, as noted above, the agent implementation may
+        simply require the imaGroupRowStatus object to first be set to
+        'notInService' before allowing changes to either of these two
+        objects.
+
+        To remove (delete) an imaGroupTable entry from this table, set
+        imaGroupRowStatus to 'destroy'.
+
+        Setting the imaGroupRowStatus to 'active' has the effect of
+        activating the Group Startup Procedure.  The Group Startup
+        Procedure uses provisioned links that have imaLinkRowStatus set
+        to 'active' and imaLinkGroupIndex set to the imaGroupIndex in
+        this conceptual row.
+
+        When the imaGroupRowStatus is not in 'active' state, the Group
+        State machine is in its 'Not Configured' state."
+      ::= { imaGroupEntry 2 }
+
+imaGroupIfIndex OBJECT-TYPE
+      SYNTAX      InterfaceIndex
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "This object identifies the logical interface number ('ifIndex')
+        assigned to this IMA group, and is used to identify corresponding
+        rows in the Interfaces MIB.
+
+        Note that re-initialization of the management agent may cause
+        a client's 'imaGroupIfIndex' to change."
+      ::= { imaGroupEntry 3 }
+
+imaGroupNeState OBJECT-TYPE
+      SYNTAX      ImaGroupState
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current operational state of the near-end IMA Group State
+        Machine."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55"
+      ::= { imaGroupEntry 4 }
+
+imaGroupFeState OBJECT-TYPE
+      SYNTAX      ImaGroupState
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current operational state of the far-end IMA Group State
+        Machine."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55"
+      ::= { imaGroupEntry 5 }
+
+imaGroupFailureStatus OBJECT-TYPE
+      SYNTAX      ImaGroupFailureStatus
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current failure status of the IMA group (the reason why
+        the GTSM is in the down state)."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55"
+      ::= { imaGroupEntry 6 }
+
+imaGroupSymmetry OBJECT-TYPE
+      SYNTAX      ImaGroupSymmetry
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "Symmetry of the IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.7 on page 35"
+      DEFVAL { symmetricOperation }
+      ::= { imaGroupEntry 7 }
+
+imaGroupMinNumTxLinks OBJECT-TYPE
+      SYNTAX      INTEGER (1..32)
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "Minimum number of transmit links required to be Active for
+        the IMA group to be in the Operational state."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1.1 on page 55"
+      ::= { imaGroupEntry 8 }
+
+imaGroupMinNumRxLinks OBJECT-TYPE
+      SYNTAX      INTEGER (1..32)
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "Minimum number of receive links required to be Active for
+        the IMA group to be in the Operational state."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1.1 on page 55"
+      ::= { imaGroupEntry 9 }
+
+imaGroupNeTxClkMode OBJECT-TYPE
+      SYNTAX      ImaGroupTxClkMode
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "Transmit clocking mode used by the near-end IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 7 on page 38"
+      DEFVAL { ctc }
+      ::= { imaGroupEntry 10 }
+
+imaGroupFeTxClkMode OBJECT-TYPE
+      SYNTAX      ImaGroupTxClkMode
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Transmit clocking mode used by the far-end IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 7 on page 38"
+      ::= { imaGroupEntry 11 }
+
+imaGroupTxTimingRefLink OBJECT-TYPE
+      SYNTAX      InterfaceIndexOrZero
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The ifIndex of the transmit timing reference link to be
+        used by the near-end for IMA data cell clock recovery from
+        the ATM layer.  The distinguished value of zero may be used
+        if no link has been configured in the IMA group, or if the
+        transmit timing reference link has not yet been selected."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 8.1.1 on page 41"
+      ::= { imaGroupEntry 12 }
+
+imaGroupRxTimingRefLink OBJECT-TYPE
+      SYNTAX      InterfaceIndexOrZero
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The ifIndex of the receive timing reference link to be
+        used by near-end for IMA data cell clock recovery toward
+        the ATM layer.  The distinguished value of zero may be used
+        if no link has been configured in the IMA group, or if the
+        receive timing reference link has not yet been detected."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 8.1.1 on page 41"
+      ::= { imaGroupEntry 13 }
+
+imaGroupLastChange OBJECT-TYPE
+      SYNTAX      DateAndTime
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The time-of-day the IMA group last changed operational
+        state (i.e., value of imaGroupNeState changed)."
+      ::= { imaGroupEntry 14 }
+
+imaGroupTxImaId OBJECT-TYPE
+      SYNTAX      INTEGER (0..255)
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "The IMA ID currently in use by the near-end IMA function."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.6 on page 35"
+      ::= { imaGroupEntry 15 }
+
+imaGroupRxImaId OBJECT-TYPE
+      SYNTAX      INTEGER (0..255)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The IMA ID currently in use by the far-end IMA function."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.6 on page 35"
+      ::= { imaGroupEntry 16 }
+
+imaGroupTxFrameLength OBJECT-TYPE
+      SYNTAX      ImaFrameLength
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "The frame length to be used by the IMA group in the transmit
+        direction.  Can only be set when the IMA group is startup."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.4.2 on page 34"
+      DEFVAL { m128 }
+      ::= { imaGroupEntry 17 }
+
+imaGroupRxFrameLength OBJECT-TYPE
+      SYNTAX      ImaFrameLength
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Value of IMA frame length as received from remote IMA function."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.4.2 on page 34"
+      ::= { imaGroupEntry 18 }
+
+imaGroupDiffDelayMax OBJECT-TYPE
+      SYNTAX      MilliSeconds
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "The maximum number of milliseconds of differential delay among
+        the links that will be tolerated on this interface."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 9.2 on page 45"
+      DEFVAL { 25 }
+      ::= { imaGroupEntry 19 }
+
+imaGroupLeastDelayLink OBJECT-TYPE
+      SYNTAX      InterfaceIndexOrZero
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The ifIndex of the link configured in the IMA group which has
+        the smallest link propagation delay.  The distinguished value of
+        zero may be used if no link has been configured in the IMA group,
+        or if the link with the smallest link propagation delay has not
+        yet been determined."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 9.2 on page 45"
+      ::= { imaGroupEntry 20 }
+
+imaGroupDiffDelayMaxObs OBJECT-TYPE
+      SYNTAX      MilliSeconds
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The latest maximum differential delay observed (in milliseconds)
+        between the links having the least and most link propagation delay,
+        among the receive links that are currently configured in the IMA
+        group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 9.2 on page 45"
+      ::= { imaGroupEntry 21 }
+
+imaGroupAlphaValue OBJECT-TYPE
+      SYNTAX      INTEGER (1..2)
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "This indicates the 'alpha' value used to specify the number
+        of consecutive invalid ICP cells to be detected before moving
+        to the IMA Hunt state from the IMA Sync state."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 11 on page 68"
+      DEFVAL { 2 }
+      ::= { imaGroupEntry 22 }
+
+imaGroupBetaValue OBJECT-TYPE
+      SYNTAX      INTEGER (1..5)
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "This indicates the 'beta' value used to specify the number
+        of consecutive errored ICP cells to be detected before moving
+        to the IMA Hunt state from the IMA Sync state."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 11 on page 68"
+      DEFVAL { 2 }
+      ::= { imaGroupEntry 23 }
+
+imaGroupGammaValue OBJECT-TYPE
+      SYNTAX      INTEGER (1..5)
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "This indicates the 'gamma' value used to specify the number
+        of consecutive valid ICP cells to be detected before moving
+        to the IMA Sync state from the IMA PreSync state."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 11 on page 68"
+      DEFVAL { 1 }
+      ::= { imaGroupEntry 24 }
+
+imaGroupRunningSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The amount of time (in seconds) since this IMA group has
+        been in the Operational state."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55"
+      ::= { imaGroupEntry 25 }
+
+imaGroupUnavailSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals where the IMA Group Traffic
+        State Machine is Down."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55 and (R-136) in Section
+        12.2.2.2 on page 77"
+      ::= { imaGroupEntry 26 }
+
+imaGroupNeNumFailures OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end group failure (Config-Aborted,
+        Insufficient-Links) has been reported since power-up or reboot."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-137) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupEntry 27 }
+
+imaGroupFeNumFailures OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end group failure (Config-Aborted-FE,
+        Insufficient-Links-FE, Blocked-FE) has been reported since
+        power-up or reboot.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-25) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupEntry 28 }
+
+imaGroupTxAvailCellRate OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current cell rate (truncated value in cells per second)
+        provided by this IMA group in the transmit direction,
+        considering all the transmit links in the Active state."
+      ::= { imaGroupEntry 29 }
+
+imaGroupRxAvailCellRate OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current cell rate (truncated value in cells per second)
+        provided by this IMA group in the receive direction,
+        considering all the receive links in the Active state."
+      ::= { imaGroupEntry 30 }
+
+-- imaGroupNumTxCfgLinks is used by a network operator to tell how many
+-- links are configured for transmit in the IMA group.
+
+imaGroupNumTxCfgLinks OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of links that are configured to transmit in this IMA
+        group. This attribute overwrites the value of the
+        imaGroupNumRxActLinks attribute when the IMA group is configured
+        in the Symmetrical Configuration group symmetry mode."
+      ::= { imaGroupEntry 31 }
+
+-- imaGroupNumRxCfgLinks is used by a network operator to tell how many
+-- links are configured for receive in the IMA group.
+
+imaGroupNumRxCfgLinks OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of links that are configured to receive in this IMA
+        group. This attribute is overwritten by the value of the
+        imaGroupNumTxActLinks attribute when the IMA group is configured
+        in the Symmetrical Configuration group symmetry mode."
+      ::= { imaGroupEntry 32 }
+
+-- imaGroupNumTxActLinks is used by a network operator to tell how many
+-- links which are configured for transmit are also Active.
+
+imaGroupNumTxActLinks OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of links which are configured to transmit and are
+        currently Active in this IMA group."
+      ::= { imaGroupEntry 33 }
+
+-- imaGroupNumRxActLinks is used by a network operator to tell how many
+-- links which are configured for receive are also Active.
+
+imaGroupNumRxActLinks OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of links which are configured to receive and are
+        currently Active in this IMA group."
+      ::= { imaGroupEntry 34 }
+
+--
+-- Test Pattern Procedure control objects.  These objects are implemented
+-- if the IMA implements the Test Pattern Procedure.  In this case all
+-- test pattern procedure related objects must be implemented.  Specifically,
+-- these objects are:
+--
+--   imaGroupTestLinkIfIndex
+--   imaGroupTestPattern
+--   imaGroupTestProcStatus
+--   imaLinkRxTestPattern
+--   imaLinkTestProcStatus
+--
+
+imaGroupTestLinkIfIndex OBJECT-TYPE
+      SYNTAX      InterfaceIndexOrZero
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "This object is used to designate an interface as the test link
+        for use in the Test Pattern Procedure.  The distinguished value of
+        zero specifies that the implementation may choose the Test Link,
+        in which case, the implementation may also choose the value of
+        'imaGroupTestPattern'.  The value zero may also be used if no link
+        has yet been added to the group.
+
+        Note that this value is NOT the same as the Tx LID value, but
+        instead either identifies the ifIndex value of the test link to be
+        used by the Test Pattern Procedure (i.e., the link whose LID value
+        is inserted in the Tx LID field of the transmitted ICP cells),
+        or identifies that the implementation may choose the test link (if
+        the value is zero)."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 13 on page 81"
+      DEFVAL { 0 }
+      ::= { imaGroupEntry 35 }
+
+imaGroupTestPattern OBJECT-TYPE
+      SYNTAX      INTEGER (-1..255)
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "The value of this object is used to specify the Tx Test Pattern
+        in an IMA group loopback operation.  A value in the range 0 to
+        255 designates a specific pattern.  The distinguished value of
+        -1 specifies that the implementation may choose the value.  In
+        this case, the implementation may also choose the value of
+        'imaGroupTestLinkIfIndex'.
+
+        It is recommended that the specific value 255 not be used for
+        testing, since by (R-137) the IMA interface is required to
+        transmit 0xFF (i.e., 255) when the incoming test command is
+        inactive or the test link is not detected, and thus it cannot
+        be established for certain whether 255 was received due to an
+        actual loopback operation or due to the normal operation of an
+        IMA that is not performing (or else cannot perform) the test
+        pattern procedure."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 13 on page 81"
+      DEFVAL { -1 }
+      ::= { imaGroupEntry 36 }
+
+imaGroupTestProcStatus OBJECT-TYPE
+      SYNTAX      ImaTestProcStatus
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "This object is used to enable or disable the
+        Test Pattern Procedure, and to note whether at least one
+        link failed the test.
+
+        The test is started by setting operating(2) status.  If any
+        link should fail the test, the IMA will set the status to
+        linkFail(3).  The linkFail(3) state will persist until
+        either the disabled(1) state is set or until no instance
+        of imaLinkTestProcStatus has the value linkFail(3).
+
+        Only the values disabled(1) and operating(2) may be written.
+        Writing the operating(2) value will not cause clearing of
+        the linkFail(3) state."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 13 on page 81"
+      DEFVAL { disabled }
+      ::= { imaGroupEntry 37 }
+
+--
+-- Objects for use with the IMA Group Current Table, the IMA Group
+-- Interval Table, and the IMA Group Total Table.
+--
+-- Implementation of these objects is optional, dependent on whether
+-- the tables mentioned above are implemented.
+--
+
+imaGroupValidIntervals OBJECT-TYPE
+      SYNTAX      INTEGER (0..96)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of previous 15 minute intervals for which valid data
+        was collected.  The value will be 96 unless the IMA group table
+        entry was created within the last 24 hours, in which case the value
+        will be the number of complete 15 minute intervals since the IMA
+        group table entry was created.  In the case where the agent is a
+        proxy, it is possible that some intervals are unavailable.  In this
+        case, this value is the maximum interval number for which valid
+        data is available.  This attribute is only mandatory when the IMA
+        Group Interval Statistics and/or IMA Group Total Statistics objects
+        are implemented."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-26) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupEntry 38 }
+
+imaGroupInvalidIntervals OBJECT-TYPE
+      SYNTAX      INTEGER (0..96)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of intervals for which no valid data is available.
+        This attribute is only mandatory when the IMA Group Interval
+        Statistics and/or IMA Group Total Statistics objects are
+        implemented."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-26) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupEntry 39 }
+
+imaGroupTimeElapsed OBJECT-TYPE
+      SYNTAX      INTEGER (0..899)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  This attribute is only mandatory
+        when the IMA Group Current Statistics are implemented."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-26) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupEntry 40 }
+
+--
+-- Objects to report the IMA OAM Label values transmitted and
+-- received by the IMA group. 
+--
+
+imaGroupTxOamLabelValue OBJECT-TYPE
+      SYNTAX      INTEGER (1..255)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "IMA OAM Label value transmitted by the NE IMA unit."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.3 on page 32"            
+      ::= { imaGroupEntry 41 }
+
+imaGroupRxOamLabelValue OBJECT-TYPE
+      SYNTAX      INTEGER (0..255)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "IMA OAM Label value transmitted by the FE IMA unit.  The value 0
+        likely means that the IMA unit has not received an OAM Label 
+        from the FE IMA unit at this time."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.3 on page 32"
+      ::= { imaGroupEntry 42 }
+
+--
+-- The IMA Group Mapping Table subtree
+--
+-- The IMA Group Mapping Table subtree consists of a table of mappings
+-- from 'ifIndex' values of IMA groups to their 'imaGroupIndex' values.
+-- This table allows the Unit Management to perform easy look-ups (no
+-- searches and sorts).
+--
+-- Note that the Group Index is different than the ifIndex.
+--
+
+imaGroupMappingTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaGroupMappingEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "A table mapping the 'ifIndex' values of 'imaGroupIfIndex'
+        to the 'imaGroupIndex' values of the corresponding IMA group."
+      ::= { atmfImaMibObjects 3 }
+
+imaGroupMappingEntry OBJECT-TYPE
+      SYNTAX      ImaGroupMappingEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "Each row describes one ifIndex to imaGroupIndex mapping."
+      INDEX       { ifIndex }
+      ::= { imaGroupMappingTable 1 }
+
+ImaGroupMappingEntry ::= SEQUENCE {
+      imaGroupMappingIndex    Integer32 }
+
+imaGroupMappingIndex OBJECT-TYPE
+      SYNTAX      Integer32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The imaGroupIndex of the IMA Group which implements the
+        specified interface."
+      ::= { imaGroupMappingEntry 1 }
+
+--
+-- The IMA Link subtree
+--
+-- The IMA Link subtree consists of a table of IMA links.  Each entry
+-- in the table contains status information about a link which is part
+-- of an IMA group, and also contains a configuration object to select
+-- to which IMA group the link belongs.
+--
+
+imaLinkTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaLinkEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA group Link Status and Configuration table."
+      ::= { atmfImaMibObjects 4 }
+
+imaLinkEntry OBJECT-TYPE
+      SYNTAX      ImaLinkEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Group Link table."
+      INDEX       { imaLinkIfIndex }
+      ::= { imaLinkTable 1 }
+
+ImaLinkEntry ::= SEQUENCE {
+      imaLinkIfIndex              InterfaceIndex,
+      imaLinkRowStatus            RowStatus,
+      imaLinkGroupIndex           Integer32,
+      imaLinkNeTxState            ImaLinkState,
+      imaLinkNeRxState            ImaLinkState,
+      imaLinkFeTxState            ImaLinkState,
+      imaLinkFeRxState            ImaLinkState,
+      imaLinkNeRxFailureStatus    ImaLinkFailureStatus,
+      imaLinkFeRxFailureStatus    ImaLinkFailureStatus,
+      imaLinkTxLid                INTEGER (0..31),
+      imaLinkRxLid                INTEGER (0..31),
+      imaLinkRelDelay             MilliSeconds,
+      imaLinkImaViolations        Counter32,
+      imaLinkOifAnomalies         Counter32,
+      imaLinkNeSevErroredSecs     Counter32,
+      imaLinkFeSevErroredSecs     Counter32,
+      imaLinkNeUnavailSecs        Counter32,
+      imaLinkFeUnavailSecs        Counter32,
+      imaLinkNeTxUnusableSecs     Counter32,
+      imaLinkNeRxUnusableSecs     Counter32,
+      imaLinkFeTxUnusableSecs     Counter32,
+      imaLinkFeRxUnusableSecs     Counter32,
+      imaLinkNeTxNumFailures      Counter32,
+      imaLinkNeRxNumFailures      Counter32,
+      imaLinkFeTxNumFailures      Counter32,
+      imaLinkFeRxNumFailures      Counter32,
+      imaLinkTxStuffs             Counter32,
+      imaLinkRxStuffs             Counter32,
+      imaLinkRxTestPattern        INTEGER (0..255),
+      imaLinkTestProcStatus       ImaTestProcStatus,
+      imaLinkValidIntervals       INTEGER (0..96),
+      imaLinkInvalidIntervals     INTEGER (0..96),
+      imaLinkTimeElapsed          INTEGER (0..899) }
+
+imaLinkIfIndex OBJECT-TYPE
+      SYNTAX      InterfaceIndex
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "This corresponds to the 'ifIndex' of the MIB-II interface
+        on which this link is established.  This object also
+        corresponds to the logical number ('ifIndex') assigned to
+        this IMA link."
+      ::= { imaLinkEntry 1 }
+
+imaLinkRowStatus OBJECT-TYPE
+      SYNTAX      RowStatus
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "The imaLinkRowStatus object allows create, change, and delete
+        operations on imaLinkTable entries.
+
+        To create a new conceptual row (or instance) of the imaLinkTable,
+        imaLinkRowStatus must be set to 'createAndWait' or 'createAndGo'.
+        A successful set of the imaLinkGroupIndex object must be performed
+        before the imaLinkRowStatus of a new conceptual row can be set to
+        'active'.
+
+        To change (modify) the imaLinkGroupIndex in an imaLinkTable entry,
+        the imaLinkRowStatus object must first be set to 'notInService'.
+        Only then can this object in the conceptual row be modified.
+        This is due to the fact that the imaLinkGroupIndex object provides
+        the association between a physical IMA link and the IMA group to
+        which it belongs, and setting the imaLinkGroupIndex object to a
+        different value has the effect of changing the association between
+        a physical IMA link and an IMA group.  To place the link 'in group',
+        the imaLinkRowStatus object is set to 'active'.  While the row is
+        not in 'active' state, both the Transmit and Receive IMA link state
+        machines are in the 'Not In Group' state.
+
+        To remove (delete) an imaLinkTable entry from this table, set
+        this object to 'destroy'."
+      ::= { imaLinkEntry 2 }
+
+imaLinkGroupIndex OBJECT-TYPE
+      SYNTAX      Integer32
+      MAX-ACCESS  read-create
+      STATUS      current
+      DESCRIPTION
+        "The value which identifies the IMA group (imaGroupIndex)
+        of which this link is a member."
+      ::= { imaLinkEntry 3 }
+
+imaLinkNeTxState OBJECT-TYPE
+      SYNTAX      ImaLinkState
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current state of the near-end transmit link."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      ::= { imaLinkEntry 4 }
+
+imaLinkNeRxState OBJECT-TYPE
+      SYNTAX      ImaLinkState
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current state of the near-end receive link."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      ::= { imaLinkEntry 5 }
+
+imaLinkFeTxState OBJECT-TYPE
+      SYNTAX      ImaLinkState
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current state of the far-end transmit link as reported
+        via ICP cells."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      ::= { imaLinkEntry 6 }
+
+imaLinkFeRxState OBJECT-TYPE
+      SYNTAX      ImaLinkState
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current state of the far-end receive link as reported
+        via ICP cells."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      ::= { imaLinkEntry 7 }
+
+imaLinkNeRxFailureStatus OBJECT-TYPE
+      SYNTAX      ImaLinkFailureStatus
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current link failure status of the near-end receive link."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      ::= { imaLinkEntry 8 }
+
+imaLinkFeRxFailureStatus OBJECT-TYPE
+      SYNTAX      ImaLinkFailureStatus
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The current link failure status of the far-end receive link
+        as reported via ICP cells."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.1.2 on page 48"
+      ::= { imaLinkEntry 9 }
+
+imaLinkTxLid OBJECT-TYPE
+      SYNTAX      INTEGER (0..31)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The outgoing LID used currently on the link by the local end.
+        This value has meaning only if the link belongs to an IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.1 on page 26"
+      ::= { imaLinkEntry 10 }
+
+imaLinkRxLid OBJECT-TYPE
+      SYNTAX      INTEGER (0..31)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The incoming LID used currently on the link by the remote
+        end as reported via ICP cells.  This value has meaning only
+        if the link belongs to an IMA group."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 5.2.2.1 on page 26"
+      ::= { imaLinkEntry 11 }
+
+imaLinkRelDelay OBJECT-TYPE
+      SYNTAX      MilliSeconds
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The latest measured delay on this link relative to the link, in
+        the same IMA group, with the least delay."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 9.2 on page 45"
+      ::= { imaLinkEntry 12 }
+
+imaLinkImaViolations OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "ICP violations: count of errored, invalid or missing ICP cells,
+        except during SES-IMA or UAS-IMA conditions."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-125) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 13 }
+
+imaLinkOifAnomalies OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of OIF anomalies, except during SES-IMA or UAS-IMA
+        conditions, at the near-end.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-20) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 14 }
+
+imaLinkNeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing >= 30% of the ICP cells
+        counted as IV-IMAs, or one or more link defects (e.g., LOS, OOF/LOF,
+        AIS, or LCD), LIF defects, or LODS defects, except during UAS-IMA
+        condition."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-126) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 15 }
+
+imaLinkFeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing one or more RDI-IMA
+        defects, except during UAS-IMA-FE condition."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-127) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 16 }
+
+imaLinkNeUnavailSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at near-end: unavailability begins
+        at the onset of 10 contiguous SES-IMA and ends at the onset
+        of 10 contiguous seconds with no SES-IMA."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-128) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 17 }
+
+imaLinkFeUnavailSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at far-end: unavailability begins
+        at the onset of 10 contiguous SES-IMA-FE and ends at the onset of
+        10 contiguous seconds with no SES-IMA-FE."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-129) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 18 }
+
+imaLinkNeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds: count of Tx Unusable seconds at the near-end
+        Tx LSM."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-130) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 19 }
+
+imaLinkNeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds: count of Rx Unusable seconds at the near-end
+        Rx LSM."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-131) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 20 }
+
+imaLinkFeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds at far-end: count of seconds with Tx Unusable
+        indications from the far-end Tx LSM."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-132) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 21 }
+
+imaLinkFeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds at far-end: count of seconds with Rx Unusable
+        indications from the far-end Rx LSM."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-133) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 22 }
+
+imaLinkNeTxNumFailures OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end transmit failure alarm condition
+        has been entered on this link (i.e., some form of implementation
+        specific transmit fault)."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-134) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 23 }
+
+imaLinkNeRxNumFailures OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end receive failure alarm condition
+        has been entered on this link (i.e., LIF, LODS, 
+        RFI-IMA, Mis-Connected or some form of implementation specific receive
+        fault)."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-135) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 24 }
+
+imaLinkFeTxNumFailures OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end transmit failure alarm condition
+        has been entered on this link (i.e., Tx-Unusable-FE).  This is an
+        optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-21) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 25 }
+
+imaLinkFeRxNumFailures OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end receive failure alarm condition
+        has been entered on this link (i.e., Rx-Unusable-FE).  This is an
+        optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-22) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 26 }
+
+imaLinkTxStuffs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events inserted in the transmit direction.
+        This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-23) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 27 }
+
+imaLinkRxStuffs OBJECT-TYPE
+      SYNTAX      Counter32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events detected in the receive direction.
+        This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-24) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 28 }
+
+--
+-- Test Pattern Procedure control objects.  These objects are implemented
+-- if the IMA implements the Test Pattern Procedure.  In this case all
+-- test pattern procedure related objects must be implemented.  Specifically,
+-- these objects are:
+--
+--   imaGroupTestLinkIfIndex
+--   imaGroupTestPattern
+--   imaGroupTestProcStatus
+--   imaLinkRxTestPattern
+--   imaLinkTestProcStatus
+--
+
+imaLinkRxTestPattern OBJECT-TYPE
+      SYNTAX      INTEGER (0..255)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "This object identifies the test pattern received in the
+        ICP Cell (octet 17) on the link during the IMA Test Pattern
+        Procedure.  This value may then be compared to the transmitted
+        test pattern."
+      ::= { imaLinkEntry 29 }
+
+imaLinkTestProcStatus OBJECT-TYPE
+      SYNTAX      ImaTestProcStatus
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "This value indicates the current state of the Test Pattern
+        Procedure.  If the value is disabled(1), the test is not
+        running.  A value of operating(2) means the test is running
+        and no error has been found on this interface.  A value of
+        linkFail(3) means an error has been detected on this link
+        during the test.
+
+        Once an error is detected, the linkFail(3) value is latched until
+        either this object is read or until the imaGroupTestProcStatus
+        is moved to disabled(1).  Once read, if the error no longer
+        persists, a subsequent read will report the value operating(2)."
+      ::= { imaLinkEntry 30 }
+
+--
+-- Objects for use with the IMA Link Current Table, the IMA Link
+-- Interval Table, and the IMA Link Total Table.
+--
+-- Implementation of these objects is optional, dependent on whether
+-- the tables mentioned above are implemented.
+--
+
+imaLinkValidIntervals OBJECT-TYPE
+      SYNTAX      INTEGER (0..96)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of previous 15 minute intervals for which valid data
+        was collected.  The value will be 96 unless the IMA group table
+        entry was created within the last 24 hours, in which case the value
+        will be the number of complete 15 minute intervals since the IMA
+        group table entry was created.  In the case where the agent is a
+        proxy, it is possible that some intervals are unavailable.  In this
+        case, this value is the maximum interval number for which valid
+        data is available.  This attribute is only mandatory when the IMA
+        Link Interval Statistics and/or IMA Link Total Statistics objects
+        are implemented."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-26) in Section 12.2.2.2 on page 77"
+      ::= { imaLinkEntry 31 }
+
+imaLinkInvalidIntervals OBJECT-TYPE
+      SYNTAX      INTEGER (0..96)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of intervals for which no valid data is available.
+        This attribute is only mandatory when the IMA Link Interval
+        Statistics and/or IMA Link Total Statistics objects are
+        implemented."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-26) in Section 12.2.2.2 
+         on page 77"
+      ::= { imaLinkEntry 32 }
+
+imaLinkTimeElapsed OBJECT-TYPE
+      SYNTAX      INTEGER (0..899)
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  This attribute is only mandatory
+        when the IMA Link Current Statistics are implemented."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-26) in Section 12.2.2.2 
+         on page 77"
+      ::= { imaLinkEntry 33 }
+
+--
+-- IMA Failure Alarms
+--
+-- Implementation of the imaFailureAlarm Trap is optional.
+--
+
+imaAlarmStatus OBJECT-TYPE
+      SYNTAX      ImaAlarmStatus
+--      MAX-ACCESS  accessible-for-notify
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Status of the IMA alarm."
+       ::= { atmfImaMibObjects 5 }
+
+imaAlarmType OBJECT-TYPE
+      SYNTAX      ImaAlarmType
+--      MAX-ACCESS  accessible-for-notify
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The Type of IMA alarm declared or cleared.  The value of
+        ImaAlarmType identifies the type of alarm according to the
+        definitions in the IMA specification."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 12.2.3 on page 79"
+       ::= { atmfImaMibObjects 6 }
+
+imaFailureAlarm NOTIFICATION-TYPE
+      OBJECTS {
+        ifIndex,
+        imaAlarmStatus,
+        imaAlarmType }
+      STATUS      current
+      DESCRIPTION
+        "The imaFailureAlarm provides a method for an agent implementing IMA
+        to notify an NMS of an alarm condition."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 12.2.3 on page 79"
+      ::= { atmfImaMibTrapPrefix 1 }
+
+--
+-- The IMA Group Current Statistics subtree
+--
+-- The IMA Group Current Statistics subtree consists of a single table:
+-- the IMA Group Current Table.  This table contains various statistics
+-- collected by each IMA group for the current 15 minute interval.
+--
+-- Implementation of IMA Group Current Table is optional.
+--
+
+imaGroupCurrentTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaGroupCurrentEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA Group Current table."
+      ::= { atmfImaMibObjects 7 }
+
+imaGroupCurrentEntry OBJECT-TYPE
+      SYNTAX      ImaGroupCurrentEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Group Current table."
+      INDEX       { imaGroupIndex }
+      ::= { imaGroupCurrentTable 1 }
+
+ImaGroupCurrentEntry ::= SEQUENCE {
+      imaGroupCurrentUnavailSecs     Gauge32,
+      imaGroupCurrentNeNumFailures   Gauge32,
+      imaGroupCurrentFeNumFailures   Gauge32 }
+
+imaGroupCurrentUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals where the IMA Group Traffic
+        State Machine is Down in the current 15 minutes interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55, (R-136) and
+        (O-26) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupCurrentEntry 1 }
+
+imaGroupCurrentNeNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end group failure (Config-Aborted,
+        Insufficient-Links) has been reported in the current 15
+        minutes interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-137) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaGroupCurrentEntry 2 }
+
+imaGroupCurrentFeNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end group failure (Config-Aborted-FE,
+        Insufficient-Links-FE, Blocked-FE) has been reported in the
+        current 15 minutes interval.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-25) and (O-26) in Section 12.2.2.2
+        on page 77"
+      ::= { imaGroupCurrentEntry 3 }
+
+--
+-- The IMA Group Interval Statistics subtree
+--
+-- The IMA Group Interval Statistics subtree consists of a single table:
+-- the IMA Group Interval Table.  This table contains various statistics
+-- collected by each IMA group over the previous 24 hours of operation.
+-- The past 24 hours are broken into 96 completed 15 minute intervals.
+--
+-- Implementation of IMA Group Interval Table is optional.
+--
+
+imaGroupIntervalTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaGroupIntervalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA Group Interval table."
+      ::= { atmfImaMibObjects 8 }
+
+imaGroupIntervalEntry OBJECT-TYPE
+      SYNTAX      ImaGroupIntervalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Group Interval table."
+      INDEX       { imaGroupIndex, imaGroupIntervalNumber }
+      ::= { imaGroupIntervalTable 1 }
+
+ImaGroupIntervalEntry ::= SEQUENCE {
+      imaGroupIntervalNumber          INTEGER (1..96),
+      imaGroupIntervalUnavailSecs     Gauge32,
+      imaGroupIntervalNeNumFailures   Gauge32,
+      imaGroupIntervalFeNumFailures   Gauge32 }
+
+imaGroupIntervalNumber OBJECT-TYPE
+      SYNTAX      INTEGER (1..96)
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "A number between 1 and 96, where 1 is the most
+         recently completed 15 minute interval and 96 is the least
+         recently completed 15 minutes interval (assuming that all
+         96 intervals are valid)."
+      ::= { imaGroupIntervalEntry 1 }
+
+imaGroupIntervalUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals where the IMA Group Traffic
+        State Machine is Down in one of the previous 96, individual 15
+        minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55, (R-136) and 
+        (O-26) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupIntervalEntry 2 }
+
+imaGroupIntervalNeNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end group failure (Config-Aborted,
+        Insufficient-Links) has been reported in one of the previous
+        96, individual 15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-137) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaGroupIntervalEntry 3 }
+
+imaGroupIntervalFeNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end group failure (Config-Aborted-FE,
+        Insufficient-Links-FE, Blocked-FE) has been reported in one of
+        the previous 96, individual 15 minute, intervals.  This is an
+        optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-25) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaGroupIntervalEntry 4 }
+
+--
+-- The IMA Group Total Statistics subtree
+--
+-- The IMA Group Total Statistics subtree consists of a single table:
+-- the IMA Group Total Table.  This table contains the cumulative sum
+-- of the various statistics collected by each IMA group for the 24 hour
+-- period preceding the current interval.
+--
+-- Implementation of IMA Group Total Table is optional.
+--
+
+imaGroupTotalTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaGroupTotalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA Group Total table."
+      ::= { atmfImaMibObjects 9 }
+
+imaGroupTotalEntry OBJECT-TYPE
+      SYNTAX      ImaGroupTotalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Group Total table."
+      INDEX       { imaGroupIndex }
+      ::= { imaGroupTotalTable 1 }
+
+ImaGroupTotalEntry ::= SEQUENCE {
+      imaGroupTotalUnavailSecs     Gauge32,
+      imaGroupTotalNeNumFailures   Gauge32,
+      imaGroupTotalFeNumFailures   Gauge32 }
+
+imaGroupTotalUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals where the IMA Group Traffic
+        State Machine is Down in the previous 24 hour interval.
+        Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, Section 10.2.1 on page 55, (R-136) and 
+        (O-27) in Section 12.2.2.2 on page 77"
+      ::= { imaGroupTotalEntry 1 }
+
+imaGroupTotalNeNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end group failure (Config-Aborted,
+        Insufficient-Links) has been reported in the previous 24 hour
+        interval.  Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-137) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaGroupTotalEntry 2 }
+
+imaGroupTotalFeNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end group failure (Config-Aborted-FE,
+        Insufficient-Links-FE, Blocked-FE) has been reported in the
+        previous 24 hour interval.  Invalid 15 minute intervals count
+        as 0.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-25) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaGroupTotalEntry 3 }
+
+--
+-- The IMA Link Current Statistics subtree
+--
+-- The IMA Link Current Statistics subtree consists of a single table:
+-- the IMA Link Current Table.  This table contains various statistics
+-- collected by each IMA link for the current 15 minute interval.
+--
+-- Implementation of IMA Link Current Table is optional.
+--
+
+imaLinkCurrentTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaLinkCurrentEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA Link Current table."
+      ::= { atmfImaMibObjects 10 }
+
+imaLinkCurrentEntry OBJECT-TYPE
+      SYNTAX      ImaLinkCurrentEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Link Current table."
+      INDEX       { ifIndex }
+      ::= { imaLinkCurrentTable 1 }
+
+ImaLinkCurrentEntry ::= SEQUENCE {
+      imaLinkCurrentImaViolations     Gauge32,
+      imaLinkCurrentOifAnomalies      Gauge32,
+      imaLinkCurrentNeSevErroredSecs  Gauge32,
+      imaLinkCurrentFeSevErroredSecs  Gauge32,
+      imaLinkCurrentNeUnavailSecs     Gauge32,
+      imaLinkCurrentFeUnavailSecs     Gauge32,
+      imaLinkCurrentNeTxUnusableSecs  Gauge32,
+      imaLinkCurrentNeRxUnusableSecs  Gauge32,
+      imaLinkCurrentFeTxUnusableSecs  Gauge32,
+      imaLinkCurrentFeRxUnusableSecs  Gauge32,
+      imaLinkCurrentNeTxNumFailures   Gauge32,
+      imaLinkCurrentNeRxNumFailures   Gauge32,
+      imaLinkCurrentFeTxNumFailures   Gauge32,
+      imaLinkCurrentFeRxNumFailures   Gauge32,
+      imaLinkCurrentTxStuffs          Gauge32,
+      imaLinkCurrentRxStuffs          Gauge32 }
+
+imaLinkCurrentImaViolations OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "ICP violations: count of errored, invalid or missing ICP cells,
+        except during SES-IMA or UAS-IMA conditions, in the current
+        15 minute interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-125) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 1 }
+
+imaLinkCurrentOifAnomalies OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of OIF anomalies, except during SES-IMA or UAS-IMA
+        conditions, at the near-end in the current 15 minute interval.
+        This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-20) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 2 }
+
+imaLinkCurrentNeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing >= 30% of the ICP cells
+        counted as IV-IMAs, or one or more link defects (e.g., LOS, OOF/LOF,
+        AIS, or LCD), LIF defects, or LODS defects, except during UAS-IMA
+        condition, in the current 15 minute interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-126) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 3 }
+
+imaLinkCurrentFeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing one or more RDI-IMA
+        defects, except during UAS-IMA-FE condition, in the current 15
+        minute interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-127) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 4 }
+
+imaLinkCurrentNeUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at near-end in the current 15 minute
+        interval: unavailability begins at the onset of 10 contiguous
+        SES-IMA and ends at the onset of 10 contiguous seconds with no
+        SES-IMA."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-128) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 5 }
+
+imaLinkCurrentFeUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at far-end in the current 15 minute
+        interval: unavailability begins at the onset of 10 contiguous
+        SES-IMA-FE and ends at the onset of 10 contiguous seconds with no
+        SES-IMA-FE."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-129) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 6 }
+
+imaLinkCurrentNeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds: count of Unusable seconds at the near-end
+        Tx LSM in the current 15 minute interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-130) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 7 }
+
+imaLinkCurrentNeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds: count of Unusable seconds at the near-end
+        Rx LSM in the current 15 minute interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-131) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 8 }
+
+imaLinkCurrentFeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds at far-end: count of seconds with Tx Unusable
+        indications from the far-end Tx LSM in the current 15 minute
+        interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-132) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 9 }
+
+imaLinkCurrentFeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds at far-end: count of seconds with Rx Unusable
+        indications from the far-end Rx LSM in the current 15 minute
+        interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-133) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 10 }
+
+imaLinkCurrentNeTxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end transmit failure alarm condition
+        has been entered on this link (i.e., some form of implementation
+        specific transmit fault) in the current 15 minute interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-134) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 11 }
+
+imaLinkCurrentNeRxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end receive failure alarm condition
+        has been entered on this link (i.e., LIF, LODS, RFI-IMA, Mis-Connected,
+        or some form of implementation specific receive fault)
+        in the current 15 minute interval."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-135) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 12 }
+
+imaLinkCurrentFeTxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end transmit failure alarm condition
+        has been entered on this link (i.e., Tx-Unusable-FE) in the
+        current 15 minute interval.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-21) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 13 }
+
+imaLinkCurrentFeRxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end receive failure alarm condition
+        has been entered on this link (i.e., Rx-Unusable-FE) in the
+        current 15 minute interval.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-22) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 14 }
+
+imaLinkCurrentTxStuffs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events inserted in the transmit direction in
+        the current 15 minute interval.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-23) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 15 }
+
+imaLinkCurrentRxStuffs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events detected in the receive direction in
+        the current 15 minute interval.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-24) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkCurrentEntry 16 }
+
+--
+-- The IMA Link Interval Statistics subtree
+--
+-- The IMA Link Interval Statistics subtree consists of a single table:
+-- the IMA Link Interval Table.  This table contains various statistics
+-- collected by each IMA link over the previous 24 hours of operation.
+-- The past 24 hours are broken into 96 completed 15 minute intervals.
+--
+-- Implementation of IMA Link Interval Table is optional.
+--
+
+imaLinkIntervalTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaLinkIntervalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA Link Interval table."
+      ::= { atmfImaMibObjects 11 }
+
+imaLinkIntervalEntry OBJECT-TYPE
+      SYNTAX      ImaLinkIntervalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Link Interval table."
+      INDEX       { ifIndex, imaLinkIntervalNumber }
+      ::= { imaLinkIntervalTable 1 }
+
+ImaLinkIntervalEntry ::= SEQUENCE {
+      imaLinkIntervalNumber            INTEGER (1..96),
+      imaLinkIntervalImaViolations     Gauge32,
+      imaLinkIntervalOifAnomalies      Gauge32,
+      imaLinkIntervalNeSevErroredSecs  Gauge32,
+      imaLinkIntervalFeSevErroredSecs  Gauge32,
+      imaLinkIntervalNeUnavailSecs     Gauge32,
+      imaLinkIntervalFeUnavailSecs     Gauge32,
+      imaLinkIntervalNeTxUnusableSecs  Gauge32,
+      imaLinkIntervalNeRxUnusableSecs  Gauge32,
+      imaLinkIntervalFeTxUnusableSecs  Gauge32,
+      imaLinkIntervalFeRxUnusableSecs  Gauge32,
+      imaLinkIntervalNeTxNumFailures   Gauge32,
+      imaLinkIntervalNeRxNumFailures   Gauge32,
+      imaLinkIntervalFeTxNumFailures   Gauge32,
+      imaLinkIntervalFeRxNumFailures   Gauge32,
+      imaLinkIntervalTxStuffs          Gauge32,
+      imaLinkIntervalRxStuffs          Gauge32 }
+
+imaLinkIntervalNumber OBJECT-TYPE
+      SYNTAX      INTEGER (1..96)
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "A number between 1 and 96, where 1 is the most
+         recently completed 15 minute interval and 96 is the least
+         recently completed 15 minutes interval (assuming that all
+         96 intervals are valid)."
+      ::= { imaLinkIntervalEntry 1 }
+
+imaLinkIntervalImaViolations OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "ICP violations: count of errored, invalid or missing ICP cells,
+        except during SES-IMA or UAS-IMA conditions, in one of the
+        previous 96, individual 15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-125) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 2 }
+
+imaLinkIntervalOifAnomalies OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of OIF anomalies, except during SES-IMA or UAS-IMA
+        conditions, at the near-end in one of the previous 96, individual
+        15 minute, intervals.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-20) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 3 }
+
+imaLinkIntervalNeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing >= 30% of the ICP cells
+        counted as IV-IMAs, or one or more link defects (e.g., LOS, OOF/LOF,
+        AIS, or LCD), LIF defects, or LODS defects, except during UAS-IMA
+        condition, in one of the previous 96, individual 15 minute,
+        intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-126) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 4 }
+
+imaLinkIntervalFeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing one or more RDI-IMA
+        defects, except during UAS-IMA-FE condition, in one of the previous
+        96, individual 15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-127) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 5 }
+
+imaLinkIntervalNeUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at near-end in one of the previous
+        96, individual 15 minute, intervals: unavailability begins at the
+        onset of 10 contiguous SES-IMA and ends at the onset of 10
+        contiguous seconds with no SES-IMA."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-128) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 6 }
+
+imaLinkIntervalFeUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at far-end in one of the previous
+        96, individual 15 minute, intervals: unavailability begins at the
+        onset of 10 contiguous SES-IMA-FE and ends at the onset of 10
+        contiguous seconds with no SES-IMA-FE."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-129) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 7 }
+
+imaLinkIntervalNeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds: count of Unusable seconds at the near-end
+        Tx LSM in one of the previous 96, individual 15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-130) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 8 }
+
+imaLinkIntervalNeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds: count of Unusable seconds at the near-end
+        Rx LSM in one of the previous 96, individual 15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-131) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 9 }
+
+imaLinkIntervalFeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds at far-end: count of seconds with Tx Unusable
+        indications from the far-end Tx LSM in one of the previous 96,
+        individual 15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-132) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 10 }
+
+imaLinkIntervalFeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds at far-end: count of seconds with Rx Unusable
+        indications from the far-end Rx LSM in one of the previous 96,
+        individual 15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-133) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 11 }
+
+imaLinkIntervalNeTxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end transmit failure alarm condition
+        has been entered on this link (i.e., some form of implementation
+        specific transmit fault) in one of the previous 96, individual
+        15 minute, intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-134) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 12 }
+
+imaLinkIntervalNeRxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end receive failure alarm condition
+        has been entered on this link (i.e., LIF, LODS, RFI-IMA, 
+        Mis-Connected, or some form of implementation specific 
+        receive fault) in one of the previous 96, individual 15 minute,
+        intervals."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-135) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 13 }
+
+imaLinkIntervalFeTxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end transmit failure alarm condition
+        has been entered on this link (i.e., Tx-Unusable-FE) in one of the
+        previous 96, individual 15 minute, intervals.  This is an optional
+        attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-21) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 14 }
+
+imaLinkIntervalFeRxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end receive failure alarm condition
+        has been entered on this link (i.e., Rx-Unusable-FE) in one of
+        the previous 96, individual 15 minute, intervals.  This is an
+        optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-22) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 15 }
+
+imaLinkIntervalTxStuffs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events inserted in the transmit direction in
+        one of the previous 96, individual 15 minute, intervals.  This
+        is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-23) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 16 }
+
+imaLinkIntervalRxStuffs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events detected in the receive direction in
+        one of the previous 96, individual 15 minute, intervals.  This
+        is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-24) and (O-26) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkIntervalEntry 17 }
+
+--
+-- The IMA Link Total Statistics subtree
+--
+-- The IMA Link Total Statistics subtree consists of a single table:
+-- the IMA Link Total Table.  This table contains the cumulative sum
+-- of the various statistics collected by each IMA link for the 24 hour
+-- period preceding the current interval.
+--
+-- Implementation of IMA Link Total Table is optional.
+--
+
+imaLinkTotalTable OBJECT-TYPE
+      SYNTAX      SEQUENCE OF ImaLinkTotalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "The IMA Link Total table."
+      ::= { atmfImaMibObjects 12 }
+
+imaLinkTotalEntry OBJECT-TYPE
+      SYNTAX      ImaLinkTotalEntry
+      MAX-ACCESS  not-accessible
+      STATUS      current
+      DESCRIPTION
+        "An entry in the IMA Link Total table."
+      INDEX       { ifIndex }
+      ::= { imaLinkTotalTable 1 }
+
+ImaLinkTotalEntry ::= SEQUENCE {
+      imaLinkTotalImaViolations     Gauge32,
+      imaLinkTotalOifAnomalies      Gauge32,
+      imaLinkTotalNeSevErroredSecs  Gauge32,
+      imaLinkTotalFeSevErroredSecs  Gauge32,
+      imaLinkTotalNeUnavailSecs     Gauge32,
+      imaLinkTotalFeUnavailSecs     Gauge32,
+      imaLinkTotalNeTxUnusableSecs  Gauge32,
+      imaLinkTotalNeRxUnusableSecs  Gauge32,
+      imaLinkTotalFeTxUnusableSecs  Gauge32,
+      imaLinkTotalFeRxUnusableSecs  Gauge32,
+      imaLinkTotalNeTxNumFailures   Gauge32,
+      imaLinkTotalNeRxNumFailures   Gauge32,
+      imaLinkTotalFeTxNumFailures   Gauge32,
+      imaLinkTotalFeRxNumFailures   Gauge32,
+      imaLinkTotalTxStuffs          Gauge32,
+      imaLinkTotalRxStuffs          Gauge32 }
+
+imaLinkTotalImaViolations OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "ICP violations: count of errored, invalid or missing ICP cells,
+        except during SES-IMA or UAS-IMA conditions, in the previous 24
+        hour interval.  Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-125) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 1 }
+
+imaLinkTotalOifAnomalies OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of OIF anomalies, except during SES-IMA or UAS-IMA
+        conditions, at the near-end in the previous 24 hour interval.
+        Invalid 15 minute intervals count as 0.  This is an optional
+        attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-20) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 2 }
+
+imaLinkTotalNeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing >= 30% of the ICP cells
+        counted as IV-IMAs, or one or more link defects (e.g., LOS, OOF/LOF,
+        AIS, or LCD), LIF defects, or LODS defects, except during UAS-IMA
+        condition, in the previous 24 hour interval.  Invalid 15 minute
+        intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-126) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 3 }
+
+imaLinkTotalFeSevErroredSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of one second intervals containing one or more RDI-IMA
+        defects, except during UAS-IMA-FE condition, in the previous 24
+        hour interval.  Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-127) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 4 }
+
+imaLinkTotalNeUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at near-end in the previous 24 hour
+        interval: unavailability begins at the onset of 10 contiguous
+        SES-IMA and ends at the onset of 10 contiguous seconds with no
+        SES-IMA.  Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-128) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 5 }
+
+imaLinkTotalFeUnavailSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of unavailable seconds at far-end in the previous 24 hour
+        interval: unavailability begins at the onset of 10 contiguous
+        SES-IMA-FE and ends at the onset of 10 contiguous seconds with no
+        SES-IMA-FE.  Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-129) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 6 }
+
+imaLinkTotalNeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds: count of Unusable seconds at the near-end
+        Tx LSM in the previous 24 hour interval.  Invalid 15 minute
+        intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-130) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 7 }
+
+imaLinkTotalNeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds: count of Unusable seconds at the near-end
+        Rx LSM in the previous 24 hour interval.  Invalid 15 minute
+        intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-131) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 8 }
+
+imaLinkTotalFeTxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Tx Unusable seconds at far-end: count of seconds with Tx Unusable
+        indications from the far-end Tx LSM in the previous 24 hour
+        interval.  Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-132) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 9 }
+
+imaLinkTotalFeRxUnusableSecs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Rx Unusable seconds at far-end: count of seconds with Rx Unusable
+        indications from the far-end Rx LSM in the previous 24 hour
+        interval.  Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-133) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 10 }
+
+imaLinkTotalNeTxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end transmit failure alarm condition
+        has been entered on this link (i.e., some form of implementation
+        specific transmit fault) in the previous 24 hour interval.
+        Invalid 15 minute intervals count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-134) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 11 }
+
+imaLinkTotalNeRxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a near-end receive failure alarm condition
+        has been entered on this link (i.e., LIF, LODS, RFI-IMA, 
+        Mis-Connected, or some form of implementation specific receive fault)
+        in the previous 24 hour interval. Invalid 15 minute intervals
+        count as 0."
+      REFERENCE
+        "ATM Forum IMA v1.1, (R-135) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 12 }
+
+imaLinkTotalFeTxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end transmit failure alarm condition
+        has been entered on this link (i.e., Tx-Unusable-FE) in the
+        previous 24 hour interval.  Invalid 15 minute intervals count
+        as 0.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-21) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 13 }
+
+imaLinkTotalFeRxNumFailures OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "The number of times a far-end receive failure alarm condition
+        has been entered on this link (i.e., Rx-Unusable-FE) in the
+        previous 24 hour interval.  Invalid 15 minute intervals count
+        as 0.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-22) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 14 }
+
+imaLinkTotalTxStuffs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events inserted in the transmit direction in
+        the previous 24 hour interval.  Invalid 15 minute intervals
+        count as 0.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-23) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 15 }
+
+imaLinkTotalRxStuffs OBJECT-TYPE
+      SYNTAX      Gauge32
+      MAX-ACCESS  read-only
+      STATUS      current
+      DESCRIPTION
+        "Count of stuff events detected in the receive direction in
+        the previous 24 hour interval.  Invalid 15 minute intervals
+        count as 0.  This is an optional attribute."
+      REFERENCE
+        "ATM Forum IMA v1.1, (O-24) and (O-27) in Section 12.2.2.2 
+        on page 77"
+      ::= { imaLinkTotalEntry 16 }
+
+-- Conformance Information
+
+atmfImaMibGroups OBJECT IDENTIFIER ::= { atmfImaMibConformance 1 }
+atmfImaMibCompliances OBJECT IDENTIFIER ::= { atmfImaMibConformance 2 }
+
+-- Compliance Statements
+
+atmfImaMibCompliance MODULE-COMPLIANCE
+      STATUS      current
+      DESCRIPTION
+        "The compliance statement for network elements implementing
+        ATM Forum Inverse Multiplexing for ATM (IMA) interfaces."
+      MODULE -- this module
+
+-- Mandatory Part
+
+      MANDATORY-GROUPS {
+        imaGroupGroup,
+        imaLinkGroup,
+        imaGroupMappingTableGroup,
+        imaAlarmGroup }
+--        imaNotificationsGroup }
+
+      GROUP imaTestPatternGroup
+      DESCRIPTION
+        "This group is mandatory only for implementations that support
+        the Test Pattern Procedure."
+
+      GROUP imaGroupIntervalGroup
+      DESCRIPTION
+        "This group is mandatory only for implementations that support
+        interval statistics."
+
+      GROUP imaLinkIntervalGroup
+      DESCRIPTION
+        "This group is mandatory only for implementations that support
+        interval statistics."
+
+-- Compliance Part
+
+      OBJECT imaGroupSymmetry
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupMinNumTxLinks
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupMinNumRxLinks
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupTxImaId
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupTxFrameLength
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupDiffDelayMax
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupAlphaValue
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupBetaValue
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupGammaValue
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupFeNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaGroupTestLinkIfIndex
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaGroupTestPattern
+      MIN-ACCESS read-only
+      DESCRIPTION
+        "Write access is not required."
+
+      OBJECT imaLinkOifAnomalies
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkFeTxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkFeRxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkTxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkRxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaGroupCurrentFeNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaGroupIntervalFeNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaGroupTotalFeNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkCurrentOifAnomalies
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkCurrentFeTxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkCurrentFeRxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkCurrentTxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkCurrentRxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkIntervalOifAnomalies
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkIntervalFeTxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkIntervalFeRxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkIntervalTxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkIntervalRxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkTotalOifAnomalies
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkTotalFeTxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkTotalFeRxNumFailures
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkTotalTxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+      OBJECT imaLinkTotalRxStuffs
+      MIN-ACCESS not-accessible
+      DESCRIPTION
+        "This is an optional attribute."
+
+   ::= { atmfImaMibCompliances 1 }
+
+-- Units of Conformance
+
+imaGroupGroup OBJECT-GROUP
+      OBJECTS {
+        imaGroupNumber,
+        imaGroupRowStatus,
+        imaGroupIfIndex,
+        imaGroupNeState,
+        imaGroupFeState,
+        imaGroupFailureStatus,
+        imaGroupSymmetry,
+        imaGroupMinNumTxLinks,
+        imaGroupMinNumRxLinks,
+        imaGroupNeTxClkMode,
+        imaGroupFeTxClkMode,
+        imaGroupTxTimingRefLink,
+        imaGroupRxTimingRefLink,
+        imaGroupLastChange,
+        imaGroupTxImaId,
+        imaGroupRxImaId,
+        imaGroupTxFrameLength,
+        imaGroupRxFrameLength,
+        imaGroupDiffDelayMax,
+        imaGroupLeastDelayLink,
+        imaGroupDiffDelayMaxObs,
+        imaGroupAlphaValue,
+        imaGroupBetaValue,
+        imaGroupGammaValue,
+        imaGroupRunningSecs,
+        imaGroupUnavailSecs,
+        imaGroupNeNumFailures,
+        imaGroupFeNumFailures,
+        imaGroupTxAvailCellRate,
+        imaGroupRxAvailCellRate,
+        imaGroupNumTxCfgLinks,
+        imaGroupNumRxCfgLinks,
+        imaGroupNumTxActLinks,
+        imaGroupNumRxActLinks,
+        imaGroupTxOamLabelValue,
+        imaGroupRxOamLabelValue }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing configuration and status information for
+        an IMA group definition."
+      ::= { atmfImaMibGroups 1 }
+
+imaLinkGroup OBJECT-GROUP
+      OBJECTS {
+        imaLinkRowStatus,
+        imaLinkGroupIndex,
+        imaLinkNeTxState,
+        imaLinkNeRxState,
+        imaLinkFeTxState,
+        imaLinkFeRxState,
+        imaLinkNeRxFailureStatus,
+        imaLinkFeRxFailureStatus,
+        imaLinkTxLid,
+        imaLinkRxLid,
+        imaLinkRelDelay,
+        imaLinkImaViolations,
+        imaLinkOifAnomalies,
+        imaLinkNeSevErroredSecs,
+        imaLinkFeSevErroredSecs,
+        imaLinkNeUnavailSecs,
+        imaLinkFeUnavailSecs,
+        imaLinkNeTxUnusableSecs,
+        imaLinkNeRxUnusableSecs,
+        imaLinkFeTxUnusableSecs,
+        imaLinkFeRxUnusableSecs,
+        imaLinkNeTxNumFailures,
+        imaLinkNeRxNumFailures,
+        imaLinkFeTxNumFailures,
+        imaLinkFeRxNumFailures,
+        imaLinkTxStuffs,
+        imaLinkRxStuffs }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing status information for an IMA link."
+      ::= { atmfImaMibGroups 2 }
+
+imaGroupMappingTableGroup OBJECT-GROUP
+      OBJECTS {
+        imaGroupMappingIndex }
+      STATUS     current
+      DESCRIPTION
+        "A table mapping the 'ifIndex' values of 'imaGroupIfIndex'
+        to the 'imaGroupIndex' values of the corresponding
+        IMA group."
+      ::= { atmfImaMibGroups 3 }
+
+imaTestPatternGroup OBJECT-GROUP
+      OBJECTS {
+        imaGroupTestLinkIfIndex,
+        imaGroupTestPattern,
+        imaGroupTestProcStatus,
+        imaLinkRxTestPattern,
+        imaLinkTestProcStatus }
+      STATUS     current
+      DESCRIPTION
+        "Objects in the imaGroupTable and imaLinkTable which control and
+        report on the Test Pattern Procedure.  These objects must be
+        implemented if the IMA Test Pattern Procedure is supported."
+      ::= { atmfImaMibGroups 4 }
+
+imaAlarmGroup OBJECT-GROUP
+      OBJECTS {
+        imaAlarmStatus,
+        imaAlarmType }
+      STATUS     current
+      DESCRIPTION
+        "Objects used in the imaFailureAlarm notification."
+      ::= { atmfImaMibGroups 5 }
+
+imaGroupIntervalGroup OBJECT-GROUP
+      OBJECTS {
+        imaGroupValidIntervals,
+        imaGroupInvalidIntervals,
+        imaGroupTimeElapsed,
+        imaGroupCurrentUnavailSecs,
+        imaGroupCurrentNeNumFailures,
+        imaGroupCurrentFeNumFailures,
+        imaGroupIntervalUnavailSecs,
+        imaGroupIntervalNeNumFailures,
+        imaGroupIntervalFeNumFailures,
+        imaGroupTotalUnavailSecs,
+        imaGroupTotalNeNumFailures,
+        imaGroupTotalFeNumFailures }
+      STATUS     current
+      DESCRIPTION
+        "Objects containing interval statistics for an IMA group."
+      ::= { atmfImaMibGroups 6 }
+
+imaLinkIntervalGroup OBJECT-GROUP
+      OBJECTS {
+        imaLinkValidIntervals,
+        imaLinkInvalidIntervals,
+        imaLinkTimeElapsed,
+        imaLinkCurrentImaViolations,
+        imaLinkCurrentOifAnomalies,
+        imaLinkCurrentNeSevErroredSecs,
+        imaLinkCurrentFeSevErroredSecs,
+        imaLinkCurrentNeUnavailSecs,
+        imaLinkCurrentFeUnavailSecs,
+        imaLinkCurrentNeTxUnusableSecs,
+        imaLinkCurrentNeRxUnusableSecs,
+        imaLinkCurrentFeTxUnusableSecs,
+        imaLinkCurrentFeRxUnusableSecs,
+        imaLinkCurrentNeTxNumFailures,
+        imaLinkCurrentNeRxNumFailures,
+        imaLinkCurrentFeTxNumFailures,
+        imaLinkCurrentFeRxNumFailures,
+        imaLinkCurrentTxStuffs,
+        imaLinkCurrentRxStuffs,
+        imaLinkIntervalImaViolations,
+        imaLinkIntervalOifAnomalies,
+        imaLinkIntervalNeSevErroredSecs,
+        imaLinkIntervalFeSevErroredSecs,
+        imaLinkIntervalNeUnavailSecs,
+        imaLinkIntervalFeUnavailSecs,
+        imaLinkIntervalNeTxUnusableSecs,
+        imaLinkIntervalNeRxUnusableSecs,
+        imaLinkIntervalFeTxUnusableSecs,
+        imaLinkIntervalFeRxUnusableSecs,
+        imaLinkIntervalNeTxNumFailures,
+        imaLinkIntervalNeRxNumFailures,
+        imaLinkIntervalFeTxNumFailures,
+        imaLinkIntervalFeRxNumFailures,
+        imaLinkIntervalTxStuffs,
+        imaLinkIntervalRxStuffs,
+        imaLinkTotalImaViolations,
+        imaLinkTotalOifAnomalies,
+        imaLinkTotalNeSevErroredSecs,
+        imaLinkTotalFeSevErroredSecs,
+        imaLinkTotalNeUnavailSecs,
+        imaLinkTotalFeUnavailSecs,
+        imaLinkTotalNeTxUnusableSecs,
+        imaLinkTotalNeRxUnusableSecs,
+        imaLinkTotalFeTxUnusableSecs,
+        imaLinkTotalFeRxUnusableSecs,
+        imaLinkTotalNeTxNumFailures,
+        imaLinkTotalNeRxNumFailures,
+        imaLinkTotalFeTxNumFailures,
+        imaLinkTotalFeRxNumFailures,
+        imaLinkTotalTxStuffs,
+        imaLinkTotalRxStuffs }
+      STATUS     current
+      DESCRIPTION
+        "Objects containing interval statistics for an IMA link."
+      ::= { atmfImaMibGroups 7 }
+
+imaNotificationsGroup NOTIFICATION-GROUP
+      NOTIFICATIONS {
+        imaFailureAlarm }
+      STATUS     current
+      DESCRIPTION
+        "Notifications that must be implemented for IMA groups and links."
+      ::= { atmfImaMibGroups 8 }
+
+END

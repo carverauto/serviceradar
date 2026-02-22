@@ -1,0 +1,688 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-SYSFILE-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- SYSFILE management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-SYSFILE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprConditionRemoteInvRslt,
+    CfprFsmCompletion,
+    CfprFsmFlags,
+    CfprFsmFsmStageStatus,
+    CfprNetworkSwitchId,
+    CfprSysfileMutationAction,
+    CfprSysfileMutationFsmCurrentFsm,
+    CfprSysfileMutationFsmStageName,
+    CfprSysfileMutationFsmTaskItem
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprSysfileObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        SYSFILE management information model package"
+    ::= { ciscoFirepowerMIBObjects 77 }
+
+cfprSysfileDigestTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSysfileDigestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest managed object table"
+    ::= { cfprSysfileObjects 1 }
+
+cfprSysfileDigestEntry OBJECT-TYPE
+    SYNTAX           CfprSysfileDigestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSysfileDigestTable table."
+    INDEX { cfprSysfileDigestInstanceId }
+    ::= { cfprSysfileDigestTable 1 }
+
+CfprSysfileDigestEntry ::= SEQUENCE {
+    cfprSysfileDigestInstanceId                                      CfprManagedObjectId,
+    cfprSysfileDigestDn                                              CfprManagedObjectDn,
+    cfprSysfileDigestRn                                              SnmpAdminString,
+    cfprSysfileDigestCreationTS                                      Unsigned64,
+    cfprSysfileDigestDescr                                           SnmpAdminString,
+    cfprSysfileDigestName                                            SnmpAdminString,
+    cfprSysfileDigestSize                                            Gauge32,
+    cfprSysfileDigestSource                                          SnmpAdminString,
+    cfprSysfileDigestSwitchId                                        CfprNetworkSwitchId,
+    cfprSysfileDigestTs                                              DateAndTime,
+    cfprSysfileDigestUri                                             SnmpAdminString
+}
+
+cfprSysfileDigestInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSysfileDigestEntry 1 }
+
+cfprSysfileDigestDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:dn managed object property"
+    ::= { cfprSysfileDigestEntry 2 }
+
+cfprSysfileDigestRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:rn managed object property"
+    ::= { cfprSysfileDigestEntry 3 }
+
+cfprSysfileDigestCreationTS OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:creationTS managed
+        object property"
+    ::= { cfprSysfileDigestEntry 4 }
+
+cfprSysfileDigestDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:descr managed object property"
+    ::= { cfprSysfileDigestEntry 5 }
+
+cfprSysfileDigestName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:name managed object property"
+    ::= { cfprSysfileDigestEntry 6 }
+
+cfprSysfileDigestSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:size managed object property"
+    ::= { cfprSysfileDigestEntry 7 }
+
+cfprSysfileDigestSource OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:source managed object property"
+    ::= { cfprSysfileDigestEntry 8 }
+
+cfprSysfileDigestSwitchId OBJECT-TYPE
+    SYNTAX       CfprNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:switchId managed object property"
+    ::= { cfprSysfileDigestEntry 9 }
+
+cfprSysfileDigestTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:ts managed object property"
+    ::= { cfprSysfileDigestEntry 10 }
+
+cfprSysfileDigestUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Digest:uri managed object property"
+    ::= { cfprSysfileDigestEntry 11 }
+
+cfprSysfileMutationTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSysfileMutationEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation managed object table"
+    ::= { cfprSysfileObjects 2 }
+
+cfprSysfileMutationEntry OBJECT-TYPE
+    SYNTAX           CfprSysfileMutationEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSysfileMutationTable table."
+    INDEX { cfprSysfileMutationInstanceId }
+    ::= { cfprSysfileMutationTable 1 }
+
+CfprSysfileMutationEntry ::= SEQUENCE {
+    cfprSysfileMutationInstanceId                                    CfprManagedObjectId,
+    cfprSysfileMutationDn                                            CfprManagedObjectDn,
+    cfprSysfileMutationRn                                            SnmpAdminString,
+    cfprSysfileMutationAction                                        CfprSysfileMutationAction,
+    cfprSysfileMutationDescr                                         SnmpAdminString,
+    cfprSysfileMutationFsmDescr                                      SnmpAdminString,
+    cfprSysfileMutationFsmPrev                                       SnmpAdminString,
+    cfprSysfileMutationFsmProgr                                      Gauge32,
+    cfprSysfileMutationFsmRmtInvErrCode                              Gauge32,
+    cfprSysfileMutationFsmRmtInvErrDescr                             SnmpAdminString,
+    cfprSysfileMutationFsmRmtInvRslt                                 CfprConditionRemoteInvRslt,
+    cfprSysfileMutationFsmStageDescr                                 SnmpAdminString,
+    cfprSysfileMutationFsmStamp                                      DateAndTime,
+    cfprSysfileMutationFsmStatus                                     SnmpAdminString,
+    cfprSysfileMutationFsmTry                                        Gauge32
+}
+
+cfprSysfileMutationInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSysfileMutationEntry 1 }
+
+cfprSysfileMutationDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:dn managed object property"
+    ::= { cfprSysfileMutationEntry 2 }
+
+cfprSysfileMutationRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:rn managed object property"
+    ::= { cfprSysfileMutationEntry 3 }
+
+cfprSysfileMutationAction OBJECT-TYPE
+    SYNTAX       CfprSysfileMutationAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:action managed object property"
+    ::= { cfprSysfileMutationEntry 4 }
+
+cfprSysfileMutationDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:descr managed object property"
+    ::= { cfprSysfileMutationEntry 5 }
+
+cfprSysfileMutationFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmDescr managed
+        object property"
+    ::= { cfprSysfileMutationEntry 6 }
+
+cfprSysfileMutationFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmPrev managed object property"
+    ::= { cfprSysfileMutationEntry 7 }
+
+cfprSysfileMutationFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmProgr managed
+        object property"
+    ::= { cfprSysfileMutationEntry 8 }
+
+cfprSysfileMutationFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprSysfileMutationEntry 9 }
+
+cfprSysfileMutationFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprSysfileMutationEntry 10 }
+
+cfprSysfileMutationFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprSysfileMutationEntry 11 }
+
+cfprSysfileMutationFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmStageDescr
+        managed object property"
+    ::= { cfprSysfileMutationEntry 12 }
+
+cfprSysfileMutationFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmStamp managed
+        object property"
+    ::= { cfprSysfileMutationEntry 13 }
+
+cfprSysfileMutationFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmStatus managed
+        object property"
+    ::= { cfprSysfileMutationEntry 14 }
+
+cfprSysfileMutationFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:Mutation:fsmTry managed object property"
+    ::= { cfprSysfileMutationEntry 15 }
+
+cfprSysfileMutationFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSysfileMutationFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm managed object table"
+    ::= { cfprSysfileObjects 3 }
+
+cfprSysfileMutationFsmEntry OBJECT-TYPE
+    SYNTAX           CfprSysfileMutationFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSysfileMutationFsmTable table."
+    INDEX { cfprSysfileMutationFsmInstanceId }
+    ::= { cfprSysfileMutationFsmTable 1 }
+
+CfprSysfileMutationFsmEntry ::= SEQUENCE {
+    cfprSysfileMutationFsmInstanceId                                 CfprManagedObjectId,
+    cfprSysfileMutationFsmDn                                         CfprManagedObjectDn,
+    cfprSysfileMutationFsmRn                                         SnmpAdminString,
+    cfprSysfileMutationFsmCompletionTime                             DateAndTime,
+    cfprSysfileMutationFsmCurrentFsm                                 CfprSysfileMutationFsmCurrentFsm,
+    cfprSysfileMutationFsmDescrData                                  SnmpAdminString,
+    cfprSysfileMutationFsmFsmStatus                                  CfprFsmFsmStageStatus,
+    cfprSysfileMutationFsmProgress                                   Gauge32,
+    cfprSysfileMutationFsmRmtErrCode                                 Gauge32,
+    cfprSysfileMutationFsmRmtErrDescr                                SnmpAdminString,
+    cfprSysfileMutationFsmRmtRslt                                    CfprConditionRemoteInvRslt
+}
+
+cfprSysfileMutationFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSysfileMutationFsmEntry 1 }
+
+cfprSysfileMutationFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:dn managed object property"
+    ::= { cfprSysfileMutationFsmEntry 2 }
+
+cfprSysfileMutationFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:rn managed object property"
+    ::= { cfprSysfileMutationFsmEntry 3 }
+
+cfprSysfileMutationFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:completionTime
+        managed object property"
+    ::= { cfprSysfileMutationFsmEntry 4 }
+
+cfprSysfileMutationFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprSysfileMutationFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:currentFsm
+        managed object property"
+    ::= { cfprSysfileMutationFsmEntry 5 }
+
+cfprSysfileMutationFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:descr managed
+        object property"
+    ::= { cfprSysfileMutationFsmEntry 6 }
+
+cfprSysfileMutationFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:fsmStatus
+        managed object property"
+    ::= { cfprSysfileMutationFsmEntry 7 }
+
+cfprSysfileMutationFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:progress managed
+        object property"
+    ::= { cfprSysfileMutationFsmEntry 8 }
+
+cfprSysfileMutationFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:rmtErrCode
+        managed object property"
+    ::= { cfprSysfileMutationFsmEntry 9 }
+
+cfprSysfileMutationFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprSysfileMutationFsmEntry 10 }
+
+cfprSysfileMutationFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsm:rmtRslt managed
+        object property"
+    ::= { cfprSysfileMutationFsmEntry 11 }
+
+cfprSysfileMutationFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSysfileMutationFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage managed object table"
+    ::= { cfprSysfileObjects 4 }
+
+cfprSysfileMutationFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprSysfileMutationFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSysfileMutationFsmStageTable table."
+    INDEX { cfprSysfileMutationFsmStageInstanceId }
+    ::= { cfprSysfileMutationFsmStageTable 1 }
+
+CfprSysfileMutationFsmStageEntry ::= SEQUENCE {
+    cfprSysfileMutationFsmStageInstanceId                            CfprManagedObjectId,
+    cfprSysfileMutationFsmStageDn                                    CfprManagedObjectDn,
+    cfprSysfileMutationFsmStageRn                                    SnmpAdminString,
+    cfprSysfileMutationFsmStageDescrData                             SnmpAdminString,
+    cfprSysfileMutationFsmStageLastUpdateTime                        DateAndTime,
+    cfprSysfileMutationFsmStageName                                  CfprSysfileMutationFsmStageName,
+    cfprSysfileMutationFsmStageOrder                                 Gauge32,
+    cfprSysfileMutationFsmStageRetry                                 Gauge32,
+    cfprSysfileMutationFsmStageStageStatus                           CfprFsmFsmStageStatus
+}
+
+cfprSysfileMutationFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSysfileMutationFsmStageEntry 1 }
+
+cfprSysfileMutationFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:dn managed
+        object property"
+    ::= { cfprSysfileMutationFsmStageEntry 2 }
+
+cfprSysfileMutationFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:rn managed
+        object property"
+    ::= { cfprSysfileMutationFsmStageEntry 3 }
+
+cfprSysfileMutationFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:descr
+        managed object property"
+    ::= { cfprSysfileMutationFsmStageEntry 4 }
+
+cfprSysfileMutationFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprSysfileMutationFsmStageEntry 5 }
+
+cfprSysfileMutationFsmStageName OBJECT-TYPE
+    SYNTAX       CfprSysfileMutationFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:name
+        managed object property"
+    ::= { cfprSysfileMutationFsmStageEntry 6 }
+
+cfprSysfileMutationFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:order
+        managed object property"
+    ::= { cfprSysfileMutationFsmStageEntry 7 }
+
+cfprSysfileMutationFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:retry
+        managed object property"
+    ::= { cfprSysfileMutationFsmStageEntry 8 }
+
+cfprSysfileMutationFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmStage:stageStatus
+        managed object property"
+    ::= { cfprSysfileMutationFsmStageEntry 9 }
+
+cfprSysfileMutationFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSysfileMutationFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmTask managed object table"
+    ::= { cfprSysfileObjects 5 }
+
+cfprSysfileMutationFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprSysfileMutationFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSysfileMutationFsmTaskTable table."
+    INDEX { cfprSysfileMutationFsmTaskInstanceId }
+    ::= { cfprSysfileMutationFsmTaskTable 1 }
+
+CfprSysfileMutationFsmTaskEntry ::= SEQUENCE {
+    cfprSysfileMutationFsmTaskInstanceId                             CfprManagedObjectId,
+    cfprSysfileMutationFsmTaskDn                                     CfprManagedObjectDn,
+    cfprSysfileMutationFsmTaskRn                                     SnmpAdminString,
+    cfprSysfileMutationFsmTaskCompletion                             CfprFsmCompletion,
+    cfprSysfileMutationFsmTaskFlags                                  CfprFsmFlags,
+    cfprSysfileMutationFsmTaskItem                                   CfprSysfileMutationFsmTaskItem,
+    cfprSysfileMutationFsmTaskSeqId                                  Gauge32
+}
+
+cfprSysfileMutationFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSysfileMutationFsmTaskEntry 1 }
+
+cfprSysfileMutationFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmTask:dn managed
+        object property"
+    ::= { cfprSysfileMutationFsmTaskEntry 2 }
+
+cfprSysfileMutationFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmTask:rn managed
+        object property"
+    ::= { cfprSysfileMutationFsmTaskEntry 3 }
+
+cfprSysfileMutationFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmTask:completion
+        managed object property"
+    ::= { cfprSysfileMutationFsmTaskEntry 4 }
+
+cfprSysfileMutationFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmTask:flags
+        managed object property"
+    ::= { cfprSysfileMutationFsmTaskEntry 5 }
+
+cfprSysfileMutationFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprSysfileMutationFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmTask:item managed
+        object property"
+    ::= { cfprSysfileMutationFsmTaskEntry 6 }
+
+cfprSysfileMutationFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sysfile:MutationFsmTask:seqId
+        managed object property"
+    ::= { cfprSysfileMutationFsmTaskEntry 7 }
+
+END

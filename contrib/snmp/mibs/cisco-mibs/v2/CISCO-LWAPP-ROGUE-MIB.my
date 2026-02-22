@@ -1,0 +1,2377 @@
+-- *******************************************************************
+-- CISCO-LWAPP-ROGUE-MIB.my 
+-- February 2007, Devesh Pujari, Srinath Candadai 
+--
+-- Copyright (c) 2007-2021 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-LWAPP-ROGUE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Integer32,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        StorageType,
+        RowStatus,
+        MacAddress,
+        TruthValue,
+        TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+        cLApName,
+        cLApRogueApMacAddress,
+        cLApDot11IfType,
+        cLApRogueDetectedChannel,
+        cLApDot11RadioChannelNumber,
+        cLApIfSmtDot11Bssid,
+        cLApDot11RadioMACAddress,
+        cLApRogueMode,
+        cLApRogueDot11RadioBand
+                FROM CISCO-LWAPP-AP-MIB
+        cldcClientMacAddress
+                FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+        ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoLwappRogueMIB   MODULE-IDENTITY
+        LAST-UPDATED    "201703210000Z"
+        ORGANIZATION   "Cisco Systems Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                   Tel: +1 800 553-NETS
+
+                 Email: cs-wnbu-snmp@cisco.com"
+
+        DESCRIPTION             
+                "This MIB is intended to be implemented on all those
+                devices operating as Central Controllers, that
+                terminate the Light Weight Access Point Protocol
+                tunnel from Cisco Light-weight LWAPP Access Points.
+               
+                This MIB provides information about the Rogue APs
+                and Clients that are detected by the controller.
+
+                The relationship between CC and the LWAPP APs
+                can be depicted as follows:
+
+                      +......+     +......+     +......+
+                      +      +     +      +     +      +
+                      +  CC  +     +  CC  +     +  CC  +
+                      +      +     +      +     +      +
+                      +......+     +......+     +......+
+                        ..            .             .
+                        ..            .             .
+                       .  .            .             .
+                      .    .            .             .
+                     .      .            .             .
+                    .        .            .             .
+                +......+ +......+     +......+      +......+
+                +      + +      +     +      +      +      +
+                +  AP  + +  AP  +     +  AP  +      +  AP  +
+                +      + +      +     +      +      +      +
+                +......+ +......+     +......+      +......+
+                           .              .             .
+                         .  .              .             .
+                        .    .              .             .
+                       .      .              .             .
+                      .        .              .             .
+                   +......+ +......+     +......+      +......+
+                   +      + +      +     +      +      +      +
+                   +  MN  + +  MN  +     +  MN  +      +  MN  +
+                   +      + +      +     +      +      +      +
+                   +......+ +......+     +......+      +......+
+
+
+                The LWAPP tunnel exists between the controller and
+                the APs.  The MNs communicate with the APs through
+                the protocol defined by the 802.11 standard.
+
+                LWAPP APs, upon bootup, discover and join one of the
+                controllers and the controller pushes the configuration,
+                that includes the WLAN parameters, to the LWAPP APs.
+                The APs then encapsulate all the 802.11 frames from
+                wireless clients inside LWAPP frames and forward
+                the LWAPP frames to the controller.
+
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.  
+
+                LWAPP APs encapsulate all the 802.11 frames in
+                LWAPP frames and sends them to the controller to which
+                it is logically connected.
+
+                Light Weight Access Point Protocol ( LWAPP )
+
+                This is a generic protocol that defines the 
+                communication between the Access Points and the
+                Central Controller. 
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point. Mobile Node 
+                and client are used interchangeably. 
+
+                Rogue
+                
+                Any 802.11 device which is not part of the RF network 
+                is a Rogue device.
+
+                Ad-hoc Network 
+
+                A set of mobile devices within direct communication 
+                range establishing a network among themselves for 
+                transmitting data, without the use of a Access point 
+                is called a ad-hoc network. 
+
+                Rogue Ad-hoc Client
+
+                Any 802.11 client which is part of that ad-hoc network, 
+                but not in the trusted list.
+
+                Service Set Identifier ( SSID )
+
+                SSID is a unique identifier that APs and clients
+                use to identify with each other.  SSID is a simple
+                means of access control and is not for security.
+                The SSID can be any alphanumeric entry up to 32
+                characters.
+
+                RSSI
+
+                Received Signal Strength Indication (RSSI), the IEEE 802.11
+                standard defines a mechanism by which RF energy is to be
+                measured by the circuitry on a wireless NIC. Its value is
+                measured in dBm and ranges from -128 to 0.
+
+                Rogue Location Detection Protocol (RLDP)
+
+                RLDP is a protocol to detect and automatically 
+                contain rogue devices. When the controller discovers 
+                a rogue access point, it uses the Rogue Location 
+                Discovery Protocol (RLDP) to determine if the 
+                rogue is attached to your network.
+                RLDP can be enabled/disabled per controller level.
+
+                LRAD (LWAPP RADIO)
+
+                Light Weight Access Point Protocol Radio 
+                basically ones own AP.       
+                REFERENCE
+
+                [1] Wireless LAN Medium Access Control ( MAC ) and
+                    Physical Layer ( PHY ) Specifications.
+
+                [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+                    Weight Access Point Protocol."
+            REVISION        "202012020000Z"
+            DESCRIPTION
+                "Added enumerated values 10 to 12 to 
+                cLRogueAPRadioType object.
+                
+                Added:-
+                cLRogueAPPhysicalAPSlot."
+            REVISION        "201703210000Z"
+            DESCRIPTION
+                "Added new object group
+                   - ciscoLwappRogueConfigSup5Group
+                 Added new compliance
+                   - ciscoLwappRogueMIBComplianceRev5.
+                   Added new object group
+                   - ciscoLwappRogueConfigSup4Group
+                 Added new compliance
+                   - ciscoLwappRogueMIBComplianceRev4."
+            REVISION        "201109070000Z"
+            DESCRIPTION
+                "Added following objects:
+
+                cLRogueReportInterval
+                cLRogueMinimumRssi
+                cLRogueTransientInterval.
+
+                Deprecated ciscoLwappRogueMIBComplianceRev2 and
+                added ciscoLwappRogueMIBComplianceRev3."
+            REVISION        "201103110000Z"
+            DESCRIPTION
+                "Added following objects:
+
+                cLRldpAutoContainLevel
+                cLRldpAutoContainOnlyforMonitorModeAps.
+
+                Deprecated ciscoLwappRogueMIBComplianceRev1 and
+                added ciscoLwappRogueMIBComplianceRev2."
+            REVISION        "201007170000Z"
+            DESCRIPTION
+                "Added following tables:
+
+                cLRogueIgnoreListTable
+                cLRuleConfigTable
+                cLConditionConfigTable
+                cLConditionSsidConfigTable
+
+                Added following objects:
+
+                cLRldpAutoContainFeatureOnWiredNetwork
+                cLRldpAutoContainRoguesAdvertisingSsid
+                cLRldpAutoContainAdhocNetworks
+                cLRldpAutoContainTrustedClientsOnRogueAps
+
+                Deprecated ciscoLwappRogueMIBCompliance and 
+                added ciscoLwappRogueMIBComplianceRev1."
+            REVISION        "200702060000Z"
+            DESCRIPTION
+                "Initial version of this MIB module."
+            ::= { ciscoMgmt 610 }
+ 
+ciscoLwappRogueMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappRogueMIB 0 }
+
+ciscoLwappRogueMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappRogueMIB 1 }
+
+ciscoLwappRogueMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappRogueMIB 2 }
+
+ciscoLwappRogueMIBNotifObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappRogueMIB 3 }
+
+
+cLRogueConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappRogueMIBObjects 1 }
+
+cLRoguePolicyConfig  OBJECT IDENTIFIER
+    ::= { cLRogueConfig 1 }
+
+cLRogueRuleConfig  OBJECT IDENTIFIER
+    ::= { cLRogueConfig 3 }
+
+cLRogueIgnoreListConfig  OBJECT IDENTIFIER
+    ::= { cLRogueConfig 4 }
+
+cLRldpAutoContainConfig  OBJECT IDENTIFIER
+    ::= { cLRogueConfig 5 }
+
+cLRogueApConfig  OBJECT IDENTIFIER
+    ::= { cLRogueConfig 6 }
+
+cLRogueClientConfig OBJECT IDENTIFIER
+    ::= { cLRogueConfig 7 }
+
+cLRogueApDetectingApDetails OBJECT IDENTIFIER
+    ::= { cLRogueConfig 8 }
+
+CLAutoContainActions ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the action that should be
+        taken with respect to auto containment feature when any of the
+        following are detected by the switch:
+        rogue adhoc network 
+        rogues APs that are advertising our SSID
+        trusted clients that are associated to rogue APs
+
+        alarmOnly(1) - only an alarm will be generated
+        contain(2)   - contain automatically"
+    SYNTAX          INTEGER  {
+                        alarmOnly(1),
+                        contain(2)
+                    }
+
+cLRogueAdhocRogueReportEnable OBJECT-TYPE
+    SYNTAX          TruthValue 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to turn on and off ad-hoc
+        rogue reporting.
+        A value of 'true' indicates that adhoc rogue
+        reporting is enabled.
+        A value of 'false' indicates that adhoc rogue 
+        reporting is disabled."
+    DEFVAL          { true }
+    ::= { cLRoguePolicyConfig 1 }
+
+cLRogueReportInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (10..300)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rogue report interval,
+        which is the interval that monitor mode APs send 
+        rogue detection details to the controller." 
+    ::= { cLRoguePolicyConfig 2 }
+
+cLRogueMinimumRssi OBJECT-TYPE
+    SYNTAX          Integer32 (-128..-70)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum value of RSSI
+        considered for detection of rogues." 
+    ::= { cLRoguePolicyConfig 3 }
+
+cLRogueTransientInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 120..1800)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rogue transient
+        interval. 
+
+        A value of '0' specifies that an AP sends 
+        rogue detection details to the controller 
+        as soon as it detects a rogue. 
+
+        A non-zero value specifies that an AP sends 
+        rogue detection details to the controller if 
+        it hears the rogue more than once in the specified 
+        interval." 
+    ::= { cLRoguePolicyConfig 4 }
+
+cLRogueClientNumThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of clients the Rogue AP
+        can have. A value of zero indicates no limitation on 
+        the number of clients the Rogue AP can have." 
+    ::= { cLRoguePolicyConfig 5 }
+
+cLRogueDetectionSecurityLevel OBJECT-TYPE
+    SYNTAX          INTEGER {
+                       low(1),
+                       high(2),
+                       critical(3),
+                       custom(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rogue detection security level.
+        When the object has value of 'low', 'high' or 'critical', 
+        controller uses pre-defined rogue detection parameters for 
+        the specified security level. 
+        When the object has value of 'custom', controller uses the 
+        user configured rogue detection parameters. 
+
+        low      - security level is low 
+        high     - security level is high 
+        critical - security level is critical 
+        custom   - customized security level" 
+    DEFVAL          { custom }
+    ::= { cLRoguePolicyConfig 6 }
+
+cLRogueValidateRogueClientsAgainstMse OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        enable(2)
+                    }
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "The object specifies whether the controller validates
+        'valid' clients which are associating with rogue AP, 
+        against Mse. A value of 'enable' indicates that the 
+        controller does validates 'valid'clients which are 
+        associating with rogue AP, against Mse. A value of 
+        'disable' indicates that the controller does not 
+        validates 'valid' clients which are associating 
+        with rogue AP, against Mse." 
+    DEFVAL { disable }
+    ::= { cLRoguePolicyConfig 7 }
+
+cLRogueValidateRogueApsAgainstAAA OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        enable(2)
+                    }
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "This flag should be turned on to allow the controller to
+        validate 'valid' Aps against radius server."
+    ::= { cLRoguePolicyConfig 8 }
+
+cLRogueApPollingInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the polling interval of rogue Ap 
+        in seconds."
+    ::= { cLRoguePolicyConfig 9 }
+
+cLRogueContainAutoRateEnable OBJECT-TYPE
+    SYNTAX          TruthValue 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to turn on and off rogue  
+        containment automatic rate selection.
+        A value of 'true' indicates that automatic
+        rate selection will be enabled.
+        A value of 'false' indicates that automatic
+        rate selection will be disabled."
+    ::= { cLRoguePolicyConfig 10 }
+
+
+cLRogueAdhocRogueNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The object to control the generation of
+        cLRogueAdhocDetected notification.
+
+        A value of 'true' indicates that the agent generates
+        cLRogueAdhocDetected notification.
+
+        A value of 'false' indicates that the agent doesn't
+        generate cLRogueAdhocDetected notification. "
+    DEFVAL          { false }
+    ::= { cLRogueConfig 2 }
+
+
+--********************************************************************
+-- *  Notification Objects 
+--********************************************************************
+cLRogueApContainmentLevel OBJECT-TYPE
+        SYNTAX     INTEGER  {
+                        unassigned(0),
+                        level1(1),
+                        level2(2),
+                        level3(3),
+                        level4(4)
+                    }
+        MAX-ACCESS accessible-for-notify
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the state of the rogue contained, 
+                 Higher the level of containment, more the number of 
+                 detecting APs that are used to contain it.
+                 Value between 1 to 4 is for 'contained' state.
+                 Value of 0 means 'contained' state is stopped."
+        ::= { ciscoLwappRogueMIBNotifObjects 1 }
+
+cLRogueClientTotalDetectingAPs OBJECT-TYPE
+        SYNTAX Integer32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+            "This object represents the total number of 
+            detecting APs that detected this rogue."
+        ::= { ciscoLwappRogueMIBNotifObjects 2 }
+
+cLRogueClientFirstReported OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+            "This object represents the time Stamp 
+            when this Rogue client was First Detected."
+        ::= { ciscoLwappRogueMIBNotifObjects 3 }
+
+cLRogueClientLastReported OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+            "This object represents the time Stamp 
+            `when this Rogue client was Last Detected."
+        ::= { ciscoLwappRogueMIBNotifObjects 4}
+
+cLRogueClientGatewayMac OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "Gateway Mac Address of Rogue Station."
+        ::= { ciscoLwappRogueMIBNotifObjects 5 }
+
+cLLastDetectingRadioMACAddress OBJECT-TYPE
+    SYNTAX MacAddress
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Last detecting AP of the rogue client."
+    ::= { ciscoLwappRogueMIBNotifObjects 6 }
+
+--********************************************************************
+-- *  Notifications 
+--********************************************************************
+cLRogueAdhocRogueDetected NOTIFICATION-TYPE
+    OBJECTS         { cLApName }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by the controller when a 
+        a rogue is detected.  The name of the AP that  
+        detected this rogue is sent in the notification." 
+    ::= { ciscoLwappRogueMIBNotifs 1 }
+       
+cLRogueClientExceededThreshold NOTIFICATION-TYPE
+    OBJECTS         {
+                     cLApDot11RadioMACAddress,
+                     cLApDot11RadioChannelNumber,
+                     cLApRogueApMacAddress,
+                     cldcClientMacAddress,
+                     cLApDot11IfType,
+                     cLApIfSmtDot11Bssid,
+                     cLRuleStateType,
+                     cLApRogueDetectedChannel,
+                     cLApRogueDot11RadioBand
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by the controller
+         when a rogue client exceeds its maximum 
+         threshold configured. The details of Rogue AP
+         and Rogue Clients is sent in the notification."
+    ::= { ciscoLwappRogueMIBNotifs 2 }
+
+cLRogueExceededClientRemovedThreshold NOTIFICATION-TYPE
+    OBJECTS         {
+                     cLApDot11RadioMACAddress,
+                     cLApDot11RadioChannelNumber,
+                     cLApRogueApMacAddress,
+                     cldcClientMacAddress,
+                     cLApDot11IfType,
+                     cLApIfSmtDot11Bssid,
+                     cLRuleStateType,
+                     cLApRogueDetectedChannel,
+                     cLApRogueDot11RadioBand
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by the controller
+         when a rogue client is removed from the rogue AP 
+         and still the client count of the rogue AP is greater 
+         than the maximum threshold configured. The details 
+         of Rogue AP and Rogue Clients is sent in the 
+         notification."
+    ::= { ciscoLwappRogueMIBNotifs 3 }
+
+cLRogueApRuleContained NOTIFICATION-TYPE
+    OBJECTS         {
+                     cLApRogueApMacAddress,
+                     cLRogueApContainmentLevel 
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by the controller
+         when a rogue AP is contained due to Rogue Rule."
+    ::= { ciscoLwappRogueMIBNotifs 4 }
+
+cLRogueClientDetected NOTIFICATION-TYPE
+    OBJECTS         {
+        cldcClientMacAddress,
+        cLLastDetectingRadioMACAddress,
+        cLApRogueApMacAddress,
+        cLApRogueMode,
+        cLRogueClientTotalDetectingAPs,
+        cLRogueClientFirstReported,
+        cLRogueClientLastReported,
+        cLRogueClientGatewayMac
+}   
+    STATUS          current
+    DESCRIPTION
+    "This notification is generated by the controller
+    when a rogue client is detected."
+    ::= { ciscoLwappRogueMIBNotifs 5 }
+
+
+-- ********************************************************************
+-- Rule configuration
+-- ********************************************************************
+
+cLRuleConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLRuleConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current 
+    DESCRIPTION
+        "This table provides the configuration needed
+        by the controller for classifying rogue APs. 
+        The user defines the custom rules which are 
+        used to classify the APs under different 
+        classification types. When a new rule is created 
+        priority will be assigned automatically by controller, 
+        highest priority given to rule which are created first. 
+        Also if user is changing the priority of a rule manually, 
+        the new priority should not be used by any other existing rule."
+    ::= { cLRogueRuleConfig 1 }
+
+cLRuleConfigEntry OBJECT-TYPE
+    SYNTAX          CLRuleConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current 
+    DESCRIPTION
+        "Each entry represents a conceptual row
+        (as identified by a rule name)in cLRuleConfigTable."
+    INDEX           { cLRuleName } 
+    ::= { cLRuleConfigTable 1 }
+
+CLRuleConfigEntry ::= SEQUENCE {
+        cLRuleName                  SnmpAdminString,
+        cLRuleRogueType             INTEGER,
+        cLRuleConditionsMatch       INTEGER,
+        cLRulePriority              Unsigned32,
+        cLRuleEnable                TruthValue,
+        cLRuleStorageType           StorageType,
+        cLRuleRowStatus             RowStatus,
+        cLRuleSeverityScore         Unsigned32,
+        cLRuleClassificationName    SnmpAdminString,
+        cLRuleNotifyType            INTEGER,
+        cLRuleStateType             INTEGER
+}       
+
+cLRuleName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the rule name to identify 
+        this entry."
+    ::= { cLRuleConfigEntry 1 }
+
+cLRuleRogueType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        friendly(1),
+                        malicious(2),
+                        unclassified(3),
+                        custom(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the classification applied 
+        to the rogue AP that matches this rule.
+        friendly  - known and acknowledged rogue AP
+        malicious - unknown AP that matches user defined 
+                    malicious rules
+        unclassified - an unknown AP that did not match malicious 
+                       or friendly rules.
+        custom       - user can configure rogue detection parameters."
+    DEFVAL          { custom } 
+    ::= { cLRuleConfigEntry 2 }
+
+cLRuleConditionsMatch OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        all(1),
+                        any(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the conditions
+        defined by corresponding instances of 
+        cLConditionType, are matched under each rule.
+        all - all the conditions defined per rule should be matched
+        any - any conditions defined per rule can be matched." 
+    ::= { cLRuleConfigEntry 3 }
+
+cLRulePriority OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies  the order in which the
+        rules will be applied. The rules will be applied from 
+        lowest to highest and gaps are allowed.  
+        Each rule must have and unique value for this object." 
+    ::= { cLRuleConfigEntry 4 }
+
+cLRuleEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether this rule is enabled or not.
+        A value of 'true' specifies this rule is enabled.
+        A value of 'false' specifies this rule is disabled." 
+    ::= { cLRuleConfigEntry 5 }
+
+cLRuleStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row."
+    DEFVAL          { nonVolatile } 
+    ::= { cLRuleConfigEntry 6 }
+
+cLRuleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects 
+        in this row may be modified when the row is active." 
+    ::= { cLRuleConfigEntry 7 }
+
+cLRuleSeverityScore OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the custom classification 
+         severity score of the rules.
+         This object is applicable when cLRuleRogueType is configured
+         as 'custom'." 
+    ::= { cLRuleConfigEntry 8 }
+
+cLRuleClassificationName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the rule classification name.
+          This object is applicable when cLRuleRogueType is configured
+         as 'custom'."
+    ::= { cLRuleConfigEntry 9 }
+
+cLRuleNotifyType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        global(1),
+                        local(2),
+                        none(3),
+                        all(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the notification is
+        defined for the rogue rule.
+        global - Configure notification to trap receiver only.
+        local - Configure notification to monitor page(local) only.
+        none - Configure no notification to monitor page and trap receiver.
+        all - Configure notify to both monitor page and trap receiver."
+    ::= { cLRuleConfigEntry 10 }
+
+cLRuleStateType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        alert(1),
+                        contain(2),
+                        internal(3),
+                        external(4),
+                        delete(5)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rule to configure state of the 
+        rogue.
+        alert - Configure alert state on rogue ap.
+        contain - Configure contain state on rogue ap.
+        internal - Configure internal state on rogue ap.
+        external - Configure external state on rogue ap.
+        external - Configure deletion state on rogue ap."
+    ::= { cLRuleConfigEntry 11 }
+
+
+-- ********************************************************************
+-- Rule/Condition name configuration
+-- ********************************************************************
+
+cLConditionConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLConditionConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the configuration of
+        conditions that can be applied to a rule."
+    ::= { cLRogueRuleConfig 2 }
+
+cLConditionConfigEntry OBJECT-TYPE
+    SYNTAX          CLConditionConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLConditionConfigTable, as identified by a 
+        specific condition name to be applied on a 
+        specific rule name."
+    INDEX           {
+                        cLRuleName,
+                        cLConditionName
+                    } 
+    ::= { cLConditionConfigTable 1 }
+
+CLConditionConfigEntry ::= SEQUENCE {
+        cLConditionName                  SnmpAdminString,
+        cLConditionType                  INTEGER,
+        cLConditionValue                 Integer32,
+        cLConditionEnable                TruthValue,
+        cLConditionStorageType           StorageType,
+        cLConditionRowStatus           RowStatus,
+        cLConditionRssi                Integer32,
+        cLConditionClientCount         Unsigned32,
+        cLConditionNoEncryptionEnabled TruthValue,
+        cLConditionManagedSsidEnabled  TruthValue,
+        cLConditionDuration            Unsigned32
+}
+
+cLConditionName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the condition name." 
+    ::= { cLConditionConfigEntry 1 }
+
+cLConditionType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        managedSsid(1),
+                        rssi(2),
+                        duration(3),
+                        clientCount(4),
+                        noEncryption(5),
+                        userConfigSsid(6),
+                        wildCardSsid(7)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the condition type
+        for this condition associated with a rule.
+             managedSsid - matches managed SSID
+             rssi - required minimum RSSI 
+             duration - limited to this time duration
+             clientCount - number of associated clients
+             noEncryption - no encryption rule
+             userConfigSsid - matches user configured SSID" 
+    ::= { cLConditionConfigEntry 2 }
+
+cLConditionValue OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the value associated
+        with the condition type as specified by 
+        the corresponding cLConditionType instance.
+        If cLConditionType is 'userConfigSsid', 
+        then corresponding 'cLConditionValue' can 
+        only take on the value of zero." 
+    ::= { cLConditionConfigEntry 3 }
+
+cLConditionEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether matching against
+        this condition is enabled or not. 
+        A value of 'true' indicates matching against 
+        this condition is enabled.
+        A value of 'false' indicates matching against 
+        this condition is disabled." 
+    ::= { cLConditionConfigEntry 4 }
+
+cLConditionStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row."
+    DEFVAL          { nonVolatile } 
+    ::= { cLConditionConfigEntry 5 }
+
+cLConditionRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects 
+        except cLConditionType in this row may be 
+        modified when the row is active." 
+    ::= { cLConditionConfigEntry 6 }
+
+cLConditionRssi OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum value of RSSI that
+        a rogue AP must have in order to match cLConditionType
+        of 'rssi'."
+    DEFVAL          { 0 } 
+    ::= { cLConditionConfigEntry 7 }
+
+cLConditionClientCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum value of client count
+        that a rogue AP must have in order to match cLConditionType
+        of 'clientCount'."
+    DEFVAL          { 0 } 
+    ::= { cLConditionConfigEntry 8 }
+
+cLConditionNoEncryptionEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether or not encryption is enabled.
+        A value of 'true' indicates that encryption is not enabled.
+        A value of 'false' indicates that encryption is enabled
+        for this condition."
+    DEFVAL          { true } 
+    ::= { cLConditionConfigEntry 9 }
+
+cLConditionManagedSsidEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether or not managed SSID is enabled.
+        A value of 'true' indicates managed SSID is enabled.
+        A value of 'false' indicates managed SSID is not enabled
+        for this condition."
+    DEFVAL          { true } 
+    ::= { cLConditionConfigEntry 10 }
+
+cLConditionDuration OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum value of duration,
+        in seconds, a rogue AP must be present in order to match 
+        cLConditionType of 'duration'."
+    DEFVAL          { 0 } 
+    ::= { cLConditionConfigEntry 11 }
+ 
+
+-- ********************************************************************
+-- Rule/Condition SSID configuration
+-- ********************************************************************
+
+cLConditionSsidConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLConditionSsidConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the configuration of
+        SSID for a rule. This is applicable to 
+        conditions within a rule which has the 
+        corresponding cLConditionType taking on the value 
+        of 'userConfigSsid'."
+    ::= { cLRogueRuleConfig 3 }
+
+cLConditionSsidConfigEntry OBJECT-TYPE
+    SYNTAX          CLConditionSsidConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLConditionSsidConfigTable."
+    INDEX           {
+                        cLRuleName,
+                        cLConditionName,
+                        cLConditionSsidValue
+                    } 
+    ::= { cLConditionSsidConfigTable 1 }
+
+CLConditionSsidConfigEntry ::= SEQUENCE {
+        cLConditionSsidValue                 SnmpAdminString,
+        cLConditionSsidStorageType           StorageType,
+        cLConditionSsidRowStatus             RowStatus,
+        cLConditionSsidType                  INTEGER
+}
+
+cLConditionSsidValue OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the SSID value for this 
+        condition associated with a rule."
+    ::= { cLConditionSsidConfigEntry 1 }
+
+cLConditionSsidStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage
+        type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cLConditionSsidConfigEntry 2 }
+
+cLConditionSsidRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status column for a
+        conceptual row in this table. All writable objects 
+        in this row may not be modified when the row is active." 
+    ::= { cLConditionSsidConfigEntry 3 }
+ 
+cLConditionSsidType OBJECT-TYPE
+    SYNTAX          INTEGER{
+                       normal(1),
+                       wildCard(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ssid type 
+        that is present in the rule condition."
+    ::= { cLConditionSsidConfigEntry 4 }
+-- ********************************************************************
+-- Rogue Ignore List Configuration
+-- ********************************************************************
+
+cLRogueIgnoreListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLRogueIgnoreListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table lists the APs, as identified by the AP's mac address,
+        which should not be treated as rogue by the controller.
+        These APs are the autonomous access points that have been 
+        manually added to WCS."
+    ::= { cLRogueIgnoreListConfig 1 }
+
+cLRogueIgnoreListEntry OBJECT-TYPE
+    SYNTAX          CLRogueIgnoreListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        There will be a row for each entry of the autonomous 
+        APs which are manually added to WCS. When the autonomous
+        AP is no longer managed by WCS, the corresponding row 
+        entry will be removed."
+    INDEX           { cLRogueIgnoreListMACAddress } 
+    ::= { cLRogueIgnoreListTable 1 }
+
+CLRogueIgnoreListEntry ::= SEQUENCE {
+        cLRogueIgnoreListMACAddress  MacAddress,
+        cLRogueIgnoreListStorageType StorageType,
+        cLRogueIgnoreListRowStatus   RowStatus
+}
+
+cLRogueIgnoreListMACAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is the MAC Address of the AP to be put in the
+        rogue ignore list." 
+    ::= { cLRogueIgnoreListEntry 1 }
+
+cLRogueIgnoreListStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cLRogueIgnoreListEntry 2 }
+
+cLRogueIgnoreListRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the conceptual row.
+        All writable objects in this row may not be 
+        modified when the row is active." 
+    ::= { cLRogueIgnoreListEntry 3 }
+ 
+
+
+-- ********************************************************************
+-- Auto Containment configuration
+-- ********************************************************************
+cLRldpAutoContainFeatureOnWiredNetwork OBJECT-TYPE
+    SYNTAX          INTEGER { 
+                        disable (1), 
+                        enable (2)
+                    }
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "This object represents the RLDP Auto contain feature status.
+        disable - automatic containment of rogues on wired network is disabled
+        enable  - automatic containment of rogues on wired network is enabled
+
+        NOTE: Using this feature may have legal consequences!!!"
+    DEFVAL          { disable }
+    ::= { cLRldpAutoContainConfig 1 }
+
+cLRldpAutoContainRoguesAdvertisingSsid OBJECT-TYPE
+    SYNTAX          CLAutoContainActions
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This is the action with respect to auto containment feature,
+        that should be taken when switch detects rogues that are 
+        advertising our SSID.
+
+        NOTE: Using this feature may have legal consequences!!!"
+    DEFVAL          { alarmOnly }
+    ::= { cLRldpAutoContainConfig 2 }
+
+cLRldpAutoContainAdhocNetworks OBJECT-TYPE
+    SYNTAX          CLAutoContainActions
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This is the action with respect to auto containment feature,
+        that should be taken when adhoc networks are
+        detected by the switch. 
+ 
+        NOTE: Using this feature may have legal consequences!!!"
+    DEFVAL          { alarmOnly }
+    ::= { cLRldpAutoContainConfig 3 }
+
+cLRldpAutoContainTrustedClientsOnRogueAps OBJECT-TYPE
+    SYNTAX          CLAutoContainActions
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This is the action with respect to auto containment feature,
+        that should be taken when trusted clients that
+        are associated to rogue APs are detected by the switch. 
+
+        NOTE: Using this feature may have legal consequences!!!"
+    DEFVAL          { alarmOnly }
+    ::= { cLRldpAutoContainConfig 4 }
+
+cLRldpAutoContainLevel OBJECT-TYPE
+    SYNTAX          Integer32 (0..4) 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to specify the level of auto containment.
+         The level actually denotes the number of APs that should be 
+         used by the controller for auto containment.
+         A value of '0' means level of auto containment is 
+         selected automatically."
+    DEFVAL          { 1 }
+    ::= { cLRldpAutoContainConfig 5 }
+
+cLRldpAutoContainOnlyforMonitorModeAps OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        disable (1),
+                        enable (2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to specify if auto containment should be 
+        done only using monitor mode APs or not.
+        disable - auto containment will be done using all APs irrespective of the mode
+        enable  - auto containment will be done only using monitor mode APs."
+    DEFVAL          { disable }
+    ::= { cLRldpAutoContainConfig 6 }
+
+cLRldpAutoContainFlexStandaloneAp OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        disable (1),
+                        enable (2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to specify if auto containment should be
+        done on FlexConnect standalone APs.
+        disable - auto containment will not be done on FlexConnect standalone APs
+        enable  - auto containment will be done on FlexConnect standalone APs."
+    DEFVAL          { disable }
+    ::= { cLRldpAutoContainConfig 7 }
+
+
+
+--********************************************************************
+--* Begin of cLRougueAPDetectingAPTable
+--********************************************************************
+
+cLRogueAPDetectingAPTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLRogueAPDetectingAPEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+    "Rogue Station Table. This table lists all the Detecting AP 
+    Interfaces that detected a particular Rogue."
+    ::= { cLRogueApDetectingApDetails 1 }
+
+cLRogueAPDetectingAPEntry OBJECT-TYPE
+    SYNTAX CLRogueAPDetectingAPEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+    "An entry in cLRogueAPDetectingAPEntry."
+    INDEX { 
+        cLRogueApMacAddr,
+        cLRogueAPDetectingAPMacAddress,
+        cLRogueAPDetectingAPSlotId
+    } 
+
+    ::= { cLRogueAPDetectingAPTable 1 }
+
+CLRogueAPDetectingAPEntry ::= SEQUENCE {
+    cLRogueAPDetectingAPMacAddress          MacAddress,
+    cLRogueAPDetectingAPSlotId              Unsigned32,
+    cLRogueAPRadioType                      INTEGER,
+    cLRogueAPDetectingAPName                SnmpAdminString,
+    cLRogueAPChannelNumber                  Integer32,
+    cLRogueAPSsid                           SnmpAdminString,
+    cLRogueAPHiddenSsid                     INTEGER,
+    cLRogueAPDetectingAPRSSI                Integer32,
+    cLRogueAPContainmentMode                INTEGER,
+    cLRogueAPContainmentChannelCount        Unsigned32,
+    cLRogueAPContainmentChannels            SnmpAdminString,
+    cLRogueAPDetectingAPLastHeard           Counter32,
+    cLRogueAPDetectingAPWepMode             INTEGER,
+    cLRogueAPDetectingAPPreamble            INTEGER,
+    cLRogueAPDetectingAPWpaMode             INTEGER,
+    cLRogueAPDetectingAPWpa2Mode            INTEGER,
+    cLRogueAPDetectingAPFTMode              INTEGER,
+    cLRogueAPDetectingAPSNR                 Integer32,
+    cLRogueAPChannelWidth                   INTEGER,
+    cLRogueAPPhysicalAPSlot                 Integer32
+}
+
+cLRogueAPDetectingAPMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the MAC Address 
+        of Detecting AP Interface that Detected 
+        the Rogue."
+    ::= { cLRogueAPDetectingAPEntry 1 }
+
+cLRogueAPDetectingAPSlotId OBJECT-TYPE
+    SYNTAX Unsigned32(0..2)
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represent the slot and band index 
+        of the Detecting AP Interface that detected the 
+        Rogue. Use cLRogueAPPhysicalAPSlot for Slot ID
+        of the Detecting AP Interface."
+    ::= { cLRogueAPDetectingAPEntry 2 }
+
+cLRogueAPRadioType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+        dot11b(1),
+            dot11a(2),
+            dot11abgn(3),
+            uwb(4),
+            dot11g(5),
+            dot11n24(6),
+            dot11n5(7),
+            unknown(8),
+            dot11ac(9),
+            dot11ax24(10),
+            dot11ax5(11),
+            dot11ax6(12)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the Detecting AP
+        Interface type that detected the Rogue."
+    ::= { cLRogueAPDetectingAPEntry 3 }
+
+
+cLRogueAPDetectingAPName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the name of
+        Detecting AP Interface that detected the Rogue."
+    ::= { cLRogueAPDetectingAPEntry 4 }
+
+
+cLRogueAPChannelNumber OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        " This object represents the advertised 
+        Channel Number of the Detecting AP 
+        Interface picked up from the Rogue.
+        Use in conjuction with cLRogueAPRadioType to resolve ambiguity between 
+        channels numbers of 2.4GHz and 5GHz bands versus 6GHz band."
+    ::= { cLRogueAPDetectingAPEntry 5 }
+
+cLRogueAPSsid OBJECT-TYPE
+    SYNTAX SnmpAdminString
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the SSID 
+        Advertised by Rogue Station."
+    ::= { cLRogueAPDetectingAPEntry 6 }
+
+cLRogueAPHiddenSsid OBJECT-TYPE
+    SYNTAX          INTEGER  {
+        disabled(0),
+            enabled(1)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the hidden 
+        ssid indication on this detecting AP."
+    ::= { cLRogueAPDetectingAPEntry 7 }
+
+
+cLRogueAPDetectingAPRSSI OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the Rogue 
+        RSSI as seen by Detecting AP Interface."
+    ::= { cLRogueAPDetectingAPEntry 8 }
+
+cLRogueAPContainmentMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+            invalid(0),
+                deauthBroadcast(1),
+                cfp(2),
+                clientContianment(3),
+                adhocContainment(4),
+                max(5),
+                unknown(99)
+        }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the containment mode used by the AP 
+        if the rogue is in 'contained' state.
+        A value of '0' indicates invalid containment mode.
+        A value of '1' indicates deauth broadcast used for contianment.
+        A value of '2' indicates CFP containment.
+        A value of '3' indicates cleint contianment.
+        A value of '4' indicates adhoc containment.
+        A value of '5' indicates max value i.e invalid.
+        A value of '99' indicates unknown contianment type."
+    ::= { cLRogueAPDetectingAPEntry 9 }
+
+cLRogueAPContainmentChannelCount OBJECT-TYPE
+    SYNTAX Unsigned32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the number of channels used for rogue containment."
+    ::= { cLRogueAPDetectingAPEntry 10 }
+
+cLRogueAPContainmentChannels OBJECT-TYPE
+    SYNTAX SnmpAdminString
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the comma separated 
+        string of channels used for rogue containment."
+    ::= { cLRogueAPDetectingAPEntry 11 }
+
+cLRogueAPDetectingAPLastHeard OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the no. of seconds 
+        ago when this Rogue was last heard by 
+        this AP. "
+    ::= { cLRogueAPDetectingAPEntry 12 }
+
+cLRogueAPDetectingAPWepMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+        disabled(0),
+            enabled(1)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the WEP mode on this detecting AP."
+    ::= { cLRogueAPDetectingAPEntry 13 }
+
+cLRogueAPDetectingAPPreamble OBJECT-TYPE
+    SYNTAX          INTEGER  {
+            long(0),
+            short(1),
+            notSupported(2)
+    }
+MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the Preamble on this detecting AP."
+    ::= { cLRogueAPDetectingAPEntry 14 }
+
+cLRogueAPDetectingAPWpaMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+        disabled(0),
+            enabled(1)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the WPA mode on this detecting AP."
+    ::= { cLRogueAPDetectingAPEntry 15 }
+cLRogueAPDetectingAPWpa2Mode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+        disabled(0),
+            enabled(1)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the WPA2 mode on this detecting AP."
+    ::= { cLRogueAPDetectingAPEntry 16 }
+
+
+cLRogueAPDetectingAPFTMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+        disabled(0),
+            enabled(1)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the Fast transition mode on this detecting AP.
+        A value of 'disabled' indicates FT is disabled on the detecting AP.
+        A value of 'enabled' indicates FT is enabled on the detecting AP."
+
+    ::= { cLRogueAPDetectingAPEntry 17 }
+
+
+cLRogueAPDetectingAPSNR OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the SNR seen by Detecting AP Interface from Rogue"
+    ::= { cLRogueAPDetectingAPEntry 18 }
+
+cLRogueAPChannelWidth OBJECT-TYPE
+    SYNTAX  INTEGER {
+            five(1),
+            ten(2),
+            twenty(3),
+            aboveforty(4),
+            belowforty(5),
+            abovefortyAndEighty(6),
+            abovefortyBelowEighty(7),
+            aboveEightyBelowforty(8),
+            belowfortyBelowEighty(9),
+            aboveOnesixtyAboveFortyAboveEighty(10),
+            belowOnesixtyAboveFortyAboveEighty(11),
+            aboveOnesixtyBelowFortyAboveEighty(12),
+            belowOnesixtyBelowFortyAboveEighty(13),
+            aboveOnesixtyAboveFortyBelowEighty(14),
+            belowOnesixtyAboveFortyBelowEighty(15),
+            aboveOnesixtyBelowFortyBelowEighty(16),
+            belowOnesixtyBelowFortyBelowEighty(17)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the represents the channel 
+        width of the detecting AP.
+        Each enumeration represents which part of the band
+        the detecting AP is configured."
+
+    ::= { cLRogueAPDetectingAPEntry 19 }
+
+cLRogueAPPhysicalAPSlot OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "Reporting AP Physical Slot ID"
+    ::= { cLRogueAPDetectingAPEntry 20 }
+
+
+-- ********************************************************************
+-- * Begin of cLRogueClientTable
+--********************************************************************
+
+cLRogueClientTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLRogueClientEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Rogue Table. This table lists all the Rogue Clients detected by
+         APs."
+    ::= { cLRogueClientConfig 1 }
+
+cLRogueClientEntry OBJECT-TYPE
+    SYNTAX CLRogueClientEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "An Entry in cLRogueClientTable."
+    INDEX {cLRogueClientMacAddress}
+    ::= { cLRogueClientTable 1 }
+
+CLRogueClientEntry ::= SEQUENCE {
+          cLRogueClientMacAddress      MacAddress,
+          cLRogueClientGatewayMacAddress MacAddress
+}
+
+cLRogueClientMacAddress OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS not-accessible 
+        STATUS current
+        DESCRIPTION
+            "MAC Address of the rogue AP Client Interface."
+    ::= { cLRogueClientEntry 1 }
+
+cLRogueClientGatewayMacAddress OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS read-only 
+        STATUS current
+        DESCRIPTION
+            "This object represents the MAC Address 
+            of the rogue AP Client gateway."
+    ::= { cLRogueClientEntry 2 }
+
+
+
+-- ********************************************************************
+-- * Begin of cLRougueAPTable
+--********************************************************************
+
+cLRogueApTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLRogueApEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "The table lists the configured rogue APs in the system."
+    ::= { cLRogueApConfig 1 }
+
+cLRogueApEntry OBJECT-TYPE
+    SYNTAX          CLRogueApEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An entry containing contains management information
+        of a particular rogue AP. 
+
+        An entry can be created, or deleted by using
+        cLRogueApRowStatus."
+    INDEX           { cLRogueApMACAddress } 
+    ::= { cLRogueApTable 1 }
+
+CLRogueApEntry ::= SEQUENCE {
+        cLRogueApMACAddress  MacAddress,
+        cLRogueApClassType   INTEGER,
+        cLRogueApState       INTEGER,
+        cLRogueApStorageType StorageType,
+        cLRogueApRowStatus   RowStatus
+}
+
+cLRogueApMACAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "MAC Address of a rogue AP." 
+    ::= { cLRogueApEntry 1 }
+
+cLRogueApClassType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        friendly(1),
+                        malicious(2),
+                        unclassified(3),
+                        custom(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the type of a rogue AP.
+
+        friendly     - existing known, Acknowledge, and Trust missing
+                       rogue states are classified as Friendly.
+        malicious    - unknown AP that could be a threat.
+        unclassified - an unknown AP or rogue AP is identified
+                       but it does not belong to Friendly or
+                       Malicious rogue types.
+        custom       - AP that matches user defined custom rules."
+    DEFVAL          { custom } 
+    ::= { cLRogueApEntry 2 }
+
+cLRogueApState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        pending(1),
+                        alert(2),
+                        detectedLrad(3),
+                        known(4),
+                        acknowledge(5),
+                        contained(6),
+                        threat(7),
+                        containedPending(8),
+                        knownContained(9),
+                        trustedMissing(10),
+                        initializing(11)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This objects specifies the state in which
+        the rogue AP is.
+
+        pending          - a read-only value indicates that rogue AP
+                           can not be state to any of the following
+                           type.
+        alert            - rogue AP can be a potential threat.
+                           Trap will be sent out to trap recipients.
+        detectedLrad     - a read-only value indicates that a LRAD
+                           that got detected as rogue.
+        known            - a read-only value indicates that an internal
+                           AP which is not on the same switch.
+        acknowledge      - a read-only value indicates that an external
+                           AP whose existence is acceptable and not a
+                           threat(probably from vendor other than
+                           cisco).
+        contained        - containment is initiated and ongoing.
+        threat           - rogue AP is found on wired network.
+        containedPending - a read-only value indicates that no AP
+                           resources available for containment.
+        knownContained   - a read-only value indicates that no longer
+                           used.
+        trustedMissing   - rogue AP is friendly but there is no slot
+                           for friendly AP.
+        initializing     - a read-only value indicates that rogue
+                           AP is being initialized.
+
+        For a friendly rogue AP, only two states are valid:
+        'known' and 'acknowledge'.
+
+        'known', 'knownContained' and 'trustedMissing'
+        can appear in known rogue list.
+
+        Known rogues can be pre-provisioned and known rogues
+        state can be changed to 'alert'."
+    DEFVAL          { alert } 
+    ::= { cLRogueApEntry 3 }
+
+cLRogueApStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cLRogueApEntry 4 }
+
+cLRogueApRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "The status of the conceptual row.
+        All writable objects in this row may be modified when
+        the row is active." 
+    ::= { cLRogueApEntry 5 }
+ 
+cLRogueApListTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLRogueAPListEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Rogue Table. This table lists all the Rogue APs detected by
+         Detecting APs."
+    ::= { cLRogueApConfig 2 }
+
+cLRogueApListEntry OBJECT-TYPE
+    SYNTAX CLRogueAPListEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "An entry containing contains management information
+        of a particular rogue AP. "
+    INDEX {cLRogueApMacAddr}
+    ::= { cLRogueApListTable 1 }
+
+CLRogueAPListEntry ::= SEQUENCE {
+          cLRogueApMacAddr          MacAddress,
+          cLRogueApSeverityScore       Unsigned32,
+          cLRogueApRuleName            SnmpAdminString, 
+          cLRogueApClassName           SnmpAdminString
+}
+
+
+cLRogueApMacAddr OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS not-accessible 
+        STATUS current
+        DESCRIPTION
+            "MAC Address of the rogue AP Interface."
+    ::= { cLRogueApListEntry 1 }
+
+cLRogueApSeverityScore OBJECT-TYPE
+    SYNTAX Unsigned32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object represents the severity score of the AP Interface."
+    ::= { cLRogueApListEntry 2 }
+
+cLRogueApRuleName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only 
+    STATUS          current
+    DESCRIPTION
+        "This object represents the rule name that is applied." 
+    ::= { cLRogueApListEntry 3 }
+
+cLRogueApClassName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the class name that is applied."
+    ::= { cLRogueApListEntry 4 }
+-- ********************************************************************
+-- MIB Compliance Statements
+-- ********************************************************************
+
+ciscoLwappRogueMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappRogueMIBConform 1 }
+
+ciscoLwappRogueMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappRogueMIBConform 2 }
+
+
+ciscoLwappRogueMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRogueMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRogueConfigGroup,
+                        ciscoLwappRogueNotifsGroup
+                    }
+    ::= { ciscoLwappRogueMIBCompliances 1 }
+
+ciscoLwappRogueMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRogueMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRogueConfigGroup,
+                        ciscoLwappRogueNotifsGroup,
+                        ciscoLwappRogueConfigSup1Group
+                    }
+
+    OBJECT          cLRogueIgnoreListRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRuleRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionSsidRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRogueIgnoreListStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "This object represents that write access is not required."
+
+    OBJECT          cLRuleStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionSsidStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoLwappRogueMIBCompliances 2 }
+
+ciscoLwappRogueMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRogueMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRogueConfigGroup,
+                        ciscoLwappRogueNotifsGroup,
+                        ciscoLwappRogueConfigSup2Group
+                    }
+
+    OBJECT          cLRogueIgnoreListRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRuleRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionSsidRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRogueIgnoreListStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRuleStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionSsidStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoLwappRogueMIBCompliances 3 }
+
+ciscoLwappRogueMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRogueMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRogueConfigGroup,
+                        ciscoLwappRogueNotifsGroup,
+                        ciscoLwappRogueConfigSup3Group
+                    }
+
+    OBJECT          cLRogueIgnoreListRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRuleRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionSsidRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRogueIgnoreListStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRuleStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionSsidStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoLwappRogueMIBCompliances 4 }
+
+ciscoLwappRogueMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRogueMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappRogueConfigGroup,
+                        ciscoLwappRogueNotifsGroup,
+                        ciscoLwappRogueConfigSup3Group
+                    }
+
+    GROUP           ciscoLwappRogueConfigSup4Group
+    DESCRIPTION
+        "This group is mandatory for platforms which support
+        rogue functionality."
+
+    OBJECT          cLRogueIgnoreListRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRuleRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLConditionSsidRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support
+        three of the six enumerated values of the
+        RowStatus textual convention, specifically,
+        'active', 'createAndGo' and 'destroy'."
+
+    OBJECT          cLRogueIgnoreListStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRuleStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionSsidStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRogueClientNumThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRogueDetectionSecurityLevel
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRogueValidateRogueClientsAgainstMse
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionRssi
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionClientCount
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionNoEncryptionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionManagedSsidEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLConditionDuration
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRogueApClassType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRogueApState
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRogueApStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLRogueApRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        Support for createAndWait and notInService
+        is not required."
+    ::= { ciscoLwappRogueMIBCompliances 5 }
+	
+ciscoLwappRogueMIBComplianceRev5 MODULE-COMPLIANCE
+STATUS          current
+DESCRIPTION
+	"The compliance statement for the SNMP entities that
+	implement the ciscoLwappRogueMIB module."
+MODULE          -- this module
+MANDATORY-GROUPS {
+					ciscoLwappRogueConfigGroup,
+					ciscoLwappRogueNotifsGroup,
+					ciscoLwappRogueConfigSup3Group,
+					ciscoLwappRogueConfigSup4Group,
+                    ciscoLwappRogueConfigSup5Group
+				}
+	::= { ciscoLwappRogueMIBCompliances 6}
+
+-- Units of Conformance
+
+ciscoLwappRogueConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLRogueAdhocRogueReportEnable,
+                        cLRogueAdhocRogueNotifEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        rogue configuration on the controller."
+    ::= { ciscoLwappRogueMIBGroups 1 }
+
+ciscoLwappRogueNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cLRogueAdhocRogueDetected }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects specifies the
+        notifications for rogue detection."
+    ::= { ciscoLwappRogueMIBGroups 2 }
+
+ciscoLwappRogueConfigSup1Group OBJECT-GROUP
+    OBJECTS         {
+                        cLRogueIgnoreListStorageType,
+                        cLRogueIgnoreListRowStatus,
+                        cLRuleRogueType,
+                        cLRuleConditionsMatch,
+                        cLRulePriority,
+                        cLRuleEnable,
+                        cLRuleStorageType,
+                        cLRuleRowStatus,
+                        cLConditionType,
+                        cLConditionValue,
+                        cLConditionEnable,
+                        cLConditionStorageType,
+                        cLConditionRowStatus,
+                        cLConditionSsidStorageType,
+                        cLConditionSsidRowStatus,
+                        cLRldpAutoContainFeatureOnWiredNetwork,
+                        cLRldpAutoContainRoguesAdvertisingSsid,
+                        cLRldpAutoContainAdhocNetworks,
+                        cLRldpAutoContainTrustedClientsOnRogueAps
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the
+        rogue configuration on the controller.
+        ciscoLwappRogueConfigSup1Group object is superseded
+        by ciscoLwappRogueConfigSup2Group."
+    ::= { ciscoLwappRogueMIBGroups 3 }
+
+ciscoLwappRogueConfigSup2Group OBJECT-GROUP
+    OBJECTS         {
+                        cLRogueIgnoreListStorageType,
+                        cLRogueIgnoreListRowStatus,
+                        cLRuleRogueType,
+                        cLRuleConditionsMatch,
+                        cLRulePriority,
+                        cLRuleEnable,
+                        cLRuleStorageType,
+                        cLRuleRowStatus,
+                        cLConditionType,
+                        cLConditionValue,
+                        cLConditionEnable,
+                        cLConditionStorageType,
+                        cLConditionRowStatus,
+                        cLConditionSsidStorageType,
+                        cLConditionSsidRowStatus,
+                        cLRldpAutoContainFeatureOnWiredNetwork,
+                        cLRldpAutoContainRoguesAdvertisingSsid,
+                        cLRldpAutoContainAdhocNetworks,
+                        cLRldpAutoContainTrustedClientsOnRogueAps,
+                        cLRldpAutoContainLevel,
+                        cLRldpAutoContainOnlyforMonitorModeAps
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the
+        rogue configuration on the controller.
+        ciscoLwappRogueConfigSup2Group object is
+        superseded by ciscoLwappRogueConfigSup3Group."
+    ::= { ciscoLwappRogueMIBGroups 4 }
+
+ciscoLwappRogueConfigSup3Group OBJECT-GROUP
+    OBJECTS         {
+                        cLRogueIgnoreListStorageType,
+                        cLRogueIgnoreListRowStatus,
+                        cLRuleRogueType,
+                        cLRuleConditionsMatch,
+                        cLRulePriority,
+                        cLRuleEnable,
+                        cLRuleStorageType,
+                        cLRuleRowStatus,
+                        cLConditionType,
+                        cLConditionValue,
+                        cLConditionEnable,
+                        cLConditionStorageType,
+                        cLConditionRowStatus,
+                        cLConditionSsidStorageType,
+                        cLConditionSsidRowStatus,
+                        cLRldpAutoContainFeatureOnWiredNetwork,
+                        cLRldpAutoContainRoguesAdvertisingSsid,
+                        cLRldpAutoContainAdhocNetworks,
+                        cLRldpAutoContainTrustedClientsOnRogueAps,
+                        cLRldpAutoContainLevel,
+                        cLRldpAutoContainOnlyforMonitorModeAps,
+                        cLRogueReportInterval,
+                        cLRogueMinimumRssi,
+                        cLRogueTransientInterval
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        rogue configuration on the controller."
+    ::= { ciscoLwappRogueMIBGroups 5 }
+
+ciscoLwappRogueConfigSup4Group OBJECT-GROUP
+    OBJECTS         {
+                        cLRogueApClassType,
+                        cLRogueApState,
+                        cLRogueApStorageType,
+                        cLRogueApRowStatus,
+                        cLRogueClientNumThreshold,
+                        cLRogueDetectionSecurityLevel,
+                        cLRogueValidateRogueClientsAgainstMse,
+                        cLConditionRssi,
+                        cLConditionClientCount,
+                        cLConditionNoEncryptionEnabled,
+                        cLConditionManagedSsidEnabled,
+                        cLConditionDuration
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        rogue configuration on the controller."
+    ::= { ciscoLwappRogueMIBGroups 6 }
+
+ciscoLwappRogueConfigSup5Group OBJECT-GROUP
+    OBJECTS         {
+                        cLRuleSeverityScore,
+                        cLRuleClassificationName,
+                        cLRuleNotifyType,
+                        cLRuleStateType,
+                        cLConditionSsidType,
+                        cLRogueAPDetectingAPSlotId,
+                        cLRogueAPRadioType,
+                        cLRogueAPDetectingAPName,
+                        cLRogueAPChannelNumber,
+                        cLRogueAPSsid,
+                        cLRogueAPHiddenSsid,
+                        cLRogueAPDetectingAPRSSI,
+                        cLRogueAPContainmentMode ,
+                        cLRogueAPContainmentChannelCount,
+                        cLRogueAPContainmentChannels,
+                        cLRogueAPDetectingAPLastHeard,
+                        cLRogueAPDetectingAPWepMode,
+                        cLRogueAPDetectingAPPreamble,
+                        cLRogueAPDetectingAPWpaMode,
+                        cLRogueAPDetectingAPWpa2Mode,
+                        cLRogueAPDetectingAPFTMode,
+                        cLRogueAPDetectingAPSNR,
+                        cLRogueAPChannelWidth,
+                        cLRogueAPPhysicalAPSlot,
+                        cLRogueClientGatewayMacAddress,
+                        cLRogueApRuleName,
+                        cLRogueApClassName
+    }   STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        rogue configuration on the controller."
+    ::= { ciscoLwappRogueMIBGroups 7 }
+
+END
+

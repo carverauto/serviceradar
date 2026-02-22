@@ -1,0 +1,540 @@
+-- *****************************************************************
+-- CLAB-DEF-MIB.my:
+--
+-- Mar 2005 Jun Yan
+--
+-- Initial Version: Mar 2005: MIB-CLABDEF-N-04.0018-3.pdf 
+--
+-- Copyright (c) 2005-2008 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CLAB-DEF-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    enterprises
+                    FROM SNMPv2-SMI
+    DocsX509ASN1DEREncodedCertificate
+                    FROM DOCS-IETF-BPI2-MIB;
+ 
+cableLabs MODULE-IDENTITY
+    LAST-UPDATED "200701191700Z" -- January 19, 2007
+    ORGANIZATION "Cable Television Laboratories, Inc."
+    CONTACT-INFO
+           "Postal: Cable Television Laboratories
+                    858 Coal Creek Circle
+                    Louisville, Colorado 80027-9750
+                    U.S.A.
+            Phone:  +1 303-661-9100
+            Fax:    +1 303-661-9199
+            E-mail: mibs@cablelabs.com"
+    DESCRIPTION
+            "This MIB module defines the namespace organization for the
+            CableLabs enterprise OID registry.
+ 
+            Copyright 1999-2007 Cable Television Laboratories, Inc.
+            All rights reserved."
+
+    REVISION "200701191700Z" -- January 19, 2007
+    DESCRIPTION
+            "This revision published as CL-SP-MIB-CLABDEF-I06."
+ 
+    REVISION "200504081700Z" -- April 8, 2005
+    DESCRIPTION
+            "This revision published as CL-SP-MIB-CLABDEF-I05."
+    ::= { enterprises 4491 }
+ 
+-- Sub-tree for Registrations
+clabFunction            OBJECT IDENTIFIER ::= { cableLabs 1 }
+clabFuncMib2            OBJECT IDENTIFIER ::= { clabFunction 1 }
+clabFuncProprietary     OBJECT IDENTIFIER ::= { clabFunction 2 }
+ 
+-- Sub-tree for Project Definitions
+clabProject             OBJECT IDENTIFIER ::= { cableLabs 2 }
+clabProjDocsis          OBJECT IDENTIFIER ::= { clabProject 1 }
+clabProjPacketCable     OBJECT IDENTIFIER ::= { clabProject 2 }
+clabProjOpenCable       OBJECT IDENTIFIER ::= { clabProject 3 }
+clabProjCableHome       OBJECT IDENTIFIER ::= { clabProject 4 }
+ 
+-- Sub-tree for Global Security Definitions
+clabSecurity            OBJECT IDENTIFIER ::= { cableLabs 3 }
+clabSecCertObject       OBJECT IDENTIFIER ::= { clabSecurity 1 }
+
+-- Sub tree for CableLabs cross project common MIB definitions 
+clabCommonMibs          OBJECT IDENTIFIER ::= { cableLabs 4 }
+
+--
+-- CableLabs DOCSIS Project Sub-tree Definitions
+--
+dsgMIB OBJECT IDENTIFIER
+    -- DOCSIS Set-top Gateway (DSG) MIB module
+    -- This object identifier points to the MIB module
+    -- DOCSIS-SETTOP-GATEWAY-MIB, which was deprecated by
+    -- DSG-IF-MIB MIB module (dsgIfMib).
+    -- Reference: 
+    -- CableLabs DOCSIS Set-top Gateway (DSG) Interface Specification
+    ::= { clabProjDocsis 1 }
+ 
+docsLoadBalanceMib OBJECT IDENTIFIER
+    -- DOCSIS MIB module defining the CMTS configuration parameters to 
+    -- support Load Balancing requirements."  
+    ::= { clabProjDocsis 2 }
+
+dsgIfMIB OBJECT IDENTIFIER
+    -- DOCSIS Set-top Gateway (DSG) MIB module
+    -- Obsoletes DOCSIS-SETTOP-GATEWAY-MIB Module (dsgMib)
+    -- defined initially in DOCSIS Set-top Gateway (DSG) Interface
+    -- Specification SP-DSG-I01-020228.
+    -- Reference: 
+    -- CableLabs DOCSIS Set-top Gateway (DSG) Interface Specification
+    ::= { clabProjDocsis 3 }
+
+dsgIfStdMib OBJECT IDENTIFIER 
+    -- DOCSIS Set-top Device (DSG) MIB module.
+    -- Reference: 
+    -- CableLabs DOCSIS Set-top Gateway (DSG) Interface Specification
+    ::= { clabProjDocsis 4 }
+
+docsIfExt2Mib OBJECT IDENTIFIER 
+    -- This MIB module contains the management objects that enhance
+    -- DOCSIS RFI Interface Extensions. Contains Enhancements to 
+    -- DOCSIS RFI interface MIB module.
+    -- Reference: 
+    -- CableLabs DOCSIS RFI Interface Specification.
+    ::= { clabProjDocsis 5 }
+
+docsIfMCmtsMib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the 
+    -- configuration and management of the Downstream External 
+    -- PHY Interface (DEPI) of the M-CMTS architecture (Modular CMTS).
+    -- Reference: 
+    -- CableLabs DOCSIS M-OSSI Interface Specification.
+    ::= { clabProjDocsis 6 }
+
+dtiMib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects necessary
+    -- to configure and manage the DOCSIS Timing Interface 
+    -- devices.
+    -- Reference: 
+    -- CableLabs DOCSIS M-OSSI Interface Specification.
+    ::= { clabProjDocsis 7 }
+
+docsL2vpnMIB OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for devices
+    -- complying with the DOCSIS L2VPN requirements.
+    -- Reference: 
+    -- CableLabs DOCSIS BSoD Layer 2 Virtual Private Networks 
+    -- Specification.
+    ::= { clabProjDocsis 8 }
+
+docsDiagMib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the 
+    -- Diagnostic Log for DOCSIS-compliant Cable Modem 
+    -- Termination Systems (CMTS).
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabProjDocsis 9 }
+
+docsSubmgt3Mib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the
+    -- CMTS control of the IPv4 and IPv6 traffic with origin and
+    -- destination to CMs and/or CPEs behind the CM.    
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabProjDocsis 10 }
+
+docsSecMib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the
+    -- management of the security requirements in the DOCSIS
+    -- Security Specification.    
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabProjDocsis 11 } 
+
+docsTestMIB OBJECT IDENTIFIER
+    -- DOCSIS Test MIB module supporting programmable test features
+    -- for DOCSIS-compliant Cable Modems (CM) and Cable Modems
+    -- Termination Systems (CMTS).
+    -- Reference: 
+    -- CableLabs DOCSIS Testing MIB Specification
+    ::= { clabProjDocsis 12 }
+ 
+sledMib OBJECT IDENTIFIER
+    -- eDOCSIS MIB module supporting the Software Loopback Application
+    -- for eDOCSIS (SLED).
+    -- Reference: 
+    -- CableLabs eDOCSIS Specification
+    ::= { clabProjDocsis 13 }
+
+esafeMib OBJECT IDENTIFIER
+    -- This MIB module provides management objects necessary
+    -- to configure functionality of eSAFE components of a device
+    -- implementing an eDOCSIS compliant Cable Modem and one or 
+    -- more eSAFE elements.
+    -- Reference: 
+    -- CableLabs eDOCSIS Specification
+    ::= { clabProjDocsis 14 }
+
+teaPwMIB OBJECT IDENTIFIER
+    -- This MIB module provides management objects for
+    -- modeling of Pseudo Wire Edge-to-Edge services carried 
+    -- over a general Packet Switched Network and is based
+    -- on the IETF Internet Draft draft-ietf-pwe3-pw-mib-07.txt.
+    -- Reference: 
+    -- CableLabs TDM Emulation Interface Specification
+    ::= { clabProjDocsis 15 }
+
+teaPwTDMMIB OBJECT IDENTIFIER
+    -- This MIB module provides management objects for
+    -- encapsulating TDM (T1,E1, T3, E3, NxDS0) as
+    -- pseudo-wires over Packet Switched Networks (PSN)
+    -- and is based on the IETF Internet Draft
+    -- draft-ietf-pwe3-tdm-mib-04.txt.
+    -- Reference: 
+    -- CableLabs TDM Emulation Interface Specification
+    ::= { clabProjDocsis 16 }
+
+teaPwTcMIB OBJECT IDENTIFIER
+    -- This MIB module defines Textual Conventions (TCs)
+    -- to represent commonly-used Pseudo Wire (PW) 
+    -- management information and is based on the IETF
+    -- Internet Draft draft-ietf-pwe3-pw-tc-mib-07.txt.
+    -- Reference: 
+    -- CableLabs TDM Emulation Interface Specification
+    ::= { clabProjDocsis 17 }
+
+docsMcastMib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the
+    -- management of Multicast over DOCSIS to support Multicast
+    -- DSID forwarding and or bonded multicast.    
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabProjDocsis 18 }
+
+docsMcastAuthMib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the
+    -- management of the CMTS Multicast Authorization Module.    
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabProjDocsis 19 }
+
+docsIf3Mib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the
+    -- management of DOCSIS 3.0 features, primarily channel bonding,
+    -- interface topology and enhanced signal quality monitoring.    
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabProjDocsis 20 }
+
+docsQos3Mib OBJECT IDENTIFIER 
+    -- This MIB module provides management objects for the
+    -- management of QOS for channel bonding.    
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabProjDocsis 21 } 
+
+--
+-- CableLabs CableHome Project Sub-tree Definitions
+-- Reference
+-- CableLabs CableHome Specification
+--
+cabhPsDevMib OBJECT IDENTIFIER
+    -- CableHome MIB module defining the basic management objects for
+    -- the Portal Services logical element of a CableHome compliant
+    -- Residential Gateway device. The PS device parameters describe
+    -- general PS Device attributes and behavior characteristics
+    ::= { clabProjCableHome 1 }
+ 
+cabhSecMib OBJECT IDENTIFIER
+    -- CableHome MIB module defining the basic management objects for
+    -- the firewall and other security features of the Portal Services
+    -- element.
+    ::= { clabProjCableHome 2 }
+ 
+cabhCapMib OBJECT IDENTIFIER
+    -- CableHome MIB module defining the basic management objects for
+    -- the CableHome Addressing Portal (CAP) function of the Portal 
+    -- Services element.
+    ::= { clabProjCableHome 3 }
+ 
+cabhCdpMib OBJECT IDENTIFIER
+    -- This MIB module supplies the basic management objects for the
+    -- CableHome DHCP Portal (CDP) function of the Portal Services
+    -- element.
+    ::= { clabProjCableHome 4 }
+ 
+cabhCtpMib OBJECT IDENTIFIER
+    -- CableHome MIB module supporting the remote LAN diagnostic 
+    -- features provided by the CableHome Test Portal (CTP) function
+    -- of the Portal Services element.
+    ::= { clabProjCableHome 5 }
+ 
+cabhQosMib OBJECT IDENTIFIER
+    -- CABLEHOME QOS MIB Module (cabhQosMib).
+    -- This object identifier points to the MIB module
+    -- CABH-QOS-MIB, which is being deprecated by
+    -- CABH-QOS2-MIB module (cabhQos2Mib).
+    -- Reference: 
+    -- CableLabs CableHome 1.1 Specification
+    ::= { clabProjCableHome 6 }
+ 
+cabhCsaMib OBJECT IDENTIFIER
+    -- CableHome MIB module defining management objects for the
+    -- configuration and monitoring of CableHome Commercial Services 
+    -- Annex.
+    -- Reference: 
+    -- CableLabs CableOffice Commercial Services Annex MIB 
+    -- Specification
+    ::= { clabProjCableHome 7 }
+
+cabhQos2Mib OBJECT IDENTIFIER
+    -- Obsoletes CABH-QOS-MIB module (cabhQosMib)
+    -- defined initially in CABLEHOME 1.1 Interface Specification.
+    -- This MIB module defines the Quality of Service Management
+    -- Information Base (MIUB) for CableHome UPnP QOS-compliant
+    -- devices.
+    -- Reference: 
+    -- CableLabs CableHome 1.1 Specification
+    ::= { clabProjCableHome 8 }
+
+--
+-- CableLabs PacketCable Project Sub-tree Definitions
+--
+pktcMtaMib OBJECT IDENTIFIER
+    -- PacketCable MIB module defining the basic management object for
+    -- the Multimedia Terminal Adapter (MTA) devices compliant with
+    -- PacketCable requirements.
+    -- Reference
+    -- CableLabs PacketCable MTA Device Provisioning Specification
+    ::= { clabProjPacketCable 1 }
+ 
+pktcSigMib OBJECT IDENTIFIER
+    -- PacketCable MIB module defining the basic management object for
+    -- the PacketCable MTA Signaling protocols. This version of the MIB
+    -- includes common signaling and Network Call Signaling (NCS)
+    -- related signaling objects.
+    -- Reference
+    -- CableLabs PacketCable MTA Device Provisioning Specification
+    ::= { clabProjPacketCable 2 }
+ 
+pktcEventMib OBJECT IDENTIFIER
+    -- PacketCable MIB module defining the basic management objects for
+    -- event reporting.
+    -- Reference
+    -- CableLabs PacketCable Management Event Specification
+    ::= { clabProjPacketCable 3 }
+ 
+pktcSecurity OBJECT IDENTIFIER
+    -- CableLabs OID reserved for security and used to specify errors
+    -- that can be returned for the Kerberos KDC - Provisioning
+    -- Server interface, or the MTA-CMS Kerberized IPsec interface, or
+    -- the MTA-Provisioning Server Kerberized SNMPv3 interface.
+    -- CableLabs PacketCable Security Specification
+    ::= { clabProjPacketCable 4 }
+ 
+pktcLawfulIntercept OBJECT IDENTIFIER
+    -- CableLabs OID reserved for the PacketCable Electronic
+    -- Surveillance Protocol (PCESP) between the Delivery Function
+    -- and Collection Function. This OID is used to define the ASN.1
+    -- PCESP messages.
+    -- CableLabs PacketCable Electronic Surveillance Protocol
+    -- Specification
+    ::= { clabProjPacketCable 5 }
+
+-- 
+-- Sub-tree for PacketCable MIB Enhancements
+--
+
+pktcEnhancements OBJECT IDENTIFIER ::= { clabProjPacketCable 6 }
+
+
+-- The following MIB objects are being introduced for 
+-- incorporation of new MIB objects (MIB enhancements)
+-- proposed to the PacketCable MIB modules.
+-- This includes new MIB objects being introduced
+-- as part of the PacketCable MIB enhancement efforts
+-- and as a place holder for future revisions.
+-- This sub-division would facilitate easier incorporation
+-- of proposed IETF Internet-Drafts and RFCs by keeping enhancements
+-- independent of RFC or Internet-Draft changes.
+-- For new MIB tables that use previously used indices, it is 
+-- recommended that the AUGMENT CLAUSE be used to aid SNMP Operations,
+-- as deemed necessary.
+
+
+pktcEnMtaMib OBJECT IDENTIFIER
+    -- PacketCable MIB module enhancements to the basic management 
+    -- objects defined by the MIB group pktcMtaMib for the Multimedia 
+    -- Terminal Adapter (MTA) devices compliant with PacketCable 
+    -- requirements.
+    -- Reference:
+    -- CableLabs PacketCable MTA Device Provisioning Specification.
+    ::= { pktcEnhancements 1 }
+ 
+pktcEnSigMib OBJECT IDENTIFIER
+    -- PacketCable MIB module enhancements to the basic management 
+    -- objects defined by the MIB group pktcSigMib for the 
+    -- PacketCable MTA Signaling protocols. 
+    -- Reference:
+    -- CableLabs PacketCable MTA Device Provisioning Specification.
+    ::= { pktcEnhancements 2 }
+ 
+pktcEnEventMib OBJECT IDENTIFIER
+    -- PacketCable MIB module enhancements to the basic management 
+    -- objects defined by the MIB group pktcEventMib for event reporting.
+    -- Reference:
+    -- CableLabs PacketCable Management Event Specification.
+    ::= { pktcEnhancements 3 }
+ 
+pktcEnSecurityMib OBJECT IDENTIFIER
+    -- PacketCable MIB module enhancements to the basic management
+    -- objects defined by the reserved MIB group pktcSecurity.
+    -- Reference:
+    -- CableLabs PacketCable Security Specification.
+    ::= { pktcEnhancements 4 }
+ 
+-- 
+-- End of sub-tree for PacketCable MIB Enhancements
+--
+ 
+pktcPACMMibs OBJECT IDENTIFIER
+    -- PacketCable MIB module defining the basic MIB
+    -- Objects related to Provisioning, Activation, 
+    -- Configuration and Management (PACM)
+    -- Reference:
+    -- CableLabs PacketCable PACM Specification.
+    ::= { clabProjPacketCable 7 }
+
+pktcServiceMibs OBJECT IDENTIFIER
+    -- PacketCable MIB module defining the basic MIB
+    -- Objects related to Service specific definitions
+    -- Reference:
+    -- CableLabs PacketCable Service specifications
+    ::= { clabProjPacketCable 8 }
+
+pktcSupportMibs OBJECT IDENTIFIER
+    -- PacketCable MIB module defining the basic MIB
+    -- Objects related to service support definitions, 
+    -- (independent of PACM or service specific definitions)
+    -- Reference:
+    -- CableLabs PacketCable specifications
+    ::= { clabProjPacketCable 9 }
+
+--
+-- PacketCable PACM sub-tree
+--
+pktcPACMTC OBJECT IDENTIFIER
+    -- PacketCable MIB module defining PacketCable
+    -- textual conventions for describing PacketCable
+    -- PACM MIB objects.
+    -- Reference
+    -- CableLabs PacketCable Provisioning, Activation,
+    -- Configuration and Management specification
+    ::= { pktcPACMMibs 1 }
+
+pktcPACMUEMib OBJECT IDENTIFIER
+    -- PacketCable MIB module defining PacketCable
+    -- PACM MIB Objects related to User Equipment.
+    -- Reference
+    -- CableLabs PacketCable Provisioning, Activation,
+    -- Configuration and Management specification
+    ::= { pktcPACMMibs 2 }
+
+pktcPACMUserMib OBJECT IDENTIFIER
+    -- PacketCable MIB module defining PacketCable
+    -- PACM MIB Objects related to Users.
+    -- Reference
+    -- CableLabs PacketCable Provisioning, Activation,
+    -- Configuration and Management specification
+    ::= { pktcPACMMibs 3 }
+
+--
+-- PacketCable Service support sub-tree
+--
+pktcESSupportMibs OBJECT IDENTIFIER
+    -- PacketCable MIB module defining PacketCable
+    -- Electronic Surveillance (ES) support MIB Objects.
+    -- Reference
+    -- CableLabs PacketCable Electronic Surveillance
+    -- specification
+    ::= { pktcSupportMibs 1 }
+--
+--
+-- Definition of CableLabs Security Certificate Objects
+--
+clabSrvcPrvdrRootCACert OBJECT-TYPE
+    SYNTAX      DocsX509ASN1DEREncodedCertificate
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The X509 DER-encoded CableLabs Service Provider Root CA
+            Certificate."
+    REFERENCE
+            "CableLabs CableHome Specification;
+            CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 1 }
+ 
+clabCVCRootCACert OBJECT-TYPE
+    SYNTAX      DocsX509ASN1DEREncodedCertificate
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The X509 DER-encoded CableLabs CVC Root CA Certificate."
+    REFERENCE
+            "CableLabs CableHome Specification;
+            CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 2 }
+ 
+clabCVCCACert OBJECT-TYPE
+    SYNTAX      DocsX509ASN1DEREncodedCertificate
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The X509 DER-encoded CableLabs CVC CA Certificate."
+    REFERENCE
+            "CableLabs CableHome Specification;
+            CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 3 }
+ 
+clabMfgCVCCert OBJECT-TYPE
+    SYNTAX      DocsX509ASN1DEREncodedCertificate
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The X509 DER-encoded Manufacturer CVC Certificate."
+    REFERENCE
+            "CableLabs CableHome Specification;
+            CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 4 }
+
+clabMfgCACert OBJECT-TYPE
+    SYNTAX      DocsX509ASN1DEREncodedCertificate
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The X509 DER-encoded Manufacturer CA Certificate."
+    REFERENCE
+            "CableLabs CableHome Specification;
+            CableLabs PacketCable Security Specification."
+    ::= { clabSecCertObject 5 }
+
+--
+-- CableLabs cross project common MIB sub-tree definitions
+--
+
+clabUpsMib OBJECT IDENTIFIER
+    -- CableLabs cross project MIB module defining the basic management
+    -- objects for the configuration and monitoring of the battery
+    -- backup and UPS functionality for CableLabs compliant devices.
+    ::= { clabCommonMibs 1 }
+
+clabTopoMib OBJECT IDENTIFIER 
+    -- This CableLabs cross project MIB module provides
+    -- management objects for the management of fiber 
+    -- nodes in the Cable plant    
+    -- Reference: 
+    -- CableLabs DOCSIS 3.0 OSSI Specification.
+    ::= { clabCommonMibs 2 }
+
+END

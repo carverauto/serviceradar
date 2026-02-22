@@ -1,0 +1,78 @@
+-- ****
+-- *------------------------------------------------------------------
+-- * PCUBE-SMI.my: Pcube Enterprise Structure of Management.
+-- * Information
+-- *
+-- * PCube was acquired by Cisco Systems on August 23, 2004 
+-- *
+-- * Copyright (c) 2002 by Cisco Systems, Inc.
+-- * All rights reserved.
+-- *
+-- *------------------------------------------------------------------
+-- ****
+
+
+PCUBE-SMI DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-IDENTITY,
+    enterprises
+        FROM SNMPv2-SMI;
+
+pcube MODULE-IDENTITY
+    LAST-UPDATED "200201142000Z"
+    ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "Cisco Systems
+                 Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-sce@cisco.com"
+    DESCRIPTION
+        "The Structure of Management Information for the
+        Pcube enterprise."
+        
+    REVISION      "200201142000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { enterprises 5655 }    -- assigned by IANA
+
+
+pcubeProducts OBJECT-IDENTITY
+    STATUS  current
+    DESCRIPTION
+        "pcubeProducts is the root OBJECT IDENTIFIER from
+        which sysObjectID values are assigned.  Actual
+        values are defined in PCUBE-PRODUCTS-MIB."
+    ::= { pcube 1 }
+
+pcubeModules OBJECT-IDENTITY
+    STATUS  current
+    DESCRIPTION
+        "pcubeModules provides a root object identifier
+        from which MODULE-IDENTITY values may be assigned."
+    ::= { pcube 2 }
+
+pcubeMgmt OBJECT-IDENTITY
+    STATUS  current
+    DESCRIPTION
+        "pcubeMgmt is the main subtree for new MIB development."
+    ::= { pcube 3 }
+
+pcubeWorkgroup OBJECT-IDENTITY
+    STATUS  current
+    DESCRIPTION
+        "pcubeWorkgroup is the main subtree for objects and events of
+        P-Cube's products."
+    ::= { pcube 4 }
+
+
+END
+
+

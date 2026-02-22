@@ -1,0 +1,285 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-QUERYRESULT-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- QUERYRESULT management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-QUERYRESULT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB;
+
+cfprQueryresultObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        QUERYRESULT management information model package"
+    ::= { ciscoFirepowerMIBObjects 68 }
+
+cfprQueryresultDependencyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprQueryresultDependencyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency managed object table"
+    ::= { cfprQueryresultObjects 1 }
+
+cfprQueryresultDependencyEntry OBJECT-TYPE
+    SYNTAX           CfprQueryresultDependencyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprQueryresultDependencyTable table."
+    INDEX { cfprQueryresultDependencyInstanceId }
+    ::= { cfprQueryresultDependencyTable 1 }
+
+CfprQueryresultDependencyEntry ::= SEQUENCE {
+    cfprQueryresultDependencyInstanceId                              CfprManagedObjectId,
+    cfprQueryresultDependencyDn                                      CfprManagedObjectDn,
+    cfprQueryresultDependencyRn                                      SnmpAdminString,
+    cfprQueryresultDependencyClassType                               SnmpAdminString,
+    cfprQueryresultDependencyIsImportable                            TruthValue,
+    cfprQueryresultDependencyPolicyOwner                             SnmpAdminString,
+    cfprQueryresultDependencyRefConvertedDn                          SnmpAdminString,
+    cfprQueryresultDependencyRefDn                                   SnmpAdminString,
+    cfprQueryresultDependencyRefName                                 SnmpAdminString
+}
+
+cfprQueryresultDependencyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprQueryresultDependencyEntry 1 }
+
+cfprQueryresultDependencyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:dn managed
+        object property"
+    ::= { cfprQueryresultDependencyEntry 2 }
+
+cfprQueryresultDependencyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:rn managed
+        object property"
+    ::= { cfprQueryresultDependencyEntry 3 }
+
+cfprQueryresultDependencyClassType OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:classType
+        managed object property"
+    ::= { cfprQueryresultDependencyEntry 4 }
+
+cfprQueryresultDependencyIsImportable OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:isImportable
+        managed object property"
+    ::= { cfprQueryresultDependencyEntry 5 }
+
+cfprQueryresultDependencyPolicyOwner OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:policyOwner
+        managed object property"
+    ::= { cfprQueryresultDependencyEntry 6 }
+
+cfprQueryresultDependencyRefConvertedDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:refConvertedDn
+        managed object property"
+    ::= { cfprQueryresultDependencyEntry 7 }
+
+cfprQueryresultDependencyRefDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:refDn managed
+        object property"
+    ::= { cfprQueryresultDependencyEntry 8 }
+
+cfprQueryresultDependencyRefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Dependency:refName
+        managed object property"
+    ::= { cfprQueryresultDependencyEntry 9 }
+
+cfprQueryresultUsageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprQueryresultUsageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage managed object table"
+    ::= { cfprQueryresultObjects 2 }
+
+cfprQueryresultUsageEntry OBJECT-TYPE
+    SYNTAX           CfprQueryresultUsageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprQueryresultUsageTable table."
+    INDEX { cfprQueryresultUsageInstanceId }
+    ::= { cfprQueryresultUsageTable 1 }
+
+CfprQueryresultUsageEntry ::= SEQUENCE {
+    cfprQueryresultUsageInstanceId                                   CfprManagedObjectId,
+    cfprQueryresultUsageDn                                           CfprManagedObjectDn,
+    cfprQueryresultUsageRn                                           SnmpAdminString,
+    cfprQueryresultUsageClassType                                    SnmpAdminString,
+    cfprQueryresultUsageIsServiceTemplate                            TruthValue,
+    cfprQueryresultUsagePolicyOwner                                  SnmpAdminString,
+    cfprQueryresultUsageRefConvertedDn                               SnmpAdminString,
+    cfprQueryresultUsageRefDn                                        SnmpAdminString,
+    cfprQueryresultUsageRefName                                      SnmpAdminString
+}
+
+cfprQueryresultUsageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprQueryresultUsageEntry 1 }
+
+cfprQueryresultUsageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:dn managed object property"
+    ::= { cfprQueryresultUsageEntry 2 }
+
+cfprQueryresultUsageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:rn managed object property"
+    ::= { cfprQueryresultUsageEntry 3 }
+
+cfprQueryresultUsageClassType OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:classType managed
+        object property"
+    ::= { cfprQueryresultUsageEntry 4 }
+
+cfprQueryresultUsageIsServiceTemplate OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:isServiceTemplate
+        managed object property"
+    ::= { cfprQueryresultUsageEntry 5 }
+
+cfprQueryresultUsagePolicyOwner OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:policyOwner
+        managed object property"
+    ::= { cfprQueryresultUsageEntry 6 }
+
+cfprQueryresultUsageRefConvertedDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:refConvertedDn
+        managed object property"
+    ::= { cfprQueryresultUsageEntry 7 }
+
+cfprQueryresultUsageRefDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:refDn managed object property"
+    ::= { cfprQueryresultUsageEntry 8 }
+
+cfprQueryresultUsageRefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower queryresult:Usage:refName managed
+        object property"
+    ::= { cfprQueryresultUsageEntry 9 }
+
+END

@@ -1,0 +1,412 @@
+-- MIB file created 16-May-2014 10:08:54, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WPAN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WPAN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    ifIndex, ifName
+            FROM IF-MIB
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoWpanMIB OBJECT IDENTIFIER ::= { ciscoMgmt 819 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201311190000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cgr@cisco.com
+--  Descr
+--    This MIB module defines management objects for
+--    configuration and monitoring of Wireless Personal
+--    Area Network (WPAN).
+--    
+--    Personal Area Network (PAN) is a network for interconnecting
+--    devices centered on an individual person's workspace.
+--    A Wireless Personal Area Network (WPAN) is a PAN in which the
+--    connections are wireless.
+--    
+--    WPAN is based on the standard IEEE 802.15.4.
+--    
+--    *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+--    
+--    PAN          -   Personal Area Network
+--    RPL          -   IPv6 Routing Protocol for Low power
+--                     and Lossy networks
+--    WPAN         -   Wireless Personal Area Network
+--  RevDate
+--    201311190000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoWpanMIBNotifs OBJECT IDENTIFIER ::= { ciscoWpanMIB 0 }
+ciscoWpanMIBObjects OBJECT IDENTIFIER ::= { ciscoWpanMIB 1 }
+ciscoWpanMIBConform OBJECT IDENTIFIER ::= { ciscoWpanMIB 2 }
+ciscoWpanConfig OBJECT IDENTIFIER ::= { ciscoWpanMIBObjects 1 }
+ciscoWpanMIBCompliances OBJECT IDENTIFIER ::= { ciscoWpanMIBConform 1 }
+ciscoWpanMIBGroups OBJECT IDENTIFIER ::= { ciscoWpanMIBConform 2 }
+
+cwpanInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwpanInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a list of the WPAN interfaces
+        on this device."
+    ::= { ciscoWpanConfig 1 }
+
+cwpanInterfaceEntry OBJECT-TYPE
+    SYNTAX CwpanInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the management information for a
+        particular WPAN interface.
+        
+        An entry is created when a WPAN interface has been
+        added to ifTable.
+        
+        An entry is deleted when a WPAN interface has been
+        removed from ifTable."
+    INDEX { ifIndex }
+    ::= { cwpanInterfaceTable 1 }
+
+CwpanInterfaceEntry ::= SEQUENCE {
+    cwpanIfServiceStatus INTEGER,
+    cwpanIfServiceStatusReason INTEGER,
+    cwpanIfRplTableResetReason INTEGER,
+    cwpanIfRplTableNodes Gauge,
+    cwpanIfRplTableMajorThreshNodes Gauge,
+    cwpanIfRplTableMinorThreshNodes Gauge
+    }
+
+cwpanIfServiceStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        start(1),
+        stop(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of WPAN service associated
+         with this given interface.
+        
+         start (1)          - WPAN service start
+         stop (2)           - WPAN service stop"
+    ::= { cwpanInterfaceEntry 1 }
+
+cwpanIfServiceStatusReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        powerDown(2),
+        powerUp(3),
+        moduleRemove(4),
+        moduleReload(5),
+        driverStop(6),
+        driverStart(7),
+        firmwareUpgrade(8),
+        firmwareReset(9),
+        watchDog(10)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the reason of the last state
+        change of the WPAN service associated with this given
+        interface.
+        
+        unknown (1)         - unknown
+        powerDown (2)       - power down WPAN module
+        powerUp (3)         - power up WPAN module
+        moduleRemove (4)    - module removed
+        moduleReload (5)    - power cycle WPAN module
+        driverStop (6)      - driver stop
+        driverStart (7)     - driver start
+        firmwareUpgrade (8) - firmware upgrade
+        firmwareReset (9)   - firmware reset
+        watchDog (10)       - watchdog triggered"
+    ::= { cwpanInterfaceEntry 2 }
+
+cwpanIfRplTableResetReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        manuallyClear(2),
+        configChange(3),
+        interfaceDown(4),
+        timeout(5),
+        serviceStop(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the last reset reason of the WPAN
+        RPL table associated with this given interface.
+        
+        unknown (1)         - unknown
+        manuallyClear (2)   - RPL table was manually cleared
+        configChange (3)    - WPAN configuration changed
+        interfaceDown (4)   - WPAN interface was down
+        timeout (5)         - RPL table has not been updated for
+                              a long time
+        serviceStop (6)     - WPAN service has stopped"
+    ::= { cwpanInterfaceEntry 3 }
+
+cwpanIfRplTableNodes OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of entries in
+        the WPAN RPL table for this given interface."
+    ::= { cwpanInterfaceEntry 4 }
+
+cwpanIfRplTableMajorThreshNodes OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the major node threshold 
+        for the WPAN RPL table.
+        
+        When the value of the corresponding instance of
+        cwpanIfRplTableNodes is greater than this value,
+        a cwpanRisingIfRplTblMajorThreshNodesNotif notification
+        will be generated.
+        
+        After a cwpanRisingIfRplTblMajorThreshNodesNotif is generated,
+        another such notification will not be generated if the value
+        of the corresponding instance of cwpanIfRplTableNodes stays
+        above this value.
+        
+        When the value of the corresponding instance of
+        cwpanIfRplTableNodes becomes less than or equal to this value
+        after a cwpanRisingIfRplTblMajorThreshNodesNotif notification
+        is generated, a cwpanFallingIfRplTblMajorThreshNodesNotif
+        notification will be generated.
+        
+        After a cwpanFallingIfRplTblMajorThreshNodesNotif is generated,
+        another such notification will not be generated if the value of
+        the corresponding instance of cwpanIfRplTableNodes does not exceed
+        this value."
+    ::= { cwpanInterfaceEntry 5 }
+
+cwpanIfRplTableMinorThreshNodes OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the threshold for the RPL
+        table nodes.
+        
+        When the value of the corresponding instance of
+        cwpanIfRplTableNodes is greater than this threshold,
+        a cwpanRisingIfRplTblMinorThreshNodesNotif notification will
+        be generated.
+        
+        After a cwpanRisingIfRplTblMinorThreshNodesNotif is generated,
+        another such notification will not be generated if the value of
+        the corresponding instance of cwpanIfRplTableNodes stays above
+        this threshold.
+        
+        When the value of the corresponding instance of
+        cwpanIfRplTableNodes becomes less than or equal to this threshold
+        after a cwpanRisingIfRplTblMinorThreshNodesNotif notification is
+        generated, a cwpanFallingIfRplTblMinorThreshNodesNotif notification
+        will be generated.
+        
+        After a cwpanFallingIfRplTblMinorThreshNodesNotif is generated,
+        another such notification will not be generated if the value of the
+        corresponding instance of cwpanIfRplTableNodes does not exceed this
+        threshold."
+    ::= { cwpanInterfaceEntry 6 }
+
+cwpanNotificationEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the system generates the
+        following notifications:
+        
+            cwpanServiceStatusChangeNotif
+            cwpanRplTableResetNotif
+            cwpanRisingIfRplTblMinorThreshNodesNotif
+            cwpanFallingIfRplTblMinorThreshNodesNotif
+            cwpanRisingIfRplTblMajorThreshNodesNotif
+            cwpanFallingIfRplTblMajorThreshNodesNotif
+        
+        A value of 'false' will prevent any of the above
+        notifications from being generated by this system."
+    ::= { ciscoWpanConfig 2 }
+
+cwpanServiceStatusChangeNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoWpanMIB
+    VARIABLES {
+        ifName, cwpanIfServiceStatusReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated if the WPAN
+        service status has been changed."
+    ::= 1
+
+cwpanRplTableResetNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoWpanMIB
+    VARIABLES {
+        ifName, cwpanIfRplTableResetReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated if a WPAN RPL table
+        has been reset."
+    ::= 2
+
+cwpanRisingIfRplTblMinorThreshNodesNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoWpanMIB
+    VARIABLES {
+        ifName, cwpanIfRplTableNodes, 
+        cwpanIfRplTableMinorThreshNodes, 
+        cwpanIfRplTableMajorThreshNodes }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated if the number of
+        nodes in the RPL table is greater than the threshold
+        in cwpanIfRplTableMinorThreshNodes."
+    ::= 3
+
+cwpanFallingIfRplTblMinorThreshNodesNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoWpanMIB
+    VARIABLES {
+        ifName, cwpanIfRplTableNodes, 
+        cwpanIfRplTableMinorThreshNodes, 
+        cwpanIfRplTableMajorThreshNodes }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated if the number of
+        nodes in a RPL table become less than or equal to the
+        cwpanIfRplTableMinorThreshNodes value after a
+        cwpanRisingIfRplTblMinorThreshNodesNotif notification is generated."
+    ::= 4
+
+cwpanRisingIfRplTblMajorThreshNodesNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoWpanMIB
+    VARIABLES {
+        ifName, cwpanIfRplTableNodes, 
+        cwpanIfRplTableMajorThreshNodes }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated if the number of nodes
+        in a RPL table is greater than the value of
+        cwpanIfRplTableMajorThreshNodes."
+    ::= 5
+
+cwpanFallingIfRplTblMajorThreshNodesNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoWpanMIB
+    VARIABLES {
+        ifName, cwpanIfRplTableNodes, 
+        cwpanIfRplTableMajorThreshNodes }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the number of
+        nodes in a RPL table become less than cwpanIfRplTableMajorThreshNodes
+        value after a cwpanRisingIfRplTblMajorThreshNodesNotif notification is
+        generated."
+    ::= 6
+
+cwpanInterfaceInfoGroup OBJECT IDENTIFIER ::= { ciscoWpanMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the WPAN
+--    interface management information on the device.
+--  objects
+--    cwpanIfServiceStatus, cwpanIfServiceStatusReason, 
+--    cwpanIfRplTableResetReason, cwpanIfRplTableNodes, 
+--    cwpanIfRplTableMajorThreshNodes, 
+--    cwpanIfRplTableMinorThreshNodes
+
+cwpanNotificationControlGroup OBJECT IDENTIFIER ::= { ciscoWpanMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing control
+--    of WPAN interface related notifications.
+--  objects
+--    cwpanNotificationEnable
+
+cwpanNotificationGroup OBJECT IDENTIFIER ::= { ciscoWpanMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for WPAN service and
+--    WPAN RPL table.
+--  notifications
+--    cwpanServiceStatusChangeNotif, cwpanRplTableResetNotif, 
+--    cwpanRisingIfRplTblMinorThreshNodesNotif, 
+--    cwpanFallingIfRplTblMinorThreshNodesNotif, 
+--    cwpanRisingIfRplTblMajorThreshNodesNotif, 
+--    cwpanFallingIfRplTblMajorThreshNodesNotif
+
+ciscoWpanMIBModuleCompliance OBJECT IDENTIFIER ::= { ciscoWpanMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the WPAN interface.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwpanInterfaceInfoGroup
+--   MandGroup
+--    cwpanNotificationControlGroup
+--   MandGroup
+--    cwpanNotificationGroup
+--   ObjVar
+--    cwpanIfRplTableMajorThreshNodes
+--   ObjVar
+--    cwpanIfRplTableMinorThreshNodes
+--   ObjVar
+--    cwpanNotificationEnable
+
+
+END
+

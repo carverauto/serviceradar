@@ -1,0 +1,438 @@
+-- *****************************************************************
+-- CISCO-H320-DIAL-CONTROL-MIB.my: H320 Dial Control MIB 
+--                                 file
+--
+-- Sept 2005, Diana Leung
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-H320-DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Integer32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        callActiveSetupTime,
+        callActiveIndex,
+        AbsoluteCounter32
+                FROM DIAL-CONTROL-MIB
+        cCallHistoryIndex
+                FROM CISCO-DIAL-CONTROL-MIB
+        CvcGUid,
+        CvcH320CallType,
+        CvcVideoCoderRate
+                FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+        ciscoExperiment
+                FROM CISCO-SMI;
+ 
+ciscoH320DialControlMIB MODULE-IDENTITY
+        LAST-UPDATED    "200602230000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W. Tasman Drive
+                    San Jose, CA  95134
+                    USA
+ 
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-voice@cisco.com"
+        DESCRIPTION
+            "This MIB module enhances the IETF Dial Control MIB
+             (RFC2128) by providing H.320 call information over
+             a telephony network.
+
+             ITU-T Recommandation H.320 is the ITU standard
+             covers audio and video to be shared among
+             narrow-band visual telephone systems
+             and terminal equipments over ISDN."
+
+        REVISION        "200602230000Z"
+        DESCRIPTION
+             "Replace AUGMENTS clause by INDEX clause in the
+              following objects:
+              cvH320CallHistoryEntry
+              cvH320CallActiveEntry."
+        REVISION        "200509280000Z"
+        DESCRIPTION 
+             "Initial version of this MIB module."
+        ::= { ciscoExperiment 128 }
+
+-- H320 Dial Control MIB objects definitions
+
+ciscoH320DialControlMIBNotifs  OBJECT IDENTIFIER ::=
+       { ciscoH320DialControlMIB 0}
+ciscoH320DialControlMIBObjects OBJECT IDENTIFIER ::=
+       { ciscoH320DialControlMIB 1 }
+ciscoH320DialControlMIBConform OBJECT IDENTIFIER ::=
+       { ciscoH320DialControlMIB 2 }
+
+-- The H320 Dial Control MIB consists of the following groups
+-- [1] H320 Dial Control Call History Group (cvH320CallHistory)
+-- [2] H320 Dial Control Call Active Group (cvH320CallActive)
+
+cvH320CallHistory        OBJECT IDENTIFIER ::=
+        { ciscoH320DialControlMIBObjects 1 }
+cvH320CallActive         OBJECT IDENTIFIER ::=
+        { ciscoH320DialControlMIBObjects 2 }
+
+--**********************************************************************
+-- H320 Dial Control Call History Group
+--**********************************************************************
+
+--
+-- H320 Call History Table
+-- 
+
+cvH320CallHistoryTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvH320CallHistoryEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table is the H.320 extension to the call history
+             table of IETF Dial Control MIB. It contains H.320 call
+             leg information about specific voice encapsulation call
+             with H.320 setup."
+        ::= { cvH320CallHistory 1 }
+
+cvH320CallHistoryEntry OBJECT-TYPE
+        SYNTAX      CvH320CallHistoryEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The information regarding a single voice encapsulation
+             call with H.320 setup.
+
+             An entry into this table is created when its associated call
+             history entry in the IETF Dial Control MIB is created and
+             the call history entry contains information for the call
+             establishment to a voice encapsulation peer with video
+             call information type."
+        INDEX      { cCallHistoryIndex }
+        ::= { cvH320CallHistoryTable 1 }
+
+CvH320CallHistoryEntry ::=
+        SEQUENCE {
+            cvH320CallHistoryConnectionId          CvcGUid,
+            cvH320CallHistoryIncomingConnectionId  CvcGUid,
+            cvH320CallHistoryH320CallType          CvcH320CallType,
+            cvH320CallHistoryUsedBandwidth         Integer32,
+            cvH320CallHistoryTxVideoCodec          CvcVideoCoderRate,
+            cvH320CallHistoryTxVideoPackets        AbsoluteCounter32,
+            cvH320CallHistoryTxVideoBytes          AbsoluteCounter32,
+            cvH320CallHistoryRxVideoCodec          CvcVideoCoderRate,
+            cvH320CallHistoryRxVideoPackets        AbsoluteCounter32,
+            cvH320CallHistoryRxVideoBytes          AbsoluteCounter32
+        }
+
+cvH320CallHistoryConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for a H.320 call."
+        ::= { cvH320CallHistoryEntry 1 }
+
+cvH320CallHistoryIncomingConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for a H.320 call which
+             will be shared with the associated call legs."
+        ::= { cvH320CallHistoryEntry 2 }
+
+cvH320CallHistoryH320CallType OBJECT-TYPE
+        SYNTAX      CvcH320CallType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The type of H.320 call."
+        ::= { cvH320CallHistoryEntry 3 }
+
+cvH320CallHistoryUsedBandwidth       OBJECT-TYPE
+        SYNTAX      Integer32 (0..10000000)
+        UNITS       "kilobits per second"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The bandwidth for the H.320 call session."
+        ::= { cvH320CallHistoryEntry 4 }
+
+cvH320CallHistoryTxVideoCodec        OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The negotiated encoding type used to compress
+             the video data in transmit direction for a 
+             H.320 call session."
+        ::= { cvH320CallHistoryEntry 5 }
+
+cvH320CallHistoryTxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets
+             transmitted for the H.320 call session."
+        ::= { cvH320CallHistoryEntry 6 }
+
+cvH320CallHistoryTxVideoBytes       OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes
+             transmitted for the H.320 call session."
+        ::= { cvH320CallHistoryEntry 7 }
+
+cvH320CallHistoryRxVideoCodec       OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The negotiated encoding type used to compress
+             the video data in receive direction for a 
+             H.320 call session."
+        ::= { cvH320CallHistoryEntry 8 }
+
+cvH320CallHistoryRxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets 
+             received for the H.320 call session."
+        ::= { cvH320CallHistoryEntry 9 }
+
+cvH320CallHistoryRxVideoBytes      OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes 
+             received for the H.320 call session."
+        ::= { cvH320CallHistoryEntry 10 }
+
+--**********************************************************************
+-- H320 Dial Control Call Active Group
+--**********************************************************************
+
+--
+-- H320 Call Active Table
+-- 
+
+cvH320CallActiveTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvH320CallActiveEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table is the H.320 extension to the active call
+             table of IETF Dial Control MIB. It contains H.320 call
+             leg information about specific voice encapsulation call
+             with H.320 setup."
+        ::= { cvH320CallActive 1 }
+
+cvH320CallActiveEntry OBJECT-TYPE
+        SYNTAX      CvH320CallActiveEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The information regarding a single voice encapsulation 
+             call with H.320 setup.
+
+             An entry into this table is created when its associated call
+             active entry in the IETF Dial Control MIB is created. The
+             call active entry contains information for the call
+             establishment to a voice encapsulation peer with video
+             call information type.
+
+             The entry is deleted when its associated call active entry
+             in the IETF Dial Control MIB is deleted."
+        INDEX         { callActiveSetupTime, callActiveIndex }
+        ::= { cvH320CallActiveTable 1 }
+
+CvH320CallActiveEntry ::=
+        SEQUENCE {
+            cvH320CallActiveConnectionId          CvcGUid,
+            cvH320CallActiveIncomingConnectionId  CvcGUid,
+            cvH320CallActiveH320CallType          CvcH320CallType,
+            cvH320CallActiveUsedBandwidth         Integer32,
+            cvH320CallActiveTxVideoCodec          CvcVideoCoderRate,
+            cvH320CallActiveTxVideoPackets        AbsoluteCounter32,
+            cvH320CallActiveTxVideoBytes          AbsoluteCounter32,
+            cvH320CallActiveRxVideoCodec          CvcVideoCoderRate,
+            cvH320CallActiveRxVideoPackets        AbsoluteCounter32,
+            cvH320CallActiveRxVideoBytes          AbsoluteCounter32
+        }
+
+cvH320CallActiveConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for a H.320 call."
+        ::= { cvH320CallActiveEntry 1 }
+
+cvH320CallActiveIncomingConnectionId OBJECT-TYPE
+        SYNTAX      CvcGUid
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The global call identifier for the gateway call which
+             will be shared with the associated call legs."
+        ::= { cvH320CallActiveEntry 2 }
+
+cvH320CallActiveH320CallType OBJECT-TYPE
+        SYNTAX      CvcH320CallType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The type of H.320 call."
+        ::= { cvH320CallActiveEntry 3 }
+
+cvH320CallActiveUsedBandwidth       OBJECT-TYPE
+        SYNTAX      Integer32 (0..10000000)
+        UNITS       "kilobits per second"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The bandwidth for the H.320 call session."
+        ::= { cvH320CallActiveEntry 4 }
+
+cvH320CallActiveTxVideoCodec        OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The negotiated encoding type used to compress
+             the video data in transmit direction for the 
+             H.320 call session."
+        ::= { cvH320CallActiveEntry 5 }
+
+cvH320CallActiveTxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets
+             transmitted for the H.320 call session."
+        ::= { cvH320CallActiveEntry 6 }
+
+cvH320CallActiveTxVideoBytes       OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes
+             transmitted for the H.320 call session."
+        ::= { cvH320CallActiveEntry 7 }
+
+cvH320CallActiveRxVideoCodec       OBJECT-TYPE
+        SYNTAX      CvcVideoCoderRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The object contains the negotiated video coder rate
+             in receive direction for the H.320 call session."
+        ::= { cvH320CallActiveEntry 8 }
+
+cvH320CallActiveRxVideoPackets     OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data packets
+             received for the H.320 call session."
+        ::= { cvH320CallActiveEntry 9 }
+
+cvH320CallActiveRxVideoBytes       OBJECT-TYPE
+        SYNTAX      AbsoluteCounter32
+        UNITS       "bytes"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The total number of video data bytes
+             received for the H.320 call session."
+        ::= { cvH320CallActiveEntry 10 }
+
+--
+-- Notifications
+--
+
+--
+-- Conformancy, Compliance and Group Objects
+--
+
+ciscoH320DialControlMIBConformance OBJECT IDENTIFIER ::=
+        { ciscoH320DialControlMIBConform 1 }
+ciscoH320DialControlMIBCompliances OBJECT IDENTIFIER ::=
+        { ciscoH320DialControlMIBConformance 1 }
+ciscoH320DialControlMIBGroups      OBJECT IDENTIFIER ::=
+        { ciscoH320DialControlMIBConformance 2 }
+ 
+-- compliance statements
+
+ciscoH320DialControlMIBCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for entities which
+             implement the CISCO H320 DIAL CONTROL MIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            { cvH320CallHistoryGroup,
+              cvH320CallActiveGroup }
+        ::= { ciscoH320DialControlMIBCompliances 1 }
+
+-- units of conformance
+
+cvH320CallHistoryGroup OBJECT-GROUP
+        OBJECTS {
+            cvH320CallHistoryConnectionId,
+            cvH320CallHistoryIncomingConnectionId,
+            cvH320CallHistoryH320CallType,
+            cvH320CallHistoryUsedBandwidth,
+            cvH320CallHistoryTxVideoCodec,
+            cvH320CallHistoryTxVideoPackets,
+            cvH320CallHistoryTxVideoBytes,
+            cvH320CallHistoryRxVideoCodec,
+            cvH320CallHistoryRxVideoPackets,
+            cvH320CallHistoryRxVideoBytes
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the H.320 Call History
+             entry capability."
+        ::= { ciscoH320DialControlMIBGroups 1 }
+
+cvH320CallActiveGroup OBJECT-GROUP
+        OBJECTS {
+            cvH320CallActiveConnectionId,
+            cvH320CallActiveIncomingConnectionId,
+            cvH320CallActiveH320CallType,
+            cvH320CallActiveUsedBandwidth,
+            cvH320CallActiveTxVideoCodec,
+            cvH320CallActiveTxVideoPackets,
+            cvH320CallActiveTxVideoBytes,
+            cvH320CallActiveRxVideoCodec,
+            cvH320CallActiveRxVideoPackets,
+            cvH320CallActiveRxVideoBytes
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the H.320 Call Active
+             entry capability."
+        ::= { ciscoH320DialControlMIBGroups 2 }
+END

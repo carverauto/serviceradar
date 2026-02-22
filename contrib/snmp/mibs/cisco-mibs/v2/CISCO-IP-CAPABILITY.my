@@ -1,0 +1,594 @@
+-- *****************************************************************
+-- CISCO-IP-CAPABILITY.my: Cisco IP-MIB AGENT-CAPABILITIES
+--   
+-- June 2005, Gayathri Velayutham.
+--   
+-- Copyright (c) 2005-2008, 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-IP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIpCapability MODULE-IDENTITY
+    LAST-UPDATED    "201009300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W. Tasman Drive
+            San Jose, CA  95134-1706
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ipv6@cisco.com"
+    DESCRIPTION
+        "The capabilities description of IP-MIB."
+    REVISION        "201009300000Z"
+    DESCRIPTION
+        "Added ciscoIpCapabilityV12R2SE agent capabilities
+        for Catalyst 2k/3k series."
+    REVISION        "200808110000Z"
+    DESCRIPTION
+        "Added newline at the end of the MIB file."
+    REVISION        "200711050000Z"
+    DESCRIPTION
+        "Added cIpCapc4710aceVA1R700 agent capabilities
+        for ACE 4710 Application Control Engine Appliance."
+    REVISION        "200611030000Z"
+    DESCRIPTION
+        "Added capability for Cisco TelePresence System (CTS) and
+        Cisco TelePresence Manager (CTM) platforms."
+    REVISION        "200605270000Z"
+    DESCRIPTION
+        "Added capability statement
+        cIpCapACSWV03R000"
+    REVISION        "200602170000Z"
+    DESCRIPTION
+        "Added ipv4 Object Groups to the initial
+        Agent Capability"
+    REVISION        "200507250000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 445 }
+
+
+
+cIpCapV320CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 3.2.0 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "IP-MIB capabilities."
+
+    SUPPORTS        IP-MIB
+    INCLUDES        {
+                        ipv6GeneralGroup2,
+                        ipv6IfGroup,
+                        ipSystemStatsGroup,
+                        ipIfStatsGroup,
+                        ipAddressPrefixGroup,
+                        ipAddressGroup,
+                        ipNetToPhysicalGroup,
+                        ipv6RouterAdvertGroup,
+                        icmpStatsGroup,
+                        ipGroup,
+                        icmpGroup
+                    }
+    VARIATION       ipSystemStatsIPVersion
+    SYNTAX          INTEGER  {
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "This object is supported for ipv6 only."
+
+    VARIATION       ipIfStatsIPVersion
+    SYNTAX          INTEGER  {
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "This object is supported for ipv6 only."
+
+    VARIATION       ipAddressPrefixType
+    SYNTAX          INTEGER  {
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "This object is supported for ipv6 only."
+
+    VARIATION       ipAddressAddrType
+    SYNTAX          INTEGER  {
+                        ipv6(2),
+                        ipv6z(4)
+                    }
+    DESCRIPTION
+        "This object is supported for ipv6 only."
+
+    VARIATION       ipNetToPhysicalNetAddressType
+    SYNTAX          INTEGER  {
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "This object is supported for ipv6 only.For
+        linklocal address, both Net and Physical
+        address are  the same.Hence, ipv6z (4) is
+        redundant and not supported."
+
+    VARIATION       icmpStatsIPVersion
+    SYNTAX          INTEGER  {
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "This object is supported  for ipv6 only."
+
+    VARIATION       icmpMsgStatsIPVersion
+    SYNTAX          INTEGER  {
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "This object is supported  for ipv6 only ."
+
+    VARIATION       ipv6IpDefaultHopLimit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported by the platform."
+
+    VARIATION       ipSystemStatsInOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsInNoRoutes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsInDiscards
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsOutNoRoutes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsOutForwDatagrams
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsOutTransmits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsOutOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsInMcastPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsInMcastOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsOutMcastPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsOutMcastOctets
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsDiscontinuityTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipSystemStatsRefreshRate
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInHdrErrors
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInNoRoutes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInAddrErrors
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInUnknownProtos
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInTruncatedPkts
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInForwDatagrams
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsReasmReqds
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsReasmOKs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsReasmFails
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInDiscards
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsInDelivers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsOutRequests
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsOutForwDatagrams
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsOutDiscards
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsOutFragReqds
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsOutFragOKs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsOutFragFails
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsOutFragCreates
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipIfStatsRefreshRate
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipAddressPrefixAdvPreferredLifetime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipAddressPrefixAdvValidLifetime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipAddressSpinLock
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipAddressLastChanged
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipv6RouterAdvertSpinLock
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipv6RouterAdvertLinkMTU
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipv6RouterAdvertReachableTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipv6RouterAdvertRetransmitTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipv6RouterAdvertCurHopLimit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipv6RouterAdvertDefaultLifetime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       icmpStatsOutErrors
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       ipForwarding
+    SYNTAX          INTEGER  {
+                        forwarding(1)
+                    }
+    DESCRIPTION
+        "notForwarding(2)is not supported."
+
+    VARIATION       ipAdEntBcastAddr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Current MIB Implementation doesn't
+        support configuration of broadcast
+        address, So this is set to 1"
+
+    VARIATION       ipNetToMediaIfIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported
+        in the current MIB Implentation."
+
+    VARIATION       ipNetToMediaPhysAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported
+        in the current MIB Implentation."
+
+    VARIATION       ipNetToMediaNetAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported
+        in the current MIB Implentation."
+
+    VARIATION       ipNetToMediaType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported
+        in the current MIB Implentation."
+
+    ::= { ciscoIpCapability 1 }
+
+cIpCapACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "IP-MIB capabilities."
+
+    SUPPORTS        IP-MIB
+    INCLUDES        {
+                        ipv4GeneralGroup,
+                        ipSystemStatsGroup,
+                        ipv4SystemStatsGroup,
+                        ipSystemStatsHCOctetGroup,
+                        ipSystemStatsHCPacketGroup,
+                        ipv4SystemStatsHCPacketGroup,
+                        ipIfStatsGroup,
+                        ipv4IfStatsGroup,
+                        ipIfStatsHCOctetGroup,
+                        ipIfStatsHCPacketGroup,
+                        ipv4IfStatsHCPacketGroup,
+                        icmpStatsGroup
+                    }
+    VARIATION       ipForwarding
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipDefaultTTL
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    ::= { ciscoIpCapability 2 }
+
+cIpCapCTSV100 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco TelePresence System (CTS) 1.0.0"
+    STATUS          current
+    DESCRIPTION
+        "IP-MIB capabilities."
+
+    SUPPORTS        IP-MIB
+    INCLUDES        {
+                        ipGroup,
+                        icmpGroup
+                    }
+    VARIATION       ipForwarding
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipDefaultTTL
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipNetToMediaNetAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipNetToMediaType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    ::= { ciscoIpCapability 3 }
+
+cIpCapCTMV1000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco TelePresence Manager (CTM) 1.0.0.0"
+    STATUS          current
+    DESCRIPTION
+        "IP-MIB capabilities."
+
+    SUPPORTS        IP-MIB
+    INCLUDES        {
+                        ipGroup,
+                        icmpGroup
+                    }
+    VARIATION       ipForwarding
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipDefaultTTL
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipNetToMediaNetAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipNetToMediaType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    ::= { ciscoIpCapability 4 }
+
+cIpCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                    for ACE 4710 Application Control Engine 
+                    Appliance"
+    STATUS          current
+    DESCRIPTION
+        "IP-MIB capabilities."
+
+    SUPPORTS        IP-MIB
+    INCLUDES        {
+                        ipv4GeneralGroup,
+                        ipSystemStatsGroup,
+                        ipv4SystemStatsGroup,
+                        ipSystemStatsHCOctetGroup,
+                        ipSystemStatsHCPacketGroup,
+                        ipv4SystemStatsHCPacketGroup,
+                        ipIfStatsGroup,
+                        ipv4IfStatsGroup,
+                        ipIfStatsHCOctetGroup,
+                        ipIfStatsHCPacketGroup,
+                        ipv4IfStatsHCPacketGroup,
+                        icmpStatsGroup
+                    }
+    VARIATION       ipForwarding
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       ipDefaultTTL
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    ::= { ciscoIpCapability 5 }
+
+ciscoIpCapabilityV12R2SE AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2SE Catalyst 2k/3k Series."
+    STATUS          current
+    DESCRIPTION
+        "IP-MIB capabilities for Catalyst 2k/3k. Currently only
+        IPv6 is supported and IPv4 portion is not supported."
+
+    SUPPORTS        IP-MIB
+    INCLUDES        {
+                        ipSystemStatsGroup,
+                        ipAddressGroup,
+                        ipNetToPhysicalGroup,
+                        ipDefaultRouterGroup,
+                        icmpStatsGroup,
+                        ipSystemStatsHCOctetGroup,
+                        ipSystemStatsHCPacketGroup,
+                        ipIfStatsGroup,
+                        ipIfStatsHCOctetGroup,
+                        ipIfStatsHCPacketGroup,
+                        ipv6GeneralGroup2,
+                        ipv6IfGroup,
+                        ipAddressPrefixGroup,
+                        ipv6ScopeGroup,
+                        ipv6RouterAdvertGroup,
+                        ipLastChangeGroup
+                    }
+    VARIATION       ipv4InterfaceTableLastChange
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ipSystemStatsRefreshRate
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ipIfStatsRefreshRate
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ipSystemStatsTable
+    DESCRIPTION
+        "The statistics in this table reports the
+        packets being processed by CPU which does not
+        include ASIC forwarded/dropped packets."
+
+    VARIATION       ipIfStatsTable
+    DESCRIPTION
+        "The statistics in this table reports the
+        packets being processed by CPU which does not
+        include ASIC forwarded/dropped packets."
+
+    ::= { ciscoIpCapability 6 }
+
+END
+
+
+
+

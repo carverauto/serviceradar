@@ -1,0 +1,341 @@
+-- MIB file created 29-Oct-2004 18:31:15, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-DNS-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DNS-CLIENT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoDNSClientMIB OBJECT IDENTIFIER ::= { ciscoMgmt 436 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200409090000Z
+--  OrgName
+--    Cisco Systems Inc. 
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--    Postal: 170 W Tasman Drive
+--          San Jose, CA  95134
+--          USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    The MIB module for entities implementing the client 
+--    side of the Domain Name System (DNS) protocol.
+--  RevDate
+--    200409090000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoDNSClientMIBNotifs OBJECT IDENTIFIER ::= { ciscoDNSClientMIB 0 }
+ciscoDNSClientMIBObjects OBJECT IDENTIFIER ::= { ciscoDNSClientMIB 1 }
+ciscoDNSClientMIBConformance OBJECT IDENTIFIER ::= { ciscoDNSClientMIB 2 }
+cdcConfigGroup  OBJECT IDENTIFIER ::= { ciscoDNSClientMIBObjects 1 }
+ciscoDNSClientMIBCompliances OBJECT IDENTIFIER ::= { ciscoDNSClientMIBConformance 1 }
+ciscoDNSClientMIBGroups OBJECT IDENTIFIER ::= { ciscoDNSClientMIBConformance 2 }
+
+cdcDNSConfigEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the DNS   
+         configuration is enabled or disabled in the local 
+         system."
+    DEFVAL { disabled }
+    ::= { cdcConfigGroup 1 }
+
+cdcNoOfDNSServerConfig OBJECT-TYPE
+    SYNTAX Gauge(0..64)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the current number of entries
+         in the 'cdcDNSServerTable'. Indicates the number of 
+         DNS Server entries that are configured in the system."
+    ::= { cdcConfigGroup 2 }
+
+cdcDNSServerNextAvailIndex OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the next available value for
+         the object 'cdcDNSServerIndex'. If all values are
+         exhausted, then this object will contain a 0 value.
+         A management application should read this object, 
+         get the (non-zero) value and use same for 
+         creating an entry in the 'cdcDNSServerTable'.
+        
+         If two network management applications read this
+         object at the same time and try to create an entry
+         in the 'cdcDNSServerTable', only one of them will
+         succeed. The network management application which 
+         failed, will need to re-read this object and try 
+         the SET again."
+    ::= { cdcConfigGroup 3 }
+
+cdcDNSServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdcDNSServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the Domain Name 
+         System (DNS) Server configurations in the system. 
+         When the DNS configuration is disabled in the system, 
+         i.e., 'cdcDNSConfigEnable' object is set to 
+         'disabled', all entries of this table will be removed 
+         automatically.
+         The index of this table is not persistent upon 
+         system reboot."
+    ::= { cdcConfigGroup 4 }
+
+cdcDNSServerEntry OBJECT-TYPE
+    SYNTAX CdcDNSServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An Entry representing the information about a 
+         DNS Server configuration.
+        
+         The entries are contacted in turn by the system for 
+         DNS services. The first entry in this table will be 
+         contacted first, and so on."
+    INDEX { cdcDNSServerIndex }
+    ::= { cdcDNSServerTable 1 }
+
+CdcDNSServerEntry ::= SEQUENCE {
+    cdcDNSServerIndex Gauge,
+    cdcDNSServerAddrType InetAddressType,
+    cdcDNSServerAddr InetAddress,
+    cdcDNSServerStatus RowStatus
+    }
+
+cdcDNSServerIndex OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the index corresponding to the 
+         particular DNS Server configuration in the system.
+         For creation of new entry, the value of this object 
+         should be same as that of the value of
+         'cdcDNSServerNextAvailIndex' object. If this is not
+         the case, then the entry creation will fail."
+    ::= { cdcDNSServerEntry 1 }
+
+cdcDNSServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the Inet Address type of the 
+         'cdcDNSServerAddr' object.
+        
+         An attempt to modify this object will fail with 
+         an 'inconsistentValue' error, if the value of the 
+         corresponding instance of 'cdcDNSServerStatus' 
+         object is active(1)."
+    DEFVAL { ipv4 }
+    ::= { cdcDNSServerEntry 2 }
+
+cdcDNSServerAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the address of the 
+         DNS Server.
+        
+         This object is a mandatory object for row creation.
+        
+         An attempt to modify this object will fail with
+         an 'inconsistentValue' error, if the value of the 
+         corresponding instance of 'cdcDNSServerStatus' object 
+         is active(1)."
+    ::= { cdcDNSServerEntry 3 }
+
+cdcDNSServerStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Status of this row."
+    ::= { cdcDNSServerEntry 4 }
+
+cdcDefaultDNSDomainName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..80))
+--    Rsyntax OCTET STRING(SIZE(0..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the Default DNS domain name 
+         of the system. When this object is set to a 
+         non empty string value, the domain name part of the 
+         fully qualified name represented by the 'sysName' 
+         object is updated by the value of this object.
+        
+         When there is no entry in the 'cdcDNSDomainNameTable', 
+         the value of this object is used for the domain name  
+         configuration of the system.
+        
+         When there is an entry in the 'cdcDNSDomainNameTable', 
+         the value of this object is not used."
+    DEFVAL { "" }
+    ::= { cdcConfigGroup 5 }
+
+cdcDNSDomainNameTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdcDNSDomainNameEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the list of DNS Domain Names
+         defined for the system. Each domain name to be 
+         tried in turn, for the domain name configuration
+         of the system."
+    ::= { cdcConfigGroup 6 }
+
+cdcDNSDomainNameEntry OBJECT-TYPE
+    SYNTAX CdcDNSDomainNameEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the 
+         'cdcDNSDomainNameTable'.
+         Each row represents a DNS Domain name defined 
+         for the system."
+    INDEX { cdcDNSDomainNameIndex }
+    ::= { cdcDNSDomainNameTable 1 }
+
+CdcDNSDomainNameEntry ::= SEQUENCE {
+    cdcDNSDomainNameIndex Gauge,
+    cdcDNSDomainName SnmpAdminString,
+    cdcDNSDomainNameStatus RowStatus
+    }
+
+cdcDNSDomainNameIndex OBJECT-TYPE
+    SYNTAX Gauge(1..64)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer value, greater than zero,
+         which uniquely identifies a DNS Domain Name 
+         defined for the system."
+    ::= { cdcDNSDomainNameEntry 1 }
+
+cdcDNSDomainName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..80))
+--    Rsyntax OCTET STRING(SIZE(1..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents a DNS Domain Name 
+         defined for the system. When this object is 
+         set to a non empty string value, the domain name 
+         part of the fully qualified name represented by 
+         the 'sysName' object is updated by the value of 
+         this object.
+        
+         This object is a mandatory object for row creation.
+        
+         An attempt to modify this object will fail with
+         an 'inconsistentValue' error, if the value of the
+         corresponding instance of 'cdcDNSDomainNameStatus' 
+         object is active(1)."
+    ::= { cdcDNSDomainNameEntry 2 }
+
+cdcDNSDomainNameStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+         Once value of  this object is set to 'active', 
+         the associated entry can not be modified except 
+         destroyed by setting this object to destroy(6)."
+    ::= { cdcDNSDomainNameEntry 3 }
+
+ciscoDNSServerConfigGroup OBJECT IDENTIFIER ::= { ciscoDNSClientMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for DNS Server
+--     address Configuration.
+--  objects
+--    cdcDNSConfigEnable, cdcNoOfDNSServerConfig, 
+--    cdcDNSServerNextAvailIndex, cdcDNSServerAddrType, 
+--    cdcDNSServerAddr, cdcDNSServerStatus
+
+ciscoDNSDomainNameConfigGroup OBJECT IDENTIFIER ::= { ciscoDNSClientMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for DNS 
+--     Domain Name Configuration.
+--  objects
+--    cdcDefaultDNSDomainName, cdcDNSDomainName, 
+--    cdcDNSDomainNameStatus
+
+ciscoDNSClientMIBCompliance OBJECT IDENTIFIER ::= { ciscoDNSClientMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-DNS-CLIENT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDNSServerConfigGroup
+--   MandGroup
+--    ciscoDNSDomainNameConfigGroup
+
+
+END
+

@@ -1,0 +1,324 @@
+-- MIB file created 07-Jan-2004 14:37:47, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-SCT-MGMT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-SCT-MGMT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanSctMgmtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 236 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200205210000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--            Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    MIB module to manage SCT files in a node. 
+--    
+--     SCTs (Service Class Templates) are nodal configuration files, 
+--     which define the traffic characteristics of a switch based on
+--     class of service queues.
+--    
+--     There is a unique SCT file for every combination of card type,
+--     SCT type, SCT Id and major SCT version. For instance, the file
+--     AXSM_PORT_SCT.4.V2 refers to a SCT for the card type AXSM, port
+--     type SCT, SCT id 4 and a major version of 2.
+--    
+--     SCTs are transfered to a node using FTP by NMS. 
+--    
+--     The NMS adds, deletes, discovers and monitors SCT files in a 
+--     node using this MIB.
+--  RevDate
+--    200205210000Z
+--  RevDescr
+--    1. Added ATM Service Module(axsmxg) to cwSctCardType.
+--     2. Imported Unsigned32 from SNMPv2-SMI instead 
+--        of CISCO-TC.
+--  RevDate
+--    200111180000Z
+--  RevDescr
+--    Changed SYNTAX clause of cwSctFileMinorVersion from 
+--     (1..65535) to (0..65535).
+--  RevDate
+--    200109170000Z
+--  RevDescr
+--    Initial version of the MIB.
+
+ciscoWanSctMgmtMIBObjects OBJECT IDENTIFIER ::= { ciscoWanSctMgmtMIB 1 }
+ciscoWanSctMgmtMIBConformance OBJECT IDENTIFIER ::= { ciscoWanSctMgmtMIB 3 }
+ciscoWanSctMgmtMIBCompliances OBJECT IDENTIFIER ::= { ciscoWanSctMgmtMIBConformance 1 }
+ciscoWanSctMgmtMIBGroups OBJECT IDENTIFIER ::= { ciscoWanSctMgmtMIBConformance 2 }
+
+cwSctFileMgmtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwSctFileMgmtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This MIB defines a SCT file management table in which each row 
+         corresponds to a unique SCT file. 
+        
+         When the NMS needs to add a SCT to a node, it transfers the SCT
+         file to a transient storage area on the node. The NMS then 
+         performs a SET operation requesting the agent to accept the 
+         transferred file. The agent validates the integrity of the 
+         file and if valid, transfers the file to a secure area. It 
+         would then create a new row in the SCT file management table. This
+         newly added row is then advertised to all NMS in the network using
+         appropriate traps (refer CISCO-WAN-SCT-MGMT-TRAPS-MIB). 
+        
+         Once a row is created, the agent keeps track of the operational
+         status of the corresponding SCT file. The NMS can query the status
+         of a SCT file by performing a GET operation on the row.
+        
+         The NMS can delete a SCT file and its corresponding row in the SCT
+         file management table by performing a SET operation with the 
+         appropriate RowStatus. The agent, upon successful deletion
+         of the row would advertise this configuration change to all the
+         NMS using appropriate traps.
+        
+         The NMS could also perform a GETNEXT operation to discover all the
+         configured SCTs on a node."
+    ::= { ciscoWanSctMgmtMIBObjects 1 }
+
+cwSctFileMgmtEntry OBJECT-TYPE
+    SYNTAX CwSctFileMgmtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the SCT file Management Table. This represents a
+         unique SCT file in the node. Each entry contains the configuration
+         and status information of a specific SCT in the node."
+    INDEX { cwSctCardType, cwSctType, cwSctId, cwSctMajorVersion }
+    ::= { cwSctFileMgmtTable 1 }
+
+CwSctFileMgmtEntry ::= SEQUENCE {
+    cwSctCardType INTEGER,
+    cwSctType INTEGER,
+    cwSctId Gauge,
+    cwSctMajorVersion Gauge,
+    cwSctFileName SnmpAdminString,
+    cwSctFileMinorVersion Gauge,
+    cwSctFileChecksum Gauge,
+    cwSctFileDescription SnmpAdminString,
+    cwSctFileOperStatus INTEGER,
+    cwSctFileRowStatus RowStatus
+    }
+
+cwSctCardType OBJECT-TYPE
+    SYNTAX INTEGER {
+        axsm(1),
+        axsme(2),
+        pxm1e(3),
+        hsfr(4),
+        axsmxg(5)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This represents service modules in a node that require the 
+         use of a SCT. The content of the SCT varies depending on the
+         specific hardware used. Hence there is a different SCT for
+         every type of card. The card types that support SCTs are
+         listed in the SYNTAX clause"
+    ::= { cwSctFileMgmtEntry 1 }
+
+cwSctType OBJECT-TYPE
+    SYNTAX INTEGER {
+        portSct(1),
+        cardSct(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There are several types of SCTs. The portSct (1) specifies
+         traffic parameters that are applicable to a logical port 
+         within a card. The cardSct (2) specifies traffic parameters
+         that are applicable to the whole card."
+    ::= { cwSctFileMgmtEntry 2 }
+
+cwSctId OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each logical port on a service module could need different
+         'class of service' characteristics. This can be achieved by
+         applying different SCTs on different ports. Thus for a given
+         card type, there could be multiple SCTs of different IDs."
+    ::= { cwSctFileMgmtEntry 3 }
+
+cwSctMajorVersion OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The SCT file consists of several tables. The number of 
+         tables depend on the service module card type. Both the
+         contents and the row/column size of a table are subject
+         to change. The major version is incremented by the manager
+         whenever there is a change in the row/column size of the 
+         table."
+    ::= { cwSctFileMgmtEntry 4 }
+
+cwSctFileName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..132))
+--    Rsyntax OCTET STRING(SIZE(0..132))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the absolute path name of the file
+         corresponding to the SCT indices. 
+        
+         After the agent accepts a SET operation and creates a new
+         row in the SCT file management table, it transfers the file
+         from the transient storage area to a secure location on the
+         disk. This object identifies the absolute path name of the
+         secure location on disk.
+        
+         The file name would be in the format:
+         <CardType>_SCT.<SCTType>.<SCTId>.V<Major version>"
+    ::= { cwSctFileMgmtEntry 5 }
+
+cwSctFileMinorVersion OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The SCT file consists of several tables. The number of 
+         tables depend on the service module card type. Both the
+         contents and the row/column size of a table are subject
+         to change. The minor version is incremented by the manager
+         whenever there is a change in contents of the table."
+    ::= { cwSctFileMgmtEntry 6 }
+
+cwSctFileChecksum OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The manager specifies this checksum when trying to add
+         a SCT on the node. The agent while acting on the SET 
+         operation would perform a checksum computation on the
+         FTPed file and compare against this object. If they differ,
+         the SET operation would be negated. If same, the file is
+         considered valid and this value is stored in a persistent
+         database. SCT files across the network with the same 
+         combination of card type, sct type, major and minor versions
+         would have the same checksum."
+    ::= { cwSctFileMgmtEntry 7 }
+
+cwSctFileDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..132))
+--    Rsyntax OCTET STRING(SIZE(0..132))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A description string can be associated with a specific SCT 
+                index and in turn the SCT file. This may be used for 
+                associating customized filenames."
+    ::= { cwSctFileMgmtEntry 8 }
+
+cwSctFileOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        valid(1),
+        invalid(2),
+        absent(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reflects the operational status of the SCT file.
+        
+         The agent sets the value to valid(1) if the computed checksum 
+         of the SCT file matches the provisioned checksum.
+        
+         The agent sets the value to invalid(2) if the computed checksum 
+         of the SCT file mismatches with the provisioned checksum. This
+         usually suggests a corrupted SCT file.
+        
+         The agent sets the value to absent(3) if the file is missing in
+         the secure area of the disk, while a row exists in the SCT file
+         management table."
+    ::= { cwSctFileMgmtEntry 9 }
+
+cwSctFileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+         * To create a row, the manager needs to perform a SET 
+           operations with a 'CreateAndGo' option. The agent would
+           validate the file specified by the indices if found valid
+           would create a new row.
+        
+         * SET operation with 'CreateAndWait' option will be 
+           rejected by the agent.
+        
+         * SET operations with 'active' option would be treated as 
+           a modify operation. The only objects that can be modified 
+           in a row are the cwSctFileDescription and the 
+           cwSctFileMinorVersion.
+        
+         * SET operation with a 'Destroy' option would be used for 
+           deleting a row in the cwSctFileMgmtTable and its 
+           associated SCT file in the switch.
+        
+         * The GET status of this object would always return 'active'."
+    ::= { cwSctFileMgmtEntry 10 }
+
+cwSctFileMgmtObjectGroup OBJECT IDENTIFIER ::= { ciscoWanSctMgmtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects used for SCT file management.
+--  objects
+--    cwSctFileName, cwSctFileMinorVersion, cwSctFileChecksum, 
+--    cwSctFileDescription, cwSctFileOperStatus, cwSctFileRowStatus
+
+cwSctFileMgmtMIBCompliance OBJECT IDENTIFIER ::= { ciscoWanSctMgmtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for Cisco SCT file management group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwSctFileMgmtObjectGroup
+
+
+END
+

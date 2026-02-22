@@ -1,0 +1,824 @@
+-- MIB created 4/06/100 11:33:08, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-WIRELESS-P2P-BPI-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WIRELESS-P2P-BPI-MIB.my"
+
+IMPORTS
+    Counter32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    DisplayString, TruthValue, TimeInterval
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoWirelessP2pBpiMIB OBJECT IDENTIFIER ::= { ciscoMgmt 135 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9905181200Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--     Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--            E-mail: cs-wireless@cisco.com
+--  Descr
+--    This is the MIB Module for the Baseline Privacy Interface (BPI)
+--    at Point to Point Wireless Radio Card.
+--    
+--    This is a specialization on the MCNS docsBpiMib for Cisco Wireless
+--    point to point communication links.
+
+cwrBpiMIBObjects OBJECT IDENTIFIER ::= { ciscoWirelessP2pBpiMIB 1 }
+cwrBpiRsObjects OBJECT IDENTIFIER ::= { cwrBpiMIBObjects 1 }
+cwrBpiRmObjects OBJECT IDENTIFIER ::= { cwrBpiMIBObjects 2 }
+cwrBpiNotification OBJECT IDENTIFIER ::= { ciscoWirelessP2pBpiMIB 2 }
+cwrBpiConformance OBJECT IDENTIFIER ::= { ciscoWirelessP2pBpiMIB 3 }
+cwrBpiCompliances OBJECT IDENTIFIER ::= { cwrBpiConformance 1 }
+cwrBpiGroups    OBJECT IDENTIFIER ::= { cwrBpiConformance 2 }
+
+cwrBpiRsBaseTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwrBpiRsBaseEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Describes the basic and authorization-related Baseline Privacy
+        attributes of each Slave Radio interface."
+    ::= { cwrBpiRsObjects 1 }
+
+cwrBpiRsBaseEntry OBJECT-TYPE
+    SYNTAX CwrBpiRsBaseEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing objects describing attributes of one Slave
+        Radio interface. An entry in this table exists for each
+        ifEntry with an ifType of ciscoWirelessP2P."
+    INDEX { ifIndex }
+    ::= { cwrBpiRsBaseTable 1 }
+
+CwrBpiRsBaseEntry ::= SEQUENCE {
+    cwrBpiRsPrivacyEnable TruthValue,
+    cwrBpiRsPublicKey OCTET STRING,
+    cwrBpiRsAuthState INTEGER,
+    cwrBpiRsAuthKeySequenceNumber INTEGER,
+    cwrBpiRsAuthExpires TimeInterval,
+    cwrBpiRsAuthReset TruthValue,
+    cwrBpiRsAuthGraceTime INTEGER,
+    cwrBpiRsTEKGraceTime INTEGER,
+    cwrBpiRsAuthWaitTimeout INTEGER,
+    cwrBpiRsReauthWaitTimeout INTEGER,
+    cwrBpiRsOpWaitTimeout INTEGER,
+    cwrBpiRsRekeyWaitTimeout INTEGER,
+    cwrBpiRsAuthRequests Counter32,
+    cwrBpiRsAuthReplies Counter32,
+    cwrBpiRsAuthInvalids Counter32,
+    cwrBpiRsAuthInvalidErrorCode INTEGER,
+    cwrBpiRsAuthInvalidErrorString DisplayString
+    }
+
+cwrBpiRsPrivacyEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies whether the Slave Radio is provisioned
+        to use Encryption or not."
+    ::= { cwrBpiRsBaseEntry 1 }
+
+cwrBpiRsPublicKey OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..126))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Public key of the Radio Slave encoded as an ASN.1
+        SubjectPublicKeyInfo object as defined in the RSA Encryption
+        Standard (PKCS #1) [RSA1]."
+    ::= { cwrBpiRsBaseEntry 2 }
+
+cwrBpiRsAuthState OBJECT-TYPE
+    SYNTAX INTEGER {
+        start(1),
+        authWait(2),
+        authorized(3),
+        reauthWait(4),
+        authRejectWait(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the Radio Slave authorization FSM. 
+        The start state indicates that FSM is in its initial state."
+    ::= { cwrBpiRsBaseEntry 3 }
+
+cwrBpiRsAuthKeySequenceNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..15)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The authorization key sequence number for this FSM."
+    ::= { cwrBpiRsBaseEntry 4 }
+
+cwrBpiRsAuthExpires OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds left before the current authorization for this
+        FSM expires. If the Radio Slave does not have an active authorization,
+        then this value is 0."
+    ::= { cwrBpiRsBaseEntry 5 }
+
+cwrBpiRsAuthReset OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to TRUE generates a Reauthorize event in the
+        authorization FSM, as described in section 4.1.2.3.4 of the Baseline
+        Privacy Interface Specification. Reading this object always returns
+        FALSE."
+    ::= { cwrBpiRsBaseEntry 6 }
+
+cwrBpiRsAuthGraceTime OBJECT-TYPE
+    SYNTAX INTEGER(1..1800)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Grace time for an authorization key. A Radio Slave is expected to
+        start trying to get a new authorization key beginning AuthGraceTime
+        seconds before the authorization key actually expires. The value
+        of this object cannot be changed while the authorization state machine
+        is running.
+        
+               NOTE:  When installed in the field, this variable should NEVER be set
+               below 300 which is the lower limit by standard.  
+               This variable accepts a wider range to facilitate testing."
+    ::= { cwrBpiRsBaseEntry 7 }
+
+cwrBpiRsTEKGraceTime OBJECT-TYPE
+    SYNTAX INTEGER(1..1800)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Grace time for a TEK. A Radio Slave is expected to start trying
+        to get a new TEK beginning TEKGraceTime seconds before the
+        TEK actually expires. The value of this object cannot be changed
+        while the authorization state machine is running.
+        
+        NOTE:  When installed in the field, this variable should NEVER be set
+               below 300 which is the lower limit by standard.
+               This variable accepts a wider range to facilitate testing."
+    ::= { cwrBpiRsBaseEntry 8 }
+
+cwrBpiRsAuthWaitTimeout OBJECT-TYPE
+    SYNTAX INTEGER(2..30)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Authorize Wait Timeout. The value of this object cannot be changed
+        while the authorization state machine is running."
+    ::= { cwrBpiRsBaseEntry 9 }
+
+cwrBpiRsReauthWaitTimeout OBJECT-TYPE
+    SYNTAX INTEGER(2..30)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Reauthorize Wait Timeout in seconds. The value of this object cannot
+        be changed while the authorization state machine is running."
+    ::= { cwrBpiRsBaseEntry 10 }
+
+cwrBpiRsOpWaitTimeout OBJECT-TYPE
+    SYNTAX INTEGER(1..10)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Operational Wait Timeout in seconds. The value of this object cannot
+        be changed while the authorization state machine is running."
+    ::= { cwrBpiRsBaseEntry 11 }
+
+cwrBpiRsRekeyWaitTimeout OBJECT-TYPE
+    SYNTAX INTEGER(1..10)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Rekey Wait Timeout in seconds. The value of this object cannot be
+        changed while the authorization state machine is running."
+    ::= { cwrBpiRsBaseEntry 12 }
+
+cwrBpiRsAuthRequests OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio Slave has transmitted an Authorization
+        Request message."
+    ::= { cwrBpiRsBaseEntry 13 }
+
+cwrBpiRsAuthReplies OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio Slave has received an Authorization
+        Reply message."
+    ::= { cwrBpiRsBaseEntry 14 }
+
+cwrBpiRsAuthInvalids OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio Slave has received an Authorization
+        Invalid message."
+    ::= { cwrBpiRsBaseEntry 15 }
+
+cwrBpiRsAuthInvalidErrorCode OBJECT-TYPE
+    SYNTAX INTEGER {
+--        noInformation(0),
+        unauthorizedSlave(1),
+        undefined(2),
+        unsolicited(3),
+        invalidKeySequence(4),
+        keyRequestAuthenticationFailure(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Error-Code in most recent Authorization Invalid message received by
+        the Radio Slave. On bootup, this has value no-information(0).  At all
+               other times, this object reflects the error code received"
+    ::= { cwrBpiRsBaseEntry 16 }
+
+cwrBpiRsAuthInvalidErrorString OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Display-String in most recent Authorization Invalid message received
+         by the Radio Slave. This is a zero length string if no Authorization
+         Invalid message has been received since reboot."
+    ::= { cwrBpiRsBaseEntry 17 }
+
+cwrBpiRsTEKTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwrBpiRsTEKEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Describes the attributes of each Radio Slave Traffic Encryption
+        Key (TEK) Service."
+    ::= { cwrBpiRsObjects 2 }
+
+cwrBpiRsTEKEntry OBJECT-TYPE
+    SYNTAX CwrBpiRsTEKEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing objects describing the TEK attributes of
+        one instantiated TEK service. There will be one such entry for every
+        Radio Slave of a P2P link."
+    INDEX { ifIndex }
+    ::= { cwrBpiRsTEKTable 1 }
+
+CwrBpiRsTEKEntry ::= SEQUENCE {
+    cwrBpiRsTEKEncryptionNegotiated TruthValue,
+    cwrBpiRsTEKState INTEGER,
+    cwrBpiRsTEKExpiresOld TimeInterval,
+    cwrBpiRsTEKExpiresNew TimeInterval,
+    cwrBpiRsTEKKeyRequests Counter32,
+    cwrBpiRsTEKKeyReplies Counter32,
+    cwrBpiRsTEKInvalids Counter32,
+    cwrBpiRsTEKAuthPends Counter32,
+    cwrBpiRsTEKInvalidErrorCode INTEGER,
+    cwrBpiRsTEKInvalidErrorString DisplayString
+    }
+
+cwrBpiRsTEKEncryptionNegotiated OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This identifies whether this TEK service is using encryption or
+                not.  Encryption may not be in use even though cwrBpiRsPrivacyEnable
+                is provisioned.  This is possible if the remote is not configured
+                for privacy or it's not running an encryption capable image."
+    ::= { cwrBpiRsTEKEntry 1 }
+
+cwrBpiRsTEKState OBJECT-TYPE
+    SYNTAX INTEGER {
+        start(1),
+        opWait(2),
+        opReauthWait(3),
+        operational(4),
+        rekeyWait(5),
+        rekeyReauthWait(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the indicated TEK FSM. The start(1) state indicates
+        that FSM is in its initial state."
+    ::= { cwrBpiRsTEKEntry 2 }
+
+cwrBpiRsTEKExpiresOld OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds left to expire for the oldest active key
+        for this FSM. If this FSM has no active keys then this value will
+        be zero."
+    ::= { cwrBpiRsTEKEntry 3 }
+
+cwrBpiRsTEKExpiresNew OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds left to expire for the newest active key for
+        this FSM. If this FSM has no active keys then this value will
+        be zero."
+    ::= { cwrBpiRsTEKEntry 4 }
+
+cwrBpiRsTEKKeyRequests OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the this TEK Service has transmitted a Key Request
+        message."
+    ::= { cwrBpiRsTEKEntry 5 }
+
+cwrBpiRsTEKKeyReplies OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times this TEK Service has received a Key Reply message."
+    ::= { cwrBpiRsTEKEntry 6 }
+
+cwrBpiRsTEKInvalids OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times this TEK Service has received a TEK Invalid message."
+    ::= { cwrBpiRsTEKEntry 7 }
+
+cwrBpiRsTEKAuthPends OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times an Authorization Pending (Auth Pend) event
+        occurred in this TEK Serivce FSM."
+    ::= { cwrBpiRsTEKEntry 8 }
+
+cwrBpiRsTEKInvalidErrorCode OBJECT-TYPE
+    SYNTAX INTEGER {
+--        noInformation(0),
+        unauthorizedSlave(1),
+        undefined(2),
+        unsolicited(3),
+        invalidKeySequence(4),
+        keyRequestAuthenticationFailure(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Error-Code in most recent TEK Invalid message received by this TEK
+        service. On bootup, this has value no-information(0).  At all
+               other times, this object reflects the error code received"
+    ::= { cwrBpiRsTEKEntry 9 }
+
+cwrBpiRsTEKInvalidErrorString OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Display-String in most recent TEK Invalid message received by
+        this TEK Service. This is a zero length string if no TEK Invalid
+        message has been received since this TEK Service was started."
+    ::= { cwrBpiRsTEKEntry 10 }
+
+cwrBpiRmAuthTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwrBpiRmAuthEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Describes the attributes of each Radio Master authorization
+        association. The Radio master maintains one authorization association
+        with each Baseline Privacy-enabled Radio Slave on each Radio Master
+        MAC interface."
+    ::= { cwrBpiRmObjects 1 }
+
+cwrBpiRmAuthEntry OBJECT-TYPE
+    SYNTAX CwrBpiRmAuthEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing objects describing attributes of one authorization
+        association. The Radio master MUST create one entry per Radio Slave per
+        MAC interface, based on the receipt of an Authorization Request
+        message, and MUST not delete the entry before the Radio Slave
+        authorization permanently expires."
+    INDEX { ifIndex }
+    ::= { cwrBpiRmAuthTable 1 }
+
+CwrBpiRmAuthEntry ::= SEQUENCE {
+    cwrBpiRmAuthPrivacyEnable TruthValue,
+    cwrBpiRmAuthRsPublicKey OCTET STRING,
+    cwrBpiRmAuthRsKeySequenceNumber INTEGER,
+    cwrBpiRmAuthRsExpires TimeInterval,
+    cwrBpiRmAuthRsLifetime INTEGER,
+    cwrBpiRmAuthRsReset TruthValue,
+    cwrBpiRmAuthRsRequests Counter32,
+    cwrBpiRmAuthRsReplies Counter32,
+    cwrBpiRmAuthRsInvalids Counter32,
+    cwrBpiRmAuthInvalidErrorCode INTEGER,
+    cwrBpiRmAuthInvalidErrorString DisplayString
+    }
+
+cwrBpiRmAuthPrivacyEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies whether the Master Radio is provisioned
+        to use Encryption or not."
+    ::= { cwrBpiRmAuthEntry 1 }
+
+cwrBpiRmAuthRsPublicKey OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..126))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Public key of the Radio Slave encoded as an ASN.1 SubjectPublicKeyInfo
+        object as defined in the RSA Encryption Standard (PKCS #1) [RSA1].
+        This is a zero-length string if the Radio Master does not retain the
+        public key."
+    ::= { cwrBpiRmAuthEntry 2 }
+
+cwrBpiRmAuthRsKeySequenceNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..15)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The authorization key sequence number for this Radio Slave."
+    ::= { cwrBpiRmAuthEntry 3 }
+
+cwrBpiRmAuthRsExpires OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds left before the current authorization for
+        this Radio Slave expires. If this Radio Slave does not have an active
+        authorization, then the value is zero."
+    ::= { cwrBpiRmAuthEntry 4 }
+
+cwrBpiRmAuthRsLifetime OBJECT-TYPE
+    SYNTAX INTEGER(1..6048000)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Lifetime, in seconds, the Radio Master assigns to an authorization key
+        for this Radio Slave.
+        
+               NOTE:  When installed in the field, this variable should NEVER be set
+               below 86400 which is the lower limit by standard.
+               This variable accepts a wider range to facilitate testing."
+    ::= { cwrBpiRmAuthEntry 5 }
+
+cwrBpiRmAuthRsReset OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to True(1) causes the Radio Master
+        to invalidate the current Radio Slave authorization key, to transmit
+        an Authorization Invalid message to the Radio Slave, and to invalidate
+        the unicast TEK associated with this Radio Slave authorization.
+        Reading this object always returns False"
+    ::= { cwrBpiRmAuthEntry 6 }
+
+cwrBpiRmAuthRsRequests OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio Master has received an Authorization Request
+        message from this Radio Slave."
+    ::= { cwrBpiRmAuthEntry 7 }
+
+cwrBpiRmAuthRsReplies OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio master has transmitted an Authorization Reply
+        message to this Radio Slave."
+    ::= { cwrBpiRmAuthEntry 8 }
+
+cwrBpiRmAuthRsInvalids OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio Master has transmitted an Authorization
+        Invalid message to this Radio Slave."
+    ::= { cwrBpiRmAuthEntry 9 }
+
+cwrBpiRmAuthInvalidErrorCode OBJECT-TYPE
+    SYNTAX INTEGER {
+--        noInformation(0),
+        unauthorizedSlave(1),
+        undefined(2),
+        unsolicited(3),
+        invalidKeySequence(4),
+        keyRequestAuthenticationFailure(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Error-Code in most recent Authorization Invalid message transmitted to
+        the Radio Slave. On bootup, this has value no-information(0).  At all
+               other times, this object reflects the error code transmitted"
+    ::= { cwrBpiRmAuthEntry 10 }
+
+cwrBpiRmAuthInvalidErrorString OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Display-String in most recent Authorization Invalid message
+        transmitted to the Radio Slave. This is a zero length string if no
+        Authorization Invalid message has been transmitted to the Radio Slave."
+    ::= { cwrBpiRmAuthEntry 11 }
+
+cwrBpiRmTEKTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwrBpiRmTEKEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Describes the attributes of each Radio Slave Traffic Encryption Key
+        (TEK) association. The Radio master maintains one TEK association
+        for the Radio Slave."
+    ::= { cwrBpiRmObjects 2 }
+
+cwrBpiRmTEKEntry OBJECT-TYPE
+    SYNTAX CwrBpiRmTEKEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing objects describing attributes of one
+        TEK service on a particular Radio Master MAC interface. The Radio
+        Master MUST create one entry per TEK Service per MAC interface,
+        based on the receipt of an Key Request message, and MUST not
+        delete the entry before the Radio Slave authorization for that
+        TEK Service permanently expires."
+    INDEX { ifIndex }
+    ::= { cwrBpiRmTEKTable 1 }
+
+CwrBpiRmTEKEntry ::= SEQUENCE {
+    cwrBpiRmTEKEncryptionNegotiated TruthValue,
+    cwrBpiRmTEKLifetime INTEGER,
+    cwrBpiRmTEKExpiresOld TimeInterval,
+    cwrBpiRmTEKExpiresNew TimeInterval,
+    cwrBpiRmTEKReset TruthValue,
+    cwrBpiRmKeyRequests Counter32,
+    cwrBpiRmKeyReplies Counter32,
+    cwrBpiRmTEKInvalids Counter32,
+    cwrBpiRmTEKInvalidErrorCode INTEGER,
+    cwrBpiRmTEKInvalidErrorString DisplayString
+    }
+
+cwrBpiRmTEKEncryptionNegotiated OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This identifies whether this TEK service is using encryption or
+                not.  Encryption may not be in use even though
+         cwrBpiRmAuthPrivacyEnable is provisioned.
+         This is possible if the master is not configured
+                for privacy or it's not running an encryption capable image."
+    ::= { cwrBpiRmTEKEntry 1 }
+
+cwrBpiRmTEKLifetime OBJECT-TYPE
+    SYNTAX INTEGER(1..604800)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Lifetime, in seconds, the Radio Master assigns to keys for this TEK
+        association.
+               NOTE:  When installed in the field, this variable should NEVER be set
+               below 1800 which is the lower limit by standard.
+               This variable accepts a wider range to facilitate testing."
+    ::= { cwrBpiRmTEKEntry 2 }
+
+cwrBpiRmTEKExpiresOld OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds left to expire for the oldest active key for
+        this TEK association. If this TEK associateion has no active key then
+        the value will be zero."
+    ::= { cwrBpiRmTEKEntry 3 }
+
+cwrBpiRmTEKExpiresNew OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds left to expire for the newest active key for
+        this TEK association. If this TEK association has no active keys
+        then this value will be zero."
+    ::= { cwrBpiRmTEKEntry 4 }
+
+cwrBpiRmTEKReset OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to TRUE causes the Radio Master to invalidate the
+        current active TEK(s) (plural due to key transition periods), and
+        to generate a new TEK.  Reading this object always returns FALSE."
+    ::= { cwrBpiRmTEKEntry 5 }
+
+cwrBpiRmKeyRequests OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio Master has received a Key Request message."
+    ::= { cwrBpiRmTEKEntry 6 }
+
+cwrBpiRmKeyReplies OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio master has transmitted a Key Reply message."
+    ::= { cwrBpiRmTEKEntry 7 }
+
+cwrBpiRmTEKInvalids OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of times the Radio Master has transmitted a TEK Invalid
+        message."
+    ::= { cwrBpiRmTEKEntry 8 }
+
+cwrBpiRmTEKInvalidErrorCode OBJECT-TYPE
+    SYNTAX INTEGER {
+--        noInformation(0),
+        unauthorizedSlave(1),
+        undefined(2),
+        unsolicited(3),
+        invalidKeySequence(4),
+        keyRequestAuthenticationFailure(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Error-Code in most recent TEK Invalid message sent in association 
+        with this TEK service. On bootup, this has value no-information(0).
+        At all other times, this object reflects the error code received"
+    ::= { cwrBpiRmTEKEntry 9 }
+
+cwrBpiRmTEKInvalidErrorString OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Display-String in the most recent TEK Invalid message sent in 
+        ssociation with this BPI TEK service. This is a zero length
+        string if no TEK Invalid message has been received since reboot."
+    ::= { cwrBpiRmTEKEntry 10 }
+
+cwrBpiRsGroup OBJECT IDENTIFIER ::= { cwrBpiGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Radio Slave BPI status and control.
+--  objects
+--    cwrBpiRsPrivacyEnable, cwrBpiRsPublicKey, cwrBpiRsAuthState, 
+--    cwrBpiRsAuthKeySequenceNumber, cwrBpiRsAuthExpires, 
+--    cwrBpiRsAuthReset, cwrBpiRsAuthGraceTime, 
+--    cwrBpiRsTEKGraceTime, cwrBpiRsAuthWaitTimeout, 
+--    cwrBpiRsReauthWaitTimeout, cwrBpiRsOpWaitTimeout, 
+--    cwrBpiRsRekeyWaitTimeout, cwrBpiRsAuthRequests, 
+--    cwrBpiRsAuthReplies, cwrBpiRsAuthInvalids, 
+--    cwrBpiRsAuthInvalidErrorCode, cwrBpiRsAuthInvalidErrorString, 
+--    cwrBpiRsTEKEncryptionNegotiated, cwrBpiRsTEKState, 
+--    cwrBpiRsTEKExpiresOld, cwrBpiRsTEKExpiresNew, 
+--    cwrBpiRsTEKKeyRequests, cwrBpiRsTEKKeyReplies, 
+--    cwrBpiRsTEKInvalids, cwrBpiRsTEKAuthPends, 
+--    cwrBpiRsTEKInvalidErrorCode, cwrBpiRsTEKInvalidErrorString
+
+cwrBpiRmGroup OBJECT IDENTIFIER ::= { cwrBpiGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Radio Master BPI status and control.
+--  objects
+--    cwrBpiRmAuthPrivacyEnable, cwrBpiRmAuthRsPublicKey, 
+--    cwrBpiRmAuthRsKeySequenceNumber, cwrBpiRmAuthRsExpires, 
+--    cwrBpiRmAuthRsLifetime, cwrBpiRmAuthRsReset, 
+--    cwrBpiRmAuthRsRequests, cwrBpiRmAuthRsReplies, 
+--    cwrBpiRmAuthRsInvalids, cwrBpiRmAuthInvalidErrorCode, 
+--    cwrBpiRmAuthInvalidErrorString, 
+--    cwrBpiRmTEKEncryptionNegotiated, cwrBpiRmTEKLifetime, 
+--    cwrBpiRmTEKExpiresOld, cwrBpiRmTEKExpiresNew, 
+--    cwrBpiRmTEKReset, cwrBpiRmKeyRequests, cwrBpiRmKeyReplies, 
+--    cwrBpiRmTEKInvalids, cwrBpiRmTEKInvalidErrorCode, 
+--    cwrBpiRmTEKInvalidErrorString
+
+cwrBpiBasicCompliance OBJECT IDENTIFIER ::= { cwrBpiCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for devices which implement the
+--    Cisco Wireless Radio point to point Baseline Privacy Interface.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cwrBpiRsGroup
+--   OptGroup
+--    cwrBpiRmGroup
+
+
+END
+

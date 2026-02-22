@@ -1,0 +1,951 @@
+-- *****************************************************************
+-- CISCO-RTP-METRICS-MIB
+-- Definitions of managed objects describing RTP flow metrics.
+--   
+-- October 2008, Patrick R. Gili
+--   
+-- Copyright (c) 2008-2009 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-RTP-METRICS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp
+        FROM SNMPv2-TC
+    ReportIntervalCount
+        FROM CISCO-REPORT-INTERVAL-TC-MIB
+    FlowMetricScale,
+    FlowMetricPrecision,
+    FlowMetricValue
+        FROM CISCO-FLOW-MONITOR-TC-MIB
+    cfmFlowMonitorId,
+    cfmFlowId,
+    cfmFlowMetricsIntNumber
+        FROM CISCO-FLOW-MONITOR-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoRtpMetricsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200906170000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects that describe the quality
+        metrics of RTP streams, similar to those described by an RTCP
+        Receiver Report packet [RFC3550].
+
+        GLOSSARY
+        ============
+
+        Expected Packets - this value is formally defined as the
+            extended last sequence number received less the initial
+            sequence number received.
+
+            An extended last sequence number is a 32-bit value, where
+            the most significant 16-bit word indicates the number of
+            sequence number cycles, and the least significant 16-bit
+            word indicates the highest sequence number received.
+
+        Flow Monitor - a hardware or software entity that classifies
+            traffic flows, collects flow data, and periodically
+            computes flow metrics.
+
+        Flow Metric - a measurement that reflects the quality of a
+            traffic flow.
+
+        Inter-Arrival Jitter - an estimate of the statistical variance
+            of the RTP data packet inter-arrival time.
+
+            The inter-arrival jitter, J, is formally defined to be the
+            mean deviation (smoothed absolute value) of the difference,
+            D, in packet spacing at the flow monitor compared to the
+            sender for a pair of packets.  This is equivalent to the
+            difference in the relative transit time for two packets; the
+            relative transit time is the difference between a packet's
+            RTP timestamp and the device's clock at the time of arrival
+            (measured in the same units):
+
+                D(i,j) = (Rj - Ri) - (Sj - Si) = (Rj - Sj) - (Ri - Si)
+
+            where Si is the RTP timestamp from packet i, and Ri is the
+            time of arrival in RTP timestamp units for packet i.
+
+            The inter-arrival jitter SHOULD be calculated continuously
+            for each RTP data packet received from source SSRCn, using
+            this equation to compute difference for each packet and the
+            previous packet (in order of arrival, not necessarily in
+            sequence).
+
+                                |D(i-1,i)| - J(i-1)
+                J(i) = J(i-1) + -------------------
+                                         16
+
+        Measurement Interval - the length of time over which a flow
+            monitor collects data related to a traffic flow, after which
+            the flow monitor computes flow metrics using the collected
+            data.
+
+        Loss Distance - the difference between the sequence numbers
+            delimiting the start of two consecutive loss intervals.
+
+            Consider the following sequence of RTP data packets:
+
+                111111 111222    2233   33333 444  444 5
+                123456x890123xxxx8901xxx56789x123xx678x0
+
+                      ^      ^       ^       ^   ^    ^
+                      |      |       |       |   |    |
+                     LI1    LI2     LI3     LI4 LI5  LI6
+
+              Loss Interval | Loss Distance
+             ===============+===============
+                     1      |
+                     2      |      7
+                     3      |      8
+                     4      |      8
+                     5      |      4
+                     6      |      5
+
+        Loss Fraction - the fraction of RTP data packets from source
+            SSRCn lost during a measurement interval, expressed as a
+            fixed-point number:
+
+                      Li
+                Fi = ----
+                      Ei
+
+            where Fi is the loss fraction for measurement interval i,
+            Li is the lost packets during measurement interval i, and
+            Ei is the expected packets during measurement interval i.
+
+            Observe that the number of packets lost includes packets
+            that are late or duplicates, and hence this number can can
+            have a theoretical theoretical value between negative
+            infinity and one.
+
+            The cumulative loss fraction is the fraction of RTP data
+            packets from source SSRCn lost over the duration 
+            monitoring the flow:
+
+                       n
+                      sum [Li]
+                      i=1
+                Fn = ----------
+                       n
+                      sum [Ei]
+                      i=1
+
+            where Fn is the cumulative loss fraction over n measurement
+            intervals.
+
+        Loss Interval - an interval in which consecutive packet losses
+            were experienced.
+
+            Consider the following sequence of RTP data packets:
+
+                111111 111222    2233   33333 444  444 5
+                123456x890123xxxx8901xxx56789x123xx678x0
+
+                      ^      ^       ^       ^   ^    ^
+                      |      |       |       |   |    |
+                     LI1    LI2     LI3     LI4 LI5  LI6
+
+            LI1 through LI6 indicate the start of loss intervals
+            observed in this sequence.
+
+        Loss Interval Duration - the number of packets lost in a loss
+            interval.
+
+            Consider the following sequence of RTP data packets:
+
+                111111 111222    2233   33333 444  444 5
+                123456x890123xxxx8901xxx56789x123xx678x0
+
+                      ^      ^       ^       ^   ^    ^
+                      |      |       |       |   |    |
+                     LI1    LI2     LI3     LI4 LI5  LI6
+
+             Loss Interval | Duration
+            ===============+==========
+                    1      |    1
+                    2      |    4
+                    3      |    3
+                    4      |    1
+                    5      |    2
+                    6      |    1
+
+        Lost Packets - this value is formally defined as the number of
+            packets expected less the number of packets actually
+            received, where the number of packets received includes
+            those which are late or duplicates.
+
+        SSRCn - the SSRC identifier of the source.
+
+        Traffic Flow - a unidirectional stream of packets conforming to
+            a classifier.  For example, packets having a particular 
+            source IP address, destination IP address, protocol type,
+            source port number, and destination port number.
+
+        Transit Time - the latency from the insertion into the network
+            to the flow monitor.  This value can be computed by taking
+            the difference between a packet's RTP timestamp and the
+            device's clock at the time of arrival (measured in the same
+            units).
+
+        REFERENCES
+        ==============
+
+        [RFC3550]   H. Schlzrinne, S. Casner, R. Frederick, V. Jacobson,
+                    'RTP: A Transport Protocol for Real-Time
+                    Applications', RFC-3550, July 2003."
+    REVISION        "200906170000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 703 }
+
+
+-- **********************************************************************
+-- * Top-Level Trees                                                    *
+-- **********************************************************************
+
+ciscoRtpMetricsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIB 0 }
+
+ciscoRtpMetricsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIB 1 }
+
+ciscoRtpMetricsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIB 2 }
+
+ciscoRtpMetricsMIBIds  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIB 3 }
+
+-- **********************************************************************
+-- * Objects                                                            *
+-- **********************************************************************
+
+cfmRtpMetrics  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIBObjects 1 }
+
+
+cfmRtpMetricsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmRtpMetricsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by a flow
+        monitor for traffic flows for which it is computing RTP
+        metrics.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsTable having
+        a corresponding instance of cfmFlowMetricsCollected with the
+        'rtp' bit set to one."
+    ::= { cfmRtpMetrics 1 }
+
+cfmRtpMetricsEntry OBJECT-TYPE
+    SYNTAX          CfmRtpMetricsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes cumulative and aggregate RTP metrics for a
+        single traffic flow.
+
+        The devices creates a row in the cfmRtpMetricsTable when a flow
+        monitor starts monitoring a traffic flow and has been configured
+        to compute RTP metrics for the same traffic flow. Likewise, the
+        device destroys a row in the cfmRtpMetricsTable when the
+        corresponding flow monitor has ceased monitoring the traffic
+        flow (e.g., when a traffic flow has timed out)."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmRtpMetricsTable 1 }
+
+CfmRtpMetricsEntry ::= SEQUENCE {
+        cfmRtpMetricsValid           BITS,
+        cfmRtpMetricsExpectedPkts    Counter64,
+        cfmRtpMetricsLostPkts        Counter64,
+        cfmRtpMetricsFracScale       FlowMetricScale,
+        cfmRtpMetricsFracPrecision   FlowMetricPrecision,
+        cfmRtpMetricsFrac            FlowMetricValue,
+        cfmRtpMetricsLIs             Counter64,
+        cfmRtpMetricsAvgLDScale      FlowMetricScale,
+        cfmRtpMetricsAvgLDPrecision  FlowMetricPrecision,
+        cfmRtpMetricsAvgLD           FlowMetricValue,
+        cfmRtpMetricsAvgLossDistance Gauge32,
+        cfmRtpMetricsJitterScale     FlowMetricScale,
+        cfmRtpMetricsJitterPrecision FlowMetricPrecision,
+        cfmRtpMetricsJitter          FlowMetricValue
+}
+
+cfmRtpMetricsValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        expectedPkts(0),
+                        lostPkts(1),
+                        lossFraction(2),
+                        lossIntervals(3),
+                        avgLossDuration(4),
+                        avgLossDistance(5),
+                        jitter(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the traffic
+        flow:
+
+            'expectedPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsExpectedPkts is valid.
+
+            'lostPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsLostPkts is valid.
+
+            'lossFraction'
+                If this bit is set to '1', then the corresponding
+                instances of cfmRtpMetricsFracScale,
+                cfmRtpMetricsFracPrecision, and cfmRtpMetricsFrac are
+                valid.
+
+            'lossIntervals'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsLIs is valid.
+
+            'avgLossIntervalDuration'
+                If this bit is set to '1', then the corresponding
+                instances of cfmRtpMetricsAvgLDScale,
+                cfmRtpMetricsAvgLDPrecision, and cfmRtpMetricsAvgLD are
+                valid.
+
+            'avgLossDistance'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsAvgLossDistance is valid.
+
+            'jitter'
+                If this bit is set to '1', then the corresponding
+                instances of cfmRtpMetricsJitterScale,
+                cfmRtpMetricsJitterPrecision, and cfmRtpMetricsJitter
+                are valid." 
+    ::= { cfmRtpMetricsEntry 1 }
+
+cfmRtpMetricsExpectedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets expected for
+        the traffic flow." 
+    ::= { cfmRtpMetricsEntry 2 }
+
+cfmRtpMetricsLostPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets lost for the
+        traffic flow." 
+    ::= { cfmRtpMetricsEntry 3 }
+
+cfmRtpMetricsFracScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmRtpMetricsFrac." 
+    ::= { cfmRtpMetricsEntry 4 }
+
+cfmRtpMetricsFracPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmRtpmetricsFrac." 
+    ::= { cfmRtpMetricsEntry 5 }
+
+cfmRtpMetricsFrac OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the loss fraction for traffic flow." 
+    ::= { cfmRtpMetricsEntry 6 }
+
+cfmRtpMetricsLIs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of loss intervals for the
+        traffic flow." 
+    ::= { cfmRtpMetricsEntry 7 }
+
+cfmRtpMetricsAvgLDScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmRtpMetricsAvgLD." 
+    ::= { cfmRtpMetricsEntry 8 }
+
+cfmRtpMetricsAvgLDPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmRtpMetricsAvgLD." 
+    ::= { cfmRtpMetricsEntry 9 }
+
+cfmRtpMetricsAvgLD OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average loss duration for the
+        traffic flow." 
+    ::= { cfmRtpMetricsEntry 10 }
+
+cfmRtpMetricsAvgLossDistance OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average loss distance for the
+        traffic flow." 
+    ::= { cfmRtpMetricsEntry 11 }
+
+cfmRtpMetricsJitterScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmRtpMetricsJitter." 
+    ::= { cfmRtpMetricsEntry 12 }
+
+cfmRtpMetricsJitterPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmRtpMetricsJitter." 
+    ::= { cfmRtpMetricsEntry 13 }
+
+cfmRtpMetricsJitter OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the inter-arrival jitter for the traffic
+        flow." 
+    ::= { cfmRtpMetricsEntry 14 }
+ 
+
+
+cfmRtpMetricsTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created/destroyed a row in the cfmRtpMetricsTable." 
+    ::= { cfmRtpMetrics 2 }
+
+cfmRtpMetricsIntTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmRtpMetricsIntEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historic RTP metrics for the traffic flows
+        monitored by each of the flow monitors supported by the device.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsIntTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsIntTable
+        having a corresponding instance of cfmFlowMetricsCollected with
+        the 'rtp' bit set to one."
+    ::= { cfmRtpMetrics 3 }
+
+cfmRtpMetricsIntEntry OBJECT-TYPE
+    SYNTAX          CfmRtpMetricsIntEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes RTP metrics collected for a previous
+        measurement interval for a corresponding traffic flow."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId,
+                        cfmFlowMetricsIntNumber
+                    } 
+    ::= { cfmRtpMetricsIntTable 1 }
+
+CfmRtpMetricsIntEntry ::= SEQUENCE {
+        cfmRtpMetricsIntValid            BITS,
+        cfmRtpMetricsIntExpectedPkts     ReportIntervalCount,
+        cfmRtpMetricsIntLostPkts         ReportIntervalCount,
+        cfmRtpMetricsIntFracScale        FlowMetricScale,
+        cfmRtpMetricsIntFracPrecision    FlowMetricPrecision,
+        cfmRtpMetricsIntFrac             FlowMetricValue,
+        cfmRtpMetricsIntLIs              ReportIntervalCount,
+        cfmRtpMetricsIntAvgLDScale       FlowMetricScale,
+        cfmRtpMetricsIntAvgLDPrecision   FlowMetricPrecision,
+        cfmRtpMetricsIntAvgLD            FlowMetricValue,
+        cfmRtpMetricsIntAvgLossDistance  ReportIntervalCount,
+        cfmRtpMetricsIntJitterScale      FlowMetricScale,
+        cfmRtpMetricsIntJitterPrecision  FlowMetricPrecision,
+        cfmRtpMetricsIntJitter           FlowMetricValue,
+        cfmRtpMetricsIntTransitScale     FlowMetricScale,
+        cfmRtpMetricsIntTransitPrecision FlowMetricPrecision,
+        cfmRtpMetricsIntTransit          FlowMetricValue
+}
+
+cfmRtpMetricsIntValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        expectedPkts(0),
+                        lostPkts(1),
+                        lossFraction(2),
+                        lossIntervals(3),
+                        avgLossIntervalDuration(4),
+                        avgLossDistance(5),
+                        maxJitter(6),
+                        maxMinTransit(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the
+        measurement interval:
+
+            'expectedPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsIntExpectedPkts is valid.
+
+            'lostPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsIntLostPkts is valid.
+
+            'lossFraction'
+                If this bit is set to '1', then the corresponding
+                instances of cfmRtpMetricsIntFracScale,
+                cfmRtpMetricsIntFracPrecision, and cfmRtpMetricsIntFrac
+                are valid.
+
+            'lossIntervals'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsIntLIs is valid.
+
+            'avgLossDuration'
+                If this bit is set to '1', then the corresponding
+                instances of cfmRtpMetricsIntAvgLDScale,
+                cfmRtpMetricsIntAvgLDPrecision, and
+                cfmRtpMetricsIntAvgLD are valid.
+
+            'avgLossDistance'
+                If this bit is set to '1', then the corresponding
+                instance of cfmRtpMetricsIntAvgLossDistance is valid.
+
+            'maxJitter'
+                If this bit is set to '1', then the corresponding
+                instances of cfmRtpMetricsIntJitterScale,
+                cfmRtpMetricsIntJitterPrecision, and
+                cfmRtpMetricsIntJitter are valid.
+
+            'maxMinTransit'
+                If this bit is set to '1', then the corresponding
+                instances of cfmRtpMetricsIntTransitScale,
+                cfmRtpMetricsIntTransitPrecision, and
+                cfmRtpMetricsIntTransit are valid." 
+    ::= { cfmRtpMetricsIntEntry 1 }
+
+cfmRtpMetricsIntExpectedPkts OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets expected for
+        the traffic flow during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 2 }
+
+cfmRtpMetricsIntLostPkts OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets lost for the
+        traffic flow during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 3 }
+
+cfmRtpMetricsIntFracScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmRtpMetricsIntFrac." 
+    ::= { cfmRtpMetricsIntEntry 4 }
+
+cfmRtpMetricsIntFracPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmRtpmetricsIntFrac." 
+    ::= { cfmRtpMetricsIntEntry 5 }
+
+cfmRtpMetricsIntFrac OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the loss fraction for traffic flow
+        during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 6 }
+
+cfmRtpMetricsIntLIs OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of loss intervals for the
+        traffic flow during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 7 }
+
+cfmRtpMetricsIntAvgLDScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmRtpMetricsIntAvgLD." 
+    ::= { cfmRtpMetricsIntEntry 8 }
+
+cfmRtpMetricsIntAvgLDPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmRtpMetricsIntAvgLD." 
+    ::= { cfmRtpMetricsIntEntry 9 }
+
+cfmRtpMetricsIntAvgLD OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average loss duration for the
+        traffic flow during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 10 }
+
+cfmRtpMetricsIntAvgLossDistance OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average loss distance for the
+        traffic flow during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 11 }
+
+cfmRtpMetricsIntJitterScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmRtpMetricsIntJitter." 
+    ::= { cfmRtpMetricsIntEntry 12 }
+
+cfmRtpMetricsIntJitterPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmRtpMetricsIntJitter." 
+    ::= { cfmRtpMetricsIntEntry 13 }
+
+cfmRtpMetricsIntJitter OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum inter-arrival jitter for the
+        traffic flow during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 14 }
+
+cfmRtpMetricsIntTransitScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmRtpMetricsIntTransit." 
+    ::= { cfmRtpMetricsIntEntry 15 }
+
+cfmRtpMetricsIntTransitPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmRtpMetricsIntTransit." 
+    ::= { cfmRtpMetricsIntEntry 16 }
+
+cfmRtpMetricsIntTransit OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the max-min transit time for the traffic
+        flow during the measurement interval.  The max-min transit is
+        the difference between the maximum and minimum transit times
+        observed for RTP data packets during the measurement interval." 
+    ::= { cfmRtpMetricsIntEntry 17 }
+ 
+
+-- **********************************************************************
+-- * Object Identifiers                                                 *
+-- **********************************************************************
+
+cfmRtpMonitoredElements  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIBIds 1 }
+
+
+cfmeRtpSsrcMismatch OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the condition that arises when a flow monitor
+        detects a RTP SSRC mismatch for a traffic flow during the last
+        measurement interval."
+    ::= { cfmRtpMonitoredElements 1 }
+
+
+cfmeRtpCumulativeLostPkts OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the cumulative number of lost RTP data packets for a
+        traffic flow (cfmRtpMetricsLostPkts)."
+    ::= { cfmRtpMonitoredElements 2 }
+
+
+cfmeRtpCumulativeLossFraction OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the cumulative RTP loss fraction for a traffic flow
+        (cfmRtpMetricsFrac)."
+    ::= { cfmRtpMonitoredElements 3 }
+
+
+cfmeRtpCumulativeLossIntervals OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the cumulative number of RTP loss intervals for a
+        traffic flow (cfmRtpMetricsLIs)."
+    ::= { cfmRtpMonitoredElements 4 }
+
+
+cfmeRtpCumulativeAvgLossDuration OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average duration of a RTP loss interval for a
+        traffic flow (cfmRtpMetricsAvgLD)."
+    ::= { cfmRtpMonitoredElements 5 }
+
+
+cfmeRtpCumulativeAvgLossDistance OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average RTP loss distance for a traffic flow
+        (cfmRtpMetricsAvgLossDistance)."
+    ::= { cfmRtpMonitoredElements 6 }
+
+
+cfmeRtpCumulativeJitter OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average inter-arrival jitter of RTP data
+        packets for a traffic flow (cfmRtpMetricsJitter)."
+    ::= { cfmRtpMonitoredElements 7 }
+
+
+cfmeRtpLostPkts OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the number of lost RTP data packets for a traffic
+        flow during the last measurement interval
+        (cfmRtpMetricsIntLostPkts)."
+    ::= { cfmRtpMonitoredElements 8 }
+
+
+cfmeRtpLossFraction OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the RTP loss fraction for a traffic flow during the
+        last measurement interval (cfmRtpMetricsIntFrac)."
+    ::= { cfmRtpMonitoredElements 9 }
+
+
+cfmeRtpLossIntervals OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the number of RTP loss intervals for a traffic flow
+        during the last measurement interval (cfmRtpMetricsIntLIs)."
+    ::= { cfmRtpMonitoredElements 10 }
+
+
+cfmeRtpAvgLossDuration OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average duration of a RTP loss interval for
+        a traffic flow during the last measurement interval
+        (cfmRtpMetricsIntAvgLD)."
+    ::= { cfmRtpMonitoredElements 11 }
+
+
+cfmeRtpAvgLossDistance OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the average RTP loss distance for a traffic flow
+        during the last measurement interval
+        (cfmRtpMetricsIntAvgLossDistance)."
+    ::= { cfmRtpMonitoredElements 12 }
+
+
+cfmeRtpMaxJitter OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the maximum inter-arrival jitter of RTP data packets
+        for a traffic flow during the last measurement interval
+        (cfmRtpMetricsIntJitter)."
+    ::= { cfmRtpMonitoredElements 13 }
+
+
+cfmeRtpMaxMinTransit OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the max-min transit time of the RTP data packets for
+        a traffic flow during the last measurement interval
+        (cfmRtpMetricsIntTransit)."
+    ::= { cfmRtpMonitoredElements 14 }
+
+-- **********************************************************************
+-- * Conformance                                                        *
+-- **********************************************************************
+
+ciscoRtpMetricsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIBConform 1 }
+
+ciscoRtpMetricsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoRtpMetricsMIBConform 2 }
+
+
+ciscoRtpMetricsCompliance01 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-RTP-METRICS-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cfmRtpMetricsGroup }
+    ::= { ciscoRtpMetricsMIBCompliances 1 }
+
+-- **********************************************************************
+-- * Units of Conformance                                               *
+-- **********************************************************************
+
+cfmRtpMetricsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmRtpMetricsValid,
+                        cfmRtpMetricsExpectedPkts,
+                        cfmRtpMetricsLostPkts,
+                        cfmRtpMetricsFracScale,
+                        cfmRtpMetricsFracPrecision,
+                        cfmRtpMetricsFrac,
+                        cfmRtpMetricsLIs,
+                        cfmRtpMetricsAvgLDScale,
+                        cfmRtpMetricsAvgLDPrecision,
+                        cfmRtpMetricsAvgLD,
+                        cfmRtpMetricsAvgLossDistance,
+                        cfmRtpMetricsJitterScale,
+                        cfmRtpMetricsJitterPrecision,
+                        cfmRtpMetricsJitter,
+                        cfmRtpMetricsTableChanged,
+                        cfmRtpMetricsIntValid,
+                        cfmRtpMetricsIntExpectedPkts,
+                        cfmRtpMetricsIntLostPkts,
+                        cfmRtpMetricsIntFracScale,
+                        cfmRtpMetricsIntFracPrecision,
+                        cfmRtpMetricsIntFrac,
+                        cfmRtpMetricsIntLIs,
+                        cfmRtpMetricsIntAvgLDScale,
+                        cfmRtpMetricsIntAvgLDPrecision,
+                        cfmRtpMetricsIntAvgLD,
+                        cfmRtpMetricsIntAvgLossDistance,
+                        cfmRtpMetricsIntJitterScale,
+                        cfmRtpMetricsIntJitterPrecision,
+                        cfmRtpMetricsIntJitter,
+                        cfmRtpMetricsIntTransitScale,
+                        cfmRtpMetricsIntTransitPrecision,
+                        cfmRtpMetricsIntTransit
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects that describe RTP metrics."
+    ::= { ciscoRtpMetricsMIBGroups 1 }
+
+END
+
+
+
+
+
+

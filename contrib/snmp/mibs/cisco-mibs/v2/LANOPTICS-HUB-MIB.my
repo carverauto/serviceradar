@@ -1,0 +1,471 @@
+-- *****************************************************************
+-- L A N O P T I C S - H U B - M I B . m y
+-- 
+-- March 1996, Keith Horil
+--
+-- Copyright (c) 1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+-- This mib was developed by LanOptics
+
+
+LANOPTICS-HUB-MIB DEFINITIONS ::= BEGIN
+
+-- MIB II Extension Definitions for hub management
+
+IMPORTS 
+         OBJECT-TYPE
+       	        FROM RFC-1212
+         enterprises
+	      	FROM RFC1155-SMI
+         DisplayString
+                FROM RFC1213-MIB;
+
+    BITMAP ::= INTEGER  
+      -- bitwise info represented by a single integer
+
+    lanOptics    OBJECT IDENTIFIER ::= { enterprises 224 }
+    lanOpticsHub    OBJECT IDENTIFIER ::= { lanOptics 1 }
+
+snMaxSlots    OBJECT-TYPE
+    SYNTAX     INTEGER (1..16)
+    ACCESS     read-only
+    STATUS     mandatory
+    DESCRIPTION
+    "The limit on the total number of slots that the
+     Hub chassis has."
+    ::=  { lanOpticsHub 1 }
+
+snSlotsNum   OBJECT-TYPE
+    SYNTAX            INTEGER
+    ACCESS            read-only
+    STATUS            mandatory
+    DESCRIPTION
+    "The actual number of slots occupied by the Hub modules ."
+    ::=  { lanOpticsHub 2 }
+
+snConfig   OBJECT-TYPE
+    SYNTAX            DisplayString
+    ACCESS            read-only
+    STATUS            mandatory
+    DESCRIPTION
+    "A list of all modules occupying slots in Hub
+    in accordance with snSlotsNum."
+    ::=  { lanOpticsHub 3 }
+
+snLLActiveNMS  OBJECT-TYPE
+    SYNTAX            INTEGER {
+        -- inactive (0),
+        active (1)
+        }
+    ACCESS            read-write
+    STATUS            mandatory
+    DESCRIPTION
+    "States whether the NMS-431X is active (1) or 
+      inactive (0). For internal use only. 
+      Should not be modified."
+     ::=   { lanOpticsHub 4 }
+
+snReset   OBJECT-TYPE
+    SYNTAX            INTEGER
+    ACCESS            read-write
+    STATUS            mandatory
+    DESCRIPTION
+    "Resets the management module of the Hub."
+    ::=  { lanOpticsHub 5 }
+
+snInternalID  OBJECT-TYPE
+    SYNTAX            DisplayString
+    ACCESS            read-only
+    STATUS            mandatory
+    DESCRIPTION
+    "The internal address of the management module (NMS-431X)."
+    ::=   { lanOpticsHub 6 }
+
+snDirtyBit   OBJECT-TYPE
+    SYNTAX            BITMAP
+    ACCESS            read-only
+    STATUS            mandatory
+    DESCRIPTION
+    "Low level description in bits for changes made 
+     in the  system."
+    ::=  { lanOpticsHub 7 }
+
+snSlotsTable   OBJECT-TYPE
+    SYNTAX                SEQUENCE OF SnSlotsEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    DESCRIPTION
+    "A list of slots entries.  The number of entries 
+     is  given by the value of snSlotsNum."
+    ::=  { lanOpticsHub 8 }
+
+snSlotsEntry  OBJECT-TYPE
+    SYNTAX                SnSlotsEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    DESCRIPTION
+    "A slot entry containing a high and low 
+     level description of the module in the slot."
+    INDEX                 { INTEGER }
+    ::=   { snSlotsTable 1 }
+
+SnSlotsEntry ::= SEQUENCE {
+        snCardName
+        DisplayString,
+        snCardDescr
+        DisplayString,
+        snLLHwRevision
+        INTEGER,
+        snLLSwRevision
+        INTEGER,
+        snLLControl0
+        BITMAP,
+        snLLControl1
+        BITMAP,
+        snPollInf       
+        OCTET STRING,
+        snResetSlot
+        INTEGER,
+	snPollInfCode
+	OCTET STRING,
+	snAssCode
+	OCTET STRING
+    }
+
+snCardName   OBJECT-TYPE
+    SYNTAX                DisplayString
+    ACCESS                read-write
+    STATUS                mandatory
+    DESCRIPTION
+    "Description of the card (module) name and type
+     (IOM,LBM,BKM,NMS). It is set by Management entity .
+     If not set by the Management entity - will response with HW,SW Rev."
+    ::=   { snSlotsEntry 1 }
+
+snCardDescr   OBJECT-TYPE
+    SYNTAX                DisplayString
+    ACCESS                read-write
+    STATUS                mandatory
+    DESCRIPTION
+    "Description of the card media, connectors and
+     hardware.- not accesible in Low Level. In High Level will be set
+     by the Management entity (for agents above v5.0)"
+        ::=   { snSlotsEntry 2 }
+
+snLLHwRevision  OBJECT-TYPE
+    SYNTAX                INTEGER
+    ACCESS                read-only
+    STATUS                mandatory
+    DESCRIPTION
+    "Low level description of the module's hardware 
+     revision (module type). For internal use only!"
+    ::=   { snSlotsEntry 9 }
+
+snLLSwRevision  OBJECT-TYPE
+    SYNTAX                INTEGER
+    ACCESS                read-only
+    STATUS                mandatory
+    DESCRIPTION
+    "Low level description of the module's software 
+     revision (module revision). For internal use only!"
+    ::=    { snSlotsEntry 10 }
+
+snLLControl0  OBJECT-TYPE
+    SYNTAX                BITMAP
+    ACCESS                read-write
+    STATUS                mandatory
+    DESCRIPTION
+    "Low level description of control actions on the 
+     module. Bit per port. For internal use only!"
+    ::=    { snSlotsEntry 14 }
+
+snLLControl1 OBJECT-TYPE
+    SYNTAX                BITMAP
+    ACCESS                read-write
+    STATUS                mandatory
+    DESCRIPTION
+    "Low level description of control actions on the 
+    module. Bit per port. For internal use only!."
+    ::=  { snSlotsEntry 15 }
+
+snPollInf        OBJECT-TYPE
+    SYNTAX   OCTET STRING
+    ACCESS   read-only
+    STATUS   mandatory
+    DESCRIPTION
+    "Low level status description of this module
+    represented by an internal structure. For internal use only."
+    ::=  { snSlotsEntry 29 }
+
+snResetSlot        OBJECT-TYPE
+    SYNTAX   INTEGER
+    ACCESS   read-write
+    STATUS   mandatory
+    DESCRIPTION
+     "Reset this slot (e.g. LBM module, NMS module). If this slot
+      is the one the Agent occupies, reset the agent (same effect
+      as snReset variable).
+      If this is a special slot (0xF), reset the device mapped 
+      to this slot (e.g. the router )."
+    ::=  { snSlotsEntry 38 }
+
+snPollInfCode        OBJECT-TYPE
+    SYNTAX   OCTET STRING
+    ACCESS   read-write
+    STATUS   mandatory
+    DESCRIPTION
+     "This variable is set with assembly code for pollInf structure (per slot)"
+    ::=  { snSlotsEntry 41 }
+
+snAssCode        OBJECT-TYPE
+    SYNTAX   OCTET STRING
+    ACCESS   read-write
+    STATUS   mandatory
+    DESCRIPTION
+     "This variable is set with assembly code that should be perform immediatly (per slot)"
+    ::=  { snSlotsEntry 42 }
+
+snPairAddress     OBJECT-TYPE
+    SYNTAX            INTEGER
+    ACCESS            read-write
+    STATUS            mandatory
+    DESCRIPTION
+    "Low level port address."
+    ::=  { lanOpticsHub 9 }
+
+snPairData           OBJECT-TYPE
+    SYNTAX            INTEGER
+    ACCESS            read-write
+    STATUS            mandatory
+    DESCRIPTION
+    "Low level port data. The value of this variable is read/written
+     from/to the I/O address in snPairAddress variable."
+    ::=  { lanOpticsHub 10 }
+
+-- Hub related alerts data
+
+snHubSplitTable   OBJECT-TYPE
+   SYNTAX                SEQUENCE OF SnHubSplitEntry
+   ACCESS                not-accessible
+   STATUS                mandatory
+   DESCRIPTION
+      "Status of each split card."
+   ::=  { lanOpticsHub 11 }
+
+snHubSplitEntry  OBJECT-TYPE
+    SYNTAX                SnHubSplitEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    INDEX                 { INTEGER }
+    ::=   { snHubSplitTable 1 }
+
+SnHubSplitEntry ::= SEQUENCE {
+       snHubSplitStatus
+                 INTEGER    
+    }
+
+snHubSplitStatus    OBJECT-TYPE
+    SYNTAX      INTEGER {
+           -- normal (0),
+            splitted (1),
+            missing (2)
+    }
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION 
+           "This variable describes the status of this split module."
+    ::=  { snHubSplitEntry 1 }
+
+snHubPSTable   OBJECT-TYPE
+    SYNTAX                SEQUENCE OF SnHubPSEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    DESCRIPTION
+    "Status of each Power supply."
+   ::=  { lanOpticsHub 12 }
+
+snHubPSEntry  OBJECT-TYPE
+     SYNTAX                SnHubPSEntry
+     ACCESS                not-accessible
+     STATUS                mandatory
+     INDEX                 { INTEGER }
+     ::=   { snHubPSTable 1 }
+
+SnHubPSEntry ::= SEQUENCE {
+    snHubPSStatus
+                 INTEGER    
+    }
+
+
+snHubPSStatus    OBJECT-TYPE
+    SYNTAX      INTEGER {
+       --      normal (0),
+             malfunctioning (1),
+             missing (2)
+    }
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION 
+               "This variable describes the status of this Power Supply."
+    ::=  { snHubPSEntry 1 }
+
+
+snHubFanTable   OBJECT-TYPE
+    SYNTAX                SEQUENCE OF SnHubFanEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    DESCRIPTION
+    "Status of each Fan."
+   ::=  { lanOpticsHub 13 }
+
+snHubFanEntry  OBJECT-TYPE
+    SYNTAX                SnHubFanEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    INDEX                 { INTEGER }
+    ::=   { snHubFanTable 1 }
+
+SnHubFanEntry ::= SEQUENCE {
+      snHubFanStatus
+                 INTEGER    
+    }
+
+snHubFanStatus    OBJECT-TYPE
+    SYNTAX      INTEGER {
+     --      normal (0),
+             malfunctioning (1),
+             missing (2)
+    }
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION 
+               "This variable describes the status of this Fan."
+    ::=  { snHubFanEntry 1 }
+
+snHubSlotsTable   OBJECT-TYPE
+    SYNTAX                SEQUENCE OF SnHubSlotsEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    DESCRIPTION
+    "Hub's alerts related information per slot"
+   ::=  { lanOpticsHub 14 }
+
+snHubSlotsEntry  OBJECT-TYPE
+    SYNTAX                SnHubSlotsEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    INDEX                 { INTEGER }
+    ::=   { snHubSlotsTable 1 }
+
+SnHubSlotsEntry ::= SEQUENCE {
+             snHubSlotConnected
+                 INTEGER,
+             snHubSlotFreqError
+                 INTEGER,
+             snHubSlotRevChanged
+                 INTEGER
+    }
+
+snHubSlotConnected    OBJECT-TYPE
+    SYNTAX      INTEGER {
+       --   connected (0),
+            disconnected (1)
+    }
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION 
+               "This variable signifies that this entire slot
+                was disconnected or reconnected by a management entity."
+    ::=  { snHubSlotsEntry 1 }
+
+snHubSlotFreqError    OBJECT-TYPE
+    SYNTAX      INTEGER {
+          --    no-error (0),
+                slot-4M (4),
+                slot-16M (16)
+    }
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION 
+               "This variable signifies that this slot frequency
+                differs from the back-plane's."
+    ::=  { snHubSlotsEntry 2 }
+
+snHubSlotRevChanged    OBJECT-TYPE
+    SYNTAX      INTEGER {
+          --    changed (0),
+                unchanged (1)
+    }
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION 
+    "This variable signifies that this slot SW revision
+     has changed."
+    ::=  { snHubSlotsEntry 3 }
+
+   snCompanionHW OBJECT-TYPE
+   	     SYNTAX  INTEGER
+   	     ACCESS  read-only
+   	     STATUS  mandatory
+   	     DESCRIPTION
+   		"Gives the value of the Hardware and software revision
+               that is sharing the (PC) bus with the agent, e.g, 
+                a Cisco Router PC-Card. If no hardware exists, the value
+                should be 0xFF."
+   	     ::= { lanOpticsHub 15 }
+
+
+   snCompanionReset OBJECT-TYPE
+   	     SYNTAX  INTEGER
+   	     ACCESS  read-write
+   	     STATUS  mandatory
+   	     DESCRIPTION
+   		"Send Reset to the companion hardware(cisco router)"
+   	     ::= { lanOpticsHub 16 }
+
+
+   snCompanionStatus OBJECT-TYPE
+   	     SYNTAX  BITMAP
+   	     ACCESS  read-only
+   	     STATUS  mandatory
+   	     DESCRIPTION
+   		"Gives the companion status.
+               For cisco router: Bit0 - Lan Active led(1-on,0-off)
+                                 Bit2 - ISDN present bit
+                                 Bit3 - O.k. Led(1-on,0-off)"
+   	     ::= { lanOpticsHub 17 }
+
+snGenPortsTable   OBJECT-TYPE
+    SYNTAX                SEQUENCE OF SnGenPortsEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    DESCRIPTION
+    "A table of all possible I/O ports in address range is 0xC000 - 0xFFFF" 
+    ::=  { lanOpticsHub 18 }
+
+snGenPortsEntry  OBJECT-TYPE
+    SYNTAX                SnGenPortsEntry
+    ACCESS                not-accessible
+    STATUS                mandatory
+    DESCRIPTION
+    "An I/O port entry. Each byte of the I/O address is represented
+     by one index digit; e.g, instance 255.12 is I/O address (port) 0xFF0C."
+    INDEX                 { INTEGER, INTEGER }
+    ::=   { snGenPortsTable 1 }
+
+SnGenPortsEntry ::= SEQUENCE {
+        snPortValue
+        BITMAP
+    }
+
+snPortValue   OBJECT-TYPE
+    SYNTAX                BITMAP
+    ACCESS                read-write
+    STATUS                mandatory
+    DESCRIPTION
+    "The I/O port value."
+    ::=   { snGenPortsEntry 1 }
+
+END

@@ -1,0 +1,304 @@
+-- *****************************************************************
+-- Cisco LRE CPE MIB
+--
+-- March 2003, Sudhi Nadaanayakinahalu
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-LRE-CPE-MIB DEFINITIONS ::= BEGIN
+    IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE
+            FROM SNMPv2-SMI
+        TruthValue
+            FROM SNMPv2-TC
+        InterfaceIndex, ifIndex
+            FROM IF-MIB
+        dot1dTpFdbAddress 
+            FROM BRIDGE-MIB
+        ciscoMgmt 
+            FROM CISCO-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP
+            FROM SNMPv2-CONF;
+
+ciscoLreCpeMIB MODULE-IDENTITY
+    LAST-UPDATED        "200303120000Z" -- March 12, 2003
+    ORGANIZATION        "Cisco Systems, Inc."
+    CONTACT-INFO
+        "       Cisco Systems
+                Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: switchsnmp@cisco.com"
+    DESCRIPTION
+        "The MIB module for the Cisco Long Reach Ethernet 
+         Customer Premise Equipment device information.
+
+         *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+
+         CPE - Customer Premise Equipment
+         DSL - Digital Subscriber Loop
+         VDSL - Very High Speed DSL
+         LRE - Long Reach Ethernet
+     "
+
+    REVISION        "200303120000Z" -- March 12, 2003
+    DESCRIPTION
+            "Initial version of the Cisco Long Reach Ethernet CPE MIB"
+    ::= { ciscoMgmt 340}
+
+
+ciscoLreCpeMIBObjects    OBJECT IDENTIFIER ::= { ciscoLreCpeMIB 1 }
+
+-- MIB groups 
+
+clreCpeDot1dTp     OBJECT IDENTIFIER ::=  { ciscoLreCpeMIBObjects 1 }
+clreCpePort        OBJECT IDENTIFIER ::=  { ciscoLreCpeMIBObjects 2 }
+
+-- The clreCpeDot1dTp group
+
+-- The clreCpeDot1dTp group should be implemented in those Long Reach 
+-- Ethernet switches that support CPE devices with transparent 
+-- learning bridges 
+
+-- The forwarding database for transparent bridges on CPE devices.
+
+clreCpeDot1dTpFdbTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClreCpeDot1dTpFdbEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "A table that supplements the information from the BRIDGE-MIB.
+        The BRIDGE-MIB tracks the MAC address to switch interface 
+        mapping in the dot1dTpFdbTable. On the long reach ethernet 
+        switch, CPE devices connect to the switch interfaces. Each 
+        CPE device has one or more ports. This table maps a 
+        MAC address on the switch to an interface associated with a 
+        CPE port." 
+    ::= { clreCpeDot1dTp 1 }
+
+clreCpeDot1dTpFdbEntry OBJECT-TYPE
+    SYNTAX ClreCpeDot1dTpFdbEntry
+    MAX-ACCESS not-accessible 
+    STATUS current 
+    DESCRIPTION 
+        "An entry that supplements the information in the 
+        dot1dTpFdbTable table from the BRIDGE-MIB." 
+    INDEX { dot1dTpFdbAddress }
+    ::= { clreCpeDot1dTpFdbTable 1 }
+
+ClreCpeDot1dTpFdbEntry ::=
+    SEQUENCE {
+        clreCpeDot1dBasePortIfIndex 
+            InterfaceIndex
+    }
+
+clreCpeDot1dBasePortIfIndex OBJECT-TYPE 
+    SYNTAX InterfaceIndex
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The value of the instance of the ifIndex object,
+        define in MIB-II, for the interface corresponding 
+        to this CPE port. The Forwarding database on the 
+        switch tracks a MAC address and its associated
+        switch interface in the dot1dTpFdbTable table. 
+        This object adds information about which port 
+        on the CPE the MAC address was learnt on."
+    ::= { clreCpeDot1dTpFdbEntry 1 }
+
+--  The clreCpePort group
+
+-- The clreCpePort group should be implemented on those Long Reach 
+-- Ethernet switches that support CPE devices with Fast Ethernet ports
+
+-- The CPE port table 
+
+clreCpePortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClreCpePortEntry
+    MAX-ACCESS not-accessible
+    STATUS current 
+    DESCRIPTION
+        "A list of LRE CPE port entries. The number of entries is 
+        determined by the number of Long Reach Ethernet interfaces 
+        (to which the CPE attaches) on the switch and the number 
+        of Fast Ethernet ports each CPE supports."
+    ::= { clreCpePort 1 }
+
+clreCpePortEntry OBJECT-TYPE
+    SYNTAX ClreCpePortEntry 
+    MAX-ACCESS not-accessible
+    STATUS current 
+    DESCRIPTION
+        "Entry containing information for a particular CPE 
+        Fast Ethernet port. The entries are created as new 
+        CPE devices are discovered. A new CPE device is discovered
+        when the LRE link between that CPE device and the LRE switch
+        becomes operational. These entries are only valid for 
+        ifIndexes of ifType ethernetCsmacd(6)."
+    INDEX { ifIndex } 
+    ::= { clreCpePortTable 1 }
+
+ClreCpePortEntry ::= SEQUENCE {
+    clreCpePortAdminStatus     INTEGER,      
+    clreCpePortAdminSpeed      INTEGER,    
+    clreCpePortAdminDuplex     INTEGER,
+    clreCpePortAdminProtected  TruthValue,
+    clreCpePortOperProtected   TruthValue
+}
+
+clreCpePortAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+               up(1),  -- ready to pass packets
+               down(2),
+               testing(3) -- in test mode
+           }     
+    MAX-ACCESS read-write 
+    STATUS current
+    DESCRIPTION
+        "The desired state of the CPE port. The testing(3)
+        state indicates that no operational packets can be
+        passed.  When a managed system initializes, all
+        CPE ports start with clreCpePortAdminStatus in 
+        the down(2) state.  As a result of either explicit 
+        management action or per configuration information 
+        retained by the managed system, clreCpePortAdminStatus
+        is then changed to either the up(1) or testing(3) states 
+        (or remains in the down(2) state)."
+    ::= { clreCpePortEntry 1 }
+
+clreCpePortAdminSpeed OBJECT-TYPE 
+    SYNTAX INTEGER {
+               autoDetect(1), -- auto-negotiate for speed
+               s10000000(10000000), -- 10 Mbps
+               s100000000(100000000) -- 100 Mbps
+           }
+    MAX-ACCESS read-write 
+    STATUS current 
+    DESCRIPTION 
+        "This object controls the speed of this CPE Fast Ethernet 
+        port. When set to autoDetect(1), the CPE port negotiates 
+        with its peer for the optimum speed, either 
+        s10000000(10000000) or s100000000(100000000). 
+        If the peer does not support the autoDetect(1) 
+        capability, the CPE port speed defaults to 
+        s10000000(10000000)." 
+    DEFVAL { autoDetect }
+    ::= { clreCpePortEntry 2 }
+
+clreCpePortAdminDuplex OBJECT-TYPE 
+    SYNTAX INTEGER {
+               autoDetect(1), -- auto-negotiate for duplex 
+               fullDuplex(2), -- Force full duplex
+               halfDuplex(3)  -- Force half duplex 
+           }
+    MAX-ACCESS read-write 
+    STATUS current 
+    DESCRIPTION 
+        "This object controls the duplex of this CPE Fast Ethernet
+        port. When set to autoDetect(1), the CPE port negotiates 
+        with its peer for the optimum duplex setting, either 
+        fullDuplex(2) or halfDuplex(3). If the peer does not support 
+        the autoDetect(1) capability, this CPE port's duplex 
+        defaults to halfDuplex(3)." 
+    DEFVAL { autoDetect }
+    ::= { clreCpePortEntry 3 }
+
+clreCpePortAdminProtected OBJECT-TYPE 
+    SYNTAX TruthValue 
+    MAX-ACCESS read-write 
+    STATUS current 
+    DESCRIPTION
+        "This object configures a CPE Fast Ethernet port as a 
+        protected port when its value is set to true. Data 
+        traffic is disallowed between two CPE ports configured
+        as protected ports. When the value of this object is set 
+        to false, the protected port property of this CPE port 
+        is removed. The value of this object can be set to true 
+        only on those CPE ports that support the protected port 
+        function.Note that the value of this object represents
+        the desired state of the port. The actual state of the 
+        port may have a different value."
+    DEFVAL { false }
+    ::= { clreCpePortEntry 4 }
+
+clreCpePortOperProtected OBJECT-TYPE 
+    SYNTAX TruthValue
+    MAX-ACCESS read-only 
+    STATUS current 
+    DESCRIPTION 
+        "The value represented by this object is the actual 
+        protected port state of the CPE port. The object value 
+        is true when this CPE port is configured as a protected 
+        port. Data packets are not forwarded between two CPE 
+        ports configured as protected ports."
+    ::= { clreCpePortEntry 5 }
+
+--
+-- Notifications
+--
+
+clreCpeMIBNotifications OBJECT IDENTIFIER ::= { ciscoLreCpeMIB 0 } 
+clreCpeMIBNotificationsPrefix 
+               OBJECT IDENTIFIER ::= { clreCpeMIBNotifications 0 }
+
+--
+-- Conformance
+--
+
+clreCpeMIBConformance 
+           OBJECT IDENTIFIER ::= { ciscoLreCpeMIB 2 }
+clreCpeMIBCompliances 
+           OBJECT IDENTIFIER ::= { clreCpeMIBConformance 1 }  
+clreCpeMIBGroups      
+           OBJECT IDENTIFIER ::= { clreCpeMIBConformance 2 }  
+
+-- compliance statements 
+
+clreCpeMIBCompliance MODULE-COMPLIANCE 
+    STATUS current
+    DESCRIPTION 
+        "The compliance statement for switches supporting the 
+        LRE CPE devices."
+    MODULE -- this module 
+    MANDATORY-GROUPS {
+        clreCpePortGroup
+    }
+    GROUP clreCpeDot1dTpGroup 
+    DESCRIPTION
+        "This group is optional."
+    ::= { clreCpeMIBCompliances 1 }
+
+-- Units of conformance 
+
+clreCpeDot1dTpGroup OBJECT-GROUP 
+    OBJECTS {
+        clreCpeDot1dBasePortIfIndex 
+    }
+    STATUS current 
+    DESCRIPTION
+        "The collection of MIB objects used to monitor the 
+        transparent learning bridge on the LRE CPE."
+    ::= { clreCpeMIBGroups 1 }
+
+clreCpePortGroup OBJECT-GROUP 
+    OBJECTS {
+        clreCpePortAdminStatus,     
+        clreCpePortAdminSpeed,      
+        clreCpePortAdminDuplex,     
+        clreCpePortAdminProtected,  
+        clreCpePortOperProtected 
+    }
+    STATUS current 
+    DESCRIPTION
+        "The collection of MIB objects used to manage and monitor 
+        LRE CPE Fast Ethernet ports."
+    ::= { clreCpeMIBGroups 2 }
+             
+END

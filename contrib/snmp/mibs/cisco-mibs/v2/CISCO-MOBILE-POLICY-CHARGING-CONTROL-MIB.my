@@ -1,0 +1,1641 @@
+-- *****************************************************************
+-- CISCO-MOBILE-POLICY-CHARGING-CONTROL-MIB.my : Contains the Policy
+-- Control and Charging configurations/statistics.
+--   
+-- July, 2008 Himanshu Agarwal
+--   
+-- Copyright (c) 2008-2009 by cisco Systems Inc.
+--   
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-MOBILE-POLICY-CHARGING-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    entPhysicalIndex,
+    entPhysicalName
+        FROM ENTITY-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CounterBasedGauge64
+        FROM HCNUM-TC
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMobilePolicyChargingControlMIB MODULE-IDENTITY
+    LAST-UPDATED    "200907100000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service 
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA 
+            Tel: +1 800 553-NETS 
+            E-mail: cs-gprs@cisco.com"
+    DESCRIPTION
+        "Mobile PCC Infrastructure built on top of Policy Shim Layer, is
+        a common interface to send and receive PCC related messages for
+        all gateway applications that implement Gx or Ty functionality.
+        Gx is a reference point located between the Policy and Charging
+        Rules Function (PCRF) and the Policy and Charging Enforcement 
+        Function (PCEF). Three types of networks namely, 3G UMTS, 4G LTE
+        and 4G WiMax use the 3GPP Gx interface as the standard policy
+        control interface, and CDMA networks use the 3GPP2 Ty interface
+        for the same.
+        This MIB contains the PCC configurations/statistics which are
+        implemented on the Mobile PCC infrastructure.
+
+        Abbreviations:
+
+        AAA         Authentication, Authorization and Accounting
+
+        AVP         Attribute Value Pair.
+
+        CCA         Credit Control Answer.
+
+        CCR         Credit Control Request.
+
+        PCC         Policy Control and Charging.
+
+        PCEF        Policy and Charging Enforcement Function.
+
+        PCRF        Policy and Charging Rules Function.
+
+        RAA         Re-Authorization Answer.
+
+        RAR         Re-Authorization Request.
+
+        CP          Control Processor.
+
+        TP          Traffic Processor.
+
+        Preload Object refers to the billing-plans, content-policies,
+        billing-services, accounting policy-maps and service-contents
+        downloaded during PCC through the Gx interface."
+    REVISION        "200907100000Z"
+    DESCRIPTION
+        "Added following groups:
+        cmpccStatisticsExtGroup
+        cmpccPolicyPreloadNotifGroup
+        cmpccPreloadNotifControlGroup 
+        cmpccPolicyMismatchGroup
+        cmpccRollbackFailedGroup.
+        Added following compliance statement:
+        cMobilePolicyChargingControlMIBCompliancesRev1.
+        Deprecated following compliance statement:
+        cMobilePolicyChargingControlMIBCompliance."
+    REVISION        "200901080000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 690 }
+
+
+ciscoMobilePolicyChargingControlMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoMobilePolicyChargingControlMIB 0 }
+
+ciscoMobilePolicyChargingControlMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMobilePolicyChargingControlMIB 1 }
+
+cMobilePolicyChargingControlMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoMobilePolicyChargingControlMIB 2 }
+
+-- ***********************************************************
+-- *                                                         *
+-- *      Conformance Information                            *
+-- *                                                         *
+-- ***********************************************************
+
+cMobilePolicyChargingControlMIBCompliances  OBJECT IDENTIFIER
+    ::= { cMobilePolicyChargingControlMIBConform 1 }
+
+cmpccConfig  OBJECT IDENTIFIER
+    ::= { ciscoMobilePolicyChargingControlMIBObjects 1 }
+
+cmpccStats  OBJECT IDENTIFIER
+    ::= { ciscoMobilePolicyChargingControlMIBObjects 2 }
+
+cmpccNotifConfig  OBJECT IDENTIFIER
+    ::= { ciscoMobilePolicyChargingControlMIBObjects 3 }
+
+
+cmpccPreloadErrorNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of the preload error
+        notification ( ciscoMobilePolicyChargingControlPreloadError ).
+        'true'  indicates that preload error notification is enabled.
+        'false' indicates that notification is disabled."
+    DEFVAL          { false } 
+    ::= { cmpccNotifConfig 1 }
+
+cmpccPreloadRollbackFailedNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of
+        cmpccPreloadRollbackFailed notification.
+        'true' indicates that generation of cmpccPreloadRollbackFailed
+        is enabled.
+        'false' indicates that generation of cmpccPreloadRollbackFailed
+        is disabled." 
+    ::= { cmpccNotifConfig 2 }
+-- ***********************************************************
+-- *                                                         *
+-- *     MPCC Global Statistics Table                        *
+-- *                                                         *
+-- ***********************************************************
+
+cmpccGlobalStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmpccGlobalStatsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the global statistics and counters
+        pertaining to mobile policy charging control requests and
+        responses to policy server."
+    ::= { cmpccStats 1 }
+
+cmpccGlobalStatsTableEntry OBJECT-TYPE
+    SYNTAX          CmpccGlobalStatsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmpccGlobalStatsTable.
+        entPhysicalIndex identifies the entity that implements the PCEF
+        functionality of the Gx interface. An entry will be added, when
+        a Gx interface is identified and modelled in entityMIB, and
+        removed when the corresponding Gx interface entry will be
+        deleted from entityMIB."
+    INDEX           { entPhysicalIndex } 
+    ::= { cmpccGlobalStatsTable 1 }
+
+CmpccGlobalStatsTableEntry ::= SEQUENCE {
+        cmpccgsTotalSessions      CounterBasedGauge64,
+        cmpccgsCCRInitialSent     Counter64,
+        cmpccgsCCRUpdateSent      Counter64,
+        cmpccgsCCRFinalSent       Counter64,
+        cmpccgsCCARecd            Counter64,
+        cmpccgsRARRecd            Counter64,
+        cmpccgsRAASent            Counter64,
+        cmpccgsCCRFailures        Counter64,
+        cmpccgsMessageTypeInvalid Counter64,
+        cmpccgsDuplicateRequests  Counter64,
+        cmpccgsCCAErrors          Counter64,
+        cmpccgsRAAFailures        Counter64,
+        cmpccgsRARErrors          Counter64,
+        cmpccgsReqTypeInvalid     Counter64,
+        cmpccgsReqNumInvalid      Counter64,
+        cmpccgsReqStatusInvalid   Counter64,
+        cmpccgsSessionIDInvalid   Counter64
+}
+
+cmpccgsTotalSessions OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of sessions which are active." 
+    ::= { cmpccGlobalStatsTableEntry 1 }
+
+cmpccgsCCRInitialSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of CCR-Initial sent." 
+    ::= { cmpccGlobalStatsTableEntry 2 }
+
+cmpccgsCCRUpdateSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of CCR-update sent." 
+    ::= { cmpccGlobalStatsTableEntry 3 }
+
+cmpccgsCCRFinalSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of CCR-final sent." 
+    ::= { cmpccGlobalStatsTableEntry 4 }
+
+cmpccgsCCARecd OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of CCA received." 
+    ::= { cmpccGlobalStatsTableEntry 5 }
+
+cmpccgsRARRecd OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of RAR received." 
+    ::= { cmpccGlobalStatsTableEntry 6 }
+
+cmpccgsRAASent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of RAA sent." 
+    ::= { cmpccGlobalStatsTableEntry 7 }
+
+cmpccgsCCRFailures OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failures to send CCR." 
+    ::= { cmpccGlobalStatsTableEntry 8 }
+
+cmpccgsMessageTypeInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of invalid message type errors." 
+    ::= { cmpccGlobalStatsTableEntry 9 }
+
+cmpccgsDuplicateRequests OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of duplicate request type errors. This object
+        represents the number of times the mpcc receives a CCR
+        initial request for a session that already exists. When session
+        already exists, mpcc expects to receive a CCR Update." 
+    ::= { cmpccGlobalStatsTableEntry 10 }
+
+cmpccgsCCAErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of errors occurred in
+        CCA." 
+    ::= { cmpccGlobalStatsTableEntry 11 }
+
+cmpccgsRAAFailures OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failures to send RAA." 
+    ::= { cmpccGlobalStatsTableEntry 12 }
+
+cmpccgsRARErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of errors occurred in
+        RAR." 
+    ::= { cmpccGlobalStatsTableEntry 13 }
+
+cmpccgsReqTypeInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of errors due to invalid request type." 
+    ::= { cmpccGlobalStatsTableEntry 14 }
+
+cmpccgsReqNumInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of errors due to invalid request number." 
+    ::= { cmpccGlobalStatsTableEntry 15 }
+
+cmpccgsReqStatusInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of errors due to invalid request status." 
+    ::= { cmpccGlobalStatsTableEntry 16 }
+
+cmpccgsSessionIDInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of times the session id
+        received does not exist or when the session id associated with
+        request is not the same as the one received." 
+    ::= { cmpccGlobalStatsTableEntry 17 }
+ 
+
+-- ***********************************************************
+-- *                                                         *
+-- *     MPCC PCRF Method list Statistics Table              *
+-- *                                                         *
+-- ***********************************************************
+
+cmpccPCRFMethodListStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmpccPCRFMethodListStatsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains statistics/error counters related to a
+        given PCRF method-list name."
+    ::= { cmpccStats 2 }
+
+cmpccPCRFMethodListStatsTableEntry OBJECT-TYPE
+    SYNTAX          CmpccPCRFMethodListStatsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        cmpccPCRFMethodListStatsTable."
+    INDEX           { cmpccpmlsMethodList } 
+    ::= { cmpccPCRFMethodListStatsTable 1 }
+
+CmpccPCRFMethodListStatsTableEntry ::= SEQUENCE {
+        cmpccpmlsMethodList         SnmpAdminString,
+        cmpccpmlsCCRInitialSent     Counter64,
+        cmpccpmlsCCRUpdateSent      Counter64,
+        cmpccpmlsCCRFinalSent       Counter64,
+        cmpccpmlsCCARecd            Counter64,
+        cmpccpmlsRARRecd            Counter64,
+        cmpccpmlsRAASent            Counter64,
+        cmpccpmlsPCRFReboots        Counter64,
+        cmpccpmlsCCRFailures        Counter64,
+        cmpccpmlsMessageTypeInvalid Counter64,
+        cmpccpmlsDuplicateRequests  Counter64,
+        cmpccpmlsCCAErrors          Counter64,
+        cmpccpmlsRAAFailures        Counter64,
+        cmpccpmlsRARErrors          Counter64,
+        cmpccpmlsReqTypeInvalid     Counter64,
+        cmpccpmlsReqNumInvalid      Counter64,
+        cmpccpmlsReqStatusInvalid   Counter64,
+        cmpccpmlsSessionIDInvalid   Counter64
+}
+
+cmpccpmlsMethodList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Method-list associated with the session." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 1 }
+
+cmpccpmlsCCRInitialSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of CCR-Initial Sent." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 2 }
+
+cmpccpmlsCCRUpdateSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of CCR-update sent." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 3 }
+
+cmpccpmlsCCRFinalSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of CCR-final sent." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 4 }
+
+cmpccpmlsCCARecd OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of CCA received." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 5 }
+
+cmpccpmlsRARRecd OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of RAR received." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 6 }
+
+cmpccpmlsRAASent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of RAA sent." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 7 }
+
+cmpccpmlsPCRFReboots OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times PCRF reboots." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 8 }
+
+cmpccpmlsCCRFailures OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failures to send CCR." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 9 }
+
+cmpccpmlsMessageTypeInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of invalid message type errors." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 10 }
+
+cmpccpmlsDuplicateRequests OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of duplicate request type errors." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 11 }
+
+cmpccpmlsCCAErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of errors occurred in
+        CCA." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 12 }
+
+cmpccpmlsRAAFailures OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failures to send RAA." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 13 }
+
+cmpccpmlsRARErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of errors occurred in
+        RAR." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 14 }
+
+cmpccpmlsReqTypeInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of errors due to invalid request type." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 15 }
+
+cmpccpmlsReqNumInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of errors due to invalid request number." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 16 }
+
+cmpccpmlsReqStatusInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of errors due to invalid request status." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 17 }
+
+cmpccpmlsSessionIDInvalid OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of times the session id
+        received does not exist or when the session id associated with
+        request is not the same as the one received." 
+    ::= { cmpccPCRFMethodListStatsTableEntry 18 }
+ 
+
+-- ***********************************************************
+-- *                                                         *
+-- *     MPCC Policy Preload Statistics Table                *
+-- *                                                         *
+-- ***********************************************************
+
+cmpccPolicyPreloadStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmpccPolicyPreloadStatsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the policy preload statistics/error
+        counters."
+    ::= { cmpccStats 3 }
+
+cmpccPolicyPreloadStatsTableEntry OBJECT-TYPE
+    SYNTAX          CmpccPolicyPreloadStatsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmpccPolicyPreloadStatsTable.
+        entPhysicalIndex identifies the entity that implements the PCEF
+        functionality of the Gx interface. An entry will be added, when
+        a Gx interface is identified and modelled in entityMIB, and
+        removed when the corresponding Gx interface entry will be
+        deleted from entityMIB."
+    INDEX           { entPhysicalIndex } 
+    ::= { cmpccPolicyPreloadStatsTable 1 }
+
+CmpccPolicyPreloadStatsTableEntry ::= SEQUENCE {
+        cmpccppsPolicyPreloadStatus     INTEGER,
+        cmpccppsPCEFInit                Counter32,
+        cmpccppsPCRFInit                Counter32,
+        cmpccppsReq                     Counter32,
+        cmpccppsRes                     Counter32,
+        cmpccppsGlobalPolicyPush        Counter32,
+        cmpccppsGlobalPolicyPushAck     Counter32,
+        cmpccppsErrorState              INTEGER,
+        cmpccppsPreloadDataInconsistent Counter32,
+        cmpccppsAVPMissing              Counter32,
+        cmpccppsWrongOrderFailures      Counter32,
+        cmpccppsEnforceFailures         Counter32,
+        cmpccppsStaticConfigConflicts   Counter32,
+        cmpccppsCCRFailures             Counter32,
+        cmpccppsMessageTypeInvalid      Counter32,
+        cmpccppsCCAErrors               Counter32,
+        cmpccppsRAAFailed               Counter32,
+        cmpccppsRARErrors               Counter32,
+        cmpccppsReqTypeInvalid          Counter32,
+        cmpccppsReqNumInvalid           Counter32,
+        cmpccppsReqStatusInvalid        Counter32,
+        cmpccppsSessionIDInvalid        Counter32,
+        cmpccppsTimeoutErrors           Counter32
+}
+
+cmpccppsPolicyPreloadStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        preloadNotInitiated(1),
+                        preloadInProgress(2),
+                        preloadFailed(3),
+                        preloadTimeout(4),
+                        preloadComplete(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object denotes the state of policy preloading in the PCC.
+        'preloadNotInitiated' indicates that  policy preloading has not
+        been initiated.
+        'preloadInProgress' indicates that policy preloading is in
+        progress.
+        'preloadFailed' indicates that policy preloading has failed.
+        'preloadTimeout' indicates that timeout has occured.
+        'preloadComplete' indicates that policy preloading is
+        complete." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 1 }
+
+cmpccppsPCEFInit OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PCEF initiated preloading." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 2 }
+
+cmpccppsPCRFInit OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of PCRF initiated preloading." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 3 }
+
+cmpccppsReq OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Policy Preload requests." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 4 }
+
+cmpccppsRes OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Policy Preload responses." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 5 }
+
+cmpccppsGlobalPolicyPush OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Global Policy Push." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 6 }
+
+cmpccppsGlobalPolicyPushAck OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of Global Policy Push Acknowledgements." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 7 }
+
+cmpccppsErrorState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        preloadInconsistentData(1),
+                        preloadAVPMissing(2),
+                        preloadEnforceFailure(3),
+                        preloadWrongOrderFailure(4),
+                        preloadStaticConfigConflict(5),
+                        preloadNoError(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the error condition.
+        'preloadInconsistentData' indicates PCRF has sent an incomplete
+        Policy object.
+        'preloadAVPMissing' indicates a mandatory AVP in the preloading
+        message is missing.
+        'preloadEnforceFailure' indicates PCEF is not able to
+        install/modify/remove a policy preloading object.
+        'preloadWrongOrderFailure' indicates PCRF sent the preloading
+        objects in wrong order.
+        'preloadStaticConfigConflict' indicates PCRF tried to preload
+        an object, which is already statically configured in PCEF.
+        'preloadNoError' indicates no error has occurred so far." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 8 }
+
+cmpccppsPreloadDataInconsistent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the preload data is inconsistent." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 9 }
+
+cmpccppsAVPMissing OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the mandatory AVPs are missing." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 10 }
+
+cmpccppsWrongOrderFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failures due to wrong order." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 11 }
+
+cmpccppsEnforceFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failures to enforce." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 12 }
+
+cmpccppsStaticConfigConflicts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of conflicts with static config." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 13 }
+
+cmpccppsCCRFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times failed to send CCR." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 14 }
+
+cmpccppsMessageTypeInvalid OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of invalid message type errors." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 15 }
+
+cmpccppsCCAErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of errors occurred in
+        CCA." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 16 }
+
+cmpccppsRAAFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times failed to send RAA." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 17 }
+
+cmpccppsRARErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of errors occurred in
+        RAR." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 18 }
+
+cmpccppsReqTypeInvalid OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of invalid req-type errors." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 19 }
+
+cmpccppsReqNumInvalid OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of invalid req-num errors." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 20 }
+
+cmpccppsReqStatusInvalid OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of invalid req-status errors." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 21 }
+
+cmpccppsSessionIDInvalid OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of times the session id
+        received does not exist or when the session id associated with
+        request is not the same as the one received." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 22 }
+
+cmpccppsTimeoutErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times the preload timeout occurs." 
+    ::= { cmpccPolicyPreloadStatsTableEntry 23 }
+ 
+
+-- **************************************************************
+-- *                                                            *
+-- *     MPCC Policy Preload Extension Statistics Table         *
+-- *                                                            *
+-- **************************************************************
+
+cmpccPolicyPreloadExtStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmpccPolicyPreloadExtStatsTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the additional statistics related to
+        objects downloaded during policy preloading. The table is
+        indexed on entPhysicalIndex which identifies the entity that
+        implements the PCEF functionality of the Gx interface."
+    ::= { cmpccStats 4 }
+
+cmpccPolicyPreloadExtStatsTableEntry OBJECT-TYPE
+    SYNTAX          CmpccPolicyPreloadExtStatsTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row in cmpccPolicyPreloadExtStatsTable. Each entry represents
+        the policy preload statistics for a particular Gx interface. An
+        entry will be added in this table when a Gx interface is
+        identified and modelled in entityMIB. When Gx interface entry is
+        removed from entityMIB, the corresponding entry is removed from
+        this table."
+    INDEX           { entPhysicalIndex } 
+    ::= { cmpccPolicyPreloadExtStatsTable 1 }
+
+CmpccPolicyPreloadExtStatsTableEntry ::= SEQUENCE {
+        cmpccppsServiceContentsInserted       Counter32,
+        cmpccppsServiceContentsDeleted        Counter32,
+        cmpccppsServiceContentsRolledback     Counter32,
+        cmpccppsServiceContentsInsertFailed   Counter32,
+        cmpccppsServiceContentsDeleteFailed   Counter32,
+        cmpccppsServiceContentsRollbackFailed Counter32,
+        cmpccppsAcctPolicyMapsInserted        Counter32,
+        cmpccppsAcctPolicyMapsDeleted         Counter32,
+        cmpccppsAcctPolicyMapsRolledback      Counter32,
+        cmpccppsAcctPolicyMapsInsertFailed    Counter32,
+        cmpccppsAcctPolicyMapsDeleteFailed    Counter32,
+        cmpccppsAcctPolicyMapsRollbackFailed  Counter32,
+        cmpccppsBillingServicesInserted       Counter32,
+        cmpccppsBillingServicesDeleted        Counter32,
+        cmpccppsBillingServicesRolledback     Counter32,
+        cmpccppsBillingServicesInsertFailed   Counter32,
+        cmpccppsBillingServicesDeleteFailed   Counter32,
+        cmpccppsBillingServicesRollbackFailed Counter32,
+        cmpccppsContentPoliciesInserted       Counter32,
+        cmpccppsContentPoliciesDeleted        Counter32,
+        cmpccppsContentPoliciesRolledback     Counter32,
+        cmpccppsContentPoliciesInsertFailed   Counter32,
+        cmpccppsContentPoliciesDeleteFailed   Counter32,
+        cmpccppsContentPoliciesRollbackFailed Counter32,
+        cmpccppsBillingPlansInserted          Counter32,
+        cmpccppsBillingPlansDeleted           Counter32,
+        cmpccppsBillingPlansRolledback        Counter32,
+        cmpccppsBillingPlansInsertFailed      Counter32,
+        cmpccppsBillingPlansDeleteFailed      Counter32,
+        cmpccppsBillingPlansRollbackFailed    Counter32
+}
+
+cmpccppsServiceContentsInserted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of service-contents inserted during preload. A
+        service-content configuration contains the following
+        information: 
+        Layer 3 information that specifies the IP-level details of the
+        content.
+        Layer 4 information that specifies transport layer parameters,
+        such as TCP and User Datagram Protocol (UDP) port numbers." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 1 }
+
+cmpccppsServiceContentsDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of service-contents deleted during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 2 }
+
+cmpccppsServiceContentsRolledback OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback is successful on
+        insertion/deletion of service-contents during preload. Rollback
+        is performed when policy preload insertion/deletion has failed
+        on one or more of the TPs on Active or Standby processor or on
+        the Standby CP." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 3 }
+
+cmpccppsServiceContentsInsertFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times insertion of service-contents has failed
+        during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 4 }
+
+cmpccppsServiceContentsDeleteFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times deletion of service-contents has failed
+        during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 5 }
+
+cmpccppsServiceContentsRollbackFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback has failed on insertion/deletion
+        of service-contents during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 6 }
+
+cmpccppsAcctPolicyMapsInserted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of accounting policy-maps inserted during preload.
+        The accounting policy-maps are used to match URLs or headers
+        against a pattern, to determine whether flows will be processed
+        by the accounting services." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 7 }
+
+cmpccppsAcctPolicyMapsDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of accounting policy-maps deleted during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 8 }
+
+cmpccppsAcctPolicyMapsRolledback OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback is successful on
+        insertion/deletion of accounting policy-maps during preload.
+        Rollback is performed when policy preload insertion/deletion has
+        failed on one or more of the TPs on Active or Standby processor
+        or on the Standby CP." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 9 }
+
+cmpccppsAcctPolicyMapsInsertFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times insertion of accounting policy-maps has
+        failed during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 10 }
+
+cmpccppsAcctPolicyMapsDeleteFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times deletion of accounting policy-maps has
+        failed during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 11 }
+
+cmpccppsAcctPolicyMapsRollbackFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback has failed on insertion/deletion
+        of accounting policy-maps during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 12 }
+
+cmpccppsBillingServicesInserted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of billing-services inserted during preload. Each
+        billing-service represents a group of content that is billed the
+        same way, such as billing per-click (or per-request) or billing
+        per-IP byte, and that shares part of a subscriber quota." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 13 }
+
+cmpccppsBillingServicesDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of billing-services deleted during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 14 }
+
+cmpccppsBillingServicesRolledback OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback is successful on
+        insertion/deletion of billing-services during preload. Rollback
+        is performed when policy preload insertion/deletion has failed
+        on one or more of the TPs on Active or Standby processor or on
+        the Standby CP." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 15 }
+
+cmpccppsBillingServicesInsertFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times insertion of billing-services has failed
+        during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 16 }
+
+cmpccppsBillingServicesDeleteFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times deletion of billing-services has failed
+        during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 17 }
+
+cmpccppsBillingServicesRollbackFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback has failed on insertion/deletion
+        of billing-services during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 18 }
+
+cmpccppsContentPoliciesInserted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of content-policies inserted during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 19 }
+
+cmpccppsContentPoliciesDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of content-policies deleted during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 20 }
+
+cmpccppsContentPoliciesRolledback OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback is successful on
+        insertion/deletion of content-policies during preload. Rollback
+        is performed when policy preload insertion/deletion has failed
+        on one or more of the TPs on Active or Standby processor or on
+        the Standby CP." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 21 }
+
+cmpccppsContentPoliciesInsertFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times insertion of content-policies has failed
+        during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 22 }
+
+cmpccppsContentPoliciesDeleteFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times deletion of content-policies has failed
+        during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 23 }
+
+cmpccppsContentPoliciesRollbackFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback has failed on insertion/deletion
+        of content-policies during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 24 }
+
+cmpccppsBillingPlansInserted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of billing-plans inserted during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 25 }
+
+cmpccppsBillingPlansDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of billing-plans deleted during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 26 }
+
+cmpccppsBillingPlansRolledback OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback is successful on
+        insertion/deletion of billing-plans during preload. Rollback is
+        performed when policy preload insertion/deletion has failed on
+        one or more of the TPs on Active or Standby processor or on the
+        Standby CP." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 27 }
+
+cmpccppsBillingPlansInsertFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times insertion of billing-plans has failed
+        during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 28 }
+
+cmpccppsBillingPlansDeleteFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times deletion of billing-plans has failed during
+        preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 29 }
+
+cmpccppsBillingPlansRollbackFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times rollback has failed on insertion/deletion
+        of billing-plans during preload." 
+    ::= { cmpccPolicyPreloadExtStatsTableEntry 30 }
+ 
+
+
+cmpccPolicyMismatch OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object denotes the number of policy mismatch. It
+        increments whenever any subscriber has a policy mismatch. A
+        policy mismatch occurs when the traffic flow does not match the
+        configured policy for the particular subscriber." 
+    ::= { cmpccStats 5 }
+
+cmpccRollbackFailedReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        acctPolicyMap(2),
+                        contentPolicy(3),
+                        serviceContent(4),
+                        billingService(5),
+                        billingPlan(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason that triggers the sending for
+        'cmpccPreloadRollbackFailed' notification. When read, this
+        object always returns the value 'none'. Other values are
+        relevant when this object is used as a varbind in a
+        notification.
+        'none' indicates no rollback failure has occurred.
+        'acctPolicyMap' indicates rollback for accounting policy-map
+        has failed.
+        'contentPolicy' indicates rollback for content-policy has
+        failed.
+        'serviceContent' indicates rollback for service-content has
+        failed.
+        'billingService' indicates rollback for billing-service has
+        failed.
+        'billingPlan' indicates rollback for billing-plan has failed." 
+    ::= { cmpccStats 6 }
+
+cmpccProfileConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmpccProfileConfigTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the objects for configuring a given profile
+        name and its associated method-list names using the RowStatus
+        textual convention. The mpcc loadbalances the Gx requests to
+        PCRF across these method lists that are configured. Each
+        profile allows upto a maximum of 16 method-lists configured in
+        it."
+    ::= { cmpccConfig 1 }
+
+cmpccProfileConfigTableEntry OBJECT-TYPE
+    SYNTAX          CmpccProfileConfigTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the cmpccProfileConfigTable provides information
+        about the profile name and its associated method-list name."
+    INDEX           {
+                        cmpccpcProfileName,
+                        cmpccpcMethodList
+                    } 
+    ::= { cmpccProfileConfigTable 1 }
+
+CmpccProfileConfigTableEntry ::= SEQUENCE {
+        cmpccpcProfileName      SnmpAdminString,
+        cmpccpcMethodList       SnmpAdminString,
+        cmpccpcDestinationRealm SnmpAdminString,
+        cmpccpcRowStatus        RowStatus
+}
+
+cmpccpcProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Name of the PCC profile." 
+    ::= { cmpccProfileConfigTableEntry 1 }
+
+cmpccpcMethodList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Name of the AAA method-list. The AAA method list points to the
+        PCRF IP address through the AAA server group configuration." 
+    ::= { cmpccProfileConfigTableEntry 2 }
+
+cmpccpcDestinationRealm OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the destination realm to be sent in CCR initial
+        requests to the PCRF. For subsequent CCRs, the Origin-Realm AVP
+        received in the last CCA is used as the Destination-Realm." 
+    ::= { cmpccProfileConfigTableEntry 3 }
+
+cmpccpcRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object only facilitates the creation or deletion of a
+        conceptual row in this table. The PCC Profile name and AAA
+        method-list name are mandatory fields for this row to be
+        active." 
+    ::= { cmpccProfileConfigTableEntry 4 }
+ 
+
+
+cmpccPreloadEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Enables preloading on PCC.
+        'true' indicates preloading is enabled.
+        'false' indicates preloading is disabled." 
+    ::= { cmpccConfig 2 }
+
+cmpccProfileDefault OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..16))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Defines a default profile to be used for requests to PCRF for
+        user-level charging rules." 
+    ::= { cmpccConfig 3 }
+
+cmpccMethodListPreload OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Defines a method-list to be used for requests to PCRF for
+        Policy preloading." 
+    ::= { cmpccConfig 4 }
+
+cmpccDestinationRealmString OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Defines a destination realm to be used in CCR Initial requests
+        for Policy Preloading. If a destination-realm for a profile is
+        not specified, the destination-realm configured at global level
+        can be selected." 
+    ::= { cmpccConfig 5 }
+
+cmpccPreloadTimeout OBJECT-TYPE
+    SYNTAX          TimeIntervalSec (900..7200)
+    UNITS           "Seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the maximum time in seconds in which the Policy
+        Preloading can take place."
+    DEFVAL          { 1800 } 
+    ::= { cmpccConfig 6 }
+
+-- ************************************************************
+-- *                                                          *
+-- *      Notifications                                       *
+-- *                                                          *
+-- ************************************************************
+
+ciscoMobilePolicyChargingControlPreloadError NOTIFICATION-TYPE
+    OBJECTS         {
+                        cmpccppsErrorState,
+                        cmpccppsPreloadDataInconsistent,
+                        cmpccppsAVPMissing,
+                        cmpccppsEnforceFailures,
+                        cmpccppsStaticConfigConflicts,
+                        cmpccppsWrongOrderFailures
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is issued when cmpccPreloadErrorNotifEnabled
+        is set to true, and an error occurs in preloading as indicated
+        by the value of cmpccppsErrorState:
+        0   indicates PCRF has sent an incomplete Policy object.
+        1   indicates a mandatory AVP in the preloading message is
+            missing.
+        2   indicates PCEF is not able to install/modify/remove a policy
+            preloading object.
+        3   indicates PCRF sent the preloading objects in wrong order.
+        4   indicates PCRF tried to preload an object, which is already
+            statically configured in PCEF.
+        255 indicates no error has occurred so far."
+   ::= { ciscoMobilePolicyChargingControlMIBNotifs 1 }
+
+cmpccPreloadRollbackFailed NOTIFICATION-TYPE
+    OBJECTS         {
+                        entPhysicalName,
+                        cmpccRollbackFailedReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when rollback of an object
+        fails, which indicates that object could be out of sync. The
+        cmpccppsRollbackFailedReason present in the varbind list,
+        indicates the reason that triggers the sending for
+        'cmpccPreloadRollbackFailed' notification. The entPhysicalName
+        identifies the entity that implements the PCEF functionality of
+        the Gx interface."
+   ::= { ciscoMobilePolicyChargingControlMIBNotifs 2 }
+cMobilePolicyChargingControlMIBGroups  OBJECT IDENTIFIER
+    ::= { cMobilePolicyChargingControlMIBConform 2 }
+
+
+cMobilePolicyChargingControlMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement the Cisco
+        Mobile Policy Charging Control MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cMobilePolicyChargingControlGlobalStatsGroup,
+                        cMobilePolicyChargingControlNotifGroup,
+                        cMobilePolicyChargingControlConfigGroup,
+                        cMobilePolicyChargingControlPCRFMethodListStatsGroup,
+                        cMobilePolicyChargingControlPolicyPreloadStatsGroup,
+                        cMobilePolicyChargingControlNotifEnableGroup
+                    }
+    ::= { cMobilePolicyChargingControlMIBCompliances 1 }
+
+cMobilePolicyChargingControlMIBCompliancesRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement the Cisco
+        Mobile Policy Charging Control MIB. This compliance statement
+        deprecates cMobilePolicyChargingControlMIBCompliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cMobilePolicyChargingControlConfigGroup,
+                        cMobilePolicyChargingControlGlobalStatsGroup,
+                        cMobilePolicyChargingControlPCRFMethodListStatsGroup,
+                        cMobilePolicyChargingControlPolicyPreloadStatsGroup,
+                        cMobilePolicyChargingControlNotifGroup,
+                        cMobilePolicyChargingControlNotifEnableGroup
+                    }
+
+    GROUP           cmpccStatisticsExtGroup
+    DESCRIPTION
+        "This group is mandatory only for the
+        Cisco Content Services Gateway."
+
+    GROUP           cmpccPolicyPreloadNotifGroup
+    DESCRIPTION
+        "This group is mandatory only for the
+        Cisco Content Services Gateway."
+
+    GROUP           cmpccPreloadNotifControlGroup
+    DESCRIPTION
+        "This group is mandatory only for the
+        Cisco Content Services Gateway."
+
+    GROUP           cmpccPolicyMismatchGroup
+    DESCRIPTION
+        "This group is mandatory only for the Cisco Content Services
+        Gateway."
+
+    GROUP           cmpccRollbackFailedGroup
+    DESCRIPTION
+        "This group is mandatory only for the Cisco Content Services
+        Gateway."
+    ::= { cMobilePolicyChargingControlMIBCompliances 2 }
+
+cMobilePolicyChargingControlConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmpccPreloadEnable,
+                        cmpccProfileDefault,
+                        cmpccMethodListPreload,
+                        cmpccPreloadTimeout,
+                        cmpccpcRowStatus,
+                        cmpccDestinationRealmString,
+                        cmpccpcDestinationRealm
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the configuration objects."
+    ::= { cMobilePolicyChargingControlMIBGroups 1 }
+
+-- Units of Conformance
+
+cMobilePolicyChargingControlGlobalStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmpccgsTotalSessions,
+                        cmpccgsCCRInitialSent,
+                        cmpccgsCCRUpdateSent,
+                        cmpccgsCCRFinalSent,
+                        cmpccgsCCARecd,
+                        cmpccgsRARRecd,
+                        cmpccgsRAASent,
+                        cmpccgsCCRFailures,
+                        cmpccgsRAAFailures,
+                        cmpccgsReqTypeInvalid,
+                        cmpccgsReqNumInvalid,
+                        cmpccgsReqStatusInvalid,
+                        cmpccgsMessageTypeInvalid,
+                        cmpccgsDuplicateRequests,
+                        cmpccgsCCAErrors,
+                        cmpccgsRARErrors,
+                        cmpccgsSessionIDInvalid
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains Global Statistics Objects."
+    ::= { cMobilePolicyChargingControlMIBGroups 2 }
+
+cMobilePolicyChargingControlPCRFMethodListStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmpccpmlsCCRInitialSent,
+                        cmpccpmlsCCRUpdateSent,
+                        cmpccpmlsCCRFinalSent,
+                        cmpccpmlsCCARecd,
+                        cmpccpmlsRARRecd,
+                        cmpccpmlsRAASent,
+                        cmpccpmlsCCRFailures,
+                        cmpccpmlsRAAFailures,
+                        cmpccpmlsReqTypeInvalid,
+                        cmpccpmlsReqNumInvalid,
+                        cmpccpmlsReqStatusInvalid,
+                        cmpccpmlsPCRFReboots,
+                        cmpccpmlsMessageTypeInvalid,
+                        cmpccpmlsDuplicateRequests,
+                        cmpccpmlsCCAErrors,
+                        cmpccpmlsRARErrors,
+                        cmpccpmlsSessionIDInvalid
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains PCRF Method List Stats objects."
+    ::= { cMobilePolicyChargingControlMIBGroups 3 }
+
+cMobilePolicyChargingControlPolicyPreloadStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmpccppsPCEFInit,
+                        cmpccppsPCRFInit,
+                        cmpccppsReq,
+                        cmpccppsRes,
+                        cmpccppsGlobalPolicyPush,
+                        cmpccppsGlobalPolicyPushAck,
+                        cmpccppsPreloadDataInconsistent,
+                        cmpccppsAVPMissing,
+                        cmpccppsWrongOrderFailures,
+                        cmpccppsEnforceFailures,
+                        cmpccppsStaticConfigConflicts,
+                        cmpccppsCCRFailures,
+                        cmpccppsRAAFailed,
+                        cmpccppsReqTypeInvalid,
+                        cmpccppsReqNumInvalid,
+                        cmpccppsReqStatusInvalid,
+                        cmpccppsErrorState,
+                        cmpccppsPolicyPreloadStatus,
+                        cmpccppsMessageTypeInvalid,
+                        cmpccppsCCAErrors,
+                        cmpccppsRARErrors,
+                        cmpccppsSessionIDInvalid,
+                        cmpccppsTimeoutErrors
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the policy preload stats objects."
+    ::= { cMobilePolicyChargingControlMIBGroups 4 }
+
+cMobilePolicyChargingControlNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoMobilePolicyChargingControlPreloadError }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the mobile policy charging control
+        notification objects."
+    ::= { cMobilePolicyChargingControlMIBGroups 5 }
+
+cMobilePolicyChargingControlNotifEnableGroup OBJECT-GROUP
+    OBJECTS         { cmpccPreloadErrorNotifEnabled }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the flags to enable/disable the mobile
+        policy charging control notification objects."
+    ::= { cMobilePolicyChargingControlMIBGroups 6 }
+
+cmpccStatisticsExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmpccppsBillingServicesInserted,
+                        cmpccppsBillingServicesDeleted,
+                        cmpccppsBillingServicesRolledback,
+                        cmpccppsBillingServicesInsertFailed,
+                        cmpccppsBillingServicesDeleteFailed,
+                        cmpccppsBillingServicesRollbackFailed,
+                        cmpccppsContentPoliciesInserted,
+                        cmpccppsContentPoliciesDeleted,
+                        cmpccppsContentPoliciesRolledback,
+                        cmpccppsContentPoliciesInsertFailed,
+                        cmpccppsContentPoliciesDeleteFailed,
+                        cmpccppsContentPoliciesRollbackFailed,
+                        cmpccppsBillingPlansInserted,
+                        cmpccppsBillingPlansDeleted,
+                        cmpccppsBillingPlansRolledback,
+                        cmpccppsBillingPlansInsertFailed,
+                        cmpccppsBillingPlansDeleteFailed,
+                        cmpccppsBillingPlansRollbackFailed,
+                        cmpccppsServiceContentsInserted,
+                        cmpccppsServiceContentsDeleted,
+                        cmpccppsServiceContentsRolledback,
+                        cmpccppsServiceContentsInsertFailed,
+                        cmpccppsServiceContentsDeleteFailed,
+                        cmpccppsServiceContentsRollbackFailed,
+                        cmpccppsAcctPolicyMapsInserted,
+                        cmpccppsAcctPolicyMapsDeleted,
+                        cmpccppsAcctPolicyMapsRolledback,
+                        cmpccppsAcctPolicyMapsInsertFailed,
+                        cmpccppsAcctPolicyMapsDeleteFailed,
+                        cmpccppsAcctPolicyMapsRollbackFailed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provide additional statistics
+        related to objects downloaded during policy preloading."
+    ::= { cMobilePolicyChargingControlMIBGroups 7 }
+
+cmpccPolicyPreloadNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cmpccPreloadRollbackFailed }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications which provides information about
+        errors encountered during policy preloading."
+    ::= { cMobilePolicyChargingControlMIBGroups 8 }
+
+cmpccPreloadNotifControlGroup OBJECT-GROUP
+    OBJECTS         { cmpccPreloadRollbackFailedNotifEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) which provides preload notification
+        control configuration."
+    ::= { cMobilePolicyChargingControlMIBGroups 9 }
+
+cmpccPolicyMismatchGroup OBJECT-GROUP
+    OBJECTS         { cmpccPolicyMismatch }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) which provides information about
+        policy mismatch."
+    ::= { cMobilePolicyChargingControlMIBGroups 10 }
+
+cmpccRollbackFailedGroup OBJECT-GROUP
+    OBJECTS         { cmpccRollbackFailedReason }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) which provides information about the
+        reason that triggers the sending for
+        'cmpccPreloadRollbackFailed' notification."
+    ::= { cMobilePolicyChargingControlMIBGroups 11 }
+
+END
+
+
+

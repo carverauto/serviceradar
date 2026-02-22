@@ -1,0 +1,1371 @@
+-- MIB created 6/25/99 12:57:52, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "DIAL-CONTROL-MIB.my"
+
+IMPORTS
+    Gauge32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    DisplayString, TimeStamp, RowStatus
+            FROM SNMPv2-TC-v1
+    IANAifType
+            FROM IANAifType-MIB
+    ifOperStatus, ifIndex, InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    transmission
+            FROM RFC1213-MIB;
+
+dialControlMib OBJECT IDENTIFIER ::= { transmission 21 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9609231544Z
+--  OrgName
+--    IETF ISDN Working Group
+--  ContactInfo
+--            Guenter Roeck
+--     Postal: cisco Systems
+--             170 West Tasman Drive
+--             San Jose, CA 95134
+--             U.S.A.
+--     Phone:  +1 408 527 3143
+--     E-mail: groeck@cisco.com
+--  Descr
+--    The MIB module to describe peer information for
+--     demand access and possibly other kinds of interfaces.
+
+dialControlMibObjects OBJECT IDENTIFIER ::= { dialControlMib 1 }
+dialCtlConfiguration OBJECT IDENTIFIER ::= { dialControlMibObjects 1 }
+dialCtlPeer     OBJECT IDENTIFIER ::= { dialControlMibObjects 2 }
+callActive      OBJECT IDENTIFIER ::= { dialControlMibObjects 3 }
+callHistory     OBJECT IDENTIFIER ::= { dialControlMibObjects 4 }
+dialControlMibTrapPrefix OBJECT IDENTIFIER ::= { dialControlMib 2 }
+dialControlMibTraps OBJECT IDENTIFIER ::= { dialControlMibTrapPrefix 0 }
+dialControlMibConformance OBJECT IDENTIFIER ::= { dialControlMib 3 }
+dialControlMibCompliances OBJECT IDENTIFIER ::= { dialControlMibConformance 1 }
+dialControlMibGroups OBJECT IDENTIFIER ::= { dialControlMibConformance 2 }
+
+AbsoluteCounter32 ::= Gauge32
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents a Counter32-like value that starts at zero,
+--     does not decrease, and does not wrap. This may be used
+--     only in situations where wrapping is not possible or
+--     extremely unlikely. Should such a counter overflow,
+--     it locks at the maxium value of 4,294,967,295.
+--    
+--     The primary use of this type of counter is situations
+--     where a counter value is to be recorded as history
+--     and is thus no longer subject to reading for changing
+--     values.
+
+dialCtlAcceptMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        acceptNone(1),
+        acceptAll(2),
+        acceptKnown(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The security level for acceptance of incoming calls.
+         acceptNone(1)  - incoming calls will not be accepted
+         acceptAll(2)   - incoming calls will be accepted,
+                          even if there is no matching entry
+                          in the dialCtlPeerCfgTable
+         acceptKnown(3) - incoming calls will be accepted only
+                          if there is a matching entry in the
+                          dialCtlPeerCfgTable"
+    ::= { dialCtlConfiguration 1 }
+
+dialCtlTrapEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether dialCtlPeerCallInformation
+         and dialCtlPeerCallSetup traps should be generated for
+         all peers. If the value of this object is enabled(1),
+         traps will be generated for all peers. If the value
+         of this object is disabled(2), traps will be generated
+         only for peers having dialCtlPeerCfgTrapEnable set
+         to enabled(1)."
+    DEFVAL { disabled }
+    ::= { dialCtlConfiguration 2 }
+
+dialCtlPeerCfgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DialCtlPeerCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The list of peers from which the managed device
+         will accept calls or to which it will place them."
+    ::= { dialCtlPeer 1 }
+
+dialCtlPeerCfgEntry OBJECT-TYPE
+    SYNTAX DialCtlPeerCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration data for a single Peer. This entry is
+         effectively permanent, and contains information
+         to identify the peer, how to connect to the peer,
+         how to identify the peer and its permissions.
+         The value of dialCtlPeerCfgOriginateAddress must be
+         specified before a new row in this table can become
+         active(1). Any writeable parameters in an existing entry
+         can be modified while the entry is active. The modification
+         will take effect when the peer in question will be
+         called the next time.
+         An entry in this table can only be created if the
+         associated ifEntry already exists."
+    INDEX { dialCtlPeerCfgId, ifIndex }
+    ::= { dialCtlPeerCfgTable 1 }
+
+DialCtlPeerCfgEntry ::= SEQUENCE {
+    dialCtlPeerCfgId INTEGER,
+    dialCtlPeerCfgIfType IANAifType,
+    dialCtlPeerCfgLowerIf InterfaceIndexOrZero,
+    dialCtlPeerCfgOriginateAddress DisplayString,
+    dialCtlPeerCfgAnswerAddress DisplayString,
+    dialCtlPeerCfgSubAddress DisplayString,
+    dialCtlPeerCfgClosedUserGroup DisplayString,
+    dialCtlPeerCfgSpeed INTEGER,
+    dialCtlPeerCfgInfoType INTEGER,
+    dialCtlPeerCfgPermission INTEGER,
+    dialCtlPeerCfgInactivityTimer INTEGER,
+    dialCtlPeerCfgMinDuration INTEGER,
+    dialCtlPeerCfgMaxDuration INTEGER,
+    dialCtlPeerCfgCarrierDelay INTEGER,
+    dialCtlPeerCfgCallRetries INTEGER,
+    dialCtlPeerCfgRetryDelay INTEGER,
+    dialCtlPeerCfgFailureDelay INTEGER,
+    dialCtlPeerCfgTrapEnable INTEGER,
+    dialCtlPeerCfgStatus RowStatus
+    }
+
+dialCtlPeerCfgId OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies a single peer. There may
+         be several entries in this table for one peer,
+         defining different ways of reaching this peer.
+         Thus, there may be several entries in this table
+         with the same value of dialCtlPeerCfgId.
+         Multiple entries for one peer may be used to support
+         multilink as well as backup lines.
+         A single peer will be identified by a unique value
+         of this object. Several entries for one peer MUST
+         have the same value of dialCtlPeerCfgId, but different
+         ifEntries and thus different values of ifIndex."
+    ::= { dialCtlPeerCfgEntry 1 }
+
+dialCtlPeerCfgIfType OBJECT-TYPE
+    SYNTAX IANAifType
+--    Rsyntax INTEGER {
+--        other(1),
+--        regular1822(2),
+--        hdh1822(3),
+--        ddnX25(4),
+--        rfc877x25(5),
+--        ethernetCsmacd(6),
+--        iso88023Csmacd(7),
+--        iso88024TokenBus(8),
+--        iso88025TokenRing(9),
+--        iso88026Man(10),
+--        starLan(11),
+--        proteon10Mbit(12),
+--        proteon80Mbit(13),
+--        hyperchannel(14),
+--        fddi(15),
+--        lapb(16),
+--        sdlc(17),
+--        ds1(18),
+--        e1(19),
+--        basicISDN(20),
+--        primaryISDN(21),
+--        propPointToPointSerial(22),
+--        ppp(23),
+--        softwareLoopback(24),
+--        eon(25),
+--        ethernet3Mbit(26),
+--        nsip(27),
+--        slip(28),
+--        ultra(29),
+--        ds3(30),
+--        sip(31),
+--        frameRelay(32),
+--        rs232(33),
+--        para(34),
+--        arcnet(35),
+--        arcnetPlus(36),
+--        atm(37),
+--        miox25(38),
+--        sonet(39),
+--        x25ple(40),
+--        iso88022llc(41),
+--        localTalk(42),
+--        smdsDxi(43),
+--        frameRelayService(44),
+--        v35(45),
+--        hssi(46),
+--        hippi(47),
+--        modem(48),
+--        aal5(49),
+--        sonetPath(50),
+--        sonetVT(51),
+--        smdsIcip(52),
+--        propVirtual(53),
+--        propMultiplexor(54),
+--        ieee80212(55),
+--        fibreChannel(56),
+--        hippiInterface(57),
+--        frameRelayInterconnect(58),
+--        aflane8023(59),
+--        aflane8025(60),
+--        cctEmul(61),
+--        fastEther(62),
+--        isdn(63),
+--        v11(64),
+--        v36(65),
+--        g703at64k(66),
+--        g703at2mb(67),
+--        qllc(68),
+--        fastEtherFX(69),
+--        channel(70),
+--        ieee80211(71),
+--        ibm370parChan(72),
+--        escon(73),
+--        dlsw(74),
+--        isdns(75),
+--        isdnu(76),
+--        lapd(77),
+--        ipSwitch(78),
+--        rsrb(79),
+--        atmLogical(80),
+--        ds0(81),
+--        ds0Bundle(82),
+--        bsc(83),
+--        async(84),
+--        cnr(85),
+--        iso88025Dtr(86),
+--        eplrs(87),
+--        arap(88),
+--        propCnls(89),
+--        hostPad(90),
+--        termPad(91),
+--        frameRelayMPI(92),
+--        x213(93),
+--        adsl(94),
+--        radsl(95),
+--        sdsl(96),
+--        vdsl(97),
+--        iso88025CRFPInt(98),
+--        myrinet(99),
+--        voiceEM(100),
+--        voiceFXO(101),
+--        voiceFXS(102),
+--        voiceEncap(103),
+--        voiceOverIp(104),
+--        atmDxi(105),
+--        atmFuni(106),
+--        atmIma(107),
+--        pppMultilinkBundle(108),
+--        ipOverCdlc(109),
+--        ipOverClaw(110),
+--        stackToStack(111),
+--        virtualIpAddress(112),
+--        mpc(113),
+--        ipOverAtm(114),
+--        iso88025Fiber(115),
+--        tdlc(116),
+--        gigabitEthernet(117),
+--        hdlc(118),
+--        lapf(119),
+--        v37(120),
+--        x25mlp(121),
+--        x25huntGroup(122),
+--        trasnpHdlc(123),
+--        interleave(124),
+--        fast(125),
+--        ip(126),
+--        docsCableMaclayer(127),
+--        docsCableDownstream(128),
+--        docsCableUpstream(129),
+--        a12MppSwitch(130),
+--        tunnel(131),
+--        coffee(132),
+--        ces(133),
+--        atmSubInterface(134),
+--        l2vlan(135),
+--        l3ipvlan(136),
+--        l3ipxvlan(137),
+--        digitalPowerline(138),
+--        mediaMailOverIp(139),
+--        dtm(140),
+--        dcn(141),
+--        ipForward(142),
+--        msdsl(143),
+--        ieee1394(144)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interface type to be used for calling this peer.
+         In case of ISDN, the value of isdn(63) is to be used."
+    DEFVAL { other }
+    ::= { dialCtlPeerCfgEntry 2 }
+
+dialCtlPeerCfgLowerIf OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax Integer32(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "ifIndex value of an interface the peer will have to be
+         called on. For example, on an ISDN interface, this can be
+         the ifIndex value of a D channel or the ifIndex value of a
+         B channel, whatever is appropriate for a given peer.
+         As an example, for Basic Rate leased lines it will be
+         necessary to specify a B channel ifIndex, while for
+        
+        
+        
+        
+         semi-permanent connections the D channel ifIndex has
+         to be specified.
+         If the interface can be dynamically assigned, this object
+         has a value of zero."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 3 }
+
+dialCtlPeerCfgOriginateAddress OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Call Address at which the peer will be called.
+         Think of this as the set of characters following 'ATDT '
+         or the 'phone number' included in a D channel call request.
+        
+         The structure of this information will be switch type
+         specific. If there is no address information required
+         for reaching the peer, i.e., for leased lines,
+         this object will be a zero length string."
+    ::= { dialCtlPeerCfgEntry 4 }
+
+dialCtlPeerCfgAnswerAddress OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Calling Party Number information element, as for example
+         passed in an ISDN SETUP message by a PBX or switch,
+         for incoming calls.
+         This address can be used to identify the peer.
+         If this address is either unknown or identical
+         to dialCtlPeerCfgOriginateAddress, this object will be
+         a zero length string."
+    DEFVAL { "" }
+    ::= { dialCtlPeerCfgEntry 5 }
+
+dialCtlPeerCfgSubAddress OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Subaddress at which the peer will be called.
+         If the subaddress is undefined for the given media or
+         unused, this is a zero length string."
+    DEFVAL { "" }
+    ::= { dialCtlPeerCfgEntry 6 }
+
+dialCtlPeerCfgClosedUserGroup OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Closed User Group at which the peer will be called.
+         If the Closed User Group is undefined for the given media
+         or unused, this is a zero length string."
+    REFERENCE
+        "Q.931, chapter 4.6.1."
+    DEFVAL { "" }
+    ::= { dialCtlPeerCfgEntry 7 }
+
+dialCtlPeerCfgSpeed OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The desired information transfer speed in bits/second
+         when calling this peer.
+         The detailed media specific information, e.g. information
+         type and information transfer rate for ISDN circuits,
+         has to be extracted from this object.
+         If the transfer speed to be used is unknown or the default
+         speed for this type of interfaces, the value of this object
+         may be zero."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 8 }
+
+dialCtlPeerCfgInfoType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        speech(2),
+        unrestrictedDigital(3),
+        unrestrictedDigital56(4),
+        restrictedDigital(5),
+        audio31(6),
+        audio7(7),
+        video(8),
+        packetSwitched(9),
+        fax(10)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Information Transfer Capability to be used when
+         calling this peer.
+        
+         speech(2) refers to a non-data connection, whereas
+         audio31(6) and audio7(7) refer to data mode
+         connections."
+    DEFVAL { other }
+    ::= { dialCtlPeerCfgEntry 9 }
+
+dialCtlPeerCfgPermission OBJECT-TYPE
+    SYNTAX INTEGER {
+        originate(1),
+        answer(2),
+        both(3),
+        callback(4),
+        none(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applicable permissions. callback(4) either rejects the
+         call and then calls back, or uses the 'Reverse charging'
+         information element if it is available.
+         Note that callback(4) is supposed to control charging, not
+         security, and applies to callback prior to accepting a
+         call. Callback for security reasons can be handled using
+         PPP callback."
+    DEFVAL { both }
+    ::= { dialCtlPeerCfgEntry 10 }
+
+dialCtlPeerCfgInactivityTimer OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The connection will be automatically disconnected
+         if no longer carrying useful data for a time
+         period, in seconds, specified in this object.
+         Useful data in this context refers to forwarding
+         packets, including routing information; it
+         excludes the encapsulator maintenance frames.
+         A value of zero means the connection will not be
+         automatically taken down due to inactivity,
+         which implies that it is a dedicated circuit."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 11 }
+
+dialCtlPeerCfgMinDuration OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum duration of a call in seconds, starting from the
+         time the call is connected until the call is disconnected.
+         This is to accomplish the fact that in most countries
+         charging applies to units of time, which should be matched
+         as closely as possible."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 12 }
+
+dialCtlPeerCfgMaxDuration OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum call duration in seconds. Zero means 'unlimited'."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 13 }
+
+dialCtlPeerCfgCarrierDelay OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The call timeout time in seconds. The default value
+         of zero means that the call timeout as specified for
+         the media in question will apply."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 14 }
+
+dialCtlPeerCfgCallRetries OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of calls to a non-responding address
+         that may be made. A retry count of zero means
+         there is no bound. The intent is to bound
+         the number of successive calls to an address
+         which is inaccessible, or which refuses those calls.
+        
+         Some countries regulate the number of call retries
+         to a given peer that can be made."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 15 }
+
+dialCtlPeerCfgRetryDelay OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time in seconds between call retries if a peer
+         cannot be reached.
+         A value of zero means that call retries may be done
+         without any delay."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 16 }
+
+dialCtlPeerCfgFailureDelay OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time in seconds after which call attempts are
+         to be placed again after a peer has been noticed
+         to be unreachable, i.e. after dialCtlPeerCfgCallRetries
+         unsuccessful call attempts.
+         A value of zero means that a peer will not be called
+         again after dialCtlPeerCfgCallRetries unsuccessful call
+         attempts."
+    DEFVAL { 0 }
+    ::= { dialCtlPeerCfgEntry 17 }
+
+dialCtlPeerCfgTrapEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether dialCtlPeerCallInformation
+         and dialCtlPeerCallSetup traps should be generated for
+         this peer."
+    DEFVAL { disabled }
+    ::= { dialCtlPeerCfgEntry 18 }
+
+dialCtlPeerCfgStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of one row in this table."
+    ::= { dialCtlPeerCfgEntry 19 }
+
+dialCtlPeerStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DialCtlPeerStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Statistics information for each peer entry.
+         There will be one entry in this table for each entry
+         in the dialCtlPeerCfgTable."
+    ::= { dialCtlPeer 2 }
+
+dialCtlPeerStatsEntry OBJECT-TYPE
+    SYNTAX DialCtlPeerStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Statistics information for a single Peer. This entry
+         is effectively permanent, and contains information
+         describing the last call attempt as well as supplying
+         statistical information."
+    INDEX { dialCtlPeerCfgId, ifIndex }
+-- Augments dialCtlPeerCfgEntry
+    ::= { dialCtlPeerStatsTable 1 }
+
+DialCtlPeerStatsEntry ::= SEQUENCE {
+    dialCtlPeerStatsConnectTime AbsoluteCounter32,
+    dialCtlPeerStatsChargedUnits AbsoluteCounter32,
+    dialCtlPeerStatsSuccessCalls AbsoluteCounter32,
+    dialCtlPeerStatsFailCalls AbsoluteCounter32,
+    dialCtlPeerStatsAcceptCalls AbsoluteCounter32,
+    dialCtlPeerStatsRefuseCalls AbsoluteCounter32,
+    dialCtlPeerStatsLastDisconnectCause OCTET STRING,
+    dialCtlPeerStatsLastDisconnectText DisplayString,
+    dialCtlPeerStatsLastSetupTime TimeStamp
+    }
+
+dialCtlPeerStatsConnectTime OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Accumulated connect time to the peer since system startup.
+         This is the total connect time, i.e. the connect time
+         for outgoing calls plus the time for incoming calls."
+    ::= { dialCtlPeerStatsEntry 1 }
+
+dialCtlPeerStatsChargedUnits OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of charging units applying to this
+         peer since system startup.
+         Only the charging units applying to the local interface,
+         i.e. for originated calls or for calls with 'Reverse
+         charging' being active, will be counted here."
+    ::= { dialCtlPeerStatsEntry 2 }
+
+dialCtlPeerStatsSuccessCalls OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of completed calls to this peer."
+    ::= { dialCtlPeerStatsEntry 3 }
+
+dialCtlPeerStatsFailCalls OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of failed call attempts to this peer since system
+         startup."
+    ::= { dialCtlPeerStatsEntry 4 }
+
+dialCtlPeerStatsAcceptCalls OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of calls from this peer accepted since system
+         startup."
+    ::= { dialCtlPeerStatsEntry 5 }
+
+dialCtlPeerStatsRefuseCalls OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of calls from this peer refused since system
+         startup."
+    ::= { dialCtlPeerStatsEntry 6 }
+
+dialCtlPeerStatsLastDisconnectCause OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The encoded network cause value associated with the last
+         call.
+         This object will be updated whenever a call is started
+         or cleared.
+         The value of this object will depend on the interface type
+         as well as on the protocol and protocol version being
+         used on this interface. Some references for possible cause
+         values are given below."
+    REFERENCE
+        "- Bellcore SR-NWT-001953, Generic Guidelines for
+           ISDN Terminal Equipment On Basic Access Interfaces,
+           chapter 5.2.5.8.
+         - Bellcore SR-NWT-002343, ISDN Primary Rate Interface
+           Generic Guidelines for Customer Premises Equipment,
+           chapter 8.2.5.8.
+         - ITU-T Q.931, Appendix I.
+         - ITU-T X.25, CAUSE and DIAGNOSTIC field values.
+         - German Telekom FTZ 1TR6, chapter 3.2.3.4.4.4."
+    ::= { dialCtlPeerStatsEntry 7 }
+
+dialCtlPeerStatsLastDisconnectText OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "ASCII text describing the reason for the last call
+         termination.
+        
+         This object exists because it would be impossible for
+         a management station to store all possible cause values
+         for all types of interfaces. It should be used only if
+         a management station is unable to decode the value of
+         dialCtlPeerStatsLastDisconnectCause.
+        
+         This object will be updated whenever a call is started
+         or cleared."
+    ::= { dialCtlPeerStatsEntry 8 }
+
+dialCtlPeerStatsLastSetupTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the last call to this peer
+         was started.
+         For ISDN media, this will be the time when the setup
+         message was received from or sent to the network.
+         This object will be updated whenever a call is started
+         or cleared."
+    ::= { dialCtlPeerStatsEntry 9 }
+
+callActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing information about active
+         calls to a specific destination."
+    ::= { callActive 1 }
+
+callActiveEntry OBJECT-TYPE
+    SYNTAX CallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single active Connection.
+         An entry in this table will be created when a call is
+         started. An entry in this table will be deleted when
+         an active call clears."
+    INDEX { callActiveSetupTime, callActiveIndex }
+    ::= { callActiveTable 1 }
+
+CallActiveEntry ::= SEQUENCE {
+    callActiveSetupTime TimeStamp,
+    callActiveIndex INTEGER,
+    callActivePeerAddress DisplayString,
+    callActivePeerSubAddress DisplayString,
+    callActivePeerId INTEGER,
+    callActivePeerIfIndex INTEGER,
+    callActiveLogicalIfIndex InterfaceIndexOrZero,
+    callActiveConnectTime TimeStamp,
+    callActiveCallState INTEGER,
+    callActiveCallOrigin INTEGER,
+    callActiveChargedUnits AbsoluteCounter32,
+    callActiveInfoType INTEGER,
+    callActiveTransmitPackets AbsoluteCounter32,
+    callActiveTransmitBytes AbsoluteCounter32,
+    callActiveReceivePackets AbsoluteCounter32,
+    callActiveReceiveBytes AbsoluteCounter32
+    }
+
+callActiveSetupTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the call associated to this
+         entry was started. This will be useful for an NMS to
+         retrieve all calls after a specific time. Also, this object
+         can be useful in finding large delays between the time the
+         call was started and the time the call was connected.
+         For ISDN media, this will be the time when the setup
+         message was received from or sent to the network."
+    ::= { callActiveEntry 1 }
+
+callActiveIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Small index variable to distinguish calls that start in
+         the same hundredth of a second."
+    ::= { callActiveEntry 2 }
+
+callActivePeerAddress OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number this call is connected to. If the number is
+         not available, then it will have a length of zero."
+    ::= { callActiveEntry 3 }
+
+callActivePeerSubAddress OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The subaddress this call is connected to. If the subaddress
+         is undefined or not available, this will be a zero length
+         string."
+    ::= { callActiveEntry 4 }
+
+callActivePeerId OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the Id value of the peer table entry
+         to which this call was made. If a peer table entry
+         for this call does not exist or is unknown, the value
+         of this object will be zero."
+    ::= { callActiveEntry 5 }
+
+callActivePeerIfIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the ifIndex value of the peer table entry
+         to which this call was made. If a peer table entry
+         for this call does not exist or is unknown, the value
+         of this object will be zero."
+    ::= { callActiveEntry 6 }
+
+callActiveLogicalIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax Integer32(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the ifIndex value of the logical interface through
+         which this call was made. For ISDN media, this would be
+         the ifIndex of the B channel which was used for this call.
+         If the ifIndex value is unknown, the value of this object
+         will be zero."
+    ::= { callActiveEntry 7 }
+
+callActiveConnectTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the call was connected.
+         If the call is not connected, this object will have a
+         value of zero."
+    ::= { callActiveEntry 8 }
+
+callActiveCallState OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        connecting(2),
+        connected(3),
+        active(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current call state.
+         unknown(1)     - The call state is unknown.
+         connecting(2)  - A connection attempt (outgoing call)
+                          is being made.
+         connected(3)   - An incoming call is in the process
+                          of validation.
+         active(4)      - The call is active."
+    ::= { callActiveEntry 9 }
+
+callActiveCallOrigin OBJECT-TYPE
+    SYNTAX INTEGER {
+        originate(1),
+        answer(2),
+        callback(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The call origin."
+    ::= { callActiveEntry 10 }
+
+callActiveChargedUnits OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of charged units for this connection.
+         For incoming calls or if charging information is
+         not supplied by the switch, the value of this object
+         will be zero."
+    ::= { callActiveEntry 11 }
+
+callActiveInfoType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        speech(2),
+        unrestrictedDigital(3),
+        unrestrictedDigital56(4),
+        restrictedDigital(5),
+        audio31(6),
+        audio7(7),
+        video(8),
+        packetSwitched(9),
+        fax(10)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The information type for this call."
+    ::= { callActiveEntry 12 }
+
+callActiveTransmitPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets which were transmitted for this
+         call."
+    ::= { callActiveEntry 13 }
+
+callActiveTransmitBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes which were transmitted for this
+         call."
+    ::= { callActiveEntry 14 }
+
+callActiveReceivePackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets which were received for this
+         call."
+    ::= { callActiveEntry 15 }
+
+callActiveReceiveBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes which were received for this call."
+    ::= { callActiveEntry 16 }
+
+callHistoryTableMaxLength OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The upper limit on the number of entries that the
+         callHistoryTable may contain.  A value of 0
+         will prevent any history from being retained. When
+         this table is full, the oldest entry will be deleted
+         and the new one will be created."
+    ::= { callHistory 1 }
+
+callHistoryRetainTimer OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum amount of time that an callHistoryEntry
+         will be maintained before being deleted. A value of
+         0 will prevent any history from being retained in the
+         callHistoryTable, but will neither prevent callCompletion
+         traps being generated nor affect other tables."
+    ::= { callHistory 2 }
+
+callHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing information about specific
+         calls to a specific destination."
+    ::= { callHistory 3 }
+
+callHistoryEntry OBJECT-TYPE
+    SYNTAX CallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single Connection."
+    INDEX { callActiveSetupTime, callActiveIndex }
+    ::= { callHistoryTable 1 }
+
+CallHistoryEntry ::= SEQUENCE {
+    callHistoryPeerAddress DisplayString,
+    callHistoryPeerSubAddress DisplayString,
+    callHistoryPeerId INTEGER,
+    callHistoryPeerIfIndex INTEGER,
+    callHistoryLogicalIfIndex InterfaceIndex(1..65535),
+    callHistoryDisconnectCause OCTET STRING,
+    callHistoryDisconnectText DisplayString,
+    callHistoryConnectTime TimeStamp,
+    callHistoryDisconnectTime TimeStamp,
+    callHistoryCallOrigin INTEGER,
+    callHistoryChargedUnits AbsoluteCounter32,
+    callHistoryInfoType INTEGER,
+    callHistoryTransmitPackets AbsoluteCounter32,
+    callHistoryTransmitBytes AbsoluteCounter32,
+    callHistoryReceivePackets AbsoluteCounter32,
+    callHistoryReceiveBytes AbsoluteCounter32
+    }
+
+callHistoryPeerAddress OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number this call was connected to. If the number is
+         not available, then it will have a length of zero."
+    ::= { callHistoryEntry 1 }
+
+callHistoryPeerSubAddress OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The subaddress this call was connected to. If the subaddress
+         is undefined or not available, this will be a zero length
+         string."
+    ::= { callHistoryEntry 2 }
+
+callHistoryPeerId OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the Id value of the peer table entry
+         to which this call was made. If a peer table entry
+         for this call does not exist, the value of this object
+         will be zero."
+    ::= { callHistoryEntry 3 }
+
+callHistoryPeerIfIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the ifIndex value of the peer table entry
+         to which this call was made. If a peer table entry
+         for this call does not exist, the value of this object
+         will be zero."
+    ::= { callHistoryEntry 4 }
+
+callHistoryLogicalIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex(1..65535)
+--    Rsyntax Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the ifIndex value of the logical interface through
+         which this call was made. For ISDN media, this would be
+         the ifIndex of the B channel which was used for this call."
+    ::= { callHistoryEntry 5 }
+
+callHistoryDisconnectCause OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The encoded network cause value associated with this call.
+        
+         The value of this object will depend on the interface type
+         as well as on the protocol and protocol version being
+         used on this interface. Some references for possible cause
+         values are given below."
+    REFERENCE
+        "- Bellcore SR-NWT-001953, Generic Guidelines for
+           ISDN Terminal Equipment On Basic Access Interfaces,
+           chapter 5.2.5.8.
+         - Bellcore SR-NWT-002343, ISDN Primary Rate Interface
+           Generic Guidelines for Customer Premises Equipment,
+           chapter 8.2.5.8.
+         - ITU-T Q.931, Appendix I.
+         - ITU-T X.25, CAUSE and DIAGNOSTIC field values.
+         - German Telekom FTZ 1TR6, chapter 3.2.3.4.4.4."
+    ::= { callHistoryEntry 6 }
+
+callHistoryDisconnectText OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "ASCII text describing the reason for call termination.
+        
+         This object exists because it would be impossible for
+         a management station to store all possible cause values
+         for all types of interfaces. It should be used only if
+         a management station is unable to decode the value of
+         dialCtlPeerStatsLastDisconnectCause."
+    ::= { callHistoryEntry 7 }
+
+callHistoryConnectTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the call was connected."
+    ::= { callHistoryEntry 8 }
+
+callHistoryDisconnectTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the call was disconnected."
+    ::= { callHistoryEntry 9 }
+
+callHistoryCallOrigin OBJECT-TYPE
+    SYNTAX INTEGER {
+        originate(1),
+        answer(2),
+        callback(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The call origin."
+    ::= { callHistoryEntry 10 }
+
+callHistoryChargedUnits OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of charged units for this connection.
+         For incoming calls or if charging information is
+         not supplied by the switch, the value of this object
+         will be zero."
+    ::= { callHistoryEntry 11 }
+
+callHistoryInfoType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        speech(2),
+        unrestrictedDigital(3),
+        unrestrictedDigital56(4),
+        restrictedDigital(5),
+        audio31(6),
+        audio7(7),
+        video(8),
+        packetSwitched(9),
+        fax(10)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The information type for this call."
+    ::= { callHistoryEntry 12 }
+
+callHistoryTransmitPackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets which were transmitted while this
+         call was active."
+    ::= { callHistoryEntry 13 }
+
+callHistoryTransmitBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes which were transmitted while this
+         call was active."
+    ::= { callHistoryEntry 14 }
+
+callHistoryReceivePackets OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets which were received while this
+         call was active."
+    ::= { callHistoryEntry 15 }
+
+callHistoryReceiveBytes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes which were received while this
+         call was active."
+    ::= { callHistoryEntry 16 }
+
+dialCtlPeerCallInformation TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE dialControlMibTrapPrefix
+    VARIABLES {
+        callHistoryPeerId, callHistoryPeerIfIndex, 
+        callHistoryLogicalIfIndex, ifOperStatus, 
+        callHistoryPeerAddress, callHistoryPeerSubAddress, 
+        callHistoryDisconnectCause, callHistoryConnectTime, 
+        callHistoryDisconnectTime, callHistoryInfoType, 
+        callHistoryCallOrigin }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap/inform is sent to the manager whenever
+         a successful call clears, or a failed call attempt
+         is determined to have ultimately failed. In the
+         event that call retry is active, then this is after
+         all retry attempts have failed. However, only one such
+         trap is sent in between successful call attempts;
+         subsequent call attempts result in no trap.
+         ifOperStatus will return the operational status of the
+         virtual interface associated with the peer to whom
+         this call was made to."
+    ::= 1
+
+dialCtlPeerCallSetup TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE dialControlMibTrapPrefix
+    VARIABLES {
+        callActivePeerId, callActivePeerIfIndex, 
+        callActiveLogicalIfIndex, ifOperStatus, 
+        callActivePeerAddress, callActivePeerSubAddress, 
+        callActiveInfoType, callActiveCallOrigin }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap/inform is sent to the manager whenever
+         a call setup message is received or sent.
+         ifOperStatus will return the operational status of the
+         virtual interface associated with the peer to whom
+         this call was made to."
+    ::= 2
+
+dialControlGroup OBJECT IDENTIFIER ::= { dialControlMibGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the DIAL CONTROL
+--     capability.
+--  objects
+--    dialCtlAcceptMode, dialCtlTrapEnable, dialCtlPeerCfgIfType, 
+--    dialCtlPeerCfgLowerIf, dialCtlPeerCfgOriginateAddress, 
+--    dialCtlPeerCfgAnswerAddress, dialCtlPeerCfgSubAddress, 
+--    dialCtlPeerCfgClosedUserGroup, dialCtlPeerCfgSpeed, 
+--    dialCtlPeerCfgInfoType, dialCtlPeerCfgPermission, 
+--    dialCtlPeerCfgInactivityTimer, dialCtlPeerCfgMinDuration, 
+--    dialCtlPeerCfgMaxDuration, dialCtlPeerCfgCarrierDelay, 
+--    dialCtlPeerCfgCallRetries, dialCtlPeerCfgRetryDelay, 
+--    dialCtlPeerCfgFailureDelay, dialCtlPeerCfgTrapEnable, 
+--    dialCtlPeerCfgStatus, dialCtlPeerStatsConnectTime, 
+--    dialCtlPeerStatsChargedUnits, dialCtlPeerStatsSuccessCalls, 
+--    dialCtlPeerStatsFailCalls, dialCtlPeerStatsAcceptCalls, 
+--    dialCtlPeerStatsRefuseCalls, 
+--    dialCtlPeerStatsLastDisconnectCause, 
+--    dialCtlPeerStatsLastDisconnectText, 
+--    dialCtlPeerStatsLastSetupTime
+
+callActiveGroup OBJECT IDENTIFIER ::= { dialControlMibGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the active call
+--     capability.
+--  objects
+--    callActivePeerAddress, callActivePeerSubAddress, 
+--    callActivePeerId, callActivePeerIfIndex, 
+--    callActiveLogicalIfIndex, callActiveConnectTime, 
+--    callActiveCallState, callActiveCallOrigin, 
+--    callActiveChargedUnits, callActiveInfoType, 
+--    callActiveTransmitPackets, callActiveTransmitBytes, 
+--    callActiveReceivePackets, callActiveReceiveBytes
+
+callHistoryGroup OBJECT IDENTIFIER ::= { dialControlMibGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the Call History
+--     capability.
+--  objects
+--    callHistoryTableMaxLength, callHistoryRetainTimer, 
+--    callHistoryPeerAddress, callHistoryPeerSubAddress, 
+--    callHistoryPeerId, callHistoryPeerIfIndex, 
+--    callHistoryLogicalIfIndex, callHistoryDisconnectCause, 
+--    callHistoryDisconnectText, callHistoryConnectTime, 
+--    callHistoryDisconnectTime, callHistoryCallOrigin, 
+--    callHistoryChargedUnits, callHistoryInfoType, 
+--    callHistoryTransmitPackets, callHistoryTransmitBytes, 
+--    callHistoryReceivePackets, callHistoryReceiveBytes
+
+dialControlMibCompliance OBJECT IDENTIFIER ::= { dialControlMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the DIAL CONTROL MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    dialControlGroup
+--   MandGroup
+--    callActiveGroup
+--   MandGroup
+--    callHistoryGroup
+
+
+END
+

@@ -1,0 +1,311 @@
+--
+-- Copyright (c) 1994 by cisco Systems, Inc.
+-- All rights reserved.
+--
+--------------------------------------------------------------------
+
+A100-R1-MIB DEFINITIONS ::= BEGIN
+
+    IMPORTS
+        enterprises                FROM RFC1155-SMI
+        OBJECT-TYPE                FROM RFC-1212
+        DisplayString              FROM RFC1213-MIB;
+
+-- ciscoA100Mib MODULE-IDENTITY
+--         LAST-UPDATED    "9411170000Z"
+--         ORGANIZATION    "Cisco Systems, Inc."
+--         CONTACT-INFO
+--                 "       Cisco Systems
+--                         Customer Service
+-- 
+--                 Postal: 170 W Tasman Drive
+--                        San Jose, CA  95134
+--                        USA
+--
+--                   Tel: +1 800 553-NETS
+--
+--                E-mail: cs-atm@cisco.com"
+--        DESCRIPTION
+--                "The MIB for the Cisco/NEC A100 ATM switch."
+--        REVISION        "9411170000Z"
+--        DESCRIPTION
+--                "Initial version of this MIB module."
+--        ::= { xxx }
+
+    nec               OBJECT IDENTIFIER ::= { enterprises 119 }
+    nec-mib           OBJECT IDENTIFIER ::= { nec 2 }
+    necProductDepend  OBJECT IDENTIFIER ::= { nec-mib 3 }
+    atomis-mib        OBJECT IDENTIFIER ::= { necProductDepend 14 }
+    m5core-mib        OBJECT IDENTIFIER ::= { atomis-mib 3 }
+
+
+--     MIB Groups
+--
+--     Node group
+    node              OBJECT IDENTIFIER ::= { m5core-mib 1 }
+--     Line interface group
+    linf              OBJECT IDENTIFIER ::= { m5core-mib 2 }
+--     Connection group
+    conn              OBJECT IDENTIFIER ::= { m5core-mib 3 }
+--     Performance group
+    perf              OBJECT IDENTIFIER ::= { m5core-mib 4 }
+
+
+
+--        The Node Group
+
+nodeOperStatus OBJECT-TYPE
+    SYNTAX        INTEGER {
+                    down(1),
+                    active(2),
+                    off-line(3),
+                    testing(4),
+                    initializing(5)
+            }
+    ACCESS        read-only
+    STATUS        mandatory
+    DESCRIPTION
+            "Operational status of the Model 5."
+    ::= { node 1 }
+
+nodeIfConfTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF NodeIfConfEntry
+    ACCESS        not-accessible
+    STATUS        mandatory
+    DESCRIPTION
+            "Configuration of the line cards."
+    ::= { node 2 }
+
+nodeIfConfEntry OBJECT-TYPE
+    SYNTAX        NodeIfConfEntry
+    ACCESS        not-accessible
+    STATUS        mandatory
+    DESCRIPTION
+            "-"
+    INDEX        { nodeIfConfIndex }
+    ::= { nodeIfConfTable 1 }
+
+NodeIfConfEntry ::= SEQUENCE {
+    nodeIfConfIndex      INTEGER,
+    nodeIfConfPhysType   INTEGER,
+    nodeIfConfRev        DisplayString,
+    nodeIfConfStatus     INTEGER
+}
+
+nodeIfConfIndex OBJECT-TYPE
+    SYNTAX        INTEGER
+    ACCESS        read-only
+    STATUS        mandatory
+    DESCRIPTION
+            "The index of the table."
+    ::= { nodeIfConfEntry 1 }
+
+nodeIfConfPhysType OBJECT-TYPE
+    SYNTAX        INTEGER {
+                    other(1),
+                    sar(2),
+                    taxi100M(3),
+                    oc3cSMF(4),
+                    oc-3cMMF(5),
+                    ds3-PLCP-SCRAMBLE(6),
+                    ds3-PLCP-noScramble(7),
+                    relay-6Mcel(8),
+                    notInstalled(99)
+            }
+    ACCESS        read-only
+    STATUS        mandatory
+    DESCRIPTION
+            "The PMD/physical layer format of the line cards."
+    ::= { nodeIfConfEntry 2 }
+
+nodeIfConfRev OBJECT-TYPE
+    SYNTAX        DisplayString
+    ACCESS        read-only
+    STATUS        mandatory
+    DESCRIPTION
+            "The revision of the line cards.
+            Implemented by JUL/1994."
+    ::= { nodeIfConfEntry 3 }
+
+nodeIfConfStatus OBJECT-TYPE
+    SYNTAX        INTEGER {
+                    other(1),
+                    inService(2),
+                    outOfService(3),
+                    testing(4),
+                    localLoopBack(5),
+                    remoteLoopBack(6),
+                    notInstalled(99)
+            }
+    ACCESS        read-only
+    STATUS        mandatory
+    DESCRIPTION
+            "Operational status of the line cards."
+    ::= { nodeIfConfEntry 4 }
+
+nodeFanStatus OBJECT-TYPE
+    SYNTAX        INTEGER {
+                    up(1),
+                    down(2)
+            }
+    ACCESS        read-only
+    STATUS        mandatory
+    DESCRIPTION
+            "Operational status of the FAN."
+    ::= { node 3 }
+
+nodeUpcWindowSize OBJECT-TYPE
+    SYNTAX        INTEGER (1..120)
+    ACCESS        read-write
+    STATUS        mandatory
+    DESCRIPTION
+            "UPC window size. Integer Wi represents Wi X 512 cell time. 
+            Wi=1 correspond to 1.4msec. Wi=120 correspond to 168msec.
+            It is not allowed to change window size when the PVC is 
+            exsisting."
+    ::= { node 4 }
+
+nodeBestEffortBufferSize OBJECT-TYPE
+    SYNTAX        INTEGER (0..16)
+    ACCESS        read-write
+    STATUS        mandatory
+    DESCRIPTION
+            "Input buffer capacity for Best Effort traffic(Bb). The number 
+            of cells stored in the buffer is Bb X 128. The default value is
+            0. The sum of the buffer capacity is 2047 cells."
+    ::= { node 5 }
+
+nodeGuaranteedBufferSize OBJECT-TYPE
+    SYNTAX        INTEGER (0..16)
+    ACCESS        read-write
+    STATUS        mandatory
+    DESCRIPTION
+            "Input buffer capacity for Guaranteed traffic(Bg). The number 
+            of cells stored in the buffer is Bg X 128. The default value is
+            0. The sum of the buffer capacity is 2047 cells."
+    ::= { node 6 }
+
+nodeBestEffortBufferThreshold OBJECT-TYPE
+    SYNTAX        INTEGER (0..16)
+    ACCESS        read-write
+    STATUS        mandatory
+    DESCRIPTION
+            "Threshold buffer capacity for Best Effort traffic. If the 
+            number of cells stored in the buffer exceeds this threshold,
+            cells with CLP=1 and traffic defined as UBR will be discarded."
+    ::= { node 7 }
+
+nodeGuaranteedBufferThreshold OBJECT-TYPE
+    SYNTAX        INTEGER (0..16)
+    ACCESS        read-write
+    STATUS        mandatory
+    DESCRIPTION
+            "Threshold buffer capacity for Guaranteed traffic. If the 
+            number of cells stored in the buffer exceeds this threshold,
+            cells with CLP=1 and traffic defined as VBR will be discarded."
+    ::= { node 8 }
+
+nodeSaveConf OBJECT-TYPE
+    SYNTAX        INTEGER {
+                    save(1)
+            }
+    ACCESS        write-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Save system configuration information including PVC/SVC table
+             to the non-volatile memory. save(1) shall be written in case
+             of saving the configiration data."
+    ::= { node 9 }
+
+nodeSaveResult OBJECT-TYPE
+    SYNTAX        INTEGER {
+                    temporaryFailure(1),                        
+                    notReady(2),
+                    ready(3),
+                    succeed(4),
+                    nearend(5)
+            }
+    ACCESS        read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Show the result of the save command issued from NMS. 
+             The result is either Succeed/temporary failure/notReady. 
+             nearend will be returned if the number of access times 
+             has exceeded the limit."
+    ::= { node 10 }
+
+
+--        The Linf Group
+
+linfStatusTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF LinfStatusEntry
+    ACCESS        not-accessible
+    STATUS        mandatory
+    DESCRIPTION
+            "Status of the line card including ATM specific information."
+    ::= { linf 1 }
+
+linfStatusEntry OBJECT-TYPE
+    SYNTAX        LinfStatusEntry
+    ACCESS        not-accessible
+    STATUS        mandatory
+    DESCRIPTION
+            " - "
+    INDEX        { linfIndex }
+    ::= { linfStatusTable 1 }
+
+LinfStatusEntry ::= SEQUENCE {
+    linfIndex      INTEGER,
+    linfStatus     INTEGER,
+    linfConf       INTEGER
+    }
+
+linfIndex OBJECT-TYPE
+    SYNTAX        INTEGER(1..64)
+    ACCESS        read-only
+    STATUS        mandatory
+    DESCRIPTION
+            " - "
+    ::= { linfStatusEntry 1 }
+            
+linfStatus OBJECT-TYPE
+    SYNTAX  INTEGER {
+                    normal(1),
+                    los(2),
+                    lof(3),
+                    loc(4),
+                    ais(5),
+                    yellow-line(6),
+                    yellow-path(7),
+                    lop(8),
+                    notInstalled(99)
+            }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Status of the line cards"
+    ::= { linfStatusEntry 2 }
+
+linfConf OBJECT-TYPE
+    SYNTAX        INTEGER {
+                    public-UNI(1),
+                    private-UNI(2),
+                    private-NNI(3),
+                    others(99)
+            }
+    ACCESS        read-write
+    STATUS        mandatory
+    DESCRIPTION
+            "Line card type."
+    ::= {  linfStatusEntry  3 }
+
+--        The Conn (Connection & Traffic for accounting) Group
+
+-- to be included in next release
+
+--        The Perf (Performance) Group
+
+-- to be included in next release
+ 
+END
+

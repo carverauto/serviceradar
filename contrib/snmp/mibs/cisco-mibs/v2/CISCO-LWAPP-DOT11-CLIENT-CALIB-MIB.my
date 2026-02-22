@@ -1,0 +1,970 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOT11-CLIENT-CALIB-MIB.my
+-- Dot11 Wireless Clients Calibration MIB
+--   
+-- December 2005, Devesh Pujari, Prasanna Viswakumar
+--   
+-- Copyright (c) 2005-2006, 2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DOT11-CLIENT-CALIB-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp,
+    MacAddress,
+    TimeInterval,
+    TruthValue,
+    RowStatus,
+    StorageType
+        FROM SNMPv2-TC
+    cLApSysMacAddress,
+    cLApDot11IfSlotId
+        FROM CISCO-LWAPP-AP-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappDot11ClientCalibMIB MODULE-IDENTITY
+    LAST-UPDATED    "201904090000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        Information provided by this MIB is about the
+        configuration and monitoring of 802.11 wireless
+        clients in the network.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+        -------------------
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+        --------------------------------------------
+
+        This is a generic protocol that defines the 
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+        ------------------
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. Mobile Node,
+        Mobile Station(Ms) and client are used 
+        interchangeably. 
+
+        Signal to Noise Ratio ( SNR )
+        -----------------------------
+
+        It is a measure used in science and engineering 
+        that compares the level of a desired signal to 
+        the level of background noise. It is defined as 
+        the ratio of signal power to the noise power. 
+        A ratio higher than 1:1 indicates more signal than 
+        noise. While SNR is commonly quoted for electrical 
+        signals, it can be applied to any form of signal.
+
+        Received Signal Strength Indicator ( RSSI )
+        -------------------------------------------
+
+        It is a measurement of the power present in a 
+        received radio signal. 
+
+        Radio Frequency Identification ( RFID )
+        -------------------------------------------
+
+        It is a technology that uses radio waves to transfer data 
+        from an electronic tag, called RFID tag or label, attached 
+        to an object, through a reader for the purpose of identifying 
+        and tracking the object. 
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications 
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol"
+    REVISION        "201904090000Z"
+    DESCRIPTION
+        "Added Following scalar objects
+        - cLD11RfidRssiExpiryTime
+        - cLD11RfidRssiHalflifeTime
+        - cLD11RfidNotifyThresholdTime
+        - cLD11RfidDataEnable
+        - cLD11RfidTimeout"        
+    REVISION        "201111250000Z"
+    DESCRIPTION
+        "Added following OBJECT-GROUP:
+        - cLD11ClientCalibClientConfigGroup
+        - cLD11ClientCalibGlobalConfigGroup
+        - cLD11ClientCalibRssiDataSampleGroup
+        Depreated following OBJECT-GROUP:
+        - ciscoLwappDot11ClientCalibMIBConfigGroup
+        Added new compliance:
+        - ciscoLwappDot11ClientCalibMIBComplianceRev1"
+    REVISION        "200702120000Z"
+    DESCRIPTION
+        "Added ciscoLwappDot11ClientCalibMIBConfigGroupSup1
+        OBJECT-GROUP."
+    REVISION        "200604110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 522 }
+
+
+ciscoLwappDot11ClientCalibMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCalibMIB 0 }
+
+ciscoLwappDot11ClientCalibMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCalibMIB 1 }
+
+ciscoLwappDot11ClientCalibMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCalibMIB 2 }
+
+cldccConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCalibMIBObjects 1 }
+
+cldccStatus  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCalibMIBObjects 2 }
+
+cldccRssiSamples  OBJECT IDENTIFIER
+    ::= { cldccStatus 1 }
+
+-- ********************************************************************
+-- Wireless Client Calibration
+-- ********************************************************************
+
+cLD11ClientCalibTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLD11ClientCalibEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the calibration for the
+        802.11 wireless clients that would associate
+        to the APs that have joined this controller.
+
+        An entry is created through an explicit management
+        action initiated by the administrator through a
+        network management station by specifying the
+        calibration parameters for a particular client
+        identified by cLD11ClientCalibMacAddress and setting
+        the RowStatus object to 'createAndGo'.  An existing
+        entry is deleted by setting the RowStatus object to 
+        'destroy'.  The object cLD11ClientCalibTableMaxEntries
+        represents the maximum number of entries in this
+        table."
+    ::= { cldccConfig 1 }
+
+cLD11ClientCalibEntry OBJECT-TYPE
+    SYNTAX          CLD11ClientCalibEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this
+        table and provides the information about the
+        calibration parameters for wireless clients."
+    INDEX           { cLD11ClientCalibMacAddress } 
+    ::= { cLD11ClientCalibTable 1 }
+
+CLD11ClientCalibEntry ::= SEQUENCE {
+        cLD11ClientCalibMacAddress        MacAddress,
+        cLD11ClientCalibBeaconInterval    TimeInterval,
+        cLD11ClientCalibRowStatus         RowStatus,
+        cLD11ClientCalibNumberOfRadios    Unsigned32,
+        cLD11ClientCalibNumberOfSamples   Unsigned32,
+        cLD11ClientCalibSamplesCollected  Unsigned32,
+        cLD11ClientCalibBeaconIntervalExt TimeInterval,
+        cLD11ClientCalibStorageType       StorageType
+}
+
+cLD11ClientCalibMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the MAC address of the
+        802.11 wireless client for which the 
+        calibration parameters in this entry are 
+        applicable and uniquely identifies this entry." 
+    ::= { cLD11ClientCalibEntry 1 }
+
+cLD11ClientCalibBeaconInterval OBJECT-TYPE
+    SYNTAX          TimeInterval (400..3240000)
+    UNITS           "hundredths-seconds"
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the time interval, expressed
+        here in hundredths of a second at which an AP
+        issues radio measurement request messages to a
+        client for every SSID.  It is not recommended to
+        configure values less than 10 seconds (1000).
+        The value configured through this object is
+        reflected in the operation of the LWAPP APs only if
+        cLD11ClientCalibBeaconEnabled is set to 'true'.
+
+        This object has been deprecated and is replaced by the
+        object cLD11ClientCalibBeaconIntervalExt."
+    DEFVAL          { 60000 } 
+    ::= { cLD11ClientCalibEntry 2 }
+
+cLD11ClientCalibRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object that represents the status of a
+        specific instance of a row in this table.
+        Initially set to a value of 'createAndGo' by
+        the User when a row is created, the status
+        as represented by this object is automatically
+        set to 'active' if and when the row creation
+        is successful.  To delete the specific instance
+        of a row, User should set this object to
+        'destroy'. To create an entry in this table, it is
+        mandatory to specify the cLD11ClientCalibMacAddress,
+        cLD11ClientCalibNumberOfRadios (number of radios 
+        to be used in the calibration) and 
+        cLD11ClientCalibNumberOfSamples (no. of calibration
+        samples to be collected per radio)." 
+    ::= { cLD11ClientCalibEntry 3 }
+
+cLD11ClientCalibNumberOfRadios OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of radios
+        used in this calibration." 
+    ::= { cLD11ClientCalibEntry 4 }
+
+cLD11ClientCalibNumberOfSamples OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of RSSI samples for
+        a given radio, used in this calibration." 
+    ::= { cLD11ClientCalibEntry 5 }
+
+cLD11ClientCalibSamplesCollected OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of
+        samples available for this client." 
+    ::= { cLD11ClientCalibEntry 6 }
+
+cLD11ClientCalibBeaconIntervalExt OBJECT-TYPE
+    SYNTAX          TimeInterval
+    UNITS           "hundredths-seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time interval, expressed
+        here in hundredths of a second at which an AP
+        issues radio measurement request messages to a
+        client for every SSID.  It is not recommended to
+        configure values less than 10 seconds (1000).
+        The value configured through this object is
+        reflected in the operation of the LWAPP APs only if
+        cLD11ClientCalibBeaconEnabled is set to 'true'."
+    DEFVAL          { 60000 } 
+    ::= { cLD11ClientCalibEntry 7 }
+
+cLD11ClientCalibStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type of this
+        conceptual row."
+    DEFVAL          { volatile } 
+    ::= { cLD11ClientCalibEntry 8 }
+ 
+
+
+cLD11ClientCalibTableMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..25)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of entries allowed
+        in cLD11ClientCalibTable." 
+    ::= { cldccConfig 2 }
+-- ********************************************************************
+-- *  Client Calibration RSSI Data table
+-- ********************************************************************
+
+cLD11ClientCalibDataTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLD11ClientCalibDataEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the RSSI data samples
+        collected for 802.11 client based on the 
+        information provided in the cldccLD11ClientCalibTable.
+        Entries are automatically added by the controller
+        as and when samples are available.
+        This data is used by the NMS for location
+        calibration of the 8022.11 clients."
+    ::= { cldccRssiSamples 1 }
+
+cLD11ClientCalibDataEntry OBJECT-TYPE
+    SYNTAX          CLD11ClientCalibDataEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this
+        table and provides the information about the
+        samples for location calibration of a 802.11 
+        client."
+    INDEX           {
+                        cLD11ClientCalibMacAddress,
+                        cLApSysMacAddress,
+                        cLApDot11IfSlotId,
+                        clD11ClientCalibDataTimeStamp,
+                        clD11ClientCalibDataAntennaIndex
+                    } 
+    ::= { cLD11ClientCalibDataTable 1 }
+
+CLD11ClientCalibDataEntry ::= SEQUENCE {
+        clD11ClientCalibDataTimeStamp     TimeStamp,
+        clD11ClientCalibDataAntennaIndex  INTEGER,
+        clD11ClientCalibDataRssiValue     Integer32,
+        clD11ClientCalibDataTransmitPower Integer32
+}
+
+clD11ClientCalibDataTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    UNITS           "milliseconds"
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time this sample was
+        collected. This is the absolute system time that 
+        this sample was collected." 
+    ::= { cLD11ClientCalibDataEntry 1 }
+
+clD11ClientCalibDataAntennaIndex OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        antenna1(1),
+                        antenna2(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the antenna which
+        received the probe request from client." 
+    ::= { cLD11ClientCalibDataEntry 2 }
+
+clD11ClientCalibDataRssiValue OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the RSSI value for this
+        sample." 
+    ::= { cLD11ClientCalibDataEntry 3 }
+
+clD11ClientCalibDataTransmitPower OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dbm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the transmit power level for
+        a calibrating client." 
+    ::= { cLD11ClientCalibDataEntry 4 }
+ 
+
+
+-- ********************************************************************
+-- *  Location scalars
+-- ********************************************************************
+
+cLD11ClientCalibRssiAlgorithm OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        simple(2),
+                        average(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the algorithm used
+        to average RSSI and SNR values. 
+          unknown(1)  - the algorithm used is unknown
+          simple(2)   - simple is used for the calculation
+          average(3)  - average RSSI is used as algorithm" 
+    ::= { cldccConfig 3 }
+
+cLD11ClientCalibRssiClientExpiryTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the expiry timeout
+        for the client." 
+    ::= { cldccConfig 4 }
+
+cLD11ClientCalibRssiCalibClientExpiryTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the expiry timeout
+        for the calibrating client." 
+    ::= { cldccConfig 5 }
+
+cLD11ClientCalibRssiRfidTagExpiryTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the expiry timeout
+        for the RFID tags." 
+    ::= { cldccConfig 6 }
+
+cLD11ClientCalibRssiRogueApExpiryTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the expiry timeout
+        for the Rogue APs." 
+    ::= { cldccConfig 7 }
+
+cLD11ClientCalibRssiClientHalflifeTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the half-life timeout
+        for the client. A value of 0 indicates that
+        timeout is disabled." 
+    ::= { cldccConfig 8 }
+
+cLD11ClientCalibRssiCalibClientHalflifeTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the half-life timeout
+        for the calibrating client. A value of 0 indicates
+        that timeout is disabled." 
+    ::= { cldccConfig 9 }
+
+cLD11ClientCalibRssiRfidTagHalflifeTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the half-life timeout
+        for the RFID tags. A value of 0 indicates that
+        timeout is disabled." 
+    ::= { cldccConfig 10 }
+
+cLD11ClientCalibRssiRogueApHalflifeTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the half-life timeout
+        for the Rogue APs. A value of 0 indicates that
+        timeout is disabled." 
+    ::= { cldccConfig 11 }
+
+cLD11ClientCalibRfidDataEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the RFID tag data
+        collection is enabled." 
+    ::= { cldccConfig 12 }
+
+cLD11ClientCalibRfidTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the RFID tag data timeout." 
+    ::= { cldccConfig 13 }
+
+cLD11ClientCalibClientMultiBandEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether calibrating client
+        uses both the bands to transmit the requests.
+
+          true  - the calibrating client uses both the bands
+                  to transmit the requests.
+          false - the calibrating client uses single band
+                  to transmit the requests." 
+    ::= { cldccConfig 14 }
+
+cLD11ClientCalibClientRequestEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether calibrating client
+        uses uni band or multi band to transmit the requests.
+
+          true  - the calibrating client uses uni band or
+                  multi band to transmit the requests.
+          false - the calibrating client does not use
+                  any band for transmitting requests." 
+    ::= { cldccConfig 15 }
+
+cLD11ClientCalibClientBurstIntervalEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether calibrating client
+        burst interval is enabled.
+
+          true  - the calibrating client burst interval
+                  is enabled.
+          false - the calibrating client burst interval
+                  is disabled." 
+    ::= { cldccConfig 16 }
+
+cLD11ClientCalibClientBurstInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the burst interval of
+        the calibrating client." 
+    ::= { cldccConfig 17 }
+
+cLD11ClientCalibClientInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the notification interval
+        for calibrating clients." 
+    ::= { cldccConfig 18 }
+
+cLD11ClientCalibRfidInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the notification interval
+        for RFID tags." 
+    ::= { cldccConfig 19 }
+
+cLD11ClientCalibRogueInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the notification interval
+        for Rogue APs and Rogue clients." 
+    ::= { cldccConfig 20 }
+
+cLD11RfidRssiExpiryTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Rssi expiry time
+        for RFID location tag."
+    ::={ cldccConfig 21 }
+
+cLD11RfidRssiHalflifeTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Rssi half-life time
+        for RFID location tag."
+    ::={ cldccConfig 22 }
+
+cLD11RfidNotifyThresholdTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the notify-threshold time
+        for RFID tag."
+    ::={ cldccConfig 24 }
+
+cLD11RfidDataEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies enable and disable the
+        for RFID etag.
+
+          true  - RFID tag collection is enabled
+          false - RFID tag collection is disabled"
+
+    ::={ cldccConfig 25 }
+
+cLD11RfidTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the notify-threshold time
+        for RFID tag."
+
+    ::={ cldccConfig 26 }
+
+-- *******************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappDot11ClientCalibMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCalibMIBConform 1 }
+
+ciscoLwappDot11ClientCalibMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCalibMIBConform 2 }
+
+
+-- STATUS deprecated by ciscoLwappDot11ClientCalibMIBComplianceRev1
+
+ciscoLwappDot11ClientCalibMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappDot11ClientCalibMIBConfigGroup }
+    ::= { ciscoLwappDot11ClientCalibMIBCompliances 1 }
+
+ciscoLwappDot11ClientCalibMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cLD11ClientCalibClientConfigGroup,
+                        cLD11ClientCalibGlobalConfigGroup,
+                        cLD11ClientCalibRssiDataSampleGroup
+                    }
+
+    OBJECT          cLD11ClientCalibRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibBeaconIntervalExt
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibNumberOfRadios
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibNumberOfSamples
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibTableMaxEntries
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiAlgorithm
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiClientExpiryTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiCalibClientExpiryTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiRfidTagExpiryTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiRogueApExpiryTimeout
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiClientHalflifeTimeout
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiCalibClientHalflifeTimeout
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiRfidTagHalflifeTimeout
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRssiRogueApHalflifeTimeout
+    SYNTAX          Unsigned32 (0..2 | 5 | 10 | 20 | 30 
+    							| 60 | 90 | 120 | 180 | 300)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRfidDataEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRfidTimeout
+    SYNTAX          Unsigned32 (60..7200)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibClientMultiBandEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibClientRequestEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibClientBurstIntervalEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibClientBurstInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibClientInterval
+    SYNTAX          Unsigned32 (1..180)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRfidInterval
+    SYNTAX          Unsigned32 (1..180)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cLD11ClientCalibRogueInterval
+    SYNTAX          Unsigned32 (1..180)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoLwappDot11ClientCalibMIBCompliances 2 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappDot11ClientCalibMIBConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLD11ClientCalibBeaconInterval,
+                        cLD11ClientCalibRowStatus,
+                        cLD11ClientCalibTableMaxEntries
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects specifies the required
+        calibration parameters for the 802.11 wireless clients.
+        ciscoLwappDot11ClientCalibMIBConfigGroup object is 
+        superseded by cLD11ClientCalibClientConfigGroup."
+    ::= { ciscoLwappDot11ClientCalibMIBGroups 1 }
+
+cLD11ClientCalibClientConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLD11ClientCalibRowStatus,
+                        cLD11ClientCalibBeaconIntervalExt,
+                        cLD11ClientCalibNumberOfRadios,
+                        cLD11ClientCalibNumberOfSamples,
+                        cLD11ClientCalibSamplesCollected,
+                        cLD11ClientCalibStorageType,
+                        cLD11ClientCalibTableMaxEntries
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects providing the required
+        calibration parameters for the 802.11 wireless
+        clients."
+    ::= { ciscoLwappDot11ClientCalibMIBGroups 2 }
+
+cLD11ClientCalibGlobalConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLD11ClientCalibRssiAlgorithm,
+                        cLD11ClientCalibRssiClientExpiryTimeout,
+                        cLD11ClientCalibRssiCalibClientExpiryTimeout,
+                        cLD11ClientCalibRssiRfidTagExpiryTimeout,
+                        cLD11ClientCalibRssiRogueApExpiryTimeout,
+                        cLD11ClientCalibRssiClientHalflifeTimeout,
+                        cLD11ClientCalibRssiCalibClientHalflifeTimeout,
+                        cLD11ClientCalibRssiRfidTagHalflifeTimeout,
+                        cLD11ClientCalibRssiRogueApHalflifeTimeout,
+                        cLD11ClientCalibRfidDataEnable,
+                        cLD11ClientCalibRfidTimeout,
+                        cLD11ClientCalibClientMultiBandEnable,
+                        cLD11ClientCalibClientRequestEnable,
+                        cLD11ClientCalibClientBurstIntervalEnable,
+                        cLD11ClientCalibClientBurstInterval,
+                        cLD11ClientCalibClientInterval,
+                        cLD11ClientCalibRfidInterval,
+                        cLD11ClientCalibRogueInterval,
+                        cLD11RfidRssiExpiryTime,
+                        cLD11RfidRssiHalflifeTime,
+                        cLD11RfidNotifyThresholdTime,
+                        cLD11RfidDataEnable,
+                        cLD11RfidTimeout
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects providing the required
+        RSSI calibration parameters for the 802.11 wireless 
+        clients."
+    ::= { ciscoLwappDot11ClientCalibMIBGroups 3 }
+
+cLD11ClientCalibRssiDataSampleGroup OBJECT-GROUP
+    OBJECTS         {
+                        clD11ClientCalibDataRssiValue,
+                        clD11ClientCalibDataTransmitPower
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects providing the RSSI data
+        samples collected for 802.11 client."
+    ::= { ciscoLwappDot11ClientCalibMIBGroups 4 }
+
+END
+
+

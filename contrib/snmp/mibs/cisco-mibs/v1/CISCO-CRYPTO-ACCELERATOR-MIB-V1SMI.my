@@ -1,0 +1,1328 @@
+-- MIB file created 18-Apr-2005 18:27:26, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CRYPTO-ACCELERATOR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CRYPTO-ACCELERATOR-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    EntPhysicalIndexOrZero
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    ModuleOperType
+            FROM CISCO-ENTITY-FRU-CONTROL-MIB
+    Gauge, TimeTicks, Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoCryptoAcceleratorMIB OBJECT IDENTIFIER ::= { ciscoMgmt 467 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200503080000Z
+--  OrgName
+--    Cisco Systems,    Inc.
+--  ContactInfo
+--        Cisco Systems
+--        Customer Service
+--    
+--    Postal:    170 W Tasman Drive
+--        San Jose, CA  95134
+--        USA
+--    
+--       Tel:    +1 800 553-NETS
+--    
+--    E-mail:    cs-ipsecurity@cisco.com
+--  Descr
+--    The MIB module for monitoring the identity, status,
+--    activity and faults of crypto accelerator (CA) modules
+--    used in devices implementing security services.
+--    
+--    The purpose of this MIB is to facilitate the following:
+--     1) facilitate the discovery of hardware crypto 
+--      accelerator modules installed in a security device
+--     2) monitor the activity, faults and performance of 
+--      hardware crypto accelerators and help the Network 
+--      Management Station (NMS) correlate the performance 
+--      of the CA modules with that of the security services 
+--      (IPsec, SSL, SSH, PKI etc) using the modules.
+--  RevDate
+--    200503080000Z
+--  RevDescr
+--    Initial version of this module.
+
+ciscoCryAcceleratorMIBNotifs OBJECT IDENTIFIER ::= { ciscoCryptoAcceleratorMIB 0 }
+ciscoCryAcceleratorMIBObjects OBJECT IDENTIFIER ::= { ciscoCryptoAcceleratorMIB 1 }
+ciscoCryAccleratorMIBConform OBJECT IDENTIFIER ::= { ciscoCryptoAcceleratorMIB 2 }
+ccaCapability   OBJECT IDENTIFIER ::= { ciscoCryAcceleratorMIBObjects 1 }
+ccaActivity     OBJECT IDENTIFIER ::= { ciscoCryAcceleratorMIBObjects 2 }
+ccaGlobalStats  OBJECT IDENTIFIER ::= { ccaActivity 1 }
+ccaProtocolActivity OBJECT IDENTIFIER ::= { ccaActivity 3 }
+ccaAcNotifCntl  OBJECT IDENTIFIER ::= { ciscoCryAcceleratorMIBObjects 3 }
+ciscoCryAccelMIBCompliances OBJECT IDENTIFIER ::= { ciscoCryAccleratorMIBConform 1 }
+ciscoCryAccelMIBGroups OBJECT IDENTIFIER ::= { ciscoCryAccleratorMIBConform 2 }
+
+CAModuleType ::= INTEGER {
+        other(1),
+        software(2),
+        integrated(3),
+        sep(4),
+        sepe(5),
+        a1700VpnModule(6),
+        aimVpnIBp(7),
+        aimVpnIEp(8),
+        aimVpnIIBp(9),
+        aimVpnIIEp(10),
+        aimVpnIIHp(11),
+        isa(12),
+        vam(13),
+        vam2(14),
+        vam2plus(15),
+        vpnsm(16),
+        caviumNitrox(17),
+        caviumNitroxII(18),
+        caviumNitroxLite(19)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This type yields the marketing label of the module 
+--    type and supplements the corresponding 
+--    entPhysicalVendorType MIB variable, if the crypto 
+--    accelerator has an entry in entPhysicalTable.
+--    
+--    The value 'other' has been provided to keep the MIB
+--    still applicable while new crypto accelerators 
+--    emerge.
+--    
+--    'software' denotes the software implementation of
+--    crypto functions.
+--    
+--    'integrated' denotes crypto accelerator modules which
+--    are integrated into the managed entity and are hence 
+--    not modular.
+--    
+--    'sep' and 'sepe' are scalable encryption processors 
+--    used in VPN3000 series concentrators.
+--    
+--    'a1700VpnModule' identifies the crypto accelerator 
+--    used in in 1700 series routers.
+--    
+--    'aimVpn' series of crypto accelerators are designed
+--    specifically for 2600 and 3700 platforms. Further,
+--    the aimVpnII series also function on 2800 series 
+--    routers.
+--    
+--    'aimVpn' series of crypto accelerators are designed
+--    specifically for 2600 and 2700 platforms.
+--    
+--    'isa' is designed for 7200 series routers.
+--    
+--    'vam' series of crypto accelerators are to be used
+--    on 7200 and 7300 series routers.
+--    
+--    'vpnsm' denotes the Catalyst 6500 VPN service module, 
+--    which is deemed a sophisticated 'crypto accelerator'. 
+--    
+--    The 'caviumNitrox' series of crypto accelerators 
+--    represent the crypto accelerator chipsets used in 
+--    ASA devices.
+
+CAModuleCount ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This type denotes the count of crypto accelerators.
+
+CAProtocolType ::= INTEGER {
+        other(1),
+        ikev1(2),
+        ikev2(3),
+        ipsec(4),
+        ssl(5),
+        ssh(6),
+        srtp(7)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The security protocol using the services of the 
+--    crypto accelerator module. The list of protocols 
+--    supported commonly by crypto accelerators include 
+--    Internet Key Exchange (ike), IP Security Phase-2 
+--    protocols (ipsec), Secure Shell (ssh), Secure Socket 
+--    Layer (ssl) and Secure Real-time Transport Protocol 
+--    (srtp).
+--    
+--    The value 'other' has been provided so that the MIB
+--    may still be valid while new protocols emerge and 
+--    the MIB has not been updated to enumerate them.
+
+ccaSupportsHwCrypto OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This MIB object assumes the value of True if the
+        managed device is capable of including hardware crypto 
+        accelerator."
+    ::= { ccaCapability 1 }
+
+ccaSupportsModularHwCrypto OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This MIB object assumes the value of True if the
+        managed device supports field removable hardware
+        crypto accelerators."
+    ::= { ccaCapability 2 }
+
+ccaMaxAccelerators OBJECT-TYPE
+    SYNTAX INTEGER(-1..50)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of hardware crypto accelerators
+        which may be simultaneously operational in this device.
+        If the managed device can support only software 
+        encryption, the value of this MIB object should be set 
+        to zero.
+        
+        If there is not set limit on the maximum number of
+        crypto accelerator modules which the managed device 
+        can support, the agent should return a value of '-1' 
+        for this MIB variable."
+    ::= { ccaCapability 3 }
+
+ccaMaxCryptoThroughput OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    megabits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum crypto throughput that may be supported 
+        by the managed device with the current number of active
+        crypto accelerators.
+        
+        If this value cannot be determined, the agent should
+        return a value of 0."
+    ::= { ccaCapability 4 }
+
+ccaMaxCryptoConnections OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of VPN flows (connections) the managed
+        device can support with the current number of active
+        crypto accelerators.
+        
+        If this value cannot be determined, the agent should
+        return a value of 0."
+    ::= { ccaCapability 5 }
+
+ccaGlobalNumActiveAccelerators OBJECT-TYPE
+    SYNTAX CAModuleCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of crypto accelerators which are in state
+         'active'."
+    ::= { ccaGlobalStats 1 }
+
+ccaGlobalNumNonOperAccelerators OBJECT-TYPE
+    SYNTAX CAModuleCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of crypto accelerators which are in a state
+        other than 'active'."
+    ::= { ccaGlobalStats 2 }
+
+ccaGlobalInOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of octets input to all the crypto
+         accelerators installed in the device. 
+        
+         The value is cumulative from last reboot of the 
+         managed entity.
+         "
+    ::= { ccaGlobalStats 3 }
+
+ccaGlobalOutOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of octets output by all the crypto
+         accelerators installed in the device.
+        
+         The value is cumulative from last reboot of the 
+         managed entity.
+         "
+    ::= { ccaGlobalStats 4 }
+
+ccaGlobalInPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets input to all the crypto
+        accelerators installed in the device.
+        
+        The value is cumulative from last reboot of the 
+        managed entity."
+    ::= { ccaGlobalStats 5 }
+
+ccaGlobalOutPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets output by all the crypto
+        accelerators installed in the device.
+        
+        The value is cumulative from last reboot of the 
+        managed entity."
+    ::= { ccaGlobalStats 6 }
+
+ccaGlobalOutErrPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets output by all the crypto
+        accelerators installed in the device which were found 
+        to be generated with errors (checksum errors, other 
+        errors).
+        
+        The value is cumulative from last reboot of the 
+        managed entity."
+    ::= { ccaGlobalStats 7 }
+
+ccaAcceleratorTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcaAcceleratorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The crypto accelerator table. There is one entry
+        in this table for each crypto accelerator installed
+        in the managed device."
+    ::= { ccaActivity 2 }
+
+ccaAcceleratorEntry OBJECT-TYPE
+    SYNTAX CcaAcceleratorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes  and statistics
+        of a crypto accelerator module installed on the managed
+        device."
+    INDEX { ccaAcclIndex }
+    ::= { ccaAcceleratorTable 1 }
+
+CcaAcceleratorEntry ::= SEQUENCE {
+    ccaAcclIndex Gauge,
+    ccaAcclEntPhysicalIndex EntPhysicalIndexOrZero,
+    ccaAcclStatus ModuleOperType,
+    ccaAcclType CAModuleType,
+    ccaAcclVersion SnmpAdminString,
+    ccaAcclSlot Gauge,
+    ccaAcclActiveTime TimeTicks,
+    ccaAcclInPkts Counter,
+    ccaAcclOutPkts Counter,
+    ccaAcclOutBadPkts Counter,
+    ccaAcclInOctets Counter,
+    ccaAcclOutOctets Counter,
+    ccaAcclHashOutboundPkts Counter,
+    ccaAcclHashOutboundOctets Counter,
+    ccaAcclHashInboundPkts Counter,
+    ccaAcclHashInboundOctets Counter,
+    ccaAcclEncryptPkts Counter,
+    ccaAcclEncryptOctets Counter,
+    ccaAcclDecryptPkts Counter,
+    ccaAcclDecryptOctets Counter,
+    ccaAcclTransformsTotal Counter,
+    ccaAcclDropsPkts Counter,
+    ccaAcclRandRequests Counter,
+    ccaAcclRandReqFails Counter,
+    ccaAcclDHKeysGenerated Counter,
+    ccaAcclDHDerivedSecretKeys Counter,
+    ccaAcclRSAKeysGenerated Counter,
+    ccaAcclRSASignings Counter,
+    ccaAcclRSAVerifications Counter,
+    ccaAcclRSAEncryptPkts Counter,
+    ccaAcclRSAEncryptOctets Counter,
+    ccaAcclRSADecryptPkts Counter,
+    ccaAcclRSADecryptOctets Counter,
+    ccaAcclDSAKeysGenerated Counter,
+    ccaAcclDSASignings Counter,
+    ccaAcclDSAVerifications Counter,
+    ccaAcclOutboundSSLRecords Counter,
+    ccaAcclInboundSSLRecords Counter
+    }
+
+ccaAcclIndex OBJECT-TYPE
+    SYNTAX Gauge(1..50)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index uniquely identifying a specific crypto
+        accelerator."
+    ::= { ccaAcceleratorEntry 1 }
+
+ccaAcclEntPhysicalIndex OBJECT-TYPE
+    SYNTAX EntPhysicalIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of entPhysicalIndex of the module
+        corresponding to this conceptual row or zero,
+        if the module is not an entity listed in
+        'entPhysicalTable' of rfc2737."
+    ::= { ccaAcceleratorEntry 2 }
+
+ccaAcclStatus OBJECT-TYPE
+    SYNTAX ModuleOperType
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        ok(2),
+--        disabled(3),
+--        okButDiagFailed(4),
+--        boot(5),
+--        selfTest(6),
+--        failed(7),
+--        missing(8),
+--        mismatchWithParent(9),
+--        mismatchConfig(10),
+--        diagFailed(11),
+--        dormant(12),
+--        outOfServiceAdmin(13),
+--        outOfServiceEnvTemp(14),
+--        poweredDown(15),
+--        poweredUp(16),
+--        powerDenied(17),
+--        powerCycled(18),
+--        okButPowerOverWarning(19),
+--        okButPowerOverCritical(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the crypto accelerator corresponding
+         to this row."
+    ::= { ccaAcceleratorEntry 3 }
+
+ccaAcclType OBJECT-TYPE
+    SYNTAX CAModuleType
+--    Rsyntax INTEGER {
+--        other(1),
+--        software(2),
+--        integrated(3),
+--        sep(4),
+--        sepe(5),
+--        a1700VpnModule(6),
+--        aimVpnIBp(7),
+--        aimVpnIEp(8),
+--        aimVpnIIBp(9),
+--        aimVpnIIEp(10),
+--        aimVpnIIHp(11),
+--        isa(12),
+--        vam(13),
+--        vam2(14),
+--        vam2plus(15),
+--        vpnsm(16),
+--        caviumNitrox(17),
+--        caviumNitroxII(18),
+--        caviumNitroxLite(19)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the crypto accelerator corresponding to
+        this row."
+    ::= { ccaAcceleratorEntry 4 }
+
+ccaAcclVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The version string of the firmware of the crypto 
+         accelerator corresponding to this row."
+    ::= { ccaAcceleratorEntry 5 }
+
+ccaAcclSlot OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The slot number of the crypto accelerator 
+         corresponding to this row."
+    ::= { ccaAcceleratorEntry 6 }
+
+ccaAcclActiveTime OBJECT-TYPE
+    SYNTAX TimeTicks
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds elapsed since the crypto
+        accelerator corresponding to this row transitioned
+        into the 'active' state."
+    ::= { ccaAcceleratorEntry 7 }
+
+ccaAcclInPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets input to this module for 
+         processing since the last reboot of the device."
+    ::= { ccaAcceleratorEntry 8 }
+
+ccaAcclOutPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets output by this module after 
+        processing, since last reboot of the device."
+    ::= { ccaAcceleratorEntry 9 }
+
+ccaAcclOutBadPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets output by this module after 
+         processing which had crypto errors, since last reboot 
+         of the device."
+    ::= { ccaAcceleratorEntry 10 }
+
+ccaAcclInOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets input to this module for 
+        processing since last reboot of the device."
+    ::= { ccaAcceleratorEntry 11 }
+
+ccaAcclOutOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets output by this module after 
+        processing since last reboot of the device."
+    ::= { ccaAcceleratorEntry 12 }
+
+ccaAcclHashOutboundPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets output by this module which 
+         were prepared for hash validation since the last 
+         reboot of the device.
+        
+         Hash validation is a cryptographic operation used 
+         to verify the integrity of a block of data received 
+         from a trusted source.
+         "
+    ::= { ccaAcceleratorEntry 13 }
+
+ccaAcclHashOutboundOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets output by this module which were
+        prepared for hash validation since the last reboot of
+        the device."
+    ::= { ccaAcceleratorEntry 14 }
+
+ccaAcclHashInboundPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets input to this module which 
+        required hash validation since the last reboot of 
+        the device."
+    ::= { ccaAcceleratorEntry 15 }
+
+ccaAcclHashInboundOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets input to this module which were
+        authenticated using hash validation since the last 
+        reboot of the device."
+    ::= { ccaAcceleratorEntry 16 }
+
+ccaAcclEncryptPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets input to this module which 
+        required encryption since the last reboot of the 
+        device."
+    ::= { ccaAcceleratorEntry 17 }
+
+ccaAcclEncryptOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets input to this module which 
+        required encryption since the last reboot of the 
+        device."
+    ::= { ccaAcceleratorEntry 18 }
+
+ccaAcclDecryptPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets input to this module which 
+        required decryption since the last reboot of the 
+        device."
+    ::= { ccaAcceleratorEntry 19 }
+
+ccaAcclDecryptOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets input to this module which 
+        required decryption since the last reboot of the 
+        device."
+    ::= { ccaAcceleratorEntry 20 }
+
+ccaAcclTransformsTotal OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of cryptographic transformations performed 
+        by this crypto accelerator since the last reboot of the 
+        device."
+    ::= { ccaAcceleratorEntry 21 }
+
+ccaAcclDropsPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets input to this module which were
+        dropped prior to processing since the last reboot of
+        the device."
+    ::= { ccaAcceleratorEntry 22 }
+
+ccaAcclRandRequests OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of requests received by this crypto 
+        accelerator to generate random numbers since the last 
+        reboot of the device."
+    ::= { ccaAcceleratorEntry 23 }
+
+ccaAcclRandReqFails OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of random number requests received by this
+        module which were not fulfilled, counted since the last 
+        reboot of the device."
+    ::= { ccaAcceleratorEntry 24 }
+
+ccaAcclDHKeysGenerated OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Diffie Hellman key pairs generated by 
+         this module since the last reboot."
+    ::= { ccaAcceleratorEntry 25 }
+
+ccaAcclDHDerivedSecretKeys OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times this module has derived Diffie Hellman
+        secret keys since the last reboot of the device."
+    ::= { ccaAcceleratorEntry 26 }
+
+ccaAcclRSAKeysGenerated OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times a new RSA key pair was generated
+        by this module, counted since the last time this module
+        assumed 'active' status."
+    ::= { ccaAcceleratorEntry 27 }
+
+ccaAcclRSASignings OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times an RSA Digital Signature has been
+        generated by this module, counted since the last time 
+        this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 28 }
+
+ccaAcclRSAVerifications OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times an RSA Digital Signature has 
+        been verified by this module, counted since the last 
+        time this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 29 }
+
+ccaAcclRSAEncryptPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets input to this module which 
+        required RSA encryption, counted since the last time 
+        this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 30 }
+
+ccaAcclRSAEncryptOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets input to this module which 
+        required RSA encryption, counted since the last time 
+        this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 31 }
+
+ccaAcclRSADecryptPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets input to this module which 
+        required RSA decryption, counted since the last time 
+        this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 32 }
+
+ccaAcclRSADecryptOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets input to this module which 
+        required RSA decryption, counted since the last time 
+        this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 33 }
+
+ccaAcclDSAKeysGenerated OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times DSA key pair has been generated by 
+        this module, counted since the last time this module
+        assumed 'active' status."
+    ::= { ccaAcceleratorEntry 34 }
+
+ccaAcclDSASignings OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times DSA signature has been generated 
+        by this module, counted since the last time this module
+        assumed 'active' status."
+    ::= { ccaAcceleratorEntry 35 }
+
+ccaAcclDSAVerifications OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times DSA signature has been verified 
+        by this module, counted since the last time this module
+        assumed 'active' status."
+    ::= { ccaAcceleratorEntry 36 }
+
+ccaAcclOutboundSSLRecords OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of combined outbound hash/encrypt SSL 
+        records processed by this module, counted since the
+        last time this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 37 }
+
+ccaAcclInboundSSLRecords OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of combined inbound hash/encrypt SSL 
+        records processed by this module, counted since the
+        last time this module assumed 'active' status."
+    ::= { ccaAcceleratorEntry 38 }
+
+ccaProtocolStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcaProtocolStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The crypto accelerator statistics catalogued by 
+        security protocol causing the activity. There is only 
+        entry in this table for each security protocol listed 
+        in the textual convention 'CAProtocolType'."
+    ::= { ccaProtocolActivity 1 }
+
+ccaProtocolStatsEntry OBJECT-TYPE
+    SYNTAX CcaProtocolStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the statistics corresponding to
+        a specific security protocol."
+    INDEX { ccaProtId }
+    ::= { ccaProtocolStatsTable 1 }
+
+CcaProtocolStatsEntry ::= SEQUENCE {
+    ccaProtId CAProtocolType,
+    ccaProtPktEncryptsReqs Counter,
+    ccaProtPktDecryptsReqs Counter,
+    ccaProtHmacCalcReqs Counter,
+    ccaProtSaCreateReqs Counter,
+    ccaProtSaRekeyReqs Counter,
+    ccaProtSaDeleteReqs Counter,
+    ccaProtPktEncapReqs Counter,
+    ccaProtPktDecapReqs Counter,
+    ccaProtNextPhaseKeyAllocReqs Counter,
+    ccaProtRndGenReqs Counter,
+    ccaProtFailedReqs Counter
+    }
+
+ccaProtId OBJECT-TYPE
+    SYNTAX CAProtocolType
+--    Rsyntax INTEGER {
+--        other(1),
+--        ikev1(2),
+--        ikev2(3),
+--        ipsec(4),
+--        ssl(5),
+--        ssh(6),
+--        srtp(7)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index uniquely identifies the security protocol
+        for which this row summarizes the statistics."
+    ::= { ccaProtocolStatsEntry 1 }
+
+ccaProtPktEncryptsReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of payload encrypt requests received by
+        the crypto accelerators from this security protocol,
+        counted since the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 2 }
+
+ccaProtPktDecryptsReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of payload decrypt requests received by
+        the crypto accelerators from this security protocol,
+        counted since the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 3 }
+
+ccaProtHmacCalcReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times keyed HMAC calculation requests 
+        were received by the crypto accelerators due to the
+        operation of this security protocol, counted since
+        the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 4 }
+
+ccaProtSaCreateReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests for creation of
+        security associations were received by the crypto 
+        accelerators from this security protocol, counted 
+        since the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 5 }
+
+ccaProtSaRekeyReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests for rekeying of 
+        existing security associations were received by 
+        the crypto accelerators from this security protocol,
+        counted since the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 6 }
+
+ccaProtSaDeleteReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests for deletion of
+        security associations were received by the crypto 
+        accelerators from this security protocol, counted 
+        since the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 7 }
+
+ccaProtPktEncapReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests for payload 
+        encapsulation were received by the crypto accelerators 
+        from this security protocol, counted since the last 
+        reboot of the device."
+    ::= { ccaProtocolStatsEntry 8 }
+
+ccaProtPktDecapReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests for payload decapsulation 
+         were received by the crypto accelerators from this 
+         security protocol, counted since the last reboot of 
+         the device."
+    ::= { ccaProtocolStatsEntry 9 }
+
+ccaProtNextPhaseKeyAllocReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests for allocation of
+        keys for the next phase of the protocol operation
+        which were received by the crypto accelerators from 
+        this security protocol, counted since the last reboot 
+        of the device.
+        
+        As an example, for IKE, this would identify the number
+        of times key allocation requests for Quick Mode were
+        received by the crypto accelerator from the IKE protocol
+        engine."
+    ::= { ccaProtocolStatsEntry 10 }
+
+ccaProtRndGenReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests for generation of
+        random number(s) were received by the crypto 
+        accelerators from this security protocol, counted 
+        since the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 11 }
+
+ccaProtFailedReqs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times requests received from this
+        security protocol could not be fulfilled, counted 
+        since the last reboot of the device."
+    ::= { ccaProtocolStatsEntry 12 }
+
+ccaNotifCntlAcclInserted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelInserted' notification.
+        
+         When this variable is set to 'true', generation 
+         of the notification is enabled. When this variable 
+         is set to 'false', generation of the notification 
+         is disabled.
+        "
+    ::= { ccaAcNotifCntl 1 }
+
+ccaNotifCntlAcclRemoved OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelRemoved' notification.
+        
+         When this variable is set to 'true', generation of 
+         the notification is enabled. When this variable is 
+         set to 'false', generation of the notification is 
+         disabled."
+    ::= { ccaAcNotifCntl 2 }
+
+ccaNotifCntlAcclOperational OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelOperational' notification.
+        
+         When this variable is set to 'true', generation 
+         of the notification is enabled. When this variable 
+         is set to 'false', generation of the notification 
+         is disabled."
+    ::= { ccaAcNotifCntl 3 }
+
+ccaNotifCntlAcclDisabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable controls the generation of
+         'ciscoCryAccelDisabled' notification.
+        
+         When this variable is set to 'true', generation of 
+         the notification is enabled. When this variable is 
+         set to 'false', generation of the notification is 
+         disabled."
+    DEFVAL { false }
+    ::= { ccaAcNotifCntl 4 }
+
+ciscoCryAccelInserted TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCryptoAcceleratorMIB
+    VARIABLES {
+        ccaAcclSlot }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A crypto accelerator module has been inserted into the
+         managed device."
+    ::= 1
+
+ciscoCryAccelRemoved TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCryptoAcceleratorMIB
+    VARIABLES {
+        ccaAcclSlot }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A crypto accelerator module has been removed from the
+         managed device."
+    ::= 2
+
+ciscoCryAccelOperational TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCryptoAcceleratorMIB
+    VARIABLES {
+        ccaAcclSlot }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A crypto accelerator module has become operational."
+    ::= 3
+
+ciscoCryAccelDisabled TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCryptoAcceleratorMIB
+    VARIABLES {
+        ccaAcclSlot, ccaAcclStatus, ccaAcclActiveTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A crypto accelerator module has become non-operational."
+    ::= 4
+
+ciscoCryAccCapacityGroup OBJECT IDENTIFIER ::= { ciscoCryAccelMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group consists of all the MIB variables
+--    defined under crAcCapacity using which the management 
+--    station may determine the limits of capacity of the
+--    managed device with regards to the support of
+--    crypto accelerators.
+--  objects
+--    ccaSupportsHwCrypto, ccaSupportsModularHwCrypto, 
+--    ccaMaxAccelerators, ccaMaxCryptoThroughput, 
+--    ccaMaxCryptoConnections
+
+ciscoCryAccSummaryActivityGroup OBJECT IDENTIFIER ::= { ciscoCryAccelMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group consists of the counters which model the
+--    summary activity of the crypto accelerators in the
+--    managed entity.
+--  objects
+--    ccaGlobalNumActiveAccelerators, 
+--    ccaGlobalNumNonOperAccelerators, ccaGlobalInOctets, 
+--    ccaGlobalOutOctets, ccaGlobalInPkts, ccaGlobalOutPkts, 
+--    ccaGlobalOutErrPkts
+
+ciscoCryAccModuleActivityGroup OBJECT IDENTIFIER ::= { ciscoCryAccelMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group consists of the counters which model the
+--    summary activity of the crypto accelerators in the
+--    managed entity.
+--    
+--    Following are definitions of some terms used in
+--    this compliance group:
+--    
+--     Crypto Accelerator
+--       'Crypto Accelerator' denotes a hardware or software 
+--       device which the managed entity uses to offload some
+--       or all computations pertaining to cryptographic
+--       operations. A crypto accelerator module may be
+--       implemented as a Field Removable Unit or an 
+--       integrated hardware element such an Application
+--       Specific Integrated Chip (ASIC).
+--    
+--     Module
+--       The term 'Module' has been used in this MIB to 
+--       denote a hardware crypto accelerator.
+--    
+--     Diffie-Hellman
+--       The Diffie-Hellman key agreement protocol (also called 
+--       exponential key agreement) was developed by Diffie and 
+--       Hellman in 1976. The protocol allows two users to 
+--       exchange a secret key over an insecure medium without 
+--       any prior secrets. 
+--    
+--     RSA
+--       An Internet encryption and authentication system that
+--       uses an algorithm developed in 1977 by Ron Rivest, 
+--       Adi Shamir, and Leonard Adleman. 
+--    
+--     DSS
+--       Digital Signature Standard (DSS) is the digital 
+--       signature algorithm (DSA) developed by the U.S.
+--       National Security Agency (NSA) to generate a digital 
+--       signature for the authentication of electronic 
+--       documents. 
+--    
+--     IPsec
+--       IP security protocol.
+--    
+--     SSL
+--       Secure Socket Layer Protocol.
+--    
+--     SSH
+--       Secure Shell Protocol.
+--    
+--     PKI
+--       Public Key Infrastructure
+--  objects
+--    ccaAcclEntPhysicalIndex, ccaAcclStatus, ccaAcclType, 
+--    ccaAcclVersion, ccaAcclSlot, ccaAcclActiveTime, ccaAcclInPkts, 
+--    ccaAcclOutPkts, ccaAcclOutBadPkts, ccaAcclInOctets, 
+--    ccaAcclOutOctets, ccaAcclHashOutboundPkts, 
+--    ccaAcclHashOutboundOctets, ccaAcclHashInboundPkts, 
+--    ccaAcclHashInboundOctets, ccaAcclEncryptPkts, 
+--    ccaAcclEncryptOctets, ccaAcclDecryptPkts, 
+--    ccaAcclDecryptOctets, ccaAcclTransformsTotal, 
+--    ccaAcclDropsPkts, ccaAcclRandRequests, ccaAcclRandReqFails, 
+--    ccaAcclDHKeysGenerated, ccaAcclDHDerivedSecretKeys, 
+--    ccaAcclRSAKeysGenerated, ccaAcclRSASignings, 
+--    ccaAcclRSAVerifications, ccaAcclRSAEncryptPkts, 
+--    ccaAcclRSAEncryptOctets, ccaAcclRSADecryptPkts, 
+--    ccaAcclRSADecryptOctets, ccaAcclDSAKeysGenerated, 
+--    ccaAcclDSASignings, ccaAcclDSAVerifications, 
+--    ccaAcclOutboundSSLRecords, ccaAcclInboundSSLRecords
+
+ciscoCryAccProtocolActivityGroup OBJECT IDENTIFIER ::= { ciscoCryAccelMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group consists of the counters which model 
+--    the protocol-specific activity of the crypto 
+--    accelerators in the managed entity.
+--  objects
+--    ccaProtPktEncryptsReqs, ccaProtPktDecryptsReqs, 
+--    ccaProtHmacCalcReqs, ccaProtSaCreateReqs, ccaProtSaRekeyReqs, 
+--    ccaProtSaDeleteReqs, ccaProtPktEncapReqs, ccaProtPktDecapReqs, 
+--    ccaProtNextPhaseKeyAllocReqs, ccaProtRndGenReqs, 
+--    ccaProtFailedReqs
+
+ciscoCryAccNotifsCntlGroup OBJECT IDENTIFIER ::= { ciscoCryAccelMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group consists of all the MIB variables which
+--    allow the network management station to control the
+--    emission of the notifications defined in this MIB.
+--    
+--    Per a different compliance clause dfined in this 
+--    module, the agent is not required to provide write
+--    access to these MIB variables.
+--  objects
+--    ccaNotifCntlAcclInserted, ccaNotifCntlAcclRemoved, 
+--    ccaNotifCntlAcclOperational, ccaNotifCntlAcclDisabled
+
+ciscoCryAccNotifsGroup OBJECT IDENTIFIER ::= { ciscoCryAccelMIBGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group consists of all the notifications defined
+--    to signal the change in status and operation of crypto
+--    accelerator modules.
+--  notifications
+--    ciscoCryAccelInserted, ciscoCryAccelRemoved, 
+--    ciscoCryAccelOperational, ciscoCryAccelDisabled
+
+ciscoCryAccelMIBCompliance OBJECT IDENTIFIER ::= { ciscoCryAccelMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO Crypto Accelerator MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoCryAccCapacityGroup
+--   MandGroup
+--    ciscoCryAccSummaryActivityGroup
+--   OptGroup
+--    ciscoCryAccModuleActivityGroup
+--   OptGroup
+--    ciscoCryAccProtocolActivityGroup
+--   OptGroup
+--    ciscoCryAccNotifsGroup
+--   OptGroup
+--    ciscoCryAccNotifsCntlGroup
+
+
+END
+

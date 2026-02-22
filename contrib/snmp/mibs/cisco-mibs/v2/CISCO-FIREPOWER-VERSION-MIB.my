@@ -1,0 +1,193 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-VERSION-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- VERSION management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-VERSION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB;
+
+cfprVersionObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        VERSION management information model package"
+    ::= { ciscoFirepowerMIBObjects 81 }
+
+cfprVersionApplicationTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprVersionApplicationEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower version:Application managed object table"
+    ::= { cfprVersionObjects 1 }
+
+cfprVersionApplicationEntry OBJECT-TYPE
+    SYNTAX           CfprVersionApplicationEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprVersionApplicationTable table."
+    INDEX { cfprVersionApplicationInstanceId }
+    ::= { cfprVersionApplicationTable 1 }
+
+CfprVersionApplicationEntry ::= SEQUENCE {
+    cfprVersionApplicationInstanceId                                 CfprManagedObjectId,
+    cfprVersionApplicationDn                                         CfprManagedObjectDn,
+    cfprVersionApplicationRn                                         SnmpAdminString,
+    cfprVersionApplicationDetail                                     SnmpAdminString,
+    cfprVersionApplicationTime                                       SnmpAdminString,
+    cfprVersionApplicationVersion                                    SnmpAdminString
+}
+
+cfprVersionApplicationInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprVersionApplicationEntry 1 }
+
+cfprVersionApplicationDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower version:Application:dn managed object property"
+    ::= { cfprVersionApplicationEntry 2 }
+
+cfprVersionApplicationRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower version:Application:rn managed object property"
+    ::= { cfprVersionApplicationEntry 3 }
+
+cfprVersionApplicationDetail OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower version:Application:detail managed
+        object property"
+    ::= { cfprVersionApplicationEntry 4 }
+
+cfprVersionApplicationTime OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower version:Application:time managed object property"
+    ::= { cfprVersionApplicationEntry 5 }
+
+cfprVersionApplicationVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower version:Application:version managed
+        object property"
+    ::= { cfprVersionApplicationEntry 6 }
+
+cfprVersionEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprVersionEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower version:Ep managed object table"
+    ::= { cfprVersionObjects 2 }
+
+cfprVersionEpEntry OBJECT-TYPE
+    SYNTAX           CfprVersionEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprVersionEpTable table."
+    INDEX { cfprVersionEpInstanceId }
+    ::= { cfprVersionEpTable 1 }
+
+CfprVersionEpEntry ::= SEQUENCE {
+    cfprVersionEpInstanceId                                          CfprManagedObjectId,
+    cfprVersionEpDn                                                  CfprManagedObjectDn,
+    cfprVersionEpRn                                                  SnmpAdminString
+}
+
+cfprVersionEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprVersionEpEntry 1 }
+
+cfprVersionEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower version:Ep:dn managed object property"
+    ::= { cfprVersionEpEntry 2 }
+
+cfprVersionEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower version:Ep:rn managed object property"
+    ::= { cfprVersionEpEntry 3 }
+
+END

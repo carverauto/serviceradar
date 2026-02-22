@@ -1,0 +1,79 @@
+-- MIB file created 22-May-2006 16:17:22, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+IPV6-TC DEFINITIONS ::= BEGIN
+
+-- From file: "IPV6-TC.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+Ipv6Address ::= OCTET STRING(SIZE(16))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    2x:
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to model IPv6 addresses.
+--     This is a binary string of 16 octets in network
+--     byte-order.
+
+Ipv6AddressPrefix ::= OCTET STRING(SIZE(0..16))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    2x:
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to model IPv6 address
+--    prefixes. This is a binary string of up to 16
+--    octets in network byte-order.
+
+Ipv6AddressIfIdentifier ::= OCTET STRING(SIZE(0..8))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    2x:
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to model IPv6 address
+--    interface identifiers. This is a binary string
+--     of up to 8 octets in network byte-order.
+
+Ipv6IfIndex ::= INTEGER(1..2147483647)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    A unique value, greater than zero for each
+--    internetwork-layer interface in the managed
+--    system. It is recommended that values are assigned
+--    contiguously starting from 1. The value for each
+--    internetwork-layer interface must remain constant
+--    at least from one re-initialization of the entity's
+--    network management system to the next
+--    re-initialization.
+
+Ipv6IfIndexOrZero ::= INTEGER(0..2147483647)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention is an extension of the
+--    Ipv6IfIndex convention.  The latter defines
+--    a greater than zero value used to identify an IPv6
+--    interface in the managed system.  This extension
+--    permits the additional value of zero.  The value
+--    zero is object-specific and must therefore be
+--    defined as part of the description of any object
+--    which uses this syntax.  Examples of the usage of
+--    zero might include situations where interface was
+--    unknown, or when none or all interfaces need to be
+--    referenced.
+
+
+END
+

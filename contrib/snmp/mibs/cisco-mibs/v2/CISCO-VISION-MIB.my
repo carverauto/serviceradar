@@ -1,0 +1,477 @@
+-- *****************************************************************
+-- CISCO-CVSIONDSD-MIB.my
+--   
+-- Copyright (c) 2005-2006, 2021 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-VISION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    IpAddress,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoVisionMIB MODULE-IDENTITY
+    LAST-UPDATED    "202104070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "Cisco Vision MIB is to report the status of Cisco Vision
+        Director."
+    REVISION        "202102080000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 1051 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoVisionMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoVisionMIB 0 }
+
+ciscoVisionMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoVisionMIB 1 }
+
+
+-- Default Notification Type
+
+ciscoVdServiceStatusNotifs NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciscoVdDsdServiceStatus,
+                        ciscoVdDsdServiceDesc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is notification for service status"
+   ::= { ciscoVisionMIBNotifs 1 }
+-- This oids will  be Implemented by DMP only
+
+ciscoVisionDmp  OBJECT IDENTIFIER
+    ::= { ciscoVisionMIB 3 }
+
+
+ciscoVdBackupTaskNotifs NOTIFICATION-TYPE
+    OBJECTS         { ciscoVdBkpStatus }
+    STATUS          current
+    DESCRIPTION
+        "This is notification for user backup"
+   ::= { ciscoVisionMIBNotifs 2 }
+
+ciscoVdNtpNotifs NOTIFICATION-TYPE
+    OBJECTS         { ciscoVdNtpSyncStatus }
+    STATUS          current
+    DESCRIPTION
+        "This is notification for NTP sync or unsync status"
+   ::= { ciscoVisionMIBNotifs 3 }
+
+ciscoVdHdmiUpDwnNotifs NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciscoVdHdmiUpDownStatus,
+                        ciscoVdDmpidentifier
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is notification for DMP HDMI TV On/Off"
+   ::= { ciscoVisionMIBNotifs 4 }
+-- This oids will  be Implemented by DSD only
+
+ciscoVisionDsd  OBJECT IDENTIFIER
+    ::= { ciscoVisionMIB 2 }
+
+ciscoVisionMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoVisionMIBConform 1 }
+
+ciscoVisionMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoVisionMIBConform 2 }
+
+
+ciscoVisionDsdMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "DSD Compliances group"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoVisiondsdSvcGroup,
+                        ciscoVisiondsdDmpGroup
+                    }
+
+    GROUP           ciscoVisiondsdMIBNotifsGroup
+    DESCRIPTION
+        "NotificatioN group is optional"
+    ::= { ciscoVisionMIBCompliances 1 }
+
+ciscoVisionDmpMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Please enter description here"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoVisionDmpGroup,
+                        ciscoVisiondsdSvcGroup,
+                        ciscoVisiondsdMIBNotifsGroup,
+                        ciscoVisiondsdDmpGroup
+                    }
+    ::= { ciscoVisionMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoVisiondsdSvcGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoVdDsdServiceStatus,
+                        ciscoVdNtpSyncStatus,
+                        ciscoVdBkpStatus,
+                        ciscoVdDsdServiceDesc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of managed objects defining the service status of
+        DSD. This is up/down status of each service in DSD"
+    ::= { ciscoVisionMIBGroups 1 }
+
+ciscoVisiondsdMIBNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoVdServiceStatusNotifs,
+                        ciscoVdBackupTaskNotifs,
+                        ciscoVdNtpNotifs,
+                        ciscoVdHdmiUpDwnNotifs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of managed objects defining the notifications
+        configured for DSD services."
+    ::= { ciscoVisionMIBGroups 2 }
+
+ciscoVisiondsdDmpGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoVdHdmiUpDownStatus,
+                        ciscoVdDmpStatus,
+                        ciscoVdDmpidentifier
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of managed objects defining the status of each
+        DMP."
+    ::= { ciscoVisionMIBGroups 3 }
+
+ciscoVisionDmpGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoVisionDmpTvOnOff,
+                        ciscoVisionDmpNtpStatus,
+                        ciscoVisionDmpPTPstatus,
+                        ciscoVisionDmpPTPMaster,
+                        ciscoVisionDmpPTPDeviation,
+                        ciscoVisionDmpInterfaceDesc,
+                        ciscoVisionDmpBytesIn,
+                        ciscoVisionDmpBytesOut,
+                        ciscoVisionDmpPktCnt,
+                        ciscoVisionDmpPktErrCnt,
+                        ssCpuRawUser,
+                        ssCpuRawIdle
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of managed objects defining the service status of
+        DMP. This is up/down status of each service in dmp"
+    ::= { ciscoVisionMIBGroups 4 }
+
+ciscoVisionDmpTvOnOff OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field represents the dmp Tv on Of status
+        0 : On
+        1 : Off
+        -1 : Unknown" 
+    ::= { ciscoVisionDmp 1 }
+
+ciscoVisionDmpNtpStatus OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field represents the NTP sync and Unsync
+        0 : sync
+        1 : Unsync
+        -1 : Unknown" 
+    ::= { ciscoVisionDmp 2 }
+ciscoVisionDmpPTP  OBJECT IDENTIFIER
+    ::= { ciscoVisionDmp 3 }
+
+ciscoVisionNetwork  OBJECT IDENTIFIER
+    ::= { ciscoVisionDmp 4 }
+
+ciscoVisionDmpCpu  OBJECT IDENTIFIER
+    ::= { ciscoVisionDmp 5 }
+
+
+ciscoVisionDmpPTPstatus OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field represents  PTP sync status (freerun/master)
+
+        0 : sync
+        1 : Unsync
+        -1 : Unknown" 
+    ::= { ciscoVisionDmpPTP 1 }
+
+ciscoVisionDmpPTPMaster OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Mater or slave
+
+        0 : Master
+        1 : Slave" 
+    ::= { ciscoVisionDmpPTP 2 }
+
+ciscoVisionDmpPTPDeviation OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Deviation from master" 
+    ::= { ciscoVisionDmpPTP 3 }
+
+ciscoVisionDmpInterfaceDesc OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A textual string containing information about the interface." 
+    ::= { ciscoVisionNetwork 1 }
+
+ciscoVisionDmpBytesIn OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This field represents DMP Byte In for an interface." 
+    ::= { ciscoVisionNetwork 2 }
+
+ciscoVisionDmpBytesOut OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The total number of bytes transmitted out of the interface,
+        including framing characters" 
+    ::= { ciscoVisionNetwork 3 }
+
+ciscoVisionDmpPktCnt OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets transmitted out of the
+        interface, including framing characters" 
+    ::= { ciscoVisionNetwork 4 }
+
+ciscoVisionDmpPktErrCnt OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number Error of octets transmitted out of the
+        interface, including framing characters" 
+    ::= { ciscoVisionNetwork 5 }
+
+ssCpuRawUser OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field represents the cup raw user for DMP" 
+    ::= { ciscoVisionDmpCpu 1 }
+
+ssCpuRawIdle OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field represents the cup raw Idle for DMP" 
+    ::= { ciscoVisionDmpCpu 2 }
+ciscoVdService  OBJECT IDENTIFIER
+    ::= { ciscoVisionDsd 1 }
+
+ciscoVdDmpsStatuses  OBJECT IDENTIFIER
+    ::= { ciscoVisionDsd 2 }
+
+
+ciscoVdNtpSyncStatus OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "It describe the Cisco Vision director NTP sync status
+        0 : Sync 
+        1 : unsync
+        -1 : Unknown" 
+    ::= { ciscoVisionDsd 3 }
+
+ciscoVdBkpStatus OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "It refers Cisco Vision director system backup status
+        0  : Success
+        1  : failure
+        -1  : Unknown" 
+    ::= { ciscoVisionDsd 4 }
+
+ciscoVdServiceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoVdServiceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table consists of the status attribute of diffrent
+        services inside DSD like config, control, monitor, localcontrol,
+        broker, 
+        CMS and Menu."
+    ::= { ciscoVdService 1 }
+
+ciscoVdServiceEntry OBJECT-TYPE
+    SYNTAX          CiscoVdServiceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A set of status attribute for each service in DSD. There exists
+        an entry for each of the service of DSD"
+    INDEX           { ciscoVdDsdServiceName } 
+    ::= { ciscoVdServiceTable 1 }
+
+CiscoVdServiceEntry ::= SEQUENCE {
+        ciscoVdDsdServiceName   DisplayString,
+        ciscoVdDsdServiceStatus Integer32,
+        ciscoVdDsdServiceDesc   DisplayString
+}
+
+ciscoVdDsdServiceName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..100))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Represents the name of one service within DSD" 
+    ::= { ciscoVdServiceEntry 1 }
+
+ciscoVdDsdServiceStatus OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The status of the each of the service in DSD. This status
+        represents whether a service is running or is it down.
+        0 running
+        1 stopped
+        -1 unknown" 
+    ::= { ciscoVdServiceEntry 2 }
+
+ciscoVdDsdServiceDesc OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Represents the description of one service within DSD" 
+    ::= { ciscoVdServiceEntry 3 }
+ 
+
+
+ciscoVdDmpStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoVdDmpStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table consists the attributes of DMPs that are required to
+        be trackd. This includes  HDMI up/down status ,DMP up/down
+        status."
+    ::= { ciscoVdDmpsStatuses 1 }
+
+ciscoVdDmpStatusEntry OBJECT-TYPE
+    SYNTAX          CiscoVdDmpStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ciscoCvdDmpStatusTable.
+        This entry has the HDMI and DMP up/down status attributes for a
+        particular DMP along with its IPAddress"
+    INDEX           { ciscoVdDmpIP } 
+    ::= { ciscoVdDmpStatusTable 1 }
+
+CiscoVdDmpStatusEntry ::= SEQUENCE {
+        ciscoVdDmpIP            IpAddress,
+        ciscoVdHdmiUpDownStatus Integer32,
+        ciscoVdDmpStatus        Integer32,
+        ciscoVdDmpidentifier    DisplayString
+}
+
+ciscoVdDmpIP OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Represents the IP-Address of the individual DMP" 
+    ::= { ciscoVdDmpStatusEntry 1 }
+
+ciscoVdHdmiUpDownStatus OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Represents the HDMI connectivity status to play the external
+        video streams and content
+        1 On
+        0 Off
+        -1 unknown" 
+    ::= { ciscoVdDmpStatusEntry 2 }
+
+ciscoVdDmpStatus OBJECT-TYPE
+    SYNTAX          Integer32 (-1..1)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Represents if the DMP is in online of offline mode.
+
+        0 : Up
+        1 : Down
+        -1 : unkonwn" 
+    ::= { ciscoVdDmpStatusEntry 3 }
+
+ciscoVdDmpidentifier OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Represents the identifier of the DMP" 
+    ::= { ciscoVdDmpStatusEntry 4 }
+ 
+
+
+END

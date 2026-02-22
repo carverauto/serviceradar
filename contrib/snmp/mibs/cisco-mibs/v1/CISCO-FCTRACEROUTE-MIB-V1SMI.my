@@ -1,0 +1,554 @@
+-- MIB file created 27-Dec-2002 14:30:01, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FCTRACEROUTE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FCTRACEROUTE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    FcNameId, VsanIndex, FcAddress, FcAddressType
+            FROM CISCO-ST-TC
+    FcStartOper
+            FROM CISCO-FCPING-MIB
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoFcTraceRouteMIB OBJECT IDENTIFIER ::= { ciscoMgmt 296 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200210070000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--         Cisco Systems 
+--          Customer Service 
+--    Postal: 170 W Tasman Drive 
+--          San Jose, CA  95134 
+--          USA 
+--    Tel: +1 800 553 -NETS 
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    The MIB module for the management of the 
+--     Fibre Channel Trace Route functionality.
+--  RevDate
+--    200210070000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoFcTraceRouteMIBObjects OBJECT IDENTIFIER ::= { ciscoFcTraceRouteMIB 1 }
+fcTraceRouteMIBConformance OBJECT IDENTIFIER ::= { ciscoFcTraceRouteMIB 2 }
+fcTraceRouteConfiguration OBJECT IDENTIFIER ::= { ciscoFcTraceRouteMIBObjects 1 }
+fcTraceRouteResults OBJECT IDENTIFIER ::= { ciscoFcTraceRouteMIBObjects 2 }
+fcTraceRouteNotification OBJECT IDENTIFIER ::= { ciscoFcTraceRouteMIBObjects 3 }
+fcTraceRouteNotifications OBJECT IDENTIFIER ::= { fcTraceRouteNotification 0 }
+fcTraceRouteMIBCompliances OBJECT IDENTIFIER ::= { fcTraceRouteMIBConformance 1 }
+fcTraceRouteMIBGroups OBJECT IDENTIFIER ::= { fcTraceRouteMIBConformance 2 }
+
+fcTraceRouteTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FcTraceRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of trace route request entries. 
+         The fcTraceRouteTable will contain a set of 
+         trace route requests that need to be executed 
+         at the agent."
+    ::= { fcTraceRouteConfiguration 1 }
+
+fcTraceRouteEntry OBJECT-TYPE
+    SYNTAX FcTraceRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A trace route request entry. 
+        
+         A management station wishing to create an entry 
+         should generate a pseudo-random number to be  
+         used as an index into this table and create an  
+         instance of the fcTraceRouteRowStatus object.  
+         After that, the management station should set  
+         the corresponding instance of fcTraceRouteTargetAddr  
+         object with the address of the destination for which  
+         the route needs to be determined and  
+         fcTraceRouteVsanIndex with the desired VSAN number. 
+        
+         Once the appropriate instance of all the  
+         configuration objects have been created, either by  
+         an explicit SNMP set request or by default, the row  
+         status should be set to active and the corresponding  
+         instance of fcTraceRouteAdminStatus should be set to  
+         'enable' to initiate the trace route sequence. Note  
+         that this entire procedure may be initiated via a  
+         single set request which specifies a row status of  
+         createAndGo as well as specifies valid values for  
+         the non-defaulted configuration objects. 
+        
+         The results of the trace route operation are made 
+         available in the fcTraceRouteHopsTable. For an entry  
+         uniquely identified by fcTraceRouteIndex, the value 
+         of the corresponding instance of  
+         fcTraceRouteOperStatus object will specify whether  
+         test was a success or a failure. 
+        
+         The fcTraceRouteHopsTable will contain the actual 
+         hops that were determined by the test. 
+         For an entry uniquely identified by  
+         fcTraceRouteIndex, entries will be created  
+         automatically in the fcTraceRouteHopsTable which  
+         contain the different hops of the trace route path. 
+        
+        
+         Once the trace route test is complete, the management 
+         station should retrieve the information from the 
+         fcTraceRouteHopsTable and delete the entry from this  
+         table. When an entry is deleted from this table,  
+         related entries in the fcTraceRouteHopsTable will be  
+         automatically deleted by the agent. 
+        
+         In order to prevent old entries from clogging the  
+         table, entries will be aged out. But an entry will  
+         never be deleted within fcTraceRouteAgeInterval  
+         milliseconds of completing. 
+        
+         If the management station wishes to repeat the trace 
+         route test for a particular destination, then it will 
+         need to set the corresponding instance of  
+         fcTraceRouteAdminStatus to 'enable' again."
+    INDEX { fcTraceRouteIndex }
+    ::= { fcTraceRouteTable 1 }
+
+FcTraceRouteEntry ::= SEQUENCE {
+    fcTraceRouteIndex Gauge,
+    fcTraceRouteVsanIndex VsanIndex,
+    fcTraceRouteTargetAddrType FcAddressType,
+    fcTraceRouteTargetAddr FcAddress,
+    fcTraceRouteTimeout Gauge,
+    fcTraceRouteAdminStatus FcStartOper,
+    fcTraceRouteOperStatus INTEGER,
+    fcTraceRouteAgeInterval Gauge,
+    fcTraceRouteTrapOnCompletion TruthValue,
+    fcTraceRouteRowStatus RowStatus
+    }
+
+fcTraceRouteIndex OBJECT-TYPE
+    SYNTAX Gauge(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index of a trace route entry. This object 
+         uniquely identifies a trace route request entry 
+         on a particular VSAN."
+    ::= { fcTraceRouteEntry 1 }
+
+fcTraceRouteVsanIndex OBJECT-TYPE
+    SYNTAX VsanIndex
+--    Rsyntax INTEGER(1..4094)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the VSAN on which this 
+         trace route request is to be performed. This 
+         object cannot be modified if the corresponding 
+         instance of fcTraceRouteOperStatus object has a 
+         value of 'inProgress'."
+    DEFVAL { 1 }
+    ::= { fcTraceRouteEntry 2 }
+
+fcTraceRouteTargetAddrType OBJECT-TYPE
+    SYNTAX FcAddressType
+--    Rsyntax INTEGER {
+--        wwn(1),
+--        fcid(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The format of the corresponding instance of 
+         fcTraceRouteTargetAddr object."
+    DEFVAL { wwn }
+    ::= { fcTraceRouteEntry 3 }
+
+fcTraceRouteTargetAddr OBJECT-TYPE
+    SYNTAX FcAddress
+--    Rsyntax OCTET STRING(SIZE(3|8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the device to which the route is to be 
+         traced. 
+        
+         If the value of the corresponding instance of 
+         fcTraceRouteTargetAddrType object is 'wwn', then this 
+         object will contain an 8 octet long WWN. 
+        
+         If the value of the corresponding instance of 
+         fcTraceRouteTargetAddrType object is 'fcid', then this 
+         object will contain a 3 octet long FCID. 
+        
+         This object MUST be set to a valid value before 
+         or concurrently with setting the corresponding 
+         instance of fcTraceRouteRowStatus to 'active'."
+    ::= { fcTraceRouteEntry 4 }
+
+fcTraceRouteTimeout OBJECT-TYPE
+    SYNTAX Gauge(5..25)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The timeout value for this trace route request. 
+         This object cannot be modified if the 
+         corresponding instance of fcTraceRouteOperStatus 
+         object has a value of 'inProgress'."
+    DEFVAL { 10 }
+    ::= { fcTraceRouteEntry 5 }
+
+fcTraceRouteAdminStatus OBJECT-TYPE
+    SYNTAX FcStartOper
+--    Rsyntax INTEGER {
+--        enable(1),
+--        disable(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the desired state that a  
+         fcTraceRouteEntry should be in: 
+        
+         enable(1)  -  Attempt to activate the test as  
+                       defined by this entry. 
+        
+         disable(2) -  Deactivate the test as defined by 
+                       this entry. 
+        
+         The actual operational state of this test is  
+         indicated by the corresponding instance of  
+         fcTraceRouteOperStatus. 
+        
+         When the trace route test corresponding to this entry 
+         is executing, this object cannot be modified. If this 
+         object is read at such a time, a value of 'enable'  
+         will be returned. When the test completes, the value 
+         of this object will be made 'disable' automatically 
+         by the agent."
+    DEFVAL { disable }
+    ::= { fcTraceRouteEntry 6 }
+
+fcTraceRouteOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        inProgress(1),
+        success(2),
+        partialSuccess(3),
+        failure(4),
+        disabled(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational status  
+         of this fcTraceRouteEntry. 
+        
+         inProgress(1)     -  Indicates that the trace route 
+                              test as defined by this instance  
+                              of fcTraceRouteEntry is currently 
+                              running. 
+        
+         success(2)        -  Indicates that the trace route 
+                              test as defined by this instance  
+                              of fcTraceRouteEntry is currently 
+                              complete and the whole path to the 
+                              destination has been traced. 
+        
+         partialSuccess(3) -  Indicates that the trace route 
+                              test as defined by this instance  
+                              of fcTraceRouteEntry is currently 
+                              partially successful. 
+        
+         failure(4)        -  Indicates that the trace route 
+                              test as defined by this instance  
+                              of fcTraceRouteEntry has currently 
+                              failed due to resource  
+                              limitations. 
+        
+         disabled(5)       -  Indicates that the trace route 
+                              test as defined by this instance  
+                              of fcTraceRouteEntry is  
+                              currently disabled. 
+        
+         Initially the value of this object will be 
+         'inProgress' when the test is being executed. Once 
+         the test completes, the value of this object will 
+         be 'success' or 'partialSuccess' depending on the 
+         outcome of the test.  
+        
+         If the value of this object is 'success', then the 
+         route to the target as determined by this test will 
+         be available in the fcTraceRouteHopsTable. 
+        
+         If the value of this object is 'partialSuccess', then  
+         the fcTraceRouteHopsTable will contain that portion  
+         of the route that was traced by the test. 
+        
+         If the value of this object is 'failure', then the 
+         test was not carried out and the  
+         fcTraceRouteHopsTable will not have any entries 
+         corresponding to this test. 
+        
+         If the value of the corresponding instance of  
+         fcTraceRouteAdminStatus is 'disable', then this  
+         object will have a value of 'disabled'."
+    ::= { fcTraceRouteEntry 7 }
+
+fcTraceRouteAgeInterval OBJECT-TYPE
+    SYNTAX Gauge(500000..900000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time to wait after a trace route 
+         test completes before the entry is aged out. 
+         This object cannot be modified if the 
+         corresponding instance of fcTraceRouteOperStatus 
+         object has a value of 'inProgress'."
+    DEFVAL { 500000 }
+    ::= { fcTraceRouteEntry 8 }
+
+fcTraceRouteTrapOnCompletion OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if fcTraceRouteCompletionNotify 
+         notification should be generated or not when this 
+         trace route test completes. 
+        
+         If this object is set to 'true', then the notification 
+         is generated. 
+        
+         If this object is set to 'false', then the  
+         notification is not generated. 
+        
+         This object cannot be modified if the corresponding 
+         instance of fcTraceRouteOperStatus object is 
+         having a value of 'inProgress'."
+    DEFVAL { false }
+    ::= { fcTraceRouteEntry 9 }
+
+fcTraceRouteRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. 
+        
+         If a trace route test is being executed and  
+         if the corresponding instance of this 
+         object is set to 'destroy', then the trace 
+         route test will be stopped."
+    ::= { fcTraceRouteEntry 10 }
+
+fcTraceRouteHopsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FcTraceRouteHopsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of trace route hop results. 
+         This table contains the hop-by-hop result 
+         of a trace route test performed for an 
+         entry in the fcTraceRouteTable."
+    ::= { fcTraceRouteResults 1 }
+
+fcTraceRouteHopsEntry OBJECT-TYPE
+    SYNTAX FcTraceRouteHopsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A trace route hop entry. 
+        
+         The first index identifies the fcTraceRouteEntry 
+         that a fcTraceRouteHopsEntry belongs to. The second 
+         index element selects a hop in a trace route path. 
+        
+         Entries are created automatically in this table  
+         corresponding to a fcTraceRouteEntry when the 
+         trace route test completes.  
+        
+         In the case of a complete path being traced, the 
+         source and destination points along with the 
+         intermediate hops will be listed in this table. 
+        
+         The entries in this table corresponding to a  
+         fcTraceRouteEntry are automatically deleted when 
+         the fcTraceRouteEntry is deleted or aged out."
+    INDEX { fcTraceRouteIndex, fcTraceRouteHopsHopIndex }
+    ::= { fcTraceRouteHopsTable 1 }
+
+FcTraceRouteHopsEntry ::= SEQUENCE {
+    fcTraceRouteHopsHopIndex Gauge,
+    fcTraceRouteHopsHopAddr FcNameId,
+    fcTraceRouteHopsHopLatencyValid TruthValue,
+    fcTraceRouteHopsHopLatency Gauge
+    }
+
+fcTraceRouteHopsHopIndex OBJECT-TYPE
+    SYNTAX Gauge(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the hop index for a  
+         traceroute hop. Values for this object with 
+         respect to the same fcTraceRouteIndex MUST start  
+         at 1 and increase monotonically. 
+        
+         All hops (traceRouteHopsTable entries) in a  
+         trace route path MUST be updated at the same time 
+         when a trace route test completes."
+    ::= { fcTraceRouteHopsEntry 1 }
+
+fcTraceRouteHopsHopAddr OBJECT-TYPE
+    SYNTAX FcNameId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object reports the WWN of the device  
+         associated with this hop."
+    ::= { fcTraceRouteHopsEntry 2 }
+
+fcTraceRouteHopsHopLatencyValid OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the  
+         corresponding instance of  
+         fcTraceRouteHopsHopLatency object contains 
+         a valid value. 
+         If the value of this object is 'true', then 
+         the corresponding instance of 
+         fcTraceRouteHopsHopLatency contains a valid  
+         value. 
+         If the value of this object is 'false', then 
+         the corresponding instance of  
+         fcTraceRouteHopsHopLatency does not contain a 
+         valid value and should be ignored."
+    ::= { fcTraceRouteHopsEntry 3 }
+
+fcTraceRouteHopsHopLatency OBJECT-TYPE
+    SYNTAX Gauge(0..25000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object reports the round trip time associated 
+         with this hop."
+    ::= { fcTraceRouteHopsEntry 4 }
+
+fcTraceRouteCompletionNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE fcTraceRouteNotification
+    VARIABLES {
+        fcTraceRouteTargetAddr, fcTraceRouteOperStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated whenever a  
+         trace route test is completed and the 
+         corresponding instance of  
+         fcTraceRouteTrapOnCompletion is set to 'true'. 
+        
+         The agent is encouraged to append, at the end  
+         of this notification's varbindlist, one varbind 
+         for each hop of the traced route. Each such 
+         appended varbind would contain an instance of 
+         fcTraceRouteHopsHopAddr object. If the number of 
+         varbinds required would cause the notification 
+         to approach it's maximum size, the number of 
+         instances of fcTraceRouteHopsHopAddr will be 
+         truncated suitably."
+    ::= 1
+
+fcTraceRouteConfigGroup OBJECT IDENTIFIER ::= { fcTraceRouteMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for configuring 
+--     Fibre Channel Trace route functionality.
+--  objects
+--    fcTraceRouteVsanIndex, fcTraceRouteTargetAddrType, 
+--    fcTraceRouteTargetAddr, fcTraceRouteTimeout, 
+--    fcTraceRouteAdminStatus, fcTraceRouteOperStatus, 
+--    fcTraceRouteAgeInterval, fcTraceRouteTrapOnCompletion, 
+--    fcTraceRouteRowStatus
+
+fcTraceRouteResultsGroup OBJECT IDENTIFIER ::= { fcTraceRouteMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for displaying 
+--     Fibre Channel Trace route results.
+--  objects
+--    fcTraceRouteHopsHopAddr, fcTraceRouteHopsHopLatencyValid, 
+--    fcTraceRouteHopsHopLatency
+
+fcTraceRouteNotifyGroup OBJECT IDENTIFIER ::= { fcTraceRouteMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notification(s) for  
+--     monitoring Fibre Channel Trace route 
+--     test completion.
+--  notifications
+--    fcTraceRouteCompletionNotify
+
+fcTraceRouteMIBCompliance OBJECT IDENTIFIER ::= { fcTraceRouteMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which 
+--     implement the Fibre Channel Trace Route  
+--     functionality.
+--  Module
+--    >>current<<
+--   MandGroup
+--    fcTraceRouteConfigGroup
+--   MandGroup
+--    fcTraceRouteResultsGroup
+--   MandGroup
+--    fcTraceRouteNotifyGroup
+--   ObjVar
+--    fcTraceRouteRowStatus
+
+
+END
+

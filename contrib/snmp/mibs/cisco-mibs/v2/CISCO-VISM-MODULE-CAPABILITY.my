@@ -1,0 +1,76 @@
+-- *****************************************************************
+-- CISCO-VISM-MODULE-CAPABILITY.my:
+-- CISCO-VISM-MODULE-MIB AGENT-CAPABILITIES
+--
+-- October 2005, Rashmi Purandare
+--
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VISM-MODULE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        Unsigned32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoVismModuleCapability MODULE-IDENTITY
+        LAST-UPDATED    "200510180000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The capabilities description of 
+                 CISCO-VISM-MODULE-MIB."
+
+        REVISION        "200510180000Z"
+        DESCRIPTION
+                "Initial version of this capability file."
+        ::= { ciscoAgentCapability 458 }
+
+cVismModuleCapabilityV3325 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco VISM Release 3.3.25"
+    STATUS               current
+    DESCRIPTION          "CISCO-VISM-MODULE-MIB capabilities."
+
+    SUPPORTS             CISCO-VISM-MODULE-MIB
+        INCLUDES         { ciscoVismPerfStatsGroup,
+                           ciscoVismCallStatsGroup,
+                           ciscoVismIpGroup,
+                           ciscoVismVoIpGroup,
+                           ciscoVismDspGroup,
+                           ciscoVismSystemGroup1,
+                           ciscoVismInteropGroup, 
+                           ciscoVismTrapObjGroup,
+                           ciscoVismAal2Group,
+                           ciscoVismSystemFeatureGroupRev1,
+                           ciscoVismTrapVarbindGroup,
+                           ciscoVismDspGroupSup1,
+                           ciscoVismSystemGroupSup1 }
+
+        VARIATION        vismPvcAlarmLogAdminTimer
+            SYNTAX       Unsigned32 (1..7200)
+            DESCRIPTION  "Valid range is 1 to 7200."
+
+        VARIATION        vismPvcAlarmLogOperTimer
+            SYNTAX       Unsigned32 (1..7200)
+            DESCRIPTION  "Valid range is 1 to 7200."
+
+    ::= { ciscoVismModuleCapability 1 }
+
+END
+

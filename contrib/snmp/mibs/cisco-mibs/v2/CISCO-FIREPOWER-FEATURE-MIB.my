@@ -1,0 +1,695 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-FEATURE-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- FEATURE management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-FEATURE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprFeatureSupportabilityType
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprFeatureObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        FEATURE management information model package"
+    ::= { ciscoFirepowerMIBObjects 29 }
+
+cfprFeatureContextEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureContextEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:ContextEp managed object table"
+    ::= { cfprFeatureObjects 1 }
+
+cfprFeatureContextEpEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureContextEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureContextEpTable table."
+    INDEX { cfprFeatureContextEpInstanceId }
+    ::= { cfprFeatureContextEpTable 1 }
+
+CfprFeatureContextEpEntry ::= SEQUENCE {
+    cfprFeatureContextEpInstanceId                                   CfprManagedObjectId,
+    cfprFeatureContextEpDn                                           CfprManagedObjectDn,
+    cfprFeatureContextEpRn                                           SnmpAdminString
+}
+
+cfprFeatureContextEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureContextEpEntry 1 }
+
+cfprFeatureContextEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:ContextEp:dn managed object property"
+    ::= { cfprFeatureContextEpEntry 2 }
+
+cfprFeatureContextEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:ContextEp:rn managed object property"
+    ::= { cfprFeatureContextEpEntry 3 }
+
+cfprFeatureDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:Definition managed object table"
+    ::= { cfprFeatureObjects 2 }
+
+cfprFeatureDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureDefinitionTable table."
+    INDEX { cfprFeatureDefinitionInstanceId }
+    ::= { cfprFeatureDefinitionTable 1 }
+
+CfprFeatureDefinitionEntry ::= SEQUENCE {
+    cfprFeatureDefinitionInstanceId                                  CfprManagedObjectId,
+    cfprFeatureDefinitionDn                                          CfprManagedObjectDn,
+    cfprFeatureDefinitionRn                                          SnmpAdminString,
+    cfprFeatureDefinitionDescription                                 SnmpAdminString,
+    cfprFeatureDefinitionName                                        SnmpAdminString,
+    cfprFeatureDefinitionRevision                                    SnmpAdminString
+}
+
+cfprFeatureDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureDefinitionEntry 1 }
+
+cfprFeatureDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Definition:dn managed object property"
+    ::= { cfprFeatureDefinitionEntry 2 }
+
+cfprFeatureDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Definition:rn managed object property"
+    ::= { cfprFeatureDefinitionEntry 3 }
+
+cfprFeatureDefinitionDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Definition:description
+        managed object property"
+    ::= { cfprFeatureDefinitionEntry 4 }
+
+cfprFeatureDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Definition:name managed object property"
+    ::= { cfprFeatureDefinitionEntry 5 }
+
+cfprFeatureDefinitionRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Definition:revision managed
+        object property"
+    ::= { cfprFeatureDefinitionEntry 6 }
+
+cfprFeatureDefinitionInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureDefinitionInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionInstance managed object table"
+    ::= { cfprFeatureObjects 3 }
+
+cfprFeatureDefinitionInstanceEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureDefinitionInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureDefinitionInstanceTable table."
+    INDEX { cfprFeatureDefinitionInstanceInstanceId }
+    ::= { cfprFeatureDefinitionInstanceTable 1 }
+
+CfprFeatureDefinitionInstanceEntry ::= SEQUENCE {
+    cfprFeatureDefinitionInstanceInstanceId                          CfprManagedObjectId,
+    cfprFeatureDefinitionInstanceDn                                  CfprManagedObjectDn,
+    cfprFeatureDefinitionInstanceRn                                  SnmpAdminString,
+    cfprFeatureDefinitionInstanceName                                SnmpAdminString,
+    cfprFeatureDefinitionInstanceRevision                            SnmpAdminString,
+    cfprFeatureDefinitionInstanceSupportability                      CfprFeatureSupportabilityType,
+    cfprFeatureDefinitionInstanceTargetDn                            SnmpAdminString
+}
+
+cfprFeatureDefinitionInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureDefinitionInstanceEntry 1 }
+
+cfprFeatureDefinitionInstanceDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionInstance:dn
+        managed object property"
+    ::= { cfprFeatureDefinitionInstanceEntry 2 }
+
+cfprFeatureDefinitionInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionInstance:rn
+        managed object property"
+    ::= { cfprFeatureDefinitionInstanceEntry 3 }
+
+cfprFeatureDefinitionInstanceName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionInstance:name
+        managed object property"
+    ::= { cfprFeatureDefinitionInstanceEntry 4 }
+
+cfprFeatureDefinitionInstanceRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionInstance:revision
+        managed object property"
+    ::= { cfprFeatureDefinitionInstanceEntry 5 }
+
+cfprFeatureDefinitionInstanceSupportability OBJECT-TYPE
+    SYNTAX       CfprFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionInstance:supportability
+        managed object property"
+    ::= { cfprFeatureDefinitionInstanceEntry 6 }
+
+cfprFeatureDefinitionInstanceTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionInstance:targetDn
+        managed object property"
+    ::= { cfprFeatureDefinitionInstanceEntry 7 }
+
+cfprFeatureDefinitionRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureDefinitionRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionRef managed object table"
+    ::= { cfprFeatureObjects 4 }
+
+cfprFeatureDefinitionRefEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureDefinitionRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureDefinitionRefTable table."
+    INDEX { cfprFeatureDefinitionRefInstanceId }
+    ::= { cfprFeatureDefinitionRefTable 1 }
+
+CfprFeatureDefinitionRefEntry ::= SEQUENCE {
+    cfprFeatureDefinitionRefInstanceId                               CfprManagedObjectId,
+    cfprFeatureDefinitionRefDn                                       CfprManagedObjectDn,
+    cfprFeatureDefinitionRefRn                                       SnmpAdminString,
+    cfprFeatureDefinitionRefName                                     SnmpAdminString,
+    cfprFeatureDefinitionRefRevision                                 SnmpAdminString,
+    cfprFeatureDefinitionRefSupportability                           CfprFeatureSupportabilityType,
+    cfprFeatureDefinitionRefTargetDn                                 SnmpAdminString
+}
+
+cfprFeatureDefinitionRefInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureDefinitionRefEntry 1 }
+
+cfprFeatureDefinitionRefDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionRef:dn managed object property"
+    ::= { cfprFeatureDefinitionRefEntry 2 }
+
+cfprFeatureDefinitionRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionRef:rn managed object property"
+    ::= { cfprFeatureDefinitionRefEntry 3 }
+
+cfprFeatureDefinitionRefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionRef:name managed
+        object property"
+    ::= { cfprFeatureDefinitionRefEntry 4 }
+
+cfprFeatureDefinitionRefRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionRef:revision
+        managed object property"
+    ::= { cfprFeatureDefinitionRefEntry 5 }
+
+cfprFeatureDefinitionRefSupportability OBJECT-TYPE
+    SYNTAX       CfprFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionRef:supportability
+        managed object property"
+    ::= { cfprFeatureDefinitionRefEntry 6 }
+
+cfprFeatureDefinitionRefTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:DefinitionRef:targetDn
+        managed object property"
+    ::= { cfprFeatureDefinitionRefEntry 7 }
+
+cfprFeatureFruCapProviderInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureFruCapProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance
+        managed object table"
+    ::= { cfprFeatureObjects 5 }
+
+cfprFeatureFruCapProviderInstanceEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureFruCapProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureFruCapProviderInstanceTable table."
+    INDEX { cfprFeatureFruCapProviderInstanceInstanceId }
+    ::= { cfprFeatureFruCapProviderInstanceTable 1 }
+
+CfprFeatureFruCapProviderInstanceEntry ::= SEQUENCE {
+    cfprFeatureFruCapProviderInstanceInstanceId                      CfprManagedObjectId,
+    cfprFeatureFruCapProviderInstanceDn                              CfprManagedObjectDn,
+    cfprFeatureFruCapProviderInstanceRn                              SnmpAdminString,
+    cfprFeatureFruCapProviderInstanceModel                           SnmpAdminString,
+    cfprFeatureFruCapProviderInstanceRevision                        SnmpAdminString,
+    cfprFeatureFruCapProviderInstanceSupportability                  CfprFeatureSupportabilityType,
+    cfprFeatureFruCapProviderInstanceTargetDn                        SnmpAdminString,
+    cfprFeatureFruCapProviderInstanceVendor                          SnmpAdminString
+}
+
+cfprFeatureFruCapProviderInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureFruCapProviderInstanceEntry 1 }
+
+cfprFeatureFruCapProviderInstanceDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance:dn
+        managed object property"
+    ::= { cfprFeatureFruCapProviderInstanceEntry 2 }
+
+cfprFeatureFruCapProviderInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance:rn
+        managed object property"
+    ::= { cfprFeatureFruCapProviderInstanceEntry 3 }
+
+cfprFeatureFruCapProviderInstanceModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance:model
+        managed object property"
+    ::= { cfprFeatureFruCapProviderInstanceEntry 4 }
+
+cfprFeatureFruCapProviderInstanceRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance:revision
+        managed object property"
+    ::= { cfprFeatureFruCapProviderInstanceEntry 5 }
+
+cfprFeatureFruCapProviderInstanceSupportability OBJECT-TYPE
+    SYNTAX       CfprFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance:supportability
+        managed object property"
+    ::= { cfprFeatureFruCapProviderInstanceEntry 6 }
+
+cfprFeatureFruCapProviderInstanceTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance:targetDn
+        managed object property"
+    ::= { cfprFeatureFruCapProviderInstanceEntry 7 }
+
+cfprFeatureFruCapProviderInstanceVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderInstance:vendor
+        managed object property"
+    ::= { cfprFeatureFruCapProviderInstanceEntry 8 }
+
+cfprFeatureFruCapProviderRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureFruCapProviderRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef managed object table"
+    ::= { cfprFeatureObjects 6 }
+
+cfprFeatureFruCapProviderRefEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureFruCapProviderRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureFruCapProviderRefTable table."
+    INDEX { cfprFeatureFruCapProviderRefInstanceId }
+    ::= { cfprFeatureFruCapProviderRefTable 1 }
+
+CfprFeatureFruCapProviderRefEntry ::= SEQUENCE {
+    cfprFeatureFruCapProviderRefInstanceId                           CfprManagedObjectId,
+    cfprFeatureFruCapProviderRefDn                                   CfprManagedObjectDn,
+    cfprFeatureFruCapProviderRefRn                                   SnmpAdminString,
+    cfprFeatureFruCapProviderRefModel                                SnmpAdminString,
+    cfprFeatureFruCapProviderRefRevision                             SnmpAdminString,
+    cfprFeatureFruCapProviderRefSupportability                       CfprFeatureSupportabilityType,
+    cfprFeatureFruCapProviderRefTargetDn                             SnmpAdminString,
+    cfprFeatureFruCapProviderRefVendor                               SnmpAdminString
+}
+
+cfprFeatureFruCapProviderRefInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureFruCapProviderRefEntry 1 }
+
+cfprFeatureFruCapProviderRefDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef:dn managed
+        object property"
+    ::= { cfprFeatureFruCapProviderRefEntry 2 }
+
+cfprFeatureFruCapProviderRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef:rn managed
+        object property"
+    ::= { cfprFeatureFruCapProviderRefEntry 3 }
+
+cfprFeatureFruCapProviderRefModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef:model
+        managed object property"
+    ::= { cfprFeatureFruCapProviderRefEntry 4 }
+
+cfprFeatureFruCapProviderRefRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef:revision
+        managed object property"
+    ::= { cfprFeatureFruCapProviderRefEntry 5 }
+
+cfprFeatureFruCapProviderRefSupportability OBJECT-TYPE
+    SYNTAX       CfprFeatureSupportabilityType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef:supportability
+        managed object property"
+    ::= { cfprFeatureFruCapProviderRefEntry 6 }
+
+cfprFeatureFruCapProviderRefTargetDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef:targetDn
+        managed object property"
+    ::= { cfprFeatureFruCapProviderRefEntry 7 }
+
+cfprFeatureFruCapProviderRefVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:FruCapProviderRef:vendor
+        managed object property"
+    ::= { cfprFeatureFruCapProviderRefEntry 8 }
+
+cfprFeatureProviderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:Provider managed object table"
+    ::= { cfprFeatureObjects 7 }
+
+cfprFeatureProviderEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureProviderTable table."
+    INDEX { cfprFeatureProviderInstanceId }
+    ::= { cfprFeatureProviderTable 1 }
+
+CfprFeatureProviderEntry ::= SEQUENCE {
+    cfprFeatureProviderInstanceId                                    CfprManagedObjectId,
+    cfprFeatureProviderDn                                            CfprManagedObjectDn,
+    cfprFeatureProviderRn                                            SnmpAdminString,
+    cfprFeatureProviderName                                          SnmpAdminString
+}
+
+cfprFeatureProviderInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureProviderEntry 1 }
+
+cfprFeatureProviderDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Provider:dn managed object property"
+    ::= { cfprFeatureProviderEntry 2 }
+
+cfprFeatureProviderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Provider:rn managed object property"
+    ::= { cfprFeatureProviderEntry 3 }
+
+cfprFeatureProviderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:Provider:name managed object property"
+    ::= { cfprFeatureProviderEntry 4 }
+
+cfprFeatureProviderInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprFeatureProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower feature:ProviderInstance managed object table"
+    ::= { cfprFeatureObjects 8 }
+
+cfprFeatureProviderInstanceEntry OBJECT-TYPE
+    SYNTAX           CfprFeatureProviderInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprFeatureProviderInstanceTable table."
+    INDEX { cfprFeatureProviderInstanceInstanceId }
+    ::= { cfprFeatureProviderInstanceTable 1 }
+
+CfprFeatureProviderInstanceEntry ::= SEQUENCE {
+    cfprFeatureProviderInstanceInstanceId                            CfprManagedObjectId,
+    cfprFeatureProviderInstanceDn                                    CfprManagedObjectDn,
+    cfprFeatureProviderInstanceRn                                    SnmpAdminString,
+    cfprFeatureProviderInstanceName                                  SnmpAdminString,
+    cfprFeatureProviderInstanceOperProviderDn                        SnmpAdminString
+}
+
+cfprFeatureProviderInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprFeatureProviderInstanceEntry 1 }
+
+cfprFeatureProviderInstanceDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:ProviderInstance:dn managed
+        object property"
+    ::= { cfprFeatureProviderInstanceEntry 2 }
+
+cfprFeatureProviderInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:ProviderInstance:rn managed
+        object property"
+    ::= { cfprFeatureProviderInstanceEntry 3 }
+
+cfprFeatureProviderInstanceName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:ProviderInstance:name
+        managed object property"
+    ::= { cfprFeatureProviderInstanceEntry 4 }
+
+cfprFeatureProviderInstanceOperProviderDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower feature:ProviderInstance:operProviderDn
+        managed object property"
+    ::= { cfprFeatureProviderInstanceEntry 5 }
+
+END

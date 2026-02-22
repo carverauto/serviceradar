@@ -1,0 +1,150 @@
+-- MIB file created 02-Jun-2010 11:47:26, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IP-ADDRESS-POOL-TC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IP-ADDRESS-POOL-TC-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI;
+
+ciscoIpAddressPoolTcMIB OBJECT IDENTIFIER ::= { ciscoMgmt 742 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201005030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB module defines textual conventions used by MIB
+--    modules defining objects describing IP address pools.
+--  RevDate
+--    201002020000Z
+--  RevDescr
+--    The initial version of the MIB module.
+
+IpAddrPoolInstanceIdentifier ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    An arbitrary integer-value that uniquely identifies a row in a
+--    table defined by a MIB module defining objects describing data
+--    relating to IP address pool.
+
+IpAddrPoolInstanceIdentifierOrZero ::= Gauge(0..4294967295)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention serves as an extension of the
+--    IpAddressPoolIdentifier textual convention, which permits the
+--    value '0'.  The use of the value '0' is specific to an object,
+--    thus requiring the descriptive text associated with the object
+--    to describe the semantics of its use.
+
+IpAddressPoolName ::= OCTET STRING(SIZE(1..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    A string-value that denotes the name assigned to an IP address
+--    pool.  The semantics of the string-value are the same as those
+--    specified by the SnmpAdminString textual convention defined by
+--    the SNMP-FRAMEWORK-MIB [RFC3411].
+--  Refer
+--    D. Harrington, R. Resuhn, B. Wijnen, 'An Architecture for
+--    Describing Simple Network Management Protocol (SNMP)
+--    Management Frameworks', RFC-3411, December 2002.
+
+IpAddressPoolNameOrNull ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention serves as an extension of the
+--    IpAddressPoolName textual convention, which permits the null
+--    string.  The use of the null string is specific to an object,
+--    thus requiring the descriptive text associated with the object
+--    to describe the semantics of its use.
+
+IpAddressPoolGroupName ::= OCTET STRING(SIZE(1..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    A string-value that denotes the name assigned to an IP address
+--    pool group.  The semantics of the string-value are the same as
+--    those specified by the SnmpAdminString textual convention
+--    defined by the SNMP-FRAMEWORK-MIB [RFC3411].
+--  Refer
+--    D. Harrington, R. Resuhn, B. Wijnen, 'An Architecture for
+--    Describing Simple Network Management Protocol (SNMP)
+--    Management Frameworks', RFC-3411, December 2002.
+
+IpAddressPoolGroupNameOrNull ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention serves as an extension of the
+--    IpAddressPoolGroupName textual convention, which permits the
+--    null string.  The use of the null string is specific to an
+--    object, thus requiring the descriptive text associated with the
+--    object to describe the semantics of the its use.
+
+IpAddressPoolThresholdUnits ::= INTEGER {
+        other(1),
+        absolute(2),
+        percent(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An enumerated integer-value that denotes the units used when
+--    specifying an IP address pool threshold:
+--    
+--        'other'
+--            The implementation of the MIB module using this textual
+--            convention does not recognize the IP address pool
+--            threshold units.
+--    
+--        'absolute'
+--            The value of the corresponding IP address pool threshold
+--            is an absolute number of IP addresses or IP prefixes,
+--            depending on the context.
+--    
+--        'percent'
+--            The value of the corresponding IP address pool threshold
+--            is a percentage of the total number of free and in-use
+--            IP addresses or IP prefixes contained by a pool.
+
+
+END
+

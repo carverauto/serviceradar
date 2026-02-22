@@ -1,0 +1,225 @@
+-- MIB file created 08-Oct-2002 14:48:30, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-DDP-IAPP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DDP-IAPP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    CiscoPort
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoDdpIappMIB OBJECT IDENTIFIER ::= { ciscoMgmt 277 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200207310000Z
+--  OrgName
+--    Cisco System Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 West Tasman Drive,
+--            San Jose CA 95134-1706.
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-dot11@cisco.com
+--  Descr
+--    This MIB module describes the management support for
+--    the Inter-Access Point Protocol (IAPP).  IAPP is a 
+--    Cisco propriety Data Delivery Protocol (DDP), and the
+--    protocol defines the function and frame formats for 
+--    communication between IEEE 802.11 Standard wireless 
+--    LAN stations, i.e. access point (AP), work-group 
+--    bridge, and repeater.  The IAPP supports wireless 
+--    station LAN attachment, client roaming, association
+--    management, and diagnostic services.
+--  RevDate
+--    200207310000Z
+--  RevDescr
+--    Correct DEFVAL for cDdpIappMcastIpAddr.
+--  RevDate
+--    200207170000Z
+--  RevDescr
+--    Removed cDdpIappP802dot1XVersion, added
+--    cDdpIappLastRogueApMacAddr, cDdpIappLastRogueApNotif,
+--    and cDdpIappRogueApNotifEnabled objects. Changed
+--    cDdpIappPort object to read-only access.
+--  RevDate
+--    200203190000Z
+--  RevDescr
+--    Changing the description for cDdpIappPort to be a
+--    UDP port and Email contact address.
+--  RevDate
+--    200203070000Z
+--  RevDescr
+--    Changing DEFVALs for cDdpIappMcastIpAddr and 
+--    cDdpIappPort.
+--  RevDate
+--    200109280000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoDdpIappMIBNotifications OBJECT IDENTIFIER ::= { ciscoDdpIappMIB 0 }
+ciscoDdpIappMIBObjects OBJECT IDENTIFIER ::= { ciscoDdpIappMIB 1 }
+ciscoDdpIappMIBConformance OBJECT IDENTIFIER ::= { ciscoDdpIappMIB 2 }
+cDdpIappGlobalConfig OBJECT IDENTIFIER ::= { ciscoDdpIappMIBObjects 1 }
+cDdpIappRogueApInfo OBJECT IDENTIFIER ::= { ciscoDdpIappMIBObjects 2 }
+ciscoDdpIappMIBCompliances OBJECT IDENTIFIER ::= { ciscoDdpIappMIBConformance 1 }
+ciscoDdpIappMIBGroups OBJECT IDENTIFIER ::= { ciscoDdpIappMIBConformance 2 }
+
+cDdpIappMcastIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the type of address stored in
+        cDdpIappMcastIpAddr."
+    ::= { cDdpIappGlobalConfig 1 }
+
+cDdpIappMcastIpAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Multicast IP network address over which applicable 
+         IAPP packets are exchanged between stations."
+    DEFVAL { 'e0000128'H }
+    ::= { cDdpIappGlobalConfig 2 }
+
+cDdpIappPort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "UPD port identifier through which applicable IAPP
+         packets are exchanged between stations."
+    DEFVAL { 2887 }
+    ::= { cDdpIappGlobalConfig 3 }
+
+cDdpIappRogueApNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether rogue access point notifications
+        including cDdpIappLastRogueApNotif notification 
+        will or will not be sent by the agent when a rogue
+        access point is detected.  If it is true(1), 
+        notifications will be sent.  If it is false(2), 
+        notifications will not be sent."
+    DEFVAL { false }
+    ::= { cDdpIappGlobalConfig 4 }
+
+cDdpIappLastRogueApMacAddr OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the MAC address of the last detected rogue
+        access point for this device.  The value is zero if 
+        there has not been any rogue access point detected 
+        since system reload."
+    DEFVAL { '000000000000'H }
+    ::= { cDdpIappRogueApInfo 1 }
+
+cDdpIappLastRogueApNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDdpIappMIB
+    VARIABLES {
+        cDdpIappLastRogueApMacAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification will be sent when a rogue 
+        access point is detected, that is the object value
+        of cDdpIappLastRogueApMacAddr had changed. The 
+        cDdpIappLastRogueApMacAddr specify the latest 
+        rogue access point MAC address.  The sending
+        of notifications can be enabled or disabled
+        via the cDdpIappRogueApNotifEnabled object."
+    ::= 1
+
+ciscoDdpIappConfigGroup OBJECT IDENTIFIER ::= { ciscoDdpIappMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Configurations to support operation of the IAPP 
+--    protocols and subsystem.
+--  objects
+--    cDdpIappMcastIpAddrType, cDdpIappMcastIpAddr, cDdpIappPort, 
+--    cDdpIappRogueApNotifEnabled
+
+ciscoDdpIappRogueApInfoGroup OBJECT IDENTIFIER ::= { ciscoDdpIappMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Rogue AP information from the operation of the 
+--    IAPP subsystem.
+--  objects
+--    cDdpIappLastRogueApMacAddr
+
+ciscoDdpIappNotificationGroup OBJECT IDENTIFIER ::= { ciscoDdpIappMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This is the notification group for the
+--    CISCO-DDP-IAPP-MIB.
+--  notifications
+--    cDdpIappLastRogueApNotif
+
+ciscoDdpIappCompliance OBJECT IDENTIFIER ::= { ciscoDdpIappMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities implementing
+--    the CISCO-DDP-IAPP-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDdpIappConfigGroup
+--   MandGroup
+--    ciscoDdpIappRogueApInfoGroup
+--   OptGroup
+--    ciscoDdpIappNotificationGroup
+--   ObjVar
+--    cDdpIappMcastIpAddrType
+--   ObjVar
+--    cDdpIappMcastIpAddr
+
+
+END
+

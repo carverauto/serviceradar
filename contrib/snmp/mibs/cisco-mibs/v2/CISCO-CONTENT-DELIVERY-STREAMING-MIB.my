@@ -1,0 +1,562 @@
+-- *****************************************************************
+-- CISCO-CONTENT-DELIVERY-STREAMING-MIB.my
+-- Cisco Content Delivery and Streaming MIB.
+--   
+-- September 2009, Yefei Li
+--   
+-- Copyright (c) 2009 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CONTENT-DELIVERY-STREAMING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Counter64,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoContentDeliveryStreamingMIB MODULE-IDENTITY
+    LAST-UPDATED    "200909300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems Customer Service
+            Postal: 170 W Tasman Drive
+                San Jose, CA 95134-1706
+                USA
+                Tel: +1 800 553-NETS
+                E-mail: cs-cds@cisco.com"
+    DESCRIPTION
+        "This MIB instrumentation is for managing the Content Delivery
+        and Streaming functionality on Cisco devices.
+
+        Contents are ingested into content delivery network and then
+        distributed to clients. There are two types of contents in
+        content delivery network - live and VOD. VOD contents can be
+        pre-positioned or dynamically cached into the content delivery
+        network. Live stream is ingested and delivered to a large
+        audience using one-to-many split.
+
+        Streaming protocols are supported, by different streaming
+        modules. These include HTTP, RTSP, Microsoft Media Server, RTMP
+        and their varieties.
+
+        ACRONYM:
+
+        CDN   Content Delivery Network
+        FMS   Flash Media Streaming
+        HC    High Capacity 
+        MS    Movie Streamer
+        RTMP  Real Time Messaging Protocol
+        VOD   Video On Demand
+        WMT   Window Media Technology
+
+        GLOSSARY: 
+
+        Dynamic cache
+            Content is dynamically ingested into Content Delivery
+            Network when the server does not find a client's requested
+            content in its local hard disk storage.
+
+        Origin Server
+            The server on which all original copies of content reside.
+            It locates outside the CDN.
+
+        Pre-position
+            The content is ingested into Content Delivery Network at or
+            near the point of planned use to reduce reaction time, and
+            to ensure timely response to requests during initial phase
+            of an operation. 
+
+        Real Time Messaging Protocol
+            A multimedia streaming and RPC protocol primarily used in
+            Adobe Flash.
+
+        Upstream Server
+            Upstream server is a server that is located higher in the
+            Content Delivery Network hierarchy."
+    REVISION        "200909300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 708 }
+
+
+
+-- Textual Conventions
+
+CiscoCdsBandwidthUnitType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The unit of measurement for the bandwidth rate:
+
+        bytesPerSec  - number of bytes per second
+        kiloBytesPerSec  - number of kilobytes per second
+        megaBytesPerSec  - number of megabytes per second
+        gigaBytesPerSec  - number of gigabytes per second"
+    SYNTAX          INTEGER  {
+                        bytesPerSec(1),
+                        kiloBytesPerSec(2),
+                        megaBytesPerSec(3),
+                        gigaBytesPerSec(4)
+                    }
+-- Overview of MIB objects
+
+ciscoCdsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoContentDeliveryStreamingMIB 1 }
+
+ccdsStreamingModule  OBJECT IDENTIFIER
+    ::= { ciscoCdsMIBObjects 1 }
+
+
+ccdsStreamingStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcdsStreamingStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the general statistics information for all
+        streaming modules in content delivery environment."
+    ::= { ccdsStreamingModule 1 }
+
+ccdsStreamingStatsEntry OBJECT-TYPE
+    SYNTAX          CcdsStreamingStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the 'ccdsStreamingStatsTable'.
+
+        Each row provides statistics for one streaming module or one
+        live program. The ccdsStreamingStatsIndex identifies this
+        entry. The ccdsStreamingStatsType indicates the entry type.
+
+        If an entry represents a streaming module, it is created when
+        the streaming module is enabled and delelted when the streaming
+        module is disabled. If an entry represents a live program, it
+        is created when the live program is added and deleted when the
+        live program is removed."
+    INDEX           { ccdsStreamingStatsIndex } 
+    ::= { ccdsStreamingStatsTable 1 }
+
+CcdsStreamingStatsEntry ::= SEQUENCE {
+        ccdsStreamingStatsIndex              Unsigned32,
+        ccdsStreamingStatsDescr              SnmpAdminString,
+        ccdsStreamingStatsModuleType         INTEGER,
+        ccdsStreamingStatsRequests           Counter32,
+        ccdsStreamingStatsLiveRequests       Counter32,
+        ccdsStreamingStatsVODRequests        Counter32,
+        ccdsStreamingStatsPrepHitRequests    Counter32,
+        ccdsStreamingStatsCacheHitRequests   Counter32,
+        ccdsStreamingStatsMissRequests       Counter32,
+        ccdsStreamingStatsClientErrors       Counter32,
+        ccdsStreamingStatsServerErrors       Counter32,
+        ccdsStreamingStatsBlockedRequests    Counter32,
+        ccdsStreamingStatsServedBytes        Counter32,
+        ccdsStreamingStatsHCServedBytes      Counter64,
+        ccdsStreamingStatsLiveBytes          Counter32,
+        ccdsStreamingStatsHCLiveBytes        Counter64,
+        ccdsStreamingStatsVODBytes           Counter32,
+        ccdsStreamingStatsHCVODBytes         Counter64,
+        ccdsStreamingStatsBandwidthUnit      CiscoCdsBandwidthUnitType,
+        ccdsStreamingStatsBandwidthRate      Gauge32,
+        ccdsStreamingStatsConcurrentRequests Gauge32
+}
+
+ccdsStreamingStatsIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary index number to represent a statistics entry for
+        a given type of streaming module instance or a live program.
+        The type of this entry is identified by the value of the
+        corresponding instance of 'ccdsStreamingStatsType'. 
+
+        The agent creates a row in this table when the streaming module
+        is enabled and  destroys it when the streaming module is
+        disabled.  The instance identifier value usage/re-usage and its
+        management is implementation specific." 
+    ::= { ccdsStreamingStatsEntry 1 }
+
+ccdsStreamingStatsDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human-readable string representing
+        this streaming module instance or live program." 
+    ::= { ccdsStreamingStatsEntry 2 }
+
+ccdsStreamingStatsModuleType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        http(2),
+                        wmt(3),
+                        ms(4),
+                        fms(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of this statistic table
+        entry.
+
+           'unknown' - If the module type is unknown, it is a module
+                       not yet defined at MIB design time. This is for
+                       extension purpose. 
+
+           'http'    - This is a http module.
+
+           'wmt'     - This is a windows media technology module.
+
+           'ms'      - This is a movie streamer module.
+
+           'fms'     - This is a flash media streaming module." 
+    ::= { ccdsStreamingStatsEntry 3 }
+
+ccdsStreamingStatsRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of end-user requests
+        this streaming instance has received.
+
+        The value of this object is sum total of the value of
+        corresponding instance of 'ccdsStreamingStatsLiveRequests' and
+        'ccdsStreamingStatsVODRequests'." 
+    ::= { ccdsStreamingStatsEntry 4 }
+
+ccdsStreamingStatsLiveRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of end-user requests
+        for live streams." 
+    ::= { ccdsStreamingStatsEntry 5 }
+
+ccdsStreamingStatsVODRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of end-user requests
+        for Video On Demand contents." 
+    ::= { ccdsStreamingStatsEntry 6 }
+
+ccdsStreamingStatsPrepHitRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of end-user requests
+        for which requested contents are pre-positioned into local cache
+        beforehand. These requests are served from local cache." 
+    ::= { ccdsStreamingStatsEntry 7 }
+
+ccdsStreamingStatsCacheHitRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of end-user requests
+        which are served from previously cached contents." 
+    ::= { ccdsStreamingStatsEntry 8 }
+
+ccdsStreamingStatsMissRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of end-user requests
+        for which the requested contents are not available in local
+        cache.  These requests are either served by dynamically
+        caching the content from origin server, or not served at all
+        if the contents are not available on origin server." 
+    ::= { ccdsStreamingStatsEntry 9 }
+
+ccdsStreamingStatsClientErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of failed end-user
+        requests due to errors from the client-side." 
+    ::= { ccdsStreamingStatsEntry 10 }
+
+ccdsStreamingStatsServerErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of failed end-user
+        requests, due to errors encountered in either streaming module
+        or upstream server, or the origin server." 
+    ::= { ccdsStreamingStatsEntry 11 }
+
+ccdsStreamingStatsBlockedRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of end-user requests
+        blocked by this streaming module instance. Requests are refused
+        and error response are sent. The reason might be one of, but
+        not limited to, URL filtering, Authentication failure, or rule
+        template match, etc." 
+    ::= { ccdsStreamingStatsEntry 12 }
+
+ccdsStreamingStatsServedBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of bytes in the
+        response served by this streaming module instance.  
+
+        The value of this object is same as the value of the
+        corresponding instance of 'ccdsStreamingStatsHCServedBytes' (64
+        bit version), differing only in the capacity." 
+    ::= { ccdsStreamingStatsEntry 13 }
+
+ccdsStreamingStatsHCServedBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of bytes in the
+        response served by this streaming module instance.  
+
+        The value of this object is same as the value of the
+        corresponding instance of 'ccdsStreamingStatsServedBytes' (32
+        bit version), differing only in the capacity." 
+    ::= { ccdsStreamingStatsEntry 14 }
+
+ccdsStreamingStatsLiveBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total live stream bytes served by this
+        streaming module instance.  
+
+        The value of this object is same as the value of the
+        corresponding instance of 'ccdsStreamingStatsHCLiveBytes' (64
+        bit version), differing only in the capacity." 
+    ::= { ccdsStreamingStatsEntry 15 }
+
+ccdsStreamingStatsHCLiveBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total live stream bytes served by this
+        streaming module instance.  
+
+        The value of this object is same as the value of the
+        corresponding instance of 'ccdsStreamingStatsLiveBytes' (32 bit
+        version), differing only in the capacity." 
+    ::= { ccdsStreamingStatsEntry 16 }
+
+ccdsStreamingStatsVODBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total bytes served for VOD requests,
+        which are read from local cache, by this streaming module
+        instance.  
+
+        The value of this object is same as the value of the
+        corresponding instance of 'ccdsStreamingStatsHCVODBytes' (64
+        bit version), differing only in the capacity." 
+    ::= { ccdsStreamingStatsEntry 17 }
+
+ccdsStreamingStatsHCVODBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total bytes served for VOD requests,
+        which are read from local cache, by this streaming module
+        instance.  
+
+        The value of this object is same as the value of the
+        corresponding instance of 'ccdsStreamingStatsVODBytes' (32 bit
+        version), differing only in the capacity." 
+    ::= { ccdsStreamingStatsEntry 18 }
+
+ccdsStreamingStatsBandwidthUnit OBJECT-TYPE
+    SYNTAX          CiscoCdsBandwidthUnitType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type unit for the bandwidth rate in
+        the value of the corresponding instance of
+        'ccdsStreamingStatsBandwidthRate'." 
+    ::= { ccdsStreamingStatsEntry 19 }
+
+ccdsStreamingStatsBandwidthRate OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current bandwidth rate occupied by
+        this streaming module instance." 
+    ::= { ccdsStreamingStatsEntry 20 }
+
+ccdsStreamingStatsConcurrentRequests OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of concurrent requests this
+        streaming module instance is serving at current time." 
+    ::= { ccdsStreamingStatsEntry 21 }
+ 
+
+ciscoCdsMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoContentDeliveryStreamingMIB 2 }
+
+ciscoCdsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCdsMIBConformance 1 }
+
+ciscoCdsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCdsMIBConformance 2 }
+
+
+ciscoCdsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for Cisco Systems entities which
+        implement CISCO-CONTENT-DELIVERY-STREAMING-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ccdsStreamingStatsGeneralGroup }
+    ::= { ciscoCdsMIBCompliances 1 }
+
+-- Units of Conformance
+
+ccdsStreamingStatsGeneralGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccdsStreamingStatsDescr,
+                        ccdsStreamingStatsModuleType,
+                        ccdsStreamingStatsRequests,
+                        ccdsStreamingStatsClientErrors,
+                        ccdsStreamingStatsServerErrors,
+                        ccdsStreamingStatsBlockedRequests,
+                        ccdsStreamingStatsPrepHitRequests,
+                        ccdsStreamingStatsCacheHitRequests,
+                        ccdsStreamingStatsMissRequests,
+                        ccdsStreamingStatsLiveRequests,
+                        ccdsStreamingStatsLiveBytes,
+                        ccdsStreamingStatsHCLiveBytes,
+                        ccdsStreamingStatsVODRequests,
+                        ccdsStreamingStatsVODBytes,
+                        ccdsStreamingStatsHCVODBytes,
+                        ccdsStreamingStatsServedBytes,
+                        ccdsStreamingStatsHCServedBytes,
+                        ccdsStreamingStatsBandwidthUnit,
+                        ccdsStreamingStatsBandwidthRate,
+                        ccdsStreamingStatsConcurrentRequests
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing general statistics
+        information of streaming module."
+    ::= { ciscoCdsMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,611 @@
+-- *****************************************************************
+-- CISCO-FLOW-METADATA-MIB.my
+--   
+-- Vignesh C R
+-- Copyright (c) 2005-2006-2012 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-FLOW-METADATA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoFlowMetadataMIB MODULE-IDENTITY
+    LAST-UPDATED    "201212200000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-medianet-metadata@cisco.com"
+    DESCRIPTION
+        "The MIB module for managing Cisco medianet flow metadata.
+        Metadata, in the simplest form, is data that qualifies 
+        other data. Flow metadata is data that describes a flow 
+        in the network. Metadata plays an important role in providing
+        a framework, that makes data from one component available to
+        another component on the same network element as well as 
+        across other network elements.
+
+                MIB Table Overview:
+                ===================
+        This MIB consists of two tables: 
+
+          1) cfmMetadataFlowTable
+          2) cfmMetadataFlowAttrTable
+
+        cfmMetadataFlowTable provides the details about the six tuple 
+        which can uniquely identify a network traffic flow. 
+
+        cfmMetadataFlowAttrTable will specify flow attributes  carried
+        in the metadata flow. Flow attribute values are 
+        represented in  'Type-Value' format.
+
+        cfmMetadataFlowAttrType - Represent the type of flow attribute.
+        cfmMetadataFlowAttrValue - Represent corresponding flow
+                                   attribute value.
+
+        cfmMetadataFlowTable and cfmMetadataFlowAttrTable are linked
+        together using flow ID which will map respective metadata flow
+        attributes with the corresponding flow key."
+    REVISION        "201212170000Z"
+    DESCRIPTION
+        "Deprecated
+
+        CfmMetadataFlowAttrType 
+        cfmMetadataFlowAttributeTable 
+
+        as coupled to transport protocol.
+        Added 
+
+        cfmMetadataFlowAllAttrTable 
+
+        decoupling it from transport protocol."
+    REVISION        "201103200000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 789 }
+
+
+
+-- Textual Conventions definition will be defined before this line
+
+CfmMetadataFlowAttributeType ::= TEXTUAL-CONVENTION
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the attributes types
+        that is applicable to a given flow.
+
+        The following are the entire possible metadata attribute
+        types and a brief explanation for the same.
+
+            other(0) - Other attribute types than listed below. 
+            appDescription(94) - Application description of the
+                 the flow. It is represented as a string of
+                 length 55 characters.
+            appTag(95) - Application tag value of the flow.
+                 It is represented as unsigned32.
+            appName(96) - Application name of the flow. It is  
+                 represented as a string of length 24 characters.
+            appVersion(97) - Application version of the flow. It is
+                 represented as a string of length 40 characters.
+            appVendor(98) - Application vendor of the flow. It is
+                 represented as a string of length 40 characters.
+            vmFlowTimeout(100) - Flow time out value of the flow.
+                 It is represented as unsigned32.
+            vmRTPClockFrequency(101) - Clock frequency of the flow.
+                 It is represented as unsigned32.
+            pakrate(103) - Packet rate of the flow. It is 
+                 represented as unsigned64.
+            l3Bitrate(104) - L3 bit rate of the flow. It is 
+                 represented as unsigned32.
+            mediaBitrate(105) - Media bit rate of the flow. It is  
+                 represented as unsigned32.
+            mediaVideoPaksize(106) - Media video bit rate of the flow.
+                 It is represented as unsigned32.
+            globalSessionID(107) - Global session ID of the flow.It is
+                 represented as a string of length 80 characters.
+            multipartySessionID(108) - Multi party session ID of the
+                 flow. It is represented as a string of length 80
+                 characters.
+            rtpMediaFlow(109) - RTP media flow attribute of the flow.
+                 It is represented as uint8.
+            mediaEncryptionStatus(110) - Media encryption status of the
+                 flow. It is represented as uint8.
+            syntheticTraffic(111) - Synthetic traffic represented
+                 as uint8.
+            meteringPriority(112) - Metering Priority of the flow.
+                 It is represented as uint8.
+            endpointModel(113) - Endpoint device model signaling the
+                 flow. It is represented as string of 40 characters
+                 length.
+            endpointVendor(114) - Endpoint device vendor signaling
+                 the flow. It is represented as string of 40
+                 characters length.
+            endpointVersion(115) - Endpoint device version signaling
+                 the flow. It is represented as string of 40 
+                 characters length.
+            ssrc(116) - Synchronization source of the flow. It is 
+                 represented as uint32.
+            endpointIPAddressType(117) - IP address type of the 
+                 endpoint device signaling the flow. It is
+                 represented as uint8.
+            endpointIPAddressLength(118) - IP address length of the
+                 endpoint device signaling the flow. It is
+                 represented as uint8.
+            endpointIPAddressValue(119) - IP address of the endpoint
+                 device signaling the flow. It is represented as a
+                 string of 16 characters length.
+            sipProxyServerType(120) - SIP proxy server IP address
+                 type of the flow. It is represented as uint8.
+            sipProxyServerLength(121) - SIP proxy server IP address
+                 length of the flow. It is represented as uint8.
+            sipProxyServerValue(122) - SIP proxy server IP address
+                 of the flow. It is represented as a string of 16 
+                 characters length.
+            bandwidth(123) - Bandwidth of the flow. It is represented
+                 as uint32.
+            deviceName(124) - Endpoint device name signaling the flow.
+                 It is represented as a string of 100 characters
+                 length.
+            deviceClass(125) - Endpoint device class signaling the 
+                 flow. It is represented as a string of 100
+                 characters length.
+            sipUserName(126) - SIP flow user name. It is represented as
+                 a string of 16 characters length.
+            sipEmail(127) - SIP flow email ID. It is represented as a 
+                 string of 24 characters length.
+            audioCodec(128) - Audio codec of the flow. It is
+                 represented as uint8.
+            bandwidthConsumed(129) - Bandwidth consumed of the flow.
+                 It is represented as uint32.
+            payloadType(130) - Payload type of the flow. It is
+                 represented as uint8.
+            mimeType(131) - MIME type of the flow. It is represented
+                 as a string of 16 characters length.
+            extrapolatedBandwidth(132) - Extrapolated bandwidth of the 
+                 flow. It is represented as uint32.
+            cname(134) - cname of the flow. It is represented as a 
+                 string of 24 characters in length.
+            videoCodec(135) - Video codec of the flow. It is 
+                 represented as uint8.
+            sdpSessionID(136) -  SDP session ID of the flow. It is 
+                 represented as a string of 80 characters length.
+            domainName(137) - Domain name of the flow. It is
+                 represented as a string of 24 characters length.
+            endpointSwVersion(138) - Software version of the endpoint 
+                 device signaling the flow. It is represented as a
+                 string of 24 characters length.
+            tosDscp(139) - Tos/Dscp value of the flow. It is
+                 represented as uint8.
+
+        This textual-convention and objects of this type have been
+        deprecated as no longer needed.
+        CfmMetadataFlowAttributeType object is superseded by cfmMetadataFlowAllAttrValue."
+    SYNTAX          INTEGER {
+                        other(0),
+                        appDescription(94),
+                        appTag(95),
+                        appName(96),
+                        appVersion(97),
+                        appVendor(98),
+                        vmFlowTimeout(100),
+                        vmRTPClockFrequency(101),
+                        pakRate(103),
+                        l3Bitrate(104),
+                        mediaBitrate(105),
+                        mediaVideoPaksize(106),
+                        globalSessionID(107),
+                        multipartySessionID(108),
+                        rtpMediaFlow(109),
+                        mediaEncryptionStatus(110),
+                        syntheticTraffic(111),
+                        meteringPriority(112),
+                        endpointModel(113),
+                        endpointVendor(114),
+                        endpointVersion(115),
+                        ssrc(116),
+                        endpointIPAddressType(117),
+                        endpointIPAddressLength(118),
+                        endpointIPAddressValue(119),
+                        sipProxyServerType(120),
+                        sipProxyServerLength(121),
+                        sipProxyServerValue(122),
+                        bandwidth(123),
+                        deviceName(124),
+                        deviceClass(125),
+                        sipUserName(126),
+                        sipEmail(127),
+                        audioCodec(128),
+                        bandwidthConsumed(129),
+                        payloadType(130),
+                        mimeType(131),
+                        extrapolatedBandwidth(132),
+                        cname(134),
+                        videoCodec(135),
+                        sdpSessionID(136),
+                        domainName(137),
+                        endpointSwVersion(138),
+                        tosDscp(139)
+                    }
+
+CfmMetadataFlowAttrVal ::= TEXTUAL-CONVENTION
+    STATUS          deprecated
+    DESCRIPTION
+        "This textual convention denotes a value to be used with
+        'cfmMetadataFlowAttributeType'. A ' CfmMetadataFlowAttrVal ' 
+        is always interpreted within the context of 
+        cfmMetadataFlowAttrEntry. Every usage of the
+        ' CfmMetadataFlowAttrVal' textual convention is
+        required to specify the ' CfmMetadataFlowAttributeType '
+        object.
+        CfmMetadataFlowAttrVal object is deprecated as no longer
+        needed."
+    SYNTAX          OCTET STRING (SIZE (1..255))
+cFlowMetadataMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoFlowMetadataMIB 0 }
+
+cFlowMetadataMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoFlowMetadataMIB 1 }
+
+cFlowMetadataMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoFlowMetadataMIB 2 }
+
+
+cfmMetadataFlowTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmMetadataFlowEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of 6-tuple and flow id that is used to
+        identify the metadata flows."
+    ::= { cFlowMetadataMIBObjects 1 }
+
+cfmMetadataFlowEntry OBJECT-TYPE
+    SYNTAX          CfmMetadataFlowEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the flow id and the 6-tuple
+        which is used as a key to uniquely identify a 
+        metadata flow ."
+    INDEX           { cfmMetadataFlowId } 
+    ::= { cfmMetadataFlowTable 1 }
+
+CfmMetadataFlowEntry ::= SEQUENCE {
+        cfmMetadataFlowId           Unsigned32,
+        cfmMetadataFlowProtocolType INTEGER,
+        cfmMetadataFlowDestAddrType InetAddressType,
+        cfmMetadataFlowDestAddr     InetAddress,
+        cfmMetadataFlowDestPort     InetPortNumber,
+        cfmMetadataFlowSrcAddrType  InetAddressType,
+        cfmMetadataFlowSrcAddr      InetAddress,
+        cfmMetadataFlowSrcPort      InetPortNumber,
+        cfmMetadataFlowSSRC         Unsigned32
+}
+
+cfmMetadataFlowId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "ID that uniquely identifies this metadata flow.
+        It is dynamically generated once the flow key
+        information is available and assigned to the flow." 
+    ::= { cfmMetadataFlowEntry 1 }
+
+cfmMetadataFlowProtocolType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tcp(1),
+                        udp(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The protocol type of this metadata flow." 
+    ::= { cfmMetadataFlowEntry 2 }
+
+cfmMetadataFlowDestAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of destination Internet address of
+        this metadata flow." 
+    ::= { cfmMetadataFlowEntry 3 }
+
+cfmMetadataFlowDestAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The destination Internet address of this metadata flow.
+        The type of this address is determined by the value of  
+        cfmMetadataFlowDestAddrType." 
+    ::= { cfmMetadataFlowEntry 4 }
+
+cfmMetadataFlowDestPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The destination port of this metadata flow." 
+    ::= { cfmMetadataFlowEntry 5 }
+
+cfmMetadataFlowSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of source Internet address of this metadata flow." 
+    ::= { cfmMetadataFlowEntry 6 }
+
+cfmMetadataFlowSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The source Internet address of this metadata flow.
+        The type of this address is determined by the value of  
+        cfmMetadataFlowSrcAddrType." 
+    ::= { cfmMetadataFlowEntry 7 }
+
+cfmMetadataFlowSrcPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The source port of this metadata flow." 
+    ::= { cfmMetadataFlowEntry 8 }
+
+cfmMetadataFlowSSRC OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Synchronization Source Identifier (SSRC) of this
+        metadata flow." 
+    ::= { cfmMetadataFlowEntry 9 }
+ 
+
+
+cfmMetadataFlowAttrTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmMetadataFlowAttrEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A list of metadata flows and their additional attribute
+        parameters.
+        cfmMetadataFlowAttrTable object is superseded by cfmMetadataFlowAttribTable."
+    ::= { cFlowMetadataMIBObjects 2 }
+
+cfmMetadataFlowAttrEntry OBJECT-TYPE
+    SYNTAX          CfmMetadataFlowAttrEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An entry containing additional attribute parameter
+        for a particular metadata flow.
+        cfmMetadataFlowAttrEntry object is superseded by cfmMetadataFlowAttribEntry."
+    INDEX           {
+                        cfmMetadataFlowId,
+                        cfmMetadataFlowAttrType
+                    } 
+    ::= { cfmMetadataFlowAttrTable 1 }
+
+CfmMetadataFlowAttrEntry ::= SEQUENCE {
+        cfmMetadataFlowAttrType  CfmMetadataFlowAttributeType,
+        cfmMetadataFlowAttrValue CfmMetadataFlowAttrVal
+}
+
+cfmMetadataFlowAttrType OBJECT-TYPE
+    SYNTAX          CfmMetadataFlowAttributeType
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The attribute type applicable to a given metadata flow.
+
+        The attribute types are explained in
+        CfmMetadataFlowAttrType.
+        cfmMetadataFlowAttrType object is superseded by
+        cfmMetadataIpFixIeId." 
+    ::= { cfmMetadataFlowAttrEntry 1 }
+
+cfmMetadataFlowAttrValue OBJECT-TYPE
+    SYNTAX          CfmMetadataFlowAttrVal
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The attribute value associated with the attribute type
+        of a given metadata flow.
+        cfmMetadataFlowAttrValue object is superseded by cfmMetadataFlowAttribValue." 
+    ::= { cfmMetadataFlowAttrEntry 2 }
+ 
+
+
+cfmMetadataFlowAllAttrTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmMetadataFlowAllAttrEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of metadata flows and their additional attribute
+        parameters."
+    ::= { cFlowMetadataMIBObjects 3 }
+
+cfmMetadataFlowAllAttrEntry OBJECT-TYPE
+    SYNTAX          CfmMetadataFlowAllAttrEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing additional attribute parameter
+        for a particular metadata flow."
+    INDEX           {
+                        cfmMetadataFlowId,
+                        cfmMetadataIpFixIeId,
+                        cfmMetadataFlowAllAttrInstanceId
+                    } 
+    ::= { cfmMetadataFlowAllAttrTable 1 }
+
+CfmMetadataFlowAllAttrEntry ::= SEQUENCE {
+        cfmMetadataIpFixIeId             Unsigned32,
+        cfmMetadataFlowAllAttrInstanceId Unsigned32,
+        cfmMetadataFlowAllAttrValue      OCTET STRING,
+        cfmMetadataFlowAllAttrPen        Unsigned32
+}
+
+cfmMetadataIpFixIeId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The attribute IPFix IE-ID associated with the attribute of a
+        given metadata flow.
+
+        Logically, IE-ID is only 15 bits, but in existing transports,
+        such as the actual IPFIX transport protocol, and Cisco metadata
+        signaling in RSVP, the IE-ID is encoded as a uint16. If the
+        high-order bit is 0, then it indicates that VendorID is 0 (IANA
+        = IETF standardized attributes)." 
+    ::= { cfmMetadataFlowAllAttrEntry 1 }
+
+cfmMetadataFlowAllAttrInstanceId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The attribute arbitrary instance, assigned locally by the
+        implementation, associated with the attribute IPFix
+        IE-ID of a given metadata flow." 
+    ::= { cfmMetadataFlowAllAttrEntry 2 }
+
+cfmMetadataFlowAllAttrValue OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The attribute value associated with the attribute IPFix IE-ID
+        of a given metadata flow." 
+    ::= { cfmMetadataFlowAllAttrEntry 3 }
+
+cfmMetadataFlowAllAttrPen OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The attribute IANA Private Enterprise Number associated with
+        vendor for the attribute IPFix IE-ID of a given metadata flow."
+    REFERENCE
+        "http://www.iana.org/assignments/enterprise-numbers" 
+    ::= { cfmMetadataFlowAllAttrEntry 4 }
+ 
+
+cfmMetadataMIBCompliances  OBJECT IDENTIFIER
+    ::= { cFlowMetadataMIBConform 1 }
+
+cfmMetadataMIBGroups  OBJECT IDENTIFIER
+    ::= { cFlowMetadataMIBConform 2 }
+
+
+cfmMetadataMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the CISCO-FLOW-METADATA-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cfmMetadateFlowInfoGroup }
+    ::= { cfmMetadataMIBCompliances 1 }
+
+cfmMetadataMIBComplianceV2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the CISCO-FLOW-METADATA-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cfmMetadateFlowInfoGroupV2 }
+    ::= { cfmMetadataMIBCompliances 2 }
+
+-- Units of Conformance
+
+cfmMetadateFlowInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmMetadataFlowProtocolType,
+                        cfmMetadataFlowDestAddrType,
+                        cfmMetadataFlowDestAddr,
+                        cfmMetadataFlowDestPort,
+                        cfmMetadataFlowSrcAddrType,
+                        cfmMetadataFlowSrcAddr,
+                        cfmMetadataFlowSrcPort,
+                        cfmMetadataFlowSSRC,
+                        cfmMetadataFlowAttrType,
+                        cfmMetadataFlowAttrValue
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects which provide metadata flow
+        information.
+        cfmMetadateFlowInfoGroup object is superseded by cfmMetadateFlowInfoGroupV2."
+    ::= { cfmMetadataMIBGroups 1 }
+
+cfmMetadateFlowInfoGroupV2 OBJECT-GROUP
+    OBJECTS         {
+                        cfmMetadataFlowProtocolType,
+                        cfmMetadataFlowDestAddrType,
+                        cfmMetadataFlowDestAddr,
+                        cfmMetadataFlowDestPort,
+                        cfmMetadataFlowSrcAddrType,
+                        cfmMetadataFlowSrcAddr,
+                        cfmMetadataFlowSrcPort,
+                        cfmMetadataFlowSSRC,
+                        cfmMetadataFlowAllAttrValue,
+                        cfmMetadataFlowAllAttrPen
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provide metadata flow
+        information."
+    ::= { cfmMetadataMIBGroups 2 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

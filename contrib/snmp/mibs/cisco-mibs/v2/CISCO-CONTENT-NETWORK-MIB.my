@@ -1,0 +1,282 @@
+-- *****************************************************************
+-- CISCO-CONTENT-NETWORK-MIB.my
+-- Cisco Content Network Management Information Base
+--
+-- Copyright (c) 2001 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-CONTENT-NETWORK-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Gauge32
+        FROM SNMPv2-SMI
+    ZeroBasedCounter32
+        FROM RMON2-MIB
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoContentNetworkMIB MODULE-IDENTITY
+    LAST-UPDATED "200110111825Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "Cisco Systems Customer Service
+         Postal: 170 W Tasman Drive
+                 San Jose, CA 95134-1706 USA
+         Tel: +1 800 553-NETS
+         E-mail: content-network-mib@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects for Content Network devices.
+
+        A Content Network is a collection of devices that optimizes the
+        delivery of Internet content (such as HTML documents and MPEG
+        files) by caching content near clients, by proactively pushing
+        content into those caches, and by routing each client request to
+        the best device available at that moment to serve the particular
+        content requested.
+
+        Content Network devices include Content Engines (CEs) for
+        serving content, Content Routers (CRs) for routing client
+        requests, and Content Distribution Managers (CDMs) for
+        administering the network."
+
+    REVISION     "200110111825Z"
+    DESCRIPTION
+        "Deprecated:
+            ccnNotifServerStart
+            ccnNotifServerStop
+        Added:
+            ccnNotifOffline
+            ccnNotifNeedsAttention
+            ccnNotifWaitingForCdm
+            ccnNotifOnline"
+
+    REVISION     "200105232134Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+
+    ::= { ciscoMgmt 216 }
+
+ciscoContentNetworkMIBObjects
+    OBJECT IDENTIFIER ::= { ciscoContentNetworkMIB 1 }
+
+-- Application groups
+ccnReport
+    OBJECT IDENTIFIER ::= { ciscoContentNetworkMIBObjects 1 }
+
+-- Categories for the report group.
+ccnReportDns       OBJECT IDENTIFIER  ::= { ccnReport 1 }
+ccnReportAcct      OBJECT IDENTIFIER  ::= { ccnReport 2 }
+
+-- Objects for the ccnReportDns category.
+ccnReportDnsRequestRate OBJECT-TYPE
+    SYNTAX            Gauge32
+    UNITS             "requests-per-second"
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "Number of DNS requests per second."
+    ::= { ccnReportDns 1 }
+
+ccnReportDnsClientCount OBJECT-TYPE
+    SYNTAX            ZeroBasedCounter32
+    UNITS             "clients"
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "Total number of DNS clients that have contacted this device
+        since the DNS server last started."
+    ::= { ccnReportDns 2 }
+
+ccnReportDnsRequests OBJECT-TYPE
+    SYNTAX            ZeroBasedCounter32
+    UNITS             "requests"
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "Total number of DNS requests since the DNS server
+        last started."
+    ::= { ccnReportDns 3 }
+
+-- Objects for the ccnReportAcct category.
+ccnReportAcctBytesServed OBJECT-TYPE
+    SYNTAX            ZeroBasedCounter32
+    UNITS             "bytes"
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "Total number of bytes of content served to clients
+        from this device since the servers on this device last
+        started."
+    ::= { ccnReportAcct 1 }
+
+ccnReportAcctObjectsCached OBJECT-TYPE
+    SYNTAX            Gauge32
+    UNITS             "objects"
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "Total number of objects in the content cache."
+    ::= { ccnReportAcct 2 }
+
+ccnReportAcctCacheHitRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "objects-per-minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of cache hits per minute."
+    ::= { ccnReportAcct 3 }
+
+ccnReportAcctCacheMissRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "objects-per-minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of cache misses per minute."
+    ::= { ccnReportAcct 4 }
+
+-- Notification Events
+
+ciscoContentNetworkMIBNotif
+    OBJECT IDENTIFIER ::= { ciscoContentNetworkMIB 2 }
+
+ccnNotifications
+    OBJECT IDENTIFIER ::= { ciscoContentNetworkMIBNotif 0 }
+
+ccnNotifServerStart     NOTIFICATION-TYPE
+    STATUS              deprecated -- See ccnNotifOnline.
+    DESCRIPTION
+        "The servers on this device are being started.  This object is
+        deprecated by ccnNotifOnline."
+    ::= { ccnNotifications 1 }
+
+ccnNotifServerStop      NOTIFICATION-TYPE
+    STATUS              deprecated -- See ccnNotifOffline,
+                                   -- ccnNotifNeedsAttention, and
+                                   -- ccnNotifWaitingForCdm.
+    DESCRIPTION
+        "The servers on this device are being stopped.  This object is
+        deprecated by ccnNotifOnline, ccnNotifNeedsAttention and
+        ccnNotifWaitingForCdm."
+    ::= { ccnNotifications 2 }
+
+ccnNotifOffline         NOTIFICATION-TYPE
+    STATUS              current
+    DESCRIPTION
+        "The device is about to disconnect from the network."
+    ::= { ccnNotifications 3 }
+
+ccnNotifNeedsAttention  NOTIFICATION-TYPE
+    STATUS              current
+    DESCRIPTION
+        "The device is on the network, but is unregistered (not
+        associated with any CDN) or needs some other adjustment which
+        cannot be done via the CDM administrator interface (such as
+        repairing a disk, completing a software upgrade, or configuring
+        the CDM database)."
+    ::= { ccnNotifications 4 }
+
+ccnNotifWaitingForCdm   NOTIFICATION-TYPE
+    STATUS              current
+    DESCRIPTION
+        "The device (CE or CR) is waiting for configuration information
+        from the CDM.  The device is on the network and is either
+        failing to communicate with the CDM or is being told explictly
+        by the CDM to continue waiting pending activation by the CDN
+        administrator."
+    ::= { ccnNotifications 5 }
+
+ccnNotifOnline          NOTIFICATION-TYPE
+    STATUS              current
+    DESCRIPTION
+        "The device is operational and ready to participate in the CDN."
+    ::= { ccnNotifications 6 }
+
+-- compliance specification
+
+ccnMIBConformance
+    OBJECT IDENTIFIER ::= { ciscoContentNetworkMIB 3 }
+
+ccnMIBCompliances
+    OBJECT IDENTIFIER ::= { ccnMIBConformance 1 }
+
+ccnMIBGroups
+    OBJECT IDENTIFIER ::= { ccnMIBConformance 2 }
+
+-- Conformance
+ccnMIBCompliance    MODULE-COMPLIANCE
+    STATUS          deprecated -- See ccnMIBComplianceRev1.
+    DESCRIPTION
+        "The compliance statement for Cisco Systems entities which
+        implement the Content Network applications. This object is
+        deprecated by ccnMIBComplianceRev1."
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+        ccnReportingGroup,
+        ccnNotifGroup
+    }
+    ::= { ccnMIBCompliances 1 }
+
+ccnMIBComplianceRev1    MODULE-COMPLIANCE
+    STATUS              current
+    DESCRIPTION
+        "The compliance statement for Cisco Systems entities which
+        implement the Content Network applications."
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+        ccnReportingGroup,
+        ccnNotifGroupRev1
+    }
+    ::= { ccnMIBCompliances 2 }
+
+-- Units of Conformance
+ccnReportingGroup  OBJECT-GROUP
+    OBJECTS {
+        ccnReportDnsRequestRate,
+        ccnReportDnsClientCount,
+        ccnReportDnsRequests,
+        ccnReportAcctBytesServed,
+        ccnReportAcctObjectsCached,
+        ccnReportAcctCacheHitRate,
+        ccnReportAcctCacheMissRate
+    }
+    STATUS current
+    DESCRIPTION
+        "DNS and Accounting with low capacity Counter32 and Gauge32
+        objects."
+    ::= { ccnMIBGroups 1 }
+
+ccnNotifGroup  NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        ccnNotifServerStart,
+        ccnNotifServerStop
+    }
+    STATUS deprecated -- See ccnNotifGroupRev1.
+    DESCRIPTION
+        "Notifications for the Cisco Content Network.This object is
+        deprecated by ccnNotifGroupRev1."
+    ::= { ccnMIBGroups 2 }
+
+ccnNotifGroupRev1  NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        ccnNotifOffline,
+        ccnNotifNeedsAttention,
+        ccnNotifWaitingForCdm,
+        ccnNotifOnline
+    }
+    STATUS current
+    DESCRIPTION
+        "Notifications for the Cisco Content Network."
+    ::= { ccnMIBGroups 3 }
+
+END

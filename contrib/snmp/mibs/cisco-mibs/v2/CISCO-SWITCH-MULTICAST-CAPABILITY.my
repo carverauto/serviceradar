@@ -1,0 +1,167 @@
+-- *****************************************************************
+-- CISCO-SWITCH-MULTICAST-CAPABILITY.my:
+-- Cisco CISCO-SWITCH-MULTICAST-MIB AGENT-CAPABILITIES
+--   
+-- July 2007, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2007-2008, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-MULTICAST-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSwitchMulticastCapability MODULE-IDENTITY
+    LAST-UPDATED    "201011110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-SWITCH-MULTICAST-MIB."
+    REVISION        "201011110000Z"
+    DESCRIPTION
+        "Added capability statement
+        cswmCapabilityV12R0250SYPCat6kPfc4."
+    REVISION        "200810300000Z"
+    DESCRIPTION
+        "Added capability statement
+        cswmCapabilityV12R0233SXIPCat6k."
+    REVISION        "200707160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 546 }
+
+
+
+cswmCapabilityV12R0219SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-MULTICAST-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-MULTICAST-MIB
+    INCLUDES        {
+                        cswmGlobalGroup,
+                        cswmConsistCheckGroup,
+                        cswmReplicationGroup,
+                        cswmMvrfStatsGroup
+                    }
+    VARIATION       cswmReplConfigAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1),
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchMulticastCapability 1 }
+
+cswmCapabilityV12R0233SXIPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-MULTICAST-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-MULTICAST-MIB
+    INCLUDES        {
+                        cswmGlobalGroup,
+                        cswmConsistCheckGroup,
+                        cswmReplicationGroup,
+                        cswmMvrfStatsGroup,
+                        cswmBiDirPimDfUsageGroup,
+                        cswmLtlUsageGroup
+                    }
+    VARIATION       cswmReplConfigAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1),
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoSwitchMulticastCapability 2 }
+
+cswmCapabilityV12R0250SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                         series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-MULTICAST-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-MULTICAST-MIB
+    INCLUDES        {
+                        cswmGlobalGroup,
+                        cswmConsistCheckGroup,
+                        cswmReplicationGroup,
+                        cswmMvrfStatsGroup,
+                        cswmBiDirPimDfUsageGroup,
+                        cswmLtlUsageGroup,
+                        cswmGlobalReplicationGroup,
+                        cswmMvrfBiDirPimDfUsageGroup,
+                        cswmForwardingGroup,
+                        cswmFlowQueryResultGroup
+                    }
+    VARIATION       cswmReplConfigAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1),
+                        ipv6(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       cswmMRouteConsistCheck
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cswmProcessorConsistCheck
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cswmReplConfigCurMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cswmReplConfigAutoDetect
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cswmMvrfTotalFlows
+    DESCRIPTION
+        "Always returns 0."
+
+    ::= { ciscoSwitchMulticastCapability 3 }
+
+END
+
+
+
+

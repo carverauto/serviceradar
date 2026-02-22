@@ -1,0 +1,30 @@
+>                hostConfigSet OBJECT-TYPE
+>                    SYNTAX  DisplayString
+>                    ACCESS  write-only
+>                    STATUS  mandatory
+>                    DESCRIPTION
+>                            "Permit the loading of a new host-confg file
+>                            using TFTP."
+>                    ::= { lsystem 53 }
+
+The value written is the name of the file to load.  The instance id is
+the IP address of the TFTP server host (or 255.255.255.255 to
+broadcast the request).
+
+The netConfigSet and writeNet objects work the same way.
+
+NOTE:  There is an important difference between netConfigSet and
+hostConfigSet.  A set to hostConfigSet causes all line parameters to
+be reset to factory defaults after loading but before parsing the
+config file.  A set to netConfigSet does not cause the line parameters
+to be reset.
+
+For example, to load the file "cisco-config" from the server at
+10.1.2.3, set
+
+        hostConfigSet.10.1.2.3
+
+to
+
+        "cisco-config"
+

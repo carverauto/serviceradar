@@ -1,0 +1,502 @@
+-- *****************************************************************
+-- Descriptions of Managed Objects for NMS Application Health Status.
+--   
+-- September 2001, Tirthankar Banerjee
+--   
+-- Copyright (c) 2001-2019 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-NMS-APPL-HEALTH-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    DateAndTime
+        FROM SNMPv2-TC
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Unsigned32,
+    Gauge32
+        FROM SNMPv2-SMI
+    Percent
+        FROM CISCO-QOS-PIB-MIB
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoAlarmSeverity,
+    CiscoMilliSeconds,
+    TimeIntervalSec
+        FROM CISCO-TC;
+
+
+ciscoNmsApplHealthMIB MODULE-IDENTITY
+    LAST-UPDATED    "201909030000Z"
+    ORGANIZATION    "Cisco Systems,	Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-nmsapplhealth@cisco.com"
+    DESCRIPTION
+        "This MIB defines Cisco NMS Application (cna) Health
+        Status Notifications and the related objects. These
+        notifications will be sent to the OSS/NMS to inform
+        them about the NMS application status (started,
+        stopped, failed, busy etc.) or any abnormal exit of
+        applications."
+    REVISION        "201909030000Z"
+    DESCRIPTION
+        "Added following OBJECT-GROUP
+        - cnaHealthMIBGroup2
+        - cnahPerformanceGroup
+        Added new compliance
+        - cnaHealthMIBCompliance2"
+    REVISION        "200110250000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+
+    ::= { ciscoMgmt 237 }
+
+
+ciscoNmsApplHealthNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNmsApplHealthMIB 0 }
+
+ciscoNmsApplHealthMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoNmsApplHealthMIB 1 }
+
+ciscoNmsApplHealthMIBConforms  OBJECT IDENTIFIER
+    ::= { ciscoNmsApplHealthMIB 2 }
+
+cnaHealthObj  OBJECT IDENTIFIER
+    ::= { ciscoNmsApplHealthMIBObjects 1 }
+
+
+-- Cisco NMS Application Health Objects
+
+cnaHealthNotifSeqNum OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object indicates the sequence number of
+        notifications in order for the NMS/OSS to detect missing
+        notification(s)." 
+    ::= { cnaHealthObj 1 }
+
+cnaHealthTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnaHealthTableEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of information about the health of one or more
+        Cisco NMS application(s)."
+    ::= { cnaHealthObj 2 }
+
+cnaHealthTableEntry OBJECT-TYPE
+    SYNTAX          CnaHealthTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Entries appear in this table for each possible alarm state."
+    INDEX           { cnaHealthTableIndex } 
+    ::= { cnaHealthTable 1 }
+
+CnaHealthTableEntry ::= SEQUENCE {
+        cnaHealthTableIndex       Unsigned32,
+        cnaHealthStatusChangeTime DateAndTime,
+        cnaHealthName             SnmpAdminString,
+        cnaHealthStatus           INTEGER,
+        cnaHealthSevLevel         CiscoAlarmSeverity,
+        cnaHealthComLineArgs      SnmpAdminString,
+        cnaHealthStatusDesc       SnmpAdminString,
+        cnaHealthUpTime           TimeIntervalSec
+}
+
+cnaHealthTableIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This acts as the index to the cnaHealthTable." 
+    ::= { cnaHealthTableEntry 1 }
+
+cnaHealthStatusChangeTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time when a change in the health status of Cisco NMS
+        Application occurs." 
+    ::= { cnaHealthTableEntry 2 }
+
+cnaHealthName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object indicates the name of the NMS
+        application, the notification is about." 
+    ::= { cnaHealthTableEntry 3 }
+
+cnaHealthStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        started(1),
+                        stopped(2),
+                        busy(3),
+                        failed(4),
+                        exited(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object indicates the health/status of the NMS
+        application, the notification is reporting about. The possible
+        values are:
+
+        started(1)  : started & initialized successfully
+        stopped(2)  : stopped successfully
+        busy(3)     : not able to respond to any request from health
+                      monitor until the status changed to started
+        failed(4)   : upon detecting error condition, logged and exited
+        exited(5)   : abnormally exited without logging" 
+    ::= { cnaHealthTableEntry 4 }
+
+cnaHealthSevLevel OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the severity level of the cna health status
+        Notifications."
+    DEFVAL          { info } 
+    ::= { cnaHealthTableEntry 5 }
+
+cnaHealthComLineArgs OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object indicates the command-line
+        arguments of the NMS application being reported about in
+        the notifications." 
+    ::= { cnaHealthTableEntry 6 }
+
+cnaHealthStatusDesc OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object gives a detailed description of the
+        health/status of the application being reported in a
+        notification. In case of failed(4) status, this field must
+        indicate the error description.
+        For any other cnaStatus, this field may contain a description to
+        qualify the cnaStatus, like 'Started & initialized succesfully'
+        or an empty string." 
+    ::= { cnaHealthTableEntry 7 }
+ 
+cnaHealthUpTime OBJECT-TYPE
+    SYNTAX      TimeIntervalSec
+    UNITS       "Seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time (in seconds) since the entire application
+         was last re-initialized as a result of restart." 
+    ::= { cnaHealthTableEntry 8 }
+
+
+cnahPerformanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CnahPerformanceEntry 
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A table of information about the performance of one or more
+        Cisco NMS application(s)."
+    ::= { cnaHealthObj 3 }
+
+cnahPerformanceEntry OBJECT-TYPE
+    SYNTAX      CnahPerformanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Performance information about one Cisco NMS application."
+    INDEX           { cnaHealthTableIndex } 
+    ::= { cnahPerformanceTable 1 }
+
+CnahPerformanceEntry ::= SEQUENCE {
+    cnahPerfCpuUtilization    Percent,
+    cnahPerfMemoryUtilization Percent,
+    cnahPerfLatency           CiscoMilliSeconds,
+    cnahPerfHeapUsed          Gauge32,
+    cnahPerfDataIn            Gauge32,
+    cnahPerfDataOut           Gauge32,
+    cnahPerfMessageIn         Gauge32,
+    cnahPerfMessageOut        Gauge32,
+    cnahPerfDiskRead          Gauge32,
+    cnahPerfDiskWrite         Gauge32,
+    cnahPerfDiskUsage         Percent,
+    cnahPerfDiskTotal         Gauge32
+}
+
+cnahPerfCpuUtilization OBJECT-TYPE
+    SYNTAX      Percent
+    UNITS       "%"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The CPU utilization of the application." 
+    ::= { cnahPerformanceEntry 1 }
+
+cnahPerfMemoryUtilization OBJECT-TYPE
+    SYNTAX      Percent
+    UNITS       "%"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The memory utilization of the application." 
+    ::= { cnahPerformanceEntry 2 }
+
+cnahPerfLatency OBJECT-TYPE
+    SYNTAX      CiscoMilliSeconds
+    UNITS       "msec"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Network latency of the traffic sending in and out from
+        the application. This is the time interval after which the
+        frames are dropped if they are not delivered in the order
+        they were transmitted."
+    ::= { cnahPerformanceEntry 3 }
+
+cnahPerfHeapUsed OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "KBytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of memory heap used of the application, the
+        sampling interval is agent dependent."
+    ::= { cnahPerformanceEntry 4 }
+
+cnahPerfDataIn OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "KBytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of the number of kilobytes received on
+        the application, the sampling interval is agent dependent."
+    ::= { cnahPerformanceEntry 5 }
+
+cnahPerfDataOut OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "KBytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of the number of kilobytes transmitted out of the 
+        application, the sampling interval is agent dependent."
+    ::= { cnahPerformanceEntry 6 }
+
+cnahPerfMessageIn OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "messages"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of the number of messages received on the 
+        application from the network, the sampling interval is
+        agent dependent."
+    ::= { cnahPerformanceEntry 7 }
+
+cnahPerfMessageOut OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "messages"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of the number of messages transmitted out
+        of the application to the network, the sampling interval
+        is agent dependent."
+    ::= { cnahPerformanceEntry 8 }
+
+cnahPerfDiskRead OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "KBytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of the number of kilobytes read by the
+        application from the local storage, the sampling interval
+        is agent dependent."
+    ::= { cnahPerformanceEntry 9 }
+
+cnahPerfDiskWrite OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "KBytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of the number of kilobytes written by the
+        application to the local storage, the sampling interval
+        is agent dependent."
+    ::= { cnahPerformanceEntry 10 }
+
+cnahPerfDiskUsage OBJECT-TYPE
+    SYNTAX      Percent
+    UNITS       "%"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The snapshot of the usage of local storage used by the
+        application, the sampling interval is agent dependent." 
+    ::= { cnahPerformanceEntry 11 }
+
+cnahPerfDiskTotal OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "KBytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "The snapshot of the total local storage used by the
+       application, the sampling interval is agent dependent."
+   ::= { cnahPerformanceEntry 12 }
+
+
+-- NOTIFICATION   --
+
+cnaHealthNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnaHealthNotifSeqNum,
+                        cnaHealthStatusChangeTime,
+                        cnaHealthName,
+                        cnaHealthStatus,
+                        cnaHealthSevLevel,
+                        cnaHealthComLineArgs,
+                        cnaHealthStatusDesc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent out to notify normal startup,
+        shutdown, intermediate health/status (ex: busy etc.), failed
+        or exit status."
+   ::= { ciscoNmsApplHealthNotifs 1 }
+-- Conformance
+
+cnaHealthMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoNmsApplHealthMIBConforms 1 }
+
+cnaHealthMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoNmsApplHealthMIBConforms 2 }
+
+
+-- Compliance
+
+cnaHealthMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+         (1..4294967295)thc Cisco NMS Application Health Monitor MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cnaHealthMIBGroup,
+                        cnaHealthNotifGroup
+                    }
+    ::= { cnaHealthMIBCompliances 1 }
+
+cnaHealthMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cisco NMS Application Health Monitor MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cnaHealthMIBGroup,
+                        cnaHealthNotifGroup
+                    }
+
+    GROUP           cnaHealthMIBGroup2
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        application up time."
+
+    GROUP           cnahPerformanceGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        performance data."
+    ::= { cnaHealthMIBCompliances 2 }
+
+-- Units of Conformance
+
+cnaHealthMIBGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnaHealthNotifSeqNum,
+                        cnaHealthTableIndex,
+                        cnaHealthStatusChangeTime,
+                        cnaHealthName,
+                        cnaHealthStatus,
+                        cnaHealthSevLevel,
+                        cnaHealthComLineArgs,
+                        cnaHealthStatusDesc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Cisco NMS Application
+        normal health info"
+    ::= { cnaHealthMIBGroups 1 }
+
+cnaHealthNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cnaHealthNotif }
+    STATUS          current
+    DESCRIPTION
+        "The set of notification events a Cisco NMS application
+        supports."
+    ::= { cnaHealthMIBGroups 2 }
+
+cnaHealthMIBGroup2 OBJECT-GROUP
+    OBJECTS         {
+                        cnaHealthUpTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Cisco NMS Application
+        uptime information."
+    ::= { cnaHealthMIBGroups 3 }
+
+cnahPerformanceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnahPerfCpuUtilization,
+                        cnahPerfMemoryUtilization,
+                        cnahPerfLatency,
+                        cnahPerfHeapUsed,
+                        cnahPerfDataIn,
+                        cnahPerfDataOut,
+                        cnahPerfMessageIn,
+                        cnahPerfMessageOut,
+                        cnahPerfDiskRead,
+                        cnahPerfDiskWrite,
+                        cnahPerfDiskUsage,
+                        cnahPerfDiskTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Cisco NMS Application
+        performance information."
+    ::= { cnaHealthMIBGroups 4 }
+
+END
+
+

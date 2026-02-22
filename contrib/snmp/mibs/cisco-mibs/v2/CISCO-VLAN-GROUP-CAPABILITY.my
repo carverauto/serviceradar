@@ -1,0 +1,207 @@
+-- *****************************************************************
+-- CISCO-VLAN-GROUP-CAPABILITY.my:
+-- Cisco CISCO-VLAN-GROUP-MIB AGENT-CAPABILITIES
+--   
+-- March 2010, Binh P Le
+--   
+-- Copyright (c) 2010-2012 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VLAN-GROUP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVlanGroupCapability MODULE-IDENTITY
+    LAST-UPDATED    "201204100000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-VLAN-GROUP-MIB."
+    REVISION        "201204100000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVlanGroupCapV15R0101SGPCat4k."
+    REVISION        "201109220000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVlanGroupCapV15R0001SYPCat6k."
+    REVISION        "201103310000Z"
+    DESCRIPTION
+        "Added capability statement ciscoVlanGroupCapV15R0002SGPCat4k."
+    REVISION        "201103230000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoVlanGroupCapV12R0233SXJPCat6k."
+    REVISION        "201003220000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 590 }
+
+
+
+ciscoVlanGroupCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                        series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-GROUP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-GROUP-MIB
+    INCLUDES        { ciscoVlanGroupConfigGroup }
+    VARIATION       cvgConfigRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cvgConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanGroupCapability 1 }
+
+ciscoVlanGroupCapV12R0233SXJPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXJ on Catalyst 6000/6500
+                        series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-GROUP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-GROUP-MIB
+    INCLUDES        {
+                        ciscoVlanGroupConfigGroup,
+                        cvgConfigTableSizeGroup
+                    }
+    VARIATION       cvgConfigRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cvgConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanGroupCapability 2 }
+
+ciscoVlanGroupCapV15R0002SGPCat4k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(2)SG on Cat4k family switches
+                    (excluding switches with SUP7)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-GROUP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-GROUP-MIB
+    INCLUDES        {
+                        ciscoVlanGroupConfigGroup,
+                        cvgConfigTableSizeGroup
+                    }
+    VARIATION       cvgConfigRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cvgConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanGroupCapability 3 }
+
+ciscoVlanGroupCapV15R0001SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                        series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-GROUP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-GROUP-MIB
+    INCLUDES        {
+                        ciscoVlanGroupConfigGroup,
+                        cvgConfigTableSizeGroup
+                    }
+    VARIATION       cvgConfigRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cvgConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanGroupCapability 4 }
+
+ciscoVlanGroupCapV15R0101SGPCat4k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SG on Cat4k family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-GROUP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-GROUP-MIB
+    INCLUDES        {
+                        ciscoVlanGroupConfigGroup,
+                        cvgConfigTableSizeGroup
+                    }
+    VARIATION       cvgConfigRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cvgConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanGroupCapability 5 }
+
+END
+
+
+
+
+
+

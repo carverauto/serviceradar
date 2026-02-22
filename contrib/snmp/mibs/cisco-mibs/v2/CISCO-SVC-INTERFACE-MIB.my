@@ -1,0 +1,1379 @@
+-- *********************************************************************
+-- CISCO-SVC-INTERFACE-MIB.my: Cisco SVC MIB
+--
+-- Cisco SVC (SAN Volume Controller) Interface MIB
+-- August 2003, Charuhas Ghatge
+--
+-- Copyright (c) 2003, 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *********************************************************************
+
+CISCO-SVC-INTERFACE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS        
+     MODULE-IDENTITY, OBJECT-TYPE,
+     NOTIFICATION-TYPE, Integer32,
+     Unsigned32,
+     Counter32                              FROM SNMPv2-SMI
+     MODULE-COMPLIANCE, OBJECT-GROUP,
+     NOTIFICATION-GROUP                     FROM SNMPv2-CONF
+     RowStatus, TEXTUAL-CONVENTION          FROM SNMPv2-TC 
+     SnmpAdminString                        FROM SNMP-FRAMEWORK-MIB
+     FcNameId, VsanIndex                    FROM CISCO-ST-TC
+     InterfaceIndex                         FROM IF-MIB
+     ciscoMgmt                              FROM CISCO-SMI;
+
+
+ciscoSvcInterfaceMIB MODULE-IDENTITY
+        LAST-UPDATED "200409210000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+            "Cisco Systems
+             Postal: 170 W Tasman Drive
+             San Jose, CA  95134
+             USA
+             Tel: +1 800 553 -NETS
+             E-mail: cs-san@cisco.com"
+        DESCRIPTION
+	        "MIB module for displaying and configuring 
+             SVC (SAN Volume Controller) related features 
+             in the Storage Area Network (SAN) switches.
+
+             SVC is the SAN Volume Controller that implements 
+             the specialized virtualization and caching
+             features for storage attached to a SAN."
+	    
+	REVISION   "200409210000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoMgmt 378 }
+
+
+ciscoSvcInterfaceMIBObjects
+        OBJECT IDENTIFIER ::= { ciscoSvcInterfaceMIB 1 }
+
+ciscoSvcInterfaceMIBTrapPrefix
+        OBJECT IDENTIFIER ::= { ciscoSvcInterfaceMIB 2 }
+
+cSvcInterfaceConfiguration 
+        OBJECT IDENTIFIER ::= { ciscoSvcInterfaceMIBObjects 1 }
+
+cSvcInterfaceTrapObjects 
+        OBJECT IDENTIFIER ::= { ciscoSvcInterfaceMIBObjects 2 }
+
+
+
+--  Glossary 
+--
+
+-- SVC Interface: Logical interface within a SVC line card.
+--                Each SVC interface has its own ifIndex.
+-- 
+-- N-port:        A virtual fabric attached port within a
+--                a SVC interface.
+--                Note that ther could be many virtual
+--                N-ports to a SVC interface.
+-- 
+
+
+-- Textual Conventions
+
+NportType ::=      TEXTUAL-CONVENTION
+   STATUS          current
+   DESCRIPTION     "Type of the virtual N-port. 
+
+                   The types are 
+
+                   1 = Initiator
+                   2 = Target
+                   3 = Mgmt "
+   SYNTAX          Integer32 (1..3)
+
+
+
+-- The N-Port Configuration Table
+
+
+csiNportTable      OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CsiNportEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION   
+           "A table that lets the user configure 
+            and monitor the virtual N-ports. 
+
+            A virtual N-port is a logical entity within an SVC 
+            line card that simulates a real Fibre Channel
+            N-port."
+    ::= { cSvcInterfaceConfiguration 1 }
+
+                                 
+csiNportEntry       OBJECT-TYPE
+    SYNTAX          CsiNportEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION   
+            "An entry in the csiNportTable, that describes a virtual 
+             N-port. Each virtual N-port is identified by the
+             ifIndex of the SVC interface on the SVC line card,
+             the type of N-port and the VSAN id of the VSAN it
+             belongs to.
+
+             Each virtual N-port also has a Fibre Channel Identifier,
+             operational state and a WWN (Worldwide Name)."
+
+    INDEX  { csiNportIfIndex,
+             csiNportType,
+             csiNportVsanId }
+    ::= { csiNportTable 1 }
+
+
+CsiNportEntry ::=
+        SEQUENCE {                             
+                   csiNportIfIndex            InterfaceIndex,
+                   csiNportType               NportType,
+                   csiNportVsanId             VsanIndex,
+                   csiNportPwwn               FcNameId,
+                   csiNportFcid               Integer32,
+                   csiNportState              INTEGER,
+                   csiNportDownReason         INTEGER,
+                   csiNportRowStatus          RowStatus
+        }
+
+
+csiNportIfIndex           OBJECT-TYPE
+    SYNTAX               InterfaceIndex 
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION   
+           "The ifIndex of the SVC interface to which this Nport
+            belongs to. 
+
+            A SVC interface is a FC interface that implements 
+            virtualization and caching. Note that the ifType of
+            this interface is fiberChannel (56)."
+           
+    ::= { csiNportEntry 1 }
+
+
+csiNportType              OBJECT-TYPE
+    SYNTAX               NportType 
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION
+           "The type of this N-port.
+
+            There are 3 types of Nport -
+
+            initiator - Initiates communication with SCSI 
+                        (Small Computer Systems Interface)
+                        targets.
+
+            target    - Responds to the communication from the 
+                        FC-SCSI initiators.
+
+            mgmt      - Communicates with other SVC interfaces.
+           "
+    ::= { csiNportEntry 2 }
+
+
+csiNportVsanId            OBJECT-TYPE
+    SYNTAX               VsanIndex  
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION
+           "The VSAN identifier  of the virtual N-port."
+    ::= { csiNportEntry 3 }
+
+
+csiNportPwwn              OBJECT-TYPE
+    SYNTAX               FcNameId
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+           "The WWN (Worldwide Name) of the virtual N-port."
+    ::= { csiNportEntry 4 }
+
+
+csiNportFcid              OBJECT-TYPE
+    SYNTAX               Integer32 (1..16777215)
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Fibre Channel Identifier of the virtual N-port."
+    ::= { csiNportEntry 5 }
+
+
+csiNportState             OBJECT-TYPE
+    SYNTAX               INTEGER {
+                                  up(1),
+                                  down(2)
+                         }
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "The operational state of the virtual N-port."
+    ::= { csiNportEntry 6 }
+
+
+csiNportDownReason        OBJECT-TYPE
+    SYNTAX               INTEGER {
+                                  none (1),
+                                  adminDown(2),
+                                  ifSoftwareDown(3),
+                                  lineCardSwDown(4),
+                                  vsanDown(5),
+                                  inRemovalState(6),
+                                  ifHardwareDown(7),
+                                  uninitialized(8)
+                         }
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "If the state of the N-port is 'down' as depicted 
+            by the instance of csiNportState, this objects 
+            denotes the reason why this N-port is 'down'. 
+
+            When the N-port is 'up' the value returned by
+            this object is 'none'. 
+
+            adminDown - The user has configured the SVC interface
+                        that contains this N-port as down.
+
+            ifSoftwareDown - Virtualization software is down.
+
+            lineCardSwDown - Line card software is down.
+
+            vsanDown - The VSAN that this N-port belongs to
+                       (instance of csiNportVsanId), is down.
+
+            inRemovalState - The SVC interface that this N-port
+                       belongs to, is in the process of 
+                       going down.
+
+            ifHardwareDown - The line card hardware is down.
+
+            uninitialized  - Port is being initialized.
+            "
+    ::= { csiNportEntry 7 }
+
+
+csiNportRowStatus          OBJECT-TYPE
+        SYNTAX            RowStatus
+        MAX-ACCESS        read-create
+        STATUS            current
+        DESCRIPTION   
+               "Status of this row."
+        ::= { csiNportEntry 8 }
+
+
+
+-- The Session Table
+
+
+csiSessionTable     OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CsiSessionEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION   
+           "A table of SVC sessions.   
+
+            A SVC session is a FC session between a virtual
+            N-port and any other N-port within a FC fabric."
+    ::= { cSvcInterfaceConfiguration 2 }
+
+                                 
+csiSessionEntry      OBJECT-TYPE
+    SYNTAX          CsiSessionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION   
+            "An entry in the csiSessionTable.
+
+             An entry in the session table is identified by a 
+             virtual N-port and a session Identifier.  
+
+             Each N-port is identified by the ifIndex, 
+             Nport type and the VSAN id as described above 
+             in the csiNportEntry.
+
+             The combination of the N-port and the sessionId
+             uniquely identifies a session.
+
+             Each session has the local N-port's WWN, remote
+             N-port's WWN and remote node's WWN as well as
+             remote N-port's FcId."
+
+    INDEX  { csiSessionIfIndex,
+             csiSessionType,
+             csiSessionVsanId,
+             csiSessionId }
+    ::= { csiSessionTable 1 }
+
+
+CsiSessionEntry ::=
+        SEQUENCE {                             
+                   csiSessionIfIndex            InterfaceIndex,
+                   csiSessionType               NportType,
+                   csiSessionVsanId             VsanIndex,
+                   csiSessionId                 Integer32,
+                   csiSessionNportPwwn          FcNameId,
+                   csiSessionPeerPwwn           FcNameId,
+                   csiSessionPeerNwwn           FcNameId,
+                   csiSessionPeerFcid           Integer32
+        }
+
+
+csiSessionIfIndex         OBJECT-TYPE
+    SYNTAX               InterfaceIndex 
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION   
+           "The ifIndex of the SVC interface to which this N-port
+            belongs to. "
+    ::= { csiSessionEntry 1 }
+
+
+csiSessionType            OBJECT-TYPE
+    SYNTAX               NportType 
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION
+           "The type of the N-port for this session. "
+    ::= { csiSessionEntry 2 }
+
+
+csiSessionVsanId          OBJECT-TYPE
+    SYNTAX               VsanIndex  
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION
+           "The VSAN identifier of the N-port for this session. "
+    ::= { csiSessionEntry 3 }
+
+
+csiSessionId              OBJECT-TYPE
+    SYNTAX               Integer32 (1..2147483647) 
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION
+           "The session identifier of this session. "
+    ::= { csiSessionEntry 4 }
+
+
+csiSessionNportPwwn       OBJECT-TYPE
+    SYNTAX               FcNameId
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "The WWN of the N-port that belongs to this session."
+    ::= { csiSessionEntry 5 }
+
+
+csiSessionPeerPwwn       OBJECT-TYPE
+    SYNTAX               FcNameId
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "The WWN of the remote N-port for this session."
+    ::= { csiSessionEntry 6 }
+
+
+csiSessionPeerNwwn       OBJECT-TYPE
+    SYNTAX               FcNameId
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "The WWN of the remote node for this session."
+    ::= { csiSessionEntry 7 }
+
+
+csiSessionPeerFcid        OBJECT-TYPE
+    SYNTAX               Integer32 (1..16777215)
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Fibre Channel Identifier of the remote port 
+            for this session. "
+    ::= { csiSessionEntry 8 }
+
+
+
+-- The Interface Statistics Table
+
+
+csiInterfaceStatsTable       OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CsiInterfaceStatsEntry
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION   
+           "A table that lists various statistics for each SVC
+            interface. "
+
+    ::= { cSvcInterfaceConfiguration 3 }
+
+                                 
+csiInterfaceStatsEntry   OBJECT-TYPE
+    SYNTAX              CsiInterfaceStatsEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION   
+            "An entry in the csiInterfaceStatsTable,
+             indexed by the N-port ifIndex and containing
+             interface statistics such as the input and output
+             frames, bytes and rates."
+
+    INDEX  { csiNportIfIndex }
+    ::= { csiInterfaceStatsTable 1 }
+
+
+CsiInterfaceStatsEntry ::=
+        SEQUENCE {                             
+                   csiInterfaceInFrames           Counter32,
+                   csiInterfaceInFrameRate        Unsigned32,
+                   csiInterfaceInBytes            Counter32,
+                   csiInterfaceInBytesRate        Unsigned32,
+                   csiInterfaceOutFrames          Counter32,
+                   csiInterfaceOutFrameRate       Unsigned32,
+                   csiInterfaceOutBytes           Counter32,
+                   csiInterfaceOutBytesRate       Unsigned32
+        }
+
+
+csiInterfaceInFrames      OBJECT-TYPE
+    SYNTAX               Counter32 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION   
+           "Number of incoming frames on this interface."
+    ::= { csiInterfaceStatsEntry 1 }
+
+csiInterfaceInFrameRate   OBJECT-TYPE
+    SYNTAX               Unsigned32 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION   
+           "Number of incoming frames per second on 
+            this interface."
+    ::= { csiInterfaceStatsEntry 2 }
+
+csiInterfaceInBytes       OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of incoming bytes on this interface."
+    ::= { csiInterfaceStatsEntry 3 }
+
+csiInterfaceInBytesRate   OBJECT-TYPE
+    SYNTAX               Unsigned32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of incoming bytes per second on 
+            this interface."
+    ::= { csiInterfaceStatsEntry 4 }
+
+csiInterfaceOutFrames     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of outgoing frames on this interface."
+    ::= { csiInterfaceStatsEntry 5 }
+
+
+csiInterfaceOutFrameRate  OBJECT-TYPE
+    SYNTAX               Unsigned32 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION   
+           "Number of outgoing frames per second on 
+            this interface."
+    ::= { csiInterfaceStatsEntry 6 }
+
+csiInterfaceOutBytes      OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of outgoing bytes on this interface."
+    ::= { csiInterfaceStatsEntry 7 }
+
+csiInterfaceOutBytesRate  OBJECT-TYPE
+    SYNTAX               Unsigned32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of outgoing bytes per second on 
+            this interface."
+    ::= { csiInterfaceStatsEntry 8 }
+
+
+
+
+-- The N-Port Statistics Table
+
+
+csiNportStatsTable  OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CsiNportStatsEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION   
+           "A table of N-port statistics." 
+
+    ::= { cSvcInterfaceConfiguration 4 }
+
+                                 
+csiNportStatsEntry   OBJECT-TYPE
+    SYNTAX          CsiNportStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION   
+            "An entry in the csiNportStatsTable. "
+
+    INDEX  { csiNportIfIndex,
+             csiNportType,
+             csiNportVsanId }
+    ::= { csiNportStatsTable 1 }
+
+
+CsiNportStatsEntry ::=
+        SEQUENCE {                             
+                   csiNportSessions           Counter32,
+                   csiNportInFrames           Counter32,
+                   csiNportInFrameRate        Unsigned32,
+                   csiNportInBytes            Counter32,
+                   csiNportInBytesRate        Unsigned32,
+                   csiNportOutFrames          Counter32,
+                   csiNportOutFrameRate       Unsigned32,
+                   csiNportOutBytes           Counter32,
+                   csiNportOutBytesRate       Unsigned32
+        }
+
+
+csiNportSessions          OBJECT-TYPE
+    SYNTAX               Counter32 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION   
+           "Number of pen sessions on this virtual N-port."
+    ::= { csiNportStatsEntry 1 }
+
+csiNportInFrames          OBJECT-TYPE
+    SYNTAX               Counter32 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION   
+           "Number of incoming frames on this virtual N-port."
+    ::= { csiNportStatsEntry 2 }
+
+csiNportInFrameRate       OBJECT-TYPE
+    SYNTAX               Unsigned32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of incoming frames per second on 
+            this virtual N-port."
+    ::= { csiNportStatsEntry 3 }
+
+csiNportInBytes           OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of incoming bytes on this virtual N-port."
+    ::= { csiNportStatsEntry 4 }
+
+csiNportInBytesRate       OBJECT-TYPE
+    SYNTAX               Unsigned32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of incoming bytes per second on 
+            this virtual N-port."
+    ::= { csiNportStatsEntry 5 }
+
+
+csiNportOutFrames         OBJECT-TYPE
+    SYNTAX               Counter32 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION   
+           "Number of outgoing frames on this virtual N-port."
+    ::= { csiNportStatsEntry 6 }
+
+csiNportOutFrameRate      OBJECT-TYPE
+    SYNTAX               Unsigned32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of outgoing frames per second on 
+            this virtual N-port."
+    ::= { csiNportStatsEntry 7 }
+
+csiNportOutBytes          OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of outgoing bytes on this virtual N-port."
+    ::= { csiNportStatsEntry 8 }
+
+
+csiNportOutBytesRate      OBJECT-TYPE
+    SYNTAX               Unsigned32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "Number of outgoing bytes per second on 
+            this virtual N-port."
+    ::= { csiNportStatsEntry 9 }
+
+
+
+-- The Session Statistics Table
+
+
+csiSessionStatsTable       OBJECT-TYPE
+    SYNTAX                SEQUENCE OF CsiSessionStatsEntry
+    MAX-ACCESS            not-accessible
+    STATUS                current
+    DESCRIPTION   
+           "A table of session statistics." 
+
+    ::= { cSvcInterfaceConfiguration 5 }
+
+                                 
+csiSessionStatsEntry   OBJECT-TYPE
+    SYNTAX            CsiSessionStatsEntry
+    MAX-ACCESS        not-accessible
+    STATUS            current
+    DESCRIPTION   
+            "An entry in the csiSessionStatsEntry."
+
+    INDEX  { csiSessionIfIndex,
+             csiSessionType,
+             csiSessionVsanId,
+             csiSessionId }
+
+    ::= { csiSessionStatsTable 1 }
+
+
+CsiSessionStatsEntry ::=
+        SEQUENCE {                             
+                   csiSessionInELSFrames      Counter32,
+                   csiSessionInBLSFrames      Counter32,
+                   csiSessionInFCPCmds        Counter32,
+                   csiSessionInFCPXferRdys    Counter32,
+                   csiSessionInFCPDataFrames  Counter32,
+                   csiSessionInFCPStatus      Counter32,
+                   csiSessionInFCPDataBytes   Counter32,
+                   csiSessionInFCPOverRuns    Counter32,
+                   csiSessionInFCPUnderRuns   Counter32,
+                   csiSessionInAborts         Counter32,
+
+                   csiSessionOutELSFrames     Counter32,
+                   csiSessionOutBLSFrames     Counter32,
+                   csiSessionOutFCPCmds       Counter32,
+                   csiSessionOutFCPXferRdys   Counter32,
+                   csiSessionOutFCPDataFrames Counter32,
+                   csiSessionOutFCPStatus     Counter32,
+                   csiSessionOutFCPDataBytes  Counter32,
+                   csiSessionOutFCPOverRuns   Counter32,
+                   csiSessionOutFCPUnderRuns  Counter32,
+                   csiSessionOutAborts        Counter32,
+
+                   csiSessionOpenXchanges     Counter32,
+                   csiSessionInBadFc2Drops    Counter32,
+                   csiSessionInBadFcPDrops    Counter32,
+                   csiSessionInFCPDataExcess  Counter32
+        }
+
+
+csiSessionInELSFrames     OBJECT-TYPE
+    SYNTAX               Counter32 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION   
+            "Number of incoming Extended Link Service frames 
+             in this session."
+    ::= { csiSessionStatsEntry 1 }
+
+csiSessionInBLSFrames     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming Basic Link Service frames
+             in this session."
+    ::= { csiSessionStatsEntry 2 }
+
+
+csiSessionInFCPCmds     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming FCP Command frames 
+             in this session. Note that FCP stands for
+             Fibre Channel Protocol."
+    ::= { csiSessionStatsEntry 3 }
+
+
+csiSessionInFCPXferRdys     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming FCP Transfer Ready 
+             frames in this session."
+    ::= { csiSessionStatsEntry 4 }
+
+
+csiSessionInFCPDataFrames     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming FCP Data frames." 
+    ::= { csiSessionStatsEntry 5 }
+
+
+csiSessionInFCPStatus     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming FCP Status frames." 
+    ::= { csiSessionStatsEntry 6 }
+
+
+csiSessionInFCPDataBytes     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming FCP Data bytes." 
+    ::= { csiSessionStatsEntry 7 }
+
+
+csiSessionInFCPOverRuns     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming FCP Overrun frames." 
+    ::= { csiSessionStatsEntry 8 }
+
+
+csiSessionInFCPUnderRuns     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming FCP Underrun frames." 
+    ::= { csiSessionStatsEntry 9 }
+
+
+csiSessionInAborts     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of incoming aborted frames." 
+    ::= { csiSessionStatsEntry 10 }
+
+
+csiSessionOutELSFrames     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing Extended Link Service frames 
+             in this session."
+    ::= { csiSessionStatsEntry 11 }
+
+
+csiSessionOutBLSFrames     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing Basic Link Service frames 
+             in this session."
+    ::= { csiSessionStatsEntry 12 }
+
+
+csiSessionOutFCPCmds     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing FCP Command frames 
+             in this session."
+    ::= { csiSessionStatsEntry 13 }
+
+
+csiSessionOutFCPXferRdys     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing FCP Transfer Ready frames 
+             in this session."
+    ::= { csiSessionStatsEntry 14 }
+
+
+csiSessionOutFCPDataFrames     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing FCP Data frames 
+             in this session."
+    ::= { csiSessionStatsEntry 15 }
+
+
+csiSessionOutFCPStatus     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing FCP Status frames 
+             in this session."
+    ::= { csiSessionStatsEntry 16 }
+
+
+csiSessionOutFCPDataBytes     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing FCP Data bytes 
+             in this session."
+    ::= { csiSessionStatsEntry 17 }
+
+
+csiSessionOutFCPOverRuns     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing FCP Overrun frames 
+             in this session."
+    ::= { csiSessionStatsEntry 18 }
+
+
+csiSessionOutFCPUnderRuns     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing FCP Underrun frames 
+             in this session."
+    ::= { csiSessionStatsEntry 19 }
+
+
+csiSessionOutAborts     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of outgoing aborted frames
+             in this session." 
+    ::= { csiSessionStatsEntry 20 }
+
+
+csiSessionOpenXchanges     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of Open Exchanges in this session." 
+    ::= { csiSessionStatsEntry 21 }
+
+
+csiSessionInBadFc2Drops     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of FC2 dropped frames in this
+             session." 
+    ::= { csiSessionStatsEntry 22 }
+
+
+csiSessionInBadFcPDrops     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of FCP dropped frames." 
+    ::= { csiSessionStatsEntry 23 }
+
+
+csiSessionInFCPDataExcess     OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+            "Number of FCP Data  Excess frames in 
+             this session." 
+    ::= { csiSessionStatsEntry 24 }
+
+
+
+-- The Interface nwwn Table
+
+
+csiInterfaceNwwnTable        OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CsiInterfaceNwwnEntry
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION   
+           "A table that lists Nwwn for SVC
+            interfaces. "
+
+    ::= { cSvcInterfaceConfiguration 6 }
+
+                                 
+csiInterfaceNwwnEntry    OBJECT-TYPE
+    SYNTAX              CsiInterfaceNwwnEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION   
+            "An entry in the csiInterfaceNwwnTable,
+             indexed by the N-port ifIndex and containing
+             interface Nwwn and a description of the
+             cause if that interface is down."
+
+    INDEX  { csiNportIfIndex }
+    ::= { csiInterfaceNwwnTable 1 }
+
+
+CsiInterfaceNwwnEntry ::=
+        SEQUENCE {                             
+                 csiInterfaceNwwn            FcNameId,
+                 csiInterfaceOperStateCause  SnmpAdminString
+        }
+
+
+csiInterfaceNwwn          OBJECT-TYPE
+    SYNTAX               FcNameId 
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION   
+           "Nwwn of this interface."
+    ::= { csiInterfaceNwwnEntry 1 }
+
+csiInterfaceOperStateCause OBJECT-TYPE
+    SYNTAX                SnmpAdminString (SIZE(1..64))
+    MAX-ACCESS            read-only
+    STATUS                current
+    DESCRIPTION
+           "A description of the cause that the interface
+            is down."
+    ::= { csiInterfaceNwwnEntry 2 }
+
+
+-- Objects that are used only in traps 
+-- Please note that these objects cannot be
+-- bound to any objects within this MIB as these
+-- traps are generated  from IBM and we are 
+-- just repackaging them.
+
+
+csiErrorId OBJECT-TYPE
+        SYNTAX Integer32(0..2147483647)
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "Error Id"
+        ::= { cSvcInterfaceTrapObjects 1 }
+
+
+csiErrorSeqNumber    OBJECT-TYPE
+        SYNTAX      Integer32(0..2147483647)
+        MAX-ACCESS  accessible-for-notify
+        STATUS      current
+        DESCRIPTION
+                "Error Sequence Number"
+        ::= { cSvcInterfaceTrapObjects 2 }
+
+
+csiSlotNumber        OBJECT-TYPE
+        SYNTAX      Integer32(0..2147483647)
+        MAX-ACCESS  accessible-for-notify
+        STATUS      current
+        DESCRIPTION
+                "Slot Number of the slot from where the
+                 notification is being generated."
+        ::= { cSvcInterfaceTrapObjects 3 }
+
+csiPortNumber        OBJECT-TYPE
+        SYNTAX      Integer32(0..2147483647)
+        MAX-ACCESS  accessible-for-notify
+        STATUS      current
+        DESCRIPTION
+                "Port Number of the port from where the
+                 notification is being generated."
+        ::= { cSvcInterfaceTrapObjects 4 }
+
+
+csiObjName OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "User configured name of an object.
+                 e.g. vDisk1, where the user has 
+                 named  the virtual disk 1 as vDisk1."
+        ::= { cSvcInterfaceTrapObjects 5 }
+
+csiErrorText OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                " Full text string describing the Error."
+        ::= { cSvcInterfaceTrapObjects 6 }
+
+
+csiMachineType OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "Machine Type in which the SVC software is
+                 running. This could be the vendor product
+                 identifier. e.g MDS9000"
+        ::= { cSvcInterfaceTrapObjects 7 }
+
+
+
+csiCardSerialNo OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "The serial number of the card from where 
+                 the notification is being generated."
+        ::= { cSvcInterfaceTrapObjects 8 }
+
+
+csiSwVersion OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "The SVC software version."
+        ::= { cSvcInterfaceTrapObjects 9 }
+
+
+csiSwitchName OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "The user configured name of the
+                 switch that is running the SVC
+                 software."
+        ::= { cSvcInterfaceTrapObjects 10 }
+
+
+csiClusterName OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "The user configured name of the
+                 cluster."
+        ::= { cSvcInterfaceTrapObjects 11 }
+
+csiNodeName OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS accessible-for-notify
+        STATUS current
+        DESCRIPTION
+                "The user configured name of the SVC 
+                 node."
+        ::= { cSvcInterfaceTrapObjects 12 }
+
+
+csiMIBTraps OBJECT IDENTIFIER
+                              ::= { ciscoSvcInterfaceMIBTrapPrefix 0 }
+
+
+csiErrorTrap NOTIFICATION-TYPE
+        OBJECTS {
+                csiErrorId,
+                csiErrorSeqNumber,
+                csiSlotNumber,
+                csiPortNumber,
+                csiObjName,
+                csiErrorText,
+                csiMachineType,
+                csiCardSerialNo,
+                csiSwVersion,
+                csiSwitchName,
+                csiClusterName,
+                csiNodeName
+        }
+        STATUS current
+        DESCRIPTION
+          "SVC error trap.
+
+           The objects within this trap convey the information
+           about things such as the port number, slot number
+           machine type etc for which the error occurred.
+
+           This notification will be generated when there is
+           an error condition in any of the SVC operations."
+
+      ::= { csiMIBTraps 1 }
+
+csiWarningTrap NOTIFICATION-TYPE
+        OBJECTS {
+                csiErrorId,
+                csiErrorSeqNumber,
+                csiSlotNumber,
+                csiPortNumber,
+                csiObjName,
+                csiErrorText,
+                csiMachineType,
+                csiCardSerialNo,
+                csiSwVersion,
+                csiSwitchName,
+                csiClusterName,
+                csiNodeName
+        }
+        STATUS current
+        DESCRIPTION
+          "SVC warning trap
+
+           The objects within this trap convey the information
+           about things such as the port number, slot number
+           machine type etc for which the error occurred.
+
+           This notification will be generated when there is
+           an warning condition in any of the SVC operations."
+
+      ::= { csiMIBTraps 2 }
+
+csiInformationTrap NOTIFICATION-TYPE
+        OBJECTS {
+                csiErrorId,
+                csiErrorSeqNumber,
+                csiSlotNumber,
+                csiPortNumber,
+                csiObjName,
+                csiErrorText,
+                csiMachineType,
+                csiCardSerialNo,
+                csiSwVersion,
+                csiSwitchName,
+                csiClusterName,
+                csiNodeName
+        }
+        STATUS current
+        DESCRIPTION
+          "SVC information trap
+
+           The objects within this trap convey the information
+           about things such as the port number, slot number
+           machine type etc for which the information needs
+           to be conveyed.
+
+           This notification will be generated when there is
+           an information needs to be conveyed in any of the 
+           SVC operations."
+
+
+      ::= { csiMIBTraps 3 }
+
+
+-- Conformance
+
+ciscoSvcMIBConformance
+       OBJECT IDENTIFIER ::= { ciscoSvcInterfaceMIB 3 }
+
+ciscoSvcMIBCompliances
+       OBJECT IDENTIFIER ::= { ciscoSvcMIBConformance 1 }
+
+ciscoSvcMIBGroups
+       OBJECT IDENTIFIER ::= { ciscoSvcMIBConformance 2 }
+
+
+ciscoSvcMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-SVC-INERFACE-MIB."
+        MODULE MANDATORY-GROUPS { 
+                 csiNportGroup,
+                 csiSessionGroup,
+                 csiInterfaceStatsGroup,
+                 csiNportStatsGroup,
+                 csiSessionStatsGroup,
+                 csiInterfaceNwwnGroup,
+                 csiNotifObjectsGroup,
+                 cefcMgmtNotificationsGroup
+        }
+
+        OBJECT     csiNportRowStatus
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        DESCRIPTION 
+                "Only 'createAndGo', 'destroy' and 'active' need to
+                 be supported."
+        ::= { ciscoSvcMIBCompliances 1 }
+
+
+-- Units of Conformance
+
+
+csiNportGroup OBJECT-GROUP
+        OBJECTS   { 
+
+                   csiNportPwwn,
+                   csiNportFcid,
+                   csiNportState,
+                   csiNportDownReason,
+                   csiNportRowStatus
+                 }                  
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for Nport configuration."
+        ::= { ciscoSvcMIBGroups 1 }
+
+
+csiSessionGroup OBJECT-GROUP
+        OBJECTS  {
+
+                   csiSessionNportPwwn,
+                   csiSessionPeerPwwn,
+                   csiSessionPeerNwwn,
+                   csiSessionPeerFcid          
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for session configuration."
+        ::= { ciscoSvcMIBGroups 2 }
+
+csiInterfaceStatsGroup OBJECT-GROUP
+        OBJECTS  {
+                   csiInterfaceInFrames, 
+                   csiInterfaceInFrameRate,
+                   csiInterfaceInBytes,
+                   csiInterfaceInBytesRate,
+                   csiInterfaceOutFrames,
+                   csiInterfaceOutFrameRate,
+                   csiInterfaceOutBytes,
+                   csiInterfaceOutBytesRate
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for interface statistics."
+        ::= { ciscoSvcMIBGroups 3 }
+
+
+csiNportStatsGroup OBJECT-GROUP
+        OBJECTS  {
+                   csiNportSessions,
+                   csiNportInFrames,
+                   csiNportInFrameRate,
+                   csiNportInBytes,
+                   csiNportInBytesRate,
+                   csiNportOutFrames,
+                   csiNportOutFrameRate,
+                   csiNportOutBytes,
+                   csiNportOutBytesRate
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for N-port statistics."
+        ::= { ciscoSvcMIBGroups 4 }
+
+
+csiSessionStatsGroup OBJECT-GROUP
+        OBJECTS  {
+                   csiSessionInELSFrames,
+                   csiSessionInBLSFrames,
+                   csiSessionInFCPCmds,
+                   csiSessionInFCPXferRdys,
+                   csiSessionInFCPDataFrames,
+                   csiSessionInFCPStatus,
+                   csiSessionInFCPDataBytes,
+                   csiSessionInFCPOverRuns,
+                   csiSessionInFCPUnderRuns,
+                   csiSessionInAborts,
+
+                   csiSessionOutELSFrames,
+                   csiSessionOutBLSFrames,
+                   csiSessionOutFCPCmds,
+                   csiSessionOutFCPXferRdys,
+                   csiSessionOutFCPDataFrames,
+                   csiSessionOutFCPStatus,
+                   csiSessionOutFCPDataBytes,
+                   csiSessionOutFCPOverRuns,
+                   csiSessionOutFCPUnderRuns,
+                   csiSessionOutAborts,
+
+                   csiSessionOpenXchanges,
+                   csiSessionInBadFc2Drops,
+                   csiSessionInBadFcPDrops,
+                   csiSessionInFCPDataExcess  
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for Session statistics."
+        ::= { ciscoSvcMIBGroups 5 }
+
+
+csiInterfaceNwwnGroup OBJECT-GROUP
+        OBJECTS  {
+                  csiInterfaceNwwn,
+                  csiInterfaceOperStateCause
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for Interface nwwn."
+        ::= { ciscoSvcMIBGroups 6 }
+
+
+csiNotifObjectsGroup OBJECT-GROUP
+        OBJECTS  {
+                  csiErrorId,
+                  csiErrorSeqNumber,
+                  csiSlotNumber,
+                  csiPortNumber,
+                  csiObjName,
+                  csiErrorText,
+                  csiMachineType,
+                  csiCardSerialNo,
+                  csiSwVersion,
+                  csiSwitchName,
+                  csiClusterName,
+                  csiNodeName
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for sending notifications."
+        ::= { ciscoSvcMIBGroups 7 }
+
+cefcMgmtNotificationsGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { csiErrorTrap,
+                    csiWarningTrap,
+                    csiInformationTrap }
+    STATUS        current
+    DESCRIPTION
+        "The notifications which a SVC Management entity is
+         required to implement."
+    ::= { ciscoSvcMIBGroups 8 }
+
+
+END

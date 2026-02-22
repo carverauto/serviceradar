@@ -1,0 +1,807 @@
+-- *****************************************************************
+-- CISCO-OBMI-MIB.my
+--   
+-- Copyright (c) 2009 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-OBMI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString,
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+--******************************************************************
+--*  MODULE IDENTITY
+--******************************************************************
+
+ciscoObmiMIB MODULE-IDENTITY
+    LAST-UPDATED    "200905280000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-obmi@cisco.com"
+
+    DESCRIPTION
+        "The On-Board Management Interface (OBMI) provides an
+        out-of-band communications channel (in Cisco terms: 
+        a console port), that is capable of running on various
+        low-speed to high-speed satellite telemetry busses,
+        such as the m500 bus.
+
+        OBMI is similar to SNMP in principle and function, in 
+        that it allows 'getting' data from or 'setting' 
+        configurations in a device, however, OBMI is functional
+        regardless of the software state of the device.  It
+        must be so, because OBMI is the primary control mechanism
+        for a device operating in the harsh environment of space.
+
+        OBMI transports command messages that originate from the
+        ground to a device in space and transports telemetry 
+        messages that originate from that device in space to the
+        ground.
+
+        The OBMI application is divided into three conceptual layers:
+        1.  The OBMI application layer which concerns operating system
+            subsystems and their associated command and telemetry
+            messages.
+        2.  A FRAMING layer which formats the OBMI messages into
+            frames that are suitable for transport over a specific
+            spacecraft bus.
+        3.  The PHY (physical) layer which handles sending and 
+            receiving the frames over the physical media.
+
+        Counts associated with the success or failure of these
+        various transport layers are reported by this MIB.
+
+                 GLOSSARY
+
+        command   :  data that goes from the ground to the device 
+                     in space
+        frame     :  OBMI messages are broken into frames to be
+                     sent by the physical bus or reassembled from
+                     the bus to be sent to the OBMI subsystem
+        m500      :  A particular space command/telemetry bus
+        message   :  fully assembled set of frames that make up
+                     commands or telemetry. The topmost OBMI 
+                     layer of the OBMI subsystem operates with
+                     messages
+        OBMI      :  On-board Management Interface
+        telemetry :  data that goes from the device in space to the
+                     ground
+        word      :  a collection of bits, sized for the particular
+                     bus
+    "
+    REVISION        "200905280000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 698 }
+
+
+ciscoObmiMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoObmiMIB 0 }
+
+ciscoObmiMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoObmiMIB 1 }
+
+ciscoObmiMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoObmiMIB 2 }
+
+--********************************************************
+
+cObmiTransportTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CObmiTransportEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics, in the form
+        of counters associated with the transport of 
+        OBMI over one or more busses.  At startup, all entries in
+        this table are set up by the OBMI subsystem."
+    ::= { ciscoObmiMIBObjects 2 }
+
+cObmiTransportEntry OBJECT-TYPE
+    SYNTAX          CObmiTransportEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a row in cObmiTransportTable
+        and corresponds to the statistics for a particular
+        transport bus."
+    INDEX           { cObmiBusID } 
+    ::= { cObmiTransportTable 1 }
+
+CObmiTransportEntry ::= SEQUENCE {
+        cObmiBusID                   Unsigned32,
+        cObmiBusName                 DisplayString,
+        cObmiCommandRx               Counter32,
+        cObmiCommandProcessedTotal   Counter32,
+        cObmiCommandGets             Counter32,
+        cObmiCommandSets             Counter32,
+        cObmiCommandProcessedInvalid Counter32,
+        cObmiCommandPending          Gauge32,
+        cObmiCommandDropped          Counter32,
+        cObmiTelemetrySent           Counter32,
+        cObmiTelemetryDemandSent     Counter32,
+        cObmiTelemetryPending        Gauge32
+}
+
+cObmiBusID OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely indentifies a particular
+	OBMI transport bus." 
+    ::= { cObmiTransportEntry 1 }
+
+cObmiBusName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the OBMI transport bus." 
+    ::= { cObmiTransportEntry 2 }
+
+cObmiCommandRx OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of commands 
+        received by the OBMI subsystem."
+    ::= { cObmiTransportEntry 3 }
+
+cObmiCommandProcessedTotal OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of commands 
+        successfully processed by the OBMI subsystem." 
+    ::= { cObmiTransportEntry 4 }
+
+cObmiCommandGets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 'get' commands
+        processed by the OBMI subsystem.  A 'get' 
+        command requests information from the device that 
+        the OBMI subsystem resides on and is different 
+        from an SNMP 'get'." 
+    ::= { cObmiTransportEntry 5 }
+
+cObmiCommandSets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 'set' commands
+        processed by the OBMI subsystem.  A 'set'
+        command changes information ON the device that the
+        OBMI subsystem resides on and is different from
+        and SNMP 'set'."
+    ::= { cObmiTransportEntry 6 }
+
+cObmiCommandProcessedInvalid OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages" 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of commands that
+        the OBMI subsystem interpreted as not fully conforming to the
+        formatting requirements and therefore considered invalid."
+    ::= { cObmiTransportEntry 7 }
+
+cObmiCommandPending OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Messages" 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of commands that
+        are awaiting processing by the OBMI subsystem."
+    ::= { cObmiTransportEntry 8 }
+
+cObmiCommandDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages" 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of commands that
+        the OBMI subsystem did not recognize and therefore
+        dropped."
+    ::= { cObmiTransportEntry 9 }
+
+cObmiTelemetrySent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total count of telemetry messages
+        that  were sent by the OBMI subsystem." 
+    ::= { cObmiTransportEntry 10 }
+
+cObmiTelemetryDemandSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total count of telemetry messages
+        that were sent by the OBMI subsystem, but only upon
+        commanded 'gets' to the OBMI subsystem. This number excludes
+        telemetry messages that were automatically sent by heartbeats." 
+    ::= { cObmiTransportEntry 11 }
+
+cObmiTelemetryPending OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of of telemetry messages
+        waiting to be sent to the ground from the OBMI subsystem." 
+    ::= { cObmiTransportEntry 12 }
+
+ 
+--********************************************************
+
+cObmiTransportHeartBeatTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CObmiTransportHeartBeatEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the number of heartbeats sent and 
+        the number pending by the OBMI subsystem by port 
+        number for a particular bus. At startup, all entries in this
+        table are set up by the OBMI subsystem."
+    ::= { ciscoObmiMIBObjects 3 }
+
+cObmiTransportHeartBeatEntry OBJECT-TYPE
+    SYNTAX          CObmiTransportHeartBeatEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a row in 
+        cObmiTransportHearBeatTable and identifies heartbeat-
+        related statistics."
+    INDEX           {
+                        cObmiBusID,
+                        cObmiHeartBeatPort
+                    } 
+    ::= { cObmiTransportHeartBeatTable 1 }
+
+CObmiTransportHeartBeatEntry ::= SEQUENCE {
+        cObmiHeartBeatPort    Unsigned32,
+        cObmiHeartBeatSent    Counter32,
+        cObmiHeartBeatPending Gauge32
+}
+
+cObmiHeartBeatPort OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object, along with  cObmiBusID uniquely
+        identifies heartbeat-related statistics." 
+    ::= { cObmiTransportHeartBeatEntry 1 }
+
+cObmiHeartBeatSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of hearbeats sent." 
+    ::= { cObmiTransportHeartBeatEntry 2 }
+
+cObmiHeartBeatPending OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of heartbeats waiting
+        in the queue ready to be sent."
+    ::= { cObmiTransportHeartBeatEntry 3 }
+
+--********************************************************
+ 
+cObmiM500FramingTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CObmiM500FramingEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the statistics associated with the
+        'framing-layer' of logical organization for the 
+        m500 bus used to transport OBMI.  The frame size for
+        m500 is 32 bits.  At startup, all entries in this table are
+        set up by the OBMI subsystem."
+    ::= { ciscoObmiMIBObjects 4 }
+
+cObmiM500FramingEntry OBJECT-TYPE
+    SYNTAX          CObmiM500FramingEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents an entry in the 
+         cObmiM500FramingTable and corresponds to the 
+         statistics associated with the framing for an 
+         'm500' bus used to transport OBMI."
+    INDEX           { cObmiBusID } 
+    ::= { cObmiM500FramingTable 1 }
+
+CObmiM500FramingEntry ::= SEQUENCE {
+        cObmiM500RxFrames             Counter32,
+        cObmiM500RxBytes              Counter32,
+        cObmiM500RxAbortFrames        Counter32,
+        cObmiM500RxEchoFrames         Counter32,
+        cObmiM500RxResetFrames        Counter32,
+        cObmiM500RxTransportErrFrames Counter32,
+        cObmiM500RxUnknownOpFrames    Counter32,
+        cObmiM500TxFrames             Counter32,
+        cObmiM500TxBytes              Counter32,
+        cObmiM500TxAbortFrames        Counter32,
+        cObmiM500TxEchoFrames         Counter32,
+        cObmiM500TxTransportErrFrames Counter32,
+        cObmiM500RxQOverRun           Counter32,
+        cObmiM500TxQ0UnderRun         Counter32,
+        cObmiM500TxQ1UnderRun         Counter32,
+        cObmiM500TxCtlQOverRun        Counter32
+}
+
+cObmiM500RxFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 
+        frames received." 
+    ::= { cObmiM500FramingEntry 1 }
+
+cObmiM500RxBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 
+        bytes received."
+    ::= { cObmiM500FramingEntry 2 }
+
+cObmiM500RxAbortFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 
+        received m500 frames aborted."
+    ::= { cObmiM500FramingEntry 3 }
+
+cObmiM500RxEchoFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500
+        echo frames received."
+    ::= { cObmiM500FramingEntry 4 }
+
+cObmiM500RxResetFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500
+        reset frames received."
+    ::= { cObmiM500FramingEntry 5 }
+
+cObmiM500RxTransportErrFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of errored
+        m500 transport frames received." 
+    ::= { cObmiM500FramingEntry 6 }
+
+cObmiM500RxUnknownOpFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500
+        frames with unknown operation codes received." 
+    ::= { cObmiM500FramingEntry 7 }
+
+cObmiM500TxFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 
+        m500 frames transmitted." 
+    ::= { cObmiM500FramingEntry 8 }
+
+cObmiM500TxBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of 
+        m500 bytes transmitted."
+    ::= { cObmiM500FramingEntry 9 }
+
+cObmiM500TxAbortFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of aborted 
+        m500 frames transmitted."
+    ::= { cObmiM500FramingEntry 10 }
+
+cObmiM500TxEchoFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 
+        echo frames transmitted." 
+    ::= { cObmiM500FramingEntry 11 }
+
+cObmiM500TxTransportErrFrames OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Frames"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 transport 
+        frames transmitted with error."
+    ::= { cObmiM500FramingEntry 12 }
+
+cObmiM500RxQOverRun OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages" 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of control queue
+        overruns transmitted."
+    ::= { cObmiM500FramingEntry 13 }
+
+cObmiM500TxQ0UnderRun OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of underruns
+        transmitted from queue number 0."
+    ::= { cObmiM500FramingEntry 14 }
+
+cObmiM500TxQ1UnderRun OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of underruns
+        transmitted from queue number 1."
+    ::= { cObmiM500FramingEntry 15 }
+
+cObmiM500TxCtlQOverRun OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of transmit control
+        queue overruns."
+    ::= { cObmiM500FramingEntry 16 }
+
+--********************************************************
+ 
+cObmiM500PhyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CObmiM500PhyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the statistics associated with the
+        'physical-layer' of logical organization for the 
+        m500 bus used to transport OBMI.  At startup, all entries
+        in this table are set up by the OBMI subsystem."
+    ::= { ciscoObmiMIBObjects 5 }
+
+cObmiM500PhyEntry OBJECT-TYPE
+    SYNTAX          CObmiM500PhyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents an entry in the 
+         cObmiM500PhyTable and corresponds to the statistics
+         associated with the physical layer for an 'm500' bus
+         used to transport OBMI.  The size of a 'Word' for 
+         the m500 bus is 32-bits."
+    INDEX           { cObmiBusID } 
+    ::= { cObmiM500PhyTable 1 }
+
+CObmiM500PhyEntry ::= SEQUENCE {
+        cObmiM500BusALOS               TruthValue,
+        cObmiM500BusBLOS               TruthValue,
+        cObmiM500LastActiveBus         BITS,
+        cObmiM500CommandsRcvd          Counter32,
+        cObmiM500TelemetrySent         Counter32,
+        cObmiM500TelemetryErrs         Counter32,
+        cObmiM500CommandErrs           Counter32,
+        cObmiM500CommandOverWrts       Counter32,
+        cObmiM500HWParityErr           TruthValue,
+        cObmiM500TelemetryReqParityErr TruthValue,
+        cObmiM500CommandParityErr      TruthValue,
+        cObmiM500CommandTimeout        TruthValue,
+        cObmiM500CommandOverWrt        TruthValue
+}
+
+cObmiM500BusALOS OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not there is a
+        loss of signal on m500 bus A.
+           True  : Loss of Signal on m500 bus A.
+           False : No Loss of Signal on m500 bus A."
+    ::= { cObmiM500PhyEntry 1 }
+
+cObmiM500BusBLOS OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not there is a
+        loss of signal on m500 bus B.
+           True  : Loss of Signal on m500 bus B.
+           False : No Loss of Signal on m500 bus B."
+    ::= { cObmiM500PhyEntry 2 }
+
+cObmiM500LastActiveBus OBJECT-TYPE
+    SYNTAX          BITS {
+                        a(0),
+                        b(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which bus was last active:
+            a : m500 bus A was last active
+            b : m500 bus B was last active" 
+    ::= { cObmiM500PhyEntry 3 }
+
+cObmiM500CommandsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Words"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 command
+        words received." 
+    ::= { cObmiM500PhyEntry 4 }
+
+cObmiM500TelemetrySent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Words"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 telemetry
+        words sent." 
+    ::= { cObmiM500PhyEntry 5 }
+
+cObmiM500TelemetryErrs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Words"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 telemetry
+        words with errors." 
+    ::= { cObmiM500PhyEntry 6 }
+
+cObmiM500CommandErrs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Words"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 command
+        words with errors." 
+    ::= { cObmiM500PhyEntry 7 }
+
+cObmiM500CommandOverWrts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Words"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of m500 command
+        words that were overwritten." 
+    ::= { cObmiM500PhyEntry 8 }
+
+cObmiM500HWParityErr OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not there was
+        a hardwired parity error in the LAST command word 
+        received.
+           True  : Parity error occurred.
+           False : No parity error occurred."
+    ::= { cObmiM500PhyEntry 9 }
+
+cObmiM500TelemetryReqParityErr OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not there was
+        a parity error in the LAST telemetry request
+        word received.
+           True  : Parity error occurred.
+           False : No parity error occurred."
+    ::= { cObmiM500PhyEntry 10 }
+
+cObmiM500CommandParityErr OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not there was
+        a parity error in the LAST command word 
+        received.
+           True  : Parity error occurred.
+           False : No parity error occurred."
+    ::= { cObmiM500PhyEntry 11 }
+
+cObmiM500CommandTimeout OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not there was
+        a timeout in receiving the LAST command word:
+           True  : Timeout occurred.
+           False : Timeout did NOT occur."
+    ::= { cObmiM500PhyEntry 12 }
+
+cObmiM500CommandOverWrt OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not the
+        last command received was overwritten:
+           True  : Command received was overwritten.
+           False : Command received was NOT overwritten."
+    ::= { cObmiM500PhyEntry 13 }
+ 
+
+ciscoObmiMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoObmiMIBConform 1 }
+
+ciscoObmiMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoObmiMIBConform 2 }
+
+
+ciscoObmiMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoObmiMIBMainObjectGroup,
+                        ciscoObmiMIBM500ObjectGroup
+                    }
+    ::= { ciscoObmiMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoObmiMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         { cObmiBusName,
+                      cObmiCommandRx,
+                      cObmiCommandProcessedTotal,
+                      cObmiCommandGets,
+                      cObmiCommandSets,
+                      cObmiCommandProcessedInvalid,
+                      cObmiCommandPending,
+                      cObmiCommandDropped,
+                      cObmiTelemetrySent,
+                      cObmiTelemetryDemandSent,
+                      cObmiTelemetryPending,
+                      cObmiHeartBeatSent,
+                      cObmiHeartBeatPending
+ }
+    STATUS          current
+    DESCRIPTION
+        "This is the list of objects required for OBMI."
+    ::= { ciscoObmiMIBGroups 1 }
+
+ciscoObmiMIBM500ObjectGroup OBJECT-GROUP
+    OBJECTS         { cObmiM500RxFrames,
+                      cObmiM500RxBytes,
+                      cObmiM500RxAbortFrames,
+                      cObmiM500RxEchoFrames,
+                      cObmiM500RxResetFrames,
+                      cObmiM500RxTransportErrFrames,
+                      cObmiM500RxUnknownOpFrames,
+                      cObmiM500TxFrames,
+                      cObmiM500TxBytes,
+                      cObmiM500TxAbortFrames,
+                      cObmiM500TxEchoFrames,
+                      cObmiM500TxTransportErrFrames,
+                      cObmiM500RxQOverRun,
+                      cObmiM500TxQ0UnderRun,
+                      cObmiM500TxQ1UnderRun,
+                      cObmiM500TxCtlQOverRun,
+                      cObmiM500BusALOS,
+                      cObmiM500BusBLOS,
+                      cObmiM500LastActiveBus,
+                      cObmiM500CommandsRcvd,
+                      cObmiM500TelemetrySent,
+                      cObmiM500TelemetryErrs,
+                      cObmiM500CommandErrs,
+                      cObmiM500HWParityErr,
+                      cObmiM500CommandOverWrts,
+                      cObmiM500TelemetryReqParityErr,
+                      cObmiM500CommandParityErr,
+                      cObmiM500CommandTimeout,
+                      cObmiM500CommandOverWrt
+ }
+    STATUS          current
+    DESCRIPTION
+        "This is the list of objects required for m500."
+    ::= { ciscoObmiMIBGroups 2 }
+
+END

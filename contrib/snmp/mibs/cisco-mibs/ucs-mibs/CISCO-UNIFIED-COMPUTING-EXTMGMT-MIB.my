@@ -1,0 +1,761 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-EXTMGMT-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- EXTMGMT management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-EXTMGMT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsAaaConfigState,
+    CucsExtmgmtArpTargetsMaxDeadlineTimeout,
+    CucsExtmgmtArpTargetsNumberOfArpRequests,
+    CucsExtmgmtGatewayPingMaxDeadlineTimeout,
+    CucsExtmgmtGatewayPingNumberOfPingRequests,
+    CucsExtmgmtIfMonPolicyAdminState,
+    CucsExtmgmtIfMonPolicyMonitorMechanism,
+    CucsExtmgmtMiiStatusMaxRetryCount,
+    CucsExtmgmtMiiStatusRetryInterval,
+    CucsExtmgmtNdiscTargetsMaxDeadlineTimeout,
+    CucsExtmgmtNdiscTargetsNumberOfNdiscRequests,
+    CucsNetworkConnectionType,
+    CucsNetworkIfStatus,
+    CucsNetworkLocale,
+    CucsNetworkPortRole,
+    CucsNetworkPortType,
+    CucsNetworkSwitchId,
+    CucsNetworkTransport,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsExtmgmtObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        EXTMGMT management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 57 }
+
+cucsExtmgmtArpTargetsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsExtmgmtArpTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets managed object table"
+    ::= { cucsExtmgmtObjects 1 }
+
+cucsExtmgmtArpTargetsEntry OBJECT-TYPE
+    SYNTAX           CucsExtmgmtArpTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsExtmgmtArpTargetsTable table."
+    INDEX { cucsExtmgmtArpTargetsInstanceId }
+    ::= { cucsExtmgmtArpTargetsTable 1 }
+
+CucsExtmgmtArpTargetsEntry ::= SEQUENCE {
+    cucsExtmgmtArpTargetsInstanceId                                  CucsManagedObjectId,
+    cucsExtmgmtArpTargetsDn                                          CucsManagedObjectDn,
+    cucsExtmgmtArpTargetsRn                                          SnmpAdminString,
+    cucsExtmgmtArpTargetsMaxDeadlineTimeout                          CucsExtmgmtArpTargetsMaxDeadlineTimeout,
+    cucsExtmgmtArpTargetsNumberOfArpRequests                         CucsExtmgmtArpTargetsNumberOfArpRequests,
+    cucsExtmgmtArpTargetsTargetIp1                                   InetAddressIPv4,
+    cucsExtmgmtArpTargetsTargetIp2                                   InetAddressIPv4,
+    cucsExtmgmtArpTargetsTargetIp3                                   InetAddressIPv4,
+    cucsExtmgmtArpTargetsConfigState                                 CucsAaaConfigState,
+    cucsExtmgmtArpTargetsConfigStatusMessage                         SnmpAdminString
+}
+
+cucsExtmgmtArpTargetsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsExtmgmtArpTargetsEntry 1 }
+
+cucsExtmgmtArpTargetsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:dn managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 2 }
+
+cucsExtmgmtArpTargetsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:rn managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 3 }
+
+cucsExtmgmtArpTargetsMaxDeadlineTimeout OBJECT-TYPE
+    SYNTAX       CucsExtmgmtArpTargetsMaxDeadlineTimeout
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:maxDeadlineTimeout
+        managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 4 }
+
+cucsExtmgmtArpTargetsNumberOfArpRequests OBJECT-TYPE
+    SYNTAX       CucsExtmgmtArpTargetsNumberOfArpRequests
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:numberOfArpRequests
+        managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 5 }
+
+cucsExtmgmtArpTargetsTargetIp1 OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:targetIp1 managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 6 }
+
+cucsExtmgmtArpTargetsTargetIp2 OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:targetIp2 managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 7 }
+
+cucsExtmgmtArpTargetsTargetIp3 OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:targetIp3 managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 8 }
+
+cucsExtmgmtArpTargetsConfigState OBJECT-TYPE
+    SYNTAX       CucsAaaConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:configState managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 9 }
+
+cucsExtmgmtArpTargetsConfigStatusMessage OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:ArpTargets:configStatusMessage
+        managed object property"
+    ::= { cucsExtmgmtArpTargetsEntry 10 }
+
+cucsExtmgmtGatewayPingTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsExtmgmtGatewayPingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS extmgmt:GatewayPing managed object table"
+    ::= { cucsExtmgmtObjects 2 }
+
+cucsExtmgmtGatewayPingEntry OBJECT-TYPE
+    SYNTAX           CucsExtmgmtGatewayPingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsExtmgmtGatewayPingTable table."
+    INDEX { cucsExtmgmtGatewayPingInstanceId }
+    ::= { cucsExtmgmtGatewayPingTable 1 }
+
+CucsExtmgmtGatewayPingEntry ::= SEQUENCE {
+    cucsExtmgmtGatewayPingInstanceId                                 CucsManagedObjectId,
+    cucsExtmgmtGatewayPingDn                                         CucsManagedObjectDn,
+    cucsExtmgmtGatewayPingRn                                         SnmpAdminString,
+    cucsExtmgmtGatewayPingMaxDeadlineTimeout                         CucsExtmgmtGatewayPingMaxDeadlineTimeout,
+    cucsExtmgmtGatewayPingNumberOfPingRequests                       CucsExtmgmtGatewayPingNumberOfPingRequests
+}
+
+cucsExtmgmtGatewayPingInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsExtmgmtGatewayPingEntry 1 }
+
+cucsExtmgmtGatewayPingDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:GatewayPing:dn managed object property"
+    ::= { cucsExtmgmtGatewayPingEntry 2 }
+
+cucsExtmgmtGatewayPingRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:GatewayPing:rn managed object property"
+    ::= { cucsExtmgmtGatewayPingEntry 3 }
+
+cucsExtmgmtGatewayPingMaxDeadlineTimeout OBJECT-TYPE
+    SYNTAX       CucsExtmgmtGatewayPingMaxDeadlineTimeout
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:GatewayPing:maxDeadlineTimeout
+        managed object property"
+    ::= { cucsExtmgmtGatewayPingEntry 4 }
+
+cucsExtmgmtGatewayPingNumberOfPingRequests OBJECT-TYPE
+    SYNTAX       CucsExtmgmtGatewayPingNumberOfPingRequests
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:GatewayPing:numberOfPingRequests
+        managed object property"
+    ::= { cucsExtmgmtGatewayPingEntry 5 }
+
+cucsExtmgmtIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsExtmgmtIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If managed object table"
+    ::= { cucsExtmgmtObjects 3 }
+
+cucsExtmgmtIfEntry OBJECT-TYPE
+    SYNTAX           CucsExtmgmtIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsExtmgmtIfTable table."
+    INDEX { cucsExtmgmtIfInstanceId }
+    ::= { cucsExtmgmtIfTable 1 }
+
+CucsExtmgmtIfEntry ::= SEQUENCE {
+    cucsExtmgmtIfInstanceId                                          CucsManagedObjectId,
+    cucsExtmgmtIfDn                                                  CucsManagedObjectDn,
+    cucsExtmgmtIfRn                                                  SnmpAdminString,
+    cucsExtmgmtIfEpDn                                                SnmpAdminString,
+    cucsExtmgmtIfFailReportCount                                     Gauge32,
+    cucsExtmgmtIfFltAggr                                             Unsigned64,
+    cucsExtmgmtIfId                                                  CucsNetworkSwitchId,
+    cucsExtmgmtIfIfRole                                              CucsNetworkPortRole,
+    cucsExtmgmtIfIfType                                              CucsNetworkPortType,
+    cucsExtmgmtIfLastOperStateReport                                 CucsNetworkIfStatus,
+    cucsExtmgmtIfLocale                                              CucsNetworkLocale,
+    cucsExtmgmtIfName                                                SnmpAdminString,
+    cucsExtmgmtIfOperState                                           CucsNetworkIfStatus,
+    cucsExtmgmtIfPeerDn                                              SnmpAdminString,
+    cucsExtmgmtIfTransport                                           CucsNetworkTransport,
+    cucsExtmgmtIfType                                                CucsNetworkConnectionType
+}
+
+cucsExtmgmtIfInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsExtmgmtIfEntry 1 }
+
+cucsExtmgmtIfDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:dn managed object property"
+    ::= { cucsExtmgmtIfEntry 2 }
+
+cucsExtmgmtIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:rn managed object property"
+    ::= { cucsExtmgmtIfEntry 3 }
+
+cucsExtmgmtIfEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:epDn managed object property"
+    ::= { cucsExtmgmtIfEntry 4 }
+
+cucsExtmgmtIfFailReportCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:failReportCount managed object property"
+    ::= { cucsExtmgmtIfEntry 5 }
+
+cucsExtmgmtIfFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:fltAggr managed object property"
+    ::= { cucsExtmgmtIfEntry 6 }
+
+cucsExtmgmtIfId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:id managed object property"
+    ::= { cucsExtmgmtIfEntry 7 }
+
+cucsExtmgmtIfIfRole OBJECT-TYPE
+    SYNTAX       CucsNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:ifRole managed object property"
+    ::= { cucsExtmgmtIfEntry 8 }
+
+cucsExtmgmtIfIfType OBJECT-TYPE
+    SYNTAX       CucsNetworkPortType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:ifType managed object property"
+    ::= { cucsExtmgmtIfEntry 9 }
+
+cucsExtmgmtIfLastOperStateReport OBJECT-TYPE
+    SYNTAX       CucsNetworkIfStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:lastOperStateReport managed object property"
+    ::= { cucsExtmgmtIfEntry 10 }
+
+cucsExtmgmtIfLocale OBJECT-TYPE
+    SYNTAX       CucsNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:locale managed object property"
+    ::= { cucsExtmgmtIfEntry 11 }
+
+cucsExtmgmtIfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:name managed object property"
+    ::= { cucsExtmgmtIfEntry 12 }
+
+cucsExtmgmtIfOperState OBJECT-TYPE
+    SYNTAX       CucsNetworkIfStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:operState managed object property"
+    ::= { cucsExtmgmtIfEntry 13 }
+
+cucsExtmgmtIfPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:peerDn managed object property"
+    ::= { cucsExtmgmtIfEntry 14 }
+
+cucsExtmgmtIfTransport OBJECT-TYPE
+    SYNTAX       CucsNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:transport managed object property"
+    ::= { cucsExtmgmtIfEntry 15 }
+
+cucsExtmgmtIfType OBJECT-TYPE
+    SYNTAX       CucsNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:If:type managed object property"
+    ::= { cucsExtmgmtIfEntry 16 }
+
+cucsExtmgmtIfMonPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsExtmgmtIfMonPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy managed object table"
+    ::= { cucsExtmgmtObjects 4 }
+
+cucsExtmgmtIfMonPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsExtmgmtIfMonPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsExtmgmtIfMonPolicyTable table."
+    INDEX { cucsExtmgmtIfMonPolicyInstanceId }
+    ::= { cucsExtmgmtIfMonPolicyTable 1 }
+
+CucsExtmgmtIfMonPolicyEntry ::= SEQUENCE {
+    cucsExtmgmtIfMonPolicyInstanceId                                 CucsManagedObjectId,
+    cucsExtmgmtIfMonPolicyDn                                         CucsManagedObjectDn,
+    cucsExtmgmtIfMonPolicyRn                                         SnmpAdminString,
+    cucsExtmgmtIfMonPolicyAdminState                                 CucsExtmgmtIfMonPolicyAdminState,
+    cucsExtmgmtIfMonPolicyEnableHAFailover                           TruthValue,
+    cucsExtmgmtIfMonPolicyMaxFailReportCount                         Gauge32,
+    cucsExtmgmtIfMonPolicyMonitorMechanism                           CucsExtmgmtIfMonPolicyMonitorMechanism,
+    cucsExtmgmtIfMonPolicyPollInterval                               Gauge32,
+    cucsExtmgmtIfMonPolicyDescr                                      SnmpAdminString,
+    cucsExtmgmtIfMonPolicyIntId                                      SnmpAdminString,
+    cucsExtmgmtIfMonPolicyName                                       SnmpAdminString,
+    cucsExtmgmtIfMonPolicyPolicyLevel                                Gauge32,
+    cucsExtmgmtIfMonPolicyPolicyOwner                                CucsPolicyPolicyOwner
+}
+
+cucsExtmgmtIfMonPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsExtmgmtIfMonPolicyEntry 1 }
+
+cucsExtmgmtIfMonPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:dn managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 2 }
+
+cucsExtmgmtIfMonPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:rn managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 3 }
+
+cucsExtmgmtIfMonPolicyAdminState OBJECT-TYPE
+    SYNTAX       CucsExtmgmtIfMonPolicyAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:adminState managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 4 }
+
+cucsExtmgmtIfMonPolicyEnableHAFailover OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:enableHAFailover
+        managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 5 }
+
+cucsExtmgmtIfMonPolicyMaxFailReportCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:maxFailReportCount
+        managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 6 }
+
+cucsExtmgmtIfMonPolicyMonitorMechanism OBJECT-TYPE
+    SYNTAX       CucsExtmgmtIfMonPolicyMonitorMechanism
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:monitorMechanism
+        managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 7 }
+
+cucsExtmgmtIfMonPolicyPollInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:pollInterval managed
+        object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 8 }
+
+cucsExtmgmtIfMonPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:descr managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 9 }
+
+cucsExtmgmtIfMonPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:intId managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 10 }
+
+cucsExtmgmtIfMonPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:name managed object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 11 }
+
+cucsExtmgmtIfMonPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:policyLevel managed
+        object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 12 }
+
+cucsExtmgmtIfMonPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:IfMonPolicy:policyOwner managed
+        object property"
+    ::= { cucsExtmgmtIfMonPolicyEntry 13 }
+
+cucsExtmgmtMiiStatusTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsExtmgmtMiiStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS extmgmt:MiiStatus managed object table"
+    ::= { cucsExtmgmtObjects 5 }
+
+cucsExtmgmtMiiStatusEntry OBJECT-TYPE
+    SYNTAX           CucsExtmgmtMiiStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsExtmgmtMiiStatusTable table."
+    INDEX { cucsExtmgmtMiiStatusInstanceId }
+    ::= { cucsExtmgmtMiiStatusTable 1 }
+
+CucsExtmgmtMiiStatusEntry ::= SEQUENCE {
+    cucsExtmgmtMiiStatusInstanceId                                   CucsManagedObjectId,
+    cucsExtmgmtMiiStatusDn                                           CucsManagedObjectDn,
+    cucsExtmgmtMiiStatusRn                                           SnmpAdminString,
+    cucsExtmgmtMiiStatusMaxRetryCount                                CucsExtmgmtMiiStatusMaxRetryCount,
+    cucsExtmgmtMiiStatusRetryInterval                                CucsExtmgmtMiiStatusRetryInterval
+}
+
+cucsExtmgmtMiiStatusInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsExtmgmtMiiStatusEntry 1 }
+
+cucsExtmgmtMiiStatusDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:MiiStatus:dn managed object property"
+    ::= { cucsExtmgmtMiiStatusEntry 2 }
+
+cucsExtmgmtMiiStatusRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:MiiStatus:rn managed object property"
+    ::= { cucsExtmgmtMiiStatusEntry 3 }
+
+cucsExtmgmtMiiStatusMaxRetryCount OBJECT-TYPE
+    SYNTAX       CucsExtmgmtMiiStatusMaxRetryCount
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:MiiStatus:maxRetryCount managed
+        object property"
+    ::= { cucsExtmgmtMiiStatusEntry 4 }
+
+cucsExtmgmtMiiStatusRetryInterval OBJECT-TYPE
+    SYNTAX       CucsExtmgmtMiiStatusRetryInterval
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:MiiStatus:retryInterval managed
+        object property"
+    ::= { cucsExtmgmtMiiStatusEntry 5 }
+
+cucsExtmgmtNdiscTargetsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsExtmgmtNdiscTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets managed object table"
+    ::= { cucsExtmgmtObjects 6 }
+
+cucsExtmgmtNdiscTargetsEntry OBJECT-TYPE
+    SYNTAX           CucsExtmgmtNdiscTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsExtmgmtNdiscTargetsTable table."
+    INDEX { cucsExtmgmtNdiscTargetsInstanceId }
+    ::= { cucsExtmgmtNdiscTargetsTable 1 }
+
+CucsExtmgmtNdiscTargetsEntry ::= SEQUENCE {
+    cucsExtmgmtNdiscTargetsInstanceId                                CucsManagedObjectId,
+    cucsExtmgmtNdiscTargetsDn                                        CucsManagedObjectDn,
+    cucsExtmgmtNdiscTargetsRn                                        SnmpAdminString,
+    cucsExtmgmtNdiscTargetsConfigState                               CucsAaaConfigState,
+    cucsExtmgmtNdiscTargetsConfigStatusMessage                       SnmpAdminString,
+    cucsExtmgmtNdiscTargetsIpv6Target1                               InetAddressIPv6,
+    cucsExtmgmtNdiscTargetsIpv6Target2                               InetAddressIPv6,
+    cucsExtmgmtNdiscTargetsIpv6Target3                               InetAddressIPv6,
+    cucsExtmgmtNdiscTargetsMaxDeadlineTimeout                        CucsExtmgmtNdiscTargetsMaxDeadlineTimeout,
+    cucsExtmgmtNdiscTargetsNumberOfNdiscRequests                     CucsExtmgmtNdiscTargetsNumberOfNdiscRequests
+}
+
+cucsExtmgmtNdiscTargetsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsExtmgmtNdiscTargetsEntry 1 }
+
+cucsExtmgmtNdiscTargetsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:dn managed object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 2 }
+
+cucsExtmgmtNdiscTargetsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:rn managed object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 3 }
+
+cucsExtmgmtNdiscTargetsConfigState OBJECT-TYPE
+    SYNTAX       CucsAaaConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:configState managed
+        object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 4 }
+
+cucsExtmgmtNdiscTargetsConfigStatusMessage OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:configStatusMessage
+        managed object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 5 }
+
+cucsExtmgmtNdiscTargetsIpv6Target1 OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:ipv6Target1 managed
+        object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 6 }
+
+cucsExtmgmtNdiscTargetsIpv6Target2 OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:ipv6Target2 managed
+        object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 7 }
+
+cucsExtmgmtNdiscTargetsIpv6Target3 OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:ipv6Target3 managed
+        object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 8 }
+
+cucsExtmgmtNdiscTargetsMaxDeadlineTimeout OBJECT-TYPE
+    SYNTAX       CucsExtmgmtNdiscTargetsMaxDeadlineTimeout
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:maxDeadlineTimeout
+        managed object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 9 }
+
+cucsExtmgmtNdiscTargetsNumberOfNdiscRequests OBJECT-TYPE
+    SYNTAX       CucsExtmgmtNdiscTargetsNumberOfNdiscRequests
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS extmgmt:NdiscTargets:numberOfNdiscRequests
+        managed object property"
+    ::= { cucsExtmgmtNdiscTargetsEntry 10 }
+
+END

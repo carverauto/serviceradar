@@ -1,0 +1,531 @@
+-- *****************************************************************
+-- ERROR STATUS MIB
+--
+-- June, 2002
+--
+-- Copyright (c) 1996-2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+-- 
+-- LAST-UPDATED "200207170000Z"
+-- DESCRIPTION
+--     "The mib module for reporting additional Error Status
+--     for SNMP SET requests. Using this MIB, SNMP manager
+--     can determine whether the SET is failed due to
+--     resource issue, security issue or application error
+--     (unsupported values, inconsistencies between the objects etc)
+--     issue.
+--
+--     This MIB contains the objects which can be used
+--     for getting the detailed information about a SNMP
+--     SET failure. The Standard SNMP v1 prtocol supports
+--     only few error codes on a SET failure.
+-- 
+-- REVISION "200207170000Z"
+-- DESCRIPTION
+--     - Clarified some descriptions
+--
+-- REVISION "200204080000Z"
+-- DESCRIPTION
+--     - added enums for IMA features.
+--
+-- REVISION "200112280000Z"
+-- DESCRIPTION
+-- 	- Card redundancy should be deleted before the last bulk
+--	distribution link can be deleted. 
+--	delRedBeforeLastLinkDelete(88) is introduced to display 
+--	the proper error message.
+--
+-- REVISION "200110230000Z"
+-- DESCRIPTION
+--     - added enum rpmConfigCopyinProgress(762) for RPM-PR.
+--
+-- REVISION "200108230000Z"
+-- DESCRIPTION
+--     - Clarified descriptions of the objects."
+--
+
+
+ERR-STATUS-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        stratacom       FROM    CISCOWAN-SMI
+        OBJECT-TYPE     FROM    RFC-1212
+	DisplayString   FROM    RFC1213-MIB;
+
+
+-- ------------------------------------------------------------------------
+--
+-- errStatus group
+-- Error Status Table
+--
+-- ------------------------------------------------------------------------
+strmErrors      OBJECT IDENTIFIER ::= { stratacom 910 }
+-- This object contains the value of the request id for the newest
+-- entry in the error status table. Many management applications
+-- have no knowledge of the request ids used by the SNMP engine.
+-- These applications can get the value of this object and then
+-- use it to retrieve the error status for the last SET operation.
+
+errStatusLastIndex  OBJECT-TYPE
+    SYNTAX      INTEGER
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION "If at least one entry exists in the error status table
+                 for the given manager, the value of this object contains
+                 the index corresponding to the last entry. If no entry
+                 exists in the error status table for the given manager
+                 the value of this object is -1."
+        ::= { strmErrors 1  }
+
+--
+-- The following table is used to maintain status information about
+-- SNMP requests from a Manager.  When an SNMP request completes, an 
+-- entry is created.  In addition to successful status, the manager
+-- is provided information associated with any failed requests. This
+-- table is indexed by request ID.  The request Id is the SNMP PDU 
+-- identifier associated with the failed request.
+--
+-- Currently a limit of 100 entries are imposed on this table. Each
+-- manager is allowed to access it's own table.  Individual manager
+-- access is determined by IP address.
+--
+errStatusTable OBJECT-TYPE 
+    SYNTAX      SEQUENCE OF ErrStatusTableEntry
+    ACCESS      not-accessible
+    STATUS      mandatory
+    DESCRIPTION "A List of Error Statuses for a given SNMP Manager"
+        ::= { strmErrors 2  }
+
+errStatusTableEntry OBJECT-TYPE
+    SYNTAX      ErrStatusTableEntry
+    ACCESS      not-accessible
+    STATUS      mandatory
+    DESCRIPTION "A General Error Status Entry."
+    INDEX   { errReqId }
+        ::= { errStatusTable 1  }
+
+ErrStatusTableEntry ::=
+    SEQUENCE {
+        errReqId                INTEGER,    
+        errCode                 INTEGER,
+        errStatusDesc           DisplayString
+    }
+
+
+errReqId OBJECT-TYPE
+    SYNTAX      INTEGER 
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION "This object contains the PDU request ID associated with
+                 the error." 
+        ::= { errStatusTableEntry 1  }
+
+errCode OBJECT-TYPE
+    SYNTAX      INTEGER {
+                success(1),
+                existErr(2),
+                syntaxErr(3),
+                resourceErr(4),
+                databaseLocked(5),
+                otherErr(6),
+                wrongType(7),
+                wrongLength(8),
+                wrongEncoding(9),
+                wrongValue(10),
+                noCreation(11),
+                inconsistentValue(12),
+                resourceUnavailable(13),
+                commitFailed(14),
+                undoFailed(15),
+                authorizationError(16),
+                notWritable(17),
+                inconsistentName(18),
+                featureDisabled(19),
+                m32Problem(20),
+                sarProblem(21),
+                bnmProblem(22),
+                ascUpdFailed(23),
+                lineEnabled(24),
+                lineDisabled(25),
+                lmMismatch(26),
+                lineHasPorts(27),
+                portEnabled(28),
+                portDisable(29),
+                portHasChan(30),
+                chanEnabled(31),
+                chanDisabled(32),
+                dlciEnabled(33),
+                dlciDisabled(34),
+                ovrsubconnPass(35),
+                ovrsubConnFail(36),
+                portVpiVciInUse(37),
+                invalidPrimarySlot(38),
+                invalidSecondarySlot(39),
+                linkFull(40),
+                primaryDuplicate(41),
+                secondaryDuplicate(42),
+                primaryNotPresent(43),
+                secondaryNotPresent(44),
+                srmNotPresent(45),
+                invalidCommand(46),
+                invalidCardType(47),
+                featureMismatch(48),
+                lmiEnabled(49),  
+                dlciUsed(50),  
+                invalidRedType(51),
+                bertResourcesNotFree(52),
+                bertResourcesNotReady(53),
+                bertSlotEmpty(54),
+                bertUnsupportedCard(55),
+                bertNotOwner(56),
+                bertStartFailed(57),
+                bertModFailed(58),
+                bertDelFailed(59),
+                bertUnsupportedType(60),
+                bertWrongParams(61),
+                bertUnableToFree(62),
+                bertGeneralError(63),
+                portInLoopback(64),
+                invalidT3LineNum(65),
+                invalidT1LineNum(66),
+                invalidSlotNum(67),
+                invalidLineNum(68),
+                notEnoughLine(69),
+                lineInUse(70),
+                t3NotEnabled(71),
+                smNotPresent(72),
+                smNotPrimary(73),
+                srm3t3NotPresent(74),
+                lineInLoopback(75),
+                lineInconsistentLoopback(76),
+                lineLoopNotAllowed(77),
+                versionMismatch(78),
+                portOutOfService(79),
+                lineOutOfService(80),
+                bertNotConfigured(81),
+                bertConfigurationIncomplete(82),
+                testAlreadyOn(83),
+                testNotOn(84),
+                loopUpFailure(85),
+                loopDownFailure(86),
+                bertPatternSyncFailure(87),
+                delRedBeforeLastLinkDelete(88),
+                bertInvalidState(89),
+                bertEirOneInTenNotSupport(90),
+
+                -- error codes added for PAR 100 - 199
+                localIfNotOk(100),
+                remoteIfNotOk(101),
+                localChannelsNotEnough(102),
+                remoteChannelsNotEnough(103),
+                localAddrNotOk(104),
+                remoteAddrNotOk(105),
+                localAddrExist(106),
+                remoteAddrExist(107),
+                invalidConnAddr(108),
+                maxConnsExceeded(109),
+                lmiTrkNotAdded(110),
+                connNotExist(111),
+                vpiConflictForVcc(112),
+                vpiConflictForVpc(113),
+                vpiRangeErr(114),
+                vciRangeErr(115),
+                invalidConnType(116),
+                genConnErr(117),
+                masterConnAllocFailed(118),
+                slaveConnAllocFailed(119),
+                masterLogepAllocFailed(120),
+                slaveLogepAllocFailed(121),
+                masterCmtFailed(122),
+                slaveCmtFailed(123),
+                daxCmtFailed(124),
+                masterChgFailed(125),
+                slaveChgFailed(126),
+                daxChgFailed(127),
+                masterDelFailed(128),
+                slaveDelFailed(129),
+                daxDelFailed(130),
+                masterTimeout(131),
+                mxConAddSessionExceeded(132),
+                masterSessionUnavail(133),
+                slaveSessionUnavail(134),
+                unknownDest(135),
+                localAddrUnknown(136),
+                rmtAddrUnknown(137),
+                portHasResPart(138),
+                networkBusy(139),
+                slaveCnfconNotAllowed(140),
+
+                -- error codes added for SVC-pnni 200 - 249
+                pnniConfigurationFail(200),
+                pnniInvalidValue(201),
+                pnniTargtNodeNotExist(202),
+                pnniEntryExist(203),
+                pnniEntryNotExist(204),
+                pnniTargetNodeAdminUp(205),
+                pnniTargetInterfaceNotExist(206),
+                pnniInvalidAtmEndStationAddress(207),
+                pnniNotReadyForSet(208),
+ 
+                -- error codes aded for SVC-ccb 250 - 349
+                ccbNullMessageSent(250),
+                ccbOutOfMemory(251),
+                ccbSSIMessageAllocationFailed(252),
+                ccbSwitchResponseReturnedFailure(253),
+                ccbOperationNotPermittedOnControlPort(254),
+                ccbPortExists(255),
+                ccbPortNotExist(256),
+                ccbPortInUseBySwitch(257),
+                ccbPortNotOutOfService(258),
+                ccbPortUpAlready(259),
+                ccbPortDownAlready(260),
+                ccbPortTypeNotMatch(261),
+                ccbAtmAddrExceedMax(262),
+                ccbAtmAddrNotExist(263),
+                ccbAtmAddrExist(264),
+                ccbAtmAddrNotAllowed(265),
+                ccbAtmAddrSendPnniFailed(266),
+
+                -- error code added for SPVC 348 - 449
+                localIfInvalid(348),
+                remoteIfInvalid(349),
+                vpiVciNotAvail(350),
+                rmtAddrRequired(351),
+                endptAllocFailed(352),
+                legAllocFailed(353),
+                invalidTrafficParam(354),
+                daxNoSlave(355),
+                daxSlaveNotAvail(356),
+                endptNotExist(357),
+                endptNotPersistent(358),
+                delFailed(359),
+                modFailed(360),
+                upFailed(361),
+                downFailed(362),
+                rerouteFailed(363),
+                operNotAppl(364),
+                connAlreadyUp(365),
+                connAlreadyDown(366),
+                daxSlaveParamMismatch(367),
+                daxSlaveTrafficParamModNotAllowed(368),
+                daxRerouteNotAppl(369),
+                interfaceDown(370),
+                spvcNotAllowedOnPart(371),
+                spvcBlockEnabled(372),
+                spvcNotAllowedOnIntf(373),
+                spvcNotAllowedDelDaxSlaveEp(374),
+                noPepToDelete(375),
+                portDontSuppoSc(376),
+                lscrBiggerThanLpcr(377),
+                rscrBiggerThanRpcr(378),
+                cbrNeedsLpcr(379),
+                cbrNeedsRpcr(380),
+                vbrNeedsLpcr(381),
+                vbrNeedsRpcr(382),
+                abrNeedsLpcr(383),
+                abrNeedsRpcr(384),
+                badRcdv(385),
+                badRctd(386),
+                badRMaxClr(387),
+                lCrTooBig(388),
+                rCrTooBig(389),
+                ctdNotApplicableServiceType(390),
+                cdvNotApplicableServiceType(391),
+                vccExistsVpi(392),
+                epAlreadyExists(393),
+                ctdNotAllowedSlaveEp(394),
+                cdcNotAllowedSlaveEp(395),
+                mcNotAllowedSlaveEp(396),
+                cantsetOamseg(397),
+                networkBusyTryLater(398),
+                frameDiscardNotAllOnSlave(399), 
+                partiesOnConnection(400),
+                notAllowedOnP2MPConn(401),
+                maxP2MPConnsExceeded(402),
+ 
+                commandProcNotReady(601),
+                invalidIfIndex(602),
+                invalidShelfNum(603),
+                invalidBayNum(605),
+                invalidPortNum(606),
+                provDisBcMismatch(607) ,
+                configNotSupported(608),
+                frontcardMismatch(609),
+                portRateSumExceedLnRate(610),
+                axsmDiskErr(611),
+                portRateExceedLnRate(612),
+                cannotModSctID(613),
+                partNotExist(614), 
+                partExist(615),
+                badBayOrLine(616),
+                vsiSetErr(617),
+                vsisAddPart(618),
+                vsisCnfPart(619),
+                vsisDelPart(620),
+                partRateExceedsPortRate(621), 
+                lineResvForE3(622),
+                lineResvForT3(623),
+                minRateExceedMax(624),
+                vpiLoExceedHi(625),
+                vciLoExceedHi(626),
+                swErr(627),
+                actsctCntExceed(628),
+                sctFileMissing(629),
+                sctFileBad(630),
+                sctSgParmMismatch(631),
+                hardwareConfigErr(633),
+                vpiOverlap(634),
+                vciOverlap(635),
+                cannotAllocLcn(636),
+                cannotAllocBw(637),
+                partPortParmMismatch(638),
+                cannotReleaseLcn(639),
+                cannotReleaseBw(640),
+                cannotModLcnRange(641),
+                cannotModBwRange(642),
+                invalidPartNum(643),
+                invalidCtlrNum(644),
+                invalidSlave(645),
+                invalidConnref(646),
+                dupRequest(647),
+                pendingRequest(648),
+                outOfMemory(649),
+                resourceInUse(650),
+                dcMismatch(651),
+                dcMissing(652),
+                bcMismatch(653),
+                bcMissing(654),
+                invalidDiskRecord(655),
+                invalidCellMapping(656),
+                invalidLineTrace(657),
+                invalidTcaSeverity(658),
+                invalidAtmPhy(659),
+                conflictingPort(660),
+                minConnsExceedsMax(661),
+                partTblFull(662),
+                frozenStatsLvl(663),
+                invalidStatsLvl(664),
+                invalidImaGroup(665),
+                imaGroupEnable(666),
+                imaGroupDisable(667),
+                imaGroupHasPorts(668),
+                cannotCnfProtLine(669),
+                workingLineDown(670),
+                imaModuleNotReady(671),
+                imaInvalidParameters(672),
+                imaInvalidLineLength(673),
+                imaInvalidPattern(674),
+                imaInvalidErrInsertionRate(675),
+                imaProtocolError(676),
+                imaInsufficientAtmPhy(677),
+                imaInvalidClkSource(678),
+                imaInvalidLoopbackConf(679),
+                imaNullHdrNullPyldNotSupported(680),
+                imaVer2Txm128Only(681),
+                imaFeatureIsBlocked(682),
+                imaMinBandwidthViolation(683),
+                imaLinkDeletePending(684),
+                imaLinkExist(685),
+                imaLinkTestInvalidStatusValue(686),
+                imaGroupInvalidMaxDelay(687),
+                imaGroupInvalidVersion(688),
+                imaLinkNotInGroup(689),
+                imaTestLinkNotInGroup(690),
+                imaGroupDelayClrErr(691),
+                imaGroupItcClockNotSupport(692),
+                imaGroupFrameLengthErr(693),
+                imaGroupAtmPhyLimit(694),
+                imaAddportOnLinkError(695),
+                imaServiceModuleError(696),
+
+                -- error code added for RPM 701 - 800
+                invalidParam(701),
+                badIpcData(702),
+                rvtNotActive(703),
+                diskUpdFailed(704),
+                subIfDown(705),
+                vpiOutOfRange(706),
+                vciOutOfRange(707),
+                vcdOutOfRange(708),
+                inarpNotAllowed(709),
+                vcdInUse(710),
+                secondVccOnPTP(711),
+                unknownLANEType(712),
+                secondIlmiVc(713),
+                unknownEncapType(714),
+                pppErr(715),
+                invalidVpi(716),
+                invalidVci(717),
+                serviceTypeNotSupported(718),
+                cantChgVpcFlag(719),
+                cantChgRmtVpi(720),
+                cantChgRmtVci(721),
+                cantChgRmtAddr(722),
+                cantChgMastership(723),
+                cantChgSubIf(724),
+                cantChgServType(725),
+                cantCnfVc(726),
+                cantDelVc(727),
+                connNotFound(728),
+                subIfNotExist(729),
+                endptNotMaster(730),
+                ctlrIdRequired(731),
+                ingBwRangeRequired(732),
+                egrBwRangeRequired(733),
+                vpiRangeRequired(734),
+                vciRangeRequired(735),
+                invalidIngBwRange(736),
+                invalidEgrBwRange(737),
+                ingBwNotAvail(738),
+                egrBwNotAvail(739),
+                invalidVpiRange(740),
+                invalidVciRange(741),
+                vpiRangeInUse(742),
+                vciRangeInUse(743),
+                cantChgCtlrId(744),
+                cantChgPartType(745),
+                cantModPart(746),
+                cantDelPart(747),
+                subIfExist(748),
+                invalidIpAddr(749),
+                subIfTypeRequired(750),
+                cantChgSubIfType(751),
+                subIfNotFound(752),
+                cantShutMainIf(753),
+                cantDelMainIf(754),
+                rpmNotActive(755),
+                ipcErr(756),
+                rpmNoResponse(757),
+                invalidSrmeLineNum(758),
+                invalidVtNum(759),
+                invalidVtMapping(760),
+                invalidVtFrameType(761),
+                rpmConfigCopyinProgress(762)
+        }
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION "This object contains an error status code used by
+                 the manager to take automated corrective actions
+                 when previous SET requests encountered failures.
+                 If no error is encountered on prior SET requests,
+                 a successful(1) status might be provided at the 
+                 discretion of the agent."
+        ::= { errStatusTableEntry 2  }
+
+errStatusDesc OBJECT-TYPE
+    SYNTAX      DisplayString
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION "This object contains error status information for
+                 failed SETS to one or more objects. This object is
+                 updated only on failed SETS.
+                 Since the SNMP standard allows only limited number of
+                 error status returns, the managers can retrieve this
+                 variable to get additional information on a 
+                 failed SET. Typically this object will contain 
+                 information specifying date, MIB object Name,
+                 and additional error specific information."
+        ::= { errStatusTableEntry 3  }
+ 
+END

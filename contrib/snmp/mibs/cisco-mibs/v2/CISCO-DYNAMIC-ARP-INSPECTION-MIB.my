@@ -1,0 +1,1208 @@
+-- *****************************************************************
+-- CISCO-DYNAMIC-ARP-INSPECTION-MIB
+--
+-- October 2003, Edward Pham
+--
+-- Copyright (c) 2003, 2009, 2011 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-DYNAMIC-ARP-INSPECTION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, 
+    Gauge32,
+    Unsigned32,
+    Counter32,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+
+    TruthValue,
+    MacAddress,
+    DateAndTime,
+    StorageType,
+    RowStatus
+        FROM SNMPv2-TC
+
+    ifIndex,
+    InterfaceIndexOrZero
+        FROM IF-MIB
+
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+
+    VlanIndex
+        FROM Q-BRIDGE-MIB
+
+    VlanIndexOrZero
+        FROM CISCO-PRIVATE-VLAN-MIB
+
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoDynamicArpInspectionMIB MODULE-IDENTITY
+    LAST-UPDATED "201103210000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "        Cisco Systems
+                 Customer Service
+
+         Postal: 170 W Tasman Drive
+                 San Jose, CA 95134
+                 USA
+
+            Tel: +1 800 553-NETS
+
+         E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The MIB module is for configuration of Dynamic ARP Inspection 
+         feature. Dynamic ARP Inspection is a security mechanism which
+         validate ARP packets seen on access ports." 
+    REVISION    "201103210000Z"
+    DESCRIPTION
+         "Add the following groups:
+         - cdaiLoggingConfigGroup.
+         - cdaiLogBufferGroup.
+         - cdaiLogBufferActionGroup.
+         - cdaiAddressValidationGroup.
+         - cdaiVlanCfgGroup.
+         - cdaiVlanArpProbeGroup.
+         - cdaiVlanStatisticsGroup.
+         - cdaiVlanExtStatisticsGroup."
+    REVISION    "200310291500Z"
+    DESCRIPTION
+        "Initial revision of this MIB module."
+    ::= { ciscoMgmt 374 } 
+
+cdaiMIBNotifs
+    OBJECT IDENTIFIER ::= { ciscoDynamicArpInspectionMIB 0 }
+cdaiMIBObjects
+    OBJECT IDENTIFIER ::= { ciscoDynamicArpInspectionMIB 1 }
+cdaiMIBConformance
+    OBJECT IDENTIFIER ::= { ciscoDynamicArpInspectionMIB 2 }
+
+cdaiGlobal
+    OBJECT IDENTIFIER ::= { cdaiMIBObjects 1 }
+cdaiVlan
+    OBJECT IDENTIFIER ::= { cdaiMIBObjects 2 }
+cdaiInterface
+    OBJECT IDENTIFIER ::= { cdaiMIBObjects 3 }
+cdaiStatistics
+    OBJECT IDENTIFIER ::= { cdaiMIBObjects 4 }
+
+
+--
+-- The Global group  
+-- 
+
+cdaiLoggingEnable  OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object indicates whether the Dynamic ARP Inspection
+        logging is enabled on the device.
+
+        If this object is set to 'true', Dynamic ARP Inspection
+        logging is enabled.
+
+        If this object is set to 'false', Dynamic ARP Inspection
+        logging is disabled."
+    ::= { cdaiGlobal 1 }
+
+cdaiAddressValidate  OBJECT-TYPE
+    SYNTAX        BITS {
+                      srcMacAddress(0),
+                      dstMacAddress(1),
+                      ip(2),
+                      ipAllowZeros(3)
+                  }
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies address validation criteria 
+        used by Dynamic ARP Inspection feature. 
+
+        'srcMacAddress' indicates that source MAC address in
+        ethernet header is checked against the sender MAC address
+        in ARP packet. When this bit is on, packets with different
+        MAC addresses are classified as invalid packets and are
+        dropped. This checking is done for both ARP request and
+        ARP response packet.
+
+        'dstMacAddress' indicates that the destination MAC address
+        in ethernet header is checked against the target MAC address
+        in ARP packet. When this bit is on, packets with different
+        addresses are classified as invalid packets and are dropped.
+        This checking is done for ARP response packet only. 
+
+        'ip' indicates that the IP addresses in ARP packet are checked
+        for invalid or unexpected IP addresses. Addresses such as 
+        0.0.0.0, 255.255.255.255 and all IP multicast addresses are
+        considered invalid. When this bit is on, both the sender
+        and target IP addresses in the ARP packet are checked. This
+        checking is done for both ARP request and response packet.  
+  
+        'ipAllowZeros' works the same as 'ip' but address 0.0.0.0
+        is allowed. 
+
+        'ip' and 'ipAllowZeros' are mutually exclusive."
+    ::= { cdaiGlobal 2 }
+
+cdaiLogBufferSize  OBJECT-TYPE
+    SYNTAX        Unsigned32 
+    UNITS         "entries"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the size of the logging buffer."
+    ::= { cdaiGlobal 3 }
+
+cdaiLoggingRate  OBJECT-TYPE
+    SYNTAX        Unsigned32 
+    UNITS         "entries"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the maximum number of logging entries 
+        will be logged during the time period denoted by
+        cdaiLoggingInterval object for system message generation purpose.
+        Zero value indicates that entry is placed in the log buffer, 
+        but a system message is not generated."
+    ::= { cdaiGlobal 4 }
+
+cdaiLoggingInterval  OBJECT-TYPE
+    SYNTAX        Unsigned32 
+    UNITS         "seconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the logging interval for system
+         message generation purpose. Zero value indicates that 
+         system message is immediately generated (and the log 
+         buffer is always empty). Value of this object and value
+         of cdaiLoggingRate object cannot be zero at the same time." 
+    ::= { cdaiGlobal 5 }
+
+cdaiLogBufferAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        clear(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This objects specifies the action can be taken with
+        respect to logging buffer. 
+
+        'none' indicates that no operation is performed. This
+        object always return value 'none' when read.
+
+        'clear' indicates that all entries in cdaiLoggingBufferTable
+        will be cleared."
+    ::= { cdaiGlobal 6 }
+
+--
+--  The Dynamic ARP Inspection Logging Buffer Table
+--
+
+cdaiLogBufferTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CdaiLogBufferEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table provides the information of logged ARP flows 
+         for system message generation." 
+    ::= { cdaiGlobal 7 }
+ 
+cdaiLogBufferEntry OBJECT-TYPE
+    SYNTAX       CdaiLogBufferEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains logged ARP flow data for system
+         message generation. Entries in the log are cleared once
+         system messages are generated on their behalf. A special
+         entry will be populated for accounting drops of all flows
+         that result in exceeding the number of entries of the log
+         buffer. Special entry only contains packets counter and
+         timestamps information. The rest of its fields are 
+         irrelevant."
+    INDEX { cdaiLogBufferIndex }
+    ::= { cdaiLogBufferTable 1 }
+
+CdaiLogBufferEntry ::= SEQUENCE {
+    cdaiLogBufferIndex              Unsigned32,
+    cdaiLogBufferInterface          InterfaceIndexOrZero,
+    cdaiLogBufferVlan               VlanIndexOrZero,
+    cdaiLogBufferSenderMacAddress   MacAddress,
+    cdaiLogBufferSenderAddressType  InetAddressType,
+    cdaiLogBufferSenderIpAddress    InetAddress,
+    cdaiLogBufferReason             INTEGER,
+    cdaiLogBufferLastUpdate         DateAndTime,
+    cdaiLogBufferPacketsCount       Gauge32 
+}
+ 
+cdaiLogBufferIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..65535) 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "This object uniquely identifies a logged ARP flow in the buffer."
+    ::= { cdaiLogBufferEntry 1 }
+
+cdaiLogBufferInterface OBJECT-TYPE
+    SYNTAX      InterfaceIndexOrZero 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the interface which sent the logged
+         ARP flow. Zero value indicates the special entry." 
+    ::= { cdaiLogBufferEntry 2 }
+
+cdaiLogBufferVlan OBJECT-TYPE
+    SYNTAX      VlanIndexOrZero 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the VLAN number which the logged
+         ARP flow belongs to. Zero value indicates the special entry." 
+    ::= { cdaiLogBufferEntry 3 }
+
+cdaiLogBufferSenderMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the sender MAC address of the logged
+         ARP flow. All zeros MAC address value indicates the
+         special entry." 
+    ::= { cdaiLogBufferEntry 4 }
+
+cdaiLogBufferSenderAddressType OBJECT-TYPE
+    SYNTAX      InetAddressType 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the sender Internet address type 
+         of the logged ARP flow." 
+    ::= { cdaiLogBufferEntry 5 }
+
+cdaiLogBufferSenderIpAddress OBJECT-TYPE
+    SYNTAX      InetAddress 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the sender Internet address 
+         of the logged ARP flow. The type of this address is 
+         determined by the value of cdaiLogBufferSenderAddressType
+         object. All zeros IP address value indicates the
+         special entry." 
+    ::= { cdaiLogBufferEntry 6 }
+
+cdaiLogBufferReason OBJECT-TYPE
+    SYNTAX      INTEGER  {
+                    unknown(1),
+                    deny(2),
+                    aclDeny(3),
+                    aclPermit(4),
+                    dhcpDeny(5),
+                    dhcpPermit(6),
+                    probePermit(7)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the reason for logging this ARP flow.
+
+         'unknown' indicates unknown reason.
+
+         'deny' indicates that this ARP flow is logged because it is 
+         denied by Dynamic ARP Inspection feature.
+
+         'aclDeny' indicates that this ARP flow is logged because it is
+         denied by a configured ARP ACL.
+
+         'aclPermit' indicates that this ARP flow is logged because it
+         is permitted by a configured ARP ACL.
+
+         'dhcpDeny' indicates that this ARP flow is logged because it
+         is denied when comparing with DHCP bindings information. 
+    
+         'dhcpPermit' indicates that this ARP flow is logged because
+         it is permitted when comparing with DHCP binding information.
+     
+         'probePermit' indicates that this ARP flow is logged because
+         it is a permitted ARP-Probe flow." 
+    ::= { cdaiLogBufferEntry 7 }
+
+cdaiLogBufferLastUpdate OBJECT-TYPE
+    SYNTAX      DateAndTime 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the timestamp when the last packet
+         of this flow was accounted by the system." 
+    ::= { cdaiLogBufferEntry 8 }
+
+cdaiLogBufferPacketsCount OBJECT-TYPE
+    SYNTAX      Gauge32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of packets of this ARP flow 
+        was accounted by the system." 
+    ::= { cdaiLogBufferEntry 9 }
+
+--
+--  The Dynamic ARP Inspection VLAN Config Table
+--
+
+cdaiVlanConfigTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CdaiVlanConfigEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table provides the mechanism to control Dynamic ARP
+        Inspection per VLAN. When a VLAN is created in a device
+        supporting this table, a corresponding entry of this table
+        will be added." 
+    ::= { cdaiVlan 1 }
+ 
+cdaiVlanConfigEntry OBJECT-TYPE
+    SYNTAX       CdaiVlanConfigEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the configuration to enable
+         or disable Dynamic ARP Inspection at each existing VLAN." 
+    INDEX { cdaiVlanIndex }
+    ::= { cdaiVlanConfigTable 1 }
+
+CdaiVlanConfigEntry ::= SEQUENCE {
+    cdaiVlanIndex                  VlanIndex,
+    cdaiVlanDynArpInspEnable       TruthValue
+}
+ 
+cdaiVlanIndex OBJECT-TYPE
+    SYNTAX      VlanIndex 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the VLAN number on which Dynamic ARP
+        Inspection feature is configured." 
+    ::= { cdaiVlanConfigEntry 1 }
+
+cdaiVlanDynArpInspEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object indicates whether Dynamic ARP Inspection is
+         enabled in this VLAN.
+
+         If this object is set to 'true', Dynamic ARP Inspection
+         is enabled. 
+
+         If this object is set to 'false', Dynamic ARP Inspection
+         is disabled."
+    ::= { cdaiVlanConfigEntry 2 }
+
+--
+--  cdaiVlanCfgTable
+--
+
+cdaiVlanCfgTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CdaiVlanCfgEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table provides the mechanism to control Dynamic ARP
+        Inspection per VLAN. This table is populated for each
+        existing VLAN in the device as well as non-existing VLANs
+        which contains the Dynamic ARP Inspection configuration." 
+    ::= { cdaiVlan 2 }
+ 
+cdaiVlanCfgEntry OBJECT-TYPE
+    SYNTAX       CdaiVlanCfgEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the Dynamic ARP inspection
+         configuration for a specific VLAN in the device." 
+    INDEX { cdaiVlanId }
+    ::= { cdaiVlanCfgTable 1 }
+
+CdaiVlanCfgEntry ::= SEQUENCE {
+    cdaiVlanId                   VlanIndex,
+    cdaiVlanDynArpInspAdmin      INTEGER,
+    cdaiVlanDynArpInspOper       INTEGER, 
+    cdaiVlanFilterArpAclName     SnmpAdminString,
+    cdaiVlanFilterArpAclStatic   TruthValue,
+    cdaiVlanAclLogging           INTEGER,
+    cdaiVlanDhcpBindingLogging   INTEGER,
+    cdaiVlanArpProbeLogging      TruthValue,
+    cdaiVlanCfgStorageType       StorageType,
+    cdaiVlanCfgRowStatus         RowStatus
+}
+ 
+cdaiVlanId OBJECT-TYPE
+    SYNTAX      VlanIndex 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the VLAN number."
+    ::= { cdaiVlanCfgEntry 1 }
+
+cdaiVlanDynArpInspAdmin OBJECT-TYPE
+    SYNTAX      INTEGER { enable(1), disable(2) } 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the administrative status of Dynamic 
+         ARP Inspection feature in this VLAN.
+
+         If this object value is 'enable', Dynamic ARP Inspection
+         is enabled. 
+
+         If this object value is 'disable', Dynamic ARP Inspection
+         is disabled."
+    DEFVAL { enable }
+    ::= { cdaiVlanCfgEntry 2 }
+
+cdaiVlanDynArpInspOper OBJECT-TYPE
+    SYNTAX      INTEGER { active(1), inactive(2) } 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the operational status of Dynamic ARP 
+         Inspection feature in this VLAN.
+
+         If this object is 'active', Dynamic ARP Inspection
+         is operationally active. 
+
+         If this object is 'inactive', Dynamic ARP Inspection
+         is operationally inactive."
+    ::= { cdaiVlanCfgEntry 3 }
+
+cdaiVlanFilterArpAclName OBJECT-TYPE
+    SYNTAX      SnmpAdminString 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies an ARP ACL name that Dynamic ARP 
+         Inspection feature uses to check the validity of the bindings
+         information in ARP body.
+
+         An emptry string indicates that no such ARP ACL is
+         configured for this purpose." 
+    DEFVAL { "" }
+    ::= { cdaiVlanCfgEntry 4 }
+
+cdaiVlanFilterArpAclStatic OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the ARP ACL denoted by
+         cdaiVlanFilterArpAclName is statically applied by
+         Dynamic ARP Inspection feature. This object does not
+         take effect if value of cdaiVlanFilterArpAclName on
+         the row is an empty string. 
+
+         'true' indicates that ARP ACL is applied statically. 
+         The action (denied or permitted) results from applying 
+         the ARP ACL is final and ARP packet is not compared against 
+         DHCP bindings information. 
+
+         'false' indicates ARP ACL is not applied statically. If
+         ARP packet is not explicitly classified by ARP ACL, it 
+         will be compared against DHCP bindings information."
+    DEFVAL { false }
+    ::= { cdaiVlanCfgEntry 5 }
+
+cdaiVlanAclLogging OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    none(1),
+                    aclMatch(2),
+                    deny(3)
+               } 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the logging configuration that 
+         Dynamic ARP Inspection feature applies to ARP packets
+         when they are classified by the configured ACL.
+        
+         'none' indicates that no logging is performed when
+         packets are classified by the configured ACL.
+
+         'aclMatch' indicates that logging is performed when
+         packets are classified by the configured ACL and the
+         matched ACE specified a logging action. 
+
+         'deny' indicates that logging is performed when packets
+         is denied by the configured ACL."
+    DEFVAL { deny }
+    ::= { cdaiVlanCfgEntry 6 }
+
+cdaiVlanDhcpBindingLogging OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    none(1),
+                    permit(2),
+                    deny(3),
+                    all(4)
+               } 
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies packet logging configuration 
+         performed by Dynamic ARP Inspection feature when
+         ARP packets is compared against DHCP bindings information.
+        
+         'none' indicates that no packet logging is performed.
+
+         'permit' indicates that packet logging is performed only
+         for packets that are permitted as a result of comparing 
+         with DHCP bindings information. 
+
+         'deny' indicates that packet logging is performed only
+         for packets that are denied as a result of comparing with 
+         DHCP bindings information. 
+
+         'all' indicates that packet logging is performed for all
+         packets that are permitted or denied as a result of comparing
+         with DHCP bindings information." 
+    DEFVAL { deny }
+    ::= { cdaiVlanCfgEntry 7 }
+
+cdaiVlanArpProbeLogging OBJECT-TYPE
+    SYNTAX          TruthValue 
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The objects specifies if ARP-Probe packets will be
+         logged by Dynamic ARP Inspection feature.
+
+         'true' indicates ARP-Probe packets will be logged.
+
+         'false' indicates ARP-Probe packets will not be logged."
+    DEFVAL { false }
+    ::= { cdaiVlanCfgEntry 8 }
+
+cdaiVlanCfgStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The objects specifies the storage type for this conceptual
+        row."
+    DEFVAL { volatile }
+    ::= { cdaiVlanCfgEntry 9 }
+
+cdaiVlanCfgRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus 
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row entry. This object
+        is used to manage creation and deletion of rows in this
+        table.
+
+        Deletion of an entry in this table is only allowed
+        if the VLAN indicated by its row index object does not
+        exist in the device. Writable objects can be modified at 
+        any time even while the row is active." 
+    ::= { cdaiVlanCfgEntry 10 }
+
+--
+-- The Dynamic ARP Inspection Interface Config Table
+--
+
+cdaiIfConfigTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CdaiIfConfigEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table provides the mechanism to configure the trust
+        state for Dynamic ARP Inspection purpose at each physical
+        interface capable of this feature. Some of the interfaces
+        (but not limited to) for which this feature might be
+        applicable are: ifType = ethernetCsmacd(6)." 
+    ::= { cdaiInterface 1 }
+ 
+cdaiIfConfigEntry OBJECT-TYPE
+    SYNTAX       CdaiIfConfigEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the configuration to enable or
+        disable trust state for Dynamic ARP Inspection at each
+        physical interface capable of this feature." 
+    INDEX { ifIndex }
+    ::= { cdaiIfConfigTable 1 }
+
+CdaiIfConfigEntry ::= SEQUENCE {
+    cdaiIfTrustEnable       TruthValue 
+}
+ 
+cdaiIfTrustEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object indicates whether the interface is trusted for
+        Dynamic ARP Inspection purpose. 
+
+        If this object is set to 'true', the interface is trusted.
+        ARP packets coming to this interface will be forwarded
+        without checking.
+
+        If this object is set to 'false', the interface is not
+        trusted. ARP packets coming to this interface will be
+        subjected to ARP inspection." 
+    ::= { cdaiIfConfigEntry 1 }
+
+--
+-- The Dynamic ARP Inspection Rate Limit Interface Config Table
+--
+
+cdaiIfRateLimitTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CdaiIfRateLimitEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table provides the mechanism to configure the rate limit
+        for Dynamic ARP Inspection purpose at each physical interface
+        capable of this feature." 
+    ::= { cdaiInterface 2 }
+ 
+cdaiIfRateLimitEntry OBJECT-TYPE
+    SYNTAX       CdaiIfRateLimitEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains the configuration of rate limit 
+        Dynamic ARP Inspection at each physical interface capable
+        of this feature." 
+    INDEX { ifIndex }
+    ::= { cdaiIfRateLimitTable 1 }
+
+CdaiIfRateLimitEntry ::= SEQUENCE {
+    cdaiIfRateLimit     Unsigned32 
+}
+ 
+cdaiIfRateLimit OBJECT-TYPE
+    SYNTAX      Unsigned32 
+    UNITS       "packet per second"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object indicates rate limit value for Dynamic ARP
+         Inspection purpose. If the incoming rate of ARP packets 
+         exceeds the value of this object, ARP packets will be
+         dropped. " 
+    ::= { cdaiIfRateLimitEntry 1 }
+
+--
+--  cdaiVlanStatsTable
+--
+
+cdaiVlanStatsTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CdaiVlanStatsEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A table lists the Dynamic Arp Inspection statistics per VLAN."
+    ::= { cdaiStatistics 1 }
+ 
+cdaiVlanStatsEntry OBJECT-TYPE
+    SYNTAX       CdaiVlanStatsEntry 
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A row instance contains Dynamic ARP Inspection statistics 
+        information for each VLAN."
+    INDEX { cdaiVlanStatsIndex }
+    ::= { cdaiVlanStatsTable 1 }
+
+CdaiVlanStatsEntry ::= SEQUENCE {
+    cdaiVlanStatsIndex                VlanIndex,
+    cdaiVlanForwarded                 Counter32, 
+    cdaiVlanDropped                   Counter32, 
+    cdaiVlanAclPermitted              Counter32, 
+    cdaiVlanDhcpBindingsPermitted     Counter32, 
+    cdaiVlanAclDenied                 Counter32, 
+    cdaiVlanDhcpBindingDenied         Counter32, 
+    cdaiVlanSrcMacValidationFailures  Counter32, 
+    cdaiVlanDestMacValidationFailures Counter32, 
+    cdaiVlanIpValidationFailures      Counter32,
+    cdaiVlanArpProbePermitted         Counter32,
+    cdaiVlanInvalidProtocolData       Counter32
+}
+ 
+cdaiVlanStatsIndex OBJECT-TYPE
+    SYNTAX      VlanIndex 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the VLAN number."
+    ::= { cdaiVlanStatsEntry 1 }
+
+cdaiVlanForwarded OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets forwarded by
+         Dynamic Arp Inspection feature." 
+    ::= { cdaiVlanStatsEntry 2 }
+
+cdaiVlanDropped OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets dropped by
+         Dynamic ARP Inspection feature." 
+    ::= { cdaiVlanStatsEntry 3 }
+
+cdaiVlanAclPermitted OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets permitted by
+         the configured ACL." 
+    ::= { cdaiVlanStatsEntry 4 }
+
+cdaiVlanDhcpBindingsPermitted OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of DHCP-binding permitted
+         ARP packets." 
+    ::= { cdaiVlanStatsEntry 5 }
+
+cdaiVlanAclDenied OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets denied by the
+         configured ACL." 
+    ::= { cdaiVlanStatsEntry 6 }
+
+cdaiVlanDhcpBindingDenied OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of DHCP-binding denied 
+         ARP packets." 
+    ::= { cdaiVlanStatsEntry 7 }
+
+cdaiVlanSrcMacValidationFailures OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets that fail 
+         source MAC address validation."
+    ::= { cdaiVlanStatsEntry 8 }
+
+cdaiVlanDestMacValidationFailures OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets that fail 
+         destination MAC address validation." 
+    ::= { cdaiVlanStatsEntry 9 }
+
+cdaiVlanIpValidationFailures OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets that fail 
+         IP validation." 
+    ::= { cdaiVlanStatsEntry 10 }
+
+cdaiVlanArpProbePermitted OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP Probe packets that 
+         are permitted." 
+    ::= { cdaiVlanStatsEntry 11 }
+
+cdaiVlanInvalidProtocolData OBJECT-TYPE
+    SYNTAX      Counter32 
+    UNITS       "packets"
+    MAX-ACCESS  read-only 
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the number of ARP packets that contain 
+         invalid protocol data." 
+    ::= { cdaiVlanStatsEntry 12 }
+
+-- Conformance
+
+cdaiMIBCompliances
+    OBJECT IDENTIFIER ::= { cdaiMIBConformance 1 }
+
+cdaiMIBGroups
+    OBJECT IDENTIFIER ::= { cdaiMIBConformance 2 }
+
+cdaiMIBCompliance MODULE-COMPLIANCE
+    STATUS  deprecated 
+    DESCRIPTION
+        "The compliance statement for CISCO-DYNAMIC-ARP-INSPECTION-MIB.
+         This compliance is superceded by cdaiMIBCompliance1."
+    MODULE
+    MANDATORY-GROUPS { 
+            cdaiVlanConfigGroup,
+            cdaiIfConfigGroup
+    }
+   
+    GROUP cdaiGlobalLoggingGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         enabling Dynamic ARP Inspection logging at the device level."
+
+    GROUP cdaiIfRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         Dynamic ARP Inspection rate limit per interface."
+
+    ::= { cdaiMIBCompliances 1 }
+
+cdaiMIBCompliance1 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for CISCO-DYNAMIC-ARP-INSPECTION-MIB"
+    MODULE
+    MANDATORY-GROUPS { 
+            cdaiVlanCfgGroup,
+            cdaiIfConfigGroup
+    }
+   
+    GROUP cdaiVlanConfigGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+        enabling Dynamic ARP Inspection per VLAN."
+
+    GROUP cdaiGlobalLoggingGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         enabling Dynamic ARP Inspection logging at the device level."
+
+    GROUP cdaiIfRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         Dynamic ARP Inspection rate limit per interface."
+
+    GROUP cdaiLoggingConfigGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         Dynamic ARP Inspection logging configuration."
+
+    GROUP cdaiAddressValidationGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         address validation configuration." 
+
+    GROUP cdaiLogBufferGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         log buffer information for Dynamic ARP Inspection feature." 
+
+    GROUP cdaiVlanStatisticsGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         Dynamic ARP Inspection statistics per VLAN."
+
+    GROUP cdaiVlanExtStatisticsGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         additional Dynamic ARP Inspection statistics per VLAN."
+
+    GROUP cdaiVlanArpProbeGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         VLAN configuration for ARP Probe packets."
+
+    GROUP cdaiLogBufferActionGroup
+    DESCRIPTION
+        "This group is mandatory only for the platform which supports
+         log buffer action."
+
+    OBJECT cdaiVlanDynArpInspEnable
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiVlanDynArpInspAdmin
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiVlanFilterArpAclName
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiVlanFilterArpAclStatic
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiVlanAclLogging
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiVlanDhcpBindingLogging
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+           
+    OBJECT cdaiVlanCfgStorageType
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."    
+        
+    OBJECT cdaiVlanCfgRowStatus
+    SYNTAX       INTEGER {
+                     active(1)
+                 }
+    WRITE-SYNTAX INTEGER {
+                     createAndGo(4),
+                     destroy(6)
+                 }
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Read-create access is not required."
+        
+    OBJECT cdaiIfTrustEnable
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiLoggingEnable
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+    
+    OBJECT cdaiIfRateLimit
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+     
+    OBJECT cdaiLogBufferSize
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiLoggingRate
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiLoggingInterval
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+           
+    OBJECT cdaiAddressValidate
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT cdaiVlanArpProbeLogging
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+     
+    OBJECT cdaiLogBufferAction
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { cdaiMIBCompliances 2 }
+
+-- Units of Conformance
+
+-- cdaiGlobalGroup
+
+cdaiGlobalLoggingGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiLoggingEnable
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which is used to configure Dynamic
+        ARP Inspection logging."
+    ::= { cdaiMIBGroups 1 }
+
+cdaiVlanConfigGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiVlanDynArpInspEnable
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which are used to configure as
+         well as show information regarding the Dynamic ARP
+         Inspection feature per VLAN."
+    ::= { cdaiMIBGroups 2 }
+
+cdaiIfConfigGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiIfTrustEnable        
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which are used to configure as
+         well as show information regarding the interface trust
+         state for Dynamic ARP Inspection purpose."
+    ::= { cdaiMIBGroups 3 }
+
+cdaiIfRateLimitGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiIfRateLimit        
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which are used to configure as
+         well as show information regarding the rate limit per 
+         interface for Dynamic ARP Inspection purpose."
+    ::= { cdaiMIBGroups 4 }
+
+cdaiLoggingConfigGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiLogBufferSize,
+        cdaiLoggingRate,
+        cdaiLoggingInterval
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides logging configuration 
+         for Dynamic ARP Inspection feature."
+    ::= { cdaiMIBGroups 5 }
+
+cdaiAddressValidationGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiAddressValidate 
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides address validation
+         configuration for Dynamic ARP Inspection feature."
+    ::= { cdaiMIBGroups 6 }
+
+cdaiVlanCfgGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiVlanDynArpInspAdmin,
+        cdaiVlanDynArpInspOper,
+        cdaiVlanFilterArpAclName,
+        cdaiVlanFilterArpAclStatic,
+        cdaiVlanAclLogging,
+        cdaiVlanDhcpBindingLogging,
+        cdaiVlanCfgStorageType,
+        cdaiVlanCfgRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides additional VLAN 
+         configuration for Dynamic ARP Inspection feature."
+    ::= { cdaiMIBGroups 7 }
+
+cdaiVlanStatisticsGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiVlanForwarded,
+        cdaiVlanDropped,
+        cdaiVlanAclPermitted,
+        cdaiVlanDhcpBindingsPermitted,
+        cdaiVlanAclDenied,
+        cdaiVlanDhcpBindingDenied,
+        cdaiVlanSrcMacValidationFailures,
+        cdaiVlanDestMacValidationFailures,
+        cdaiVlanIpValidationFailures        
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides Dynamic ARP Inspection 
+         statistics per VLAN."
+    ::= { cdaiMIBGroups 8 }
+
+cdaiLogBufferGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiLogBufferInterface,
+        cdaiLogBufferVlan,
+        cdaiLogBufferSenderMacAddress,
+        cdaiLogBufferSenderAddressType,
+        cdaiLogBufferSenderIpAddress,
+        cdaiLogBufferReason,
+        cdaiLogBufferLastUpdate,
+        cdaiLogBufferPacketsCount
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides logging information
+         for Dynamic ARP Inspection feature."
+    ::= { cdaiMIBGroups 9 }
+
+cdaiVlanExtStatisticsGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiVlanArpProbePermitted,
+        cdaiVlanInvalidProtocolData
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides additional Dynamic 
+         ARP Inspection statistics per VLAN."
+    ::= { cdaiMIBGroups 10 }
+
+cdaiVlanArpProbeGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiVlanArpProbeLogging
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides additional VLAN 
+         configuration for ARP Probe packets."
+    ::= { cdaiMIBGroups 11 }
+
+cdaiLogBufferActionGroup OBJECT-GROUP
+    OBJECTS {
+        cdaiLogBufferAction
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of object which provides log buffer action." 
+    ::= { cdaiMIBGroups 12 }
+
+END
+
+

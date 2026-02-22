@@ -1,0 +1,115 @@
+-- *****************************************************************
+-- UPNP-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-UPNP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200UpnpMib MODULE-IDENTITY
+    LAST-UPDATED "201404140000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of UPnP"
+    REVISION    "201404140000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 52 }
+
+
+me1200UpnpMibObjects OBJECT IDENTIFIER
+    ::= { me1200UpnpMib 1 }
+
+me1200UpnpConfig OBJECT IDENTIFIER
+    ::= { me1200UpnpMibObjects 2 }
+
+me1200UpnpConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200UpnpConfig 1 }
+
+me1200UpnpConfigGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global mode of UPnP. true(1) is to enable the functions of HTTPS and
+         false(2) is to disable it."
+    ::= { me1200UpnpConfigGlobals 1 }
+
+me1200UpnpConfigGlobalsTtl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (1..255)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The TTL value is used by UPnP to send SSDP advertisement messages.Valid
+         values are in the range 1 to 255. "
+    ::= { me1200UpnpConfigGlobals 2 }
+
+me1200UpnpConfigGlobalsAdvertisingDuration OBJECT-TYPE
+    SYNTAX      Integer32 (100..86400)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The duration, carried in SSDP packets, is used to inform a control
+         point or control points how often it or they should receive an SSDP
+         advertisement message from this switch. If a control point does not
+         receive any message within the duration, it will think that the switch
+         no longer exists. Due to the unreliable nature of UDP, in the standard
+         it is recommended that such refreshing of advertisements to be done at
+         less than one-half of the advertising duration. In the implementation,
+         the switch sends SSDP messages periodically at the interval one-half of
+         the advertising duration minus 30 seconds. Valid values are in the
+         range 100 to 86400. "
+    ::= { me1200UpnpConfigGlobals 3 }
+
+me1200UpnpMibConformance OBJECT IDENTIFIER
+    ::= { me1200UpnpMib 2 }
+
+me1200UpnpMibCompliances OBJECT IDENTIFIER
+    ::= { me1200UpnpMibConformance 1 }
+
+me1200UpnpMibGroups OBJECT IDENTIFIER
+    ::= { me1200UpnpMibConformance 2 }
+
+me1200UpnpConfigGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200UpnpConfigGlobalsMode, me1200UpnpConfigGlobalsTtl, 
+                  me1200UpnpConfigGlobalsAdvertisingDuration }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200UpnpMibGroups 1 }
+
+me1200UpnpMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200UpnpConfigGlobalsInfoGroup }
+
+    ::= { me1200UpnpMibCompliances 1 }
+
+END

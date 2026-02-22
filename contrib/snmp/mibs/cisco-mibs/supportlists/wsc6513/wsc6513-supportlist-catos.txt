@@ -1,0 +1,1894 @@
+The lists below indicate which MIBs and SNMP traps are supported by the
+Catalyst 6000 series of switches (WS-C6006, WS-C6009, WSC-6503, WS-C6503-E,
+WS-C6504-E, WS-C6506, WS-C6506-E, WS-C6509, WS-C6509-E, WS-C6509-NEB,
+WS-C6509-NEB-A, WS-C6513, OSR-7609, CISCO7603, CISCO7606, CISCO7609)
+running Catalyst OS software.
+Depending on the Catalyst OS Software version of the supervisor 
+module software, different MIBs and traps are supported.
+----------------------------------------------------------------------------
+
+MIBs supported since supervisor module software version 8.7(2):
+
+        BRIDGE-MIB              (RFC 4188)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CABLE-DIAG-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-CONFIG-COPY-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-DHCP-SNOOPING-MIB
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+        CISCO-ENHANCED-MEMPOOL-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-DIAG-MIB
+        CISCO-ENTITY-DISPLAY-MIB
+        CISCO-ENTITY-EXT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-FLEX-LINKS-MIB
+        CISCO-IEEE8021-CFM-EXT-MIB
+        CISCO-IF-EXTENSIONS-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-CONTROL-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-LINK-ERROR-MONITOR-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MAU-EXT-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        CISCO-NAC-NAD-MIB
+        CISCO-NDE-MIB
+        CISCO-NETFLOW-MIB
+        CISCO-OPTICAL-MONITOR-MIB
+        CISCO-PACKET-CAPTURE-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PING-MIB
+        CISCO-POLICY-GROUP-MIB
+        CISCO-PORT-SECURITY-MIB
+        CISCO-POWER-ETHERNET-EXT-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RADIUS-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-SECURE-SHELL-MIB
+        CISCO-SNMP-USM-OIDS-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SVI-AUTOSTATE-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VLAN-TRANSLATION-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        ENTITY-SENSOR-MIB       (RFC 3433)
+        EtherLike-MIB           (RFC 2665)
+        HC-ALARM-MIB            (RFC 3434)
+        HC-RMON                 (RFC 3273)
+        IEEE8021-CFM-MIB
+        IEEE8021-CFM-V2-MIB
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        MAU-MIB                 (RFC 3636)
+        P-BRIDGE-MIB            (RFC 2674)
+        POWER-ETHERNET-MIB      (RFC 3621)
+        Q-BRIDGE-MIB            (RFC 2674)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 2819)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (RFC 2613)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-AES-MIB        (RFC 3826)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+        SNMPv2-MIB              (RFC 3418)
+
+MIBs supported since supervisor module software version 8.7(1):
+
+        BRIDGE-MIB              (RFC 4188)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CABLE-DIAG-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-CONFIG-COPY-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-DHCP-SNOOPING-MIB
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+        CISCO-ENHANCED-MEMPOOL-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-DIAG-MIB
+        CISCO-ENTITY-DISPLAY-MIB
+        CISCO-ENTITY-EXT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-FLEX-LINKS-MIB
+        CISCO-IF-EXTENSIONS-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-CONTROL-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-LINK-ERROR-MONITOR-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MAU-EXT-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        CISCO-NAC-NAD-MIB
+        CISCO-NDE-MIB
+        CISCO-NETFLOW-MIB
+        CISCO-OPTICAL-MONITOR-MIB
+        CISCO-PACKET-CAPTURE-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PING-MIB
+        CISCO-POLICY-GROUP-MIB
+        CISCO-PORT-SECURITY-MIB
+        CISCO-POWER-ETHERNET-EXT-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RADIUS-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-SECURE-SHELL-MIB
+        CISCO-SNMP-USM-OIDS-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SVI-AUTOSTATE-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VLAN-TRANSLATION-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        ENTITY-SENSOR-MIB       (RFC 3433)
+        EtherLike-MIB           (RFC 2665)
+        HC-ALARM-MIB            (RFC 3434)
+        HC-RMON                 (RFC 3273)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        MAU-MIB                 (RFC 3636)
+        P-BRIDGE-MIB            (RFC 2674)
+        POWER-ETHERNET-MIB      (RFC 3621)
+        Q-BRIDGE-MIB            (RFC 2674)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 2819)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (RFC 2613)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-AES-MIB        (RFC 3826)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+        SNMPv2-MIB              (RFC 3418)
+
+MIBs supported since supervisor module software version 8.6:
+
+        BRIDGE-MIB              (RFC 4188)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CABLE-DIAG-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-CONFIG-COPY-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-DHCP-SNOOPING-MIB
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+        CISCO-ENHANCED-MEMPOOL-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-DIAG-MIB
+        CISCO-ENTITY-DISPLAY-MIB
+        CISCO-ENTITY-EXT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-FLEX-LINKS-MIB
+        CISCO-IF-EXTENSIONS-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-CONTROL-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-LINK-ERROR-MONITOR-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MAU-EXT-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        CISCO-NAC-NAD-MIB
+        CISCO-NDE-MIB
+        CISCO-NETFLOW-MIB
+        CISCO-OPTICAL-MONITOR-MIB
+        CISCO-PACKET-CAPTURE-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PING-MIB
+        CISCO-POLICY-GROUP-MIB
+        CISCO-PORT-SECURITY-MIB
+        CISCO-POWER-ETHERNET-EXT-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RADIUS-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-SECURE-SHELL-MIB
+        CISCO-SNMP-USM-OIDS-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SVI-AUTOSTATE-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VLAN-TRANSLATION-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        ENTITY-SENSOR-MIB       (RFC 3433)
+        EtherLike-MIB           (RFC 2665)
+        HC-ALARM-MIB            (RFC 3434)
+        HC-RMON                 (RFC 3273)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        MAU-MIB                 (RFC 3636)
+        P-BRIDGE-MIB            (RFC 2674)
+        POWER-ETHERNET-MIB      (RFC 3621)
+        Q-BRIDGE-MIB            (RFC 2674)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 2819)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (RFC 2613)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-AES-MIB        (RFC 3826)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+        SNMPv2-MIB              (RFC 3418)
+
+MIBs supported since supervisor module software version 8.5:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CABLE-DIAG-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-CONFIG-COPY-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-DHCP-SNOOPING-MIB
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-DISPLAY-MIB
+        CISCO-ENTITY-EXT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-FLEX-LINKS-MIB
+        CISCO-IF-EXTENSIONS-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-CONTROL-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-LINK-ERROR-MONITOR-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MAU-EXT-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        CISCO-NAC-NAD-MIB
+        CISCO-NDE-MIB
+        CISCO-NETFLOW-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PING-MIB
+        CISCO-PORT-SECURITY-MIB
+        CISCO-POWER-ETHERNET-EXT-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RADIUS-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-SECURE-SHELL-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SVI-AUTOSTATE-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VLAN-TRANSLATION-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        ENTITY-SENSOR-MIB       (RFC 3433)
+        EtherLike-MIB           (RFC 2665)
+        HC-ALARM-MIB            (RFC 3434)
+        HC-RMON                 (RFC 3273)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        MAU-MIB                 (RFC 3636)
+        P-BRIDGE-MIB            (RFC 2674)
+        POWER-ETHERNET-MIB      (RFC 3621)
+        Q-BRIDGE-MIB            (RFC 2674)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 2819)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (RFC 2613)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+        SNMPv2-MIB              (RFC 1907)
+
+MIBs supported since supervisor module software version 8.4:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CABLE-DIAG-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-CONFIG-COPY-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-DHCP-SNOOPING-MIB
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-DISPLAY-MIB
+        CISCO-ENTITY-EXT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IF-EXTENSIONS-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-CONTROL-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-LINK-ERROR-MONITOR-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MAU-EXT-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        CISCO-NDE-MIB
+        CISCO-NETFLOW-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PING-MIB
+        CISCO-PORT-SECURITY-MIB
+        CISCO-POWER-ETHERNET-EXT-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RADIUS-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-SECURE-SHELL-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SVI-AUTOSTATE-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VLAN-TRANSLATION-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        EtherLike-MIB           (RFC 2665)
+        HC-ALARM-MIB            (RFC 3434)
+        HC-RMON                 (RFC 3273)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        MAU-MIB                 (RFC 3636)
+        P-BRIDGE-MIB            (RFC 2674)
+        POWER-ETHERNET-MIB      (RFC 3621)
+        Q-BRIDGE-MIB            (RFC 2674)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 2819)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (RFC 2613)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+        SNMPv2-MIB              (RFC 1907)
+
+MIBs supported since supervisor module software version 8.3:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CABLE-DIAG-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-DHCP-SNOOPING-MIB
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-DISPLAY-MIB
+        CISCO-ENTITY-EXT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IF-EXTENSIONS-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-CONTROL-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        CISCO-NDE-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PING-MIB
+        CISCO-PORT-SECURITY-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SVI-AUTOSTATE-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        EtherLike-MIB           (RFC 2665)
+        HC-RMON                 (RFC 3273)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        P-BRIDGE-MIB            (RFC 2674)
+        Q-BRIDGE-MIB            (RFC 2674)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+        SNMPv2-MIB              (RFC 1907)
+
+MIBs supported since supervisor module software version 8.2:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        EtherLike-MIB           (RFC 2665)
+        HC-RMON                 (RFC 3273)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+
+MIBs supported since supervisor module software version 8.1:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CALLHOME-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-ASSET-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RF-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYS-INFO-LOG-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        EtherLike-MIB           (RFC 2665)
+        HC-RMON                 (Internet-Draft)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 3584)
+        SNMP-FRAMEWORK-MIB      (RFC 3411)
+        SNMP-MPD-MIB            (RFC 3412)
+        SNMP-NOTIFICATION-MIB   (RFC 3413)
+        SNMP-TARGET-MIB         (RFC 3413)
+        SNMP-USM-MIB            (RFC 3414)
+        SNMP-VACM-MIB           (RFC 3415)
+
+MIBs supported since supervisor module software version 7.6:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-IP-IF-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        EtherLike-MIB           (RFC 2665)
+        HC-RMON                 (Internet-Draft)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 2576)
+        SNMP-FRAMEWORK-MIB      (RFC 2571)
+        SNMP-MPD-MIB            (RFC 2572)
+        SNMP-NOTIFICATION-MIB   (RFC 2573)
+        SNMP-TARGET-MIB         (RFC 2573)
+        SNMP-USM-MIB            (RFC 2574)
+        SNMP-VACM-MIB           (RFC 2575)
+
+MIBs supported since supervisor module software version 7.5:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IGMP-SNOOPING-MIB
+        CISCO-IMAGE-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-MAC-NOTIFICATION-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2737)
+        EtherLike-MIB           (RFC 2665)
+        HC-RMON                 (Internet-Draft)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 2863)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 2576)
+        SNMP-FRAMEWORK-MIB      (RFC 2571)
+        SNMP-MPD-MIB            (RFC 2572)
+        SNMP-NOTIFICATION-MIB   (RFC 2573)
+        SNMP-TARGET-MIB         (RFC 2573)
+        SNMP-USM-MIB            (RFC 2574)
+        SNMP-VACM-MIB           (RFC 2575)
+
+MIBs supported since supervisor module software version 7.2:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-L2-TUNNEL-CONFIG-MIB
+        CISCO-LAG-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-UDLDP-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IEEE8021-PAE-MIB
+        IEEE8023-LAG-MIB
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 2576)
+        SNMP-FRAMEWORK-MIB      (RFC 2571)
+        SNMP-MPD-MIB            (RFC 2572)
+        SNMP-NOTIFICATION-MIB   (RFC 2573)
+        SNMP-TARGET-MIB         (RFC 2573)
+        SNMP-USM-MIB            (RFC 2574)
+        SNMP-VACM-MIB           (RFC 2575)
+
+MIBs supported since supervisor module software version 7.1:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-ENVMON-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-LAG-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAE-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON-MIB             (Internet-Draft)
+        IEEE8021-PAE-MIB         
+        IEEE8023-LAG-MIB         
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 2576)
+        SNMP-FRAMEWORK-MIB      (RFC 2571)
+        SNMP-MPD-MIB            (RFC 2572)
+        SNMP-NOTIFICATION-MIB   (RFC 2573)
+        SNMP-TARGET-MIB         (RFC 2573)
+        SNMP-USM-MIB            (RFC 2574)
+        SNMP-VACM-MIB           (RFC 2575)
+
+MIBs supported since supervisor module software version 6.3:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-AAA-CLIENT-MIB
+        CISCO-CAT6k-CROSSBAR-MIB
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-COMMUNITY-MIB      (RFC 2576)
+        SNMP-FRAMEWORK-MIB      (RFC 2571)
+        SNMP-MPD-MIB            (RFC 2572)
+        SNMP-NOTIFICATION-MIB   (RFC 2573)
+        SNMP-TARGET-MIB         (RFC 2573)
+        SNMP-USM-MIB            (RFC 2574)
+        SNMP-VACM-MIB           (RFC 2575)
+
+MIBs supported since supervisor module software version 6.2:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-CATOS-ACL-QOS-MIB
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAGP-MIB
+        CISCO-PRIVATE-VLAN-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-QOS-POLICY-CONFIG-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-FRAMEWORK-MIB      (RFC 2271)
+        SNMP-MPD-MIB            (RFC 2272)
+        SNMP-NOTIFICATION-MIB   (RFC 2273)
+        SNMP-TARGET-MIB         (RFC 2273)
+        SNMP-USM-MIB            (RFC 2274)
+        SNMP-VACM-MIB           (RFC 2275)
+
+MIBs supported since supervisor module software version 6.1:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAGP-MIB
+        CISCO-PROCESS-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-FRAMEWORK-MIB      (RFC 2271)
+        SNMP-MPD-MIB            (RFC 2272)
+        SNMP-NOTIFICATION-MIB   (RFC 2273)
+        SNMP-TARGET-MIB         (RFC 2273)
+        SNMP-USM-MIB            (RFC 2274)
+        SNMP-VACM-MIB           (RFC 2275)
+
+MIBs supported since supervisor module software version 5.4:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAGP-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-PROCESS-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-SYSTEM-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+        SNMP-FRAMEWORK-MIB      (RFC 2271)
+        SNMP-MPD-MIB            (RFC 2272)
+        SNMP-NOTIFICATION-MIB   (RFC 2273)
+        SNMP-TARGET-MIB         (RFC 2273)
+        SNMP-USM-MIB            (RFC 2274)
+        SNMP-VACM-MIB           (RFC 2275)
+
+MIBs supported since supervisor module software version 5.3(2):
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-CDP-MIB
+        CISCO-COPS-CLIENT-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAGP-MIB
+        CISCO-QOS-PIB-MIB
+        CISCO-PROCESS-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+
+MIBs supported since supervisor module software version 5.3(1):
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-CDP-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAGP-MIB
+        CISCO-PROCESS-MIB
+        CISCO-RMON-CONFIG-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SWITCH-ENGINE-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+
+MIBs supported in initial supervisor module software version:
+
+        BRIDGE-MIB              (RFC 1493)
+        CISCO-CDP-MIB
+        CISCO-ENTITY-FRU-CONTROL-MIB
+        CISCO-ENTITY-SENSOR-MIB
+        CISCO-FLASH-MIB
+        CISCO-IMAGE-MIB
+        CISCO-MEMORY-POOL-MIB
+        CISCO-PAGP-MIB
+        CISCO-PROCESS-MIB
+        CISCO-STACK-MIB
+        CISCO-STP-EXTENSIONS-MIB
+        CISCO-SYSLOG-MIB
+        CISCO-VLAN-BRIDGING-MIB
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VTP-MIB
+        ENTITY-MIB              (RFC 2037)
+        EtherLike-MIB           (RFC 1643)
+        HC-RMON                 (Internet-Draft)
+        IF-MIB                  (RFC 1573)
+        RFC1213-MIB             (MIB-II)
+        RMON-MIB                (RFC 1757)
+        RMON2-MIB               (RFC 2021)
+        SMON-MIB                (Internet-Draft)
+
+Traps supported by the Catalyst 6000 series switches
+------------------------------------------------------------------------------
+
+Traps supported since supervisor module software version 8.7(2):
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        ccmSmtpServerFailNotif                 CISCO-CALLHOME-MIB
+        cc6kxbarFlowCtrlBusThrExcdNotif        CISCO-CAT6K-CROSSBAR-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerSupplyOutputChange            CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cflIfStatusChangeNotif                 CISCO-FLEX-LINKS-MIB
+        clcIfMacLimitHighNotif                 CISCO-L2-CONTROL-MIB
+        clcIfMacLimitLowNotif                  CISCO-L2-CONTROL-MIB
+        clcIfVlanMacLimitHighNotif             CISCO-L2-CONTROL-MIB
+        clcIfVlanMacLimitLowNotiff             CISCO-L2-CONTROL-MIB
+        clcVlanMacLimitHighNotif               CISCO-L2-CONTROL-MIB
+        clcVlanMacLimitNotif                   CISCO-L2-CONTROL-MIB
+        cltcTunnelDropThresholdExceeded        CISCO-L2-TUNNEL-CONFIG-MIB
+        cltcTunnelShutdownThresholdExceeded    CISCO-L2-TUNNEL-CONFIG-MIB
+        clemHighThresholdExceeded              CISCO-LINK-ERROR-MONITOR-MIB
+        clemLowThresholdExceeded               CISCO-LINK-ERROR-MONITOR-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        cmnMacMoveNotification                 CISCO-MAC-NOTIFICATION-MIB
+        cmnMacThresholdExceedNotif             CISCO-MAC-NOTIFICATION-MIB
+        cmasModuleAutoShutdown                 CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        cOpticalMonParameterStatus             CISCO-OPTICAL-MONITOR-MIB
+        cpaeNoAuthFailVlanNotif                CISCO-PAE-MIB
+        cpaeNoGuestVlanNotif                   CISCO-PAE-MIB
+        ciscoPingCompletion                    CISCO-PING-MIB
+        ciscoRFProgressionNotif                CISCO-RF-MIB
+        ciscoRFSwactNotif                      CISCO-RF-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        moduleUp                               CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        csilLoggingFailNotif                   CISCO-SYS-INFO-LOG-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpServerDisabled                      CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        hcFallingAlarm                         HC-ALARM-MIB
+        hcRisingAlarm                          HC-ALARM-MIB
+        dot1agCfmFaultAlarm                    IEEE8021-CFM-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        pethMainPowerUsageOffNotification      POWER-ETHERNET-MIB
+        pethMainPowerUsageOnNotification       POWER-ETHERNET-MIB
+        pethPsePortOnOffNotification           POWER-ETHERNET-MIB
+        authenticationFailure                  RFC1157-SNMP
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 8.7(1):
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        ccmSmtpServerFailNotif                 CISCO-CALLHOME-MIB
+        cc6kxbarFlowCtrlBusThrExcdNotif        CISCO-CAT6K-CROSSBAR-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerSupplyOutputChange            CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cflIfStatusChangeNotif                 CISCO-FLEX-LINKS-MIB
+        clcIfMacLimitHighNotif                 CISCO-L2-CONTROL-MIB
+        clcIfMacLimitLowNotif                  CISCO-L2-CONTROL-MIB
+        clcIfVlanMacLimitHighNotif             CISCO-L2-CONTROL-MIB
+        clcIfVlanMacLimitLowNotiff             CISCO-L2-CONTROL-MIB
+        clcVlanMacLimitHighNotif               CISCO-L2-CONTROL-MIB
+        clcVlanMacLimitNotif                   CISCO-L2-CONTROL-MIB
+        cltcTunnelDropThresholdExceeded        CISCO-L2-TUNNEL-CONFIG-MIB
+        cltcTunnelShutdownThresholdExceeded    CISCO-L2-TUNNEL-CONFIG-MIB
+        clemHighThresholdExceeded              CISCO-LINK-ERROR-MONITOR-MIB
+        clemLowThresholdExceeded               CISCO-LINK-ERROR-MONITOR-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        cmnMacMoveNotification                 CISCO-MAC-NOTIFICATION-MIB
+        cmnMacThresholdExceedNotif             CISCO-MAC-NOTIFICATION-MIB
+        cmasModuleAutoShutdown                 CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        cOpticalMonParameterStatus             CISCO-OPTICAL-MONITOR-MIB
+        cpaeNoAuthFailVlanNotif                CISCO-PAE-MIB
+        cpaeNoGuestVlanNotif                   CISCO-PAE-MIB
+        ciscoPingCompletion                    CISCO-PING-MIB
+        ciscoRFProgressionNotif                CISCO-RF-MIB
+        ciscoRFSwactNotif                      CISCO-RF-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        moduleUp                               CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        csilLoggingFailNotif                   CISCO-SYS-INFO-LOG-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpServerDisabled                      CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        hcFallingAlarm                         HC-ALARM-MIB
+        hcRisingAlarm                          HC-ALARM-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        pethMainPowerUsageOffNotification      POWER-ETHERNET-MIB
+        pethMainPowerUsageOnNotification       POWER-ETHERNET-MIB
+        pethPsePortOnOffNotification           POWER-ETHERNET-MIB
+        authenticationFailure                  RFC1157-SNMP
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 8.6:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        ccmSmtpServerFailNotif                 CISCO-CALLHOME-MIB
+        cc6kxbarFlowCtrlBusThrExcdNotif        CISCO-CAT6K-CROSSBAR-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerSupplyOutputChange            CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cflIfStatusChangeNotif                 CISCO-FLEX-LINKS-MIB
+        clcIfMacLimitHighNotif                 CISCO-L2-CONTROL-MIB
+        clcIfMacLimitLowNotif                  CISCO-L2-CONTROL-MIB
+        clcIfVlanMacLimitHighNotif             CISCO-L2-CONTROL-MIB
+        clcIfVlanMacLimitLowNotiff             CISCO-L2-CONTROL-MIB
+        clcVlanMacLimitHighNotif               CISCO-L2-CONTROL-MIB
+        clcVlanMacLimitNotif                   CISCO-L2-CONTROL-MIB
+        cltcTunnelDropThresholdExceeded        CISCO-L2-TUNNEL-CONFIG-MIB
+        cltcTunnelShutdownThresholdExceeded    CISCO-L2-TUNNEL-CONFIG-MIB
+        clemHighThresholdExceeded              CISCO-LINK-ERROR-MONITOR-MIB
+        clemLowThresholdExceeded               CISCO-LINK-ERROR-MONITOR-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        cmnMacMoveNotification                 CISCO-MAC-NOTIFICATION-MIB
+        cmnMacThresholdExceedNotif             CISCO-MAC-NOTIFICATION-MIB
+        cmasModuleAutoShutdown                 CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        cOpticalMonParameterStatus             CISCO-OPTICAL-MONITOR-MIB
+        cpaeNoAuthFailVlanNotif                CISCO-PAE-MIB
+        cpaeNoGuestVlanNotif                   CISCO-PAE-MIB
+        ciscoPingCompletion                    CISCO-PING-MIB
+        ciscoRFProgressionNotif                CISCO-RF-MIB
+        ciscoRFSwactNotif                      CISCO-RF-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        moduleUp                               CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        csilLoggingFailNotif                   CISCO-SYS-INFO-LOG-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        hcFallingAlarm                         HC-ALARM-MIB
+        hcRisingAlarm                          HC-ALARM-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        pethMainPowerUsageOffNotification      POWER-ETHERNET-MIB
+        pethMainPowerUsageOnNotification       POWER-ETHERNET-MIB
+        pethPsePortOnOffNotification           POWER-ETHERNET-MIB
+        authenticationFailure                  RFC1157-SNMP
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 8.5:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        ccmSmtpServerFailNotif                 CISCO-CALLHOME-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerSupplyOutputChange            CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cflIfStatusChangeNotif                 CISCO-FLEX-LINKS-MIB
+        cltcTunnelDropThresholdExceeded        CISCO-L2-TUNNEL-CONFIG-MIB
+        cltcTunnelShutdownThresholdExceeded    CISCO-L2-TUNNEL-CONFIG-MIB
+        clemHighThresholdExceeded              CISCO-LINK-ERROR-MONITOR-MIB
+        clemLowThresholdExceeded               CISCO-LINK-ERROR-MONITOR-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        cmnMacMoveNotification                 CISCO-MAC-NOTIFICATION-MIB
+        cmnMacThresholdExceedNotif             CISCO-MAC-NOTIFICATION-MIB
+        cmasModuleAutoShutdown                 CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        cpaeNoAuthFailVlanNotif                CISCO-PAE-MIB
+        cpaeNoGuestVlanNotif                   CISCO-PAE-MIB
+        ciscoPingCompletion                    CISCO-PING-MIB
+        ciscoRFProgressionNotif                CISCO-RF-MIB
+        ciscoRFSwactNotif                      CISCO-RF-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        moduleUp                               CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        csilLoggingFailNotif                   CISCO-SYS-INFO-LOG-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        hcFallingAlarm                         HC-ALARM-MIB
+        hcRisingAlarm                          HC-ALARM-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        pethMainPowerUsageOffNotification      POWER-ETHERNET-MIB
+        pethMainPowerUsageOnNotification       POWER-ETHERNET-MIB
+        pethPsePortOnOffNotification           POWER-ETHERNET-MIB
+        authenticationFailure                  RFC1157-SNMP
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 8.4:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        ccmSmtpServerFailNotif                 CISCO-CALLHOME-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cltcTunnelDropThresholdExceeded        CISCO-L2-TUNNEL-CONFIG-MIB
+        cltcTunnelShutdownThresholdExceeded    CISCO-L2-TUNNEL-CONFIG-MIB
+        clemHighThresholdExceeded              CISCO-LINK-ERROR-MONITOR-MIB
+        clemLowThresholdExceeded               CISCO-LINK-ERROR-MONITOR-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        cmnMacMoveNotification                 CISCO-MAC-NOTIFICATION-MIB
+        cmnMacThresholdExceedNotif             CISCO-MAC-NOTIFICATION-MIB
+        cmasModuleAutoShutdown                 CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        ciscoPingCompletion                    CISCO-PING-MIB
+        ciscoRFSwactNotif                      CISCO-RF-MIB
+        ciscoRFProgressionNotif                CISCO-RF-MIB
+        moduleUp                               CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        csilLoggingFailNotif                   CISCO-SYS-INFO-LOG-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        hcFallingAlarm                         HC-ALARM-MIB
+        hcRisingAlarm                          HC-ALARM-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        pethPsePortOnOffNotification           POWER-ETHERNET-MIB
+        pethMainPowerUsageOffNotification      POWER-ETHERNET-MIB
+        pethMainPowerUsageOnNotification       POWER-ETHERNET-MIB
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        authenticationFailure                  RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 8.3:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        ccmSmtpServerFailNotif                 CISCO-CALLHOME-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        cmnMacMoveNotification                 CISCO-MAC-NOTIFICATION-MIB
+        cmnMacThresholdExceedNotif             CISCO-MAC-NOTIFICATION-MIB
+        cmasModuleAutoShutdown                 CISCO-MODULE-AUTO-SHUTDOWN-MIB
+        ciscoPingCompletion                    CISCO-PING-MIB
+        ciscoRFSwactNotif                      CISCO-RF-MIB
+        ciscoRFProgressionNotif                CISCO-RF-MIB
+        moduleUp                               CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        csilLoggingFailNotif                   CISCO-SYS-INFO-LOG-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        authenticationFailure                  RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 8.1:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        ccmSmtpServerFailNotif                 CISCO-CALLHOME-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        ciscoRFSwactNotif                      CISCO-RF-MIB
+        ciscoRFProgressionNotif                CISCO-RF-MIB
+        moduleUp                               CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        csilLoggingFailNotif                   CISCO-SYS-INFO-LOG-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        authenticationFailure                  RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 7.6:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonFanStatusChangeNotif        CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonSuppStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoEnvMonTempStatusChangeNotif       CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        moduleUp                               CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        authenticationFailure                  RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 7.5:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashDeviceInsertedNotif          CISCO-FLASH-MIB
+        ciscoFlashDeviceRemovedNotif           CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        cmnMacChangedNotification              CISCO-MAC-NOTIFICATION-MIB
+        moduleUp                               CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpLocalModeChanged                    CISCO-VTP-MIB
+        vtpVersionInUseChanged                 CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        vtpVlanCreated                         CISCO-VTP-MIB
+        vtpVlanDeleted                         CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        authenticationFailure                  RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 7.2:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoEnvMonTemperatureNotification     CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        moduleUp                               CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        authenticationFailure                  RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 7.1:
+
+        newRoot                                BRIDGE-MIB
+        topologyChange                         BRIDGE-MIB
+        cefcModuleStatusChange                 CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcPowerStatusChange                  CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRUInserted                        CISCO-ENTITY-FRU-CONTROL-MIB
+        cefcFRURemoved                         CISCO-ENTITY-FRU-CONTROL-MIB
+        entSensorThresholdNotification         CISCO-ENTITY-SENSOR-MIB
+        ciscoEnvMonShutdownNotification        CISCO-ENVMON-MIB
+        ciscoEnvMonFanNotification             CISCO-ENVMON-MIB
+        ciscoEnvMonRedundantSupplyNotification CISCO-ENVMON-MIB
+        ciscoFlashCopyCompletionTrap           CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap             CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap         CISCO-FLASH-MIB
+        moduleUp                               CISCO-STACK-MIB
+        moduleDown                             CISCO-STACK-MIB
+        chassisAlarmOn                         CISCO-STACK-MIB
+        chassisAlarmOff                        CISCO-STACK-MIB
+        ipPermitDeniedTrap                     CISCO-STACK-MIB
+        sysConfigChangeTrap                    CISCO-STACK-MIB
+        stpxInconsistencyUpdate                CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate            CISCO-STP-EXTENSTIONS-MIB
+        clogMessageGenerated                   CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged                CISCO-SYSTEM-MIB
+        vmVmpsChange                           CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange       CISCO-VTP-MIB
+        vtpConfigDigestError                   CISCO-VTP-MIB
+        vtpConfigRevNumberError                CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected            CISCO-VTP-MIB
+        entConfigChange                        ENTITY-MIB
+        linkDown                               IF-MIB
+        linkUp                                 IF-MIB
+        coldStart                              RFC1157-SNMP
+        warmStart                              RFC1157-SNMP
+        authenticationFailure                  RFC1157-SNMP
+        fallingAlarm                           RMON-MIB
+        risingAlarm                            RMON-MIB
+
+Traps supported since supervisor module software version 6.3:
+
+        newRoot                          BRIDGE-MIB
+        topologyChange                   BRIDGE-MIB
+        entSensorThresholdNotification   CISCO-ENTITY-SENSOR-MIB
+        ciscoFlashCopyCompletionTrap     CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap       CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap   CISCO-FLASH-MIB
+        moduleUp                         CISCO-STACK-MIB
+        moduleDown                       CISCO-STACK-MIB
+        chassisAlarmOn                   CISCO-STACK-MIB
+        chassisAlarmOff                  CISCO-STACK-MIB
+        ipPermitDeniedTrap               CISCO-STACK-MIB
+        sysConfigChangeTrap              CISCO-STACK-MIB
+        stpxInconsistencyUpdate          CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate      CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate      CISCO-STP-EXTENSTIONS-MIB
+        clogMessageGenerated             CISCO-SYSLOG-MIB
+        ciscoSystemClockChanged          CISCO-SYSTEM-MIB
+        vmVmpsChange                     CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange CISCO-VTP-MIB
+        vtpConfigDigestError             CISCO-VTP-MIB
+        vtpConfigRevNumberError          CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected      CISCO-VTP-MIB
+        entConfigChange                  ENTITY-MIB
+        linkDown                         IF-MIB
+        linkUp                           IF-MIB
+        coldStart                        RFC1157-SNMP
+        warmStart                        RFC1157-SNMP
+        authenticationFailure            RFC1157-SNMP
+
+Traps supported since supervisor module software version 6.2:
+
+        newRoot                          BRIDGE-MIB
+        topologyChange                   BRIDGE-MIB
+        entSensorThresholdNotification   CISCO-ENTITY-SENSOR-MIB
+        ciscoFlashCopyCompletionTrap     CISCO-FLASH-MIB
+        ciscoFlashDeviceChangeTrap       CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap   CISCO-FLASH-MIB
+        moduleUp                         CISCO-STACK-MIB
+        moduleDown                       CISCO-STACK-MIB
+        chassisAlarmOn                   CISCO-STACK-MIB
+        chassisAlarmOff                  CISCO-STACK-MIB
+        ipPermitDeniedTrap               CISCO-STACK-MIB
+        sysConfigChangeTrap              CISCO-STACK-MIB
+        stpxInconsistencyUpdate          CISCO-STP-EXTENSTIONS-MIB
+        stpxLoopInconsistencyUpdate      CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate      CISCO-STP-EXTENSTIONS-MIB
+        clogMessageGenerated             CISCO-SYSLOG-MIB
+        vmVmpsChange        	         CISCO-VLAN-MEMBERSHIP-MIB
+        vlanTrunkPortDynamicStatusChange CISCO-VTP-MIB
+        vtpVersionOneDeviceDetected      CISCO-VTP-MIB
+        entConfigChange                  ENTITY-MIB
+        linkDown                         IF-MIB
+        linkUp                           IF-MIB
+        coldStart                        RFC1157-SNMP
+        warmStart                        RFC1157-SNMP
+        authenticationFailure            RFC1157-SNMP
+
+Traps supported since supervisor module software version 6.1:
+
+        newRoot                         BRIDGE-MIB
+        topologyChange                  BRIDGE-MIB
+        entSensorThresholdNotification  CISCO-ENTITY-SENSOR-MIB
+        ciscoFlashCopyCompletionTrap    CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap  CISCO-FLASH-MIB
+        moduleUp                        CISCO-STACK-MIB
+        moduleDown                      CISCO-STACK-MIB
+        chassisAlarmOn                  CISCO-STACK-MIB
+        chassisAlarmOff                 CISCO-STACK-MIB
+        ipPermitDeniedTrap              CISCO-STACK-MIB
+        sysConfigChangeTrap             CISCO-STACK-MIB
+        stpxInconsistencyUpdate         CISCO-STP-EXTENSTIONS-MIB
+        stpxRootInconsistencyUpdate     CISCO-STP-EXTENSTIONS-MIB
+        clogMessageGenerated            CISCO-SYSLOG-MIB
+        vmVmpsChange        	        CISCO-VLAN-MEMBERSHIP-MIB
+        vtpVersionOneDeviceDetected     CISCO-VTP-MIB
+        entConfigChange                 ENTITY-MIB
+        linkDown                        IF-MIB
+        linkUp                          IF-MIB
+        coldStart                       RFC1157-SNMP
+        warmStart                       RFC1157-SNMP
+        authenticationFailure           RFC1157-SNMP
+
+Traps supported in initial supervisor module software version:
+
+        newRoot                         BRIDGE-MIB
+        topologyChange                  BRIDGE-MIB
+        entSensorThresholdNotification  CISCO-ENTITY-SENSOR-MIB
+        ciscoFlashCopyCompletionTrap    CISCO-FLASH-MIB
+        ciscoFlashMiscOpCompletionTrap  CISCO-FLASH-MIB
+        moduleUp                        CISCO-STACK-MIB
+        moduleDown                      CISCO-STACK-MIB
+        chassisAlarmOn                  CISCO-STACK-MIB
+        chassisAlarmOff                 CISCO-STACK-MIB
+        ipPermitDeniedTrap              CISCO-STACK-MIB
+        sysConfigChangeTrap             CISCO-STACK-MIB
+        stpxInconsistencyUpdate         CISCO-STP-EXTENSTIONS-MIB   
+        clogMessageGenerated            CISCO-SYSLOG-MIB
+        vmVmpsChange        	        CISCO-VLAN-MEMBERSHIP-MIB
+        vtpVersionOneDeviceDetected     CISCO-VTP-MIB
+        entConfigChange                 ENTITY-MIB
+        linkDown                        IF-MIB
+        linkUp                          IF-MIB
+        coldStart                       RFC1157-SNMP
+        warmStart                       RFC1157-SNMP
+        authenticationFailure           RFC1157-SNMP
+
+

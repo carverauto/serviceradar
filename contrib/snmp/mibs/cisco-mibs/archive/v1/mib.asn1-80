@@ -1,0 +1,1618 @@
+          CISCO-MIB	{ iso org(3) dod(6) internet(1) private(4)
+                                  enterprises(1) 9 }
+
+          DEFINITIONS ::= BEGIN
+	
+          IMPORTS
+               enterprises, OBJECT-TYPE, NetworkAddress, IpAddress,
+               Counter, Gauge, TimeTicks, OBJECT-TYPE
+               FROM RFC1065-SMI ;
+
+
+          cisco               OBJECT IDENTIFIER ::= { enterprises 9 }
+
+          products            OBJECT IDENTIFIER ::= { cisco 1 }
+          local               OBJECT IDENTIFIER ::= { cisco 2 }
+          temporary           OBJECT IDENTIFIER ::= { cisco 3 }
+
+          gateway-server      OBJECT IDENTIFIER ::= { products 1 }
+          terminal-server     OBJECT IDENTIFIER ::= { products 2 }
+          trouter             OBJECT IDENTIFIER ::= { products 3 }
+          protocol-translator OBJECT IDENTIFIER ::= { products 4 }
+
+          lsystem             OBJECT IDENTIFIER ::= { local 1 }
+          linterfaces         OBJECT IDENTIFIER ::= { local 2 }
+          lat                 OBJECT IDENTIFIER ::= { local 3 }
+          lip                 OBJECT IDENTIFIER ::= { local 4 }
+          licmp               OBJECT IDENTIFIER ::= { local 5 }
+          ltcp                OBJECT IDENTIFIER ::= { local 6 }
+          ludp                OBJECT IDENTIFIER ::= { local 7 }
+          legp                OBJECT IDENTIFIER ::= { local 8 }
+          lts                 OBJECT IDENTIFIER ::= { local 9 }
+
+          decnet              OBJECT IDENTIFIER ::= { temporary 1 }
+          xns                 OBJECT IDENTIFIER ::= { temporary 2 }
+          appletalk           OBJECT IDENTIFIER ::= { temporary 3 }
+          novell              OBJECT IDENTIFIER ::= { temporary 4 }
+
+          -- the Local System group
+
+          romId OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 1 }
+
+          whyReload OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 2 }
+
+          hostName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 3 }
+
+          domainName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 4 }
+
+          authAddr OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 5 }
+
+          bootHost OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 6 }
+
+          ping OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-write
+               STATUS  mandatory
+               ::= { lsystem 7 }
+
+          freeMem OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 8 }
+
+          bufferElFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 9 }
+
+          bufferElMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 10 }
+
+          bufferElHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 11 }
+
+          bufferElMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 12 }
+
+          bufferElCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 13 }
+
+          bufferSmSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 14 }
+
+          bufferSmTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 15 }
+
+          bufferSmFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 16 }
+
+          bufferSmMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 17 }
+
+          bufferSmHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 18 }
+
+          bufferSmMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 19 }
+
+          bufferSmTrim OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 20 }
+
+          bufferSmCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 21 }
+
+          bufferMdSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 22 }
+
+          bufferMdTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 23 }
+
+          bufferMdFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 24 }
+
+          bufferMdMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 25 }
+
+          bufferMdHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 26 }
+
+          bufferMdMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 27 }
+
+          bufferMdTrim OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 28 }
+
+          bufferMdCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 29 }
+
+          bufferBgSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 30 }
+
+          bufferBgTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 31 }
+
+          bufferBgFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 32 }
+
+          bufferBgMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 33 }
+
+          bufferBgHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 34 }
+
+          bufferBgMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 35 }
+
+          bufferBgTrim OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 36 }
+
+          bufferBgCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 37 }
+
+          bufferLgSize OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 38 }
+
+          bufferLgTotal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 39 }
+
+          bufferLgFree OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 40 }
+
+          bufferLgMax OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 41 }
+
+          bufferLgHit OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 42 }
+
+          bufferLgMiss OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 43 }
+
+          bufferLgTrim OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 44 }
+
+          bufferLgCreate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 45 }
+
+          bufferFail OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 46 }
+
+          bufferNoMem OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 47 }
+
+          netConfigIP OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 48 }
+
+          netConfigName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 49 }
+
+          netConfigSet OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-write
+               STATUS  mandatory
+               ::= { lsystem 50 }
+
+          hostConfigIP OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 51 }
+
+          hostConfigName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lsystem 52 }
+
+          hostConfigSet OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-write
+               STATUS  mandatory
+               ::= { lsystem 53 }
+
+	  writeMem OBJECT-TYPE
+	       SYNTAX  INTEGER   -- set to 1 to write to nonvol mem
+               ACCESS  write-only
+               STATUS  mandatory
+               ::= { lsystem 54 }
+
+          writeNet OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  write-only
+               STATUS  mandatory
+               ::= { lsystem 55 }
+
+          -- the Local Interfaces group
+
+          -- the Local Interface Table
+
+          lifTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIfEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { linterfaces 1 }
+
+          lifEntry OBJECT-TYPE
+               SYNTAX  LIfEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { lifTable 1 }
+
+          LIfEntry ::= SEQUENCE {
+             locIfHardType
+                OCTET STRING,
+             locIfLineProt
+                INTEGER,
+             locIfLastIn
+                INTEGER,
+             locIfLastOut
+                INTEGER,
+             locIfLastOutHang
+                INTEGER,
+             locIfInBitsSec
+                INTEGER,
+             locIfInPktsSec
+                INTEGER,
+             locIfOutBitsSec
+                INTEGER,
+             locIfOutPktsSec
+                INTEGER,
+             locIfInRunts
+                INTEGER,
+             locIfInGiants
+                INTEGER,
+             locIfInCRC
+                INTEGER,
+             locIfInFrame
+                INTEGER,
+             locIfInOverrun
+                INTEGER,
+             locIfInIgnored
+                INTEGER,
+             locIfInAbort
+                INTEGER,
+             locIfResets
+                INTEGER,
+             locIfRestarts
+                INTEGER,
+             locIfKeep
+                INTEGER,
+             locIfReason
+                OCTET STRING
+          }
+
+          locIfHardType OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 1 }
+
+          locIfLineProt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 2 }
+
+          locIfLastIn OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 3 }
+
+          locIfLastOut OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 4 }
+
+          locIfLastOutHang OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 5 }
+
+          locIfInBitsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 6 }
+
+          locIfInPktsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 7 }
+
+          locIfOutBitsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 8 }
+
+          locIfOutPktsSec OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 9 }
+
+          locIfInRunts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 10 }
+
+          locIfInGiants OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 11 }
+
+          locIfInCRC OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 12 }
+
+          locIfInFrame OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 13 }
+
+          locIfInOverrun OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 14 }
+
+          locIfInIgnored OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 15 }
+
+          locIfInAbort OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 16 }
+
+          locIfResets OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 17 }
+
+          locIfRestarts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 18 }
+
+          locIfKeep OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 19 }
+
+          locIfReason OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lifEntry 20 }
+          -- the Local IP group
+
+          -- the Local IP Address table
+
+          lipAddrTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIpAddrEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { lip 1 }
+
+          lipAddrEntry OBJECT-TYPE
+               SYNTAX  LIpAddrEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { lipAddrTable 1 }
+
+          LIpAddrEntry ::= SEQUENCE {
+             locIPHow
+                OCTET STRING,
+             locIPWho
+                NetworkAddress,
+             locIPHelper
+                NetworkAddress,
+             locIPSecurity
+                INTEGER,
+             locIPRedirects
+                INTEGER,
+             locIPUnreach
+                INTEGER
+          }
+
+          locIPHow OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 1 }
+
+          locIPWho OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 2 }
+
+          locIPHelper OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 3 }
+
+          locIPSecurity OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 4 }
+
+          locIPRedirects OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 5 }
+
+          locIPUnreach OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAddrEntry 6 }
+
+          -- theLocal IP Routing table
+
+          lipRoutingTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIpRouteEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { lip 2 }
+
+          lipRouteEntry OBJECT-TYPE
+               SYNTAX  LIpRouteEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { lipRoutingTable 1 }
+
+          LIpRouteEntry ::= SEQUENCE {
+             locRtMask
+                NetworkAddress,
+             locRtCount
+                INTEGER,
+             locRtUses
+                INTEGER
+          }
+
+          locRtMask OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipRouteEntry 1 }
+
+          locRtCount OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipRouteEntry 2 }
+
+          locRtUses OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipRouteEntry 3 }
+
+          routeFilter OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 3 }
+
+          actThresh OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 4 }
+
+          actLostPkts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 5 }
+
+          actLostByts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lip 6 }
+
+          -- the Local IP Accounting table
+
+          lipAccountingTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LIpAccountEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { lip 7 }
+
+          lipAccountEntry OBJECT-TYPE
+               SYNTAX  LIpAccountEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { lipAccountingTable 1 }
+
+          LIpAccountEntry ::= SEQUENCE {
+             actSrc
+                NetworkAddress,
+             actDst
+                NetworkAddress,
+             actPkts
+                INTEGER,
+             actByts
+                INTEGER
+          }
+
+          actSrc OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountEntry 1 }
+
+          actDst OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountEntry 2 }
+
+          actPkts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountEntry 3 }
+
+          actByts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { lipAccountEntry 4 }
+          -- the Local TCP group
+
+          -- the Local TCP Connection table
+
+          ltcpConnTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LTcpConnEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { ltcp 1 }
+
+          ltcpConnEntry OBJECT-TYPE
+               SYNTAX  LTcpConnEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               ::= { ltcpConnTable 1 }
+
+          LTcpConnEntry ::= SEQUENCE {
+             loctcpConnInBytes
+                INTEGER,
+             loctcpConnOutBytes
+                INTEGER,
+             loctcpConnInPkts
+                INTEGER,
+             loctcpConnOutPkts
+                INTEGER,
+             loctcpConnElapsed
+                TimeTicks
+          }
+
+          loctcpConnInBytes OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 1 }
+
+          loctcpConnOutBytes OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 2 }
+
+          loctcpConnInPkts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 3 }
+
+          loctcpConnOutPkts OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 4 }
+
+          loctcpConnElapsed OBJECT-TYPE
+               SYNTAX  TimeTicks
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { ltcpConnEntry 5 }
+          -- the Local Terminal Server group
+
+          tsLines OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { lts 1 }
+
+          -- the Local Terminal Server Line table
+
+          ltsLineTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LTsLineEntry
+               ACCESS  not-accessible
+               STATUS  optional
+               ::= { lts 2 }
+
+          ltsLineEntry OBJECT-TYPE
+               SYNTAX  LTsLineEntry
+               ACCESS  not-accessible
+               STATUS  optional
+               ::= { ltsLineTable 1 }
+
+          LTsLineEntry ::= SEQUENCE {
+             tsLineActive
+                INTEGER,
+             tsLineType
+                INTEGER,
+             tsLineAutobaud
+                INTEGER,
+             tsLineSpeedin
+                INTEGER,
+             tsLineSpeedout
+                INTEGER,
+             tsLineFlow
+                INTEGER,
+             tsLineModem
+                INTEGER,
+             tsLineLoc
+                OCTET STRING,
+             tsLineTerm
+                OCTET STRING,
+             tsLineScrlen
+                INTEGER,
+             tsLineScrwid
+                INTEGER,
+             tsLineEsc
+                OCTET STRING,
+             tsLineTmo
+                INTEGER,
+             tsLineSestmo
+                INTEGER,
+             tsLineRotary
+                INTEGER,
+             tsLineUses
+                INTEGER,
+             tsLineNses
+                INTEGER,
+             tsLineUser
+                OCTET STRING
+          }
+
+          tsLineActive OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 1 }
+
+          tsLineType OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    console(2),
+                    terminal(3),
+                    line-printer(4),
+                    virtual-terminal(5),
+                    auxiliary(6)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 2 }
+
+          tsLineAutobaud OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 3 }
+
+          tsLineSpeedin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 4 }
+
+          tsLineSpeedout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 5 }
+
+          tsLineFlow OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    none(2),
+                    software-input(3),
+                    software-output(4),
+                    software-both(5),
+                    hardware-input(6),
+                    hardware-output(7),
+                    hardware-both(8)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 6 }
+
+          tsLineModem OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    none(2),
+                    call-in(3),
+                    call-out(4),
+                    cts-required(5),
+                    rs-is-cd(6)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 7 }
+
+          tsLineLoc OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 8 }
+
+          tsLineTerm OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 9 }
+
+          tsLineScrlen OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 10 }
+
+          tsLineScrwid OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 11 }
+
+          tsLineEsc OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 12 }
+
+          tsLineTmo OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 13 }
+
+          tsLineSestmo OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 14 }
+
+          tsLineRotary OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 15 }
+
+          tsLineUses OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 16 }
+
+          tsLineNses OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 17 }
+
+          tsLineUser OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineEntry 18 }
+
+          -- the Local Terminal Server Line Session table
+
+          ltsLineSessionTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF LTsLineSessionEntry
+               ACCESS  not-accessible
+               STATUS  optional
+               ::= { lts 3 }
+
+          ltsLineSessionEntry OBJECT-TYPE
+               SYNTAX  LTsLineSessionEntry
+               ACCESS  not-accessible
+               STATUS  optional
+               ::= { ltsLineSessionTable 1 }
+
+          LTsLineSessionEntry ::= SEQUENCE {
+             tslineSesType
+                INTEGER,
+             tslineSesDir
+                INTEGER,
+             tslineSesAddr
+                NetworkAddress,
+             tslineSesName
+                OCTET STRING,
+             tslineSesCur
+                INTEGER,
+             tslineSesIdle
+                INTEGER
+          }
+
+          tslineSesType OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    pad(2),
+                    stream(3),
+                    rlogin(4),
+                    telnet(5)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 1 }
+
+          tslineSesDir OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    incoming(2),
+                    outgoing(3)
+               }
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 2 }
+
+          tslineSesAddr OBJECT-TYPE
+               SYNTAX  NetworkAddress
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 3 }
+
+          tslineSesName OBJECT-TYPE
+               SYNTAX  OCTET STRING
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 4 }
+
+          tslineSesCur OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 5 }
+
+          tslineSesIdle OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  optional
+               ::= { ltsLineSessionEntry 6 }
+          -- the Temporary DECNET group
+
+          dnForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 1 }
+
+          dnReceived OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 2 }
+
+          dnFormaterr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 3 }
+
+          dnNotgateway OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 4 }
+
+          dnNotimp OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 5 }
+
+          dnHellos OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 6 }
+
+          dnBadhello OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 7 }
+
+          dnNotlong OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 8 }
+
+          dnDatas OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 9 }
+
+          dnBigaddr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 10 }
+
+          dnNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 11 }
+          dnNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 12 }
+
+          dnLevel1s OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 13 }
+
+          dnBadlevel1 OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 14 }
+
+          dnToomanyhops OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 15 }
+
+          dnHellosent OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 16 }
+
+          dnLevel1sent OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 17 }
+
+          dnNomemory OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 18 }
+
+          dnOtherhello OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 19 }
+
+          dnOtherlevel1 OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 20 }
+
+          dnLevel2s OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 21 }
+
+          dnLevel2sent OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 22 }
+
+          dnNovector OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 23 }
+
+          dnOtherlevel2 OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 24 }
+
+          dnNoaccess OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { decnet 25 }
+          -- the Temporary XNS group
+
+          xnsInput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 1 }
+          xnsLocal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 2 }
+
+          xnsBcastin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 3 }
+
+          xnsForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 4 }
+
+          xnsBcastout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 5 }
+
+          xnsErrin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 6 }
+
+          xnsErrout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 7 }
+
+          xnsFormerr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 8 }
+
+          xnsChksum OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 9 }
+
+          xnsNotgate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 10 }
+
+          xnsHopcnt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 11 }
+
+          xnsNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 12 }
+
+          xnsNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 13 }
+
+          xnsOutput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 14 }
+
+          xnsInmult OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 15 }
+
+          xnsUnknown OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 16 }
+
+          xnsFwdbrd OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 17 }
+
+          xnsEchoreqin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 18 }
+
+          xnsEchoreqout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 19 }
+
+          xnsEchorepin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 20 }
+
+          xnsEchorepout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { xns 21 }
+          -- the Temporary AppleTalk group
+
+          atInput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 1 }
+
+          atLocal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 2 }
+
+          atBcastin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 3 }
+
+          atForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 4 }
+
+          atBcastout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 5 }
+
+          atFormerr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 6 }
+
+          atChksum OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 7 }
+
+          atNotgate OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 8 }
+
+          atHopcnt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 9 }
+
+          atNoaccess OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 10 }
+          atNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 11 }
+
+          atNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 12 }
+
+          atOutput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 13 }
+
+          atInmult OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 14 }
+
+          atRtmpin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 15 }
+
+          atRtmpout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 16 }
+
+          atNbpin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 17 }
+
+          atNbpout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 18 }
+
+          atAtp OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 19 }
+
+          atZipin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 20 }
+
+          atZipout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 21 }
+
+          atEcho OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 22 }
+
+          atEchoill OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 23 }
+
+          atDdpshort OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 24 }
+
+          atDdplong OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 25 }
+
+          atDdpbad OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 26 }
+
+          atNobuffer OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 27 }
+
+          atArpreq OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 28 }
+
+          atArpreply OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 29 }
+
+          atArpprobe OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 30 }
+
+          atUnknown OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { appletalk 31 }
+          -- the Temporary Novell group
+
+          novellInput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 1 }
+
+          novellBcastin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 2 }
+
+          novellForward OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 3 }
+
+          novellBcastout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 4 }
+
+          novellFormerr OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 5 }
+
+          novellChksum OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 6 }
+
+          novellHopcnt OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 7 }
+
+          novellNoroute OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 8 }
+
+          novellNoencap OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 9 }
+
+          novellOutput OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 10 }
+
+          novellInmult OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 11 }
+
+          novellLocal OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 12 }
+
+          novellUnknown OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 13 }
+
+          novellSapreqin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 14 }
+
+          novellSapresin OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 15 }
+
+          novellSapout OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 16 }
+
+          novellSapreply OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               ::= { novell 17 }
+
+          END

@@ -1,0 +1,793 @@
+-- *****************************************************************
+-- IBM DLC Switch MIB definition.
+--
+-- September 1996, Dennis Ignacio.
+--
+-- Copyright (c) 1996-1997, 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-DLC-SWITCH-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE,
+    Integer32
+        FROM SNMPv2-SMI
+    MacAddress, TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP   
+	FROM SNMPv2-CONF
+    ifIndex
+        FROM RFC1213-MIB
+    InterfaceIndexOrZero
+	FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+;
+
+ciscoDlcSwitchMIB MODULE-IDENTITY
+          LAST-UPDATED "9702190000Z"
+          ORGANIZATION "Cisco Systems, Inc."
+          CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-fras@cisco.com"
+           DESCRIPTION       
+	       "This is the MIB module for objects used to
+                manage FRAS sessions to the endstation. 
+		These objects are specific to downstream or 
+		enduster sessions only. It does not contain 
+		objects supported by the FRAS-HOST MIB which 
+		are specific to upstream or host-end sessions."
+
+::= { ciscoMgmt 76 }
+
+--
+--  The following functionality will be modelled in this MIB module:
+--
+--     1. Frame-Relay Access Support
+--
+
+ciscoDlcSwitchMIBObjects      	OBJECT IDENTIFIER ::= { ciscoDlcSwitchMIB 1}
+ 
+
+--  THE BNN FORMAT (RFC 1490 Routed Format)
+--  ==============
+--
+--  The following FRAS types of connections are modeled in the BNN 
+--  group of this MIB:
+--
+--     1. SDLC
+--     2. LLC (Token-Ring or Ethernet)
+--
+--
+--
+--  THE BAN FORMAT (RFC 1490 Bridged Format)
+--  ==============
+--
+--  The following FRAS types of connections are modeled in the BAN
+--  group of this MIBi:
+--
+--     1. SDLC
+--     2. LLC (Token-Ring or Ethernet)
+--
+--  -------------------------------------------------------------
+
+frasBnnSdlc        OBJECT IDENTIFIER ::= { ciscoDlcSwitchMIBObjects 1 }
+frasBnnLlc         OBJECT IDENTIFIER ::= { ciscoDlcSwitchMIBObjects 2 }
+frasBanSdlc        OBJECT IDENTIFIER ::= { ciscoDlcSwitchMIBObjects 3 }
+frasBanLlc         OBJECT IDENTIFIER ::= { ciscoDlcSwitchMIBObjects 4 }
+
+-- **************************************************************
+-- *  Textual convention definitions				*
+-- **************************************************************
+
+SAP ::= TEXTUAL-CONVENTION
+	STATUS	current
+	DESCRIPTION
+	  "Service Access Point - is a term that denotes the means
+	   by which a user entity in layer n+1 accesses a service
+	   of a provider entity in layer n."
+	SYNTAX	OCTET STRING (SIZE(1))
+
+SdlcAddress ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+          "A hexadecimal address assigned to a secondary
+	   poll station of an SDLC device."
+        SYNTAX  OCTET STRING (SIZE(1))
+
+--  *************************************************************
+--  *                                                           *
+--  *   D L C   S W I T C H      F R A S  -  B N N              *
+--  *                                                           *
+--  *   Boundary Network Node / Routed Format                   *
+--  *                                                           *
+--  *************************************************************
+
+--  *************************************************************
+--  *                                                           *
+--  * 	THE FRAS BNN SDLC CONNECTION TABLE			*
+--  *                                                           *
+--  *************************************************************
+
+frasBnnSdlcConTable         OBJECT-TYPE
+                SYNTAX          SEQUENCE OF FrasBnnSdlcConEntry
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This table contains mapping information 
+			for each SDLC Link Station in a FRAS-BNN
+                        to SDLC connection. All entries are derived
+			entirely from the router configuration." 
+                ::= { frasBnnSdlc  1 }
+
+frasBnnSdlcConEntry         OBJECT-TYPE
+                SYNTAX          FrasBnnSdlcConEntry
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This table contains the entries defined
+                        for a specific SDLC Link Station in a
+			BNN-SDLC configuration."
+                INDEX   { ifIndex, bnnSdlcConAddress }
+                ::= { frasBnnSdlcConTable 1 }
+ 
+FrasBnnSdlcConEntry  ::= SEQUENCE {
+                bnnSdlcConAddress          SdlcAddress,
+                bnnSdlcConState            INTEGER,
+                bnnSdlcConDlci             Integer32,
+                bnnSdlcConFRInterface      InterfaceIndexOrZero,
+                bnnSdlcConLocalSap         SAP,
+                bnnSdlcConRemoteSap        SAP
+}
+ 
+bnnSdlcConAddress           OBJECT-TYPE
+                SYNTAX          SdlcAddress
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This value is the poll address of the
+                        secondary link station for this SDLC link.
+                        It uniquely identifies the SDLC link station
+                        within a single SDLC port."
+                ::= { frasBnnSdlcConEntry 1 }
+ 
+bnnSdlcConState             OBJECT-TYPE
+                SYNTAX          INTEGER {
+                        reset           (1),
+                        testSent        (2),
+                        xidexchg        (3),
+			connrqsent	(4),
+			sigstnwait	(5),
+			connrspwait	(6),
+			connrspsent	(7),
+                        contacted       (8),
+			discwait	(9)
+                }
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "Contains the FRAS state of the Link Station.
+                         reset - no activity
+                         testSent - TEST Frames sent
+                         xidexchg - XID exchange in progress
+			 connrqsent - Connect request sent
+			 sigstnwait - Signal station wait state
+			 connrspwait - Connect response wait state
+			 connrspsent - Connect response sent
+                         contacted - Session established 
+			 discwait - Disconnect wait state"
+                ::= { frasBnnSdlcConEntry 2 }
+ 
+bnnSdlcConDlci             	OBJECT-TYPE
+                SYNTAX          Integer32 (16..1022)
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "The Data Link Connection Identifier used for
+                        this particular connection."
+                ::= { frasBnnSdlcConEntry 3 }
+ 
+bnnSdlcConFRInterface      	OBJECT-TYPE
+                SYNTAX          InterfaceIndexOrZero 
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "This is the Frame-Relay interface which the
+                        SDLC Link Station is using to connect to the
+                        Host."
+                ::= { frasBnnSdlcConEntry 4 }
+ 
+bnnSdlcConLocalSap 		OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The Local SAP for this SDLC station's
+                       	corresponding LLC session to the host."
+                ::= { frasBnnSdlcConEntry 5 }
+ 
+bnnSdlcConRemoteSap         OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "The Remote SAP for this SDLC station's
+                        corresponding LLC session to the host."
+                ::= { frasBnnSdlcConEntry 6 }
+ 
+
+
+--  *************************************************************
+--  *                                                           *
+--  *	THE FRAS BNN LLC2 CONNECTION  TABLE       		*
+--  *                                                           *
+--  *************************************************************
+
+frasBnnLlcConTable      	OBJECT-TYPE
+                SYNTAX          SEQUENCE OF FrasBnnLlcConEntry
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This table contains information for
+                        each End Station in a FRAS-BNN to 
+			LLC connection. The entries are derived
+			entirely from the router configuration."
+                ::= { frasBnnLlc 1 }
+
+frasBnnLlcConEntry		OBJECT-TYPE
+                SYNTAX          FrasBnnLlcConEntry
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                        "This table contains information for
+			a specific End Station's connection
+			state in a BNN-LLC connection."
+                INDEX   { ifIndex, 
+				bnnLlcConDeviceMacAddress,
+				bnnLlcConLanLocalSap,
+				bnnLlcConLanRemoteSap }
+                ::= { frasBnnLlcConTable 1 }
+
+FrasBnnLlcConEntry  ::= SEQUENCE {
+		bnnLlcConDeviceMacAddress	MacAddress,
+		bnnLlcConLanLocalSap    	SAP,
+		bnnLlcConLanRemoteSap		SAP,
+		bnnLlcConLanInterface		InterfaceIndexOrZero,
+		bnnLlcConDlci			Integer32,
+                bnnLlcConState          	INTEGER,
+		bnnLlcConLocalMacAddress	MacAddress,
+		bnnLlcConFrLocalSap		SAP,
+		bnnLlcConFrRemoteSap		SAP
+}
+
+bnnLlcConDeviceMacAddress   	OBJECT-TYPE
+                SYNTAX          MacAddress
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This value is the End Station's Local
+                       	Mac-Address."
+                ::= { frasBnnLlcConEntry 1 }
+
+bnnLlcConLanLocalSap        	OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                        "The End Station's Local SAP."
+                ::= { frasBnnLlcConEntry 2 }
+
+bnnLlcConLanRemoteSap       	OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                        "The End Station's Remote SAP."
+                ::= { frasBnnLlcConEntry 3 }
+
+bnnLlcConLanInterface       	OBJECT-TYPE
+                SYNTAX          InterfaceIndexOrZero
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "This is the physical interace which the
+                        End Station is attached to."
+                ::= { frasBnnLlcConEntry 4 }
+
+bnnLlcConDlci               	OBJECT-TYPE
+                SYNTAX          Integer32 (16..1022)
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The Data Link Connection Identifier
+                        associated with the corresponding
+                        LLC2 session over Frame-Relay to the host."
+                ::= { frasBnnLlcConEntry 5 }
+
+bnnLlcConState              	OBJECT-TYPE
+                SYNTAX          INTEGER {
+                        reset           (1),
+                        testSent        (2),
+                        xidexchg        (3),
+                        connrqsent      (4),
+                        sigstnwait      (5),
+                        connrspwait     (6),
+                        connrspsent     (7),
+                        contacted       (8),
+                        discwait        (9)              
+                }
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "Contains the FRAS state of the Link Station.
+            		reset - no activity
+                        testSent - TEST Frames sent
+                        xidexchg - XID exchange in progress
+                        connrqsent - Connect request sent
+                        sigstnwait - Signal station wait state
+                        connrspwait - Connect response wait state
+                        connrspsent - Connect response sent
+                        contacted - Session established
+                        discwait - Disconnect wait state"
+                ::= { frasBnnLlcConEntry 6 }
+
+bnnLlcConLocalMacAddress    	OBJECT-TYPE
+                SYNTAX          MacAddress
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The Mac-Address configured as the End Station's
+               		target or Remote address."
+                ::= { frasBnnLlcConEntry 7 }
+
+bnnLlcConFrLocalSap         	OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "The FRAS router's Local SAP."
+                ::= { frasBnnLlcConEntry 8 }
+
+bnnLlcConFrRemoteSap        	OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "The FRAS router's Remote SAP."
+                ::= { frasBnnLlcConEntry 9 }
+
+
+--  *************************************************************
+--  *                                                           *
+--  *   D L C   S W I T C H      F R A S  -  B A N              *
+--  *								*
+--  *   Boundary Access Node / 802.5 Bridged Format		*
+--  *                                                           *
+--  *************************************************************
+
+--  *************************************************************
+--  *                                                           *
+--  *	THE FRAS BAN SDLC CONNECTION TABLE			*
+--  *                                                           *
+--  *************************************************************
+
+frasBanSdlcConTable      	OBJECT-TYPE
+                SYNTAX          SEQUENCE OF FrasBanSdlcConEntry
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This table contains information for
+                        each SDLC Link Station in a FRAS-BAN
+                        to SDLC connection. The entries are
+			derived entirely from the router 
+			configuration."
+                ::= { frasBanSdlc 1 }
+
+frasBanSdlcConEntry		OBJECT-TYPE
+		SYNTAX		FrasBanSdlcConEntry
+		MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This table contains information for
+                     	a specific SDLC Link Station in a
+			configured for a BAN connection."
+		INDEX	{ ifIndex, 
+			  banSdlcConAddress,
+			  banSdlcConBanDlciMac }
+                ::= { frasBanSdlcConTable 1 }
+
+FrasBanSdlcConEntry  ::= SEQUENCE {
+		banSdlcConLocalInterface	InterfaceIndexOrZero,
+                banSdlcConAddress 		SdlcAddress,
+		banSdlcConBanDlciMac		MacAddress,
+		banSdlcConDlci			Integer32,
+		banSdlcConState			INTEGER,
+		banSdlcConVmac			MacAddress,
+		banSdlcConBniAddress		MacAddress,
+		banSdlcConFrLocalSap		SAP,
+		banSdlcConFrRemoteSap		SAP
+}
+
+banSdlcConLocalInterface	OBJECT-TYPE
+                SYNTAX          InterfaceIndexOrZero
+		MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+		       "This is the physical interface the
+			SDLC Link Stations are connected to."
+		::= { frasBanSdlcConEntry 1 }
+
+banSdlcConAddress		OBJECT-TYPE
+		SYNTAX          SdlcAddress
+                MAX-ACCESS      read-only
+                STATUS          current
+		DESCRIPTION
+                       "This value is the poll address of the
+                        secondary link station for this SDLC link.
+                        It uniquely identifies the SDLC link station
+                        within a single SDLC port."
+		::= { frasBanSdlcConEntry 2 }
+
+
+banSdlcConBanDlciMac		OBJECT-TYPE
+		SYNTAX		MacAddress
+		MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The End Station's target or Remote
+			mac-address."
+		::= { frasBanSdlcConEntry 3 }
+
+banSdlcConDlci		OBJECT-TYPE
+		SYNTAX      	Integer32 (16..1022)
+		MAX-ACCESS	read-only
+		STATUS		current
+		DESCRIPTION
+		       "The Data Link Connection Identifier
+			for the corresponding LLC2 session	
+			over Frame-Relay to the host."
+		::= { frasBanSdlcConEntry 4 }
+
+banSdlcConState  		OBJECT-TYPE
+                SYNTAX          INTEGER {
+                        reset           (1),
+                        testSent        (2),
+                        xidexchg        (3),
+                        connrqsent      (4),
+                        sigstnwait      (5),
+                        connrspwait     (6),
+                        connrspsent     (7),
+                        contacted       (8),
+                        discwait        (9)
+                }
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "Contains the FRAS state of the Link Station.
+                         reset - no activity
+                         testSent- TEST Frames sent
+                         xidexchg - XID exchange in progress
+			 connrqsent - Connect request sent
+                         sigstnwait - Signal station wait state
+                         connrspwait - Connect response wait state
+                         connrspsent - Connect response sent
+                         contacted - Session established
+                         discwait - Disconnect wait state"
+                ::= { frasBanSdlcConEntry 5 }
+
+banSdlcConVmac			OBJECT-TYPE
+                SYNTAX          MacAddress
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "The End Station's virtual Mac-Address
+                        which is comprised of a TR formatted
+			template and the SDLC Link Station
+			address appended on the last nibble."
+                ::= { frasBanSdlcConEntry 6 }
+
+banSdlcConBniAddress		OBJECT-TYPE
+		SYNTAX          MacAddress
+		MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "BNI is Boundary Node Identifier which is
+			the FRAS-BAN connection's Remote address
+			in TR-format. It is by default 4fff.0000.0000"
+                ::= { frasBanSdlcConEntry 7 }
+
+banSdlcConFrLocalSap    	OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "The FRAS router's Local SAP."
+                ::= { frasBanSdlcConEntry 8 }
+
+banSdlcConFrRemoteSap          	OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                        "The FRAS router's Remote SAP."
+                ::= { frasBanSdlcConEntry 9 }
+
+
+--  *************************************************************
+--  *                                                           *
+--  *   THE FRAS BAN LLC2 CONNECTION  TABLE          		*
+--  *                                                           *
+--  *************************************************************
+
+frasBanLlcConTable          	OBJECT-TYPE
+                SYNTAX          SEQUENCE OF FrasBanLlcConEntry
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This table contains information for each
+                        LAN attached End Station in a FRAS-BAN
+                        to LAN connection. The entries are from
+			endstations which have their destination
+			mac-addresses as the BAN-DLCI-MAC address."
+                ::= { frasBanLlc 1 }
+ 
+frasBanLlcConEntry  	OBJECT-TYPE
+                SYNTAX          FrasBanLlcConEntry
+                MAX-ACCESS      not-accessible
+                STATUS          current
+                DESCRIPTION
+                       "This table contains information for a
+                       	specific LAN attached End Station."
+                INDEX   { banLlcEndstnLocalMac,
+			  banLlcConLocalSap,
+			  banLlcConRemoteSap,
+			  banLlcBanDlciMac }
+                ::= { frasBanLlcConTable 1 }
+ 
+FrasBanLlcConEntry  ::= SEQUENCE {
+                banLlcEndstnLocalMac        	MacAddress,
+                banLlcBanDlciMac            	MacAddress,
+		banLlcConLocalSap		SAP,
+		banLlcConRemoteSap		SAP,
+                banLlcConDlci               	Integer32,
+                banLlcConState              	INTEGER,
+                banLlcConFrInterface        	InterfaceIndexOrZero,
+                banLlcBniAddress            	MacAddress,
+		banLlcConFrLocalSap		SAP,
+		banLlcConFrRemoteSap		SAP
+}
+
+ 
+banLlcEndstnLocalMac        OBJECT-TYPE
+                SYNTAX          MacAddress
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "This value is the End Station's Local
+                        Mac-Address."
+                ::= { frasBanLlcConEntry 1 }
+
+banLlcBanDlciMac            OBJECT-TYPE
+                SYNTAX          MacAddress
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "This value is the End Station's Remote
+                        Mac-Address. It is also the FRAS-BAN connection's
+                        Local Mac-Address."
+                ::= { frasBanLlcConEntry 2 }
+
+banLlcConLocalSap		OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The endstation's Local SAP."
+                ::= { frasBanLlcConEntry 3 }
+
+banLlcConRemoteSap		OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The endstation's Remote SAP."
+                ::= { frasBanLlcConEntry 4 }
+
+banLlcConDlci               	OBJECT-TYPE
+                SYNTAX          Integer32 (16..1022)
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The Data Link Connection Identifier
+                        associated with the corresponding LLC2
+                        session over Frame-Relay to the host."
+                ::= { frasBanLlcConEntry 5 }
+
+banLlcConState              OBJECT-TYPE
+                SYNTAX          INTEGER {
+                        reset           (1),
+                        testSent        (2),
+                        xidexchg        (3),
+			connrqsent      (4),
+                        sigstnwait      (5),
+                        connrspwait     (6),
+                        connrspsent     (7),
+                        contacted       (8),
+                        discwait        (9)
+                }
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "Contains the FRAS state of the Link Station.
+                        reset - no activity
+                        testSent- TEST Frames sent
+                        xidexchg - XID exchange in progress
+			connrqsent - Connect request sent
+                        sigstnwait - Signal station wait state
+                        connrspwait - Connect response wait state
+                        connrspsent - Connect response sent
+                        contacted - Session established
+                        discwait - Disconnect wait state"
+                ::= { frasBanLlcConEntry 6 }
+
+banLlcConFrInterface        OBJECT-TYPE
+                SYNTAX          InterfaceIndexOrZero
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "This is the Frame-Relay interface
+                        for this particular session."
+                ::= { frasBanLlcConEntry 7 }
+ 
+banLlcBniAddress            OBJECT-TYPE
+                SYNTAX          MacAddress
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "This value is the FRAS-BAN connection's Target
+                        Mac-Address. It is by default 4fff.0000.0000"
+                ::= { frasBanLlcConEntry 8 }
+
+banLlcConFrLocalSap             OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                      "The Local SAP of the corresponding LLC2
+                        session over Frame-Relay to the host."
+                ::= { frasBanLlcConEntry 9 }
+
+banLlcConFrRemoteSap            OBJECT-TYPE
+                SYNTAX          SAP
+                MAX-ACCESS      read-only
+                STATUS          current
+                DESCRIPTION
+                       "The Remote SAP of the corresponding LLC2
+                        session over Frame-Relay to the host."
+                ::= { frasBanLlcConEntry 10 }
+
+
+
+-- **********************************************************************
+-- * CONFORMANCE INFORMATION						*
+-- **********************************************************************
+ciscoDlcSwitchConformance	OBJECT IDENTIFIER ::= { ciscoDlcSwitchMIB 2 }
+ciscoDlcSwitchCompliances	OBJECT IDENTIFIER ::= { ciscoDlcSwitchConformance 1 }
+ciscoDlcSwitchGroups		OBJECT IDENTIFIER ::= { ciscoDlcSwitchConformance 2 }
+
+
+
+-- 
+--  COMPLIANCE STATEMENTS						
+-- 
+
+
+ciscoDlcSwitchCoreCompliance	MODULE-COMPLIANCE
+	STATUS 	current
+	DESCRIPTION
+	  "The core compliance statement for all FRAS connections."
+	MODULE
+	   MANDATORY-GROUPS	{
+		frasBnnSdlcGroup,
+		frasBnnLlcGroup,   
+		frasBanSdlcGroup, 
+		frasBanLlcGroup
+	    }
+
+	::= { ciscoDlcSwitchCompliances 1 }
+
+
+--
+-- Core Conformance Groups for All Connection Components
+--
+
+frasBnnSdlcGroup OBJECT-GROUP
+    OBJECTS  {
+	bnnSdlcConState,
+	bnnSdlcConDlci,
+	bnnSdlcConFRInterface,
+	bnnSdlcConLocalSap,
+	bnnSdlcConRemoteSap
+    }
+    STATUS current
+    DESCRIPTION	
+       "The frasBnnSdlcGroup defines objects
+        which are common to the BNN SDLC of all
+        compliant connections."
+    ::= { ciscoDlcSwitchGroups 1 }
+
+
+frasBnnLlcGroup OBJECT-GROUP
+    OBJECTS  {	
+	bnnLlcConLanInterface,
+	bnnLlcConDlci,	
+	bnnLlcConState,
+	bnnLlcConLocalMacAddress,
+	bnnLlcConFrLocalSap,
+	bnnLlcConFrRemoteSap
+    }
+    STATUS current
+    DESCRIPTION
+       "The frasBnnLlcGroup defines objects
+        which are common to the BNN LLC of all
+        compliant connections."
+    ::= { ciscoDlcSwitchGroups 2 }
+
+
+frasBanSdlcGroup OBJECT-GROUP
+    OBJECTS  {
+	banSdlcConLocalInterface,
+	banSdlcConAddress,
+	banSdlcConBanDlciMac,
+	banSdlcConDlci,
+	banSdlcConState,
+	banSdlcConVmac,
+	banSdlcConBniAddress,
+	banSdlcConFrLocalSap,
+	banSdlcConFrRemoteSap
+    }
+    STATUS current
+    DESCRIPTION
+       "The frasBanSdlcGroup defines objects
+        which are common to the BAN SDLC of all
+        compliant connections."
+    ::= { ciscoDlcSwitchGroups 3 }
+
+
+frasBanLlcGroup OBJECT-GROUP
+    OBJECTS  {
+	banLlcEndstnLocalMac,
+	banLlcBanDlciMac,
+	banLlcConDlci,
+	banLlcConLocalSap,
+	banLlcConRemoteSap,
+	banLlcConState,
+	banLlcConFrInterface,
+	banLlcBniAddress,
+	banLlcConFrLocalSap,
+	banLlcConFrRemoteSap
+    }
+    STATUS current
+    DESCRIPTION
+       "The frasBanLlcGroup defines objects
+        which are common to the BAN LLC of all
+        compliant connections."
+    ::= { ciscoDlcSwitchGroups 4 }
+
+
+END
+
+
+
+
+

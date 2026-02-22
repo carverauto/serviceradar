@@ -1,0 +1,2131 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOT11-CLIENT-CCXV5-REPORTING-MIB.my
+-- Sheeba Kamra  Aug 2006
+--   
+-- Copyright (c) 2005-2007, 2017 by Cisco Systems, Inc.
+--  
+-- All rights reserved.
+-- ******************************************************************
+
+CISCO-LWAPP-DOT11-CLIENT-CCXV5-REPORTING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    IpAddress,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TEXTUAL-CONVENTION,
+    MacAddress
+        FROM SNMPv2-TC
+    cldcClientMacAddress,
+    ciscoLwappDot11ClientCcxMIBObjects,
+    ciscoLwappDot11ClientCCXV5ReportingMIBConform
+        FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+    CvE164Address
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoLwappDot11ClientReqStatus,
+    CiscoLwappDot11ClientSSId,
+    CiscoLwappDot11ClientAuthMethod,
+    CiscoLwappDot11ClientEAPMethod,
+    CiscoLwappDot11ClientKeyMgmtMethod,
+    CiscoLwappDot11ClientEncryptionMethod,
+    CiscoLwappDot11ClientCredentialType,
+    CiscoLwappDot11ClientPowerSaveMode,
+    CiscoLwappDot11ClientTxPowerMode,
+    CiscoLwappDot11ClientRadioType 
+         FROM CISCO-LWAPP-DOT11-CLIENT-CCX-TC-MIB;
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappDot11ClientCCXv5ReportingMIB MODULE-IDENTITY
+    LAST-UPDATED    "201704180000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central Controllers (CC) that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Light-weight LWAPP Access Points.
+
+        This MIB provides configuration and status information 
+        about the CCXv5 clients that the controller is aware of.
+        This configuration and status information pertaining
+        to the client is termed as Client Reporting.
+
+        Client Reporting is a mechanism used by a client and
+        AP for the purpose of exchanging client information.
+
+        Once a client has associated with the network, the 
+        associated AP may send the client a Client Report
+        Request frame at any time.  This frame identifies
+        what type of information is desired from the client.
+
+        For all CCXv5 clients, client reporting is organized 
+        into 4 major categories:
+           Client Profile Information
+           Client Manufacturer Information
+           Client Operational Parameter Information
+           Client Capability Information
+
+        Client Profile is for retrieving information about the
+        configuration on the client.
+        Manufacturer Information is for retreiving data about
+        the wireless adaptor in use.
+        Operating parameters is for retrieving the details of
+        the clients current operational modes
+        Client Capabilities is for retrieving information
+        about the client's capabilities.
+
+        This mib defines the attributes for all of the above 4
+        categories.
+
+                 GLOSSARY
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. Mobile Node,
+        Mobile Station(Ms) and client are used
+        interchangeably.
+
+        REFERENCE
+
+        [1] Part 11 Wireless LAN Medium Access Control ( MAC )
+        and Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol. 
+
+        [3] Cisco Compatible Extensions for WLAN Devices
+        Version 5.0.11"
+    REVISION        "201704180000Z"
+    DESCRIPTION
+        "Initial version of this  mib module."
+          ::= { ciscoLwappDot11ClientCcxMIBObjects 4 }
+
+
+ciscoLwappDot11ClientCCXv5ReportingMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCCXv5ReportingMIB 1 }
+
+ciscoClientCcxManuReporting  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCCXv5ReportingMIBObjects 1 }
+
+ciscoClientCcxOperReporting  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCCXv5ReportingMIBObjects 2 }
+
+ciscoClientCcxProfileReporting  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCCXv5ReportingMIBObjects 3 }
+
+ciscoClientCcxCapabilityReporting  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientCCXv5ReportingMIBObjects 4 }
+
+
+cldccManufacturerInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccManufacturerInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the Manufacturer 
+        Information for each client. 
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP.
+        While a client is associated, if a management station 
+        wishes to retrieve the manufacturer information from the
+        client again, it can do so by setting the 
+        cldccManufacturerInfoStatus to initiate (1)."
+    ::= { ciscoClientCcxManuReporting 1 }
+
+cldccManufacturerInfoEntry OBJECT-TYPE
+    SYNTAX          CldccManufacturerInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+        by the client mac address."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldccManufacturerInfoTable 1 }
+
+CldccManufacturerInfoEntry ::= SEQUENCE {
+        cldccManufacturerInfoStatus              CiscoLwappDot11ClientReqStatus,
+        cldccManufacturerInfoOUI                 OCTET STRING,
+        cldccManufacturerInfoID                  SnmpAdminString,
+        cldccManufacturerInfoModel               SnmpAdminString,
+        cldccManufacturerInfoSerialNum           SnmpAdminString,
+        cldccManufacturerInfoRadioType           SnmpAdminString,
+        cldccManufacturerInfoMacAddress          MacAddress,
+        cldccManufacturerInfoAntennaType         INTEGER ,
+        cldccManufacturerInfoAntennaGain         Unsigned32
+}
+
+cldccManufacturerInfoStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientReqStatus
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of current request.
+        To trigger a request to the client to get the manufacturer
+        information, this attribute is set to initiate(1). Once
+        the request is triggered, the agent will set the value to
+        inProgress(2).  Based on the progress of the request, this
+        is later updated to sucess(3), failure(4) or 
+        requestNotProcessedByClient(5).
+        If a request has not been triggered explicitly by setting
+        this attribute to initiate, then this field returns the 
+        status of the last request." 
+    ::= { cldccManufacturerInfoEntry 1 }
+
+cldccManufacturerInfoOUI OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (3))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IEEE assigned organizational
+        unique identifier, i.e. the first 3 bytes of the MAC address of 
+        the wireless network connected device." 
+    ::= { cldccManufacturerInfoEntry 2 }
+
+cldccManufacturerInfoID OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the manufacturer identifier of the
+        wireless network adaptor." 
+    ::= { cldccManufacturerInfoEntry 3 }
+
+cldccManufacturerInfoModel OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a string identifying the model of
+        the wireless network adaptor" 
+    ::= { cldccManufacturerInfoEntry 4 }
+
+cldccManufacturerInfoSerialNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a string identifying the serial
+        number of the wireless network adaptor." 
+    ::= { cldccManufacturerInfoEntry 5 }
+
+cldccManufacturerInfoRadioType OBJECT-TYPE
+    SYNTAX          SnmpAdminString  (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "This object indicates the radio type of the client." 
+    ::= { cldccManufacturerInfoEntry 6 }
+
+cldccManufacturerInfoMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the mac address assigned to the
+        client." 
+    ::= { cldccManufacturerInfoEntry 7 }
+
+cldccManufacturerInfoAntennaType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        omniDirectionalCollinear(0),
+                        omniDirectionalDiversity(1),
+                        omniDirectionalOther(2),
+                        directionalYagi(3),
+                        directionalPanel(4),
+                        directionalSector(5),
+                        directionalOther(6),
+                        unknown(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of antenna connected to
+        the wireless network adaptor.  The different possible
+        values are:
+        omniDirectionalCollinear - this is a collinear omni-directional
+        antenna. An omni directional antenna is an antenna system 
+        which radiates power uniformly in all directions.
+        
+        omniDirectionalDiversity - this is a diversity omni-directional
+        antenna.
+        
+        omniDirectionalOther - this is an omni-directional antenna
+        which is not collinear or diversity.
+        
+        directionalYagi - this indicates Yagi directional antenna.
+        
+        directionalPanel - this specifies a directional Panel 
+        type antenna.
+        
+        directionalSector - this indicates a directional Sector
+        type antenna.
+        
+        directionalOther - this indicates a directional antenna
+        which is not Yagi, Panel or Sector type.
+        
+        unknown - this indicates that the antenna type is 
+        unknown.
+        " 
+    ::= { cldccManufacturerInfoEntry 8 }
+
+cldccManufacturerInfoAntennaGain OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..40 )
+    UNITS           "dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak gain in dbi of the antenna
+        for directional antennas and the average gain in dBi for 
+        omni-directional antennas connected to the wireless network 
+        adaptor. The gain is in multiples of 0.5 dBm. An integer 
+        value 4 means  4 x 0.5 = 2 dBm of gain." 
+    ::= { cldccManufacturerInfoEntry 9 }
+
+
+cldccManuRxSensTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccManuRxSensEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table represents information about the receiver
+            sensitivity per radio for each client."
+    ::= { ciscoClientCcxManuReporting 2 }
+
+cldccManuRxSensEntry OBJECT-TYPE
+    SYNTAX          CldccManuRxSensEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry in the table represents DNS server
+             details configured on the client."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccManuRxSensRadioIndex,
+                        cldccManuRxSensRadioDataRateIndex
+                    } 
+    ::= { cldccManuRxSensTable 1 }
+
+CldccManuRxSensEntry ::= SEQUENCE {
+        cldccManuRxSensRadioIndex   Unsigned32,
+        cldccManuRxSensRadioDataRateIndex   Unsigned32,
+        cldccManuRxSensRadioType  CiscoLwappDot11ClientRadioType,
+        cldccManuRxSensRadioDataRate   Unsigned32,
+        cldccManuRxSensMinRssi Integer32,
+        cldccManuRxSensMaxRssi Integer32
+}
+
+cldccManuRxSensRadioIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This objects represents the sequence number for the 
+            radios configured on a client." 
+    ::= { cldccManuRxSensEntry 1 }
+
+cldccManuRxSensRadioDataRateIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This objects represents the sequence number for the 
+            data rates radios configured on a client." 
+    ::= { cldccManuRxSensEntry 2 }
+
+cldccManuRxSensRadioType OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type."
+    ::= { cldccManuRxSensEntry 3 }
+
+cldccManuRxSensRadioDataRate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the data rate for a particular 
+            radio configured on a client." 
+    ::= { cldccManuRxSensEntry 4 }
+
+
+cldccManuRxSensMinRssi OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the min RSSI for a data rate for
+            a particular radio configured on a client." 
+    ::= { cldccManuRxSensEntry 5 }
+
+cldccManuRxSensMaxRssi OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the max RSSI for a data rate for
+            a particular radio configured on a client." 
+    ::= { cldccManuRxSensEntry 6 }
+
+
+
+
+cldccCapabilityTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccCapabilityEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the capabilities for
+        each client.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP.
+        While a client is associated, if a management station 
+        wishes to retrieve the capability information from the
+        client again, it can do so by setting the 
+        cldccCapabilityStatus to initiate (1)."
+    ::= { ciscoClientCcxCapabilityReporting 1 }
+
+cldccCapabilityEntry OBJECT-TYPE
+    SYNTAX          CldccCapabilityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldccCapabilityTable 1 }
+
+CldccCapabilityEntry ::= SEQUENCE {
+        cldccCapabilityStatus        CiscoLwappDot11ClientReqStatus,
+        cldccCapabilityRadioType     SnmpAdminString,
+        cldccServiceCapability       SnmpAdminString
+}
+
+cldccCapabilityStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientReqStatus
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of current request.
+        To trigger a request to the client to get the capability
+        information, this attribute is set to initiate(1). Once
+        the request is triggered, the agent will set the value to
+        inProgress(2).  Based on the progress of the request, this
+        is later updated to sucess(3), failure(4) or 
+        requestNotProcessedByClient(5).
+        If a request has not been triggered explicitly by setting
+        this attribute to initiate, then this field returns the 
+        status of the last request." 
+    ::= { cldccCapabilityEntry 1 }
+
+cldccCapabilityRadioType OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "This object indicates the radio type of the client. This 
+    reports all of the radio types of which the wireless network adaptor is 
+    capable " 
+    ::= { cldccCapabilityEntry 2 }
+
+cldccServiceCapability OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a bit field that indicates the type of
+        services available when using the wireless network adaptor.   
+        A bit value of 1 indicates that the service is supported 
+        and a bit value of 0 means either the service is not 
+        supported or it is unknown if the service is supported.
+        The different types of services are:
+        voice, uni-directional video, bi-directional video and
+        GPS location services." 
+    ::= { cldccCapabilityEntry 4 }
+ 
+
+cldccCapabilityChannelsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccCapabilityChannelsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table represents information about the receiver
+            sensitivity per radio for each client."
+    ::= { ciscoClientCcxCapabilityReporting 2 }
+
+cldccCapabilityChannelsEntry OBJECT-TYPE
+    SYNTAX          CldccCapabilityChannelsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry in the table is represented
+             by the client mac address."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccCapabilityRadioIndex
+                    } 
+    ::= { cldccCapabilityChannelsTable 1 }
+
+CldccCapabilityChannelsEntry::= SEQUENCE {
+        cldccCapabilityRadioIndex   Unsigned32,
+        cldccCapabilityChRadioType  CiscoLwappDot11ClientRadioType,
+        cldccCapabilityRadioChannels   SnmpAdminString
+}
+
+cldccCapabilityRadioIndex   OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object represents a sequence number for the 
+            radios configured on a client." 
+    ::= { cldccCapabilityChannelsEntry 1 }
+
+
+cldccCapabilityChRadioType  OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the radio type for the radio"
+    ::= { cldccCapabilityChannelsEntry 2 }
+
+cldccCapabilityRadioChannels   OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates a list of 1 or more comma separated radio
+          channel numbers that this client is capable of communicating on." 
+    ::= { cldccCapabilityChannelsEntry 3 }
+
+
+
+cldccCapabilityTxPowerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccCapabilityTxPowerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the Tx power 
+        mode values for each client for which the 
+        transmit power mode (as indicated by 
+        cldccCapabilityTxPowerMode) is  fixed.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller and its power mode is fixed. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP."
+    ::= { ciscoClientCcxCapabilityReporting 3 }
+
+cldccCapabilityTxPowerEntry OBJECT-TYPE
+    SYNTAX          CldccCapabilityTxPowerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table represents the client
+        tx power values if the client's power mode is fixed.
+        Entry in the table is represented
+        by the client mac address and tx power index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccCapabilityTxPowerIndex
+                    } 
+    ::= { cldccCapabilityTxPowerTable 1 }
+
+CldccCapabilityTxPowerEntry ::= SEQUENCE {
+        cldccCapabilityTxPowerIndex Unsigned32,
+        cldccCapabilityTxPowerRadioType  CiscoLwappDot11ClientRadioType,
+        cldccCapabilityTxPowerMode  INTEGER,
+        cldccCapabilityTxPower      OCTET STRING
+}
+
+cldccCapabilityTxPowerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the index for the different Tx power values that
+        a client is capable of supporting." 
+    ::= { cldccCapabilityTxPowerEntry 1 }
+
+
+cldccCapabilityTxPowerRadioType  OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type of the client."
+    ::= { cldccCapabilityTxPowerEntry 2 }
+
+cldccCapabilityTxPowerMode OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        fixed(0),
+                        automatic(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the transmit power mode of the
+        client STA. 
+        fixed (0) -  represents fixed Tx power mode. 
+        automatic (1) - represents automatic Tx power mode. 
+        Tx Power Mode values for the client can be 
+        retrieved from the cldccCapabilityTxPowerTable if the 
+        power mode is fixed.
+        If the power mode is automatic, then there are no entries
+        in the cldccCapabilityTxPowerTable for this client." 
+    ::= { cldccCapabilityTxPowerEntry 3 } 
+
+cldccCapabilityTxPower OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Tx power levels supported
+        by a client." 
+    ::= { cldccCapabilityTxPowerEntry 4 }
+ 
+cldccCapabilityDataRateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccCapabilityDataRateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the Tx power 
+        mode values for each client for which the 
+        transmit power mode (as indicated by 
+        cldccCapabilityTxPowerMode) is  fixed.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller and its power mode is fixed. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP."
+    ::= { ciscoClientCcxCapabilityReporting 4 }
+
+cldccCapabilityDataRateEntry OBJECT-TYPE
+    SYNTAX          CldccCapabilityDataRateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table is represented
+         by the client mac address and data rate index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccCapabilityDataRateIndex
+                    } 
+    ::= { cldccCapabilityDataRateTable 1 }
+
+CldccCapabilityDataRateEntry::= SEQUENCE {
+        cldccCapabilityDataRateIndex Unsigned32,
+        cldccCapabilityDataRateRadioType  CiscoLwappDot11ClientRadioType,
+        cldccCapabilityDataRates      SnmpAdminString
+}
+
+cldccCapabilityDataRateIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is an index for the different data rate values that
+        a client is capable of supporting." 
+    ::= { cldccCapabilityDataRateEntry 1 }
+
+cldccCapabilityDataRateRadioType OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the radio"
+    ::= { cldccCapabilityDataRateEntry 2 }
+
+cldccCapabilityDataRates OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the data rates for a particular radio." 
+    ::= { cldccCapabilityDataRateEntry 3 }
+
+cldccOperParamsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccOperParamsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the operational parameters
+        for each client.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP.
+        At any point in time, while a client is associated, if a 
+        management station wishes to retrieve the current operational
+        information from the client, it should do so by setting the 
+        cldccOperParamsStatus to initiate (1)."
+    ::= { ciscoClientCcxOperReporting 1 }
+
+cldccOperParamsEntry OBJECT-TYPE
+    SYNTAX          CldccOperParamsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table is represented
+         by the client mac address."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldccOperParamsTable 1 }
+
+CldccOperParamsEntry ::= SEQUENCE {
+        cldccOperParamsStatus          CiscoLwappDot11ClientReqStatus,
+        cldccOperParamsRadioType       SnmpAdminString,
+        cldccOperParamsSSId            CiscoLwappDot11ClientSSId,
+        cldccOperParamsDeviceName      SnmpAdminString,
+        cldccOperParamsDeviceType      INTEGER ,
+        cldccOperParamsOSId            SnmpAdminString,
+        cldccOperParamsOSVersion       SnmpAdminString,
+        cldccOperParamsIpAddressMode   INTEGER ,
+        cldccOperParamsIpv4Address     IpAddress,
+        cldccOperParamsIpv4SubnetMask  IpAddress,
+        cldccOperParamsIpv6Address     OCTET STRING,
+        cldccOperParamsIpv6SubnetMask  OCTET STRING,
+        cldccOperParamsDefaultGateway  IpAddress,
+        cldccOperParamsEntPhone        CvE164Address,
+        cldccOperParamsCellPhone       CvE164Address,
+        cldccOperParamsFirmwareVersion SnmpAdminString,
+        cldccOperParamsDriverVersion   SnmpAdminString,
+        cldccOperParamsPowerSaveMode   CiscoLwappDot11ClientPowerSaveMode,
+        cldccOperParamsAuthMethod      CiscoLwappDot11ClientAuthMethod,
+        cldccOperParamsKeyMgmtMethod   CiscoLwappDot11ClientKeyMgmtMethod,
+        cldccOperParamsEncrMethod      CiscoLwappDot11ClientEncryptionMethod,
+        cldccOperParamsDot1xSecurity SnmpAdminString,
+        cldccOperParamsSysName         SnmpAdminString,
+        cldccOperParamsLocalization    SnmpAdminString
+}
+
+cldccOperParamsStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientReqStatus
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of current request.
+        To trigger a request to the client to get the operational
+        information, this attribute is set to initiate(1). Once
+        the request is triggered, the agent will set the value to
+        inProgress(2).  Based on the progress of the request, this
+        is later updated to sucess(3), failure(4) or 
+        requestNotProcessedByClient(5).
+        If a request has not been triggered explicitly by setting
+        this attribute to initiate, then this field returns the 
+        status of the last request." 
+    ::= { cldccOperParamsEntry 1 }
+
+cldccOperParamsRadioType OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the radio type of the client." 
+    ::= { cldccOperParamsEntry 2 }
+
+cldccOperParamsSSId OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientSSId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SSId being used by the client." 
+    ::= { cldccOperParamsEntry 7 }
+
+
+cldccOperParamsDeviceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the device name assigned to the 
+        wireless network adaptor by the operating system, 
+        e.g., WLAN Connection 1." 
+    ::= { cldccOperParamsEntry 8 }
+
+cldccOperParamsDeviceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        laptop(0),
+                        pc(1),
+                        pda(2),
+                        dot11MobilePhone(3),
+                        dualModePhone(4),
+                        wgb(5),
+                        scanner(6),
+                        tabletPc(7),
+                        printer(8),
+                        projector(9),
+                        videoConfSystem(10),
+                        camera(11),
+                        gamingSystem(12),
+                        dot11DeskPhone(13),
+                        cashRegister(14),
+                        radioTag(15),
+                        rfidSensor(16),
+                        server(17),
+                        appSpecific(18),
+                        unknown(255)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates what type of device is the client.
+        The different types of devices are:
+        laptop - the client machine is a laptop
+        
+        pc - the client machine is a PC
+        
+        pda - this indicates a Personal Digital Assistant
+        
+        dot11MobilePhone - this indicates an 802.11 mobile phone
+        
+        dualModePhone - this indicates a dual mode phone
+        
+        wgb - this indicates a work group bridge
+        
+        scanner - this indicates a scanner
+        
+        tabletPc - this indicates a tablet type of PC
+        
+        printer - this indicates a printer
+        
+        projector - this indicates a projector
+        
+        videoConfSystem - this indicates a Videe Conferencing
+        System
+        
+        camera - this indicates a camera
+        
+        gamingSystem - this indicates a gaming system
+        
+        dot11DeskPhone - this indicates an 802.11 desk phone
+        
+        cashRegister - this indicates a cash register
+        
+        radioTag - this indicates a radio tag
+        
+        rfidSensor - this indicates a radio sensor
+        
+        server - this indicates a server type of device
+        
+        appSpecific - this indicates that the device is 
+        application specific
+        
+        unknown - this indicates that the client type is unknown." 
+    ::= { cldccOperParamsEntry 9 }
+
+cldccOperParamsOSId OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operating system using the
+        wireless network adaptor." 
+    ::= { cldccOperParamsEntry 10 }
+
+cldccOperParamsOSVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the version of operating
+        system using the wireless network adaptor." 
+    ::= { cldccOperParamsEntry 11 }
+
+cldccOperParamsIpAddressMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(0),
+                        dhcp(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how the ip address was
+        assigned to the client.
+        static(0) - represents the address is  assigned
+        statically.
+        dhcp (1) - represents the address is  assigned
+        via DHCP." 
+    ::= { cldccOperParamsEntry 12 }
+
+cldccOperParamsIpv4Address OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the  ipv4 address
+        assigned to the client." 
+    ::= { cldccOperParamsEntry 13 }
+
+cldccOperParamsIpv4SubnetMask OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the  ipv4 subnet mask
+        assigned to the client." 
+    ::= { cldccOperParamsEntry 14 }
+
+cldccOperParamsIpv6Address OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IPv6 address
+        assigned to the client." 
+    ::= { cldccOperParamsEntry 15 }
+
+cldccOperParamsIpv6SubnetMask OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the mask for the ip address
+        assigned to the client." 
+    ::= { cldccOperParamsEntry 16 }
+
+cldccOperParamsDefaultGateway OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the default gateway chosen
+        for the client." 
+    ::= { cldccOperParamsEntry 17 }
+
+cldccOperParamsEntPhone OBJECT-TYPE
+    SYNTAX          CvE164Address
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the enterprise phone number
+        for the client." 
+    ::= { cldccOperParamsEntry 18 }
+
+cldccOperParamsCellPhone OBJECT-TYPE
+    SYNTAX          CvE164Address
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the cell phone number
+        for the client." 
+    ::= { cldccOperParamsEntry 19 }
+
+cldccOperParamsFirmwareVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the string identifying the
+        version of firmware currently installed
+        on the client. " 
+    ::= { cldccOperParamsEntry 20 }
+
+cldccOperParamsDriverVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the string identifying the
+        driver version of firmware currently installed
+        on the client. " 
+    ::= { cldccOperParamsEntry 21 }
+
+cldccOperParamsPowerSaveMode OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientPowerSaveMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of power save mode configured
+        on the client." 
+    ::= { cldccOperParamsEntry 22 }
+
+cldccOperParamsAuthMethod OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientAuthMethod
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the authentication method
+        currently used by the client." 
+    ::= { cldccOperParamsEntry 23 }
+
+--cldccOperParamsEAPMethod OBJECT-TYPE
+--    SYNTAX          CiscoLwappDot11ClientEAPMethod
+--    MAX-ACCESS      read-only
+--    STATUS          current
+--    DESCRIPTION
+--        "This object indicates  the EAP method
+--        currently used by the client." 
+--    ::= { cldccOperParamsEntry 24 }
+
+cldccOperParamsKeyMgmtMethod OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientKeyMgmtMethod
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates  the key management method
+        currently used by the client." 
+    ::= { cldccOperParamsEntry 25 }
+
+cldccOperParamsEncrMethod OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientEncryptionMethod
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates  the encryption method
+        currently used by the client." 
+    ::= { cldccOperParamsEntry 26 }
+
+cldccOperParamsDot1xSecurity OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the 802.1x security
+        parameters currently configured for the client." 
+    ::= { cldccOperParamsEntry 27 }
+ 
+cldccOperParamsSysName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the client device.
+        It contains the system name assigned by the 
+        operating system to the host device incorporating the 
+        wireless network adaptor, e.g., linux-box or XP-laptop-37" 
+    ::= { cldccOperParamsEntry 28 }
+
+cldccOperParamsLocalization OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the localization information 
+         of the client device."
+    ::= { cldccOperParamsEntry 29 }
+
+cldccOperParamsDNSTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccOperParamsDNSEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the DNS Servers
+        currently configured for each client.
+        Entries are added to this table automatically once the 
+        associated client's operational parameters are retrieved
+        using the cldccOperParamsTable. 
+        Entries are removed automatically when the client is
+        disassociated."
+    ::= { ciscoClientCcxOperReporting 2 }
+
+cldccOperParamsDNSEntry OBJECT-TYPE
+    SYNTAX          CldccOperParamsDNSEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address and dns server index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccOperParamsDNSServerIndex
+                    } 
+    ::= { cldccOperParamsDNSTable 1 }
+
+CldccOperParamsDNSEntry ::= SEQUENCE {
+        cldccOperParamsDNSServerIndex   Unsigned32,
+        cldccOperParamsDNSServerAddress IpAddress
+}
+
+cldccOperParamsDNSServerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a sequence number for the DNS
+        servers configured on a client." 
+    ::= { cldccOperParamsDNSEntry 1 }
+
+cldccOperParamsDNSServerAddress OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ip address of a DNS server" 
+    ::= { cldccOperParamsDNSEntry 2 }
+ 
+
+
+cldccOperParamsWINSTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccOperParamsWINSEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the WINS Servers
+        currently configured for each client.
+        Entries are added to this table automatically once the 
+        associated client's operational parameters are retrieved
+        using the cldccOperParamsTable. 
+        Entries are removed automatically when the client is
+        disassociated."
+    ::= { ciscoClientCcxOperReporting 3 }
+
+cldccOperParamsWINSEntry OBJECT-TYPE
+    SYNTAX          CldccOperParamsWINSEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address and WINS server index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccOperParamsWINSServerIndex
+                    } 
+    ::= { cldccOperParamsWINSTable 1 }
+
+CldccOperParamsWINSEntry ::= SEQUENCE {
+        cldccOperParamsWINSServerIndex   Unsigned32,
+        cldccOperParamsWINSServerAddress IpAddress
+}
+
+cldccOperParamsWINSServerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a sequence number for the WINS
+        servers configured on a client." 
+    ::= { cldccOperParamsWINSEntry 1 }
+
+cldccOperParamsWINSServerAddress OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ip address of a WINS server
+        configured for the client." 
+    ::= { cldccOperParamsWINSEntry 2 }
+ 
+cldccOperChannelsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccOperChannelsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table represents information about the recevier
+            sensitivity per radio for each client."
+    ::= { ciscoClientCcxOperReporting 4 }
+
+cldccOperChannelsEntry OBJECT-TYPE
+    SYNTAX          CldccOperChannelsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry in the table is represented
+             by the client mac address and radio index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccOperRadioIndex
+                    } 
+    ::= { cldccOperChannelsTable 1 }
+
+CldccOperChannelsEntry::= SEQUENCE {
+        cldccOperRadioIndex   Unsigned32,
+        cldccOperRadioType  CiscoLwappDot11ClientRadioType,
+        cldccOperRadioChannels   SnmpAdminString
+}
+
+cldccOperRadioIndex   OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object indicates a sequence number for the 
+            radios configured on a client." 
+    ::= { cldccOperChannelsEntry 1 }
+
+
+cldccOperRadioType  OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the radio"
+    ::= { cldccOperChannelsEntry 2 }
+
+cldccOperRadioChannels   OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+          "This object indicates a list of one or more comma separated radio
+          channel numbers that this client is communicating on." 
+    ::= { cldccOperChannelsEntry 3 }
+
+
+cldccOperTxPowerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccOperTxPowerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the Tx power 
+        mode values for each client for which the 
+        transmit power mode (as indicated by 
+        cldccCapabilityTxPowerMode) is  fixed.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller and its power mode is fixed. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP."
+    ::= { ciscoClientCcxOperReporting 5 }
+
+cldccOperTxPowerEntry OBJECT-TYPE
+    SYNTAX          CldccOperTxPowerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address and tx power index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccOperTxPowerIndex
+                    } 
+    ::= { cldccOperTxPowerTable 1 }
+
+CldccOperTxPowerEntry ::= SEQUENCE {
+        cldccOperTxPowerIndex Unsigned32,
+        cldccOperTxPowerRadioType  CiscoLwappDot11ClientRadioType,
+        cldccOperTxPowerMode  INTEGER,
+        cldccOperTxPower      OCTET STRING
+}
+
+cldccOperTxPowerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is an index for the different Tx power values that
+        a client is capable of supporting." 
+    ::= { cldccOperTxPowerEntry 1 }
+
+
+cldccOperTxPowerRadioType  OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the radio"
+    ::= { cldccOperTxPowerEntry 2 }
+
+cldccOperTxPowerMode OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        fixed(0),
+                        automatic(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the transmit power mode of the
+        client STA.     
+        fixed (0) -  represents fixed Tx power mode. 
+        automatic (1) - represents automatic Tx power mode. 
+        Tx Power Mode values for the client can be 
+        retrieved from the cldccCapabilityTxPowerTable if the 
+        power mode is fixed.
+        If the power mode is automatic, then there are no entries
+        in the cldccCapabilityTxPowerTable for this client." 
+    ::= { cldccOperTxPowerEntry 3 } 
+
+cldccOperTxPower OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Tx power levels supported
+        by a client." 
+    ::= { cldccOperTxPowerEntry 4 }
+
+cldccOperDataRateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccOperDataRateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the Tx power 
+        mode values for each client for which the 
+        transmit power mode (as indicated by 
+        cldccCapabilityTxPowerMode) is  fixed.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller and its power mode is fixed. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP."
+    ::= { ciscoClientCcxOperReporting 6 }
+
+cldccOperDataRateEntry OBJECT-TYPE
+    SYNTAX          CldccOperDataRateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address and data rate index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccOperDataRateIndex
+                    } 
+    ::= { cldccOperDataRateTable 1 }
+
+CldccOperDataRateEntry::= SEQUENCE {
+        cldccOperDataRateIndex Unsigned32,
+        cldccOperDataRateRadioType  CiscoLwappDot11ClientRadioType,
+        cldccOperDataRates      SnmpAdminString
+}
+cldccOperDataRateIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is an index for the different data rate values that
+        a client is capable of supporting." 
+    ::= { cldccOperDataRateEntry 1 }
+
+cldccOperDataRateRadioType OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the radio"
+    ::= { cldccOperDataRateEntry 2 }
+
+cldccOperDataRates OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the data rates for a particular radio." 
+    ::= { cldccOperDataRateEntry 3 }
+
+cldccProfileReqTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccProfileReqEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents 
+        information about the number of profiles configured on the
+        client and the current profilei, for each CCX version 5
+        or higher.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP.
+        At any point in time, while a client is associated, if a 
+        management station wishes to retrieve the current profile
+        information from the client, it should do so by setting the 
+        cldccProfileReqReportingStatus to initiate (1)."
+    ::= { ciscoClientCcxProfileReporting 1 }
+
+cldccProfileReqEntry OBJECT-TYPE
+    SYNTAX          CldccProfileReqEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldccProfileReqTable 1 }
+
+CldccProfileReqEntry ::= SEQUENCE {
+        cldccProfileReqNumProfiles     Integer32,
+        cldccProfileReqCurrentProfile  SnmpAdminString,
+        cldccProfileReqReportingStatus CiscoLwappDot11ClientReqStatus
+}
+
+cldccProfileReqNumProfiles OBJECT-TYPE
+    SYNTAX          Integer32 (0..32 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of profiles that have been
+        configured on the client." 
+    ::= { cldccProfileReqEntry 1 }
+
+cldccProfileReqCurrentProfile OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the profile which is currently active
+        on the client. Details of this profile can be fetched 
+        from the clProfileTable." 
+    ::= { cldccProfileReqEntry 2 }
+
+cldccProfileReqReportingStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientReqStatus
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of profile request.
+        To trigger a request to the client to get the profile
+        information, this attribute is set to initiate(1). Once
+        the request is triggered, the agent will set the value to
+        inProgress(2).  Based on the progress of the request, this
+        is later updated to sucess(3), failure(4) or 
+        requestNotProcessedByClient(5).
+        If a request has not been triggered explicitly by setting
+        this attribute to initiate, then this field returns the 
+        status of the last request.
+        For individual profile details look at the clProfile 
+        table." 
+    ::= { cldccProfileReqEntry 3 }
+ 
+
+
+cldccProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the profiles
+        configured on the client.  
+        Entries are added to this table automatically once the 
+        associated client's profile parameters are retrieved
+        using the cldccProfileReqTable. 
+        Entries are removed automatically when the client is
+        disassociated."
+    ::= { ciscoClientCcxProfileReporting 2 }
+
+cldccProfileEntry OBJECT-TYPE
+    SYNTAX          CldccProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address and profile index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccProfileIndex
+                    } 
+    ::= { cldccProfileTable 1 }
+
+CldccProfileEntry ::= SEQUENCE {
+        cldccProfileIndex                  Unsigned32,
+        cldccProfileName                   SnmpAdminString,
+        cldccProfileSSId                   CiscoLwappDot11ClientSSId,
+        cldccProfileAuthMethod             CiscoLwappDot11ClientAuthMethod,
+        cldccProfileKeyMgmtMethod          CiscoLwappDot11ClientKeyMgmtMethod,
+        cldccProfileEncrMethod             CiscoLwappDot11ClientEncryptionMethod,
+        cldccProfileDot1xSecurity          SnmpAdminString,
+        cldccProfilePowerSaveMode          CiscoLwappDot11ClientPowerSaveMode,
+        cldccProfileRadioType              SnmpAdminString ,
+        cldccProfileProprietaryOptionName  SnmpAdminString,
+        cldccProfileProprietaryOptionValue SnmpAdminString
+}
+
+cldccProfileIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "This objects indicates a profile number for the 
+    profile configured on a client. This is the index of the profile." 
+    ::= { cldccProfileEntry 1 }
+
+cldccProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "This object indicates the name of the profile." 
+    ::= { cldccProfileEntry 2 }
+
+--cldccProfileEAPMethod OBJECT-TYPE
+--    SYNTAX          SnmpAdminString (SIZE  (1..100))
+--    MAX-ACCESS      read-only
+--    STATUS          current
+--    DESCRIPTION
+--        "This object indicates the EAP method used for this profile." 
+--    ::= { cldccProfileEntry 3 }
+
+cldccProfileSSId OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientSSId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Service Set Identifier for this profile." 
+    ::= { cldccProfileEntry 4 }
+
+cldccProfileAuthMethod OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientAuthMethod
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the authentication method used by this profile." 
+    ::= { cldccProfileEntry 5 }
+
+cldccProfileKeyMgmtMethod OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientKeyMgmtMethod
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the key management method used by this profile." 
+    ::= { cldccProfileEntry 6 }
+
+cldccProfileEncrMethod OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientEncryptionMethod
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the encryption method used by this profile." 
+    ::= { cldccProfileEntry 7 }
+
+cldccProfileDot1xSecurity OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how the credentials are configured for this
+        profile." 
+    ::= { cldccProfileEntry 8 }
+
+cldccProfilePowerSaveMode OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientPowerSaveMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of power save mode configured on the
+        wireless network adaptor for this profile." 
+    ::= { cldccProfileEntry 9 }
+
+cldccProfileRadioType OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..100))
+--   {
+--                        reserved(0),
+--                        fhss(1),
+--                        dsss(2),
+--                        irBaseBand(3),
+--                        ofdm(4),
+--                        hrdsss(5),
+--                        erp(6),
+--                        draft11n2point4Ghz(7),
+--                        draft11n5Ghz(8)
+--                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type configured for this profile." 
+    ::= { cldccProfileEntry 10 }
+
+
+--cldccProfileRadioChannels OBJECT-TYPE
+--    SYNTAX          OCTET STRING (SIZE (0..255))
+--    MAX-ACCESS      read-only
+--    STATUS          current
+--    DESCRIPTION
+--        "This object indicates the 802.11 channel configued for use by
+--        the profile." 
+--    ::= { cldccProfileEntry 15 }
+
+--cldccProfileTxPowerMode OBJECT-TYPE
+--    SYNTAX          CiscoLwappDot11ClientTxPowerMode
+--    MAX-ACCESS      read-only
+--    STATUS          current
+--    DESCRIPTION
+--        "This object indicates the transmit power mode of the client STA." 
+--    ::= { cldccProfileEntry 16 }
+
+--cldccProfileDataRates OBJECT-TYPE
+--    SYNTAX          CiscoLwappDot11ClientDataRates
+--    MAX-ACCESS      read-only
+--    STATUS          current
+--    DESCRIPTION     "This object indicates the data rate of the client." 
+--    ::= { cldccProfileEntry 17 }
+
+cldccProfileProprietaryOptionName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an optional proprietary option used by
+        the client." 
+    ::= { cldccProfileEntry 11 }
+
+cldccProfileProprietaryOptionValue OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the optional proprietary
+        option used by the client." 
+    ::= { cldccProfileEntry 12 }
+ 
+
+
+cldccProfileAPTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccProfileAPEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the preferred APs for
+        a profile configured on the client.
+        Entries are added to this table automatically once the 
+        associated client's profile parameters are retrieved
+        using the cldccProfileReqTable. 
+        Entries are removed automatically when the client is
+        disassociated."
+    ::= { ciscoClientCcxProfileReporting 3 }
+
+cldccProfileAPEntry OBJECT-TYPE
+    SYNTAX          CldccProfileAPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+        by the client mac address, profile index, profile preferred AP index.
+        For each of a client's profiles, there could be multiple
+        preferred APs configured.  So, each preferred AP is identified
+        by client mac, profile number and AP number."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccProfileIndex,
+                        cldccProfilePreferredAPIndex
+                    } 
+    ::= { cldccProfileAPTable 1 }
+
+CldccProfileAPEntry ::= SEQUENCE {
+        cldccProfilePreferredAPIndex Unsigned32,
+        cldccProfilePreferredAP      MacAddress
+}
+
+cldccProfilePreferredAPIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "This is a sequence number for the preferred AP." 
+    ::= { cldccProfileAPEntry 1 }
+
+cldccProfilePreferredAP OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the  BSSID of any preferred access
+        point to be used by the wireless network adaptor." 
+    ::= { cldccProfileAPEntry 2 }
+ 
+
+
+cldccProfileTxPowerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccProfileTxPowerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the Tx power values
+        for each client for each of the profiles.
+        Entries are added to this table automatically once the 
+        associated client's profile parameters are retrieved
+        using the cldccProfileReqTable. 
+        Entries are removed automatically when the client is
+        disassociated."
+    ::= { ciscoClientCcxProfileReporting 4 }
+
+cldccProfileTxPowerEntry OBJECT-TYPE
+    SYNTAX          CldccProfileTxPowerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+        by the client mac address, profile index and
+        tx power index.
+        For each of a client's profiles, there could be multiple
+        Tx power values configured.  So, each power value is identified
+        by client mac, profile number and power index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccProfileIndex,
+                        cldccProfileTxPowerIndex
+                    } 
+    ::= { cldccProfileTxPowerTable 1 }
+
+CldccProfileTxPowerEntry ::= SEQUENCE {
+        cldccProfileTxPowerIndex Unsigned32,
+        cldccProfileTxPowerRadioType  CiscoLwappDot11ClientRadioType,
+        cldccProfileTxPowerMode  INTEGER,
+        cldccProfileTxPower      OCTET STRING
+}
+
+
+
+cldccProfileTxPowerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is an index for the different Tx power values that
+        a profile on the client is capable of supporting." 
+    ::= { cldccProfileTxPowerEntry 1 }
+
+
+cldccProfileTxPowerRadioType  OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the radio"
+    ::= { cldccProfileTxPowerEntry 2 }
+
+cldccProfileTxPowerMode OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        fixed(0),
+                        automatic(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the transmit power mode of the
+        client.  
+        fixed (0) -  represents fixed Tx power mode. 
+        automatic (1) - represents automatic Tx power mode. 
+        Tx Power Mode values for the client can be 
+        retrieved from the cldccCapabilityTxPowerTable if the 
+        power mode is fixed.
+        If the power mode is automatic, then there are no entries
+        in the cldccCapabilityTxPowerTable for this client." 
+    ::= { cldccProfileTxPowerEntry 3 } 
+
+cldccProfileTxPower OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Tx power levels supported
+        by a client." 
+    ::= { cldccProfileTxPowerEntry 4 }
+ 
+cldccProfileChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccProfileChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table represents information about the radio channels for
+            a profile configured on the client."
+    ::= { ciscoClientCcxProfileReporting 5 }
+
+cldccProfileChannelEntry OBJECT-TYPE
+    SYNTAX          CldccProfileChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry in the table is represented
+             by the client mac address, profile index and
+             profile channel index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccProfileIndex,
+                        cldccProfileChannelIndex
+                    } 
+    ::= { cldccProfileChannelTable 1 }
+
+CldccProfileChannelEntry ::= SEQUENCE {
+        cldccProfileChannelIndex Unsigned32,
+        cldccProfileChRadioType      CiscoLwappDot11ClientRadioType,
+        cldccProfileChannels      SnmpAdminString
+}
+
+cldccProfileChannelIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "This is a sequence number for the radio types." 
+    ::= { cldccProfileChannelEntry 1 }
+
+cldccProfileChRadioType OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the profile."
+    ::= { cldccProfileChannelEntry 2 }
+
+cldccProfileChannels OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE(0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates a list of 1 or more comma separated radio
+          channel numbers that this profile is configured to communicate on." 
+    ::= { cldccProfileChannelEntry 3 }
+
+cldccProfileDataRateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccProfileDataRateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents information about the Tx power 
+        mode values for each client for which the 
+        transmit power mode (as indicated by 
+        cldccProfileTxPowerMode) is  fixed.
+        An entry is added to this table automatically when a CCX
+        version 5 or higher client associates to an AP managed
+        by the controller and its power mode is fixed. 
+        Similarly, the entry is removed from the controller when
+        the client disassociates from the AP."
+    ::= { ciscoClientCcxProfileReporting 6 }
+
+cldccProfileDataRateEntry OBJECT-TYPE
+    SYNTAX          CldccProfileDataRateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table is represented
+         by the client mac address, profile index and 
+         profile data rate index."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccProfileIndex,
+                        cldccProfileDataRateIndex
+                    } 
+    ::= { cldccProfileDataRateTable 1 }
+
+CldccProfileDataRateEntry ::= SEQUENCE {
+        cldccProfileDataRateIndex Unsigned32,
+        cldccProfileDataRateRadioType CiscoLwappDot11ClientRadioType,
+        cldccProfileDataRates SnmpAdminString
+}
+
+cldccProfileDataRateIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is an index for the different data rate values that
+        a client is capable of supporting." 
+    ::= { cldccProfileDataRateEntry 1 }
+
+cldccProfileDataRateRadioType OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the radio"
+    ::= { cldccProfileDataRateEntry 2 }
+
+cldccProfileDataRates OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the data rates for a particular radio." 
+    ::= { cldccProfileDataRateEntry 3 }
+
+cldccProfileRadioOptionsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccProfileRadioOptionsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table represents information about the radio options
+             of the profiles configured on the client."
+    ::= { ciscoClientCcxProfileReporting 7 }
+
+cldccProfileRadioOptionsEntry OBJECT-TYPE
+    SYNTAX          CldccProfileRadioOptionsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry in the table represents each radio per profile
+            represented by the profile number and radio channel."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccProfileIndex,
+                        cldccProfileRadioOptionIndex
+                    }
+    ::= { cldccProfileRadioOptionsTable 1 }
+
+CldccProfileRadioOptionsEntry ::= SEQUENCE {
+	cldccProfileRadioOptionIndex   INTEGER,
+        cldccProfileRadioOptionsRadioType CiscoLwappDot11ClientRadioType,
+        cldccProfilePreambleType  INTEGER ,
+        cldccProfileCCAMethod     INTEGER ,
+        cldccProfileDataRetries   Integer32,
+        cldccProfileFragmentThreshold  Integer32
+}
+
+cldccProfileRadioOptionIndex OBJECT-TYPE
+    SYNTAX     INTEGER (0..10 )
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "This is the radio type index configured for this radio
+             for profile." 
+    ::= { cldccProfileRadioOptionsEntry 1 }
+
+cldccProfileRadioOptionsRadioType OBJECT-TYPE
+    SYNTAX          CiscoLwappDot11ClientRadioType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the radio type for the radio"
+    ::= { cldccProfileRadioOptionsEntry 2 }
+
+cldccProfilePreambleType OBJECT-TYPE
+    SYNTAX     INTEGER  {
+                        short(0),
+                        long(1),
+                        unknown(255)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object indicates the radio preamble type configured for this radio
+             for profile.
+             short(0) - represents short profile preamble type.
+             long(1) - represents long profile preamble type.
+             unknown(255) - represents unknown profile preamble type. "
+    ::= { cldccProfileRadioOptionsEntry 3 }
+
+cldccProfileCCAMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        energyDetect(0),
+                        carrierDetect(1),
+                        energyCarrierDetect(2),
+                        unknown(255)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the clear channel assessment method
+            configured for this profile.
+            energyDetect(0) - represents energy detect
+                        profile cca method.
+            carrierDetect(1) - represents carrier detect
+                        profile cca method.
+            energyCarrierDetect(2) - represents both energy and 
+                        carrier detect profile cca method.
+            unknown(255) - represents unknown profile cca method. " 
+    ::= { cldccProfileRadioOptionsEntry 4 }
+
+cldccProfileDataRetries OBJECT-TYPE
+    SYNTAX          Integer32 (0..10 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the max number of data retries for the
+            wireless network adaptor." 
+    ::= { cldccProfileRadioOptionsEntry 5 }
+
+cldccProfileFragmentThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (256..2346 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the fragment threshold for the
+            wireless network adaptor." 
+    ::= { cldccProfileRadioOptionsEntry 6 }
+
+--*******************************************************************
+--*    Compliance statements
+--********************************************************************
+
+ciscoLwappDot11ClientCCXV5ReportingMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoLwappDot11ClientCCXV5ReportingMIBConform 1 }
+
+ciscoLwappDot11ClientCCXV5ReportingMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoLwappDot11ClientCCXV5ReportingMIBConform 2 }
+		
+		
+ciscoLwappDot11ClientCCXV5ReportingMIBCompliance MODULE-COMPLIANCE
+        STATUS          current
+        DESCRIPTION
+          "The compliance statement for the SNMP entities that
+          implement this MIB."
+        MODULE          -- this module
+        MANDATORY-GROUPS {
+                          ciscoLwappDot11ClientCCXV5ReportingMIBManufacturerGroup,
+                          ciscoLwappDot11ClientCCXV5ReportingMIBCapabilityGroup,
+                          ciscoLwappDot11ClientCCXV5ReportingMIBOperParamsGroup,
+                          ciscoLwappDot11ClientCCXV5ReportingMIBProfileGroup
+                      }
+        ::= { ciscoLwappDot11ClientCCXV5ReportingMIBCompliances 1 }
+
+--********************************************************************
+--*    Units of conformance
+--********************************************************************
+
+
+ciscoLwappDot11ClientCCXV5ReportingMIBManufacturerGroup OBJECT-GROUP
+        OBJECTS {
+				cldccManufacturerInfoStatus,
+				cldccManufacturerInfoOUI,
+				cldccManufacturerInfoID,
+				cldccManufacturerInfoModel,
+				cldccManufacturerInfoSerialNum,
+				cldccManufacturerInfoRadioType,
+				cldccManufacturerInfoMacAddress,
+				cldccManufacturerInfoAntennaType,
+				cldccManufacturerInfoAntennaGain,
+				cldccManuRxSensRadioIndex,
+				cldccManuRxSensRadioDataRateIndex,
+				cldccManuRxSensRadioType,
+				cldccManuRxSensRadioDataRate,
+				cldccManuRxSensMinRssi,
+				cldccManuRxSensMaxRssi               
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                manufacturer parameters for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11ClientCCXV5ReportingMIBGroups 1 }
+	
+ciscoLwappDot11ClientCCXV5ReportingMIBCapabilityGroup OBJECT-GROUP
+        OBJECTS {
+				cldccCapabilityStatus,
+				cldccCapabilityRadioType,
+				cldccServiceCapability,
+				cldccCapabilityRadioIndex,
+				cldccCapabilityChRadioType,
+				cldccCapabilityRadioChannels,
+				cldccCapabilityTxPowerIndex,
+				cldccCapabilityTxPowerRadioType,
+				cldccCapabilityTxPowerMode,
+				cldccCapabilityTxPower,
+				cldccCapabilityDataRateIndex,
+				cldccCapabilityDataRateRadioType,
+				cldccCapabilityDataRates
+		}
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                capability parameters for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11ClientCCXV5ReportingMIBGroups 2 }
+		
+ciscoLwappDot11ClientCCXV5ReportingMIBOperParamsGroup OBJECT-GROUP
+        OBJECTS {
+				cldccOperParamsStatus,
+				cldccOperParamsRadioType,
+				cldccOperParamsSSId,
+				cldccOperParamsDeviceName,
+				cldccOperParamsDeviceType,
+				cldccOperParamsOSId,
+				cldccOperParamsOSVersion,
+				cldccOperParamsIpAddressMode,
+				cldccOperParamsIpv4Address,
+				cldccOperParamsIpv4SubnetMask,
+				cldccOperParamsIpv6Address,
+				cldccOperParamsIpv6SubnetMask,
+				cldccOperParamsDefaultGateway,
+				cldccOperParamsEntPhone,
+				cldccOperParamsCellPhone,
+				cldccOperParamsFirmwareVersion,
+				cldccOperParamsDriverVersion,
+				cldccOperParamsPowerSaveMode,
+				cldccOperParamsAuthMethod,
+				cldccOperParamsKeyMgmtMethod,
+				cldccOperParamsEncrMethod,
+				cldccOperParamsDot1xSecurity,
+				cldccOperParamsSysName,
+				cldccOperParamsLocalization,
+				cldccOperParamsDNSServerIndex,
+				cldccOperParamsDNSServerAddress,
+				cldccOperParamsWINSServerIndex,
+				cldccOperParamsWINSServerAddress,
+				cldccOperRadioIndex,
+				cldccOperRadioType,
+				cldccOperRadioChannels,
+				cldccOperTxPowerIndex,
+				cldccOperTxPowerRadioType,
+				cldccOperTxPowerMode,
+				cldccOperTxPower,
+				cldccOperDataRateIndex,
+				cldccOperDataRateRadioType,
+				cldccOperDataRates
+		}
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                operational parameters for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11ClientCCXV5ReportingMIBGroups 3 }
+		
+ciscoLwappDot11ClientCCXV5ReportingMIBProfileGroup OBJECT-GROUP
+        OBJECTS {
+				cldccProfileReqNumProfiles,
+				cldccProfileReqCurrentProfile,
+				cldccProfileReqReportingStatus,
+				cldccProfileIndex,
+				cldccProfileName,
+				cldccProfileSSId,
+				cldccProfileAuthMethod,
+				cldccProfileKeyMgmtMethod,
+				cldccProfileEncrMethod,
+				cldccProfileDot1xSecurity,
+				cldccProfilePowerSaveMode,
+				cldccProfileRadioType,
+				cldccProfileProprietaryOptionName,
+				cldccProfileProprietaryOptionValue,
+				cldccProfilePreferredAPIndex,
+				cldccProfilePreferredAP,
+				cldccProfileTxPowerIndex,
+				cldccProfileTxPowerRadioType,
+				cldccProfileTxPowerMode,
+				cldccProfileTxPower,
+				cldccProfileChannelIndex,
+				cldccProfileChRadioType,
+				cldccProfileChannels,
+				cldccProfileDataRateIndex,
+				cldccProfileDataRateRadioType,
+				cldccProfileDataRates,
+				cldccProfileRadioOptionIndex,
+				cldccProfileRadioOptionsRadioType,
+				cldccProfilePreambleType,
+				cldccProfileCCAMethod,
+				cldccProfileDataRetries,
+				cldccProfileFragmentThreshold
+ }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects specifies the required
+                profile parameters for the 802.11 wireless
+                clients."
+        ::= { ciscoLwappDot11ClientCCXV5ReportingMIBGroups 4 }
+
+
+
+	
+END
+
+
+

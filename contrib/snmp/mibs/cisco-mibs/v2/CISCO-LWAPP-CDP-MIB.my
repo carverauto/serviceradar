@@ -1,0 +1,897 @@
+-- *******************************************************************
+-- CISCO-LWAPP-CDP-MIB.my
+-- This Module describes about the Cisco Discovery Protocol.
+-- Oct 2009 ,   Jobin Jose Sebastian
+
+-- Copyright (c) 2007, 2009, 2017 by Cisco Systems Inc.
+-- All rights reserved.
+-- ******************************************************************
+
+CISCO-LWAPP-CDP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    cLApSysMacAddress
+        FROM CISCO-LWAPP-AP-MIB
+    CLCdpAdvtVersionType
+        FROM CISCO-LWAPP-TC-MIB
+    CiscoNetworkProtocol,
+    CiscoNetworkAddress
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappCdpMIB MODULE-IDENTITY
+    LAST-UPDATED    "201704270000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmcp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+         devices operating as Central Controllers (CC) that
+         terminate the Light Weight Access Point Protocol
+         tunnel from Light-weight LWAPP Access Points.
+
+         This MIB provides configuration and status information
+         about CDP neighbors of LWAPP APs. The MIB provides  
+         configuration of CDP feature on the LWAPP Access Points.
+         The MIB can also be used to retrieve the status of the 
+         CDP cache information on the various LWAPP access
+         points.
+
+         The CDP MIB is also supported by controller and provides
+         configuration and status information about CDP neighbors
+         of the controller.
+
+         The relationship between CC and the LWAPP APs
+         can be depicted as follows:
+
+         +......+     +......+     +......+           +......+
+         +      +     +      +     +      +           +      +
+         +  CC  +     +  CC  +     +  CC  +           +  CC  +
+         +      +     +      +     +      +           +      +
+         +......+     +......+     +......+           +......+
+         ..            .             .                 .
+         ..            .             .                 .
+         .  .            .             .                 .
+         .    .            .             .                 .
+         .      .            .             .                 .
+         .        .            .             .                 .
+         +......+ +......+     +......+      +......+          +......+
+         +      + +      +     +      +      +      +          +      +
+         +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+         +      + +      +     +      +      +      +          +      +
+         +......+ +......+     +......+      +......+          +......+
+         .              .             .                 .
+         .  .              .             .                 .
+         .    .              .             .                 .
+         .      .              .             .                 .
+         .        .              .             .                 .
+         +......+ +......+     +......+      +......+          +......+
+         +      + +      +     +      +      +      +          +      +
+         +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+         +      + +      +     +      +      +      +          +      +
+         +......+ +......+     +......+      +......+          +......+
+
+
+         The LWAPP tunnel exists between the controller and
+         the APs.  The MNs communicate with the APs through
+         the protocol defined by the 802.11 standard.
+
+         LWAPP APs, upon bootup, discover and join one of the
+         controllers and the controller pushes the configuration,
+         that includes the WLAN parameters, to the LWAPP APs.
+         The APs then encapsulate all the 802.11 frames from
+         wireless clients inside LWAPP frames and forward
+         the LWAPP frames to the controller.
+
+                            GLOSSARY
+
+         Access Point ( AP )
+
+         An entity that contains an 802.11 medium access
+         control ( MAC ) and physical layer ( PHY ) interface
+         and provides access to the distribution services via
+         the wireless medium for associated clients.  
+
+         LWAPP APs encapsulate all the 802.11 frames in
+         LWAPP frames and sends it to the controller to which
+         it is logically connected.
+
+         Basic Service Set Identifier (BSSID)
+
+         The identifier for the service set comprising of
+         all the 802.11 stations under the control of
+         one coordinating Access Point.  This identifier
+         happens to be the MAC address of the dot11 radio
+         interface of the Access Point.  The wireless
+         clients that associate with the Access Point
+         get the wired uplink through this particular 
+         dot11 interface. 
+
+         Central Controller ( CC )
+
+         The central entity that terminates the LWAPP protocol
+         tunnel from the LWAPP APs.  Throughout this MIB,
+         this entity also referred to as 'controller'.  
+
+         Light Weight Access Point Protocol ( LWAPP ) 
+
+         This is a generic protocol that defines the 
+         communication between the Access Points and the
+         central controller. 
+
+         Cisco Discovery Protocol ( CDP )
+
+         Protocol for discovery of neighboring devices.
+
+
+         REFERENCE
+
+         [1] Part 11 Wireless LAN Medium Access Control ( MAC )
+         and Physical Layer ( PHY ) Specifications.
+
+         [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+         Weight Access Point Protocol."
+    REVISION        "201704270000Z"
+    DESCRIPTION
+            "Updated the description for some objects."
+    REVISION        "200911230000Z"
+    DESCRIPTION
+            "Added the variables clcCdpApCacheDuplex and
+            clcCdpApCacheInterfaceSpeed to clcCdpApCacheTable."
+    REVISION        "200703280000Z"
+    DESCRIPTION
+            "This is the initial version of this module."
+    ::= { ciscoMgmt 623 }
+
+
+ciscoLwappCdpMIBNotifs OBJECT IDENTIFIER
+        ::= { ciscoLwappCdpMIB 0 }
+
+ciscoLwappCdpMIBObjects OBJECT IDENTIFIER
+        ::= { ciscoLwappCdpMIB 1 }
+
+ciscoLwappCdpMIBConform OBJECT IDENTIFIER
+        ::= { ciscoLwappCdpMIB 2 }
+
+clcCdpTraffic OBJECT IDENTIFIER
+        ::= { ciscoLwappCdpMIBObjects 1 }
+
+clcCdpGlobalConfig OBJECT IDENTIFIER
+        ::= { ciscoLwappCdpMIBObjects 2 }
+
+clcCdpApCacheStatus OBJECT IDENTIFIER
+        ::= { ciscoLwappCdpMIBObjects 3 }
+
+clcCdpApCacheConfig OBJECT IDENTIFIER
+        ::= { ciscoLwappCdpMIBObjects 4 }
+
+
+-- *******************************************************************
+-- The CDP Traffic Metrics
+-- *******************************************************************
+
+clcCdpInPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the total number of CDP packets 
+             received by the controller."
+    ::= { clcCdpTraffic 1 }
+
+clcCdpOutPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the total number of CDP packets 
+             sent by the controller."
+    ::= { clcCdpTraffic 2 }
+
+clcCdpChecksumErrorPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the total number of CDP packets 
+             with checksum error."
+    ::= { clcCdpTraffic 3 }
+
+clcCdpNoMemoryPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the total number of CDP packets 
+             that were dropped because of no memory availability. "
+    ::= { clcCdpTraffic 4 }
+
+clcCdpInvalidPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the total number of CDP packets
+             that were invalid. "
+    ::= { clcCdpTraffic 5 }
+
+-- ********************************************************************
+-- *  Global CDP Configuration
+-- ********************************************************************
+
+clcCdpAdvtVersion OBJECT-TYPE
+    SYNTAX          CLCdpAdvtVersionType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies CDP advertisement version. "
+    DEFVAL          { cdpv1 } 
+    ::= { clcCdpGlobalConfig 1 }
+
+clcCdpMessageInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (5..900)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the interval (in seconds) at which
+             CDP messages are to be generated. "
+    DEFVAL          { 60 } 
+    ::= { clcCdpGlobalConfig 2 }
+
+clcCdpGlobalEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies whether CDP has to be enabled or
+             disabled on all APs.
+             When set to 'true', internally CDP is enabled 
+             on all APs associated with the controller.
+             When set to 'false', internally CDP is disabled 
+             on all APs associated with the controller.
+             However, setting this attribute has no effect when CDP
+             is disabled globally, that is when the cdpGlobalRun from 
+             the CISCO-CDP-MIB is set to 'false' on the controller."
+    DEFVAL          { false } 
+    ::= { clcCdpGlobalConfig 3 }
+-- *******************************************************************
+-- The CDP configurations at AP level
+-- *******************************************************************
+
+clcCdpApTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClcCdpApEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The (conceptual) table contains the status of Cisco
+             Discovery Protocol on LWAPP Access Points. An entry is 
+             added to the table when an Aceess Point joins a controller.
+             An entry is deleted when the Access Point disassociates 
+             from the controller. This table is used to configure CDP
+             feature per Access Point."
+    ::= { clcCdpApCacheConfig 1 }
+
+clcCdpApEntry OBJECT-TYPE
+    SYNTAX          ClcCdpApEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+    "An entry (conceptual row) in the clcCdpApTable,
+     containing the status of CDP on an AP.
+     
+     Consider a setup where two APs, 'AP1' and 'AP2'
+     have been connected to a CISCO-3750 switch.
+     Both the APs register with WLAN CONTROLLER 440x
+     which is on LAN/Internet/Intranet.
+
+     +.........................+   
+     +                         +   
+     +  WLAN CONTROLLER 4400   +   
+     +       10.14.2.11        +   
+     +.........................+   
+               .. 
+               .. 
+      INTERNET ..  LAN
+               .. 
+        +...............+   
+        +               +   
+        +  SWITCH-3750  +   
+        +   10.16.1.1   +   
+        +...............+   
+               .. 
+             .    .
+           .        .
+         .            .
+       .                .
+     .                    .
+     +......+            +......+          
+     +      +            +      +          
+     + AP1  +            +  AP2 +          
+     +      +            +      +          
+     +......+            +......+ 
+
+     00:12:CF:DA:29:11        23:43:CE:9A:66:76
+
+     10.16.1.43                  10.16.1.45  
+
+     Given the above example, the clcCdpApEntry on 
+     WLAN CONTROLLER 4400 looks like :    
+
+     ------------------------------------------------------------------
+     |  MIB - ATTRIBUTES   |       ROW#1        |       ROW#2         |
+     ------------------------------------------------------------------
+     | cLApSysMacAddress   | 00:12:CF:DA:29:11  | 23:43:CE:9A:66:76   |
+     ------------------------------------------------------------------
+     | clcCdpApStatus       |       true         |       false         |
+     ------------------------------------------------------------------"
+    INDEX           { cLApSysMacAddress } 
+    ::= { clcCdpApTable 1 }
+
+ClcCdpApEntry ::= SEQUENCE {
+        clcCdpApCdpEnable   TruthValue
+}
+
+clcCdpApCdpEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies whether the Cisco Discovery Protocol
+             is currently running on this AP.            
+             When set to 'true', that means CDP is enabled on
+             the AP denoted by MAC address cLApSysMacAddress.
+             When set to 'false', that means CDP is disabled on
+             the AP denoted by MAC address cLApSysMacAddress.
+
+             This variable has no effect when CDP is globally
+             disabled. That is when the cdpGlobalRun from the
+             CISCO-CDP-MIB is set to 'false'. "
+    DEFVAL          { false } 
+    ::= { clcCdpApEntry 1 }
+ 
+
+-- *******************************************************************
+-- The CDP-AP Address Cache Table
+-- *******************************************************************
+
+clcCdpApCacheTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClcCdpApCacheEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains the cached neighbor
+             information obtained via receiving CDP messages on APs.
+             Entries are added to this table when a CDP advertisement
+             is received from a neighboring device. Entries get deleted
+             when CDP is disabled on the interface or globally."
+    ::= { clcCdpApCacheStatus 1 }
+    
+clcCdpApCacheEntry OBJECT-TYPE
+    SYNTAX          ClcCdpApCacheEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+"An entry in the clcCdpApCacheTable,
+ containing the information received via CDP on one
+ interface from one device.  Entries appear when
+ a CDP advertisement is received from a neighbor
+ device.  Entries disappear when CDP is disabled
+ on the interface or globally.
+
+ Consider a setup where two APs, 'AP1' and 'AP2'
+ have been connected to a CISCO-3750 switch.
+ Both the APs register with WLAN CONTROLLER 4400
+ which is on LAN/Internet/Intranet.
+
+ +.........................+   
+ +                         +   
+ +  WLAN CONTROLLER 4400   +   
+ +       10.14.2.11        +   
+ +.........................+   
+           .. 
+           .. 
+ INTERNET  ..  LAN
+           .. 
+    +...............+   
+    +               +   
+    +  SWITCH-3750  +   
+    +   10.16.1.1   +   
+    +...............+   
+ FE 0/13   ..    FE 0/15
+         .    .
+       .        .
+     .            .
+   .                .
+ .                    .
+ +......+            +......+          
+ +      +            +      +          
+ + AP1  +            +  AP2 +          
+ +      +            +      +          
+ +......+            +......+ 
+
+ 00:12:CF:DA:29:11        23:43:CE:9A:66:76
+
+ 10.16.1.43                  10.16.1.45  
+
+ Given the above example, the clcCdpApEntry on 
+ WLAN CONTROLLER 4400 looks like :    
+
+ ----------------------------------------------------------------------
+ |  MIB - ATTRIBUTES           |       ROW#1       |       ROW#2      |
+ ----------------------------------------------------------------------
+ | cLApSysMacAddress           | 00:12:CF:DA:29:11 | 23:43:CE:9A:66:76|
+ ----------------------------------------------------------------------
+ | clcCdpApCacheDeviceIndex     |   16              | 16               |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheApName          | AP1               | AP2              |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheApAddressType   |  ip(1)            | ip(1)            |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheApAddress       | 10.16.1.43        | 10.16.1.45       |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheLocalInterface  | Port - 1          | Port -2          |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheNeighName       | SWITCH-3750       | SWITCH-3750      |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheNeighAddressType| ip(1)             | ip(1)            |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheNeighAddress    | 10.16.1.1         | 10.16.1.1        |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheNeighInterface  | FE 0/13           | FE 0/45          |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheNeighVersion    | IOS Ver2.2. ...   | IOS Ver 2.2. ... |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheAdvtVersion     | cdpv1(1)          | cdpv2(2)         |
+ ----------------------------------------------------------------------
+ | clcCdpApCachePlatform        | WS-C3750-24P      | WS-C3750-24P     |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheCapabilities    | RSI               | RSI              |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheHoldtimeLeft    | 179               | 165              |
+ ----------------------------------------------------------------------
+ | clcCdpApCacheDuplex          | fullduplex(3)     | fullduplex(3)    | 
+ ----------------------------------------------------------------------
+ | clcCdpApCacheInterfaceSpeed  | hundredMbps(2)    | hundredMbps(2)   |
+ ----------------------------------------------------------------------"
+    INDEX           {
+                        cLApSysMacAddress,
+                        clcCdpApCacheDeviceIndex
+                    } 
+    ::= { clcCdpApCacheTable 1 }
+
+ClcCdpApCacheEntry ::= 
+    SEQUENCE {
+        clcCdpApCacheDeviceIndex      Unsigned32,
+        clcCdpApCacheApName           SnmpAdminString,
+        clcCdpApCacheApAddressType    InetAddressType,
+        clcCdpApCacheApAddress        InetAddress,
+        clcCdpApCacheLocalInterface   InterfaceIndexOrZero,
+        clcCdpApCacheNeighName        SnmpAdminString,
+        clcCdpApCacheNeighAddressType InetAddressType,
+        clcCdpApCacheNeighAddress     InetAddress,
+        clcCdpApCacheNeighInterface   SnmpAdminString,
+        clcCdpApCacheNeighVersion     SnmpAdminString,
+        clcCdpApCacheAdvtVersion      CLCdpAdvtVersionType,
+        clcCdpApCachePlatform         SnmpAdminString,
+        clcCdpApCacheCapabilities     OCTET STRING,
+        clcCdpApCacheHoldtimeLeft     Unsigned32,
+        clcCdpApCacheDuplex           INTEGER,
+        clcCdpApCacheInterfaceSpeed   INTEGER
+}
+
+clcCdpApCacheDeviceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object represents a unique value for each device 
+             from which CDP messages are being received." 
+    ::= { clcCdpApCacheEntry 1 }
+
+clcCdpApCacheApName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the name assigned to this AP. 
+             If an AP is not configured its factory default name will
+             be ap:<last three byte of MACAddress>. Eg. ap:af:12:be" 
+    ::= { clcCdpApCacheEntry 2 }
+
+clcCdpApCacheApAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the type of address contained in 
+             the corresponding instance of clcCdpApCacheAddress for 
+             the AP." 
+    ::= { clcCdpApCacheEntry 3 }
+
+clcCdpApCacheApAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the IP address of the AP." 
+    ::= { clcCdpApCacheEntry 4 }
+
+clcCdpApCacheLocalInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the local port on which LWAPP 
+             encapsulated CDP packets were received." 
+    ::= { clcCdpApCacheEntry 5 }
+
+clcCdpApCacheNeighName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the Device-ID string as reported in 
+             the most recent CDP message.  The zero-length string 
+             indicates no Device-ID field (TLV) was reported in the most
+             recent CDP message." 
+    ::= { clcCdpApCacheEntry 6 }
+
+clcCdpApCacheNeighAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the type of address contained in the
+             corresponding instance of clcCdpApCacheAddress of 
+             neighbor. " 
+    ::= { clcCdpApCacheEntry 7 }
+
+clcCdpApCacheNeighAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the (first) network-layer address
+             of the device's SNMP-agent as reported in the most recent
+             CDP message. For example, if the corresponding instance 
+             of clcCdpApCacheApAddressType had the value 'ip(1)', then 
+             this object would be an IP-address. " 
+    ::= { clcCdpApCacheEntry 8 }
+
+clcCdpApCacheNeighInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the Port-ID string as reported in 
+             the most recent CDP message. This will typically be the 
+             value of the ifName object (e.g., 'Ethernet0').  The 
+             zero-length string indicates no Port-ID field (TLV) was
+             reported in the most recent CDP message. " 
+    ::= { clcCdpApCacheEntry 9 }
+
+clcCdpApCacheNeighVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the version string which refers to 
+             the software running on neighboring device." 
+    ::= { clcCdpApCacheEntry 10 }
+
+clcCdpApCacheAdvtVersion OBJECT-TYPE
+    SYNTAX          CLCdpAdvtVersionType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the Cisco Discovery Protocol 
+             advertisement version."
+    DEFVAL          { cdpv1 } 
+    ::= { clcCdpApCacheEntry 11 }
+
+clcCdpApCachePlatform OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the device's hardware platform 
+             as reported in the most recent CDP message. The zero-length
+             string indicates that no platform field(TLV) was reported
+             in the most recent CDP message. " 
+    ::= { clcCdpApCacheEntry 12 }
+
+clcCdpApCacheCapabilities OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the device's functional capabilities
+             as reported in the most recent CDP message. For latest set
+             of specific values, see the latest version of the CDP 
+             specification. The zero-length string indicates no 
+             capabilities field(TLV) was reported in the most recent
+             CDP message. " 
+    ::= { clcCdpApCacheEntry 13 }
+
+clcCdpApCacheHoldtimeLeft OBJECT-TYPE
+    SYNTAX          Unsigned32 (10..255)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the time left in seconds before 
+             the CDP neighbor entry gets aged-out. "
+    DEFVAL          { 180 } 
+    ::= { clcCdpApCacheEntry 14 }
+
+clcCdpApCacheDuplex OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        fullduplex(2),
+                        halfduplex(3),
+                        auto(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the duplex mode of the
+             ethernet interface between the AP and it's 
+             neighboring CDP device, as reported in the most recent 
+             CDP message. 
+             unknown(1) - indicates no duplex mode field (TLV) was 
+             reported in the most recent CDP message or the 
+             neighboring device is not connected to the AP through 
+             ethernet interface. 
+             fullduplex(2) - indicates that duplex mode of the ethernet
+             interface between the AP and it's neighboring CDP device 
+             is set to fullduplex mode.
+             halfduplex(3) - indicates that duplex mode of the ethernet
+             interface between the AP and it's neighboring CDP device 
+             is set to halfduplex mode.
+             auto(4) - indicates that duplex mode of the ethernet 
+             interface between the AP and it's neighboring CDP 
+             device is set to auto mode." 
+    ::= { clcCdpApCacheEntry 15 }
+
+clcCdpApCacheInterfaceSpeed OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        tenMbps(2),
+                        hundredMbps(3),
+                        thousandMbps(4),
+                        auto(5)
+                    }
+    UNITS           "Mbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the speed of the ethernet
+             interface between the AP  and it's neighboring CDP
+             device. The unit is Mbps. This variable would be
+             populated at AP join and periodically thereafter.
+             none(1)-  would be shown if the interface is not an 
+             ethernet interface.
+             tenMbps(2) - indicates that the speed of the ethernet 
+             interface between the AP and it's neighboring CDP
+             device is 10 Mbps. 
+             hundredMbps(3) - indicates that the speed of the ethernet
+             interface between the AP and it's neighboring CDP device
+             is 100 Mbps. 
+             thousandMbps(4) - indicates that the speed of the ethernet
+             interface between the AP and it's neighboring CDP device 
+             is 1000 Mbps. 
+             auto(5) - indicates that the speed of the ethernet 
+             interface between the AP and it's neighboring CDP device 
+             is auto ."
+    ::= { clcCdpApCacheEntry 16 }
+
+clcCdpCtAddressTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClcCdpCtAddressEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The (conceptual) table contains the list of
+             network-layer addresses of a neighbor interface,
+             as reported in the Address TLV of the most recently
+             received CDP message. The first address included in
+             the Address TLV is saved in cdpCacheAddress. This
+             table contains the remainder of the addresses in the
+             Address TLV."
+    ::= { clcCdpApCacheStatus  2 }    
+    
+clcCdpCtAddressEntry OBJECT-TYPE
+    SYNTAX          ClcCdpCtAddressEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry (conceptual row) in the clcCdpCtAddressTable,
+             containing the information on one address received via CDP
+             on one interface from one device.  Entries appear
+             when a CDP advertisement is received from a neighbor
+             device, with an Address TLV.  Entries disappear when
+             CDP is disabled on the interface, or globally. An entry
+             or entries would also disappear if the most recently
+             received CDP packet contain fewer address entries in the
+             Address TLV, than are currently present in the CDP cache. "
+    INDEX           { cLApSysMacAddress, clcCdpApCacheDeviceIndex,
+                      clcCdpCtAddressIndex }
+    ::= { clcCdpCtAddressTable 1 }
+
+ClcCdpCtAddressEntry ::= SEQUENCE {
+    clcCdpCtAddressIndex       Integer32,
+    clcCdpCtAddressType        CiscoNetworkProtocol,
+    clcCdpCtAddress            CiscoNetworkAddress
+}
+
+clcCdpCtAddressIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the index of the address entry 
+             for a given cLApSysMacAddress,cdpCacheDeviceIndex pair. It
+             has the value N-1 for the N-th address in the
+             Address TLV."
+    ::= { clcCdpCtAddressEntry 1 }
+
+clcCdpCtAddressType OBJECT-TYPE
+    SYNTAX          CiscoNetworkProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the type of address contained in the
+             corresponding instance of clcCdpCtAddress."
+    ::= { clcCdpCtAddressEntry 2 }
+
+clcCdpCtAddress OBJECT-TYPE
+    SYNTAX          CiscoNetworkAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object represents the N-th network-layer address of
+             the device as reported in the most recent CDP message's 
+             address TLV, where N-1 is given by the value of 
+             clcCdpCtAddressIndex. For example, if the corresponding 
+             instance of clcCdpCtAddressType had the value 'ip(1)', 
+             then this object would be an IPv4-address.
+             NOTE - The 1ast address received in the address TLV is
+                    available using cdpCacheAddress"
+    ::= { clcCdpCtAddressEntry 3 }
+
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoLwappCdpMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappCdpMIBConform 1 }
+
+ciscoLwappCdpMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappCdpMIBConform 2 }
+
+
+ciscoLwappCdpMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+            "The compliance statement for the SNMP entities that
+             implement the ciscoLwappCdpMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clcCdpRev01ConfigGroup,
+                        clcCdpRev01StatusGroup
+                    }
+    ::= { ciscoLwappCdpMIBCompliances 1 }
+
+ciscoLwappCdpMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+            "The compliance statement for the SNMP entities that
+             implement the ciscoLwappCdpMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clcCdpRev01ConfigGroup,
+                        clcCdpRev01StatusGroup,
+                        clcCdpRev02StatusGroup
+                    }
+    ::= { ciscoLwappCdpMIBCompliances 2 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+clcCdpRev01ConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clcCdpApCdpEnable,
+                        clcCdpAdvtVersion,
+                        clcCdpMessageInterval,
+                        clcCdpGlobalEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can configured to 
+         control functional parameters of Cisco Discovery Protocol 
+         feature in WLAN controllers and LWAPP APs."
+    ::= { ciscoLwappCdpMIBGroups 1 }
+
+clcCdpRev01StatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        clcCdpApCacheApName,
+                        clcCdpApCacheApAddressType,
+                        clcCdpApCacheApAddress,
+                        clcCdpApCacheLocalInterface,
+                        clcCdpApCacheNeighName,
+                        clcCdpApCacheNeighAddressType,
+                        clcCdpApCacheNeighAddress,
+                        clcCdpApCacheNeighInterface,
+                        clcCdpApCacheNeighVersion,
+                        clcCdpApCacheAdvtVersion,
+                        clcCdpApCachePlatform,
+                        clcCdpApCacheCapabilities,
+                        clcCdpApCacheHoldtimeLeft,
+                        clcCdpInPackets,
+                        clcCdpOutPackets,
+                        clcCdpChecksumErrorPackets,
+                        clcCdpNoMemoryPackets,
+                        clcCdpInvalidPackets
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This collection of objects represents the information
+             about the general status attributes of Cisco Discovery
+             Protocol in WLAN controllers and LWAPP APs."
+    ::= { ciscoLwappCdpMIBGroups 2 }
+
+clcCdpRev02StatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        clcCdpApCacheDuplex,
+                        clcCdpApCacheInterfaceSpeed
+                    }
+    STATUS          current
+    DESCRIPTION
+            "These are the additional objects which represent
+             the information about the general status attributes 
+             of Cisco Discovery Protocol in WLAN controllers and 
+             LWAPP APs."
+    ::= { ciscoLwappCdpMIBGroups 3 }
+
+END
+
+

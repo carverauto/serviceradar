@@ -1,0 +1,4121 @@
+-- ****
+-- *------------------------------------------------------------------
+-- * PCUBE-SE-MIB.my:Main SNMP MIB for Cisco SCE and SE.
+-- *
+-- * PCube was acquired by Cisco Systems on August 23, 2004 
+-- *
+-- * Copyright (c) 2003-2005, 2006 by cisco Systems, Inc.
+-- * All rights reserved.
+-- * Author: Guy Keinan
+-- *------------------------------------------------------------------
+-- ****
+
+PCUBE-SE-MIB DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+    pcubeWorkgroup, pcubeModules
+        FROM PCUBE-SMI
+    TEXTUAL-CONVENTION, RowStatus
+                FROM SNMPv2-TC
+    MODULE-IDENTITY, OBJECT-TYPE, Unsigned32, IpAddress, TimeTicks, 
+    NOTIFICATION-TYPE, 
+    Counter64,Integer32
+        FROM SNMPv2-SMI                                              
+    MODULE-COMPLIANCE,OBJECT-GROUP,NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB;
+       
+pcubeSeMIB  MODULE-IDENTITY
+    LAST-UPDATED    "200611070000Z" -- Nov 7, 2006
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+                 "Cisco Systems
+                  Customer Service
+                 
+           Postal: 170 W Tasman Drive
+                   San Jose, CA  95134
+                   USA
+
+              Tel: +1 800 553-NETS
+
+           E-mail: cs-sce@cisco.com"
+    DESCRIPTION 
+        "Main SNMP MIB for Cisco's SCE OS products such as
+        SCE2000 and SE100. This MIB provides configuration and 
+        runtime status for chassis, control modules, and line 
+        modules on the SCOS systems."
+    REVISION        "200611070000Z" -- Nov 7, 2006
+    DESCRIPTION
+            "- Increased the supported range of global 
+               controllers (globalControllersIndex) 
+               from (1..255) to (1..2147483647)
+             - Improved counter descriptions to reflect the counted 
+               layer for the following byte and bandwidth counters:
+               txQueuesBandwidth
+               txQueuesDroppedBytes
+               globalControllersBandwidth
+               globalControllersDroppedBytes
+            "
+    REVISION     "200605100000Z"  -- May 10, 2006
+    DESCRIPTION  
+            "MIB revised as a part of integration into
+            Cisco SNMP MIB standard, 
+            main changes:
+            changed contaces,
+            added OBJECT-GROUPs,
+            added MODULE-COMPLIANCE,
+            renamed with a prefix 'p' the following
+            tables/objects to avoid conflict with 
+            existing Cisco MIbs:
+            moduleGrp,
+            moduleTable,
+            moduleIndex,                             
+            moduleType,                              
+            moduleNumTrafficProcessors,              
+            moduleSlotNum,                           
+            moduleHwVersion,                         
+            moduleNumPorts,                          
+            moduleNumLinks,                          
+            moduleConnectionMode,                    
+            moduleSerialNumber,                      
+            moduleUpStreamAttackFilteringTime,       
+            moduleUpStreamLastAttackFilteringTime,   
+            moduleDownStreamAttackFilteringTime,     
+            moduleDownStreamLastAttackFilteringTime, 
+            moduleAttackObjectsClearTime ,           
+            moduleAdminStatus,                       
+            moduleOperStatus,
+            chassisGrp
+            chassisSysType,
+            chassisPowerSupplyAlarm,
+            chassisFansAlarm, 
+            chassisTempAlarm,
+            chassisVoltageAlarm,
+            chassisNumSlots,
+            chassisSlotConfig,
+            chassisPsuType,
+            chassisLineFeedAlarm,
+            portGrp,
+            portTable,
+            portModuleIndex,
+            portIndex,
+            portType,      
+            portNumTxQueues,
+            portIfIndex, 
+            portAdminSpeed,
+            portAdminDuplex, 
+            portOperDuplex,
+            portLinkIndex, 
+            portOperStatus  
+            removed attackTypeTableClearTime counter, 
+            renamed Pcube to Cisco and SE to SCE."
+
+    REVISION     "200602120000Z"  -- February 12, 2006
+    DESCRIPTION  
+            "Updates of OS version 3.0.3:
+             added mplsVpnAutoLearning group containing 
+             mplsVpnSoftwareCountersTable and added 
+             mplsVpnTotalHWMappingsThresholdExceededTrap."
+
+    REVISION     "200508160000Z"  -- August 16, 2005
+    DESCRIPTION  
+        "Updates of OS version 3.0.0:
+        added vas group containing vasServerTable and added
+        vasServerOpertionalStatusChangeTrap."       
+                     
+    REVISION     "200412120000Z"  -- December 12, 2004
+    DESCRIPTION  
+        "Updates of OS version 2.5.5:
+        added rdrFormatterCategoryNumReportsQueued to the 
+        rdrFormatterCategoryTable in the RDR-formatter group,
+        added subscribersNumAnonymous and 
+        subscribersNumWithSessions to subscriber info,Added
+        the group attackGrp, containing attackTypeTable."
+    
+    REVISION     "200407010000Z"  -- July 1, 2004
+    DESCRIPTION  
+        "Updates of OS version 2.5:
+        added tpServiceLoss to traffic processor group,
+        added droppedBytes to Tx-Queue and global controller,
+        added TpIpRanges to subscriber info,deprecated 
+        telnetSession* traps, replaced by session* traps."
+
+    REVISION    "200307020000Z"     
+    DESCRIPTION 
+        "Updates of OS version 1.5:
+        added entries to the tpTable, 
+        added entries to the rdrFormatterGrp and
+        rdrFormatterDestTable,added entries to the portTable and
+        attack filter traps."
+          
+    REVISION    "200301050000Z"     
+    DESCRIPTION 
+        "OS version 1.5 updates."
+
+    ::= { pcubeModules 3 }
+
+
+pcubeSEObjs         OBJECT IDENTIFIER ::= { pcubeWorkgroup 1 }
+
+pcubeSeConformance    OBJECT IDENTIFIER ::= { pcubeSeMIB 1 }
+pcubeSeGroups         OBJECT IDENTIFIER ::= { pcubeSeConformance 1 }
+pcubeSeCompliances    OBJECT IDENTIFIER ::= { pcubeSeConformance 2 }
+
+
+-- SE-MIB Objects
+
+systemGrp               OBJECT IDENTIFIER ::= { pcubeSEObjs 1 }
+-- Added a prefix 'p' to chassis objects and module objects
+-- in order to prevent conflicts with CISCO-STACK-MIB for 6K
+-- appliances, since Rev "200603130000Z"
+pchassisGrp              OBJECT IDENTIFIER ::= { pcubeSEObjs 2 }
+pmoduleGrp               OBJECT IDENTIFIER ::= { pcubeSEObjs 3 }
+linkGrp                 OBJECT IDENTIFIER ::= { pcubeSEObjs 4 }
+diskGrp                 OBJECT IDENTIFIER ::= { pcubeSEObjs 5 }
+rdrFormatterGrp         OBJECT IDENTIFIER ::= { pcubeSEObjs 6 }
+loggerGrp               OBJECT IDENTIFIER ::= { pcubeSEObjs 7 }
+subscribersGrp          OBJECT IDENTIFIER ::= { pcubeSEObjs 8 }
+trafficProcessorGrp     OBJECT IDENTIFIER ::= { pcubeSEObjs 9 }
+pportGrp                 OBJECT IDENTIFIER ::= { pcubeSEObjs 10 }
+txQueuesGrp             OBJECT IDENTIFIER ::= { pcubeSEObjs 11 }
+globalControllersGrp    OBJECT IDENTIFIER ::= { pcubeSEObjs 12 }
+applicationGrp          OBJECT IDENTIFIER ::= { pcubeSEObjs 13 }
+trafficCountersGrp      OBJECT IDENTIFIER ::= { pcubeSEObjs 14 } 
+attackGrp               OBJECT IDENTIFIER ::= { pcubeSEObjs 15 }
+vasTrafficForwardingGrp OBJECT IDENTIFIER ::= { pcubeSEObjs 16 }
+mplsVpnAutoLearnGrp     OBJECT IDENTIFIER ::= { pcubeSEObjs 17 }
+
+
+-- textual conventions
+
+LinkModeType ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "The various modes of a link."
+    SYNTAX INTEGER {
+            other(1),       -- none of the following
+            
+            bypass(2),      -- In Bypass mode the traffic is 
+                            -- forwarded from one port to the 
+                            -- other using an internal splitter.
+                            
+            forwarding(3),  -- In forwarding mode the traffic is
+                            -- forwarded through the internal 
+                            -- hardware and software modules 
+                            -- of the SCE.
+                            
+            cutoff(4),      -- In Cutoff mode the traffic is 
+                            -- dropped by the SCE.
+                            
+            sniffing(5)     -- In sniffing mode the traffic is 
+                            -- passed in the same manner as in
+                            -- bypass mode, however a copy of the 
+                            -- traffic is made and analyzed 
+                            -- internally in the box.
+                    }
+
+-- the System group 
+
+sysOperationalStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                other(1),       -- none of the following
+                boot(2),        -- the system is in boot process 
+                operational(3), -- the system is operational
+                warning(4),     -- the system is in Warning status
+                failure(5)      -- the system is in Failure status
+                               }
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "Indicates the operational status of the system."
+        ::= { systemGrp 1 }
+
+
+sysFailureRecovery OBJECT-TYPE
+        SYNTAX        INTEGER {
+                other(1),            -- none of the following
+                
+                operational(2),      -- the system should enter
+                                     -- after abnormal boot  
+                                     -- an Operational mode 
+                                     
+                nonOperational(3)    -- the system should enter
+                                     -- after abnormal boot
+                                     -- a Failure mode 
+                                     
+                                }
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "Indicates if the system should enter a Failure mode
+            after abnormal boot."
+        ::= { systemGrp 2 }
+
+sysVersion OBJECT-TYPE
+        SYNTAX        SnmpAdminString
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The system version."
+        ::= { systemGrp 3 }
+
+
+-- the chassis group
+
+pchassisSysType OBJECT-TYPE
+    SYNTAX        INTEGER {
+                      other(1),         -- none of the following
+                      sce1000(2),       -- SCE 1000
+                      se100(3),         -- SE 100
+                      sce2000(4)        -- SCE 2000
+                      }
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "The chassis system type."
+        ::= { pchassisGrp 1 }
+
+
+pchassisPowerSupplyAlarm OBJECT-TYPE
+    SYNTAX        INTEGER {
+                other(1),       -- none of the following
+                off(2),         -- the power supply to the 
+                                -- chassis is normal 
+                on(3)           -- the power supply to the 
+                                -- chassis is not normal, 
+                                -- probably one or more power 
+                                -- supplies are not functional.
+                              }
+    MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+            "Indicates if the power supply to the chassis is normal.
+            If the status is not 'ok' it means that one or more 
+            power supplies are not functional."
+        ::= { pchassisGrp 2 }
+
+pchassisFansAlarm OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),       -- none of the following
+        off(2),         -- all fans are functional  
+        on(3)           -- one or more fans are not 
+                        -- functional
+                      }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates if all the fans on the chassis are 
+        functional."  
+    ::= { pchassisGrp 3 }
+
+pchassisTempAlarm OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),       -- none of the following
+        off(2),         -- temperature is within normal range
+        on(3)           -- temperature is too high
+                        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The chassis temperature alarm status."
+    ::= { pchassisGrp 4 }
+
+
+pchassisVoltageAlarm OBJECT-TYPE
+    SYNTAX  INTEGER {
+        other(1),       -- none of the following
+        off(2),         -- voltage level is within normal range
+        on(3)           -- voltage level is too high
+                        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The chassis internal voltage alarm status.
+        If the alarm is 'on' it indicates that the 
+        voltage level of one or more HW units is not
+        in the normal range."
+    ::= { pchassisGrp 5 }
+
+pchassisNumSlots OBJECT-TYPE
+    SYNTAX        Integer32 (0..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of slots in the chassis
+        available for plug-in modules. This number 
+        counts slots that are already occupied as well
+        as empty slots."
+    ::= { pchassisGrp 6 }
+
+
+pchassisSlotConfig OBJECT-TYPE
+    SYNTAX        Integer32 (0..65535)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An indication of which slots in the chassis have
+        modules inserted. This is an integer value with 
+        bits set to indicate configured modules.  
+        It can be interpreted as a sum of f(x) as x goes
+        from 1 to the number of slots, where f(x) = 0
+        for no module inserted and f(x) = exp(2, x-1) for
+        a module inserted."
+    ::= { pchassisGrp 7 }
+
+pchassisPsuType OBJECT-TYPE
+    SYNTAX  INTEGER {
+        other(1),        -- none of the following
+        ac(2),  
+        dc(3)   
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the type of the power supplies."
+    ::= { pchassisGrp 8 }
+    
+pchassisLineFeedAlarm OBJECT-TYPE
+    SYNTAX  INTEGER {
+        other(1),       -- none of the following
+        off(2),         -- the line feed to the 
+                        -- chassis is normal 
+        on(3)           -- the line feed to the chassis
+                        -- is not normal, 
+                        -- probably one or more line 
+                        -- feeds are not connected
+                        -- or has no power.
+                              }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates if the line feed to the chassis is normal. 
+        If the status is not 'ok' it means that one or more
+        line feeds are not connected or have no power."
+    ::= { pchassisGrp 10 }
+
+
+
+-- the module group
+
+pmoduleTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF PmoduleEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A list of module entries.  The number of entries is 
+        the number of modules in the chassis."
+    ::= { pmoduleGrp 1 }
+
+
+pmoduleEntry OBJECT-TYPE
+    SYNTAX        PmoduleEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Entry containing information about one module in the 
+        chassis."
+    INDEX         { pmoduleIndex }
+    ::= { pmoduleTable 1 }
+
+PmoduleEntry ::=
+    SEQUENCE {
+    pmoduleIndex                                     Integer32,
+    pmoduleType                                      INTEGER,
+    pmoduleNumTrafficProcessors                      Integer32,
+    pmoduleSlotNum                                   Integer32,
+    pmoduleHwVersion                                 SnmpAdminString,
+    pmoduleNumPorts                                  Integer32,
+    pmoduleNumLinks                                  Integer32,
+    pmoduleConnectionMode                            INTEGER,
+    pmoduleSerialNumber                              SnmpAdminString,
+    pmoduleUpStreamAttackFilteringTime               TimeTicks,
+    pmoduleUpStreamLastAttackFilteringTime           TimeTicks,
+    pmoduleDownStreamAttackFilteringTime             TimeTicks,
+    pmoduleDownStreamLastAttackFilteringTime         TimeTicks,
+    pmoduleAttackObjectsClearTime                    TimeTicks,
+    pmoduleAdminStatus                               INTEGER,
+    pmoduleOperStatus                                INTEGER
+    }
+
+pmoduleIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "A unique value for each module within the chassis."
+    ::= { pmoduleEntry 1 }
+    
+pmoduleType OBJECT-TYPE
+    SYNTAX        INTEGER {
+            other(1),           -- none of the following
+            
+            gbe2Module(2),      -- 2 port Gigabit Ethernet line 
+                                -- interface, 1 Fast Ethernet 
+                                -- 10/100 management interface
+                                
+            fe2Module(3),       -- 2 port Fast Ethernet line interface,
+                                -- 1 Fast Ethernet 10/100 
+                                -- management interface
+                                
+            gbe4Module(4),      -- 4 port Gigabit Ethernet line 
+                                -- interface, 1 or 2 Fast 
+                                -- Ethernet 10/100 management interface
+                                
+            fe4Module(5),       -- 4 port Fast Ethernet line interface, 
+                                -- 2 Fast Ethernet 10/100 management
+                                -- interface
+                                
+            oc124Module(6),     -- 4 port OC12 line interface, 1 or 2 
+                                -- Fast Ethernet 10/100 management
+                                -- interface
+                                
+            fe8Module(7)        -- 8 port Fast Ethernet line interface, 
+                                -- 2 Fast Ethernet 10/100 management
+                                -- interface
+            }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The type of module."
+    ::= { pmoduleEntry 2 }
+
+pmoduleNumTrafficProcessors OBJECT-TYPE
+    SYNTAX        Integer32 (0..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The number of traffic processors supported by this
+        module."
+    ::= { pmoduleEntry 3 }
+
+
+pmoduleSlotNum OBJECT-TYPE
+     SYNTAX        Integer32 (1..255)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+         "This value is determined by the chassis slot number
+         where this module is located.  Valid entries are 1 
+         to the value of chassisNumSlots."
+     ::= { pmoduleEntry 4 }
+
+pmoduleHwVersion OBJECT-TYPE
+     SYNTAX        SnmpAdminString 
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+         "The hardware version of the module."
+     ::= { pmoduleEntry 5 }
+
+pmoduleNumPorts OBJECT-TYPE
+     SYNTAX        Integer32 (0..255)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+         "The number of ports supported by this module."
+     ::= { pmoduleEntry 6 }
+
+pmoduleNumLinks OBJECT-TYPE
+     SYNTAX        Integer32 (0..255)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "The number of links carrying inband traffic that are
+        supported by this module. Link is uniquely defined 
+        by the two ports that are at its end-points."
+     ::= { pmoduleEntry 7 }
+
+pmoduleConnectionMode OBJECT-TYPE
+     SYNTAX INTEGER {
+         other(1),       -- none of the following
+         
+         inline(2),      -- In this mode the SCE is both 
+                         -- receiving and transmitting 
+                         -- traffic on the line ports.
+                         
+         receiveOnly(3), -- In this mode the SCE can only 
+                         -- receive packets from the line 
+                         -- ports, this mode is suitable 
+                         -- for external splitting topology.
+                         
+         inlineCascade(4),   -- In this mode the SCE is 
+                             -- both receiving and transmitting 
+                             -- traffic on the line ports and the
+                             -- cascade ports.
+                             
+         receiveOnlyCascade(5)   -- In this mode the SCE can 
+                                 -- only receive packets from the line 
+                                 -- and the cascade ports, this mode is
+                                 --  suitable for external 
+                                 -- splitting topology.
+         }
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Indicates the connection mode of a module."
+     ::= { pmoduleEntry 8 }
+    
+pmoduleSerialNumber OBJECT-TYPE
+    SYNTAX        SnmpAdminString 
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the serial number of the module."
+    ::= { pmoduleEntry 9 }
+
+-- updates since OS version 1.5
+pmoduleUpStreamAttackFilteringTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated time which
+        attack up-stream traffic was filtered."
+    ::= { pmoduleEntry 10 }
+
+pmoduleUpStreamLastAttackFilteringTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the previous attack was filtered 
+        in the up-stream traffic."
+    ::= { pmoduleEntry 11 }
+
+pmoduleDownStreamAttackFilteringTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated time 
+        which attack down-stream 
+        traffic was filtered."
+    ::= { pmoduleEntry 12 }
+
+pmoduleDownStreamLastAttackFilteringTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time  since 
+        the previous attack was filtered 
+        in the down-stream traffic."
+    ::= { pmoduleEntry 13 }
+
+pmoduleAttackObjectsClearTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+         the attack objects were cleared. Writing a 0 to this 
+         object causes the counters to be cleared."
+    ::= { pmoduleEntry 14 }
+    
+ 
+-- updates since OS version 2.0
+       
+pmoduleAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),     -- none of the following
+        primary(2),   -- the module that should handle the traffic.
+        secondary(3)  -- the fail-over module.
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates configuration of a module in respect 
+        to whether the module should handle traffic."
+    ::= { pmoduleEntry 15 }
+
+pmoduleOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),   -- none of the following
+        active(2),  -- currently the module that handles the traffic.
+        standby(3)  -- currently the fail-over module.
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates current module's role in respect to 
+        whether the module handles traffic."
+    ::= { pmoduleEntry 16 }
+
+
+-- the Link group
+
+linkTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF LinkEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The Link table provides information regarding the
+        configuration and status of the links 
+        that pass through the SE and carry inband traffic.
+        The number of entries in this table is 
+        determined by the number of modules in 
+        the chassis and the number of links 
+        on each module."
+    ::= { linkGrp 1 }
+
+
+linkEntry OBJECT-TYPE
+    SYNTAX        LinkEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Entry containing information about the Link."
+    INDEX         { linkModuleIndex, linkIndex }
+    ::= { linkTable 1 }
+
+LinkEntry ::=
+    SEQUENCE {
+        linkModuleIndex             Integer32,
+        linkIndex                   Integer32,
+        linkAdminModeOnActive       LinkModeType,
+        linkAdminModeOnFailure      LinkModeType,
+        linkOperMode                LinkModeType,
+        linkStatusReflectionEnable  INTEGER,
+        linkSubscriberSidePortIndex Integer32,
+        linkNetworkSidePortIndex    Integer32
+    }
+
+linkModuleIndex OBJECT-TYPE
+     SYNTAX        Integer32 (1..255)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "An index value that uniquely identifies the module
+        where this link is located."
+     ::= { linkEntry 1 }
+    
+linkIndex OBJECT-TYPE
+     SYNTAX        Integer32 (1..255)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "An index value that uniquely identifies this link 
+        within a module.  
+        Valid entries are 1 to the value of moduleNumLinks
+        for this module."
+     ::= { linkEntry 2 }
+    
+
+linkAdminModeOnActive OBJECT-TYPE
+     SYNTAX        LinkModeType
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "The desired mode of the link when the module's 
+        operating status is Active and the module
+        is not in boot or failure.
+        The possible modes are bypass, forwarding and sniffing.
+        In bypass mode the traffic is forwarded 
+        from one port to the other using an internal splitter.
+        In forwarding mode the traffic is forwarded through the
+        internal hardware and software modules of the SE.
+        In sniffing mode the traffic is passed in the same 
+        manner as in bypass mode, however a copy of the traffic
+        is made and analyzed internally in the box."
+     ::= { linkEntry 3 }
+
+linkAdminModeOnFailure OBJECT-TYPE
+    SYNTAX        LinkModeType
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The desired mode of the link when the system's 
+        operational status is Failure.
+        The possible modes are Bypass and Cutoff.
+        In Bypass mode the traffic is forwarded 
+        from one port to the other using an internal splitter.
+        In Cutoff mode the traffic is dropped by the SE."
+    ::= { linkEntry 4 }
+
+linkOperMode OBJECT-TYPE
+    SYNTAX        LinkModeType
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The operational mode of the link.
+        In Bypass mode the traffic is forwarded from one port 
+        to the other using an internal splitter.
+        In Forwarding mode the traffic is forwarded through 
+        the internal software and hardware modules of the SCE.
+        In Sniffing mode the traffic is forwarded in the same 
+        manner as in Bypass mode, however the traffic
+        is passed through the internal software and 
+        hardware modules of the SCE for analyzing.
+        in Cutoff mode the traffic is dropped by 
+        the SCE platform."
+    ::= { linkEntry 5 }
+    
+linkStatusReflectionEnable OBJECT-TYPE
+     SYNTAX        INTEGER { enabled(1), disabled(2) }
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Indicates if failure of the physical link on one i/f 
+        should trigger the failure of the link 
+        on the other i/f."
+     ::= { linkEntry 6 }
+
+-- updates in OS version 2.0
+linkSubscriberSidePortIndex OBJECT-TYPE
+     SYNTAX        Integer32 (1..255)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "An index value that uniquely identifies this link with 
+        its related port that is connected to the subscriber 
+        side."
+     ::= { linkEntry 7 }
+
+linkNetworkSidePortIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies this link with 
+        its related port that is connected to
+        the network side."
+    ::= { linkEntry 8 }
+-- the disk group
+
+diskNumUsedBytes OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The number of used bytes."
+    ::= { diskGrp 1 }
+
+diskNumFreeBytes OBJECT-TYPE
+     SYNTAX        Unsigned32 (0..4294967295)
+     UNITS         "bytes"
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+         "The number of free bytes."
+     ::= { diskGrp 2 }
+
+-- the RDR-formatter group
+
+rdrFormatterEnable OBJECT-TYPE
+    SYNTAX        INTEGER { enabled(1), disabled(2) }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates whether the RDR-formatter is enabled or 
+        disabled. When the RDR-formatter is enabled, 
+        it sends the reports it gets from the traffic processors
+        to the Data Collector as defined in the rdrFormatterDestTable."
+    ::= { rdrFormatterGrp 1 }
+
+
+rdrFormatterDestTable OBJECT-TYPE
+     SYNTAX        SEQUENCE OF RdrFormatterDestEntry
+     MAX-ACCESS    not-accessible
+     STATUS        current
+     DESCRIPTION   
+        "The RDR-formatter destinations table (0 to 3 entries).
+        This table lists the addresses of Data Collectors.
+        If the RDR-formatter is enabled, the destination with
+        the highest priority that a TCP connection to it can be
+        established would receive the reports generated by the 
+        traffic processors."
+     ::= { rdrFormatterGrp 2 }
+
+
+rdrFormatterDestEntry OBJECT-TYPE
+     SYNTAX        RdrFormatterDestEntry
+     MAX-ACCESS    not-accessible
+     STATUS        current
+     DESCRIPTION   
+        "A destination table entry."
+     INDEX         { rdrFormatterDestIPAddr, rdrFormatterDestPort }
+     ::= { rdrFormatterDestTable 1 }
+
+RdrFormatterDestEntry ::=
+    SEQUENCE {
+        rdrFormatterDestIPAddr
+            IpAddress,
+        rdrFormatterDestPort
+            Integer32,
+        rdrFormatterDestPriority
+            Integer32,
+        rdrFormatterDestStatus
+            INTEGER,
+        rdrFormatterDestConnectionStatus
+            INTEGER,
+        rdrFormatterDestNumReportsSent
+            Unsigned32,
+        rdrFormatterDestNumReportsDiscarded
+            Unsigned32,
+        rdrFormatterDestReportRate
+            Unsigned32,
+        rdrFormatterDestReportRatePeak
+            Unsigned32,
+        rdrFormatterDestReportRatePeakTime
+            TimeTicks       
+        }
+
+rdrFormatterDestIPAddr OBJECT-TYPE
+     SYNTAX        IpAddress
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+         "The IP address of a Data Collector."
+     ::= { rdrFormatterDestEntry 1 }
+
+
+rdrFormatterDestPort OBJECT-TYPE
+     SYNTAX        Integer32 (1..65535)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "The TCP port on which the Data Collector listens."
+     ::= { rdrFormatterDestEntry 2 }
+
+
+rdrFormatterDestPriority OBJECT-TYPE
+    SYNTAX        Integer32 (1..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The priority given to the Data Collector.
+        The active Data Collector is the Data Collector with
+        the highest priority and a TCP connection that is up."
+    ::= { rdrFormatterDestEntry 3 }
+
+rdrFormatterDestStatus OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),         -- none of the following
+        active(2),        -- this destination is where the
+                       --  reports are sent to 
+        standby(3)        -- this destination is a backup 
+                             }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "In 'redundancy(2)' and in 'simpleLoadBalancing(3)'
+        rdrFormatterForwardingMode there can be only 
+        one 'active' destination, which is where the 
+        reports are currently being sent to.
+        In 'multicast(4)' modes all destinations will
+        receive the active(2) status."   
+    ::= { rdrFormatterDestEntry 4 }
+
+rdrFormatterDestConnectionStatus OBJECT-TYPE
+    SYNTAX        INTEGER {
+            other(1),       -- none of the following
+            up(2),          -- the TCP connection to this
+                            -- destination is up 
+            down(3)         -- the TCP connection to
+                            -- this destination is down
+                            }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the status of TCP connection
+        to this destination."   
+    ::= { rdrFormatterDestEntry 5 }
+    
+-- rdrFormatterDest... updates since OS version 1.5
+
+rdrFormatterDestNumReportsSent OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of reports sent by the 
+        RDR-formatter to this destination."   
+    ::= { rdrFormatterDestEntry 6 }
+
+
+rdrFormatterDestNumReportsDiscarded OBJECT-TYPE
+        SYNTAX        Unsigned32 (0..4294967295)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   " Indicates the number of reports dropped by the 
+                        RDR-formatter on this destination."   
+    ::= { rdrFormatterDestEntry 7 }
+
+rdrFormatterDestReportRate OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the rate of the reports 
+        (in reports per second) currently sent to this
+        destination." 
+    ::= { rdrFormatterDestEntry 8 }
+
+
+rdrFormatterDestReportRatePeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the maximum report rate sent 
+        to this destination."   
+    ::= { rdrFormatterDestEntry 9 }
+    
+rdrFormatterDestReportRatePeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the rdrFormatterDestReportRatePeak value occurred."
+    ::= { rdrFormatterDestEntry 10 }
+
+
+-- end of rdrFormatterEntry specification
+
+rdrFormatterNumReportsSent OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of reports sent by the 
+        RDR-formatter."   
+    ::= { rdrFormatterGrp 3 }
+
+
+rdrFormatterNumReportsDiscarded OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of reports dropped by the 
+        RDR-formatter."   
+    ::= { rdrFormatterGrp 4 }
+
+
+rdrFormatterClearCountersTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION   
+        "The time since RDR-formatter counters
+        were last cleared. Writing a 0 to this
+        object causes the RDR-formatter counters
+        to be cleared."
+    ::= { rdrFormatterGrp 5 }
+    
+-- updates since OS version 1.5
+    
+rdrFormatterReportRate OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION  
+        "Indicates the rate of the reports 
+        (in reports per second) currently 
+        sent to all of the destinations."   
+    ::= { rdrFormatterGrp 6 }
+
+
+rdrFormatterReportRatePeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the maximum report rate sent to all
+        of the destinations."
+    ::= { rdrFormatterGrp 7 }
+    
+rdrFormatterReportRatePeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the rdrFormatterReportRatePeak value occurred."
+    ::= { rdrFormatterGrp 8 }
+    
+rdrFormatterProtocol OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),      -- none of the following
+        rdrv1(2),      -- RDR protocol version 1
+        rdrv2(3)       -- RDR protocol version 2
+              }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the RDR protocol currently in use."   
+    ::= { rdrFormatterGrp 9 }
+
+rdrFormatterForwardingMode OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),               -- none of the following
+    
+        redundancy(2),          -- the reports are sent to the primary
+                                -- (active destination and all of
+                                -- the other 
+                                -- destinations are in standby
+                            
+        simpleLoadBalancing(3), -- the reports are sent to one 
+                                -- destination 
+                                -- at a time in a round robin manner
+                            
+        multicast(4)            -- the reports are sent to all of the 
+                                -- destinations
+              }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the mode of how the RDR formatter sends the 
+        reports to its destinations."   
+    ::= { rdrFormatterGrp 10 }
+    
+-- updates of OS version 2.0
+
+rdrFormatterCategoryTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF RdrFormatterCategoryEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The RDR-formatter Category table. 
+        Describes the different categories of RDRs and RDR
+        destination groups."
+    ::= { rdrFormatterGrp 11 }
+
+
+rdrFormatterCategoryEntry OBJECT-TYPE
+     SYNTAX        RdrFormatterCategoryEntry
+     MAX-ACCESS    not-accessible
+     STATUS        current
+     DESCRIPTION   
+        "A category table entry."
+     INDEX         {rdrFormatterCategoryIndex }
+     ::= { rdrFormatterCategoryTable 1 }
+
+RdrFormatterCategoryEntry ::=
+    SEQUENCE {
+        rdrFormatterCategoryIndex
+            Integer32,
+        rdrFormatterCategoryName
+            SnmpAdminString,
+        rdrFormatterCategoryNumReportsSent
+            Unsigned32,
+        rdrFormatterCategoryNumReportsDiscarded
+            Unsigned32,
+        rdrFormatterCategoryReportRate
+            Unsigned32,
+        rdrFormatterCategoryReportRatePeak
+            Unsigned32,
+        rdrFormatterCategoryReportRatePeakTime
+            TimeTicks,
+        rdrFormatterCategoryNumReportsQueued
+            Unsigned32
+        }
+
+rdrFormatterCategoryIndex  OBJECT-TYPE
+     SYNTAX        Integer32 (1..4)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "The category number."
+     ::= { rdrFormatterCategoryEntry 1 }
+    
+rdrFormatterCategoryName OBJECT-TYPE
+     SYNTAX        SnmpAdminString
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "The name given to this category."
+     ::= { rdrFormatterCategoryEntry 2 }
+
+rdrFormatterCategoryNumReportsSent OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of reports sent by the 
+        RDR-formatter to this category."   
+    ::= { rdrFormatterCategoryEntry 3 }
+
+
+rdrFormatterCategoryNumReportsDiscarded OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of reports dropped by the 
+        RDR-formatter on this category."   
+    ::= { rdrFormatterCategoryEntry 4 }
+
+rdrFormatterCategoryReportRate OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the rate of the reports 
+        (in reports per second) currently sent 
+        to this category."   
+    ::= { rdrFormatterCategoryEntry 5 }
+
+
+rdrFormatterCategoryReportRatePeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION  
+        "Indicates the maximum report rate sent to this category."
+    ::= { rdrFormatterCategoryEntry 6 }
+    
+rdrFormatterCategoryReportRatePeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time 
+        since the rdrFormatterCategoryReportRatePeak 
+        value occurred."
+    ::= { rdrFormatterCategoryEntry 7 }
+
+
+rdrFormatterCategoryNumReportsQueued OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the amount of pending reports in this 
+        category."   
+    ::= { rdrFormatterCategoryEntry 8 }
+
+rdrFormatterCategoryDestTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF RdrFormatterCategoryDestEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The RDR-formatter Category destinations table. 
+        This table lists the addresses of Data Collectors.
+        If the RDR-formatter is enabled, the destination with
+        the highest priority that a TCP connection to it can be
+        established would receive the reports generated by the
+        traffic processors."
+   ::= { rdrFormatterGrp 12 }
+
+
+rdrFormatterCategoryDestEntry OBJECT-TYPE
+    SYNTAX        RdrFormatterCategoryDestEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A destination table entry."
+    INDEX         { rdrFormatterCategoryIndex,
+                    rdrFormatterDestIPAddr,
+                    rdrFormatterDestPort }
+    ::= { rdrFormatterCategoryDestTable 1 }
+
+RdrFormatterCategoryDestEntry ::=
+     SEQUENCE {
+     rdrFormatterCategoryDestPriority
+         Integer32,
+     rdrFormatterCategoryDestStatus
+         INTEGER
+     }
+
+rdrFormatterCategoryDestPriority OBJECT-TYPE
+     SYNTAX        Integer32 (1..100)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "The priority given to the Data Collector for this 
+        category. The active Data Collector is the Data 
+        Collector with the highest priority and a TCP 
+        connection that is up."
+     ::= { rdrFormatterCategoryDestEntry 1 }
+
+
+rdrFormatterCategoryDestStatus OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),         -- none of the following
+        active(2),        -- this destination is where 
+                      -- the reports are sent to 
+        standby(3)        -- this destination is a backup 
+                            }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "In modes 'redundancy(2)' and in 'simpleLoadBalancing(3)'
+        there can be only one 'active' destination, 
+        which is the destination to which reports are
+        being sent. In 'multicast(4)' modes all destination 
+        will receive the 'active(2)' status."
+    ::= { rdrFormatterCategoryDestEntry 2 }
+
+
+-- the Logger group
+-- The logger is responsible for logging the system synchronous
+-- and asynchronous events.
+
+loggerUserLogEnable OBJECT-TYPE
+    SYNTAX        INTEGER { enabled(1), disabled(2) }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates whether the logging of user information is
+        enabled or disabled."
+    ::= { loggerGrp 1 }
+
+
+loggerUserLogNumInfo OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of Info messages logged into the
+        user log file since last reboot or last time the
+        counter was cleared."
+    ::= { loggerGrp 2 }
+
+
+loggerUserLogNumWarning OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of Warning messages logged into
+        the user log file since last reboot or last time the 
+        counter was cleared."
+    ::= { loggerGrp 3 }
+
+
+loggerUserLogNumError OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of Error messages logged into the
+        user log file since last reboot or last time the counter
+        was cleared."
+    ::= { loggerGrp 4 }
+
+
+loggerUserLogNumFatal OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of Fatal messages logged into the 
+         User-Log since last reboot or last time the counter
+         was cleared."
+    ::= { loggerGrp 5 }
+
+
+loggerUserLogClearCountersTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION   
+        "The time since user log
+        counters were last cleared.  Writing a 0 to this 
+        object causes the user log counters to be cleared."
+    ::= { loggerGrp 6 }
+
+
+
+-- the Subscribers group
+subscribersInfoTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF SubscribersInfoEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The subscribers information table consists of 
+        data regarding subscribers management operations
+        performed."
+    ::= { subscribersGrp 1 }
+
+subscribersInfoEntry OBJECT-TYPE
+     SYNTAX        SubscribersInfoEntry
+     MAX-ACCESS    not-accessible
+     STATUS        current
+     DESCRIPTION   
+        "A SubscribersInfoEntry entry."
+     INDEX         { pmoduleIndex }
+     ::= { subscribersInfoTable 1 }
+     
+SubscribersInfoEntry ::=
+    SEQUENCE {
+        subscribersNumIntroduced            Unsigned32,
+        subscribersNumFree                  Unsigned32,
+        subscribersNumIpAddrMappings        Unsigned32,
+        subscribersNumIpAddrMappingsFree    Unsigned32,
+        subscribersNumIpRangeMappings       Unsigned32,
+        subscribersNumIpRangeMappingsFree   Unsigned32,
+        subscribersNumVlanMappings          Unsigned32,
+        subscribersNumVlanMappingsFree      Unsigned32,
+        subscribersNumActive                Unsigned32,
+        subscribersNumActivePeak            Unsigned32,
+        subscribersNumActivePeakTime        TimeTicks,
+        subscribersNumUpdates               Unsigned32,
+        subscribersCountersClearTime        TimeTicks,
+        subscribersNumTpIpRanges            Unsigned32,
+        subscribersNumTpIpRangesFree        Unsigned32,
+        subscribersNumAnonymous             Unsigned32,
+        subscribersNumWithSessions          Unsigned32
+        }
+
+
+subscribersNumIntroduced OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the current number of subscribers
+        introduced to the SCE.
+        These subscribers may or may not have IP address
+        or VLAN mappings. Subscribers who do not have mappings
+        of any kind cannot be associated with traffic, 
+        thus will be served by the SCE according to the
+        default settings. "
+    ::= { subscribersInfoEntry 1 }
+
+
+subscribersNumFree OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of subscribers that may be
+        introduced in addition to the subscribers that 
+        are already introduced to the SCE
+        (subscribersNumIntroduced)."
+    ::= { subscribersInfoEntry 2 }
+
+
+subscribersNumIpAddrMappings OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the current number of 'IP address
+        to subscriber' mappings."
+    ::= { subscribersInfoEntry 3 }
+
+
+subscribersNumIpAddrMappingsFree OBJECT-TYPE
+     SYNTAX        Unsigned32 (0..4294967295)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Indicates the number of free 'IP address to
+        subscriber' mappings that may 
+        be used for defining new mappings."  
+     ::= { subscribersInfoEntry 4 }
+
+
+subscribersNumIpRangeMappings OBJECT-TYPE
+     SYNTAX        Unsigned32 (0..4294967295)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Indicates the current number of 'IP-range
+        to subscriber' mappings."
+     ::= { subscribersInfoEntry 5 }
+
+
+subscribersNumIpRangeMappingsFree OBJECT-TYPE
+     SYNTAX        Unsigned32 (0..4294967295)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Indicates the number of free 'IP-range to
+        subscriber' mappings that may 
+        be used for defining new mappings."
+     ::= { subscribersInfoEntry 6 }
+
+
+subscribersNumVlanMappings OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the current number of VLAN to 
+        subscribers mappings."
+    ::= { subscribersInfoEntry 7 }
+
+
+subscribersNumVlanMappingsFree OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of free 'VLAN to 
+        subscriber' mappings that may be used for
+        defining new mappings."
+    ::= { subscribersInfoEntry 8 }
+
+
+subscribersNumActive OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the current number of active subscribers,
+        these subscribers necessarily 
+        have an IP address or VLAN mappings
+        that define the traffic that should be associated 
+        and served according to the subscriber 
+        service agreement." 
+    ::= { subscribersInfoEntry 9 }
+
+
+subscribersNumActivePeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of subscribersNumActive
+        since the last time it was cleared or the
+        system started."
+    ::= { subscribersInfoEntry 10 }
+
+
+subscribersNumActivePeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since 
+        the subscribersNumActivePeak value occurred."
+    ::= { subscribersInfoEntry 11 }
+
+
+subscribersNumUpdates OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of subscribers
+        database updates received by the SCE."
+    ::= { subscribersInfoEntry 12 }
+
+
+subscribersCountersClearTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since 
+        the subscribers counters were cleared. Writing a 0 
+        to this object causes the counters to be cleared."
+    ::= { subscribersInfoEntry 13 }
+
+
+subscribersNumTpIpRanges OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the current number of 'Traffic Processor
+        IP ranges' used."
+    ::= { subscribersInfoEntry 14 }
+
+
+subscribersNumTpIpRangesFree OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of free 'Traffic Processor
+        IP ranges'."  
+    ::= { subscribersInfoEntry 15 }
+
+subscribersNumAnonymous OBJECT-TYPE
+     SYNTAX        Unsigned32 (0..4294967295)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Indicates the current number of anonymous subscribers."
+     ::= { subscribersInfoEntry 16 }
+
+
+subscribersNumWithSessions OBJECT-TYPE
+     SYNTAX        Unsigned32 (0..4294967295)
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Indicates the current number of subscribers
+        with open sessions."
+     ::= { subscribersInfoEntry 17 }
+
+
+-- Traffic Processor group
+
+tpInfoTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF TpInfoEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The Traffic Processor Info table consists of 
+        data regarding traffic handled by the traffic
+        processors by classification of packets and flows."
+    ::= { trafficProcessorGrp 1 }
+
+tpInfoEntry OBJECT-TYPE
+    SYNTAX        TpInfoEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A tpInfoTable entry."
+    INDEX         { tpModuleIndex, tpIndex }
+    ::= { tpInfoTable 1 }
+
+TpInfoEntry ::=
+    SEQUENCE {
+        tpModuleIndex                           Integer32,
+        tpIndex                                 Integer32,
+        tpTotalNumHandledPackets                Unsigned32,
+        tpTotalNumHandledFlows                  Unsigned32,
+        tpNumActiveFlows                        Unsigned32,
+        tpNumActiveFlowsPeak                    Unsigned32,
+        tpNumActiveFlowsPeakTime                 TimeTicks,
+        tpNumTcpActiveFlows                     Unsigned32,
+        tpNumTcpActiveFlowsPeak                 Unsigned32,
+        tpNumTcpActiveFlowsPeakTime             TimeTicks,
+        tpNumUdpActiveFlows                     Unsigned32,
+        tpNumUdpActiveFlowsPeak                 Unsigned32,
+        tpNumUdpActiveFlowsPeakTime             TimeTicks,
+        tpNumNonTcpUdpActiveFlows               Unsigned32, 
+        tpNumNonTcpUdpActiveFlowsPeak           Unsigned32,
+        tpNumNonTcpUdpActiveFlowsPeakTime       TimeTicks,
+        tpTotalNumBlockedPackets                Unsigned32,
+        tpTotalNumBlockedFlows                  Unsigned32,
+        tpTotalNumDiscardedPacketsDueToBwLimit  Unsigned32,
+        tpTotalNumWredDiscardedPackets          Unsigned32,
+        tpTotalNumFragments                     Unsigned32,
+        tpTotalNumNonIpPackets                  Unsigned32,
+        tpTotalNumIpCrcErrPackets               Unsigned32,
+        tpTotalNumIpLengthErrPackets            Unsigned32,
+        tpTotalNumIpBroadcastPackets            Unsigned32,
+        tpTotalNumTtlErrPackets                 Unsigned32,
+        tpTotalNumTcpUdpCrcErrPackets           Unsigned32,
+        tpClearCountersTime                     TimeTicks,
+        tpHandledPacketsRate                    Unsigned32,
+        tpHandledPacketsRatePeak                Unsigned32,
+        tpHandledPacketsRatePeakTime            TimeTicks,
+        tpHandledFlowsRate                      Unsigned32,
+        tpHandledFlowsRatePeak                  Unsigned32,
+        tpHandledFlowsRatePeakTime              TimeTicks,
+        tpCpuUtilization                        Integer32,
+        tpCpuUtilizationPeak                    Integer32,
+        tpCpuUtilizationPeakTime                TimeTicks,
+        tpFlowsCapacityUtilization              Integer32,
+        tpFlowsCapacityUtilizationPeak          Integer32,
+        tpFlowsCapacityUtilizationPeakTime      TimeTicks,
+        tpServiceLoss                           Integer32
+    }
+
+tpModuleIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies the module
+        where this traffic processor is located."
+    ::= { tpInfoEntry 1 }
+
+
+tpIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies this traffic
+        processor within a module.
+        The value is determined by the location of the traffic
+        processor on the module.  
+        Valid entries are 1 to the value of 
+        moduleNumTrafficProcessors for this module."
+    ::= { tpInfoEntry 2 }
+
+tpTotalNumHandledPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of packets handled by
+        this traffic processor since last reboot or last time
+        this counter was cleared."
+    ::= { tpInfoEntry 3 }
+    
+tpTotalNumHandledFlows OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of flows handled by 
+        this traffic Processor since last reboot or last time
+        this counter was cleared."
+    ::= { tpInfoEntry 4 }
+
+
+tpNumActiveFlows OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of flows currently being handled
+        by this traffic processor."
+        ::= { tpInfoEntry 5 }
+
+tpNumActiveFlowsPeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpNumActiveFlows since the
+        last time it was cleared or the system started."
+    ::= { tpInfoEntry 6 }
+
+tpNumActiveFlowsPeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+       "Indicates the time since
+       the tpNumActiveFlowsPeak value occurred."
+    ::= { tpInfoEntry 7 }
+
+tpNumTcpActiveFlows OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of TCP flows currently being
+        handled by this traffic processor."
+    ::= { tpInfoEntry 8 }
+
+tpNumTcpActiveFlowsPeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpNumTcpActiveFlows since
+        the last time it was cleared or the system started."
+    ::= { tpInfoEntry 9 }
+
+tpNumTcpActiveFlowsPeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the tpNumTcpActiveFlowsPeak value occurred."
+    ::= { tpInfoEntry 10 }
+
+tpNumUdpActiveFlows OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of UDP flows currently being
+        handled by this traffic processor."
+    ::= { tpInfoEntry 11 }
+
+tpNumUdpActiveFlowsPeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpNumUdpActiveFlows since
+        the last time it was cleared or the system started."
+    ::= { tpInfoEntry 12 }
+
+tpNumUdpActiveFlowsPeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the tpNumUdpActiveFlowsPeak value occurred."
+     ::= { tpInfoEntry 13 }
+     
+tpNumNonTcpUdpActiveFlows OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the number of non TCP/UDP flows currently
+        being handled by this traffic processor."
+    ::= { tpInfoEntry 14 }
+
+tpNumNonTcpUdpActiveFlowsPeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpNumNonTcpUdpActiveFlows 
+        since the last time it was cleared or the system 
+        started."
+    ::= { tpInfoEntry 15 }
+
+tpNumNonTcpUdpActiveFlowsPeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the tpNumNonTcpUdpActiveFlowsPeak value occurred."
+    ::= { tpInfoEntry 16 }
+
+    
+tpTotalNumBlockedPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of packets discarded
+        by this traffic processor according to application
+        blocking rules."
+    ::= { tpInfoEntry 17 }
+
+tpTotalNumBlockedFlows OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of flows discarded by
+        this traffic processor according to application
+        blocking rules."    
+    ::= { tpInfoEntry 18 }
+
+tpTotalNumDiscardedPacketsDueToBwLimit OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of packets discarded
+        by this traffic processor due to subscriber bandwidth 
+        limitations."
+    ::= { tpInfoEntry 19 }
+
+tpTotalNumWredDiscardedPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of packets discarded
+        by this traffic processor due to congestion in the 
+        queues."
+    ::= { tpInfoEntry 20 }
+    
+tpTotalNumFragments OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of fragmented packets 
+        handled by this traffic processor."
+    ::= { tpInfoEntry 21 }
+
+tpTotalNumNonIpPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of non IP packets
+        handled by this traffic processor."
+    ::= { tpInfoEntry 22 }
+    
+tpTotalNumIpCrcErrPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of packets with IP CRC
+        error handled by this traffic processor."
+    ::= { tpInfoEntry 23 }
+            
+tpTotalNumIpLengthErrPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of packets with IP
+        length error handled by this traffic processor."
+    ::= { tpInfoEntry 24 }
+                
+tpTotalNumIpBroadcastPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of IP broadcast
+        packets handled by this traffic processor."
+    ::= { tpInfoEntry 25 }
+    
+tpTotalNumTtlErrPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of packets with TTL
+        error handled by this traffic processor."
+    ::= { tpInfoEntry 26 }
+
+tpTotalNumTcpUdpCrcErrPackets OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the accumulated number of TCP/UDP packets
+        with CRC error handled by this traffic processor."
+    ::= { tpInfoEntry 27 }
+    
+tpClearCountersTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since 
+        the traffic processor statistics counters were last 
+        cleared.  Writing a 0 to this object causes the traffic
+        processor counters to be cleared."
+    ::= { tpInfoEntry 28 }
+    
+-- updates since OS version 1.5
+    
+tpHandledPacketsRate OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the rate in packets per second of 
+        the packets handled by this traffic processor."
+    ::= { tpInfoEntry 29 }
+
+tpHandledPacketsRatePeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpHandledPacketsRate
+        since the last time it was cleared or the system
+        started."
+    ::= { tpInfoEntry 30 }
+
+tpHandledPacketsRatePeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the tpHandledPacketsRatePeak value occurred."
+    ::= { tpInfoEntry 31 }
+
+tpHandledFlowsRate OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the rate in flows opening per second of the
+        flows handled by this traffic processor."
+    ::= { tpInfoEntry 32 }
+
+tpHandledFlowsRatePeak OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpHandledFlowsRate since
+        the last time it was cleared or the system started."
+    ::= { tpInfoEntry 33 }
+
+tpHandledFlowsRatePeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the tpHandledFlowsRatePeakTime value occurred."
+    ::= { tpInfoEntry 34 }
+        
+tpCpuUtilization  OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the percentage of CPU utilization, updated
+        once every 2 minutes." 
+    ::= { tpInfoEntry 35 }
+
+tpCpuUtilizationPeak  OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpCpuUtilization since the
+        last time it was cleared or the system started."
+    ::= { tpInfoEntry 36 }
+
+tpCpuUtilizationPeakTime  OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the tpCpuUtilizationPeak value occurred."
+    ::= { tpInfoEntry 37 }
+    
+
+tpFlowsCapacityUtilization  OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the percentage of flows capacity utilization." 
+    ::= { tpInfoEntry 38 }
+
+tpFlowsCapacityUtilizationPeak  OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of tpFlowsCapacityUtilization 
+        since the last time it was cleared or the system 
+        started."
+    ::= { tpInfoEntry 39 }
+
+tpFlowsCapacityUtilizationPeakTime  OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since
+        the tpFlowsCapacityUtilizationPeak value occurred."
+    ::= { tpInfoEntry 40 }
+
+tpServiceLoss  OBJECT-TYPE
+    SYNTAX        Integer32 (0..100000)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the relative amount of service loss 
+        in this traffic Processor, in units of 0.001%, 
+        since last reboot or last time this counter was
+        cleared."
+    ::= { tpInfoEntry 41 }
+
+
+
+-- the port Group 
+
+pportTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF PportEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A list of port entries.  The number of entries is 
+        determined by the number of modules in the chassis
+        and the number of ports on each module."
+    ::= { pportGrp 1 }
+
+pportEntry OBJECT-TYPE          
+    SYNTAX        PportEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Entry containing information for a particular port 
+        on a module."
+    INDEX         { pportModuleIndex, pportIndex }
+    ::= { pportTable 1 }
+
+PportEntry ::=
+    SEQUENCE {
+        pportModuleIndex     Integer32,
+        pportIndex           Integer32,
+        pportType            INTEGER,
+        pportNumTxQueues     Integer32,
+        pportIfIndex         Integer32,
+        pportAdminSpeed      INTEGER,
+        pportAdminDuplex     INTEGER,
+        pportOperDuplex      INTEGER,
+        pportLinkIndex       Integer32,
+        pportOperStatus      INTEGER    
+    }
+    
+pportModuleIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies the module where
+        this port is located."
+    ::= { pportEntry 1 }
+
+pportIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies this port
+        within a module.  
+        The value is determined by the location of the 
+        port on the module.  Valid entries are 1 to the value
+        of moduleNumPorts for this module."
+    ::= { pportEntry 2 }
+pportType OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),       -- none of the following
+        e100BaseTX(11), -- UTP Fast Ethernet (Cat 5)
+        e1000BaseT(15),
+        e1000BaseSX(28) -- Short Wave fiber Giga Ethernet
+                        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The type of physical layer medium dependent interface
+        on the port."
+    ::= { pportEntry 3 }
+
+pportNumTxQueues OBJECT-TYPE
+    SYNTAX        Integer32 (0..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The number of transmit queues supported by this port."
+    ::= { pportEntry 4 }
+
+pportIfIndex OBJECT-TYPE
+    SYNTAX        Integer32  (0..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The value of the instance of the ifIndex object, 
+        defined in MIB-II, for this port."
+    ::= { pportEntry 5 }
+    
+pportAdminSpeed OBJECT-TYPE
+    SYNTAX        INTEGER {
+        autoNegotiation(1),
+        s10000000(10000000),      -- 10 Mbps
+        s100000000(100000000),    -- 100 Mbps
+        s1000000000(1000000000)   -- 1 Gbps
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The desired speed of the port.
+        The current operational speed of the port can be
+        determined from ifSpeed."
+    ::= { pportEntry 6 }
+
+pportAdminDuplex OBJECT-TYPE
+    SYNTAX        INTEGER { 
+        half(1), 
+        full(2), 
+        auto(4) 
+                          }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The desired duplex of the port."
+    ::= { pportEntry 7 }
+
+pportOperDuplex OBJECT-TYPE
+    SYNTAX        INTEGER { 
+        half(1), 
+        full(2) 
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates whether the port is operating in half-duplex 
+        or full-duplex." 
+    ::= { pportEntry 8 }
+    
+pportLinkIndex OBJECT-TYPE
+    SYNTAX        Integer32 (-1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the linkIndex of the link that this port 
+        belongs to. Value of 0 indicates that this port is
+        not associated with any link. Value of -1 indicates 
+        that this port is associated to multiple links."
+    ::= { pportEntry 9 }
+   
+-- objects added at version 2.0
+
+
+pportOperStatus OBJECT-TYPE
+    SYNTAX        INTEGER { 
+        other(1),                   -- none of the following
+    
+        up(2),                      -- the port is up              
+    
+        reflectionForcingDown(3),   -- the port is currently forced
+                                    -- down due to
+                                    -- link reflection
+                                
+        redundancyForcingDown(4),   -- the port is currently forced 
+                                    -- down due to
+                                    -- redundancy reasons
+                                
+        otherDown(5)                -- the port is down due to other 
+                                    -- reasons
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the status of the port and if the port is 
+        down indicates the reason."
+    ::= { pportEntry 10 }
+
+    
+-- the Transmit Queues Group
+
+txQueuesTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF TxQueuesEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "This table consists of information on the SCE's transmit
+        queues."  
+    ::= { txQueuesGrp 1 }
+
+txQueuesEntry OBJECT-TYPE
+    SYNTAX        TxQueuesEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A txQueuesTable entry."
+    INDEX         { txQueuesModuleIndex,
+                    txQueuesPortIndex, 
+                    txQueuesQueueIndex
+                   }
+    ::= { txQueuesTable 1 }
+
+TxQueuesEntry ::=
+    SEQUENCE {
+        txQueuesModuleIndex         Integer32,
+        txQueuesPortIndex           Integer32,
+        txQueuesQueueIndex          Integer32,
+        txQueuesDescription         SnmpAdminString,
+        txQueuesBandwidth           Integer32,
+        txQueuesUtilization         Integer32,
+        txQueuesUtilizationPeak     Integer32,
+        txQueuesUtilizationPeakTime TimeTicks,
+        txQueuesClearCountersTime   TimeTicks,
+        txQueuesDroppedBytes        Counter64
+    }
+    
+txQueuesModuleIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies the module
+        where this queue is located."
+    ::= { txQueuesEntry 1 }
+
+txQueuesPortIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies the port where
+        this queue is located."
+    ::= { txQueuesEntry 2 }
+
+txQueuesQueueIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies this queue 
+        within a port.  The value is determined by the
+        location of the queue on the port.  Valid entries 
+        are 1 to the value of portNumTxQueues for this module."
+    ::= { txQueuesEntry 3 }
+
+txQueuesDescription OBJECT-TYPE
+    SYNTAX        SnmpAdminString 
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Description of the transmit queue."
+    ::= { txQueuesEntry 4 }
+    
+txQueuesBandwidth OBJECT-TYPE
+    SYNTAX        Integer32 (1..1000000)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The bandwidth in L1 kbps configured for this queue."
+    ::= { txQueuesEntry 5 }
+
+txQueuesUtilization OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The percentage of bandwidth utilization relative to the 
+        configured rate."
+    ::= { txQueuesEntry 6 }
+
+txQueuesUtilizationPeak OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of txQueuesUtilization 
+        since the last time it was cleared or the system started."
+    ::= { txQueuesEntry 7 }
+
+txQueuesUtilizationPeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since the 
+        txQueuesUtilizationPeak value occurred."
+   ::= { txQueuesEntry 8 }
+        
+
+txQueuesClearCountersTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since the
+        TX queues statistics counters were last cleared.
+        Writing a 0 to this object causes the TX queues
+        counters to be cleared."
+    ::= { txQueuesEntry 9 }
+
+txQueuesDroppedBytes OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Amount of dropped L3 bytes. This is valid only if the 
+        system is configured to count dropped bytes per 
+        TX queue."
+    ::= { txQueuesEntry 10 }
+
+
+
+-- The Global Controllers Group
+
+globalControllersTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF GlobalControllersEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "This table consists of information on the SCE's Global
+        Controllers. note: the globalControllersIndex and the 
+        SCE CLI configuration index have a offset of one i.e. 
+        1 in the MIB refers to 0 in the CLI."  
+    ::= { globalControllersGrp 1 }
+
+globalControllersEntry OBJECT-TYPE
+    SYNTAX        GlobalControllersEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A globalControllersTable entry."
+    INDEX         { globalControllersModuleIndex, 
+                    globalControllersPortIndex,
+                    globalControllersIndex
+                  }
+    ::= { globalControllersTable 1 }
+
+GlobalControllersEntry ::=
+    SEQUENCE {
+        globalControllersModuleIndex            Integer32,
+        globalControllersPortIndex              Integer32,
+        globalControllersIndex                  Integer32,
+        globalControllersDescription            SnmpAdminString,
+        globalControllersBandwidth              Integer32,
+        globalControllersUtilization            Integer32,
+        globalControllersUtilizationPeak        Integer32,
+        globalControllersUtilizationPeakTime    TimeTicks,
+        globalControllersClearCountersTime      TimeTicks,
+        globalControllersDroppedBytes           Counter64
+    }
+    
+globalControllersModuleIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies the module where
+        this controller is located."
+    ::= { globalControllersEntry 1 }
+
+globalControllersPortIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies the port where 
+        this controller is located."
+    ::= { globalControllersEntry 2 }
+
+globalControllersIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..2147483647)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies this 
+        controller within a port."
+    ::= { globalControllersEntry 3 }
+
+globalControllersDescription OBJECT-TYPE
+    SYNTAX        SnmpAdminString 
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Description of the controller."
+    ::= { globalControllersEntry 4 }
+    
+globalControllersBandwidth OBJECT-TYPE
+    SYNTAX        Integer32 (1..1000000)
+    UNITS         "Kbps"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The L1 bandwidth configured for this controller."
+    ::= { globalControllersEntry 5 }
+
+globalControllersUtilization OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The percentage of bandwidth utilization relative to the 
+        configured rate."
+    ::= { globalControllersEntry 6 }
+
+globalControllersUtilizationPeak OBJECT-TYPE
+    SYNTAX        Integer32 (0..100)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the peak value of globalControllersUtilization 
+        since the last time it was cleared or the system started."
+    ::= { globalControllersEntry 7 }
+
+globalControllersUtilizationPeakTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since the 
+        globalControllersUtilizationPeak value occurred."
+    ::= { globalControllersEntry 8 }
+        
+
+globalControllersClearCountersTime OBJECT-TYPE
+    SYNTAX        TimeTicks
+    UNITS         "milliseconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the time since the
+        controllers statistics counters were last cleared.
+        Writing a 0 to this object causes the controllers
+        counters to be cleared."
+    ::= { globalControllersEntry 9 }
+
+globalControllersDroppedBytes OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Amount of L3 dropped bytes. This is valid only if the 
+        system is configured to count dropped bytes per 
+        global controller."
+    ::= { globalControllersEntry 10 }
+
+
+
+--
+-- Application Group
+--
+
+appInfoTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF AppInfoEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "This table consists of information on the 
+        SCE's application."  
+    ::= { applicationGrp 1 }
+
+appInfoEntry OBJECT-TYPE
+    SYNTAX        AppInfoEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A appInfoTable entry."
+    INDEX         { pmoduleIndex }
+    ::= { appInfoTable 1 }
+
+AppInfoEntry ::=
+    SEQUENCE {
+        appName
+            SnmpAdminString,
+        appDescription
+            SnmpAdminString,
+        appVersion
+            SnmpAdminString
+    }
+
+appName OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The application name."
+    ::= { appInfoEntry 1 }
+        
+appDescription OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The application description."
+    ::= { appInfoEntry 2 }
+
+
+appVersion OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The application version."
+    ::= { appInfoEntry 3 }
+
+
+-- Application properties table
+appPropertiesTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF AppPropertiesEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The application properties table provides the list
+        of properties available for the application.
+        The table is cleared when the application is unloaded."
+    ::= { applicationGrp 2 }
+
+appPropertiesEntry OBJECT-TYPE
+    SYNTAX        AppPropertiesEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A appPropertiesTable entry."
+    INDEX         { pmoduleIndex , apIndex }
+    ::= { appPropertiesTable 1 }
+     
+AppPropertiesEntry ::=
+    SEQUENCE {
+        apIndex 
+            Integer32,
+        apName  
+            SnmpAdminString,
+        apType  
+            SnmpAdminString
+        }
+
+apIndex OBJECT-TYPE
+    SYNTAX        Integer32 (0..1000000)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identify the property."
+    ::= { appPropertiesEntry 1 }
+
+apName OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (1..128))
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Application property name.
+        Property can be either scalar or array type."
+    ::= { appPropertiesEntry 2 }
+
+apType OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Application property type."
+    ::= { appPropertiesEntry 3 }
+
+--
+-- Applications properties value table
+--
+appPropertiesValueTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF AppPropertiesValueEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The applications properties value table is used to
+        provide specific values 
+        for the applications properties.
+        An entry must be created by setting the entry's 
+        apvRowStatus object with 
+        createAndGo (4) before setting the name of the 
+        property requested. To specify the 
+        property set the apvPropertyName objects. 
+        The apvPropertyName must be one of the 
+        properties from the appPropertiesTable. 
+        To remove an entry set the apvRowStatus object 
+        with destroy (6).
+        To poll the application property, poll the 
+        apvPropertyStringValue, apvPropertyUintValue, 
+        or apvPropertyCounter64Value object.
+        The table is cleared when the application is unloaded."
+    ::= { applicationGrp 3 }
+
+appPropertiesValueEntry OBJECT-TYPE
+    SYNTAX        AppPropertiesValueEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A appPropertiesValueTable entry."
+    INDEX         { pmoduleIndex , apvIndex }
+    ::= { appPropertiesValueTable 1 }
+     
+AppPropertiesValueEntry ::=
+    SEQUENCE {
+        apvIndex                    Integer32,
+        apvPropertyName             SnmpAdminString,
+        apvRowStatus                RowStatus,
+        apvPropertyStringValue      SnmpAdminString,
+        apvPropertyUintValue        Unsigned32,
+        apvPropertyCounter64Value   Counter64
+    }
+
+apvIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..1024)
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Index to the table."
+    ::= { appPropertiesValueEntry 1 }
+
+        
+apvPropertyName OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (1..128))
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION   
+        "A name that uniquely identifies the application
+        property. Array type properties may be accessed
+        each element at a time in C like format, e.g. x[1],
+        or y[1][2]."
+    ::= { appPropertiesValueEntry 2 }
+
+apvRowStatus OBJECT-TYPE
+    SYNTAX        RowStatus
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION   
+            "This object controls creation of a table entry."
+    ::= { appPropertiesValueEntry 3 }
+
+
+apvPropertyStringValue OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (0..128))
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The value of the application property in display 
+        string format."
+    ::= { appPropertiesValueEntry 4 }
+
+
+apvPropertyUintValue OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The value of the application property in 
+        unsigned integer. If the property 
+        can't be casted to unsigned integer this 
+        object returns zero."
+    ::= { appPropertiesValueEntry 5 }
+
+
+apvPropertyCounter64Value OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION  
+        "The value of the application property in Counter64 format.
+        If the property can't be casted to Counter64, getting 
+        this object returns zero."
+    ::= { appPropertiesValueEntry 6 }
+
+
+
+--
+-- Subscriber properties table
+-- 
+subscribersPropertiesTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF SubscribersPropertiesEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The subscribers properties table provides 
+        the list of properties available for each subscriber."
+    ::= { subscribersGrp 2 }
+
+subscribersPropertiesEntry OBJECT-TYPE
+    SYNTAX        SubscribersPropertiesEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A subscribersPropertiesTable entry."
+    INDEX         { pmoduleIndex , spIndex }
+    ::= { subscribersPropertiesTable 1 }
+     
+SubscribersPropertiesEntry ::=
+    SEQUENCE {
+        spIndex Integer32,
+        spName  SnmpAdminString,
+        spType  SnmpAdminString
+    }
+
+spIndex OBJECT-TYPE
+    SYNTAX        Integer32  (0..1000000)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identify the property."
+    ::= { subscribersPropertiesEntry 1 }
+
+spName OBJECT-TYPE
+     SYNTAX        SnmpAdminString (SIZE (1..128))
+     MAX-ACCESS    read-only
+     STATUS        current
+     DESCRIPTION   
+        "Subscriber property name."
+     ::= { subscribersPropertiesEntry 2 }
+
+
+spType OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Subscriber application property type in respect to: 
+        variable type (integer, boolean, string etc), number of
+        elements (scalar or array) and restrictions 
+        if any exist."
+     ::= { subscribersPropertiesEntry 3 }
+
+--
+-- Subscribers properties value table
+--
+subscribersPropertiesValueTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF SubscribersPropertiesValueEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The subscribers properties value table
+        is used to provide subscriber properties
+        values for subscribers introduced into the SCE.
+        An entry must be created by setting the entry's 
+        spvRowStatus object with createAndGo (4) before
+        setting any other of the entry's objects. 
+        To specify the subscriber's property set the 
+        spvSubName and spvPropertyName objects.
+        The spvPropertyName must be one of the 
+        properties from the subscribersPropertiesTable.
+        To remove an entry set the spvRowStatus object
+        with destroy (6).
+        To poll the subscriber property the manager 
+        need to poll the spvPropertyStringValue, 
+        the spvPropertyUintValue or the 
+        spvPropertyCounter64Value objects.
+        The table is cleared when the application
+        is unloaded."
+    ::= { subscribersGrp 3 }
+
+subscribersPropertiesValueEntry OBJECT-TYPE
+    SYNTAX        SubscribersPropertiesValueEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A subscribersPropertiesValueTable entry."
+    INDEX         { pmoduleIndex , spvIndex }
+    ::= { subscribersPropertiesValueTable 1 }
+     
+SubscribersPropertiesValueEntry ::=
+    SEQUENCE {
+        spvIndex                        Integer32,
+        spvSubName                      SnmpAdminString, 
+        spvPropertyName                 SnmpAdminString,
+        spvRowStatus                    RowStatus,
+        spvPropertyStringValue          SnmpAdminString,
+        spvPropertyUintValue            Unsigned32,
+        spvPropertyCounter64Value       Counter64
+    }
+
+spvIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..4096)
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "A index to the table."
+    ::= { subscribersPropertiesValueEntry 1 }
+
+spvSubName OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (1..40))
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION   
+        "A name that uniquely identifies the subscriber."
+    ::= { subscribersPropertiesValueEntry 2 }
+
+spvPropertyName OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (1..128))
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION   
+        "A name that uniquely identifies the subscriber property. 
+        Array type properties may be accessed each element 
+        at a time  in C like format, e.g. x[1], or y[1][2]."
+    ::= { subscribersPropertiesValueEntry 3 }
+
+spvRowStatus OBJECT-TYPE
+    SYNTAX        RowStatus
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION   
+        "This object controls creation of a table entry. 
+        Only setting the createAndGo (4) and destroy (6)
+        will change the status of the entry."
+    ::= { subscribersPropertiesValueEntry 4 }
+
+spvPropertyStringValue OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (0..128))
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The value of the subscriber property in  string format."
+    ::= { subscribersPropertiesValueEntry 5 }
+
+
+spvPropertyUintValue OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The value of the subscriber property in unsigned 
+        integer. If the property can't be casted to
+        unsigned integer this object returns zero."
+    ::= { subscribersPropertiesValueEntry 6 }
+
+
+
+spvPropertyCounter64Value OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The value of the subscriber property in
+        Counter64. If the property can't be casted
+        to Counter64 this object returns zero."
+    ::= { subscribersPropertiesValueEntry 7 }
+
+
+trafficCountersTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF TrafficCountersEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The Traffic counters table provides information 
+        regarding the value of different the traffic counters."
+    ::= { trafficCountersGrp 1 }
+
+
+trafficCountersEntry OBJECT-TYPE
+    SYNTAX        TrafficCountersEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Entry containing information about a traffic counter."
+    INDEX         { pmoduleIndex, trafficCounterIndex }
+    ::= { trafficCountersTable 1 }
+
+TrafficCountersEntry ::=
+    SEQUENCE {
+        trafficCounterIndex Integer32,
+        trafficCounterValue Counter64,
+        trafficCounterName  SnmpAdminString,
+        trafficCounterType  INTEGER 
+    }
+
+trafficCounterIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies the counter."
+    ::= { trafficCountersEntry 1 }
+    
+trafficCounterValue OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "A 64 bit counter value."
+    ::= { trafficCountersEntry 2 }
+
+trafficCounterName OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The name given to this counter."
+    ::= { trafficCountersEntry 3 }
+
+trafficCounterType OBJECT-TYPE
+    SYNTAX        INTEGER {
+        other(1),       -- none of the following
+        bytes(2),       -- counts by bytes
+        packets(3)      -- counts by packets
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Defines whether there the traffic counters counts by 
+        'packets(3)' or by 'bytes(2)'."
+    ::= { trafficCountersEntry 4 }
+
+-- Attack group
+
+attackTypeTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF AttackTypeEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The Attack type table provides information regarding 
+        detected attacks, aggregated by attack type."
+    ::= { attackGrp 1 }
+
+
+attackTypeEntry OBJECT-TYPE
+    SYNTAX        AttackTypeEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Entry containing aggregated information about attacks
+        of a given type."
+    INDEX         { pmoduleIndex, attackTypeIndex }
+    ::= { attackTypeTable 1 }
+
+AttackTypeEntry ::=
+    SEQUENCE {
+        attackTypeIndex             Integer32,
+        attackTypeName              SnmpAdminString,
+        attackTypeCurrentNumAttacks Unsigned32,
+        attackTypeTotalNumAttacks   Unsigned32,
+        attackTypeTotalNumFlows     Counter64,
+        attackTypeTotalNumSeconds   Unsigned32       
+     }
+
+attackTypeIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION  
+        "An index value that uniquely identifies the attack type."
+    ::= { attackTypeEntry 1 }
+    
+attackTypeName OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The name of this attack type."
+    ::= { attackTypeEntry 2 }
+
+attackTypeCurrentNumAttacks OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The current amount of attacks detected of this type."
+    ::= { attackTypeEntry 3 }
+
+attackTypeTotalNumAttacks OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The total amount of attacks detected of this type 
+        since last clear."
+    ::= { attackTypeEntry 4 }
+        
+attackTypeTotalNumFlows OBJECT-TYPE
+    SYNTAX        Counter64
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The total amount of flows in attacks detected of 
+        this type since last clear."
+    ::= { attackTypeEntry 5 }
+
+attackTypeTotalNumSeconds OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    UNITS         "Seconds"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The total duration of attacks detected of this type
+        since last clear."
+    ::= { attackTypeEntry 6 }
+
+-- This counter is not supported from MIB 3.0.3, set methods 
+-- are not supported in general.
+--attackTypeTableClearTime OBJECT-TYPE
+--        SYNTAX        TimeTicks
+--        UNITS         "milliseconds"
+--        MAX-ACCESS    read-write
+--        STATUS        current
+--        
+--        DESCRIPTION   "Indicates the time
+             -- since the attack type table was cleared. 
+             -- Writing a 0 to this object causes the 
+             -- counters to be cleared."
+--        ::= { attackGrp 2 }
+
+-- vasTrafficForwarding group
+
+vasServerTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF VasServerEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The VAS server Table provides information on each
+        VAS server operational status."
+    ::= { vasTrafficForwardingGrp 1 }
+
+
+vasServerEntry OBJECT-TYPE
+    SYNTAX        VasServerEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Entry containing information about VAS server status."
+    INDEX         { pmoduleIndex, vasServerIndex }
+    ::= { vasServerTable 1 }
+
+VasServerEntry ::=
+    SEQUENCE {
+    vasServerIndex          Integer32,
+    vasServerId             Integer32,
+    vasServerAdminStatus    INTEGER,
+    vasServerOperStatus     INTEGER   
+    }
+
+vasServerIndex OBJECT-TYPE
+    SYNTAX        Integer32 (1..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "An index value that uniquely identifies a VAS server."
+    ::= { vasServerEntry 1 }
+    
+vasServerId OBJECT-TYPE
+    SYNTAX        Integer32 (0..255)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The ID of the VAS server."
+    ::= { vasServerEntry 2 }
+
+vasServerAdminStatus OBJECT-TYPE
+    SYNTAX        INTEGER { 
+        other(1),         -- non of the other options
+        up(2),            -- the vas server is up
+        down(3)           -- The vas server is down
+        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates only the administrative status of the 
+        VAS sever, in order to activate a server it should
+        be also configured with a VLAN and a group."
+    ::= { vasServerEntry 3 }
+
+vasServerOperStatus OBJECT-TYPE
+    SYNTAX        INTEGER { 
+        other(1),         -- non of the other options
+        up(2),            -- The vas server is up
+        down(3)           -- the vas server is down
+                    }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Indicates the operational status of the VAS sever."
+    ::= { vasServerEntry 4 }
+    
+-- MPLS VPN auto learning group
+
+mplsVpnSoftwareCountersTable    OBJECT-TYPE
+    SYNTAX        SEQUENCE OF MplsVpnSoftwareCountersEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "The MPLS VPN software counters table 
+        provides information on 
+        various system software 
+        counters related to MPLS VPN auto learn."
+    ::= { mplsVpnAutoLearnGrp 1 }
+
+
+mplsVpnSoftwareCountersEntry    OBJECT-TYPE
+    SYNTAX        MplsVpnSoftwareCountersEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION   
+        "Entry containing information 
+        about MPLS VPN auto learn SW counters."
+    INDEX         { pmoduleIndex }
+    ::= { mplsVpnSoftwareCountersTable 1 }
+
+MplsVpnSoftwareCountersEntry ::=
+    SEQUENCE {
+     mplsVpnMaxHWMappings       Integer32,
+     mplsVpnCurrentHWMappings   Integer32
+    }
+
+mplsVpnMaxHWMappings        OBJECT-TYPE
+    SYNTAX        Integer32  (0..1000000)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The maximum number of MPLS VPN
+        mappings supported by HW (including all kinds
+        of mappings)."
+    ::= { mplsVpnSoftwareCountersEntry 1 }
+    
+mplsVpnCurrentHWMappings    OBJECT-TYPE
+    SYNTAX        Integer32  (0..1000000)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "The current number of HW MPLS
+        VPN mappings in use."
+    ::= { mplsVpnSoftwareCountersEntry 2 }
+    
+-- traps
+
+
+pcubeSeEventsGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        operationalStatusOperationalTrap,
+        operationalStatusWarningTrap,
+        operationalStatusFailureTrap,
+        systemResetTrap,
+        chassisTempAlarmOnTrap,
+        chassisTempAlarmOffTrap,
+        chassisVoltageAlarmOnTrap,
+        chassisFansAlarmOnTrap,
+        chassisPowerSupplyAlarmOnTrap,
+        rdrActiveConnectionTrap,
+        rdrNoActiveConnectionTrap,
+        rdrConnectionUpTrap,
+        rdrConnectionDownTrap,
+        telnetSessionStartedTrap,
+        telnetSessionEndedTrap,
+        telnetSessionDeniedAccessTrap,
+        telnetSessionBadLoginTrap,
+        loggerUserLogIsFullTrap,
+        sntpClockDriftWarnTrap,
+        linkModeBypassTrap,
+        linkModeForwardingTrap,
+        linkModeCutoffTrap,
+        moduleAttackFilterActivatedTrap,
+        moduleAttackFilterDeactivatedTrap,
+        moduleEmAgentGenericTrap,
+        linkModeSniffingTrap,
+        moduleRedundancyReadyTrap,
+        moduleRedundantConfigurationMismatchTrap,
+        moduleLostRedundancyTrap,
+        moduleSmConnectionDownTrap,
+        moduleSmConnectionUpTrap,
+        moduleOperStatusChangeTrap,
+        portOperStatusChangeTrap,
+        chassisLineFeedAlarmOnTrap,
+        rdrFormatterCategoryDiscardingReportsTrap,
+        rdrFormatterCategoryStoppedDiscardingReportsTrap,
+        sessionStartedTrap,
+        sessionEndedTrap,
+        sessionDeniedAccessTrap,
+        sessionBadLoginTrap,
+        illegalSubscriberMappingTrap,
+        loggerLineAttackLogFullTrap,
+        vasServerOpertionalStatusChangeTrap,
+        pullRequestRetryFailedTrap,
+        mplsVpnTotalHWMappingsThresholdExceededTrap
+      }              
+    STATUS    deprecated
+    DESCRIPTION 
+    	"Pcube notifications. Contains deprecated objects."
+    ::= { pcubeSeConformance 3 } 
+
+
+pcubeSeEventsGroupRev1 NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        operationalStatusOperationalTrap,
+        operationalStatusWarningTrap,
+        operationalStatusFailureTrap,
+        systemResetTrap,
+        chassisTempAlarmOnTrap,
+        chassisTempAlarmOffTrap,
+        chassisVoltageAlarmOnTrap,
+        chassisFansAlarmOnTrap,
+        chassisPowerSupplyAlarmOnTrap,
+        rdrActiveConnectionTrap,
+        rdrNoActiveConnectionTrap,
+        rdrConnectionUpTrap,
+        rdrConnectionDownTrap,
+        loggerUserLogIsFullTrap,
+        sntpClockDriftWarnTrap,
+        linkModeBypassTrap,
+        linkModeForwardingTrap,
+        linkModeCutoffTrap,
+        moduleAttackFilterActivatedTrap,
+        moduleAttackFilterDeactivatedTrap,
+        moduleEmAgentGenericTrap,
+        linkModeSniffingTrap,
+        moduleRedundancyReadyTrap,
+        moduleRedundantConfigurationMismatchTrap,
+        moduleLostRedundancyTrap,
+        moduleSmConnectionDownTrap,
+        moduleSmConnectionUpTrap,
+        moduleOperStatusChangeTrap,
+        portOperStatusChangeTrap,
+        chassisLineFeedAlarmOnTrap,
+        rdrFormatterCategoryDiscardingReportsTrap,
+        rdrFormatterCategoryStoppedDiscardingReportsTrap,
+        sessionStartedTrap,
+        sessionEndedTrap,
+        sessionDeniedAccessTrap,
+        sessionBadLoginTrap,
+        illegalSubscriberMappingTrap,
+        loggerLineAttackLogFullTrap,
+        vasServerOpertionalStatusChangeTrap,
+        pullRequestRetryFailedTrap,
+        mplsVpnTotalHWMappingsThresholdExceededTrap
+      }              
+    STATUS    current
+    DESCRIPTION 
+    	"Pcube notifications."
+    ::= { pcubeSeConformance 4 } 
+
+
+pcubeSeEvents OBJECT IDENTIFIER ::= { pcubeWorkgroup 0 }
+
+operationalStatusOperationalTrap NOTIFICATION-TYPE
+    OBJECTS       { sysOperationalStatus }
+    STATUS        current
+    DESCRIPTION   
+        "OperationalStatusOperational notification signifies that the
+        agent entity has detected the sysOperationalStatus
+        object in this MIB has changed to 'operational(3)'."
+    ::= { pcubeSeEvents 1 }
+
+
+operationalStatusWarningTrap NOTIFICATION-TYPE
+    OBJECTS       { sysOperationalStatus }
+    STATUS        current
+    DESCRIPTION   
+        "OperationalStatusWarning notification signifies that the agent
+        entity has detected the sysOperationalStatus object
+        in this MIB has changed to 'warning(4)'."
+    ::= { pcubeSeEvents 2 }
+
+
+operationalStatusFailureTrap NOTIFICATION-TYPE
+    OBJECTS       { sysOperationalStatus }
+    STATUS        current
+    DESCRIPTION   
+        "OperationalStatusFailure notification signifies that the agent
+        entity has detected the sysOperationalStatus object in 
+        this MIB has changed to 'failure(5)'."
+    ::= { pcubeSeEvents 3 }
+
+
+systemResetTrap NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION   
+        "A systemReset notification signifies that the agent entity
+        is about to reset itself either per user's request or 
+        due to a fatal event."
+    ::= { pcubeSeEvents 4 }
+
+
+chassisTempAlarmOnTrap NOTIFICATION-TYPE
+    OBJECTS       { pchassisTempAlarm }
+    STATUS        current
+    DESCRIPTION   
+        "A chassisTempAlarmOn notification signifies that the agent
+        entity has detected the chassisTempAlarm object in this
+        MIB has changed to the 'on(3)' state 
+        (temperature is too high)."
+    ::= { pcubeSeEvents 5 }
+
+
+chassisTempAlarmOffTrap NOTIFICATION-TYPE
+    OBJECTS       { pchassisTempAlarm }
+    STATUS        current
+    DESCRIPTION   
+        "A chassisTempAlarmOff notification signifies that the agent
+         entity has detected the chassisTempAlarm object in this
+         MIB has changed to the 'off(2)' state 
+         (temperature level is back to normal)."
+    ::= { pcubeSeEvents 6 }
+
+
+chassisVoltageAlarmOnTrap NOTIFICATION-TYPE
+    OBJECTS       { pchassisVoltageAlarm }
+    STATUS        current
+    DESCRIPTION   
+        "A chassisVoltageAlarmOn notification signifies that the agent
+        entity has detected the chassisVoltageAlarm object in this
+        MIB has changed to the 'on(3)' state
+        (voltage level is too high)."
+    ::= { pcubeSeEvents 7 }
+
+
+chassisFansAlarmOnTrap NOTIFICATION-TYPE
+    OBJECTS       { pchassisFansAlarm }
+    STATUS        current
+    DESCRIPTION   
+        "A chassisFanStatusFailure notification signifies that the
+        agent entity has detected the chassisFansAlarm object in this
+        MIB has changed to the 'on(3)' state."
+    ::= { pcubeSeEvents 8 }
+
+
+chassisPowerSupplyAlarmOnTrap NOTIFICATION-TYPE
+    OBJECTS       { pchassisPowerSupplyAlarm }
+    STATUS        current
+    DESCRIPTION   
+        "A chassisPsuStatusFailure notification signifies that the
+        agent entity has detected the chassisPowerSupplyAlarm object
+        in this MIB has changed to the 'on(3)' state."
+    ::= { pcubeSeEvents 9 }
+
+
+rdrActiveConnectionTrap NOTIFICATION-TYPE
+    OBJECTS       { rdrFormatterDestIPAddr,  rdrFormatterDestStatus }
+    STATUS        current
+    DESCRIPTION   
+        "RdrConnectionDestTypeActive notification signifies that 
+        the agent entity has detected the rdrFormatterDestStatus 
+        object in this MIB has changed to the 'active(2)' state."
+    ::= { pcubeSeEvents 10 }
+
+rdrNoActiveConnectionTrap NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION   
+        "A rdrNoActiveConnection notification signifies that the 
+        agent entity has detected  there is no active 
+        connection between the RDR-formatter and any 
+        Data Collector."
+    ::= { pcubeSeEvents 11 }
+
+               
+rdrConnectionUpTrap NOTIFICATION-TYPE
+    OBJECTS       { rdrFormatterDestIPAddr,  
+                    rdrFormatterDestConnectionStatus }
+    STATUS        current
+    DESCRIPTION   
+        "RdrConnectionStatusUp notification signifies that the agent 
+        entity has detected the rdrFormatterDestConnectionStatus 
+        object in this MIB has changed to 'up(2)'."
+    ::= { pcubeSeEvents 12 }
+
+
+rdrConnectionDownTrap NOTIFICATION-TYPE
+    OBJECTS       { rdrFormatterDestIPAddr,  
+                    rdrFormatterDestConnectionStatus }
+    STATUS        current
+    DESCRIPTION   
+        "RdrConnectionStatusDown notification signifies that the agent
+        entity has detected the rdrFormatterDestConnectionStatus
+        object in this MIB has changed to 'down(3)'."
+    ::= { pcubeSeEvents 13 }
+
+telnetSessionStartedTrap NOTIFICATION-TYPE
+    STATUS        deprecated
+    DESCRIPTION  
+         "Replaced by the more generic sessionStartedTrap."
+    ::= { pcubeSeEvents 14 }
+
+telnetSessionEndedTrap NOTIFICATION-TYPE
+    STATUS        deprecated
+    DESCRIPTION   
+        "Replaced by the more generic sessionEndedTrap."
+    ::= { pcubeSeEvents 15 }
+
+telnetSessionDeniedAccessTrap NOTIFICATION-TYPE
+    STATUS        deprecated
+    DESCRIPTION   
+        "Replaced by the more generic sessionDeniedAccessTrap."
+    ::= { pcubeSeEvents 16 }
+
+telnetSessionBadLoginTrap NOTIFICATION-TYPE
+    STATUS        deprecated
+    DESCRIPTION   
+        "Replaced by the more generic sessionBadLoginTrap."
+    ::= { pcubeSeEvents 17 }
+
+loggerUserLogIsFullTrap NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION   
+        "A loggerUserLogIsFull notification signifies that the agent 
+        entity has detected the User log file is full.
+        In such case the agent entity rolls to the next file."
+    ::= { pcubeSeEvents 18 }
+
+sntpClockDriftWarnTrap NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION   
+        "An sntpClockDriftWarn notification signifies that the entity's
+        SNTP agent did not receive time update for 
+        a long period, this may cause a time drift."
+    ::= { pcubeSeEvents 19 }
+
+
+linkModeBypassTrap NOTIFICATION-TYPE
+    OBJECTS       { linkOperMode }
+    STATUS        current
+    DESCRIPTION   
+        "A linkModeBypass notification signifies that the agent entity
+        has detected that the linkOperMode object in this MIB 
+        has changed to 'bypass(2)'."
+    ::= { pcubeSeEvents 20 }
+
+
+linkModeForwardingTrap NOTIFICATION-TYPE
+    OBJECTS       { linkOperMode }
+    STATUS        current
+    DESCRIPTION   
+        "A linkModeForwarding notification signifies that the agent
+        entity has detected that the linkOperMode object
+        in this MIB has changed to 'forwarding(3)'."
+    ::= { pcubeSeEvents 21 }
+
+
+linkModeCutoffTrap NOTIFICATION-TYPE
+    OBJECTS       { linkOperMode }
+    STATUS        current
+    DESCRIPTION   
+        "A linkModeCutoff notification signifies that the agent 
+        entity has detected that the linkOperMode object
+        in this MIB has changed to 'cutoff(4)'."
+    ::= { pcubeSeEvents 22 }
+        
+-- updates since OS version 1.5
+
+pcubeSeEventGenericString1 OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Temporary string used for traps. Always returns 
+        an empty string."
+    ::= { pcubeSeEvents 23 }
+
+pcubeSeEventGenericString2 OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Temporary string used for traps. Always returns 
+        an empty string."
+    ::= { pcubeSeEvents 24 }
+
+moduleAttackFilterActivatedTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex, pcubeSeEventGenericString1 }
+    STATUS        current
+    DESCRIPTION   
+        "A moduleAttackFilterActivated notification signifies 
+        that the agent entity's attack filter module has
+        activated a filter. The pcubeSeEventGenericString1 
+        is the type of attack-filter, which was activated."
+    ::= { pcubeSeEvents 25 }
+
+moduleAttackFilterDeactivatedTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex,
+                    pcubeSeEventGenericString1,
+                    pcubeSeEventGenericString2 }
+    STATUS        current
+    DESCRIPTION   
+        "A portAttackFilterDeactivated notification signifies that the
+        agent entity's attack filter module has removed a 
+        filter that was previously activated.
+        The pcubeSeEventGenericString1 is the attack-filter 
+        type, which was sent in the corresponding 
+        moduleAttackFilterActivatedTrap.
+        the pcubeSeEventGenericString2 is the reason
+        for deactivating the filter."
+    ::= { pcubeSeEvents 26 }
+
+moduleEmAgentGenericTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex, 
+                    pcubeSeEventGenericString1, 
+                    pcubeSeEventGenericString2 }
+    STATUS        current
+    DESCRIPTION   
+        "A generic notification used by the P-Cube EM agent. 
+        pcubeSeEventGenericString1 specifies what 
+        notification is it, and pcubeSeEventGenericString2 
+        is the relevant parameter."
+    ::= { pcubeSeEvents 27 }
+
+
+-- traps added for version 2.0
+
+linkModeSniffingTrap NOTIFICATION-TYPE
+    OBJECTS       { linkOperMode }
+    STATUS        current
+    DESCRIPTION   
+        "A linkModeSniffing notification signifies that the 
+        agent entity has detected  that the linkOperMode 
+        object in this MIB has changed to 'sniffing(5)'."
+    ::= { pcubeSeEvents 28 }
+
+moduleRedundancyReadyTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex, pmoduleOperStatus }
+    STATUS        current
+    DESCRIPTION   
+        "A moduleRedundancyReady notification signifies that the module
+        was able to connect and synchronize with a redundant entity, 
+        and is now ready to handle fail-over if needed."
+    ::= { pcubeSeEvents 29 }
+
+moduleRedundantConfigurationMismatchTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex }
+    STATUS        current
+    DESCRIPTION   
+        "A moduleRedundantConfigurationMismatch notification signifies 
+        that the module was not able to synchronize with a redundant 
+        entity, due to a essential configuration parameters that are do
+        not match between the
+        module and the redundant entity."
+    ::= { pcubeSeEvents 30 }
+
+moduleLostRedundancyTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex, pmoduleOperStatus }
+    STATUS        current
+    DESCRIPTION   
+        "A moduleLostRedundancy notification signifies that the module
+        has lost the ability to perform the fail-over procedure."
+    ::= { pcubeSeEvents 31 }
+
+moduleSmConnectionDownTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex }
+    STATUS        current
+    DESCRIPTION   
+        "A moduleSmConnectionDown notification signifies that the 
+        module's virtual connection to the subscriber 
+        manager is broken."
+    ::= { pcubeSeEvents 32 }
+
+moduleSmConnectionUpTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex }
+    STATUS        current
+    DESCRIPTION   
+        "A moduleSmConnectionUp notification signifies that 
+        the module's virtual connection to the subscriber manager 
+        is up and working."
+    ::= { pcubeSeEvents 33 }
+
+moduleOperStatusChangeTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex, 
+                    pmoduleOperStatus }
+    STATUS        current
+    DESCRIPTION   
+        "A moduleOperStatusChangeTrap notification signifies
+        that the moduleOperStatus has changed its value."
+    ::= { pcubeSeEvents 34 }
+
+portOperStatusChangeTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex, 
+                    pportIndex,
+                    pportOperStatus }
+    STATUS        current
+    DESCRIPTION   
+        "A portOperStatusChangeTrap notification signifies 
+        that the portOperStatus object of the portIndex has changed
+        its value, i.e., the link was forced down or the force 
+        down was released."
+    ::= { pcubeSeEvents 35 }
+
+chassisLineFeedAlarmOnTrap NOTIFICATION-TYPE
+    OBJECTS       { pchassisLineFeedAlarm }
+    STATUS        current
+    DESCRIPTION   
+        "A chassisLineFeedAlarmOn notification signifies that the agent
+        entity has detected the chassisLineFeed object in this
+        MIB has changed to the 'on(3)' state."
+    ::= { pcubeSeEvents 36 }
+
+rdrFormatterCategoryDiscardingReportsTrap NOTIFICATION-TYPE
+    OBJECTS       { rdrFormatterCategoryIndex }
+    STATUS        current
+    DESCRIPTION   
+        "rdrCategoryDiscardingReportsTrap notification signifies that
+        the agent entity has detected that reports send to this
+        category are being discarded. 
+        The rdrFormatterCategoryNumReportsDiscarded object in 
+        this MIB is counting the amount of discarded reports."
+    ::= { pcubeSeEvents 37 }
+
+
+rdrFormatterCategoryStoppedDiscardingReportsTrap NOTIFICATION-TYPE
+    OBJECTS       { rdrFormatterCategoryIndex }
+    STATUS        current
+    DESCRIPTION   
+        "rdrCategoryStoppedDiscardingReportsTrap notification signifies 
+        that the agent entity has detected that reports send to this 
+        category are not being discarded any more. 
+        The rdrFormatterCategoryNumReportsDiscarded object in this
+        MIB is counting the amount of discarded reports."
+    ::= { pcubeSeEvents 38 }
+
+sessionStartedTrap NOTIFICATION-TYPE
+    OBJECTS       { pcubeSeEventGenericString1 }
+    STATUS        current
+    DESCRIPTION   
+        "A sessionStarted notification signifies that the agent
+        entity has accepted a new session. 
+        The pcubeSeEventGenericString1 is the session 
+        type (telnet/SSH) and client IP address."
+    ::= { pcubeSeEvents 39 }
+
+sessionEndedTrap NOTIFICATION-TYPE
+    OBJECTS       { pcubeSeEventGenericString1 }
+    STATUS        current
+    DESCRIPTION   
+        "A sessionEnded notification signifies that the agent
+        entity has detected end of a session. 
+        The pcubeSeEventGenericString1 is the session 
+        type (telnet/SSH) and client IP address."
+    ::= { pcubeSeEvents 40 }
+
+sessionDeniedAccessTrap NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION   
+        "A sessionDeniedAccess notification signifies that the agent
+        entity has refused a session from unauthorized source.
+        The pcubeSeEventGenericString1 is the session type 
+        (telnet/SSH) and client IP address."
+    ::= { pcubeSeEvents 41 }
+
+sessionBadLoginTrap NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION   
+        "A sessionBadLogin notification signifies that the agent
+        entity has detected attempt to login with a wrong
+        password. The pcubeSeEventGenericString1 
+        is the session type (telnet/SSH) and client IP address."
+    ::= { pcubeSeEvents 42 }
+
+illegalSubscriberMappingTrap NOTIFICATION-TYPE
+    OBJECTS       { pmoduleIndex,
+                    pcubeSeEventGenericString1 }
+    STATUS        current
+    DESCRIPTION   
+        "A illegalSubscriberMappingTrap notification signifies that 
+        some external entity has attempted to create illegal or 
+        inconsistent subscriber mappings. 
+        The pcubeSeEventGenericString1 contains a message 
+        describing the problem."
+    ::= { pcubeSeEvents 43 }
+
+-- traps added to SCos 3.0
+
+loggerLineAttackLogFullTrap NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION   
+        "Signifies that the agent entity has detected 
+        the line-attack log file is full. In such case the 
+        agent entity rolls to the next file."
+    ::= { pcubeSeEvents 44 }
+    
+vasServerOpertionalStatusChangeTrap NOTIFICATION-TYPE
+    OBJECTS     { pmoduleIndex,
+                  vasServerIndex,
+                  vasServerId,
+                  vasServerOperStatus }
+    STATUS        current
+    DESCRIPTION   
+        "Signifies that the agent entity has detected 
+        that the vas server operational status has changed."
+    ::= { pcubeSeEvents 45 }
+
+-- TI feature for detecting intruders.
+
+pullRequestNumber OBJECT-TYPE
+    SYNTAX        Integer32 (1..65535)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION   
+        "Used only for traps to signify the number of pull
+        requests issued so far for the anonymous subscriber given in
+        the pullRequestRetryFailedTrap containing notification.
+        A direct get will always returns 0."
+    ::= { pcubeSeEvents 46 }
+    
+pullRequestRetryFailedTrap NOTIFICATION-TYPE
+    OBJECTS       { pcubeSeEventGenericString1,
+                    pullRequestNumber }
+    STATUS        current
+    DESCRIPTION   
+        "Signifies that an unknown subscriber
+        wasn't identified after a certain number of pull 
+        requests. The value of pcubeSeEventGenericString1 is the
+        subscriber id and the pullRequestNumber is the number of
+        pull requests made on this sub."
+    ::= { pcubeSeEvents 47 }
+    
+-- traps added in SCOS 3.0.3
+    mplsVpnTotalHWMappingsThresholdExceededTrap NOTIFICATION-TYPE
+    OBJECTS       { mplsVpnCurrentHWMappings}
+    STATUS        current
+    DESCRIPTION   
+        "Sent when the value of mplsVpnCurrentHWMappings 
+        exceeds the allowed threshold."
+    ::= { pcubeSeEvents 48 }
+
+
+
+--Compliances
+
+pcubeCompliance MODULE-COMPLIANCE
+    STATUS  deprecated
+    DESCRIPTION
+        "A compliance statement defined in this MIB module,
+        for SCE SNMP agents. with old deprectated groups.
+        This compliance includes deprecated groups."
+-- In general every SCE agent should implement all the groups below. 
+--Each group aggregates a basic functionality of the SCE.
+    MODULE  -- this module
+        MANDATORY-GROUPS {  
+            pcubeSystemGroup, 
+            pcubeChassisGroup,
+            pcuebModuleGroup,
+            pcubeLinkGroup,
+            pcubeDiskGroup,
+            pcubeRdrFormatterGroup,
+            pcubeLoggerGroup,
+            pcubeSubscribersGroup,
+            pcubeTrafficProcessorGroup,
+            pcubePortGroup,
+            pcubeTxQueuesGroup,
+            pcubeGlobalControllersGroup,
+            pcubeApplicationGroup,
+            pcubeTrafficCountersGroup,
+            pcubeAttackGroup,
+            pcubeVasTrafficForwardingGroup,
+            pcubeTrapObjectsGroup,
+            pcubeMplsVpnAutoLearnGroup,
+            pcubeSeEventsGroup }
+        ::= { pcubeSeCompliances 1 }
+    
+pcubeComplianceRev1 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "A compliance statement defined in this MIB module,
+        for SCE SNMP agents."
+-- In general every SCE agent should implement all the groups below. 
+--Each group aggregates a basic functionality of the SCE.
+    MODULE  -- this module
+        MANDATORY-GROUPS {  
+            pcubeSystemGroup, 
+            pcubeChassisGroup,
+            pcuebModuleGroup,
+            pcubeLinkGroup,
+            pcubeDiskGroup,
+            pcubeRdrFormatterGroup,
+            pcubeLoggerGroup,
+            pcubeSubscribersGroup,
+            pcubeTrafficProcessorGroup,
+            pcubePortGroup,
+            pcubeTxQueuesGroup,
+            pcubeGlobalControllersGroup,
+            pcubeApplicationGroup,
+            pcubeTrafficCountersGroup,
+            pcubeAttackGroup,
+            pcubeVasTrafficForwardingGroup,
+            pcubeTrapObjectsGroup,
+            pcubeMplsVpnAutoLearnGroup,
+            pcubeSeEventsGroupRev1 }
+        ::= { pcubeSeCompliances 2 }
+
+
+-- PcubeSEMib groups - aggregate objects with common logical relevance.
+pcubeSystemGroup OBJECT-GROUP
+    OBJECTS {   sysOperationalStatus,
+                sysFailureRecovery,
+                sysVersion }
+    STATUS  current
+    DESCRIPTION 
+        "System related inforamation."
+    ::= { pcubeSeGroups 1 }
+                
+pcubeChassisGroup       OBJECT-GROUP
+    OBJECTS {   
+        pchassisSysType,
+        pchassisPowerSupplyAlarm,
+        pchassisFansAlarm, 
+        pchassisTempAlarm,
+        pchassisVoltageAlarm,
+        pchassisNumSlots,
+        pchassisSlotConfig,
+        pchassisPsuType,
+        pchassisLineFeedAlarm }
+    STATUS  current
+    DESCRIPTION 
+        "Chassis related information."
+    ::= { pcubeSeGroups 2 }
+                
+pcuebModuleGroup OBJECT-GROUP
+    OBJECTS {   
+        pmoduleIndex,
+        pmoduleType,
+        pmoduleNumTrafficProcessors,
+        pmoduleSlotNum,
+        pmoduleHwVersion,
+        pmoduleNumPorts,
+        pmoduleNumLinks,
+        pmoduleConnectionMode,
+        pmoduleSerialNumber,
+        pmoduleUpStreamAttackFilteringTime,
+        pmoduleUpStreamLastAttackFilteringTime,
+        pmoduleDownStreamAttackFilteringTime,
+        pmoduleDownStreamLastAttackFilteringTime,
+        pmoduleAttackObjectsClearTime ,
+        pmoduleAdminStatus,
+        pmoduleOperStatus }
+    STATUS  current
+    DESCRIPTION 
+        "Module related information."
+    ::= { pcubeSeGroups 3 }
+                
+pcubeLinkGroup OBJECT-GROUP
+    OBJECTS {   
+        linkModuleIndex,
+        linkIndex ,
+        linkAdminModeOnActive ,
+        linkAdminModeOnFailure,
+        linkOperMode ,
+        linkStatusReflectionEnable,
+        linkSubscriberSidePortIndex,
+        linkNetworkSidePortIndex }
+    STATUS  current
+    DESCRIPTION 
+        "Link related information."
+    ::= { pcubeSeGroups 4 }
+    
+pcubeDiskGroup OBJECT-GROUP
+    OBJECTS { diskNumUsedBytes,diskNumFreeBytes }
+    STATUS  current
+    DESCRIPTION 
+        "Disk related information."
+    ::= { pcubeSeGroups 5 }
+                
+pcubeRdrFormatterGroup OBJECT-GROUP
+    OBJECTS {   
+        rdrFormatterEnable,
+        rdrFormatterDestIPAddr,
+        rdrFormatterDestPort,
+        rdrFormatterDestPriority,
+        rdrFormatterDestStatus,
+        rdrFormatterDestConnectionStatus,
+        rdrFormatterDestNumReportsSent,
+        rdrFormatterDestNumReportsDiscarded, 
+        rdrFormatterDestReportRate, 
+        rdrFormatterDestReportRatePeak,
+        rdrFormatterDestReportRatePeakTime,
+        rdrFormatterNumReportsSent,
+        rdrFormatterNumReportsDiscarded,
+        rdrFormatterClearCountersTime,
+        rdrFormatterReportRate,
+        rdrFormatterReportRatePeak,
+        rdrFormatterReportRatePeakTime,
+        rdrFormatterProtocol,
+        rdrFormatterForwardingMode,
+        rdrFormatterCategoryDestPriority,
+        rdrFormatterCategoryDestStatus,
+        rdrFormatterCategoryIndex, 
+        rdrFormatterCategoryName, 
+        rdrFormatterCategoryNumReportsSent, 
+        rdrFormatterCategoryNumReportsDiscarded,
+        rdrFormatterCategoryReportRate,
+        rdrFormatterCategoryReportRatePeak,
+        rdrFormatterCategoryReportRatePeakTime,
+        rdrFormatterCategoryNumReportsQueued }
+    STATUS  current
+    DESCRIPTION 
+        "RDR-Formatter related information."
+    ::= { pcubeSeGroups 6 }
+                
+pcubeLoggerGroup OBJECT-GROUP
+    OBJECTS {   
+        loggerUserLogEnable,
+        loggerUserLogNumInfo,
+        loggerUserLogNumWarning,
+        loggerUserLogNumError,
+        loggerUserLogNumFatal,
+        loggerUserLogClearCountersTime }
+    STATUS  current
+    DESCRIPTION 
+        "Logger related information."
+    ::= { pcubeSeGroups 7 }
+                
+pcubeSubscribersGroup OBJECT-GROUP
+    OBJECTS {   
+        subscribersNumIntroduced,
+        subscribersNumFree ,
+        subscribersNumIpAddrMappings,
+        subscribersNumIpAddrMappingsFree ,
+        subscribersNumIpRangeMappings ,
+        subscribersNumIpRangeMappingsFree,
+        subscribersNumVlanMappings ,
+        subscribersNumVlanMappingsFree ,
+        subscribersNumActive,
+        subscribersNumActivePeak,
+        subscribersNumActivePeakTime,
+        subscribersNumUpdates,
+        subscribersCountersClearTime,
+        subscribersNumTpIpRanges,
+        subscribersNumTpIpRangesFree, 
+        subscribersNumAnonymous ,
+        subscribersNumWithSessions,
+        spIndex,
+        spName,
+        spType,
+        spvSubName,
+        spvPropertyName,
+        spvRowStatus,
+        spvPropertyStringValue,
+        spvPropertyUintValue,
+        spvPropertyCounter64Value }
+        STATUS  current
+    DESCRIPTION 
+        "Subscriber related information."
+    ::= { pcubeSeGroups 8 }
+                
+pcubeTrafficProcessorGroup  OBJECT-GROUP
+    OBJECTS {   
+        tpModuleIndex,
+        tpIndex,
+        tpTotalNumHandledPackets,
+        tpTotalNumHandledFlows,
+        tpNumActiveFlows ,
+        tpNumActiveFlowsPeak ,
+        tpNumActiveFlowsPeakTime ,
+        tpNumTcpActiveFlows ,
+        tpNumTcpActiveFlowsPeak ,
+        tpNumTcpActiveFlowsPeakTime,
+        tpNumUdpActiveFlows,
+        tpNumUdpActiveFlowsPeak,
+        tpNumUdpActiveFlowsPeakTime ,
+        tpNumNonTcpUdpActiveFlows, 
+        tpNumNonTcpUdpActiveFlowsPeak ,
+        tpNumNonTcpUdpActiveFlowsPeakTime ,
+        tpTotalNumBlockedPackets,
+        tpTotalNumBlockedFlows,
+        tpTotalNumDiscardedPacketsDueToBwLimit ,
+        tpTotalNumWredDiscardedPackets ,
+        tpTotalNumFragments,
+        tpTotalNumNonIpPackets,
+        tpTotalNumIpCrcErrPackets,
+        tpTotalNumIpLengthErrPackets,
+        tpTotalNumIpBroadcastPackets,
+        tpTotalNumTtlErrPackets,
+        tpTotalNumTcpUdpCrcErrPackets,
+        tpClearCountersTime,
+        tpHandledPacketsRate,
+        tpHandledPacketsRatePeak,
+        tpHandledPacketsRatePeakTime,
+        tpHandledFlowsRate,
+        tpHandledFlowsRatePeak,
+        tpHandledFlowsRatePeakTime,
+        tpCpuUtilization,
+        tpCpuUtilizationPeak,
+        tpCpuUtilizationPeakTime,
+        tpFlowsCapacityUtilization,
+        tpFlowsCapacityUtilizationPeak,
+        tpFlowsCapacityUtilizationPeakTime,
+        tpServiceLoss }
+    STATUS  current
+    DESCRIPTION 
+        "Traffic processors related information."
+    ::= { pcubeSeGroups 9 }
+                
+pcubePortGroup OBJECT-GROUP
+    OBJECTS {   
+        pportModuleIndex,
+        pportIndex,
+        pportType,
+        pportNumTxQueues,
+        pportIfIndex,
+        pportAdminSpeed,
+        pportAdminDuplex,
+        pportOperDuplex,
+        pportLinkIndex,
+        pportOperStatus }
+    STATUS  current
+    DESCRIPTION 
+        "Ports related information."
+    ::= { pcubeSeGroups 10 }
+                
+pcubeTxQueuesGroup OBJECT-GROUP
+    OBJECTS {   
+        txQueuesModuleIndex,
+        txQueuesPortIndex,
+        txQueuesQueueIndex,
+        txQueuesDescription,
+        txQueuesBandwidth,
+        txQueuesUtilization,
+        txQueuesUtilizationPeak,
+        txQueuesUtilizationPeakTime,
+        txQueuesClearCountersTime,
+        txQueuesDroppedBytes }
+    STATUS  current
+    DESCRIPTION 
+        "Tx queue related information"
+    ::= { pcubeSeGroups 11 }
+                
+pcubeGlobalControllersGroup OBJECT-GROUP
+    OBJECTS {   
+        globalControllersModuleIndex,
+        globalControllersPortIndex,
+        globalControllersIndex,
+        globalControllersDescription,
+        globalControllersBandwidth,
+        globalControllersUtilization,
+        globalControllersUtilizationPeak,
+        globalControllersUtilizationPeakTime ,
+        globalControllersClearCountersTime,
+        globalControllersDroppedBytes }
+    STATUS  current
+    DESCRIPTION 
+        "Global controllers related information."
+    ::= { pcubeSeGroups 12 }
+                
+pcubeApplicationGroup OBJECT-GROUP
+    OBJECTS {   
+        appName,
+        appDescription,
+        appVersion,
+        apIndex,
+        apName,
+        apType,
+        apvPropertyName,
+        apvRowStatus,
+        apvPropertyStringValue,
+        apvPropertyUintValue,
+        apvPropertyCounter64Value }
+    STATUS  current
+    DESCRIPTION 
+        "Application related information."
+    ::= { pcubeSeGroups 13 }
+                
+pcubeTrafficCountersGroup OBJECT-GROUP
+    OBJECTS {   
+        trafficCounterIndex,
+        trafficCounterValue,
+        trafficCounterName,
+        trafficCounterType }
+    STATUS  current
+    DESCRIPTION 
+        "Traffic counter related information."
+    ::= { pcubeSeGroups 14 }
+    
+pcubeAttackGroup OBJECT-GROUP
+    OBJECTS {   
+        attackTypeIndex,
+        attackTypeName,
+        attackTypeCurrentNumAttacks,
+        attackTypeTotalNumAttacks,
+        attackTypeTotalNumFlows,
+        attackTypeTotalNumSeconds }
+    STATUS  current
+    DESCRIPTION 
+        "Attacks related information."
+    ::= { pcubeSeGroups 15 }
+                
+pcubeVasTrafficForwardingGroup OBJECT-GROUP
+    OBJECTS {   
+        vasServerIndex,
+        vasServerId,
+        vasServerAdminStatus,
+        vasServerOperStatus }
+    STATUS  current
+    DESCRIPTION 
+        "VAS traffic forwarding related
+        information."
+    ::= { pcubeSeGroups 16 }
+                
+pcubeMplsVpnAutoLearnGroup OBJECT-GROUP
+    OBJECTS {   mplsVpnMaxHWMappings,
+                mplsVpnCurrentHWMappings }
+    STATUS  current
+    DESCRIPTION 
+        "MPLS VPN auto learning related
+        information."
+    ::= { pcubeSeGroups 17 }    
+    
+pcubeTrapObjectsGroup       OBJECT-GROUP
+    OBJECTS {   
+        pcubeSeEventGenericString1,
+        pcubeSeEventGenericString2,
+        pullRequestNumber }
+    STATUS  current
+    DESCRIPTION 
+        "Notifications' objects group."
+    ::= { pcubeSeGroups 18 }
+
+END

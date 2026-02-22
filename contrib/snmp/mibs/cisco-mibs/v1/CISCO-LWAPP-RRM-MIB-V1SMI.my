@@ -1,0 +1,494 @@
+-- MIB file created 20-Jun-2007 17:13:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-RRM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-RRM-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    CLApIfType
+            FROM CISCO-LWAPP-TC-MIB
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoLwappRrmMIB OBJECT IDENTIFIER ::= { ciscoMgmt 615 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200702210000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    Information provided by this MIB is used to study
+--    the RRM on the WLAN.
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--          +......+     +......+     +......+
+--          +      +     +      +     +      +
+--          +  CC  +     +  CC  +     +  CC  +
+--          +      +     +      +     +      +
+--          +......+     +......+     +......+
+--            ..            .             .
+--            ..            .             .
+--           .  .            .             .
+--          .    .            .             .
+--         .      .            .             .
+--        .        .            .             .
+--    +......+ +......+     +......+      +......+
+--    +      + +      +     +      +      +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +
+--    +      + +      +     +      +      +      +
+--    +......+ +......+     +......+      +......+
+--               .              .             .
+--             .  .              .             .
+--            .    .              .             .
+--           .      .              .             .
+--          .        .              .             .
+--       +......+ +......+     +......+      +......+
+--       +      + +      +     +      +      +      +
+--       +  MN  + +  MN  +     +  MN  +      +  MN  +
+--       +      + +      +     +      +      +      +
+--       +......+ +......+     +......+      +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Light Weight Access Point Protocol ( LWAPP )
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node 
+--    and client are used interchangeably. 
+--    
+--    Radio Resource Management ( RRM )
+--    
+--    RRM is the system level control of co-channel 
+--    interference and other radio transmission 
+--    characteristics in wireless communication systems.
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    200702210000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappRrmMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappRrmMIB 0 }
+ciscoLwappRrmMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappRrmMIB 1 }
+ciscoLwappRrmMIBConform OBJECT IDENTIFIER ::= { ciscoLwappRrmMIB 2 }
+clrRrmConfig    OBJECT IDENTIFIER ::= { ciscoLwappRrmMIBObjects 1 }
+ciscoLwappRrmMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappRrmMIBConform 1 }
+ciscoLwappRrmMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappRrmMIBConform 2 }
+
+ClrRrmTupleTuningRange ::= INTEGER(-127..127)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention defines the RRM tuning
+--    parameter range on a 802.11 client.
+
+clrRrmParametersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrRrmParametersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the  RRM parameters for a
+        802.11 interface type. Entries are automatically
+        created on the controller for each 802.11 interface 
+        type."
+    ::= { clrRrmConfig 1 }
+
+clrRrmParametersEntry OBJECT-TYPE
+    SYNTAX ClrRrmParametersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table corresponds to a particular
+        802.11 interface type."
+    INDEX { clrRrmParametersType }
+    ::= { clrRrmParametersTable 1 }
+
+ClrRrmParametersEntry ::= SEQUENCE {
+    clrRrmParametersType CLApIfType,
+    clrRrmParametersPicoCellMode INTEGER
+    }
+
+clrRrmParametersType OBJECT-TYPE
+    SYNTAX CLApIfType
+--    Rsyntax INTEGER {
+--        dot11bg(1),
+--        dot11a(2),
+--        uwb(3)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely represents the 802.11 interface
+        type for this entry."
+    ::= { clrRrmParametersEntry 1 }
+
+clrRrmParametersPicoCellMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        disable(1),
+        picoCellv1(2),
+        picoCellv2(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the 802.11 pico-cell mode.
+        disable    - pico-cell mode is disabled.
+        picoCellv1 - legacy pico-cell mode is in use.
+        picoCellv2 - in this mode the APs to use the tuple 
+                     information from the clrRrmTupleTable."
+    DEFVAL { disable }
+    ::= { clrRrmParametersEntry 2 }
+
+clrRrmTupleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrRrmTupleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of tuple tuning parameters that are
+        advertised to all APs registered under this 802.11 
+        interface type. This information is pushed down to 
+        to 802.11 clients by the APs to operate under high 
+        density.
+        Entries in this table are automatically 
+        created by the controller with default values."
+    ::= { clrRrmConfig 2 }
+
+clrRrmTupleEntry OBJECT-TYPE
+    SYNTAX ClrRrmTupleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents the tuning parameters for
+        an interface type. These entries are applicable 
+        only when object clrRrmParametersPicoCellMode is 
+        is set to 'picoCellv2'."
+    INDEX { clrRrmParametersType }
+    ::= { clrRrmTupleTable 1 }
+
+ClrRrmTupleEntry ::= SEQUENCE {
+    clrRrmTupleRxSenseThresholdMin ClrRrmTupleTuningRange,
+    clrRrmTupleRxSenseThresholdMax ClrRrmTupleTuningRange,
+    clrRrmTupleRxSenseThreshold ClrRrmTupleTuningRange,
+    clrRrmTupleCcaSenseThresholdMin ClrRrmTupleTuningRange,
+    clrRrmTupleCcaSenseThresholdMax ClrRrmTupleTuningRange,
+    clrRrmTupleCcaSenseThreshold ClrRrmTupleTuningRange,
+    clrRrmTupleTransmitPowerLevelMin ClrRrmTupleTuningRange,
+    clrRrmTupleTransmitPowerLevelMax ClrRrmTupleTuningRange,
+    clrRrmTupleTransmitPowerLevel ClrRrmTupleTuningRange,
+    clrRrmTupleSetDefault TruthValue
+    }
+
+clrRrmTupleRxSenseThresholdMin OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the minimum value configured
+        for receiver's sensitivity threshold.
+        This value must be less than the value configured for 
+        clrRrmTupleRxSenseThresholdMax object."
+    DEFVAL { -127 }
+    ::= { clrRrmTupleEntry 1 }
+
+clrRrmTupleRxSenseThresholdMax OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the maximum value configured
+        for receiver's sensitivity threshold.
+        This value must be greater than the value configured for 
+        clrRrmTupleRxSenseThresholdMin object."
+    DEFVAL { 127 }
+    ::= { clrRrmTupleEntry 2 }
+
+clrRrmTupleRxSenseThreshold OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the current value for
+        receiver's sensitivity threshold.  This value is sent 
+        to the APs that join the controller. The APs in turn 
+        propogate this value to the 802.11 clients. The client 
+        will either use this value or will tune receiver's 
+        sensitivity settings between the range of values 
+        configured by clrRrmTupleRxSenseThresholdMin and 
+        clrRrmTupleRxSenseThresholdMax objects."
+    DEFVAL { -80 }
+    ::= { clrRrmTupleEntry 3 }
+
+clrRrmTupleCcaSenseThresholdMin OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the minimum value configured
+        for clear channel (CCA) sensitivity threshold.
+        This value must be less than the value configured for 
+        clrRrmTupleCcaSenseThresholdMax object."
+    DEFVAL { -127 }
+    ::= { clrRrmTupleEntry 4 }
+
+clrRrmTupleCcaSenseThresholdMax OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the maximum value configured
+        for clear channel (CCA) sensitivity threshold.
+        This value must be greater than the value configured for 
+        clrRrmTupleCcaSenseThresholdMin object."
+    DEFVAL { 127 }
+    ::= { clrRrmTupleEntry 5 }
+
+clrRrmTupleCcaSenseThreshold OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the current value for clear
+        channel (CCA) sensitivity. This value is sent to the 
+        APs that join the controller. The APs in turn propogate 
+        this value to the 802.11 clients. The client will either 
+        use this value or may tune CCA sensitivity settings 
+        between the range of values configured by 
+        clrRrmTupleCcaSenseThresholdMin and 
+        clrRrmTupleCcaSenseThresholdMax objects."
+    DEFVAL { -60 }
+    ::= { clrRrmTupleEntry 6 }
+
+clrRrmTupleTransmitPowerLevelMin OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the minimum value configured
+        for transmit power level. This value must be less than 
+        the value configured for clrRrmTupleTransmitPowerLevelMax 
+        object."
+    DEFVAL { -127 }
+    ::= { clrRrmTupleEntry 7 }
+
+clrRrmTupleTransmitPowerLevelMax OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the maximum value configured
+        for transmit power level. This value must be greater than 
+        the value for clrRrmTupleTransmitPowerLevelMin object."
+    DEFVAL { 127 }
+    ::= { clrRrmTupleEntry 8 }
+
+clrRrmTupleTransmitPowerLevel OBJECT-TYPE
+    SYNTAX ClrRrmTupleTuningRange
+--    Rsyntax INTEGER(-127..127)
+--  Units
+--    dbm
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the current value for transmit
+        power level. This value is sent to the APs that join the 
+        controller. The APs in turn propogate this value to the 
+        802.11 clients. The client will either use this value or 
+        may tune the transmit power settings between the range 
+        of values configured by clrRrmTupleTransmitPowerLevelMin 
+        and clrRrmTupleTransmitPowerLevelMax objects."
+    DEFVAL { 10 }
+    ::= { clrRrmTupleEntry 9 }
+
+clrRrmTupleSetDefault OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object restores the other objects in this
+        table to default value. Setting this value to
+        'true' wil restore defaults as indicated by 
+        the DEFVAL clause. This object can only be set 
+        to 'true' and all other values are rejected.
+        This object will always return 'false' for get 
+        operations."
+    ::= { clrRrmTupleEntry 10 }
+
+clrRrmChannelTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrRrmChannelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the channel information
+        for an AP's 802.11 interface. 
+        Based on the country that an AP operates in, it 
+        gets assigned to a regulatory domain. For a given
+        regulatory domain a fixed number of channels are
+        assigned automatically to an AP for a given interface.
+        This table represents this information.
+        Entries are automatically created on the controller
+        as APs associate. Entries are removed when the APs
+        disassociate."
+    ::= { clrRrmConfig 4 }
+
+clrRrmChannelEntry OBJECT-TYPE
+    SYNTAX ClrRrmChannelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table provides the channel
+        information for an 802.11 interface in an AP."
+    INDEX { clrRrmParametersType, clrRrmChannelNum }
+    ::= { clrRrmChannelTable 1 }
+
+ClrRrmChannelEntry ::= SEQUENCE {
+    clrRrmChannelNum Gauge,
+    clrRrmChannelDcaState TruthValue
+    }
+
+clrRrmChannelNum OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The channel nubmer for this entry.  This value
+        represents the unique channel number on this
+        802.11 interface for this regulatory domain."
+    ::= { clrRrmChannelEntry 1 }
+
+clrRrmChannelDcaState OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether this channel is part
+        of the dynamic channel allocation (DCA) list. 
+        A value of 'true' indicates that the DCA for 
+        this channel is enabled. A value of 'false' indicates 
+        that the DCA for this channel is disabled."
+    DEFVAL { false }
+    ::= { clrRrmChannelEntry 2 }
+
+ciscoLwappRrmConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappRrmMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the
+--    RRM configuration on the controller.
+--  objects
+--    clrRrmParametersPicoCellMode, clrRrmTupleRxSenseThresholdMin, 
+--    clrRrmTupleRxSenseThresholdMax, clrRrmTupleRxSenseThreshold, 
+--    clrRrmTupleCcaSenseThresholdMin, 
+--    clrRrmTupleCcaSenseThresholdMax, clrRrmTupleCcaSenseThreshold, 
+--    clrRrmTupleTransmitPowerLevelMin, 
+--    clrRrmTupleTransmitPowerLevelMax, 
+--    clrRrmTupleTransmitPowerLevel, clrRrmTupleSetDefault, 
+--    clrRrmChannelDcaState
+
+ciscoLwappRrmMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappRrmMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappRrmMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappRrmConfigGroup
+
+
+END
+

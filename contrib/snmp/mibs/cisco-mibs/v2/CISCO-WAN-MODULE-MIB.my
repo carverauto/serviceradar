@@ -1,0 +1,581 @@
+-- *****************************************************************
+-- ciscoWanModule MIB
+--
+-- The MIB supported in WAN Module
+--
+-- May 1999, Shilpa Kale
+-- July 2001, Rajesh Kumar
+-- Sept 2002, Subra Hegde
+--
+-- Copyright (c) 1999, 2001, 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+ 
+CISCO-WAN-MODULE-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32                   FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                 FROM SNMPv2-CONF
+    DisplayString,
+    TEXTUAL-CONVENTION           FROM SNMPv2-TC
+    ciscoMgmt                    FROM CISCO-SMI;
+ 
+ciscoWanModuleMIB MODULE-IDENTITY
+    LAST-UPDATED "200209110000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO "Cisco Systems
+                  Customer Service
+ 
+                  Postal: 170 W Tasman Drive
+                  San Jose, CA  95134
+                  USA
+
+                  Tel: +1 800 553-NETS
+ 
+                  E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB to configure Connection Specific parameters and
+         statistics related information in a Service Module.
+         The Service Module(SM) is defined as any Module which
+         provides services such as ATM, Frame Relay or Voice in a
+         Wide Area Network(WAN) switch."
+
+    REVISION "200209110000Z"
+    DESCRIPTION
+              "Imported Unsigned32 from SNMPv2-SMI instead
+              of CISCO-TC.
+              Added cwmUploadCounter in cwmConfigTable."
+
+    REVISION "200107200000Z"
+    DESCRIPTION
+              " 1. Added cwmSCTFileVerCfg and cwmSCTFileVerOpr to
+               CwmConfigEntry. "
+
+    REVISION "9910220000Z"
+    DESCRIPTION
+              "Initial version of the mib module."
+    ::= { ciscoMgmt 145 }
+ 
+cwmMIBObjects      OBJECT IDENTIFIER ::= { ciscoWanModuleMIB 1}
+
+cwmConfig          OBJECT IDENTIFIER ::= { cwmMIBObjects 1}
+cwmStatsConfig     OBJECT IDENTIFIER ::= { cwmMIBObjects 2 }
+
+StatisticsLevel ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION 
+       "Used to configure level statistics on service module.
+        Statistic level on a module dictates the type and
+        amount of statistics that is collected.
+
+        There is a predefined set of statistics associated with each level
+        and are enabled when a level is set. Also, setting statistics level
+        to N will enable counters associated with levels N-1 through 1 as well.
+
+        The valid values are
+
+         notApplicable(0)- Statistics level is not applicable.
+
+         levelOne(1)    - Enables level one counters.
+
+         levelTwo(2)    - Enables level two and level one counters.
+
+         levelThree(3)  - Enables level one, level two and level three 
+                          counters."
+    SYNTAX INTEGER{
+        notApplicable(0),
+        levelOne(1),
+        levelTwo(2),
+        levelThree(3)
+    }
+
+-- Module configuration Table
+
+cwmConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CwmConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains objects required for configuring module
+         specific parameters. These parameters may be related to the
+         hardware specific parameters which can affect the
+         ATM Connection characteristics."
+    ::= { cwmConfig 1}
+ 
+cwmConfigEntry OBJECT-TYPE
+    SYNTAX      CwmConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Entry containing information for each module."
+    INDEX { cwmIndex }
+    ::= { cwmConfigTable 1 }
+
+CwmConfigEntry ::=
+    SEQUENCE {
+        cwmIndex                     Unsigned32,
+        cwmIngressSCTFileId          Unsigned32,
+        cwmIngressSCTFileName        DisplayString,
+        cwmAutoLineDiagEnable        INTEGER,
+        cwmSCTFileVerCfg             Unsigned32,
+        cwmSCTFileVerOpr             Unsigned32,
+        cwmUploadCounter             Unsigned32
+    }
+ 
+cwmIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object's value generally corresponds to the 
+         slot number where the module resides. However,
+         system wide uniqueness is the only true requirement."
+    ::= {cwmConfigEntry  1 }
+
+cwmIngressSCTFileId OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..255)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The file ID of the Service Class Template(SCT) file. The SCT
+         holds the connection specific parameters for this module in
+         the ingress direction(From Network to the Switch).
+        
+         Terminologies used:
+         SCT : Service Class Template
+          The Service Class Template ( or Service Template or SCT )
+          provides a means for inferring extended parameters, which 
+          are generally platform-specific, from the set of standard
+          ATM protocol parameters passed in VSI(Virtual Switch Interface)
+          connection setup primitives. A set of Service Templates are
+          available in a non-volatile storage and is downloaded onto
+          each Service Module on power up.
+
+          In general, SCTs contain two classes of data. One class consists
+          of parameters necessary to establish a Virtual Connection
+          (i.e. Per-VC) and includes entries such as UPC(Usage Parameter Control)
+          actions, various bandwidth-related items, per-VC thresholds,
+          and some hardware-specific items.The second class of data items
+          includes those necessary to configure the associated 
+          Class-of-Service Buffers that provide the QoS support."
+    ::= {cwmConfigEntry  2 }
+
+cwmIngressSCTFileName OBJECT-TYPE
+    SYNTAX  DisplayString
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This variable contains the SCT filename. Write access
+        is not required. The filename has cwmIngressSCTFileId
+        value as the suffix. For example, the value SCT.INGR.13
+        for this object indicates 13 is the value of
+        cwmIngressSCTFileId."
+    ::= { cwmConfigEntry 3 }
+
+cwmAutoLineDiagEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+     MAX-ACCESS    read-write
+     STATUS    current
+     DESCRIPTION
+       "This object enables/disables automatic diagnostic feature
+        of physical lines on module. 
+        In case of a line alarm, enabling this feature temporarily
+        suspends traffic in both direction and starts local loop-back
+        testing. Disabling this feature will not effect the traffic 
+        in one direction while another direction is in alarm."
+     DEFVAL { disable }
+    ::= { cwmConfigEntry 4 }
+
+cwmSCTFileVerCfg OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..65535)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The Configured version of the Service Class Template(SCT)
+        file. This version applies to both the card SCT and the port
+        SCT files in a service module.
+
+        The port SCT files are specified while provisioning a port using
+        the caviFileId field in the CISCO-WAN-VIRTUAL-IF-MIB.my MIB.
+        The card SCT file is specifed in this MIB using the 
+        cwmIngressSCTFileName object.
+
+        The configured version of the SCT does not take effect until
+        the service module is rebooted. However, graceful invocation
+        of a new SCT version can be achieved by using redundant service
+        modules. The configured SCT version is first applied on a standby
+        service module by rebooting it. When the standby reboots, it 
+        comes up with the configured SCT version. Thereafter a switchover
+        can be performed, making the standby SM take over as active." 
+    ::= {cwmConfigEntry  5 }
+
+cwmSCTFileVerOpr OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The operational version of the Service Class Template(SCT)
+        file. This is sct version currently in use. The operational 
+        version could be different from the configured version 
+        (cwmSCTFileVerCfg), until the service module is rebooted." 
+
+    ::= {cwmConfigEntry  6 }
+
+cwmUploadCounter  OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..4294967295)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This counter is used by the management station to 
+        determine if any changes(other than ATM/FR connections)
+        have been done on configuration of a card.
+
+        The use of this object is implementation specific.
+        This requires the NMS application saving the previous
+        value of this object and compare it later for finding
+        any changes in the card.
+
+        The upload counter is incremented in, for instance:
+
+        - any physical interface characteristics are modified.
+        - any logical interface is added/deleted/modified.
+        - any IMA Group/MFR bundle is added/deleted/modified.
+        - any resource is added/deleted/modified on an interface.
+        - any configuration changes are done(not specified above)
+          which are not related to ATM/FR Connections
+          (SPVCs for example)."
+    ::= {cwmConfigEntry  7 }
+
+
+
+-- Statistics Configuration Table
+
+cwmStatConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CwmStatConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This table has objects required for configuring module statistic 
+        collection related parameters. The statistics related to interfaces
+        and ATM Connections are stored in a file. The statistics file can be
+        uploaded by NMS applications using file transfer protocols such as tftp 
+        or ftp. While current interval of data is being collected in memory,
+        previous interval of data is uploaded by NMS. Each interval's
+        data will overwrite the previous interval's data in the statistic 
+        file after the interval is over."       
+     ::= { cwmStatsConfig 1 }
+
+cwmStatConfigEntry OBJECT-TYPE
+    SYNTAX      CwmStatConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "Entry containing statistics configuration information for
+        the module."
+    INDEX   { cwmIndex }
+    ::= { cwmStatConfigTable 1 }
+
+CwmStatConfigEntry ::=
+    SEQUENCE {
+         cwmStatBucketInterval          INTEGER,
+         cwmStatCollectionInterval      INTEGER,
+         cwmStatCollectionStatus        INTEGER,
+         cwmStatCurrentLevel            StatisticsLevel,
+         cwmStatLevelConfigured         StatisticsLevel,
+         cwmStatMaximumConnections      Unsigned32
+    }
+
+cwmStatBucketInterval OBJECT-TYPE
+   SYNTAX  INTEGER {
+            five(5),
+            ten(10),
+            fifteen(15),
+            twenty(20),
+            thirty(30),
+            sixty(60)
+            }   
+    UNITS "minutes"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+       "This object contains the bucket interval in minutes used in 
+        collecting statistics. This specifies the interval over
+        which the module accumulates a sample. This value also
+        defines the amount of time available to NMS application
+        to upload the statistic file in order to not miss one 
+        interval worth of data."
+    DEFVAL { fifteen }
+    ::= {cwmStatConfigEntry  1 }
+
+cwmStatCollectionInterval OBJECT-TYPE
+    SYNTAX INTEGER {
+        default(0),
+        one(1),
+        five(5)
+        }
+    UNITS "minutes"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+       "The collection interval of statistics. Within a sampling interval, 
+        as defined by cwmStatBucketInterval, statistics counters are
+        updated every collection interval.
+
+        Default value of collection interval is same as bucket interval.
+        
+        In case of bucket interval being 5 minutes, default(0) and five(5)
+        values for this object has the same effect."
+    DEFVAL { default }
+    ::= {cwmStatConfigEntry 2 }
+
+cwmStatCollectionStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+       "Enables or disables statistics collection on the module."
+    DEFVAL { enable }   
+    ::= {cwmStatConfigEntry 3 }
+
+cwmStatCurrentLevel OBJECT-TYPE
+    SYNTAX      StatisticsLevel
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "The current statistics level of the module.
+
+        A change in the card statistic level can take place only
+        after a module reset. This object shows the current module
+        statistic level. While cwmStatLevelConfigured object is
+        used to configure module statistic level. The value
+        set in cwmStatLevelConfigured object will take effect after
+        next module reset."
+    ::= {cwmStatConfigEntry 4 }
+
+cwmStatLevelConfigured OBJECT-TYPE
+    SYNTAX      StatisticsLevel 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+       "This object is used to configure the statistics level
+        for the module. The statistics level value set in this 
+        object will take effect only on reset of the module.
+
+        This object can be set only if cwmStatCollectionStatus is set
+        to enable(1). This object cannot be set to notApplicable(0)."
+    DEFVAL { levelOne }
+    ::= {cwmStatConfigEntry 5 }
+
+cwmStatMaximumConnections OBJECT-TYPE
+    SYNTAX      Unsigned32      
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "The maximum number of connections for which the statistics are 
+        being collected."
+    ::= { cwmStatConfigEntry 6 }
+
+-- Notifications
+ciscoWanModuleMIBNotificationPrefix OBJECT IDENTIFIER ::=
+                                    { ciscoWanModuleMIB 2 } 
+ciscoWanModuleMIBNotifications OBJECT IDENTIFIER ::=
+    { ciscoWanModuleMIBNotificationPrefix 0 }
+
+-- conformance information
+ 
+ciscoWanModuleMIBConformance OBJECT IDENTIFIER ::= { ciscoWanModuleMIB 3 }
+ciscoWanModuleMIBCompliances 
+                     OBJECT IDENTIFIER ::= {ciscoWanModuleMIBConformance 1}
+ciscoWanModuleMIBGroups      
+                     OBJECT IDENTIFIER ::= {ciscoWanModuleMIBConformance 2}
+ 
+ciscoWanModuleMIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+           "The Compliance statement for cwmConfigGroup group."
+
+        MODULE -- this module
+        MANDATORY-GROUPS { cwmConfigGroup }
+        OBJECT     cwmIngressSCTFileName
+        MIN-ACCESS read-only
+        DESCRIPTION
+        "Write access is not required if the cwmIngressSCTFileId
+         is specified." 
+
+        
+        GROUP cwmStatConfigGroup
+        DESCRIPTION 
+            "Implementation of this group is not mandatory for 
+             the modules which does not support statistics collection."
+
+        OBJECT cwmStatCollectionInterval
+        MIN-ACCESS not-accessible
+        DESCRIPTION
+            "This is an optional attribute."
+
+        OBJECT     cwmStatCurrentLevel
+        MIN-ACCESS not-accessible
+        DESCRIPTION 
+            "This is an optional attribute. This attribute is not required
+             if the cwmStatLevelConfigured object is not supported."
+
+        OBJECT     cwmStatLevelConfigured
+        MIN-ACCESS not-accessible
+        DESCRIPTION 
+            "This is an optional attribute. This object is not required 
+             if the module does not support the statistics based on
+             statistics level setting."
+
+        ::= { ciscoWanModuleMIBCompliances 1 }
+
+  ciscoWanModuleMIBComplianceRev1 MODULE-COMPLIANCE
+          STATUS deprecated -- replaced by 
+                            -- ciscoWanModuleMIBComplianceRev2
+          DESCRIPTION
+             "The Compliance statement for cwmConfigGroup group,
+              with addition of SCT file versioning "
+          MODULE -- this module
+          MANDATORY-GROUPS { cwmConfigGroup,
+                             cwmConfigGroup2 }
+          OBJECT     cwmIngressSCTFileName
+          MIN-ACCESS read-only
+          DESCRIPTION
+          "Write access is not required if the cwmIngressSCTFileId
+           is specified."
+
+
+          GROUP cwmStatConfigGroup
+          DESCRIPTION
+              "Implementation of this group is not mandatory for
+               the modules which does not support statistics 
+               collection."
+
+          OBJECT cwmStatCollectionInterval
+          MIN-ACCESS not-accessible
+          DESCRIPTION
+              "This is an optional attribute."
+
+          OBJECT     cwmStatCurrentLevel
+          MIN-ACCESS not-accessible
+          DESCRIPTION
+              "This is an optional attribute. This attribute is not
+               required if the cwmStatLevelConfigured object is not 
+               supported."
+
+          OBJECT     cwmStatLevelConfigured
+          MIN-ACCESS not-accessible
+          DESCRIPTION
+              "This is an optional attribute. This object is 
+               not required if the module does not support the
+               statistics based on statistics level setting."
+
+          ::= { ciscoWanModuleMIBCompliances 2 }
+
+  ciscoWanModuleMIBComplianceRev2 MODULE-COMPLIANCE
+          STATUS current
+          DESCRIPTION
+             "The Compliance statement for cwmConfigGroup group,
+              with addition of SCT file versioning "
+          MODULE -- this module
+          MANDATORY-GROUPS { cwmConfigGroup,
+                             cwmConfigGroup2 }
+
+          GROUP      cwmUploadGroup
+          DESCRIPTION
+              "The implementation of this group is mandatory
+              where the changes to card configuration can
+              be tracked."
+
+          OBJECT     cwmIngressSCTFileName
+          MIN-ACCESS read-only
+          DESCRIPTION
+          "Write access is not required if the cwmIngressSCTFileId
+           is specified."
+
+
+          GROUP cwmStatConfigGroup
+          DESCRIPTION
+              "Implementation of this group is not mandatory for
+               the modules which does not support statistics 
+               collection."
+
+          OBJECT cwmStatCollectionInterval
+          MIN-ACCESS not-accessible
+          DESCRIPTION
+              "This is an optional attribute."
+
+          OBJECT     cwmStatCurrentLevel
+          MIN-ACCESS not-accessible
+          DESCRIPTION
+              "This is an optional attribute. This attribute is not
+               required if the cwmStatLevelConfigured object is not 
+               supported."
+
+          OBJECT     cwmStatLevelConfigured
+          MIN-ACCESS not-accessible
+          DESCRIPTION
+              "This is an optional attribute. This object is 
+               not required if the module does not support the
+               statistics based on statistics level setting."
+
+          ::= { ciscoWanModuleMIBCompliances 3 }
+
+-- units of conformance
+
+cwmConfigGroup OBJECT-GROUP
+    OBJECTS { 
+         cwmIngressSCTFileId ,
+         cwmIngressSCTFileName,
+         cwmAutoLineDiagEnable
+        }
+    STATUS current
+    DESCRIPTION
+        "Group containing Module Specific Parameters."
+    ::= { ciscoWanModuleMIBGroups 1}
+
+cwmStatConfigGroup OBJECT-GROUP
+        OBJECTS {
+             cwmStatBucketInterval,
+             cwmStatCurrentLevel,
+             cwmStatLevelConfigured,
+             cwmStatCollectionStatus,
+             cwmStatCollectionInterval,
+             cwmStatMaximumConnections
+            }
+       STATUS current
+       DESCRIPTION
+          "Group containing statistics configuration."
+       ::= { ciscoWanModuleMIBGroups 2}
+
+cwmConfigGroup2 OBJECT-GROUP
+      OBJECTS {
+           cwmSCTFileVerCfg, 
+           cwmSCTFileVerOpr 
+          }
+      STATUS current
+      DESCRIPTION
+          "Group containing additional Module Specific Parameters."
+      ::= { ciscoWanModuleMIBGroups 3}
+
+
+cwmUploadGroup OBJECT-GROUP
+      OBJECTS {
+           cwmUploadCounter
+          }
+      STATUS current
+      DESCRIPTION
+          "Group containing objects related to configuration
+          changes in a card."
+      ::= { ciscoWanModuleMIBGroups 4}
+
+END
+
+

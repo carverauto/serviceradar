@@ -1,0 +1,267 @@
+-- *****************************************************************
+-- CISCO-L4L7MODULE-RESOURCE-LIMIT-CAPABILITY.my:
+-- Cisco CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB AGENT-CAPABILITIES
+--   
+-- April 2006, Roopeshakumar N. Shalgar
+--   
+-- Copyright (c) 2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-L4L7MODULE-RESOURCE-LIMIT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoL4L7ModRsrcLimCap MODULE-IDENTITY
+    LAST-UPDATED    "200807220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-l47security@cisco.com"
+    DESCRIPTION
+        "The capabilities description for
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    REVISION        "200807220000Z"
+    DESCRIPTION
+        "Added capability statement cL4L7ModRsrcLimCapc4710aceVA3R10
+        for ACE 4710 Application Control Engine Appliance A3(1.0)."
+    REVISION        "200807210000Z"
+    DESCRIPTION
+        "Added VARIATION for crlRateLimitResourceMin object to
+        cL4L7ModRsrcLimCapACSWV03R000 agent capability.
+
+        Added capability statement cL4L7ModRsrcLimCapc4710aceVA1R700
+        for ACE 4710 Application Control Engine Appliance."
+    REVISION        "200604190000Z"
+    DESCRIPTION
+        "Added capability statement
+        cL4L7ModRsrcLimCapACSWV03R000 
+        for Application Control Engine (ACE)."
+    ::= { ciscoAgentCapability 499 }
+
+
+
+cL4L7ModRsrcLimCapACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB capabilities."
+
+    SUPPORTS        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB
+    INCLUDES        {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceRateLimitGroup
+                    }
+    VARIATION       crlResourceClassStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceClassRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitMin
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitMax
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceMin
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceMax
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    ::= { ciscoL4L7ModRsrcLimCap 1 }
+
+cL4L7ModRsrcLimCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                for ACE 4710 Application Control Engine 
+                Appliance."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB capabilities."
+
+    SUPPORTS        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB
+    INCLUDES        {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceRateLimitGroup
+                    }
+    VARIATION       crlResourceClassStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceClassRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitMin
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitMax
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceMin
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceMax
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    ::= { ciscoL4L7ModRsrcLimCap 2 }
+
+cL4L7ModRsrcLimCapc4710aceVA3R10 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A3(1.0)
+                    for ACE 4710 Application Control Engine 
+                    Appliance."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB capabilities for
+        ACE 4710 Application Control Engine Appliance A3(1.0)."
+
+    SUPPORTS        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB
+    INCLUDES        {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceRateLimitGroup,
+                        ciscoL4L7ResourceUsageSummaryGroup
+                    }
+    VARIATION       crlResourceClassStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceClassRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitMin
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitMax
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceLimitRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceMin
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceMax
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlRateLimitResourceRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceSummaryStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       crlResourceSummaryRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    ::= { ciscoL4L7ModRsrcLimCap 3 }
+
+END

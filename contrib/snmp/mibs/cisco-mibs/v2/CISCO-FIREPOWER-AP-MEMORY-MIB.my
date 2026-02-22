@@ -1,0 +1,2713 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-MEMORY-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- MEMORY management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-MEMORY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApEquipmentOperability,
+    CfprApEquipmentPowerState,
+    CfprApEquipmentPresence,
+    CfprApEquipmentSensorThresholdStatus,
+    CfprApMemoryAdminState,
+    CfprApMemoryArrayEnvStatsHistThresholded,
+    CfprApMemoryArrayEnvStatsThresholded,
+    CfprApMemoryArrayId,
+    CfprApMemoryBufferUnitEnvStatsHistThresholded,
+    CfprApMemoryBufferUnitEnvStatsThresholded,
+    CfprApMemoryBufferUnitId,
+    CfprApMemoryErrorCorrection,
+    CfprApMemoryErrorStatsThresholded,
+    CfprApMemoryFormFactor,
+    CfprApMemoryIssues,
+    CfprApMemoryRuntimeHistThresholded,
+    CfprApMemoryRuntimeThresholded,
+    CfprApMemoryRuntimeType,
+    CfprApMemoryType,
+    CfprApMemoryUnitEnvStatsHistThresholded,
+    CfprApMemoryUnitEnvStatsThresholded,
+    CfprApMemoryUnitId,
+    CfprApMemoryUnitOperability,
+    CfprApMemoryVisibility
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApMemoryObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        MEMORY management information model package"
+    ::= { ciscoFirepowerApMIBObjects 50 }
+
+cfprApMemoryArrayTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryArrayEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:Array managed object table"
+    ::= { cfprApMemoryObjects 1 }
+
+cfprApMemoryArrayEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryArrayEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryArrayTable table."
+    INDEX { cfprApMemoryArrayInstanceId }
+    ::= { cfprApMemoryArrayTable 1 }
+
+CfprApMemoryArrayEntry ::= SEQUENCE {
+    cfprApMemoryArrayInstanceId                                      CfprApManagedObjectId,
+    cfprApMemoryArrayDn                                              CfprApManagedObjectDn,
+    cfprApMemoryArrayRn                                              SnmpAdminString,
+    cfprApMemoryArrayCpuId                                           Gauge32,
+    cfprApMemoryArrayCurrCapacity                                    Gauge32,
+    cfprApMemoryArrayErrorCorrection                                 CfprApMemoryErrorCorrection,
+    cfprApMemoryArrayId                                              CfprApMemoryArrayId,
+    cfprApMemoryArrayLocationDn                                      SnmpAdminString,
+    cfprApMemoryArrayMaxCapacity                                     Gauge32,
+    cfprApMemoryArrayMaxDevices                                      Gauge32,
+    cfprApMemoryArrayModel                                           SnmpAdminString,
+    cfprApMemoryArrayOperQualifierReason                             SnmpAdminString,
+    cfprApMemoryArrayOperState                                       CfprApEquipmentOperability,
+    cfprApMemoryArrayOperability                                     CfprApEquipmentOperability,
+    cfprApMemoryArrayPerf                                            CfprApEquipmentSensorThresholdStatus,
+    cfprApMemoryArrayPopulated                                       Gauge32,
+    cfprApMemoryArrayPower                                           CfprApEquipmentPowerState,
+    cfprApMemoryArrayPresence                                        CfprApEquipmentPresence,
+    cfprApMemoryArrayRevision                                        SnmpAdminString,
+    cfprApMemoryArraySerial                                          SnmpAdminString,
+    cfprApMemoryArrayThermal                                         CfprApEquipmentSensorThresholdStatus,
+    cfprApMemoryArrayVendor                                          SnmpAdminString,
+    cfprApMemoryArrayVoltage                                         CfprApEquipmentSensorThresholdStatus
+}
+
+cfprApMemoryArrayInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryArrayEntry 1 }
+
+cfprApMemoryArrayDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:dn managed object property"
+    ::= { cfprApMemoryArrayEntry 2 }
+
+cfprApMemoryArrayRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:rn managed object property"
+    ::= { cfprApMemoryArrayEntry 3 }
+
+cfprApMemoryArrayCpuId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:cpuId managed object property"
+    ::= { cfprApMemoryArrayEntry 4 }
+
+cfprApMemoryArrayCurrCapacity OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:currCapacity managed
+        object property"
+    ::= { cfprApMemoryArrayEntry 5 }
+
+cfprApMemoryArrayErrorCorrection OBJECT-TYPE
+    SYNTAX       CfprApMemoryErrorCorrection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:errorCorrection managed
+        object property"
+    ::= { cfprApMemoryArrayEntry 6 }
+
+cfprApMemoryArrayId OBJECT-TYPE
+    SYNTAX       CfprApMemoryArrayId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:id managed object property"
+    ::= { cfprApMemoryArrayEntry 7 }
+
+cfprApMemoryArrayLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:locationDn managed object property"
+    ::= { cfprApMemoryArrayEntry 8 }
+
+cfprApMemoryArrayMaxCapacity OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:maxCapacity managed object property"
+    ::= { cfprApMemoryArrayEntry 9 }
+
+cfprApMemoryArrayMaxDevices OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:maxDevices managed object property"
+    ::= { cfprApMemoryArrayEntry 10 }
+
+cfprApMemoryArrayModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:model managed object property"
+    ::= { cfprApMemoryArrayEntry 11 }
+
+cfprApMemoryArrayOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:operQualifierReason
+        managed object property"
+    ::= { cfprApMemoryArrayEntry 12 }
+
+cfprApMemoryArrayOperState OBJECT-TYPE
+    SYNTAX       CfprApEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:operState managed object property"
+    ::= { cfprApMemoryArrayEntry 13 }
+
+cfprApMemoryArrayOperability OBJECT-TYPE
+    SYNTAX       CfprApEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:operability managed object property"
+    ::= { cfprApMemoryArrayEntry 14 }
+
+cfprApMemoryArrayPerf OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:perf managed object property"
+    ::= { cfprApMemoryArrayEntry 15 }
+
+cfprApMemoryArrayPopulated OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:populated managed object property"
+    ::= { cfprApMemoryArrayEntry 16 }
+
+cfprApMemoryArrayPower OBJECT-TYPE
+    SYNTAX       CfprApEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:power managed object property"
+    ::= { cfprApMemoryArrayEntry 17 }
+
+cfprApMemoryArrayPresence OBJECT-TYPE
+    SYNTAX       CfprApEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:presence managed object property"
+    ::= { cfprApMemoryArrayEntry 18 }
+
+cfprApMemoryArrayRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:revision managed object property"
+    ::= { cfprApMemoryArrayEntry 19 }
+
+cfprApMemoryArraySerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:serial managed object property"
+    ::= { cfprApMemoryArrayEntry 20 }
+
+cfprApMemoryArrayThermal OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:thermal managed object property"
+    ::= { cfprApMemoryArrayEntry 21 }
+
+cfprApMemoryArrayVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:vendor managed object property"
+    ::= { cfprApMemoryArrayEntry 22 }
+
+cfprApMemoryArrayVoltage OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Array:voltage managed object property"
+    ::= { cfprApMemoryArrayEntry 23 }
+
+cfprApMemoryArrayEnvStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryArrayEnvStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats managed object table"
+    ::= { cfprApMemoryObjects 2 }
+
+cfprApMemoryArrayEnvStatsEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryArrayEnvStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryArrayEnvStatsTable table."
+    INDEX { cfprApMemoryArrayEnvStatsInstanceId }
+    ::= { cfprApMemoryArrayEnvStatsTable 1 }
+
+CfprApMemoryArrayEnvStatsEntry ::= SEQUENCE {
+    cfprApMemoryArrayEnvStatsInstanceId                              CfprApManagedObjectId,
+    cfprApMemoryArrayEnvStatsDn                                      CfprApManagedObjectDn,
+    cfprApMemoryArrayEnvStatsRn                                      SnmpAdminString,
+    cfprApMemoryArrayEnvStatsInputCurrent                            INTEGER,
+    cfprApMemoryArrayEnvStatsInputCurrentAvg                         INTEGER,
+    cfprApMemoryArrayEnvStatsInputCurrentMax                         INTEGER,
+    cfprApMemoryArrayEnvStatsInputCurrentMin                         INTEGER,
+    cfprApMemoryArrayEnvStatsIntervals                               Gauge32,
+    cfprApMemoryArrayEnvStatsSuspect                                 TruthValue,
+    cfprApMemoryArrayEnvStatsThresholded                             CfprApMemoryArrayEnvStatsThresholded,
+    cfprApMemoryArrayEnvStatsTimeCollected                           DateAndTime,
+    cfprApMemoryArrayEnvStatsUpdate                                  Gauge32
+}
+
+cfprApMemoryArrayEnvStatsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryArrayEnvStatsEntry 1 }
+
+cfprApMemoryArrayEnvStatsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:dn managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 2 }
+
+cfprApMemoryArrayEnvStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:rn managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 3 }
+
+cfprApMemoryArrayEnvStatsInputCurrent OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:inputCurrent
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 4 }
+
+cfprApMemoryArrayEnvStatsInputCurrentAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:inputCurrentAvg
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 5 }
+
+cfprApMemoryArrayEnvStatsInputCurrentMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:inputCurrentMax
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 6 }
+
+cfprApMemoryArrayEnvStatsInputCurrentMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:inputCurrentMin
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 7 }
+
+cfprApMemoryArrayEnvStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:intervals
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 8 }
+
+cfprApMemoryArrayEnvStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:suspect managed
+        object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 9 }
+
+cfprApMemoryArrayEnvStatsThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryArrayEnvStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:thresholded
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 10 }
+
+cfprApMemoryArrayEnvStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:timeCollected
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 11 }
+
+cfprApMemoryArrayEnvStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStats:update managed
+        object property"
+    ::= { cfprApMemoryArrayEnvStatsEntry 12 }
+
+cfprApMemoryArrayEnvStatsHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryArrayEnvStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist managed object table"
+    ::= { cfprApMemoryObjects 3 }
+
+cfprApMemoryArrayEnvStatsHistEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryArrayEnvStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryArrayEnvStatsHistTable table."
+    INDEX { cfprApMemoryArrayEnvStatsHistInstanceId }
+    ::= { cfprApMemoryArrayEnvStatsHistTable 1 }
+
+CfprApMemoryArrayEnvStatsHistEntry ::= SEQUENCE {
+    cfprApMemoryArrayEnvStatsHistInstanceId                          CfprApManagedObjectId,
+    cfprApMemoryArrayEnvStatsHistDn                                  CfprApManagedObjectDn,
+    cfprApMemoryArrayEnvStatsHistRn                                  SnmpAdminString,
+    cfprApMemoryArrayEnvStatsHistId                                  Unsigned64,
+    cfprApMemoryArrayEnvStatsHistInputCurrent                        INTEGER,
+    cfprApMemoryArrayEnvStatsHistInputCurrentAvg                     INTEGER,
+    cfprApMemoryArrayEnvStatsHistInputCurrentMax                     INTEGER,
+    cfprApMemoryArrayEnvStatsHistInputCurrentMin                     INTEGER,
+    cfprApMemoryArrayEnvStatsHistMostRecent                          TruthValue,
+    cfprApMemoryArrayEnvStatsHistSuspect                             TruthValue,
+    cfprApMemoryArrayEnvStatsHistThresholded                         CfprApMemoryArrayEnvStatsHistThresholded,
+    cfprApMemoryArrayEnvStatsHistTimeCollected                       DateAndTime
+}
+
+cfprApMemoryArrayEnvStatsHistInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 1 }
+
+cfprApMemoryArrayEnvStatsHistDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:dn managed
+        object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 2 }
+
+cfprApMemoryArrayEnvStatsHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:rn managed
+        object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 3 }
+
+cfprApMemoryArrayEnvStatsHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:id managed
+        object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 4 }
+
+cfprApMemoryArrayEnvStatsHistInputCurrent OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:inputCurrent
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 5 }
+
+cfprApMemoryArrayEnvStatsHistInputCurrentAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:inputCurrentAvg
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 6 }
+
+cfprApMemoryArrayEnvStatsHistInputCurrentMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:inputCurrentMax
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 7 }
+
+cfprApMemoryArrayEnvStatsHistInputCurrentMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:inputCurrentMin
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 8 }
+
+cfprApMemoryArrayEnvStatsHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:mostRecent
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 9 }
+
+cfprApMemoryArrayEnvStatsHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:suspect
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 10 }
+
+cfprApMemoryArrayEnvStatsHistThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryArrayEnvStatsHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:thresholded
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 11 }
+
+cfprApMemoryArrayEnvStatsHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ArrayEnvStatsHist:timeCollected
+        managed object property"
+    ::= { cfprApMemoryArrayEnvStatsHistEntry 12 }
+
+cfprApMemoryBufferUnitTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryBufferUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit managed object table"
+    ::= { cfprApMemoryObjects 4 }
+
+cfprApMemoryBufferUnitEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryBufferUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryBufferUnitTable table."
+    INDEX { cfprApMemoryBufferUnitInstanceId }
+    ::= { cfprApMemoryBufferUnitTable 1 }
+
+CfprApMemoryBufferUnitEntry ::= SEQUENCE {
+    cfprApMemoryBufferUnitInstanceId                                 CfprApManagedObjectId,
+    cfprApMemoryBufferUnitDn                                         CfprApManagedObjectDn,
+    cfprApMemoryBufferUnitRn                                         SnmpAdminString,
+    cfprApMemoryBufferUnitId                                         CfprApMemoryBufferUnitId,
+    cfprApMemoryBufferUnitLocationDn                                 SnmpAdminString,
+    cfprApMemoryBufferUnitModel                                      SnmpAdminString,
+    cfprApMemoryBufferUnitOperQualifierReason                        SnmpAdminString,
+    cfprApMemoryBufferUnitOperState                                  CfprApEquipmentOperability,
+    cfprApMemoryBufferUnitOperability                                CfprApEquipmentOperability,
+    cfprApMemoryBufferUnitPerf                                       CfprApEquipmentSensorThresholdStatus,
+    cfprApMemoryBufferUnitPower                                      CfprApEquipmentPowerState,
+    cfprApMemoryBufferUnitPresence                                   CfprApEquipmentPresence,
+    cfprApMemoryBufferUnitRevision                                   SnmpAdminString,
+    cfprApMemoryBufferUnitSerial                                     SnmpAdminString,
+    cfprApMemoryBufferUnitThermal                                    CfprApEquipmentSensorThresholdStatus,
+    cfprApMemoryBufferUnitVendor                                     SnmpAdminString,
+    cfprApMemoryBufferUnitVoltage                                    CfprApEquipmentSensorThresholdStatus
+}
+
+cfprApMemoryBufferUnitInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryBufferUnitEntry 1 }
+
+cfprApMemoryBufferUnitDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:dn managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 2 }
+
+cfprApMemoryBufferUnitRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:rn managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 3 }
+
+cfprApMemoryBufferUnitId OBJECT-TYPE
+    SYNTAX       CfprApMemoryBufferUnitId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:id managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 4 }
+
+cfprApMemoryBufferUnitLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:locationDn managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEntry 5 }
+
+cfprApMemoryBufferUnitModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:model managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 6 }
+
+cfprApMemoryBufferUnitOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:operQualifierReason
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 7 }
+
+cfprApMemoryBufferUnitOperState OBJECT-TYPE
+    SYNTAX       CfprApEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:operState managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEntry 8 }
+
+cfprApMemoryBufferUnitOperability OBJECT-TYPE
+    SYNTAX       CfprApEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:operability
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 9 }
+
+cfprApMemoryBufferUnitPerf OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:perf managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 10 }
+
+cfprApMemoryBufferUnitPower OBJECT-TYPE
+    SYNTAX       CfprApEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:power managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 11 }
+
+cfprApMemoryBufferUnitPresence OBJECT-TYPE
+    SYNTAX       CfprApEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:presence managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEntry 12 }
+
+cfprApMemoryBufferUnitRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:revision managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEntry 13 }
+
+cfprApMemoryBufferUnitSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:serial managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 14 }
+
+cfprApMemoryBufferUnitThermal OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:thermal managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEntry 15 }
+
+cfprApMemoryBufferUnitVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:vendor managed object property"
+    ::= { cfprApMemoryBufferUnitEntry 16 }
+
+cfprApMemoryBufferUnitVoltage OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnit:voltage managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEntry 17 }
+
+cfprApMemoryBufferUnitEnvStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryBufferUnitEnvStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats managed object table"
+    ::= { cfprApMemoryObjects 5 }
+
+cfprApMemoryBufferUnitEnvStatsEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryBufferUnitEnvStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryBufferUnitEnvStatsTable table."
+    INDEX { cfprApMemoryBufferUnitEnvStatsInstanceId }
+    ::= { cfprApMemoryBufferUnitEnvStatsTable 1 }
+
+CfprApMemoryBufferUnitEnvStatsEntry ::= SEQUENCE {
+    cfprApMemoryBufferUnitEnvStatsInstanceId                         CfprApManagedObjectId,
+    cfprApMemoryBufferUnitEnvStatsDn                                 CfprApManagedObjectDn,
+    cfprApMemoryBufferUnitEnvStatsRn                                 SnmpAdminString,
+    cfprApMemoryBufferUnitEnvStatsIntervals                          Gauge32,
+    cfprApMemoryBufferUnitEnvStatsSuspect                            TruthValue,
+    cfprApMemoryBufferUnitEnvStatsTemperature                        INTEGER,
+    cfprApMemoryBufferUnitEnvStatsTemperatureAvg                     INTEGER,
+    cfprApMemoryBufferUnitEnvStatsTemperatureMax                     INTEGER,
+    cfprApMemoryBufferUnitEnvStatsTemperatureMin                     INTEGER,
+    cfprApMemoryBufferUnitEnvStatsThresholded                        CfprApMemoryBufferUnitEnvStatsThresholded,
+    cfprApMemoryBufferUnitEnvStatsTimeCollected                      DateAndTime,
+    cfprApMemoryBufferUnitEnvStatsUpdate                             Gauge32
+}
+
+cfprApMemoryBufferUnitEnvStatsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 1 }
+
+cfprApMemoryBufferUnitEnvStatsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:dn managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 2 }
+
+cfprApMemoryBufferUnitEnvStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:rn managed
+        object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 3 }
+
+cfprApMemoryBufferUnitEnvStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:intervals
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 4 }
+
+cfprApMemoryBufferUnitEnvStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:suspect
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 5 }
+
+cfprApMemoryBufferUnitEnvStatsTemperature OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:temperature
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 6 }
+
+cfprApMemoryBufferUnitEnvStatsTemperatureAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:temperatureAvg
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 7 }
+
+cfprApMemoryBufferUnitEnvStatsTemperatureMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:temperatureMax
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 8 }
+
+cfprApMemoryBufferUnitEnvStatsTemperatureMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:temperatureMin
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 9 }
+
+cfprApMemoryBufferUnitEnvStatsThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryBufferUnitEnvStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:thresholded
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 10 }
+
+cfprApMemoryBufferUnitEnvStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:timeCollected
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 11 }
+
+cfprApMemoryBufferUnitEnvStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStats:update
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsEntry 12 }
+
+cfprApMemoryBufferUnitEnvStatsHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryBufferUnitEnvStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist
+        managed object table"
+    ::= { cfprApMemoryObjects 6 }
+
+cfprApMemoryBufferUnitEnvStatsHistEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryBufferUnitEnvStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryBufferUnitEnvStatsHistTable table."
+    INDEX { cfprApMemoryBufferUnitEnvStatsHistInstanceId }
+    ::= { cfprApMemoryBufferUnitEnvStatsHistTable 1 }
+
+CfprApMemoryBufferUnitEnvStatsHistEntry ::= SEQUENCE {
+    cfprApMemoryBufferUnitEnvStatsHistInstanceId                     CfprApManagedObjectId,
+    cfprApMemoryBufferUnitEnvStatsHistDn                             CfprApManagedObjectDn,
+    cfprApMemoryBufferUnitEnvStatsHistRn                             SnmpAdminString,
+    cfprApMemoryBufferUnitEnvStatsHistId                             Unsigned64,
+    cfprApMemoryBufferUnitEnvStatsHistMostRecent                     TruthValue,
+    cfprApMemoryBufferUnitEnvStatsHistSuspect                        TruthValue,
+    cfprApMemoryBufferUnitEnvStatsHistTemperature                    INTEGER,
+    cfprApMemoryBufferUnitEnvStatsHistTemperatureAvg                 INTEGER,
+    cfprApMemoryBufferUnitEnvStatsHistTemperatureMax                 INTEGER,
+    cfprApMemoryBufferUnitEnvStatsHistTemperatureMin                 INTEGER,
+    cfprApMemoryBufferUnitEnvStatsHistThresholded                    CfprApMemoryBufferUnitEnvStatsHistThresholded,
+    cfprApMemoryBufferUnitEnvStatsHistTimeCollected                  DateAndTime
+}
+
+cfprApMemoryBufferUnitEnvStatsHistInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 1 }
+
+cfprApMemoryBufferUnitEnvStatsHistDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:dn
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 2 }
+
+cfprApMemoryBufferUnitEnvStatsHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:rn
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 3 }
+
+cfprApMemoryBufferUnitEnvStatsHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:id
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 4 }
+
+cfprApMemoryBufferUnitEnvStatsHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:mostRecent
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 5 }
+
+cfprApMemoryBufferUnitEnvStatsHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:suspect
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 6 }
+
+cfprApMemoryBufferUnitEnvStatsHistTemperature OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:temperature
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 7 }
+
+cfprApMemoryBufferUnitEnvStatsHistTemperatureAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:temperatureAvg
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 8 }
+
+cfprApMemoryBufferUnitEnvStatsHistTemperatureMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:temperatureMax
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 9 }
+
+cfprApMemoryBufferUnitEnvStatsHistTemperatureMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:temperatureMin
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 10 }
+
+cfprApMemoryBufferUnitEnvStatsHistThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryBufferUnitEnvStatsHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:thresholded
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 11 }
+
+cfprApMemoryBufferUnitEnvStatsHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:BufferUnitEnvStatsHist:timeCollected
+        managed object property"
+    ::= { cfprApMemoryBufferUnitEnvStatsHistEntry 12 }
+
+cfprApMemoryErrorStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryErrorStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats managed object table"
+    ::= { cfprApMemoryObjects 7 }
+
+cfprApMemoryErrorStatsEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryErrorStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryErrorStatsTable table."
+    INDEX { cfprApMemoryErrorStatsInstanceId }
+    ::= { cfprApMemoryErrorStatsTable 1 }
+
+CfprApMemoryErrorStatsEntry ::= SEQUENCE {
+    cfprApMemoryErrorStatsInstanceId                                 CfprApManagedObjectId,
+    cfprApMemoryErrorStatsDn                                         CfprApManagedObjectDn,
+    cfprApMemoryErrorStatsRn                                         SnmpAdminString,
+    cfprApMemoryErrorStatsAddressParityErrors                        Counter32,
+    cfprApMemoryErrorStatsAddressParityErrors15Min                   Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors15MinH                  Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors1Day                    Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors1DayH                   Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors1Hour                   Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors1HourH                  Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors1Week                   Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors1WeekH                  Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors2Weeks                  Gauge32,
+    cfprApMemoryErrorStatsAddressParityErrors2WeeksH                 Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors                          Counter32,
+    cfprApMemoryErrorStatsEccMultibitErrors15Min                     Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors15MinH                    Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors1Day                      Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors1DayH                     Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors1Hour                     Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors1HourH                    Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors1Week                     Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors1WeekH                    Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors2Weeks                    Gauge32,
+    cfprApMemoryErrorStatsEccMultibitErrors2WeeksH                   Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors                         Counter32,
+    cfprApMemoryErrorStatsEccSinglebitErrors15Min                    Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors15MinH                   Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors1Day                     Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors1DayH                    Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors1Hour                    Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors1HourH                   Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors1Week                    Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors1WeekH                   Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors2Weeks                   Gauge32,
+    cfprApMemoryErrorStatsEccSinglebitErrors2WeeksH                  Gauge32,
+    cfprApMemoryErrorStatsIntervals                                  Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors                             Counter32,
+    cfprApMemoryErrorStatsMismatchErrors15Min                        Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors15MinH                       Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors1Day                         Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors1DayH                        Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors1Hour                        Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors1HourH                       Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors1Week                        Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors1WeekH                       Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors2Weeks                       Gauge32,
+    cfprApMemoryErrorStatsMismatchErrors2WeeksH                      Gauge32,
+    cfprApMemoryErrorStatsSuspect                                    TruthValue,
+    cfprApMemoryErrorStatsThresholded                                CfprApMemoryErrorStatsThresholded,
+    cfprApMemoryErrorStatsTimeCollected                              DateAndTime,
+    cfprApMemoryErrorStatsUpdate                                     Gauge32
+}
+
+cfprApMemoryErrorStatsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryErrorStatsEntry 1 }
+
+cfprApMemoryErrorStatsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:dn managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 2 }
+
+cfprApMemoryErrorStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:rn managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 3 }
+
+cfprApMemoryErrorStatsAddressParityErrors OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 4 }
+
+cfprApMemoryErrorStatsAddressParityErrors15Min OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors15Min
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 5 }
+
+cfprApMemoryErrorStatsAddressParityErrors15MinH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors15MinH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 6 }
+
+cfprApMemoryErrorStatsAddressParityErrors1Day OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors1Day
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 7 }
+
+cfprApMemoryErrorStatsAddressParityErrors1DayH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors1DayH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 8 }
+
+cfprApMemoryErrorStatsAddressParityErrors1Hour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors1Hour
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 9 }
+
+cfprApMemoryErrorStatsAddressParityErrors1HourH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors1HourH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 10 }
+
+cfprApMemoryErrorStatsAddressParityErrors1Week OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors1Week
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 11 }
+
+cfprApMemoryErrorStatsAddressParityErrors1WeekH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors1WeekH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 12 }
+
+cfprApMemoryErrorStatsAddressParityErrors2Weeks OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors2Weeks
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 13 }
+
+cfprApMemoryErrorStatsAddressParityErrors2WeeksH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:addressParityErrors2WeeksH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 14 }
+
+cfprApMemoryErrorStatsEccMultibitErrors OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 15 }
+
+cfprApMemoryErrorStatsEccMultibitErrors15Min OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors15Min
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 16 }
+
+cfprApMemoryErrorStatsEccMultibitErrors15MinH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors15MinH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 17 }
+
+cfprApMemoryErrorStatsEccMultibitErrors1Day OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors1Day
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 18 }
+
+cfprApMemoryErrorStatsEccMultibitErrors1DayH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors1DayH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 19 }
+
+cfprApMemoryErrorStatsEccMultibitErrors1Hour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors1Hour
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 20 }
+
+cfprApMemoryErrorStatsEccMultibitErrors1HourH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors1HourH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 21 }
+
+cfprApMemoryErrorStatsEccMultibitErrors1Week OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors1Week
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 22 }
+
+cfprApMemoryErrorStatsEccMultibitErrors1WeekH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors1WeekH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 23 }
+
+cfprApMemoryErrorStatsEccMultibitErrors2Weeks OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors2Weeks
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 24 }
+
+cfprApMemoryErrorStatsEccMultibitErrors2WeeksH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccMultibitErrors2WeeksH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 25 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 26 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors15Min OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors15Min
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 27 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors15MinH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors15MinH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 28 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors1Day OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors1Day
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 29 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors1DayH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors1DayH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 30 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors1Hour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors1Hour
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 31 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors1HourH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors1HourH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 32 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors1Week OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors1Week
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 33 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors1WeekH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors1WeekH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 34 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors2Weeks OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors2Weeks
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 35 }
+
+cfprApMemoryErrorStatsEccSinglebitErrors2WeeksH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:eccSinglebitErrors2WeeksH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 36 }
+
+cfprApMemoryErrorStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:intervals managed
+        object property"
+    ::= { cfprApMemoryErrorStatsEntry 37 }
+
+cfprApMemoryErrorStatsMismatchErrors OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 38 }
+
+cfprApMemoryErrorStatsMismatchErrors15Min OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors15Min
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 39 }
+
+cfprApMemoryErrorStatsMismatchErrors15MinH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors15MinH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 40 }
+
+cfprApMemoryErrorStatsMismatchErrors1Day OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors1Day
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 41 }
+
+cfprApMemoryErrorStatsMismatchErrors1DayH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors1DayH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 42 }
+
+cfprApMemoryErrorStatsMismatchErrors1Hour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors1Hour
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 43 }
+
+cfprApMemoryErrorStatsMismatchErrors1HourH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors1HourH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 44 }
+
+cfprApMemoryErrorStatsMismatchErrors1Week OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors1Week
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 45 }
+
+cfprApMemoryErrorStatsMismatchErrors1WeekH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors1WeekH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 46 }
+
+cfprApMemoryErrorStatsMismatchErrors2Weeks OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors2Weeks
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 47 }
+
+cfprApMemoryErrorStatsMismatchErrors2WeeksH OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:mismatchErrors2WeeksH
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 48 }
+
+cfprApMemoryErrorStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:suspect managed
+        object property"
+    ::= { cfprApMemoryErrorStatsEntry 49 }
+
+cfprApMemoryErrorStatsThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryErrorStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:thresholded
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 50 }
+
+cfprApMemoryErrorStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:timeCollected
+        managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 51 }
+
+cfprApMemoryErrorStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:ErrorStats:update managed object property"
+    ::= { cfprApMemoryErrorStatsEntry 52 }
+
+cfprApMemoryQualTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryQualEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual managed object table"
+    ::= { cfprApMemoryObjects 8 }
+
+cfprApMemoryQualEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryQualEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryQualTable table."
+    INDEX { cfprApMemoryQualInstanceId }
+    ::= { cfprApMemoryQualTable 1 }
+
+CfprApMemoryQualEntry ::= SEQUENCE {
+    cfprApMemoryQualInstanceId                                       CfprApManagedObjectId,
+    cfprApMemoryQualDn                                               CfprApManagedObjectDn,
+    cfprApMemoryQualRn                                               SnmpAdminString,
+    cfprApMemoryQualClock                                            Gauge32,
+    cfprApMemoryQualLatency                                          INTEGER,
+    cfprApMemoryQualMaxCap                                           Gauge32,
+    cfprApMemoryQualMinCap                                           Gauge32,
+    cfprApMemoryQualSpeed                                            Gauge32,
+    cfprApMemoryQualUnits                                            Gauge32,
+    cfprApMemoryQualWidth                                            Gauge32
+}
+
+cfprApMemoryQualInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryQualEntry 1 }
+
+cfprApMemoryQualDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:dn managed object property"
+    ::= { cfprApMemoryQualEntry 2 }
+
+cfprApMemoryQualRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:rn managed object property"
+    ::= { cfprApMemoryQualEntry 3 }
+
+cfprApMemoryQualClock OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:clock managed object property"
+    ::= { cfprApMemoryQualEntry 4 }
+
+cfprApMemoryQualLatency OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:latency managed object property"
+    ::= { cfprApMemoryQualEntry 5 }
+
+cfprApMemoryQualMaxCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:maxCap managed object property"
+    ::= { cfprApMemoryQualEntry 6 }
+
+cfprApMemoryQualMinCap OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:minCap managed object property"
+    ::= { cfprApMemoryQualEntry 7 }
+
+cfprApMemoryQualSpeed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:speed managed object property"
+    ::= { cfprApMemoryQualEntry 8 }
+
+cfprApMemoryQualUnits OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:units managed object property"
+    ::= { cfprApMemoryQualEntry 9 }
+
+cfprApMemoryQualWidth OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Qual:width managed object property"
+    ::= { cfprApMemoryQualEntry 10 }
+
+cfprApMemoryRuntimeTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryRuntimeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime managed object table"
+    ::= { cfprApMemoryObjects 9 }
+
+cfprApMemoryRuntimeEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryRuntimeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryRuntimeTable table."
+    INDEX { cfprApMemoryRuntimeInstanceId }
+    ::= { cfprApMemoryRuntimeTable 1 }
+
+CfprApMemoryRuntimeEntry ::= SEQUENCE {
+    cfprApMemoryRuntimeInstanceId                                    CfprApManagedObjectId,
+    cfprApMemoryRuntimeDn                                            CfprApManagedObjectDn,
+    cfprApMemoryRuntimeRn                                            SnmpAdminString,
+    cfprApMemoryRuntimeAvailable                                     Gauge32,
+    cfprApMemoryRuntimeAvailableAvg                                  Gauge32,
+    cfprApMemoryRuntimeAvailableMax                                  Gauge32,
+    cfprApMemoryRuntimeAvailableMin                                  Gauge32,
+    cfprApMemoryRuntimeCached                                        Gauge32,
+    cfprApMemoryRuntimeCachedAvg                                     Gauge32,
+    cfprApMemoryRuntimeCachedMax                                     Gauge32,
+    cfprApMemoryRuntimeCachedMin                                     Gauge32,
+    cfprApMemoryRuntimeIntervals                                     Gauge32,
+    cfprApMemoryRuntimeSuspect                                       TruthValue,
+    cfprApMemoryRuntimeThresholded                                   CfprApMemoryRuntimeThresholded,
+    cfprApMemoryRuntimeTimeCollected                                 DateAndTime,
+    cfprApMemoryRuntimeTotal                                         Gauge32,
+    cfprApMemoryRuntimeTotalAvg                                      Gauge32,
+    cfprApMemoryRuntimeTotalMax                                      Gauge32,
+    cfprApMemoryRuntimeTotalMin                                      Gauge32,
+    cfprApMemoryRuntimeType                                          CfprApMemoryRuntimeType,
+    cfprApMemoryRuntimeUpdate                                        Gauge32
+}
+
+cfprApMemoryRuntimeInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryRuntimeEntry 1 }
+
+cfprApMemoryRuntimeDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:dn managed object property"
+    ::= { cfprApMemoryRuntimeEntry 2 }
+
+cfprApMemoryRuntimeRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:rn managed object property"
+    ::= { cfprApMemoryRuntimeEntry 3 }
+
+cfprApMemoryRuntimeAvailable OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:available managed object property"
+    ::= { cfprApMemoryRuntimeEntry 4 }
+
+cfprApMemoryRuntimeAvailableAvg OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:availableAvg managed
+        object property"
+    ::= { cfprApMemoryRuntimeEntry 5 }
+
+cfprApMemoryRuntimeAvailableMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:availableMax managed
+        object property"
+    ::= { cfprApMemoryRuntimeEntry 6 }
+
+cfprApMemoryRuntimeAvailableMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:availableMin managed
+        object property"
+    ::= { cfprApMemoryRuntimeEntry 7 }
+
+cfprApMemoryRuntimeCached OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:cached managed object property"
+    ::= { cfprApMemoryRuntimeEntry 8 }
+
+cfprApMemoryRuntimeCachedAvg OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:cachedAvg managed object property"
+    ::= { cfprApMemoryRuntimeEntry 9 }
+
+cfprApMemoryRuntimeCachedMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:cachedMax managed object property"
+    ::= { cfprApMemoryRuntimeEntry 10 }
+
+cfprApMemoryRuntimeCachedMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:cachedMin managed object property"
+    ::= { cfprApMemoryRuntimeEntry 11 }
+
+cfprApMemoryRuntimeIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:intervals managed object property"
+    ::= { cfprApMemoryRuntimeEntry 12 }
+
+cfprApMemoryRuntimeSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:suspect managed object property"
+    ::= { cfprApMemoryRuntimeEntry 13 }
+
+cfprApMemoryRuntimeThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryRuntimeThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:thresholded managed
+        object property"
+    ::= { cfprApMemoryRuntimeEntry 14 }
+
+cfprApMemoryRuntimeTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:timeCollected managed
+        object property"
+    ::= { cfprApMemoryRuntimeEntry 15 }
+
+cfprApMemoryRuntimeTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:total managed object property"
+    ::= { cfprApMemoryRuntimeEntry 16 }
+
+cfprApMemoryRuntimeTotalAvg OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:totalAvg managed object property"
+    ::= { cfprApMemoryRuntimeEntry 17 }
+
+cfprApMemoryRuntimeTotalMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:totalMax managed object property"
+    ::= { cfprApMemoryRuntimeEntry 18 }
+
+cfprApMemoryRuntimeTotalMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:totalMin managed object property"
+    ::= { cfprApMemoryRuntimeEntry 19 }
+
+cfprApMemoryRuntimeType OBJECT-TYPE
+    SYNTAX       CfprApMemoryRuntimeType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:type managed object property"
+    ::= { cfprApMemoryRuntimeEntry 20 }
+
+cfprApMemoryRuntimeUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Runtime:update managed object property"
+    ::= { cfprApMemoryRuntimeEntry 21 }
+
+cfprApMemoryRuntimeHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryRuntimeHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist managed object table"
+    ::= { cfprApMemoryObjects 10 }
+
+cfprApMemoryRuntimeHistEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryRuntimeHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryRuntimeHistTable table."
+    INDEX { cfprApMemoryRuntimeHistInstanceId }
+    ::= { cfprApMemoryRuntimeHistTable 1 }
+
+CfprApMemoryRuntimeHistEntry ::= SEQUENCE {
+    cfprApMemoryRuntimeHistInstanceId                                CfprApManagedObjectId,
+    cfprApMemoryRuntimeHistDn                                        CfprApManagedObjectDn,
+    cfprApMemoryRuntimeHistRn                                        SnmpAdminString,
+    cfprApMemoryRuntimeHistAvailable                                 Gauge32,
+    cfprApMemoryRuntimeHistAvailableAvg                              Gauge32,
+    cfprApMemoryRuntimeHistAvailableMax                              Gauge32,
+    cfprApMemoryRuntimeHistAvailableMin                              Gauge32,
+    cfprApMemoryRuntimeHistCached                                    Gauge32,
+    cfprApMemoryRuntimeHistCachedAvg                                 Gauge32,
+    cfprApMemoryRuntimeHistCachedMax                                 Gauge32,
+    cfprApMemoryRuntimeHistCachedMin                                 Gauge32,
+    cfprApMemoryRuntimeHistId                                        Unsigned64,
+    cfprApMemoryRuntimeHistMostRecent                                TruthValue,
+    cfprApMemoryRuntimeHistSuspect                                   TruthValue,
+    cfprApMemoryRuntimeHistThresholded                               CfprApMemoryRuntimeHistThresholded,
+    cfprApMemoryRuntimeHistTimeCollected                             DateAndTime,
+    cfprApMemoryRuntimeHistTotal                                     Gauge32,
+    cfprApMemoryRuntimeHistTotalAvg                                  Gauge32,
+    cfprApMemoryRuntimeHistTotalMax                                  Gauge32,
+    cfprApMemoryRuntimeHistTotalMin                                  Gauge32
+}
+
+cfprApMemoryRuntimeHistInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryRuntimeHistEntry 1 }
+
+cfprApMemoryRuntimeHistDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:dn managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 2 }
+
+cfprApMemoryRuntimeHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:rn managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 3 }
+
+cfprApMemoryRuntimeHistAvailable OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:available managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 4 }
+
+cfprApMemoryRuntimeHistAvailableAvg OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:availableAvg
+        managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 5 }
+
+cfprApMemoryRuntimeHistAvailableMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:availableMax
+        managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 6 }
+
+cfprApMemoryRuntimeHistAvailableMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:availableMin
+        managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 7 }
+
+cfprApMemoryRuntimeHistCached OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:cached managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 8 }
+
+cfprApMemoryRuntimeHistCachedAvg OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:cachedAvg managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 9 }
+
+cfprApMemoryRuntimeHistCachedMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:cachedMax managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 10 }
+
+cfprApMemoryRuntimeHistCachedMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:cachedMin managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 11 }
+
+cfprApMemoryRuntimeHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:id managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 12 }
+
+cfprApMemoryRuntimeHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:mostRecent
+        managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 13 }
+
+cfprApMemoryRuntimeHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:suspect managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 14 }
+
+cfprApMemoryRuntimeHistThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryRuntimeHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:thresholded
+        managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 15 }
+
+cfprApMemoryRuntimeHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:timeCollected
+        managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 16 }
+
+cfprApMemoryRuntimeHistTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:total managed object property"
+    ::= { cfprApMemoryRuntimeHistEntry 17 }
+
+cfprApMemoryRuntimeHistTotalAvg OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:totalAvg managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 18 }
+
+cfprApMemoryRuntimeHistTotalMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:totalMax managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 19 }
+
+cfprApMemoryRuntimeHistTotalMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:RuntimeHist:totalMin managed
+        object property"
+    ::= { cfprApMemoryRuntimeHistEntry 20 }
+
+cfprApMemoryUnitTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit managed object table"
+    ::= { cfprApMemoryObjects 11 }
+
+cfprApMemoryUnitEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryUnitTable table."
+    INDEX { cfprApMemoryUnitInstanceId }
+    ::= { cfprApMemoryUnitTable 1 }
+
+CfprApMemoryUnitEntry ::= SEQUENCE {
+    cfprApMemoryUnitInstanceId                                       CfprApManagedObjectId,
+    cfprApMemoryUnitDn                                               CfprApManagedObjectDn,
+    cfprApMemoryUnitRn                                               SnmpAdminString,
+    cfprApMemoryUnitAdminState                                       CfprApMemoryAdminState,
+    cfprApMemoryUnitArray                                            Gauge32,
+    cfprApMemoryUnitBank                                             Gauge32,
+    cfprApMemoryUnitCapacity                                         Gauge32,
+    cfprApMemoryUnitClock                                            Gauge32,
+    cfprApMemoryUnitFormFactor                                       CfprApMemoryFormFactor,
+    cfprApMemoryUnitId                                               CfprApMemoryUnitId,
+    cfprApMemoryUnitLatency                                          INTEGER,
+    cfprApMemoryUnitLocation                                         SnmpAdminString,
+    cfprApMemoryUnitLocationDn                                       SnmpAdminString,
+    cfprApMemoryUnitModel                                            SnmpAdminString,
+    cfprApMemoryUnitOperQualifier                                    CfprApMemoryIssues,
+    cfprApMemoryUnitOperQualifierReason                              SnmpAdminString,
+    cfprApMemoryUnitOperState                                        CfprApEquipmentOperability,
+    cfprApMemoryUnitOperability                                      CfprApMemoryUnitOperability,
+    cfprApMemoryUnitPerf                                             CfprApEquipmentSensorThresholdStatus,
+    cfprApMemoryUnitPower                                            CfprApEquipmentPowerState,
+    cfprApMemoryUnitPresence                                         CfprApEquipmentPresence,
+    cfprApMemoryUnitRevision                                         SnmpAdminString,
+    cfprApMemoryUnitSerial                                           SnmpAdminString,
+    cfprApMemoryUnitSet                                              Gauge32,
+    cfprApMemoryUnitSpeed                                            Gauge32,
+    cfprApMemoryUnitThermal                                          CfprApEquipmentSensorThresholdStatus,
+    cfprApMemoryUnitType                                             CfprApMemoryType,
+    cfprApMemoryUnitVendor                                           SnmpAdminString,
+    cfprApMemoryUnitVisibility                                       CfprApMemoryVisibility,
+    cfprApMemoryUnitVoltage                                          CfprApEquipmentSensorThresholdStatus,
+    cfprApMemoryUnitWidth                                            Gauge32
+}
+
+cfprApMemoryUnitInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryUnitEntry 1 }
+
+cfprApMemoryUnitDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:dn managed object property"
+    ::= { cfprApMemoryUnitEntry 2 }
+
+cfprApMemoryUnitRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:rn managed object property"
+    ::= { cfprApMemoryUnitEntry 3 }
+
+cfprApMemoryUnitAdminState OBJECT-TYPE
+    SYNTAX       CfprApMemoryAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:adminState managed object property"
+    ::= { cfprApMemoryUnitEntry 4 }
+
+cfprApMemoryUnitArray OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:array managed object property"
+    ::= { cfprApMemoryUnitEntry 5 }
+
+cfprApMemoryUnitBank OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:bank managed object property"
+    ::= { cfprApMemoryUnitEntry 6 }
+
+cfprApMemoryUnitCapacity OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:capacity managed object property"
+    ::= { cfprApMemoryUnitEntry 7 }
+
+cfprApMemoryUnitClock OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:clock managed object property"
+    ::= { cfprApMemoryUnitEntry 8 }
+
+cfprApMemoryUnitFormFactor OBJECT-TYPE
+    SYNTAX       CfprApMemoryFormFactor
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:formFactor managed object property"
+    ::= { cfprApMemoryUnitEntry 9 }
+
+cfprApMemoryUnitId OBJECT-TYPE
+    SYNTAX       CfprApMemoryUnitId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:id managed object property"
+    ::= { cfprApMemoryUnitEntry 10 }
+
+cfprApMemoryUnitLatency OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:latency managed object property"
+    ::= { cfprApMemoryUnitEntry 11 }
+
+cfprApMemoryUnitLocation OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:location managed object property"
+    ::= { cfprApMemoryUnitEntry 12 }
+
+cfprApMemoryUnitLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:locationDn managed object property"
+    ::= { cfprApMemoryUnitEntry 13 }
+
+cfprApMemoryUnitModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:model managed object property"
+    ::= { cfprApMemoryUnitEntry 14 }
+
+cfprApMemoryUnitOperQualifier OBJECT-TYPE
+    SYNTAX       CfprApMemoryIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:operQualifier managed
+        object property"
+    ::= { cfprApMemoryUnitEntry 15 }
+
+cfprApMemoryUnitOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:operQualifierReason
+        managed object property"
+    ::= { cfprApMemoryUnitEntry 16 }
+
+cfprApMemoryUnitOperState OBJECT-TYPE
+    SYNTAX       CfprApEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:operState managed object property"
+    ::= { cfprApMemoryUnitEntry 17 }
+
+cfprApMemoryUnitOperability OBJECT-TYPE
+    SYNTAX       CfprApMemoryUnitOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:operability managed object property"
+    ::= { cfprApMemoryUnitEntry 18 }
+
+cfprApMemoryUnitPerf OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:perf managed object property"
+    ::= { cfprApMemoryUnitEntry 19 }
+
+cfprApMemoryUnitPower OBJECT-TYPE
+    SYNTAX       CfprApEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:power managed object property"
+    ::= { cfprApMemoryUnitEntry 20 }
+
+cfprApMemoryUnitPresence OBJECT-TYPE
+    SYNTAX       CfprApEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:presence managed object property"
+    ::= { cfprApMemoryUnitEntry 21 }
+
+cfprApMemoryUnitRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:revision managed object property"
+    ::= { cfprApMemoryUnitEntry 22 }
+
+cfprApMemoryUnitSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:serial managed object property"
+    ::= { cfprApMemoryUnitEntry 23 }
+
+cfprApMemoryUnitSet OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:set managed object property"
+    ::= { cfprApMemoryUnitEntry 24 }
+
+cfprApMemoryUnitSpeed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:speed managed object property"
+    ::= { cfprApMemoryUnitEntry 25 }
+
+cfprApMemoryUnitThermal OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:thermal managed object property"
+    ::= { cfprApMemoryUnitEntry 26 }
+
+cfprApMemoryUnitType OBJECT-TYPE
+    SYNTAX       CfprApMemoryType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:type managed object property"
+    ::= { cfprApMemoryUnitEntry 27 }
+
+cfprApMemoryUnitVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:vendor managed object property"
+    ::= { cfprApMemoryUnitEntry 28 }
+
+cfprApMemoryUnitVisibility OBJECT-TYPE
+    SYNTAX       CfprApMemoryVisibility
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:visibility managed object property"
+    ::= { cfprApMemoryUnitEntry 29 }
+
+cfprApMemoryUnitVoltage OBJECT-TYPE
+    SYNTAX       CfprApEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:voltage managed object property"
+    ::= { cfprApMemoryUnitEntry 30 }
+
+cfprApMemoryUnitWidth OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:Unit:width managed object property"
+    ::= { cfprApMemoryUnitEntry 31 }
+
+cfprApMemoryUnitEnvStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryUnitEnvStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats managed object table"
+    ::= { cfprApMemoryObjects 12 }
+
+cfprApMemoryUnitEnvStatsEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryUnitEnvStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryUnitEnvStatsTable table."
+    INDEX { cfprApMemoryUnitEnvStatsInstanceId }
+    ::= { cfprApMemoryUnitEnvStatsTable 1 }
+
+CfprApMemoryUnitEnvStatsEntry ::= SEQUENCE {
+    cfprApMemoryUnitEnvStatsInstanceId                               CfprApManagedObjectId,
+    cfprApMemoryUnitEnvStatsDn                                       CfprApManagedObjectDn,
+    cfprApMemoryUnitEnvStatsRn                                       SnmpAdminString,
+    cfprApMemoryUnitEnvStatsIntervals                                Gauge32,
+    cfprApMemoryUnitEnvStatsSuspect                                  TruthValue,
+    cfprApMemoryUnitEnvStatsTemperature                              INTEGER,
+    cfprApMemoryUnitEnvStatsTemperatureAvg                           INTEGER,
+    cfprApMemoryUnitEnvStatsTemperatureMax                           INTEGER,
+    cfprApMemoryUnitEnvStatsTemperatureMin                           INTEGER,
+    cfprApMemoryUnitEnvStatsThresholded                              CfprApMemoryUnitEnvStatsThresholded,
+    cfprApMemoryUnitEnvStatsTimeCollected                            DateAndTime,
+    cfprApMemoryUnitEnvStatsUpdate                                   Gauge32
+}
+
+cfprApMemoryUnitEnvStatsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryUnitEnvStatsEntry 1 }
+
+cfprApMemoryUnitEnvStatsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:dn managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 2 }
+
+cfprApMemoryUnitEnvStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:rn managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 3 }
+
+cfprApMemoryUnitEnvStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:intervals
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 4 }
+
+cfprApMemoryUnitEnvStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:suspect managed
+        object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 5 }
+
+cfprApMemoryUnitEnvStatsTemperature OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:temperature
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 6 }
+
+cfprApMemoryUnitEnvStatsTemperatureAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:temperatureAvg
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 7 }
+
+cfprApMemoryUnitEnvStatsTemperatureMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:temperatureMax
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 8 }
+
+cfprApMemoryUnitEnvStatsTemperatureMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:temperatureMin
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 9 }
+
+cfprApMemoryUnitEnvStatsThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryUnitEnvStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:thresholded
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 10 }
+
+cfprApMemoryUnitEnvStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:timeCollected
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 11 }
+
+cfprApMemoryUnitEnvStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStats:update managed
+        object property"
+    ::= { cfprApMemoryUnitEnvStatsEntry 12 }
+
+cfprApMemoryUnitEnvStatsHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMemoryUnitEnvStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist managed object table"
+    ::= { cfprApMemoryObjects 13 }
+
+cfprApMemoryUnitEnvStatsHistEntry OBJECT-TYPE
+    SYNTAX           CfprApMemoryUnitEnvStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMemoryUnitEnvStatsHistTable table."
+    INDEX { cfprApMemoryUnitEnvStatsHistInstanceId }
+    ::= { cfprApMemoryUnitEnvStatsHistTable 1 }
+
+CfprApMemoryUnitEnvStatsHistEntry ::= SEQUENCE {
+    cfprApMemoryUnitEnvStatsHistInstanceId                           CfprApManagedObjectId,
+    cfprApMemoryUnitEnvStatsHistDn                                   CfprApManagedObjectDn,
+    cfprApMemoryUnitEnvStatsHistRn                                   SnmpAdminString,
+    cfprApMemoryUnitEnvStatsHistId                                   Unsigned64,
+    cfprApMemoryUnitEnvStatsHistMostRecent                           TruthValue,
+    cfprApMemoryUnitEnvStatsHistSuspect                              TruthValue,
+    cfprApMemoryUnitEnvStatsHistTemperature                          INTEGER,
+    cfprApMemoryUnitEnvStatsHistTemperatureAvg                       INTEGER,
+    cfprApMemoryUnitEnvStatsHistTemperatureMax                       INTEGER,
+    cfprApMemoryUnitEnvStatsHistTemperatureMin                       INTEGER,
+    cfprApMemoryUnitEnvStatsHistThresholded                          CfprApMemoryUnitEnvStatsHistThresholded,
+    cfprApMemoryUnitEnvStatsHistTimeCollected                        DateAndTime
+}
+
+cfprApMemoryUnitEnvStatsHistInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 1 }
+
+cfprApMemoryUnitEnvStatsHistDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:dn managed
+        object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 2 }
+
+cfprApMemoryUnitEnvStatsHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:rn managed
+        object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 3 }
+
+cfprApMemoryUnitEnvStatsHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:id managed
+        object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 4 }
+
+cfprApMemoryUnitEnvStatsHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:mostRecent
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 5 }
+
+cfprApMemoryUnitEnvStatsHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:suspect
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 6 }
+
+cfprApMemoryUnitEnvStatsHistTemperature OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:temperature
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 7 }
+
+cfprApMemoryUnitEnvStatsHistTemperatureAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:temperatureAvg
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 8 }
+
+cfprApMemoryUnitEnvStatsHistTemperatureMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:temperatureMax
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 9 }
+
+cfprApMemoryUnitEnvStatsHistTemperatureMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:temperatureMin
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 10 }
+
+cfprApMemoryUnitEnvStatsHistThresholded OBJECT-TYPE
+    SYNTAX       CfprApMemoryUnitEnvStatsHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:thresholded
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 11 }
+
+cfprApMemoryUnitEnvStatsHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower memory:UnitEnvStatsHist:timeCollected
+        managed object property"
+    ::= { cfprApMemoryUnitEnvStatsHistEntry 12 }
+
+END

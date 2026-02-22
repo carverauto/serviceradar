@@ -1,0 +1,1556 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-CALLHOME-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- CALLHOME management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-CALLHOME-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprCallhomeAdminState,
+    CfprCallhomeAlertGroup,
+    CfprCallhomeAlertGroups,
+    CfprCallhomeAlertLevel,
+    CfprCallhomeAlertMessageSubtype,
+    CfprCallhomeAlertMessageType,
+    CfprCallhomeAlertThrottlingAdminState,
+    CfprCallhomeAnonymousReportingAdminState,
+    CfprCallhomeCallhomeProtocol,
+    CfprCallhomeEpConfigState,
+    CfprCallhomeEpFsmCurrentFsm,
+    CfprCallhomeEpFsmStageName,
+    CfprCallhomeEpFsmTaskItem,
+    CfprCallhomeFormat,
+    CfprCallhomeHttpProxyEnable,
+    CfprCallhomeLevel,
+    CfprCallhomePolicyAdminState,
+    CfprCallhomeReportingType,
+    CfprCallhomeUrgency,
+    CfprConditionCallHomeCause,
+    CfprConditionRemoteInvRslt,
+    CfprFsmCompletion,
+    CfprFsmFlags,
+    CfprFsmFsmStageStatus,
+    CfprPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprCallhomeObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        CALLHOME management information model package"
+    ::= { ciscoFirepowerMIBObjects 7 }
+
+cfprCallhomeAnonymousReportingTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeAnonymousReportingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:AnonymousReporting managed object table"
+    ::= { cfprCallhomeObjects 1 }
+
+cfprCallhomeAnonymousReportingEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeAnonymousReportingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeAnonymousReportingTable table."
+    INDEX { cfprCallhomeAnonymousReportingInstanceId }
+    ::= { cfprCallhomeAnonymousReportingTable 1 }
+
+CfprCallhomeAnonymousReportingEntry ::= SEQUENCE {
+    cfprCallhomeAnonymousReportingInstanceId                         CfprManagedObjectId,
+    cfprCallhomeAnonymousReportingDn                                 CfprManagedObjectDn,
+    cfprCallhomeAnonymousReportingRn                                 SnmpAdminString,
+    cfprCallhomeAnonymousReportingAdminState                         CfprCallhomeAnonymousReportingAdminState,
+    cfprCallhomeAnonymousReportingCount                              Gauge32,
+    cfprCallhomeAnonymousReportingSleepInterval                      Gauge32,
+    cfprCallhomeAnonymousReportingUserAcknowledged                   TruthValue
+}
+
+cfprCallhomeAnonymousReportingInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeAnonymousReportingEntry 1 }
+
+cfprCallhomeAnonymousReportingDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:AnonymousReporting:dn
+        managed object property"
+    ::= { cfprCallhomeAnonymousReportingEntry 2 }
+
+cfprCallhomeAnonymousReportingRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:AnonymousReporting:rn
+        managed object property"
+    ::= { cfprCallhomeAnonymousReportingEntry 3 }
+
+cfprCallhomeAnonymousReportingAdminState OBJECT-TYPE
+    SYNTAX       CfprCallhomeAnonymousReportingAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:AnonymousReporting:adminState
+        managed object property"
+    ::= { cfprCallhomeAnonymousReportingEntry 4 }
+
+cfprCallhomeAnonymousReportingCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:AnonymousReporting:count
+        managed object property"
+    ::= { cfprCallhomeAnonymousReportingEntry 5 }
+
+cfprCallhomeAnonymousReportingSleepInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:AnonymousReporting:sleepInterval
+        managed object property"
+    ::= { cfprCallhomeAnonymousReportingEntry 6 }
+
+cfprCallhomeAnonymousReportingUserAcknowledged OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:AnonymousReporting:userAcknowledged
+        managed object property"
+    ::= { cfprCallhomeAnonymousReportingEntry 7 }
+
+cfprCallhomeDestTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeDestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:Dest managed object table"
+    ::= { cfprCallhomeObjects 2 }
+
+cfprCallhomeDestEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeDestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeDestTable table."
+    INDEX { cfprCallhomeDestInstanceId }
+    ::= { cfprCallhomeDestTable 1 }
+
+CfprCallhomeDestEntry ::= SEQUENCE {
+    cfprCallhomeDestInstanceId                                       CfprManagedObjectId,
+    cfprCallhomeDestDn                                               CfprManagedObjectDn,
+    cfprCallhomeDestRn                                               SnmpAdminString,
+    cfprCallhomeDestAddress                                          SnmpAdminString,
+    cfprCallhomeDestName                                             SnmpAdminString,
+    cfprCallhomeDestProtocol                                         CfprCallhomeCallhomeProtocol
+}
+
+cfprCallhomeDestInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeDestEntry 1 }
+
+cfprCallhomeDestDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Dest:dn managed object property"
+    ::= { cfprCallhomeDestEntry 2 }
+
+cfprCallhomeDestRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Dest:rn managed object property"
+    ::= { cfprCallhomeDestEntry 3 }
+
+cfprCallhomeDestAddress OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Dest:address managed object property"
+    ::= { cfprCallhomeDestEntry 4 }
+
+cfprCallhomeDestName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Dest:name managed object property"
+    ::= { cfprCallhomeDestEntry 5 }
+
+cfprCallhomeDestProtocol OBJECT-TYPE
+    SYNTAX       CfprCallhomeCallhomeProtocol
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Dest:protocol managed object property"
+    ::= { cfprCallhomeDestEntry 6 }
+
+cfprCallhomeEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep managed object table"
+    ::= { cfprCallhomeObjects 3 }
+
+cfprCallhomeEpEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeEpTable table."
+    INDEX { cfprCallhomeEpInstanceId }
+    ::= { cfprCallhomeEpTable 1 }
+
+CfprCallhomeEpEntry ::= SEQUENCE {
+    cfprCallhomeEpInstanceId                                         CfprManagedObjectId,
+    cfprCallhomeEpDn                                                 CfprManagedObjectDn,
+    cfprCallhomeEpRn                                                 SnmpAdminString,
+    cfprCallhomeEpAdminState                                         CfprCallhomeAdminState,
+    cfprCallhomeEpAlertThrottlingAdminState                          CfprCallhomeAlertThrottlingAdminState,
+    cfprCallhomeEpConfigState                                        CfprCallhomeEpConfigState,
+    cfprCallhomeEpDescr                                              SnmpAdminString,
+    cfprCallhomeEpFsmDescr                                           SnmpAdminString,
+    cfprCallhomeEpFsmPrev                                            SnmpAdminString,
+    cfprCallhomeEpFsmProgr                                           Gauge32,
+    cfprCallhomeEpFsmRmtInvErrCode                                   Gauge32,
+    cfprCallhomeEpFsmRmtInvErrDescr                                  SnmpAdminString,
+    cfprCallhomeEpFsmRmtInvRslt                                      CfprConditionRemoteInvRslt,
+    cfprCallhomeEpFsmStageDescr                                      SnmpAdminString,
+    cfprCallhomeEpFsmStamp                                           DateAndTime,
+    cfprCallhomeEpFsmStatus                                          SnmpAdminString,
+    cfprCallhomeEpFsmTry                                             Gauge32,
+    cfprCallhomeEpIntId                                              SnmpAdminString,
+    cfprCallhomeEpName                                               SnmpAdminString,
+    cfprCallhomeEpPolicyLevel                                        Gauge32,
+    cfprCallhomeEpPolicyOwner                                        CfprPolicyPolicyOwner
+}
+
+cfprCallhomeEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeEpEntry 1 }
+
+cfprCallhomeEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:dn managed object property"
+    ::= { cfprCallhomeEpEntry 2 }
+
+cfprCallhomeEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:rn managed object property"
+    ::= { cfprCallhomeEpEntry 3 }
+
+cfprCallhomeEpAdminState OBJECT-TYPE
+    SYNTAX       CfprCallhomeAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:adminState managed object property"
+    ::= { cfprCallhomeEpEntry 4 }
+
+cfprCallhomeEpAlertThrottlingAdminState OBJECT-TYPE
+    SYNTAX       CfprCallhomeAlertThrottlingAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:alertThrottlingAdminState
+        managed object property"
+    ::= { cfprCallhomeEpEntry 5 }
+
+cfprCallhomeEpConfigState OBJECT-TYPE
+    SYNTAX       CfprCallhomeEpConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:configState managed object property"
+    ::= { cfprCallhomeEpEntry 6 }
+
+cfprCallhomeEpDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:descr managed object property"
+    ::= { cfprCallhomeEpEntry 7 }
+
+cfprCallhomeEpFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmDescr managed object property"
+    ::= { cfprCallhomeEpEntry 8 }
+
+cfprCallhomeEpFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmPrev managed object property"
+    ::= { cfprCallhomeEpEntry 9 }
+
+cfprCallhomeEpFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmProgr managed object property"
+    ::= { cfprCallhomeEpEntry 10 }
+
+cfprCallhomeEpFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmRmtInvErrCode managed
+        object property"
+    ::= { cfprCallhomeEpEntry 11 }
+
+cfprCallhomeEpFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprCallhomeEpEntry 12 }
+
+cfprCallhomeEpFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmRmtInvRslt managed
+        object property"
+    ::= { cfprCallhomeEpEntry 13 }
+
+cfprCallhomeEpFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmStageDescr managed
+        object property"
+    ::= { cfprCallhomeEpEntry 14 }
+
+cfprCallhomeEpFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmStamp managed object property"
+    ::= { cfprCallhomeEpEntry 15 }
+
+cfprCallhomeEpFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmStatus managed object property"
+    ::= { cfprCallhomeEpEntry 16 }
+
+cfprCallhomeEpFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:fsmTry managed object property"
+    ::= { cfprCallhomeEpEntry 17 }
+
+cfprCallhomeEpIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:intId managed object property"
+    ::= { cfprCallhomeEpEntry 18 }
+
+cfprCallhomeEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:name managed object property"
+    ::= { cfprCallhomeEpEntry 19 }
+
+cfprCallhomeEpPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:policyLevel managed object property"
+    ::= { cfprCallhomeEpEntry 20 }
+
+cfprCallhomeEpPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Ep:policyOwner managed object property"
+    ::= { cfprCallhomeEpEntry 21 }
+
+cfprCallhomeEpFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm managed object table"
+    ::= { cfprCallhomeObjects 4 }
+
+cfprCallhomeEpFsmEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeEpFsmTable table."
+    INDEX { cfprCallhomeEpFsmInstanceId }
+    ::= { cfprCallhomeEpFsmTable 1 }
+
+CfprCallhomeEpFsmEntry ::= SEQUENCE {
+    cfprCallhomeEpFsmInstanceId                                      CfprManagedObjectId,
+    cfprCallhomeEpFsmDn                                              CfprManagedObjectDn,
+    cfprCallhomeEpFsmRn                                              SnmpAdminString,
+    cfprCallhomeEpFsmCompletionTime                                  DateAndTime,
+    cfprCallhomeEpFsmCurrentFsm                                      CfprCallhomeEpFsmCurrentFsm,
+    cfprCallhomeEpFsmDescrData                                       SnmpAdminString,
+    cfprCallhomeEpFsmFsmStatus                                       CfprFsmFsmStageStatus,
+    cfprCallhomeEpFsmProgress                                        Gauge32,
+    cfprCallhomeEpFsmRmtErrCode                                      Gauge32,
+    cfprCallhomeEpFsmRmtErrDescr                                     SnmpAdminString,
+    cfprCallhomeEpFsmRmtRslt                                         CfprConditionRemoteInvRslt
+}
+
+cfprCallhomeEpFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeEpFsmEntry 1 }
+
+cfprCallhomeEpFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:dn managed object property"
+    ::= { cfprCallhomeEpFsmEntry 2 }
+
+cfprCallhomeEpFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:rn managed object property"
+    ::= { cfprCallhomeEpFsmEntry 3 }
+
+cfprCallhomeEpFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:completionTime
+        managed object property"
+    ::= { cfprCallhomeEpFsmEntry 4 }
+
+cfprCallhomeEpFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprCallhomeEpFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:currentFsm managed
+        object property"
+    ::= { cfprCallhomeEpFsmEntry 5 }
+
+cfprCallhomeEpFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:descr managed object property"
+    ::= { cfprCallhomeEpFsmEntry 6 }
+
+cfprCallhomeEpFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:fsmStatus managed object property"
+    ::= { cfprCallhomeEpFsmEntry 7 }
+
+cfprCallhomeEpFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:progress managed object property"
+    ::= { cfprCallhomeEpFsmEntry 8 }
+
+cfprCallhomeEpFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:rmtErrCode managed
+        object property"
+    ::= { cfprCallhomeEpFsmEntry 9 }
+
+cfprCallhomeEpFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:rmtErrDescr managed
+        object property"
+    ::= { cfprCallhomeEpFsmEntry 10 }
+
+cfprCallhomeEpFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsm:rmtRslt managed object property"
+    ::= { cfprCallhomeEpFsmEntry 11 }
+
+cfprCallhomeEpFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage managed object table"
+    ::= { cfprCallhomeObjects 5 }
+
+cfprCallhomeEpFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeEpFsmStageTable table."
+    INDEX { cfprCallhomeEpFsmStageInstanceId }
+    ::= { cfprCallhomeEpFsmStageTable 1 }
+
+CfprCallhomeEpFsmStageEntry ::= SEQUENCE {
+    cfprCallhomeEpFsmStageInstanceId                                 CfprManagedObjectId,
+    cfprCallhomeEpFsmStageDn                                         CfprManagedObjectDn,
+    cfprCallhomeEpFsmStageRn                                         SnmpAdminString,
+    cfprCallhomeEpFsmStageDescrData                                  SnmpAdminString,
+    cfprCallhomeEpFsmStageLastUpdateTime                             DateAndTime,
+    cfprCallhomeEpFsmStageName                                       CfprCallhomeEpFsmStageName,
+    cfprCallhomeEpFsmStageOrder                                      Gauge32,
+    cfprCallhomeEpFsmStageRetry                                      Gauge32,
+    cfprCallhomeEpFsmStageStageStatus                                CfprFsmFsmStageStatus
+}
+
+cfprCallhomeEpFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeEpFsmStageEntry 1 }
+
+cfprCallhomeEpFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:dn managed object property"
+    ::= { cfprCallhomeEpFsmStageEntry 2 }
+
+cfprCallhomeEpFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:rn managed object property"
+    ::= { cfprCallhomeEpFsmStageEntry 3 }
+
+cfprCallhomeEpFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:descr managed
+        object property"
+    ::= { cfprCallhomeEpFsmStageEntry 4 }
+
+cfprCallhomeEpFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprCallhomeEpFsmStageEntry 5 }
+
+cfprCallhomeEpFsmStageName OBJECT-TYPE
+    SYNTAX       CfprCallhomeEpFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:name managed object property"
+    ::= { cfprCallhomeEpFsmStageEntry 6 }
+
+cfprCallhomeEpFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:order managed
+        object property"
+    ::= { cfprCallhomeEpFsmStageEntry 7 }
+
+cfprCallhomeEpFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:retry managed
+        object property"
+    ::= { cfprCallhomeEpFsmStageEntry 8 }
+
+cfprCallhomeEpFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmStage:stageStatus
+        managed object property"
+    ::= { cfprCallhomeEpFsmStageEntry 9 }
+
+cfprCallhomeEpFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmTask managed object table"
+    ::= { cfprCallhomeObjects 6 }
+
+cfprCallhomeEpFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeEpFsmTaskTable table."
+    INDEX { cfprCallhomeEpFsmTaskInstanceId }
+    ::= { cfprCallhomeEpFsmTaskTable 1 }
+
+CfprCallhomeEpFsmTaskEntry ::= SEQUENCE {
+    cfprCallhomeEpFsmTaskInstanceId                                  CfprManagedObjectId,
+    cfprCallhomeEpFsmTaskDn                                          CfprManagedObjectDn,
+    cfprCallhomeEpFsmTaskRn                                          SnmpAdminString,
+    cfprCallhomeEpFsmTaskCompletion                                  CfprFsmCompletion,
+    cfprCallhomeEpFsmTaskFlags                                       CfprFsmFlags,
+    cfprCallhomeEpFsmTaskItem                                        CfprCallhomeEpFsmTaskItem,
+    cfprCallhomeEpFsmTaskSeqId                                       Gauge32
+}
+
+cfprCallhomeEpFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeEpFsmTaskEntry 1 }
+
+cfprCallhomeEpFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmTask:dn managed object property"
+    ::= { cfprCallhomeEpFsmTaskEntry 2 }
+
+cfprCallhomeEpFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmTask:rn managed object property"
+    ::= { cfprCallhomeEpFsmTaskEntry 3 }
+
+cfprCallhomeEpFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmTask:completion
+        managed object property"
+    ::= { cfprCallhomeEpFsmTaskEntry 4 }
+
+cfprCallhomeEpFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmTask:flags managed object property"
+    ::= { cfprCallhomeEpFsmTaskEntry 5 }
+
+cfprCallhomeEpFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprCallhomeEpFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmTask:item managed object property"
+    ::= { cfprCallhomeEpFsmTaskEntry 6 }
+
+cfprCallhomeEpFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:EpFsmTask:seqId managed object property"
+    ::= { cfprCallhomeEpFsmTaskEntry 7 }
+
+cfprCallhomeHttpProxyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeHttpProxyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:HttpProxy managed object table"
+    ::= { cfprCallhomeObjects 7 }
+
+cfprCallhomeHttpProxyEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeHttpProxyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeHttpProxyTable table."
+    INDEX { cfprCallhomeHttpProxyInstanceId }
+    ::= { cfprCallhomeHttpProxyTable 1 }
+
+CfprCallhomeHttpProxyEntry ::= SEQUENCE {
+    cfprCallhomeHttpProxyInstanceId                                  CfprManagedObjectId,
+    cfprCallhomeHttpProxyDn                                          CfprManagedObjectDn,
+    cfprCallhomeHttpProxyRn                                          SnmpAdminString,
+    cfprCallhomeHttpProxyProxyServerEnable                           CfprCallhomeHttpProxyEnable,
+    cfprCallhomeHttpProxyProxyServerPort                             Gauge32,
+    cfprCallhomeHttpProxyProxyServerUrl                              SnmpAdminString
+}
+
+cfprCallhomeHttpProxyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeHttpProxyEntry 1 }
+
+cfprCallhomeHttpProxyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:HttpProxy:dn managed object property"
+    ::= { cfprCallhomeHttpProxyEntry 2 }
+
+cfprCallhomeHttpProxyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:HttpProxy:rn managed object property"
+    ::= { cfprCallhomeHttpProxyEntry 3 }
+
+cfprCallhomeHttpProxyProxyServerEnable OBJECT-TYPE
+    SYNTAX       CfprCallhomeHttpProxyEnable
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:HttpProxy:proxyServerEnable
+        managed object property"
+    ::= { cfprCallhomeHttpProxyEntry 4 }
+
+cfprCallhomeHttpProxyProxyServerPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:HttpProxy:proxyServerPort
+        managed object property"
+    ::= { cfprCallhomeHttpProxyEntry 5 }
+
+cfprCallhomeHttpProxyProxyServerUrl OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:HttpProxy:proxyServerUrl
+        managed object property"
+    ::= { cfprCallhomeHttpProxyEntry 6 }
+
+cfprCallhomePeriodicSystemInventoryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomePeriodicSystemInventoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory
+        managed object table"
+    ::= { cfprCallhomeObjects 8 }
+
+cfprCallhomePeriodicSystemInventoryEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomePeriodicSystemInventoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomePeriodicSystemInventoryTable table."
+    INDEX { cfprCallhomePeriodicSystemInventoryInstanceId }
+    ::= { cfprCallhomePeriodicSystemInventoryTable 1 }
+
+CfprCallhomePeriodicSystemInventoryEntry ::= SEQUENCE {
+    cfprCallhomePeriodicSystemInventoryInstanceId                    CfprManagedObjectId,
+    cfprCallhomePeriodicSystemInventoryDn                            CfprManagedObjectDn,
+    cfprCallhomePeriodicSystemInventoryRn                            SnmpAdminString,
+    cfprCallhomePeriodicSystemInventoryAdminState                    CfprCallhomeAdminState,
+    cfprCallhomePeriodicSystemInventoryIntervalDays                  Gauge32,
+    cfprCallhomePeriodicSystemInventoryLastDeadline                  DateAndTime,
+    cfprCallhomePeriodicSystemInventoryMaximumRetryCount             Gauge32,
+    cfprCallhomePeriodicSystemInventoryMinimumSendNowIntervalSeconds Gauge32,
+    cfprCallhomePeriodicSystemInventoryNextDeadline                  DateAndTime,
+    cfprCallhomePeriodicSystemInventoryPollIntervalSeconds           Gauge32,
+    cfprCallhomePeriodicSystemInventoryRetryCount                    Gauge32,
+    cfprCallhomePeriodicSystemInventoryRetryDelayMinutes             Gauge32,
+    cfprCallhomePeriodicSystemInventorySendNow                       TruthValue,
+    cfprCallhomePeriodicSystemInventoryTimeOfDayHour                 Gauge32,
+    cfprCallhomePeriodicSystemInventoryTimeOfDayMinute               Gauge32,
+    cfprCallhomePeriodicSystemInventoryTimeOfLastAttempt             DateAndTime,
+    cfprCallhomePeriodicSystemInventoryTimeOfLastSuccess             DateAndTime
+}
+
+cfprCallhomePeriodicSystemInventoryInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 1 }
+
+cfprCallhomePeriodicSystemInventoryDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:dn
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 2 }
+
+cfprCallhomePeriodicSystemInventoryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:rn
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 3 }
+
+cfprCallhomePeriodicSystemInventoryAdminState OBJECT-TYPE
+    SYNTAX       CfprCallhomeAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:adminState
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 4 }
+
+cfprCallhomePeriodicSystemInventoryIntervalDays OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:intervalDays
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 5 }
+
+cfprCallhomePeriodicSystemInventoryLastDeadline OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:lastDeadline
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 6 }
+
+cfprCallhomePeriodicSystemInventoryMaximumRetryCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:maximumRetryCoun
+        t managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 7 }
+
+cfprCallhomePeriodicSystemInventoryMinimumSendNowIntervalSeconds OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:minimumSendNowIn
+        tervalSeconds managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 8 }
+
+cfprCallhomePeriodicSystemInventoryNextDeadline OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:nextDeadline
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 9 }
+
+cfprCallhomePeriodicSystemInventoryPollIntervalSeconds OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:pollIntervalSeco
+        nds managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 10 }
+
+cfprCallhomePeriodicSystemInventoryRetryCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:retryCount
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 11 }
+
+cfprCallhomePeriodicSystemInventoryRetryDelayMinutes OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:retryDelayMinute
+        s managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 12 }
+
+cfprCallhomePeriodicSystemInventorySendNow OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:sendNow
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 13 }
+
+cfprCallhomePeriodicSystemInventoryTimeOfDayHour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:timeOfDayHour
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 14 }
+
+cfprCallhomePeriodicSystemInventoryTimeOfDayMinute OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:timeOfDayMinute
+        managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 15 }
+
+cfprCallhomePeriodicSystemInventoryTimeOfLastAttempt OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:timeOfLastAttemp
+        t managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 16 }
+
+cfprCallhomePeriodicSystemInventoryTimeOfLastSuccess OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:PeriodicSystemInventory:timeOfLastSucces
+        s managed object property"
+    ::= { cfprCallhomePeriodicSystemInventoryEntry 17 }
+
+cfprCallhomePolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomePolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:Policy managed object table"
+    ::= { cfprCallhomeObjects 9 }
+
+cfprCallhomePolicyEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomePolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomePolicyTable table."
+    INDEX { cfprCallhomePolicyInstanceId }
+    ::= { cfprCallhomePolicyTable 1 }
+
+CfprCallhomePolicyEntry ::= SEQUENCE {
+    cfprCallhomePolicyInstanceId                                     CfprManagedObjectId,
+    cfprCallhomePolicyDn                                             CfprManagedObjectDn,
+    cfprCallhomePolicyRn                                             SnmpAdminString,
+    cfprCallhomePolicyAdminState                                     CfprCallhomePolicyAdminState,
+    cfprCallhomePolicyCause                                          CfprConditionCallHomeCause,
+    cfprCallhomePolicyDescr                                          SnmpAdminString,
+    cfprCallhomePolicyName                                           SnmpAdminString
+}
+
+cfprCallhomePolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomePolicyEntry 1 }
+
+cfprCallhomePolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Policy:dn managed object property"
+    ::= { cfprCallhomePolicyEntry 2 }
+
+cfprCallhomePolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Policy:rn managed object property"
+    ::= { cfprCallhomePolicyEntry 3 }
+
+cfprCallhomePolicyAdminState OBJECT-TYPE
+    SYNTAX       CfprCallhomePolicyAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Policy:adminState managed
+        object property"
+    ::= { cfprCallhomePolicyEntry 4 }
+
+cfprCallhomePolicyCause OBJECT-TYPE
+    SYNTAX       CfprConditionCallHomeCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Policy:cause managed object property"
+    ::= { cfprCallhomePolicyEntry 5 }
+
+cfprCallhomePolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Policy:descr managed object property"
+    ::= { cfprCallhomePolicyEntry 6 }
+
+cfprCallhomePolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Policy:name managed object property"
+    ::= { cfprCallhomePolicyEntry 7 }
+
+cfprCallhomeProfileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile managed object table"
+    ::= { cfprCallhomeObjects 10 }
+
+cfprCallhomeProfileEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeProfileTable table."
+    INDEX { cfprCallhomeProfileInstanceId }
+    ::= { cfprCallhomeProfileTable 1 }
+
+CfprCallhomeProfileEntry ::= SEQUENCE {
+    cfprCallhomeProfileInstanceId                                    CfprManagedObjectId,
+    cfprCallhomeProfileDn                                            CfprManagedObjectDn,
+    cfprCallhomeProfileRn                                            SnmpAdminString,
+    cfprCallhomeProfileAlertGroups                                   CfprCallhomeAlertGroups,
+    cfprCallhomeProfileDescr                                         SnmpAdminString,
+    cfprCallhomeProfileFormat                                        CfprCallhomeFormat,
+    cfprCallhomeProfileLevel                                         CfprCallhomeLevel,
+    cfprCallhomeProfileMaxSize                                       Gauge32,
+    cfprCallhomeProfileName                                          SnmpAdminString,
+    cfprCallhomeProfileReporting                                     CfprCallhomeReportingType
+}
+
+cfprCallhomeProfileInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeProfileEntry 1 }
+
+cfprCallhomeProfileDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:dn managed object property"
+    ::= { cfprCallhomeProfileEntry 2 }
+
+cfprCallhomeProfileRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:rn managed object property"
+    ::= { cfprCallhomeProfileEntry 3 }
+
+cfprCallhomeProfileAlertGroups OBJECT-TYPE
+    SYNTAX       CfprCallhomeAlertGroups
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:alertGroups managed
+        object property"
+    ::= { cfprCallhomeProfileEntry 4 }
+
+cfprCallhomeProfileDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:descr managed object property"
+    ::= { cfprCallhomeProfileEntry 5 }
+
+cfprCallhomeProfileFormat OBJECT-TYPE
+    SYNTAX       CfprCallhomeFormat
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:format managed object property"
+    ::= { cfprCallhomeProfileEntry 6 }
+
+cfprCallhomeProfileLevel OBJECT-TYPE
+    SYNTAX       CfprCallhomeLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:level managed object property"
+    ::= { cfprCallhomeProfileEntry 7 }
+
+cfprCallhomeProfileMaxSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:maxSize managed object property"
+    ::= { cfprCallhomeProfileEntry 8 }
+
+cfprCallhomeProfileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:name managed object property"
+    ::= { cfprCallhomeProfileEntry 9 }
+
+cfprCallhomeProfileReporting OBJECT-TYPE
+    SYNTAX       CfprCallhomeReportingType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Profile:reporting managed
+        object property"
+    ::= { cfprCallhomeProfileEntry 10 }
+
+cfprCallhomeSmtpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeSmtpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:Smtp managed object table"
+    ::= { cfprCallhomeObjects 11 }
+
+cfprCallhomeSmtpEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeSmtpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeSmtpTable table."
+    INDEX { cfprCallhomeSmtpInstanceId }
+    ::= { cfprCallhomeSmtpTable 1 }
+
+CfprCallhomeSmtpEntry ::= SEQUENCE {
+    cfprCallhomeSmtpInstanceId                                       CfprManagedObjectId,
+    cfprCallhomeSmtpDn                                               CfprManagedObjectDn,
+    cfprCallhomeSmtpRn                                               SnmpAdminString,
+    cfprCallhomeSmtpHost                                             SnmpAdminString,
+    cfprCallhomeSmtpPort                                             Gauge32
+}
+
+cfprCallhomeSmtpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeSmtpEntry 1 }
+
+cfprCallhomeSmtpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Smtp:dn managed object property"
+    ::= { cfprCallhomeSmtpEntry 2 }
+
+cfprCallhomeSmtpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Smtp:rn managed object property"
+    ::= { cfprCallhomeSmtpEntry 3 }
+
+cfprCallhomeSmtpHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Smtp:host managed object property"
+    ::= { cfprCallhomeSmtpEntry 4 }
+
+cfprCallhomeSmtpPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Smtp:port managed object property"
+    ::= { cfprCallhomeSmtpEntry 5 }
+
+cfprCallhomeSourceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeSourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source managed object table"
+    ::= { cfprCallhomeObjects 12 }
+
+cfprCallhomeSourceEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeSourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeSourceTable table."
+    INDEX { cfprCallhomeSourceInstanceId }
+    ::= { cfprCallhomeSourceTable 1 }
+
+CfprCallhomeSourceEntry ::= SEQUENCE {
+    cfprCallhomeSourceInstanceId                                     CfprManagedObjectId,
+    cfprCallhomeSourceDn                                             CfprManagedObjectDn,
+    cfprCallhomeSourceRn                                             SnmpAdminString,
+    cfprCallhomeSourceAddr                                           SnmpAdminString,
+    cfprCallhomeSourceContact                                        SnmpAdminString,
+    cfprCallhomeSourceContract                                       SnmpAdminString,
+    cfprCallhomeSourceCustomer                                       SnmpAdminString,
+    cfprCallhomeSourceEmail                                          SnmpAdminString,
+    cfprCallhomeSourceFrom                                           SnmpAdminString,
+    cfprCallhomeSourcePhone                                          SnmpAdminString,
+    cfprCallhomeSourceReplyTo                                        SnmpAdminString,
+    cfprCallhomeSourceSite                                           SnmpAdminString,
+    cfprCallhomeSourceUrgency                                        CfprCallhomeUrgency
+}
+
+cfprCallhomeSourceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeSourceEntry 1 }
+
+cfprCallhomeSourceDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:dn managed object property"
+    ::= { cfprCallhomeSourceEntry 2 }
+
+cfprCallhomeSourceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:rn managed object property"
+    ::= { cfprCallhomeSourceEntry 3 }
+
+cfprCallhomeSourceAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:addr managed object property"
+    ::= { cfprCallhomeSourceEntry 4 }
+
+cfprCallhomeSourceContact OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:contact managed object property"
+    ::= { cfprCallhomeSourceEntry 5 }
+
+cfprCallhomeSourceContract OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:contract managed object property"
+    ::= { cfprCallhomeSourceEntry 6 }
+
+cfprCallhomeSourceCustomer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:customer managed object property"
+    ::= { cfprCallhomeSourceEntry 7 }
+
+cfprCallhomeSourceEmail OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:email managed object property"
+    ::= { cfprCallhomeSourceEntry 8 }
+
+cfprCallhomeSourceFrom OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:from managed object property"
+    ::= { cfprCallhomeSourceEntry 9 }
+
+cfprCallhomeSourcePhone OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:phone managed object property"
+    ::= { cfprCallhomeSourceEntry 10 }
+
+cfprCallhomeSourceReplyTo OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:replyTo managed object property"
+    ::= { cfprCallhomeSourceEntry 11 }
+
+cfprCallhomeSourceSite OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:site managed object property"
+    ::= { cfprCallhomeSourceEntry 12 }
+
+cfprCallhomeSourceUrgency OBJECT-TYPE
+    SYNTAX       CfprCallhomeUrgency
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:Source:urgency managed object property"
+    ::= { cfprCallhomeSourceEntry 13 }
+
+cfprCallhomeTestAlertTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCallhomeTestAlertEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert managed object table"
+    ::= { cfprCallhomeObjects 13 }
+
+cfprCallhomeTestAlertEntry OBJECT-TYPE
+    SYNTAX           CfprCallhomeTestAlertEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCallhomeTestAlertTable table."
+    INDEX { cfprCallhomeTestAlertInstanceId }
+    ::= { cfprCallhomeTestAlertTable 1 }
+
+CfprCallhomeTestAlertEntry ::= SEQUENCE {
+    cfprCallhomeTestAlertInstanceId                                  CfprManagedObjectId,
+    cfprCallhomeTestAlertDn                                          CfprManagedObjectDn,
+    cfprCallhomeTestAlertRn                                          SnmpAdminString,
+    cfprCallhomeTestAlertDescription                                 SnmpAdminString,
+    cfprCallhomeTestAlertGroup                                       CfprCallhomeAlertGroup,
+    cfprCallhomeTestAlertLevel                                       CfprCallhomeAlertLevel,
+    cfprCallhomeTestAlertMessageSubtype                              CfprCallhomeAlertMessageSubtype,
+    cfprCallhomeTestAlertMessageType                                 CfprCallhomeAlertMessageType,
+    cfprCallhomeTestAlertSendNow                                     TruthValue
+}
+
+cfprCallhomeTestAlertInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCallhomeTestAlertEntry 1 }
+
+cfprCallhomeTestAlertDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:dn managed object property"
+    ::= { cfprCallhomeTestAlertEntry 2 }
+
+cfprCallhomeTestAlertRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:rn managed object property"
+    ::= { cfprCallhomeTestAlertEntry 3 }
+
+cfprCallhomeTestAlertDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:description
+        managed object property"
+    ::= { cfprCallhomeTestAlertEntry 4 }
+
+cfprCallhomeTestAlertGroup OBJECT-TYPE
+    SYNTAX       CfprCallhomeAlertGroup
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:group managed object property"
+    ::= { cfprCallhomeTestAlertEntry 5 }
+
+cfprCallhomeTestAlertLevel OBJECT-TYPE
+    SYNTAX       CfprCallhomeAlertLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:level managed object property"
+    ::= { cfprCallhomeTestAlertEntry 6 }
+
+cfprCallhomeTestAlertMessageSubtype OBJECT-TYPE
+    SYNTAX       CfprCallhomeAlertMessageSubtype
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:messageSubtype
+        managed object property"
+    ::= { cfprCallhomeTestAlertEntry 7 }
+
+cfprCallhomeTestAlertMessageType OBJECT-TYPE
+    SYNTAX       CfprCallhomeAlertMessageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:messageType
+        managed object property"
+    ::= { cfprCallhomeTestAlertEntry 8 }
+
+cfprCallhomeTestAlertSendNow OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower callhome:TestAlert:sendNow managed
+        object property"
+    ::= { cfprCallhomeTestAlertEntry 9 }
+
+END

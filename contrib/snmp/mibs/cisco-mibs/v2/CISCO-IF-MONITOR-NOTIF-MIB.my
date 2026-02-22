@@ -1,0 +1,278 @@
+CISCO-IF-MONITOR-NOTIF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        TimeStamp
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE, 
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ifIndex
+                FROM IF-MIB
+        ciscoExperiment
+                FROM CISCO-SMI;
+
+ciscoIfMonitorNotifMIB MODULE-IDENTITY
+        LAST-UPDATED        "200210110000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "Interface Monitor Notification MIB
+             
+                This MIB module defines the objects for sending 
+                notifications when certain errors over an interval
+                have reached/exceeded a threshold, causing a severe 
+                condition."
+        REVISION        "200210110000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoExperiment 999 }
+
+
+cIfMonNotifMIBNotifications OBJECT IDENTIFIER
+                                ::= { ciscoIfMonitorNotifMIB 0 }
+cIfMonNotifMIBObjects       OBJECT IDENTIFIER 
+                                ::= { ciscoIfMonitorNotifMIB 1 }
+cIfMonNotifMIBConformance   OBJECT IDENTIFIER 
+                                ::= { ciscoIfMonitorNotifMIB 2 }
+
+-- MIB Object Definitions
+
+cIfMonNotifCount OBJECT-TYPE
+    SYNTAX       Unsigned32 (1..4294967295)
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "This object will be incremented and included in the varbind
+        list of the cIfMonNotifEvent notification. This object is 
+        guaranteed to increase once per notification originated from
+        the MIB. 
+
+        NMSes should track the value of this object received in each
+        notification. If the difference in the value of this object 
+        across two consecutive notifications is more than one, a 
+        notification has been delayed, dropped, lost or routed out 
+        of sequence. The only reliable way to recover such 
+        notifications is via the NOTIFICATION-LOG-MIB. The NMS should
+        preferably configure/create a log in the NOTIFICATION-LOG-MIB
+        to capture cIfMonNotifEvent notifications. If possible, a 
+        named log should be created. When a notification loss is 
+        detected, the NMS can then poll the log to determine which
+        notification was lost. The reader can look up RFC 3014 for 
+        more information on the NOTIFICATION-LOG-MIB.
+
+        In addition to tracking the value of this object in each 
+        notification, the NMS should periodically poll this object.
+        If the polled value of this object is two or more counts 
+        greater than the value from the last received notification,
+        a notification has likely been dropped, and the NMS must
+        use the NOTIFICATION-LOG-MIB to poll for the dropped 
+        notification."
+    ::= { cIfMonNotifMIBObjects 1 }
+
+cIfMonNotifTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CIfMonNotifEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains information about the last 
+        notification that was sent for a particular interface."
+    ::= { cIfMonNotifMIBObjects 2 }
+
+cIfMonNotifEntry OBJECT-TYPE
+    SYNTAX      CIfMonNotifEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Each entry contains information about the last 
+        notification sent for this interface."
+    INDEX { ifIndex }
+    ::= { cIfMonNotifTable 1 }
+
+CIfMonNotifEntry ::=
+    SEQUENCE {
+        cIfMonNotifLastChange            TimeStamp,
+        cIfMonNotifSeverity              INTEGER,
+        cIfMonNotifCause                 INTEGER,
+        cIfMonNotifValue                 Unsigned32,
+        cIfMonNotifThreshold             Unsigned32,
+        cIfMonNotifInterval              Unsigned32
+    }
+
+cIfMonNotifLastChange OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the value of sysUpTime at the 
+        last time a notification was sent for this interface."
+    ::= { cIfMonNotifEntry 1 }
+
+cIfMonNotifSeverity OBJECT-TYPE
+    SYNTAX       INTEGER {
+                    red(1),
+                    yellow(2)
+                 }
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The severity of the condition on the link when the 
+        notification is sent. A smaller enumerated integer value 
+        indicates that the exceeded condition is more severe.
+
+        When a red severity notification is sent, it signifies
+        that a severe event has occured, in which certain errors
+        over an interval have reached/exceeded a high threshold .
+	
+        When a yellow severity notification is sent it signifies 
+        that an event has occured, in which certain errors over 
+        an interval have reached/exceeded a low threshold."
+    ::= { cIfMonNotifEntry 2 }
+
+cIfMonNotifCause OBJECT-TYPE
+    SYNTAX       INTEGER {
+                    aborts(1),
+                    crc(2),
+                    drops(3),
+                    flaps(4),
+                    frame-reject(5),
+                    runts(6),
+                    sabm(7),
+                    frmr(8),
+                    disc(9)
+                 }
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The link errors over an interval which caused the severe 
+        condition on the link.
+
+        aborts        number of packet aborted
+        crc           number of crc errors in packets received
+        drops         number of input packet dropped
+        flaps         number of link flaps
+        frame-reject  number of HDLC frames rejected
+        runts         number of frame runts dropped
+        (X.25 Parameters)
+        sabm          number of SABMS commands received
+        frmr          number of  Frame Rejects
+        disc          number of disconnect command received."
+    ::= { cIfMonNotifEntry 3 }
+
+cIfMonNotifValue OBJECT-TYPE
+    SYNTAX       Unsigned32 (1..4294967295)
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The value of the link errors over an interval that 
+        reached/exceeded the threshold, causing a severe condition."
+    ::= { cIfMonNotifEntry 4 }
+
+cIfMonNotifThreshold OBJECT-TYPE
+    SYNTAX       Unsigned32 (1..100000)
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The threshold which was reached/exceeded by the link 
+        errors over an interval, causing a severe condition."
+    ::= { cIfMonNotifEntry 5 }
+
+cIfMonNotifInterval OBJECT-TYPE
+    SYNTAX       Unsigned32 (5..600)
+    UNITS        "seconds"
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The interval over which the link errors reached/exceeded
+        the threshold, causing a severe condition."
+    ::= { cIfMonNotifEntry 6 }
+
+
+-- Notifications
+
+cIfMonNotifEvent NOTIFICATION-TYPE
+    OBJECTS {
+        ifIndex,
+        cIfMonNotifCount,
+        cIfMonNotifSeverity,
+        cIfMonNotifCause,
+        cIfMonNotifValue,
+        cIfMonNotifThreshold,
+        cIfMonNotifInterval 
+    }
+    STATUS      current
+    DESCRIPTION
+        "The agent generates this notification when 
+        certain errors over an interval have reached/exceeded 
+        a threshold, causing a severe condition.
+        
+        The SNMP Notifications can be logged using the
+        NOTIFICATION-LOG-MIB."
+    ::= { cIfMonNotifMIBNotifications 1 }
+
+
+-- Conformance
+
+cIfMonNotifMIBCompliances OBJECT IDENTIFIER 
+                                    ::= { cIfMonNotifMIBConformance 1 }
+cIfMonNotifMIBGroups      OBJECT IDENTIFIER 
+                                    ::= { cIfMonNotifMIBConformance 2 }
+
+
+cIfMonNotifMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cisco Interface Monitor Notification MIB"
+    MODULE        -- this module
+        MANDATORY-GROUPS { 
+            cIfMonNotifObjectGroup,
+            cIfMonNotifEventGroup 
+        }
+    ::= { cIfMonNotifMIBCompliances 1 }
+
+-- Units of Conformance
+
+cIfMonNotifObjectGroup OBJECT-GROUP
+    OBJECTS {
+        cIfMonNotifCount,
+        cIfMonNotifLastChange,
+        cIfMonNotifSeverity,
+        cIfMonNotifCause,
+        cIfMonNotifValue,
+        cIfMonNotifThreshold,
+        cIfMonNotifInterval
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of mandatory managed objects for sending 
+        notifications when certain errors over an interval have
+        reached/exceeded a threshold, causing a severe condition."
+    ::= { cIfMonNotifMIBGroups 1 }
+
+cIfMonNotifEventGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        cIfMonNotifEvent
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of notifications generated on an interface 
+        when certain errors over an interval have reached/exceeded
+        a threshold, causing a severe condition."
+    ::= { cIfMonNotifMIBGroups 2 }
+
+END

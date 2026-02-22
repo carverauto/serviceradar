@@ -1,0 +1,606 @@
+-- MIB file created 21-Sep-2009 18:07:33, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FCOE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FCOE-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TimeStamp, TruthValue, MacAddress
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    T11FabricIndex
+            FROM T11-TC-MIB
+    fcmInstanceIndex, fcmSwitchIndex
+            FROM FC-MGMT-MIB
+    VlanIndex
+            FROM Q-BRIDGE-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoFCoEMIB OBJECT IDENTIFIER ::= { ciscoMgmt 673 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200806160000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    Postal: 170 W Tasman Drive
+--    
+--            San Jose, CA  95134
+--    
+--            USA
+--    
+--    Tel: +1 800 553 -NETS
+--    
+--    E-mail: fcoe@cisco.com
+--  Descr
+--    This MIB module is for configuring and monitoring Fibre Channel
+--    over Ethernet (FCoE) related entities. This MIB defines the
+--    Virtual FC (VFC) Interface as an object that represents either
+--    a VF_Port or a VE_Port on the FCF. Virtual FC interfaces can be
+--    either statically created or dynamically created at the time of
+--    FIP based FLOGI or ELP request.
+--    
+--    In this document the term VSAN ID is used interchangeably with
+--    Fabric Index defined in the T11 standards.
+--    
+--    Terminologies used in this MIB are defined by the T11 FCoE
+--    standard. Refer to www.t11.org.
+--    
+--    This MIB also supports configuration of the following objects:
+--    - Mapping of FCoE VLAN ID used to carry traffic for a VSAN ID
+--    - FC-MAP value used by the FCF operating in FPMA mode
+--    - FIP snooping related objects
+--  RevDate
+--    200806160000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoFCoEMIBObjects OBJECT IDENTIFIER ::= { ciscoFCoEMIB 1 }
+ciscoFCoEMIBConformance OBJECT IDENTIFIER ::= { ciscoFCoEMIB 2 }
+cfcoeConfig     OBJECT IDENTIFIER ::= { ciscoFCoEMIBObjects 1 }
+cfcoeFipSnoopingObjects OBJECT IDENTIFIER ::= { ciscoFCoEMIBObjects 2 }
+cFCoEMIBCompliances OBJECT IDENTIFIER ::= { ciscoFCoEMIBConformance 1 }
+cFCoEMIBGroups  OBJECT IDENTIFIER ::= { ciscoFCoEMIBConformance 2 }
+
+VfcBindType ::= INTEGER {
+        interfaceIndex(1),
+        macAddress(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Defines the different methods to identify (or bind to)
+--    - the ENode associated with a particular VF_Port VFC
+--    - the remote-FCF associated with a particular VE_Port VFC
+--    
+--    interfaceIndex(1)  - This type is used when the ifIndex of
+--        an ethernet interface over which the FCF reaches
+--        the ENode or the remote-FCF is used to identify the
+--        ENode or the remote-FCF. This type is to be used only
+--        when the ENode or the remote-FCF is directly connected
+--        to the FCF over a specific ethernet interface.
+--    
+--    macAddress(2)  - This type is used when the ENode or the
+--        remote-FCF is reachable by the FCF over a L2 Ethernet
+--        network.  An ENode or remote-FCF is associated to a VFC
+--        only if the source MAC address in the FIP frames matches
+--        with the bound MAC Address on the VFC.
+
+cfcoeCfgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfcoeCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table facilitates configuration of FCoE parameters
+        on a per Fibre Channel management instance."
+    ::= { cfcoeConfig 1 }
+
+cfcoeCfgEntry OBJECT-TYPE
+    SYNTAX CfcoeCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is one entry in this table for each
+        Fibre Channel management instance."
+    INDEX { fcmInstanceIndex, fcmSwitchIndex }
+    ::= { cfcoeCfgTable 1 }
+
+CfcoeCfgEntry ::= SEQUENCE {
+    cfcoeCfgFcmap OCTET STRING,
+    cfcoeCfgDynamicVfcCreation TruthValue,
+    cfcoeCfgDynamicVfcAgeTimer Gauge,
+    cfcoeCfgDefaultFCFPriority Gauge,
+    cfcoeCfgDATov Gauge,
+    cfcoeCfgAddressingMode INTEGER
+    }
+
+cfcoeCfgFcmap OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(3))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object configures the FC-MAP value used by the FCF
+        when operating in FPMA mode. The default value is 0EFC00h,
+        as written in the standard."
+    REFERENCE
+        "ANSI INCITS xxx-200x, T11/Project 1871-D,
+         Fibre Channel - Backbone 5 (FC-BB-5),
+         10 June 2008, section 7.8 and table 41."
+    DEFVAL { '0EFC00'H }
+    ::= { cfcoeCfgEntry 1 }
+
+cfcoeCfgDynamicVfcCreation OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the user to enable (TRUE)
+        or disable (FALSE) dynamic VFC interface creation on the FCF.
+        When set to TRUE VFC interfaces are dynamically created when a
+        FIP based FLOGI or ELP request is received."
+    DEFVAL { false }
+    ::= { cfcoeCfgEntry 2 }
+
+cfcoeCfgDynamicVfcAgeTimer OBJECT-TYPE
+    SYNTAX Gauge(10..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This ageing timer (in seconds) is used by the FCF to age out
+        dynamically created VFC interfaces. The default value is
+        300 seconds."
+    DEFVAL { 300 }
+    ::= { cfcoeCfgEntry 3 }
+
+cfcoeCfgDefaultFCFPriority OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The FIP priority value advertised by the FCF to ENodes by
+        default. cfcoeStaticVfcFCFPriority configured for a VFC
+        interface overrides this setting for the ENode associated
+        with the VFC."
+    DEFVAL { 128 }
+    ::= { cfcoeCfgEntry 4 }
+
+cfcoeCfgDATov OBJECT-TYPE
+    SYNTAX Gauge(1..60)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Discovery_Advertisement_Timeout value configured for
+        the FCF. This is used as the timeout value in seconds by
+        the FCF to send periodic Discovery Advertisements."
+    DEFVAL { 5 }
+    ::= { cfcoeCfgEntry 5 }
+
+cfcoeCfgAddressingMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        fpma(1),
+        spma(2),
+        both(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Addressing mode(s) supported by the FCF. Implementations should
+        fail set requests for unsupported modes."
+    ::= { cfcoeCfgEntry 6 }
+
+cfcoeVLANTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfcoeVLANEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table facilitates configuration of VLAN and Fabric (VSAN)
+        associations in an FCoE network. FCoE forwarding for a fabric 
+        is over a VLAN in a L2 Ethernet network.  That is, reachability
+        between the ENode/remote-FCF and an FCF for a given fabric is
+        determined by the reachability provided by the Ethernet network
+        on the corresponding VLAN. 
+        
+        An active entry in this table indicates the VLAN that is used 
+        to transport FCoE traffic for a certain VSAN.
+        
+        Some implmentations may allow traffic from only one VSAN to be
+        transported over a given VLAN. Such implmentations should 
+        prevent multiple entries with the same VLAN ID or the VSAN ID 
+        from being created in this table.
+        
+        Modifying existing VLAN-VSAN associations is not supported.
+        Entries must be deleted first and then recreated."
+    ::= { cfcoeConfig 2 }
+
+cfcoeVLANEntry OBJECT-TYPE
+    SYNTAX CfcoeVLANEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is one entry in this table for each VLAN that is
+        designated to transport FCoE traffic for a given fabric 
+        (VSAN)."
+    INDEX { fcmInstanceIndex, fcmSwitchIndex, cfcoeVLANIndex, cfcoeFabricIndex }
+    ::= { cfcoeVLANTable 1 }
+
+CfcoeVLANEntry ::= SEQUENCE {
+    cfcoeVLANIndex VlanIndex,
+    cfcoeFabricIndex T11FabricIndex,
+    cfcoeVLANOperState INTEGER,
+    cfcoeVLANRowStatus RowStatus
+    }
+
+cfcoeVLANIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the VLAN ID that FCoE FCF function is
+        being enabled for."
+    ::= { cfcoeVLANEntry 1 }
+
+cfcoeFabricIndex OBJECT-TYPE
+    SYNTAX T11FabricIndex
+--    Rsyntax Gauge(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the Fabric Index of the VSAN traffic
+        for which can be transported over the VLAN identified by
+        cfcoeVLANIndex."
+    ::= { cfcoeVLANEntry 2 }
+
+cfcoeVLANOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational state of this VLAN-VSAN association entry.
+        The 'up' state is achieved when both the VSAN and VLAN
+        are valid."
+    ::= { cfcoeVLANEntry 3 }
+
+cfcoeVLANRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. The RowStatus becomes active
+        on successful creation of an entry."
+    ::= { cfcoeVLANEntry 4 }
+
+cfcoeStaticVfcTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfcoeStaticVfcEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table facilitates the creation and deletion of static
+        VFC interfaces. While VFCs can be dynamically created based on
+        FIP FLOGI/ELP requests users may want to associate certain
+        pre-configured policy for a particular ENode or a remote-FCF.
+        In such cases static VFC creation becomes necessary. In addition
+        to creating a static VFC it also needs to be associated to an
+        ENode or remote-FCF. The VFC binding provides such an 
+        associaton. Binding may occur after a VFC is created."
+    ::= { cfcoeConfig 3 }
+
+cfcoeStaticVfcEntry OBJECT-TYPE
+    SYNTAX CfcoeStaticVfcEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is one entry in this table for each statically created
+        VFC Interface."
+    INDEX { fcmInstanceIndex, fcmSwitchIndex, cfcoeStaticVfcIndex }
+    ::= { cfcoeStaticVfcTable 1 }
+
+CfcoeStaticVfcEntry ::= SEQUENCE {
+    cfcoeStaticVfcIndex Gauge,
+    cfcoeStaticVfcFCFPriority Gauge,
+    cfcoeStaticVfcBindType VfcBindType,
+    cfcoeStaticVfcBindIfIndex InterfaceIndexOrZero,
+    cfcoeStaticVfcBindMACAddress MacAddress,
+    cfcoeStaticVfcIfIndex InterfaceIndex,
+    cfcoeStaticVfcCreationTime TimeStamp,
+    cfcoeStaticVfcFailureCause SnmpAdminString,
+    cfcoeStaticVfcRowStatus RowStatus
+    }
+
+cfcoeStaticVfcIndex OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This index uniquely identifies a static VFC entry in this
+        table."
+    ::= { cfcoeStaticVfcEntry 1 }
+
+cfcoeStaticVfcFCFPriority OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If this VFC is for a VF_Port this object is used to configure
+        FCF priority to be advertised to the ENode associated with the
+        VFC."
+    DEFVAL { 128 }
+    ::= { cfcoeStaticVfcEntry 2 }
+
+cfcoeStaticVfcBindType OBJECT-TYPE
+    SYNTAX VfcBindType
+--    Rsyntax INTEGER {
+--        interfaceIndex(1),
+--        macAddress(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The mechanism to identify the ENode associated with this VFC
+        if it is of type VF_Port or to identify the remote-FCF 
+        associated with this VFC if it is of type VE_Port."
+    ::= { cfcoeStaticVfcEntry 3 }
+
+cfcoeStaticVfcBindIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows for configuration of ifIndex of
+        the ethernet interface over which the FCF reaches
+        the ENode or the remote-FCF that this VFC identifies.
+        This object is to be used only when the ENode or the
+        remote-FCF is directly connected to the FCF over a specific
+        ethernet interface. If the ENode or remote-FCF is not directly
+        connected to the FCF, this field must be set to zero."
+    ::= { cfcoeStaticVfcEntry 4 }
+
+cfcoeStaticVfcBindMACAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the user to configure MAC address of the
+        ENode or the remote-FCF that this VFC interface identifies.
+        An ENode or remote-FCF is associated to this VFC only if the
+        source MAC address in the FIP frames matches with this object."
+    ::= { cfcoeStaticVfcEntry 5 }
+
+cfcoeStaticVfcIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of this virtual FC interface."
+    ::= { cfcoeStaticVfcEntry 6 }
+
+cfcoeStaticVfcCreationTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The timestamp of this entry's creation time."
+    ::= { cfcoeStaticVfcEntry 7 }
+
+cfcoeStaticVfcFailureCause OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cause of failure for the last bind operation. This
+        object will be zero length if and only if the bind is
+        successful."
+    ::= { cfcoeStaticVfcEntry 8 }
+
+cfcoeStaticVfcRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. The RowStatus becomes active
+        on successful creation of a virtual interface. The VFC must be
+        bound before it can become operational."
+    ::= { cfcoeStaticVfcEntry 9 }
+
+cfcoeFipSnoopingEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable FIP Snooping on an
+        Ethernet Bridge."
+    ::= { cfcoeFipSnoopingObjects 1 }
+
+cfcoeFipSnoopingFcmap OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(3))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object configures the FC-MAP value associated with the
+        FIP snooping Ethernet bridge."
+    DEFVAL { '0EFC00'H }
+    ::= { cfcoeFipSnoopingObjects 2 }
+
+cfcoeEnodeIntfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfcoeEnodeIntfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table containing the interfaces on an
+        Ethernet bridge that are directly connected to ENodes.
+        A FIP Snooping bridge will automatically configure ACLs on
+        these interfaces based on FIP login requests and responses."
+    ::= { cfcoeFipSnoopingObjects 3 }
+
+cfcoeEnodeIntfEntry OBJECT-TYPE
+    SYNTAX CfcoeEnodeIntfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cfcoeEnodeIntfTable,
+        representing an interface directly connected to an ENode
+        on the Ethernet Bridge."
+    INDEX { cfcoeEnodeIntfIfIndex }
+    ::= { cfcoeEnodeIntfTable 1 }
+
+CfcoeEnodeIntfEntry ::= SEQUENCE {
+    cfcoeEnodeIntfIfIndex InterfaceIndex,
+    cfcoeEnodeIntfRowStatus RowStatus
+    }
+
+cfcoeEnodeIntfIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the interface on the Ethernet bridge connected
+        to an Enode."
+    ::= { cfcoeEnodeIntfEntry 1 }
+
+cfcoeEnodeIntfRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row."
+    ::= { cfcoeEnodeIntfEntry 2 }
+
+cfcoeCfgConformanceObjects OBJECT IDENTIFIER ::= { cFCoEMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to all implementations
+--    of FCoE.
+--  objects
+--    cfcoeCfgFcmap, cfcoeCfgDynamicVfcCreation, 
+--    cfcoeCfgDynamicVfcAgeTimer, cfcoeCfgDefaultFCFPriority, 
+--    cfcoeCfgDATov, cfcoeCfgAddressingMode
+
+cfcoeVLANConformanceObjects OBJECT IDENTIFIER ::= { cFCoEMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to implementation of
+--    FCoE VLANs.
+--  objects
+--    cfcoeVLANOperState, cfcoeVLANRowStatus
+
+cfcoeStaticVfcConformanceObjects OBJECT IDENTIFIER ::= { cFCoEMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to implementation of
+--    static VFC interfaces.
+--  objects
+--    cfcoeStaticVfcFCFPriority, cfcoeStaticVfcBindType, 
+--    cfcoeStaticVfcBindIfIndex, cfcoeStaticVfcBindMACAddress, 
+--    cfcoeStaticVfcIfIndex, cfcoeStaticVfcCreationTime, 
+--    cfcoeStaticVfcFailureCause, cfcoeStaticVfcRowStatus
+
+cfcoeFipSnoopingConformanceObjects OBJECT IDENTIFIER ::= { cFCoEMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to implementation of
+--    FIP Snooping.
+--  objects
+--    cfcoeFipSnoopingEnable, cfcoeFipSnoopingFcmap
+
+cfcoeEnodeIntfObjects OBJECT IDENTIFIER ::= { cFCoEMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to implementation of
+--    ENode interfaces on a FIP snooping bridge.
+--  objects
+--    cfcoeEnodeIntfRowStatus
+
+cFCoEMIBCompliance OBJECT IDENTIFIER ::= { cFCoEMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the
+--    CISCO-FCOE-MIB mib.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cfcoeCfgConformanceObjects
+--   MandGroup
+--    cfcoeVLANConformanceObjects
+--   MandGroup
+--    cfcoeStaticVfcConformanceObjects
+--   MandGroup
+--    cfcoeFipSnoopingConformanceObjects
+--   MandGroup
+--    cfcoeEnodeIntfObjects
+--   ObjVar
+--    cfcoeCfgFcmap
+--   ObjVar
+--    cfcoeVLANRowStatus
+--   ObjVar
+--    cfcoeFipSnoopingEnable
+--   ObjVar
+--    cfcoeFipSnoopingFcmap
+
+
+END
+

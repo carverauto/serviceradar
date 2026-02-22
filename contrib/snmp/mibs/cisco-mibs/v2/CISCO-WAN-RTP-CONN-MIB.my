@@ -1,0 +1,782 @@
+-- *****************************************************************
+-- CISCO-WAN-RTP-CONN-MIB.my:  CISCO WAN RTP(Real-time
+-- transport protocol) Connection MIB file
+--
+-- October 2003, George Ogagan 
+-- April 2005, Rashmi Purandare
+--
+-- Copyright (c) 1999-2003, 2004, 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-WAN-RTP-CONN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32, 
+    Counter32,
+    IpAddress, 
+    Unsigned32  FROM SNMPv2-SMI
+    TruthValue,
+    RowStatus
+                FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+                FROM SNMPv2-CONF
+    ciscoWan    FROM CISCOWAN-SMI;
+
+ciscoWanRtpConnMIB MODULE-IDENTITY
+    LAST-UPDATED "200504120000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-vism@cisco.com"
+    DESCRIPTION
+            "The MIB module is defined for establishing connection
+             between an endpoint and another endpoint on a remote
+             VISM in the case of VoIP(Voice over IP) trunking
+             application." 
+
+    REVISION    "200504120000Z"
+    DESCRIPTION
+                "
+                Add new statistics
+                vismRtpInterArrivalJitter
+                vismRtpLatency
+                "
+
+    REVISION    "200310200000Z"
+    DESCRIPTION
+                "
+                Update with description changes in MIB.
+                "
+
+    REVISION    "200305230000Z"
+    DESCRIPTION
+                "
+                Added changes for Lossless codec.
+                "
+    REVISION    "200205200000Z"
+    DESCRIPTION
+                "
+                Added new object vismRtpPayloadType.
+                "
+    REVISION    "200111280000Z"
+    DESCRIPTION "
+                Changes for new codec family G723
+	        Added new objects vismRtpLcn, vismRtpFailReason
+                "
+
+    REVISION    "200103151500Z"
+    DESCRIPTION "
+                Initial draft.
+                "
+
+    ::= { ciscoWan 20 }
+
+
+ciscoWanRtpConnMIBObjects  OBJECT IDENTIFIER ::= 
+                             { ciscoWanRtpConnMIB 1 }
+
+vismRtpConnGrp             OBJECT IDENTIFIER ::= 
+                             { ciscoWanRtpConnMIBObjects 1 }
+vismRtpBearerStatsGrp      OBJECT IDENTIFIER ::= 
+                             { ciscoWanRtpConnMIBObjects 2 }
+
+-- 
+-- vismRtpConnGrpTable 
+--
+
+vismRtpConnGrpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismRtpConnGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table defines attributes used to set up a static
+         trunked VoIP connection between an endpoint and
+         another endpoint on a remote VISM. 
+         
+         The maximum number of RTP connections that can be established
+         is based on the current codec template, which is
+         vismAppliedTemplate(defined in CISCO-VISM-MODULE-MIB MIB)
+         object.  
+
+         Before establishing the connection, endpoints on either
+         VISM's should have been created and the line signaling
+         type needs to be configured.
+        "
+    ::= { vismRtpConnGrp 1 }
+
+vismRtpConnGrpEntry OBJECT-TYPE
+    SYNTAX      VismRtpConnGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the vismRtpConnGrpTable. 
+
+         This table applies to VoIP trunking applications. 
+
+         The configuration is retained after VISM card reboots.
+         vismRtpCodecType, vismRtpPktPeriod, vismRtpBearerTos,
+         vismRtpConnMode, vismRtpVad, vismRtpVadTimer,
+         vismRtpDtmfTransport, vismRtpCasTransport,
+         vismRtpTriRedundancy, and vismRtpICSEnable can be
+         modified after a connection is established. The
+         rest cannot be modified after a connection is created.
+        "
+    INDEX { vismRtpConnNum }
+    ::= { vismRtpConnGrpTable 1 }
+
+VismRtpConnGrpEntry ::=
+    SEQUENCE {
+          vismRtpConnNum              Integer32,
+          vismRtpEndptNum             Integer32,
+          vismRtpLocPort              Integer32,
+          vismRtpRmtIp                IpAddress,
+          vismRtpRmtPort              Integer32,
+          vismRtpConnMode             INTEGER,
+          vismRtpBearerTos            Integer32,
+          vismRtpCodecType            INTEGER,
+          vismRtpPktPeriod            INTEGER,
+          vismRtpVadTimer             Integer32,
+          vismRtpEcanEnable           TruthValue,
+          vismRtpTriRedundancy        TruthValue,
+          vismRtpDtmfTransport        TruthValue,
+          vismRtpCasTransport         TruthValue,
+          vismRtpVad                  TruthValue,
+          vismRtpICSEnable            TruthValue,
+          vismRtpConnAlarmState       INTEGER,
+          vismRtpRowStatus            RowStatus,
+          vismRtpLcn                  INTEGER,
+          vismRtpFailReason           INTEGER,
+          vismRtpPayloadType          Integer32
+       }
+
+vismRtpConnNum    OBJECT-TYPE
+    SYNTAX      Integer32(1..248)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            " This is the connection number in vismRtpConnGrpTable.
+            "
+        ::= { vismRtpConnGrpEntry 1 }
+
+vismRtpEndptNum   OBJECT-TYPE
+     SYNTAX     Integer32(1..248)
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+         "This object defines the endpoint number to which 
+          the RTP connection associated. It is the same as
+          mgEndpointNumber object in mgEndpointTable(defined
+          in CISCO-WAN-MG-MIB MIB).
+         "
+        ::= { vismRtpConnGrpEntry 2 }
+
+vismRtpLocPort   OBJECT-TYPE
+     SYNTAX     Integer32(49648..50142)
+     MAX-ACCESS read-create
+     STATUS     current 
+     DESCRIPTION
+         "This object determines the static local RTP port (UDP)
+          that this connection is using. Only even numbers
+          are allowed as odd numbers are used for RTCP(Real-time
+          transport control protocol) port. The local RTP port
+          has to be unique as only one connection is allowed
+          per port.
+         "
+        ::= { vismRtpConnGrpEntry 3 }
+ 
+vismRtpRmtIp OBJECT-TYPE
+     SYNTAX     IpAddress
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This object determines the remote VISM's IP address.
+         For every RTP connection the remote port and remote IP
+         pair needs to be unique.
+        "
+        ::= { vismRtpConnGrpEntry 4 }
+
+vismRtpRmtPort   OBJECT-TYPE
+     SYNTAX     Integer32(16384..50142) 
+     MAX-ACCESS read-create
+     STATUS     current 
+     DESCRIPTION
+         "This object determines the static remote RTP port (UDP)
+          that this connection is using. Only even numbers are
+          allowed as odd numbers are used for RTCP port.
+          The combination of remote ip and remote port needs
+          to be unique for a connection.
+         "
+        ::= { vismRtpConnGrpEntry 5 }
+ 
+vismRtpConnMode OBJECT-TYPE
+     SYNTAX     INTEGER {
+                  sendOnly       (1),
+                  rcvOnly        (2),
+                  sendAndRcv     (3),
+                  inactive       (4)
+            }
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This object defines the packet transfer mode 
+         on the connection. 
+         'sendOnly' - indicate send packet only.
+         'rcvOnly' - indicate receive packet only.
+         'sendAndRcv' - indicate send and receive packet.
+         'inactive' - indicate it cannot send nor receive any packet.  
+        "
+     DEFVAL { sendAndRcv }
+        ::= { vismRtpConnGrpEntry 6 }
+
+vismRtpBearerTos  OBJECT-TYPE
+     SYNTAX     Integer32(0..255)
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+         "This object is used to provision the bitmask used
+          for the Type Of Service (TOS) octet for cells carrying
+          VoIP bearer (RTP) traffic. The first 3 bits denotes
+          the precedence while the other bits denotes the TOS.
+          Default value 160 = 0xA0 => Precedence = 5 and TOS
+          nibble = 0. The bitmask can be only a byte value.
+         "
+     DEFVAL { 160 }
+        ::= { vismRtpConnGrpEntry 7 }
+
+vismRtpCodecType  OBJECT-TYPE
+     SYNTAX   INTEGER {
+                                g711u        (1),
+                                g711a        (2),
+                                g726r32000   (3),
+                                g729a        (4),
+                                g729ab       (5),
+                                clearChannel (6),
+                                g726r16000   (7),
+                                g726r24000   (8),
+                                g726r40000   (9),
+                                g723h        (11),
+                                g723ah       (12),
+                                g723l        (13),
+                                g723al       (14),
+                                lossless     (15)
+                       }
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+         "This object is used to define what codec is used 
+          to transport voice packets on a RTP connection.
+            1 represents  G.711u
+            2 represents  G.711a
+            3 represents  G.726 at rate 32 kbps
+            4 represents  G.729a
+            5 represents  G.729ab
+            6 represents  clear channel
+            7 represents  G.726 at rate 16 kbps
+            8 represents  G.726 at rate 24 kbps
+            9 represents  G.726 at rate 40 kbps
+           10 NOT USED
+           11 represents  G.723.1-H
+           12 represents  G.723.1a-H
+           13 represents  G.723.1-L
+           14 represents  G.723.1a-L
+           15 represents  Lossless
+        "
+        ::= { vismRtpConnGrpEntry 8 }
+
+              
+vismRtpPktPeriod  OBJECT-TYPE
+     SYNTAX    INTEGER 
+           {
+             tenms    (10),
+             twentyms (20),
+             thirtyms (30),
+             fourtyms (40),
+             sixtyms  (60)
+           }
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+         "This object gives the packetization period for a
+          particular codec in milli secs.
+             for  G.711a  allowed values are  10 & 20
+             for  G.711u  allowed values are 10 & 20
+             for  G.726 at rate 32 kbps allowed values
+                  are 10 ,20 30 & 40
+             for  G.729a   allowed values are 10, 20 ,30 & 40
+             for  G.729ab  allowed values are 10, 20, 30 & 40
+             for  clear channel allowed values are 10 and 20
+             for  G.726 at rate 16 kbps allowed values
+                  are 10 ,20 30 & 40   
+             for  G.726 at rate 24 kbps allowed values
+                  are 10 ,20 30 & 40
+             for  G.726 at rate 40 kbps allowed values
+                  are 10 ,20 30 & 40
+             for  G.723 family allowed values are
+                  30 & 60. Default is 30.
+             for  Lossless allowed values are 10 and 20
+        "
+     DEFVAL { tenms }
+        ::= { vismRtpConnGrpEntry 9 }
+
+vismRtpVadTimer  OBJECT-TYPE
+     SYNTAX     Integer32 (250..65535) 
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This attribute defines the hangover time for VAD
+         (Voice Activity Detection) in milliseconds. Once
+         the voice inactivity is detected, the gateway will
+         wait for this duration before activating silence
+         suppression.
+        "
+     DEFVAL { 250 }
+        ::= { vismRtpConnGrpEntry 10 }
+
+vismRtpEcanEnable  OBJECT-TYPE
+     SYNTAX     TruthValue
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This attribute defines whether Echo Cancellation
+         has to be enabled on this connection. If it is set
+         to 'true(1)', echo cancellation is enabled. If it
+         is set to 'false(2)', echo cancellation is disabled.
+        "
+     DEFVAL { true }
+        ::= { vismRtpConnGrpEntry 11 }
+
+vismRtpTriRedundancy  OBJECT-TYPE   
+     SYNTAX     TruthValue
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This object tells whether the packets need to be sent
+         in triplicates or not. If it is set to 'true(1)' the
+         packets will be sent three times else will only be sent
+         once (this is used for reliable links to save bandwidth).
+         This object will override the card level object
+         configuration vismVoIpTripleRedundancy(defined in 
+         CISCO-VISM-MODULE-MIB MIB).
+
+         The default value is 'true(1)' if vismRtpDtmfTransport
+         or vismRtpCasTransport is true, else 'false(2)'.
+        "
+        ::= { vismRtpConnGrpEntry 12 }
+
+vismRtpDtmfTransport  OBJECT-TYPE
+     SYNTAX     TruthValue
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This attribute defines whether the DTMF (Dual Tone
+         Multi Frequency) digits need to be transported to
+         the other end-point.
+        "
+     DEFVAL { true }
+        ::= { vismRtpConnGrpEntry 13 }
+
+vismRtpCasTransport  OBJECT-TYPE
+     SYNTAX     TruthValue
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This attribute defines whether the CAS(Channel
+        Associated Signaling)  bits need to be transported to
+        the other endpoint. In the case of switching application,
+        the CAS bits are backhauled to the Call Agent through
+        xGCP-CAS protocol.
+
+        Note that if the line signaling type is CAS the default
+        value is 'true(1)', else the default value is 'false(2)'.
+        "
+        ::= { vismRtpConnGrpEntry 14 }
+
+vismRtpVad  OBJECT-TYPE
+     SYNTAX     TruthValue
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This attribute defines whether the VAD has to be
+         applied on this channel, upon detection of silence.
+         For algorithms that do not have VAD standards,
+         Cisco-proprietary VAD can be applied and the
+         generic SID (Silence Information Descriptor) packet
+         as specified in I.366.2 standards can be sent to the
+         other end.
+
+         When the codecType is clearChannel VAD has to be off.
+        "
+     DEFVAL { false }
+        ::= { vismRtpConnGrpEntry 15 }
+
+vismRtpICSEnable  OBJECT-TYPE
+     SYNTAX     TruthValue
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+        "This attribute is used to enable or disable the ICS(Idle
+         Channel Suppression) for a connection.  This can be
+         specified while adding the connection and cannot be
+         modified.
+
+         When the ICS is enabled the DSP will look for the idle
+         CAS (ABCD bits) pattern specified in ds0IdleCode in
+         dsx0 MIB. If the idle pattern is present the DSP stops
+         generating voice packets towards network side. By default
+         the ds0IdleCode will be zero unless the user has configured
+         it before adding the cid. If the ds0IdleCode is changed
+         after the connection is added it will have no affect
+         unless the card is reset.
+        "
+     DEFVAL { false }
+        ::= { vismRtpConnGrpEntry 16 }
+
+vismRtpConnAlarmState  OBJECT-TYPE
+     SYNTAX     INTEGER 
+                 {
+                    active     (1),
+                    failed     (2)
+                 }
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "This attribute shows the alarm state of this connection.
+         It is set to 'failed' if the connection is in alarm else
+         will be set to 'active'.
+        "
+     DEFVAL { active }
+        ::= { vismRtpConnGrpEntry 17 }
+
+vismRtpRowStatus OBJECT-TYPE
+     SYNTAX     RowStatus 
+     MAX-ACCESS read-create
+     STATUS     current
+     DESCRIPTION
+         "This object is used to create, modify or delete an entry.
+          
+          An entry can be created using the 'createAndGo' option.
+          Before creating a RTP connection, the endpoint should
+          have already been created.  And the line signaling type
+          should have been configured.
+
+          For creating a RTP connection, vismRtpEndptNum,
+          vismRtpLocPort, vismRtpRmtPort, vismRtpRmtIp and
+          vismRtpCodecType need to be provided. For the other
+          objects the default will be applied.
+ 
+          The RowStatus would be set to 'active' by the agent
+          while creating a RTP connection. 
+    
+          While deleting a RTP connection the RowStaus will be
+          set to 'destroy'. The RTP connection won't be deleted
+          if there are still call going on the connection.
+         "
+        ::= { vismRtpConnGrpEntry 18 }
+
+
+vismRtpLcn OBJECT-TYPE
+     SYNTAX     INTEGER (131..510) 
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+         "This object is used to indicate the RTP related
+          LCN (Logical channel number). Only the primary
+          PVC (Permanent virtual circuit) is used for this
+          object.
+         "
+        ::= { vismRtpConnGrpEntry 19 }
+
+vismRtpFailReason OBJECT-TYPE
+     SYNTAX     INTEGER {
+                  self       (1),
+                  highLevel  (2),
+                  both       (3),
+                  notFail    (4)
+                 }
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+         "This object is used to indicate the RTP failure
+          reason.
+             'self' : fail because of non-PVC alarm.
+             'highLevel' : fail because of PVC alarm.
+             'both' :  fail because of both PVC and non-PVC alarm.
+             'notFail' : no failure.
+         "
+     DEFVAL { notFail }
+        ::= { vismRtpConnGrpEntry 20 }
+
+vismRtpPayloadType OBJECT-TYPE
+     SYNTAX      Integer32 (0..256)
+     MAX-ACCESS  read-create
+     STATUS      current
+     DESCRIPTION
+        "This object specifies the payload type to be used, when
+         adding connection(s) in VoIP Trunking.
+
+         IANA (Internet assigned number Authority) values (0..95)
+         are static payload and (96..127) are dynamic payload type.
+         The values (128..255) are define here to accomodate
+         any future extension, also 256 is chosen as a default
+         value to avoid payload conflict bewteen gateways.
+         The value of 256 indicate the DSP should use a
+         assigned payload value for the codec. 
+        "
+     DEFVAL { 256 }
+        ::= { vismRtpConnGrpEntry 21 }
+
+--
+-- vismRtpBearerStatsTable 
+--
+
+vismRtpBearerStatsTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismRtpBearerStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This table contains the RTP bearer statistics."
+    ::= { vismRtpBearerStatsGrp 1 }
+
+vismRtpBearerStatsEntry OBJECT-TYPE
+    SYNTAX      VismRtpBearerStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+      "An entry is implicitly created when a RTP connection is 
+       established. All the statistics in this table can not be
+       modified by user.
+      "
+    INDEX  { vismRtpConnNum }
+    ::= { vismRtpBearerStatsTable 1 }
+
+VismRtpBearerStatsEntry ::= SEQUENCE {
+             vismRtpPktsSent          Counter32,
+             vismRtpPktsRcv           Counter32,
+             vismRtpOctsSent          Counter32,
+             vismRtpOctsRcv           Counter32,
+             vismRtpPktsLost          Counter32,
+             vismRtpCntsCleared       TruthValue,
+             vismRtpInterArrivalJitter Unsigned32,
+             vismRtpLatency            Unsigned32
+             }
+
+vismRtpPktsSent    OBJECT-TYPE
+     SYNTAX     Counter32 
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "This object shows the number of packets sent to network side.
+        "
+        ::= { vismRtpBearerStatsEntry 1 }
+
+vismRtpPktsRcv    OBJECT-TYPE
+     SYNTAX     Counter32
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "This object shows the number of packets received from network 
+         side.
+        "
+        ::= { vismRtpBearerStatsEntry 2 }
+
+vismRtpOctsSent    OBJECT-TYPE
+     SYNTAX     Counter32
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "This object shows the number of octets sent to network side.
+        "
+        ::= { vismRtpBearerStatsEntry 3 }
+
+vismRtpOctsRcv    OBJECT-TYPE
+     SYNTAX     Counter32
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "This object shows the number of octets received from
+         network side.
+        "
+        ::= { vismRtpBearerStatsEntry 4 }
+
+vismRtpPktsLost    OBJECT-TYPE
+     SYNTAX     Counter32
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "This object shows the number of RTCP packets lost due to
+         invalid connection mode.
+        "
+        ::= { vismRtpBearerStatsEntry 5 }
+
+vismRtpCntsCleared    OBJECT-TYPE
+     SYNTAX     TruthValue
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+        "This object is used to clear all the above objects.
+        "
+        ::= { vismRtpBearerStatsEntry 6 }
+
+vismRtpInterArrivalJitter    OBJECT-TYPE
+     SYNTAX     Unsigned32
+     UNITS      "milliseconds"
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "This object provides the average interarrival jitter 
+         value between packets during a VoIP call.
+        "
+     REFERENCE 
+        "RFC3550"
+        ::= { vismRtpBearerStatsEntry 7 }
+
+vismRtpLatency    OBJECT-TYPE
+     SYNTAX     Unsigned32
+     UNITS      "milliseconds"
+     MAX-ACCESS read-only
+     STATUS     current
+     DESCRIPTION
+        "The round trip delay for a voice packet to travel 
+         from the originating end of a VoIP call to the 
+         terminating end and back.
+        "
+     REFERENCE 
+        "RFC3550"
+        ::= { vismRtpBearerStatsEntry 8 }
+
+-- *****************************************************************
+-- RTP connection group notification
+-- *****************************************************************
+
+vismRtpConnNotificationPrefix OBJECT IDENTIFIER ::= 
+                                { ciscoWanRtpConnMIB 2 }
+
+vismRtpConnNotifications OBJECT IDENTIFIER      ::= 
+                           { vismRtpConnNotificationPrefix 0 }
+
+-- **********************************************************************
+-- Conformance
+-- **********************************************************************
+
+--
+-- conformance information
+--
+
+vismRtpConnMIBConformance  OBJECT IDENTIFIER  ::= 
+                             { ciscoWanRtpConnMIB 3 }
+
+vismRtpConnMIBCompliances  OBJECT IDENTIFIER  ::= 
+                             { vismRtpConnMIBConformance 1 }
+
+vismRtpConnMIBGroups       OBJECT IDENTIFIER  ::= 
+                             { vismRtpConnMIBConformance 2 }
+
+
+--
+-- Conformance and compliance statements statements
+--
+
+vismRtpConnMIBCompliance MODULE-COMPLIANCE
+    STATUS deprecated --Replaced by vismRtpConnMIBComplianceRev1
+    DESCRIPTION
+            " The complaince statement for RTP connection group
+              which implements vismRtpConnGrp MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { 
+                          vismRtpConnGroup,
+                          vismRtpBearerStatsGroup 
+                         }
+    ::= { vismRtpConnMIBCompliances 1 }
+
+vismRtpConnMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+            " The complaince statement for RTP connection group
+              which implements vismRtpConnGrp MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { 
+                          vismRtpConnGroup,
+                          vismRtpBearerStatsGroup,
+                          vismRtpBearerStatsGroupSup1
+                         }
+    ::= { vismRtpConnMIBCompliances 2 }
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+
+vismRtpConnGroup OBJECT-GROUP
+         OBJECTS {
+          vismRtpEndptNum,
+          vismRtpLocPort,
+          vismRtpRmtIp,
+          vismRtpRmtPort,
+          vismRtpConnMode,
+          vismRtpBearerTos,
+          vismRtpCodecType,
+          vismRtpPktPeriod,
+          vismRtpVadTimer,
+          vismRtpEcanEnable,
+          vismRtpTriRedundancy,
+          vismRtpDtmfTransport,
+          vismRtpCasTransport,
+          vismRtpVad,
+          vismRtpICSEnable,
+          vismRtpConnAlarmState,
+          vismRtpRowStatus,
+          vismRtpLcn,                
+          vismRtpFailReason,
+          vismRtpPayloadType
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group contains objects related to configuration 
+             of RTP connections.
+             "
+    ::= { vismRtpConnMIBGroups 1 }
+
+vismRtpBearerStatsGroup OBJECT-GROUP
+         OBJECTS {
+             vismRtpPktsSent,
+             vismRtpPktsRcv,
+             vismRtpOctsSent,
+             vismRtpOctsRcv,
+             vismRtpPktsLost,
+             vismRtpCntsCleared
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group contains counters for each RTP connection.
+             "
+    ::= { vismRtpConnMIBGroups 2 }
+
+vismRtpBearerStatsGroupSup1 OBJECT-GROUP
+         OBJECTS {
+             vismRtpInterArrivalJitter,
+             vismRtpLatency
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group is a supplement for vismRtpBearerStatsGroup
+             and contains statistics for each RTP connection.
+             "
+    ::= { vismRtpConnMIBGroups 3 }
+
+END
+
+

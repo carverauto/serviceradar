@@ -1,0 +1,859 @@
+-- *****************************************************************
+-- CISCO-WAN-SRCP-MIB.my  
+--
+-- January 2004, George Ogagan 
+--
+-- Copyright (c) 1999, 2000, 2001, 2002, 2003, 2004 by
+-- Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-WAN-SRCP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    Integer32, 
+    Counter32, 
+    IpAddress 
+		FROM SNMPv2-SMI
+    DisplayString
+                FROM SNMPv2-TC
+    MODULE-COMPLIANCE, 
+    OBJECT-GROUP    
+ 		FROM SNMPv2-CONF
+    ciscoWan    FROM CISCOWAN-SMI
+    mgcRedundancyGrpNum FROM CISCO-WAN-MGC-REDUN-MIB;
+
+ciscoWanSrcpMIB MODULE-IDENTITY
+    LAST-UPDATED "200401300000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+ 
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+ 
+                        Tel: +1 800 553-NETS
+ 
+                E-mail: cs-wanatm@cisco.com"
+
+    DESCRIPTION
+            "The MIB module for managing SRCP(Simple Resource
+             Coordination Protocol) implementations. SRCP
+             is a resource coordination protocol used
+             between a MGC(Media Gateway Controller) and
+             a MG(Media Gateway). SRCP MIB is applicable
+             to both controllers (SRCP clients) and gateways
+             (SRCP servers).
+             
+             MGMIB: This is the short name used for 
+                    CISCO-WAN-MG-MIB in this MIB."
+
+    REVISION  "200401300000Z"
+    DESCRIPTION
+        "Update descriptions in the MIB.
+        "
+
+    REVISION  "200012260000Z"
+    DESCRIPTION 
+        "Changed description of srcpRequestMaxTimeout which
+         had a reference to an object srcpRequestMinTimeout
+         which should actually be srcpRequestTimeout.
+        "
+
+    REVISION  "200008310000Z"
+    DESCRIPTION 
+        "moved srcpRequestMinTimeout, srcpRequestRetries
+         and srcpRequestMaxTimeout objects to new subgroup
+         srcpAdminRetyObject        
+        "
+
+    REVISION "200007210000Z"
+    DESCRIPTION 
+        "Added following new objects for exponential retry
+         srcpRequestTimeOut , srcpRequestRetries, 
+         srcpRequestMaxTimeout
+        "
+    REVISION  "200005280000Z"
+    DESCRIPTION
+        "Moved some objects from the srcpPeerTable to the 
+         srcpPeerGrpTable for the implementation of the 
+         MGC Redundancy Feature.
+        "
+
+    REVISION  "200005240000Z"
+    DESCRIPTION
+        "added srcpRequestMinTimeout, srcpRequestRetries and 
+         srcpRequestMaxTimeout objects
+        "
+
+    REVISION  "199911230000Z"
+    DESCRIPTION 
+        "Added DEFVAL clause for srcpPeerHeartbeatInterval, 
+         srcpPeerMaxPduSize.
+        "
+
+    REVISION  "199911010000Z"
+    DESCRIPTION
+        "Changed the description of srcpPeerHeartbeatInterval
+         to say that value less than 100 (except 0) is not
+         allowed.
+        "
+
+    REVISION  "199910210000Z"
+    DESCRIPTION 
+        "Changed the description of TimeSinceHeartbeat as it 
+         was saying return -1 if in locked state or unassociated 
+         state. But -1 is not a valid value as per the specified 
+         range. Changed it to return 0.
+        "
+
+    REVISION  "199906230000Z"
+    DESCRIPTION 
+        "Added definition for srcpStatsPeerName & changed 
+         srcpPeerName to read-only.
+        "
+
+    REVISION  "199906070000Z"
+    DESCRIPTION 
+        "Added DEFVAL clause for srcpPortNumber and 
+         srcpPeerPortNumber
+        "
+
+    REVISION  "199904290000Z"
+    DESCRIPTION 
+        "Initial version of the MIB.
+        "
+    ::= { ciscoWan 11 }
+
+srcpObjects                OBJECT IDENTIFIER ::= { ciscoWanSrcpMIB 1 }
+srcpAdminObjects           OBJECT IDENTIFIER ::= { srcpObjects 1 }
+srcpStatsObjects           OBJECT IDENTIFIER ::= { srcpObjects 2 }
+srcpAdminRetyObjects       OBJECT IDENTIFIER ::= { srcpObjects 3 }
+
+-- *********************************************************************
+-- The SRCP administration Group 
+-- *********************************************************************
+
+srcpVersion OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (1..64)) 
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The name of the SRCP protocol version for
+         exmaple SRCP 1.0.2.  If MGMIB is supported,
+         this name corresponds to mgProtocolName
+         (defined in CISCO-WAN-MG-MIB MIB) in an
+         entry to mgSupportedProtocolTable.
+        "
+    ::= { srcpAdminObjects 1 }
+
+srcpPortNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1025..65535)  
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    	"This object is used to configure the UDP port used 
+         for SRCP on the system (local UDP port). It is
+         configurable only if the system is in a locked or
+         disabled state (i.e If MGMIB Is supported,
+         mgAdministrativeState(defined in CISCO-WAN-MG-MIB MIB)
+         should be 'locked' before the UDP port can be configured).
+        "
+    DEFVAL { 2428 }
+    ::= { srcpAdminObjects 2 }
+
+-- **************************************************************************
+--  SRCP Peer Table
+-- **************************************************************************
+
+srcpPeerTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF SrcpPeerEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This is a table which is used to provision peer-specific
+         SRCP configuration and administration information. 
+         Each table entry corresponds to an SRCP peer as 
+         identified by its domain name(srcpPeerName).
+        "
+    ::= { srcpAdminObjects 3 }
+
+srcpPeerEntry OBJECT-TYPE
+    SYNTAX     SrcpPeerEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Represents an individual table entry in srcpPeerTable.
+        Each row corresponds to an SRCP peer and is identified
+        by its domain name (srcpPeerName). 
+
+        Entries in this table are implicitly created by the agent. 
+
+        If the agent supports MGMIB, this occurs as follows:
+        An entry shall be created when an entry is created in the 
+        mgcRedundancyGrpProtocolTable(defined in
+        CISCO-WAN-MGC-REDUN-MIB MIB) and when
+        mgProtocolNumber (defined in CISCO-WAN-MG-MIB MIB)
+        refers to SRCP as supported protocol. An entry will
+        be made for all MGC(Media Gateway Controller) in
+        that MGC Redundancy Group. Accordingly, an entry
+        shall be deleted if the corresponding entry in
+        the mgcRedundancyGrpProtocolTable is deleted.
+
+        If the agent does not support MGMIB, entry creation
+        might occur when the first SRCP communication with
+        an IP address/domain  name occurs.
+
+        if MGC Redundacy feature is supported the following objects:
+        srcpPeerHeartbeatInterval, srcpPeerTimeSinceHeartbeat
+        rcpPeerMaxPduSize are not meaningful here. These objects
+        are defined per MGC Redundancy Group rather than per MGC.
+        "
+        INDEX   { srcpPeerId }
+    ::= { srcpPeerTable 1 }
+
+SrcpPeerEntry ::= SEQUENCE {
+                srcpPeerId                   Integer32, 
+                srcpPeerName                 DisplayString,
+                srcpPeerPortNumber           Integer32, 
+                srcpPeerHeartbeatInterval    Integer32, 
+                srcpPeerTimeSinceHeartbeat   Integer32, 
+                srcpPeerMaxPduSize           Integer32
+        }
+
+
+srcpPeerId OBJECT-TYPE
+    SYNTAX      Integer32(1..65535) 
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the SRCP peer and serves
+         as index to this table. If MGMIB is supported, 
+         this is the same as the mgcNumber(defined
+         in CISCO-WAN-MG-MIB MIB) from the mgcTable.
+        "
+    ::= { srcpPeerEntry 1 }
+
+srcpPeerName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (1..64)) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the name of the SRCP peer. 
+         If MGMIB is supported, this is the same as the 
+         mgcName from the mgcTable. 
+        "
+    ::= { srcpPeerEntry 2 }
+
+srcpPeerPortNumber  OBJECT-TYPE
+    SYNTAX      Integer32 (1025..65535)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object is used to configure the UDP port of 
+        the SRCP peer.
+        "
+    DEFVAL { 2428 }
+    ::= { srcpPeerEntry 3 }
+
+srcpPeerHeartbeatInterval  OBJECT-TYPE
+    SYNTAX      Integer32 (0..65535)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      deprecated
+    DESCRIPTION
+        "This object is used to configure the length of the 
+         heartbeat interval, in milliseconds. The heartbeat
+         interval indicate when the GW(Gateway) is expected to
+         receive a heartbeat from a specific peer or MGC group.
+         If value is 0, heartbeat for this peer is not
+         monitored.  The heartbeat interval less than 100 is
+         not allowed (except 0).
+
+         If MGC Redundancy is supported, this object is not 
+         effective. Instead, the user should use
+         srcpPeerGrpHeartbeatInterval. 
+        "
+    DEFVAL { 0 }
+    ::= { srcpPeerEntry 4 }
+
+srcpPeerTimeSinceHeartbeat  OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      deprecated
+    DESCRIPTION
+        "The time since the last heartbeat was received, in
+         milliseconds.  This represents the difference between
+         the current time and the last time an SRCP command was
+         received. 
+
+         A value of 0 shall be returned if the heartbeat is not
+         monitored.  Even if the heartbeat is monitored, a value
+         of 0 shall be returned if any of the following is true:
+
+         i)  The system is locked or disabled (as indicated by 
+             mgAdministrativeState). 
+         ii) The srcpPeer is unassociated as indicated by
+             mgcAssociationState(defined in CISCO-WAN-MG-MIB MIB).
+
+         If MGC Redundancy is supported, this object is not
+         effective. Instead, the user should use
+         srcpPeerGrpTimeSinceHeartbeat.
+        "
+    ::= { srcpPeerEntry 5 }
+
+srcpPeerMaxPduSize  OBJECT-TYPE
+    SYNTAX      Integer32 (4095..65535)
+    UNITS       "octets"
+    MAX-ACCESS  read-write
+    STATUS      deprecated
+    DESCRIPTION
+        "This object is used to configure the maximum UDP
+         PDU(Protocol Data Unit) size, in octets, that may
+         be used for SRCP communications with the peer. 
+
+         This value may not be configurable for all agents.
+
+         If MGC Redundancy is supported, this object is not
+         effective. Instead, the user should use
+         srcpPeerGrpMaxPduSize.
+        " 
+    DEFVAL { 16384 }
+    ::= { srcpPeerEntry 6 }
+
+
+-- **************************************************************************
+--  SRCP Peer Group Table
+-- **************************************************************************
+
+srcpPeerGrpParamTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF SrcpPeerGrpParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table is used to provision SRCP parameters for
+         an MGC Redundancy group. MGCs can be configured as part
+         of MGC Redundancy groups. This feature allows for
+         redundant call agents.
+
+         Each table entry corresponds to an SRCP peer entry that is
+         identified by the MGC Redundancy group number.
+        "
+    ::= { srcpAdminObjects 4 }
+
+srcpPeerGrpParamEntry OBJECT-TYPE
+    SYNTAX      SrcpPeerGrpParamEntry 
+    MAX-ACCESS  not-accessible 
+    STATUS      current
+    DESCRIPTION
+        "Represents an individual table entry in the
+         srcpPeerGrpParamTable. Each row corresponds to 
+         an MGC Redundancy Group and is identified by the
+         MGC Redundancy Group Number.
+             
+         Entries are implicitly created when the SRCP protocol 
+         is added for an MGC Redundancy Group. The entry will
+         be removed if the SRCP protocol is removed for an MGC 
+         Redundancy Group.
+        "
+    INDEX { mgcRedundancyGrpNum }
+    ::= {srcpPeerGrpParamTable 1 }
+
+SrcpPeerGrpParamEntry ::= SEQUENCE {
+                        srcpPeerGrpHeartbeatInterval   Integer32,
+                        srcpPeerGrpTimeSinceHeartbeat  Integer32,
+                        srcpPeerGrpMaxPduSize          Integer32
+                    }
+
+srcpPeerGrpHeartbeatInterval  OBJECT-TYPE 
+    SYNTAX      Integer32 (0..65535)      
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "This object is used to configure the length of the
+         heartbeat interval, in milliseconds. If 0, heartbeat 
+         for this peer Group is not monitored. The heartbeat
+         interval less than 100 is not allowed (except 0).
+        "
+    DEFVAL { 0 }
+    ::= { srcpPeerGrpParamEntry 1 }
+
+srcpPeerGrpTimeSinceHeartbeat  OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The time since the last heartbeat was received,
+        in milliseconds. This represents the difference
+        between the current time and the last time an SRCP 
+        command was received.
+
+        A value of 0 shall be returned if the heartbeat is not
+        monitored.  Even if the heartbeat is monitored, a value 
+        of 0 shall be returned if any of the following is true:
+
+        i)  The system is locked or disabled (as indicated by
+            mgAdministrativeState).
+        ii) The stateChangeNtfy flag is disabled for the srcpPeer
+            Group (as indicated by mgcRedundancyGrpStateChangeNtfy
+            of CISCO-WAN-MGC-REDUN-MIB).
+        "
+    DEFVAL { 0 }
+    ::= { srcpPeerGrpParamEntry 2 }
+
+srcpPeerGrpMaxPduSize  OBJECT-TYPE
+    SYNTAX      Integer32 (4095..65535)
+    UNITS       "octets"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object is used to configure the maximum UDP PDU size,
+         in octets, that may be used for SRCP communications with 
+         the peer. This value may not be configurable for all agents.
+        "
+    DEFVAL { 16384 }
+    ::= { srcpPeerGrpParamEntry 3 }
+
+
+-- *********************************************************************
+-- The SRCP administration Retry Group 
+-- *********************************************************************
+
+srcpRequestTimeOut OBJECT-TYPE
+    SYNTAX      Integer32 (1..10000)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the minimum timeout value.
+
+         This value along with srcpRequestMaxTimeout and
+         srcpRequestRetries is used to determine the exponential
+         retry interval for retransmitting unacknowledged SRCP
+         messages.
+
+         It is the responsibility of the requesting entity to
+         provide suitable timeouts for all outstanding commands,
+         and to retry commands when timeouts exceeded.
+
+         The default value of this object is 500 milliseconds.
+
+         When the value of this object changes srcpAdminObjects
+         group changed trap will be sent as specify by
+         vismConfigChangeTypeBitMap in CISCO-VISM-MODULE-MIB.
+        "
+    ::= { srcpAdminRetyObjects 1 }
+
+srcpRequestRetries  OBJECT-TYPE
+    SYNTAX      Integer32 (0..10)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of retries for a SRCP 
+         request that exceeds timeout. It is the responsibility 
+         of the requesting entity to provide suitable timeouts for 
+         all outstanding commands, and to retry when times out.
+
+         The default value of this object is 3.
+
+         When the value of this object changes srcpAdminObjects
+         group changed trap will be sent as specify by
+         vismConfigChangeTypeBitMap in CISCO-VISM-MODULE-MIB.
+        "
+    ::= { srcpAdminRetyObjects 2 }
+
+srcpRequestMaxTimeout  OBJECT-TYPE
+    SYNTAX      Integer32 (1..10000)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the maximum timeout value.
+
+         This timer value is used along with srcpRequestTimeOut and
+         srcpRequestRetries to determine the exponential retry
+         interval for retransmitting unacknowledged SRCP messages.
+
+         The value of this timer has to be greater than or equal to
+         srcpRequestTimeOut.
+
+         The default value of this object is 500 milliseconds.
+
+         When the value of this object changes srcpAdminObjects
+         group changed trap will be sent as specify by
+         vismConfigChangeTypeBitMap in CISCO-VISM-MODULE-MIB.
+        "
+      ::= { srcpAdminRetyObjects 3 }
+
+
+-- *****************************************************************
+-- The SRCP Statistics table
+-- *****************************************************************
+srcpPeerStatsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF SrcpPeerStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains SRCP statistics information since
+         reset. SRCP statistics are kept in this table, with
+         each table entry containing the statistics of SRCP
+         messages that communicated with a peer at a specific
+         IP address of the peer.
+
+         It differs from the SRCP peer table which maintains
+         information on a per call agent basis as identified
+         by their domain names.
+	"
+    ::= { srcpStatsObjects 1 }
+
+srcpPeerStatsEntry OBJECT-TYPE
+    SYNTAX      SrcpPeerStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The row of the srcpPeerStatsTable contains information about 
+         SRCP message statistics per IP address of the MGC.
+
+         An entry is implicitly created and deleted by the agent. 
+
+         There can be two cases:
+
+         1. Case of Internal address resolution : In this case IP
+            addresses of all SRCP peers are resolved internally.
+            If the agent supports the MGMIB, the following
+            referential integrity rules apply:
+
+         When an entry is added to mgcResolutionTable defined in
+         CISCO-WAN-MG-MIB with a specific IP address, an entry 
+         is created in this srcpPeerStatsTable for that IP address. 
+         When an entry is deleted from mgcResolutionTable,
+         the row with the corresponding IP address in this table
+         will be deleted.
+            
+         2. Case of External address resolution : If there is at
+            least one Call agent whose IP address is resolved
+            externally, an entry is created whenever SRCP
+            communication occurs with a new IP address. Table
+            entries are never deleted, but must be 
+            nonpersistent in agent implementations, i.e. must be
+            purged in case of a system shutdown/restart.
+	"
+    INDEX   { srcpStatsPeerIpAddress }
+    ::= { srcpPeerStatsTable 1 }
+
+
+SrcpPeerStatsEntry ::= SEQUENCE {
+        srcpStatsPeerIpAddress       IpAddress,
+        srcpStatsPeerName            DisplayString,
+        packetsDiscardedCnts         Counter32,
+        augwCnts                     Counter32,
+        augwFailCnts                 Counter32,
+        aulnCnts                     Counter32,
+        aulnFailCnts                 Counter32,
+        ntfyCnts                     Counter32,
+        ntfyFailCnts                 Counter32,
+        rqntCnts                     Counter32,
+        rqntFailCnts                 Counter32
+    }
+
+
+srcpStatsPeerIpAddress  OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the IP address of the  
+         SRCP peer and serves as index to the table.
+        "
+    ::= { srcpPeerStatsEntry 1 }
+
+srcpStatsPeerName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (1..64)) 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Denotes the name of the SRCP peer. This is the
+         same as the mgcName from the mgcTable. It is provided
+         here as a read-only parameter as a convinience feature.
+        "
+    ::= { srcpPeerStatsEntry 2 }
+
+
+packetsDiscardedCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of packets that were received and discarded. 
+         The packets may get discarded because of indecipherable 
+         PDUs like bad protocol version, bad command verb etc, or 
+         because of unknown transaction IDs (in case of SRCP clients).
+        "
+    ::= { srcpPeerStatsEntry 3 }
+ 
+augwCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of AUGW(Audit Gateway) commands received
+         from the peer on this IP address."
+    ::= { srcpPeerStatsEntry 4 }
+
+aulnCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of AULN(Audit Line) commands received from 
+         or sent to the peer on this IP address.
+        "
+    ::= { srcpPeerStatsEntry 5 }
+
+rqntCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of RQNT(Notification Request) commands
+         received from or sent to the peer on this IP address.
+        "
+    ::= { srcpPeerStatsEntry 6 }
+
+ntfyCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total number of NTFY(Notify) commands received from 
+         or sent to the peer on this IP address.
+        "
+    ::= { srcpPeerStatsEntry 7 }
+
+augwFailCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "For MG : The total number of AUGW commands 
+         received that were responded to with a failure 
+         return code.
+
+         For MGC : The total number of AUGW commands sent which
+         were timed out without a response or for which a response
+         with failure return code was received.
+        "
+    ::= { srcpPeerStatsEntry 8 }
+
+aulnFailCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Media gateway : The total number of AULN commands 
+         received that were responded to with a failure 
+         return code.
+
+         Media gateway controller : The total number of AULN
+         commands sent which were timed out without a response or 
+         For which a response with failure return code
+         was received.
+        "
+    ::= { srcpPeerStatsEntry 9 }
+
+rqntFailCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Media gateway : The total number of RQNT commands 
+         received that were responded to with a failure return 
+         code.
+
+         Media gateway controller : The total number of RQNT 
+         commands sent which were timed out without a response 
+         or for which a response with failure return code was 
+         received.
+        "
+    ::= { srcpPeerStatsEntry 10 }
+
+ntfyFailCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Media gateway : The total number of NTFY commands sent 
+         which were timed out without a response or for which a
+         response with failure return code was received.
+
+         Media gateway controller: The total number of NTFY commands 
+         received that were responded to with a failure return code.
+        "
+    ::= { srcpPeerStatsEntry 11 }
+
+--**********************************************************************
+-- Conformance 
+--**********************************************************************
+
+-- 
+-- conformance information
+--
+
+srcpMIBConformance OBJECT IDENTIFIER ::= { ciscoWanSrcpMIB 3 }
+
+srcpMIBCompliances OBJECT IDENTIFIER ::= { srcpMIBConformance 1 }
+
+srcpMIBGroups      OBJECT IDENTIFIER ::= { srcpMIBConformance 2 }
+
+
+-- 
+-- deprecated compliance statement
+--
+
+srcpMIBCompliance MODULE-COMPLIANCE
+    STATUS  deprecated
+    DESCRIPTION
+            "The compliance statement for the SNMPv2 entities 
+             which implement SRCP MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { srcpConfigurationGroup,
+                           srcpStatisticsGroup
+                         }
+    ::= { srcpMIBCompliances 1 }
+
+srcpMIBComplaince2 MODULE-COMPLIANCE
+     STATUS deprecated
+     DESCRIPTION
+           " The compliance  statement for the SNMPv2 entities
+             which implement SRCP MIB."
+     MODULE -- this module
+          MANDATORY-GROUPS { srcpConfigurationGroup2,
+                           srcpStatisticsGroup2
+                         }
+  ::= { srcpMIBCompliances 2 }
+
+-- current complaince statements
+
+srcpMIBComplaince3 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance  statement for the SNMPv2 entities
+             which implement SRCP MIB."
+    MODULE -- this module
+    MANDATORY-GROUPS { srcpConfigurationGroup3,
+                       srcpStatisticsGroup2
+                     }
+    ::= { srcpMIBCompliances 3 }
+
+--
+-- units of conformance
+--
+-- deprecated Groups
+--
+srcpConfigurationGroup OBJECT-GROUP
+	OBJECTS {
+                srcpVersion,
+                srcpPortNumber,
+		srcpPeerName, 
+		srcpPeerPortNumber, 
+		srcpPeerHeartbeatInterval, 
+		srcpPeerTimeSinceHeartbeat, 
+                srcpPeerMaxPduSize
+		}
+
+    STATUS    deprecated
+    DESCRIPTION
+        "This group contains objects related to configuration 
+        of SRCP.  Min Access of read only is permissible for 
+        system providing only a fixed SRCP port."
+    ::= { srcpMIBGroups 1 }
+
+srcpStatisticsGroup OBJECT-GROUP
+	OBJECTS {
+                srcpStatsPeerName,
+		packetsDiscardedCnts,
+		augwCnts,
+		aulnCnts,
+		rqntCnts,
+		ntfyCnts,
+		augwFailCnts,
+		aulnFailCnts,
+		rqntFailCnts,
+		ntfyFailCnts
+		}
+
+    STATUS    deprecated
+    DESCRIPTION
+        "This group contains the statistics per SRCP peer."
+    ::= { srcpMIBGroups 2 }
+
+srcpConfigurationGroup2 OBJECT-GROUP
+        OBJECTS {
+                srcpVersion,
+                srcpPortNumber,
+                srcpPeerName,
+                srcpPeerPortNumber,
+                srcpPeerHeartbeatInterval,
+                srcpPeerTimeSinceHeartbeat,
+                srcpPeerMaxPduSize,
+                srcpRequestTimeOut,
+                srcpRequestRetries,
+                srcpRequestMaxTimeout
+                }
+
+    STATUS    deprecated
+    DESCRIPTION
+            "This group contains objects related to configuration 
+            of SRCP. Min Access of read only is permissible for 
+            system providing only a fixed SRCP port."
+    ::= { srcpMIBGroups 3 }
+
+srcpConfigurationGroup3 OBJECT-GROUP
+        OBJECTS {
+                srcpVersion,
+                srcpPortNumber,
+                srcpPeerName,
+                srcpPeerPortNumber,
+                srcpPeerGrpHeartbeatInterval,
+                srcpPeerGrpTimeSinceHeartbeat,
+                srcpPeerGrpMaxPduSize,
+                srcpRequestTimeOut,
+                srcpRequestRetries,
+                srcpRequestMaxTimeout
+                }
+    
+        STATUS  current
+        DESCRIPTION
+                "This group contains objects related to configuration 
+                of SRCP.  Min Access of read only is permissible for 
+                system providing only a fixed SRCP port."
+        ::= { srcpMIBGroups 5 }
+
+srcpStatisticsGroup2 OBJECT-GROUP
+        OBJECTS {
+                srcpStatsPeerName,
+                packetsDiscardedCnts,
+                augwCnts,
+                aulnCnts,
+                rqntCnts,
+                ntfyCnts,
+                augwFailCnts,
+                aulnFailCnts,
+                rqntFailCnts,
+                ntfyFailCnts
+                }
+
+    STATUS    current
+    DESCRIPTION
+        "This group contains the statistics per SRCP peer."
+    ::= { srcpMIBGroups 4 }
+
+END

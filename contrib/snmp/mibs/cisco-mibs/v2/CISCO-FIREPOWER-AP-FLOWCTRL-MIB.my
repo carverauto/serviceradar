@@ -1,0 +1,253 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-FLOWCTRL-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- FLOWCTRL management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-FLOWCTRL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApFlowctrlFlowControl,
+    CfprApFlowctrlPriorityPause,
+    CfprApPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApFlowctrlObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        FLOWCTRL management information model package"
+    ::= { ciscoFirepowerApMIBObjects 31 }
+
+cfprApFlowctrlDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFlowctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition managed object table"
+    ::= { cfprApFlowctrlObjects 1 }
+
+cfprApFlowctrlDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApFlowctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFlowctrlDefinitionTable table."
+    INDEX { cfprApFlowctrlDefinitionInstanceId }
+    ::= { cfprApFlowctrlDefinitionTable 1 }
+
+CfprApFlowctrlDefinitionEntry ::= SEQUENCE {
+    cfprApFlowctrlDefinitionInstanceId                               CfprApManagedObjectId,
+    cfprApFlowctrlDefinitionDn                                       CfprApManagedObjectDn,
+    cfprApFlowctrlDefinitionRn                                       SnmpAdminString,
+    cfprApFlowctrlDefinitionDescr                                    SnmpAdminString,
+    cfprApFlowctrlDefinitionIntId                                    SnmpAdminString,
+    cfprApFlowctrlDefinitionName                                     SnmpAdminString,
+    cfprApFlowctrlDefinitionPolicyLevel                              Gauge32,
+    cfprApFlowctrlDefinitionPolicyOwner                              CfprApPolicyPolicyOwner
+}
+
+cfprApFlowctrlDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFlowctrlDefinitionEntry 1 }
+
+cfprApFlowctrlDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition:dn managed object property"
+    ::= { cfprApFlowctrlDefinitionEntry 2 }
+
+cfprApFlowctrlDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition:rn managed object property"
+    ::= { cfprApFlowctrlDefinitionEntry 3 }
+
+cfprApFlowctrlDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition:descr managed
+        object property"
+    ::= { cfprApFlowctrlDefinitionEntry 4 }
+
+cfprApFlowctrlDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition:intId managed
+        object property"
+    ::= { cfprApFlowctrlDefinitionEntry 5 }
+
+cfprApFlowctrlDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition:name managed object property"
+    ::= { cfprApFlowctrlDefinitionEntry 6 }
+
+cfprApFlowctrlDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition:policyLevel
+        managed object property"
+    ::= { cfprApFlowctrlDefinitionEntry 7 }
+
+cfprApFlowctrlDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Definition:policyOwner
+        managed object property"
+    ::= { cfprApFlowctrlDefinitionEntry 8 }
+
+cfprApFlowctrlItemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApFlowctrlItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Item managed object table"
+    ::= { cfprApFlowctrlObjects 2 }
+
+cfprApFlowctrlItemEntry OBJECT-TYPE
+    SYNTAX           CfprApFlowctrlItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApFlowctrlItemTable table."
+    INDEX { cfprApFlowctrlItemInstanceId }
+    ::= { cfprApFlowctrlItemTable 1 }
+
+CfprApFlowctrlItemEntry ::= SEQUENCE {
+    cfprApFlowctrlItemInstanceId                                     CfprApManagedObjectId,
+    cfprApFlowctrlItemDn                                             CfprApManagedObjectDn,
+    cfprApFlowctrlItemRn                                             SnmpAdminString,
+    cfprApFlowctrlItemName                                           SnmpAdminString,
+    cfprApFlowctrlItemPrio                                           CfprApFlowctrlPriorityPause,
+    cfprApFlowctrlItemRcv                                            CfprApFlowctrlFlowControl,
+    cfprApFlowctrlItemSnd                                            CfprApFlowctrlFlowControl
+}
+
+cfprApFlowctrlItemInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApFlowctrlItemEntry 1 }
+
+cfprApFlowctrlItemDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Item:dn managed object property"
+    ::= { cfprApFlowctrlItemEntry 2 }
+
+cfprApFlowctrlItemRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Item:rn managed object property"
+    ::= { cfprApFlowctrlItemEntry 3 }
+
+cfprApFlowctrlItemName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Item:name managed object property"
+    ::= { cfprApFlowctrlItemEntry 4 }
+
+cfprApFlowctrlItemPrio OBJECT-TYPE
+    SYNTAX       CfprApFlowctrlPriorityPause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Item:prio managed object property"
+    ::= { cfprApFlowctrlItemEntry 5 }
+
+cfprApFlowctrlItemRcv OBJECT-TYPE
+    SYNTAX       CfprApFlowctrlFlowControl
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Item:rcv managed object property"
+    ::= { cfprApFlowctrlItemEntry 6 }
+
+cfprApFlowctrlItemSnd OBJECT-TYPE
+    SYNTAX       CfprApFlowctrlFlowControl
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower flowctrl:Item:snd managed object property"
+    ::= { cfprApFlowctrlItemEntry 7 }
+
+END

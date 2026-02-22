@@ -1,0 +1,628 @@
+-- *****************************************************************
+-- SYSUTIL-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-SYSUTIL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200SysutilMib MODULE-IDENTITY
+    LAST-UPDATED "201605060000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of SysUtil"
+    REVISION    "201707100000Z"
+    DESCRIPTION
+        "add voltage failure notification"
+    REVISION    "201605060000Z"
+    DESCRIPTION
+        "add CPU load notification"
+    REVISION    "201604280000Z"
+    DESCRIPTION
+        "add system memory notification"
+    REVISION    "201604260000Z"
+    DESCRIPTION
+        "add reboot notification"
+    REVISION    "201603010000Z"
+    DESCRIPTION
+        "add power supply state change notification"
+    REVISION    "201411060000Z"
+    DESCRIPTION
+        "add system LED"
+    REVISION    "201404280000Z"
+    DESCRIPTION
+        "add PSU"
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 24 }
+
+
+ME1200SysutilPowerSupplyStateType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of power supply state."
+    SYNTAX      INTEGER { active(0), standby(1), notPresent(2) }
+
+ME1200SysutilRebootType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of reboot."
+    SYNTAX      INTEGER { noReboot(0), coldReboot(1), warmReboot(2) }
+
+ME1200SysutilSystemLedClearType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of system LED status clearing."
+    SYNTAX      INTEGER { all(0), fatal(1), software(2), post(3), ztp(4), stackFwChk(5) }
+
+me1200SysutilMibObjects OBJECT IDENTIFIER
+    ::= { me1200SysutilMib 1 }
+
+me1200SysutilCapabilities OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 1 }
+
+me1200SysutilCapabilitiesWarmRebootSupported OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicate if warm restart is supported or not. true(1) means it is
+         supported. false(2) means it is not supported."
+    ::= { me1200SysutilCapabilities 1 }
+
+me1200SysutilCapabilitiesPostSupported OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicate if POST(Power On Self Test) is supported or not. true(1) means
+         it is supported. false(2) means it is not supported."
+    ::= { me1200SysutilCapabilities 2 }
+
+me1200SysutilCapabilitiesZtpSupported OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicate if ZTP(Zero Touch Provisioning) is supported or not. true(1)
+         means it is supported. false(2) means it is not supported."
+    ::= { me1200SysutilCapabilities 3 }
+
+me1200SysutilCapabilitiesStackFwChkSupported OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicate if stack firmware version check is supported or not. true(1)
+         means it is supported. false(2) means it is not supported."
+    ::= { me1200SysutilCapabilities 4 }
+
+me1200SysutilConfig OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 2 }
+
+me1200SysutilConfigSystemMemoryPool OBJECT IDENTIFIER
+    ::= { me1200SysutilConfig 1 }
+
+me1200SysutilConfigSystemMemoryPoolNotifThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The threshold value in percentage of free memory remaining in a memory
+         pool.A SNMP notification is sent when the free memory available goes
+         below this threshold value."
+    ::= { me1200SysutilConfigSystemMemoryPool 1 }
+
+me1200SysutilConfigSystemCpuLoad OBJECT IDENTIFIER
+    ::= { me1200SysutilConfig 2 }
+
+me1200SysutilConfigSystemCpuLoadMonitoringMode OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The mode of system CPU load monitoring. If the mode is enabled, a SNMP
+         notification is sent when the CPU load is over the average value in one
+         minute, five minutes or fifteen minutes."
+    ::= { me1200SysutilConfigSystemCpuLoad 1 }
+
+me1200SysutilConfigSystemCpuLoadMonitoringInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The interval value in senconds of CPU load monitoring."
+    ::= { me1200SysutilConfigSystemCpuLoad 2 }
+
+me1200SysutilStatus OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 3 }
+
+me1200SysutilStatusCpuLoad OBJECT IDENTIFIER
+    ::= { me1200SysutilStatus 1 }
+
+me1200SysutilStatusCpuLoadAverage100msec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 100 milli-seconds."
+    ::= { me1200SysutilStatusCpuLoad 1 }
+
+me1200SysutilStatusCpuLoadAverage1sec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 1 second."
+    ::= { me1200SysutilStatusCpuLoad 2 }
+
+me1200SysutilStatusCpuLoadAverage10sec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 10 seconds."
+    ::= { me1200SysutilStatusCpuLoad 3 }
+
+me1200SysutilStatusCpuLoadAverage1min OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 1 minute."
+    ::= { me1200SysutilStatusCpuLoad 4 }
+
+me1200SysutilStatusCpuLoadAverage5min OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 5 minutes."
+    ::= { me1200SysutilStatusCpuLoad 5 }
+
+me1200SysutilStatusCpuLoadAverage15min OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 15 minutes."
+    ::= { me1200SysutilStatusCpuLoad 6 }
+
+me1200SysutilStatusPowerSupplyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SysutilStatusPowerSupplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of power supply status."
+    ::= { me1200SysutilStatus 2 }
+
+me1200SysutilStatusPowerSupplyEntry OBJECT-TYPE
+    SYNTAX      ME1200SysutilStatusPowerSupplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the power supply status."
+    INDEX       { me1200SysutilStatusPowerSupplySwitchId, me1200SysutilStatusPowerSupplyPsuId }
+    ::= { me1200SysutilStatusPowerSupplyTable 1 }
+
+ME1200SysutilStatusPowerSupplyEntry ::= SEQUENCE {
+    me1200SysutilStatusPowerSupplySwitchId    Integer32,
+    me1200SysutilStatusPowerSupplyPsuId   Integer32,
+    me1200SysutilStatusPowerSupplyState   ME1200SysutilPowerSupplyStateType,
+    me1200SysutilStatusPowerSupplyDescription     ME1200DisplayString,
+    me1200SysutilVoltageStatus     ME1200DisplayString,
+}
+
+me1200SysutilStatusPowerSupplySwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200SysutilStatusPowerSupplyEntry 1 }
+
+me1200SysutilStatusPowerSupplyPsuId OBJECT-TYPE
+    SYNTAX      Integer32 (1..2)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of power supply."
+    ::= { me1200SysutilStatusPowerSupplyEntry 2 }
+
+me1200SysutilStatusPowerSupplyState OBJECT-TYPE
+    SYNTAX      ME1200SysutilPowerSupplyStateType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The state of power supply."
+    ::= { me1200SysutilStatusPowerSupplyEntry 3 }
+
+me1200SysutilStatusPowerSupplyDescription OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..30))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The description of power supply."
+    ::= { me1200SysutilStatusPowerSupplyEntry 4 }
+
+me1200SysutilVoltageStatus OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..63))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Status of differnt system voltages."
+    ::= { me1200SysutilStatusPowerSupplyEntry 5 }
+
+me1200SysutilStatusSystemLedTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SysutilStatusSystemLedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of system LED status."
+    ::= { me1200SysutilStatus 3 }
+
+me1200SysutilStatusSystemLedEntry OBJECT-TYPE
+    SYNTAX      ME1200SysutilStatusSystemLedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the system LED status."
+    INDEX       { me1200SysutilStatusSystemLedSwitchId }
+    ::= { me1200SysutilStatusSystemLedTable 1 }
+
+ME1200SysutilStatusSystemLedEntry ::= SEQUENCE {
+    me1200SysutilStatusSystemLedSwitchId      Integer32,
+    me1200SysutilStatusSystemLedDescription   ME1200DisplayString
+}
+
+me1200SysutilStatusSystemLedSwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200SysutilStatusSystemLedEntry 1 }
+
+me1200SysutilStatusSystemLedDescription OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..127))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The description of system LED status."
+    ::= { me1200SysutilStatusSystemLedEntry 2 }
+
+me1200SysutilStatusSystemMemoryPool OBJECT IDENTIFIER
+    ::= { me1200SysutilStatus 4 }
+
+me1200SysutilStatusSystemMemoryPoolValid OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The total memory size in kilobytes that is valid for the system."
+    ::= { me1200SysutilStatusSystemMemoryPool 1 }
+
+me1200SysutilStatusSystemMemoryPoolUsed OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The memory size in kilobytes that is currently in use by the
+         applications."
+    ::= { me1200SysutilStatusSystemMemoryPool 2 }
+
+me1200SysutilStatusSystemMemoryPoolFree OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The memory size in kilobytes that is currently unsed by the
+         applications."
+    ::= { me1200SysutilStatusSystemMemoryPool 3 }
+
+me1200SysutilControl OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 4 }
+
+me1200SysutilControlRebootTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SysutilControlRebootEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to reboot a swicth"
+    ::= { me1200SysutilControl 1 }
+
+me1200SysutilControlRebootEntry OBJECT-TYPE
+    SYNTAX      ME1200SysutilControlRebootEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each switch has a set of parameters"
+    INDEX       { me1200SysutilControlRebootSwitchId }
+    ::= { me1200SysutilControlRebootTable 1 }
+
+ME1200SysutilControlRebootEntry ::= SEQUENCE {
+    me1200SysutilControlRebootSwitchId    Integer32,
+    me1200SysutilControlRebootType    ME1200SysutilRebootType
+}
+
+me1200SysutilControlRebootSwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200SysutilControlRebootEntry 1 }
+
+me1200SysutilControlRebootType OBJECT-TYPE
+    SYNTAX      ME1200SysutilRebootType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of reboot. noReboot(0) does not reboot. coldReboot(1) is to do
+         cold reboot. warmReboot(2) is to do warm reboot, but this is optional.
+         The OID of vtssSysutilCapabilitiesWarmRebootSupported tells if warm
+         reboot is supported or not."
+    ::= { me1200SysutilControlRebootEntry 2 }
+
+me1200SysutilControlSystemLedTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SysutilControlSystemLedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to clear the system LED error status"
+    ::= { me1200SysutilControl 2 }
+
+me1200SysutilControlSystemLedEntry OBJECT-TYPE
+    SYNTAX      ME1200SysutilControlSystemLedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each switch has a set of parameters"
+    INDEX       { me1200SysutilControlSystemLedSwitchId }
+    ::= { me1200SysutilControlSystemLedTable 1 }
+
+ME1200SysutilControlSystemLedEntry ::= SEQUENCE {
+    me1200SysutilControlSystemLedSwitchId     Integer32,
+    me1200SysutilControlSystemLedClearStatus      ME1200SysutilSystemLedClearType
+}
+
+me1200SysutilControlSystemLedSwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200SysutilControlSystemLedEntry 1 }
+
+me1200SysutilControlSystemLedClearStatus OBJECT-TYPE
+    SYNTAX      ME1200SysutilSystemLedClearType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of system LED status clearing.all(0) is used to clear all error
+         status of the system LED and back to normal indication. fatal(1) is
+         used to clear fatal error status of the system LED. software(2) is used
+         to clear generic software error status of the system LED. post(3) is
+         used to clear POST(Power On Self Test) error status of the system LED.
+         ztp(4) is used to clear ZTP(Zero Touch Provisioning) error status of
+         the system LED. stackFwChk(5) is used to clear stack firmware version
+         check error status of the system LED."
+    ::= { me1200SysutilControlSystemLedEntry 2 }
+
+me1200SysutilNotificationPrefix OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 5 }
+
+me1200SysutilNotification OBJECT IDENTIFIER
+    ::= { me1200SysutilNotificationPrefix 0 }
+
+me1200SysutilNotificationPowerSupplyStateChange NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilStatusPowerSupplyState,
+              me1200SysutilStatusPowerSupplyDescription }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent if a power supply change state."
+   ::= { me1200SysutilNotification 1 }
+
+me1200SysutilNotificationReboot NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilControlRebootType }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the device is rebooted by the user interface demand from CLI, Web or SNMP."
+   ::= { me1200SysutilNotification 2 }
+
+me1200SysutilNotificationMemoryPoolLowMemory NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilConfigSystemMemoryPoolNotifThreshold,
+              me1200SysutilStatusSystemMemoryPoolFree }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the free memory available goes below the value of system memory pool notification threshold."
+   ::= { me1200SysutilNotification 3 }
+
+me1200SysutilNotificationMemoryPoolLowMemoryRecovery NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilConfigSystemMemoryPoolNotifThreshold,
+              me1200SysutilStatusSystemMemoryPoolFree }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the free memory available recovery above the value of system memory pool notification threshold after the low memory event occurred."
+   ::= { me1200SysutilNotification 4 }
+
+me1200SysutilNotificationCpuLoadOverAverage1min NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilConfigSystemCpuLoadMonitoringInterval,
+              me1200SysutilStatusCpuLoadAverage100msec,
+              me1200SysutilStatusCpuLoadAverage1min }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the CPU load is over the average value in one minute."
+   ::= { me1200SysutilNotification 5 }
+
+me1200SysutilNotificationCpuLoadOverAverage5min NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilConfigSystemCpuLoadMonitoringInterval,
+              me1200SysutilStatusCpuLoadAverage100msec, 
+              me1200SysutilStatusCpuLoadAverage5min }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the CPU load is over the average value in five minutes."
+   ::= { me1200SysutilNotification 6 }
+
+me1200SysutilNotificationCpuLoadOverAverage15min NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilConfigSystemCpuLoadMonitoringInterval,
+              me1200SysutilStatusCpuLoadAverage100msec, 
+              me1200SysutilStatusCpuLoadAverage15min }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the CPU load is over the average value in fifteen minutes."
+   ::= { me1200SysutilNotification 7 }
+
+me1200SysutilNotificationVoltageFailure NOTIFICATION-TYPE
+    OBJECTS { me1200SysutilVoltageStatus}
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when different system voltages are out of range."
+   ::= { me1200SysutilNotification 8 }
+
+me1200SysutilMibConformance OBJECT IDENTIFIER
+    ::= { me1200SysutilMib 2 }
+
+me1200SysutilMibCompliances OBJECT IDENTIFIER
+    ::= { me1200SysutilMibConformance 1 }
+
+me1200SysutilMibGroups OBJECT IDENTIFIER
+    ::= { me1200SysutilMibConformance 2 }
+
+me1200SysutilCapabilitiesInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilCapabilitiesWarmRebootSupported, 
+                  me1200SysutilCapabilitiesPostSupported, 
+                  me1200SysutilCapabilitiesZtpSupported, 
+                  me1200SysutilCapabilitiesStackFwChkSupported }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 1 }
+
+me1200SysutilConfigSystemMemoryPoolInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilConfigSystemMemoryPoolNotifThreshold }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 2 }
+
+me1200SysutilConfigSystemCpuLoadInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilConfigSystemCpuLoadMonitoringMode, 
+                  me1200SysutilConfigSystemCpuLoadMonitoringInterval }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 3 }
+
+me1200SysutilStatusCpuLoadInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilStatusCpuLoadAverage100msec, 
+                  me1200SysutilStatusCpuLoadAverage1sec, 
+                  me1200SysutilStatusCpuLoadAverage10sec, 
+                  me1200SysutilStatusCpuLoadAverage1min, 
+                  me1200SysutilStatusCpuLoadAverage5min, 
+                  me1200SysutilStatusCpuLoadAverage15min }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 4 }
+
+me1200SysutilStatusPowerSupplyInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilStatusPowerSupplyState, 
+                  me1200SysutilStatusPowerSupplyDescription }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 5 }
+
+me1200SysutilStatusSystemLedInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilStatusSystemLedDescription }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 6 }
+
+me1200SysutilStatusSystemMemoryPoolInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilStatusSystemMemoryPoolValid, 
+                  me1200SysutilStatusSystemMemoryPoolUsed, 
+                  me1200SysutilStatusSystemMemoryPoolFree }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 7 }
+
+me1200SysutilControlRebootInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilControlRebootType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 8 }
+
+me1200SysutilControlSystemLedInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilControlSystemLedClearStatus }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 9 }
+
+me1200SysutilNotificationInfoGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { me1200SysutilNotificationPowerSupplyStateChange,
+                    me1200SysutilNotificationReboot,
+                    me1200SysutilNotificationMemoryPoolLowMemory,
+                    me1200SysutilNotificationMemoryPoolLowMemoryRecovery,
+                    me1200SysutilNotificationCpuLoadOverAverage1min,
+                    me1200SysutilNotificationCpuLoadOverAverage5min,
+                    me1200SysutilNotificationCpuLoadOverAverage15min,
+                    me1200SysutilNotificationVoltageFailure }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 10 }
+
+me1200SysutilMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200SysutilCapabilitiesInfoGroup, 
+                  me1200SysutilConfigSystemMemoryPoolInfoGroup, 
+                  me1200SysutilConfigSystemCpuLoadInfoGroup, 
+                  me1200SysutilStatusCpuLoadInfoGroup, 
+                  me1200SysutilStatusPowerSupplyInfoGroup, 
+                  me1200SysutilStatusSystemLedInfoGroup, 
+                  me1200SysutilStatusSystemMemoryPoolInfoGroup, 
+                  me1200SysutilControlRebootInfoGroup, 
+                  me1200SysutilControlSystemLedInfoGroup,
+                  me1200SysutilNotificationInfoGroup }
+
+    ::= { me1200SysutilMibCompliances 1 }
+
+END
+

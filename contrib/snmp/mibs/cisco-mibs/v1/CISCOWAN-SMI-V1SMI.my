@@ -1,0 +1,62 @@
+-- MIB file created 01-Jul-2002 14:20:08, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCOWAN-SMI DEFINITIONS ::= BEGIN
+
+-- From file: "CISCOWAN-SMI.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    enterprises
+            FROM SNMPv2-SMI-v1;
+
+stratacom OBJECT IDENTIFIER ::= { enterprises 351 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200205240000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The Structure of Management Information for the
+--     stratacom enterprise.
+--  RevDate
+--    200205240000Z
+--  RevDescr
+--    Using the 4 digit Year value in LAST-UPDATED and
+--     REVISION Clause. Modified description of 'ciscoWan'.
+--  RevDate
+--    200001240000Z
+--  RevDescr
+--    Added ciscoWanAgentCapability Object Identifier
+--    assignment.
+
+ciscoWan OBJECT IDENTIFIER ::= { stratacom 150 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ciscoWan is the main subtree for mibs under 'stratacom'
+--    enterprise. This is used by MGX product series.
+
+ciscoWanAgentCapability OBJECT IDENTIFIER ::= { stratacom 160 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    ciscoWanAgentCapability provides a root object identifier
+--    from which AGENT-CAPABILITIES values may be assigned.
+
+
+END
+

@@ -1,0 +1,728 @@
+-- MIB file created 20-Dec-2002 11:17:43, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+DOCS-CABLE-DEVICE-TRAP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "DOCS-CABLE-DEVICE-TRAP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    docsDev, docsDevEvLevel, docsDevEvId, docsDevEvText, 
+    docsDevSwFilename, docsDevSwServer, docsDevServerDhcp, 
+    docsDevServerTime, docsDevNotification
+            FROM DOCS-CABLE-DEVICE-MIB
+    docsIfCmCmtsAddress, docsIfCmtsCmStatusMacAddress, 
+    docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+    docsIfCmStatusModulationType, docsIfCmtsCmStatusDocsisRegMode, 
+    docsIfCmtsCmStatusModulationType
+            FROM DOCS-IF-MIB
+    docsIfDocsisCapability, docsIfDocsisOperMode, 
+    docsIfCmtsCmStatusDocsisMode
+            FROM DOCS-IF-EXT-MIB
+    ifPhysAddress
+            FROM IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+docsDevTrapMIB OBJECT IDENTIFIER ::= { docsDev 10 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    0202250000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    
+--    Junming Gao
+--    Cisco Systems Inc
+--    <jgao@ cisco. com>
+--  Descr
+--    Modified by David Raftus (david.raftus@imedia.com) to
+--     deprecate trap definition objects originating from
+--     the docsIfExt MIB. Corresponding objects from the
+--     Docsis 2.0 RF MIB draft were added to the trap
+--     definitions.
+--  RevDate
+--    000926000000Z
+--  RevDescr
+--    The CABLE DEVICE TRAP MIB is an extension of the
+--     CABLE DEVICE MIB defined in RFC2669. It defines various
+--     trap objects for both cable modem and cable modem
+--     termination systems. Two groups of SNMP notification
+--     objects are defined. One group is for notifying cable
+--     modem events and one group for notifying cable modem
+--     termination system events. Common to all CM
+--     notification objects (traps) is that their OBJECTS
+--     statements contain information about the event priority,
+--     the event Id, the event message body, the CM DOCSIS
+--     capability, the CM DOCSIS QOS level, the CM DOCSIS
+--     upstream modulation type, the cable interface MAC
+--     address of the cable modem and the cable card MAC address
+--     of the CMTS to which the modem is connectede.
+--    
+--     These objects are docsDevEvLevel, docsDevId,
+--     docsDevEvText, docsIfDocsisBaseCapability,
+--     docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType
+--     ifPhysAddress and docsIfCmCmtsAddress. The values of
+--     docsDevEvLevel, docsDevId, and docsDevEvText are from the
+--     entry which logs this event in the docsDevEventTable, which
+--     is defined in DOCS-CABLE-DEVICE-MIB of RFC2669. The
+--     docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode,
+--     and docsIfCmStatusModulationType are defined in the DOCS-IF-MIB.
+--     The ifPhysAddress value is the MAC address of the cable
+--     interface of this cable modem. The docsIfCmCmtsAddress
+--     specifies the MAC address of the CMTS (if there is a cable
+--     card/ interface in the CMTS, then it is actually the
+--     cable interface interface MAC address to which the CM is
+--     connected).  Individual CM trap may contain additional
+--     objects to provide necessary information.
+--    
+--     Common to all CMTS notification objects (traps) is that
+--     their OBJECTS statements contain information about the
+--     event priority, the event Id, the event message body,
+--     the connected CM DOCSIS QOS status, the connected CM DOCSIS
+--     modulation type, the CM cable interface MAC address, the
+--     CMTS DOCSIS capability, and the CMTS MAC address.
+--    
+--     These objects are docsDevEvLevel, docsDevId, docsDevEvText,
+--     docsIfCmtsCmStatusDocsisRegMode, docsIfCmtsCmStatusModulationType,
+--     docsIfCmtsCmStatusMacAddress, docsIfDocsisBaseCapability, and
+--     ifPhysAddress. The values of docsDevEvLevel, docsDevId, and
+--     docsDevEvText are similar to those in CM traps. The values of
+--     docsIfCmtsCmStatusDocsisRegMode, docsIfCmtsCmStatusModulationType,
+--     and docsIfCmtsCmStatusMacAddress are from the
+--     docsIfCmtsCmStatusEntry (defined in DOCS-IF-MIB) corresponding
+--     to a connected CM. The docsIfDocsisBaseCapability indicates the
+--     CMTS DOCSIS capability. The ifPhysAddress value is the CMTS MAC
+--     address (if there is a cable card/ interface in the CMTS, then
+--     it is actually the MAC address of the cable interface which
+--     connected to the CM).
+
+docsDevTraps    OBJECT IDENTIFIER ::= { docsDevNotification 1 }
+docsDevTrapControl OBJECT IDENTIFIER ::= { docsDevTraps 1 }
+docsDevCmTraps  OBJECT IDENTIFIER ::= { docsDevTraps 2 0 }
+docsDevCmtsTraps OBJECT IDENTIFIER ::= { docsDevTraps 3 0 }
+docsDevTrapConformance OBJECT IDENTIFIER ::= { docsDevTraps 4 }
+docsDevTrapGroups OBJECT IDENTIFIER ::= { docsDevTrapConformance 1 }
+docsDevTrapCompliances OBJECT IDENTIFIER ::= { docsDevTrapConformance 2 }
+
+docsDevCmTrapControl OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   cmInitTLVUnknownTrap(0)
+        --   cmDynServReqFailTrap(1)
+        --   cmDynServRspFailTrap(2)
+        --   cmDynServAckFailTrap(3)
+        --   cmBpiInitTrap(4)
+        --   cmBPKMTrap(5)
+        --   cmDynamicSATrap(6)
+        --   cmDHCPFailTrap(7)
+        --   cmSwUpgradeInitTrap(8)
+        --   cmSwUpgradeFailTrap(9)
+        --   cmSwUpgradeSuccessTrap(10)
+        --   cmSwUpgradeCVCTrap(11)
+        --   cmTODFailTrap(12)
+        --   cmDCCReqFailTrap(13)
+        --   cmDCCRspFailTrap(14)
+        --   cmDCCAckFailTrap(15)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used to enable CM traps. From left to right,
+         the set bit indicates the corresponding CM trap is enabled.
+         For example, if the first bit is set, then
+         docsDevCmInitTLVUnknownTrap is enabled. If it is zero,
+         the trap is disabled."
+    DEFVAL { '0000'h }
+    ::= { docsDevTrapControl 1 }
+
+docsDevCmtsTrapControl OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   cmtsInitRegReqFailTrap(0)
+        --   cmtsInitRegRspFailTrap(1)
+        --   cmtsInitRegAckFailTrap(2)
+        --   cmtsDynServReqFailTrap(3)
+        --   cmtsDynServRspFailTrap(4)
+        --   cmtsDynServAckFailTrap(5)
+        --   cmtsBpiInitTrap(6)
+        --   cmtsBPKMTrap(7)
+        --   cmtsDynamicSATrap(8)
+        --   cmtsDCCReqFailTrap(9)
+        --   cmtsDCCRspFailTrap(10)
+        --   cmtsDCCAckFailTrap(11)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used to enable CMTS traps. From left to right,
+         the set bit indicates the corresponding CMTS trap is enabled.
+         For example, if the first bit is set, then
+         docsDevCmtsInitRegRspFailTrap is enabled. If it is zero,
+         the trap is disabled."
+    DEFVAL { '0000'h }
+    ::= { docsDevTrapControl 2 }
+
+docsDevCmInitTLVUnknownTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Event due to detection of unknown TLV during
+         the TLV parsing process.
+         The values of docsDevEvLevel, docsDevId, and
+         docsDevEvText are from the entry which logs this event
+         in the docsDevEventTable. The docsIfDocsisBaseCapability
+         indicates the DOCSIS version information. The docsIfCmStatusDocsisOperMode indicates the QOS level of the CM, while the docsIfCmStatusModulationType indicates the upstream modulation methodology used by the CM. 
+         The ifPhysAddress value is the MAC address of the cable interface of this cable modem.
+         The docsIfCmCmtsAddress specifies the MAC address
+         of the CMTS to which the CM is connected (if there is a cable
+         card/ interface in the CMTS, then it is actually the MAC address of the cable
+         interface which connected to the CM).
+         This part of information is uniformed across all CM traps."
+    ::= 1
+
+docsDevCmDynServReqFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic service
+         request happened during the dynamic services process."
+    ::= 2
+
+docsDevCmDynServRspFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic service
+         response happened during the dynamic services process."
+    ::= 3
+
+docsDevCmDynServAckFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic service
+         acknowledgement happened during the dynamic services process."
+    ::= 4
+
+docsDevCmBpiInitTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a BPI initialization
+         attempt happened during the registration process."
+    ::= 5
+
+docsDevCmBPKMTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a BPKM operation."
+    ::= 6
+
+docsDevCmDynamicSATrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic security
+         association operation."
+    ::= 7
+
+docsDevCmDHCPFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevServerDhcp, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a DHCP server.
+        The value of docsDevServerDhcp is the IP address
+        of the DHCP server."
+    ::= 8
+
+docsDevCmSwUpgradeInitTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevSwFilename, docsDevSwServer, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report a software upgrade initiated
+         event. The values of docsDevSwFilename, and
+         docsDevSwServer indicate the software image name
+         and the server IP address the image is from."
+    ::= 9
+
+docsDevCmSwUpgradeFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevSwFilename, docsDevSwServer, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a software upgrade
+         attempt. The values of docsDevSwFilename, and
+         docsDevSwServer indicate the software image name
+         and the server IP address the image is from."
+    ::= 10
+
+docsDevCmSwUpgradeSuccessTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevSwFilename, docsDevSwServer, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the Software upgrade success event.
+         The values of docsDevSwFilename, and
+         docsDevSwServer indicate the software image name
+         and the server IP address the image is from."
+    ::= 11
+
+docsDevCmSwUpgradeCVCFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of the verification
+         of code file happened during a secure software upgrade
+         attempt."
+    ::= 12
+
+docsDevCmTODFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsDevServerTime, 
+        docsIfDocsisBaseCapability, docsIfCmStatusDocsisOperMode, 
+        docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a time of day server.
+         The value of docsDevServerTime indicates the server IP
+         address."
+    ::= 13
+
+docsDevCmDCCReqFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic channel
+         change request happened during the dynamic channel
+         change process in the CM side."
+    ::= 14
+
+docsDevCmDCCRspFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic channel
+         change response happened during the dynamic channel
+         change process in the CM side."
+    ::= 15
+
+docsDevCmDCCAckFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 2 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfDocsisCapability, docsIfDocsisOperMode, ifPhysAddress, 
+        docsIfCmCmtsAddress, docsIfDocsisBaseCapability, 
+        docsIfCmStatusDocsisOperMode, docsIfCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic channel
+         change acknowledgement happened during the dynamic channel
+         change process in the CM side."
+    ::= 16
+
+docsDevCmtsInitRegReqFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a registration
+        request from CM happening during the CM initialization
+        process and detected on the CMTS side. The values of
+        docsDevEvLevel, docsDevId, and docsDevEvText are from
+        the entry which logs this event in the
+        docsDevEventTable. The docsIfCmtsCmStatusDocsisRegMode
+        and docsIfCmtsCmStatusMacAddress indicate the docsis
+        QOS version and the MAC address of the requesting CM.
+        The docsIfCmtsCmModulationType indicates the upstream
+        modulation methodology used by the connected CM.
+        The docsIfDocsisBaseCapability and ifPhysAddress
+        indicate the docsis version of the CMTS and the MAC
+        address of the CMTS (if there is a cable card/ interface
+        in the CMTS, then it is actually the MAC address of the
+        cable interface which connected to the CM) cable card
+        connected to the CM. This part of information is
+        uniformed across all CMTS traps."
+    ::= 1
+
+docsDevCmtsInitRegRspFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a registration
+         response happened during the CM initialization
+         process and detected in the CMTS side."
+    ::= 2
+
+docsDevCmtsInitRegAckFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a registration
+         acknowledgement from CM happened during the CM
+         initialization process and detected in the CMTS side."
+    ::= 3
+
+docsDevCmtsDynServReqFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic service
+         request happened during the dynamic services process
+         and detected in the CMTS side."
+    ::= 4
+
+docsDevCmtsDynServRspFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic service
+         response happened during the dynamic services process
+         and detected in the CMTS side."
+    ::= 5
+
+docsDevCmtsDynServAckFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic service
+         acknowledgement happened during the dynamic services
+         process and detected in the CMTS side."
+    ::= 6
+
+docsDevCmtsBpiInitTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a BPI initialization
+         attempt happened during the CM registration process
+         and detected in the CMTS side."
+    ::= 7
+
+docsDevCmtsBPKMTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a BPKM operation
+         which is detected in the CMTS side."
+    ::= 8
+
+docsDevCmtsDynamicSATrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic security
+         association operation which is detected in the CMTS side."
+    ::= 9
+
+docsDevCmtsDCCReqFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic channel
+         change request happened during the dynamic channel
+         change process in the CM side and detected in the
+         CMTS side."
+    ::= 10
+
+docsDevCmtsDCCRspFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic channel
+         change response happened during the dynamic channel
+         change process in the CMTS side."
+    ::= 11
+
+docsDevCmtsDCCAckFailTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE { iso(1) org(3) dod(6) internet(1) mgmt(2) mib-2(1) docsDev(69) docsDevNotification(2) docsDevTraps(1) 3 }
+    VARIABLES {
+        docsDevEvLevel, docsDevEvId, docsDevEvText, 
+        docsIfCmtsCmStatusDocsisMode, docsIfCmtsCmStatusMacAddress, 
+        docsIfDocsisCapability, ifPhysAddress, 
+        docsIfCmtsCmStatusDocsisRegMode, docsIfDocsisBaseCapability, 
+        docsIfCmtsCmStatusModulationType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An event to report the failure of a dynamic channel
+         change acknowledgement happened during the dynamic channel
+         change process in the CMTS side."
+    ::= 12
+
+docsDevCmTrapControlGroup OBJECT IDENTIFIER ::= { docsDevTrapGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CM must support docsDevCmTrapControl.
+--  objects
+--    docsDevCmTrapControl
+
+docsDevCmtsTrapControlGroup OBJECT IDENTIFIER ::= { docsDevTrapGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CMTS must support docsDevCmtsTrapControl.
+--  objects
+--    docsDevCmtsTrapControl
+
+docsDevCmNotificationGroup OBJECT IDENTIFIER ::= { docsDevTrapGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of CM notifications providing device status and
+--    control.
+--  notifications
+--    docsDevCmInitTLVUnknownTrap, docsDevCmDynServReqFailTrap, 
+--    docsDevCmDynServRspFailTrap, docsDevCmDynServAckFailTrap, 
+--    docsDevCmBpiInitTrap, docsDevCmBPKMTrap, 
+--    docsDevCmDynamicSATrap, docsDevCmDHCPFailTrap, 
+--    docsDevCmSwUpgradeInitTrap, docsDevCmSwUpgradeFailTrap, 
+--    docsDevCmSwUpgradeSuccessTrap, docsDevCmSwUpgradeCVCFailTrap, 
+--    docsDevCmTODFailTrap, docsDevCmDCCReqFailTrap, 
+--    docsDevCmDCCRspFailTrap, docsDevCmDCCAckFailTrap
+
+docsDevCmtsNotificationGroup OBJECT IDENTIFIER ::= { docsDevTrapGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of CMTS notifications providing device status and
+--    control.
+--  notifications
+--    docsDevCmtsInitRegReqFailTrap, docsDevCmtsInitRegRspFailTrap, 
+--    docsDevCmtsInitRegAckFailTrap, docsDevCmtsDynServReqFailTrap, 
+--    docsDevCmtsDynServRspFailTrap, docsDevCmtsDynServAckFailTrap, 
+--    docsDevCmtsBpiInitTrap, docsDevCmtsBPKMTrap, 
+--    docsDevCmtsDynamicSATrap, docsDevCmtsDCCReqFailTrap, 
+--    docsDevCmtsDCCRspFailTrap, docsDevCmtsDCCAckFailTrap
+
+docsDevCmTrapCompliance OBJECT IDENTIFIER ::= { docsDevTrapCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for Cable Modem Traps and Control
+--  Module
+--    >>current<<
+--   OptGroup
+--    docsDevCmTrapControlGroup
+--   OptGroup
+--    docsDevCmNotificationGroup
+
+docsDevCmtsTrapCompliance OBJECT IDENTIFIER ::= { docsDevTrapCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for MCNS Cable Modems and
+--    Cable Modem Termination Systems.
+--  Module
+--    >>current<<
+--   OptGroup
+--    docsDevCmtsTrapControlGroup
+--   OptGroup
+--    docsDevCmtsNotificationGroup
+
+
+END
+

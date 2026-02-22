@@ -1,0 +1,2099 @@
+-- *------------------------------------------------------------------
+-- * CISCO-IPSEC-SIGNALING-MIB.my:
+-- *                   Generic IPsec/FC-SP Signaling MIB
+-- *
+-- * Apr 2004, S Ramakrishnan
+-- *
+-- * Copyright (c) 2004 by cisco Systems, Inc.
+-- * All rights reserved.
+-- *------------------------------------------------------------------
+
+  CISCO-IPSEC-SIGNALING-MIB DEFINITIONS ::= BEGIN
+
+    IMPORTS
+      MODULE-IDENTITY, OBJECT-TYPE, 
+      NOTIFICATION-TYPE,
+      Counter32, 
+      Counter64, 
+      Gauge32, 
+      Unsigned32                             FROM SNMPv2-SMI
+      TimeStamp, 
+      TimeInterval,
+      TruthValue                             FROM SNMPv2-TC
+      MODULE-COMPLIANCE, OBJECT-GROUP, 
+      NOTIFICATION-GROUP                     FROM SNMPv2-CONF
+      SnmpAdminString                        FROM SNMP-FRAMEWORK-MIB
+      CIPsecControlProtocol,
+      CIPsecEncryptionKeySize,
+      CIPsecPhase1PeerIdentityType,
+      CIPsecIkeHashAlgorithm,
+      CIPsecIkeAuthMethod,
+      CIPsecEncryptAlgorithm,
+      CIPsecPhase1TunnelIndex,
+      CIPsecTunnelStatus                     FROM CISCO-IPSEC-TC
+      ciscoMgmt                              FROM CISCO-SMI;
+
+    ciscoIPsecSignalingMIB MODULE-IDENTITY
+         LAST-UPDATED "200409220000Z"
+         ORGANIZATION "Cisco Systems"
+         CONTACT-INFO
+         "
+          Cisco Systems
+          Customer Service
+
+          Postal: 170 W Tasman Drive
+                  San Jose, CA  95134
+                  USA
+
+             Tel: +1 800 553-NETS
+          E-mail: cs-ipsecmib@external.cisco.com
+         "
+
+    DESCRIPTION
+    "
+    This MIB Module models status, performance and failures
+    of a protocol with the generic characteristics of signalling 
+    protocols used with IPsec and FC-SP protocols. Examples
+    of such protocols include IKE, KINK, etc. This MIB views the
+    common attributes of such protocols. Signaling protocols are
+    also referred in this document as 'Control Protocols', since 
+    they perform session control.
+
+    This MIB is an attempt to capture the generic aspects 
+    of the signaling activity. The protocol-specific aspects
+    of a signaling protocol still need to be captured 
+    in a protocol-specific MIB (e.g., CISCO-IKE-FLOW-MIB, etc.).
+
+    Acronyms
+    The following acronyms are used in this document:
+
+       IPsec:      Secure IP Protocol
+
+       VPN:        Virtual Private Network
+
+       ISAKMP:     Internet Security Association and Key Exchange
+                   Protocol
+
+       IKE:        Internet Key Exchange Protocol
+
+       SA:         Security Association 
+               (ref: rfc2408).
+
+       Phase 1 Tunnel:
+                   An ISAKMP SA can be regarded as representing
+                   a flow of ISAKMP/IKE traffic. Hence an ISAKMP
+                   is referred to as a 'Phase 1 Tunnel' in this
+                   document. 
+
+       Control Tunnel:
+                   Another term for a Phase 1 Tunnel.
+
+       Phase 2 Tunnel:
+                   An instance of a non-ISAKMP SA  bundle in which all
+                   the SA share the same proxy identifiers (IDii,IDir)
+                   protect the same stream of application traffic.
+                   Such an SA bundle is termed a 'Phase 2 Tunnel'.
+                   Note that a Phase 2 tunnel may comprise different
+                   SA bundles and different number of SA bundles at
+                   different times (due to key refresh).
+
+
+    History of the MIB
+     A precursor to this MIB was the IPsec Flow Monitor MIB, which
+     combined the objects pertaining to IKE and IPsec (Phase-2)
+     into a single MIB module. Furthermore, the MIB supported only
+     one signaling protocol, IKEv1, in addition to manual keying.
+
+     The MIB was written by Tivoli and implemented in IBM Nways 
+     routers in 1999. During late 1999, Cisco adopted the MIB and 
+     together with Tivoli publised the IPsec Flow Monitor MIB in 
+     IETF IPsec WG in draft-ietf-ipsec-flow-monitoring-mib-00.txt. 
+     In 2000, the MIB was Cisco-ized and implemented as
+     CISCO-IPSEC-FLOW-MONITOR-MIB in IOS and VPN3000 platforms.
+
+     With the evolution of IKEv2, the MIB was modified and 
+     presented to the IPsec WG again in May 2003 in
+     draft-ietf-ipsec-flow-monitoring-mib-02.txt.
+
+     With the emergence to multiple signaling protocols, it has
+     further evolved to define separate set of MIB modules to 
+     instrument IPsec signaling alone. Thus, this MIB module
+     is now the generic IPsec signaling MIB.
+      
+    Overview of MIB
+     The MIB contains major groups of objects which are
+     used to manage the generic aspects of IPsec signaling. 
+     These groups include a global statistics, control tunnel table,
+     Peer association group, control tunnel history group,
+     signaling failure group and notification group.
+
+     The global statistics, tunnel table and peer association
+     groups aid in the real-time monitoring of IPsec signaling
+     activity.
+
+     The History group is to aid applications that do
+     trending analysis.
+
+     The Failure group is to enable an operator to
+     do troubleshooting and debugging.
+     Further, counters are supported to aid detection
+     of potential security violations.
+
+     The notifications are modeled as generic IPsec control 
+     notifications and are parameterized by the identity of the
+     specific signaling protocol which caused the notification
+     to be issued.
+    " 
+
+    REVISION    "200409220000Z"
+    DESCRIPTION
+    "
+    Initial version of the MIB.
+    "
+         ::= { ciscoMgmt 438 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- IPsec Signaling MIB Object Groups
+   --
+   -- This MIB module contains the following groups:
+   -- 1) Global Statistics
+   -- 2) Signaling tunnel table
+   -- 3) IPsec Signaling History Group
+   -- 4) IPsec Signaling Failure Group
+   -- 5) IPsec Signaling Notification Control Group
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIPsecSigMIBNotifs OBJECT IDENTIFIER  
+                     ::= { ciscoIPsecSignalingMIB 0 }
+
+      ciscoIPsecSigMIBObjects OBJECT IDENTIFIER  
+                     ::= { ciscoIPsecSignalingMIB 1 }
+
+      ciscoIPsecSigMIBConform OBJECT IDENTIFIER  
+                     ::= { ciscoIPsecSignalingMIB 2 }
+
+      cisgIpsSgCurrentActivity  OBJECT IDENTIFIER
+                     ::= { ciscoIPsecSigMIBObjects 1 }
+
+      cisgIpsSgPeerAssociations OBJECT IDENTIFIER
+                     ::= { ciscoIPsecSigMIBObjects 2 }
+
+      cisgIpsSgHistory OBJECT IDENTIFIER
+                     ::= { ciscoIPsecSigMIBObjects 3 }
+
+      cisgIpsSgFailures OBJECT IDENTIFIER
+                     ::= { ciscoIPsecSigMIBObjects 4 }
+
+      cisgIpsSgNotificationCntl OBJECT IDENTIFIER
+                     ::= { ciscoIPsecSigMIBObjects 5 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The IPsec Phase-1 Global Statistics
+   -- There is one row in the following table for each
+   -- control protocol implemented by the managed entity.
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   cisgIpsSgGlobalStatsTable OBJECT-TYPE
+      SYNTAX SEQUENCE OF CisgIpsSgGlobalStatsEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+      "
+      This Signaling Protocol global statistics table.
+      There is one row in the following table for each
+      signaling protocol implemented by the managed entity.
+
+      There is no row corresponding to the instance
+      'cpNone'.
+
+      If the managed entity implements more than one
+      signaling protocol, the aggregate statistics
+      across all the supported signaling protocols 
+      must be computed by the network management station 
+      manually; in other words, there is no conceptual row
+      in this table corresponding to 'all signaling protocols'.
+      "
+     ::= { cisgIpsSgCurrentActivity 1 }
+
+   cisgIpsSgGlobalStatsEntry OBJECT-TYPE
+      SYNTAX CisgIpsSgGlobalStatsEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+      "
+      Each entry contains the global statistics pertaining
+      to a specific signaling protocol.
+      "
+      INDEX { cisgIpsSgProtocol }
+      ::= { cisgIpsSgGlobalStatsTable 1}
+
+   CisgIpsSgGlobalStatsEntry ::= SEQUENCE {
+      cisgIpsSgProtocol              CIPsecControlProtocol,
+      cisgIpsSgGlobalActiveTunnels   Gauge32,
+      cisgIpsSgGlobalPreviousTunnels Counter64,
+      cisgIpsSgGlobalInOctets        Counter64,
+      cisgIpsSgGlobalInPkts          Counter64,
+      cisgIpsSgGlobalInDropPkts      Counter64,
+      cisgIpsSgGlobalInNotifys       Counter64,
+      cisgIpsSgGlobalInP2SaDelReqs   Counter64,
+      cisgIpsSgGlobalOutOctets       Counter64,
+      cisgIpsSgGlobalOutPkts         Counter64,
+      cisgIpsSgGlobalOutDropPkts     Counter64,
+      cisgIpsSgGlobalOutNotifys      Counter64,
+      cisgIpsSgGlobalOutP2SaDelReqs  Counter64,
+      cisgIpsSgGlobalInitTunnels     Counter64,
+      cisgIpsSgGlobalInitTunnelFails Counter64,
+      cisgIpsSgGlobalRespTunnels     Counter64,
+      cisgIpsSgGlobalRespTunnelFails Counter64,
+      cisgIpsSgGlobalSysCapFails     Counter64,
+      cisgIpsSgGlobalAuthFails       Counter64,
+      cisgIpsSgGlobalDecryptFails    Counter64,
+      cisgIpsSgGlobalHashValidFails  Counter64,
+      cisgIpsSgGlobalBadTunnelRefs   Counter64,
+      cisgIpsSgGlobalInP1SaDelReqs   Counter64,
+      cisgIpsSgGlobalOutP1SaDelReqs  Counter64
+   }
+
+   cisgIpsSgProtocol OBJECT-TYPE
+      SYNTAX CIPsecControlProtocol
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+      "
+      The identity of the signaling protocol used by the
+      control tunnel corresponding to this conceptual row.
+      "
+      ::= { cisgIpsSgGlobalStatsEntry 1 }
+
+   cisgIpsSgGlobalActiveTunnels OBJECT-TYPE
+      SYNTAX Gauge32
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The number of currently active Phase-1 
+       control tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 2 }
+
+   cisgIpsSgGlobalPreviousTunnels OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "SAs"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       High capacity counter to accumulate the
+       total number of Phase-1 control tunnels that 
+       are no longer active.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 3 }
+
+   cisgIpsSgGlobalInOctets OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Octets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of octets received by all 
+       currently and previously active Phase-1 
+       Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 4 }
+
+   cisgIpsSgGlobalInPkts OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets received by all currently
+       and previously active Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 5 }
+
+   cisgIpsSgGlobalInDropPkts OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets which were dropped 
+       during receive processing by all currently and 
+       previously active Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 6 }
+
+   cisgIpsSgGlobalInNotifys OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       " 
+       The total number of notification payloads received by all
+       currently and previously active Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 7 }
+
+   cisgIpsSgGlobalInP2SaDelReqs OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       " 
+       The total number of Phase-2 security association delete
+       requests received by all currently and previously
+       active and Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 8 }
+
+   cisgIpsSgGlobalOutOctets OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Octets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of octets sent by all currently
+       and previously active and Phase-1 Control
+       Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 9 }
+
+   cisgIpsSgGlobalOutPkts OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets sent by all currently
+       and previously active and Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 10 }
+
+   cisgIpsSgGlobalOutDropPkts OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets which were dropped 
+       during send processing by all currently and previously
+       active Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 11 }
+
+   cisgIpsSgGlobalOutNotifys OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of notification payloads sent by all 
+       currently and previously active Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 12 }
+
+   cisgIpsSgGlobalOutP2SaDelReqs OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of Phase-2 tunnel delete requests
+       sent by all currently and previously active Phase-1 
+       Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 13 }
+
+   cisgIpsSgGlobalInitTunnels OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "SAs"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of Phase-1 currently and previously active
+       Control Tunnels which were locally initiated.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 14 }
+
+   cisgIpsSgGlobalInitTunnelFails OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "SAs"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of Phase-1 currently and previously active
+       Control Tunnels which were locally initiated and 
+       failed to activate.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 15 }
+
+   cisgIpsSgGlobalRespTunnels OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "SAs"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of Phase-1 currently and previously active
+       Control Tunnels which were remotely initiated.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 16 }
+
+   cisgIpsSgGlobalRespTunnelFails OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "SAs"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       " 
+       The total number of Phase-1 currently and previously active
+       Control Tunnels which were remotely initiated and failed
+       to activate.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 17 }
+
+   cisgIpsSgGlobalSysCapFails OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Failures"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of system capacity failures 
+       which occurred during processing of all current 
+       and previously active Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 18 }
+
+   cisgIpsSgGlobalAuthFails OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Failures"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of authentications which ended
+       in failure by all current and previous Phase-1
+       Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 19 }
+
+   cisgIpsSgGlobalDecryptFails OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Failures"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of decryption operations in all current
+       and previous Phase-1 Control Tunnels which failed to yield
+       the original payload.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 20 }
+
+   cisgIpsSgGlobalHashValidFails OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Failures"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of hash validation operations in all 
+       current and previous Phase-1 Control Tunnels which resulted
+       in failure.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 21 }
+
+   cisgIpsSgGlobalBadTunnelRefs OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Failures"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of incoming packets that refer to 
+       non-existent Phase-1 control tunnels which occurred during
+       processing of all current and previous Phase-1 Control
+       Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 22 }
+
+   cisgIpsSgGlobalInP1SaDelReqs OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of Phase-1 security association
+       delete requests received by all currently and
+       previously active and Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 23 }
+
+   cisgIpsSgGlobalOutP1SaDelReqs OBJECT-TYPE
+      SYNTAX Counter64
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of Phase-1 security association
+       delete requests sent by all currently and
+       previously active and Phase-1 Control Tunnels.
+       "
+      ::= { cisgIpsSgGlobalStatsEntry 24 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The Phase-1 Control Tunnel Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   cisgIpsSgTunnelTable OBJECT-TYPE
+      SYNTAX SEQUENCE OF CisgIpsSgTunnelEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+      "
+      This table lists active Phase-1 control tunnels.
+      There is one entry in this table for each 
+      active Control Tunnel.
+      "
+     ::= { cisgIpsSgCurrentActivity 2 }
+
+   cisgIpsSgTunnelEntry OBJECT-TYPE
+      SYNTAX CisgIpsSgTunnelEntry
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+      "
+      Each entry contains the attributes associated with
+      an active Phase-1 control Tunnel.
+      "
+      INDEX { cisgIpsSgProtocol, cisgIpsSgTunIndex }
+      ::= { cisgIpsSgTunnelTable 1}
+
+   CisgIpsSgTunnelEntry ::= SEQUENCE {
+      cisgIpsSgTunIndex             CIPsecPhase1TunnelIndex,
+      cisgIpsSgTunLocalType         CIPsecPhase1PeerIdentityType,
+      cisgIpsSgTunLocalValue        SnmpAdminString,
+      cisgIpsSgTunLocalAddressType  CIPsecPhase1PeerIdentityType,
+      cisgIpsSgTunLocalAddress      SnmpAdminString,
+      cisgIpsSgTunLocalName         SnmpAdminString,
+      cisgIpsSgTunRemoteType        CIPsecPhase1PeerIdentityType,
+      cisgIpsSgTunRemoteValue       SnmpAdminString,
+      cisgIpsSgTunRemoteAddressType CIPsecPhase1PeerIdentityType,
+      cisgIpsSgTunRemoteAddress     SnmpAdminString,
+      cisgIpsSgTunRemoteName        SnmpAdminString,
+      cisgIpsSgTunEncryptAlgo       CIPsecEncryptAlgorithm,
+      cisgIpsSgTunEncryptKeySize    CIPsecEncryptionKeySize,
+      cisgIpsSgTunHashAlgo          CIPsecIkeHashAlgorithm,
+      cisgIpsSgTunAuthMethod        CIPsecIkeAuthMethod,
+      cisgIpsSgTunLifeTime          Unsigned32,
+      cisgIpsSgTunActiveTime        TimeInterval,
+      cisgIpsSgTunInOctets          Counter32,
+      cisgIpsSgTunInPkts            Counter32,
+      cisgIpsSgTunInDropPkts        Counter32,
+      cisgIpsSgTunInNotifys         Counter32,
+      cisgIpsSgTunOutOctets         Counter32,
+      cisgIpsSgTunOutPkts           Counter32,
+      cisgIpsSgTunOutDropPkts       Counter32,
+      cisgIpsSgTunOutNotifys        Counter32,
+      cisgIpsSgTunOutP2SaDelReqs    Counter32,
+      cisgIpsSgTunStatus            CIPsecTunnelStatus,
+      cisgIpsSgTunAction            INTEGER
+   }
+
+   cisgIpsSgTunIndex OBJECT-TYPE
+      SYNTAX CIPsecPhase1TunnelIndex
+      MAX-ACCESS not-accessible
+      STATUS current
+      DESCRIPTION
+       "
+       The index of the Phase-1 Tunnel Table.
+       The value of the index is a number which begins 
+       at 1 and is incremented with each tunnel that is
+       created. The value of this object will wrap at 
+       4,294,967,296.
+       "
+      ::= { cisgIpsSgTunnelEntry 1 }
+
+   cisgIpsSgTunLocalType OBJECT-TYPE
+      SYNTAX CIPsecPhase1PeerIdentityType
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The type of the identity used by the managed entity 
+       authenticating itself to the peer in the setup of the 
+       tunnel corresponding to this conceptual row.
+       "
+      ::= { cisgIpsSgTunnelEntry 2 }
+
+   cisgIpsSgTunLocalValue OBJECT-TYPE
+      SYNTAX SnmpAdminString(SIZE(1..255))
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The value of the local peer identity. 
+       "
+      ::= { cisgIpsSgTunnelEntry 3 }
+
+   cisgIpsSgTunLocalAddressType OBJECT-TYPE
+      SYNTAX CIPsecPhase1PeerIdentityType
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The type of the address of the local endpoint of
+       the Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 4 }
+
+   cisgIpsSgTunLocalAddress OBJECT-TYPE
+      SYNTAX SnmpAdminString(SIZE(0..255))
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The address of the local endpoint for 
+       the Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 5 }
+
+
+   cisgIpsSgTunLocalName OBJECT-TYPE
+      SYNTAX SnmpAdminString(SIZE(0..255))
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The DNS name of the local IP address for the Phase-1
+       Tunnel. If the DNS name associated with the local tunnel 
+       endpoint is not known, then the value of this
+       object will be a zero-length string.
+       "
+      ::= { cisgIpsSgTunnelEntry 6 }
+
+   cisgIpsSgTunRemoteType OBJECT-TYPE
+      SYNTAX CIPsecPhase1PeerIdentityType
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The type of the identity used by the remote peer in
+       authenticating itself to the local peer in the
+       setup of the tunnel corresponding to this
+       conceptual row.
+       "
+      ::= { cisgIpsSgTunnelEntry 7 }
+
+   cisgIpsSgTunRemoteValue OBJECT-TYPE
+      SYNTAX SnmpAdminString(SIZE(1..255))
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The value of the remote peer identity.
+       "
+      ::= { cisgIpsSgTunnelEntry 8 }
+
+   cisgIpsSgTunRemoteAddressType OBJECT-TYPE
+      SYNTAX CIPsecPhase1PeerIdentityType
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The type of the address of the remote endpoint for 
+       the Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 9 }
+
+   cisgIpsSgTunRemoteAddress OBJECT-TYPE
+      SYNTAX SnmpAdminString(SIZE(0..255))
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The address of the remote endpoint of the
+       Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 10 }
+
+   cisgIpsSgTunRemoteName OBJECT-TYPE
+      SYNTAX SnmpAdminString(SIZE(0..255))
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The DNS name of the remote address of Phase-1
+       Tunnel. If the DNS name associated with the remote
+       tunnel endpoint is not known, then the value of this
+       object will be a zero-length string.
+       "
+      ::= { cisgIpsSgTunnelEntry 11 }
+
+   cisgIpsSgTunEncryptAlgo OBJECT-TYPE
+      SYNTAX CIPsecEncryptAlgorithm
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The encryption algorithm used in Phase-1 negotiations on the
+       control tunnel corresponding to this conceptual row.
+       "
+      ::= { cisgIpsSgTunnelEntry 12 }
+
+   cisgIpsSgTunEncryptKeySize        OBJECT-TYPE
+      SYNTAX CIPsecEncryptionKeySize
+      UNITS "Bits"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The size in bits of the key used for encrypting
+       payloads by the tunnel corresponding to this
+       conceptual row.
+       "
+      ::= { cisgIpsSgTunnelEntry 13 }
+
+   cisgIpsSgTunHashAlgo OBJECT-TYPE
+      SYNTAX CIPsecIkeHashAlgorithm
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The hash algorithm used in Phase-1 negotiations on the
+       control tunnel corresponding to this conceptual row.
+       "
+      ::= { cisgIpsSgTunnelEntry 14 }
+
+   cisgIpsSgTunAuthMethod OBJECT-TYPE
+      SYNTAX CIPsecIkeAuthMethod
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The authentication method used in Phase-1 negotiations 
+       on the control tunnel corresponding to this conceptual row.
+       "
+      ::= { cisgIpsSgTunnelEntry 15 }
+
+   cisgIpsSgTunLifeTime OBJECT-TYPE
+      SYNTAX Unsigned32 (1..2147483647)
+      UNITS "seconds"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The negotiated LifeTime of the Phase-1 Tunnel in seconds.
+       "
+      ::= { cisgIpsSgTunnelEntry 16 }
+
+   cisgIpsSgTunActiveTime OBJECT-TYPE
+      SYNTAX TimeInterval
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The length of time the Phase-1 tunnel has been
+       active in hundredths of seconds.
+       "
+      ::= { cisgIpsSgTunnelEntry 17 }
+
+   cisgIpsSgTunInOctets OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Octets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of octets received by this Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 18 }
+
+   cisgIpsSgTunInPkts OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets received by this Phase-1
+       Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 19 }
+
+   cisgIpsSgTunInDropPkts OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets dropped by this Phase-1 
+       Tunnel during receive processing.
+       "
+      ::= { cisgIpsSgTunnelEntry 20 }
+
+   cisgIpsSgTunInNotifys OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of notification payloads received by 
+       this Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 21 }
+
+   cisgIpsSgTunOutOctets OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Octets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of octets sent by this Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 22 }
+
+   cisgIpsSgTunOutPkts OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets sent by this Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 23 }
+
+   cisgIpsSgTunOutDropPkts OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Packets"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of packets dropped by this Phase-1 Tunnel
+       during send processing.
+       "
+      ::= { cisgIpsSgTunnelEntry 24 }
+
+   cisgIpsSgTunOutNotifys OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of notification payloads sent by this 
+       Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 25 }
+
+   cisgIpsSgTunOutP2SaDelReqs OBJECT-TYPE
+      SYNTAX Counter32
+      UNITS "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The total number of Phase-2 security association
+       delete requests sent by this Phase-1 Tunnel.
+       "
+      ::= { cisgIpsSgTunnelEntry 26 }
+
+   cisgIpsSgTunStatus OBJECT-TYPE
+      SYNTAX CIPsecTunnelStatus                          
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+       "
+       The status of the MIB table row.
+       "
+      ::= { cisgIpsSgTunnelEntry 27 }
+      
+   cisgIpsSgTunAction OBJECT-TYPE
+       SYNTAX      INTEGER {
+                              none(1),
+                              clear(2),
+                              rekey(3)
+                           }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+           "The action to be taken on this tunnel.
+           If 'clear', then this tunnel is cleared.
+           If 'rekey', then rekeying is forced on this tunnel.
+           The value 'none' would be returned on doing read of this 
+           object. "
+       ::= { cisgIpsSgTunnelEntry 28 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Control Tunnel History Group
+   --
+   -- This group consists of:
+   -- 1) Control History Global Objects
+   -- 2) Control Tunnel History Objects
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cisgIpsSgHistGlobal  OBJECT IDENTIFIER
+                       ::= { cisgIpsSgHistory 1 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Control History Global Objects
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cisgIpsSgHistGlobalCntl OBJECT IDENTIFIER
+                       ::= { cisgIpsSgHistGlobal 1 }
+
+      cisgIpsSgHistTableSize  OBJECT-TYPE
+         SYNTAX Unsigned32 (0..2147483647)
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+          "
+          The window size of the control tunnel
+          History Tables.
+
+          The control tunnel history table is implemented as 
+          a sliding window in which at most the last 
+          'cisgIpsSgHistTableSize' entries are maintained. 
+          This object is, hence, used to control the size of 
+          the tunnel history table.
+
+          An implementation may choose suitable values for this
+          element based on the available resources. 
+          If an SNMP SET request specifies a value outside this
+          window for this element, in appropriate SNMP error 
+          code should be returned.
+
+          Setting this value to zero is equivalent to deleting
+          all conceptual rows in the archiving table
+          ('cisgIpsSgTunnelHistTable') and disabling the 
+          archiving of entries in the tables.
+          "
+         ::= { cisgIpsSgHistGlobalCntl 1 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The IKE Tunnel History Table
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cisgIpsSgTunnelHistTable OBJECT-TYPE
+         SYNTAX SEQUENCE OF CisgIpsSgTunnelHistEntry
+         MAX-ACCESS not-accessible
+         STATUS current
+         DESCRIPTION
+          "
+          The control tunnel History Table. This table
+          lists all instances of control tunnels that were
+          successfully established but which are no longer in
+          operation. An entry transitions to this table from
+          the active tunnel table ('cisgIpsSgTunnelTable') into 
+          this table after it expires, is aborted or terminated.
+
+          This table is conceptually a sliding window in 
+          which only the last 'N' entries are maintained,
+          where 'N' is the value of the object 
+          'cisgIpsSgHistTableSize'.
+
+          If the value of 'cisgIpsSgHistTableSize' is 0,
+          archiving of entries in this table is disabled.
+          "
+        ::= { cisgIpsSgHistory 2 }
+
+      cisgIpsSgTunnelHistEntry OBJECT-TYPE
+         SYNTAX CisgIpsSgTunnelHistEntry
+         MAX-ACCESS not-accessible
+         STATUS current
+         DESCRIPTION
+          "
+          Each entry contains the attributes associated with
+          a previously active control Tunnel.
+          "
+         INDEX { 
+                cisgIpsSgProtocol,
+                cisgIpsSgTunHistIndex 
+               }
+         ::= { cisgIpsSgTunnelHistTable 1 }
+
+      CisgIpsSgTunnelHistEntry ::= SEQUENCE {
+       cisgIpsSgTunHistIndex          Unsigned32,
+       cisgIpsSgTunHistTermReason     INTEGER,
+       cisgIpsSgTunHistActiveIndex    CIPsecPhase1TunnelIndex,
+       cisgIpsSgTunHistPeerLocalType  CIPsecPhase1PeerIdentityType,
+       cisgIpsSgTunHistPeerLocalValue SnmpAdminString,
+       cisgIpsSgTunHistPeerIntIndex   Unsigned32,
+       cisgIpsSgTunHistPeerRemoteType CIPsecPhase1PeerIdentityType,
+       cisgIpsSgTunHistPeerRemoteValue SnmpAdminString,
+       cisgIpsSgTunHistLocalAddrType  CIPsecPhase1PeerIdentityType,
+       cisgIpsSgTunHistLocalAddr      SnmpAdminString,
+       cisgIpsSgTunHistLocalName      SnmpAdminString,
+       cisgIpsSgTunHistRemoteAddrType CIPsecPhase1PeerIdentityType,
+       cisgIpsSgTunHistRemoteAddr     SnmpAdminString,
+       cisgIpsSgTunHistRemoteName     SnmpAdminString,
+       cisgIpsSgTunHistEncryptAlgo    CIPsecEncryptAlgorithm,
+       cisgIpsSgTunHistEncryptKeySize CIPsecEncryptionKeySize,
+       cisgIpsSgTunHistHashAlgo       CIPsecIkeHashAlgorithm,
+       cisgIpsSgTunHistAuthMethod     CIPsecIkeAuthMethod,
+       cisgIpsSgTunHistLifeTime       Unsigned32,
+       cisgIpsSgTunHistStartTime      TimeStamp,
+       cisgIpsSgTunHistActiveTime     TimeInterval,
+       cisgIpsSgTunHistInOctets       Counter64,
+       cisgIpsSgTunHistInPkts         Counter64,
+       cisgIpsSgTunHistInDropPkts     Counter64,
+       cisgIpsSgTunHistInNotifys      Counter64,
+       cisgIpsSgTunHistInP2SaDelReqs  Counter64,
+       cisgIpsSgTunHistOutOctets      Counter64,
+       cisgIpsSgTunHistOutPkts        Counter64,
+       cisgIpsSgTunHistOutDropPkts    Counter64,
+       cisgIpsSgTunHistOutNotifys     Counter64,
+       cisgIpsSgTunHistOutP2SaDelReqs Counter64
+      }
+
+      cisgIpsSgTunHistIndex OBJECT-TYPE
+         SYNTAX Unsigned32 
+         MAX-ACCESS not-accessible
+         STATUS current
+         DESCRIPTION
+          "
+          The index of the Phase-1 Control Tunnel History
+          Table. This object has no relationship to the
+          cisgIpsSgTunIndex of the tunnel when it was active.
+          The value of the index is a number which
+          begins at one and is incremented with each
+          tunnel that ends. The value of this object
+          will wrap at 4,294,967,296.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 1 }
+
+      cisgIpsSgTunHistTermReason  OBJECT-TYPE
+         SYNTAX INTEGER {
+                   other(1),
+                   normal(2),
+                   operRequest(3),
+                   peerDelRequest(4),
+                   peerLost(5),
+                   applicationInitiated(6),
+                   userAuthFailure(7),
+                   localFailure(8)
+                }
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The reason the Phase-1 Control Tunnel was terminated.
+          Possible reasons include:
+          1 = other
+          2 = normal termination
+          3 = operator request
+          4 = peer delete request was received
+          5 = contact with peer was lost
+          6 = applicationInitiated (eg: L2TP requesting 
+                    the termination)
+          7 = failure of extended user authentication
+          8 = local failure occurred.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 2 }
+
+      cisgIpsSgTunHistActiveIndex OBJECT-TYPE
+         SYNTAX CIPsecPhase1TunnelIndex
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The index of the previously active 
+          Control Tunnel. This object must correspond
+          to an expired IKE tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 3 }
+
+      cisgIpsSgTunHistPeerLocalType OBJECT-TYPE
+         SYNTAX CIPsecPhase1PeerIdentityType
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The type of local peer identity.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 4 }
+
+      cisgIpsSgTunHistPeerLocalValue OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(1..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The value of the local peer identity.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 5 }
+
+      cisgIpsSgTunHistPeerIntIndex OBJECT-TYPE
+         SYNTAX Unsigned32 (1..2147483647)
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The arbitrary index to keep local-remote peer
+          association.  This index is used to
+          uniquely identify multiple associations between
+          the local and remote peer.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 6 }
+
+      cisgIpsSgTunHistPeerRemoteType OBJECT-TYPE
+         SYNTAX CIPsecPhase1PeerIdentityType
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The type of remote peer identity. 
+          "
+         ::= { cisgIpsSgTunnelHistEntry 7 }
+
+      cisgIpsSgTunHistPeerRemoteValue OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(1..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The value of the remote peer identity.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 8 }
+
+      cisgIpsSgTunHistLocalAddrType  OBJECT-TYPE
+         SYNTAX CIPsecPhase1PeerIdentityType
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The type of the address of the local endpoint 
+          for the control tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 9 }
+
+      cisgIpsSgTunHistLocalAddr OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(0..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The address of the local endpoint for the 
+          control tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 10 }
+
+      cisgIpsSgTunHistLocalName OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(0..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The DNS name of the local address for the control
+          Tunnel. If the DNS name associated with the local
+          tunnel endpoint is not known, then the value of this
+          object will be a zero-length string.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 11 }
+
+      cisgIpsSgTunHistRemoteAddrType  OBJECT-TYPE
+         SYNTAX CIPsecPhase1PeerIdentityType
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The type of the address of the remote endpoint 
+          for the control Tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 12 }
+
+      cisgIpsSgTunHistRemoteAddr OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(0..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The address of the remote endpoint for the 
+          control Tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 13 }
+
+      cisgIpsSgTunHistRemoteName OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(0..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The DNS name of the remote address of 
+          control Tunnel. If the DNS name associated with 
+          the remote tunnel endpoint is not known, then the 
+          value of this object will be a zero-length string.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 14 }
+
+      cisgIpsSgTunHistEncryptAlgo OBJECT-TYPE
+         SYNTAX CIPsecEncryptAlgorithm
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The encryption algorithm used in control tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 15 }
+
+      cisgIpsSgTunHistEncryptKeySize        OBJECT-TYPE
+         SYNTAX CIPsecEncryptionKeySize
+         UNITS "Bits"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The size in bits of the key which was negotiated
+          for the control tunnel to be used with the algorithm 
+          denoted by the column 'cisgIpsSgTunEncryptAlgo'. For 
+          DES and 3DES the key size is respectively 56 and 168. 
+          For AES, this will denote the negotiated key size.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 16 }
+
+      cisgIpsSgTunHistHashAlgo OBJECT-TYPE
+         SYNTAX CIPsecIkeHashAlgorithm
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The hash algorithm used in control tunnel negotiations.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 17 }
+
+      cisgIpsSgTunHistAuthMethod OBJECT-TYPE
+         SYNTAX CIPsecIkeAuthMethod
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The authentication method used in control tunnel
+          negotiations.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 18 }
+
+      cisgIpsSgTunHistLifeTime OBJECT-TYPE
+         SYNTAX Unsigned32 (1..2147483647)                    
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The negotiated LifeTime of the control tunnel in seconds.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 19 }
+
+      cisgIpsSgTunHistStartTime OBJECT-TYPE
+         SYNTAX TimeStamp
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The value of sysUpTime in hundredths of seconds when the
+          control tunnel was started.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 20 }
+
+      cisgIpsSgTunHistActiveTime OBJECT-TYPE
+         SYNTAX TimeInterval
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The length of time the control tunnel has been active
+          in hundredths of seconds.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 21 }
+
+      cisgIpsSgTunHistInOctets OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Octets"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of octets received by this control
+          tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 22 }
+
+      cisgIpsSgTunHistInPkts OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Packets"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of packets received by this Phase-1
+          control tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 23 }
+
+      cisgIpsSgTunHistInDropPkts OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Packets"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of packets dropped by this control 
+          Tunnel during receive processing.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 24 }
+
+      cisgIpsSgTunHistInNotifys OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Notification Payloads"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of notification payloads received by 
+          this control tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 25 }
+
+      cisgIpsSgTunHistInP2SaDelReqs OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Notification Payloads"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of Phase-2 tunnel delete requests
+          received by this control tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 26 }
+
+      cisgIpsSgTunHistOutOctets OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Octets"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of octets sent by this control Tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 27 }
+
+      cisgIpsSgTunHistOutPkts OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Packets"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of packets sent by this control Tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 28 }
+
+      cisgIpsSgTunHistOutDropPkts OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Packets"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of packets dropped by this control
+          Tunnel during send processing.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 29 }
+
+      cisgIpsSgTunHistOutNotifys OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Notification Payloads"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of notification payloads sent by this
+          control Tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 30 }
+
+      cisgIpsSgTunHistOutP2SaDelReqs OBJECT-TYPE
+         SYNTAX Counter64
+         UNITS "Notification Payloads"
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The total number of Phase-2 tunnel delete requests
+          sent by this control tunnel.
+          "
+         ::= { cisgIpsSgTunnelHistEntry 31 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The Control Tunnel Failure Group
+   --
+   -- This group consists of:
+   -- 1) Control Failure Global Objects
+   -- 2) Control Tunnel Failure Table
+   -- 3) Control Tunnel Failure Table
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cisgIpsSgFailGlobal OBJECT IDENTIFIER
+                      ::= { cisgIpsSgFailures 1 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The Failure Global Control Objects
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cisgIpsSgFailGlobalCntl OBJECT IDENTIFIER
+                      ::= { cisgIpsSgFailGlobal 1 }
+
+      cisgIpsSgFailTableSize  OBJECT-TYPE
+         SYNTAX Unsigned32 (0..2147483647)
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+          "
+          The window size of the Internet Key Exchange Failure 
+          Tables.
+
+          The Failure Table is implemented as a sliding window 
+          in which only the last 'cisgIpsSgFailTableSize' entries 
+          are maintained. This object is used specify the number 
+          of entries which will be maintained in the control 
+          tunnel Failure Table.
+
+          An implementation may choose suitable minimum and
+          maximum values for this element based on the local
+          policy and available resources. If an SNMP SET 
+          request specifies a value outside this window for 
+          this element, an appropriate SNMP error code must 
+          be returned.
+
+          Setting this value to zero is equivalent to 
+          deleting all conceptual rows in the archiving 
+          tables ('cisgIpsSgFailTable') and disabling the 
+          archiving of entries in this table.
+          "
+         ::= { cisgIpsSgFailGlobalCntl 1 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The Phase-1 Failure Table
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cisgIpsSgFailTable OBJECT-TYPE
+         SYNTAX SEQUENCE OF CisgIpsSgFailEntry
+         MAX-ACCESS not-accessible
+         STATUS current
+         DESCRIPTION
+          "
+          This is the control tunnel Table and is 
+          implemented as a sliding window in which only the 
+          last 'N' entries are maintained. The maximum number 
+          of entries is specified by the object 
+          'cisgIpsSgFailTableSize'.
+
+          The failure records are catalogued under each
+          signaling protocol type; that is, the first index
+          of this table is the signaling protocol identifier
+          ('cisgIpsSgProtocol'). The second index 
+          ('cisgIpsSgFailIndex') identifies the failure record
+          uniquely in the subcategory.
+
+          Should a failure be identified before the signaling
+          protocol itself has been identified by the managed
+          entity, the failure record will be classified under
+          'cpUnknown'.
+          "
+         ::= { cisgIpsSgFailures 2 }
+
+      cisgIpsSgFailEntry OBJECT-TYPE
+         SYNTAX CisgIpsSgFailEntry
+         MAX-ACCESS not-accessible
+         STATUS current
+         DESCRIPTION
+          "
+          Each entry contains the attributes associated
+          with an Phase-1 failure.
+          "
+         INDEX { cisgIpsSgProtocol, cisgIpsSgFailIndex }
+         ::= { cisgIpsSgFailTable 1 }
+
+      CisgIpsSgFailEntry ::= SEQUENCE {
+       cisgIpsSgFailIndex         Unsigned32,
+       cisgIpsSgFailReason        INTEGER,
+       cisgIpsSgFailTime          TimeStamp,
+       cisgIpsSgFailLocalType     CIPsecPhase1PeerIdentityType,
+       cisgIpsSgFailLocalValue    SnmpAdminString,
+       cisgIpsSgFailRemoteType    CIPsecPhase1PeerIdentityType,
+       cisgIpsSgFailRemoteValue   SnmpAdminString,
+       cisgIpsSgFailLocalAddress  SnmpAdminString,
+       cisgIpsSgFailRemoteAddress SnmpAdminString
+      }
+
+      cisgIpsSgFailIndex OBJECT-TYPE
+         SYNTAX Unsigned32
+         MAX-ACCESS not-accessible
+         STATUS current
+         DESCRIPTION
+          "
+          The Phase-1 Failure Table index.
+          This object has no relationship to the
+          cisgIpsSgTunIndex of the tunnel when it was active.
+          The value of the index is a number which
+          begins at one and is incremented with each
+          Phase-1 failure. The value
+          of this object will wrap at 4,294,967,296.
+          "
+         ::= { cisgIpsSgFailEntry 1 }
+
+      cisgIpsSgFailReason OBJECT-TYPE
+         SYNTAX INTEGER{
+                  other(1),
+                  peerDelRequest(2),
+                  peerLost(3),
+                  localFailure(4),
+                  authFailure(5),
+                  hashValidation(6),
+                  encryptFailure(7),
+                  internalError(8),
+                  sysCapExceeded(9),
+                  proposalFailure(10),
+                  peerCertUnavailable(11),
+                  peerCertNotValid(12),
+                  localCertExpired(13),
+                  crlFailure(14),
+                  peerEncodingError(15),
+                  nonExistentSa(16),
+                  userAuthFailure(17),
+                  operRequest(18),
+                  deniedByAdmissionControl(19),
+                  protocolSpecific(20)
+                }
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The reason for the failure. Possible reasons 
+          include:
+              1 = other
+              2 = peer delete request was received
+              3 = contact with peer was lost
+              4 = local failure occurred
+              5 = authentication failure
+              6 = hash validation failure
+              7 = encryption failure
+              8 = internal error occurred
+              9 = system capacity failure
+             10 = proposal failure
+             11 = peer's certificate is unavailable
+             12 = peer's certificate was found invalid
+             13 = local certificate expired
+             14 = certificate revoke list (crl) failure
+             15 = peer encoding error
+             16 = Reference to a non-existent control tunnel
+             17 = Extended User authentication failed
+             18 = operator requested termination.
+             19 = An attempt to establish a tunnel was aborted
+                  by the admission control policy (this could
+                  include a simple policy that limits the maximum
+                  active tunnels)
+             20 = A protocol specific reason (look in the
+                  protocol-specific MIB for more info).
+          "
+         ::= { cisgIpsSgFailEntry 2 }
+
+      cisgIpsSgFailTime OBJECT-TYPE
+         SYNTAX TimeStamp
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The value of sysUpTime in hundredths of seconds
+          at the time of the failure.
+          "
+         ::= { cisgIpsSgFailEntry 3 }
+
+      cisgIpsSgFailLocalType OBJECT-TYPE
+         SYNTAX CIPsecPhase1PeerIdentityType
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The type of local peer identity.
+          "
+         ::= { cisgIpsSgFailEntry 4 }
+
+      cisgIpsSgFailLocalValue OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(1..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The value of the local peer identity.
+          "
+         ::= { cisgIpsSgFailEntry 5 }
+
+      cisgIpsSgFailRemoteType OBJECT-TYPE
+         SYNTAX CIPsecPhase1PeerIdentityType
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The type of remote peer identity.
+          "
+         ::= { cisgIpsSgFailEntry 6 }
+
+      cisgIpsSgFailRemoteValue OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(1..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The value of the remote peer identity.
+          "
+         ::= { cisgIpsSgFailEntry 7 }
+
+      cisgIpsSgFailLocalAddress OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(1..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The address of the local peer.
+
+          The value of cisgIpsSgFailLocalType identifies the
+          type of the address contained in this object.
+          "
+         ::= { cisgIpsSgFailEntry 8 }
+
+      cisgIpsSgFailRemoteAddress OBJECT-TYPE
+         SYNTAX SnmpAdminString(SIZE(1..255))
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+          "
+          The address of the remote peer.
+
+          The value of cisgIpsSgFailLocalType identifies the
+          type of the address contained in this object.
+          "
+         ::= { cisgIpsSgFailEntry 9 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The Notification Control Group
+   --
+   -- This group of objects controls the emission of
+   -- SNMP notifications pertaining to the operation of
+   -- control tunnels.
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cisgIpsSgNotifCntlAllNotifs OBJECT-TYPE
+         SYNTAX TruthValue
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+          "
+          This object acts as the knob that controls the
+          the administrative state of sending any notification
+          defined in this MIB module. That is, a particular
+          notification 'foo' defined in this MIB module is 
+          enabled if and only if the expression
+
+          cisgIpsSgNotifCntlAllNotifs && cisgIpsSgNotifCntl<foo>
+          evaluates to 'true'.
+          "
+         DEFVAL { true }
+         ::= { cisgIpsSgNotificationCntl 1 }
+
+      cisgIpsSgNotifCntlTunnelStart OBJECT-TYPE
+         SYNTAX TruthValue
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+          "
+          This object defines the administrative state of
+          sending the Control Tunnel Start notification.
+
+          If the value of this object is 'true', the issuing
+          of the notification 'cisgIpsSgTunnelStart' is enabled.
+          "
+         DEFVAL { false }
+         ::= { cisgIpsSgNotificationCntl 2 }
+
+      cisgIpsSgNotifCntlTunnelStop OBJECT-TYPE
+         SYNTAX TruthValue
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+          "
+          This object defines the administrative state
+          of sending the Control Tunnel Stop notification.
+
+          If the value of this object is 'true', the issuing
+          of the notification 'cisgIpsSgTunnelStop' is enabled.
+          "
+         DEFVAL { false }
+         ::= { cisgIpsSgNotificationCntl 3 }
+
+      cisgIpsSgNotifCntlSysFailure OBJECT-TYPE
+         SYNTAX TruthValue
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+          "
+          This object defines the administrative state
+          of sending the System Failure notification.
+
+          If the value of this object is 'true', the issuing
+          of the notification 'ciscoIpsSgSysFailure' is enabled.
+          "
+         DEFVAL { false }
+         ::= { cisgIpsSgNotificationCntl 4 }
+
+      cisgIpsSgNotifCntlCertCrlFail OBJECT-TYPE
+         SYNTAX TruthValue
+         MAX-ACCESS read-write
+         STATUS current
+         DESCRIPTION
+          "
+          This object defines the administrative
+          state of sending the Certificate/CRL Failure 
+          notification.
+
+          If the value of this object is 'true', the issuing
+          of the notification 'ciscoIpsSgCertCrlFailure' is 
+          enabled.
+          "
+         DEFVAL { false }
+         ::= { cisgIpsSgNotificationCntl 5 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Internet Key Exchange Notifications
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIpsSgTunnelStart NOTIFICATION-TYPE
+         OBJECTS {
+                   cisgIpsSgTunLocalAddressType,
+                   cisgIpsSgTunLocalAddress,
+                   cisgIpsSgTunRemoteAddressType,
+                   cisgIpsSgTunRemoteAddress,
+                   cisgIpsSgTunLifeTime
+                 }
+         STATUS  current
+         DESCRIPTION
+          "
+          This notification is generated when an control tunnel
+          becomes active.
+          "
+         ::= { ciscoIPsecSigMIBNotifs 1 }
+
+      ciscoIpsSgTunnelStop NOTIFICATION-TYPE
+         OBJECTS {
+                   cisgIpsSgTunHistLocalAddrType      ,
+                   cisgIpsSgTunHistLocalAddr,
+                   cisgIpsSgTunHistRemoteAddrType     ,
+                   cisgIpsSgTunHistRemoteAddr,
+                   cisgIpsSgTunHistTermReason,
+                   cisgIpsSgTunHistActiveTime
+                 }
+         STATUS  current
+         DESCRIPTION
+          "
+          This notification is generated when an 
+          control tunnel becomes inactive.
+          "
+         ::= { ciscoIPsecSigMIBNotifs 2 }
+
+      ciscoIpsSgSysFailure NOTIFICATION-TYPE
+         OBJECTS {
+                   cisgIpsSgFailLocalAddress,
+                   cisgIpsSgFailRemoteAddress
+                 }
+         STATUS  current
+         DESCRIPTION
+          "
+          This notification is generated when the processing 
+          for an control Tunnel experiences an 
+          system capacity error.
+          "
+         ::= { ciscoIPsecSigMIBNotifs 3 }
+
+      ciscoIpsSgCertCrlFailure NOTIFICATION-TYPE
+         OBJECTS {
+                   cisgIpsSgFailLocalAddress,
+                   cisgIpsSgFailRemoteAddress
+                 }
+         STATUS  current
+         DESCRIPTION
+          "
+          This notification is generated when the 
+          processing for an control Tunnel 
+          experiences a Certificate or a Certificate 
+          validation (CRL or OCSP) related error.
+          "
+         ::= { ciscoIPsecSigMIBNotifs 4 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Conformance Information
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIpsSgMIBCompliances   OBJECT IDENTIFIER
+                      ::= { ciscoIPsecSigMIBConform 1 }
+
+      ciscoIpsSgMIBGroups        OBJECT IDENTIFIER
+                      ::= { ciscoIPsecSigMIBConform 2 }
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Compliance Statements
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIpsSgMIBCompliance MODULE-COMPLIANCE
+         STATUS      current
+         DESCRIPTION
+           "The compliance statement for SNMP entities
+            the IPsec Signaling MIB."
+
+         MODULE -- this module
+           MANDATORY-GROUPS  { 
+               ciscoIpsSgActivityGroup,
+               ciscoIpsSgCoreHistoryGroup,
+               ciscoIpsSgCoreFailureGroup
+           }
+
+       GROUP ciscoIpsSgHistoryGroup
+       DESCRIPTION   
+        "This group is optional and must be implemented 
+        by the agent of the managed entity if and only
+        if
+         a) the managed entity implements signaling for
+            IPsec and FC-SP
+         b) and the managed entity implements historical 
+            archiving of control tunnels."
+
+
+       GROUP ciscoIpsSgFailureGroup 
+       DESCRIPTION   
+        "This group is optional and must be implemented 
+        by the agent of the managed entity if and only
+        if
+         a) the managed entity implements signaling for 
+            IPsec and FC-SP and
+         b) the managed entity implements historical 
+            archiving of setup and operational failures 
+            of IPsec control tunnels."
+
+
+       GROUP ciscoIpsSgNotifcationGroup
+       DESCRIPTION   
+        "This group is optional."
+
+       GROUP ciscoIpsSgNotifCntlGroup 
+       DESCRIPTION   
+        "The agent must implement this group if it 
+        implements the group 'ciscoIpsSgNotifcationGroup'."
+      
+       OBJECT cisgIpsSgTunAction
+       MIN-ACCESS read-only
+       DESCRIPTION
+        "It is compliant to support only a subset of the values 
+        defined."
+
+       ::= { ciscoIpsSgMIBCompliances 1 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Units of Conformance: List of current groups
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIpsSgActivityGroup OBJECT-GROUP
+         OBJECTS {
+            cisgIpsSgGlobalActiveTunnels,
+            cisgIpsSgGlobalPreviousTunnels,
+            cisgIpsSgGlobalInOctets,
+            cisgIpsSgGlobalInPkts,
+            cisgIpsSgGlobalInDropPkts,
+            cisgIpsSgGlobalInNotifys,
+            cisgIpsSgGlobalInP2SaDelReqs,
+            cisgIpsSgGlobalOutOctets,
+            cisgIpsSgGlobalOutPkts,
+            cisgIpsSgGlobalOutDropPkts,
+            cisgIpsSgGlobalOutNotifys,
+            cisgIpsSgGlobalOutP2SaDelReqs,
+            cisgIpsSgGlobalInitTunnels,
+            cisgIpsSgGlobalInitTunnelFails,
+            cisgIpsSgGlobalRespTunnels,
+            cisgIpsSgGlobalRespTunnelFails,
+            cisgIpsSgGlobalSysCapFails,
+            cisgIpsSgGlobalAuthFails,
+            cisgIpsSgGlobalDecryptFails,
+            cisgIpsSgGlobalHashValidFails,
+            cisgIpsSgGlobalBadTunnelRefs,
+            cisgIpsSgGlobalInP1SaDelReqs,
+            cisgIpsSgGlobalOutP1SaDelReqs,
+
+              -- Tunnel-level metrics pertaining to
+              -- Signaling
+            cisgIpsSgTunLocalType,
+            cisgIpsSgTunLocalValue,
+            cisgIpsSgTunLocalAddressType,
+            cisgIpsSgTunLocalAddress,
+            cisgIpsSgTunLocalName,
+            cisgIpsSgTunRemoteType,
+            cisgIpsSgTunRemoteValue,
+            cisgIpsSgTunRemoteAddressType ,
+            cisgIpsSgTunRemoteAddress,
+            cisgIpsSgTunRemoteName,
+            cisgIpsSgTunEncryptAlgo,
+            cisgIpsSgTunEncryptKeySize,
+            cisgIpsSgTunHashAlgo,
+            cisgIpsSgTunAuthMethod,
+            cisgIpsSgTunLifeTime,
+            cisgIpsSgTunActiveTime,
+            cisgIpsSgTunInOctets,
+            cisgIpsSgTunInPkts,
+            cisgIpsSgTunInDropPkts,
+            cisgIpsSgTunInNotifys,
+            cisgIpsSgTunOutOctets,
+            cisgIpsSgTunOutPkts,
+            cisgIpsSgTunOutDropPkts,
+            cisgIpsSgTunOutNotifys,
+            cisgIpsSgTunOutP2SaDelReqs,
+            cisgIpsSgTunStatus,
+            cisgIpsSgTunAction    
+                 }
+         STATUS current
+         DESCRIPTION
+            "
+            This group consists of:
+             1) Signaling Global Objects
+             2) control Tunnel table.
+            "
+         ::= { ciscoIpsSgMIBGroups 1 }
+
+      ciscoIpsSgCoreHistoryGroup OBJECT-GROUP
+         OBJECTS {
+                   -- signaling History 
+                   -- Global Control Objects
+                  cisgIpsSgHistTableSize
+         }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of the core (mandatory) 
+          objects pertaining to maintaining history of 
+          signaling activity.
+          "
+         ::= { ciscoIpsSgMIBGroups 2 }
+
+      ciscoIpsSgHistoryGroup OBJECT-GROUP
+         OBJECTS {
+                 cisgIpsSgTunHistTermReason     ,
+                 cisgIpsSgTunHistActiveIndex    ,
+                 cisgIpsSgTunHistPeerLocalType  ,
+                 cisgIpsSgTunHistPeerLocalValue ,
+                 cisgIpsSgTunHistPeerIntIndex   ,
+                 cisgIpsSgTunHistPeerRemoteType ,
+                 cisgIpsSgTunHistPeerRemoteValue,
+                 cisgIpsSgTunHistLocalAddrType  ,
+                 cisgIpsSgTunHistLocalAddr      ,
+                 cisgIpsSgTunHistLocalName      ,
+                 cisgIpsSgTunHistRemoteAddrType ,
+                 cisgIpsSgTunHistRemoteAddr     ,
+                 cisgIpsSgTunHistRemoteName     ,
+                 cisgIpsSgTunHistEncryptAlgo    ,
+                 cisgIpsSgTunHistEncryptKeySize ,
+                 cisgIpsSgTunHistHashAlgo       ,
+                 cisgIpsSgTunHistAuthMethod     ,
+                 cisgIpsSgTunHistLifeTime       ,
+                 cisgIpsSgTunHistStartTime      ,
+                 cisgIpsSgTunHistActiveTime     ,
+                 cisgIpsSgTunHistInOctets       ,
+                 cisgIpsSgTunHistInPkts         ,
+                 cisgIpsSgTunHistInDropPkts     ,
+                 cisgIpsSgTunHistInNotifys      ,
+                 cisgIpsSgTunHistInP2SaDelReqs  ,
+                 cisgIpsSgTunHistOutOctets      ,
+                 cisgIpsSgTunHistOutPkts        ,
+                 cisgIpsSgTunHistOutDropPkts    ,
+                 cisgIpsSgTunHistOutNotifys     ,
+                 cisgIpsSgTunHistOutP2SaDelReqs
+                 }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of objects that pertain 
+          to maintenance of history of 
+          signaling activity.
+          "
+         ::= { ciscoIpsSgMIBGroups 3 }
+
+
+      ciscoIpsSgCoreFailureGroup OBJECT-GROUP
+         OBJECTS {
+                 -- Objects associated with implementing
+                 -- core failure group.
+                 cisgIpsSgFailTableSize
+         }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of the core (mandatory) 
+          objects pertaining to maintaining history of 
+          failure signaling activity.
+          "
+         ::= { ciscoIpsSgMIBGroups 4 }
+
+
+      ciscoIpsSgFailureGroup OBJECT-GROUP
+         OBJECTS {
+                   -- The Ipsec signaling failure group
+                 cisgIpsSgFailReason        ,
+                 cisgIpsSgFailTime          ,
+                 cisgIpsSgFailLocalType     ,
+                 cisgIpsSgFailLocalValue    ,
+                 cisgIpsSgFailRemoteType    ,
+                 cisgIpsSgFailRemoteValue   ,
+                 cisgIpsSgFailLocalAddress  ,
+                 cisgIpsSgFailRemoteAddress
+                 }
+         STATUS current
+         DESCRIPTION
+            "
+            This group consists of objects that pertain 
+            to maintenance of history of failures 
+            associated with Ipsec signaling activity.
+            "
+         ::= { ciscoIpsSgMIBGroups 5 }
+
+      ciscoIpsSgNotifCntlGroup OBJECT-GROUP
+         OBJECTS {
+                 cisgIpsSgNotifCntlAllNotifs,
+                 cisgIpsSgNotifCntlTunnelStart,
+                 cisgIpsSgNotifCntlTunnelStop,
+                 cisgIpsSgNotifCntlSysFailure,
+                 cisgIpsSgNotifCntlCertCrlFail 
+                 }
+         STATUS current
+         DESCRIPTION
+          "
+          This group of objects controls the sending 
+          of notifications pertaining to signaling
+          operations.
+          "
+         ::= { ciscoIpsSgMIBGroups 6 }
+
+        ciscoIpsSgNotifcationGroup NOTIFICATION-GROUP
+           NOTIFICATIONS {
+                  ciscoIpsSgTunnelStart ,
+                  ciscoIpsSgTunnelStop ,
+                  ciscoIpsSgSysFailure ,
+                  ciscoIpsSgCertCrlFailure 
+                         }
+           STATUS current
+           DESCRIPTION
+            "
+            This group contains the notifications pertaining
+            to Ipsec signaling operations.
+            "
+         ::= { ciscoIpsSgMIBGroups 7 }
+
+   END

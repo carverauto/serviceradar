@@ -1,0 +1,619 @@
+-- *****************************************************************
+-- CISCO-VOICE-URI-CLASS-MIB.my: Voice URI Class MIB file
+--
+-- June 2002 Prashanth Prabhu
+--
+-- Copyright (c) 1996-1999, 2000, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VOICE-URI-CLASS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE
+                FROM SNMPv2-SMI
+        TEXTUAL-CONVENTION,
+        RowStatus
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ciscoExperiment
+                FROM CISCO-SMI;
+
+
+ciscoVoiceUriClassMIB MODULE-IDENTITY
+        LAST-UPDATED    "200210100000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-voice@cisco.com"
+        DESCRIPTION
+                "This MIB provides information about Voice URI classes
+                 that are used to select Dial Peers based on URI's. A
+                 Voice URI class contains a set of configurations that
+                 is used to match a Voice URI.
+                 
+                 URI        - Uniform Resource Indicator
+                 URL        - Uniform Resource Locator
+                 regex      - regular expression
+                 RFC 2543   - SIP: Session Initiation Protocol
+                 RFC 2806   - URLs for Telephone Calls"
+        REVISION        "200210100000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoExperiment 99999999 }
+
+--
+-- Textual Conventions
+--
+
+--
+-- Voice URI Class textual conventions
+--
+
+CvUriClassTagIndex ::= TEXTUAL-CONVENTION
+        DISPLAY-HINT "32a"
+        STATUS       current
+        DESCRIPTION
+        "A Voice URI class tag. This is a value used to uniquely
+         identify each Voice URI class in the system."
+        SYNTAX       OCTET STRING (SIZE (1..32))
+
+CvUriClassTag ::= TEXTUAL-CONVENTION
+        DISPLAY-HINT "32a"
+        STATUS       current
+        DESCRIPTION
+        "This textual convention is an extension of the
+         CvUriClassTagIndex convention. This extension allows
+         zero-length strings to be used for tags. Examples of usage
+         of zero-length strings as tags might include situations
+         where none of the Voice URI classes need to be referenced."
+        SYNTAX       OCTET STRING (SIZE (0..32))
+
+CvUriClassPattern ::= TEXTUAL-CONVENTION
+        DISPLAY-HINT "32a"
+        STATUS       current
+        DESCRIPTION
+        "A regular expression pattern that is configured in the voice 
+         URI classes. The default value is a zero-length string. Any
+         pattern set to this default value is not used for matching
+         with the URI"
+        SYNTAX       OCTET STRING (SIZE (0..32))
+
+CvUriClassPreference ::= TEXTUAL-CONVENTION
+        DISPLAY-HINT "d"
+        STATUS       current
+        DESCRIPTION
+        "Preference for a field in the URI. Lower number indicates
+         higher preference. The preference is used to break ties when
+         more than one class matches a given URI. The class, which has
+         the longest match for a field with the highest preference is
+         given higher priority."
+        SYNTAX       INTEGER (1..10)
+
+-- Voice URI Class MIB objects definitions
+
+
+--*********************************************************************
+-- Voice URI Class Group
+--*********************************************************************
+--
+-- The objects in this group are responsible for Voice URI class
+-- configuration. The URI classes are used to match voice dial-peers to
+-- calls that contain URI's. The Voice URI classes contain information,
+-- typically regular expressions, which is used to match with either
+-- specific fields in the URI (e.g., user-id, host, etc.) or the entire
+-- URI (a generic regex). One restriction imposed on the Voice URI
+-- classes is that the user should set either field-specific patterns or
+-- the generic pattern, not both.
+--
+-- A class is said to match a given URI under the following conditions:
+--  - If field-specific regexes are configured in the URI class, then
+--    all of them should match corresponding field values in the URI.
+--  - If a generic regex is configured, then it should match the entire
+--    URI.
+-- The classes are schema-specific i.e., the match properties of the
+-- classes are tailored for URI's of specific schemas such as sip: or
+-- tel:. Currently only the sip: and tel: schemas are supported by this
+-- MIB.
+--
+-- The classes are essentially templates, which can be referred to by
+-- their tags in the Voice dial-peers. Hence the same Voice URI class
+-- may be configured under more than one dial-peer. The properties of
+-- the Voice URI class are used to check for a voice dial-peer match
+-- with a given URI. If the Voice URI class configured in a voice dial
+-- peer matches, according to the aforementioned rules, with a URI,
+-- then the corresponding dial-peer is also considered a match for the
+-- URI. The dial-peer is then selected to either accept the call or
+-- place the call, depending on whether the call is inbound or outbound.
+--
+-- The SIP Voice URI classes can also have a preference assigned to some
+-- of the patterns in the class. When more than one Voice class matches
+-- a URI, these preferences are used to determine how they are to be
+-- sorted i.e., to determine which one of the Voice class should be
+-- given priority.
+-- The preference is used as a way to break the ties - the match-length
+-- for the pattern with the highest preference is used to break the
+-- initial tie; if that fails the one with the next highest is used and
+-- so on, until the tie cannot be broken anymore. When the Voice classes
+-- are used under dial-peers, this sorting is used in addition to
+-- whatever scheme might be in use to sort the dial-peers. The
+-- preference values should be unique i.e., no two patterns can have the
+-- same value.
+-- Currently, the user-id and host patterns can have preferences
+-- associated with them. By default the host portion has higher
+-- preference over the other.
+-- 
+--
+--
+-- A brief description of regular expressions follows:
+--
+-- Regular expressions (RE's) provide a mechanism to select strings
+-- based on certain match criteria. RE's are patterns constructed
+-- out of alphanumeric characters - an RE can be a single-character or
+-- multiple-character pattern. The characters fall into two broad
+-- types - ordinary and special. When used in an RE the ordinary
+-- characters match only themselves. The special characters, on
+-- the other hand, serve to perform certain functions in the pattern;
+-- they will be explained in more detail below. Note that a special
+-- character could be forced to match itself by preceding it with a
+-- backslash (\); this is also referred to as "escaping".
+--
+-- Special characters -
+--
+-- +====+==========================================================+
+-- | () | group characters into a sub-pattern                      |
+-- |    |                                                          |
+-- | [] | designates a range of single character patterns          |
+-- |    |                                                          |
+-- | ^  | 1. matches the beginning of the string                   |
+-- |    | 2. if present as the first character within a range, all |
+-- |    |    characters except those in the range are matched      |
+-- |    |                                                          |
+-- | $  | matches the end of the string                            |
+-- |    |                                                          |
+-- | -  | separates the end point of a range                       |
+-- |    |                                                          |
+-- | .  | matches any single character (including white space)     |
+-- |    |                                                          |
+-- | *  | matches zero or more sequences of the preceding          |
+-- |    | character or sub-pattern                                 |
+-- |    |                                                          |
+-- | +  | matches one of more sequences of the preceding character |
+-- |    | or sub-pattern                                           |
+-- |    |                                                          |
+-- | ?  | matches at most one occurrence of the preceding character|
+-- |    | or sub-pattern                                           |
+-- |    |                                                          |
+-- | _  | matches comma(,), left brace({), right brace(}),         |
+-- |    | left parenthesis((), right parenthesis()),               |
+-- |    | beginning of string, end of string and space             |
+-- |    |                                                          |
+-- | \  | removes the "special ness", if any, of the succeeding    |
+-- |    | character                                                |
+-- |    | i.e., the '\' "escapes" the succeeding character into    |
+-- |    |       matching itself                                    |
+-- +====+==========================================================+
+--
+-- Single-character RE examples:
+-- "a"
+--     match any strings that contain 'a'
+--     e.g., "bcda"
+--
+-- "."
+--     match any strings that contain any character
+--     e.g., "ABcD" ".xyz"
+--               
+-- Multiple-character RE examples:
+-- "a-z"
+--     match a string that contains a lower case alphabetic character
+--     e.g., "Aabcd"
+--
+-- "^ABC"
+--     match a string that begins with sub-string ABC
+--     e.g., "ABCdef"
+--
+-- "(ABC)+"
+--     match a string that contains sub-string ABC repeated one or more
+--     times
+--     e.g., "defABC" or "defABCABC"
+--
+-- "cisco\.com"
+--     match a string that contains the character '.'
+--     e.g., "cisco.com" but not "ciscoAcom"
+--
+--
+--
+-- An example to illustrate the workings of SIP URI classes follows:
+--
+-- Example: The URI in the call is sip:abc@xyz.com,
+--          where
+--              user-id - abc
+--              host    - xyz.com
+--
+--          Consider the sip: schema-specific Voice URI classes below.
+-- +========+==================+==================+==================+
+-- |        |                  |                  |                  |
+-- |  tag   |  user-id  match  |   host    match  |  generic  match  |
+-- |        |   regex    len   |   regex    len   |    URI     len   |
+-- |        |  pattern         |  pattern         |  pattern         |
+-- |        |                  |                  |                  |
+-- +========+==================+==================+==================+
+-- |        |                  |                  |                  |
+-- |  SIP_1 |    ab        2   |   xyz\.com   7   |                  |
+-- |  SIP_2 |    abc       3   |   xyz        3   |                  |
+-- |  SIP_3 |    a         1   |   xyz.com    7   |                  |
+-- |  SIP_4 |                  |                  |  abc@.*com  11   |
+-- |        |                  |                  |                  |
+-- +========+==================+==================+==================+
+-- where,
+--     user-id regex pattern refers to cvSIPUriClassCfgUserIDPattern 
+--     host regex pattern refers to cvSIPUriClassCfgHostPattern 
+--     generic regex pattern refers to cvCommonUriClassCfgURIPattern 
+--
+-- Case 1: The preferences are set to their defaults - host has
+--         preference over user-id portion.
+--         i.e., cvUriClassSIPHostPreference = 1
+--               cvUriClassSIPUserIDPreference = 2
+--
+--         Sorted order of classes: SIP_1, SIP_3, SIP_2 and SIP_4
+--
+-- Case 2: The preferences are reversed from the defaults - user-id has
+--         preference over host portion.
+--         i.e., cvUriClassSIPHostPreference = 3
+--               cvUriClassSIPUserIDPreference = 2
+--
+--         Sorted order of classes: SIP_2, SIP_1, SIP_3 and SIP_4
+--
+-- By extension the Voice dial-peers that refer to these classes are
+-- sorted in similar order.
+--
+--
+--
+-- So, to configure voice dial-peers to be selected based on URI's the
+-- following needs to be done:
+-- [1] Create the Voice URI class entry.
+-- [2] Set the field-specific or generic regex in the Voice URI class.
+-- [3] Set the preferences for the field-specific regexes (optional).
+-- [4] Set the object(s) in the voice dial-peer
+--     (CISCO-VOICE-DIAL-CONTROL-MIB), to use this class to match
+--     inbound or outbound URI's.
+--
+-- The Voice URI class once created is considered active. If and when a
+-- class is destroyed, any reference to that class is removed from all
+-- the voice dial-peers.
+--
+
+cvUriClassMIBNotifications OBJECT IDENTIFIER
+        ::= { ciscoVoiceUriClassMIB 0 }
+
+cvUriClassMIBObjects OBJECT IDENTIFIER
+        ::= { ciscoVoiceUriClassMIB 1 }
+
+cvUriClass              OBJECT IDENTIFIER
+        ::= { cvUriClassMIBObjects 1 }
+
+cvUriClassSIPGeneralConfig OBJECT IDENTIFIER
+        ::= { cvUriClassMIBObjects 2 }
+
+--
+-- Voice Generic URI Class Configuration Table
+--
+
+cvUriClassCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "The table contains generic Voice URI class information."
+        ::= { cvUriClass 1 }
+
+cvUriClassCfgEntry OBJECT-TYPE
+        SYNTAX      CvUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "A single Voice URI class. The creation of this entry
+         will result in the automatic creation of a corresponding
+         'cvUriClassCfgType' URI class entry and a
+         cvCommonUriClassCfgEntry."
+        INDEX       { IMPLIED cvUriClassCfgTag }
+        ::= { cvUriClassCfgTable 1 }
+
+CvUriClassCfgEntry ::= SEQUENCE {
+            cvUriClassCfgTag                CvUriClassTagIndex,
+            cvUriClassCfgType               INTEGER,
+            cvUriClassCfgStatus             RowStatus
+        }
+
+
+cvUriClassCfgTag OBJECT-TYPE
+        SYNTAX      CvUriClassTagIndex
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "A name that uniquely identifies a Voice URI class in the
+         system."
+        ::= { cvUriClassCfgEntry 1 }
+
+cvUriClassCfgType OBJECT-TYPE
+        SYNTAX      INTEGER {
+            sip    (1),
+            tel    (2)
+        }
+        MAX-ACCESS      read-create
+        STATUS          current
+        DESCRIPTION
+        "Specifies the type of Voice URI class. The type is the schema
+         of the URI's, which this class is configured to match.
+
+         sip   - Voice URI class to match sip: URI's (RFC 2543)
+         tel   - Voice URI class to match tel: URI's (RFC 2806)
+
+         Once created this object cannot be modified."
+        ::= { cvUriClassCfgEntry 2 }
+
+cvUriClassCfgStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+        "This object is used to create, modify or delete a row in this
+         table. A row can be deleted or modified regardless of its
+         current state. When the row is created with createAndWait, it
+         is placed in notInService state, until such time when either
+         the state is changed to active, or the row is deleted."
+        ::= { cvUriClassCfgEntry 3 }
+
+--
+-- Voice SIP URI Class Configuration Table
+--
+
+cvSIPUriClassCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvSIPUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "The table contains information related to sip: schema-specific
+         Voice URI classes."
+        ::= { cvUriClass 2 }
+
+cvSIPUriClassCfgEntry OBJECT-TYPE
+        SYNTAX      CvSIPUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "A single sip: schema-specific Voice URI class.
+         This entry is created automatically when a cvUriClassCfgEntry
+         of cvUriClassCfgType(1) is created. The manager cannot create
+         this entry."
+        INDEX       { IMPLIED cvUriClassCfgTag }
+        ::= { cvSIPUriClassCfgTable 1 }
+
+CvSIPUriClassCfgEntry ::= SEQUENCE {
+            cvSIPUriClassCfgUserIDPattern       CvUriClassPattern,
+            cvSIPUriClassCfgHostPattern         CvUriClassPattern,
+            cvSIPUriClassCfgPhoneCtxtPattern    CvUriClassPattern
+        }
+
+cvSIPUriClassCfgUserIDPattern OBJECT-TYPE
+        SYNTAX      CvUriClassPattern
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "A regular expression to match the user-id in a sip: URI. If
+         this object is set to a zero-length string it is not used for
+         matching with the URI.
+         This object cannot be set if cvCommonUriClassCfgURIPattern
+         is also set."
+        DEFVAL      { "" }
+        ::= { cvSIPUriClassCfgEntry 1 }
+
+cvSIPUriClassCfgHostPattern OBJECT-TYPE
+        SYNTAX      CvUriClassPattern
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "A regular expression to match the host portion in a
+         sip: URI. If this object is set to a zero-length string it is
+         not used for matching with the URI.
+         This object cannot be set if cvCommonUriClassCfgURIPattern
+         is also set."
+        DEFVAL      { "" }
+        ::= { cvSIPUriClassCfgEntry 2 }
+
+cvSIPUriClassCfgPhoneCtxtPattern OBJECT-TYPE
+        SYNTAX      CvUriClassPattern
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "A regular expression to match the phone-context attribute
+         in a sip: URI. If this object is set to a zero-length string
+         it is not used for matching with the URI.
+         This object cannot be set if cvCommonUriClassCfgURIPattern
+         is also set."
+        DEFVAL      { "" }
+        ::= { cvSIPUriClassCfgEntry 3 }
+
+--
+-- Voice TEL URI Class Configuration Table
+--
+
+cvTELUriClassCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvTELUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "The table contains information related to tel: schema-specific
+         Voice URI classes."
+        ::= { cvUriClass 3 }
+
+cvTELUriClassCfgEntry OBJECT-TYPE
+        SYNTAX      CvTELUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "A single sip: schema-specific Voice URI class.
+         This entry is created automatically when a cvUriClassCfgEntry
+         of cvUriClassCfgType(2) is created. The manager cannot create
+         this entry."
+        INDEX       { IMPLIED cvUriClassCfgTag }
+        ::= { cvTELUriClassCfgTable 1 }
+
+CvTELUriClassCfgEntry ::= SEQUENCE {
+            cvTELUriClassCfgPhoneNumPattern     CvUriClassPattern,
+            cvTELUriClassCfgPhoneCtxtPattern    CvUriClassPattern
+        }
+
+cvTELUriClassCfgPhoneNumPattern OBJECT-TYPE
+        SYNTAX      CvUriClassPattern
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "A regular expression to match the phone number portion in a
+         tel: URI. If this object is set to a zero-length string it is
+         not used for matching with the URI.
+         This object cannot be set if cvCommonUriClassCfgURIPattern
+         is also set."
+        DEFVAL      { "" }
+        ::= { cvTELUriClassCfgEntry 1 }
+
+cvTELUriClassCfgPhoneCtxtPattern OBJECT-TYPE
+        SYNTAX      CvUriClassPattern
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "A regular expression to match the phone-context attribute in a
+         tel: URI. If this object is set to a zero-length string it is
+         not used for matching with the URI.
+         This object cannot be set if cvCommonUriClassCfgURIPattern
+         is also set."
+        DEFVAL      { "" }
+        ::= { cvTELUriClassCfgEntry 2 }
+
+--
+-- Voice Common URI Class Configuration Table
+--
+
+cvCommonUriClassCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvCommonUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "The table contains common configuration information specific to
+         the Voice URI classes."
+        ::= { cvUriClass 4 }
+
+cvCommonUriClassCfgEntry OBJECT-TYPE
+        SYNTAX      CvCommonUriClassCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "A single sip: schema-specific Voice URI class.
+         This entry is created automatically when a cvUriClassCfgEntry
+         is created. The manager cannot create this entry."
+        INDEX       { IMPLIED cvUriClassCfgTag }
+        ::= { cvCommonUriClassCfgTable 1 }
+
+CvCommonUriClassCfgEntry ::= SEQUENCE {
+            cvCommonUriClassCfgURIPattern       OCTET STRING
+        }
+
+cvCommonUriClassCfgURIPattern OBJECT-TYPE
+        SYNTAX      OCTET STRING (SIZE (0..128))
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "A regular expression to match an entire URI. If this object is
+         set to a zero-length string it is not used for matching with
+         the URI.
+         This object is mutually exclusive with patterns that match
+         specific fields from the URI e.g.,
+         cvSIPUriClassCfgUserIDPattern, or cvSIPUriClassCfgPhonePattern.
+         If more than one class matches a URI, the classes that matched
+         with the URI based on this pattern, are given the least
+         priority amongst matching classes."
+        DEFVAL      { "" }
+        ::= { cvCommonUriClassCfgEntry 1 }
+
+
+--
+-- Voice SIP URI Class Preference Configuration
+--
+
+cvUriClassSIPHostPreference OBJECT-TYPE
+        SYNTAX      CvUriClassPreference
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "Preference assigned to the match length resulting from a match
+         of cvSIPUriClassCfgHostPattern against the host portion of a
+         sip: URI."
+        DEFVAL      { 1 }
+        ::= { cvUriClassSIPGeneralConfig 1 }
+
+cvUriClassSIPUserIDPreference OBJECT-TYPE
+        SYNTAX      CvUriClassPreference
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+        "Preference assigned to the match length resulting from a match
+         of cvSIPUriClassCfgUserIDPattern against the user-id portion of
+         a sip: URI."
+        DEFVAL      { 2 }
+        ::= { cvUriClassSIPGeneralConfig 2 }
+
+
+cvUriClassMIBConformance OBJECT IDENTIFIER ::=
+                                    { ciscoVoiceUriClassMIB 2 }
+cvUriClassMIBCompliances OBJECT IDENTIFIER ::=
+                                    { cvUriClassMIBConformance 1 }
+cvUriClassMIBGroups      OBJECT IDENTIFIER ::=
+                                    { cvUriClassMIBConformance 2 }
+
+-- compliance statements
+
+cvUriClassMIBCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+        "The compliance statement for entities which implement the
+         CISCO VOICE URI CLASS MIB."
+        MODULE      -- this module
+
+        MANDATORY-GROUPS    {
+            cvUriClassGroup
+        }
+        ::= { cvUriClassMIBCompliances 1}
+
+-- units of conformance
+
+cvUriClassGroup OBJECT-GROUP
+        OBJECTS {
+            cvUriClassCfgType,
+            cvUriClassCfgStatus,
+            cvSIPUriClassCfgUserIDPattern,
+            cvSIPUriClassCfgHostPattern,
+            cvSIPUriClassCfgPhoneCtxtPattern,
+            cvTELUriClassCfgPhoneNumPattern,
+            cvTELUriClassCfgPhoneCtxtPattern,
+            cvCommonUriClassCfgURIPattern,
+            cvUriClassSIPHostPreference,
+            cvUriClassSIPUserIDPreference
+        }
+        STATUS      current
+        DESCRIPTION
+        "A collection of objects providing the general Voice URI Class
+         configuration capability."
+        ::= { cvUriClassMIBGroups 1 }
+
+END

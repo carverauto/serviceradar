@@ -1,0 +1,191 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-VERSION-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- VERSION management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-VERSION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB;
+
+cucsVersionObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        VERSION management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 70 }
+
+cucsVersionApplicationTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsVersionApplicationEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS version:Application managed object table"
+    ::= { cucsVersionObjects 1 }
+
+cucsVersionApplicationEntry OBJECT-TYPE
+    SYNTAX           CucsVersionApplicationEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsVersionApplicationTable table."
+    INDEX { cucsVersionApplicationInstanceId }
+    ::= { cucsVersionApplicationTable 1 }
+
+CucsVersionApplicationEntry ::= SEQUENCE {
+    cucsVersionApplicationInstanceId                                 CucsManagedObjectId,
+    cucsVersionApplicationDn                                         CucsManagedObjectDn,
+    cucsVersionApplicationRn                                         SnmpAdminString,
+    cucsVersionApplicationDetail                                     SnmpAdminString,
+    cucsVersionApplicationTime                                       SnmpAdminString,
+    cucsVersionApplicationVersion                                    SnmpAdminString
+}
+
+cucsVersionApplicationInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsVersionApplicationEntry 1 }
+
+cucsVersionApplicationDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS version:Application:dn managed object property"
+    ::= { cucsVersionApplicationEntry 2 }
+
+cucsVersionApplicationRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS version:Application:rn managed object property"
+    ::= { cucsVersionApplicationEntry 3 }
+
+cucsVersionApplicationDetail OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS version:Application:detail managed object property"
+    ::= { cucsVersionApplicationEntry 4 }
+
+cucsVersionApplicationTime OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS version:Application:time managed object property"
+    ::= { cucsVersionApplicationEntry 5 }
+
+cucsVersionApplicationVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS version:Application:version managed object property"
+    ::= { cucsVersionApplicationEntry 6 }
+
+cucsVersionEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsVersionEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS version:Ep managed object table"
+    ::= { cucsVersionObjects 2 }
+
+cucsVersionEpEntry OBJECT-TYPE
+    SYNTAX           CucsVersionEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsVersionEpTable table."
+    INDEX { cucsVersionEpInstanceId }
+    ::= { cucsVersionEpTable 1 }
+
+CucsVersionEpEntry ::= SEQUENCE {
+    cucsVersionEpInstanceId                                          CucsManagedObjectId,
+    cucsVersionEpDn                                                  CucsManagedObjectDn,
+    cucsVersionEpRn                                                  SnmpAdminString
+}
+
+cucsVersionEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsVersionEpEntry 1 }
+
+cucsVersionEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS version:Ep:dn managed object property"
+    ::= { cucsVersionEpEntry 2 }
+
+cucsVersionEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS version:Ep:rn managed object property"
+    ::= { cucsVersionEpEntry 3 }
+
+END

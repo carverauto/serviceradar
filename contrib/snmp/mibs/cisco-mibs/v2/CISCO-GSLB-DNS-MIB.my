@@ -1,0 +1,1804 @@
+-- *******************************************************************
+-- CISCO-GSLB-DNS-MIB.my:  Global Server Load Balancing
+-- DNS Status and Statistics
+--   
+-- Sep 2006, Pawan N
+--   
+-- Copyright (c) 2006-2007 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-GSLB-DNS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    StorageType,
+    RowStatus,
+    TruthValue
+        FROM SNMPv2-TC
+    sysName
+        FROM SNMPv2-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetAddressPrefixLength,
+    InetAddressDNS
+        FROM INET-ADDRESS-MIB
+    CiscoGslbAnswerType,
+    CiscoGslbAnswerStatus,
+    CiscoGslbAnswerAdminState,
+    CiscoGslbBalanceMethod
+        FROM CISCO-GSLB-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoGslbDnsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200704090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-slb@cisco.com"
+    DESCRIPTION
+        "The MIB defines objects for status and statistics
+        information of DNS related operations of
+        Global Server Load Balancer(GSLB).  The MIB defines
+        objects for global statistical information like DNS
+        queries received, DNS responses sent, etc.  Further it
+        defines objects for answer, answer group, domain list,
+        source address list, proximity rule and DNS rule
+        statistics.  It also defines related notifications.
+
+        Acronyms and terminology:
+
+        DNS                   : Domain Name System (RFC1035)
+
+        D-proxy               : Local DNS name server of the
+                               client.
+
+        Answer                : Refers to resources to which the GSLB
+                               device resolves DNS requests that it
+                               receives.
+
+                               There are three possible types
+                               of answers:
+
+                               Virtual IP (VIP) :
+                                   Addresses associated with a
+                                   server load balancer device,
+                                   a web server, a cache, etc.
+
+                               Name Server (NS) : 
+                                   Configured DNS name server on the
+                                   network that can answer queries
+                                   that the GSLB device can not
+                                   resolve.
+
+                               Content Routing Agent (CRA) :
+                                   A device which uses a resolution
+                                   process called DNS race to send
+                                   identical and simultaneous
+                                   responses back to a client D-proxy
+                                   for proximity determination.
+
+        Answer group          : A logical grouping of answers.  It is a
+                               set of virtual IP address (VIP), name
+                               server (NS), or content routing agent
+                               (CRA) addresses from which an
+                               individual answer is selected and used
+                               to reply to a content request.  Answers
+                               are grouped together as resource pools.
+                               The GSLB device, using one of a number
+                               of available balance methods, can
+                               choose the most appropriate resource
+                               to serve each user request from the
+                               answers in an answer group.
+
+        Balance method        : A balance method is an algorithm for
+                               selecting the best server for
+                               replying to a DNS query. 
+
+        Domain list           : A collection of domain names for
+                               Internet or intranet resources that
+                               have been delegated to the GSLB device
+                               for DNS query responses.  Domain lists
+                               either contain complete domain names
+                               or regular expression that specifies a
+                               pattern by which the GSLB device
+                               matches incoming DNS requests.
+
+        Source address list   : A collection of IP addresses or address
+                               blocks meant to hold information about
+                               known D-proxies.  This information is
+                               used by the GSLB device while answering
+                               DNS queries.
+
+        DNS rule              : A rule which controls the operation of
+                               GSLB device.  It identifies the actions
+                               to be performed by the GSLB device when
+                               it receives a DNS request from a known
+                               source (a member of a source address
+                               list) for a known domain (a member of
+                               a domain list) by specifying which
+                               response (answer) is to be given to
+                               the requesting D-proxy and how that
+                               answer is chosen.
+
+        Proximity             : Refers to the distance or delay, in
+                               terms of network topology and not
+                               geographic distance, between the
+                               requesting client D-proxy and the
+                               resources corresponding to that
+                               request.
+
+        Proximity probing     : To respond to DNS requests with the
+                               most proximate answers, the GSLB
+                               device communicates with a probing
+                               device located in each proximity zone
+                               to gather round-trip time (RTT) metric
+                               information measured between the
+                               requesting client D-proxy and the
+                               zone.  The GSLB device then directs
+                               client requests to an available
+                               resource with the lowest RTT value.
+
+        Proximity subsystem   : Component within the GSLB device
+                               responsible for proximity
+                               determination.
+
+        Clause                : A clause specifies that a particular
+                               answer group serve the request and a
+                               specific balance method be used to
+                               select the best resource from that
+                               answer group.
+
+        Boomerang server      : A method of proximity routing used by
+                               GSLB device with CRAs.  It is also
+                               known as DNS race.
+
+                               The boomerang method is based on the
+                               concept that instantaneous proximity
+                               can be determined if a CRA within each
+                               data center sends a DNS A-record
+                               (IP address) at the exact same time
+                               to the requesting D-proxy.  This gives
+                               all CRAs a chance at resolving a
+                               client request and allows for
+                               proximity to be determined without
+                               probing the client D-proxy.
+                               Whichever DNS A-record is received
+                               first by the D-proxy is, by default,
+                               considered to be the most proximate.
+
+                               For the GSLB device to initiate a DNS
+                               race, it needs to establish the
+                               following two pieces of information
+                               for each CRA:
+                               (a) The delay between the GSLB device
+                                   and each of the CRAs in each data
+                                   center.  With this data, the GSLB
+                                   device computes how long to delay
+                                   the race from each data center,
+                                   so that each CRA starts the race
+                                   simultaneously.
+                               (b) The online status of the CRAs.
+                                   With this data, the GSLB device
+                                   knows not to forward requests to
+                                   any CRA that is not responding.
+
+                               The boomerang server on the GSLB device
+                               gathers this information by sending
+                               keepalive messages at predetermined
+                               intervals.  The boomerang server uses
+                               this data, along with the IP addresses
+                               of the CRAs, to request the exact start
+                               time of the DNS race.  If the CRA
+                               response is to be accepted by the
+                               D-proxy, each CRA must spoof the IP
+                               address of the GSLB device to which
+                               the original DNS request was sent."
+    REVISION        "200704090000Z"
+    DESCRIPTION
+        "-Added the following objects to cgdGlobal:
+        cgdAnsTrapRateLimit 
+        cgdDnsClauseTrapRateLimit
+
+        -Added the following objects to cgdGlobalStats:
+        cgdDroppedAnsNotifs 
+        cgdDroppedDnsClauseNotifs
+
+        -Added the following groups:
+        ciscoGslbDnsGlobalRateLimitGroup,
+        ciscoGslbDnsGlobalNotifStatsGroup"
+    REVISION        "200611280000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 595 }
+
+
+ciscoGslbDnsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIB 0 }
+
+ciscoGslbDnsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIB 1 }
+
+ciscoGslbDnsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIB 2 }
+
+-- Objects for Notification Control
+
+cgdNotifControl  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 1 }
+
+-- Objects for Notification
+
+cgdNotifObjects  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 2 }
+
+-- Objects for general status
+
+cgdGlobal  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 3 }
+
+-- Objects for general statistics
+
+cgdGlobalStats  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 4 }
+
+-- Objects for per instance statistics
+
+cgdAnswer  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 5 }
+
+-- Objects for per instance statistics
+
+cgdDomain  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 6 }
+
+-- Objects for per instance statistics
+
+cgdSourceAdd  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 7 }
+
+-- Objects for per instance statistics
+
+cgdDnsRule  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBObjects 8 }
+
+
+cgdTotalDomains OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of domains
+        configured.  The value of this object corresponds to the
+        number of entries in the cgdDomainTable." 
+    ::= { cgdGlobal 1 }
+
+cgdTotalDomainLists OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of domain lists
+        configured.  The value of this object corresponds to the
+        number of entries in the cgdDomainListTable." 
+    ::= { cgdGlobal 2 }
+
+cgdTotalSourceAddresses OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of source addresses
+        configured.  The value of this object corresponds to the
+        number of entries in the cgdSourceAddressTable." 
+    ::= { cgdGlobal 3 }
+
+cgdTotalSourceAddressLists OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of source address
+        lists configured.  The value of this object corresponds to
+        the number of entries in the cgdSourceAddressListTable." 
+    ::= { cgdGlobal 4 }
+
+cgdTotalAnswers OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of answers
+        configured.  The value of this object corresponds to the
+        number of entries in the cgdAnswerTable." 
+    ::= { cgdGlobal 5 }
+
+cgdTotalAnswerGroups OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of answer groups
+        configured.  The value of this object corresponds to the
+        number of entries in the cgdAnswerGroupTable." 
+    ::= { cgdGlobal 6 }
+
+cgdTotalRules OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of DNS rules
+        configured.  The value of this object corresponds to the
+        number of entries in the cgdDnsRuleTable." 
+    ::= { cgdGlobal 7 }
+
+cgdAnsTrapRateLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    UNITS           "traps per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum rate at which the
+        ciscoGslbAnswerEventStatusChange notifications can be sent."
+    DEFVAL          { 25 } 
+    ::= { cgdGlobal 8 }
+
+cgdDnsClauseTrapRateLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    UNITS           "traps per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum rate at which the
+        ciscoGslbDnsEventClause notifications can be sent."
+    DEFVAL          { 25 } 
+    ::= { cgdGlobal 9 }
+
+cgdDnsRcvdQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "queries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of DNS queries received." 
+    ::= { cgdGlobalStats 1 }
+
+cgdDnsRcvdHostAddrQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "queries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of DNS queries with QTYPE
+        value 1(A) or 255(*) received."
+    REFERENCE       "RFC1035 section 3.2.3." 
+    ::= { cgdGlobalStats 2 }
+
+cgdDnsUnmatchedQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "queries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of DNS queries received
+        for which no answer could be found." 
+    ::= { cgdGlobalStats 3 }
+
+cgdDnsDroppedQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "queries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of DNS queries dropped." 
+    ::= { cgdGlobalStats 4 }
+
+cgdNSFwdSentQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "queries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of queries forwarded to an
+        external DNS name server for resolution." 
+    ::= { cgdGlobalStats 5 }
+
+cgdNSFwdRcvdResps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of responses received for
+        queries that were forwarded to an external DNS name server
+        for resolution." 
+    ::= { cgdGlobalStats 6 }
+
+cgdBoomServSentReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of requests sent by the
+        Boomerang server to initiate a DNS race." 
+    ::= { cgdGlobalStats 7 }
+
+cgdProxLkupSentReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of proximity lookup
+        requests sent to the proximity subsystem." 
+    ::= { cgdGlobalStats 8 }
+
+cgdProxLkupRcvdResps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of proximity lookup
+        responses received from the proximity subsystem." 
+    ::= { cgdGlobalStats 9 }
+
+cgdDnsQueryRateCurrent OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current rate at which DNS queries
+        are being received." 
+    ::= { cgdGlobalStats 10 }
+
+cgdDnsQueryRatePeak OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "requests per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peak rate at which DNS queries
+        have been received." 
+    ::= { cgdGlobalStats 11 }
+
+cgdDnsUdpSrcPortErrs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "errors"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of DNS queries received
+        with UDP source port value as zero." 
+    ::= { cgdGlobalStats 12 }
+
+cgdDnsTcpSrcPortErrs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "errors"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of DNS queries received
+        with TCP source port value as zero." 
+    ::= { cgdGlobalStats 13 }
+
+cgdDnsPollSockErrs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "errors"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object is the sum of socket errors, of all
+        the gslb processes running on the gslb device.
+
+        Examples of socket errors:
+        Connection refused,
+        No route to host,
+        Communication error on send,
+        Protocol not available,
+        Network is unreachable." 
+    ::= { cgdGlobalStats 14 }
+
+cgdDroppedAnsNotifs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "traps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object is the total number of
+        ciscoGslbAnswerEventStatusChange notifications dropped
+        since the network management portion of the system was 
+        last re-initialized. These notifications are dropped 
+        when the limit configured in cgdAnsTrapRateLimit is reached." 
+    ::= { cgdGlobalStats 15 }
+
+cgdDroppedDnsClauseNotifs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "traps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object is the total number of
+        ciscoGslbDnsEventClause notifications dropped
+        since the network management portion of the system
+        was last re-initialized. These notifications are dropped 
+        when the limit configured in cgdDnsClauseTrapRateLimit is
+        reached." 
+    ::= { cgdGlobalStats 16 }
+
+cgdAnswerGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdAnswerGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure answer groups.  This table
+        consists a list of answer groups that are configured and
+        the number of hits on that answer."
+    ::= { cgdAnswer 1 }
+
+cgdAnswerGroupEntry OBJECT-TYPE
+    SYNTAX          CgdAnswerGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains answer group specific statistics.
+        Entries can be added/deleted by administrator action."
+    INDEX           { cgdAnswerGroupName } 
+    ::= { cgdAnswerGroupTable 1 }
+
+CgdAnswerGroupEntry ::= SEQUENCE {
+        cgdAnswerGroupName        SnmpAdminString,
+        cgdAnswerGroupType        CiscoGslbAnswerType,
+        cgdAnswerGroupHits        Counter32,
+        cgdAnswerGroupStorageType StorageType,
+        cgdAnswerGroupRowStatus   RowStatus
+}
+
+cgdAnswerGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name given uniquely for
+        an answer group." 
+    ::= { cgdAnswerGroupEntry 1 }
+
+cgdAnswerGroupType OBJECT-TYPE
+    SYNTAX          CiscoGslbAnswerType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of answers contained in this
+        answer group.  The value of this object can not be modified
+        when cgdAnswerGroupRowStatus is 'active'.
+
+        This object is mandatory for a row creation." 
+    ::= { cgdAnswerGroupEntry 2 }
+
+cgdAnswerGroupHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times the answers in
+        this group were sent as a reply for a DNS query since the
+        GSLB device was last started." 
+    ::= { cgdAnswerGroupEntry 3 }
+
+cgdAnswerGroupStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgdAnswerGroupEntry 4 }
+
+cgdAnswerGroupRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgdAnswerGroupTable" 
+    ::= { cgdAnswerGroupEntry 5 }
+ 
+
+
+cgdAnswerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdAnswerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure the answers.  This table
+        contains the configurable parameters for an answer as well
+        as the statistics for each answer."
+    ::= { cgdAnswer 2 }
+
+cgdAnswerEntry OBJECT-TYPE
+    SYNTAX          CgdAnswerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains answer specific statistics and status
+        information.  Entries can be added/deleted/modified by
+        administrator action.
+
+        The following objects are mandatory for a row creation:
+            cgdAnswerType
+            cgdAnswerAddress"
+    INDEX           { cgdAnswerId } 
+    ::= { cgdAnswerTable 1 }
+
+CgdAnswerEntry ::= SEQUENCE {
+        cgdAnswerId          Unsigned32,
+        cgdAnswerType        CiscoGslbAnswerType,
+        cgdAnswerAddressType InetAddressType,
+        cgdAnswerAddress     InetAddress,
+        cgdAnswerName        SnmpAdminString,
+        cgdAnswerGrpName     SnmpAdminString,
+        cgdAnswerAdminState  CiscoGslbAnswerAdminState,
+        cgdAnswerStatus      CiscoGslbAnswerStatus,
+        cgdAnswerHits        Counter32,
+        cgdAnswerRate1Min    Gauge32,
+        cgdAnswerRate5Min    Gauge32,
+        cgdAnswerRate30Min   Gauge32,
+        cgdAnswerRate4Hr     Gauge32,
+        cgdAnswerStorageType StorageType,
+        cgdAnswerRowStatus   RowStatus
+}
+
+cgdAnswerId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies an answer." 
+    ::= { cgdAnswerEntry 1 }
+
+cgdAnswerType OBJECT-TYPE
+    SYNTAX          CiscoGslbAnswerType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type value for the answer.
+        The value of this object can not be modified when
+        cgdAnswerRowStatus is 'active'." 
+    ::= { cgdAnswerEntry 2 }
+
+cgdAnswerAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type for answer IP address that
+        is returned to DNS client or used for NS query or CRA DNS
+        race."
+    DEFVAL          { ipv4 } 
+    ::= { cgdAnswerEntry 3 }
+
+cgdAnswerAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the answer IP address that is
+        returned to client or used for NS query or CRA DNS race.
+        The type of IP address is identified by
+        cgdAnswerAddressType." 
+    ::= { cgdAnswerEntry 4 }
+
+cgdAnswerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name given uniquely for
+        an answer."
+    DEFVAL          { "" } 
+    ::= { cgdAnswerEntry 5 }
+
+cgdAnswerGrpName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..80))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the answer group list, to which an
+        answer is associated.  Its value must be same as the value
+        configured in cgdAnswerGroupTable."
+    DEFVAL          { "" } 
+    ::= { cgdAnswerEntry 6 }
+
+cgdAnswerAdminState OBJECT-TYPE
+    SYNTAX          CiscoGslbAnswerAdminState
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to administratively activate/suspend
+        an answer."
+    DEFVAL          { active } 
+    ::= { cgdAnswerEntry 7 }
+
+cgdAnswerStatus OBJECT-TYPE
+    SYNTAX          CiscoGslbAnswerStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the most recently known status of
+        an answer.  If cgdAnswerAdminState is changed to
+        'suspended' then cgdAnswerStatus should change to
+        'suspended'.  If cgdAnswerAdminState is changed to
+        'active' then the cgdAnswerStatus should change to
+        'online'/'offline' depending on whether the answer
+        is avialable or not." 
+    ::= { cgdAnswerEntry 8 }
+
+cgdAnswerHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times this answer was
+        used in replying for a DNS query the DNS reply since the
+        GSLB device was last started." 
+    ::= { cgdAnswerEntry 9 }
+
+cgdAnswerRate1Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the answer, calculated during the last one minute." 
+    ::= { cgdAnswerEntry 10 }
+
+cgdAnswerRate5Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the answer, calculated during the last 5 minute interval." 
+    ::= { cgdAnswerEntry 11 }
+
+cgdAnswerRate30Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the answer, calculated during the last 30 minute interval." 
+    ::= { cgdAnswerEntry 12 }
+
+cgdAnswerRate4Hr OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the answer, calculated during the last 4 hour interval." 
+    ::= { cgdAnswerEntry 13 }
+
+cgdAnswerStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgdAnswerEntry 14 }
+
+cgdAnswerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgdAnswerTable" 
+    ::= { cgdAnswerEntry 15 }
+ 
+
+
+cgdDomainListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdDomainListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to create domain lists.  This table
+        consists the domain lists configured and its associated
+        hits."
+    ::= { cgdDomain 1 }
+
+cgdDomainListEntry OBJECT-TYPE
+    SYNTAX          CgdDomainListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains domain list specific statistics and
+        status information.  Entries can be added/deleted by
+        administrator action."
+    INDEX           { cgdDomainListName } 
+    ::= { cgdDomainListTable 1 }
+
+CgdDomainListEntry ::= SEQUENCE {
+        cgdDomainListName        SnmpAdminString,
+        cgdDomainListHits        Counter32,
+        cgdDomainListStorageType StorageType,
+        cgdDomainListRowStatus   RowStatus
+}
+
+cgdDomainListName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name given uniquely for
+        a domain list." 
+    ::= { cgdDomainListEntry 1 }
+
+cgdDomainListHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times the domains in
+        this domain list was queried since the GSLB device was
+        last started." 
+    ::= { cgdDomainListEntry 2 }
+
+cgdDomainListStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgdDomainListEntry 3 }
+
+cgdDomainListRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in
+        the cgdDomainListTable." 
+    ::= { cgdDomainListEntry 4 }
+ 
+
+
+cgdDomainTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdDomainEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure domain entries.  This table
+        consists the domain names and its association to the
+        domain lists."
+    ::= { cgdDomain 2 }
+
+cgdDomainEntry OBJECT-TYPE
+    SYNTAX          CgdDomainEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains domain specific statistics and status
+        information.  Entries can be added/deleted/modified by
+        administrator action.
+
+        The following objects are mandatory for the creation
+        of a row:
+            cgdDomainName
+            cgdDomainList"
+    INDEX           { cgdDomainId } 
+    ::= { cgdDomainTable 1 }
+
+CgdDomainEntry ::= SEQUENCE {
+        cgdDomainId          Unsigned32,
+        cgdDomainName        InetAddressDNS,
+        cgdDomainList        SnmpAdminString,
+        cgdDomainHits        Counter32,
+        cgdDomainRate1Min    Gauge32,
+        cgdDomainRate5Min    Gauge32,
+        cgdDomainRate30Min   Gauge32,
+        cgdDomainRate4Hr     Gauge32,
+        cgdDomainStorageType StorageType,
+        cgdDomainRowStatus   RowStatus
+}
+
+cgdDomainId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies a domain." 
+    ::= { cgdDomainEntry 1 }
+
+cgdDomainName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies, the user assigned DNS name or
+        regular expression for the domain." 
+    ::= { cgdDomainEntry 2 }
+
+cgdDomainList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the domain list to which this domain
+        is associated.  Its value must be same as the value
+        configured in cgdDomainListTable." 
+    ::= { cgdDomainEntry 3 }
+
+cgdDomainHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times this domain name
+        was queried since the GSLB device was last started." 
+    ::= { cgdDomainEntry 4 }
+
+cgdDomainRate1Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the domain, calculated during the last minute." 
+    ::= { cgdDomainEntry 5 }
+
+cgdDomainRate5Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the domain, calculated during the last 5 minute interval." 
+    ::= { cgdDomainEntry 6 }
+
+cgdDomainRate30Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the domain, calculated during the last 30 minute interval." 
+    ::= { cgdDomainEntry 7 }
+
+cgdDomainRate4Hr OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the domain, calculated during the last 4 hour interval." 
+    ::= { cgdDomainEntry 8 }
+
+cgdDomainStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgdDomainEntry 9 }
+
+cgdDomainRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in
+        the cgdDomainTable." 
+    ::= { cgdDomainEntry 10 }
+ 
+
+
+cgdSourceAddressListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdSourceAddressListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure source address lists.
+        This table consists the source address lists configured
+        and their statistics."
+    ::= { cgdSourceAdd 1 }
+
+cgdSourceAddressListEntry OBJECT-TYPE
+    SYNTAX          CgdSourceAddressListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains source address lists configured
+        and their corresponding statistics.  Entries can be
+        added/deleted/modified by administrator action."
+    INDEX           { cgdSourceAddressListName } 
+    ::= { cgdSourceAddressListTable 1 }
+
+CgdSourceAddressListEntry ::= SEQUENCE {
+        cgdSourceAddressListName        SnmpAdminString,
+        cgdSourceAddressListHits        Counter32,
+        cgdSourceAddressListStorageType StorageType,
+        cgdSourceAddressListRowStatus   RowStatus
+}
+
+cgdSourceAddressListName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the user assigned name for the
+        source address list." 
+    ::= { cgdSourceAddressListEntry 1 }
+
+cgdSourceAddressListHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times a DNS query
+        originated from the source addresses configured in this
+        source address list since the GSLB device was last started." 
+    ::= { cgdSourceAddressListEntry 2 }
+
+cgdSourceAddressListStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgdSourceAddressListEntry 3 }
+
+cgdSourceAddressListRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in
+        the cgdSourceAddressListTable." 
+    ::= { cgdSourceAddressListEntry 4 }
+ 
+
+
+cgdSourceAddressTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdSourceAddressEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure source addresses on the
+        GSLB device.  It consists of the source addresses
+        configured and its statistics."
+    ::= { cgdSourceAdd 2 }
+
+cgdSourceAddressEntry OBJECT-TYPE
+    SYNTAX          CgdSourceAddressEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains source address specific statistics and
+        status information.  Entries can be added/deleted/modified
+        by administrator action.
+
+        The following objects are mandatory for a row creation:
+            cgdSourceAddressAddress
+            cgdSourceAddressPrefixLength
+            cgdSourceAddressList"
+    INDEX           { cgdSourceAddressId } 
+    ::= { cgdSourceAddressTable 1 }
+
+CgdSourceAddressEntry ::= SEQUENCE {
+        cgdSourceAddressId           Unsigned32,
+        cgdSourceAddressAddressType  InetAddressType,
+        cgdSourceAddressAddress      InetAddress,
+        cgdSourceAddressPrefixLength InetAddressPrefixLength,
+        cgdSourceAddressList         SnmpAdminString,
+        cgdSourceAddressHits         Counter32,
+        cgdSourceAddressRate1Min     Gauge32,
+        cgdSourceAddressRate5Min     Gauge32,
+        cgdSourceAddressRate30Min    Gauge32,
+        cgdSourceAddressRate4Hr      Gauge32,
+        cgdSourceAddressStorageType  StorageType,
+        cgdSourceAddressRowStatus    RowStatus
+}
+
+cgdSourceAddressId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies a source address instance." 
+    ::= { cgdSourceAddressEntry 1 }
+
+cgdSourceAddressAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source address subnet IP address
+        type to match incoming client requests."
+    DEFVAL          { ipv4 } 
+    ::= { cgdSourceAddressEntry 2 }
+
+cgdSourceAddressAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source address subnet IP address
+        to match incoming client requests." 
+    ::= { cgdSourceAddressEntry 3 }
+
+cgdSourceAddressPrefixLength OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source address subnet IP mask to
+        match incoming client requests." 
+    ::= { cgdSourceAddressEntry 4 }
+
+cgdSourceAddressList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source address list to which this
+        source address is associated.  Its value must be same as the
+        value configured in cgdSourceAddressListTable." 
+    ::= { cgdSourceAddressEntry 5 }
+
+cgdSourceAddressHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times a DNS query was
+        originated from this source address since the GSLB device
+        was last started." 
+    ::= { cgdSourceAddressEntry 6 }
+
+cgdSourceAddressRate1Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the source address, calculated during the last minute." 
+    ::= { cgdSourceAddressEntry 7 }
+
+cgdSourceAddressRate5Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the source address, calculated during the last 5 minute
+        interval." 
+    ::= { cgdSourceAddressEntry 8 }
+
+cgdSourceAddressRate30Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average per second hit count for
+        the source address, calculated during the last 30 minute
+        interval." 
+    ::= { cgdSourceAddressEntry 9 }
+
+cgdSourceAddressRate4Hr OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the averaged per second hit count for
+        the source address, calculated during the last 4 hour
+        interval." 
+    ::= { cgdSourceAddressEntry 10 }
+
+cgdSourceAddressStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgdSourceAddressEntry 11 }
+
+cgdSourceAddressRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in
+        the cgdSourceAddressTable." 
+    ::= { cgdSourceAddressEntry 12 }
+ 
+
+
+cgdClauseTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdClauseEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure the clauses.  This table
+        contains entries for each clause configured and their
+        statistics."
+    ::= { cgdDnsRule 1 }
+
+cgdClauseEntry OBJECT-TYPE
+    SYNTAX          CgdClauseEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cgdClauseTable.  Each entry contains information
+        on answer group, balance method and also the number of hits
+        on the clause.
+        Entries can be added/deleted by administrator action.
+
+        The following objects are mandatory for a row creation:
+            cgdClauseAnsGrpName
+            cgdClauseBalanceMethod"
+    INDEX           { cgdClauseId } 
+    ::= { cgdClauseTable 1 }
+
+CgdClauseEntry ::= SEQUENCE {
+        cgdClauseId            Unsigned32,
+        cgdClauseAnsGrpName    SnmpAdminString,
+        cgdClauseBalanceMethod CiscoGslbBalanceMethod,
+        cgdClauseHits          Counter32,
+        cgdClauseStorageType   StorageType,
+        cgdClauseRowStatus     RowStatus
+}
+
+cgdClauseId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies a clause." 
+    ::= { cgdClauseEntry 1 }
+
+cgdClauseAnsGrpName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the answer group associated with
+        the clause.  Its value must be same as the value
+        configured in cgdAnswerGroupTable." 
+    ::= { cgdClauseEntry 2 }
+
+cgdClauseBalanceMethod OBJECT-TYPE
+    SYNTAX          CiscoGslbBalanceMethod
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the balance method associated with
+        the clause." 
+    ::= { cgdClauseEntry 3 }
+
+cgdClauseHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times this clause was
+        used in repling for a DNS query since the GSLB device was
+        last started." 
+    ::= { cgdClauseEntry 4 }
+
+cgdClauseStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row." 
+    ::= { cgdClauseEntry 5 }
+
+cgdClauseRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgdClauseTable." 
+    ::= { cgdClauseEntry 6 }
+ 
+
+
+cgdDnsRuleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgdDnsRuleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure DNS rule.  This table
+        consists the DNS rules configured and also the statistics
+        for each rule."
+    ::= { cgdDnsRule 2 }
+
+cgdDnsRuleEntry OBJECT-TYPE
+    SYNTAX          CgdDnsRuleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cgdDnsRuleTable. Each entry contains DNS
+        rule name and clauses associsted with it.  Entries can be
+        added/deleted by administrator action."
+    INDEX           { cgdDnsRuleName } 
+    ::= { cgdDnsRuleTable 1 }
+
+CgdDnsRuleEntry ::= SEQUENCE {
+        cgdDnsRuleName        SnmpAdminString,
+        cgdFirstClauseId      Unsigned32,
+        cgdSecondClauseId     Unsigned32,
+        cgdThirdClauseId      Unsigned32,
+        cgdSourceAddList      SnmpAdminString,
+        cgdDNSRuleDomainList  SnmpAdminString,
+        cgdDnsRuleHits        Counter32,
+        cgdDnsRuleSuccesses   Counter32,
+        cgdDnsRuleStorageType StorageType,
+        cgdDnsRuleRowStatus   RowStatus
+}
+
+cgdDnsRuleName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the user assigned name for
+        the DNS rule." 
+    ::= { cgdDnsRuleEntry 1 }
+
+cgdFirstClauseId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to associate a clause with the
+        first clause of the DNS rule.  The answer will be
+        expected from the clause identified by the value of
+        this object.  If not available, value identified in  
+        cgdSecondClauseId will be used.  Its value must be
+        same as the value configured in cgdClauseTable." 
+    ::= { cgdDnsRuleEntry 2 }
+
+cgdSecondClauseId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to associate a clause with the
+        second clause of the DNS rule.  If the answer is not
+        available in the first clause, identified by
+        cgdFirstClauseId, then the second clause is picked,
+        identified by this object.  Its value must be same
+        as the value configured in cgdClauseTable." 
+    ::= { cgdDnsRuleEntry 3 }
+
+cgdThirdClauseId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to associate a clause with the
+        third clause of the DNS rule.  If the answer is not
+        available in the first and the second clause,
+        identified by cgdFirstClauseId and cgdThirdClauseId
+        respectively, then the third clause is picked,
+        identified by the object.  Its value must be same
+        as the value configured in cgdClauseTable." 
+    ::= { cgdDnsRuleEntry 4 }
+
+cgdSourceAddList OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to associate a source address list with
+        the DNS rule.  Its value must be same as the value configured
+        in cgdSourceAddressListTable.
+
+        This object is mandatory for a row creation." 
+    ::= { cgdDnsRuleEntry 5 }
+
+cgdDNSRuleDomainList OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to associate a domain list with the
+        DNS rule.  Its value must be same as the value configured
+        in cgdDomainListTable.
+
+        This object is mandatory for a row creation." 
+    ::= { cgdDnsRuleEntry 6 }
+
+cgdDnsRuleHits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times this DNS rule
+        was used in replying for a DNS query since the GSLB device
+        was last started." 
+    ::= { cgdDnsRuleEntry 7 }
+
+cgdDnsRuleSuccesses OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of successes for the
+        DNS rule instance since the GSLB device was last started." 
+    ::= { cgdDnsRuleEntry 8 }
+
+cgdDnsRuleStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgdDnsRuleEntry 9 }
+
+cgdDnsRuleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgdRuleTable." 
+    ::= { cgdDnsRuleEntry 10 }
+ 
+
+
+-- Notification Control Group
+
+cgdDnsClauseNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used for administratively enabling/disabling
+        the ciscoGslbDnsEventClause notification."
+    DEFVAL          { false } 
+    ::= { cgdNotifControl 1 }
+
+cgdDnsAnswerNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used for administratively enabling/disabling
+        the ciscoGslbAnswerEventStatusChange notification."
+    DEFVAL          { false } 
+    ::= { cgdNotifControl 2 }
+
+-- Objects for Notification
+
+cgdAnswerPrevStatus OBJECT-TYPE
+    SYNTAX          CiscoGslbAnswerStatus
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object is used for sending the value of cgdAnswerStatus
+        before transitioning to new state." 
+    ::= { cgdNotifObjects 1 }
+
+-- Notifications
+
+ciscoGslbDnsEventClause NOTIFICATION-TYPE
+    OBJECTS         {
+                        sysName,
+                        cgdFirstClauseId,
+                        cgdSecondClauseId,
+                        cgdDroppedDnsClauseNotifs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when transition occurs from use
+        of one clause to another for selecting an answer on a DNS
+        rule match.
+        For example a transition is said to have occured, when a
+        DNS rule uses a clause identified by cgdSecondClauseId
+        instead of cgdFirstClauseId.
+
+        -cgdFirstClauseId contains the clause number used for
+             selecting the most recent answer for a DNS rule.
+        -cgdSecondClauseId contains the clause number that was
+             previously used to select an answer for the DNS rule."
+   ::= { ciscoGslbDnsMIBNotifs 1 }
+
+ciscoGslbAnswerEventStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        sysName,
+                        cgdAnswerName,
+                        cgdAnswerType,
+                        cgdAnswerAddressType,
+                        cgdAnswerAddress,
+                        cgdAnswerStatus,
+                        cgdAnswerPrevStatus,
+                        cgdDroppedAnsNotifs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the value of cgdAnswerStatus
+        changes from one state to another."
+   ::= { ciscoGslbDnsMIBNotifs 2 }
+-- Conformance
+
+ciscoGslbDnsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBConform 1 }
+
+ciscoGslbDnsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoGslbDnsMIBConform 2 }
+
+
+-- Compliance
+
+ciscoGslbDnsMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Compliance statement for entities which implement
+        the Cisco GSLB DNS MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoGslbDnsGlobalGroup,
+                        ciscoGslbDnsGlobalStatsGroup,
+                        ciscoGslbDnsAnswerGroup,
+                        ciscoGslbDnsDomainGroup,
+                        ciscoGslbDnsSourceAddGroup,
+                        ciscoGslbDnsRuleGroup,
+                        ciscoGslbDnsNotifControlGroup,
+                        ciscoGslbDnsNotifObjectsGroup,
+                        ciscoGslbDnsNotifGroup,
+                        ciscoGslbDnsGlobalRateLimitGroup,
+                        ciscoGslbDnsGlobalNotifStatsGroup
+                    }
+    ::= { ciscoGslbDnsMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoGslbDnsGlobalGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdTotalDomains,
+                        cgdTotalDomainLists,
+                        cgdTotalSourceAddresses,
+                        cgdTotalSourceAddressLists,
+                        cgdTotalAnswers,
+                        cgdTotalAnswerGroups,
+                        cgdTotalRules
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide general configuration
+        information."
+    ::= { ciscoGslbDnsMIBGroups 1 }
+
+ciscoGslbDnsGlobalStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdDnsRcvdQueries,
+                        cgdDnsRcvdHostAddrQueries,
+                        cgdDnsUnmatchedQueries,
+                        cgdDnsDroppedQueries,
+                        cgdNSFwdSentQueries,
+                        cgdNSFwdRcvdResps,
+                        cgdBoomServSentReqs,
+                        cgdProxLkupSentReqs,
+                        cgdProxLkupRcvdResps,
+                        cgdDnsQueryRateCurrent,
+                        cgdDnsQueryRatePeak,
+                        cgdDnsUdpSrcPortErrs,
+                        cgdDnsTcpSrcPortErrs,
+                        cgdDnsPollSockErrs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide general statistics."
+    ::= { ciscoGslbDnsMIBGroups 2 }
+
+ciscoGslbDnsAnswerGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdAnswerGroupType,
+                        cgdAnswerGroupHits,
+                        cgdAnswerGroupStorageType,
+                        cgdAnswerGroupRowStatus,
+                        cgdAnswerType,
+                        cgdAnswerAddressType,
+                        cgdAnswerAddress,
+                        cgdAnswerName,
+                        cgdAnswerGrpName,
+                        cgdAnswerAdminState,
+                        cgdAnswerStatus,
+                        cgdAnswerHits,
+                        cgdAnswerRate1Min,
+                        cgdAnswerRate5Min,
+                        cgdAnswerRate30Min,
+                        cgdAnswerRate4Hr,
+                        cgdAnswerStorageType,
+                        cgdAnswerRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide per answer instance
+        status and statistics."
+    ::= { ciscoGslbDnsMIBGroups 3 }
+
+ciscoGslbDnsDomainGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdDomainListHits,
+                        cgdDomainListStorageType,
+                        cgdDomainListRowStatus,
+                        cgdDomainName,
+                        cgdDomainList,
+                        cgdDomainHits,
+                        cgdDomainRate1Min,
+                        cgdDomainRate5Min,
+                        cgdDomainRate30Min,
+                        cgdDomainRate4Hr,
+                        cgdDomainStorageType,
+                        cgdDomainRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide per domain instance
+        status and statistics."
+    ::= { ciscoGslbDnsMIBGroups 4 }
+
+ciscoGslbDnsSourceAddGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdSourceAddressListHits,
+                        cgdSourceAddressListStorageType,
+                        cgdSourceAddressListRowStatus,
+                        cgdSourceAddressAddressType,
+                        cgdSourceAddressAddress,
+                        cgdSourceAddressPrefixLength,
+                        cgdSourceAddressList,
+                        cgdSourceAddressHits,
+                        cgdSourceAddressRate1Min,
+                        cgdSourceAddressRate5Min,
+                        cgdSourceAddressRate30Min,
+                        cgdSourceAddressRate4Hr,
+                        cgdSourceAddressStorageType,
+                        cgdSourceAddressRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide per proximity rule
+        instance status and statistics."
+    ::= { ciscoGslbDnsMIBGroups 5 }
+
+ciscoGslbDnsRuleGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdFirstClauseId,
+                        cgdSecondClauseId,
+                        cgdThirdClauseId,
+                        cgdSourceAddList,
+                        cgdDNSRuleDomainList,
+                        cgdDnsRuleHits,
+                        cgdDnsRuleSuccesses,
+                        cgdDnsRuleStorageType,
+                        cgdDnsRuleRowStatus,
+                        cgdClauseAnsGrpName,
+                        cgdClauseBalanceMethod,
+                        cgdClauseHits,
+                        cgdClauseStorageType,
+                        cgdClauseRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide per DNS rule instance
+        status and statistics."
+    ::= { ciscoGslbDnsMIBGroups 6 }
+
+ciscoGslbDnsNotifControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdDnsClauseNotifEnable,
+                        cgdDnsAnswerNotifEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that control the sending of
+        notifications defined in this MIB module."
+    ::= { ciscoGslbDnsMIBGroups 7 }
+
+ciscoGslbDnsNotifObjectsGroup OBJECT-GROUP
+    OBJECTS         { cgdAnswerPrevStatus }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that convey information for
+        notifications defined in this MIB module."
+    ::= { ciscoGslbDnsMIBGroups 8 }
+
+ciscoGslbDnsNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoGslbDnsEventClause,
+                        ciscoGslbAnswerEventStatusChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects used for notifications
+        defined in this MIB module."
+    ::= { ciscoGslbDnsMIBGroups 9 }
+
+ciscoGslbDnsGlobalRateLimitGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdAnsTrapRateLimit,
+                        cgdDnsClauseTrapRateLimit
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides information on Rate Limit
+        configuration for notifications."
+    ::= { ciscoGslbDnsMIBGroups 10 }
+
+ciscoGslbDnsGlobalNotifStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgdDroppedAnsNotifs,
+                        cgdDroppedDnsClauseNotifs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide statistics related
+        to dropped connections."
+    ::= { ciscoGslbDnsMIBGroups 11 }
+
+END

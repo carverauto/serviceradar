@@ -1,0 +1,299 @@
+-- MIB created 6/25/99 12:57:31, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-QUEUE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-QUEUE-MIB.my"
+
+IMPORTS
+    Counter32, Integer32, Gauge32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    ifIndex
+            FROM RFC1213-MIB
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoQueueMIB OBJECT IDENTIFIER ::= { ciscoMgmt 37 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9505310000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 West Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This is the MIB module for objects used to manage
+--    interface queuing in Cisco devices.
+--  RevDate
+--    9508210000Z
+--  RevDescr
+--    Minor cleanups to pacify mib compiler.
+
+ciscoQueueObjects OBJECT IDENTIFIER ::= { ciscoQueueMIB 1 }
+ciscoQueueTraps OBJECT IDENTIFIER ::= { ciscoQueueMIB 2 }
+ciscoQueueConformance OBJECT IDENTIFIER ::= { ciscoQueueMIB 3 }
+cQCompliances   OBJECT IDENTIFIER ::= { ciscoQueueConformance 1 }
+cQGroups        OBJECT IDENTIFIER ::= { ciscoQueueConformance 2 }
+
+CQAlgorithm ::= INTEGER {
+        fifo(1),
+        priority(2),
+        custom(3),
+        weightedFair(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of queuing algorithm used on the interface.
+
+cQIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CQIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains objects that describe the queues on a
+        Cisco Interface.
+        
+        An interface queue is modeled as a collection of one or more
+        secondary queues that feed into a device's hardware queue. The
+        hardware queue has a maximum depth set by the MCI tx-queue-limit
+        command or equivalent. The secondary queues (also known as the
+        'hold queue') have maximum depths set by the hold-queue command
+        or equivalent.
+        
+        This table parallels the ifTable, and indicates the type of
+        queuing in use on the interface, number of queues, and similar
+        parameters."
+    ::= { ciscoQueueObjects 1 }
+
+cQIfEntry OBJECT-TYPE
+    SYNTAX CQIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of queue attributes for an interface."
+    INDEX { ifIndex }
+    ::= { cQIfTable 1 }
+
+CQIfEntry ::= SEQUENCE {
+    cQIfQType CQAlgorithm,
+    cQIfTxLimit Integer32,
+    cQIfSubqueues Integer32
+    }
+
+cQIfQType OBJECT-TYPE
+    SYNTAX CQAlgorithm
+--    Rsyntax INTEGER {
+--        fifo(1),
+--        priority(2),
+--        custom(3),
+--        weightedFair(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of queuing used in the Hold Queue.
+        
+        First In First Out Queuing implies that the interface always
+        transmits messages in the order that they are received.
+        
+        Priority Queuing sorts messages out by the use of access lists.
+        Messages in a higher priority queue are always sent in
+        preference to messages in a lower priority queue.
+        
+        Custom Queuing sorts messages out by the use of access lists.
+        Sub-queues are selected in round robin order as either the
+        sub-queue is drained or a given number of octets is moved from
+        the sub-queue to the transmission queue.
+        
+        Weighted Fair Queuing sorts messages by 'conversation', which
+        is source-destination pair of addresses and sockets or ports,
+        as defined by the network layer protocol. Messages are removed
+        from queues in a sequence that gives each conversation a
+        proportion of the available bandwidth."
+    ::= { cQIfEntry 1 }
+
+cQIfTxLimit OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of messages placed into the hardware
+        transmission queue. This is a first come first serve queue, fed
+        by the hold queue.  If the hold queue contains information,
+        this queue is presumably full."
+    ::= { cQIfEntry 2 }
+
+cQIfSubqueues OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of sub-queues of which the hold queue is built.
+        This is a constant for each value of cQIfQType."
+    ::= { cQIfEntry 3 }
+
+cQStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CQStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains statistical objects that for the
+        sub-queues of a Cisco Interface."
+    ::= { ciscoQueueObjects 2 }
+
+cQStatsEntry OBJECT-TYPE
+    SYNTAX CQStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of sub-queue attributes for an interface."
+    INDEX { ifIndex, cQStatsQNumber }
+    ::= { cQStatsTable 1 }
+
+CQStatsEntry ::= SEQUENCE {
+    cQStatsQNumber Integer32(0..2147483647),
+    cQStatsDepth Gauge32,
+    cQStatsMaxDepth Integer32,
+    cQStatsDiscards Counter32
+    }
+
+cQStatsQNumber OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The number of the queue within the queue set.
+        
+        In FIFO queuing, this value is always 2.
+        
+        In Priority Queuing, it corresponds to the various priorities:
+        
+             high = 0
+             medium = 1
+             normal = 2
+             low = 3
+        
+        In Custom Queuing, it is the queue number referenced in the
+        access list.
+        
+        In Weighted Fair Queuing, it is the queue number associated
+        with the traffic stream (conversation) identified."
+    ::= { cQStatsEntry 1 }
+
+cQStatsDepth OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of messages in the sub-queue."
+    ::= { cQStatsEntry 2 }
+
+cQStatsMaxDepth OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of messages permitted in the sub-queue."
+    ::= { cQStatsEntry 3 }
+
+cQStatsDiscards OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of messages discarded from this queue since restart
+        by reason of enqueue at a time that cQStatsDepth >= cQStatsMaxDepth."
+    ::= { cQStatsEntry 4 }
+
+cQRotationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CQRotationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table describes the rotation of Custom Queuing on an
+        Interface."
+    ::= { ciscoQueueObjects 3 }
+
+cQRotationEntry OBJECT-TYPE
+    SYNTAX CQRotationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Custom Queuing sub-queue attributes for an interface."
+    INDEX { ifIndex, cQStatsQNumber }
+    ::= { cQRotationTable 1 }
+
+CQRotationEntry ::= SEQUENCE {
+    cQRotationOctets Integer32
+    }
+
+cQRotationOctets OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets which may be transmitted from a custom
+        queuing sub-queue before it must yield to another queue."
+    ::= { cQRotationEntry 1 }
+
+cQIfGroup OBJECT IDENTIFIER ::= { cQGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The configuration of queuing on the interface.  Interface
+--    Queuing statistics (ifOutQDepth and ifOutDiscards) are kept in
+--    the interface table.
+--  objects
+--    cQIfQType, cQIfTxLimit, cQIfSubqueues
+
+cQStatsGroup OBJECT IDENTIFIER ::= { cQGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The statistics for individual queues in the interface queuing
+--    system.
+--  objects
+--    cQStatsDepth, cQStatsMaxDepth, cQStatsDiscards
+
+cQRotationGroup OBJECT IDENTIFIER ::= { cQGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The Custom Queuing queue rotation weights.
+--  objects
+--    cQRotationOctets
+
+cQCompliance OBJECT IDENTIFIER ::= { cQCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The core compliance statement for all queued interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cQIfGroup
+--   MandGroup
+--    cQStatsGroup
+--   MandGroup
+--    cQRotationGroup
+
+
+END
+

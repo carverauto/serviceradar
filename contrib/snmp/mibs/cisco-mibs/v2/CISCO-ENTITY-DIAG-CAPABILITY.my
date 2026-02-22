@@ -1,0 +1,525 @@
+-- *****************************************************************
+-- CISCO-ENTITY-DIAG-CAPABILITY.my:
+-- Cisco CISCO-ENTITY-DIAG-MIB AGENT-CAPABILITIES
+--   
+-- January 2007, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2007-2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ENTITY-DIAG-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEntityDiagCapability MODULE-IDENTITY
+    LAST-UPDATED    "201011030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-ENTITY-DIAG-MIB."
+    REVISION        "201011030000Z"
+    DESCRIPTION
+        "Added capability statement ceDiagCapV12R0250SYPCat6K."
+    REVISION        "200907020000Z"
+    DESCRIPTION
+        "Added capability statement ceDiagCapV12R0233SXI2PCat6K."
+    REVISION        "200906010000Z"
+    DESCRIPTION
+        "Added capability statement ceDiagCapV12R0252SGPCat4K."
+    REVISION        "200810300000Z"
+    DESCRIPTION
+        "Added capability statement ceDiagCapV12R0233SXIPCat6K."
+    REVISION        "200802290000Z"
+    DESCRIPTION
+        "Removed variation for ceDiagBootupLevel in ceDiagCapCatOSV08R0601Cat6K."
+    REVISION        "200707230000Z"
+    DESCRIPTION
+        "Added capability statement ceDiagCapV12R0233SXHPCat6K."
+    REVISION        "200701120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 529 }
+
+
+
+ceDiagCapCatOSV08R0601Cat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1) on Catalyst 6000/6500 series 
+                     devices with Supervisor 720 or Supervisor 32 
+                     present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DIAG-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DIAG-MIB
+    INCLUDES        {
+                        ceDiagDescrGroup,
+                        ceDiagGlobalConfigGroup,
+                        ceDiagEntityGroup,
+                        ceDiagOnDemandGroup,
+                        ceDiagScheduledGroup,
+                        ceDiagTestPerfGroup,
+                        ceDiagHealthMonitorGroup,
+                        ceDiagEventGroup
+                    }
+    VARIATION       ceDiagOnDemandErrorAllowed
+    SYNTAX          Unsigned32 (0..65534)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandIterations
+    SYNTAX          Unsigned32 (1..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagScheduledJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagHMTestThresholdDefault
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       ceDiagHMTestThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       ceDiagEventLogSize
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventQueryStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoEntityDiagCapability 1 }
+
+ceDiagCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DIAG-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DIAG-MIB
+    INCLUDES        {
+                        ceDiagDescrGroup,
+                        ceDiagGlobalConfigGroup,
+                        ceDiagEntityGroup,
+                        ceDiagOnDemandGroup,
+                        ceDiagScheduledGroup,
+                        ceDiagTestPerfGroup,
+                        ceDiagHealthMonitorGroup,
+                        ceDiagEventGroup
+                    }
+    VARIATION       ceDiagOnDemandErrorAllowed
+    SYNTAX          Unsigned32 (0..65534)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandIterations
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagScheduledJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagHMTestThresholdDefault
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       ceDiagHMTestThreshold
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       ceDiagEventLogSize
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventQueryStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoEntityDiagCapability 2 }
+
+ceDiagCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DIAG-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DIAG-MIB
+    INCLUDES        {
+                        ceDiagDescrGroup,
+                        ceDiagGlobalConfigGroup,
+                        ceDiagEntityGroup,
+                        ceDiagOnDemandGroup,
+                        ceDiagScheduledGroup,
+                        ceDiagTestPerfGroup,
+                        ceDiagHealthMonitorGroup,
+                        ceDiagEventGroup,
+                        ceDiagNotifControlGroup,
+                        ceDiagNotifErrorMsgGroup,
+                        ceDiagNotificationGroup
+                    }
+    VARIATION       ceDiagOnDemandErrorAllowed
+    SYNTAX          Unsigned32 (0..65534)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandIterations
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagScheduledJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagHMTestThreshold
+    SYNTAX          Unsigned32 (0..99)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventLogSize
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventQueryStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoEntityDiagCapability 3 }
+
+ceDiagCapV12R0252SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(52)SG on CAT4K family 
+                    switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DIAG-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DIAG-MIB
+    INCLUDES        {
+                        ceDiagDescrGroup,
+                        ceDiagGlobalConfigGroup,
+                        ceDiagEntityGroup,
+                        ceDiagOnDemandGroup,
+                        ceDiagScheduledGroup,
+                        ceDiagTestPerfGroup,
+                        ceDiagHealthMonitorGroup,
+                        ceDiagEventGroup,
+                        ceDiagNotifControlGroup,
+                        ceDiagNotifErrorMsgGroup,
+                        ceDiagNotificationGroup
+                    }
+    VARIATION       ceDiagOnDemandErrorAllowed
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandIterations
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagScheduledJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagHMTestThreshold
+    SYNTAX          Unsigned32 (0..99)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventLogSize
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventQueryStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoEntityDiagCapability 4 }
+
+ceDiagCapV12R0233SXI2PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI2 on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DIAG-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DIAG-MIB
+    INCLUDES        {
+                        ceDiagDescrGroup,
+                        ceDiagGlobalConfigGroup,
+                        ceDiagEntityGroup,
+                        ceDiagOnDemandGroup,
+                        ceDiagScheduledGroup,
+                        ceDiagTestPerfGroup,
+                        ceDiagHealthMonitorGroup,
+                        ceDiagEventGroup,
+                        ceDiagNotifControlGroup,
+                        ceDiagNotifErrorMsgGroup,
+                        ceDiagNotificationGroup,
+                        ceDiagTestPerfLastTestMethodGroup
+                    }
+    VARIATION       ceDiagOnDemandErrorAllowed
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandIterations
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagScheduledJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagHMTestThreshold
+    SYNTAX          Unsigned32 (0..99)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventLogSize
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventQueryStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { ciscoEntityDiagCapability 5 }
+
+ceDiagCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DIAG-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DIAG-MIB
+    INCLUDES        {
+                        ceDiagDescrGroup,
+                        ceDiagGlobalConfigGroup,
+                        ceDiagEntityGroup,
+                        ceDiagOnDemandGroup,
+                        ceDiagScheduledGroup,
+                        ceDiagTestPerfGroup,
+                        ceDiagHealthMonitorGroup,
+                        ceDiagEventGroup,
+                        ceDiagNotifControlGroup,
+                        ceDiagNotifErrorMsgGroup,
+                        ceDiagNotificationGroup,
+                        ceDiagTestPerfLastTestMethodGroup,
+                        ceDiagHMTestThreshWindowGroup
+                    }
+    VARIATION       ceDiagOnDemandErrorAllowed
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandIterations
+    SYNTAX          Unsigned32 (0..999)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagOnDemandJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagScheduledJobRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagHMTestThreshold
+    SYNTAX          Unsigned32 (0..99)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventLogSize
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       ceDiagEventQueryStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ceDiagHMTestThreshWindowSize
+    SYNTAX          Unsigned32 (1..1000000)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        When the value of ceDiagHMTestThreshWindowSuite
+        is 'milliseconds', 'seconds', 'minutes', 'hours'
+        or 'days', the valid range for
+        ceDiagHMTestThreshWindowSize is 1 - 1000000.
+        When the value of ceDiagHMTestThreshWindowSuite
+        is 'runs', the valid range for
+        ceDiagHMTestThreshWindowSize is 1 - 5000."
+
+    ::= { ciscoEntityDiagCapability 6 }
+
+END
+
+
+

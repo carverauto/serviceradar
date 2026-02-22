@@ -1,0 +1,1714 @@
+-- MIB file created 22-Jul-2010 13:05:09, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-QOS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-QOS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    TimeIntervalSec
+            FROM CISCO-TC
+    cldcClientMacAddress
+            FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+    cLApSysMacAddress, cLApDot11IfSlotId, cLApName, cLApDot11IfType
+            FROM CISCO-LWAPP-AP-MIB
+    cLWlanIndex
+            FROM CISCO-LWAPP-WLAN-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoLwappQosMIB OBJECT IDENTIFIER ::= { ciscoMgmt 524 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201007210000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    Information provided by this MIB is used to study
+--    the quality of service in the voice and video traffic
+--    on the WLAN.
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--          +......+     +......+     +......+
+--          +      +     +      +     +      +
+--          +  CC  +     +  CC  +     +  CC  +
+--          +      +     +      +     +      +
+--          +......+     +......+     +......+
+--            ..            .             .
+--            ..            .             .
+--           .  .            .             .
+--          .    .            .             .
+--         .      .            .             .
+--        .        .            .             .
+--    +......+ +......+     +......+      +......+
+--    +      + +      +     +      +      +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +
+--    +      + +      +     +      +      +      +
+--    +......+ +......+     +......+      +......+
+--               .              .             .
+--             .  .              .             .
+--            .    .              .             .
+--           .      .              .             .
+--          .        .              .             .
+--       +......+ +......+     +......+      +......+
+--       +      + +      +     +      +      +      +
+--       +  MN  + +  MN  +     +  MN  +      +  MN  +
+--       +      + +      +     +      +      +      +
+--       +......+ +......+     +......+      +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Gratuitous Probe Response (GPR)
+--    
+--    The Gratuitous Probe Response feature aids in conserving
+--    battery power of WLAN-enabled cell phones by providing
+--    a high rate packet on the order of tens of milliseconds
+--    such that these kind of phones can wake up and wait at
+--    predefined intervals, to reduce battery power.  The 
+--    GPR packet is transmitted from the AP at a predefined
+--    time interval.
+--    
+--    
+--    Light Weight Access Point Protocol ( LWAPP )
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node 
+--    and client are used interchangeably. 
+--    
+--    TU
+--    
+--    A measurement of time in units of 1024 microseconds.
+--    
+--    User Priority ( UP )
+--    
+--    Specifies a the priority rules in QOS for handling user 
+--    priority.
+--    
+--    EDCA
+--    
+--    As defined in 802.11e standard, Enhanced distributed
+--    channel access(EDCA) parameter set element is used 
+--    by the AP to establish policy, to change policy when
+--    accepting new clients, or to adapt to changes in 
+--    offered load. 
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    201007210000Z
+--  RevDescr
+--    Added the following groups:
+--    ciscoLwappQosMIBComplianceRev2, 
+--    ciscoLwappQosDot11aConfigGroupSup2, 
+--    ciscoLwappQosDot11bConfigGroupSup2, 
+--    ciscoLwappQosDot11SipCacStatsGroup, 
+--    ciscoLwappQosDot11SipConfigGroup, 
+--    ciscoLwappQosDot11VoiceStatsGroup, 
+--    ciscoLwappQosDot11VoiceConfigGroup, 
+--    ciscoLwappQosConfigGroup,
+--    ciscoLwappQosDot11VoiceNotifGroup 
+--    
+--    Deprecated ciscoLwappQosMIBComplianceRev1 and 
+--    replaced it with ciscoLwappQosMIBComplianceRev2.
+--  RevDate
+--    200701070000Z
+--  RevDescr
+--    Added ciscoLwappQosDot11aConfigGroupSup1 and
+--    ciscoLwappQosDot11bConfigGroupSup1 objects.
+--  RevDate
+--    200604130000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappQosMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappQosMIB 0 }
+ciscoLwappQosMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappQosMIB 1 }
+ciscoLwappQosMIBConform OBJECT IDENTIFIER ::= { ciscoLwappQosMIB 2 }
+cLQd11aCACConfig OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 1 }
+cLQd11bCACConfig OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 2 }
+cLQd11GprConfig OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 3 }
+cLQd11CACStats  OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 4 }
+cLQEntConfConfig OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 5 }
+cLQd11VoiceStats OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 6 }
+cLQVoiceWlanConfig OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 7 }
+cLQVoiceClient  OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 8 }
+cLQd11SipCacConfig OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 9 }
+cLQConfigObjects OBJECT IDENTIFIER ::= { ciscoLwappQosMIBObjects 10 }
+ciscoLwappQosMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappQosMIBConform 1 }
+ciscoLwappQosMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappQosMIBConform 2 }
+
+cLQd11aVoiceAdmCtrlSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable admission
+        control for voice traffic flowing through the 802.11a 
+        interfaces in the controller.
+        
+        When set to 'true', controller will reserve and manage 
+        max-bandwidth (cLQd11aVoiceMaxAdmBandwidth) 
+        and roaming-bandwidth
+        (cLQd11aVoiceMaxRoamBandwidth) as per user 
+        configured values.
+        
+        When disabled, admission control will not be enforced. 
+        This may delay voice traffic depending on load on
+        the WLAN."
+    DEFVAL { true }
+    ::= { cLQd11aCACConfig 1 }
+
+cLQd11aVoiceMaxAdmBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object denotes the maximum bandwidth
+        that can be allocated by controller for voice
+        traffic when admission control is enabled for
+        for 802.11a interfaces in the controller.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11a
+        network is not operational and the total
+        value populated for this object for all the
+        admission control attributes (voice, video)
+        together does not exceed 100%."
+    ::= { cLQd11aCACConfig 2 }
+
+cLQd11aVoiceMaxRoamBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the bandwidth relative
+        to the maximum allocated bandwidth indicated by
+        cLQd11aVoiceMaxAdmBandwidth, that can be 
+        allocated to roaming clients for voice traffic,
+        when admission control is enabled for 802.11a
+        interfaces in the controller.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11a
+        network is disabled and not operational.  The
+        value configured through this object takes
+        effect when the 802.11a network is enabled."
+    DEFVAL { 0 }
+    ::= { cLQd11aCACConfig 3 }
+
+cLQd11aVideoAdmCtrlSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable admission
+        control for video traffic flowing through the 802.11a 
+        interfaces in the controller.
+        
+        When set to 'true', controller will reserve and manage 
+        max-bandwidth (cLQd11aVideoMaxAdmBandwidth) 
+        and roaming-bandwidth
+        (cLQd11aVideoMaxRoamBandwidth) as per user  
+        configured values.
+        
+        When disabled, admission control will not be enforced. 
+        This may delay video traffic depending on load on
+        the WLAN."
+    DEFVAL { true }
+    ::= { cLQd11aCACConfig 4 }
+
+cLQd11aVideoMaxAdmBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object denotes the maximum bandwidth
+        that can be allocated by controller for video traffic
+        when admission control is enabled for 802.11a 
+        interfaces in the controller.  When set to 0, all
+        available bandwidth in 802.11a interfaces can be
+        allocated to video traffic.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11a
+        network is not operational and the total
+        value populated for this object for all the
+        admission control attributes (voice, video)
+        together does not exceed 100%."
+    DEFVAL { 0 }
+    ::= { cLQd11aCACConfig 5 }
+
+cLQd11aVideoMaxRoamBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the bandwidth relative
+        to the maximum allocated bandwidth indicated by
+        cLQd11aVideoMaxAdmBandwidth, that can be 
+        allocated to roaming clients for video traffic,
+        when admission control is enabled for 802.11a
+        interfaces in the controller.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11a
+        network is disabled and not operational.  The
+        value configured through this object takes effect 
+        when the 802.11a network is enabled and 
+        operational."
+    DEFVAL { 0 }
+    ::= { cLQd11aCACConfig 6 }
+
+cLQd11bVoiceAdmCtrlSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable admission
+        control for voice traffic flowing through the 
+        802.11b/g interfaces in the controller.
+        
+        When set to 'true', controller will reserve and manage
+        max-bandwidth (cLQd11bVoiceMaxAdmBandwidth)
+        and roaming-bandwidth
+        (cLQd11bVoiceMaxRoamingBandwidth) as per user
+        configured values.
+        
+        When disabled, admission control will not be enforced. 
+        This may delay voice traffic depending on load on the 
+        WLAN."
+    DEFVAL { true }
+    ::= { cLQd11bCACConfig 1 }
+
+cLQd11bVoiceMaxAdmBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object denotes the maximum bandwidth that
+        can be allocated by controller for voice traffic 
+        when admission control is enabled for 802.11b/g
+        interfaces in the controller.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11b/g
+        network is not operational and the total
+        value populated for this object for all the
+        admission control attributes (voice, video)
+        together does not exceed 100%."
+    ::= { cLQd11bCACConfig 2 }
+
+cLQd11bVoiceMaxRoamBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the bandwidth relative
+        to the maximum allocated bandwidth indicated by
+        cLQd11bVoiceMaxAdmBandwidth, that can be 
+        allocated to roaming clients for voice traffic,
+        when admission control is enabled for 802.11b
+        interfaces in the controller.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11b/g
+        network is not operational.  The value configured
+        through this object takes effect when the 802.11b/g
+        network is enabled and operational."
+    DEFVAL { 0 }
+    ::= { cLQd11bCACConfig 3 }
+
+cLQd11bVideoAdmCtrlSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable admission
+        control for video traffic flowing through the 
+        802.11b/g interfaces in the controller.
+        
+        When set to 'true', controller will reserve and manage
+        max-bandwidth (cLQd11bVideoMaxAdmBandwidth) 
+        and roaming-bandwidth
+        (cLQd11bVideoMaxRoamBandwidth) as per user 
+        configured values.
+        
+        When disabled, admission control will not be enforced. 
+        This may delay video traffic depending on load on the 
+        WLAN."
+    DEFVAL { true }
+    ::= { cLQd11bCACConfig 4 }
+
+cLQd11bVideoMaxAdmBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object denotes the maximum bandwidth that
+        can be allocated by controller for video traffic when
+        admission control is enabled for 802.11b/g interfaces 
+        in the controller.  When set to 0, all available
+        bandwidth in 802.11b/g interfaces can be allocated
+        to video traffic.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11b/g
+        network is not operational and the total
+        value populated for this object for all the
+        admission control attributes (voice, video)
+        together does not exceed 100%."
+    DEFVAL { 0 }
+    ::= { cLQd11bCACConfig 5 }
+
+cLQd11bVideoMaxRoamBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects represents the bandwidth relative
+        to the maximum allocated bandwidth indicated by
+        cLQd11bVideoMaxAdmBandwidth, that can be 
+        allocated to roaming clients for video traffic,
+        when admission control is enabled for 802.11b
+        interfaces in the controller.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11b/g
+        network is not operational.  The value configured
+        through this object takes effect when the 802.11b/g
+        network is enabled and operational."
+    DEFVAL { 0 }
+    ::= { cLQd11bCACConfig 6 }
+
+cLQd11aGprProbeInterval OBJECT-TYPE
+    SYNTAX Gauge(10..100)
+--  Units
+--    TU
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to set GPR probe interval
+        period to be used by all 802.11a interfaces in the 
+        controller, when the radios are advertising any 
+        WLAN with GPR support enabled.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11a
+        network is not operational.  The value configured
+        through this object takes effect when the 802.11a
+        network is enabled and operational."
+    DEFVAL { 10 }
+    ::= { cLQd11aCACConfig 7 }
+
+cLQd11aVoiceCtrl OBJECT-TYPE
+    SYNTAX INTEGER {
+        loadBased(1),
+        static(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When admission control is enabled these parameters
+        can be modified.
+            loadBased - controller will reserve and manage
+                        max-bandwidth and roaming-bandwidth
+                        based on the load on the WLAN. 
+            static    - controller will reserve and
+                        manage max-bandwidth 
+                        (cLQd11aVoiceMaxAdmBandwidth)
+                        and roaming-bandwidth
+                        (cLQd11aVoiceMaxRoamBandwidth) 
+                        as per user configured values.
+         When ACM is disabled, admission control will not 
+         be enforced. This may delay voice traffic depending 
+         on the traffic on the WLAN."
+    DEFVAL { loadBased }
+    ::= { cLQd11aCACConfig 8 }
+
+cLQd11aExpeditedBw OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if expedited BW feature is
+        enabled or not.
+        A value of 'true' will ensure that the APs advertise
+        the expedited BW support in their beacons and 
+        association responses.
+        A value of 'false' will ensure that the APs do not
+        advertise the expedited BW support in their beacons 
+        and association responses."
+    ::= { cLQd11aCACConfig 9 }
+
+cLQd11aEdcaProfile OBJECT-TYPE
+    SYNTAX INTEGER {
+        wmmDefault(1),
+        svpVoice(2),
+        optimizedVoice(3),
+        optimizedVideoVoice(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the EDCA profile to be used
+        in EDCA Parameter set element. See glossary for EDCA. 
+           wmmDefault     - WMM default standard parameters.
+           svpVoice       - Spectralink voice priority 
+                             parameters.
+           optimizedVoice      - parameters for voice optimization.
+           optimizedVideoVoice - parameters for video and voice
+                                   optimization."
+    ::= { cLQd11aCACConfig 10 }
+
+cLQd11aMacOptimization OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies MAC enhancements for voice,
+        resulting in improvement in number of voice calls
+        serviced per access point.
+        A value of 'true' enables MAC optimization. 
+        A value of 'false' disables MAC optimization."
+    ::= { cLQd11aCACConfig 11 }
+
+cLQd11aMaxCallLimit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the max number of CAC Voice Calls
+        allowed on dot11a radio band.
+        Value of zero denotes no limit."
+    ::= { cLQd11aCACConfig 12 }
+
+cLQd11bGprProbeInterval OBJECT-TYPE
+    SYNTAX Gauge(10..100)
+--  Units
+--    TU
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to set GPR probe interval
+        period to be used by all 802.11b/g interfaces in the 
+        controller, when the radios are advertising any 
+        WLAN with GPR support enabled.
+        
+        Please note that the write operation on this
+        object will be successful only if the 802.11b/g
+        network is not operational.  The value configured
+        through this object takes effect when the 802.11b/g
+        network is enabled."
+    DEFVAL { 10 }
+    ::= { cLQd11bCACConfig 7 }
+
+cLQd11bVoiceCtrl OBJECT-TYPE
+    SYNTAX INTEGER {
+        loadBased(1),
+        static(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When admission control is enabled these parameters
+        can be modified.
+            loadBased - controller will reserve and manage
+                        max-bandwidth and roaming-bandwidth
+                        based on the load on the WLAN. 
+            static    - controller will reserve and
+                        manage max-bandwidth 
+                        (cLQd11bVoiceMaxAdmBandwidth)
+                        and roaming-bandwidth
+                        (cLQd11bVoiceMaxRoamBandwidth) 
+                        as per user configured values.
+         When ACM is disabled, admission control will not 
+         be enforced. This may delay voice traffic depending 
+         on the traffic on the WLAN."
+    DEFVAL { loadBased }
+    ::= { cLQd11bCACConfig 8 }
+
+cLQd11bExpeditedBw OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if expedited BW feature is
+        enabled or not.
+        A value of 'true' will ensure that the APs advertise
+        the expedited BW support in their beacons and 
+        association responses.
+        A value of 'false' will ensure that the APs do not
+        advertise the expedited BW support in their beacons 
+        and association responses."
+    ::= { cLQd11bCACConfig 9 }
+
+cLQd11bEdcaProfile OBJECT-TYPE
+    SYNTAX INTEGER {
+        wmmDefault(1),
+        svpVoice(2),
+        optimizedVoice(3),
+        optimizedVideoVoice(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the EDCA profile to be used
+        in EDCA Parameter set element. See glossary for EDCA. 
+           wmmDefault     - WMM default standard parameters.
+           svpVoice       - Spectralink voice priority 
+                             parameters.
+           optimizedVoice      - parameters for voice optimization.
+           optimizedVideoVoice - parameters for video and voice
+                                   optimization."
+    ::= { cLQd11bCACConfig 10 }
+
+cLQd11bMacOptimization OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies MAC enhancements for voice,
+        resulting in improvement in number of voice calls
+        serviced per access point.
+        A value of 'true' enables MAC optimization. 
+        A value of 'false' disables MAC optimization."
+    ::= { cLQd11bCACConfig 11 }
+
+cLQd11bMaxCallLimit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the max number of CAC Voice Calls
+        allowed on dot11b radio band.
+        Value of zero denotes no limit."
+    ::= { cLQd11bCACConfig 12 }
+
+cLQd11GprTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLQd11GprEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table populates the GPR configuration on the
+        WLANs configured on this controller.  
+        
+        There exists a row in this table for each WLAN
+        configured through cLWlanConfigTable.  A row is added
+        is to this table by the agent when a WLAN is created
+        by the user through an explicit management action
+        initiated from a network management station.
+        Similarly a row gets deleted automatically when the
+        user deletes the particular WLAN."
+    ::= { cLQd11GprConfig 1 }
+
+cLQd11GprEntry OBJECT-TYPE
+    SYNTAX CLQd11GprEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLQd11GprTable and corresponds to the
+        GPR configuration on a WLAN."
+    INDEX { cLWlanIndex }
+-- Augments cLWlanConfigEntry FROM CISCO-LWAPP-WLAN-MIB
+    ::= { cLQd11GprTable 1 }
+
+CLQd11GprEntry ::= SEQUENCE {
+    cLQd11GprSupport TruthValue
+    }
+
+cLQd11GprSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If 'true', then the corresponding radios that
+        advertise this WLAN, will send Gratuitous Probe 
+        Response.  If 'false', then the corresponding radios 
+        that advertise this WLAN, will not send Gratuitous 
+        Probe Response."
+    DEFVAL { false }
+    ::= { cLQd11GprEntry 1 }
+
+cLQd11CACStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLQd11CACStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table populates the call admission control
+        metrics collected by observing the voice or video
+        traffic on the dot11 interface of a particular
+        AP. 
+        
+        There exists a row in this table for each row
+        corresponding to a dot11 interface found in
+        cLApDot11IfTable.  A row corresponding to a
+        dot11 interface is added when an AP joins the
+        controller.  The row gets deleted when the AP
+        dissociates from the controller."
+    ::= { cLQd11CACStats 1 }
+
+cLQd11CACStatsEntry OBJECT-TYPE
+    SYNTAX CLQd11CACStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        CLQd11CACStatsTable and corresponds to the 
+        admission control statistics for a particular
+        dot11 interface."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId }
+-- Augments cLApDot11IfEntry FROM CISCO-LWAPP-AP-MIB
+    ::= { cLQd11CACStatsTable 1 }
+
+CLQd11CACStatsEntry ::= SEQUENCE {
+    cLQd11CacVoiceBwInUse Gauge,
+    cLQd11CacVideoBwInUse Gauge,
+    cLQd11CacVoiceCallsInProgress Gauge,
+    cLQd11CacRoamVoiceCallsInProg Gauge,
+    cLQd11CacTotalVoiceCallsAP Counter,
+    cLQd11CacTotalRoamCallsAP Counter,
+    cLQd11CacVoiceCallsRejectedAP Counter,
+    cLQd11CacRoamCallsRejectedAP Counter,
+    cLQd11CacRejCallsInsufBw Counter,
+    cLQd11CacRejCallsBadParams Counter,
+    cLQd11CacRejCallsPhyRate Counter,
+    cLQd11CacRejCallsQosPolicy Counter,
+    cLQd11SipCacNonRoamCallsInProgress Gauge,
+    cLQd11SipCacRoamCallsInProg Gauge,
+    cLQd11SipCacTotalNonRoamCallsAP Counter,
+    cLQd11SipCacTotalRoamCallsAP Counter,
+    cLQd11SipCacNonRoamCallsRejectedInSuffBw Counter,
+    cLQd11SipCacRoamCallsRejectedInSuffBw Counter,
+    cLQd11SipCacNonRoamCallsRejectedMaxLimit Counter,
+    cLQd11SipCacRoamCallsRejectedMaxLimit Counter,
+    cLQd11SipCacRejCallsQosPolicy Counter
+    }
+
+cLQd11CacVoiceBwInUse OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the voice bandwidth in use
+        as a percentage of the bandwidth configured through
+        cLQd11aVoiceMaxAdmBandwidth or
+        cLQd11bVoiceMaxAdmBandwidth, depending on the type
+        of this dot11 interface."
+    ::= { cLQd11CACStatsEntry 1 }
+
+cLQd11CacVideoBwInUse OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    Percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the video bandwidth in use
+        as a percentage of the bandwidth configured through
+        cLQd11aVideoMaxAdmBandwidth or
+        cLQd11bVideoMaxAdmBandwidth, depending on the type
+        of this dot11 interface."
+    ::= { cLQd11CACStatsEntry 2 }
+
+cLQd11CacVoiceCallsInProgress OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        voice calls currently in progress on this dot11
+        interface."
+    ::= { cLQd11CACStatsEntry 3 }
+
+cLQd11CacRoamVoiceCallsInProg OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        voice calls initiated from roaming clients
+        currently in progress on this dot11 interface."
+    ::= { cLQd11CACStatsEntry 4 }
+
+cLQd11CacTotalVoiceCallsAP OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        voice calls observed on this dot11 interface
+        ever since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 5 }
+
+cLQd11CacTotalRoamCallsAP OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        voice and video calls initiated from roaming clients
+        observed on this dot11 interface ever since
+        this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 6 }
+
+cLQd11CacVoiceCallsRejectedAP OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        voice calls observed as rejected on this dot11
+        interface, ever since this AP has joined the
+        controller."
+    ::= { cLQd11CACStatsEntry 7 }
+
+cLQd11CacRoamCallsRejectedAP OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        voice and video calls initiated from roaming
+        clients observed as rejected on this dot11
+        interface, ever since this AP has joined the
+        controller."
+    ::= { cLQd11CACStatsEntry 8 }
+
+cLQd11CacRejCallsInsufBw OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        calls observed as rejected on this dot11
+        interface due to insufficient bandwidth, ever
+        since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 9 }
+
+cLQd11CacRejCallsBadParams OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        calls observed as rejected on this dot11
+        interface due to mismatch in call parameters, ever
+        since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 10 }
+
+cLQd11CacRejCallsPhyRate OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        calls observed as rejected on this dot11
+        interface due to mismatch in 802.11 data rates,
+        ever since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 11 }
+
+cLQd11CacRejCallsQosPolicy OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the count of the number of
+        calls observed as rejected on this dot11
+        interface due to restrictions imposed by QOS
+        policies, ever since this AP has joined the
+        controller."
+    ::= { cLQd11CACStatsEntry 12 }
+
+cLQd11SipCacNonRoamCallsInProgress OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of non-roaming SIP calls
+        currently in progress on this dot11 interface."
+    ::= { cLQd11CACStatsEntry 13 }
+
+cLQd11SipCacRoamCallsInProg OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of SIP calls initiated
+        from roaming clients currently in progress on this 
+        dot11 interface."
+    ::= { cLQd11CACStatsEntry 14 }
+
+cLQd11SipCacTotalNonRoamCallsAP OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of non-roaming SIP calls
+        observed on this dot11 interface since this AP has joined 
+        the controller."
+    ::= { cLQd11CACStatsEntry 15 }
+
+cLQd11SipCacTotalRoamCallsAP OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of SIP calls initiated
+        from roaming clients observed on this dot11 interface ever 
+        this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 16 }
+
+cLQd11SipCacNonRoamCallsRejectedInSuffBw OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of non-roaming SIP calls
+        observed as rejected on this dot11 interface due to insufficient
+        bandwidth, since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 17 }
+
+cLQd11SipCacRoamCallsRejectedInSuffBw OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of SIP calls initiated
+        from roaming clients observed as rejected on this dot11
+        interface due to insufficient bandwidth, since this AP has 
+        joined the controller."
+    ::= { cLQd11CACStatsEntry 18 }
+
+cLQd11SipCacNonRoamCallsRejectedMaxLimit OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of non-roaming SIP calls
+        observed as rejected on this dot11 interface due to maximum 
+        limit exceeded, since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 19 }
+
+cLQd11SipCacRoamCallsRejectedMaxLimit OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of roaming SIP calls observed
+        as rejected on this dot11 interface due to maximum limit 
+        exceeded, since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 20 }
+
+cLQd11SipCacRejCallsQosPolicy OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of SIP calls observed as
+        rejected on this dot11 interface due to restrictions imposed 
+        by QOS policies, ever since this AP has joined the controller."
+    ::= { cLQd11CACStatsEntry 21 }
+
+cLQd11VoiceStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLQd11VoiceStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the voice statistics
+        calculated for each radio on an AP.
+        An entry is automatically added by the controller
+        when a voice call is successfully placed. 
+        Entry is deleted when AP disassociates the 
+        Controller."
+    ::= { cLQd11VoiceStats 1 }
+
+cLQd11VoiceStatsEntry OBJECT-TYPE
+    SYNTAX CLQd11VoiceStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table provides voice related statistics for
+        each radio on an AP. 
+        Entries are removed when the AP disassociates the controller."
+    INDEX { cLApSysMacAddress, cLApDot11IfSlotId }
+    ::= { cLQd11VoiceStatsTable 1 }
+
+CLQd11VoiceStatsEntry ::= SEQUENCE {
+    cLQd11VoiceCallCounts Counter,
+    cLQd11CacVoiceCallTimePeriod TimeIntervalSec
+    }
+
+cLQd11VoiceCallCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    calls
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates cumulative number of successful
+        VOIP calls placed using this radio."
+    ::= { cLQd11VoiceStatsEntry 1 }
+
+cLQd11CacVoiceCallTimePeriod OBJECT-TYPE
+    SYNTAX TimeIntervalSec
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates cumulative call proceed time
+        in seconds."
+    ::= { cLQd11VoiceStatsEntry 2 }
+
+cLQVoiceWlanConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLQVoiceWlanConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains per WLAN voice related
+        configuration. 
+        
+        There is a row in this table for every WLAN
+        configured through cLWlanConfigTable.  A row is added
+        to this table by the agent when a WLAN is created
+        by the user through an explicit management action
+        initiated from a network management station.
+        Similarly a row gets deleted automatically when the
+        user deletes the particular WLAN."
+    ::= { cLQVoiceWlanConfig 1 }
+
+cLQVoiceWlanConfigEntry OBJECT-TYPE
+    SYNTAX CLQVoiceWlanConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about voice configuration for
+        a particular WLAN."
+    INDEX { cLWlanIndex }
+    ::= { cLQVoiceWlanConfigTable 1 }
+
+CLQVoiceWlanConfigEntry ::= SEQUENCE {
+    cLQVoiceWlanConfigDetectVoipCallFailure TruthValue
+    }
+
+cLQVoiceWlanConfigDetectVoipCallFailure OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If 'true', then the corresponding radios that
+        advertise this WLAN, will snoop voice packets 
+        to detect call failure and report by sending trap. 
+        If 'false', then the corresponding radios 
+        that advertise this WLAN, will not detect call failure 
+        and hence will not send trap."
+    DEFVAL { false }
+    ::= { cLQVoiceWlanConfigEntry 1 }
+
+cLQVoiceClientTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLQVoiceClientEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains voice related client properties.
+        
+        There exists a row in this table for each associated
+        voice clients.  
+        A row is added to this table by the 
+        agent when a voice client gets associated.
+        Similarly, a row gets deleted automatically when the
+        voice client gets disassociated."
+    ::= { cLQVoiceClient 1 }
+
+cLQVoiceClientEntry OBJECT-TYPE
+    SYNTAX CLQVoiceClientEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing voice call management information for a
+        particular client."
+    INDEX { cldcClientMacAddress }
+    ::= { cLQVoiceClientTable 1 }
+
+CLQVoiceClientEntry ::= SEQUENCE {
+    cLQVoiceClientCallingNumber SnmpAdminString,
+    cLQVoiceClientLastCalledNumber SnmpAdminString,
+    cLQVoiceClientLastCallFailureReasonCode INTEGER
+    }
+
+cLQVoiceClientCallingNumber OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates calling number of this
+        voice client"
+    ::= { cLQVoiceClientEntry 1 }
+
+cLQVoiceClientLastCalledNumber OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates last called number from this
+        voice client"
+    ::= { cLQVoiceClientEntry 2 }
+
+cLQVoiceClientLastCallFailureReasonCode OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        normalFailure(2),
+        roamFailure(3),
+        maxLimitExceeded(4),
+        badRequest(400),
+        unathorized(401),
+        paymentRequired(402),
+        forbidden(403),
+        notFound(404),
+        methodNotallowed(405),
+        notAcceptable(406),
+        proxyAuthenticationRequired(407),
+        requestTimeout(408),
+        conflict(409),
+        gone(410),
+        lengthRequired(411),
+        requestEntityTooLarge(413),
+        requestURITooLarge(414),
+        unsupportedMdediaType(415),
+        badExtension(420),
+        temporarilyNotAvailable(480),
+        callLegDoesNotExist(481),
+        loopDetected(482),
+        tooManyHops(483),
+        addressIncomplete(484),
+        ambiguous(485),
+        busy(486),
+        internalServerError(500),
+        notImplemented(501),
+        badGateway(502),
+        serviceUnavailable(503),
+        serverTimeout(504),
+        versionNotSupported(505),
+        busyEverywhere(600),
+        decline(603),
+        doesNotExistAnywhere(604),
+        sessionNotAcceptable(606)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents last VOIP failue reason code
+        of this voice client.
+        These reason codes are taken from SIP standards.
+        
+        unknown               - Unknown error
+        
+        normalFailure         - Call failed for insufficient bandwidth 
+        
+        
+        roamFailure           - SIP call failed during roaming
+        
+        maxLimitExceeded      - Maximum SIP call permissible limit 
+        was exceeded.
+        
+        badRequest            - The request could not be understood 
+        due to malformed syntax.
+        
+        unathorized           - The request requires user 
+        authentication.
+        
+        paymentRequired       - Reserved for future.
+        
+        forbidden             - The server understood the request, 
+        but is refusing to fulfill it.
+        
+        notFound              - The server has definitive information
+        that the user does not exist at the domain specified in the 
+        Request-URI.
+        
+        methodNotallowed      - The method specified in the 
+        Request-Line is understood, but not allowed for the address 
+        identified by the Request-URI.
+        
+        notAcceptable         - The resource identified by the request 
+        is only capable of generating response entities that have 
+        content characteristics not acceptable according to the Accept
+        header field sent in the request.
+        
+        proxyAuthenticationRequired - This code is similar to 401 
+        (Unauthorized), but indicates that the client MUST first 
+        authenticate itself with the proxy.  
+        
+        requestTimeout        - The server could not produce a 
+        response within a suitable amount of time, for example, 
+        if it could not determine the location of the user in time.
+        
+        conflict              - This is used to indicate that the 
+        request could not be completed due to a conflict with the 
+        current state of the resource.
+        
+        gone                  - The requested resource is no longer 
+        available at the server and no forwarding address is known.
+        
+        lengthRequired        -  The server is refusing to process a 
+        request because the request entity-body is larger than the 
+        server is willing or able to process.
+        
+        requestEntityTooLarge - The server is refusing to process a 
+        request because the request entity-body is larger than the 
+        server is willing or able to process.
+        
+        requestURITooLarge    - The server is refusing to service the
+        request because the Request-URI is longer than the server is 
+        willing to interpret.
+        
+        unsupportedMediaType - The server is refusing to service the 
+        request because the message body of the request is in a format 
+        not supported by the server for the requested method.
+        
+        badExtension          - The server did not understand the 
+        protocol extension specified in a Proxy-Require  or Require 
+        header field.
+        
+        temporarilyNotAvailable - The callee's end system was contacted
+        
+        successfully but the callee is currently unavailable.
+        
+        callLegDoesNotExist   - This status indicates that the UAS 
+        received a request that does not match any existing dialog 
+        or transaction.
+        
+        loopDetected          - The server has detected a loop.
+        
+        tooManyHops           - The server received a request that 
+        contains a Max-Forwards header field with the value zero.
+        
+        addressIncomplete     - The server received a request with a 
+        Request-URI that was incomplete.
+        
+        ambiguous             - The Request-URI was ambiguous.
+        
+        busy                  - The callee's end system was contacted 
+        successfully, but the callee is currently not willing or able 
+        to take additional calls at this end system. 
+        
+        internalServerError   - The server encountered an unexpected 
+        condition that prevented it from fulfilling the request.
+        
+        notImplemented        - The server does not support the 
+        functionality required to fulfill the request. 
+        
+        badGateway            - The server, while acting as a gateway 
+        or proxy, received an invalid response from the downstream 
+        server it accessed in attempting to fulfill the request.
+        
+        serviceUnavailable    - The server is temporarily unable to 
+        process the request due to a temporary overloading or 
+        maintenance of the server.
+        
+        serverTimeout         - The server did not receive a timely 
+        response from an external server it accessed in attempting to 
+        process the request.
+        
+        versionNotSupported    - The server does not support, or 
+        refuses to support, the SIP protocol version that was used 
+        in the request. 
+        
+        busyEverywhere        - The callee's end system was contacted 
+        successfully but the callee is busy and does not wish to take 
+        the call at this time. 
+        
+        decline               - The callee's machine was successfully 
+        contacted but the user explicitly does not wish to or cannot 
+        participate.
+        
+        doesNotExistAnywhere  - The server has authoritative 
+        information that the user indicated in the Request-URI 
+        does not exist anywhere.
+        
+        sessionNotAcceptable         - The user's agent was contacted 
+        successfully but some aspects of the session description 
+        such as the requested media, bandwidth, or addressing 
+        style were not acceptable."
+    ::= { cLQVoiceClientEntry 3 }
+
+cLQd11SipCacConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLQd11SipCacConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the information about the
+        SIP CAC configuration corresponding to
+        the dot11 bands of the APs that have joined
+        the controller.
+        The parameters specify how the SIP call reserves 
+        CAC bandwidth."
+    ::= { cLQd11SipCacConfig 1 }
+
+cLQd11SipCacConfigEntry OBJECT-TYPE
+    SYNTAX CLQd11SipCacConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing SIP CAC configuration for a particular type
+        of 
+        wireless interface."
+    INDEX { cLApDot11IfType }
+    ::= { cLQd11SipCacConfigTable 1 }
+
+CLQd11SipCacConfigEntry ::= SEQUENCE {
+    cLQd11SipCacConfigCodecType INTEGER,
+    cLQd11SipCacConfigBw Gauge,
+    cLQd11SipCacConfigVoiceSampleSize Gauge
+    }
+
+cLQd11SipCacConfigCodecType OBJECT-TYPE
+    SYNTAX INTEGER {
+        userDefined(1),
+        g711(2),
+        g729(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the configured codec for SIP Cac
+        configuration of the dot11 band for the APs associated 
+        with this controller. Codec determines the bandwidth to 
+        be reserved for voice call.
+        userDefined - User defines the bandwidth, 
+        cLQd11SipCacConfigBw has to be configured
+        g711 - standard Codec G711
+        g729 - standard Codec G729"
+    DEFVAL { g711 }
+    ::= { cLQd11SipCacConfigEntry 1 }
+
+cLQd11SipCacConfigBw OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the configured bandwidth in kbps
+        for SIP CAC configuration of the dot11
+        band for the APs associated with this controller.
+        
+        This is configurable only if cLQd11SipCacConfigCodecType
+         is 'userDefined'"
+    ::= { cLQd11SipCacConfigEntry 2 }
+
+cLQd11SipCacConfigVoiceSampleSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the configured voice sample size
+        in milliseconds for SIP Cac configuration of the dot11 band 
+        for the APs associated with this controller."
+    ::= { cLQd11SipCacConfigEntry 3 }
+
+ciscoLwappVoipCallFailureNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to control the generation of
+        ciscoLwappVoipCallFailureNotif
+        notification.
+        
+        A value of 'true' indicates that the agent generates
+        ciscoLwappVoipCallFailureNotif notification.
+        
+        A value of 'false' indicates that the agent doesn't
+        generate ciscoLwappVoipCallFailureNotif
+        notification."
+    ::= { cLQConfigObjects 1 }
+
+ciscoLwappVoipCallFailureNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappQosMIB
+    VARIABLES {
+        cLQVoiceClientLastCallFailureReasonCode, 
+        cLQVoiceClientCallingNumber, cLQVoiceClientLastCalledNumber, 
+        cLApName, cLApDot11IfType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when ever a VOIP call failure
+        occurs."
+    ::= 1
+
+ciscoLwappQosDot11aConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-service parameters 802.11a networks.
+--  objects
+--    cLQd11aVoiceAdmCtrlSupport, cLQd11aVoiceMaxAdmBandwidth, 
+--    cLQd11aVoiceMaxRoamBandwidth, cLQd11aVideoAdmCtrlSupport, 
+--    cLQd11aVideoMaxAdmBandwidth, cLQd11aVideoMaxRoamBandwidth, 
+--    cLQd11aGprProbeInterval
+
+ciscoLwappQosDot11bConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-service parameters 802.11b networks.
+--  objects
+--    cLQd11bVoiceAdmCtrlSupport, cLQd11bVoiceMaxAdmBandwidth, 
+--    cLQd11bVoiceMaxRoamBandwidth, cLQd11bVideoAdmCtrlSupport, 
+--    cLQd11bVideoMaxAdmBandwidth, cLQd11bVideoMaxRoamBandwidth, 
+--    cLQd11bGprProbeInterval
+
+ciscoLwappQosDot11WlanConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-services parameters on a particular WLAN.
+--  objects
+--    cLQd11GprSupport
+
+ciscoLwappQosDot11CacStatsGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects provide the call
+--    admission control statistics observed on the
+--    dot11 interfaces of an AP.
+--  objects
+--    cLQd11CacVoiceBwInUse, cLQd11CacVideoBwInUse, 
+--    cLQd11CacVoiceCallsInProgress, cLQd11CacRoamVoiceCallsInProg, 
+--    cLQd11CacTotalVoiceCallsAP, cLQd11CacTotalRoamCallsAP, 
+--    cLQd11CacVoiceCallsRejectedAP, cLQd11CacRoamCallsRejectedAP, 
+--    cLQd11CacRejCallsInsufBw, cLQd11CacRejCallsBadParams, 
+--    cLQd11CacRejCallsPhyRate, cLQd11CacRejCallsQosPolicy
+
+ciscoLwappQosDot11aConfigGroupSup1 OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-service parameters 802.11a networks.
+--  objects
+--    cLQd11aVoiceCtrl, cLQd11aExpeditedBw
+
+ciscoLwappQosDot11bConfigGroupSup1 OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-service parameters 802.11b networks.
+--  objects
+--    cLQd11bVoiceCtrl, cLQd11bExpeditedBw
+
+ciscoLwappQosDot11aConfigGroupSup2 OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-service parameters 802.11a networks.
+--  objects
+--    cLQd11aEdcaProfile, cLQd11aMacOptimization, 
+--    cLQd11aMaxCallLimit
+
+ciscoLwappQosDot11bConfigGroupSup2 OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-service parameters 802.11b networks.
+--  objects
+--    cLQd11bEdcaProfile, cLQd11bMacOptimization, 
+--    cLQd11bMaxCallLimit
+
+ciscoLwappQosDot11SipCacStatsGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects provide the SIP call
+--    admission control statistics observed on the
+--    dot11 interfaces of an AP.
+--  objects
+--    cLQd11SipCacNonRoamCallsInProgress, 
+--    cLQd11SipCacRoamCallsInProg, cLQd11SipCacTotalNonRoamCallsAP, 
+--    cLQd11SipCacTotalRoamCallsAP, 
+--    cLQd11SipCacNonRoamCallsRejectedInSuffBw, 
+--    cLQd11SipCacRoamCallsRejectedInSuffBw, 
+--    cLQd11SipCacNonRoamCallsRejectedMaxLimit, 
+--    cLQd11SipCacRoamCallsRejectedMaxLimit, 
+--    cLQd11SipCacRejCallsQosPolicy
+
+ciscoLwappQosDot11SipConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    SIP call admission control configuration parameters.
+--  objects
+--    cLQd11SipCacConfigCodecType, cLQd11SipCacConfigBw, 
+--    cLQd11SipCacConfigVoiceSampleSize
+
+ciscoLwappQosDot11VoiceStatsGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    Voice statistics parameters.
+--  objects
+--    cLQd11VoiceCallCounts, cLQd11CacVoiceCallTimePeriod
+
+ciscoLwappQosDot11VoiceConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    Voice statistics parameters.
+--  objects
+--    cLQVoiceWlanConfigDetectVoipCallFailure, 
+--    cLQVoiceClientCallingNumber, cLQVoiceClientLastCalledNumber, 
+--    cLQVoiceClientLastCallFailureReasonCode
+
+ciscoLwappQosConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    quality-of-service configuration parameters.
+--  objects
+--    ciscoLwappVoipCallFailureNotifEnabled
+
+ciscoLwappQosDot11VoiceNotifGroup OBJECT IDENTIFIER ::= { ciscoLwappQosMIBGroups 13 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    Voice notification parameters.
+--  notifications
+--    ciscoLwappVoipCallFailureNotif
+
+ciscoLwappQosMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappQosMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappQosMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappQosDot11aConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11bConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11WlanConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11CacStatsGroup
+
+ciscoLwappQosMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoLwappQosMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappQosMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappQosDot11aConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11bConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11WlanConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11CacStatsGroup
+--   MandGroup
+--    ciscoLwappQosDot11aConfigGroupSup1
+--   MandGroup
+--    ciscoLwappQosDot11bConfigGroupSup1
+
+ciscoLwappQosMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoLwappQosMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Implementation of this group is mandatory only for the
+--    platforms which implement the ciscoLwappQosMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappQosDot11aConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11bConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11WlanConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11CacStatsGroup
+--   MandGroup
+--    ciscoLwappQosDot11aConfigGroupSup1
+--   MandGroup
+--    ciscoLwappQosDot11bConfigGroupSup1
+--   MandGroup
+--    ciscoLwappQosDot11aConfigGroupSup2
+--   MandGroup
+--    ciscoLwappQosDot11bConfigGroupSup2
+--   MandGroup
+--    ciscoLwappQosDot11SipCacStatsGroup
+--   MandGroup
+--    ciscoLwappQosDot11SipConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11VoiceStatsGroup
+--   MandGroup
+--    ciscoLwappQosDot11VoiceConfigGroup
+--   MandGroup
+--    ciscoLwappQosDot11VoiceNotifGroup
+--   MandGroup
+--    ciscoLwappQosConfigGroup
+
+
+END
+

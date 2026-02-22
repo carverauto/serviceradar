@@ -1,0 +1,391 @@
+-- *****************************************************************
+-- ciscoWanAtmCosB MIB
+--
+-- August 1999, Prashant Desai
+--
+-- April 2002, Sundar Ramamoorthy, Prasanna Mucharikar
+--
+-- March 2003, Prasanna Mucharikar
+--
+-- Copyright (c) 1998-2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+ 
+CISCO-WAN-ATM-COSB-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Counter64,
+        Integer32,
+        Counter32               FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP            FROM SNMPv2-CONF
+        ifIndex                 FROM IF-MIB
+        ciscoWan                FROM CISCOWAN-SMI;
+
+ciscoWanAtmCosbMIB MODULE-IDENTITY
+        LAST-UPDATED        "200303210000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+ 
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                   Tel: +1 800 553-NETS
+ 
+                E-mail: cs-wanatm@cisco.com"
+
+         DESCRIPTION
+            "The MIB to manage CoS(Class of Service) queue/buffer 
+             related parameters. 
+             One or more virtual interfaces may exist on a physical 
+             interface  or a channelized interface. Every virtual 
+             interface has certain number (e.g. 16) of CoS queues. 
+             These queues are also known as Class Of Service Buffers. 
+             Every COS queue maps to an ATM trafiic type such as CBR, 
+             VBR-rt, ABR etc. These COS queues are used to provide 
+             QOS (quality of service), depending on the corresponding
+             ATM trafiic  type.  This MIB provides management 
+             functionality such as Threshold Crossing Alarms(TCA) for
+             cell discards and interval statistics for these COS 
+             queues."
+
+         REVISION "200303210000Z"
+         DESCRIPTION
+                "Descriptions have been clarified for few objects or 
+                 tables."
+
+         REVISION "200206100000Z"
+         DESCRIPTION
+                "1. Added following objects to cwacIntervalTable, 
+                  as upper 32-bits for counters which are 
+                  64-bit wide:
+                  cwacHighIntCellArrivals, cwacHighIntCellDiscards,
+                  cwacHighIntCellDeparts.
+                 2. Added following 64-bit objects to 
+                  cwacIntervalTable for 64-bit counter support:
+                  cwacHCIntCellArrivals, cwacHCIntCellDiscards,
+                  cwacHCIntCellDeparts"
+
+         REVISION "200004170000Z"
+         DESCRIPTION
+            "Initial version of this MIB module."
+         ::= { ciscoWan 16 }
+
+ciscoWanAtmCosbMIBObjects 
+                        OBJECT IDENTIFIER ::= { ciscoWanAtmCosbMIB 1}
+cwacConfig              OBJECT IDENTIFIER ::= 
+                               { ciscoWanAtmCosbMIBObjects 1}
+cwacStatistics          OBJECT IDENTIFIER ::= 
+                               { ciscoWanAtmCosbMIBObjects 2}
+
+-- ---------------------------------------------------------------------
+-- cisco ATM Virtual Interface Config Group
+-- ---------------------------------------------------------------------
+ 
+cwacStatsAlarmConfgTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CwacStatsAlarmConfgEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+          "This table contains alarm configuration parameters 
+           related to CoS queue. Entries in this table are 
+           automatically created when a new virtual interface 
+           is added."
+        ::= { cwacStatistics 1 }
+
+cwacStatsAlarmConfgEntry OBJECT-TYPE
+        SYNTAX     CwacStatsAlarmConfgEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "An entry in CoS queue alarm configuration table. 
+             This table is indexed by ifIndex, that belongs to 
+             the ifTable entry with ifType value atmVirtual(149), 
+             and cwacCosbIndex."
+        INDEX   { ifIndex, cwacCosbIndex }
+        ::= { cwacStatsAlarmConfgTable 1 }
+
+CwacStatsAlarmConfgEntry ::=
+        SEQUENCE {
+                cwacCosbIndex                   Integer32,
+                cwacCosbCurrentCellsDiscThres   Integer32,
+                cwacStatsAlarmStatus            Integer32,
+                cwacValidIntervals              Integer32
+              }
+
+cwacCosbIndex OBJECT-TYPE
+        SYNTAX Integer32  (1..32)
+        MAX-ACCESS not-accessible
+        STATUS  current
+        DESCRIPTION
+           "This is the CoS queue number to which this entry belongs."
+        ::= { cwacStatsAlarmConfgEntry 1 }
+
+cwacCosbCurrentCellsDiscThres OBJECT-TYPE
+        SYNTAX Integer32 (0..2147483647)
+        MAX-ACCESS read-write
+        STATUS  current
+        DESCRIPTION
+           "This object indicates the threshold for cell discards
+            for the current 15-min interval, above which alarm is 
+            generated."
+        ::= { cwacStatsAlarmConfgEntry 2 }
+
+cwacStatsAlarmStatus OBJECT-TYPE
+        SYNTAX Integer32 (0..2147483647)
+        MAX-ACCESS read-only
+        STATUS  current
+        DESCRIPTION
+           "This is a bitmap that shows the status of TCA(Threshold 
+            Crossing Alarm) of current queue. This bitmap is sent as
+            part of the trap that is generated as part of TCA being 
+            raised.
+
+            Bit assignmed is as follows:
+            ----------------------------
+                1       Cell discard 15 minute threshold was exceeded.
+            "
+        ::= { cwacStatsAlarmConfgEntry 3 }
+
+cwacValidIntervals OBJECT-TYPE
+        SYNTAX  Integer32 (0..96)
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of previous intervals for which valid
+            data has been stored."
+        ::= { cwacStatsAlarmConfgEntry 4 }
+       
+-- ---------------------------------------------------------------------
+--  Interval Statistics Table
+-- ---------------------------------------------------------------------
+ 
+cwacIntervalTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CwacIntervalEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+           "This table reflects interval statistics associated with
+            each of the CoS queues. Entries in this table are 
+            automatically created when a new virtual interface 
+            is added."
+        ::= { cwacStatistics 2 }
+
+cwacIntervalEntry OBJECT-TYPE
+        SYNTAX     CwacIntervalEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+          "An entry for per virtual interface CoS queue interval 
+           statistics. In addition to the current 15-minute 
+           interval bucket, the previous 24 hours worth of 
+           15-minute interval buckets are collected for each 
+           vitual interface. This table is indexed by ifIndex, 
+           that belongs to the ifTable entry with ifType value 
+           atmVirtual(149), cwacCosbIndex and 
+           cwacIntervalNumber."
+        INDEX   { ifIndex, cwacCosbIndex, cwacIntervalNumber }
+        ::= { cwacIntervalTable 1 }
+
+CwacIntervalEntry ::=
+        SEQUENCE {
+            cwacIntervalNumber          Integer32,
+            cwacIntCellArrivals         Counter32,
+            cwacIntCellDiscards         Counter32,
+            cwacIntCellDeparts          Counter32,
+            cwacHighIntCellArrivals     Counter32,
+            cwacHighIntCellDiscards     Counter32,
+            cwacHighIntCellDeparts      Counter32,
+            cwacHCIntCellArrivals       Counter64,
+            cwacHCIntCellDiscards       Counter64,
+            cwacHCIntCellDeparts        Counter64
+            }
+
+cwacIntervalNumber OBJECT-TYPE
+        SYNTAX  Integer32(0..96)
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+          "A number used to uniquely identify per virtual interface CoS
+           queue interval statistics. 0 is used to identify the current
+           15-minute interval. 1-96 identify the previous 24 hours
+           of 15-minute interval buckets."
+        ::= { cwacIntervalEntry 1 }
+
+cwacIntCellArrivals OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The number of cells arrived at the queue during 
+            a particular 15 minute interval." 
+        ::= { cwacIntervalEntry  2 }
+
+cwacIntCellDiscards OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The number of cells discarded due to congestion
+            during a particular 15 minute interval." 
+        ::= { cwacIntervalEntry  3 }
+
+cwacIntCellDeparts OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The number of cells that left the QBIN
+            during a particular 15 minute interval."
+        ::= { cwacIntervalEntry  4 }
+
+cwacHighIntCellArrivals OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The upper 32-bits of the number of cells arrived 
+            at the queue during a particular 15-minute interval." 
+        ::= { cwacIntervalEntry  5 }
+
+cwacHighIntCellDiscards OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The upper 32-bits of the number of cells discarded 
+            due to congestion during a particular 15-minute 
+            interval." 
+        ::= { cwacIntervalEntry  6 }
+
+cwacHighIntCellDeparts OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The upper 32-bits of the number of cells that left the QBIN
+            during a particular 15-minute interval."
+        ::= { cwacIntervalEntry  7 }
+        
+cwacHCIntCellArrivals OBJECT-TYPE
+        SYNTAX     Counter64
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The 64 bit value of the number of cells arriving at 
+            the queue during a particular 15-minute interval." 
+        ::= { cwacIntervalEntry  8 }
+
+cwacHCIntCellDiscards OBJECT-TYPE
+        SYNTAX     Counter64
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The 64 bit value of the number of cells discarded 
+            due to congestion during a particular 15-minute 
+            interval." 
+        ::= { cwacIntervalEntry  9 }
+
+cwacHCIntCellDeparts OBJECT-TYPE
+        SYNTAX     Counter64
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+           "The 64 bit value of the number of cells that left the QBIN
+            during a particular 15-minute interval."
+        ::= { cwacIntervalEntry  10 }
+        
+-- conformance information
+
+ciscoWanAtmCosbMIBConformance OBJECT IDENTIFIER ::= 
+                              { ciscoWanAtmCosbMIB 2 }
+ciscoWanAtmCosbMIBCompliances OBJECT IDENTIFIER ::= 
+                              { ciscoWanAtmCosbMIBConformance 1 }
+ciscoWanAtmCosbMIBGroups      OBJECT IDENTIFIER ::= 
+                              { ciscoWanAtmCosbMIBConformance 2 }
+
+ciscoWanAtmCosbMIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated -- replaced by ciscoWanAtmCosbMIBCompliance1
+        DESCRIPTION
+        "The Compliance statement for CoS queue configuration group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoWanAtmCosbAlarmMIBGroup }
+
+        OBJECT cwacCosbCurrentCellsDiscThres
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is optional if thresholds are set through
+             some other mechanism."
+
+        ::= { ciscoWanAtmCosbMIBCompliances 1 }
+
+ciscoWanAtmCosbMIBCompliance1 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+        "The Compliance statement for CoS queue configuration group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoWanAtmCosbAlarmMIBGroup1 }
+
+        OBJECT cwacCosbCurrentCellsDiscThres
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is optional if thresholds are set through
+             some other mechanism."
+
+        GROUP ciscoHCWanAtmCosbAlarmMIBGroup
+        DESCRIPTION
+             "Required if the system has interface speed of OC12 or 
+             higher."
+        ::= { ciscoWanAtmCosbMIBCompliances 2 }
+
+-- units of conformance
+
+ciscoWanAtmCosbAlarmMIBGroup OBJECT-GROUP
+        OBJECTS {
+                cwacCosbCurrentCellsDiscThres,
+                cwacStatsAlarmStatus,
+                cwacValidIntervals,
+                cwacIntCellArrivals,
+                cwacIntCellDiscards,
+                cwacIntCellDeparts
+                }
+       STATUS deprecated -- replaced by ciscoWanAtmCosbAlarmMIBGroup1
+       DESCRIPTION
+         "The statistical per virtual interface CoS queue alarm group."
+       ::= { ciscoWanAtmCosbMIBGroups 1 }
+
+ciscoWanAtmCosbAlarmMIBGroup1 OBJECT-GROUP
+        OBJECTS {
+                cwacCosbCurrentCellsDiscThres,
+                cwacStatsAlarmStatus,
+                cwacValidIntervals,
+                cwacIntCellArrivals,
+                cwacIntCellDiscards,
+                cwacIntCellDeparts,
+                cwacHighIntCellArrivals,
+                cwacHighIntCellDiscards,
+                cwacHighIntCellDeparts
+                }
+       STATUS current
+       DESCRIPTION
+         "The statistical per virtual interface CoS queue alarm group."
+       ::= { ciscoWanAtmCosbMIBGroups 2 }
+
+
+ciscoHCWanAtmCosbAlarmMIBGroup OBJECT-GROUP
+        OBJECTS {
+                cwacHCIntCellArrivals,
+                cwacHCIntCellDiscards,
+                cwacHCIntCellDeparts
+                }
+       STATUS current
+       DESCRIPTION
+         "The statistical per virtual interface CoS queue alarm group."
+       ::= { ciscoWanAtmCosbMIBGroups 3 }
+END
+
+

@@ -1,0 +1,1738 @@
+-- *****************************************************************
+-- PERF-MONITOR-MIB:  ME1200 private MIB
+--
+-- 
+-- 
+--
+-- *****************************************************************
+
+ME1200-PERF-MONITOR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200MepDmTimeUnit FROM ME1200-TC
+    ME1200MepInstanceDirection FROM ME1200-TC
+    ME1200MepTxRate FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Counter64 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200PerfMonitorMib MODULE-IDENTITY
+    LAST-UPDATED "201608250000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the Performance Monitor MIB."
+    REVISION    "201608250000Z"
+    DESCRIPTION
+        "Added MepFlowName object to LM and DM statistics tables."
+    REVISION    "201502040000Z"
+    DESCRIPTION
+        "Rename 'LossMeasuerment' to 'Lm', 'DelayMeasuerment' to 'Dm' in OIDs."
+    REVISION    "201410060000Z"
+    DESCRIPTION
+        "Initial version."
+    ::= { me1200SwitchMgmt 117 }
+
+
+ME1200PerfMonitorEvcPortType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates per port type for EVC statistics."
+    SYNTAX      INTEGER { evcNni(0), evcUni(1) }
+
+ME1200PerfMonitorTransferMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates PM transfer interval mode."
+    SYNTAX      INTEGER { all(1), new(2), fixAmount(3) }
+
+me1200PerfMonitorMibObjects OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorMib 1 }
+
+me1200PerfMonitorConfig OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorMibObjects 2 }
+
+me1200PerfMonitorConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorConfig 1 }
+
+me1200PerfMonitorConfigGlobalsMgmt OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorConfigGlobals 1 }
+
+me1200PerfMonitorConfigGlobalsMgmtLmAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for PM's LM function, TRUE is to enable
+         monitoring LM and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 1 }
+
+me1200PerfMonitorConfigGlobalsMgmtLmStorageState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for storing PM's LM result, TRUE is to enable
+         storing LM statistics and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 2 }
+
+me1200PerfMonitorConfigGlobalsMgmtLmInterval OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (1..60)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Interval for tracking LM, in minute. The configurable value ranges from
+         1 to 60."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 3 }
+
+me1200PerfMonitorConfigGlobalsMgmtDmAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for PM's DM function, TRUE is to enable
+         monitoring DM and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 4 }
+
+me1200PerfMonitorConfigGlobalsMgmtDmStorageState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for storing PM's DM result, TRUE is to enable
+         storing DM statistics and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 5 }
+
+me1200PerfMonitorConfigGlobalsMgmtDmInterval OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (1..60)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Interval for tracking DM, in minute. The configurable value ranges from
+         1 to 60."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 6 }
+
+me1200PerfMonitorConfigGlobalsMgmtDmBinStorageState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for storing PM's DM bucket result, TRUE is to
+         enable storing DM bucket statistics and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 7 }
+
+me1200PerfMonitorConfigGlobalsMgmtEvcAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for PM's EVC monitoring function, TRUE is to
+         enable monitoring EVC and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 8 }
+
+me1200PerfMonitorConfigGlobalsMgmtEvcStorageState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for storing PM's EVC monitoring result, TRUE is
+         to enable storing EVC statistics and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 9 }
+
+me1200PerfMonitorConfigGlobalsMgmtEvcMeasureInterval OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (1..60)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Interval for tracking EVC, in minute. The configurable value ranges
+         from 1 to 60."
+    ::= { me1200PerfMonitorConfigGlobalsMgmt 10 }
+
+me1200PerfMonitorConfigGlobalsTransfer OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorConfigGlobals 2 }
+
+me1200PerfMonitorConfigGlobalsTransferAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for PM's transfer function, TRUE is to enable
+         sending PM's monitoring result and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsTransfer 1 }
+
+me1200PerfMonitorConfigGlobalsTransferServerUrl OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The URL for the server directory that keeps PM's monitoring result."
+    ::= { me1200PerfMonitorConfigGlobalsTransfer 2 }
+
+me1200PerfMonitorConfigGlobalsTransferIntervalMode OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorTransferMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Transfer mode, based on selected interval type, for sending PM results.
+         When 'all' is set, PM result from all available intervals will be sent.
+         When 'new' is set, PM result from new intervals since last transfer
+         will be sent. When 'fixAmount' is set, PM result from a fixed number of
+         intervals will be sent."
+    ::= { me1200PerfMonitorConfigGlobalsTransfer 3 }
+
+me1200PerfMonitorConfigGlobalsTransferFixedNumberOfInterval OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (1..96)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "PM result from this fixed number of intervals will be sent. It is
+         working only when 'IntervalMode' is 'fixAmount'. The configurable value
+         ranges from 1 to 96."
+    ::= { me1200PerfMonitorConfigGlobalsTransfer 4 }
+
+me1200PerfMonitorConfigGlobalsTransferRetryIncompletedTransfer OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control to retry sending PM result from last incompleted
+         transmission, TRUE is to enable retrying the incompleted PM result
+         transfer and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsTransfer 5 }
+
+me1200PerfMonitorConfigGlobalsXferSched OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorConfigGlobals 3 }
+
+me1200PerfMonitorConfigGlobalsXferSchedHourTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorConfigGlobalsXferSchedHourEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing PM hourly scheduled transfer
+         configuration."
+    ::= { me1200PerfMonitorConfigGlobalsXferSched 1 }
+
+me1200PerfMonitorConfigGlobalsXferSchedHourEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorConfigGlobalsXferSchedHourEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200PerfMonitorConfigGlobalsXferSchedHourIndex }
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedHourTable 1 }
+
+ME1200PerfMonitorConfigGlobalsXferSchedHourEntry ::= SEQUENCE {
+    me1200PerfMonitorConfigGlobalsXferSchedHourIndex      Unsigned32,
+    me1200PerfMonitorConfigGlobalsXferSchedHourEnabled    TruthValue
+}
+
+me1200PerfMonitorConfigGlobalsXferSchedHourIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..23)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Hour value in 24 hour time."
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedHourEntry 1 }
+
+me1200PerfMonitorConfigGlobalsXferSchedHourEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for managing the transfer schedule, TRUE is to
+         enable specific time for transfer schedule and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedHourEntry 2 }
+
+me1200PerfMonitorConfigGlobalsXferSchedQuarterTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorConfigGlobalsXferSchedQuarterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing PM quarterly scheduled transfer
+         configuration."
+    ::= { me1200PerfMonitorConfigGlobalsXferSched 2 }
+
+me1200PerfMonitorConfigGlobalsXferSchedQuarterEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorConfigGlobalsXferSchedQuarterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200PerfMonitorConfigGlobalsXferSchedQuarterIndex }
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedQuarterTable 1 }
+
+ME1200PerfMonitorConfigGlobalsXferSchedQuarterEntry ::= SEQUENCE {
+    me1200PerfMonitorConfigGlobalsXferSchedQuarterIndex   Unsigned32,
+    me1200PerfMonitorConfigGlobalsXferSchedQuarterEnabled     TruthValue
+}
+
+me1200PerfMonitorConfigGlobalsXferSchedQuarterIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Quarter value in a hour."
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedQuarterEntry 1 }
+
+me1200PerfMonitorConfigGlobalsXferSchedQuarterEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Administrative control for managing the transfer schedule, TRUE is to
+         enable specific time for transfer schedule and FALSE is to disable it."
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedQuarterEntry 2 }
+
+me1200PerfMonitorConfigGlobalsXferSchedOffset OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorConfigGlobalsXferSched 3 }
+
+me1200PerfMonitorConfigGlobalsXferSchedOffsetMinute OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..15)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The scheduled transfer time offset by minutes. The configurable value
+         ranges from 0 to 15."
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedOffset 1 }
+
+me1200PerfMonitorConfigGlobalsXferSchedOffsetRandomSecond OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16 (0..900)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The scheduled transfer time random offset by seconds. It provides a
+         range for choosing a random second offset. The configurable value
+         ranges from 0 to 900."
+    ::= { me1200PerfMonitorConfigGlobalsXferSchedOffset 2 }
+
+me1200PerfMonitorStatus OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorMibObjects 3 }
+
+me1200PerfMonitorStatusStatistics OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorStatus 1 }
+
+me1200PerfMonitorStatusStatisticsLmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorStatusStatisticsLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying PM loss measurement statistics."
+    ::= { me1200PerfMonitorStatusStatistics 1 }
+
+me1200PerfMonitorStatusStatisticsLmEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorStatusStatisticsLmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of LM statistics."
+    INDEX       { me1200PerfMonitorStatusStatisticsLmIntervalId, me1200PerfMonitorStatusStatisticsLmEntryId }
+    ::= { me1200PerfMonitorStatusStatisticsLmTable 1 }
+
+ME1200PerfMonitorStatusStatisticsLmEntry ::= SEQUENCE {
+    me1200PerfMonitorStatusStatisticsLmIntervalId     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmEntryId    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmMepInstance    ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmResidencePort      ME1200InterfaceIndex,
+    me1200PerfMonitorStatusStatisticsLmMepId      ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmMepMacAddress      MacAddress,
+    me1200PerfMonitorStatusStatisticsLmMepPeerMepId   ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmMepPeerMacAddress      MacAddress,
+    me1200PerfMonitorStatusStatisticsLmMepDirection   ME1200MepInstanceDirection,
+    me1200PerfMonitorStatusStatisticsLmMepLevel   ME1200Unsigned8,
+    me1200PerfMonitorStatusStatisticsLmMepFlowInstance    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmMepTaggedVid   ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmPriority   Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmRate   ME1200MepTxRate,
+    me1200PerfMonitorStatusStatisticsLmTx     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmRx     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmNearEndLossCount   Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmNearEndLossRate    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmFarEndLossCount    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmFarEndLossRate     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmMepFlowName    ME1200DisplayString
+}
+
+me1200PerfMonitorStatusStatisticsLmIntervalId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The measurement interval identifier for the performance monitor data
+         sets."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 1 }
+
+me1200PerfMonitorStatusStatisticsLmEntryId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The entry identifier for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 2 }
+
+me1200PerfMonitorStatusStatisticsLmMepInstance OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 3 }
+
+me1200PerfMonitorStatusStatisticsLmResidencePort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The residence port for the MEP."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 4 }
+
+me1200PerfMonitorStatusStatisticsLmMepId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Two bytes CCM MEP ID in the transmitted CCM."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 5 }
+
+me1200PerfMonitorStatusStatisticsLmMepMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC address of this MEP which can be used by other MEP when unicast is
+         selected."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 6 }
+
+me1200PerfMonitorStatusStatisticsLmMepPeerMepId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "An expected MEP identifier in the received CCM."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 7 }
+
+me1200PerfMonitorStatusStatisticsLmMepPeerMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC address to be used when unicast is selected with the peer MEP.
+         Also, this MAC is used to create HW checking of receiving CCM PDU from
+         this MEP."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 8 }
+
+me1200PerfMonitorStatusStatisticsLmMepDirection OBJECT-TYPE
+    SYNTAX      ME1200MepInstanceDirection
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Upstream or downstream that needs to be monitored."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 10 }
+
+me1200PerfMonitorStatusStatisticsLmMepLevel OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEG level of this MEP."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 11 }
+
+me1200PerfMonitorStatusStatisticsLmMepFlowInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEP is related to this flow depends on 'MepDomain'."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 12 }
+
+me1200PerfMonitorStatusStatisticsLmMepTaggedVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "An outer C/S-tag or the subscriber VID that identifies the subscriber
+         flow in EVC where the MIP is active."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 13 }
+
+me1200PerfMonitorStatusStatisticsLmPriority OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The priority to be inserted as PCP bits in TAG (if any)."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 14 }
+
+me1200PerfMonitorStatusStatisticsLmRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Frame rate of CCM/LMM PDU which is the inverse of transmission period
+         as described in Y.1731."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 15 }
+
+me1200PerfMonitorStatusStatisticsLmTx OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frame transmitted."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 16 }
+
+me1200PerfMonitorStatusStatisticsLmRx OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frame received."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 17 }
+
+me1200PerfMonitorStatusStatisticsLmNearEndLossCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The near end loss count."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 18 }
+
+me1200PerfMonitorStatusStatisticsLmNearEndLossRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The near end loss ratio."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 19 }
+
+me1200PerfMonitorStatusStatisticsLmFarEndLossCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The far end loss count."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 20 }
+
+me1200PerfMonitorStatusStatisticsLmFarEndLossRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The far end loss ratio."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 21 }
+
+me1200PerfMonitorStatusStatisticsLmMepFlowName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The name of the MEP flow instance."
+    ::= { me1200PerfMonitorStatusStatisticsLmEntry 22 }
+
+me1200PerfMonitorStatusStatisticsDmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorStatusStatisticsDmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying PM delay measurement statistics."
+    ::= { me1200PerfMonitorStatusStatistics 2 }
+
+me1200PerfMonitorStatusStatisticsDmEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorStatusStatisticsDmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of DM statistics."
+    INDEX       { me1200PerfMonitorStatusStatisticsDmIntervalId, me1200PerfMonitorStatusStatisticsDmEntryId }
+    ::= { me1200PerfMonitorStatusStatisticsDmTable 1 }
+
+ME1200PerfMonitorStatusStatisticsDmEntry ::= SEQUENCE {
+    me1200PerfMonitorStatusStatisticsDmIntervalId     Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmEntryId    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmMepInstance    ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsDmResidencePort      ME1200InterfaceIndex,
+    me1200PerfMonitorStatusStatisticsDmMepId      ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsDmMepMacAddress      MacAddress,
+    me1200PerfMonitorStatusStatisticsDmMepPeerMepId   ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsDmMepPeerMacAddress      MacAddress,
+    me1200PerfMonitorStatusStatisticsDmMepDirection   ME1200MepInstanceDirection,
+    me1200PerfMonitorStatusStatisticsDmMepLevel   ME1200Unsigned8,
+    me1200PerfMonitorStatusStatisticsDmMepFlowInstance    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmMepTaggedVid   ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsDmPriority   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmRate   ME1200Unsigned8,
+    me1200PerfMonitorStatusStatisticsDmUnit   ME1200MepDmTimeUnit,
+    me1200PerfMonitorStatusStatisticsDmTx     Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmRx     Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmFarNearDelayAverage    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmFarNearDelayAverageVariation   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmFarNearDelayMin    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmFarNearDelayMax    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmFarNearDelayMinVariation   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmFarNearDelayMaxVariation   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmNearFarDelayAverage    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmNearFarDelayAverageVariation   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmNearFarDelayMin    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmNearFarDelayMax    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmNearFarDelayMinVariation   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmNearFarDelayMaxVariation   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDm2WayDelayAverage   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDm2WayDelayAverageVariation      Unsigned32,
+    me1200PerfMonitorStatusStatisticsDm2WayDelayMin   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDm2WayDelayMinVariation      Unsigned32,
+    me1200PerfMonitorStatusStatisticsDm2WayDelayMax   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDm2WayDelayMaxVariation      Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmMepFlowName    ME1200DisplayString
+}
+
+me1200PerfMonitorStatusStatisticsDmIntervalId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The measurement interval identifier for the performance monitor data
+         sets."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 1 }
+
+me1200PerfMonitorStatusStatisticsDmEntryId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The entry identifier for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 2 }
+
+me1200PerfMonitorStatusStatisticsDmMepInstance OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 3 }
+
+me1200PerfMonitorStatusStatisticsDmResidencePort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The residence port for the MEP."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 4 }
+
+me1200PerfMonitorStatusStatisticsDmMepId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Two bytes CCM MEP ID in the transmitted CCM."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 5 }
+
+me1200PerfMonitorStatusStatisticsDmMepMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC address of this MEP which can be used by other MEP when unicast is
+         selected."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 6 }
+
+me1200PerfMonitorStatusStatisticsDmMepPeerMepId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "An expected MEP identifier in the received CCM."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 7 }
+
+me1200PerfMonitorStatusStatisticsDmMepPeerMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC address to be used when unicast is selected with the peer MEP.
+         Also, this MAC is used to create HW checking of receiving CCM PDU from
+         this MEP."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 8 }
+
+me1200PerfMonitorStatusStatisticsDmMepDirection OBJECT-TYPE
+    SYNTAX      ME1200MepInstanceDirection
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Upstream or downstream that needs to be monitored."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 10 }
+
+me1200PerfMonitorStatusStatisticsDmMepLevel OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEG level of this MEP."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 11 }
+
+me1200PerfMonitorStatusStatisticsDmMepFlowInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEP is related to this flow depends on 'MepDomain'."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 12 }
+
+me1200PerfMonitorStatusStatisticsDmMepTaggedVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "An outer C/S-tag or the subscriber VID that identifies the subscriber
+         flow in EVC where the MIP is active."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 13 }
+
+me1200PerfMonitorStatusStatisticsDmPriority OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The priority to be inserted as PCP bits in TAG (if any)."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 14 }
+
+me1200PerfMonitorStatusStatisticsDmRate OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The gap between transmitting 1DM/DMM PDU in 10ms. The range is 10 to
+         65535."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 15 }
+
+me1200PerfMonitorStatusStatisticsDmUnit OBJECT-TYPE
+    SYNTAX      ME1200MepDmTimeUnit
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The time resolution."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 16 }
+
+me1200PerfMonitorStatusStatisticsDmTx OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frame transmitted."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 17 }
+
+me1200PerfMonitorStatusStatisticsDmRx OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frame received."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 18 }
+
+me1200PerfMonitorStatusStatisticsDmFarNearDelayAverage OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The far to near average delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 19 }
+
+me1200PerfMonitorStatusStatisticsDmFarNearDelayAverageVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The far to near average delay variation."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 20 }
+
+me1200PerfMonitorStatusStatisticsDmFarNearDelayMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum far to near delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 21 }
+
+me1200PerfMonitorStatusStatisticsDmFarNearDelayMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum far to near delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 22 }
+
+me1200PerfMonitorStatusStatisticsDmFarNearDelayMinVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The far to near minimum delay variation measured."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 23 }
+
+me1200PerfMonitorStatusStatisticsDmFarNearDelayMaxVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The far to near maximum delay variation measured."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 24 }
+
+me1200PerfMonitorStatusStatisticsDmNearFarDelayAverage OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The near to far average delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 25 }
+
+me1200PerfMonitorStatusStatisticsDmNearFarDelayAverageVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The near to far average delay variation."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 26 }
+
+me1200PerfMonitorStatusStatisticsDmNearFarDelayMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum near to far delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 27 }
+
+me1200PerfMonitorStatusStatisticsDmNearFarDelayMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum near to far delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 28 }
+
+me1200PerfMonitorStatusStatisticsDmNearFarDelayMinVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The near to far minimum delay variation measured."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 29 }
+
+me1200PerfMonitorStatusStatisticsDmNearFarDelayMaxVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The near to far maximum delay variation measured."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 30 }
+
+me1200PerfMonitorStatusStatisticsDm2WayDelayAverage OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The two-way average delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 31 }
+
+me1200PerfMonitorStatusStatisticsDm2WayDelayAverageVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The two-way average delay variation."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 32 }
+
+me1200PerfMonitorStatusStatisticsDm2WayDelayMin OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The minimum two-way delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 33 }
+
+me1200PerfMonitorStatusStatisticsDm2WayDelayMinVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The 2-Way minimum delay variation measured."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 34 }
+
+me1200PerfMonitorStatusStatisticsDm2WayDelayMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The maximum two-way delay."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 35 }
+
+me1200PerfMonitorStatusStatisticsDm2WayDelayMaxVariation OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The 2-Way maximum delay variation measured."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 36 }
+
+me1200PerfMonitorStatusStatisticsDmMepFlowName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The name of the MEP flow instance."
+    ::= { me1200PerfMonitorStatusStatisticsDmEntry 37 }
+
+me1200PerfMonitorStatusStatisticsDmBinTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorStatusStatisticsDmBinEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying PM bin delay measurement statistics."
+    ::= { me1200PerfMonitorStatusStatistics 3 }
+
+me1200PerfMonitorStatusStatisticsDmBinEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorStatusStatisticsDmBinEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of DM bin statistics."
+    INDEX       { me1200PerfMonitorStatusStatisticsDmBinIntervalId, me1200PerfMonitorStatusStatisticsDmBinEntryId, me1200PerfMonitorStatusStatisticsDmBinType, me1200PerfMonitorStatusStatisticsDmBinDirection, me1200PerfMonitorStatusStatisticsDmBinBucketId }
+    ::= { me1200PerfMonitorStatusStatisticsDmBinTable 1 }
+
+ME1200PerfMonitorStatusStatisticsDmBinEntry ::= SEQUENCE {
+    me1200PerfMonitorStatusStatisticsDmBinIntervalId      Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmBinEntryId     Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmBinType    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmBinDirection   Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmBinBucketId    Unsigned32,
+    me1200PerfMonitorStatusStatisticsDmBinHitCount    Unsigned32
+}
+
+me1200PerfMonitorStatusStatisticsDmBinIntervalId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The measurement interval identifier for the performance monitor data
+         sets."
+    ::= { me1200PerfMonitorStatusStatisticsDmBinEntry 1 }
+
+me1200PerfMonitorStatusStatisticsDmBinEntryId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The entry identifier for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsDmBinEntry 2 }
+
+me1200PerfMonitorStatusStatisticsDmBinType OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..2)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The type for DM bin statistics. It's used for indicating what kinds of
+         delay frame are counted in the bin.'1' presents the frame delay.
+         
+         '2' presents the inter frame delay variation.
+         
+         "
+    ::= { me1200PerfMonitorStatusStatisticsDmBinEntry 3 }
+
+me1200PerfMonitorStatusStatisticsDmBinDirection OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The direction for DM bin statistics. It's used for indicating the
+         measuring method of the delay frame.
+         
+         '1' presents one-way delay from remote devices to the local devices.
+         
+         '2' presents one-way delay from local devices to the remote devices.
+         
+         '3' presents 2-way delay from near to far then far to near."
+    ::= { me1200PerfMonitorStatusStatisticsDmBinEntry 4 }
+
+me1200PerfMonitorStatusStatisticsDmBinBucketId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The bin ID."
+    ::= { me1200PerfMonitorStatusStatisticsDmBinEntry 5 }
+
+me1200PerfMonitorStatusStatisticsDmBinHitCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The hit count for the DM bin"
+    ::= { me1200PerfMonitorStatusStatisticsDmBinEntry 6 }
+
+me1200PerfMonitorStatusStatisticsEvcTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorStatusStatisticsEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying PM EVC statistics."
+    ::= { me1200PerfMonitorStatusStatistics 4 }
+
+me1200PerfMonitorStatusStatisticsEvcEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorStatusStatisticsEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of EVC statistics."
+    INDEX       { me1200PerfMonitorStatusStatisticsEvcIntervalId, me1200PerfMonitorStatusStatisticsEvcEntryId }
+    ::= { me1200PerfMonitorStatusStatisticsEvcTable 1 }
+
+ME1200PerfMonitorStatusStatisticsEvcEntry ::= SEQUENCE {
+    me1200PerfMonitorStatusStatisticsEvcIntervalId    Unsigned32,
+    me1200PerfMonitorStatusStatisticsEvcEntryId   Unsigned32,
+    me1200PerfMonitorStatusStatisticsEvcEvcInstance   ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsEvcPortType      ME1200PerfMonitorEvcPortType,
+    me1200PerfMonitorStatusStatisticsEvcPort      ME1200InterfaceIndex,
+    me1200PerfMonitorStatusStatisticsEvcCos   Unsigned32,
+    me1200PerfMonitorStatusStatisticsEvcGreenRxFrames     Counter64,
+    me1200PerfMonitorStatusStatisticsEvcGreenTxFrames     Counter64,
+    me1200PerfMonitorStatusStatisticsEvcGreenRxBytes      Counter64,
+    me1200PerfMonitorStatusStatisticsEvcGreenTxBytes      Counter64,
+    me1200PerfMonitorStatusStatisticsEvcYellowRxFrames    Counter64,
+    me1200PerfMonitorStatusStatisticsEvcYellowTxFrames    Counter64,
+    me1200PerfMonitorStatusStatisticsEvcYellowRxBytes     Counter64,
+    me1200PerfMonitorStatusStatisticsEvcYellowTxBytes     Counter64,
+    me1200PerfMonitorStatusStatisticsEvcRedRxFrames   Counter64,
+    me1200PerfMonitorStatusStatisticsEvcRedRxBytes    Counter64,
+    me1200PerfMonitorStatusStatisticsEvcDiscardedRxFrames     Counter64,
+    me1200PerfMonitorStatusStatisticsEvcDiscardedTxFrames     Counter64,
+    me1200PerfMonitorStatusStatisticsEvcDiscardedRxBytes      Counter64,
+    me1200PerfMonitorStatusStatisticsEvcDiscardedTxBytes      Counter64
+}
+
+me1200PerfMonitorStatusStatisticsEvcIntervalId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The measurement interval identifier for the performance monitor data
+         sets."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 1 }
+
+me1200PerfMonitorStatusStatisticsEvcEntryId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The entry identifier for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 2 }
+
+me1200PerfMonitorStatusStatisticsEvcEvcInstance OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The EVC instance for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 3 }
+
+me1200PerfMonitorStatusStatisticsEvcPortType OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorEvcPortType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The port type for the EVC."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 4 }
+
+me1200PerfMonitorStatusStatisticsEvcPort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The interface ID for the EVC."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 5 }
+
+me1200PerfMonitorStatusStatisticsEvcCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The COS queue ID on the interface, '4294967295' indicates the port is
+         NNI port."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 6 }
+
+me1200PerfMonitorStatusStatisticsEvcGreenRxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of green frames received."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 7 }
+
+me1200PerfMonitorStatusStatisticsEvcGreenTxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of green frames transmitted."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 8 }
+
+me1200PerfMonitorStatusStatisticsEvcGreenRxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of green bytes received."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 9 }
+
+me1200PerfMonitorStatusStatisticsEvcGreenTxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of green bytes transmitted."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 10 }
+
+me1200PerfMonitorStatusStatisticsEvcYellowRxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of yellow frames received."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 11 }
+
+me1200PerfMonitorStatusStatisticsEvcYellowTxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of yellow frames transmitted."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 12 }
+
+me1200PerfMonitorStatusStatisticsEvcYellowRxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of yellow bytes received."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 13 }
+
+me1200PerfMonitorStatusStatisticsEvcYellowTxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of yellow bytes transmitted."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 14 }
+
+me1200PerfMonitorStatusStatisticsEvcRedRxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of red frames received."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 15 }
+
+me1200PerfMonitorStatusStatisticsEvcRedRxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of red bytes received."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 16 }
+
+me1200PerfMonitorStatusStatisticsEvcDiscardedRxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frames discarded in the ingress queue system."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 17 }
+
+me1200PerfMonitorStatusStatisticsEvcDiscardedTxFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frames discarded in the egress queue system."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 18 }
+
+me1200PerfMonitorStatusStatisticsEvcDiscardedRxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of bytes discarded in the ingress queue system."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 19 }
+
+me1200PerfMonitorStatusStatisticsEvcDiscardedTxBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of bytes discarded in the egress queue system."
+    ::= { me1200PerfMonitorStatusStatisticsEvcEntry 20 }
+
+me1200PerfMonitorStatusStatisticsLmPeerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorStatusStatisticsLmPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying PM loss measurement peer statistics."
+    ::= { me1200PerfMonitorStatusStatistics 5 }
+
+me1200PerfMonitorStatusStatisticsLmPeerEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorStatusStatisticsLmPeerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of LM statistics for a peer MEP."
+    INDEX       { me1200PerfMonitorStatusStatisticsLmPeerIntervalId, me1200PerfMonitorStatusStatisticsLmPeerEntryId, me1200PerfMonitorStatusStatisticsLmPeerPeerId }
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerTable 1 }
+
+ME1200PerfMonitorStatusStatisticsLmPeerEntry ::= SEQUENCE {
+    me1200PerfMonitorStatusStatisticsLmPeerIntervalId     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerEntryId    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerPeerId     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerMepInstance    ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmPeerResidencePort      ME1200InterfaceIndex,
+    me1200PerfMonitorStatusStatisticsLmPeerMepId      ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmPeerMepMacAddress      MacAddress,
+    me1200PerfMonitorStatusStatisticsLmPeerMepPeerMepId   ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmPeerMepPeerMacAddress      MacAddress,
+    me1200PerfMonitorStatusStatisticsLmPeerMepDirection   ME1200MepInstanceDirection,
+    me1200PerfMonitorStatusStatisticsLmPeerMepLevel   ME1200Unsigned8,
+    me1200PerfMonitorStatusStatisticsLmPeerMepFlowInstance    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerMepTaggedVid   ME1200Unsigned16,
+    me1200PerfMonitorStatusStatisticsLmPeerPriority   Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerRate   ME1200MepTxRate,
+    me1200PerfMonitorStatusStatisticsLmPeerTx     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerRx     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerNearEndLossCount   Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerNearEndLossRate    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerFarEndLossCount    Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerFarEndLossRate     Unsigned32,
+    me1200PerfMonitorStatusStatisticsLmPeerMepFlowName    ME1200DisplayString
+}
+
+me1200PerfMonitorStatusStatisticsLmPeerIntervalId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The measurement interval identifier for the performance monitor data
+         sets."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 1 }
+
+me1200PerfMonitorStatusStatisticsLmPeerEntryId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The entry identifier for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 2 }
+
+me1200PerfMonitorStatusStatisticsLmPeerPeerId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The entry identifier for the peer MEP."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 3 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepInstance OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEP instance for the performance monitor data sets."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 4 }
+
+me1200PerfMonitorStatusStatisticsLmPeerResidencePort OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The residence port for the MEP."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 5 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Two bytes CCM MEP ID in the transmitted CCM."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 6 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC address of this MEP which can be used by other MEP when unicast is
+         selected."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 7 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepPeerMepId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "An expected MEP identifier in the received CCM."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 8 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepPeerMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC address to be used when unicast is selected with the peer MEP.
+         Also, this MAC is used to create HW checking of receiving CCM PDU from
+         this MEP."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 9 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepDirection OBJECT-TYPE
+    SYNTAX      ME1200MepInstanceDirection
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Upstream or downstream that needs to be monitored."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 11 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepLevel OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEG level of this MEP."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 12 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepFlowInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MEP is related to this flow depends on 'MepDomain'."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 13 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepTaggedVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "An outer C/S-tag or the subscriber VID that identifies the subscriber
+         flow in EVC where the MIP is active."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 14 }
+
+me1200PerfMonitorStatusStatisticsLmPeerPriority OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The priority to be inserted as PCP bits in TAG (if any)."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 15 }
+
+me1200PerfMonitorStatusStatisticsLmPeerRate OBJECT-TYPE
+    SYNTAX      ME1200MepTxRate
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Frame rate of CCM/LMM PDU which is the inverse of transmission period
+         as described in Y.1731."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 16 }
+
+me1200PerfMonitorStatusStatisticsLmPeerTx OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frame transmitted."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 17 }
+
+me1200PerfMonitorStatusStatisticsLmPeerRx OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frame received."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 18 }
+
+me1200PerfMonitorStatusStatisticsLmPeerNearEndLossCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The near end loss count."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 19 }
+
+me1200PerfMonitorStatusStatisticsLmPeerNearEndLossRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The near end loss ratio."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 20 }
+
+me1200PerfMonitorStatusStatisticsLmPeerFarEndLossCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The far end loss count."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 21 }
+
+me1200PerfMonitorStatusStatisticsLmPeerFarEndLossRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The far end loss ratio."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 22 }
+
+me1200PerfMonitorStatusStatisticsLmPeerMepFlowName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The name of the MEP flow instance."
+    ::= { me1200PerfMonitorStatusStatisticsLmPeerEntry 23 }
+
+me1200PerfMonitorStatusInterval OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorStatus 2 }
+
+me1200PerfMonitorStatusIntervalInfoTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PerfMonitorStatusIntervalInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying per type and interval PM time
+         information."
+    ::= { me1200PerfMonitorStatusInterval 1 }
+
+me1200PerfMonitorStatusIntervalInfoEntry OBJECT-TYPE
+    SYNTAX      ME1200PerfMonitorStatusIntervalInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of time information."
+    INDEX       { me1200PerfMonitorStatusIntervalInfoType, me1200PerfMonitorStatusIntervalInfoIntervalId }
+    ::= { me1200PerfMonitorStatusIntervalInfoTable 1 }
+
+ME1200PerfMonitorStatusIntervalInfoEntry ::= SEQUENCE {
+    me1200PerfMonitorStatusIntervalInfoType   Unsigned32,
+    me1200PerfMonitorStatusIntervalInfoIntervalId     Unsigned32,
+    me1200PerfMonitorStatusIntervalInfoStartTime      ME1200DisplayString,
+    me1200PerfMonitorStatusIntervalInfoEndTime    ME1200DisplayString,
+    me1200PerfMonitorStatusIntervalInfoElapsedTime    Counter64
+}
+
+me1200PerfMonitorStatusIntervalInfoType OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..3)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The type for the performance monitor interval information. '1' presents
+         LM; '2' presents DM; '3' presents EVC."
+    ::= { me1200PerfMonitorStatusIntervalInfoEntry 1 }
+
+me1200PerfMonitorStatusIntervalInfoIntervalId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The measurement interval identifier for the performance monitor data
+         sets."
+    ::= { me1200PerfMonitorStatusIntervalInfoEntry 2 }
+
+me1200PerfMonitorStatusIntervalInfoStartTime OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The date and time when PM starts."
+    ::= { me1200PerfMonitorStatusIntervalInfoEntry 3 }
+
+me1200PerfMonitorStatusIntervalInfoEndTime OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The date and time when PM stops."
+    ::= { me1200PerfMonitorStatusIntervalInfoEntry 4 }
+
+me1200PerfMonitorStatusIntervalInfoElapsedTime OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The elapsed time ticks for the specific monitoring type and the
+         corresponding interval identifier."
+    ::= { me1200PerfMonitorStatusIntervalInfoEntry 5 }
+
+me1200PerfMonitorControl OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorMibObjects 4 }
+
+me1200PerfMonitorControlGlobals OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorControl 1 }
+
+me1200PerfMonitorControlGlobalsAction OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorControlGlobals 1 }
+
+me1200PerfMonitorControlGlobalsActionDeleteLmStatisticsAll OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear all the LM statistics."
+    ::= { me1200PerfMonitorControlGlobalsAction 1 }
+
+me1200PerfMonitorControlGlobalsActionDeleteDmStatisticsAll OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear all the DM statistics."
+    ::= { me1200PerfMonitorControlGlobalsAction 2 }
+
+me1200PerfMonitorControlGlobalsActionDeleteEvcStatisticsAll OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear all the EVC statistics."
+    ::= { me1200PerfMonitorControlGlobalsAction 3 }
+
+me1200PerfMonitorMibConformance OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorMib 2 }
+
+me1200PerfMonitorMibCompliances OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorMibConformance 1 }
+
+me1200PerfMonitorMibGroups OBJECT IDENTIFIER
+    ::= { me1200PerfMonitorMibConformance 2 }
+
+me1200PerfMonitorConfigGlobalsMgmtInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorConfigGlobalsMgmtLmAdminState, 
+                  me1200PerfMonitorConfigGlobalsMgmtLmStorageState, 
+                  me1200PerfMonitorConfigGlobalsMgmtLmInterval, 
+                  me1200PerfMonitorConfigGlobalsMgmtDmAdminState, 
+                  me1200PerfMonitorConfigGlobalsMgmtDmStorageState, 
+                  me1200PerfMonitorConfigGlobalsMgmtDmInterval, 
+                  me1200PerfMonitorConfigGlobalsMgmtDmBinStorageState, 
+                  me1200PerfMonitorConfigGlobalsMgmtEvcAdminState, 
+                  me1200PerfMonitorConfigGlobalsMgmtEvcStorageState, 
+                  me1200PerfMonitorConfigGlobalsMgmtEvcMeasureInterval }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 1 }
+
+me1200PerfMonitorConfigGlobalsTransferInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorConfigGlobalsTransferAdminState, 
+                  me1200PerfMonitorConfigGlobalsTransferServerUrl, 
+                  me1200PerfMonitorConfigGlobalsTransferIntervalMode, 
+                  me1200PerfMonitorConfigGlobalsTransferFixedNumberOfInterval, 
+                  me1200PerfMonitorConfigGlobalsTransferRetryIncompletedTransfer }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 2 }
+
+me1200PerfMonitorConfigGlobalsXferSchedHourTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorConfigGlobalsXferSchedHourEnabled }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 3 }
+
+me1200PerfMonitorConfigGlobalsXferSchedQuarterTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorConfigGlobalsXferSchedQuarterEnabled }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 4 }
+
+me1200PerfMonitorConfigGlobalsXferSchedOffsetInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorConfigGlobalsXferSchedOffsetMinute, 
+                  me1200PerfMonitorConfigGlobalsXferSchedOffsetRandomSecond }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 5 }
+
+me1200PerfMonitorStatusStatisticsLmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorStatusStatisticsLmMepInstance, 
+                  me1200PerfMonitorStatusStatisticsLmResidencePort, 
+                  me1200PerfMonitorStatusStatisticsLmMepId, 
+                  me1200PerfMonitorStatusStatisticsLmMepMacAddress, 
+                  me1200PerfMonitorStatusStatisticsLmMepPeerMepId, 
+                  me1200PerfMonitorStatusStatisticsLmMepPeerMacAddress, 
+                  me1200PerfMonitorStatusStatisticsLmMepDirection, 
+                  me1200PerfMonitorStatusStatisticsLmMepLevel, 
+                  me1200PerfMonitorStatusStatisticsLmMepFlowInstance, 
+                  me1200PerfMonitorStatusStatisticsLmMepTaggedVid, 
+                  me1200PerfMonitorStatusStatisticsLmPriority, 
+                  me1200PerfMonitorStatusStatisticsLmRate, 
+                  me1200PerfMonitorStatusStatisticsLmTx, 
+                  me1200PerfMonitorStatusStatisticsLmRx, 
+                  me1200PerfMonitorStatusStatisticsLmNearEndLossCount, 
+                  me1200PerfMonitorStatusStatisticsLmNearEndLossRate, 
+                  me1200PerfMonitorStatusStatisticsLmFarEndLossCount, 
+                  me1200PerfMonitorStatusStatisticsLmFarEndLossRate, 
+                  me1200PerfMonitorStatusStatisticsLmMepFlowName }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 6 }
+
+me1200PerfMonitorStatusStatisticsDmTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorStatusStatisticsDmMepInstance, 
+                  me1200PerfMonitorStatusStatisticsDmResidencePort, 
+                  me1200PerfMonitorStatusStatisticsDmMepId, 
+                  me1200PerfMonitorStatusStatisticsDmMepMacAddress, 
+                  me1200PerfMonitorStatusStatisticsDmMepPeerMepId, 
+                  me1200PerfMonitorStatusStatisticsDmMepPeerMacAddress, 
+                  me1200PerfMonitorStatusStatisticsDmMepDirection, 
+                  me1200PerfMonitorStatusStatisticsDmMepLevel, 
+                  me1200PerfMonitorStatusStatisticsDmMepFlowInstance, 
+                  me1200PerfMonitorStatusStatisticsDmMepTaggedVid, 
+                  me1200PerfMonitorStatusStatisticsDmPriority, 
+                  me1200PerfMonitorStatusStatisticsDmRate, 
+                  me1200PerfMonitorStatusStatisticsDmUnit, 
+                  me1200PerfMonitorStatusStatisticsDmTx, 
+                  me1200PerfMonitorStatusStatisticsDmRx, 
+                  me1200PerfMonitorStatusStatisticsDmFarNearDelayAverage, 
+                  me1200PerfMonitorStatusStatisticsDmFarNearDelayAverageVariation, 
+                  me1200PerfMonitorStatusStatisticsDmFarNearDelayMin, 
+                  me1200PerfMonitorStatusStatisticsDmFarNearDelayMax, 
+                  me1200PerfMonitorStatusStatisticsDmFarNearDelayMinVariation,
+                  me1200PerfMonitorStatusStatisticsDmFarNearDelayMaxVariation,
+                  me1200PerfMonitorStatusStatisticsDmNearFarDelayAverage, 
+                  me1200PerfMonitorStatusStatisticsDmNearFarDelayAverageVariation, 
+                  me1200PerfMonitorStatusStatisticsDmNearFarDelayMin, 
+                  me1200PerfMonitorStatusStatisticsDmNearFarDelayMax, 
+                  me1200PerfMonitorStatusStatisticsDmNearFarDelayMinVariation,
+                  me1200PerfMonitorStatusStatisticsDmNearFarDelayMaxVariation,
+                  me1200PerfMonitorStatusStatisticsDm2WayDelayAverage, 
+                  me1200PerfMonitorStatusStatisticsDm2WayDelayAverageVariation, 
+                  me1200PerfMonitorStatusStatisticsDm2WayDelayMin, 
+                  me1200PerfMonitorStatusStatisticsDm2WayDelayMinVariation,
+                  me1200PerfMonitorStatusStatisticsDm2WayDelayMax, 
+                  me1200PerfMonitorStatusStatisticsDm2WayDelayMaxVariation,
+                  me1200PerfMonitorStatusStatisticsDmMepFlowName }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 7 }
+
+me1200PerfMonitorStatusStatisticsDmBinTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorStatusStatisticsDmBinHitCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 8 }
+
+me1200PerfMonitorStatusStatisticsEvcTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorStatusStatisticsEvcEvcInstance, 
+                  me1200PerfMonitorStatusStatisticsEvcPortType, 
+                  me1200PerfMonitorStatusStatisticsEvcPort, 
+                  me1200PerfMonitorStatusStatisticsEvcCos, 
+                  me1200PerfMonitorStatusStatisticsEvcGreenRxFrames, 
+                  me1200PerfMonitorStatusStatisticsEvcGreenTxFrames, 
+                  me1200PerfMonitorStatusStatisticsEvcGreenRxBytes, 
+                  me1200PerfMonitorStatusStatisticsEvcGreenTxBytes, 
+                  me1200PerfMonitorStatusStatisticsEvcYellowRxFrames, 
+                  me1200PerfMonitorStatusStatisticsEvcYellowTxFrames, 
+                  me1200PerfMonitorStatusStatisticsEvcYellowRxBytes, 
+                  me1200PerfMonitorStatusStatisticsEvcYellowTxBytes, 
+                  me1200PerfMonitorStatusStatisticsEvcRedRxFrames, 
+                  me1200PerfMonitorStatusStatisticsEvcRedRxBytes, 
+                  me1200PerfMonitorStatusStatisticsEvcDiscardedRxFrames, 
+                  me1200PerfMonitorStatusStatisticsEvcDiscardedTxFrames, 
+                  me1200PerfMonitorStatusStatisticsEvcDiscardedRxBytes, 
+                  me1200PerfMonitorStatusStatisticsEvcDiscardedTxBytes }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 9 }
+
+me1200PerfMonitorStatusStatisticsLmPeerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorStatusStatisticsLmPeerMepInstance, 
+                  me1200PerfMonitorStatusStatisticsLmPeerResidencePort, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepId, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepMacAddress, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepPeerMepId, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepPeerMacAddress, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepDirection, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepLevel, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepFlowInstance, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepTaggedVid, 
+                  me1200PerfMonitorStatusStatisticsLmPeerPriority, 
+                  me1200PerfMonitorStatusStatisticsLmPeerRate, 
+                  me1200PerfMonitorStatusStatisticsLmPeerTx, 
+                  me1200PerfMonitorStatusStatisticsLmPeerRx, 
+                  me1200PerfMonitorStatusStatisticsLmPeerNearEndLossCount, 
+                  me1200PerfMonitorStatusStatisticsLmPeerNearEndLossRate, 
+                  me1200PerfMonitorStatusStatisticsLmPeerFarEndLossCount, 
+                  me1200PerfMonitorStatusStatisticsLmPeerFarEndLossRate, 
+                  me1200PerfMonitorStatusStatisticsLmPeerMepFlowName }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 10 }
+
+me1200PerfMonitorStatusIntervalInfoTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorStatusIntervalInfoStartTime, 
+                  me1200PerfMonitorStatusIntervalInfoEndTime, 
+                  me1200PerfMonitorStatusIntervalInfoElapsedTime }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 11 }
+
+me1200PerfMonitorControlGlobalsActionInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PerfMonitorControlGlobalsActionDeleteLmStatisticsAll, 
+                  me1200PerfMonitorControlGlobalsActionDeleteDmStatisticsAll, 
+                  me1200PerfMonitorControlGlobalsActionDeleteEvcStatisticsAll }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PerfMonitorMibGroups 12 }
+
+me1200PerfMonitorMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200PerfMonitorConfigGlobalsMgmtInfoGroup, 
+                  me1200PerfMonitorConfigGlobalsTransferInfoGroup, 
+                  me1200PerfMonitorConfigGlobalsXferSchedHourTableInfoGroup, 
+                  me1200PerfMonitorConfigGlobalsXferSchedQuarterTableInfoGroup, 
+                  me1200PerfMonitorConfigGlobalsXferSchedOffsetInfoGroup, 
+                  me1200PerfMonitorStatusStatisticsLmTableInfoGroup, 
+                  me1200PerfMonitorStatusStatisticsDmTableInfoGroup, 
+                  me1200PerfMonitorStatusStatisticsDmBinTableInfoGroup, 
+                  me1200PerfMonitorStatusStatisticsEvcTableInfoGroup, 
+                  me1200PerfMonitorStatusStatisticsLmPeerTableInfoGroup, 
+                  me1200PerfMonitorStatusIntervalInfoTableInfoGroup, 
+                  me1200PerfMonitorControlGlobalsActionInfoGroup }
+
+    ::= { me1200PerfMonitorMibCompliances 1 }
+
+END

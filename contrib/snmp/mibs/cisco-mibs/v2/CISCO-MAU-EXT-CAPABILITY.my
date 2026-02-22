@@ -1,0 +1,81 @@
+-- *****************************************************************
+-- CISCO-MAU-EXT-CAPABILITY.my:
+-- Cisco CISCO-MAU-EXT-MIB AGENT-CAPABILITIES
+--   
+-- December 2004, Binh P Le
+--   
+-- Copyright (c) 2004-2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-MAU-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoMauExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "200810280000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-MAU-EXT-MIB."
+    REVISION        "200810280000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoMauExtCapV12R0233SXIPCat6K."
+    REVISION        "200412310000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 404 }
+
+
+
+ciscoMauExtCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-MAU-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-MAU-EXT-MIB
+    INCLUDES        {
+                        cmExtJackConfigGroup,
+                        cmExtIfAutoMdixConfigGroup
+                    }
+    ::= { ciscoMauExtCapability 1 }
+
+ciscoMauExtCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-MAU-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-MAU-EXT-MIB
+    INCLUDES        {
+                        cmExtJackConfigGroup,
+                        cmExtIfAutoMdixConfigGroup
+                    }
+    VARIATION       cmExtIfAutoMdixEnabled
+    DESCRIPTION
+        "Object is not writable if the value of the corresponding
+        cmExtJackState is 'inactive'."
+
+    ::= { ciscoMauExtCapability 2 }
+
+END

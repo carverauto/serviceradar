@@ -1,0 +1,999 @@
+-- *****************************************************************
+-- CISCO-IEEE8021-PAE-CAPABILITY.my:
+-- Cisco IEEE8021-PAE-MIB AGENT-CAPABILITIES
+--   
+-- September 2003, Binh Le
+--   
+-- Copyright (c) 2003-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ***************************************************************
+
+CISCO-IEEE8021-PAE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIeee8021PaeCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ibns@cisco.com,
+                    cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of IEEE8021-PAE-MIB."
+    REVISION        "201209050000Z"
+    DESCRIPTION
+        "Added capability statement
+        cIeee8021PaeCapV15R0101SYCat6K."
+    REVISION        "201103251600Z"
+    DESCRIPTION
+        "Added capability statement
+        cIeee8021PaeCapV12R0233SXJPCat6K."
+    REVISION        "201011010000Z"
+    DESCRIPTION
+        "Added capability statement
+        cIeee8021PaeCapV12R0250SYPCat6K."
+    REVISION        "201003220000Z"
+    DESCRIPTION
+        "Added capability statement
+        cIeee8021PaeCapV12R0233SXI4PCat6K."
+    REVISION        "200908260000Z"
+    DESCRIPTION
+        "Added capability statement
+        cIeee8021PaeCapV12R0252SGPCat4K.
+
+        Added VARIATIONs for dot1xPaePortEntry and
+        dot1xAuthConfigEntry in
+        cIeee8021PaeCapV12R0233SXIPCat6K."
+    REVISION        "200806020000Z"
+    DESCRIPTION
+        "Added capability statement
+        cIeee8021PaeCapV12R0233SXIPCat6K."
+    REVISION        "200707090000Z"
+    DESCRIPTION
+        "Added capability statement
+        cIeee8021PaeCapV12R0233SXHPCat6K."
+    REVISION        "200401130000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoIeee8021PaeCapCatOSV08R0301."
+    REVISION        "200309160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 314 }
+
+
+
+cIeee8021PaeCapV12R0111bEXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup
+                    }
+    VARIATION       dot1xAuthAdminControlledDirections
+    SYNTAX          INTEGER  {
+                        both(0)
+                    }
+    DESCRIPTION
+        "Only support both(0)."
+
+    VARIATION       dot1xAuthOperControlledDirections
+    SYNTAX          INTEGER  {
+                        both(0)
+                    }
+    DESCRIPTION
+        "Only support both(0)."
+
+    VARIATION       dot1xPaePortCapabilities
+    SYNTAX          BITS {
+                        dot1xPaePortAuthCapable(0)
+                    }
+    DESCRIPTION
+        "Only support dot1xPaePortAuthCapable(0)."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only support false(2)."
+
+    ::= { ciscoIeee8021PaeCapability 1 }
+
+ciscoIeee8021PaeCapCatOSV07R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 7.1(1)."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup
+                    }
+    VARIATION       dot1xAuthAdminControlledDirections
+    SYNTAX          INTEGER  {
+                        both(0)
+                    }
+    DESCRIPTION
+        "Only support both(0)."
+
+    VARIATION       dot1xAuthOperControlledDirections
+    SYNTAX          INTEGER  {
+                        both(0)
+                    }
+    DESCRIPTION
+        "Only support both(0)."
+
+    VARIATION       dot1xPaePortCapabilities
+    SYNTAX          BITS {
+                        dot1xPaePortAuthCapable(0)
+                    }
+    DESCRIPTION
+        "Only support dot1xPaePortAuthCapable(0)."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only support false(2)."
+
+    ::= { ciscoIeee8021PaeCapability 2 }
+
+ciscoIeee8021PaeCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup
+                    }
+    VARIATION       dot1xPaePortCapabilities
+    SYNTAX          BITS {
+                        dot1xPaePortAuthCapable(0)
+                    }
+    DESCRIPTION
+        "Only support dot1xPaePortAuthCapable(0)."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only support false(2)."
+
+    ::= { ciscoIeee8021PaeCapability 3 }
+
+cIeee8021PaeCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                          series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup,
+                        dot1xPaeAuthSessionStatsGroup
+                    }
+    VARIATION       dot1xPaePortCapabilities
+    SYNTAX          BITS {
+                        dot1xPaePortAuthCapable(0)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       dot1xAuthSessionOctetsRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionOctetsTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionAuthenticMethod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTerminateCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoIeee8021PaeCapability 4 }
+
+cIeee8021PaeCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup,
+                        dot1xPaeAuthSessionStatsGroup,
+                        dot1xPaeAuthConfigGroup2
+                    }
+    VARIATION       dot1xPaePortCapabilities
+    SYNTAX          BITS {
+                        dot1xPaePortAuthCapable(0)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthBackendAuthState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthAuthControlledPortStatus
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthServerTimeout
+    DEFVAL          { 0 }
+    DESCRIPTION
+        "Implementation supports the default value of zero."
+
+    VARIATION       dot1xAuthSessionOctetsRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionOctetsTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionAuthenticMethod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTerminateCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xPaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    ::= { ciscoIeee8021PaeCapability 5 }
+
+cIeee8021PaeCapV12R0252SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(52)SG on CAT4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup,
+                        dot1xPaeAuthSessionStatsGroup,
+                        dot1xPaeAuthConfigGroup2
+                    }
+    VARIATION       dot1xPaePortCapabilities
+    SYNTAX          BITS {
+                        dot1xPaePortAuthCapable(0)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthBackendAuthState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthAuthControlledPortStatus
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthServerTimeout
+    DEFVAL          { 0 }
+    DESCRIPTION
+        "Implementation supports the default value of zero."
+
+    VARIATION       dot1xAuthSessionOctetsRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionOctetsTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionAuthenticMethod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTerminateCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoIeee8021PaeCapability 6 }
+
+cIeee8021PaeCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup,
+                        dot1xPaeAuthSessionStatsGroup,
+                        dot1xPaeAuthConfigGroup2,
+                        dot1xPaeSuppConfigGroup,
+                        dot1xPaeSuppConfigGroup2
+                    }
+    VARIATION       dot1xAuthPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthBackendAuthState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthAuthControlledPortStatus
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthServerTimeout
+    DEFVAL          { 0 }
+    DESCRIPTION
+        "Implementation supports the default value of zero."
+
+    VARIATION       dot1xAuthSessionOctetsRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionOctetsTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionAuthenticMethod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTerminateCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xPaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xSuppPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppBackendState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppHeldPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAuthPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppStartPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppMaxStart
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAccessCtrlWithAuth
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoIeee8021PaeCapability 7 }
+
+cIeee8021PaeCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup,
+                        dot1xPaeAuthSessionStatsGroup,
+                        dot1xPaeAuthConfigGroup2,
+                        dot1xPaeSuppConfigGroup,
+                        dot1xPaeSuppConfigGroup2
+                    }
+    VARIATION       dot1xAuthPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthBackendAuthState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthAuthControlledPortStatus
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthServerTimeout
+    DEFVAL          { 0 }
+    DESCRIPTION
+        "Implementation supports the default value of zero."
+
+    VARIATION       dot1xAuthSessionOctetsRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionOctetsTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionAuthenticMethod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTerminateCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xPaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xSuppPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppBackendState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppHeldPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAuthPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppStartPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppMaxStart
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAccessCtrlWithAuth
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoIeee8021PaeCapability 8 }
+
+cIeee8021PaeCapV12R0233SXJPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXJ on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup,
+                        dot1xPaeAuthSessionStatsGroup,
+                        dot1xPaeAuthConfigGroup2,
+                        dot1xPaeSuppConfigGroup,
+                        dot1xPaeSuppConfigGroup2,
+                        dot1xPaeSuppStatsGroup2
+                    }
+    VARIATION       dot1xAuthPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthBackendAuthState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthAuthControlledPortStatus
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthServerTimeout
+    DEFVAL          { 0 }
+    DESCRIPTION
+        "Implementation supports the default value of zero."
+
+    VARIATION       dot1xAuthSessionOctetsRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionOctetsTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionAuthenticMethod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTerminateCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xPaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xSuppPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppBackendState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppHeldPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAuthPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppStartPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppMaxStart
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAccessCtrlWithAuth
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoIeee8021PaeCapability 9 }
+
+cIeee8021PaeCapV15R0101SYCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "IEEE8021-PAE-MIB capabilities."
+
+    SUPPORTS        IEEE8021-PAE-MIB
+    INCLUDES        {
+                        dot1xPaeSystemGroup,
+                        dot1xPaeAuthConfigGroup,
+                        dot1xPaeAuthStatsGroup,
+                        dot1xPaeAuthSessionStatsGroup,
+                        dot1xPaeAuthConfigGroup2,
+                        dot1xPaeSuppConfigGroup,
+                        dot1xPaeSuppConfigGroup2,
+                        dot1xPaeSuppStatsGroup2
+                    }
+    VARIATION       dot1xAuthPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthBackendAuthState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthAuthControlledPortStatus
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xAuthKeyTxEnabled
+    SYNTAX          TruthValue {
+                        false(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       dot1xAuthServerTimeout
+    DEFVAL          { 0 }
+    DESCRIPTION
+        "Implementation supports the default value of zero."
+
+    VARIATION       dot1xAuthSessionOctetsRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionOctetsTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesRx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionFramesTx
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionAuthenticMethod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xAuthSessionTerminateCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       dot1xPaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       dot1xSuppPaeState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppBackendState
+    DESCRIPTION
+        "In multiple authentication mode, this object
+        represents the most recent connecting host."
+
+    VARIATION       dot1xSuppHeldPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAuthPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppStartPeriod
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppMaxStart
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1xSuppAccessCtrlWithAuth
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoIeee8021PaeCapability 10 }
+
+END
+
+
+
+

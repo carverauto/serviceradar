@@ -1,0 +1,2438 @@
+-- *****************************************************************
+-- CISCO-ITP-GTCAP-MIB: ITP Transaction Capabilities MIB
+--                      for SS7 Gateway
+--
+-- November 2008, Mahesh Balasubramaniam, John Linton
+--
+-- Copyright (c) 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+CISCO-ITP-GTCAP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        Counter32,
+        Gauge32,
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Unsigned32,
+        Integer32
+                FROM SNMPv2-SMI
+        cgspCLLICode,
+        cgspEventSequenceNumber,
+        cgspInstNetwork,
+        cgspInstDisplayName
+                FROM CISCO-ITP-GSP-MIB
+        TimeStamp,
+        TruthValue,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+
+        ciscoMgmt
+                FROM CISCO-SMI
+
+        EntPhysicalIndexOrZero
+                FROM CISCO-TC;
+                
+ciscoGtcapMIB MODULE-IDENTITY
+        LAST-UPDATED    "200812240000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems, Inc
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-ss7@cisco.com"
+        DESCRIPTION
+               "The MIB for Transaction Capabilities(TCAP)
+                messages transported over Signalling System 
+                No. 7 (SS7) Network via Cisco IP Transfer
+                Point.  
+                
+                This MIB provides information specified
+                in ITU Q752 Monitoring and Measurements for
+                Signalling System No. 7(SS7) Network. 
+
+                The Cisco IP Transfer Point (ITP) is a hardware 
+                and software solution that transports SS7 traffic 
+                using IP. Each ITP node provides function similar
+                to SS7 Signalling point.   
+                
+                The relevant ITU documents describing this technology
+                is the ITU Q series, ITU Q.771: Functional Description
+                of Transaction Capabilities to ITU Q.775: Guidelines 
+                for Using Transaction Capabilities.
+
+                This MIB consists of the following tables:
+                  Instance Table
+                  TCAP Utilization table
+                  TCAP Protocol Transaction Errors Received Table 
+                  TCAP Protocol Transaction Errors Sent Table 
+                  TCAP Protocol Component Errors Table
+                  TCAP User Errors Received Table
+                  TCAP User Errors Sent Table
+
+                Abbreviations:
+                  ANSI - American National Standards Institute
+                  CLLI - Common-Language Location Identification
+                  GP   - General Problem 
+                  IP   - Invoke Problem
+                  ITU  - International Telecommunication Union
+                  MAP  - SS7 Mobile Application Part.  This layer
+                         provides mobility procedures to SS7
+                         network applications.  MAP is generically
+                         used to refer to both GSM-MAP, and the
+                         IS-41-D MAP Protocol.
+                  RRP  - Return Result Problem
+                  REP  - Return Error Problem
+                  TCAP - Transaction Capabilities Application Part.
+                         The application layer of the SS7
+                         signalling protocol.
+                  TC   - Transaction Capabiliities
+                  TID  - Transaction Identifier
+                  TP   - Transaction Problem."
+        REVISION        "200812240000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 695 }
+
+-- Top-level structure of the MIB
+ciscoGtcapMIBNotifs   OBJECT IDENTIFIER ::= { ciscoGtcapMIB 0 }
+ciscoGtcapMIBObjects  OBJECT IDENTIFIER ::= { ciscoGtcapMIB 1 }
+ciscoGtcapMIBConform  OBJECT IDENTIFIER ::= { ciscoGtcapMIB 2 }
+
+cgtcapScalars       OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 1 }
+cgtcapInst          OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 2 }
+cgtcapUtil          OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 3 }
+cgtcapPrErrTranRcvd OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 4 }
+cgtcapPrErrTranSent OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 5 }
+cgtcapPrErrComp     OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 6 }
+cgtcapUsrErrRcvd    OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 7 }
+cgtcapUsrErrSent    OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 8 }
+cgtcapNotifInfo     OBJECT IDENTIFIER ::= { ciscoGtcapMIBObjects 9 }
+
+-- ********************************************************************
+-- *                                                                  *
+-- * Textual Conventions                                              *
+-- *                                                                  *
+-- ********************************************************************
+CItpTcTCAPUser ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+            "Transaction Capabilities Application Part User."
+        SYNTAX Unsigned32 ( 0..255 )
+
+
+--  *************************************************************
+--  *                                                           *
+--  * Scalars                                                   *
+--  *                                                           *
+--  *************************************************************
+cgtcapTranErrorNotifEnabled     OBJECT-TYPE
+    SYNTAX                      TruthValue
+    MAX-ACCESS                  read-write
+    STATUS                      current
+    DESCRIPTION 
+        "The notification truth value.
+        'true'  Indicates that the following TCAP error 
+                notifications are enabled. 
+                  ciscoGtcapProtoErrTranAbortRcvd,
+                  ciscoGtcapProtoErrTranAbortSent.
+        'false' Indicates that the TCAP Transaction error 
+                notification generation is disabled."
+    DEFVAL { false }
+    ::= { cgtcapScalars 1 }
+
+cgtcapCompErrorNotifEnabled     OBJECT-TYPE
+    SYNTAX                      TruthValue
+    MAX-ACCESS                  read-write
+    STATUS                      current
+    DESCRIPTION 
+        "The notification truth value.
+        'true'  Indicates that the following TCAP error 
+                notifications are enabled. 
+                  ciscoGtcapProtoErrCompRejectRcvd,
+                  ciscoGtcapProtoErrCompRejectRcvd.
+        'false' Indicates that the TCAP Component error 
+                notification generation is disabled."
+    DEFVAL { false }
+    ::= { cgtcapScalars 2 }
+
+cgtcapUsrErrorNotifEnabled      OBJECT-TYPE
+    SYNTAX                      TruthValue
+    MAX-ACCESS                  read-write
+    STATUS                      current
+    DESCRIPTION 
+        "The notification truth value.
+        'true'  Indicates that the following TCAP error 
+                notifications are enabled. 
+                  ciscoGtcapTCUserErrRejectRcvd,
+                  ciscoGtcapTCUserErrRejectSent.
+        'false' Indicates that the TCAP User error 
+                notification generation is disabled."
+    DEFVAL { false }
+    ::= { cgtcapScalars 3 }
+
+cgtcapThreshldExcdNotifEnabled  OBJECT-TYPE
+    SYNTAX                      TruthValue
+    MAX-ACCESS                  read-write
+    STATUS                      current
+    DESCRIPTION
+        "The notification truth value.
+        'true'  Indicates that ciscoGtcapActiveTranExceedThreshold 
+                notification generation is enabled.
+        'false' Indicates that ciscoGtcapActiveTranExceedThreshold 
+                notification generation is disabled."
+    DEFVAL { false }
+    ::= { cgtcapScalars 4 }
+
+cgtcapNotifWindowTime           OBJECT-TYPE
+    SYNTAX                      Integer32 (60..86400)
+    UNITS                       "seconds"
+    MAX-ACCESS                  read-write
+    STATUS                      current
+    DESCRIPTION
+        "This object specifies the time interval used to monitor
+         the following notifications:
+           ciscoGtcapProtoErrTranAbortRcvd,
+           ciscoGtcapProtoErrTranAbortSent,
+           ciscoGtcapProtoErrCompRejectRcvd,
+           ciscoGtcapProtoErrCompRejectRcvd,
+           ciscoGtcapTCUserErrRejectRcvd,
+           ciscoGtcapTCUserErrRejectSent,
+           ciscoGtcapActiveTranExceedThreshold
+         for specific signalling point instance.  The first occurrence 
+         of these notifications are sent and the further occurrences 
+         of notifications in this interval are suppressed.
+
+         At the end of this interval, notifications are sent with
+         total number of errors encountered during this interval."
+    DEFVAL { 900 }
+    ::= { cgtcapScalars 5 }
+
+cgtcapUtilSampleInterval          OBJECT-TYPE
+    SYNTAX                        Integer32  (300..86400)
+    UNITS                         "seconds"
+    MAX-ACCESS                    read-write
+    STATUS                        current
+    DESCRIPTION
+        "This object specifies the time interval used to monitor
+         the utilization of TCAP transactions.  Changes to the 
+         polling interval will take effect after the completion of 
+         the current sample interval."
+    DEFVAL { 300 }
+    ::= { cgtcapScalars 6 }
+
+cgtcapStatsInterval               OBJECT-TYPE
+    SYNTAX                        Unsigned32 (0 | 10..3600)
+    UNITS                         "seconds"
+    MAX-ACCESS                    read-only
+    STATUS                        current
+    DESCRIPTION
+        "For distributed platforms, the value in seconds specifies how
+         often information on measurements will be refreshed on supervisor.
+         The valid range for distributed platforms is from 10 seconds to 
+         1 hour.
+
+         For a single processor platform, the value will be always zero."
+    DEFVAL { 10 }
+    ::= { cgtcapScalars 7 }
+
+
+--  *************************************************************
+--  *                                                           *
+--  * TCAP Information per Signalling Point                     *
+--  *                                                           *
+--  *************************************************************
+cgtcapInstTable         OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CgtcapInstTableEntry 
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "TCAP information per instance of signalling
+                 point."
+        ::= { cgtcapInst  1 }
+
+cgtcapInstTableEntry OBJECT-TYPE
+        SYNTAX          CgtcapInstTableEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "Transaction Capabilities information per instance
+                of signalling point."
+        INDEX   { cgspInstNetwork        -- shared index
+        }
+        ::= { cgtcapInstTable  1 }
+
+CgtcapInstTableEntry  ::= SEQUENCE {
+        cgtcapInstTotalTCMsgsSent          Counter32,
+        cgtcapInstTotalTCMsgsRcvd          Counter32,
+        cgtcapInstTotalCompSent            Counter32,
+        cgtcapInstTotalCompRcvd            Counter32,
+        cgtcapInstActiveExceedThresholds   Counter32,
+
+        cgtcapInstUnidirectionalTranRcvd   Counter32,
+        cgtcapInstUnidirectionalTranSent   Counter32,
+        cgtcapInstBeginQueryTranRcvd       Counter32,
+        cgtcapInstBeginQueryTranSent       Counter32,
+        cgtcapInstBeginQueryWOPermTranRcvd Counter32,
+        cgtcapInstBeginQueryWOPermTranSent Counter32,
+        cgtcapInstEndResponseTranRcvd      Counter32,  
+        cgtcapInstEndResponseTranSent      Counter32, 
+        cgtcapInstContinueConvTranRcvd     Counter32,
+        cgtcapInstContinueConvTranSent     Counter32,
+        cgtcapInstContConvWOPermTranRcvd   Counter32,
+        cgtcapInstContConvWOPermTranSent   Counter32,
+        cgtcapInstAbortTranRcvd            Counter32,
+        cgtcapInstAbortTranSent            Counter32,
+        cgtcapInstClass1TCLocalCancelInd   Counter32,
+        cgtcapInstTotalDiscardsAllReasons  Counter32,
+        cgtcapInstProviderAbortsRcvd       Counter32,
+        cgtcapInstTotalRejectsRcvd         Counter32,
+        cgtcapInstTotalTransactionErr      Counter32
+}                    
+
+cgtcapInstTotalTCMsgsSent           OBJECT-TYPE
+        SYNTAX                      Counter32 
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of transaction messages sent from the 
+                 local TCAP (Q752/13.1 bis)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 1 }
+        
+cgtcapInstTotalTCMsgsRcvd           OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of transaction messages received from 
+                 the remote TCAP (Q752/13.2 bis)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13." 
+        ::= { cgtcapInstTableEntry 2 }
+        
+cgtcapInstTotalCompSent             OBJECT-TYPE
+        SYNTAX                      Counter32 
+        UNITS                       "components"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Components sent from the local 
+                 TCAP (Q752/13.3)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 3 }
+        
+cgtcapInstTotalCompRcvd             OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "components"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Components received from the remote 
+                 TCAP (Q752/13.4)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13." 
+        ::= { cgtcapInstTableEntry 4 }
+        
+cgtcapInstActiveExceedThresholds    OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "occurences"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of times the number of open transactions
+                 exceeded the Signalling point threshold (Q752/13.11)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13." 
+        ::= { cgtcapInstTableEntry 5 }
+        
+cgtcapInstUnidirectionalTranRcvd    OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Unidirectional type transactions
+                 received (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 6 }
+        
+cgtcapInstUnidirectionalTranSent    OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Unidirectional type transactions
+                 sent (Q752/13.2)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13." 
+        ::= { cgtcapInstTableEntry 7 }
+        
+cgtcapInstBeginQueryTranRcvd       OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Begin(ITU) or Query(ANSI) type 
+                 transactions received (Q752/13.1)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 8 }
+        
+cgtcapInstBeginQueryTranSent        OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Begin(ITU) or Query(ANSI) type
+                 transactions sent (Q752/13.2)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 9 }
+        
+cgtcapInstBeginQueryWOPermTranRcvd  OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Begin(ITU) or Query(ANSI) Without
+                 Permission type transactions received (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling 
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 10 }
+        
+cgtcapInstBeginQueryWOPermTranSent  OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Begin(ITU) or Query(ANSI) Without
+                 Permission type transactions sent (Q752/13.1)."
+        REFERENCE     
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13." 
+        ::= { cgtcapInstTableEntry 11 }
+        
+cgtcapInstEndResponseTranRcvd       OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of End(ITU) or Response(ANSI) type 
+                 transactions received (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 12 }
+
+cgtcapInstEndResponseTranSent       OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of End(ITU) or Response(ANSI) type
+                 transactions sent (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 13 }
+
+cgtcapInstContinueConvTranRcvd      OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Continue(ITU) or Conversation(ANSI)
+                 type transactions received (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 14 }
+
+cgtcapInstContinueConvTranSent      OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Continue(ITU) or Conversation(ANSI)
+                 type transactions Sent (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 15 }
+
+cgtcapInstContConvWOPermTranRcvd    OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Continue(ITU) or Conversation(ANSI)
+                 Without Permission type transactions received (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 16 }
+
+cgtcapInstContConvWOPermTranSent    OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Continue(ITU) or Conversation(ANSI)
+                 Without Permission type transactions Sent (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 17 }
+
+cgtcapInstAbortTranRcvd             OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Abort type transactions received
+                 (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 18 }
+
+cgtcapInstAbortTranSent             OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of Abort type transactions sent (Q752/13.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 13."
+        ::= { cgtcapInstTableEntry 19 }
+
+cgtcapInstClass1TCLocalCancelInd    OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "occurrences"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of TC_L_CANCEL indications for Class 1
+                 operations (Q752/14.7)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14."
+        ::= { cgtcapInstTableEntry 20 }
+
+cgtcapInstTotalDiscardsAllReasons   OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of TCAP messages discarded for all
+                 reasons. This includes END messages with unrecognized
+                 TIDs (Q752/14.8)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14."
+        ::= { cgtcapInstTableEntry 21 }
+
+cgtcapInstProviderAbortsRcvd        OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "messages"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of provider aborts received (Q752/14.10)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14."
+        ::= { cgtcapInstTableEntry 22 }
+
+cgtcapInstTotalRejectsRcvd          OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "components"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of rejects received in TCAP components
+                 for this signalling point (Q752/14.11)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14."
+        ::= { cgtcapInstTableEntry 23 }
+
+cgtcapInstTotalTransactionErr       OBJECT-TYPE
+        SYNTAX                      Counter32
+        UNITS                       "occurences"
+        MAX-ACCESS                  read-only
+        STATUS                      current
+        DESCRIPTION
+                "Total number of errors detected in transaction
+                 portion (Q752/14.12)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14."
+        ::= { cgtcapInstTableEntry 24 }
+
+-- *************************************************************
+-- *                                                           *
+-- * TCAP Utilization table                                    *
+-- *                                                           *
+-- *************************************************************
+cgtcapUtilTable                OBJECT-TYPE
+    SYNTAX                     SEQUENCE OF CgtcapUtilTableEntry
+    MAX-ACCESS                 not-accessible
+    STATUS                     current
+    DESCRIPTION
+        "A table that contains the utilization measurements
+         for the TCAP level transactions estimated during 
+         every configured cgtcapUtilSampleInterval.  This table 
+         is provided to allow an NMS to collect the information 
+         during a normal poll cycle."
+    ::= { cgtcapUtil 1 }
+
+cgtcapUtilTableEntry           OBJECT-TYPE
+    SYNTAX                     CgtcapUtilTableEntry
+    MAX-ACCESS                 not-accessible
+    STATUS                     current
+    DESCRIPTION
+        "A collection of entries used to store tcap 
+         utilization measurements."
+    INDEX   {
+              cgspInstNetwork,  -- shared index
+              cgtcapUtilSlot,
+              cgtcapUser
+            }
+    ::= { cgtcapUtilTable 1 }
+
+CgtcapUtilTableEntry ::= SEQUENCE {
+    cgtcapUtilSlot                       Unsigned32,
+    cgtcapUser                           CItpTcTCAPUser,
+    cgtcapNewTransInInterval             Gauge32,
+    cgtcapMeanOpenTransIdInInterval      Gauge32,
+    cgtcapCumulativeMeanDurationOfTran   Gauge32,
+    cgtcapMaxOpenTransIdInInterval       Gauge32,
+    cgtcapUtilEndTimestamp               TimeStamp,
+    cgtcapUtilPhysicalIndex              EntPhysicalIndexOrZero
+}
+
+cgtcapUtilSlot                       OBJECT-TYPE
+    SYNTAX                           Unsigned32 (0..32767)
+    MAX-ACCESS                       not-accessible
+    STATUS                           current
+    DESCRIPTION
+        "The slot number containing the CPU that is
+        performing TCAP operations."
+    ::= { cgtcapUtilTableEntry 1 }
+
+cgtcapUser                           OBJECT-TYPE
+    SYNTAX                           CItpTcTCAPUser
+    MAX-ACCESS                       not-accessible
+    STATUS                           current
+    DESCRIPTION
+        "The slot number containing the CPU that is
+        performing TCAP operations."
+    ::= { cgtcapUtilTableEntry 2 }
+
+cgtcapNewTransInInterval             OBJECT-TYPE
+    SYNTAX                           Gauge32
+    MAX-ACCESS                       read-only
+    STATUS                           current
+    DESCRIPTION
+        "This counter indicates the number of new 
+         transactions during the interval."
+    ::= { cgtcapUtilTableEntry 3 }
+
+cgtcapMeanOpenTransIdInInterval      OBJECT-TYPE
+    SYNTAX                           Gauge32
+    MAX-ACCESS                       read-only
+    STATUS                           current
+    DESCRIPTION
+        "This counter indicates the mean number of 
+         open transaction ids during the interval."
+    ::= { cgtcapUtilTableEntry 4 }
+
+cgtcapCumulativeMeanDurationOfTran   OBJECT-TYPE
+    SYNTAX                           Gauge32
+    MAX-ACCESS                       read-only
+    STATUS                           current
+    DESCRIPTION
+        "This counter indicates the cumulative mean 
+         duration of transactions estimated during 
+         the interval."
+    ::= { cgtcapUtilTableEntry 5 }
+
+cgtcapMaxOpenTransIdInInterval       OBJECT-TYPE
+    SYNTAX                           Gauge32
+    MAX-ACCESS                       read-only
+    STATUS                           current
+    DESCRIPTION
+        "This counter indicates the maximum number of  
+         open transactions ids estimated during the 
+         interval."
+    ::= { cgtcapUtilTableEntry 6 }
+
+cgtcapUtilEndTimestamp               OBJECT-TYPE
+    SYNTAX                           TimeStamp
+    MAX-ACCESS                       read-only
+    STATUS                           current
+    DESCRIPTION
+        "This timestamp indicates when time period 
+         ended for this sample."
+    ::= { cgtcapUtilTableEntry 7 }
+
+cgtcapUtilPhysicalIndex              OBJECT-TYPE
+    SYNTAX                           EntPhysicalIndexOrZero
+    MAX-ACCESS                       read-only
+    STATUS                           current
+    DESCRIPTION
+        "The entPhysicalIndex of the physical entity for which
+        the statistics in this entry are maintained.  The physical 
+        entity can be a CPU chip, a group of CPUs, a CPU card etc. 
+        The exact type of this entity is described by its 
+        entPhysicalVendorType value. If the CPU statistics in this 
+        entry correspond to more than one physical entity (or to no 
+        physical entity), or if the entPhysicalTable is not supported 
+        on the SNMP agent, the value of this object must be zero."
+    ::= { cgtcapUtilTableEntry 8 }
+
+
+-- *************************************************************
+-- *                                                           *
+-- * TCAP Protocol Transaction Errors Received per Signalling  * 
+-- * Point                                                     *
+-- *                                                           *
+-- *************************************************************
+
+cgtcapProtoTranRcvdErrorsTable      OBJECT-TYPE
+    SYNTAX                          SEQUENCE OF CgtcapProtoTranRcvdErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Total number of protocol errors received in transaction
+         portion - abort received with different P-abort cause." 
+    ::= { cgtcapPrErrTranRcvd 1 }
+
+cgtcapProtoTranRcvdErrorsTableEntry OBJECT-TYPE
+    SYNTAX                          CgtcapProtoTranRcvdErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Measurements are available per instance."
+    INDEX           { cgspInstNetwork
+                    }
+    ::= { cgtcapProtoTranRcvdErrorsTable 1 }
+
+CgtcapProtoTranRcvdErrorsTableEntry ::= SEQUENCE {
+        cgtcapPrTranAbrtRcvdUnrecogMsgType      Counter32,
+        cgtcapPrTranAbrtRcvdIncorrectTP         Counter32,
+        cgtcapPrTranAbrtRcvdBadFmtTP            Counter32,
+        cgtcapPrTranAbrtRcvdUnrecogTID          Counter32,
+        cgtcapPrTranAbrtRcvdResrcLimit          Counter32
+}
+
+cgtcapPrTranAbrtRcvdUnrecogMsgType            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in transaction 
+                 portion - abort received with P-abort cause of 
+                 unrecognized message type (Q752/14.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.1. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranRcvdErrorsTableEntry 1 }
+
+cgtcapPrTranAbrtRcvdIncorrectTP               OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in transaction
+                 portion - abort received with P-abort cause of 
+                 incorrect TP (Q752/14.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.1. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranRcvdErrorsTableEntry 2 }
+
+cgtcapPrTranAbrtRcvdBadFmtTP                  OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in transaction
+                 portion - abort received with P-abort cause of 
+                 badly formatted TP (Q752/14.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.1. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranRcvdErrorsTableEntry 3 }
+
+cgtcapPrTranAbrtRcvdUnrecogTID                OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in transaction
+                 portion - abort received with P-abort cause of 
+                 unrecognized TID (Q752/14.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.1. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranRcvdErrorsTableEntry 4 }
+
+cgtcapPrTranAbrtRcvdResrcLimit                OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in transaction
+                 portion - abort received with P-abort cause of
+                 resource limitation (Q752/14.1)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.1. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranRcvdErrorsTableEntry 5 }
+
+
+-- *********************************************************
+-- *                                                       *
+-- * TCAP Protocol Transaction Errors Sent per Signalling  *
+-- * Point and User                                        *
+-- *                                                       *
+-- *                                                       *
+-- *********************************************************
+
+cgtcapProtoTranSentErrorsTable      OBJECT-TYPE
+    SYNTAX                          SEQUENCE OF CgtcapProtoTranSentErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Total number of protocol errors sent in transaction
+         portion - abort sent with different P-abort cause."
+    ::= { cgtcapPrErrTranSent 1 }
+
+cgtcapProtoTranSentErrorsTableEntry OBJECT-TYPE
+    SYNTAX                          CgtcapProtoTranSentErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Measurements are available per instance and TCAP user."
+    INDEX           { cgspInstNetwork,
+                      cgtcapUser
+                    }
+    ::= { cgtcapProtoTranSentErrorsTable 1 }
+
+CgtcapProtoTranSentErrorsTableEntry ::= SEQUENCE {
+        cgtcapPrTranAbrtSentUnrecogMsgType      Counter32, 
+        cgtcapPrTranAbrtSentIncorrectTP         Counter32,
+        cgtcapPrTranAbrtSentBadFmtTP            Counter32,
+        cgtcapPrTranAbrtSentUnrecogTID          Counter32,
+        cgtcapPrTranAbrtSentResrcLimit          Counter32
+}
+
+cgtcapPrTranAbrtSentUnrecogMsgType            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in transaction
+                 portion - abort sent with P-abort cause of
+                 unrecognized message type (Q752/14.4)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.4. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranSentErrorsTableEntry 1 }
+
+cgtcapPrTranAbrtSentIncorrectTP               OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in transaction
+                 portion - abort sent with P-abort cause of 
+                 incorrect TP (Q752/14.4)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.4. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranSentErrorsTableEntry 2 }
+
+cgtcapPrTranAbrtSentBadFmtTP                  OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in transaction
+                 portion - abort sent with P-abort cause of 
+                 badly formatted TP (Q752/14.4)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.4. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranSentErrorsTableEntry 3 }
+
+cgtcapPrTranAbrtSentUnrecogTID                OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in transaction
+                 portion - abort sent with P-abort cause of unrecognized 
+                 TID (Q752/14.4)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.4. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranSentErrorsTableEntry 4 }
+
+cgtcapPrTranAbrtSentResrcLimit                OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in transaction
+                 portion - abort sent with P-abort cause of 
+                 resource limitation (Q752/14.4)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.4. TC
+                 fault measurements."
+        ::= { cgtcapProtoTranSentErrorsTableEntry 5 }
+
+
+-- **********************************************************
+-- *                                                        *
+-- * TCAP Protocol Component Errors per Signalling Point    *
+-- *                                                        *
+-- *                                                        *
+-- **********************************************************
+cgtcapProtoCompErrorsTable          OBJECT-TYPE
+    SYNTAX                          SEQUENCE OF CgtcapProtoCompErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Total number of protocol errors sent and received in component
+         portion - reject sent and received with different problem codes."
+    ::= { cgtcapPrErrComp 1 }
+
+cgtcapProtoCompErrorsTableEntry     OBJECT-TYPE
+    SYNTAX                          CgtcapProtoCompErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Measurements are available per instance."
+    INDEX           { cgspInstNetwork
+                    }
+    ::= { cgtcapProtoCompErrorsTable 1 }
+
+CgtcapProtoCompErrorsTableEntry ::= SEQUENCE {
+        cgtcapPrCompRjctRcvdUnrecogCompGP       Counter32,
+        cgtcapPrCompRjctSentUnrecogCompGP       Counter32,
+        cgtcapPrCompRjctRcvdMistypedCompGP      Counter32,
+        cgtcapPrCompRjctSentMistypedCompGP      Counter32,
+        cgtcapPrCompRjctRcvdBadStructCompGP     Counter32,
+        cgtcapPrCompRjctSentBadStructCompGP     Counter32,
+        cgtcapPrCompRjctRcvdUnrecogLinkedIdIP   Counter32,
+        cgtcapPrCompRjctSentUnrecogLinkedIdIP   Counter32,
+        cgtcapPrCompRjctRcvdUnrecogInvIdRRP     Counter32,
+        cgtcapPrCompRjctSentUnrecogInvIdRRP     Counter32,
+        cgtcapPrCompRjctRcvdRetRsltUnexpRRP     Counter32,
+        cgtcapPrCompRjctSentRetRsltUnexpRRP     Counter32,
+        cgtcapPrCompRjctRcvdUnrecogInvIdREP     Counter32,
+        cgtcapPrCompRjctSentUnrecogInvIdREP     Counter32,
+        cgtcapPrCompRjctRcvdUnexpRetErrREP      Counter32,
+        cgtcapPrCompRjctSentUnexpRetErrREP      Counter32
+}
+
+cgtcapPrCompRjctRcvdUnrecogCompGP             OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 unrecognized component - general problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 1 }
+
+cgtcapPrCompRjctSentUnrecogCompGP             OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of
+                 unrecognized component - general problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 2 }
+
+cgtcapPrCompRjctRcvdMistypedCompGP            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 mistyped component - general problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 3 }
+
+cgtcapPrCompRjctSentMistypedCompGP            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of
+                 mistyped component - general problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 4 }
+
+cgtcapPrCompRjctRcvdBadStructCompGP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 badly structured component - general problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 5 }
+
+cgtcapPrCompRjctSentBadStructCompGP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of
+                 badly structured component - general problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 6 }
+
+cgtcapPrCompRjctRcvdUnrecogLinkedIdIP         OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 unrecognized linked id - invoke problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 7 }
+
+cgtcapPrCompRjctSentUnrecogLinkedIdIP         OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of
+                 unrecognized linked id - invoke problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 8 }
+
+cgtcapPrCompRjctRcvdUnrecogInvIdRRP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 unrecognized invoke id - return result problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 9 }
+
+cgtcapPrCompRjctSentUnrecogInvIdRRP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of
+                 unrecognized invoke id - return result problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 10 }
+
+cgtcapPrCompRjctRcvdRetRsltUnexpRRP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 return result unexpected - return result problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 11 }
+
+cgtcapPrCompRjctSentRetRsltUnexpRRP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of
+                 return result unexpected - return result problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 12 }
+
+cgtcapPrCompRjctRcvdUnrecogInvIdREP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 unrecognized invoke id - return error problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 13 }
+
+cgtcapPrCompRjctSentUnrecogInvIdREP           OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of
+                 unrecognized invoke id - return error problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 14 }
+
+cgtcapPrCompRjctRcvdUnexpRetErrREP            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors received in component
+                 portion - reject received with a problem code of
+                 return error unexpected - return error problem (Q752/14.2)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.2. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 15 }
+
+cgtcapPrCompRjctSentUnexpRetErrREP            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of protocol errors sent in component
+                 portion - reject sent with a problem code of return 
+                 error unexpected - return error problem (Q752/14.5)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.5. TC
+                 fault measurements."
+        ::= { cgtcapProtoCompErrorsTableEntry 16 }
+
+
+-- *************************************************************
+-- *                                                           *
+-- * TCAP User Generated Errors Received per Signalling        *
+-- * Point                                                     *
+-- *                                                           *
+-- *************************************************************
+
+cgtcapUsrRjctRcvdErrorsTable        OBJECT-TYPE
+    SYNTAX                          SEQUENCE OF CgtcapUsrRjctRcvdErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Total number of TCAP user generated problems - reject received 
+         due to different component problems." 
+    ::= { cgtcapUsrErrRcvd 1 }
+
+cgtcapUsrRjctRcvdErrorsTableEntry   OBJECT-TYPE
+    SYNTAX                          CgtcapUsrRjctRcvdErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Measurements are available per instance."
+    INDEX           { cgspInstNetwork
+                    }
+    ::= { cgtcapUsrRjctRcvdErrorsTable 1 }
+
+CgtcapUsrRjctRcvdErrorsTableEntry ::= SEQUENCE {
+        cgtcapUsrRjctRcvdDupInvIdIP             Counter32,
+        cgtcapUsrRjctRcvdUnrecogOpIP            Counter32,
+        cgtcapUsrRjctRcvdMistypedParamIP        Counter32,
+        cgtcapUsrRjctRcvdResourceLimitIP        Counter32,
+        cgtcapUsrRjctRcvdInitReleaseIP          Counter32,
+        cgtcapUsrRjctRcvdLinkedRespUnexpIP      Counter32,
+        cgtcapUsrRjctRcvdUnexpLinkedOpIP        Counter32,
+        cgtcapUsrRjctRcvdUnrecogErrREP          Counter32,
+        cgtcapUsrRjctRcvdUnexpErrREP            Counter32,
+        cgtcapUsrRjctRcvdMistypedParamRRP       Counter32,
+        cgtcapUsrRjctRcvdMistypedParamREP       Counter32
+}
+
+cgtcapUsrRjctRcvdDupInvIdIP                   OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject 
+                 received - duplicate invoke id - invoke problem 
+                 (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 1 }
+
+cgtcapUsrRjctRcvdUnrecogOpIP                  OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - unrecognized operation - invoke problem 
+                 (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 2 }
+
+cgtcapUsrRjctRcvdMistypedParamIP              OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - mistyped parameter - invoke
+                 problem (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 3 }
+
+cgtcapUsrRjctRcvdResourceLimitIP              OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - resource limitation - invoke problem 
+                 (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 4 }
+
+cgtcapUsrRjctRcvdInitReleaseIP                OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - initiating release - invoke problem 
+                 (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 5 }
+
+cgtcapUsrRjctRcvdLinkedRespUnexpIP            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - linked response unexecpted - invoke 
+                 problem (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 6 }
+
+cgtcapUsrRjctRcvdUnexpLinkedOpIP              OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - unexpected linked operation - invoke
+                 problem (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 7 }
+
+cgtcapUsrRjctRcvdUnrecogErrREP                OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - unrecognized error - return error 
+                 problem (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 8 }
+
+cgtcapUsrRjctRcvdUnexpErrREP                  OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - unexpected error - return error problem 
+                 (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 9 }
+
+cgtcapUsrRjctRcvdMistypedParamRRP             OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - mistyped parameter - return result problem
+                 (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 10 }
+
+cgtcapUsrRjctRcvdMistypedParamREP             OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - mistyped parameter - return error problem
+                 (Q752/14.3)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.3. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctRcvdErrorsTableEntry 11 }
+
+
+-- *************************************************************
+-- *                                                           *
+-- * TCAP User Generated Errors Sent per Signalling Point and  *
+-- * User                                                      *
+-- *                                                           *
+-- *************************************************************
+cgtcapUsrRjctSentErrorsTable        OBJECT-TYPE
+    SYNTAX                          SEQUENCE OF CgtcapUsrRjctSentErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Total number of TCAP user generated problems - reject sent
+         due to different component problems."
+    ::= { cgtcapUsrErrSent 1 }
+
+cgtcapUsrRjctSentErrorsTableEntry   OBJECT-TYPE
+    SYNTAX                          CgtcapUsrRjctSentErrorsTableEntry
+    MAX-ACCESS                      not-accessible
+    STATUS                          current
+    DESCRIPTION
+        "Measurements are available per instance and TCAP user."
+    INDEX           { cgspInstNetwork,
+                      cgtcapUser
+                    }
+    ::= { cgtcapUsrRjctSentErrorsTable 1 }
+
+CgtcapUsrRjctSentErrorsTableEntry ::= SEQUENCE {
+        cgtcapUsrRjctSentDupInvIdIP             Counter32,
+        cgtcapUsrRjctSentUnrecogOpIP            Counter32,
+        cgtcapUsrRjctSentMistypedParamIP        Counter32,
+        cgtcapUsrRjctSentResourceLimitIP        Counter32,
+        cgtcapUsrRjctSentInitReleaseIP          Counter32,
+        cgtcapUsrRjctSentLinkedRespUnexpIP      Counter32,
+        cgtcapUsrRjctSentUnexpLinkedOpIP        Counter32,
+        cgtcapUsrRjctSentUnrecogErrREP          Counter32,
+        cgtcapUsrRjctSentUnexpErrREP            Counter32,
+        cgtcapUsrRjctSentMistypedParamRRP       Counter32,
+        cgtcapUsrRjctSentMistypedParamREP       Counter32
+}
+
+cgtcapUsrRjctSentDupInvIdIP                   OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - duplicate invoke id - invoke problem (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 1 }
+
+cgtcapUsrRjctSentUnrecogOpIP                  OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - unrecognized operation - invoke problem (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 2 }
+
+cgtcapUsrRjctSentMistypedParamIP              OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - mistyped parameter - invoke problem (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 3 }
+
+cgtcapUsrRjctSentResourceLimitIP              OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - resource limitation - invoke problem
+                 (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 4 }
+
+cgtcapUsrRjctSentInitReleaseIP                OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - initiating release - invoke problem 
+                 (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 5 }
+
+cgtcapUsrRjctSentLinkedRespUnexpIP            OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - linked response unexecpted - invoke problem
+                 (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 6 }
+
+cgtcapUsrRjctSentUnexpLinkedOpIP              OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - unexpected linked operation - invoke
+                 problem (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 7 }
+
+cgtcapUsrRjctSentUnrecogErrREP             OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 sent - unrecognized error - return error problem 
+                 (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 8 }
+
+cgtcapUsrRjctSentUnexpErrREP               OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - unexpected error - return error problem
+                 (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 9 }
+
+cgtcapUsrRjctSentMistypedParamRRP          OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - mistyped parameter - return result problem
+                 (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 10 }
+
+cgtcapUsrRjctSentMistypedParamREP          OBJECT-TYPE
+        SYNTAX                                Counter32
+        UNITS                                 "occurrences"
+        MAX-ACCESS                            read-only
+        STATUS                                current
+        DESCRIPTION
+                "Total number of TC user generated problems - reject
+                 received - mistyped parameter - return error problem
+                 (Q752/14.6)."
+        REFERENCE
+                "ITU  Q752 Monitoring and Measurements for Signalling
+                 System No. 7(SS7) Network Table 14 and Table A.6. TC
+                 fault measurements."
+        ::= { cgtcapUsrRjctSentErrorsTableEntry 11 }
+
+-- *************************************************************
+-- *                                                           *
+-- * Notifications Information                                 *
+-- *                                                           *
+-- *************************************************************
+
+cgtcapNotifIntervalDuration                   OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "seconds"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Duration elapsed since the start of the cgtcapNotifWindowTime
+         interval. This duration value can range from 0 upto
+         cgtcapNotifWindowTime.  For the notifications generated
+         at the end of the interval, this value will be equal to
+         cgtcapNotifWindowTime."
+    ::= { cgtcapNotifInfo 1 }
+
+cgtcapIntervalActiveTranExceeds               OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify 
+    STATUS                                    current
+    DESCRIPTION
+        "Number of times during which the number of open transactions 
+         exceeded the Signalling point threshold during this specific
+         cgtcapNotifIntervalDuration interval."
+    ::= { cgtcapNotifInfo 2 }
+
+cgtcapTCUser                                  OBJECT-TYPE
+    SYNTAX                                    CItpTcTCAPUser
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "TCAP user information for the notification."
+    ::= { cgtcapNotifInfo 3 }
+
+cgtcapIntTranAbrtUnrecogMsgType               OBJECT-TYPE
+    SYNTAX                                    Counter32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in transaction portion - aborts with P-abort 
+         cause of unrecognized message type (Q752/14.1 & 14.4) during this 
+         specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) 
+         Network Table 14, Table A.1 and Table A.4. TC fault measurements."
+    ::= { cgtcapNotifInfo 4 }
+
+cgtcapIntTranAbrtIncorrectTP                  OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in transaction portion - aborts with P-abort
+         cause of incorrect TP (Q752/14.1 & 14.4) during this specific
+         cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.1 and Table A.4. TC fault measurements."
+    ::= { cgtcapNotifInfo 5 }
+
+cgtcapIntTranAbrtBadFmtTP                     OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in transaction portion - aborts with P-abort
+         cause of badly formatted TP (Q752/14.1 & 14.4) during this specific
+         cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.1 and Table A.4. TC fault measurements."
+    ::= { cgtcapNotifInfo 6 }
+
+cgtcapIntTranAbrtUnrecogTID                   OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in transaction portion - aborts with P-abort
+         cause of unrecognized TID (Q752/14.1 & 14.4) during this specific
+         cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.1 and Table A.4. TC fault measurements."
+    ::= { cgtcapNotifInfo 7 }
+
+cgtcapIntTranAbrtResrcLimit                   OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in transaction portion - aborts with P-abort 
+         cause of resource limitation (Q752/14.1 & 14.4) during this specific
+         cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.1 and Table A.4. TC fault measurements."
+    ::= {  cgtcapNotifInfo 8 }
+
+cgtcapIntCompRjctUnrecogCompGP                OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code
+         of unrecognized component - general problem (Q752/14.2 & 14.5) during
+         this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.2 and Table A.5. TC fault measurements."
+    ::= { cgtcapNotifInfo 9 }
+
+cgtcapIntCompRjctMistypedCompGP               OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code 
+         of mistyped component - general problem (Q752/14.2 & 14.5) during this specific 
+         cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.2 and Table A.5. TC fault measurements."
+    ::= { cgtcapNotifInfo 10 }
+
+cgtcapIntCompRjctBadStructCompGP              OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code
+         of badly structured component - general problem (Q752/14.2 & 14.5) during this
+         specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.2 and Table A.5. TC fault measurements."
+    ::= { cgtcapNotifInfo 11 }
+
+cgtcapIntCompRjctUnrecogLinkedIdIP            OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code
+         of unrecognized linked id - invoke problem (Q752/14.2 & 14.5) during this
+         specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.2 and Table A.5. TC fault measurements."
+    ::= { cgtcapNotifInfo 12 }
+
+cgtcapIntCompRjctUnrecogInvIdRRP              OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code of
+         unrecognized invoke id - return result problem (Q752/14.2 & 14.5) during this
+         specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.2 and Table A.5. TC fault measurements."
+    ::= { cgtcapNotifInfo 13 }
+
+cgtcapIntCompRjctRetRsltUnexpRRP              OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code of 
+         return result unexpected - return result problem (Q752/14.2 & 14.5) during this 
+         specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) 
+         Network Table 14 and Table A.2. TC fault measurements."
+    ::= { cgtcapNotifInfo 14 }
+
+cgtcapIntCompRjctUnrecogInvIdREP              OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code of
+         unrecognized invoke id - return error problem (Q752/14.2 & 14.5) during this 
+         specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.2 and Table A.5. TC fault measurements."
+    ::= { cgtcapNotifInfo 15 }
+
+cgtcapIntCompRjctUnexpRetErrREP               OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of protocol errors in component portion - rejects with a problem code of
+         return error unexpected - return error problem (Q752/14.2 & 14.5) during this 
+         specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7)
+         Network Table 14, Table A.2 and Table A.5. TC fault measurements."
+    ::= { cgtcapNotifInfo 16 }
+
+cgtcapIntUsrRjctDupInvIdIP                    OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - duplicate invoke id - invoke problem 
+         (Q752/14.3 & 14.6) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network 
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 17 }
+
+cgtcapIntUsrRjctUnrecogOpIP                   OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - unrecognized operation - invoke problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 18 }
+
+cgtcapIntUsrRjctMistypedParamIP               OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - mistyped parameter - invoke problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 19 }
+
+cgtcapIntUsrRjctResourceLimitIP               OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - resource limitation - invoke problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 20 }
+
+cgtcapIntUsrRjctInitReleaseIP                 OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - initiating release - invoke problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 21 }
+
+cgtcapIntUsrRjctLinkedRespUnexpIP             OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - linked response unexecpted - invoke problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 22 }
+
+cgtcapIntUsrRjctUnexpLinkedOpIP               OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - unexpected linked operation - invoke problem 
+         (Q752/14.3) during this specific gtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 23 }
+
+cgtcapIntUsrRjctUnrecogErrREP                 OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - unrecognized error - return error problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 24 }
+
+cgtcapIntUsrRjctUnexpErrREP                   OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - unexpected error - return error problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 25 }
+
+cgtcapIntUsrRjctMistypedParamRRP              OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - mistyped parameter - return result problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 26 }
+
+cgtcapIntUsrRjctMistypedParamREP              OBJECT-TYPE
+    SYNTAX                                    Unsigned32
+    UNITS                                     "occurrences"
+    MAX-ACCESS                                accessible-for-notify
+    STATUS                                    current
+    DESCRIPTION
+        "Number of TC user generated rejects - mistyped parameter - return error problem 
+         (Q752/14.3) during this specific cgtcapNotifIntervalDuration interval."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling System No. 7(SS7) Network
+         Table 14, Table A.3 and Table A.6. TC fault measurements."
+    ::= { cgtcapNotifInfo 27 }
+
+--  *************************************************************
+--  *                                                           *
+--  * Notifications                                             *
+--  *                                                           *
+--  *************************************************************
+ciscoGtcapProtoErrTranAbortRcvd NOTIFICATION-TYPE
+        OBJECTS {
+                cgspEventSequenceNumber,
+                cgspCLLICode,
+                cgspInstDisplayName,
+                cgtcapNotifIntervalDuration,
+                cgtcapIntTranAbrtUnrecogMsgType,
+                cgtcapIntTranAbrtIncorrectTP,
+                cgtcapIntTranAbrtBadFmtTP,
+                cgtcapIntTranAbrtUnrecogTID,
+                cgtcapIntTranAbrtResrcLimit
+        }
+        STATUS  current
+        DESCRIPTION
+           "The notification is generated, when a nonzero number
+            of any of the protocol errors in transaction portion
+            is received during the cgtcapNotifIntervalDuration, for
+            the first time in the configured cgtcapNotifIntervalDuration. 
+            During such cases, this notification will be sent at the
+            end of the cgtcapNotifIntervalDuration interval, with the
+            counters indicating the total protocol errors during the
+            entire cgtcapNotifIntervalDuration interval Q752/14.1"
+        ::= { ciscoGtcapMIBNotifs 1 }
+
+ciscoGtcapProtoErrTranAbortSent NOTIFICATION-TYPE
+        OBJECTS {
+                cgspEventSequenceNumber,
+                cgspCLLICode,
+                cgspInstDisplayName,
+                cgtcapNotifIntervalDuration,
+                cgtcapTCUser,
+                cgtcapIntTranAbrtUnrecogMsgType,
+                cgtcapIntTranAbrtIncorrectTP,
+                cgtcapIntTranAbrtBadFmtTP,
+                cgtcapIntTranAbrtUnrecogTID,
+                cgtcapIntTranAbrtResrcLimit
+        }
+        STATUS  current
+        DESCRIPTION
+           "The notification is generated, when a nonzero number
+            of any of the protocol errors in transaction portion
+            is sent during the cgtcapNotifIntervalDuration, for 
+            the first time in the configured cgtcapNotifIntervalDuration.
+            During such cases, this notification will be sent at the
+            end of the cgtcapNotifIntervalDuration interval, with the
+            counters indicating the total protocol errors during the
+            entire cgtcapNotifIntervalDuration interval Q752/14.4"
+        ::= { ciscoGtcapMIBNotifs 2 }
+
+ciscoGtcapProtoErrCompRejectRcvd NOTIFICATION-TYPE
+        OBJECTS {
+                cgspEventSequenceNumber,
+                cgspCLLICode,
+                cgspInstDisplayName,
+                cgtcapNotifIntervalDuration,
+                cgtcapIntCompRjctUnrecogCompGP,
+                cgtcapIntCompRjctMistypedCompGP,
+                cgtcapIntCompRjctBadStructCompGP,
+                cgtcapIntCompRjctUnrecogLinkedIdIP,
+                cgtcapIntCompRjctUnrecogInvIdRRP,
+                cgtcapIntCompRjctRetRsltUnexpRRP,
+                cgtcapIntCompRjctUnrecogInvIdREP,
+                cgtcapIntCompRjctUnexpRetErrREP
+        }
+        STATUS  current
+        DESCRIPTION
+           "The notification is generated, when a nonzero number
+            of any of the protocol errors in component portion
+            is received during the cgtcapNotifIntervalDuration, for
+            the first time in the configured cgtcapNotifIntervalDuration.
+            During such cases, this notification will be sent at the
+            end of the cgtcapNotifIntervalDuration interval, with the
+            counters indicating the total protocol errors during the
+            entire cgtcapNotifIntervalDuration interval Q752/14.2"
+        ::= { ciscoGtcapMIBNotifs 3 }
+
+ciscoGtcapProtoErrCompRejectSent NOTIFICATION-TYPE
+        OBJECTS {
+                cgspEventSequenceNumber,
+                cgspCLLICode,
+                cgspInstDisplayName,
+                cgtcapNotifIntervalDuration,
+                cgtcapIntCompRjctUnrecogCompGP,
+                cgtcapIntCompRjctMistypedCompGP,
+                cgtcapIntCompRjctBadStructCompGP,
+                cgtcapIntCompRjctUnrecogLinkedIdIP,
+                cgtcapIntCompRjctUnrecogInvIdRRP,
+                cgtcapIntCompRjctRetRsltUnexpRRP,
+                cgtcapIntCompRjctUnrecogInvIdREP,
+                cgtcapIntCompRjctUnexpRetErrREP
+        }
+        STATUS  current
+        DESCRIPTION
+           "The notification is generated, when a nonzero number
+            of any of the protocol errors in component portion
+            is sent during the cgtcapNotifIntervalDuration, for
+            the first time in the configured cgtcapNotifIntervalDuration.
+            During such cases, this notification will be sent at the
+            end of the cgtcapNotifIntervalDuration interval, with the
+            counters indicating the total protocol errors during the
+            entire cgtcapNotifIntervalDuration interval Q752/14.5"
+        ::= { ciscoGtcapMIBNotifs 4 }
+
+ciscoGtcapTCUserErrRejectRcvd NOTIFICATION-TYPE
+        OBJECTS {
+                cgspEventSequenceNumber,
+                cgspCLLICode,
+                cgtcapNotifIntervalDuration,
+                cgtcapIntUsrRjctDupInvIdIP,
+                cgtcapIntUsrRjctUnrecogOpIP,
+                cgtcapIntUsrRjctMistypedParamIP,
+                cgtcapIntUsrRjctResourceLimitIP,
+                cgtcapIntUsrRjctInitReleaseIP,
+                cgtcapIntUsrRjctLinkedRespUnexpIP,
+                cgtcapIntUsrRjctUnexpLinkedOpIP,
+                cgtcapIntUsrRjctUnrecogErrREP,
+                cgtcapIntUsrRjctUnexpErrREP,
+                cgtcapIntUsrRjctMistypedParamRRP,
+                cgtcapIntUsrRjctMistypedParamREP
+        }
+        STATUS  current
+        DESCRIPTION
+           "The notification is generated, when a nonzero number
+            of any of the TC user errors is received during the 
+            cgtcapNotifIntervalDuration, for the first time in 
+            the configured cgtcapNotifIntervalDuration.  During 
+            such cases, this notification will be sent at the end 
+            of the cgtcapNotifIntervalDuration interval, with the
+            counters indicating the total TC User errors during the
+            entire cgtcapNotifIntervalDuration interval Q752/14.3"
+        ::= { ciscoGtcapMIBNotifs 5 }
+
+ciscoGtcapTCUserErrRejectSent NOTIFICATION-TYPE
+        OBJECTS {
+                cgspEventSequenceNumber,
+                cgspCLLICode,
+                cgtcapNotifIntervalDuration,
+                cgtcapTCUser,
+                cgtcapIntUsrRjctDupInvIdIP,
+                cgtcapIntUsrRjctUnrecogOpIP,
+                cgtcapIntUsrRjctMistypedParamIP,
+                cgtcapIntUsrRjctResourceLimitIP,
+                cgtcapIntUsrRjctInitReleaseIP,
+                cgtcapIntUsrRjctLinkedRespUnexpIP,
+                cgtcapIntUsrRjctUnexpLinkedOpIP,
+                cgtcapIntUsrRjctUnrecogErrREP,
+                cgtcapIntUsrRjctUnexpErrREP,
+                cgtcapIntUsrRjctMistypedParamRRP,
+                cgtcapIntUsrRjctMistypedParamREP
+        }
+        STATUS  current
+        DESCRIPTION
+           "The notification is generated, when a nonzero number
+            of any of the TC user errors is sent during the 
+            cgtcapNotifIntervalDuration, for the first time in 
+            the configured cgtcapNotifIntervalDuration.  During 
+            such cases, this notification will be sent at the end 
+            of the cgtcapNotifIntervalDuration interval, with the
+            counters indicating the total TC User errors during the
+            entire cgtcapNotifIntervalDuration interval Q752/14.6"
+        ::= { ciscoGtcapMIBNotifs 6 }
+
+ciscoGtcapActiveTranExceedThreshold NOTIFICATION-TYPE
+        OBJECTS {
+                cgspEventSequenceNumber,
+                cgspCLLICode,
+                cgspInstDisplayName,
+                cgtcapNotifIntervalDuration,
+                cgtcapIntervalActiveTranExceeds
+        }
+        STATUS  current
+        DESCRIPTION
+           "The notification generated when the number of open 
+            transaction IDs is greater than the thresholds during 
+            the configured cgtcapNotifIntervalDuration. During such
+            cases, this notification will be sent at the end of the 
+            cgtcapNotifIntervalDuration interval, with the 
+            cgtcapIntervalActiveTranExceeds indicating the total
+            exceeded open transactions during the entire
+            cgtcapNotifIntervalDuration interval Q752/13.11"
+        ::= { ciscoGtcapMIBNotifs 7 }
+
+
+--  *******************************************************************
+--  *                                                                  
+--  *  Conformance Information
+--  *
+--  *******************************************************************
+ciscoGtcapMIBCompliances OBJECT IDENTIFIER 
+                         ::= { ciscoGtcapMIBConform 1 }
+ciscoGtcapMIBGroups      OBJECT IDENTIFIER 
+                         ::= { ciscoGtcapMIBConform 2 }
+
+-- Compliance
+
+ciscoGtcapMIBCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the CISCO-ITP-GTCAP-MIB.my MIB"
+        MODULE -- this module
+                MANDATORY-GROUPS {
+                        ciscoGtcapGlobalEntryGroup,
+                        ciscoGtcapInstTableEntryGroup,
+                        ciscogtcapUtilTableEntryGroup,
+                        ciscoGtcapProtoTranRcvdErrorsGroup,
+                        ciscoGtcapProtoTranSentErrorsGroup,
+                        ciscoGtcapProtoCompErrorsGroup,
+                        ciscoGtcapUsrRjctRcvdErrorsGroup,
+                        ciscoGtcapProtoCompSentErrorsGroup,
+                        ciscoGtcapNotifInfoGroup,
+                        ciscoGtcapNotificationsGroup
+                }
+                
+        ::= { ciscoGtcapMIBCompliances 1 }
+        
+-- Units of Conformance
+ciscoGtcapGlobalEntryGroup OBJECT-GROUP
+        OBJECTS {
+                cgtcapTranErrorNotifEnabled,
+                cgtcapCompErrorNotifEnabled,
+                cgtcapUsrErrorNotifEnabled,
+                cgtcapThreshldExcdNotifEnabled,
+                cgtcapNotifWindowTime,
+                cgtcapUtilSampleInterval,
+                cgtcapStatsInterval
+        }
+        STATUS current 
+        DESCRIPTION
+                "Gateway TCAP Scalar objects."
+        ::= { ciscoGtcapMIBGroups 1 }
+
+ciscoGtcapInstTableEntryGroup OBJECT-GROUP
+        OBJECTS {
+                cgtcapInstTotalTCMsgsSent,
+                cgtcapInstTotalTCMsgsRcvd,
+                cgtcapInstTotalCompSent,
+                cgtcapInstTotalCompRcvd,
+                cgtcapInstActiveExceedThresholds,
+                cgtcapInstUnidirectionalTranRcvd,
+                cgtcapInstUnidirectionalTranSent,
+                cgtcapInstBeginQueryTranRcvd,
+                cgtcapInstBeginQueryTranSent,
+                cgtcapInstBeginQueryWOPermTranRcvd,
+                cgtcapInstBeginQueryWOPermTranSent,
+                cgtcapInstEndResponseTranRcvd,
+                cgtcapInstEndResponseTranSent,
+                cgtcapInstContinueConvTranRcvd,
+                cgtcapInstContinueConvTranSent,
+                cgtcapInstContConvWOPermTranRcvd,
+                cgtcapInstContConvWOPermTranSent,
+                cgtcapInstAbortTranRcvd,
+                cgtcapInstAbortTranSent,
+                cgtcapInstClass1TCLocalCancelInd,
+                cgtcapInstTotalDiscardsAllReasons,
+                cgtcapInstProviderAbortsRcvd,
+                cgtcapInstTotalRejectsRcvd,
+                cgtcapInstTotalTransactionErr
+        }
+        STATUS current 
+        DESCRIPTION
+                "TCAP Instance specific measurement objects."
+        ::= { ciscoGtcapMIBGroups 2 }
+
+ciscogtcapUtilTableEntryGroup OBJECT-GROUP
+        OBJECTS {
+                cgtcapNewTransInInterval,
+                cgtcapMeanOpenTransIdInInterval,
+                cgtcapCumulativeMeanDurationOfTran,
+                cgtcapMaxOpenTransIdInInterval,
+                cgtcapUtilEndTimestamp,
+                cgtcapUtilPhysicalIndex
+        }
+        STATUS current
+        DESCRIPTION
+                "TCAP Instance specific utilization measurement objects."
+        ::= { ciscoGtcapMIBGroups 3 }
+
+ciscoGtcapProtoTranRcvdErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                    cgtcapPrTranAbrtRcvdUnrecogMsgType,
+                    cgtcapPrTranAbrtRcvdIncorrectTP,
+                    cgtcapPrTranAbrtRcvdBadFmtTP,
+                    cgtcapPrTranAbrtRcvdUnrecogTID,
+                    cgtcapPrTranAbrtRcvdResrcLimit
+    }
+    STATUS          current
+    DESCRIPTION
+        "Protocol errors received in Transaction sublayer."
+    ::= { ciscoGtcapMIBGroups 4 }
+
+ciscoGtcapProtoTranSentErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                    cgtcapPrTranAbrtSentUnrecogMsgType,
+                    cgtcapPrTranAbrtSentIncorrectTP,
+                    cgtcapPrTranAbrtSentBadFmtTP,
+                    cgtcapPrTranAbrtSentUnrecogTID,
+                    cgtcapPrTranAbrtSentResrcLimit
+    }
+    STATUS          current
+    DESCRIPTION
+        "Protocol errors sent in Transaction sublayer."
+    ::= { ciscoGtcapMIBGroups 5 }
+
+ciscoGtcapProtoCompErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                    cgtcapPrCompRjctRcvdUnrecogCompGP,
+                    cgtcapPrCompRjctSentUnrecogCompGP,
+                    cgtcapPrCompRjctRcvdMistypedCompGP,
+                    cgtcapPrCompRjctSentMistypedCompGP,
+                    cgtcapPrCompRjctRcvdBadStructCompGP,
+                    cgtcapPrCompRjctSentBadStructCompGP,
+                    cgtcapPrCompRjctRcvdUnrecogLinkedIdIP,
+                    cgtcapPrCompRjctSentUnrecogLinkedIdIP, 
+                    cgtcapPrCompRjctRcvdUnrecogInvIdRRP,
+                    cgtcapPrCompRjctSentUnrecogInvIdRRP,
+                    cgtcapPrCompRjctRcvdRetRsltUnexpRRP,
+                    cgtcapPrCompRjctSentRetRsltUnexpRRP,
+                    cgtcapPrCompRjctRcvdUnrecogInvIdREP,
+                    cgtcapPrCompRjctSentUnrecogInvIdREP,
+                    cgtcapPrCompRjctRcvdUnexpRetErrREP,
+                    cgtcapPrCompRjctSentUnexpRetErrREP
+    }
+    STATUS          current
+    DESCRIPTION
+        "Protocol errors in Component sublayer."
+    ::= { ciscoGtcapMIBGroups 6 }
+
+ciscoGtcapUsrRjctRcvdErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                    cgtcapUsrRjctRcvdDupInvIdIP,
+                    cgtcapUsrRjctRcvdUnrecogOpIP,
+                    cgtcapUsrRjctRcvdMistypedParamIP,
+                    cgtcapUsrRjctRcvdResourceLimitIP,
+                    cgtcapUsrRjctRcvdInitReleaseIP,
+                    cgtcapUsrRjctRcvdLinkedRespUnexpIP,
+                    cgtcapUsrRjctRcvdUnexpLinkedOpIP,
+                    cgtcapUsrRjctRcvdUnrecogErrREP,
+                    cgtcapUsrRjctRcvdUnexpErrREP,
+                    cgtcapUsrRjctRcvdMistypedParamRRP,
+                    cgtcapUsrRjctRcvdMistypedParamREP
+    }
+    STATUS          current
+    DESCRIPTION
+        "TCAP user generated errors received."
+    ::= { ciscoGtcapMIBGroups 7 }
+
+ciscoGtcapProtoCompSentErrorsGroup OBJECT-GROUP
+    OBJECTS         {
+                    cgtcapUsrRjctSentDupInvIdIP,
+                    cgtcapUsrRjctSentUnrecogOpIP,
+                    cgtcapUsrRjctSentMistypedParamIP,
+                    cgtcapUsrRjctSentResourceLimitIP,
+                    cgtcapUsrRjctSentInitReleaseIP,
+                    cgtcapUsrRjctSentLinkedRespUnexpIP,
+                    cgtcapUsrRjctSentUnexpLinkedOpIP,
+                    cgtcapUsrRjctSentUnrecogErrREP,
+                    cgtcapUsrRjctSentUnexpErrREP,
+                    cgtcapUsrRjctSentMistypedParamRRP,
+                    cgtcapUsrRjctSentMistypedParamREP
+    }
+    STATUS          current
+    DESCRIPTION
+        "Protocol errors sent in Component sublayer."
+    ::= { ciscoGtcapMIBGroups 8 }
+
+ciscoGtcapNotifInfoGroup OBJECT-GROUP
+        OBJECTS {
+                cgtcapNotifIntervalDuration,
+                cgtcapIntervalActiveTranExceeds,
+                cgtcapTCUser,
+                cgtcapIntTranAbrtUnrecogMsgType,
+                cgtcapIntTranAbrtIncorrectTP,
+                cgtcapIntTranAbrtBadFmtTP,
+                cgtcapIntTranAbrtUnrecogTID,
+                cgtcapIntTranAbrtResrcLimit,
+                cgtcapIntCompRjctUnrecogCompGP,
+                cgtcapIntCompRjctMistypedCompGP,
+                cgtcapIntCompRjctBadStructCompGP,
+                cgtcapIntCompRjctUnrecogLinkedIdIP,
+                cgtcapIntCompRjctUnrecogInvIdRRP,
+                cgtcapIntCompRjctRetRsltUnexpRRP,
+                cgtcapIntCompRjctUnrecogInvIdREP,
+                cgtcapIntCompRjctUnexpRetErrREP,
+                cgtcapIntUsrRjctDupInvIdIP,
+                cgtcapIntUsrRjctUnrecogOpIP,
+                cgtcapIntUsrRjctMistypedParamIP,
+                cgtcapIntUsrRjctResourceLimitIP,
+                cgtcapIntUsrRjctInitReleaseIP,
+                cgtcapIntUsrRjctLinkedRespUnexpIP,
+                cgtcapIntUsrRjctUnexpLinkedOpIP,
+                cgtcapIntUsrRjctUnrecogErrREP,
+                cgtcapIntUsrRjctUnexpErrREP,
+                cgtcapIntUsrRjctMistypedParamRRP,
+                cgtcapIntUsrRjctMistypedParamREP
+          }
+          STATUS current
+          DESCRIPTION
+                  "TCAP notification information objects."
+        ::= { ciscoGtcapMIBGroups 9 }
+
+ciscoGtcapNotificationsGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+                  ciscoGtcapProtoErrTranAbortRcvd,
+                  ciscoGtcapProtoErrTranAbortSent,
+                  ciscoGtcapProtoErrCompRejectRcvd,
+                  ciscoGtcapProtoErrCompRejectSent,
+                  ciscoGtcapTCUserErrRejectRcvd,
+                  ciscoGtcapTCUserErrRejectSent,
+                  ciscoGtcapActiveTranExceedThreshold
+          }
+          STATUS current
+          DESCRIPTION
+                  "TCAP notification objects."
+        ::= { ciscoGtcapMIBGroups 10 }
+
+END

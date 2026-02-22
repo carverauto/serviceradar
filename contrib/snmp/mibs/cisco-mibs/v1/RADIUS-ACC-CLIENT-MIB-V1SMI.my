@@ -1,0 +1,278 @@
+-- MIB file created 15-May-2006 09:43:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+RADIUS-ACC-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "RADIUS-ACC-CLIENT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    Counter, Gauge, IpAddress, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+radiusAccClientMIB OBJECT IDENTIFIER ::= { radiusAccounting 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9906110000Z
+--  OrgName
+--    IETF RADIUS Working Group.
+--  ContactInfo
+--     Bernard Aboba
+--      Microsoft
+--      One Microsoft Way
+--      Redmond, WA  98052
+--      US
+--    
+--      Phone: +1 425 936 6605
+--      EMail: bernarda@microsoft.com
+--  Descr
+--    The MIB module for entities implementing the client side of
+--     the Remote Access Dialin User Service (RADIUS) accounting
+--     protocol.
+--  RevDate
+--    9906110000Z
+--  RevDescr
+--    Initial version as published in RFC 2620
+
+radiusAccounting OBJECT IDENTIFIER ::= { radiusMIB 2 }
+radiusAccClientMIBObjects OBJECT IDENTIFIER ::= { radiusAccClientMIB 1 }
+radiusAccClient OBJECT IDENTIFIER ::= { radiusAccClientMIBObjects 1 }
+radiusAccClientMIBConformance OBJECT IDENTIFIER ::= { radiusAccClientMIB 2 }
+radiusAccClientMIBCompliances OBJECT IDENTIFIER ::= { radiusAccClientMIBConformance 1 }
+radiusAccClientMIBGroups OBJECT IDENTIFIER ::= { radiusAccClientMIBConformance 2 }
+
+radiusMIB OBJECT IDENTIFIER ::= { mib-2 67 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The OID assigned to RADIUS MIB work by the IANA.
+
+radiusAccClientInvalidServerAddresses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Accounting-Response packets
+         received from unknown addresses."
+    ::= { radiusAccClient 1 }
+
+radiusAccClientIdentifier OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The NAS-Identifier of the RADIUS accounting client. This
+         is not necessarily the same as sysName in MIB II."
+    ::= { radiusAccClient 2 }
+
+radiusAccServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RadiusAccServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the RADIUS accounting
+         servers with which the client shares a secret."
+    ::= { radiusAccClient 3 }
+
+radiusAccServerEntry OBJECT-TYPE
+    SYNTAX RadiusAccServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) representing a RADIUS
+         accounting server with which the client shares a secret."
+    INDEX { radiusAccServerIndex }
+    ::= { radiusAccServerTable 1 }
+
+RadiusAccServerEntry ::= SEQUENCE {
+    radiusAccServerIndex INTEGER,
+    radiusAccServerAddress IpAddress,
+    radiusAccClientServerPortNumber INTEGER,
+    radiusAccClientRoundTripTime TimeTicks,
+    radiusAccClientRequests Counter,
+    radiusAccClientRetransmissions Counter,
+    radiusAccClientResponses Counter,
+    radiusAccClientMalformedResponses Counter,
+    radiusAccClientBadAuthenticators Counter,
+    radiusAccClientPendingRequests Gauge,
+    radiusAccClientTimeouts Counter,
+    radiusAccClientUnknownTypes Counter,
+    radiusAccClientPacketsDropped Counter
+    }
+
+radiusAccServerIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A number uniquely identifying each RADIUS
+         Accounting server with which this client
+         communicates."
+    ::= { radiusAccServerEntry 1 }
+
+radiusAccServerAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the RADIUS accounting server
+         referred to in this table entry."
+    ::= { radiusAccServerEntry 2 }
+
+radiusAccClientServerPortNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The UDP port the client is using to send requests to
+         this server."
+    ::= { radiusAccServerEntry 3 }
+
+radiusAccClientRoundTripTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time interval between the most recent
+        Accounting-Response and the Accounting-Request that
+        matched it from this RADIUS accounting server."
+    ::= { radiusAccServerEntry 4 }
+
+radiusAccClientRequests OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Accounting-Request packets
+         sent. This does not include retransmissions."
+    ::= { radiusAccServerEntry 5 }
+
+radiusAccClientRetransmissions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Accounting-Request packets
+         retransmitted to this RADIUS accounting server.
+         Retransmissions include retries where the
+         Identifier and Acct-Delay have been updated, as
+         well as those in which they remain the same."
+    ::= { radiusAccServerEntry 6 }
+
+radiusAccClientResponses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS packets received on the
+         accounting port from this server."
+    ::= { radiusAccServerEntry 7 }
+
+radiusAccClientMalformedResponses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of malformed RADIUS Accounting-Response
+         packets received from this server. Malformed packets
+        include packets with an invalid length. Bad
+        authenticators and unknown types are not included as
+        malformed accounting responses."
+    ::= { radiusAccServerEntry 8 }
+
+radiusAccClientBadAuthenticators OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Accounting-Response
+         packets which contained invalid authenticators
+         received from this server."
+    ::= { radiusAccServerEntry 9 }
+
+radiusAccClientPendingRequests OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Accounting-Request packets
+         sent to this server that have not yet timed out or
+         received a response. This variable is incremented when an
+         Accounting-Request is sent and decremented due to
+         receipt of an Accounting-Response, a timeout or
+         a retransmission."
+    ::= { radiusAccServerEntry 10 }
+
+radiusAccClientTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of accounting timeouts to this server.
+         After a timeout the client may retry to the same
+         server, send to a different server, or give up.
+         A retry to the same server is counted as a
+         retransmit as well as a timeout. A send to a different
+         server is counted as an Accounting-Request as well as
+         a timeout."
+    ::= { radiusAccServerEntry 11 }
+
+radiusAccClientUnknownTypes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS packets of unknown type which
+         were received from this server on the accounting port."
+    ::= { radiusAccServerEntry 12 }
+
+radiusAccClientPacketsDropped OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS packets which were received from
+         this server on the accounting port and dropped for some
+         other reason."
+    ::= { radiusAccServerEntry 13 }
+
+radiusAccClientMIBGroup OBJECT IDENTIFIER ::= { radiusAccClientMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The basic collection of objects providing management of
+--     RADIUS Accounting Clients.
+--  objects
+--    radiusAccClientIdentifier, 
+--    radiusAccClientInvalidServerAddresses, radiusAccServerAddress, 
+--    radiusAccClientServerPortNumber, radiusAccClientRoundTripTime, 
+--    radiusAccClientRequests, radiusAccClientRetransmissions, 
+--    radiusAccClientResponses, radiusAccClientMalformedResponses, 
+--    radiusAccClientBadAuthenticators, 
+--    radiusAccClientPendingRequests, radiusAccClientTimeouts, 
+--    radiusAccClientUnknownTypes, radiusAccClientPacketsDropped
+
+radiusAccClientMIBCompliance OBJECT IDENTIFIER ::= { radiusAccClientMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for accounting clients
+--     implementing the RADIUS Accounting Client MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    radiusAccClientMIBGroup
+
+
+END
+

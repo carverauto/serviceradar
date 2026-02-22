@@ -1,0 +1,1260 @@
+-- *****************************************************************
+-- CISCO-WAN-CESM-CONN-MIB: CESM(Circuit Emulation Service )
+--  Connection MIB in MGX82xx series.
+--
+-- September 2002, Subra Hegde
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WAN-CES-CONN-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE, 
+        Integer32          FROM    SNMPv2-SMI
+        TruthValue         FROM    SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP       FROM    SNMPv2-CONF
+        circuitEmulation,
+        cesmChan           FROM    BASIS-MIB
+        ciscoWan           FROM    CISCOWAN-SMI;
+
+ciscoWanCesConnMIB MODULE-IDENTITY
+        LAST-UPDATED    "200209180000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module to configure the Circuit Emulation
+        connections in MGX82xx series products.
+
+        Terminology:
+        CES                : Circuit Emulation Service.
+                             The CES defines a method of
+                             carrying a traffic from non-ATM telephony
+                             devices over an ATM cloud. The CES provides
+                             an interworking function(IWF) that allows
+                             the two protocols to communicate.
+        channel , endpoint : channel and connection endpoint 
+                             have same meaning and are used 
+                             interchangebly.
+        DAX Connection     : Digital Access and Cross-connect connection
+                             is a connection where master and slave
+                             endpoints are with in the same MGX shelf.
+        CAS                : Channel Associated Signaling. This
+                             is in-band signaling.
+        CCS                : Common Channel Signaling. This is
+                             is out-of-band signaling."
+
+    REVISION    "200209180000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+        The applicable objects from CISCO-WAN-AXIPOP-MIB
+        are defined using SMIv2 in this MIB. Also the
+        descriptions of some of the objects have been 
+        modified."
+    ::= { ciscoWan 42 }
+
+cesmChanCnfGrp          OBJECT IDENTIFIER ::= { cesmChan 1 }
+
+
+-- **********************************************************************
+--
+-- cesmChannelConfig group
+-- Channel configurable parameters  
+--
+-- **********************************************************************
+
+cesmChanCnfGrpTable    OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CesmChanCnfGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This table contains the configuration information
+        for connection endpoints."
+    ::= { cesmChanCnfGrp 1 }
+
+cesmChanCnfGrpEntry    OBJECT-TYPE
+    SYNTAX     CesmChanCnfGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the cesmChanCnfGrpTable. The each
+        entry corresponds to a connection endpoint identified
+        by following objects:
+           - cesCnfChanNum : Channel Number
+           - cesChanPortNum: Logical Port Number
+           - VPI/VCI value for local/remote endpoints
+           - NSAP Addresses for local/remote endpoints."
+    INDEX    { cesCnfChanNum }
+    ::= { cesmChanCnfGrpTable 1 }
+
+CesmChanCnfGrpEntry ::=
+    SEQUENCE {
+       cesCnfChanNum                  Integer32,
+       cesChanRowStatus               INTEGER, 
+       cesMapPortNum                  Integer32,
+       cesMapVpi                      Integer32,
+       cesMapVci                      Integer32, 
+       cesCBRService                  INTEGER,
+       cesCBRClockMode                INTEGER,
+       cesCas                         INTEGER,
+       cesPartialFill                 Integer32,
+       cesBufMaxSize                  Integer32,
+       cesCDVRxT                      Integer32,
+       cesCellLossIntegrationPeriod   Integer32,
+       cesChanLocRmtLpbkState         INTEGER,
+       cesChanTestType                INTEGER,
+       cesChanTestState               INTEGER,
+       cesChanRTDResult               Integer32,
+       cesChanPortNum                 Integer32,
+       cesChanConnType                INTEGER,
+       cesChanStrauSciNum             INTEGER,
+       cesChanIdleDetEnable           INTEGER,
+       cesChanIdleSignalCode          Integer32,
+       cesChanIdleCodeIntgnPeriod     Integer32,
+       cesChanOnhookCode              Integer32,
+       cesChanConditionedData         Integer32,
+       cesmChanExtTrgIdleSupp         INTEGER,
+       cesmChanConditionedSigCode     Integer32,
+-- Connection parameters, used by PXM
+       cesLocalVpi                    Integer32,
+       cesLocalVci                    Integer32,
+       cesLocalNSAP                   OCTET STRING,
+       cesRemoteVpi                   Integer32,
+       cesRemoteVci                   Integer32,
+       cesRemoteNSAP                  OCTET STRING,
+       cesMastership                  INTEGER,
+       cesVpcFlag                     INTEGER,
+       cesConnServiceType             INTEGER,
+       cesRoutingPriority             Integer32,
+       cesMaxCost                     Integer32,
+       cesRestrictTrunkType           INTEGER,
+       cesConnPCR                     Integer32,
+       cesConnMCR                     Integer32,
+       cesConnPercentUtil             Integer32,
+       cesmConnRemotePCR   	      Integer32,
+       cesmConnRemoteMCR   	      Integer32,
+       cesmConnRemotePercentUtil      Integer32,
+       cesmConnForeSightEnable        INTEGER,
+       cesmConnFGCRAEnable            INTEGER,
+       cesmChanReroute                INTEGER,
+       cesmConnAdminStatus	      INTEGER,
+       cesmChanPrefRouteId            Integer32,  
+       cesmChanDirectRoute            TruthValue
+    }
+
+cesCnfChanNum OBJECT-TYPE
+    SYNTAX     Integer32 (16..2064)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION          
+        "This object identifies the channel number of the
+        CESM channel.
+        For CESM-4P the range is 16..19 (only for 4 entries).
+        For CESM-8t1 the range is 16..192 
+        For CESM-8e1 the range is 16..248.
+        For CESM-T3/E3  the range is 16..16.
+        For CESM-T1/E1/T3/E3, channel number starts from 35
+        in Release2.2."
+    ::= { cesmChanCnfGrpEntry 1}
+
+cesChanRowStatus  OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  add          (1),
+                  del          (2),
+                  mod          (3),
+                  outOfService (4)
+        }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+      "This object is used to create,modify or delete an entry
+      in the table.
+
+      A row need to be created using 'add' option. When the
+      row is successfully created, this object would be set
+      to 'mod' by the agent.
+
+      Following mandatory objects need to be specified for the
+      successful creation of the row(both master and slave endpoints).
+          cesConnServiceType
+          cesVpcFlag
+          cesMastership
+      Following mandatory objects need to be specified
+      for creation of master endpoint:
+          cesRemoteVpi
+          cesRemoteVci
+          cesRemoteNSAP
+
+      A row can be deleted by setting this object to 'delete'.
+      A row can be modified by setting this object to 'mod'.
+      When there is a need to administratively down the channel
+      this object could be set to 'outOfService'. The channel
+      could be made active by setting this object to 'mod'."
+       ::= { cesmChanCnfGrpEntry 2 }
+
+cesMapPortNum    OBJECT-TYPE    
+    SYNTAX     Integer32 (1..128)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+      "This object provides the mapping from CES channel number
+      and physical line number.
+
+      In case of CESM-4P this variable  specifies the port number
+      to which this channel is associated.  Mappings are as follows:
+      Port 1 - channel 16, 2-17, 3-18, 4-19 (it can take value from 1..4)
+
+      In CESM-8 this variable gives mapping between logical channel
+      and physical line number. 
+
+      In case of CESM-8P instead of this cesChanPortNum will be used
+      to have the mapping between Channel and logical Port.
+
+      In case of CESM-T3 it can be 1..1."
+      ::= { cesmChanCnfGrpEntry 3 }
+
+cesMapVpi    OBJECT-TYPE
+    SYNTAX     Integer32 (5..14)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+      "The value of this object is equal to the VPI used for the emulated
+       circuit represented by this connection. In MGX8220( formerly AXIS)
+       Implementaion slot number of the card  will be used for this."
+       ::= { cesmChanCnfGrpEntry 4 }
+
+cesMapVci OBJECT-TYPE
+    SYNTAX     Integer32 (16..2064)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION          
+        "This specifies VCI for emulated circuit represented by this VC.
+         Our Implementation cesCnfChanNum will be used for this.
+         In case of CESM-4P valid range is 16..19.
+         In case of CESM-8P valid range is 32..279.
+         In case of CESM-T3/E3 valid value is 32."
+    ::= { cesmChanCnfGrpEntry    5}
+
+cesCBRService     OBJECT-TYPE
+    SYNTAX    INTEGER {
+        unstructured (1),
+        structured   (2)
+        } 
+    
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION          
+        "This specifies data type supported by the CBR service.
+ 
+         unstructured(1) : This is also known as 'clear channel'.
+                           This service utilizes the entire T1
+                           bandwidth. The switch does not look
+                           into the T1, but simply reproduces a
+                           stream of bits with clocking from the 
+                           receiving port to the target port.
+         structured(2)   : This is also known as channelized T1
+                           or cross-connect.
+                           This provides emulation point-to-point
+                           fractional T1(Nx64) connections.
+                           This aloows the T1 to break into multiple DS-0
+                           channels towards different destinations.
+                           More than one circuit(AAL1) entity will
+                           share the same physical T1 interface.
+                           To provide this service, AAL1 is capable
+                           of delineating repetitive fixed-size
+                           blocks of data.
+         The card limitations:
+            - CESM-4P supports only Unstructured mode.
+            - CESM-8P supports both structured and  unstructured mode for
+              T1/E1
+            - CESM-8P supports unstructured mode for T3/E3
+            - CESM-T3 supports only unstructured mode."
+    DEFVAL { unstructured }
+    ::= { cesmChanCnfGrpEntry    6}
+
+cesCBRClockMode    OBJECT-TYPE
+    SYNTAX    INTEGER {
+        synchronous (1),
+        srts        (2),
+        adaptive    (3)
+        } 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION          
+        "This specifies clocking mode of the CBR service.
+
+         synchronous(1) : The transmit clock frequency is
+                          produced by an external source.
+         srts       (2) : Synchronous Residual TimeStamp(SRTS)
+                          is an asnychronous clocking method.
+                          The SRTS measures the difference between
+                          the service clock(received on the CBR interface)
+                          and the network-wide reference clock. The 
+                          difference is the Residual Time Stamp(RTS).
+                          The RTS is propogated to the remote end of
+                          the circuit in the AAL1 header.
+                          The receiving end reconstructs the clock by
+                          adjusting the reference clock by RTS value.
+         adaptive(3)    : In adaptive clocking, the source CES IWF
+                          simply sends data to the destination CES IWF.
+                          The destination CES IWF writes data to the
+                          segmentation and re-assembly(SAR) buffer 
+                          reads it with local T1 service clock.
+                          The local (interface) service clock is
+                          determined from the actual CBR data received.
+         Only synchronous(1) mode is supported in CESM-4P and CESM-T3."
+    DEFVAL { synchronous } 
+    ::= { cesmChanCnfGrpEntry    7}
+
+cesCas OBJECT-TYPE
+    SYNTAX    INTEGER {
+        basic            (1),
+        e1Cas            (2),
+        ds1SfCas         (3),
+        ds1EsfCas        (4),
+        ccs              (5),
+        conditionedE1Cas (6),
+        basicNoPointer   (7),
+        ds1SfCasMF       (8),
+        ds1EsfCasMF      (9)
+        }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION          
+        "This object specifies whether CAS bits are carried by the service.
+         This also selects which AAL1 format should be used.
+
+         The possible values are :
+
+         basic(1) : for 1x64 connections, cells will be generated 
+                    with a AAL1 pointer. While receiving, pointer will be
+                    expected in the incoming cells.
+
+         ds1SfCas  (3),
+         ds1EsfCas (4): used when line level multiframe sync to be
+                        enabled.
+
+         ccs(5)  : Common Channel Signaling.
+                   This particular VC is carrying signaling information.
+                   This value is not supported in CESM-8T1E1.
+
+         basicNoPointer(7): 1x64 basic connections without AAL1 pointer.
+                            This is to support CES-IS 2.0 compliance.
+         
+         In CESM-8T1/E1 all channels on a line
+         should have the same value.
+
+         The value basic(1) is applicable for cesCBRService value
+         of unstructured(1).
+         The CESM-4P and CESM-T3E3 cards support value basic(1) only."
+    DEFVAL { basic }  
+    ::= { cesmChanCnfGrpEntry    8}
+
+cesPartialFill    OBJECT-TYPE
+    SYNTAX     Integer32 (0..47)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+       "Specifies the number of user octets per cell, if partial
+        cell fill is used. 47 means partial fill disabled.
+        Partial fill is not supported in CESM-4P
+        Ranges for partial fill are:
+        T1 struct     25 - 47
+        T1 unstruct   33 - 47
+        E1 struct     20 - 47
+        E1 unstruct   33 - 47
+
+        and 
+
+        partial fill for any channel should always exceed the number
+        of time slots assigned to that channel."
+     DEFVAL { 47 } 
+     ::= { cesmChanCnfGrpEntry 9}
+
+cesBufMaxSize    OBJECT-TYPE
+    SYNTAX     Integer32 (0..65535)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+       "Specifies the maximum size in octets of egress buffer.
+        CESM - 4P:
+        Should be at least 0.6*CDVRxT for a T1 line and 
+        0.7 * CDVRxT for a E1 line.  0 can be specified to internally
+        compute the value
+
+		Defaults for CESM-8T1E1 and CESM-T3E3
+        -------------------------------------
+
+        Default value of cesBufMaxSize is 0.
+
+        Maximum value  for CESM-8T1E1 and CESM-T3E3
+        -------------------------------------------
+
+		For T1 UDT and E1 UDT : 16224 bytes
+		For T1 SDT            : 384 * N  bytes
+		For E1 SDT            : 417 * N  bytes
+		For T3 UDT and E3 UDT : 16224 bytes
+
+		where N is the number of timeslots assigned in Nx64
+        connection. For T1-UDT  and E1 UDT use N = 32 .
+
+        Minimum value  for CESM-8T1E1 and CESM-T3E3
+        -------------------------------------------
+
+	In CESM-8T1/E1 and CESM-T3E3  this object ( unit in bytes )
+        should be at least the greater of
+        
+        (1) CDVT in frames * 2 * N
+
+        (2) ( CDVT in frames +  number of frames in two cells ) * N
+
+		where N is the number of timeslots assigned in Nx64
+        connection. For T1-UDT and E1-UDT use N = 32.
+        "
+--DEFVAL { ? } 
+        ::= { cesmChanCnfGrpEntry 10}
+
+cesCDVRxT    OBJECT-TYPE
+    SYNTAX     Integer32 (125..65535)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object specifies maximum cell arrival jitter
+        that the reassembly process will tolerate.
+
+        In case of CESM-8P it should be in increment of 125 micro secs and
+        Max limit are as follows. T1 = 24 ms  E1 = 26 ms T3 = 1.447 ms 
+        and E3 = 1.884 ms.
+        Default values in CESM-8T1/E1 and CESM-T3/E3.:
+        For  T1 and E1 , 1000 microsecs.
+        For  T3 and E3 , 1000 microsecs."
+        ::= { cesmChanCnfGrpEntry 11}
+
+cesCellLossIntegrationPeriod    OBJECT-TYPE
+    SYNTAX     Integer32 (1000..65535)
+    UNITS      "milliseconds"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+       "This object specifies the cell loss integration
+       period."
+    ::= { cesmChanCnfGrpEntry 12}
+
+cesChanLocRmtLpbkState    OBJECT-TYPE
+    SYNTAX  INTEGER {
+                enable  (1), 
+                disable (2) 
+               }
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+        "Loopback on cellbus in egress direction." 
+    DEFVAL { disable }
+    ::= { cesmChanCnfGrpEntry 13}
+ 
+cesChanTestType         OBJECT-TYPE  
+    SYNTAX  INTEGER {
+                testcon(1),
+                testdelay(2),
+                notest(3),
+                testconsti(4),
+	        testdelaysti(5)
+             }     
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+        "This is the type of the test
+        1 = Test Continuity
+        2 = Test Delay
+        3 = no test is initated 
+		4 = test continuity with sti cell format
+		5 = test delay with sti cell format
+        " 
+     DEFVAL { notest}  
+     ::= { cesmChanCnfGrpEntry 14}
+ 
+cesChanTestState         OBJECT-TYPE  
+    SYNTAX  INTEGER  {
+                passed(1),
+                failed(2),
+                inprogress(3),
+                notinprogress(4)
+              }
+ 
+    MAX-ACCESS read-only 
+    STATUS     current  
+    DESCRIPTION    
+        "This shows the state of the test
+        1 = Passed
+        2 = Failed
+        3 = In Progress 
+        4 = Not In Progress
+        " 
+        ::= { cesmChanCnfGrpEntry 15}
+
+cesChanRTDResult         OBJECT-TYPE  
+    SYNTAX     Integer32 (1..65535)  
+    UNITS      "milliseconds"
+    MAX-ACCESS read-only 
+    STATUS     current  
+    DESCRIPTION    
+        "This is round trip delay time."
+    ::= { cesmChanCnfGrpEntry 16}
+
+cesChanPortNum         OBJECT-TYPE
+    SYNTAX     Integer32 (1..2048)  
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+        "This object refers to the CES logical
+        port on which channel is created.
+        The value for this object must be same as the
+        'cesPortNum' object from cesmPortCnfGrpTable.
+
+        This is a mandatory object for creating the channel."
+        ::= { cesmChanCnfGrpEntry 17}
+
+cesChanConnType         OBJECT-TYPE  
+    SYNTAX  INTEGER {
+      pvc  (1),
+      svc  (2),
+      spvc (3)
+    }     
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+        "This object identifies the type of the connection.
+
+        The possible values are :
+
+         pvc(1)   : Permanent Virtual Connection
+         svc(2)   : Switched  Virtual Connection
+         spvc(3)  : Soft PVC
+         Only applicable to CESM-8P and CESM-T3/E3.
+         This object can be specified only during row creation."
+     DEFVAL { pvc }
+     ::= { cesmChanCnfGrpEntry 18}
+
+cesChanStrauSciNum         OBJECT-TYPE  
+    SYNTAX  INTEGER {
+         nonStrauChannel(1),
+      	 sci1           (2),
+      	 sci2           (3),
+      	 sci3           (4),
+      	 sci4           (5)
+    }     
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+        "This indicates the type of connection.
+         1 = Normal Channel (nonStrauChannel(0) )
+         2 = SCI 1 i.e bit 1 & 2
+         3 = SCI 2 i.e bit 3 & 4
+         4 = SCI 3 i.e bit 5 & 6
+         5 = SCI 4 i.e bit 7 & 8
+         Currently not supported in CESM-8  
+	 Not applicable for CESM-4 and CESM-T3/E3
+        "
+     DEFVAL { nonStrauChannel }
+     ::= { cesmChanCnfGrpEntry 19}
+
+cesChanIdleDetEnable          OBJECT-TYPE  
+    SYNTAX  INTEGER {
+      disable              (1),
+      enableOnhookDet      (2),
+      enableIdlePatternDet (3)
+    }     
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+        "This indicates the type of Idle detection enabled
+
+         disable(1)         : Idle code detection is disabled.
+
+         enableOnhookDet(2) : Enable Idle detection whenver it detects
+                              Onhook in ABCD bits(of T1 frame).
+                              The on hook code is configurable 
+                              using 'cesChanOnhookCode' object.
+                              Applicable in structured mode.
+
+         enableIdlePatternDet(3): Enable payload Idle code detection.
+                                  Idle pattern is configurable through 
+                                  cesChanIdleSignalCode object.
+
+         Only applicable to CESM-8T1/E1 and non strau channels."
+         DEFVAL { disable }
+     ::= { cesmChanCnfGrpEntry 20}
+
+cesChanIdleSignalCode         OBJECT-TYPE  
+    SYNTAX     Integer32 (0..255)  
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+        "This object identifies the signal code to be sent.
+        The value indicates the idle pattern in DS0 time slots.
+         This object is applicable only when cesChanIdleDetEnable object
+         is set to enableIdlePatternDet(3)."
+      ::= { cesmChanCnfGrpEntry 21}
+
+cesChanIdleCodeIntgnPeriod         OBJECT-TYPE  
+    SYNTAX     Integer32 (0..100)  
+    UNITS      "seconds"
+    MAX-ACCESS read-write 
+    STATUS     current  
+    DESCRIPTION    
+       "This object indicates the Integration period in seconds
+       This object is applicable only when cesChanIdleDetEnable 
+       is set to enableIdlePatternDet(3)."
+      ::= { cesmChanCnfGrpEntry 22}
+
+cesChanOnhookCode         OBJECT-TYPE
+    SYNTAX     Integer32 (0..15)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object identifies the on-hook code to be sent.
+         This object is applicable only when cesChanIdleDetEnable object
+         is set to enableOnhookDet(2).
+
+         The value 0..3 is applicable for T1 with
+         framing mode set to super frame(SF).
+
+         The value 0..15 is applicable for T1 with
+         framing mode set to Extended Super Frame(ESF)/E1 CAS.
+	 Only applicable for CESM-8T1/E1."
+      ::= { cesmChanCnfGrpEntry 23}
+
+cesChanConditionedData         OBJECT-TYPE
+    SYNTAX     Integer32 (0..255)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This byte will indicate Idle data to be sent
+          towards the line whenever channels goes
+          in to Underrun
+	 Only applicable for CESM-8T1/E1."
+      DEFVAL { 255 }
+      ::= { cesmChanCnfGrpEntry 24}
+
+cesmChanExtTrgIdleSupp          OBJECT-TYPE
+    SYNTAX  INTEGER {
+      disablesuppression (1),
+      enableSuppresion   (2)
+    }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object is used for disabling/enabling
+        idle suppression on the connection. This can be set by
+        external signalling device.
+        Only applicable to CESM-8T1/E1."
+    DEFVAL { disablesuppression }
+    ::=  { cesmChanCnfGrpEntry 25 }
+
+cesmChanConditionedSigCode          OBJECT-TYPE
+    SYNTAX     Integer32 (0..255)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This byte will indicate Signal code to be sent
+         sent towards the line whenever channels goes
+         in to Underrun
+         Only applicable to CESM-8T1/E1."
+      DEFVAL { 255 }
+      ::= { cesmChanCnfGrpEntry 26}
+
+cesLocalVpi OBJECT-TYPE
+	SYNTAX 	   Integer32 (0..65535)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+	    "This object identifies the internal VPI assigned to
+            a local endpoint, by the switch. The cesLocalVpi,
+            cesLocalVci and cesLocalNSAP form a unique identifier
+            for the local connection endpoint."
+	::= { cesmChanCnfGrpEntry 27 }
+
+cesLocalVci OBJECT-TYPE
+	SYNTAX 	   Integer32 (0..65535)
+	MAX-ACCESS read-only
+	STATUS	   current
+	DESCRIPTION
+	    "This object identifies the internal VCI assigned to
+            a local endpoint, by the switch. The cesLocalVpi,
+            cesLocalVci and cesLocalNSAP form a unique identifier
+            for the local connection endpoint."
+	::= { cesmChanCnfGrpEntry 28 }
+
+cesLocalNSAP OBJECT-TYPE
+	SYNTAX	   OCTET STRING (SIZE(0..20))
+	MAX-ACCESS read-write
+	STATUS	   current
+	DESCRIPTION
+	    "This object identifies the internal NSAP 
+            address assigned to local endpoint.
+            The NSAP address is 20 bytes long and follows the format:
+                - 13 bytes as prefix 2 bytes for Cisco ID,
+                - 2 bytes for Cisco ID
+                - 1 byte reserved
+                - 3 bytes for logical interface
+                  (slot:1 bytes,port number:2 bytes)
+                - 1 byte is for Selector (SEL)."
+	::= { cesmChanCnfGrpEntry 29 }
+
+cesRemoteVpi OBJECT-TYPE
+	SYNTAX 	   Integer32 (0..65535)
+	MAX-ACCESS read-write
+	STATUS	   current
+	DESCRIPTION
+            "This object identifies the VPI value of the
+            peer endpoint. The cesRemoteVpi, cesRemoteVci
+            and the cesRemoteNSAP identify the peer endpoint(remote) in
+            the networking domain.
+	    The value should be 0 for a DAX connection within the
+            switch.
+            This object can be set only during row creation."
+	::= { cesmChanCnfGrpEntry 30 }
+
+cesRemoteVci OBJECT-TYPE
+	SYNTAX 	   Integer32 (0..65535)
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+            "This object identifies the VCI value of the
+            peer endpoint. The cesRemoteVpi, cesRemoteVci
+            and the cesRemoteNSAP identify the peer endpoint(remote) in
+            the networking domain.
+	    The value should be 0 for a DACS connection within the
+            switch.
+            This object can be set only during row creation."
+	::= { cesmChanCnfGrpEntry 31 }
+
+cesRemoteNSAP OBJECT-TYPE
+	SYNTAX	   OCTET STRING (SIZE(0..20))
+	MAX-ACCESS read-write
+	STATUS	   current
+	DESCRIPTION
+	    "This object identifies the NSAP address of the
+            peer endpoint. 
+            The NSAP address is 20 bytes long and follows the format:
+                - 13 bytes as prefix 2 bytes for Cisco ID,
+                - 2 bytes for Cisco ID
+                - 1 byte reserved
+                - 3 bytes for logical interface
+                  (slot:1 bytes,port number:2 bytes)
+                - 1 byte is for Selector(SEL)."
+	::= { cesmChanCnfGrpEntry 32 }
+
+cesMastership OBJECT-TYPE
+	SYNTAX INTEGER {
+		master (1),
+		slave  (2),
+		unkown (3)
+	}
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+            "This is used by PXM to determine if this end point is 
+	     master or slave, a new type unknown(3) is added to identify
+	     the SM in MGX8220(formerly AXIS) shelf and the SM in 
+             MGX8250 shelf. 
+             In MGX8220 shelf, user can create endpoints without
+	     specifying X/Y/P parameters. 
+             In MGX8250 shelf, the user can not add endpoint with
+             value of this object set to unknown(3).
+            This object can be set only during row creation."
+	::= { cesmChanCnfGrpEntry 33 }
+
+cesVpcFlag OBJECT-TYPE
+        SYNTAX INTEGER {
+                vpc (1),
+                vcc (2)
+        }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+	    "This represents the connection type, used for PXM to
+	    identify VPC/VCC but CESM card doesn't use it
+	    always set to vcc for CESM card."
+        DEFVAL { vcc }
+        ::= { cesmChanCnfGrpEntry 34 }
+ 
+cesConnServiceType OBJECT-TYPE
+	SYNTAX INTEGER{
+		cbr    (1),
+		vbr    (2),
+		ubr    (4),
+		atfr   (5),
+		abrstd (6),
+		abrfst (7),
+		cbr1   (21),
+		vbr1rt (22),
+        	vbr2rt (23),
+        	vbr3rt (24),
+        	vbr1nrt(25),
+        	vbr2nrt(26),
+        	vbr3nrt(27),
+        	ubr1   (28),
+        	ubr2   (29),
+        	stdabr (30),
+        	cbr2   (31),
+        	cbr3   (32)
+
+	}
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+            "This specifies the service type 
+     		  1 ==> Constant Bit Rate
+	      	  2 ==> Variable Bit Rate
+        	  3 ==> Not used
+		  4 ==> Unspecified Bit Rate
+		  5 ==> ATM frame relay
+		  6 ==> standard ABR
+		  7 ==> foresight ABR
+	    Note that the value of this object is used by PXM card.
+	    The default value is cbr1(21).
+
+        	The following types are being added for PNNI support
+        	and are based on UNI 4.0.
+        	cbr1   (21) - CBR.1
+        	vbr1rt (22) - Real time VBR.1
+        	vbr2rt (23) - Real time VBR.2
+        	vbr3rt (24) - Real time VBR.3
+        	vbr1nrt(25) - Non Real time VBR.1
+        	vbr2nrt(26) - Non Real time VBR.2
+        	vbr3nrt(27) - Non Real time VBR.3
+        	ubr1   (28) - UBR.1
+        	ubr2   (29) - UBR.2
+        	stdabr (30) - TM 4.0 compliant standard ABR
+        	cbr2   (31) - CBR.2
+        	cbr3   (32) - CBR.3
+
+		Note that for CESM, the only valid connection type for PNNI
+		support is cbr1(21). Other enumerations have been added
+		for the sake of consistency across Narrow-Band service 
+		modules.
+
+            This object can be set only during row creation."
+	::= { cesmChanCnfGrpEntry 35 }
+		
+cesRoutingPriority OBJECT-TYPE
+	SYNTAX     Integer32 (1..15)
+	MAX-ACCESS read-write
+	STATUS 	   current
+	DESCRIPTION
+            "This is used by PXM to determine how important 
+            this connection is when selecting connections to route."
+	::= { cesmChanCnfGrpEntry 36 }
+	
+cesMaxCost OBJECT-TYPE
+	SYNTAX	   Integer32 (1..2147483647)
+	MAX-ACCESS read-write
+	STATUS 	   current
+	DESCRIPTION
+	    "This object is used by the networking entity
+            to select a route based on administrative weight of
+            possible routes. It is related to Cost Based Routing.
+	    This is used by PXM so that it won't choose a path with
+	    a cost greater than this configured level. This is not
+	    necessary to be provided in the connection setup request,
+	    if not provided, the default value 255 will be used.
+	    When used with PAR controller the valid range is 1..65535 and
+	    the default value is 255.
+	    When used with PNNI controller the valid range is 1..2147483647
+	    and the default value is 2147483647. " 
+	::= { cesmChanCnfGrpEntry 37 }
+
+cesRestrictTrunkType OBJECT-TYPE
+	SYNTAX	INTEGER {
+		noresriction     (1),
+		terrestrialTrunk (2),
+		sateliteTrunk    (3)
+	}
+	MAX-ACCESS read-write
+	STATUS	   current
+	DESCRIPTION
+           "Restricted trunk type for routing, used by PXM. It 
+	   specifies that the connection either cannot be routed over
+	   satelite trunks, or terrestrial trunks, or it can be on
+	   any type of trunk. It is not necessary to be provide in
+	   the connection setup request, the default value is 
+	   noresriction(1)."
+	::= { cesmChanCnfGrpEntry 38 }
+ 
+cesConnPCR OBJECT-TYPE
+	SYNTAX Integer32 
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+	    "This object identifies the Peak Cell Rate(PCR) value.
+            If not provided during the row creation, the value
+            will be computed as follows,
+                For CESM-8T1/E1 -  N * 64 Kbps , 
+                                   where N = Number of timeslots assigned
+                                   to this channel.
+		For CESM-T3, the value is 44736 Kbps
+		For CESM-E3, the value is 34368 Kbps."
+	::= { cesmChanCnfGrpEntry 39 }
+
+cesConnMCR OBJECT-TYPE
+	SYNTAX Integer32
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+	    "This object identifies the Minimum Cell Rate(MCR) value.
+            If not provided during the row creation, the value
+            will be computed as follows,
+                  For CESM-8T1/E1 -  N * 64 Kbps ,
+                                     where N = Number of timeslots assigned
+                                    to this channel.
+                  For CESM-T3, the value is 44736 Kbps
+                  For CESM-E3, the value is 34368 Kbps."
+	::= { cesmChanCnfGrpEntry 40 }
+
+cesConnPercentUtil OBJECT-TYPE
+	SYNTAX Integer32  (0..100)
+	MAX-ACCESS read-write
+	STATUS current
+	DESCRIPTION
+		"This is the expected long-term utilization of the
+		 channel by theis end-point.
+		 For CESM-8T1/E1/T3/E3 , the value is 100%"
+	::= {cesmChanCnfGrpEntry 41 }
+
+cesmConnRemotePCR OBJECT-TYPE
+	SYNTAX     Integer32 
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+	    "The PCR value of the remote end. If not set, the value
+            for this object is derived from the end point parameter."
+	::= { cesmChanCnfGrpEntry 42 }
+
+cesmConnRemoteMCR OBJECT-TYPE
+	SYNTAX     Integer32 
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+	    "The MCR value of the remote end. If not set, the value
+            for this object is derived from the end point parameter."
+	::= { cesmChanCnfGrpEntry 43 }
+
+cesmConnRemotePercentUtil OBJECT-TYPE
+	SYNTAX     Integer32  (0..100)
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+            "This is the expected long-term utilization of the
+	    channel by the other end-point."
+	::= {cesmChanCnfGrpEntry 44 }
+
+cesmConnForeSightEnable OBJECT-TYPE
+	SYNTAX INTEGER {
+	           enable  (1),
+	           disable (2)
+	       }
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+	    "This object is used by the controller(PAR/PNNI/TAG) to set up
+	    the Qbin for the connection. 
+	    This is notapplicable to CESM-8T1/E1/T3/E3. "
+	::= {cesmChanCnfGrpEntry 45 }
+
+cesmConnFGCRAEnable OBJECT-TYPE
+	SYNTAX INTEGER {
+	           enable  (1),
+	           disable (2)
+	       }
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+		"enables/disables Frame based GCRA (early packet discard). 
+		 This is not applicable to CESM-8T1/E1/T3/E3."
+    DEFVAL {disable}
+	::= {cesmChanCnfGrpEntry 46 }
+
+cesmChanReroute OBJECT-TYPE
+    SYNTAX INTEGER {
+           true  (1),
+           false (2)
+    }
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "This is used by the administrator to trigger the re-routing
+         of the connection. The rerouting takes effect, when this object
+         is set to true(1). When set to false (2), no action is taken.
+         A get on this object always returns false (2).
+         This object is not applicable to MGX Release 1.x.
+        "
+    DEFVAL {false}
+    ::= {cesmChanCnfGrpEntry 47 }    
+
+cesmConnAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up   (1),
+        down (2)
+    }
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "This object specifies administrative status of
+        the connection endpoint.
+        This object is not applicable to MGX Release 1.x."
+    DEFVAL {down}
+    ::= { cesmChanCnfGrpEntry 48 }
+
+cesmChanPrefRouteId     OBJECT-TYPE
+        SYNTAX          Integer32 (0..65535)
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+		"This object serves to to associate a preferred 
+                 route with a connection. 
+
+                 The value '0' means no preferred route is associated with
+                 this connection.
+
+                 Usage:
+                 - If the value of this set to 0, the object
+                   cesmChanDirectRoute is automatically set to FALSE by
+                   the switch.
+                 - The preferred route is defined in cwaPrefRouteConfTable
+                   object. 
+                "
+        DEFVAL { 0 }
+        ::= { cesmChanCnfGrpEntry 49 }
+
+cesmChanDirectRoute     OBJECT-TYPE
+        SYNTAX          TruthValue
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+		"This object serves to associate a prefer 
+                 route as directed route (correspond to the prefer route
+                 object cesmChanPrefRouteId).
+  
+                 A directed route specifies that the associated preferred
+                 route is the only permission route for the connection to
+                 take. Should the associated preferred route be unavailable,
+                 the connection is failed.
+
+                 The object is not applicable if there is no associated
+                 preferred route with the connection."
+        DEFVAL { false }
+        ::= { cesmChanCnfGrpEntry 50 }
+
+
+cesmChanNumNextAvailable    OBJECT-TYPE
+    SYNTAX     Integer32 (0..2048)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This variable contains the next unused channel number of the possible
+         248. This number can be used in channel config table.
+         cesChanNumNextAvailable gets updated whenever this number is used to
+         create a new logical channel. Value 0 for this variable indicates that
+         no more channels are available. In CESM 8-port card), the maximum
+         number of values for this variable is 248 (i.e. 32 ..279).
+         Only applicable to CESM-8T1/E1/T3/E3.
+        "
+    ::= { cesmChanCnfGrp 2 }
+
+
+--circuitEmulation        OBJECT IDENTIFIER ::= { basisServices 3 }
+cesmEndPtMapGrp        OBJECT IDENTIFIER ::= { circuitEmulation 3 }  
+
+-- **********************************************************************
+--
+-- Group cesmEndpoint Map group
+--
+-- **********************************************************************
+
+cesmEndPtMapGrpTable OBJECT-TYPE
+	SYNTAX     SEQUENCE OF CesmEndPtMapGrpEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+            "This is the Endpoint mapping table
+             for CES connection."
+	::= { cesmEndPtMapGrp 1 }
+
+cesmEndPtMapGrpEntry OBJECT-TYPE
+	SYNTAX     CesmEndPtMapGrpEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+            "An entry for cesmEndPtMapGrpEntry."
+	INDEX	{ cesEndPortNum }
+	::= { cesmEndPtMapGrpTable 1 }
+
+CesmEndPtMapGrpEntry ::=
+	SEQUENCE {
+            cesEndPortNum    Integer32,
+	    cesEndChanNum    Integer32,
+	    cesEndLineNum    Integer32
+	    }
+
+cesEndPortNum OBJECT-TYPE
+	SYNTAX	   Integer32 (1..2048)
+	MAX-ACCESS read-only
+	STATUS	   current
+	DESCRIPTION		  
+	    "This object identifies the CES logical port.
+            The value for this object must be same as 
+           'cesPortNum' object from cesmPortCnfGrpTable."
+	::= { cesmEndPtMapGrpEntry 1}
+
+cesEndChanNum OBJECT-TYPE
+	SYNTAX     Integer32 (32..2080)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+	    "This object identifies the CES connection
+            number.
+
+            The value of this object is same as the 
+            value of 'cesCnfChanNum' object in cesmChanCnfGrpTable."
+	::= { cesmEndPtMapGrpEntry 2}
+
+cesEndLineNum OBJECT-TYPE
+	SYNTAX     Integer32 (1..128)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "This object identifies the physical line
+            on which connection is provisioned.
+            The value in this object object must match with
+            the value specified in 'cesPortLineNum' for
+            a given logical port(cesEndPortNum)."
+	::= { cesmEndPtMapGrpEntry 3}
+
+-- conformance information
+
+ciscoWanCesConnMIBConformance OBJECT IDENTIFIER ::= { ciscoWanCesConnMIB 2 }
+
+ciscoWanCesConnMIBGroups       OBJECT IDENTIFIER ::= 
+                              { ciscoWanCesConnMIBConformance 1 }
+ciscoWanCesConnMIBCompliances OBJECT IDENTIFIER ::= 
+                              { ciscoWanCesConnMIBConformance 2 }
+
+-- compliance statements
+
+ciscoWanCesConnCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for SNMP entities 
+         which support Frame realy connection MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            ciscoWanCesConnGroup,
+            ciscoWanCesConnEndptGroup
+        }
+
+    GROUP ciscoWanCesConnGeneralGroup
+    DESCRIPTION
+        "This group is mandatory for systems, where
+        it is required to know the next available resource
+        for NMS applications."
+    ::= { ciscoWanCesConnMIBCompliances 1 }
+
+ciscoWanCesConnGroup OBJECT-GROUP
+    OBJECTS {
+       cesCnfChanNum,
+       cesChanRowStatus,
+       cesMapPortNum,
+       cesMapVpi,
+       cesMapVci,
+       cesCBRService,
+       cesCBRClockMode,
+       cesCas,
+       cesPartialFill,
+       cesBufMaxSize,
+       cesCDVRxT,
+       cesCellLossIntegrationPeriod,
+       cesChanLocRmtLpbkState,
+       cesChanTestType,
+       cesChanTestState,
+       cesChanRTDResult,
+       cesChanPortNum,
+       cesChanConnType,
+       cesChanStrauSciNum,
+       cesChanIdleDetEnable,
+       cesChanIdleSignalCode,
+       cesChanIdleCodeIntgnPeriod,
+       cesChanOnhookCode,
+       cesChanConditionedData,
+       cesmChanExtTrgIdleSupp,
+       cesmChanConditionedSigCode,
+       cesLocalVpi,
+       cesLocalVci,
+       cesLocalNSAP,
+       cesRemoteVpi,
+       cesRemoteVci,
+       cesRemoteNSAP,
+       cesMastership,
+       cesVpcFlag,
+       cesConnServiceType,
+       cesRoutingPriority,
+       cesMaxCost,
+       cesRestrictTrunkType,
+       cesConnPCR,
+       cesConnMCR,
+       cesConnPercentUtil,
+       cesmConnRemotePCR,
+       cesmConnRemoteMCR,
+       cesmConnRemotePercentUtil,
+       cesmConnForeSightEnable,
+       cesmConnFGCRAEnable,
+       cesmChanReroute,
+       cesmConnAdminStatus,
+       cesmChanPrefRouteId,
+       cesmChanDirectRoute
+    }
+    STATUS current
+    DESCRIPTION 
+        "A collection of objects providing information
+        applicable to CES Connections."
+    ::= { ciscoWanCesConnMIBGroups 1 }
+
+ciscoWanCesConnEndptGroup OBJECT-GROUP
+    OBJECTS {
+        cesEndPortNum,
+	cesEndChanNum,
+	cesEndLineNum
+    }
+    STATUS current
+    DESCRIPTION 
+        "A collection of objects related to End Point
+        mapping in circuit emulation connections."
+    ::= { ciscoWanCesConnMIBGroups 2 }
+
+ciscoWanCesConnGeneralGroup OBJECT-GROUP
+    OBJECTS {
+        cesmChanNumNextAvailable
+    }
+    STATUS current
+    DESCRIPTION 
+        "A collection of objects related to next 
+        available channeli number and next available
+       VPI value of connections supported."
+    ::= { ciscoWanCesConnMIBGroups 3 }
+
+END 

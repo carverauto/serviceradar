@@ -1,0 +1,788 @@
+-- *******************************************************************
+-- CISCO-WIRELESS-NOTIFICATION-MIB.my
+-- April 2009, Venkatraghavan Sankarasubbu, Poon Leung
+--   
+-- Copyright (c) 2009-2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-WIRELESS-NOTIFICATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    Unsigned32,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DateAndTime,
+    TEXTUAL-CONVENTION,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    CiscoAlarmSeverity
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoWirelessNotificationMIB MODULE-IDENTITY
+    LAST-UPDATED    "201106060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+            Tel: +1 800 553-NETS
+            E-mail: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on those Network
+        Management applications that manage a network of wireless
+        devices through the Controller and send relevant management
+        information to Northbound Operation Support Systems. The
+        Northbound OSS, with the information received shall present a
+        consolidated view of the whole network of wireless devices. 
+
+        The NM learns the status of the managed devices from the
+        Controller through interfaces like the SNMP, and raises
+        events. Depending upon the event severity, alerts are raised
+        for the events. The alert/event information is sent to the
+        Northbound OSS in the form of SNMP Notifications. This MIB
+        defines these Notifications.
+
+        The MIB objects cWNotificationDescription,
+        cWNotificationSpecialAttributes and cWNotificationVirtualDomains
+        have been defined to have a maximum size of 1024.   The bigger
+        size is required for the following reasons.
+
+        1. If the size is reduced, the information intended to be 
+        sent to the Northbound applications will be truncated / lost. 
+
+        2. Networks using UDP are better in handling fragmentation than
+        before. 
+
+        3. In case if the implementation is used in those networks that
+        can't handle Notifications of a larger size,  the intent is to
+        suggest the use of the TCP as the transport protocol for SNMP as
+        against the UDP. 
+
+        4. The respective objects may not have the maximum defined range
+        at all the times.  The higher range is just to accommodate those
+        cases where the size can hit the maximum value. 
+
+        The relationships between NCS, CC, AP, MN and
+        Mgmt-Appl can be depicted as follows :                
+
+           +................+     +................+
+           +                +     +                +
+           +  NB OSS 1      + ..  +  NB OSS n      +
+           +                +     +                +
+           +................+     +................+
+                        ^               ^
+                          .           . 
+                            .       .    Notifications
+                              .   .
+                                .
+                         +..........+
+                         +          +
+                         +    NCS   +
+                         +          + 
+                         +..........+
+                          ^    ^   ^
+                        .      .     .   SNMP
+                      .        .       .
+                    .          .         .
+                  .            .           .
+              +......+     +......+     +......+
+              +      +     +      +     +      +
+              +  CC  +     +  CC  +     +  CC  +
+              +      +     +      +     +      +
+              +......+     +......+     +......+
+                ..            .             .
+               .  .            .             .
+              .    .            .             .
+             .      .            .             .
+            .        .           .             .
+        +......+ +......+     +......+      +......+
+        +      + +      +     +      +      +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +
+        +      + +      +     +      +      +      +
+        +......+ +......+     +......+      +......+
+                   .              .             .
+                 .  .              .             .
+                .    .              .             .
+               .      .              .             .
+              .        .              .             .
+           +......+ +......+     +......+      +......+
+           +      + +      +     +      +      +      +
+           +  MN  + +  MN  +     +  MN  +      +  MN  +
+           +      + +      +     +      +      +      +
+           +......+ +......+     +......+      +......+  
+
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control (MAC) and physical layer (PHY) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends it to the Controller to which
+        it is logically connected to.
+
+        Alert
+
+        An alert is an NM response to one or more related Events from
+        Managed Object. If the Event learnt is severe enough to let the
+        user know about, the NM raises an alert i.e if event has one of
+        the following severity critical, major, minor or warning. One
+        or more Events can result in a single alert being raised.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity is also referred to as 'Controller'.
+
+        Event
+
+        An Event is an occurrence or detection of some condition in and
+        around the network. Event can be generated by the NM
+        corresponding to traps received or through polling the managed
+        object.
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        Controllers.
+
+        Managed Object
+
+        Managed Objects are used to represent those entities being 
+        managed by the NM.  It could be an AP, WLAN, Controller or 
+        an MN.
+
+        Mobile Node ( MN )
+
+        Mobile Nodes are roaming 802.11 wireless devices that would 
+        associate to an AP to get their uplink to the wired network. 
+        Mobile Nodes are also known as clients.
+
+        Network Management Application ( NM )
+
+        Application which manages network of managed objects using
+        SNMP. It provides network management functions of FCAPS -
+        Fault, Configuration, Accounting, Performance and Security to
+        manage the network.
+
+        Notification
+
+        NM application like NCS sends Notifications defined through
+        this MIB, corresponding to their Alerts and Events to a 
+        Northbound OSS to provide a consolidated view.
+
+        Operations Support Systems ( OSS )
+
+        Management applications in the network that receive
+        Notifications from NM (like NCS) and provide consolidated view 
+        of the whole network of wireless devices.
+
+        Received Signal Strength Indicator ( RSSI )
+
+        A measure of the strength of the signal as observed by the
+        entity that received it, expressed in 'dbm'.
+
+        Signal-Noise Ratio ( SNR )
+
+        A measure of the quality of the signal relative to the strength
+        of noise expressed in 'dB'.
+
+        Virtual Domain
+
+        A NM's Virtual Domain is a logical grouping that consists of a
+        set of managed objects like Controllers, APs, WLANs, maps etc.
+        It restricts a user's view to information relevant to these
+        managed objects. Through a virtual domain, an administrator can
+        ensure that users are only able to view the managed objects and
+        maps for which they are responsible. A managed object can belong
+        to more than one virtual domain.
+
+        Network Control System ( NCS )
+
+        Network Control System (NCS) is a converged platform for 
+        wired, wireless, and security policy management in a single 
+        solution for faster troubleshooting and more efficient network 
+        operations. 
+
+
+        Wireless LAN ( WLAN ) 
+
+        A WLAN refers to the network of IEEE 802.11 complaint wireless 
+        devices within mutual communication range of each other via 
+        the wireless medium.
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control (MAC) and
+            Physical Layer (PHY) Specifications.
+
+        [2] IEEE 802.11 - The original 1 Mbit/s and 2 Mbit/s, 
+            2.4 GHz RF and IR standard."
+    REVISION        "201106060000Z"
+    DESCRIPTION
+        "Adding a new enumeration type 'ncs' to
+        CWirelessNotificationCategory object. 
+        Changing 'WCS' to 'NCS'"
+    REVISION        "201009150000Z"
+    DESCRIPTION
+        "Adding a new enumeration type 'switch' to
+        CWirelessNotificationCategory object."
+    REVISION        "200910280000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 712 }
+
+
+
+CWirelessNotificationType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention defines the different Notification
+        types.
+
+        Unknown : This indicates an unknown Notification type.
+
+        Alert   : This indicates that the Notification is generated due 
+                  to an Alert generated by a set of Events.
+
+        Event   : This indicates that the Notification is generated due 
+                  to an Event related to a Managed Object. The Event can
+                  be raised through polling the Managed Object,        
+                  receiving SNMP Notifications from the Managed Object  
+                  etc."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        alert(2),
+                        event(3)
+                    }
+
+CWirelessNotificationCategory ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention defines the different
+        Notification categories. The semantics are as follows.
+
+        'unknown'                   This indicates an unknown category.
+
+        'accessPoints'              The Notification is associated with
+                                    APs.
+
+        'adhocRogue'                The Notification is associated with
+                                    adhoc rogue APs.
+
+        'clients'                   The Notification is associated with
+                                    client/mobile nodes.
+
+        'controllers'               The Notification is associated  
+                                    with Controllers.
+
+        'coverageHole'              The Notification is associated with
+                                    holes in radio coverage.
+
+        'contextAwareNotifications' The Notification is associated with
+                                    Alerts generated by location service
+                                    for Event definitions configured
+                                    on the MSE like              
+                                    containment,chokepoint etc.
+
+        'interference'              The Notification is associated with
+                                    interference in radio coverage by
+                                    APs.
+
+        'meshLinks'                 The Notification is associated with
+                                    mesh wireless networks.
+
+        'mobilityService'           The Notification is associated with
+                                    MSE status.
+
+        'performance'               The Notification is associated with
+                                    wireless network performance. 
+
+        'rogueAP'                   The Notification is associated with
+                                    rogue APs detected in the network.
+
+        'rrm'                       The Notification is associated to 
+                                    radio resource management.         
+
+        'security'                  The Notification is associated with
+                                    security of wireless networks.
+
+        'wcs'                       The Notification is associated with
+                                    WCS.
+
+        'switch'                    The Notification is associated with
+                                    Ethernet switch.
+
+        'ncs'                       The Notification is associated with
+                                    NCS."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        accessPoints(2),
+                        adhocRogue(3),
+                        clients(4),
+                        controllers(5),
+                        coverageHole(6),
+                        interference(7),
+                        contextAwareNotifications(8),
+                        meshLinks(9),
+                        mobilityService(10),
+                        performance(11),
+                        rogueAP(12),
+                        rrm(13),
+                        security(14),
+                        wcs(15),
+                        switch(16),
+                        ncs(17)
+                    }
+ciscoWirelessNotificationMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoWirelessNotificationMIB 0 }
+
+ciscoWirelessNotificationMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoWirelessNotificationMIB 1 }
+
+ciscoWirelessNotificationMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoWirelessNotificationMIB 2 }
+
+cWNotificationData  OBJECT IDENTIFIER
+    ::= { ciscoWirelessNotificationMIBObjects 1 }
+
+
+cwNotificationHistoryTableMaxLength OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum number of entries
+        permissible in cwNotificationHistoryTable. When user sets this
+        to a lower value, for example from 100 to 50, entries
+        corresponding to older Notifications will be deleted to adjust
+        to the new setting."
+    DEFVAL          { 100 } 
+    ::= { cWNotificationData 1 }
+-- ********************************************************************
+-- * NCS Notification Table
+-- ********************************************************************
+
+cwNotificationHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwNotificationHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about the Notifications
+        sent by the NM to Northbound applications. The Notification
+        fields are populated from the corresponding Alert/Event.Whenever
+        the NM sends a Notification to one of the Northbound
+        applications, a row will be added to this table. When the number
+        of maximum allowed of entries is decreased through
+        cwNotificationHistoryTableMaxLength, the least recent entries
+        will be deleted."
+    ::= { cWNotificationData 2 }
+
+cwNotificationHistoryEntry OBJECT-TYPE
+    SYNTAX          CwNotificationHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cwNotificationHistoryTable and corresponds to the information
+        about a Notification sent by the NM to Northbound applications."
+    INDEX           { cWNotificationIndex } 
+    ::= { cwNotificationHistoryTable 1 }
+
+CwNotificationHistoryEntry ::= SEQUENCE {
+        cWNotificationIndex                    Unsigned32,
+        cWNotificationTimestamp                DateAndTime,
+        cWNotificationUpdatedTimestamp         DateAndTime,
+        cWNotificationKey                      SnmpAdminString,
+        cWNotificationCategory                 CWirelessNotificationCategory,
+        cWNotificationSubCategory              OCTET STRING,
+        cWNotificationManagedObjectAddressType InetAddressType,
+        cWNotificationManagedObjectAddress     InetAddress,
+        cWNotificationSourceDisplayName        OCTET STRING,
+        cWNotificationDescription              OCTET STRING,
+        cWNotificationSeverity                 CiscoAlarmSeverity,
+        cWNotificationSpecialAttributes        OCTET STRING,
+        cWNotificationType                     CWirelessNotificationType,
+        cWNotificationVirtualDomains           OCTET STRING
+}
+
+cWNotificationIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a monotonically increasing
+        integer that uniquely identifies the information about the
+        Notification. When the maximum value defined by 
+        cwNotificationHistoryTableMaxLength is reached, the value wraps
+        back to 1." 
+    ::= { cwNotificationHistoryEntry 1 }
+
+cWNotificationTimestamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object in the Notification represents the time when the
+        corresponding Alert/Event was raised by the NM for a particular
+        condition in the network." 
+    ::= { cwNotificationHistoryEntry 2 }
+
+cWNotificationUpdatedTimestamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object in the Notification represents the time when Alert
+        was last updated. Alerts persist over time and it is possible
+        that their field(s) get changed. For example, when severity
+        changes from a higher level (ex critical to major or major to
+        minor or minor to clear), then the severity field gets updated.
+        This object represents the time when it happened. This object
+        will not be populated for Events." 
+    ::= { cwNotificationHistoryEntry 3 }
+
+cWNotificationKey OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the entity string that describes the
+        network condition identified by cwNotificationType for which
+        this Notification is generated." 
+    ::= { cwNotificationHistoryEntry 4 }
+
+cWNotificationCategory OBJECT-TYPE
+    SYNTAX          CWirelessNotificationCategory
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the category of the network condition
+        represented by cwNotificationType for which this Notification 
+        is generated." 
+    ::= { cwNotificationHistoryEntry 5 }
+
+cWNotificationSubCategory OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..256))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the sub category of the network
+        condition identified by cwNotificationType for which this
+        Notification is generated. This object can be used to further
+        filter down Alert/Event under a particular category." 
+    ::= { cwNotificationHistoryEntry 6 }
+
+cWNotificationManagedObjectAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of the Internet
+        network address made available through 
+        cWNotificationManagedObjectAddress." 
+    ::= { cwNotificationHistoryEntry 7 }
+
+cWNotificationManagedObjectAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the network address of the Managed
+        Object. The type of the address stored in this object is
+        determined by the 
+        cWNotificationManagedObjectAddressType object." 
+    ::= { cwNotificationHistoryEntry 8 }
+
+cWNotificationSourceDisplayName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..256))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the display name for the source that
+        triggered the network condition represented by
+        cwNotificationType for which this Notification is generated." 
+    ::= { cwNotificationHistoryEntry 9 }
+
+cWNotificationDescription OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..1024))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents a detailed description of the network
+        condition represented by cwNotificationType for which this 
+        Notification is generated. For example, rogueAp Alert is
+        described as follows, 'Rogue AP '00:1b:2b:35:6a:f3' is removed;
+        it was detected as Rogue AP by AP 'test_1' Radio Type
+        '802.11b''." 
+    ::= { cwNotificationHistoryEntry 10 }
+
+cWNotificationSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the severity of the network condition
+        represented by cwNotificationType for which this Notification is
+        generated." 
+    ::= { cwNotificationHistoryEntry 11 }
+
+cWNotificationSpecialAttributes OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..1024))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the specialized attributes required
+        to describe the network condition identified by
+        cWNotificationType. These include SNR, RSSI, channel information
+        etc. This value is formatted as 'name=value' pairs in CSV
+        format. For example, rogueAP Alert's special attributes are sent
+        as 'detectingAPRadioType=a0,YCoordinate=0, state=11,
+        rogueApType=0, spt Status=0, ssId=wpspsk, on80211A=0,
+        numOfDetectingAps=0, on80211B=1, XCoordinate=0,
+        classificationType=3, channelNumber=6, containmentLevel=0,
+        rssi=-51, rogueApMacAddr=00:1b:2b:35:6a:f3, onNetwork=0, total
+        RogueClients=0'. This string can be parsed to get different
+        name-value pairs." 
+    ::= { cwNotificationHistoryEntry 12 }
+
+cWNotificationType OBJECT-TYPE
+    SYNTAX          CWirelessNotificationType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of this Notification.  This
+        basically indicates the trigger that has caused the NM to
+        generate this Notification." 
+    ::= { cwNotificationHistoryEntry 13 }
+
+cWNotificationVirtualDomains OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..1024))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of one or multiple virtual
+        domains(comma separated) the source of the network condition 
+        represented by cWNotificationType is logically assigned to. For
+        example, 'root, California, San Jose' indicates that the source
+        of the network condition is logically assigned to these 
+        multiple virtual domains." 
+    ::= { cwNotificationHistoryEntry 14 }
+ 
+
+
+cwNotificationMOStatusEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is to control the generation of
+        ciscoWirelessMOStatusNotification.
+
+        A value of 'true' indicates that the NM generates
+        ciscoWirelessMOStatusNotification Notification.
+
+        A value of 'false' indicates that the NM does not
+        generate ciscoWirelessMOStatusNotification Notification."
+    DEFVAL          { true } 
+    ::= { cWNotificationData 3 }
+
+-- ********************************************************************
+-- *    NOTIFICATION TYPE objects
+-- ********************************************************************
+
+ciscoWirelessMOStatusNotification NOTIFICATION-TYPE
+    OBJECTS         {
+                        cWNotificationTimestamp,
+                        cWNotificationUpdatedTimestamp,
+                        cWNotificationKey,
+                        cWNotificationCategory,
+                        cWNotificationSubCategory,
+                        cWNotificationManagedObjectAddressType,
+                        cWNotificationManagedObjectAddress,
+                        cWNotificationSourceDisplayName,
+                        cWNotificationDescription,
+                        cWNotificationSeverity,
+                        cWNotificationSpecialAttributes,
+                        cWNotificationVirtualDomains
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This Notification is generated by the NM in response to an
+        Alert or Event related to a network device managed by it."
+   ::= { ciscoWirelessNotificationMIBNotifs 1 }
+-- ********************************************************************
+-- *    Conformance Information
+-- ********************************************************************
+
+ciscoWirelessNotificationMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoWirelessNotificationMIBConform 1 }
+
+ciscoWirelessNotificationMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoWirelessNotificationMIBConform 2 }
+
+
+ciscoWirelessNotificationMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities which
+        implement the CISCO-WIRELESS-NOTIFICATION-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoWirelessNotificationObjectsGroup,
+                        ciscoWirelessNotificationsGroup,
+                        ciscoWirelessNotificationConfigGroup,
+                        ciscoWirelessNotificationEnableGroup
+                    }
+    ::= { ciscoWirelessNotificationMIBCompliances 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoWirelessNotificationConfigGroup OBJECT-GROUP
+    OBJECTS         { cwNotificationHistoryTableMaxLength }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects is used to manage the information
+        about Notifications."
+    ::= { ciscoWirelessNotificationMIBGroups 1 }
+
+ciscoWirelessNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoWirelessMOStatusNotification }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the Notifications
+        generated by the NM."
+    ::= { ciscoWirelessNotificationMIBGroups 2 }
+
+ciscoWirelessNotificationObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cWNotificationTimestamp,
+                        cWNotificationUpdatedTimestamp,
+                        cWNotificationKey,
+                        cWNotificationCategory,
+                        cWNotificationSubCategory,
+                        cWNotificationManagedObjectAddressType,
+                        cWNotificationManagedObjectAddress,
+                        cWNotificationSourceDisplayName,
+                        cWNotificationDescription,
+                        cWNotificationSeverity,
+                        cWNotificationSpecialAttributes,
+                        cWNotificationType,
+                        cWNotificationVirtualDomains
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects provide the information
+        about the Notifications generated by the NM."
+    ::= { ciscoWirelessNotificationMIBGroups 3 }
+
+ciscoWirelessNotificationEnableGroup OBJECT-GROUP
+    OBJECTS         { cwNotificationMOStatusEnable }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects is used to control the generation
+        of Notifications."
+    ::= { ciscoWirelessNotificationMIBGroups 4 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

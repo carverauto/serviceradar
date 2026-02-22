@@ -1,0 +1,652 @@
+-- MIB created 6/25/99 12:57:36, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-SIBU-STACKABLE-DUAL-SPEED-HUB-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SIBU-STACKABLE-DUAL-SPEED-HUB-MIB.my"
+
+IMPORTS
+    Integer32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    DisplayString
+            FROM SNMPv2-TC-v1
+    ciscoExperiment
+            FROM CISCO-SMI
+    rptrGroupIndex, rptrPortGroupIndex, rptrPortIndex
+            FROM SNMP-REPEATER-MIB
+    PhysAddress
+            FROM RFC1213-MIB;
+
+ciscoSibuStackableDualSpeedHubMIB OBJECT IDENTIFIER ::= { ciscoExperiment 44 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9810230000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--     E-mail: cs-sibu@cisco.com
+--  Descr
+--    The MIB module that extends the REPEATER-MIB to
+--     manage CISCO low end stackable repeater products.
+--     For the purpose of this mib, a hub is a repeater
+--     group and stack is collection of one or more hubs
+--     interconnected via stack bus connectors.
+--  RevDate
+--    9810230000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSibuStackableDualSpeedHubMIBObjects OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIB 1 }
+cssSystem       OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBObjects 1 }
+cssGroup        OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBObjects 2 }
+cssRepeaterPort OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBObjects 3 }
+cssSwitchPort   OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBObjects 4 }
+ciscoSibuStackableDualSpeedHubNotifications OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIB 2 }
+ciscoSibuStackableDualSpeedHubNotificationsPrefix OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubNotifications 0 }
+ciscoSibuStackableDualSpeedHubMIBComformance OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIB 3 }
+ciscoSibuStackableDualSpeedHubMIBCompliances OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBComformance 1 }
+ciscoSibuStackableDualSpeedHubMIBGroups OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBComformance 2 }
+
+HubNumber ::= Integer32(1..2147483647)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents the hub number that the system supports
+--     for stacking. The hub number represents the order
+--     in which a hub is stacked relative to other members
+--     of the stack. Lowest hub number represents the top
+--     member of the stack. This is also the number used in
+--     the command line interface.
+
+cssSystemLinkTraps OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the stack is permitted to generate
+         linkUp/linkDown traps for both repeater port and
+         switch module's port. The stack provides only
+         a single global control of link traps in contrast
+         to per interface control provided by IF-MIB. The
+         value of all instances ifLinkUpDownTrapEnable is set
+         to TRUE (FALSE) if this object is set to enabled
+         (disabled). The object ifLinkUpDownTrapEnable is
+         read-only.
+        
+         A linkUp/linkDown trap is generated whenever a port's
+         link STATUS or administrative status changes."
+    DEFVAL { enabled }
+    ::= { cssSystem 1 }
+
+cssGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CssGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of member hubs in the stack."
+    ::= { cssGroup 1 }
+
+cssGroupEntry OBJECT-TYPE
+    SYNTAX CssGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration parameters for an individual hub.
+         An entry is created by default for the master unit
+         in the stack. A entry is created (removed) when
+         a hub is connected to (removed from) the stack."
+    INDEX { rptrGroupIndex }
+    ::= { cssGroupTable 1 }
+
+CssGroupEntry ::= SEQUENCE {
+    cssGroupID HubNumber,
+    cssGroupType INTEGER,
+    cssGroupSerialNo DisplayString,
+    cssGroupBoardRevision Integer32,
+    cssGroupAgentBootVersion DisplayString,
+    cssGroupAgentFirmwareVersion DisplayString,
+    cssGroupAgentStatus INTEGER,
+    cssGroupAgentPhysAddress PhysAddress,
+    cssGroupInternalPowerState INTEGER,
+    cssGroupRedundantPowerState INTEGER,
+    cssGroupReset INTEGER,
+    cssGroupConfigDefaultReset INTEGER,
+    cssGroupIsolatedState INTEGER
+    }
+
+cssGroupID OBJECT-TYPE
+    SYNTAX HubNumber
+--    Rsyntax Integer32(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The hub identifier of unit in a stack."
+    ::= { cssGroupEntry 1 }
+
+cssGroupType OBJECT-TYPE
+    SYNTAX INTEGER {
+        cisco1538MDS(1),
+        cisco1538UDS(2),
+        wsC412M(3),
+        wsC412(4),
+        wsC424M(5),
+        wsC424(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The model type of the hub unit"
+    ::= { cssGroupEntry 2 }
+
+cssGroupSerialNo OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..20))
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Serial number of the hardware."
+    ::= { cssGroupEntry 4 }
+
+cssGroupBoardRevision OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Hardware version of the repeater board."
+    ::= { cssGroupEntry 5 }
+
+cssGroupAgentBootVersion OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..8))
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Returns the version number of the dual-speed hub
+         BOOT software residing in flash. The format is 'V1.2.3'."
+    ::= { cssGroupEntry 6 }
+
+cssGroupAgentFirmwareVersion OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..8))
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Returns the version number of the dual-speed hub
+         firmware residing in flash. The format is 'V1.2.3'."
+    ::= { cssGroupEntry 7 }
+
+cssGroupAgentStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        notPresent(1),
+        primary(2),
+        backup(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this hub agent. Each stack allows only
+         one SNMP primary agent.
+        
+         notPresent(1): The hub does not have an agent.
+         primary(2): The agent of this hub is a primary agent.
+         backup(3) : The agent of this hub is a backup agent."
+    ::= { cssGroupEntry 8 }
+
+cssGroupAgentPhysAddress OBJECT-TYPE
+    SYNTAX PhysAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MAC address of this hub's agent"
+    ::= { cssGroupEntry 9 }
+
+cssGroupInternalPowerState OBJECT-TYPE
+    SYNTAX INTEGER {
+        off(1),
+        on(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the state of the internal power supply.
+        
+         off : The internal power supply is off.
+         on  : The internal power supply is on."
+    ::= { cssGroupEntry 12 }
+
+cssGroupRedundantPowerState OBJECT-TYPE
+    SYNTAX INTEGER {
+        off(1),
+        healthy(2),
+        faulty(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the state of the external/backup power
+         supply.
+        
+         off     : the switch is not connected to a redundant
+                   power source.
+         healthy : a redundant power source is connected to
+                   the switch and the power source is
+                   operating correctly.
+         faulty  : a redundant power source is connected to
+                   the switch but a failure exists in the
+                   power system."
+    ::= { cssGroupEntry 13 }
+
+cssGroupReset OBJECT-TYPE
+    SYNTAX INTEGER {
+        noReset(1),
+        reset(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to reset(2) causes a complete
+        reset of both hardware and software, but does not run
+        the POST (Power On Self Test).
+        
+        Setting this object to noReset(1) has no effect.
+        The switch always returns the value noReset(1) when
+        this object is read."
+    DEFVAL { noReset }
+    ::= { cssGroupEntry 14 }
+
+cssGroupConfigDefaultReset OBJECT-TYPE
+    SYNTAX INTEGER {
+        noReset(1),
+        reset(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to reset(2) causes a complete
+         reset of both hardware and software, but does not
+         run the POST (Power On Self Test).  All
+         configuration parameters will revert to their
+         factory default settings.
+        
+         Setting this object to noReset(1) has no effect.
+         The switch always returns the value noReset(1) when
+         this object is read."
+    DEFVAL { noReset }
+    ::= { cssGroupEntry 15 }
+
+cssGroupIsolatedState OBJECT-TYPE
+    SYNTAX INTEGER {
+        isolated(1),
+        attached(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to isolated(1) causes this hub
+         to be isolated from the back plane bus.  Setting
+         this object to attached(2) causes this hub to be
+         attached to the back plane bus."
+    ::= { cssGroupEntry 16 }
+
+cssRepeaterPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CssRepeaterPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The list of repeater port configurations on each hub
+         unit."
+    ::= { cssRepeaterPort 1 }
+
+cssRepeaterPortEntry OBJECT-TYPE
+    SYNTAX CssRepeaterPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration parameters for an individual repeater
+         port on a hub. The value of rptrPortIndex also
+         indicates the physical port number of the port in
+         the hub. An entry is created for each repeater port in
+         a hub when the hub is connected to the stack. The
+         corresponding entries are removed when the hub is
+         removed from the stack."
+    INDEX { rptrPortGroupIndex, rptrPortIndex }
+    ::= { cssRepeaterPortTable 1 }
+
+CssRepeaterPortEntry ::= SEQUENCE {
+    cssRepeaterPortName DisplayString,
+    cssRepeaterPortControllerRevision Integer32,
+    cssRepeaterPortSpeedAdmin INTEGER,
+    cssRepeaterPortSpeedStatus INTEGER,
+    cssRepeaterPortLinkStatus INTEGER
+    }
+
+cssRepeaterPortName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..20))
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A descriptive string of up to 20 characters used
+         by the network administrator to name a port."
+    ::= { cssRepeaterPortEntry 1 }
+
+cssRepeaterPortControllerRevision OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Returns the revision number of the port controller."
+    ::= { cssRepeaterPortEntry 2 }
+
+cssRepeaterPortSpeedAdmin OBJECT-TYPE
+    SYNTAX INTEGER {
+        tenMbps(1),
+        oneHundredMbps(2),
+        autoNegotiate(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Set to tenMbps(1) to operate in 10Mbps speed mode.
+         Set to oneHundredMbps(2) to operate in 100Mbps speed
+         mode.  Set to autoNegotiate(3) to allow the switch
+         to negotiate with the other end of the connection.
+        
+         The actual operating speed of the port is given by
+         cssRepeaterPortSpeedStatus."
+    DEFVAL { autoNegotiate }
+    ::= { cssRepeaterPortEntry 3 }
+
+cssRepeaterPortSpeedStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        tenMbps(1),
+        oneHundredMbps(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The operating speed of the port."
+    ::= { cssRepeaterPortEntry 4 }
+
+cssRepeaterPortLinkStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        link(1),
+        noLink(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current port link status."
+    ::= { cssRepeaterPortEntry 5 }
+
+cssSwitchPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CssSwitchPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of switched ports on extension module on a each
+         hub unit in the stack."
+    ::= { cssSwitchPort 1 }
+
+cssSwitchPortEntry OBJECT-TYPE
+    SYNTAX CssSwitchPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration parameters for an individual switch
+         module port. An entry is created for each switch port
+         on a module is inserted into a hub in the stack.
+         The corresponding entries are removed when the module
+         is removed from the hub in the stack, or if the hub
+         is removed from the stack."
+    INDEX { rptrGroupIndex, cssSwitchPortModuleID, cssSwitchPortPortID }
+    ::= { cssSwitchPortTable 1 }
+
+CssSwitchPortEntry ::= SEQUENCE {
+    cssSwitchPortModuleID Integer32,
+    cssSwitchPortPortID Integer32,
+    cssSwitchPortName DisplayString,
+    cssSwitchPortType INTEGER,
+    cssSwitchPortControllerRevision Integer32,
+    cssSwitchPortState INTEGER,
+    cssSwitchPortDuplexAdmin INTEGER,
+    cssSwitchPortDuplexStatus INTEGER,
+    cssSwitchPortSpeedAdmin INTEGER,
+    cssSwitchPortSpeedStatus INTEGER,
+    cssSwitchPortLinkStatus INTEGER
+    }
+
+cssSwitchPortModuleID OBJECT-TYPE
+    SYNTAX Integer32(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Unique ID number of a module unit in a hub as used
+         in the command line interface."
+    ::= { cssSwitchPortEntry 1 }
+
+cssSwitchPortPortID OBJECT-TYPE
+    SYNTAX Integer32(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unique ID identifying a port on an extension module
+         on a hub as used in the command line interface."
+    ::= { cssSwitchPortEntry 2 }
+
+cssSwitchPortName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..20))
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A descriptive string of up to 20 characters used by the
+         network administrator to name a switch port."
+    ::= { cssSwitchPortEntry 3 }
+
+cssSwitchPortType OBJECT-TYPE
+    SYNTAX INTEGER {
+        wsX4001(1),
+        wsX4002(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of switch module in this hub."
+    ::= { cssSwitchPortEntry 4 }
+
+cssSwitchPortControllerRevision OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The revision number of the port controller."
+    ::= { cssSwitchPortEntry 5 }
+
+cssSwitchPortState OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to enabled(1) enables the port.
+        Setting this object to disabled(2) disables the port."
+    DEFVAL { enabled }
+    ::= { cssSwitchPortEntry 6 }
+
+cssSwitchPortDuplexAdmin OBJECT-TYPE
+    SYNTAX INTEGER {
+        fullDuplex(1),
+        halfDuplex(2),
+        autoNegotiate(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Set to fullDuplex(1) to operate in full duplex mode: port
+        will allow simultaneous transmit and receive which can
+        double its bandwidth. Set to halfDuplex(2) to operate in
+        normal mode. Set to autoNegotiate(3) to allow the switch
+        to negotiate the duplex status with the other end of the
+        connection."
+    DEFVAL { autoNegotiate }
+    ::= { cssSwitchPortEntry 7 }
+
+cssSwitchPortDuplexStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        fullDuplex(1),
+        halfDuplex(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operating duplex mode of the switched port."
+    ::= { cssSwitchPortEntry 8 }
+
+cssSwitchPortSpeedAdmin OBJECT-TYPE
+    SYNTAX INTEGER {
+        tenMbps(1),
+        oneHundredMbps(2),
+        autoNegotiate(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Set to tenMbps(1) to operate in 10Mbps speed mode.  Set to
+        oneHundredMbps(2) to operate in 100Mbps speed mode.  Set to
+        autoNegotiate(3) to allow the switch to negotiate the operating
+        speed with the other end of the connection.
+        
+        If the value of object cssSwitchPortType is WS-X4002(2),
+        this object will be read-only, because FX module only
+        supports 100Mbps speed."
+    DEFVAL { autoNegotiate }
+    ::= { cssSwitchPortEntry 9 }
+
+cssSwitchPortSpeedStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        tenMbps(1),
+        oneHundredMbps(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operating speed of the switched port."
+    ::= { cssSwitchPortEntry 10 }
+
+cssSwitchPortLinkStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        link(1),
+        noLink(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the link STATUS of switch port."
+    ::= { cssSwitchPortEntry 11 }
+
+ciscoSibuStackableDualSpeedHubRptrPortLinkChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSibuStackableDualSpeedHubNotifications
+    VARIABLES {
+        cssRepeaterPortLinkStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated whenever the value of
+        cssRepeaterPortLinkStatus changes for a repeater port."
+    ::= 1
+
+ciscoSibuStackableDualSpeedHubSwitchPortLinkChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSibuStackableDualSpeedHubNotifications
+    VARIABLES {
+        cssSwitchPortLinkStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated whenever the value of
+        cssSwitchPortLinkStatus changes for a switch port
+        on an extension module."
+    ::= 2
+
+ciscoSibuStackableDualSpeedHubGroup OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of group objects for use with the Cisco
+--     Stackable Dual-Speed Hub products.
+--  objects
+--    cssSystemLinkTraps, cssGroupID, cssGroupType, 
+--    cssGroupSerialNo, cssGroupBoardRevision, 
+--    cssGroupAgentBootVersion, cssGroupAgentFirmwareVersion, 
+--    cssGroupAgentStatus, cssGroupAgentPhysAddress, 
+--    cssGroupInternalPowerState, cssGroupRedundantPowerState, 
+--    cssGroupReset, cssGroupConfigDefaultReset, 
+--    cssGroupIsolatedState
+
+ciscoSibuStackableDualSpeedHubRepeaterPortGroup OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of repeater port objects for use
+--     with the Cisco Stackable Dual-Speed Hub products.
+--  objects
+--    cssRepeaterPortName, cssRepeaterPortControllerRevision, 
+--    cssRepeaterPortSpeedAdmin, cssRepeaterPortSpeedStatus, 
+--    cssRepeaterPortLinkStatus
+
+ciscoSibuStackableDualSpeedHubSwitchPortGroup OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of switch module port objects for use with
+--     the Cisco Stackable Dual-Speed Hub products.
+--  objects
+--    cssSwitchPortModuleID, cssSwitchPortPortID, cssSwitchPortName, 
+--    cssSwitchPortType, cssSwitchPortControllerRevision, 
+--    cssSwitchPortState, cssSwitchPortDuplexAdmin, 
+--    cssSwitchPortDuplexStatus, cssSwitchPortSpeedAdmin, 
+--    cssSwitchPortSpeedStatus, cssSwitchPortLinkStatus
+
+ciscoSibuStackableDualSpeedHubCompliance OBJECT IDENTIFIER ::= { ciscoSibuStackableDualSpeedHubMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Cisco Stackable Dual-Speed
+--     Hub products.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSibuStackableDualSpeedHubGroup
+--   MandGroup
+--    ciscoSibuStackableDualSpeedHubRepeaterPortGroup
+--   OptGroup
+--    ciscoSibuStackableDualSpeedHubSwitchPortGroup
+
+
+END
+

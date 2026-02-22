@@ -1,0 +1,1891 @@
+module viptela-common {
+  namespace "http://viptela.com/common";
+  prefix viptela-common;
+
+    prefix tailf;
+  }
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import ietf-yang-types {
+    prefix yang;
+  }
+  include viptela-models;
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines common YANG types and grouping statements";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  typedef if-dialer-pool {
+    description "<1..30>";
+    type uint32 {
+      description "<1..30>";
+      range "1..30";
+    }
+  }
+
+  typedef gre-tunnel-state-enum {
+    type enumeration {
+      enum "down" {
+        value 0;
+      }
+      enum "up";
+      enum "invalid";
+    }
+  }
+
+  typedef gre-tunnel-ka-state-enum {
+    type enumeration {
+      enum "down" {
+        value 0;
+      }
+      enum "up";
+      enum "invalid";
+    }
+  }
+
+  typedef nat-direction-enum {
+    description "Direction of NAT translation - inside/outside";
+    type enumeration {
+      enum "inside" {
+        value 0;
+      }
+      enum "outside";
+    }
+  }
+
+  typedef ppp-auth {
+    description "chap pap";
+    type enumeration {
+      enum "chap";
+      enum "pap";
+    }
+  }
+
+  typedef ppp-chap-direction {
+    description "callin callout dedicated";
+    type enumeration {
+      enum "callin";
+      enum "callout";
+      enum "dedicated";
+    }
+  }
+
+  typedef if-admin-status-type {
+    type string {
+      length "1..8";
+    }
+  }
+
+  typedef if-oper-status-type {
+    type string {
+      length "1..16";
+    }
+  }
+
+  typedef if-tracker-status-type {
+    type string {
+      length "1..16";
+    }
+  }
+
+  typedef encapsulation {
+    type enumeration {
+      enum "null";
+      enum "vlan";
+      enum "ppp";
+    }
+  }
+
+  typedef afi-enum {
+    type enumeration {
+      enum "ipv4";
+      enum "ipv6";
+    }
+  }
+
+  typedef plp {
+    type enumeration {
+      enum "low";
+      enum "high";
+    }
+  }
+
+  typedef named-type {
+    description "<1..32> characters";
+    type string {
+      length "1..32";
+      pattern "[^<>]*";
+    }
+  }
+
+  typedef longer-named-type {
+    description "<1..128> characters";
+    type string {
+      length "1..128";
+      pattern "[^<>]*";
+    }
+  }
+
+  typedef named-type-127 {
+    description "<1..127> characters";
+    type string {
+      length "1..127";
+      pattern "[^<>]*";
+    }
+  }
+
+  typedef named-type-256 {
+    description "<1..256> characters";
+    type string {
+      length "1..256";
+      pattern "[^<>]*";
+    }
+  }
+
+  typedef host-name {
+    description "<1..32> characters";
+    type string {
+      length "1..32";
+      pattern "[a-zA-Z0-9\\-_]+";
+    }
+  }
+
+  typedef directory-path {
+    description "<Directory to list>";
+    type string {
+      length "1..256";
+    }
+  }
+
+  typedef file-path {
+    description "<File to show>";
+    type string {
+      length "1..256";
+    }
+  }
+
+  typedef range-type {
+    type string {
+      length "1..32";
+      pattern "\\d+|\\d+-\\d+";
+    }
+  }
+
+  typedef bind-interface-type {
+    description "<1..32> characters";
+    type string {
+      length "1..32";
+    }
+  }
+
+  typedef screen-width-type {
+    description "<20..256>";
+    type uint16 {
+      description "<20..256>";
+      range "20..256";
+    }
+  }
+
+  typedef idle-timeout {
+    description "<0..8192> seconds";
+    type uint16 {
+      description "<0..8192>";
+      range "0..8192";
+    }
+  }
+
+  typedef disk-size-bytes {
+    description "Disk size, in bytes";
+    type yang:gauge64 {
+      description "Disk size, in bytes";
+    }
+  }
+
+  typedef bridge-id {
+    description "<1..63>";
+    type uint32 {
+      description "<1..63>";
+      range "1..63";
+    }
+  }
+
+  typedef vpn-id {
+    description "<0..65530>";
+    type uint32 {
+      description "<0..65530>";
+      range "0..65530";
+    }
+  }
+
+  typedef vpn-id-old {
+    description "<0..65530>";
+    type uint64 {
+      description "<0..65530>";
+      range "0..65530";
+    }
+  }
+
+  typedef service-vpn-id {
+    description "<1..65530>";
+    type uint32 {
+      description "<1..65530>";
+      range "1..65530";
+    }
+  }
+
+  typedef site-id {
+    description "<0..4294967295>";
+    type uint32 {
+      description "<0..4294967295>";
+      range "0..4294967295";
+    }
+  }
+
+  typedef domain-id {
+    description "<1..4294967295>";
+    type uint32 {
+      description "<1..4294967295>";
+      range "1..4294967295";
+    }
+  }
+
+  typedef oper-domain-id {
+    description "<0..4294967295>";
+    type uint32 {
+      description "<0..4294967295>";
+      range "0..4294967295";
+    }
+  }
+
+  typedef group-id {
+    description "<0..4294967295>";
+    type uint32;
+  }
+
+  typedef route-tag {
+    description "<0..4294967295>";
+    type uint32;
+  }
+
+  typedef route-preference {
+    description "<0..4294967295>";
+    type uint32;
+  }
+
+  typedef route-weight {
+    description "<1..255>";
+    type uint8 {
+      description "<1..255>";
+      range "1..255";
+    }
+  }
+
+  typedef dscp-value {
+    description "<0..63>";
+    type uint8 {
+      description "<0..63>";
+      range "0..63";
+    }
+  }
+
+  typedef l2-cos-value {
+    description "<0..7>";
+    type uint8 {
+      description "<0..7>";
+      range "0..7";
+    }
+  }
+
+  typedef traffic-class-value {
+    description "<0..63>";
+    type uint8 {
+      description "<0..63>";
+      range "0..63";
+    }
+  }
+
+  typedef mac-address {
+    description "MAC address in aa:bb:cc:dd:ee:ff format";
+    type string {
+      pattern "[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}";
+    }
+  }
+
+  typedef sha-256 {
+    description "SHA-256";
+    type string;
+  }
+
+  typedef control-protocol-enum {
+    description "dtls tls";
+    type enumeration {
+      enum "dtls";
+      enum "tls";
+    }
+    default "dtls";
+  }
+
+  typedef color-enum {
+    description "3g  biz-internet  blue  bronze  custom1  custom2  custom3  default  gold  green  lte  metro-ethernet  mpls public-internet  red  silver private1 private2 private3 private4 private5 private6";
+    type enumeration {
+      enum "default" {
+        value 1;
+      }
+      enum "mpls";
+      enum "metro-ethernet";
+      enum "biz-internet";
+      enum "public-internet";
+      enum "lte";
+      enum "3g";
+      enum "red";
+      enum "green";
+      enum "blue";
+      enum "gold";
+      enum "silver";
+      enum "bronze";
+      enum "custom1";
+      enum "custom2";
+      enum "custom3";
+      enum "private1";
+      enum "private2";
+      enum "private3";
+      enum "private4";
+      enum "private5";
+      enum "private6";
+    }
+  }
+
+  typedef validity-enum {
+    description "valid invalid staging";
+    type enumeration {
+      enum "valid" {
+        value 1;
+      }
+      enum "invalid" {
+        value 2;
+      }
+      enum "staging" {
+        value 3;
+      }
+    }
+  }
+
+  typedef carrier-enum {
+    description "default carrier1 carrier2 carrier3 carrier4 carrier5 carrier6 carrier7 carrier8";
+    type enumeration {
+      enum "default" {
+        value 1;
+      }
+      enum "carrier1" {
+        value 2;
+      }
+      enum "carrier2" {
+        value 3;
+      }
+      enum "carrier3" {
+        value 4;
+      }
+      enum "carrier4" {
+        value 5;
+      }
+      enum "carrier5" {
+        value 6;
+      }
+      enum "carrier6" {
+        value 7;
+      }
+      enum "carrier7" {
+        value 8;
+      }
+      enum "carrier8" {
+        value 9;
+      }
+    }
+  }
+
+  typedef encap-enum {
+    description "gre ipsec";
+    type enumeration {
+      enum "gre" {
+        value 1;
+      }
+      enum "ipsec" {
+        value 2;
+      }
+    }
+  }
+
+  typedef service-type-enum {
+    description "FW IDS IDP netsvc1 netsvc2 netsvc3 netsvc4 TE";
+    type enumeration {
+      enum "FW" {
+        value 1;
+      }
+      enum "IDS";
+      enum "IDP";
+      enum "netsvc1";
+      enum "netsvc2";
+      enum "netsvc3";
+      enum "netsvc4";
+      enum "TE";
+    }
+  }
+
+  typedef policy-service-type-enum {
+    description "FW IDS IDP netsvc1 netsvc2 netsvc3 netsvc4";
+    type enumeration {
+      enum "FW" {
+        value 1;
+      }
+      enum "IDS";
+      enum "IDP";
+      enum "netsvc1";
+      enum "netsvc2";
+      enum "netsvc3";
+      enum "netsvc4";
+    }
+  }
+
+  typedef service-oper-enum {
+    description "Operator service type";
+    type enumeration {
+      enum "VPN" {
+        value 0;
+      }
+      enum "FW";
+      enum "IDS";
+      enum "IDP";
+      enum "netsvc1";
+      enum "netsvc2";
+      enum "netsvc3";
+      enum "netsvc4";
+      enum "TE";
+    }
+  }
+
+  typedef ultimate-tloc-enum {
+    description "Ultimate TLOC action";
+    type enumeration {
+      enum "strict" {
+        value 1;
+      }
+      enum "primary";
+      enum "ecmp";
+      enum "backup";
+    }
+  }
+
+  typedef os-enum {
+    description "Device OS";
+    type enumeration {
+      enum "regular" {
+        value 1;
+      }
+      enum "next";
+    }
+  }
+
+  typedef personality-enum {
+    description "Device type";
+    type enumeration {
+      enum "vedge" {
+        value 1;
+      }
+      enum "vsmart";
+      enum "vmanage";
+      enum "vcontainer";
+    }
+  }
+
+  typedef personality-enum-oper {
+    description "Device type";
+    type enumeration {
+      enum "unknown" {
+        value 0;
+      }
+      enum "vedge";
+      enum "vhub";
+      enum "vsmart";
+      enum "vbond";
+      enum "vmanage";
+      enum "ztp";
+      enum "vcontainer";
+    }
+  }
+
+  typedef peer-state {
+    description "OMP peer state";
+    type enumeration {
+      enum "invalid";
+      enum "init";
+      enum "handshake";
+      enum "up";
+      enum "down";
+      enum "init-in-gr";
+      enum "down-in-gr";
+      enum "handshake-in-gr";
+    }
+  }
+
+  typedef peer-event {
+    description "OMP peer event";
+    type enumeration {
+      enum "invalid";
+      enum "init";
+      enum "connection";
+      enum "handshake-received";
+      enum "holdtimer-expired";
+      enum "down";
+      enum "shutdown";
+    }
+  }
+
+  typedef oper-state {
+    description "Operational state";
+    type enumeration {
+      enum "up";
+      enum "down";
+    }
+  }
+
+  typedef admin-state {
+    description "Administrative state";
+    type enumeration {
+      enum "up" {
+        value 0;
+      }
+      enum "down" {
+        value 1;
+      }
+    }
+  }
+
+  typedef ipsec-encrypt-bitstr {
+    type bits {
+      bit null {
+        position 0;
+      }
+      bit des {
+        position 1;
+      }
+      bit des3 {
+        position 2;
+      }
+      bit aes128 {
+        position 3;
+      }
+      bit aes192 {
+        position 4;
+      }
+      bit aes256 {
+        position 5;
+      }
+      bit aes128_ctr {
+        position 6;
+      }
+      bit aes192_ctr {
+        position 7;
+      }
+      bit aes256_ctr {
+        position 8;
+      }
+      bit aes128_gmac {
+        position 9;
+      }
+      bit aes192_gmac {
+        position 10;
+      }
+      bit aes256_gmac {
+        position 11;
+      }
+    }
+  }
+
+  typedef ipsec-auth-bitstr {
+    type bits {
+      bit none {
+        position 0;
+      }
+      bit md5 {
+        position 1;
+      }
+      bit sha1-hmac {
+        position 2;
+      }
+      bit ah-sha1-hmac {
+        position 3;
+      }
+      bit aes_xcbc {
+        position 4;
+      }
+      bit sha256 {
+        position 5;
+      }
+      bit sha384 {
+        position 6;
+      }
+      bit sha512 {
+        position 7;
+      }
+      bit ghash8 {
+        position 8;
+      }
+      bit ghash12 {
+        position 9;
+      }
+      bit ghash16 {
+        position 10;
+      }
+    }
+  }
+
+  typedef origin-proto-enum {
+    description "Origin protocol";
+    type enumeration {
+      enum "proto-invalid" {
+        value 0;
+      }
+      enum "static";
+      enum "connected";
+      enum "eBGP";
+      enum "iBGP";
+      enum "OSPF-intra-area";
+      enum "OSPF-inter-area";
+      enum "OSPF-external-1";
+      enum "OSPF-external-2";
+      enum "aggregate";
+      enum "natpool-inside";
+      enum "eigrp-summary";
+      enum "eigrp-internal";
+      enum "eigrp-external";
+      enum "lisp";
+      enum "isis";
+    }
+  }
+
+  typedef ipv4-ucast-addr-prefix {
+    description "IPv4 address/prefix length";
+    type string {
+      pattern "(([01]?\\d\\d?|2[0-1]\\d|22[0-3])\\.)(([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.)(([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.)([01]?\\d\\d?|2[0-4]\\d|25[0-5])/([0-2]?\\d|(3[0-2]))";
+      length "1..32";
+    }
+  }
+
+  typedef ipv4-ucast-addr {
+    description "Unicast IPv4 address";
+    type string {
+      pattern "(([1-9]\\d?|1\\d\\d|2[0-1]\\d|22[0-3])\\.)(([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.)(([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\.)([01]?\\d\\d?|2[0-4]\\d|25[0-5])";
+    }
+  }
+
+  typedef ipv4-addr-range-type {
+    description "IPv4 address range";
+    type string {
+      pattern "((([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]))|((([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])-(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]))";
+    }
+  }
+
+  typedef ipv6-ucast-addr-prefix {
+    description "IPv6 address/prefix length";
+    type string {
+      pattern "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])))(/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))";
+      pattern "(([^:]+:){6}(([^:]+:[^:]+)|(.*\\..*)))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?)(/.+)";
+    }
+  }
+
+  typedef ipv6-ucast-addr {
+    description "Unicast IPv6 address";
+    type string {
+      pattern "((:|[0-9a-fA-F]{0,4}):)([0-9a-fA-F]{0,4}:){0,5}((([0-9a-fA-F]{0,4}:)?(:|[0-9a-fA-F]{0,4}))|(((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])))(%[\\p{N}\\p{L}]+)?";
+      pattern "(([^:]+:){6}(([^:]+:[^:]+)|(.*\\..*)))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?)(%.+)?";
+    }
+  }
+
+  typedef chassis-number {
+    description "Chassis number/uuid of the device";
+    type string {
+      length "1..40";
+    }
+  }
+
+  typedef serial-number {
+    description "Serial number of the device";
+    type string {
+      length "1..40";
+    }
+  }
+
+  typedef organization-name {
+    description "Organization name";
+    type string {
+      length "1..128";
+      pattern "[^#$]*";
+    }
+  }
+
+  typedef state-enum {
+    description "Operational state";
+    type enumeration {
+      enum "DOWN" {
+        value 1;
+      }
+      enum "UP";
+    }
+  }
+
+  typedef admin-state-enum {
+    description "Administrative state";
+    type enumeration {
+      enum "disable" {
+        value 1;
+      }
+      enum "enable";
+    }
+  }
+
+  typedef tunnel-enum {
+    description "Tunnel status";
+    type enumeration {
+      enum "add" {
+        value 1;
+      }
+      enum "delete";
+    }
+  }
+
+  typedef bgp-afi-type {
+    type enumeration {
+      enum "ipv4-unicast";
+    }
+  }
+
+  typedef translate-enum {
+    type enumeration {
+      enum "candidate";
+      enum "never";
+      enum "always";
+    }
+  }
+
+  typedef metric-enum {
+    type enumeration {
+      enum "type1";
+      enum "type2";
+    }
+  }
+
+  typedef ospf-state-enum {
+    type enumeration {
+      enum "full";
+      enum "deleted";
+      enum "depend-upon";
+      enum "down";
+      enum "attempt";
+      enum "init";
+      enum "two-way";
+      enum "exstart";
+      enum "exchange";
+      enum "loading";
+    }
+  }
+
+  typedef ospf-if-state-enum {
+    type enumeration {
+      enum "if-depend-upon";
+      enum "if-down";
+      enum "if-loopback";
+      enum "if-waiting";
+      enum "if-point-to-point";
+      enum "if-dr-other";
+      enum "if-backup";
+      enum "if-dr";
+    }
+  }
+
+  typedef bgp-state {
+    type enumeration {
+      enum "idle";
+      enum "connect";
+      enum "active";
+      enum "opensent";
+      enum "openconfirm";
+      enum "established";
+      enum "clearing";
+      enum "deleted";
+    }
+  }
+
+  typedef nexthop-enum {
+    type enumeration {
+      enum "if-connected";
+      enum "interface";
+      enum "ipv4";
+      enum "ipv4-with-ifindex";
+      enum "ipv4-with-ifname";
+      enum "ipv4-indirect";
+      enum "ipv6";
+      enum "ipv6-with-ifindex";
+      enum "ipv6-with-ifname";
+      enum "ipv6-indirect";
+      enum "blackhole";
+      enum "extranet";
+    }
+  }
+
+  typedef aaa-tasks-type {
+    type enumeration {
+      enum "system";
+      enum "interface";
+      enum "policy";
+      enum "routing";
+      enum "security";
+    }
+  }
+
+  typedef aaa-permission-type {
+    type enumeration {
+      enum "read";
+      enum "write";
+    }
+  }
+
+  typedef object-identifier {
+    type string {
+      pattern "(([0-1](\\.[1-3]?[0-9]))|(2\\.(0|([1-9]\\d*))))(\\.(0|\\*|([1-9]\\d*))){0,126}";
+    }
+  }
+
+  typedef debug-level-enum {
+    description "Debug level";
+    type enumeration {
+      enum "low" {
+        description "Minimal logging";
+        value 1;
+      }
+      enum "high" {
+        description "Verbose logging";
+        value 2;
+      }
+    }
+  }
+
+  typedef tcpd-debug-level-enum {
+    description "Debug level";
+    type enumeration {
+      enum "low" {
+        description "Minimal logging";
+        value 1;
+      }
+      enum "high" {
+        description "High logging";
+        value 2;
+      }
+      enum "verbose" {
+        description "Verbose logging";
+        value 3;
+      }
+    }
+  }
+
+  typedef vdaemon-debug-level-enum {
+    description "Debug level";
+    type enumeration {
+      enum "low" {
+        description "Minimal logging";
+        value 1;
+      }
+      enum "high" {
+        description "Verbose logging";
+        value 2;
+      }
+    }
+  }
+
+  typedef debug-packet-dir-enum {
+    description "Packet direction";
+    type enumeration {
+      enum "both";
+      enum "received";
+      enum "sent";
+    }
+  }
+
+  typedef netconf-notification-severity {
+    description "Netconf notification severity level";
+    type enumeration {
+      enum "critical" {
+        value 1;
+      }
+      enum "major" {
+        value 2;
+      }
+      enum "minor" {
+        value 3;
+      }
+    }
+  }
+
+  typedef installation-status {
+    description "Installation phase/status";
+    type enumeration {
+      enum "download-start" {
+        value 2;
+      }
+      enum "download-complete" {
+        value 3;
+      }
+      enum "verification-complete" {
+        value 4;
+      }
+      enum "upgrade-apply-complete" {
+        value 5;
+      }
+      enum "sync-partition-start" {
+        value 6;
+      }
+      enum "sync-partition-complete" {
+        value 7;
+      }
+      enum "install-complete" {
+        value 8;
+      }
+      enum "install-fail" {
+        value 9;
+      }
+      enum "reboot" {
+        value 10;
+      }
+    }
+  }
+
+  typedef debug-omp-packet-type {
+    description "Packet type";
+    type bits {
+      bit handshake;
+      bit update;
+      bit alert;
+      bit hello;
+      bit query;
+      bit policy;
+      bit inform;
+      bit all;
+    }
+  }
+
+  typedef debug-bgp-packet-type {
+    description "BGP packet type";
+    type bits {
+      bit keepalive;
+      bit update;
+      bit all;
+    }
+  }
+
+  typedef debug-ospf-type {
+    type bits {
+      bit events;
+      bit status;
+      bit timers;
+    }
+  }
+
+  typedef debug-ospf-lsa_type {
+    type bits {
+      bit flooding;
+      bit generate;
+      bit install;
+      bit refresh;
+    }
+  }
+
+  typedef debug-ospf-packet-type {
+    type bits {
+      bit dd;
+      bit hello;
+      bit ls-ack;
+      bit ls-request;
+      bit ls-update;
+      bit all;
+    }
+  }
+
+  typedef debug-vrrp-packet-type {
+    type bits {
+      bit advertisement;
+      bit arp;
+      bit all;
+    }
+  }
+
+  typedef debug-pim-packet-type {
+    description "Packet type";
+    type bits {
+      bit hello;
+      bit jp;
+      bit assert;
+      bit all;
+    }
+  }
+
+  grouping tloc-group {
+    leaf ip {
+      description "IP address";
+      type inet:ip-address;
+    }
+    leaf color {
+      description "Color";
+      type color-enum;
+    }
+    leaf encap {
+      description "Encapsulation";
+      type encap-enum;
+    }
+  }
+
+  grouping tloc-map-group {
+    leaf ip {
+      description "IP address";
+      type inet:ip-address;
+    }
+    leaf port {
+      description "Port number";
+      type inet:port-number;
+    }
+  }
+
+  grouping tloc-encap-group {
+    leaf key {
+      description "GRE key";
+      type uint32;
+    }
+    leaf proto {
+      description "Protocol";
+      type uint32;
+    }
+    leaf spi {
+      description "SPI";
+      type uint32;
+    }
+    leaf auth-type {
+      description "Authentication";
+      type ipsec-auth-bitstr;
+    }
+    leaf encrypt-type {
+      description "Encryption";
+      type ipsec-encrypt-bitstr;
+    }
+  }
+
+  grouping origin-group {
+    leaf protocol {
+      description "Origin protocol";
+      type origin-proto-enum;
+    }
+    leaf metric {
+      description "Origin metric";
+      type uint32;
+    }
+  }
+
+  grouping service-oper-group {
+    leaf vpn-id {
+      description "VPN ID";
+      type vpn-id;
+    }
+    leaf service {
+      description "Service type";
+      type service-oper-enum;
+    }
+    leaf originator {
+      description "Originator IP address";
+      type inet:ip-address;
+    }
+  }
+
+  grouping date-time {
+    leaf date-time {
+      description "Date and time based on ISO 8601";
+      type yang:date-and-time;
+    }
+    leaf date-time-string {
+      description "Pretty string version of date and time";
+      type string;
+    }
+  }
+
+  grouping common-notification-header {
+    leaf severity-level {
+      type netconf-notification-severity;
+    }
+    leaf host-name {
+      description "Hostname";
+      type named-type;
+    }
+    leaf system-ip {
+      description "System IP address";
+      type inet:ip-address;
+    }
+  }
+
+  grouping install-notification-fields {
+    leaf status {
+      type installation-status;
+    }
+    leaf install-id {
+      type string {
+        length "1..128";
+      }
+    }
+    leaf message {
+      type string {
+        length "1..256";
+      }
+    }
+  }
+
+  typedef nat-map-type-enum {
+    description "NAT mapping type";
+    type enumeration {
+      enum "endpoint-independent";
+      enum "address-port-dependent";
+      enum "null-translation";
+    }
+  }
+
+  typedef nat-filter-type-enum {
+    description "NAT filter type";
+    type enumeration {
+      enum "address-port-restricted";
+    }
+  }
+
+  typedef dot1x-state {
+    type enumeration {
+      enum "Authenticated" {
+        value 0;
+      }
+      enum "Connecting" {
+        value 1;
+      }
+      enum "Authenticating" {
+        value 2;
+      }
+      enum "Rejected" {
+        value 3;
+      }
+    }
+  }
+
+  typedef ip-proto {
+    type enumeration {
+      enum "hopopt" {
+        value 0;
+      }
+      enum "icmp" {
+        value 1;
+      }
+      enum "igmp" {
+        value 2;
+      }
+      enum "ggp" {
+        value 3;
+      }
+      enum "ipv4" {
+        value 4;
+      }
+      enum "st" {
+        value 5;
+      }
+      enum "tcp" {
+        value 6;
+      }
+      enum "cbt" {
+        value 7;
+      }
+      enum "egp" {
+        value 8;
+      }
+      enum "igp" {
+        value 9;
+      }
+      enum "bbn-rcc-mon" {
+        value 10;
+      }
+      enum "nvp-ii" {
+        value 11;
+      }
+      enum "pup" {
+        value 12;
+      }
+      enum "argus" {
+        value 13;
+      }
+      enum "emcon" {
+        value 14;
+      }
+      enum "xnet" {
+        value 15;
+      }
+      enum "chaos" {
+        value 16;
+      }
+      enum "udp" {
+        value 17;
+      }
+      enum "mux" {
+        value 18;
+      }
+      enum "dcn-meas" {
+        value 19;
+      }
+      enum "hmp" {
+        value 20;
+      }
+      enum "prm" {
+        value 21;
+      }
+      enum "xns-idp" {
+        value 22;
+      }
+      enum "trunk-1" {
+        value 23;
+      }
+      enum "trunk-2" {
+        value 24;
+      }
+      enum "leaf-1" {
+        value 25;
+      }
+      enum "leaf-2" {
+        value 26;
+      }
+      enum "rdp" {
+        value 27;
+      }
+      enum "irtp" {
+        value 28;
+      }
+      enum "iso-tp4" {
+        value 29;
+      }
+      enum "netblt" {
+        value 30;
+      }
+      enum "mfe-nsp" {
+        value 31;
+      }
+      enum "merit-inp" {
+        value 32;
+      }
+      enum "dccp" {
+        value 33;
+      }
+      enum "3pc" {
+        value 34;
+      }
+      enum "idpr" {
+        value 35;
+      }
+      enum "xtp" {
+        value 36;
+      }
+      enum "ddp" {
+        value 37;
+      }
+      enum "idpr-cmtp" {
+        value 38;
+      }
+      enum "tp" {
+        value 39;
+      }
+      enum "il" {
+        value 40;
+      }
+      enum "ipv6" {
+        value 41;
+      }
+      enum "sdrp" {
+        value 42;
+      }
+      enum "ipv6-route" {
+        value 43;
+      }
+      enum "ipv6-frag" {
+        value 44;
+      }
+      enum "idrp" {
+        value 45;
+      }
+      enum "rsvp" {
+        value 46;
+      }
+      enum "gre" {
+        value 47;
+      }
+      enum "dsr" {
+        value 48;
+      }
+      enum "bna" {
+        value 49;
+      }
+      enum "esp" {
+        value 50;
+      }
+      enum "ah" {
+        value 51;
+      }
+      enum "i-nlsp" {
+        value 52;
+      }
+      enum "swipe" {
+        value 53;
+      }
+      enum "narp" {
+        value 54;
+      }
+      enum "mobile" {
+        value 55;
+      }
+      enum "tlsp" {
+        value 56;
+      }
+      enum "skip" {
+        value 57;
+      }
+      enum "ipv6-icmp" {
+        value 58;
+      }
+      enum "ipv6-nonxt" {
+        value 59;
+      }
+      enum "ipv6-opts" {
+        value 60;
+      }
+      enum "any-host" {
+        value 61;
+      }
+      enum "cftp" {
+        value 62;
+      }
+      enum "any-local" {
+        value 63;
+      }
+      enum "sat-expak" {
+        value 64;
+      }
+      enum "kryptolan" {
+        value 65;
+      }
+      enum "rvd" {
+        value 66;
+      }
+      enum "ippc" {
+        value 67;
+      }
+      enum "dist-fs" {
+        value 68;
+      }
+      enum "sat-mon" {
+        value 69;
+      }
+      enum "visa" {
+        value 70;
+      }
+      enum "ipcv" {
+        value 71;
+      }
+      enum "cpnx" {
+        value 72;
+      }
+      enum "cphb" {
+        value 73;
+      }
+      enum "wsn" {
+        value 74;
+      }
+      enum "pvp" {
+        value 75;
+      }
+      enum "br-sat-mon" {
+        value 76;
+      }
+      enum "sun-nd" {
+        value 77;
+      }
+      enum "wb-mon" {
+        value 78;
+      }
+      enum "wb-expak" {
+        value 79;
+      }
+      enum "iso-ip" {
+        value 80;
+      }
+      enum "vmtp" {
+        value 81;
+      }
+      enum "secure-vmtp" {
+        value 82;
+      }
+      enum "vines" {
+        value 83;
+      }
+      enum "ttp" {
+        value 84;
+      }
+      enum "nsfnet-igp" {
+        value 85;
+      }
+      enum "dgp" {
+        value 86;
+      }
+      enum "tcf" {
+        value 87;
+      }
+      enum "eigrp" {
+        value 88;
+      }
+      enum "ospf" {
+        value 89;
+      }
+      enum "sprite-rpc" {
+        value 90;
+      }
+      enum "larp" {
+        value 91;
+      }
+      enum "mtp" {
+        value 92;
+      }
+      enum "ax-25" {
+        value 93;
+      }
+      enum "ipip" {
+        value 94;
+      }
+      enum "micp" {
+        value 95;
+      }
+      enum "scc-sp" {
+        value 96;
+      }
+      enum "etherip" {
+        value 97;
+      }
+      enum "encap" {
+        value 98;
+      }
+      enum "priv-encypt" {
+        value 99;
+      }
+      enum "gmtp" {
+        value 100;
+      }
+      enum "ifmp" {
+        value 101;
+      }
+      enum "pnni" {
+        value 102;
+      }
+      enum "pim" {
+        value 103;
+      }
+      enum "aris" {
+        value 104;
+      }
+      enum "scps" {
+        value 105;
+      }
+      enum "qnx" {
+        value 106;
+      }
+      enum "a-n" {
+        value 107;
+      }
+      enum "ipcomp" {
+        value 108;
+      }
+      enum "snp" {
+        value 109;
+      }
+      enum "compaq-peer" {
+        value 110;
+      }
+      enum "ipx-in-ip" {
+        value 111;
+      }
+      enum "vrrp" {
+        value 112;
+      }
+      enum "pgm" {
+        value 113;
+      }
+      enum "any-0-hop" {
+        value 114;
+      }
+      enum "l2tp" {
+        value 115;
+      }
+      enum "ddx" {
+        value 116;
+      }
+      enum "iatp" {
+        value 117;
+      }
+      enum "stp" {
+        value 118;
+      }
+      enum "srp" {
+        value 119;
+      }
+      enum "uti" {
+        value 120;
+      }
+      enum "smp" {
+        value 121;
+      }
+      enum "sm" {
+        value 122;
+      }
+      enum "ptp" {
+        value 123;
+      }
+      enum "isis-o-ipv4" {
+        value 124;
+      }
+      enum "fire" {
+        value 125;
+      }
+      enum "crtp" {
+        value 126;
+      }
+      enum "crudp" {
+        value 127;
+      }
+      enum "sscopmce" {
+        value 128;
+      }
+      enum "iplt" {
+        value 129;
+      }
+      enum "sps" {
+        value 130;
+      }
+      enum "pipe" {
+        value 131;
+      }
+      enum "sctp" {
+        value 132;
+      }
+      enum "fc" {
+        value 133;
+      }
+      enum "rsvp-e2e-ignore" {
+        value 134;
+      }
+      enum "mobility-header" {
+        value 135;
+      }
+      enum "udplite" {
+        value 136;
+      }
+      enum "mpls-in-ip" {
+        value 137;
+      }
+      enum "manet" {
+        value 138;
+      }
+      enum "hip" {
+        value 139;
+      }
+      enum "shim6" {
+        value 140;
+      }
+      enum "wesp" {
+        value 141;
+      }
+      enum "rohc" {
+        value 142;
+      }
+      enum "exp-1" {
+        value 253;
+      }
+      enum "exp-2" {
+        value 254;
+      }
+      enum "reserved" {
+        value 255;
+      }
+    }
+  }
+
+  typedef cloudexpress-probe-trigger {
+    type enumeration {
+      enum "on-change" {
+        value 1;
+      }
+      enum "periodic" {
+        value 2;
+      }
+    }
+  }
+
+  typedef cloudexpress-node-type {
+    type enumeration {
+      enum "gateway" {
+        value 1;
+      }
+      enum "client" {
+        value 2;
+      }
+    }
+  }
+
+  typedef cloudexpress-exit-type {
+    type enumeration {
+      enum "gateway" {
+        value 1;
+      }
+      enum "local" {
+        value 2;
+      }
+      enum "uncomputed" {
+        value 3;
+      }
+      enum "none" {
+        value 4;
+      }
+    }
+  }
+
+  typedef cloudexpress-app-type {
+    type enumeration {
+      enum "salesforce" {
+        value 1;
+      }
+      enum "office365" {
+        value 2;
+      }
+      enum "amazon_aws" {
+        value 3;
+      }
+      enum "oracle" {
+        value 4;
+      }
+      enum "box_net" {
+        value 6;
+      }
+      enum "dropbox" {
+        value 7;
+      }
+      enum "intuit" {
+        value 9;
+      }
+      enum "concur" {
+        value 10;
+      }
+      enum "sugar_crm" {
+        value 11;
+      }
+      enum "zoho_crm" {
+        value 12;
+      }
+      enum "zendesk" {
+        value 13;
+      }
+      enum "gotomeeting" {
+        value 14;
+      }
+      enum "google_apps" {
+        value 16;
+      }
+    }
+  }
+
+  typedef asnum-type {
+    description "<1..4294967295> or <XX.YY>";
+    type union {
+      type uint32 {
+        description "";
+        range "1..4294967295";
+      }
+      type string {
+        description "";
+        pattern "([1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-5][0-9][0-9][0-9][0-9]|[6][0-4][0-9][0-9][0-9]|[6][5][0-4][0-9][0-9]|[6][5][5][0-2][0-9]|[6][5][5][3][0-5])\\.([1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-5][0-9][0-9][0-9][0-9]|[6][0-4][0-9][0-9][0-9]|[6][5][0-4][0-9][0-9]|[6][5][5][0-2][0-9]|[6][5][5][3][0-5])";
+      }
+    }
+  }
+
+  typedef vap-iftype {
+    description "VAP interface name: vap<0-7>";
+    type string {
+      length "1..5";
+      pattern "vap0|vap1|vap2|vap3|vap4|vap5|vap6|vap7";
+    }
+  }
+
+  typedef public-key-type-enum {
+    description "ssh-rsa ssh-dss ecdsa-sha2-nistp256 ecdsa-sha2-nistp384 ecdsa-sha2-nistp521 ssh-ed25519";
+    type enumeration {
+      enum "ssh-rsa" {
+        value 1;
+      }
+      enum "ssh-dss" {
+        value 2;
+      }
+      enum "ecdsa-sha2-nistp256" {
+        value 3;
+      }
+      enum "ecdsa-sha2-nistp384" {
+        value 4;
+      }
+      enum "ecdsa-sha2-nistp521" {
+        value 5;
+      }
+      enum "ssh-ed25519" {
+        value 6;
+      }
+    }
+  }
+}

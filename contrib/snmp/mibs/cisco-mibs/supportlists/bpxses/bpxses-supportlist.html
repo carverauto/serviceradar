@@ -1,0 +1,122 @@
+<!doctype html public "-//w3c//dtd html 4.0 transitional//en">
+<html>
+<head>
+   <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+   <meta name="GENERATOR" content="Mozilla/4.76 [en]C-CCK-MCD   (WinNT; U) [Netscape]">
+   <title>MGX8850 MIB Support List</title>
+</head>
+<body>
+
+<h1>
+BPX SES&nbsp; MIB Support List</h1>
+
+<hr>The lists below indicate which MIBs and SNMP traps are supported by
+the&nbsp; BPX SES (SES PNNI Controller)
+<br>Depending on the version of the supervisor module software, different
+MIBs and traps are supported.
+<p>SNMP version 1 MIB files are in the v1 directory and SNMP version 2
+MIB files are in the v2 directory. Note that for most every MIB .my in
+the v2 directory, there exists a SNMP version 1 conversion of the MIB-V1SMI.my&nbsp;
+in the v1 directory as well.
+<p>
+<hr>
+<br>&nbsp;
+<h1>
+<font color="#000066">BPX SES Network Management MIBs</font></h1>
+
+<h2>
+<b>BPX SES&nbsp; Release 1.0 Support</b></h2>
+<b>Standard MIBs</b>
+<p><b>&nbsp;&nbsp;&nbsp;&nbsp;</b> <a href="../../v2/SNMPv2-MIB.my">SNMPv2-MIB.my</a>
+<br><b>&nbsp;&nbsp;&nbsp;</b>&nbsp; <a href="../../v2/SNMPv2-SMI.my">SNMPv2-SMI.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/SNMPv2-TC.my">SNMPv2-TC.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/SNMPv2-CONF.my">SNMPv2-CONF.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/IANAifType-MIB.my">IANAifType-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/IF-MIB.my">IF-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/RFC1213-MIB.my">RFC1213-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/RS-232-MIB.my">RS-232-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/ATM-MIB.my">ATM-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/ATM-TC-MIB.my">ATM-TC-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/ATM-FORUM-TC-MIB.my">ATM-FORUM-TC-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/PNNI-MIB.my">PNNI-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/PNNI-MIB-NO-U32.my">PNNI-MIB-NO-U32.my</a>&nbsp;
+( PNNI MIB without Unsigned32 TEXTUAL CONVENTION )
+<p><b>Cisco Enterprise MIBs</b>
+<p><b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</b> <a href="../../v2/CISCO-SMI.my">CISCO-SMI.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/CISCO-TC.my">CISCO-TC.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/CISCO-TC-NO-U32.my">CISCO-TC-NO-U32.my</a>&nbsp;&nbsp;
+( CISCO-TC.my without the Unsigned32 TEXTUAL CONVENTION )
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/CISCO-PRODUCTS-MIB.my">CISCO-PRODUCTS-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/CISCO-ENTITY-VENDORTYPE-OID-MIB.my">CISCO-ENTITY-VENDORTYPE-OID-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="../../v2/CISCO-ENTITY-SENSOR-MIB.my">CISCO-ENTITY-SENSOR-MIB.my</a>
+<p><b>BPX SES Specific MIBs (&nbsp; MIBs under "stratacom" enterprise ).</b>
+<br><b>MIBs for All releases are available under Product Specific URL:&nbsp;&nbsp;</b><a href="ftp://ftp.cisco.com/cisco/wan/firmware/ses/">
+BPX SES Release</a>
+<p>There are No SMI V1 MIBs Corresponding&nbsp; to the SMI V2 MIBs.
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-ATM-CONN-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-SCM-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-SVC-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCOWAN-SMI.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-TRAP-VARS-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; rtm.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; errStatus.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-BPXSES-TRAPS-MIB.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+[Contains Notifications/Trap Definitions ]
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-COMMON-TRAPS-MIB.my&nbsp;&nbsp;&nbsp;
+[ Contains Notification/Trap Definitions ]
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; BASIS-GENERIC1-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; BASIS-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; BASIS-SHELF-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; GENERICOBJECT-MIB.my
+<p><b>MIBs Added in Version 1.0.02</b>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; RTM-MIB.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+( replaces rtm.my )
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ERR-STATUS-MIB.my&nbsp;&nbsp;&nbsp;
+( replaces errStatus.my )
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; BASIS-GENERIC-MIB.my ( replaces
+BASIS-GENERIC1-MIB.my )
+<p><b>MIBs Modified Version 1.0.10</b>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-BPXSES-TRAPS-MIB.my
+<p><b>MIBs Modified Version 1.0.10</b>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-COMMON-TRAPS-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-ATM-CONN-MIB.my
+<br>&nbsp;
+<h2>
+<b>BPX SES&nbsp; Release 1.1 Support</b></h2>
+<b>MIBs Modified Version 1.1.70</b>
+<br><b>MIBs for This release is available under Product Specific URL:&nbsp;&nbsp;</b><a href="ftp://ftp.cisco.com/cisco/wan/firmware/ses/1170">
+BPX SES Release 1.1.70</a>
+<br>&nbsp;
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-COMMON-TRAPS-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-ATM-CONN-MIB.my
+<p><b>MIBs Modified Version 1.1.75</b>
+<br><b>MIBs for This release is available under Product Specific URL:&nbsp;&nbsp;</b><a href="ftp://ftp.cisco.com/cisco/wan/firmware/ses/1175">
+BPX SES Release 1.1.75</a>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-TRAP-VARS-MIB.my
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CISCO-WAN-COMMON-TRAPS-MIB.my
+<br>&nbsp;
+<p><b>Agent Capability MIBs Supported:</b>
+<p>&nbsp;&nbsp;&nbsp; CISCO-WAN-PXM-IF-CAPABILITY.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+CISCO-WAN-BASIS-SHELF-CAPABILITY.my
+<br>&nbsp;&nbsp;&nbsp; CISCO-WAN-BASIS-GENERIC-CAPABILITY.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+CISCO-WAN-ENTITY-CAPABILITY.my
+<br>&nbsp;&nbsp;&nbsp; CISCO-WAN-ENTITY-FRU-CAPABILITY.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+CISCO-WAN-BPXSES-SNMPV2-CAPABILITY.my
+<br>&nbsp;&nbsp;&nbsp; CISCO-WAN-RS-232-CAPABILITY.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+CISCO-WAN-SYSTEM-CAPABILITY.my
+<br>&nbsp;&nbsp;&nbsp; CISCO-BPXSES-COMMON-TRAPS-CAPABILITY.my&nbsp;&nbsp;
+CISCO-WAN-ATM-CAPABILITY.my
+<br>&nbsp;&nbsp;&nbsp; CISCO-WAN-PNNI-CAPABILITY.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+CISCO-WAN-SVC-CAPABILITY.my
+<br>&nbsp;&nbsp;&nbsp; CISCO-WAN-BULK-FILE-CAPABILITY.my&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+CISCO-BPXSES-ATM-CONN-CAPABILITY.my
+<br>&nbsp;
+<dl>
+<pre></pre>
+</dl>
+
+</body>
+</html>

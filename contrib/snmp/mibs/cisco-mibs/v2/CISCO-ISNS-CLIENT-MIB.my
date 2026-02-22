@@ -1,0 +1,181 @@
+-- *********************************************************************
+-- CISCO-ISNS-CLIENT-MIB.my: Internet Storage Name Service Client Mib
+--
+-- November 2003, Vinay Gaonkar
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-ISNS-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS        
+     MODULE-IDENTITY, OBJECT-TYPE,
+     Unsigned32                             FROM SNMPv2-SMI
+     MODULE-COMPLIANCE, OBJECT-GROUP        FROM SNMPv2-CONF
+     RowStatus                              FROM SNMPv2-TC 
+     SnmpAdminString                        FROM SNMP-FRAMEWORK-MIB
+     InetAddress, InetAddressType           FROM INET-ADDRESS-MIB
+     ciscoMgmt                              FROM CISCO-SMI
+     CiscoPort                              FROM CISCO-TC;
+
+ciscoIsnsClientMIB MODULE-IDENTITY
+        LAST-UPDATED "200311100000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "MIB module for monitoring and configuring Internet
+                Storage Name Service (iSNS) client."
+        REVISION   "200311100000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoMgmt 372 }
+
+ciscoIsnsClientMIBNotifications
+        OBJECT IDENTIFIER ::= { ciscoIsnsClientMIB 0 }
+ciscoIsnsClientMIBMIBObjects
+        OBJECT IDENTIFIER ::= { ciscoIsnsClientMIB 1 }
+ciscoIsnsClientMIBConformance
+        OBJECT IDENTIFIER ::= { ciscoIsnsClientMIB 2 }
+
+cIsnsClientConfig OBJECT IDENTIFIER ::=
+        { ciscoIsnsClientMIBMIBObjects 1 }    
+
+--
+-- cIsnsClntServerProfileTable
+--
+                           
+cIsnsClntServerProfileTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CIsnsClntServerProfileEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+               "This table lists iSNS server profile configured on the 
+               local device."
+        REFERENCE 
+               "Internet Storage Name Service, June 2003, Internet
+               Draft."
+        ::= { cIsnsClientConfig 1 }
+                                 
+cIsnsClntServerProfileEntry OBJECT-TYPE
+        SYNTAX        CIsnsClntServerProfileEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+               "An entry representing an iSNS server profile."
+        INDEX { cIsnsClntServerProfileName,
+                cIsnsClntServerIndex }
+        ::= { cIsnsClntServerProfileTable 1 }
+
+CIsnsClntServerProfileEntry ::=
+        SEQUENCE {                             
+             cIsnsClntServerProfileName         SnmpAdminString,
+             cIsnsClntServerIndex               Unsigned32,
+             cIsnsClntServerProfileAddrType     InetAddressType,
+             cIsnsClntServerProfileAddr         InetAddress,
+             cIsnsClntServerProfilePort         CiscoPort,
+             cIsnsClntServerProfileStatus       RowStatus 
+        }
+
+cIsnsClntServerProfileName OBJECT-TYPE
+        SYNTAX        SnmpAdminString (SIZE (1..64))
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+               "An arbitrary string value, which identifies an iSNS 
+               server profile."
+        ::= { cIsnsClntServerProfileEntry 1 }
+
+cIsnsClntServerIndex OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..65535)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+               "An arbitrary integer value, which identifies an iSNS 
+               server for this profile."
+        ::= { cIsnsClntServerProfileEntry 2 }
+
+cIsnsClntServerProfileAddrType OBJECT-TYPE
+        SYNTAX        InetAddressType
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+               "The address type of the iSNS server."
+        ::= { cIsnsClntServerProfileEntry 3 }
+
+cIsnsClntServerProfileAddr OBJECT-TYPE
+        SYNTAX        InetAddress
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+               "The address of the iSNS server."
+        ::= { cIsnsClntServerProfileEntry 4 }
+
+cIsnsClntServerProfilePort  OBJECT-TYPE
+        SYNTAX        CiscoPort
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+               "The port of the iSNS server."
+        DEFVAL { 3205 }
+        ::= { cIsnsClntServerProfileEntry 5 }
+
+cIsnsClntServerProfileStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+               "Status of this row."
+        ::= { cIsnsClntServerProfileEntry 6 }
+        
+-- Conformance
+
+ciscoiIsnsClientMIBCompliances
+       OBJECT IDENTIFIER ::= { ciscoIsnsClientMIBConformance 1 }
+
+ciscoIsnsClientMIBGroups
+       OBJECT IDENTIFIER ::= { ciscoIsnsClientMIBConformance 2 }
+
+ciscoIsnsClientMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-ISNS-CLIENT-MIB."
+        MODULE MANDATORY-GROUPS { cIsnsServerConfigGroup }
+
+        OBJECT    cIsnsClntServerProfileStatus             
+        SYNTAX    INTEGER {             
+                     active (1),
+                     createAndGo (4),
+                     destroy (6)}
+        DESCRIPTION 
+                "Only 'createAndGo', 'destroy' and 'active' need to be 
+                supported."
+        OBJECT  cIsnsClntServerProfilePort
+        MIN-ACCESS  read-only
+        DESCRIPTION 
+                "Only read-only need to be supported."
+        ::= { ciscoiIsnsClientMIBCompliances 1 }
+
+-- Units of Conformance
+
+cIsnsServerConfigGroup  OBJECT-GROUP
+        OBJECTS  { cIsnsClntServerProfileAddrType,
+                   cIsnsClntServerProfileAddr,
+                   cIsnsClntServerProfilePort,
+                   cIsnsClntServerProfileStatus
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for iSNS server 
+                configuration."
+        ::= { ciscoIsnsClientMIBGroups 1 }
+END

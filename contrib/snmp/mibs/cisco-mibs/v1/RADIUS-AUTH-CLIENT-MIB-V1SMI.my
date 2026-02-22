@@ -1,0 +1,302 @@
+-- MIB file created 15-May-2006 09:43:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+RADIUS-AUTH-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "RADIUS-AUTH-CLIENT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    Counter, Gauge, IpAddress, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+radiusAuthClientMIB OBJECT IDENTIFIER ::= { radiusAuthentication 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9906110000Z
+--  OrgName
+--    IETF RADIUS Working Group.
+--  ContactInfo
+--     Bernard Aboba
+--      Microsoft
+--    
+--      One Microsoft Way
+--      Redmond, WA  98052
+--      US
+--    
+--      Phone: +1 425 936 6605
+--      EMail: bernarda@microsoft.com
+--  Descr
+--    The MIB module for entities implementing the client
+--     side of the Remote Access Dialin User Service (RADIUS)
+--     authentication protocol.
+--  RevDate
+--    9906110000Z
+--  RevDescr
+--    Initial version as published in RFC 2618
+
+radiusAuthentication OBJECT IDENTIFIER ::= { radiusMIB 1 }
+radiusAuthClientMIBObjects OBJECT IDENTIFIER ::= { radiusAuthClientMIB 1 }
+radiusAuthClient OBJECT IDENTIFIER ::= { radiusAuthClientMIBObjects 1 }
+radiusAuthClientMIBConformance OBJECT IDENTIFIER ::= { radiusAuthClientMIB 2 }
+radiusAuthClientMIBCompliances OBJECT IDENTIFIER ::= { radiusAuthClientMIBConformance 1 }
+radiusAuthClientMIBGroups OBJECT IDENTIFIER ::= { radiusAuthClientMIBConformance 2 }
+
+radiusMIB OBJECT IDENTIFIER ::= { mib-2 67 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The OID assigned to RADIUS MIB work by the IANA.
+
+radiusAuthClientInvalidServerAddresses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Response packets
+         received from unknown addresses."
+    ::= { radiusAuthClient 1 }
+
+radiusAuthClientIdentifier OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The NAS-Identifier of the RADIUS authentication client.
+         This is not necessarily the same as sysName in MIB II."
+    ::= { radiusAuthClient 2 }
+
+radiusAuthServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RadiusAuthServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the RADIUS authentication
+         servers with which the client shares a secret."
+    ::= { radiusAuthClient 3 }
+
+radiusAuthServerEntry OBJECT-TYPE
+    SYNTAX RadiusAuthServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) representing a RADIUS
+         authentication server with which the client shares
+         a secret."
+    INDEX { radiusAuthServerIndex }
+    ::= { radiusAuthServerTable 1 }
+
+RadiusAuthServerEntry ::= SEQUENCE {
+    radiusAuthServerIndex INTEGER,
+    radiusAuthServerAddress IpAddress,
+    radiusAuthClientServerPortNumber INTEGER,
+    radiusAuthClientRoundTripTime TimeTicks,
+    radiusAuthClientAccessRequests Counter,
+    radiusAuthClientAccessRetransmissions Counter,
+    radiusAuthClientAccessAccepts Counter,
+    radiusAuthClientAccessRejects Counter,
+    radiusAuthClientAccessChallenges Counter,
+    radiusAuthClientMalformedAccessResponses Counter,
+    radiusAuthClientBadAuthenticators Counter,
+    radiusAuthClientPendingRequests Gauge,
+    radiusAuthClientTimeouts Counter,
+    radiusAuthClientUnknownTypes Counter,
+    radiusAuthClientPacketsDropped Counter
+    }
+
+radiusAuthServerIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A number uniquely identifying each RADIUS
+        Authentication server with which this client
+        communicates."
+    ::= { radiusAuthServerEntry 1 }
+
+radiusAuthServerAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the RADIUS authentication server
+         referred to in this table entry."
+    ::= { radiusAuthServerEntry 2 }
+
+radiusAuthClientServerPortNumber OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The UDP port the client is using to send requests to
+         this server."
+    ::= { radiusAuthServerEntry 3 }
+
+radiusAuthClientRoundTripTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time interval (in hundredths of a second) between
+         the most recent Access-Reply/Access-Challenge and the
+         Access-Request that matched it from this RADIUS
+         authentication server."
+    ::= { radiusAuthServerEntry 4 }
+
+radiusAuthClientAccessRequests OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Request packets sent
+         to this server. This does not include retransmissions."
+    ::= { radiusAuthServerEntry 5 }
+
+radiusAuthClientAccessRetransmissions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Request packets
+         retransmitted to this RADIUS authentication server."
+    ::= { radiusAuthServerEntry 6 }
+
+radiusAuthClientAccessAccepts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Accept packets
+         (valid or invalid) received from this server."
+    ::= { radiusAuthServerEntry 7 }
+
+radiusAuthClientAccessRejects OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Reject packets
+         (valid or invalid) received from this server."
+    ::= { radiusAuthServerEntry 8 }
+
+radiusAuthClientAccessChallenges OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Challenge packets
+         (valid or invalid) received from this server."
+    ::= { radiusAuthServerEntry 9 }
+
+radiusAuthClientMalformedAccessResponses OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of malformed RADIUS Access-Response
+         packets received from this server.
+         Malformed packets include packets with
+         an invalid length. Bad authenticators or
+         Signature attributes or unknown types are not
+        
+         included as malformed access responses."
+    ::= { radiusAuthServerEntry 10 }
+
+radiusAuthClientBadAuthenticators OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Response packets
+         containing invalid authenticators or Signature
+         attributes received from this server."
+    ::= { radiusAuthServerEntry 11 }
+
+radiusAuthClientPendingRequests OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS Access-Request packets
+         destined for this server that have not yet timed out
+         or received a response. This variable is incremented
+         when an Access-Request is sent and decremented due to
+         receipt of an Acess-Accept, Access-Reject or
+         Access-Challenge, a timeout or retransmission."
+    ::= { radiusAuthServerEntry 12 }
+
+radiusAuthClientTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of authentication timeouts to this server.
+         After a timeout the client may retry to the same
+         server, send to a different server, or
+         give up. A retry to the same server is counted as a
+         retransmit as well as a timeout. A send to a different
+         server is counted as a Request as well as a timeout."
+    ::= { radiusAuthServerEntry 13 }
+
+radiusAuthClientUnknownTypes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS packets of unknown type which
+         were received from this server on the authentication port."
+    ::= { radiusAuthServerEntry 14 }
+
+radiusAuthClientPacketsDropped OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RADIUS packets of which were
+         received from this server on the authentication port
+         and dropped for some other reason."
+    ::= { radiusAuthServerEntry 15 }
+
+radiusAuthClientMIBGroup OBJECT IDENTIFIER ::= { radiusAuthClientMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The basic collection of objects providing management of
+--     RADIUS Authentication Clients.
+--  objects
+--    radiusAuthClientIdentifier, 
+--    radiusAuthClientInvalidServerAddresses, 
+--    radiusAuthServerAddress, radiusAuthClientServerPortNumber, 
+--    radiusAuthClientRoundTripTime, radiusAuthClientAccessRequests, 
+--    radiusAuthClientAccessRetransmissions, 
+--    radiusAuthClientAccessAccepts, radiusAuthClientAccessRejects, 
+--    radiusAuthClientAccessChallenges, 
+--    radiusAuthClientMalformedAccessResponses, 
+--    radiusAuthClientBadAuthenticators, 
+--    radiusAuthClientPendingRequests, radiusAuthClientTimeouts, 
+--    radiusAuthClientUnknownTypes, radiusAuthClientPacketsDropped
+
+radiusAuthClientMIBCompliance OBJECT IDENTIFIER ::= { radiusAuthClientMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for authentication clients
+--     implementing the RADIUS Authentication Client MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    radiusAuthClientMIBGroup
+
+
+END
+

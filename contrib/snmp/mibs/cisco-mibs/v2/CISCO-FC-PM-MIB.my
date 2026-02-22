@@ -1,0 +1,978 @@
+-- *****************************************************************
+-- CISCO-FC-PM-MIB.my:   Cisco FC Performance Monitoring MIB file
+--
+-- February 2005, Uday Bhaskar
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-FC-PM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    TruthValue
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ifIndex
+        FROM IF-MIB
+    PerfCurrentCount, 
+    PerfIntervalCount, 
+    PerfTotalCount
+        FROM PerfHist-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoFcPmMIB MODULE-IDENTITY
+        LAST-UPDATED    "200502060000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-15500@cisco.com"
+        DESCRIPTION 
+                "This MIB module defines 24 hour error statistics for
+                Fibre Channel (FC) and FICON interfaces collected every
+                15 minutes.  Based on errors described in Fibre Channel
+                - Framing and Signaling (FC-FS) Draft Standard
+                Web: ftp://ftp.t11.org/t11/pub/fc/fs/03-173v1.pdf ."
+        REVISION         "200502060000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 99997 } -- to be updated with CANA 
+                                      -- assigned number
+
+-- groups in the FC PM MIB module
+ciscoFcPmMIBNotifs          OBJECT IDENTIFIER ::= { ciscoFcPmMIB 0 }
+ciscoFcPmMIBObjects         OBJECT IDENTIFIER ::= { ciscoFcPmMIB 1 }
+ciscoFcPmMIBConform         OBJECT IDENTIFIER ::= { ciscoFcPmMIB 2 }
+
+cfcpmPortPerfStatus         OBJECT IDENTIFIER ::=
+                                           { ciscoFcPmMIBObjects 1 }
+cfcpmPortErrorStatusBlock   OBJECT IDENTIFIER ::= 
+                                           { ciscoFcPmMIBObjects 2 }
+
+-- The FC Performance Monitoring Status group
+
+-- This group handles information of the time elapsed, valid intervals
+-- the invalid intervals for performance monitoring of an FC interface
+
+cfcpmPortPerfStatusTable    OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CfcpmPortPerfStatusEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "The FC Port Status table."
+        ::= { cfcpmPortPerfStatus 1 }
+
+cfcpmPortPerfStatusEntry    OBJECT-TYPE
+        SYNTAX              CfcpmPortPerfStatusEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "An entry in the FC Port Status table."
+        INDEX   { ifIndex }
+        ::= { cfcpmPortPerfStatusTable 1 }
+
+CfcpmPortPerfStatusEntry ::=
+    SEQUENCE {
+        cfcpmTimeElapsed        Integer32,
+        cfcpmValidIntervals     Integer32,
+        cfcpmInvalidIntervals   Integer32
+    }
+
+cfcpmTimeElapsed    OBJECT-TYPE
+    SYNTAX          Integer32 (0..899)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of seconds, including partial seconds,
+        that have elapsed since the beginning of the current
+        measurement period. If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the
+        current interval exceeds the maximum value, the
+        agent will return the maximum value."
+    ::= { cfcpmPortPerfStatusEntry 1 }
+
+cfcpmValidIntervals OBJECT-TYPE
+    SYNTAX          Integer32 (0..96)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of previous 15-minute intervals
+        for which data was collected.
+        The value will be 96 unless the measurement was
+        (re-)started within the last 24 hours, in which
+        case the value will be the number of complete 15
+        minute intervals for which the agent has at least
+        some data. In certain cases (e.g., in the case
+        where the agent is a proxy) it is possible that some
+        intervals are unavailable.  In this case, this
+        interval is the maximum interval number for
+        which data is available."
+    ::= { cfcpmPortPerfStatusEntry 2 }
+
+cfcpmInvalidIntervals   OBJECT-TYPE
+    SYNTAX              Integer32 (0..96)
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "The number of intervals in the range from
+        0 to cfcpmValidIntervals for which no
+        data is available. This object will typically
+        be zero except in cases where the data for some
+        intervals are not available (e.g., in proxy
+        situations)."
+    ::= { cfcpmPortPerfStatusEntry 3 }
+    
+-- The FC Port Error group
+
+-- This group consists of 3 tables
+-- 1) The FC Total Port Error Table
+-- 2) The FC Current Port Error Table
+-- 3) The FC Interval Port Error Table
+ 
+-- The FC Total Port Error Table
+-- This table contains various statistics
+-- being collected for the past 24 hours.
+
+cfcpmTotalPortErrorTable    OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CfcpmTotalPortErrorEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "The FC Total Port Errors table. This table contains
+            various error statistics being collected for the past
+            24 hours."
+        ::= { cfcpmPortErrorStatusBlock 1 }
+
+cfcpmTotalPortErrorEntry    OBJECT-TYPE
+        SYNTAX              CfcpmTotalPortErrorEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "An entry in the FC Port Errors Total table for FC and 
+            FICON interfaces."
+        INDEX   { ifIndex }
+        ::= { cfcpmTotalPortErrorTable 1 }
+
+CfcpmTotalPortErrorEntry ::=
+    SEQUENCE {
+        cfcpmtPortRxLinkResets             PerfTotalCount,
+        cfcpmtPortTxLinkResets             PerfTotalCount,
+        cfcpmtPortLinkResets               PerfTotalCount,
+        cfcpmtPortRxOfflineSequences       PerfTotalCount,
+        cfcpmtPortTxOfflineSequences       PerfTotalCount,
+        cfcpmtPortLinkFailures             PerfTotalCount,
+        cfcpmtPortSynchLosses              PerfTotalCount,
+        cfcpmtPortSignalLosses             PerfTotalCount,
+        cfcpmtPortPrimSeqProtocolErrors    PerfTotalCount,
+        cfcpmtPortInvalidTxWords           PerfTotalCount,
+        cfcpmtPortInvalidCRCs              PerfTotalCount,
+        cfcpmtPortInvalidOrderedSets       PerfTotalCount,
+        cfcpmtPortFramesTooLong            PerfTotalCount,
+        cfcpmtPortTruncatedFrames          PerfTotalCount,
+        cfcpmtPortAddressErrors            PerfTotalCount,
+        cfcpmtPortDelimiterErrors          PerfTotalCount,
+        cfcpmtPortEncDisparityErrors       PerfTotalCount,
+        cfcpmtPortOtherErrors              PerfTotalCount
+}
+
+cfcpmtPortRxLinkResets  OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of Link resets
+            ( LR primitives ) received aggregating the previous valid 
+            15-minute measurement intervals."
+::= { cfcpmTotalPortErrorEntry 1 }
+
+cfcpmtPortTxLinkResets  OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of Link resets
+            ( LR primitive ) transmitted aggregating the previous 
+            valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 2 }
+
+cfcpmtPortLinkResets    OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of times the
+            reset link protocol was initiated on this port.  This
+            includes the number of Loop Initialization Primitive
+            ( LIP ) events on an arbitrated loop port aggregating
+            the previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 3 }
+
+cfcpmtPortRxOfflineSequences    OBJECT-TYPE
+        SYNTAX                  PerfTotalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of Offline
+            Primitive OLS received at this port aggregating the
+            previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 4 }
+
+cfcpmtPortTxOfflineSequences    OBJECT-TYPE
+        SYNTAX                  PerfTotalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of Offline
+            Primitive OLS transmitted by this port aggregating the
+            previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 5 }
+
+cfcpmtPortLinkFailures  OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of link failures
+            aggregating the previous valid 15-minute measurement 
+            intervals."
+        ::= { cfcpmTotalPortErrorEntry 6 }
+
+cfcpmtPortSynchLosses   OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of instances of
+            synchronization loss detected at this port aggregating the
+            previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 7 }
+
+cfcpmtPortSignalLosses  OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of instances of
+            signal loss detected at this port aggregating the previous 
+            valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 8 }
+
+cfcpmtPortPrimSeqProtocolErrors OBJECT-TYPE
+        SYNTAX                  PerfTotalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of primitive
+            sequence protocol errors detected at this port aggregating
+            the previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 9 }
+
+cfcpmtPortInvalidTxWords    OBJECT-TYPE
+        SYNTAX              PerfTotalCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of invalid
+            transmission words received at this port aggregating 
+            the previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 10 }
+
+cfcpmtPortInvalidCRCs   OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received with invalid CRC aggregating the previous 
+            valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 11 }
+
+cfcpmtPortInvalidOrderedSets    OBJECT-TYPE
+        SYNTAX                  PerfTotalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of invalid
+            ordered sets received at this port aggregating the
+            previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 12 }
+
+cfcpmtPortFramesTooLong OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received at this port where the frame length was greater
+            than what was agreed to in FLOGI/PLOGI aggregating the
+            previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 13 }
+
+cfcpmtPortTruncatedFrames   OBJECT-TYPE
+        SYNTAX              PerfTotalCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received at this port where the frame length was less
+            than the minimum indicated by the frame header 
+            aggregating the previous valid 15-minute measurement 
+            intervals."
+        ::= { cfcpmTotalPortErrorEntry 14 }
+
+cfcpmtPortAddressErrors OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received with unknown addressing aggregating the previous
+            valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 15 }
+
+cfcpmtPortDelimiterErrors   OBJECT-TYPE
+        SYNTAX              PerfTotalCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of invalid frame
+            delimiters received at this port aggregating the previous 
+            valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 16 }
+
+cfcpmtPortEncDisparityErrors    OBJECT-TYPE
+        SYNTAX                  PerfTotalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of encoding
+            disparity errors received at this port aggregating the 
+            previous valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 17 }
+
+cfcpmtPortOtherErrors   OBJECT-TYPE
+        SYNTAX          PerfTotalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of times an
+            undefined error has occurred aggregating the previous 
+            valid 15-minute measurement intervals."
+        ::= { cfcpmTotalPortErrorEntry 18 }
+
+-- The FC Current Port Error Table
+-- This table contains various statistics
+-- being collected for the current 15 minute interval.
+
+cfcpmCurrentPortErrorTable  OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CfcpmCurrentPortErrorEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "The FC Current Port Errors table. This table contains
+            various error statistics being collected for the current 15
+            minute interval."
+        ::= { cfcpmPortErrorStatusBlock 2 }
+
+cfcpmCurrentPortErrorEntry  OBJECT-TYPE
+        SYNTAX              CfcpmCurrentPortErrorEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "An entry in the FC Port Errors Current table for FC and
+            FICON interfaces."
+        INDEX   { ifIndex }
+        ::= { cfcpmCurrentPortErrorTable 1 }
+
+CfcpmCurrentPortErrorEntry ::=
+    SEQUENCE {
+        cfcpmcPortRxLinkResets             PerfCurrentCount,
+        cfcpmcPortTxLinkResets             PerfCurrentCount,
+        cfcpmcPortLinkResets               PerfCurrentCount,
+        cfcpmcPortRxOfflineSequences       PerfCurrentCount,
+        cfcpmcPortTxOfflineSequences       PerfCurrentCount,
+        cfcpmcPortLinkFailures             PerfCurrentCount,
+        cfcpmcPortSynchLosses              PerfCurrentCount,
+        cfcpmcPortSignalLosses             PerfCurrentCount,
+        cfcpmcPortPrimSeqProtocolErrors    PerfCurrentCount,
+        cfcpmcPortInvalidTxWords           PerfCurrentCount,
+        cfcpmcPortInvalidCRCs              PerfCurrentCount,
+        cfcpmcPortInvalidOrderedSets       PerfCurrentCount,
+        cfcpmcPortFramesTooLong            PerfCurrentCount,
+        cfcpmcPortTruncatedFrames          PerfCurrentCount,
+        cfcpmcPortAddressErrors            PerfCurrentCount,
+        cfcpmcPortDelimiterErrors          PerfCurrentCount,
+        cfcpmcPortEncDisparityErrors       PerfCurrentCount,
+        cfcpmcPortOtherErrors              PerfCurrentCount
+}
+
+cfcpmcPortRxLinkResets  OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of Link resets
+            ( LR primitives ) received in the current 15 minute
+            interval."
+::= { cfcpmCurrentPortErrorEntry 1 }
+
+cfcpmcPortTxLinkResets  OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of Link resets
+            ( LR primitive ) transmitted in the current 15 minute
+            interval."
+        ::= { cfcpmCurrentPortErrorEntry 2 }
+
+cfcpmcPortLinkResets    OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of times the
+            reset link protocol was initiated on this port.  This
+            includes the number of Loop Initialization Primitive
+            ( LIP ) events on an arbitrated loop port in the current
+            15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 3 }
+
+cfcpmcPortRxOfflineSequences    OBJECT-TYPE
+        SYNTAX                  PerfCurrentCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of Offline
+            Primitive Sequence ( OLS ) received at this port in the 
+            current 15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 4 }
+
+cfcpmcPortTxOfflineSequences    OBJECT-TYPE
+        SYNTAX                  PerfCurrentCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of Offline
+            Primitive OLS transmitted by this port in the current
+            15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 5 }
+
+cfcpmcPortLinkFailures  OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of link failures
+            in the current 15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 6 }
+
+cfcpmcPortSynchLosses   OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of instances of
+            synchronization loss detected at this port in the
+            current 15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 7 }
+
+cfcpmcPortSignalLosses  OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of instances of
+            signal loss detected at this port in the current 15
+            minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 8 }
+
+cfcpmcPortPrimSeqProtocolErrors OBJECT-TYPE
+        SYNTAX                  PerfCurrentCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of primitive
+            sequence protocol errors detected at this port in the
+            current 15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 9 }
+
+cfcpmcPortInvalidTxWords    OBJECT-TYPE
+        SYNTAX              PerfCurrentCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of invalid
+            transmission words received at this port in the current
+            15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 10 }
+
+cfcpmcPortInvalidCRCs   OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received with invalid CRC in the current 15 minute
+            interval."
+        ::= { cfcpmCurrentPortErrorEntry 11 }
+
+cfcpmcPortInvalidOrderedSets    OBJECT-TYPE
+        SYNTAX                  PerfCurrentCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of invalid
+            ordered sets received at this port in the current 15
+            minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 12 }
+
+cfcpmcPortFramesTooLong OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received at this port where the frame length was greater
+            than what was agreed to in Fabric Login ( FLOGI )/ Port 
+            Login ( PLOGI )in the current 15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 13 }
+
+cfcpmcPortTruncatedFrames   OBJECT-TYPE
+        SYNTAX              PerfCurrentCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received at this port where the frame length was less
+            than the minimum indicated by the frame header in the
+            current 15 minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 14 }
+
+cfcpmcPortAddressErrors OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received with unknown addressing in the current 15
+            minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 15 }
+
+cfcpmcPortDelimiterErrors   OBJECT-TYPE
+        SYNTAX              PerfCurrentCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of invalid frame
+            delimiters received at this in the current 15 minute
+            interval."
+        ::= { cfcpmCurrentPortErrorEntry 16 }
+
+cfcpmcPortEncDisparityErrors    OBJECT-TYPE
+        SYNTAX                  PerfCurrentCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of encoding
+            disparity errors received at this port in the current 15
+            minute interval."
+        ::= { cfcpmCurrentPortErrorEntry 17 }
+
+cfcpmcPortOtherErrors   OBJECT-TYPE
+        SYNTAX          PerfCurrentCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of times an
+            undefined error has occurred in the current 15 minute
+            interval."
+        ::= { cfcpmCurrentPortErrorEntry 18 }
+
+-- The FC Interval Port Errors Table
+-- This table contains various statistics collected by each system over
+-- a maximum of the previous 24 hours of operation. The past
+-- 24 hours may be broken into 96 completed 15 minute intervals.
+
+cfcpmIntervalPortErrorTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CfcpmIntervalPortErrorEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "The FC Interval Port Errors Table. An entry in this table
+            contains various error statistics being collected for a
+            particular 15 minute interval."
+        ::= { cfcpmPortErrorStatusBlock 3 }
+
+cfcpmIntervalPortErrorEntry OBJECT-TYPE
+        SYNTAX              CfcpmIntervalPortErrorEntry
+        MAX-ACCESS          not-accessible
+        STATUS              current
+        DESCRIPTION
+            "An interval in the FC Port Errors Interval Table for FC 
+            and FICON interfaces."
+        INDEX   { ifIndex,
+                cfcpmiPortErrorIntervalNumber }
+        ::= { cfcpmIntervalPortErrorTable 1 }
+
+CfcpmIntervalPortErrorEntry ::=
+    SEQUENCE {
+        cfcpmiPortErrorIntervalNumber     Unsigned32,
+        cfcpmiPortRxLinkResets            PerfIntervalCount,
+        cfcpmiPortTxLinkResets            PerfIntervalCount,
+        cfcpmiPortLinkResets              PerfIntervalCount,
+        cfcpmiPortRxOfflineSequences      PerfIntervalCount,
+        cfcpmiPortTxOfflineSequences      PerfIntervalCount,
+        cfcpmiPortLinkFailures            PerfIntervalCount,
+        cfcpmiPortSynchLosses             PerfIntervalCount,
+        cfcpmiPortSignalLosses            PerfIntervalCount,
+        cfcpmiPortPrimSeqProtocolErrors   PerfIntervalCount,
+        cfcpmiPortInvalidTxWords          PerfIntervalCount,
+        cfcpmiPortInvalidCRCs             PerfIntervalCount,
+        cfcpmiPortInvalidOrderedSets      PerfIntervalCount,
+        cfcpmiPortFramesTooLong           PerfIntervalCount,
+        cfcpmiPortTruncatedFrames         PerfIntervalCount,
+        cfcpmiPortAddressErrors           PerfIntervalCount,
+        cfcpmiPortDelimiterErrors         PerfIntervalCount,
+        cfcpmiPortEncDisparityErrors      PerfIntervalCount,
+        cfcpmiPortOtherErrors             PerfIntervalCount,
+        cfcpmiPortValidData               TruthValue
+    }
+
+cfcpmiPortErrorIntervalNumber   OBJECT-TYPE
+        SYNTAX                  Unsigned32 (1..96)
+        MAX-ACCESS              not-accessible
+        STATUS                  current
+        DESCRIPTION
+            "A unique identifier of the interval for which the 
+            set of statistics is available.
+            The interval identified by 1 is the most recently
+            completed 15 minute interval, and the interval
+            identified by N is the interval immediately preceding
+            the one identified by N-1."
+        ::= { cfcpmIntervalPortErrorEntry 1 }
+
+cfcpmiPortRxLinkResets  OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of Link resets
+            ( LR primitives ) received in a particular 15 minute
+            interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 2 }
+
+cfcpmiPortTxLinkResets  OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of Link resets
+            ( LR primitive ) transmitted in a particular 15 minute
+            interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 3 }
+
+cfcpmiPortLinkResets    OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of times the
+            reset link protocol was initiated on this port.  This
+            includes the number of Loop Initialization Primitive
+            ( LIP ) events on an arbitrated loop port in a
+            particular 15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 4 }
+
+cfcpmiPortRxOfflineSequences    OBJECT-TYPE
+        SYNTAX                  PerfIntervalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of Offline
+            Primitive OLS received at this port in a particular 15
+            minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 5 }
+
+cfcpmiPortTxOfflineSequences    OBJECT-TYPE
+        SYNTAX                  PerfIntervalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of Offline
+            Primitive OLS transmitted by this port in a particular
+            15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 6 }
+
+cfcpmiPortLinkFailures  OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of link failures
+            in a particular 15 minute interval in the past 24
+            hours."
+        ::= { cfcpmIntervalPortErrorEntry 7 }
+
+cfcpmiPortSynchLosses   OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of instances of
+            synchronization loss detected at this port in a
+            particular 15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 8 }
+
+cfcpmiPortSignalLosses  OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of instances of
+            signal loss detected at this port in a particular 15
+            minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 9 }
+
+cfcpmiPortPrimSeqProtocolErrors OBJECT-TYPE
+        SYNTAX                  PerfIntervalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of primitive
+            sequence protocol errors detected at this port in a
+            particular 15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 10 }
+
+cfcpmiPortInvalidTxWords    OBJECT-TYPE
+        SYNTAX              PerfIntervalCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of invalid
+            transmission words received at this port in a particular
+            15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 11 }
+
+cfcpmiPortInvalidCRCs   OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received with invalid CRC in a particular 15 minute
+            interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 12 }
+
+cfcpmiPortInvalidOrderedSets    OBJECT-TYPE
+        SYNTAX                  PerfIntervalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of invalid
+            ordered sets received at this port in a particular 15
+            minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 13 }
+
+cfcpmiPortFramesTooLong OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received at this port where the frame length was greater
+            than what was agreed to in FLOGI/PLOGI in a particular
+            15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 14 }
+
+cfcpmiPortTruncatedFrames   OBJECT-TYPE
+        SYNTAX              PerfIntervalCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received at this port where the frame length was less
+            than the minimum indicated by the frame header in a
+            particular 15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 15 }
+
+cfcpmiPortAddressErrors OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of frames
+            received with unknown addressing in a particular 15
+            minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 16 }
+
+cfcpmiPortDelimiterErrors   OBJECT-TYPE
+        SYNTAX              PerfIntervalCount
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+            "The counter associated with the number of invalid frame
+            delimiters received at this port in a particular 15
+            minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 17 }
+
+cfcpmiPortEncDisparityErrors    OBJECT-TYPE
+        SYNTAX                  PerfIntervalCount
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The counter associated with the number of encoding
+            disparity errors received at this port in a particular
+            15 minute interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 18 }
+
+cfcpmiPortOtherErrors   OBJECT-TYPE
+        SYNTAX          PerfIntervalCount
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+            "The counter associated with the number of times an 
+            undefined error has occurred in a particular 15 minute
+            interval in the past 24 hours."
+        ::= { cfcpmIntervalPortErrorEntry 19 }
+
+cfcpmiPortValidData OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This variable indicates if the data for this
+            interval is valid."
+        ::= { cfcpmIntervalPortErrorEntry 20 }
+
+--
+-- Conformance
+--
+cfcpmMibCompliances OBJECT IDENTIFIER
+        ::= { ciscoFcPmMIBConform 1 }
+cfcpmMibGroups      OBJECT IDENTIFIER
+        ::= { ciscoFcPmMIBConform 2 }
+
+--
+-- compliance statements
+--
+cfcpmMibCompliance  MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for entities which implement the
+            Cisco FC PM MIB."
+        MODULE -- this module
+            MANDATORY-GROUPS {
+                cfcpmPortStatusGroup,
+                cfcpmMandatoryGroup
+            }
+
+            GROUP   cfcpmOptionalGroup
+            DESCRIPTION
+                "Implementation of this group is optional for Fibre
+                Channel (FC) and FICON interfaces."
+
+        ::= { cfcpmMibCompliances 1 }
+--
+-- Units of conformance
+--
+cfcpmPortStatusGroup OBJECT-GROUP
+        OBJECTS {
+            cfcpmTimeElapsed,
+            cfcpmValidIntervals,
+            cfcpmInvalidIntervals
+        }
+        STATUS current
+        DESCRIPTION
+            "The collection of FC PM Port Status Mandatory objects."
+        ::= { cfcpmMibGroups 1 }
+
+cfcpmMandatoryGroup OBJECT-GROUP
+        OBJECTS {
+            cfcpmtPortPrimSeqProtocolErrors,
+            cfcpmcPortPrimSeqProtocolErrors,
+            cfcpmiPortPrimSeqProtocolErrors,
+            cfcpmiPortValidData
+        }
+        STATUS current
+        DESCRIPTION
+            "The collection of FC PM Total Mandatory objects."
+        ::= { cfcpmMibGroups 2 }
+
+cfcpmOptionalGroup OBJECT-GROUP
+        OBJECTS {
+            cfcpmtPortRxLinkResets,
+            cfcpmtPortTxLinkResets,
+            cfcpmtPortLinkResets,
+            cfcpmtPortRxOfflineSequences,
+            cfcpmtPortTxOfflineSequences,
+            cfcpmtPortLinkFailures,
+            cfcpmtPortSynchLosses,
+            cfcpmtPortSignalLosses,
+            cfcpmtPortInvalidTxWords,
+            cfcpmtPortInvalidCRCs,
+            cfcpmtPortInvalidOrderedSets,
+            cfcpmtPortFramesTooLong,
+            cfcpmtPortTruncatedFrames,
+            cfcpmtPortAddressErrors,
+            cfcpmtPortDelimiterErrors,
+            cfcpmtPortEncDisparityErrors,
+            cfcpmtPortOtherErrors,
+            cfcpmcPortRxLinkResets,
+            cfcpmcPortTxLinkResets,
+            cfcpmcPortLinkResets,
+            cfcpmcPortRxOfflineSequences,
+            cfcpmcPortTxOfflineSequences,
+            cfcpmcPortLinkFailures,
+            cfcpmcPortSynchLosses,
+            cfcpmcPortSignalLosses,
+            cfcpmcPortInvalidTxWords,
+            cfcpmcPortInvalidCRCs,
+            cfcpmcPortInvalidOrderedSets,
+            cfcpmcPortFramesTooLong,
+            cfcpmcPortTruncatedFrames,
+            cfcpmcPortAddressErrors,
+            cfcpmcPortDelimiterErrors,
+            cfcpmcPortEncDisparityErrors,
+            cfcpmcPortOtherErrors,
+            cfcpmiPortRxLinkResets,
+            cfcpmiPortTxLinkResets,
+            cfcpmiPortLinkResets,
+            cfcpmiPortRxOfflineSequences,
+            cfcpmiPortTxOfflineSequences,
+            cfcpmiPortLinkFailures,
+            cfcpmiPortSynchLosses,
+            cfcpmiPortSignalLosses,
+            cfcpmiPortInvalidTxWords,
+            cfcpmiPortInvalidCRCs,
+            cfcpmiPortInvalidOrderedSets,
+            cfcpmiPortFramesTooLong,
+            cfcpmiPortTruncatedFrames,
+            cfcpmiPortAddressErrors,
+            cfcpmiPortDelimiterErrors,
+            cfcpmiPortEncDisparityErrors,
+            cfcpmiPortOtherErrors
+        }
+        STATUS current
+        DESCRIPTION
+            "The collection of FC PM Optional objects."
+        ::= { cfcpmMibGroups 3 }
+ 
+END

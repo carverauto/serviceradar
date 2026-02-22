@@ -1,0 +1,716 @@
+-- MIB file created 01-Jun-2006 00:35:38, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SCAS-BB-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "PCUBE-ENGAGE-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    pcubeWorkgroup, pcubeModules
+            FROM PCUBE-SMI
+    linkModuleIndex, linkIndex, spvIndex, pmoduleIndex
+            FROM PCUBE-SE-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+pcubeEngageMIB OBJECT IDENTIFIER ::= { pcubeModules 4 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200605100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--     
+--    Postal: 170 W Tasman Drive
+--      San Jose, CA  95134
+--      USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-sce@cisco.com
+--  Descr
+--    Main SNMP MIB for Cisco SCAS BB application
+--    which runs over Service Control Engine devices.
+--  RevDate
+--    200605100000Z
+--  RevDescr
+--    MIB revised as a part of integration into
+--     Cisco SNMP MIB standard.
+--     Changed contacts,
+--     Added OBJECT-GROUPS,
+--     Added MODULE-COMPLIANCE.
+--  RevDate
+--    200412210000Z
+--  RevDescr
+--    Main SNMP MIB for P-cube's Engage Applictaion, 
+--    revised for Engage 2.5.
+--  RevDate
+--    200407010000Z
+--  RevDescr
+--    Main SNMP MIB for P-cube's Engage Applictaion.
+--  RevDate
+--    200207032000Z
+--  RevDescr
+--    This MIB provides runtime status and monitoring 
+--    capabilities for the SCAS BB application.
+
+pcubeEngageObjs OBJECT IDENTIFIER ::= { pcubeWorkgroup 2 }
+pcubeEngageConformance OBJECT IDENTIFIER ::= { pcubeEngageMIB 3 }
+pcubeEngageGroups OBJECT IDENTIFIER ::= { pcubeEngageConformance 1 }
+pcubeEngageCompliances OBJECT IDENTIFIER ::= { pcubeEngageConformance 2 }
+serviceGrp      OBJECT IDENTIFIER ::= { pcubeEngageObjs 1 }
+linkGrp         OBJECT IDENTIFIER ::= { pcubeEngageObjs 2 }
+packageGrp      OBJECT IDENTIFIER ::= { pcubeEngageObjs 3 }
+subscriberGrp   OBJECT IDENTIFIER ::= { pcubeEngageObjs 4 }
+serviceCounterGrp OBJECT IDENTIFIER ::= { pcubeEngageObjs 5 }
+serviceTable    OBJECT IDENTIFIER ::= { serviceGrp 1 }
+
+linkServiceUsageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF LinkServiceUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Link Service-usage table provides
+        information per link per global-scope
+        service-counter."
+    ::= { linkGrp 1 }
+
+linkServiceUsageEntry OBJECT-TYPE
+    SYNTAX LinkServiceUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A linkServiceUsageTable entry."
+    INDEX { linkModuleIndex, linkIndex, globalScopeServiceCounterIndex }
+    ::= { linkServiceUsageTable 1 }
+
+LinkServiceUsageEntry ::= SEQUENCE {
+    linkServiceUsageUpVolume Counter,
+    linkServiceUsageDownVolume Counter,
+    linkServiceUsageNumSessions Counter,
+    linkServiceUsageDuration Counter,
+    linkServiceUsageConcurrentSessions Counter,
+    linkServiceUsageActiveSubscribers Counter,
+    linkServiceUpDroppedPackets Counter,
+    linkServiceDownDroppedPackets Counter,
+    linkServiceUpDroppedBytes Counter,
+    linkServiceDownDroppedBytes Counter
+    }
+
+linkServiceUsageUpVolume OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    KBytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter upstream volume."
+    ::= { linkServiceUsageEntry 1 }
+
+linkServiceUsageDownVolume OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    KBytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter downstream volume."
+    ::= { linkServiceUsageEntry 2 }
+
+linkServiceUsageNumSessions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter."
+    ::= { linkServiceUsageEntry 3 }
+
+linkServiceUsageDuration OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter aggregated 
+        session duration."
+    ::= { linkServiceUsageEntry 4 }
+
+linkServiceUsageConcurrentSessions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter concurrent sessions."
+    ::= { linkServiceUsageEntry 5 }
+
+linkServiceUsageActiveSubscribers OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    subscribers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter amount of active
+        subscribers."
+    ::= { linkServiceUsageEntry 6 }
+
+linkServiceUpDroppedPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter number of dropped
+        packets on the upstream, when accelerate 
+        packet drop is enabled this counter will 
+        always return 0xFFFFFFFF."
+    ::= { linkServiceUsageEntry 7 }
+
+linkServiceDownDroppedPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter number of dropped
+        packets on the downstream when accelerate 
+        packet drop is enabled this counter will 
+        always return 0xFFFFFFFF."
+    ::= { linkServiceUsageEntry 8 }
+
+linkServiceUpDroppedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter number of dropped
+        bytes on the upstream when accelerate packet 
+        drop is enabled this counter will always 
+        return 0xFFFFFFFF."
+    ::= { linkServiceUsageEntry 9 }
+
+linkServiceDownDroppedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The link service-counter number of dropped 
+        bytes on the downstream when accelerate packet
+        drop is enabled this counter will always 
+        return 0xFFFFFFFF."
+    ::= { linkServiceUsageEntry 10 }
+
+packageCounterTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF PackageCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information per each
+        package-counter configured into the system."
+    ::= { packageGrp 1 }
+
+packageCounterEntry OBJECT-TYPE
+    SYNTAX PackageCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A packageCounterTable entry."
+    INDEX { pmoduleIndex, packageCounterIndex }
+    ::= { packageCounterTable 1 }
+
+PackageCounterEntry ::= SEQUENCE {
+    packageCounterIndex INTEGER,
+    packageCounterStatus INTEGER,
+    packageCounterName SnmpAdminString,
+    packageCounterActiveSubscribers Counter
+    }
+
+packageCounterIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter index."
+    ::= { packageCounterEntry 1 }
+
+packageCounterStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disabled(0),
+        enabled(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter status."
+    ::= { packageCounterEntry 2 }
+
+packageCounterName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the package-counter."
+    ::= { packageCounterEntry 3 }
+
+packageCounterActiveSubscribers OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total amount of active subscribers of the
+        package-counter."
+    ::= { packageCounterEntry 4 }
+
+packageServiceUsageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF PackageServiceUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Package Service Usage table contains 
+        counters per package-counter per global-scope
+        service-counter."
+    ::= { packageGrp 2 }
+
+packageServiceUsageEntry OBJECT-TYPE
+    SYNTAX PackageServiceUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A packageServiceUsageTable entry."
+    INDEX { pmoduleIndex, packageCounterIndex, globalScopeServiceCounterIndex }
+    ::= { packageServiceUsageTable 1 }
+
+PackageServiceUsageEntry ::= SEQUENCE {
+    packageServiceUsageUpVolume Counter,
+    packageServiceUsageDownVolume Counter,
+    packageServiceUsageNumSessions Counter,
+    packageServiceUsageDuration Counter,
+    packageServiceUsageConcurrentSessions Counter,
+    packageServiceUsageActiveSubscribers Counter,
+    packageServiceUpDroppedPackets Counter,
+    packageServiceDownDroppedPackets Counter,
+    packageServiceUpDroppedBytes Counter,
+    packageServiceDownDroppedBytes Counter
+    }
+
+packageServiceUsageUpVolume OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    KBytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service-counter upstream
+        volume."
+    ::= { packageServiceUsageEntry 1 }
+
+packageServiceUsageDownVolume OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    KBytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service-counter downstream
+        volume."
+    ::= { packageServiceUsageEntry 2 }
+
+packageServiceUsageNumSessions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service-counter 
+        number of sessions."
+    ::= { packageServiceUsageEntry 3 }
+
+packageServiceUsageDuration OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service-counter aggregated 
+        session duration."
+    ::= { packageServiceUsageEntry 4 }
+
+packageServiceUsageConcurrentSessions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service-counter 
+        concurrent sessions."
+    ::= { packageServiceUsageEntry 5 }
+
+packageServiceUsageActiveSubscribers OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    subscribers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service-counter amount of 
+        active subscribers."
+    ::= { packageServiceUsageEntry 6 }
+
+packageServiceUpDroppedPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service number of dropped
+        packets on the upstream when accelerate packet
+        drop is enabled this counter will always return
+        0xFFFFFFFF."
+    ::= { packageServiceUsageEntry 7 }
+
+packageServiceDownDroppedPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service number of dropped
+        packets on the downstream when accelerate
+        packet drop is enabled this counter will always
+        return 0xFFFFFFFF."
+    ::= { packageServiceUsageEntry 8 }
+
+packageServiceUpDroppedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service number of dropped
+        bytes on the upstream when accelerate packet 
+        drop is enabled this counter will always return
+        0xFFFFFFFF."
+    ::= { packageServiceUsageEntry 9 }
+
+packageServiceDownDroppedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The package-counter service number of dropped 
+        bytes on the downstream when accelerate packet
+        drop is enabled this counter will always return
+        0xFFFFFFFF."
+    ::= { packageServiceUsageEntry 10 }
+
+subscribersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SubscribersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information for 
+        each subscriber."
+    ::= { subscriberGrp 1 }
+
+subscribersEntry OBJECT-TYPE
+    SYNTAX SubscribersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A subscribersTable entry."
+    INDEX { pmoduleIndex, spvIndex }
+    ::= { subscribersTable 1 }
+
+SubscribersEntry ::= SEQUENCE {
+    subscriberPackageIndex INTEGER
+    }
+
+subscriberPackageIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The subscriber package index."
+    ::= { subscribersEntry 1 }
+
+subscriberServiceUsageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SubscriberServiceUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information for each 
+        subscriber for each subscriber-scope 
+        service-counter."
+    ::= { subscriberGrp 2 }
+
+subscriberServiceUsageEntry OBJECT-TYPE
+    SYNTAX SubscriberServiceUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A subscriberServiceUsageTable entry."
+    INDEX { pmoduleIndex, spvIndex, subscriberScopeServiceCounterIndex }
+    ::= { subscriberServiceUsageTable 1 }
+
+SubscriberServiceUsageEntry ::= SEQUENCE {
+    subscriberServiceUsageUpVolume Counter,
+    subscriberServiceUsageDownVolume Counter,
+    subscriberServiceUsageNumSessions INTEGER,
+    subscriberServiceUsageDuration INTEGER
+    }
+
+subscriberServiceUsageUpVolume OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    KBytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The upstream volume."
+    ::= { subscriberServiceUsageEntry 1 }
+
+subscriberServiceUsageDownVolume OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    KBytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The downstream volume."
+    ::= { subscriberServiceUsageEntry 2 }
+
+subscriberServiceUsageNumSessions OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of sessions."
+    ::= { subscriberServiceUsageEntry 3 }
+
+subscriberServiceUsageDuration OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Aggregated session duration."
+    ::= { subscriberServiceUsageEntry 4 }
+
+globalScopeServiceCounterTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF GlobalScopeServiceCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Global-scope Service-counter table 
+        consists of data regarding each service-counter
+        configured into the system, used by the link 
+        and package entries."
+    ::= { serviceCounterGrp 1 }
+
+globalScopeServiceCounterEntry OBJECT-TYPE
+    SYNTAX GlobalScopeServiceCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A globalScopeServiceCounterEntry entry."
+    INDEX { pmoduleIndex, globalScopeServiceCounterIndex }
+    ::= { globalScopeServiceCounterTable 1 }
+
+GlobalScopeServiceCounterEntry ::= SEQUENCE {
+    globalScopeServiceCounterIndex INTEGER,
+    globalScopeServiceCounterStatus INTEGER,
+    globalScopeServiceCounterName SnmpAdminString
+    }
+
+globalScopeServiceCounterIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The global-scope service-counter index."
+    ::= { globalScopeServiceCounterEntry 1 }
+
+globalScopeServiceCounterStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disabled(0),
+        enabled(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global-scope service-counter status."
+    ::= { globalScopeServiceCounterEntry 2 }
+
+globalScopeServiceCounterName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the global-scope service-counter."
+    ::= { globalScopeServiceCounterEntry 3 }
+
+subscriberScopeServiceCounterTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SubscriberScopeServiceCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Subscriber-Scope Service-counter table
+        consists of data regarding each service-counter
+        definition configured into the system,
+        used by the subscriber entries."
+    ::= { serviceCounterGrp 2 }
+
+subscriberScopeServiceCounterEntry OBJECT-TYPE
+    SYNTAX SubscriberScopeServiceCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A subscriberScopeServiceCounterEntry entry."
+    INDEX { pmoduleIndex, subscriberScopeServiceCounterIndex }
+    ::= { subscriberScopeServiceCounterTable 1 }
+
+SubscriberScopeServiceCounterEntry ::= SEQUENCE {
+    subscriberScopeServiceCounterIndex INTEGER,
+    subscriberScopeServiceCounterStatus INTEGER,
+    subscriberScopeServiceCounterName SnmpAdminString
+    }
+
+subscriberScopeServiceCounterIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The subscriber-scope service-counter index."
+    ::= { subscriberScopeServiceCounterEntry 1 }
+
+subscriberScopeServiceCounterStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disabled(0),
+        enabled(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The subscriber-scope service-counter status."
+    ::= { subscriberScopeServiceCounterEntry 2 }
+
+subscriberScopeServiceCounterName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the subscriber-scope 
+        service-counter."
+    ::= { subscriberScopeServiceCounterEntry 3 }
+
+pcubeLinkGroup OBJECT IDENTIFIER ::= { pcubeEngageGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Link related inforamtion.
+--  objects
+--    linkServiceUsageUpVolume, linkServiceUsageDownVolume, 
+--    linkServiceUsageNumSessions, linkServiceUsageDuration, 
+--    linkServiceUsageConcurrentSessions, 
+--    linkServiceUsageActiveSubscribers, 
+--    linkServiceUpDroppedPackets, linkServiceDownDroppedPackets, 
+--    linkServiceUpDroppedBytes, linkServiceDownDroppedBytes
+
+pcubePackageGroup OBJECT IDENTIFIER ::= { pcubeEngageGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Package related information.
+--  objects
+--    packageCounterStatus, packageCounterName, 
+--    packageCounterActiveSubscribers, packageServiceUsageUpVolume, 
+--    packageServiceUsageDownVolume, packageServiceUsageNumSessions, 
+--    packageServiceUsageDuration, 
+--    packageServiceUsageConcurrentSessions, 
+--    packageServiceUsageActiveSubscribers, 
+--    packageServiceUpDroppedPackets, 
+--    packageServiceDownDroppedPackets, 
+--    packageServiceUpDroppedBytes, packageServiceDownDroppedBytes
+
+pcubeSubscriberGroup OBJECT IDENTIFIER ::= { pcubeEngageGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Subscriber related information.
+--  objects
+--    subscriberPackageIndex, subscriberServiceUsageUpVolume, 
+--    subscriberServiceUsageDownVolume, 
+--    subscriberServiceUsageNumSessions, 
+--    subscriberServiceUsageDuration
+
+pcubeServiceCounterGroup OBJECT IDENTIFIER ::= { pcubeEngageGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Service related information.
+--  objects
+--    globalScopeServiceCounterStatus, 
+--    globalScopeServiceCounterName, 
+--    subscriberScopeServiceCounterStatus, 
+--    subscriberScopeServiceCounterName
+
+pcubeEngageCompliance OBJECT IDENTIFIER ::= { pcubeEngageCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    A compliance statement defined in this MIB module,
+--     for SCABB SNMP agents.
+--  Module
+--    >>current<<
+--   MandGroup
+--    pcubeLinkGroup
+--   MandGroup
+--    pcubePackageGroup
+--   MandGroup
+--    pcubeSubscriberGroup
+--   MandGroup
+--    pcubeServiceCounterGroup
+
+
+END
+

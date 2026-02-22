@@ -1,0 +1,1042 @@
+-- *****************************************************************
+-- CISCO-IMA-MIB.my:  Cisco IMA MIB
+--
+-- March 2003, Wayne W. Cai
+--
+-- Copyright (c) 1999-2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IMA-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    Integer32,
+    Unsigned32                  FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    TruthValue                  FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                FROM SNMPv2-CONF
+    ciscoMgmt                   FROM CISCO-SMI
+    MilliSeconds,
+    imaGroupIndex,
+    imaLinkIfIndex,
+    imaGroupEntry,
+    imaLinkEntry                FROM IMA-MIB
+    entPhysicalIndex            FROM ENTITY-MIB;
+
+ciscoImaMIB MODULE-IDENTITY
+        LAST-UPDATED    "200303260000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The MIB module describes Cisco IMA objects. 
+                 This is an extension to the standard of
+                 ATM Forum IMA version 1.1, AF-PHY-0086.001
+                 Spec. atmfImaMib.
+
+                 Acronyms and terms:
+                     ATM      Asynchronous Transfer Mode
+                     CID      Cell Identification (ICP CID)
+                     CRC      Cyclic Redundancy Check
+                     DCB      Data Compensation Buffer
+                     FE       Far-End
+                     GSM      Group State Machine
+                     HEC      Header Error Check
+                     ICP      IMA Control Protocol
+                     IDCR     IMA Data Cell Rate
+                     IMA      Inverse Multiplexing for ATM
+                     IMA ID   IMA Group Identifier
+                     LID      Link Identifier
+                     LIF      Link Loss of IMA Frame defect
+                     LODS     Link Out of Delay Synchronization defect
+                     LSI      Link Stuff Indication
+                     M        IMA frame size
+                     N        Number of links configured in an IMA group
+                     NE       Near-End
+                     OAM      Operations And Maintenance
+                     SNMP     Simple Network Management Protocol
+                 "
+        REVISION        "200303260000Z"
+        DESCRIPTION
+                "(1) Added a new cimaFeatureTable indexed
+                     by entPhysicalIndex
+                 (2) Added following objects to cimaGroupTable:
+                         cimaGrpVerFallbackEnable
+                         cimaGrpAutoRestartMode
+                         cimaGrpRxImaIdExpected
+                         cimaGrpAutoRestartSyncState
+                 (3) Deprecated following objects:
+                         cimaGrpAlarmType
+                         cimaLinkAlarmType."
+        REVISION        "200205020000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 235 }
+
+-- The object identifier subtree for the CISCO-IMA-MIB
+
+ciscoImaMIBObjects    OBJECT IDENTIFIER ::= {ciscoImaMIB 1}
+
+-- Textual conventions
+CiscoImaGrpAlarmType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+       "An identification of the event that causes the generation
+        of a Cisco IMA group notification. The enums is a subset of
+        enums from ImaAlarmType TEXTUAL-CONVENTION of IMA-MIB.
+        CiscoImaGrpAlarmType is used specifically for IMA group
+        alarms."
+    REFERENCE
+         "ATM Forum IMA v1.1, Section 12.2.3 on page 79"
+    SYNTAX      INTEGER {
+         cimaAlarmGroupStartupFe(1),
+         cimaAlarmGroupCfgAbort(2),
+         cimaAlarmGroupCfgAbortFe(3),
+         cimaAlarmGroupInsuffLinks(4),
+         cimaAlarmGroupInsuffLinksFe(5),
+         cimaAlarmGroupBlockedFe(6),
+         cimaAlarmGroupTimingSynch(7)
+       }
+
+CiscoImaLinkAlarmType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+       "An identification of the event that causes the generation
+        of a Cisco IMA link notification. The enums is a subset of
+        enums from ImaAlarmType TEXTUAL-CONVENTION of IMA-MIB.
+        CiscoImaLinkAlarmType is used specifically for IMA link
+        alarms."
+    REFERENCE
+         "ATM Forum IMA v1.1, Section 12.2.3 on page 79"
+    SYNTAX      INTEGER {
+         cimaAlarmLinkLif(1),
+         cimaAlarmLinkLods(2),
+         cimaAlarmLinkRfi(3),
+         cimaAlarmLinkTxMisConnect(4),
+         cimaAlarmLinkRxMisConnect(5),
+         cimaAlarmLinkTxFault(6),
+         cimaAlarmLinkRxFault(7),
+         cimaAlarmLinkTxUnusableFe(8),
+         cimaAlarmLinkRxUnusableFe(9)
+       }
+
+cimaGrpAlarmType OBJECT-TYPE
+    SYNTAX CiscoImaGrpAlarmType
+--    MAX-ACCESS accessible-for-notify
+    MAX-ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+       "The notification object identifies the Cisco IMA group alarm."
+       ::= { ciscoImaMIBObjects 1 }
+
+cimaLinkAlarmType OBJECT-TYPE
+    SYNTAX CiscoImaLinkAlarmType
+--   MAX-ACCESS accessible-for-notify
+    MAX-ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+       "The notification object identifies the Cisco IMA link alarm."
+       ::= { ciscoImaMIBObjects 2 }
+
+-- Cisco IMA Group table, extension to the imaGroupTable
+
+cimaGroupTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CimaGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "The Cisco IMA group table. This table contains Cisco extension 
+        objects for the imaGroupTable. Each entry in the table contains
+        Cisco specific configuration, control, and status information
+        for each IMA group."
+        ::= { ciscoImaMIBObjects 3 }
+
+cimaGroupEntry OBJECT-TYPE
+    SYNTAX CimaGroupEntry 
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "An entry in the table containing additional management
+        information applicable to a Cisco card/platform. When
+        an entry is successfully created here, an entry in interfaces
+        table is created with
+               ifType value of atmIma(107), 
+               ifAdminStatus value of down(2), 
+               ifOperStatus value of down(2)."
+     AUGMENTS { imaGroupEntry }
+     ::= { cimaGroupTable 1 }
+
+CimaGroupEntry ::=
+    SEQUENCE {
+         cimaGroupAccumulatedDelay    MilliSeconds,
+         cimaGroupClearAccDelay       TruthValue,
+         cimaStuffAndCellIndication   BITS,
+         cimaGrpIntegrationUpTime     MilliSeconds,
+         cimaGrpIntegrationDownTime   MilliSeconds,
+         cimaGrpNumTxIcpCells         Counter32,
+         cimaGrpNumRxIcpCells         Counter32,
+         cimaGrpNumRxErrIcpCells      Counter32,
+         cimaGrpNumRxInvalidIcpCells  Counter32,
+         cimaGrpNumRxMissingIcpCells  Counter32,
+         cimaGrpNumTxMissingIcpCells  Counter32,
+         cimaGrpRestarting            TruthValue,
+         cimaGrpNeVersion             INTEGER,
+         cimaGrpMaxCellRate           Gauge32,
+         cimaGrpVerFallbackEnable     TruthValue,
+         cimaGrpAutoRestartMode       INTEGER,
+         cimaGrpRxImaIdExpected       Integer32,
+         cimaGrpAutoRestartSyncState  INTEGER
+        }
+
+cimaGroupAccumulatedDelay OBJECT-TYPE
+        SYNTAX      MilliSeconds
+        UNITS       "millisecond"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "This object indicates the amount of data per link that is 
+            accumulated in the DCBs of the IMA group. This is a result
+            of deleting the slowest link of the IMA group."
+        ::= {cimaGroupEntry 1}
+
+cimaGroupClearAccDelay OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "This object indicates whether or not to clear accumulated
+            delays of the IMA group. When the delay is cleared, the 
+            group DCBs are cleared such that the current slowest link
+            in the group does not have any data accumulated in its DCB.
+            As a result of this action, the data is played out to the
+            network faster than the port rate.
+
+            The agent clears the IMA group accumulated delays when
+            this object is set to value of true(1) from a manager.
+            This is a control object which can be changed/modified when
+            the imaGroupRowStatus is 'active'."
+        DEFVAL { false }
+        ::= {cimaGroupEntry 2}
+
+cimaStuffAndCellIndication OBJECT-TYPE
+        SYNTAX      BITS {
+                              lsibit0(0),
+                              lsibit1(1),
+                              lsibit2(2)
+                    }
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "This object specifies LSI bits 0-2.
+
+            A combination of lsibit2, lsibit1, and lsibit0 indicates
+            stuff event:
+                
+                -- 000 This is one out of the 2 ICP cells
+
+                -- 001 Stuff event at the next PCP cell location
+
+                -- 010 Stuff event in 2 ICP cell locations
+
+                -- 011 Stuff event in 3 ICP cell locations
+
+                -- 100 Stuff event in 4 ICP cell locations
+
+                -- 111 No imminent stuff event
+
+            that the Cisco specific card/platform supports." 
+        REFERENCE
+           "ATM Forum IMA Spec v1.1, AF-PHY-0086.001, page 31."
+        ::= {cimaGroupEntry 3}
+
+cimaGrpIntegrationUpTime OBJECT-TYPE
+        SYNTAX      MilliSeconds (0..400000)
+        UNITS       "millisecond"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "Integration time for the group UP status.
+            The Group is declared to be UP if the status
+            is UP persistently for the amount to time
+            specified. The group changes to UP status immediately
+            if 0 is specified."
+        DEFVAL { 10000 }
+        ::= {cimaGroupEntry 4}
+
+cimaGrpIntegrationDownTime OBJECT-TYPE
+        SYNTAX      MilliSeconds (0..100000)
+        UNITS       "millisecond"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "Integration time for the group DOWN status.
+            The Group is declared to be DOWN if the status
+            is DOWN persistently for the amount to time
+            specified. The group changes to UP status immediately
+            if 0 is specified."
+        DEFVAL { 2500 }
+        ::= {cimaGroupEntry 5}
+
+cimaGrpNumTxIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of error-free transmitted ICP cells
+            in the IMA group."
+        ::= {cimaGroupEntry 6}
+
+cimaGrpNumRxIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of error-free received ICP cells
+            in the IMA group."
+        ::= {cimaGroupEntry 7}
+
+cimaGrpNumRxErrIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of Errored ICP Cells received on
+            this IMA group.
+
+            Errored ICP Cell is defined as: 
+               a cell with HEC or CRC error at an 
+               expected ICP cell position if it 
+               is not a missing cell."
+        ::= {cimaGroupEntry 8}
+
+cimaGrpNumRxInvalidIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of Invalid ICP Cells received on
+            this IMA group.
+
+            Invalid ICP Cell is defined as:
+              Cell with good HEC & CRC and CID
+                = ICP at expected frame position with
+                  (unexpected IMA OAM Label) or
+                  (unexpected LID) or
+                  (unexpected IMA ID) or
+                  (received M not equal to 
+                     expected M of the IMA group) or
+                  (unexpected IMA frame number) or
+                  (unexpected ICP cell offset)."
+        ::= {cimaGroupEntry 9}
+
+cimaGrpNumRxMissingIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of Missing ICP Cells at the expected
+            ICP cell position on  this IMA group."
+        ::= {cimaGroupEntry 10}
+
+cimaGrpNumTxMissingIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of ICP cells that could not be 
+            transmitted on this IMA group due to 
+            lack of resources, e.g. buffers."
+        ::= {cimaGroupEntry 11}
+
+cimaGrpRestarting OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "The object controls if the IMA group restart is to
+            be executed. During this operation the Group bringup
+            procedure is restarted and the group will have to go
+            through all the state transitions before it is declared
+            Active.
+
+               true(1)  - restarting the IMA group
+               false(2) - do not restart the IMA group
+
+            The agent restarts the IMA group if it is set 
+            to value of true(1) request from a manager. When the
+            agent is in the group restart transition state, 
+            it does not take any set to value of true(1) requests.
+            The agent returns true(1) when it is in the process
+            of group bringup. The agent returns false(2) after
+            the completion of group restarting."
+        DEFVAL { false }
+        ::= {cimaGroupEntry 12}
+
+cimaGrpNeVersion OBJECT-TYPE
+        SYNTAX      INTEGER {
+           others (1),
+           version10 (2),
+           version11 (3)
+        }
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "This object specifies IMA group version at the near end.
+               others(1)   no available
+               version10(2)   IMA 1.0 
+               version11(3)   IMA 1.1"
+        REFERENCE
+           "ATM Forum IMA v1.0 specification (af-phy-0086.000) and
+            ATM Forum IMA v1.1 specification (af-phy-0086.001)"
+        DEFVAL { version10 }
+        ::= {cimaGroupEntry 13}
+
+cimaGrpMaxCellRate OBJECT-TYPE
+        SYNTAX      Gauge32
+        UNITS       "cells per second"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "This object indicates the IMA group's high water mark
+            cell rate. The value is the same as the IDCR with all
+            configured links in the 'active' state.
+            It is derived according to the following equation:
+               T1 based group = N * (3622 * (M-1)/M * 2048/2049)
+               E1 based group = N * (4528 * (M-1)/M * 2048/2049)
+            where
+               M = IMA frame size
+               N = Number of links configured in an IMA group."
+        REFERENCE
+            "ATM Forum IMA v1.1 specification (af-phy-0086.001),
+             page 40."
+        ::= {cimaGroupEntry 14}
+
+cimaGrpVerFallbackEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "This object controls the IMA version fallback support.
+            Setting this object to true(1) will enable the fallback
+            support. Setting this to false(2) will disable the
+            fallback support."
+        REFERENCE
+            "ATM Forum IMA v1.1 specification (af-phy-0086.001),
+             page 32."
+        DEFVAL { true }
+        ::= {cimaGroupEntry 15}
+
+cimaGrpAutoRestartMode OBJECT-TYPE
+        SYNTAX      INTEGER {
+            disable(1),
+            relearn(2),
+            reuse(3)
+        }
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "This object specifies IMA unit sync up with FE behaviour.
+
+                disable(1)  auto-restart feature is disabled.
+
+                relearn(2)  In this mode, when IMA unit is restarted,
+                            the IMA unit ignores the expected IMA ID
+                            defined by cimaGrpRxImaIdExpected, and
+                            relearns the FE IMA ID. Relearning is a
+                            process that NE will try to sync up with
+                            any FE IMA IDs, when both NE and FE group
+                            transit to 'Operational' state for the first
+                            time, the agent will save this FE IMA ID to
+                            its persistent configuration. This learned
+                            FE IMA ID will be represented by
+                            cimaGrpRxImaIdExpected object. During
+                            relearning process, the agent returns value
+                            of '-1' for cimaGrpRxImaIdExpected object.
+
+                reuse(3)    In this mode, when IMA unit is restarted,
+                            the IMA unit will sync up with the expected
+                            FE group whose Id is specified by
+                            cimaGrpRxImaIdExpected. If the
+                            cimaGrpRxImaIdExpected object value is '-1',
+                            which indicates an undetermined FE IMA ID,
+                            the agent will relearn the FE IMA ID.
+                            The NE will use this FE IMA ID to sync up
+                            with FE in any subsequent card reset or IMA
+                            group restart."
+        DEFVAL { reuse }
+        ::= {cimaGroupEntry 16}
+
+cimaGrpRxImaIdExpected OBJECT-TYPE
+        SYNTAX      Integer32(-1..255)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "This object specifies the expected FE IMA ID or learned
+            IMA ID. It is an extension to IMA-MIB's read-only object
+            imaGroupRxImaId.
+
+            The valid IMA ID range is from 0 to 255.
+            
+            The value '-1' of this object indicates an undetermined FE
+            IMA ID. The following are the possible conditions for 
+            undetermined FE IMA ID in this object:
+
+            [1] auto-restart feature is disabled.
+            [2] in 'relearn' auto-restart mode, IMA group restarts and
+                the relearning process is in progress.
+            [3] in 'reuse' auto-restart mode, value of object
+                cimaGrpRxImaIdExpected is set to '-1' and the
+                relearning process is in progress."
+        REFERENCE
+            "ATM Forum IMA v1.1 specification (af-phy-0086.001),
+             page 31."
+        DEFVAL { -1 }
+        ::= {cimaGroupEntry 17}
+
+cimaGrpAutoRestartSyncState OBJECT-TYPE
+        SYNTAX      INTEGER {
+            disable(1),
+            inProgress(2),
+            loopbackSync(3),
+            tempSync(4),
+            feSync(5)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "This object indicates the IMA group auto restart 
+            synchronization state. When the group auto-restart feature
+            is enabled, the IMA unit runs in an enhanced IMA GSM mode.
+
+            The object transits to one of following four states:
+
+                disable      auto-restart is disabled.
+
+                inProgress   auto-restart is enabled. The enhanced GSM
+                             is in this state when the group is added
+                             or restarted.
+
+                loopbackSync IMA group has sync'd up to NE when all
+                             links in the group are in local loopback.
+
+                tempSync     IMA group has sync'd up to FE, but FE group
+                             Id is not the same as the expected FE group
+                             Id, but all ima links in the group are
+                             receiving the same IMA ID, but the IMA ID
+                             is not the same as the NE IMA ID.
+
+                feSync       a transition state when IMA group has
+                             sync'd up to FE group i.e., the FE IMA ID
+                             is the same as the expected IMA ID given by
+                             cimaGrpRxImaIdExpected.
+
+                             or the FE IMA ID is not the same as 
+                             cimaGrpRxImaIdExpected, but the NE group is
+                             restarted with relearn option.
+
+                             or object cimaGrpRxImaIdExpected is value
+                             of '-1' and the NE group is restarted with
+                             reuse/relearn option.
+
+            The agent always returns 'disable' if the auto-restart
+            feature is disabled."
+        ::= {cimaGroupEntry 18}
+
+--
+-- The Cisco IMA Link Mapping Table subtree
+--
+
+cimaLinkMappingTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CimaLinkMappingEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "The link mapping table is an IMA group oriented mapping table
+        which associates an IMA group to its corresponding IMA links.
+        It provides an efficient way of accessing to IMA links
+        based on the knowledge of an IMA group.
+
+        This is a read-only mapping table. The agent creates an entry
+        when an IMA link identified by 'imaLinkIfIndex' is added to
+        an IMA group identified by 'imaGroupIndex'. The agent removes
+        an entry when an IMA link identified by 'imaLinkIfIndex' is
+        removed from an IMA group identified by 'imaGroupIndex'. 
+        A state object 'cimaLinkState' provides the link state in
+        either 'active' or 'nonactive'. The management station can query
+        detailed information in imaGroupTable, and imaLinkTable with
+        the two index readily available."
+        ::= { ciscoImaMIBObjects 4 }
+
+cimaLinkMappingEntry OBJECT-TYPE
+    SYNTAX CimaLinkMappingEntry 
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "An entry in the table containing an IMA group oriented mapping
+        from 'imaGroupIndex' to 'imaLinkIfIndex'."
+    INDEX { imaGroupIndex, imaLinkIfIndex }
+     ::= { cimaLinkMappingTable 1 }
+
+CimaLinkMappingEntry ::= SEQUENCE {
+         cimaLinkState                   INTEGER
+       }
+
+cimaLinkState OBJECT-TYPE
+    SYNTAX INTEGER {
+         active(1),
+         nonactive(2)
+       }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "This object indicates whether the IMA link is in active(1)
+        state or nonactive(2) state."
+     ::= { cimaLinkMappingEntry 1 }
+
+--
+-- The Cisco IMA Link subtree
+--
+
+cimaLinkTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CimaLinkEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "The Cisco IMA link table. This table has Cisco specific
+        configuration, and status management information for IMA links."
+     ::= { ciscoImaMIBObjects 5 }
+
+cimaLinkEntry OBJECT-TYPE
+    SYNTAX CimaLinkEntry 
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "An entry in the table, containing status and configuration
+        information of an IMA link." 
+     AUGMENTS { imaLinkEntry }
+     ::= { cimaLinkTable 1 }
+
+CimaLinkEntry ::=
+    SEQUENCE {
+         cimaLinkLifIntUpTime         MilliSeconds,
+         cimaLinkLifIntDownTime       MilliSeconds,
+         cimaLinkLodsIntUpTime        MilliSeconds,
+         cimaLinkLodsIntDownTime      MilliSeconds,
+         cimaLinkNumTxIcpCells        Counter32,
+         cimaLinkNumRxIcpCells        Counter32,
+         cimaLinkNumRxErrIcpCells     Counter32,
+         cimaLinkNumRxInvalidIcpCells Counter32,
+         cimaLinkNumRxMissingIcpCells Counter32,
+         cimaLinkNumTxMissingIcpCells Counter32
+        }
+
+cimaLinkLifIntUpTime OBJECT-TYPE
+        SYNTAX      MilliSeconds (0..25000)
+        UNITS       "millisecond"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "IMA LIF integration up time. The agent declares LIF alarm
+            immediately if 0 is specified."
+        DEFVAL { 2500 }
+        ::= {cimaLinkEntry 1}
+
+cimaLinkLifIntDownTime OBJECT-TYPE
+        SYNTAX      MilliSeconds (0..25000)
+        UNITS       "millisecond"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "IMA LIF integration down time. The agent undeclares LIF
+            alarm immediately if 0 is specified."
+        DEFVAL { 10000 }
+        ::= {cimaLinkEntry 2}
+
+cimaLinkLodsIntUpTime OBJECT-TYPE
+        SYNTAX      MilliSeconds (0..25000)
+        UNITS       "millisecond"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "IMA LODS integration up time. The agent declares LODS alarm
+            immediately if 0 is specified."
+        DEFVAL { 2500 }
+        ::= {cimaLinkEntry 3}
+
+cimaLinkLodsIntDownTime OBJECT-TYPE
+        SYNTAX      MilliSeconds (0..25000)
+        UNITS       "millisecond"
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+           "IMA LODS integration down time. The agent undeclares IMA
+            LODS alarm immediately if 0 is specified."
+        DEFVAL { 10000 }
+        ::= {cimaLinkEntry 4}
+
+cimaLinkNumTxIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of error-free transmitted ICP cells
+            on this link of the IMA group."
+        ::= {cimaLinkEntry 5}
+
+cimaLinkNumRxIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of error-free received ICP cells
+            on this link of the IMA group."
+        ::= {cimaLinkEntry 6}
+
+cimaLinkNumRxErrIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of Errored ICP Cell received on 
+            this link of the IMA group.
+
+            Errored ICP Cell is defined as: 
+                a cell with HEC or CRC error at 
+                an expected ICP cell position 
+                if it is not a missing cell."
+        ::= {cimaLinkEntry 7}
+
+cimaLinkNumRxInvalidIcpCells OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of Invalid ICP Cell received on
+            this link of the IMA group.
+
+            Invalid ICP Cell is defined as:  
+                Cell with good HEC & CRC and 
+                  CID = ICP at expected frame position with
+                       (unexpected IMA OAM Label) or
+                       (unexpected LID) or
+                       (unexpected IMA ID) or
+                       (received M not equal to expected M
+                            of the IMA group) or
+                       (unexpected IMA frame number) or
+                       (unexpected ICP cell offset)."
+        ::= {cimaLinkEntry 8}
+
+cimaLinkNumRxMissingIcpCells OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of Missing ICP Cell at 
+            the expected ICP cell position 
+            on this link of the IMA group"
+        ::= {cimaLinkEntry 9}
+
+cimaLinkNumTxMissingIcpCells OBJECT-TYPE
+        SYNTAX      Counter32 
+        UNITS       "cells"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "Number of ICP cells that could not be transmitted
+            on this link of the IMA group due to lack of 
+            resources (buffers)."
+        ::= {cimaLinkEntry 10}
+
+-- Cisco IMA Group Feature Table
+
+cimaFeatureTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CimaFeatureEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "The Cisco IMA feature table. This table provides IMA features
+        supported in a Cisco card. Any SNMP set to the writable object
+        has card wide impact on all IMA groups and IMA links."
+        ::= { ciscoImaMIBObjects 6 }
+
+cimaFeatureEntry OBJECT-TYPE
+    SYNTAX CimaFeatureEntry 
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "An entry in the table containing IMA features supported and
+        additional information applicable to a physical entity with
+        class 'module(9)'."
+    INDEX { entPhysicalIndex }
+     ::= { cimaFeatureTable 1 }
+
+CimaFeatureEntry ::=
+    SEQUENCE {
+         cimaMaxImaGroupsSupported    Unsigned32,
+         cimaConfiguredImaGroups      Gauge32,
+         cimaMinGrpTxImaId            Unsigned32,
+         cimaMaxGrpTxImaId            Unsigned32,
+         cimaVerFallbackEnable        TruthValue,
+         cimaAutoRestartEnable        TruthValue
+        }
+
+cimaMaxImaGroupsSupported OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..65535)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "This object represents the maximum number of IMA Groups
+            supported."
+        ::= { cimaFeatureEntry 1 }
+
+cimaConfiguredImaGroups OBJECT-TYPE
+        SYNTAX      Gauge32 (0..65535)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "This object represents the current number of IMA Groups
+            configured."
+        ::= { cimaFeatureEntry 2 }
+
+cimaMinGrpTxImaId OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..255)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+           "This object specifies the minimum value of the IMA ID range
+            supported."
+        DEFVAL { 0 }
+        ::= { cimaFeatureEntry 3 }
+
+cimaMaxGrpTxImaId OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..255)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+           "This object specifies the maximum value of the IMA ID range
+            supported."
+        DEFVAL { 255 }
+        ::= { cimaFeatureEntry 4 }
+
+cimaVerFallbackEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+           "This object controls the IMA version fallback support.
+            Setting this object to true(1) will enable the fallback
+            support. Setting this to false(2) will disable the
+            fallback support.
+
+            Any set to this object has an impact on all the IMA groups
+            configured."
+        REFERENCE
+            "ATM Forum IMA v1.1 specification (af-phy-0086.001),
+             page 32."
+        DEFVAL { true }
+        ::= { cimaFeatureEntry 5 }
+
+cimaAutoRestartEnable  OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+           "This object specifies IMA unit restart behaviour.
+            By default, the IMA unit runs in the standard GSM mode. 
+            If the object is set to 'true', the IMA unit will be in
+            auto restart mode running with an enhanced IMA GSM.
+
+            The usage of loopbacks is an essential part of maintenance,
+            and it is required that the FE IMA ID is always
+            administratively kept different from the NE IMA ID.
+
+            Any set to this object has an impact on all the IMA group
+            configured."
+        REFERENCE
+           "ATM Forum IMA v1.0 spec. (af-phy-0086.000), page 53-57
+            or ATM Forum IMA v1.1 spec. (af-phy-0086.001), page 55-59."
+    DEFVAL { false }
+    ::= { cimaFeatureEntry 6 }
+
+
+-- Conformance Information
+ciscoImaMIBConformance
+                OBJECT IDENTIFIER ::= { ciscoImaMIB 2 }
+ciscoImaMIBCompliances
+                OBJECT IDENTIFIER ::= { ciscoImaMIBConformance 1 }
+ciscoImaMIBGroups
+                OBJECT IDENTIFIER ::= { ciscoImaMIBConformance 2 }
+
+
+-- Mandatory Part
+
+ciscoImaMIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated -- superseded by ciscoImaMIBCompliance1
+        DESCRIPTION
+           "The Compliance statement for Cisco ATM IMA management
+            group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoImaGroupGroup, ciscoImaLinkGroup }
+        ::= {ciscoImaMIBCompliances 1}
+
+ciscoImaMIBCompliance1 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+           "The Compliance statement for Cisco ATM IMA management
+            group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoImaGroupGroup, ciscoImaLinkGroup }
+
+        GROUP ciscoImaLinkMappingGroup
+        DESCRIPTION
+            "Implementation of this group is optional."
+
+        GROUP ciscoImaFeatureGroup
+        DESCRIPTION
+            "This group is mandatory if the managed system supports
+             both IMA auto-restart feature and IMA group version
+             fallback."
+
+        GROUP ciscoImaAutoRestartGroup
+        DESCRIPTION
+            "This group is mandatory if the managed system supports
+             IMA auto-restart feature."
+
+        GROUP ciscoImaVerFallbackSupportGroup
+        DESCRIPTION
+            "This group is mandatory if the managed system supports
+             IMA group version fallback control feature."
+
+        ::= {ciscoImaMIBCompliances 2}
+
+-- Compliance Part
+
+-- Units of Conformance
+
+ciscoImaGroupGroup OBJECT-GROUP
+      OBJECTS {
+         cimaGroupAccumulatedDelay,
+         cimaGroupClearAccDelay,
+         cimaStuffAndCellIndication,
+         cimaGrpIntegrationUpTime,
+         cimaGrpIntegrationDownTime,
+         cimaGrpNumTxIcpCells,
+         cimaGrpNumRxIcpCells,
+         cimaGrpNumRxErrIcpCells,
+         cimaGrpNumRxInvalidIcpCells,
+         cimaGrpNumRxMissingIcpCells,
+         cimaGrpNumTxMissingIcpCells,
+         cimaGrpRestarting,
+         cimaGrpNeVersion,
+         cimaGrpMaxCellRate
+          }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing configuration and status 
+         information for a Cisco IMA extension group definition."
+      ::= { ciscoImaMIBGroups 1 }
+
+
+ciscoImaLinkGroup OBJECT-GROUP
+      OBJECTS {
+         cimaLinkLifIntUpTime,
+         cimaLinkLodsIntUpTime,
+         cimaLinkLifIntDownTime,
+         cimaLinkLodsIntDownTime,
+         cimaLinkNumTxIcpCells,
+         cimaLinkNumRxIcpCells,
+         cimaLinkNumRxErrIcpCells,
+         cimaLinkNumRxInvalidIcpCells,
+         cimaLinkNumRxMissingIcpCells,
+         cimaLinkNumTxMissingIcpCells
+        }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing status information for a Cisco
+         IMA extension link."
+      ::= { ciscoImaMIBGroups 2 }
+
+ciscoImaLinkMappingGroup OBJECT-GROUP
+      OBJECTS {
+         cimaLinkState
+        }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing IMA group to IMA link lookup and
+         IMA link state."
+      ::= { ciscoImaMIBGroups 3 }
+
+ciscoImaAlarmGroup OBJECT-GROUP
+      OBJECTS {
+         cimaGrpAlarmType,
+         cimaLinkAlarmType
+        }
+      STATUS     deprecated
+      DESCRIPTION
+        "A set of objects used in the notification of Cisco IMA group
+         and link alarms."
+      ::= { ciscoImaMIBGroups 4 }
+
+ciscoImaFeatureGroup OBJECT-GROUP
+      OBJECTS {
+         cimaMaxImaGroupsSupported,
+         cimaConfiguredImaGroups,
+         cimaMinGrpTxImaId,
+         cimaMaxGrpTxImaId,
+         cimaVerFallbackEnable,
+         cimaAutoRestartEnable
+        }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing IMA feature information and
+         configurations."
+      ::= { ciscoImaMIBGroups 5 }
+
+ciscoImaAutoRestartGroup OBJECT-GROUP
+      OBJECTS {
+         cimaGrpAutoRestartMode,
+         cimaGrpRxImaIdExpected,
+         cimaGrpAutoRestartSyncState
+        }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing IMA group auto-restart feature
+         configuration and status information."
+      ::= { ciscoImaMIBGroups 6 }
+
+ciscoImaVerFallbackSupportGroup OBJECT-GROUP
+      OBJECTS {
+         cimaGrpVerFallbackEnable
+        }
+      STATUS     current
+      DESCRIPTION
+        "A set of objects providing IMA group version fallback
+         control support."
+      ::= { ciscoImaMIBGroups 7 }
+
+END
+

@@ -1,0 +1,98 @@
+-- *****************************************************************
+-- CISCO-ENTITY-EXT-CAPABILITY.my:
+-- CISCO-ENTITY-EXT-MIB AGENT-CAPABILITIES
+--
+-- March 2004, Lilian Jiang 
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ENTITY-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoEntityExtCapability MODULE-IDENTITY
+        LAST-UPDATED    "200709060000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+                "The agent capabilities description of 
+                CISCO-ENTITY-EXT-MIB."
+        REVISION        "200709060000Z"
+        DESCRIPTION
+                "Addition of ceExtCapV12R0217SXPCat6k and
+                ceExtCapV12R0233SXHPCat6k."
+        REVISION        "200403310000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 392 }
+
+ciscoEntityExtCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                        and Cisco 7600 series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-ENTITY-EXT-MIB agent capabilities."
+
+    SUPPORTS            CISCO-ENTITY-EXT-MIB
+        INCLUDES        { 
+                          ceExtPhysicalProcessorGroup,
+                          ciscoEntityExtConfigRegGroup,
+                          ceExtSysBootImageListGroup
+                        }
+    ::= { ciscoEntityExtCapability 1 }
+
+ceExtCapV12R0217SXPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 12.2(17)SX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-ENTITY-EXT-MIB capabilities."
+
+    SUPPORTS            CISCO-ENTITY-EXT-MIB
+        INCLUDES        {
+                          ceExtPhysicalProcessorGroup,
+                          ciscoEntityExtConfigRegGroup,
+                          ceExtSysBootImageListGroup
+                        }
+        VARIATION       ceExtConfigRegNext 
+            ACCESS      read-only
+            DESCRIPTION "read-only implementation."
+        VARIATION       ceExtSysBootImageList 
+            ACCESS      read-only
+            DESCRIPTION "read-only implementation."
+    ::= { ciscoEntityExtCapability 2 }
+
+ceExtCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                          series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-ENTITY-EXT-MIB capabilities."
+
+    SUPPORTS            CISCO-ENTITY-EXT-MIB 
+        INCLUDES        {
+                          ceExtPhysicalProcessorGroup,
+                          ciscoEntityExtConfigRegGroup,
+                          ceExtSysBootImageListGroup
+                        }
+    ::= { ciscoEntityExtCapability 3 }
+
+END
+
+
+

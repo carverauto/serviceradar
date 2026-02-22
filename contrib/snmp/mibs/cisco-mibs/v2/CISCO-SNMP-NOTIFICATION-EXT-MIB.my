@@ -1,0 +1,228 @@
+
+-- *****************************************************************
+-- CISCO-SNMP-NOTIFICATION-EXT-MIB.my: Extension to
+--                                     SNMP-NOTIFICATION-MIB
+--
+-- April 2004, Rashmi Purandare
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- ******************************************************************
+
+CISCO-SNMP-NOTIFICATION-EXT-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE,
+    Unsigned32                          FROM SNMPv2-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP     FROM SNMPv2-CONF
+    snmpNotifyFilterEntry               FROM SNMP-NOTIFICATION-MIB
+    ciscoMgmt                           FROM CISCO-SMI;
+ 
+ciscoSnmpNotificationExtMIB MODULE-IDENTITY
+    LAST-UPDATED "200405120000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO "Cisco Systems
+                  Customer Service
+
+                  Postal: 170 W Tasman Drive
+                  San Jose, CA  95134
+                  USA
+
+                  Tel: +1 800 553-NETS
+
+                  E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "This MIB extends the functionality provided 
+         by SNMP-NOTIFICATION-MIB.
+         This MIB provides for the aging of the 
+         notification filters specified in the
+         SNMP-NOTIFICATION-MIB.
+       "
+    REVISION "200405120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 408 }
+
+
+csneMIBNotifs OBJECT IDENTIFIER ::= 
+                               { ciscoSnmpNotificationExtMIB 0 }
+
+csneMIBObjects OBJECT IDENTIFIER ::= 
+                               { ciscoSnmpNotificationExtMIB 1 }
+
+csneMIBConform OBJECT IDENTIFIER ::= 
+                               { ciscoSnmpNotificationExtMIB 2 }
+
+csneNotifyObjects OBJECT IDENTIFIER ::=
+                               { csneMIBObjects 1 }
+
+-- Extension Table
+
+csneSnmpNotifyFilterTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CsneSnmpNotifyFilterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains objects which are used
+         to configure notification filtering parameters
+         and an entry in this table will augment the 
+         corresponding base entry in snmpNotifyFilterTable.
+
+         When the csneFilterAdminTimer defined in this table 
+         expires, the entire row from the snmpNotifyFilterTable 
+         and the csneNotifyFilterTable will be removed.
+         Thus, the csneNotifyFilterTable will provide an
+         'aging' capability to the snmpNotifyFilterTable
+         entries. The 'age' of an entry will be defined in the
+         csneFilterAdminTimer object.
+
+         The snmpNotifyFilterProfileStatus is an object
+         in the snmpNotifyFilterProfileTable. 
+         The snmpNotifyFilterProfileTable also contains 
+         the snmpNotifyFilterProfileName that is used to 
+         index into the snmpNotifyFilterTable (and 
+         consequently the csneNotifyFilterTable). 
+         If, due to the aging mechanism, there are no 
+         entries in the snmpNotifyFilterTable with an 
+         index corresponding to a snmpNotifyFilterProfileName 
+         say abc, then the corresponding entry in the 
+         snmpNotifyFilterProfileTable for abc will have its 
+         row status, snmpNotifyFilterProfileRowStatus, changed 
+         to 'notReady'.
+       "
+    ::= { csneNotifyObjects 1 }
+
+csneSnmpNotifyFilterEntry OBJECT-TYPE
+    SYNTAX      CsneSnmpNotifyFilterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This entry augments the entries in  
+         snmpNotifyFilterEntry."
+    AUGMENTS  { snmpNotifyFilterEntry }
+    ::= { csneSnmpNotifyFilterTable 1 }
+
+CsneSnmpNotifyFilterEntry ::= 
+    SEQUENCE {
+               csneFilterAdminTimer  Unsigned32,
+               csneFilterOperTimer   Unsigned32,
+               csneFilterTimerUnit   INTEGER
+             }
+
+csneFilterAdminTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the time in units 
+         specified in csneFilterTimerUnit for which
+         the notification specified in snmpNotifyFilterSubtree 
+         will remain active with the corresponding 
+         snmpNotifyFilterProfileName. 
+
+         If set to 0, it indicates that the corresponding 
+         snmpNotifyFilterSubtree will remain active forever.
+         This value can be set when the snmpNotifyFilterRowStatus
+         is active. If this is done, the csneFilterOperTimer will
+         be refreshed to take the new value set in this object.
+       "
+    DEFVAL { 15 }
+    ::= { csneSnmpNotifyFilterEntry 1 }
+
+csneFilterOperTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the time in units 
+         specified in csneFilterTimerUnit for which the 
+         notification specified in snmpNotifyFilterSubtree 
+         to remain active within the corresponding 
+         snmpNotifyFilterProfileName.
+
+         When this value becomes 0, it indicates that the 
+         corresponding row in the snmpNotifyFilterTable has 
+         run through the time specified in csneFilterAdminTimer. 
+         This will cause the corresponding row to be deleted from 
+         the corresponding snmpNotifyFilterName. 
+
+         If snmpNotifyFilterRowStatus is notInService, then this 
+         object will not be decremented, i.e. the timer will not
+         run. Once the snmpNotifyFilterRowStatus is transitioned to
+         active, the timer will be refreshed with the value in
+         csneFilterAdminTimer.
+
+         Example:
+         If a row indexed by snmpNotifyFilterProfileName abc and 
+         snmpNotifyFilterSubtree 1.2.3.1 is created for a
+         csneFilterAdminTimer value of 10 units (as specified in 
+         csneFilterTimerUnit). Initially, the csneFilterAdminTimer 
+         and the csneFilterOperTimer will indicate 10 units. 
+         If the snmpNotifyFilterRowStatus is active, then the 
+         csneFilterOperTimer will start decrementing. 
+         Once the csneFilterOperTimer value reaches 0, it will 
+         cause the deletion of the row indexed by 
+         snmpNotifyFilterProfileName abc and 
+         snmpNotifyFilterSubtree 1.2.3.1. 
+         Now, if snmpNotifyFilterProfileName abc has no more 
+         active rows that it indexes, then, the 
+         snmpNotifyFilterProfileRowStatus for the 
+         snmpNotifyFilterProfileName of abc will be 
+         transitioned to notReady.
+        "
+    ::= { csneSnmpNotifyFilterEntry 2 }
+
+csneFilterTimerUnit OBJECT-TYPE
+    SYNTAX      INTEGER {
+                          seconds (1),
+                          minutes (2),
+                          hours   (3)
+                }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the unit of time that is used
+         for the csneFilterAdminTimer and csneFilerOperTimer
+         objects."
+    DEFVAL { minutes }
+    ::= { csneSnmpNotifyFilterEntry 3 } 
+
+--
+-- Conformance
+--
+
+csneMIBCompliances OBJECT IDENTIFIER ::=
+                    { csneMIBConform 1 }
+csneMIBGroups      OBJECT IDENTIFIER ::=
+                    { csneMIBConform 2 }
+
+-- Compliance
+
+csneMIBCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the CISCO-SNMP-NOTIFICATION-EXT-MIB."
+        MODULE  -- this module
+                MANDATORY-GROUPS { 
+                        csneNotifyFilterGroup
+                }
+        ::= { csneMIBCompliances 1 }
+
+-- Units of Conformance
+
+csneNotifyFilterGroup OBJECT-GROUP
+        OBJECTS {
+            csneFilterOperTimer,
+            csneFilterAdminTimer,
+            csneFilterTimerUnit
+        }
+        STATUS current
+        DESCRIPTION
+            "Extension objects to the snmpNotifyFilterTable."
+        ::= { csneMIBGroups 1 }
+
+END
+

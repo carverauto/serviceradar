@@ -1,0 +1,73 @@
+-- *****************************************************************
+-- CISCO-IGMP-FILTER-CAPABILITY.my:
+-- Cisco CISCO-IGMP-FILTER-MIB AGENT-CAPABILITIES
+--
+-- March 2004, Dipesh Gorashia
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IGMP-FILTER-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoIgmpFilterCapability MODULE-IDENTITY
+        LAST-UPDATED    "200403300000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+                "The capabilities description of
+                 CISCO-IGMP-FILTER-MIB." 
+
+        REVISION        "200403300000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 331 }
+
+cIgmpFilterCapCatOSV07R0101Cat4k AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco CatOS 7.1(1) on Catalyst 4000/4500
+                          series devices."
+    STATUS               current
+    DESCRIPTION          "CISCO-IGMP-FILTER-MIB capabilities."
+
+    SUPPORTS             CISCO-IGMP-FILTER-MIB
+        INCLUDES         { ciscoIgmpFilterGlobalGroup,
+                           ciscoIgmpFilterInfoGroup,
+                           ciscoIgmpFilterEditorGroup }
+
+      VARIATION          cIgmpFilterStartAddressType
+            SYNTAX       INTEGER  { ipv4 (1) }
+            DESCRIPTION  "Implementation only supports IPv4 addresses."
+
+      VARIATION          cIgmpFilterEndAddressType
+            SYNTAX       INTEGER  { ipv4 (1) }
+            DESCRIPTION  "Implementation only supports IPv4 addresses."
+
+       VARIATION         cIgmpFilterEditStartAddressType 
+            SYNTAX       INTEGER  { ipv4 (1) }
+            DESCRIPTION  "Implementation only supports IPv4 addresses."
+
+       VARIATION         cIgmpFilterEditEndAddressType 
+            SYNTAX       INTEGER  { ipv4 (1) } 
+            DESCRIPTION  "Implementation only supports IPv4 addresses." 
+
+    ::= { ciscoIgmpFilterCapability 1 }
+
+END

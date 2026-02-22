@@ -1,0 +1,141 @@
+-- *****************************************************************
+-- CISCO-WLAN-MAN-MIB.my: CISCO Wireless LAN Management MIB file
+--
+-- February 2004, Francis Pang
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+CISCO-WLAN-MAN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TruthValue
+                FROM SNMPv2-TC
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+ciscoWlanManMIB MODULE-IDENTITY
+        LAST-UPDATED    "200403220000Z"
+        ORGANIZATION    "Cisco System Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive,
+                        San Jose CA 95134-1706.
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                 Email: cs-dot11@cisco.com"
+        DESCRIPTION
+                "This MIB module provides network management
+                and configuration support for IEEE 802.11
+                Wireless LAN devices.
+
+                          ACRONYMS
+
+                HTTP
+                    Hypertext Transfer Protocol."
+
+        REVISION        "200403220000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 415 }
+
+
+
+ciscoWlanManMIBNotifs   OBJECT IDENTIFIER
+        ::= { ciscoWlanManMIB 0 }
+
+ciscoWlanManMIBObjects  OBJECT IDENTIFIER
+        ::= { ciscoWlanManMIB 1 }
+
+ciscoWlanManMIBConform  OBJECT IDENTIFIER
+        ::= { ciscoWlanManMIB 2 }
+
+cwmDeviceConfig         OBJECT IDENTIFIER
+        ::= { ciscoWlanManMIBObjects 1 }
+
+cwmNetworkConfig        OBJECT IDENTIFIER
+        ::= { ciscoWlanManMIBObjects 2 }
+
+
+-- Per device configurations
+
+cwmHttpServerEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object enables the HTTP Web server as follows:
+                    'true'  - HTTP Web server function is enabled,
+                    'false' - HTTP Web server function is disabled."
+        ::= { cwmDeviceConfig 1 }
+
+cwmTelnetLoginEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object enables the telnet console login as 
+                follows:                         
+                    'true'  - telnet console login is enabled,
+                    'false' - telnet console login is disabled."
+        ::= { cwmDeviceConfig 2 }
+
+
+-- *****************************************************************
+--   Conformance information
+-- *****************************************************************
+
+ciscoWlanManMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoWlanManMIBConform 1 }
+
+ciscoWlanManMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoWlanManMIBConform 2 }
+
+
+
+-- *****************************************************************
+--   Compliance statements
+-- *****************************************************************
+
+ciscoWlanManMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the
+                ciscoWlanManMIB module."
+        MODULE
+                MANDATORY-GROUPS {
+                    cwmWirelessDeviceGroup
+                }  
+        ::= { ciscoWlanManMIBCompliances 1 }
+
+
+
+-- *****************************************************************
+--   Units of conformance
+-- *****************************************************************
+
+cwmWirelessDeviceGroup OBJECT-GROUP
+        OBJECTS {
+                cwmHttpServerEnabled,
+                cwmTelnetLoginEnabled
+                }
+        STATUS     current
+        DESCRIPTION
+                "Configuration for Wireless LAN Access Points
+                and bridges."
+        ::= { ciscoWlanManMIBGroups 1 }
+
+END
+

@@ -1,0 +1,864 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOT11-CLIENT-CCX-REPORTS-MIB.my:
+-- Light Weight Access Point Wireless client reports
+-- MIB
+-- June 2006, Ambika Prasad Mohanty
+--   
+-- Copyright (c) 2006, 2006, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DOT11-CLIENT-CCX-REPORTS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    MacAddress,
+    TruthValue,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    cldcClientMacAddress
+        FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoLwappDot11ClientRmMIB MODULE-IDENTITY
+    LAST-UPDATED    "201012130000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'.
+
+        Cisco Compatible eXtensions (CCX)
+
+        Wireless LAN Access Points (APs) manufactured by Cisco
+        Systems have features and capabilities beyond those in
+        related standards (e.g., IEEE 802.11 suite of 
+        standards, Wi-Fi recommendations by WECA, 802.1X 
+        security suite, etc). A number of features provide 
+        higher performance. For example, Cisco AP transmits a 
+        specific Information Element, which the clients adapt 
+        to for enhanced performance. Similarly, a number of 
+        features are implemented by means of proprietary 
+        Information Elements, which Cisco clients use in 
+        specific ways to carry out tasks above and beyond the
+        standard. Other examples of feature categories are 
+        roaming and power saving.
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the 
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point.  The terms  
+        'Mobile node' and 'client' are used interchangeably. 
+
+        Radio Management (RM)
+
+        This term refers to managing the 802.11 radio
+        environment to provide the best quality service to
+        to the 802.11 wireless clients. 
+
+        Service Set Identifier ( SSID ) 
+
+        SSID is a unique identifier that APs and clients
+        use to identify with each other.  SSID is a simple
+        means of access control and is not for security.
+        The SSID can be any alphanumeric entry up to 32
+        characters.
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol"
+    REVISION        "201012130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 767 }
+
+
+ciscoLwapDot11ClientRmMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIB 0 }
+
+ciscoLwappDot11ClientRmMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIB 1 }
+
+ciscoLwappDot11ClientRmMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIB 2 }
+
+cldccrRmReq  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIBObjects 1 }
+
+cldccrRmResp  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIBObjects 2 }
+
+cldccrRmReqStatus  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIBObjects 3 }
+
+
+-- ******************************************************************
+-- ******************************************************************
+
+CiscoLwappCcxRmReqStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This attribute is used to initiate/track a request
+        to the ccxv4 client."
+    SYNTAX          INTEGER  {
+                        inProgress(1),
+                        success(2),
+                        failure(3)
+                    }
+
+cldccrRmReqTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccrRmReqEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure the radio
+        measurement request parameters to be sent to the ccxv4 
+        clients."
+    ::= { cldccrRmReq 1 }
+
+cldccrRmReqEntry OBJECT-TYPE
+    SYNTAX          CldccrRmReqEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        An entry corresponds to a client for which a certain
+        type of report is being fetched."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldccrRmReqTable 1 }
+
+CldccrRmReqEntry ::= SEQUENCE {
+        cldccrRmReqReportType    BITS,
+        cldccrRmInitiateReq      TruthValue,
+        cldccrRmReqNumIterations INTEGER,
+        cldccrRmReqMeasDuration  Unsigned32,
+        cldccrRmReqRowStatus     RowStatus
+}
+
+cldccrRmReqReportType OBJECT-TYPE
+    SYNTAX          BITS {
+                        channelLoadReport(0),
+                        histogramReport(1),
+                        beaconReport(2),
+                        frameReport(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is set to list of radio measurement
+        requests the reports of which will be sent by the 
+        ccxv4 client to the controller." 
+    ::= { cldccrRmReqEntry 1 }
+
+cldccrRmInitiateReq OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to send the rm req message to the
+        client." 
+    ::= { cldccrRmReqEntry 2 }
+
+cldccrRmReqNumIterations OBJECT-TYPE
+    SYNTAX          INTEGER (0..250)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute is used to set the number of times
+        the rm request will be sent to the client." 
+    ::= { cldccrRmReqEntry 3 }
+
+cldccrRmReqMeasDuration OBJECT-TYPE
+    SYNTAX          Unsigned32 (5..32400)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The time interval between two RM Reqs in seconds." 
+    ::= { cldccrRmReqEntry 4 }
+
+cldccrRmReqRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cldccrRmReqEntry 5 }
+ 
+
+
+cldccrRmHistRepTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccrRmHistRepEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the noise histogram reports of the clients
+        which were queried for the same."
+    ::= { cldccrRmResp 1 }
+
+cldccrRmHistRepEntry OBJECT-TYPE
+    SYNTAX          CldccrRmHistRepEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is an entry in the table where entry is identified
+        by the client Mac address."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccrRmHistIndex
+                    } 
+    ::= { cldccrRmHistRepTable 1 }
+
+CldccrRmHistRepEntry ::= SEQUENCE {
+        cldccrRmHistIndex            Unsigned32,
+        cldccrRmHistRepChannelNumber Unsigned32,
+        cldccrRmHistRepTimeStamp     OCTET STRING,
+        cldccrRmHistRepRPIDensity0   Unsigned32,
+        cldccrRmHistRepRPIDensity1   Unsigned32,
+        cldccrRmHistRepRPIDensity2   Unsigned32,
+        cldccrRmHistRepRPIDensity3   Unsigned32,
+        cldccrRmHistRepRPIDensity4   Unsigned32,
+        cldccrRmHistRepRPIDensity5   Unsigned32,
+        cldccrRmHistRepRPIDensity6   Unsigned32,
+        cldccrRmHistRepRPIDensity7   Unsigned32
+}
+
+cldccrRmHistIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..28)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Index which will be the channel number in most
+        cases." 
+    ::= { cldccrRmHistRepEntry 1 }
+
+cldccrRmHistRepChannelNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Channel number indicates the channel number to which the noise
+        histogram Report applies." 
+    ::= { cldccrRmHistRepEntry 2 }
+
+cldccrRmHistRepTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Timestamp of the histogram report." 
+    ::= { cldccrRmHistRepEntry 3 }
+
+cldccrRmHistRepRPIDensity0 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the RPI density in power range
+        power << -87 db." 
+    ::= { cldccrRmHistRepEntry 4 }
+
+cldccrRmHistRepRPIDensity1 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the RPI  density in power
+        range -87 < power << -82." 
+    ::= { cldccrRmHistRepEntry 5 }
+
+cldccrRmHistRepRPIDensity2 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the  RPI density in power
+        range -82 < power <<  -77." 
+    ::= { cldccrRmHistRepEntry 6 }
+
+cldccrRmHistRepRPIDensity3 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the  RPI density in power
+        range -77 < power << -72." 
+    ::= { cldccrRmHistRepEntry 7 }
+
+cldccrRmHistRepRPIDensity4 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the  RPI density in power
+        range -72< Power << -67." 
+    ::= { cldccrRmHistRepEntry 8 }
+
+cldccrRmHistRepRPIDensity5 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the  RPI density in power
+        range -67< Power <<  -62." 
+    ::= { cldccrRmHistRepEntry 9 }
+
+cldccrRmHistRepRPIDensity6 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the  RPI density in power
+        range -62< Power<<  -57." 
+    ::= { cldccrRmHistRepEntry 10 }
+
+cldccrRmHistRepRPIDensity7 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Field stores the RPI density in power
+        range -57< Power<< -52." 
+    ::= { cldccrRmHistRepEntry 11 }
+ 
+
+
+cldccrRmBeaconRepTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccrRmBeaconRepEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the beacon reports of the clients
+        which were queried for the same."
+    ::= { cldccrRmResp 2 }
+
+cldccrRmBeaconRepEntry OBJECT-TYPE
+    SYNTAX          CldccrRmBeaconRepEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is an entry in the table where entry is identified
+        by the client Mac address."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccrRmBeaconIndex
+                    } 
+    ::= { cldccrRmBeaconRepTable 1 }
+
+CldccrRmBeaconRepEntry ::= SEQUENCE {
+        cldccrRmBeaconIndex            Unsigned32,
+        cldccrRmBeaconRptChannelNumber Unsigned32,
+        cldccrRmBeaconRptTimeStamp     OCTET STRING,
+        cldccrRmBeaconRptPhyType       INTEGER,
+        cldccrRmBeaconRptReceivedPower Unsigned32,
+        cldccrRmBeaconRptBSSID         MacAddress,
+        cldccrRmBeaconRptParentTsf     OCTET STRING,
+        cldccrRmBeaconRptTargetTsf     OCTET STRING,
+        cldccrRmBeaconRptInterval      Unsigned32,
+        cldccrRmBeaconRptCapInfo       Unsigned32
+}
+
+cldccrRmBeaconIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..28)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Index which will be the channel number in most
+        cases." 
+    ::= { cldccrRmBeaconRepEntry 1 }
+
+cldccrRmBeaconRptChannelNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Channel number indicates the channel number to which the noise
+        beacon report applies." 
+    ::= { cldccrRmBeaconRepEntry 2 }
+
+cldccrRmBeaconRptTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Timestamp of the beacon report." 
+    ::= { cldccrRmBeaconRepEntry 3 }
+
+cldccrRmBeaconRptPhyType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        fh(1),
+                        dss(2),
+                        unused(3),
+                        ofdm(4),
+                        highDataRateDss(5),
+                        erp(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Phy type indicates the physical
+        medium used." 
+    ::= { cldccrRmBeaconRepEntry 4 }
+
+cldccrRmBeaconRptReceivedPower OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..250)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field indicates the received strength of
+        the beacon or probe response frame in dBm." 
+    ::= { cldccrRmBeaconRepEntry 5 }
+
+cldccrRmBeaconRptBSSID OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field contains the 6-byte BSSID of the STA that
+        transmitted the beacon or probe response frame." 
+    ::= { cldccrRmBeaconRepEntry 6 }
+
+cldccrRmBeaconRptParentTsf OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field is used to store the parent TSF
+        Parent TSF contains the lower 4 bytes of the serving APs. 
+        TSF value at the time the measuring STA received the beacon
+        or probe response frame." 
+    ::= { cldccrRmBeaconRepEntry 7 }
+
+cldccrRmBeaconRptTargetTsf OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field is used to store the Target TSF.
+        Target TSF contains the 8-byte TSF value contained in the
+        beacon or probe response received by the measuring STA." 
+    ::= { cldccrRmBeaconRepEntry 8 }
+
+cldccrRmBeaconRptInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field is equal to the 2-byte Beacon Interval
+        field in the received beacon or probe response." 
+    ::= { cldccrRmBeaconRepEntry 9 }
+
+cldccrRmBeaconRptCapInfo OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the capability info." 
+    ::= { cldccrRmBeaconRepEntry 10 }
+ 
+
+
+cldccRmChannelLoadReportTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccRmChannelLoadReportEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the channel load reports of
+        the clients which were queried for the same."
+    ::= { cldccrRmResp 3 }
+
+cldccRmChannelLoadReportEntry OBJECT-TYPE
+    SYNTAX          CldccRmChannelLoadReportEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is an entry in the table where entry is
+        identified by the client Mac    address."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccRmChannelLoadReportIndex
+                    } 
+    ::= { cldccRmChannelLoadReportTable 1 }
+
+CldccRmChannelLoadReportEntry ::= SEQUENCE {
+        cldccRmChannelLoadReportIndex           Unsigned32,
+        cldccRmChannelLoadReportChannelNumber   Unsigned32,
+        cldccRmChannelLoadReportTimeStamp       OCTET STRING,
+        cldccRmChannelLoadReportCCABusyFraction Unsigned32
+}
+
+cldccRmChannelLoadReportIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This indicates the index of the report table." 
+    ::= { cldccRmChannelLoadReportEntry 1 }
+
+cldccRmChannelLoadReportChannelNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Channel Number indicates the channel number to which
+        the Channel Load Report applies." 
+    ::= { cldccRmChannelLoadReportEntry 2 }
+
+cldccRmChannelLoadReportTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Timestamp of the channel load report." 
+    ::= { cldccRmChannelLoadReportEntry 3 }
+
+cldccRmChannelLoadReportCCABusyFraction OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "CCA Busy Fraction shall contain the fractional duration
+        over which CCA indicated the channel was busy during the
+        measurement duration." 
+    ::= { cldccRmChannelLoadReportEntry 4 }
+ 
+
+
+cldccRmFrameReportTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccRmFrameReportEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the frame reports of
+        the clients which were queried for the same."
+    ::= { cldccrRmResp 4 }
+
+cldccRmFrameReportEntry OBJECT-TYPE
+    SYNTAX          CldccRmFrameReportEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is an entry in the table where entry is
+        identified by the client Mac address."
+    INDEX           {
+                        cldcClientMacAddress,
+                        cldccRmFrameReportElemIndex,
+                        cldccRmFrameReportSubElemIndex
+                    } 
+    ::= { cldccRmFrameReportTable 1 }
+
+CldccRmFrameReportEntry ::= SEQUENCE {
+        cldccRmFrameReportElemIndex    Unsigned32,
+        cldccRmFrameReportSubElemIndex Unsigned32,
+        cldccRmFrameReportChanNumber   Unsigned32,
+        cldccRmFrameReportTimeStamp    OCTET STRING,
+        cldccRmFrameReportTransmitAddr MacAddress,
+        cldccRmFrameReportBssid        MacAddress,
+        cldccRmFrameReportRecvSigPower Unsigned32,
+        cldccRmFrameReportFrameCount   Unsigned32
+}
+
+cldccRmFrameReportElemIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the index of
+        element index of frame report." 
+    ::= { cldccRmFrameReportEntry 1 }
+
+cldccRmFrameReportSubElemIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the index of
+        the sub element in a frame report." 
+    ::= { cldccRmFrameReportEntry 2 }
+
+cldccRmFrameReportChanNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute represents the channel number
+        of frame report." 
+    ::= { cldccRmFrameReportEntry 3 }
+
+cldccRmFrameReportTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Timestamp of the frame report." 
+    ::= { cldccRmFrameReportEntry 4 }
+
+cldccRmFrameReportTransmitAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This represents the transmitted address." 
+    ::= { cldccRmFrameReportEntry 5 }
+
+cldccRmFrameReportBssid OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This represents the bssid." 
+    ::= { cldccRmFrameReportEntry 6 }
+
+cldccRmFrameReportRecvSigPower OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..250)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field indicates the received strength of
+        the beacon or probe response frame in dBm." 
+    ::= { cldccRmFrameReportEntry 7 }
+
+cldccRmFrameReportFrameCount OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..250)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This field indicates the received strength of
+        the beacon or probe response frame in dBm." 
+    ::= { cldccRmFrameReportEntry 8 }
+ 
+
+
+cldccrRmReqStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CldccrRmReqStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to get the status for
+        each of the reports."
+    ::= { cldccrRmReqStatus 1 }
+
+cldccrRmReqStatusEntry OBJECT-TYPE
+    SYNTAX          CldccrRmReqStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is an entry in the table where entry is identified
+        by the client Mac address."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cldccrRmReqStatusTable 1 }
+
+CldccrRmReqStatusEntry ::= SEQUENCE {
+        cldccrRmFrameReqStatus     CiscoLwappCcxRmReqStatus,
+        cldccrRmHistogramReqStatus CiscoLwappCcxRmReqStatus,
+        cldccrRmBeaconReqStatus    CiscoLwappCcxRmReqStatus,
+        cldccrRmChanLoadReqStatus  CiscoLwappCcxRmReqStatus
+}
+
+cldccrRmFrameReqStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappCcxRmReqStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute is used to initiate/track a frame
+        report request to the ccxv4 client." 
+    ::= { cldccrRmReqStatusEntry 1 }
+
+cldccrRmHistogramReqStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappCcxRmReqStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute is used to initiate/track a noise histogram
+        request to the ccxv4 client." 
+    ::= { cldccrRmReqStatusEntry 2 }
+
+cldccrRmBeaconReqStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappCcxRmReqStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute is used to initiate/track a beacon request
+        to the ccxv4 client." 
+    ::= { cldccrRmReqStatusEntry 3 }
+
+cldccrRmChanLoadReqStatus OBJECT-TYPE
+    SYNTAX          CiscoLwappCcxRmReqStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute is used to initiate/track a channel load request
+        to the ccxv4 client." 
+    ::= { cldccrRmReqStatusEntry 4 }
+ 
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappDot11ClientRmMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIBConform 1 }
+
+ciscoLwappDot11ClientRmMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappDot11ClientRmMIBConform 2 }
+
+
+ciscoLwappDot11ClientRmMibCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappDot11ClientRmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappDot11ClientRmConfigGroup }
+    ::= { ciscoLwappDot11ClientRmMIBCompliances 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappDot11ClientRmConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cldccrRmReqReportType,
+                        cldccrRmInitiateReq,
+                        cldccrRmReqNumIterations,
+                        cldccrRmReqMeasDuration,
+                        cldccrRmReqRowStatus,
+                        cldccrRmHistRepChannelNumber,
+                        cldccrRmHistRepTimeStamp,
+                        cldccrRmHistRepRPIDensity0,
+                        cldccrRmHistRepRPIDensity1,
+                        cldccrRmHistRepRPIDensity2,
+                        cldccrRmHistRepRPIDensity3,
+                        cldccrRmHistRepRPIDensity4,
+                        cldccrRmHistRepRPIDensity5,
+                        cldccrRmHistRepRPIDensity6,
+                        cldccrRmHistRepRPIDensity7,
+                        cldccrRmBeaconRptChannelNumber,
+                        cldccrRmBeaconRptTimeStamp,
+                        cldccrRmBeaconRptPhyType,
+                        cldccrRmBeaconRptReceivedPower,
+                        cldccrRmBeaconRptBSSID,
+                        cldccrRmBeaconRptParentTsf,
+                        cldccrRmBeaconRptTargetTsf,
+                        cldccrRmBeaconRptInterval,
+                        cldccrRmBeaconRptCapInfo,
+                        cldccRmChannelLoadReportChannelNumber,
+                        cldccRmChannelLoadReportTimeStamp,
+                        cldccRmChannelLoadReportCCABusyFraction,
+                        cldccRmFrameReportChanNumber,
+                        cldccRmFrameReportTimeStamp,
+                        cldccRmFrameReportTransmitAddr,
+                        cldccRmFrameReportBssid,
+                        cldccRmFrameReportRecvSigPower,
+                        cldccRmFrameReportFrameCount,
+                        cldccrRmFrameReqStatus,
+                        cldccrRmHistogramReqStatus,
+                        cldccrRmBeaconReqStatus,
+                        cldccrRmChanLoadReqStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        reports of the CCX Clients."
+    ::= { ciscoLwappDot11ClientRmMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+

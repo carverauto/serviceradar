@@ -1,0 +1,223 @@
+-- *****************************************************************
+-- CISCO-SDWAN-OPER-APP-MIB.my:
+-- OID assignments for Cisco oper app
+
+
+-- July 2021, Joe Jia
+
+-- Copyright (c) 2020-2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SDWAN-OPER-APP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32, Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoSdwanOperAppMIB MODULE-IDENTITY
+    LAST-UPDATED "202105260000Z"
+    ORGANIZATION    "Cisco Systems, Inc. "
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION "This module defines
+                 the data model for app operation"
+    REVISION "202105260000Z"
+    DESCRIPTION "Cisco SDWAN oper app Revision 0"
+    ::= { ciscoMgmt 1007 }
+
+-- MIB Objects, Notification Objects, Notification and Conform
+ciscoSdwanOperAppMIBNotifs OBJECT IDENTIFIER
+    ::= { ciscoSdwanOperAppMIB 0 }
+
+ciscoSdwanOperAppMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoSdwanOperAppMIB 1 }
+
+ciscoSdwanOperAppMIBNotifObjects  OBJECT IDENTIFIER
+    ::= { ciscoSdwanOperAppMIB 2 }
+
+ciscoSdwanOperAppMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSdwanOperAppMIB 3 }
+
+-- tagpath /app
+app OBJECT IDENTIFIER ::= { ciscoSdwanOperAppMIBObjects 6 }
+
+-- tagpath /app/cflowd
+appCflowd OBJECT IDENTIFIER ::= { app 1 }
+
+-- tagpath /app/cflowd/statistics
+appCflowdStatistics OBJECT IDENTIFIER ::= { appCflowd 3 }
+
+-- tagpath /app/cflowd/template
+appCflowdTemplate OBJECT IDENTIFIER ::= { appCflowd 4 }
+
+-- tagpath /app/cflowd/statistics/data-packets
+appCflowdStatisticsDataPackets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPFIX data record packets created"
+    ::= { appCflowdStatistics 1 }
+
+-- tagpath /app/cflowd/statistics/template-packets
+appCflowdStatisticsTemplatePackets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPFIX template packets created"
+    ::= { appCflowdStatistics 2 }
+
+-- tagpath /app/cflowd/statistics/total-packets
+appCflowdStatisticsTotalPackets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPFIX packets transmitted"
+    ::= { appCflowdStatistics 3 }
+
+-- tagpath /app/cflowd/statistics/flow-refresh
+appCflowdStatisticsFlowRefresh OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of flow active timeouts to be reported"
+    ::= { appCflowdStatistics 4 }
+
+-- tagpath /app/cflowd/statistics/flow-ageout
+appCflowdStatisticsFlowAgeout OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of flow idle timeouts to be reported"
+    ::= { appCflowdStatistics 5 }
+
+-- tagpath /app/cflowd/statistics/flow-end-detected
+appCflowdStatisticsFlowEndDetected OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of flows whose end was detected by fastpath"
+    ::= { appCflowdStatistics 6 }
+
+-- tagpath /app/cflowd/statistics/flow-end-forced
+appCflowdStatisticsFlowEndForced OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of flow that were forcibly removed"
+    ::= { appCflowdStatistics 7 }
+
+-- tagpath /app/cflowd/statistics/flow-rate-limit-drop
+appCflowdStatisticsFlowRateLimitDrop OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Flows that were dropped due to FTM rate limit"
+    ::= { appCflowdStatistics 8 }
+
+-- tagpath /app/cflowd/template/name
+appCflowdTemplateName OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "cflowd template name"
+    ::= { appCflowdTemplate 1 }
+
+-- tagpath /app/cflowd/template/flow-active-timeout
+appCflowdTemplateFlowActiveTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Timeout value for active flows in secs"
+    ::= { appCflowdTemplate 2 }
+
+-- tagpath /app/cflowd/template/flow-inactive-timeout
+appCflowdTemplateFlowInactiveTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Timeout value for inactive flows in secs"
+    ::= { appCflowdTemplate 3 }
+
+-- tagpath /app/cflowd/template/template-refresh
+appCflowdTemplateTemplateRefresh OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Refresh value for template in secs"
+    ::= { appCflowdTemplate 4 }
+
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoSdwanOperAppMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSdwanOperAppMIBConform 1 } 
+
+ciscoSdwanOperAppMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSdwanOperAppMIBConform 2 } 
+
+ciscoSdwanOperAppMIBCompliance MODULE-COMPLIANCE
+    STATUS         current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         that implement the ciscoSdwanOperAppMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cSdwanAppCflowdStatisticsGroup,
+                        cSdwanAppCflowdTemplateGroup
+                    }   
+    ::= { ciscoSdwanOperAppMIBCompliances 1 } 
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+cSdwanAppCflowdStatisticsGroup OBJECT-GROUP
+    OBJECTS         {   
+                        appCflowdStatisticsDataPackets,
+                        appCflowdStatisticsTemplatePackets,
+                        appCflowdStatisticsTotalPackets,
+                        appCflowdStatisticsFlowRefresh,
+                        appCflowdStatisticsFlowAgeout,
+                        appCflowdStatisticsFlowEndDetected,
+                        appCflowdStatisticsFlowEndForced,
+                        appCflowdStatisticsFlowRateLimitDrop
+                    }   
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of app cflowd statistics. "
+    ::= { ciscoSdwanOperAppMIBGroups 1 }
+
+cSdwanAppCflowdTemplateGroup OBJECT-GROUP
+    OBJECTS         {   
+                        appCflowdTemplateName,
+                        appCflowdTemplateFlowActiveTimeout,
+                        appCflowdTemplateFlowInactiveTimeout,
+                        appCflowdTemplateTemplateRefresh
+                    }   
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of app cflowd template. "
+    ::= { ciscoSdwanOperAppMIBGroups 2 }
+
+END

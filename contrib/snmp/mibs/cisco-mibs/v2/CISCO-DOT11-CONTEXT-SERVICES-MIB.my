@@ -1,0 +1,1991 @@
+-- *******************************************************************
+-- CISCO-DOT11-CONTEXT-SERVICES-MIB.my: 
+-- May 2003, Raju Datla, Parthasarathy Venkatavaradhan,
+-- Prasanna Viswakumar. 
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-DOT11-CONTEXT-SERVICES-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        NOTIFICATION-TYPE,
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Counter32,
+        Gauge32,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        MacAddress,
+        TruthValue,
+        RowStatus,
+        TimeInterval,
+        TimeStamp,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        CiscoInetAddressMask
+                FROM CISCO-TC
+        ciscoExperiment
+                FROM CISCO-SMI
+        InterfaceIndex,
+        ifPhysAddress
+                FROM IF-MIB
+        InetAddressType,
+        InetAddress
+                FROM INET-ADDRESS-MIB;
+
+ciscoDot11ContextServicesMIB MODULE-IDENTITY
+        LAST-UPDATED         "200309150000Z"
+        ORGANIZATION         "Cisco Systems Inc."
+        CONTACT-INFO
+                             " Cisco Systems,
+                               Customer Service
+                               Postal: 170 West Tasman Drive
+			       San Jose, CA  95134
+			       USA
+                               Tel: +1 800 553-NETS
+            
+                               E-mail: cs-dot11@cisco.com"
+        DESCRIPTION
+                "This MIB supports managing the devices offering
+                WDS and WNS services.
+           
+                The hierarchy of the devices offering the wireless
+                domain and network services looks like the following.
+                                                      
+                             += = = = +
+                             |        |
+                             |  WNS   |  (Campus level)
+                             |        |
+                             += = = = +
+                             /        \
+                            /          \
+                           /            \
+                          /              \
+                         \/              \/
+                      += = =+          += = =+
+                      |     |          |     | 
+                      | WNS |          | WNS |  
+                      |     |          |     |
+                      += = =+          += = =+
+                      /     \                \
+                     /       \                \
+                    /         \                \
+                   /           \                \
+                  \/           \/               \/
+               +=====+       +=====+          +=====+
+               |     |       |     |          |     |
+               | WDS |       | WDS |          | WDS | ( Subnet
+               |     |       |     |          |     |   level-
+               +=====+       +=====+          +=====+   Single
+                /  \             \                 \   broadcast
+               /    \             \                 \   domain )
+              /      \             \                 \
+             /        \             \                 \
+            /          \             \                 \
+           \/          \/            \/                \/
+        +~-~-~+      +~-~-~+       +~-~-~+           +~-~-~+
+        +     +      +     +       +     +           +     +
+        + AP  +      + AP  +       + AP  +           + AP  +
+        +     +      +     +       +     +           +     +
+        +~-~-~+      +~-~-~+       +~-~-~+           +~-~-~+
+          ..            .             .                 .
+         .  .            .             .                 .
+        .    .            .             .                 .
+       .      .            .             .                 .
+      .        .            .             .                 .
+     \/        \/           \/            \/                \/
+   +.....+  +.....+      +-.-.-.+       +~-~-~+          +......+
+   +     +  +     +      +      +       +     +          +      +
+   + MN  +  + MN  +      + WGB  +       + AP  +          +  MN  +
+   +     +  +     +      +      +       +     +          +      +
+   +.....+  +.....+      +-.-.-.+       +~-~-~+          +......+
+                           .             .  .
+                          .             .    .
+                         .             .      .
+                        .             .        .
+                       \/            \/        \/
+                    ++++++++      +......+   +......+
+                    +      +      +      +   +      +
+                    + EN   +      +  MN  +   +  MN  +
+                    +      +      +      +   +      +
+                    ++++++++      +......+   +......+
+
+                The diagram above depicts the overall campus network
+                hierarchy and the services being offered at various
+                levels in the hierarchy.  Here, Infrastructure Node
+                Authentication services are offered by the device
+                providing WNS at the root (Campus) level.  WNS
+                at this level thus span an enterprise campus that
+                resides in a geographic location.
+
+                WNS are offered at various levels as shown in the
+                hierarchy to achieve scalability.  WNS at the
+                subsequent levels other than the root level include
+                authentication services for MNs and are typically
+                confined to a single building.
+
+                At the broadcast domain level,  the WDS include
+                authentication and registration services for the APs.
+                An AP provides Proxy Authentication and  registration
+                services for the MNs.  The APs that connect to parent
+                APs through the wireless interface ( as shown by the
+                dotted lines ) are Repeater-APs.  The WGBs are managed
+                in the same manner as the MNs.  However, the Ethernet
+                Nodes ( EN ) that are connected to the WGB won't be
+                served as part of the WDS.
+                 
+                                  GLOSSARY
+
+                Access Point ( AP )
+
+                Any entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+                Wireless Bridge 
+
+                An 802.11 entity that provides wireless connectivity
+                between two wired LAN segments and is used in point-
+                to-point or point-multipoint configurations.
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point.
+
+
+                WorkGroup Bridge ( WGB )
+                
+                A work-group bridge is a non-STP AP with an 802.11
+                primary port and a secondary Ethernet port that
+                provides access to a non-STP secondary Ethernet LAN
+                segment.  STP refers to the IEEE 802.1D Spanning Tree
+                Protocol.  An 'STP AP' executes the 802.1D STP and
+                the 802.1D STP is operated on an 'STP link'.  A
+                'non-STP AP' does not execute the 802.1D STP.
+
+                Repeater-AP
+
+                A repeater is a 'wireless AP' that is attached to a
+                parent AP on an 802.11 primary port.  The Ethernet
+                port is disabled in a Repeater-AP.
+
+                Infrastructure Node ( IN )
+                 
+                This term refers to Access Points, Wireless Bridges
+                and those devices that implement and offer WNS and
+                WDS as shown in the network hierarchy.
+
+                Ethernet Node ( EN )
+ 
+                The node that gets the uplink to the Wireless AP
+                via the WGB.  This node connects to the WGB through
+                its primary Ethernet port.
+
+                Context
+
+                The mobility context for an MN includes its current
+                mobility bindings with the APs, IP/802 address
+                bindings, cached configuration parameters, QoS state,
+                IP group membership, authentication state, accounting
+                statistics, and other dynamically derived protocol
+                state information.
+
+                Wireless Domain Services
+
+                The set of services being offered at a particular
+                broadcast domain that may be an IP subnet or a
+                particular VLAN.  The services include the following.
+
+                1. MN security credential caching to provide seamless,
+                secure intra-subnet roaming.
+                
+                2. Authenticated context transfer for roaming client
+                within the subnet.
+
+                Since, by definition, the WDS are bound to one subnet
+                ( broadcast domain ), if implemented in a device
+                spanning multiple subnets, the implementation should
+                take care to provide separate set of services for
+                each of the subnets.
+                               
+                Wireless Network Services
+
+                The set of services that can be visualized as being
+                offered at various levels other than the lowest
+                (subnet) level of a hierarchical campus network.
+
+                At the root level, Infrastructure Authentication
+                services for all the devices in the network that
+                provide WNS and WDS are offered.  In case if WNS are
+                not distributed at several levels as shown in the
+                hierarchy above and is confined to be offered only at
+                a single root level, the services offered also
+                include authentication services for the MNs.
+
+                WNS Entity
+
+                The logical entity that resides in an infrastructure
+                node and offers WNS to the descendants of that
+                infrastructure node in the wireless services
+                hierarchy.
+
+                WDS Entity
+
+                The logical entity that resides in an infrastructure
+                node and offers WDS to the descendants of that
+                infrastructure node in the wireless services
+                hierarchy. 
+
+                WS Entity
+
+                Refers to one of WNS / WDS Entities.
+
+                Parent Node
+
+                The node that immediately precedes an infrastructure
+                node in the hierarchy.  For mobile nodes, the parent
+                APs provide proxy wireless services by talking to 
+                their immediate parent nodes that offer WDS.
+
+                Root Node
+
+                The infrastructure node that is at the highest level
+                in the services hierarchy and that offers WNS.
+                The WNS entity acts as the IN Authenticator
+                for the rest of the infrastructure nodes. In case if
+                WNS are not distributed, the root node also acts as
+                the Mobile Node Authenticator ( See description
+                below ).
+
+                Descendant
+
+                A node that is in the sub-tree of the campus hierarchy
+                tree rooted at the node providing WNS.
+
+                Infrastructure Node ( IN ) Authenticator
+
+                The logical entity that communicates with the AAA
+                server and provides authentication Services for the
+                infrastructure nodes.  Details of the IN
+                Authenticator have to be configured in the device
+                providing WDS manually.  The AP learns about the IN
+                Authenticator automatically upon registering with its
+                immediate parent.  The WDS also includes MN
+                authentication services if the entity providing WDS is
+                at the root level in the hierarchy.
+
+                Mobile Node ( MN ) Authenticator
+
+                The logical entity that communicates with the AAA
+                server and provides authentication Services for mobile
+                nodes. An infrastructure node learns the whereabouts
+                of the MN Authenticator from the root node.
+
+                Wireless Network Manager ( WNM )
+
+                The network management system that manages the
+                entire hierarchy of devices providing WNS and WDS.
+
+                Advertisement
+
+                The process by which the Access Points identify their
+                parent nodes providing WDS.  APs listen to the
+                advertisements of the WDS entities and gets registered
+                with one of those entities to facilitate secured
+                context transfer.
+ 
+                WLCCP
+
+                Wireless LAN Context Control Protocol.  Used to
+                establish and manage the network topology and
+                securely manage the 'operational context' for mobile
+                stations in a campus network.                  
+
+                AAA
+
+                Authentication, Authorization, Accounting
+
+                A node will request network access by executing a
+                protocol to an authentication server that provides
+                protocols and services for providing authentication,
+                authorization and session accounting.
+
+                Service Set Identifier ( SSID )
+
+                802.11 Service Set Identifier.  An SSID identifies a
+                set of mobile nodes grouped into a logical 'service
+                set' and the APs that provide access for the service
+                set.
+
+                Wired Equivalent Privacy (WEP)
+ 
+                This protocol uses a pseudo random generator and RC4
+                stream cipher and is specified by the 802.11 standard
+                as the algorithm for encryption and authentication 
+                over the wireless segment of the LAN.
+
+                Temporal Key Integrity Protocol ( TKIP )
+ 
+                This protocol provides initialization vector hashing
+                and a Message Integrity Check ( MIC ) to ensure data
+                integrity.  TKIP includes use of dynamic keys to 
+                defeat capture of passive keys.  TKIP uses the RC4 
+                cipher as WEP but the difference is that TKIP changes
+                temporal keys every 10,000 packets thereby providing a
+                dynamic distribution network that enhances the 
+                security of the network.
+
+                Cisco Key Integrity Protocol ( CKIP )
+
+                A proprietary implementation similar to TKIP.  CKIP
+                implements key permutation for protecting the CKIP
+                key against attacks.  Other features of CKIP include
+                expansion of encryption key to 16 bytes of length for
+                key protection and MIC to ensure data integrity.
+
+                
+                Wireless services at subnet level
+                =================================
+ 
+                             +========+
+                             |        |
+                             |  WDS   | ( Subnet level - Broadcast
+                             |        |   domain )
+                             +========+
+                              /      \
+                             /        \
+                            /          \
+                           /            \
+                          /              \
+                         \/              \/
+                       +~-~-~+         +~-~-~+
+                       +     +         +     +
+                       + AP  +         + AP  +
+                       +     +         +     +
+                       +~-~-~+         +~-~-~+
+                       .   .               .
+                      .     .               .
+                     .       .               .
+                    .         .               .
+                   .           .               .
+                  .             .               .
+                 \/             \/              \/
+              +......+       +-.-.-.+        +~-~-~-+
+              +      +       +      +        +      +
+              +  MN  +       + WGB  +        +  AP  +
+              +      +       +      +        +      +
+              +......+       +-.-.-.+        +~-~-~-+
+
+
+                The above diagram depicts how wireless services are
+                being offered in an infrastructure node implementing
+                WDS. In such a network, the WDS entity provides
+                authentication services to both the infrastructure
+                and mobile nodes.
+
+                The other entities in the diagram are the Mobile Node
+                ( MN ), the Workgroup Bridge (WGB) and another
+                AP-in-repeater mode.  The Repeater-APs first perform
+                initial authentication with the AAA server ( through
+                WDS ) and then perform infrastructure authentication
+                and registration with the WDS entity. The WGBs go
+                through the same procedure as the MNs for
+                authentication and registration with the WDS entity. "
+        REVISION      "200309150000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoExperiment 110 }
+
+ciscoDot11csMIBNotifications OBJECT IDENTIFIER
+        ::= { ciscoDot11ContextServicesMIB 0 }
+
+ciscoDot11csMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoDot11ContextServicesMIB 1 }
+
+ciscoDot11csMIBConformance OBJECT IDENTIFIER
+        ::= { ciscoDot11ContextServicesMIB 2 }
+
+cDot11csConfigGlobal OBJECT IDENTIFIER 
+        ::= { ciscoDot11csMIBObjects 1 }
+
+cDot11csDescendantIn OBJECT IDENTIFIER 
+        ::= { ciscoDot11csMIBObjects 2 }
+
+cDot11csMn OBJECT IDENTIFIER 
+        ::= { ciscoDot11csMIBObjects 3 }
+
+-- Textual Conventions
+
+CDot11csNodeIndex ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "This textual convention defines an identifier that is
+                used to uniquely identify a WS Entity in the wireless
+                services hierarchy. "
+        SYNTAX     OCTET STRING (SIZE(8))
+
+--********************************************************************
+--*   Configuration global parameters  
+--********************************************************************
+
+cDot11csServiceType OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         none(1),
+                         wds(2),
+                         wns(3),
+                         rootWns(4)
+                   }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object identifies the type of service
+                this infrastructure node will offer.
+
+                none(1) - This infrastructure node is not
+                configured to offer any services.
+
+                wds(2) - This infrastructure node is configured
+                to offer Wireless Domain Services.
+
+                To configure this infrastructure node to
+                offer Wireless Domain Services, cDot11csServiceType
+                should be set to 'wds' and an entry should be
+                added to cDot11csWdsInstanceTable to specify the
+                configuration for the WDS.
+
+                wns(3) - This infrastructure node is configured
+                to offer Wireless Network Services.
+
+                To configure this infrastructure node to
+                offer Wireless Network Services, cDot11csServiceType
+                should be set to 'wns' and 
+                cDot11csPrimaryRootNodeAddr should be set to the IP
+                address of the root infrastructure node that 
+                offers WNS.
+
+                rootWns(4) - This infrastructure node is configured
+                to offer Wireless Network Services at the root
+                level in the wireless services hierarchy.
+
+                To configure an infrastructure node as the root
+                node, cDot11csServiceType should be set to 
+                'rootWns' and cDot11csPrimaryRootNodeAddr should be
+                set to 0.0.0.0 to imply that this infrastructure 
+                node is the root node in the wireless services
+                hierarchy. "
+        DEFVAL { none }
+        ::= { cDot11csConfigGlobal 1 }
+
+cDot11csParentNodeIpAddressType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in
+                cDot11csParentNodeIpAddress. "
+        ::= { cDot11csConfigGlobal 2 }
+
+cDot11csParentNodeIpAddress OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the immediate parent node of
+                this infrastructure node in the wireless services
+                hierarchy.  The semantics for this object are defined
+                as follows.
+
+                If the value of cDot11csServiceType is 'rootWns' and
+                the value of this object is 0.0.0.0, then this node
+                is the root node offering WNS.
+
+                If the value of cDot11csServiceType is 'wns', the
+                value of this object is the IP address of the root
+                infrastructure node offering WNS.
+
+                If the values of cDot11csServiceType,
+                cDot11csIsRootNode and this object are 'wds', 'true'
+                and 0.0.0.0 respectively, then this node is the root
+                node in the wireless services hierarchy.
+
+                If the values of cDot11csServiceType and
+                cDot11csIsRootNode are 'wds' and 'false' respectively,
+                the value of this object is the IP address of the
+                immediate parent infrastructure node. "
+        ::= { cDot11csConfigGlobal 3 }
+
+cDot11csPrimaryRootNodeAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in
+                cDot11csPrimaryRootNodeAddr. "
+        ::= { cDot11csConfigGlobal 4 }
+
+cDot11csPrimaryRootNodeAddr  OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the infrastructure node to be
+                configured as the primary root node.  The primary
+                root node performs infrastructure authentication
+                for all the infrastructure nodes in the
+                wireless services network.
+
+                The semantics for this object are defined as
+                follows.
+
+                If the value of cDot11csServiceType is 'wds' and this
+                infrastructure node is the root node in the wireless
+                services hierarchy, the value configured is
+                0.0.0.0 to indicate that this node is the root node
+                in the wireless services hierarchy.
+
+                If the value of cDot11csServiceType is 'wds' and this
+                infrastructure node is not the root node in the
+                wireless services hierarchy, the value configured is
+                the IP address of the infrastructure node for which
+                the value of cDot11csServiceType is 'rootWns'.
+
+                If the value of cDot11csServiceType is 'wns', the
+                value configured is the IP address of the
+                infrastructure node for which the value of
+                cDot11csServiceType is 'rootWns'.
+
+                If the value of cDot11csServiceType is 'rootWns', the
+                value 0.0.0.0 is configured to indicate that this
+                infrastructure node is the root node in the wireless
+                services hierarchy. "
+        ::= { cDot11csConfigGlobal 5 }
+
+cDot11csSecondaryRootNodeAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in
+                cWSSecondaryRootNodeAddr. "
+        ::= { cDot11csConfigGlobal 6 }
+
+cDot11csSecondaryRootNodeAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the Secondary root node acting as
+                a standby for the primary root node.  The semantics
+                for this object are defined as follows.
+
+                If the values of cDot11wsServiceType,
+                cDot11wsIsRootNode and this object are 'wds', 'true'
+                and  0.0.0.0 respectively, then there is no
+                secondary root node in the wireless hierarchy.
+
+                If the values of cDot11wsServiceType and 
+                cDot11wsIsRootNode are 'wds' and 'false'
+                respectively, then the value of this object is the
+                IP address of an infrastructure node that acts as a
+                backup for the current root node.
+
+                If the value of cDot11wsServiceType is 'wns', the
+                value of this object is the IP address of an
+                infrastructure node that acts as a backup for the
+                current root node.
+
+                If value of cDot11wsServiceType is 'rootWns', the
+                value of this object is the IP address of an
+                infrastructure node that acts as a backup for the
+                current root node. "
+       ::= { cDot11csConfigGlobal 7 }
+
+
+cDot11csCurrentRootNodeAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in
+                cDot11csCurrentRootNodeAddr. "
+        ::= { cDot11csConfigGlobal 8 }
+
+
+cDot11csCurrentRootNodeAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the infrastructure node that is
+                currently the root node.
+
+                This object's value is 0.0.0.0 if this infrastructure
+                node is the root node.  Else, this object's value is
+                the IP address of the root node.
+
+                Thus, the object's value is 0.0.0.0 if either one
+                of the following is true.
+
+                1) this infrastructure node offers WDS and is the
+                   root node.
+                2) this infrastructure node offers WNS with the
+                   value of cDot11csServiceType equal to 'rootWns'.
+
+                The object's value is the IP address of the root node
+                if the value of cDot11csServiceType is 'wns' for this
+                node. "
+        ::= { cDot11csConfigGlobal 9 }
+
+cDot11csWnsEntityName OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE (1..32))
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The name associated with the WNS being offered by
+                this infrastructure node.  This name is unique
+                across the wireless services network at the campus
+                level.  This is applicable only if the infrastructure
+                node offers WNS.  This object is not applicable for
+                read-write operations, if this is an infrastructure
+                node offering WDS. "
+        ::= { cDot11csConfigGlobal 10 }
+
+cDot11csMnaIpAddressType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in
+                cDot11csMnaIpAddress. "
+        ::= { cDot11csConfigGlobal 11 }
+
+cDot11csMnaIpAddress OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The IP address of the Mobile Node Authenticator.
+
+                The semantics for this object are defined as follows.
+
+                If the value of cDot11csServiceType,
+                cDot11csIsRootNode and this object are 'wds', 'true'
+                and 0.0.0.0 respectively, this node is the MN
+                Authenticator.
+
+                If the values of cDot11csServiceType is 'wds' and the
+                value of cDot11csIsRootNode is 'false' indicating that
+                there is at least one node up in the wireless services
+                hierarchy that offers Wireless Network Services, the
+                value of this object is the IP address of the
+                immediate parent node for which the value of
+                cDot11csServiceType is 'wns'.
+
+                If the values of cDot11csServiceType and this object
+                are 'wns' and 0.0.0.0 respectively, this
+                infrastructure node is the MN Authenticator.
+
+                This object is not applicable to a root node offering
+                WNS which is identified by a value of 'rootWns' for
+                cDot11csServiceType. "
+        ::= { cDot11csConfigGlobal 12 }
+
+cDot11csIsRootNode OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates if this infrastructure node is
+                the root node.  If the value of this object is
+                'true', this node is the root node. "
+        ::= { cDot11csConfigGlobal 13 }
+
+cDot11csNodeOperationMode OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         adminStandAlone(1),
+                         infrastructure(2),
+                         fallbackStandAlone(3)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the mode which this
+                infrastructure node is currently operating in.
+                 
+                The semantics are described as follows.
+
+                adminStandAlone -  An infrastructure node in this
+                mode has been configured to be the highest level node
+                in the wireless services hierarchy and acts as both
+                the Infrastructure and Mobile Node Authenticator.
+                For an infrastructure node for which
+                cDot11csServiceType is configured as 'rootWns', the
+                mode of operation is always 'adminStandAlone' as it
+                is the highest level node in the wireless services
+                hierarchy.  An infrastructure node whose
+                cDot11csServiceType is 'wds' can be in
+                'adminStandAlone' mode if there is no node offering
+                Wireless Network Services and is the root node in
+                the wireless services hierarchy.  An infrastructure
+                node for which the value of cDot11csServiceType is
+                'wns' can't be in 'adminStandAlone' mode since it
+                always has another infrastructure node as its parent
+                for which the value of cDot11csServiceType is
+                'rootWns' and won't be the root node in the wireless
+                services hierarchy.
+
+                infrastructure  - An infrastructure node in this
+                mode has been configured with an external IN
+                Authenticator.  The external IN Authenticator
+                in this case is the infrastructure node whose value
+                of cDot11csServiceType is 'rootWns'.  The immediate
+                parent of this infrastructure node is given by the
+                object cDot11csParentNodeAddress.
+
+                fallbackStandAlone - This infrastructure node has
+                been configured to function in the 'infrastructure'
+                mode but the node has dropped back to
+                'fallbackStandAlone' mode due to loss of
+                communication with its parent node.  From an
+                operational point of view, 'fallbackStandAlone' mode
+                is  same as 'adminStandAlone' mode.  However, in the
+                'fallbackStandAlone' mode, an infrastructure node
+                continuously attempts to get back to the
+                'infrastructure' mode. "
+        ::= { cDot11csConfigGlobal 14 }
+
+cDot11csWnsTable   OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11csWnsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table holds the information about the subnets
+                that are bound to each WNS entity.  This WNS-to-WDS
+                mapping is configured in the root WNS entity.  A WDS
+                entity requests the root WNS entity for the parent
+                WNS entity.
+
+                This table is applicable only for a root node. 
+
+                A row is added to this table in the root WNS entity
+                by the administrator through the WNM, each row
+                holding information about one particular subnet that
+                is being served by a WNS entity.  The name of the
+                WNS entity is given by the object
+                cDot11csWnsEntityName. "
+        ::= { cDot11csConfigGlobal 15 }
+
+cDot11csWnsEntry   OBJECT-TYPE
+        SYNTAX     CDot11csWnsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry corresponds to one WDS-to-WNS mapping
+                configured in the root WNS entity. "
+        INDEX   { cDot11csWnsIndex,
+                          cDot11csWnsAddrType, 
+                                  cDot11csWnsSubnetAddr } 
+        ::= { cDot11csWnsTable 1 }
+
+CDot11csWnsEntry ::=
+        SEQUENCE  {
+                cDot11csWnsIndex      SnmpAdminString, 
+                cDot11csWnsAddrType   InetAddressType, 
+                cDot11csWnsSubnetAddr InetAddress,
+                cDot11csWnsSubnetMask CiscoInetAddressMask,
+                cDot11csWnsRowStatus  RowStatus
+        }
+
+cDot11csWnsIndex   OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE (1..32))
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "The name of the WNS entity that serves a given set
+                of subnets.  This object holds the value configured
+                in cDot11csWnsEntityName. "
+        ::= { cDot11csWnsEntry  1 }
+
+cDot11csWnsAddrType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet addresses stored in
+                cDot11csWnsSubnetAddr and cDot11csWnsSubnetMask. "
+        ::= { cDot11csWnsEntry  2 }
+
+cDot11csWnsSubnetAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "The address of the subnet configured to be served
+                by the WNS entity identified by cDot11csWnsIndex. "
+        ::= { cDot11csWnsEntry  3 }
+     
+cDot11csWnsSubnetMask OBJECT-TYPE
+        SYNTAX     CiscoInetAddressMask
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The subnet mask associated with the subnet address
+                given by cDot11csWnsSubnetAddr. "
+        ::= { cDot11csWnsEntry  4 }
+
+cDot11csWnsRowStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The status column used for creating and deleting
+                instances of the columnar objects in the
+                cDot11csWnsTable.
+
+                The following information must be provided by the
+                WNM while creating a row.
+
+                The subnet address (cDot11csWnsSubnetAddr), the
+                subnet mask ( cDot11csWnsSubnetMask) and
+                Row Status ( cDot11csWnsRowStatus)
+
+                The type of the addresses stored by the subnet
+                address and the subnet mask should also be
+                specified.
+
+                The row, when created with the row status value
+                of 'createAndGo' is moved to the 'active' state
+                automatically by the agent and remains in that state
+                till the time the row is removed through the
+                'destroy' option.  This is used to create an entry
+                for a new subnet that is assigned to be serviced by
+                a WNS entity.
+
+                The 'destroy' option is used when the administrator
+                decides to remove the row representing a particular
+                subnet being served by a WNS entity. "
+        ::= { cDot11csWnsEntry  5 }
+
+cDot11csWnmConfigTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11csWnmConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table holds the list of IP addresses of those
+                WNMs that have been identified as recipients of the
+                notifications sent by a WS entity.  In case of
+                multiple WDS entities running in a single box, this
+                table is common across all the WDS entities.
+
+                Notifications are sent to those WNMs in this table
+                whose cDot11csConfigWnmAuthenState value is
+                'authenticated'.  A row is added to this table by
+                the administrator through the WNM to specify a
+                particular instance of WNM as a recipient of the
+                notification sent by a infrastructure node 
+                configured to offer WDS/WNS. "
+        ::= { cDot11csConfigGlobal 16 }
+
+cDot11csWnmConfigEntry OBJECT-TYPE
+        SYNTAX     CDot11csWnmConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry corresponds to one WNM instance that is
+                identified as a recipient of the notifications
+                sent by an infrastructure node configured to provide
+                wireless services. "
+        INDEX   { cDot11csWnmConfigIpAddressType, 
+                          cDot11csWnmConfigIpAddress }
+        ::=      { cDot11csWnmConfigTable 1 }
+
+CDot11csWnmConfigEntry ::=
+        SEQUENCE  {
+                 cDot11csWnmConfigIpAddressType  InetAddressType,
+                 cDot11csWnmConfigIpAddress      InetAddress,
+                 cDot11csWnmConfigAuthenState    INTEGER,
+                 cDot11csWnmConfigRowStatus      RowStatus    
+        }
+
+cDot11csWnmConfigIpAddressType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in
+                cDot11csWnmConfigIpAddress. "
+        ::= { cDot11csWnmConfigEntry 1 }
+  
+cDot11csWnmConfigIpAddress OBJECT-TYPE
+        SYNTAX     InetAddress 
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "The IP address of this WNM. "
+        ::= { cDot11csWnmConfigEntry 2 }
+
+cDot11csWnmConfigAuthenState OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         unauthenticated(1),
+                         authenticationInProgess(2),
+                         authenticationFailed(3),
+                         authenticated(4),
+                         keysSetUpWithWds(5)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The semantics for this object are defined as follows.
+
+                unauthenticated - The WNM hasn't initiated the
+                authentication process yet.
+
+                authenticationInProgress - The WNM has initiated the
+                the authentication process to get authenticated with
+                the WS entity and the process is currently underway.
+
+                authenticationFailed - The WNM has failed to get
+                authenticate successfully with the WS Entity.
+
+                authenticated - The WNM has got authenticated with
+                the WS entity and established a mutual trust
+                relationship with the same. 
+
+                keysSetUpWithScm - The WNM has got authenticated
+                with the WS Entity and set secret keys for securing
+                the communication with the WS Entity.
+
+                The WNM initiates authentication process only with
+                an 'active' WDS entity.  (The state of the WDS
+                entity is given by the object 
+                cDot11csWdsInstanceState).  Hence, all the 
+                authentication states other than 'unauthenticated'
+                are valid only for an 'active' WDS entity.  Also,
+                the 'active' WDS entity ( the entity for which the
+                the value of cDot11csWdsInstanceState is 'active )
+                has to be configured with the address of the WNM
+                before the WNM initiates the authentication process.
+                The value is always 'unauthenticated' for a
+                WDS entity in 'backup' state. "
+        ::= { cDot11csWnmConfigEntry 3 }
+
+
+cDot11csWnmConfigRowStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The status column used for creating and deleting
+                instances of the columnar objects in
+                cDot11csWnmConfigTable.
+
+                The administrator must specify the following
+                information while creating a row.
+
+                The IP address type (cDot11csWnmConfigIpAddressType)
+                The IP address of the WNM
+                           (cDot11csWnmConfigIpAddress)
+                The Row status ( cDot11csWnmConfigRowStatus )
+
+                The row, when created, is automatically set to active
+                by the agent as indicated by 'createAndGo' and
+                remains in that state till the time the row is
+                removed through the 'destroy' option.
+
+                The administrator should manually remove a row
+                from this table to remove a WNM instance from the
+                list of notification recipients. 
+
+                The 'createAndGo' option is used to create an entry
+                to configure a particular WNM as one of the
+                recipients of the notifications sent by a WS entity
+                configured in an infrastructure node.
+
+                The 'destroy' option is used when the administrator
+                decides to remove this WNM from the list of
+                notification recipients for a WS entity. "
+        ::= { cDot11csWnmConfigEntry 4 }
+
+
+cDot11csWdsInstanceTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11csWdsInstanceEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "This table contains the list of WDS entities
+                currently configured in this device on each of the
+                logical interfaces/VLANs.  This table is applicable
+                only if the value of cDot11csServiceType is 'wds'.
+
+                Before adding a row to this table, the object
+                cDot11csServiceType should have been set to 'wds'.
+
+                The table is indexed by cDot11csWdsInstanceIndex.  
+                The object cDot11csWdsInstanceNodeIndex is an 
+                internally generated unique value and so it can't be
+                specified at the time of creating of row.  Hence it 
+                has been made a read-only object.
+
+                A row is added to this table to associate a WDS
+                entity with one of the logical interfaces/VLANs
+                configured in this device. "
+        ::= { cDot11csConfigGlobal 17 }
+
+cDot11csWdsInstanceEntry OBJECT-TYPE
+        SYNTAX     CDot11csWdsInstanceEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry represents a WDS entity currently associated
+                with one of the logical interfaces/VLANs configured 
+                in this device. " 
+        INDEX   { cDot11csWdsInstanceIndex  }
+        ::= { cDot11csWdsInstanceTable 1 }
+
+CDot11csWdsInstanceEntry ::=
+        SEQUENCE { 
+                cDot11csWdsInstanceIndex           Unsigned32,   
+                cDot11csWdsInstanceNodeIndex       CDot11csNodeIndex,
+                cDot11csWdsInstanceInterfaceIndex  InterfaceIndex,
+                cDot11csWdsInstancePriority        Unsigned32,
+                cDot11csWdsInstanceState           INTEGER, 
+                cDot11csWdsInstanceRowStatus       RowStatus
+        }
+
+cDot11csWdsInstanceIndex OBJECT-TYPE
+        SYNTAX     Unsigned32(1..512)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object identifies this entry corresponding to a
+                particular WDS entity in the infrastructure node. "
+    ::= { cDot11csWdsInstanceEntry 1 }
+
+cDot11csWdsInstanceNodeIndex OBJECT-TYPE
+        SYNTAX     CDot11csNodeIndex
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the node identifier of this
+                WDS entity. "
+    ::= { cDot11csWdsInstanceEntry 2 }
+
+cDot11csWdsInstanceInterfaceIndex OBJECT-TYPE
+        SYNTAX     InterfaceIndex
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the ifIndex corresponding to
+                the interface / VLAN which this WDS entity is
+                bound to. "
+    ::= { cDot11csWdsInstanceEntry 3 }
+
+cDot11csWdsInstancePriority OBJECT-TYPE
+        SYNTAX     Unsigned32 (1..255)
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the priority value being
+                configured by the administrator for this WDS entity.
+                Based on the priority value, a WDS entity candidate
+                gets elected as the active WDS.  1-127 are typically
+                used for backup WDS candidates and 128 to 255 are
+                typically used for primary WDS candidates. "
+    ::= { cDot11csWdsInstanceEntry 4 }
+
+
+cDot11csWdsInstanceState  OBJECT-TYPE
+        SYNTAX     INTEGER { 
+                         active(1),
+                         backup(2),
+                         candidate(3) 
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "This object indicates the current state of this WDS
+               entity.
+
+               A value of 'active' indicates that this is an active
+               WDS entity that sends periodic WDS advertisement
+               messages for APs to pick those messages and identify
+               the WDS entity they can register with.  An 'active'
+               WDS entity moves to the 'backup' state if it receives
+               advertisement message from a WDS entity configured
+               with a higher priority.
+
+               A value of 'backup' indicates that this WDS entity
+               is in standby mode.  A 'backup' WDS entity moves to
+               the 'active' state when it receives advertisement 
+               message from a WDS entity configured with a higher
+               priority.
+
+               The 'candidate' state is the initial state of a WDS
+               entity that participates in the election process.
+               A WDS candidate entity moves either to the 'active'
+               state if it doesn't receive an advertisement message
+               from a higher priority WDS entity within the listen
+               period or to the 'backup' state if it receives a
+               higher priority advertisement message within the
+               listen period. "
+    ::= { cDot11csWdsInstanceEntry 5 }
+
+
+cDot11csWdsInstanceRowStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The status column used for creating, modifying, and
+                deleting instances of the columnar objects in the
+                cDot11csWdsInstanceTable.
+
+                The administrator must specify the following
+                to create a row in this table and activate it.
+
+                1) The ifIndex of the interface / VLAN this WDS
+                entity should bound to.
+
+                2) The Priority value of the WDS entity to be
+                created through the object
+                cDot11csWdsInstancePriority.
+
+                3) The Row status through the object
+                cDot11csWdsInstanceRowStatus.
+
+                The 'createAndGo' option is used to create a new
+                instance of WDS entity and bind it to a particular
+                broadcast domain which can either be an IP subnet or
+                a VLAN.  While creating a row, the ifIndex of the
+                interface the particular IP subnet/VLAN is bound to
+                and the priority of this WDS entity must be
+                specified along with the row status.
+
+                The 'destroy' option is used when the administrator
+                decides to decommission a particular WDS entity and
+                remove its bindings with a particular broadcast
+                domain.  A row in this table is destroyed when it is
+                in the 'active' state.  The ifIndex of the interface
+                the particular IP subnet/VLAN is bound to must be
+                specified along with the row status set to 'destroy'
+                to remove a row from cDot11csWdsInstanceTable. "
+    ::= { cDot11csWdsInstanceEntry 6 }
+
+
+cDot11csStatusTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11csStatusEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "This table provides information about the status of
+                wireless service entities currently being configured
+                in this device. "
+        ::= { cDot11csConfigGlobal 18 }
+
+cDot11csStatusEntry OBJECT-TYPE
+        SYNTAX     CDot11csStatusEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry provides information about the entity
+                currently offering wireless services and associated
+                with one of the logical interfaces/VLANs configured
+                in this device.
+
+                For a WDS entity bound to a logical interface/VLAN,
+                a row is added to this table whenever an entry for
+                a WDS entity is added to cDot11csWdsInstanceTable
+                with cDot11csWdsInstanceState set to 'active'.  The
+                administrator can't create rows in this table but he
+                can select and temporarily bring the services being
+                provided by one entity to its descendants down by
+                setting the value of cDot11csStatusAdminStatus to
+                'down'.
+
+                If the entity provides WNS, this table contains a
+                single row. 
+
+                A row is deleted from this table automatically
+                when one of the following occurs.
+
+                1) A WDS entity is decommissioned by destroying the
+                row corresponding to the same in the
+                cDot11csWdsInstance Table.
+
+                2) The wireless services are shut down internally. "
+        INDEX   { cDot11csStatusNodeIndex  }
+        ::= { cDot11csStatusTable 1 }
+
+CDot11csStatusEntry ::=
+        SEQUENCE {
+                cDot11csStatusNodeIndex         CDot11csNodeIndex,
+                cDot11csStatusAdminStatus       INTEGER,
+                cDot11csStatusOperStatus        INTEGER,
+                cDot11csStatusChangeTimeStamp   TimeStamp,
+                cDot11csStatusAdvtInterval      TimeInterval,
+                cDot11csStatusInRegistrations   Counter32,
+                cDot11csStatusInDeRegistrations Counter32,
+                cDot11csStatusCurrentlyRegisteredIns Gauge32,
+                cDot11csStatusSentAdvts         Counter32
+        }
+
+cDot11csStatusNodeIndex OBJECT-TYPE
+        SYNTAX     CDot11csNodeIndex
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object uniquely identifies an active wireless
+                service entity.  For an active WDS entity, this
+                object holds the same value as the object
+                cDot11csWdsInstanceNodeIndex in 
+                cDot11csWdsInstanceTable.
+
+                For a WNS entity, this will hold a value of type
+                CDot11csNodeIndex. "
+    ::= { cDot11csStatusEntry 1 }
+
+cDot11csStatusAdminStatus OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         up(1),
+                         down(2)
+                   }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The desired status of the services offered by this
+                entity to its descendants.  This has a default value
+                of 'up' whenever a row is created by the agent in
+                this table.  Setting this to 'down'  
+                disables the services provided by this entity to its
+                descendants.  The agent sets this value to 'down' if
+                the entity couldn't offer the services due to 
+                failures detected in the underlying interface this 
+                entity is bound to. "
+    ::= { cDot11csStatusEntry 2 }
+
+cDot11csStatusOperStatus OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         up(1),
+                         down(2)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The current operational status of the wireless
+                services provided by this entity.  The agent sets the
+                value of this object whenever the administrative
+                status value is modified either through explicit
+                management action or by detecting failures in the
+                functioning of the wireless service entity. " 
+    ::= { cDot11csStatusEntry 3 }
+
+cDot11csStatusChangeTimeStamp OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The value of sysUpTime at the time a state transition
+                occurs in cDot11csStatusOperStatus. "
+    ::= { cDot11csStatusEntry 4 }
+
+cDot11csStatusAdvtInterval OBJECT-TYPE
+        SYNTAX     TimeInterval
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the time interval between
+                transmission of advertisement messages. "
+    ::= { cDot11csStatusEntry 5 }
+
+cDot11csStatusInRegistrations OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of descendant infrastructure nodes
+                registered with this entity since the last reboot of
+                this device. "
+    ::= { cDot11csStatusEntry 6 }
+
+cDot11csStatusInDeRegistrations OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of descendant infrastructure nodes
+                de-registered with this entity since the last reboot
+                of this device. "
+    ::= { cDot11csStatusEntry 7 }
+
+cDot11csStatusCurrentlyRegisteredIns OBJECT-TYPE
+        SYNTAX     Gauge32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of descendant infrastructure nodes
+                currently registered with this entity since the
+                operational status of this entity last changed to
+                'up'. "
+    ::= { cDot11csStatusEntry 8 }
+
+
+cDot11csStatusSentAdvts OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The number of advertisement messages sent by this
+                entity since the last reboot of this device. "
+    ::= { cDot11csStatusEntry 9 }
+
+cDot11csElectedAsWdsEnable OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object controls the generation of the
+                cDot11csElectedAsWdsEnable notification.
+ 
+                If the value of this object is set to 'true', the
+                agent shall send the cDot11csElectedAsWds
+                notification to the intended trap recipients. " 
+        DEFVAL  { false }                 
+        ::= { cDot11csConfigGlobal 19 }
+
+
+cDot11csInRegisteredWithWsEnable OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current        
+        DESCRIPTION
+                "This object controls the generation of the
+                cDot11csInRegisteredWithWs notification.
+ 
+                If the value of this object is set to 'true', the
+                agent shall send the cDot11csInRegisteredWithWs
+                notification to the intended trap recipients. "
+        DEFVAL  { false }
+        ::= { cDot11csConfigGlobal 20 }
+
+
+cDot11csInDeRegisteredWithWsEnable OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object controls the generation of the
+                cDot11csInDeRegisteredWithWs notification.
+ 
+                If the value of this object is set to 'true', the
+                agent shall send the cDot11csInDeRegisteredWithWs
+                notification to the intended trap recipients. "
+        DEFVAL  { false }                 
+        ::= { cDot11csConfigGlobal 21 }
+
+--*************************************************************
+-- cDot11csDescendantInTable
+--*************************************************************
+
+cDot11csDescendantInTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11csDescendantInEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "This table contains the list of the descendant
+                nodes currently registered with this
+                infrastructure node.
+
+                This table has an expansion dependent relationship
+                on the cDot11csStatusTable, relating one or more
+                descendants with a wireless service entity and holds
+                entries carrying information about the descendants of
+                a particular wireless service entity identified by
+                cDot11csStatusNodeIndex in cDot11csStatusTable. "
+        ::= { cDot11csDescendantIn 1 }
+
+cDot11csDescendantInEntry OBJECT-TYPE
+        SYNTAX     CDot11csDescendantInEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry represents an descendant infrastructure
+                node that is currently registered with the WS entity
+                identified by cDot11csStatusNodeIndex.
+
+                A row is added to the table by the agent when a
+                descendant infrastructure node registers with the
+                entity identified by the object
+                cDot11csStatusNodeIndex.
+
+                A row is deleted from this table by the agent when
+                a descendant loses its registration with the wireless
+                service entity identified by cDot11csStatusNodeIndex.
+                Loss of registration occurs if the WS entity
+                identified by cDot11csStatusNodeIndex loses contact
+                with a particular descendant identified by
+                cDot11csDescendantInId.  Also, all the entries in
+                this table are deleted if the entry for the wireless
+                service entity is deleted from cDot11csStatusTable. "
+        INDEX   { cDot11csStatusNodeIndex,
+                          cDot11csDescendantInId  }
+        ::= { cDot11csDescendantInTable 1 }
+
+CDot11csDescendantInEntry ::=
+        SEQUENCE { 
+                cDot11csDescendantInId               MacAddress,
+                cDot11csDescendantInType             INTEGER,
+                cDot11csDescendantInIpAddressType    InetAddressType, 
+                cDot11csDescendantInIpAddress        InetAddress,
+                cDot11csDescendantInRegistrationAge  TimeInterval,
+                cDot11csDescendantInCtkRefreshes     Counter32,
+                cDot11csDescendantInNskExpiryTimeOut TimeInterval
+        }
+  
+cDot11csDescendantInId OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "The MAC address of this descendant IN. "
+        ::= { cDot11csDescendantInEntry 1 }
+
+
+cDot11csDescendantInType OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         ap(1),
+                         wds(2),
+                         wns(3)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object specifies the type of the
+                infrastructure node.
+
+                'ap'  - Access Point.
+                'wds' - Wireless Domain Services Entity.
+                'wns' - Wireless Network Services Entity. "
+        ::= { cDot11csDescendantInEntry 2 }
+
+cDot11csDescendantInIpAddressType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet address stored in
+                cDot11csDescendantInIpAddressType. "
+        ::= { cDot11csDescendantInEntry 3 }
+
+cDot11csDescendantInIpAddress OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The IP address of the descendant IN. "
+        ::= { cDot11csDescendantInEntry 4 }
+
+
+cDot11csDescendantInRegistrationAge OBJECT-TYPE
+        SYNTAX     TimeInterval
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The time elapsed since this infrastructure node has
+                registered with the WS entity identified by
+                cDot11csStatusNodeIndex. "
+        ::= { cDot11csDescendantInEntry 5 }
+
+
+cDot11csDescendantInCtkRefreshes OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The number of context transfer key refreshes done
+                by this infrastructure node with the WS entity
+                identified by cDot11csStatusNodeIndex. "
+        ::= { cDot11csDescendantInEntry 6 }
+
+
+cDot11csDescendantInNskExpiryTimeOut OBJECT-TYPE
+        SYNTAX     TimeInterval
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The network session key timeout value assigned by the
+                AAA server to this infrastructure node. "
+        ::= { cDot11csDescendantInEntry 7 }
+
+--********************************************************************
+--* cDot11csMn  Group Parameters
+--********************************************************************
+
+cDot11csMnContextTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11csMnContextEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "This table has an expansion dependent relationship
+                on the cDot11csStatusTable, relating one or more 
+                mobile clients with a wireless service entity and 
+                holds entries carrying information about the mobile
+                nodes registered with the entity identified by
+                cDot11csStatusNodeIndex in cDot11csStatusTable. "
+        ::= { cDot11csMn 1 }
+
+cDot11csMnContextEntry OBJECT-TYPE
+        SYNTAX     CDot11csMnContextEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry represents a mobile node that is currently
+                registered with the entity identified by
+                cDot11csStatusNodeIndex.
+
+                A row is added to the table by the agent when a
+                mobile node registers with the entity identified by
+                the object cDot11csStatusNodeIndex.
+
+                A row is deleted from this table by the agent when
+                a mobile node loses its registration with the entity
+                identified by cDot11csStatusNodeIndex.  Loss of
+                registration occurs when the mobile node roams from
+                one subnet to another.  Also, all the entries in
+                this table are deleted if the entry for the entity
+                is deleted from cDot11csStatusTable. "
+        INDEX   { cDot11csStatusNodeIndex,
+                          cDot11csMnContextId  }
+        ::= { cDot11csMnContextTable 1 }
+
+CDot11csMnContextEntry ::=
+        SEQUENCE { 
+                cDot11csMnContextId            MacAddress,
+                cDot11csMnContextSsid          OCTET STRING,
+                cDot11csMnContextSystemName    SnmpAdminString,
+                cDot11csMnContextUserId        SnmpAdminString,
+                cDot11csMnContextIpAddressType InetAddressType,
+                cDot11csMnContextIpAddress     InetAddress,
+                cDot11csMnParentInIpAddress    InetAddress,
+                cDot11csMnRegistrationAge      TimeInterval,
+                cDot11csMnNskExpiryTimeOut     TimeInterval,
+                cDot11csMnCipherNegotiated     INTEGER
+        }
+
+
+cDot11csMnContextId OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "The MAC address of this mobile node. "
+        ::= { cDot11csMnContextEntry 1 }
+
+
+cDot11csMnContextSsid OBJECT-TYPE
+        SYNTAX     OCTET STRING (SIZE(1..32))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The Service Set Identifier of this mobile node. "
+        ::= { cDot11csMnContextEntry 2 }
+
+cDot11csMnContextSystemName OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE(1..32))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The hostname by which the mobile node is uniquely
+                identified in the network. "
+        ::= { cDot11csMnContextEntry 3 }
+
+cDot11csMnContextUserId OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE(1..32)) 
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The name of this mobile node's user. "
+        ::= { cDot11csMnContextEntry 4 }
+
+cDot11csMnContextIpAddressType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of Internet addresses stored in
+                cDot11csMnContextIpAddress and
+                cDot11csMnParentInIpAddress. "
+        ::= { cDot11csMnContextEntry 5 }
+
+   
+cDot11csMnContextIpAddress OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The IP address of this mobile node. "
+        ::= { cDot11csMnContextEntry 6 }
+
+cDot11csMnParentInIpAddress OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The IP address of the parent infrastructure node
+                of this mobile node. " 
+        ::= { cDot11csMnContextEntry 7 }
+
+cDot11csMnRegistrationAge OBJECT-TYPE
+        SYNTAX     TimeInterval
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The time elapsed since this mobile node has
+                registered with the wireless service entity
+                identified by cDot11csStatusNodeIndex in hundredths
+                of a second.  This object is not applicable if the
+                entity identified by cDot11csStatusNodeIndex is not
+                a MN Authenticator. "
+        ::= { cDot11csMnContextEntry 8 }
+
+cDot11csMnNskExpiryTimeOut OBJECT-TYPE
+        SYNTAX     TimeInterval
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The network session timeout value assigned by the
+                AAA server to this mobile node in hundredths of a
+                of a second.  This object is not applicable if the
+                entity identified by cDot11csStatusNodeIndex is not
+                a MN Authenticator. "
+        ::= { cDot11csMnContextEntry 9 }
+
+cDot11csMnCipherNegotiated OBJECT-TYPE
+        SYNTAX     INTEGER {
+                         none(0),
+                         wep(1),
+                         tkip(2),
+                         ckip(3),
+                         other(4)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The type of the cipher negotiated for privacy and
+                authenticity.  The various types are described as
+                follows.
+
+                none -   No protocol in use for privacy and
+                authenticity. 
+ 
+                wep  -   Wired Equivalent Privacy.
+
+                tkip -   Temporal Key Integrity Protocol.
+
+                ckip -   A proprietary implementation similar to
+                         TKIP.  
+ 
+                other -  vendor specific implementations. "
+        ::= { cDot11csMnContextEntry 10 }
+
+ 
+
+--********************************************************************
+--*  Wireless Services MIB Notification parameters
+--********************************************************************
+
+cDot11csElectedAsWds NOTIFICATION-TYPE
+        OBJECTS    { ifPhysAddress }
+        STATUS     current
+        DESCRIPTION
+                "This notification is sent by the WDS entity that 
+                has got elected to offer Wireless Domain Services."
+        ::= { ciscoDot11csMIBNotifications 1 }
+
+
+cDot11csInRegisteredWithWs NOTIFICATION-TYPE
+        OBJECTS    {
+                   cDot11csDescendantInIpAddressType,
+                   cDot11csDescendantInIpAddress,
+                   ifPhysAddress
+        }
+        STATUS     current
+        DESCRIPTION
+                "This notification is sent by the wireless service
+                entity upon an infrastructure node getting registered
+                with that wireless service entity.  The notification
+                carries the MAC address of the wireless service
+                entity. "
+        ::= { ciscoDot11csMIBNotifications 2 }
+
+cDot11csInDeRegisteredWithWs NOTIFICATION-TYPE
+        OBJECTS    {
+                   cDot11csDescendantInIpAddressType,
+                   cDot11csDescendantInIpAddress,
+                   ifPhysAddress
+        }
+        STATUS     current
+        DESCRIPTION
+                "This notification is sent by the wireless service
+                entity upon an infrastructure node getting
+                deregistered with that wireless service entity.  The
+                notification carries the MAC address of the wireless
+                service entity. "
+        ::= { ciscoDot11csMIBNotifications 3 }       
+
+
+--********************************************************************
+--*  End of Notification objects 
+--********************************************************************
+
+
+
+--********************************************************************
+--   Conformance information
+--********************************************************************
+
+ciscoDot11csMIBCompliances OBJECT IDENTIFIER 
+        ::= { ciscoDot11csMIBConformance 1 }
+ciscoDot11csMIBGroups OBJECT IDENTIFIER 
+        ::= { ciscoDot11csMIBConformance 2 }
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+ciscoDot11csCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                implement Wireless Domain Services and Wireless
+                Network Services. "
+        MODULE MANDATORY-GROUPS {
+                cDot11csConfigGlobalGroup,
+                cDot11csDescendantInGroup, 
+                cDot11csMnGroup,
+                cDot11csMIBNotifGroup
+              }
+
+                OBJECT   cDot11csParentNodeIpAddressType
+                SYNTAX   INTEGER {
+                               ipv4(1)
+                          }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        one of the six enumerated values of the
+                        InetAddressType textual convention,
+                        specifically, 'ipv4'. "
+
+                OBJECT   cDot11csPrimaryRootNodeAddrType
+                SYNTAX   INTEGER {
+                               ipv4(1)
+                          }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        one of the six enumerated values of the
+                        InetAddressType textual convention,
+                        specifically, 'ipv4'. "
+
+                OBJECT   cDot11csSecondaryRootNodeAddrType
+                SYNTAX   INTEGER {
+                               ipv4(1)
+                          }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        one of the six enumerated values of the
+                        InetAddressType textual convention,
+                        specifically, 'ipv4'. "
+
+                OBJECT   cDot11csCurrentRootNodeAddrType
+                SYNTAX   INTEGER {
+                               ipv4(1)
+                          }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        one of the six enumerated values of the
+                        InetAddressType textual convention,
+                        specifically, 'ipv4'. "
+
+                OBJECT   cDot11csMnaIpAddressType
+                SYNTAX   INTEGER {
+                               ipv4(1)
+                          }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        one of the five enumerated values of the
+                        InetAddressType textual convention,
+                        specifically, 'ipv4'. "
+ 
+                OBJECT   cDot11csDescendantInIpAddressType
+                SYNTAX   INTEGER {
+                               ipv4(1)
+                          }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        one of the five enumerated values of the
+                        InetAddressType textual convention,
+                        specifically, 'ipv4'. "
+
+                OBJECT   cDot11csMnContextIpAddressType
+                SYNTAX   INTEGER {
+                               ipv4(1)
+                          }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        one of the five enumerated values of the
+                        InetAddressType textual convention,
+                        specifically, 'ipv4'. "
+
+
+                OBJECT  cDot11csWnsRowStatus
+                SYNTAX  INTEGER {
+                              active(1),
+                              createAndGo(4),
+                              destroy(6)
+                        }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        three of the six enumerated values of the
+                        RowStatus textual convention, specifically,
+                        'active', 'createAndGo' and 'destroy'. "
+
+                OBJECT  cDot11csWnmConfigRowStatus
+                SYNTAX  INTEGER {
+                              active(1),
+                              createAndGo(4),
+                              destroy(6)
+                        }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        three of the six enumerated values of the
+                        RowStatus textual convention, specifically,
+                        'active', 'createAndGo' and 'destroy'. "
+
+                OBJECT  cDot11csWdsInstanceRowStatus
+                SYNTAX  INTEGER {
+                              active(1),
+                              createAndGo(4),
+                              destroy(6)
+                        }
+                DESCRIPTION
+                        "An implementation is only required to support
+                        three of the six enumerated values of the
+                        RowStatus textual convention, specifically,
+                        'active', 'createAndGo' and 'destroy'. "
+        ::= { ciscoDot11csMIBCompliances 1 }
+          
+
+--********************************************************************
+--*    Units of conformance  
+--********************************************************************
+
+cDot11csConfigGlobalGroup OBJECT-GROUP
+        OBJECTS { 
+                cDot11csServiceType,
+                cDot11csParentNodeIpAddressType,
+                cDot11csParentNodeIpAddress,
+                cDot11csPrimaryRootNodeAddrType,
+                cDot11csPrimaryRootNodeAddr,
+                cDot11csSecondaryRootNodeAddrType,
+                cDot11csSecondaryRootNodeAddr,
+                cDot11csCurrentRootNodeAddrType,
+                cDot11csCurrentRootNodeAddr,
+                cDot11csWnsEntityName,
+                cDot11csMnaIpAddressType,
+                cDot11csMnaIpAddress,
+                cDot11csIsRootNode,
+                cDot11csNodeOperationMode,
+                cDot11csWnsSubnetMask,
+                cDot11csWnsRowStatus,
+                cDot11csWnmConfigAuthenState,
+                cDot11csWnmConfigRowStatus,
+                cDot11csWdsInstanceNodeIndex,
+                cDot11csWdsInstanceInterfaceIndex,
+                cDot11csWdsInstancePriority,
+                cDot11csWdsInstanceState,    
+                cDot11csWdsInstanceRowStatus,
+                cDot11csStatusAdminStatus,  
+                cDot11csStatusOperStatus,
+                cDot11csStatusChangeTimeStamp,
+                cDot11csStatusAdvtInterval,
+                cDot11csStatusInRegistrations,
+                cDot11csStatusInDeRegistrations,
+                cDot11csStatusCurrentlyRegisteredIns,
+                cDot11csStatusSentAdvts,
+                cDot11csElectedAsWdsEnable,
+                cDot11csInRegisteredWithWsEnable,
+                cDot11csInDeRegisteredWithWsEnable
+        }
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide information about
+                the wireless services configured in a device and
+                their current status. "
+        ::= { ciscoDot11csMIBGroups 1 }
+
+
+cDot11csDescendantInGroup OBJECT-GROUP
+        OBJECTS {
+                cDot11csDescendantInType,
+                cDot11csDescendantInIpAddressType,
+                cDot11csDescendantInIpAddress,
+                cDot11csDescendantInRegistrationAge,
+                cDot11csDescendantInCtkRefreshes,
+                cDot11csDescendantInNskExpiryTimeOut
+        }
+        STATUS     current
+        DESCRIPTION
+                "A collection of objects that contain information
+                about all the descendant infrastructure nodes of
+                a wireless service entity. " 
+        ::= { ciscoDot11csMIBGroups 2 }
+        
+                
+cDot11csMnGroup OBJECT-GROUP
+        OBJECTS {
+                cDot11csMnContextSsid,
+                cDot11csMnContextSystemName,
+                cDot11csMnContextUserId,
+                cDot11csMnContextIpAddressType,  
+                cDot11csMnContextIpAddress,
+                cDot11csMnParentInIpAddress,
+                cDot11csMnRegistrationAge,
+                cDot11csMnNskExpiryTimeOut,
+                cDot11csMnCipherNegotiated
+        }
+        STATUS     current
+        DESCRIPTION
+                 "The collection of objects that provide mobile
+                 node context information cached in a wireless
+                 service entity. " 
+        ::= { ciscoDot11csMIBGroups 3 }
+
+
+cDot11csMIBNotifGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+                      cDot11csElectedAsWds,
+                      cDot11csInRegisteredWithWs,
+                      cDot11csInDeRegisteredWithWs  
+        }
+        STATUS     current
+        DESCRIPTION
+                "A collection of objects providing notifications
+                related to election of WDS, registration and
+                deregistration of infrastructure nodes with entities
+                offering wireless services. "
+        ::= { ciscoDot11csMIBGroups 4 }   
+
+--********************************************************************
+--*   End of units of conformance  
+--********************************************************************
+
+END

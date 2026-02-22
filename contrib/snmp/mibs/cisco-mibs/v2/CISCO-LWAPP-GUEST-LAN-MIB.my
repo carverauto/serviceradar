@@ -1,0 +1,864 @@
+-- *******************************************************************
+-- CISCO-LWAPP-GUEST-LAN-MIB.my
+-- This MIB helps to manage the GUESTLANs on the controller
+-- July 2019, A. Consolini
+--
+-- Copyright (c) 2019 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-GUEST-LAN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MacAddress,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB    
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoLwappGuestLanMIB MODULE-IDENTITY
+    LAST-UPDATED    "201810160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+       "    Cisco Systems,
+            Customer Service
+            
+       Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+       E-mail: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "The controller is handling the configuration of 
+		possible guest access to the Cisco network.
+		The same wireless LAN controller can be used to 
+		provide access to both types, wireless and wired.
+		 
+		This MIB is intended to implement wired guest (guest lan)
+		on the overall wireless lan controller.
+		
+		This MIB allows to configure the guest lan profile and 
+		its attributes.
+		The main attributes that can be configured are:
+		- security method like open or LWA (local web authentication).		
+		- The wired vlan associated with the guest lan can be configured too.
+
+                      GLOSSARY
+
+        Central Controller ( CC )
+
+        The central entity that handles the guest lan configuration.
+		Throughout this MIB, this entity is also referred
+		to as 'controller'."
+
+    REVISION        "201810160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+        ::= { ciscoMgmt 868 }
+
+        ciscoLwappGuestLanMIBNotifs  OBJECT IDENTIFIER
+                ::= { ciscoLwappGuestLanMIB 0 }
+
+        ciscoLwappGuestLanMIBObjects  OBJECT IDENTIFIER
+                ::= { ciscoLwappGuestLanMIB 1 }
+
+        ciscoLwappGuestLanConform  OBJECT IDENTIFIER
+                ::= { ciscoLwappGuestLanMIB 2 }
+
+        ciscoLwappGuestLanConfig  OBJECT IDENTIFIER
+                ::= { ciscoLwappGuestLanMIBObjects 1 }
+
+-- ********************************************************************
+-- GUEST LAN configuration
+-- ********************************************************************
+
+cLGuestLanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLGuestLanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the GLAN configuration sent by
+        the controller to the APs for their operation.
+
+        LWAPP APs exchange configuration messages with the
+        controller and get the required configuration for
+        their 802.11 related operations.  As part of these
+        messages, the GLAN configuration is pushed by the
+        controller to the LWAPP APs.  
+
+        This table doesn't have any dependencies on other
+        existing tables.  By defining cLGuestLanIndex, the
+        unique identifier for a GLAN, this table provides
+        a common index structure for use in several other
+        new tables that populate information on security
+        related attributes like authentication, encryption,
+        802.11 parameters, Quality-of-Service attributes
+        etc., that would relate to a particular GLAN.
+
+        Rows are added or deleted by explicit 
+        management actions initiated by the user from a
+        network management station through the 
+        cLRlanRowStatus object."
+    ::= { ciscoLwappGuestLanConfig 1 }
+
+cLGuestLanEntry         OBJECT-TYPE
+    SYNTAX          CLGuestLanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the GLAN
+        configuration sent by the controller to APs
+        for use during their operations. entries can be 
+        added/deleted by explicit management actions by Prime
+        or by user console."
+    INDEX           { cLGuestLanIndex } 
+    ::= { cLGuestLanTable 1 }
+
+CLGuestLanEntry ::= SEQUENCE {
+    cLGuestLanIndex                        Unsigned32,
+    cLGuestLanRowStatus                    RowStatus,
+    cLGuestLanProfileName                  SnmpAdminString,
+    cLGuestLanHasWiredVlan                 INTEGER,
+    cLGuestLanWiredVlan                    Unsigned32,
+    cLGuestLanAuthenticationList           SnmpAdminString,
+    cLGuestLanAuthorizationList            SnmpAdminString,
+    cLGuestLanSecurityWebAuth              TruthValue,
+    cLGuestLanWebAuthParameter             SnmpAdminString,
+    cLGuestLanClientLimit                  Unsigned32,
+    cLGuestLanStatus                       TruthValue,
+    cLGuestLanMdnsMode                     INTEGER
+}
+
+cLGuestLanIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..5)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies one instance of
+        a GLAN on the controller." 
+    ::= { cLGuestLanEntry 1 }
+
+cLGuestLanRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and used
+        to create, modify and delete specific instances of rows
+        in this table.
+        This table supports modification of writable objects when the
+        RowStatus is 'active'.
+        The following objects are mandatory for successful
+        creation of an entry: 
+            cLGuestLanIndex 
+            cLGuestLanProfileName." 
+    ::= { cLGuestLanEntry 2 }
+
+cLGuestLanProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Profile name associated to the guest lan.
+         This object uniquely identifies one instance of
+         a GLAN on the controller." 
+    ::= { cLGuestLanEntry 3 }
+
+cLGuestLanHasWiredVlan OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        withoutWiredVlan(1),
+                        withWiredVlan(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the GLAN has a
+         wired VLAN number configured and it is a mandatory
+         attribute.
+         It must be set to 'withWiredVlan' on the foreign controller,
+         and to 'withoutWiredVlan' on the anchor controller."
+    ::= { cLGuestLanEntry 4 }
+
+cLGuestLanWiredVlan OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4096)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is the VLAN number associated to the GLAN.
+         This must be configured only on the foreign controller;
+         it must be left unconfigured on the anchor controller."
+    ::= { cLGuestLanEntry 5 }
+
+cLGuestLanAuthenticationList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        " This object is a name of the authentication list. 
+          It is a name associated to an authentication 
+          method that that can be local or remote."
+    ::= { cLGuestLanEntry 6 }
+
+cLGuestLanAuthorizationList OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is a name of the authorization list. 
+         It is a name associated to an authentication 
+         method that that can be local or remote."
+    ::= { cLGuestLanEntry 7 }
+
+cLGuestLanSecurityWebAuth OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the web authentication
+         is enabled or not for the GLAN.
+         A value of 'true' indicates that
+         web authentication is enabled.
+         A value of 'false' indicates that
+         web authentication is disabled."
+    ::= { cLGuestLanEntry 8 }
+
+cLGuestLanWebAuthParameter OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The Web authentication (WebAuth) is Layer 3 security.
+         It allows for user-friendly security that works on
+         any station that runs a browser.
+         This object specifies the L3 paramater of the 
+         Web Authentication for the guest LAN"
+    ::= { cLGuestLanEntry 9 }
+
+cLGuestLanClientLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2000)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of 
+         clients that can be hosted" 
+    ::= { cLGuestLanEntry 10 }
+
+cLGuestLanStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the admin status of the
+         lan status, if it is shutdown or active.
+         A value of 'true' indicates that the guest lan is active.
+         A value of 'false' indicates that the guest lan is shutdown."
+    ::= { cLGuestLanEntry 11 }
+
+cLGuestLanMdnsMode OBJECT-TYPE
+    SYNTAX          INTEGER{
+                        bridge(0),
+                        drop(1),
+                        gateway(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the possible mDNS mode 
+         of the Guest Lan
+         0 indicates  GLAN is in Bridge mode for mDNS packets.
+           bridges all the mDNS packets to the anchor.
+         1 indicates  GLAN is is Drop mode for mDNS packets.
+           Drops all the mDNS packects.
+         2 indicates  GLAN is in Gateway mode for mDNS packets
+           The controller is handling the mDNS packets."
+    DEFVAL          { bridge }
+    ::= { cLGuestLanEntry 12 }
+
+-- ********************************************************************
+-- GUEST LAN map profile to policy configuration
+-- ********************************************************************
+
+cLGuestLanProfileToPolicyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLGuestLanProfileToPolicyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+         "This object specifies the association between a profile
+          name and a policy name."
+    ::= { ciscoLwappGuestLanConfig 2 }
+
+cLGuestLanProfileToPolicyEntry        OBJECT-TYPE
+    SYNTAX          CLGuestLanProfileToPolicyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is defining the association between
+         a mapping name and a profile name."
+    INDEX           { cLGuestLanMapName,
+                      clGuestLanMapGuestLanProfileName
+                    } 
+    ::= { cLGuestLanProfileToPolicyTable 1 }
+
+CLGuestLanProfileToPolicyEntry ::= SEQUENCE {
+    cLGuestLanMapName                        SnmpAdminString,
+    clGuestLanMapGuestLanProfileName         SnmpAdminString,
+    cLGuestLanMapProfileToPolicyRowStatus    RowStatus,
+    clGuestLanMapPolicyProfileName           SnmpAdminString
+}
+
+cLGuestLanMapName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128)) 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies one instance of
+        a guest lan map on the controller." 
+    ::= { cLGuestLanProfileToPolicyEntry 1 }
+
+clGuestLanMapGuestLanProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the name of the guest lan.." 
+    ::= { cLGuestLanProfileToPolicyEntry 2 }
+
+cLGuestLanMapProfileToPolicyRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and used
+        to create, modify and delete specific instances of rows
+        in this table.
+        This table supports modification of writable objects when the
+        RowStatus is 'active'."
+    ::= { cLGuestLanProfileToPolicyEntry 3 }
+
+clGuestLanMapPolicyProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object identifies the policy profile associated to the 
+        guest lan profile." 
+    ::= { cLGuestLanProfileToPolicyEntry 4 }
+
+
+
+-- ********************************************************************
+-- GUEST LAN map object configuration
+-- ********************************************************************
+
+cLGuestLanGuestLanMapTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLGuestLanGuestLanMapEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+         "This object is the guest lan map object. only one instance is 
+          allowed for the moment."
+    ::= { ciscoLwappGuestLanConfig 3 }
+
+cLGuestLanGuestLanMapEntry   OBJECT-TYPE
+    SYNTAX          CLGuestLanGuestLanMapEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table will specify the map name for
+         mapping of guest lan policies and policy 
+         profiles."
+    INDEX           { cLGuestLanGuestLanMapName } 
+    ::= { cLGuestLanGuestLanMapTable 1 }
+
+CLGuestLanGuestLanMapEntry ::= SEQUENCE {
+        cLGuestLanGuestLanMapName               SnmpAdminString,
+        cLGuestLanGuestLanMapRowStatus          RowStatus
+}
+
+cLGuestLanGuestLanMapName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies one instance of
+        a guest lan map on the controller."
+    ::= { cLGuestLanGuestLanMapEntry 1 }
+
+cLGuestLanGuestLanMapRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and used
+        to create, modify and delete specific instances of rows
+        in this table.
+        This table supports modification of writable objects when the
+        RowStatus is 'active'."
+    ::= { cLGuestLanGuestLanMapEntry 2 }
+
+
+-- ***************************************************************
+-- * Mobile Station Index Table
+-- ***************************************************************
+
+cLGuestLanMobileStationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLGuestLanMobileStationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Mobile Station Table indexed by 
+         cLGuestLanMobileStationMacAddress.
+        (Mobile Station is better referred to as Client in the current
+         releases.)"
+    ::= { ciscoLwappGuestLanConfig 4 }
+
+cLGuestLanMobileStationEntry OBJECT-TYPE
+    SYNTAX          CLGuestLanMobileStationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cLGuestLanMobileStationTable."
+    INDEX           { cLGuestLanMobileStationMacAddress }
+    ::= { cLGuestLanMobileStationTable 1 }
+
+CLGuestLanMobileStationEntry ::= SEQUENCE {
+        cLGuestLanMobileStationMacAddress                     MacAddress,
+        cLGuestLanMobileStationIpAddressType                  InetAddressType,        
+        cLGuestLanMobileStationIpAddress                      InetAddress,
+        cLGuestLanMobileStationUserName                       SnmpAdminString,
+        clGuestLanMobileStationProfileName                    SnmpAdminString,
+        cLGuestLanMobileStationAID                            Unsigned32,
+        cLGuestLanMobileStationStatus                         INTEGER,
+        cLGuestLanMobileStationReasonCode                     INTEGER,
+        cLGuestLanMobileStationMobilityStatus                 INTEGER,
+        cLGuestLanMobileStationAnchorAddressType              InetAddressType,        
+        cLGuestLanMobileStationAnchorAddress                  InetAddress,
+        cLGuestLanMobileStationSessionTimeout                 Unsigned32,
+        cLGuestLanMobileStationAuthenticationAlgorithm        INTEGER,
+        cLGuestLanMobileStationDeleteAction                   INTEGER,
+        cLGuestLanMobileStationPolicyManagerState             SnmpAdminString,
+        cLGuestLanMobileStationSecurityPolicyStatus           INTEGER,
+        cLGuestLanMobileStationInterface                      SnmpAdminString,
+        cLGuestLanMobileStationVlanId                         Unsigned32,
+        cLGuestLanMobileStationPolicyType                     INTEGER,
+        cLGuestLanMobileStationEncryptionCypher               INTEGER,
+        cLGuestLanMobileStationEapType                        INTEGER,
+        cLGuestLanMobileStationStatusCode                     Unsigned32,
+        cLGuestLanMobileStationAAAOverridePassphrase          TruthValue
+}
+
+cLGuestLanMobileStationMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "802.11 MAC Address of the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 1 }
+
+cLGuestLanMobileStationIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "IP Address type of the Mobile Station.
+        The Ip address is limited to ipv4 and ipv6."
+    ::= { cLGuestLanMobileStationEntry 2 }
+
+cLGuestLanMobileStationIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "IP Address of the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 3 }
+
+cLGuestLanMobileStationUserName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "User Name, if any, of the Mobile Station. This should be
+        non empty in the case of Web Authentication and IPSec."
+    ::= { cLGuestLanMobileStationEntry 4 }
+
+clGuestLanMobileStationProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The SSID Advertised by the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 5 }
+
+cLGuestLanMobileStationAID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "AID for the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 6 }
+
+cLGuestLanMobileStationStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        idle(0),
+                        aaaPending(1),
+                        authenticated(2),
+                        associated(3),
+                        powersave(4),
+                        disassociated(5),
+                        tobedeleted(6),
+                        probing(7),
+                        blacklisted(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Status of the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 7 }
+
+cLGuestLanMobileStationReasonCode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unspecified(1),
+                        previousAuthNotValid(2),
+                        deauthenticationLeaving(3),
+                        disassociationDueToInactivity(4),
+                        disassociationAPBusy(5),
+                        class2FrameFromNonAuthStation(6),
+                        class2FrameFromNonAssStation(7),
+                        disassociationStaHasLeft(8),
+                        staReqAssociationWithoutAuth(9),
+                        invalidInformationElement(40),
+                        groupCipherInvalid(41),
+                        unicastCipherInvalid(42),
+                        akmpInvalid(43),
+                        unsupportedRsnVersion(44),
+                        invalidRsnIeCapabilities(45),
+                        cipherSuiteRejected(46),
+                        missingReasonCode(99),
+                        maxAssociatedClientsReached(101),
+                        unSpecifieQosFailure(200),
+                        qosPolicyMismatch(201),
+                        inSufficientBandwidth(202),
+                        inValidQosParams(203)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reason Code as defined in 802.11 standards."
+    ::= { cLGuestLanMobileStationEntry 8 }
+
+cLGuestLanMobileStationMobilityStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unassociated(0),
+                        local(1),
+                        anchor(2),
+                        foreign(3),
+                        handoff(4),
+                        unknown(5),
+                        exportanchor(6),
+                        exportforeign(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Mobility Role of the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 9 }
+
+cLGuestLanMobileStationAnchorAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "If the Mobility Status of the Mobile Station is
+        Anchor then it will have Peer Ip Address and will
+        have Anchor IP if the Role is Foreign.
+        The Ip address is limited to ipv4 and ipv6."
+    ::= { cLGuestLanMobileStationEntry 10 }
+
+cLGuestLanMobileStationAnchorAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "If the Mobility Status of the Mobile Station is
+        Anchor then it will have Peer Ip Address and will
+        have Anchor IP if the Role is Foreign."
+    ::= { cLGuestLanMobileStationEntry 11 }
+
+cLGuestLanMobileStationSessionTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Session Timeout of the Mobile station."
+    ::= { cLGuestLanMobileStationEntry 12 }
+
+cLGuestLanMobileStationAuthenticationAlgorithm OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        openSystem(0),
+                        sharedKey(1),
+                        unknown(2),
+                        openAndEap(128)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Authentication Algorithm of the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 13 }
+
+cLGuestLanMobileStationDeleteAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        default(0),
+                        delete(1)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Action to Deauthenticate the Mobile Station. Set the
+        State to delete."
+    ::= { cLGuestLanMobileStationEntry 14 }
+
+cLGuestLanMobileStationPolicyManagerState OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Policy Manager State of the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 15 }
+
+cLGuestLanMobileStationSecurityPolicyStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        completed(0),
+                        notcompleted(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "When this attribute has the value completed, it shall
+        indicate that the Mobile Station has completed the
+        security policy checks. Otherwise the checks are yet
+        to be completed."
+    ::= { cLGuestLanMobileStationEntry 16 }
+
+cLGuestLanMobileStationInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of the Interface of the Mobile Station to the switch."
+    ::= { cLGuestLanMobileStationEntry 17 }
+
+cLGuestLanMobileStationVlanId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4096)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Vlan ID of the Interface to which the Mobile Station is
+        associated."
+    ::= { cLGuestLanMobileStationEntry 18 }
+
+cLGuestLanMobileStationPolicyType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dot1x(0),
+                        wpa1(1),
+                        wpa2(2),
+                        wpa2vff(3),
+                        notavailable(4),
+                        unknown(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Mode of the AP to which the Mobile Station is associated."
+    ::= { cLGuestLanMobileStationEntry 19 }
+
+cLGuestLanMobileStationEncryptionCypher OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ccmpAes(0),
+                        tkipMic(1),
+                        wep40(2),
+                        wep104(3),
+                        wep128(4),
+                        none(5),
+                        tkipWep40(6),
+                        tkipWep104(7),
+                        gcmp128(8),
+                        gcmp256(9),
+                        ccmp256(10),
+                        notavailable(11),
+                        unknown(12)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Mode of the AP to which the Mobile Station is associated."
+    ::= { cLGuestLanMobileStationEntry 20 }
+
+cLGuestLanMobileStationEapType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        eapTls(0),
+                        ttls(1),
+                        peap(2),
+                        leap(3),
+                        speke(4),
+                        eapFast(5),
+                        notavailable(6),
+                        unknown(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "EAP type for the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 21 }
+
+cLGuestLanMobileStationStatusCode OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Status Code of the Mobile Station."
+    ::= { cLGuestLanMobileStationEntry 22 }
+
+cLGuestLanMobileStationAAAOverridePassphrase OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Flag to check wheather AAA override passphrase is
+        enabled for a MAB+PSK client or not."
+    ::= { cLGuestLanMobileStationEntry 23 }
+
+
+-- ********************************************************************
+-- *    Notifications
+-- ********************************************************************
+
+cLGuestLanAllAnchorsDown NOTIFICATION-TYPE
+    OBJECTS    {
+        cLGuestLanProfileName,
+        clGuestLanMapPolicyProfileName
+    }
+    STATUS          current
+    DESCRIPTION
+        "This  notification will be emitted by the SNMP agent,
+        when successive EoIP ping attempts to all the anchors on
+        GuestLan, denoted by cLGuestLanProfileName, fails and
+        all the anchors are conclusively down."
+   ::= { ciscoLwappGuestLanMIBNotifs 1 }
+
+cLGuestLanOneAnchorOnGuestLanUp NOTIFICATION-TYPE
+    OBJECTS    {
+        cLGuestLanProfileName,
+        clGuestLanMapPolicyProfileName        
+    }
+    STATUS          current
+    DESCRIPTION
+        "This  notification will be emitted by the SNMP agent,
+         when successive EoIP and UDP ping to at least one anchor
+         on the GuestLan, denoted by cLGuestLanProfileName, is
+         restored and anchor is conclusively up."
+   ::= { ciscoLwappGuestLanMIBNotifs 2 }
+
+--*******************************************************************
+--*   END OF -  NOTIFICATIONS
+--*******************************************************************
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappGuestLanCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappGuestLanConform 1 }
+
+ciscoLwappGuestLanMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoLwappGuestLanConform 2 }
+
+ciscoLwappGuestLanCompliance MODULE-COMPLIANCE
+    STATUS          current 
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+         implement the ciscoLwappGuestLanMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS    {
+        ciscoLwappGuestLanConfigGroup,
+        ciscoLwappGuestLanNotifsGroup
+    }
+    ::= { ciscoLwappGuestLanCompliances 1 }
+
+--*******************************************************************
+--*    Units of conformance  
+--*******************************************************************
+
+ciscoLwappGuestLanConfigGroup OBJECT-GROUP
+    OBJECTS    {
+        cLGuestLanRowStatus,
+        cLGuestLanProfileName,
+        cLGuestLanHasWiredVlan,
+        cLGuestLanWiredVlan,
+        cLGuestLanAuthenticationList,
+        cLGuestLanAuthorizationList,
+        cLGuestLanSecurityWebAuth,
+        cLGuestLanWebAuthParameter,
+        cLGuestLanClientLimit,
+        cLGuestLanStatus,
+        cLGuestLanGuestLanMapRowStatus,
+        cLGuestLanMapProfileToPolicyRowStatus,
+        clGuestLanMapPolicyProfileName,
+        cLGuestLanMdnsMode,
+        cLGuestLanMobileStationIpAddressType,
+        cLGuestLanMobileStationIpAddress,
+        cLGuestLanMobileStationUserName,
+        clGuestLanMobileStationProfileName,
+        cLGuestLanMobileStationAID,
+        cLGuestLanMobileStationStatus,
+        cLGuestLanMobileStationReasonCode,
+        cLGuestLanMobileStationMobilityStatus,
+        cLGuestLanMobileStationAnchorAddressType,        
+        cLGuestLanMobileStationAnchorAddress,
+        cLGuestLanMobileStationSessionTimeout,
+        cLGuestLanMobileStationAuthenticationAlgorithm,
+        cLGuestLanMobileStationDeleteAction,
+        cLGuestLanMobileStationPolicyManagerState,
+        cLGuestLanMobileStationSecurityPolicyStatus,
+        cLGuestLanMobileStationInterface,
+        cLGuestLanMobileStationVlanId,
+        cLGuestLanMobileStationPolicyType,
+        cLGuestLanMobileStationEncryptionCypher,
+        cLGuestLanMobileStationEapType,
+        cLGuestLanMobileStationStatusCode,
+        cLGuestLanMobileStationAAAOverridePassphrase
+    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the 
+         GLAN policy attributes."
+    ::= { ciscoLwappGuestLanMIBGroups 1 }
+
+ciscoLwappGuestLanNotifsGroup NOTIFICATION-GROUP
+    NOTIFICATIONS     {
+        cLGuestLanAllAnchorsDown, 
+        cLGuestLanOneAnchorOnGuestLanUp
+    }
+    STATUS  current
+    DESCRIPTION
+        "This is a collection of notifications about the
+         general functional behavior of Guest LAN on 
+         WLAN controllers."
+    ::= { ciscoLwappGuestLanMIBGroups 2 }
+END
+
+

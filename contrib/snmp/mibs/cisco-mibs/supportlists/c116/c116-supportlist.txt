@@ -1,0 +1,18 @@
+MIBs supported by the FastHub 116T+ and 116C+
+---------------------------------------------
+
+MIBs supported in version 1.12 of the FastHub Network Management Module
+
+	RFC1213-MIB		(MIB-II)
+	RFC1215-MIB		(MIB-II traps)
+	EtherLike-MIB		(RFC 1643)
+	RFC1317-MIB		(RS232-Like device, RFC 1317)
+	SNMP-REPEATER-MIB	(RFC 1516)
+	RMON-MIB		(Remote Monitoring, RFC 1757,
+				 first 4 groups only)
+	CISCO-SMI		(Cisco Structure and Identification
+				 of Management Information)
+	CISCO-STACKMAKER-MIB	(Cisco StackMaker MIB)
+	CISCO-CDP-MIB		(Cisco Discovery Protocol MIB)
+	CISCO-FASTHUB-MIB	(Enterprise MIB for the FastHub product)
+

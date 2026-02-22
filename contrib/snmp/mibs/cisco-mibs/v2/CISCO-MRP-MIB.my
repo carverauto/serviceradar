@@ -1,0 +1,228 @@
+-- *****************************************************************
+-- CISCO-MRP-MIB
+--   
+-- October 2017, Mayank Mittal
+--   
+-- Copyright (c) 2017 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MRP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMrpMIB MODULE-IDENTITY
+    LAST-UPDATED    "201709120000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "The CISCO-MRP-MIB is used to monitor the Media Redundancy
+        Protocol (MRP) domains and notifying their state change. MRP is
+        a recovery protocol based on a ring topology, and the redundant
+        interconnection of MRP rings/domains."
+    REVISION        "201709120000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 850 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoMrpMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoMrpMIB 0 }
+
+ciscoMrpMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMrpMIB 1 }
+
+ciscoMrpMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoMrpMIB 2 }
+
+
+ciscoMrpDomainTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoMrpDomainEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Every entry in this table contains information about a Media
+        Redundancy Protocol (MRP) domain."
+    ::= { ciscoMrpMIBObjects 1 }
+
+ciscoMrpDomainEntry OBJECT-TYPE
+    SYNTAX          CiscoMrpDomainEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the mrpDomainTable."
+    INDEX           { ciscoMrpDomainIndex } 
+    ::= { ciscoMrpDomainTable 1 }
+
+CiscoMrpDomainEntry ::= SEQUENCE {
+        ciscoMrpDomainIndex Unsigned32,
+        ciscoMrpDomainID    OCTET STRING,
+        ciscoMrpDomainName  DisplayString,
+        ciscoMrpDomainState Unsigned32
+}
+
+ciscoMrpDomainIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index of the entry" 
+    ::= { ciscoMrpDomainEntry 1 }
+
+ciscoMrpDomainID OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Universally unique identifier belongs to the MRP domain which
+        represents a ring. The IEC 61158-5-10 defines the structure of
+        the UUID as a data type numeric identifier 1025." 
+    ::= { ciscoMrpDomainEntry 2 }
+
+ciscoMrpDomainName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A logical name for the MRP domain to ease the management of MRP
+        domains." 
+    ::= { ciscoMrpDomainEntry 3 }
+
+ciscoMrpDomainState OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Operational status of the MRP entity.
+        undefined(0)  Value is not valid. All higher bits are invalid
+        and shall be reset.
+        ringOpen(1)  MRP ring redundancy lost. All higher bits are
+        invalid and shall be reset.
+        ringclose(2)  MRP ring redundancy achieved. All higher bits are
+        invalid and shall be reset." 
+    ::= { ciscoMrpDomainEntry 4 }
+ 
+
+
+-- Default Notification Type
+
+ciscoMrpRingOpen NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciscoMrpDomainID,
+                        ciscoMrpDomainName,
+                        ciscoMrpDomainState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ciscoMrpRingOpen trap signifies that a specific MRP ring is
+        open."
+   ::= { ciscoMrpMIBNotifs 1 }
+ciscoMrpMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMrpMIBConform 1 }
+
+ciscoMrpMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoMrpMIBConform 2 }
+
+
+ciscoMrpMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Cisco MRP MIB compliance object."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoMrpMIBMainObjectGroup,
+                        ciscoMrpMIBNotificationGroup
+                    }
+    ::= { ciscoMrpMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoMrpMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoMrpDomainID,
+                        ciscoMrpDomainName,
+                        ciscoMrpDomainState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects required for monitoring of MRP domain."
+    ::= { ciscoMrpMIBGroups 1 }
+
+ciscoMrpMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoMrpRingOpen }
+    STATUS          current
+    DESCRIPTION
+        "A notification which indicates specific ring open."
+    ::= { ciscoMrpMIBGroups 2 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

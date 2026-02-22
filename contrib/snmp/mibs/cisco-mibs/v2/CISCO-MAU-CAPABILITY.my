@@ -1,0 +1,1341 @@
+-- *****************************************************************
+-- CISCO-MAU-CAPABILITY.my:
+-- Cisco MAU-MIB AGENT-CAPABILITIES
+--   
+-- Oct 2004, Liwei Lue
+--   
+-- Copyright (c) 2004-2014 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-MAU-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoMauCapability MODULE-IDENTITY
+    LAST-UPDATED    "201407300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of MAU-MIB."
+    REVISION        "201407300000Z"
+    DESCRIPTION
+        "Added capability statement ciscoMauCapV05R0003U0401PN3K."
+    REVISION        "201109280000Z"
+    DESCRIPTION
+        "Added capability statement ciscoMauCapV12R0233SXJPCat6K
+        and ciscoMauCapV15R0001SYPCat6K."
+    REVISION        "200810280000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoMauCapV12R0233SXIPCat6K."
+    REVISION        "200707130000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoMauCapV12R0233SXHPCat6K."
+    REVISION        "200410220000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 411 }
+
+
+
+ciscoMauCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1)."
+    STATUS          current
+    DESCRIPTION
+        "MAU-MIB capabilities."
+
+    SUPPORTS        MAU-MIB
+    INCLUDES        {
+                        mauIfGrpBasic,
+                        mauIfGrpHighCapacity,
+                        mauIfGrpJack,
+                        mauIfGrpAutoNeg2
+                    }
+    VARIATION       ifMauType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported in CatOS. They are
+        dot3MauType10BaseTHD    (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD    (1.3.6.1.2.1.26.4.11)
+        dot3MauType10BaseFLHD   (1.3.6.1.2.1.26.4.12)
+        dot3MauType10BaseFLFD   (1.3.6.1.2.1.26.4.13)
+        dot3MauType100BaseT4    (1.3.6.1.2.1.26.4.14)
+        dot3MauType100BaseTXHD  (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD  (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD  (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD  (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD  (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD  (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD (1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD (1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD (1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD (1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD (1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD (1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD  (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD  (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseLX4 (1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseER  (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR  (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR  (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseEW  (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW  (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW  (1.3.6.1.2.1.26.4.40)"
+
+    VARIATION       ifMauStatus
+    SYNTAX          INTEGER  {
+                        other(1),
+                        unknown(2),
+                        operational(3),
+                        standby(4),
+                        shutdown(5)
+                    }
+    DESCRIPTION
+        "The 'reset' value cannot be supported with
+        any current hardware.  Can not write values
+        'other', 'unknown', and 'shutdown' in CatOS."
+
+    VARIATION       ifMauMediaAvailable
+    SYNTAX          INTEGER  {
+                        other(1),
+                        unknown(2),
+                        available(3),
+                        notAvailable(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauJabberState
+    SYNTAX          INTEGER  {
+                        other(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauJabberingStateEnters
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       ifMauFalseCarriers
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       ifMauDefaultType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported in CatOS. They are
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType10BaseFLHD  (1.3.6.1.2.1.26.4.12)
+        dot3MauType10BaseFLFD  (1.3.6.1.2.1.26.4.13)
+        dot3MauType100BaseT4   (1.3.6.1.2.1.26.4.14)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)"
+
+    VARIATION       ifJackType
+    SYNTAX          INTEGER  {
+                        other(1),
+                        rj45S(3),
+                        fiberSC(8),
+                        telco(11),
+                        mtrj(12)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauAutoNegConfig
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available on CatOS."
+
+    VARIATION       ifMauAutoNegRestart
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available on CatOS."
+
+    VARIATION       ifMauAutoNegCapAdvertisedBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseT4(3), -- 100BASE-T4
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        b100baseT2(6), -- 100BASE-T2 half duplex
+                        b100baseT2FD(7), -- 100BASE-T2 full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bFdxAPause(9), -- Asymmetric PAUSE for
+                                       -- full-duplex links
+                        bFdxSPause(10), -- Symmetric PAUSE for
+                                        -- full-duplex links
+                        bFdxBPause(11), -- Asymmetric and Symmetric
+                                        -- PAUSE for full-duplex
+                                        -- links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX,
+                                        -- -CX half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX,
+                                          -- -CX full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15) -- 1000BASE-T full duplex                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauTypeListBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseTHD(10), -- 10BASE-T half duplex
+                        b10baseTFD(11), -- 10BASE-T full duplex
+                        b10baseFLHD(12), -- 10BASE-FL half duplex
+                        b10baseFLFD(13), -- 10BASE-FL full duplex
+                        b100baseT4(14), -- 100BASE-T4
+                        b100baseTXHD(15), -- 100BASE-TX half duplex
+                        b100baseTXFD(16), -- 100BASE-TX full duplex
+                        b100baseFXHD(17), -- 100BASE-FX half duplex
+                        b100baseFXFD(18), -- 100BASE-FX full duplex
+                        b1000baseXHD(21), -- 1000BASE-X half duplex
+                        b1000baseXFD(22), -- 1000BASE-X full duplex
+                        b1000baseLXHD(23), -- 1000BASE-LX half duplex
+                        b1000baseLXFD(24), -- 1000BASE-LX full duplex
+                        b1000baseSXHD(25), -- 1000BASE-SX half duplex
+                        b1000baseSXFD(26), -- 1000BASE-SX full duplex
+                        b1000baseCXHD(27), -- 1000BASE-CX half duplex
+                        b1000baseCXFD(28), -- 1000BASE-CX full duplex
+                        b1000baseTHD(29), -- 1000BASE-T half duplex
+                        b1000baseTFD(30), -- 1000BASE-T full duplex
+                        b10GbaseLX4(32), -- 10GBASE-LX4
+                        b10GbaseER(34), -- 10GBASE-ER
+                        b10GbaseLR(35), -- 10GBASE-LR
+                        b10GbaseSR(36), -- 10GBASE-SR
+                        b10GbaseEW(38), -- 10GBASE-EW
+                        b10GbaseLW(39), -- 10GBASE-LW
+                        b10GbaseSW(40) -- 10GBASE-SW                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ifMauAutoNegRemoteFaultAdvertised
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available on CatOS."
+
+    VARIATION       ifMauAutoNegRemoteFaultReceived
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available on CatOS."
+
+    VARIATION       ifMauAutoNegCapReceivedBits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available on CatOS."
+
+    ::= { ciscoMauCapability 1 }
+
+ciscoMauCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "MAU-MIB capabilities."
+
+    SUPPORTS        MAU-MIB
+    INCLUDES        {
+                        mauIfGrpBasic,
+                        mauIfGrpHighCapacity,
+                        mauIfGrpAutoNeg2
+                    }
+    VARIATION       ifMauStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailableStateExits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberingStateEnters
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauFalseCarriers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)"
+
+    VARIATION       ifMauDefaultType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)"
+
+    VARIATION       ifMauTypeListBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseTHD(10), -- 10BASE-T half duplex
+                        b10baseTFD(11), -- 10BASE-T full duplex
+                        b100baseTXHD(15), -- 100BASE-TX half duplex
+                        b100baseTXFD(16), -- 100BASE-TX full duplex
+                        b100baseFXHD(17), -- 100BASE-FX half duplex
+                        b100baseFXFD(18), -- 100BASE-FX full duplex
+                        b1000baseXHD(21), -- 1000BASE-X half duplex
+                        b1000baseXFD(22), -- 1000BASE-X full duplex
+                        b1000baseLXHD(23), -- 1000BASE-LX half duplex
+                        b1000baseLXFD(24), -- 1000BASE-LX full duplex
+                        b1000baseSXHD(25), -- 1000BASE-SX half duplex
+                        b1000baseSXFD(26), -- 1000BASE-SX full duplex
+                        b1000baseCXHD(27), -- 1000BASE-CX half duplex
+                        b1000baseCXFD(28), -- 1000BASE-CX full duplex
+                        b1000baseTHD(29), -- 1000BASE-T half duplex
+                        b1000baseTFD(30), -- 1000BASE-T full duplex
+                        b10GbaseX(31), -- 10GBASE-X
+                        b10GbaseLX4(32), -- 10GBASE-LX4
+                        b10GbaseR(33), -- 10GBASE-R
+                        b10GbaseER(34), -- 10GBASE-ER
+                        b10GbaseLR(35), -- 10GBASE-LR
+                        b10GbaseSR(36), -- 10GBASE-SR
+                        b10GbaseW(37), -- 10GBASE-W
+                        b10GbaseEW(38), -- 10GBASE-EW
+                        b10GbaseLW(39), -- 10GBASE-LW
+                        b10GbaseSW(40) -- 10GBASE-SW                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ifMauAutoNegRemoteSignaling
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegConfig
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegCapabilityBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for full-duplex
+                                       -- links
+                        bfdxSPause(10), -- Symmetric PAUSE for full-duplex
+                                        -- links
+                        bfdxBPause(11), -- Asymmetric and Symmetric PAUSE
+                                        -- for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX,
+                                        -- -CX half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX,
+                                          -- -CX full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15) -- 1000BASE-T full duplex                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauAutoNegCapAdvertisedBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for full-duplex
+                                       -- links
+                        bfdxSPause(10), -- Symmetric PAUSE for full-duplex
+                                        -- links
+                        bfdxBPause(11), -- Asymmetric and Symmetric PAUSE
+                                        -- for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX,
+                                        -- -CX half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX,
+                                          -- -CX full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15) -- 1000BASE-T full duplex                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported.  When ifMauAutoNegCapabilityBits has the
+        value '6C F3', the write access is supported and the
+        supported write access values are: 0x6C 0xF0 and 0x6C 0xF3.
+        6C F3(0110 1100 1111 0011) - speed auto
+        6C F0(0110 1100 1111 0000) - speed auto 10 100"
+
+    VARIATION       ifMauAutoNegCapReceivedBits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegRestart
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    ::= { ciscoMauCapability 2 }
+
+ciscoMauCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "MAU-MIB capabilities."
+
+    SUPPORTS        MAU-MIB
+    INCLUDES        {
+                        mauIfGrpBasic,
+                        mauIfGrpHighCapacity,
+                        mauIfGrpAutoNeg2,
+                        mauIfGrpJack
+                    }
+    VARIATION       ifMauStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailableStateExits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberingStateEnters
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauFalseCarriers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)"
+
+    VARIATION       ifMauDefaultType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)"
+
+    VARIATION       ifMauTypeListBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseTHD(10), -- 10BASE-T half duplex
+                        b10baseTFD(11), -- 10BASE-T full duplex
+                        b100baseTXHD(15), -- 100BASE-TX half duplex
+                        b100baseTXFD(16), -- 100BASE-TX full duplex
+                        b100baseFXHD(17), -- 100BASE-FX half duplex
+                        b100baseFXFD(18), -- 100BASE-FX full duplex
+                        b1000baseXHD(21), -- 1000BASE-X half duplex
+                        b1000baseXFD(22), -- 1000BASE-X full duplex
+                        b1000baseLXHD(23), -- 1000BASE-LX half duplex
+                        b1000baseLXFD(24), -- 1000BASE-LX full duplex
+                        b1000baseSXHD(25), -- 1000BASE-SX half duplex
+                        b1000baseSXFD(26), -- 1000BASE-SX full duplex
+                        b1000baseCXHD(27), -- 1000BASE-CX half duplex
+                        b1000baseCXFD(28), -- 1000BASE-CX full duplex
+                        b1000baseTHD(29), -- 1000BASE-T half duplex
+                        b1000baseTFD(30), -- 1000BASE-T full duplex
+                        b10GbaseX(31), -- 10GBASE-X
+                        b10GbaseLX4(32), -- 10GBASE-LX4
+                        b10GbaseR(33), -- 10GBASE-R
+                        b10GbaseER(34), -- 10GBASE-ER
+                        b10GbaseLR(35), -- 10GBASE-LR
+                        b10GbaseSR(36), -- 10GBASE-SR
+                        b10GbaseW(37), -- 10GBASE-W
+                        b10GbaseEW(38), -- 10GBASE-EW
+                        b10GbaseLW(39), -- 10GBASE-LW
+                        b10GbaseSW(40) -- 10GBASE-SW                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ifMauAutoNegRemoteSignaling
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegConfig
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegCapabilityBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for
+                                       -- full-duplex links
+                        bfdxSPause(10), -- Symmetric PAUSE for
+                                        -- full-duplex links
+                        bfdxBPause(11), -- Asymmetric and Symmetric
+                                        -- PAUSE for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX,
+                                        -- -CX half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX,
+                                          -- -CX full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15) -- 1000BASE-T full duplex                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauAutoNegCapAdvertisedBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for
+                                       -- full-duplex links
+                        bfdxSPause(10), -- Symmetric PAUSE for
+                                        -- full-duplex links
+                        bfdxBPause(11), -- Asymmetric and Symmetric
+                                        -- PAUSE for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX, -CX
+                                        -- half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX, -CX
+                                          -- full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15) -- 1000BASE-T full duplex                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported.  When ifMauAutoNegCapabilityBits has the
+        value '6C F3', the write access is supported and the
+        supported write access values are: 0x6C 0xF0 and 0x6C 0xF3.
+        6C F3(0110 1100 1111 0011) - speed auto
+        6C F0(0110 1100 1111 0000) - speed auto 10 100"
+
+    VARIATION       ifMauAutoNegCapReceivedBits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegRestart
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifJackType
+    SYNTAX          INTEGER  {
+                        other(1),
+                        rj45S(3),
+                        fiberSC(8),
+                        fiberMIC(9),
+                        fiberST(10),
+                        telco(11),
+                        mtrj(12),
+                        fiberLC(14)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    ::= { ciscoMauCapability 3 }
+
+ciscoMauCapV12R0233SXJPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXJ on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "MAU-MIB capabilities."
+
+    SUPPORTS        MAU-MIB
+    INCLUDES        {
+                        mauIfGrpBasic,
+                        mauIfGrpHighCapacity,
+                        mauIfGrpAutoNeg2,
+                        mauIfGrpJack
+                    }
+    VARIATION       ifMauStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailableStateExits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberingStateEnters
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauFalseCarriers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)
+        -- new since RFC 3636:
+        dot3MauType10GigBaseCX4(1.3.6.1.2.1.26.4.41)
+        dot3MauType100BaseBX10D(1.3.6.1.2.1.26.4.44)
+        dot3MauType100BaseBX10U(1.3.6.1.2.1.26.4.45)
+        dot3MauType1000BaseBX10D(1.3.6.1.2.1.26.4.47)
+        dot3MauType1000BaseBX10U(1.3.6.1.2.1.26.4.48)
+        dot3MauType10GbaseT    (1.3.6.1.2.1.26.4.54)
+        dot3MauType10GbaseLRM  (1.3.6.1.2.1.26.4.55)"
+
+    VARIATION       ifMauDefaultType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)
+        -- new since RFC 3636:
+        dot3MauType10GigBaseCX4(1.3.6.1.2.1.26.4.41)
+        dot3MauType100BaseBX10D(1.3.6.1.2.1.26.4.44)
+        dot3MauType100BaseBX10U(1.3.6.1.2.1.26.4.45)
+        dot3MauType1000BaseBX10D(1.3.6.1.2.1.26.4.47)
+        dot3MauType1000BaseBX10U(1.3.6.1.2.1.26.4.48)
+        dot3MauType10GbaseT    (1.3.6.1.2.1.26.4.54)
+        dot3MauType10GbaseLRM  (1.3.6.1.2.1.26.4.55)"
+
+    VARIATION       ifMauTypeListBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseTHD(10), -- 10BASE-T half duplex
+                        b10baseTFD(11), -- 10BASE-T full duplex
+                        b100baseTXHD(15), -- 100BASE-TX half duplex
+                        b100baseTXFD(16), -- 100BASE-TX full duplex
+                        b100baseFXHD(17), -- 100BASE-FX half duplex
+                        b100baseFXFD(18), -- 100BASE-FX full duplex
+                        b1000baseXHD(21), -- 1000BASE-X half duplex
+                        b1000baseXFD(22), -- 1000BASE-X full duplex
+                        b1000baseLXHD(23), -- 1000BASE-LX half duplex
+                        b1000baseLXFD(24), -- 1000BASE-LX full duplex
+                        b1000baseSXHD(25), -- 1000BASE-SX half duplex
+                        b1000baseSXFD(26), -- 1000BASE-SX full duplex
+                        b1000baseCXHD(27), -- 1000BASE-CX half duplex
+                        b1000baseCXFD(28), -- 1000BASE-CX full duplex
+                        b1000baseTHD(29), -- 1000BASE-T half duplex
+                        b1000baseTFD(30), -- 1000BASE-T full duplex
+                        b10GbaseX(31), -- 10GBASE-X
+                        b10GbaseLX4(32), -- 10GBASE-LX4
+                        b10GbaseR(33), -- 10GBASE-R
+                        b10GbaseER(34), -- 10GBASE-ER
+                        b10GbaseLR(35), -- 10GBASE-LR
+                        b10GbaseSR(36), -- 10GBASE-SR
+                        b10GbaseW(37), -- 10GBASE-W
+                        b10GbaseEW(38), -- 10GBASE-EW
+                        b10GbaseLW(39), -- 10GBASE-LW
+                        b10GbaseSW(40), -- 10GBASE-SW
+                                         -- new since RFC 3636
+                        b10GbaseCX4(41), -- 10GBASE-CX4
+                        b100BaseBX10D(44), -- 100BASE-BX10D
+                        b100BaseBX10U(45), -- 100BASE-BX10U
+                        b1000BaseBX10D(47), -- 1000BASE-BX10D
+                        b1000BaseBX10U(48), -- 1000BASE-BX10U
+                        b10GbaseT(54), -- 10GBASE-T
+                        b10GbaseLRM(55) -- 10GBASE-LRM                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ifMauAutoNegRemoteSignaling
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegConfig
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegCapabilityBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for
+                                       -- full-duplex links
+                        bfdxSPause(10), -- Symmetric PAUSE for
+                                        -- full-duplex links
+                        bfdxBPause(11), -- Asymmetric and Symmetric
+                                        -- PAUSE for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX,
+                                        -- -CX half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX,
+                                          -- -CX full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15), -- 1000BASE-T full duplex
+                                          -- new since RFC 3636
+                        b10GbaseT(16) -- 10GBASE-T                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauAutoNegCapAdvertisedBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for
+                                       -- full-duplex links
+                        bfdxSPause(10), -- Symmetric PAUSE for
+                                        -- full-duplex links
+                        bfdxBPause(11), -- Asymmetric and Symmetric
+                                        -- PAUSE for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX, -CX
+                                        -- half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX, -CX
+                                          -- full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15), -- 1000BASE-T full duplex
+                                          -- new since RFC 3636
+                        b10GbaseT(16) -- 10GBASE-T                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported.  When ifMauAutoNegCapabilityBits has the
+        value '6C F3', the write access is supported and the
+        supported write access values are: 0x6C 0xF0 and 0x6C 0xF3.
+        6C F3(0110 1100 1111 0011) - speed auto
+        6C F0(0110 1100 1111 0000) - speed auto 10 100"
+
+    VARIATION       ifMauAutoNegCapReceivedBits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegRestart
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifJackType
+    SYNTAX          INTEGER  {
+                        other(1), -- undefined or unknown
+                        rj45S(3), -- RJ45 shielded
+                        fiberSC(8), -- SC fiber
+                        fiberMIC(9), -- MIC fiber
+                        fiberST(10), -- ST fiber
+                        telco(11), -- Telco
+                        mtrj(12), -- MT-RJ fiber
+                        fiberLC(14), -- LC fiber
+                                      -- new since RFC 3636
+                        cx4(15) -- IB4X for 10GBASE-CX4                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    ::= { ciscoMauCapability 4 }
+
+ciscoMauCapV15R0001SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "MAU-MIB capabilities."
+
+    SUPPORTS        MAU-MIB
+    INCLUDES        {
+                        mauIfGrpBasic,
+                        mauIfGrpHighCapacity,
+                        mauIfGrpAutoNeg2,
+                        mauIfGrpJack
+                    }
+    VARIATION       ifMauStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailableStateExits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberingStateEnters
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauFalseCarriers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)
+        -- new since RFC 3636:
+        dot3MauType10GigBaseCX4(1.3.6.1.2.1.26.4.41)
+        dot3MauType100BaseBX10D(1.3.6.1.2.1.26.4.44)
+        dot3MauType100BaseBX10U(1.3.6.1.2.1.26.4.45)
+        dot3MauType1000BaseBX10D(1.3.6.1.2.1.26.4.47)
+        dot3MauType1000BaseBX10U(1.3.6.1.2.1.26.4.48)
+        dot3MauType10GbaseT    (1.3.6.1.2.1.26.4.54)
+        dot3MauType10GbaseLRM  (1.3.6.1.2.1.26.4.55)"
+
+    VARIATION       ifMauDefaultType
+    DESCRIPTION
+        "Only limited set of object identifiers are
+        supported.
+        unknownMauType         (0.0)
+        dot3MauType10BaseTHD   (1.3.6.1.2.1.26.4.10)
+        dot3MauType10BaseTFD   (1.3.6.1.2.1.26.4.11)
+        dot3MauType100BaseTXHD (1.3.6.1.2.1.26.4.15)
+        dot3MauType100BaseTXFD (1.3.6.1.2.1.26.4.16)
+        dot3MauType100BaseFXHD (1.3.6.1.2.1.26.4.17)
+        dot3MauType100BaseFXFD (1.3.6.1.2.1.26.4.18)
+        dot3MauType1000BaseXHD (1.3.6.1.2.1.26.4.21)
+        dot3MauType1000BaseXFD (1.3.6.1.2.1.26.4.22)
+        dot3MauType1000BaseLXHD(1.3.6.1.2.1.26.4.23)
+        dot3MauType1000BaseLXFD(1.3.6.1.2.1.26.4.24)
+        dot3MauType1000BaseSXHD(1.3.6.1.2.1.26.4.25)
+        dot3MauType1000BaseSXFD(1.3.6.1.2.1.26.4.26)
+        dot3MauType1000BaseCXHD(1.3.6.1.2.1.26.4.27)
+        dot3MauType1000BaseCXFD(1.3.6.1.2.1.26.4.28)
+        dot3MauType1000BaseTHD (1.3.6.1.2.1.26.4.29)
+        dot3MauType1000BaseTFD (1.3.6.1.2.1.26.4.30)
+        dot3MauType10GigBaseX  (1.3.6.1.2.1.26.4.31)
+        dot3MauType10GigBaseLX4(1.3.6.1.2.1.26.4.32)
+        dot3MauType10GigBaseR  (1.3.6.1.2.1.26.4.33)
+        dot3MauType10GigBaseER (1.3.6.1.2.1.26.4.34)
+        dot3MauType10GigBaseLR (1.3.6.1.2.1.26.4.35)
+        dot3MauType10GigBaseSR (1.3.6.1.2.1.26.4.36)
+        dot3MauType10GigBaseW  (1.3.6.1.2.1.26.4.37)
+        dot3MauType10GigBaseEW (1.3.6.1.2.1.26.4.38)
+        dot3MauType10GigBaseLW (1.3.6.1.2.1.26.4.39)
+        dot3MauType10GigBaseSW (1.3.6.1.2.1.26.4.40)
+        -- new since RFC 3636:
+        dot3MauType10GigBaseCX4(1.3.6.1.2.1.26.4.41)
+        dot3MauType100BaseBX10D(1.3.6.1.2.1.26.4.44)
+        dot3MauType100BaseBX10U(1.3.6.1.2.1.26.4.45)
+        dot3MauType1000BaseBX10D(1.3.6.1.2.1.26.4.47)
+        dot3MauType1000BaseBX10U(1.3.6.1.2.1.26.4.48)
+        dot3MauType10GbaseT    (1.3.6.1.2.1.26.4.54)
+        dot3MauType10GbaseLRM  (1.3.6.1.2.1.26.4.55)"
+
+    VARIATION       ifMauTypeListBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseTHD(10), -- 10BASE-T half duplex
+                        b10baseTFD(11), -- 10BASE-T full duplex
+                        b100baseTXHD(15), -- 100BASE-TX half duplex
+                        b100baseTXFD(16), -- 100BASE-TX full duplex
+                        b100baseFXHD(17), -- 100BASE-FX half duplex
+                        b100baseFXFD(18), -- 100BASE-FX full duplex
+                        b1000baseXHD(21), -- 1000BASE-X half duplex
+                        b1000baseXFD(22), -- 1000BASE-X full duplex
+                        b1000baseLXHD(23), -- 1000BASE-LX half duplex
+                        b1000baseLXFD(24), -- 1000BASE-LX full duplex
+                        b1000baseSXHD(25), -- 1000BASE-SX half duplex
+                        b1000baseSXFD(26), -- 1000BASE-SX full duplex
+                        b1000baseCXHD(27), -- 1000BASE-CX half duplex
+                        b1000baseCXFD(28), -- 1000BASE-CX full duplex
+                        b1000baseTHD(29), -- 1000BASE-T half duplex
+                        b1000baseTFD(30), -- 1000BASE-T full duplex
+                        b10GbaseX(31), -- 10GBASE-X
+                        b10GbaseLX4(32), -- 10GBASE-LX4
+                        b10GbaseR(33), -- 10GBASE-R
+                        b10GbaseER(34), -- 10GBASE-ER
+                        b10GbaseLR(35), -- 10GBASE-LR
+                        b10GbaseSR(36), -- 10GBASE-SR
+                        b10GbaseW(37), -- 10GBASE-W
+                        b10GbaseEW(38), -- 10GBASE-EW
+                        b10GbaseLW(39), -- 10GBASE-LW
+                        b10GbaseSW(40), -- 10GBASE-SW
+                                         -- new since RFC 3636
+                        b10GbaseCX4(41), -- 10GBASE-CX4
+                        b100BaseBX10D(44), -- 100BASE-BX10D
+                        b100BaseBX10U(45), -- 100BASE-BX10U
+                        b1000BaseBX10D(47), -- 1000BASE-BX10D
+                        b1000BaseBX10U(48), -- 1000BASE-BX10U
+                        b10GbaseT(54), -- 10GBASE-T
+                        b10GbaseLRM(55) -- 10GBASE-LRM                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       ifMauAutoNegRemoteSignaling
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegConfig
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegCapabilityBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for
+                                       -- full-duplex links
+                        bfdxSPause(10), -- Symmetric PAUSE for
+                                        -- full-duplex links
+                        bfdxBPause(11), -- Asymmetric and Symmetric
+                                        -- PAUSE for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX,
+                                        -- -CX half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX,
+                                          -- -CX full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15), -- 1000BASE-T full duplex
+                                          -- new since RFC 3636
+                        b10GbaseT(16) -- 10GBASE-T                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       ifMauAutoNegCapAdvertisedBits
+    SYNTAX          BITS {
+                        bOther(0), -- other or unknown
+                        b10baseT(1), -- 10BASE-T half duplex
+                        baseTFD(2), -- 10BASE-T full duplex
+                        b100baseTX(4), -- 100BASE-TX half duplex
+                        b100baseTXFD(5), -- 100BASE-TX full duplex
+                        bFdxPause(8), -- PAUSE for full-duplex
+                                       -- links
+                        bfdxAPause(9), -- Asymmetric PAUSE for
+                                       -- full-duplex links
+                        bfdxSPause(10), -- Symmetric PAUSE for
+                                        -- full-duplex links
+                        bfdxBPause(11), -- Asymmetric and Symmetric
+                                        -- PAUSE for full-duplex links
+                        b1000baseX(12), -- 1000BASE-X, -LX, -SX, -CX
+                                        -- half duplex
+                        b1000baseXFD(13), -- 1000BASE-X, -LX, -SX, -CX
+                                          -- full duplex
+                        b1000baseT(14), -- 1000BASE-T half duplex
+                        b1000baseTFD(15), -- 1000BASE-T full duplex
+                                          -- new since RFC 3636
+                        b10GbaseT(16) -- 10GBASE-T                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported.  When ifMauAutoNegCapabilityBits has the
+        value '6C F3', the write access is supported and the
+        supported write access values are: 0x6C 0xF0 and 0x6C 0xF3.
+        6C F3(0110 1100 1111 0011) - speed auto
+        6C F0(0110 1100 1111 0000) - speed auto 10 100"
+
+    VARIATION       ifMauAutoNegCapReceivedBits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegRestart
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifJackType
+    SYNTAX          INTEGER  {
+                        other(1), -- undefined or unknown
+                        rj45S(3), -- RJ45 shielded
+                        fiberSC(8), -- SC fiber
+                        fiberMIC(9), -- MIC fiber
+                        fiberST(10), -- ST fiber
+                        telco(11), -- Telco
+                        mtrj(12), -- MT-RJ fiber
+                        fiberLC(14), -- LC fiber
+                                      -- new since RFC 3636
+                        cx4(15) -- IB4X for 10GBASE-CX4                        
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    ::= { ciscoMauCapability 5 }
+
+ciscoMauCapV05R0003U0401PN3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.0(3)U4(1) on Nexus 3000 series
+                     devices."
+    STATUS          current
+    DESCRIPTION
+        "MAU-MIB capabilities."
+
+    SUPPORTS        MAU-MIB
+    INCLUDES        {
+                        mauIfGrpBasic,
+                        mauIfGrpHighCapacity,
+                        mauIfGrpAutoNeg2
+                    }
+    VARIATION       ifMauStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauMediaAvailableStateExits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauJabberingStateEnters
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauFalseCarriers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauDefaultType
+    DESCRIPTION
+        "Only limited set of object identifiers are supported and are
+        depended on the interface type or the transceiver being used.
+        Unable to set if the object value of ifMauAutoNegAdminStatus
+        is 'enabled'."
+
+    VARIATION       ifMauAutoNegRemoteSignaling
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegConfig
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegCapAdvertisedBits
+    DESCRIPTION
+        "Only limited set of enumerated values are supported and
+        are depended on the interface type or the transceiver being
+        used."
+
+    VARIATION       ifMauAutoNegCapReceivedBits
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    VARIATION       ifMauAutoNegRestart
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Information not available."
+
+    ::= { ciscoMauCapability 6 }
+
+END
+
+
+
+

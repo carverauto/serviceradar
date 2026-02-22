@@ -1,0 +1,1080 @@
+-- MIB file created 09-Dec-2001 22:04:16, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-SCTP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-SCTP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Gauge, Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+cSctpMIB OBJECT IDENTIFIER ::= { ciscoExperiment 75 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200108080000Z
+--  OrgName
+--    IETF SIGTRAN Working Group
+--  ContactInfo
+--             Maria-Carmen Belinchon-Vergara
+--              Jose-Javier Pastor-Balbas
+--    
+--    Postal:   Ericsson Espana S. A.
+--              Ombu street 1, 4th floor
+--              28045 Madrid
+--              Spain
+--    
+--    Phones:   +34 91 339 3535
+--              +34 91 339 3819
+--    
+--    Emails:   Maria.C.Belinchon@ericsson.com
+--              J.Javier.Pastor@ericsson.com 
+--              cs-sctp@cisco.com
+--  Descr
+--    The MIB module for managing SCTP protocol (RFC 2960).
+--  RevDate
+--    200108080000Z
+--  RevDescr
+--    MIB module developed for the SIGTRAN IETF group. Based on
+--     SCTP, RFC2960
+--     
+--     - Added textual convention for InetPortNumber
+--     
+--       Imported TEXTUAL-CONVENTION from FROM SNMPv2-TC
+--       and locally defined InetPortNumber.
+--     == Commented out some compliance statements that
+--        did not compile.
+--        
+--      This MIB is based on the following IETF document.
+--      draft-ietf-sigtran-sctp-mib-04.txt
+--     
+
+cSctpObjects    OBJECT IDENTIFIER ::= { cSctpMIB 1 }
+cSctpConformance OBJECT IDENTIFIER ::= { cSctpMIB 2 }
+cSctpScalars    OBJECT IDENTIFIER ::= { cSctpObjects 1 }
+cSctpTables     OBJECT IDENTIFIER ::= { cSctpObjects 2 }
+cSctpGroups     OBJECT IDENTIFIER ::= { cSctpConformance 1 }
+cSctpCompliances OBJECT IDENTIFIER ::= { cSctpConformance 2 }
+
+InetPortNumber ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--     
+
+cSctpRtoAlgorithm OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        vanj(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The algorithm used to determine the timeout value (T3-rtx)
+        used for re-transmitting unacknowledged chunks."
+    ::= { cSctpScalars 1 }
+
+cSctpRtoMin OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum value permitted by a SCTP implementation for the
+          retransmission timeout, measured in milliseconds.  More
+          refined semantics for objects of this type depend upon the
+          algorithm used to determine the retransmission timeout.
+          Minimum recommended value is 1000 milliseconds. Some telephony
+          applications could require less than 1 second, see [SIGAS] for
+          further information."
+    ::= { cSctpScalars 2 }
+
+cSctpRtoMax OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum value permitted by a SCTP implementation for the
+         retransmission timeout, measured in milliseconds.  More
+         refined semantics for objects of this type depend upon the
+         algorithm used to determine the retransmission timeout.
+         Recommended value is 60000 milliseconds."
+    ::= { cSctpScalars 3 }
+
+cSctpRtoInitial OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Initial value for the Retransmission timer. Recommended 
+         value is 3000 milliseconds."
+    ::= { cSctpScalars 4 }
+
+cSctpMaxAssoc OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The limit on the total number of SCTP associations the 
+         entitycan support. In entities where the maximum number 
+         of associations is dynamic, this object should contain 
+         the value -1."
+    ::= { cSctpScalars 5 }
+
+cSctpValCookieLife OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Valid cookie life in the 4-way start-up handshake 
+         procedure. Recommended value: 60000 milliseconds."
+    ::= { cSctpScalars 6 }
+
+cSctpMaxInitRetr OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of retransmissions at the start-up 
+         phase (INIT and COOKIE ECHO chunks). Recommended value: 
+         8 attempts."
+    ::= { cSctpScalars 7 }
+
+cSctpCurrEstab OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of SCTP associations for which the current state
+         is either ESTABLISHED, SHUTDOWN-RECEIVED or 
+         SHUTDOWN-PENDING."
+    ::= { cSctpScalars 8 }
+
+cSctpActiveEstabs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that SCTP associations have made a direct
+         transition to the ESTABLISHED state from the COOKIE-ECHOED
+         state: COOKIE-ECHOED -> ESTABLISHED. The upper layer has
+         initiated the association attempt."
+    ::= { cSctpScalars 9 }
+
+cSctpPassiveEstabs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that SCTP associations have made a 
+         direct transition to the ESTABLISHED state from the 
+         CLOSED state: CLOSED -> ESTABLISHED. The remote endpoint
+         has initiated the association attempt."
+    ::= { cSctpScalars 10 }
+
+cSctpAborteds OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that SCTP associations have made a 
+         direct transition to the CLOSED state from any state 
+         using the primitive 'ABORT': AnyState --Abort--> CLOSED. 
+         Ungraceful termination of the association."
+    ::= { cSctpScalars 11 }
+
+cSctpShutdowns OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that SCTP associations have made a 
+         direct transition to the CLOSED state from either the 
+         SHUTDOWN-SENT state or the SHUTDOWN-ACK-SENT state. 
+         Graceful termination of the association."
+    ::= { cSctpScalars 12 }
+
+cSctpStatOutOfBlues OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of out of the blue packets (SCTP packet correctly
+        formed -right checksum- but the receiver is not able to
+        identify the association to which this packet belongs)
+        received  by the host."
+    ::= { cSctpScalars 13 }
+
+cSctpStatChecksumErrors OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP packets received from the peers with an
+        invalid checksum."
+    ::= { cSctpScalars 14 }
+
+cSctpStatSentCtrlChunks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP control chunks sent to the peers (no
+        retransmissions included)."
+    ::= { cSctpScalars 15 }
+
+cSctpStatSentOrderChunks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP ordered data chunks sent to the peers (no
+        retransmissions included)."
+    ::= { cSctpScalars 16 }
+
+cSctpStatSentUnorderChunks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP unordered chunks (data chunks in which the 
+         U bit is set to 1) sent to the peers (no retransmissions
+        included)."
+    ::= { cSctpScalars 17 }
+
+cSctpStatRecCtrlChunks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP control chunks received from the peers (no
+        duplicated included)."
+    ::= { cSctpScalars 18 }
+
+cSctpStatRecOrderChunks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP ordered data chunks received from the peers
+        (no duplicated included)."
+    ::= { cSctpScalars 19 }
+
+cSctpStatRecUnorderChunks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP unordered chunks (data chunks in which the 
+         U bit is set to 1) received from the peers (no duplicated
+         included)."
+    ::= { cSctpScalars 20 }
+
+cSctpStatFragmentedUsrMessages OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of user messages that have to be fragmented because
+         of the MTU."
+    ::= { cSctpScalars 21 }
+
+cSctpStatReassembledUsrMessages OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of user messages reassembled."
+    ::= { cSctpScalars 22 }
+
+cSctpStatSentSCTPPacks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP packets received from the peers."
+    ::= { cSctpScalars 23 }
+
+cSctpStatRecSCTPPacks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP packets received from the peers."
+    ::= { cSctpScalars 24 }
+
+cSctpAssocTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpAssocEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing SCTP association-specific information."
+    ::= { cSctpTables 2 }
+
+cSctpAssocEntry OBJECT-TYPE
+    SYNTAX CSctpAssocEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "General common variables and statistics for the whole
+        association."
+    INDEX { cSctpAssocId }
+    ::= { cSctpAssocTable 1 }
+
+CSctpAssocEntry ::= SEQUENCE {
+    cSctpAssocId Gauge,
+    cSctpAssocRemHostName OCTET STRING,
+    cSctpAssocLocalSCTPPort InetPortNumber,
+    cSctpAssocRemSCTPPort InetPortNumber,
+    cSctpAssocRemPrimaryAddressType InetAddressType,
+    cSctpAssocRemPrimaryAddress InetAddress,
+    cSctpAssocHeartBeatTimer Gauge,
+    cSctpAssocState INTEGER,
+    cSctpAssocInStreams Gauge,
+    cSctpAssocOutStreams Gauge,
+    cSctpAssocMaxRetr Gauge,
+    cSctpAssocT1expireds Counter,
+    cSctpAssocT2expireds Counter,
+    cSctpAssocRtxChunks Counter,
+    cSctpAssocStartTime TimeStamp
+    }
+
+cSctpAssocId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Association Identification. Value identifying the 
+         association (typically the Initiate Verification Tag).
+         If the selected AssocID is the Initiate Verification 
+         Tag, this value must not be zero."
+    ::= { cSctpAssocEntry 1 }
+
+cSctpAssocRemHostName OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Peer's DNS name. If no DNS domain name was received at 
+         init time (embedded in the INIT or INIT-ACK chunk) from 
+         the peer, this entry will be meaningless, therefore it 
+         will contain a NULL value. Otherwise, the remote host
+         name received at init time will be stored."
+    ::= { cSctpAssocEntry 2 }
+
+cSctpAssocLocalSCTPPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Local SCTP port number used for this association."
+    ::= { cSctpAssocEntry 3 }
+
+cSctpAssocRemSCTPPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote SCTP port number used for this association."
+    ::= { cSctpAssocEntry 4 }
+
+cSctpAssocRemPrimaryAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Internet type of primary destination IP address.
+        -  unknown (0) An unknown address type. This value MUST be
+           used if the value of the corresponding InetAddress 
+           object is a zero-length string. It may also be used to
+           indicate an IP address different from IPv4 or IPv6.
+           This value is used in this MIB for error conditions.
+        
+        -  ipv4 (1): An IPv4 address as defined by the 
+           InetAddressIPv4 textual convention [RFC2851].
+        
+        -  ipv6 (2): An IPv6 address as defined by the 
+            InetAddressIPv6 textual convention [RFC2851]
+        
+        This value will be filled in after INIT or INIT ACK 
+        messages have been received (when the primary path is 
+        selected by SCTP)."
+    ::= { cSctpAssocEntry 5 }
+
+cSctpAssocRemPrimaryAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Primary destination IP address. An InetAddress value is
+        always interpreted within the context of an InetAddressType
+        value.
+        This value will be filled in after INIT or INIT ACK 
+        messages have been received (when the primary path is 
+        selected by SCTP)."
+    ::= { cSctpAssocEntry 6 }
+
+cSctpAssocHeartBeatTimer OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current heartbeat time-out. The recommended default 
+         value is 30000 milliseconds."
+    ::= { cSctpAssocEntry 8 }
+
+cSctpAssocState OBJECT-TYPE
+    SYNTAX INTEGER {
+        closed(1),
+        cookieWait(2),
+        cookieEchoed(3),
+        established(4),
+        shutdownPending(5),
+        shutdownSent(6),
+        shutdownReceived(7),
+        shutdownAckSent(8),
+        deleteTCB(9)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The state of this SCTP association.
+         As in TCP, the only value which may be set by a management
+         station is deleteTCB. Accordingly, it is appropriate for an
+         agent to return a 'badValue' response if a management 
+         station attempts to set this object to any other value.
+         If a management station sets this object to the value
+         deleteTCB(9), then this has the effect of deleting the TCB 
+         (as defined in SCTP) of the corresponding association on the
+         managed node, resulting in immediate termination of the
+         association.
+         As an implementation-specific option, an ABORT chunk may be
+         sent from the managed node to the other SCTP endpoint."
+    ::= { cSctpAssocEntry 9 }
+
+cSctpAssocInStreams OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Inbound Streams according to the negotiation at 
+         association start up. This parameter has to be read-only 
+         by the manager."
+    ::= { cSctpAssocEntry 10 }
+
+cSctpAssocOutStreams OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Outbound Streams according to the negotiation at 
+         association start up. This parameter has to be read-only by 
+         the manager."
+    ::= { cSctpAssocEntry 11 }
+
+cSctpAssocMaxRetr OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of data retransmissions in the association
+         context. This value is specific for each association and the
+         upper layer can change it calling the appropriate primitives.
+         This value has to be smaller than the addition of all the
+         maximum number for all the paths
+         (cSctpAssocRemAddressMaxPathRetrans).
+         Recommended value: 10 attempts."
+    ::= { cSctpAssocEntry 12 }
+
+cSctpAssocT1expireds OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times that T1 timer expired (timer for sending
+        either INIT or COOKIE-ECHO chunks and receiving an
+        acknowledgment)."
+    ::= { cSctpAssocEntry 13 }
+
+cSctpAssocT2expireds OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times that T2-shutdown timer expired (shutdown
+        timer)."
+    ::= { cSctpAssocEntry 14 }
+
+cSctpAssocRtxChunks OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of data chunks retransmitted to the peer in the
+        current association."
+    ::= { cSctpAssocEntry 15 }
+
+cSctpAssocStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpAssocEntry 17 }
+
+cSctpAssocLocalAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpAssocLocalAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Expanded table of cSctpAssocTable based on the AssocId index.
+        It shows several interesting data for each local address which
+        takes part in this association."
+    ::= { cSctpTables 3 }
+
+cSctpAssocLocalAddressEntry OBJECT-TYPE
+    SYNTAX CSctpAssocLocalAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Local information about the available addresses."
+    INDEX { cSctpAssocId, cSctpAssocLocalAddressIPType, cSctpAssocLocalAddressIP }
+    ::= { cSctpAssocLocalAddressTable 1 }
+
+CSctpAssocLocalAddressEntry ::= SEQUENCE {
+    cSctpAssocLocalAddressIPType InetAddressType,
+    cSctpAssocLocalAddressIP InetAddress,
+    cSctpAssocLocalAddressStartTime TimeStamp
+    }
+
+cSctpAssocLocalAddressIPType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Internet type of local IP address used for this association.
+        -  unknown (0) An unknown address type. This value MUST be
+           used if the value of the corresponding InetAddress object
+           is a zero-length string. It may also be used to indicate an
+           IP address different from IPv4 or IPv6. This value is used
+           in this MIB for error conditions.
+        
+        -  ipv4 (1): An IPv4 address as defined by the InetAddressIPv4
+           textual convention [RFC2851].
+        
+        -  ipv6 (2): An IPv6 address as defined by the InetAddressIPv6
+           textual convention [RFC2851]."
+    ::= { cSctpAssocLocalAddressEntry 1 }
+
+cSctpAssocLocalAddressIP OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of a local IP address available for this
+        association. An InetAddress value is always interpreted within
+        the context of an InetAddressType value. If SCTP are using DNS
+        names, the mapping to IP address-es will be done at reception
+        of INIT or INIT_ACK messages."
+    ::= { cSctpAssocLocalAddressEntry 2 }
+
+cSctpAssocLocalAddressStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpAssocLocalAddressEntry 3 }
+
+cSctpAssocRemAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpAssocRemAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Expanded table of cSctpAssocTable based on the AssocId index.
+        It shows several interesting data for each remote peer IP
+        address which is used in this association."
+    ::= { cSctpTables 4 }
+
+cSctpAssocRemAddressEntry OBJECT-TYPE
+    SYNTAX CSctpAssocRemAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about THE most important variables for every
+        remote IP address "
+    INDEX { cSctpAssocId, cSctpAssocRemAddressIPType, cSctpAssocRemAddressIP }
+    ::= { cSctpAssocRemAddressTable 1 }
+
+CSctpAssocRemAddressEntry ::= SEQUENCE {
+    cSctpAssocRemAddressIPType InetAddressType,
+    cSctpAssocRemAddressIP InetAddress,
+    cSctpAssocRemAddressStatus INTEGER,
+    cSctpAssocRemAddressHBFlag INTEGER,
+    cSctpAssocRemAddressRTO Gauge,
+    cSctpAssocRemAddressMaxPathRtx Gauge,
+    cSctpAssocRemAddressRtx Counter,
+    cSctpAssocRemAddressStartTime TimeStamp
+    }
+
+cSctpAssocRemAddressIPType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Internet type of a remote IP address available for this
+        association.
+        -  unknown (0) An unknown address type. This value MUST be
+           used if the value of the corresponding InetAddress object
+           is a zero-length string. It may also be used to indicate an
+           IP address different from IPv4 or IPv6. This value is used
+           in this MIB for error conditions.
+        
+        -  ipv4 (1): An IPv4 address as defined by the InetAddressIPv4
+           textual convention [RFC2851].
+        
+        -  ipv6 (2): An IPv6 address as defined by the InetAddressIPv6
+           textual convention [RFC2851]."
+    ::= { cSctpAssocRemAddressEntry 1 }
+
+cSctpAssocRemAddressIP OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of a remote IP address available for this
+        association. An InetAddress value is always interpreted within
+        the context of an InetAddressType value."
+    ::= { cSctpAssocRemAddressEntry 2 }
+
+cSctpAssocRemAddressStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        active(0),
+        inactive(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of the remote transport address, according
+        to [SCTP].
+        Active means that the threshold of no answer received from
+        this IP address has not been reached. Inactive means that
+        either no heartbeat was received from this address, or any
+        other message, reaching the threshold defined by the
+        protocol."
+    ::= { cSctpAssocRemAddressEntry 3 }
+
+cSctpAssocRemAddressHBFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        active(0),
+        inactive(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The optional Heartbeat associated to one destination
+        transport address could be active or not (value equal to 0 or
+        1, respectively).
+        
+        An active destination transport address is the one considered
+        available by a peer endpoint for receiving SCTP packets, as it
+        is described in [cSctp]."
+    ::= { cSctpAssocRemAddressEntry 4 }
+
+cSctpAssocRemAddressRTO OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current Retransmission Timeout. T3-rtx timer as defined
+         in the protocol SCTP."
+    ::= { cSctpAssocRemAddressEntry 5 }
+
+cSctpAssocRemAddressMaxPathRtx OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of DATA retransmissions allowed to a remote IP
+         address before it is considered inactive, as defined in
+         [cSctp]. Recommended value 5 attempts."
+    ::= { cSctpAssocRemAddressEntry 6 }
+
+cSctpAssocRemAddressRtx OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of DATA retransmissions as defined in [cSctp]."
+    ::= { cSctpAssocRemAddressEntry 7 }
+
+cSctpAssocRemAddressStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpAssocRemAddressEntry 8 }
+
+cSctpLookupLocalPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpLookupLocalPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "With the use of this table, a list of associations which use
+         that local port can be got"
+    ::= { cSctpTables 5 }
+
+cSctpLookupLocalPortEntry OBJECT-TYPE
+    SYNTAX CSctpLookupLocalPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by local port and association ID.
+        Specifying a local port, we would get a list of the
+        associations  whose local port is the one specified"
+    INDEX { cSctpAssocLocalSCTPPort, cSctpAssocId }
+    ::= { cSctpLookupLocalPortTable 1 }
+
+CSctpLookupLocalPortEntry ::= SEQUENCE {
+    cSctpLookupLocalPortStartTime TimeStamp
+    }
+
+cSctpLookupLocalPortStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpLookupLocalPortEntry 1 }
+
+cSctpLookupRemPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpLookupRemPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "With the use of this table, a list of associations which use
+         that remote port can be got"
+    ::= { cSctpTables 6 }
+
+cSctpLookupRemPortEntry OBJECT-TYPE
+    SYNTAX CSctpLookupRemPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by remote port and association ID.
+        Specifying a remote port we would get a list of the
+        associations whose local port is the one specified "
+    INDEX { cSctpAssocRemSCTPPort, cSctpAssocId }
+    ::= { cSctpLookupRemPortTable 1 }
+
+CSctpLookupRemPortEntry ::= SEQUENCE {
+    cSctpLookupRemPortStartTime TimeStamp
+    }
+
+cSctpLookupRemPortStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpLookupRemPortEntry 1 }
+
+cSctpLookupRemHostNameTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpLookupRemHostNameEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "With the use of this table, a list of associations with that
+         particular host can be got"
+    ::= { cSctpTables 7 }
+
+cSctpLookupRemHostNameEntry OBJECT-TYPE
+    SYNTAX CSctpLookupRemHostNameEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by remote host name and association ID.
+         Specifying a host name we would get a list of the associations
+         specifying that host name as the remote one"
+    INDEX { cSctpAssocRemHostName, cSctpAssocId }
+    ::= { cSctpLookupRemHostNameTable 1 }
+
+CSctpLookupRemHostNameEntry ::= SEQUENCE {
+    cSctpLookupRemHostNameStartTime TimeStamp
+    }
+
+cSctpLookupRemHostNameStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpLookupRemHostNameEntry 1 }
+
+cSctpLookupRemPrimIPAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpLookupRemPrimIPAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "With the use of this table, it can be got a list of
+        associations that have that the specified IP address as
+        primary within the remote set of active addresses "
+    ::= { cSctpTables 8 }
+
+cSctpLookupRemPrimIPAddrEntry OBJECT-TYPE
+    SYNTAX CSctpLookupRemPrimIPAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by primary address and association ID.
+         Specifying a primary address, we would get a list of the
+         associations that have the specified remote IP address marked
+         as primary. "
+    INDEX { cSctpAssocRemPrimaryAddressType, cSctpAssocRemPrimaryAddress, cSctpAssocId }
+    ::= { cSctpLookupRemPrimIPAddrTable 1 }
+
+CSctpLookupRemPrimIPAddrEntry ::= SEQUENCE {
+    cSctpLookupRemPrimIPAddrStartTime TimeStamp
+    }
+
+cSctpLookupRemPrimIPAddrStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpLookupRemPrimIPAddrEntry 1 }
+
+cSctpLookupRemIPAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpLookupRemIPAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "With the use of this table, a list of associations that
+         have the specified IP address as one of the remote ones can 
+         be got."
+    ::= { cSctpTables 9 }
+
+cSctpLookupRemIPAddrEntry OBJECT-TYPE
+    SYNTAX CSctpLookupRemIPAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is indexed by a remote IP address and association
+         ID. Specifying an IP address we would get a list of the
+         associations that have the specified IP address included
+         within the set of remote IP addresses"
+    INDEX { cSctpAssocRemAddressIPType, cSctpAssocRemAddressIP, cSctpAssocId }
+    ::= { cSctpLookupRemIPAddrTable 1 }
+
+CSctpLookupRemIPAddrEntry ::= SEQUENCE {
+    cSctpLookupRemIPAddrStartTime TimeStamp
+    }
+
+cSctpLookupRemIPAddrStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of SysUpTime at the time that this row was
+        created."
+    ::= { cSctpLookupRemIPAddrEntry 1 }
+
+cSctpGeneralVariablesGroup OBJECT IDENTIFIER ::= { cSctpGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Common parameters for all the associations. They can usually
+--     be referred as configuration parameters
+--  objects
+--    cSctpRtoAlgorithm, cSctpRtoMin, cSctpRtoMax, cSctpRtoInitial, 
+--    cSctpMaxAssoc, cSctpValCookieLife, cSctpMaxInitRetr
+
+cSctpStateStatGroup OBJECT IDENTIFIER ::= { cSctpGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The cSctp group of objects to control state changes in the
+--    SCTP protocol local layer. They include the data for all the
+--    associations.
+--  objects
+--    cSctpCurrEstab, cSctpActiveEstabs, cSctpPassiveEstabs, 
+--    cSctpAborteds, cSctpShutdowns
+
+cSctpOtherStatGroup OBJECT IDENTIFIER ::= { cSctpGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The cSctp group of objects providing for management of SCTP
+--    most common statistics for the local SCTP layer.
+--  objects
+--    cSctpStatOutOfBlues, cSctpStatChecksumErrors, 
+--    cSctpStatSentCtrlChunks, cSctpStatSentOrderChunks, 
+--    cSctpStatSentUnorderChunks, cSctpStatRecCtrlChunks, 
+--    cSctpStatRecOrderChunks, cSctpStatRecUnorderChunks, 
+--    cSctpStatFragmentedUsrMessages, 
+--    cSctpStatReassembledUsrMessages, cSctpStatSentSCTPPacks, 
+--    cSctpStatRecSCTPPacks
+
+cSctpAssocTablesVariablesGroup OBJECT IDENTIFIER ::= { cSctpGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The sctp group of objects to manage specific local and 
+--     remote SCTP variables (local and remote tables). These 
+--     variables include all the SCTP basic features.
+--  objects
+--    cSctpAssocRemHostName, cSctpAssocLocalSCTPPort, 
+--    cSctpAssocRemSCTPPort, cSctpAssocRemPrimaryAddressType, 
+--    cSctpAssocRemPrimaryAddress, cSctpAssocHeartBeatTimer, 
+--    cSctpAssocState, cSctpAssocInStreams, cSctpAssocOutStreams, 
+--    cSctpAssocMaxRetr, cSctpAssocT1expireds, cSctpAssocT2expireds, 
+--    cSctpAssocRtxChunks, cSctpAssocStartTime, 
+--    cSctpAssocLocalAddressStartTime, cSctpAssocRemAddressStatus, 
+--    cSctpAssocRemAddressHBFlag, cSctpAssocRemAddressRTO, 
+--    cSctpAssocRemAddressMaxPathRtx, cSctpAssocRemAddressStartTime
+
+cSctpAssocStatGroup OBJECT IDENTIFIER ::= { cSctpGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The cSctp group of objects to manage SCTP statistics related
+--     to the remote endpoint.
+--  objects
+--    cSctpAssocRemAddressRtx
+
+cSctpInverseGroup OBJECT IDENTIFIER ::= { cSctpGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects used in the inverse lookup table.
+--  objects
+--    cSctpLookupLocalPortStartTime, cSctpLookupRemPortStartTime, 
+--    cSctpLookupRemHostNameStartTime, 
+--    cSctpLookupRemPrimIPAddrStartTime, 
+--    cSctpLookupRemIPAddrStartTime
+
+cSctpCompliance OBJECT IDENTIFIER ::= { cSctpCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMPv3 entities which implement
+--    SCTP.
+--    As a remark, the not-accessible objects:
+--    cSctpAssocLocalAddressIPType and cSctpAssocRemAddressIPType do
+--    not support the dns(4)type since the use of the host names is
+--    limited to first stage, when the association is being
+--    established.
+--    cSctpAssocLocalAddressIP  and cSctpAssocRemAddressIP will only
+--    accept the size of 4 or 16 because it is only required to
+--    support IPv4 and unique IPv6 addresses.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cSctpGeneralVariablesGroup
+--   MandGroup
+--    cSctpAssocTablesVariablesGroup
+--   OptGroup
+--    cSctpStateStatGroup
+--   OptGroup
+--    cSctpOtherStatGroup
+--   OptGroup
+--    cSctpAssocStatGroup
+--   OptGroup
+--    cSctpInverseGroup
+
+
+END
+

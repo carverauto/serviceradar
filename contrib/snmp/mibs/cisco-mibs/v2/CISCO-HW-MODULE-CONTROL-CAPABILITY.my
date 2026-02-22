@@ -1,0 +1,93 @@
+-- *****************************************************************
+-- CISCO-HW-MODULE-CONTROL-CAPABILITY.my
+-- CISCO-HW-MODULE-CONTROL-MIB agent capabilities
+--   
+-- March 2010, Guichuan Tang
+--   
+-- Copyright (c) 2010-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-HW-MODULE-CONTROL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+ciscoHwModuleControlCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-HW-MODULE-CONTROL-MIB."
+    REVISION        "201209070000Z"
+    DESCRIPTION
+        "Added capability statement chmcCapV15R0001SY1PCat6K."
+    REVISION        "201109270000Z"
+    DESCRIPTION
+        "Added capability statement chmcCapV15R0001SYPCat6K."
+    REVISION        "201003170000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 588 }
+
+chmcCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-HW-MODULE-CONTROL-MIB agent capabilities."
+
+    SUPPORTS        CISCO-HW-MODULE-CONTROL-MIB
+    INCLUDES        {
+                        ciscoHmcMIBOversubBaseGroup,
+                        ciscoHmcMIBOversubPgClearBlkGrp
+                    }
+    ::= { ciscoHwModuleControlCapability 1 }
+
+chmcCapV15R0001SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-HW-MODULE-CONTROL-MIB agent capabilities."
+
+    SUPPORTS        CISCO-HW-MODULE-CONTROL-MIB
+    INCLUDES        {
+                        ciscoHmcMIBOversubBaseGroup,
+                        ciscoHmcMIBOversubPgClearBlkGrp
+                    }
+    ::= { ciscoHwModuleControlCapability 2 }
+
+chmcCapV15R0001SY1PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY1 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-HW-MODULE-CONTROL-MIB agent capabilities."
+
+    SUPPORTS        CISCO-HW-MODULE-CONTROL-MIB
+    INCLUDES        {
+                        ciscoHmcMIBOversubBaseGroup,
+                        ciscoHmcMIBOversubPgClearBlkGrp,
+                        ciscoHmcMIBOperModeGroup
+                    }
+    ::= { ciscoHwModuleControlCapability 3 }
+
+
+END
+

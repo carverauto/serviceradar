@@ -1,0 +1,790 @@
+-- MIB file created 12-Nov-2008 15:14:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-L2-TUNNEL-CONFIG-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-L2-TUNNEL-CONFIG-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    QosLayer2Cos
+            FROM CISCO-QOS-PIB-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoL2TunnelConfigMIB OBJECT IDENTIFIER ::= { ciscoMgmt 246 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200702150000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA 95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    This MIB module is for layer 2 tunneling related configurations
+--    on a device.
+--    
+--    Tunneling allows separate local networks to be considered as
+--    a single VLAN. These separate networks are connected via an
+--    ISP, which will tunnel the packets from one network to another,
+--    making it appear as if the two networks are actually just one.
+--  RevDate
+--    200702150000Z
+--  RevDescr
+--    Modify the descriptions of cltcTunneledProtocolType and
+--    cltcTunnelShutdownThreshold.
+--    
+--    Add 'lldp(4)' to cltcTunneledProtocolType,
+--    'lldp(6)' to cltcTunnelThresholdProtocolIndex and
+--    'lldp(6)' to cltcTunneledProtocolIndex.
+--    
+--    Add new groups cltcTunnelTotalDropGroup,
+--    cltcTunnelSysDropNotifEnableGroup,
+--    cltcTunnelSysDropGroup,
+--    cltcTunnelSysDropNotifGroup.
+--  RevDate
+--    200607250000Z
+--  RevDescr
+--    Modify the descriptions of cltcTunneledProtocolType and
+--    cltcTunnelShutdownThreshold.
+--  RevDate
+--    200506270000Z
+--  RevDescr
+--    Add 'eoam(3)' to cltcTunneledProtocolType,
+--    'eoam(5)' to cltcTunnelThresholdProtocolIndex and
+--    'eoam(5)' to cltcTunneledProtocolIndex.
+--  RevDate
+--    200406090000Z
+--  RevDescr
+--    Change the description for cltcTunnelThresholdProtocolIndex.
+--    Add the new groups cltcTunnelThresholdNotifsGroup and
+--    cltcNotifsEnableGroup.
+--  RevDate
+--    200309030000Z
+--  RevDescr
+--    Add a new object cltcTunnelDropStats. Remove the restriction
+--    for enabling cltcDot1qTunnelMode from the description.
+--  RevDate
+--    200205311000Z
+--  RevDescr
+--    Add SNMP support for 802.1q All Tagged (dot1q-all-tagged)
+--    Per Port feature.
+--    
+--    Dot1q-all-tagged feature is an enhancement to tag the packets 
+--    on the native vlan to avoid any confusion in the ISP network,
+--    and to avoid vlan hopping when the native vlan for the trunk
+--    is as same as the vlan assigned for a customer.
+--    
+--    Before this enhancement, this feature can be enabled/disabled 
+--    globally through the vlanTrunkPortsDot1qTag object in 
+--    CISCO-VTP-MIB. With this enhacement, vlanTrunkPortsDot1qTag 
+--    object in CISCO-VTP-MIB is deprecated and replaced by the 
+--    dot1qAllTaggedEnabled object in this MIB. Additionally, 
+--    dot1q-all-tag will be able to configure per port basis.
+--  RevDate
+--    200202140000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cltcMIBObjects  OBJECT IDENTIFIER ::= { ciscoL2TunnelConfigMIB 1 }
+cltcGlobal      OBJECT IDENTIFIER ::= { cltcMIBObjects 1 }
+cltcDot1qTunnel OBJECT IDENTIFIER ::= { cltcMIBObjects 2 }
+cltcTunneledProtocol OBJECT IDENTIFIER ::= { cltcMIBObjects 3 }
+cltcTunnelThreshold OBJECT IDENTIFIER ::= { cltcMIBObjects 4 }
+cltcTunnelStatistics OBJECT IDENTIFIER ::= { cltcMIBObjects 5 }
+cltcDot1qAllTagged OBJECT IDENTIFIER ::= { cltcMIBObjects 6 }
+cltcMIBNotifications OBJECT IDENTIFIER ::= { ciscoL2TunnelConfigMIB 2 }
+cltcMIBNotificationsPrefix OBJECT IDENTIFIER ::= { cltcMIBNotifications 0 }
+cltcMIBConformance OBJECT IDENTIFIER ::= { ciscoL2TunnelConfigMIB 3 }
+cltcMIBCompliances OBJECT IDENTIFIER ::= { cltcMIBConformance 1 }
+cltcMIBGroups   OBJECT IDENTIFIER ::= { cltcMIBConformance 2 }
+
+cltcTunnelCos OBJECT-TYPE
+    SYNTAX QosLayer2Cos
+--    Rsyntax INTEGER(0..7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the user priority of the tunneled PDUs and applies
+        to all ingress tunneling interfaces."
+    ::= { cltcGlobal 1 }
+
+cltcNotificationEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the system will
+        generate the cltcTunnelDropThresholdExceeded and
+        cltcTunnelShutdownThresholdExceeded notifications."
+    ::= { cltcGlobal 2 }
+
+cltcTunnelSysDropThreshold OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    PDUs/sec
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the drop threshold at the
+        system level.  A value of zero indicates that
+        system level rate limiting is disabled."
+    ::= { cltcGlobal 3 }
+
+cltcTunnelSysDropNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the system will generate
+        the cltcTunnelSysDropThresholdExceeded notification."
+    ::= { cltcGlobal 4 }
+
+cltcDot1qTunnelTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CltcDot1qTunnelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the dot1q tunnel
+        interfaces. Only dot1q tunneling capable interfaces are shown.
+        1Q-in-1Q will allow service providers to separate the traffic
+        of various customers within their infrastructure while the
+        customers appear to be on the same VLANs."
+    ::= { cltcDot1qTunnel 1 }
+
+cltcDot1qTunnelEntry OBJECT-TYPE
+    SYNTAX CltcDot1qTunnelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about the dot1q tunnel. Only dot1q tunneling
+        capable interfaces are shown."
+    INDEX { ifIndex }
+    ::= { cltcDot1qTunnelTable 1 }
+
+CltcDot1qTunnelEntry ::= SEQUENCE {
+    cltcDot1qTunnelMode INTEGER
+    }
+
+cltcDot1qTunnelMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the dot1q tunnel mode of the interface.
+        
+        Setting the interface to dot1q tunnel 'disabled' mode causes
+        the dot1q tunnel feature to be disabled on this interface.
+        Setting the interface to dot1q tunnel 'enabled' mode causes
+        the dot1q tunnel feature to be enabled on this interface."
+    DEFVAL { disabled }
+    ::= { cltcDot1qTunnelEntry 1 }
+
+cltcTunneledProtocolTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CltcTunneledProtocolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the protocols being
+        tunneled. Only tunneled protocol filtering capable interfaces
+        are shown."
+    ::= { cltcTunneledProtocol 1 }
+
+cltcTunneledProtocolEntry OBJECT-TYPE
+    SYNTAX CltcTunneledProtocolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about the protocols being tunneled. Only tunneled
+        protocol filtering capable interfaces are shown."
+    INDEX { ifIndex }
+    ::= { cltcTunneledProtocolTable 1 }
+
+CltcTunneledProtocolEntry ::= SEQUENCE {
+    cltcTunneledProtocolType OCTET STRING
+    }
+
+cltcTunneledProtocolType OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   cdp(0)
+        --   vtp(1)
+        --   stp(2)
+        --   eoam(3)
+        --   lldp(4)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates tunneled protocol of the interface.
+        
+        If a BIT is set, then the value of the corresponding
+        protocol is tunneled. Specifically, if the 'cdp(0)'
+        BIT is set, then the Cisco Discovery Protocol PDU is
+        tunneled; if the 'vtp(1)' BIT is set, then the VLAN
+        Trunking Protocol PDU is tunneled; if the 'stp(2)' BIT
+        is set, then the Spanning Tree Protocol PDU is tunneled;
+        if the 'eoam(3)' BIT is set, then the ethernet Operation,
+        Administration and Maintenance PDU is tunneled; if the
+        'lldp(4)' BIT is set, then the Link Layer Discovery
+        Protocol is tunneled.
+        
+        If the bit for a given protocol is set for an interface, then
+        the statistics for that interface and protocol will start to be
+        monitored."
+    ::= { cltcTunneledProtocolEntry 1 }
+
+cltcTunnelThresholdTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CltcTunnelThresholdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the thresholds for
+        protocol tunneling. Only tunneled protocol filtering capable
+        interfaces are shown. The objects will be on a per interface,
+        per protocol basis."
+    ::= { cltcTunnelThreshold 1 }
+
+cltcTunnelThresholdEntry OBJECT-TYPE
+    SYNTAX CltcTunnelThresholdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about the thresholds for protocol tunneling. Only
+        tunneled protocol filtering capable interfaces are shown. The
+        entries will be on a per interface, per protocol basis"
+    INDEX { ifIndex, cltcTunnelThresholdProtocolIndex }
+    ::= { cltcTunnelThresholdTable 1 }
+
+CltcTunnelThresholdEntry ::= SEQUENCE {
+    cltcTunnelThresholdProtocolIndex INTEGER,
+    cltcTunnelDropThreshold Gauge,
+    cltcTunnelShutdownThreshold Gauge
+    }
+
+cltcTunnelThresholdProtocolIndex OBJECT-TYPE
+    SYNTAX INTEGER {
+        all(1),
+        cdp(2),
+        vtp(3),
+        stp(4),
+        eoam(5),
+        lldp(6)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A tunneled protocol of an interface.
+        
+        - all(1) is supported for devices which allow the setting
+          of thresholds on a per interface basis. This threshold is
+          a combined threshold for the interface which includes all
+          supported protocols.
+        
+        - cdp(2), vtp(3), stp(4), eoam(5) and lldp(6) are supported
+          for devices which allow the setting of thresholds on a
+          per interface, per protocol basis."
+    ::= { cltcTunnelThresholdEntry 1 }
+
+cltcTunnelDropThreshold OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    PDUs/sec
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The drop threshold on an interface for a given protocol. After
+        reaching this drop threshold, the interface will start dropping
+        PDUs for the given protocol. This value cannot be greater than
+        the value of cltcTunnelShutdownThreshold.  A value of 0
+        indicates that no limit is set."
+    DEFVAL { 0 }
+    ::= { cltcTunnelThresholdEntry 2 }
+
+cltcTunnelShutdownThreshold OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    PDUs/sec
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The shutdown threshold on an interface for a given protocol.
+        After reaching the shutdown threshold, the interface will
+        shutdown for the given protocol.  This value cannot be less
+        than the value of cltcTunnelDropThreshold. A value of 0
+        indicates that no limit is set."
+    DEFVAL { 0 }
+    ::= { cltcTunnelThresholdEntry 3 }
+
+cltcTunnelStatisticsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CltcTunnelStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains protocol tunneling statistics on the
+        interface."
+    ::= { cltcTunnelStatistics 1 }
+
+cltcTunnelStatisticsEntry OBJECT-TYPE
+    SYNTAX CltcTunnelStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Protocol tunneling statistics on the interface."
+    INDEX { ifIndex, cltcTunneledProtocolIndex }
+    ::= { cltcTunnelStatisticsTable 1 }
+
+CltcTunnelStatisticsEntry ::= SEQUENCE {
+    cltcTunneledProtocolIndex INTEGER,
+    cltcTunnelEncapStats Counter,
+    cltcTunnelDeEncapStats Counter,
+    cltcTunnelDropStats Counter
+    }
+
+cltcTunneledProtocolIndex OBJECT-TYPE
+    SYNTAX INTEGER {
+        cdp(2),
+        vtp(3),
+        stp(4),
+        eoam(5),
+        lldp(6)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A tunneled protocol of an interface."
+    ::= { cltcTunnelStatisticsEntry 1 }
+
+cltcTunnelEncapStats OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    encapsulated PDUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The tunneled PDU encapsulation statistics of an interface.
+        These statistics cover the number of tunneled ingress
+        PDUs."
+    ::= { cltcTunnelStatisticsEntry 2 }
+
+cltcTunnelDeEncapStats OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    de-encapsulated PDUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The tunneled PDU de-encapsulation statistics of an interface.
+        These statistics cover the number of tunneled egress PDUs."
+    ::= { cltcTunnelStatisticsEntry 3 }
+
+cltcTunnelDropStats OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    PDUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of PDUs dropped on an interface for a given
+        protocol. The PDUs will be dropped when the
+        cltcTunnelDropThreshold is reached."
+    ::= { cltcTunnelStatisticsEntry 4 }
+
+cltcTunnelDropStatTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CltcTunnelDropStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains protocol tunneling drop statistics."
+    ::= { cltcTunnelStatistics 2 }
+
+cltcTunnelDropStatEntry OBJECT-TYPE
+    SYNTAX CltcTunnelDropStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Drop statistics for a tunneled protocol."
+    INDEX { cltcTunneledProtocolIndex }
+    ::= { cltcTunnelDropStatTable 1 }
+
+CltcTunnelDropStatEntry ::= SEQUENCE {
+    cltcTunnelTotalDropStats Counter
+    }
+
+cltcTunnelTotalDropStats OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    encapsulated PDUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of tunneled ingress PDUs that have been dropped."
+    ::= { cltcTunnelDropStatEntry 1 }
+
+cltcDot1qAllTaggedEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls if dot1q-all-tagged feature is enabled in
+        the managed system."
+    ::= { cltcDot1qAllTagged 1 }
+
+cltcDot1qAllTaggedIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CltcDot1qAllTaggedIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about the dot1q-all-tagged
+        feature's configuration of capable interfaces in the system."
+    ::= { cltcDot1qAllTagged 2 }
+
+cltcDot1qAllTaggedIfEntry OBJECT-TYPE
+    SYNTAX CltcDot1qAllTaggedIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration of dot1q-all-tagged feature on interfaces. Each
+        entry is created for a dot1q-all-tagged capable interface in
+        the system."
+    INDEX { ifIndex }
+    ::= { cltcDot1qAllTaggedIfTable 1 }
+
+CltcDot1qAllTaggedIfEntry ::= SEQUENCE {
+    cltcDot1qAllTaggedIfEnabled TruthValue
+    }
+
+cltcDot1qAllTaggedIfEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether dot1q-all-tagged feature has been
+        enabled on a specific interface."
+    ::= { cltcDot1qAllTaggedIfEntry 1 }
+
+cltcTunnelDropThresholdExceeded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cltcMIBNotifications
+    VARIABLES {
+        cltcTunnelDropThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the
+        cltcTunnelDropThreshold has been exceeded."
+    ::= 1
+
+cltcTunnelShutdownThresholdExceeded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cltcMIBNotifications
+    VARIABLES {
+        cltcTunnelShutdownThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the
+        cltcTunnelShutdownThreshold has been exceeded."
+    ::= 2
+
+cltcTunnelSysDropThresholdExceeded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cltcMIBNotifications
+    VARIABLES {
+        cltcTunnelSysDropThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the
+        cltcTunnelSysDropThreshold has been exceeded."
+    ::= 3
+
+cltcDot1qTunnelGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for configuring dot1q tunnneling.
+--  objects
+--    cltcDot1qTunnelMode
+
+cltcTunneledProtocolGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for configuring tunneled protocols.
+--  objects
+--    cltcTunneledProtocolType, cltcTunnelCos
+
+cltcTunnelThresholdGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for configuring the thresholds for
+--    protocol tunneling.
+--  objects
+--    cltcTunnelDropThreshold, cltcTunnelShutdownThreshold
+
+cltcTunnelStatisticsGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which give the statistics regarding
+--    the tunneling interfaces.
+--  objects
+--    cltcTunnelEncapStats, cltcTunnelDeEncapStats
+
+cltcDot1qAllTaggedGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for configuring the dot1q-all-tagged
+--    feature in the system.
+--  objects
+--    cltcDot1qAllTaggedEnabled, cltcDot1qAllTaggedIfEnabled
+
+cltcTunnelDropStatisticsGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which give the statistics regarding
+--    dropped PDUs on the tunneling interfaces.
+--  objects
+--    cltcTunnelDropStats
+
+cltcNotifsEnableGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collections of objects used to enable notifications.
+--  objects
+--    cltcNotificationEnable
+
+cltcTunnelTotalDropGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which give the statistics regarding
+--    total number of dropped PDUs per protocol type.
+--  objects
+--    cltcTunnelTotalDropStats
+
+cltcTunnelSysDropNotifEnableGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object to enable
+--    cltcTunnelSysDropThresholdExceeded notification.
+--  objects
+--    cltcTunnelSysDropNotifEnable
+
+cltcTunnelSysDropGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object for configuring the system level
+--    rate limiting.
+--  objects
+--    cltcTunnelSysDropThreshold
+
+cltcTunnelThresholdNotifsGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 8 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications used for the tunnel
+--    thresholds.
+--  notifications
+--    cltcTunnelDropThresholdExceeded, 
+--    cltcTunnelShutdownThresholdExceeded
+
+cltcTunnelSysDropNotifGroup OBJECT IDENTIFIER ::= { cltcMIBGroups 12 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notification used for the system level rate
+--    limiting has been exceeded.
+--  notifications
+--    cltcTunnelSysDropThresholdExceeded
+
+cltcMIBCompliance OBJECT IDENTIFIER ::= { cltcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-L2-TUNNEL-CONFIG-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cltcDot1qTunnelGroup
+--   OptGroup
+--    cltcTunneledProtocolGroup
+--   OptGroup
+--    cltcTunnelThresholdGroup
+--   OptGroup
+--    cltcTunnelStatisticsGroup
+
+cltcMIBCompliance2 OBJECT IDENTIFIER ::= { cltcMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-L2-TUNNEL-CONFIG-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cltcDot1qTunnelGroup
+--   OptGroup
+--    cltcTunneledProtocolGroup
+--   OptGroup
+--    cltcTunnelThresholdGroup
+--   OptGroup
+--    cltcTunnelStatisticsGroup
+--   OptGroup
+--    cltcDot1qAllTaggedGroup
+--   ObjVar
+--    cltcDot1qAllTaggedEnabled
+--   ObjVar
+--    cltcDot1qAllTaggedIfEnabled
+
+cltcMIBCompliance3 OBJECT IDENTIFIER ::= { cltcMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-L2-TUNNEL-CONFIG-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cltcDot1qTunnelGroup
+--   OptGroup
+--    cltcTunneledProtocolGroup
+--   OptGroup
+--    cltcTunnelThresholdGroup
+--   OptGroup
+--    cltcTunnelStatisticsGroup
+--   OptGroup
+--    cltcDot1qAllTaggedGroup
+--   OptGroup
+--    cltcTunnelDropStatisticsGroup
+--   ObjVar
+--    cltcDot1qAllTaggedEnabled
+--   ObjVar
+--    cltcDot1qAllTaggedIfEnabled
+
+cltcMIBCompliance4 OBJECT IDENTIFIER ::= { cltcMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-L2-TUNNEL-CONFIG-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cltcDot1qTunnelGroup
+--   OptGroup
+--    cltcTunneledProtocolGroup
+--   OptGroup
+--    cltcTunnelThresholdGroup
+--   OptGroup
+--    cltcTunnelStatisticsGroup
+--   OptGroup
+--    cltcDot1qAllTaggedGroup
+--   OptGroup
+--    cltcTunnelDropStatisticsGroup
+--   OptGroup
+--    cltcNotifsEnableGroup
+--   OptGroup
+--    cltcTunnelThresholdNotifsGroup
+--   ObjVar
+--    cltcDot1qAllTaggedEnabled
+--   ObjVar
+--    cltcDot1qAllTaggedIfEnabled
+
+cltcMIBCompliance5 OBJECT IDENTIFIER ::= { cltcMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the CISCO-L2-TUNNEL-CONFIG-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cltcDot1qTunnelGroup
+--   OptGroup
+--    cltcTunneledProtocolGroup
+--   OptGroup
+--    cltcTunnelThresholdGroup
+--   OptGroup
+--    cltcTunnelStatisticsGroup
+--   OptGroup
+--    cltcDot1qAllTaggedGroup
+--   OptGroup
+--    cltcTunnelDropStatisticsGroup
+--   OptGroup
+--    cltcTunnelTotalDropGroup
+--   OptGroup
+--    cltcNotifsEnableGroup
+--   OptGroup
+--    cltcTunnelThresholdNotifsGroup
+--   OptGroup
+--    cltcTunnelSysDropNotifEnableGroup
+--   OptGroup
+--    cltcTunnelSysDropGroup
+--   OptGroup
+--    cltcTunnelSysDropNotifGroup
+--   ObjVar
+--    cltcDot1qAllTaggedEnabled
+--   ObjVar
+--    cltcDot1qAllTaggedIfEnabled
+
+
+END
+

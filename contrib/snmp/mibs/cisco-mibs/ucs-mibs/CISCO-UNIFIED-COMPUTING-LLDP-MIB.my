@@ -1,0 +1,153 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-LLDP-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- LLDP management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-LLDP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB;
+
+cucsLldpObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        LLDP management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 58 }
+
+cucsLldpAcquiredTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLldpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lldp:Acquired managed object table"
+    ::= { cucsLldpObjects 1 }
+
+cucsLldpAcquiredEntry OBJECT-TYPE
+    SYNTAX           CucsLldpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLldpAcquiredTable table."
+    INDEX { cucsLldpAcquiredInstanceId }
+    ::= { cucsLldpAcquiredTable 1 }
+
+CucsLldpAcquiredEntry ::= SEQUENCE {
+    cucsLldpAcquiredInstanceId                                       CucsManagedObjectId,
+    cucsLldpAcquiredDn                                               CucsManagedObjectDn,
+    cucsLldpAcquiredRn                                               SnmpAdminString,
+    cucsLldpAcquiredAcqts                                            DateAndTime,
+    cucsLldpAcquiredChassisMac                                       MacAddress,
+    cucsLldpAcquiredPeerDn                                           SnmpAdminString,
+    cucsLldpAcquiredPortMac                                          MacAddress
+}
+
+cucsLldpAcquiredInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLldpAcquiredEntry 1 }
+
+cucsLldpAcquiredDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lldp:Acquired:dn managed object property"
+    ::= { cucsLldpAcquiredEntry 2 }
+
+cucsLldpAcquiredRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lldp:Acquired:rn managed object property"
+    ::= { cucsLldpAcquiredEntry 3 }
+
+cucsLldpAcquiredAcqts OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lldp:Acquired:acqts managed object property"
+    ::= { cucsLldpAcquiredEntry 4 }
+
+cucsLldpAcquiredChassisMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lldp:Acquired:chassisMac managed object property"
+    ::= { cucsLldpAcquiredEntry 5 }
+
+cucsLldpAcquiredPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lldp:Acquired:peerDn managed object property"
+    ::= { cucsLldpAcquiredEntry 6 }
+
+cucsLldpAcquiredPortMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lldp:Acquired:portMac managed object property"
+    ::= { cucsLldpAcquiredEntry 7 }
+
+END

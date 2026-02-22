@@ -1,0 +1,554 @@
+-- MIB file created 01-Nov-2005 15:10:01, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SYS-INFO-LOG-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SYS-INFO-LOG-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddress, InetAddressType
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoSysInfoLogMIB OBJECT IDENTIFIER ::= { ciscoMgmt 330 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200508121000Z
+--  OrgName
+--    Cisco System, Inc.
+--  ContactInfo
+--             Cisco Systems
+--              Customer Service
+--    
+--      Postal: 170 W Tasman Drive
+--              San Jose, CA  95134
+--              USA
+--    
+--         Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    This MIB provides the configuration of System Information 
+--     Logging feature, which allows a certain number of commands
+--     to be executed periodically via command line interface, 
+--     and stores the result into a file on a configured server.
+--  RevDate
+--    200508121000Z
+--  RevDescr
+--    Added new value ftp(3) to csilServerProtocol.
+--     Added new value ftpError(10) to csilServerLastStatus.
+--  RevDate
+--    200301241000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSysInfoLogMIBNotifs OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIB 0 }
+ciscoSysInfoLogMIBObjects OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIB 1 }
+ciscoSysInfoLogMIBConform OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIB 2 }
+csilGlobalConfig OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBObjects 1 }
+csilServerConfig OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBObjects 2 }
+csilCommandConfig OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBObjects 3 }
+ciscoSysInfoLogMIBCompliances OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBConform 1 }
+ciscoSysInfoLogMIBGroups OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBConform 2 }
+
+csilSysInfoLogEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether System Information Logging has been
+         enabled in the system or not."
+    ::= { csilGlobalConfig 1 }
+
+csilSysInfoLogNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls whether notifications will be generated 
+         by system logging process or not."
+    ::= { csilGlobalConfig 2 }
+
+csilMaxServerAllowed OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    servers
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of entries that can be configured
+         in csilServerTable. A value of zero indicates no limit on the
+         numbers of  entries in the csilServerTable."
+    ::= { csilServerConfig 1 }
+
+csilMaxProfilePerServerAllowed OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    profiles
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum number of command profiles allowed to
+         configure for a logging server. A profile defines a set of 
+         commands that will be used for system information logging 
+         purpose."
+    ::= { csilServerConfig 2 }
+
+csilServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsilServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of servers used to keep the data files for System
+         Information Logging purpose."
+    ::= { csilServerConfig 3 }
+
+csilServerEntry OBJECT-TYPE
+    SYNTAX CsilServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about a server to keep the data file for System
+         Information Logging purpose. Entries in this table can be 
+         created or deleted using csilServerRowStatus object."
+    INDEX { csilServerIndex }
+    ::= { csilServerTable 1 }
+
+CsilServerEntry ::= SEQUENCE {
+    csilServerIndex Gauge,
+    csilServerAddressType InetAddressType,
+    csilServerAddress InetAddress,
+    csilServerProfileIndex Gauge,
+    csilServerProtocol INTEGER,
+    csilServerInterval Gauge,
+    csilServerLoggingFileName SnmpAdminString,
+    csilServerRcpUserName SnmpAdminString,
+    csilServerLastStatus INTEGER,
+    csilServerRowStatus RowStatus
+    }
+
+csilServerIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary index assigned by the NMS to identify the
+         entry. Maximum value of this object is limited by the
+         value of csilMaxServerAllowed."
+    ::= { csilServerEntry 1 }
+
+csilServerAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the type of address used to determine the address
+         of the server to be used for logging system information."
+    ::= { csilServerEntry 2 }
+
+csilServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the address of the remote host used for logging
+         system information."
+    ::= { csilServerEntry 3 }
+
+csilServerProfileIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the profile assigned to this server. A profile is a 
+         set of specific commands defined in csilCommandConfigTable, 
+         which will be executed in the period specified by the object 
+         csilServerInterval for logging system information to the 
+         server."
+    ::= { csilServerEntry 4 }
+
+csilServerProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        tftp(1),
+        rcp(2),
+        ftp(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the file transfer protocol to be used for logging 
+         system information.
+        
+         - tftp(1): indicates that tftp is used for logging system
+                    information.
+        
+         - rcp(2):  indicates that rcp is used for logging system
+                    information.
+        
+         - ftp(3):  indicates that ftp is used for logging system
+                    information."
+    ::= { csilServerEntry 5 }
+
+csilServerRcpUserName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the remote user name used to download system
+         information via RCP protocol. This object must be set when
+         csilServerProtocol is set to rcp(2). This object will have
+         no effect for protocols other than RCP."
+    DEFVAL { "" }
+    ::= { csilServerEntry 6 }
+
+csilServerInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A period of time, measured in unit of minutes. This object
+         specifies how often the command set is executed for 
+         logging system information."
+    DEFVAL { 1440 }
+    ::= { csilServerEntry 7 }
+
+csilServerLoggingFileName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the file name used for logging system 
+         information."
+    ::= { csilServerEntry 8 }
+
+csilServerLastStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        noLogFile(2),
+        noCommand(3),
+        linkBlock(4),
+        authError(5),
+        addrError(6),
+        copying(7),
+        writeError(8),
+        success(9),
+        ftpError(10)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the status of the last system information 
+         logging process into the server. 
+        
+           - none(1): initial state. No process has been started.
+           - noLogFile(2): there is no log file has been configured.
+           - noCommand(3): there is no command has been configured.
+           - linkBlock(4): another process might have taken the 
+                 rcp or tftp connection at the time the interval
+                 is due.
+           - authError(5): authentication failed.
+           - addrError(6): an error occurs due to the destination
+                 address is not reachable.
+           - copying(7)  : logging process to destination server is
+                 in progress.
+           - writeError(8): an error occurs while copying logging
+                 information to the server.
+           - success(9): logging process completed successfully.
+           - ftpError(10): an error occurs during ftp operation."
+    ::= { csilServerEntry 9 }
+
+csilServerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage the creation, modification 
+         and deletion of rows in the table.
+        
+         Except of csilServerRcpUserName, all other objects need to
+         be set before csilServerRowStatus can be set to 'active'.
+         When this object is set to be 'active', the entry can not be
+         modified."
+    ::= { csilServerEntry 10 }
+
+csilMaxCommandPerProfile OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum commands allowed in a profile. A
+         value of zero indicates no limitation on the number of
+         commands allowed in a profile."
+    ::= { csilCommandConfig 1 }
+
+csilCommandsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsilCommandsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of commands for System Information Logging 
+         purpose."
+    ::= { csilCommandConfig 2 }
+
+csilCommandsEntry OBJECT-TYPE
+    SYNTAX CsilCommandsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains the command logging information regarding
+         a profile and a command index combination. Entries in this 
+         table can be created or deleted using csilCommandStatus
+         object."
+    INDEX { csilCommandProfileIndex, csilCommandIndex }
+    ::= { csilCommandsTable 1 }
+
+CsilCommandsEntry ::= SEQUENCE {
+    csilCommandProfileIndex Gauge,
+    csilCommandIndex Gauge,
+    csilCommandString SnmpAdminString,
+    csilCommandExecOrder Gauge,
+    csilCommandStatus RowStatus
+    }
+
+csilCommandProfileIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary index assigned by NMS to uniquely identify a
+         profile. A profile contains a set of commands that will be
+         executed periodically for the purpose of logging system 
+         information."
+    ::= { csilCommandsEntry 1 }
+
+csilCommandIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary index assigned by NMS, which is combined with 
+         the value of csilCommandProfileIndex object to uniquely 
+         identify an entry."
+    ::= { csilCommandsEntry 2 }
+
+csilCommandString OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the command to be executed."
+    ::= { csilCommandsEntry 3 }
+
+csilCommandExecOrder OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the order in which the command specified in the 
+         object csilCommandLog will be executed periodically for
+         loging system information. Value of this object need not to
+         be consistent as it can be changed during the configuration
+         of the command set. Execution order of commands in the
+         lower part of the list will be moved up or pushed down when
+         a command is removed from or inserted to a position in the
+         middle of the list, respectively. For example, there is a 
+         list of three commands 'show A', 'show B' and 'show C' with
+         the execution orders as 1, 2 and 3 respectively. If 'show
+         B' is removed from the list, the execution order of 'show
+         C' will be changed from 3 to 2. If 'show D' is added to the
+         list with the execution order as 2, the execution order of 
+         'show B' and 'show C' will be changed to 3 and 4, 
+         respectively.
+         
+         Execution order of new commands appended to the list must be
+         continuous with the execution order of the last existing 
+         command on the list, otherwise it will be rejected."
+    ::= { csilCommandsEntry 4 }
+
+csilCommandStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage the creation, modification and 
+         deletion of rows in this table. 
+        
+         Value of this object can be set to 'active' only when value of
+         other columns have been assigned. The entry may not be 
+         modified when value of this object is 'active'."
+    ::= { csilCommandsEntry 5 }
+
+csilLoggingFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSysInfoLogMIB
+    VARIABLES {
+        csilServerLastStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A csilLoggingFailNotif is sent for an unsuccessful system
+         information logging process, specifically when value of
+         csilServerLastStatus is changed to any one of the failure
+         states (2, 3, 4, 5, 6 and 8)."
+    ::= 1
+
+csilGlobalConfigGroup OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the global
+--     configuration for logging system information.
+--  objects
+--    csilSysInfoLogEnabled
+
+csilServerConfigGroup OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the status and
+--     control of logging servers.
+--  objects
+--    csilMaxServerAllowed, csilMaxProfilePerServerAllowed, 
+--    csilServerAddress, csilServerAddressType, 
+--    csilServerProfileIndex, csilServerProtocol, 
+--    csilServerInterval, csilServerLoggingFileName, 
+--    csilServerRcpUserName, csilServerLastStatus, 
+--    csilServerRowStatus
+
+csilCommandConfigGroup OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the status and
+--     control of commands used for logging system information.
+--  objects
+--    csilMaxCommandPerProfile, csilCommandString, 
+--    csilCommandExecOrder, csilCommandStatus
+
+csilNotifControlGroup OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the status and
+--     control of logging process notifications.
+--  objects
+--    csilSysInfoLogNotifEnabled
+
+csilLoggingFailNotifGroup OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for supporting system information
+--     logging feature.
+--  notifications
+--    csilLoggingFailNotif
+
+ciscoSysInfoLogMIBCompliance OBJECT IDENTIFIER ::= { ciscoSysInfoLogMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which implement
+--     CISCO-SYS-INFO-LOG-MIB.
+--    
+--     OBJECT  csilMaxServerAllowed
+--     SYNTAX  Unsigned32(1)
+--     ACCESS-TYPE  read-only
+--     DESCRIPTION
+--         An implementation is only required to support one
+--         logging server.
+--    
+--     OBJECT  csilServerAddressType
+--     SYNTAX  InetAddressType (ipv4(1))
+--     DESCRIPTION
+--         An implementation is only required to support IPv4
+--         addresses.
+--    
+--     OBJECT csilMaxCommandPerProfile
+--     SYNTAX Unsigned32(15)
+--     ACCESS-TYPE read-only
+--     DESCRIPTION
+--         An implementation is only required to support maximum
+--         15 commands in a profile.
+--    
+--     OBJECT csilCommandString
+--     SYNTAX SnmpAdminString (SIZE (1..48))
+--     DESCRIPTION
+--         An implementation is only required to support commands
+--         not having more than 48 characters.
+--  Module
+--    >>current<<
+--   MandGroup
+--    csilGlobalConfigGroup
+--   MandGroup
+--    csilServerConfigGroup
+--   MandGroup
+--    csilCommandConfigGroup
+--   ObjVar
+--    csilServerRowStatus
+--   OptGroup
+--    csilNotifControlGroup
+--   OptGroup
+--    csilLoggingFailNotifGroup
+--   ObjVar
+--    csilServerInterval
+
+
+END
+

@@ -1,0 +1,86 @@
+MIBs supported by Catalyst 2900XL series
+
+
+These are the MIBs supported by the Catalyst 2900XL series of switches.
+Depending on the version of the 
+IOS software installed on the switch, different MIBs are supported. The difference is that later releases 
+support additional MIBs . 
+
+
+MIBs supported in IOS release 11.2(8)SA:
+
+MIBs supported in IOS release 11.2(8)SA1:
+
+     BRIDGE-MIB.my
+     CISCO-2900-MIB.my
+     CISCO-CDP-MIB.my
+     CISCO-CONFIG-MAN-MIB.my
+     CISCO-IMAGE-MIB.my
+     CISCO-MEMORY-POOL-MIB.my
+     CISCO-PING-MIB.my
+     CISCO-PRODUCTS-MIB.my
+     CISCO-TCP-MIB.my
+     IF-MIB (RFC 1573)
+     OLD-CISCO-CHASSIS-MIB.my
+     OLD-CISCO-CPU-MIB.my
+     OLD-CISCO-INTERFACES-MIB.my< /A>
+     OLD-CISCO-IP-MIB.my
+     OLD-CISCO-MEMORY-MIB.my
+     OLD-CISCO-SYSTEM-MIB.my
+     OLD-CISCO-TCP-MIB.my
+     Note: some objects in this doc replaced by CISCO-TCP-MIB.my
+     OLD-CISCO-TS-MIB.my
+     RFC1213-MIB (MIB-II)
+     RFC1398-MIB (ETHERNET-MIB)
+     RMON-MIB (RFC 1757)
+     SNMPv2-MIB.my
+     SNMPv2-PARTY-MIB
+     TCP-MIB.my
+     UDP-MIB.my
+
+MIBs supported in IOS release 11.2(8)SA2
+
+in addition to all those above:
+
+     CISCO-STACKMAKER-MIB.my
+
+MIBs supported in IOS release 11.2(8)SA3
+
+in addition to all those above:
+
+     CISCO-SWITCH-CGMP-MIB.my
+     CISCO-VLAN-MEMBERSHIP-MIB.my
+
+MIBs supported in IOS release 11.2(8)SA4 & SA5
+
+in addition to all those above:
+
+     CISCO-SMI.my
+     CISCO-TC.my
+     CISCO-VTP-MIB.my
+     IANAifType-MIB.my
+     RS-232-MIB.my
+     SNMPv2-SMI.my
+     SNMPv2-TC.my
+
+MIBs supported in IOS release 11.2(8)SA6
+
+in addition to all those above:
+
+     CISCO-STP-EXTENSIONS-MIB.my
+
+MIBs supported in IOS release 12.0(5)XP
+
+in addition to all those above:
+
+     CISCO-CLUSTER-MIB.my
+     
+MIBs supported in IOS release 12.0(5)XU
+
+in addition to all those above:
+
+     CISCO-HSRP-MIB.my
+     CISCO-HSRP-EXT-MIB.my   
+     
+
+

@@ -1,0 +1,155 @@
+
+The below MIBs are supported by the LS1010 in release 11.1 and later.
+SNMP version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are
+in the v2 directory.  Note that for most every MIB <foo>.my in the v2
+directory, there exists a SNMP version 1 conversion of the MIB
+<foo>-V1SMI.my in the v1 directory.  The exception is SNMPv2-TC.my.
+Thanks go to David T. Perkins for his package smicng which was used to
+produce most of the v1 conversions.
+
+================================================================
+
+The following support was available in Release 11.1 of the LS1010
+software.
+
+LS1010 Network Management MIBs :
+
+  1. the LS1010 inherits many non-ATM-specific MIBs (both standard MIBs and
+     Cisco enterprise MIBs) as part of the Cisco IOS code base.
+
+    1.1 Standard MIBs:
+	  IANAifType-MIB.my
+          IF-MIB.my
+          RFC1213-MIB.my
+          RMON-MIB.my (only alarm and event groups are supported)
+          SNMPv2-MIB.my
+	  SNMPv2-SMI.my
+	  SNMPv2-TC.my
+	  TCP-MIB.my
+	  UDP-MIB.my
+
+    1.2 Cisco enterprise MIBs:
+	  OLD-CISCO-CPU-MIB.my
+          OLD-CISCO-INTERFACES-MIB.my
+	  OLD-CISCO-IP-MIB.my
+	  OLD-CISCO-MEMORY-MIB.my
+          OLD-CISCO-SYS-MIB.my  
+	       Note: objects in this doc are also contained in the
+				separate docs OLD-CISCO-CPU-MIB.my,
+				OLD-CISCO-SYSTEM-MIB.my and 
+				OLD-CISCO-MEMORY-MIB.my
+	  OLD-CISCO-SYSTEM-MIB.my
+          OLD-CISCO-TS-MIB.my
+
+          CISCO-CDP-MIB.my
+          CISCO-CONFIG-MAN-MIB.my
+          CISCO-FLASH-MIB.my
+	  CISCO-GENERAL-TRAPS.my
+          CISCO-IMAGE-MIB.my
+          CISCO-MEMORY-POOL-MIB.my
+          CISCO-PING-MIB.my
+	  CISCO-PRODUCTS-MIB.my
+	  CISCO-SMI.my
+	  CISCO-TC.my
+
+  2. the LS1010 implements the following  standardized ATM-specific
+     MIBs: 
+	ATM-MIB.my (from RFC1695)
+        PNNI-MIB.my (from ATM Forum PNNI MIB)
+	  Note: only pnniRouteAddrTable is supported in this release.
+
+  3. a number of LS1010-specific or ATM-specific Cisco proprietary MIBs.
+
+	CISCO-ATM-ADDR-MIB.my
+	CISCO-ATM-CONN-MIB.my
+	CISCO-ATM-IF-MIB.my
+	CISCO-ATM-IF-PHYS-MIB.my
+	CISCO-ATM-RM-MIB.my
+	CISCO-ATM-SERVICE-REGISTRY-MIB.my
+	CISCO-ATM-SWITCH-ADDR-MIB.my
+	CISCO-ATM-TRAFFIC-MIB.my
+	CISCO-RHINO-MIB.my
+
+================================================================
+
+The following additional support is available from Release 11.2.
+
+	ACCOUNTING-CONTROL-MIB.my
+	ATM-ACCOUNTING-INFORMATION-MIB.my
+	ATM-FORUM-TC-MIB.my
+	ATM-RMON-MIB.my
+	CISCO-ATM-ACCESS-LIST-MIB.my
+	CISCO-OAM-MIB.my
+	CISCO-PNNI-MIB.my
+	PNNI-MIB.my
+	Support for the PNNI-MIB:
+      pnniBaseGroup, pnniNodeTable, pnniNodeTimerTable,
+      pnniScopeMappingTable, pnniSummaryTable, pnniIfTable, pnniLinkTable,
+      pnniNbrPeerTable, pnniNbrPeerPortTable,  pnniRouteAddrTable.
+
+     LAN Emulation MIBs:
+	LAN-EMULATION-CLIENT-MIB.my (from ATM Forum spec)
+	CISCO-LEC-EXT-MIB.my
+	CISCO-LEC-DATA-VCC-MIB.my
+	CISCO-LES-MIB.my
+	CISCO-LECS-MIB.my
+	CISCO-BUS-MIB.my
+
+ The ATM Forum's ILMI MIBs, supporting the UNI 4.0 specification:
+ (NOTE: These are NOT network management MIBs. Objects in these MIBs
+        cannot be accessed by an NMS via SNMP.
+	These MIBs are used by the ILMI protocol for link management
+        between adjacent ATM switches/end-stations) 
+	ATM-FORUM-ADDR-REG.my
+	ATM-FORUM-MIB.my
+	ATM-FORUM-SRVC-REG.my
+
+================================================================
+
+The following additional support is available from 
+Release 11.2(8.01)FWA4(1)
+
+	CISCO-ATM-SWITCH-CUG-MIB.my
+	CISCO-ATM-SIG-DIAG-MIB.my
+	CISCO-ATM2-MIB.my
+	  Only these tables are supported: 
+	      ciscoatmSigStatTable, ciscoatmSigSupportTable
+
+
+
+=================================================================
+The following additional support is available from 
+Release 11.3(0.8)TWA4(2)
+
+	CISCO-CONFIG-COPY-MIB.my
+	CISCO-SYSLOG-MIB.my
+
+	For the PNNI-MIB, additional tables and objects supported:
+	 pnniNodePglTable, pnniSummaryAddressTable, 
+	 pnniNodePeerGroupId, pnniLinkDerivedAggrToken,
+         pnniLinkUpnodeId, pnniLinkUpnodeAtmAddress,
+         pnniLinkCommonPeerGroupId, pnniLinkSvccRccIndex
+
+===================================================================
+
+ Release 12.0(1)W5-5 adds support for the following MIBs:
+
+ CISCO-DS0BUNDLE-MIB
+ CISCO-DS0BUNDLE-EXT-MIB
+ CISCO-ATM-SWITCH-FR-IWF-MIB
+ CISCO-ATM-SWITCH-FR-RM-MIB
+ RFC1406-MIB (supported for the CT3 Frame Card)
+
+ Also, the following MIBs have been updated:
+
+  CISCO-ATM-RM-MIB
+  CISCO-RHINO-MIB
+  CISCO-ATM-CONN-MIB
+
+===================================================================
+
+ Release 12.0(3c)W5-9 adds support for the following MIB:
+
+ ATM-SOFT-PVC-MIB
+
+===================================================================

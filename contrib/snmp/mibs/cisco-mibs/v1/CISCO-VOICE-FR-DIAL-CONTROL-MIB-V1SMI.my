@@ -1,0 +1,143 @@
+-- MIB created 6/25/99 12:57:48, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-VOICE-FR-DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VOICE-FR-DIAL-CONTROL-MIB.my"
+
+IMPORTS
+    OBJECT-TYPE
+            FROM RFC-1212
+    DisplayString
+            FROM SNMPv2-TC-v1
+    CvcGUid
+            FROM CISCO-VOICE-DIAL-CONTROL-MIB
+    cCallHistoryIndex
+            FROM CISCO-DIAL-CONTROL-MIB
+    ciscoExperiment
+            FROM CISCO-SMI;
+
+ciscoVoiceFrDialControlMIB OBJECT IDENTIFIER ::= { ciscoExperiment 36 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9804140000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-voice@cisco.com
+--  Descr
+--    This MIB module enhances the IETF Dial Control MIB (RFC2128)
+--     by providing FR management information over a data network.
+
+cvfrdcMIBObjects OBJECT IDENTIFIER ::= { ciscoVoiceFrDialControlMIB 1 }
+cvFrCallHistory OBJECT IDENTIFIER ::= { cvfrdcMIBObjects 1 }
+cvfrdcMIBConformance OBJECT IDENTIFIER ::= { ciscoVoiceFrDialControlMIB 3 }
+cvfrdcMIBCompliances OBJECT IDENTIFIER ::= { cvfrdcMIBConformance 1 }
+cvfrdcMIBGroups OBJECT IDENTIFIER ::= { cvfrdcMIBConformance 2 }
+
+cvFrCallHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvFrCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the FR extension to the call history table of
+         IETF Dial Control MIB. It contains FR call leg information
+         about specific voice over FR call."
+    ::= { cvFrCallHistory 1 }
+
+cvFrCallHistoryEntry OBJECT-TYPE
+    SYNTAX CvFrCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single FR call leg.
+         An entry of this table is created when its associated call
+         history entry in the IETF Dial Control MIB is created and the
+         call history entry contains information for the call
+         establishment to the peer on the data network backbone via a 
+         voice over FR peer.
+         The entry is deleted when its associated call history entry in
+         the IETF Dial Control MIB is deleted."
+    INDEX { cCallHistoryIndex }
+    ::= { cvFrCallHistoryTable 1 }
+
+CvFrCallHistoryEntry ::= SEQUENCE {
+    cvFrCallHistoryConnectionId CvcGUid,
+    cvFrCallHistoryDlci INTEGER,
+    cvFrCallHistoryLowerIfName DisplayString,
+    cvFrCallHistorySessionTarget DisplayString
+    }
+
+cvFrCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the tandem call."
+    ::= { cvFrCallHistoryEntry 1 }
+
+cvFrCallHistoryDlci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Dlci used for this FR connection."
+    ::= { cvFrCallHistoryEntry 2 }
+
+cvFrCallHistoryLowerIfName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..24))
+--    Rsyntax OCTET STRING(SIZE(0..24))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The textual name of physical interface associated 
+         with this FR call."
+    ::= { cvFrCallHistoryEntry 3 }
+
+cvFrCallHistorySessionTarget OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session target of the peer that
+         is used for the voice over FR call. A null string indicates 
+         that the value is unavailable."
+    ::= { cvFrCallHistoryEntry 4 }
+
+cvFrCallHistoryGroup OBJECT IDENTIFIER ::= { cvfrdcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the FR Call
+--     capability.
+--  objects
+--    cvFrCallHistoryConnectionId, cvFrCallHistoryDlci, 
+--    cvFrCallHistoryLowerIfName, cvFrCallHistorySessionTarget
+
+cvfrdcMIBCompliance OBJECT IDENTIFIER ::= { cvfrdcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO VOICE FR DIAL CONTROL MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvFrCallHistoryGroup
+
+
+END
+

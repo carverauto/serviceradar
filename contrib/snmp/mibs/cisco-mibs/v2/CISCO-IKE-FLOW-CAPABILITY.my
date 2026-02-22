@@ -1,0 +1,69 @@
+-- *****************************************************************
+-- CISCO-IKE-FLOW-CAPABILITY.my: Cisco IKE Flow Monitoring MIB
+--                             AGENT-CAPABILITIES
+--
+-- Feb 2006 John Fan
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-IKE-FLOW-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoIkeFlowCapability MODULE-IDENTITY
+        LAST-UPDATED    "200602020000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for
+                 CISCO-IKE-FLOW-MIB."
+                
+        REVISION  "200602020000Z"
+        DESCRIPTION
+                "Initial version of this MIB."
+
+        ::= { ciscoAgentCapability 487 }
+
+--
+-- Agent capability for SanOS 3.0 (on MDS 9000 Platform)
+--
+ciscoIkeFlowCapSanOSV30R1MDS9000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco SanOS 3.0(1) on Cisco MDS 9000 
+                     series devices."
+    STATUS          current
+    DESCRIPTION     "Cisco IKE Flow Monitoring
+                     MIB capabilities"
+
+    SUPPORTS        CISCO-IKE-FLOW-MIB
+    INCLUDES        {
+                        ciscoIkeFlowActivityGroup,
+                        cifIkeFlowNewGroupGroup,
+                        cifIkeFlowXauthGroup,
+                        cifIkeFlowModeConfigGroup,
+                        cifIkeFlowHistoryGroup,
+                        cifIkeFlowNewGroupHistoryGroup,
+                        cifIkeFlowModeConfigHistoryGroup
+                    }
+    ::= { ciscoIkeFlowCapability 1 }
+
+END

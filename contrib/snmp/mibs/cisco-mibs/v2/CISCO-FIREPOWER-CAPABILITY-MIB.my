@@ -1,0 +1,2062 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-CAPABILITY-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- CAPABILITY management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-CAPABILITY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprCapabilityAdminState,
+    CfprCapabilityCatalogueFsmCurrentFsm,
+    CfprCapabilityCatalogueFsmStageName,
+    CfprCapabilityCatalogueFsmTaskItem,
+    CfprCapabilityFeatureStatus,
+    CfprCapabilityMgmtExtensionFsmCurrentFsm,
+    CfprCapabilityMgmtExtensionFsmStageName,
+    CfprCapabilityMgmtExtensionFsmTaskItem,
+    CfprCapabilityOperStatus,
+    CfprCapabilityPlatform,
+    CfprCapabilityUpdaterFsmCurrentFsm,
+    CfprCapabilityUpdaterFsmStageName,
+    CfprCapabilityUpdaterFsmTaskItem,
+    CfprConditionRemoteInvRslt,
+    CfprFirmwareTransport,
+    CfprFsmCompletion,
+    CfprFsmFlags,
+    CfprFsmFsmStageStatus
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprCapabilityObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        CAPABILITY management information model package"
+    ::= { ciscoFirepowerMIBObjects 8 }
+
+cfprCapabilityCatalogueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityCatalogueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue managed object table"
+    ::= { cfprCapabilityObjects 1 }
+
+cfprCapabilityCatalogueEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityCatalogueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityCatalogueTable table."
+    INDEX { cfprCapabilityCatalogueInstanceId }
+    ::= { cfprCapabilityCatalogueTable 1 }
+
+CfprCapabilityCatalogueEntry ::= SEQUENCE {
+    cfprCapabilityCatalogueInstanceId                                CfprManagedObjectId,
+    cfprCapabilityCatalogueDn                                        CfprManagedObjectDn,
+    cfprCapabilityCatalogueRn                                        SnmpAdminString,
+    cfprCapabilityCatalogueFileParseFailures                         Gauge32,
+    cfprCapabilityCatalogueFilesParsed                               Gauge32,
+    cfprCapabilityCatalogueFsmDescr                                  SnmpAdminString,
+    cfprCapabilityCatalogueFsmPrev                                   SnmpAdminString,
+    cfprCapabilityCatalogueFsmProgr                                  Gauge32,
+    cfprCapabilityCatalogueFsmRmtInvErrCode                          Gauge32,
+    cfprCapabilityCatalogueFsmRmtInvErrDescr                         SnmpAdminString,
+    cfprCapabilityCatalogueFsmRmtInvRslt                             CfprConditionRemoteInvRslt,
+    cfprCapabilityCatalogueFsmStageDescr                             SnmpAdminString,
+    cfprCapabilityCatalogueFsmStamp                                  DateAndTime,
+    cfprCapabilityCatalogueFsmStatus                                 SnmpAdminString,
+    cfprCapabilityCatalogueFsmTry                                    Gauge32,
+    cfprCapabilityCatalogueLoadErrors                                Gauge32,
+    cfprCapabilityCatalogueLoadWarnings                              Gauge32,
+    cfprCapabilityCatalogueProviderLoadFailures                      Gauge32,
+    cfprCapabilityCatalogueProvidersLoaded                           Gauge32,
+    cfprCapabilityCatalogueVersion                                   SnmpAdminString,
+    cfprCapabilityCatalogueBiosTokenVersion                          SnmpAdminString
+}
+
+cfprCapabilityCatalogueInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityCatalogueEntry 1 }
+
+cfprCapabilityCatalogueDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:dn managed object property"
+    ::= { cfprCapabilityCatalogueEntry 2 }
+
+cfprCapabilityCatalogueRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:rn managed object property"
+    ::= { cfprCapabilityCatalogueEntry 3 }
+
+cfprCapabilityCatalogueFileParseFailures OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fileParseFailures
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 4 }
+
+cfprCapabilityCatalogueFilesParsed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:filesParsed
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 5 }
+
+cfprCapabilityCatalogueFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmDescr
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 6 }
+
+cfprCapabilityCatalogueFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmPrev managed
+        object property"
+    ::= { cfprCapabilityCatalogueEntry 7 }
+
+cfprCapabilityCatalogueFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmProgr
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 8 }
+
+cfprCapabilityCatalogueFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 9 }
+
+cfprCapabilityCatalogueFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 10 }
+
+cfprCapabilityCatalogueFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 11 }
+
+cfprCapabilityCatalogueFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmStageDescr
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 12 }
+
+cfprCapabilityCatalogueFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmStamp
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 13 }
+
+cfprCapabilityCatalogueFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmStatus
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 14 }
+
+cfprCapabilityCatalogueFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:fsmTry managed
+        object property"
+    ::= { cfprCapabilityCatalogueEntry 15 }
+
+cfprCapabilityCatalogueLoadErrors OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:loadErrors
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 16 }
+
+cfprCapabilityCatalogueLoadWarnings OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:loadWarnings
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 17 }
+
+cfprCapabilityCatalogueProviderLoadFailures OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:providerLoadFailures
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 18 }
+
+cfprCapabilityCatalogueProvidersLoaded OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:providersLoaded
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 19 }
+
+cfprCapabilityCatalogueVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:version managed
+        object property"
+    ::= { cfprCapabilityCatalogueEntry 20 }
+
+cfprCapabilityCatalogueBiosTokenVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Catalogue:biosTokenVersion
+        managed object property"
+    ::= { cfprCapabilityCatalogueEntry 21 }
+
+cfprCapabilityCatalogueFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityCatalogueFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm managed object table"
+    ::= { cfprCapabilityObjects 2 }
+
+cfprCapabilityCatalogueFsmEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityCatalogueFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityCatalogueFsmTable table."
+    INDEX { cfprCapabilityCatalogueFsmInstanceId }
+    ::= { cfprCapabilityCatalogueFsmTable 1 }
+
+CfprCapabilityCatalogueFsmEntry ::= SEQUENCE {
+    cfprCapabilityCatalogueFsmInstanceId                             CfprManagedObjectId,
+    cfprCapabilityCatalogueFsmDn                                     CfprManagedObjectDn,
+    cfprCapabilityCatalogueFsmRn                                     SnmpAdminString,
+    cfprCapabilityCatalogueFsmCompletionTime                         DateAndTime,
+    cfprCapabilityCatalogueFsmCurrentFsm                             CfprCapabilityCatalogueFsmCurrentFsm,
+    cfprCapabilityCatalogueFsmDescrData                              SnmpAdminString,
+    cfprCapabilityCatalogueFsmFsmStatus                              CfprFsmFsmStageStatus,
+    cfprCapabilityCatalogueFsmProgress                               Gauge32,
+    cfprCapabilityCatalogueFsmRmtErrCode                             Gauge32,
+    cfprCapabilityCatalogueFsmRmtErrDescr                            SnmpAdminString,
+    cfprCapabilityCatalogueFsmRmtRslt                                CfprConditionRemoteInvRslt
+}
+
+cfprCapabilityCatalogueFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityCatalogueFsmEntry 1 }
+
+cfprCapabilityCatalogueFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:dn managed
+        object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 2 }
+
+cfprCapabilityCatalogueFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:rn managed
+        object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 3 }
+
+cfprCapabilityCatalogueFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:completionTime
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 4 }
+
+cfprCapabilityCatalogueFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprCapabilityCatalogueFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:currentFsm
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 5 }
+
+cfprCapabilityCatalogueFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:descr
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 6 }
+
+cfprCapabilityCatalogueFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:fsmStatus
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 7 }
+
+cfprCapabilityCatalogueFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:progress
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 8 }
+
+cfprCapabilityCatalogueFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:rmtErrCode
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 9 }
+
+cfprCapabilityCatalogueFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 10 }
+
+cfprCapabilityCatalogueFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsm:rmtRslt
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmEntry 11 }
+
+cfprCapabilityCatalogueFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityCatalogueFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage managed
+        object table"
+    ::= { cfprCapabilityObjects 3 }
+
+cfprCapabilityCatalogueFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityCatalogueFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityCatalogueFsmStageTable table."
+    INDEX { cfprCapabilityCatalogueFsmStageInstanceId }
+    ::= { cfprCapabilityCatalogueFsmStageTable 1 }
+
+CfprCapabilityCatalogueFsmStageEntry ::= SEQUENCE {
+    cfprCapabilityCatalogueFsmStageInstanceId                        CfprManagedObjectId,
+    cfprCapabilityCatalogueFsmStageDn                                CfprManagedObjectDn,
+    cfprCapabilityCatalogueFsmStageRn                                SnmpAdminString,
+    cfprCapabilityCatalogueFsmStageDescrData                         SnmpAdminString,
+    cfprCapabilityCatalogueFsmStageLastUpdateTime                    DateAndTime,
+    cfprCapabilityCatalogueFsmStageName                              CfprCapabilityCatalogueFsmStageName,
+    cfprCapabilityCatalogueFsmStageOrder                             Gauge32,
+    cfprCapabilityCatalogueFsmStageRetry                             Gauge32,
+    cfprCapabilityCatalogueFsmStageStageStatus                       CfprFsmFsmStageStatus
+}
+
+cfprCapabilityCatalogueFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityCatalogueFsmStageEntry 1 }
+
+cfprCapabilityCatalogueFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:dn
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 2 }
+
+cfprCapabilityCatalogueFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:rn
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 3 }
+
+cfprCapabilityCatalogueFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:descr
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 4 }
+
+cfprCapabilityCatalogueFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 5 }
+
+cfprCapabilityCatalogueFsmStageName OBJECT-TYPE
+    SYNTAX       CfprCapabilityCatalogueFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:name
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 6 }
+
+cfprCapabilityCatalogueFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:order
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 7 }
+
+cfprCapabilityCatalogueFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:retry
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 8 }
+
+cfprCapabilityCatalogueFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmStage:stageStatus
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmStageEntry 9 }
+
+cfprCapabilityCatalogueFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityCatalogueFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmTask managed object table"
+    ::= { cfprCapabilityObjects 4 }
+
+cfprCapabilityCatalogueFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityCatalogueFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityCatalogueFsmTaskTable table."
+    INDEX { cfprCapabilityCatalogueFsmTaskInstanceId }
+    ::= { cfprCapabilityCatalogueFsmTaskTable 1 }
+
+CfprCapabilityCatalogueFsmTaskEntry ::= SEQUENCE {
+    cfprCapabilityCatalogueFsmTaskInstanceId                         CfprManagedObjectId,
+    cfprCapabilityCatalogueFsmTaskDn                                 CfprManagedObjectDn,
+    cfprCapabilityCatalogueFsmTaskRn                                 SnmpAdminString,
+    cfprCapabilityCatalogueFsmTaskCompletion                         CfprFsmCompletion,
+    cfprCapabilityCatalogueFsmTaskFlags                              CfprFsmFlags,
+    cfprCapabilityCatalogueFsmTaskItem                               CfprCapabilityCatalogueFsmTaskItem,
+    cfprCapabilityCatalogueFsmTaskSeqId                              Gauge32
+}
+
+cfprCapabilityCatalogueFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityCatalogueFsmTaskEntry 1 }
+
+cfprCapabilityCatalogueFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmTask:dn
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmTaskEntry 2 }
+
+cfprCapabilityCatalogueFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmTask:rn
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmTaskEntry 3 }
+
+cfprCapabilityCatalogueFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmTask:completion
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmTaskEntry 4 }
+
+cfprCapabilityCatalogueFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmTask:flags
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmTaskEntry 5 }
+
+cfprCapabilityCatalogueFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprCapabilityCatalogueFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmTask:item
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmTaskEntry 6 }
+
+cfprCapabilityCatalogueFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:CatalogueFsmTask:seqId
+        managed object property"
+    ::= { cfprCapabilityCatalogueFsmTaskEntry 7 }
+
+cfprCapabilityEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:Ep managed object table"
+    ::= { cfprCapabilityObjects 5 }
+
+cfprCapabilityEpEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityEpTable table."
+    INDEX { cfprCapabilityEpInstanceId }
+    ::= { cfprCapabilityEpTable 1 }
+
+CfprCapabilityEpEntry ::= SEQUENCE {
+    cfprCapabilityEpInstanceId                                       CfprManagedObjectId,
+    cfprCapabilityEpDn                                               CfprManagedObjectDn,
+    cfprCapabilityEpRn                                               SnmpAdminString
+}
+
+cfprCapabilityEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityEpEntry 1 }
+
+cfprCapabilityEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Ep:dn managed object property"
+    ::= { cfprCapabilityEpEntry 2 }
+
+cfprCapabilityEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Ep:rn managed object property"
+    ::= { cfprCapabilityEpEntry 3 }
+
+cfprCapabilityFeatureLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityFeatureLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits managed object table"
+    ::= { cfprCapabilityObjects 6 }
+
+cfprCapabilityFeatureLimitsEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityFeatureLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityFeatureLimitsTable table."
+    INDEX { cfprCapabilityFeatureLimitsInstanceId }
+    ::= { cfprCapabilityFeatureLimitsTable 1 }
+
+CfprCapabilityFeatureLimitsEntry ::= SEQUENCE {
+    cfprCapabilityFeatureLimitsInstanceId                            CfprManagedObjectId,
+    cfprCapabilityFeatureLimitsDn                                    CfprManagedObjectDn,
+    cfprCapabilityFeatureLimitsRn                                    SnmpAdminString,
+    cfprCapabilityFeatureLimitsDescr                                 SnmpAdminString,
+    cfprCapabilityFeatureLimitsFeatureStatus                         CfprCapabilityFeatureStatus,
+    cfprCapabilityFeatureLimitsLimit                                 Gauge32,
+    cfprCapabilityFeatureLimitsName                                  SnmpAdminString,
+    cfprCapabilityFeatureLimitsPlatform                              CfprCapabilityPlatform
+}
+
+cfprCapabilityFeatureLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityFeatureLimitsEntry 1 }
+
+cfprCapabilityFeatureLimitsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits:dn managed
+        object property"
+    ::= { cfprCapabilityFeatureLimitsEntry 2 }
+
+cfprCapabilityFeatureLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits:rn managed
+        object property"
+    ::= { cfprCapabilityFeatureLimitsEntry 3 }
+
+cfprCapabilityFeatureLimitsDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits:descr
+        managed object property"
+    ::= { cfprCapabilityFeatureLimitsEntry 4 }
+
+cfprCapabilityFeatureLimitsFeatureStatus OBJECT-TYPE
+    SYNTAX       CfprCapabilityFeatureStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits:featureStatus
+        managed object property"
+    ::= { cfprCapabilityFeatureLimitsEntry 5 }
+
+cfprCapabilityFeatureLimitsLimit OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits:limit
+        managed object property"
+    ::= { cfprCapabilityFeatureLimitsEntry 6 }
+
+cfprCapabilityFeatureLimitsName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits:name
+        managed object property"
+    ::= { cfprCapabilityFeatureLimitsEntry 7 }
+
+cfprCapabilityFeatureLimitsPlatform OBJECT-TYPE
+    SYNTAX       CfprCapabilityPlatform
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:FeatureLimits:platform
+        managed object property"
+    ::= { cfprCapabilityFeatureLimitsEntry 8 }
+
+cfprCapabilityMgmtExtensionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityMgmtExtensionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension managed object table"
+    ::= { cfprCapabilityObjects 7 }
+
+cfprCapabilityMgmtExtensionEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityMgmtExtensionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityMgmtExtensionTable table."
+    INDEX { cfprCapabilityMgmtExtensionInstanceId }
+    ::= { cfprCapabilityMgmtExtensionTable 1 }
+
+CfprCapabilityMgmtExtensionEntry ::= SEQUENCE {
+    cfprCapabilityMgmtExtensionInstanceId                            CfprManagedObjectId,
+    cfprCapabilityMgmtExtensionDn                                    CfprManagedObjectDn,
+    cfprCapabilityMgmtExtensionRn                                    SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmDescr                              SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmPrev                               SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmProgr                              Gauge32,
+    cfprCapabilityMgmtExtensionFsmRmtInvErrCode                      Gauge32,
+    cfprCapabilityMgmtExtensionFsmRmtInvErrDescr                     SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmRmtInvRslt                         CfprConditionRemoteInvRslt,
+    cfprCapabilityMgmtExtensionFsmStageDescr                         SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmStamp                              DateAndTime,
+    cfprCapabilityMgmtExtensionFsmStatus                             SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmTry                                Gauge32
+}
+
+cfprCapabilityMgmtExtensionInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityMgmtExtensionEntry 1 }
+
+cfprCapabilityMgmtExtensionDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:dn managed
+        object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 2 }
+
+cfprCapabilityMgmtExtensionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:rn managed
+        object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 3 }
+
+cfprCapabilityMgmtExtensionFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmDescr
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 4 }
+
+cfprCapabilityMgmtExtensionFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmPrev
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 5 }
+
+cfprCapabilityMgmtExtensionFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmProgr
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 6 }
+
+cfprCapabilityMgmtExtensionFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 7 }
+
+cfprCapabilityMgmtExtensionFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 8 }
+
+cfprCapabilityMgmtExtensionFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 9 }
+
+cfprCapabilityMgmtExtensionFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmStageDescr
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 10 }
+
+cfprCapabilityMgmtExtensionFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmStamp
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 11 }
+
+cfprCapabilityMgmtExtensionFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmStatus
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 12 }
+
+cfprCapabilityMgmtExtensionFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtension:fsmTry
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionEntry 13 }
+
+cfprCapabilityMgmtExtensionFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityMgmtExtensionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm managed object table"
+    ::= { cfprCapabilityObjects 8 }
+
+cfprCapabilityMgmtExtensionFsmEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityMgmtExtensionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityMgmtExtensionFsmTable table."
+    INDEX { cfprCapabilityMgmtExtensionFsmInstanceId }
+    ::= { cfprCapabilityMgmtExtensionFsmTable 1 }
+
+CfprCapabilityMgmtExtensionFsmEntry ::= SEQUENCE {
+    cfprCapabilityMgmtExtensionFsmInstanceId                         CfprManagedObjectId,
+    cfprCapabilityMgmtExtensionFsmDn                                 CfprManagedObjectDn,
+    cfprCapabilityMgmtExtensionFsmRn                                 SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmCompletionTime                     DateAndTime,
+    cfprCapabilityMgmtExtensionFsmCurrentFsm                         CfprCapabilityMgmtExtensionFsmCurrentFsm,
+    cfprCapabilityMgmtExtensionFsmDescrData                          SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmFsmStatus                          CfprFsmFsmStageStatus,
+    cfprCapabilityMgmtExtensionFsmProgress                           Gauge32,
+    cfprCapabilityMgmtExtensionFsmRmtErrCode                         Gauge32,
+    cfprCapabilityMgmtExtensionFsmRmtErrDescr                        SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmRmtRslt                            CfprConditionRemoteInvRslt
+}
+
+cfprCapabilityMgmtExtensionFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 1 }
+
+cfprCapabilityMgmtExtensionFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:dn
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 2 }
+
+cfprCapabilityMgmtExtensionFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:rn
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 3 }
+
+cfprCapabilityMgmtExtensionFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:completionTime
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 4 }
+
+cfprCapabilityMgmtExtensionFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprCapabilityMgmtExtensionFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:currentFsm
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 5 }
+
+cfprCapabilityMgmtExtensionFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:descr
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 6 }
+
+cfprCapabilityMgmtExtensionFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:fsmStatus
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 7 }
+
+cfprCapabilityMgmtExtensionFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:progress
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 8 }
+
+cfprCapabilityMgmtExtensionFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:rmtErrCode
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 9 }
+
+cfprCapabilityMgmtExtensionFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 10 }
+
+cfprCapabilityMgmtExtensionFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsm:rmtRslt
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmEntry 11 }
+
+cfprCapabilityMgmtExtensionFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityMgmtExtensionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage
+        managed object table"
+    ::= { cfprCapabilityObjects 9 }
+
+cfprCapabilityMgmtExtensionFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityMgmtExtensionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityMgmtExtensionFsmStageTable table."
+    INDEX { cfprCapabilityMgmtExtensionFsmStageInstanceId }
+    ::= { cfprCapabilityMgmtExtensionFsmStageTable 1 }
+
+CfprCapabilityMgmtExtensionFsmStageEntry ::= SEQUENCE {
+    cfprCapabilityMgmtExtensionFsmStageInstanceId                    CfprManagedObjectId,
+    cfprCapabilityMgmtExtensionFsmStageDn                            CfprManagedObjectDn,
+    cfprCapabilityMgmtExtensionFsmStageRn                            SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmStageDescrData                     SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmStageLastUpdateTime                DateAndTime,
+    cfprCapabilityMgmtExtensionFsmStageName                          CfprCapabilityMgmtExtensionFsmStageName,
+    cfprCapabilityMgmtExtensionFsmStageOrder                         Gauge32,
+    cfprCapabilityMgmtExtensionFsmStageRetry                         Gauge32,
+    cfprCapabilityMgmtExtensionFsmStageStageStatus                   CfprFsmFsmStageStatus
+}
+
+cfprCapabilityMgmtExtensionFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 1 }
+
+cfprCapabilityMgmtExtensionFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:dn
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 2 }
+
+cfprCapabilityMgmtExtensionFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:rn
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 3 }
+
+cfprCapabilityMgmtExtensionFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:descr
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 4 }
+
+cfprCapabilityMgmtExtensionFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 5 }
+
+cfprCapabilityMgmtExtensionFsmStageName OBJECT-TYPE
+    SYNTAX       CfprCapabilityMgmtExtensionFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:name
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 6 }
+
+cfprCapabilityMgmtExtensionFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:order
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 7 }
+
+cfprCapabilityMgmtExtensionFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:retry
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 8 }
+
+cfprCapabilityMgmtExtensionFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmStage:stageStatus
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmStageEntry 9 }
+
+cfprCapabilityMgmtExtensionFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityMgmtExtensionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmTask
+        managed object table"
+    ::= { cfprCapabilityObjects 10 }
+
+cfprCapabilityMgmtExtensionFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityMgmtExtensionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityMgmtExtensionFsmTaskTable table."
+    INDEX { cfprCapabilityMgmtExtensionFsmTaskInstanceId }
+    ::= { cfprCapabilityMgmtExtensionFsmTaskTable 1 }
+
+CfprCapabilityMgmtExtensionFsmTaskEntry ::= SEQUENCE {
+    cfprCapabilityMgmtExtensionFsmTaskInstanceId                     CfprManagedObjectId,
+    cfprCapabilityMgmtExtensionFsmTaskDn                             CfprManagedObjectDn,
+    cfprCapabilityMgmtExtensionFsmTaskRn                             SnmpAdminString,
+    cfprCapabilityMgmtExtensionFsmTaskCompletion                     CfprFsmCompletion,
+    cfprCapabilityMgmtExtensionFsmTaskFlags                          CfprFsmFlags,
+    cfprCapabilityMgmtExtensionFsmTaskItem                           CfprCapabilityMgmtExtensionFsmTaskItem,
+    cfprCapabilityMgmtExtensionFsmTaskSeqId                          Gauge32
+}
+
+cfprCapabilityMgmtExtensionFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityMgmtExtensionFsmTaskEntry 1 }
+
+cfprCapabilityMgmtExtensionFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmTask:dn
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmTaskEntry 2 }
+
+cfprCapabilityMgmtExtensionFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmTask:rn
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmTaskEntry 3 }
+
+cfprCapabilityMgmtExtensionFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmTask:completion
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmTaskEntry 4 }
+
+cfprCapabilityMgmtExtensionFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmTask:flags
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmTaskEntry 5 }
+
+cfprCapabilityMgmtExtensionFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprCapabilityMgmtExtensionFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmTask:item
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmTaskEntry 6 }
+
+cfprCapabilityMgmtExtensionFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:MgmtExtensionFsmTask:seqId
+        managed object property"
+    ::= { cfprCapabilityMgmtExtensionFsmTaskEntry 7 }
+
+cfprCapabilityNetworkLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityNetworkLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:NetworkLimits managed object table"
+    ::= { cfprCapabilityObjects 11 }
+
+cfprCapabilityNetworkLimitsEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityNetworkLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityNetworkLimitsTable table."
+    INDEX { cfprCapabilityNetworkLimitsInstanceId }
+    ::= { cfprCapabilityNetworkLimitsTable 1 }
+
+CfprCapabilityNetworkLimitsEntry ::= SEQUENCE {
+    cfprCapabilityNetworkLimitsInstanceId                            CfprManagedObjectId,
+    cfprCapabilityNetworkLimitsDn                                    CfprManagedObjectDn,
+    cfprCapabilityNetworkLimitsRn                                    SnmpAdminString
+}
+
+cfprCapabilityNetworkLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityNetworkLimitsEntry 1 }
+
+cfprCapabilityNetworkLimitsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:NetworkLimits:dn managed
+        object property"
+    ::= { cfprCapabilityNetworkLimitsEntry 2 }
+
+cfprCapabilityNetworkLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:NetworkLimits:rn managed
+        object property"
+    ::= { cfprCapabilityNetworkLimitsEntry 3 }
+
+cfprCapabilityStorageLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityStorageLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:StorageLimits managed object table"
+    ::= { cfprCapabilityObjects 12 }
+
+cfprCapabilityStorageLimitsEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityStorageLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityStorageLimitsTable table."
+    INDEX { cfprCapabilityStorageLimitsInstanceId }
+    ::= { cfprCapabilityStorageLimitsTable 1 }
+
+CfprCapabilityStorageLimitsEntry ::= SEQUENCE {
+    cfprCapabilityStorageLimitsInstanceId                            CfprManagedObjectId,
+    cfprCapabilityStorageLimitsDn                                    CfprManagedObjectDn,
+    cfprCapabilityStorageLimitsRn                                    SnmpAdminString
+}
+
+cfprCapabilityStorageLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityStorageLimitsEntry 1 }
+
+cfprCapabilityStorageLimitsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:StorageLimits:dn managed
+        object property"
+    ::= { cfprCapabilityStorageLimitsEntry 2 }
+
+cfprCapabilityStorageLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:StorageLimits:rn managed
+        object property"
+    ::= { cfprCapabilityStorageLimitsEntry 3 }
+
+cfprCapabilitySystemLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilitySystemLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:SystemLimits managed object table"
+    ::= { cfprCapabilityObjects 13 }
+
+cfprCapabilitySystemLimitsEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilitySystemLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilitySystemLimitsTable table."
+    INDEX { cfprCapabilitySystemLimitsInstanceId }
+    ::= { cfprCapabilitySystemLimitsTable 1 }
+
+CfprCapabilitySystemLimitsEntry ::= SEQUENCE {
+    cfprCapabilitySystemLimitsInstanceId                             CfprManagedObjectId,
+    cfprCapabilitySystemLimitsDn                                     CfprManagedObjectDn,
+    cfprCapabilitySystemLimitsRn                                     SnmpAdminString
+}
+
+cfprCapabilitySystemLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilitySystemLimitsEntry 1 }
+
+cfprCapabilitySystemLimitsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:SystemLimits:dn managed
+        object property"
+    ::= { cfprCapabilitySystemLimitsEntry 2 }
+
+cfprCapabilitySystemLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:SystemLimits:rn managed
+        object property"
+    ::= { cfprCapabilitySystemLimitsEntry 3 }
+
+cfprCapabilityUpdateTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityUpdateEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:Update managed object table"
+    ::= { cfprCapabilityObjects 14 }
+
+cfprCapabilityUpdateEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityUpdateEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityUpdateTable table."
+    INDEX { cfprCapabilityUpdateInstanceId }
+    ::= { cfprCapabilityUpdateTable 1 }
+
+CfprCapabilityUpdateEntry ::= SEQUENCE {
+    cfprCapabilityUpdateInstanceId                                   CfprManagedObjectId,
+    cfprCapabilityUpdateDn                                           CfprManagedObjectDn,
+    cfprCapabilityUpdateRn                                           SnmpAdminString,
+    cfprCapabilityUpdateImageName                                    SnmpAdminString,
+    cfprCapabilityUpdateUpdateTs                                     DateAndTime,
+    cfprCapabilityUpdateVersion                                      SnmpAdminString
+}
+
+cfprCapabilityUpdateInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityUpdateEntry 1 }
+
+cfprCapabilityUpdateDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Update:dn managed object property"
+    ::= { cfprCapabilityUpdateEntry 2 }
+
+cfprCapabilityUpdateRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Update:rn managed object property"
+    ::= { cfprCapabilityUpdateEntry 3 }
+
+cfprCapabilityUpdateImageName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Update:imageName managed
+        object property"
+    ::= { cfprCapabilityUpdateEntry 4 }
+
+cfprCapabilityUpdateUpdateTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Update:updateTs managed
+        object property"
+    ::= { cfprCapabilityUpdateEntry 5 }
+
+cfprCapabilityUpdateVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Update:version managed
+        object property"
+    ::= { cfprCapabilityUpdateEntry 6 }
+
+cfprCapabilityUpdaterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityUpdaterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater managed object table"
+    ::= { cfprCapabilityObjects 15 }
+
+cfprCapabilityUpdaterEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityUpdaterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityUpdaterTable table."
+    INDEX { cfprCapabilityUpdaterInstanceId }
+    ::= { cfprCapabilityUpdaterTable 1 }
+
+CfprCapabilityUpdaterEntry ::= SEQUENCE {
+    cfprCapabilityUpdaterInstanceId                                  CfprManagedObjectId,
+    cfprCapabilityUpdaterDn                                          CfprManagedObjectDn,
+    cfprCapabilityUpdaterRn                                          SnmpAdminString,
+    cfprCapabilityUpdaterAdminState                                  CfprCapabilityAdminState,
+    cfprCapabilityUpdaterFileName                                    SnmpAdminString,
+    cfprCapabilityUpdaterFsmDescr                                    SnmpAdminString,
+    cfprCapabilityUpdaterFsmPrev                                     SnmpAdminString,
+    cfprCapabilityUpdaterFsmProgr                                    Gauge32,
+    cfprCapabilityUpdaterFsmRmtInvErrCode                            Gauge32,
+    cfprCapabilityUpdaterFsmRmtInvErrDescr                           SnmpAdminString,
+    cfprCapabilityUpdaterFsmRmtInvRslt                               CfprConditionRemoteInvRslt,
+    cfprCapabilityUpdaterFsmStageDescr                               SnmpAdminString,
+    cfprCapabilityUpdaterFsmStamp                                    DateAndTime,
+    cfprCapabilityUpdaterFsmStatus                                   SnmpAdminString,
+    cfprCapabilityUpdaterFsmTry                                      Gauge32,
+    cfprCapabilityUpdaterImageName                                   SnmpAdminString,
+    cfprCapabilityUpdaterOperState                                   CfprCapabilityOperStatus,
+    cfprCapabilityUpdaterProtocol                                    CfprFirmwareTransport,
+    cfprCapabilityUpdaterPwd                                         SnmpAdminString,
+    cfprCapabilityUpdaterRemotePath                                  SnmpAdminString,
+    cfprCapabilityUpdaterServer                                      SnmpAdminString,
+    cfprCapabilityUpdaterUser                                        SnmpAdminString,
+    cfprCapabilityUpdaterVersion                                     SnmpAdminString
+}
+
+cfprCapabilityUpdaterInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityUpdaterEntry 1 }
+
+cfprCapabilityUpdaterDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:dn managed object property"
+    ::= { cfprCapabilityUpdaterEntry 2 }
+
+cfprCapabilityUpdaterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:rn managed object property"
+    ::= { cfprCapabilityUpdaterEntry 3 }
+
+cfprCapabilityUpdaterAdminState OBJECT-TYPE
+    SYNTAX       CfprCapabilityAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:adminState
+        managed object property"
+    ::= { cfprCapabilityUpdaterEntry 4 }
+
+cfprCapabilityUpdaterFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fileName managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 5 }
+
+cfprCapabilityUpdaterFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmDescr managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 6 }
+
+cfprCapabilityUpdaterFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmPrev managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 7 }
+
+cfprCapabilityUpdaterFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmProgr managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 8 }
+
+cfprCapabilityUpdaterFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprCapabilityUpdaterEntry 9 }
+
+cfprCapabilityUpdaterFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprCapabilityUpdaterEntry 10 }
+
+cfprCapabilityUpdaterFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprCapabilityUpdaterEntry 11 }
+
+cfprCapabilityUpdaterFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmStageDescr
+        managed object property"
+    ::= { cfprCapabilityUpdaterEntry 12 }
+
+cfprCapabilityUpdaterFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmStamp managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 13 }
+
+cfprCapabilityUpdaterFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmStatus managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 14 }
+
+cfprCapabilityUpdaterFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:fsmTry managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 15 }
+
+cfprCapabilityUpdaterImageName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:imageName managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 16 }
+
+cfprCapabilityUpdaterOperState OBJECT-TYPE
+    SYNTAX       CfprCapabilityOperStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:operState managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 17 }
+
+cfprCapabilityUpdaterProtocol OBJECT-TYPE
+    SYNTAX       CfprFirmwareTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:protocol managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 18 }
+
+cfprCapabilityUpdaterPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:pwd managed object property"
+    ::= { cfprCapabilityUpdaterEntry 19 }
+
+cfprCapabilityUpdaterRemotePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:remotePath
+        managed object property"
+    ::= { cfprCapabilityUpdaterEntry 20 }
+
+cfprCapabilityUpdaterServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:server managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 21 }
+
+cfprCapabilityUpdaterUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:user managed object property"
+    ::= { cfprCapabilityUpdaterEntry 22 }
+
+cfprCapabilityUpdaterVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:Updater:version managed
+        object property"
+    ::= { cfprCapabilityUpdaterEntry 23 }
+
+cfprCapabilityUpdaterFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityUpdaterFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm managed object table"
+    ::= { cfprCapabilityObjects 16 }
+
+cfprCapabilityUpdaterFsmEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityUpdaterFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityUpdaterFsmTable table."
+    INDEX { cfprCapabilityUpdaterFsmInstanceId }
+    ::= { cfprCapabilityUpdaterFsmTable 1 }
+
+CfprCapabilityUpdaterFsmEntry ::= SEQUENCE {
+    cfprCapabilityUpdaterFsmInstanceId                               CfprManagedObjectId,
+    cfprCapabilityUpdaterFsmDn                                       CfprManagedObjectDn,
+    cfprCapabilityUpdaterFsmRn                                       SnmpAdminString,
+    cfprCapabilityUpdaterFsmCompletionTime                           DateAndTime,
+    cfprCapabilityUpdaterFsmCurrentFsm                               CfprCapabilityUpdaterFsmCurrentFsm,
+    cfprCapabilityUpdaterFsmDescrData                                SnmpAdminString,
+    cfprCapabilityUpdaterFsmFsmStatus                                CfprFsmFsmStageStatus,
+    cfprCapabilityUpdaterFsmProgress                                 Gauge32,
+    cfprCapabilityUpdaterFsmRmtErrCode                               Gauge32,
+    cfprCapabilityUpdaterFsmRmtErrDescr                              SnmpAdminString,
+    cfprCapabilityUpdaterFsmRmtRslt                                  CfprConditionRemoteInvRslt
+}
+
+cfprCapabilityUpdaterFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityUpdaterFsmEntry 1 }
+
+cfprCapabilityUpdaterFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:dn managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 2 }
+
+cfprCapabilityUpdaterFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:rn managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 3 }
+
+cfprCapabilityUpdaterFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:completionTime
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 4 }
+
+cfprCapabilityUpdaterFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprCapabilityUpdaterFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:currentFsm
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 5 }
+
+cfprCapabilityUpdaterFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:descr managed
+        object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 6 }
+
+cfprCapabilityUpdaterFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:fsmStatus
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 7 }
+
+cfprCapabilityUpdaterFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:progress
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 8 }
+
+cfprCapabilityUpdaterFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:rmtErrCode
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 9 }
+
+cfprCapabilityUpdaterFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 10 }
+
+cfprCapabilityUpdaterFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsm:rmtRslt
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmEntry 11 }
+
+cfprCapabilityUpdaterFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityUpdaterFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage managed object table"
+    ::= { cfprCapabilityObjects 17 }
+
+cfprCapabilityUpdaterFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityUpdaterFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityUpdaterFsmStageTable table."
+    INDEX { cfprCapabilityUpdaterFsmStageInstanceId }
+    ::= { cfprCapabilityUpdaterFsmStageTable 1 }
+
+CfprCapabilityUpdaterFsmStageEntry ::= SEQUENCE {
+    cfprCapabilityUpdaterFsmStageInstanceId                          CfprManagedObjectId,
+    cfprCapabilityUpdaterFsmStageDn                                  CfprManagedObjectDn,
+    cfprCapabilityUpdaterFsmStageRn                                  SnmpAdminString,
+    cfprCapabilityUpdaterFsmStageDescrData                           SnmpAdminString,
+    cfprCapabilityUpdaterFsmStageLastUpdateTime                      DateAndTime,
+    cfprCapabilityUpdaterFsmStageName                                CfprCapabilityUpdaterFsmStageName,
+    cfprCapabilityUpdaterFsmStageOrder                               Gauge32,
+    cfprCapabilityUpdaterFsmStageRetry                               Gauge32,
+    cfprCapabilityUpdaterFsmStageStageStatus                         CfprFsmFsmStageStatus
+}
+
+cfprCapabilityUpdaterFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityUpdaterFsmStageEntry 1 }
+
+cfprCapabilityUpdaterFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:dn
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 2 }
+
+cfprCapabilityUpdaterFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:rn
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 3 }
+
+cfprCapabilityUpdaterFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:descr
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 4 }
+
+cfprCapabilityUpdaterFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 5 }
+
+cfprCapabilityUpdaterFsmStageName OBJECT-TYPE
+    SYNTAX       CfprCapabilityUpdaterFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:name
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 6 }
+
+cfprCapabilityUpdaterFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:order
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 7 }
+
+cfprCapabilityUpdaterFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:retry
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 8 }
+
+cfprCapabilityUpdaterFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmStage:stageStatus
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmStageEntry 9 }
+
+cfprCapabilityUpdaterFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCapabilityUpdaterFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmTask managed object table"
+    ::= { cfprCapabilityObjects 18 }
+
+cfprCapabilityUpdaterFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprCapabilityUpdaterFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCapabilityUpdaterFsmTaskTable table."
+    INDEX { cfprCapabilityUpdaterFsmTaskInstanceId }
+    ::= { cfprCapabilityUpdaterFsmTaskTable 1 }
+
+CfprCapabilityUpdaterFsmTaskEntry ::= SEQUENCE {
+    cfprCapabilityUpdaterFsmTaskInstanceId                           CfprManagedObjectId,
+    cfprCapabilityUpdaterFsmTaskDn                                   CfprManagedObjectDn,
+    cfprCapabilityUpdaterFsmTaskRn                                   SnmpAdminString,
+    cfprCapabilityUpdaterFsmTaskCompletion                           CfprFsmCompletion,
+    cfprCapabilityUpdaterFsmTaskFlags                                CfprFsmFlags,
+    cfprCapabilityUpdaterFsmTaskItem                                 CfprCapabilityUpdaterFsmTaskItem,
+    cfprCapabilityUpdaterFsmTaskSeqId                                Gauge32
+}
+
+cfprCapabilityUpdaterFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCapabilityUpdaterFsmTaskEntry 1 }
+
+cfprCapabilityUpdaterFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmTask:dn managed
+        object property"
+    ::= { cfprCapabilityUpdaterFsmTaskEntry 2 }
+
+cfprCapabilityUpdaterFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmTask:rn managed
+        object property"
+    ::= { cfprCapabilityUpdaterFsmTaskEntry 3 }
+
+cfprCapabilityUpdaterFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmTask:completion
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmTaskEntry 4 }
+
+cfprCapabilityUpdaterFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmTask:flags
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmTaskEntry 5 }
+
+cfprCapabilityUpdaterFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprCapabilityUpdaterFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmTask:item
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmTaskEntry 6 }
+
+cfprCapabilityUpdaterFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower capability:UpdaterFsmTask:seqId
+        managed object property"
+    ::= { cfprCapabilityUpdaterFsmTaskEntry 7 }
+
+END

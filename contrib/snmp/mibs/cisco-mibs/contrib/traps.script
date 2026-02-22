@@ -1,0 +1,1214 @@
+#!/bin/sh
+# This script adds all known cisco traps to Netview 6000 3.1 & 4.1
+# 12/31/96 Dianne Dunlap (Cisco)
+# Updated 2/15/97 to add 3000 & GrandJunction traps
+# Updated 6/11/97 to delete atm forum traps which were deleted from the mib 
+# Must be run as root
+# Back up both trapd.conf files in 
+# /usr/OV/conf/C/trapd.conf & /usr/OV/conf/trapd.conf
+# before using.
+# This script assumes severity = 1 = indeterminate ($6 in stanza)
+# & event category = "Status Events" ($3 in stanza)
+# These values may be changed prior to running the script
+# See 'man addtrap' for valid Netview values
+# As this script uses the Netview addtrap command, 
+# 'If a trap exists with identical enterprise-object-id,
+# generic-trap, and specific-trap values, the addtrap
+# command updates the existing trap with the new information'.
+# SEE 'man addtrap' !!!!
+
+merge_trap()
+ {
+	enterprise_num=$1
+	enterprise_name=$2
+	event_category="$3"
+	specific=$4
+	severity=$6
+	event_name=$7  
+	description="$8"
+	format="$7 "$9""
+	generic=$5
+	source='A'
+
+	echo "Event $event_name being added"
+	echo 
+
+	/usr/OV/bin/addtrap -n $enterprise_name -l $event_name \
+	-i $enterprise_num -g $generic -s $specific\
+	-S $severity -t 0 \
+	-o $source -c "$event_category" \
+	-F "$format" -D "$description"
+
+#	stanza=
+#	 $enterprise_num  $ent_name $event_cat $specific $generic $severity $event_name
+#	 $description
+#	 $format
+#	hard-coded:
+#	 -t = 0 = defaults = status_type
+#	 -o = A = agent = source
+ }
+
+# Addtrap:
+# -i enterprise_num
+# -n ent_name
+# -g generic_trap 
+# -s specific
+# -c event_cat
+# -o agent
+# -t status_type 
+# -S severity 
+# -l event_name 
+# -D description 
+# -F format
+
+# merge_trap 1.3.6.1.4.1.353 atm-forum "Status Events" 1 6 1 atmfVpcChange \
+# "An atmfVpcChange trap indicates that a VPC is added \
+# or deleted at this UNI. The variables included in the \
+# trap identify the VPI value of the new or deleted \
+# configured VPC at this UNI."  \
+# "trap received from enterprise \$E with \$# arguments: \
+# atmfVpcPortIndex=\$1;  \
+# atmfVpcVpi=\$2;  \
+# atmfVpcOperStatus=\$3"
+
+# merge_trap 1.3.6.1.4.1.353 atm-forum "Status Events" 2 6 1 atmfVccChange \
+# "An \
+# atmfVccChange trap indicates that a VCC is added \
+# or deleted at this UNI. The variables included in the \
+# trap identify the VCI and VPI values of the new or \
+# deleted configured VCC at this UNI."  \
+# "trap received from enterprise \$E with \$# arguments:  \
+# atmfVccPortIndex=\$1;  \
+# atmfVccVci=\$2;  \
+# atmfVccVpi=\$3;  \
+# atmfVccOperStatus=\$4"
+
+merge_trap 1.3.6.1.2.1.15.7 bgp4 "Status Events" 1 6 1 bgpEstablished \
+"The BGP Established event is generated when \
+the BGP FSM enters the ESTABLISHED state."  \
+"trap received from enterprise \$E with \$# arguments:  \
+bgpPeerLastError=\$1;  \
+bgpPeerState=\$2"
+
+merge_trap 1.3.6.1.2.1.15.7 bgp4 "Status Events" 2 6 1 bgpBackwardTransition \
+"The BGPBackwardTransition Event is generated \
+when the BGP FSM moves from a higher numbered \
+state to a lower numbered state."  \
+"trap received from enterprise \$E with \$# arguments: \
+bgpPeerLastError=\$1;  \
+bgpPeerState=\$2"
+
+merge_trap 1.3.6.1.2.1.17 bridge "Status Events" 1 6 1 newRoot \
+"The newRoot trap indicates that the sending agent \
+has become the new root of the Spanning Tree;  the \
+trap is sent by a bridge soon after its election \
+as the new root, e.g., upon expiration of the \
+Topology Change Timer immediately subsequent to \
+its election. Implementation of this trap is \
+optional."  \
+"trap received from enterprise \$E with \$# arguments:"
+
+merge_trap 1.3.6.1.2.1.17 bridge "Status Events" 2 6 1 topologyChange \
+"A topologyChange trap is sent by a bridge when \
+any of its configured ports transitions from the \
+Learning state to the Forwarding state, or from \
+the Forwarding state to the Blocking state. The \
+trap is not sent if a newRoot trap is sent for the \
+same transition. Implementation of this trap is \
+optional."  \
+"trap received from enterprise \$E with \$# arguments:"
+
+merge_trap 1.3.6.1.4.1.9.9.43.2 cisco-config-man "Status Events" 1 6 1 ciscoConfigManEvent \
+"Notification of a configuration management event as \
+recorded in ccmHistoryEventTable."  \
+"trap received from enterprise \$E with \$# arguments: \
+ccmHistoryEventCommandSource=\$1; \
+ccmHistoryEventConfigSource=\$2;  \
+ccmHistoryEventConfigDestination=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.10.9.1.7 cisco-dlsw  "Status Events" 1 6 1 ciscoDlswTrapTConnPartnerReject \
+"This trap is sent each time a transport connection \
+is rejected by a partner DLSw during Capabilities \
+Exchanges."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoDlswTConnOperTDomain=\$1;  \
+ciscoDlswTConnOperRemoteTAddr=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.10.9.1.7 cisco-dlsw "Status Events" 2 6 1 ciscoDlswTrapTConnProtViolation \
+"This trap is sent each time a protocol violation \
+is detected for a transport connection."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoDlswTConnOperTDomain=\$1;  \
+ciscoDlswTConnOperRemoteTAddr=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.10.9.1.7 cisco-dlsw "Status Events" 3 6 1 ciscoDlswTrapTConnUp \
+"This trap is sent each time a transport connection \
+enters connected state."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoDlswTConnOperTDomain=\$1;  \
+ciscoDlswTConnOperRemoteTAddr=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.10.9.1.7 cisco-dlsw "Status Events" 4 6 1 ciscoDlswTrapTConnDown \
+"This trap is sent each time a transport connection \
+enters disconnected state."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoDlswTConnOperTDomain=\$1; \
+ciscoDlswTConnOperRemoteTAddr=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.10.9.1.7 cisco-dlsw "Status Events" 5 6 1 ciscoDlswTrapCircuitUp \
+"This trap is sent each time a circuit enters \
+connected state."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoDlswCircuitS1Mac=\$1;  \
+ciscoDlswCircuitS1Sap=\$2;  \
+ciscoDlswCircuitS2Mac=\$3;  \
+ciscoDlswCircuitS2Sap=\$4"
+ 
+merge_trap 1.3.6.1.4.1.9.10.9.1.7 cisco-dlsw "Status Events" 6 6 1 ciscoDlswTrapCircuitDown \
+"This trap is sent each time a circuit enters \
+disconnected state."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoDlswCircuitS1Mac=\$1;  \
+ciscoDlswCircuitS1Sap=\$2;  \
+ciscoDlswCircuitS2Mac=\$3;  \
+ciscoDlswCircuitS2Sap=\$4"
+ 
+merge_trap 1.3.6.1.4.1.9.9.24.1.4.4 cisco-dspu-pu "Status Events" 2 6 1 newdspuPuActivationFailureTrap \
+"Generated whenever a PU activation failure is detected. \
+The following information is returned: \
+ dspuPuOperName \
+ -> PU name , \
+ dspuPuOperState \
+ -> Current operational state of the PU , \
+dspuPuStatsLastActivationFailureReason \
+-> Reason for PU activation failure". \
+"trap received from enterprise \$E with \$# arguments:  \
+dspuPuOperName=\$1;  \
+dspuPuOperState=\$2;  \
+dspuPuStatsLastActivationFailureReason=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.9.24.1.4.4 cisco-dspu-pu "Status Events" 1 6 1 newdspuPuStateChangeTrap \
+"Generated when the operational state \
+of the PU changes between active<-->inactive. \
+The following information is returned: \
+dspuPuOperName -> PU name , \
+dspuPuOperState -> Current operational state of the PU". \
+"trap received from enterprise \$E with \$# arguments:  \
+dspuPuOperName=\$1;  \
+dspuPuOperState=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.9.24.1.5.3 cisco-dspu-lu "Status Events" 1 6 1 newdspuLuStateChangeTrap \
+"Generated when the operational state \
+of the LU changes between active<-->inactive. \
+The following information is returned: \
+dspuPuOperName \
+-> PU name , \
+dspuLuOperState \
+-> Current operational state of the LU." \
+"trap received from enterprise \$E with \$# arguments:  \
+dspuPuOperName=\$1;  \
+dspuLuOperState=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.9.24.1.5.3 cisco-dspu-lu "Status Events" 2 6 1 dspuLuActivationFailureTrap \
+"Generated whenever an LU activation failure is detected. \
+The following information is returned: \
+ dspuPuOperName \
+ -> PU name , \
+ dspuLuOperState \
+ -> Current operational state of the LU , \
+ dspuLuOperLastActivationFailureReason \
+ -> Reason for LU activation failure." \
+"trap received from enterprise \$E with \$# arguments:  \
+dspuPuOperName=\$1;  \
+dspuLuOperState=\$2;  \
+dspuLuOperLastActivationFailureReason=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.9.24.1.6.2 cisco-dspu-sap "Status Events" 1 6 1 dspuSapStateChangeTrap \
+"Generated when the operational state of the SAP changes \
+between 'open' or 'closed'. \
+The following information is returned: \
+dspuSapOperDlcType \
+-> DLC type of the adapter on which SAP is located, \
+dspuSapOperDlcUnit \
+-> Unit ID of the adapter on which SAP is located, \
+dspuSapOperDlcPort \
+-> Port ID of the adapter on which SAP is located, \
+dspuSapOperAddress \
+-> SAP address, \
+dspuSapOperState \
+-> Current operational state of the SAP." \
+"trap received from enterprise \$E with \$# arguments:  \
+dspuSapDlcType=\$1;  \
+dspuSapDlcUnit=\$2;  \
+dspuSapDlcPort=\$3;  \
+dspuSapAddress=\$4;  \
+dspuSapOperState=\$5"
+ 
+merge_trap 1.3.6.1.4.1.9.9.13.3 cisco-envmon "Status Events" 1 6 1 ciscoEnvMonShutdownNotification \
+"A ciscoEnvMonShutdownNotification is sent if the environmental \
+monitor detects a testpoint reaching a critical state \
+and is about to initiate a shutdown. This notification \
+contains no objects so that it may be encoded and sent in the \
+shortest amount of time possible. Even so, management \
+applications should not rely on receiving such a notification \
+as it may not be sent before the shutdown completes."  \
+"trap received from enterprise \$E with \$# arguments:  "
+ 
+merge_trap 1.3.6.1.4.1.9.9.13.3 cisco-envmon "Status Events" 2 6 1 ciscoEnvMonVoltageNotification \
+"A ciscoEnvMonVoltageNotification is sent if the voltage \
+measured at a given testpoint is outside the normal range \
+for the testpoint (i.e. is at the warning, critical, or \
+shutdown stage). Since such a notification is usually \
+generated before the shutdown state is reached, it can \
+convey more data and has a better chance of being sent \
+than does the ciscoEnvMonShutdownNotification."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoEnvMonVoltageStatusDescr=\$1;  \
+ciscoEnvMonVoltageStatusValue=\$2;  \
+ciscoEnvMonVoltageState=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.9.13.3 cisco-envmon "Status Events" 4 6 1 ciscoEnvMonFanNotification \
+"A ciscoEnvMonFanNotification is sent if any one of \
+the fans in the fan array (where extant) fails. \
+Since such a notification is usually generated before \
+the shutdown state is reached, it can convey more \
+data and has a better chance of being sent \
+than does the ciscoEnvMonShutdownNotification."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoEnvMonFanStatusDescr=\$1;  \
+ciscoEnvMonFanState=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.9.13.3 cisco-envmon "Status Events" 3 6 1 ciscoEnvMonTemperatureNotification \
+"A ciscoEnvMonTemperatureNotification is sent if the \
+temperature measured at a given testpoint is outside \
+the normal range for the testpoint (i.e. is at the warning, \
+critical, or shutdown stage). Since such a Notification \
+is usually generated before the shutdown state is reached, \
+it can convey more data and has a better chance of being \
+sent than does the ciscoEnvMonShutdownNotification."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoEnvMonTemperatureStatusDescr=\$1;  \
+ciscoEnvMonTemperatureStatusValue=\$2;  \
+ciscoEnvMonTemperatureState=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.9.13.3 cisco-envmon "Status Events" 5 6 1 ciscoEnvMonRedundantSupplyNotification \
+"A ciscoEnvMonRedundantSupplyNotification is sent if \
+the redundant power supply (where extant) fails. \
+Since such a notification is usually generated before \
+the shutdown state is reached, it can convey more \
+data and has a better chance of being sent \
+than does the ciscoEnvMonShutdownNotification."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoEnvMonSupplyStatusDescr=\$1;  \
+ciscoEnvMonSupplyState=\$2"
+ 
+merge_trap 1.3.6..1.4.1.9.9.10.1.3 cisco-flash "Status Events" 1 6 1 ciscoFlashCopyCompletionTrap \
+"A ciscoFlashCopyCompletionTrap is sent at the \
+completion of a flash copy operation if such a trap \
+was requested when the operation was initiated."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoFlashCopyStatus=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.10.1.3 cisco-flash "Status Events" 2 6 1 ciscoFlashPartitioningCompletionTrap \
+"A ciscoFlashPartitioningCompletionTrap is sent at the \
+completion of a partitioning operation if such a trap \
+was requested when the operation was initiated."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoFlashPartitioningStatus=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.10.1.3 cisco-flash "Status Events" 3 6 1 ciscoFlashMiscOpCompletionTrap \
+"A ciscoFlashMiscOpCompletionTrap is sent at the \
+completion of a miscellaneous flash operation \
+(enumerated in ciscoFlashMiscOpCommand) if such a trap \
+was requested when the operation was initiated."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoFlashMiscOpStatus=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.10.1.3 cisco-flash "Status Events" 4 6 1 ciscoFlashDeviceChangeTrap \
+"A ciscoFlashDeviceChangeTrap is sent whenever a \
+removable Flash device is inserted or removed."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoFlashDeviceIndex=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.44.3 cisco-icsudsu "Status Events" 1 6 1 ciscoICsuDsuT1LoopStatusNotification \
+"Indicates a change in T1 Loop Status."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoICsuDsuT1LoopStatus=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.44.3 cisco-icsudsu "Status Events" 2 6 1 ciscoICsuDsuSw56kLoopStatusNotification \
+"Indicates a change in Sw56k Loop Status."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoICsuDsuSw56kLoopStatus=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.26.2 cisco-isdn "Status Events" 2 6 1 demandNbrCallDetails \
+"This trap/inform is sent to the manager whenever a successful \
+call clears, or a failed call attempt is determined to have \
+have ultimately failed. In the event that call retry is active, \
+then this is after all retry attempts have failed. However, \
+only one such trap is sent in between successful call \
+attempts;  subsequent call attempts result in no trap."  \
+"trap received from enterprise \$E with \$# arguments:  \
+demandNbrLogIf=\$1;  \
+demandNbrName=\$2;  \
+demandNbrAddress=\$3;  \
+demandNbrLastDuration=\$4;  \
+demandNbrClearReason=\$5;  \
+demandNbrClearCode=\$6;  \
+demandNbrCallOrigin=\$7"
+ 
+merge_trap 1.3.6.1.4.1.494.4 madgersw "Status Events" 1 6 1 fanPSSpeedFailed \
+"This trap is sent when the Power Supply fan has failed." \
+"trap received from enterprise \$E with \$# arguments:  \
+ringswitchBasePSFanSpeed=\$1"
+
+merge_trap 1.3.6.1.4.1.494.4 madgersw "Status Events" 2 6 1 fanExtSpeedFailed \
+"This trap is sent when the external fan has failed." \
+"trap received from enterprise \$E with \$# arguments:  \
+ringswitchBaseExtFanSpeed=\$1"
+
+merge_trap 1.3.6.1.4.1.494.4 madgersw "Status Events" 3 6 1 portFailed \
+"This trap is sent when a port has auto-closed or \
+ failed to open." \
+"trap received from enterprise \$E with \$# arguments:  \
+ringswitchPortAdapterStatus=\$1"
+
+merge_trap 1.3.6.1.4.1.494.4 madgersw "Status Events" 4 6 1 brTestFailed \
+"This trap is sent when the bridge test on a port \
+ fails." \
+"trap received from enterprise \$E with \$# arguments:  \
+ringswitchPortTestError=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.10.15.2 cisco-oam "Status Events" 1 6 1 oamLoopbackPingCompletionTrap \
+"A oamLoopbackPingCompleted trap is sent at the completion \
+of a sequence of OAM loopback cells if such a trap was \
+requested when the sequence was initiated."  \
+"trap received from enterprise \$E with \$# arguments:  \
+oamLoopbackPingCompleted=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.22.3 cisco-repeater "Status Events" 1 6 1 ciscoRptrIllegalSrcAddrTrap \
+"When the illegal MAC source address violation is \
+detected, the port is partitioned for one minute. \
+In addition, this trap notification is generated. \
+Note: rptrPortGroupIndex, and rptrPortIndex are \
+the instances of ciscoRptrPortLastIllegalSrcAddr."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoRptrPortLastIllegalSrcAddr=\$1"
+ 
+merge_trap 1.3.6.1.2.1.10.32 frame-relay-dte "Status Events" 1 6 1 frDLCIStatusChange \
+"This trap indicates that the indicated Virtual \
+Circuit has changed state. It has either been \
+created or invalidated, or has toggled between \
+the active and inactive states."  \
+"trap received from enterprise \$E with \$# arguments:  \
+frCircuitIfIndex=\$1;  \
+frCircuitDlci=\$2;  \
+frCircuitState=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.5.11.2 cisco-rhino "Status Events" 1 6 1 ciscoLS1010ChassisFailureNotification \
+"Agent detects any chassis failure of \
+ps0, ps1, fan, 12 volt and/or over temperature. \
+The trap will be sent out every 1 minute."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoLS1010ChassisPs0Status=\$1;  \
+ciscoLS1010ChassisPs1Status=\$2;  \
+ciscoLS1010ChassisFanStatus=\$3;  \
+ciscoLS1010Chassis12VoltStatus=\$4;  \
+ciscoLS1010ChassisTempStatus=\$5"
+ 
+merge_trap 1.3.6.1.4.1.9.5.11.2 cisco-rhino "Status Events" 2 6 1 ciscoLS1010ChassisChangeNotification \
+"Agent detects any hot-swappable component change or changes \
+in the chassis." \
+"trap received from enterprise \$E with \$# arguments:" 
+ 
+merge_trap 1.3.6.1.4.1.9.9.28.2 cisco-sdllc "Status Events" 1 6 1 convSdllcPeerStateChangeNotification \
+"This Notification indicates that the state of an SDLLC connection \
+has transitioned to connected or disconnected." \
+"trap received from enterprise \$E with \$# arguments: \
+convSdllcAddrState=\$1"
+ 
+merge_trap 1.3.6.1.2.1.22 snmp-repeater "Status Events" 1 6 1 rptrHealth \
+"The rptrHealth trap conveys information related \
+to the operational status of the repeater. This \
+trap is sent either when the value of \
+rptrOperStatus changes, or upon completion of a \
+non-disruptive test. \
+The rptrHealth trap must contain the \
+rptrOperStatus object. The agent may optionally \
+include the rptrHealthText object in the varBind \
+list. See the rptrOperStatus and rptrHealthText \
+objects for descriptions of the information that \
+is sent. \
+The agent must throttle the generation of \
+consecutive health notification."  \
+"trap received from enterprise \$E with \$# arguments:  \
+rptrOperStatus=\$1"
+ 
+merge_trap 1.3.6.1.2.1.22 snmp-repeater "Status Events" 2 6 1 rptrGroupChange \
+"This trap is sent when a change occurs in the \
+group structure of a repeater. This occurs only \
+when a group is logically or physically removed \
+from or added to a repeater. The varBind list \
+contains the identifier of the group that was \
+removed or added. \
+The agent must throttle the generation of \
+consecutive rptrGroupChange traps for the same \
+group so that there is at least a five-second gap \
+between traps of this type. When traps are \
+throttled, they are dropped, not queued for \
+sending at a future time. (Note that 'generating' \
+a trap means sending to all configured \
+recipients.) \
+Reference IEEE 802.3 Rptr Mgt, 19.2.3.4, \
+groupMapChange notification."  \
+"trap received from enterprise \$E with \$# arguments:  \
+rptrGroupIndex=\$1"
+ 
+merge_trap 1.3.6.1.2.1.22 snmp-repeater "Status Events" 3 6 1 rptrResetEvent \
+"The rptrResetEvent trap conveys information \
+related to the operational status of the repeater. \
+This trap is sent on completion of a repeater \
+reset action. repeater reset action is defined \
+as an a transition to the START state of Fig 9-2 \
+in section 9 [IEEE 802.3 Std], when triggered by a \
+management command (e.g., an SNMP Set on the \
+rptrReset object). \
+The agent must throttle the generation of \
+consecutive rptrResetEvent traps so that there is \
+at least a five-second gap between traps of this \
+type. When traps are throttled, they are dropped, \
+not queued for sending at a future time. (Note \
+that 'generating' a trap means sending to all \
+configured recipients.) \
+The rptrResetEvent trap is not sent when the agent \
+restarts and sends an SNMP coldStart or warmStart \
+trap. However, it is recommended that a repeater \
+agent send the rptrOperStatus object as an \
+optional object with its coldStart and warmStart \
+trap PDUs. \
+The rptrOperStatus object must be included in the \
+varbind list sent with this trap. The agent may \
+optionally include the rptrHealthText object as \
+well. \
+REFERENCE \
+Reference IEEE 802.3 Rptr Mgt, 19.2.3.4, hubReset \
+notification."  \
+"trap received from enterprise \$E with \$# arguments:  \
+rptrOperStatus=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.5 cisco-stack "Status Events" 1 6 1 lerAlarmOn \
+"A lerAlarmOn trap signifies that the agent entity \
+has detected that the fddimibPORTLerFlag object in \
+the FDDI-SMT73-MIB (RFC 1512) has transitioned to \
+the true(1) state for one of its ports. \
+The generation of this trap can be controlled by the \
+fddimibPORTLerAlarm object in the FDDI-SMT73-MIB for \
+each port."  \
+"trap received from enterprise \$E with \$# arguments:  \
+fddimibPORTSMTIndex=\$1;  \
+fddimibPORTIndex=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.5 cisco-stack "Status Events" 2 6 1 lerAlarmOff \
+"A lerAlarmOff trap signifies that the agent entity \
+has detected that the fddimibPORTLerFlag object in \
+the FDDI-SMT73-MIB (RFC 1512) has transitioned to \
+the false(2) state for one of its ports. \
+The generation of this trap can be controlled by the \
+fddimibPORTLerAlarm object in the FDDI-SMT73-MIB for \
+each port."  \
+"trap received from enterprise \$E with \$# arguments:  \
+fddimibPORTSMTIndex=\$1;  \
+fddimibPORTIndex=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.5 cisco-stack "Status Events" 3 6 1 moduleUp \
+"A moduleUp trap signifies that the agent entity \
+has detected that the moduleStatus object in this \
+MIB has transitioned to the ok(2) state for one of \
+its modules. \
+The generation of this trap can be controlled by the \
+sysEnableModuleTraps object in this MIB."  \
+"trap received from enterprise \$E with \$# arguments:  \
+moduleIndex=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.5 cisco-stack "Status Events" 4 6 1 moduleDown \
+"A moduleDown trap signifies that the agent entity \
+has detected that the moduleStatus object in this \
+MIB has transitioned out of the ok(2) state for one \
+of its modules. \
+The generation of this trap can be controlled by the \
+sysEnableModuleTraps object in this MIB."  \
+"trap received from enterprise \$E with \$# arguments:  \
+moduleIndex=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.5 cisco-stack "Status Events" 5 6 1 chassisAlarmOn \
+"A chassisAlarmOn trap signifies that the agent \
+entity has detected the chassisTempAlarm, \
+chassisMinorAlarm, or chassisMajorAlarm object in this \
+MIB has transitioned to the on(2) state. \
+The generation of this trap can be controlled by the \
+sysEnableChassisTraps object in this MIB."  \
+"trap received from enterprise \$E with \$# arguments:  \
+chassisTempAlarm=\$1;  \
+chassisMinorAlarm=\$2;  \
+chassisMajorAlarm=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.5 cisco-stack "Status Events" 6 6 1 chassisAlarmOff \
+"A chassisAlarmOff trap signifies that the agent \
+entity has detected the chassisTempAlarm, \
+chassisMinorAlarm, or chassisMajorAlarm object in this \
+MIB has transitioned to the off(1) state. \
+The generation of this trap can be controlled by the \
+sysEnableChassisTraps object in this MIB."  \
+"trap received from enterprise \$E with \$# arguments:  \
+chassisTempAlarm=\$1;  \
+chassisMinorAlarm=\$2;  \
+chassisMajorAlarm=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.9.30.2 cisco-stun "Status Events" 1 6 1 stunPeerStateChangeNotification \
+"This notification indicates that the state of a STUN route \
+has transitioned to active (connected or direct) or inactive \
+(dead or closed)."  \
+"trap received from enterprise \$E with \$# arguments:  \
+stunRoutePeerState=\$1"
+ 
+merge_trap 1.3.6.1.2.1.10.5 x25-packet-layer "Status Events" 1 6 1 x25Restart \
+"This trap means the X.25 PLE sent or \
+received a restart packet. The restart that \
+brings up the link should not send a \
+x25Restart trap so the interface should send \
+a linkUp trap. Sending this trap means the \
+agent does not send a linkDown and linkUp \
+trap."  \
+"trap received from enterprise \$E with \$# arguments:  \
+x25OperIndex=\$1"
+ 
+merge_trap 1.3.6.1.2.1.10.5 x25-packet-layer "Status Events" 2 6 1 x25Reset \
+"If the PLE sends or receives a reset, the \
+agent should send an x25Reset trap."  \
+"trap received from enterprise \$E with \$# arguments:  \
+x25CircuitIndex=\$1;  \
+x25CircuitChannel=\$2"
+ 
+merge_trap 1.3.6.1.2.1.16 RMON "Status Events" 1 6 1 risingAlarm \
+"The SNMP trap that is generated when an alarm \
+entry crosses its rising threshold and generates \
+an event that is configured for sending SNMP \
+traps."  \
+"trap received from enterprise \$E with \$# arguments:  \
+alarmIndex=\$1;  \
+alarmVariable=\$2;  \
+alarmSampleType=\$3;  \
+alarmValue=\$4;  \
+alarmRisingThreshold=\$5"
+ 
+merge_trap 1.3.6.1.2.1.16 RMON "Status Events" 2 6 1 fallingAlarm \
+"The SNMP trap that is generated when an alarm \
+entry crosses its falling threshold and generates \
+an event that is configured for sending SNMP \
+traps."  \
+"trap received from enterprise \$E with \$# arguments:  \
+alarmIndex=\$1;  \
+alarmVariable=\$2;  \
+alarmSampleType=\$3;  \
+alarmValue=\$4;  \
+alarmFallingThreshold=\$5"
+ 
+merge_trap 1.3.6.1.4.1.9.9.35.2 cisco-bstun "Status Events" 1 6 1 bstunPeerStateChangeNotification \
+"This notification indicates that the state of a BSTUN route \
+has transitioned to active (connected) or inactive \
+(dead or closed)."  \
+"trap received from enterprise \$E with \$# arguments:  \
+bstunRoutePeerState=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9.9.33.2 cisco-cipcsna "Status Events" 1 6 1 cipCsnaOpenDuplicateSapFailure \
+"This trap indicates that VTAM attempted \
+to open a SAP that was already open via \
+another Path/Device on this CIP card."  \
+"trap received from enterprise \$E with \$# arguments:  \
+cipCardCsnaSlot=\$1;  \
+cipCardCsnaPort=\$2;  \
+cipCardCsnaConnPath=\$3;  \
+cipCardCsnaConnDevice=\$4"
+ 
+merge_trap 1.3.6.1.4.1.9.9.33.2 cisco-cipcsna "Status Events" 2 6 1 cipCsnaLlc2ConnectionLimitExceeded \
+"This trap indicates that a connection \
+attempt was rejected due to a connection \
+resource limitation" \
+"trap received from enterprise \$E with \$# arguments:  \
+cipCardAdminMaxLlc2Sessions=\$1;  \
+cipCardOperMaxLlc2Sessions=\$2;  \
+cipCardStatsHiWaterLlc2Sessions=\$3;  \
+cipCardStatsLlc2SessionAllocationErrs=\$4"
+ 
+merge_trap 1.3.6.1.4.1.9.10.8.2 cisco-sna-llc "Status Events"  1 6 1 llcCcStatusChange \
+"This trap indicates that the state of an LLC \
+connection component has transitioned to \
+normal(3) or aDM(1)."  \
+"trap received from enterprise \$E with \$# arguments:  \
+llcCcOperState=\$1;  \
+llcCcOperLastFailTime=\$2;  \
+llcCcOperLastFailCause=\$3;  \
+llcCcOperLastFailFRMRInfo=\$4"
+ 
+merge_trap 1.3.6.1.4.1.9.9.29.2 cisco-rsrb "Status Events" 1 6 1 rsrbPeerStateChangeNotification \
+"This trap indicates that the state of an RSRB remote peer \
+has transitioned to active (psConnected) or inactive \
+(psDead or psClosed)."  \
+"trap received from enterprise \$E with \$# arguments:  \
+rsrbRemotePeerState=\$1"
+ 
+merge_trap 1.3.6.1.2.1.41.1.3 sna-sdlc "Status Events" 1 6 1 sdlcPortStatusChange \
+"This trap indicates that the state of an SDLC port has transitioned to \
+active or inactive."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ifIndex=\$1;  \
+ifAdminStatus=\$2;  \
+ifOperStatus=\$3;  \
+sdlcPortOperLastFailTime=\$4;  \
+sdlcPortOperLastFailCause=\$5"
+ 
+merge_trap 1.3.6.1.2.1.41.1.3 sna-sdlc "Status Events" 2 6 1 sdlcLSStatusChange \
+"This trap indicates that the state of an SDLC \
+link station has transitioned to contacted or \
+discontacted."  \
+"trap received from enterprise \$E with \$# arguments:  \
+sdlcLSAddress=\$1;  \
+sdlcLSOperState=\$2;  \
+sdlcLSAdminState=\$3;  \
+sdlcLSOperLastFailTime=\$4;  \
+sdlcLSOperLastFailCause=\$5;  \
+sdlcLSOperLastFailFRMRInfo=\$6;  \
+sdlcLSOperLastFailCtrlIn=\$7;  \
+sdlcLSOperLastFailCtrlOut=\$8;  \
+sdlcLSOperLastFailREPLYTOs=\$9"
+ 
+merge_trap 1.3.6.1.4.1.9 cisco "Status Events" 0 4 1 authenticationFailure \
+"This trap is sent to the NMS system if the SNMP agent detects that proper \
+user authentication was not provided with a request. User authentication \
+enhances the security of the devices by ensuring that only privileged users \
+with valid community strings are allowed to access the system. " \
+"trap received from enterprise \$E with \$# arguments:  \
+authAddr=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9 cisco "Status Events" 0 0 1 coldStart \
+"The SNMP agent sends a coldStart trap when its device has reinitialized \
+itself."  \
+"trap received from enterprise \$E with \$# arguments:  \
+sysUpTime=\$1;  \
+whyReload=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9 cisco "Status Events" 0 5 1 egpNeighborloss \
+"An egpNeighborLoss trap indicates that an EGP (Exterior Gateway Protocol) \
+neighbor is down. Neighboring routers are two routers that have interfaces \
+to a common network and exchange routing information. An exterior router \
+uses EGP to advertise its knowledge of routes to networks within its \
+autonomous system. It sends these advertisements to the core routers, which \
+then readvertise their collected routing information to the exterior router. \
+A neighbor or peer router is any router with which the router communicates \
+using EGP."  \
+"trap received from enterprise \$E with \$# arguments:  \
+egpNeighAddr=\$1"
+ 
+merge_trap 1.3.6.1.4.1.9 cisco "Status Events" 0 2 1 Cisco_Link_Down \
+"This event occurs when the Cisco agent detects an interface has gone down. linkDown Trap signifies that the sending protocol entity recognizes a failure in one of the communication links represented in the agent's configuration."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ifIndex=\$1;  \
+ifDescr=\$2;  \
+ifType=\$3;  \
+locIfReason=\$4"
+ 
+merge_trap 1.3.6.1.4.1.9 cisco "Status Events" 0 3 1 Cisco_Link_Up \
+"This event occurs when the Cisco agent detects an interface has come back up. linkUp trap signifies that the sending protocol entity recognizes that one of the communication links represented in the agent's configuration has come up."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ifIndex=\$1;  \
+ifDescr=\$2;  \
+ifType=\$3;  \
+locIfReason=\$4"
+ 
+merge_trap 1.3.6.1.4.1.9.5 workgroup "Status Events" 3 6 1 linkDown \
+"A linkDown trap signifies that the SNMPv2 entity, acting in an agent role, has detected that the ifOperStatus object for one of its communication links is about to transition into the down state." \
+"trap received from enterprise \$E with \$# arguments:  \
+ifIndex=\$1;  \
+ifAdminStatus=\$2;  \
+ifOperStatus=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9.5 workgroup "Status Events" 4 6 1 linkUp \
+"A linkUp trap signifies that the SNMPv2 entity, acting in an agent role, has detected that the ifOperStatus object for one of its communication links has transitioned out of the down state." \
+"trap received from enterprise \$E with \$# arguments:  \
+ifIndex=\$1;  \
+ifAdminStatus=\$2;  \
+ifOperStatus=\$3"
+ 
+merge_trap 1.3.6.1.4.1.23.2.5.5 novell-ipx "Status Events" 2 6 1 ipxTrapCircuitUp \
+"This trap signifies that the specified circuit has \
+come up."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ipxCircSysInstance=\$1;  \
+ipxCircIndex=\$2"
+ 
+merge_trap 1.3.6.1.4.1.23.2.5.5 novell-ipx "Status Events" 1 6 1 ipxTrapCircuitDown \
+"This trap signifies that the specified circuit has \
+gone down."  \
+"trap received from enterprise \$E with \$# arguments:  \
+ipxCircSysInstance=\$1;  \
+ipxCircIndex=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.9.16.2 cisco-ping "Status Events" 1 6 1 ciscoPingCompletion \
+"A ciscoPingCompleted trap is sent at the completion \
+of a sequence of pings if such a trap was requested \
+when the sequence was initiated. In addition to the \
+above listed objects (which are always present), \
+the message will also contain the following objects \
+if any responses were received: \
+ciscoPingMinRtt  \
+ciscoPingAvgRtt \
+ciscoPingMaxRtt" \
+"trap received from enterprise \$E with \$# arguments:  \
+ciscoPingCompleted=\$1;  \
+ciscoPingSentPackets=\$2;  \
+ciscoPingReceivedPackets=\$3"
+ 
+merge_trap 1.3.6.1.4.1.9 cisco "Status Events" 0 6 1 reload \
+"This trap is sent after a reload command is issued. \
+A reload trap signifies that the sending \
+protocol entity is reinitializing itself such \
+that the agent's configuration or the protocol \
+entity implementation may be altered."  \
+"trap received from enterprise \$E with \$# arguments:  \
+sysUpTime=\$1;  \
+whyReload=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9 cisco "Status Events" 1 6 1 tcpConnectionClose \
+"A tty trap signifies that a TCP connection, \
+previously established with the sending \
+protocol entity for the purposes of a tty \
+session, has been terminated."  \
+"trap received from enterprise \$E with \$# arguments:  \
+tslineSesType=\$1;  \
+tcpConnState=\$2;   \
+loctcpConnElapsed=\$3;  \
+loctcpConnInBytes=\$4;  \
+loctcpConnOutBytes=\$5;  \
+tsLineUser=\$6"
+
+merge_trap 1.3.6.1.4.1.9.9.26.2 cisco-isdn "Status Events" 1 6 1 demandNbrCallInformation \
+"This trap-inform is sent to the manager whenever a successful \
+call clears, or a failed call attempt is determined to have \
+ultimately failed.  In the event that call retry is active,  \
+then this is after all retry attempts have failed.  However, \
+only one such trap is sent in between successful call  \
+attempts; subsequent call attempts result in no trap." \
+"trap received from enterprise \$E with \$# arguments:  \
+demandNbrLogIf=\$1;  \
+demandNbrName=\$2;  \
+demandNbrAddress=\$3;  \
+demandNbrLastDurection=\$4; \
+demandNbrClearReason=\$5;  \
+demandNbrClearCode=\$6"
+
+merge_trap 1.3.6.1.4.1.9.9.20.1.5 cisco-channel "Status Events" 1 6 1 cipCardLinkFailure \
+"This trap indicates that a significant link event has been recognized \
+resulting in the degradation of the interface line quality."  \
+"trap received from enterprise \$E with \$# arguments:  \
+cipCardDtrBrdIndex=\$1;  \
+cipCardDtrBrdStatus=\$2;  \
+cipCardDtrBrdSignal=\$3;  \
+linkIncidentTrapCause=\$4;  \
+implicitIncidents=\$5;  \
+codeViolationErrors=\$6;  \
+linkFailureSignalOrSyncLoss=\$7;  \
+linkFailureNOSs=\$8;  \
+linkFailureSequenceTimeouts=\$9;  \
+linkFailureInvalidSequences=$10"
+
+merge_trap 1.3.6.1.4.1.197.3.1.1 kalpana-eps3config "Status Events" 2 6 1 kalEps3StackProStackMatrixChange \
+"This trap is generated when the stack switches over \
+from primary to secondary ProStack Matrix or from \
+secondary back to primary ProStack Matrix."  \
+"trap received from enterprise \$E with \$# arguments:  \
+sysName=\$1;  \
+sysLocation=\$2;  \
+kalEps3ProStackMatrixStatus=\$3"
+
+merge_trap 1.3.6.1.4.1.197.3.2 kalpana-eps3stack "Status Events" 1 6 1 kalEps3StackTempChange \
+"This trap is generated when the temperature in a \
+switch exceeds normal or returns to normal."  \
+"trap received from enterprise \$E with \$# arguments:  \
+sysName=\$1;  \
+sysLocation=\$2;  \
+kalEps3StackSwitchTemperature=\$3"
+ 
+merge_trap 1.3.6.1.4.1.197.3.4 kalpana-eps3port "Status Events" 1 6 1 kalEps3PortStrNFwdEntry \
+"This trap is generated when a port automatically \
+enters store and forward mode when the error rate \
+exceeds the threshold."  \
+"trap received from enterprise \$E with \$# arguments:  \
+sysName=\$1;  \
+sysLocation=\$2;  \
+kalEps3PortActiveMode=\$3"
+ 
+merge_trap 1.3.6.1.4.1.197.3.5 kalpana-eps3echannel "Status Events" 1 6 1 kalEps3DmnNewRoot \
+"This trap is a domain specific version of the \
+newRoot trap as described in RFC1493. \
+The newRoot trap indicates that the sending agent \
+has become the new root of the Spanning Tree;  the \
+trap is sent by a bridge soon after its election \
+as the new root, e.g., upon expiration of the \
+Topology Change Timer immediately subsequent to \
+its election. Implementation of this trap is \
+optional."  \
+"trap received from enterprise \$E with \$# arguments:  \
+kalEps3DmnInfoDmnNumber=\$1"
+ 
+merge_trap 1.3.6.1.4.1.197.3.5 Kalpana "Status Events" 2 6 1 kalEps3DmnTopologyChange \
+"This trap is a domain specific version of the \
+topologyChange trap as described in RFC1493. \
+A topologyChange trap is sent by a bridge when \
+any of its configured ports transitions from the \
+Learning state to the Forwarding state, or from \
+the Forwarding state to the Blocking state. The \
+trap is not sent if a newRoot trap is sent for the \
+same transition. Implementation of this trap is \
+optional."  \
+"trap received from enterprise \$E with \$# arguments:  \
+kalEps3DmnInfoDmnNumber=\$1"
+ 
+merge_trap 1.3.6.1.4.1.197.3.6 Kalpana "Status Events" 2 6 1 kalEps3EtherChannelFailed \
+"This trap is sent when one of the links in an \
+EtherChannel fail. The variable kalEps3ECPorts \
+contains the ports which are operational in the \
+EtherChannel." \
+"trap received from enterprise \$E with \$# arguments:  \
+sysName=\$1"
+
+merge_trap 1.3.6.1.4.1.9.9.52.2 cieMIBTrapPrefix "Status Events" 1 6 1 cieTestCompletion \
+"A cieTestCompletion trap is sent at the completion \
+of a crypto session establishment if such a trap was requested \
+when the sequence was initiated." \
+"trap received from enterprise \$E with \$# arguments:  \
+cieTestConnSessionStatus=\$1; \
+cieTestConnProtectedAddr=\$2; \
+cieTestConnUnprotectedAddr=\$3" 
+
+merge_trap 1.3.6.1.4.1.9.9.41.2 ciscoSyslogMIBNotificationPrefix "Status Events" 1 6 1 clogMessageGenerated \
+"When a syslog message is generated by the device a \
+clogMessageGenerated notification is sent.  The \
+sending of these notifications can be enabled/disabled \
+via the clogNotificationsEnabled object." \
+"trap received from enterprise \$E with \$# arguments: \
+clogHistFacility=\$1; \
+clogHistSeverity=\$2; \
+clogHistMsgName=\$3; \
+clogHistMsgText=\$4; \
+clogHistTimestamp=\$5" 
+ 
+merge_trap 1.3.6.1.3.71.2 rsvpNotifications "Status Events" 2 6 1 lostFlow \
+"The lostFlow trap indicates that the originating \
+system  has removed a flow in its classifier." \
+"trap received from enterprise \$E with \$# arguments: \
+rsvpFlowIndex=\$1; \
+ifIndex=\$2" 
+
+merge_trap 1.3.6.1.3.71.2 rsvpNotifications "Status Events" 1 6 1 newFlow \
+"The newFlow trap indicates that the  originating \
+system  has  installed  a  new flow in its \
+classifier, or (when reservation  authorization \
+is  in view) is prepared to install such a flow \
+in the classifier and is requesting  authorization. \
+  The objects included with the Notification \
+may be used to  read  further  information \
+using  the  RSVP  MIB.   Authorization  or non-authorization \
+may be enacted by a write to  the \
+variable rsvpFlowStatus." \
+"trap received from enterprise \$E with \$# arguments: \
+rsvpFlowIndex=\$1; \
+ifIndex=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.9.42.2 rttMonNotificationsPrefix "Status Events" 1 6 1 rttMonConnectionChangeNotification \
+"This notification is only valid when the RttMonRttType \
+is 'echo' or 'pathEcho'. \
+A rttMonConnectionChangeNotification indicates that a \
+connection to a target (not to a hop along the path \
+to a target) has either failed on establishment or \
+been lost and when reestablished.  Precisely, this \
+has resulted in rttMonCtrlOperConnectionLostOccurred \
+changing value. \
+If History is not being collected, the instance values \
+for the rttMonHistoryCollectionAddress object will not \
+be valid.  When RttMonRttType is not 'echo' or 'pathEcho' \
+the rttMonHistoryCollectionAddress object will be null." \
+"trap received from enterprise \$E with \$# arguments: \
+rttMonCtrlAdminTag=\$1; \
+rttMonHistoryCollectionAddress=\$2; \
+rttMonCtrlOperConnectionLostOccurred=\$3"
+
+merge_trap 1.3.6.1.4.1.9.9.42.2 rttMonNotificationsPrefix "Status Events" 2 6 1 rttMonTimeoutNotification \
+"A rttMonTimeoutNotification indicates the occurrence of \
+a timeout for a RTT operation, and it indicates the \
+clearing of such a condition by a subsequent RTT \
+operation. Precisely, this has resulted in \
+rttMonCtrlOperTimeoutOccurred changing value. \
+When the RttMonRttType is 'pathEcho', this \
+notification will only be sent when the timeout \
+occurs during an operation to the target and not to \
+a hop along the path to the target.  This also \
+applies to the clearing of the timeout. \
+If History is not being collected, the instance values \
+for the rttMonHistoryCollectionAddress object will no \
+be valid.  When RttMonRttType is not 'echo' or 'pathEcho' \
+the rttMonHistoryCollectionAddress object will be null." \
+"trap received from enterprise \$E with \$# arguments: \
+rttMonCtrlAdminTag=\$1; \
+rttMonHistoryCollectionAddress=\$2; \
+rttMonCtrlOperTimeoutOccurred=\$3"
+
+merge_trap 1.3.6.1.4.1.9.9.42.2 rttMonNotificationsPrefix "Status Events" 3 6 1 rttMonThresholdNotification \
+"A rttMonThresholdNotification indicates the \
+occurrence of a threshold violation for a RTT operation, \
+and it indicates the previous violation has subsided for \
+a subsequent RTT operation.  Precisely, this has resulted \
+in rttMonCtrlOperOverThresholdOccurred changing value. \
+When the RttMonRttType is 'pathEcho', this \
+notification will only be sent when the threshold \
+violation occurs during an operation to the target and \
+not to a hop along the path to the target.  This also \
+applies to the subsiding of a threshold condition. \
+If History is not being collected, the instance values \
+for the rttMonHistoryCollectionAddress object will not \
+be valid.  When RttMonRttType is not 'echo' or 'pathEcho' \
+the rttMonHistoryCollectionAddress object will be null." \
+"trap received from enterprise \$E with \$# arguments: \
+rttMonCtrlAdminTag=\$1; \
+rttMonHistoryCollectionAddress=\$2; \
+rttMonCtrlOperOverThresholdOccurred=\$3"
+
+merge_trap 1.3.6.1.2.1.34.1.1.5 snaLuTraps "Status Events" 2 6 1 snaLuSessnBindFailTrap \
+"This trap indicates the failure of a BIND. \
+The value of snaLuSessnLocalApplName indicates the local \
+application name.  \
+The value of snaLuSessnPartnerName indicates the partner \
+name.  \
+The value of snaLuSessnOperState indicates the current \
+state after change.  \
+The value of snaLuSessnBindFailureReason \
+indicates the failure reason.  \
+The Agent should not generate more than 1 trap of this \
+type per minute to minimize the level of management \
+traffic on the network." \
+"trap received from enterprise \$E with \$# arguments: \
+snaLuSessnLocalApplName=\$1; \
+snaLuSessnRemoteLuName=\$2; \
+snaLuSessnOperState=\$3; \
+snaLuSessnSenseData=\$4" 
+
+merge_trap 1.3.6.1.2.1.34.1.1.5 snaLuTraps "Status Events" 1 6 1 snaLuStateChangeTrap \
+"This trap indicates that the operational state \
+(i.e., snaLuOperState value) of the LU has changed. \
+The value of snaLuOperName indicates the name of the \
+LU. \
+The value of snaLuOperSnaName indicates the SNA name \
+of LU. \
+The value of snaLuOperState indicates the current \
+state after change." \
+"trap received from enterprise \$E with \$# arguments: \
+snaLuOperName=\$1; \
+snaLuOperSnaName=\$2; \
+snaLuOperState=\$3"
+
+merge_trap 1.3.6.1.2.1.34.1.1.10 snaNodeTraps "Status Events" 2 6 1 snaNodeActFailTrap \
+"This trap indicates a Node activation failure. \
+The value of snaNodeOperState indicates the current \
+state after the activation attempt. \
+The value of snaNodeOperActFailureReason indicates \
+the failure reason." \
+"trap received from enterprise \$E with \$# arguments: \
+snaNodeOperName=\$1; \
+snaNodeOperState=\$2"
+
+merge_trap 1.3.6.1.2.1.34.1.1.10 snaNodeTraps "Status Events" 1 6 1 snaNodeStateChangeTrap \
+"This trap indicates that the operational state \
+(i.e., value of the snaNodeOperState object) of a Node \
+has changed. The following variables are returned: \
+snaNodeOperName - current name of the Node, \
+with the instance identifying the Node; and, \
+snaNodeOperState - current state after \
+the change." \
+"trap received from enterprise \$E with \$# arguments: \
+snaNodeOperName=\$1; \
+snaNodeOperState=\$2"
+ 
+merge_trap 1.3.6.1.4.1.9.9.46.2 vtpNotificationsPrefix "Status Events" 2 6 1 vtpConfigDigestError \
+"A configuration digest error notification signifies that a \
+device has incremented its vtpConfigDigestErrors counter. \
+Generation of this notification is suppressed if the \
+vtpNotificationsEnabled has the value 'false'. \
+The device must throttle the generation of consecutive \
+vtpConfigDigestError notifications so that there is at least \
+a five-second gap between notification of this type.  When \
+notification are throttled, they are dropped, not queued for \
+sending at a future time.  (Note that 'generating' a \
+notification means sending to all configured recipients.)" \
+"trap received from enterprise \$E with \$# arguments: \
+managementDomainConfigRevNumber=\$1" 
+ 
+merge_trap 1.3.6.1.4.1.9.9.46.2 vtpNotificationsPrefix "Status Events" 1 6 1 vtpConfigRevNumberError \
+"A configuration revision number error notification \
+signifies that a device has incremented its \
+vtpConfigRevNumberErrors counter. \
+Generation of this notification is suppressed if the \
+vtpNotificationsEnabled has the value 'false'. \
+The device must throttle the generation of consecutive \
+vtpConfigRevNumberError notifications so that there is at \
+least a five-second gap between notification of this type. \
+When notification are throttled, they are dropped, not \
+queued for sending at a future time.  (Note that \
+'generating' a notification means sending to all configured \
+recipients.)" \
+"trap received from enterprise \$E with \$# arguments: \
+managementDomainConfigRevNumber=\$1" 
+
+merge_trap 1.3.6.1.4.1.9.9.46.2 vtpNotificationsPrefix "Status Events" 4 6 1 vtpMtuTooBig \
+"A VTP MTU tooBig notification is generated when a VLAN's \
+MTU size is larger than can be supported either: \
+- by one or more of its trunk ports: \
+the included vtpVlanState has the value \
+'mtuTooBigForTrunk' and the included \
+vlanTrunkPortManagementDomain is for the first (or only) \
+trunk port, \
+or  \
+- by the device itself: \
+vtpVlanState has the value 'mtuTooBigForDevice' and any \
+instance of vlanTrunkPortManagementDomain is included. \
+Generation of this notification is suppressed if the \
+vtpNotificationsEnabled has the value 'false'." \
+"trap received from enterprise \$E with \$# arguments: \
+vlanTrunkPortManagementDomain=\$1; \
+vtpVlanState=\$2" 
+
+merge_trap 1.3.6.1.4.1.9.9.46.2 vtpNotificationsPrefix "Status Events" 3 6 1 vtpServerDisabled \
+"A VTP Server disabled notification is generated when the \
+local system is no longer able to function as a VTP Server \
+because the number of defined VLANs is greater than \
+vtpMaxVlanStorage. \
+Generation of this notification is suppressed if the \
+vtpNotificationsEnabled has the value 'false'." \
+"trap received from enterprise \$E with \$# arguments: \
+managementDomainConfigRevNumber=\$1; \
+vtpMaxVlanStorage=\$2"
+
+merge_trap 1.3.6.1.4.1.9.5.14.1.1 ciscoEsConfig "Status Events" 1 6 1 ciscoEsStackCfgChange \
+"This trap is generated when there is a change in the \
+stack configuration i.e. when either a new switch is \
+added to the stack or a switch leaves a stack. \
+ciscoEsNumSwitches indicates the current number of switches \
+which are part of the stack. The management station has to \
+update its stack information according to the \
+stack table." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1; \
+sysLocation=\$2; \
+ciscoEsNumSwitches=\$3"
+
+merge_trap 1.3.6.1.4.1.9.5.14.1.1 ciscoEsConfig "Status Events" 2 6 1 ciscoEsStackProStackMatrixChange \
+"This trap is generated when the stack switches over \
+from primary to secondary Matrix or from \
+secondary back to primary Matrix." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1; \
+sysLocation=\$2; \
+ciscoEsProStackMatrixStatus=\$3"
+
+merge_trap 1.3.6.1.4.1.9.5.14.2 ciscoEsStack "Status Events" 1 6 1 ciscoEsStackTempChange \
+"This trap is generated when the temperature in a \
+switch exceeds normal or returns to normal." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1; \
+sysLocation=\$2; \
+ciscoEsStackSwitchTemperature=\$3"
+
+merge_trap 1.3.6.1.4.1.9.5.14.4 ciscoEsPort "Status Events" 1 6 1 ciscoEsPortStrNFwdEntry \
+"This trap is generated when a port automatically \
+enters store and forward mode when the error rate \
+exceeds the threshold." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1; \
+sysLocation=\$2; \
+ciscoEsPortActiveMode=\$3"
+
+merge_trap 1.3.6.1.4.1.9.5.14.8 ciscoEsVLANs "Status Events" 1 6 1 ciscoEsVLANNewRoot \
+"This trap is a vlan specific version of the \
+newRoot trap as described in RFC1493. \
+The newRoot trap indicates that the sending agent \
+has become the new root of the Spanning Tree; the \
+trap is sent by a bridge soon after its election \
+as the new root, e.g., upon expiration of the \
+Topology Change Timer immediately subsequent to \
+its election.  Implementation of this trap is \
+optional." \
+"Trap received from enterprise \$E with \$# arguments: \
+ciscoEsVLANInfoVLANNumber=\$1"   
+
+merge_trap 1.3.6.1.4.1.9.5.14.8 ciscoEsVLANs "Status Events" 2 6 1 ciscoEsVLANTopologyChange \
+"This trap is a vlan specific version of the \
+topologyChange trap as described in RFC1493. \
+A topologyChange trap is sent by a bridge when \
+any of its configured ports transitions from the \
+Learning state to the Forwarding state, or from \
+the Forwarding state to the Blocking state.  The \
+trap is not sent if a newRoot trap is sent for the \
+same transition.  Implementation of this trap is \
+optional." \
+"Trap received from enterprise \$E with \$# arguments: \
+ciscoEsVLANInfoVLANNumber=\$1"
+
+merge_trap 1.3.6.1.4.1.9.5.14.6 ciscoEsEChannel "Status Events" 1 6 1 ciscoEsEtherChannelFailed \
+"This trap is sent when one of the links in an \
+EtherChannel fail. The variable ciscoEsECPorts \
+contains the ports which are operational in the \
+EtherChannel." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1; \
+sysLocation=\$2; \
+ciscoEsECPorts=\$3"
+
+merge_trap 1.3.6.1.4.1.437.1.1.3 series2000 "Status Events" 0 6 1 logonIntruder \
+"A user is repeatedly trying to logon using an invalid \
+password.  The number of attempts exceeds the preset \
+limit given in netMgmtConsolePasswordThresh. \
+Depending on how the object netMgmtConsoleSilentTime \
+is configured, the switch may shut down the \
+Management Console following the generation of this trap." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1"
+
+merge_trap 1.3.6.1.4.1.437.1.1.3 series2000 "Status Events" 1 6 1 switchDiagnostic \
+"The switch issues this trap when its Power On \
+Self Test (POST) code does not pass all tests.  Some \
+failures are catastrophic and may prevent the generation \
+of this trap, as well as the system's operations." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1"
+
+merge_trap 1.3.6.1.4.1.437.1.1.3 series2000 "Status Events" 3 6 1 addressViolation \
+"The addressViolation trap is issued when an address \
+violation is detected on a secured port. \
+The generation of the addressViolation trap can be \
+enabled or suppressed using the object \
+sysConfigAddressViolationAlert." \
+"Trap received from enterprise \$E with \$# arguments: \
+ifIndex=\$1"
+
+merge_trap 1.3.6.1.4.1.437.1.1.3 series2000 "Status Events" 4 6 1 broadcastStorm \
+"The broadcastStorm trap is issued when broadcast storm control \
+is enabled and the number of broadcast packets received in a \
+second from a port is higher than the broadcast threshold. \
+The generation of this trap can be enabled or suppressed using \
+the object sysConfigBroadcastStormAlert." \
+"Trap received from enterprise \$E with \$# arguments: \
+ifIndex=\$1"
+
+merge_trap 1.3.6.1.4.1.437.1.1.3 series2000 "Status Events" 5 6 1 rpsFailed \
+"A redundant power source is connected to the switch but a failure \
+exists in the power system." \
+"Trap received from enterprise \$E with \$# arguments: \
+sysName=\$1" \
+
